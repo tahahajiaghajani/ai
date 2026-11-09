@@ -242,11 +242,17 @@ itamRoutes.get("/request-items/:id/assets", async (c) => {
   const models = bindings.length ? await list(ctx, "asset_model", { ids: bindings.map((b) => String(b.model_id)), size: 20, total: false, fields: ["name"] }).catch(() => null) : null;
   const linked = await list(ctx, "asset", { filter: { f: "request_item_id", op: "eq", v: itemId }, size: 50, total: false, fields: ["number", "name", "asset_tag", "state", "substate", "assigned_to"] }).catch(() => null);
   const free = bindings.length ? await list(ctx, "asset", { filter: { and: [{ f: "model_id", op: "in", v: bindings.map((b) => b.model_id) }, { f: "state", op: "eq", v: "in_stock" }, { f: "substate", op: "eq", v: "available" }] }, size: 30, total: false, fields: ["number", "name", "asset_tag", "stockroom_id"] }).catch(() => null) : null;
+  // the hand-over changes the asset with the caller's access: who may change which asset (a fulfiller who only reads
+  // assets sees them, without the buttons — asset management hands the item over)
+  const ids = [...(linked?.rows ?? []), ...(free?.rows ?? [])].map((a) => String(a.id));
+  const assetDef = (await defFor(ctx, "asset")).def;
+  const writable = new Set(ids.length ? (await liveRows(ctx.db, ctx, "asset", { f: "id", op: "in", v: ids } as Cond, { limit: ids.length })).filter((a) => access().canWrite(ctx, assetDef, a)).map((a) => String(a.id)) : []);
   const out: RequestItemAssets = {
     item: { id: itemId, number: (row.number as string) ?? null, requested_for: (row.requested_for as string) ?? null, state: String(row.state) },
     models: (models?.rows ?? []).map((m) => ({ id: String(m.id), name: String(m.name ?? "") })),
-    assets: (linked?.rows ?? []).map((a) => ({ id: String(a.id), number: (a.number as string) ?? null, name: String(a.name ?? ""), asset_tag: (a.asset_tag as string) ?? null, state: String(a.state), substate: (a.substate as string) ?? null, assigned_to: (a.assigned_to as string) ?? null })),
-    candidates: (free?.rows ?? []).map((a) => ({ id: String(a.id), number: (a.number as string) ?? null, name: String(a.name ?? ""), asset_tag: (a.asset_tag as string) ?? null, stockroom: a.stockroom_id ? free!.display[String(a.stockroom_id)] ?? null : null })),
+    assets: (linked?.rows ?? []).map((a) => ({ id: String(a.id), number: (a.number as string) ?? null, name: String(a.name ?? ""), asset_tag: (a.asset_tag as string) ?? null, state: String(a.state), substate: (a.substate as string) ?? null, assigned_to: (a.assigned_to as string) ?? null, can_assign: writable.has(String(a.id)) })),
+    candidates: (free?.rows ?? []).map((a) => ({ id: String(a.id), number: (a.number as string) ?? null, name: String(a.name ?? ""), asset_tag: (a.asset_tag as string) ?? null, stockroom: a.stockroom_id ? free!.display[String(a.stockroom_id)] ?? null : null, can_assign: writable.has(String(a.id)) })),
+    can_assign: writable.size > 0,
   };
   return c.json(out);
 });

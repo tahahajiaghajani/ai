@@ -620,7 +620,8 @@ const auditItem: TableDef = {
     { name: "note", label: "یادداشت", type: "string", maxLength: 300, span: 24 },
     { name: "label", label: "شرح", type: "string", system: true, maxLength: 300, search: true, audit: false },
   ],
-  scope: {},
+  // the items (labels of the assets counted) are read by those who read the audit
+  scope: { parent: "audit_id" },
   list: { columns: ["audit_id", "asset_id", "result", "scanned_code", "scanned_at", "scanned_by"], order: "-updated_at" },
 };
 
@@ -830,7 +831,8 @@ export const REQUISITION_STATES: StateModel = {
   transitions: [
     { from: ["draft"], to: "pending_approval", label: "ارسال برای تأیید", guard: "requisition_has_lines" },
     { from: ["pending_approval"], to: "draft", label: "بازگشت به پیش‌نویس" },
-    { from: ["draft", "pending_approval"], to: "approved", label: "تأیید", roles: { area: "procurement", level: "full" }, guard: "requisition_has_lines" },
+    // approved by its approvals, or by an approver who is not whom it is for nor who raised it — never from draft
+    { from: ["pending_approval"], to: "approved", label: "تأیید", roles: { area: "procurement", level: "full" }, guard: "requisition_can_approve" },
     { from: ["pending_approval"], to: "rejected", label: "رد", roles: { area: "procurement", level: "full" } },
     { from: ["approved"], to: "ordered", label: "ثبت سفارش" },
     { from: ["ordered"], to: "closed", label: "بستن" },

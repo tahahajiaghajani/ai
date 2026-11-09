@@ -14,6 +14,7 @@
 //                            starts (else a purchase requisition), handed over when delivered, released when
 //                            cancelled (ITAM-020/021)
 import type { Cond } from "@shared/model/conditions";
+import { periodKeyOf } from "@shared/financial/logic";
 import { dueReminder, reminderList } from "@shared/supplier/logic";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
@@ -52,17 +53,18 @@ export interface ItamSweepResult {
   overdue: number;
 }
 
-/** The daily sweep of an organisation (as the system). */
-export async function itamSweep(sys: Ctx): Promise<ItamSweepResult> {
-  const today = orgToday(sys);
+/** The daily sweep of an organisation (as the system); `today` is the organisation's date (tests pass another). */
+export async function itamSweep(sys: Ctx, today = orgToday(sys)): Promise<ItamSweepResult> {
   const cfg = await itamConfig(sys.db, sys);
   const out: ItamSweepResult = { book_values: 0, reminders: 0, expired: 0, acks_reminded: 0, acks_expired: 0, overdue: 0 };
-  const month = today.slice(0, 7);
+  // depreciation runs on Jalali months: the book value moves on when the Jalali month does (a Gregorian month would
+  // leave it a month behind for the days the two calendars' months overlap)
+  const month = periodKeyOf(today);
 
   // book values of depreciating assets (once a month per asset)
   const rules = new Map((await liveRows(sys.db, sys, "depreciation_rule", null, { limit: 500 })).map((r) => [String(r.id), r]));
   const assets = await liveRows(sys.db, sys, "asset", { and: [{ f: "purchase_cost", op: "nempty" }, { f: "depreciation_rule_id", op: "nempty" }, { f: "state", op: "nin", v: ["disposed", "canceled", "on_order"] }] } as Cond, { limit: 50000 });
-  const due = assets.filter((a) => !a.book_value_at || String(a.book_value_at).slice(0, 7) !== month);
+  const due = assets.filter((a) => !a.book_value_at || periodKeyOf(String(a.book_value_at).slice(0, 10)) !== month);
   for (let i = 0; i < due.length; i += 200) {
     await sys.write(async (tx) => {
       for (const a of due.slice(i, i + 200)) {

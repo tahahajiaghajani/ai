@@ -106,7 +106,8 @@ export async function checkStockRules(sys: Ctx): Promise<{ checked: number; aler
         const users = [room?.manager_id].filter(isUuid);
         await emitEvent(tx, sys, { kind: "record.itam.stock_low", table: "stock_rule", id: rule.id, number: null, data: { users, available: l.available, min_qty: rule.min_qty, status } });
         alerts++;
-        if (rule.auto_requisition) {
+        // one purchase on its way per rule: a swing back above the reorder point and down again raises no second one
+        if (rule.auto_requisition && !(await openRequisitionOf(tx, sys, rule))) {
           const prq = await requisitionFor(tx, sys, [{ rule, available: l.available }], "reorder");
           if (prq) {
             patch.last_requisition_id = prq.id;
@@ -118,6 +119,23 @@ export async function checkStockRules(sys: Ctx): Promise<{ checked: number; aler
     });
   }
   return { checked: rules.length, alerts, requisitions };
+}
+
+/**
+ * The requisition of a stock rule still on its way — its last one, or any raised for it, while a draft, waiting for
+ * approval, approved, or ordered with an order not yet received — else null.
+ */
+async function openRequisitionOf(tx: Parameters<Parameters<Ctx["write"]>[0]>[0], sys: Ctx, rule: Row): Promise<Row | null> {
+  const mine: Cond[] = [{ f: "stock_rule_id", op: "eq", v: rule.id }];
+  if (isUuid(rule.last_requisition_id)) mine.push({ f: "id", op: "eq", v: rule.last_requisition_id });
+  const prqs = await liveRows(tx, sys, "purchase_requisition", { or: mine } as Cond, { order: "t.created_at desc", limit: 20 });
+  for (const r of prqs) {
+    if (["draft", "pending_approval", "approved"].includes(String(r.state))) return r;
+    if (r.state !== "ordered") continue;
+    const orders = await liveRows(tx, sys, "purchase_order", { f: "requisition_id", op: "eq", v: r.id } as Cond, { limit: 50 });
+    if (!orders.length || orders.some((o) => ["draft", "ordered", "partially_received"].includes(String(o.state)))) return r;
+  }
+  return null;
 }
 
 /** A draft requisition with one line per rule (the quantity to order), in the given transaction. */
@@ -191,6 +209,7 @@ export async function receive(ctx: Ctx, poId: string, input: ReceiveInput): Prom
   if (!isUuid(stockroom)) throw bad("انبار دریافت را مشخص کنید");
   const lines = input.lines.filter((l) => Number(l.quantity) > 0);
   if (!lines.length) throw bad("تعداد دریافت‌شده را وارد کنید");
+  if (new Set(lines.map((l) => l.po_line_id.toLowerCase())).size !== lines.length) throw bad("هر سطر سفارش یک بار در رسید می‌آید؛ تعدادها را در همان سطر جمع کنید");
   const result = await ctx.write(async (tx) => {
     const grn = await createIn(tx, ctx, "goods_receipt", { po_id: poId, stockroom_id: stockroom, note: input.note ?? null });
     for (const l of lines) {
@@ -229,7 +248,8 @@ export async function scan(ctx: Ctx, auditId: string, code: string): Promise<Sca
   if (!ref) throw bad("کد خالی است");
   const sys = sysOf(ctx, ctx.user.id);
   const where: Cond = ref.kind === "id" ? { f: "id", op: "eq", v: ref.value } : ref.kind === "number" ? { f: "number", op: "eq", v: ref.value } : { or: [{ f: "asset_tag", op: "eq", v: ref.value }, { f: "serial_number", op: "eq", v: ref.value }] };
-  const [asset] = await liveRows(ctx.db, sys, "asset", where, { limit: 1 });
+  // resolved with the counter's own access: an asset they may not read is «unknown» (nothing of it is told)
+  const [asset] = await liveRows(ctx.db, ctx, "asset", where, { limit: 1 });
   return ctx.write(async (tx) => {
     const at = new Date().toISOString();
     const info = (a: Row | undefined) => (a ? { id: String(a.id), number: (a.number as string) ?? null, name: String(a.name ?? ""), asset_tag: (a.asset_tag as string) ?? null } : null);

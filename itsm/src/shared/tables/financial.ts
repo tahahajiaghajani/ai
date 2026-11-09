@@ -157,7 +157,9 @@ const costEntry: TableDef = {
     { name: "reversal_of", label: "برگشت ثبتِ", type: "ref", ref: "$self", readonly: true, filter: true, span: 8 },
     { name: "reversed", label: "برگشت خورده", type: "bool", readonly: true, default: false, filter: true, span: 8 },
   ],
-  scope: {},
+  // an entry of a contract (its accrual, a subscription or licence under it) is read only by readers of the contract:
+  // the copied name, supplier and amount of a confidential contract never reach finance readers outside its list
+  scope: { parent: "contract_id" },
   list: { columns: ["number", "entry_date", "description", "amount", "cost_center_id", "cost_type_id", "source", "capex_opex"], order: "-entry_date,number" },
 };
 

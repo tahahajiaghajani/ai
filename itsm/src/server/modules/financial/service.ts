@@ -22,7 +22,8 @@ import type { Ctx } from "../../context";
 import { bad, conflict, forbidden, notFound } from "../../http/errors";
 import { access } from "../../access/provider";
 import { aggregate, createIn, defFor, emitEvent, get, list, removeIn, transitionIn, updateIn } from "../../engine";
-import { configRow, hasGroup, isUuid, liveRow, liveRows, orgToday, sysOf, type Row } from "../itam/common";
+import { configRow, hasGroup, isUuid, liveRow, liveRows, localDate, orgToday, sysOf, type Row } from "../itam/common";
+import { bookValueOf } from "../itam/hooks";
 
 export const financialConfig = (q: Ctx["db"], ctx: Ctx) => configRow(q, ctx, "financial_config", FINANCIAL_CONFIG_DEFAULTS);
 
@@ -70,7 +71,12 @@ export async function capture(sys: Ctx, period: string): Promise<CaptureResult> 
     keys.add(key);
     pending.push({ entry_date: values.entry_date ?? p.end_date, amount, source, source_key: key, cost_type_id: t.id, capex_opex: values.capex_opex ?? t.capex_opex ?? "opex", ...values, cost_center_id: cc });
   };
-  const inPeriod = (d: unknown) => typeof d === "string" && d.slice(0, 10) >= String(p.start_date) && d.slice(0, 10) <= String(p.end_date);
+  // dates compare as the organisation's calendar dates (a date-time at 01:30 Tehran on the 1st is in that month)
+  const dayOf = (d: unknown): string | null => (typeof d === "string" && d ? localDate(sys, d) : null);
+  const inPeriod = (d: unknown) => {
+    const day = dayOf(d);
+    return !!day && day >= String(p.start_date) && day <= String(p.end_date);
+  };
 
   // asset purchases (CapEx) and depreciation
   const assets = await liveRows(sys.db, sys, "asset", { f: "purchase_cost", op: "nempty" } as Cond, { limit: 100000 });
@@ -80,7 +86,9 @@ export async function capture(sys: Ctx, period: string): Promise<CaptureResult> 
     const base = { asset_id: a.id, ci_id: a.ci_id ?? null, supplier_id: a.vendor_id ?? null, cost_center_id: a.cost_center_id ?? null };
     if (inPeriod(a.purchase_date) && !purchased.has(`asset_purchase:${a.id}`)) add(`asset_purchase:${a.id}`, "asset_purchase", CODES.hardware, String(a.purchase_cost), { ...base, entry_date: a.purchase_date, capex_opex: "capex", description: `خرید ${a.number ?? ""} — ${a.name ?? ""}`.slice(0, 300) });
     const rule = rules.get(String(a.depreciation_rule_id ?? ""));
-    if (!rule || ["disposed", "canceled", "on_order"].includes(String(a.state))) continue;
+    if (!rule || ["canceled", "on_order"].includes(String(a.state))) continue;
+    // a disposed asset depreciates through the month of its disposal (its write-off is the book value after it)
+    if (a.state === "disposed" && (dayOf(a.disposed_at) ?? "") < String(p.start_date)) continue;
     const start = String((rule.start_basis === "purchase" ? a.purchase_date : a.in_service_date || a.purchase_date) ?? "");
     if (!start) continue;
     const salvage = a.salvage_value ?? (rule.salvage_percent ? String((Number(a.purchase_cost) * Number(rule.salvage_percent)) / 100) : "0");
@@ -116,14 +124,17 @@ export async function capture(sys: Ctx, period: string): Promise<CaptureResult> 
   for (const r of repairs) {
     if (!inPeriod(r.returned_at ?? r.updated_at) || repaired.has(`repair:${r.id}`)) continue;
     const a = await liveRow(sys.db, sys, "asset", r.asset_id);
-    add(`repair:${r.id}`, "repair", CODES.repair, String(r.cost), { asset_id: r.asset_id, ci_id: a?.ci_id ?? null, supplier_id: r.vendor_id ?? null, cost_center_id: a?.cost_center_id ?? null, entry_date: String(r.returned_at ?? r.updated_at).slice(0, 10), description: `تعمیر ${r.number ?? ""} — ${r.title ?? ""}`.slice(0, 300) });
+    add(`repair:${r.id}`, "repair", CODES.repair, String(r.cost), { asset_id: r.asset_id, ci_id: a?.ci_id ?? null, supplier_id: r.vendor_id ?? null, cost_center_id: a?.cost_center_id ?? null, entry_date: dayOf(r.returned_at ?? r.updated_at), description: `تعمیر ${r.number ?? ""} — ${r.title ?? ""}`.slice(0, 300) });
   }
-  // book value written off at disposal
+  // book value written off at disposal: from the schedule as of the disposal date (the stored value may be a month
+  // behind; the depreciation of the disposal month is posted above, so it is not written off again)
   const disposed = await liveRows(sys.db, sys, "asset", { and: [{ f: "state", op: "eq", v: "disposed" }, { f: "book_value", op: "gt", v: "0" }] } as Cond, { limit: 20000 });
   const written = await allKeys("disposal:");
   for (const a of disposed) {
     if (!inPeriod(a.disposed_at) || written.has(`disposal:${a.id}`)) continue;
-    add(`disposal:${a.id}`, "disposal", CODES.disposal, String(a.book_value), { asset_id: a.id, cost_center_id: a.cost_center_id ?? null, entry_date: String(a.disposed_at).slice(0, 10), description: `زیان اسقاط ${a.number ?? ""} (ارزش دفتری)`.slice(0, 300) });
+    const day = dayOf(a.disposed_at)!;
+    const book = bookValueOf(rules.get(String(a.depreciation_rule_id ?? "")), a, day)?.book_value ?? String(a.book_value);
+    add(`disposal:${a.id}`, "disposal", CODES.disposal, book, { asset_id: a.id, cost_center_id: a.cost_center_id ?? null, entry_date: day, description: `زیان اسقاط ${a.number ?? ""} (ارزش دفتری)`.slice(0, 300) });
   }
   for (let i = 0; i < pending.length; i += 200) {
     await sys.write(async (tx) => {
@@ -344,6 +355,30 @@ export async function calculateRun(ctx: Ctx, runId: string): Promise<{ total_poo
   return { total_pool: pool.toString(), total_allocated: allocated.toString(), results: results.length };
 }
 
+/**
+ * The credits of a chargeback per source cost centre: each service's posted charges (its consumer rows with a unit)
+ * spread over its service-stage rows by their amounts (exact: largest remainder), so the credits equal the debits.
+ */
+export function creditsOf(service: Row[], consumer: Row[]): Map<string, ReturnType<typeof D>> {
+  const credits = new Map<string, ReturnType<typeof D>>();
+  const charged = new Map<string, ReturnType<typeof D>>();
+  for (const r of consumer) charged.set(String(r.service_id), (charged.get(String(r.service_id)) ?? D(0)).plus(D(r.amount)));
+  const bySvc = new Map<string, Row[]>();
+  for (const r of service) if (isUuid(r.source_cost_center_id)) bySvc.set(String(r.service_id), [...(bySvc.get(String(r.service_id)) ?? []), r]);
+  for (const [svc, rows] of bySvc) {
+    const total = rows.reduce<ReturnType<typeof D>>((a, r) => a.plus(D(r.amount)), D(0));
+    const posted = charged.get(svc) ?? D(0);
+    if (posted.isZero()) continue;
+    const parts = posted.eq(total) ? rows.map((r) => ({ key: String(r.id), amount: String(r.amount) })) : allocate(posted.toString(), rows.map((r) => ({ key: String(r.id), weight: D(r.amount).abs().toString() })));
+    for (const part of parts) {
+      const r = rows.find((x) => String(x.id) === part.key)!;
+      const cc = String(r.source_cost_center_id);
+      credits.set(cc, (credits.get(cc) ?? D(0)).plus(D(part.amount)));
+    }
+  }
+  return credits;
+}
+
 /** Post an approved chargeback run: each consumer unit charged, each source cost centre credited (FIN-023). */
 export async function postRun(ctx: Ctx, runId: string): Promise<{ entries: number }> {
   const { row: run } = await get(ctx, "allocation_run", runId);
@@ -358,15 +393,17 @@ export async function postRun(ctx: Ctx, runId: string): Promise<{ entries: numbe
   const results = await liveRows(ctx.db, sys, "allocation_result", { f: "run_id", op: "eq", v: runId } as Cond, { limit: 100000 });
   const service = results.filter((r) => r.stage === "service");
   const consumer = results.filter((r) => r.stage === "consumer" && isUuid(r.consumer_unit_id));
+  // each source cost centre is credited with what is charged to units, no more: a service without consumer and
+  // provider units («بدون واحد» on the statement) charges nobody, so its share stays with its sources
+  const credits = creditsOf(service, consumer);
   let n = 0;
   await ctx.write(async (tx) => {
     for (const r of consumer) {
       await createIn(tx, sys, "cost_entry", { entry_date: to.end_date, amount: String(r.amount), description: `بازپرداخت ${run.number ?? ""}: ${r.basis ?? ""}`.slice(0, 300), cost_center_id: r.consumer_unit_id, cost_type_id: type.id, capex_opex: "opex", source: "allocation", source_key: `alloc:${runId}:${r.id}`, service_id: r.service_id ?? null }, { trusted: true });
       n++;
     }
-    const credits = new Map<string, ReturnType<typeof D>>();
-    for (const r of service) if (isUuid(r.source_cost_center_id)) credits.set(String(r.source_cost_center_id), (credits.get(String(r.source_cost_center_id)) ?? D(0)).plus(D(r.amount)));
     for (const [cc, amount] of credits) {
+      if (amount.isZero()) continue;
       await createIn(tx, sys, "cost_entry", { entry_date: to.end_date, amount: amount.neg().toString(), description: `بستانکار بازپرداخت ${run.number ?? ""}`, cost_center_id: cc, cost_type_id: type.id, capex_opex: "opex", source: "allocation", source_key: `alloc:${runId}:credit:${cc}` }, { trusted: true });
       n++;
     }

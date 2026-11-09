@@ -67,6 +67,21 @@ export function todayISO(timeZone = "Asia/Tehran"): string {
   }
 }
 
+/**
+ * The calendar date (YYYY-MM-DD) of an instant in a time zone (a goods receipt at 01:30 Tehran on the first of a month
+ * belongs to that month, not to the UTC day before); a plain date is returned as it is.
+ */
+export function dateISOIn(v: string | number | Date, timeZone = "Asia/Tehran"): string {
+  if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  const d = v instanceof Date ? v : new Date(v);
+  if (Number.isNaN(d.getTime())) return String(v).slice(0, 10);
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+  } catch {
+    return d.toISOString().slice(0, 10);
+  }
+}
+
 export function nowISO(): string {
   return new Date().toISOString();
 }

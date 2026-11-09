@@ -168,7 +168,9 @@ describe("procurement", () => {
     await w.p.proc.client.post(`${w.P}/r/purchase_requisition_line`, { requisition_id: prq.id, model_id: toner, quantity: 5, unit_price: "7000000" });
     const withLines = (await w.o.get(`${w.P}/r/purchase_requisition/${prq.id}`)).row;
     expect(withLines.total).toBe(String(2 * 95000000 + 5 * 7000000));
-    await w.p.proc.client.post(`${w.P}/r/purchase_requisition/${prq.id}/transition`, { to: "approved" });
+    // submitted, and approved by an approver other than whom it is for (never from draft)
+    await w.p.proc.client.post(`${w.P}/r/purchase_requisition/${prq.id}/transition`, { to: "pending_approval" });
+    await w.o.post(`${w.P}/r/purchase_requisition/${prq.id}/transition`, { to: "approved" });
     const orders = await w.p.proc.client.post(`${w.P}/itam/requisitions/${prq.id}/order`);
     expect(orders.orders).toHaveLength(1);
     const poId = orders.orders[0].id;

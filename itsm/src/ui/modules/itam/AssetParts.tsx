@@ -217,7 +217,7 @@ export function RequestAssetsPanel({ ctx }: { ctx: RecordContext }) {
       {d.assets.map((a) => (
         <div key={a.id} className="flex items-center justify-between gap-2">
           <Link className="ds-link" to={`/${orgId}/assets/${a.id}`}>{a.asset_tag ?? a.number} {a.name}</Link>
-          {a.state === "in_use" ? <Chip tone="in">تحویل‌شده</Chip> : a.substate === "reserved" ? <Button size="small" loading={assign.isPending} onClick={() => assign.mutate(a.id)}>تحویل</Button> : <Chip tone="neutral">{a.state}</Chip>}
+          {a.state === "in_use" ? <Chip tone="in">تحویل‌شده</Chip> : a.substate === "reserved" && a.can_assign ? <Button size="small" loading={assign.isPending} onClick={() => assign.mutate(a.id)}>تحویل</Button> : a.substate === "reserved" ? <Chip tone="neutral">رزروشده</Chip> : <Chip tone="neutral">{a.state}</Chip>}
         </div>
       ))}
       {d.candidates.length && !d.assets.some((a) => a.state === "in_use") ? (
@@ -226,11 +226,12 @@ export function RequestAssetsPanel({ ctx }: { ctx: RecordContext }) {
           {d.candidates.slice(0, 6).map((a) => (
             <div key={a.id} className="flex items-center justify-between gap-2">
               <span>{a.asset_tag ?? a.number} <span className="text-ink-3">{a.stockroom ?? ""}</span></span>
-              <Button size="small" loading={assign.isPending} onClick={() => assign.mutate(a.id)}>تحویل این</Button>
+              {a.can_assign ? <Button size="small" loading={assign.isPending} onClick={() => assign.mutate(a.id)}>تحویل این</Button> : null}
             </div>
           ))}
         </>
       ) : !d.assets.length ? <Note tone="warning">موجودی آماده‌ای از {d.models.map((m) => m.name).join("، ")} نیست</Note> : null}
+      {!d.can_assign && (d.candidates.length || d.assets.some((a) => a.state !== "in_use")) ? <Note>تحویل این قلم را مدیریت دارایی انجام می‌دهد</Note> : null}
     </div>
   );
 }

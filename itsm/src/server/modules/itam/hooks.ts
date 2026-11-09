@@ -13,9 +13,13 @@
 //                   po_has_lines, receipt_can_post
 //   ledgers         stock movements and assignments are written by the module only (system)
 //   procurement     line amounts and the requisition's and order's totals (once per transaction), lines only while
-//                   the parent is a draft, a posted goods receipt creates the assets and updates the order
+//                   the parent is a draft (a requisition's too: what its approvers approve is what is ordered), a
+//                   requisition approved by someone else than whom it is for or who raised it, a goods receipt that
+//                   posts at most what is left of each order line (summed over its lines, the order lines locked); a
+//                   posted goods receipt creates the assets (dated on the organisation's calendar) and updates the order
 //   repairs         the asset goes in repair and back (or retired when beyond repair); warranty cover detected
-//   disposal        items retire their assets; a completed order disposes them with the sanitisation evidence
+//   disposal        items (added only while the order is requested: approval covers them) retire their assets; a
+//                   completed order disposes them with the sanitisation evidence
 //   audits          starting one lists the expected assets; completing one records the results on the assets
 //   software        installs normalised to software models (patterns), entitlement costs, seat counts of SaaS
 //                   subscriptions, reconciliation queued after changes
@@ -32,7 +36,7 @@ import { bad, conflict, forbidden } from "../../http/errors";
 import { enqueue } from "../../jobs";
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
-import { eqAll, isUuid, itamConfig, liveRow, liveRows, orgToday, sysOf, type Row } from "./common";
+import { eqAll, isUuid, itamConfig, liveRow, liveRows, localDate, orgToday, sysOf, type Row } from "./common";
 
 const entering = (w: WriteArgs, state: string) => w.next.state === state && (w.op === "create" || w.prev?.state !== state);
 const leaving = (w: WriteArgs, state: string) => w.op !== "create" && w.prev?.state === state && w.next.state !== state;
@@ -138,8 +142,9 @@ async function assetBefore(w: WriteArgs): Promise<void> {
   if (entering(w, "disposed")) n.disposed_at = at;
   if (n.state === "in_stock" && n.substate !== "reserved" && w.changed.has("substate")) n.reserved_for = null;
   if (Number(n.quantity ?? 1) < 0) throw bad("تعداد نمی‌تواند منفی باشد");
-  // the book value from the first day (the daily sweep moves it on every month)
-  if (["purchase_cost", "purchase_date", "in_service_date", "depreciation_rule_id", "salvage_value"].some((f) => w.changed.has(f)) && n.depreciation_rule_id) {
+  // the book value from the first day (the daily sweep moves it on every month), and as of the day it is retired or
+  // disposed (what is written off at disposal is the value then, not last month's)
+  if ((["purchase_cost", "purchase_date", "in_service_date", "depreciation_rule_id", "salvage_value"].some((f) => w.changed.has(f)) || entering(w, "retired") || entering(w, "disposed")) && n.depreciation_rule_id) {
     const rule = await liveRow(w.tx, sysOf(w.ctx), "depreciation_rule", n.depreciation_rule_id);
     const b = bookValueOf(rule, n, today);
     if (b) Object.assign(n, b);
@@ -286,8 +291,26 @@ const assetGuards = {
 // ---------------------------------------------------------------------------------------------------------------
 // Acknowledgements
 
+/**
+ * The holder's signature: only the person the acknowledgement names accepts or declines it, and only on that decision
+ * are its signature, note and decision time written; others (asset managers, a Windows app's push) only expire a
+ * pending one or ask again after a decline or an expiry.
+ */
+function ackHolderOnly(w: WriteArgs): void {
+  if (isSys(w.ctx)) return;
+  const n = w.next;
+  const holder = w.ctx.user.id === n.user_id;
+  const deciding = w.changed.has("state") && ["accepted", "declined"].includes(String(n.state));
+  if (deciding && !holder) throw forbidden("فقط تحویل‌گیرنده این تعهدنامه را می‌پذیرد یا رد می‌کند");
+  const signed = ["signature_name", "decision_note", "decided_at"].filter((f) => w.changed.has(f));
+  if (!signed.length) return;
+  if (!holder) throw forbidden("امضا و توضیح تعهدنامه را فقط تحویل‌گیرنده می‌نویسد");
+  if (!deciding || (w.prev && w.prev.state !== "pending")) throw forbidden("امضای تعهدنامه فقط همراه پذیرش یا رد آن ثبت می‌شود");
+}
+
 async function ackBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete") return;
+  ackHolderOnly(w);
   const n = w.next;
   if (w.op === "create") {
     const asset = await liveRow(w.tx, sysOf(w.ctx), "asset", n.asset_id);
@@ -320,11 +343,15 @@ async function auditAfter(w: WriteArgs): Promise<void> {
   if (w.op === "delete") return;
   const sys = sysOf(w.ctx);
   const a = w.next;
+  // the person who runs the count sees and changes only the assets they may: the expected list is read with their
+  // access (another domain's, a restricted group's or a secure workspace's assets on the same floor stay out), and
+  // completion stamps or marks missing only assets they may change
+  const actor = w.ctx;
   if (entering(w, "in_progress")) {
     const where = a.scope_kind === "location"
       ? { and: [{ f: "location_id", op: "eq", v: a.location_id }, { f: "state", op: "in", v: ["in_stock", "in_use"] }] }
       : { and: [{ f: "stockroom_id", op: "eq", v: a.stockroom_id }, { f: "state", op: "eq", v: "in_stock" }] };
-    const assets = await liveRows(w.tx, sys, "asset", where as never, { limit: 5000, order: "t.no" });
+    const assets = await liveRows(w.tx, actor, "asset", where as never, { limit: 5000, order: "t.no" });
     for (const asset of assets) {
       await createIn(w.tx, sys, "inventory_audit_item", { audit_id: a.id, asset_id: asset.id, expected: true, result: "pending", label: `${asset.number ?? ""} — ${asset.name ?? ""}`.slice(0, 300) }, { trusted: true });
     }
@@ -348,6 +375,7 @@ async function auditAfter(w: WriteArgs): Promise<void> {
       if (!isUuid(it.asset_id)) continue;
       const asset = await liveRow(w.tx, sys, "asset", it.asset_id);
       if (!asset) continue;
+      if (!isSys(actor) && !access().canWrite(actor, tableDef("asset")!, asset)) continue;
       const patch: Row = { last_audit_at: at, last_audit_result: result === "found" ? "found" : result === "missing" ? "missing" : "moved" };
       await updateIn(w.tx, sys, "asset", asset.id, patch, { trusted: true, keepVersion: true });
       if (result === "missing" && a.mark_missing && ["in_stock", "in_use", "in_transit"].includes(String(asset.state))) {
@@ -408,6 +436,8 @@ async function disposalItemBefore(w: WriteArgs): Promise<void> {
   const order = await needParentWrite(w, "disposal_order", "order_id");
   if (w.op === "delete") return;
   if (order && ["completed", "closed", "canceled"].includes(String(order.state))) throw conflict("این دستور اسقاط بسته شده است");
+  // what was approved is what is disposed: an asset joins an order only while it waits for approval
+  if (order && order.state !== "requested" && (w.op === "create" || w.changed.has("asset_id")) && !isSys(w.ctx)) throw conflict("این دستور اسقاط تأیید شده است؛ دارایی تازه را با دستور اسقاط دیگری بفرستید");
   const asset = await liveRow(w.tx, sysOf(w.ctx), "asset", w.next.asset_id);
   if (!asset) throw bad("دارایی پیدا نشد");
   if (asset.state === "disposed") throw conflict(`دارایی ${asset.number ?? ""} پیش‌تر اسقاط شده است`);
@@ -482,7 +512,7 @@ async function rollupTotal(tx: Tx, ctx: Ctx, parentTable: string, lineTable: str
 }
 
 async function requisitionLineBefore(w: WriteArgs): Promise<void> {
-  await needParentWrite(w, "purchase_requisition", "requisition_id", { draftStates: ["draft", "pending_approval"] });
+  await needParentWrite(w, "purchase_requisition", "requisition_id", { draftStates: ["draft"] });
   if (w.op === "delete") return;
   const n = w.next;
   if (n.model_id && (w.op === "create" || w.changed.has("model_id"))) {
@@ -516,6 +546,14 @@ async function poLineBefore(w: WriteArgs): Promise<void> {
 
 const procurementGuards = {
   requisition_has_lines: async (w: WriteArgs) => ((await liveRows(w.tx, sysOf(w.ctx), "purchase_requisition_line", { f: "requisition_id", op: "eq", v: w.next.id }, { limit: 1 })).length ? null : "درخواست خرید قلمی ندارد"),
+  /** «تأیید» by an approver: lines, and never the person the requisition is for or who raised it */
+  requisition_can_approve: async (w: WriteArgs) => {
+    const lines = await procurementGuards.requisition_has_lines(w);
+    if (lines || isSys(w.ctx)) return lines;
+    const me = w.ctx.user.id;
+    if ([w.next.requested_for, w.next.created_by, w.prev?.created_by].includes(me)) return "درخواست خریدی را که برای شما یا به دست شما ثبت شده است دیگری تأیید می‌کند";
+    return null;
+  },
   po_has_lines: async (w: WriteArgs) => ((await liveRows(w.tx, sysOf(w.ctx), "purchase_order_line", { f: "po_id", op: "eq", v: w.next.id }, { limit: 1 })).length ? null : "سفارش خرید سطری ندارد"),
   receipt_can_post: async (w: WriteArgs) => {
     const sys = sysOf(w.ctx);
@@ -523,11 +561,18 @@ const procurementGuards = {
     if (!po || !["ordered", "partially_received"].includes(String(po.state))) return "فقط کالای سفارش‌های ثبت‌شده دریافت می‌شود";
     const lines = await liveRows(w.tx, sys, "goods_receipt_line", { f: "receipt_id", op: "eq", v: w.next.id }, { limit: 2000 });
     if (!lines.length) return "رسید سطری ندارد";
-    for (const l of lines) {
-      const pl = await liveRow(w.tx, sys, "purchase_order_line", l.po_line_id);
+    // the receipt's quantity per order line (two lines of one order line add up), against the order line locked for
+    // this transaction (two receipts posted at once wait for each other and the second sees the first's quantity)
+    const wanted = new Map<string, number>();
+    for (const l of lines) wanted.set(String(l.po_line_id), (wanted.get(String(l.po_line_id)) ?? 0) + Number(l.quantity ?? 0));
+    const table = tableDef("purchase_order_line")!.table;
+    for (const [lineId, qty] of wanted) {
+      if (!isUuid(lineId)) return "سطر رسید به این سفارش تعلق ندارد";
+      await w.tx.query(`select id from ${table} where id = $1::uuid and org_id = $2 for update`, [lineId, w.ctx.org.id]);
+      const pl = await liveRow(w.tx, sys, "purchase_order_line", lineId);
       if (!pl || pl.po_id !== po.id) return "سطر رسید به این سفارش تعلق ندارد";
       const left = Number(pl.quantity ?? 0) - Number(pl.received_qty ?? 0);
-      if (Number(l.quantity) > left) return `از «${pl.description ?? ""}» فقط ${left} عدد باقی مانده است`;
+      if (qty > left) return `از «${pl.description ?? ""}» فقط ${left} عدد باقی مانده است`;
     }
     return null;
   },
@@ -543,7 +588,8 @@ async function postReceipt(w: WriteArgs): Promise<void> {
   if (!po) return;
   const rate = po.currency && po.currency !== "IRR" && po.fx_rate ? D(po.fx_rate) : D(1);
   const lines = await liveRows(w.tx, sys, "goods_receipt_line", { f: "receipt_id", op: "eq", v: grn.id }, { limit: 2000, order: "t.created_at" });
-  const date = String(grn.received_at ?? now()).slice(0, 10);
+  // the organisation's calendar date of the receipt (01:30 Tehran on the 1st is that month's purchase)
+  const date = localDate(w.ctx, String(grn.received_at ?? now()));
   let created = 0;
   for (const l of lines) {
     const pl = await liveRow(w.tx, sys, "purchase_order_line", l.po_line_id);
@@ -583,6 +629,10 @@ async function receiptLineBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete") return;
   const pl = await liveRow(w.tx, sysOf(w.ctx), "purchase_order_line", w.next.po_line_id);
   if (!pl) throw bad("سطر سفارش پیدا نشد");
+  if (w.op === "create" || w.changed.has("po_line_id")) {
+    const same = await liveRows(w.tx, sysOf(w.ctx), "goods_receipt_line", { and: [{ f: "receipt_id", op: "eq", v: w.next.receipt_id }, { f: "po_line_id", op: "eq", v: pl.id }, { f: "id", op: "ne", v: w.next.id }] }, { limit: 1 });
+    if (same.length) throw conflict(`«${pl.description ?? ""}» در این رسید سطر دارد؛ تعداد همان سطر را تغییر دهید`);
+  }
   w.next.model_id = pl.model_id ?? null;
   w.next.label = `${pl.description ?? ""} × ${w.next.quantity ?? 1}`.slice(0, 300);
 }
@@ -753,7 +803,7 @@ export function installItamHooks(): (() => void)[] {
   off.push(registerHooks("disposal_order", { afterWrite: disposalAfter, guards: disposalGuards }));
   guarded("disposal_item", disposalItemBefore, { afterWrite: disposalItemAfter });
   guarded("catalog_item_model", catalogModelBefore);
-  off.push(registerHooks("purchase_requisition", { guards: { requisition_has_lines: procurementGuards.requisition_has_lines } }));
+  off.push(registerHooks("purchase_requisition", { guards: { requisition_has_lines: procurementGuards.requisition_has_lines, requisition_can_approve: procurementGuards.requisition_can_approve } }));
   guarded("purchase_requisition_line", requisitionLineBefore, {
     async afterWrite(w) {
       await rollupTotal(w.tx, w.ctx, "purchase_requisition", "purchase_requisition_line", "requisition_id", String(w.next?.requisition_id ?? w.prev?.requisition_id));

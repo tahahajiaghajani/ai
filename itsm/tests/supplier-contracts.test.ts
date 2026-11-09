@@ -6,12 +6,15 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { itamWorld, type ItamWorld } from "./itam-helpers";
 import { upload } from "./engine-helpers";
 import { computeScorecards, supplierSweep } from "@server/modules/supplier";
+import { transitionIn } from "@server/engine";
 import { addDays, todayISO } from "@shared/jalali";
 import { noticeDate } from "@shared/supplier/logic";
 
 let w: ItamWorld;
 const today = () => todayISO("Asia/Tehran");
 const events = async (kind: string) => (await w.e.db.query<{ payload: any }>(`select payload from sm_jobs where org_id = $1 and kind = $2`, [w.e.org, kind])).map((r) => r.payload);
+/** A contract made active as its approval would (with the seeded approval rule in force, a writer cannot). */
+const activate = (id: string) => w.sys.write((tx) => transitionIn(tx, w.sys, "contract", id, "active", {}));
 
 beforeAll(async () => {
   w = await itamWorld();
@@ -36,11 +39,11 @@ describe("contracts", () => {
   it("reminds once per threshold, expires and renews automatically", async () => {
     const sup = await w.idOf("supplier", "name", "ابر میزبان ایرانی (نمونه)");
     const soon = (await w.p.am.client.post(`${w.P}/r/contract`, { name: "یادآوری آزمون", supplier_id: sup, contract_type: "support", start_date: addDays(today(), -300), end_date: addDays(today(), 40), notice_period_days: 10, reminder_days: [60, 30, 7] })).row;
-    await w.p.am.client.post(`${w.P}/r/contract/${soon.id}/transition`, { to: "active" });
+    await activate(soon.id);
     const ended = (await w.p.am.client.post(`${w.P}/r/contract`, { name: "پایان آزمون", supplier_id: sup, contract_type: "support", start_date: addDays(today(), -400), end_date: addDays(today(), -1), renewal_type: "manual" })).row;
-    await w.p.am.client.post(`${w.P}/r/contract/${ended.id}/transition`, { to: "active" });
+    await activate(ended.id);
     const auto = (await w.p.am.client.post(`${w.P}/r/contract`, { name: "تمدید خودکار آزمون", supplier_id: sup, contract_type: "cloud", start_date: addDays(today(), -400), end_date: addDays(today(), -2), renewal_type: "auto", renewal_term_months: 12 })).row;
-    await w.p.am.client.post(`${w.P}/r/contract/${auto.id}/transition`, { to: "active" });
+    await activate(auto.id);
     const r = await supplierSweep(w.sys);
     expect(r.expired).toBeGreaterThanOrEqual(1);
     expect(r.renewed).toBeGreaterThanOrEqual(1);
@@ -70,7 +73,7 @@ describe("contracts", () => {
     const cov = await w.o.post(`${w.P}/r/contract_coverage/query`, { filter: { f: "contract_id", op: "eq", v: r.id } });
     expect(cov.rows[0].asset_id).toBe(asset.id);
     await w.p.am.client.post(`${w.P}/supplier/contracts/${uc}/renew`, {}, 409);
-    await w.p.am.client.post(`${w.P}/r/contract/${r.id}/transition`, { to: "active" });
+    await activate(r.id);
     const old = (await w.o.get(`${w.P}/r/contract/${uc}`)).row;
     expect(old.state).toBe("renewed");
     expect(old.renewed_by_id).toBe(r.id);

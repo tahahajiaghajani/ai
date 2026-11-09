@@ -4,7 +4,7 @@
 // the cloud (derived data — reminders, reconciliation, depreciation, capture — is then left to the cloud, so the two
 // runtimes never compute the same rows twice — `actsHere` of the notification service).
 import { grantIn } from "@shared/access/model";
-import { todayISO } from "@shared/jalali";
+import { dateISOIn, todayISO } from "@shared/jalali";
 import { ITAM_CONFIG_DEFAULTS, type ItamConfig } from "@shared/tables/itam";
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
@@ -44,6 +44,9 @@ export async function hasGroup(ctx: Ctx, group: "financial" | "personal" | "inte
 
 /** The organisation's date today (its time zone). */
 export const orgToday = (ctx: Ctx): string => todayISO(orgTz(ctx));
+
+/** The organisation's calendar date of an instant (a stored date-time; a plain date stays as it is). */
+export const localDate = (ctx: Ctx, v: string | number | Date): string => dateISOIn(v, orgTz(ctx));
 
 const pick = <T extends Record<string, unknown>>(defaults: T, row: Row | null): T => {
   const out = { ...defaults } as Record<string, unknown>;

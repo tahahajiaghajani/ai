@@ -212,6 +212,9 @@ export interface AiText {
 export interface RequestItemAssets {
   item: { id: string; number: string | null; requested_for: string | null; state: string };
   models: { id: string; name: string }[];
-  assets: { id: string; number: string | null; name: string; asset_tag: string | null; state: string; substate: string | null; assigned_to: string | null }[];
-  candidates: { id: string; number: string | null; name: string; asset_tag: string | null; stockroom: string | null }[];
+  /** `can_assign`: the caller may change this asset, so hand it over (a fulfiller who only reads assets may not) */
+  assets: { id: string; number: string | null; name: string; asset_tag: string | null; state: string; substate: string | null; assigned_to: string | null; can_assign: boolean }[];
+  candidates: { id: string; number: string | null; name: string; asset_tag: string | null; stockroom: string | null; can_assign: boolean }[];
+  /** the caller may hand over at least one of them */
+  can_assign: boolean;
 }

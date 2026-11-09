@@ -141,8 +141,13 @@ export function installSupplierHooks(): (() => void)[] {
         contract_can_activate: async (w) => {
           if (!w.next.start_date || !w.next.end_date) return "تاریخ شروع و پایان قرارداد را وارد کنید";
           if (w.next.end_date < w.next.start_date) return "پایان قرارداد پیش از شروع آن است";
-          // with an approval rule in force, a contract waits for its approval (the approvals service activates it)
-          if (w.prev?.state === "pending_approval" && w.next.approval === "requested" && !isSys(w)) return "قرارداد در انتظار تأیید است";
+          if (isSys(w)) return null;
+          // with an approval rule in force, a contract is activated by its approval (the approvals service activates
+          // it): never straight from draft or negotiation, never after a rejection
+          if (w.next.approval === "rejected") return "تأیید این قرارداد رد شده است؛ پس از اصلاح، دوباره «ارسال برای تأیید» را بزنید";
+          if (w.prev?.state === "pending_approval" && w.next.approval === "requested") return "قرارداد در انتظار تأیید است";
+          const rules = await liveRows(w.tx, sysOf(w.ctx), "approval_rule", { and: [{ f: "table_key", op: "eq", v: "contract" }, { f: "active", op: "eq", v: true }] } as Cond, { limit: 1 });
+          if (rules.length && w.next.approval !== "approved") return "قرارداد پیش از فعال شدن به تأیید می‌رسد؛ «ارسال برای تأیید» را بزنید";
           return null;
         },
       },

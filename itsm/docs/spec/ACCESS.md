@@ -220,8 +220,9 @@ that declare `participants: true` (the approvals panel).
 
 ### Parent-scoped child rows (`scope.parent`)
 
-A table whose rows belong to a parent record (a contract's lines, coverage, obligations and guarantees; a budget's
-lines; the lines of requisitions, purchase orders and goods receipts) names the reference in `scope.parent`. Such a
+A table whose rows belong to a parent record (a contract's lines, coverage, obligations and guarantees; the cost
+ledger's entries of a contract; a budget's lines; the lines of requisitions, purchase orders and goods receipts; an
+inventory audit's items) names the reference in `scope.parent`. Such a
 row is read only by those who may read its parent: the SQL form adds `(t.<parent> is null or exists (select 1 from
 <parent table> t_p where t_p.id = t.<parent> and <the parent's whole read rule on t_p>))` to the row's own rule
 (nested parents chain: a note of a line of a ticket); the JS form takes the parent's verdict as
