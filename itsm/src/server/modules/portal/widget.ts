@@ -2,8 +2,8 @@
 // knowledge the organisation published without sign-in (the widget's publication); «گفتگو با دستیار» opens the
 // portal's chat in a small window of this app, where the person signs in and talks to the SAME virtual agent with
 // their own access (a third-party frame would not carry the session). The script and its configuration are public;
-// a search must come from one of the widget's allowed sites (the Origin header, exact scheme, host and port) and is
-// answered with that origin only. Colours follow the design system's palette (the script runs outside the app, so
+// a search must come from one of the widget's allowed sites (the Origin header a browser sends with a cross-site
+// request: exact scheme, host and port), others are refused. Colours follow the design system's palette (the script runs outside the app, so
 // it carries plain values).
 import { randomBytes } from "node:crypto";
 import { originAllowed, originOf } from "@shared/portal/logic";
@@ -64,17 +64,6 @@ export async function widgetSearch(cfg: ServerConfig, key: string, origin: strin
   return { origin: originOf(origin)!, hits: r.hits.slice(0, 6).map((h) => ({ ...h, url: `${base(cfg)}/p/kb/${token}/a/${h.slug}` })) };
 }
 
-/** The allowed origin of a request (for the CORS answer), or null. */
-export async function widgetOrigin(cfg: ServerConfig, key: string, origin: string | null | undefined): Promise<string | null> {
-  try {
-    const { row } = await openWidget(cfg, key);
-    const allowed = Array.isArray(row.allowed_origins) ? (row.allowed_origins as string[]) : [];
-    return originAllowed(origin, allowed) ? originOf(origin) : null;
-  } catch {
-    return null;
-  }
-}
-
 /** A new key for a widget (the embed snippet changes; the old one stops at once). Connector administrators. */
 export async function rotateWidgetKey(ctx: Ctx, id: string): Promise<{ key: string; snippet: string }> {
   if (!(await managesChannels(ctx))) throw forbidden("ابزارک وب‌سایت را مدیران اتصال‌ها تنظیم می‌کنند");
@@ -111,7 +100,7 @@ var btn=el("button","b","؟");btn.setAttribute("aria-label",cfg.title);btn.setAt
 var panel=el("div","p");panel.setAttribute("role","dialog");panel.setAttribute("aria-label",cfg.title);
 panel.appendChild(el("h2",null,cfg.title));if(cfg.greeting)panel.appendChild(el("p",null,cfg.greeting));
 if(cfg.search){var inp=el("input");inp.type="search";inp.placeholder="جست‌وجو در راهنما…";inp.setAttribute("aria-label","جست‌وجو در راهنما");var ul=el("ul");ul.setAttribute("aria-live","polite");var t=0;
-inp.addEventListener("input",function(){clearTimeout(t);var q=inp.value.trim();if(q.length<2){ul.textContent="";return}t=setTimeout(function(){fetch(API+"/search",{method:"POST",headers:{"content-type":"text/plain"},body:JSON.stringify({q:q})}).then(function(r){return r.ok?r.json():{hits:[]}}).then(function(d){ul.textContent="";if(!d.hits.length){ul.appendChild(el("li",null,"چیزی پیدا نشد؛ با دستیار گفتگو کنید."));return}d.hits.forEach(function(h){var li=el("li");var a=el("a",null,h.title);a.href=h.url;a.target="_blank";a.rel="noopener";li.appendChild(a);if(h.summary)li.appendChild(el("small",null,h.summary));ul.appendChild(li)})}).catch(function(){})},350)});
+inp.addEventListener("input",function(){clearTimeout(t);var q=inp.value.trim();if(q.length<2){ul.textContent="";return}t=setTimeout(function(){fetch(API+"/search?q="+encodeURIComponent(q)).then(function(r){return r.ok?r.json():{hits:[]}}).then(function(d){ul.textContent="";if(!d.hits.length){ul.appendChild(el("li",null,"چیزی پیدا نشد؛ با دستیار گفتگو کنید."));return}d.hits.forEach(function(h){var li=el("li");var a=el("a",null,h.title);a.href=h.url;a.target="_blank";a.rel="noopener";li.appendChild(a);if(h.summary)li.appendChild(el("small",null,h.summary));ul.appendChild(li)})}).catch(function(){})},350)});
 panel.appendChild(inp);panel.appendChild(ul);if(cfg.kb_url){var all=el("a",null,"همهٔ راهنماها");all.href=cfg.kb_url;all.target="_blank";all.rel="noopener";panel.appendChild(all)}}
 if(cfg.chat_url){var chat=el("button","c","گفتگو با دستیار");chat.addEventListener("click",function(){window.open(cfg.chat_url,"itsm-chat","width=420,height=640")});panel.appendChild(chat)}
 if(cfg.consent)panel.appendChild(el("div","n",cfg.consent));

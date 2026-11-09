@@ -257,12 +257,13 @@ export async function receiveHook(cfg: ServerConfig, key: string, h: HeaderFn, r
     return { ok: true, status: "ignored" };
   }
   const budget = Math.max(1, Number(channel.rate_per_minute ?? 12));
-  const recent = await sys.db.one<{ n: string | number }>(`select count(*) as n from sm_portal_channel_log where org_id = $1 and channel_id = $2 and direction = 'in' and external_id = $3 and at > now() - interval '1 minute'`, [sys.org.id, channelId, msg.fromId]);
+  const recent = await sys.db.one<{ n: string | number }>(`select count(*) as n from sm_portal_channel_log where org_id = $1 and channel_id = $2 and direction = 'in' and external_id = $3 and message_key is not null and status <> 'rate_limited' and at > now() - interval '1 minute'`, [sys.org.id, channelId, msg.fromId]);
   if (Number(recent?.n ?? 0) >= budget) {
     await logRow(sys.db, sys.org.id, { channel: channelId, direction: "in", status: "rate_limited", key: msg.key ? `${msg.key}:rl` : null, external: msg.fromId });
     return { ok: true, status: "rate_limited" };
   }
-  const logId = await logRow(sys.db, sys.org.id, { channel: channelId, direction: "in", status: "received", key: msg.key || null, external: msg.fromId, text: msg.text });
+  // a delivery without an id of its own is never a duplicate, but still counts against the chat's budget
+  const logId = await logRow(sys.db, sys.org.id, { channel: channelId, direction: "in", status: "received", key: msg.key || `nokey:${uuidv7()}`, external: msg.fromId, text: msg.text });
   if (!logId) return { ok: true, status: "duplicate" };
   await sys.write(async (tx) => {
     await updateIn(tx, sys, "portal_channel", channelId, { last_in_at: nowIso(), received_count: Number(channel.received_count ?? 0) + 1 }, { trusted: true, keepVersion: true });

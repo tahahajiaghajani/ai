@@ -18,7 +18,7 @@
 //   POST /portal/hooks/:key                      a messenger's or a gateway's delivery (signed)
 //   GET  /portal/survey/:token · POST …           a survey by its signed single-use link
 //   GET  /portal/kb/:token · /search · /a/:slug · POST /a/:slug/vote   published knowledge
-//   GET  /portal/widget/:key.js · /config · POST /search (allowed sites only) · OPTIONS /search
+//   GET  /portal/widget/:key.js · /config · /search (from the widget's allowed sites only)
 import { z } from "zod";
 import { router, body, query, type C } from "../http/hono";
 import { AppError, bad, forbidden, notFound } from "../http/errors";
@@ -28,7 +28,7 @@ import {
   approvalDetail, catalogPage, channelLog, choosePortal, ensurePortalSweep, logEvent, managesChannels, myIdentities, myItems, newChannelSecret, newLinkCode, portalAnalytics, portalConfig, portalHome, portalLogo, portalSearch,
   portalTodo, publicKbArticle, publicKbHome, publicKbSearch, publicKbVote, publicSurveyView, publications, publishLayout, receiveHook, recordSurveys, registerChannelWebhook, replySuggestions, replyToTicket, rotateChannelKey,
   rotateWidgetKey, searchAnswer, seedPortalDefaults, sendCampaign, setPublication, submitPublicSurvey, submitSurvey, surveyResults, surveyView, ticketAction, ticketView, toggleFavorite, topicPage, unlinkIdentity,
-  widgetConfig, widgetOrigin, widgetScript, widgetSearch, widgetSnippet, managesPortal, MAX_HOOK_BYTES,
+  widgetConfig, widgetScript, widgetSearch, widgetSnippet, managesPortal, MAX_HOOK_BYTES,
 } from "../modules/portal";
 import { liveRow, liveRows, subjectFor, sysOf } from "../modules/portal/common";
 
@@ -270,23 +270,10 @@ publicRoutes.get("/portal/widget/:file", async (c) => {
 });
 publicRoutes.get("/portal/widget/:key/config", async (c) => c.json(await widgetConfig(c.get("cfg"), c.req.param("key"))));
 
-publicRoutes.options("/portal/widget/:key/search", async (c) => {
-  const origin = await widgetOrigin(c.get("cfg"), c.req.param("key"), c.req.header("origin"));
-  if (!origin) return c.body(null, 403);
-  return c.body(null, 204, { "Access-Control-Allow-Origin": origin, "Access-Control-Allow-Methods": "POST", "Access-Control-Allow-Headers": "content-type", "Access-Control-Max-Age": "600", Vary: "Origin" });
-});
-publicRoutes.post("/portal/widget/:key/search", rateLimit(WIDGET_LIMIT), async (c) => {
-  const raw = await c.req.text();
-  if (raw.length > 2000) throw new AppError(413, "too_large", "درخواست بیش از اندازه است");
-  let q = "";
-  try {
-    const parsed = JSON.parse(raw) as { q?: unknown };
-    q = typeof parsed.q === "string" ? parsed.q.slice(0, 120) : "";
-  } catch {
-    throw bad("بدنهٔ درخواست JSON نیست");
-  }
-  const r = await widgetSearch(c.get("cfg"), c.req.param("key"), c.req.header("origin"), q);
-  c.header("Access-Control-Allow-Origin", r.origin);
+// a GET (the platform refuses cross-origin mutations): the Origin a browser sends must be one of the widget's sites
+publicRoutes.get("/portal/widget/:key/search", rateLimit(WIDGET_LIMIT), async (c) => {
+  const q = query(c, z.object({ q: z.string().max(120).default("") }));
+  const r = await widgetSearch(c.get("cfg"), c.req.param("key"), c.req.header("origin"), q.q);
   c.header("Vary", "Origin");
   return c.json({ hits: r.hits });
 });

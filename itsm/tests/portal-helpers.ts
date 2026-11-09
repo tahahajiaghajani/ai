@@ -58,7 +58,7 @@ export async function portalWorld(): Promise<PortalWorld> {
     await o.put(`${P}/access/members/${p[k].userId}`, profile);
   }
   await o.post(`${P}/access/groups/${desk}/members`, { user_ids: [p.agent.userId] });
-  await o.post(`${P}/access/groups/${managers}/members`, { user_ids: [p.km.userId] });
+  await o.post(`${P}/access/groups/${managers}/members`, { user_ids: [p.km.userId, e.ownerId] });
   const sys = await systemCtx(e.cfg, e.org);
   const drain = async () => {
     for (let i = 0; i < 40; i++) {

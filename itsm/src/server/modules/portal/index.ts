@@ -74,6 +74,6 @@ export {
 } from "./surveys";
 export { newChannelSecret, rotateChannelKey, registerChannelWebhook, channelLog, newLinkCode, myIdentities, unlinkIdentity, receiveHook, verifyHook, processChannelMessage, hookUrl, JOB_MESSAGE, MAX_HOOK_BYTES } from "./channels";
 export { publicKbHome, publicKbSearch, publicKbArticle, publicKbVote, publications, setPublication, slugOf, idOfSlug, PUBLIC_BASE, publicArticles } from "./publickb";
-export { widgetConfig, widgetSearch, widgetOrigin, widgetScript, widgetSnippet, rotateWidgetKey } from "./widget";
+export { widgetConfig, widgetSearch, widgetScript, widgetSnippet, rotateWidgetKey } from "./widget";
 export { searchAnswer, replySuggestions, ruleAnswer, ruleReplies, PORTAL_SKILLS } from "./ai";
 export { portalAnalytics } from "./analytics";
