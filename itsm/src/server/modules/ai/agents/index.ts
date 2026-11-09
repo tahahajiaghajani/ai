@@ -9,6 +9,7 @@ import { z } from "zod";
 import { registerAiFeaturePrefix } from "../settings";
 import { defineTool, type AiToolDef } from "../tools/registry";
 import { registerTool } from "../tools";
+import { installModuleTools } from "../tools/modules";
 import { installAgentHooks } from "./hooks";
 import { installAgentRuns } from "./runtime";
 import { installAgentTriggers } from "./triggers";
@@ -54,4 +55,6 @@ export function installAiAgents(): void {
   installAgentTriggers();
   installBuiltinAgents();
   registerTool(startAgentTool);
+  // tools over the modules' services (change risk, CMDB impact, ordering for someone) — the agents and the assistant
+  installModuleTools();
 }
