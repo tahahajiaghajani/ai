@@ -302,7 +302,8 @@ const secTask: TableDef = {
     ...hideTaskFields(["channel", "category", "subcategory", "impact", "urgency", "requested_for", "offering_id", "knowledge", "escalation", "parent_id", "close_code", "service_id", "location_id"]),
   ],
   states: SEC_TASK_STATES,
-  scope: { ...TASK_SCOPE, requesterWritable: [], requesterTransitions: [] },
+  // parent-scoped (ACCESS §7): a response task is read only by those who may read its security incident
+  scope: { ...TASK_SCOPE, requesterWritable: [], requesterTransitions: [], parent: "sec_incident_id" },
   features: { approvals: true },
   list: { columns: ["number", "short_description", "sec_incident_id", "phase", "state", "action", "approval", "assigned_to"], order: "sort_order,number" },
 };
@@ -389,7 +390,7 @@ const secEvidence: TableDef = {
     { name: "notes", label: "یادداشت", type: "text", span: 24 },
   ],
   states: EVIDENCE_STATES,
-  scope: { own: ["custodian_id", "collected_by"], group: "assignment_group_id", requester: [] },
+  scope: { own: ["custodian_id", "collected_by"], group: "assignment_group_id", requester: [], parent: "sec_incident_id" },
   features: { journal: true, attachments: true, links: true, confidential: true },
   list: { columns: ["number", "title", "kind", "sec_incident_id", "state", "custodian_id", "legal_hold"], order: "-collected_at" },
 };
@@ -439,7 +440,7 @@ const secRegClock: TableDef = {
     { name: "notes", label: "یادداشت", type: "text", span: 24 },
   ],
   states: REG_CLOCK_STATES,
-  scope: { own: ["owner_id"], group: "assignment_group_id", requester: [] },
+  scope: { own: ["owner_id"], group: "assignment_group_id", requester: [], parent: "sec_incident_id" },
   features: { journal: true, attachments: true },
   list: { columns: ["number", "sec_incident_id", "regime_id", "state", "next_stage", "next_due_at", "overdue"], order: "next_due_at" },
 };

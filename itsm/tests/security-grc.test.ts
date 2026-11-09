@@ -117,7 +117,9 @@ describe("policies and acknowledgement campaigns", () => {
     expect(mine.length).toBe(1);
     expect(mine[0].body).toMatch(/USB/);
     expect((await w.p.req.client.get(`${w.P}/r/grc_policy/${pol.id}`)).row.title).toBe("خط‌مشی استفادهٔ قابل‌قبول");
-    await w.p.req.client.get(`${w.P}/r/grc_policy?size=5`, 403);
+    // a member who reads policies only through the campaign grant lists exactly the granted ones (ACCESS participant reach)
+    const listed = (await w.p.req.client.get(`${w.P}/r/grc_policy?size=5`)).rows as any[];
+    expect(listed.map((r) => r.id)).toEqual([pol.id]);
     await w.p.agent.client.post(`${w.P}/security/policies/campaigns/${camp.id}/ack`, {}, 403);
     await w.p.req.client.post(`${w.P}/security/policies/campaigns/${camp.id}/ack`, {});
     const st = await w.p.grc.client.get(`${w.P}/security/policies/campaigns/${camp.id}/status`);
