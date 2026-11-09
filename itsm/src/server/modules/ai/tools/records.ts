@@ -55,7 +55,14 @@ const NO_TOOLS = new Set<string>();
 /** Areas whose tables get read tools only (configuration: changing how the system behaves stays on its pages). */
 const READ_ONLY_AREAS = new Set(["settings", "users", "org", "notifications", "flows", "ai", "integrations", "sla"]);
 /** Tables changed only through their own screens (decisions, deliveries, saved views, simulations). */
-const READ_ONLY_TABLES = new Set(["approval", "delegation", "notification", "notification_pref", "view", "cmdb_map", "cmdb_query", "ci_impact_sim", "custom_field", "choice", "request_answer", "request_cart", "request_cart_line", "catalog_item_version", "kb_version", "task_sla"]);
+const READ_ONLY_TABLES = new Set([
+  "approval", "delegation", "notification", "notification_pref", "view", "cmdb_map", "cmdb_query", "ci_impact_sim", "custom_field", "choice", "request_answer", "request_cart", "request_cart_line", "catalog_item_version", "kb_version", "task_sla",
+  // written only by their module (a draft would always be refused): stored KPI scores and deliveries, the report
+  // settings; DevOps machine data and deployment gates; go/no-go decisions (the release page and the approvals service)
+  "analytics_score", "analytics_delivery", "analytics_config",
+  "dev_event", "dev_commit", "dev_pull_request", "dev_build", "change_gate",
+  "release_decision",
+]);
 
 /** A module keeps a table out of the generated tools (its own tools cover it). Returns the removal. */
 export function excludeFromTools(table: string): () => void {

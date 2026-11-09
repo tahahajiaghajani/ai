@@ -8,6 +8,7 @@
 // Declared here as well (docs/spec/AI.md §11): the skills «analytics.ask» (question → definition, JSON) and
 // «analytics.narrate» (a description of a computed result), each with its rule-based fallback, and the assistant's
 // read-only tools `analytics_report` (a governed aggregate as the caller) and `kpi_scorecard` (the caller's KPIs).
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { parseQuestion, type NlChip, type NlTable } from "@shared/analytics/nl";
 import { MEASURE_FNS, specProblem, VIZ_TYPES, groupable, TIME_PRESETS, windowLabel } from "@shared/analytics/model";
@@ -269,11 +270,23 @@ export const SKILL_AI: AnalyticsAi = {
 
 // ----- the assistant's tools -------------------------------------------------------------------------------------------
 
+/** Characters `encodeURIComponent` leaves that an in-app link (`safePath`) does not take. */
+const strictEncode = (s: string) => encodeURIComponent(s).replace(/[!'()*~]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+
+/**
+ * The report designer opened on a definition (`?spec=`, as «پرسش از داده‌ها» opens it): the assistant's link to adjust
+ * and save a report it computed in a conversation. Null when the definition is too long for a link.
+ */
+export function designerPath(spec: ReportSpec, name: string): string | null {
+  const path = `analytics/reports/new?spec=${strictEncode(JSON.stringify(spec))}&name=${strictEncode(name.slice(0, 120))}`;
+  return path.length <= 4000 ? path : null;
+}
+
 const reportTool = defineTool({
   name: "analytics_report",
   title_fa: "گزارش از داده‌ها",
   description:
-    "A governed aggregate over one ITSM table, computed in SQL with the caller's own access (only the records the caller may read are counted). Input: table key (incident, change_request, request_item, problem, kb_article, task_sla…), measure (count, count_distinct, sum, avg, min, max, median, p90, p95; durations are seconds), optional field to measure, up to two group-by fields (a date field takes a Jalali bucket: day, week, month, quarter, year, weekday, hour_of_day), an optional relative window (preset key: today, 7d, 30d, 90d, week, month, last_month, quarter, last_quarter, 6m, 12m, year, last_year) on a date field. Returns at most 30 groups with labels, the totals and the record count. Use it for «how many», «average time», «by priority» questions instead of guessing numbers.",
+    "A governed aggregate over one ITSM table, computed in SQL with the caller's own access (only the records the caller may read are counted). Input: table key (incident, change_request, request_item, problem, kb_article, task_sla…), measure (count, count_distinct, sum, avg, min, max, median, p90, p95; durations are seconds), optional field to measure, up to two group-by fields (a date field takes a Jalali bucket: day, week, month, quarter, year, weekday, hour_of_day), an optional relative window (preset key: today, 7d, 30d, 90d, week, month, last_month, quarter, last_quarter, 6m, 12m, year, last_year) on a date field. Returns at most 30 groups with labels, the totals and the record count, and a link that opens the report in the designer, where the person can adjust and save it. Use it for «how many», «average time», «by priority» questions instead of guessing numbers.",
   input: z.object({
     table: z.string().max(60),
     measure: z.enum(MEASURE_FNS.filter((f) => f !== "ratio") as [string, ...string[]]).default("count"),
@@ -301,7 +314,10 @@ const reportTool = defineTool({
     };
     const r = await runReport(ctx, spec);
     const m = r.measures[0];
+    const path = designerPath(spec, `${m?.label ?? "گزارش"} — ${r.table_label}`);
     return {
+      // the conversation's report, opened in the designer to adjust and save (run again there with the reader's access)
+      ...(path ? { refs: [{ type: "analytics_report", id: `draft-${createHash("sha256").update(JSON.stringify(spec)).digest("hex").slice(0, 12)}`, label: "گشودن و ذخیرهٔ این گزارش در طراح", path }] } : {}),
       data: {
         table: r.table_label,
         measure: m ? { label: m.label, unit: UNITS[m.unit] } : null,
@@ -320,7 +336,7 @@ const scorecardTool = defineTool({
   name: "kpi_scorecard",
   title_fa: "کارت امتیاز شاخص‌ها",
   description:
-    "The organisation's performance indicators (MTTA, MTTR, first-contact resolution, reopen rate, SLA compliance, backlog, change success rate…) for the current period as the caller may see them (computed with the caller's access), with the previous period, the change in percent, the target and the status (good/warn/bad). Optional practice filter: incident, problem, change, request, knowledge, sla, cmdb.",
+    "The organisation's performance indicators (MTTA, MTTR, first-contact resolution, reopen rate, SLA compliance, backlog, change success rate…) for the current period as the caller may see them (computed with the caller's access), with the previous period, the change in percent, the target and the status (good/warn/bad). Optional practice filter: incident, problem, change, request, knowledge, sla, cmdb, release (DORA and release KPIs), project.",
   input: z.object({ practice: z.string().max(20).optional() }),
   kind: "read",
   area: "ai",
