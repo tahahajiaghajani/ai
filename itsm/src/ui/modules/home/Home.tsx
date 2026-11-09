@@ -2,7 +2,8 @@
 // those who manage AI, a welcome card with the first steps of a new organisation (each only for those who may take
 // it) and the organisation at a glance. Later modules add their own cards to this page.
 import "./home.css";
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
+import { homeWidgets } from "./widgets";
 import { Link } from "react-router";
 import { Button } from "antd";
 import { Building2, UserCog, Plug, Monitor, CircleUser, CircleHelp, type LucideIcon } from "lucide-react";
@@ -140,6 +141,11 @@ export default function Home() {
             </Fact>
           </dl>
         </Card>
+        {homeWidgets()
+          .filter((x) => !x.when || x.when((area, level) => can(area as never, level as never)))
+          .map((x) => (
+            <Fragment key={x.key}>{x.render()}</Fragment>
+          ))}
       </div>
     </div>
   );

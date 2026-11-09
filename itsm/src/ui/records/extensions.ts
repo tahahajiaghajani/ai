@@ -30,6 +30,17 @@ export interface RecordContext {
   refresh: () => void;
 }
 
+/** What the new-record form's assist slot gets: the values being typed and how to set one (no save happens). */
+export interface DraftContext {
+  table: string;
+  def: TableMeta;
+  values: Record<string, unknown>;
+  /** sets a field of the form, as if the person had chosen it */
+  setValue: (field: string, value: unknown) => void;
+  /** fields the person may set on this form now (not read-only, not hidden) */
+  editable: (field: string) => boolean;
+}
+
 /** What the composer's slots get: the record, the tab in use and the text being written. */
 export interface ComposerContext {
   record: RecordContext;
@@ -137,6 +148,8 @@ export interface RecordExtensions {
   cannedResponses?: (c: ComposerContext) => ReactNode;
   /** composer slot: an AI draft of the reply or note; renders nothing when absent */
   aiDraft?: (c: ComposerContext) => ReactNode;
+  /** new-record form slot under the fields (the AI layer's suggestions as the person types); renders nothing when absent */
+  createAssist?: (c: DraftContext) => ReactNode;
   /** fields shown on kanban cards and record previews */
   cardFields?: string[];
   /** fields a new record starts with (a template), on top of the definition's defaults */
@@ -182,6 +195,7 @@ export function extensionsFor(table: string): RecordExtensions {
     if (p.tabs) out.tabs = [...(out.tabs ?? []), ...p.tabs];
     if (p.cannedResponses) out.cannedResponses = p.cannedResponses;
     if (p.aiDraft) out.aiDraft = p.aiDraft;
+    if (p.createAssist) out.createAssist = p.createAssist;
     if (p.cardFields) out.cardFields = p.cardFields;
     if (p.defaults) out.defaults = p.defaults;
   }

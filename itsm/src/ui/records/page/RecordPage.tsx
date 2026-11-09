@@ -240,6 +240,7 @@ function CreateRecord({ def, schema, extensions, back }: { def: TableMeta; schem
       <div className="rk-rp-grid is-single">
         <div className="rk-rp-main">
           <FormTabs tabs={tabs} render={(sections) => <RecordForm def={def} schema={schema} sections={sections} values={values} state={state} mode="edit" errors={errors} display={{}} me={userId} tz={tz} onChange={onChange} idPrefix="new" />} />
+          {ext.createAssist ? ext.createAssist({ table: def.key, def, values, setValue: onChange, editable: (f) => !state.readonly.has(f) && !state.hidden.has(f) }) : null}
           <div className="rk-savebar">
             <Button onClick={cancel} disabled={saving}>
               انصراف

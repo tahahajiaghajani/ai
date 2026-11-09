@@ -19,7 +19,7 @@ export { MarkdownEditor } from "./fields/MarkdownEditor";
 export { ImportRecords, exportList } from "./list/transfer";
 export {
   registerRecordExtensions, registerRefPicker, refPickerFor, extensionsFor, tablePath, recordPath, newRecordPath, setPolicySource, setHolidaySource, registerCalendarDecor, calendarDecorOf,
-  type RecordExtensions, type ListPreset, type RecordContext, type ComposerContext, type SidePanelWidget, type RecordTab, type MoreAction, type BulkAction, type Holiday, type BandSource, type CalendarDecor,
+  type RecordExtensions, type ListPreset, type RecordContext, type ComposerContext, type DraftContext, type SidePanelWidget, type RecordTab, type MoreAction, type BulkAction, type Holiday, type BandSource, type CalendarDecor,
 } from "./extensions";
 export { recordModule, recordSearch, RecordListRoute, RecordPageRoute, type RecordModuleSpec, type RecordTableEntry } from "./module";
 export {

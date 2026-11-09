@@ -1,0 +1,22 @@
+/* Insight cards (tokens only; status is the exception: a quiet line, a chip only for warnings and anomalies). */
+.in-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--ds-space-3); }
+.in-stack { display: flex; flex-direction: column; gap: var(--ds-space-2); }
+.in-card { display: flex; flex-direction: column; gap: var(--ds-space-2); padding: var(--ds-space-3); border: 1px solid var(--ds-line); border-radius: var(--ds-radius-md); background: var(--ds-surface); }
+.in-card.is-warning { border-inline-start: 3px solid var(--ds-warning); }
+.in-card.is-critical { border-inline-start: 3px solid var(--ds-danger); }
+.in-card.is-compact { padding: var(--ds-space-2); gap: var(--ds-space-1); }
+.in-head { display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-2); }
+.in-kind { color: var(--ds-text-3); font-size: 12px; }
+.in-tags { display: inline-flex; gap: var(--ds-space-1); }
+.in-title { margin: 0; font-size: 15px; font-weight: var(--ds-weight-medium); color: var(--ds-text); }
+.in-numbers { display: flex; flex-wrap: wrap; gap: var(--ds-space-4); margin: 0; }
+.in-numbers dt { color: var(--ds-text-3); font-size: 12px; }
+.in-numbers dd { margin: 0; color: var(--ds-text); }
+.in-drivers { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--ds-space-1); font-size: 13px; }
+.in-drivers li { display: flex; gap: var(--ds-space-2); justify-content: space-between; }
+.in-up { color: var(--ds-danger); }
+.in-down { color: var(--ds-in); }
+.in-text { margin: 0; color: var(--ds-text-2); }
+.in-label, .in-period { margin: 0; color: var(--ds-text-3); font-size: 12px; }
+.in-settings { display: flex; flex-wrap: wrap; gap: var(--ds-space-4); align-items: flex-end; }
+@media (max-width: 640px) { .in-grid { grid-template-columns: 1fr; } }

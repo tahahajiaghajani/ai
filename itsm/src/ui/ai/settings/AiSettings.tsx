@@ -23,6 +23,9 @@ import { ActivityTab } from "./Activity";
 import { RetrievalTab } from "./Retrieval";
 import { SkillsTab } from "../skills/Admin";
 import { AgentsTab } from "../agents/Studio";
+import { lazy, Suspense } from "react";
+
+const Governance = lazy(() => import("../governance/Governance"));
 
 const TABS = [
   { key: "connections", label: "اتصال‌ها" },
@@ -33,6 +36,7 @@ const TABS = [
   { key: "features", label: "قابلیت‌ها و حریم خصوصی" },
   { key: "usage", label: "مصرف و بودجه" },
   { key: "activity", label: "فعالیت دستیار" },
+  { key: "governance", label: "حاکمیت" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
@@ -130,6 +134,10 @@ export default function AiSettings() {
         <SkillsTab />
       ) : tab === "agents" ? (
         <AgentsTab />
+      ) : tab === "governance" ? (
+        <Suspense fallback={<Skeleton rows={8} />}>
+          <Governance />
+        </Suspense>
       ) : !s ? (
         settings.error ? (
           <div className="blk-card">
