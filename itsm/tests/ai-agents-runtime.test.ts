@@ -226,6 +226,40 @@ describe("agents run as their principal", () => {
     expect(FAKE_INBOX.map((t) => t.text).join("\n")).toContain("یادداشت داخلی ویژهٔ کارشناسان");
   });
 
+  it("runs on its schedule (one record-less run per period) and from a conversation with the assistant", async () => {
+    await agent("t_sched", { triggers: ["schedule"], schedule_minutes: 15, goal: "گزارش کوتاه بنویس.", tools: ["search_incident"] });
+    // switching it on queued the organisation's schedule round (a few seconds later): bring it forward
+    const queued = await w.e.db.query(`update sm_jobs set run_at = now() where org_id = $1 and kind = 'ai.agents.schedule' and status = 'queued' returning id`, [w.e.org]);
+    expect(queued.length).toBe(1);
+    await w.drain();
+    const runs = (await w.o.get(`${w.P}/ai/agents/runs?agent=t_sched`)).runs as AgentRunView[];
+    expect(runs.length).toBe(1);
+    expect(runs[0].trigger).toBe("schedule");
+    expect(runs[0].record_id).toBeNull();
+    expect(runs[0].status).toBe("done");
+    // a second round within the period queues nothing
+    await w.drain();
+    expect(((await w.o.get(`${w.P}/ai/agents/runs?agent=t_sched`)).runs as AgentRunView[]).length).toBe(1);
+
+    await agent("t_conv", { triggers: ["conversation"], goal: "رخداد را بخوان.", tools: ["get_incident"] });
+    const res = await w.e.app.fetch(new Request(`http://local.test/api${w.P}/ai/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: w.p.agent.client.cookie },
+      body: JSON.stringify({ text: `[tool:start_agent {"agent":"t_conv","table":"incident","id":"${inc}"}] عامل را اجرا کن` }),
+    }));
+    expect(await res.text()).toContain('"tool_end"');
+    await w.drain();
+    const conv = (await w.o.get(`${w.P}/ai/agents/runs?agent=t_conv`)).runs as AgentRunView[];
+    expect(conv.length).toBe(1);
+    expect(conv[0].trigger).toBe("conversation");
+    expect(conv[0].started_by?.id).toBe(w.p.agent.userId);
+    // its starter sees the status of the run, never its steps
+    const mine = (await w.p.agent.client.get(`${w.P}/ai/agents/runs/${conv[0].id}`)).run as AgentRunView;
+    expect(mine.status).toBe("done");
+    expect(mine.steps).toEqual([]);
+    expect(mine.outcome).toBeNull();
+  });
+
   it("starts from a record event, never for its own principal's writes", async () => {
     await agent("t_event", { triggers: ["event"], events: ["created"], tables: ["incident"], goal: "رخداد تازه را بسنج.", tools: ["get_incident"] });
     const n0 = ((await w.o.get(`${w.P}/ai/agents/runs?agent=t_event`)).runs as AgentRunView[]).length;

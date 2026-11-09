@@ -495,8 +495,18 @@ export function installAgentRuns(): void {
   registerJobHandler(JOB, async (job, jctx) => {
     const id = typeof job.payload.run === "string" ? job.payload.run : null;
     if (!job.org_id || !id) return;
-    const r = await advanceRun(jctx.cfg as ServerConfig, job.org_id, id, { deadline: jctx.deadline });
-    if (r.again !== undefined) return { again: r.again };
+    const cfg = jctx.cfg as ServerConfig;
+    try {
+      const r = await advanceRun(cfg, job.org_id, id, { deadline: jctx.deadline });
+      if (r.again !== undefined) return { again: r.again };
+    } catch (e) {
+      // the queue retries; on the last attempt the run ends «failed» instead of staying «running»
+      if (job.attempts >= job.max_attempts) {
+        const run = await runRow(cfg, job.org_id, id).catch(() => null);
+        if (run && ["queued", "running"].includes(String(run.status))) await finish({ cfg, orgId: job.org_id, run }, "failed", { error: aiErrorText("other").message }).catch(() => undefined);
+      }
+      throw e;
+    }
   });
 }
 
