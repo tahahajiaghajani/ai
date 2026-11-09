@@ -4,7 +4,7 @@
 //
 //   GET  /meta · POST /seed
 //   GET  /board?day&territory              the dispatch board of a day
-//   GET  /tasks/:id/candidates?start       technicians ranked for a task
+//   GET  /tasks/:id/candidates?start       technicians ranked for a task (dispatchers, as assignment below)
 //   POST /tasks/:id/assign                 assign (the board's drop) — { technician_id, start, force }
 //   POST /tasks/:id/auto-assign            the best feasible technician now
 //   POST /tasks/:id/step                   accept | reject | depart | arrive | complete | leave (with the position)
@@ -38,6 +38,13 @@ async function needField(ctx: Ctx, table = "wo_task") {
   return ctx;
 }
 
+/** Ranking and assigning technicians is the dispatchers' (it compares people's skills, load and distance). */
+async function needDispatch(ctx: Ctx) {
+  await needField(ctx);
+  if (!(await dispatches(ctx.db, ctx))) throw forbidden("واگذاری بازدیدها با توزیع‌کننده است");
+  return ctx;
+}
+
 fieldServiceRoutes.get("/meta", async (c) => {
   const ctx = await needField(c.get("ctx"));
   const cfg = await fsmConfig(ctx.db, sysOf(ctx));
@@ -59,19 +66,19 @@ fieldServiceRoutes.get("/board", async (c) => {
 });
 
 fieldServiceRoutes.get("/tasks/:id/candidates", async (c) => {
-  const ctx = await needField(c.get("ctx"));
+  const ctx = await needDispatch(c.get("ctx"));
   const q = query(c, z.object({ start: z.string().max(40).optional() }));
   return c.json({ candidates: await candidatesFor(ctx, UUID.parse(c.req.param("id")), q.start ?? null) });
 });
 
 fieldServiceRoutes.post("/tasks/:id/assign", async (c) => {
-  const ctx = await needField(c.get("ctx"));
+  const ctx = await needDispatch(c.get("ctx"));
   const input = await body(c, z.object({ technician_id: UUID, start: z.string().max(40).nullish(), force: z.boolean().optional() }));
   return c.json(await assignTask(ctx, UUID.parse(c.req.param("id")), input));
 });
 
 fieldServiceRoutes.post("/tasks/:id/auto-assign", async (c) => {
-  const ctx = await needField(c.get("ctx"));
+  const ctx = await needDispatch(c.get("ctx"));
   return c.json(await autoAssign(ctx, UUID.parse(c.req.param("id"))));
 });
 

@@ -104,6 +104,9 @@ describe("field service: dispatch and the visit", () => {
     await w.get("wo_task", taskId, tech2.client, 404);
     await w.get("work_order", woId, tech2.client, 404);
     await w.get("wo_task", taskId, w.p.it.client, 404);
+    // ranking and assigning people is the dispatchers' (a technician sees no colleague's load or distance)
+    await tech.client.get(`${w.P}/field_service/tasks/${taskId}/candidates`, 403);
+    await tech.client.post(`${w.P}/field_service/tasks/${taskId}/assign`, { technician_id: tech2.userId }, 403);
   });
 
   it("runs the visit: accept, depart (the customer hears it, no name), arrive, checklist, complete, sign-off", async () => {
