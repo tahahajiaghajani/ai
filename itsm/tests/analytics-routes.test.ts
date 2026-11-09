@@ -5,6 +5,7 @@
 // the tick that delivers what is due.
 import { describe, it, expect, beforeAll } from "vitest";
 import { tick } from "@server/jobs";
+import { LIBRARY_DASHBOARDS } from "@shared/analytics/library";
 import { analyticsWorld, type AnalyticsWorld } from "./analytics-helpers";
 
 let w: AnalyticsWorld;
@@ -123,7 +124,8 @@ describe("files, copies and administration", () => {
     await w.sdm.client.post(`${w.P}/analytics/seed`, { force: true }, 403);
     await w.p.agent.client.post(`${w.P}/analytics/collect`, {}, 403);
     const lib = await w.p.agent.client.get(`${w.P}/analytics/library`);
-    expect(lib.dashboards.length).toBe(2);
+    // every seeded dashboard whose tables exist (incident, change and — with the release module — release/DevOps)
+    expect(lib.dashboards.length).toBe(LIBRARY_DASHBOARDS.length);
   });
 });
 
