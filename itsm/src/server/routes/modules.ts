@@ -43,6 +43,8 @@ import { installAiAgents } from "../modules/ai/agents";
 import { agentRoutes } from "./ai-agents";
 import { installVirtualAgent } from "../modules/ai/va";
 import { vaRoutes } from "./ai-va";
+import { installEsmModule } from "../modules/esm";
+import { esmRoutes } from "./esm";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
 installAccessModel();
@@ -78,6 +80,9 @@ installReleaseModule();
 installDevopsModule();
 // project and portfolio management (docs/modules/project_FA.md) — its gate runs on the approvals service
 installProjectModule();
+// enterprise service management (docs/modules/esm_FA.md) — after the request module (department catalogues) and the
+// SLA service (approvals of journey activities and bookings)
+installEsmModule();
 // analytics, reporting and KPIs (docs/modules/analytics_FA.md) — after every module whose tables it reports on
 installAnalyticsModule();
 
@@ -113,3 +118,4 @@ moduleRoutes.route("/release", releaseRoutes);
 moduleRoutes.route("/devops", devopsRoutes);
 moduleRoutes.route("/project", projectRoutes);
 moduleRoutes.route("/analytics", analyticsRoutes);
+moduleRoutes.route("/esm", esmRoutes);

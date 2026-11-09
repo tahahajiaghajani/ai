@@ -8366,6 +8366,7 @@ alter table sm_journeys add column if not exists day_one_ready boolean not null 
 alter table sm_journeys add column if not exists next_due date;
 alter table sm_journeys add column if not exists started_at timestamptz;
 alter table sm_journeys add column if not exists completed_at timestamptz;
+alter table sm_journeys add column if not exists cycle_time bigint;
 alter table sm_journeys add column if not exists opened_by uuid;
 alter table sm_journeys add column if not exists watch_list jsonb;
 alter table sm_journeys add column if not exists state text;
@@ -8433,6 +8434,8 @@ alter table sm_journey_activities add column if not exists day_one boolean not n
 alter table sm_journey_activities add column if not exists overdue boolean not null default false;
 alter table sm_journey_activities add column if not exists condition jsonb;
 alter table sm_journey_activities add column if not exists catalog_item_code text;
+alter table sm_journey_activities add column if not exists order_answers jsonb;
+alter table sm_journey_activities add column if not exists approval text;
 alter table sm_journey_activities add column if not exists case_table text;
 alter table sm_journey_activities add column if not exists case_department_id uuid;
 alter table sm_journey_activities add column if not exists record_table text;
@@ -8555,6 +8558,7 @@ alter table sm_journey_template_activities add column if not exists duration_day
 alter table sm_journey_template_activities add column if not exists after jsonb;
 alter table sm_journey_template_activities add column if not exists condition jsonb;
 alter table sm_journey_template_activities add column if not exists catalog_item_code text;
+alter table sm_journey_template_activities add column if not exists order_answers jsonb;
 alter table sm_journey_template_activities add column if not exists case_table text;
 alter table sm_journey_template_activities add column if not exists case_department_id uuid;
 alter table sm_journey_template_activities add column if not exists day_one boolean not null default false;
@@ -14641,7 +14645,7 @@ alter table sm_visits add column if not exists safety_ack boolean not null defau
 alter table sm_visits add column if not exists requires_nda boolean not null default false;
 alter table sm_visits add column if not exists checked_in_at timestamptz;
 alter table sm_visits add column if not exists checked_out_at timestamptz;
-alter table sm_visits add column if not exists wait_minutes integer;
+alter table sm_visits add column if not exists late_minutes integer;
 alter table sm_visits add column if not exists state text;
 create unique index if not exists sm_visits_no_uk on sm_visits (org_id, no);
 create index if not exists sm_visits_rev_idx on sm_visits (org_id, rev);

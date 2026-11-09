@@ -456,6 +456,7 @@ const journeyTemplateActivity: TableDef = {
     { name: "after", label: "پس از", type: "tags", span: 16, help: "کد فعالیت‌هایی که باید پیش از این انجام شوند" },
     { name: "condition", label: "شرط", type: "conditions", condTable: "journey", span: 24, help: "خالی: همیشه. مثلاً «نوع استخدام قراردادی»" },
     { name: "catalog_item_code", label: "کد قلم کاتالوگ", type: "string", maxLength: 60, ltr: true, span: 8, help: "برای «سفارش از کاتالوگ»" },
+    { name: "order_answers", label: "پاسخ‌های فرم سفارش", type: "json", span: 24, help: "{\"model\": \"standard\", \"os\": \"windows\"}" },
     { name: "case_table", label: "نوع پرونده", type: "choice", choices: CASE_TABLE_OPTIONS, span: 8, help: "برای «پرونده در واحد دیگر»" },
     { name: "case_department_id", label: "واحد مقصد", type: "ref", ref: "esm_department", span: 8 },
     { name: "day_one", label: "لازم برای روز نخست", type: "bool", default: false, list: true, filter: true, span: 8 },
@@ -684,6 +685,7 @@ const journey: TableDef = {
     { name: "next_due", label: "نزدیک‌ترین مهلت", type: "date", readonly: true, sort: true, span: 8, section: J_PROGRESS },
     { name: "started_at", label: "زمان آغاز", type: "datetime", readonly: true, span: 8, section: J_PROGRESS },
     { name: "completed_at", label: "زمان پایان", type: "datetime", readonly: true, sort: true, span: 8, section: J_PROGRESS },
+    { name: "cycle_time", label: "مدت سفر", type: "duration", readonly: true, sort: true, span: 8, section: J_PROGRESS },
     { name: "opened_by", label: "ثبت‌کننده", type: "user", default: "$me", readonly: true, span: 8, section: J_PROGRESS },
     { name: "watch_list", label: "پیگیری‌کنندگان", type: "users", span: 24 },
   ],
@@ -748,6 +750,8 @@ const journeyActivity: TableDef = {
     { name: "overdue", label: "دیرکرد", type: "bool", readonly: true, default: false, filter: true, span: 6 },
     { name: "condition", label: "شرط", type: "conditions", condTable: "journey", readonly: true, span: 24 },
     { name: "catalog_item_code", label: "کد قلم کاتالوگ", type: "string", maxLength: 60, ltr: true, readonly: true, span: 8 },
+    { name: "order_answers", label: "پاسخ‌های فرم سفارش", type: "json", readonly: true, hidden: true },
+    { name: "approval", label: "تأیید", type: "choice", choices: APPROVAL_STATES, default: "not_requested", readonly: true, filter: true, span: 8 },
     { name: "case_table", label: "نوع پرونده", type: "choice", choices: CASE_TABLE_OPTIONS, readonly: true, span: 8 },
     { name: "case_department_id", label: "واحد مقصد", type: "ref", ref: "esm_department", readonly: true, span: 8 },
     { name: "record_table", label: "جدول رکورد کاری", type: "string", maxLength: 60, ltr: true, readonly: true, hidden: true },
@@ -764,7 +768,7 @@ const journeyActivity: TableDef = {
   ],
   states: ACTIVITY_STATES,
   scope: { own: ["assignee_id"], requester: [], readers: ["journey_readers"], group: "hr_group_id" },
-  features: { journal: true, attachments: false, links: false, watchers: false },
+  features: { journal: true, attachments: false, links: false, watchers: false, approvals: true },
   list: { columns: ["journey_id", "name", "phase", "kind", "state", "assignee_id", "due_date", "record_number"], order: "journey_id,sort_order" },
 };
 
@@ -940,7 +944,7 @@ const visit: TableDef = {
     { name: "requires_nda", label: "تعهد محرمانگی لازم است", type: "bool", default: false, span: 8 },
     { name: "checked_in_at", label: "زمان ورود واقعی", type: "datetime", readonly: true, sort: true, span: 8 },
     { name: "checked_out_at", label: "زمان خروج", type: "datetime", readonly: true, span: 8 },
-    { name: "wait_minutes", label: "انتظار در پذیرش (دقیقه)", type: "int", readonly: true, span: 8 },
+    { name: "late_minutes", label: "تأخیر نسبت به زمان پیش‌بینی (دقیقه)", type: "int", readonly: true, span: 8 },
   ],
   states: VISIT_STATES,
   scope: {
