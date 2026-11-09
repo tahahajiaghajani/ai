@@ -12,7 +12,7 @@
 //                    artifacts' component count, defects found in production
 import { DEPLOYMENT_FAILED, RELEASE_PREPARING, RELEASE_TASK_DONE } from "@shared/tables/release";
 import { elsEnd, goProblem, onSchedule } from "@shared/release/logic";
-import { registerHooks, updateIn, type WriteArgs } from "../../engine";
+import { pushGuard, registerHooks, updateIn, type PushArgs, type WriteArgs } from "../../engine";
 import { enqueue } from "../../jobs";
 import { bad, conflict, forbidden } from "../../http/errors";
 import { servicesImpactedBy } from "../cmdb";
@@ -137,9 +137,37 @@ async function definitionsGuard(w: WriteArgs): Promise<void> {
   if (!(await managesReleases(w.tx, w.ctx))) throw forbidden(`تعریف «${w.def.label}» با مدیر انتشار است`);
 }
 
+/**
+ * A Windows app's push runs no beforeWrite: the scope columns a row copies from its release (who reaches it) are the
+ * cloud's, taken from the stored release — never from the push.
+ */
+async function releaseCopyOnPush(p: PushArgs): Promise<Row | null> {
+  const rel = isUuid(p.next.release_id) ? await liveRow(p.tx, sysOf(p.ctx), "release", p.next.release_id) : null;
+  const copy = copyOf(rel ?? {});
+  return p.def.key === "release_task" || p.def.key === "deployment" ? { release_manager_id: copy.release_manager_id } : copy;
+}
+
+/** The pushed twin of the check result's rules: a waiver is the release manager's, with a reason; automatic checks
+ * are their rule's. */
+async function checkResultOnPush(w: WriteArgs): Promise<void> {
+  if (!w.changed.has("status")) return;
+  if (w.next.status === "waived") {
+    if (!(await managesReleases(w.tx, w.ctx))) throw forbidden("چشم‌پوشی از بررسی آمادگی با مدیر انتشار است");
+    if (!String(w.next.waiver_reason ?? "").trim()) throw bad("دلیل چشم‌پوشی را بنویسید");
+  }
+  const prev = w.prev;
+  if (prev && prev.rule !== "manual" && !["waived", "na"].includes(String(w.next.status)) && prev.status !== "waived") throw bad("نتیجهٔ بررسی خودکار را قاعدهٔ آن تعیین می‌کند؛ فقط می‌توان چشم‌پوشی کرد");
+}
+
 export function installReleaseHooks(): (() => void)[] {
   return [
-    ...DEFINITION_TABLES.map((t) => registerHooks(t, { beforeWrite: definitionsGuard })),
+    ...DEFINITION_TABLES.map((t) => registerHooks(t, { beforeWrite: definitionsGuard, validatePush: pushGuard(definitionsGuard) })),
+    ...[...CHILD_TABLES, "release_task", "deployment"].map((t) => registerHooks(t, { derivePush: releaseCopyOnPush })),
+    registerHooks("release_check_result", { validatePush: pushGuard(checkResultOnPush) }),
+    registerHooks("release_decision", {
+      // decisions come from the release page (the approvals service), never from a Windows app's push
+      validatePush: () => "تصمیم اجرا را از صفحهٔ انتشار ثبت کنید",
+    }),
     registerHooks("release", {
       beforeWrite: releaseBefore,
       afterWrite: releaseAfter,

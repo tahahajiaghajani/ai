@@ -11,7 +11,7 @@ import { nextOccurrence, scheduleProblem, type ScheduleSpec } from "@shared/flow
 import type { Ctx } from "../../context";
 import { bad, forbidden } from "../../http/errors";
 import { access } from "../../access/provider";
-import { orgSchema, orgTz, registerHooks, onRecordEvent, systemCtx, updateIn, type WriteArgs } from "../../engine";
+import { orgSchema, orgTz, pushGuard, registerHooks, onRecordEvent, systemCtx, updateIn, type PushArgs, type WriteArgs } from "../../engine";
 import { enqueue, registerJobHandler } from "../../jobs";
 import { canAdmin, isUuid, liveRow, type Row } from "./common";
 import { compileFor, restampIndicator, scoreColumns } from "./sharing";
@@ -70,7 +70,40 @@ function checkFilters(input: unknown): DashboardFilter[] {
   });
 }
 
+/**
+ * A Windows app's push runs no beforeWrite. Its sharing is compiled here, in the push's transaction, from the pushed
+ * `shares` (the row columns the row rules test are never taken from the push), and what only a report administrator
+ * sets (certification) or the cloud counts (versions) keeps the stored value. The guards run as `validatePush`.
+ */
+async function derivedOnPush(p: PushArgs): Promise<Row> {
+  const field = p.def.key === "analytics_indicator" ? "score_shares" : "shares";
+  const { shares, compiled } = await compileFor(p.tx, p.ctx.org.id, p.next[field] ?? [], { check: false }).catch(() => compileFor(p.tx, p.ctx.org.id, p.prev?.[field] ?? [], { check: false }));
+  const out: Row = { [field]: shares, ...(field === "score_shares" ? scoreColumns(compiled, p.next.owner_id) : compiled) };
+  if (!canAdmin(p.ctx)) out.certified = p.prev ? !!p.prev.certified && !["spec", "table_key", "layout", "filters", "formula", "parts", "grain", "target", "warn", "crit"].some((f) => p.changed.has(f)) : false;
+  if (p.def.key === "analytics_report") out.spec_version = p.prev ? Number(p.prev.spec_version ?? 1) + (p.changed.has("spec") ? 1 : 0) : 1;
+  if (p.def.key === "analytics_indicator") out.formula_version = p.prev ? Number(p.prev.formula_version ?? 1) + (["formula", "parts", "grain"].some((f) => p.changed.has(f)) ? 1 : 0) : 1;
+  return out;
+}
+
+/** The pushed twin of the definition rules: the spec checked against the schema and the pusher's access, only the
+ * owner (or a report administrator) changes sharing, every share target exists. */
+async function definitionOnPush(w: WriteArgs): Promise<void> {
+  const field = w.def.key === "analytics_indicator" ? "score_shares" : "shares";
+  if (w.def.key === "analytics_report" && (!w.prev || w.changed.has("spec") || w.changed.has("table_key"))) await checkSpec(w, w.next.spec);
+  if (w.def.key === "analytics_indicator" && w.prev && w.changed.has("key")) throw bad("کلید شاخص پس از ساخت تغییر نمی‌کند");
+  if (!w.prev || w.changed.has(field)) {
+    if (w.prev && field === "shares" && !isOwner(w) && !canAdmin(w.ctx)) throw forbidden("فقط مالک (یا مدیر گزارش‌ها) اشتراک را تغییر می‌دهد");
+    await compileFor(w.tx, w.ctx.org.id, w.next[field] ?? []);
+  }
+}
+
 export function installAnalyticsHooks(): void {
+  for (const t of ["analytics_report", "analytics_dashboard", "analytics_indicator"]) {
+    registerHooks(t, { derivePush: derivedOnPush, validatePush: pushGuard(definitionOnPush) });
+  }
+  registerHooks("analytics_config", { validatePush: pushGuard((w) => { if (!canAdmin(w.ctx)) throw forbidden("تنظیمات گزارش‌ها با مدیر گزارش‌هاست"); }) });
+  for (const t of ["analytics_score", "analytics_delivery"]) registerHooks(t, { validatePush: () => "این ردیف را فقط سامانه ثبت می‌کند" });
+
   registerHooks("analytics_report", {
     async beforeWrite(w) {
       if (w.op === "delete") return;
@@ -183,7 +216,8 @@ export function installAnalyticsHooks(): void {
     },
   });
 
-  // a Windows app's push does not run hooks: compile its sharing again where every member is known
+  // a Windows app's push compiles its sharing in the push (derivePush above); compile it again in the background with
+  // fresh role holders, as a safety net
   registerJobHandler("analytics.recompile", async (job, jctx) => {
     if (!job.org_id) return;
     const { table, id } = job.payload as { table: string; id: string };

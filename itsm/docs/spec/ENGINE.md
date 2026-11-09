@@ -69,7 +69,7 @@ export const INCIDENT: TableDef = {
 | `features` | `journal`, `attachments`, `watchers`, `links`, `history` (default true), `sync` (default true), `sla`, `approvals`, `rag`, `tags`, `survey`, `confidential`, `kanban` (group-by field), `calendar: { start, end? }`. `watchers` adds a `watch_list` users field if missing. |
 | `form`, `list` | UI layout: sections, tabs, related lists; default list columns and order (`"-priority,number"`). |
 | `unique` | combinations of fields unique per organisation among live rows (`[["table_key","name"]]`). |
-| `rowAccess` | `{ read?: Cond, write?: Cond }` row rules every caller is held to on top of the provider (personal saved views). |
+| `rowAccess` | `{ read?: Cond, write?: Cond }` row rules every caller is held to on top of the provider (personal saved views). `NEVER` (`@shared/model/conditions`, an empty `or`) is the constant-false rule: a runtime-only table (`ai_agent_run`) is read by no member through the generic API, only by its module's routes. |
 | `levels` | levels of `area` the default provider asks for: `{ read: "view", create: "edit", write: "edit", delete: "full" }` by default. |
 | `ai` | `{ title, text[] }` fields that make up the RAG document. |
 | `virtual` | a reference target without a physical table (only the built-in `user`). |

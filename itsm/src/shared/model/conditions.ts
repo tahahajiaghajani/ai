@@ -38,6 +38,16 @@ export interface Leaf {
 export type Cond = { and: Cond[] } | { or: Cond[] } | { not: Cond } | Leaf;
 
 /**
+ * The constant conditions: `NEVER` (an empty `or`) is false for every row and `ALWAYS` (an empty `and`) true, in
+ * `evaluate` and in SQL alike. `rowAccess: { read: NEVER }` keeps a runtime-only table out of the generic record API
+ * for every member (the system still reads it): its rows are served only by the module's own routes.
+ */
+export const NEVER: Cond = Object.freeze({ or: Object.freeze([]) as unknown as Cond[] });
+export const ALWAYS: Cond = Object.freeze({ and: Object.freeze([]) as unknown as Cond[] });
+/** Is this the constant-false condition (`NEVER`, or any empty `or`)? */
+export const isNever = (c: Cond | null | undefined): boolean => !!c && "or" in c && Array.isArray(c.or) && c.or.length === 0;
+
+/**
  * A relative date window. `{unit, n, dir}`: the last (`past`) or next (`next`) n units *including* the current one
  * («۷ روز گذشته» = today and the 6 days before); n = 0 means the current unit only. `{unit, from, to}`: offsets from
  * the current unit, inclusive («دیروز» = {day, -1, -1}, «ماه گذشته» = {month, -1, -1}).

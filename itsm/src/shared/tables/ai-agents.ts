@@ -13,6 +13,7 @@ import type { Option, TableDef } from "../model/types";
 import { AGENT_AUTONOMY, AGENT_RUN_STATUS, AGENT_RUN_TRIGGERS, AGENT_TRIGGERS } from "../ai/agents";
 import { SKILL_EVENTS, SKILL_TIERS } from "../ai/skills";
 import { SKILL_GROUP_OPTIONS } from "./ai";
+import { NEVER } from "../model/conditions";
 
 export const AI_AGENT = "ai_agent";
 export const AI_AGENT_RUN = "ai_agent_run";
@@ -112,7 +113,7 @@ const run: TableDef = {
   scope: { own: ["started_by"], requester: [] },
   // never through the generic API: a run's steps hold what the agent's principal read, which its starter may not read.
   // AI administrators read runs in the studio; whoever started one sees its status and its proposals (each checked)
-  rowAccess: { read: { f: "agent_key", op: "empty" } },
+  rowAccess: { read: NEVER },
   features: { sync: false, history: false },
   list: { columns: ["agent_name", "trigger", "record_number", "status", "step_count", "started_at"], order: "-started_at" },
 };

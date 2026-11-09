@@ -3,7 +3,7 @@
 // topics; runs, conversations and messages are written only by the runtime. An agent's key never changes, a built-in
 // agent is switched off rather than deleted, the principal is set only through the studio (an owner chooses its roles),
 // and a configuration with problems (tools, whitelist, triggers) is refused with the problems in Persian.
-import { registerHooks } from "../../../engine";
+import { pushGuard, registerHooks } from "../../../engine";
 import { enqueue } from "../../../jobs";
 import type { WriteArgs } from "../../../engine";
 import { bad, forbidden } from "../../../http/errors";
@@ -28,20 +28,23 @@ let installed = false;
 export function installAgentHooks(): void {
   if (installed) return;
   installed = true;
+  const agentGuard = (w: WriteArgs) => {
+    needAdmin(w);
+    const n = w.next as Record<string, unknown>;
+    if (w.op === "update" && w.prev && (w.changed.has("key") || w.changed.has("base_key") || w.changed.has("builtin"))) throw bad("کلید عامل پس از ساخت تغییر نمی‌کند");
+    if (w.op === "delete" && w.prev?.builtin && !w.trusted) throw bad("عامل داخلی حذف نمی‌شود؛ آن را خاموش کنید");
+    // the principal is the studio's (an owner gives it roles through the access service), never a field edit
+    if (w.ctx.actor !== "system" && !w.trusted && (w.op === "create" ? n.principal_id : w.changed.has("principal_id"))) throw forbidden("هویت عامل را فقط از «عامل‌ها» در تنظیمات هوش مصنوعی می‌سازند");
+    if (w.op === "delete") return;
+    const cfg: Partial<AgentConfig> = configOf(n);
+    const problems = agentConfigProblems(cfg);
+    for (const t of [...cfg.tables!, ...cfg.forbidden_tables!]) if (!tableDef(t)) problems.push(`جدول «${t}» شناخته نیست`);
+    if (problems.length) throw bad(problems.join("؛ "));
+  };
   registerHooks(AI_AGENT, {
-    beforeWrite(w) {
-      needAdmin(w);
-      const n = w.next as Record<string, unknown>;
-      if (w.op === "update" && w.prev && (w.changed.has("key") || w.changed.has("base_key") || w.changed.has("builtin"))) throw bad("کلید عامل پس از ساخت تغییر نمی‌کند");
-      if (w.op === "delete" && w.prev?.builtin && !w.trusted) throw bad("عامل داخلی حذف نمی‌شود؛ آن را خاموش کنید");
-      // the principal is the studio's (an owner gives it roles through the access service), never a field edit
-      if (w.ctx.actor !== "system" && !w.trusted && (w.op === "create" ? n.principal_id : w.changed.has("principal_id"))) throw forbidden("هویت عامل را فقط از «عامل‌ها» در تنظیمات هوش مصنوعی می‌سازند");
-      if (w.op === "delete") return;
-      const cfg: Partial<AgentConfig> = configOf(n);
-      const problems = agentConfigProblems(cfg);
-      for (const t of [...cfg.tables!, ...cfg.forbidden_tables!]) if (!tableDef(t)) problems.push(`جدول «${t}» شناخته نیست`);
-      if (problems.length) throw bad(problems.join("؛ "));
-    },
+    beforeWrite: agentGuard,
+    // a Windows app's push runs no beforeWrite: the same rules are asked of the pushed row
+    validatePush: pushGuard(agentGuard),
     async afterWrite(w) {
       invalidateAgentTriggers(w.ctx.org.id);
       const n = w.next as Record<string, unknown>;
@@ -52,19 +55,18 @@ export function installAgentHooks(): void {
       }
     },
   });
-  registerHooks(VA_TOPIC, {
-    beforeWrite(w) {
-      needAdmin(w, "موضوع‌های دستیار مجازی را فقط مدیر هوش مصنوعی سازمان تغییر می‌دهد");
-      const n = w.next as Record<string, unknown>;
-      if (w.op === "update" && w.changed.has("key")) throw bad("کلید موضوع پس از ساخت تغییر نمی‌کند");
-      if (w.op === "delete" && w.prev?.builtin && !w.trusted) throw bad("موضوع داخلی حذف نمی‌شود؛ آن را خاموش کنید");
-      if (w.op !== "delete") {
-        if (!/^[a-z][a-z0-9_.]{1,59}$/.test(String(n.key ?? ""))) throw bad("کلید موضوع باید با حرف لاتین کوچک شروع شود و فقط حرف، رقم، نقطه و _ داشته باشد");
-        if (n.kind === "catalog_item" && !n.item_id) throw bad("برای «قلم مشخص کاتالوگ» قلم را برگزینید");
-        if (n.kind === "answer" && !String(n.answer ?? "").trim()) throw bad("برای «پاسخ ثابت» متن پاسخ را بنویسید");
-      }
-    },
-  });
+  const topicGuard = (w: WriteArgs) => {
+    needAdmin(w, "موضوع‌های دستیار مجازی را فقط مدیر هوش مصنوعی سازمان تغییر می‌دهد");
+    const n = w.next as Record<string, unknown>;
+    if (w.op === "update" && w.changed.has("key")) throw bad("کلید موضوع پس از ساخت تغییر نمی‌کند");
+    if (w.op === "delete" && w.prev?.builtin && !w.trusted) throw bad("موضوع داخلی حذف نمی‌شود؛ آن را خاموش کنید");
+    if (w.op !== "delete") {
+      if (!/^[a-z][a-z0-9_.]{1,59}$/.test(String(n.key ?? ""))) throw bad("کلید موضوع باید با حرف لاتین کوچک شروع شود و فقط حرف، رقم، نقطه و _ داشته باشد");
+      if (n.kind === "catalog_item" && !n.item_id) throw bad("برای «قلم مشخص کاتالوگ» قلم را برگزینید");
+      if (n.kind === "answer" && !String(n.answer ?? "").trim()) throw bad("برای «پاسخ ثابت» متن پاسخ را بنویسید");
+    }
+  };
+  registerHooks(VA_TOPIC, { beforeWrite: topicGuard, validatePush: pushGuard(topicGuard) });
   registerHooks(AI_AGENT_RUN, { beforeWrite: (w) => runtimeOnly(w, "اجراهای عامل") });
   registerHooks(VA_CONVERSATION, { beforeWrite: (w) => runtimeOnly(w, "گفتگوهای دستیار مجازی") });
   registerHooks(VA_MESSAGE, { beforeWrite: (w) => runtimeOnly(w, "پیام‌های دستیار مجازی") });

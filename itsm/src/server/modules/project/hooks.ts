@@ -11,7 +11,7 @@
 //   time_entry       the task's project, the label, approval by the project's manager (never one's own time)
 import { PROJECT_TASK_DONE } from "@shared/tables/project";
 import { demandScores, wouldCycle } from "@shared/project/logic";
-import { emitEvent, registerHooks, updateIn, type WriteArgs } from "../../engine";
+import { emitEvent, pushGuard, registerHooks, updateIn, type PushArgs, type WriteArgs } from "../../engine";
 import { enqueue } from "../../jobs";
 import { bad, conflict, forbidden } from "../../http/errors";
 import { PROJECT_CHILDREN, dateOf, ids, liveRow, liveRows, managesProjects, projectConfig, projectCopy, sysOf, type Row } from "./common";
@@ -140,8 +140,32 @@ async function timeBefore(w: WriteArgs): Promise<void> {
   if (!Number.isFinite(h) || h <= 0 || h > 24) throw bad("ساعت باید بیش از صفر و حداکثر ۲۴ باشد");
 }
 
+/**
+ * A Windows app's push runs no beforeWrite: the scope columns a row copies from its project (or a time entry from its
+ * task) are the cloud's, taken from the stored parent — never from the push.
+ */
+async function projectCopyOnPush(p: PushArgs): Promise<Row | null> {
+  const sys = sysOf(p.ctx);
+  if (p.def.key === "time_entry") {
+    const task = await liveRow(p.tx, sys, "project_task", p.next.task_id);
+    if (!task) return { project_manager_id: null };
+    return { project_id: task.project_id, project_manager_id: task.project_manager_id ?? null, label: `${task.number ?? ""} ${task.short_description ?? ""}`.trim().slice(0, 300) };
+  }
+  const proj = await liveRow(p.tx, sys, "project", p.next.project_id);
+  return projectCopy(proj ?? {}, p.def.key);
+}
+
+/** The pushed twin of the rules that keep published reports and approved time as they were. */
+function frozenOnPush(w: WriteArgs): void {
+  if (!w.prev) return;
+  if (w.def.key === "status_report" && w.prev.state === "published" && [...w.changed].some((f) => f !== "watch_list")) throw forbidden("گزارش منتشرشده تغییر نمی‌کند؛ گزارش تازه بنویسید");
+  if (w.def.key === "time_entry" && w.prev.state === "approved") throw forbidden("زمان تأییدشده تغییر نمی‌کند");
+}
+
 export function installProjectHooks(): (() => void)[] {
   return [
+    ...PROJECT_CHILDREN.map((t) => registerHooks(t, { derivePush: projectCopyOnPush })),
+    ...["status_report", "time_entry"].map((t) => registerHooks(t, { validatePush: pushGuard(frozenOnPush) })),
     registerHooks("demand", {
       async beforeWrite(w) {
         if (w.op === "delete") return;

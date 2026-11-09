@@ -5,7 +5,7 @@
 //   dev_pipeline        sight, as the system)
 //   dev_event, dev_commit, dev_pull_request, dev_build   machine data: only the ingestion writes them
 //   change_gate         opened by pipelines only; a person's decision is the release manager's (gate.ts)
-import { registerHooks, type WriteArgs } from "../../engine";
+import { pushGuard, registerHooks, type WriteArgs } from "../../engine";
 import { bad, forbidden } from "../../http/errors";
 import { gateBefore } from "./gate";
 import { managesReleases, randomKey, type Row } from "./common";
@@ -35,13 +35,15 @@ export function installDevopsHooks(): (() => void)[] {
           throw bad("نگاشت نام محیط‌ها باید شیئی از «نام در ابزار» به «کلید محیط» باشد");
         }
       },
+      validatePush: pushGuard(managerOnly),
     }),
-    registerHooks("dev_repository", { beforeWrite: (w) => managerOnly(w) }),
-    registerHooks("dev_pipeline", { beforeWrite: (w) => managerOnly(w) }),
-    registerHooks("dev_event", { beforeWrite: machineOnly }),
-    registerHooks("dev_commit", { beforeWrite: machineOnly }),
-    registerHooks("dev_pull_request", { beforeWrite: machineOnly }),
-    registerHooks("dev_build", { beforeWrite: machineOnly }),
+    // a Windows app's push runs no beforeWrite: the same guards are asked of pushed rows
+    registerHooks("dev_repository", { beforeWrite: (w) => managerOnly(w), validatePush: pushGuard(managerOnly) }),
+    registerHooks("dev_pipeline", { beforeWrite: (w) => managerOnly(w), validatePush: pushGuard(managerOnly) }),
+    registerHooks("dev_event", { beforeWrite: machineOnly, validatePush: pushGuard(machineOnly) }),
+    registerHooks("dev_commit", { beforeWrite: machineOnly, validatePush: pushGuard(machineOnly) }),
+    registerHooks("dev_pull_request", { beforeWrite: machineOnly, validatePush: pushGuard(machineOnly) }),
+    registerHooks("dev_build", { beforeWrite: machineOnly, validatePush: pushGuard(machineOnly) }),
     registerHooks("change_gate", {
       async beforeWrite(w) {
         if (w.op === "update" && !w.trusted && w.ctx.actor !== "system") {
@@ -51,6 +53,13 @@ export function installDevopsHooks(): (() => void)[] {
         if (w.op === "delete" && w.ctx.actor !== "system") throw forbidden("دروازه‌های استقرار پاک نمی‌شوند");
         await gateBefore(w);
       },
+      // a pushed gate: never opened from a Windows app, its evidence never changed (a decision is a transition the
+      // engine's push rules check; who decides is the release manager)
+      validatePush: pushGuard(async (w) => {
+        if (!w.prev) throw forbidden("دروازهٔ استقرار را خط لوله باز می‌کند");
+        for (const f of ["evidence", "evidence_hash", "prev_hash", "connection_id", "environment_id", "change_id"]) if (w.changed.has(f)) throw forbidden("شواهد دروازهٔ استقرار تغییر نمی‌کند");
+        if (w.changed.has("state") && !(await managesReleases(w.tx, w.ctx))) throw forbidden("تصمیم دروازهٔ استقرار با مدیر انتشار است");
+      }),
     }),
   ];
 }

@@ -118,6 +118,25 @@ export function registerHooks(table: string, hooks: TableHooks): () => void {
 }
 
 /** Hooks that apply to `table`: its own first, then the "*" ones, each in registration order. */
+/**
+ * A module's pure guard (a `beforeWrite` that only refuses: «only the release manager defines…», «only the ingestion
+ * writes…») as a `validatePush`: a Windows app's push runs no `beforeWrite`, so the same rule is asked of the pushed row
+ * there (op "create" or "update", never trusted). The guard must not change `next`; its refusal (an error with a Persian
+ * message) becomes the push's answer.
+ */
+export function pushGuard(guard: (w: WriteArgs) => unknown): (p: PushArgs) => Promise<HookResult> {
+  return async (p) => {
+    try {
+      await guard({ tx: p.tx, ctx: p.ctx, def: p.def, op: p.prev ? "update" : "create", next: { ...p.next }, prev: p.prev, changed: p.changed, env: p.env, via: "sync", trusted: false });
+      return null;
+    } catch (e) {
+      const status = (e as { status?: unknown })?.status;
+      if (typeof status === "number" && status >= 400 && status < 500) return String((e as Error).message || "این تغییر پذیرفته نشد");
+      throw e;
+    }
+  };
+}
+
 export function hooksFor(table: string): TableHooks[] {
   return [...(registry.get(table) ?? []), ...(registry.get("*") ?? [])];
 }

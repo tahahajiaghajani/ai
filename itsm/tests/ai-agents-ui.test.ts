@@ -8,6 +8,7 @@ import {
 } from "@shared/ai/agents";
 import { cardText, type VaCard } from "@shared/ai/va";
 import { AI_AGENT_TABLES } from "@shared/tables/ai-agents";
+import { isNever } from "@shared/model/conditions";
 import { groupAgents, principalText, stepLine, togglePattern, toolGroups } from "../src/ui/ai/agents/model";
 import { pageContext, registerRecordRoute } from "../src/ui/ai/assistant/context";
 
@@ -56,7 +57,7 @@ describe("agent rules", () => {
   it("keeps the agent and virtual agent tables out of sync and the generic API", () => {
     const run = AI_AGENT_TABLES.find((t) => t.key === "ai_agent_run")!;
     expect(run.features?.sync).toBe(false);
-    expect(run.rowAccess?.read).toEqual({ f: "agent_key", op: "empty" });
+    expect(isNever(run.rowAccess?.read)).toBe(true);
     for (const k of ["va_conversation", "va_message"]) expect(AI_AGENT_TABLES.find((t) => t.key === k)!.rowAccess?.read).toEqual({ f: "requester_id", op: "is_me" });
   });
 });
