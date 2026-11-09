@@ -33,6 +33,8 @@ import { installAiSkills } from "../modules/ai/skills";
 import { skillRoutes } from "./ai-skills";
 import { installAiAgents } from "../modules/ai/agents";
 import { agentRoutes } from "./ai-agents";
+import { installVirtualAgent } from "../modules/ai/va";
+import { vaRoutes } from "./ai-va";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
 installAccessModel();
@@ -66,6 +68,8 @@ installKnowledgeModule();
 installAiSkills();
 // AI agents (docs/spec/AI.md §11.8) — after the skills they run as tools
 installAiAgents();
+// the virtual agent's brain (docs/spec/AI.md §11.9) — the portal builds its requester UI
+installVirtualAgent();
 
 export const moduleRoutes = router();
 
@@ -73,6 +77,7 @@ moduleRoutes.route("/ai", aiRoutes);
 moduleRoutes.route("/ai", ragRoutes);
 moduleRoutes.route("/ai", skillRoutes);
 moduleRoutes.route("/ai", agentRoutes);
+moduleRoutes.route("/ai", vaRoutes);
 moduleRoutes.route("/access", accessRoutes);
 moduleRoutes.route("/notify", notifyRoutes);
 moduleRoutes.route("/calendars", calendarRoutes);
