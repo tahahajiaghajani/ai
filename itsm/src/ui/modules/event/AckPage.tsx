@@ -33,7 +33,8 @@ export default function AckPage() {
       setBusy(false);
     }
   };
-  const waiting = ["open", "flapping", "snoozed", "maintenance"].includes(v.state) && !v.expired;
+  // the link acts once: only while its page still waits for an answer and the alert for an acknowledgement
+  const waiting = ["open", "flapping", "snoozed", "maintenance"].includes(v.state) && !v.expired && ["queued", "sent"].includes(v.page_state);
   return (
     <div className="ev-ack">
       <div className="ev-ack-card">
@@ -51,8 +52,10 @@ export default function AckPage() {
           <Button type="primary" size="large" icon={<Check {...ICON14} />} loading={busy} onClick={ack}>
             تأیید هشدار
           </Button>
+        ) : v.page_state === "acknowledged" ? (
+          <p className="m-0 text-[13px] text-ink-2">این فراخوان را پیش‌تر تأیید کرده‌اید.</p>
         ) : (
-          <p className="m-0 text-[13px] text-ink-2">این هشدار دیگر منتظر تأیید نیست.</p>
+          <p className="m-0 text-[13px] text-ink-2">این فراخوان دیگر منتظر پاسخ نیست؛ هشدار را در برنامه باز کنید.</p>
         )}
         {error ? <p className="m-0 text-[13px] text-danger">{error}</p> : null}
       </div>

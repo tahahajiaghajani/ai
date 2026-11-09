@@ -115,6 +115,14 @@ describe("escalation and paging", () => {
     const pages = await q("page", { f: "alert_id", op: "eq", v: a.id });
     expect(pages.every((p) => p.state !== "sent")).toBe(true);
     expect((await one("alert", a.id)).acknowledged_by).toBe(by.userId);
+    // a link acts once: the ended page's link acknowledges nothing, even when the alert is open again
+    const old = (await tokenFor(oncall, a.number))!;
+    expect(old).toBeTruthy();
+    await by.client.post(`${w.P}/event/alerts/${a.id}/unack`, {});
+    await w.drain();
+    const again = await (await w.raw("POST", `/public/ack/${old}`, "{}", { "content-type": "application/json" })).json();
+    expect(again).toMatchObject({ changed: false, page_state: "canceled", state: "open" });
+    expect((await one("alert", a.id)).state).toBe("open");
   });
 
   it("shows the escalation timeline of an alert", async () => {

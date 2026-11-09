@@ -342,7 +342,8 @@ export async function ackByToken(cfg: { db: Queryable } & Record<string, unknown
     const alert = page ? await liveRow(tx, base, "alert", page.alert_id) : null;
     if (!page || !alert) throw notFound("این پیوند فراخوان معتبر نیست");
     const view = viewOf(alert, page);
-    if (view.expired) return { ...view, changed: false };
+    // one use: a page already answered, ended (someone else acknowledged) or expired acknowledges nothing again
+    if (view.expired || !["queued", "sent"].includes(String(page.state))) return { ...view, changed: false };
     if (!["open", "flapping", "snoozed", "maintenance"].includes(String(alert.state))) return { ...view, changed: false };
     const sys = sysOf(base, String(page.user_id));
     const next = await acknowledgeIn(tx, sys, alert, { by: String(page.user_id), via: "link" });
