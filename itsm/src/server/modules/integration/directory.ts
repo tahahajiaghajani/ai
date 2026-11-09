@@ -350,3 +350,18 @@ export function installDirectoryJobs(): void {
     return { again: Number(src.schedule_hours) * HOUR };
   });
 }
+
+/**
+ * «تأیید منبع»: the administrator who approves a source lends it their access — scheduled LDAP runs and SCIM requests
+ * act as them (and stop when they leave or lose their rights). Needs integrations (full) and users (edit).
+ */
+export async function approveSource(ctx: Ctx, sourceId: string): Promise<Row> {
+  needIntegrations(ctx, "full");
+  ctx.need("users", "edit");
+  if (ctx.actor === "support") throw forbidden("منبع فهرست کاربران را مدیر خود سازمان تأیید می‌کند");
+  const src = await sourceRow(ctx, sourceId);
+  await needFeature(ctx, src.kind === "scim" ? "scim" : "directory_sync");
+  await markSource(ctx, src, { approved_by: ctx.user.id });
+  await audit(ctx.db, ctx, "directory_approve", "directory_source", sourceId, `تأیید منبع «${src.name}» با دسترسی ${ctx.user.full_name || ctx.user.email}`);
+  return sourceRow(ctx, sourceId);
+}

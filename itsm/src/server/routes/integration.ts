@@ -23,7 +23,7 @@ import { createKey, integrationRoles, listKeys, revokeKey, setIntegrationRoles }
 import { apiAuth, apiScopes, metaForKey, openApiFor } from "../modules/integration/api";
 import { listDeliveries, replayDelivery, resumeSubscription, testSubscription } from "../modules/integration/webhooks";
 import { inboundEvents, MAX_INBOUND_BYTES, receiveInbound, retryInbound } from "../modules/integration/inbound";
-import { applyDirectory, directoryRun, directoryRuns, previewDirectory, testDirectory } from "../modules/integration/directory";
+import { applyDirectory, approveSource, directoryRun, directoryRuns, previewDirectory, testDirectory } from "../modules/integration/directory";
 import { linkIssue, receiveIssueHook, refreshRef, refsOf } from "../modules/integration/issues";
 import { runScheduleNow } from "../modules/integration/exports";
 import {
@@ -139,6 +139,7 @@ integrationHubRoutes.post("/directory/:id/apply", async (c) => {
   const input = await body(c, z.object({ run_id: UUID, roles: z.boolean().default(false) }));
   return c.json(await applyDirectory(c.get("ctx"), uuid(c.req.param("id"), "منبع"), input.run_id, { roles: input.roles }));
 });
+integrationHubRoutes.post("/directory/:id/approve", async (c) => c.json({ source: await approveSource(c.get("ctx"), uuid(c.req.param("id"), "منبع")) }));
 integrationHubRoutes.get("/directory/:id/runs", async (c) => c.json({ runs: await directoryRuns(c.get("ctx"), uuid(c.req.param("id"), "منبع")) }));
 integrationHubRoutes.get("/directory/runs/:runId", async (c) => c.json({ run: await directoryRun(c.get("ctx"), uuid(c.req.param("runId"), "اجرا")) }));
 

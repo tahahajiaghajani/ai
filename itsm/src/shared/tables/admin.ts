@@ -238,7 +238,7 @@ const dataExport: TableDef = {
     { name: "expires_at", label: "انقضا", type: "datetime", system: true, list: true, span: 12 },
   ],
   scope: { own: ["created_by", "requested_for"] },
-  rowAccess: { read: MINE, write: MINE },
+  rowAccess: { read: MINE },
   features: { attachments: true },
   list: { columns: ["number", "title", "format", "status", "created_at"], order: "-created_at" },
 };

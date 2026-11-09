@@ -122,7 +122,7 @@ const RULES: Rule[] = [
   { re: /^آیا|دارد$|فعال|تایید شده|تأیید شده|مجاز|enabled/, type: "bool" },
   { re: /برچسب|tags/, type: "tags" },
   { re: /گروه|تیم|team|group/, type: "group" },
-  { re: /میزبان|مسئول|کارشناس|کاربر|درخواست کننده|درخواستکننده|مدیر|کارمند|همکار|owner|user|assignee/, type: "user" },
+  { re: /میزبان|مسئول|کارشناس|کاربر|درخواست کننده|درخواستکننده|تحویل گیرنده|تحویلگیرنده|گیرنده|مدیر|کارمند|همکار|owner|user|assignee/, type: "user" },
   { re: /وضعیت|status/, type: "choice", options: ["باز", "در جریان", "انجام شده"] },
   { re: /اولویت|priority/, type: "choice", options: ["کم", "متوسط", "زیاد"] },
   { re: /نوع|دسته|سطح|گونه|type|category|level/, type: "choice", options: [] },
