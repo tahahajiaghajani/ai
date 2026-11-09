@@ -6,10 +6,18 @@
 // created as drafts. The platform itself proposes nothing; modules register their executors with
 // `registerProposalExecutor`.
 import type { Ctx } from "../../../context";
-import type { AiRef } from "@shared/ai/types";
+import type { AiProposalOutcome, AiRef } from "@shared/ai/types";
 import { bad } from "../../../http/errors";
 
-export type ProposalExecutor = (ctx: Ctx, payload: unknown) => Promise<AiRef>;
+/** What a batch executor returns: the reference to show and each row's result (a failed row never stops the others). */
+export interface ProposalOutcome {
+  ref: AiRef;
+  outcome: AiProposalOutcome;
+}
+
+export type ProposalExecutor = (ctx: Ctx, payload: unknown) => Promise<AiRef | ProposalOutcome>;
+
+export const isOutcome = (v: AiRef | ProposalOutcome): v is ProposalOutcome => !!v && typeof v === "object" && "outcome" in v && "ref" in v;
 
 /** Executors by proposal kind. */
 export const EXECUTORS: Record<string, ProposalExecutor> = {};
@@ -29,8 +37,14 @@ export function parsePayload<T>(schema: { safeParse(v: unknown): { success: true
   return r.data;
 }
 
-export async function executeProposal(ctx: Ctx, kind: string, payload: unknown): Promise<AiRef> {
+/** Run a confirmed proposal; a batch's per-row outcome comes with its reference (see `executeProposal` for the ref only). */
+export async function executeProposalFull(ctx: Ctx, kind: string, payload: unknown): Promise<AiRef | ProposalOutcome> {
   const run = Object.prototype.hasOwnProperty.call(EXECUTORS, kind) ? EXECUTORS[kind] : undefined;
   if (!run) throw bad("این نوع پیشنهاد پشتیبانی نمی‌شود");
   return run(ctx, payload);
+}
+
+export async function executeProposal(ctx: Ctx, kind: string, payload: unknown): Promise<AiRef> {
+  const r = await executeProposalFull(ctx, kind, payload);
+  return isOutcome(r) ? r.ref : r;
 }

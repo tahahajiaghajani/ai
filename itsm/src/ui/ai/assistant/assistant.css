@@ -1079,6 +1079,59 @@
     background: var(--ds-warning);
     transform: translateY(-1px);
   }
+  /* an agent's proposal, a batch's count */
+  .sa-prop-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding-inline: 14px;
+    padding-block-end: 6px;
+  }
+  .sa-prop-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--ds-text-2);
+  }
+  /* what applying a batch did, row by row */
+  .sa-prop-out {
+    padding-block: 8px;
+    padding-inline: 14px;
+    box-shadow: inset 0 1px 0 var(--ds-line);
+    font-size: 12.5px;
+    line-height: 20px;
+  }
+  .sa-prop-out-h {
+    color: var(--ds-text-2);
+    margin-block-end: 4px;
+  }
+  .sa-prop-out ul {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    max-block-size: 200px;
+    overflow: auto;
+  }
+  .sa-prop-out li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .sa-prop-out li.is-ok {
+    color: var(--ds-text);
+  }
+  .sa-prop-out li.is-bad {
+    color: var(--ds-danger);
+  }
+  .sa-prop-out-m {
+    color: var(--ds-text-3);
+    overflow-wrap: anywhere;
+  }
   .sa-prop-f {
     display: flex;
     flex-wrap: wrap;

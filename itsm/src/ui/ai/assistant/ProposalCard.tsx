@@ -1,13 +1,14 @@
 // A draft the assistant prepared. Nothing is written until a permitted person confirms it here (the server re-checks
 // the record's own permission, runs the module's normal service and records it in the audit log); «ویرایش در فرم»
 // opens the same data in the module's own form instead. The card is drawn from the stored proposal, not from the
-// model's words.
+// model's words. A batch shows its count and a sample of rows; once applied, every row's result. An agent's proposal
+// names the agent; someone who may see but not decide it (the inbox) gets the card without its buttons.
 import { useState } from "react";
 import { Button } from "antd";
-import { UserPlus, FilePen, CircleCheck, TriangleAlert, ArrowUpLeft, type LucideIcon } from "lucide-react";
+import { UserPlus, FilePen, CircleCheck, TriangleAlert, ArrowUpLeft, Bot, Layers, type LucideIcon } from "lucide-react";
 import type { AiProposal } from "@shared/ai/types";
 import { useNotify } from "../../lib/hooks";
-import { jDayMonth, jTime } from "../../lib/fa";
+import { fa, jDayMonth, jTime } from "../../lib/fa";
 import { Chip, type ChipTone } from "../../components/display";
 import { Ic } from "../../components/shell/icons";
 import { safePath } from "../markdown/links";
@@ -34,7 +35,18 @@ function until(iso: string): string {
   return sameDay ? `تا ساعت ${jTime(d)} امروز معتبر است` : `تا ${jDayMonth(d)}، ساعت ${jTime(d)} معتبر است`;
 }
 
-export function ProposalCard({ proposal, onChange, onNavigate }: { proposal: AiProposal; onChange: (p: AiProposal) => void; onNavigate: (path: string, state?: unknown) => void }) {
+export function ProposalCard({
+  proposal,
+  onChange,
+  onNavigate,
+  canDecide = true,
+}: {
+  proposal: AiProposal;
+  onChange: (p: AiProposal) => void;
+  onNavigate: (path: string, state?: unknown) => void;
+  /** false: shown to someone who may not apply or refuse it (no buttons) */
+  canDecide?: boolean;
+}) {
   const client = useAiClient();
   const n = useNotify();
   const [busy, setBusy] = useState<"confirm" | "reject" | null>(null);
@@ -45,8 +57,9 @@ export function ProposalCard({ proposal, onChange, onNavigate }: { proposal: AiP
   const edit = safePath(proposal.edit_path);
   const result = proposal.result ? safePath(proposal.result.path) : null;
   const open = status === "proposed";
-  // a skill's proposal on a record: only those who work the record apply or reject it
-  const decidable = proposal.can_decide !== false;
+  // a proposal on a record: only those who work the record (and, when it is routed, those it is routed to) decide it
+  const decidable = canDecide && proposal.can_decide !== false;
+  const outcome = proposal.outcome ?? null;
 
   const decide = async (what: "confirm" | "reject") => {
     if (busy) return;
@@ -75,6 +88,22 @@ export function ProposalCard({ proposal, onChange, onNavigate }: { proposal: AiP
         <span className="sa-prop-t">{proposal.title_fa}</span>
         <Chip tone={tone}>{label}</Chip>
       </header>
+      {proposal.agent || typeof proposal.count === "number" ? (
+        <div className="sa-prop-tags">
+          {proposal.agent ? (
+            <span className="sa-prop-tag">
+              <Ic icon={Bot} size={14} />
+              عامل «{proposal.agent.name}»
+            </span>
+          ) : null}
+          {typeof proposal.count === "number" ? (
+            <span className="sa-prop-tag ds-num">
+              <Ic icon={Layers} size={14} />
+              {fa(proposal.count)} رکورد
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       {proposal.summary_fa ? <p className="sa-prop-s">{proposal.summary_fa}</p> : null}
       {proposal.preview.length ? (
         <dl className="sa-prop-kv">
@@ -124,9 +153,35 @@ export function ProposalCard({ proposal, onChange, onNavigate }: { proposal: AiP
           ))}
         </ul>
       ) : null}
+      {outcome ? (
+        <div className="sa-prop-out" role="region" aria-label="نتیجهٔ هر ردیف">
+          <div className="sa-prop-out-h ds-num">
+            {fa(outcome.ok)} ثبت شد{outcome.failed ? ` · ${fa(outcome.failed)} ثبت نشد` : ""}
+          </div>
+          <ul>
+            {outcome.rows.slice(0, 50).map((r, i) => (
+              <li key={i} className={r.ok ? "is-ok" : "is-bad"}>
+                <Ic icon={r.ok ? CircleCheck : TriangleAlert} size={14} />
+                {r.path && safePath(r.path) ? (
+                  <button type="button" className="sa-mini" onClick={() => onNavigate(safePath(r.path)!)}>
+                    {r.label}
+                  </button>
+                ) : (
+                  <span>{r.label}</span>
+                )}
+                {r.message ? <span className="sa-prop-out-m">{r.message}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <footer className="sa-prop-f">
         {open && !decidable ? (
-          <div className="sa-prop-done is-quiet">کسانی که روی این رکورد کار می‌کنند این پیشنهاد را اعمال یا رد می‌کنند.</div>
+          <div className="sa-prop-done is-quiet">
+            {proposal.agent
+              ? "کسانی که این پیشنهاد به آن‌ها سپرده شده و روی این رکورد کار می‌کنند آن را اعمال یا رد می‌کنند."
+              : "کسانی که روی این رکورد کار می‌کنند این پیشنهاد را اعمال یا رد می‌کنند."}
+          </div>
         ) : open ? (
           <>
             <div className="sa-prop-act">

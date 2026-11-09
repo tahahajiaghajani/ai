@@ -89,6 +89,8 @@ export interface AiSettings {
     assistant: boolean;
     proposals: boolean; // the assistant may prepare drafts for confirmation
     files: boolean; // images and PDFs may be sent to the models (questions with files, a module's document reading)
+    agents: boolean; // AI agents run (the organisation's kill switch: off stops every agent at its next step)
+    virtual_agent: boolean; // the virtual agent («دستیار مجازی») answers requesters with a model (rule-based routing stays)
   };
   /** masked = national ids, mobiles, card numbers and IBANs are masked before anything reaches a model */
   data_policy: AiDataPolicy;
@@ -119,6 +121,13 @@ export interface AiRef {
 
 export type AiProposalStatus = "proposed" | "executing" | "executed" | "rejected" | "expired" | "failed";
 
+/** What applying a proposal did, row by row (a batch proposal): counts and each row's result. */
+export interface AiProposalOutcome {
+  ok: number;
+  failed: number;
+  rows: { label: string; ok: boolean; message?: string | null; path?: string | null }[];
+}
+
 /** A write the assistant prepared; nothing happens until a permitted person confirms it. */
 export interface AiProposal {
   id: string;
@@ -138,6 +147,14 @@ export interface AiProposal {
   expires_at: string;
   /** a skill's proposal on a record: may the caller apply or reject it (they work the record); absent = yes */
   can_decide?: boolean;
+  /** a batch proposal: how many records it changes (the card shows the count and a sample in `lines`) */
+  count?: number;
+  /** what applying it did, row by row (batch proposals report every row; a failed row never stops the others) */
+  outcome?: AiProposalOutcome | null;
+  /** an AI agent's proposal: the agent (docs/spec/AI.md §11.8) */
+  agent?: { key: string; name: string } | null;
+  /** the record it is about (a batch: the table only) */
+  record?: { table: string; id: string | null } | null;
 }
 
 export interface AiChartSpec {
@@ -169,6 +186,8 @@ export interface AiPageContext {
   title?: string; // page title
   record?: { type: string; id: string; label?: string } | null;
   report?: { key: string; params?: Record<string, unknown> } | null;
+  /** a list page: the table it lists and its filters from the query string */
+  list?: { table: string; params?: Record<string, string> } | null;
 }
 
 export interface AiThreadSummary {

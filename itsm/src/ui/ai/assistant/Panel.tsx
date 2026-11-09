@@ -195,6 +195,25 @@ function Suggestions({ list, onPick }: { list: Suggestion[]; onPick: (s: Suggest
   );
 }
 
+/**
+ * With no model (AI off or not set up), the panel offers what the command palette does without one: its actions
+ * («کارها» — a new incident, an order from the catalogue…) for this member, deterministic and permission-filtered.
+ */
+function PaletteActions({ items, onGo }: { items: { key: string; label: string; path: string; icon?: LucideIcon; action?: boolean }[]; onGo: (path: string) => void }) {
+  const actions = items.filter((i) => i.action && i.path).slice(0, 8);
+  if (!actions.length) return null;
+  return (
+    <div className="sa-sugg" role="list" aria-label="کارهای بی‌نیاز به هوش مصنوعی">
+      {actions.map((i) => (
+        <button key={i.key} type="button" role="listitem" className="sa-sugg-r ds-press" onClick={() => onGo(i.path)}>
+          <Ic icon={i.icon ?? AiIcon} />
+          <span>{i.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** The person's own daily cap (not the organisation's monthly one) stopped the assistant. */
 function dailyCapHit(b: AiStatus["budget"]): boolean {
   if (!b.today_cap_usd) return false;
@@ -460,6 +479,7 @@ export default function Panel({ open, onClose, pending }: { open: boolean; onClo
     body = (
       <Hello icon={Power} tone="quiet" title="دستیار خاموش است" text={s.message_fa ?? (canManage ? "دستیار را در تنظیمات هوش مصنوعی روشن کنید." : "از مدیر سازمان بخواهید دستیار را روشن کند.")}>
         {canManage && s.kind !== "disabled" ? settingsButton("تنظیمات هوش مصنوعی") : null}
+        <PaletteActions items={items} onGo={(p) => navigate(p)} />
       </Hello>
     );
   } else if (notConfigured && !snap.messages.length) {
@@ -470,6 +490,7 @@ export default function Panel({ open, onClose, pending }: { open: boolean; onClo
         text={canManage ? "کلید یکی از سرویس‌های هوش مصنوعی را در تنظیمات وارد کنید تا دستیار با داده‌های همین سازمان پاسخ دهد." : "از مدیر سازمان بخواهید هوش مصنوعی را راه‌اندازی کند."}
       >
         {canManage ? settingsButton("راه‌اندازی هوش مصنوعی") : null}
+        <PaletteActions items={items} onGo={(p) => navigate(p)} />
       </Hello>
     );
   } else if (snap.phase === "loading") {

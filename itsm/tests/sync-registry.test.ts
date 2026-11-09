@@ -29,6 +29,11 @@ const LOCAL_ONLY: Record<string, string> = {
   // AI skills: the run log is private to each run's author and kept by the runtime that ran it (the skills, their
   // versions and evaluation sets are engine tables and travel)
   sm_ai_skill_runs: "AI skill runs of this runtime (private to their authors)",
+  // AI agents: each runtime runs the agents of the writes it applied and keeps their run log; the virtual agent's
+  // conversations stay with the runtime the requester talked to (the agents and topics are engine tables and travel)
+  sm_ai_agent_runs: "AI agent runs of this runtime (steps, tool calls, proposals)",
+  sm_va_conversations: "virtual agent conversations (private to the requester)",
+  sm_va_messages: "virtual agent messages",
   // AI index (retrieval): each runtime indexes the records it holds, with its own embedding model
   sm_ai_rag_docs: "AI index: one row per indexed record (hash, version, anchors)",
   sm_ai_chunks: "AI index: chunks with full-text and vector embeddings",

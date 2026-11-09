@@ -143,11 +143,23 @@ function jsonDirective(question: string, messages: NeutralMessage[]): string | n
   return null;
 }
 
+/** A tool result without its untrusted-data wrapper (`<data name="tool_result">` + one JSON line). */
+export function unwrapData(content: string): string {
+  const m = /^<data name="[^"]*">\n([^\n]*)\n<\/data>/.exec(content);
+  if (!m) return content;
+  try {
+    const v = JSON.parse(m[1]);
+    return typeof v === "string" ? v : m[1];
+  } catch {
+    return m[1];
+  }
+}
+
 /** Numbers worth quoting from a tool result (decimal strings and numbers, with their keys). */
 function facts(content: string): string[] {
   let data: unknown;
   try {
-    data = JSON.parse(content);
+    data = JSON.parse(unwrapData(content));
   } catch {
     return [];
   }

@@ -11,7 +11,9 @@ import { todayISO } from "@shared/jalali";
 import { uuidv7 } from "@shared/id";
 import { D } from "@shared/money";
 import { AppError, bad, conflict } from "../../http/errors";
-import { toolsFor } from "./tools";
+import { toolsForTurn } from "./tools";
+import { skillDataBlock } from "@shared/ai/skills";
+import type { AiPageContext } from "@shared/ai/types";
 import type { AiToolDef, ToolResult, ToolRuntime } from "./tools/registry";
 import { storeProposal } from "./actions";
 import { AiUnavailableError } from "./errors";
@@ -71,6 +73,36 @@ function stringifyResult(data: unknown, max: number): string {
   return s.length > max ? `${s.slice(0, max)}… [truncated: ask for a narrower period or fewer rows]` : s;
 }
 
+/**
+ * A tool's result as the model reads it: untrusted data in a `<data name="tool_result">` block — one JSON line with
+ * tag-like text neutralised, so a record's text can never close the block or pose as instructions. Too long a result is
+ * cut to its first rows (the JSON stays one line, the note outside the block).
+ */
+export function wrapToolResult(data: unknown, max: number): string {
+  const block = skillDataBlock("tool_result", data ?? null);
+  if (block.length <= max) return block;
+  const inner = stringifyResult(data, Math.max(200, max - 120));
+  return `<data name="tool_result">\n${JSON.stringify(inner)}\n</data>\n[truncated: ask for a narrower period or fewer rows]`;
+}
+
+/** The person's last question in a conversation (its context block removed), for tool retrieval. */
+function lastQuestion(messages: NeutralMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== "user" || m.parts.some((p) => p.type === "tool_result")) continue;
+    const t = m.parts.map((p) => (p.type === "text" ? p.text : "")).join("\n").replace(/<context>[\s\S]*?<\/context>/g, "").trim();
+    if (t) return t;
+  }
+  return "";
+}
+
+/** Tools called earlier in the conversation (a follow-up keeps them). */
+function usedTools(messages: NeutralMessage[]): string[] {
+  const out = new Set<string>();
+  for (const m of messages) for (const p of m.parts) if (p.type === "tool_call") out.add(p.name);
+  return [...out];
+}
+
 interface RunState {
   ctx: Ctx;
   env: AiEnv;
@@ -84,6 +116,8 @@ interface RunState {
   emit: Emit;
   signal: AbortSignal;
   started: number;
+  /** the page the question was asked on (tool retrieval) */
+  page: AiPageContext | null;
 }
 
 /** POST /ai/chat */
@@ -124,7 +158,7 @@ export async function startChat(ctx: Ctx, req: AiChatRequest, emit: Emit, client
     const userId = await insertUserMessage(ctx, thread.id, text, storedParts, { attachments: attachments.map((a) => ({ name: a.name, mime: a.mime })), context: req.context ?? null });
     const liveParts: Part[] = [...attachments.map((a) => ({ type: "file" as const, name: a.name, mime: a.mime, data: a.data })), { type: "text", text: modelText }];
     const messages = [...prior.messages, { role: "user" as const, parts: liveParts }];
-    await runAnswer({ ctx, env, thread, runId, replyTo: userId, answerId: uuidv7(), stepsBefore: 0, messages, emit, signal: clientSignal, started: Date.now() });
+    await runAnswer({ ctx, env, thread, runId, replyTo: userId, answerId: uuidv7(), stepsBefore: 0, messages, emit, signal: clientSignal, started: Date.now(), page: req.context ?? thread.context ?? null });
   } finally {
     await releaseRun(ctx, thread.id, runId);
   }
@@ -145,7 +179,7 @@ export async function continueChat(ctx: Ctx, threadId: string, emit: Emit, clien
       emit({ type: "done", message_id: "", stop: "end" });
       return;
     }
-    await runAnswer({ ctx, env, thread, runId, replyTo: h.pending.replyTo, answerId: h.pending.answerId, stepsBefore: h.pending.steps, messages: h.messages, emit, signal: clientSignal, started: Date.now() });
+    await runAnswer({ ctx, env, thread, runId, replyTo: h.pending.replyTo, answerId: h.pending.answerId, stepsBefore: h.pending.steps, messages: h.messages, emit, signal: clientSignal, started: Date.now(), page: thread.context ?? null });
   } finally {
     await releaseRun(ctx, thread.id, runId);
   }
@@ -164,7 +198,8 @@ async function runAnswer(s: RunState): Promise<void> {
   const local = new AbortController();
   RUNNING.set(thread.id, local);
   const signal = AbortSignal.any([s.signal, local.signal]);
-  const tools = toolsFor(ctx, { proposals: env.settings.features.proposals });
+  // the registered tools and the generated record tools that fit the page and the question (tool retrieval)
+  const tools = await toolsForTurn(ctx, { proposals: env.settings.features.proposals, question: lastQuestion(s.messages), context: s.page, used: usedTools(s.messages) });
   const byName = new Map(tools.map((t) => [t.name, t]));
   const specs = toolSpecs(tools);
   // «اول نسخهٔ وب»: the web version's chain picks the model, so none is named in advance
@@ -415,7 +450,7 @@ async function runTools(
           details: data ?? null,
         };
       }
-      content = stringifyResult(data, AGENT_LIMITS.toolChars);
+      content = wrapToolResult(data, AGENT_LIMITS.toolChars);
       if (res.data_ref && res.chart) {
         ui.charts.push({ data_ref: res.data_ref, spec: res.chart });
         emit({ type: "chart", data_ref: res.data_ref, spec: res.chart });

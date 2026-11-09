@@ -189,6 +189,7 @@ const pageContext = z
     title: z.string().max(200).optional(),
     record: z.object({ type: z.string().max(40), id: z.string().max(80), label: z.string().max(200).optional() }).nullish(),
     report: z.object({ key: z.string().max(80), params: z.record(z.string(), z.unknown()).optional() }).nullish(),
+    list: z.object({ table: z.string().regex(/^[a-z][a-z0-9_]{0,62}$/), params: z.record(z.string().max(40), z.string().max(120)).optional() }).nullish(),
   })
   .nullish();
 const chatSchema = z.object({
@@ -280,10 +281,16 @@ aiRoutes.get("/actions", async (c) => {
     z.object({
       status: z.enum(["proposed", "executing", "executed", "rejected", "expired", "failed"]).optional(),
       mine: z.string().optional(),
+      /** «پیشنهادهای هوش مصنوعی»: routed to me or my groups (agents), or mine */
+      inbox: z.string().optional(),
+      /** every agent proposal the caller may see */
+      agents: z.string().optional(),
+      agent: z.string().regex(/^[0-9a-f-]{36}$/i).optional(),
       limit: z.coerce.number().int().min(1).max(200).optional(),
     }),
   );
-  return c.json({ actions: await listActions(ctx, { status: q.status, mine: q.mine === "1" || q.mine === "true", limit: q.limit }) });
+  const flag = (v?: string) => v === "1" || v === "true";
+  return c.json({ actions: await listActions(ctx, { status: q.status, mine: flag(q.mine), inbox: flag(q.inbox), agents: flag(q.agents), agent: q.agent ?? null, limit: q.limit }) });
 });
 
 aiRoutes.post("/actions/:id/confirm", async (c) => {

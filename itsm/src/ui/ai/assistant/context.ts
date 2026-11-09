@@ -2,6 +2,7 @@
 // of a detail page and the report with its filters. Pure functions of the route, so they are unit-tested.
 import type { AiPageContext } from "@shared/ai/types";
 import { isUuid } from "@shared/id";
+import { tableDef } from "@shared/tables";
 
 /**
  * Detail pages: the route's id is a record the question is probably about. Modules add theirs, e.g.
@@ -11,6 +12,17 @@ export const RECORD_ROUTES: { re: RegExp; type: string }[] = [];
 
 /** Report pages and the report each one shows (its filters come from the query string). Modules add theirs. */
 export const REPORT_PAGES: Record<string, string> = {};
+
+/** List pages of record modules: path → table (`recordModule()` registers each table's list and record pages). */
+export const LIST_PAGES: Record<string, string> = {};
+
+/** A record module's table at `path`: its list at `path`, its records at `path/<id>` (called by `recordModule()`). */
+export function registerRecordRoute(path: string, table: string): void {
+  const clean = path.replace(/^\/+|\/+$/g, "");
+  if (!clean || LIST_PAGES[clean]) return;
+  LIST_PAGES[clean] = table;
+  RECORD_ROUTES.push({ re: new RegExp(`^${clean.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/([^/]+)$`), type: table });
+}
 
 /** The query string's filters, bounded (a context is a hint, not a payload). */
 function params(search: string): Record<string, string> | undefined {
@@ -35,6 +47,14 @@ export function pageContext(rel: string, search: string, title: string | null): 
       ctx.record = { type: r.type, id: m[1], ...(title ? { label: title } : {}) };
       break;
     }
+  }
+  // every table also works at r/<table> (its list) and r/<table>/<id> (a record)
+  const generic = /^r\/([a-z][a-z0-9_]*)(?:\/([^/]+))?$/.exec(path);
+  if (!ctx.record && generic && tableDef(generic[1]) && generic[2] && isUuid(generic[2])) ctx.record = { type: generic[1], id: generic[2], ...(title ? { label: title } : {}) };
+  const listTable = LIST_PAGES[path] ?? (generic && !generic[2] && tableDef(generic[1]) ? generic[1] : null);
+  if (!ctx.record && listTable) {
+    const p = params(search);
+    ctx.list = p ? { table: listTable, params: p } : { table: listTable };
   }
   const report = REPORT_PAGES[path];
   if (report) {

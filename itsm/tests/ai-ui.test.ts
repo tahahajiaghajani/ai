@@ -52,7 +52,7 @@ const status = (o: Partial<AiStatus> = {}): AiStatus => ({
   can_use: true,
   can_propose: true,
   can_manage: true,
-  features: { assistant: true, proposals: true, files: true },
+  features: { assistant: true, proposals: true, files: true, agents: true, virtual_agent: true },
   budget: { state: "ok", month_usd: "0", month_cap_usd: null, today_usd: "0", today_cap_usd: null, alert_pct: 80 },
   model: null,
   connection: null,
@@ -157,11 +157,12 @@ describe("status, errors and confidence", () => {
 
 describe("AI settings", () => {
   it("offers a switch for every feature of the shared settings, on by default", () => {
-    expect(FEATURE_KEYS).toEqual(["assistant", "proposals", "files"]);
+    expect(FEATURE_KEYS).toEqual(["assistant", "proposals", "files", "agents", "virtual_agent"]);
     const s = withDefaults(null);
-    expect(s.features).toEqual({ assistant: true, proposals: true, files: true });
+    expect(s.features).toEqual({ assistant: true, proposals: true, files: true, agents: true, virtual_agent: true });
     expect(s).toMatchObject({ enabled: true, data_policy: "masked", retention_days: 90, use_cloud: false, cloud_first: [] });
-    // a stored row keeps its own choices
-    expect(withDefaults({ features: { assistant: true, proposals: false, files: false } } as never).features).toEqual({ assistant: true, proposals: false, files: false });
+    // a stored row keeps its own choices (a switch an older row lacks is on)
+    expect(withDefaults({ features: { assistant: true, proposals: false, files: false } } as never).features).toEqual({ assistant: true, proposals: false, files: false, agents: true, virtual_agent: true });
+    expect(withDefaults({ features: { assistant: true, proposals: true, files: true, agents: false, virtual_agent: true } } as never).features.agents).toBe(false);
   });
 });
