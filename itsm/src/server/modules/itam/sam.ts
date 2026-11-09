@@ -228,14 +228,16 @@ export async function compliance(ctx: Ctx): Promise<Compliance> {
   // discovered names no model matched, and restricted or prohibited software found installed
   const unmatchedAgg = await aggregate(ctx, "software_install", { filter: { and: [{ f: "active", op: "eq", v: true }, { f: "software_model_id", op: "empty" }] }, groupBy: ["raw_name"], metrics: [{ fn: "count" }], limit: 25 }).catch(() => null);
   const restrictedAgg = await aggregate(ctx, "software_install", { filter: { and: [{ f: "active", op: "eq", v: true }, { f: "software_model_id.status", op: "in", v: ["prohibited", "restricted"] }] }, groupBy: ["software_model_id"], metrics: [{ fn: "count" }], limit: 50 }).catch(() => null);
-  const statusOf = new Map(positions.map((p) => [p.software_model_id, p.model_status]));
+  const restrictedIds = (restrictedAgg?.rows ?? []).map((g) => String(g.keys[0])).filter(isUuid);
+  const restrictedModels = restrictedIds.length ? await list(ctx, "software_model", { ids: restrictedIds, size: restrictedIds.length, total: false, fields: ["name", "status"] }).catch(() => null) : null;
+  const modelOf = new Map((restrictedModels?.rows ?? []).map((m) => [String(m.id), m]));
   return {
     run: run ? { id: String(run.id), number: (run.number as string) ?? null, finished_at: (run.finished_at as string) ?? null, status: String(run.status) } : null,
     positions,
     totals: { ...totals, exposure: financial ? totals.exposure : null, savings: financial ? totals.savings : null },
     trueups,
     unmatched: (unmatchedAgg?.rows ?? []).map((g) => ({ raw_name: String(g.keys[0] ?? ""), publisher: null, installs: Number(g.values.count ?? 0) })),
-    restricted: (restrictedAgg?.rows ?? []).map((g) => ({ model: String(g.labels?.[0] ?? restrictedAgg?.display?.[String(g.keys[0])] ?? ""), status: String(statusOf.get(String(g.keys[0])) ?? "restricted"), installs: Number(g.values.count ?? 0) })),
+    restricted: (restrictedAgg?.rows ?? []).map((g) => ({ model: String(modelOf.get(String(g.keys[0]))?.name ?? g.labels?.[0] ?? ""), status: String(modelOf.get(String(g.keys[0]))?.status ?? "restricted"), installs: Number(g.values.count ?? 0) })),
     financial,
   };
 }
