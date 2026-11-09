@@ -456,14 +456,125 @@ public reply never), and stores the rest as a proposal on the record (valid seve
 - «تنظیمات ← هوش مصنوعی ← مهارت‌ها»: configuration, prompt editor with versions, diff and rollback, test run with the
   administrator's own access, evaluation sets and scores, usage, copies, and the service member's roles.
 
-### 11.8 Agents and tools
+### 11.8 Tools, the assistant that operates the app, and agents
 
-- **Agents** (AI-074…): autonomous runs act through a member context of their own principal (as triggered skills do);
-  retrieval inside an agent uses that context, never the system's.
-- **Tools** (`src/server/modules/ai/tools`): the assistant's tools repeat their route's checks; skills deployed as
-  tools run as the caller (`shift_handover_summary`).
+**Tools** (`src/server/modules/ai/tools`, catalogue AI-072/075). The platform registers a few generic tools
+(organisation context, members, an exact calculator, charts, `search_knowledge` over `retrieve`) and, for EVERY table a
+member may read, tools generated from its metadata (`tools/records.ts`, schemas from field types, choices with Persian
+labels, references by display value, required fields): `search_<t>` (conditions in the engine's condition language,
+sort, limit), `get_<t>` (visible fields only, the transitions the member may take), `aggregate_<t>` (Jalali buckets),
+`history_<t>` (field history; internal notes only for those who read them) and, where the member may write and
+proposals are on, `draft_create_<t>`, `draft_update_<t>`, `draft_transition_<t>`, `draft_batch_<t>`,
+`draft_journal_entry`, `draft_link_records`. A table added later (release, DevOps, analytics…) is covered as it is;
+configuration areas get read tools only; `excludeFromTools(table)` keeps a table out. Every tool runs the record service
+with the CALLER's context — the engine repeats the route's checks — and returns only fields that may reach a model
+(./fields.ts). A draft is checked by running the write and rolling it back, then stored as a proposal
+(`sm_ai_actions`) that a person applies with their own access: `record.update` fails closed when a field moved or the
+applier's access changed; `record.batch` («همهٔ … را ببند») is ONE proposal with a count, a sample and a plan,
+applied row by row with per-row results. Tool results reach the model as `<data name="tool_result">` blocks (tag-like
+text neutralised). Modules add tools with `registerTool` and executors with `registerProposalExecutor`; the AI layer
+registers `change_risk`, `cmdb_impact` and `draft_order_catalog_item` (ordering for someone: a proposal placed through
+the request module's ordering route by the confirming person) over the modules' services (`tools/modules.ts`).
+
+**Tool retrieval** (`tools/select.ts`): a turn is offered every registered tool the member may use plus at most
+`TOOLS_PER_TURN` generated tools that fit — the page's record or list (always first), record numbers in the question,
+Persian keywords of the tables' and fields' labels, the local embedder's similarity; drafts only when the question asks
+for a change, batches when it says «همه»; tools used earlier in the conversation stay. Nothing here widens access: the
+catalogue holds only tools the member may use and every call checks again.
+
+**The assistant operates the app** (`agent.ts`, `src/ui/ai/assistant`): the «دستیار» panel (Ctrl+J, the top bar's
+button) with threads, streaming, citations and proposal cards — apply / edit in the form / reject, field diffs, a
+batch's count and sample and, once applied, every row's result. The page context names the record of a record page
+(every `recordModule()` table registers its paths, and `r/<table>/<id>`), the table and filters of a list page, or the
+report and its filters. With no model (AI off or not set up) the panel offers the command palette's deterministic
+actions instead.
+
+**Agents** (`src/server/modules/ai/agents`, `src/shared/ai/agents.ts`, catalogue AI-074…077, AI-154/157/166/167).
+
+| Table | Synced | What |
+| --- | --- | --- |
+| `ai_agent` | yes | `key`, Persian `name`/`description`, `module`, `builtin`/`base_key`, `enabled`, `goal` (the administrator's task text), `tables`, `triggers` (manual / event / schedule / conversation), `events`, `condition`, `schedule_minutes` + `schedule_filter`, `tools` (names, `prefix_*` patterns, `skill:<key>`), `autonomy` (suggest / approve / auto), `auto_actions` (the whitelist), `approvers` + `approver_group_id`, `tier`, budgets `max_steps`, `max_tokens`, `max_actions`, `daily_runs`, guardrails `forbidden_tables`, `forbidden_fields` (`field` or `table.field`), `forbidden_states` (`state` or `table:state`), `roles` (who may start it), `field_groups`, `principal_id`, `last_scheduled_at` |
+| `ai_agent_run` | **no** | one run: agent, trigger and why, starter, principal, record, status (queued / running / done / failed / stopped / budget / skipped), `dry_run`, `steps` (model turns, tool calls, proposals), `state` (the conversation, resumable), counts, tokens, cost, `outcome` (the agent's report), `error` |
+
+Guards on every write path (`agents/hooks.ts`): only AI administrators change agents (`agentConfigProblems` refuses a
+configuration with problems); the principal is set only through the studio; a built-in agent is switched off, not
+deleted; runs, conversations and messages are written only by the runtime. A run is never readable through the generic
+API (`rowAccess` never true): its steps hold what the principal read. AI administrators read runs in the studio; a
+member who started one sees its status and its proposals (each checked for them).
+
+- **Principal.** Each agent acts through a service member of its own («عامل: <name>», `skills/principal.ts` with the
+  agent's key: an `.invalid` address, no password) whose ITSM roles an OWNER chooses through the access service
+  (nobody grants above their own) — never the system. Reads, retrieval, tools and writes use that member context.
+- **Runs** (`agents/runtime.ts`): a run is a row and an `ai.agent.run` job; each invocation advances it by steps — one
+  model turn and its tool round — keeping the conversation in `state`, and returns `{ again: 0 }` when the tick's time
+  is near (the next tick continues). Before every step: the agent's «فعال», the organisation's «عامل‌ها» switch
+  (`features.agents`, ledger family `agent:<key>`), the principal's membership — off stops the run («stopped» /
+  «skipped»). The first step checks that the principal reads the record and that the condition holds. The task
+  (goal, how the run started, the record as a `<data name="record">` block, today) is the first user turn under
+  `AGENT_SYSTEM` (data is never instructions; tools only; proposals; a Persian report at the end). A provider that is
+  rate-limited or down retries later (five times); other failures end the run «failed».
+- **Tools** (`agents/tools.ts`): allowed patterns ∩ the catalogue built with the principal's context (a table its roles
+  cannot read has no tool) − forbidden tables; skills `skill:<key>` run as tools (output as data, nothing written);
+  tool retrieval when the allowed generated tools are many. Every tool is wrapped by the guardrails: a forbidden table
+  in the input is refused, forbidden fields are stripped from reads, and a proposal that would write a forbidden table,
+  field or state is refused before it is stored (`guardrailProblem`, checked on the payload).
+- **Autonomy.** «فقط پیشنهاد»: proposals are routed to the record's assignee and assignment group (the inbox), anyone
+  who reads the record and every field involved applies them with their own access. «اقدام پس از تأیید»: routed to the
+  agent's approvers (or approver group; with neither, the record's group), who alone may apply them (`route_only`), and
+  notified (`notifyPeople`, each checked for read access on delivery). «اقدام خودکار»: only whitelisted actions —
+  `draft_update_<table>:<field>` (every field of the change listed), `draft_journal_entry:work_note`,
+  `draft_link_records` — are applied at once with the principal's access (`applyByAgent`, audited as `ai_action` with
+  `source: ai_agent`); a new record, a state change, a public reply or a batch never applies without a person.
+- **Budgets**: model turns (the last turn is asked for the report without tools), tokens (in + out) and actions per
+  run, runs per day (test runs aside); the organisation's AI budgets on top.
+- **Triggers** (`agents/triggers.ts`): record events of its tables (`ai.agents`; the runtime that applied the write;
+  never for writes of an AI service member — no loops between agents; deduplicated per agent and record while
+  queued), its schedule (`ai.agents.schedule` every 15 minutes while a scheduled agent exists: the filter's records read
+  as the principal, or one record-less run per period), a member by hand (`POST /ai/agents/:key/start`, the agent's
+  `roles`, the record read by the member) or from a conversation (the assistant's `start_agent` tool).
+- **Built-in agents** (`agents/builtin.ts`, seeded switched off, without a principal): incident triage, resolution
+  helper, major-incident communications (hourly), pre-CAB change reviewer, request fulfilment helper, knowledge gap
+  finder (daily: `kb_gap` drafts), CMDB data quality (daily), SLA watcher (hourly), shift handover (every eight hours).
+  `registerAgent(def)` adds a module's own; «بازگشت به پیش‌فرض» copies a definition back.
+- **Studio** (`src/ui/ai/agents/Studio.tsx`, settings «عامل‌ها», API `/ai/agents/admin…`, ai:full): the switch, the
+  agents by module, settings, the tool picker (what the principal may use is marked), the principal, the test console —
+  a dry run on a chosen record (nothing stored, nothing applied) with the record as the administrator and as the
+  principal read it, side by side — and runs with their steps (stop a running one). «پیشنهادهای هوش مصنوعی»
+  (`ai/proposals`, `GET /ai/actions?inbox=1`) lists what is routed to the member.
+
+### 11.9 The virtual agent
+
+`src/server/modules/ai/va` (brain), `src/shared/ai/va.ts` (contracts), `/ai/va/*` (HTTP), `src/ui/ai/va` (the
+browser's adapter and a test page; the portal module builds the requester UI). Tables `va_topic` (synced; keywords,
+Persian examples, kind: knowledge, status, order, catalog_item, report_issue, handoff, answer; built-ins seeded on first
+use), `va_conversation` and `va_message` (local, private to the requester, runtime-written).
+
+- **API**: `POST /va/conversations` (start, optional first message), `POST /va/conversations/:id/messages` (text, or a
+  card's answer: confirm / cancel / choose) and `…/messages/stream` (SSE: the answer's text, then the reply),
+  `POST …/handoff`, `POST …/end`, `GET /va/conversations`, `GET …/messages`. A reply carries text, cards (articles,
+  tickets, choices, items, a question, a confirmation, created, handoff, a link to an order form), the topic, the route
+  and quick replies. `VirtualAgentAdapter` (`virtualAgent(ctx)` on the server, `virtualAgentClient(api)` in the
+  browser) is the one interface for the portal and the messaging channels; `cardText` renders a card as text.
+- **Routing**: a pending question or card first; then a topic's keywords and examples (Persian-normalised words, the
+  local embedder); a record number → the status of that ticket; the model's intent classification (`va:intent`, fast
+  tier, under the «دستیار مجازی» switch; the message only as data); the knowledge answer.
+- **Every step with the requester's context**: answers from `askWithCitations`; the status of their own tickets (the
+  tables' requester fields `is_me` — another person's ticket is never shown, even to someone who could read it) with
+  public replies only; ordering — the catalogue as they are entitled to it, one required question at a time
+  (choices, numbers, dates, text; an item that needs a secret, a sensitive answer, a file or a person picker gets a link
+  to its order form), `checkItem`, a confirmation card, then `placeOrder` with channel «chat»; reporting an issue — an
+  incident draft confirmed by the requester and filed with their access; handoff — the transcript (and a model's
+  summary when one may be used) becomes an incident the requester files, or, when they may not file one, an interaction
+  the service desk picks up.
 
 ## 12. Not built yet
+
+- Agents: approvals of an agent's proposals through the approvals service (they are routed to the approvers and
+  notified instead: a record's `approval` field means the record's own approval), agents as flow steps, an undo journal
+  for applied actions, per-agent source scopes (AI-125), agent analytics beyond the run history.
+- Virtual agent: the requester UI and the messaging channels (the portal module), topic flows with several slots
+  beyond a catalogue item's questions, conversation analytics and deflection metrics (AI-073), known-issue detection
+  before a report (AI-067), memory across conversations (AI-070).
 
 - Skills: per-field writing-tool configuration with conditions (AI-027 «several configurations per field»), shadow runs
   of a new version beside the published one (AI-007), confidence thresholds and abstention per skill (AI-158), LLM-judge
