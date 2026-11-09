@@ -82,7 +82,12 @@ export function installAnalyticsJobs(): void {
       await enqueue(jctx.db, { kind: "analytics.deliver", orgId, payload: { id: s.id, at: s.next_run_at }, dedupeKey: `analytics.deliver:${s.id}`, maxAttempts: 3 });
     }
     const conf = await analyticsConfig(jctx.db, sys);
-    if (snapshotDue(conf, orgTz(sys))) await enqueue(jctx.db, { kind: "analytics.snapshot", orgId, payload: { since: new Date().toISOString() }, dedupeKey: "analytics.snapshot", maxAttempts: 3 });
+    if (snapshotDue(conf, orgTz(sys))) {
+      await enqueue(jctx.db, { kind: "analytics.snapshot", orgId, payload: { since: new Date().toISOString() }, dedupeKey: "analytics.snapshot", maxAttempts: 3 });
+      // once a day, the role holders of shared definitions are recomputed as a fallback (membership roles changed
+      // outside the engine's tables, members deactivated)
+      await enqueue(jctx.db, { kind: "analytics.shares", orgId, dedupeKey: "analytics.shares", maxAttempts: 5 });
+    }
     return { again: TICK_EVERY };
   });
 

@@ -80,6 +80,19 @@ describe("a shared dashboard shows each viewer only their rows", () => {
     expect(narrowed.applied).toContain("group");
   });
 
+  it("opens for someone given a shared role later (role holders recomputed after access changes)", async () => {
+    const late = await w.e.member("member", "late-agent@example.com");
+    await w.o.put(`${w.P}/access/members/${late.userId}`, { roles: ["agent"], persona: "agent" });
+    await w.drain();
+    // the recomputation waits a few seconds to absorb bursts of access changes: run it now
+    const queued = await w.e.db.one<{ n: number }>(`select count(*)::int as n from sm_jobs where org_id = $1 and kind = 'analytics.shares' and status = 'queued'`, [w.e.org]);
+    expect(queued!.n).toBe(1);
+    await w.e.db.query(`update sm_jobs set run_at = now() where org_id = $1 and kind = 'analytics.shares' and status = 'queued'`, [w.e.org]);
+    await w.drain();
+    const v = await late.client.get(`${w.P}/analytics/dashboards/${desk.id}`);
+    expect(v.name).toBe("داشبورد میز خدمت");
+  });
+
   it("is the home dashboard of those who read it", async () => {
     const h = await w.p.other.client.get(`${w.P}/analytics/home`);
     expect(h.dashboard?.id).toBe(desk.id);
