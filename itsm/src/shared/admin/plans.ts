@@ -121,6 +121,9 @@ export function rolloutBucket(orgId: string, key: string): number {
   return h % 100;
 }
 
+/** The plan of a self-hosted installation (the Windows app): every plan gate passes. */
+export const ALL_PLANS = "*";
+
 /**
  * Whether `flag` is on for an organisation: switched off by name > switched on by name > the plan > the stage (and a
  * beta's roll-out share) > the tenant administrator's switch (`tenant`: false = they switched it off).
@@ -129,7 +132,7 @@ export function flagState(flag: FlagRow, org: { id: string; plan: string | null;
   const base = { key: flag.key, label: flag.label, toggle: false };
   if (flag.orgs_off.includes(org.id)) return { ...base, on: false, gate: "org_off", reason: "مدیر سامانه این قابلیت را برای این سازمان خاموش کرده است" };
   if (!flag.orgs_on.includes(org.id)) {
-    if (flag.plans.length && !(org.plan && flag.plans.includes(org.plan)))
+    if (flag.plans.length && org.plan !== ALL_PLANS && !(org.plan && flag.plans.includes(org.plan)))
       return { ...base, on: false, gate: "plan", reason: "این قابلیت در طرح فعلی سازمان نیست؛ برای ارتقای طرح با مدیر سامانه تماس بگیرید" };
     if (flag.stage === "off") return { ...base, on: false, gate: "stage", reason: "این قابلیت هنوز عرضه نشده است" };
     if (flag.stage === "beta" && rolloutBucket(org.id, flag.key) >= flag.percent)
