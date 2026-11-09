@@ -208,6 +208,12 @@ workforceRoutes.post("/absences", async (c) => {
   return c.json({ id: row.id, number: row.number ?? null, state: row.state, approval: row.approval ?? null, days: row.days ?? null });
 });
 
+workforceRoutes.get("/absences/mine", async (c) => {
+  const ctx = await needAgent(c);
+  const rows = await liveRows(ctx.db, sysOf(ctx), "wfm_absence", { f: "user_id", op: "eq", v: ctx.user.id }, { order: "t.start_at desc", limit: 100 });
+  return c.json({ absences: rows.map((r) => ({ id: r.id, number: r.number ?? null, type: r.type, label: r.label ?? null, state: r.state, approval: r.approval ?? null, start_at: r.start_at, end_at: r.end_at, days: r.days ?? null, delegate_id: r.delegate_id ?? null, note: r.note ?? null, reject_reason: r.reject_reason ?? null })) });
+});
+
 workforceRoutes.post("/absences/:id/cancel", async (c) => {
   const ctx = await needAgent(c);
   const id = UUID.parse(c.req.param("id"));

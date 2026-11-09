@@ -36,7 +36,7 @@ export interface Agreement360 {
   /** null: the caller does not read the module's targets (a customer contact sees the document only) */
   targets: TargetLive[] | null;
   overall: { value: number | null; status: ComplianceStatus };
-  experience: Experience | null;
+  experience: (Experience & { available: boolean }) | null;
   watermelon: { gap: number | null; flagged: boolean };
   breaches: { by: string; label: string; count: number }[];
   children: { id: string; number: string | null; name: string; kind: string; state: string; compliance_status: string | null }[];
