@@ -3,7 +3,7 @@
 // Also the virtual `user` table: the members of the organisation as a reference target (user/users/group-less
 // person fields point at it; its fields come from sm_users and sm_org_members, see docs/spec/ENGINE.md).
 import type { FieldType, Option, TableDef } from "../model/types";
-import { FIELD_TYPES } from "../model/types";
+import { FIELD_GROUPS, FIELD_TYPES } from "../model/types";
 import { ROLES } from "../permissions";
 
 /** Field types a tenant may give a custom field. */
@@ -54,6 +54,7 @@ const customField: TableDef = {
     { name: "search", label: "در جست‌وجو", type: "bool", span: 6 },
     { name: "filter", label: "در پالایه‌ها", type: "bool", span: 6 },
     { name: "help", label: "راهنما", type: "string", maxLength: 300, span: 24 },
+    { name: "field_group", label: "گروه فیلد", type: "choice", choices: Object.entries(FIELD_GROUPS).map(([value, label]) => ({ value, label })), span: 12, help: "فقط دارندگان این گروه فیلد آن را می‌بینند (مثلاً «داخلی» برای کارشناسان، «مالی» برای مبلغ‌ها)" },
     { name: "section", label: "بخش فرم", type: "string", maxLength: 80, span: 12 },
     { name: "max_length", label: "حداکثر طول", type: "int", min: 1, max: 100000, span: 6 },
     { name: "sort_order", label: "ترتیب", type: "int", default: 0, span: 6 },

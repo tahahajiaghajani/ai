@@ -7,8 +7,8 @@
 //
 // Cached per process and organisation; each request re-validates the cache with one small query (the stamp of
 // both tables), so a change made on another cloud instance is seen by the next request.
-import type { FieldDef, FieldType, FormArrangement, Option, TableDef } from "@shared/model/types";
-import { FIELD_TYPES, COLOR_KEYS } from "@shared/model/types";
+import type { FieldDef, FieldGroup, FieldType, FormArrangement, Option, TableDef } from "@shared/model/types";
+import { FIELD_GROUPS, FIELD_TYPES, COLOR_KEYS } from "@shared/model/types";
 import { FORM_ROW, cleanArrangement } from "@shared/model/arrangement";
 import type { Lookup } from "@shared/model/conditions";
 import { CHOICE_LISTS, TABLES, tableDef } from "@shared/tables";
@@ -45,6 +45,7 @@ interface CustomFieldRow {
   filter: boolean;
   help: string | null;
   section: string | null;
+  field_group?: string | null;
   max_length: number | null;
   sort_order: number | null;
 }
@@ -100,7 +101,7 @@ export async function loadSchema(q: Queryable, orgId: string): Promise<OrgSchema
   if (hit && hit.stamp === stamp) return hit;
   const [fields, choices] = await Promise.all([
     q.query<CustomFieldRow>(
-      `select table_key, name, label, type, choices, options, ref, required, list, search, filter, help, section, max_length, sort_order
+      `select table_key, name, label, type, choices, options, ref, required, list, search, filter, help, section, field_group, max_length, sort_order
        from sm_custom_fields where org_id = $1 and deleted_at is null and active order by table_key, sort_order, name`,
       [orgId],
     ),
@@ -118,7 +119,7 @@ export async function loadSchema(q: Queryable, orgId: string): Promise<OrgSchema
 const CUSTOM_NAME = /^u_[a-z0-9_]{1,40}$/;
 
 /** A custom field row as a FieldDef (null when the row is not usable: unknown type, bad name). */
-export function customFieldDef(r: Pick<CustomFieldRow, "name" | "label" | "type" | "choices" | "options" | "ref" | "required" | "list" | "search" | "filter" | "help" | "section" | "max_length">): FieldDef | null {
+export function customFieldDef(r: Pick<CustomFieldRow, "name" | "label" | "type" | "choices" | "options" | "ref" | "required" | "list" | "search" | "filter" | "help" | "section" | "field_group" | "max_length">): FieldDef | null {
   if (!CUSTOM_NAME.test(r.name)) return null;
   const type = r.type as FieldType;
   if (!type || !(CUSTOM_FIELD_TYPES as string[]).includes(type)) return null;
@@ -129,6 +130,8 @@ export function customFieldDef(r: Pick<CustomFieldRow, "name" | "label" | "type"
   if (r.filter) f.filter = true;
   if (r.help) f.help = r.help;
   if (r.section) f.section = r.section;
+  // a custom field in a field group is hidden from members without it, like the module fields of that group
+  if (r.field_group && r.field_group in FIELD_GROUPS) f.group = r.field_group as FieldGroup;
   if (r.max_length) f.maxLength = r.max_length;
   if (type === "choice" || type === "multichoice") {
     if (r.choices) f.choices = r.choices;

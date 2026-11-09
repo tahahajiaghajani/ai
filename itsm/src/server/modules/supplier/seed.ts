@@ -11,7 +11,8 @@ import { orgTz, updateIn } from "../../engine";
 import { ensure, type SeedCounts } from "../itam/seed";
 import { liveRows, sysOf, type Row } from "../itam/common";
 
-export const SUPPLIER_SEED_VERSION = 1;
+/** 2: the supplier fields on tickets are in the «داخلی» field group (existing ones are moved into it once). */
+export const SUPPLIER_SEED_VERSION = 2;
 
 function notificationRules(): Row[] {
   const base = { active: true, notify_actor: false, digest: false, mandatory: false };
@@ -27,7 +28,8 @@ function notificationRules(): Row[] {
 
 // SUP-016: whom a ticket waits on — the supplier, their ticket number and contact, the contract used — as the
 // organisation's custom fields on the work tables (the platform's custom fields: admins relabel, move or switch them
-// off; the incident's «منتظر تأمین‌کننده» pending reason already pauses its SLA)
+// off; the incident's «منتظر تأمین‌کننده» pending reason already pauses its SLA). They are the team's working notes:
+// in the «داخلی» field group, so a requester reading their own ticket never sees the supplier or the contract.
 export const SUPPLIER_TASK_TABLES = ["incident", "incident_task", "problem_task", "change_task", "request_task"];
 const SECTION = "تأمین‌کننده";
 const SUPPLIER_TASK_FIELDS: Row[] = [
@@ -54,7 +56,11 @@ export async function seedSupplierDefaultsIn(tx: Tx, ctx: Ctx, opts: { force?: b
   await ensure(tx, sys, out, "supplier_contact", { supplier_id: support.id, name: "مدیر فنی" }, { contact_type: "escalation", role: "مدیر فنی", escalation_level: 2 });
 
   for (const table_key of SUPPLIER_TASK_TABLES) {
-    for (const f of SUPPLIER_TASK_FIELDS) await ensure(tx, sys, out, "custom_field", { table_key, name: f.name }, { ...f, active: true });
+    for (const f of SUPPLIER_TASK_FIELDS) {
+      const row = await ensure(tx, sys, out, "custom_field", { table_key, name: f.name }, { ...f, field_group: "internal", active: true });
+      // a field added before it had a group (seed 1) joins «داخلی» once; a group an administrator chose is kept
+      if (!row.field_group && Number(cfg?.seeded ?? 0) < 2) await updateIn(tx, sys, "custom_field", row.id, { field_group: "internal" }, { trusted: true });
+    }
   }
   // SUP-015: the supplier's clock on an incident runs while it waits on a named supplier (round the clock)
   const waiting = { and: [{ f: "state", op: "eq", v: "on_hold" }, { f: "hold_reason", op: "eq", v: "awaiting_supplier" }, { f: "u_supplier_id", op: "nempty" }] } as Cond;

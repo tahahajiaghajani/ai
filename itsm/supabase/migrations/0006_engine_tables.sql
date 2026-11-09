@@ -6103,6 +6103,7 @@ alter table sm_custom_fields add column if not exists list boolean not null defa
 alter table sm_custom_fields add column if not exists search boolean not null default false;
 alter table sm_custom_fields add column if not exists filter boolean not null default false;
 alter table sm_custom_fields add column if not exists help text;
+alter table sm_custom_fields add column if not exists field_group text;
 alter table sm_custom_fields add column if not exists section text;
 alter table sm_custom_fields add column if not exists max_length integer;
 alter table sm_custom_fields add column if not exists sort_order integer;
