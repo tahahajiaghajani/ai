@@ -57,7 +57,7 @@ export default function Renewals() {
             <StatCard title="مهلت اعلام تا ۳۰ روز" value={fa(d.counts.notice_30)} />
             <StatCard title="پایان یا تمدید تا ۹۰ روز" value={fa(d.counts.end_90)} />
             <StatCard title="تمدید خودکار" value={fa(d.counts.auto)} />
-            {d.counts.value_90 !== null ? <StatCard title="ارزش رو به تمدید (۹۰ روز)" value={<Money v={d.counts.value_90} />} /> : null}
+            {d.counts.value_90 !== null ? <StatCard title="ارزش رو به تمدید (۹۰ روز)" value={<Money v={d.counts.value_90} compact />} /> : null}
           </div>
           {d.overdue.length ? (
             <Card title="گذشته از موعد">

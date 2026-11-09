@@ -19,10 +19,13 @@ export function useMoneyUnit(): MoneyUnit {
 }
 
 /** An amount in Rials, shown in the organisation's unit («—» when hidden or empty). */
-export function Money({ v, unit, suffix = true }: { v: string | number | null | undefined; unit?: MoneyUnit; suffix?: boolean }) {
+/** An amount in Rials (or Tomans by the organisation's setting); `compact` for tiles: «۱۰٫۸ میلیارد ریال», exact in the tooltip. */
+export function Money({ v, unit, suffix = true, compact = false }: { v: string | number | null | undefined; unit?: MoneyUnit; suffix?: boolean; compact?: boolean }) {
   const u = useMoneyUnit();
   if (v === null || v === undefined || v === "") return <span className="text-ink-3">—</span>;
-  return <span className="ds-num whitespace-nowrap">{formatRial(String(v), unit ?? u, { suffix })}</span>;
+  const exact = formatRial(String(v), unit ?? u, { suffix });
+  if (!compact) return <span className="ds-num whitespace-nowrap">{exact}</span>;
+  return <span className="ds-num whitespace-nowrap" title={exact}>{formatRial(String(v), unit ?? u, { suffix, compact: true })}</span>;
 }
 
 /** A usage bar: green under 75 %, amber to 100 %, red beyond. */

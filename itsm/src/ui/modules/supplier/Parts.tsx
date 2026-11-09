@@ -132,7 +132,7 @@ export function Supplier360Tab({ ctx }: { ctx: RecordContext }) {
         <StatCard title="دارایی‌های تأمین‌شده" value={fa(d.assets.total)} hint={`${fa(d.assets.in_use)} در استفاده، ${fa(d.assets.in_repair)} در تعمیر`} />
         <StatCard title="تعمیرها" value={fa(d.repairs)} />
         <StatCard title="سفارش باز" value={fa(d.orders.open)} hint={d.orders.late ? `${fa(d.orders.late)} دیرکرد` : undefined} />
-        {d.spend ? <StatCard title={`هزینهٔ سال ${fa(d.spend.year)}`} value={<Money v={d.spend.total} />} /> : null}
+        {d.spend ? <StatCard title={`هزینهٔ سال ${fa(d.spend.year)}`} value={<Money v={d.spend.total} compact />} /> : null}
       </div>
       <Card title="قراردادها" flush>
         <Table

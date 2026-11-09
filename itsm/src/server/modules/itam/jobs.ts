@@ -14,7 +14,6 @@
 //                            starts (else a purchase requisition), handed over when delivered, released when
 //                            cancelled (ITAM-020/021)
 import type { Cond } from "@shared/model/conditions";
-import { depreciation, type DepMethod } from "@shared/itam/logic";
 import { dueReminder, reminderList } from "@shared/supplier/logic";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
@@ -25,7 +24,7 @@ import { eqAll, isUuid, itamConfig, liveRow, liveRows, orgToday, type Row } from
 import { assetsForDiscovered, fromCi, linkCi } from "./assets";
 import { checkStockRules } from "./stock";
 import { reconcile, renormalize, syncInstalls } from "./sam";
-import { setHandOver } from "./hooks";
+import { bookValueOf, setHandOver } from "./hooks";
 
 export const SWEEP_EVERY = 24 * 3600_000;
 const lastSweep = new Map<string, number>();
@@ -67,12 +66,9 @@ export async function itamSweep(sys: Ctx): Promise<ItamSweepResult> {
   for (let i = 0; i < due.length; i += 200) {
     await sys.write(async (tx) => {
       for (const a of due.slice(i, i + 200)) {
-        const rule = rules.get(String(a.depreciation_rule_id));
-        const start = String((rule?.start_basis === "purchase" ? a.purchase_date : a.in_service_date || a.purchase_date) ?? "");
-        if (!rule || !start) continue;
-        const salvage = a.salvage_value ?? (rule.salvage_percent ? String((Number(a.purchase_cost) * Number(rule.salvage_percent)) / 100) : "0");
-        const d = depreciation({ cost: a.purchase_cost, salvage, lifeMonths: Number(rule.life_months ?? 36), method: rule.method as DepMethod, ratePercent: rule.rate_percent, start, asOf: today });
-        await updateIn(tx, sys, "asset", a.id, { book_value: d.bookValue, accumulated_depreciation: d.accumulated, book_value_at: today }, { trusted: true, keepVersion: true });
+        const b = bookValueOf(rules.get(String(a.depreciation_rule_id)), a, today);
+        if (!b) continue;
+        await updateIn(tx, sys, "asset", a.id, b, { trusted: true, keepVersion: true });
         out.book_values++;
       }
     });

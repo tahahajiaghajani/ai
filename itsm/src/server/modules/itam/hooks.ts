@@ -22,7 +22,7 @@
 import type { FieldDef, TableDef } from "@shared/model/types";
 import { tableDef } from "@shared/tables";
 import { ASSET_STATES, MOVEMENT_KINDS } from "@shared/tables/itam";
-import { assetTagFor, ciStatusOf, matchSoftware, substateFor } from "@shared/itam/logic";
+import { assetTagFor, ciStatusOf, depreciation, matchSoftware, substateFor, type DepMethod } from "@shared/itam/logic";
 import { addJalaliMonths } from "@shared/supplier/logic";
 import { addDays } from "@shared/jalali";
 import { D, mul, round } from "@shared/money";
@@ -83,6 +83,16 @@ const movementLabel = (kind: string) => MOVEMENT_KINDS.find((k) => k.value === k
 // ---------------------------------------------------------------------------------------------------------------
 // The asset
 
+/** The book value of an asset today by its depreciation rule (null when it has no cost, rule or start date). */
+export function bookValueOf(rule: Row | null | undefined, a: Row, today: string): { book_value: string; accumulated_depreciation: string; book_value_at: string } | null {
+  if (!rule || a.purchase_cost === null || a.purchase_cost === undefined || a.purchase_cost === "") return null;
+  const start = String((rule.start_basis === "purchase" ? a.purchase_date : a.in_service_date || a.purchase_date) ?? "");
+  if (!start) return null;
+  const salvage = a.salvage_value ?? (rule.salvage_percent ? String((Number(a.purchase_cost) * Number(rule.salvage_percent)) / 100) : "0");
+  const d = depreciation({ cost: a.purchase_cost, salvage, lifeMonths: Number(rule.life_months ?? 36), method: rule.method as DepMethod, ratePercent: rule.rate_percent, start, asOf: today });
+  return { book_value: d.bookValue, accumulated_depreciation: d.accumulated, book_value_at: today };
+}
+
 async function assetBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete") return;
   const n = w.next;
@@ -128,6 +138,12 @@ async function assetBefore(w: WriteArgs): Promise<void> {
   if (entering(w, "disposed")) n.disposed_at = at;
   if (n.state === "in_stock" && n.substate !== "reserved" && w.changed.has("substate")) n.reserved_for = null;
   if (Number(n.quantity ?? 1) < 0) throw bad("تعداد نمی‌تواند منفی باشد");
+  // the book value from the first day (the daily sweep moves it on every month)
+  if (["purchase_cost", "purchase_date", "in_service_date", "depreciation_rule_id", "salvage_value"].some((f) => w.changed.has(f)) && n.depreciation_rule_id) {
+    const rule = await liveRow(w.tx, sysOf(w.ctx), "depreciation_rule", n.depreciation_rule_id);
+    const b = bookValueOf(rule, n, today);
+    if (b) Object.assign(n, b);
+  }
 }
 
 /** Open and close rows of the assignment history. */

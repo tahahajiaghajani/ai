@@ -67,8 +67,8 @@ export default function Dashboard() {
           </div>
           {d.money ? (
             <div className="itam-tiles">
-              <StatCard title="بهای خرید دارایی‌ها" value={<Money v={d.money.purchase_cost} />} />
-              <StatCard title="ارزش دفتری" value={<Money v={d.money.book_value} />} />
+              <StatCard title="بهای خرید دارایی‌ها" value={<Money v={d.money.purchase_cost} compact />} />
+              <StatCard title="ارزش دفتری" value={<Money v={d.money.book_value} compact />} />
             </div>
           ) : null}
           {d.compliance ? (
@@ -76,8 +76,8 @@ export default function Dashboard() {
               <div className="itam-tiles">
                 <StatCard title="نرم‌افزار در تطبیق" value={fa(d.compliance.products)} hint={d.compliance.run_at ? `آخرین تطبیق ${formatJalali(d.compliance.run_at.slice(0, 10))}` : "هنوز تطبیق نشده"} />
                 <StatCard title="کمبود مجوز" value={fa(d.compliance.under_licensed)} />
-                {d.compliance.exposure !== null ? <StatCard title="ریسک کمبود" value={<Money v={d.compliance.exposure} />} /> : null}
-                {d.compliance.savings !== null ? <StatCard title="صرفه‌جویی ممکن" value={<Money v={d.compliance.savings} />} /> : null}
+                {d.compliance.exposure !== null ? <StatCard title="ریسک کمبود" value={<Money v={d.compliance.exposure} compact />} /> : null}
+                {d.compliance.savings !== null ? <StatCard title="صرفه‌جویی ممکن" value={<Money v={d.compliance.savings} compact />} /> : null}
               </div>
             </Card>
           ) : null}

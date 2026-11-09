@@ -41,9 +41,9 @@ export default function Spend() {
       ) : (
         <div className="flex flex-col gap-3">
           <div className="itam-tiles">
-            <StatCard title={`هزینهٔ سال ${faDigits(d.year)}`} value={<Money v={d.total} />} />
-            <StatCard title="سرمایه‌ای (CapEx)" value={<Money v={d.capex} />} />
-            <StatCard title="جاری (OpEx)" value={<Money v={d.opex} />} />
+            <StatCard title={`هزینهٔ سال ${faDigits(d.year)}`} value={<Money v={d.total} compact />} />
+            <StatCard title="سرمایه‌ای (CapEx)" value={<Money v={d.capex} compact />} />
+            <StatCard title="جاری (OpEx)" value={<Money v={d.opex} compact />} />
           </div>
           <Card title="ماه به ماه">
             <div style={{ height: 220 }} dir="ltr">
@@ -51,7 +51,7 @@ export default function Spend() {
                 <BarChart data={d.by_month.map((m) => ({ label: m.label, amount: Number(m.amount) }))} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
                   <CartesianGrid stroke="var(--ds-line)" vertical={false} />
                   <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--ds-text-3)" }} />
-                  <YAxis width={70} tick={{ fontSize: 11, fill: "var(--ds-text-3)" }} tickFormatter={(v: number) => formatRial(String(v), unit, { suffix: false })} />
+                  <YAxis width={70} tick={{ fontSize: 11, fill: "var(--ds-text-3)" }} tickFormatter={(v: number) => formatRial(String(v), unit, { suffix: false, compact: true })} />
                   <Tooltip formatter={(v) => [formatRial(String(v), unit), "هزینه"]} />
                   <Bar dataKey="amount" fill="var(--ds-chart-1)" radius={[3, 3, 0, 0]} isAnimationActive={false} />
                 </BarChart>

@@ -188,22 +188,24 @@
   white-space: nowrap;
 }
 
+/* printing the label sheets only: scoped to a page that shows them (other pages print as the platform prints them) */
+@page itam-labels {
+  size: A4;
+  margin: 0;
+}
 @media print {
-  @page {
-    size: A4;
-    margin: 0;
-  }
-  body * {
+  body:has(.itam-print) * {
     visibility: hidden;
   }
-  .itam-print,
-  .itam-print * {
+  body:has(.itam-print) .itam-print,
+  body:has(.itam-print) .itam-print * {
     visibility: visible;
   }
   .itam-print {
     position: absolute;
     left: 0;
     top: 0;
+    page: itam-labels;
   }
   .itam-sheet {
     margin: 0;

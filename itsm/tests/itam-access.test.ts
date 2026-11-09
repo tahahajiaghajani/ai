@@ -60,6 +60,9 @@ describe("roles", () => {
     for (const who of ["auditor", "fin"] as const) {
       const r = await w.p[who].client.get(`${w.P}/r/asset/${mine.id}`);
       expect(r.row.purchase_cost).toBe("650000000");
+      // the book value is there from the first day (straight line from the purchase date, below the cost)
+      expect(Number(r.row.book_value)).toBeGreaterThan(0);
+      expect(Number(r.row.book_value)).toBeLessThanOrEqual(650000000);
       await w.p[who].client.patch(`${w.P}/r/asset/${mine.id}`, { notes: "x" }, 403);
     }
     const d = await w.p.am.client.get(`${w.P}/itam/dashboard`);

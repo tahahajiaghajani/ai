@@ -45,6 +45,7 @@ export default function BudgetVsActual() {
   const d = q.data;
   const unit = d?.unit ?? "rial";
   const money = (v: string) => <Money v={v} />;
+  const tile = (v: string) => <Money v={v} compact />;
   const chart = d ? d.rows.slice(0, 10).map((r) => ({ name: r.name, budget: Number(r.budget), actual: Number(r.actual) })) : [];
   const months = JALALI_MONTHS.map((m, i) => ({ value: i + 1, label: m }));
   return (
@@ -70,9 +71,9 @@ export default function BudgetVsActual() {
       ) : (
         <div className="flex flex-col gap-3">
           <div className="itam-tiles">
-            <StatCard title="بودجه" value={money(d.total.budget)} />
-            <StatCard title="هزینهٔ واقعی" value={money(d.total.actual)} />
-            <StatCard title="باقی‌مانده" value={money(d.total.variance)} />
+            <StatCard title="بودجه" value={tile(d.total.budget)} />
+            <StatCard title="هزینهٔ واقعی" value={tile(d.total.actual)} />
+            <StatCard title="باقی‌مانده" value={tile(d.total.variance)} />
             <StatCard title="مصرف بودجه" value={d.total.used_pct === null ? "—" : `${faDigits(d.total.used_pct)}٪`} hint={`${fa(d.budgets)} بودجهٔ مصوب`} />
           </div>
           {story ? (
@@ -87,7 +88,7 @@ export default function BudgetVsActual() {
                 <BarChart data={chart} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
                   <CartesianGrid stroke="var(--ds-line)" vertical={false} />
                   <XAxis dataKey="name" tick={{ fontSize: 11, fill: "var(--ds-text-3)" }} interval={0} />
-                  <YAxis width={70} tick={{ fontSize: 11, fill: "var(--ds-text-3)" }} tickFormatter={(v: number) => formatRial(String(v), unit, { suffix: false })} />
+                  <YAxis width={70} tick={{ fontSize: 11, fill: "var(--ds-text-3)" }} tickFormatter={(v: number) => formatRial(String(v), unit, { suffix: false, compact: true })} />
                   <Tooltip formatter={(v, n) => [formatRial(String(v), unit), n === "budget" ? "بودجه" : "هزینه"]} />
                   <Legend formatter={(v) => (v === "budget" ? "بودجه" : "هزینهٔ واقعی")} />
                   <Bar dataKey="budget" fill="var(--ds-chart-2)" radius={[3, 3, 0, 0]} isAnimationActive={false} />

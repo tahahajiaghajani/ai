@@ -83,8 +83,8 @@ export default function Compliance() {
             <StatCard title="منطبق" value={fa(d.totals.compliant)} />
             <StatCard title="کمبود مجوز" value={fa(d.totals.under_licensed)} onClick={() => setFilter("risk")} />
             <StatCard title="مجوز مازاد" value={fa(d.totals.over_licensed)} onClick={() => setFilter("surplus")} />
-            {d.totals.exposure !== null ? <StatCard title="ریسک کمبود" value={<Money v={d.totals.exposure} />} /> : null}
-            {d.totals.savings !== null ? <StatCard title="صرفه‌جویی ممکن" value={<Money v={d.totals.savings} />} /> : null}
+            {d.totals.exposure !== null ? <StatCard title="ریسک کمبود" value={<Money v={d.totals.exposure} compact />} /> : null}
+            {d.totals.savings !== null ? <StatCard title="صرفه‌جویی ممکن" value={<Money v={d.totals.savings} compact />} /> : null}
           </div>
           {story ? (
             <Card title="روایت بهینه‌سازی مجوزها">
