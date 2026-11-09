@@ -40,6 +40,22 @@ export function consoleRows(view: ConsoleView | undefined, expanded: ReadonlySet
   return out;
 }
 
+/**
+ * What an action key does on a focused group row: the group API acknowledges, takes, closes or raises the incident of
+ * the whole group; «تعویق» (Z) snoozes the group's open alerts the caller may act on through the bulk API (an hour);
+ * anything else does nothing (never an acknowledgement in its place).
+ */
+export type GroupPlan = { kind: "group"; action: "ack" | "take" | "close" | "incident" } | { kind: "bulk"; action: "snooze"; ids: string[]; minutes: number } | null;
+
+export function groupPlan(group: Pick<ConsoleGroup, "alerts">, action: string): GroupPlan {
+  if (action === "ack" || action === "ack-group" || action === "take" || action === "close" || action === "incident") return { kind: "group", action: action === "ack-group" ? "ack" : action };
+  if (action === "snooze") {
+    const ids = group.alerts.filter((a) => a.can_respond && ["open", "acknowledged", "flapping"].includes(String(a.state))).map((a) => a.id);
+    return ids.length ? { kind: "bulk", action: "snooze", ids, minutes: 60 } : null;
+  }
+  return null;
+}
+
 export type ConsoleKey = "next" | "prev" | "open" | "ack" | "take" | "assign" | "incident" | "close" | "snooze" | "select" | "search" | "toggle";
 
 /** The console's key map by physical key (works on the Persian layout too). */

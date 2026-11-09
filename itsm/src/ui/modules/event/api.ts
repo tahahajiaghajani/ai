@@ -92,7 +92,7 @@ export const eventApi = {
   console: (api: OrgApi, p: { scope: string; q?: string; severity?: string }) => api.get<ConsoleView>("/event/console", { scope: p.scope, ...(p.q ? { q: p.q } : {}), ...(p.severity ? { severity: p.severity } : {}) }),
   action: (api: OrgApi, id: string, action: ActionName, body: Record<string, unknown> = {}) => api.post(`/event/alerts/${id}/${action}`, body),
   bulk: (api: OrgApi, ids: string[], action: "ack" | "take" | "close" | "snooze" | "suppress", body: Record<string, unknown> = {}) => api.post<{ done: number; failed: { id: string; message: string }[] }>("/event/alerts-bulk", { ids, action, ...body }),
-  group: (api: OrgApi, id: string, action: "ack" | "take" | "close" | "incident", body: Record<string, unknown> = {}) => api.post<{ done: number; failed: { id: string; message: string }[] }>(`/event/groups/${id}/${action}`, body),
+  group: (api: OrgApi, id: string, action: "ack" | "take" | "close" | "incident", body: Record<string, unknown> = {}) => api.post<{ done: number; skipped?: number; failed: { id: string; message: string }[] }>(`/event/groups/${id}/${action}`, body),
   timeline: (api: OrgApi, id: string) => api.get<TimelineView>(`/event/alerts/${id}/timeline`),
   causes: (api: OrgApi, id: string) => api.get<{ causes: Cause[]; summary: string; hints: string }>(`/event/groups/${id}/causes`),
   aiSummary: (api: OrgApi, id: string) => api.post<AiAnswer>(`/event/groups/${id}/ai/summary`, {}),

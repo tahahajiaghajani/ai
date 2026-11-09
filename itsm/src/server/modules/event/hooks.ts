@@ -17,7 +17,7 @@ import { pushGuard, registerHooks, updateIn, validationError, actorId, type Push
 import { servicesImpactedBy } from "../cmdb/impact";
 import { eventConfig, idList, isUuid, liveRow, liveRows, msOf, sysOf, type Row } from "./common";
 import { stopEscalation } from "./escalation";
-import { queueRollup } from "./correlate";
+import { queueRollup, redactGroups } from "./correlate";
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 
@@ -192,6 +192,8 @@ export function installEventHooks(): (() => void)[] {
   // a Windows app's push runs no beforeWrite: the definitions' pure checks are asked of the pushed row (pushGuard)
   return [
     registerHooks("alert", { beforeWrite: alertBefore, afterWrite: alertAfter, derivePush: alertAnchorsOnPush }),
+    // a group's stored summary and causes name its members and nearby changes: rebuilt for readers who may not read them all
+    registerHooks("alert_group", { redactRows: redactGroups }),
     registerHooks("event_source", { beforeWrite: sourceBefore, validatePush: pushGuard(sourceBefore) }),
     registerHooks("event_rule", { beforeWrite: ruleBefore, validatePush: pushGuard(ruleBefore) }),
     registerHooks("correlation_rule", { beforeWrite: correlationBefore, validatePush: pushGuard(correlationBefore) }),

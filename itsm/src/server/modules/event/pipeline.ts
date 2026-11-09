@@ -13,7 +13,7 @@
 //   4. correlation into groups (correlate.ts) and the alert → incident rules (incidents.ts)
 //   5. modules' sinks (`registerEventSink`): the continuity module feeds capacity records from measured values
 // Each event is processed in its own transaction; a failure marks that event «خطا» with the reason.
-import { matchPattern, mapSeverity, nodeCandidates, thresholdReached, flapState } from "@shared/event/logic";
+import { matchPattern, mapSeverity, nodeCandidates, thresholdReached, flapState, stillFlapping } from "@shared/event/logic";
 import { occurrences, type WindowLike } from "@shared/change/logic";
 import { ALERT_OPEN_STATES } from "@shared/tables/event";
 import type { Ctx } from "../../context";
@@ -199,8 +199,21 @@ async function alertOf(q: Queryable, sys: Ctx, fingerprint: string, reopenMinute
 
 const history = (h: unknown, at: string, from: unknown, to: unknown) => [...(Array.isArray(h) ? h : []), { at, from, to }].slice(-50);
 
-/** Process one pending event inside `tx`. */
-export async function processEvent(tx: Tx, sys: Ctx, ev0: Row, cache: RunCache = newCache(), now = Date.now()): Promise<Row> {
+/**
+ * Claim an event for this transaction: one event at a time per organisation (several instances may run
+ * `event.process` at once — a delivery queues a job while another runs — and two runs must not both open the alert of
+ * a new fingerprint), and only while it is still pending (a run that read it before another processed it leaves it).
+ */
+async function claim(tx: Tx, sys: Ctx, id: string): Promise<boolean> {
+  await tx.query(`select pg_advisory_xact_lock(hashtext($1))`, [`event.process:${sys.org.id}`]);
+  const table = (await orgSchema(sys, tx)).def("event")?.table ?? "sm_events";
+  const cur = await tx.one<{ outcome: string | null }>(`select outcome from ${table} where id = $1::uuid and org_id = $2 for update`, [id, sys.org.id]);
+  return cur?.outcome === "pending";
+}
+
+/** Process one pending event inside `tx`; null when it is no longer pending (another run processed it). */
+export async function processEvent(tx: Tx, sys: Ctx, ev0: Row, cache: RunCache = newCache(), now = Date.now()): Promise<Row | null> {
+  if (!(await claim(tx, sys, String(ev0.id)))) return null;
   const ev: Row = { ...ev0, tags: Array.isArray(ev0.tags) ? [...ev0.tags] : [] };
   const decision: Decision = { rules: [], notes: [], hints: (ev0.decision as Decision | null)?.hints ?? {} };
   const cfg = await eventConfig(tx, sys);
@@ -241,7 +254,14 @@ export async function processEvent(tx: Tx, sys: Ctx, ev0: Row, cache: RunCache =
         ...(value !== null ? { last_value: value } : {}),
       }, { trusted: true, keepVersion: true });
       alert = await transitionIn(tx, sys, "alert", String(existing.id), "open", {}, { trusted: true });
-      if (flips.flapping) {
+      // a re-opened alert inside maintenance (a window over its CI or services, a change being implemented on them)
+      // waits there like a new one: no escalation, no paging
+      const services = idList(existing.affected_services);
+      const maint = await maintenanceFor(tx, sys, { ci_id: existing.ci_id ?? ci?.id ?? null, service_id: existing.service_id ?? null, affected_services: services }, now, cache);
+      if (maint) {
+        alert = await transitionIn(tx, sys, "alert", String(existing.id), "maintenance", { maintenance_window_id: maint.window_id, change_id: maint.change_id }, { trusted: true });
+        decision.notes.push(`در نگهداری: ${maint.label}`);
+      } else if (flips.flapping) {
         alert = await transitionIn(tx, sys, "alert", String(existing.id), "flapping", { flap_count: Number(existing.flap_count ?? 0) + 1 }, { trusted: true });
         decision.notes.push("نوسان: هشدار در بازهٔ نوسان بارها رفع و دوباره فعال شد");
       }
@@ -255,6 +275,12 @@ export async function processEvent(tx: Tx, sys: Ctx, ev0: Row, cache: RunCache =
         ...(value !== null ? { last_value: value } : {}),
       }, { trusted: true, keepVersion: true });
       outcome = "updated";
+      // a flapping alert that keeps firing after its flips aged out of the flap window is down for good: back to open,
+      // so its escalation starts again
+      if (existing.state === "flapping" && !stillFlapping(existing.flips, now, cfg.flap_window_minutes * 60_000, cfg.flap_threshold)) {
+        alert = await transitionIn(tx, sys, "alert", String(existing.id), "open", {}, { trusted: true });
+        decision.notes.push("نوسان پایان یافت و هشدار همچنان فعال است؛ هشدار باز شد");
+      }
       if (worse) await applyIncidentRules(tx, sys, alert);
     } else {
       const services = ci ? await servicesImpactedBy(tx, sys, [String(ci.id)], 6).catch(() => [] as string[]) : [];
@@ -326,12 +352,14 @@ export async function processPending(cfg: JobConfig, orgId: string, deadline: nu
           return out;
         }
         try {
-          await sys.write((tx) => processEvent(tx, sys, ev, cache, now()));
-          out.processed++;
+          if (await sys.write((tx) => processEvent(tx, sys, ev, cache, now()))) out.processed++;
         } catch (e) {
           out.failed++;
           const message = String((e as Error).message ?? e).slice(0, 500);
-          await sys.write((tx) => updateIn(tx, sys, "event", String(ev.id), { outcome: "error", decision: { rules: [], notes: [], error: message }, processed_at: new Date().toISOString() }, { trusted: true, keepVersion: true })).catch(() => undefined);
+          await sys.write(async (tx) => {
+            if ((await liveRow(tx, sys, "event", String(ev.id)))?.outcome !== "pending") return;
+            await updateIn(tx, sys, "event", String(ev.id), { outcome: "error", decision: { rules: [], notes: [], error: message }, processed_at: new Date().toISOString() }, { trusted: true, keepVersion: true });
+          }).catch(() => undefined);
         }
       }
     }

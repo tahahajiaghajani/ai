@@ -3,6 +3,7 @@
 // group, raise an incident — one alert, a whole group or a selection. Each action checks the module's authority
 // (`canRespond`: the area's write grant, or being the alert's assignee, responder or team member) on a row the caller
 // can read, then writes as the module on the person's behalf (trusted; the history and the notes name them).
+import type { Cond } from "@shared/model/conditions";
 import type { TableDef } from "@shared/model/types";
 import { ALERT_CLOSE_CODES, ALERT_OPEN_STATES } from "@shared/tables/event";
 import type { Ctx } from "../../context";
@@ -138,16 +139,25 @@ export async function bulkAction(ctx: Ctx, ids: string[], action: AlertAction, i
 
 export type GroupAction = "ack" | "take" | "close" | "incident";
 
-/** An action on every open alert of a correlated group (the console's keyboard works on whole groups). */
-export async function groupAction(ctx: Ctx, id: string, action: GroupAction, input: ActionInput = {}): Promise<{ group: Row; done: number; failed: { id: string; message: string }[] }> {
+/**
+ * An action on every open alert of a correlated group (the console's keyboard works on whole groups). A group may hold
+ * other teams' alerts (a dependency in the CMDB, one service): each member is acted on with the caller's own access —
+ * read and `canRespond` per alert, as one alert's action is — and the members they may not read or act on are left
+ * as they are, counted in `skipped` without their ids. The group closes only when none was left.
+ */
+export async function groupAction(ctx: Ctx, id: string, action: GroupAction, input: ActionInput = {}): Promise<{ group: Row; done: number; skipped: number; failed: { id: string; message: string }[] }> {
   return ctx.write(async (tx) => {
     const { def, row } = await lockRow(tx, ctx, "alert_group", id);
     if (!canRespond(ctx, def, row)) throw forbidden("اجازهٔ کار روی این گروه را ندارید");
     const sys = actor(ctx);
-    const members = await liveRows(tx, sys, "alert", { and: [{ f: "group_id", op: "eq", v: id }, { f: "state", op: "in", v: ALERT_OPEN_STATES }] }, { order: "t.first_seen_at", limit: 200 });
-    const out = { done: 0, failed: [] as { id: string; message: string }[] };
+    const openOf: Cond = { and: [{ f: "group_id", op: "eq", v: id }, { f: "state", op: "in", v: ALERT_OPEN_STATES }] };
+    const all = await liveRows(tx, sys, "alert", openOf, { order: "t.first_seen_at", limit: 200 });
+    const alertDef = (await defFor(ctx, "alert", tx)).def;
+    const readable = new Set((await liveRows(tx, ctx, "alert", openOf, { order: "t.first_seen_at", limit: 200 })).map((m) => String(m.id)));
+    const members = all.filter((m) => readable.has(String(m.id)) && canRespond(ctx, alertDef, m));
+    const out = { done: 0, skipped: all.length - members.length, failed: [] as { id: string; message: string }[] };
     if (action === "incident") {
-      if (!members.length) throw conflict("هشدار بازی در این گروه نیست");
+      if (!members.length) throw conflict(all.length ? "هشدار بازی از این گروه که بتوانید روی آن کار کنید نیست" : "هشدار بازی در این گروه نیست");
       if (isUuid(row.incident_id)) throw conflict("این گروه رخداد دارد");
       await raiseIncident(tx, sys, members[0], { perGroup: true, reason: "ثبت دستی از کنسول هشدارها", by: person(ctx) });
       out.done = members.length;
@@ -155,14 +165,15 @@ export async function groupAction(ctx: Ctx, id: string, action: GroupAction, inp
       for (const m of members) {
         try {
           if (action === "ack" && !["open", "flapping", "snoozed", "maintenance"].includes(String(m.state))) continue;
-          await alertActionIn(tx, sysOf(ctx, person(ctx)), String(m.id), action === "take" ? "take" : action, input);
+          // the caller's own context: the read and the authority are checked again on the locked row
+          await alertActionIn(tx, ctx, String(m.id), action === "take" ? "take" : action, input);
           out.done++;
         } catch (e) {
           out.failed.push({ id: String(m.id), message: String((e as Error).message ?? e).slice(0, 300) });
         }
       }
       if (action === "take" && person(ctx)) await updateIn(tx, sys, "alert_group", id, { assigned_to: person(ctx) }, { trusted: true });
-      if (action === "close" && row.state !== "closed") {
+      if (action === "close" && row.state !== "closed" && !out.skipped) {
         queueRollup(tx, sys, id);
         await transitionIn(tx, sys, "alert_group", id, "closed", {}, { trusted: true }).catch(() => undefined);
       }

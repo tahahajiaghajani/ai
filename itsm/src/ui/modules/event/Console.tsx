@@ -21,7 +21,7 @@ import { Chip, EmptyState, Loader } from "../../components/display";
 import { recordPath } from "../../records/extensions";
 import { RecordSelect } from "../../records/fields/RecordSelect";
 import { EVENT_KEYS, eventApi, type ActionName, type AiAnswer } from "./api";
-import { KEY_HELP, canAck, consoleRows, keyAction, seenLine, severityLabel, severityTone, stateLabel, escalationLabel, type ConsoleRow } from "./model";
+import { KEY_HELP, canAck, consoleRows, groupPlan, keyAction, seenLine, severityLabel, severityTone, stateLabel, escalationLabel, type ConsoleRow } from "./model";
 import "./event.css";
 
 type Scope = "open" | "mine" | "team" | "all";
@@ -93,9 +93,17 @@ export default function Console() {
     setBusy(true);
     try {
       if (r.kind === "group") {
-        const a = action === "take" ? "take" : action === "incident" ? "incident" : action === "close" ? "close" : "ack";
-        const res = await eventApi.group(api, r.id, a, a === "close" ? { close_code: "fixed" } : {});
-        n.ok(a === "incident" ? "رخداد گروه ساخته شد" : `${fa(res.done)} هشدار گروه به‌روز شد${res.failed.length ? `؛ ${fa(res.failed.length)} انجام نشد` : ""}`);
+        const plan = groupPlan(r.group, action);
+        if (!plan) return;
+        if (plan.kind === "bulk") {
+          const res = await eventApi.bulk(api, plan.ids, plan.action, { minutes: plan.minutes });
+          n.ok(`${fa(res.done)} هشدار گروه یک ساعت به تعویق افتاد${res.failed.length ? `؛ ${fa(res.failed.length)} انجام نشد` : ""}`);
+        } else {
+          const a = plan.action;
+          const res = await eventApi.group(api, r.id, a, a === "close" ? { close_code: "fixed" } : {});
+          const left = (res.skipped ?? 0) + res.failed.length;
+          n.ok(a === "incident" ? "رخداد گروه ساخته شد" : `${fa(res.done)} هشدار گروه به‌روز شد${left ? `؛ ${fa(left)} انجام نشد` : ""}`);
+        }
       } else {
         const body = action === "snooze" ? { minutes: 60 } : action === "close" ? { close_code: "fixed" } : {};
         await eventApi.action(api, r.id, action as ActionName, body);

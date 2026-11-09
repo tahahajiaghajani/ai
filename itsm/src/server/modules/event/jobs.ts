@@ -3,11 +3,13 @@
 //   event.escalate        one escalation round of an alert (its level timer; reschedules itself)
 //   event.incident_rule   the delayed check of an alert → incident rule
 //   event.sns_confirm     the confirmation of a CloudWatch/SNS subscription
-//   event.sweep           every few minutes while anything waits: snoozes ending, maintenance ending, cleared alerts
+//   event.sweep           every few minutes while anything waits: snoozes ending, maintenance ending, flapping that
+//                         ended while the alert still fires, cleared alerts
 //                         closing, expired page links, heartbeats of sources, correlated groups closing, retention
 // Subscribers (on the runtime that acts — `actsHere` — and for alerts a Windows app pushed, on the web version):
 //   · an alert that opens (created open, or back to open) starts its escalation; leaving «باز» stops it (hook)
 //   · an alert that clears may resolve its incident; an incident that is resolved acknowledges its alerts
+import { stillFlapping } from "@shared/event/logic";
 import { SEVERITY_ORDER } from "@shared/tables/event";
 import { formatJalaliDateTime } from "@shared/jalali";
 import type { Ctx } from "../../context";
@@ -37,6 +39,7 @@ export const resetSweepThrottle = () => lastSweep.clear();
 export interface SweepResult {
   unsnoozed: number;
   maintenance_ended: number;
+  flapping_ended: number;
   closed: number;
   pages_expired: number;
   heartbeats: number;
@@ -47,7 +50,7 @@ export interface SweepResult {
 
 /** The periodic work of an organisation (as the system). */
 export async function sweep(sys: Ctx, deadline = Number.POSITIVE_INFINITY, now = Date.now()): Promise<SweepResult> {
-  const out: SweepResult = { unsnoozed: 0, maintenance_ended: 0, closed: 0, pages_expired: 0, heartbeats: 0, groups_closed: 0, pruned: 0, pending: false };
+  const out: SweepResult = { unsnoozed: 0, maintenance_ended: 0, flapping_ended: 0, closed: 0, pages_expired: 0, heartbeats: 0, groups_closed: 0, pruned: 0, pending: false };
   const cfg = await eventConfig(sys.db, sys);
   const iso = new Date(now).toISOString();
   const late = () => Date.now() > deadline;
@@ -72,6 +75,17 @@ export async function sweep(sys: Ctx, deadline = Number.POSITIVE_INFINITY, now =
       await alertNote(tx, sys, a, "نگهداری پایان یافت و هشدار هنوز رفع نشده است؛ هشدار باز شد.");
     });
     out.maintenance_ended++;
+  }
+  // flapping that ended while the alert still fires (no clear came): back to open, so its escalation starts again
+  const flapping = await liveRows(sys.db, sys, "alert", { f: "state", op: "eq", v: "flapping" }, { limit: 200 });
+  for (const a of flapping) {
+    if (late()) break;
+    if (stillFlapping(a.flips, now, cfg.flap_window_minutes * 60_000, cfg.flap_threshold)) continue;
+    await sys.write(async (tx) => {
+      await transitionIn(tx, sys, "alert", String(a.id), "open", {}, { trusted: true });
+      await alertNote(tx, sys, a, "نوسان پایان یافت و هشدار هنوز رفع نشده است؛ هشدار باز شد.");
+    });
+    out.flapping_ended++;
   }
   // cleared alerts close after a while
   if (cfg.auto_close_minutes > 0) {

@@ -102,6 +102,17 @@ const MAX_DEPTH = 8;
 const MAX_STRING = 4000;
 const MAX_ITEMS = 200;
 
+// secrets inside text: credentials in URLs (scheme://user:pass@), «password=…»/«token: …» pairs, bearer tokens (each
+// pattern bounded, so long texts are scanned in linear time)
+const URL_CREDENTIALS = /\b([a-z][a-z0-9+.-]{0,20}:\/\/)([^\s:@/]{1,200}):([^\s@/]{1,200})@/gi;
+const SECRET_PAIR = /(password|passwd|pwd|secret|token|api[-_]?key|access[-_]?key|authori[sz]ation|cookie|private[-_]?key|credentials?|signature)([\w.-]{0,40})(\s{0,3}[=:]\s{0,3})("[^"\n]{0,500}"|'[^'\n]{0,500}'|[^\s,;&"']{1,500})/gi;
+const BEARER = /\b(bearer)\s+[A-Za-z0-9._~+/=-]{8,}/gi;
+
+/** Text with the secrets it carries masked (URL credentials, secret «key=value» pairs, bearer tokens). */
+export function scrubSecrets(text: string): string {
+  return text.replace(URL_CREDENTIALS, "$1$2:***@").replace(BEARER, "$1 ***").replace(SECRET_PAIR, "$1$2$3***");
+}
+
 /** A copy of a payload with secrets masked, long strings cut and deep or wide structures bounded. */
 export function redact(v: unknown, depth = 0): Json {
   if (v === null || v === undefined) return null;
@@ -239,32 +250,34 @@ const hostOf = (v: unknown): string | null => {
   return s.replace(/:\d+$/, "");
 };
 
+// a label whose name says secret becomes «name=***» (the payload masks it the same way)
 const labelTags = (labels: unknown, skip: string[] = []): string[] =>
   isObj(labels)
     ? Object.entries(labels)
         .filter(([k, v]) => !skip.includes(k) && str(v) !== null)
         .slice(0, 20)
-        .map(([k, v]) => cut(`${k}=${str(v)}`, 60)!)
+        .map(([k, v]) => cut(`${k}=${SECRET_KEY.test(k) ? "***" : str(v)}`, 60)!)
     : [];
 
 function base(over: Partial<NormalizedEvent> & { message: string }, spec: SourceSpec, raw: unknown): NormalizedEvent {
   const fallback = mapSeverity(spec.default_severity, null, "minor");
   return {
-    description: null,
     node: null,
     resource: null,
     metric: null,
     severity: fallback,
     status: "firing",
     occurred_at: null,
-    tags: [],
     value: null,
     fingerprint_hint: null,
     dedupe_hint: null,
     ci_hint: null,
     service_hint: null,
     ...over,
-    message: cut(over.message.replace(/\s+/g, " ").trim(), 300) || "رویداد بی‌عنوان",
+    // what is stored and shown (message, description, tags) carries no secret the tool put in its text
+    message: scrubSecrets(cut(over.message.replace(/\s+/g, " ").trim(), 300) ?? "") || "رویداد بی‌عنوان",
+    description: over.description ? scrubSecrets(over.description) : over.description ?? null,
+    tags: (over.tags ?? []).map((t) => scrubSecrets(String(t))),
     payload: redact(raw),
   };
 }
@@ -581,6 +594,15 @@ export function flapState(flips: unknown, now: number, windowMs: number, thresho
   kept.push(now);
   const recent = kept.slice(-50);
   return { flips: recent, flapping: recent.length >= Math.max(2, threshold) };
+}
+
+/**
+ * Is a flapping alert still flapping at `now` — enough flips left within the window? A firing event on an alert that
+ * already fires is no flip, so nothing is added (the same threshold as `flapState`).
+ */
+export function stillFlapping(flips: unknown, now: number, windowMs: number, threshold: number): boolean {
+  const kept = (Array.isArray(flips) ? flips : []).map(Number).filter((t) => Number.isFinite(t) && now - t <= windowMs);
+  return kept.length >= Math.max(2, threshold);
 }
 
 export interface NoiseInput {

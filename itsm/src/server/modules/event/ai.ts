@@ -188,9 +188,15 @@ export function installEventAi(): (() => void)[] {
         const field = def.scope?.group;
         const group = field ? row[field] : null;
         if (!isUuid(group)) return null;
+        // under the recipient's access: who is on call is told to those who may read the team's on-call schedules
+        // (not to a requester of the record), and the names are the profiles they may read
+        if (ctx.actor !== "system") {
+          const [schedule] = await liveRows(ctx.db, ctx, "oncall_schedule", { f: "group_id", op: "eq", v: group }, { limit: 1 }).catch(() => [] as Row[]);
+          if (!schedule) return null;
+        }
         const people = await onCallForGroup(ctx.db, sysOf(ctx), group);
         if (!people.length) return null;
-        const names = await liveRows(ctx.db, sysOf(ctx), "member_profile", { f: "user_id", op: "in", v: people }, { limit: 10 }).catch(() => [] as Row[]);
+        const names = await liveRows(ctx.db, ctx, "member_profile", { f: "user_id", op: "in", v: people }, { limit: 10 }).catch(() => [] as Row[]);
         const label = people.map((u) => String(names.find((n) => n.user_id === u)?.name ?? "")).filter(Boolean);
         if (!label.length) return null;
         const esc = (s: string) => s.replace(/[\\`*_[\]<>#|]/g, (m) => `\\${m}`);

@@ -11,7 +11,7 @@ import { AppError, bad, forbidden, notFound } from "../http/errors";
 import { access } from "../access/provider";
 import { defFor, get, list, systemCtx, updateIn } from "../engine";
 import { tick } from "../jobs";
-import { PUBLIC_LIMIT, publicRoutes } from "./public";
+import { PUBLIC_LIMIT, exemptFromPublicLimit, publicRoutes } from "./public";
 import { formatJalaliDateTime } from "@shared/jalali";
 import { ALERT_OPEN_STATES } from "@shared/tables/event";
 import { normalize } from "@shared/event/logic";
@@ -23,7 +23,7 @@ import {
 } from "../modules/event";
 import { policyLevels } from "../modules/event/escalation";
 import { inGroup, isUuid, liveRow, liveRows, msOf, orgTz, sysOf, type Row } from "../modules/event/common";
-import { rateLimit } from "../http/ratelimit";
+import { clientIp, hit, rateLimit } from "../http/ratelimit";
 
 const UUID = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "شناسه معتبر نیست");
 const id = (v: string | undefined) => UUID.parse(v ?? "").toLowerCase();
@@ -122,7 +122,7 @@ eventRoutes.post("/groups/:id/:action", async (c) => {
   if (!["ack", "take", "close", "incident"].includes(action)) throw notFound("اقدام ناشناخته است");
   const input = await body(c, actionBody);
   const r = await groupAction(ctx, id(c.req.param("id")), action as "ack" | "take" | "close" | "incident", input);
-  return c.json({ done: r.done, failed: r.failed, group: (await get(ctx, "alert_group", String(r.group.id))).row });
+  return c.json({ done: r.done, skipped: r.skipped, failed: r.failed, group: (await get(ctx, "alert_group", String(r.group.id))).row });
 });
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -352,12 +352,25 @@ eventRoutes.get("/oncall/load", async (c) => {
 });
 
 // ---------------------------------------------------------------------------------------------------------------
-// Sign-in-free: ingestion and acknowledgement (rate limited by the public router; each source by its own limit too)
+// Sign-in-free: ingestion and acknowledgement. Acknowledgement is rate limited by the public router; ingestion is not
+// (a monitoring tool sends many events from one address, and all tools behind one NAT share it): each source has its
+// own limit (`rate_limit`, up to 100000 a minute), and deliveries with a wrong key are limited per client.
+
+/** Deliveries with a wrong key from one client in a minute (the public router's budget, for the wrong keys only). */
+export const BAD_KEY_LIMIT = { name: "event-bad-key", limit: PUBLIC_LIMIT.limit, windowMs: PUBLIC_LIMIT.windowMs };
 
 async function ingestHandler(c: C, key: string) {
   const cfg = c.get("cfg");
   const src = await sourceOfKey(cfg.db, key);
-  if (!src) throw new AppError(401, "unauthorized", "کلید منبع رویداد معتبر نیست");
+  if (!src) {
+    // only the wrong keys count (a tool with a good key behind the same address is never held back)
+    const wait = hit(BAD_KEY_LIMIT, clientIp(c));
+    if (wait) {
+      c.header("Retry-After", String(wait));
+      throw new AppError(429, "rate_limited", "درخواست‌ها بیش از اندازه است؛ کمی بعد دوباره امتحان کنید");
+    }
+    throw new AppError(401, "unauthorized", "کلید منبع رویداد معتبر نیست");
+  }
   if (Number(c.req.header("content-length") ?? 0) > MAX_EVENT_BYTES) throw new AppError(413, "too_large", "حجم رویداد بیش از اندازهٔ مجاز است");
   const raw = await c.req.text();
   if (Buffer.byteLength(raw, "utf8") > MAX_EVENT_BYTES) throw new AppError(413, "too_large", "حجم رویداد بیش از اندازهٔ مجاز است");
@@ -374,6 +387,7 @@ async function ingestHandler(c: C, key: string) {
   }
 }
 
+exemptFromPublicLimit("POST", /\/public\/events(?:\/[^/]+)?\/?$/);
 publicRoutes.post("/events/:key", (c) => ingestHandler(c, c.req.param("key") ?? ""));
 publicRoutes.post("/events", (c) => {
   const auth = c.req.header("authorization") ?? "";

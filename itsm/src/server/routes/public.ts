@@ -12,7 +12,19 @@ export const PUBLIC_LIMIT: RateLimitOptions = { name: "public", limit: 120, wind
 
 export const publicRoutes = router();
 
-publicRoutes.use("*", rateLimit(PUBLIC_LIMIT));
+const exempt: { method: string; path: RegExp }[] = [];
+
+/**
+ * Leave a keyed endpoint out of the per-client budget: machines (a monitoring tool, a pipeline) send it many requests
+ * from one address, and the endpoint limits each key itself (an event source's own `rate_limit`) and the requests
+ * whose key is wrong per client.
+ */
+export function exemptFromPublicLimit(method: string, path: RegExp): void {
+  exempt.push({ method: method.toUpperCase(), path });
+}
+
+const publicLimit = rateLimit(PUBLIC_LIMIT);
+publicRoutes.use("*", (c, next) => (exempt.some((e) => e.method === c.req.method && e.path.test(c.req.path)) ? next() : publicLimit(c, next)));
 publicRoutes.use("*", async (c, next) => {
   await next();
   c.header("X-Robots-Tag", "noindex");

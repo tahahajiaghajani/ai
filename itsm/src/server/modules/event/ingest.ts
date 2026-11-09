@@ -153,14 +153,14 @@ export async function ingest(cfg: ServerConfig, src: SourceRow, payload: unknown
       out.ids.push(String(row.id));
       out.accepted++;
     }
-    if (out.accepted) {
-      await enqueue(tx, { kind: PROCESS_JOB, orgId: src.org_id, payload: {}, dedupeKey: PROCESS_JOB, maxAttempts: 10 });
-      // the source's counters, at most once a minute per source (a busy tool must not write its source row each time)
-      if (now - (statsAt.get(src.id) ?? 0) > 60_000) {
-        statsAt.set(src.id, now);
-        const [cur] = await liveRows(tx, sys, "event_source", { f: "id", op: "eq", v: src.id }, { limit: 1 });
-        if (cur) await updateIn(tx, sys, "event_source", src.id, { last_event_at: new Date(now).toISOString(), event_count: Number(cur.event_count ?? 0) + out.accepted }, { trusted: true, keepVersion: true });
-      }
+    if (out.accepted) await enqueue(tx, { kind: PROCESS_JOB, orgId: src.org_id, payload: {}, dedupeKey: PROCESS_JOB, maxAttempts: 10 });
+    // the source's activity (its heartbeat) and counters, at most once a minute per source (a busy tool must not write
+    // its source row each time); a delivery of duplicates only is activity too — a tool re-sending an always-firing
+    // alert (Alertmanager's Watchdog) is alive although nothing new is stored
+    if (now - (statsAt.get(src.id) ?? 0) > 60_000) {
+      statsAt.set(src.id, now);
+      const [cur] = await liveRows(tx, sys, "event_source", { f: "id", op: "eq", v: src.id }, { limit: 1 });
+      if (cur) await updateIn(tx, sys, "event_source", src.id, { last_event_at: new Date(now).toISOString(), event_count: Number(cur.event_count ?? 0) + out.accepted }, { trusted: true, keepVersion: true });
     }
     return out;
   });

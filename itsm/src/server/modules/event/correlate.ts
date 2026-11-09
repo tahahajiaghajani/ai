@@ -7,15 +7,17 @@
 //     first/last seen, affected services, state (resolved when no member is open, back to open when one reopens,
 //     «در رسیدگی» when every open member is acknowledged), the title, the ranked probable causes and the rule-based
 //     summary
-// Everything runs with system rights inside the pipeline's or the writer's transaction.
-import { corrKey, groupSummary, groupTitle, rankCauses, severityRank, type CauseAlert, type CauseChange } from "@shared/event/logic";
+// Everything runs with system rights inside the pipeline's or the writer's transaction. A group may hold other teams'
+// alerts, so the stored title names only an alert of the group's own team (its readers), and the stored summary and
+// causes reach a reader as they are only when the reader may read every member and change they name (`redactGroups`).
+import { corrKey, groupSummary, groupTitle, rankCauses, severityRank, type Cause, type CauseAlert, type CauseChange } from "@shared/event/logic";
 import { ALERT_OPEN_STATES, SEVERITY_ORDER } from "@shared/tables/event";
 import type { Ctx } from "../../context";
 import type { Queryable, Tx } from "../../db";
 import { condEnv, createIn, onBeforeCommit, orgSchema, updateIn } from "../../engine";
 import { computeImpact } from "../cmdb/impact";
 import { holds, withWalks } from "../sla/common";
-import { idList, isUuid, liveRow, liveRows, msOf, type Row } from "./common";
+import { idList, isUuid, liveRow, liveRows, msOf, sysOf, type Row } from "./common";
 import { attachToIncident } from "./incidents";
 
 const MIN = 60_000;
@@ -101,7 +103,8 @@ async function open(tx: Tx, sys: Ctx, rule: Row, reason: string, key: string, al
   const worst = alerts.reduce((w, a) => (severityRank(a.severity) < severityRank(w) ? a.severity : w), SEVERITY_ORDER[SEVERITY_ORDER.length - 1]);
   const lead = alerts.find((a) => a.assignment_group_id) ?? alerts[0];
   const group = await createIn(tx, sys, "alert_group", {
-    title: groupTitle(reason, alerts.length, { node: alerts[0].node ?? null, first: String(alerts[0].short_description ?? "").slice(0, 80) }),
+    // the title names an alert of the group's team (the lead's), never another team's
+    title: groupTitle(reason, alerts.length, { node: lead.node ?? null, first: String(lead.short_description ?? "").slice(0, 80) }),
     severity: worst,
     reason,
     rule_id: rule.id,
@@ -220,7 +223,8 @@ export async function rollupGroup(tx: Tx, sys: Ctx, groupId: string): Promise<vo
     if (isUuid(group.ci_id)) ciName = String((await liveRow(tx, sys, "ci", group.ci_id))?.name ?? "") || null;
     let serviceName: string | null = null;
     if (isUuid(group.service_id)) serviceName = String((await liveRow(tx, sys, "service", group.service_id))?.name ?? "") || null;
-    patch.title = groupTitle(String(group.reason ?? "ci"), members.length, { ci: ciName, service: serviceName, node: members[0]?.node ?? null, first: String(members[0]?.short_description ?? "").slice(0, 80) });
+    const named = members.find((m) => (m.assignment_group_id ?? null) === (group.assignment_group_id ?? null)) ?? null;
+    patch.title = groupTitle(String(group.reason ?? "ci"), members.length, { ci: ciName, service: serviceName, node: named?.node ?? null, first: named ? String(named.short_description ?? "").slice(0, 80) : null });
     const causes = await causesOf(tx, sys, members);
     patch.probable_causes = causes;
     const serviceRows = services.length ? await liveRows(tx, sys, "service", { f: "id", op: "in", v: services.slice(0, 10) }, { limit: 10 }) : [];
@@ -249,6 +253,54 @@ export async function rollupGroup(tx: Tx, sys: Ctx, groupId: string): Promise<vo
     for (const m of members) {
       const symptom = isUuid(m.ci_id) && m.ci_id !== group.ci_id && deps.has(m.ci_id);
       if (!!m.symptom !== symptom) await updateIn(tx, sys, "alert", String(m.id), { symptom }, { trusted: true, keepVersion: true, allowLocked: true });
+    }
+  }
+}
+
+/**
+ * Rows of `alert_group` (redactRows): the stored summary and probable causes are made with system rights from every
+ * member and from changes near the group's CIs. A reader who may not read some of those — another team's alerts under
+ * «نیاز به دانستن», a change of a restricted group or a secure workspace — gets them made again from what they may
+ * read (their members, the causes among them and the readable changes, names under their access).
+ */
+export async function redactGroups(q: Queryable, ctx: Ctx, _def: unknown, rows: Row[]): Promise<void> {
+  const targets = rows.filter((r) => isUuid(r.id) && ("summary" in r || "probable_causes" in r));
+  if (!targets.length) return;
+  const ids = [...new Set(targets.map((r) => String(r.id)))];
+  const sys = sysOf(ctx);
+  const groups = new Map((await liveRows(q, sys, "alert_group", { f: "id", op: "in", v: ids }, { limit: ids.length })).map((g) => [String(g.id), g]));
+  const members = await liveRows(q, sys, "alert", { f: "group_id", op: "in", v: ids }, { order: "t.first_seen_at", limit: 10_000 });
+  const readable = await liveRows(q, ctx, "alert", { f: "group_id", op: "in", v: ids }, { order: "t.first_seen_at", limit: 10_000 });
+  const seen = new Set(readable.map((m) => String(m.id)));
+  const causesIn = (g: Row): Cause[] => (Array.isArray(g.probable_causes) ? (g.probable_causes as Cause[]) : []);
+  const changeIds = [...new Set([...groups.values()].flatMap((g) => causesIn(g).filter((c) => c.kind === "change").map((c) => c.id)).filter(isUuid))];
+  const changes = changeIds.length ? new Set((await liveRows(q, ctx, "change_request", { f: "id", op: "in", v: changeIds }, { limit: changeIds.length }).catch(() => [] as Row[])).map((c) => String(c.id))) : new Set<string>();
+  const rebuild: { r: Row; g: Row; visible: Row[]; causes: Cause[] }[] = [];
+  for (const r of targets) {
+    const g = groups.get(String(r.id));
+    if (!g) continue;
+    const all = members.filter((m) => m.group_id === g.id);
+    const visible = readable.filter((m) => m.group_id === g.id);
+    const causes = causesIn(g);
+    const kept = causes.filter((c) => (c.kind === "change" ? changes.has(c.id) : seen.has(c.id)));
+    if (visible.length === all.length && kept.length === causes.length) continue;
+    rebuild.push({ r, g, visible, causes: kept });
+  }
+  if (!rebuild.length) return;
+  // names of CIs and services under the reader's access
+  const ciIds = [...new Set(rebuild.flatMap((x) => x.visible.map((m) => m.ci_id)).filter(isUuid))];
+  const serviceIds = [...new Set(rebuild.flatMap((x) => idList(x.g.affected_services)))];
+  const ciNames = new Map(ciIds.length ? (await liveRows(q, ctx, "ci", { f: "id", op: "in", v: ciIds.slice(0, 500) }, { limit: 500 }).catch(() => [] as Row[])).map((c) => [String(c.id), String(c.name ?? "")] as const) : []);
+  const serviceNames = new Map(serviceIds.length ? (await liveRows(q, ctx, "service", { f: "id", op: "in", v: serviceIds.slice(0, 500) }, { limit: 500 }).catch(() => [] as Row[])).map((s) => [String(s.id), String(s.name ?? "")] as const) : []);
+  for (const { r, g, visible, causes } of rebuild) {
+    if ("probable_causes" in r) r.probable_causes = causes;
+    if ("summary" in r) {
+      r.summary = groupSummary({
+        title: String(g.title ?? ""),
+        alerts: visible.map((m) => ({ number: m.number ?? null, title: String(m.short_description ?? ""), severity: String(m.severity ?? "minor"), state: String(m.state ?? ""), ci_name: m.ci_id ? ciNames.get(String(m.ci_id)) ?? null : null })),
+        services: idList(g.affected_services).map((s) => serviceNames.get(s)).filter((x): x is string => !!x).slice(0, 10),
+        causes,
+      });
     }
   }
 }
