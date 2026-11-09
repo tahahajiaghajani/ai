@@ -19,6 +19,7 @@ export const projectSkills: SkillDef[] = [
     output: "text",
     tier: "standard",
     inputs: { fields: ["number", "name", "state", "health", "pct_complete", "planned_start", "planned_end", "projected_end", "schedule_variance_days", "objectives"], journal: "all", journalLimit: 15, links: false },
+    fieldGroups: ["internal"], // it reads the work notes (the «internal» group), like the other modules' summaries
     surfaces: ["panel", "module"],
     order: 10,
     system: "کار تو: خلاصهٔ وضعیت یک پروژه برای گزارش دوره‌ای، در چهار بند کوتاه: «وضعیت کلی»، «پیشرفت این دوره»، «پیش رو»، «ریسک‌ها و تصمیم‌های لازم». فقط از بلوک status و یادداشت‌ها استفاده کن؛ عدد یا رویدادی نساز. لحن رسمی و صریح؛ اگر سلامت زرد یا قرمز است دلیلش را روشن بگو.",

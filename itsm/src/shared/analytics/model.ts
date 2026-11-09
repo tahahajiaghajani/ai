@@ -3,7 +3,7 @@
 // period, the condition behind a clicked element (drill-down), dashboard-wide filters and the rules-first chart choice.
 // Pure: no server or React imports.
 import type { Cond } from "../model/conditions";
-import { relativeWindow, resolvePath, validateCond, type Lookup } from "../model/conditions";
+import { isNever, relativeWindow, resolvePath, validateCond, type Lookup } from "../model/conditions";
 import type { FieldDef, TableDef } from "../model/types";
 import { FIELD_TYPES } from "../model/types";
 import { addUnits, bucketKey, DATE_UNITS, unitStart, windowDates, zonedMidnight, type DateUnit, type RelativeWindow } from "../model/jalali-buckets";
@@ -141,7 +141,8 @@ const UNSAFE_PATH = /[^a-z0-9_.]/;
 export function specProblem(spec: ReportSpec, def: TableDef | undefined, lookup?: Lookup): string | null {
   if (!spec || typeof spec !== "object") return "تعریف گزارش معتبر نیست";
   if (!def) return `جدول «${String(spec.table ?? "")}» در این سازمان نیست`;
-  if (def.virtual) return "از این جدول گزارش گرفته نمی‌شود";
+  // virtual tables, and runtime-only ones no member reads through the record API (`rowAccess.read` NEVER)
+  if (def.virtual || isNever(def.rowAccess?.read)) return "از این جدول گزارش گرفته نمی‌شود";
   const viz = VIZ[spec.viz];
   if (!viz) return `نوع نمایش «${String(spec.viz)}» شناخته نیست`;
   const measures = Array.isArray(spec.measures) ? spec.measures : [];

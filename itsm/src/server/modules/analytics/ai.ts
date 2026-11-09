@@ -16,6 +16,7 @@ import { deltaPct, formatValue, STATUS_LABELS, UNITS } from "@shared/analytics/k
 import type { ReportResult, ReportSpec, ScorecardItem } from "@shared/analytics/types";
 import type { Breakdown } from "@shared/analytics/api";
 import { DATE_UNITS } from "@shared/model/jalali-buckets";
+import { isNever } from "@shared/model/conditions";
 import { faDigits } from "@shared/format";
 import { todayISO } from "@shared/jalali";
 import { TABLES } from "@shared/tables";
@@ -78,7 +79,7 @@ export async function askTables(ctx: Ctx): Promise<NlTable[]> {
   const out: NlTable[] = [];
   for (const t of TABLES.values()) {
     const def = schema.def(t.key);
-    if (!def || def.virtual || def.module === "analytics" || !access().canReadTable(ctx, def)) continue;
+    if (!def || def.virtual || isNever(def.rowAccess?.read) || def.module === "analytics" || !access().canReadTable(ctx, def)) continue;
     const visible = access().visibleFields(ctx, def);
     const trimmed = visible ? { ...def, fields: def.fields.filter((f) => visible.has(f.name)) } : def;
     out.push({ def: trimmed, options: (f) => (f.choices ? (Array.isArray(f.choices) ? f.choices : schema.choices(f.choices)) : []) });

@@ -4,6 +4,7 @@
 // caller's own context: reports, widgets, scorecards and the KPI hub count only what the caller may read, a shared
 // definition never shares data, stored scores are read only by the indicator's score readers, and an Excel file holds
 // what its downloader (or a schedule's recipient) may see. Everything needs the reports area's read right.
+import { isNever } from "@shared/model/conditions";
 import { z } from "zod";
 import { router, body, query } from "../http/hono";
 import { bad, forbidden, notFound } from "../http/errors";
@@ -56,7 +57,7 @@ analyticsRoutes.get("/meta", async (c) => {
   const tables: AnalyticsMeta["tables"] = [];
   for (const t of TABLES.values()) {
     const def = schema.def(t.key);
-    if (!def || def.virtual || def.module === "analytics" || !access().canReadTable(ctx, def)) continue;
+    if (!def || def.virtual || isNever(def.rowAccess?.read) || def.module === "analytics" || !access().canReadTable(ctx, def)) continue;
     tables.push({ key: def.key, label: def.label, plural: def.plural, module: def.module ?? null });
   }
   // the work tables first (the designer's default source), then the rest by name

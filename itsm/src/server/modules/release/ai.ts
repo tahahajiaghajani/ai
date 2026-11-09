@@ -116,6 +116,7 @@ export const releaseSkills: SkillDef[] = [
     output: "text",
     tier: "standard",
     inputs: { fields: ["number", "short_description", "version_name", "type", "state", "planned_end", "go_no_go", "readiness_pct", "risk_band"], journal: "all", journalLimit: 20, links: true },
+    fieldGroups: ["internal"], // it reads the work notes (the «internal» group), like the other modules' summaries
     surfaces: ["panel", "module"],
     order: 30,
     system: "کار تو: گزارش کوتاه آمادگی یک انتشار برای جلسهٔ تصمیم اجرا. بخش‌ها: «وضعیت»، «مانع‌ها» (فقط از بلوک status)، «ریسک»، «گام بعد». تصمیم اجرا یا توقف نگیر؛ فقط مانع‌ها و پیامدشان را روشن کن.",

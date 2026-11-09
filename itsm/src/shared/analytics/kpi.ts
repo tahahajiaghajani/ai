@@ -2,7 +2,7 @@
 // its target and thresholds, the change against the previous period, Persian formatting of every unit, and the
 // validation of an indicator's parts and formula. Pure: the server's collector and the scorecard use the same rules.
 import type { Cond, Lookup } from "../model/conditions";
-import { resolvePath, validateCond } from "../model/conditions";
+import { isNever, resolvePath, validateCond } from "../model/conditions";
 import type { TableDef } from "../model/types";
 import { addUnits, bucketKey, bucketLabel, DATE_UNITS, localDate, unitStart, zonedMidnight, type DateUnit } from "../model/jalali-buckets";
 import { formatJalali } from "../jalali";
@@ -173,6 +173,7 @@ export function indicatorProblem(ind: Pick<IndicatorDef, "formula" | "parts" | "
     names.add(p.name);
     const def = lookup(String(p.table ?? ""));
     if (!def || def.virtual) return `جدول «${String(p.table ?? "")}» در این سازمان نیست`;
+    if (isNever(def.rowAccess?.read)) return `از «${def.plural}» شاخص ساخته نمی‌شود`;
     tables.set(def.key, def);
     if (!MEASURES[p.fn]) return `سنجهٔ «${String(p.fn)}» شناخته نیست`;
     const resolve = (path: unknown) => (typeof path === "string" && path && !UNSAFE_PATH.test(path) ? resolvePath(def, path, lookup) : null);
