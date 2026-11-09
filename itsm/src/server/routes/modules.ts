@@ -29,6 +29,8 @@ import { installRequestModule } from "../modules/request";
 import { requestRoutes } from "./request";
 import { installKnowledgeModule } from "../modules/knowledge";
 import { knowledgeRoutes } from "./knowledge";
+import { installEventModule } from "../modules/event";
+import { eventRoutes } from "./event";
 import { installAiSkills } from "../modules/ai/skills";
 import { skillRoutes } from "./ai-skills";
 
@@ -60,6 +62,9 @@ installRequestModule();
 // knowledge management (docs/modules/knowledge_FA.md) — after the RAG index and the modules whose records it links
 installKnowledgeModule();
 
+// event management, AIOps light and on-call (docs/modules/event_FA.md) — after incidents, the CMDB and change
+installEventModule();
+
 // the AI skills (docs/spec/AI.md §11) — after every module whose AI extension points they implement
 installAiSkills();
 
@@ -82,3 +87,4 @@ moduleRoutes.route("/service_portfolio", servicePortfolioRoutes);
 moduleRoutes.route("/change", changeRoutes);
 moduleRoutes.route("/request", requestRoutes);
 moduleRoutes.route("/knowledge", knowledgeRoutes);
+moduleRoutes.route("/event", eventRoutes);

@@ -426,6 +426,7 @@ const alert: TableDef = {
     { name: "group_id", label: "گروه هم‌بسته", type: "ref", ref: "alert_group", list: true, filter: true, index: true, span: 8, section: LINKS },
     { name: "symptom", label: "نشانهٔ علتی دیگر", type: "bool", readonly: true, default: false, filter: true, span: 8, section: LINKS, help: "پیکربندی‌ای که این پیکربندی به آن وابسته است هم هشدار دارد" },
     { name: "incident_id", label: "رخداد", type: "ref", ref: "incident", list: true, filter: true, index: true, span: 8, section: LINKS },
+    { name: "incident_auto_resolve", label: "حل خودکار رخداد با رفع هشدارها", type: "bool", system: true, hidden: true, default: false, audit: false },
     { name: "change_id", label: "تغییر مرتبط", type: "ref", ref: "change_request", filter: true, span: 8, section: LINKS },
     { name: "maintenance_window_id", label: "پنجرهٔ نگهداری", type: "ref", ref: "change_window", filter: true, span: 8, section: LINKS },
     { name: "last_event_id", label: "آخرین رویداد", type: "ref", ref: "event", system: true, hidden: true, audit: false },

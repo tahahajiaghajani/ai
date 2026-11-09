@@ -646,7 +646,7 @@ export function corrKey(kind: string, a: CorrAlert, fields: string[] = []): stri
       return a.service_id ? `svc:${a.service_id}` : null;
     case "fields": {
       const names = fields.length ? fields : ["node"];
-      const vals = names.map((f) => String((a as Record<string, unknown>)[f] ?? "").trim().toLowerCase());
+      const vals = names.map((f) => String((a as unknown as Record<string, unknown>)[f] ?? "").trim().toLowerCase());
       if (vals.every((v) => !v)) return null;
       return `f:${names.join(",")}:${shortHash(vals.join("|"))}`;
     }
