@@ -552,6 +552,18 @@ async function policyBefore(w: WriteArgs): Promise<void> {
   }
 }
 
+/** A policy leaving publication («ویرایش تازه» or retirement) ends its running campaigns: they were for that version. */
+async function policyAfter(w: WriteArgs & { row: Row }): Promise<void> {
+  if (w.op === "create" || w.op === "delete" || w.prev?.state !== "published" || w.row.state === "published") return;
+  const sys = sysOf(w.ctx);
+  const def = tableDef("grc_policy_campaign");
+  const why = w.row.state === "retired" ? "خط‌مشی بازنشسته شد" : `خط‌مشی برای ویرایش تازه (نسخهٔ ${w.row.version_label ?? ""}) به پیش‌نویس برگشت`;
+  for (const c of await liveRows(w.tx, sys, "grc_policy_campaign", { and: [{ f: "policy_id", op: "eq", v: w.row.id }, { f: "state", op: "eq", v: "active" }] }, { limit: 200 })) {
+    const closed = await transitionIn(w.tx, sys, "grc_policy_campaign", c.id, "closed");
+    if (def?.features?.journal) await addJournalIn(w.tx, sys, def, closed, { kind: "work_note", body: `${why}؛ این کارزار برای نسخهٔ ${c.version_label ?? ""} پایان یافت. پس از انتشار نسخهٔ تازه، کارزار تازه‌ای شروع کنید.` }, { trusted: true });
+  }
+}
+
 function policyPublish(w: WriteArgs): string | null {
   if (w.next.approval === "rejected") return "تأییدکننده این نسخه را رد کرده است؛ آن را به پیش‌نویس برگردانید و اصلاح کنید";
   if (w.ctx.actor !== "system" && w.next.approval === "requested") return "تأیید این خط‌مشی هنوز در انتظار تأییدکننده است";
@@ -570,6 +582,8 @@ async function campaignStart(w: WriteArgs): Promise<string | null> {
   const n = w.next;
   const pol = await liveRow(w.tx, sysOf(w.ctx), "grc_policy", n.policy_id);
   if (!pol || pol.state !== "published") return "کارزار فقط برای خط‌مشی منتشرشده شروع می‌شود";
+  // a campaign is for one version: what people accepted stays tied to the text they read
+  if (w.prev?.version_label && pol.version_label !== w.prev.version_label) return `این کارزار برای نسخهٔ ${w.prev.version_label} بود؛ برای نسخهٔ ${pol.version_label ?? ""} کارزار تازه‌ای شروع کنید`;
   if (!n.target_all && !ids(n.target_users).length && !ids(n.target_groups).length && !ids(n.target_units).length) return "مخاطبان کارزار را مشخص کنید (همه، افراد، گروه‌ها یا واحدها)";
   return null;
 }
@@ -781,6 +795,7 @@ export function installSecurityHooks(): void {
   for (const t of ["grc_issue", "grc_finding", "grc_risk_action"]) registerHooks(t, { beforeWrite: overdueBefore });
   registerHooks("grc_policy", {
     beforeWrite: policyBefore,
+    afterWrite: policyAfter,
     guards: { grc_policy_publish: policyPublish },
     // a Windows app's push is held to the same rule (hooks do not run again for it)
     validatePush: (p) => (publishedContentEdit(p.prev, p.next, p.changed) ? PUBLISHED_REFUSAL : null),

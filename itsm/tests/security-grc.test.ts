@@ -137,11 +137,31 @@ describe("policies and acknowledgement campaigns", () => {
     await securitySweep(w.sys);
     await w.drain();
     expect(await notices()).toBe(1);
-    // a new edition goes back to draft with the next version label
+    // a new edition goes back to draft with the next version label and ends the campaign of the old one
     pol = (await w.p.grc.client.post(`${w.P}/r/grc_policy/${pol.id}/transition`, { to: "draft", version: pol.version })).row;
     expect(pol.version_label).toBe("1.1");
     pol = (await w.p.grc.client.patch(`${w.P}/r/grc_policy/${pol.id}`, { body: "حافظهٔ USB فقط با رمزنگاری و تأیید واحد امنیت مجاز است.", version: pol.version })).row;
     expect(pol.body).toMatch(/رمزنگاری/);
+    camp = (await w.p.grc.client.get(`${w.P}/r/grc_policy_campaign/${camp.id}`)).row;
+    expect(camp.state).toBe("closed");
+    expect(((await w.p.req.client.get(`${w.P}/security/policies/mine`)).policies as any[]).length).toBe(0);
+    await w.p.req.client.post(`${w.P}/security/policies/campaigns/${camp.id}/ack`, {}, 400);
+    // published again: the old campaign stays with its version; a new campaign asks for the new text
+    pol = (await w.p.grc.client.post(`${w.P}/r/grc_policy/${pol.id}/transition`, { to: "review", version: pol.version })).row;
+    await w.drain();
+    const ap2 = ((await w.p.ciso.client.get(`${w.P}/approvals/mine`)).approvals as any[]).find((a) => a.record_id === pol.id);
+    await w.p.ciso.client.post(`${w.P}/approvals/${ap2.id}/decide`, { decision: "approved" });
+    expect((await w.p.grc.client.get(`${w.P}/r/grc_policy/${pol.id}`)).row.state).toBe("published");
+    await w.p.grc.client.post(`${w.P}/r/grc_policy_campaign/${camp.id}/transition`, { to: "active", version: camp.version }, 409);
+    let camp2 = (await w.p.grc.client.post(`${w.P}/r/grc_policy_campaign`, { title: "پذیرش نسخهٔ ۱.۱", policy_id: pol.id, due_at: new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10), target_users: [w.p.req.userId] })).row;
+    camp2 = (await w.p.grc.client.post(`${w.P}/r/grc_policy_campaign/${camp2.id}/transition`, { to: "active", version: camp2.version })).row;
+    expect(camp2.version_label).toBe("1.1");
+    const again = (await w.p.req.client.get(`${w.P}/security/policies/mine`)).policies as any[];
+    expect(again.length).toBe(1);
+    expect(again[0].acked_at).toBeNull();
+    expect(again[0].body).toMatch(/رمزنگاری/);
+    await w.p.req.client.post(`${w.P}/security/policies/campaigns/${camp2.id}/ack`, {});
+    expect((await w.p.grc.client.get(`${w.P}/security/policies/campaigns/${camp2.id}/status`)).acknowledged).toBe(1);
   });
 });
 

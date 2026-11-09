@@ -1257,7 +1257,7 @@ export const CAMPAIGN_STATES: StateModel = {
   transitions: [
     { from: ["draft"], to: "active", label: "شروع کارزار", guard: "grc_campaign_start" },
     { from: ["active"], to: "closed", label: "پایان کارزار" },
-    { from: ["closed"], to: "active", label: "ادامهٔ کارزار" },
+    { from: ["closed"], to: "active", label: "ادامهٔ کارزار", guard: "grc_campaign_start" },
   ],
   locked: [],
 };

@@ -242,8 +242,9 @@ export async function campaignAudience(q: Queryable, ctx: Ctx, camp: Row): Promi
   return people.filter((p) => active.has(p));
 }
 
-async function ackedBy(q: Queryable, ctx: Ctx, campId: string): Promise<Set<string>> {
-  const rows = await liveRows(q, sysOf(ctx), "grc_policy_ack", eqAll({ campaign_id: campId }), { limit: 100_000 });
+/** Who accepted the campaign's version (a campaign continued after a new edition asks everyone again). */
+async function ackedBy(q: Queryable, ctx: Ctx, camp: Row): Promise<Set<string>> {
+  const rows = await liveRows(q, sysOf(ctx), "grc_policy_ack", eqAll({ campaign_id: camp.id, ...(camp.version_label ? { version_label: camp.version_label } : {}) }), { limit: 100_000 });
   return new Set(rows.map((r) => String(r.user_id)));
 }
 
@@ -258,7 +259,7 @@ export async function myPolicies(ctx: Ctx): Promise<MyPolicy[]> {
     if (!(await campaignAudience(ctx.db, ctx, c)).includes(ctx.user.id)) continue;
     const pol = await liveRow(ctx.db, sys, "grc_policy", c.policy_id);
     if (!pol || pol.state !== "published") continue;
-    const [ack] = await liveRows(ctx.db, sys, "grc_policy_ack", eqAll({ campaign_id: c.id, user_id: ctx.user.id }), { limit: 1 });
+    const [ack] = await liveRows(ctx.db, sys, "grc_policy_ack", eqAll({ campaign_id: c.id, user_id: ctx.user.id, ...(c.version_label ? { version_label: c.version_label } : {}) }), { limit: 1 });
     out.push({
       campaign_id: c.id, campaign_number: c.number ?? null, title: c.title, policy_id: pol.id, policy_title: pol.title, version_label: c.version_label ?? pol.version_label ?? null,
       summary: pol.summary ?? null, body: pol.body ?? null, due_at: c.due_at ?? null, acked_at: ack?.acked_at ?? null, overdue: !ack && String(c.due_at ?? "") < today,
@@ -275,7 +276,7 @@ export async function acknowledgePolicy(ctx: Ctx, campaignId: string): Promise<{
   if (!camp || camp.state !== "active") throw bad("این کارزار در جریان نیست");
   const aud = await campaignAudience(ctx.db, ctx, camp);
   if (!aud.includes(ctx.user.id)) throw forbidden("این کارزار شما را در بر نمی‌گیرد");
-  const done = await ackedBy(ctx.db, ctx, campaignId);
+  const done = await ackedBy(ctx.db, ctx, camp);
   const at = new Date().toISOString();
   if (done.has(ctx.user.id)) return { ok: true, acked_at: at };
   const by = sysOf(ctx, ctx.user.id);
@@ -290,7 +291,7 @@ export async function acknowledgePolicy(ctx: Ctx, campaignId: string): Promise<{
 export async function campaignStatus(ctx: Ctx, campaignId: string) {
   const camp = (await get(ctx, "grc_policy_campaign", campaignId)).row as Row;
   const aud = await campaignAudience(ctx.db, ctx, camp);
-  const done = await ackedBy(ctx.db, ctx, campaignId);
+  const done = await ackedBy(ctx.db, ctx, camp);
   const pending = aud.filter((u) => !done.has(u));
   if (Number(camp.audience_count) !== aud.length || Number(camp.ack_count) !== done.size) {
     const sys = sysOf(ctx);
@@ -310,7 +311,7 @@ export async function remindCampaigns(sys: Ctx): Promise<number> {
     const every = Number(c.remind_every_days ?? 0);
     if (every <= 0 || (c.reminded_at && Date.now() - Date.parse(c.reminded_at) < every * 86_400_000)) continue;
     const aud = await campaignAudience(sys.db, sys, c);
-    const done = await ackedBy(sys.db, sys, c.id);
+    const done = await ackedBy(sys.db, sys, c);
     const pending = aud.filter((u) => !done.has(u));
     await sys.write(async (tx) => {
       if (pending.length) {
