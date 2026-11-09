@@ -155,6 +155,19 @@ export async function storeProposal(
   const hours = Math.max(1, Math.min(24 * 30, Math.round(c.ttlHours ?? 24)));
   const row = await ctx.write(
     async (tx) => {
+      // an agent keeps one open draft per record and kind: the same draft again (a scheduled round on an unchanged
+      // record) stores nothing new, a different one replaces the open one
+      if (agent && rec?.table && rec.id) {
+        const open = await tx.query<ActionRow>(
+          `select ${COLS} from sm_ai_actions where org_id = $1 and agent_id = $2 and record_table = $3 and record_id = $4 and kind = $5 and status = 'proposed' and expires_at > now() and idempotency_key <> $6`,
+          [ctx.org.id, agent.id, rec.table, rec.id, p.kind, key],
+        );
+        const same = open.find((o) => o.payload_hash === hashPayload(p.payload));
+        if (same) return same;
+        if (open.length) {
+          await tx.query(`update sm_ai_actions set status = 'expired', error = $2, updated_at = now() where id = any($1::uuid[]) and status = 'proposed'`, [pgArray(open.map((o) => o.id)), "پیشنهاد تازه‌تری جای آن را گرفت"]);
+        }
+      }
       await tx.query(
         `insert into sm_ai_actions (id, org_id, thread_id, message_id, user_id, kind, tool, area, level, payload, payload_hash, preview, idempotency_key, expires_at,
                                     record_table, record_id, fields, principal, agent_id, agent_run_id, route_users, route_groups, route_only)
@@ -394,23 +407,54 @@ async function actionRow(ctx: Ctx, id: string): Promise<ActionRow> {
   return r;
 }
 
+/** Does the caller work the proposal's record: full write on it (never a requester's own fields, never only reading)? */
+async function worksRecord(ctx: Ctx, r: ActionRow): Promise<boolean> {
+  if (!r.record_table || !r.record_id) return false;
+  const schema = await orgSchema(ctx);
+  const def = schema.def(r.record_table);
+  if (!def || def.virtual) return false;
+  const prov = access();
+  await prov.prepare?.(ctx, ctx.db);
+  const row = await liveRow(ctx.db, sysOf(ctx), def.key, r.record_id);
+  if (!row) return false;
+  return (prov.writeMode ? prov.writeMode(ctx, def, row) : prov.canWrite(ctx, def, row) ? "full" : null) === "full";
+}
+
 /**
- * Who sees a proposal. A skill's proposal on a record: whoever may read that record and every field it involves, now —
- * its author included, and an AI manager without that access does not. The assistant's: its author or an AI manager.
+ * Who sees a proposal.
+ *   · A skill's proposal on a record: whoever may read that record and every field it involves, now — its author
+ *     included, and an AI manager without that access does not (the skill declares what it read).
+ *   · An agent's draft: what its run read (other records, internal notes, passages) shaped it, so only the people it is
+ *     routed to, those who work its record (full write: never a requester-side reader) and AI managers — each of them
+ *     reading its record and fields; a draft on no record, those it is routed to, its author and AI managers.
+ *   · The assistant's draft, from a member's private conversation: its author (and an AI manager), never another
+ *     reader of the record.
  */
 async function canSee(ctx: Ctx, r: ActionRow): Promise<boolean> {
+  if (r.agent_id) {
+    if (r.record_table && !(await seesRecord(ctx, r))) return false;
+    if (r.user_id === ctx.user.id || ctx.can("ai", "full") || (await routedTo(ctx, r))) return true;
+    return !!r.record_table && (await worksRecord(ctx, r));
+  }
+  if (r.tool !== "skill") {
+    if (r.user_id !== ctx.user.id && !ctx.can("ai", "full")) return false;
+    return r.record_table ? seesRecord(ctx, r) : true;
+  }
   if (r.record_table) return seesRecord(ctx, r);
   return r.user_id === ctx.user.id || ctx.can("ai", "full");
 }
 
 /**
  * May the caller decide about this proposal: the assistant's — its author or an AI manager, with the document's own
- * level; a skill's — whoever sees it, may use AI and may make its change themselves (`mayApply`: they work the record;
- * the write is applied with that person's own access, checked again).
+ * level; a skill's or an agent's on a record — whoever sees it, may use AI and may make its change themselves
+ * (`mayApply`: they work the record; the write is applied with that person's own access, checked again); an agent's
+ * draft on no record (a new record, an order) — those it is routed to or an AI manager, with the proposal's level (the
+ * write is again their own, checked by the service it goes through).
  */
 async function canDecide(ctx: Ctx, r: ActionRow): Promise<boolean> {
   if (r.route_only && !(await routedTo(ctx, r))) return false;
   if (r.record_table) return ctx.can("ai", "view") && ctx.can(r.area, r.level) && (await seesRecord(ctx, r)) && (await mayApply(ctx, r));
+  if (r.agent_id) return ctx.can("ai", "view") && ctx.can(r.area, r.level) && ((await routedTo(ctx, r)) || ctx.can("ai", "full"));
   return (r.user_id === ctx.user.id || ctx.can("ai", "full")) && ctx.can(r.area, r.level);
 }
 
@@ -610,9 +654,9 @@ export async function listActions(
      where ${where} order by a.created_at desc limit $${params.length}`,
     params,
   );
-  // a skill's proposals on records: only those whose record and fields the caller sees now (an AI manager too)
+  // only what the caller may see now (every row, with or without a record: an AI manager too)
   const seen: typeof rows = [];
-  for (const r of rows) if (!r.record_table || (await canSee(ctx, r))) seen.push(r);
+  for (const r of rows) if (await canSee(ctx, r)) seen.push(r);
   const decide = new Map<string, boolean>();
   for (const r of seen) decide.set(r.id, effectiveStatus(r) === "proposed" && (await canDecide(ctx, r)));
   return seen.map((r) => ({

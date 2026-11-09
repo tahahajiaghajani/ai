@@ -26,6 +26,8 @@ import { bad, notFound } from "../../../http/errors";
 import { liveRows, sysOf } from "../../incident/common";
 import { browse, checkItem, itemForm, placeOrder } from "../../request/ordering";
 import { askWithCitations } from "../rag/ask";
+import { retrieve } from "../rag";
+import { loadEnv } from "../chain";
 import { generate } from "../engine";
 import { pathOf } from "../tools/common";
 import { faNorm } from "../tools/common";
@@ -135,8 +137,22 @@ const MENU: { value: string; label: string }[] = [
 
 // ---------------------------------------------------------------- topics
 
-/** Answer from the knowledge the requester may read (cited). */
+/**
+ * Answer from the knowledge the requester may read (cited). With «دستیار مجازی» switched off, no model writes the answer:
+ * the guides that fit, found with the requester's access, are listed as they are.
+ */
 async function knowledge(ctx: Ctx, t: Topic, text: string, onText?: (d: string) => void): Promise<Out> {
+  const env = await loadEnv(ctx);
+  if (env.settings.features.virtual_agent === false) {
+    const found = await retrieve(ctx, text, { k: 6, rerank: false, env, ...(t.tables.length ? { tables: t.tables } : {}) });
+    const seen = new Set<string>();
+    const items = found.passages
+      .filter((x) => !seen.has(`${x.citation.table}:${x.citation.id}`) && !!seen.add(`${x.citation.table}:${x.citation.id}`))
+      .slice(0, 5)
+      .map((x, i) => ({ ...linkOf(x.citation.table, x.citation.id, x.citation.number ?? null, x.citation.title), path: x.citation.path ?? pathOf(x.citation.table, x.citation.id) ?? `r/${x.citation.table}/${x.citation.id}`, n: i + 1 }));
+    if (!items.length) return { text: "در راهنماهایی که می‌توانید ببینید پاسخی پیدا نشد. می‌توانید مشکل را گزارش دهید یا با کارشناس گفتگو کنید.", cards: [{ kind: "choices", options: MENU.filter((m) => m.value !== "status") }], topic: t.key, route: "topic", model: null };
+    return { text: "این راهنماها به پرسش شما مربوط‌اند:", cards: [{ kind: "articles", items }], topic: t.key, route: "topic", model: null, suggestions: ["مشکلم حل نشد", "گفتگو با کارشناس"] };
+  }
   const r = await askWithCitations(ctx, text, t.tables.length ? { tables: t.tables } : {}, { onText });
   const cards: VaCard[] = [];
   if (r.citations.length) cards.push({ kind: "articles", items: r.citations.map((c) => ({ ...linkOf(c.table, c.id, c.number, c.title), path: c.path ?? pathOf(c.table, c.id) ?? `r/${c.table}/${c.id}`, n: c.n })) });
@@ -474,7 +490,16 @@ async function respond(ctx: Ctx, conv: Row, input: VaInput, onText?: (d: string)
   if (pending) {
     const out = await continuePending(ctx, conv, pending, input, topics);
     if (out) return out;
+    // the message did not answer the pending question or card: it is routed afresh, and the card is gone — a later
+    // «بله» or «اوکی» never confirms an order or a report shown turns ago
+    const fresh = await routeAfresh(ctx, conv, input, topics, onText);
+    return fresh.pending === undefined ? { ...fresh, pending: null } : fresh;
   }
+  return routeAfresh(ctx, conv, input, topics, onText);
+}
+
+/** A message routed on its own (nothing pending, or not an answer to what was pending). */
+async function routeAfresh(ctx: Ctx, conv: Row, input: VaInput, topics: Topic[], onText?: (d: string) => void): Promise<Out> {
   // a chosen topic (a menu card), or a confirmation with nothing pending
   if ("action" in input) {
     if (input.action !== "choose") return { text: "چیزی برای تأیید نمانده است. چه کمکی از دستم برمی‌آید؟", cards: [{ kind: "choices", options: MENU }], topic: null, route: "action", pending: null };

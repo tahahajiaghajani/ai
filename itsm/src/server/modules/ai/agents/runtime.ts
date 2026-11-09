@@ -31,7 +31,7 @@ import { notifyPeople } from "../../notify";
 import { AiUnavailableError } from "../errors";
 import { loadEnv, runTurn } from "../chain";
 import { orgNotes } from "../prompts";
-import { redactValue } from "../redact";
+import { redactDataBlocks, redactValue } from "../redact";
 import { dropNulls, jsonSchemaOf } from "../schema";
 import { orgTimeZone } from "../usage";
 import { wrapToolResult } from "../agent";
@@ -86,17 +86,55 @@ async function runRow(cfg: ServerConfig, orgId: string, id: string): Promise<Row
   return (await liveRows(cfg.db, sys, AI_AGENT_RUN, { f: "id", op: "eq", v: id }, { limit: 1 }))[0] ?? null;
 }
 
-async function saveRun(cfg: ServerConfig, orgId: string, id: string, patch: Row): Promise<void> {
+/**
+ * Save a run's progress — only while it is still queued or running (under a row lock): an administrator's stop, or any
+ * end written meanwhile, is never overwritten by a step that was already under way. False when the run had ended.
+ */
+async function saveRun(cfg: ServerConfig, orgId: string, id: string, patch: Row): Promise<boolean> {
   const sys = await systemCtx(cfg, orgId);
-  await sys.write((tx) => updateIn(tx, sys, AI_AGENT_RUN, id, patch, { trusted: true }), { internal: true });
+  return sys.write(async (tx) => {
+    const cur = await tx.one<{ status: string }>(`select status from sm_ai_agent_runs where org_id = $1 and id = $2 for update`, [orgId, id]);
+    if (!cur || !ACTIVE.includes(cur.status)) return false;
+    await updateIn(tx, sys, AI_AGENT_RUN, id, patch, { trusted: true });
+    return true;
+  }, { internal: true });
 }
 
-/** Runs of an agent today (test runs aside), in the organisation's time zone. */
+const ACTIVE = ["queued", "running"];
+
+/** Is the run still queued or running (no stop, no end written by someone else)? */
+async function stillActive(cfg: ServerConfig, orgId: string, id: string): Promise<boolean> {
+  const r = await cfg.db.one<{ status: string }>(`select status from sm_ai_agent_runs where org_id = $1 and id = $2`, [orgId, id]);
+  return !!r && ACTIVE.includes(r.status);
+}
+
+/** Triggers a member starts (each member has a daily cap of their own; they never use up the agent's budget). */
+const STARTED = ["manual", "conversation"];
+/** Runs one member may start of one agent in a day (by hand or from conversations). */
+export const MEMBER_DAILY_STARTS = 10;
+
+/**
+ * Runs of an agent today that count against its daily runs — what events and its schedule start: test runs aside,
+ * runs members started (their own cap), and runs that ended «skipped» (their condition did not hold, or the principal
+ * could not read the record — they did no work).
+ */
 export async function runsToday(ctx: Pick<Ctx, "db" | "org" | "cfg">, key: string): Promise<number> {
   const tz = orgTimeZone(ctx as Ctx);
   const r = await ctx.db.one<{ n: number }>(
-    `select count(*)::int as n from sm_ai_agent_runs where org_id = $1 and agent_key = $2 and deleted_at is null and dry_run = false and created_at >= ($3::date)::timestamp at time zone $4`,
-    [ctx.org.id, key, todayISO(tz), tz],
+    `select count(*)::int as n from sm_ai_agent_runs where org_id = $1 and agent_key = $2 and deleted_at is null and dry_run = false and status <> 'skipped'
+       and trigger <> all($5::text[]) and created_at >= ($3::date)::timestamp at time zone $4`,
+    [ctx.org.id, key, todayISO(tz), tz, `{${STARTED.join(",")}}`],
+  );
+  return r?.n ?? 0;
+}
+
+/** Runs of an agent one member started today (by hand or from conversations). */
+export async function startsToday(ctx: Pick<Ctx, "db" | "org" | "cfg">, key: string, userId: string): Promise<number> {
+  const tz = orgTimeZone(ctx as Ctx);
+  const r = await ctx.db.one<{ n: number }>(
+    `select count(*)::int as n from sm_ai_agent_runs where org_id = $1 and agent_key = $2 and deleted_at is null and dry_run = false and started_by = $5
+       and trigger = any($6::text[]) and created_at >= ($3::date)::timestamp at time zone $4`,
+    [ctx.org.id, key, todayISO(tz), tz, userId, `{${STARTED.join(",")}}`],
   );
   return r?.n ?? 0;
 }
@@ -127,7 +165,9 @@ export async function queueAgentRun(cfg: ServerConfig, orgId: string, a: AgentCo
       );
       if (twin) return { run_id: twin.id, status: "queued", message_fa: "اجرای این عامل روی این رکورد در صف است" };
     }
-    if ((await runsToday(sys, a.key)) >= a.daily_runs) return { run_id: null, status: "budget", message_fa: `سقف اجرای روزانهٔ عامل «${a.name}» پر شده است` };
+    if (STARTED.includes(input.trigger)) {
+      if (input.startedBy && (await startsToday(sys, a.key, input.startedBy)) >= MEMBER_DAILY_STARTS) return { run_id: null, status: "budget", message_fa: `سقف آغاز روزانهٔ عامل «${a.name}» برای شما پر شده است` };
+    } else if ((await runsToday(sys, a.key)) >= a.daily_runs) return { run_id: null, status: "budget", message_fa: `سقف اجرای روزانهٔ عامل «${a.name}» پر شده است` };
   }
   const id = await sys.write(async (tx) => {
     const row = await createIn(
@@ -174,8 +214,9 @@ interface Live {
 
 const numOf = (v: unknown) => (typeof v === "number" ? v : Number(v ?? 0) || 0);
 
-async function finish(l: Pick<Live, "cfg" | "orgId" | "run">, status: AgentRunStatus, extra: { outcome?: string | null; error?: string | null } & Row = {}): Promise<void> {
-  await saveRun(l.cfg, l.orgId, String(l.run.id), { status, ended_at: new Date().toISOString(), ...extra, ...(extra.error ? { error: String(extra.error).slice(0, 500) } : {}) });
+/** End a run (only one still queued or running: the first end written wins, a stop included). */
+async function finish(l: Pick<Live, "cfg" | "orgId" | "run">, status: AgentRunStatus, extra: { outcome?: string | null; error?: string | null } & Row = {}): Promise<boolean> {
+  return saveRun(l.cfg, l.orgId, String(l.run.id), { status, ended_at: new Date().toISOString(), ...extra, ...(extra.error ? { error: String(extra.error).slice(0, 500) } : {}) });
 }
 
 /** Why the agent may not take another step now (a kill switch or its principal), or null. */
@@ -206,18 +247,30 @@ async function recordData(pctx: Ctx, a: AgentConfig, table: string, id: string):
   return { data, number, label: [number, title].filter(Boolean).join(" — ") || def.label, groupField: def.scope.group ?? null, row: r.row };
 }
 
-/** The task of the first turn: the goal (the administrator's), how the run started, the record as data, today. */
+/** Field types that name people (hidden from models under the «aggregates» data policy). */
+const PEOPLE = new Set(["user", "users"]);
+
+/**
+ * The task of the first turn: the goal (the administrator's), how the run started, the record as data, today. The
+ * record goes out under the organisation's data policy like every tool result («masked»: identifiers masked;
+ * «aggregates»: people's names hidden as well).
+ */
 async function firstTurn(l: Live): Promise<string> {
   const { a, run, pctx } = l;
   const tz = orgTimeZone(pctx);
   const today = todayISO(tz);
+  const policy = (await loadEnv(pctx)).settings.data_policy;
   const parts = [`Your task (from your administrator):\n<task>\n${a.goal.trim()}\n</task>`];
   const trigger = AGENT_RUN_TRIGGERS[String(run.trigger) as AgentRunTrigger] ?? String(run.trigger);
   parts.push(`How this run started: ${trigger}${run.why ? ` (${String(run.why)})` : ""}.`);
   if (run.table_key && run.record_id) {
     const rec = await recordData(pctx, a, String(run.table_key), String(run.record_id));
     const def = (await orgSchema(pctx)).def(String(run.table_key));
-    parts.push(`The record (table ${String(run.table_key)}${def ? ` «${def.label}»` : ""}, id ${String(run.record_id)}):\n${skillDataBlock("record", rec?.data ?? null)}`);
+    let data: Record<string, unknown> | null = rec?.data ?? null;
+    if (data && def && policy === "aggregates") {
+      data = Object.fromEntries(Object.entries(data).map(([k, v]) => [k, PEOPLE.has(def.fields.find((f) => f.name === k)?.type ?? "") && v !== null && v !== "" ? "[نام پنهان]" : v]));
+    }
+    parts.push(`The record (table ${String(run.table_key)}${def ? ` «${def.label}»` : ""}, id ${String(run.record_id)}):\n${redactDataBlocks(skillDataBlock("record", redactValue(data, policy)), policy)}`);
   } else parts.push("This run is about no single record: find the records your task needs with your tools.");
   parts.push(`Today: ${formatJalali(today, { style: "long" })} (${today}, ${tz}). Work now; end with your report in Persian.`);
   return parts.join("\n\n");
@@ -242,6 +295,9 @@ async function routingFor(l: Live, p: AiProposalInput): Promise<{ users: string[
     groups = named ? (a.approver_group_id ? [a.approver_group_id] : []) : groups;
     return { users, groups, only: true, notify: users };
   }
+  // a draft on no record (a new record, an order) has no record's people: the agent's approvers, if it names any, see
+  // and decide it (AI managers always may)
+  if (!p.record?.table && (a.approvers.length || a.approver_group_id)) return { users: [...a.approvers], groups: a.approver_group_id ? [a.approver_group_id] : [], only: false, notify: [...a.approvers] };
   return { users, groups, only: false, notify: [] };
 }
 
@@ -277,6 +333,11 @@ async function callTool(l: Live, call: ToolCall, byName: Map<string, AiToolDef>,
         step.proposal = { title_fa: p.title_fa, kind: p.kind, applied: false, dry: true, preview: p.preview.slice(0, 12) };
         data = { status: "test_run", note: `Test run: nothing was stored${applies ? " (in a real run this action would be applied: it is on the whitelist)" : ""}.`, title: p.title_fa, details: data ?? null };
       } else {
+        // a stop that landed during this step: nothing more is stored or applied
+        if (!(await stillActive(l.cfg, l.orgId, String(l.run.id)))) {
+          step.error = "اجرا متوقف شد";
+          return { content: JSON.stringify({ error: "This run was stopped by an administrator. Stop now." }), ok: false, step, stop: "stopped" };
+        }
         const route = await routingFor(l, p);
         const stored = await storeProposal(l.pctx, {
           threadId: null,
@@ -348,7 +409,7 @@ async function step(l: Live): Promise<{ more: boolean; wait?: number }> {
   } catch (e) {
     if (e instanceof AiUnavailableError && PASSING.has(e.kind) && (state.retries ?? 0) < AGENT_RUN_LIMITS.retries) {
       state.retries = (state.retries ?? 0) + 1;
-      await saveRun(l.cfg, l.orgId, String(l.run.id), { state, status: "running", error: e.message.slice(0, 500) });
+      if (!(await saveRun(l.cfg, l.orgId, String(l.run.id), { state, status: "running", error: e.message.slice(0, 500) }))) return { more: false };
       return { more: true, wait: AGENT_RUN_LIMITS.retryMs };
     }
     const message = e instanceof AiUnavailableError || e instanceof AppError ? e.message : aiErrorText("other").message;
@@ -358,6 +419,8 @@ async function step(l: Live): Promise<{ more: boolean; wait?: number }> {
     return { more: false };
   }
   state.retries = 0;
+  // a stop that landed while the model was thinking: its tool calls are not run
+  if (!(await stillActive(l.cfg, l.orgId, String(l.run.id)))) return { more: false };
   const r = result.result;
   l.counts.step_count++;
   l.counts.tokens_in += r.usage.input;
@@ -396,7 +459,8 @@ async function step(l: Live): Promise<{ more: boolean; wait?: number }> {
     await finish(l, stop, { outcome: "سقف اقدام‌های این اجرا پر شد؛ اجرا متوقف شد", steps: l.steps, state, ...countsRow(l) });
     return { more: false };
   }
-  await saveRun(l.cfg, l.orgId, String(l.run.id), { status: "running", steps: l.steps.slice(-300), state, ...countsRow(l) });
+  // saved only while the run is still running: a stop during this step ends it here
+  if (!(await saveRun(l.cfg, l.orgId, String(l.run.id), { status: "running", steps: l.steps.slice(-300), state, ...countsRow(l) }))) return { more: false };
   return { more: true };
 }
 
@@ -454,10 +518,10 @@ export async function advanceRun(cfg: ServerConfig, orgId: string, runId: string
             return {};
           }
         }
-        await saveRun(cfg, orgId, runId, { record_number: rec.number });
+        if (!(await saveRun(cfg, orgId, runId, { record_number: rec.number }))) return {};
       }
       l.state.messages = [{ role: "user", parts: [{ type: "text", text: await firstTurn(l) }] }];
-      await saveRun(cfg, orgId, runId, { status: "running", started_at: new Date().toISOString(), principal_id: pctx.user.id, state: l.state });
+      if (!(await saveRun(cfg, orgId, runId, { status: "running", started_at: new Date().toISOString(), principal_id: pctx.user.id, state: l.state }))) return {};
       l.run = { ...run, status: "running" };
     }
     const r = await step(l);

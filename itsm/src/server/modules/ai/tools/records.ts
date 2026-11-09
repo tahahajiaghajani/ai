@@ -32,7 +32,7 @@ import { AppError, bad, forbidden } from "../../../http/errors";
 import { orgTimeZone } from "../usage";
 import { defineTool, type AiProposalInput, type AiToolDef, type ToolResult } from "./registry";
 import { bounded, pathOf } from "./common";
-import { conditionOf, fieldLine, legendOf, resolveValues, settableFields, shapeRow, shownFields, valuesSchema, whereSchema, type WhereLeaf } from "./fields";
+import { conditionOf, fieldLine, legendOf, resolveValues, settableFields, shapeRow, shownFields, toolPathsProblem, toolTextSearch, valuesSchema, whereSchema, type WhereLeaf } from "./fields";
 
 export type RecordOp = "search" | "get" | "aggregate" | "history" | "create" | "update" | "transition" | "batch" | "journal" | "link";
 
@@ -233,6 +233,10 @@ function searchTool(schema: OrgSchema, def: TableDef, fields: FieldDef[]): AiToo
       const tdef = sch.def(def.key) ?? def;
       const { cond, problems } = await conditionOf(ctx, sch, tdef, { where: p.where as WhereLeaf[] | undefined, match: p.match }, tz);
       if (problems.length) throw bad(problems.join("؛ "));
+      // what a tool never shows, it never sorts or text-searches by either (the order and the matches tell its values)
+      const kept = toolPathsProblem(ctx, sch, tdef, String(p.sort ?? "").split(",").map((x) => x.trim().replace(/^[-+]/, "")));
+      if (kept) throw bad(kept);
+      if (p.text && !toolTextSearch(tdef)) throw bad(`جست‌وجوی متنی «${tdef.plural}» در ابزارهای هوش مصنوعی ممکن نیست؛ با شرط روی فیلدها جست‌وجو کنید`);
       const shown = shownFields(ctx, tdef);
       const wanted = p.fields?.length ? shown.filter((f) => p.fields!.includes(f.name)) : searchFields(ctx, tdef);
       const size = p.limit ?? 15;
@@ -310,6 +314,10 @@ function aggregateTool(schema: OrgSchema, def: TableDef, fields: FieldDef[]): Ai
       const tdef = sch.def(def.key) ?? def;
       const { cond, problems } = await conditionOf(ctx, sch, tdef, { where: p.where as WhereLeaf[] | undefined, match: p.match }, tz);
       if (problems.length) throw bad(problems.join("؛ "));
+      // groups are labelled with their values and metrics computed from them: only fields a tool may show
+      const kept = toolPathsProblem(ctx, sch, tdef, [...(p.group_by ?? []).map((g) => g.field), ...(p.metrics ?? []).map((m) => m.field)]);
+      if (kept) throw bad(kept);
+      if (p.text && !toolTextSearch(tdef)) throw bad(`جست‌وجوی متنی «${tdef.plural}» در ابزارهای هوش مصنوعی ممکن نیست؛ با شرط روی فیلدها جست‌وجو کنید`);
       const metrics = p.metrics?.length ? p.metrics : [{ fn: "count" as const }];
       const r = await aggregate(ctx, tdef.key, { filter: cond, q: p.text || undefined, groupBy: p.group_by ?? [], metrics, limit: p.limit ?? 50 });
       const mkey = (m: { fn: string; field?: string }) => (m.fn === "count" && !m.field ? "count" : `${m.fn}:${m.field}`);
@@ -352,7 +360,7 @@ function historyTool(def: TableDef): AiToolDef {
           .map((e) => {
             const f = tdef.fields.find((x) => x.name === e.field)!;
             const fmt = (v: unknown) => valueText(shapeRow(sch, tdef, { id, [f.name]: v }, h.display, tz, [f])[f.name]);
-            return { at: formatJalaliDateTime(e.at, tz), field: e.label, from: fmt(e.old), to: fmt(e.new), by: e.actor ? (h.display[e.actor] ?? null) : "سامانه" };
+            return { at: formatJalaliDateTime(e.at, tz), field: e.label, name: e.field, from: fmt(e.old), to: fmt(e.new), by: e.actor ? (h.display[e.actor] ?? null) : "سامانه" };
           });
       }
       if (p.notes !== false && tdef.features?.journal) {

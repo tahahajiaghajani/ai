@@ -27,7 +27,12 @@ import { agentRow, agentRows, configOf, resetAgentRow, seedAgentRows } from "./c
 import { agentDef } from "./registry";
 import { queueAgentRun, runInline, runsToday, stopRun } from "./runtime";
 import { toolNamesFor } from "./tools";
-import { agentsOn } from "./triggers";
+import { agentsOn, isServiceMember } from "./triggers";
+import { tableDef } from "@shared/tables";
+import { grantIn } from "@shared/access/model";
+import { prepareSubject, subjectOf } from "../../../access";
+import { access } from "../../../access/provider";
+import { liveRow } from "../../incident/common";
 
 type Row = Record<string, unknown>;
 
@@ -328,14 +333,56 @@ export async function testAgent(ctx: Ctx, key: string, input: { table?: string |
 
 // ---------------------------------------------------------------- members start agents
 
-/** Agents a member may start on a record now (by hand / from a conversation): switched on, their roles allow it. */
+/** Does the member work (write beyond their own records) one of these tables? */
+async function worksTables(ctx: Ctx, tables: string[]): Promise<boolean> {
+  await prepareSubject(ctx, ctx.db);
+  const eff = subjectOf(ctx).eff;
+  return tables.some((t) => {
+    const def = tableDef(t);
+    const w = def ? grantIn(eff, def.area).write : "none";
+    return w === "group" || w === "all";
+  });
+}
+
+/** Does the member work this record: full write on it (never a requester's own fields, never only reading it)? */
+async function worksRecord(ctx: Ctx, table: string, id: string): Promise<boolean> {
+  const def = tableDef(table);
+  if (!def || def.virtual) return false;
+  const row = await liveRow(ctx.db, ctx, table, id);
+  if (!row) return false;
+  await prepareSubject(ctx, ctx.db);
+  const prov = access();
+  return (prov.writeMode ? prov.writeMode(ctx, def, row) : prov.canWrite(ctx, def, row) ? "full" : null) === "full";
+}
+
+/**
+ * May this member start the agent (by hand or from a conversation)? Never an AI service member (agents do not start
+ * agents). AI administrators may; an agent naming roles, the members holding one; an agent naming none (the built-in
+ * ones and their copies), only the members who work its record — full write on it — or, without a record, who write
+ * one of its tables beyond their own records. A requester never starts one on their own ticket.
+ */
+async function mayStart(ctx: Ctx, a: ReturnType<typeof configOf>, record: { table: string; id: string } | null, roles?: string[]): Promise<boolean> {
+  if (await isServiceMember(ctx.cfg as ServerConfig, ctx.user.id)) return false;
+  if (ctx.can("ai", "full")) return true;
+  const mine = roles ?? (await callerRoles(ctx));
+  if (a.roles.length) return rolesAllow({ roles: a.roles }, mine);
+  if (mine.includes("tenant_admin")) return true;
+  if (record) return worksRecord(ctx, record.table, record.id);
+  return worksTables(ctx, a.tables);
+}
+
+/** Agents a member may start on a record now (by hand / from a conversation): switched on, they may start them. */
 export async function agentsForRecord(ctx: Ctx, table: string | null, how: "manual" | "conversation" = "manual"): Promise<AgentCard[]> {
   ctx.need("ai", "view");
   const roles = await callerRoles(ctx);
-  return (await agentRows(ctx.cfg, ctx.org.id))
-    .map(configOf)
-    .filter((a) => a.enabled && a.triggers.includes(how) && (table ? a.tables.includes(table) || !a.tables.length : true) && (rolesAllow({ roles: a.roles }, roles) || ctx.can("ai", "full")))
-    .map((a) => ({ key: a.key, name: a.name, description: a.description, autonomy: a.autonomy }));
+  const out: AgentCard[] = [];
+  for (const a of (await agentRows(ctx.cfg, ctx.org.id)).map(configOf)) {
+    if (!a.enabled || !a.triggers.includes(how) || (table ? !(a.tables.includes(table) || !a.tables.length) : false)) continue;
+    // on a page of a table: who works that table; elsewhere: who works one of the agent's tables
+    const ok = await mayStart(ctx, a.roles.length || !table ? a : { ...a, tables: [table] }, null, roles);
+    if (ok) out.push({ key: a.key, name: a.name, description: a.description, autonomy: a.autonomy });
+  }
+  return out;
 }
 
 /** Start an agent by hand or from a conversation: it runs in the background as its principal; its proposals reach the record's people. */
@@ -345,12 +392,13 @@ export async function startAgent(ctx: Ctx, key: string, input: { table?: string 
   const row = await agentRow(ctx, key);
   const a = row ? configOf(row) : null;
   if (!a || !a.enabled || !a.triggers.includes(how)) throw notFound("این عامل پیدا نشد یا آغاز آن از اینجا ممکن نیست");
-  if (!rolesAllow({ roles: a.roles }, await callerRoles(ctx)) && !ctx.can("ai", "full")) throw forbidden(`نقش شما اجازهٔ آغاز عامل «${a.name}» را ندارد`);
   if (!(await agentsOn(ctx.cfg as ServerConfig, ctx.org.id))) throw forbidden("عامل‌های هوش مصنوعی در تنظیمات سازمان خاموش‌اند");
-  if (input.table && input.id) {
-    if (a.tables.length && !a.tables.includes(input.table)) throw bad(`عامل «${a.name}» روی این جدول کار نمی‌کند`);
-    await get(ctx, input.table, input.id); // 404 unless the member reads the record
+  const record = input.table && input.id ? { table: input.table, id: input.id } : null;
+  if (record) {
+    if (a.tables.length && !a.tables.includes(record.table)) throw bad(`عامل «${a.name}» روی این جدول کار نمی‌کند`);
+    await get(ctx, record.table, record.id); // 404 unless the member reads the record
   }
+  if (!(await mayStart(ctx, a, record))) throw forbidden(`اجازهٔ آغاز عامل «${a.name}»${record ? " روی این رکورد" : ""} را ندارید`);
   return queueAgentRun(ctx.cfg as ServerConfig, ctx.org.id, a, { trigger: how, why: how, table: input.table ?? null, id: input.id ?? null, startedBy: ctx.user.id });
 }
 

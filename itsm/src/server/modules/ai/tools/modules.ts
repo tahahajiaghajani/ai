@@ -30,6 +30,7 @@ async function idOf(ctx: Ctx, table: string, idOrNumber: string): Promise<string
 
 const changeRisk = defineTool({
   name: "change_risk",
+  tables: ["change_request"],
   title_fa: "خطر تغییر",
   description:
     "The calculated risk of one change request (by id or number, e.g. CHG0000123) as its risk panel shows it: level, score, the factors that raised it, the questionnaire's answers, the lead time it needs and whether the risk was set by hand. Only changes the person may read.",
@@ -58,6 +59,7 @@ const changeRisk = defineTool({
 
 const cmdbImpact = defineTool({
   name: "cmdb_impact",
+  tables: ["ci", "service"],
   title_fa: "اثر پیکربندی",
   description:
     "What depends on configuration items (by id or number): the impacted CIs, services and offerings with their criticality, through the relationship map, and the counts of users and subscribers. Items the person may not read appear only as counts (restricted).",
@@ -97,6 +99,7 @@ async function personOf(ctx: Ctx, who: string): Promise<{ id: string; name: stri
 
 const orderItem = defineTool({
   name: "draft_order_catalog_item",
+  tables: ["catalog_item", "request", "request_item"],
   title_fa: "پیش‌نویس سفارش از کاتالوگ",
   description:
     "Drafts an order of one catalogue item for the person or for someone else (the catalogue as the person — or the one it is for — is entitled to it), with the item's answers by question name; nothing is ordered until the person confirms the card. The answers are checked exactly like the order form; fix the reported problems and call again. Secret answers (passwords) are never taken here: such items must be ordered on their form.",

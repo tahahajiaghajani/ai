@@ -18,6 +18,11 @@ export interface ToolRuntime {
   /** store rows for a chart or a table shown in the answer; returns a data_ref id */
   putData(rows: Record<string, unknown>[], meta?: { title?: string }): Promise<string>;
   signal?: AbortSignal;
+  /**
+   * An agent's guardrails, for tools whose results mix tables, field groups and fields (the knowledge search): what may
+   * reach its model. Absent for people.
+   */
+  limits?: { table(t: string): boolean; field(t: string, f: string): boolean; groups: readonly string[] };
 }
 
 /** What a proposal tool hands to the loop; the loop stores it in sm_ai_actions. */
@@ -70,6 +75,8 @@ export interface AiToolDef<S extends z.ZodTypeAny = z.ZodTypeAny> {
   level: Level;
   /** only offered when the organisation has these modules switched on */
   modules?: ModuleKey[];
+  /** the tables a registered tool reads or writes beyond its `table` input (an agent's forbidden tables refuse it) */
+  tables?: string[];
   run(ctx: Ctx, input: z.infer<S>, rt: ToolRuntime): Promise<ToolResult>;
 }
 

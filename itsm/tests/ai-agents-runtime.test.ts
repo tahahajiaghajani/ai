@@ -151,11 +151,20 @@ describe("agents run as their principal", () => {
     const r = await run("t_budget");
     expect(r.status).toBe("budget");
     expect(r.proposals.length).toBe(1);
-    // runs per day
-    await w.o.patch(`${w.P}/ai/agents/admin/t_budget`, { daily_runs: 1 });
-    const again = await w.o.post(`${w.P}/ai/agents/t_budget/start`, { table: "incident", id: inc });
-    expect(again.status).toBe("budget");
-    expect(again.run_id).toBeNull();
+    // runs per day: what events and its schedule start — a member's own starts are counted apart (a cap of their own),
+    // so starting it by hand never uses up what the events need
+    await w.o.patch(`${w.P}/ai/agents/admin/t_budget`, { daily_runs: 1, triggers: ["manual", "event"], events: ["updated"], condition: null });
+    const manual = await w.o.post(`${w.P}/ai/agents/t_budget/start`, { table: "incident", id: inc });
+    expect(manual.status).toBe("queued");
+    await w.drain();
+    for (const d of ["یک", "دو"]) {
+      const row = (await w.o.get(`${w.P}/r/incident/${inc}`)).row;
+      await w.o.patch(`${w.P}/r/incident/${inc}`, { description: `به‌روزرسانی ${d}`, version: row.version });
+      await w.drain();
+    }
+    const runs = (await w.o.get(`${w.P}/ai/agents/runs?agent=t_budget&limit=50`)).runs as AgentRunView[];
+    expect(runs.filter((r) => r.trigger === "event").length).toBe(1);
+    await w.o.patch(`${w.P}/ai/agents/admin/t_budget`, { triggers: ["manual"], events: [] });
     // steps: a loop that would go on is ended by the step limit
     await agent("t_steps", { max_steps: 2, goal: `[loop:5 get_incident {"id":"${inc}"}]`, tools: ["get_incident"] });
     const s = await run("t_steps");

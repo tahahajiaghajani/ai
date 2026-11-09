@@ -154,7 +154,7 @@ describe("release, analytics and AI together", () => {
     expect(designerPath({ ...spec, filter: { f: "short_description", op: "contains", v: "x".repeat(5000) } }, "بلند")).toBeNull();
   });
 
-  it("a proposal on a record is seen by its readers and decided only by those who work it (assistant, skills and agents alike)", async () => {
+  it("an assistant's draft is its author's; an agent's draft is seen by those it is routed to and those who work its record", async () => {
     const rel = await w.release({ short_description: "انتشار برای پیشنهاد" });
     const dev = await ctxOf(w.p.dev.userId);
     const proposal = (routing?: Parameters<typeof storeProposal>[1]["routing"]) =>
@@ -168,17 +168,20 @@ describe("release, analytics and AI together", () => {
       });
     const p = await proposal();
     expect(p.can_decide).toBe(true);
-    const seen = async (who: "rm" | "auditor" | "req" | "other") => (await recordProposals(await ctxOf(w.p[who].userId), "release", String(rel.id))).find((x) => x.id === p.id);
-    expect((await seen("rm"))?.can_decide).toBe(true);
-    // the auditor reads the release but does not work it: sees the proposal, no buttons
-    expect(await seen("auditor")).toBeTruthy();
-    expect((await seen("auditor"))?.can_decide).toBe(false);
+    const seen = async (who: "rm" | "auditor" | "req" | "other" | "dev", id = p.id) => (await recordProposals(await ctxOf(w.p[who].userId), "release", String(rel.id))).find((x) => x.id === id);
+    // a draft of a member's own conversation: what their conversation read shaped it — theirs alone
+    expect((await seen("dev"))?.can_decide).toBe(true);
+    expect(await seen("rm")).toBeUndefined();
+    expect(await seen("auditor")).toBeUndefined();
     expect(await seen("req")).toBeUndefined();
-    await w.p.auditor.client.post(`${w.P}/ai/actions/${p.id}/confirm`, {}, 403);
-    // an agent's proposal routed only to the release engineer: the release manager sees it but does not decide it
+    await w.p.auditor.client.post(`${w.P}/ai/actions/${p.id}/confirm`, {}, 404);
+    // an agent's proposal routed only to the release engineer: the release manager (who works the release) sees it but
+    // does not decide it; the auditor, who only reads the release, does not see it
     const routed = await proposal({ agent: { id: uuidv7(), key: "release.helper", name: "دستیار انتشار", run_id: null }, users: [w.p.dev.userId], only: true });
-    expect((await recordProposals(await ctxOf(w.p.rm.userId), "release", String(rel.id))).find((x) => x.id === routed.id)?.can_decide).toBe(false);
-    expect((await recordProposals(dev, "release", String(rel.id))).find((x) => x.id === routed.id)?.can_decide).toBe(true);
+    expect((await seen("rm", routed.id))?.can_decide).toBe(false);
+    expect((await seen("dev", routed.id))?.can_decide).toBe(true);
+    expect(await seen("auditor", routed.id)).toBeUndefined();
+    expect(await seen("req", routed.id)).toBeUndefined();
   });
 
   it("an agent's service member has a random reserved address and is found by its membership, never adopted", async () => {

@@ -11,11 +11,15 @@ import type { Ctx } from "../../../context";
 import type { AgentConfig } from "@shared/ai/agents";
 import { fieldForbidden, guardrailProblem, skillToolName, tableForbidden, toolAllowed } from "@shared/ai/agents";
 import { tableDef } from "@shared/tables";
+import { resolvePath } from "@shared/model/conditions";
 import { list, orgSchema } from "../../../engine";
 import { bad, forbidden } from "../../../http/errors";
 import { defineTool, type AiToolDef, type ToolResult } from "../tools/registry";
 import { selectRecordTools, toolCatalog, TOOLS_PER_TURN } from "../tools";
 import { resolveSkill, runSkill } from "../skills";
+
+/** Registered tools an agent is never given: charts are the assistant's, starting agents is people's. */
+const NOT_FOR_AGENTS = new Set(["render_chart", "start_agent"]);
 
 /** At most this many generated tools are offered in one turn (registered tools and skills come on top). */
 export const AGENT_TOOLS_PER_TURN = TOOLS_PER_TURN;
@@ -75,6 +79,35 @@ export function agentSees(a: AgentConfig, table: string, field: string): boolean
   return !group || a.field_groups.includes(group);
 }
 
+/**
+ * Why a field path (`field` or `ref.field`) a tool would group, measure, sort or filter by may not reach this agent's
+ * model (every hop checked against its guardrails and field groups), or null.
+ */
+function agentPathProblem(a: AgentConfig, table: string, path: unknown): string | null {
+  const def = tableDef(table);
+  if (!def || typeof path !== "string" || !path.trim()) return null;
+  const r = resolvePath(def, path.trim().replace(/^[-+]/, ""));
+  if (!r) return null;
+  for (const step of [...r.hops, { def: r.def, field: r.field }]) {
+    if (step.field.base && step.field.name === "id") continue;
+    if (!agentSees(a, step.def.key, step.field.name)) return `فیلد «${step.field.label}» برای این عامل ممنوع است`;
+  }
+  return null;
+}
+
+/** The field paths a tool's input names (conditions, groups, metrics, the measured and dated field, the order). */
+function inputPaths(p: Record<string, unknown>): unknown[] {
+  const objs = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => !!x && typeof x === "object") : []);
+  return [
+    p.field,
+    p.date_field,
+    ...objs(p.group_by).map((g) => g.field),
+    ...objs(p.metrics).map((m) => m.field),
+    ...objs(p.where).map((w) => w.field),
+    ...String(typeof p.sort === "string" ? p.sort : "").split(",").map((x) => x.trim()),
+  ];
+}
+
 /** Remove what the agent may not see from what a read tool of `table` returns (a record, rows, the legend). */
 function stripFields(a: AgentConfig, table: string, data: unknown): unknown {
   if (!data || typeof data !== "object") return data;
@@ -86,6 +119,9 @@ function stripFields(a: AgentConfig, table: string, data: unknown): unknown {
   if (d.record) d.record = drop(d.record);
   if (Array.isArray(d.rows)) d.rows = d.rows.map(drop);
   if (d.fields) d.fields = drop(d.fields);
+  // a record's history names the field of every change; a skill's suggestions the field they would set
+  if (Array.isArray(d.changes)) d.changes = d.changes.filter((c) => !!c && typeof c === "object" && agentSees(a, table, String((c as { name?: unknown }).name ?? "")));
+  if (Array.isArray(d.suggestions)) d.suggestions = d.suggestions.filter((x) => !!x && typeof x === "object" && agentSees(a, table, String((x as { field?: unknown }).field ?? "")));
   // internal notes reach the model only with the «internal» group (as for skills)
   if (Array.isArray(d.notes) && !a.field_groups.includes("internal")) d.notes = d.notes.filter((n) => !(n && typeof n === "object" && (n as { visibility?: string }).visibility === "internal"));
   return d;
@@ -100,6 +136,17 @@ function guarded(a: AgentConfig, t: AiToolDef, table: string | null): AiToolDef 
       for (const k of ["table", "to_table"]) {
         if (typeof p[k] === "string" && tableForbidden(a, p[k] as string)) throw forbidden(`جدول «${p[k]}» برای این عامل ممنوع است`);
       }
+      // the tables a module tool reads or writes (a catalogue order writes requests), whatever its input says
+      for (const x of t.tables ?? []) if (tableForbidden(a, x)) throw forbidden(`جدول «${x}» برای این عامل ممنوع است`);
+      // what a tool groups, measures, sorts or filters by returns those values: only fields the agent may see
+      const tbl0 = table ?? (typeof p.table === "string" ? p.table : null);
+      if (tbl0) {
+        for (const path of inputPaths(p)) {
+          const problem = agentPathProblem(a, tbl0, path);
+          if (problem) throw forbidden(problem);
+        }
+      }
+      rt = { ...rt, limits: { table: (x) => !tableForbidden(a, x), field: (x, f) => agentSees(a, x, f), groups: a.field_groups } };
       const res = await t.run(ctx, input, rt);
       if (res.proposal) {
         const problem = guardrailProblem(a, res.proposal);
@@ -117,7 +164,8 @@ function guarded(a: AgentConfig, t: AiToolDef, table: string | null): AiToolDef 
  */
 export async function agentTools(pctx: Ctx, a: AgentConfig, opts: { question: string; record?: { table: string; id: string } | null; max?: number }): Promise<AiToolDef[]> {
   const { registered, generated } = await toolCatalog(pctx, { proposals: true });
-  const reg = registered.filter((t) => toolAllowed(a.tools, t.name) && t.name !== "render_chart");
+  // never «start_agent»: an agent does not start agents (no loops; a test run starts nothing real)
+  const reg = registered.filter((t) => toolAllowed(a.tools, t.name) && !NOT_FOR_AGENTS.has(t.name));
   const gen = generated.filter((e) => toolAllowed(a.tools, e.name) && !tableForbidden(a, e.table));
   const max = opts.max ?? AGENT_TOOLS_PER_TURN;
   const picked = gen.length > max ? selectRecordTools(gen, { question: opts.question, context: opts.record ? { record: { type: opts.record.table, id: opts.record.id } } : null }, { max }) : gen;
@@ -153,5 +201,5 @@ export async function toolNamesFor(pctx: Ctx | null, adminCtx: Ctx): Promise<{ a
       if (!all.has(e.name)) all.set(e.name, { name: e.name, title_fa: e.title_fa, kind: e.kind, table: e.table });
     }
   }
-  return { available, all: [...all.values()].filter((t) => t.name !== "render_chart") };
+  return { available, all: [...all.values()].filter((t) => !NOT_FOR_AGENTS.has(t.name)) };
 }

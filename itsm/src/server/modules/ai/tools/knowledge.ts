@@ -22,14 +22,19 @@ export const searchKnowledge = defineTool({
   level: "view",
   async run(ctx, p, rt) {
     if (ctx.actor === "system") throw bad("جست‌وجو در دانش همیشه از طرف یک عضو انجام می‌شود");
-    const r = await retrieve(ctx, p.query, { k: p.k ?? 6, ...(p.tables?.length ? { tables: p.tables } : {}), signal: rt.signal });
-    const passages = r.passages.map((x) => ({
+    // an agent's guardrails: no forbidden table, only the field groups it was given, no forbidden field
+    const lim = rt.limits;
+    const tables = lim && p.tables?.length ? p.tables.filter((t) => lim.table(t)) : p.tables;
+    if (lim && p.tables?.length && !tables?.length) return { data: { passages: [], found: 0 }, summary_fa: "منبعی پیدا نشد" };
+    const r = await retrieve(ctx, p.query, { k: p.k ?? 6, ...(tables?.length ? { tables } : {}), signal: rt.signal });
+    const allowed = lim ? r.passages.filter((x) => lim.table(x.citation.table) && (x.groups ?? []).every((g) => lim.groups.includes(g)) && (x.fields ?? []).every((f) => lim.field(x.citation.table, f))) : r.passages;
+    const passages = allowed.map((x) => ({
       n: x.n,
       source: `${x.citation.table_label}${x.citation.number ? ` ${x.citation.number}` : ""} «${x.citation.title}»`,
       ...(x.citation.field_label ? { section: x.citation.field_label } : {}),
       text: String(x.context || x.text).slice(0, 1500),
     }));
-    const refs = r.passages
+    const refs = allowed
       .filter((x, i, all) => all.findIndex((y) => y.citation.table === x.citation.table && y.citation.id === x.citation.id) === i)
       .slice(0, 8)
       .map((x) => ({ type: x.citation.table, id: x.citation.id, label: [x.citation.number, x.citation.title].filter(Boolean).join(" — ").slice(0, 120), path: x.citation.path ?? undefined }));

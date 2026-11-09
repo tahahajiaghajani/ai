@@ -12,7 +12,7 @@ import { z } from "zod";
 import type { Ctx } from "../../../context";
 import type { FieldDef, TableDef } from "@shared/model/types";
 import { refTarget } from "@shared/model/types";
-import { OPS, opsFor, type Cond, type Op } from "@shared/model/conditions";
+import { OPS, opsFor, resolvePath, type Cond, type Op } from "@shared/model/conditions";
 import { normalizeDigits } from "@shared/money";
 import { list, optionsOf, parseDate, parseDateTime, type OrgSchema } from "../../../engine";
 import { access } from "../../../access/provider";
@@ -33,6 +33,38 @@ export function toolField(def: TableDef, f: FieldDef): boolean {
   if (BOOKKEEPING.has(f.name)) return false;
   if (keptFromPrompts(def.key).has(f.name)) return false;
   return true;
+}
+
+/**
+ * May a tool use this field path (`field` or `ref.field`) for this caller — to group, measure, sort or filter by: every
+ * hop a field a tool may show at all (`toolField`) and one the caller sees. Grouping by a field returns its values as
+ * labels, so what a tool never shows it never groups by either. Unknown paths are left to the engine to refuse.
+ */
+export function toolPath(ctx: Ctx, schema: OrgSchema, def: TableDef, path: string): FieldDef | null | true {
+  const r = resolvePath(def, String(path ?? ""), schema.lookup);
+  if (!r) return true;
+  for (const step of [...r.hops, { def: r.def, field: r.field }]) {
+    if (step.field.base && step.field.name === "id") continue;
+    if (!toolField(step.def, step.field)) return step.field;
+    const visible = access().visibleFields(ctx, step.def);
+    if (visible && !visible.has(step.field.name)) return step.field;
+  }
+  return null;
+}
+
+/** The first of these field paths a tool may not use for this caller (see toolPath), as a Persian refusal, or null. */
+export function toolPathsProblem(ctx: Ctx, schema: OrgSchema, def: TableDef, paths: (string | null | undefined)[]): string | null {
+  for (const p of paths) {
+    if (!p) continue;
+    const bad = toolPath(ctx, schema, def, p);
+    if (bad && bad !== true) return `«${bad.label}» در ابزارهای هوش مصنوعی به کار نمی‌رود`;
+  }
+  return null;
+}
+
+/** May a text search of `def` run through a tool: none of the fields it searches is kept from models? */
+export function toolTextSearch(def: TableDef): boolean {
+  return def.fields.every((f) => !(f.search || f.name === def.display) || toolField(def, f));
 }
 
 /** The fields of `def` a tool shows this caller (in form order). */
@@ -269,6 +301,10 @@ async function resolveLeaf(ctx: Ctx, schema: OrgSchema, def: TableDef, leaf: Whe
   const f = def.fields.find((x) => x.name === head);
   if (!f) return { error: `فیلد «${path}» در «${def.label}» نیست` };
   if (!toolField(def, f)) return { error: `«${f.label}» در جست‌وجوی هوش مصنوعی به کار نمی‌رود` };
+  if (path.includes(".")) {
+    const hop = toolPathsProblem(ctx, schema, def, [path]);
+    if (hop) return { error: hop };
+  }
   const shape = OPS[op].value;
   if (shape === "none") return { f: path, op };
   if (shape === "relative" || path.includes(".")) return { f: path, op, v: leaf.value };

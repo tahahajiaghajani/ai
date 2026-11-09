@@ -18,7 +18,7 @@ import { enqueue, registerJobHandler } from "../../../jobs";
 import { loadSettings } from "../settings";
 import { isServiceEmail, principalCtx } from "../skills/principal";
 import { agentRows, configOf } from "./config";
-import { queueAgentRun } from "./runtime";
+import { queueAgentRun, runsToday } from "./runtime";
 
 const AI_KEYS = new Set([...AI_TABLES, ...AI_AGENT_TABLES].map((t) => t.key));
 const EVENT_KIND: Partial<Record<RecordEventKind, SkillEventKind>> = {
@@ -30,8 +30,19 @@ const EVENT_KIND: Partial<Record<RecordEventKind, SkillEventKind>> = {
 };
 export const AGENT_SCHEDULE_EVERY_MS = 15 * 60_000;
 const SCHEDULE_JOB = "ai.agents.schedule";
-/** Records one scheduled round queues per agent and table. */
-const SCHEDULE_ROWS = 10;
+/** Records one page of a scheduled round reads, and how many pages at most (the daily runs bound it first). */
+const SCHEDULE_ROWS = 50;
+const SCHEDULE_PAGES = 40;
+
+/** When the agent last started a run on each of these records (epoch ms). */
+async function lastRuns(cfg: ServerConfig, orgId: string, key: string, ids: string[]): Promise<Map<string, number>> {
+  if (!ids.length) return new Map();
+  const rows = await cfg.db.query<{ record_id: string; at: string }>(
+    `select record_id, max(created_at) as at from sm_ai_agent_runs where org_id = $1 and agent_key = $2 and record_id = any($3::text[]) and deleted_at is null and dry_run = false group by record_id`,
+    [orgId, key, `{${ids.join(",")}}`],
+  );
+  return new Map(rows.map((r) => [String(r.record_id), new Date(r.at).getTime()]));
+}
 
 const cache = new Map<string, { at: number; agents: (AgentConfig & { last_scheduled_at: string | null })[] }>();
 const CACHE_MS = 30_000;
@@ -53,7 +64,7 @@ async function activeAgents(cfg: ServerConfig, orgId: string) {
 
 const serviceMembers = new Map<string, boolean>();
 /** Is this member an AI service member (the assistant's or an agent's principal)? */
-async function isServiceMember(cfg: ServerConfig, userId: string | null): Promise<boolean> {
+export async function isServiceMember(cfg: ServerConfig, userId: string | null): Promise<boolean> {
   if (!userId) return false;
   const hit = serviceMembers.get(userId);
   if (hit !== undefined) return hit;
@@ -121,10 +132,23 @@ export function installAgentTriggers(): void {
         const filter = a.schedule_filter && typeof a.schedule_filter === "object" ? (a.schedule_filter as Cond) : null;
         const tables = a.tables.filter((t) => !tableForbidden(a, t) && tableDef(t));
         if (filter && tables.length) {
-          // the records of its filter, read with its principal's access, newest first
+          // every record of its filter, read with its principal's access, page after page — those changed since the
+          // agent's last run on them (an unchanged record was already seen) — up to what its daily runs leave
+          let left = Math.max(0, a.daily_runs - (await runsToday(sys, a.key)));
           for (const table of tables) {
-            const rows = await list(pctx, table, { filter, size: SCHEDULE_ROWS, sort: "-updated_at", fields: ["id"], total: false }).catch(() => null);
-            for (const r of rows?.rows ?? []) await queueAgentRun(cfg, job.org_id, a, { trigger: "schedule", why: "schedule", table, id: String(r.id) });
+            for (let page = 1; left > 0 && page <= SCHEDULE_PAGES; page++) {
+              const rows = (await list(pctx, table, { filter, page, size: SCHEDULE_ROWS, sort: "-updated_at", fields: ["id", "updated_at"], total: false }).catch(() => null))?.rows ?? [];
+              const last = await lastRuns(cfg, job.org_id, a.key, rows.map((r) => String(r.id)));
+              for (const r of rows) {
+                const seen = last.get(String(r.id));
+                if (seen && new Date(String(r.updated_at ?? 0)).getTime() <= seen) continue;
+                const q = await queueAgentRun(cfg, job.org_id, a, { trigger: "schedule", why: "schedule", table, id: String(r.id) });
+                if (q.status === "budget") left = 0;
+                else left--;
+                if (left <= 0) break;
+              }
+              if (rows.length < SCHEDULE_ROWS) break;
+            }
           }
         } else {
           // an agent about no single record (a report, a sweep): one run per period
