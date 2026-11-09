@@ -30,6 +30,8 @@ import { requestRoutes } from "./request";
 import { installKnowledgeModule } from "../modules/knowledge";
 import { knowledgeRoutes } from "./knowledge";
 import { installAiSkills } from "../modules/ai/skills";
+import { installSecurityModule } from "../modules/security";
+import { securityRoutes } from "./security";
 import { skillRoutes } from "./ai-skills";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
@@ -60,6 +62,10 @@ installRequestModule();
 // knowledge management (docs/modules/knowledge_FA.md) — after the RAG index and the modules whose records it links
 installKnowledgeModule();
 
+// security operations, vulnerability response and GRC (docs/modules/security_FA.md) — after the SLA service, the RAG
+// index and the modules whose records it links (incidents, CIs, changes)
+installSecurityModule();
+
 // the AI skills (docs/spec/AI.md §11) — after every module whose AI extension points they implement
 installAiSkills();
 
@@ -82,3 +88,4 @@ moduleRoutes.route("/service_portfolio", servicePortfolioRoutes);
 moduleRoutes.route("/change", changeRoutes);
 moduleRoutes.route("/request", requestRoutes);
 moduleRoutes.route("/knowledge", knowledgeRoutes);
+moduleRoutes.route("/security", securityRoutes);

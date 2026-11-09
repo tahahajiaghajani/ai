@@ -18,7 +18,7 @@ import type { Option, StateModel, TableDef } from "../model/types";
 import { APPROVAL_STATES, PRIORITIES, TASK_SCOPE } from "../model/task";
 import { CHILD_TASK_STATES, hideTaskFields } from "./incident";
 import { CI_CRITICALITY } from "../cmdb/classes";
-import { DEFAULT_SIR_WEIGHTS, INDICATORS } from "../security/logic";
+import { DEFAULT_SIR_WEIGHTS, INDICATORS, type SirWeights } from "../security/logic";
 
 // ---------------------------------------------------------------------------------------------------------------
 // Choice lists
@@ -359,7 +359,7 @@ export const EVIDENCE_STATES: StateModel = {
     { from: ["stored", "in_analysis"], to: "released", label: "تحویل یا آزادسازی", requires: ["notes"], guard: "sec_evidence_release" },
     { from: ["stored"], to: "destroyed", label: "امحا", requires: ["notes"], guard: "sec_evidence_release" },
   ],
-  locked: ["released", "destroyed"],
+  locked: ["closed"],
 };
 
 const secEvidence: TableDef = {
@@ -409,7 +409,7 @@ export const REG_CLOCK_STATES: StateModel = {
     { from: ["submitted"], to: "running", label: "بازگشایی" },
     { from: ["running"], to: "not_required", label: "لازم نیست", requires: ["notes"] },
   ],
-  locked: ["closed", "not_required"],
+  locked: ["closed", "canceled"],
 };
 
 const secRegClock: TableDef = {
@@ -557,7 +557,7 @@ export const VULN_ITEM_STATES: StateModel = {
     { from: ["open", "in_remediation"], to: "false_positive", label: "مثبت کاذب", requires: ["close_notes"] },
     { from: ["false_positive"], to: "open", label: "بازگشایی" },
   ],
-  locked: ["closed", "false_positive"],
+  locked: ["closed", "canceled"],
 };
 
 const VIT_FINDING = "یافته";
@@ -581,8 +581,8 @@ const secVulnItem: TableDef = {
     { name: "ci_id", label: "پیکربندی", type: "ref", ref: "ci", list: true, filter: true, index: true, span: 12, section: VIT_FINDING },
     { name: "host", label: "میزبان گزارش‌شده", type: "string", maxLength: 255, ltr: true, search: true, filter: true, index: true, span: 8, section: VIT_FINDING },
     { name: "ip_address", label: "نشانی IP", type: "ip", ltr: true, filter: true, span: 8, section: VIT_FINDING },
-    { name: "port", label: "درگاه", type: "int", min: 0, max: 65535, span: 4, section: VIT_FINDING },
-    { name: "protocol", label: "پروتکل", type: "string", maxLength: 10, ltr: true, span: 4, section: VIT_FINDING },
+    { name: "port", label: "درگاه", type: "int", min: 0, max: 65535, span: 6, section: VIT_FINDING },
+    { name: "protocol", label: "پروتکل", type: "string", maxLength: 10, ltr: true, span: 6, section: VIT_FINDING },
     { name: "service_id", label: "خدمت", type: "ref", ref: "service", readonly: true, filter: true, span: 8, section: VIT_FINDING },
     { name: "source", label: "پویشگر", type: "choice", choices: SCANNERS, default: "manual", filter: true, span: 8, section: VIT_FINDING },
     { name: "scanner_ref", label: "شناسهٔ بررسی پویشگر", type: "string", maxLength: 120, ltr: true, span: 8, section: VIT_FINDING },
@@ -698,7 +698,7 @@ export const EXCEPTION_STATES: StateModel = {
     { from: ["approved"], to: "revoked", label: "ابطال", requires: ["notes"] },
     { from: ["approved"], to: "expired", label: "انقضا", roles: { area: "security", level: "full" } },
   ],
-  locked: ["expired", "revoked"],
+  locked: ["closed"],
 };
 
 const secException: TableDef = {
@@ -727,6 +727,7 @@ const secException: TableDef = {
     { name: "approval", label: "تأیید", type: "choice", choices: APPROVAL_STATES, default: "not_requested", readonly: true, filter: true, span: 8 },
     { name: "approved_at", label: "زمان تأیید", type: "datetime", system: true, span: 8 },
     { name: "approved_by", label: "تأییدشده با", type: "user", system: true, span: 8 },
+    { name: "warned_at", label: "یادآوری انقضا", type: "datetime", system: true, audit: false, span: 8 },
     { name: "notes", label: "یادداشت", type: "text", span: 24 },
   ],
   states: EXCEPTION_STATES,
@@ -851,7 +852,7 @@ export const SECURITY_CONFIG_DEFAULTS = {
   grc_group_id: null as string | null,
   auto_promote: true,
   auto_playbook: true,
-  sir_weights: DEFAULT_SIR_WEIGHTS as Record<string, number>,
+  sir_weights: DEFAULT_SIR_WEIGHTS as SirWeights,
   vuln_sla_critical: 15,
   vuln_sla_high: 30,
   vuln_sla_medium: 90,
@@ -1039,7 +1040,7 @@ export const TEST_STATES: StateModel = {
     { from: ["planned", "in_progress"], to: "completed", label: "ثبت نتیجه", requires: ["conclusion"] },
     { from: ["planned", "in_progress"], to: "canceled", label: "لغو" },
   ],
-  locked: ["completed", "canceled"],
+  locked: ["closed", "canceled"],
 };
 
 const grcControlTest: TableDef = {
@@ -1059,8 +1060,8 @@ const grcControlTest: TableDef = {
     { name: "planned_for", label: "تاریخ برنامه", type: "date", list: true, sort: true, filter: true, span: 6 },
     { name: "tester_id", label: "آزمونگر", type: "user", default: "$me", list: true, filter: true, index: true, span: 8 },
     { name: "assignment_group_id", label: "گروه", type: "group", filter: true, span: 8 },
-    { name: "period_start", label: "دورهٔ آزمون از", type: "date", span: 4 },
-    { name: "period_end", label: "تا", type: "date", span: 4 },
+    { name: "period_start", label: "دورهٔ آزمون از", type: "date", span: 6 },
+    { name: "period_end", label: "تا", type: "date", span: 6 },
     { name: "population", label: "اندازهٔ جامعه", type: "int", min: 0, span: 8 },
     { name: "sample_size", label: "اندازهٔ نمونه", type: "int", min: 0, span: 8 },
     { name: "exceptions", label: "استثناها", type: "int", min: 0, default: 0, span: 8 },
@@ -1203,7 +1204,7 @@ export const POLICY_STATES: StateModel = {
     { from: ["published"], to: "draft", label: "ویرایش تازه" },
     { from: ["published"], to: "retired", label: "بازنشستگی" },
   ],
-  locked: ["retired"],
+  locked: ["closed"],
 };
 
 const grcPolicy: TableDef = {
@@ -1338,6 +1339,7 @@ const grcPolicyException: TableDef = {
     { name: "assignment_group_id", label: "گروه", type: "group", filter: true, span: 8 },
     { name: "approval", label: "تأیید", type: "choice", choices: APPROVAL_STATES, default: "not_requested", readonly: true, filter: true, span: 8 },
     { name: "approved_at", label: "زمان تأیید", type: "datetime", system: true, span: 8 },
+    { name: "warned_at", label: "یادآوری انقضا", type: "datetime", system: true, audit: false, span: 8 },
     { name: "notes", label: "یادداشت", type: "text", span: 24 },
   ],
   states: EXCEPTION_STATES,
@@ -1475,8 +1477,8 @@ const grcCsfProfile: TableDef = {
     { name: "kind", label: "نوع", type: "choice", choices: PROFILE_KINDS, default: "current", list: true, filter: true, span: 8 },
     { name: "owner_id", label: "مالک", type: "user", default: "$me", filter: true, span: 8 },
     { name: "assignment_group_id", label: "گروه", type: "group", filter: true, span: 8 },
-    { name: "tier", label: "ردهٔ کنونی", type: "choice", choices: TIERS, default: "2", span: 4 },
-    { name: "target_tier", label: "ردهٔ هدف", type: "choice", choices: TIERS, default: "3", span: 4 },
+    { name: "tier", label: "ردهٔ کنونی", type: "choice", choices: TIERS, default: "2", span: 6 },
+    { name: "target_tier", label: "ردهٔ هدف", type: "choice", choices: TIERS, default: "3", span: 6 },
     { name: "scope_text", label: "دامنه", type: "text", span: 24 },
     { name: "items", label: "امتیاز دسته‌ها", type: "json", default: {}, span: 24, help: "{ «GV.OC»: { current: 2, target: 3, note } }" },
     { name: "gap_total", label: "جمع شکاف", type: "int", system: true, list: true, sort: true, span: 8 },
@@ -1590,7 +1592,7 @@ export const DSR_STATES: StateModel = {
     { from: ["in_progress"], to: "completed", label: "انجام شد", requires: ["response"] },
     { from: ["received", "verifying", "in_progress"], to: "rejected", label: "رد", requires: ["response"] },
   ],
-  locked: ["completed", "rejected"],
+  locked: ["closed", "canceled"],
 };
 
 const grcDsr: TableDef = {
@@ -1649,7 +1651,7 @@ export const RISK_STATES: StateModel = {
     { from: ["monitoring", "accepted"], to: "closed", label: "بستن", requires: ["notes"] },
     { from: ["identified", "assessed"], to: "retired", label: "بازنشستگی", requires: ["notes"] },
   ],
-  locked: ["closed", "retired"],
+  locked: ["closed", "canceled"],
 };
 
 const ASSESS = "ارزیابی";
@@ -1826,7 +1828,7 @@ export const ACCEPTANCE_STATES: StateModel = {
     { from: ["active"], to: "expired", label: "انقضا", roles: { area: "risk", level: "full" } },
     { from: ["rejected"], to: "requested", label: "درخواست دوباره" },
   ],
-  locked: ["expired", "revoked"],
+  locked: ["closed"],
 };
 
 const grcRiskAcceptance: TableDef = {
