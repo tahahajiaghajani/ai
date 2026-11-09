@@ -78,6 +78,11 @@ export async function ingestDelivery(cfg: ServerConfig, key: string, h: HeaderFn
 async function storeEvent(sys: Ctx, conn: Row, e: { deliveryId: string; hash: string; verifiedBy: string; providerEvent: string; type: string; payload: unknown }): Promise<Row | null> {
   const existing = await liveRows(sys.db, sys, "dev_event", eqAll({ connection_id: conn.id, delivery_id: e.deliveryId }), { limit: 1 });
   if (existing.length) return null;
+  // the signature covers the body, not the delivery id header: the same signed body sent again under another id
+  // within a day is the same event (a replay or a tool's blind retry), unless the first one failed
+  const since = new Date(Date.now() - 86_400_000).toISOString();
+  const same = await liveRows(sys.db, sys, "dev_event", { and: [{ f: "connection_id", op: "eq", v: conn.id }, { f: "payload_hash", op: "eq", v: e.hash }, { f: "received_at", op: "gte", v: since }, { f: "status", op: "ne", v: "failed" }] }, { limit: 1 });
+  if (same.length) return null;
   try {
     return await sys.write((tx) =>
       createIn(tx, sys, "dev_event", {

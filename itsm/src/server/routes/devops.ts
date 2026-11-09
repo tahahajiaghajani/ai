@@ -18,7 +18,7 @@
 //   GET  /gates/verify                           recompute the gates' evidence hash chain
 import { z } from "zod";
 import { router, body, query, type C } from "../http/hono";
-import { forbidden, notFound } from "../http/errors";
+import { AppError, forbidden, notFound } from "../http/errors";
 import { rateLimit, type RateLimitOptions } from "../http/ratelimit";
 import { publicRoutes } from "./public";
 import { access } from "../access/provider";
@@ -27,6 +27,7 @@ import { managesReleases, sysOf, liveRow } from "../modules/release";
 import {
   developmentOf, doraView, gateStatus, hmacHex, ingestDelivery, newSecret, pipelineView, processEvent, randomKey, requestGate, seedDevopsDefaults, verifyChain, DEMO_CONNECTION_NAME,
 } from "../modules/devops";
+import { MAX_DELIVERY_BYTES } from "../modules/devops/common";
 import { normalize, type ConnectionKind } from "@shared/devops/logic";
 
 const UUID = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "شناسه معتبر نیست").transform((s) => s.toLowerCase());
@@ -39,8 +40,14 @@ const headersOf = (c: C) => (name: string) => c.req.header(name);
 
 // ---------------------------------------------------------------- signed public endpoints
 
+/** Refuse a body announced larger than a delivery may be, before reading it. */
+const tooLarge = (c: C) => {
+  if (Number(c.req.header("content-length") ?? 0) > MAX_DELIVERY_BYTES) throw new AppError(413, "too_large", "حجم رویداد بیش از اندازهٔ مجاز است");
+};
+
 publicRoutes.post("/devops/hooks/:key", rateLimit(HOOK_LIMIT), async (c) => {
   const key = KEY.parse(c.req.param("key"));
+  tooLarge(c);
   const raw = await c.req.text();
   const r = await ingestDelivery(c.get("cfg"), key, headersOf(c), raw);
   return c.json({ ok: r.status !== "failed", ...r });
@@ -59,7 +66,9 @@ const GATE_BODY = z.object({
 
 publicRoutes.post("/devops/gates/:key", rateLimit(HOOK_LIMIT), async (c) => {
   const key = KEY.parse(c.req.param("key"));
+  tooLarge(c);
   const raw = await c.req.text();
+  if (raw.length > 20_000) throw new AppError(413, "too_large", "درخواست دروازه بیش از اندازه است");
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);

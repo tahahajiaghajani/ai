@@ -65,6 +65,16 @@ describe("signed deliveries", () => {
     expect(events.filter((e) => e.delivery_id === "d-2").length).toBe(1);
   });
 
+  it("treats the same signed body under another delivery id as a duplicate (replay)", async () => {
+    const body = { zen: "replayed body", hook_id: 7 };
+    const first = await send(hookKey, body, { "x-github-event": "ping", "x-github-delivery": "r-1" });
+    expect(first.body.status).toBe("processed");
+    const replay = await send(hookKey, body, { "x-github-event": "ping", "x-github-delivery": "r-2" });
+    expect(replay.body.status).toBe("duplicate");
+    const big = await w.e.app.fetch(new Request(`http://local.test/api/public/devops/hooks/${hookKey}`, { method: "POST", headers: { "content-type": "application/json", "content-length": "5000000", "x-forwarded-for": "203.0.113.8" }, body: "{}" }));
+    expect(big.status).toBe(413);
+  });
+
   it("verifies GitLab's token header", async () => {
     const gl = (await w.p.rm.client.post(`${w.P}/r/devops_connection`, { name: "گیت‌لب داخلی", kind: "gitlab", secret: "gl-token-123456" })).row;
     const raw = JSON.stringify({ object_kind: "push", project: { path_with_namespace: "infra/dns" }, ref: "refs/heads/main", commits: [{ id: "abc123", message: "INC-12 fix", timestamp: new Date().toISOString(), author: { name: "Ali", email: "ali@example.com" } }] });

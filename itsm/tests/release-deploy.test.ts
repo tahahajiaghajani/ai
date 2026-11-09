@@ -37,7 +37,7 @@ describe("deployments to protected environments", () => {
     expect(mine).toBeTruthy();
     // the engineer who carries it out is never asked
     expect(approvals.some((a) => a.approver_id === w.p.dev.userId)).toBe(false);
-    await w.p.rm.client.post(`${w.P}/approvals/${mine.id}/decide`, { decision: "approved", comment: "مجاز" });
+    await w.p.rm.client.post(`${w.P}/approvals/${mine!.id}/decide`, { decision: "approved", comment: "مجاز" });
     await w.drain();
     dep = await w.get("deployment", dep.id, w.p.dev.client);
     expect(dep.approval).toBe("approved");
@@ -57,7 +57,7 @@ describe("deployments to protected environments", () => {
     dep = (await w.p.dev.client.post(`${w.P}/r/deployment/${dep.id}/transition`, { to: "pending_approval", version: dep.version })).row;
     await w.drain();
     const mine = (await approvalsOf("deployment", dep.id)).find((a) => a.approver_id === w.p.rm.userId && a.state === "requested");
-    await w.p.rm.client.post(`${w.P}/approvals/${mine.id}/decide`, { decision: "approved" });
+    await w.p.rm.client.post(`${w.P}/approvals/${mine!.id}/decide`, { decision: "approved" });
     await w.drain();
     dep = await w.get("deployment", dep.id, w.p.dev.client);
     dep = (await w.p.dev.client.post(`${w.P}/r/deployment/${dep.id}/transition`, { to: "in_progress", version: dep.version })).row;
@@ -93,7 +93,7 @@ describe("incidents after deployments", () => {
     dep = (await w.p.dev.client.post(`${w.P}/r/deployment/${dep.id}/transition`, { to: "pending_approval", version: dep.version })).row;
     await w.drain();
     const mine = (await approvalsOf("deployment", dep.id)).find((a) => a.approver_id === w.p.rm.userId && a.state === "requested");
-    await w.p.rm.client.post(`${w.P}/approvals/${mine.id}/decide`, { decision: "approved" });
+    await w.p.rm.client.post(`${w.P}/approvals/${mine!.id}/decide`, { decision: "approved" });
     await w.drain();
     dep = await w.get("deployment", dep.id, w.p.dev.client);
     dep = (await w.p.dev.client.post(`${w.P}/r/deployment/${dep.id}/transition`, { to: "in_progress", version: dep.version })).row;
