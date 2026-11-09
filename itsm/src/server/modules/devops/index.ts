@@ -7,13 +7,13 @@
 // in the hooks, the gate's approvals, the sweep (gate timeouts) and the seed of a new organisation.
 import { registerOrgSeed } from "../orgs/service";
 import { SEED_DELAY_MS } from "../sla";
-import { onRecordEvent, systemCtx } from "../../engine";
+import { onRecordEvent, registerRecordMeta, systemCtx } from "../../engine";
 import { enqueue, registerJobHandler, type JobConfig, type JobContext } from "../../jobs";
 import { actsHere } from "../notify";
 import { installDevopsHooks } from "./hooks";
 import { installGateApprovals, timeoutGates } from "./gate";
 import { seedDevopsDefaultsIn, type SeedCounts } from "./seed";
-import { liveRows } from "./common";
+import { liveRows, managesReleases } from "./common";
 
 let installed = false;
 const SWEEP_EVERY = 10 * 60_000;
@@ -36,6 +36,7 @@ export function installDevopsModule(): void {
   installed = true;
   installDevopsHooks();
   installGateApprovals();
+  registerRecordMeta("change_gate", async ({ q, ctx }) => ({ gate: { manages: await managesReleases(q, ctx) } }));
   onRecordEvent("devops.gates", async (e, jctx) => {
     if (actsHere(jctx.cfg)) await ensureGateSweep(jctx.db, e.org_id);
   }, { tables: ["change_gate"], kinds: ["record.created"] });

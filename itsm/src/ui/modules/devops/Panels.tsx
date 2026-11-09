@@ -71,11 +71,11 @@ export function ConnectionUrls({ ctx }: { ctx: RecordContext }) {
 export function GateActions({ ctx }: { ctx: RecordContext }) {
   const { api } = useOrg();
   const r = ctx.row as Row;
-  const meta = (ctx.meta.deployment ?? ctx.meta.release ?? {}) as { manages?: boolean };
+  const meta = (ctx.meta.gate ?? {}) as { manages?: boolean };
   const [mode, setMode] = useState<"rejected" | "overridden" | null>(null);
   const [reason, setReason] = useState("");
   const decide = useAction((v: { decision: string; reason?: string }) => devopsApi.decideGate(api, r.id, v.decision, v.reason), { success: "تصمیم دروازه ثبت شد", onSuccess: () => { setMode(null); setReason(""); ctx.refresh(); } });
-  if (!["pending", "rejected"].includes(String(r.state)) || meta.manages === false) return null;
+  if (!["pending", "rejected"].includes(String(r.state)) || !meta.manages) return null;
   return (
     <Space wrap>
       {r.state === "pending" ? (
