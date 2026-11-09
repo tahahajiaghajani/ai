@@ -249,6 +249,8 @@ export function installCsmHooks(): (() => void)[] {
     registerHooks("entitlement", { beforeWrite: entitlementBefore }),
     registerHooks("entitlement_ledger", { beforeWrite: ledgerGuard, validatePush: pushGuard(ledgerGuard) }),
     registerHooks("case_escalation", { afterWrite: escalationAfter }),
+    // a notice is sent only by «ارسال» (the route that delivers it and keeps the evidence)
+    registerHooks("customer_notice", { guards: { notice_send: (w) => (w.trusted || isSystemCtx(w.ctx) ? null : "اطلاع‌رسانی با دکمهٔ «ارسال» فرستاده می‌شود") } }),
   ];
   for (const t of ACCOUNT_CHILD_TABLES.filter((t) => !["customer_contact", "entitlement"].includes(t))) {
     offs.push(registerHooks(t, { beforeWrite: childBefore, derivePush: async (p) => ({ support_group_id: await supportGroupOf(p.tx, p.ctx, p.def.key, p.next) }) }));

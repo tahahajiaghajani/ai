@@ -170,7 +170,7 @@ export async function nextCase(ctx: Ctx): Promise<Row | null> {
   await prepareSubject(ctx);
   const s = subjectOf(ctx);
   if (!s.writeGroups.length) return null;
-  const rows = await list(ctx, "customer_case", { filter: { and: [{ f: "assignment_group_id", op: "in", v: s.writeGroups }, { f: "assigned_to", op: "empty" }, { f: "active", op: "eq", v: true }] }, sort: "priority,sla_due,opened_at", size: 30, fields: ["number", "short_description", "priority", "sla_due", "product_id", "version"] });
+  const rows = await list(ctx, "customer_case", { filter: { and: [{ f: "assignment_group_id", op: "in", v: s.writeGroups }, { f: "assigned_to", op: "empty" }, { f: "active", op: "eq", v: true }] }, sort: "priority,sla_due,opened_at", size: 30, fields: ["number", "short_description", "priority", "sla_due", "product_id"] });
   if (!rows.rows.length) return null;
   const sys = sysOf(ctx);
   const [profile] = await liveRows(ctx.db, sys, "member_profile", { f: "user_id", op: "eq", v: ctx.user.id }, { limit: 1 });
