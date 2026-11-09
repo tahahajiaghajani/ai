@@ -73,10 +73,10 @@ export function Departments() {
       ) : (
         <div className="esm-depts">
           {(my.length ? my : depts).map((d) => (
-            <Link key={d.id} to={`/${orgId}/esm/d/${d.key}`} className="esm-dept" data-c={d.color ?? "blue"}>
+            <Link key={d.id} to={d.mine || meta.data?.admin ? `/${orgId}/esm/d/${d.key}` : `/${orgId}/${CASE_PATHS[d.case_table] ?? `r/${d.case_table}`}/new`} className="esm-dept" data-c={d.color ?? "blue"}>
               <span className="text-[15px] font-medium">{d.name}</span>
               <span className="text-[12px] text-ink-3">{kindLabel(d.kind)}{d.status === "setup" ? " · در حال راه‌اندازی" : ""}</span>
-              <span className="flex items-center gap-1 text-[12px] text-accent-text">{d.mine ? "خانهٔ واحد" : "خدمت‌ها"} <ArrowLeft size={12} /></span>
+              <span className="flex items-center gap-1 text-[12px] text-accent-text">{d.mine || meta.data?.admin ? "خانهٔ واحد" : "ثبت درخواست"} <ArrowLeft size={12} /></span>
             </Link>
           ))}
         </div>
@@ -143,7 +143,7 @@ function QueueCard({ q, orgId }: { q: DeptQueue; orgId: string }) {
 
 export function DepartmentHome() {
   const { key = "" } = useParams();
-  const { api, orgId } = useOrg();
+  const { api, orgId, allows } = useOrg();
   const nav = useNavigate();
   const q = useQuery({ queryKey: ESM_KEYS.home(orgId, key), queryFn: () => esmApi.home(api, key), enabled: !!key });
   const d = q.data;
@@ -158,7 +158,7 @@ export function DepartmentHome() {
         actions={
           <div className="flex flex-wrap gap-2">
             <Button type="primary" icon={<Plus {...ICON} />} onClick={() => nav(`/${orgId}/${CASE_PATHS[dep.case_table] ?? `r/${dep.case_table}`}/new`)}>پروندهٔ تازه</Button>
-            {d.journeys ? <Button icon={<Route {...ICON} />} onClick={() => nav(`/${orgId}/hr/journeys/start`)}>آغاز سفر کارمند</Button> : null}
+            {d.journeys && allows({ area: "hr", op: "create" }) ? <Button icon={<Route {...ICON} />} onClick={() => nav(`/${orgId}/hr/journeys/start`)}>آغاز سفر کارمند</Button> : null}
             {d.admin ? <Button onClick={() => nav(`/${orgId}/${recordPath("esm_department", dep.id)}`)}>تنظیمات واحد</Button> : null}
           </div>
         }
