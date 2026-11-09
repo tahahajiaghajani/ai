@@ -50,7 +50,7 @@ export type WarrantyStatus = "none" | "active" | "expiring" | "expired";
 /** Warranty of an asset on `today`: expiring within `soonDays`. */
 export function warrantyStatus(end: string | null | undefined, today: string, soonDays = 90): WarrantyStatus {
   if (!end) return "none";
-  const left = diffDays(today, end);
+  const left = diffDays(end, today);
   if (left < 0) return "expired";
   return left <= soonDays ? "expiring" : "active";
 }
@@ -446,14 +446,14 @@ export function trueUpProjection(history: { at: string; consumed: number }[], en
   let trend = 0;
   if (pts.length >= 2) {
     const x0 = pts[0].at.slice(0, 10);
-    const xs = pts.map((p) => diffDays(x0, p.at.slice(0, 10)));
+    const xs = pts.map((p) => diffDays(p.at.slice(0, 10), x0));
     const ys = pts.map((p) => p.consumed);
     const n = xs.length;
     const mx = xs.reduce((a, b) => a + b, 0) / n;
     const my = ys.reduce((a, b) => a + b, 0) / n;
     const sxx = xs.reduce((a, x) => a + (x - mx) ** 2, 0);
     trend = sxx > 0 ? xs.reduce((a, x, i) => a + (x - mx) * (ys[i] - my), 0) / sxx : 0;
-    const at = diffDays(x0, dueDate);
+    const at = diffDays(dueDate, x0);
     projected = Math.max(0, Math.round(my + trend * (at - mx)));
   }
   const shortfall = Math.max(0, projected - entitled);

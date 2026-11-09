@@ -115,7 +115,7 @@ export async function asset360(ctx: Ctx, id: string): Promise<Asset360> {
       const covered = (await liveRows(ctx.db, sys, "contract_coverage", { and: [{ f: "contract_id", op: "eq", v: c.id }, { f: "asset_id", op: "nempty" }] } as Cond, { limit: 10000 })).length || 1;
       share = String(Number(share) + Number(contractShare(String(c.annual_value), covered)));
     }
-    const months = start ? Math.max(0, Math.round(diffDays(start, today) / 30.44)) : 0;
+    const months = start ? Math.max(0, Math.round(diffDays(today, start) / 30.44)) : 0;
     const tco = assetTco({ purchase: row.purchase_cost ?? 0, repairs: repairs.map((r) => String(r.cost ?? 0)), contracts: share, other, months, replacement: model?.unit_cost ?? null, usefulLifeMonths: model?.useful_life_months ?? null });
     costs = {
       ...tco,
@@ -134,7 +134,7 @@ export async function asset360(ctx: Ctx, id: string): Promise<Asset360> {
   const software = ci
     ? ((await list(ctx, "software_install", { filter: { and: [{ f: "ci_id", op: "eq", v: ci.id }, { f: "active", op: "eq", v: true }] }, size: 100, total: false }).catch(() => null)) ?? { rows: [], display: {} as Record<string, string> })
     : { rows: [], display: {} as Record<string, string> };
-  const left = row.warranty_end ? diffDays(today, String(row.warranty_end)) : null;
+  const left = row.warranty_end ? diffDays(String(row.warranty_end), today) : null;
   return {
     asset: { id, number: (row.number as string) ?? null, name: String(row.name ?? ""), state: String(row.state), state_label: stateLabel(ASSET_STATES, row.state), substate: (row.substate as string) ?? null },
     timeline: timeline.slice(0, 200),

@@ -248,7 +248,7 @@ async function assetAfter(w: WriteArgs): Promise<void> {
   if (isUuid(row.ci_id) && (w.op === "create" || ["state", "substate", "assigned_to", "location_id", "cost_center_id", "serial_number", "asset_tag", "ci_id"].some((f) => w.changed.has(f)))) await syncCi(w, row);
   // a CI for assets whose model has a CI class (queued: the reconciliation engine identifies it first)
   if (!isUuid(row.ci_id) && !["on_order", "canceled", "disposed"].includes(String(row.state)) && (w.op === "create" || w.changed.has("model_id") || w.changed.has("serial_number"))) {
-    await enqueue(w.tx, { kind: "itam.ci_link", orgId: w.ctx.org.id, payload: { id: row.id }, dedupeKey: `itam.ci_link:${row.id}`, delayMs: 1000, maxAttempts: 3 });
+    await enqueue(w.tx, { kind: "itam.ci_link", orgId: w.ctx.org.id, payload: { id: row.id }, dedupeKey: `itam.ci_link:${row.id}`, maxAttempts: 3 });
   }
   if (w.op === "create" || ["state", "substate", "stockroom_id", "quantity", "model_id"].some((f) => w.changed.has(f))) {
     await enqueue(w.tx, { kind: "itam.stock_check", orgId: w.ctx.org.id, payload: {}, dedupeKey: "itam.stock_check", delayMs: 5000, maxAttempts: 3 });

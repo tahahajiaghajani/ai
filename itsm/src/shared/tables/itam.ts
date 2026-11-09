@@ -385,8 +385,8 @@ const asset: TableDef = {
     { name: "warranty_end", label: "پایان ضمانت", type: "date", list: true, sort: true, filter: true, index: true, span: 6, section: A_WAR },
     { name: "warranty_contract_id", label: "قرارداد ضمانت", type: "ref", ref: "contract", filter: true, span: 12, section: A_WAR },
     { name: "support_contract_id", label: "قرارداد پشتیبانی", type: "ref", ref: "contract", filter: true, span: 12, section: A_WAR },
-    { name: "lease_contract_id", label: "قرارداد اجاره", type: "ref", ref: "contract", filter: true, span: 8, section: A_WAR },
-    { name: "lease_end", label: "پایان اجاره", type: "date", sort: true, filter: true, span: 4, section: A_WAR },
+    { name: "lease_contract_id", label: "قرارداد اجاره", type: "ref", ref: "contract", filter: true, span: 12, section: A_WAR },
+    { name: "lease_end", label: "پایان اجاره", type: "date", sort: true, filter: true, span: 12, section: A_WAR },
     { name: "reminded", label: "یادآوری‌های فرستاده", type: "json", system: true, hidden: true, audit: false },
 
     { name: "received_at", label: "دریافت", type: "datetime", readonly: true, sort: true, span: 6, section: A_LIFE },

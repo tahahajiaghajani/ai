@@ -1,6 +1,7 @@
 // Software asset management (catalogue ITAM-048/050/052/053/056/058/059/061/066): installations taken from the CMDB —
 // the inventory collector reports installed programs as software CIs that «اجرا روی» their computer, so every live
-// `runs_on` relationship from a software CI to a computer is an installation — normalised to software models by
+// `runs_on` relationship from a software CI to a computer is an installation, and so is every computer's operating
+// system (its `os`, keyed to the computer itself) — normalised to software models by
 // their patterns; the reconciliation run computing the effective licence position of every software model
 // (`licensePosition`); the compliance view with true-up projections, unmatched names and restricted software.
 // Discovery-made installs no source reports any more are marked removed. Everything here runs as the system except
@@ -35,6 +36,13 @@ export async function syncInstalls(sys: Ctx): Promise<{ seen: number; created: n
     if (!app || !device || !SOFTWARE.has(String(app.class)) || !COMPUTERS.has(String(device.class))) continue;
     if (["retired", "disposed", "canceled"].includes(String(device.state))) continue;
     pairs.push({ device, app });
+  }
+  // the operating system of every live computer is an installation too (keyed to the computer itself)
+  const withOs = await liveRows(sys.db, sys, "ci", { and: [{ f: "class", op: "in", v: [...COMPUTERS] }, { f: "os", op: "nempty" }, { f: "state", op: "nin", v: ["retired", "disposed", "canceled"] }] } as Cond, { limit: 100000 });
+  for (const d of withOs) {
+    const os = String(d.os ?? "");
+    const publisher = /windows/i.test(os) ? "Microsoft" : /ubuntu/i.test(os) ? "Canonical" : /mac|darwin/i.test(os) ? "Apple" : /red ?hat|rhel/i.test(os) ? "Red Hat" : null;
+    pairs.push({ device: d, app: { id: d.id, name: os, sw_version: d.os_version ?? null, attrs: publisher ? { vendor: publisher } : {} } });
   }
   const models = await liveRows(sys.db, sys, "software_model", null, { limit: 5000 });
   const existing = await liveRows(sys.db, sys, "software_install", { f: "source", op: "eq", v: "discovery" } as Cond, { limit: 200000 });
@@ -211,7 +219,7 @@ export async function compliance(ctx: Ctx): Promise<Compliance> {
       const price = financial ? String(hist.rows[0]?.unit_price ?? e.unit_cost ?? "0") : "0";
       const proj = trueUpProjection(pts, entitled, price, due);
       trueups.push({
-        entitlement_id: String(e.id), number: (e.number as string) ?? null, name: String(e.name ?? ""), model: ents.display[String(e.software_model_id)] ?? "", due, days_left: diffDays(today, due),
+        entitlement_id: String(e.id), number: (e.number as string) ?? null, name: String(e.name ?? ""), model: ents.display[String(e.software_model_id)] ?? "", due, days_left: diffDays(due, today),
         entitled, consumed: pts[0]?.consumed ?? 0, projected: proj.projected, shortfall: proj.shortfall, cost: financial ? proj.cost : null,
       });
     }

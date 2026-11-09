@@ -26,7 +26,7 @@ export function addJalaliMonths(iso: string, months: number): string {
  */
 export function dueReminder(target: string | null | undefined, today: string, thresholds: number[], sent: number[] = []): { threshold: number; days_left: number; skipped: number[] } | null {
   if (!target) return null;
-  const left = diffDays(today, target);
+  const left = diffDays(target, today);
   if (left < 0) return null;
   const reached = [...new Set(thresholds.filter((t) => Number.isFinite(t) && t >= 0))].sort((a, b) => a - b).filter((t) => left <= t && !sent.includes(t));
   if (!reached.length) return null;
