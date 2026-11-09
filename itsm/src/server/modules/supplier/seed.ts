@@ -23,6 +23,18 @@ function notificationRules(): Row[] {
   ].map((r) => ({ ...base, ...r }));
 }
 
+// SUP-016: whom a ticket waits on — the supplier, their ticket number and contact, the contract used — as the
+// organisation's custom fields on the work tables (the platform's custom fields: admins relabel, move or switch them
+// off; the incident's «منتظر تأمین‌کننده» pending reason already pauses its SLA)
+export const SUPPLIER_TASK_TABLES = ["incident", "incident_task", "problem_task", "change_task", "request_task"];
+const SECTION = "تأمین‌کننده";
+const SUPPLIER_TASK_FIELDS: Row[] = [
+  { name: "u_supplier_id", label: "تأمین‌کننده", type: "ref", ref: "supplier", filter: true, section: SECTION, sort_order: 900, help: "تأمین‌کننده‌ای که کار نزد اوست" },
+  { name: "u_supplier_ticket", label: "شمارهٔ تیکت تأمین‌کننده", type: "string", max_length: 80, search: true, section: SECTION, sort_order: 901 },
+  { name: "u_supplier_contact_id", label: "مخاطب تأمین‌کننده", type: "ref", ref: "supplier_contact", section: SECTION, sort_order: 902 },
+  { name: "u_contract_id", label: "قرارداد", type: "ref", ref: "contract", filter: true, section: SECTION, sort_order: 903, help: "قراردادی که کار بر پایهٔ آن انجام می‌شود" },
+];
+
 export async function seedSupplierDefaultsIn(tx: Tx, ctx: Ctx, opts: { force?: boolean } = {}): Promise<SeedCounts> {
   const sys = sysOf(ctx);
   const out: SeedCounts = { skipped: false, created: {} };
@@ -39,7 +51,20 @@ export async function seedSupplierDefaultsIn(tx: Tx, ctx: Ctx, opts: { force?: b
   await ensure(tx, sys, out, "supplier_contact", { supplier_id: support.id, name: "پشتیبانی شبانه‌روزی" }, { contact_type: "support", role: "مرکز پشتیبانی", escalation_level: 1 });
   await ensure(tx, sys, out, "supplier_contact", { supplier_id: support.id, name: "مدیر فنی" }, { contact_type: "escalation", role: "مدیر فنی", escalation_level: 2 });
 
+  for (const table_key of SUPPLIER_TASK_TABLES) {
+    for (const f of SUPPLIER_TASK_FIELDS) await ensure(tx, sys, out, "custom_field", { table_key, name: f.name }, { ...f, active: true });
+  }
+  // SUP-015: the supplier's clock on an incident runs while it waits on a named supplier (round the clock)
+  const waiting = { and: [{ f: "state", op: "eq", v: "on_hold" }, { f: "hold_reason", op: "eq", v: "awaiting_supplier" }, { f: "u_supplier_id", op: "nempty" }] } as Cond;
+  const ucDef = await ensure(tx, sys, out, "sla_definition", { table_key: "incident", name: "رفع خرابی توسط تأمین‌کننده (UC)" }, {
+    type: "uc", target: "resolution", duration_mode: "fixed", duration: 8 * 3600, warn_percents: [50, 75, 90], start_condition: waiting,
+    stop_condition: { or: [{ f: "state", op: "ne", v: "on_hold" }, { f: "hold_reason", op: "ne", v: "awaiting_supplier" }] } as Cond,
+    cancel_condition: { f: "state", op: "eq", v: "canceled" } as Cond,
+    description: "از وقتی رخداد «منتظر تأمین‌کننده» است تا وقتی تأمین‌کننده پاسخ دهد یا کار را برگرداند؛ هدف قرارداد پشتیبانی نمونه",
+  });
+
   const uc = await ensure(tx, sys, out, "contract", { name: "پشتیبانی و نگهداری سرورها و شبکه (نمونه)" }, {
+    sla_definitions: [ucDef.id],
     supplier_id: support.id, contract_type: "uc", state: "active", start_date: addDays(today, -290), end_date: addDays(today, 75), notice_period_days: 30, renewal_type: "manual",
     renewal_term_months: 12, value: "18000000000", annual_value: "18000000000", payment_frequency: "monthly",
     uc_targets: "- پاسخ به خرابی حیاتی: ۲ ساعت، شبانه‌روزی\n- رفع خرابی حیاتی: ۸ ساعت\n- بازدید پیشگیرانه: ماهانه",

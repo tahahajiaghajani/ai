@@ -101,6 +101,49 @@ describe("contracts", () => {
     expect(next.rows).toHaveLength(1);
     expect(next.rows[0].due_date > today()).toBe(true);
   });
+
+  it("lets tickets name the supplier, ticket and contract they wait on", async () => {
+    const sup = await w.idOf("supplier", "name", "شرکت پشتیبانی شبکهٔ پارس (نمونه)");
+    const uc = await w.idOf("contract", "name", "پشتیبانی و نگهداری سرورها و شبکه (نمونه)");
+    const inc = (await w.o.post(`${w.P}/r/incident`, { short_description: "خرابی سوئیچ هسته", u_supplier_id: sup, u_supplier_ticket: "PRS-4411", u_contract_id: uc })).row;
+    expect(inc.u_supplier_id).toBe(sup);
+    const found = await w.o.post(`${w.P}/r/incident/query`, { filter: { f: "u_supplier_id", op: "eq", v: sup } });
+    expect(found.rows.map((r: { id: string }) => r.id)).toContain(inc.id);
+  });
+
+  it("runs the supplier's clock while an incident waits on a named supplier", async () => {
+    const sup = await w.idOf("supplier", "name", "شرکت پشتیبانی شبکهٔ پارس (نمونه)");
+    const inc = (await w.o.post(`${w.P}/r/incident`, { short_description: "دیسک سرور پایگاه داده خراب است", u_supplier_id: sup })).row;
+    await w.o.post(`${w.P}/r/incident/${inc.id}/transition`, { to: "on_hold", data: { hold_reason: "awaiting_supplier" } });
+    const timers = (await w.o.get(`${w.P}/r/incident/${inc.id}`)).meta.sla as { label: string; state: string }[];
+    expect(timers.some((t) => t.label === "رفع خرابی توسط تأمین‌کننده (UC)")).toBe(true);
+    const uc = await w.idOf("contract", "name", "پشتیبانی و نگهداری سرورها و شبکه (نمونه)");
+    expect((await w.o.get(`${w.P}/r/contract/${uc}`)).row.sla_definitions).toHaveLength(1);
+  });
+
+  it("values a foreign-currency contract with the latest official rate", async () => {
+    const sup = await w.idOf("supplier", "name", "ابر میزبان ایرانی (نمونه)");
+    const c = (await w.p.am.client.post(`${w.P}/r/contract`, { name: "اشتراک ارزی آزمون", supplier_id: sup, contract_type: "subscription", currency: "USD", foreign_value: "1000", start_date: today(), end_date: addDays(today(), 365) })).row;
+    const row = (await w.p.am.client.get(`${w.P}/r/contract/${c.id}`)).row;
+    expect(Number(row.fx_rate)).toBe(700000);
+    expect(Number(row.value)).toBe(700_000_000);
+  });
+
+  it("reminds an obligation once when it comes due and once when it is overdue", async () => {
+    const uc = await w.idOf("contract", "name", "اجارهٔ چاپگرهای چندکاره (نمونه)");
+    const o = (await w.p.am.client.post(`${w.P}/r/contract_obligation`, { contract_id: uc, title: "ارسال بیمه‌نامه", party: "supplier", due_date: addDays(today(), 3) })).row;
+    const mine = async () => (await events("record.contract.obligation_due")).filter((e) => e.id === o.id);
+    await supplierSweep(w.sys);
+    await supplierSweep(w.sys);
+    expect(await mine()).toHaveLength(1);
+    expect((await mine())[0].data.overdue).toBe(false);
+    await w.p.am.client.patch(`${w.P}/r/contract_obligation/${o.id}`, { due_date: addDays(today(), -1) });
+    await supplierSweep(w.sys);
+    await supplierSweep(w.sys);
+    const all = await mine();
+    expect(all).toHaveLength(2);
+    expect(all.some((e) => e.data.overdue === true)).toBe(true);
+  });
 });
 
 describe("clause extraction", () => {

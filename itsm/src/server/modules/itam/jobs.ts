@@ -255,7 +255,7 @@ export function installItamJobs(): (() => void)[] {
       const sys = await systemCtx(jctx.cfg, job.org_id);
       await itamSweep(sys);
       await syncInstalls(sys).catch(() => undefined);
-      await assetsForDiscovered(sys, 200).catch(() => undefined);
+      if ((await itamConfig(sys.db, sys)).auto_assets !== false) await assetsForDiscovered(sys, 200).catch(() => undefined);
       await reconcile(sys, "schedule").catch(() => undefined);
       return { again: SWEEP_EVERY };
     }),

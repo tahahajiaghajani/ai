@@ -230,7 +230,15 @@ export async function supplierSweep(sys: Ctx): Promise<{ reminders: number; expi
   }
   const obligations = await liveRows(sys.db, sys, "contract_obligation", { and: [{ f: "state", op: "in", v: ["open", "in_progress", "waiting"] }, { f: "due_date", op: "lte", v: addDays(today, 7) }] } as Cond, { limit: 5000 });
   for (const o of obligations) {
-    await sys.write((tx) => emitEvent(tx, sys, { kind: "record.contract.obligation_due", table: "contract_obligation", id: o.id, number: o.number ?? null, data: { users: [o.owner_id].filter(isUuid), due_date: o.due_date, overdue: String(o.due_date) < today } }));
+    // one reminder when the due date comes within a week and one when it passes (again if the due date moves)
+    const stage = String(o.due_date) < today ? "overdue" : "soon";
+    const rem = (o.reminded ?? {}) as { due?: string; sent?: string[] };
+    const sent = rem.due === o.due_date && Array.isArray(rem.sent) ? rem.sent : [];
+    if (sent.includes(stage)) continue;
+    await sys.write(async (tx) => {
+      await emitEvent(tx, sys, { kind: "record.contract.obligation_due", table: "contract_obligation", id: o.id, number: o.number ?? null, data: { users: [o.owner_id].filter(isUuid), due_date: o.due_date, overdue: stage === "overdue" } });
+      await updateIn(tx, sys, "contract_obligation", o.id, { reminded: { due: o.due_date, sent: [...sent, stage] } }, { trusted: true, keepVersion: true });
+    });
     out.overdue++;
   }
   return out;

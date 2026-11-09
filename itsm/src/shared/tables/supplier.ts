@@ -361,6 +361,7 @@ const contractObligation: TableDef = {
     { name: "fulfilled_at", label: "زمان انجام", type: "datetime", readonly: true, span: 8 },
     { name: "description", label: "شرح", type: "markdown", span: 24 },
     { name: "note", label: "یادداشت نتیجه", type: "text", span: 24 },
+    { name: "reminded", label: "یادآوری‌های فرستاده", type: "json", system: true, hidden: true, audit: false },
   ],
   states: OBLIGATION_STATES,
   scope: { own: ["owner_id"] },

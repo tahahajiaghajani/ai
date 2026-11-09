@@ -16,7 +16,7 @@ import { D, mul, round } from "@shared/money";
 import { createIn, registerHooks, transitionIn, updateIn, type WriteArgs } from "../../engine";
 import { access } from "../../access/provider";
 import { bad, conflict, forbidden } from "../../http/errors";
-import { isUuid, liveRow, liveRows, sysOf } from "../itam/common";
+import { isUuid, liveRow, liveRows, orgToday, sysOf } from "../itam/common";
 
 const isSys = (w: WriteArgs) => w.ctx.actor === "system";
 const entering = (w: WriteArgs, state: string) => w.next.state === state && (w.op === "create" || w.prev?.state !== state);
@@ -36,6 +36,16 @@ async function contractBefore(w: WriteArgs): Promise<void> {
   if (w.op === "create" || w.changed.has("end_date") || w.changed.has("notice_period_days")) {
     n.notice_date = noticeDate(n.end_date, n.notice_period_days);
     if (w.op !== "create" && w.changed.has("end_date")) n.reminded = {};
+  }
+  // a foreign-currency value without a rate takes the latest rate on or before the start (official first) from the rates
+  if (n.currency && n.currency !== "IRR" && n.foreign_value && !n.fx_rate && (w.changed.has("foreign_value") || w.changed.has("currency") || w.op === "create")) {
+    const at = String(n.start_date ?? orgToday(w.ctx));
+    const where = { and: [{ f: "currency", op: "eq", v: n.currency }, { f: "rate_date", op: "lte", v: at }] } as Cond;
+    const [r] = await liveRows(w.tx, sysOf(w.ctx), "exchange_rate", where, { order: "(t.rate_type = 'official') desc, t.rate_date desc", limit: 1 });
+    if (r) {
+      n.fx_rate = r.rate;
+      w.changed.add("fx_rate");
+    }
   }
   if ((w.changed.has("foreign_value") || w.changed.has("fx_rate")) && n.foreign_value && n.fx_rate && n.currency !== "IRR" && !w.input?.has("value")) {
     n.value = round(mul(n.foreign_value, n.fx_rate), 0);

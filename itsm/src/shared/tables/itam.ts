@@ -1345,6 +1345,7 @@ const saasAccount: TableDef = {
 export const ITAM_CONFIG_DEFAULTS = {
   tag_prefix: "IT-",
   auto_ci: true,
+  auto_assets: true,
   ack_expire_days: 14,
   ack_remind_days: 3,
   warranty_reminders: [90, 30, 7] as number[],
@@ -1368,6 +1369,7 @@ const config: TableDef = {
     { name: "config_key", label: "کلید", type: "string", required: true, default: "default", maxLength: 40, hidden: true, unique: true },
     { name: "tag_prefix", label: "پیشوند برچسب اموال", type: "string", maxLength: 12, ltr: true, default: ITAM_CONFIG_DEFAULTS.tag_prefix, span: 8 },
     { name: "auto_ci", label: "ساخت خودکار پیکربندی برای دارایی", type: "bool", default: true, span: 8, help: "برای مدل‌هایی که کلاس پیکربندی دارند" },
+    { name: "auto_assets", label: "ساخت خودکار دارایی برای دستگاه‌های کشف‌شده", type: "bool", default: true, span: 8, help: "رایانه، سرور، گوشی و تجهیز شبکه‌ای که در پایگاه پیکربندی هست و دارایی ندارد، هر روز دارایی می‌گیرد" },
     { name: "ack_expire_days", label: "انقضای تعهدنامه (روز)", type: "int", min: 1, max: 365, default: ITAM_CONFIG_DEFAULTS.ack_expire_days, span: 8 },
     { name: "ack_remind_days", label: "یادآوری تعهدنامه هر چند روز", type: "int", min: 1, max: 60, default: ITAM_CONFIG_DEFAULTS.ack_remind_days, span: 8 },
     { name: "warranty_reminders", label: "یادآوری پایان ضمانت و اجاره (روز)", type: "json", default: ITAM_CONFIG_DEFAULTS.warranty_reminders, span: 8 },
