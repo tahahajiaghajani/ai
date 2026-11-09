@@ -59,7 +59,7 @@ export const ESM_KEYS = {
   home: (org: string, key: string) => ["esm", org, "home", key] as const,
   tracker: (org: string, id: string) => ["esm", org, "tracker", id] as const,
   todos: (org: string) => ["esm", org, "todos"] as const,
-  myCases: (org: string) => ["esm", org, "my-cases"] as const,
+  myCases: (org: string, department: string | null = null) => ["esm", org, "my-cases", department] as const,
   preview: (org: string, tpl: string, anchor: string) => ["esm", org, "preview", tpl, anchor] as const,
   availability: (org: string, from: string, kind: string | null) => ["esm", org, "availability", from, kind] as const,
 };
@@ -71,7 +71,7 @@ export const esmApi = {
   home: (api: OrgApi, key: string) => api.get<DepartmentHome>(`/esm/departments/${encodeURIComponent(key)}/home`),
   route: (api: OrgApi, text: string) =>
     api.post<{ matches: { score: number; service: { id: string; name: string; category: string | null; description: string | null; case_table: string; catalog_item_id: string | null }; department: { id: string; name: string; key: string } }[] }>("/esm/route", { text }),
-  myCases: (api: OrgApi) => api.get<{ cases: Row[] }>("/esm/my/cases"),
+  myCases: (api: OrgApi, department?: string | null) => api.get<{ cases: Row[] }>("/esm/my/cases", department ? { department } : {}),
   todos: (api: OrgApi) => api.get<{ tasks: Row[]; journeys: Row[]; display: Record<string, string> }>("/esm/my/todos"),
   transfer: (api: OrgApi, table: string, id: string, input: { department_id: string; service_id?: string | null; note: string }) =>
     api.post<{ table: string; id: string; number: string | null; moved: boolean }>(`/esm/cases/${table}/${id}/transfer`, input),

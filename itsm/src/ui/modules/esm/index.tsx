@@ -21,6 +21,7 @@ import { QUEUES, type Queue } from "./model";
 
 const Departments = lazy(() => import("./Departments").then((m) => ({ default: m.Departments })));
 const DepartmentHome = lazy(() => import("./Departments").then((m) => ({ default: m.DepartmentHome })));
+const MyCases = lazy(() => import("./Departments").then((m) => ({ default: m.MyCases })));
 const TrackerPage = lazy(() => import("./JourneyTracker"));
 const JourneyTracker = lazy(() => import("./JourneyTracker").then((m) => ({ default: m.JourneyTracker })));
 const StartJourney = lazy(() => import("./StartJourney"));
@@ -96,6 +97,7 @@ const module = recordModule({
     { path: "esm", element: lazyPage(<Departments />) },
     { path: "esm/d/:key", element: lazyPage(<DepartmentHome />) },
     { path: "esm/my-todos", element: lazyPage(<MyTodos />) },
+    { path: "esm/my-cases", element: lazyPage(<MyCases />) },
     { path: "facilities/book", element: lazyPage(<Booking />) },
     { path: "hr/journeys/start", element: lazyPage(<StartJourney />) },
     { path: "hr/journeys/:id/tracker", element: lazyPage(<TrackerPage />) },

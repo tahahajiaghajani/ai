@@ -4,6 +4,7 @@
 // steps, roll-ups and customer messages, parts, time, technicians), the jobs (fsm.sweep: planned maintenance and
 // clearing old positions; fsm.seed), the AI skills, the portal's technician section and the record meta.
 import type { PortalSection } from "@shared/esm/portal";
+import { toFa } from "@shared/jalali";
 import { registerOrgSeed } from "../orgs/service";
 import { SEED_DELAY_MS } from "../sla";
 import { access } from "../../access/provider";
@@ -50,7 +51,7 @@ async function technicianSections(ctx: Ctx): Promise<PortalSection[]> {
   return [{
     key: "field:technician", kind: "field", title: "بازدیدهای من", icon: "hard-hat", color: "orange", intro: null, order: 3,
     links: [{ key: "my-day", label: "کارهای امروز", path: "field/my-day", count: todays }],
-    services: [], facts: [{ key: "open", label: "بازدیدهای باز", value: String(res.rows.length) }], kb_base_id: null, catalog_id: null,
+    services: [], facts: [{ key: "open", label: "بازدیدهای باز", value: toFa(res.rows.length) }], kb_base_id: null, catalog_id: null,
   }];
 }
 

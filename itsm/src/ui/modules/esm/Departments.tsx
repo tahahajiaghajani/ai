@@ -5,7 +5,7 @@
 //                    last 30 days (opened, resolved, satisfaction), the latest cases, its services, its journeys (HR)
 //                    and its knowledge — every figure counted with the caller's own access
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Input, Progress } from "antd";
 import { ArrowLeft, Building2, Compass, Plus, Route, Search } from "lucide-react";
@@ -29,7 +29,6 @@ export function Departments() {
   const nav = useNavigate();
   const meta = useQuery({ queryKey: ESM_KEYS.meta(orgId), queryFn: () => esmApi.meta(api) });
   const all = useQuery({ queryKey: ESM_KEYS.departments(orgId), queryFn: () => esmApi.departments(api) });
-  const mine = useQuery({ queryKey: ESM_KEYS.myCases(orgId), queryFn: () => esmApi.myCases(api) });
   const [text, setText] = useState("");
   const route = useAction((t: string) => esmApi.route(api, t));
   const seed = useAction(() => esmApi.seed(api), { success: "واحدهای پیش‌فرض، خدمت‌ها و سفر ورود کارکنان افزوده شد", invalidate: [ESM_KEYS.all] });
@@ -82,25 +81,47 @@ export function Departments() {
         </div>
       )}
       <Card title="درخواست‌های باز من در واحدها">
-        {mine.isLoading ? (
-          <Loader />
-        ) : mine.data?.cases.length ? (
-          <ul className="flex flex-col gap-1 text-[13px]">
-            {mine.data.cases.map((c: Row) => {
-              const st = caseState(c.state);
-              return (
-                <li key={c.id} className="flex flex-wrap items-center gap-2">
-                  <Link className="ds-link" to={`/${orgId}/${recordPath(c.table, c.id)}`}>{c.number}</Link>
-                  <span className="min-w-0 flex-1 truncate">{c.title}</span>
-                  <span className="text-[12px] text-ink-3">{c.department ?? c.table_label}</span>
-                  <ChoiceTag option={st ? { value: st.value, label: st.label, color: st.color } : undefined} value={String(c.state)} />
-                </li>
-              );
-            })}
-          </ul>
-        ) : (
-          <p className="text-[13px] text-ink-3">درخواست بازی در واحدها ندارید.</p>
-        )}
+        <MyCasesList />
+      </Card>
+    </div>
+  );
+}
+
+/** The caller's open department cases (all departments, or one: `?department=<key>`). */
+function MyCasesList({ department = null }: { department?: string | null }) {
+  const { api, orgId } = useOrg();
+  const mine = useQuery({ queryKey: ESM_KEYS.myCases(orgId, department), queryFn: () => esmApi.myCases(api, department) });
+  if (mine.isLoading) return <Loader />;
+  if (!mine.data?.cases.length) return <p className="text-[13px] text-ink-3">درخواست بازی در {department ? "این واحد" : "واحدها"} ندارید.</p>;
+  return (
+    <ul className="flex flex-col gap-1 text-[13px]">
+      {mine.data.cases.map((c: Row) => {
+        const st = caseState(c.state);
+        return (
+          <li key={c.id} className="flex flex-wrap items-center gap-2">
+            <Link className="ds-link" to={`/${orgId}/${recordPath(c.table, c.id)}`}>{c.number}</Link>
+            <span className="min-w-0 flex-1 truncate">{c.title}</span>
+            <span className="text-[12px] text-ink-3">{c.department ?? c.table_label}</span>
+            <ChoiceTag option={st ? { value: st.value, label: st.label, color: st.color } : undefined} value={String(c.state)} />
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** «درخواست‌های من در واحدها» (the portal's link of each department: esm/my-cases?department=<key>). */
+export function MyCases() {
+  const [params] = useSearchParams();
+  const department = params.get("department");
+  const { api, orgId } = useOrg();
+  const all = useQuery({ queryKey: ESM_KEYS.departments(orgId), queryFn: () => esmApi.departments(api) });
+  const name = department ? all.data?.departments.find((d) => d.key === department)?.name : null;
+  return (
+    <div className="flex flex-col gap-4">
+      <PageHeader title={name ? `درخواست‌های من در ${name}` : "درخواست‌های من در واحدها"} back={`/${orgId}/esm`} />
+      <Card>
+        <MyCasesList department={department} />
       </Card>
     </div>
   );

@@ -4,7 +4,8 @@
 // (brand) that applies. Entitlements and the installed base are read as the system and projected without money.
 import type { PortalSection } from "@shared/esm/portal";
 import { unitsLeft, type EntitlementLike } from "@shared/csm/logic";
-import { formatJalali } from "@shared/jalali";
+import { formatJalali, toFa } from "@shared/jalali";
+import { SUPPORT_LEVELS } from "@shared/tables/csm";
 import type { Ctx } from "../../context";
 import { list } from "../../engine";
 import { contactsOfUser, liveRow, liveRows, sysOf, todayUtc, type Row } from "./common";
@@ -33,16 +34,16 @@ export async function customerSections(ctx: Ctx): Promise<PortalSection[]> {
       intro: (exp?.greeting as string) ?? null,
       order: 5,
       links: [
-        { key: "cases", label: isAdmin ? "پرونده‌های حساب" : "پرونده‌های من", path: "customer-cases", count: open },
-        { key: "new-case", label: "ثبت پروندهٔ تازه", path: "customer-cases/new" },
+        { key: "cases", label: isAdmin ? "پرونده‌های حساب" : "پرونده‌های من", path: "customers/cases", count: open },
+        { key: "new-case", label: "ثبت پروندهٔ تازه", path: "customers/cases/new" },
       ],
       services: [],
       facts: [
         ...ents.map((e) => {
           const left = unitsLeft(e as unknown as EntitlementLike);
-          return { key: `ent:${e.id}`, label: String(e.name), value: `${e.support_level ? `سطح ${e.support_level} · ` : ""}تا ${formatJalali(String(e.ends_on))}${left === null ? "" : ` · مانده ${left}`}`, tone: left !== null && Number(left) <= 0 ? ("warning" as const) : ("default" as const) };
+          return { key: `ent:${e.id}`, label: String(e.name), value: `${e.support_level ? `سطح ${SUPPORT_LEVELS.find((o) => o.value === e.support_level)?.label ?? e.support_level} · ` : ""}تا ${formatJalali(String(e.ends_on))}${left === null ? "" : ` · مانده ${toFa(left)}`}`, tone: left !== null && Number(left) <= 0 ? ("warning" as const) : ("default" as const) };
         }),
-        { key: "ibi", label: "اقلام پایگاه نصب", value: String(ibis.length) },
+        { key: "ibi", label: "اقلام پایگاه نصب", value: toFa(ibis.length) },
       ],
       kb_base_id: (exp?.kb_base_id as string) ?? null,
       catalog_id: null,
