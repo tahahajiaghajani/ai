@@ -29,6 +29,12 @@ import { installRequestModule } from "../modules/request";
 import { requestRoutes } from "./request";
 import { installKnowledgeModule } from "../modules/knowledge";
 import { knowledgeRoutes } from "./knowledge";
+import { installReleaseModule } from "../modules/release";
+import { releaseRoutes } from "./release";
+import { installDevopsModule } from "../modules/devops";
+import { devopsRoutes } from "./devops";
+import { installProjectModule } from "../modules/project";
+import { projectRoutes } from "./project";
 import { installAiSkills } from "../modules/ai/skills";
 import { skillRoutes } from "./ai-skills";
 
@@ -60,6 +66,13 @@ installRequestModule();
 // knowledge management (docs/modules/knowledge_FA.md) — after the RAG index and the modules whose records it links
 installKnowledgeModule();
 
+// release and deployment management (docs/modules/release_FA.md) — after the change module: deployments move changes
+installReleaseModule();
+// DevOps (docs/modules/devops_FA.md) — after release management: pipelines write its deployments
+installDevopsModule();
+// project and portfolio management (docs/modules/project_FA.md) — its gate runs on the approvals service
+installProjectModule();
+
 // the AI skills (docs/spec/AI.md §11) — after every module whose AI extension points they implement
 installAiSkills();
 
@@ -82,3 +95,6 @@ moduleRoutes.route("/service_portfolio", servicePortfolioRoutes);
 moduleRoutes.route("/change", changeRoutes);
 moduleRoutes.route("/request", requestRoutes);
 moduleRoutes.route("/knowledge", knowledgeRoutes);
+moduleRoutes.route("/release", releaseRoutes);
+moduleRoutes.route("/devops", devopsRoutes);
+moduleRoutes.route("/project", projectRoutes);
