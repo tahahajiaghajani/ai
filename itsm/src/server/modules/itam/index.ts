@@ -10,7 +10,7 @@
 //   · the seed of a new organisation (seed.ts), queued after the SLA service's calendars and the request catalogue
 import type { TableDef } from "@shared/model/types";
 import { registerParticipantSource } from "../../access";
-import { onApprovalSettled, SEED_DELAY_MS } from "../sla";
+import { onApprovalSettled, SEED_DELAY_MS, settledVerdict } from "../sla";
 import { registerOrgSeed } from "../orgs/service";
 import { registerRecordMeta, systemCtx, transitionIn } from "../../engine";
 import { enqueue, registerJobHandler, type JobConfig } from "../../jobs";
@@ -52,13 +52,17 @@ export function installItamModule(): void {
       return `${alias}.${field} = $${params.length}::uuid`;
     },
   });
-  onApprovalSettled("purchase_requisition", async ({ tx, ctx, record, outcome }) => {
+  // the record's approvals as a whole (settledVerdict): one round approved while another is open moves nothing, a
+  // withdrawal never approves, a re-run that leaves nothing open reads the aggregate
+  onApprovalSettled("purchase_requisition", async (s) => {
+    const { tx, ctx, record } = s;
     if (record.state !== "pending_approval") return;
-    if (outcome === "approved") await transitionIn(tx, ctx, "purchase_requisition", String(record.id), "approved", {});
-    if (outcome === "rejected") await transitionIn(tx, ctx, "purchase_requisition", String(record.id), "rejected", {});
+    const verdict = settledVerdict(s);
+    if (verdict === "approved") await transitionIn(tx, ctx, "purchase_requisition", String(record.id), "approved", {});
+    if (verdict === "rejected") await transitionIn(tx, ctx, "purchase_requisition", String(record.id), "rejected", {});
   });
-  onApprovalSettled("disposal_order", async ({ tx, ctx, record, outcome }) => {
-    if (record.state === "requested" && outcome === "approved") await transitionIn(tx, ctx, "disposal_order", String(record.id), "approved", {});
+  onApprovalSettled("disposal_order", async (s) => {
+    if (s.record.state === "requested" && settledVerdict(s) === "approved") await transitionIn(s.tx, s.ctx, "disposal_order", String(s.record.id), "approved", {});
   });
   registerRecordMeta("asset", async ({ ctx }) => ({
     itam: { can_manage: await holds(ctx, "asset", "write", "group") },

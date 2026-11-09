@@ -17,8 +17,13 @@ import type { Tx } from "../../db";
 import { createIn, orgSchema, updateIn } from "../../engine";
 import { eqAll, liveRows, sysOf, type Row } from "./common";
 
-/** 2: the DORA metrics, release/project KPIs and the «انتشار و دواپس» dashboard (release module installed). */
-export const ANALYTICS_SEED_VERSION = 2;
+/**
+ * 2: the DORA metrics, release/project KPIs and the «انتشار و دواپس» dashboard (release module installed).
+ * 3: the event (alert MTTA/MTTR, noise, on-call load), continuity (availability against target, unplanned downtime),
+ *    ITAM (stock below reorder, licence compliance), supplier (contracts expiring) and financial (budget against
+ *    actual — scores only for holders of the «مالی» field group) indicators, each only when its module is installed.
+ */
+export const ANALYTICS_SEED_VERSION = 3;
 
 export interface SeedCounts {
   skipped: boolean;
@@ -80,7 +85,7 @@ export async function seedAnalyticsDefaultsIn(tx: Tx, ctx: Ctx, opts: { force?: 
   const schema = await orgSchema(sys, tx);
   const ids = new Map<string, string>();
   for (const k of libraryFor(schema.lookup)) {
-    const { score_roles, collect, ...def } = k;
+    const { score_roles, collect, requires: _requires, ...def } = k;
     const { row } = await ensure(tx, sys, out, "analytics_indicator", { key: k.key }, {
       name: def.name,
       description: def.description ?? null,

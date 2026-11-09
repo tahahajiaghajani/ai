@@ -3,7 +3,7 @@
 // `installSupplierModule()` (src/server/routes/modules.ts): hooks, the approvals service activating approved contracts
 // (a rejected one goes back to negotiation), the daily sweep (renewal reminders once per threshold, expiry or automatic
 // renewal, obligations coming due) and the monthly scorecards, the clause extraction skill, the seed.
-import { onApprovalSettled, SEED_DELAY_MS } from "../sla";
+import { onApprovalSettled, SEED_DELAY_MS, settledVerdict } from "../sla";
 import { registerOrgSeed } from "../orgs/service";
 import { systemCtx, transitionIn } from "../../engine";
 import { enqueue, registerJobHandler, type JobConfig } from "../../jobs";
@@ -36,10 +36,13 @@ export function installSupplierModule(): void {
   installed = true;
   installSupplierHooks();
   installSupplierAi();
-  onApprovalSettled("contract", async ({ tx, ctx, record, outcome }) => {
+  // the contract's approvals as a whole (settledVerdict): never a withdrawal, never one round of several
+  onApprovalSettled("contract", async (s) => {
+    const { tx, ctx, record } = s;
     if (record.state !== "pending_approval") return;
-    if (outcome === "approved") await transitionIn(tx, ctx, "contract", String(record.id), "active", {});
-    if (outcome === "rejected") await transitionIn(tx, ctx, "contract", String(record.id), "negotiation", {});
+    const verdict = settledVerdict(s);
+    if (verdict === "approved") await transitionIn(tx, ctx, "contract", String(record.id), "active", {});
+    if (verdict === "rejected") await transitionIn(tx, ctx, "contract", String(record.id), "negotiation", {});
   });
   registerJobHandler("supplier.sweep", async (job, jctx) => {
     if (!job.org_id || !actsHere(jctx.cfg)) return;

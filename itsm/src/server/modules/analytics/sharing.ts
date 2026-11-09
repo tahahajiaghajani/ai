@@ -7,7 +7,8 @@
 import { compileShares, cleanShares, sharesProblem } from "@shared/analytics/share";
 import { grantIn } from "@shared/access/model";
 import { tableDef } from "@shared/tables";
-import type { CompiledShares, Share } from "@shared/analytics/types";
+import type { CompiledShares, IndicatorPart, Share } from "@shared/analytics/types";
+import type { FieldGroup } from "@shared/model/types";
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
 import { bad } from "../../http/errors";
@@ -94,6 +95,77 @@ export function scoreColumns(c: CompiledShares, ownerId?: string | null, ownerRe
   return { s_users: [...users].sort(), s_groups: [...c.r_groups].sort(), s_all: c.r_all, s_roles: c.role_keys };
 }
 
+/**
+ * The field groups an indicator's numbers are made of (an amount in «مالی», a salary in «منابع انسانی»): every field
+ * its parts measure, date, filter or break down by. Live values are computed with the viewer's access (a hidden field
+ * refuses the part); stored scores are the organisation's — only members holding every one of these groups read them.
+ */
+export function scoreFieldGroups(parts: unknown, breakdowns?: unknown): FieldGroup[] {
+  const out = new Set<FieldGroup>();
+  const ps = Array.isArray(parts) ? (parts as IndicatorPart[]) : [];
+  const fieldsOf = (c: unknown, acc: string[]): string[] => {
+    if (!c || typeof c !== "object") return acc;
+    if (Array.isArray(c)) {
+      for (const x of c) fieldsOf(x, acc);
+      return acc;
+    }
+    const o = c as Record<string, unknown>;
+    if (typeof o.f === "string") acc.push(o.f);
+    for (const k of ["and", "or", "not"]) if (o[k]) fieldsOf(o[k], acc);
+    return acc;
+  };
+  for (const p of ps) {
+    const def = p && typeof p.table === "string" ? tableDef(p.table) : undefined;
+    if (!def) continue;
+    const names = [p.field, p.from, p.date_field, ...fieldsOf(p.filter, []), ...(Array.isArray(breakdowns) ? (breakdowns as string[]) : [])];
+    for (const n of names) {
+      if (typeof n !== "string" || !n) continue;
+      const g = def.fields.find((f) => f.name === n.split(".")[0])?.group;
+      if (g) out.add(g);
+    }
+  }
+  return [...out].sort();
+}
+
+/** Active members with their groups and field groups, from one access snapshot. */
+export async function memberAccess(q: Queryable, orgId: string): Promise<{ user: string; groups: string[]; fieldGroups: string[] }[]> {
+  const snap = await loadOrgSnapshot(q, orgId);
+  const org = await q.one<{ settings: Record<string, unknown> | null }>(`select settings from sm_orgs where id = $1`, [orgId]);
+  const settings = accessSettings({ settings: (org?.settings ?? {}) as never });
+  const members = await q.query<{ user_id: string; role: string; overrides: Record<string, unknown> | null }>(
+    `select user_id, role, overrides from sm_org_members where org_id = $1 and deleted_at is null and is_active`,
+    [orgId],
+  );
+  return members.map((m) => {
+    const s = buildSubject(snap, settings, orgId, m.user_id, m.role as never, m.overrides).subject;
+    return { user: m.user_id.toLowerCase(), groups: s.kind === "user" ? s.groups.map((g) => g.toLowerCase()) : [], fieldGroups: s.kind === "user" ? [...s.eff.fieldGroups] : [] };
+  });
+}
+
+/**
+ * Score readers held to the indicator's field groups (`scoreFieldGroups`): with none, the columns as compiled; else
+ * the members the columns name (everyone, a group, a person) who hold every required group — as people (groups and
+ * «everyone» are expanded, so a member who later joins a group is added by the recomputation that follows it).
+ */
+export function gateScoreColumns<T extends { s_users: string[]; s_groups: string[]; s_all: boolean }>(cols: T, required: FieldGroup[], members: { user: string; groups: string[]; fieldGroups: string[] }[]): T {
+  if (!required.length) return cols;
+  const users = new Set(cols.s_users.map((u) => u.toLowerCase()));
+  const groups = new Set(cols.s_groups.map((g) => g.toLowerCase()));
+  const readers = members
+    .filter((m) => required.every((g) => m.fieldGroups.includes(g)))
+    .filter((m) => cols.s_all || users.has(m.user) || m.groups.some((g) => groups.has(g)))
+    .map((m) => m.user)
+    .sort();
+  return { ...cols, s_users: readers, s_groups: [], s_all: false };
+}
+
+/** An indicator row's score columns: its compiled sharing, its owner when they read scores, the field-group gate. */
+export async function indicatorScoreColumns(q: Queryable, orgId: string, ind: Row, c: CompiledShares, ownerReads: boolean, members?: Awaited<ReturnType<typeof memberAccess>>): Promise<ReturnType<typeof scoreColumns>> {
+  const cols = scoreColumns(c, ind.owner_id, ownerReads);
+  const required = scoreFieldGroups(ind.parts, ind.breakdowns);
+  return required.length ? gateScoreColumns(cols, required, members ?? (await memberAccess(q, orgId))) : cols;
+}
+
 const same = (a: unknown, b: unknown) => JSON.stringify([...((a as string[]) ?? [])].sort()) === JSON.stringify([...((b as string[]) ?? [])].sort());
 
 /**
@@ -115,10 +187,13 @@ export async function recomputeRoleShares(sys: Ctx): Promise<number> {
   // every indicator: its role readers, and its owner only while the owner administers reports
   const admins = await reportAdmins(sys.db, sys.org.id);
   const inds = await liveRows(sys.db, sys, "analytics_indicator", null, { limit: 5000 });
+  let members: Awaited<ReturnType<typeof memberAccess>> | undefined;
   for (const r of inds) {
     const { compiled } = await compileFor(sys.db, sys.org.id, r.score_shares ?? [], { check: false, holders });
-    const cols = scoreColumns(compiled, r.owner_id, admins.has(String(r.owner_id ?? "").toLowerCase()));
-    if (same(cols.s_users, r.s_users)) continue;
+    // indicators made of guarded fields (amounts…) name their readers one by one: who holds the field group changes
+    if (scoreFieldGroups(r.parts, r.breakdowns).length) members ??= await memberAccess(sys.db, sys.org.id);
+    const cols = await indicatorScoreColumns(sys.db, sys.org.id, r, compiled, admins.has(String(r.owner_id ?? "").toLowerCase()), members);
+    if (same(cols.s_users, r.s_users) && same(cols.s_groups, r.s_groups) && !!cols.s_all === !!r.s_all) continue;
     await sys.write((tx) => restampIndicator(tx, sys, r, cols));
     changed++;
   }

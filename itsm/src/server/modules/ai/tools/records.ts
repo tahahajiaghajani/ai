@@ -62,6 +62,11 @@ const READ_ONLY_TABLES = new Set([
   "analytics_score", "analytics_delivery", "analytics_config",
   "dev_event", "dev_commit", "dev_pull_request", "dev_build", "change_gate",
   "release_decision",
+  // event management: raw events (the ingestion's), pages (the escalation's); ITAM ledgers and licence positions,
+  // supplier scorecards and allocation results (computed by their modules)
+  "event", "page",
+  "stock_movement", "asset_assignment", "license_position", "license_reconcile_run",
+  "supplier_scorecard", "allocation_result",
 ]);
 
 /** A module keeps a table out of the generated tools (its own tools cover it). Returns the removal. */

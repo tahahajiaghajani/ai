@@ -14,7 +14,7 @@ import { access } from "../../access/provider";
 import { checkFilter, orgSchema, orgTz, pathVisible, pushGuard, registerHooks, onRecordEvent, systemCtx, updateIn, type PushArgs, type WriteArgs } from "../../engine";
 import { enqueue, registerJobHandler } from "../../jobs";
 import { canAdmin, isUuid, liveRow, sysOf, type Row } from "./common";
-import { compileFor, ownerReadsScores, restampIndicator, scoreColumns } from "./sharing";
+import { compileFor, indicatorScoreColumns, ownerReadsScores, restampIndicator, scoreColumns } from "./sharing";
 import { ensureTick } from "./jobs";
 
 const isSystem = (ctx: Ctx) => ctx.actor === "system";
@@ -129,7 +129,7 @@ async function ownerReads(w: { tx: WriteArgs["tx"]; ctx: Ctx }, ownerId: unknown
 async function derivedOnPush(p: PushArgs): Promise<Row> {
   const field = p.def.key === "analytics_indicator" ? "score_shares" : "shares";
   const { shares, compiled } = await compileFor(p.tx, p.ctx.org.id, p.next[field] ?? [], { check: false }).catch(() => compileFor(p.tx, p.ctx.org.id, p.prev?.[field] ?? [], { check: false }));
-  const out: Row = { [field]: shares, ...(field === "score_shares" ? scoreColumns(compiled, p.next.owner_id, await ownerReads(p, p.next.owner_id)) : compiled) };
+  const out: Row = { [field]: shares, ...(field === "score_shares" ? await indicatorScoreColumns(p.tx, p.ctx.org.id, p.next, compiled, await ownerReads(p, p.next.owner_id)) : compiled) };
   if (!canAdmin(p.ctx)) out.certified = p.prev ? !!p.prev.certified && !["spec", "table_key", "layout", "filters", "formula", "parts", "grain", "target", "warn", "crit", "score_shares", "owner_id"].some((f) => p.changed.has(f)) : false;
   // a new indicator of someone who does not administer reports is not collected (nobody else reads its scores)
   if (p.def.key === "analytics_indicator" && !p.prev && !canAdmin(p.ctx)) out.collect = false;
@@ -209,10 +209,11 @@ export function installAnalyticsHooks(): void {
         const reads = await ownerReads(w, w.next.owner_id);
         await sharing(w, "score_shares", (c) => scoreColumns(c, w.next.owner_id, reads));
       }
-      // an owner who administers reports reads the scores of what they own: a new owner is a new reader (or none)
-      if (w.op === "update" && w.changed.has("owner_id") && !w.changed.has("score_shares")) {
+      // an owner who administers reports reads the scores of what they own: a new owner is a new reader (or none);
+      // the scores of an indicator made of guarded fields (amounts in «مالی») go only to holders of those groups
+      if (w.op === "create" || ["score_shares", "owner_id", "parts", "breakdowns"].some((f) => w.changed.has(f))) {
         const { compiled } = await compileFor(w.tx, w.ctx.org.id, w.next.score_shares ?? [], { check: false });
-        Object.assign(w.next, scoreColumns(compiled, w.next.owner_id, await ownerReads(w, w.next.owner_id)));
+        Object.assign(w.next, await indicatorScoreColumns(w.tx, w.ctx.org.id, w.next, compiled, await ownerReads(w, w.next.owner_id)));
       }
       if (w.next.active && w.next.collect && (w.op === "create" || w.changed.has("collect") || w.changed.has("active"))) await ensureTick(w.tx, w.ctx.org.id);
     },
@@ -220,7 +221,7 @@ export function installAnalyticsHooks(): void {
       // the stored scores carry their readers: follow a change of the indicator's score readers — inside this write's
       // transaction, with a system context that runs no query of its own (PGlite has one connection: a query outside
       // the open transaction would wait for it forever)
-      if (w.op === "update" && (w.changed.has("score_shares") || w.changed.has("owner_id"))) {
+      if (w.op === "update" && ["score_shares", "owner_id", "parts", "breakdowns"].some((f) => w.changed.has(f))) {
         await restampIndicator(w.tx, sysOf(w.ctx), w.next, { s_users: w.next.s_users ?? [], s_groups: w.next.s_groups ?? [], s_all: !!w.next.s_all, s_roles: w.next.s_roles ?? [] });
       }
     },

@@ -11,10 +11,12 @@ import { indicatorProblem } from "./kpi";
 import { specProblem } from "./model";
 
 export interface LibraryIndicator extends IndicatorDef {
-  /** roles that read the stored snapshots */
+  /** roles that read the stored snapshots (held to the field groups of the numbers: amounts only for «مالی») */
   score_roles: string[];
   /** collected daily */
   collect: boolean;
+  /** further tables that must exist for it to be seeded (the module whose KPI it is), beyond the parts' tables */
+  requires?: string[];
 }
 
 export const PRACTICES: { value: string; label: string }[] = [
@@ -27,6 +29,11 @@ export const PRACTICES: { value: string; label: string }[] = [
   { value: "cmdb", label: "پیکربندی" },
   { value: "release", label: "انتشار و دواپس" },
   { value: "project", label: "پروژه" },
+  { value: "event", label: "رویداد و کشیک" },
+  { value: "continuity", label: "دسترس‌پذیری و تداوم" },
+  { value: "asset", label: "دارایی و مجوز" },
+  { value: "supplier", label: "تأمین‌کننده و قرارداد" },
+  { value: "financial", label: "مالی" },
   { value: "other", label: "سایر" },
 ];
 
@@ -39,6 +46,14 @@ const REQUEST_READERS = ["service_desk_manager", "tenant_admin"];
 const RELEASE_READERS = ["release_manager", "change_manager", "tenant_admin"];
 // «مدیر پروژه» is the project module's organisation role (seeded with it)
 const PROJECT_READERS = ["project_manager", "tenant_admin"];
+// the event module's «مدیر عملیات», the continuity module's «مدیر تداوم», ITAM's and procurement's managers, IT finance
+const EVENT_READERS = ["ops_manager", "service_desk_manager", "tenant_admin"];
+const CONTINUITY_READERS = ["continuity_manager", "ops_manager", "tenant_admin"];
+const ASSET_READERS = ["asset_manager", "tenant_admin"];
+const SUPPLIER_READERS = ["asset_manager", "procurement_manager", "tenant_admin"];
+// stored budget figures go only to those of these roles who hold the «مالی» field group (the amounts' group)
+const FINANCE_READERS = ["it_finance", "asset_manager", "tenant_admin"];
+const ALERT_DONE = { f: "state", op: "in", v: ["cleared", "closed"] } as const;
 /**
  * Production deployments that finished (the DORA population): succeeded, failed or rolled back, also once closed. A
  * closed deployment is a success only when it was closed after succeeding (close code «successful»).
@@ -286,6 +301,83 @@ export const KPI_LIBRARY: LibraryIndicator[] = [
     ],
     target: 80, warn: 65, crit: 50, breakdowns: ["type"], score_roles: PROJECT_READERS, collect: true,
   },
+  // ----- event management and on-call (the event module's tables; seeded only when it is installed) -------------------
+  {
+    key: "event.alert_mtta", name: "میانگین زمان تا پذیرش هشدار", practice: "event", unit: "duration", direction: "down", grain: "month",
+    description: "میانگین زمان از باز شدن هشدار تا پذیرش آن، برای هشدارهایی که در دوره پذیرفته شدند.",
+    formula: "mtta", parts: [{ name: "mtta", table: "alert", fn: "avg", field: "acknowledged_at", from: "opened_at", date_field: "acknowledged_at", filter: { f: "acknowledged_at", op: "nempty" } }],
+    target: 300, warn: 900, crit: 1800, breakdowns: ["severity", "assignment_group_id"], score_roles: EVENT_READERS, collect: true,
+  },
+  {
+    key: "event.alert_mttr", name: "میانگین زمان تا رفع هشدار", practice: "event", unit: "duration", direction: "down", grain: "month",
+    description: "میانگین زمان از باز شدن هشدار تا رفع آن، برای هشدارهایی که در دوره رفع شدند.",
+    formula: "mttr", parts: [{ name: "mttr", table: "alert", fn: "avg", field: "resolved_at", from: "opened_at", date_field: "resolved_at", filter: { f: "resolved_at", op: "nempty" } }],
+    target: 3_600, warn: 14_400, crit: 43_200, breakdowns: ["severity", "assignment_group_id"], score_roles: EVENT_READERS, collect: true,
+  },
+  {
+    key: "event.noise_ratio", name: "نسبت نویز هشدارها", practice: "event", unit: "percent", direction: "down", grain: "month",
+    description: "سهم هشدارهای رفع یا بسته‌شدهٔ دوره که برچسب «نویز» گرفتند (بی‌پذیرش، گذرا، نوسانی).",
+    formula: "noise / done * 100",
+    parts: [
+      { name: "noise", table: "alert", fn: "count", date_field: "resolved_at", filter: { and: [ALERT_DONE, { f: "noise_label", op: "eq", v: "noise" }] } },
+      { name: "done", table: "alert", fn: "count", date_field: "resolved_at", filter: ALERT_DONE },
+    ],
+    target: 20, warn: 35, crit: 50, breakdowns: ["source_id"], score_roles: EVENT_READERS, collect: true,
+  },
+  {
+    key: "event.oncall_load", name: "بار کشیک (پیج‌ها)", practice: "event", unit: "count", direction: "down", grain: "week",
+    description: "پیج‌هایی که در دوره برای کشیک‌ها فرستاده شد؛ با تفکیک فرد، بار هر کشیک را نشان می‌دهد.",
+    formula: "pages", parts: [{ name: "pages", table: "page", fn: "count", date_field: "sent_at", filter: { f: "sent_at", op: "nempty" } }],
+    breakdowns: ["user_id"], score_roles: EVENT_READERS, collect: true,
+  },
+  // ----- availability and continuity (the continuity module installed) -------------------------------------------------
+  {
+    key: "continuity.availability", name: "دسترس‌پذیری خدمت‌ها در برابر هدف", practice: "continuity", unit: "percent", direction: "up", grain: "month",
+    description: "میانگین دسترس‌پذیری روزانهٔ خدمت‌ها در دوره، در برابر هدف دسترس‌پذیری (با تفکیک خدمت، هر خدمت در برابر هدف خودش در «دسترس‌پذیری»).",
+    formula: "availability", parts: [{ name: "availability", table: "service_score_fact", fn: "avg", field: "availability", date_field: "day", filter: { f: "availability", op: "nempty" } }],
+    target: 99.5, warn: 99, crit: 98, decimals: 2, breakdowns: ["service_id"], score_roles: CONTINUITY_READERS, collect: true, requires: ["outage"],
+  },
+  {
+    key: "continuity.unplanned_downtime", name: "زمان قطعی برنامه‌ریزی‌نشده", practice: "continuity", unit: "duration", direction: "down", grain: "month",
+    description: "جمع مدت قطعی‌ها و افت‌های برنامه‌ریزی‌نشدهٔ ثبت‌شده که در دوره شروع شدند (قطعی‌های کنارگذاشته شمرده نمی‌شوند).",
+    formula: "down", parts: [{ name: "down", table: "outage", fn: "sum", field: "duration", date_field: "begin_at", filter: { and: [{ f: "outage_type", op: "ne", v: "planned" }, { f: "excluded", op: "eq", v: false }] } }],
+    breakdowns: ["service_id"], score_roles: CONTINUITY_READERS, collect: true,
+  },
+  // ----- assets and licences (the ITAM module installed) ---------------------------------------------------------------
+  {
+    key: "asset.stock_below_reorder", name: "قاعده‌های موجودی زیر نقطهٔ سفارش", practice: "asset", unit: "count", direction: "down", grain: "day",
+    description: "قاعده‌های موجودی فعالی که موجودی آن‌ها به نقطهٔ سفارش رسیده یا تمام شده است (در لحظهٔ اندازه‌گیری).",
+    formula: "low", parts: [{ name: "low", table: "stock_rule", fn: "count", filter: { and: [{ f: "active", op: "eq", v: true }, { f: "status", op: "in", v: ["low", "out"] }] } }],
+    target: 0, warn: 2, crit: 5, breakdowns: ["stockroom_id"], score_roles: ASSET_READERS, collect: true,
+  },
+  {
+    key: "asset.license_compliance", name: "انطباق مجوزهای نرم‌افزار", practice: "asset", unit: "percent", direction: "up", grain: "month",
+    description: "سهم وضعیت‌های مجوز تطبیق‌های دوره که «منطبق» یا «مجوز مازاد» بودند (بی‌کمبود و بی‌نصب بدون مجوز).",
+    formula: "ok / all * 100",
+    parts: [
+      { name: "ok", table: "license_position", fn: "count", date_field: "created_at", filter: { f: "status", op: "in", v: ["compliant", "over_licensed"] } },
+      { name: "all", table: "license_position", fn: "count", date_field: "created_at" },
+    ],
+    target: 100, warn: 95, crit: 85, score_roles: ASSET_READERS, collect: true,
+  },
+  // ----- suppliers and contracts (the supplier module installed) -------------------------------------------------------
+  {
+    key: "supplier.contracts_expiring", name: "قراردادهای رو به پایان (۹۰ روز)", practice: "supplier", unit: "count", direction: "down", grain: "day",
+    description: "قراردادهای فعالی که تا ۹۰ روز آینده به پایان می‌رسند (در لحظهٔ اندازه‌گیری) — برای تصمیم تمدید به‌موقع.",
+    formula: "expiring", parts: [{ name: "expiring", table: "contract", fn: "count", filter: { and: [{ f: "state", op: "eq", v: "active" }, { f: "end_date", op: "relative", v: { unit: "day", n: 90, dir: "next" } }] } }],
+    breakdowns: ["supplier_id"], score_roles: SUPPLIER_READERS, collect: true,
+  },
+  // ----- IT financial management (the financial module installed; amounts in the «مالی» field group) ---------------------
+  {
+    key: "financial.budget_vs_actual", name: "هزینهٔ واقعی در برابر بودجه", practice: "financial", unit: "percent", direction: "down", grain: "month",
+    description: "هزینهٔ ثبت‌شده در دفتر هزینه در دوره، به درصد بودجهٔ مصوب همان ماه‌ها. فقط دارندگان گروه فیلد «مالی» عددها را می‌بینند.",
+    formula: "actual / budget * 100",
+    parts: [
+      { name: "actual", table: "cost_entry", fn: "sum", field: "amount", date_field: "entry_date" },
+      { name: "budget", table: "budget_line", fn: "sum", field: "amount", date_field: "period_id.start_date", filter: { f: "budget_id.state", op: "in", v: ["approved", "locked"] } },
+    ],
+    target: 100, warn: 105, crit: 115, score_roles: FINANCE_READERS, collect: true,
+  },
   // ----- knowledge and service levels -------------------------------------------------------------------------------
   {
     key: "knowledge.published", name: "مقاله‌های تازه منتشرشده", practice: "knowledge", unit: "count", direction: "up", grain: "month",
@@ -313,7 +405,7 @@ export const KPI_LIBRARY: LibraryIndicator[] = [
 
 /** The library entries whose tables and fields exist here (modules not installed are skipped). */
 export function libraryFor(lookup: Lookup): LibraryIndicator[] {
-  return KPI_LIBRARY.filter((k) => indicatorProblem(k, lookup) === null);
+  return KPI_LIBRARY.filter((k) => indicatorProblem(k, lookup) === null && (k.requires ?? []).every((t) => !!lookup(t)));
 }
 
 // ----- seeded dashboards ---------------------------------------------------------------------------------------------

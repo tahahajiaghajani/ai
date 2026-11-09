@@ -4,7 +4,7 @@
 // hooks, the approvals service approving submitted budgets (a rejection returns them to draft), the daily sweep (this
 // month's and last month's costs captured, budget alerts, next year's calendar from Esfand), the variance narrative
 // skill, the seed.
-import { onApprovalSettled, SEED_DELAY_MS } from "../sla";
+import { onApprovalSettled, SEED_DELAY_MS, settledVerdict } from "../sla";
 import { registerOrgSeed } from "../orgs/service";
 import { systemCtx, transitionIn } from "../../engine";
 import { enqueue, registerJobHandler, type JobConfig } from "../../jobs";
@@ -55,10 +55,13 @@ export function installFinancialModule(): void {
   installed = true;
   installFinancialHooks();
   installFinancialAi();
-  onApprovalSettled("budget", async ({ tx, ctx, record, outcome }) => {
+  // the budget's approvals as a whole (settledVerdict): never a withdrawal, never one round of several
+  onApprovalSettled("budget", async (s) => {
+    const { tx, ctx, record } = s;
     if (record.state !== "submitted") return;
-    if (outcome === "approved") await transitionIn(tx, ctx, "budget", String(record.id), "approved", {});
-    if (outcome === "rejected") await transitionIn(tx, ctx, "budget", String(record.id), "draft", {});
+    const verdict = settledVerdict(s);
+    if (verdict === "approved") await transitionIn(tx, ctx, "budget", String(record.id), "approved", {});
+    if (verdict === "rejected") await transitionIn(tx, ctx, "budget", String(record.id), "draft", {});
   });
   registerJobHandler("financial.sweep", async (job, jctx) => {
     if (!job.org_id || !actsHere(jctx.cfg)) return;

@@ -26,7 +26,12 @@ export const PRACTICE_OPTIONS: Option[] = [
   { value: "cmdb", label: "پیکربندی", color: "indigo", order: 7 },
   { value: "release", label: "انتشار و دواپس", color: "magenta", order: 8 },
   { value: "project", label: "پروژه", color: "green", order: 9 },
-  { value: "other", label: "سایر", color: "gray", order: 10 },
+  { value: "event", label: "رویداد و کشیک", color: "orange", order: 10 },
+  { value: "continuity", label: "دسترس‌پذیری و تداوم", color: "green", order: 11 },
+  { value: "asset", label: "دارایی و مجوز", color: "indigo", order: 12 },
+  { value: "supplier", label: "تأمین‌کننده و قرارداد", color: "teal", order: 13 },
+  { value: "financial", label: "مالی", color: "gold", order: 14 },
+  { value: "other", label: "سایر", color: "gray", order: 15 },
 ];
 
 export const UNIT_OPTIONS: Option[] = [
