@@ -12,12 +12,14 @@
 //                    artifacts' component count, defects found in production
 import { DEPLOYMENT_FAILED, RELEASE_PREPARING, RELEASE_TASK_DONE } from "@shared/tables/release";
 import { elsEnd, goProblem, onSchedule } from "@shared/release/logic";
-import { pushGuard, registerHooks, updateIn, type PushArgs, type WriteArgs } from "../../engine";
+import { isSystemCtx, orgTz, pushGuard, registerHooks, updateIn, type PushArgs, type WriteArgs } from "../../engine";
 import { enqueue } from "../../jobs";
 import { bad, conflict, forbidden } from "../../http/errors";
 import { servicesImpactedBy } from "../cmdb";
-import { copyOf, storedReadiness } from "./checks";
-import { environmentOf, ids, isProductionEnv, isUuid, liveRow, liveRows, managesReleases, msOf, releaseConfig, sysOf, type Row } from "./common";
+import { copyOf, storedReadiness, windowLike } from "./checks";
+import { occurrences, type Occurrence } from "@shared/change/logic";
+import { deploymentOutcome } from "@shared/devops/logic";
+import { environmentOf, ids, initialStateOnly, isProductionEnv, isUuid, liveRow, liveRows, managesReleases, mayWriteRecord, msOf, releaseConfig, sysOf, type Row } from "./common";
 
 const now = () => new Date().toISOString();
 const AUTHORIZED_CHANGE = ["scheduled", "implement", "review", "closed"];
@@ -26,9 +28,30 @@ const CHILD_TABLES = ["release_check_result", "release_decision", "release_note"
 /** Template values copied into an empty field of a new release. */
 const TEMPLATE_FIELDS = ["build_plan", "test_plan", "deployment_plan", "rollback_plan", "communication_plan"];
 
+/** A release that reached production (or ended) no longer takes a place in its window. */
+const deployedRelease = (r: Row): boolean => !!r.deployed_at || ["els", "review", "closed", "canceled"].includes(String(r.state ?? "draft"));
+
+/**
+ * The occurrence of a release window a release belongs to: a window that does not recur is one occurrence (every
+ * release on it shares it); of a recurring one, the occurrence holding the release's planned delivery (else its planned
+ * start), otherwise the nearest one — null when the release has no date yet or the window no occurrence near it.
+ */
+function occurrenceOf(win: Row, r: Row, tz: string): Occurrence | null {
+  if (!win.recurrence || win.recurrence === "none") {
+    const s = msOf(win.start_at);
+    const e = msOf(win.end_at);
+    return s !== null && e !== null ? { window_id: String(win.id), name: String(win.name ?? ""), kind: String(win.kind ?? "slot"), enforcement: "block", start: s, end: e } as Occurrence : null;
+  }
+  const t = msOf(r.planned_end) ?? msOf(r.planned_start);
+  if (t === null) return null;
+  const near = occurrences(windowLike(win), t - 40 * 86_400_000, t + 40 * 86_400_000, tz);
+  return near.find((o) => o.start <= t && t < o.end) ?? near.reduce<Occurrence | null>((best, o) => (!best || Math.abs(o.start - t) < Math.abs(best.start - t) ? o : best), null);
+}
+
 async function releaseBefore(w: WriteArgs): Promise<void> {
   const { tx, ctx, next, prev, op } = w;
   const sys = sysOf(ctx);
+  await initialStateOnly(w, managesReleases);
   if (op === "create") {
     if (isUuid(next.template_id)) {
       const t = await liveRow(tx, sys, "release_template", next.template_id);
@@ -52,11 +75,14 @@ async function releaseBefore(w: WriteArgs): Promise<void> {
     const days = Number(policy?.min_lead_days ?? 0);
     if (policy && end - registered < days * 86_400_000) throw bad(`خط‌مشی «${policy.name}» دست‌کم ${days.toLocaleString("fa-IR")} روز فاصله از ثبت تا عرضه می‌خواهد؛ تاریخ عرضه را دیرتر بگذارید یا رویهٔ اضطراری را به کار ببرید`);
   }
-  if (isUuid(next.window_id) && (w.changed.has("window_id") || op === "create")) {
+  // a window's capacity holds per occurrence (three releases each Tuesday), among releases not yet deployed
+  if (isUuid(next.window_id) && (op === "create" || ["window_id", "planned_start", "planned_end"].some((f) => w.changed.has(f))) && !deployedRelease(next)) {
     const win = await liveRow(tx, sys, "release_window", next.window_id);
-    if (win && Number(win.capacity ?? 0) > 0) {
-      const taken = (await liveRows(tx, sys, "release", { f: "window_id", op: "eq", v: next.window_id })).filter((r) => r.id !== next.id && !["closed", "canceled"].includes(String(r.state)));
-      if (taken.length >= Number(win.capacity)) throw conflict(`ظرفیت «${win.name}» (${Number(win.capacity).toLocaleString("fa-IR")} انتشار) پر است`);
+    const tz = orgTz(ctx);
+    const slot = win && Number(win.capacity ?? 0) > 0 ? occurrenceOf(win, next, tz) : null;
+    if (win && slot) {
+      const taken = (await liveRows(tx, sys, "release", { f: "window_id", op: "eq", v: next.window_id })).filter((r) => r.id !== next.id && !deployedRelease(r) && occurrenceOf(win, r, tz)?.start === slot.start);
+      if (taken.length >= Number(win.capacity)) throw conflict(`ظرفیت «${win.name}» (${Number(win.capacity).toLocaleString("fa-IR")} انتشار) در نوبت ${new Date(slot.start).toLocaleDateString("fa-IR", { timeZone: tz })} پر است`);
     }
   }
   if (isUuid(next.parent_release_id) && next.parent_release_id === next.id) throw bad("انتشار نمی‌تواند والد خودش باشد");
@@ -151,12 +177,53 @@ async function releaseCopyOnPush(p: PushArgs): Promise<Row | null> {
  * are their rule's. */
 async function checkResultOnPush(w: WriteArgs): Promise<void> {
   if (!w.changed.has("status")) return;
+  if (!w.prev) {
+    // a pushed new result: the rule is the library check's, never the push's
+    const check = await liveRow(w.tx, sysOf(w.ctx), "release_check", w.next.check_id);
+    if ((check?.rule ?? "manual") !== "manual" && !["pending", "waived"].includes(String(w.next.status ?? "pending"))) throw bad("نتیجهٔ بررسی خودکار را قاعدهٔ آن تعیین می‌کند؛ فقط می‌توان چشم‌پوشی کرد");
+  }
   if (w.next.status === "waived") {
     if (!(await managesReleases(w.tx, w.ctx))) throw forbidden("چشم‌پوشی از بررسی آمادگی با مدیر انتشار است");
     if (!String(w.next.waiver_reason ?? "").trim()) throw bad("دلیل چشم‌پوشی را بنویسید");
   }
   const prev = w.prev;
   if (prev && prev.rule !== "manual" && !["waived", "na"].includes(String(w.next.status)) && prev.status !== "waived") throw bad("نتیجهٔ بررسی خودکار را قاعدهٔ آن تعیین می‌کند؛ فقط می‌توان چشم‌پوشی کرد");
+}
+
+/** What a deployment's approval and gate were given for: a person changes none of it once the deployment left «planned» or
+ * an approval was asked for it (a new deployment is planned instead). */
+const DEPLOYMENT_PINNED = ["environment_id", "artifact_version", "targets", "change_id", "release_id"];
+
+/**
+ * A person's rules of a deployment (the API's and a Windows app's push alike; the system and trusted server code —
+ * pipelines — record what happened):
+ *   · it starts «planned»: every later state goes through the deployment gate
+ *   · environment, version, targets, change and release stay as they were approved: only in «planned» and before an
+ *     approval was asked for (or after one was refused)
+ *   · its change and its release are records the person may change themselves — the release.deployment job then
+ *     moves them as the system — still open, and the change is for the deployment's service
+ */
+async function deploymentRules(w: WriteArgs): Promise<void> {
+  const { tx, ctx, next, prev } = w;
+  if (w.op === "delete" || w.trusted || isSystemCtx(ctx)) return;
+  await initialStateOnly(w, managesReleases);
+  if (prev && DEPLOYMENT_PINNED.some((f) => w.changed.has(f))) {
+    if (prev.state !== "planned") throw conflict("محیط، نسخه، هدف‌ها، تغییر و انتشار استقرار فقط پیش از شروع آن («برنامه‌ریزی‌شده») تغییر می‌کند؛ استقرار تازه‌ای برنامه‌ریزی کنید");
+    if (["requested", "approved"].includes(String(prev.approval ?? ""))) throw conflict("این استقرار برای همین محیط، نسخه، تغییر و انتشار تأیید شده یا در انتظار تأیید است؛ آن را لغو کنید و استقرار تازه‌ای برنامه‌ریزی کنید");
+  }
+  const sys = sysOf(ctx);
+  if (isUuid(next.change_id) && (w.op === "create" || w.changed.has("change_id"))) {
+    const change = await liveRow(tx, sys, "change_request", next.change_id);
+    if (!change) throw bad("تغییر پیدا نشد");
+    if (["closed", "canceled"].includes(String(change.state))) throw conflict(`تغییر ${change.number} بسته یا لغو شده است`);
+    if (!(await mayWriteRecord(tx, ctx, "change_request", change.id))) throw forbidden(`تغییر ${change.number} را نمی‌توانید به استقرار وصل کنید: اجازهٔ کار روی آن را ندارید`);
+    if (isUuid(next.service_id) && isUuid(change.service_id) && next.service_id !== change.service_id) throw conflict(`تغییر ${change.number} برای خدمت دیگری است`);
+  }
+  if (isUuid(next.release_id) && (w.op === "create" || w.changed.has("release_id"))) {
+    const rel = await liveRow(tx, sys, "release", next.release_id);
+    if (!rel) throw bad("انتشار پیدا نشد");
+    if (!(await mayWriteRecord(tx, ctx, "release", rel.id))) throw forbidden(`انتشار ${rel.number} را نمی‌توانید به استقرار وصل کنید: اجازهٔ کار روی آن را ندارید`);
+  }
 }
 
 export function installReleaseHooks(): (() => void)[] {
@@ -168,6 +235,8 @@ export function installReleaseHooks(): (() => void)[] {
       // decisions come from the release page (the approvals service), never from a Windows app's push
       validatePush: () => "تصمیم اجرا را از صفحهٔ انتشار ثبت کنید",
     }),
+    // a person's new release, release task, defect, booking or deployment starts in its first state (a push as well)
+    ...["release", "release_task", "defect", "environment_booking"].map((t) => registerHooks(t, { validatePush: pushGuard((w) => initialStateOnly(w, managesReleases)) })),
     registerHooks("release", {
       beforeWrite: releaseBefore,
       afterWrite: releaseAfter,
@@ -180,6 +249,7 @@ export function installReleaseHooks(): (() => void)[] {
     registerHooks("release_task", {
       async beforeWrite(w) {
         const { tx, ctx, next } = w;
+        await initialStateOnly(w, managesReleases);
         if (w.op === "create" || w.changed.has("release_id")) {
           const rel = await liveRow(tx, sysOf(ctx), "release", next.release_id);
           if (!rel) throw bad("انتشار پیدا نشد");
@@ -220,6 +290,7 @@ export function installReleaseHooks(): (() => void)[] {
           }
         }
         if (w.trusted || ctx.actor === "system") return;
+        if (w.op === "create" && next.rule !== "manual" && !["pending", "waived"].includes(String(next.status ?? "pending"))) throw bad("نتیجهٔ بررسی خودکار را قاعدهٔ آن تعیین می‌کند؛ فقط می‌توان چشم‌پوشی کرد");
         if (w.changed.has("status")) {
           if (next.status === "waived") {
             if (!(await managesReleases(tx, ctx))) throw forbidden("چشم‌پوشی از بررسی آمادگی با مدیر انتشار است");
@@ -266,6 +337,7 @@ export function installReleaseHooks(): (() => void)[] {
     }),
 
     registerHooks("deployment", {
+      validatePush: pushGuard(deploymentRules),
       async beforeWrite(w) {
         const { tx, ctx, next, prev } = w;
         const sys = sysOf(ctx);
@@ -284,6 +356,7 @@ export function installReleaseHooks(): (() => void)[] {
             if (Array.isArray(rel.affected_cis) && !(Array.isArray(next.targets) && next.targets.length)) next.targets = rel.affected_cis;
           }
         }
+        await deploymentRules(w);
         if (!String(next.short_description ?? "").trim()) next.short_description = `استقرار ${next.artifact_version ?? ""} در ${env.name}`.replace(/\s+/g, " ").trim();
         if (!next.assignment_group_id && env.assignment_group_id) next.assignment_group_id = env.assignment_group_id;
         if (w.op === "transition" && w.transition) {
@@ -300,7 +373,7 @@ export function installReleaseHooks(): (() => void)[] {
         const e = msOf(next.actual_end);
         if (s !== null && e !== null && e >= s) next.duration = Math.round((e - s) / 1000);
         const fc = msOf(next.first_commit_at);
-        if (fc !== null && e !== null && e >= fc && ["succeeded", "closed"].includes(String(next.state))) next.lead_time = Math.round((e - fc) / 1000);
+        if (fc !== null && e !== null && e >= fc && deploymentOutcome(next) === "ok") next.lead_time = Math.round((e - fc) / 1000);
         next.change_failure = DEPLOYMENT_FAILED.includes(String(next.state)) || Number(next.incidents_caused ?? 0) > 0 || (prev?.change_failure === true && next.state === "closed" && DEPLOYMENT_FAILED.includes(String(prev.close_code ?? "")));
         // the policy note: production without an authorized change
         if (next.is_production && (w.changed.has("change_id") || w.changed.has("state") || w.op === "create")) {
@@ -366,6 +439,7 @@ export function installReleaseHooks(): (() => void)[] {
       async beforeWrite(w) {
         const { tx, ctx, next } = w;
         if (w.op === "delete") return;
+        await initialStateOnly(w, managesReleases);
         const s = msOf(next.start_at);
         const e = msOf(next.end_at);
         if (s === null || e === null || e <= s) throw bad("پایان رزرو باید پس از شروع آن باشد");
@@ -386,6 +460,7 @@ export function installReleaseHooks(): (() => void)[] {
     }),
     registerHooks("defect", {
       async beforeWrite(w) {
+        await initialStateOnly(w, managesReleases);
         if (!(w.op === "create" || w.changed.has("found_in_env"))) return;
         const env = await environmentOf(w.tx, w.ctx, w.next.found_in_env);
         w.next.escaped = isProductionEnv(env);

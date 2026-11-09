@@ -171,7 +171,7 @@ export async function list(ctx: Ctx, table: string, p: ListParams = {}): Promise
   }
   if (def.virtual) return listUsers(ctx, def, schema, env, p);
   const filter = checkFilter(ctx, def, schema, p.filter);
-  const size = Math.min(Math.max(Math.trunc(p.size ?? 50) || 50, 1), 500);
+  const size = Math.min(Math.max(Math.trunc(p.size ?? 50) || 50, 1), MAX_PAGE);
   const page = Math.max(Math.trunc(p.page ?? 1) || 1, 1);
   const params: unknown[] = [];
   const where = [readable(ctx, def, "t", params, env)];
@@ -210,6 +210,37 @@ export async function list(ctx: Ctx, table: string, p: ListParams = {}): Promise
     for (const x of sel.paths) refs.addRow(x.def, { [x.field.name]: r[x.path] }, [x.field]);
   }
   return { rows: out, total, page, size, display: await resolveDisplay(ctx.db, ctx, env, schema, refs) };
+}
+
+/** The page size `list` never exceeds. */
+export const MAX_PAGE = 500;
+
+/**
+ * All the rows of a list the caller may read (page after page of `MAX_PAGE`), up to `max` — for views that compute
+ * over every row (DORA metrics, dashboards, heat maps, a plan). `truncated` says the cap was reached: the view shows
+ * it rather than computing silently from a part. Sort newest first when a cap may be reached.
+ */
+export async function listAll(ctx: Ctx, table: string, p: Omit<ListParams, "page" | "size" | "total"> = {}, max = 20_000): Promise<ListResult & { truncated: boolean }> {
+  const rows: Row[] = [];
+  const seen = new Set<string>();
+  const display: Record<string, string> = {};
+  let truncated = false;
+  for (let page = 1; ; page++) {
+    const r = await list(ctx, table, { ...p, page, size: MAX_PAGE, total: false });
+    for (const row of r.rows) {
+      // a row a concurrent write moved across a page boundary is read once
+      if (seen.has(String(row.id))) continue;
+      seen.add(String(row.id));
+      rows.push(row);
+    }
+    Object.assign(display, r.display);
+    if (r.rows.length < MAX_PAGE) break;
+    if (rows.length >= max) {
+      truncated = true;
+      break;
+    }
+  }
+  return { rows: rows.slice(0, max), total: null, page: 1, size: Math.min(rows.length, max), display, truncated };
 }
 
 /** Members of the organisation (the virtual `user` table): pickers and the people directory. */

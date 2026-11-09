@@ -10,13 +10,13 @@
 // Also: the counts a release and a deployment keep from their links (changes, problems fixed, incidents) and the
 // tagging of new incidents (early life support of a release; suspects after a production deployment).
 import { DEPLOYMENT_FAILED } from "@shared/tables/release";
+import { deploymentOutcome } from "@shared/devops/logic";
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
 import { addJournalIn, addLinkIn, orgSchema, savepoint, transitionIn, updateIn } from "../../engine";
 import { ids, isUuid, liveRow, liveRows, msOf, releaseConfig, sysOf, type Row } from "./common";
 import { linkedIds } from "./checks";
 
-const OK = ["succeeded", "closed"];
 
 async function note(tx: Tx, ctx: Ctx, table: string, row: Row, body: string): Promise<void> {
   const schema = await orgSchema(ctx, tx);
@@ -34,38 +34,75 @@ async function step(tx: Tx, ctx: Ctx, dep: Row, change: Row, to: string, data: R
   }
 }
 
-/** The change of a deployment follows the deployment (DEV-007). */
+/** Was this change made for this deployment (the pipeline's automatic standard change, or its gate's)? */
+export const changeMadeFor = (change: Row, dep: Row): boolean => String(change.external_ref ?? "") === `deploy:${dep.external_id ?? dep.id}`;
+
+/**
+ * The change of a deployment follows the deployment (DEV-007). Who links a change was checked when it was linked (a
+ * person who may change it; a pipeline that named it, for its service and group); a change of another service is
+ * never moved, and only a change made for this deployment is closed with it — a named change waits in review for its
+ * own people.
+ */
 export async function moveChange(tx: Tx, ctx: Ctx, dep: Row): Promise<void> {
   const sys = sysOf(ctx);
   let change = isUuid(dep.change_id) ? await liveRow(tx, sys, "change_request", dep.change_id) : null;
   if (!change || ["closed", "canceled"].includes(String(change.state))) return;
+  if (isUuid(dep.service_id) && isUuid(change.service_id) && dep.service_id !== change.service_id) {
+    await note(tx, sys, "deployment", dep, `تغییر ${change.number} برای خدمت دیگری است و با این استقرار جلو نمی‌رود`);
+    return;
+  }
   const state = String(dep.state);
-  if (["in_progress", "succeeded", "failed", "rolled_back"].includes(state) && change.state === "scheduled") change = await step(tx, sys, dep, change, "implement");
+  const outcome = deploymentOutcome(dep);
+  if ((state === "in_progress" || outcome !== null) && change.state === "scheduled") change = await step(tx, sys, dep, change, "implement");
   if (change.state !== "implement") return;
-  if (OK.includes(state)) {
+  if (outcome === "ok") {
     change = await step(tx, sys, dep, change, "review", { close_code: "successful" });
     const conn = isUuid(dep.connection_id) ? await liveRow(tx, sys, "devops_connection", dep.connection_id) : null;
-    const closes = conn ? conn.close_changes !== false : String(change.external_ref ?? "").startsWith("deploy:");
+    const closes = changeMadeFor(change, dep) && (conn ? conn.close_changes !== false : true);
     if (change.state === "review" && closes) await step(tx, sys, dep, change, "closed", { close_code: "successful", close_notes: `با پایان موفق استقرار ${dep.number ?? ""} بسته شد.` });
-  } else if (DEPLOYMENT_FAILED.includes(state)) {
-    await step(tx, sys, dep, change, "review", { close_code: state === "rolled_back" ? "backed_out" : "unsuccessful" });
+  } else if (outcome === "failed") {
+    const backedOut = state === "rolled_back" || dep.close_code === "rolled_back";
+    await step(tx, sys, dep, change, "review", { close_code: backedOut ? "backed_out" : "unsuccessful" });
   }
 }
 
-/** Earlier failures in the same environment and service are restored by a success (DORA recovery). */
+/** The same thing deployed again: the service, else the pipeline, the release or the connection it came from. */
+const scopeOf = (dep: Row) => {
+  const by = (["service_id", "pipeline_id", "release_id", "connection_id"] as const).find((f) => isUuid(dep[f]));
+  return by ? { f: by, op: "eq", v: dep[by] } : null;
+};
+
+/**
+ * Earlier change failures in the same environment and scope are restored by a success (DORA recovery): failed and
+ * rolled-back deployments, and successful ones an incident was later found to be caused by.
+ */
 async function restoreFailures(tx: Tx, ctx: Ctx, dep: Row): Promise<void> {
   const sys = sysOf(ctx);
   const at = msOf(dep.actual_end);
-  if (at === null) return;
-  // the same thing deployed again: the service, else the pipeline, the release or the connection it came from
-  const by = (["service_id", "pipeline_id", "release_id", "connection_id"] as const).find((f) => isUuid(dep[f]));
-  if (!by) return;
-  const scope = { f: by, op: "eq", v: dep[by] };
-  const failed = await liveRows(tx, sys, "deployment", { and: [scope as never, { f: "environment_id", op: "eq", v: dep.environment_id }, { f: "state", op: "in", v: DEPLOYMENT_FAILED }, { f: "restored_at", op: "empty" }] });
+  const scope = scopeOf(dep);
+  if (at === null || !scope) return;
+  const failed = await liveRows(tx, sys, "deployment", {
+    and: [scope as never, { f: "environment_id", op: "eq", v: dep.environment_id }, { or: [{ f: "state", op: "in", v: DEPLOYMENT_FAILED }, { f: "change_failure", op: "eq", v: true }] }, { f: "restored_at", op: "empty" }],
+  });
   for (const f of failed) {
     if (f.id === dep.id || (msOf(f.actual_end) ?? Infinity) > at) continue;
     await updateIn(tx, sys, "deployment", String(f.id), { restored_at: dep.actual_end }, { trusted: true, keepVersion: true, allowLocked: true });
   }
+}
+
+/**
+ * A deployment found to be a change failure after a later success already happened (an incident linked «ناشی از»
+ * later) is restored by that first later success in the same environment and scope.
+ */
+export async function restoreLateFailure(tx: Tx, ctx: Ctx, dep: Row): Promise<void> {
+  const sys = sysOf(ctx);
+  const at = msOf(dep.actual_end);
+  const scope = scopeOf(dep);
+  if (at === null || !scope || dep.restored_at || dep.change_failure !== true) return;
+  const later = (await liveRows(tx, sys, "deployment", { and: [scope as never, { f: "environment_id", op: "eq", v: dep.environment_id }, { f: "actual_end", op: "gt", v: dep.actual_end }] }))
+    .filter((d) => d.id !== dep.id && deploymentOutcome(d) === "ok")
+    .sort((a, b) => (msOf(a.actual_end) ?? 0) - (msOf(b.actual_end) ?? 0))[0];
+  if (later) await updateIn(tx, sys, "deployment", String(dep.id), { restored_at: later.actual_end }, { trusted: true, keepVersion: true, allowLocked: true });
 }
 
 /** A production success moves its release on and records the version on the target CIs. */
@@ -101,7 +138,7 @@ export async function deploymentEffects(sys: Ctx, id: string): Promise<void> {
     const dep = await liveRow(tx, sys, "deployment", id);
     if (!dep) return;
     if (isUuid(dep.change_id)) await moveChange(tx, sys, dep);
-    if (OK.includes(String(dep.state))) await restoreFailures(tx, sys, dep);
+    if (deploymentOutcome(dep) === "ok") await restoreFailures(tx, sys, dep);
     if (dep.is_production && dep.state === "succeeded") await productionSuccess(tx, sys, dep);
     if (dep.is_production && dep.state === "rolled_back" && isUuid(dep.release_id)) {
       const rel = await liveRow(tx, sys, "release", dep.release_id);
@@ -145,7 +182,10 @@ export async function recountDeployment(tx: Tx, ctx: Ctx, depId: string): Promis
     const change = await liveRow(tx, sys, "change_request", dep.change_id);
     n += Number(change?.incidents_caused ?? 0);
   }
-  if (Number(dep.incidents_caused ?? 0) !== n) await updateIn(tx, sys, "deployment", depId, { incidents_caused: n }, { trusted: true, keepVersion: true, allowLocked: true });
+  if (Number(dep.incidents_caused ?? 0) !== n) {
+    const fresh = await updateIn(tx, sys, "deployment", depId, { incidents_caused: n }, { trusted: true, keepVersion: true, allowLocked: true });
+    await restoreLateFailure(tx, sys, fresh);
+  }
 }
 
 /** Releases and deployments that link a record (to recount them). */
@@ -185,7 +225,7 @@ export async function tagIncident(tx: Tx, ctx: Ctx, incident: Row): Promise<{ el
   const since = new Date(at - cfg.failure_window_hours * 3_600_000).toISOString();
   const recent = await liveRows(tx, sys, "deployment", { and: [{ f: "is_production", op: "eq", v: true }, { f: "state", op: "in", v: ["succeeded", "closed"] }, { f: "actual_end", op: "gte", v: since }] }, { limit: 200 });
   for (const d of recent) {
-    if ((msOf(d.actual_end) ?? Infinity) > at) continue;
+    if (deploymentOutcome(d) !== "ok" || (msOf(d.actual_end) ?? Infinity) > at) continue;
     const hit = (service && d.service_id === service) || (ci && ids(d.targets).includes(ci));
     if (!hit) continue;
     await savepoint(tx, () => addLinkIn(tx, sys, "incident", String(incident.id), { kind: "after_deployment", table: "deployment", id: String(d.id) })).then(() => suspects.push(String(d.id))).catch(() => undefined);

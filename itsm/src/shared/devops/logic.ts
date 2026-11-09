@@ -68,6 +68,8 @@ export interface DeployInfo {
   description: string | null;
   kind: "planned" | "remediation" | null;
   commits: CommitInfo[];
+  /** the pipeline run that asked the deployment gate (generic `run`), to take the gate's change */
+  run?: string | null;
 }
 export interface FlagInfo {
   key: string;
@@ -348,7 +350,7 @@ function generic(p: Json): NormalizedEvent {
         deployment: {
           external_id: `dep:${id}`, environment: str(p.environment)!, status, version: str(p.version), sha: str(p.commit ?? p.sha), service: str(p.service), release: str(p.release), change: str(p.change),
           started_at: iso(p.started_at), finished_at: iso(p.finished_at), url: str(p.url), description: str(p.description), kind: p.kind === "remediation" ? "remediation" : p.kind === "planned" ? "planned" : null,
-          commits: commitsOf(p.commits, genCommit),
+          commits: commitsOf(p.commits, genCommit), run: str(p.run ?? p.run_id),
         },
       };
     }
@@ -392,17 +394,21 @@ export function normalize(kind: ConnectionKind, h: HeaderFn, payload: unknown): 
   return generic(p);
 }
 
-/** The sender's delivery id (a retried delivery carries the same one), else null. */
+/**
+ * The sender's delivery id (a retried delivery carries the same one), else null. An id inside the signed body comes
+ * first — whoever replays a captured body cannot change it; the tools' own headers (not covered by the signature) only
+ * when the body has none. Replays under a fresh header id are caught by the body's hash (ingest).
+ */
 export function deliveryIdOf(kind: ConnectionKind, h: HeaderFn, payload: unknown): string | null {
   const p = obj(payload);
   const id =
+    str(p.delivery_id) ??
+    (kind === "azure_devops" ? str(p.id) ?? str(p.notificationId) : null) ??
     str(h("x-github-delivery")) ??
     str(h("x-gitlab-event-uuid")) ??
     str(h("x-gitlab-webhook-uuid")) ??
     str(h("idempotency-key")) ??
-    str(h("x-delivery-id")) ??
-    (kind === "azure_devops" ? str(p.id) ?? str(p.notificationId) : null) ??
-    str(p.delivery_id);
+    str(h("x-delivery-id"));
   return id ? id.slice(0, 200) : null;
 }
 
@@ -480,6 +486,8 @@ export interface DoraDeployment {
   /** when it finished (succeeded, failed or rolled back) */
   at: number;
   state: string;
+  /** the close code a closed deployment keeps (successful, failed, rolled_back) */
+  close_code?: string | null;
   first_commit_at?: number | null;
   restored_at?: number | null;
   change_failure?: boolean | null;
@@ -566,15 +574,26 @@ export function weekOf(t: number): string {
   return new Date(sat * DAY).toISOString().slice(0, 10);
 }
 
-const FAILED_STATES = ["failed", "rolled_back"];
-const OK_STATES = ["succeeded", "closed"];
+/**
+ * A deployment's outcome: «ok» when it succeeded (also once closed after succeeding), «failed» when it failed or was
+ * rolled back (also once closed: closing keeps the close code of the outcome), null while it has none. A closed
+ * deployment is never a success by its state alone.
+ */
+export function deploymentOutcome(d: { state?: unknown; close_code?: unknown }): "ok" | "failed" | null {
+  const s = String(d.state ?? "");
+  if (s === "succeeded") return "ok";
+  if (s === "failed" || s === "rolled_back") return "failed";
+  if (s !== "closed") return null;
+  return d.close_code === "successful" ? "ok" : d.close_code === "failed" || d.close_code === "rolled_back" ? "failed" : null;
+}
 
 /** DORA metrics over production deployments finished in [from, to). */
 export function doraMetrics(input: readonly DoraDeployment[], range: { from: number; to: number }, t: DoraThresholds = DEFAULT_DORA_THRESHOLDS): DoraMetrics {
-  const deps = input.filter((d) => d.at >= range.from && d.at < range.to && (OK_STATES.includes(d.state) || FAILED_STATES.includes(d.state)));
+  const deps = input.filter((d) => d.at >= range.from && d.at < range.to && deploymentOutcome(d) !== null);
   const days = Math.max(1, (range.to - range.from) / DAY);
-  const ok = deps.filter((d) => OK_STATES.includes(d.state));
-  const isFailure = (d: DoraDeployment) => FAILED_STATES.includes(d.state) || d.change_failure === true;
+  const isOk = (d: DoraDeployment) => deploymentOutcome(d) === "ok";
+  const ok = deps.filter(isOk);
+  const isFailure = (d: DoraDeployment) => deploymentOutcome(d) === "failed" || d.change_failure === true;
   const failures = deps.filter(isFailure);
   const leads = ok.map((d) => (d.first_commit_at && d.first_commit_at <= d.at ? (d.at - d.first_commit_at) / 1000 : null)).filter((x): x is number => x !== null);
   const recoveries = failures.map((d) => (d.restored_at && d.restored_at >= d.at ? (d.restored_at - d.at) / 1000 : null)).filter((x): x is number => x !== null);
@@ -592,9 +611,9 @@ export function doraMetrics(input: readonly DoraDeployment[], range: { from: num
   }
   const weekly = [...weeks.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([week, ds]) => ({
     week,
-    deployments: ds.filter((d) => OK_STATES.includes(d.state)).length,
+    deployments: ds.filter(isOk).length,
     failures: ds.filter(isFailure).length,
-    lead_p50: median(ds.map((d) => (OK_STATES.includes(d.state) && d.first_commit_at && d.first_commit_at <= d.at ? (d.at - d.first_commit_at) / 1000 : null)).filter((x): x is number => x !== null)),
+    lead_p50: median(ds.map((d) => (isOk(d) && d.first_commit_at && d.first_commit_at <= d.at ? (d.at - d.first_commit_at) / 1000 : null)).filter((x): x is number => x !== null)),
     restore_p50: median(ds.filter(isFailure).map((d) => (d.restored_at && d.restored_at >= d.at ? (d.restored_at - d.at) / 1000 : null)).filter((x): x is number => x !== null)),
   }));
   return {

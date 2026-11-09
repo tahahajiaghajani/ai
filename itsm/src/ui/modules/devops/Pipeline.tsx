@@ -55,7 +55,7 @@ export default function Pipeline() {
                           <Link to={`/${orgId}/${recordPath("deployment", cell.id)}`} className="flex flex-col gap-1 rounded-md p-1 hover:bg-sunken" aria-label={`${cell.number} در ${e.name}`}>
                             <span className="flex flex-wrap items-center gap-1.5">
                               <span className="ltr ds-num font-medium text-ink">{cell.artifact_version ?? "—"}</span>
-                              <Chip tone={deployTone(cell.state)}>{DEPLOY_STATE_LABELS[String(cell.state)] ?? String(cell.state)}</Chip>
+                              <Chip tone={deployTone(cell.state, cell.close_code)}>{DEPLOY_STATE_LABELS[String(cell.state)] ?? String(cell.state)}</Chip>
                               {cell.change_id ? <ShieldCheck {...ICON14} className="text-in" aria-label="با تغییر مجاز" /> : null}
                             </span>
                             <span className="text-[12px] text-ink-3">{cell.actual_end ? <JDateTime v={cell.actual_end} /> : "در جریان"}</span>

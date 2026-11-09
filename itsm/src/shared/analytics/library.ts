@@ -39,10 +39,13 @@ const REQUEST_READERS = ["service_desk_manager", "tenant_admin"];
 const RELEASE_READERS = ["release_manager", "change_manager", "tenant_admin"];
 // «مدیر پروژه» is the project module's organisation role (seeded with it)
 const PROJECT_READERS = ["project_manager", "tenant_admin"];
-/** Production deployments that finished (the DORA population): succeeded or closed, failed or rolled back. */
+/**
+ * Production deployments that finished (the DORA population): succeeded, failed or rolled back, also once closed. A
+ * closed deployment is a success only when it was closed after succeeding (close code «successful»).
+ */
 const PROD = { f: "is_production", op: "eq", v: true } as const;
 const PROD_FINISHED_STATES = { f: "state", op: "in", v: ["succeeded", "closed", "failed", "rolled_back"] } as const;
-const PROD_OK_STATES = { f: "state", op: "in", v: ["succeeded", "closed"] } as const;
+const PROD_OK_STATES: Cond = { or: [{ f: "state", op: "eq", v: "succeeded" }, { and: [{ f: "state", op: "eq", v: "closed" }, { f: "close_code", op: "eq", v: "successful" }] }] };
 const PROD_FINISHED: Cond = { and: [PROD, PROD_FINISHED_STATES] };
 const PROD_OK: Cond = { and: [PROD, PROD_OK_STATES] };
 

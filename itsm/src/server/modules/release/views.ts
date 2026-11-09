@@ -11,8 +11,9 @@
 import { DAY_MS, readinessOf } from "@shared/release/logic";
 import { RELEASE_FAILED_CODES, RELEASE_LIVE } from "@shared/tables/release";
 import type { Ctx } from "../../context";
-import { addLinkIn, createIn, get, list, listLinks, orgTz } from "../../engine";
+import { addLinkIn, createIn, get, list, listAll, listLinks, orgTz } from "../../engine";
 import { occurrences } from "@shared/change/logic";
+import { deploymentOutcome } from "@shared/devops/logic";
 import { occurrencesBetween } from "../change";
 import { windowLike } from "./checks";
 import { ids, isUuid, msOf, sysOf, type Row } from "./common";
@@ -102,7 +103,7 @@ export async function releaseOverview(ctx: Ctx, id: string): Promise<Row> {
     const bucket = LINK_TABLES[String(other?.table ?? "")] ?? "other";
     scope[bucket].push({ kind: l.kind, direction: l.direction, table: other.table, id: other.id, number: other.number ?? null, display: other.display ?? null, state: other.state ?? null });
   }
-  const deployments = (await list(ctx, "deployment", { filter: { f: "release_id", op: "eq", v: id }, fields: ["number", "short_description", "environment_id", "state", "artifact_version", "actual_start", "actual_end", "change_id", "approach", "verification", "change_failure", "is_production"], sort: "-actual_end", size: 200, total: false }).catch(() => ({ rows: [] as Row[], display: {} as Record<string, string> })));
+  const deployments = (await list(ctx, "deployment", { filter: { f: "release_id", op: "eq", v: id }, fields: ["number", "short_description", "environment_id", "state", "close_code", "artifact_version", "actual_start", "actual_end", "change_id", "approach", "verification", "change_failure", "is_production"], sort: "-actual_end", size: 200, total: false }).catch(() => ({ rows: [] as Row[], display: {} as Record<string, string> })));
   const checks = (await list(ctx, "release_check_result", { filter: { f: "release_id", op: "eq", v: id }, size: 200, total: false, sort: "phase,name" }).catch(() => ({ rows: [] as Row[] }))).rows;
   const decisions = (await list(ctx, "release_decision", { filter: { f: "release_id", op: "eq", v: id }, sort: "-decided_at", size: 50, total: false }).catch(() => ({ rows: [] as Row[] }))).rows;
   // the traceability matrix: each change of the scope with the deployments that carried it
@@ -125,10 +126,9 @@ export async function releaseOverview(ctx: Ctx, id: string): Promise<Row> {
 /** Reporting of a period (REL-040), from the releases and deployments the caller reads. */
 export async function releaseDashboard(ctx: Ctx, days: number): Promise<Row> {
   const since = new Date(Date.now() - days * DAY_MS).toISOString();
-  const recent = await list(ctx, "release", {
+  const recent = await listAll(ctx, "release", {
     filter: { or: [{ f: "planned_end", op: "gte", v: since }, { f: "deployed_at", op: "gte", v: since }, { f: "state", op: "in", v: ["draft", "planning", "build", "test", "readiness", "deploying", "els", "review", "on_hold"] }] },
     fields: ["number", "short_description", "type", "state", "planned_end", "deployed_at", "close_code", "on_schedule", "rolled_back", "els_incidents", "risk_band", "service_id"],
-    size: 500, total: false,
   });
   const rows = recent.rows;
   const live = rows.filter((r) => RELEASE_LIVE.includes(String(r.state)) && r.deployed_at && String(r.deployed_at) >= since);
@@ -138,14 +138,16 @@ export async function releaseDashboard(ctx: Ctx, days: number): Promise<Row> {
   const byState: Record<string, number> = {};
   for (const r of rows) if (!["closed", "canceled"].includes(String(r.state))) byState[String(r.state)] = (byState[String(r.state)] ?? 0) + 1;
   const timed = live.filter((r) => r.on_schedule !== null && r.on_schedule !== undefined);
-  const deps = await list(ctx, "deployment", { filter: { f: "actual_end", op: "gte", v: since }, fields: ["environment_id", "state", "is_production", "change_failure", "kind"], size: 2000, total: false }).catch(() => ({ rows: [] as Row[], display: {} as Record<string, string> }));
+  const deps = await listAll(ctx, "deployment", { filter: { f: "actual_end", op: "gte", v: since }, fields: ["environment_id", "state", "close_code", "is_production", "change_failure", "kind"], sort: "-actual_end" }).catch(() => ({ rows: [] as Row[], display: {} as Record<string, string>, truncated: false }));
   const perEnv: Record<string, { succeeded: number; failed: number; rolled_back: number }> = {};
   for (const d of deps.rows) {
     const k = String(d.environment_id ?? "");
     perEnv[k] ??= { succeeded: 0, failed: 0, rolled_back: 0 };
-    if (["succeeded", "closed"].includes(String(d.state))) perEnv[k].succeeded++;
-    else if (d.state === "failed") perEnv[k].failed++;
-    else if (d.state === "rolled_back") perEnv[k].rolled_back++;
+    // a closed deployment counts by the outcome it was closed with
+    const outcome = deploymentOutcome(d);
+    if (outcome === "ok") perEnv[k].succeeded++;
+    else if (outcome === "failed" && (d.state === "rolled_back" || d.close_code === "rolled_back")) perEnv[k].rolled_back++;
+    else if (outcome === "failed") perEnv[k].failed++;
   }
   const pct = (n: number, d: number) => (d ? Math.round((1000 * n) / d) / 10 : null);
   return {
@@ -163,6 +165,7 @@ export async function releaseDashboard(ctx: Ctx, days: number): Promise<Row> {
     by_state: byState,
     per_environment: perEnv,
     upcoming: rows.filter((r) => ["planning", "build", "test", "readiness", "deploying"].includes(String(r.state))).sort((a, b) => (msOf(a.planned_end) ?? Infinity) - (msOf(b.planned_end) ?? Infinity)).slice(0, 10),
+    truncated: recent.truncated || deps.truncated,
     display: { ...recent.display, ...deps.display },
   };
 }

@@ -7,6 +7,7 @@
 // inside the caller's transaction; results are re-evaluated on demand, on entering readiness and by the sweep.
 import { evaluate } from "@shared/model/conditions";
 import { occurrences, type WindowLike } from "@shared/change/logic";
+import { deploymentOutcome } from "@shared/devops/logic";
 import { checkApplies, readinessOf, type Readiness } from "@shared/release/logic";
 import { CHECK_RULES, DEFECT_DONE, DEPLOYMENT_FINISHED, RELEASE_TASK_DONE } from "@shared/tables/release";
 import type { Ctx } from "../../context";
@@ -126,7 +127,7 @@ async function verdict(tx: Tx, ctx: Ctx, release: Row, check: Row, rule: string)
     case "test_deploy_ok": {
       const deps = await liveRows(tx, sys, "deployment", { f: "release_id", op: "eq", v: release.id });
       const envs = new Map((await liveRows(tx, sys, "release_environment", null)).map((e) => [String(e.id), e]));
-      const ok = deps.filter((d) => ["succeeded", "closed"].includes(String(d.state)) && NON_PROD.includes(String(envs.get(String(d.environment_id))?.kind ?? "")));
+      const ok = deps.filter((d) => deploymentOutcome(d) === "ok" && NON_PROD.includes(String(envs.get(String(d.environment_id))?.kind ?? "")));
       return ok.length ? { status: "pass", message: `استقرار موفق در ${faList([...new Set(ok.map((d) => String(envs.get(String(d.environment_id))?.name ?? "")))])}` } : { status: "fail", message: "هنوز استقرار موفقی در محیط آزمون یا پیش‌تولید ثبت نشده است" };
     }
     case "no_open_critical_defects": {

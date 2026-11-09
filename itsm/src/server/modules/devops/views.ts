@@ -6,16 +6,16 @@
 //                (version, state, when, change) and versions waiting to be promoted
 //   development  the development panel of a record (DEV-004): commits, pull requests and builds that mention its
 //                number, and the deployments of a change or a release
-import { doraMetrics, thresholdsOf, DORA_DEFINITIONS, type DoraDeployment } from "@shared/devops/logic";
+import { deploymentOutcome, doraMetrics, thresholdsOf, DORA_DEFINITIONS, type DoraDeployment } from "@shared/devops/logic";
 import type { Ctx } from "../../context";
-import { get, list } from "../../engine";
+import { get, list, listAll } from "../../engine";
 import { releaseConfig, msOf, sysOf, type Row } from "./common";
 
 const DAY = 86_400_000;
-const DEP_FIELDS = ["number", "service_id", "environment_id", "state", "actual_end", "first_commit_at", "restored_at", "change_failure", "kind", "connection_id", "change_id", "artifact_version", "is_production", "release_id", "short_description"];
+const DEP_FIELDS = ["number", "service_id", "environment_id", "state", "close_code", "actual_end", "first_commit_at", "restored_at", "change_failure", "kind", "connection_id", "change_id", "artifact_version", "is_production", "release_id", "short_description"];
 
 const toDora = (d: Row): DoraDeployment => ({
-  id: String(d.id), at: msOf(d.actual_end) ?? 0, state: String(d.state), first_commit_at: msOf(d.first_commit_at), restored_at: msOf(d.restored_at),
+  id: String(d.id), at: msOf(d.actual_end) ?? 0, state: String(d.state), close_code: d.close_code ?? null, first_commit_at: msOf(d.first_commit_at), restored_at: msOf(d.restored_at),
   change_failure: d.change_failure === true, kind: d.kind ?? null, service_id: d.service_id ?? null,
 });
 
@@ -24,7 +24,8 @@ export async function doraView(ctx: Ctx, input: { days: number; service?: string
   const now = input.now ?? Date.now();
   const from = now - input.days * DAY;
   const filter = { and: [{ f: "is_production", op: "eq", v: true }, { f: "actual_end", op: "gte", v: new Date(from).toISOString() }, ...(input.service ? [{ f: "service_id", op: "eq", v: input.service }] : [])] };
-  const r = await list(ctx, "deployment", { filter: filter as never, fields: DEP_FIELDS, sort: "actual_end", size: 5000, total: false });
+  // every production deployment of the period (newest first should a very large organisation reach the cap)
+  const r = await listAll(ctx, "deployment", { filter: filter as never, fields: DEP_FIELDS, sort: "-actual_end" });
   const cfg = await releaseConfig(ctx.db, sysOf(ctx));
   const t = thresholdsOf(cfg.dora_definitions);
   const deps = r.rows.map(toDora);
@@ -45,6 +46,7 @@ export async function doraView(ctx: Ctx, input: { days: number; service?: string
     velocity: { deployments: r.rows.length, from_pipelines: automated, with_change: withChange, manual: r.rows.length - automated },
     definitions: cfg.dora_definitions ?? DORA_DEFINITIONS,
     thresholds: t,
+    truncated: r.truncated,
     display: r.display,
   };
 }
@@ -54,7 +56,7 @@ export async function pipelineView(ctx: Ctx, input: { days: number; service?: st
   const envs = (await list(ctx, "release_environment", { filter: { f: "active", op: "eq", v: true }, sort: "sort_order,name", size: 50, total: false, fields: ["name", "key", "kind", "protection", "sort_order", "color"] })).rows;
   const since = new Date(Date.now() - input.days * DAY).toISOString();
   const filter = { and: [{ or: [{ f: "actual_end", op: "gte", v: since }, { f: "state", op: "in", v: ["planned", "pending_approval", "in_progress"] }] }, ...(input.service ? [{ f: "service_id", op: "eq", v: input.service }] : [])] };
-  const r = await list(ctx, "deployment", { filter: filter as never, fields: [...DEP_FIELDS, "actual_start", "planned_start", "pipeline_id", "verification"], sort: "-updated_at", size: 2000, total: false });
+  const r = await listAll(ctx, "deployment", { filter: filter as never, fields: [...DEP_FIELDS, "actual_start", "planned_start", "pipeline_id", "verification"], sort: "-updated_at" });
   const rows = new Map<string, { key: string; service_id: string | null; pipeline_id: string | null; cells: Record<string, Row>; history: Record<string, number> }>();
   for (const d of r.rows) {
     const key = String(d.service_id ?? d.pipeline_id ?? "none");
@@ -73,11 +75,11 @@ export async function pipelineView(ctx: Ctx, input: { days: number; service?: st
     for (let i = 0; i < order.length - 1; i++) {
       const lo = row.cells[order[i]];
       const hi = row.cells[order[i + 1]];
-      if (lo && ["succeeded", "closed"].includes(String(lo.state)) && lo.artifact_version && (!hi || hi.artifact_version !== lo.artifact_version)) waiting.push({ from: order[i], to: order[i + 1], version: String(lo.artifact_version) });
+      if (lo && deploymentOutcome(lo) === "ok" && lo.artifact_version && (!hi || hi.artifact_version !== lo.artifact_version)) waiting.push({ from: order[i], to: order[i + 1], version: String(lo.artifact_version) });
     }
     return { ...row, waiting };
   });
-  return { environments: envs, rows: out, display: r.display };
+  return { environments: envs, rows: out, truncated: r.truncated, display: r.display };
 }
 
 /** The development panel of a record: work mentioning its number and its deployments. */
@@ -90,7 +92,7 @@ export async function developmentOf(ctx: Ctx, table: string, id: string): Promis
   const prs = no ? await safe("dev_pull_request", byKey, ["pr_number", "title", "state", "author", "merged_at", "url", "repository_id"], "-opened_at") : { rows: [], display: {} };
   const builds = no ? await safe("dev_build", byKey, ["run_number", "status", "branch", "started_at", "duration", "url", "pipeline_id", "tests_failed"], "-started_at") : { rows: [], display: {} };
   const depField = table === "change_request" ? "change_id" : table === "release" ? "release_id" : null;
-  const deployments = depField ? await safe("deployment", { f: depField, op: "eq", v: id }, ["number", "environment_id", "state", "artifact_version", "actual_end", "external_url"], "-actual_end") : { rows: [], display: {} };
+  const deployments = depField ? await safe("deployment", { f: depField, op: "eq", v: id }, ["number", "environment_id", "state", "close_code", "artifact_version", "actual_end", "external_url"], "-actual_end") : { rows: [], display: {} };
   return {
     number: no,
     commits: commits.rows,

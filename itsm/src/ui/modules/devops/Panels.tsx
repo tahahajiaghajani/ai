@@ -158,7 +158,7 @@ export function DevelopmentPanel({ ctx }: { ctx: RecordContext }) {
               <li key={x.id} className="flex items-center gap-1.5">
                 <Link className="ds-link" to={`/${orgId}/${recordPath("deployment", String(x.id))}`}>{x.number}</Link>
                 <span>{d.display[String(x.environment_id)] ?? ""}</span>
-                <Chip tone={deployTone(x.state)}>{DEPLOY_STATE_LABELS[String(x.state)] ?? String(x.state)}</Chip>
+                <Chip tone={deployTone(x.state, x.close_code)}>{DEPLOY_STATE_LABELS[String(x.state)] ?? String(x.state)}</Chip>
               </li>
             ))}
           </ul>

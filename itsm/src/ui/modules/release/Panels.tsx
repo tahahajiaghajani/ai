@@ -10,6 +10,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Dropdown, Form, Input, Modal, Progress, Radio, Select, Space, Steps } from "antd";
 import { Check, CircleDashed, Gavel, GitPullRequestArrow, ListChecks, NotebookPen, RefreshCw, Sparkles, X } from "lucide-react";
 import { lifecycleSteps } from "@shared/release/logic";
+import { deploymentOutcome } from "@shared/devops/logic";
 import { NOTE_AUDIENCES } from "@shared/tables/release";
 import { useOrg } from "../../lib/org";
 import { useAction } from "../../lib/hooks";
@@ -307,7 +308,7 @@ export function ScopeTab({ ctx }: { ctx: RecordContext }) {
                 <ItemLink table="deployment" id={String(d.id)} label={String(d.number)} />
                 <span>{display[String(d.environment_id)] ?? ""}</span>
                 <span className="ltr text-ink-3">{d.artifact_version ?? ""}</span>
-                <Chip tone={["succeeded", "closed"].includes(String(d.state)) ? "in" : ["failed", "rolled_back"].includes(String(d.state)) ? "danger" : "neutral"}>{String(d.state)}</Chip>
+                <Chip tone={deploymentOutcome(d) === "ok" ? "in" : deploymentOutcome(d) === "failed" ? "danger" : "neutral"}>{String(d.state)}</Chip>
               </li>
             ))}
           </ul>

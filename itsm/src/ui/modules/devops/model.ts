@@ -1,5 +1,5 @@
 // Pure helpers of the DevOps screens (tested in tests/devops-ui.test.ts): durations, DORA bands, pipeline cells.
-import { DORA_BANDS, type DoraBand } from "@shared/devops/logic";
+import { DORA_BANDS, deploymentOutcome, type DoraBand } from "@shared/devops/logic";
 import type { ChipTone } from "../../components/display";
 
 export type Row = Record<string, any>;
@@ -25,11 +25,12 @@ export function frequencyText(perDay: number | null | undefined): string {
 export const bandLabel = (b: DoraBand) => DORA_BANDS[b]?.label ?? b;
 export const bandTone = (b: DoraBand): ChipTone => (b === "elite" || b === "high" ? "in" : b === "medium" ? "warning" : b === "low" ? "danger" : "neutral");
 
-/** The tone of a deployment state in the pipeline view. */
-export function deployTone(state: unknown): ChipTone {
+/** The tone of a deployment state in the pipeline view (a closed deployment by the outcome it was closed with). */
+export function deployTone(state: unknown, closeCode?: unknown): ChipTone {
   const s = String(state ?? "");
-  if (s === "succeeded" || s === "closed") return "in";
-  if (s === "failed" || s === "rolled_back") return "danger";
+  const outcome = deploymentOutcome({ state: s, close_code: closeCode });
+  if (outcome === "ok") return "in";
+  if (outcome === "failed") return "danger";
   if (s === "in_progress") return "accent";
   if (s === "pending_approval") return "warning";
   return "neutral";

@@ -10,7 +10,8 @@ import type { ModelLike, RiskQuestion } from "@shared/change/logic";
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
 import { prepareSubject, subjectOf } from "../../access";
-import { condEnv, fromDb, isSystemCtx, orgSchema, readable, SYSTEM_USER, toSql } from "../../engine";
+import { access } from "../../access/provider";
+import { condEnv, fromDb, isSystemCtx, loadReadable, orgSchema, readable, SYSTEM_USER, toSql } from "../../engine";
 
 export type Row = Record<string, any>;
 
@@ -105,6 +106,22 @@ export async function liveRow(q: Queryable, ctx: Ctx, table: string, id: unknown
   params.push(id.toLowerCase());
   const row = await q.one<Row>(`select t.* from ${def.table} t where ${where} and t.id = $${params.length}::uuid`, params);
   return row ? fromDb(def, row) : null;
+}
+
+/**
+ * May the context change this record as an update through the API would need it: read it, the provider's write right on
+ * it and the table's write row rule. The system always may. Hooks use it before a person's write reaches into another
+ * record (a deployment that drives its change, a row added to someone's project).
+ */
+export async function mayWriteRecord(q: Queryable, ctx: Ctx, table: string, id: unknown): Promise<boolean> {
+  if (isSystemCtx(ctx)) return true;
+  if (!isUuid(id)) return false;
+  const schema = await orgSchema(ctx, q);
+  const def = schema.def(table) ?? tableDef(table);
+  if (!def || def.virtual) return false;
+  await prepareSubject(ctx, q);
+  const row = await loadReadable(q, ctx, def, id, await condEnv(ctx));
+  return !!row && row.$writable !== false && access().canWrite(ctx, def, row);
 }
 
 /** How many live rows of `table` the context may read match `where`. */

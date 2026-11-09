@@ -1,6 +1,6 @@
 // The record engine's public API for server code (modules, services, jobs, the AI layer). The HTTP API in
 // src/server/routes/records.ts is a thin layer over the same functions. docs/spec/ENGINE.md documents all of it.
-export { list, get, create, update, transition, remove, bulkUpdate, recordMeta, checkFilter } from "./records";
+export { list, listAll, MAX_PAGE, get, create, update, transition, remove, bulkUpdate, recordMeta, checkFilter } from "./records";
 export type { ListParams, ListResult, RecordMeta, RecordResult, BulkParams, BulkResult } from "./records";
 export { createIn, updateIn, transitionIn, removeIn, savepoint, isLocked, assignmentFields, LOCKED_MESSAGE, VERSION_MESSAGE } from "./write";
 export type { WriteOptions } from "./write";

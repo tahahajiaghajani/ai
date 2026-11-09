@@ -19,7 +19,7 @@ import { onApprovalSettled, settledVerdict } from "../sla";
 import { occurrencesBetween } from "../change";
 import { freezesFor } from "../release/checks";
 import { matchEnvironment } from "@shared/devops/logic";
-import { authenticate, autoStandardChange, openConnection } from "./ingest";
+import { authenticate, autoStandardChange, byNumber, namedProblem, openConnection } from "./ingest";
 import { eqAll, isUuid, liveRow, liveRows, managesReleases, msOf, sha256, type Row } from "./common";
 import type { HeaderFn } from "@shared/devops/logic";
 
@@ -77,7 +77,19 @@ export async function openGateIn(tx: Tx, sys: Ctx, conn: Row, input: GateRequest
   const envRow = env ? envs.find((e) => e.id === env.id) ?? null : null;
   const pipe = input.pipeline ? (await liveRows(tx, sys, "dev_pipeline", eqAll({ connection_id: conn.id, name: String(input.pipeline).slice(0, 200) }), { limit: 1 }))[0] ?? null : null;
   const service = isUuid(pipe?.service_id) ? String(pipe!.service_id) : isUuid(conn.service_id) ? String(conn.service_id) : null;
-  let change = input.change ? (await liveRows(tx, sys, "change_request", { f: "number", op: "eq", v: String(input.change).trim().toUpperCase() }, { limit: 1 }))[0] ?? null : null;
+  const run = input.run ? String(input.run).slice(0, 200) : null;
+  // a retried request of the same run and environment is the same gate: an open or passed one answers again; after a
+  // refusal or a timeout it is asked again, with the change already made for that run
+  const [earlier] = run && envRow ? await liveRows(tx, sys, "change_gate", eqAll({ connection_id: conn.id, run_ref: run, environment_id: envRow.id }), { order: "t.created_at desc, t.id desc", limit: 1 }) : [];
+  if (earlier && ["pending", "approved", "overridden"].includes(String(earlier.state))) {
+    const c = isUuid(earlier.change_id) ? await liveRow(tx, sys, "change_request", earlier.change_id) : null;
+    return { ...earlier, change_number: c?.number ?? null };
+  }
+  const earlierChange = earlier && isUuid(earlier.change_id) ? await liveRow(tx, sys, "change_request", earlier.change_id) : null;
+  // a named change is found as the webhooks find it («CHG-12», «chg12», «CHG0000012»); unknown, unauthorized or another
+  // service's or group's change never falls back to an automatic one: the release managers decide
+  const scope = { service, group: isUuid(conn.assignment_group_id) ? String(conn.assignment_group_id) : null };
+  let change = input.change ? await byNumber(tx, sys, "change_request", String(input.change)) : null;
   const windows: string[] = [];
   if (envRow && envRow.protection !== "open") {
     try {
@@ -101,16 +113,28 @@ export async function openGateIn(tx: Tx, sys: Ctx, conn: Row, input: GateRequest
     state = "rejected";
     rule = "دورهٔ انجماد یا ممنوعیت";
     reason = `اکنون «${[...new Set(windows)].join("، ")}» برقرار است`;
-  } else if (change) {
-    if (AUTHORIZED.includes(String(change.state))) {
+  } else if (input.change) {
+    const problem = change ? namedProblem("change_request", change, scope) : `تغییر «${input.change}» پیدا نشد`;
+    if (!problem) {
       state = "approved";
       rule = "تغییر مجاز";
     } else {
-      rule = "تغییر هنوز مجاز نشده";
-      reason = `تغییر ${change.number} در وضعیت اجرا نیست`;
+      rule = change && !AUTHORIZED.includes(String(change.state)) ? "تغییر هنوز مجاز نشده" : "تأیید مدیر انتشار";
+      reason = problem;
+    }
+  } else if (envRow.kind === "production" && earlierChange && !["closed", "canceled"].includes(String(earlierChange.state))) {
+    // the change this run's earlier gate made: never a second automatic change for the same run
+    change = earlierChange;
+    const problem = namedProblem("change_request", change, scope);
+    if (!problem) {
+      state = "approved";
+      rule = "تغییر استاندارد خودکار";
+    } else {
+      rule = "تأیید مدیر انتشار";
+      reason = problem;
     }
   } else if (envRow.kind === "production" && conn.auto_change !== false) {
-    const probe: Row = { id: null, number: "—", external_id: `gate:${input.run ?? now}`, planned_start: new Date(now).toISOString() };
+    const probe: Row = { id: null, number: "—", external_id: `gate:${run ?? now}`, planned_start: new Date(now).toISOString() };
     const auto = await autoStandardChange(tx, sys, conn, pipe, probe, { service, version: input.version ?? null, envName: String(envRow.name) });
     if (auto.change && AUTHORIZED.includes(String(auto.change.state))) {
       change = auto.change;
@@ -136,13 +160,13 @@ export async function openGateIn(tx: Tx, sys: Ctx, conn: Row, input: GateRequest
   let gate = await createIn(tx, sys, "change_gate", {
     summary: (input.summary ?? `استقرار ${input.version ?? ""} در ${envRow?.name ?? input.environment}`).replace(/\s+/g, " ").trim().slice(0, 300),
     connection_id: conn.id, pipeline_id: pipe?.id ?? null, environment_id: envRow?.id ?? null, service_id: service,
-    run_ref: input.run ?? null, artifact_version: input.version ?? null, commit_sha: input.commit ?? null, change_id: change?.id ?? null,
+    run_ref: run, artifact_version: input.version ?? null, commit_sha: input.commit ?? null, change_id: change?.id ?? null,
     rule, reason, requested_at: new Date(now).toISOString(), timeout_at: new Date(now + timeoutMinutes * 60_000).toISOString(),
     evidence, prev_hash: prev, evidence_hash: evidenceHash(prev, evidence),
   }, { trusted: true });
   if (state !== "pending") gate = await transitionIn(tx, sys, "change_gate", String(gate.id), state, state === "rejected" ? { reason: reason ?? rule } : {}, { trusted: true });
   else await emitEvent(tx, sys, { kind: "record.change_gate.pending", table: "change_gate", id: String(gate.id), number: gate.number ?? null, data: { users: [], environment: envRow?.key ?? null } });
-  return gate;
+  return { ...gate, change_number: change?.number ?? null };
 }
 
 /** What the pipeline reads back (signed with the gate's id as the body). */
@@ -151,7 +175,9 @@ export async function gateStatus(cfg: ServerConfig, key: string, h: HeaderFn, id
   authenticate(secret, id, h);
   const gate = await liveRow(sys.db, sys, "change_gate", id);
   if (!gate || gate.connection_id !== conn.id) throw forbidden("این دروازه از این اتصال نیست");
-  return { id: gate.id, number: gate.number, state: gate.state, allowed: ["approved", "overridden"].includes(String(gate.state)), reason: gate.reason ?? null, rule: gate.rule ?? null, change: gate.change_id ?? null, decided_at: gate.decided_at ?? null, timeout_at: gate.timeout_at ?? null };
+  const change = isUuid(gate.change_id) ? await liveRow(sys.db, sys, "change_request", gate.change_id) : null;
+  // `change` is the number the pipeline passes on with its deployment (`change`), so the deployment takes this change
+  return { id: gate.id, number: gate.number, state: gate.state, allowed: ["approved", "overridden"].includes(String(gate.state)), reason: gate.reason ?? null, rule: gate.rule ?? null, change: change?.number ?? null, change_id: gate.change_id ?? null, decided_at: gate.decided_at ?? null, timeout_at: gate.timeout_at ?? null };
 }
 
 /** Hooks of the gate: a person's decision is the release manager's; who and when are stamped. */

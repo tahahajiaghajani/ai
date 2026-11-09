@@ -7,9 +7,9 @@ import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
 import { prepareSubject, subjectOf } from "../../access";
 import { isSystemCtx } from "../../engine";
-import { eqAll, isUuid, liveRow, liveRows, sysOf, msOf, type Row } from "../release/common";
+import { eqAll, isUuid, liveRow, liveRows, mayWriteRecord, sysOf, msOf, type Row } from "../release/common";
 
-export { eqAll, isUuid, liveRow, liveRows, sysOf, msOf, type Row };
+export { eqAll, isUuid, liveRow, liveRows, mayWriteRecord, sysOf, msOf, type Row };
 
 /** Tables whose rows hang off a project (they copy its manager and group). */
 export const PROJECT_CHILDREN = ["project_task", "raid_item", "status_report", "resource_allocation", "time_entry"];

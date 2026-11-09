@@ -78,10 +78,10 @@ export async function ingestDelivery(cfg: ServerConfig, key: string, h: HeaderFn
 async function storeEvent(sys: Ctx, conn: Row, e: { deliveryId: string; hash: string; verifiedBy: string; providerEvent: string; type: string; payload: unknown }): Promise<Row | null> {
   const existing = await liveRows(sys.db, sys, "dev_event", eqAll({ connection_id: conn.id, delivery_id: e.deliveryId }), { limit: 1 });
   if (existing.length) return null;
-  // the signature covers the body, not the delivery id header: the same signed body sent again under another id
-  // within a day is the same event (a replay or a tool's blind retry), unless the first one failed
-  const since = new Date(Date.now() - 86_400_000).toISOString();
-  const same = await liveRows(sys.db, sys, "dev_event", { and: [{ f: "connection_id", op: "eq", v: conn.id }, { f: "payload_hash", op: "eq", v: e.hash }, { f: "received_at", op: "gte", v: since }, { f: "status", op: "ne", v: "failed" }] }, { limit: 1 });
+  // the signature covers the body, not the delivery id header: the same signed body sent again under another id is
+  // the same event (a replay or a tool's blind retry) — however late it comes — unless the first one failed (people
+  // retry ignored events from the event list)
+  const same = await liveRows(sys.db, sys, "dev_event", { and: [{ f: "connection_id", op: "eq", v: conn.id }, { f: "payload_hash", op: "eq", v: e.hash }, { f: "status", op: "ne", v: "failed" }] }, { limit: 1 });
   if (same.length) return null;
   try {
     return await sys.write((tx) =>
@@ -158,6 +158,9 @@ async function ensurePipeline(tx: Tx, sys: Ctx, conn: Row, name: string | null, 
   return createIn(tx, sys, "dev_pipeline", { connection_id: conn.id, name: n, repository_id: repo?.id ?? null, service_id: repo?.service_id ?? conn.service_id ?? null }, { trusted: true });
 }
 
+/** Build states that end a run. */
+const FINISHED_BUILD = ["succeeded", "failed", "canceled"];
+
 const keysOf = (...texts: (string | null | undefined)[]) => [...new Set(texts.flatMap((t) => extractKeys(t, numberPrefixes())))].slice(0, 30);
 
 async function apply(tx: Tx, sys: Ctx, conn: Row, n: NormalizedEvent): Promise<Row> {
@@ -184,6 +187,8 @@ async function apply(tx: Tx, sys: Ctx, conn: Row, n: NormalizedEvent): Promise<R
         opened_at: n.pr.opened_at, merged_at: n.pr.merged_at, url: n.pr.url, keys: keysOf(n.pr.title, n.pr.source),
       };
       const [found] = await liveRows(tx, sys, "dev_pull_request", eqAll({ repository_id: repo.id, pr_number: n.pr.number }), { limit: 1 });
+      // a merged pull request never goes back (a late or replayed «opened» or «closed» report)
+      if (found?.state === "merged" && values.state !== "merged") return { ignored: `درخواست ادغام #${n.pr.number} پیش‌تر ادغام شده است؛ گزارش قدیمی‌تر نادیده گرفته شد` };
       const row = found ? await updateIn(tx, sys, "dev_pull_request", String(found.id), values, { trusted: true }) : await createIn(tx, sys, "dev_pull_request", values, { trusted: true });
       return { pull_request: row.id, keys: row.keys ?? [] };
     }
@@ -199,6 +204,8 @@ async function apply(tx: Tx, sys: Ctx, conn: Row, n: NormalizedEvent): Promise<R
         tests_total: b.tests_total, tests_failed: b.tests_failed, coverage: b.coverage, url: b.url, external_id: b.external_id, keys: keysOf(b.branch),
       };
       const [found] = await liveRows(tx, sys, "dev_build", eqAll({ connection_id: conn.id, external_id: b.external_id }), { limit: 1 });
+      // a finished run never goes back to running or queued (a late or replayed report)
+      if (found && FINISHED_BUILD.includes(String(found.status)) && !FINISHED_BUILD.includes(String(values.status))) return { ignored: `اجرای ${found.run_number ?? b.external_id} پیش‌تر پایان یافته است؛ گزارش قدیمی‌تر نادیده گرفته شد` };
       const row = found ? await updateIn(tx, sys, "dev_build", String(found.id), values, { trusted: true }) : await createIn(tx, sys, "dev_build", values, { trusted: true });
       return { build: row.id, status: row.status };
     }
@@ -211,8 +218,8 @@ async function apply(tx: Tx, sys: Ctx, conn: Row, n: NormalizedEvent): Promise<R
   }
 }
 
-/** A record of `table` named by its number (as the system), or null. */
-async function byNumber(tx: Tx, sys: Ctx, table: string, no: string | null | undefined): Promise<Row | null> {
+/** A record of `table` named by its number (as the system), or null. «CHG-12», «chg12» and «CHG0000012» alike. */
+export async function byNumber(tx: Tx, sys: Ctx, table: string, no: string | null | undefined): Promise<Row | null> {
   if (!no) return null;
   const keys = extractKeys(no, numberPrefixes());
   const want = keys[0] ?? no.trim().toUpperCase();
@@ -231,20 +238,65 @@ const PATHS: Record<string, Record<string, string[]>> = {
   failed: { in_progress: ["in_progress"], succeeded: ["in_progress", "succeeded"], rolled_back: ["rolled_back"] },
 };
 
+const AUTHORIZED_CHANGE = ["scheduled", "implement"];
+
+/**
+ * Why a pipeline may not deploy under a change or release it named, or null: a change must be authorized (scheduled or
+ * implementing), a release still open; either must be for the deployment's service and the connection's group when
+ * both say one. The release.deployment job then moves them as the system — only what the pipeline may claim.
+ */
+export function namedProblem(table: "change_request" | "release", row: Row, scope: { service: string | null; group: string | null }): string | null {
+  const what = table === "release" ? "انتشار" : "تغییر";
+  if (table === "change_request" && !AUTHORIZED_CHANGE.includes(String(row.state))) return `تغییر ${row.number} در وضعیت اجرا نیست`;
+  if (table === "release" && ["closed", "canceled"].includes(String(row.state))) return `انتشار ${row.number} بسته یا لغو شده است`;
+  if (scope.service && isUuid(row.service_id) && row.service_id !== scope.service) return `${what} ${row.number} برای خدمت دیگری است`;
+  if (scope.group && isUuid(row.assignment_group_id) && row.assignment_group_id !== scope.group) return `${what} ${row.number} از گروه دیگری است`;
+  return null;
+}
+
+/** The change or release a pipeline named explicitly (never one a commit message or description only mentions). */
+async function namedRecord(tx: Tx, sys: Ctx, table: "change_request" | "release", no: string | null, scope: { service: string | null; group: string | null }): Promise<{ row: Row | null; problem: string | null }> {
+  if (!no) return { row: null, problem: null };
+  const row = await byNumber(tx, sys, table, no);
+  if (!row) return { row: null, problem: `${table === "release" ? "انتشار" : "تغییر"} «${no}» پیدا نشد` };
+  const problem = namedProblem(table, row, scope);
+  return problem ? { row: null, problem } : { row, problem: null };
+}
+
+/** The change a gate of the same connection, run and environment already made or let through (a retried run). */
+async function gateChange(tx: Tx, sys: Ctx, conn: Row, run: string | null | undefined, envId: string): Promise<Row | null> {
+  if (!run) return null;
+  const [gate] = await liveRows(tx, sys, "change_gate", eqAll({ connection_id: conn.id, run_ref: String(run).slice(0, 200), environment_id: envId }), { order: "t.created_at desc, t.id desc", limit: 1 });
+  const change = gate && isUuid(gate.change_id) ? await liveRow(tx, sys, "change_request", gate.change_id) : null;
+  return change && !["closed", "canceled"].includes(String(change.state)) ? change : null;
+}
+
 async function applyDeployment(tx: Tx, sys: Ctx, conn: Row, d: DeployInfo, repo: Row | null, pipelineName: string | null, actorEmail: string | null): Promise<Row> {
   const envs = await liveRows(tx, sys, "release_environment", null);
   const env = matchEnvironment(d.environment, envs.map((e) => ({ id: String(e.id), key: String(e.key), name: String(e.name), kind: e.kind, aliases: e.aliases, active: e.active })), (conn.env_map ?? {}) as Row);
   if (!env) return { ignored: `محیط «${d.environment}» شناخته نشد؛ آن را در محیط‌ها یا نگاشت نام محیط‌های اتصال تعریف کنید` };
   const pipe = await ensurePipeline(tx, sys, conn, pipelineName, repo);
-  const keys = keysOf(d.description, d.release, d.change, ...d.commits.map((c) => c.message));
-  const release = (await byNumber(tx, sys, "release", d.release)) ?? (await firstOf(tx, sys, "release", keys, "REL"));
-  const change = (await byNumber(tx, sys, "change_request", d.change)) ?? (await firstOf(tx, sys, "change_request", keys, "CHG"));
   let service = isUuid(pipe?.service_id) ? String(pipe!.service_id) : isUuid(repo?.service_id) ? String(repo!.service_id) : isUuid(conn.service_id) ? String(conn.service_id) : null;
   if (d.service) {
     const [named] = await liveRows(tx, sys, "service", { or: [{ f: "name", op: "eq", v: d.service }, { f: "number", op: "eq", v: d.service.toUpperCase() }] }, { limit: 1 }).catch(() => [] as Row[]);
     if (named) service = String(named.id);
   }
+  // only what the payload names (`release`, `change`), and only what this pipeline may deploy under
+  const group = isUuid(conn.assignment_group_id) ? String(conn.assignment_group_id) : null;
+  const rel = await namedRecord(tx, sys, "release", d.release, { service, group });
+  const release = rel.row;
   if (!service && release && isUuid(release.service_id)) service = String(release.service_id);
+  const named = await namedRecord(tx, sys, "change_request", d.change, { service, group });
+  let change = named.row;
+  // the change of this run's deployment gate (its automatic standard change, or the change it let through)
+  let fromGate = false;
+  if (!change && !d.change) {
+    const g = await gateChange(tx, sys, conn, d.run, String(env.id));
+    if (g && !namedProblem("change_request", g, { service, group })) {
+      change = g;
+      fromGate = true;
+    }
+  }
   const firstCommit = d.commits.map((c) => msOf(c.at)).filter((x): x is number => x !== null).sort((a, b) => a - b)[0] ?? null;
   const onBehalf = actorEmail ? (await tx.one<{ id: string }>(`select u.id from sm_users u join sm_org_members m on m.user_id = u.id and m.org_id = $1 and m.is_active and m.deleted_at is null where lower(u.email) = $2 limit 1`, [sys.org.id, actorEmail.toLowerCase()]))?.id ?? null : null;
 
@@ -255,6 +307,7 @@ async function applyDeployment(tx: Tx, sys: Ctx, conn: Row, d: DeployInfo, repo:
     if (d.version && !found.artifact_version) patch.artifact_version = d.version;
     if (d.sha && !found.commit_sha) patch.commit_sha = d.sha;
     if (change && !found.change_id) patch.change_id = change.id;
+    else if (fromGate) fromGate = false;
     if (release && !found.release_id) patch.release_id = release.id;
     if (firstCommit !== null && !found.first_commit_at) patch.first_commit_at = new Date(firstCommit).toISOString();
     dep = Object.keys(patch).length ? await updateIn(tx, sys, "deployment", String(found.id), patch, { trusted: true }) : found;
@@ -269,9 +322,16 @@ async function applyDeployment(tx: Tx, sys: Ctx, conn: Row, d: DeployInfo, repo:
       first_commit_at: firstCommit !== null ? new Date(firstCommit).toISOString() : null,
     }, { trusted: true });
   }
-  // a production deployment without a change gets the automatic standard change (DevOps change velocity)
+  // the gate's automatic change now belongs to this deployment (it follows it to closing)
+  if (fromGate && change && dep.change_id === change.id && String(change.external_ref ?? "").startsWith("deploy:gate:")) {
+    await updateIn(tx, sys, "change_request", String(change.id), { external_ref: `deploy:${dep.external_id ?? dep.id}`.slice(0, 200) }, { trusted: true, keepVersion: true, allowLocked: true });
+  }
+  // a production deployment without a change gets the automatic standard change (DevOps change velocity) — unless
+  // the pipeline named one it may not deploy under: that is a deployment without an authorized change
   let auto: Row | null = null;
-  if (env.kind === "production" && !dep.change_id && conn.auto_change !== false && !["canceled"].includes(DEP_STATE[d.status])) {
+  const refused = named.problem ?? rel.problem;
+  if (named.problem && env.kind === "production" && !dep.change_id) dep = await updateIn(tx, sys, "deployment", String(dep.id), { policy_note: named.problem }, { trusted: true, keepVersion: true });
+  if (env.kind === "production" && !dep.change_id && !named.problem && conn.auto_change !== false && !["canceled"].includes(DEP_STATE[d.status])) {
     auto = await autoStandardChange(tx, sys, conn, pipe, dep, { service, version: d.version, envName: env.name });
     if (auto.change) dep = await updateIn(tx, sys, "deployment", String(dep.id), { change_id: auto.change.id }, { trusted: true });
     else if (auto.problem) dep = await updateIn(tx, sys, "deployment", String(dep.id), { policy_note: auto.problem }, { trusted: true, keepVersion: true });
@@ -287,15 +347,7 @@ async function applyDeployment(tx: Tx, sys: Ctx, conn: Row, d: DeployInfo, repo:
     if (["succeeded", "failed", "rolled_back"].includes(to) && d.finished_at) data.actual_end = d.finished_at;
     dep = await transitionIn(tx, sys, "deployment", String(dep.id), to, data, { trusted: true });
   }
-  return { deployment: dep.id, number: dep.number, state: dep.state, environment: env.key, change: dep.change_id ?? null, auto_change: auto?.change?.number ?? null, policy: auto?.problem ?? null };
-}
-
-async function firstOf(tx: Tx, sys: Ctx, table: string, keys: string[], prefix: string): Promise<Row | null> {
-  for (const k of keys.filter((x) => x.startsWith(prefix))) {
-    const [row] = await liveRows(tx, sys, table, { f: "number", op: "eq", v: k }, { limit: 1 });
-    if (row) return row;
-  }
-  return null;
+  return { deployment: dep.id, number: dep.number, state: dep.state, environment: env.key, change: dep.change_id ?? null, auto_change: auto?.change?.number ?? null, policy: auto?.problem ?? null, ...(refused ? { refused } : {}) };
 }
 
 /**

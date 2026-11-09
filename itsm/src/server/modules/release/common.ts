@@ -6,10 +6,29 @@ import { RELEASE_CONFIG_DEFAULTS, type ReleaseConfig } from "@shared/tables/rele
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
 import { prepareSubject, subjectOf } from "../../access";
-import { isSystemCtx } from "../../engine";
-import { eqAll, isUuid, liveRow, liveRows, countRows, sysOf, msOf, iso, type Row } from "../change/common";
+import { isSystemCtx, type WriteArgs } from "../../engine";
+import { forbidden } from "../../http/errors";
+import { eqAll, isUuid, liveRow, liveRows, countRows, mayWriteRecord, sysOf, msOf, iso, type Row } from "../change/common";
 
-export { eqAll, isUuid, liveRow, liveRows, countRows, sysOf, msOf, iso, type Row };
+export { eqAll, isUuid, liveRow, liveRows, countRows, mayWriteRecord, sysOf, msOf, iso, type Row };
+
+/**
+ * A record a person creates starts in its model's first state: the engine lets a create name any state (imports of
+ * history, ENGINE.md §4), but every later state of these modules goes through the guarded transitions (Go decision,
+ * deployment gate, approvals of time and projects). The system and trusted server code (pipelines, the seed) record
+ * what already happened; an import of history is the module's authority's (`authority`); `also` lists states a person
+ * may start in as well. A Windows app's push of a new record is held to the same rule (`pushGuard`).
+ */
+export async function initialStateOnly(w: WriteArgs, authority: (q: Queryable, ctx: Ctx) => Promise<boolean>, also: readonly string[] = []): Promise<void> {
+  if (w.op !== "create" || w.trusted || isSystemCtx(w.ctx)) return;
+  const model = w.def.states;
+  if (!model) return;
+  const state = w.next[model.field];
+  if (state === null || state === undefined || state === "" || state === model.initial || also.includes(String(state))) return;
+  if (w.via === "import" && (await authority(w.tx, w.ctx))) return;
+  const label = model.states.find((s) => s.value === model.initial)?.label ?? model.initial;
+  throw forbidden(`${w.def.label} تازه در وضعیت «${label}» ثبت می‌شود؛ وضعیت‌های بعد با گذارهای آن می‌آیند`);
+}
 
 /** Roles that carry the release manager's authority (the release area's approve right). */
 export const RELEASE_AUTHORITY = ["release_manager", "tenant_admin"];

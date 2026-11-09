@@ -77,7 +77,7 @@ publicRoutes.post("/devops/gates/:key", rateLimit(HOOK_LIMIT), async (c) => {
   }
   const input = GATE_BODY.parse(parsed ?? {});
   const gate = await requestGate(c.get("cfg"), key, headersOf(c), raw, input);
-  return c.json({ id: gate.id, number: gate.number, state: gate.state, allowed: ["approved", "overridden"].includes(String(gate.state)), reason: gate.reason ?? null, rule: gate.rule ?? null, timeout_at: gate.timeout_at ?? null }, gate.state === "pending" ? 202 : 200);
+  return c.json({ id: gate.id, number: gate.number, state: gate.state, allowed: ["approved", "overridden"].includes(String(gate.state)), reason: gate.reason ?? null, rule: gate.rule ?? null, change: gate.change_number ?? null, timeout_at: gate.timeout_at ?? null }, gate.state === "pending" ? 202 : 200);
 });
 
 publicRoutes.get("/devops/gates/:key/:id", rateLimit(HOOK_LIMIT), async (c) => {

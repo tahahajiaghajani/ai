@@ -11,10 +11,11 @@
 //   time_entry       the task's project, the label, approval by the project's manager (never one's own time)
 import { PROJECT_TASK_DONE } from "@shared/tables/project";
 import { demandScores, wouldCycle } from "@shared/project/logic";
-import { emitEvent, pushGuard, registerHooks, updateIn, type PushArgs, type WriteArgs } from "../../engine";
+import { emitEvent, isSystemCtx, pushGuard, registerHooks, updateIn, type PushArgs, type WriteArgs } from "../../engine";
 import { enqueue } from "../../jobs";
 import { bad, conflict, forbidden } from "../../http/errors";
-import { PROJECT_CHILDREN, dateOf, ids, liveRow, liveRows, managesProjects, projectConfig, projectCopy, sysOf, type Row } from "./common";
+import { PROJECT_CHILDREN, dateOf, ids, liveRow, liveRows, managesProjects, mayWriteRecord, projectConfig, projectCopy, sysOf, type Row } from "./common";
+import { initialStateOnly } from "../release/common";
 
 const now = () => new Date().toISOString();
 const blank = (v: unknown) => v === null || v === undefined || (typeof v === "string" && !v.trim());
@@ -23,11 +24,23 @@ const blank = (v: unknown) => v === null || v === undefined || (typeof v === "st
 export const recalcLater = (w: WriteArgs, projectId: unknown) =>
   typeof projectId === "string" && projectId ? enqueue(w.tx, { kind: "project.recalc", orgId: w.ctx.org.id, payload: { id: projectId }, dedupeKey: `project.recalc:${projectId}` }) : Promise.resolve();
 
+/**
+ * The project a task, RAID item, status report or allocation is added to (or moved to): it exists, is open, and the
+ * person may change it — a member who only reads a project adds nothing to its plan, risks or reports.
+ */
 async function parentProject(w: WriteArgs): Promise<Row> {
   const p = await liveRow(w.tx, sysOf(w.ctx), "project", w.next.project_id);
   if (!p) throw bad("پروژه پیدا نشد");
   if (["closed", "canceled"].includes(String(p.state)) && w.op === "create") throw conflict("به پروژهٔ بسته یا لغوشده نمی‌توان چیزی افزود");
+  if (!w.trusted && !isSystemCtx(w.ctx) && !(await mayWriteRecord(w.tx, w.ctx, "project", p.id))) throw forbidden(`به پروژهٔ «${p.name ?? p.number ?? ""}» فقط کسانی چیزی می‌افزایند که پروژه را تغییر می‌دهند`);
   return p;
+}
+
+/** A status report is published by the project's manager (or the project area's manager), never by another member. */
+async function publishesReports(w: WriteArgs, project: Row | null): Promise<boolean> {
+  if (w.trusted || isSystemCtx(w.ctx)) return true;
+  if (project?.project_manager_id && project.project_manager_id === w.ctx.user.id) return true;
+  return managesProjects(w.tx, w.ctx);
 }
 
 /** Why a project may not pass a gate (PRJ-005/033), or null. */
@@ -58,6 +71,7 @@ async function gateProblem(w: WriteArgs): Promise<string | null> {
 async function projectBefore(w: WriteArgs): Promise<void> {
   const { next: n, prev } = w;
   if (w.op === "delete") return;
+  await initialStateOnly(w, managesProjects);
   const s = dateOf(n.planned_start);
   const e = dateOf(n.planned_end);
   if (s && e && e < s) throw bad("پایان برنامه پیش از شروع آن است");
@@ -128,6 +142,7 @@ async function timeBefore(w: WriteArgs): Promise<void> {
     if (w.prev?.state === "approved" && !w.trusted && w.ctx.actor !== "system") throw forbidden("زمان تأییدشده پاک نمی‌شود");
     return;
   }
+  await initialStateOnly(w, managesProjects);
   if (w.op === "create" || w.changed.has("task_id")) {
     const task = await liveRow(w.tx, sysOf(w.ctx), "project_task", n.task_id);
     if (!task) throw bad("کار پروژه پیدا نشد");
@@ -166,9 +181,26 @@ export function installProjectHooks(): (() => void)[] {
   return [
     ...PROJECT_CHILDREN.map((t) => registerHooks(t, { derivePush: projectCopyOnPush })),
     ...["status_report", "time_entry"].map((t) => registerHooks(t, { validatePush: pushGuard(frozenOnPush) })),
+    // a person's new demand, project or time entry starts in its first state: approval comes through the guarded
+    // transitions only (a push as well)
+    ...["demand", "project", "time_entry"].map((t) => registerHooks(t, { validatePush: pushGuard((w) => initialStateOnly(w, managesProjects)) })),
+    // a pushed status report is published by the project's manager only
+    registerHooks("status_report", {
+      validatePush: pushGuard(async (w) => {
+        if (w.next.state !== "published" || w.prev?.state === "published") return;
+        if (!(await publishesReports(w, await liveRow(w.tx, sysOf(w.ctx), "project", w.next.project_id)))) throw forbidden("انتشار گزارش وضعیت با مدیر پروژه است");
+      }),
+    }),
+    // a pushed task, RAID item, report or allocation lands only on a project the person may change
+    ...["project_task", "raid_item", "status_report", "resource_allocation"].map((t) => registerHooks(t, {
+      validatePush: pushGuard(async (w) => {
+        if (!w.prev || w.changed.has("project_id")) await parentProject(w);
+      }),
+    })),
     registerHooks("demand", {
       async beforeWrite(w) {
         if (w.op === "delete") return;
+        await initialStateOnly(w, managesProjects);
         const model = w.next.scoring_model ?? (await projectConfig(w.tx, sysOf(w.ctx))).scoring_model;
         const s = demandScores(w.next, model);
         w.next.score_wsjf = s.wsjf === null ? null : String(s.wsjf);
@@ -208,6 +240,7 @@ export function installProjectHooks(): (() => void)[] {
         if (w.changed.has("state") && w.next.state === "published") {
           if (w.prev?.state === "published") return;
           const proj = p ?? (await liveRow(w.tx, sysOf(w.ctx), "project", w.next.project_id));
+          if (!(await publishesReports(w, proj))) throw forbidden("انتشار گزارش وضعیت با مدیر پروژه است");
           w.next.published_at = now();
           w.next.published_by = w.ctx.actor === "system" ? null : w.ctx.user.id;
           if (!w.next.overall && proj?.health && proj.health !== "unknown") w.next.overall = proj.health;
