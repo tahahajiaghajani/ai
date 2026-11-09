@@ -372,6 +372,7 @@ export const FINANCIAL_CONFIG_DEFAULTS = {
   variance_threshold: 10,
   budget_alert_percent: 90,
   auto_capture: true,
+  default_cost_center_id: null as string | null,
 };
 export type FinancialConfig = typeof FINANCIAL_CONFIG_DEFAULTS;
 

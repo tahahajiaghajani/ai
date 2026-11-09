@@ -31,6 +31,12 @@ import { installKnowledgeModule } from "../modules/knowledge";
 import { knowledgeRoutes } from "./knowledge";
 import { installAiSkills } from "../modules/ai/skills";
 import { skillRoutes } from "./ai-skills";
+import { installItamModule } from "../modules/itam";
+import { itamRoutes } from "./itam";
+import { installSupplierModule } from "../modules/supplier";
+import { supplierRoutes } from "./supplier";
+import { installFinancialModule } from "../modules/financial";
+import { financialRoutes } from "./financial";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
 installAccessModel();
@@ -59,6 +65,11 @@ installChangeModule();
 installRequestModule();
 // knowledge management (docs/modules/knowledge_FA.md) — after the RAG index and the modules whose records it links
 installKnowledgeModule();
+// IT asset management, suppliers and contracts, IT financial management (docs/modules/{itam,supplier,financial}_FA.md) —
+// after the CMDB (assets link to CIs) and the request module (catalogue items bound to models)
+installItamModule();
+installSupplierModule();
+installFinancialModule();
 
 // the AI skills (docs/spec/AI.md §11) — after every module whose AI extension points they implement
 installAiSkills();
@@ -82,3 +93,6 @@ moduleRoutes.route("/service_portfolio", servicePortfolioRoutes);
 moduleRoutes.route("/change", changeRoutes);
 moduleRoutes.route("/request", requestRoutes);
 moduleRoutes.route("/knowledge", knowledgeRoutes);
+moduleRoutes.route("/itam", itamRoutes);
+moduleRoutes.route("/supplier", supplierRoutes);
+moduleRoutes.route("/financial", financialRoutes);
