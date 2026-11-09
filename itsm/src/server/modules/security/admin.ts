@@ -13,15 +13,24 @@ import type { AccessRiskFlag, HardeningCheck, HardeningReport, PiiFieldFinding, 
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
 import { addJournalIn, createIn, defFor, get, update, updateIn } from "../../engine";
-import { accessSettings, listMemberAccess, snapshotFor } from "../../access";
+import { accessSettings, listMemberAccess, snapshotFor, subjectOf } from "../../access";
+import { access } from "../../access/provider";
+import { grantIn } from "@shared/access/model";
 import { bad, forbidden, notFound, tooMany } from "../../http/errors";
 import { notifyPeople } from "../notify";
 import { securityEvent } from "../platform/security";
 import { countRows, isUuid, liveRow, liveRows, readScope, readsArea, securityConfig, sysOf, type Row } from "./common";
 
-/** Access administrators and auditors: the users area read in full. */
+/** Access administrators and auditors: the audit area read in full, or the users area's administration. */
 async function needReviewer(ctx: Ctx): Promise<void> {
-  if ((await readScope(ctx, "users")) !== "all") throw forbidden("این بخش برای مدیران دسترسی و ممیزان است");
+  if (ctx.actor === "system") return;
+  if ((await readScope(ctx, "audit")) === "all" || (await managesUsers(ctx))) return;
+  throw forbidden("این بخش برای مدیران دسترسی و ممیزان است");
+}
+
+async function managesUsers(ctx: Ctx): Promise<boolean> {
+  await defFor(ctx, "member_profile");
+  return !!grantIn(subjectOf(ctx).eff, "users").admin;
 }
 
 const PRIVILEGED = new Set(["tenant_admin", "security_manager", "grc_manager", "vulnerability_manager"]);
@@ -180,7 +189,10 @@ export async function startVerification(ctx: Ctx, input: { table: string; id: st
   if (!VERIFY_TABLES.has(input.table) || !tableDef(input.table)) throw bad("احراز هویت روی این نوع رکورد پشتیبانی نمی‌شود");
   if (!isUuid(input.user_id)) throw bad("فرد را انتخاب کنید");
   const rec = await get(ctx, input.table, input.id);
-  if (!rec.meta.canWrite) throw forbidden("فقط کسی که رکورد را پیگیری می‌کند هویت فرد را می‌پرسد");
+  const { def } = await defFor(ctx, input.table);
+  const stored = await liveRow(ctx.db, ctx, input.table, input.id);
+  const mode = stored ? (access().writeMode ? access().writeMode!(ctx, def, stored) : access().canWrite(ctx, def, stored) ? "full" : null) : null;
+  if (!rec.meta.canWrite || mode !== "full") throw forbidden("فقط کسی که رکورد را پیگیری می‌کند هویت فرد را می‌پرسد");
   const sys = sysOf(ctx, ctx.user.id);
   const recent = await countRows(ctx.db, sys, "sec_verification", { and: [{ f: "record_id", op: "eq", v: input.id }, { f: "created_at", op: "gte", v: new Date(Date.now() - 15 * 60_000).toISOString() }] });
   if (recent >= 3) throw tooMany("برای این رکورد چند رمز پیاپی فرستاده شده است؛ ۱۵ دقیقه بعد دوباره امتحان کنید");
