@@ -235,7 +235,7 @@ const budgetLine: TableDef = {
     { name: "amount", label: "مبلغ (ریال)", type: "money", required: true, list: true, sort: true, span: 8, group: "financial" },
     { name: "note", label: "شرح", type: "string", maxLength: 200, search: true, span: 24 },
   ],
-  scope: {},
+  scope: { parent: "budget_id" },
   list: { columns: ["budget_id", "cost_type_id", "period_id", "service_id", "amount", "note"], order: "budget_id" },
 };
 

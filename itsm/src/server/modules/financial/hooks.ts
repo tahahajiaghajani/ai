@@ -12,7 +12,7 @@ import type { Cond } from "@shared/model/conditions";
 import { tableDef } from "@shared/tables";
 import { fiscalPeriods, fiscalYearRange, periodKeyOf } from "@shared/financial/logic";
 import { D } from "@shared/money";
-import { createIn, onBeforeCommit, registerHooks, updateIn, type WriteArgs } from "../../engine";
+import { createIn, onBeforeCommit, pushGuard, registerHooks, updateIn, type WriteArgs } from "../../engine";
 import { access } from "../../access/provider";
 import { bad, conflict, forbidden } from "../../http/errors";
 import type { Ctx } from "../../context";
@@ -95,25 +95,35 @@ async function budgetLineBefore(w: WriteArgs): Promise<void> {
   if (D(w.next.amount ?? 0).lt(0)) throw bad("مبلغ بودجه منفی نمی‌شود");
 }
 
+async function costTypeBefore(w: WriteArgs): Promise<void> {
+  if (w.op === "delete" || !w.changed.has("parent_id") || !w.next.parent_id) return;
+  let cur: unknown = w.next.parent_id;
+  for (let i = 0; i < 30 && isUuid(cur); i++) {
+    if (cur === w.next.id) throw bad("نوع هزینه نمی‌تواند زیرمجموعهٔ خودش باشد");
+    cur = (await liveRow(w.tx, sysOf(w.ctx), "cost_type", cur))?.parent_id;
+  }
+}
+const rateBefore = (w: WriteArgs) => {
+  if (w.op !== "delete" && !D(w.next.rate ?? 0).gt(0)) throw bad("نرخ ارز باید مثبت باشد");
+};
+async function allocationRunBefore(w: WriteArgs): Promise<void> {
+  if (w.op === "delete") return;
+  const sys = sysOf(w.ctx);
+  if (w.changed.has("period_from_id") || w.changed.has("period_to_id") || w.op === "create") {
+    const a = await liveRow(w.tx, sys, "fiscal_period", w.next.period_from_id);
+    const b = await liveRow(w.tx, sys, "fiscal_period", w.next.period_to_id);
+    if (a && b && String(a.key) > String(b.key)) throw bad("«از ماه» پس از «تا ماه» است");
+    if (a && a.fiscal_year_id !== w.next.fiscal_year_id) throw bad("ماه‌ها در سال مالی این اجرا نیستند");
+  }
+}
+
 export function installFinancialHooks(): (() => void)[] {
+  // a Windows app's push runs no beforeWrite: the ledger and budget rules are asked of the pushed row (pushGuard)
   return [
-    registerHooks("fiscal_year", { beforeWrite: fiscalYearBefore, afterWrite: fiscalYearAfter }),
-    registerHooks("cost_type", {
-      async beforeWrite(w) {
-        if (w.op === "delete" || !w.changed.has("parent_id") || !w.next.parent_id) return;
-        let cur: unknown = w.next.parent_id;
-        for (let i = 0; i < 30 && isUuid(cur); i++) {
-          if (cur === w.next.id) throw bad("نوع هزینه نمی‌تواند زیرمجموعهٔ خودش باشد");
-          cur = (await liveRow(w.tx, sysOf(w.ctx), "cost_type", cur))?.parent_id;
-        }
-      },
-    }),
-    registerHooks("exchange_rate", {
-      beforeWrite(w) {
-        if (w.op !== "delete" && !D(w.next.rate ?? 0).gt(0)) throw bad("نرخ ارز باید مثبت باشد");
-      },
-    }),
-    registerHooks("cost_entry", { beforeWrite: costEntryBefore }),
+    registerHooks("fiscal_year", { beforeWrite: fiscalYearBefore, afterWrite: fiscalYearAfter, validatePush: pushGuard(fiscalYearBefore) }),
+    registerHooks("cost_type", { beforeWrite: costTypeBefore, validatePush: pushGuard(costTypeBefore) }),
+    registerHooks("exchange_rate", { beforeWrite: rateBefore, validatePush: pushGuard(rateBefore) }),
+    registerHooks("cost_entry", { beforeWrite: costEntryBefore, validatePush: pushGuard(costEntryBefore) }),
     registerHooks("budget", {
       beforeWrite(w) {
         if (w.op === "delete") return;
@@ -123,6 +133,7 @@ export function installFinancialHooks(): (() => void)[] {
     }),
     registerHooks("budget_line", {
       beforeWrite: budgetLineBefore,
+      validatePush: pushGuard(budgetLineBefore),
       async afterWrite(w) {
         await budgetTotal(w.tx, w.ctx, String(w.next?.budget_id ?? w.prev?.budget_id));
       },
@@ -131,18 +142,8 @@ export function installFinancialHooks(): (() => void)[] {
       beforeWrite(w) {
         if (!isSys(w)) throw forbidden("نتیجهٔ تسهیم را سامانه محاسبه می‌کند");
       },
+      validatePush: () => "نتیجهٔ تسهیم را سامانه محاسبه می‌کند",
     }),
-    registerHooks("allocation_run", {
-      async beforeWrite(w) {
-        if (w.op === "delete") return;
-        const sys = sysOf(w.ctx);
-        if (w.changed.has("period_from_id") || w.changed.has("period_to_id") || w.op === "create") {
-          const a = await liveRow(w.tx, sys, "fiscal_period", w.next.period_from_id);
-          const b = await liveRow(w.tx, sys, "fiscal_period", w.next.period_to_id);
-          if (a && b && String(a.key) > String(b.key)) throw bad("«از ماه» پس از «تا ماه» است");
-          if (a && a.fiscal_year_id !== w.next.fiscal_year_id) throw bad("ماه‌ها در سال مالی این اجرا نیستند");
-        }
-      },
-    }),
+    registerHooks("allocation_run", { beforeWrite: allocationRunBefore, validatePush: pushGuard(allocationRunBefore) }),
   ];
 }

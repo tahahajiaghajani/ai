@@ -65,6 +65,8 @@ export interface ScopeColumns {
   public: boolean;
   requesterWritable: string[] | null;
   requesterTransitions: { from?: string[]; to: string }[] | null;
+  /** parent-scoped rows: the reference field naming the parent and the parent's table (`scope.parent`) */
+  parent: { field: string; table: string } | null;
 }
 
 const columns = new WeakMap<TableDef, ScopeColumns>();
@@ -87,6 +89,10 @@ export function scopeColumns(def: TableDef): ScopeColumns {
   const readers = list((s.readers ?? []).filter((n) => !own.some((f) => f.name === n)));
   const groupField = s.group && field(s.group) ? s.group : null;
   const confidential = !!def.features?.confidential;
+  const parentField = s.parent ? field(s.parent) : undefined;
+  if (s.parent && !(parentField && parentField.type === "ref" && parentField.ref && parentField.ref !== "$self")) {
+    throw new Error(`${def.key}: scope.parent «${s.parent}» must be a reference field to another table`);
+  }
   c = {
     own,
     requester,
@@ -103,6 +109,7 @@ export function scopeColumns(def: TableDef): ScopeColumns {
     public: !!s.public,
     requesterWritable: s.requesterWritable ?? null,
     requesterTransitions: s.requesterTransitions ?? (s.requesterWritable ? [] : null),
+    parent: parentField ? { field: parentField.name, table: parentField.ref! } : null,
   };
   columns.set(def, c);
   return c;
@@ -212,6 +219,17 @@ export interface RowExtra {
    */
   boundedParticipant?: boolean;
   boundedGranted?: boolean;
+  /**
+   * parent-scoped rows (`scope.parent`): the subject may read the row's parent (checked in SQL with the parent's own
+   * rule). Unset counts as not readable: a row with a parent is never read without the parent's answer.
+   */
+  parentReadable?: boolean;
+}
+
+/** Does the parent rule of a parent-scoped row hold (no parent named, or the parent is readable)? */
+export function parentOk(c: ScopeColumns, row: Row, extra: RowExtra): boolean {
+  if (!c.parent) return true;
+  return idOf(row[c.parent.field]) === null || !!extra.parentReadable;
 }
 
 /** May `s` read `row` of `def`? */
@@ -221,6 +239,8 @@ export function canReadRow(s: Subject, def: TableDef, row: Row, extra: RowExtra 
   if (def.virtual) return true;
   const g = grantIn(s.eff, def.area);
   const c = scopeColumns(def);
+  // a parent-scoped row: only those who read its parent (whatever else opens the row)
+  if (!parentOk(c, row, extra)) return false;
   // the participant grant (approvers…): no role reads the area, the record names the subject; restrictions hold
   if (g.read === "none") {
     if (!domainOk(s, c, row) || !confidentialOk(s, c, row)) return false;
@@ -312,7 +332,7 @@ export const tableGrant = (s: Subject, def: TableDef): FullGrant => grantIn(s.ef
 // ----- explanation («بررسی دسترسی») ----------------------------------------------------------------------------
 
 export interface ExplainLayer {
-  key: "tenant" | "grant" | "public" | "domain" | "confidential" | "own" | "participant" | "scope" | "workspace" | "restricted" | "requester_side";
+  key: "tenant" | "grant" | "public" | "domain" | "confidential" | "parent" | "own" | "participant" | "scope" | "workspace" | "restricted" | "requester_side";
   label: string;
   /** passed, failed, or not applicable (null) */
   ok: boolean | null;
@@ -374,6 +394,17 @@ export function explainRow(s: Subject, def: TableDef, row: Row, extra: RowExtra 
         ? "کاربر عضو گروه، کارشناس، درخواست‌دهنده، در فهرست دسترسی یا دارای گروه فیلد لازم است"
         : "رکورد محرمانه است و کاربر جزو کسانی نیست که آن را می‌بینند",
   });
+  if (c.parent) {
+    const named = idOf(row[c.parent.field]) !== null;
+    const pOk = parentOk(c, row, extra);
+    const label = def.fields.find((f) => f.name === c.parent!.field)?.label ?? c.parent.field;
+    layers.push({
+      key: "parent",
+      label: "رکورد اصلی",
+      ok: named ? pOk : null,
+      detail: !named ? `«${label}» خالی است؛ قاعدهٔ خود ردیف کافی است` : pOk ? `کاربر «${label}» این ردیف را می‌بیند` : `کاربر «${label}» این ردیف را نمی‌بیند؛ ردیف‌های آن را هم نمی‌بیند`,
+    });
+  }
   const own = ownMatch(s, c, row);
   const fieldLabel = (n: string) => def.fields.find((f) => f.name === n.replace(/:delegate$/, ""))?.label ?? n;
   layers.push({

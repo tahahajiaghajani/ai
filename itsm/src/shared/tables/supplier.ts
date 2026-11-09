@@ -281,7 +281,7 @@ const contractLine: TableDef = {
     { name: "start_date", label: "از", type: "date", span: 6 },
     { name: "end_date", label: "تا", type: "date", span: 6 },
   ],
-  scope: {},
+  scope: { parent: "contract_id" },
   list: { columns: ["contract_id", "description", "quantity", "unit_price", "amount", "period"], order: "contract_id" },
 };
 
@@ -315,7 +315,7 @@ const contractCoverage: TableDef = {
     { name: "label", label: "پوشش", type: "string", system: true, maxLength: 300, search: true, audit: false, span: 24 },
     { name: "note", label: "یادداشت", type: "text", span: 24 },
   ],
-  scope: {},
+  scope: { parent: "contract_id" },
   list: { columns: ["contract_id", "target_kind", "asset_id", "ci_id", "coverage_level", "valid_to"], order: "-updated_at" },
 };
 
@@ -364,7 +364,7 @@ const contractObligation: TableDef = {
     { name: "reminded", label: "یادآوری‌های فرستاده", type: "json", system: true, hidden: true, audit: false },
   ],
   states: OBLIGATION_STATES,
-  scope: { own: ["owner_id"] },
+  scope: { own: ["owner_id"], parent: "contract_id" },
   features: { journal: true, attachments: true },
   list: { columns: ["number", "contract_id", "title", "party", "owner_id", "due_date", "state"], order: "due_date" },
 };
@@ -428,7 +428,7 @@ const contractGuarantee: TableDef = {
     { name: "reminded", label: "یادآوری‌های فرستاده", type: "json", system: true, hidden: true, audit: false },
   ],
   states: GUARANTEE_STATES,
-  scope: { own: ["owner_id"] },
+  scope: { own: ["owner_id"], parent: "contract_id" },
   features: { journal: true, attachments: true },
   list: { columns: ["number", "contract_id", "kind", "reference_no", "amount", "expiry_date", "state"], order: "expiry_date" },
 };

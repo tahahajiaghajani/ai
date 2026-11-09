@@ -26,7 +26,7 @@ import { assetTagFor, ciStatusOf, depreciation, matchSoftware, substateFor, type
 import { addJalaliMonths } from "@shared/supplier/logic";
 import { addDays } from "@shared/jalali";
 import { D, mul, round } from "@shared/money";
-import { addJournalIn, createIn, onBeforeCommit, registerHooks, transitionIn, updateIn, savepoint, type WriteArgs } from "../../engine";
+import { addJournalIn, createIn, onBeforeCommit, pushGuard, registerHooks, transitionIn, updateIn, savepoint, type PushArgs, type TableHooks, type WriteArgs } from "../../engine";
 import { access } from "../../access/provider";
 import { bad, conflict, forbidden } from "../../http/errors";
 import { enqueue } from "../../jobs";
@@ -660,91 +660,119 @@ const labelOf = async (w: WriteArgs, table: string, id: unknown) => {
   return r ? String(r.number ? `${r.number} — ${r.name ?? r.title ?? ""}` : r.name ?? r.title ?? "") : "";
 };
 
+// pure checks of definitions and lines (they only read; values they derive are the Windows app's on a push)
+const modelBefore = (w: WriteArgs) => {
+  if (w.op === "delete") return;
+  if (w.next.tracking === "quantity" && w.next.asset_class === "hardware") w.next.asset_class = "consumable";
+  if (w.next.end_of_sale && w.next.release_date && w.next.end_of_sale < w.next.release_date) throw bad("پایان فروش پیش از عرضه است");
+};
+async function stockroomBefore(w: WriteArgs): Promise<void> {
+  if (w.op === "delete" || !w.changed.has("parent_id") || !w.next.parent_id) return;
+  let cur: unknown = w.next.parent_id;
+  for (let i = 0; i < 30 && isUuid(cur); i++) {
+    if (cur === w.next.id) throw bad("انبار نمی‌تواند زیرمجموعهٔ خودش باشد");
+    cur = (await liveRow(w.tx, sysOf(w.ctx), "stockroom", cur))?.parent_id;
+  }
+}
+async function stockRuleBefore(w: WriteArgs): Promise<void> {
+  if (w.op === "delete") return;
+  const n = w.next;
+  if (n.max_qty !== null && n.max_qty !== undefined && Number(n.max_qty) < Number(n.min_qty ?? 0)) throw bad("سطح هدف از نقطهٔ سفارش کمتر است");
+  if (w.op === "create" || w.changed.has("model_id") || w.changed.has("stockroom_id")) n.label = `${await labelOf(w, "asset_model", n.model_id)} در ${await labelOf(w, "stockroom", n.stockroom_id)}`.slice(0, 300);
+}
+const reservationBefore = (w: WriteArgs) => {
+  if (w.op !== "delete" && w.next.from_date && w.next.to_date && w.next.to_date < w.next.from_date) throw bad("پایان رزرو پیش از شروع آن است");
+};
+const auditBefore = (w: WriteArgs) => {
+  if (w.op === "delete") return;
+  if (w.next.scope_kind === "location" ? !w.next.location_id : !w.next.stockroom_id) throw bad(w.next.scope_kind === "location" ? "مکان شمارش را مشخص کنید" : "انبار شمارش را مشخص کنید");
+};
+async function auditItemBefore(w: WriteArgs): Promise<void> {
+  await needParentWrite(w, "inventory_audit", "audit_id", { draftStates: ["planned", "in_progress"] });
+  if (w.op !== "delete" && (w.op === "create" || w.changed.has("asset_id")) && w.next.asset_id) w.next.label = (await labelOf(w, "asset", w.next.asset_id)).slice(0, 300);
+}
+async function catalogModelBefore(w: WriteArgs): Promise<void> {
+  if (w.op === "delete") return;
+  w.next.label = `${await labelOf(w, "catalog_item", w.next.catalog_item_id)} ← ${await labelOf(w, "asset_model", w.next.model_id)}`.slice(0, 300);
+}
+const subscriptionBefore = (w: WriteArgs) => {
+  if (w.op === "delete") return;
+  const n = w.next;
+  if ((w.changed.has("seats") || w.changed.has("cost_per_seat")) && n.cost_per_seat && !w.input?.has("annual_cost")) {
+    n.annual_cost = round(mul(n.cost_per_seat, Number(n.seats ?? 0) * (n.billing_cycle === "monthly" ? 12 : 1)), 0);
+  }
+};
+async function saasAccountBefore(w: WriteArgs): Promise<void> {
+  if (w.op === "delete") return;
+  if (!w.next.user_id && !w.next.email && !w.next.external_id) throw bad("کاربر، رایانامه یا شناسهٔ بیرونی حساب را وارد کنید");
+  w.next.label = `${await labelOf(w, "saas_subscription", w.next.subscription_id)} — ${w.next.email ?? w.next.external_id ?? ""}`.slice(0, 300);
+}
+
+/**
+ * The stock-movement and assignment ledgers a Windows app pushes: its own asset hooks wrote them there (as the
+ * system) when the member checked an asset out, in or moved it — the cloud runs no hooks for the pushed asset, so it
+ * takes these rows, but only from a member who may change the asset they record (a ledger row of an asset the member
+ * may not change is refused). A row that names no asset is the module's alone.
+ */
+function ledgerOnPush(label: string): (p: PushArgs) => Promise<string | null> {
+  return async (p) => {
+    const asset = isUuid(p.next.asset_id) ? await liveRow(p.tx, sysOf(p.ctx), "asset", p.next.asset_id) : null;
+    if (!asset) return `${label} را سامانه ثبت می‌کند و دستی تغییر نمی‌کند`;
+    if (!access().canWrite(p.ctx, tableDef("asset")!, asset)) return `${label} فقط از تغییر دارایی‌ای می‌آید که می‌توانید آن را تغییر دهید`;
+    if (p.prev && ["asset_id", "kind", "quantity", "model_id"].some((f) => p.changed.has(f))) return `${label} تغییر نمی‌کند`;
+    return null;
+  };
+}
+
+/** What the cloud computes itself (licence positions and their reconcile runs): never taken from a Windows app. */
+const computedOnPush = (label: string) => () => `${label} را تطبیق مجوزهای همین سامانه می‌سازد`;
+
 export function installItamHooks(): (() => void)[] {
   const off: (() => void)[] = [];
-  off.push(registerHooks("asset", { beforeWrite: assetBefore, afterWrite: assetAfter, guards: assetGuards }));
-  off.push(registerHooks("asset_model", {
-    beforeWrite(w) {
-      if (w.op === "delete") return;
-      if (w.next.tracking === "quantity" && w.next.asset_class === "hardware") w.next.asset_class = "consumable";
-      if (w.next.end_of_sale && w.next.release_date && w.next.end_of_sale < w.next.release_date) throw bad("پایان فروش پیش از عرضه است");
-    },
-  }));
-  off.push(registerHooks("stockroom", {
-    async beforeWrite(w) {
-      if (w.op === "delete" || !w.changed.has("parent_id") || !w.next.parent_id) return;
-      let cur: unknown = w.next.parent_id;
-      for (let i = 0; i < 30 && isUuid(cur); i++) {
-        if (cur === w.next.id) throw bad("انبار نمی‌تواند زیرمجموعهٔ خودش باشد");
-        cur = (await liveRow(w.tx, sysOf(w.ctx), "stockroom", cur))?.parent_id;
-      }
-    },
-  }));
-  off.push(registerHooks("stock_rule", {
-    async beforeWrite(w) {
-      if (w.op === "delete") return;
-      const n = w.next;
-      if (n.max_qty !== null && n.max_qty !== undefined && Number(n.max_qty) < Number(n.min_qty ?? 0)) throw bad("سطح هدف از نقطهٔ سفارش کمتر است");
-      if (w.op === "create" || w.changed.has("model_id") || w.changed.has("stockroom_id")) n.label = `${await labelOf(w, "asset_model", n.model_id)} در ${await labelOf(w, "stockroom", n.stockroom_id)}`.slice(0, 300);
-    },
+  // every module check also answers a Windows app's push (a push runs no beforeWrite): `pushGuard` asks the same hook
+  // of the pushed row — the hooks below only read and refuse; what they derive on the copy is dropped
+  const guarded = (table: string, before: (w: WriteArgs) => unknown, more: Omit<TableHooks, "beforeWrite" | "validatePush"> = {}) =>
+    off.push(registerHooks(table, { beforeWrite: before as TableHooks["beforeWrite"], validatePush: pushGuard(before), ...more }));
+  guarded("asset", assetBefore, { afterWrite: assetAfter, guards: assetGuards });
+  guarded("asset_model", modelBefore);
+  guarded("stockroom", stockroomBefore);
+  guarded("stock_rule", stockRuleBefore, {
     async afterWrite(w) {
       if (w.op !== "delete" && ["min_qty", "max_qty", "active", "model_id", "stockroom_id"].some((f) => w.changed.has(f)) || w.op === "create") {
         await enqueue(w.tx, { kind: "itam.stock_check", orgId: w.ctx.org.id, payload: {}, dedupeKey: "itam.stock_check", delayMs: 2000, maxAttempts: 3 });
       }
     },
-  }));
-  off.push(registerHooks("stock_movement", { beforeWrite: systemOnly("گردش انبار") }));
-  off.push(registerHooks("asset_assignment", { beforeWrite: systemOnly("تاریخچهٔ تحویل") }));
-  off.push(registerHooks("asset_acknowledgement", { beforeWrite: ackBefore, afterWrite: ackAfter }));
-  off.push(registerHooks("asset_reservation", {
-    beforeWrite(w) {
-      if (w.op !== "delete" && w.next.from_date && w.next.to_date && w.next.to_date < w.next.from_date) throw bad("پایان رزرو پیش از شروع آن است");
-    },
-  }));
-  off.push(registerHooks("inventory_audit", {
-    beforeWrite(w) {
-      if (w.op === "delete") return;
-      if (w.next.scope_kind === "location" ? !w.next.location_id : !w.next.stockroom_id) throw bad(w.next.scope_kind === "location" ? "مکان شمارش را مشخص کنید" : "انبار شمارش را مشخص کنید");
-    },
-    afterWrite: auditAfter,
-  }));
-  off.push(registerHooks("inventory_audit_item", {
-    async beforeWrite(w) {
-      await needParentWrite(w, "inventory_audit", "audit_id", { draftStates: ["planned", "in_progress"] });
-      if (w.op !== "delete" && (w.op === "create" || w.changed.has("asset_id")) && w.next.asset_id) w.next.label = (await labelOf(w, "asset", w.next.asset_id)).slice(0, 300);
-    },
-  }));
-  off.push(registerHooks("repair_order", { beforeWrite: repairBefore, afterWrite: repairAfter }));
+  });
+  off.push(registerHooks("stock_movement", { beforeWrite: systemOnly("گردش انبار"), validatePush: ledgerOnPush("گردش انبار") }));
+  off.push(registerHooks("asset_assignment", { beforeWrite: systemOnly("تاریخچهٔ تحویل"), validatePush: ledgerOnPush("تاریخچهٔ تحویل") }));
+  guarded("asset_acknowledgement", ackBefore, { afterWrite: ackAfter });
+  guarded("asset_reservation", reservationBefore);
+  guarded("inventory_audit", auditBefore, { afterWrite: auditAfter });
+  guarded("inventory_audit_item", auditItemBefore);
+  guarded("repair_order", repairBefore, { afterWrite: repairAfter });
   off.push(registerHooks("disposal_order", { afterWrite: disposalAfter, guards: disposalGuards }));
-  off.push(registerHooks("disposal_item", { beforeWrite: disposalItemBefore, afterWrite: disposalItemAfter }));
-  off.push(registerHooks("catalog_item_model", {
-    async beforeWrite(w) {
-      if (w.op === "delete") return;
-      w.next.label = `${await labelOf(w, "catalog_item", w.next.catalog_item_id)} ← ${await labelOf(w, "asset_model", w.next.model_id)}`.slice(0, 300);
-    },
-  }));
+  guarded("disposal_item", disposalItemBefore, { afterWrite: disposalItemAfter });
+  guarded("catalog_item_model", catalogModelBefore);
   off.push(registerHooks("purchase_requisition", { guards: { requisition_has_lines: procurementGuards.requisition_has_lines } }));
-  off.push(registerHooks("purchase_requisition_line", {
-    beforeWrite: requisitionLineBefore,
+  guarded("purchase_requisition_line", requisitionLineBefore, {
     async afterWrite(w) {
       await rollupTotal(w.tx, w.ctx, "purchase_requisition", "purchase_requisition_line", "requisition_id", String(w.next?.requisition_id ?? w.prev?.requisition_id));
     },
-  }));
+  });
   off.push(registerHooks("purchase_order", { guards: { po_has_lines: procurementGuards.po_has_lines } }));
-  off.push(registerHooks("purchase_order_line", {
-    beforeWrite: poLineBefore,
+  guarded("purchase_order_line", poLineBefore, {
     async afterWrite(w) {
       await rollupTotal(w.tx, w.ctx, "purchase_order", "purchase_order_line", "po_id", String(w.next?.po_id ?? w.prev?.po_id));
     },
-  }));
+  });
   off.push(registerHooks("goods_receipt", {
     async afterWrite(w) {
       if (w.op !== "delete" && entering(w, "posted")) await postReceipt(w);
     },
     guards: { receipt_can_post: procurementGuards.receipt_can_post },
   }));
-  off.push(registerHooks("goods_receipt_line", { beforeWrite: receiptLineBefore }));
-  off.push(registerHooks("software_install", { beforeWrite: installBefore, afterWrite: queueReconcile }));
+  guarded("goods_receipt_line", receiptLineBefore);
+  guarded("software_install", installBefore, { afterWrite: queueReconcile });
   off.push(registerHooks("software_model", {
     async afterWrite(w) {
       if (w.op === "create" || ["match_patterns", "publisher_patterns", "exclude_patterns", "license_metric", "list_price"].some((f) => w.changed.has(f))) {
@@ -752,29 +780,16 @@ export function installItamHooks(): (() => void)[] {
       }
     },
   }));
-  off.push(registerHooks("license_entitlement", { beforeWrite: entitlementBefore, afterWrite: queueReconcile }));
-  off.push(registerHooks("license_allocation", { beforeWrite: allocationBefore, afterWrite: queueReconcile }));
-  off.push(registerHooks("license_position", { beforeWrite: systemOnly("وضعیت مجوزها") }));
-  off.push(registerHooks("license_reconcile_run", { beforeWrite: systemOnly("اجرای تطبیق مجوزها") }));
-  off.push(registerHooks("saas_subscription", {
-    beforeWrite(w) {
-      if (w.op === "delete") return;
-      const n = w.next;
-      if ((w.changed.has("seats") || w.changed.has("cost_per_seat")) && n.cost_per_seat && !w.input?.has("annual_cost")) {
-        n.annual_cost = round(mul(n.cost_per_seat, Number(n.seats ?? 0) * (n.billing_cycle === "monthly" ? 12 : 1)), 0);
-      }
-    },
-  }));
-  off.push(registerHooks("saas_account", {
-    async beforeWrite(w) {
-      if (w.op === "delete") return;
-      if (!w.next.user_id && !w.next.email && !w.next.external_id) throw bad("کاربر، رایانامه یا شناسهٔ بیرونی حساب را وارد کنید");
-      w.next.label = `${await labelOf(w, "saas_subscription", w.next.subscription_id)} — ${w.next.email ?? w.next.external_id ?? ""}`.slice(0, 300);
-    },
+  guarded("license_entitlement", entitlementBefore, { afterWrite: queueReconcile });
+  guarded("license_allocation", allocationBefore, { afterWrite: queueReconcile });
+  off.push(registerHooks("license_position", { beforeWrite: systemOnly("وضعیت مجوزها"), validatePush: computedOnPush("وضعیت مجوزها") }));
+  off.push(registerHooks("license_reconcile_run", { beforeWrite: systemOnly("اجرای تطبیق مجوزها"), validatePush: computedOnPush("اجرای تطبیق مجوزها") }));
+  guarded("saas_subscription", subscriptionBefore);
+  guarded("saas_account", saasAccountBefore, {
     async afterWrite(w) {
       await seatsRollup(w.tx, w.ctx, String(w.next?.subscription_id ?? w.prev?.subscription_id));
     },
-  }));
+  });
   return off;
 }
 

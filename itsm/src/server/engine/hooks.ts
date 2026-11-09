@@ -94,8 +94,9 @@ export interface TableHooks {
   validatePush?(p: PushArgs): Promise<HookResult> | HookResult;
   /**
    * A record a member pushed from a Windows app: the values of the fields the module derives from other data (compiled
-   * audiences, access flags…), as the cloud computes them — they are never taken from the push. Runs before
-   * `validatePush`; never for the system.
+   * audiences, access flags…), as the cloud computes them — they are never taken from the push. Base columns are
+   * never set this way except the access anchors `unit_id` / `domain_id` a module copies (an alert's from its CI).
+   * Runs before `validatePush`; never for the system.
    */
   derivePush?(p: PushArgs): Promise<Row | null | void> | Row | null | void;
   /**

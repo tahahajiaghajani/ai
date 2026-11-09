@@ -888,7 +888,7 @@ const requisitionLine: TableDef = {
     { name: "unit_price", label: "بهای واحد", type: "money", list: true, span: 8, group: "financial", help: "خالی: بهای استاندارد مدل" },
     { name: "amount", label: "مبلغ", type: "money", readonly: true, list: true, span: 8, group: "financial" },
   ],
-  scope: {},
+  scope: { parent: "requisition_id" },
   list: { columns: ["requisition_id", "model_id", "description", "quantity", "unit_price", "amount"], order: "requisition_id" },
 };
 
@@ -972,7 +972,7 @@ const poLine: TableDef = {
     { name: "amount", label: "مبلغ", type: "money", readonly: true, list: true, span: 6, group: "financial" },
     { name: "requisition_line_id", label: "قلم درخواست خرید", type: "ref", ref: "purchase_requisition_line", readonly: true, span: 12 },
   ],
-  scope: {},
+  scope: { parent: "po_id" },
   list: { columns: ["po_id", "line_no", "model_id", "description", "quantity", "received_qty", "amount"], order: "line_no" },
 };
 
@@ -1033,7 +1033,7 @@ const receiptLine: TableDef = {
     { name: "asset_tags", label: "برچسب‌های اموال", type: "text", ltr: true, span: 12, help: "اختیاری؛ هر خط یک برچسب، هم‌ترتیب با سریال‌ها" },
     { name: "label", label: "شرح", type: "string", system: true, maxLength: 300, search: true, audit: false },
   ],
-  scope: {},
+  scope: { parent: "receipt_id" },
   list: { columns: ["receipt_id", "po_line_id", "model_id", "quantity"], order: "receipt_id" },
 };
 

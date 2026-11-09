@@ -13,7 +13,7 @@
 import { noiseLabel, patternProblem, priorityOf, impactOfCriticality } from "@shared/event/logic";
 import { rotationProblem } from "@shared/event/oncall";
 import { ALERT_OPEN_STATES, SEVERITY_ORDER } from "@shared/tables/event";
-import { registerHooks, updateIn, validationError, actorId, type WriteArgs } from "../../engine";
+import { pushGuard, registerHooks, updateIn, validationError, actorId, type PushArgs, type WriteArgs } from "../../engine";
 import { servicesImpactedBy } from "../cmdb/impact";
 import { eventConfig, idList, isUuid, liveRow, liveRows, msOf, sysOf, type Row } from "./common";
 import { stopEscalation } from "./escalation";
@@ -177,15 +177,27 @@ async function policyAfter(w: WriteArgs): Promise<void> {
 /** Alerts that are open (not done) — for other modules' checks. */
 export const isOpenAlert = (row: Row) => ALERT_OPEN_STATES.includes(String(row.state));
 
+/**
+ * A Windows app's pushed alert: its access anchors (`unit_id`, `domain_id` — the teams of a company or domain read
+ * their alerts by them) are the CI's, as the cloud reads it, never the push's; an alert whose CI did not change keeps
+ * the stored ones.
+ */
+async function alertAnchorsOnPush(p: PushArgs): Promise<Row> {
+  if (p.prev && !p.changed.has("ci_id")) return { unit_id: p.prev.unit_id ?? null, domain_id: p.prev.domain_id ?? null };
+  const ci = isUuid(p.next.ci_id) ? await liveRow(p.tx, sysOf(p.ctx), "ci", p.next.ci_id) : null;
+  return { unit_id: ci?.unit_id ?? null, domain_id: ci?.domain_id ?? null };
+}
+
 export function installEventHooks(): (() => void)[] {
+  // a Windows app's push runs no beforeWrite: the definitions' pure checks are asked of the pushed row (pushGuard)
   return [
-    registerHooks("alert", { beforeWrite: alertBefore, afterWrite: alertAfter }),
-    registerHooks("event_source", { beforeWrite: sourceBefore }),
-    registerHooks("event_rule", { beforeWrite: ruleBefore }),
-    registerHooks("correlation_rule", { beforeWrite: correlationBefore }),
-    registerHooks("oncall_rotation", { beforeWrite: rotationBefore }),
-    registerHooks("oncall_override", { beforeWrite: overrideBefore }),
-    registerHooks("escalation_level", { beforeWrite: levelBefore }),
+    registerHooks("alert", { beforeWrite: alertBefore, afterWrite: alertAfter, derivePush: alertAnchorsOnPush }),
+    registerHooks("event_source", { beforeWrite: sourceBefore, validatePush: pushGuard(sourceBefore) }),
+    registerHooks("event_rule", { beforeWrite: ruleBefore, validatePush: pushGuard(ruleBefore) }),
+    registerHooks("correlation_rule", { beforeWrite: correlationBefore, validatePush: pushGuard(correlationBefore) }),
+    registerHooks("oncall_rotation", { beforeWrite: rotationBefore, validatePush: pushGuard(rotationBefore) }),
+    registerHooks("oncall_override", { beforeWrite: overrideBefore, validatePush: pushGuard(overrideBefore) }),
+    registerHooks("escalation_level", { beforeWrite: levelBefore, validatePush: pushGuard(levelBefore) }),
     registerHooks("escalation_policy", { afterWrite: policyAfter }),
   ];
 }

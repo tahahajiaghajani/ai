@@ -246,6 +246,13 @@ export interface ScopeFields {
   confidentialGroup?: FieldGroup;
   /** reference data (org structure, roles…): whoever may read the area at all reads every row; writes follow the grants */
   public?: boolean;
+  /**
+   * Parent-scoped child rows (the lines of a confidential contract, a budget's lines): the reference field naming the
+   * parent record. A row is read only by those who may read its parent as well — the parent's whole read rule
+   * (confidentiality, access list, owners, scope) is added to the row's own; a row whose parent is empty keeps its own
+   * rule. Writes are the module's (it asks for the parent's write). docs/spec/ACCESS.md §7.
+   */
+  parent?: string;
 }
 
 /** Records of another table that point at this one, listed on the form (e.g. a problem's incidents). */

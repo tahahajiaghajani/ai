@@ -13,7 +13,7 @@ import { tableDef } from "@shared/tables";
 import type { TableDef } from "@shared/model/types";
 import { FIELD_GROUPS, type FieldGroup } from "@shared/model/types";
 import {
-  areas, builtinRoles, compactGrant, diffRole, explainRow, fullGrant, grantIn, hiddenFields, isBuiltinRole,
+  areas, builtinRoles, compactGrant, diffRole, explainRow, fullGrant, grantIn, hiddenFields, isBuiltinRole, scopeColumns,
   PERSONA_PRESETS, roleClosure, writeMode, DESK_PRESETS,
   type DeskPreset, type FullGrant, type Grants, type Persona, type RoleChange, type RoleDef, type RowExplanation, type RowExtra, type Subject,
 } from "@shared/access";
@@ -548,7 +548,7 @@ export async function checkAccess(ctx: Ctx, input: { user_id: string; table: str
     // the checker never tells about a record its user may not read
     const mine = await requireReadable(ctx, def, input.record_id, await condEnv(ctx));
     const row = await ctx.db.one<Record<string, unknown>>(`select * from ${def.table} where id = $1 and org_id = $2`, [mine.id, ctx.org.id]);
-    const explanation = explainRow(s, def, row!, await participantOf(ctx.db, s, def, String(mine.id)));
+    const explanation = explainRow(s, def, row!, { ...(await participantOf(ctx.db, s, def, String(mine.id))), ...(await parentOf(ctx.db, s, def, row!)) });
     const params: unknown[] = [String(mine.id)];
     const sql = readSql(s, def, "t", params);
     const probe = await ctx.db.one(`select 1 from ${def.table} t where t.id = $1 and ${sql}`, params);
@@ -571,7 +571,19 @@ export async function checkAccess(ctx: Ctx, input: { user_id: string; table: str
  */
 export async function explainAccess(ctx: Ctx, def: TableDef, row: Record<string, unknown>): Promise<RowExplanation> {
   const s = (await prepareSubject(ctx)).subject;
-  return explainRow(s, def, row, row.id ? await participantOf(ctx.db, s, def, String(row.id)) : {});
+  return explainRow(s, def, row, { ...(row.id ? await participantOf(ctx.db, s, def, String(row.id)) : {}), ...(await parentOf(ctx.db, s, def, row)) });
+}
+
+/** A parent-scoped row (`scope.parent`): may the subject read the parent it names (the parent's rule, in SQL)? */
+async function parentOf(q: Queryable, s: Subject, def: TableDef, row: Record<string, unknown>): Promise<RowExtra> {
+  const parent = scopeColumns(def).parent;
+  const id = parent ? row[parent.field] : null;
+  if (!parent || typeof id !== "string" || !id) return {};
+  const pdef = tableDef(parent.table);
+  if (!pdef) return { parentReadable: false };
+  const params: unknown[] = [id];
+  const sql = readSql(s, pdef, "p", params);
+  return { parentReadable: !!(await q.one(`select 1 from ${pdef.table} p where p.id = $1 and ${sql}`, params)) };
 }
 
 /**

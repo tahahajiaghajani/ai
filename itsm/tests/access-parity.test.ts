@@ -11,8 +11,30 @@ import { migrate } from "@server/db/migrate";
 import type { Db } from "@server/db";
 import { buildSubject, loadOrgSnapshot, readSql, registerParticipantSource, writeSql } from "@server/access";
 import { canReadRow, composeEffective, grantIn, roleCatalog, scopeColumns, scopeMatch, writeMode, SCOPES, type Subject } from "@shared/access";
-import { tableDef } from "@shared/tables";
+import { registerTable, tableDef } from "@shared/tables";
 import type { TableDef } from "@shared/model/types";
+
+// parent-scoped children (`scope.parent`): a line of a ticket and a note of a line (two levels), each with its own rule
+const LINE: TableDef = registerTable({
+  key: "acc_ticket_line", table: "sm_acc_ticket_lines", label: "سطر تیکت", plural: "سطرهای تیکت", icon: "list", module: "test", area: "incident",
+  display: "name",
+  fields: [
+    { name: "name", label: "نام", type: "string" },
+    { name: "ticket_id", label: "تیکت", type: "ref", ref: "acc_ticket" },
+    { name: "owner_id", label: "مسئول", type: "user" },
+    { name: "group_id", label: "گروه", type: "group" },
+  ],
+  scope: { own: ["owner_id"], group: "group_id", parent: "ticket_id" },
+});
+const NOTE: TableDef = registerTable({
+  key: "acc_line_note", table: "sm_acc_line_notes", label: "یادداشت سطر", plural: "یادداشت‌های سطر", icon: "note", module: "test", area: "incident",
+  display: "name",
+  fields: [
+    { name: "name", label: "نام", type: "string" },
+    { name: "line_id", label: "سطر", type: "ref", ref: "acc_ticket_line" },
+  ],
+  scope: { parent: "line_id" },
+});
 
 let db: Db;
 
@@ -272,6 +294,79 @@ describe("SQL predicate == in-memory evaluator with participants and readers", (
       const named = { ...plain, resolved_by: u };
       expect(canReadRow(subject, READERS, named)).toBe(true);
       expect(writeMode(subject, READERS, named)).toBe(writeMode(subject, READERS, plain));
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+});
+
+
+// Parent-scoped children: the SQL rule of a line (its own terms and an `exists` on the ticket's whole rule) equals the
+// JS rule given the ticket's own JS verdict as `parentReadable` — and a note of a line follows the line the same way,
+// so SQL == JS holds two levels down. A line or note without a parent keeps its own rule.
+describe("SQL predicate == in-memory evaluator for parent-scoped children", () => {
+  for (const seed of [101, 113, 127]) {
+    it(`agrees on lines and notes of random tickets (seed ${seed})`, async () => {
+      const { org, users, roles } = await generate(seed);
+      const r = rng(seed * 7);
+      const tickets = await db.query<Record<string, unknown>>(`select * from ${TICKET.table} where org_id = $1`, [org]);
+      const groups = (await db.query<{ id: string }>(`select id from sm_groups where org_id = $1`, [org])).map((g) => g.id);
+      const lineIds: string[] = [];
+      for (let i = 0; i < 120; i++) {
+        const id = uid(r);
+        lineIds.push(id);
+        await db.query(`insert into ${LINE.table} (id, org_id, name, ticket_id, owner_id, group_id, unit_id) values ($1, $2, 'سطر', $3, $4, $5, $6)`, [
+          id, org, r.chance(0.9) ? String(r.pick(tickets).id) : null, r.maybe(users, 0.3), r.maybe(groups, 0.4), null,
+        ]);
+      }
+      for (let i = 0; i < 80; i++) {
+        await db.query(`insert into ${NOTE.table} (id, org_id, name, line_id) values ($1, $2, 'یادداشت', $3)`, [uid(r), org, r.chance(0.9) ? r.pick(lineIds) : null]);
+      }
+      const lines = await db.query<Record<string, unknown>>(`select * from ${LINE.table} where org_id = $1`, [org]);
+      const notes = await db.query<Record<string, unknown>>(`select * from ${NOTE.table} where org_id = $1`, [org]);
+      const ticketById = new Map(tickets.map((t) => [String(t.id), t]));
+      const lineById = new Map(lines.map((l) => [String(l.id), l]));
+      const snap = await loadOrgSnapshot(db, org);
+      let parentDenied = 0;
+      let read = 0;
+      for (const [i, u] of users.entries()) {
+        for (const domainSeparation of [false, true]) {
+          const { subject: s } = buildSubject(snap, { domainSeparation, preset: "need_to_know" }, org, u, roles[i], null);
+          const ticketOk = (id: unknown) => (typeof id === "string" && ticketById.has(id) ? canReadRow(s, TICKET, ticketById.get(id)!) : false);
+          const lineOk = (row: Record<string, unknown>) => canReadRow(s, LINE, row, { parentReadable: ticketOk(row.ticket_id) });
+          const noteOk = (row: Record<string, unknown>) => canReadRow(s, NOTE, row, { parentReadable: typeof row.line_id === "string" && lineById.has(row.line_id) ? lineOk(lineById.get(row.line_id)!) : false });
+          for (const [def, rows, ok] of [[LINE, lines, lineOk], [NOTE, notes, noteOk]] as const) {
+            const params: unknown[] = [s.orgId];
+            const sql = await ids(`select t.id from ${def.table} t where t.org_id = $1 and ${readSql(s, def, "t", params)}`, params);
+            expect(sql, `read ${def.key} user=${u} sep=${domainSeparation}`).toEqual(rows.filter((row) => ok(row)).map((x) => String(x.id)).sort());
+            read += sql.length;
+            // the parent rule only ever narrows: never a row the child's own rule (parent readable) would refuse
+            for (const row of rows) {
+              if (!ok(row) && canReadRow(s, def, row, { parentReadable: true })) parentDenied++;
+            }
+          }
+        }
+      }
+      // the organisations exercise both outcomes, and rows refused only because of their parent
+      expect(read).toBeGreaterThan(0);
+      expect(parentDenied).toBeGreaterThan(0);
+    });
+  }
+
+  it("a child whose parent is unreadable is refused even to someone its own rule names", async () => {
+    const { org, users, roles } = await generate(131);
+    const snap = await loadOrgSnapshot(db, org);
+    const [ticket] = await db.query<Record<string, unknown>>(`select * from ${TICKET.table} where org_id = $1 order by no limit 1`, [org]);
+    let checked = 0;
+    for (const [i, u] of users.entries()) {
+      const { subject: s } = buildSubject(snap, { domainSeparation: false, preset: "need_to_know" }, org, u, roles[i], null);
+      if (grantIn(s.eff, "incident").read === "none") continue;
+      const line = { id: uid(rng(i + 1)), org_id: org, ticket_id: ticket.id, owner_id: u, group_id: null };
+      expect(canReadRow(s, LINE, line, { parentReadable: true })).toBe(true);
+      expect(canReadRow(s, LINE, line, { parentReadable: false })).toBe(false);
+      // the JS form never assumes the parent: an unset verdict is a refusal
+      expect(canReadRow(s, LINE, line)).toBe(false);
+      expect(canReadRow(s, LINE, { ...line, ticket_id: null })).toBe(true);
       checked++;
     }
     expect(checked).toBeGreaterThan(0);

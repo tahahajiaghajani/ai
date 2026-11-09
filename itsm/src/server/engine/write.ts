@@ -22,6 +22,8 @@ import type { Ctx } from "../context";
 import type { Tx } from "../db";
 import { AppError, conflict, forbidden } from "../http/errors";
 import { access } from "../access/provider";
+import { scopeColumns } from "@shared/access";
+import { physicalTables } from "@shared/tables";
 import { actorId, condEnv, isSystemCtx } from "./env";
 import { orgSchema, type OrgSchema } from "./schema";
 import { checkRefs, coerceValue, isEmpty, KEEP, Problems, sealSecret, validateRow, type ValueContext } from "./values";
@@ -460,8 +462,46 @@ async function updateRow(tx: Tx, ctx: Ctx, def: TableDef, prev: Row, next: Row, 
   return (await tx.one<Row>(`update ${def.table} set ${sets.join(", ")} where id = $${params.length - 1} and org_id = $${params.length} returning *`, params))!;
 }
 
+/** Parent-scoped tables (`scope.parent`) by the parent table they follow. */
+let scopedChildren: Map<string, { table: string; field: string }[]> | null = null;
+let scopedOf = 0;
+function childrenOf(parent: string): { table: string; field: string }[] {
+  const tables = physicalTables();
+  if (!scopedChildren || scopedOf !== tables.length) {
+    scopedChildren = new Map();
+    scopedOf = tables.length;
+    for (const d of tables) {
+      const p = scopeColumns(d).parent;
+      if (p) scopedChildren.set(p.table, [...(scopedChildren.get(p.table) ?? []), { table: d.table, field: p.field }]);
+    }
+  }
+  return scopedChildren.get(parent) ?? [];
+}
+
+/** The columns of a row that decide who reads it (scope fields, confidentiality, its own parent). */
+function accessColumns(def: TableDef): string[] {
+  const c = scopeColumns(def);
+  return [...c.own, ...c.requester, ...c.readers].map((f) => f.name).concat(
+    [c.watchers, c.group, c.unit, c.domain, c.workspace, c.confidential ? "confidential" : null, c.accessList, c.parent?.field ?? null].filter((x): x is string => !!x),
+  );
+}
+
+/**
+ * A parent whose readers changed (made confidential, another owner, another group…): its parent-scoped children get
+ * a new sync revision (cloud only), so every Windows app re-reads them through the parent's new rule — a child the
+ * account may no longer read goes down as a tombstone. Grandchildren follow through their own parent's touch.
+ */
+async function touchScopedChildren(tx: Tx, def: TableDef, op: WriteOp, prev: Row | null, changed: Set<string>, id: string): Promise<void> {
+  const kids = childrenOf(def.key);
+  if (!kids.length || !prev || (op !== "delete" && !accessColumns(def).some((n) => changed.has(n)))) return;
+  for (const k of kids) {
+    await tx.query(`update ${k.table} set rev = rev where ${k.field} = $1 and deleted_at is null and coalesce(current_setting('itsm.mode', true), '') <> 'desktop'`, [id]);
+  }
+}
+
 /** The events of a write (record.created / updated / state_changed / assigned / deleted). */
 export async function recordEvents(tx: Tx, ctx: Ctx, def: TableDef, op: WriteOp, prev: Row | null, row: Row, changed: Set<string>, opts: { via?: WriteOptions["via"] } = {}): Promise<void> {
+  await touchScopedChildren(tx, def, op, prev, changed, String(row.id));
   const base = { table: def.key, id: String(row.id), number: def.numbered ? (row.number ?? formatNumber(def, row.no)) : null, via: opts.via ?? "api" };
   if (op === "delete") {
     await emitEvent(tx, ctx, { ...base, kind: "record.deleted" });

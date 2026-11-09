@@ -7,6 +7,7 @@ import type { TableDef } from "@shared/model/types";
 import {
   grantIn, restrictedOutside, scopeColumns, secureOutside, type Scope, type ScopeColumns, type Subject,
 } from "@shared/access";
+import { tableDef } from "@shared/tables";
 import { pgArray, type Queryable } from "../db";
 
 /**
@@ -243,7 +244,26 @@ export function readSql(s: Subject, def: TableDef, alias: string, params: unknow
   return compact(readTerms(s, def, alias, params), params, start);
 }
 
-function readTerms(s: Subject, def: TableDef, alias: string, params: unknown[]): string {
+/**
+ * A parent-scoped table's rule (`scope.parent`): its own terms and, when the row names a parent, the parent's whole
+ * read rule on that parent (`exists`) — the SQL twin of `parentOk` with `parentReadable` (evaluate.ts).
+ */
+function readTerms(s: Subject, def: TableDef, alias: string, params: unknown[], depth = 0): string {
+  const own = rowTerms(s, def, alias, params);
+  if (s.kind === "system" || def.virtual || own === "false") return own;
+  const parent = scopeColumns(def).parent;
+  if (!parent) return own;
+  const pdef = tableDef(parent.table);
+  const col = `${alias}.${parent.field}`;
+  // a parent the schema does not know, or a cycle of parents, reads nothing (never the child's rule alone)
+  if (!pdef || pdef.virtual || depth > 4) return and([own, `${col} is null`]);
+  const pa = `${alias}_p`;
+  const inner = readTerms(s, pdef, pa, params, depth + 1);
+  const term = inner === "false" ? `${col} is null` : `(${col} is null or exists (select 1 from ${pdef.table} ${pa} where ${pa}.id = ${col} and ${inner}))`;
+  return and([own, term]);
+}
+
+function rowTerms(s: Subject, def: TableDef, alias: string, params: unknown[]): string {
   params.push(s.orgId);
   const org = `${alias}.org_id = $${params.length}`;
   if (s.kind === "system" || def.virtual) return org;

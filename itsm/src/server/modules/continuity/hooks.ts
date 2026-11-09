@@ -11,7 +11,7 @@
 import { addSample, biaProblem, capacityStatus, cleanImpacts, exhaustionAt, exerciseOutcome, proposedRto } from "@shared/continuity/logic";
 import { todayISO } from "@shared/jalali";
 import { shiftJalaliMonths } from "@shared/change/logic";
-import { registerHooks, updateIn, validationError, actorId, orgTz, type WriteArgs } from "../../engine";
+import { pushGuard, registerHooks, updateIn, validationError, actorId, orgTz, type WriteArgs } from "../../engine";
 import { notifyPeople } from "../notify";
 import { continuityConfig, isUuid, liveRow, liveRows, msOf, sysOf } from "./common";
 
@@ -155,10 +155,12 @@ async function exerciseAfter(w: WriteArgs): Promise<void> {
 
 export function installContinuityHooks(): (() => void)[] {
   return [
-    registerHooks("outage", { beforeWrite: outageBefore }),
-    registerHooks("capacity_record", { beforeWrite: capacityBefore, afterWrite: capacityAfter }),
-    registerHooks("bia", { beforeWrite: biaBefore }),
-    registerHooks("continuity_plan", { beforeWrite: planBefore }),
-    registerHooks("exercise", { beforeWrite: exerciseBefore, afterWrite: exerciseAfter }),
+    // a Windows app's push runs no beforeWrite: the same checks are asked of the pushed row (pushGuard: the hooks only
+    // read, their derived values on the copy are dropped — the Windows app computed them with the same code)
+    registerHooks("outage", { beforeWrite: outageBefore, validatePush: pushGuard(outageBefore) }),
+    registerHooks("capacity_record", { beforeWrite: capacityBefore, afterWrite: capacityAfter, validatePush: pushGuard(capacityBefore) }),
+    registerHooks("bia", { beforeWrite: biaBefore, validatePush: pushGuard(biaBefore) }),
+    registerHooks("continuity_plan", { beforeWrite: planBefore, validatePush: pushGuard(planBefore) }),
+    registerHooks("exercise", { beforeWrite: exerciseBefore, afterWrite: exerciseAfter, validatePush: pushGuard(exerciseBefore) }),
   ];
 }

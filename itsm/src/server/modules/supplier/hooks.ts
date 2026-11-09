@@ -13,7 +13,7 @@ import { tableDef } from "@shared/tables";
 import { noticeDate, addJalaliMonths } from "@shared/supplier/logic";
 import { COVERAGE_KINDS } from "@shared/tables/supplier";
 import { D, mul, round } from "@shared/money";
-import { createIn, registerHooks, transitionIn, updateIn, type WriteArgs } from "../../engine";
+import { createIn, pushGuard, registerHooks, transitionIn, updateIn, type WriteArgs } from "../../engine";
 import { access } from "../../access/provider";
 import { bad, conflict, forbidden } from "../../http/errors";
 import { isUuid, liveRow, liveRows, orgToday, sysOf } from "../itam/common";
@@ -119,11 +119,24 @@ async function obligationAfter(w: WriteArgs): Promise<void> {
   await createIn(w.tx, sys, "contract_obligation", { contract_id: w.next.contract_id, title: w.next.title, party: w.next.party, owner_id: w.next.owner_id, due_date: due, recurrence: w.next.recurrence, description: w.next.description ?? null }, { trusted: true });
 }
 
+const reviewBefore = (w: WriteArgs) => {
+  if (w.op === "delete") return;
+  const xs = ["quality", "delivery", "communication", "value_for_money"].map((f) => Number(w.next[f] ?? 0)).filter((x) => x > 0);
+  w.next.overall = xs.length ? D(xs.reduce((a, b) => a + b, 0)).div(xs.length).toDecimalPlaces(2).toString() : null;
+};
+const supplierBefore = (w: WriteArgs) => {
+  if (w.op === "delete") return;
+  if (w.next.national_id && !/^\d{10,11}$/.test(String(w.next.national_id))) throw bad("شناسهٔ ملی باید ۱۰ یا ۱۱ رقم باشد");
+};
+
 export function installSupplierHooks(): (() => void)[] {
+  // a Windows app's push runs no beforeWrite: the same checks (a contract's lines, coverage, obligations and
+  // guarantees are changed only by those who may change the contract) are asked of the pushed row with `pushGuard`
   return [
     registerHooks("contract", {
       beforeWrite: contractBefore,
       afterWrite: contractAfter,
+      validatePush: pushGuard(contractBefore),
       guards: {
         contract_can_activate: async (w) => {
           if (!w.next.start_date || !w.next.end_date) return "تاریخ شروع و پایان قرارداد را وارد کنید";
@@ -134,28 +147,19 @@ export function installSupplierHooks(): (() => void)[] {
         },
       },
     }),
-    registerHooks("contract_line", { beforeWrite: lineBefore }),
-    registerHooks("contract_coverage", { beforeWrite: coverageBefore }),
-    registerHooks("contract_obligation", { beforeWrite: obligationBefore, afterWrite: obligationAfter }),
-    registerHooks("contract_guarantee", { beforeWrite: guaranteeBefore }),
-    registerHooks("supplier_review", {
-      beforeWrite(w) {
-        if (w.op === "delete") return;
-        const xs = ["quality", "delivery", "communication", "value_for_money"].map((f) => Number(w.next[f] ?? 0)).filter((x) => x > 0);
-        w.next.overall = xs.length ? D(xs.reduce((a, b) => a + b, 0)).div(xs.length).toDecimalPlaces(2).toString() : null;
-      },
-    }),
+    registerHooks("contract_line", { beforeWrite: lineBefore, validatePush: pushGuard(lineBefore) }),
+    registerHooks("contract_coverage", { beforeWrite: coverageBefore, validatePush: pushGuard(coverageBefore) }),
+    registerHooks("contract_obligation", { beforeWrite: obligationBefore, afterWrite: obligationAfter, validatePush: pushGuard(obligationBefore) }),
+    registerHooks("contract_guarantee", { beforeWrite: guaranteeBefore, validatePush: pushGuard(guaranteeBefore) }),
+    registerHooks("supplier_review", { beforeWrite: reviewBefore }),
     registerHooks("supplier_scorecard", {
       beforeWrite(w) {
         if (!isSys(w)) throw forbidden("کارنامهٔ تأمین‌کننده را سامانه محاسبه می‌کند");
       },
+      // each runtime computes its own scorecards; a Windows app's are never taken
+      validatePush: () => "کارنامهٔ تأمین‌کننده را سامانه محاسبه می‌کند",
     }),
-    registerHooks("supplier", {
-      beforeWrite(w) {
-        if (w.op === "delete") return;
-        if (w.next.national_id && !/^\d{10,11}$/.test(String(w.next.national_id))) throw bad("شناسهٔ ملی باید ۱۰ یا ۱۱ رقم باشد");
-      },
-    }),
+    registerHooks("supplier", { beforeWrite: supplierBefore, validatePush: pushGuard(supplierBefore) }),
   ];
 }
 

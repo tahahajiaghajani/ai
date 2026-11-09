@@ -39,6 +39,9 @@ import { emitLinkEvents } from "./links";
 import { filterSide, filtersSide, guardFor, hooksFor, redactRows, redacts } from "./hooks";
 import { transitionsFrom } from "@shared/model/task";
 
+/** Base columns a module's `derivePush` may set: the access anchors it copies (an alert's from its CI). */
+const DERIVED_ANCHORS = ["unit_id", "domain_id"];
+
 /** Engine-maintained columns a push may not move on an existing row. */
 const PINNED = ["id", "org_id", "no", "created_at", "created_by"];
 
@@ -187,7 +190,8 @@ async function checkRecord(tx: Tx, ctx: Ctx, def: TableDef, schema: OrgSchema, e
     for (const f of def.fields) if (!f.base && (prev ? !sameValue(f, prev[f.name], next[f.name]) : !isEmptyValue(next[f.name]))) changed.add(f.name);
     for (const h of derives) {
       const values = await h.derivePush!({ tx, ctx, def, prev, next, changed, env });
-      if (values) for (const [k, v] of Object.entries(values)) if (def.fields.some((f) => f.name === k && !f.base)) row[k] = v;
+      // module fields, and the access anchors (unit_id, domain_id) a module copies from what the row names
+      if (values) for (const [k, v] of Object.entries(values)) if (DERIVED_ANCHORS.includes(k) || def.fields.some((f) => f.name === k && !f.base)) row[k] = v;
     }
   }
   if (!prev && def.rowAccess?.write && !isSystemCtx(ctx) && !evaluate(def.rowAccess.write, fromDb(def, { ...row }), env, def, schema.lookup)) {
