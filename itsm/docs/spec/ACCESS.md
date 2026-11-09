@@ -218,6 +218,20 @@ assignments, an approver counts the records they decided). Exports, global searc
 `canReadTable` (area read), so a grant participant never gets a queue or a workspace of the area. The record's meta says `reach: "participant"` then, and the record page shows only the extensions
 that declare `participants: true` (the approvals panel).
 
+### Parent-scoped child rows (`scope.parent`)
+
+A table whose rows belong to a parent record (a contract's lines, coverage, obligations and guarantees; a budget's
+lines; the lines of requisitions, purchase orders and goods receipts) names the reference in `scope.parent`. Such a
+row is read only by those who may read its parent: the SQL form adds `(t.<parent> is null or exists (select 1 from
+<parent table> t_p where t_p.id = t.<parent> and <the parent's whole read rule on t_p>))` to the row's own rule
+(nested parents chain: a note of a line of a ticket); the JS form takes the parent's verdict as
+`RowExtra.parentReadable` (unset = refused — a child is never read without its parent's answer), and the access
+checker shows it as the layer «رکورد اصلی». The parent's rule only narrows: an owner field of the child does not open
+a row of a confidential parent. Writes stay the module's (its hooks ask for the parent's write, also on a Windows
+push). When a parent's access columns change (confidentiality, access list, owners, group, unit, domain, workspace),
+its children get a new sync revision on the cloud, so Windows apps re-read them and drop the ones they may no longer
+read. Parity tests: `tests/access-parity.test.ts` (random organisations, two levels).
+
 ## 8. Writes
 
 - **canCreate**: the area's `create` flag (the system always).
