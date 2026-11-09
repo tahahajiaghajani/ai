@@ -6,12 +6,17 @@
 //   bia               a clean impact matrix, the proposed RTO from it, RTO and RPO within MTPD, approval stamps, the
 //                     next review date
 //   continuity_plan   the next review from the last one; approval stamps
+//   plan_step         (with the two above) an approved BIA's or plan's substance — targets, impacts, criteria, steps —
+//                     changes only with the right to approve it; others take it back to review first
 //   exercise          targets from the plan when empty, start and end stamps, RTO/RPO met; recording the result
-//                     marks the plan tested (date and result)
+//                     marks the plan tested (date and result), so an exercise of a plan — and its targets — is set
+//                     only by those who may change the plan
 import { addSample, biaProblem, capacityStatus, cleanImpacts, exhaustionAt, exerciseOutcome, proposedRto } from "@shared/continuity/logic";
 import { todayISO } from "@shared/jalali";
 import { shiftJalaliMonths } from "@shared/change/logic";
-import { pushGuard, registerHooks, updateIn, validationError, actorId, orgTz, type WriteArgs } from "../../engine";
+import type { TableDef } from "@shared/model/types";
+import { access } from "../../access/provider";
+import { orgSchema, pushGuard, registerHooks, updateIn, validationError, actorId, orgTz, type WriteArgs } from "../../engine";
 import { notifyPeople } from "../notify";
 import { continuityConfig, isUuid, liveRow, liveRows, msOf, sysOf } from "./common";
 
@@ -89,8 +94,27 @@ async function capacityAfter(w: WriteArgs): Promise<void> {
   });
 }
 
+/** May the writer approve rows of `def` (its transition to «approved», with that transition's roles)? */
+function canApprove(w: WriteArgs, def: TableDef, row: Record<string, unknown>): boolean {
+  if (w.ctx.actor === "system") return true;
+  const t = def.states?.transitions.find((x) => x.to === "approved");
+  return !t || access().canTransition(w.ctx, def, row, t);
+}
+
+const BIA_SUBSTANCE = ["impacts", "tolerance", "mtpd", "rto", "rpo", "mbco", "depends_cis", "depends_services", "key_people", "sites", "suppliers", "vital"];
+const PLAN_SUBSTANCE = ["rto", "rpo", "invocation_criteria", "return_to_normal", "call_tree", "bia_id", "sites", "plan_type"];
+
+/** An approved record's substance changes only with the right to approve it (others take it back to review first). */
+function holdApproved(w: WriteArgs, fields: string[], back: string): void {
+  if (w.op !== "update" || w.ctx.actor === "system" || w.prev?.state !== "approved" || w.next.state !== "approved") return;
+  const touched = fields.filter((f) => w.changed.has(f));
+  if (!touched.length || canApprove(w, w.def, w.prev)) return;
+  throw validationError(Object.fromEntries(touched.map((f) => [f, `این مورد تأیید شده است؛ برای تغییر آن نخست «${back}» را بزنید تا دوباره تأیید شود`])));
+}
+
 async function biaBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete") return;
+  holdApproved(w, BIA_SUBSTANCE, "بازبینی دوباره");
   const n = w.next;
   const impacts = cleanImpacts(n.impacts);
   n.impacts = impacts;
@@ -109,6 +133,7 @@ async function biaBefore(w: WriteArgs): Promise<void> {
 
 async function planBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete") return;
+  holdApproved(w, PLAN_SUBSTANCE, "ویرایش (نسخهٔ تازه)");
   const n = w.next;
   const months = Math.max(1, Number(n.review_months) || 12);
   if (n.last_reviewed_at) n.next_review_at = shiftJalaliMonths(String(n.last_reviewed_at).slice(0, 10), months);
@@ -122,9 +147,29 @@ async function planBefore(w: WriteArgs): Promise<void> {
   }
 }
 
+/** The steps of an approved plan change only with the right to approve the plan (as the plan's own substance). */
+async function stepBefore(w: WriteArgs): Promise<void> {
+  if (w.ctx.actor === "system") return;
+  const plans = [...new Set([w.prev?.plan_id, w.op === "delete" ? null : w.next.plan_id].filter(isUuid))];
+  if (!plans.length) return;
+  const planDef = (await orgSchema(w.ctx, w.tx)).def("continuity_plan");
+  if (!planDef) return;
+  for (const id of plans) {
+    const plan = await liveRow(w.tx, sysOf(w.ctx), "continuity_plan", id);
+    if (plan?.state === "approved" && !canApprove(w, planDef, plan)) throw validationError({ plan_id: "طرح تأیید شده است؛ برای تغییر گام‌های آن نخست طرح را به «ویرایش (نسخهٔ تازه)» ببرید تا دوباره تأیید شود" });
+  }
+}
+
 async function exerciseBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete") return;
   const n = w.next;
+  // the result of an exercise marks its plan tested: only those who may change the plan run an exercise of it or set
+  // its targets (a lenient target of someone else's plan would make it «tested and passed»)
+  if (w.ctx.actor !== "system" && isUuid(n.plan_id) && (w.op === "create" || ["plan_id", "rto_target", "rpo_target"].some((f) => w.changed.has(f)))) {
+    const planDef = (await orgSchema(w.ctx, w.tx)).def("continuity_plan");
+    const plan = planDef ? await liveRow(w.tx, w.ctx, "continuity_plan", n.plan_id) : null;
+    if (!planDef || !plan || !access().canWrite(w.ctx, planDef, plan)) throw validationError({ plan_id: "مانور فقط برای طرحی ثبت می‌شود که اجازهٔ تغییر آن را دارید (نتیجهٔ مانور، طرح را آزموده نشان می‌دهد)" });
+  }
   if ((w.op === "create" || w.changed.has("plan_id")) && isUuid(n.plan_id)) {
     const plan = await liveRow(w.tx, sysOf(w.ctx), "continuity_plan", n.plan_id);
     if (plan) {
@@ -161,6 +206,7 @@ export function installContinuityHooks(): (() => void)[] {
     registerHooks("capacity_record", { beforeWrite: capacityBefore, afterWrite: capacityAfter, validatePush: pushGuard(capacityBefore) }),
     registerHooks("bia", { beforeWrite: biaBefore, validatePush: pushGuard(biaBefore) }),
     registerHooks("continuity_plan", { beforeWrite: planBefore, validatePush: pushGuard(planBefore) }),
+    registerHooks("plan_step", { beforeWrite: stepBefore, validatePush: pushGuard(stepBefore) }),
     registerHooks("exercise", { beforeWrite: exerciseBefore, afterWrite: exerciseAfter, validatePush: pushGuard(exerciseBefore) }),
   ];
 }
