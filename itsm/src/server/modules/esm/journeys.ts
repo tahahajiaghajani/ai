@@ -17,14 +17,18 @@ import { activityFromRecord, journeyProgress, planJourney, readyToStart, templat
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
 import { access } from "../../access/provider";
-import { condEnv, createIn, get, isSystemCtx, list, onBeforeCommit, orgSchema, savepoint, transitionIn, updateIn, validationError, type WriteArgs } from "../../engine";
+import { condEnv, createIn, get, isSystemCtx, list, onBeforeCommit, orgSchema, savepoint, systemCtx, transitionIn, updateIn, validationError, type WriteArgs } from "../../engine";
 import { bad, forbidden, notFound } from "../../http/errors";
 import { notifyPeople } from "../notify";
 import { requestApprovalIn } from "../sla/approvals";
 import { placeOrder } from "../request/ordering";
+import { enqueue, type JobConfig } from "../../jobs";
 import { calendarFor, defaultDepartment, departmentById, esmConfig, eqAll, ids, isUuid, liveRow, liveRows, sysOf, todayOf, type Row } from "./common";
 
 const OPEN_JOURNEY = ["planned", "active", "waiting"];
+
+/** The job that places a journey's catalogue order (outside the journey's transaction). */
+export const JOB_ORDER = "esm.order";
 
 /** The template's active activities in their order. */
 export async function templateActivities(q: Tx | Ctx["db"], ctx: Ctx, templateId: string): Promise<Row[]> {
@@ -270,20 +274,10 @@ async function startActivityIn(tx: Tx, ctx: Ctx, j: Row, a: Row): Promise<boolea
         if (!a.outcome) await updateIn(tx, sys, "journey_activity", String(a.id), { outcome: "سفارش پس از ساخت حساب کاربری کارمند ثبت می‌شود" }, { trusted: true, keepVersion: true });
         return false;
       }
-      const [item] = await liveRows(tx, sys, "catalog_item", { and: [{ f: "code", op: "eq", v: String(a.catalog_item_code ?? "") }] }, { limit: 1 });
-      if (!item) {
-        await failActivity(tx, ctx, a, `قلم کاتالوگ «${a.catalog_item_code}» پیدا نشد`);
-        return true;
-      }
-      try {
-        const res = await savepoint(tx, () =>
-          placeOrder(asOwner, { lines: [{ item_id: String(item.id), requested_for: subject, answers: (a.order_answers as Record<string, unknown>) ?? {} }], requested_for: subject, instructions: `${a.name} — ${j.name}`, channel: "api" }, { inTx: tx }),
-        );
-        const it = res.items[0];
-        await linkActivity(tx, ctx, a, it ? { table: "request_item", id: it.id, number: it.number } : res.produced ? { table: res.produced.table, id: res.produced.id, number: res.produced.number } : null);
-      } catch (e) {
-        await failActivity(tx, ctx, a, `سفارش ثبت نشد: ${messageOf(e)}`);
-      }
+      // the order goes through the request module's own write (its checks read outside this transaction): a job places it
+      await transitionIn(tx, sys, "journey_activity", String(a.id), "in_progress", {}, { trusted: true });
+      await updateIn(tx, sys, "journey_activity", String(a.id), { started_at: new Date().toISOString(), outcome: null }, { trusted: true, keepVersion: true });
+      await enqueue(tx, { kind: JOB_ORDER, orgId: ctx.org.id, payload: { id: a.id }, dedupeKey: `esm.order:${a.id}`, maxAttempts: 5 });
       return true;
     }
     case "case": {
@@ -464,4 +458,37 @@ export async function myTodos(ctx: Ctx): Promise<Row> {
   const tasks = await list(ctx, "hr_task", { filter: { and: [{ f: "assigned_to", op: "is_me" }, { f: "state", op: "in", v: ["open", "in_progress"] }] }, sort: "due_date", size: 100 });
   const journeys = await list(ctx, "journey", { filter: { and: [{ or: [{ f: "subject_person_id", op: "is_me" }, { f: "manager_id", op: "is_me" }] }, { f: "state", op: "in", v: OPEN_JOURNEY }] }, sort: "anchor_date", size: 50, fields: ["number", "name", "type", "state", "anchor_date", "progress", "day_one_ready", "subject_person_id", "manager_id"] });
   return { tasks: tasks.rows, journeys: journeys.rows, display: { ...tasks.display, ...journeys.display } };
+}
+
+/**
+ * Place the catalogue order of an «سفارش از کاتالوگ» activity for the employee, as the journey's HR owner (the request
+ * module checks the item, entitlement, ordering for others and the answers in its own write), then link it.
+ */
+export async function placeActivityOrder(cfg: JobConfig, orgId: string, activityId: string): Promise<void> {
+  const sys = await systemCtx(cfg, orgId);
+  const a = await liveRow(sys.db, sys, "journey_activity", activityId);
+  if (!a || a.state !== "in_progress" || a.record_id || a.kind !== "order") return;
+  const j = await liveRow(sys.db, sys, "journey", a.journey_id);
+  if (!j || !OPEN_JOURNEY.includes(String(j.state)) || !isUuid(j.subject_person_id)) return;
+  const [item] = await liveRows(sys.db, sys, "catalog_item", { and: [{ f: "code", op: "eq", v: String(a.catalog_item_code ?? "") }] }, { limit: 1 });
+  if (!item) {
+    await sys.write((tx) => failActivity(tx, sys, a, `قلم کاتالوگ «${a.catalog_item_code}» پیدا نشد`));
+    return;
+  }
+  const owner = isUuid(j.hr_owner_id) ? String(j.hr_owner_id) : null;
+  try {
+    const res = await placeOrder(sysOf(sys, owner), { lines: [{ item_id: String(item.id), requested_for: String(j.subject_person_id), answers: (a.order_answers as Record<string, unknown>) ?? {} }], requested_for: String(j.subject_person_id), instructions: `${a.name} — ${j.name}`, channel: "api" });
+    const it = res.items[0];
+    const rec = it ? { table: "request_item", id: it.id, number: it.number } : res.produced ? { table: res.produced.table, id: res.produced.id, number: res.produced.number } : null;
+    await sys.write(async (tx) => {
+      if (rec) await updateIn(tx, sys, "journey_activity", activityId, { record_table: rec.table, record_id: rec.id, record_number: rec.number }, { trusted: true, keepVersion: true });
+      // the order may already be delivered (an item without approval or fulfilment work)
+      if (rec) await followRecordIn(tx, sys, rec.table, rec.id);
+    });
+  } catch (e) {
+    await sys.write(async (tx) => {
+      const fresh = await liveRow(tx, sys, "journey_activity", activityId);
+      if (fresh && fresh.state === "in_progress" && !fresh.record_id) await failActivity(tx, sys, fresh, `سفارش ثبت نشد: ${messageOf(e)}`);
+    });
+  }
 }

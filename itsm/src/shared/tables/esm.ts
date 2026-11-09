@@ -1057,8 +1057,8 @@ const purchaseRequest = deptCase({
     { name: "received_at", label: "زمان تحویل", type: "datetime", readonly: true, span: 8, section: C_RESOLVE },
     { name: "receipt_notes", label: "یادداشت تحویل", type: "text", span: 24, section: C_RESOLVE },
   ],
-  // the receiver is on the requester side: they read the purchase and the approvals service never asks them to approve
-  scope: { own: ["caller_id", "requested_for", "opened_by", "assigned_to", "receiver_id"], requester: ["requested_for", "caller_id", "opened_by", "receiver_id"] },
+  // the receiver reads the purchase (a reader: never writes); the module refuses their decision on its approvals
+  scope: { readers: ["receiver_id"] },
   columns: ["number", "short_description", "amount", "approval", "state", "receiver_id", "needed_by"],
 });
 

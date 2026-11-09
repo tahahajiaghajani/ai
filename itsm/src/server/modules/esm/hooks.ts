@@ -268,6 +268,18 @@ async function noteBefore(w: WriteArgs): Promise<void> {
   next.workspace_id = hrCase.workspace_id ?? null;
 }
 
+/**
+ * Separation of duties on purchases (ESM-041): the approvals service keeps the requester side and the assignee from
+ * approving; the receiver of the goods is kept from deciding here (a decision of theirs is refused, another approver
+ * of the level decides).
+ */
+async function purchaseDecision(w: WriteArgs): Promise<void> {
+  const { next, prev, op, tx, ctx } = w;
+  if (op !== "update" || !prev || next.table_key !== "purchase_request" || !w.changed.has("state") || !["approved", "rejected"].includes(String(next.state)) || !isUuid(next.decided_by)) return;
+  const rec = await liveRow(tx, sysOf(ctx), "purchase_request", next.record_id);
+  if (rec?.receiver_id && String(rec.receiver_id) === String(next.decided_by)) throw forbidden("تحویل‌گیرندهٔ خرید آن را تأیید یا رد نمی‌کند (تفکیک وظایف)");
+}
+
 // ----- install --------------------------------------------------------------------------------------------------------
 
 export function installEsmHooks(): (() => void)[] {
@@ -281,6 +293,7 @@ export function installEsmHooks(): (() => void)[] {
   offs.push(
     registerHooks("hr_task", { beforeWrite: hrTaskBefore, guards: { hr_task_done: hrTaskDone } }),
     registerHooks("hr_profile", { beforeWrite: profileBefore }),
+    registerHooks("approval", { beforeWrite: purchaseDecision }),
     registerHooks("hr_case_note", { beforeWrite: noteBefore, validatePush: pushGuard(async (w) => { if (w.prev?.legal_hold && w.changed.has("body")) throw forbidden("یادداشت زیر نگهداری قانونی تغییر نمی‌کند"); }) }),
   );
   return offs;

@@ -95,6 +95,8 @@ export async function transferCase(ctx: Ctx, table: string, id: string, input: {
     const tdef = tableDef(target)!;
     for (const f of MAPPED) if (row[f] !== undefined && row[f] !== null && tdef.fields.some((x) => x.name === f)) values[f] = row[f];
     values.description = `${row.description ?? ""}\n\n— منتقل‌شده از ${row.number ?? ""}: ${note}`.trim();
+    // the case stays the requester's: the agent who moved it does not become one of its own people
+    values.opened_by = row.opened_by ?? row.caller_id ?? null;
     const made = await createIn(tx, actor, target, values, { trusted: true });
     await addLinkIn(tx, actor, target, String(made.id), { kind: "esm_transfer", table, id, note });
     await addJournalIn(tx, actor, tableDef(table)!, row, { kind: "system", body: `${line} — پروندهٔ تازه: ${made.number ?? ""}` }, { trusted: true });

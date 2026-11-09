@@ -23,7 +23,7 @@ import { actsHere } from "../notify";
 import { registerAiChannel } from "../ai/rag/registry";
 import { excludeFromTools } from "../ai/tools/records";
 import { DEPT_TABLES, installEsmHooks } from "./hooks";
-import { advanceJourneyIn, followRecordIn, journeyHooks } from "./journeys";
+import { advanceJourneyIn, followRecordIn, journeyHooks, JOB_ORDER, placeActivityOrder } from "./journeys";
 import { facilityHooks, installReservationApprovals, JOB_NO_SHOW, noShowJob } from "./facilities";
 import { autoCloseIn, parentsOf, rollupChildrenIn } from "./cases";
 import { installEsmSkills } from "./ai";
@@ -103,6 +103,10 @@ export function installEsmModule(): void {
   }
 
   registerJobHandler(JOB_NO_SHOW, (job, jctx) => noShowJob(job, jctx));
+  registerJobHandler(JOB_ORDER, async (job, jctx) => {
+    if (!job.org_id || typeof job.payload?.id !== "string") return;
+    await placeActivityOrder(jctx.cfg, job.org_id, job.payload.id);
+  });
   registerJobHandler("esm.sweep", async (job, jctx) => {
     if (!job.org_id || !actsHere(jctx.cfg)) return;
     await esmSweep(jctx.cfg, job.org_id, jctx.deadline);
