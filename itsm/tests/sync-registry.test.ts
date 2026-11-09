@@ -59,6 +59,13 @@ const LOCAL_ONLY: Record<string, string> = {
   sm_notification_log: "notification deliveries (each runtime logs what it sent)",
   sm_email_messages: "e-mails sent and received by this runtime (threading, loop protection)",
   sm_notify_state: "background state of the notification service (IMAP folders)",
+  // administration and the integration hub (each runtime keeps what it did; the definitions are engine tables)
+  sm_backups: "logical backups of an organisation, made by the platform owner on this runtime",
+  sm_api_usage: "per-key request counters of the record API (rate limiting)",
+  sm_int_log: "integration call log of this runtime (API, webhooks, directory, SCIM, issue sync, exports)",
+  sm_webhook_deliveries: "outbound webhook deliveries of this runtime (retries, dead letters, replays)",
+  sm_directory_runs: "LDAP/AD previews and applies, SCIM dry-run logs",
+  sm_directory_links: "which directory identity is which member or group (per source)",
 };
 
 describe("sync registry covers every organisation table", () => {
