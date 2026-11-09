@@ -144,6 +144,8 @@ async function caseBefore(w: WriteArgs): Promise<void> {
     next.entitlement_id = r.entitlement?.id ?? null;
     next.contract_id = (r.entitlement?.contract_id as string) ?? null;
     next.entitlement_snapshot = r.entitlement ? snapshotOf(r.entitlement as EntitlementLike & Row) : null;
+    // the support level picks the case's response and resolution agreements (CSM-010; seeded per level)
+    next.support_level = r.status === "covered" ? ((r.entitlement?.support_level as string) ?? null) : null;
   }
   if (next.case_type === "complaint") next.complaint = true;
   next.customer_status = customerStatusOf(next.state);
@@ -209,7 +211,7 @@ async function caseAfter(w: WriteArgs & { row: Row }): Promise<void> {
 }
 
 async function caseOnPush(p: PushArgs): Promise<Row> {
-  return { customer_status: customerStatusOf(p.next.state), entitlement_id: p.prev?.entitlement_id ?? null, entitlement_status: p.prev?.entitlement_status ?? null, entitlement_snapshot: p.prev?.entitlement_snapshot ?? null, contract_id: p.prev?.contract_id ?? null, units_charged: p.prev?.units_charged ?? null };
+  return { customer_status: customerStatusOf(p.next.state), entitlement_id: p.prev?.entitlement_id ?? null, entitlement_status: p.prev?.entitlement_status ?? null, entitlement_snapshot: p.prev?.entitlement_snapshot ?? null, support_level: p.prev?.support_level ?? null, contract_id: p.prev?.contract_id ?? null, units_charged: p.prev?.units_charged ?? null };
 }
 
 // ----- entitlements, the ledger, escalations -------------------------------------------------------------------------

@@ -27,6 +27,8 @@ describe("csm: accounts, entitlements and customer cases", () => {
   let product: string;
   let ent: string;
 
+  const slaNames = async (id: string) => (await w.e.db.query<{ name: string }>(`select name from sm_task_slas where org_id = $1 and record_id = $2 and deleted_at is null`, [w.e.org, id])).map((r) => r.name);
+
   beforeAll(async () => {
     process.env.ITSM_AI_FAKE = "1";
     w = await esmWorld();
@@ -85,6 +87,9 @@ describe("csm: accounts, entitlements and customer cases", () => {
       await w.drain();
       const row = await w.get("customer_case", c.row.id, agent.client);
       expect(row.assignment_group_id).toBe(group);
+      // the entitlement's support level picks the agreements (CSM-010)
+      expect(row.support_level).toBe("premium");
+      if (i === 0) expect((await slaNames(c.row.id)).sort()).toEqual(["حل پرونده — سطح ویژه", "نخستین پاسخ — سطح ویژه"]);
       const r1 = await agent.client.post(`${w.P}/r/customer_case/${c.row.id}/transition`, { to: "resolved", data: { close_notes: "تنظیم گزارش اصلاح شد" }, version: row.version });
       await cust.client.post(`${w.P}/r/customer_case/${c.row.id}/transition`, { to: "closed", version: r1.row.version });
       await w.drain();
@@ -107,6 +112,8 @@ describe("csm: accounts, entitlements and customer cases", () => {
     await w.drain();
     const row = await w.get("customer_case", c.row.id, lead.client);
     expect(row.assigned_to).toBe(lead.userId);
+    expect(row.support_level ?? null).toBeNull();
+    expect((await slaNames(c.row.id)).sort()).toEqual(["حل پروندهٔ مشتری", "نخستین پاسخ به مشتری"]);
   });
 
   it("shows customers only their cases (administrators their account's), never internal notes", async () => {

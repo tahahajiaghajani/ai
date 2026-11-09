@@ -48,6 +48,14 @@ export const CSM_ROLES: Row[] = [
   },
 ];
 
+/** The response and resolution targets of each support level by priority (seconds of the office calendar). */
+const LEVEL_TARGETS: [string, string, Record<string, number>, Record<string, number>][] = [
+  ["enterprise", "سازمانی", { "1": H / 2, "2": H, "3": 2 * H, "4": 4 * H, "5": 8 * H }, { "1": 4 * H, "2": 8 * H, "3": DAY, "4": 2 * DAY, "5": 3 * DAY }],
+  ["premium", "ویژه", { "1": H, "2": 2 * H, "3": 4 * H, "4": 8 * H, "5": DAY }, { "1": 8 * H, "2": DAY, "3": 2 * DAY, "4": 3 * DAY, "5": 5 * DAY }],
+  ["standard", "استاندارد", { "1": 2 * H, "2": 4 * H, "3": 8 * H, "4": DAY, "5": 2 * DAY }, { "1": DAY, "2": 2 * DAY, "3": 3 * DAY, "4": 5 * DAY, "5": 10 * DAY }],
+  ["basic", "پایه", { "1": 4 * H, "2": 8 * H, "3": DAY, "4": 2 * DAY, "5": 3 * DAY }, { "1": 2 * DAY, "2": 3 * DAY, "3": 5 * DAY, "4": 10 * DAY, "5": 15 * DAY }],
+];
+
 export async function seedCsmDefaultsIn(tx: Tx, ctx: Ctx, opts: { force?: boolean } = {}): Promise<SeedCounts> {
   const sys = sysOf(ctx);
   const out: SeedCounts = { skipped: false, created: {} };
@@ -68,8 +76,13 @@ export async function seedCsmDefaultsIn(tx: Tx, ctx: Ctx, opts: { force?: boolea
   const done = { f: "state", op: "in", v: ["resolved", "closed"] };
   const cancelled = { f: "state", op: "eq", v: "cancelled" };
   const defs: Row[] = [
-    { ...common, name: "نخستین پاسخ به مشتری", target: "response", duration_mode: "priority", priority_field: "priority", durations: { "1": H, "2": 2 * H, "3": 4 * H, "4": DAY, "5": DAY }, sort_order: 10, start_condition: { f: "state", op: "eq", v: "new" }, stop_condition: { or: [{ f: "state", op: "ne", v: "new" }, { f: "first_response_at", op: "nempty" }] }, cancel_condition: cancelled, description: "نخستین پاسخ عمومی به مشتری" },
-    { ...common, name: "حل پروندهٔ مشتری", target: "resolution", duration_mode: "priority", priority_field: "priority", durations: { "1": DAY, "2": 2 * DAY, "3": 3 * DAY, "4": 5 * DAY, "5": 10 * DAY }, sort_order: 20, pause_condition: { f: "state", op: "eq", v: "awaiting_customer" }, stop_condition: done, cancel_condition: cancelled, breach_actions: [{ type: "notify", fields: ["assigned_to"] }], description: "«منتظر مشتری» زمان را نگه می‌دارد" },
+    { ...common, name: "نخستین پاسخ به مشتری", target: "response", duration_mode: "priority", priority_field: "priority", durations: { "1": H, "2": 2 * H, "3": 4 * H, "4": DAY, "5": DAY }, sort_order: 10, start_condition: { and: [{ f: "state", op: "eq", v: "new" }, { f: "support_level", op: "empty" }] }, stop_condition: { or: [{ f: "state", op: "ne", v: "new" }, { f: "first_response_at", op: "nempty" }] }, cancel_condition: cancelled, description: "نخستین پاسخ عمومی به مشتری" },
+    { ...common, name: "حل پروندهٔ مشتری", target: "resolution", duration_mode: "priority", priority_field: "priority", durations: { "1": DAY, "2": 2 * DAY, "3": 3 * DAY, "4": 5 * DAY, "5": 10 * DAY }, sort_order: 20, start_condition: { f: "support_level", op: "empty" }, pause_condition: { f: "state", op: "eq", v: "awaiting_customer" }, stop_condition: done, cancel_condition: cancelled, breach_actions: [{ type: "notify", fields: ["assigned_to"] }], description: "«منتظر مشتری» زمان را نگه می‌دارد" },
+    // entitlement-driven agreements (CSM-010): the support level of the case's entitlement picks its clocks
+    ...LEVEL_TARGETS.flatMap(([level, label, response, resolution], i) => [
+      { ...common, name: `نخستین پاسخ — سطح ${label}`, target: "response", duration_mode: "priority", priority_field: "priority", durations: response, sort_order: 11 + i, start_condition: { and: [{ f: "state", op: "eq", v: "new" }, { f: "support_level", op: "eq", v: level }] }, stop_condition: { or: [{ f: "state", op: "ne", v: "new" }, { f: "first_response_at", op: "nempty" }] }, cancel_condition: cancelled, description: `نخستین پاسخ عمومی به مشتری با استحقاق سطح ${label}` },
+      { ...common, name: `حل پرونده — سطح ${label}`, target: "resolution", duration_mode: "priority", priority_field: "priority", durations: resolution, sort_order: 21 + i, start_condition: { f: "support_level", op: "eq", v: level }, pause_condition: { f: "state", op: "eq", v: "awaiting_customer" }, stop_condition: done, cancel_condition: cancelled, breach_actions: [{ type: "notify", fields: ["assigned_to"] }], description: `حل پروندهٔ مشتری با استحقاق سطح ${label}؛ «منتظر مشتری» زمان را نگه می‌دارد` },
+    ]),
     { ...common, name: "اعلام دریافت شکایت", target: "response", duration_mode: "fixed", duration: 2 * DAY, sort_order: 30, start_condition: { f: "complaint", op: "eq", v: true }, stop_condition: { or: [{ f: "first_response_at", op: "nempty" }, done] }, cancel_condition: cancelled, description: "شکایت در دو روز کاری اعلام دریافت می‌شود (ISO 10002)" },
     { ...common, name: "پاسخ نهایی به شکایت", target: "resolution", duration_mode: "fixed", duration: 10 * DAY, sort_order: 40, start_condition: { f: "complaint", op: "eq", v: true }, stop_condition: done, cancel_condition: cancelled, breach_actions: [{ type: "escalate" }], description: "پاسخ نهایی شکایت در ده روز کاری" },
   ];

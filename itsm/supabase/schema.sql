@@ -5682,6 +5682,7 @@ alter table sm_customer_cases add column if not exists entitlement_id uuid;
 alter table sm_customer_cases add column if not exists contract_id uuid;
 alter table sm_customer_cases add column if not exists entitlement_status text;
 alter table sm_customer_cases add column if not exists entitlement_snapshot jsonb;
+alter table sm_customer_cases add column if not exists support_level text;
 alter table sm_customer_cases add column if not exists complaint boolean not null default false;
 alter table sm_customer_cases add column if not exists complaint_severity text;
 alter table sm_customer_cases add column if not exists is_major boolean not null default false;
