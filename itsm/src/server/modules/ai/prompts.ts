@@ -51,12 +51,13 @@ export async function contextBlock(ctx: Ctx, rawPage: AiPageContext | null | und
     today: { jalali: formatJalali(today, { style: "long" }), gregorian: today, time_zone: orgTimeZone(ctx) },
     member: policy === "aggregates" ? { role, role_fa: roleFa } : { name: ctx.user.full_name, role, role_fa: roleFa },
   };
-  if (page && (page.path || page.title || page.record || page.report)) {
+  if (page && (page.path || page.title || page.record || page.report || page.list)) {
     ctxJson.current_page = {
       ...(page.path ? { path: page.path.slice(0, 200) } : {}),
       ...(page.title ? { title: page.title.slice(0, 120) } : {}),
       ...(page.record ? { record: { type: page.record.type, id: page.record.id, label: page.record.label?.slice(0, 120) } } : {}),
       ...(page.report ? { report: { key: page.report.key, params: page.report.params ?? {} } } : {}),
+      ...(page.list ? { list: { table: page.list.table, filters: page.list.params ?? {} } } : {}),
     };
   }
   return `<context>\n${JSON.stringify(ctxJson)}\n</context>`;

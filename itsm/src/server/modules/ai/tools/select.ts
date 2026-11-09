@@ -57,6 +57,7 @@ function vec(text: string): number[] {
 /** The table a page is about: its record, or a record list at `r/<table>` (module paths name it in the record). */
 export function contextTable(ctx: AiPageContext | null | undefined): string | null {
   if (ctx?.record?.type && tableDef(ctx.record.type)) return ctx.record.type;
+  if (ctx?.list?.table && tableDef(ctx.list.table)) return ctx.list.table;
   const m = /^r\/([a-z][a-z0-9_]*)(?:\/|$)/.exec(ctx?.path ?? "");
   return m && tableDef(m[1]) ? m[1] : null;
 }

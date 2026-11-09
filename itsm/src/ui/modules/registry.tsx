@@ -25,6 +25,7 @@ import { problemUi } from "./problem";
 import { changeUi } from "./change";
 import { requestUi } from "./request";
 import { docsUi } from "./docs";
+import { aiUi } from "./ai";
 import { cmdbUi } from "./cmdb";
 import { servicePortfolioUi } from "./service_portfolio";
 import { knowledgeUi } from "./knowledge";
@@ -154,6 +155,7 @@ const UIS: ModuleUi[] = [
   changeUi,
   requestUi,
   docsUi,
+  aiUi,
   cmdbUi,
   servicePortfolioUi,
   knowledgeUi,

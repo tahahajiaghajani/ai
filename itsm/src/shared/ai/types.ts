@@ -184,6 +184,8 @@ export interface AiPageContext {
   title?: string; // page title
   record?: { type: string; id: string; label?: string } | null;
   report?: { key: string; params?: Record<string, unknown> } | null;
+  /** a list page: the table it lists and its filters from the query string */
+  list?: { table: string; params?: Record<string, string> } | null;
 }
 
 export interface AiThreadSummary {

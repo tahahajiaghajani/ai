@@ -209,9 +209,9 @@ export function toolPatternProblem(p: string): string | null {
 
 /** Is the tool `name` (or the skill `skillKey`) among the allowed patterns? */
 export function toolAllowed(patterns: readonly string[], name: string, skillKey?: string | null): boolean {
+  // a skill is allowed only by name (`skill:<key>`), never by a wildcard
+  if (skillKey) return patterns.includes(`skill:${skillKey}`);
   for (const p of patterns) {
-    if (skillKey && p === `skill:${skillKey}`) return true;
-    if (p === "*" && !skillKey) return true;
     if (p.endsWith("*") && !p.startsWith("skill:") && name.startsWith(p.slice(0, -1))) return true;
     if (p === name) return true;
   }

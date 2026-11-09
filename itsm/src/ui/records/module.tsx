@@ -12,6 +12,7 @@ import { recordsApi } from "./data/api";
 import { displayText } from "./model/schema";
 import type { RecordRow, TableMeta } from "./model/types";
 import { recordPath, registerRecordExtensions, type ListPreset, type RecordExtensions } from "./extensions";
+import { registerRecordRoute } from "../ai/assistant/context";
 
 const ListRoute = lazy(() => import("./routes").then((m) => ({ default: m.ListRoute })));
 const PageRoute = lazy(() => import("./routes").then((m) => ({ default: m.PageRoute })));
@@ -110,6 +111,8 @@ export function recordModule(spec: RecordModuleSpec): ModuleUi {
   const searches: PaletteSearch[] = [];
   for (const t of spec.tables) {
     registerRecordExtensions(t.table, { ...(t.extensions ?? {}), path: t.path });
+    // the assistant knows the record or list a page shows (src/ui/ai/assistant/context.ts)
+    registerRecordRoute(t.path, t.table);
     if (!t.hidden)
       items.push({ key: `${spec.key}:${t.table}`, label: t.label, path: t.path, icon: t.icon, section: t.section, area: t.area, level: t.level, access: t.access, keywords: t.keywords, workspace: t.workspace, count: t.count });
     if (t.newAction !== false)

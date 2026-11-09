@@ -189,6 +189,7 @@ const pageContext = z
     title: z.string().max(200).optional(),
     record: z.object({ type: z.string().max(40), id: z.string().max(80), label: z.string().max(200).optional() }).nullish(),
     report: z.object({ key: z.string().max(80), params: z.record(z.string(), z.unknown()).optional() }).nullish(),
+    list: z.object({ table: z.string().regex(/^[a-z][a-z0-9_]{0,62}$/), params: z.record(z.string().max(40), z.string().max(120)).optional() }).nullish(),
   })
   .nullish();
 const chatSchema = z.object({

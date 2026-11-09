@@ -22,12 +22,14 @@ import { UsageTab } from "./Usage";
 import { ActivityTab } from "./Activity";
 import { RetrievalTab } from "./Retrieval";
 import { SkillsTab } from "../skills/Admin";
+import { AgentsTab } from "../agents/Studio";
 
 const TABS = [
   { key: "connections", label: "اتصال‌ها" },
   { key: "jobs", label: "کارها و مدل‌ها" },
   { key: "retrieval", label: "نمایه و بازیابی" },
   { key: "skills", label: "مهارت‌ها" },
+  { key: "agents", label: "عامل‌ها" },
   { key: "features", label: "قابلیت‌ها و حریم خصوصی" },
   { key: "usage", label: "مصرف و بودجه" },
   { key: "activity", label: "فعالیت دستیار" },
@@ -125,6 +127,8 @@ export default function AiSettings() {
         />
       ) : tab === "skills" ? (
         <SkillsTab />
+      ) : tab === "agents" ? (
+        <AgentsTab />
       ) : !s ? (
         settings.error ? (
           <div className="blk-card">
