@@ -108,10 +108,12 @@ export function installAnalyticsJobs(): void {
     const orgId = job.org_id;
     if (!orgId || !actsHere(jctx.cfg)) return;
     const cfg = jctx.cfg as ServerConfig;
-    const payload = (job.payload ?? {}) as { id?: string; done?: string[]; outcomes?: DeliveryOutcome[] };
+    const payload = (job.payload ?? {}) as { id?: string; at?: string; done?: string[]; outcomes?: DeliveryOutcome[] };
     const sys = await systemCtx(cfg, orgId);
     const s = await liveRow(jctx.db, sys, "analytics_schedule", payload.id);
     if (!s || !s.active) return;
+    // a second job queued while the first was still sending finds the occurrence already delivered
+    if (!payload.done?.length && payload.at && s.next_run_at && Date.parse(String(s.next_run_at)) > Date.parse(payload.at)) return;
     const done = new Set(payload.done ?? []);
     const outcomes = [...(payload.outcomes ?? [])];
     for (const u of await recipientsOf(sys, s)) {
