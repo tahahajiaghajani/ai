@@ -198,7 +198,7 @@ export interface PublicationView {
 
 /** The publications with their link and what each base publishes or holds back. */
 export async function publications(ctx: Ctx): Promise<PublicationView[]> {
-  if (!publishesKnowledge(ctx)) throw forbidden("انتشار عمومی دانش با تأییدکنندگان و مدیران دانش است");
+  if (!(await publishesKnowledge(ctx))) throw forbidden("انتشار عمومی دانش با تأییدکنندگان و مدیران دانش است");
   const sys = sysOf(ctx);
   const rows = await liveRows(ctx.db, sys, "portal_kb_publication", null, { order: "t.name", limit: 50 });
   const out: PublicationView[] = [];
@@ -219,7 +219,7 @@ export async function publications(ctx: Ctx): Promise<PublicationView[]> {
 
 /** Turn a publication's public link on or off, or give it a new address. */
 export async function setPublication(ctx: Ctx, id: string, input: { enabled: boolean; regenerate?: boolean }): Promise<{ enabled: boolean; url: string | null }> {
-  if (!publishesKnowledge(ctx)) throw forbidden("انتشار عمومی دانش با تأییدکنندگان و مدیران دانش است");
+  if (!(await publishesKnowledge(ctx))) throw forbidden("انتشار عمومی دانش با تأییدکنندگان و مدیران دانش است");
   if (input.enabled && ctx.cfg.mode === "desktop") throw bad("دانش عمومی فقط در نسخهٔ وب منتشر می‌شود");
   const sys = sysOf(ctx);
   return ctx.write(async (tx) => {

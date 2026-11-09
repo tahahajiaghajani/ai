@@ -61,9 +61,9 @@ export function installPortalHooks(): void {
   registerHooks("portal_link_code", { beforeWrite: (w) => runtimeOnly(w, "کدهای اتصال") });
 
   registerHooks("portal_kb_publication", {
-    beforeWrite(w) {
+    async beforeWrite(w) {
       if (w.ctx.actor === "system" || w.trusted) return;
-      if (!publishesKnowledge(w.ctx)) throw forbidden("انتشار عمومی دانش با تأییدکنندگان و مدیران دانش است");
+      if (!(await publishesKnowledge(w.ctx))) throw forbidden("انتشار عمومی دانش با تأییدکنندگان و مدیران دانش است");
     },
   });
 

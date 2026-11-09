@@ -375,7 +375,7 @@ async function audienceMembers(sys: Ctx, survey: Row): Promise<string[]> {
 
 /** Invite a survey's audience once each (those already invited — pending or answered — are skipped). */
 export async function sendCampaign(ctx: Ctx, surveyId: string): Promise<{ invited: number; skipped: number }> {
-  if (!managesSurveys(ctx)) throw forbidden("ارسال نظرسنجی با مدیران نظرسنجی است");
+  if (!(await managesSurveys(ctx))) throw forbidden("ارسال نظرسنجی با مدیران نظرسنجی است");
   const sys = sysOf(ctx);
   const survey = await liveRow(ctx.db, sys, "survey", surveyId);
   if (!survey) throw notFound("نظرسنجی پیدا نشد");

@@ -6,9 +6,8 @@ import { DEFAULT_LAYOUT, layoutProblems, normalizeLayout } from "@shared/portal/
 import type { PortalConfig } from "@shared/portal/api";
 import type { Ctx } from "../../context";
 import { createIn, readAttachment, updateIn } from "../../engine";
-import { subjectOf } from "../../access";
 import { bad, forbidden, notFound } from "../../http/errors";
-import { grantOf, isUuid, liveRow, liveRows, managesPortal, sysOf, type Row } from "./common";
+import { grantOf, isUuid, liveRow, liveRows, managesPortal, subjectFor, sysOf, type Row } from "./common";
 
 const DEFAULTS = {
   name: "درگاه خدمات",
@@ -23,7 +22,7 @@ const DEFAULTS = {
 export async function portalsFor(ctx: Ctx): Promise<Row[]> {
   const rows = await liveRows(ctx.db, sysOf(ctx), "portal", { f: "active", op: "eq", v: true }, { order: "t.sort_order, t.name", limit: 100 });
   if (ctx.actor === "system") return rows;
-  const s = subjectOf(ctx);
+  const s = await subjectFor(ctx);
   const mine = new Set(s.workspaces);
   const secure = new Set(s.secureWorkspaces);
   const usable = rows.filter((r) => !r.workspace_id || mine.has(String(r.workspace_id)) || (s.eff.workspacesAll && !secure.has(String(r.workspace_id))));
@@ -50,7 +49,9 @@ const text = (v: unknown, dflt = ""): string => (typeof v === "string" && v.trim
 /** The portal configuration the screens need (the published layout; the draft in an administrator's preview). */
 export async function portalConfig(ctx: Ctx, opts: { portal?: string | null; preview?: boolean } = {}): Promise<PortalConfig> {
   const { row, usable } = await currentPortal(ctx, opts.portal);
-  const admin = managesPortal(ctx);
+  const admin = await managesPortal(ctx);
+  const writes = await Promise.all(["incident", "request", "problem", "change", "work"].map((a) => grantOf(ctx, a)));
+  const [catalog, incident, request] = await Promise.all([grantOf(ctx, "catalog"), grantOf(ctx, "incident"), grantOf(ctx, "request")]);
   const preview = !!opts.preview && admin && !!row;
   const layout = normalizeLayout(row ? (preview ? (row.layout ?? row.published_layout) : (row.published_layout ?? row.layout)) ?? DEFAULT_LAYOUT : DEFAULT_LAYOUT);
   const orgName = String(ctx.org.name ?? "");
@@ -76,10 +77,10 @@ export async function portalConfig(ctx: Ctx, opts: { portal?: string | null; pre
     preview,
     can: {
       admin,
-      agent: ["incident", "request", "problem", "change", "work"].some((a) => ["group", "unit", "unit_tree", "domain", "all"].includes(grantOf(ctx, a).write)),
-      order: grantOf(ctx, "catalog").read !== "none",
-      report: grantOf(ctx, "incident").create,
-      feedback: grantOf(ctx, "request").create,
+      agent: writes.some((g) => ["group", "unit", "unit_tree", "domain", "all"].includes(g.write)),
+      order: catalog.read !== "none",
+      report: incident.create,
+      feedback: request.create,
     },
   };
 }
@@ -118,7 +119,7 @@ export async function toggleFavorite(ctx: Ctx, itemId: string, on: boolean): Pro
 
 /** Publish a portal's draft layout (catalogue administrators): the cleaned draft becomes the published one. */
 export async function publishLayout(ctx: Ctx, portalId: string): Promise<Row> {
-  if (!managesPortal(ctx)) throw forbidden("چیدمان درگاه را مدیران کاتالوگ منتشر می‌کنند");
+  if (!(await managesPortal(ctx))) throw forbidden("چیدمان درگاه را مدیران کاتالوگ منتشر می‌کنند");
   const sys = sysOf(ctx);
   return ctx.write(async (tx) => {
     const row = await liveRow(tx, sys, "portal", portalId);

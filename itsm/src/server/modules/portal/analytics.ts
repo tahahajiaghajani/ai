@@ -14,7 +14,7 @@ import { DAY_MS, liveRows, readsPortalAnalytics, sysOf } from "./common";
 const n = (v: unknown) => Number(v ?? 0) || 0;
 
 export async function portalAnalytics(ctx: Ctx, daysIn = 30): Promise<PortalAnalytics> {
-  if (!readsPortalAnalytics(ctx)) throw forbidden("تحلیل درگاه را مدیران درگاه و گزارش‌ها می‌بینند");
+  if (!(await readsPortalAnalytics(ctx))) throw forbidden("تحلیل درگاه را مدیران درگاه و گزارش‌ها می‌بینند");
   const days = Math.min(365, Math.max(7, Math.round(daysIn)));
   const since = new Date(Date.now() - days * DAY_MS).toISOString();
   const org = ctx.org.id;

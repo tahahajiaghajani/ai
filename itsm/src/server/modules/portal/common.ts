@@ -6,32 +6,49 @@ import { grantIn, type FullGrant } from "@shared/access/model";
 import { searchForm } from "@shared/ai/text";
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
-import { subjectOf } from "../../access";
+import { prepareSubject, subjectOf } from "../../access";
+import type { Subject } from "@shared/access/evaluate";
 
 export { sysOf, liveRows, liveRow, countRows, eqAll, isUuid, type Row } from "../incident/common";
 
 export const DAY_MS = 86_400_000;
 
+/** The caller's access subject, loaded once per request (the engine loads it too, in orgSchema). */
+export async function subjectFor(ctx: Ctx): Promise<Subject> {
+  await prepareSubject(ctx);
+  return subjectOf(ctx);
+}
+
+const ALL: FullGrant = { read: "all", create: true, write: "all", delete: "all", approve: true, admin: true };
+
 /** The caller's effective grant in an area (the system: everything). */
-export function grantOf(ctx: Ctx, area: string): FullGrant {
-  if (ctx.actor === "system") return { read: "all", create: true, write: "all", delete: "all", approve: true, admin: true };
-  return grantIn(subjectOf(ctx).eff, area);
+export async function grantOf(ctx: Ctx, area: string): Promise<FullGrant> {
+  if (ctx.actor === "system") return ALL;
+  return grantIn((await subjectFor(ctx)).eff, area);
 }
 
 /** Changes the portal's look, home page, quick links and topics: the catalogue's administrators. */
-export const managesPortal = (ctx: Ctx): boolean => ctx.actor === "system" || grantOf(ctx, "catalog").admin;
+export const managesPortal = async (ctx: Ctx): Promise<boolean> => ctx.actor === "system" || (await grantOf(ctx, "catalog")).admin;
 
 /** Designs and sends surveys, reads every result: write access to every survey record. */
-export const managesSurveys = (ctx: Ctx): boolean => ctx.actor === "system" || grantOf(ctx, "survey").write === "all";
+export const managesSurveys = async (ctx: Ctx): Promise<boolean> => ctx.actor === "system" || (await grantOf(ctx, "survey")).write === "all";
 
 /** Sets up messaging connectors and the website widget. */
-export const managesChannels = (ctx: Ctx): boolean => ctx.actor === "system" || grantOf(ctx, "integrations").write === "all" || grantOf(ctx, "integrations").admin;
+export async function managesChannels(ctx: Ctx): Promise<boolean> {
+  if (ctx.actor === "system") return true;
+  const g = await grantOf(ctx, "integrations");
+  return g.write === "all" || g.admin;
+}
 
 /** Publishes knowledge without sign-in: the knowledge area's approvers and administrators. */
-export const publishesKnowledge = (ctx: Ctx): boolean => ctx.actor === "system" || grantOf(ctx, "knowledge").approve || grantOf(ctx, "knowledge").admin;
+export async function publishesKnowledge(ctx: Ctx): Promise<boolean> {
+  if (ctx.actor === "system") return true;
+  const g = await grantOf(ctx, "knowledge");
+  return g.approve || g.admin;
+}
 
 /** Reads the portal's analytics (searches people typed, conversations): the catalogue's administrators and the reports' writers. */
-export const readsPortalAnalytics = (ctx: Ctx): boolean => managesPortal(ctx) || grantOf(ctx, "reports").write === "all";
+export const readsPortalAnalytics = async (ctx: Ctx): Promise<boolean> => (await managesPortal(ctx)) || (await grantOf(ctx, "reports")).write === "all";
 
 // ---------------------------------------------------------------------------------------------------------------
 // «درخواست‌های من» across departments (PTL-010)

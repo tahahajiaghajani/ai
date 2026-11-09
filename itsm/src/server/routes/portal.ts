@@ -30,8 +30,7 @@ import {
   rotateWidgetKey, searchAnswer, seedPortalDefaults, sendCampaign, setPublication, submitPublicSurvey, submitSurvey, surveyResults, surveyView, ticketAction, ticketView, toggleFavorite, topicPage, unlinkIdentity,
   widgetConfig, widgetOrigin, widgetScript, widgetSearch, widgetSnippet, managesPortal, MAX_HOOK_BYTES,
 } from "../modules/portal";
-import { liveRow, liveRows, sysOf } from "../modules/portal/common";
-import { subjectOf } from "../access";
+import { liveRow, liveRows, subjectFor, sysOf } from "../modules/portal/common";
 
 const UUID = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "شناسه معتبر نیست").transform((s) => s.toLowerCase());
 const TABLE = z.string().regex(/^[a-z][a-z0-9_]{1,60}$/, "جدول معتبر نیست");
@@ -188,7 +187,7 @@ portalRoutes.get("/logo/:id", async (c) => {
 
 portalRoutes.post("/seed", async (c) => {
   const ctx = c.get("ctx");
-  if (!managesPortal(ctx)) throw forbidden("افزودن پیش‌فرض‌های درگاه با مدیران کاتالوگ است");
+  if (!(await managesPortal(ctx))) throw forbidden("افزودن پیش‌فرض‌های درگاه با مدیران کاتالوگ است");
   const p = await body(c, z.object({ force: z.boolean().optional() }));
   const r = await seedPortalDefaults(ctx.cfg, ctx.org.id, { force: p.force });
   await ensurePortalSweep(ctx.db, ctx.org.id);
@@ -208,7 +207,7 @@ portalRoutes.get("/channels/:id/log", async (c) => c.json(await channelLog(c.get
 portalRoutes.post("/widgets/:id/key", async (c) => c.json(await rotateWidgetKey(c.get("ctx"), id(c))));
 portalRoutes.get("/widgets/:id/snippet", async (c) => {
   const ctx = c.get("ctx");
-  if (!managesChannels(ctx)) throw forbidden("ابزارک وب‌سایت را مدیران اتصال‌ها تنظیم می‌کنند");
+  if (!(await managesChannels(ctx))) throw forbidden("ابزارک وب‌سایت را مدیران اتصال‌ها تنظیم می‌کنند");
   const row = await liveRow(ctx.db, sysOf(ctx), "portal_widget", id(c));
   if (!row) throw notFound("ابزارک پیدا نشد");
   return c.json({ snippet: typeof row.widget_key === "string" && row.widget_key ? widgetSnippet(ctx.cfg, row.widget_key) : null });
@@ -223,8 +222,8 @@ portalRoutes.post("/public-kb/:id", async (c) => {
 /** Who manages people (for «تیم من»): a small answer the screens use. */
 portalRoutes.get("/me", async (c) => {
   const ctx = c.get("ctx");
-  const s = subjectOf(ctx);
-  return c.json({ team: s.reportees.length > 0 || s.managedTree.length > 0, admin: managesPortal(ctx), channels_admin: managesChannels(ctx) });
+  const s = await subjectFor(ctx);
+  return c.json({ team: s.reportees.length > 0 || s.managedTree.length > 0, admin: await managesPortal(ctx), channels_admin: await managesChannels(ctx) });
 });
 
 // ---------------------------------------------------------------------------------------------------------------

@@ -17,11 +17,11 @@ import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
 import { addJournal, get, list, listAttachments, listHistory, listJournal, orgSchema, transition } from "../../engine";
 import { access } from "../../access/provider";
-import { subjectOf } from "../../access";
 import { bad, forbidden, notFound } from "../../http/errors";
 import { recordApprovals, recordTimers } from "../sla";
 import { answersView } from "../request";
-import { isUuid, liveRows, logEvent, portalItemTable, portalItemTables, sysOf, type Row } from "./common";
+import { isUuid, liveRows, logEvent, portalItemTable, portalItemTables, subjectFor, sysOf, type Row } from "./common";
+import type { Subject } from "@shared/access/evaluate";
 import { pendingInvitationFor } from "./surveys";
 
 export type ItemsTab = "mine" | "shared" | "team";
@@ -52,7 +52,7 @@ function mineCond(def: TableDef): Cond | null {
 const fieldType = (def: TableDef, name: string) => def.fields.find((f) => f.name === name)?.type;
 
 /** How a record relates to the caller, as a condition (null: the tab does not apply to this table or this person). */
-function relationCond(ctx: Ctx, def: TableDef, tab: ItemsTab): Cond | null {
+function relationCond(s: Subject, def: TableDef, tab: ItemsTab): Cond | null {
   const mine = mineCond(def);
   if (!mine) return null;
   if (tab === "mine") return mine;
@@ -60,7 +60,6 @@ function relationCond(ctx: Ctx, def: TableDef, tab: ItemsTab): Cond | null {
     const w = def.scope?.watchers;
     return w && def.fields.some((f) => f.name === w) ? { and: [{ f: w, op: "is_me" }, { not: mine }] } : null;
   }
-  const s = subjectOf(ctx);
   const or: Cond[] = [];
   const reportees = s.reportees.slice(0, 500);
   if (reportees.length) for (const f of requesterFields(def)) if (fieldType(def, f) === "user") or.push({ f, op: "in", v: reportees });
@@ -69,19 +68,18 @@ function relationCond(ctx: Ctx, def: TableDef, tab: ItemsTab): Cond | null {
 }
 
 /** May the caller see «تیم من» (they manage people or units)? */
-export function managesPeople(ctx: Ctx): boolean {
+export async function managesPeople(ctx: Ctx): Promise<boolean> {
   if (ctx.actor === "system") return false;
-  const s = subjectOf(ctx);
+  const s = await subjectFor(ctx);
   return s.reportees.length > 0 || s.managedTree.length > 0;
 }
 
-function relationOf(ctx: Ctx, def: TableDef, row: Row): PortalTicketCard["relation"] | null {
+function relationOf(ctx: Ctx, s: Subject, def: TableDef, row: Row): PortalTicketCard["relation"] | null {
   const me = ctx.user.id;
   const holds = (v: unknown) => (Array.isArray(v) ? v.includes(me) : v === me);
   if (requesterFields(def).some((f) => holds(row[f]))) return "mine";
   const w = def.scope?.watchers;
   if (w && holds(row[w])) return "shared";
-  const s = subjectOf(ctx);
   const reportees = new Set(s.reportees);
   if (requesterFields(def).some((f) => typeof row[f] === "string" && reportees.has(row[f] as string))) return "team";
   if (typeof row.unit_id === "string" && s.managedTree.includes(row.unit_id)) return "team";
@@ -128,7 +126,8 @@ export async function myItems(ctx: Ctx, p: { tab?: ItemsTab; state?: ItemsState;
   const state = p.state ?? "open";
   const page = Math.max(1, Math.floor(p.page ?? 1));
   const size = Math.min(50, Math.max(1, Math.floor(p.size ?? 20)));
-  const team = managesPeople(ctx);
+  const team = await managesPeople(ctx);
+  const subject = ctx.actor === "system" ? null : await subjectFor(ctx);
   if (ctx.actor === "system" || (tab === "team" && !team)) return { items: [], total: 0, page, size, team };
   const schema = await orgSchema(ctx);
   const cards: PortalTicketCard[] = [];
@@ -136,7 +135,7 @@ export async function myItems(ctx: Ctx, p: { tab?: ItemsTab; state?: ItemsState;
   for (const t of portalItemTables()) {
     const def = schema.def(t.table);
     if (!def || def.virtual || !def.states || !access().canReadTable(ctx, def)) continue;
-    const rel = relationCond(ctx, def, tab);
+    const rel = subject ? relationCond(subject, def, tab) : null;
     if (!rel) continue;
     const st = statesWhere(def, state);
     const filter: Cond = st ? { and: [rel, st] } : rel;
@@ -161,7 +160,7 @@ async function loadTicket(ctx: Ctx, table: string, id: string) {
   const r = await get(ctx, table, id).catch(() => null);
   if (!r) throw notFound("پیدا نشد");
   const { def } = { def: (await orgSchema(ctx)).def(table) ?? tableDef(table)! };
-  const relation = relationOf(ctx, def, r.row);
+  const relation = relationOf(ctx, await subjectFor(ctx), def, r.row);
   if (!relation) throw notFound("پیدا نشد");
   return { def, ...r, relation };
 }

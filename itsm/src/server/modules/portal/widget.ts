@@ -77,7 +77,7 @@ export async function widgetOrigin(cfg: ServerConfig, key: string, origin: strin
 
 /** A new key for a widget (the embed snippet changes; the old one stops at once). Connector administrators. */
 export async function rotateWidgetKey(ctx: Ctx, id: string): Promise<{ key: string; snippet: string }> {
-  if (!managesChannels(ctx)) throw forbidden("ابزارک وب‌سایت را مدیران اتصال‌ها تنظیم می‌کنند");
+  if (!(await managesChannels(ctx))) throw forbidden("ابزارک وب‌سایت را مدیران اتصال‌ها تنظیم می‌کنند");
   const sys = sysOf(ctx);
   const row = await liveRow(ctx.db, sys, "portal_widget", id);
   if (!row) throw notFound("ابزارک پیدا نشد");

@@ -79,7 +79,7 @@ const setLog = (q: Ctx["db"], orgId: string, id: string, values: { status: strin
 // Administration (connectors are web-version rows; integrations writers)
 
 async function needAdmin(ctx: Ctx): Promise<void> {
-  if (!managesChannels(ctx)) throw forbidden("کانال‌های پیام‌رسان را مدیران اتصال‌ها تنظیم می‌کنند");
+  if (!(await managesChannels(ctx))) throw forbidden("کانال‌های پیام‌رسان را مدیران اتصال‌ها تنظیم می‌کنند");
 }
 
 /** The connector's webhook address (absolute when the web version's address is known). */
@@ -201,7 +201,7 @@ export async function myIdentities(ctx: Ctx): Promise<IdentityView[]> {
 export async function unlinkIdentity(ctx: Ctx, id: string): Promise<void> {
   const sys = sysOf(ctx);
   const row = await liveRow(ctx.db, sys, "portal_channel_identity", id);
-  if (!row || (row.user_id !== ctx.user.id && !managesChannels(ctx))) throw notFound("حساب پیدا نشد");
+  if (!row || (row.user_id !== ctx.user.id && !(await managesChannels(ctx)))) throw notFound("حساب پیدا نشد");
   await ctx.write((tx) => updateIn(tx, sys, "portal_channel_identity", id, { active: false, conversation_id: null, options: null }, { trusted: true }), { internal: true });
 }
 
