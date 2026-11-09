@@ -40,7 +40,7 @@ export function consoleRows(view: ConsoleView | undefined, expanded: ReadonlySet
   return out;
 }
 
-export type ConsoleKey = "next" | "prev" | "open" | "ack" | "take" | "incident" | "close" | "snooze" | "select" | "search" | "toggle";
+export type ConsoleKey = "next" | "prev" | "open" | "ack" | "take" | "assign" | "incident" | "close" | "snooze" | "select" | "search" | "toggle";
 
 /** The console's key map by physical key (works on the Persian layout too). */
 export const CONSOLE_KEYMAP: Record<string, ConsoleKey> = {
@@ -51,6 +51,7 @@ export const CONSOLE_KEYMAP: Record<string, ConsoleKey> = {
   Enter: "open",
   KeyA: "ack",
   KeyS: "take",
+  KeyW: "assign",
   KeyI: "incident",
   KeyC: "close",
   KeyZ: "snooze",
@@ -64,6 +65,7 @@ export const KEY_HELP: [string, string][] = [
   ["Enter", "باز کردن"],
   ["A", "تأیید"],
   ["S", "برعهده گرفتن"],
+  ["W", "واگذاری به همکار"],
   ["I", "ساخت رخداد"],
   ["C", "بستن"],
   ["Z", "تعویق یک ساعته"],

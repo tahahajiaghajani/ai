@@ -40,6 +40,10 @@ describe("who reads and who acts", () => {
     await w.p.other.client.post(`${w.P}/event/alerts/${netAlert}/ack`, {}, 403);
     const acked = await w.p.other.client.post(`${w.P}/event/alerts/${dbAlert}/take`, {});
     expect(acked.row).toMatchObject({ assigned_to: w.p.other.userId, state: "acknowledged" });
+    // handing it to a colleague; never to someone outside the organisation
+    const handed = await w.p.other.client.post(`${w.P}/event/alerts/${dbAlert}/assign`, { user_id: w.p.mgr.userId });
+    expect(handed.row.assigned_to).toBe(w.p.mgr.userId);
+    await w.p.other.client.post(`${w.P}/event/alerts/${dbAlert}/assign`, { user_id: "00000000-0000-4000-8000-000000000000" }, 400);
     await w.p.auditor.client.get(`${w.P}/event/console`);
     await w.p.auditor.client.post(`${w.P}/event/alerts/${netAlert}/ack`, {}, 403);
     // the generic API still asks the provider: an agent has no write in area event

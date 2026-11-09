@@ -27,6 +27,7 @@ describe("console", () => {
   it("maps physical keys to actions, never while typing or with modifiers", () => {
     expect(keyAction({ code: "KeyA" })).toBe("ack");
     expect(keyAction({ code: "KeyJ" })).toBe("next");
+    expect(keyAction({ code: "KeyW" })).toBe("assign");
     expect(keyAction({ code: "KeyA", ctrlKey: true })).toBeNull();
     expect(keyAction({ code: "KeyA", target: { tagName: "INPUT" } })).toBeNull();
     expect(keyAction({ code: "KeyQ" })).toBeNull();

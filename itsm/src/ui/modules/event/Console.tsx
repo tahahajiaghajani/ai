@@ -1,14 +1,14 @@
 // «کنسول هشدارها» — the live alert console (catalogue EVT-017), grouped by correlated alert: each group with its
 // worst severity, counts, team and incident, and its alerts under it; lone alerts after the groups. Refreshed live
 // («زنده») and every 15 seconds. Keyboard (physical keys, so the Persian layout works too): J/K or the arrows move,
-// Enter opens, A acknowledges, S takes, I raises an incident, C closes, Z snoozes an hour, X selects, G folds a
-// group, / searches; on a group the action applies to all its open alerts. A side card shows the focused group's
+// Enter opens, A acknowledges, S takes, W assigns to a colleague, I raises an incident, C closes, Z snoozes an hour,
+// X selects, G folds a group, / searches; on a group the action applies to all its open alerts. A side card shows the focused group's
 // rule-based summary and probable causes, with the AI narration on demand (rule-based without a model).
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Checkbox, Input, Popover, Segmented, Select, Space, Tooltip, type InputRef } from "antd";
-import { Check, ChevronDown, ChevronLeft, Hand, Keyboard, Siren, Clock, X, Sparkles, Layers } from "lucide-react";
+import { Button, Checkbox, Input, Modal, Popover, Segmented, Select, Space, Tooltip, type InputRef } from "antd";
+import { Check, ChevronDown, ChevronLeft, Hand, Keyboard, Siren, Clock, X, Sparkles, Layers, UserPlus } from "lucide-react";
 import { ALERT_SEVERITIES, GROUP_REASONS } from "@shared/tables/event";
 import { useOrg } from "../../lib/org";
 import { useNotify, useDebounced } from "../../lib/hooks";
@@ -18,6 +18,7 @@ import { PageHeader } from "../../components/layout";
 import { Card, ICON14 } from "../../components/blocks";
 import { Chip, EmptyState, Loader } from "../../components/display";
 import { recordPath } from "../../records/extensions";
+import { RecordSelect } from "../../records/fields/RecordSelect";
 import { EVENT_KEYS, eventApi, type ActionName, type AiAnswer } from "./api";
 import { KEY_HELP, canAck, consoleRows, keyAction, seenLine, severityLabel, severityTone, stateLabel, escalationLabel, type ConsoleRow } from "./model";
 import "./event.css";
@@ -53,6 +54,9 @@ export default function Console() {
   const [cursor, setCursor] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  // «واگذاری به همکار»: the alert being assigned and the chosen person
+  const [assignFor, setAssignFor] = useState<{ id: string; number: string | null } | null>(null);
+  const [assignee, setAssignee] = useState<string | null>(null);
   const search = useRef<InputRef>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const setScope = (s: Scope) => {
@@ -78,6 +82,13 @@ export default function Console() {
 
   const run = async (r: ConsoleRow | undefined, action: ActionName | "ack-group") => {
     if (!r || busy) return;
+    if (action === "assign") {
+      if (r.kind === "alert" && r.alert.can_respond) {
+        setAssignee(null);
+        setAssignFor({ id: r.id, number: r.alert.number ?? null });
+      }
+      return;
+    }
     setBusy(true);
     try {
       if (r.kind === "group") {
@@ -89,6 +100,21 @@ export default function Console() {
         await eventApi.action(api, r.id, action as ActionName, body);
         n.ok(action === "ack" ? "هشدار تأیید شد" : action === "take" ? "هشدار به شما سپرده شد" : action === "snooze" ? "هشدار یک ساعت به تعویق افتاد" : action === "close" ? "هشدار بسته شد" : action === "incident" ? "رخداد ساخته شد" : "انجام شد");
       }
+      await refresh();
+    } catch (e) {
+      n.error(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const assign = async () => {
+    if (!assignFor || !assignee) return;
+    setBusy(true);
+    try {
+      await eventApi.action(api, assignFor.id, "assign", { user_id: assignee });
+      n.ok("هشدار واگذار شد");
+      setAssignFor(null);
       await refresh();
     } catch (e) {
       n.error(errorText(e));
@@ -116,6 +142,7 @@ export default function Console() {
   // keyboard
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (assignFor) return;
       const k = keyAction(e);
       if (!k) return;
       if (k === "search") {
@@ -283,6 +310,18 @@ export default function Console() {
           <aside className="ev-side">{focusGroup ? <GroupInsight id={focusGroup.id} title={focusGroup.title} /> : <Card title="بینش">برای دیدن خلاصه و علت‌های محتمل، یک گروه هم‌بسته را انتخاب کنید.</Card>}</aside>
         </div>
       )}
+      <Modal
+        open={!!assignFor}
+        title={`واگذاری هشدار ${assignFor?.number ?? ""}`}
+        okText="واگذاری"
+        cancelText="انصراف"
+        onOk={() => void assign()}
+        onCancel={() => setAssignFor(null)}
+        okButtonProps={{ disabled: !assignee, loading: busy }}
+        destroyOnHidden
+      >
+        <RecordSelect table="user" value={assignee} onChange={(v) => setAssignee(typeof v === "string" ? v : null)} meFirst placeholder="جست‌وجوی همکار…" autoFocus />
+      </Modal>
     </div>
   );
 }
@@ -383,6 +422,7 @@ function ConsoleLine(p: {
       <span className="ev-acts">
         {act("ack", "تأیید (A)", <Check {...ICON14} />, !a.can_respond || !canAck(a.state))}
         {act("take", "برعهده گرفتن (S)", <Hand {...ICON14} />, !a.can_respond)}
+        {act("assign", "واگذاری به همکار (W)", <UserPlus {...ICON14} />, !a.can_respond || ["cleared", "closed", "suppressed"].includes(a.state))}
         {act("snooze", "تعویق یک ساعته (Z)", <Clock {...ICON14} />, !a.can_respond || !["open", "acknowledged", "flapping"].includes(a.state))}
         {act("incident", "ساخت رخداد (I)", <Siren {...ICON14} />, !a.can_respond || !!a.incident_id)}
         {act("close", "بستن (C)", <X {...ICON14} />, !a.can_respond)}
