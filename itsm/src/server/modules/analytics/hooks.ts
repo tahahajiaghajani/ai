@@ -15,6 +15,7 @@ import { orgSchema, orgTz, registerHooks, onRecordEvent, systemCtx, updateIn, ty
 import { enqueue, registerJobHandler } from "../../jobs";
 import { canAdmin, isUuid, liveRow, type Row } from "./common";
 import { compileFor, restampIndicator, scoreColumns } from "./sharing";
+import { ensureTick } from "./jobs";
 
 const isSystem = (ctx: Ctx) => ctx.actor === "system";
 const isOwner = (w: WriteArgs) => (w.prev?.owner_id ?? w.next.owner_id) === w.ctx.user.id;
@@ -129,6 +130,7 @@ export function installAnalyticsHooks(): void {
       if (w.op === "update" && ["formula", "parts", "grain"].some((f) => w.changed.has(f))) w.next.formula_version = Number(w.prev?.formula_version ?? 1) + 1;
       uncertify(w, ["formula", "parts", "grain", "target", "warn", "crit"]);
       await sharing(w, "score_shares", (c) => scoreColumns(c));
+      if (w.next.active && w.next.collect && (w.op === "create" || w.changed.has("collect") || w.changed.has("active"))) await ensureTick(w.tx, w.ctx.org.id);
     },
     async afterWrite(w) {
       // the stored scores carry their readers: follow a change of the indicator's score readers
@@ -164,6 +166,8 @@ export function installAnalyticsHooks(): void {
       if (w.op === "create" || ["schedule", "active"].some((f) => w.changed.has(f))) {
         const at = n.active ? nextOccurrence(n.schedule as ScheduleSpec, Date.now(), orgTz(w.ctx)) : null;
         n.next_run_at = at ? new Date(at).toISOString() : null;
+        // the organisation's tick delivers it (queued once; it reschedules itself)
+        if (at) await ensureTick(w.tx, w.ctx.org.id);
       }
     },
   });

@@ -12,6 +12,7 @@ import { evalFormula, parseFormula, type FormulaNode } from "@shared/analytics/f
 import { bucketable, deltaPct, formatValue, hasPeriod, kpiStatus, partFilter, periodInstants, periodOf, periodsBack, STATUS_LABELS } from "@shared/analytics/kpi";
 import { MEASURES } from "@shared/analytics/model";
 import type { IndicatorDef, IndicatorPart, IndicatorValue, KpiStatus, PeriodInfo, ReportSpec, ScorecardItem, ScorePoint } from "@shared/analytics/types";
+import type { Breakdown } from "@shared/analytics/api";
 import type { Ctx } from "../../context";
 import { forbidden, notFound } from "../../http/errors";
 import { condEnv, createIn, list, orgTz, removeIn, updateIn } from "../../engine";
@@ -69,11 +70,7 @@ const compute = (ind: IndicatorDef, parts: Record<string, number | null>) => {
   return f ? evalFormula(f, parts) : null;
 };
 
-export interface Breakdown {
-  field: string;
-  label: string;
-  elements: { key: string; label: string; value: number | null; parts: Record<string, number | null>; n: number }[];
-}
+export type { Breakdown };
 
 /** The value of an indicator for one period as `ctx` (optionally broken down by a field: top `limit` elements). */
 export async function evaluatePeriod(ctx: Ctx, ind: IndicatorDef, period: PeriodInfo, opts: { tz: string; now?: number; breakdown?: string; limit?: number } = { tz: "Asia/Tehran" }): Promise<{ total: IndicatorValue; breakdown: Breakdown | null }> {

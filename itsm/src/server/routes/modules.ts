@@ -29,6 +29,8 @@ import { installRequestModule } from "../modules/request";
 import { requestRoutes } from "./request";
 import { installKnowledgeModule } from "../modules/knowledge";
 import { knowledgeRoutes } from "./knowledge";
+import { installAnalyticsModule } from "../modules/analytics";
+import { analyticsRoutes } from "./analytics";
 import { installAiSkills } from "../modules/ai/skills";
 import { skillRoutes } from "./ai-skills";
 
@@ -60,6 +62,9 @@ installRequestModule();
 // knowledge management (docs/modules/knowledge_FA.md) — after the RAG index and the modules whose records it links
 installKnowledgeModule();
 
+// analytics, reporting and KPIs (docs/modules/analytics_FA.md) — after every module whose tables it reports on
+installAnalyticsModule();
+
 // the AI skills (docs/spec/AI.md §11) — after every module whose AI extension points they implement
 installAiSkills();
 
@@ -82,3 +87,4 @@ moduleRoutes.route("/service_portfolio", servicePortfolioRoutes);
 moduleRoutes.route("/change", changeRoutes);
 moduleRoutes.route("/request", requestRoutes);
 moduleRoutes.route("/knowledge", knowledgeRoutes);
+moduleRoutes.route("/analytics", analyticsRoutes);
