@@ -448,7 +448,9 @@ account that cannot sign in (no password, an `.invalid` address), created and gi
 — never as the system. It is found by its membership, never by an address: a new one gets a random
 `ai-assistant+<uuid>@service.invalid`, sign-up and invitations refuse every `.invalid` address (`isReservedEmail`),
 an existing account is never adopted, and a member with a service address that can sign in (a password, a recovery
-code or a session) is never taken for it — setting up refuses while one holds a membership. The subscriber `ai.skills` queues `ai.skill.run` (deduplicated per skill and record) for record
+code or a session) is never taken for it — setting up refuses while one holds a membership. An AI agent's member
+(§11.8) follows the same rules with its own prefix: `ai-agent+<sha256(key)[0:10]>.<uuid>@service.invalid`; the agents'
+loop guard (`isServiceMember`) counts only such accounts that cannot sign in. The subscriber `ai.skills` queues `ai.skill.run` (deduplicated per skill and record) for record
 events of the configured kinds on the configured tables, on the runtime that applied the write (`via: "sync"` is
 skipped) and never for the member's own writes; `ai.skills.schedule` (every 15 minutes while a scheduled skill exists)
 queues the records of each due skill's filter, read with the member's access. The job checks the condition with the
