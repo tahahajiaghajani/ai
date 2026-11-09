@@ -33,6 +33,7 @@ import { ITAM_CHOICE_LISTS, ITAM_TABLES } from "./itam";
 import { SUPPLIER_CHOICE_LISTS, SUPPLIER_TABLES } from "./supplier";
 import { FINANCIAL_CHOICE_LISTS, FINANCIAL_TABLES } from "./financial";
 import { SECURITY_CHOICE_LISTS, SECURITY_TABLES } from "./security";
+import { PORTAL_TABLES } from "./portal";
 
 export { CUSTOM_FIELD_TYPES, VIEW_KINDS } from "./core";
 
@@ -63,6 +64,7 @@ const MODULE_TABLES: TableDef[][] = [
   SUPPLIER_TABLES,
   FINANCIAL_TABLES,
   SECURITY_TABLES,
+  PORTAL_TABLES,
 ];
 
 /** Every table by key (resolved definitions). */

@@ -39,6 +39,7 @@ import { itamUi } from "./itam";
 import { supplierUi } from "./supplier";
 import { financialUi } from "./financial";
 import { securityUi } from "./security";
+import { portalUi } from "./portal";
 
 /** A sidebar space: «خانه», «تنظیمات», or one a module adds (its key, e.g. "service-desk"). */
 export type SpaceKey = string;
@@ -179,6 +180,7 @@ const UIS: ModuleUi[] = [
   supplierUi,
   financialUi,
   securityUi,
+  portalUi,
 ];
 
 /** In the order of the segmented control. «تنظیمات» is not a segment: the footer's gear opens it. */
