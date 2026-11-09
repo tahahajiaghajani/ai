@@ -64,8 +64,11 @@ export default function OrgSettings() {
           { key: "modules", label: "بخش‌ها" },
         ]}
       />
+      {/* A key per tab, so a tab change mounts a fresh form: antd applies initialValues only when a form mounts, and one form
+          kept across the tabs held the «مشخصات» values (the business row), so the settings fields found nothing at their
+          paths. Each tab saves its own fields; an edit left unsaved is dropped when the tab changes. */}
       {tab === "profile" ? (
-        <Form layout="vertical" requiredMark={false} disabled={!editable} initialValues={org} onFinish={(v) => save.mutate(v)} className="bk-card">
+        <Form key="profile" layout="vertical" requiredMark={false} disabled={!editable} initialValues={org} onFinish={(v) => save.mutate(v)} className="bk-card">
           <div className="px-5">
             <Sec title="نام و شناسه‌ها" desc="روی فاکتورها، رسیدها و گزارش‌های چاپی می‌آید.">
               <div className="bk-grid3">
@@ -96,6 +99,7 @@ export default function OrgSettings() {
         </Form>
       ) : tab === "settings" ? (
         <Form
+          key="settings"
           layout="vertical"
           requiredMark={false}
           disabled={!editable}
@@ -144,7 +148,7 @@ export default function OrgSettings() {
           {editable ? <SaveBar loading={save.isPending} /> : null}
         </Form>
       ) : (
-        <Form layout="vertical" disabled={!can("settings", "full")} initialValues={{ modules: org.modules }} onFinish={(v) => save.mutate(v)} className="bk-card">
+        <Form key="modules" layout="vertical" disabled={!can("settings", "full")} initialValues={{ modules: org.modules }} onFinish={(v) => save.mutate(v)} className="bk-card">
           <div className="px-5 pt-5">
             <Note className="mb-4">روشن کردن یک بخش حساب‌ها و تنظیمات پیش‌فرض آن را می‌افزاید؛ خاموش کردن فقط منوها را پنهان می‌کند و داده‌ای حذف نمی‌شود.</Note>
             <Form.Item name="modules" noStyle>
