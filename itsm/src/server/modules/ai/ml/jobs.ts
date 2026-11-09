@@ -17,6 +17,7 @@ import { scoreRecord, scoreRisks } from "./score";
 import { modelSpecs, textFields, type ModelSpec } from "./specs";
 import { modelRow, modelRows, recordOutcome, saveTraining, syncModels } from "./store";
 import { trainModel } from "./train";
+import { ensureInsightsTick } from "../insights";
 
 export const ML_TICK_EVERY = 15 * 60_000;
 
@@ -111,6 +112,7 @@ export function installMlJobs(): void {
       const def = tableDef(e.table);
       if (!def || def.extends !== "task" || def.virtual || !e.org_id) return;
       await ensureMlTick(jctx.db, e.org_id);
+      await ensureInsightsTick(jctx.db, e.org_id);
       const text = textFields(def);
       if (!text.length) return;
       if (e.kind === "record.created" || (e.kind === "record.updated" && (e.changed ?? []).some((c) => text.includes(c)))) {

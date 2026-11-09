@@ -47,6 +47,8 @@ import { installAiMl } from "../modules/ai/ml";
 import { mlRoutes } from "./ai-ml";
 import { installAiGovernance } from "../modules/ai/governance";
 import { governanceRoutes } from "./ai-governance";
+import { installInsights } from "../modules/ai/insights";
+import { insightRoutes } from "./ai-insights";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
 installAccessModel();
@@ -95,6 +97,8 @@ installVirtualAgent();
 installAiMl();
 // AI governance (docs/spec/AI.md §14): the data-use policy per table and the console
 installAiGovernance();
+// insights (docs/spec/AI.md §16): daily and weekly cards, digests by role
+installInsights();
 
 export const moduleRoutes = router();
 
@@ -105,6 +109,7 @@ moduleRoutes.route("/ai", agentRoutes);
 moduleRoutes.route("/ai", vaRoutes);
 moduleRoutes.route("/ai", mlRoutes);
 moduleRoutes.route("/ai", governanceRoutes);
+moduleRoutes.route("/ai", insightRoutes);
 moduleRoutes.route("/access", accessRoutes);
 moduleRoutes.route("/notify", notifyRoutes);
 moduleRoutes.route("/calendars", calendarRoutes);

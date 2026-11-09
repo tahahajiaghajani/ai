@@ -107,6 +107,20 @@ export interface AiSettings {
   cloud_first: AiJob[];
   /** «نمایه و بازیابی» (retrieval) */
   rag: AiRagSettings;
+  /** «بینش‌ها» (docs/spec/AI.md §16): daily and weekly insight cards, digests by role, anomaly alerts */
+  insights: AiInsightSettings;
+}
+
+export interface AiInsightSettings {
+  enabled: boolean;
+  /** the hour of the organisation's day after which yesterday's insights are computed (0–23) */
+  hour: number;
+  /** digests by notification: off, the daily insights, or the weekly ones (Saturday, the Iranian week) */
+  digest: "off" | "daily" | "weekly";
+  /** roles whose members receive the digest (each gets only insights they may see) */
+  roles: string[];
+  /** notify the digest's recipients of a critical anomaly at once */
+  notify_anomalies: boolean;
 }
 
 // ---------------------------------------------------------------- assistant: references, proposals, events

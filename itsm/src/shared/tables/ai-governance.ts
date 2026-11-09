@@ -58,7 +58,8 @@ const digest: TableDef = {
   plural: "خلاصه‌های بینش",
   icon: "newspaper",
   module: "ai",
-  area: "ai",
+  // a report delivered to one person (like a scheduled report's delivery): whoever reads reports reads their own
+  area: "reports",
   description: "بینش‌های یک دوره برای یک نفر؛ فقط از داده‌هایی که خود او می‌بیند ساخته می‌شود و فقط خود او آن را می‌بیند",
   display: "title",
   fields: [

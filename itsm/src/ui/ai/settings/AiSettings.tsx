@@ -50,6 +50,7 @@ export function withDefaults(s: Partial<Settings> | null | undefined): Settings 
     use_cloud: s?.use_cloud ?? false,
     cloud_first: s?.cloud_first ?? [],
     rag: { enabled: true, embed_connection_id: null, rerank: false, summaries: true, top_k: 8, ...(s?.rag ?? {}) },
+    insights: { enabled: true, hour: 6, digest: "weekly", roles: ["service_desk_manager", "team_lead", "tenant_admin"], notify_anomalies: true, ...(s?.insights ?? {}) },
   };
 }
 
