@@ -40,7 +40,7 @@ export default function Spend() {
         <EmptyState title="دادهٔ مالی در دسترس نیست" description="نمای هزینه‌ها گروه فیلد «مالی» لازم دارد." icon={Receipt} />
       ) : (
         <div className="flex flex-col gap-3">
-          <div className="itam-tiles">
+          <div className="itam-tiles is-wide">
             <StatCard title={`هزینهٔ سال ${faDigits(d.year)}`} value={<Money v={d.total} compact />} />
             <StatCard title="سرمایه‌ای (CapEx)" value={<Money v={d.capex} compact />} />
             <StatCard title="جاری (OpEx)" value={<Money v={d.opex} compact />} />

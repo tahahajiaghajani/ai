@@ -25,7 +25,7 @@ export function Money({ v, unit, suffix = true, compact = false }: { v: string |
   if (v === null || v === undefined || v === "") return <span className="text-ink-3">—</span>;
   const exact = formatRial(String(v), unit ?? u, { suffix });
   if (!compact) return <span className="ds-num whitespace-nowrap">{exact}</span>;
-  return <span className="ds-num whitespace-nowrap" title={exact}>{formatRial(String(v), unit ?? u, { suffix, compact: true })}</span>;
+  return <span className="ds-num" title={exact}>{formatRial(String(v), unit ?? u, { suffix, compact: true })}</span>;
 }
 
 /** A usage bar: green under 75 %, amber to 100 %, red beyond. */

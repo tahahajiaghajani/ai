@@ -70,7 +70,7 @@ export default function BudgetVsActual() {
         <EmptyState title="بودجهٔ مصوب یا هزینه‌ای برای این بازه نیست" icon={Wallet} />
       ) : (
         <div className="flex flex-col gap-3">
-          <div className="itam-tiles">
+          <div className="itam-tiles is-wide">
             <StatCard title="بودجه" value={tile(d.total.budget)} />
             <StatCard title="هزینهٔ واقعی" value={tile(d.total.actual)} />
             <StatCard title="باقی‌مانده" value={tile(d.total.variance)} />

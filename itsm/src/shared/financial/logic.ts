@@ -58,13 +58,13 @@ export type MoneyUnit = "rial" | "toman";
 export function formatRial(v: Num, unit: MoneyUnit = "rial", opts: { suffix?: boolean; compact?: boolean } = {}): string {
   const amount = unit === "toman" ? div(v ?? 0, 10, 1) : D(v ?? 0).toString();
   const name = unit === "toman" ? "تومان" : "ریال";
-  // compact (tiles, chart axes): «۱۰٫۸ میلیارد ریال» — one decimal under ten, whole numbers above
+  // compact (tiles, chart axes): «۱۰٫۸ میلیارد ریال» — one decimal under a hundred, whole numbers above
   if (opts.compact) {
     const n = D(amount);
     for (const [step, word] of [[1e12, "هزار میلیارد"], [1e9, "میلیارد"], [1e6, "میلیون"]] as const) {
       if (n.abs().lt(step)) continue;
       const x = n.div(step);
-      const text = `${faDigits(x.toDecimalPlaces(x.abs().lt(10) ? 1 : 0).toString()).replace(".", "٫")} ${word}`;
+      const text = `${faDigits(x.toDecimalPlaces(x.abs().lt(100) ? 1 : 0).toString()).replace(".", "٫")} ${word}`;
       return opts.suffix === false ? text : `${text} ${name}`;
     }
   }

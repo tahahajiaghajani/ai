@@ -24,6 +24,10 @@ describe("money", () => {
   it("shows Rials or Tomans with Persian digits and grouping", () => {
     expect(formatRial("1250000")).toBe("۱٬۲۵۰٬۰۰۰ ریال");
     expect(formatRial("1250000", "toman")).toBe("۱۲۵٬۰۰۰ تومان");
+    expect(formatRial("10800000000", "rial", { compact: true })).toBe("۱۰٫۸ میلیارد ریال");
+    expect(formatRial("450000000", "rial", { compact: true })).toBe("۴۵۰ میلیون ریال");
+    expect(formatRial("10800000000", "toman", { compact: true, suffix: false })).toBe("۱٫۱ میلیارد");
+    expect(formatRial("950000", "rial", { compact: true })).toBe("۹۵۰٬۰۰۰ ریال");
     expect(formatRial("1250000", "toman", { suffix: false })).toBe("۱۲۵٬۰۰۰");
     expect(toRial("12.5", "820000")).toBe("10250000");
   });

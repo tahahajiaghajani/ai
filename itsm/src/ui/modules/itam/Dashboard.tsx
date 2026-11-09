@@ -66,14 +66,14 @@ export default function Dashboard() {
             {d.renewals_90 !== null ? <StatCard title="قرارداد رو به پایان (۹۰ روز)" value={fa(d.renewals_90)} onClick={go("supplier/renewals")} /> : null}
           </div>
           {d.money ? (
-            <div className="itam-tiles">
+            <div className="itam-tiles is-wide">
               <StatCard title="بهای خرید دارایی‌ها" value={<Money v={d.money.purchase_cost} compact />} />
               <StatCard title="ارزش دفتری" value={<Money v={d.money.book_value} compact />} />
             </div>
           ) : null}
           {d.compliance ? (
             <Card title="مجوزهای نرم‌افزار" tools={<Button size="small" onClick={go("itam/compliance")}>جزئیات</Button>}>
-              <div className="itam-tiles">
+              <div className="itam-tiles is-wide">
                 <StatCard title="نرم‌افزار در تطبیق" value={fa(d.compliance.products)} hint={d.compliance.run_at ? `آخرین تطبیق ${formatJalali(d.compliance.run_at.slice(0, 10))}` : "هنوز تطبیق نشده"} />
                 <StatCard title="کمبود مجوز" value={fa(d.compliance.under_licensed)} />
                 {d.compliance.exposure !== null ? <StatCard title="ریسک کمبود" value={<Money v={d.compliance.exposure} compact />} /> : null}

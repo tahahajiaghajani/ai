@@ -6,6 +6,11 @@
   gap: 10px;
 }
 
+/* tiles that hold amounts: wider columns (one per row on a phone) */
+.itam-tiles.is-wide {
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+}
+
 .itam-two {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));

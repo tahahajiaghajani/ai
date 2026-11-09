@@ -78,7 +78,7 @@ export default function Compliance() {
         <EmptyState title="هنوز تطبیقی انجام نشده است" description="نصب‌ها از جمع‌آورندهٔ موجودی (پایگاه پیکربندی) گرفته و با مجوزهای فعال مقایسه می‌شوند." icon={Scale} action={meta.data?.can_manage ? <Button type="primary" loading={sync.isPending} onClick={() => sync.mutate()}>همگام‌سازی و تطبیق</Button> : undefined} />
       ) : (
         <div className="flex flex-col gap-3">
-          <div className="itam-tiles">
+          <div className="itam-tiles is-wide">
             <StatCard title="نرم‌افزار" value={fa(d.totals.products)} />
             <StatCard title="منطبق" value={fa(d.totals.compliant)} />
             <StatCard title="کمبود مجوز" value={fa(d.totals.under_licensed)} onClick={() => setFilter("risk")} />
