@@ -50,7 +50,7 @@ export const itamApi = {
   requestItem: (api: OrgApi, id: string) => api.get<RequestItemAssets>(`/itam/request-items/${id}/assets`),
   assignToItem: (api: OrgApi, id: string, assetId: string) => api.post<{ asset: Row }>(`/itam/request-items/${id}/assign`, { asset_id: assetId }),
   leaver: (api: OrgApi, userId: string, dueDate: string | null) => api.post<{ assets: number; allocations: number; accounts: number }>(`/itam/leaver/${userId}`, { due_date: dueDate }),
-  discovered: (api: OrgApi) => api.post<{ created: number; models: number }>("/itam/discovered"),
+  discovered: (api: OrgApi) => api.post<{ created: number; models: number; remaining: number }>("/itam/discovered"),
 };
 
 /** The organisation's money display (Rials or Tomans, from the financial settings); Rials when unknown. */

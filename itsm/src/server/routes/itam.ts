@@ -15,7 +15,7 @@ import { bad, forbidden } from "../http/errors";
 import { access } from "../access/provider";
 import { aggregate, defFor, get, list } from "../engine";
 import {
-  asset360, assetsForDiscovered, checkStockRules, checkin, checkout, compliance, decideAck, ensureItamSweep, hasGroup, holds, itamConfig, itamText, leaverReturn,
+  asset360, confirmDiscovered, checkStockRules, checkin, checkout, compliance, decideAck, ensureItamSweep, hasGroup, holds, itamConfig, itamText, leaverReturn,
   licenceFacts, licenceNarrative, linkCi, myAssets, ordersFromRequisition, receive, reconcile, reportAsset, requisitionFromRules, scan, seedItamDefaultsIn, stockDashboard,
   syncInstalls, assetSummaryText,
 } from "../modules/itam";
@@ -94,6 +94,11 @@ itamRoutes.get("/dashboard", async (c) => {
     out.compliance = r ? { products: Number(r.products ?? 0), under_licensed: Number(r.under_licensed ?? 0), exposure: (r.exposure as string) ?? null, savings: (r.savings as string) ?? null, run_at: (r.finished_at as string) ?? null } : { products: 0, under_licensed: 0, exposure: null, savings: null, run_at: null };
   }
   if (await holds(ctx, "contract", "read")) out.renewals_90 = await count("contract", { and: [{ f: "state", op: "eq", v: "active" }, { f: "end_date", op: "between", v: [today, addDays(today, 90)] }] });
+  // discovered hardware waiting for an asset manager's first reviewed batch (the daily step creates nothing before it)
+  if (await holds(ctx, "asset", "write", "group")) {
+    const [cfg] = await liveRows(ctx.db, sysOf(ctx), "itam_config", null, { order: "t.created_at", limit: 1 });
+    out.discovered_pending = cfg && cfg.auto_assets !== false && !cfg.auto_assets_confirmed_at && Number(cfg.auto_assets_pending ?? 0) > 0 ? Number(cfg.auto_assets_pending) : null;
+  }
   return c.json(out);
 });
 
@@ -263,8 +268,9 @@ itamRoutes.post("/leaver/:userId", async (c) => {
   return c.json(await leaverReturn(c.get("ctx"), id(c.req.param("userId")), input.due_date ?? null));
 });
 
+// the asset manager's reviewed batch: makes assets for discovered hardware and confirms the daily step
 itamRoutes.post("/discovered", async (c) => {
   const ctx = c.get("ctx");
   await needManage(ctx);
-  return c.json(await assetsForDiscovered(sysOf(ctx, ctx.user.id), 500));
+  return c.json(await confirmDiscovered(ctx, 500));
 });

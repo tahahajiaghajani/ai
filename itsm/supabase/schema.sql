@@ -9830,6 +9830,8 @@ alter table sm_itam_configs add column if not exists config_key text;
 alter table sm_itam_configs add column if not exists tag_prefix text;
 alter table sm_itam_configs add column if not exists auto_ci boolean not null default true;
 alter table sm_itam_configs add column if not exists auto_assets boolean not null default true;
+alter table sm_itam_configs add column if not exists auto_assets_confirmed_at timestamptz;
+alter table sm_itam_configs add column if not exists auto_assets_pending integer;
 alter table sm_itam_configs add column if not exists ack_expire_days integer;
 alter table sm_itam_configs add column if not exists ack_remind_days integer;
 alter table sm_itam_configs add column if not exists warranty_reminders jsonb;

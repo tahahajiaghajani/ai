@@ -21,7 +21,7 @@ import { addJournalIn, createIn, emitEvent, onRecordEvent, systemCtx, transition
 import { enqueue, registerJobHandler, type JobContext } from "../../jobs";
 import { actsHere, notifyPeople } from "../notify";
 import { eqAll, isUuid, itamConfig, liveRow, liveRows, orgToday, type Row } from "./common";
-import { assetsForDiscovered, fromCi, linkCi } from "./assets";
+import { discoveredStep, fromCi, linkCi } from "./assets";
 import { checkStockRules } from "./stock";
 import { reconcile, renormalize, syncInstalls } from "./sam";
 import { bookValueOf, setHandOver } from "./hooks";
@@ -253,7 +253,8 @@ export function installItamJobs(): (() => void)[] {
       const sys = await systemCtx(jctx.cfg, job.org_id);
       await itamSweep(sys);
       await syncInstalls(sys).catch(() => undefined);
-      if ((await itamConfig(sys.db, sys)).auto_assets !== false) await assetsForDiscovered(sys, 200).catch(() => undefined);
+      // discovered hardware: a reviewable count until an asset manager made the first batch, then capped daily batches
+      await discoveredStep(sys, 200).catch(() => undefined);
       await reconcile(sys, "schedule").catch(() => undefined);
       return { again: SWEEP_EVERY };
     }),

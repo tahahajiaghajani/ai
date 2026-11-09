@@ -26,7 +26,10 @@ export default function Dashboard() {
   const q = useQuery({ queryKey: ITAM_KEYS.dashboard(orgId), queryFn: () => itamApi.dashboard(api), staleTime: 60_000 });
   const discovered = useMutation({
     mutationFn: () => itamApi.discovered(api),
-    onSuccess: (r) => message.success(r.created ? `${fa(r.created)} دارایی برای سخت‌افزار کشف‌شده ساخته شد` : "سخت‌افزار کشف‌شدهٔ بی‌دارایی پیدا نشد"),
+    onSuccess: (r) => {
+      message.success(r.created ? `${fa(r.created)} دارایی برای سخت‌افزار کشف‌شده ساخته شد${r.remaining ? `؛ ${fa(r.remaining)} دستگاه دیگر در روزهای بعد` : ""}` : "سخت‌افزار کشف‌شدهٔ بی‌دارایی پیدا نشد");
+      void q.refetch();
+    },
     onError: (e: Error) => message.error(e.message),
   });
   const go = (path: string) => () => nav(`/${orgId}/${path}`);
@@ -63,6 +66,7 @@ export default function Dashboard() {
             <StatCard title="هشدار موجودی" value={fa(d.stock_alerts)} onClick={go("itam/stock")} />
             <StatCard title="تعمیر باز" value={fa(d.open_repairs)} onClick={go("itam/repairs")} />
             <StatCard title="اسقاط در جریان" value={fa(d.pending_disposal)} onClick={go("itam/disposals")} />
+            {d.discovered_pending ? <StatCard title="سخت‌افزار کشف‌شدهٔ بی‌دارایی" value={fa(d.discovered_pending)} hint="پس از بازبینی، «دارایی برای سخت‌افزار کشف‌شده»" onClick={go("cis")} /> : null}
             {d.renewals_90 !== null ? <StatCard title="قرارداد رو به پایان (۹۰ روز)" value={fa(d.renewals_90)} onClick={go("supplier/renewals")} /> : null}
           </div>
           {d.money ? (

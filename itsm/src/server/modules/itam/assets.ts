@@ -15,6 +15,8 @@ import { access } from "../../access/provider";
 import { create, createIn, defFor, get, list, listHistory, transitionIn, updateIn, addJournalIn, fromDb } from "../../engine";
 import { createOrUpdate } from "../cmdb/ire";
 import { notifyPeople } from "../notify";
+import { accessSettings, buildSubject, loadOrgSnapshot } from "../../access";
+import { grantIn } from "@shared/access/model";
 import { hasGroup, holds, isUuid, itamConfig, liveRow, liveRows, orgToday, stateLabel, sysOf, type Row } from "./common";
 import { setHandOver } from "./hooks";
 
@@ -260,14 +262,92 @@ const CATEGORY_OF: Record<string, string> = { laptop: "laptop", desktop: "deskto
  * Assets for discovered hardware CIs that have none (ITAM-002 «in use, unverified»): the model by maker and model
  * name (a model «در بررسی» is created when unknown), the CI's user as the assignee.
  */
-export async function assetsForDiscovered(sys: Ctx, limit = 200): Promise<{ created: number; models: number }> {
-  const cis = await liveRows(sys.db, sys, "ci", { and: [{ f: "class", op: "in", v: HW_CLASSES }, { f: "state", op: "nin", v: ["retired", "disposed", "canceled"] }] } as Cond, { limit: 5000 });
+/** Hardware CIs of the CMDB that have no asset yet (live, not retired), oldest first. */
+async function unlinkedHardware(sys: Ctx): Promise<Row[]> {
+  const cis = await liveRows(sys.db, sys, "ci", { and: [{ f: "class", op: "in", v: HW_CLASSES }, { f: "state", op: "nin", v: ["retired", "disposed", "canceled"] }] } as Cond, { limit: 5000, order: "t.created_at, t.no" });
   const linked = new Set((await liveRows(sys.db, sys, ASSET, { f: "ci_id", op: "nempty" } as Cond, { limit: 100000 })).map((a) => String(a.ci_id)));
+  return cis.filter((ci) => !linked.has(String(ci.id)));
+}
+
+/** Active members whose roles manage assets (write ≥ group in area `asset`) — who reviews discovered hardware. */
+async function assetManagersOf(sys: Ctx): Promise<string[]> {
+  const snap = await loadOrgSnapshot(sys.db, sys.org.id);
+  const org = await sys.db.one<{ settings: Record<string, unknown> | null }>(`select settings from sm_orgs where id = $1`, [sys.org.id]);
+  const settings = accessSettings({ settings: (org?.settings ?? {}) as never });
+  const members = await sys.db.query<{ user_id: string; role: string; overrides: Record<string, unknown> | null }>(
+    `select user_id, role, overrides from sm_org_members where org_id = $1 and deleted_at is null and is_active`,
+    [sys.org.id],
+  );
+  const order = ["none", "own", "group", "unit", "unit_tree", "domain", "all"];
+  return members
+    .filter((m) => {
+      const s = buildSubject(snap, settings, sys.org.id, m.user_id, m.role as never, m.overrides).subject;
+      return s.kind === "user" && order.indexOf(grantIn(s.eff, "asset").write) >= order.indexOf("group");
+    })
+    .map((m) => m.user_id);
+}
+
+/**
+ * The daily discovered-hardware step (ITAM-002, `itam_config.auto_assets`). Until an asset manager has made the first
+ * batch (POST /itam/discovered — «دارایی برای سخت‌افزار کشف‌شده» on the dashboard, which stamps
+ * `auto_assets_confirmed_at`), nothing is created: the step counts the hardware CIs without an asset and tells the
+ * asset managers once per new count, so a large CMDB is never flooded with assets nobody reviewed. Afterwards it
+ * creates up to `limit` a day and tells them what it made and what is left.
+ */
+export async function discoveredStep(sys: Ctx, limit = 200): Promise<{ proposed: number; created: number }> {
+  const cfg = await liveRows(sys.db, sys, "itam_config", null, { order: "t.created_at", limit: 1 }).then((r) => r[0] ?? null);
+  if (!cfg || cfg.auto_assets === false) return { proposed: 0, created: 0 };
+  const open = await unlinkedHardware(sys);
+  if (!cfg.auto_assets_confirmed_at) {
+    if (Number(cfg.auto_assets_pending ?? 0) === open.length) return { proposed: 0, created: 0 };
+    const managers = open.length ? await assetManagersOf(sys) : [];
+    await sys.write(async (tx) => {
+      await updateIn(tx, sys, "itam_config", String(cfg.id), { auto_assets_pending: open.length }, { trusted: true, keepVersion: true });
+      if (open.length && managers.length) {
+        await notifyPeople(tx, sys.org.id, {
+          table: "ci", id: String(open[0].id), users: managers, event: "custom", label: "سخت‌افزار کشف‌شدهٔ بی‌دارایی",
+          subject: `${open.length.toLocaleString("fa-IR")} دستگاه کشف‌شده هنوز دارایی ندارد`,
+          body: `پایگاه پیکربندی ${open.length.toLocaleString("fa-IR")} رایانه، سرور، گوشی یا تجهیز شبکه دارد که دارایی ندارند. پس از بررسی، در «داشبورد دارایی‌ها» دکمهٔ «دارایی برای سخت‌افزار کشف‌شده» را بزنید؛ از آن پس دستگاه‌های تازه هر روز خودکار دارایی می‌گیرند. تا آن زمان دارایی‌ای ساخته نمی‌شود.`,
+          channels: ["in_app"], source: "مدیریت دارایی",
+        });
+      }
+    });
+    return { proposed: open.length, created: 0 };
+  }
+  if (!open.length) return { proposed: 0, created: 0 };
+  const r = await assetsForDiscovered(sys, limit, open);
+  const left = Math.max(0, open.length - r.created);
+  if (r.created) {
+    const managers = await assetManagersOf(sys);
+    if (managers.length) {
+      await sys.write((tx) => notifyPeople(tx, sys.org.id, {
+        table: "ci", id: String(open[0].id), users: managers, event: "custom", label: "دارایی برای سخت‌افزار کشف‌شده",
+        subject: `${r.created.toLocaleString("fa-IR")} دارایی برای دستگاه‌های کشف‌شده ساخته شد`,
+        body: `${r.created.toLocaleString("fa-IR")} دارایی با زیروضعیت «تأییدنشده» ساخته شد${left ? `؛ ${left.toLocaleString("fa-IR")} دستگاه دیگر در روزهای بعد` : ""}. آن‌ها را در فهرست دارایی‌ها بازبینی کنید.`,
+        channels: ["in_app"], source: "مدیریت دارایی",
+      }));
+    }
+  }
+  return { proposed: 0, created: r.created };
+}
+
+/** An asset manager makes assets for the discovered hardware now — and so confirms the daily step. */
+export async function confirmDiscovered(ctx: Ctx, limit = 500): Promise<{ created: number; models: number; remaining: number }> {
+  if (!(await holds(ctx, "asset", "write", "group"))) throw forbidden("این کار با مدیر دارایی است");
+  const sys = sysOf(ctx, ctx.user.id);
+  const open = await unlinkedHardware(sys);
+  const r = await assetsForDiscovered(sys, limit, open);
+  const [cfg] = await liveRows(sys.db, sys, "itam_config", null, { order: "t.created_at", limit: 1 });
+  if (cfg) await sys.write((tx) => updateIn(tx, sys, "itam_config", String(cfg.id), { auto_assets_confirmed_at: cfg.auto_assets_confirmed_at ?? new Date().toISOString(), auto_assets_pending: Math.max(0, open.length - r.created) }, { trusted: true, keepVersion: true }));
+  return { ...r, remaining: Math.max(0, open.length - r.created) };
+}
+
+export async function assetsForDiscovered(sys: Ctx, limit = 200, open?: Row[]): Promise<{ created: number; models: number }> {
+  const cis = open ?? (await unlinkedHardware(sys));
   let created = 0;
   let models = 0;
   for (const ci of cis) {
     if (created >= limit) break;
-    if (linked.has(String(ci.id))) continue;
     await sys.write(async (tx) => {
       const name = String(ci.model_name || `${ci.class} نامشخص`).slice(0, 200);
       let [model] = await liveRows(tx, sys, "asset_model", { f: "name", op: "eq", v: name } as Cond, { limit: 1 });

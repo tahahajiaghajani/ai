@@ -77,7 +77,7 @@ export function installItamModule(): void {
 }
 
 export { seedItamDefaultsIn, ITAM_SEED_VERSION, type SeedCounts } from "./seed";
-export { checkout, checkin, asset360, myAssets, decideAck, reportAsset, linkCi, assetsForDiscovered, leaverReturn } from "./assets";
+export { checkout, checkin, asset360, myAssets, decideAck, reportAsset, linkCi, assetsForDiscovered, confirmDiscovered, discoveredStep, leaverReturn } from "./assets";
 export { stockDashboard, checkStockRules, requisitionFromRules, ordersFromRequisition, receive, scan, stockLevels } from "./stock";
 export { syncInstalls, renormalize, reconcile, compliance, licenceFacts } from "./sam";
 export { itamSweep, ensureItamSweep, resetItamSweepThrottle } from "./jobs";

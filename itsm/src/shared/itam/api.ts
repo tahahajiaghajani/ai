@@ -36,6 +36,8 @@ export interface ItamDashboard {
   compliance: { products: number; under_licensed: number; exposure: string | null; savings: string | null; run_at: string | null } | null;
   /** only with a read grant in contracts */
   renewals_90: number | null;
+  /** asset managers: discovered hardware without an asset, waiting for the first reviewed batch (null otherwise) */
+  discovered_pending?: number | null;
 }
 
 export interface MyAsset {
