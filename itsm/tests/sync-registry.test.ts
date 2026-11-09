@@ -40,6 +40,10 @@ const LOCAL_ONLY: Record<string, string> = {
   // knowledge: each runtime keeps the stream of what happened on it (searches, views, votes); the records travel
   sm_kb_events: "knowledge event stream of this runtime (search analytics, views, deflection)",
   sm_ai_doc_pages: "text read from smart documents on this runtime",
+  // workforce: presence is the state of the runtime people work on (a heartbeat a minute would flood sync); skills,
+  // rosters, time off, points and kudos travel
+  sm_wfm_agents: "presence (and personal preferences) of each person on this runtime",
+  sm_wfm_presence_log: "presence intervals of this runtime (time available, utilisation)",
   sm_ai_rag_runs: "AI index runs (backfills, re-embedding, reconciliation)",
   // record engine bookkeeping of each runtime
   sm_numbers: "record number counters (each runtime its own; sync renumbers on a clash)",
