@@ -9,6 +9,7 @@ import { installMlJobs } from "./jobs";
 import { installRiskModels } from "./risk-models";
 import { predictGroup, storeApplied } from "./score";
 import { modelSpecs } from "./specs";
+import { installNlReport } from "../nlreport";
 
 export { ensureMlTick, runModel } from "./jobs";
 export { forecastFor, holidaysBetween } from "./forecast";
@@ -27,6 +28,8 @@ export function installAiMl(): void {
   installed = true;
   installRiskModels();
   installMlJobs();
+  // «پرسش تحلیلی»: the analytics module's AI hook (checked definitions, narratives under the data-use policy)
+  installNlReport();
   // «گروه با پیش‌بینی هوش مصنوعی» of assignment rules: the group classifier, at its auto-apply threshold
   setAssignmentPredictor(async (q, ctx, def, row) => predictGroup(q, ctx, def, row, modelSpecs(await orgSchema(ctx, q))));
   registerHooks("*", {

@@ -167,3 +167,30 @@ export interface MlModelPatch {
   schedule?: MlSchedule;
   seed?: number;
 }
+
+// ----- «پرسش تحلیلی» (natural language → report) -------------------------------------------------------------------
+
+/** How a question was answered: a model's definition, the rule-based reading (no model), or a guided start. */
+export type AskReportMode = "ai" | "rules" | "guided";
+
+export interface AskReportResult {
+  question: string;
+  mode: AskReportMode;
+  /** the definition that was run (null when refused or not understood) */
+  spec: import("../analytics/types").ReportSpec | null;
+  /** how the question was read, in Persian chips (table, measure, breakdowns, period, chart) */
+  chips: { kind: string; label: string }[];
+  /** why a definition was refused (an unknown or unreadable table or field), in Persian */
+  refusal: string | null;
+  /** the numbers, computed by the report engine with the asker's own access */
+  result: import("../analytics/types").ReportResult | null;
+  title: string;
+  /** a short description of the computed numbers (a model's only over these numbers, else rule-based) */
+  narrative: { text: string; ai: boolean } | null;
+  /** the report designer opened on this definition (adjust, then save) */
+  designer_path: string | null;
+  /** the asker may save it as a report of their own */
+  can_save: boolean;
+  /** example questions over the tables the asker reads (guided mode and refusals) */
+  suggestions: string[];
+}

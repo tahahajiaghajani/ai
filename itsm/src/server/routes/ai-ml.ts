@@ -5,7 +5,9 @@
 import { z } from "zod";
 import { router, body, query, errorResponse } from "../http/hono";
 import { bad, forbidden } from "../http/errors";
-import type { ClusterView, ForecastView, MlModelView, MlPrediction, MlRecordView } from "@shared/ai/ml";
+import type { AskReportResult, ClusterView, ForecastView, MlModelView, MlPrediction, MlRecordView } from "@shared/ai/ml";
+import type { ReportSpec } from "@shared/analytics/types";
+import { askReport, saveAskedReport } from "../modules/ai/nlreport";
 import { create, orgSchema, update } from "../engine";
 import { enqueue } from "../jobs";
 import { access } from "../access/provider";
@@ -103,6 +105,28 @@ mlRoutes.post("/ml/clusters/:id/problem", async (c) => {
   }
   await decideCluster(ctx, cid, { status: "converted", problem_id: pid });
   return c.json({ problem_id: pid, number: problem.row.number ?? null, linked });
+});
+
+// ----- «پرسش تحلیلی» ------------------------------------------------------------------------------------------------
+
+mlRoutes.post("/ask-report", async (c) => {
+  const ctx = c.get("ctx");
+  const input = await body(c, z.object({ question: z.string().trim().min(2, "پرسش کوتاه است").max(500) }));
+  const out: AskReportResult = await askReport(ctx, input.question);
+  return c.json(out);
+});
+
+mlRoutes.post("/ask-report/save", async (c) => {
+  const ctx = c.get("ctx");
+  const input = await body(
+    c,
+    z.object({
+      spec: z.any().refine((v) => v && typeof v === "object" && typeof v.table === "string", "تعریف گزارش معتبر نیست") as z.ZodType<ReportSpec>,
+      name: z.string().trim().min(1).max(150),
+      question: z.string().max(500).nullish(),
+    }),
+  );
+  return c.json(await saveAskedReport(ctx, input));
 });
 
 // ----- the registry (AI administrators) ----------------------------------------------------------------------------
