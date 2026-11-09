@@ -311,6 +311,13 @@ export async function testAgent(ctx: Ctx, key: string, input: { table?: string |
   const pctx = await principalCtx(ctx.cfg as ServerConfig, ctx.org.id, key);
   if (!pctx) return { admin, principal: null, run: null, problem: "این عامل هنوز هویت ندارد؛ مالک سازمان باید برایش نقش تعیین کند" };
   const principal = await accessView(pctx, pctx.user.full_name || a.name, a, record);
+  // the console never shows the administrator what only the principal reads: values of fields the administrator does
+  // not see are masked (the labels still show which fields the principal reads), and a record the administrator
+  // cannot read is not tested
+  if (record && !admin.record) return { admin, principal: { ...principal, record: principal.record ? {} : null }, run: null, problem: "این رکورد را خودتان نمی‌بینید؛ آزمون روی رکوردی انجام می‌شود که خودتان هم ببینید" };
+  if (principal.record && admin.record) {
+    for (const k of Object.keys(principal.record)) if (!(k in admin.record)) principal.record[k] = "••• (فقط هویت عامل می‌بیند)";
+  }
   if (record && !principal.record) return { admin, principal, run: null, problem: "هویت عامل این رکورد را نمی‌بیند؛ اجرای واقعی روی آن انجام نمی‌شود" };
   if (!(await agentsOn(ctx.cfg as ServerConfig, ctx.org.id))) return { admin, principal, run: null, problem: "عامل‌های هوش مصنوعی در تنظیمات سازمان خاموش‌اند" };
   const q = await queueAgentRun(ctx.cfg as ServerConfig, ctx.org.id, a, { trigger: "test", why: "test", table: record?.table ?? null, id: record?.id ?? null, startedBy: ctx.user.id, dry: true, inline: true });

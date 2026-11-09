@@ -539,7 +539,9 @@ member who started one sees its status and its proposals (each checked for them)
 - **Studio** (`src/ui/ai/agents/Studio.tsx`, settings «عامل‌ها», API `/ai/agents/admin…`, ai:full): the switch, the
   agents by module, settings, the tool picker (what the principal may use is marked), the principal, the test console —
   a dry run on a chosen record (nothing stored, nothing applied) with the record as the administrator and as the
-  principal read it, side by side — and runs with their steps (stop a running one). «پیشنهادهای هوش مصنوعی»
+  principal read it, side by side; only on a record the administrator reads, values only the principal reads masked —
+  and runs with their steps (stop a running one). Run steps show what the principal's model wrote and which tools it
+  called: give a principal no more than its AI administrators may know. «پیشنهادهای هوش مصنوعی»
   (`ai/proposals`, `GET /ai/actions?inbox=1`) lists what is routed to the member.
 
 ### 11.9 The virtual agent
