@@ -404,9 +404,8 @@ const planStep: TableDef = {
     { name: "role", label: "نقش", type: "string", maxLength: 120, list: true, span: 12 },
     { name: "owner_id", label: "مسئول", type: "user", list: true, span: 12 },
     { name: "action", label: "شرح کار", type: "markdown", span: 24 },
-    { name: "group_id", label: "تیم بازیابی", type: "group", system: true, hidden: true, audit: false },
   ],
-  scope: { own: ["owner_id"], requester: [], group: "group_id" },
+  scope: { own: ["owner_id"], requester: [] },
   list: { columns: ["plan_id", "seq", "title", "role", "owner_id", "rto_offset_minutes"], order: "plan_id,seq" },
 };
 

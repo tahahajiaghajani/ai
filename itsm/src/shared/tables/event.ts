@@ -290,7 +290,7 @@ const eventSource: TableDef = {
     { name: "heartbeat_alert_id", label: "هشدار ضربان", type: "ref", ref: "alert", system: true, hidden: true, audit: false },
     { name: "description", label: "توضیح", type: "text", span: 24, section: MAIN },
   ],
-  scope: { group: "assignment_group_id" },
+  scope: { public: true },
   form: { sections: [MAIN, MAPPING] },
   list: { columns: ["name", "kind", "active", "assignment_group_id", "last_event_at", "event_count", "token_hint"], order: "name" },
 };
@@ -329,7 +329,8 @@ const event: TableDef = {
     { name: "decision", label: "تصمیم‌ها", type: "json", readonly: true, span: 24, help: "قاعده‌هایی که اعمال شد (با نسخهٔ هر قاعده) و یادداشت‌های پردازش" },
     { name: "payload", label: "محتوای خام", type: "json", group: "internal", span: 24, help: "اسرار (گذرواژه، کلید، توکن) هنگام دریافت پاک می‌شوند" },
   ],
-  scope: { group: "assignment_group_id" },
+  // no group scope: a raw event is not «assigned» to a team (the team's alerts are)
+  scope: {},
   features: { sync: false, history: false },
   list: { columns: ["received_at", "source_id", "severity", "status", "node", "message", "outcome", "alert_id"], order: "-received_at" },
 };
@@ -626,9 +627,8 @@ const oncallRotation: TableDef = {
     { name: "restrict_days", label: "روزها", type: "multichoice", choices: WEEKDAYS, span: 12, help: "برای «بازهٔ روزانهٔ دلخواه»؛ خالی: همهٔ روزها" },
     { name: "restrict_from", label: "از ساعت", type: "string", maxLength: 5, ltr: true, placeholder: "۱۶:۰۰", span: 6 },
     { name: "restrict_to", label: "تا ساعت", type: "string", maxLength: 5, ltr: true, placeholder: "۰۸:۰۰", span: 6 },
-    { name: "group_id", label: "تیم", type: "group", system: true, hidden: true, audit: false },
   ],
-  scope: { group: "group_id" },
+  scope: {},
   list: { columns: ["schedule_id", "layer", "name", "rotation_type", "restriction", "members", "active"], order: "schedule_id,layer" },
 };
 
@@ -649,9 +649,8 @@ const oncallOverride: TableDef = {
     { name: "start_at", label: "از", type: "datetime", required: true, list: true, sort: true, filter: true, span: 6 },
     { name: "end_at", label: "تا", type: "datetime", required: true, list: true, sort: true, span: 6 },
     { name: "reason", label: "دلیل", type: "string", required: true, default: "جایگزینی", maxLength: 200, list: true, span: 24 },
-    { name: "group_id", label: "تیم", type: "group", system: true, hidden: true, audit: false },
   ],
-  scope: { own: ["user_id", "replaces_id"], requester: [], group: "group_id" },
+  scope: { own: ["user_id", "replaces_id"], requester: [] },
   features: { calendar: { start: "start_at", end: "end_at" } },
   list: { columns: ["schedule_id", "user_id", "replaces_id", "start_at", "end_at", "reason"], order: "-start_at" },
 };
@@ -699,9 +698,8 @@ const escalationLevel: TableDef = {
     { name: "target_group_id", label: "گروه", type: "group", span: 8 },
     { name: "channels", label: "مجراها", type: "multichoice", choices: PAGE_CHANNELS, default: ["in_app", "email", "sms"], list: true, span: 16 },
     { name: "description", label: "شرح", type: "string", maxLength: 200, default: "سطح ارتقا", span: 24 },
-    { name: "group_id", label: "تیم", type: "group", system: true, hidden: true, audit: false },
   ],
-  scope: { group: "group_id" },
+  scope: {},
   unique: [["policy_id", "level"]],
   list: { columns: ["policy_id", "level", "delay_minutes", "target", "schedule_id", "users", "channels"], order: "policy_id,level" },
 };
@@ -731,10 +729,10 @@ const page: TableDef = {
     { name: "expires_at", label: "اعتبار پیوند تا", type: "datetime", readonly: true, span: 8 },
     { name: "failure_reason", label: "علت ناکامی", type: "string", readonly: true, maxLength: 300, span: 16 },
     { name: "ack_token_hash", label: "چکیدهٔ پیوند", type: "string", system: true, hidden: true, maxLength: 80, group: "admin", noSync: true, audit: false, index: true },
-    { name: "group_id", label: "تیم", type: "group", system: true, hidden: true, audit: false },
   ],
   states: PAGE_STATES,
-  scope: { own: ["user_id"], requester: [], group: "group_id" },
+  // the paged person reads their page; nobody is «assigned» a page (no assignment notifications)
+  scope: { readers: ["user_id"], requester: [] },
   list: { columns: ["number", "alert_id", "user_id", "level", "state", "sent_at", "acknowledged_at"], order: "-sent_at" },
 };
 

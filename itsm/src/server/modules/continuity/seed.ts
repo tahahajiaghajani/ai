@@ -1,8 +1,7 @@
 // Day-one defaults of availability and continuity (Persian, idempotent): the settings row (with the `seeded` marker),
 // the BIA template «الگوی تحلیل اثر کسب‌وکار» (categories × time buckets with typical ratings, tolerance «زیاد»,
 // guidance for respondents and an MBCO prompt) and a recovery-plan template «الگوی طرح بازیابی خدمت» with its
-// steps — the starting point of a service's DR plan and of its exercises — and a notification rule for a new
-// outage.
+// steps — the starting point of a service's DR plan and of its exercises.
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
 import { createIn, updateIn } from "../../engine";
@@ -70,7 +69,6 @@ export async function seedContinuityDefaultsIn(tx: Tx, ctx: Ctx, opts: { force?:
     review_months: 12,
   });
   for (const [seq, title, role, offset] of STEPS) await ensure(tx, sys, out, "plan_step", { plan_id: plan.id, seq }, { title, role, rto_offset_minutes: offset });
-  await ensure(tx, sys, out, "notification_rule", { name: "قطعی تازه ثبت شد" }, { table_key: "outage", event: "created", recipients: { assignment_group: true }, channels: ["in_app"], description: "به گروه مسئول قطعی" });
   await updateIn(tx, sys, "continuity_config", String(config.id), { seeded: CONTINUITY_SEED_VERSION }, { trusted: true });
   return out;
 }

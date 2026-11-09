@@ -44,8 +44,9 @@ export async function acknowledgeIn(tx: Tx, sys: Ctx, alert: Row, o: { by: strin
   if (!["open", "flapping", "snoozed", "maintenance"].includes(String(alert.state))) return alert;
   const data: Row = { acknowledged_at: new Date().toISOString(), acknowledged_by: o.by ?? null };
   if (o.by && !alert.assigned_to && o.via !== "auto") data.assigned_to = o.by;
+  // the pages end first, so the answer keeps its way (the link, the app) before the write's own clean-up runs
+  await stopEscalation(tx, sys, alert, "acknowledged", o.by, o.via);
   const next = await transitionIn(tx, sys, "alert", String(alert.id), "acknowledged", data, { trusted: true });
-  await stopEscalation(tx, sys, next, "acknowledged", o.by, o.via);
   if (o.note) await alertNote(tx, sys, next, o.note, null, o.by);
   else if (o.via === "link") await alertNote(tx, sys, next, "هشدار با پیوند فراخوان تأیید شد.", null, o.by);
   return next;

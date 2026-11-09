@@ -181,7 +181,6 @@ export async function pageUser(tx: Tx, sys: Ctx, alert: Row, user: string, o: { 
     sent_at: new Date(sent).toISOString(),
     expires_at: new Date(sent + o.hours * 3600_000).toISOString(),
     ack_token_hash: sha256(token),
-    group_id: alert.assignment_group_id ?? null,
   }, { trusted: true });
   // the paged person reads the alert from now on (a responder: read, and act through the module)
   const responders = idList(alert.responders);

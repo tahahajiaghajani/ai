@@ -6,7 +6,6 @@
 //   bia               a clean impact matrix, the proposed RTO from it, RTO and RPO within MTPD, approval stamps, the
 //                     next review date
 //   continuity_plan   the next review from the last one; approval stamps
-//   plan_step         the plan's recovery team (group scope)
 //   exercise          targets from the plan when empty, start and end stamps, RTO/RPO met; recording the result
 //                     marks the plan tested (date and result)
 import { addSample, biaProblem, capacityStatus, cleanImpacts, exhaustionAt, exerciseOutcome, proposedRto } from "@shared/continuity/logic";
@@ -121,12 +120,6 @@ async function planBefore(w: WriteArgs): Promise<void> {
   }
 }
 
-async function stepBefore(w: WriteArgs): Promise<void> {
-  if (w.op === "delete" || !(w.op === "create" || w.changed.has("plan_id"))) return;
-  const plan = isUuid(w.next.plan_id) ? await liveRow(w.tx, sysOf(w.ctx), "continuity_plan", w.next.plan_id) : null;
-  w.next.group_id = plan?.assignment_group_id ?? null;
-}
-
 async function exerciseBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete") return;
   const n = w.next;
@@ -157,7 +150,6 @@ export function installContinuityHooks(): (() => void)[] {
     registerHooks("capacity_record", { beforeWrite: capacityBefore, afterWrite: capacityAfter }),
     registerHooks("bia", { beforeWrite: biaBefore }),
     registerHooks("continuity_plan", { beforeWrite: planBefore }),
-    registerHooks("plan_step", { beforeWrite: stepBefore }),
     registerHooks("exercise", { beforeWrite: exerciseBefore, afterWrite: exerciseAfter }),
   ];
 }

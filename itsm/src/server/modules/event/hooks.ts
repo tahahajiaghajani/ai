@@ -9,8 +9,7 @@
 //   event_source   mapping and severity map are objects with known severities
 //   event_rule     a valid pattern; the action's fields
 //   correlation_rule  «ویژگی‌های یکسان» names its fields
-//   on-call        rotations and levels take their schedule's or policy's team (`group_id`, for group scopes);
-//                  rotations and overrides are checked; one default policy per team
+//   on-call        rotations, overrides and levels are checked; one default policy per team
 import { noiseLabel, patternProblem, priorityOf, impactOfCriticality } from "@shared/event/logic";
 import { rotationProblem } from "@shared/event/oncall";
 import { ALERT_OPEN_STATES, SEVERITY_ORDER } from "@shared/tables/event";
@@ -144,18 +143,10 @@ function correlationBefore(w: WriteArgs): void {
   if (w.next.kind === "fields" && !idList(w.next.match_fields).length) throw validationError({ match_fields: "ویژگی‌هایی را که باید یکسان باشند انتخاب کنید" });
 }
 
-async function teamOf(w: WriteArgs, table: "oncall_schedule" | "escalation_policy", field: string): Promise<void> {
-  if (w.op === "delete") return;
-  if (w.op !== "create" && !w.changed.has(field)) return;
-  const parent = isUuid(w.next[field]) ? await liveRow(w.tx, sysOf(w.ctx), table, w.next[field]) : null;
-  w.next.group_id = parent?.group_id ?? null;
-}
-
 async function rotationBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete") return;
   const p = rotationProblem(w.next as never);
   if (p) throw validationError({ members: p });
-  await teamOf(w, "oncall_schedule", "schedule_id");
 }
 
 async function overrideBefore(w: WriteArgs): Promise<void> {
@@ -164,7 +155,6 @@ async function overrideBefore(w: WriteArgs): Promise<void> {
   const e = msOf(w.next.end_at);
   if (s === null || e === null || e <= s) throw validationError({ end_at: "پایان جایگزینی باید پس از آغاز آن باشد" });
   if (w.next.replaces_id && w.next.replaces_id === w.next.user_id) throw validationError({ replaces_id: "کسی جای خودش را نمی‌گیرد" });
-  await teamOf(w, "oncall_schedule", "schedule_id");
 }
 
 async function levelBefore(w: WriteArgs): Promise<void> {
@@ -172,7 +162,6 @@ async function levelBefore(w: WriteArgs): Promise<void> {
   const n = w.next;
   if (n.target === "oncall" && !isUuid(n.schedule_id)) throw validationError({ schedule_id: "برنامهٔ کشیک این سطح را انتخاب کنید" });
   if (n.target === "users" && !idList(n.users).length) throw validationError({ users: "افراد این سطح را انتخاب کنید" });
-  await teamOf(w, "escalation_policy", "policy_id");
 }
 
 async function policyAfter(w: WriteArgs): Promise<void> {
