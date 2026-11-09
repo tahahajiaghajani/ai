@@ -1,7 +1,7 @@
 // On-call, escalation and paging end to end: who is on call now (the seeded schedule of «پشتیبانی شبکه»), routing
 // to the team's escalation policy, a page with a one-time acknowledgement link through the notification service,
 // the sign-in-free acknowledgement page, levels advancing, an unanswered policy raising an incident, «take on-call»,
-// the shifts and «my shifts» as iCalendar, and the sweep (snoozes, auto-close, heartbeats).
+// the shifts and «my shifts» as iCalendar, the sweep (snoozes, auto-close, heartbeats) and the operations reports.
 import { beforeAll, describe, expect, it } from "vitest";
 import { eventWorld, type EventWorld } from "./event-helpers";
 import { onCallForGroup, sweep, forgetSources } from "@server/modules/event";
@@ -160,5 +160,28 @@ describe("cover, shifts and the sweep", () => {
     await w.e.db.query(`update sm_event_sources set last_event_at = now() where id = $1`, [s.id]);
     await sweep(w.sys);
     expect((await one("alert", hb[0].id)).state).toBe("cleared");
+  });
+});
+
+describe("reports", () => {
+  it("reports operations, noise and on-call load — alerts of the window's first hours included", async () => {
+    // an alert from the first hours of a 7-day window falls on the day before the first bar
+    const [old] = await q("alert", { f: "node", op: "eq", v: "sw-edge1" });
+    await w.e.db.query(`update sm_alerts set created_at = now() - interval '6 days 23 hours' where id = $1`, [old.id]);
+    const r = await w.o.get(`${w.P}/event/reports?days=7`);
+    expect(r.trend).toHaveLength(7);
+    expect(r.totals.alerts).toBeGreaterThan(0);
+    expect(r.totals.paged_alerts).toBeGreaterThan(0);
+    expect(r.pages.total).toBeGreaterThan(0);
+    expect(r.pages.acknowledged).toBeGreaterThan(0);
+    expect(r.mtta.count).toBeGreaterThan(0);
+    const noise = await w.o.get(`${w.P}/event/noise?days=7`);
+    expect(noise.alerts).toBeGreaterThan(0);
+    const load = await w.o.get(`${w.P}/event/oncall/load?days=7`);
+    expect((load.rows as Row[]).some((x) => x.user_id === oncall && x.pages > 0)).toBe(true);
+    const narrated = await w.o.post(`${w.P}/event/ai/noise`, { days: 7 });
+    expect(narrated.text).toBeTruthy();
+    await w.p.req.client.get(`${w.P}/event/reports?days=7`, 403);
+    await w.p.req.client.get(`${w.P}/event/oncall/load?days=7`, 403);
   });
 });

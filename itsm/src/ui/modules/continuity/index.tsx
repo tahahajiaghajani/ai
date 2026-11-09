@@ -72,6 +72,6 @@ export const continuityUi: ModuleUi = {
 };
 
 registerRecordExtensions("incident", { headerActions: widget(OutageFromIncident, "continuity-outage") });
-// for those who look after the service (its availability is the continuity team's and the owners' business)
-registerRecordExtensions("service", { sidePanels: [{ key: "continuity:availability", title: "دسترس‌پذیری", order: 4, when: (ctx) => !!ctx.meta.canWrite, render: widget(ServiceAvailability) }] });
+// for those who look after the service and the continuity team (the outage register's readers)
+registerRecordExtensions("service", { sidePanels: [{ key: "continuity:availability", title: "دسترس‌پذیری", order: 4, when: (ctx) => !!ctx.meta.canWrite || !!ctx.schema.def("outage"), render: widget(ServiceAvailability) }] });
 registerCalendarDecor("outage", { tone: (row) => (row.outage_type === "outage" ? "danger" : row.outage_type === "degradation" ? "warning" : null), fields: ["outage_type"] });

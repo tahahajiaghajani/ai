@@ -124,6 +124,8 @@ interface Decision {
   rules: { id: string; name: string; version: number; action: string }[];
   notes: string[];
   hints?: { ci?: string | null; service?: string | null };
+  /** a processing rule chose the team (it then wins over the CI's support group) */
+  group_by_rule?: boolean;
 }
 
 async function loadRules(q: Queryable, sys: Ctx, cache: RunCache): Promise<Row[]> {
@@ -171,7 +173,10 @@ export async function applyRules(q: Queryable, sys: Ctx, ev: Row, decision: Deci
     }
     if (r.action === "set") {
       if (r.set_severity) ev.severity = r.set_severity;
-      if (isUuid(r.set_group_id)) ev.assignment_group_id = r.set_group_id;
+      if (isUuid(r.set_group_id)) {
+        ev.assignment_group_id = r.set_group_id;
+        decision.group_by_rule = true;
+      }
       if (isUuid(r.set_service_id)) ev.service_id = r.set_service_id;
       if (isUuid(r.set_ci_id)) ev.ci_id = r.set_ci_id;
       if (Array.isArray(r.add_tags) && r.add_tags.length) ev.tags = [...new Set([...(Array.isArray(ev.tags) ? ev.tags : []), ...r.add_tags])].slice(0, 50);
@@ -213,7 +218,8 @@ export async function processEvent(tx: Tx, sys: Ctx, ev0: Row, cache: RunCache =
     const ci = isUuid(ev.ci_id) ? await liveRow(tx, sys, "ci", ev.ci_id) : null;
     if (!isUuid(ev.service_id)) ev.service_id = (await bindService(tx, sys, decision.hints?.service ?? null, cache)) ?? src?.service_id ?? null;
     if (!isUuid(ev.assignment_group_id)) ev.assignment_group_id = ci?.support_group_id ?? src?.assignment_group_id ?? null;
-    else if (ci?.support_group_id && !decision.rules.some((r) => r.action === "set")) ev.assignment_group_id = ci.support_group_id;
+    // the CI's support group is more precise than the source's default team; a rule's choice stays
+    else if (ci?.support_group_id && !decision.group_by_rule) ev.assignment_group_id = ci.support_group_id;
     const at = new Date(now).toISOString();
     const existing = await alertOf(tx, sys, String(ev.fingerprint), cfg.reopen_minutes, now);
     const value = ev.value !== null && ev.value !== undefined ? String(ev.value) : null;

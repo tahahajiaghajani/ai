@@ -1,6 +1,7 @@
 // The ingestion endpoint and the processing pipeline end to end: keys, idempotency and rate limits, the tools'
 // formats, rules (ignore, enrich, threshold, simulation), CI binding, deduplication, clear and re-open, flapping,
-// maintenance windows, correlation into groups (CMDB topology) and the alert → incident rules with auto-resolution.
+// maintenance windows, correlation into groups (CMDB topology) and the alert → incident rules with auto-resolution;
+// actions on a whole group and on a selection, a mapping tried without storing, and the module's meta.
 import { beforeAll, describe, expect, it } from "vitest";
 import { eventWorld, type EventWorld } from "./event-helpers";
 
@@ -190,5 +191,43 @@ describe("correlation and incidents", () => {
     const ai = await w.o.post(`${w.P}/event/groups/${g.id}/ai/causes`, {});
     expect(ai.ai).toBe(false);
     expect(ai.text).toContain("سرنخ");
+  });
+});
+
+describe("groups, selections and sources", () => {
+  it("acts on a whole correlated group and on a selection; another team may not", async () => {
+    await w.o.post(`${w.P}/r/ci`, { name: "srv-g1", class: "server", state: "operational", hostname: "srv-g1", support_group_id: w.g.network });
+    const s = await w.source({ name: "گروهی" });
+    await w.send(s.key, [
+      { title: "پردازنده srv-g1 بالاست", host: "srv-g1", severity: "major", check: "cpu", event_id: "q1" },
+      { title: "حافظهٔ srv-g1 پر است", host: "srv-g1", severity: "minor", check: "mem", event_id: "q2" },
+    ]);
+    await w.drain();
+    const alerts = await q("alert", { f: "source_id", op: "eq", v: s.id });
+    expect(alerts).toHaveLength(2);
+    const gid = alerts[0].group_id as string;
+    expect(gid).toBeTruthy();
+    expect(alerts[1].group_id).toBe(gid);
+    expect((await one("alert_group", gid)).reason).toBe("ci");
+    await w.p.other.client.post(`${w.P}/event/groups/${gid}/ack`, {}, 403);
+    const acked = await w.p.ops.client.post(`${w.P}/event/groups/${gid}/ack`, {});
+    expect(acked.done).toBe(2);
+    expect((await Promise.all(alerts.map((a) => one("alert", a.id)))).every((a) => a.state === "acknowledged" && a.acknowledged_by === w.p.ops.userId)).toBe(true);
+    const closed = await w.p.ops.client.post(`${w.P}/event/alerts-bulk`, { ids: alerts.map((a) => a.id), action: "close", close_code: "fixed" });
+    expect(closed).toMatchObject({ done: 2, failed: [] });
+    const refused = await w.p.other.client.post(`${w.P}/event/alerts-bulk`, { ids: alerts.map((a) => a.id), action: "ack" });
+    expect(refused.done).toBe(0);
+  });
+
+  it("tries a source's mapping without storing anything, and tells the screens what the caller may do", async () => {
+    const s = await w.source({ name: "نگاشت" });
+    const tried = await w.o.post(`${w.P}/event/sources/${s.id}/test`, { payload: { title: "دیسک پر شد", host: "srv-x", severity: "critical", event_id: "t1" } });
+    expect(tried.events).toHaveLength(1);
+    expect(tried.events[0]).toMatchObject({ message: "دیسک پر شد", node: "srv-x", severity: "critical" });
+    expect(await q("event", { f: "source_id", op: "eq", v: s.id })).toHaveLength(0);
+    const meta = await w.p.ops.client.get(`${w.P}/event/meta`);
+    expect(meta.can).toMatchObject({ configure: false });
+    expect(meta.ingest_path).toBe("/api/public/events/");
+    expect((await w.p.mgr.client.get(`${w.P}/event/meta`)).can.configure).toBe(true);
   });
 });

@@ -98,8 +98,10 @@ export async function opsReport(ctx: Ctx, days: number): Promise<OpsReport> {
   }
   const at = new Map(days0.map((d) => [d.day, d]));
   for (const a of alerts) {
+    // the window starts mid-day: an alert of its first hours may fall on the day before the first bar
     const c = msOf(a.created_at);
-    if (c !== null) at.get(localDate(c, tz))!.created += at.has(localDate(c, tz)) ? 1 : 0;
+    const cd = c === null ? null : at.get(localDate(c, tz));
+    if (cd) cd.created++;
     const r = msOf(a.resolved_at);
     if (r !== null && at.has(localDate(r, tz))) at.get(localDate(r, tz))!.cleared++;
   }

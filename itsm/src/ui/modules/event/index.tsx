@@ -120,11 +120,12 @@ export const eventUi: ModuleUi = {
   publicRoutes: [{ path: "ack/:token", element: lazyPage(<AckPage />) }],
 };
 
-// incidents raised from monitoring show their alerts; open records show who is on call for their group; CIs their alerts
+// incidents raised from monitoring show their alerts; open records show who is on call for their group; CIs their
+// alerts — each only for those who may read alerts or schedules (the schema lists only readable tables)
 registerRecordExtensions("incident", {
   sidePanels: [
-    { key: "event:incident-alerts", title: "هشدارهای پایش", order: 6, when: (ctx) => ctx.row.channel === "monitoring", render: widget(IncidentAlerts) },
-    { key: "event:incident-oncall", title: "کشیک گروه", order: 7, when: (ctx) => !!ctx.row.active && !!ctx.row.assignment_group_id, render: widget(OnCallPanel) },
+    { key: "event:incident-alerts", title: "هشدارهای پایش", order: 6, when: (ctx) => ctx.row.channel === "monitoring" && !!ctx.schema.def("alert"), render: widget(IncidentAlerts) },
+    { key: "event:incident-oncall", title: "کشیک گروه", order: 7, when: (ctx) => !!ctx.row.active && !!ctx.row.assignment_group_id && !!ctx.schema.def("oncall_schedule"), render: widget(OnCallPanel) },
   ],
 });
-registerRecordExtensions("ci", { sidePanels: [{ key: "event:ci-alerts", title: "هشدارهای باز", order: 8, render: widget(CiAlerts) }] });
+registerRecordExtensions("ci", { sidePanels: [{ key: "event:ci-alerts", title: "هشدارهای باز", order: 8, when: (ctx) => !!ctx.schema.def("alert"), render: widget(CiAlerts) }] });

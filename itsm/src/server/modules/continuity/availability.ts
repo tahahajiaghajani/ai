@@ -10,7 +10,7 @@ import { defFor, list } from "../../engine";
 import { access } from "../../access/provider";
 import { forbidden, notFound } from "../../http/errors";
 import { calendarFor } from "../sla";
-import { continuityConfig, isUuid, liveRows, orgTz, sysOf, type Row } from "./common";
+import { continuityConfig, isUuid, liveRow, liveRows, orgTz, sysOf, type Row } from "./common";
 
 export interface ServiceAvailability extends Availability {
   id: string;
@@ -35,8 +35,14 @@ const SERVICE_FIELDS = ["number", "name", "tier", "availability_target", "calend
 async function needServices(ctx: Ctx) {
   const { def } = await defFor(ctx, "service");
   if (!access().canReadTable(ctx, def)) throw forbidden("به خدمت‌ها دسترسی ندارید");
+  if (!(await followsAvailability(ctx))) throw forbidden("دسترس‌پذیری خدمت‌ها برای تیم تداوم و مالکان خدمت است");
+}
+
+/** Reads outages, or creates services (the portfolio's managers). */
+async function followsAvailability(ctx: Ctx): Promise<boolean> {
+  const { def } = await defFor(ctx, "service");
   const outage = (await defFor(ctx, "outage")).def;
-  if (!access().canReadTable(ctx, outage) && !access().canCreate(ctx, def, null)) throw forbidden("دسترس‌پذیری خدمت‌ها برای تیم تداوم و مالکان خدمت است");
+  return access().canReadTable(ctx, outage) || access().canCreate(ctx, def, null);
 }
 
 /** Outages of the services overlapping [from, to) (system rights). */
@@ -99,9 +105,14 @@ export interface ServiceTrend {
 /** One service over the last `count` periods, with the outages of the latest ones the caller may read. */
 export async function serviceTrend(ctx: Ctx, serviceId: string, unit: PeriodUnit, count = 12, now = Date.now()): Promise<ServiceTrend> {
   if (!isUuid(serviceId)) throw notFound("خدمت پیدا نشد");
-  await needServices(ctx);
   const svc = (await list(ctx, "service", { ids: [serviceId], size: 1, fields: SERVICE_FIELDS, total: false })).rows[0];
   if (!svc) throw notFound("خدمت پیدا نشد");
+  // the continuity team and the portfolio's managers follow every service; whoever looks after this one, its own
+  if (!(await followsAvailability(ctx))) {
+    const { def } = await defFor(ctx, "service");
+    const full = await liveRow(ctx.db, sysOf(ctx), "service", serviceId);
+    if (!full || !access().canWrite(ctx, def, full)) throw forbidden("دسترس‌پذیری خدمت برای تیم تداوم و کسانی است که خدمت را نگه می‌دارند");
+  }
   const tz = orgTz(ctx);
   const n = Math.max(1, Math.min(24, count));
   const first = periodOf(unit, -(n - 1), now, tz);
