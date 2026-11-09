@@ -244,4 +244,16 @@ describe("Windows pushes of the merged modules' tables", () => {
     const r3 = (await push(w.p.agent.client, w.e.org, [{ entity: "portal_kb_publication", id: pub, base_rev: 0, row: { id: pub, org_id: w.e.org, name: "دور زدن", bases: [], updated_at: now } }]))[0];
     expect(r3.status).toBe("error");
   });
+
+  it("AI governance: only AI administrators set a table's data-use policy, also from a Windows app; digests never", async () => {
+    const id = uuidv7();
+    const now = new Date().toISOString();
+    const r = (await push(w.p.soc.client, w.e.org, [{ entity: "ai_data_policy", id, base_rev: 0, row: { id, org_id: w.e.org, table_key: "sec_incident", use: "cloud", pii: "inherit", updated_at: now } }]))[0];
+    expect(r.status).toBe("error");
+    invalidateDataUse(w.e.org);
+    expect((await dataUsePlan(w.sys, ["sec_incident"])).use).toBe("local");
+    const d = uuidv7();
+    const r2 = (await push(w.p.soc.client, w.e.org, [{ entity: "ai_digest", id: d, base_rev: 0, row: { id: d, org_id: w.e.org, recipient_id: w.p.soc.userId, updated_at: now } }]))[0];
+    expect(r2.status).toBe("error");
+  });
 });

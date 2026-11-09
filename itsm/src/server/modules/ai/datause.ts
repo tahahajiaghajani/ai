@@ -16,7 +16,7 @@ import { presetById } from "@shared/ai/presets";
 import { TABLES, tableDef } from "@shared/tables";
 import { uuidv7 } from "@shared/id";
 import type { Ctx } from "../../context";
-import { registerHooks } from "../../engine";
+import { pushGuard, registerHooks, type WriteArgs } from "../../engine";
 import { AppError, bad, forbidden } from "../../http/errors";
 import { AiUnavailableError } from "./errors";
 import type { ConnRow } from "./connections";
@@ -160,14 +160,17 @@ let installed = false;
 export function installDataUse(): void {
   if (installed) return;
   installed = true;
+  const guard = (w: WriteArgs) => {
+    if (w.ctx.actor !== "system" && !w.ctx.can("ai", "full")) throw forbidden("سیاست دادهٔ هوش مصنوعی را فقط مدیر هوش مصنوعی سازمان تغییر می‌دهد");
+    if (w.op === "delete") return;
+    const t = tableDef(String(w.next.table_key ?? ""));
+    if (!t || t.virtual) throw bad(`جدول «${String(w.next.table_key ?? "")}» وجود ندارد`);
+    if (w.op === "update" && w.prev && w.prev.table_key !== w.next.table_key) throw bad("جدول یک سیاست پس از ثبت تغییر نمی‌کند");
+  };
   registerHooks(AI_DATA_POLICY, {
-    beforeWrite(w) {
-      if (w.ctx.actor !== "system" && !w.ctx.can("ai", "full")) throw forbidden("سیاست دادهٔ هوش مصنوعی را فقط مدیر هوش مصنوعی سازمان تغییر می‌دهد");
-      if (w.op === "delete") return;
-      const t = tableDef(String(w.next.table_key ?? ""));
-      if (!t || t.virtual) throw bad(`جدول «${String(w.next.table_key ?? "")}» وجود ندارد`);
-      if (w.op === "update" && w.prev && w.prev.table_key !== w.next.table_key) throw bad("جدول یک سیاست پس از ثبت تغییر نمی‌کند");
-    },
+    beforeWrite: guard,
+    // a Windows app's push runs no beforeWrite: the same rule there (only AI administrators set where data may go)
+    validatePush: pushGuard(guard),
     afterWrite(w) {
       invalidateDataUse(w.ctx.org.id);
     },

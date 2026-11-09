@@ -18,5 +18,7 @@ export function installAiGovernance(): void {
     beforeWrite(w) {
       if (w.ctx.actor !== "system") throw forbidden("خلاصهٔ بینش‌ها را فقط سامانه می‌نویسد");
     },
+    // never from a member's Windows app either
+    validatePush: () => "خلاصهٔ بینش‌ها را فقط سامانه می‌نویسد",
   });
 }
