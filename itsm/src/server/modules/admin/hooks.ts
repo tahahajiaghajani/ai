@@ -8,6 +8,7 @@ import { specProblem, type MapRule } from "@shared/admin/mapping";
 import { bad, forbidden } from "../../http/errors";
 import { registerHooks, type WriteArgs } from "../../engine";
 import { isSystem } from "../../access/provider";
+import { enqueue } from "../../jobs";
 import { liveRows, needWithinLimit, sysOf } from "./common";
 
 const existingTable = (key: unknown) => {
@@ -54,10 +55,17 @@ function transformMap(w: WriteArgs): void {
   if (problem) throw bad(problem);
 }
 
-function dataExport({ op, next }: WriteArgs): void {
+function dataExport({ ctx, op, next, trusted }: WriteArgs): void {
   if (op !== "create" && op !== "update") return;
   const tables = Array.isArray(next.tables) ? (next.tables as string[]) : [];
   for (const t of tables) if (!existingTable(t)) throw bad(`جدول «${t}» وجود ندارد`);
+  // a request made on the record form: the job builds it (never a «ready» row without files)
+  if (op === "create" && !trusted && !isSystem(ctx)) Object.assign(next, { status: "queued", stats: null, error: null, expires_at: null });
+}
+
+async function dataExportAfter(w: WriteArgs & { row: Record<string, unknown> }): Promise<void> {
+  if (w.op !== "create" || w.trusted || isSystem(w.ctx)) return;
+  await enqueue(w.tx, { kind: "admin.export.run", orgId: w.ctx.org.id, payload: { id: w.row.id }, dedupeKey: `data-export:${w.row.id}`, maxAttempts: 3 });
 }
 
 function notice({ ctx, op, next, prev, changed }: WriteArgs): void {
@@ -75,6 +83,6 @@ export function installAdminHooks(): void {
   registerHooks("custom_table", { beforeWrite: customTable });
   registerHooks("import_set", { beforeWrite: (w) => targetTable(w, "target_table") });
   registerHooks("transform_map", { beforeWrite: transformMap });
-  registerHooks("data_export", { beforeWrite: dataExport });
+  registerHooks("data_export", { beforeWrite: dataExport, afterWrite: dataExportAfter });
   registerHooks("system_notice", { beforeWrite: notice });
 }

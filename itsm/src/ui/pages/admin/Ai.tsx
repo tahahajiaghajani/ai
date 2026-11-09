@@ -1,7 +1,7 @@
 // «هوش مصنوعی» of the platform: the platform policy (kill switch, allowed services, default monthly cap per
 // organisation) and every organisation's AI status and usage this month — never keys or conversations. The
 // per-organisation switch is the organisation's platform state (PATCH /admin/orgs/:id ai_disabled).
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Button, Form, Input, Select, Switch, Table } from "antd";
 import { Power } from "lucide-react";
 import { AiIcon } from "../../components/shell/icons";
@@ -16,6 +16,8 @@ import { fa } from "../../lib/fa";
 import { AI_PRESETS } from "@shared/ai/presets";
 import type { AiAdminOrg, AiAdminOverview, AiPolicy } from "@shared/ai/api";
 import { ICON, ago, usd, useAdminQuery } from "./ui";
+
+const ModelCatalog = lazy(() => import("../../modules/admin/platform/ModelCatalog"));
 
 const notReady = (e: unknown) => e instanceof ApiError && e.status === 404;
 
@@ -185,6 +187,9 @@ export default function Ai() {
           />
         </Card>
         <PolicyCard policy={pol} />
+        <Suspense fallback={null}>
+          <ModelCatalog />
+        </Suspense>
       </div>
     </div>
   );

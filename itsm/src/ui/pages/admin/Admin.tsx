@@ -5,6 +5,7 @@ import "./admin.css";
 import { lazy, Suspense, type ReactNode } from "react";
 import { Button, Tooltip } from "antd";
 import { Activity, ArrowRight, Building2, Gauge, HeartPulse, LogOut, ShieldAlert, Users } from "lucide-react";
+import { Layers, Megaphone, ServerCog, ScrollText } from "lucide-react";
 import { AiIcon } from "../../components/shell/icons";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useSession } from "../../lib/session";
@@ -20,6 +21,11 @@ const UsersPage = lazy(() => import("./Users"));
 const Ai = lazy(() => import("./Ai"));
 const Security = lazy(() => import("./Security"));
 const Health = lazy(() => import("./Health"));
+// the platform console of the admin module (docs/modules/admin_FA.md)
+const Plans = lazy(() => import("../../modules/admin/platform/Plans"));
+const Announcements = lazy(() => import("../../modules/admin/platform/Announcements"));
+const Operations = lazy(() => import("../../modules/admin/platform/Operations"));
+const AuditAll = lazy(() => import("../../modules/admin/platform/AuditAll"));
 
 const NAV = [
   { key: "", title: "پیشخوان", icon: Gauge },
@@ -28,6 +34,10 @@ const NAV = [
   { key: "ai", title: "هوش مصنوعی", icon: AiIcon },
   { key: "security", title: "رویدادهای امنیتی", icon: ShieldAlert },
   { key: "health", title: "سلامت سامانه", icon: HeartPulse },
+  { key: "plans", title: "طرح‌ها و قابلیت‌ها", icon: Layers },
+  { key: "announcements", title: "اطلاعیه‌ها", icon: Megaphone },
+  { key: "ops", title: "کارها و پشتیبان‌ها", icon: ServerCog },
+  { key: "audit", title: "رویدادهای سازمان‌ها", icon: ScrollText },
 ] as const;
 
 /** "/admin/orgs/<id>" → ["orgs", "<id>"] */
@@ -130,6 +140,10 @@ function Section() {
   if (section === "ai") return <Ai />;
   if (section === "security") return <Security />;
   if (section === "health") return <Health />;
+  if (section === "plans") return <Plans />;
+  if (section === "announcements") return <Announcements />;
+  if (section === "ops") return <Operations />;
+  if (section === "audit") return <AuditAll />;
   return <Overview />;
 }
 
