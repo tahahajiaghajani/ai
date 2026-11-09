@@ -14,7 +14,7 @@ import { access } from "../access/provider";
 import { condEnv } from "./env";
 import { defFor, type OrgSchema } from "./schema";
 import { pathExpr, readable, searchSql, toSql } from "./sql";
-import { pathVisible } from "./read";
+import { canOpenRecords, pathVisible } from "./read";
 import { RefSet, resolveDisplay, labelOf } from "./display";
 import { checkFilter } from "./records";
 
@@ -61,7 +61,8 @@ const UNGROUPABLE = new Set(["text", "markdown", "json", "conditions", "secret"]
 
 export async function aggregate(ctx: Ctx, table: string, p: AggregateParams): Promise<AggregateResult> {
   const { def, schema } = await defFor(ctx, table);
-  if (def.virtual || !access().canReadTable(ctx, def)) throw forbidden(`به «${def.plural}» دسترسی ندارید`);
+  // a participant with a grant of its own counts the rows it takes part in (the read rule below is that grant alone)
+  if (def.virtual || !(await canOpenRecords(ctx, def))) throw forbidden(`به «${def.plural}» دسترسی ندارید`);
   const env = await condEnv(ctx);
   const filter = checkFilter(ctx, def, schema, p.filter);
   const groupBy = (p.groupBy ?? []).map((g) => (typeof g === "string" ? { field: g } : g));

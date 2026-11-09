@@ -211,9 +211,11 @@ and must not put `$` in string literals; its predicate returns null for tables i
 
 Single-record reads (`get`, `requireReadable` — journal, history, attachments, links, the approvals panel — and the
 table's meta) open for a subject whose roles do not read the area when a `grant` source applies to the table
-(`participates(ctx, def)`); lists, aggregates, exports, search and module routes keep asking `canReadTable` (area
-read), so a grant participant reaches the records it takes part in from «تأییدهای من» or a notification, never a
-queue of the area. The record's meta says `reach: "participant"` then, and the record page shows only the extensions
+(`participates(ctx, def)`). Lists and aggregates of the engine (`list`, `aggregate`, `GET /r/:table`) open for them
+as well, over exactly the rows the grant opens — the read rule of a subject whose roles do not read the area is the
+participant grant alone, so a filter, a search or a count never reaches any other row (an asset's holder lists their
+assignments, an approver counts the records they decided). Exports, global search and module routes keep asking
+`canReadTable` (area read), so a grant participant never gets a queue or a workspace of the area. The record's meta says `reach: "participant"` then, and the record page shows only the extensions
 that declare `participants: true` (the approvals panel).
 
 ## 8. Writes

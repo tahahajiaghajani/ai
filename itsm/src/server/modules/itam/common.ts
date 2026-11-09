@@ -10,8 +10,7 @@ import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
 import { access } from "../../access/provider";
 import { subjectOf } from "../../access";
-import type { Cond } from "@shared/model/conditions";
-import { condEnv, get, list, orgSchema, orgTz, readable, toSql } from "../../engine";
+import { orgSchema, orgTz } from "../../engine";
 import { liveRows, sysOf, type Row } from "../incident/common";
 
 export { liveRow, liveRows, countRows, eqAll, isUuid, sysOf, type Row } from "../incident/common";
@@ -75,38 +74,3 @@ export function stateLabel(states: { states: { value: string; label: string }[] 
   return states?.states.find((s) => s.value === v)?.label ?? String(v ?? "");
 }
 
-/**
- * Ids of live rows of `table` matching `where` through the caller's read rule — participant grants included (the
- * holder of an asset reads its rows without a role in the area, ACCESS §7), newest first.
- */
-export async function readableIds(ctx: Ctx, table: string, where: Cond, limit = 200): Promise<string[]> {
-  const schema = await orgSchema(ctx);
-  const def = schema.def(table);
-  if (!def) return [];
-  const env = await condEnv(ctx);
-  const params: unknown[] = [];
-  const parts = [readable(ctx, def, "t", params, env), "t.deleted_at is null", toSql(where, def, "t", params, env, { ctx, lookup: schema.lookup })];
-  const rows = await ctx.db.query<{ id: string }>(`select t.id from ${def.table} t where ${parts.join(" and ")} order by t.updated_at desc limit ${Math.max(1, Math.min(1000, limit))}`, params);
-  return rows.map((r) => r.id);
-}
-
-/**
- * Rows of `table` the caller may read: a list when their roles read the area, else (a participant such as an asset's
- * holder) the single records the grant opens, each read with `get` (visible fields only, with display values).
- */
-export async function readableList(ctx: Ctx, table: string, where: Cond, opts: { sort?: string; size?: number } = {}): Promise<{ rows: Row[]; display: Record<string, string> }> {
-  try {
-    return await list(ctx, table, { filter: where, sort: opts.sort, size: opts.size ?? 100, total: false });
-  } catch (e) {
-    if ((e as { status?: number }).status !== 403) throw e;
-  }
-  const rows: Row[] = [];
-  const display: Record<string, string> = {};
-  for (const id of await readableIds(ctx, table, where, Math.min(opts.size ?? 50, 50))) {
-    const r = await get(ctx, table, id).catch(() => null);
-    if (!r) continue;
-    rows.push(r.row);
-    Object.assign(display, r.display);
-  }
-  return { rows, display };
-}

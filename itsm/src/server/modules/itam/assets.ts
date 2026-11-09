@@ -15,7 +15,7 @@ import { access } from "../../access/provider";
 import { create, createIn, defFor, get, list, listHistory, transitionIn, updateIn, addJournalIn, fromDb } from "../../engine";
 import { createOrUpdate } from "../cmdb/ire";
 import { notifyPeople } from "../notify";
-import { hasGroup, holds, isUuid, itamConfig, liveRow, liveRows, orgToday, readableIds, readableList, stateLabel, sysOf, type Row } from "./common";
+import { hasGroup, holds, isUuid, itamConfig, liveRow, liveRows, orgToday, stateLabel, sysOf, type Row } from "./common";
 import { setHandOver } from "./hooks";
 
 const ASSET = "asset";
@@ -69,7 +69,7 @@ export async function asset360(ctx: Ctx, id: string): Promise<Asset360> {
     if (h.field === "state") timeline.push({ at: h.at, kind: "state", title: `${stateLabel(ASSET_STATES, h.old) || "—"} ← ${stateLabel(ASSET_STATES, h.new)}`.replace(/^— ← /, ""), detail: null });
   }
   // assignments (the person holding it reads their own rows)
-  const asg = await readableList(ctx, "asset_assignment", { f: "asset_id", op: "eq", v: id }, { sort: "-from_at", size: 100 }).catch(() => ({ rows: [] as Row[], display: {} as Record<string, string> }));
+  const asg = await list(ctx, "asset_assignment", { filter: { f: "asset_id", op: "eq", v: id }, sort: "-from_at", size: 100, total: false }).catch(() => ({ rows: [] as Row[], display: {} as Record<string, string> }));
   const assignments = [...asg.rows].sort((a, b) => (String(a.from_at) < String(b.from_at) ? 1 : -1));
   const asgDisplay = asg.display;
   const people = { ...display, ...asgDisplay };
@@ -81,7 +81,7 @@ export async function asset360(ctx: Ctx, id: string): Promise<Asset360> {
   for (const m of moves) timeline.push({ at: String(m.moved_at), kind: "movement", title: MOVEMENT_KINDS.find((k) => k.value === m.kind)?.label ?? String(m.kind), detail: m.reference ?? null });
   const repairs = (await list(ctx, "repair_order", { filter: { f: "asset_id", op: "eq", v: id }, size: 50, total: false, fields: ["number", "title", "state", "cost", "created_at", "returned_at"] }).catch(() => null))?.rows ?? [];
   for (const r of repairs) timeline.push({ at: String(r.created_at), kind: "repair", title: `تعمیر ${r.number ?? ""}: ${r.title ?? ""}`, detail: null, link: { table: "repair_order", id: String(r.id) } });
-  const acks = (await readableList(ctx, "asset_acknowledgement", { f: "asset_id", op: "eq", v: id }, { size: 20 }).catch(() => null))?.rows ?? [];
+  const acks = (await list(ctx, "asset_acknowledgement", { filter: { f: "asset_id", op: "eq", v: id }, size: 20, total: false }).catch(() => null))?.rows ?? [];
   for (const k of acks) if (k.decided_at) timeline.push({ at: String(k.decided_at), kind: "ack", title: k.state === "accepted" ? "تعهدنامه پذیرفته شد" : "تعهدنامه پذیرفته نشد", detail: k.signature_name ?? k.decision_note ?? null });
   if (row.last_audit_at) timeline.push({ at: String(row.last_audit_at), kind: "audit", title: "شمارش فیزیکی", detail: row.last_audit_result ?? null });
   timeline.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
@@ -151,9 +151,10 @@ export async function asset360(ctx: Ctx, id: string): Promise<Asset360> {
 // ---------------------------------------------------------------------------------------------------------------
 // «دارایی‌های من» (ITAM-009) and acknowledgements (ITAM-010)
 
-/** Ids of rows of `table` whose `field` is the caller, through the access rule (the participant grant included). */
-const mine = (ctx: Ctx, table: string, field: string, extra: Cond | null, limit = 200): Promise<string[]> =>
-  readableIds(ctx, table, extra ? { and: [{ f: field, op: "is_me" }, extra] } : { f: field, op: "is_me" }, limit);
+/** Ids of rows of `table` whose `field` is the caller, newest first — a list through the access rule, which gives a
+ * holder without a role in the area the rows their participant grant opens. */
+const mine = async (ctx: Ctx, table: string, field: string, extra: Cond | null, limit = 200): Promise<string[]> =>
+  (await list(ctx, table, { filter: extra ? { and: [{ f: field, op: "is_me" }, extra] } : { f: field, op: "is_me" }, sort: "-updated_at", size: limit, total: false })).rows.map((r) => String(r.id));
 
 export async function myAssets(ctx: Ctx): Promise<MyAssets> {
   const ids = await mine(ctx, ASSET, "assigned_to", { f: "state", op: "nin", v: ["disposed", "canceled"] });

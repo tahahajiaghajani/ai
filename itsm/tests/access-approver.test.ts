@@ -1,6 +1,6 @@
 // The approver grant (docs/spec/ACCESS.md §6–7): whoever has or had an approval on a record reads that record — a
 // requester-role member asked to approve a change (no role in the change area at all) or a requester-role manager
-// approving a staff member's catalogue item — and nothing more: no other rows, no lists of the area, no hidden fields,
+// approving a staff member's catalogue item — and nothing more: no other rows (lists and counts give only theirs), no hidden fields,
 // no internal journal entries, no writes, no module routes; field groups and confidentiality still apply.
 import { describe, it, expect, beforeAll } from "vitest";
 import { world, type World } from "./change-helpers";
@@ -63,12 +63,26 @@ describe("the approver grant on changes (a requester with no role in the change 
     expect(asked!.body).not.toContain("125000000");
   });
 
-  it("does not reveal other rows, lists, aggregates, children, writes or the module's routes", async () => {
+  it("lists and counts only the record they take part in — never other rows, children, writes or the module's routes", async () => {
     const { P, p } = w;
     await p.req.client.get(`${P}/r/change_request/${other.id}`, 404);
-    await p.req.client.post(`${P}/r/change_request/query`, {}, 403);
-    await p.req.client.get(`${P}/r/change_request`, 403);
-    await p.req.client.post(`${P}/r/change_request/agg`, { metrics: [{ fn: "count" }] }, 403);
+    // lists and aggregates of the engine give the participant exactly the granted rows
+    const listed = await p.req.client.get(`${P}/r/change_request`);
+    expect(listed.rows.map((r: any) => r.id)).toEqual([change.id]);
+    expect(listed.rows.some((r: any) => "planned_cost" in r)).toBe(false);
+    const queried = await p.req.client.post(`${P}/r/change_request/query`, {});
+    expect(queried.rows.map((r: any) => r.id)).toEqual([change.id]);
+    // a filter, a search or a count never reaches the other change
+    const named = await p.req.client.post(`${P}/r/change_request/query`, { filter: { f: "id", op: "eq", v: other.id } });
+    expect(named.rows).toEqual([]);
+    const searched = await p.req.client.post(`${P}/r/change_request/query`, { q: other.number });
+    expect(searched.rows).toEqual([]);
+    const counted = await p.req.client.post(`${P}/r/change_request/agg`, { metrics: [{ fn: "count" }] });
+    expect(counted.totals.count).toBe(1);
+    // a field outside their field groups is refused in a filter or an aggregate
+    await p.req.client.post(`${P}/r/change_request/query`, { filter: { f: "planned_cost", op: "gt", v: 1 } }, 400);
+    // exports stay closed
+    await p.req.client.get(`${P}/r/change_request/export`, 403);
     await p.req.client.patch(`${P}/r/change_request/${change.id}`, { short_description: "تغییر من" }, 403);
     await p.req.client.post(`${P}/r/change_request/${change.id}/transition`, { to: "scheduled" }, 403);
     await p.req.client.get(`${P}/change/meta`, 403);

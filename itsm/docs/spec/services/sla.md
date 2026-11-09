@@ -212,7 +212,8 @@ and who decided it.
   that record — its approver, the person they stood in for, whoever decided it and, while it is open, the
   approver's delegate; every state but `skipped`. It holds without any role in the record's area (a requester asked
   to approve a change), under the domain and confidentiality rules and the field groups of their own roles; it
-  never writes, and lists, aggregates and the module's routes stay closed (the record opens from «تأییدهای من»).
+  never writes; engine lists and aggregates give them only those records, exports and the module's routes stay closed
+  (the record opens from «تأییدهای من»).
 - **Modules react in the same transaction** (§8): `onApprovalSettled(table, fn)` runs when a round settles —
   `approved` or `rejected` by a decision or an expiry, `canceled` by a withdrawal — with `{ tx, ctx, def, record,
   rule_id, round, outcome, aggregate, by }`; a module that throws rolls the decision back. Rounds born settled

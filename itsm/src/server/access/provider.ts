@@ -49,8 +49,9 @@ export interface AccessProvider {
   env(ctx: Ctx): Promise<CondEnv>;
   /**
    * Tables in which the caller reads some rows only as a participant with a grant of its own (an approver, a
-   * service's owner) although no role reads the table's area: single-record reads (`get`, `requireReadable`) and
-   * the table's meta open for them; lists, aggregates, exports and module routes keep asking `canReadTable`.
+   * service's owner) although no role reads the table's area: single-record reads (`get`, `requireReadable`), the
+   * table's meta, lists and aggregates open for them (over the rows `readWhere` grants them and nothing else);
+   * exports and module routes keep asking `canReadTable`.
    * A provider without participants leaves it out.
    */
   participations?(ctx: Ctx, q: Queryable): Promise<ReadonlySet<string>>;

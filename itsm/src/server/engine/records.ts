@@ -156,13 +156,14 @@ async function viewDefaults(ctx: Ctx, def: TableDef, viewId: string, env: CondEn
 }
 
 /**
- * A page of the records of `table` the caller may read. Named records (`ids`) are single-record reads: a participant
- * with a grant of its own (an approver without a role in the area) gets those it takes part in — notifications and
- * display values read them that way; any other list needs the area.
+ * A page of the records of `table` the caller may read. A participant with a grant of its own (an approver, an asset's
+ * holder — no role reads the area) lists exactly the rows it takes part in: the read rule (`readWhere`) of a member
+ * whose roles do not read the area is the participant grant alone, so filters, search and pages run over those rows
+ * and nothing else. A member with neither gets 403.
  */
 export async function list(ctx: Ctx, table: string, p: ListParams = {}): Promise<ListResult> {
   const { def, schema } = await defFor(ctx, table);
-  if (!(p.ids?.length && !p.filter && !p.q && !p.view && (await canOpenRecords(ctx, def)))) needTable(ctx, def);
+  if (!(await canOpenRecords(ctx, def))) needTable(ctx, def);
   const env = await condEnv(ctx);
   if (p.view) {
     const d = await viewDefaults(ctx, def, p.view, env, schema);
