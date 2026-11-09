@@ -47,6 +47,12 @@ import { installAiAgents } from "../modules/ai/agents";
 import { agentRoutes } from "./ai-agents";
 import { installVirtualAgent } from "../modules/ai/va";
 import { vaRoutes } from "./ai-va";
+import { installItamModule } from "../modules/itam";
+import { itamRoutes } from "./itam";
+import { installSupplierModule } from "../modules/supplier";
+import { supplierRoutes } from "./supplier";
+import { installFinancialModule } from "../modules/financial";
+import { financialRoutes } from "./financial";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
 installAccessModel();
@@ -75,6 +81,11 @@ installChangeModule();
 installRequestModule();
 // knowledge management (docs/modules/knowledge_FA.md) — after the RAG index and the modules whose records it links
 installKnowledgeModule();
+// IT asset management, suppliers and contracts, IT financial management (docs/modules/{itam,supplier,financial}_FA.md) —
+// after the CMDB (assets link to CIs) and the request module (catalogue items bound to models)
+installItamModule();
+installSupplierModule();
+installFinancialModule();
 
 // release and deployment management (docs/modules/release_FA.md) — after the change module: deployments move changes
 installReleaseModule();
@@ -123,3 +134,6 @@ moduleRoutes.route("/project", projectRoutes);
 moduleRoutes.route("/analytics", analyticsRoutes);
 moduleRoutes.route("/event", eventRoutes);
 moduleRoutes.route("/continuity", continuityRoutes);
+moduleRoutes.route("/itam", itamRoutes);
+moduleRoutes.route("/supplier", supplierRoutes);
+moduleRoutes.route("/financial", financialRoutes);
