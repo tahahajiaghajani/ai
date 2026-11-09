@@ -59,6 +59,15 @@ const LOCAL_ONLY: Record<string, string> = {
   sm_notification_log: "notification deliveries (each runtime logs what it sent)",
   sm_email_messages: "e-mails sent and received by this runtime (threading, loop protection)",
   sm_notify_state: "background state of the notification service (IMAP folders)",
+  // the portal: messaging connectors and the website widget hold secrets of the web version (bots post there); the
+  // links of chat accounts and their one-time codes stay with the runtime that received them; the portal's event
+  // stream and the connectors' message log are each runtime's own (the portal, surveys and feedback travel)
+  sm_portal_channels: "messaging connectors (bot tokens and webhook secrets of the web version)",
+  sm_portal_channel_identities: "chat accounts linked to members on the web version (by one-time code)",
+  sm_portal_link_codes: "one-time codes for linking chat accounts (minutes long)",
+  sm_portal_widgets: "website widgets and their keys (served by the web version)",
+  sm_portal_events: "portal event stream of this runtime (searches, deflections, views)",
+  sm_portal_channel_log: "messages the connectors carried on this runtime",
 };
 
 describe("sync registry covers every organisation table", () => {
