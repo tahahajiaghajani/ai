@@ -51,6 +51,7 @@ export const releaseApi = {
   verdict: (api: OrgApi, id: string, result: string, status: string, evidence?: string) => api.post<Row>(`${rec(id)}/checks/${result}/verdict`, { status, ...(evidence ? { evidence } : {}) }),
   waive: (api: OrgApi, id: string, result: string, reason: string) => api.post<Row>(`${rec(id)}/checks/${result}/waive`, { reason }),
   decide: (api: OrgApi, id: string, input: { decision: string; rationale: string; conditions?: string | null; return_to?: string }) => api.post<{ decision: Row; release: Row }>(`${rec(id)}/decide`, input),
+  changeFor: (api: OrgApi, id: string) => api.post<Row>(`${rec(id)}/change`),
   addScope: (api: OrgApi, id: string, table: string, ids: string[]) => api.post<{ added: string[]; skipped: { id: string; reason: string }[] }>(`${rec(id)}/scope`, { table, ids }),
   draftNotes: (api: OrgApi, id: string, audience: string, save = false) => api.post<{ title: string; body: string; ai: boolean; note?: Row }>(`${rec(id)}/notes/draft`, { audience, save }),
   briefing: (api: OrgApi, id: string) => api.post<{ text: string; ai: boolean }>(`${rec(id)}/briefing`),

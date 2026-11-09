@@ -15,6 +15,7 @@
 //   POST /records/:id/checks/:result/waive       waive a check with a reason (the release manager's authority)
 //   POST /records/:id/decide                     the go / go with conditions / no-go decision
 //   POST /records/:id/scope                      add changes, problems, known errors, incidents or work items
+//   POST /records/:id/change                     a normal change for the release (its plans copied, linked «شامل»)
 //   POST /records/:id/notes/draft                a release note for an audience (AI or rule-based; saved on demand)
 //   POST /records/:id/briefing                   readiness briefing with blockers (AI or rule-based)
 //   GET  /records/:id/risk                       the stored risk with its explanation
@@ -26,7 +27,7 @@ import { forbidden } from "../http/errors";
 import { access } from "../access/provider";
 import { addLink, defFor, get, update } from "../engine";
 import {
-  briefingFacts, decideRelease, deploymentNarrative, draftNotes, evaluateChecksIn, managesReleases, readinessBoard, recalcRelease, releaseConfig, releaseDashboard, releaseOverview,
+  briefingFacts, changeForRelease, decideRelease, deploymentNarrative, draftNotes, evaluateChecksIn, managesReleases, readinessBoard, recalcRelease, releaseConfig, releaseDashboard, releaseOverview,
   releaseRiskExplanation, roadmap, saveDraftNote, seedReleaseDefaults, sysOf, RELEASE_SEED_VERSION, noAi,
 } from "../modules/release";
 import { runSkill } from "../modules/ai/skills/runtime";
@@ -156,6 +157,12 @@ releaseRoutes.post("/records/:id/scope", async (c) => {
     }
   }
   return c.json({ added, skipped });
+});
+
+releaseRoutes.post("/records/:id/change", async (c) => {
+  const id = UUID.parse(c.req.param("id"));
+  const { ctx } = await needWork(c, id);
+  return c.json(await changeForRelease(ctx, id));
 });
 
 releaseRoutes.post("/records/:id/notes/draft", async (c) => {

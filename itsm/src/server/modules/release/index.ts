@@ -71,6 +71,6 @@ export { decideRelease, recordDecisionIn, releasePeople, type Decision } from ".
 export { deploymentEffects, moveChange, recountRelease, recountDeployment, tagIncident, linkedReleases } from "./deploy";
 export { computeReleaseRisk, recalcRiskIn, deploymentRiskFacts } from "./risk";
 export { setupRelease, recalcRelease, releaseSweep, ensureReleaseSweep, resetReleaseSweepThrottle, RELEASE_SWEEP_EVERY } from "./jobs";
-export { roadmap, readinessBoard, releaseOverview, releaseDashboard } from "./views";
+export { roadmap, readinessBoard, releaseOverview, releaseDashboard, changeForRelease } from "./views";
 export { noteFacts, ruleNotes, saveDraftNote, type Audience } from "./notes";
 export { draftNotes, deploymentNarrative, briefingFacts, releaseRiskExplanation, releaseSkills, noAi } from "./ai";

@@ -11,7 +11,7 @@
 import { DAY_MS, readinessOf } from "@shared/release/logic";
 import { RELEASE_FAILED_CODES, RELEASE_LIVE } from "@shared/tables/release";
 import type { Ctx } from "../../context";
-import { get, list, listLinks, orgTz } from "../../engine";
+import { addLinkIn, createIn, get, list, listLinks, orgTz } from "../../engine";
 import { occurrences } from "@shared/change/logic";
 import { occurrencesBetween } from "../change";
 import { windowLike } from "./checks";
@@ -171,4 +171,31 @@ export async function releaseDashboard(ctx: Ctx, days: number): Promise<Row> {
 export async function scopeIds(ctx: Ctx, id: string, table: string): Promise<string[]> {
   const links = (await listLinks(ctx, "release", id).catch(() => ({ links: [] as Row[] }))).links as Row[];
   return ids(links.filter((l) => (l.other as Row)?.table === table).map((l) => (l.other as Row).id)).filter(isUuid);
+}
+
+/**
+ * A normal change for a release (REL-006), created as the caller through the change module's own rules (model,
+ * risk, authorization): the release's title, service, CIs, window and plans (deployment → implementation, rollback
+ * → back-out, test plan), linked «شامل» to the release.
+ */
+export async function changeForRelease(ctx: Ctx, id: string): Promise<Row> {
+  const { row: r } = await get(ctx, "release", id);
+  const created = await ctx.write(async (tx) => {
+    const change = await createIn(tx, ctx, "change_request", {
+      type: "normal",
+      short_description: `استقرار ${r.version_name ? `نسخهٔ ${r.version_name} ` : ""}${r.short_description ?? ""}`.slice(0, 160),
+      description: [`تغییر استقرار انتشار ${r.number ?? ""}.`, typeof r.description === "string" ? r.description : ""].filter(Boolean).join("\n\n"),
+      ...(isUuid(r.service_id) ? { service_id: r.service_id } : {}),
+      ...(isUuid(r.ci_id) ? { ci_id: r.ci_id } : {}),
+      ...(Array.isArray(r.affected_cis) && r.affected_cis.length ? { affected_cis: r.affected_cis } : {}),
+      ...(isUuid(r.assignment_group_id) ? { assignment_group_id: r.assignment_group_id } : {}),
+      ...(r.planned_end ? { planned_start: r.planned_start && msOf(r.planned_start)! > Date.now() ? r.planned_start : r.planned_end, planned_end: new Date((msOf(r.planned_end) ?? Date.now()) + 2 * 3_600_000).toISOString() } : {}),
+      ...(r.deployment_plan ? { implementation_plan: r.deployment_plan } : {}),
+      ...(r.rollback_plan ? { backout_plan: r.rollback_plan } : {}),
+      ...(r.test_plan ? { test_plan: r.test_plan } : {}),
+    });
+    await addLinkIn(tx, ctx, "release", id, { kind: "release_includes", table: "change_request", id: String(change.id) });
+    return change;
+  });
+  return (await get(ctx, "change_request", String(created.id))).row;
 }

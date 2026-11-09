@@ -8,14 +8,14 @@
 import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Dropdown, Form, Input, Modal, Progress, Radio, Select, Space, Steps } from "antd";
-import { Check, CircleDashed, Gavel, ListChecks, NotebookPen, RefreshCw, Sparkles, X } from "lucide-react";
+import { Check, CircleDashed, Gavel, GitPullRequestArrow, ListChecks, NotebookPen, RefreshCw, Sparkles, X } from "lucide-react";
 import { lifecycleSteps } from "@shared/release/logic";
 import { NOTE_AUDIENCES } from "@shared/tables/release";
 import { useOrg } from "../../lib/org";
 import { useAction } from "../../lib/hooks";
 import { Chip, Loader } from "../../components/display";
 import { ICON, ICON14 } from "../../components/blocks";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { RecordMarkdown, recordPath, type RecordContext } from "../../records";
 import { RELEASE_KEYS, releaseApi, type Readiness } from "./api";
 import { checkActions, checkLabel, checkTone, decisionLabel, decisionTone, readinessTone, riskLabel, riskTone, type Row } from "./model";
@@ -150,6 +150,7 @@ function AnswerModal({ title, text, ai, open, onClose, footer }: { title: string
 
 export function ReleaseActions({ ctx }: { ctx: RecordContext }) {
   const { api, orgId } = useOrg();
+  const nav = useNavigate();
   const qc = useQueryClient();
   const r = ctx.row as Row;
   const meta = (ctx.meta.release ?? {}) as { can_work?: boolean; manages?: boolean };
@@ -163,6 +164,7 @@ export function ReleaseActions({ ctx }: { ctx: RecordContext }) {
   const brief = useAction(() => releaseApi.briefing(api, r.id), { onSuccess: (d) => setAnswer({ title: "گزارش آمادگی و مانع‌ها", text: d.text, ai: d.ai }) });
   const notes = useAction((audience: string) => releaseApi.draftNotes(api, r.id, audience), { onSuccess: (d, audience) => setAnswer({ title: d.title, text: d.body, ai: d.ai, audience }) });
   const save = useAction((audience: string) => releaseApi.draftNotes(api, r.id, audience, true), { success: "پیش‌نویس یادداشت انتشار ذخیره شد", onSuccess: () => { setAnswer(null); refresh(); } });
+  const change = useAction(() => releaseApi.changeFor(api, r.id), { success: (c) => `تغییر ${c.number ?? ""} ساخته و به انتشار پیوند خورد`, onSuccess: (c) => nav(`/${orgId}/${recordPath("change_request", String(c.id))}`) });
   const open = !["closed", "canceled"].includes(String(r.state));
   return (
     <Space wrap>
@@ -174,6 +176,11 @@ export function ReleaseActions({ ctx }: { ctx: RecordContext }) {
       {r.state === "readiness" && meta.manages ? (
         <Button type="primary" icon={<Gavel {...ICON} />} onClick={() => setDeciding(true)}>
           تصمیم اجرا
+        </Button>
+      ) : null}
+      {open && meta.can_work && ["draft", "planning", "build", "test"].includes(String(r.state)) ? (
+        <Button icon={<GitPullRequestArrow {...ICON} />} onClick={() => change.mutate(undefined)} loading={change.isPending}>
+          ثبت تغییر انتشار
         </Button>
       ) : null}
       <Button icon={<Sparkles {...ICON} />} onClick={() => brief.mutate(undefined)} loading={brief.isPending}>

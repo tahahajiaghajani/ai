@@ -142,6 +142,19 @@ describe("notes and briefing without AI", () => {
   });
 });
 
+describe("a change for a release", () => {
+  it("creates a normal change with the release's plans, linked «شامل»", async () => {
+    const rel = await w.release({ short_description: "انتشار با تغییر", deployment_plan: "استقرار در دو موج", test_plan: "آزمون دود" });
+    const ch = await w.p.dev.client.post(`${w.P}/release/records/${rel.id}/change`, {});
+    expect(ch.type).toBe("normal");
+    expect(ch.implementation_plan).toBe("استقرار در دو موج");
+    expect(ch.backout_plan).toContain("بازگرداندن");
+    await w.drain();
+    expect((await w.get("release", rel.id)).changes_total).toBe(1);
+    await w.p.other.client.post(`${w.P}/release/records/${rel.id}/change`, {}, 403);
+  });
+});
+
 describe("access", () => {
   it("keeps releases from requesters, lets other engineers read but not change, auditors read only", async () => {
     const rel = await w.release({ short_description: "انتشار تیم پرتال" });
