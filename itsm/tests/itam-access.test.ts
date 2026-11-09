@@ -19,8 +19,15 @@ beforeAll(async () => {
 }, 120_000);
 
 describe("the holder", () => {
-  it("reads their own asset but cannot list the area or read another's", async () => {
-    await w.p.req.client.post(`${w.P}/r/asset/query`, {}, 403);
+  it("reads and lists only their own asset (the participant grant), never another's", async () => {
+    // a list or a count of the area gives the holder exactly the assets their grant opens
+    const listed = await w.p.req.client.post(`${w.P}/r/asset/query`, {});
+    expect(listed.rows.map((r: any) => r.id)).toEqual([mine.id]);
+    expect(listed.rows[0].purchase_cost).toBeUndefined();
+    expect((await w.p.req.client.post(`${w.P}/r/asset/query`, { filter: { f: "id", op: "eq", v: theirs.id } })).rows).toEqual([]);
+    expect((await w.p.req.client.post(`${w.P}/r/asset/agg`, { metrics: [{ fn: "count" }] })).totals.count).toBe(1);
+    await w.p.req.client.post(`${w.P}/r/asset/query`, { filter: { f: "purchase_cost", op: "gt", v: 0 } }, 400);
+    await w.p.req.client.get(`${w.P}/r/asset/export`, 403);
     const own = await w.p.req.client.get(`${w.P}/r/asset/${mine.id}`);
     expect(own.row.serial_number).toBe("ACC-1");
     expect(own.row.purchase_cost).toBeUndefined();
