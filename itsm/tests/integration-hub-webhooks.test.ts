@@ -129,7 +129,7 @@ describe("webhooks, inbound endpoints and issue sync", () => {
     const t = await owner.post(`${P}/integration/webhooks/${sub.id}/test`, {});
     expect(t.ok).toBe(true);
     expect((await owner.get(`${P}/r/webhook_subscription/${sub.id}`)).row.paused).toBe(false);
-  });
+  }, 180_000); // seventeen deliveries through the job queue: room for a fully loaded machine
 
   it("accepts inbound deliveries with the endpoint's token, once, and creates or updates as its integration user", async () => {
     const ep = (

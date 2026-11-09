@@ -33,7 +33,7 @@
 4. ورود داده (اعضا، مجموعهٔ ورود) با `ctx` مدیر و از راه موتور است (قلاب‌ها، قاعده‌ها و دسترسی سطری)؛ خروجی داده با `memberCtx` درخواست‌کننده ساخته می‌شود.
 5. سقف‌های طرح در قلاب‌ها و سرویس‌ها اجرا می‌شوند (`needWithinLimit`)؛ نسخهٔ ویندوز (نصب مستقل) سقف و دروازهٔ طرح ندارد.
 
-**کارها:** `admin.seed`، `admin.sweep` (پاک کردن خروجی‌های کهنه و ورودهای زمان‌بندی‌شده)، `admin.announce` (اطلاعیه به سازمان‌ها، دسته‌های ۲۰۰تایی)، `admin.import.run`، `admin.export.run`، `admin.backup`.
+**کارها:** `admin.seed`، `admin.sweep` (روزانه: پاک کردن فایل‌های خروجی‌های منقضی)، `admin.announce` (اطلاعیه به سازمان‌ها، دسته‌های ۲۰۰تایی)، `admin.import.run`، `admin.export.run`، `admin.backup`.
 
 **هوش مصنوعی** (`modules/admin/ai.ts`، بند ۱۱ سند AI): `admin.studio_draft` (پیش‌نویس جدول و فیلدها از شرح فارسی)، `admin.import_mapping` (پیشنهاد نگاشت ستون‌ها)، `admin.access_explain` (توضیح فارسی دسترسی از روی واقعیت‌های بررسی‌کننده). هر سه بدون مدل پاسخ قاعده‌مند دارند (`draftFromText`، `suggestMapping`، `explainAccessText`) و هیچ‌کدام چیزی ذخیره نمی‌کنند؛ پیش‌نویس پیش از ساخت اعتبارسنجی می‌شود.
 
@@ -41,4 +41,4 @@
 
 **API کنسول مدیر سامانه** (`/api/admin`): `GET|PUT|DELETE /plans…`، `GET|PUT /orgs/:id/plan`، `GET /usage`، `GET|PUT|DELETE /flags…`، `GET|POST|PATCH|DELETE /announcements…`، `POST /announcements/:id/publish`، `GET /jobs`، `GET /jobs/summary`، `POST /jobs/:id/retry|cancel`، `POST /jobs/tick`، `GET|POST /backups`، `GET /backups/:id/download`، `POST /backups/:id/verify|restore`، `DELETE /backups/:id`، `GET /version`، `GET /audit-all`، `GET /audit-all.csv`، `GET /models`.
 
-**آزمون‌ها:** `tests/admin-console.test.ts` (فقط مدیر سامانه، جداسازی سازمان‌ها، طرح و سقف، کلید قابلیت، اطلاعیه، پشتیبان و بازگردانی، کارها)، `tests/admin-studio.test.ts` (جدول و فیلد سفارشی، نسخه و بسته، پیش‌نویس، ماتریس و توضیح دسترسی برای درخواست‌دهنده، کارشناس گروه دیگر و ممیز، ورود اعضا بدون نقش پنهان، مجموعهٔ ورود، خروجی با دسترسی درخواست‌کننده، صندلی‌ها، تکرارپذیری پیش‌فرض‌ها).
+**آزمون‌ها:** `tests/admin-console.test.ts` (فقط مدیر سامانه، جداسازی سازمان‌ها، طرح و سقف، کلید قابلیت، اطلاعیه، پشتیبان و بازگردانی، کارها، نسخه و رویدادهای همهٔ سازمان‌ها)، `tests/admin-studio.test.ts` (جدول و فیلد سفارشی، همگام‌سازی و ابزارهای هوش مصنوعی، نسخه و بسته، پیش‌نویس، ماتریس و توضیح دسترسی، ورود اعضا بدون نقش پنهان، مجموعهٔ ورود، خروجی با دسترسی درخواست‌کننده، صندلی‌ها و گزارش‌ها)، `tests/admin-access.test.ts` (درخواست‌دهنده، کارشناس گروه دیگر و ممیز در برابر هر دو کنسول و مرکز اتصال‌ها؛ یک‌بار کاشته شدن پیش‌فرض‌ها).
