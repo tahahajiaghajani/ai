@@ -13,7 +13,7 @@ import { accessSettings, buildSubject, loadOrgSnapshot } from "../../access";
 import { updateIn, onRecordEvent } from "../../engine";
 import { enqueue, registerJobHandler, type JobContext } from "../../jobs";
 import { systemCtx } from "../../engine";
-import { countRows, liveRows, sysOf, type Row } from "./common";
+import { liveRows, sysOf, type Row } from "./common";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -119,13 +119,9 @@ export function installSharingJobs(): void {
     "analytics.roles",
     async (e, jctx) => {
       if (!e.org_id) return;
-      // only organisations that share something with a role need it
-      const sys = await systemCtx(jctx.cfg, e.org_id);
-      const n =
-        (await countRows(jctx.db, sys, "analytics_report", { f: "role_keys", op: "nempty" })) +
-        (await countRows(jctx.db, sys, "analytics_dashboard", { f: "role_keys", op: "nempty" })) +
-        (await countRows(jctx.db, sys, "analytics_indicator", { f: "s_roles", op: "nempty" }));
-      if (n > 0) await queueShareRecompute(jctx.db, e.org_id);
+      // one deduplicated, slightly delayed job per burst of access changes; the job itself finds whether anything
+      // shares with a role (nothing to do in most organisations) — no queries per event
+      await queueShareRecompute(jctx.db, e.org_id);
     },
     { tables: ACCESS_TABLES },
   );
