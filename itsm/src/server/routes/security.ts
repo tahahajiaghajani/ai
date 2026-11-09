@@ -15,9 +15,7 @@ import {
   reportPhishing, riskHeatmap, scanCoverage, scanPii, securityAiCapabilities, securityConfig, securityDashboard, seedSecurityDefaults, soaView, socWorkspace, startClock, startVerification,
   submitStage, transferCustody,
 } from "../modules/security";
-import { managesArea, readsArea, readsTable, sysOf } from "../modules/security/common";
-import { grantIn } from "@shared/access/model";
-import { subjectOf } from "../access";
+import { managesArea, readScope, readsArea, readsTable, sysOf } from "../modules/security/common";
 
 const UUID = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "شناسه معتبر نیست");
 const id = (v: string | undefined) => UUID.parse(v ?? "").toLowerCase();
@@ -29,18 +27,18 @@ export const securityRoutes = router();
 securityRoutes.get("/meta", async (c) => {
   const ctx = c.get("ctx");
   const cfg = await securityConfig(ctx.db, ctx);
-  const users = ctx.actor === "system" ? "all" : grantIn(subjectOf(ctx).eff, "users").read;
+  const users = await readScope(ctx, "users");
   return c.json({
     ai: securityAiCapabilities(),
     settings: { vuln_sla: { critical: cfg.vuln_sla_critical, high: cfg.vuln_sla_high, medium: cfg.vuln_sla_medium, low: cfg.vuln_sla_low }, ai_max_classification: cfg.ai_max_classification, seeded: cfg.seeded > 0 },
     can: {
       ops: await readsTable(ctx, "sec_incident"),
       vuln: await readsTable(ctx, "sec_vuln_item"),
-      compliance: readsArea(ctx, "compliance"),
-      risk: readsArea(ctx, "risk"),
-      manage_security: managesArea(ctx, "security"),
-      manage_compliance: managesArea(ctx, "compliance"),
-      manage_risk: managesArea(ctx, "risk"),
+      compliance: await readsArea(ctx, "compliance"),
+      risk: await readsArea(ctx, "risk"),
+      manage_security: await managesArea(ctx, "security"),
+      manage_compliance: await managesArea(ctx, "compliance"),
+      manage_risk: await managesArea(ctx, "risk"),
       review: users === "all",
     },
   });
@@ -49,7 +47,7 @@ securityRoutes.get("/meta", async (c) => {
 // the organisation's defaults (also re-adds what was deleted): security managers and tenant administrators
 securityRoutes.post("/seed", async (c) => {
   const ctx = c.get("ctx");
-  if (!managesArea(ctx, "security") && !managesArea(ctx, "compliance")) throw forbidden("افزودن پیش‌فرض‌ها با مدیر امنیت یا انطباق است");
+  if (!(await managesArea(ctx, "security")) && !(await managesArea(ctx, "compliance"))) throw forbidden("افزودن پیش‌فرض‌ها با مدیر امنیت یا انطباق است");
   return c.json(await seedSecurityDefaults(ctx.cfg, ctx.org.id, { force: true }));
 });
 
@@ -139,7 +137,7 @@ securityRoutes.post("/soa/approve", async (c) => {
 securityRoutes.get("/controls/:id/crosswalk", async (c) => c.json({ frameworks: await crosswalk(c.get("ctx"), id(c.req.param("id"))) }));
 securityRoutes.post("/indicators/measure", async (c) => {
   const ctx = c.get("ctx");
-  if (!managesArea(ctx, "compliance")) throw forbidden("سنجش شاخص‌ها با مدیر انطباق است");
+  if (!(await managesArea(ctx, "compliance"))) throw forbidden("سنجش شاخص‌ها با مدیر انطباق است");
   return c.json(await measureIndicators(sysOf(ctx)));
 });
 securityRoutes.get("/policies/mine", async (c) => c.json({ policies: await myPolicies(c.get("ctx")) }));

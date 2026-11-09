@@ -697,8 +697,8 @@ async function acceptanceBefore(w: WriteArgs): Promise<void> {
   if (entering(w, "active")) n.accepted_at = iso();
 }
 
-function acceptanceByOwner(w: WriteArgs): string | null {
-  if (w.ctx.actor === "system" || w.ctx.user.id === w.next.accepted_by || managesArea(w.ctx, "risk")) return null;
+async function acceptanceByOwner(w: WriteArgs): Promise<string | null> {
+  if (w.ctx.actor === "system" || w.ctx.user.id === w.next.accepted_by || (await managesArea(w.ctx, "risk"))) return null;
   return "پذیرش یا رد ریسک با مالک آن است";
 }
 

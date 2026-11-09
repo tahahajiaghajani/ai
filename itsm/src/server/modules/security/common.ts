@@ -6,7 +6,7 @@ import { SECURITY_CONFIG_DEFAULTS, type SecurityConfig } from "@shared/tables/se
 import { grantIn } from "@shared/access/model";
 import type { Ctx } from "../../context";
 import type { Queryable, Tx } from "../../db";
-import { createIn, orgTz, updateIn } from "../../engine";
+import { createIn, orgSchema, orgTz, updateIn } from "../../engine";
 import { subjectOf } from "../../access";
 import { access } from "../../access/provider";
 import { defFor } from "../../engine";
@@ -60,8 +60,9 @@ export function inWorkspace(ctx: Ctx, workspaceId: string): boolean {
 }
 
 /** May the caller read anything of the area (their roles' read scope is not «none»)? */
-export function readsArea(ctx: Ctx, area: string): boolean {
+export async function readsArea(ctx: Ctx, area: string): Promise<boolean> {
   if (ctx.actor === "system") return true;
+  await orgSchema(ctx);
   return grantIn(subjectOf(ctx).eff, area).read !== "none";
 }
 
@@ -72,10 +73,18 @@ export async function readsTable(ctx: Ctx, table: string): Promise<boolean> {
 }
 
 /** The area's approve flag or full write («مدیر» of the area): definitions, decisions, settings. */
-export function managesArea(ctx: Ctx, area: string): boolean {
+export async function managesArea(ctx: Ctx, area: string): Promise<boolean> {
   if (ctx.actor === "system") return true;
+  await orgSchema(ctx);
   const g = grantIn(subjectOf(ctx).eff, area);
   return !!g.approve || g.write === "all";
+}
+
+/** The caller's read scope in an area (the subject loaded first). */
+export async function readScope(ctx: Ctx, area: string): Promise<string> {
+  if (ctx.actor === "system") return "all";
+  await orgSchema(ctx);
+  return grantIn(subjectOf(ctx).eff, area).read;
 }
 
 /** Today in the organisation's time zone (YYYY-MM-DD). */

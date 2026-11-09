@@ -17,15 +17,11 @@ import { accessSettings, listMemberAccess, snapshotFor } from "../../access";
 import { bad, forbidden, notFound, tooMany } from "../../http/errors";
 import { notifyPeople } from "../notify";
 import { securityEvent } from "../platform/security";
-import { countRows, isUuid, liveRow, liveRows, readsArea, securityConfig, sysOf, type Row } from "./common";
-import { grantIn } from "@shared/access/model";
-import { subjectOf } from "../../access";
+import { countRows, isUuid, liveRow, liveRows, readScope, readsArea, securityConfig, sysOf, type Row } from "./common";
 
 /** Access administrators and auditors: the users area read in full. */
-function needReviewer(ctx: Ctx): void {
-  if (ctx.actor === "system") return;
-  const g = grantIn(subjectOf(ctx).eff, "users");
-  if (g.read !== "all") throw forbidden("این بخش برای مدیران دسترسی و ممیزان است");
+async function needReviewer(ctx: Ctx): Promise<void> {
+  if ((await readScope(ctx, "users")) !== "all") throw forbidden("این بخش برای مدیران دسترسی و ممیزان است");
 }
 
 const PRIVILEGED = new Set(["tenant_admin", "security_manager", "grc_manager", "vulnerability_manager"]);
@@ -35,7 +31,7 @@ const DORMANT_DAYS = 90;
 // Access-risk analytics (SEC-060)
 
 export async function accessRisk(ctx: Ctx): Promise<{ flags: AccessRiskFlag[]; members: number; privileged: number }> {
-  needReviewer(ctx);
+  await needReviewer(ctx);
   const { members } = await listMemberAccess(ctx);
   const snap = await snapshotFor(ctx, ctx.db, true);
   const catalog = roleCatalog(snap.roles, accessSettings(ctx.org).preset);
@@ -83,7 +79,7 @@ const EVENT_LABELS: Record<string, string> = {
 const HISTORY_FIELDS: Record<string, string[]> = { role: ["grants", "field_groups", "contains", "workspaces", "domains", "active"], member_profile: ["roles", "workspaces", "persona"], group: ["roles", "restricted", "workspace_id"], workspace: ["secure", "active"] };
 
 export async function privilegedActions(ctx: Ctx, days = 30): Promise<PrivilegedReview> {
-  needReviewer(ctx);
+  await needReviewer(ctx);
   const from = new Date(Date.now() - Math.max(1, Math.min(365, days)) * 86_400_000).toISOString();
   const q = ctx.db;
   const events = await q.query<Row>(
@@ -133,7 +129,7 @@ export async function logSecureRead(ctx: Ctx, table: string, row: Row): Promise<
 // Hardening console (SEC-061)
 
 export async function hardening(ctx: Ctx): Promise<HardeningReport> {
-  needReviewer(ctx);
+  await needReviewer(ctx);
   const sys = sysOf(ctx);
   const cfg = await securityConfig(ctx.db, ctx);
   const checks: HardeningCheck[] = [];

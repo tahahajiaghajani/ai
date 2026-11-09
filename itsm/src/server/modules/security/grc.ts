@@ -86,7 +86,7 @@ export async function soaView(ctx: Ctx, frameworkId?: string | null): Promise<{ 
 
 /** «تأیید بیانیهٔ کاربست‌پذیری»: the ISMS owner (compliance approve right) approves requirements' applicability. */
 export async function approveSoa(ctx: Ctx, reqIds: string[]): Promise<{ approved: number }> {
-  if (!managesArea(ctx, "compliance")) throw forbidden("تأیید بیانیهٔ کاربست‌پذیری با مالک سامانهٔ مدیریت امنیت اطلاعات است");
+  if (!(await managesArea(ctx, "compliance"))) throw forbidden("تأیید بیانیهٔ کاربست‌پذیری با مالک سامانهٔ مدیریت امنیت اطلاعات است");
   const list = [...new Set(reqIds.filter(isUuid))].slice(0, 500);
   if (!list.length) throw bad("الزامی انتخاب نشده است");
   const rows = await liveRows(ctx.db, ctx, "grc_requirement", { and: [{ f: "id", op: "in", v: list }, { f: "soa_state", op: "ne", v: "approved" }] }, { limit: 500 });
@@ -327,7 +327,7 @@ export async function remindCampaigns(sys: Ctx): Promise<number> {
 // Risk heat map (SEC-043)
 
 export async function riskHeatmap(ctx: Ctx): Promise<RiskHeatmap> {
-  if (!readsArea(ctx, "risk")) throw forbidden("به ثبت ریسک‌ها دسترسی ندارید");
+  if (!(await readsArea(ctx, "risk"))) throw forbidden("به ثبت ریسک‌ها دسترسی ندارید");
   const rows = await liveRows(ctx.db, ctx, "grc_risk", { f: "state", op: "nin", v: ["closed", "retired"] }, { limit: 20_000 });
   const [matrix] = await liveRows(ctx.db, sysOf(ctx), "grc_risk_matrix", { f: "is_default", op: "eq", v: true }, { order: "t.created_at", limit: 1 });
   const cells = (matrix?.cells as string[][] | undefined) ?? MATRIX_5X5;

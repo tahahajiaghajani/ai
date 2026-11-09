@@ -395,7 +395,7 @@ export async function incidentFacts(ctx: Ctx, sirId: string) {
 /** Readable regimes for the «شروع ساعت الزامی» picker, personal-data ones first when the incident is a breach. */
 export async function regimesFor(ctx: Ctx, sirId: string) {
   const r = await get(ctx, "sec_incident", sirId);
-  const all = await list(ctx, "sec_reg_regime", { filter: { f: "active", op: "eq", v: true }, size: 50, total: false });
+  const all = await list(ctx, "sec_reg_regime", { filter: { f: "active", op: "eq", v: true }, size: 50, total: false, fields: ["key", "name", "authority", "personal_data", "placeholder", "stages"] });
   const rows = all.rows as Row[];
   if (r.row.personal_data_breach) rows.sort((a, b) => Number(!!b.personal_data) - Number(!!a.personal_data));
   return rows.map((x) => ({ id: x.id, name: x.name, authority: x.authority ?? null, personal_data: !!x.personal_data, placeholder: !!x.placeholder, stages: x.stages ?? [] }));
