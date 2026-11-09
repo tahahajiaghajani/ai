@@ -172,6 +172,8 @@ export default function Chat({ cfg, embed }: { cfg: PortalConfig; embed?: boolea
   const navigate = useNavigate();
   const qc = useQueryClient();
   const client = useMemo(() => virtualAgentClient(api), [api]);
+  const clientRef = useRef(client);
+  clientRef.current = client;
   const listKey = [...PORTAL_KEYS.all(orgId), "va", "list"];
   const list = useQuery({ queryKey: listKey, queryFn: () => client.conversations(), staleTime: 15_000 });
   const [convId, setConvId] = useState<string | null>(routeId);
@@ -203,7 +205,7 @@ export default function Chat({ cfg, embed }: { cfg: PortalConfig; embed?: boolea
     setLoading(true);
     setProblem(null);
     setSuggestions([]);
-    client
+    clientRef.current
       .messages(routeId)
       .then((m) => live && setMsgs(m))
       .catch((e) => live && setProblem(errorText(e)))
@@ -211,7 +213,7 @@ export default function Chat({ cfg, embed }: { cfg: PortalConfig; embed?: boolea
     return () => {
       live = false;
     };
-  }, [routeId, embed, client]);
+  }, [routeId, embed]);
   useEffect(() => {
     const c = convId ? list.data?.find((x) => x.id === convId) : null;
     if (c) setState(c.state);

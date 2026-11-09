@@ -4,15 +4,17 @@
 // access (the engine checks every field); files are attached to it right after. When the administrator chose a record
 // producer for reporting (`report_item_id`), its order form is used instead.
 import { useRef, useState } from "react";
-import { Navigate, useNavigate, useSearchParams } from "react-router";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router";
+import { useQuery } from "@tanstack/react-query";
 import { Alert, Button, Input, Radio } from "antd";
 import { Paperclip, Send, X } from "lucide-react";
 import { useOrg } from "../../lib/org";
 import { errorText, ApiError } from "../../lib/api";
+import { useDebounced } from "../../lib/hooks";
 import { Field, Note } from "../../components/blocks";
 import { RecordMarkdown, recordsApi, uploadAttachment, useMe } from "../../records";
 import { orderAssist } from "../request/slots";
-import { portalApi, usePortalHome, usePortalRefresh, type PortalConfig } from "./api";
+import { PORTAL_KEYS, portalApi, usePortalHome, usePortalRefresh, type PortalConfig } from "./api";
 import { fileSize, portalPath, ticketPath } from "./model";
 import { I16, PageHead } from "./parts";
 
@@ -39,6 +41,10 @@ export default function Report({ cfg }: { cfg: PortalConfig }) {
   const [busy, setBusy] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const assist = orderAssist();
+  // the person's own open reports that look like this one (follow that one instead of reporting twice)
+  const typed = useDebounced(subject.trim(), 400);
+  const similar = useQuery({ queryKey: [...PORTAL_KEYS.all(orgId), "similar", typed], queryFn: () => portalApi.items(api, { tab: "mine", state: "open", q: typed, size: 5 }), enabled: typed.length >= 4, staleTime: 30_000 });
+  const mineOpen = typed.length >= 4 ? (similar.data?.items ?? []).filter((c) => c.table === "incident") : [];
 
   if (cfg.portal.report_item_id) return <Navigate to={portalPath(orgId, `items/${cfg.portal.report_item_id}`)} replace />;
   if (!cfg.can.report)
@@ -114,6 +120,25 @@ export default function Report({ cfg }: { cfg: PortalConfig }) {
           <Field label="شرح" hint={errors.details ? <span className="text-danger">{errors.details}</span> : "از کی؟ چه پیامی دیدید؟ چه کاری را امتحان کردید؟"} htmlFor="pt-report-details">
             <Input.TextArea id="pt-report-details" autoSize={{ minRows: 4, maxRows: 12 }} maxLength={4000} value={details} onChange={(e) => setDetails(e.target.value)} status={errors.details ? "error" : undefined} />
           </Field>
+          {mineOpen.length ? (
+            <Alert
+              type="info"
+              showIcon
+              title="گزارش بازی شبیه این دارید"
+              description={
+                <ul className="m-0 flex list-none flex-col gap-1 p-0">
+                  {mineOpen.map((c) => (
+                    <li key={c.id}>
+                      <Link className="ds-link" to={ticketPath(orgId, c.table, c.id)}>
+                        {c.number ? <bdi className="ltr">{c.number}</bdi> : null} {c.title}
+                      </Link>{" "}
+                      <span className="text-ink-3">— {c.stage_label}؛ اگر همین است، همان‌جا پیام بگذارید.</span>
+                    </li>
+                  ))}
+                </ul>
+              }
+            />
+          ) : null}
           {assist ? assist({ itemId: "report", itemType: "record_producer", text: `${subject} ${details}`.trim().slice(0, 300), onSolved: () => { void portalApi.event(api, { kind: "deflect", query: subject }); navigate(portalPath(orgId)); } }) : null}
           <Field label="چقدر کار شما را متوقف کرده است؟">
             <Radio.Group value={urgency} onChange={(e) => setUrgency(e.target.value)} className="flex flex-col gap-2">

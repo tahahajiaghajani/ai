@@ -64,7 +64,7 @@
     .pt-nav { display: none; }
     .pt-main { padding-block: 12px 96px; }
     .pt-tabbar {
-      position: fixed; inset-inline: 0; inset-block-end: 0; z-index: 6; display: grid; grid-template-columns: repeat(5, 1fr);
+      position: fixed; inset-inline: 0; inset-block-end: 0; z-index: 6; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
       background: var(--ds-surface); border-block-start: 1px solid var(--ds-line); padding-block-end: env(safe-area-inset-bottom);
     }
     .pt-tab {

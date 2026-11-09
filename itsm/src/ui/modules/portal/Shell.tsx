@@ -86,17 +86,20 @@ function TabBar({ cfg }: { cfg: PortalConfig }) {
   const { orgId } = useOrg();
   const loc = useLocation();
   const rel = loc.pathname.slice(portalPath(orgId).length).replace(/^\/+/, "");
-  const tabs: [string, string, ReactNode][] = [
+  const all: [string, string, ReactNode][] = [
     ["", "خانه", <House key="i" {...I} />],
-    [cfg.can.order ? "catalog" : "kb", cfg.can.order ? "خدمات" : "دانش", cfg.can.order ? <LayoutGrid key="i" {...I} /> : <BookOpen key="i" {...I} />],
+    ...(cfg.can.order ? ([["catalog", "خدمات", <LayoutGrid key="i" {...I} />]] as [string, string, ReactNode][]) : []),
     ["requests", "درخواست‌ها", <Briefcase key="i" {...I} />],
-    ...(cfg.portal.chat_enabled ? ([["chat", cfg.portal.chat_name, <MessageCircle key="i" {...I} />]] as [string, string, ReactNode][]) : ([["kb", "دانش", <BookOpen key="i" {...I} />]] as [string, string, ReactNode][])),
+    ...(cfg.portal.chat_enabled ? ([["chat", cfg.portal.chat_name, <MessageCircle key="i" {...I} />]] as [string, string, ReactNode][]) : []),
+    ["kb", "دانش", <BookOpen key="i" {...I} />],
     ["todo", "کارها", <ListChecks key="i" {...I} />],
   ];
+  // five at most: knowledge gives way when the catalogue and the assistant are both there
+  const tabs = all.length > 5 ? all.filter(([key]) => key !== "kb") : all;
   return (
     <nav className="pt-tabbar" aria-label="بخش‌های درگاه">
-      {tabs.map(([key, label, icon], i) => (
-        <Link key={`${key}${i}`} to={portalPath(orgId, key)} className="pt-tab" aria-current={(key === "" ? rel === "" : rel.startsWith(key)) ? "page" : undefined}>
+      {tabs.map(([key, label, icon]) => (
+        <Link key={key || "home"} to={portalPath(orgId, key)} className="pt-tab" aria-current={(key === "" ? rel === "" : rel === key || rel.startsWith(`${key}/`) || (key === "requests" && rel.startsWith("t/"))) ? "page" : undefined}>
           {icon}
           <span>{label}</span>
         </Link>
