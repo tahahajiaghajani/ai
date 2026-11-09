@@ -1,0 +1,26 @@
+/* Enterprise service screens: department cards, the journey tracker's phases and the booking grid (tokens only). */
+.esm-depts { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.esm-dept { display: flex; flex-direction: column; gap: 6px; padding: 14px; border: 1px solid var(--ds-line); border-radius: 12px; background: var(--ds-surface); color: var(--ds-text); text-decoration: none; border-inline-start: 4px solid var(--ds-accent); }
+.esm-dept:hover { background: var(--ds-sunken); }
+.esm-dept:focus-visible { outline: 2px solid var(--ds-focus-color); outline-offset: 2px; }
+.esm-dept[data-c="green"], .esm-dept[data-c="teal"] { border-inline-start-color: var(--ds-in); }
+.esm-dept[data-c="gold"], .esm-dept[data-c="orange"] { border-inline-start-color: var(--ds-warning); }
+.esm-dept[data-c="red"], .esm-dept[data-c="magenta"] { border-inline-start-color: var(--ds-danger); }
+
+.esm-phases { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(250px, 1fr); gap: 12px; overflow-x: auto; padding-block-end: 6px; }
+@media (max-width: 760px) { .esm-phases { grid-auto-flow: row; grid-auto-columns: auto; } }
+.esm-phase { display: flex; flex-direction: column; gap: 8px; background: var(--ds-sunken); border-radius: 10px; padding: 10px; }
+.esm-act { display: flex; flex-direction: column; gap: 4px; background: var(--ds-surface); border: 1px solid var(--ds-line); border-inline-start-width: 3px; border-radius: 8px; padding: 8px 10px; }
+.esm-act[data-tone="in"] { border-inline-start-color: var(--ds-in); }
+.esm-act[data-tone="danger"] { border-inline-start-color: var(--ds-danger); }
+.esm-act[data-tone="warning"] { border-inline-start-color: var(--ds-warning); }
+.esm-act[data-tone="accent"] { border-inline-start-color: var(--ds-accent); }
+
+.esm-book { overflow-x: auto; border: 1px solid var(--ds-line); border-radius: 10px; padding: 8px; background: var(--ds-surface); }
+.esm-book-row { display: grid; grid-template-columns: minmax(150px, 200px) repeat(var(--esm-cols), minmax(22px, 1fr)); gap: 2px; align-items: center; min-block-size: 30px; }
+.esm-book-head { min-block-size: 22px; }
+.esm-slot { block-size: 24px; border-radius: 4px; border: 0; padding: 0; }
+.esm-slot.is-free { background: color-mix(in oklab, var(--ds-in) 14%, transparent); cursor: pointer; }
+.esm-slot.is-free:hover, .esm-slot.is-free:focus-visible { background: color-mix(in oklab, var(--ds-in) 34%, transparent); outline: none; }
+.esm-slot.is-busy { background: var(--ds-sunken); cursor: not-allowed; }
+.esm-slot.is-mine { background: color-mix(in oklab, var(--ds-accent) 45%, transparent); }
