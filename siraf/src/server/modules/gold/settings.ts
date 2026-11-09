@@ -86,8 +86,8 @@ function parseSource(raw: unknown): CustomSource | null {
   const paths: Record<string, string> = {};
   const src = (o.paths && typeof o.paths === "object" ? o.paths : {}) as Record<string, unknown>;
   for (const [f, v] of Object.entries(src)) if (isPathKey(f) && typeof v === "string" && v.trim()) paths[f] = v.trim();
-  // header kept as written (sync and PATCH /o/:org write it unchecked): fx/source-keys.ts refuses a header that may
-  // not carry a key before anything is sent
+  // header kept as written (a sync writes it unchecked): fx/source-keys.ts refuses a header that may not carry a key
+  // before anything is sent
   const header = typeof o.header === "string" && o.header.trim() ? o.header.trim().slice(0, 100) : null;
   const link = cleanSourceLink(o.link);
   const label = cleanSourceLabel(o.label) ?? (link ? new URL(link).hostname : null);
@@ -148,6 +148,18 @@ export function goldSettings(org: OrgRow): GoldSettings {
     stale_minutes: isNumeric(g.stale_minutes) && D(g.stale_minutes as string).gt(0) ? Number(g.stale_minutes) : 180,
     deviation_pct: num(g.deviation_pct, "15"),
   };
+}
+
+/**
+ * Who may change the board's live-price setup («تنظیمات قیمت و محاسبه»: the custom source and its key). Only they see
+ * the source's URL, which may still carry a key written into it before {key} and headers.
+ */
+export const canManageGoldSource = (ctx: Ctx) => ctx.can("gold", "full") || ctx.can("settings", "edit");
+
+/** The gold settings as `ctx` may read them: the custom source without its URL for those who may not manage it. */
+export function goldSettingsFor(ctx: Ctx, org: OrgRow = ctx.org): GoldSettings {
+  const s = goldSettings(org);
+  return s.price_source && !canManageGoldSource(ctx) ? { ...s, price_source: { ...s.price_source, url: "" } } : s;
 }
 
 /** Round step for money: the configured step, or the smallest unit of the base currency. */

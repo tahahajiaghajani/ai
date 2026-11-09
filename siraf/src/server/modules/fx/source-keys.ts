@@ -137,7 +137,7 @@ export type SourceRequests = (src: { url: string; header?: string | null }) => P
 
 /**
  * Requests of a board's sources on this runtime; the keys are read once, at the first source that needs one. The
- * settings arrive by sync and through PATCH /o/:org unchecked, so the key setup is checked again before a key goes out.
+ * settings also arrive by sync, unchecked, so the key setup is checked again before a key goes out.
  */
 export function sourceRequests(ctx: Ctx, board: KeyBoard): SourceRequests {
   let rows: Promise<Map<string, KeyRow>> | null = null;

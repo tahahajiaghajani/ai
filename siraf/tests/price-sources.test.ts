@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { makeServer, Client, signupWithOrg } from "./helpers";
 import { D } from "@shared/money";
+import { SYNC_PROTOCOL } from "@shared/constants";
 import { TGJU_FEED_ABROAD, TGJU_FEED_IRAN, tgjuFeedAnswered, tgjuFeedUrls, tgjuKeyOf, tgjuPrice } from "@server/modules/fx/tgju";
 import { cleanSourceKey, cleanSourceLabel, cleanSourceLink, headerNameProblem, keyedUrlProblem, needsKey, sourceKeyProblem, sourceOrigin } from "@shared/price-source";
 
@@ -377,7 +378,7 @@ describe("custom sources with a key in a header (EZRate) on the web version", ()
   it("never returns the key, and never puts it in the settings that sync", async () => {
     await c.get(`/o/${org}/gold/settings`);
     await c.get(`/o/${org}/fx/settings`);
-    await c.get(`/o/${org}`); // the business with all its settings, for every member
+    await c.get(`/o/${org}`); // the business with its settings (the owner sees the sources' URLs)
     const pull = await c.get(`/sync/pull?org_id=${org}&cursor=0&user_cursor=0`);
     // the synced settings carry the header's name, not the key
     expect(JSON.stringify(pull)).toContain("X-API-Key");
@@ -398,9 +399,15 @@ describe("custom sources with a key in a header (EZRate) on the web version", ()
   });
 
   it("sends the key to its own origin only: a source moved elsewhere is not asked with it", async () => {
-    // settings written around the dialog (PATCH /o/:org, or a sync from the other runtime) point the source elsewhere
+    // settings written around the dialog (a sync from the other runtime, unchecked) point the source elsewhere
     const moved = "https://collector.example.com/v1/rates?symbols=g18";
-    await c.patch(`/o/${org}`, { settings: { gold: { price_source: { url: moved, unit: "rial", header: "X-API-Key", paths: { gram18: "data[symbol=g18].sell" } } } } });
+    const row = (await db.one<Record<string, any>>(`select * from tz_orgs where id = $1`, [org]))!;
+    const settings = { ...row.settings, gold: { ...row.settings.gold, price_source: { url: moved, unit: "rial", header: "X-API-Key", paths: { gram18: "data[symbol=g18].sell" } } } };
+    const pushed = await c.post(`/sync/push`, {
+      org_id: org, device_id: "00000000-0000-7000-8000-0000000000e1", protocol: SYNC_PROTOCOL,
+      aggregates: [{ entity: "org", id: org, base_rev: Number(row.rev), row: { ...row, settings, updated_at: new Date().toISOString() }, children: {} }],
+    });
+    expect(pushed.results[0]).toMatchObject({ status: "ok" });
     const err = await c.post(`/o/${org}/gold/rates/fetch`, { provider: "custom" }, 400);
     expect(err.error.message).toContain("collector.example.com");
     expect(err.error.message).toContain("ذخیره نشده");
