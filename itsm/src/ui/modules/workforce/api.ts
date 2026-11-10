@@ -35,7 +35,7 @@ export interface PerformanceView { period: { label: string; key: string }; me: A
 export interface Suggestion { required: { skill_id: string; name: string; level: number; why: string }[]; candidates: (RoutingCandidate & { name: string })[]; group_id: string | null }
 export interface MySkill { id: string; skill_id: string; label: string | null; level: number; source: string; status: string; verified: boolean; expires_at: string | null; evidence: string | null }
 export interface CoverageRow { id: string; label: string; group_id: string | null; skill_id: string; skill: string; min_level: number; min_people: number; critical: boolean; qualified: { user_id: string; name: string; level: number }[]; gap: number; single_point: boolean }
-export interface Leaderboard { enabled: boolean; period: string; teams: { group_id: string; name: string; points: number; members: number }[]; people: { user_id: string; name: string; points: number; me: boolean }[] }
+export interface Leaderboard { enabled: boolean; period: string; teams: { group_id: string; name: string; points: number | null; members: number; suppressed?: boolean }[]; people: { user_id: string; name: string; points: number; me: boolean }[] }
 export interface MyAbsence { id: string; number: string | null; type: string; label: string | null; state: string; approval: string | null; start_at: string; end_at: string; days: string | null; delegate_id: string | null; note: string | null; reject_reason: string | null }
 export interface WorkforceMeta { seeded: boolean; manages: boolean; oversees: { all: boolean; groups: string[] }; my_groups: string[]; config: { idle_minutes: number; leaderboard_enabled: boolean; team_min_size: number; forecast_days: number } }
 

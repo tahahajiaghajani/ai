@@ -182,8 +182,10 @@ export const AGREEMENT_EXTENSION: TableExtension = {
     { name: "kind", label: "نوع توافق", type: "choice", choices: AGREEMENT_KINDS, default: "sla", required: true, list: true, filter: true, span: 8, section: A_PARTIES },
     { name: "provider_group_id", label: "گروه ارائه‌دهنده", type: "group", list: true, filter: true, index: true, span: 8, section: A_PARTIES, help: "برای OLA: گروهی که زمان‌سنج‌ها هنگام ارجاع به آن شروع می‌شوند" },
     { name: "customer_contact_id", label: "نمایندهٔ مشتری", type: "user", filter: true, span: 8, section: A_PARTIES },
-    { name: "supplier_name", label: "تأمین‌کننده", type: "string", maxLength: 160, search: true, filter: true, span: 8, section: A_PARTIES, help: "برای قرارداد پشتیبان (UC)" },
-    { name: "contract_ref", label: "شمارهٔ قرارداد", type: "string", maxLength: 80, ltr: true, span: 8, section: A_PARTIES },
+    // the internal parties of OLAs and UCs and the live measurement are the provider's (field group «internal»): a
+    // customer contact reads the agreement's document, never its supplier, contract or current figures
+    { name: "supplier_name", label: "تأمین‌کننده", type: "string", maxLength: 160, search: true, filter: true, group: "internal", span: 8, section: A_PARTIES, help: "برای قرارداد پشتیبان (UC)" },
+    { name: "contract_ref", label: "شمارهٔ قرارداد", type: "string", maxLength: 80, ltr: true, group: "internal", span: 8, section: A_PARTIES },
     { name: "parent_agreement_id", label: "توافق بالادستی", type: "ref", ref: "service_agreement", filter: true, index: true, span: 8, section: A_PARTIES, help: "ساختار چندسطحی: توافق سازمانی ← توافق مشتری ← توافق خدمت" },
     { name: "compliance_target", label: "هدف انطباق (٪)", type: "percent", default: "95", min: 0, max: 100, span: 8, section: A_MEASURE },
     { name: "at_risk_target", label: "آستانهٔ هشدار (٪)", type: "percent", default: "97", min: 0, max: 100, span: 8, section: A_MEASURE, help: "زیر این مقدار، و هنوز بالای هدف، توافق «در خطر» است" },
@@ -191,11 +193,11 @@ export const AGREEMENT_EXTENSION: TableExtension = {
     { name: "calendar_id", label: "ساعات خدمت (تقویم)", type: "ref", ref: "calendar", span: 8, section: A_MEASURE, help: "تقویم پیش‌فرض زمان‌سنج‌های ساخته‌شده از اهداف" },
     { name: "volume_limit", label: "سقف حجم ماهانه", type: "int", min: 0, max: 10_000_000, span: 8, section: A_MEASURE, help: "رکوردهای بیش از این سقف در گزارش جدا شمرده می‌شوند" },
     { name: "monthly_fee", label: "بهای ماهانه", type: "money", group: "financial", span: 8, section: A_MEASURE, help: "پایهٔ محاسبهٔ جریمهٔ خدمت" },
-    { name: "compliance_pct", label: "انطباق دورهٔ جاری (٪)", type: "percent", readonly: true, audit: false, list: true, span: 8, section: A_MEASURE },
-    { name: "compliance_status", label: "وضعیت انطباق", type: "choice", choices: COMPLIANCE_STATUSES, readonly: true, audit: false, list: true, filter: true, span: 8, section: A_MEASURE },
-    { name: "experience_pct", label: "تجربهٔ دورهٔ جاری (٪)", type: "percent", readonly: true, audit: false, span: 8, section: A_MEASURE },
-    { name: "watermelon", label: "سبز در توافق، قرمز در تجربه", type: "bool", default: false, readonly: true, audit: false, filter: true, span: 8, section: A_MEASURE },
-    { name: "measured_at", label: "آخرین سنجش", type: "datetime", readonly: true, audit: false, span: 8, section: A_MEASURE },
+    { name: "compliance_pct", label: "انطباق دورهٔ جاری (٪)", type: "percent", readonly: true, audit: false, list: true, group: "internal", span: 8, section: A_MEASURE },
+    { name: "compliance_status", label: "وضعیت انطباق", type: "choice", choices: COMPLIANCE_STATUSES, readonly: true, audit: false, list: true, filter: true, group: "internal", span: 8, section: A_MEASURE },
+    { name: "experience_pct", label: "تجربهٔ دورهٔ جاری (٪)", type: "percent", readonly: true, audit: false, group: "internal", span: 8, section: A_MEASURE },
+    { name: "watermelon", label: "سبز در توافق، قرمز در تجربه", type: "bool", default: false, readonly: true, audit: false, filter: true, group: "internal", span: 8, section: A_MEASURE },
+    { name: "measured_at", label: "آخرین سنجش", type: "datetime", readonly: true, audit: false, group: "internal", span: 8, section: A_MEASURE },
     { name: "service_hours", label: "ساعات و پوشش خدمت", type: "markdown", tab: A_DOC, span: 24 },
     { name: "responsibilities", label: "مسئولیت‌های طرفین", type: "markdown", tab: A_DOC, span: 24, ai: { index: true } },
     { name: "escalation", label: "مسیر تشدید و ارتباط", type: "markdown", tab: A_DOC, span: 24 },
@@ -207,6 +209,8 @@ export const AGREEMENT_EXTENSION: TableExtension = {
     { name: "review_overdue", label: "بازبینی عقب افتاده", type: "bool", default: false, system: true, filter: true, audit: false },
     { name: "review_reminded_for", label: "یادآوری بازبینی برای", type: "date", system: true, hidden: true, audit: false },
     { name: "expiry_reminded_for", label: "یادآوری تمدید برای", type: "date", system: true, hidden: true, audit: false },
+    // the day it left force (expired or withdrawn): the sweep closes its last period after it (cleared when back in force)
+    { name: "left_force_on", label: "پایان اجرا", type: "date", system: true, hidden: true, audit: false },
     { name: "approval", label: "تأیید", type: "choice", choices: APPROVAL_STATES, default: "not_requested", readonly: true, filter: true, span: 8, tab: A_LIFE },
     { name: "accepted_at", label: "پذیرش مشتری", type: "datetime", readonly: true, span: 8, tab: A_LIFE },
     { name: "accepted_by", label: "پذیرفته‌شده توسط", type: "user", readonly: true, span: 8, tab: A_LIFE },
@@ -645,7 +649,9 @@ const xlaScore: TableDef = {
   plural: "امتیازهای تجربه",
   icon: "smile",
   module: "slm",
-  area: "sla",
+  // read like the survey answers it is drawn from (area «survey»: an agent reads their groups' and their own records'
+  // scores, never the whole organisation's per-person experience); anchored to the record's workspace and domain
+  area: "survey",
   description: "امتیاز زندهٔ تجربهٔ یک رکورد با سهم هر محور و قواعدی که از آن کاستند؛ فقط سامانه می‌نویسد",
   display: "record_number",
   fields: [

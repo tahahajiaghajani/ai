@@ -5,7 +5,7 @@
 // team totals are the default view (no «hero» culture).
 import { tableDef } from "@shared/tables";
 import { periodOf } from "@shared/slm/logic";
-import { badgesOf, levelOf } from "@shared/workforce/logic";
+import { badgesOf, levelOf, teamLargeEnough } from "@shared/workforce/logic";
 import type { Ctx } from "../../context";
 import type { Queryable, Tx } from "../../db";
 import { createIn, onRecordEvent, systemCtx, type RecordEvent } from "../../engine";
@@ -122,7 +122,8 @@ export async function pointsOf(q: Queryable, ctx: Ctx, userId: string): Promise<
 export interface Leaderboard {
   enabled: boolean;
   period: string;
-  teams: { group_id: string; name: string; points: number; members: number }[];
+  /** a team below the organisation's least team size shows no total (a member could work out a colleague's points) */
+  teams: { group_id: string; name: string; points: number | null; members: number; suppressed: boolean }[];
   people: { user_id: string; name: string; points: number; me: boolean }[];
 }
 
@@ -143,8 +144,9 @@ export async function leaderboard(ctx: Ctx, opts: { group?: string | null } = {}
   const groupRows = groups.length ? await liveRows(ctx.db, sys, "group", { f: "id", op: "in", v: groups }) : [];
   const teams = groupRows.map((g) => {
     const ms = members.get(String(g.id)) ?? [];
-    return { group_id: String(g.id), name: String(g.name ?? ""), points: ms.reduce((a, u) => a + (per.get(u) ?? 0), 0), members: ms.length };
-  }).sort((a, b) => b.points - a.points);
+    const large = teamLargeEnough(ms.length, cfg.team_min_size);
+    return { group_id: String(g.id), name: String(g.name ?? ""), points: large ? ms.reduce((a, u) => a + (per.get(u) ?? 0), 0) : null, members: ms.length, suppressed: !large };
+  }).sort((a, b) => (b.points ?? -1) - (a.points ?? -1));
   const agents = everyone.length ? await liveRows(ctx.db, sys, "wfm_agent", { and: [{ f: "user_id", op: "in", v: everyone }, { f: "leaderboard", op: "eq", v: true }] }) : [];
   const optedIn = agents.map((a) => String(a.user_id));
   const names = await namesOf(ctx.db, ctx.org.id, optedIn);
