@@ -2847,6 +2847,18 @@ alter table sm_assets add column if not exists stockroom_id uuid;
 alter table sm_assets add column if not exists reserved_for uuid;
 alter table sm_assets add column if not exists request_item_id uuid;
 alter table sm_assets add column if not exists ack_state text;
+alter table sm_assets add column if not exists branch_id uuid;
+alter table sm_assets add column if not exists sensitivity text;
+alter table sm_assets add column if not exists terminal_id text;
+alter table sm_assets add column if not exists device_status text;
+alter table sm_assets add column if not exists device_status_at timestamptz;
+alter table sm_assets add column if not exists site_type text;
+alter table sm_assets add column if not exists psp text;
+alter table sm_assets add column if not exists merchant_id text;
+alter table sm_assets add column if not exists os_name text;
+alter table sm_assets add column if not exists os_eos_date date;
+alter table sm_assets add column if not exists firmware_version text;
+alter table sm_assets add column if not exists attributes jsonb;
 alter table sm_assets add column if not exists purchase_cost numeric;
 alter table sm_assets add column if not exists purchase_date date;
 alter table sm_assets add column if not exists vendor_id uuid;
@@ -2865,6 +2877,8 @@ alter table sm_assets add column if not exists warranty_contract_id uuid;
 alter table sm_assets add column if not exists support_contract_id uuid;
 alter table sm_assets add column if not exists lease_contract_id uuid;
 alter table sm_assets add column if not exists lease_end date;
+alter table sm_assets add column if not exists insurance_policy text;
+alter table sm_assets add column if not exists insurance_end date;
 alter table sm_assets add column if not exists reminded jsonb;
 alter table sm_assets add column if not exists received_at timestamptz;
 alter table sm_assets add column if not exists deployed_at timestamptz;
@@ -2880,6 +2894,7 @@ alter table sm_assets add column if not exists disposal_order_id uuid;
 alter table sm_assets add column if not exists sanitization_method text;
 alter table sm_assets add column if not exists sanitized_at timestamptz;
 alter table sm_assets add column if not exists certificate_no text;
+alter table sm_assets add column if not exists last_attested_at timestamptz;
 alter table sm_assets add column if not exists watch_list jsonb;
 alter table sm_assets add column if not exists state text;
 create unique index if not exists sm_assets_no_uk on sm_assets (org_id, no);
@@ -2892,6 +2907,8 @@ create index if not exists sm_assets_serial_number_idx on sm_assets (org_id, ser
 create index if not exists sm_assets_model_id_idx on sm_assets (org_id, model_id) where deleted_at is null;
 create unique index if not exists sm_assets_ci_id_uk on sm_assets (org_id, ci_id) where deleted_at is null;
 create index if not exists sm_assets_stockroom_id_idx on sm_assets (org_id, stockroom_id) where deleted_at is null;
+create index if not exists sm_assets_branch_id_idx on sm_assets (org_id, branch_id) where deleted_at is null;
+create index if not exists sm_assets_terminal_id_idx on sm_assets (org_id, terminal_id) where deleted_at is null;
 create index if not exists sm_assets_warranty_end_idx on sm_assets (org_id, warranty_end) where deleted_at is null;
 create index if not exists sm_assets_state_idx on sm_assets (org_id, state) where deleted_at is null;
 create index if not exists sm_assets_workspace_acc_idx on sm_assets (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
@@ -2903,16 +2920,16 @@ create index if not exists sm_assets_watch_list_gin on sm_assets using gin (watc
 do $search$
 declare s text; old record;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_assets' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_deeb44d4' loop
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_assets' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_e45f7a02' loop
     execute format('alter table %I drop column if exists %I', 'sm_assets', old.column_name);
   end loop;
-  execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_assets', 'search_deeb44d4', $x$translate(coalesce(name, '') || ' ' || coalesce(asset_tag, '') || ' ' || coalesce(serial_number, '') || ' ' || coalesce(certificate_no, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_assets', 'search_e45f7a02', $x$translate(coalesce(name, '') || ' ' || coalesce(asset_tag, '') || ' ' || coalesce(serial_number, '') || ' ' || coalesce(terminal_id, '') || ' ' || coalesce(merchant_id, '') || ' ' || coalesce(certificate_no, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_assets' and indexname like 'sm\_assets\_search\_%' and indexname not in ('sm_assets_search_deeb44d4_trgm', 'sm_assets_search_custom_trgm') loop
+    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_assets' and indexname like 'sm\_assets\_search\_%' and indexname not in ('sm_assets_search_e45f7a02_trgm', 'sm_assets_search_custom_trgm') loop
       execute format('drop index if exists %I', old.indexname);
     end loop;
-    execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_assets_search_deeb44d4_trgm', 'sm_assets', 'search_deeb44d4', s);
+    execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_assets_search_e45f7a02_trgm', 'sm_assets', 'search_e45f7a02', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_assets_search_custom_trgm', 'sm_assets', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
 end
@@ -3049,6 +3066,58 @@ create index if not exists sm_asset_assignments_assigned_to_idx on sm_asset_assi
 drop trigger if exists sm_asset_assignments_sync on sm_asset_assignments;
 create trigger sm_asset_assignments_sync before insert or update on sm_asset_assignments for each row execute function sm_sync_touch('asset_assignment');
 alter table sm_asset_assignments enable row level security;
+
+-- asset_custody: زنجیرهٔ نگهداری دارایی‌ها
+create table if not exists sm_asset_custody (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_asset_custody add column if not exists workspace_id uuid;
+alter table sm_asset_custody add column if not exists domain_id uuid;
+alter table sm_asset_custody add column if not exists unit_id uuid;
+alter table sm_asset_custody add column if not exists created_at timestamptz not null default now();
+alter table sm_asset_custody add column if not exists created_by uuid;
+alter table sm_asset_custody add column if not exists updated_at timestamptz not null default now();
+alter table sm_asset_custody add column if not exists updated_by uuid;
+alter table sm_asset_custody add column if not exists rev bigint not null default 0;
+alter table sm_asset_custody add column if not exists version integer not null default 1;
+alter table sm_asset_custody add column if not exists deleted_at timestamptz;
+alter table sm_asset_custody add column if not exists origin text;
+alter table sm_asset_custody add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_asset_custody add column if not exists asset_id uuid;
+alter table sm_asset_custody add column if not exists seq integer;
+alter table sm_asset_custody add column if not exists at timestamptz;
+alter table sm_asset_custody add column if not exists event text;
+alter table sm_asset_custody add column if not exists branch_id uuid;
+alter table sm_asset_custody add column if not exists from_branch_id uuid;
+alter table sm_asset_custody add column if not exists holder_id uuid;
+alter table sm_asset_custody add column if not exists from_holder_id uuid;
+alter table sm_asset_custody add column if not exists actor_id uuid;
+alter table sm_asset_custody add column if not exists reference text;
+alter table sm_asset_custody add column if not exists note text;
+alter table sm_asset_custody add column if not exists prev_hash text;
+alter table sm_asset_custody add column if not exists hash text;
+alter table sm_asset_custody add column if not exists label text;
+create index if not exists sm_asset_custody_rev_idx on sm_asset_custody (org_id, rev);
+create index if not exists sm_asset_custody_upd_idx on sm_asset_custody (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_asset_custody_crt_idx on sm_asset_custody (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_asset_custody_asset_id_idx on sm_asset_custody (org_id, asset_id) where deleted_at is null;
+create index if not exists sm_asset_custody_branch_id_idx on sm_asset_custody (org_id, branch_id) where deleted_at is null;
+drop trigger if exists sm_asset_custody_sync on sm_asset_custody;
+create trigger sm_asset_custody_sync before insert or update on sm_asset_custody for each row execute function sm_sync_touch('asset_custody');
+alter table sm_asset_custody enable row level security;
 
 -- asset_model: مدل‌های کالا
 create table if not exists sm_asset_models (
@@ -3197,6 +3266,139 @@ drop trigger if exists sm_asset_reservations_sync on sm_asset_reservations;
 create trigger sm_asset_reservations_sync before insert or update on sm_asset_reservations for each row execute function sm_sync_touch('asset_reservation');
 alter table sm_asset_reservations enable row level security;
 
+-- asset_transfer: حواله‌های انتقال دارایی
+create table if not exists sm_asset_transfers (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_asset_transfers add column if not exists workspace_id uuid;
+alter table sm_asset_transfers add column if not exists domain_id uuid;
+alter table sm_asset_transfers add column if not exists unit_id uuid;
+alter table sm_asset_transfers add column if not exists created_at timestamptz not null default now();
+alter table sm_asset_transfers add column if not exists created_by uuid;
+alter table sm_asset_transfers add column if not exists updated_at timestamptz not null default now();
+alter table sm_asset_transfers add column if not exists updated_by uuid;
+alter table sm_asset_transfers add column if not exists rev bigint not null default 0;
+alter table sm_asset_transfers add column if not exists version integer not null default 1;
+alter table sm_asset_transfers add column if not exists deleted_at timestamptz;
+alter table sm_asset_transfers add column if not exists origin text;
+alter table sm_asset_transfers add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_asset_transfers add column if not exists no integer;
+alter table sm_asset_transfers add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'TRF' || no::text else 'TRF' || lpad(no::text, 6, '0') end) stored;
+alter table sm_asset_transfers add column if not exists title text;
+alter table sm_asset_transfers add column if not exists reason text;
+alter table sm_asset_transfers add column if not exists from_branch_id uuid;
+alter table sm_asset_transfers add column if not exists to_branch_id uuid;
+alter table sm_asset_transfers add column if not exists from_stockroom_id uuid;
+alter table sm_asset_transfers add column if not exists to_stockroom_id uuid;
+alter table sm_asset_transfers add column if not exists requested_by uuid;
+alter table sm_asset_transfers add column if not exists approval text;
+alter table sm_asset_transfers add column if not exists item_count integer;
+alter table sm_asset_transfers add column if not exists carrier text;
+alter table sm_asset_transfers add column if not exists waybill_no text;
+alter table sm_asset_transfers add column if not exists dispatched_at timestamptz;
+alter table sm_asset_transfers add column if not exists dispatched_by uuid;
+alter table sm_asset_transfers add column if not exists notes text;
+alter table sm_asset_transfers add column if not exists received_at timestamptz;
+alter table sm_asset_transfers add column if not exists received_by uuid;
+alter table sm_asset_transfers add column if not exists received_count integer;
+alter table sm_asset_transfers add column if not exists discrepancy_count integer;
+alter table sm_asset_transfers add column if not exists receipt_note text;
+alter table sm_asset_transfers add column if not exists state text;
+create unique index if not exists sm_asset_transfers_no_uk on sm_asset_transfers (org_id, no);
+create index if not exists sm_asset_transfers_rev_idx on sm_asset_transfers (org_id, rev);
+create index if not exists sm_asset_transfers_upd_idx on sm_asset_transfers (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_asset_transfers_crt_idx on sm_asset_transfers (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_asset_transfers_from_branch_id_idx on sm_asset_transfers (org_id, from_branch_id) where deleted_at is null;
+create index if not exists sm_asset_transfers_to_branch_id_idx on sm_asset_transfers (org_id, to_branch_id) where deleted_at is null;
+create index if not exists sm_asset_transfers_state_idx on sm_asset_transfers (org_id, state) where deleted_at is null;
+create index if not exists sm_asset_transfers_workspace_acc_idx on sm_asset_transfers (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_asset_transfers_unit_acc_idx on sm_asset_transfers (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_asset_transfers_domain_acc_idx on sm_asset_transfers (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_asset_transfers_requested_by_idx on sm_asset_transfers (org_id, requested_by) where deleted_at is null;
+do $search$
+declare s text; old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_asset_transfers' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_4d12f1bb' loop
+    execute format('alter table %I drop column if exists %I', 'sm_asset_transfers', old.column_name);
+  end loop;
+  execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_asset_transfers', 'search_4d12f1bb', $x$translate(coalesce(title, '') || ' ' || coalesce(waybill_no, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
+  if s is not null then
+    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_asset_transfers' and indexname like 'sm\_asset\_transfers\_search\_%' and indexname not in ('sm_asset_transfers_search_4d12f1bb_trgm', 'sm_asset_transfers_search_custom_trgm') loop
+      execute format('drop index if exists %I', old.indexname);
+    end loop;
+    execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_asset_transfers_search_4d12f1bb_trgm', 'sm_asset_transfers', 'search_4d12f1bb', s);
+    execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_asset_transfers_search_custom_trgm', 'sm_asset_transfers', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
+  end if;
+end
+$search$;
+drop trigger if exists sm_asset_transfers_sync on sm_asset_transfers;
+create trigger sm_asset_transfers_sync before insert or update on sm_asset_transfers for each row execute function sm_sync_touch('asset_transfer');
+alter table sm_asset_transfers enable row level security;
+
+-- asset_transfer_item: اقلام حواله‌های انتقال
+create table if not exists sm_asset_transfer_items (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_asset_transfer_items add column if not exists workspace_id uuid;
+alter table sm_asset_transfer_items add column if not exists domain_id uuid;
+alter table sm_asset_transfer_items add column if not exists unit_id uuid;
+alter table sm_asset_transfer_items add column if not exists created_at timestamptz not null default now();
+alter table sm_asset_transfer_items add column if not exists created_by uuid;
+alter table sm_asset_transfer_items add column if not exists updated_at timestamptz not null default now();
+alter table sm_asset_transfer_items add column if not exists updated_by uuid;
+alter table sm_asset_transfer_items add column if not exists rev bigint not null default 0;
+alter table sm_asset_transfer_items add column if not exists version integer not null default 1;
+alter table sm_asset_transfer_items add column if not exists deleted_at timestamptz;
+alter table sm_asset_transfer_items add column if not exists origin text;
+alter table sm_asset_transfer_items add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_asset_transfer_items add column if not exists transfer_id uuid;
+alter table sm_asset_transfer_items add column if not exists asset_id uuid;
+alter table sm_asset_transfer_items add column if not exists condition_out text;
+alter table sm_asset_transfer_items add column if not exists result text;
+alter table sm_asset_transfer_items add column if not exists condition_in text;
+alter table sm_asset_transfer_items add column if not exists note text;
+alter table sm_asset_transfer_items add column if not exists from_branch_id uuid;
+alter table sm_asset_transfer_items add column if not exists to_branch_id uuid;
+alter table sm_asset_transfer_items add column if not exists label text;
+create index if not exists sm_asset_transfer_items_rev_idx on sm_asset_transfer_items (org_id, rev);
+create index if not exists sm_asset_transfer_items_upd_idx on sm_asset_transfer_items (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_asset_transfer_items_crt_idx on sm_asset_transfer_items (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_asset_transfer_items_transfer_id_idx on sm_asset_transfer_items (org_id, transfer_id) where deleted_at is null;
+create index if not exists sm_asset_transfer_items_asset_id_idx on sm_asset_transfer_items (org_id, asset_id) where deleted_at is null;
+create index if not exists sm_asset_transfer_items_from_branch_id_idx on sm_asset_transfer_items (org_id, from_branch_id) where deleted_at is null;
+create index if not exists sm_asset_transfer_items_to_branch_id_idx on sm_asset_transfer_items (org_id, to_branch_id) where deleted_at is null;
+create unique index if not exists sm_asset_transfer_items_transfer_id_asset_id_uk on sm_asset_transfer_items (org_id, transfer_id, asset_id) where deleted_at is null;
+drop trigger if exists sm_asset_transfer_items_sync on sm_asset_transfer_items;
+create trigger sm_asset_transfer_items_sync before insert or update on sm_asset_transfer_items for each row execute function sm_sync_touch('asset_transfer_item');
+alter table sm_asset_transfer_items enable row level security;
+
 -- assignment_rule: قواعد ارجاع
 create table if not exists sm_assignment_rules (
   id uuid primary key,
@@ -3333,6 +3535,82 @@ $search$;
 drop trigger if exists sm_bias_sync on sm_bias;
 create trigger sm_bias_sync before insert or update on sm_bias for each row execute function sm_sync_touch('bia');
 alter table sm_bias enable row level security;
+
+-- branch_attestation: تأییدهای دوره‌ای اموال شعبه‌ها
+create table if not exists sm_branch_attestations (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_branch_attestations add column if not exists workspace_id uuid;
+alter table sm_branch_attestations add column if not exists domain_id uuid;
+alter table sm_branch_attestations add column if not exists unit_id uuid;
+alter table sm_branch_attestations add column if not exists created_at timestamptz not null default now();
+alter table sm_branch_attestations add column if not exists created_by uuid;
+alter table sm_branch_attestations add column if not exists updated_at timestamptz not null default now();
+alter table sm_branch_attestations add column if not exists updated_by uuid;
+alter table sm_branch_attestations add column if not exists rev bigint not null default 0;
+alter table sm_branch_attestations add column if not exists version integer not null default 1;
+alter table sm_branch_attestations add column if not exists deleted_at timestamptz;
+alter table sm_branch_attestations add column if not exists origin text;
+alter table sm_branch_attestations add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_branch_attestations add column if not exists no integer;
+alter table sm_branch_attestations add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'ATT' || no::text else 'ATT' || lpad(no::text, 6, '0') end) stored;
+alter table sm_branch_attestations add column if not exists title text;
+alter table sm_branch_attestations add column if not exists branch_id uuid;
+alter table sm_branch_attestations add column if not exists manager_id uuid;
+alter table sm_branch_attestations add column if not exists period_label text;
+alter table sm_branch_attestations add column if not exists due_date date;
+alter table sm_branch_attestations add column if not exists asset_count integer;
+alter table sm_branch_attestations add column if not exists exception_count integer;
+alter table sm_branch_attestations add column if not exists overdue boolean not null default false;
+alter table sm_branch_attestations add column if not exists exceptions jsonb;
+alter table sm_branch_attestations add column if not exists signed_name text;
+alter table sm_branch_attestations add column if not exists attested_at timestamptz;
+alter table sm_branch_attestations add column if not exists attested_by uuid;
+alter table sm_branch_attestations add column if not exists review_note text;
+alter table sm_branch_attestations add column if not exists state text;
+create unique index if not exists sm_branch_attestations_no_uk on sm_branch_attestations (org_id, no);
+create index if not exists sm_branch_attestations_rev_idx on sm_branch_attestations (org_id, rev);
+create index if not exists sm_branch_attestations_upd_idx on sm_branch_attestations (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_branch_attestations_crt_idx on sm_branch_attestations (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_branch_attestations_branch_id_idx on sm_branch_attestations (org_id, branch_id) where deleted_at is null;
+create index if not exists sm_branch_attestations_state_idx on sm_branch_attestations (org_id, state) where deleted_at is null;
+create index if not exists sm_branch_attestations_workspace_acc_idx on sm_branch_attestations (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_branch_attestations_unit_acc_idx on sm_branch_attestations (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_branch_attestations_domain_acc_idx on sm_branch_attestations (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_branch_attestations_manager_id_idx on sm_branch_attestations (org_id, manager_id) where deleted_at is null;
+do $search$
+declare s text; old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_branch_attestations' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_cae18f1d' loop
+    execute format('alter table %I drop column if exists %I', 'sm_branch_attestations', old.column_name);
+  end loop;
+  execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_branch_attestations', 'search_cae18f1d', $x$translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
+  if s is not null then
+    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_branch_attestations' and indexname like 'sm\_branch\_attestations\_search\_%' and indexname not in ('sm_branch_attestations_search_cae18f1d_trgm', 'sm_branch_attestations_search_custom_trgm') loop
+      execute format('drop index if exists %I', old.indexname);
+    end loop;
+    execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_branch_attestations_search_cae18f1d_trgm', 'sm_branch_attestations', 'search_cae18f1d', s);
+    execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_branch_attestations_search_custom_trgm', 'sm_branch_attestations', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
+  end if;
+end
+$search$;
+drop trigger if exists sm_branch_attestations_sync on sm_branch_attestations;
+create trigger sm_branch_attestations_sync before insert or update on sm_branch_attestations for each row execute function sm_sync_touch('branch_attestation');
+alter table sm_branch_attestations enable row level security;
 
 -- budget: بودجه‌ها
 create table if not exists sm_budgets (
@@ -9884,6 +10162,8 @@ alter table sm_depreciation_rules add column if not exists life_months integer;
 alter table sm_depreciation_rules add column if not exists rate_percent numeric;
 alter table sm_depreciation_rules add column if not exists salvage_percent numeric;
 alter table sm_depreciation_rules add column if not exists start_basis text;
+alter table sm_depreciation_rules add column if not exists start_convention text;
+alter table sm_depreciation_rules add column if not exists device_classes jsonb;
 alter table sm_depreciation_rules add column if not exists active boolean not null default true;
 alter table sm_depreciation_rules add column if not exists description text;
 create index if not exists sm_depreciation_rules_rev_idx on sm_depreciation_rules (org_id, rev);
@@ -10199,6 +10479,54 @@ drop trigger if exists sm_dev_repositories_sync on sm_dev_repositories;
 create trigger sm_dev_repositories_sync before insert or update on sm_dev_repositories for each row execute function sm_sync_touch('dev_repository');
 alter table sm_dev_repositories enable row level security;
 
+-- device_status_event: تاریخچهٔ وضعیت دستگاه‌ها
+create table if not exists sm_device_status_events (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_device_status_events add column if not exists workspace_id uuid;
+alter table sm_device_status_events add column if not exists domain_id uuid;
+alter table sm_device_status_events add column if not exists unit_id uuid;
+alter table sm_device_status_events add column if not exists created_at timestamptz not null default now();
+alter table sm_device_status_events add column if not exists created_by uuid;
+alter table sm_device_status_events add column if not exists updated_at timestamptz not null default now();
+alter table sm_device_status_events add column if not exists updated_by uuid;
+alter table sm_device_status_events add column if not exists rev bigint not null default 0;
+alter table sm_device_status_events add column if not exists version integer not null default 1;
+alter table sm_device_status_events add column if not exists deleted_at timestamptz;
+alter table sm_device_status_events add column if not exists origin text;
+alter table sm_device_status_events add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_device_status_events add column if not exists asset_id uuid;
+alter table sm_device_status_events add column if not exists status text;
+alter table sm_device_status_events add column if not exists from_at timestamptz;
+alter table sm_device_status_events add column if not exists to_at timestamptz;
+alter table sm_device_status_events add column if not exists minutes integer;
+alter table sm_device_status_events add column if not exists branch_id uuid;
+alter table sm_device_status_events add column if not exists contract_id uuid;
+alter table sm_device_status_events add column if not exists incident_id uuid;
+alter table sm_device_status_events add column if not exists reason text;
+alter table sm_device_status_events add column if not exists label text;
+create index if not exists sm_device_status_events_rev_idx on sm_device_status_events (org_id, rev);
+create index if not exists sm_device_status_events_upd_idx on sm_device_status_events (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_device_status_events_crt_idx on sm_device_status_events (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_device_status_events_asset_id_idx on sm_device_status_events (org_id, asset_id) where deleted_at is null;
+create index if not exists sm_device_status_events_branch_id_idx on sm_device_status_events (org_id, branch_id) where deleted_at is null;
+drop trigger if exists sm_device_status_events_sync on sm_device_status_events;
+create trigger sm_device_status_events_sync before insert or update on sm_device_status_events for each row execute function sm_sync_touch('device_status_event');
+alter table sm_device_status_events enable row level security;
+
 -- devops_connection: اتصال‌های دواپس
 create table if not exists sm_devops_connections (
   id uuid primary key,
@@ -10425,6 +10753,10 @@ alter table sm_disposal_items add column if not exists sanitized_at timestamptz;
 alter table sm_disposal_items add column if not exists sanitized_by uuid;
 alter table sm_disposal_items add column if not exists certificate_no text;
 alter table sm_disposal_items add column if not exists verified boolean not null default false;
+alter table sm_disposal_items add column if not exists wipe_tool text;
+alter table sm_disposal_items add column if not exists witness_id uuid;
+alter table sm_disposal_items add column if not exists certificate_issued_at timestamptz;
+alter table sm_disposal_items add column if not exists certificate_hash text;
 alter table sm_disposal_items add column if not exists note text;
 alter table sm_disposal_items add column if not exists label text;
 create index if not exists sm_disposal_items_rev_idx on sm_disposal_items (org_id, rev);
@@ -15539,6 +15871,7 @@ alter table sm_inventory_audits add column if not exists no integer;
 alter table sm_inventory_audits add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 5 then 'AUD' || no::text else 'AUD' || lpad(no::text, 5, '0') end) stored;
 alter table sm_inventory_audits add column if not exists name text;
 alter table sm_inventory_audits add column if not exists scope_kind text;
+alter table sm_inventory_audits add column if not exists branch_id uuid;
 alter table sm_inventory_audits add column if not exists stockroom_id uuid;
 alter table sm_inventory_audits add column if not exists location_id uuid;
 alter table sm_inventory_audits add column if not exists owner_id uuid;
@@ -15549,6 +15882,7 @@ alter table sm_inventory_audits add column if not exists expected_count integer;
 alter table sm_inventory_audits add column if not exists found_count integer;
 alter table sm_inventory_audits add column if not exists missing_count integer;
 alter table sm_inventory_audits add column if not exists unexpected_count integer;
+alter table sm_inventory_audits add column if not exists discrepancy_open integer;
 alter table sm_inventory_audits add column if not exists started_at timestamptz;
 alter table sm_inventory_audits add column if not exists completed_at timestamptz;
 alter table sm_inventory_audits add column if not exists notes text;
@@ -15557,6 +15891,7 @@ create unique index if not exists sm_inventory_audits_no_uk on sm_inventory_audi
 create index if not exists sm_inventory_audits_rev_idx on sm_inventory_audits (org_id, rev);
 create index if not exists sm_inventory_audits_upd_idx on sm_inventory_audits (org_id, updated_at desc, id desc) where deleted_at is null;
 create index if not exists sm_inventory_audits_crt_idx on sm_inventory_audits (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_inventory_audits_branch_id_idx on sm_inventory_audits (org_id, branch_id) where deleted_at is null;
 create index if not exists sm_inventory_audits_state_idx on sm_inventory_audits (org_id, state) where deleted_at is null;
 create index if not exists sm_inventory_audits_workspace_acc_idx on sm_inventory_audits (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
 create index if not exists sm_inventory_audits_unit_acc_idx on sm_inventory_audits (org_id, unit_id) where deleted_at is null and unit_id is not null;
@@ -15620,12 +15955,19 @@ alter table sm_inventory_audit_items add column if not exists scanned_code text;
 alter table sm_inventory_audit_items add column if not exists scanned_at timestamptz;
 alter table sm_inventory_audit_items add column if not exists scanned_by uuid;
 alter table sm_inventory_audit_items add column if not exists note text;
+alter table sm_inventory_audit_items add column if not exists branch_id uuid;
+alter table sm_inventory_audit_items add column if not exists expected_branch_id uuid;
+alter table sm_inventory_audit_items add column if not exists resolution text;
+alter table sm_inventory_audit_items add column if not exists resolved_by uuid;
+alter table sm_inventory_audit_items add column if not exists resolved_at timestamptz;
+alter table sm_inventory_audit_items add column if not exists transfer_id uuid;
 alter table sm_inventory_audit_items add column if not exists label text;
 create index if not exists sm_inventory_audit_items_rev_idx on sm_inventory_audit_items (org_id, rev);
 create index if not exists sm_inventory_audit_items_upd_idx on sm_inventory_audit_items (org_id, updated_at desc, id desc) where deleted_at is null;
 create index if not exists sm_inventory_audit_items_crt_idx on sm_inventory_audit_items (org_id, created_at desc, id desc) where deleted_at is null;
 create index if not exists sm_inventory_audit_items_audit_id_idx on sm_inventory_audit_items (org_id, audit_id) where deleted_at is null;
 create index if not exists sm_inventory_audit_items_asset_id_idx on sm_inventory_audit_items (org_id, asset_id) where deleted_at is null;
+create index if not exists sm_inventory_audit_items_branch_id_idx on sm_inventory_audit_items (org_id, branch_id) where deleted_at is null;
 drop trigger if exists sm_inventory_audit_items_sync on sm_inventory_audit_items;
 create trigger sm_inventory_audit_items_sync before insert or update on sm_inventory_audit_items for each row execute function sm_sync_touch('inventory_audit_item');
 alter table sm_inventory_audit_items enable row level security;
@@ -15727,6 +16069,9 @@ alter table sm_itam_configs add column if not exists ack_remind_days integer;
 alter table sm_itam_configs add column if not exists warranty_reminders jsonb;
 alter table sm_itam_configs add column if not exists unused_days integer;
 alter table sm_itam_configs add column if not exists qr_base_url text;
+alter table sm_itam_configs add column if not exists tag_pattern text;
+alter table sm_itam_configs add column if not exists attestation_months integer;
+alter table sm_itam_configs add column if not exists attestation_due_days integer;
 alter table sm_itam_configs add column if not exists last_reconcile_at timestamptz;
 alter table sm_itam_configs add column if not exists seeded integer;
 create index if not exists sm_itam_configs_rev_idx on sm_itam_configs (org_id, rev);
@@ -18113,6 +18458,53 @@ $search$;
 drop trigger if exists sm_maintenance_plans_sync on sm_maintenance_plans;
 create trigger sm_maintenance_plans_sync before insert or update on sm_maintenance_plans for each row execute function sm_sync_touch('maintenance_plan');
 alter table sm_maintenance_plans enable row level security;
+
+-- maintenance_sla: تعهدهای نگهداری دستگاه‌ها
+create table if not exists sm_maintenance_slas (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_maintenance_slas add column if not exists workspace_id uuid;
+alter table sm_maintenance_slas add column if not exists domain_id uuid;
+alter table sm_maintenance_slas add column if not exists unit_id uuid;
+alter table sm_maintenance_slas add column if not exists created_at timestamptz not null default now();
+alter table sm_maintenance_slas add column if not exists created_by uuid;
+alter table sm_maintenance_slas add column if not exists updated_at timestamptz not null default now();
+alter table sm_maintenance_slas add column if not exists updated_by uuid;
+alter table sm_maintenance_slas add column if not exists rev bigint not null default 0;
+alter table sm_maintenance_slas add column if not exists version integer not null default 1;
+alter table sm_maintenance_slas add column if not exists deleted_at timestamptz;
+alter table sm_maintenance_slas add column if not exists origin text;
+alter table sm_maintenance_slas add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_maintenance_slas add column if not exists name text;
+alter table sm_maintenance_slas add column if not exists contract_id uuid;
+alter table sm_maintenance_slas add column if not exists categories jsonb;
+alter table sm_maintenance_slas add column if not exists response_hours integer;
+alter table sm_maintenance_slas add column if not exists restore_hours integer;
+alter table sm_maintenance_slas add column if not exists availability_target numeric;
+alter table sm_maintenance_slas add column if not exists counts_maintenance boolean not null default false;
+alter table sm_maintenance_slas add column if not exists penalty_per_hour numeric;
+alter table sm_maintenance_slas add column if not exists penalty_cap numeric;
+alter table sm_maintenance_slas add column if not exists active boolean not null default true;
+alter table sm_maintenance_slas add column if not exists notes text;
+create index if not exists sm_maintenance_slas_rev_idx on sm_maintenance_slas (org_id, rev);
+create index if not exists sm_maintenance_slas_upd_idx on sm_maintenance_slas (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_maintenance_slas_crt_idx on sm_maintenance_slas (org_id, created_at desc, id desc) where deleted_at is null;
+drop trigger if exists sm_maintenance_slas_sync on sm_maintenance_slas;
+create trigger sm_maintenance_slas_sync before insert or update on sm_maintenance_slas for each row execute function sm_sync_touch('maintenance_sla');
+alter table sm_maintenance_slas enable row level security;
 
 -- member_profile: نمایه‌های اعضا
 create table if not exists sm_member_profiles (
@@ -25776,6 +26168,7 @@ alter table sm_stockrooms add column if not exists location_id uuid;
 alter table sm_stockrooms add column if not exists parent_id uuid;
 alter table sm_stockrooms add column if not exists manager_id uuid;
 alter table sm_stockrooms add column if not exists group_id uuid;
+alter table sm_stockrooms add column if not exists branch_id uuid;
 alter table sm_stockrooms add column if not exists active boolean not null default true;
 alter table sm_stockrooms add column if not exists description text;
 create index if not exists sm_stockrooms_rev_idx on sm_stockrooms (org_id, rev);

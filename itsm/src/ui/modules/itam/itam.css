@@ -230,3 +230,56 @@
     grid-column: 2;
   }
 }
+
+/* «شمارش با گوشی»: one column, large targets, the camera view on top */
+.itam-scan {
+  max-width: 560px;
+  margin-inline: auto;
+}
+.itam-scan-counts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.itam-scan-view {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  border: 1px solid var(--ds-line);
+  border-radius: 12px;
+  background: var(--ds-surface-2);
+  color: var(--ds-text-3);
+  overflow: hidden;
+}
+.itam-scan-view video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.itam-scan-view[data-on="0"] video {
+  visibility: hidden;
+}
+.itam-scan-frame {
+  position: relative;
+  width: 62%;
+  aspect-ratio: 1;
+  border: 2px solid var(--ds-in);
+  border-radius: 10px;
+}
+
+/* wipe certificate signature lines (also printed) */
+.itam-sign {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-block-start: 28px;
+}
+.itam-sign > span {
+  border-block-start: 1px solid var(--ds-line);
+  padding-block-start: 6px;
+  text-align: center;
+  font-size: 12px;
+}

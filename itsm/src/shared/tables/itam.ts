@@ -23,7 +23,12 @@ export const MODEL_CATEGORIES: Option[] = ordered([
   o("laptop", "رایانهٔ کیفی", "blue"), o("desktop", "رایانهٔ رومیزی", "blue"), o("monitor", "نمایشگر", "teal"), o("phone", "تلفن همراه", "purple"),
   o("tablet", "تبلت", "purple"), o("server", "سرور", "indigo"), o("network", "تجهیز شبکه", "indigo"), o("storage", "ذخیره‌ساز", "indigo"),
   o("printer", "چاپگر", "gray"), o("peripheral", "لوازم جانبی", "gray"), o("accessory", "متعلقات", "gray"), o("consumable", "اقلام مصرفی", "gold"),
-  o("component", "قطعه", "orange"), o("other", "سایر", "gray"),
+  o("component", "قطعه", "orange"),
+  // bank device classes (src/shared/itam/bank.ts: attributes, CI class, depreciation class of each)
+  o("atm", "خودپرداز (ATM)", "green"), o("crs", "خودپرداز بازیافتی (CRS)", "green"), o("kiosk", "کیوسک بانکی", "green"), o("pos", "پایانهٔ فروش (POS)", "teal"),
+  o("passbook_printer", "چاپگر دفترچه", "gray"), o("cheque_scanner", "اسکنر چک", "gray"), o("signature_pad", "پد امضای دیجیتال", "gray"),
+  o("hsm", "ماژول امنیت سخت‌افزاری (HSM)", "red"), o("cctv", "دوربین و ضبط‌کنندهٔ تصویر (CCTV/NVR)", "purple"), o("ups", "منبع تغذیهٔ اضطراری (UPS)", "orange"),
+  o("other", "سایر", "gray"),
 ]);
 
 export const SOFTWARE_CATEGORIES: Option[] = ordered([
@@ -32,10 +37,60 @@ export const SOFTWARE_CATEGORIES: Option[] = ordered([
   o("business", "کسب‌وکار", "gold"), o("other", "سایر", "gray"),
 ]);
 
+/** Payment service providers licensed by Shaparak (merchant POS terminals); an editable list («asset.psp»). */
+export const PSP_PROVIDERS: Option[] = ordered([
+  o("behpardakht", "به‌پرداخت ملت"), o("sep", "پرداخت الکترونیک سامان (سپ)"), o("pec", "تجارت الکترونیک پارسیان"), o("asanpardakht", "آسان پرداخت پرشین"),
+  o("irankish", "کارت اعتباری ایران کیش"), o("sadad", "پرداخت الکترونیک سداد"), o("pna", "پرداخت نوین آرین"), o("pep", "پرداخت الکترونیک پاسارگاد"),
+  o("fanava", "فن‌آوا کارت"), o("sayan", "سایان کارت"), o("damavand", "الکترونیک کارت دماوند"), o("mabna", "مبنا کارت آریا"), o("other", "سایر"),
+]);
+
 export const ITAM_CHOICE_LISTS: Record<string, Option[]> = {
   "asset_model.category": MODEL_CATEGORIES,
   "software_model.category": SOFTWARE_CATEGORIES,
+  "asset.psp": PSP_PROVIDERS,
 };
+
+// ---------------------------------------------------------------------------------------------------------------
+// Bank: device status (ATM, CRS, kiosk), installation site, sensitivity, transfers, custody, audit reconciliation
+
+/** The device classes whose operational status, availability and maintenance the fleet view follows. */
+export const FLEET_CATEGORIES = ["atm", "crs", "kiosk"];
+
+/** Operational status of a self-service device; «در سرویس» is the only available one (availability KPI). */
+export const DEVICE_STATUS: Option[] = ordered([
+  o("in_service", "در سرویس", "green"), o("out_of_service", "خارج از سرویس", "red"), o("out_of_cash", "بدون وجه نقد", "orange"),
+  o("maintenance", "در نگهداری", "gold"), o("offline", "قطع ارتباط", "purple"),
+]);
+
+export const SITE_TYPES: Option[] = ordered([
+  o("in_branch", "داخل شعبه", "blue"), o("through_wall", "دیواری (رو به خیابان)", "teal"), o("drive_through", "خودرویی", "purple"), o("off_site", "مستقل (بیرون از شعبه)", "gold"),
+]);
+
+/** Asset sensitivity classification (the information the device holds or protects). */
+export const SENSITIVITY: Option[] = ordered([o("public", "عمومی", "gray"), o("internal", "داخلی", "blue"), o("confidential", "محرمانه", "orange"), o("secret", "سری", "red")]);
+
+export const TRANSFER_REASONS: Option[] = ordered([
+  o("relocation", "جابه‌جایی میان شعبه‌ها", "blue"), o("replacement", "جایگزینی دستگاه", "teal"), o("repair", "ارسال برای تعمیر", "orange"),
+  o("return_to_central", "بازگشت به انبار مرکزی", "gray"), o("disposal", "برای اسقاط", "red"), o("branch_closure", "ادغام یا تعطیلی شعبه", "purple"), o("other", "سایر", "gray"),
+]);
+
+export const TRANSFER_ITEM_RESULTS: Option[] = ordered([
+  o("pending", "در انتظار رسید", "gray"), o("received", "رسید", "green"), o("damaged", "رسید با آسیب", "orange"), o("missing", "نرسید", "red"),
+]);
+
+export const CUSTODY_EVENTS: Option[] = ordered([
+  o("registered", "ثبت در دفتر", "blue"), o("assigned", "تحویل به فرد", "green"), o("returned", "بازگشت به انبار", "teal"),
+  o("dispatched", "حواله (ارسال)", "gold"), o("received", "رسید انتقال", "green"), o("transfer_missing", "نرسیدن در انتقال", "red"),
+  o("branch_changed", "تغییر شعبه در دفتر", "purple"), o("audited", "دیده‌شده در شمارش", "teal"), o("missing", "مفقود", "red"),
+  o("repair_out", "ارسال به تعمیر", "orange"), o("repair_in", "بازگشت از تعمیر", "orange"), o("attested", "تأیید رئیس شعبه", "indigo"),
+  o("wiped", "پاک‌سازی داده", "magenta"), o("disposed", "اسقاط", "gray"),
+]);
+
+/** How a counted discrepancy was settled (the reconciliation of a physical audit). */
+export const AUDIT_RESOLUTIONS: Option[] = ordered([
+  o("none", "باز", "gray"), o("confirmed_missing", "مفقودی تأیید شد", "red"), o("found", "پیدا شد", "green"), o("transferred", "در دفتر منتقل شد", "gold"),
+  o("registered", "به دفتر افزوده شد", "blue"), o("written_off", "از دفتر حذف شد", "purple"), o("ignored", "بی‌اهمیت", "gray"),
+]);
 
 export const ASSET_CLASSES: Option[] = ordered([o("hardware", "سخت‌افزار", "blue"), o("consumable", "اقلام مصرفی", "gold"), o("accessory", "متعلقات", "gray"), o("component", "قطعه", "orange")]);
 
@@ -71,6 +126,8 @@ const depreciationRule: TableDef = {
     { name: "rate_percent", label: "نرخ سالانه (درصد)", type: "percent", span: 8, help: "برای روش نزولی؛ خالی: دو برابر نرخ خط مستقیم" },
     { name: "salvage_percent", label: "ارزش اسقاط (درصد بها)", type: "percent", default: "0", list: true, span: 8 },
     { name: "start_basis", label: "شروع از", type: "choice", choices: ordered([o("in_service", "تاریخ بهره‌برداری"), o("purchase", "تاریخ خرید")]), default: "in_service", span: 12 },
+    { name: "start_convention", label: "نخستین ماه استهلاک", type: "choice", choices: ordered([o("same_month", "همان ماه"), o("next_month", "ماه بعد از بهره‌برداری")]), default: "same_month", span: 12, help: "در دفتر اموال سال مالی (فروردین تا اسفند)" },
+    { name: "device_classes", label: "رده‌های دستگاه", type: "multichoice", choices: "asset_model.category", span: 12, help: "رده‌هایی که این قاعده برایشان پیش‌فرض است" },
     { name: "active", label: "فعال", type: "bool", default: true, filter: true, span: 12 },
     { name: "description", label: "توضیح", type: "text", span: 24 },
   ],
@@ -162,7 +219,7 @@ const hardwareStandard: TableDef = {
 
 export const STOCKROOM_TYPES: Option[] = ordered([
   o("central", "انبار مرکزی", "blue"), o("regional", "انبار منطقه‌ای", "teal"), o("onsite", "انبارک محل", "gray"), o("secure", "اتاق امن", "red"),
-  o("kiosk", "باجهٔ فناوری اطلاعات", "purple"), o("van", "خودروی پشتیبانی", "gold"), o("disposal", "محل اسقاط", "orange"),
+  o("kiosk", "باجهٔ فناوری اطلاعات", "purple"), o("van", "خودروی پشتیبانی", "gold"), o("disposal", "محل اسقاط", "orange"), o("branch", "انبارک شعبه", "green"),
 ]);
 
 const stockroom: TableDef = {
@@ -183,6 +240,7 @@ const stockroom: TableDef = {
     { name: "parent_id", label: "انبار والد", type: "ref", ref: "$self", filter: true, span: 12 },
     { name: "manager_id", label: "انباردار", type: "user", list: true, filter: true, span: 12 },
     { name: "group_id", label: "گروه انبار", type: "group", filter: true, span: 12 },
+    { name: "branch_id", label: "شعبه یا واحد", type: "ref", ref: "org_unit", filter: true, span: 12, help: "انبارک یک شعبه: رسید انتقال به این شعبه دارایی‌ها را در آن می‌گذارد" },
     { name: "active", label: "فعال", type: "bool", default: true, filter: true, span: 6 },
     { name: "description", label: "توضیح", type: "text", span: 24 },
   ],
@@ -329,6 +387,7 @@ const A_USE = "تحویل و مکان";
 const A_FIN = "مالی و استهلاک";
 const A_WAR = "ضمانت و قرارداد";
 const A_LIFE = "چرخهٔ عمر و اسقاط";
+const A_BANK = "شعبه و تجهیز بانکی";
 
 const asset: TableDef = {
   key: "asset",
@@ -368,6 +427,19 @@ const asset: TableDef = {
     { name: "request_item_id", label: "قلم درخواست", type: "ref", ref: "request_item", filter: true, span: 8, section: A_USE },
     { name: "ack_state", label: "تعهدنامه", type: "choice", choices: ACK_STATES_OPTIONS, default: "none", readonly: true, filter: true, span: 8, section: A_USE },
 
+    { name: "branch_id", label: "شعبه یا واحد", type: "ref", ref: "org_unit", list: true, filter: true, sort: true, index: true, span: 8, section: A_BANK, help: "واحد مالک دارایی (شعبه، منطقه یا اداره)؛ کارکنان شعبه و مدیر منطقه دارایی‌ها را از همین می‌بینند و جابه‌جایی آن با حوالهٔ انتقال است" },
+    { name: "sensitivity", label: "طبقه‌بندی حساسیت", type: "choice", choices: SENSITIVITY, default: "internal", filter: true, span: 8, section: A_BANK },
+    { name: "terminal_id", label: "شناسهٔ پایانه", type: "string", maxLength: 40, ltr: true, search: true, filter: true, index: true, span: 8, section: A_BANK, help: "شناسهٔ خودپرداز یا پایانهٔ فروش در سوئیچ" },
+    { name: "device_status", label: "وضعیت عملیاتی", type: "choice", choices: DEVICE_STATUS, filter: true, span: 8, section: A_BANK, help: "خودپرداز، CRS و کیوسک: دسترس‌پذیری از تاریخچهٔ همین وضعیت حساب می‌شود" },
+    { name: "device_status_at", label: "وضعیت از", type: "datetime", readonly: true, sort: true, span: 8, section: A_BANK },
+    { name: "site_type", label: "محل نصب", type: "choice", choices: SITE_TYPES, filter: true, span: 8, section: A_BANK },
+    { name: "psp", label: "شرکت پرداخت (PSP)", type: "choice", choices: "asset.psp", filter: true, span: 8, section: A_BANK, help: "پایانهٔ فروش: شرکت ارائه‌دهندهٔ خدمات پرداخت دارای مجوز شاپرک" },
+    { name: "merchant_id", label: "شمارهٔ پذیرنده", type: "string", maxLength: 40, ltr: true, search: true, span: 8, section: A_BANK },
+    { name: "os_name", label: "سیستم‌عامل", type: "string", maxLength: 120, ltr: true, filter: true, span: 8, section: A_BANK },
+    { name: "os_eos_date", label: "پایان پشتیبانی سیستم‌عامل", type: "date", filter: true, sort: true, span: 8, section: A_BANK },
+    { name: "firmware_version", label: "نسخهٔ نرم‌افزار یا فرم‌ور", type: "string", maxLength: 80, ltr: true, span: 8, section: A_BANK },
+    { name: "attributes", label: "ویژگی‌های رده", type: "json", hidden: true, span: 24, section: A_BANK },
+
     { name: "purchase_cost", label: "بهای خرید (ریال)", type: "money", sort: true, span: 8, section: A_FIN, group: "financial" },
     { name: "purchase_date", label: "تاریخ خرید", type: "date", sort: true, filter: true, span: 8, section: A_FIN },
     { name: "vendor_id", label: "فروشنده", type: "ref", ref: "supplier", filter: true, span: 8, section: A_FIN },
@@ -387,6 +459,8 @@ const asset: TableDef = {
     { name: "support_contract_id", label: "قرارداد پشتیبانی", type: "ref", ref: "contract", filter: true, span: 12, section: A_WAR },
     { name: "lease_contract_id", label: "قرارداد اجاره", type: "ref", ref: "contract", filter: true, span: 12, section: A_WAR },
     { name: "lease_end", label: "پایان اجاره", type: "date", sort: true, filter: true, span: 12, section: A_WAR },
+    { name: "insurance_policy", label: "شمارهٔ بیمه‌نامه", type: "string", maxLength: 60, ltr: true, span: 12, section: A_WAR },
+    { name: "insurance_end", label: "پایان بیمه", type: "date", sort: true, filter: true, span: 12, section: A_WAR },
     { name: "reminded", label: "یادآوری‌های فرستاده", type: "json", system: true, hidden: true, audit: false },
 
     { name: "received_at", label: "دریافت", type: "datetime", readonly: true, sort: true, span: 6, section: A_LIFE },
@@ -403,13 +477,15 @@ const asset: TableDef = {
     { name: "sanitization_method", label: "روش پاک‌سازی داده", type: "choice", choices: SANITIZATION_METHODS, filter: true, span: 8, section: A_LIFE },
     { name: "sanitized_at", label: "زمان پاک‌سازی", type: "datetime", span: 8, section: A_LIFE },
     { name: "certificate_no", label: "شمارهٔ گواهی پاک‌سازی", type: "string", maxLength: 80, ltr: true, search: true, span: 8, section: A_LIFE },
+    { name: "last_attested_at", label: "آخرین تأیید رئیس شعبه", type: "datetime", readonly: true, sort: true, filter: true, span: 8, section: A_LIFE },
   ],
   states: ASSET_STATES,
-  // the person using it reads it (also without a role in the area: the module's «دارایی‌های من» grant)
-  scope: { own: ["assigned_to", "managed_by"], requester: ["assigned_to"], group: "managed_by_group_id", watchers: "watch_list" },
+  // the person using it reads it (also without a role in the area: the module's «دارایی‌های من» grant); the unit
+  // scopes of the area (a branch's staff, a region's managers) follow the asset's branch, not its holder's unit
+  scope: { own: ["assigned_to", "managed_by"], requester: ["assigned_to"], group: "managed_by_group_id", watchers: "watch_list", unit: "branch_id" },
   features: { journal: true, attachments: true, watchers: true, links: true, rag: true, kanban: "state" },
   form: {
-    sections: [A_MAIN, A_USE, A_FIN, A_WAR, A_LIFE],
+    sections: [A_MAIN, A_USE, A_BANK, A_FIN, A_WAR, A_LIFE],
     related: [
       { table: "asset_assignment", field: "asset_id", label: "تاریخچهٔ تحویل", columns: ["assigned_to", "location_id", "from_at", "to_at", "usage_type", "condition_in"] },
       { table: "contract_coverage", field: "asset_id", label: "پوشش قراردادها", columns: ["contract_id", "coverage_level", "valid_from", "valid_to"] },
@@ -418,9 +494,11 @@ const asset: TableDef = {
       { table: "asset_acknowledgement", field: "asset_id", label: "تعهدنامه‌ها", columns: ["number", "user_id", "state", "requested_at", "decided_at"] },
       { table: "asset", field: "parent_asset_id", label: "اجزا و لوازم متصل", columns: ["number", "name", "model_id", "state"] },
       { table: "cost_entry", field: "asset_id", label: "هزینه‌ها", columns: ["number", "entry_date", "description", "amount", "source"] },
+      { table: "asset_custody", field: "asset_id", label: "زنجیرهٔ نگهداری", columns: ["seq", "at", "event", "branch_id", "holder_id", "reference"] },
+      { table: "device_status_event", field: "asset_id", label: "تاریخچهٔ وضعیت عملیاتی", columns: ["status", "from_at", "to_at", "minutes", "reason"] },
     ],
   },
-  list: { columns: ["number", "asset_tag", "name", "model_id", "state", "substate", "assigned_to", "location_id", "warranty_end"], order: "-updated_at" },
+  list: { columns: ["number", "asset_tag", "name", "model_id", "branch_id", "state", "substate", "assigned_to", "warranty_end"], order: "-updated_at" },
   ai: { title: "name", text: ["notes"] },
 };
 
@@ -559,7 +637,8 @@ const audit: TableDef = {
   display: "name",
   fields: [
     { name: "name", label: "عنوان", type: "string", required: true, maxLength: 200, list: true, search: true, span: 12 },
-    { name: "scope_kind", label: "دامنه", type: "choice", choices: ordered([o("stockroom", "یک انبار", "blue"), o("location", "یک مکان", "teal")]), default: "stockroom", required: true, list: true, span: 12 },
+    { name: "scope_kind", label: "دامنه", type: "choice", choices: ordered([o("stockroom", "یک انبار", "blue"), o("location", "یک مکان", "teal"), o("branch", "یک شعبه", "green")]), default: "stockroom", required: true, list: true, span: 12 },
+    { name: "branch_id", label: "شعبه یا واحد", type: "ref", ref: "org_unit", list: true, filter: true, index: true, span: 12, help: "شمارش یک شعبه: همهٔ دارایی‌های ثبت‌شده به نام آن؛ کارکنان شعبه شمارش شعبهٔ خود را می‌بینند" },
     { name: "stockroom_id", label: "انبار", type: "ref", ref: "stockroom", list: true, filter: true, span: 12 },
     { name: "location_id", label: "مکان", type: "ref", ref: "location", list: true, filter: true, span: 12 },
     { name: "owner_id", label: "مسئول شمارش", type: "user", default: "$me", list: true, filter: true, span: 8 },
@@ -570,6 +649,7 @@ const audit: TableDef = {
     { name: "found_count", label: "دیده‌شده", type: "int", readonly: true, list: true, span: 6 },
     { name: "missing_count", label: "دیده‌نشده", type: "int", readonly: true, list: true, span: 6 },
     { name: "unexpected_count", label: "ناشناخته یا جابه‌جا", type: "int", readonly: true, span: 6 },
+    { name: "discrepancy_open", label: "مغایرت‌های باز", type: "int", readonly: true, default: 0, list: true, filter: true, span: 6, help: "دیده‌نشده، جابه‌جا و ناشناخته‌هایی که هنوز تعیین تکلیف نشده‌اند؛ شمارش با مغایرت باز بسته نمی‌شود" },
     { name: "started_at", label: "شروع", type: "datetime", readonly: true, span: 8 },
     { name: "completed_at", label: "پایان", type: "datetime", readonly: true, span: 8 },
     { name: "notes", label: "یادداشت", type: "markdown", span: 24 },
@@ -587,14 +667,14 @@ const audit: TableDef = {
     transitions: [
       { from: ["planned"], to: "in_progress", label: "شروع شمارش" },
       { from: ["in_progress"], to: "completed", label: "پایان شمارش" },
-      { from: ["completed"], to: "closed", label: "بستن" },
+      { from: ["completed"], to: "closed", label: "بستن", guard: "audit_can_close" },
       { from: ["planned", "in_progress"], to: "canceled", label: "لغو" },
     ],
   },
-  scope: { own: ["owner_id"], group: "group_id" },
+  scope: { own: ["owner_id"], group: "group_id", unit: "branch_id" },
   features: { journal: true, attachments: true },
-  form: { related: [{ table: "inventory_audit_item", field: "audit_id", label: "اقلام", columns: ["asset_id", "result", "scanned_at", "scanned_by", "scanned_code"] }] },
-  list: { columns: ["number", "name", "stockroom_id", "location_id", "state", "expected_count", "found_count", "missing_count"], order: "-updated_at" },
+  form: { related: [{ table: "inventory_audit_item", field: "audit_id", label: "اقلام", columns: ["asset_id", "result", "resolution", "scanned_at", "scanned_by", "scanned_code"] }] },
+  list: { columns: ["number", "name", "branch_id", "stockroom_id", "state", "expected_count", "found_count", "missing_count", "discrepancy_open"], order: "-updated_at" },
 };
 
 export const AUDIT_RESULTS: Option[] = ordered([o("pending", "شمرده نشده", "gray"), o("found", "دیده شد", "green"), o("moved", "جابه‌جا", "gold"), o("missing", "دیده نشد", "red"), o("unexpected", "ناشناخته", "purple")]);
@@ -618,11 +698,18 @@ const auditItem: TableDef = {
     { name: "scanned_at", label: "زمان اسکن", type: "datetime", list: true, sort: true, span: 8 },
     { name: "scanned_by", label: "اسکن‌کننده", type: "user", list: true, span: 8 },
     { name: "note", label: "یادداشت", type: "string", maxLength: 300, span: 24 },
+    { name: "branch_id", label: "شعبهٔ شمارش", type: "ref", ref: "org_unit", readonly: true, filter: true, index: true, span: 12 },
+    { name: "expected_branch_id", label: "شعبهٔ ثبت‌شده در دفتر", type: "ref", ref: "org_unit", readonly: true, filter: true, span: 12, help: "دارایی جابه‌جا: شعبه‌ای که دفتر اموال آن را آنجا می‌داند" },
+    { name: "resolution", label: "تعیین تکلیف", type: "choice", choices: AUDIT_RESOLUTIONS, default: "none", readonly: true, list: true, filter: true, span: 8 },
+    { name: "resolved_by", label: "تعیین تکلیف‌کننده", type: "user", readonly: true, span: 8 },
+    { name: "resolved_at", label: "زمان تعیین تکلیف", type: "datetime", readonly: true, span: 8 },
+    { name: "transfer_id", label: "حوالهٔ انتقال", type: "ref", ref: "asset_transfer", readonly: true, span: 12 },
     { name: "label", label: "شرح", type: "string", system: true, maxLength: 300, search: true, audit: false },
   ],
-  // the items (labels of the assets counted) are read by those who read the audit
-  scope: { parent: "audit_id" },
-  list: { columns: ["audit_id", "asset_id", "result", "scanned_code", "scanned_at", "scanned_by"], order: "-updated_at" },
+  // the items (labels of the assets counted) are read by those who read the audit (and, for a branch's staff, of
+  // their branch's audits)
+  scope: { parent: "audit_id", unit: "branch_id" },
+  list: { columns: ["audit_id", "asset_id", "result", "resolution", "scanned_code", "scanned_at", "scanned_by"], order: "-updated_at" },
 };
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -752,6 +839,10 @@ const disposalItem: TableDef = {
     { name: "sanitized_by", label: "انجام‌دهنده", type: "user", span: 8 },
     { name: "certificate_no", label: "شمارهٔ گواهی پاک‌سازی", type: "string", maxLength: 80, ltr: true, list: true, search: true, span: 12 },
     { name: "verified", label: "بازبینی شد", type: "bool", default: false, list: true, filter: true, span: 12 },
+    { name: "wipe_tool", label: "ابزار یا روش پاک‌سازی", type: "string", maxLength: 120, span: 12, help: "نرم‌افزار پاک‌سازی، دستگاه دیگاوس یا خردکن" },
+    { name: "witness_id", label: "شاهد", type: "user", span: 12, help: "کسی جز انجام‌دهنده که پاک‌سازی یا تخریب را دید" },
+    { name: "certificate_issued_at", label: "صدور گواهی", type: "datetime", readonly: true, span: 12 },
+    { name: "certificate_hash", label: "اثر انگشت گواهی (SHA-256)", type: "string", maxLength: 80, ltr: true, readonly: true, span: 24 },
     { name: "note", label: "یادداشت", type: "text", span: 24 },
     { name: "label", label: "شرح", type: "string", system: true, maxLength: 300, search: true, audit: false },
   ],
@@ -1344,6 +1435,245 @@ const saasAccount: TableDef = {
   list: { columns: ["subscription_id", "user_id", "email", "role", "last_active_at", "active"], order: "-last_active_at" },
 };
 
+
+// ---------------------------------------------------------------------------------------------------------------
+// Bank: transfers between branches («حواله و رسید انتقال»), the chain of custody, device status and maintenance SLA
+// terms, branch managers' periodic attestation (docs/modules/itam_bank_gap.md)
+
+export const TRANSFER_STATES: StateModel = {
+  field: "state",
+  initial: "draft",
+  states: [
+    { value: "draft", label: "پیش‌نویس", category: "new", color: "gray" },
+    { value: "pending_approval", label: "در انتظار تأیید", category: "waiting", color: "gold" },
+    { value: "approved", label: "تأییدشده", category: "active", color: "teal" },
+    { value: "in_transit", label: "در راه (حواله شد)", category: "active", color: "blue" },
+    { value: "received", label: "رسید شد", category: "resolved", color: "green" },
+    { value: "received_partial", label: "رسید با مغایرت", category: "resolved", color: "orange" },
+    { value: "closed", label: "بسته", category: "closed", color: "gray" },
+    { value: "rejected", label: "ردشده", category: "canceled", color: "red" },
+    { value: "canceled", label: "لغوشده", category: "canceled", color: "gray" },
+  ],
+  transitions: [
+    { from: ["draft"], to: "pending_approval", label: "ارسال برای تأیید", guard: "transfer_has_items" },
+    { from: ["pending_approval"], to: "approved", label: "تأیید", roles: { area: "asset", level: "full" } },
+    { from: ["pending_approval"], to: "rejected", label: "رد", roles: { area: "asset", level: "full" } },
+    { from: ["approved"], to: "in_transit", label: "صدور حواله و ارسال", guard: "transfer_can_dispatch" },
+    // the receipt is the receiving branch's: its route checks their grant there and moves the assets as the system
+    { from: ["in_transit"], to: "received", label: "رسید کامل", roles: SYSTEM_ONLY("asset") },
+    { from: ["in_transit"], to: "received_partial", label: "رسید با مغایرت", roles: SYSTEM_ONLY("asset") },
+    { from: ["received", "received_partial"], to: "closed", label: "بستن" },
+    { from: ["draft", "pending_approval", "approved"], to: "canceled", label: "لغو" },
+  ],
+};
+
+const T_MAIN = "حواله";
+const T_RCPT = "رسید";
+
+const transfer: TableDef = {
+  key: "asset_transfer",
+  table: "sm_asset_transfers",
+  label: "حوالهٔ انتقال دارایی",
+  plural: "حواله‌های انتقال دارایی",
+  icon: "truck",
+  module: "itam",
+  area: "asset",
+  description: "انتقال دارایی میان شعبه‌ها و واحدها: حواله با تأیید، ارسال (در راه)، رسید شعبهٔ گیرنده قلم‌به‌قلم و مغایرت‌ها؛ هر گام در زنجیرهٔ نگهداری دارایی ثبت می‌شود",
+  numbered: { prefix: "TRF", pad: 6 },
+  display: "title",
+  fields: [
+    { name: "title", label: "عنوان", type: "string", required: true, maxLength: 200, list: true, search: true, span: 12, section: T_MAIN },
+    { name: "reason", label: "علت", type: "choice", choices: TRANSFER_REASONS, default: "relocation", required: true, list: true, filter: true, span: 12, section: T_MAIN },
+    { name: "from_branch_id", label: "از شعبه یا واحد", type: "ref", ref: "org_unit", required: true, list: true, filter: true, index: true, span: 12, section: T_MAIN },
+    { name: "to_branch_id", label: "به شعبه یا واحد", type: "ref", ref: "org_unit", required: true, list: true, filter: true, index: true, span: 12, section: T_MAIN },
+    { name: "from_stockroom_id", label: "از انبار", type: "ref", ref: "stockroom", filter: true, span: 12, section: T_MAIN },
+    { name: "to_stockroom_id", label: "به انبار", type: "ref", ref: "stockroom", filter: true, span: 12, section: T_MAIN, help: "خالی: انبارک شعبهٔ گیرنده اگر هست" },
+    { name: "requested_by", label: "درخواست‌کننده", type: "user", default: "$me", list: true, filter: true, span: 8, section: T_MAIN },
+    { ...approvalField, section: T_MAIN },
+    { name: "item_count", label: "اقلام", type: "int", readonly: true, default: 0, list: true, span: 8, section: T_MAIN },
+    { name: "carrier", label: "حمل‌کننده", type: "string", maxLength: 120, span: 8, section: T_MAIN },
+    { name: "waybill_no", label: "شمارهٔ بارنامه یا پلمب", type: "string", maxLength: 60, ltr: true, search: true, span: 8, section: T_MAIN },
+    { name: "dispatched_at", label: "زمان ارسال", type: "datetime", readonly: true, list: true, sort: true, span: 8, section: T_MAIN },
+    { name: "dispatched_by", label: "ارسال‌کننده", type: "user", readonly: true, span: 8, section: T_MAIN },
+    { name: "notes", label: "یادداشت", type: "markdown", span: 24, section: T_MAIN },
+    { name: "received_at", label: "زمان رسید", type: "datetime", readonly: true, sort: true, span: 6, section: T_RCPT },
+    { name: "received_by", label: "رسیدکننده", type: "user", readonly: true, span: 6, section: T_RCPT },
+    { name: "received_count", label: "رسیده", type: "int", readonly: true, default: 0, span: 6, section: T_RCPT },
+    { name: "discrepancy_count", label: "مغایرت", type: "int", readonly: true, default: 0, list: true, span: 6, section: T_RCPT },
+    { name: "receipt_note", label: "یادداشت رسید", type: "text", readonly: true, span: 24, section: T_RCPT },
+  ],
+  states: TRANSFER_STATES,
+  // the sending branch owns the note (unit scope); the receiving branch reads it through the module's participant
+  // source «itam.transfer_receiver» and takes the receipt through the module's route
+  scope: { own: ["requested_by"], requester: ["requested_by"], unit: "from_branch_id" },
+  features: { journal: true, attachments: true, approvals: true },
+  form: {
+    sections: [T_MAIN, T_RCPT],
+    related: [{ table: "asset_transfer_item", field: "transfer_id", label: "اقلام", columns: ["asset_id", "condition_out", "result", "condition_in", "note"] }],
+  },
+  list: { columns: ["number", "title", "from_branch_id", "to_branch_id", "state", "item_count", "discrepancy_count", "dispatched_at"], order: "-updated_at" },
+};
+
+const transferItem: TableDef = {
+  key: "asset_transfer_item",
+  table: "sm_asset_transfer_items",
+  label: "قلم حوالهٔ انتقال",
+  plural: "اقلام حواله‌های انتقال",
+  icon: "package-open",
+  module: "itam",
+  area: "asset",
+  description: "یک دارایی در حوالهٔ انتقال: وضعیت ظاهری هنگام ارسال و رسید، نتیجهٔ رسید (رسید، آسیب‌دیده، نرسید)",
+  display: "label",
+  fields: [
+    { name: "transfer_id", label: "حواله", type: "ref", ref: "asset_transfer", required: true, list: true, filter: true, index: true, span: 12 },
+    { name: "asset_id", label: "دارایی", type: "ref", ref: "asset", required: true, list: true, filter: true, index: true, span: 12 },
+    { name: "condition_out", label: "وضعیت هنگام ارسال", type: "choice", choices: CONDITIONS, default: "good", list: true, span: 8 },
+    { name: "result", label: "نتیجهٔ رسید", type: "choice", choices: TRANSFER_ITEM_RESULTS, default: "pending", readonly: true, list: true, filter: true, span: 8 },
+    { name: "condition_in", label: "وضعیت هنگام رسید", type: "choice", choices: CONDITIONS, readonly: true, list: true, span: 8 },
+    { name: "note", label: "یادداشت", type: "string", maxLength: 300, span: 24 },
+    { name: "from_branch_id", label: "از شعبه", type: "ref", ref: "org_unit", system: true, index: true },
+    { name: "to_branch_id", label: "به شعبه", type: "ref", ref: "org_unit", system: true, index: true },
+    { name: "label", label: "شرح", type: "string", system: true, maxLength: 300, search: true, audit: false },
+  ],
+  scope: { parent: "transfer_id", unit: "from_branch_id" },
+  unique: [["transfer_id", "asset_id"]],
+  list: { columns: ["transfer_id", "asset_id", "condition_out", "result", "condition_in"], order: "-updated_at" },
+};
+
+const custody: TableDef = {
+  key: "asset_custody",
+  table: "sm_asset_custody",
+  label: "رویداد زنجیرهٔ نگهداری",
+  plural: "زنجیرهٔ نگهداری دارایی‌ها",
+  icon: "link",
+  module: "itam",
+  area: "asset",
+  description: "دفتر افزودنی هر تغییر مسئولیت دارایی — تحویل، بازگشت، حواله و رسید انتقال، شمارش، تأیید رئیس شعبه، تعمیر، پاک‌سازی و اسقاط — هر ردیف با اثر انگشت ردیف پیشین زنجیر شده است (برای ممیزان و ناظران)",
+  display: "label",
+  fields: [
+    { name: "asset_id", label: "دارایی", type: "ref", ref: "asset", required: true, list: true, filter: true, index: true, span: 12 },
+    { name: "seq", label: "ردیف", type: "int", readonly: true, list: true, sort: true, span: 6 },
+    { name: "at", label: "زمان", type: "datetime", readonly: true, list: true, sort: true, filter: true, span: 6 },
+    { name: "event", label: "رویداد", type: "choice", choices: CUSTODY_EVENTS, readonly: true, list: true, filter: true, span: 8 },
+    { name: "branch_id", label: "شعبهٔ مسئول", type: "ref", ref: "org_unit", readonly: true, list: true, filter: true, index: true, span: 8 },
+    { name: "from_branch_id", label: "از شعبه", type: "ref", ref: "org_unit", readonly: true, filter: true, span: 8 },
+    { name: "holder_id", label: "دارنده", type: "user", readonly: true, list: true, filter: true, span: 8 },
+    { name: "from_holder_id", label: "دارندهٔ پیشین", type: "user", readonly: true, span: 8 },
+    { name: "actor_id", label: "انجام‌دهنده", type: "user", readonly: true, filter: true, span: 8 },
+    { name: "reference", label: "مرجع", type: "string", maxLength: 120, readonly: true, list: true, search: true, span: 12 },
+    { name: "note", label: "شرح", type: "string", maxLength: 300, readonly: true, span: 12 },
+    { name: "prev_hash", label: "اثر انگشت پیشین", type: "string", maxLength: 80, ltr: true, readonly: true, span: 24 },
+    { name: "hash", label: "اثر انگشت (SHA-256)", type: "string", maxLength: 80, ltr: true, readonly: true, span: 24 },
+    { name: "label", label: "شرح", type: "string", system: true, maxLength: 300, search: true, audit: false },
+  ],
+  scope: { parent: "asset_id", unit: "branch_id" },
+  list: { columns: ["asset_id", "seq", "at", "event", "branch_id", "holder_id", "reference"], order: "-at" },
+};
+
+const statusEvent: TableDef = {
+  key: "device_status_event",
+  table: "sm_device_status_events",
+  label: "دورهٔ وضعیت دستگاه",
+  plural: "تاریخچهٔ وضعیت دستگاه‌ها",
+  icon: "activity",
+  module: "itam",
+  area: "asset",
+  description: "هر دورهٔ وضعیت عملیاتی خودپرداز، CRS یا کیوسک (در سرویس، خارج از سرویس، بدون وجه نقد، در نگهداری، قطع ارتباط) با آغاز، پایان و مدت؛ پایهٔ دسترس‌پذیری و جریمهٔ پیمانکار",
+  display: "label",
+  fields: [
+    { name: "asset_id", label: "دستگاه", type: "ref", ref: "asset", required: true, list: true, filter: true, index: true, span: 12 },
+    { name: "status", label: "وضعیت", type: "choice", choices: DEVICE_STATUS, required: true, list: true, filter: true, span: 12 },
+    { name: "from_at", label: "از", type: "datetime", required: true, list: true, sort: true, filter: true, span: 8 },
+    { name: "to_at", label: "تا", type: "datetime", list: true, sort: true, filter: true, span: 8 },
+    { name: "minutes", label: "مدت (دقیقه)", type: "int", readonly: true, list: true, span: 8 },
+    { name: "branch_id", label: "شعبه", type: "ref", ref: "org_unit", readonly: true, filter: true, index: true, span: 12 },
+    { name: "contract_id", label: "قرارداد نگهداری", type: "ref", ref: "contract", readonly: true, filter: true, span: 12 },
+    { name: "incident_id", label: "رخداد", type: "ref", ref: "incident", readonly: true, span: 12 },
+    { name: "reason", label: "علت", type: "string", maxLength: 300, list: true, span: 24 },
+    { name: "label", label: "شرح", type: "string", system: true, maxLength: 300, search: true, audit: false },
+  ],
+  scope: { parent: "asset_id", unit: "branch_id" },
+  list: { columns: ["asset_id", "status", "from_at", "to_at", "minutes", "reason"], order: "-from_at" },
+};
+
+const maintenanceSla: TableDef = {
+  key: "maintenance_sla",
+  table: "sm_maintenance_slas",
+  label: "تعهد نگهداری دستگاه",
+  plural: "تعهدهای نگهداری دستگاه‌ها",
+  icon: "timer",
+  module: "itam",
+  area: "asset",
+  description: "شرط‌های سطح خدمت قرارداد نگهداری یک گروه دستگاه (خودپرداز، CRS، کیوسک…): مهلت رفع خرابی، دسترس‌پذیری هدف و جریمهٔ هر ساعت تأخیر",
+  display: "name",
+  fields: [
+    { name: "name", label: "نام", type: "string", required: true, maxLength: 160, list: true, search: true, span: 12 },
+    { name: "contract_id", label: "قرارداد", type: "ref", ref: "contract", required: true, list: true, filter: true, span: 12 },
+    { name: "categories", label: "رده‌های دستگاه", type: "multichoice", choices: "asset_model.category", list: true, span: 24 },
+    { name: "response_hours", label: "مهلت حضور (ساعت)", type: "int", min: 0, max: 720, default: 4, span: 6 },
+    { name: "restore_hours", label: "مهلت رفع (ساعت)", type: "int", min: 1, max: 720, default: 8, required: true, list: true, span: 6 },
+    { name: "availability_target", label: "دسترس‌پذیری هدف", type: "percent", default: "98", list: true, span: 6 },
+    { name: "counts_maintenance", label: "زمان نگهداری هم خرابی است", type: "bool", default: false, span: 6, help: "خاموش: نگهداری برنامه‌ریزی‌شده از جریمه بیرون است" },
+    { name: "penalty_per_hour", label: "جریمهٔ هر ساعت تأخیر (ریال)", type: "money", list: true, span: 12, group: "financial" },
+    { name: "penalty_cap", label: "سقف جریمه در ماه (ریال)", type: "money", span: 12, group: "financial" },
+    { name: "active", label: "فعال", type: "bool", default: true, list: true, filter: true, span: 8 },
+    { name: "notes", label: "یادداشت", type: "text", span: 24 },
+  ],
+  scope: { public: true },
+  list: { columns: ["name", "contract_id", "categories", "restore_hours", "availability_target", "penalty_per_hour", "active"], order: "name" },
+};
+
+export const ATTESTATION_STATES: StateModel = {
+  field: "state",
+  initial: "open",
+  states: [
+    { value: "open", label: "منتظر تأیید رئیس شعبه", category: "active", color: "gold" },
+    { value: "attested", label: "تأییدشده", category: "resolved", color: "green" },
+    { value: "attested_exceptions", label: "تأیید با استثنا", category: "resolved", color: "orange" },
+    { value: "reviewed", label: "بازبینی‌شده", category: "closed", color: "gray" },
+    { value: "canceled", label: "لغوشده", category: "canceled", color: "gray" },
+  ],
+  transitions: [
+    // the manager attests through the module's route (the list as it stands, exceptions, the signature)
+    { from: ["open"], to: "attested", label: "تأیید", roles: SYSTEM_ONLY("asset") },
+    { from: ["open"], to: "attested_exceptions", label: "تأیید با استثنا", roles: SYSTEM_ONLY("asset") },
+    { from: ["attested", "attested_exceptions"], to: "reviewed", label: "بازبینی شد", roles: { area: "asset", level: "edit" } },
+    { from: ["open"], to: "canceled", label: "لغو", roles: { area: "asset", level: "edit" } },
+  ],
+};
+
+const attestation: TableDef = {
+  key: "branch_attestation",
+  table: "sm_branch_attestations",
+  label: "تأیید دوره‌ای اموال شعبه",
+  plural: "تأییدهای دوره‌ای اموال شعبه‌ها",
+  icon: "stamp",
+  module: "itam",
+  area: "asset",
+  description: "تأیید دوره‌ای رئیس شعبه بر فهرست اموال شعبه: دارایی‌های ثبت‌شده، استثناها (نبود، آسیب، جای نادرست) و امضا؛ استثناها به مدیر دارایی می‌رسد",
+  numbered: { prefix: "ATT", pad: 6 },
+  display: "title",
+  fields: [
+    { name: "title", label: "عنوان", type: "string", required: true, maxLength: 200, list: true, search: true, span: 12 },
+    { name: "branch_id", label: "شعبه یا واحد", type: "ref", ref: "org_unit", required: true, list: true, filter: true, index: true, span: 12 },
+    { name: "manager_id", label: "رئیس شعبه", type: "user", list: true, filter: true, span: 8 },
+    { name: "period_label", label: "دوره", type: "string", maxLength: 60, list: true, span: 8 },
+    { name: "due_date", label: "مهلت", type: "date", list: true, sort: true, filter: true, span: 8 },
+    { name: "asset_count", label: "دارایی‌ها", type: "int", readonly: true, default: 0, list: true, span: 6 },
+    { name: "exception_count", label: "استثناها", type: "int", readonly: true, default: 0, list: true, span: 6 },
+    { name: "overdue", label: "دیرکرد", type: "bool", readonly: true, default: false, filter: true, span: 6 },
+    { name: "exceptions", label: "استثناها", type: "json", readonly: true, hidden: true },
+    { name: "signed_name", label: "نام امضاکننده", type: "string", maxLength: 120, readonly: true, span: 12 },
+    { name: "attested_at", label: "زمان تأیید", type: "datetime", readonly: true, sort: true, span: 6 },
+    { name: "attested_by", label: "تأییدکننده", type: "user", readonly: true, span: 6 },
+    { name: "review_note", label: "یادداشت بازبینی", type: "text", span: 24 },
+  ],
+  states: ATTESTATION_STATES,
+  scope: { own: ["manager_id"], requester: ["manager_id"], unit: "branch_id" },
+  features: { journal: true, attachments: true },
+  list: { columns: ["number", "title", "branch_id", "manager_id", "state", "asset_count", "exception_count", "due_date"], order: "-updated_at" },
+};
+
 export const ITAM_CONFIG_DEFAULTS = {
   tag_prefix: "IT-",
   auto_ci: true,
@@ -1353,6 +1683,9 @@ export const ITAM_CONFIG_DEFAULTS = {
   warranty_reminders: [90, 30, 7] as number[],
   unused_days: 90,
   qr_base_url: "",
+  tag_pattern: "",
+  attestation_months: 6,
+  attestation_due_days: 30,
 };
 export type ItamConfig = typeof ITAM_CONFIG_DEFAULTS;
 
@@ -1379,6 +1712,9 @@ const config: TableDef = {
     { name: "warranty_reminders", label: "یادآوری پایان ضمانت و اجاره (روز)", type: "json", default: ITAM_CONFIG_DEFAULTS.warranty_reminders, span: 8 },
     { name: "unused_days", label: "نصب بی‌استفاده پس از (روز)", type: "int", min: 7, max: 730, default: ITAM_CONFIG_DEFAULTS.unused_days, span: 8 },
     { name: "qr_base_url", label: "نشانی سامانه برای QR", type: "url", ltr: true, span: 24, help: "QR برچسب‌ها به صفحهٔ دارایی در این نشانی اشاره می‌کند؛ خالی: فقط برچسب اموال" },
+    { name: "tag_pattern", label: "الگوی پلاک اموال", type: "string", maxLength: 60, ltr: true, span: 12, help: "مثلاً {prefix}{branch}-{class}-{seq}؛ {branch} کد شعبه، {class} کد رده، {year} سال شمسی و {seq} رقم‌های شمارهٔ دارایی؛ خالی: پیشوند و رقم‌ها" },
+    { name: "attestation_months", label: "تأیید رئیس شعبه هر چند ماه", type: "int", min: 0, max: 24, default: ITAM_CONFIG_DEFAULTS.attestation_months, span: 6, help: "۰: خاموش" },
+    { name: "attestation_due_days", label: "مهلت تأیید (روز)", type: "int", min: 1, max: 120, default: ITAM_CONFIG_DEFAULTS.attestation_due_days, span: 6 },
     { name: "last_reconcile_at", label: "آخرین تطبیق مجوزها", type: "datetime", readonly: true, audit: false, span: 12 },
     { name: "seeded", label: "پیش‌فرض‌ها افزوده شد", type: "int", readonly: true, default: 0, hidden: true },
   ],
@@ -1389,6 +1725,7 @@ const config: TableDef = {
 export const ITAM_TABLES: TableDef[] = [
   depreciationRule, assetModel, hardwareStandard, stockroom, stockRule, stockMovement, asset, assignment, acknowledgement, reservation,
   audit, auditItem, repair, disposal, disposalItem, labelTemplate, catalogItemModel,
+  transfer, transferItem, custody, statusEvent, maintenanceSla, attestation,
   requisition, requisitionLine, purchaseOrder, poLine, receipt, receiptLine,
   softwareModel, softwareInstall, entitlement, allocation, reconcileRun, position, saas, saasAccount, config,
 ];

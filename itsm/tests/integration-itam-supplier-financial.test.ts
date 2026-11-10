@@ -129,6 +129,8 @@ describe("analytics and AI with the modules installed", () => {
     const inds = (await w.o.get(`${w.P}/r/analytics_indicator?size=200`)).rows as Row[];
     const keys = inds.map((r) => r.key);
     for (const k of ["asset.stock_below_reorder", "asset.license_compliance", "supplier.contracts_expiring", "financial.budget_vs_actual"]) expect(keys).toContain(k);
+    // the bank layer's indicators (fleet, transfers, audit discrepancies, attestation)
+    for (const k of ["asset.fleet_down", "asset.transfers_in_transit", "asset.audit_discrepancies", "asset.attestations_overdue"]) expect(keys).toContain(k);
     const budget = inds.find((r) => r.key === "financial.budget_vs_actual")!;
     const stock = inds.find((r) => r.key === "asset.stock_below_reorder")!;
     // share both with the agents as well (no «مالی» field group): only the stock KPI's scores reach them

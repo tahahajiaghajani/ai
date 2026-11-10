@@ -53,5 +53,89 @@ export const itamApi = {
   discovered: (api: OrgApi) => api.post<{ created: number; models: number; remaining: number }>("/itam/discovered"),
 };
 
+// ----- bank: branches, transfers, the ATM fleet, the asset register, reconciliation, attestation, custody -----
+
+export interface BranchRow {
+  branch_id: string | null;
+  name: string;
+  code: string | null;
+  region: string | null;
+  total: number;
+  by_state: Record<string, number>;
+  value: string | null;
+  fleet: number;
+  fleet_down: number;
+  missing: number;
+  transfers_out: number;
+  transfers_in: number;
+  in_transit: number;
+  last_audit: { id: string; number: string | null; state: string; completed_at: string | null; missing: number } | null;
+  open_discrepancies: number;
+  attestation: { id: string; number: string | null; state: string; period: string | null; due_date: string | null; overdue: boolean; exceptions: number } | null;
+}
+export interface TransferView { id: string; number: string | null; title: string; state: string; reason: string; from: string | null; to: string | null; items: number; dispatched_at: string | null; can_receive: boolean }
+export interface TransferItemView { id: string; label: string | null; asset_id: string; condition_out: string | null; result: string; condition_in: string | null; note: string | null }
+export interface Risk { score: number; level: "low" | "medium" | "high"; reasons: string[] }
+export interface FleetDevice {
+  id: string; number: string | null; asset_tag: string | null; name: string | null; category: string; terminal_id: string | null; branch_id: string | null; branch: string | null; region: string | null;
+  site_type: string | null; device_status: string; device_status_at: string | null; os_name: string | null; os_eos_date: string | null; eos: "past" | "soon" | "ok" | "unknown"; firmware_version: string | null;
+  model: string | null; contract: string | null; availability: string; down_minutes: number; penalty: { breaches: number; late_hours: number; amount: string | null } | null; open_work_orders: number;
+  next_pm: string | null; ci_id: string | null; risk: Risk;
+}
+export interface Fleet {
+  days: number; total: number; status: Record<string, number>; eos: { past: number; soon: number; ok: number; unknown: number }; availability: string;
+  regions: { id: string; name: string; devices: number; availability: string }[];
+  contracts: { id: string; name: string; number: string | null; devices: number; availability: string; target: string | null; below_target: boolean; breaches: number; late_hours: number; penalty: string | null }[];
+  devices: FleetDevice[]; financial: boolean; can_manage: boolean; can_plan: boolean;
+}
+export interface RegisterRow {
+  id: string; number: string | null; asset_tag: string | null; name: string | null; category: string | null; model: string | null; serial_number: string | null; branch: string | null; branch_code: string | null;
+  state: string; in_service: string | null; end: string | null; method: string; life_months: number | null; cost: string; opening_cost: string; additions: string; disposals: string;
+  opening_accumulated: string; charge: string; closing_accumulated: string; closing_book: string; months_charged: number;
+  /** reconciliation: the year's depreciation in the cost ledger and the register's charge minus it */
+  ledger?: string; difference?: string;
+}
+export interface AssetRegister {
+  fiscal_year: number; from: string; to: string; rows: RegisterRow[]; totals: Record<string, string | null>; reconciled: boolean; mismatches: number;
+  branches: { branch: string; count: number; cost: string; charge: string; book: string }[];
+}
+export interface WipeCertificate {
+  certificate_no: string; issued_at: string; hash: string; verified: boolean; method: string; tool: string | null; sanitized_at: string | null; sanitized_by: string | null; witness: string | null;
+  asset: { number: string | null; tag: string | null; name: string | null; serial: string | null; model: string | null; branch: string | null } | null;
+  order: { number: string | null; title: string; state: string } | null; org: string;
+}
+
+export const BANK_KEYS = {
+  branches: (org: string) => ["itam", org, "branches"] as const,
+  inbox: (org: string) => ["itam", org, "transfers", "inbox"] as const,
+  transfer: (org: string, id: string) => ["itam", org, "transfers", id] as const,
+  fleet: (org: string, days: number) => ["itam", org, "fleet", days] as const,
+  register: (org: string, q: string) => ["itam", org, "register", q] as const,
+  custody: (org: string, id: string) => ["itam", org, "custody", id] as const,
+  attestation: (org: string, id: string) => ["itam", org, "attestation", id] as const,
+  audit: (org: string, id: string) => ["itam", org, "audit-items", id] as const,
+};
+
+export const bankApi = {
+  branches: (api: OrgApi) => api.get<{ branches: BranchRow[]; financial: boolean; can_transfer: boolean; total: number }>("/itam/branches"),
+  inbox: (api: OrgApi) => api.get<{ incoming: TransferView[]; all: TransferView[] }>("/itam/transfers/inbox"),
+  transferItems: (api: OrgApi, id: string) => api.get<{ transfer: { id: string; number: string | null; title: string; state: string; can_receive: boolean }; items: TransferItemView[] }>(`/itam/transfers/${id}/items`),
+  receive: (api: OrgApi, id: string, body: { items: { id: string; result: "received" | "damaged" | "missing"; condition_in?: string | null; note?: string | null }[]; note?: string | null }) =>
+    api.post<{ state: string; received: number; discrepancies: number }>(`/itam/transfers/${id}/receive`, body),
+  fleet: (api: OrgApi, days: number) => api.get<Fleet>("/itam/fleet", { days }),
+  setStatus: (api: OrgApi, id: string, body: { status: string; reason?: string | null; incident?: boolean }) => api.post<{ asset: Row; incident: { id: string; number: string | null } | null }>(`/itam/fleet/${id}/status`, body),
+  pmPlans: (api: OrgApi, body: { every_n?: number; interval_unit?: string; group_id?: string | null }) => api.post<{ created: number; skipped: number }>("/itam/fleet/pm-plans", body),
+  risk: (api: OrgApi, id: string) => api.post<AiText>(`/itam/fleet/${id}/risk`),
+  register: (api: OrgApi, q: { fy: number; branch_id?: string; category?: string }) => api.get<AssetRegister>("/itam/register", q),
+  resolve: (api: OrgApi, itemId: string, body: { resolution: string; note?: string | null; model_id?: string | null }) =>
+    api.post<{ item: Row; open: number; asset_id: string | null; transfer_id: string | null }>(`/itam/audit-items/${itemId}/resolve`, body),
+  attestationAssets: (api: OrgApi, id: string) => api.get<{ attestation: Row; assets: Row[] }>(`/itam/attestations/${id}/assets`),
+  attest: (api: OrgApi, id: string, body: { signed_name: string; exceptions: { asset_id: string; issue: string; note?: string | null }[]; note?: string | null }) =>
+    api.post<{ state: string; exceptions: number }>(`/itam/attestations/${id}/attest`, body),
+  openAttestations: (api: OrgApi) => api.post<{ opened: number; overdue: number }>("/itam/attestations/open"),
+  custody: (api: OrgApi, id: string) => api.get<{ rows: Row[]; verified: { rows: number; ok: boolean; broken_at: number | null } }>(`/itam/assets/${id}/custody`),
+  certificate: (api: OrgApi, itemId: string) => api.get<WipeCertificate>(`/itam/disposal-items/${itemId}/certificate`),
+};
+
 /** The organisation's money display (Rials or Tomans, from the financial settings); Rials when unknown. */
 export const moneyUnitOf = (api: OrgApi) => api.get<{ currency_display: "rial" | "toman" }>("/financial/meta").then((m) => m.currency_display).catch(() => "rial" as const);
