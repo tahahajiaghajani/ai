@@ -6,6 +6,7 @@ import { join, isAbsolute } from "node:path";
 import http from "node:http";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, statSync, renameSync } from "node:fs";
 import { APP_NAME, APP_NAME_EN, APP_TAGLINE } from "../../src/shared/constants";
+import { backendExecArgv } from "../../src/shared/desktop/node-flags";
 
 const APP_TITLE = APP_NAME;
 /** electron-builder.yml `appId` (taskbar grouping, notifications): an internal identifier, kept when the product is renamed. */
@@ -86,6 +87,9 @@ function startBackend(): Promise<{ url: string; host: string }> {
     backend = utilityProcess.fork(entry, [], {
       serviceName: `${APP_NAME_EN} Server`,
       stdio: "pipe",
+      // Windows' certificate store (the bank's CA installed by GPO) for the sync with the server edition, when this
+      // Electron's Node can read it (Node 22.15+ / 23.8+; Electron 45 ships Node 24); otherwise NODE_EXTRA_CA_CERTS
+      execArgv: backendExecArgv(process.versions.node),
       env: {
         ...process.env,
         ITSM_DATA_DIR: dataDir,

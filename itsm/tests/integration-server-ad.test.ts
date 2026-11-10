@@ -33,6 +33,7 @@ import { runUrlSource } from "@server/modules/cmdb/jobs";
 import { aiNet } from "@server/modules/ai/net";
 import { signInHealth } from "@server/modules/platform/signin-health";
 import type { ServerConfig, ServerEditionBridge } from "@server/context";
+import { backendExecArgv, supportsSystemCa } from "@shared/desktop/node-flags";
 import { adWorld, type AdWorld } from "./auth-ad-helpers";
 import { Client, quietLog, signupWithOrg } from "./helpers";
 
@@ -501,5 +502,19 @@ describe("CMDB URL sources on the web, the Windows app and the server edition", 
     const blocked = await run("cloud", "http://other.bank.local/servers.json", { network });
     expect(blocked.out.error).toContain("other.bank.local");
     expect(blocked.calls).toEqual([]);
+  });
+});
+
+describe("the Windows app trusts the bank's CA from the Windows certificate store", () => {
+  it("starts the backend with --use-system-ca where Electron's Node supports it", () => {
+    expect(supportsSystemCa("v24.22.1")).toBe(true); // Electron 45
+    expect(supportsSystemCa("22.15.0")).toBe(true);
+    expect(supportsSystemCa("23.8.0")).toBe(true);
+    expect(supportsSystemCa("22.14.0")).toBe(false);
+    expect(supportsSystemCa("23.7.0")).toBe(false);
+    expect(backendExecArgv("v24.22.1")).toEqual(["--use-system-ca"]);
+    expect(backendExecArgv("v20.18.0")).toEqual([]);
+    const main = readFileSync(join(__dirname, "..", "desktop/src/main.ts"), "utf8");
+    expect(main).toMatch(/utilityProcess\.fork\(entry, \[\], \{[\s\S]{0,500}execArgv: backendExecArgv\(process\.versions\.node\)/);
   });
 });

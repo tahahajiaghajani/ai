@@ -40,9 +40,15 @@ internal identifiers stay neutral (`sm_*`, `itsm.*`, `ITSM_*`).
   every API but health/ready/meta/setup answers 503 `setup_required`); brotli/gzip of API answers (never
   `text/event-stream`); the static SPA (`static.ts`: `.br`/`.gz` variants, immutable `/assets` and `/fonts`, no-cache
   index.html, weak ETags, SPA fallback, 404 for missing assets, no path escape).
-- **Node-level request preparation**: unless `trust_proxy`, client-supplied `X-Forwarded-*`/`X-Real-IP`/`Forwarded`
-  are dropped and `X-Real-IP` is set from the socket (rate limits and audit see the real client; `sameOrigin` cannot
-  be fooled with a forged `X-Forwarded-Host`). TLS: PFX or PEM from the configuration, else a generated self-signed
+- **Node-level request preparation** (`nodeHandler`, @hono/node-server, so the API sees the TCP peer as
+  `c.env.incoming`): unless the peer is one of `trusted_proxies` (IP/CIDR) or loopback — `proxyTrusted` of
+  `src/server/auth/session.ts`, the same rule the API's sign-in applies to `cfg.auth.trustedProxies` — client-supplied
+  `X-Forwarded-*`/`X-Real-IP`/`Forwarded` are dropped and `X-Real-IP` is set from the socket (rate limits and audit see
+  the real client; `sameOrigin` cannot be fooled with a forged `X-Forwarded-Host`). `cfg.auth` comes from kariz.json
+  (`trusted_proxies`, `auth.directory_lan`, `auth.cookie_secure` "always", `auth.cookie_samesite`; env
+  `ITSM_TRUSTED_PROXIES`, `ITSM_DIRECTORY_LAN`, `ITSM_COOKIE_SECURE`, `ITSM_COOKIE_SAMESITE`) and is reloaded with the
+  file. A directory source's trusted-proxy SSO header is believed only from a peer on both the source's list and the
+  installation's. TLS: PFX or PEM from the configuration, else a generated self-signed
   certificate (RSA 2048, SAN: public host, machine name, localhost, 127.0.0.1; own DER encoder) regenerated when the
   host changes or < 30 days remain; `minVersion: TLSv1.2`, ECDHE AEAD suites. HTTP → HTTPS 301 (probes
   `/api/health`, `/api/ready` stay on HTTP).
@@ -151,13 +157,31 @@ front, scheduler election with a fake lock, setup through its API on PGlite), `t
 database with exactly one leader, setup, records, air gap, the Windows app's sync against the server, verified backup
 and restore. The PowerShell scripts run only on Windows CI.
 
+## Sign-in (AD, SSO, sessions) on the server edition
+
+- Every domain-controller connection (sign-in, sync, «آزمایش اتصال») passes `guardHost` (modules/integration/
+  directory.ts): `checkOutboundHost(cfg.network)` where the installation has a policy (refusal: `dcBlockedMessage` —
+  the host, `karizctl allow add <host>` and «سلامت سرور»), then the socket guard. Nothing adds a host by itself; the
+  platform owner adds one with karizctl or `PUT /api/admin/server/allow` (re-authenticated, audited; `cfg.server.allow`
+  → `changeAllowlist`). Negotiate opens no connection (SSPI validates in the LSA); only the directory lookup of the
+  principal goes over LDAP.
+- First-run setup: the first administrator is the organisation's break-glass account (`markBreakglass`,
+  `settings.auth.breakglass`); the last step links to `DIRECTORY_SETTINGS_PATH` and `SECURITY_SETTINGS_PATH`
+  (`@shared/auth/paths`). Until it completes the gate answers 503 for `/api/auth/sso` and `/api/auth/directory` too.
+- The platform console's sensitive actions (backup download/restore, the allowlist) call `needRecentPlatformAuth`.
+- «سلامت سرور» shows sign-in health (`signInHealth`: counts of failed sign-ins and lockouts in the last hour, the
+  last DC connection test per source — no account names or addresses).
+- `node-expose-sspi` (exact optional dependency, win32 only): `externals.json` lists it with `files` (package.json,
+  lib/api.js, lib/arch/x64), copied into `app/node_modules` without its dependency closure; `sso.ts` loads it with
+  `createRequire` from the folder of `server.cjs` or `ITSM_NODE_MODULES_DIR`.
+
 ## Known limits / open issues
 
 - Uploads are bounded and buffered once per request (multipart parsing in the shared route); the disk store writes
   and scans files outside the write transaction and downloads stream. A streaming multipart parser would remove the
   buffer.
-- The Windows app's sync uses Node's CA list: a bank CA must be added with `NODE_EXTRA_CA_CERTS` (GPO). Passing
-  `--use-system-ca` to the app's utility process would make it automatic (desktop owner).
+- The Windows app starts its backend with `--use-system-ca` (`backendExecArgv`, Electron 45 = Node 24), so a bank
+  CA installed in Windows' store by GPO is trusted; `NODE_EXTRA_CA_CERTS` remains for older builds.
 - Orphaned blob files (attachments deleted for good) are not garbage-collected yet; the blob mirror of backups keeps
   every content ever stored.
 - The sizing table and tuner numbers are estimates until `docs/PERFORMANCE_FA.md` (S3) has load-test results.
