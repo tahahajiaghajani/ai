@@ -12,6 +12,7 @@ import type { FieldDef, TableDef } from "@shared/model/types";
 import { FIELD_TYPES } from "@shared/model/types";
 import { physicalTables } from "@shared/tables";
 import type { Db } from "../db";
+import { normSql, searchColumn } from "./sql";
 
 /** SQL type of a field's column. */
 export function columnType(f: FieldDef): string {
@@ -91,12 +92,55 @@ export function ddlFor(def: TableDef): string {
       else idx(`${f.name}_idx`, `(org_id, ${f.name}) where deleted_at is null`);
     }
   }
+  // work queues (docs/PERFORMANCE_FA.md §۶): the open records of a group, newest first — a small partial index (open
+  // rows are a few percent of a task table) that answers «my groups' open work» for a group of any size
+  if (def.fields.some((f) => f.name === "active" && f.type === "bool" && !f.custom) && def.scope?.group) {
+    const g = def.fields.find((f) => f.name === def.scope!.group);
+    if (g && !g.custom && !g.base) idx("open_grp_idx", `(org_id, ${g.name}, updated_at desc) where deleted_at is null and active`);
+  }
+  const search = searchIndex(def);
+  if (search) out.push(search);
   out.push(`drop trigger if exists ${t}_sync on ${t};`);
   if (def.features?.sync !== false) {
     out.push(`create trigger ${t}_sync before insert or update on ${t} for each row execute function sm_sync_touch('${def.key}');`);
   }
   out.push(`alter table ${t} enable row level security;`);
   return out.join("\n");
+}
+
+/**
+ * The stored search document of a numbered table (sql.ts `searchColumn`): a generated column with the normalised text
+ * of its built-in search fields — on every runtime (PGlite included: searches read it instead of normalising rows) —
+ * and, where pg_trgm is installed (PostgreSQL, Supabase; migration 0095 creates it when available), a trigram index on
+ * it plus a small partial one on the normalised custom values, so `like '%word%'` from the search box and the global
+ * search is an index lookup. A column of an earlier list of search fields (another hash) is dropped with its indexes;
+ * the operator class is taken from the extension's own schema.
+ */
+export function searchIndex(def: TableDef): string {
+  const col = searchColumn(def);
+  if (!col) return "";
+  const t = def.table;
+  const like = `${t.replace(/_/g, "\\_")}\\_search\\_%`;
+  const custom = normSql("custom::text");
+  return [
+    "do $search$",
+    "declare s text; old record;",
+    "begin",
+    `  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = '${t}' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> '${col.name}' loop`,
+    `    execute format('alter table %I drop column if exists %I', '${t}', old.column_name);`,
+    "  end loop;",
+    `  execute format('alter table %I add column if not exists %I text generated always as (%s) stored', '${t}', '${col.name}', $x$${col.expr}$x$);`,
+    "  select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';",
+    "  if s is not null then",
+    `    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = '${t}' and indexname like '${like}' and indexname not in ('${shortName(`${t}_${col.name}_trgm`)}', '${shortName(`${t}_search_custom_trgm`)}') loop`,
+    "      execute format('drop index if exists %I', old.indexname);",
+    "    end loop;",
+    `    execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', '${shortName(`${t}_${col.name}_trgm`)}', '${t}', '${col.name}', s);`,
+    `    execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', '${shortName(`${t}_search_custom_trgm`)}', '${t}', $x$${custom}$x$, s);`,
+    "  end if;",
+    "end",
+    "$search$;",
+  ].join("\n");
 }
 
 /** Supabase: nothing for the public roles (same block as every migration ends with). */

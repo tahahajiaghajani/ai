@@ -8,13 +8,15 @@ import type { Queryable } from "../db";
 import { notFound } from "../http/errors";
 import { access } from "../access/provider";
 import type { OrgSchema } from "./schema";
-import { readable, writableRule } from "./sql";
+import { readable, SEARCH_COLUMN, writableRule } from "./sql";
 import { openSecret, secretView } from "./values";
 
 export type Row = Record<string, any>;
 
 /** Engine shape of a stored row: the custom fields' values as top-level u_* keys (the `custom` object is kept). */
 export function fromDb(def: TableDef, r: Row): Row {
+  // the stored search document (sql.ts searchColumn) never leaves the engine: it holds every search field's text
+  for (const k of Object.keys(r)) if (SEARCH_COLUMN.test(k)) delete r[k];
   const custom = (r.custom && typeof r.custom === "object" ? r.custom : {}) as Row;
   for (const f of def.fields) if (f.custom) r[f.name] = custom[f.name] ?? null;
   return r;
@@ -103,6 +105,8 @@ export async function loadReadable(q: Queryable, ctx: Ctx, def: TableDef, id: st
  * and exports ask `canReadTable` only.
  */
 export async function canOpenRecords(ctx: Ctx, def: TableDef, q: Queryable = ctx.db): Promise<boolean> {
+  // what keeps this request's read predicate of the table small (participants that name none of its rows)
+  await access().prepareRead?.(ctx, def, q);
   if (access().canReadTable(ctx, def)) return true;
   const p = access().participations;
   return !!p && !def.virtual && (await p.call(access(), ctx, q)).has(def.key);

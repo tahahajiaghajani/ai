@@ -66,12 +66,18 @@ export interface ListQuery {
   ids?: string[];
   view?: string;
   total?: boolean;
+  /** keyset pagination: the `next` cursor of the previous page */
+  after?: string;
 }
 
 export interface ListResult {
   rows: RecordRow[];
-  /** null when not counted (`total: false`) */
+  /** null when not counted (`total: false`); with `capped`, a lower bound */
   total: number | null;
+  /** more rows match than `total` (the server counts up to 10 000: «بیش از ۱۰٬۰۰۰») */
+  capped?: boolean;
+  /** cursor of the next page when the sort allows keyset pagination */
+  next?: string | null;
   page: number;
   size: number;
   display: DisplayMap;

@@ -77,27 +77,29 @@ async function people() {
 }
 
 const ACTIVE = { f: "active", op: "eq", v: true };
+// lists as the HTTP API asks for them (routes/records.ts: counts stop at COUNT_LIMIT)
+const list = (c, table, p) => engine.list(c, table, { countLimit: engine.COUNT_LIMIT ?? undefined, ...p });
 const MINE = { f: "assignment_group_id", op: "is_my_group" };
 const CASES = [
-  ["agent:l1", "queue:my_groups_open", (c) => engine.list(c, "incident", { filter: { and: [MINE, ACTIVE] }, sort: "-updated_at", size: 50 })],
-  ["agent:l1", "queue:my_groups_priority", (c) => engine.list(c, "incident", { filter: { and: [MINE, ACTIVE] }, sort: "priority,-updated_at", size: 50 })],
-  ["agent:l1", "queue:assigned_to_me", (c) => engine.list(c, "incident", { filter: { and: [{ f: "assigned_to", op: "is_me" }, ACTIVE] }, size: 50 })],
-  ["agent:l1", "queue:unassigned", (c) => engine.list(c, "incident", { filter: { and: [MINE, { f: "assigned_to", op: "empty" }, ACTIVE] }, sort: "-created_at", size: 50 })],
-  ["agent:l1", "list:all_recent", (c) => engine.list(c, "incident", { sort: "-updated_at", size: 50 })],
-  ["agent:l1", "list:page_40", (c) => engine.list(c, "incident", { sort: "-updated_at", size: 50, page: 40 })],
-  ["agent:spec", "list:all_recent", (c) => engine.list(c, "incident", { sort: "-updated_at", size: 50 })],
-  ["agent:spec", "queue:my_groups_open", (c) => engine.list(c, "incident", { filter: { and: [MINE, ACTIVE] }, sort: "-updated_at", size: 50 })],
-  ["agent:prov", "queue:tasks_my_groups", (c) => engine.list(c, "request_task", { filter: { and: [MINE, ACTIVE] }, sort: "-updated_at", size: 50 })],
-  ["agent:l1", "search:incident", (c) => engine.list(c, "incident", { q: "کربنکینگ", size: 5, total: false, fields: ["number", "short_description"] })],
-  ["agent:l1", "search:kb", (c) => engine.list(c, "kb_article", { q: "چاپگر", size: 5, total: false, fields: ["number", "title"] })],
-  ["agent:l1", "search:number", (c) => engine.list(c, "incident", { q: "INC0012345", size: 5, total: false })],
+  ["agent:l1", "queue:my_groups_open", (c) => list(c, "incident", { filter: { and: [MINE, ACTIVE] }, sort: "-updated_at", size: 50 })],
+  ["agent:l1", "queue:my_groups_priority", (c) => list(c, "incident", { filter: { and: [MINE, ACTIVE] }, sort: "priority,-updated_at", size: 50 })],
+  ["agent:l1", "queue:assigned_to_me", (c) => list(c, "incident", { filter: { and: [{ f: "assigned_to", op: "is_me" }, ACTIVE] }, size: 50 })],
+  ["agent:l1", "queue:unassigned", (c) => list(c, "incident", { filter: { and: [MINE, { f: "assigned_to", op: "empty" }, ACTIVE] }, sort: "-created_at", size: 50 })],
+  ["agent:l1", "list:all_recent", (c) => list(c, "incident", { sort: "-updated_at", size: 50 })],
+  ["agent:l1", "list:page_40", (c) => list(c, "incident", { sort: "-updated_at", size: 50, page: 40 })],
+  ["agent:spec", "list:all_recent", (c) => list(c, "incident", { sort: "-updated_at", size: 50 })],
+  ["agent:spec", "queue:my_groups_open", (c) => list(c, "incident", { filter: { and: [MINE, ACTIVE] }, sort: "-updated_at", size: 50 })],
+  ["agent:prov", "queue:tasks_my_groups", (c) => list(c, "request_task", { filter: { and: [MINE, ACTIVE] }, sort: "-updated_at", size: 50 })],
+  ["agent:l1", "search:incident", (c) => list(c, "incident", { q: "کربنکینگ", size: 5, total: false, fields: ["number", "short_description"] })],
+  ["agent:l1", "search:kb", (c) => list(c, "kb_article", { q: "چاپگر", size: 5, total: false, fields: ["number", "title"] })],
+  ["agent:l1", "search:number", (c) => list(c, "incident", { q: "INC0012345", size: 5, total: false })],
   ["agent:l1", "agg:priority", (c) => engine.aggregate(c, "incident", { filter: { and: [MINE, ACTIVE] }, groupBy: ["priority"], metrics: [{ fn: "count" }] })],
   ["agent:l1", "agg:months", (c) => engine.aggregate(c, "incident", { filter: { f: "opened_at", op: "relative", v: { unit: "month", n: 6, dir: "past" } }, groupBy: [{ field: "opened_at", bucket: "month" }], metrics: [{ fn: "count" }] })],
-  ["requester", "list:mine", (c) => engine.list(c, "incident", { sort: "-updated_at", size: 50 })],
-  ["requester", "list:mine_requests", (c) => engine.list(c, "request", { sort: "-updated_at", size: 50 })],
-  ["head:province", "list:unit_tree", (c) => engine.list(c, "incident", { sort: "-updated_at", size: 50 })],
-  ["head:region", "list:unit_tree", (c) => engine.list(c, "incident", { sort: "-updated_at", size: 50 })],
-  ["manager:desk", "list:all_recent", (c) => engine.list(c, "incident", { sort: "-updated_at", size: 50 })],
+  ["requester", "list:mine", (c) => list(c, "incident", { sort: "-updated_at", size: 50 })],
+  ["requester", "list:mine_requests", (c) => list(c, "request", { sort: "-updated_at", size: 50 })],
+  ["head:province", "list:unit_tree", (c) => list(c, "incident", { sort: "-updated_at", size: 50 })],
+  ["head:region", "list:unit_tree", (c) => list(c, "incident", { sort: "-updated_at", size: 50 })],
+  ["manager:desk", "list:all_recent", (c) => list(c, "incident", { sort: "-updated_at", size: 50 })],
   ["manager:desk", "agg:state_all", (c) => engine.aggregate(c, "incident", { groupBy: ["state"], metrics: [{ fn: "count" }] })],
   ["agent:l1", "record:get+journal+history", async (c) => {
     const r = await engine.list(c, "incident", { filter: { and: [MINE, ACTIVE] }, size: 1, total: false });

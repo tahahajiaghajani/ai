@@ -77,7 +77,7 @@ export async function aggregate(ctx: Ctx, table: string, p: AggregateParams): Pr
   const visible = access().visibleFields(ctx, def);
   const whereOf = (params: unknown[]) => {
     const where = [readable(ctx, def, "t", params, env)];
-    if (filter) where.push(toSql(filter, def, "t", params, env, { ctx, lookup: schema.lookup }));
+    if (filter) where.push(toSql(filter, def, "t", params, env, { ctx, lookup: schema.lookup, filter: true }));
     if (typeof p.where === "function") where.push(p.where("t", params));
     if (p.q) {
       const s = searchSql(def, "t", p.q, params, (f) => !visible || visible.has(f.name));

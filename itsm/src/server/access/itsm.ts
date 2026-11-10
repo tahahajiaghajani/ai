@@ -10,12 +10,28 @@ import {
 import type { Ctx } from "../context";
 import type { Queryable } from "../db";
 import type { AccessProvider } from "./provider";
-import { participantSources, readSql } from "./predicate";
+import { participantSources, readSql, type ParticipantSource } from "./predicate";
 import { prepareSubject, preparedOf, subjectOf } from "./subject";
 import { physicalTables } from "@shared/tables";
 
 /** Per request: the tables a member takes part in through `grant` participant sources (one query per source). */
 const participationCache = new WeakMap<Ctx, Promise<ReadonlySet<string>>>();
+/** Per request and source: the tables its `tables()` names for the member (one cheap query per source and request). */
+const sourceTables = new WeakMap<Ctx, Map<ParticipantSource, Promise<ReadonlySet<string>>>>();
+/** Per request and table: the participant sources that name none of its rows for the member (prepareRead). */
+const absentSources = new WeakMap<Ctx, Map<string, ReadonlySet<ParticipantSource>>>();
+
+function tablesOf(ctx: Ctx, q: Queryable, src: ParticipantSource, orgId: string, userId: string): Promise<ReadonlySet<string>> {
+  let m = sourceTables.get(ctx);
+  if (!m) sourceTables.set(ctx, (m = new Map()));
+  let p = m.get(src);
+  if (!p) {
+    p = src.tables!(q, orgId, userId).then((keys) => new Set(keys));
+    m.set(src, p);
+    p.catch(() => m!.delete(src));
+  }
+  return p;
+}
 
 async function participationsOf(ctx: Ctx, q: Queryable): Promise<ReadonlySet<string>> {
   const s = subjectOf(ctx);
@@ -25,10 +41,30 @@ async function participationsOf(ctx: Ctx, q: Queryable): Promise<ReadonlySet<str
     if ((src.reach ?? "scoped") !== "grant") continue;
     const applies = physicalTables().filter((d) => src.sql(d, "t", [], s.userId) !== null);
     if (!applies.length) continue;
-    const named = src.tables ? new Set(await src.tables(q, s.orgId, s.userId)) : null;
+    const named = src.tables ? await tablesOf(ctx, q, src, s.orgId, s.userId) : null;
     for (const d of applies) if (!named || named.has(d.key)) out.add(d.key);
   }
   return out;
+}
+
+/**
+ * Before lists, aggregates and record reads of `def` (the engine's canOpenRecords): which participant sources name
+ * no row of the table for this member right now — per request, from each source's own `tables()` query. Their terms
+ * are left out of `readWhere` for this request: they would select nothing, and an OR term that no index answers (a
+ * correlated subquery) would turn every list into a scan of the table. Sources without `tables()` always stay.
+ */
+async function prepareReadOf(ctx: Ctx, def: TableDef, q: Queryable): Promise<void> {
+  const s = subjectOf(ctx);
+  if (s.kind !== "user" || def.virtual) return;
+  let m = absentSources.get(ctx);
+  if (m?.has(def.key)) return;
+  const absent = new Set<ParticipantSource>();
+  for (const src of participantSources()) {
+    if (!src.tables || src.sql(def, "t", [], s.userId) === null) continue;
+    if (!(await tablesOf(ctx, q, src, s.orgId, s.userId)).has(def.key)) absent.add(src);
+  }
+  if (!m) absentSources.set(ctx, (m = new Map()));
+  m.set(def.key, absent);
 }
 
 const visibleCache = new WeakMap<Subject, Map<TableDef, ReadonlySet<string> | null>>();
@@ -47,7 +83,10 @@ function visible(s: Subject, def: TableDef): ReadonlySet<string> | null {
 export const itsmProvider: AccessProvider = {
   name: "itsm",
   readWhere(ctx, def, alias, params) {
-    return readSql(subjectOf(ctx), def, alias, params);
+    return readSql(subjectOf(ctx), def, alias, params, { absent: absentSources.get(ctx)?.get(def.key) });
+  },
+  prepareRead(ctx, def, q) {
+    return prepareReadOf(ctx, def, q);
   },
   canReadTable(ctx, def) {
     const s = subjectOf(ctx);

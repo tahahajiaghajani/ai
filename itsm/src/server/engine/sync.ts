@@ -30,7 +30,7 @@ import { readAggregates } from "../sync/apply";
 import { access } from "../access/provider";
 import { condEnv, isSystemCtx } from "./env";
 import { orgSchema, type OrgSchema } from "./schema";
-import { readable, writableRule } from "./sql";
+import { readable, SEARCH_COLUMN, writableRule } from "./sql";
 import { coerceValue, FieldError, KEEP } from "./values";
 import { canOpenRecords, fromDb, type Row } from "./read";
 import { recordEvents, sameValue, stateEffects } from "./write";
@@ -379,6 +379,8 @@ export async function pullEngine(ctx: Ctx, agg: AggregateDef, cursor: number, up
 export async function replicaRows(q: Queryable, ctx: Ctx, agg: AggregateDef, rows: Row[]): Promise<EnginePull> {
   const out: EnginePull = { aggregates: [], tombstones: [] };
   if (!rows.length) return out;
+  // the stored search document holds every search field's text (hidden ones too): it never goes down
+  for (const r of rows) for (const k of Object.keys(r)) if (SEARCH_COLUMN.test(k)) delete r[k];
   const schema = await orgSchema(ctx, q);
   const env = await condEnv(ctx);
   let ok: Set<string>;

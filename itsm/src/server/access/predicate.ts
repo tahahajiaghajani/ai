@@ -3,6 +3,12 @@
 // so counts, pages, sorts, aggregates, exports, search and sync pulls are exact. Subject constants travel as
 // parameters ($n): member group ids as uuid[] (`= any($n::uuid[])`), the caller as uuid or — for jsonb arrays of
 // users — text (`?`). tests/access-parity.test.ts proves SQL == JS on random organisations.
+//
+// The predicate is a row filter only (WHERE, JOIN … ON — never negated, never selected as a value), so its terms are
+// plain comparisons — `t.caller_id = $2::uuid`, `t.assignment_group_id = any($3::uuid[])`, `t.watch_list ? $4` — that
+// PostgreSQL answers from the anchor and own-field indexes (a BitmapOr of index scans for a requester or an agent);
+// a NULL term selects exactly what `false` selects there, so wrapping each in `coalesce(…, false)` changed nothing
+// but kept every index out of reach (docs/PERFORMANCE_FA.md §۶).
 import type { TableDef } from "@shared/model/types";
 import {
   grantIn, restrictedOutside, scopeColumns, secureOutside, type Scope, type ScopeColumns, type Subject,
@@ -59,6 +65,15 @@ export function grantSourcesFor(def: TableDef): ParticipantSource[] {
   return sources.filter((src) => reachOf(src) === "grant" && src.sql(def, "t", [], "00000000-0000-0000-0000-000000000000") !== null);
 }
 
+/** Per-request knowledge the predicate may use to stay small (never to grant more). */
+export interface ReadSqlOptions {
+  /**
+   * Participant sources that name no row of this table for this subject right now (their `tables()` said so for this
+   * request): their terms are left out — they would select nothing — so the remaining terms stay index-friendly.
+   */
+  absent?: ReadonlySet<ParticipantSource>;
+}
+
 class Builder {
   private me: { uuid?: string; text?: string } = {};
   constructor(
@@ -66,7 +81,14 @@ class Builder {
     readonly c: ScopeColumns,
     readonly alias: string,
     readonly params: unknown[],
+    readonly opts: ReadSqlOptions = {},
   ) {}
+
+  /** the participant sources this predicate consults */
+  sources(): readonly ParticipantSource[] {
+    const absent = this.opts.absent;
+    return absent?.size ? sources.filter((src) => !absent.has(src)) : sources;
+  }
 
   p(v: unknown): string {
     this.params.push(v);
@@ -83,15 +105,15 @@ class Builder {
   meText(): string {
     return (this.me.text ??= `${this.p(this.s.userId)}::text`);
   }
-  /** column (a uuid, or a jsonb array of uuids when `array`) holds the caller */
+  /** column (a uuid, or a jsonb array of uuids when `array`) holds the caller — an index condition (btree / GIN) */
   holdsMe(name: string, array: boolean): string {
-    return array ? `coalesce(${this.col(name)} ? ${this.meText()}, false)` : `coalesce(${this.col(name)} = ${this.meUuid()}, false)`;
+    return array ? `${this.col(name)} ? ${this.meText()}` : `${this.col(name)} = ${this.meUuid()}`;
   }
-  /** column holds one of `ids` */
+  /** column holds one of `ids` — an index condition */
   holdsAny(name: string, array: boolean, ids: readonly string[]): string {
     if (!ids.length) return "false";
     const list = this.p(pgArray([...ids]));
-    return array ? `coalesce(${this.col(name)} ?| ${list}::text[], false)` : `coalesce(${this.col(name)} = any(${list}::uuid[]), false)`;
+    return array ? `${this.col(name)} ?| ${list}::text[]` : `${this.col(name)} = any(${list}::uuid[])`;
   }
   /** column is null or not one of `ids` */
   noneOf(name: string, ids: readonly string[]): string {
@@ -129,7 +151,7 @@ class Builder {
       const t = this.holdsAny(f.name, f.array, this.s.delegators);
       if (t !== "false") terms.push(t);
     }
-    for (const src of sources) {
+    for (const src of this.sources()) {
       if (src.bounded) continue;
       const t = src.sql(def, this.alias, this.params, this.s.userId);
       if (t) terms.push(`(${t})`);
@@ -140,7 +162,7 @@ class Builder {
   /** participants of bounded sources (they read within secure workspaces and restricted groups only) */
   boundedParticipant(def: TableDef, grantOnly = false): string {
     const terms: string[] = [];
-    for (const src of sources) {
+    for (const src of this.sources()) {
       if (!src.bounded || (grantOnly && reachOf(src) !== "grant")) continue;
       const t = src.sql(def, this.alias, this.params, this.s.userId);
       if (t) terms.push(`(${t})`);
@@ -151,7 +173,7 @@ class Builder {
   /** The unbounded participant sources of reach `grant` (the approver grant…): they read the row without an area grant. */
   granted(def: TableDef): string {
     const terms: string[] = [];
-    for (const src of sources) {
+    for (const src of this.sources()) {
       if (reachOf(src) !== "grant" || src.bounded) continue;
       const t = src.sql(def, this.alias, this.params, this.s.userId);
       if (t) terms.push(`(${t})`);
@@ -165,7 +187,7 @@ class Builder {
     if (scope === "all") return "true";
     if (scope === "none" || scope === "own") return "false";
     const terms = [c.group ? this.holdsAny(c.group, false, write ? this.s.writeGroups : this.s.groups) : "false"];
-    if (scope === "unit") terms.push(this.s.unitId ? `coalesce(${this.col(c.unit)} = ${this.p(this.s.unitId)}::uuid, false)` : "false");
+    if (scope === "unit") terms.push(this.s.unitId ? `${this.col(c.unit)} = ${this.p(this.s.unitId)}::uuid` : "false");
     if (scope === "unit_tree" || scope === "domain") terms.push(this.holdsAny(c.unit, false, this.s.unitTree));
     if (scope === "domain") terms.push(this.s.domainSeparation ? this.nullOrAny(c.domain, this.s.domainTree) : "true");
     return or(terms);
@@ -239,17 +261,18 @@ function compact(sql: string, params: unknown[], start: number): string {
 }
 
 /** The rows of `def` (aliased `alias`) the subject may read — tenant isolation included, deleted rows not filtered. */
-export function readSql(s: Subject, def: TableDef, alias: string, params: unknown[]): string {
+export function readSql(s: Subject, def: TableDef, alias: string, params: unknown[], opts: ReadSqlOptions = {}): string {
   const start = params.length;
-  return compact(readTerms(s, def, alias, params), params, start);
+  return compact(readTerms(s, def, alias, params, 0, opts), params, start);
 }
 
 /**
  * A parent-scoped table's rule (`scope.parent`): its own terms and, when the row names a parent, the parent's whole
  * read rule on that parent (`exists`) — the SQL twin of `parentOk` with `parentReadable` (evaluate.ts).
  */
-function readTerms(s: Subject, def: TableDef, alias: string, params: unknown[], depth = 0): string {
-  const own = rowTerms(s, def, alias, params);
+function readTerms(s: Subject, def: TableDef, alias: string, params: unknown[], depth = 0, opts: ReadSqlOptions = {}): string {
+  // what a request knows about this table's participants does not hold for a parent table
+  const own = rowTerms(s, def, alias, params, depth === 0 ? opts : {});
   if (s.kind === "system" || def.virtual || own === "false") return own;
   const parent = scopeColumns(def).parent;
   if (!parent) return own;
@@ -263,7 +286,7 @@ function readTerms(s: Subject, def: TableDef, alias: string, params: unknown[], 
   return and([own, term]);
 }
 
-function rowTerms(s: Subject, def: TableDef, alias: string, params: unknown[]): string {
+function rowTerms(s: Subject, def: TableDef, alias: string, params: unknown[], opts: ReadSqlOptions = {}): string {
   params.push(s.orgId);
   const org = `${alias}.org_id = $${params.length}`;
   if (s.kind === "system" || def.virtual) return org;
@@ -271,13 +294,13 @@ function rowTerms(s: Subject, def: TableDef, alias: string, params: unknown[]): 
   const c = scopeColumns(def);
   if (g.read === "none") {
     // the participant grant: rows a `grant` source names, under the domain and confidentiality rules
-    const b = new Builder(s, c, alias, params);
+    const b = new Builder(s, c, alias, params, opts);
     const granted = or([b.granted(def), and([b.boundedParticipant(def, true), b.secure(), b.restricted()])]);
     if (granted === "false") return "false";
     return and([org, b.domain(), b.confidential(hasGroup(s, c.confidentialGroup)), granted]);
   }
   if (c.public) return org;
-  const b = new Builder(s, c, alias, params);
+  const b = new Builder(s, c, alias, params, opts);
   const restricted = b.restricted();
   const terms = [b.own(def), and([b.scope(g.read, false), b.workspace(), restricted]), and([or([b.requesterSide(), b.boundedParticipant(def)]), b.secure(), restricted])];
   return and([org, b.domain(), b.confidential(hasGroup(s, c.confidentialGroup)), or(terms)]);

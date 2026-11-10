@@ -46,6 +46,7 @@ const listBody = z.object({
   ids: z.array(z.string()).max(500).optional(),
   view: z.string().uuid().optional(),
   total: z.boolean().optional(),
+  after: z.string().max(400).optional(),
 });
 
 function listQuery(c: C): records.ListParams {
@@ -60,6 +61,7 @@ function listQuery(c: C): records.ListParams {
     ids: csv(q.ids),
     view: q.view || undefined,
     total: q.total === "false" ? false : undefined,
+    after: q.after ? String(q.after).slice(0, 400) : undefined,
   };
 }
 
@@ -81,11 +83,12 @@ recordRoutes.get("/meta/tables/:key", async (c) => c.json(await tableMeta(c.get(
 
 // --- collection ---------------------------------------------------------------------------------------------------
 
-recordRoutes.get("/r/:table", async (c) => c.json(await records.list(c.get("ctx"), c.req.param("table"), listQuery(c))));
+// lists count up to COUNT_LIMIT matching rows («بیش از ۱۰٬۰۰۰» beyond it): an exact count of millions reads them all
+recordRoutes.get("/r/:table", async (c) => c.json(await records.list(c.get("ctx"), c.req.param("table"), { ...listQuery(c), countLimit: records.COUNT_LIMIT })));
 
 recordRoutes.post("/r/:table/query", async (c) => {
   const p = await body(c, listBody);
-  return c.json(await records.list(c.get("ctx"), c.req.param("table"), p));
+  return c.json(await records.list(c.get("ctx"), c.req.param("table"), { ...p, countLimit: records.COUNT_LIMIT }));
 });
 
 recordRoutes.post("/r/:table", async (c) => {

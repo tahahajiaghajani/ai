@@ -18,6 +18,7 @@ import aiMl from "./0064_ai_ml";
 import portal from "./0067_portal";
 import portalSurveys from "./0070_portal_surveys";
 import adminIntegration from "./0080_admin_integration";
+import scale from "./0095_scale";
 import { ddlForAll } from "../../engine/ddl";
 
 export interface Migration {
@@ -54,6 +55,7 @@ export const MIGRATIONS: Migration[] = [
   { id: "0067_portal", title: "درگاه سلف‌سرویس: جریان رویدادهای درگاه و گزارش پیام‌های کانال‌های پیام‌رسان", sql: portal },
   { id: "0070_portal_surveys", title: "درگاه سلف‌سرویس: پاسخ‌های نظرسنجی بی‌نام در انتظار ثبت دسته‌ای", sql: portalSurveys },
   { id: "0080_admin_integration", title: "مدیریت و اتصال‌ها: طرح‌ها، کلیدهای قابلیت، اطلاعیه‌ها، پشتیبان‌ها، کلیدهای API کاربران یکپارچه‌سازی، گزارش اتصال‌ها و فهرست کاربران", sql: adminIntegration },
+  { id: "0095_scale", title: "مقیاس بانکی: جست‌وجوی سه‌حرفی (pg_trgm) و نمایه‌های BRIN جریان‌های افزایشی", sql: scale },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].id;
