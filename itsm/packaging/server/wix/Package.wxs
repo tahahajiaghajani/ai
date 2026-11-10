@@ -5,6 +5,10 @@
   LicenseRtf. MSI tables hold only ASCII text; the Persian display names belong to the Windows services (WinSW XML).
 
   Silent install:   msiexec /i Kariz-Server-x.y.z.msi /qn HOSTNAME=kariz.bank.local PORT=443 DATADIR=D:\Kariz CERTPATH=C:\certs\kariz.pfx CERTPASSWORD=…
+                    PORT / HTTPPORT / PGPORT empty or auto: the first free of 443, 8443, 9443 … / 80, 8080, 8081 … / 5432, 5433 …
+                    (kept from kariz.json on an upgrade); HTTPPORT=0 turns HTTP off; a given port that is busy stops the install.
+  Lab or laptop:    double-click (the «Server settings» dialog: host name, ports, data folder); add /l*v install.log for a log.
+  A failure:        the reason is in <DATADIR>\logs\install-error.txt and the Application event log (source Kariz).
   Upgrade:          msiexec /i <newer MSI> /qn (pre-upgrade pg_dump backup, services replaced, migrations, start; ports and the
                     data folder are kept unless given; a failed upgrade rolls back and starts the old version again)
   Uninstall:        msiexec /x Kariz-Server-x.y.z.msi /qn            (data kept)
@@ -19,11 +23,31 @@
     <Launch Condition="VersionNT64" Message="[ProductName] requires 64-bit Windows Server 2019, 2022 or 2025 (Windows 10/11 for labs)." />
     <Launch Condition="Privileged" Message="[ProductName] must be installed by an administrator." />
     <Launch Condition="Installed OR PhysicalMemory &gt;= 3800" Message="[ProductName] needs at least 4 GB of memory (16 GB recommended)." />
+    <!-- the preflight before any file is copied (install.ps1 repeats it with karizctl preflight, which also checks the
+         data folder's disk, a pending restart and the ports): an x64 processor (not ARM64), Windows build 17763 or later,
+         and no Group Policy that stops PowerShell scripts (install.ps1 is one) -->
+    <Property Id="KARIZARCH">
+      <RegistrySearch Id="KarizArch" Root="HKLM" Key="SYSTEM\CurrentControlSet\Control\Session Manager\Environment" Name="PROCESSOR_ARCHITECTURE" Type="raw" Bitness="always64" />
+    </Property>
+    <Property Id="KARIZBUILD">
+      <RegistrySearch Id="KarizBuild" Root="HKLM" Key="SOFTWARE\Microsoft\Windows NT\CurrentVersion" Name="CurrentBuildNumber" Type="raw" Bitness="always64" />
+    </Property>
+    <Property Id="KARIZPSENABLE">
+      <RegistrySearch Id="KarizPsEnable" Root="HKLM" Key="SOFTWARE\Policies\Microsoft\Windows\PowerShell" Name="EnableScripts" Type="raw" Bitness="always64" />
+    </Property>
+    <Property Id="KARIZPSPOLICY">
+      <RegistrySearch Id="KarizPsPolicy" Root="HKLM" Key="SOFTWARE\Policies\Microsoft\Windows\PowerShell" Name="ExecutionPolicy" Type="raw" Bitness="always64" />
+    </Property>
+    <Launch Condition="Installed OR NOT KARIZARCH OR KARIZARCH = &quot;AMD64&quot;" Message="[ProductName] needs 64-bit Windows on an x64 (Intel or AMD) processor; this computer is [KARIZARCH]." />
+    <Launch Condition="Installed OR NOT KARIZBUILD OR KARIZBUILD &gt;= 17763" Message="[ProductName] needs Windows Server 2019 or Windows 10 version 1809 (build 17763) or later; this is build [KARIZBUILD]." />
+    <Launch Condition="Installed OR NOT (KARIZPSENABLE = &quot;#0&quot; OR KARIZPSPOLICY ~= &quot;AllSigned&quot;)" Message="A Group Policy (Turn on Script Execution) blocks the PowerShell scripts that set up [ProductName]. Ask your administrator to allow local scripts (RemoteSigned) on this computer, then run Setup again." />
 
     <Property Id="HOSTNAME" Secure="yes" />
-    <!-- no defaults: install.ps1 keeps the ports of kariz.json on a re-install or upgrade, 443 / 80 on a first install -->
+    <!-- no defaults: empty (or auto) keeps the ports of kariz.json on a re-install or upgrade, else install.ps1 takes the
+         first free port (443 / 80 / 5432, then 8443 / 8080 / 5433 …) -->
     <Property Id="PORT" Secure="yes" />
     <Property Id="HTTPPORT" Secure="yes" />
+    <Property Id="PGPORT" Secure="yes" />
     <!-- an existing installation's data folder is used again, unless DATADIR is given on the command line -->
     <Property Id="DATADIR" Value="$(var.DataDirDefault)" Secure="yes" />
     <Property Id="PREVIOUSDATADIR" Secure="yes">
@@ -37,6 +61,18 @@
     <Property Id="AIRGAPPED" Value="1" Secure="yes" />
     <Property Id="WORKERS" Value="0" Secure="yes" />
     <Property Id="REMOVEDATA" Value="0" Secure="yes" />
+    <!-- the «Server settings» dialog's defaults (a double-click install only: silent installs keep empty = automatic):
+         ports on auto, the host name this computer's DNS name (not on an upgrade, which keeps its address) -->
+    <Property Id="KARIZTCPHOST">
+      <RegistrySearch Id="KarizTcpHost" Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" Name="Hostname" Type="raw" Bitness="always64" />
+    </Property>
+    <Property Id="KARIZTCPDOMAIN">
+      <RegistrySearch Id="KarizTcpDomain" Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" Name="Domain" Type="raw" Bitness="always64" />
+    </Property>
+    <SetProperty Id="PORT" Action="KarizUiPort" Value="auto" After="AppSearch" Sequence="ui" Condition="NOT PORT" />
+    <SetProperty Id="HTTPPORT" Action="KarizUiHttpPort" Value="auto" After="AppSearch" Sequence="ui" Condition="NOT HTTPPORT" />
+    <SetProperty Id="HOSTNAME" Action="KarizUiFqdn" Value="[KARIZTCPHOST].[KARIZTCPDOMAIN]" After="AppSearch" Sequence="ui" Condition="NOT HOSTNAME AND NOT WIX_UPGRADE_DETECTED AND NOT PREVIOUSDATADIR AND KARIZTCPHOST AND KARIZTCPDOMAIN" />
+    <SetProperty Id="HOSTNAME" Action="KarizUiHost" Value="[KARIZTCPHOST]" After="KarizUiFqdn" Sequence="ui" Condition="NOT HOSTNAME AND NOT WIX_UPGRADE_DETECTED AND NOT PREVIOUSDATADIR AND KARIZTCPHOST" />
     <!-- the product's icon (desktop/build/icon.ico: the brand's mark when it lands) -->
     <Icon Id="ProductIcon" SourceFile="$(var.IconFile)" />
     <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
@@ -55,10 +91,14 @@
       <ComponentGroupRef Id="Payload" />
     </Feature>
 
-    <!-- install, re-install and upgrade (new version's side): scripts\install.ps1 (idempotent) -->
-    <SetProperty Id="KarizInstall" Before="KarizInstall" Sequence="execute" Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]scripts\install.ps1&quot; -InstallDir &quot;[INSTALLFOLDER].&quot; -DataDir &quot;[DATADIR].&quot; -HostName &quot;[HOSTNAME]&quot; -HttpsPort &quot;[PORT]&quot; -HttpPort &quot;[HTTPPORT]&quot; -CertPath &quot;[CERTPATH]&quot; -CertPassword &quot;[CERTPASSWORD]&quot; -AirGapped &quot;[AIRGAPPED]&quot; -Workers &quot;[WORKERS]&quot;" />
-    <!-- WixSilentExec: the scripts' output (and the one-time setup address) stays out of the MSI log; they keep their own
-         log in <data>\logs, readable by administrators only -->
+    <!-- install, re-install and upgrade (new version's side): scripts\install.ps1 (idempotent). It keeps its own log in
+         <data>\logs (administrators only) and writes a failure's reason to <data>\logs\install-error.txt and the event log.
+         Without a certificate password its output also goes to the MSI log (WixQuietExec, read with /l*v): it never holds
+         a secret (the one-time setup address goes to setup-url.txt only, tokens are masked). With CERTPASSWORD the command
+         line carries the password: then nothing of it reaches the MSI log (WixSilentExec, HideTarget, a hidden property). -->
+    <SetProperty Id="KarizInstallLogged" Before="KarizInstallLogged" Sequence="execute" Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]scripts\install.ps1&quot; -InstallDir &quot;[INSTALLFOLDER].&quot; -DataDir &quot;[DATADIR].&quot; -HostName &quot;[HOSTNAME]&quot; -HttpsPort &quot;[PORT]&quot; -HttpPort &quot;[HTTPPORT]&quot; -PgPort &quot;[PGPORT]&quot; -CertPath &quot;[CERTPATH]&quot; -AirGapped &quot;[AIRGAPPED]&quot; -Workers &quot;[WORKERS]&quot;" />
+    <CustomAction Id="KarizInstallLogged" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec" Execute="deferred" Impersonate="no" Return="check" />
+    <SetProperty Id="KarizInstall" Before="KarizInstall" Sequence="execute" Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]scripts\install.ps1&quot; -InstallDir &quot;[INSTALLFOLDER].&quot; -DataDir &quot;[DATADIR].&quot; -HostName &quot;[HOSTNAME]&quot; -HttpsPort &quot;[PORT]&quot; -HttpPort &quot;[HTTPPORT]&quot; -PgPort &quot;[PGPORT]&quot; -CertPath &quot;[CERTPATH]&quot; -CertPassword &quot;[CERTPASSWORD]&quot; -AirGapped &quot;[AIRGAPPED]&quot; -Workers &quot;[WORKERS]&quot;" />
     <CustomAction Id="KarizInstall" BinaryRef="Wix4UtilCA_X64" DllEntry="WixSilentExec" Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
 
     <!-- upgrade (old version's side): safety backup with pg_dump, services stopped (kept registered); data kept. A failed backup stops the upgrade. -->
@@ -76,11 +116,59 @@
       <Custom Action="KarizPreUpgradeRollback" Before="KarizPreUpgrade" Condition="REMOVE~=&quot;ALL&quot; AND UPGRADINGPRODUCTCODE" />
       <Custom Action="KarizPreUpgrade" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot; AND UPGRADINGPRODUCTCODE" />
       <Custom Action="KarizUninstall" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
-      <Custom Action="KarizInstall" Before="InstallFinalize" Condition="NOT REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="KarizInstallLogged" Before="InstallFinalize" Condition="NOT REMOVE~=&quot;ALL&quot; AND NOT CERTPASSWORD" />
+      <Custom Action="KarizInstall" Before="InstallFinalize" Condition="NOT REMOVE~=&quot;ALL&quot; AND CERTPASSWORD" />
     </InstallExecuteSequence>
 
     <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <!-- «Server settings» after the folder dialog: host name, HTTPS / HTTP port (auto, or a number; HTTP 0 = off) and the
+         data folder, the same properties as a silent install. English: WiX ships no Persian dialogs. -->
+    <UI Id="KarizSetupUI">
+      <Dialog Id="KarizSetupDlg" Width="370" Height="270" Title="!(loc.InstallDirDlg_Title)">
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
+          <Publish Property="KARIZUIERROR" Value="{}" Order="1" />
+          <Publish Property="KARIZUIERROR" Value="Host name: letters, digits, dots and hyphens only (no spaces, slashes or port)." Order="2" Condition="HOSTNAME &gt;&lt; &quot; &quot; OR HOSTNAME &gt;&lt; &quot;/&quot; OR HOSTNAME &gt;&lt; &quot;:&quot;" />
+          <Publish Property="KARIZUIERROR" Value="HTTPS port: type auto, or a number from 1 to 65535." Order="3" Condition="PORT AND NOT ((PORT ~= &quot;auto&quot;) OR (PORT &gt;= 1 AND PORT &lt;= 65535))" />
+          <Publish Property="KARIZUIERROR" Value="HTTP port: type auto, 0 (HTTP off) or a number from 1 to 65535." Order="4" Condition="HTTPPORT AND NOT ((HTTPPORT ~= &quot;auto&quot;) OR (HTTPPORT &gt;= 0 AND HTTPPORT &lt;= 65535))" />
+          <Publish Property="KARIZUIERROR" Value="The HTTPS and HTTP ports must differ." Order="5" Condition="PORT AND HTTPPORT AND (PORT = HTTPPORT) AND NOT (PORT ~= &quot;auto&quot;)" />
+          <Publish Property="KARIZUIERROR" Value="Data folder: give a full path such as D:\Kariz (not a drive root)." Order="6" Condition="NOT DATADIR OR NOT (DATADIR &gt;&lt; &quot;:\&quot;) OR (DATADIR &gt;&gt; &quot;:\&quot;) OR (DATADIR &gt;&gt; &quot;:&quot;)" />
+          <Publish Event="SpawnDialog" Value="KarizInvalidDlg" Order="7" Condition="KARIZUIERROR" />
+          <Publish Event="NewDialog" Value="VerifyReadyDlg" Order="8" Condition="NOT KARIZUIERROR" />
+        </Control>
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)">
+          <Publish Event="NewDialog" Value="InstallDirDlg" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="15" Transparent="yes" NoPrefix="yes" Text="The address users open, the ports and the data folder." />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" Text="{\WixUI_Font_Title}Server settings" />
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="!(loc.InstallDirDlgBannerBitmap)" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="HostLabel" Type="Text" X="20" Y="52" Width="330" Height="10" Text="&amp;Host name (empty: this computer's name):" />
+        <Control Id="HostEdit" Type="Edit" X="20" Y="63" Width="330" Height="18" Property="HOSTNAME" Text="{253}" />
+        <Control Id="HttpsLabel" Type="Text" X="20" Y="88" Width="160" Height="10" Text="HTTP&amp;S port (auto: 443, else 8443 ...):" />
+        <Control Id="HttpsEdit" Type="Edit" X="20" Y="99" Width="120" Height="18" Property="PORT" Text="{5}" />
+        <Control Id="HttpLabel" Type="Text" X="190" Y="88" Width="160" Height="10" Text="HT&amp;TP port (auto, or 0 = off):" />
+        <Control Id="HttpEdit" Type="Edit" X="190" Y="99" Width="120" Height="18" Property="HTTPPORT" Text="{5}" />
+        <Control Id="DataLabel" Type="Text" X="20" Y="124" Width="330" Height="10" Text="&amp;Data folder (database, attachments, backups, logs):" />
+        <Control Id="DataEdit" Type="Edit" X="20" Y="135" Width="330" Height="18" Property="DATADIR" Text="{240}" />
+        <Control Id="Hint" Type="Text" X="20" Y="162" Width="330" Height="66" NoPrefix="yes" Text="Ports on auto take 443 and 80, or the next free ones (8443, 8080 ...) when another program (IIS, Skype, VMware, Docker) holds them. The address to open is written to setup-url.txt in the data folder. If Setup fails, the reason is in logs\install-error.txt there." />
+      </Dialog>
+      <Dialog Id="KarizInvalidDlg" Width="260" Height="85" Title="!(loc.InvalidDirDlg_Title)">
+        <Control Id="OK" Type="PushButton" X="102" Y="57" Width="56" Height="17" Default="yes" Cancel="yes" Text="!(loc.WixUIOK)">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+        <Control Id="Text" Type="Text" X="48" Y="15" Width="194" Height="36" NoPrefix="yes" Text="[KARIZUIERROR]" />
+        <Control Id="Icon" Type="Icon" X="15" Y="15" Width="24" Height="24" FixedSize="yes" IconSize="32" Text="!(loc.InvalidDirDlgIcon)" />
+      </Dialog>
+      <!-- the folder dialog's Next and the summary's Back go through it (a later NewDialog of the same button wins) -->
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="KarizSetupDlg" Order="5" Condition="WIXUI_DONTVALIDATEPATH OR WIXUI_INSTALLDIR_VALID=&quot;1&quot;" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="KarizSetupDlg" Order="5" Condition="NOT Installed" />
+    </UI>
+    <!-- the failure dialog's text (Package.en-us.wxl: build-msi.ps1 passes -culture en-US -loc) names install-error.txt -->
     <WixVariable Id="WixUILicenseRtf" Value="$(var.LicenseRtf)" />
-    <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT" Value="The one-time first-run setup address was written to setup-url.txt in the data folder ($(var.DataDirDefault) unless you chose another). Open it in a browser on this server to create the organisation and its administrator. Lost it? Run: karizctl setup-token" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT" Value="The one-time first-run setup address (with its port when 443 was busy) was written to setup-url.txt in the data folder ($(var.DataDirDefault) unless you chose another). Open it in a browser on this server to create the organisation and its administrator. Lost it? Run: karizctl setup-token" />
   </Package>
 </Wix>

@@ -110,8 +110,17 @@ describe("Package.wxs", () => {
 
   it("keeps CERTPASSWORD and the setup address out of the MSI log", () => {
     expect(x).toMatch(/<Property Id="KarizInstall" Hidden="yes" \/>/);
-    expect(x).not.toContain("WixQuietExec");
     for (const id of ["KarizInstall", "KarizPreUpgrade", "KarizPreUpgradeRollback", "KarizUninstall"]) expect(x).toMatch(new RegExp(`<CustomAction Id="${id}"[^>]*DllEntry="WixSilentExec"`));
+    expect(x).toMatch(/<CustomAction Id="KarizInstall"[^>]*HideTarget="yes"/);
+    // the logged variant (its output reaches the MSI log, /l*v) never carries the password and runs only without one
+    const logged = /<SetProperty Id="KarizInstallLogged"[^>]*Value="([^"]*)"/.exec(x)![1];
+    expect(logged).toContain("install.ps1");
+    expect(logged).not.toContain("CERTPASSWORD");
+    expect(logged).not.toContain("-CertPassword");
+    expect(x).toMatch(/<CustomAction Id="KarizInstallLogged"[^>]*DllEntry="WixQuietExec"/);
+    expect(x).toContain('<Custom Action="KarizInstallLogged" Before="InstallFinalize" Condition="NOT REMOVE~=&quot;ALL&quot; AND NOT CERTPASSWORD" />');
+    expect(x).toContain('<Custom Action="KarizInstall" Before="InstallFinalize" Condition="NOT REMOVE~=&quot;ALL&quot; AND CERTPASSWORD" />');
+    expect(x.match(/DllEntry="WixQuietExec"/g)).toHaveLength(1);
   });
 
   it("rolls a failed upgrade back to running services", () => {
@@ -123,6 +132,10 @@ describe("Package.wxs", () => {
   it("gives PORT and HTTPPORT no defaults (install.ps1 keeps the configured ones)", () => {
     expect(x).toMatch(/<Property Id="PORT" Secure="yes" \/>/);
     expect(x).toMatch(/<Property Id="HTTPPORT" Secure="yes" \/>/);
+    expect(x).toMatch(/<Property Id="PGPORT" Secure="yes" \/>/);
+    // «auto» only for the dialog of a double-click install (InstallUISequence): the same as empty for install.ps1
+    expect(x).toContain('<SetProperty Id="PORT" Action="KarizUiPort" Value="auto" After="AppSearch" Sequence="ui" Condition="NOT PORT" />');
+    expect(x).toContain('<SetProperty Id="HTTPPORT" Action="KarizUiHttpPort" Value="auto" After="AppSearch" Sequence="ui" Condition="NOT HTTPPORT" />');
   });
 
   it("uses the remembered data folder only when DATADIR was not given on the command line", () => {

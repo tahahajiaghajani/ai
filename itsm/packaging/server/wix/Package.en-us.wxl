@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The server MSI's own English texts in place of WixUI's (build-msi.ps1: wix build -culture en-US -loc this file). A
+  failed install ends on WixUI's FatalError dialog (the custom action runs install.ps1 through WixQuietExec, so Windows
+  Installer has no error text of its own to show): it now says where the reason is. ASCII only.
+-->
+<WixLocalization Culture="en-US" xmlns="http://wixtoolset.org/schemas/v4/wxl">
+  <String Id="FatalErrorDescription1" Value="[ProductName] Setup stopped because of an error; your system has not been modified. The reason is written to [DATADIR]\logs\install-error.txt and to the Windows Application event log (source Kariz)." />
+  <String Id="FatalErrorDescription2" Value="Fix it (often a busy port, a full disk or an antivirus block) and run Setup again. A full log: msiexec /i (the .msi file) /l*v install.log" />
+</WixLocalization>
