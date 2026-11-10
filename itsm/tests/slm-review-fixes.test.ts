@@ -191,7 +191,7 @@ describe("service level management", () => {
       const meta = await who.client.get(`${P}/meta/tables/slm_xla_score`);
       expect(meta.table.can.read).toBe(true);
       expect(meta.table.can.create).toBe(false);
-      await who.client.post(`${P}/r/slm_xla_score`, { table_key: "incident", record_number: "INC-1", score: "0" }, 403);
+      await who.client.post(`${P}/r/slm_xla_score`, { table_key: "incident", record_id: uuidv7(), record_number: "INC-1", score: "0" }, 403);
     }
     // the owner sees a «… تازه» only where people write
     expect((await o.get(`${P}/meta/tables/incident`)).table.can.create).toBe(true);

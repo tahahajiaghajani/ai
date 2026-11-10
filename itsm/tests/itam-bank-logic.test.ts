@@ -142,3 +142,27 @@ describe("tags, attestation periods, device classes", () => {
     expect(deviceClass("pos")?.fleet).toBe(false);
   });
 });
+
+describe("custody digest and wipe readiness (1.1 review fixes)", () => {
+  it("keys the custody digest so a client cannot recompute it; the unkeyed form stays for 1.0 chains", async () => {
+    const { custodyDigest, CUSTODY_KEYED } = await import("@server/modules/itam/bank");
+    const row = { asset_id: "01a1c735-9059-7014-b0a7-49b3c4d014a4", seq: 1, at: "2026-11-10T10:00:00.000Z", event: "registered", note: null };
+    const bare = custodyDigest("", row);
+    expect(bare).toMatch(/^[0-9a-f]{64}$/);
+    const k1 = custodyDigest("", row, Buffer.alloc(32, 1));
+    const k2 = custodyDigest("", row, Buffer.alloc(32, 2));
+    expect(k1.startsWith(CUSTODY_KEYED)).toBe(true);
+    expect(k1).not.toBe(k2);
+    expect(k1.slice(CUSTODY_KEYED.length)).not.toBe(bare);
+  });
+
+  it("issues a wipe certificate only with a witness other than the performer", async () => {
+    const { wipeReady } = await import("@server/modules/itam/bank");
+    const a = "01a1c735-9059-7014-b0a7-49b3c4d014a4";
+    const b = "01a1c735-9059-7014-b0a7-49b3c4d014a5";
+    const base = { sanitized_at: "2026-11-10T10:00:00Z", certificate_no: "W-1", sanitization_method: "purge", sanitized_by: a };
+    expect(wipeReady(base)).toBe(false);
+    expect(wipeReady({ ...base, witness_id: a })).toBe(false);
+    expect(wipeReady({ ...base, witness_id: b })).toBe(true);
+  });
+});
