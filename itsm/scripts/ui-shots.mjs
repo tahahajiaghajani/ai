@@ -12,7 +12,7 @@
 // never share one); --no-build serves this checkout's last build there, else its public/.
 //
 // Paths are relative to the organisation (`settings/users`, `` for the home page) unless they start with `/`
-// (`/login`, `/orgs`, `/admin`). `{org}` is replaced by the organisation's id, `{todo}` by a demo «کار» record. A path
+// (`/login`, `/orgs`, `/admin`). `{org}` is replaced by the organisation's id, `{todo}` by a demo «کار» record, `{incident}` by a demo «رخداد». A path
 // ending in `@ai` opens the assistant (Ctrl J) before the screenshot. Default: every route of
 // src/ui/modules/*/index.tsx without parameters, the AI settings tabs, the assistant, the record UI's generic pages
 // on the demo `todo` table (list, board, calendar, timeline, a record, a new record, the generic `r/:table` routes and
@@ -183,7 +183,8 @@ async function main() {
   log(`owner ${OWNER.email}, organisation ${orgId}, ${meta.mode} mode`);
   const todoId = await seedTodos(call, orgId);
   log(`demo «کار» records ready (${todoId})`);
-  const fill = (p) => p.replace(/\{org\}/g, orgId).replace(/\{todo\}/g, todoId);
+  const incidentId = await seedIncident(call, orgId).catch((e) => (log(`demo «رخداد» not created: ${e.message}`), "new"));
+  const fill = (p) => p.replace(/\{org\}/g, orgId).replace(/\{todo\}/g, todoId).replace(/\{incident\}/g, incidentId);
 
   const requested = (list(opt("paths")) ?? defaultPaths(meta.mode === "desktop")).map(fill);
   const target = (p) => {
@@ -322,6 +323,18 @@ async function seedTodos(call, orgId) {
   await call("POST", base, { short_description: "سفارش غلتک یدکی چاپگر", priority: "3", parent_id: ids[0], assigned_to: me, due_at: day(2, 12) });
   await call("POST", `/o/${orgId}/r/view`, { table_key: "todo", name: "فوری‌های باز", shared: true, filter: { and: [{ f: "priority", op: "in", v: ["1", "2"] }, { f: "active", op: "eq", v: true }] }, sort: "-priority", columns: ["number", "short_description", "state", "priority", "assigned_to", "due_at"] });
   return ids[0];
+}
+
+/** A demo «رخداد» (incident) with a reply and a work note, for the record page's screenshot (`{incident}`): created once. */
+async function seedIncident(call, orgId) {
+  const base = `/o/${orgId}/r/incident`;
+  const have = await call("POST", `${base}/query`, { q: "قطع اینترنت شعبهٔ مرکزی", size: 1, total: false });
+  if (have.rows.length) return have.rows[0].id;
+  const me = (await call("GET", "/auth/me")).user.id;
+  const id = (await call("POST", base, { short_description: "قطع اینترنت شعبهٔ مرکزی", description: "از ساعت ۹ صبح هیچ‌یک از رایانه‌های طبقهٔ دوم به اینترنت وصل نمی‌شوند.", impact: "2", urgency: "1", caller_id: me, assigned_to: me })).row.id;
+  await call("POST", `${base}/${id}/journal`, { kind: "comment", body: "سلام؛ مشکل را بررسی می‌کنیم و تا نیم ساعت دیگر خبر می‌دهیم." }).catch(() => {});
+  await call("POST", `${base}/${id}/journal`, { kind: "work_note", body: "سوییچ طبقهٔ دوم پاسخ نمی‌دهد؛ برق رک بررسی شود." }).catch(() => {});
+  return id;
 }
 
 let code = 1;

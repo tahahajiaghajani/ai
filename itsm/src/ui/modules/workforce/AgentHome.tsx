@@ -13,7 +13,7 @@ import { PRESENCE_STATES } from "@shared/tables/workforce";
 import { useOrg } from "../../lib/org";
 import { useAction } from "../../lib/hooks";
 import { PageHeader } from "../../components/layout";
-import { Chip, EmptyState, JDate, Loader } from "../../components/display";
+import { Chip, EmptyState, JDate, Loader, PriorityValue } from "../../components/display";
 import { Card, ICON } from "../../components/blocks";
 import { recordPath } from "../../records";
 import { AtRiskTable } from "../slm/Overview";
@@ -50,7 +50,7 @@ function WorkList({ items, empty }: { items: HomeItem[]; empty: string }) {
             <span className="ds-latin text-ink-3">{i.number}</span> {i.title}
           </Link>
           <span className="wfm-list-meta">
-            {i.priority ? <Chip tone={Number(i.priority) <= 2 ? "danger" : "neutral"} dot={false}>اولویت {toFa(i.priority)}</Chip> : null}
+            {i.priority ? <PriorityValue v={i.priority} /> : null}
             {i.state_label ? <span>{i.state_label}</span> : null}
             {i.sla_due ? <span>موعد <JDate v={i.sla_due} /></span> : null}
             {(i.stale_days ?? 0) >= 3 ? <span className="text-warning">{toFa(i.stale_days!)} روز بی‌تغییر</span> : null}

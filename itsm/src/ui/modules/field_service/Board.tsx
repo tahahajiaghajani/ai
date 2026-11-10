@@ -12,7 +12,7 @@ import { addDays, formatJalali, todayISO, toFa } from "@shared/jalali";
 import { useOrg } from "../../lib/org";
 import { useAction, useNotify } from "../../lib/hooks";
 import { PageHeader } from "../../components/layout";
-import { Chip, EmptyState, Loader } from "../../components/display";
+import { Chip, EmptyState, Loader, PriorityValue } from "../../components/display";
 import { ICON, cx } from "../../components/blocks";
 import { DateInput } from "../../components/inputs";
 import { RecordSelect, recordPath } from "../../records";
@@ -79,11 +79,11 @@ export default function DispatchBoard() {
       <PageHeader
         title="تابلوی توزیع"
         actions={
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <Button aria-label="روز پیش" icon={<ChevronRight {...ICON} />} onClick={() => setDay(addDays(day, -1))} />
-            <DateInput value={day} onChange={(v: string | null) => v && setDay(v)} aria-label="روز تابلو" />
+            <DateInput value={day} onChange={(v: string | null) => v && setDay(v)} aria-label="روز تابلو" className="w-[9.5rem]" />
             <Button aria-label="روز بعد" icon={<ChevronLeft {...ICON} />} onClick={() => setDay(addDays(day, 1))} />
-            <RecordSelect table="territory" value={territory} onChange={(v) => setTerritory((v as string | null) ?? null)} placeholder="همهٔ قلمروها" allowClear className="min-w-[12rem]" aria-label="قلمرو" />
+            <div className="w-[13rem]"><RecordSelect table="territory" value={territory} onChange={(v) => setTerritory((v as string | null) ?? null)} placeholder="همهٔ قلمروها" allowClear aria-label="قلمرو" /></div>
             <Button icon={<RefreshCw {...ICON} />} onClick={refresh} loading={q.isFetching}>تازه‌سازی</Button>
           </div>
         }
@@ -101,7 +101,7 @@ export default function DispatchBoard() {
                 <div key={t.id} className="fs-card" draggable={d.dispatcher} onDragStart={(e) => dragStart(e, String(t.id))}>
                   <div className="flex items-center justify-between gap-2">
                     <button type="button" className="ds-link text-[12px]" onClick={() => nav(`/${orgId}/${recordPath("wo_task", t.id)}`)}>{t.number}</button>
-                    <Chip tone={Number(t.priority) <= 2 ? "danger" : "neutral"}>اولویت {toFa(t.priority ?? "۳")}</Chip>
+                    <PriorityValue v={t.priority ?? 3} />
                   </div>
                   <div className="text-[13px]">{t.short_description}</div>
                   <div className="flex flex-wrap gap-1 text-[12px] text-ink-3">

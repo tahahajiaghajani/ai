@@ -5,6 +5,7 @@
 import type { ExplainLayer, FullGrant, Scope } from "../access";
 import { SCOPE_LABELS } from "../access";
 import { FIELD_GROUPS, type FieldGroup } from "../model/types";
+import { APP_NAME } from "../constants";
 
 export interface ExplainInput {
   user: { name: string };
@@ -38,7 +39,7 @@ const VIA: Record<string, string> = {
 export function explainAccessText(x: ExplainInput): string {
   const who = `«${x.user.name}»`;
   const lines: string[] = [];
-  const roles = x.legacy ? "دسترسی پیشین عضویت (بدون نقش ITSM)" : x.roles.length ? `نقش‌های ${list(x.roles.map((r) => `«${r}»`))}` : "هیچ نقشی";
+  const roles = x.legacy ? `دسترسی پیشین عضویت (بدون نقش در ${APP_NAME})` : x.roles.length ? `نقش‌های ${list(x.roles.map((r) => `«${r}»`))}` : "هیچ نقشی";
   if (x.record) {
     const e = x.record.explanation;
     const rec = `«${x.record.label}»`;

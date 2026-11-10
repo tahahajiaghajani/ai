@@ -126,6 +126,21 @@ export function PriorityChip({ p, children, className }: { p: 1 | 2 | 3 | 4 | 5;
   );
 }
 
+/** The five priorities' words (docs/BRAND_FA.md §4): P1 critical … P5 planning. */
+export const PRIORITY_LABEL: Record<1 | 2 | 3 | 4 | 5, string> = { 1: "بحرانی", 2: "زیاد", 3: "متوسط", 4: "کم", 5: "برنامه‌ریزی" };
+
+/** A record's priority value ("1" … "5" or a number) as its chip with the word; nothing when it is not one of the five. */
+export function PriorityValue({ v, className }: { v: unknown; className?: string }) {
+  const p = Number(v);
+  if (!Number.isInteger(p) || p < 1 || p > 5) return null;
+  const k = p as 1 | 2 | 3 | 4 | 5;
+  return (
+    <PriorityChip p={k} className={className}>
+      {PRIORITY_LABEL[k]}
+    </PriorityChip>
+  );
+}
+
 /** Common record states; a module passes its own map to StatusTag for anything else. */
 const STATUS: Record<string, [string, string]> = {
   draft: ["پیش‌نویس", "default"],
