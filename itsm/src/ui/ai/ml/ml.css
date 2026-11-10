@@ -1,0 +1,48 @@
+/* Predictive AI: the record panel, the create-form suggestions, forecast charts, «پرسش تحلیلی» (tokens only). */
+.ml-panel { display: flex; flex-direction: column; gap: var(--ds-space-3); }
+.ml-item { display: flex; flex-direction: column; gap: var(--ds-space-1); padding-block-end: var(--ds-space-2); border-block-end: 1px solid var(--ds-line); }
+.ml-item:last-of-type { border-block-end: 0; }
+.ml-head { display: flex; align-items: center; justify-content: space-between; gap: var(--ds-space-2); }
+.ml-field { color: var(--ds-text-3); font-size: 12px; }
+.ml-value { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-2); color: var(--ds-text); }
+.ml-score { color: var(--ds-text-2); }
+.ml-muted { color: var(--ds-text-3); font-size: 12px; }
+.ml-label { display: flex; align-items: center; gap: var(--ds-space-1); color: var(--ds-text-3); font-size: 12px; margin: 0; }
+.ml-risk-high { color: var(--ds-danger); font-size: 12px; }
+.ml-bar { display: inline-block; inline-size: 72px; block-size: 6px; border-radius: var(--ds-radius-pill); background: var(--ds-well); overflow: hidden; }
+.ml-bar > span { display: block; block-size: 100%; border-radius: inherit; background: var(--ds-text-3); }
+.ml-bar.is-high > span { background: var(--ds-accent); }
+.ml-bar.is-medium > span { background: var(--ds-chart-3); }
+.ml-alts { display: flex; flex-wrap: wrap; gap: var(--ds-space-1); }
+.ml-alt { border: 1px solid var(--ds-line-2); background: var(--ds-surface); color: var(--ds-text-2); border-radius: var(--ds-radius-pill); padding: 0 var(--ds-space-2); font-size: 12px; cursor: pointer; }
+.ml-alt:disabled { cursor: default; opacity: .6; }
+.ml-actions { display: flex; gap: var(--ds-space-1); }
+.ml-parts { margin: 0; padding-inline-start: var(--ds-space-4); color: var(--ds-text-2); font-size: 12px; }
+.ml-why { max-inline-size: 320px; }
+.ml-why ul { margin: 0 0 var(--ds-space-2); padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--ds-space-1); }
+.ml-why li { display: flex; gap: var(--ds-space-2); align-items: baseline; }
+.ml-plus { color: var(--ds-in); font-weight: var(--ds-weight-strong); }
+.ml-minus { color: var(--ds-danger); font-weight: var(--ds-weight-strong); }
+.ml-draft { margin-block-start: var(--ds-space-3); padding: var(--ds-space-3); border: 1px solid var(--ds-line); border-radius: var(--ds-radius-md); background: var(--ds-surface); display: flex; flex-direction: column; gap: var(--ds-space-2); }
+.ml-draft-title { display: flex; align-items: center; gap: var(--ds-space-1); margin: 0; font-size: 13px; font-weight: var(--ds-weight-medium); color: var(--ds-text-2); }
+.ml-draft-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-2); }
+.ml-chart { margin: 0; }
+.ml-legend { display: flex; flex-wrap: wrap; gap: var(--ds-space-3); color: var(--ds-text-3); font-size: 12px; margin-block-start: var(--ds-space-1); }
+.ml-key::before { content: ""; display: inline-block; inline-size: 12px; block-size: 3px; margin-inline-end: var(--ds-space-1); vertical-align: middle; border-radius: var(--ds-radius-pill); }
+.ml-key.is-actual::before { background: var(--ds-chart-3); }
+.ml-key.is-forecast::before { background: var(--ds-chart-1); }
+.ml-key.is-band::before { background: var(--ds-accent-tint-2); block-size: 8px; }
+.ml-key.is-anomaly::before { background: var(--ds-danger); inline-size: 6px; block-size: 6px; }
+.ml-tip { background: var(--ds-raised); border: 1px solid var(--ds-line-2); border-radius: var(--ds-radius-sm); padding: var(--ds-space-2); font-size: 12px; color: var(--ds-text); }
+.ml-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--ds-space-3); }
+.ml-members { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--ds-space-1); }
+.ml-members li { display: flex; justify-content: space-between; gap: var(--ds-space-2); }
+.ml-ask { display: flex; flex-direction: column; gap: var(--ds-space-3); }
+.ml-ask.is-compact { max-inline-size: 760px; }
+.ml-chips, .ml-suggest { display: flex; flex-wrap: wrap; gap: var(--ds-space-1); margin-block-end: var(--ds-space-2); }
+.ml-chip { border: 1px solid var(--ds-line-2); border-radius: var(--ds-radius-pill); padding: 0 var(--ds-space-2); font-size: 12px; color: var(--ds-text-2); background: var(--ds-surface); }
+.ml-narrative { color: var(--ds-text); margin: var(--ds-space-2) 0 0; }
+@media (max-width: 640px) {
+  .ml-grid { grid-template-columns: 1fr; }
+  .ml-bar { inline-size: 48px; }
+}

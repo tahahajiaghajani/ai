@@ -1,0 +1,27 @@
+/* The change calendar and the CAB workbench (src/ui/modules/change). Tokens only (src/ui/ds/README.md); logical
+   properties for RTL — a timeline flows from the inline start (right) like the record kit's. */
+@layer components {
+  .chg-cal { display: flex; flex-direction: column; gap: 10px; min-inline-size: 0; }
+  .chg-tb { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .chg-tb-title { margin: 0; font-size: var(--ds-type-title-size); line-height: var(--ds-type-title-line); font-weight: var(--ds-weight-strong); }
+  .chg-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--ds-text-2); }
+  .chg-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+
+  .chg-cchip { display: flex; align-items: center; gap: 4px; padding: 1px 4px; border: 1px solid var(--ds-line); border-radius: 4px; background: var(--ds-raised); color: var(--ds-text); font: inherit; font-size: 11.5px; text-align: start; overflow: hidden; white-space: nowrap; cursor: pointer; }
+  .chg-cchip[data-tone="danger"] { border-color: var(--ds-danger); }
+  .chg-cchip[data-tone="warning"] { border-color: var(--ds-warning-border); }
+  .chg-cchip > .t { overflow: hidden; text-overflow: ellipsis; min-inline-size: 0; }
+
+  .chg-agenda { display: flex; flex-direction: column; gap: 10px; }
+  .chg-item { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--ds-line); border-radius: var(--ds-radius-md); background: var(--ds-surface); }
+  .chg-item[data-tone="danger"] { box-shadow: inset 3px 0 0 var(--ds-danger); }
+  .chg-item-h { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .chg-facts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--ds-text-2); }
+  .chg-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+  .chg-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+  .chg-kpi { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--ds-line); border-radius: var(--ds-radius-md); background: var(--ds-surface); }
+  .chg-kpi > b { font-size: 20px; font-weight: var(--ds-weight-strong); font-variant-numeric: tabular-nums; }
+  .chg-kpi > span { font-size: 12px; color: var(--ds-text-2); }
+  .chg-kpi[data-v="bad"] > b { color: var(--ds-danger); }
+  .chg-kpi[data-v="good"] > b { color: var(--ds-in); }
+}

@@ -1,0 +1,38 @@
+// The record engine's public API for server code (modules, services, jobs, the AI layer). The HTTP API in
+// src/server/routes/records.ts is a thin layer over the same functions. docs/spec/ENGINE.md documents all of it.
+export { list, listAll, MAX_PAGE, COUNT_LIMIT, get, create, update, transition, remove, bulkUpdate, recordMeta, checkFilter } from "./records";
+export type { ListParams, ListResult, RecordMeta, RecordResult, BulkParams, BulkResult } from "./records";
+export { createIn, updateIn, transitionIn, removeIn, insertManyIn, savepoint, isLocked, assignmentFields, LOCKED_MESSAGE, VERSION_MESSAGE } from "./write";
+export type { WriteOptions } from "./write";
+export { aggregate, METRIC_FNS } from "./aggregate";
+export type { AggregateParams, AggregateResult, GroupBy, MetricFn } from "./aggregate";
+export { addJournal, addJournalIn, listJournal, JOURNAL_KINDS } from "./journal";
+export type { JournalEntry, JournalInput, JournalKind, Visibility } from "./journal";
+export { listHistory, writeHistory, audited } from "./history";
+export type { HistoryEntry } from "./history";
+export { addLink, addLinkIn, removeLink, removeLinkIn, listLinks } from "./links";
+export { emitOrgEvent } from "./events";
+export type { LinkView, LinkInput } from "./links";
+export { watch } from "./watchers";
+export { addAttachment, addAttachmentIn, moveAttachmentsIn, listAttachments, removeAttachment, readAttachment, safeFileName, sniffMime, contentDisposition, maxAttachmentBytes, PREVIEWABLE, DEFAULT_ATTACHMENT_MB } from "./attachments";
+export type { AttachmentView, UploadFile } from "./attachments";
+export { exportRows, importRows } from "./transfer";
+export type { ExportParams, ExportResult, ImportParams, ImportResult } from "./transfer";
+export { tablesMeta, tableMeta } from "./meta";
+export type { TableMeta } from "./meta";
+export { registerHooks, registerRecordMeta, hooksFor, redactRows, pushGuard, pushFromBefore, webOnly, type SideArgs, type SideFilterArgs } from "./hooks";
+export type { TableHooks, WriteArgs, WriteOp, MetaArgs, MetaProvider, PushArgs } from "./hooks";
+export { onRecordEvent, emitEvent } from "./events";
+export type { RecordEvent, RecordEventKind, RecordEventHandler, RecordEventInput } from "./events";
+export { allocateNumber, formatNumber } from "./numbering";
+export { orgSchema, defFor, invalidateSchema, optionsOf } from "./schema";
+export type { OrgSchema } from "./schema";
+export { condEnv, systemCtx, actorId, isSystemCtx, orgTz, SYSTEM_USER } from "./env";
+export { coerceValue, validateRow, checkRefs, parseDate, parseDateTime, openSecret, secretView, Problems, FieldError, validationError, TEXT_LIMITS } from "./values";
+export { toSql, readable, writableRule, searchSql, orderSql, pathExpr, fieldExpr, normSql, parseNumber } from "./sql";
+export { loadReadable, requireReadable, canOpenRecords, readSecret, toOutput, fromDb, pathVisible, selectRows, SELECT_PAGE } from "./read";
+export { onBeforeCommit } from "../db";
+export { RefSet, resolveDisplay, labelOf } from "./display";
+export { bumpScopeEpoch, scopeEpoch } from "./sync";
+export { ddlFor, ddlForAll, reconcileSchema, archivable, archiveTableOf } from "./ddl";
+export { archiveSettings, archiveBatch, purgeArchived, archivableTables, scheduleArchive, archiveSummary, ARCHIVE_DEFAULT_YEARS, type ArchiveSettings } from "./archive";

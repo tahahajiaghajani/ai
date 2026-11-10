@@ -1,0 +1,19 @@
+/* The AI governance console (tokens only). */
+.gv { display: flex; flex-direction: column; gap: var(--ds-space-3); }
+.gv-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--ds-space-2); }
+.gv-bar .ant-segmented { max-inline-size: 100%; overflow-x: auto; }
+.gv-stack { display: flex; flex-direction: column; gap: var(--ds-space-3); }
+.gv-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--ds-space-3); }
+.gv-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--ds-space-1); }
+.gv-muted { color: var(--ds-text-3); font-size: 12px; }
+.gv-warn { color: var(--ds-danger); margin: 0 0 var(--ds-space-2); }
+.gv-expand { padding: var(--ds-space-2); }
+.gv-history { inline-size: 100%; border-collapse: collapse; font-size: 12px; }
+.gv-history th, .gv-history td { text-align: start; padding: var(--ds-space-1) var(--ds-space-2); border-block-end: 1px solid var(--ds-line); }
+.gv-trend { color: var(--ds-text-2); }
+.gv-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--ds-space-3); }
+.gv-card { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: var(--ds-space-1) var(--ds-space-3); font-size: 13px; }
+.gv-card dt { color: var(--ds-text-3); }
+.gv-card dd { margin: 0; color: var(--ds-text); }
+.gv-card ul { margin: 0; padding-inline-start: var(--ds-space-4); }
+@media (max-width: 640px) { .gv-cards, .gv-stats { grid-template-columns: 1fr; } }

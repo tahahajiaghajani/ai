@@ -1,0 +1,241 @@
+# Kariz «کاریز» (itsm/) — typecheck, tests, database script check and web build; then the Windows installer built and
+# smoke-tested on a real Windows machine, uploaded as an artifact and published on the Releases page; and the server
+# edition's MSI («Kariz Server» / «کاریز — نسخهٔ سرور», Windows Server, air-gapped intranet: itsm/docs/SERVER_FA.md) built
+# from pinned, verified binaries and smoke-tested with outbound traffic blocked, added to the same release.
+# The product is «کاریز» / Kariz (APP_NAME / APP_NAME_EN in src/shared/constants.ts; the folder, tags, env vars and data
+# directory keep the neutral «itsm» identifiers). Guide: itsm/docs/DESKTOP_FA.md
+name: "ITSM · CI and Windows installer"
+
+on:
+  pull_request:
+    paths:
+      - "itsm/**"
+      - ".github/workflows/itsm.yml"
+  push:
+    branches: ["**"]
+    paths:
+      - "itsm/**"
+      - ".github/workflows/itsm.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: itsm-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    # a pull request from this repository is already built by the push of its branch
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: itsm
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: itsm/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+        env:
+          # the TypeScript program of all modules needs more than Node's default heap on smaller runners
+          NODE_OPTIONS: --max-old-space-size=6144
+      - run: npm run check:schema
+      - run: npm run build
+
+  # the whole suite (every test, nothing skipped) in four parallel shards: one runner needs more than 25 minutes
+  test:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    defaults:
+      run:
+        working-directory: itsm
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: itsm/package-lock.json
+      - run: npm ci
+      - run: npx vitest run --shard=${{ matrix.shard }}/4
+
+  windows:
+    needs: [check, test]
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: itsm
+        shell: bash
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            itsm/package-lock.json
+            itsm/desktop/package-lock.json
+      - run: npm ci
+      - run: npm ci
+        working-directory: itsm/desktop
+      - name: Prepare the app (UI, local server, Electron main)
+        run: node scripts/build-desktop.mjs
+      - name: Build the installer
+        working-directory: itsm/desktop
+        run: npx electron-builder --win nsis --x64 --publish never
+      - name: Smoke test — silent install, start, health check, uninstall
+        shell: pwsh
+        working-directory: itsm/desktop
+        run: |
+          $setup = Get-ChildItem release/Kariz-Setup-*.exe | Select-Object -First 1
+          Write-Host "installer: $($setup.Name) $([math]::Round($setup.Length/1MB,1)) MB"
+          Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
+          $app = Join-Path $env:LOCALAPPDATA 'Programs\Kariz\Kariz.exe'
+          if (!(Test-Path $app)) { throw "Kariz.exe was not installed" }
+          $env:ITSM_SMOKE = '1'
+          $env:ITSM_SMOKE_OUT = Join-Path $env:RUNNER_TEMP 'smoke.json'
+          $env:ITSM_DATA_DIR = Join-Path $env:RUNNER_TEMP 'itsm-data'
+          $p = Start-Process -FilePath $app -ArgumentList '--smoke-test' -PassThru -Wait
+          Get-Content $env:ITSM_SMOKE_OUT
+          Get-Content (Join-Path $env:ITSM_DATA_DIR 'logs\app.log') -ErrorAction SilentlyContinue | Select-Object -Last 30
+          if ($p.ExitCode -ne 0) { throw "smoke test failed with exit code $($p.ExitCode)" }
+          $uninst = Join-Path $env:LOCALAPPDATA 'Programs\Kariz\Uninstall Kariz.exe'
+          if (Test-Path $uninst) { Start-Process -FilePath $uninst -ArgumentList '/S' -Wait }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: itsm-windows-installer
+          path: itsm/desktop/release/Kariz-Setup-*.exe
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish on the Releases page
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(node -p "require('./desktop/package.json').version")
+          # a preview release per branch: two branches pushed close together never mix their installers
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then TAG="itsm-v${VERSION}"; TITLE="کاریز (Kariz) ${VERSION} — نسخهٔ ویندوز"; PRE=""; else TAG="itsm-preview-${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}"; TITLE="کاریز (Kariz) ${VERSION} — پیش‌نمایش (${GITHUB_REF_NAME})"; PRE="--prerelease"; fi
+          gh release delete "$TAG" --cleanup-tag -y 2>/dev/null || true
+          gh release create "$TAG" desktop/release/Kariz-Setup-*.exe --target "$GITHUB_SHA" --title "$TITLE" $PRE \
+            --notes "فایل نصب ویندوز «کاریز» (Kariz؛ سامانهٔ سازمانی مدیریت خدمات فناوری اطلاعات و خدمات سازمانی). فایل Kariz-Setup را دانلود کنید (می‌توانید روی فلش هم کپی کنید) و اجرا کنید؛ همه‌چیز خودکار نصب می‌شود. راهنما: itsm/docs/DESKTOP_FA.md"
+
+  server:
+    # the server edition: bundle, pinned Node.js / PostgreSQL 17 / WinSW / WiX (SHA-256 checked, cached), pgvector
+    # compiled with MSVC, the MSI, and an air-gapped smoke test (install, setup, sign-in, incident, backup, re-install,
+    # upgrade, uninstall keeping data). Guide: itsm/docs/SERVER_FA.md; design: itsm/docs/spec/SERVER.md
+    needs: [check, test]
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: itsm
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: itsm/package-lock.json
+      - run: npm ci
+      - name: The installer scripts parse under Windows PowerShell 5.1 (the MSI runs them with powershell.exe)
+        shell: powershell
+        run: |
+          $failed = 0
+          foreach ($f in Get-Item packaging/server/scripts/install.ps1, packaging/server/scripts/uninstall.ps1, packaging/server/scripts/common.ps1) {
+            $errors = $null
+            # a script without a byte-order mark is read in the ANSI code page, as powershell.exe -File reads it
+            [void][System.Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($f.FullName, [Text.Encoding]::Default), [ref]$null, [ref]$errors)
+            foreach ($e in @($errors)) { if ($e) { $failed++; Write-Host "::error file=itsm/packaging/server/scripts/$($f.Name),line=$($e.Extent.StartLineNumber)::$($e.Message)" } }
+          }
+          if ($failed) { exit 1 }
+      - name: Cache pinned binaries (Node.js, PostgreSQL, WinSW, WiX)
+        uses: actions/cache@v4
+        with:
+          path: itsm/packaging/server/.cache
+          key: itsm-server-deps-${{ hashFiles('itsm/packaging/server/deps.json') }}
+      - name: Build the server bundle (server.cjs, karizctl.cjs, pre-compressed app)
+        run: node scripts/build-server.mjs
+      - name: Windows sign-in module in the package (node-expose-sspi, loaded from app/node_modules)
+        run: |
+          foreach ($f in @("package.json", "lib/api.js", "lib/arch/x64/node-expose-sspi.node")) {
+            if (-not (Test-Path "server-dist/app/node_modules/node-expose-sspi/$f")) { throw "node-expose-sspi/$f is missing from the server package" }
+          }
+      - name: Fetch and verify pinned binaries
+        run: ./packaging/server/scripts/fetch-deps.ps1 -Dist server-dist -Cache packaging/server/.cache
+      - name: The binding loads with the packaged Node.js, as src/server/auth/sso.ts loads it
+        run: |
+          & server-dist/node/node.exe -e "const r=require('module').createRequire(require('path').resolve('server-dist/app/noop.js')); const m=r('node-expose-sspi/lib/api.js'); if(!m.sspi) throw new Error('no sspi binding'); console.log('node-expose-sspi loads')"
+          if ($LASTEXITCODE -ne 0) { throw "node-expose-sspi does not load with the packaged Node.js" }
+      - name: Build pgvector with MSVC
+        run: ./packaging/server/scripts/build-pgvector.ps1 -Dist server-dist -Cache packaging/server/.cache -AllowMissing
+      - name: Build the MSI (and a second build of the same version for the upgrade test)
+        run: |
+          ./packaging/server/scripts/build-msi.ps1 -Dist server-dist -Cache packaging/server/.cache -Out server-release
+          ./packaging/server/scripts/build-msi.ps1 -Dist server-dist -Cache packaging/server/.cache -Out server-upgrade-test -Suffix '-upgrade-test'
+      - name: Air-gapped smoke test (install, setup, sign-in, incident, backup, re-install, upgrade, uninstall)
+        run: |
+          $msi = Get-ChildItem server-release/*.msi | Select-Object -First 1
+          $upgrade = Get-ChildItem server-upgrade-test/*.msi | Select-Object -First 1
+          ./packaging/server/scripts/smoke-test.ps1 -Msi $msi.FullName -UpgradeMsi $upgrade.FullName -Logs "$env:RUNNER_TEMP/kariz-logs"
+      - name: Restore outbound traffic
+        if: always()
+        run: Set-NetFirewallProfile -All -DefaultOutboundAction Allow
+      - uses: actions/upload-artifact@v4
+        with:
+          name: itsm-server-msi
+          path: itsm/server-release/*.msi
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: itsm-server-logs
+          path: ${{ runner.temp }}/kariz-logs
+          if-no-files-found: ignore
+          retention-days: 14
+
+  server-publish:
+    # after the desktop job created (or re-created) the release: add the server MSI to it
+    needs: [windows, server]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: itsm-server-msi
+          path: server-release
+      - name: Add the MSI to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(node -p "require('./itsm/desktop/package.json').version")
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then TAG="itsm-v${VERSION}"; TITLE="کاریز (Kariz) ${VERSION} — نسخهٔ ویندوز"; PRE=""; else TAG="itsm-preview-${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}"; TITLE="کاریز (Kariz) ${VERSION} — پیش‌نمایش (${GITHUB_REF_NAME})"; PRE="--prerelease"; fi
+          # only this commit's release: a newer push of the branch re-created it and publishes its own MSI
+          TARGET=$(gh release view "$TAG" --json targetCommitish --jq .targetCommitish 2>/dev/null || true)
+          if [ -z "$TARGET" ]; then
+            gh release create "$TAG" server-release/*.msi --target "$GITHUB_SHA" --title "$TITLE" $PRE --notes "نسخهٔ سرور (MSI). راهنما: itsm/docs/SERVER_FA.md"
+          elif [ "$TARGET" != "$GITHUB_SHA" ]; then
+            echo "::notice::release $TAG is for $TARGET, not $GITHUB_SHA: the MSI is not added (a newer run publishes its own)"
+            exit 0
+          else
+            gh release upload "$TAG" server-release/*.msi --clobber
+          fi
+          gh release view "$TAG" --json assets --jq '.assets[].name'

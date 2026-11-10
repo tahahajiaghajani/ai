@@ -1,0 +1,27 @@
+<!--
+  WinSW 2.12 service: PostgreSQL of the server edition. install.ps1 fills the double-brace placeholders, writes this file next
+  to a copy of WinSW-x64.exe named after the service, installs it and runs it as the virtual account NT SERVICE\{{DB_NAME}}.
+  postgres.exe runs in the foreground; stopping the service runs pg_ctl stop -m fast (a clean shutdown).
+-->
+<service>
+  <id>{{DB_NAME}}</id>
+  <name>{{DB_DISPLAY}}</name>
+  <description>{{DB_DESCRIPTION}}</description>
+  <executable>{{INSTALL_DIR}}\pgsql\bin\postgres.exe</executable>
+  <arguments>-D "{{DATA_DIR}}\db"</arguments>
+  <workingdirectory>{{DATA_DIR}}\db</workingdirectory>
+  <stopexecutable>{{INSTALL_DIR}}\pgsql\bin\pg_ctl.exe</stopexecutable>
+  <stoparguments>stop -D "{{DATA_DIR}}\db" -m fast -w -t 120</stoparguments>
+  <stoptimeout>150 sec</stoptimeout>
+  <startmode>Automatic</startmode>
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+  <onfailure action="restart" delay="60 sec"/>
+  <resetfailure>1 hour</resetfailure>
+  <env name="PGDATA" value="{{DATA_DIR}}\db"/>
+  <logpath>{{DATA_DIR}}\logs\service</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>8</keepFiles>
+  </log>
+</service>

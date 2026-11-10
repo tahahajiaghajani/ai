@@ -1,0 +1,7 @@
+/* The frame of sign-in-free pages (/p/…): the mark, the page, a quiet footer. Tokens only; logical properties (RTL). */
+@layer components {
+  .pub-shell { display: flex; flex-direction: column; min-block-size: 100dvh; background: var(--ds-canvas, var(--ds-surface)); color: var(--ds-text); }
+  .pub-head { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-block-end: 1px solid var(--ds-line); background: var(--ds-surface); }
+  .pub-main { flex: 1; inline-size: 100%; max-inline-size: 960px; margin-inline: auto; padding: 24px 16px 40px; }
+  .pub-foot { padding: 14px 20px; border-block-start: 1px solid var(--ds-line); color: var(--ds-text-3); font-size: 12px; text-align: center; }
+}

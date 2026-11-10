@@ -1,0 +1,18 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "regions": [
+    "fra1"
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/keepalive",
+      "schedule": "41 3 * * *"
+    },
+    {
+      "path": "/api/cron/tick",
+      "schedule": "17 4 * * *"
+    }
+  ]
+}

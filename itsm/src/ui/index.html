@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- The cascade-layer order, declared before any stylesheet loads. Browsers order layers by first appearance; Vite
+         links shared chunk CSS (which opens @layer components) before the entry CSS and the minifier drops the order
+         statement of styles.css, so without this Tailwind's preflight (base) beat every design-system rule and antd beat
+         all of them. Keep it identical to the first statement of styles.css. -->
+    <style>@layer properties, theme, base, antd, components, utilities;</style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <!-- %APP_…% placeholders are filled from src/shared/constants.ts by vite.config.ts -->
+    <title>%APP_NAME%</title>
+    <meta name="description" content="%APP_NAME% — %APP_DESCRIPTION%" />
+    <meta name="application-name" content="%APP_NAME%" />
+    <meta name="apple-mobile-web-app-title" content="%APP_NAME%" />
+    <!-- the canvas colour of each theme; the script below and ThemeProvider pin both to the theme in effect -->
+    <meta name="theme-color" content="#F7F4F0" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#110F0E" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- installable on phones («افزودن به صفحهٔ اصلی»): opens full screen like an app -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <link rel="preload" href="/fonts/ds/DSNum.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/ds/AradVF.woff2" as="font" type="font/woff2" crossorigin />
+    <script>
+      // pre-paint theme (key "itsm.theme", the same as src/ui/lib/theme.tsx)
+      try {
+        var p = localStorage.getItem("itsm.theme");
+        if (p !== "light" && p !== "dark") p = "system";
+        var m = p === "system" ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : p;
+        document.documentElement.dataset.theme = m;
+        if (p !== "system") {
+          var c = m === "dark" ? "#110F0E" : "#F7F4F0";
+          document.querySelectorAll('meta[name="theme-color"]').forEach(function (e) { e.setAttribute("content", c); });
+        }
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root">
+      <div class="boot" role="status" aria-label="%APP_NAME% در حال باز شدن است">
+        <!-- the mark of src/shared/brand.ts (MARK): the kariz arch and its nuqta -->
+        <svg class="boot-mark ds-launch" viewBox="4.5 3.7 15 15" aria-hidden="true">
+          <path class="ds-arch" pathLength="1" d="M17.6 19.6V11.4a5.6 5.6 0 0 0-11.2 0v8.2" fill="none" stroke-width="2.8" stroke-linecap="round" />
+          <path class="ds-nq" d="M12 14.1l2.75 2.75L12 19.6l-2.75-2.75z" />
+        </svg>
+      </div>
+    </div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>

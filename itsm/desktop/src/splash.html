@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=520, height=320, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title></title>
+<!--
+  The Windows splash, 520 × 320 (docs/BRAND_FA.md · صفحهٔ آغاز). Self-contained: inline SVG and CSS, no network. The only
+  external files are the app's own fonts (renderer/fonts/ds/, next to this file in desktop/app): Arad (SIL OFL 1.1, Reserved
+  Font Name «Arad», © The Arad Project Authors; unmodified), DS Num (a digit-only subset of Vazirmatn, SIL OFL 1.1,
+  © The Vazirmatn Project Authors) and Geist (SIL OFL 1.1) for Latin letters.
+  The product's name and tagline come from src/shared/constants.ts through the query string (?name=…&tagline=…, set by
+  desktop/src/main.ts), so this file never names the product itself. The mark is MARK of src/shared/brand.ts: the kariz
+  arch and its nuqta.
+  The window is frameless and transparent; .card draws the rounded «شب کاریز» surface (lapis night, grain, the light on
+  the horizon) with a hairline edge.
+  Launch (transform, opacity and the arch's stroke only): the arch draws itself from its right foot, the nuqta settles at
+  the outlet, then the name and the tagline rise. Progress is the horizon itself: the line brightens from start to end
+  (right → left) and its head is a saffron nuqta travelling on it.
+  API for the Electron main process (desktop/src/main.ts, webContents.executeJavaScript):
+    itsm.step(p, cap, "…")  a real stage: jump to p (never backwards) and ease toward cap until the next stage
+    itsm.progress(0…1)      follow real progress exactly
+    itsm.status("…")        the status line, e.g. "باز کردن داده‌ها…"
+    itsm.version("…")       e.g. "نسخهٔ ۱٫۲٫۰"
+    itsm.ready()            completes the line; the nuqta turns turquoise — the water has arrived (then close the window)
+  Without calls it eases toward 86 % on its own. Add ?still (or #still) to the URL to render a static frame.
+-->
+<style>
+@font-face{font-family:"DS Num";src:url("renderer/fonts/ds/DSNum.woff2") format("woff2-variations"),url("renderer/fonts/ds/DSNum.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:block;unicode-range:U+0025,U+002C-002F,U+0030-0039,U+0660-066C,U+06F0-06F9,U+2212}
+@font-face{font-family:"Arad UI";src:url("renderer/fonts/ds/AradVF.woff2") format("woff2-variations"),url("renderer/fonts/ds/AradVF.woff2") format("woff2");font-weight:100 1000;font-style:normal;font-display:block;size-adjust:104%;unicode-range:U+0000-002F,U+003A-0040,U+005B-0060,U+007B-00BF,U+00D7,U+00F7,U+0600-06FF,U+0750-077F,U+08A0-08FF,U+200B-206F,U+25CC,U+FB50-FDFF,U+FE70-FEFF}
+@font-face{font-family:"Arad";src:url("renderer/fonts/ds/AradVF.woff2") format("woff2-variations"),url("renderer/fonts/ds/AradVF.woff2") format("woff2");font-weight:100 1000;font-style:normal;font-display:block}
+@font-face{font-family:"Geist";src:url("renderer/fonts/ds/Geist-Variable.woff2") format("woff2-variations"),url("renderer/fonts/ds/Geist-Variable.woff2") format("woff2");font-weight:100 900;font-style:normal;font-display:block}
+:root{
+  --ease-out:cubic-bezier(.23,1,.32,1);
+  --ease-in-out:cubic-bezier(.77,0,.175,1);
+  --line:rgb(225 245 247 / .16);
+  --nuqta:#FEBA5F;      /* --ds-zaferan-300 */
+  --water:#61C6CF;      /* --ds-firuzeh-400 */
+}
+*{box-sizing:border-box}
+html,body{margin:0;width:520px;height:320px;overflow:hidden;background:transparent}
+.card{position:absolute;inset:0;overflow:hidden;border-radius:14px;background:#08112D;isolation:isolate}
+.card::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px rgb(225 245 247 / .10),inset 0 1px 0 rgb(255 255 255 / .08);pointer-events:none}
+body{position:relative;font-family:"DS Num","Arad UI","Geist","Segoe UI",Tahoma,sans-serif;font-variation-settings:"DSTY" 3;font-weight:450;color:#fff;-webkit-font-smoothing:antialiased;user-select:none;cursor:default}
+/* the kariz night (--ds-grad-brand) and the light where the water comes up: turquoise under the horizon, a saffron spark */
+.sky{position:absolute;inset:0;background:
+  radial-gradient(240px 90px at 50% 248px, rgb(254 186 95 / .16), transparent 70%),
+  radial-gradient(520px 150px at 50% 250px, rgb(44 175 185 / .30), transparent 72%),
+  linear-gradient(180deg, #08112D 0%, #0D1E47 50%, #123A62 100%)}
+.sky::before{content:"";position:absolute;inset:248px 0 0 0;background:linear-gradient(180deg, rgb(4 18 34 / .22), rgb(4 18 34 / .42))}
+.sky::after{content:"";position:absolute;inset:0;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");opacity:.07;mix-blend-mode:overlay}
+
+.lockup{position:absolute;left:0;right:0;top:46px;display:flex;flex-direction:column;align-items:center;gap:12px}
+.mark{width:64px;height:64px;overflow:visible}
+.arch{fill:none;stroke:#fff;stroke-width:2.8;stroke-linecap:round;stroke-dasharray:1;animation:draw 620ms var(--ease-in-out) 80ms both}
+.nq{fill:var(--nuqta);transform-box:fill-box;transform-origin:50% 50%;animation:set 420ms var(--ease-out) 560ms both}
+.name{margin:2px 0 0;font-family:"DS Num","Arad","Geist","Segoe UI",sans-serif;font-variation-settings:"DSTY" 3;font-size:32px;line-height:38px;font-weight:720;letter-spacing:0;animation:rise 440ms var(--ease-out) 640ms both}
+.tagline{margin:0;text-align:center;font-size:13.5px;line-height:22px;color:rgb(255 255 255 / .70);animation:fade 420ms var(--ease-out) 780ms both}
+
+/* the horizon is the progress line: the track, its lit part (start → end, right → left) and the travelling nuqta */
+.foot{position:absolute;left:36px;right:36px;top:244px;animation:fade 360ms var(--ease-out) 860ms both}
+.rule{position:relative;height:9px;container-type:inline-size}
+.track,.fill{position:absolute;right:0;top:4px;height:1px;width:100%;background:var(--line)}
+.fill{height:1.5px;top:3.75px;background:linear-gradient(270deg, rgb(255 255 255 / .92), rgb(225 245 247 / .70));transform-origin:100% 50%;transform:scaleX(var(--p,0));transition:transform 600ms var(--ease-out)}
+.head{position:absolute;top:0;right:0;width:9px;height:9px;margin-right:-4.5px;transform:translateX(calc(var(--p,0) * -100cqw)) rotate(45deg) scale(.7071);background:var(--nuqta);border-radius:1px;box-shadow:0 0 12px 3px rgb(254 186 95 / .35);transition:transform 600ms var(--ease-out),background-color 300ms var(--ease-out),box-shadow 300ms var(--ease-out)}
+.meta{display:flex;justify-content:space-between;align-items:baseline;margin-top:12px;font-size:12px;line-height:18px;font-weight:480}
+.status{color:rgb(255 255 255 / .74)}
+.ver{color:rgb(255 255 255 / .46)}
+body.done .head{background:var(--water);box-shadow:0 0 0 3px rgb(97 198 207 / .20),0 0 14px 4px rgb(97 198 207 / .35)}
+
+@keyframes draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+@keyframes set{from{opacity:0;transform:translateY(-7px) scale(.6)}to{opacity:1;transform:none}}
+@keyframes rise{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){
+  .arch{animation:none;stroke-dasharray:none}
+  .nq,.name,.tagline,.foot{animation:fade 150ms linear both}
+  .fill,.head{transition:none}
+}
+</style>
+</head>
+<body>
+<main class="card">
+<div class="sky"></div>
+<div class="lockup">
+  <svg class="mark" viewBox="4.5 3.7 15 15" aria-hidden="true">
+    <path class="arch" pathLength="1" d="M17.6 19.6V11.4a5.6 5.6 0 0 0-11.2 0v8.2"/>
+    <path class="nq" d="M12 14.1l2.75 2.75L12 19.6l-2.75-2.75z"/>
+  </svg>
+  <p class="name" id="name" dir="auto"></p>
+  <p class="tagline" id="tagline"></p>
+</div>
+<div class="foot" aria-live="polite">
+  <div class="rule"><div class="track"></div><div class="fill"></div><div class="head"></div></div>
+  <div class="meta"><span class="status" id="status">باز کردن داده‌ها…</span><span class="ver" id="ver"></span></div>
+</div>
+</main>
+<script>
+(function () {
+  var root = document.documentElement, body = document.body, shown = 0, timer;
+  var stage = { from: 0, cap: 0.86, at: performance.now() + 900, tau: 2.6 }, follow = false;
+  var still = /still/.test(location.search + location.hash);
+  var q = new URLSearchParams(location.search);
+  var name = q.get('name') || '', tagline = q.get('tagline') || '';
+  document.getElementById('name').textContent = name;
+  document.getElementById('tagline').textContent = tagline;
+  document.title = name;
+  function set(p) { p = Math.max(0, Math.min(1, p)); if (p < shown) return; shown = p; root.style.setProperty('--p', p.toFixed(4)); }
+  function tick() {
+    if (follow) return;
+    var t = Math.max(0, performance.now() - stage.at) / 1000;
+    set(stage.from + (stage.cap - stage.from) * (1 - Math.exp(-t / stage.tau)));
+  }
+  window.itsm = {
+    step: function (p, cap, s, tau) {
+      follow = false;
+      stage = { from: Math.max(p, shown), cap: Math.max(cap == null ? p : cap, p, shown), at: performance.now(), tau: tau || 2.6 };
+      if (s) this.status(s);
+      tick();
+    },
+    progress: function (p) { follow = true; set(p); },
+    status: function (s) { document.getElementById('status').textContent = s; },
+    version: function (v) { document.getElementById('ver').textContent = v; },
+    ready: function (s) { follow = true; set(1); clearInterval(timer); if (s) this.status(s); setTimeout(function () { body.classList.add('done'); }, 600); }
+  };
+  if (still) { follow = true; set(0.58); document.querySelectorAll('*').forEach(function (e) { e.style.animation = 'none'; }); document.querySelector('.arch').style.strokeDasharray = 'none'; }
+  else { timer = setInterval(tick, 120); tick(); }
+})();
+</script>
+</body>
+</html>

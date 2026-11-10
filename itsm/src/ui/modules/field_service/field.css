@@ -1,0 +1,37 @@
+/* The dispatch board and the technician's day (design-system tokens only). */
+.fs-board { display: grid; grid-template-columns: minmax(220px, 280px) 1fr; gap: 12px; align-items: start; }
+@media (max-width: 900px) { .fs-board { grid-template-columns: 1fr; } }
+.fs-queue { display: flex; flex-direction: column; gap: 8px; background: var(--ds-sunken); border-radius: 10px; padding: 10px; max-block-size: 78vh; overflow-y: auto; }
+.fs-card { display: flex; flex-direction: column; gap: 6px; background: var(--ds-surface); border: 1px solid var(--ds-line); border-radius: 8px; padding: 8px 10px; }
+.fs-card[draggable="true"] { cursor: grab; }
+.fs-skill { display: inline-block; padding: 0 6px; border-radius: 6px; background: var(--ds-accent-tint); color: var(--ds-accent-text); }
+
+.fs-timeline { border: 1px solid var(--ds-line); border-radius: 10px; overflow-x: auto; background: var(--ds-surface); }
+.fs-row { display: grid; grid-template-columns: minmax(150px, 190px) minmax(560px, 1fr); border-block-end: 1px solid var(--ds-line); }
+.fs-row:last-child { border-block-end: 0; }
+.fs-row.is-off { opacity: .55; }
+.fs-head { background: var(--ds-sunken); min-block-size: 30px; }
+.fs-name { display: flex; flex-direction: column; justify-content: center; gap: 2px; padding: 6px 10px; font-size: 13px; min-inline-size: 0; border-inline-end: 1px solid var(--ds-line); }
+.fs-scale { position: relative; }
+.fs-scale span { position: absolute; inset-block-start: 7px; font-size: 11px; color: var(--ds-text-3); transform: translateX(50%); white-space: nowrap; }
+.fs-track { position: relative; min-block-size: 44px; }
+.fs-track.is-over { background: var(--ds-accent-tint); }
+.fs-tick { position: absolute; inset-block: 0; border-inline-start: 1px dashed var(--ds-line); pointer-events: none; }
+.fs-shift { position: absolute; inset-block: 4px; background: color-mix(in oklab, var(--ds-in) 9%, transparent); border-radius: 6px; pointer-events: none; }
+.fs-bar { position: absolute; inset-block-start: 8px; block-size: 28px; display: flex; align-items: center; gap: 4px; padding-inline: 6px; overflow: hidden; white-space: nowrap; font-size: 12px; border-radius: 6px; cursor: pointer;
+  background: color-mix(in oklab, var(--ds-accent) 22%, var(--ds-surface)); border: 1px solid color-mix(in oklab, var(--ds-accent) 50%, transparent); color: var(--ds-text); }
+.fs-bar[data-c="teal"], .fs-bar[data-c="green"] { background: color-mix(in oklab, var(--ds-in) 24%, var(--ds-surface)); border-color: color-mix(in oklab, var(--ds-in) 55%, transparent); }
+.fs-bar[data-c="orange"], .fs-bar[data-c="gold"] { background: color-mix(in oklab, var(--ds-warning) 24%, var(--ds-surface)); border-color: color-mix(in oklab, var(--ds-warning) 55%, transparent); }
+.fs-bar[data-c="gray"] { background: var(--ds-sunken); border-color: var(--ds-line-2); color: var(--ds-text-3); }
+.fs-bar.is-clash { outline: 2px solid var(--ds-danger); outline-offset: 1px; }
+.fs-bar:focus-visible { outline: 2px solid var(--ds-focus-color); outline-offset: 2px; }
+
+/* the technician's day: one column, thumb-sized buttons */
+.fs-day { display: flex; flex-direction: column; gap: 12px; max-inline-size: 720px; margin-inline: auto; inline-size: 100%; }
+.fs-visit { display: flex; flex-direction: column; gap: 10px; background: var(--ds-surface); border: 1px solid var(--ds-line); border-radius: 12px; padding: 12px; }
+.fs-visit.is-now { border-color: var(--ds-accent); box-shadow: 0 0 0 1px var(--ds-accent); }
+.fs-visit .ant-btn { min-block-size: 40px; }
+.fs-leg { font-size: 12px; color: var(--ds-text-3); display: flex; align-items: center; gap: 6px; }
+.fs-check { display: flex; flex-direction: column; gap: 8px; border-block-start: 1px solid var(--ds-line); padding-block-start: 10px; }
+.fs-sign { display: flex; flex-direction: column; gap: 8px; }
+.fs-sign canvas { inline-size: 100%; block-size: 160px; border: 1px dashed var(--ds-line-3); border-radius: 8px; background: var(--ds-surface); touch-action: none; cursor: crosshair; }

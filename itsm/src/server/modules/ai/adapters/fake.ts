@@ -1,0 +1,329 @@
+// Scripted, deterministic model for tests and screenshots (only when ITSM_AI_FAKE=1). It never
+// touches the network. What the last user message asks decides what it does:
+//   [tool:NAME {json}]      call tool NAME with that input (several directives → parallel calls)
+//   [loop:N NAME {json}]    call NAME again after each result until it ran N times, then answer
+//   «اعضا» / «عضو»           list_members {} (when the tool is offered)
+//   «امروز» / «دسترسی»       get_org_context {} (when offered)
+//   [json:{...}]            structured output: return exactly this JSON (also found in the bytes of an attached file)
+//   [error:KIND]            fail with that AiErrorKind (e.g. rate, auth, region, quota, overloaded)
+//   [refuse]                refuse   ·  [think] stream a short reasoning first  ·  [slow] stream slowly
+//   <data name="sources">   (a cited-answer prompt) quote the first sentence of each source that shares a word with
+//                           the question, cited [n]; none → the abstention sentence; [uncited] adds a sentence
+//                           without a source
+// After tool results it answers in Persian, quoting the numbers the tools returned.
+import type { AiErrorKind } from "@shared/ai/types";
+import { ProviderError, type Adapter, type NeutralMessage, type ToolCall, type TurnRequest, type TurnResult } from "../types";
+
+export const FAKE_MODELS = ["fake-smart", "fake-fast", "fake-vision"];
+
+export function fakeEnabled(): boolean {
+  return process.env.ITSM_AI_FAKE === "1";
+}
+
+/** What the fake model received, newest last (at most 300): tests assert on exactly what reached "the model". */
+export interface FakeTurnLog {
+  model: string;
+  system: string;
+  /** every text part of every message, in order (tool results included) */
+  text: string;
+  schema: boolean;
+  at: number;
+}
+export const FAKE_INBOX: FakeTurnLog[] = [];
+
+/** Empties the fake model's inbox (tests). */
+export function clearFakeInbox(): void {
+  FAKE_INBOX.length = 0;
+}
+
+/** Scripted answers (tests): the next turns that would answer (not call a tool) return these texts first, in order. */
+export const FAKE_QUEUE: string[] = [];
+
+function logTurn(req: TurnRequest): void {
+  const text = req.messages
+    .flatMap((m) => m.parts.map((p) => (p.type === "text" ? p.text : p.type === "tool_result" ? p.content : "")))
+    .filter(Boolean)
+    .join("\n");
+  FAKE_INBOX.push({ model: req.model, system: `${req.system}${req.systemNotes ? `\n${req.systemNotes}` : ""}`, text, schema: !!req.output, at: Date.now() });
+  if (FAKE_INBOX.length > 300) FAKE_INBOX.splice(0, FAKE_INBOX.length - 300);
+}
+
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((ok) => {
+    if (signal?.aborted) return ok();
+    const t = setTimeout(ok, ms);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(t);
+      ok();
+    }, { once: true });
+  });
+
+function lastUserText(messages: NeutralMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== "user") continue;
+    const t = m.parts.filter((p) => p.type === "text").map((p) => (p as { text: string }).text).join("\n");
+    // the context block is not part of the question
+    if (t.trim() && !m.parts.some((p) => p.type === "tool_result")) return t.replace(/<context>[\s\S]*?<\/context>/g, "").trim();
+  }
+  return "";
+}
+
+/** Tool results of the current answer (after the last real question). */
+function currentResults(messages: NeutralMessage[]): { name: string; content: string; is_error?: boolean }[] {
+  const out: { name: string; content: string; is_error?: boolean }[] = [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === "user") {
+      const results = m.parts.filter((p): p is Extract<typeof p, { type: "tool_result" }> => p.type === "tool_result");
+      if (!results.length) break;
+      out.unshift(...results.map((r) => ({ name: r.name, content: r.content, is_error: r.is_error })));
+    }
+  }
+  return out;
+}
+
+/** The balanced `{…}` that starts at `i` (strings respected), or null. */
+function objectAt(text: string, i: number): { json: string; end: number } | null {
+  if (text[i] !== "{") return null;
+  let depth = 0;
+  let str = false;
+  for (let j = i; j < text.length; j++) {
+    const ch = text[j];
+    if (str) {
+      if (ch === "\\") j++;
+      else if (ch === '"') str = false;
+      continue;
+    }
+    if (ch === '"') str = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}" && --depth === 0) return { json: text.slice(i, j + 1), end: j + 1 };
+  }
+  return null;
+}
+
+/** `[tool:NAME {json}]` directives; the JSON may hold arrays and nested objects. */
+function directives(text: string): { name: string; input: Record<string, unknown> }[] {
+  const out: { name: string; input: Record<string, unknown> }[] = [];
+  const re = /\[tool:([a-z_][\w]*)\s*/g;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    let input: Record<string, unknown> = {};
+    const o = objectAt(text, re.lastIndex);
+    if (o) {
+      try {
+        input = JSON.parse(o.json) as Record<string, unknown>;
+      } catch {
+        input = {};
+      }
+      re.lastIndex = o.end;
+    }
+    out.push({ name: m[1], input });
+  }
+  return out;
+}
+
+/** A `[json:{…}]` directive in the question, or in the bytes of an attached file (scanned documents in screenshots). */
+function jsonDirective(question: string, messages: NeutralMessage[]): string | null {
+  const find = (t: string) => {
+    // a question a skill put in a data block arrives JSON-escaped: read the directive as it was typed too
+    const unescaped = t.replace(/\\\\/g, "\u0000").replace(/\\"/g, '"').replace(/\u0000/g, "\\");
+    for (const text of t === unescaped ? [t] : [t, unescaped]) {
+      const i = text.indexOf("[json:");
+      const raw = i < 0 ? null : (objectAt(text, i + 6)?.json ?? null);
+      if (!raw) continue;
+      try {
+        JSON.parse(raw);
+        return raw;
+      } catch {
+        // not valid here: the next reading
+      }
+    }
+    return null;
+  };
+  const q = find(question);
+  if (q) return q;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== "user") continue;
+    for (const p of m.parts) {
+      if (p.type !== "file" || p.data.length > 200_000) continue;
+      const hit = find(Buffer.from(p.data, "base64").toString("utf8"));
+      if (hit) return hit;
+    }
+    break;
+  }
+  return null;
+}
+
+/** A tool result without its untrusted-data wrapper (`<data name="tool_result">` + one JSON line). */
+export function unwrapData(content: string): string {
+  const m = /^<data name="[^"]*">\n([^\n]*)\n<\/data>/.exec(content);
+  if (!m) return content;
+  try {
+    const v = JSON.parse(m[1]);
+    return typeof v === "string" ? v : m[1];
+  } catch {
+    return m[1];
+  }
+}
+
+/** Numbers worth quoting from a tool result (decimal strings and numbers, with their keys). */
+function facts(content: string): string[] {
+  let data: unknown;
+  try {
+    data = JSON.parse(unwrapData(content));
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  const walk = (v: unknown, key: string, depth: number) => {
+    if (out.length >= 4 || depth > 4) return;
+    if (typeof v === "number" || (typeof v === "string" && /^-?\d+(\.\d+)?$/.test(v))) out.push(`${key}: ${v}`);
+    else if (Array.isArray(v)) v.slice(0, 3).forEach((x, i) => walk(x, `${key}[${i}]`, depth + 1));
+    else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) walk(x, k, depth + 1);
+  };
+  walk(data, "value", 0);
+  return out;
+}
+
+/** A value that satisfies a JSON schema (structured output without a [json:…] directive). */
+export function sampleFor(schema: unknown, depth = 0): unknown {
+  const s = (schema ?? {}) as Record<string, unknown>;
+  if (depth > 6) return null;
+  if (Array.isArray(s.enum) && s.enum.length) return s.enum[0];
+  if (s.const !== undefined) return s.const;
+  const any = (s.anyOf ?? s.oneOf) as unknown[] | undefined;
+  if (any?.length) return sampleFor(any.find((x) => (x as { type?: string }).type !== "null") ?? any[0], depth + 1);
+  const type = Array.isArray(s.type) ? (s.type as string[]).find((t) => t !== "null") : (s.type as string | undefined);
+  switch (type) {
+    case "object": {
+      const out: Record<string, unknown> = {};
+      const props = (s.properties ?? {}) as Record<string, unknown>;
+      for (const k of (s.required as string[] | undefined) ?? Object.keys(props)) out[k] = sampleFor(props[k], depth + 1);
+      return out;
+    }
+    case "array":
+      return [];
+    case "string":
+      return "نمونه";
+    case "number":
+    case "integer":
+      return typeof s.minimum === "number" ? s.minimum : 0;
+    case "boolean":
+      return false;
+    default:
+      return null;
+  }
+}
+
+/** A cited answer from a sources block: the first sentence of each source sharing a word with the question, cited. */
+function groundedAnswer(json: string, prompt: string): string {
+  let sources: { n: number; text: string }[] = [];
+  try {
+    sources = JSON.parse(json) as { n: number; text: string }[];
+  } catch {
+    sources = [];
+  }
+  const q = /<question>\n([\s\S]*?)\n<\/question>/.exec(prompt)?.[1] ?? "";
+  const words = q
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((w) => w.length > 2 && !/\[/.test(w));
+  const lines = sources
+    .filter((s) => words.some((w) => s.text.toLowerCase().includes(w)))
+    .slice(0, 3)
+    .map((s) => `${(s.text.split(/(?<=[.!?؟])\s+|\n/u)[0] ?? s.text).trim().slice(0, 200)} [${s.n}]`);
+  if (!lines.length) return "در منابع در دسترس شما پاسخی پیدا نشد";
+  if (/\[uncited\]/.test(q)) lines.push("این جمله ساختگی است و از هیچ منبعی نیامده است و نباید پذیرفته شود.");
+  return lines.join("\n");
+}
+
+function estimate(text: string): number {
+  return Math.max(1, Math.ceil(text.length / 4));
+}
+
+export function fakeAdapter(connectionId: string): Adapter {
+  return {
+    protocol: "openai-chat",
+    async listModels() {
+      return [...FAKE_MODELS];
+    },
+    async turn(req: TurnRequest, hooks): Promise<TurnResult> {
+      logTurn(req);
+      const question = lastUserText(req.messages);
+      const results = currentResults(req.messages);
+      const promptChars = req.system.length + JSON.stringify(req.messages).length;
+      const usage = { input: estimate(" ".repeat(promptChars)), output: 0, cache_read: 0, cache_write: 0, reasoning: 0 };
+      const err = /\[error:([a-z_]+)\]/.exec(question);
+      if (err && !results.length) throw new ProviderError(err[1] as AiErrorKind, `fake ${err[1]} error`, err[1] === "rate" ? 429 : 400, err[1] === "rate" ? 1000 : null);
+      if (/\[refuse\]/.test(question)) return { text: "", toolCalls: [], stop: "refusal", usage, model: req.model, native: null };
+
+      const slow = /\[slow\]/.test(question);
+      const emit = async (text: string): Promise<string> => {
+        let sent = "";
+        const chunks = text.match(/.{1,12}/gsu) ?? [];
+        for (const c of chunks) {
+          if (req.signal?.aborted) break;
+          if (slow) await sleep(60, req.signal);
+          if (req.signal?.aborted) break;
+          sent += c;
+          hooks?.onText?.(c);
+        }
+        return sent;
+      };
+      if (/\[think\]/.test(question) && !results.length) hooks?.onThinking?.("بررسی پرسش و انتخاب ابزار مناسب…");
+
+      const offered = new Set((req.tools ?? []).map((t) => t.name));
+      let calls: { name: string; input: Record<string, unknown> }[] = [];
+      const loop = /\[loop:(\d+)\s+([a-z_][\w]*)\s*(\{[^\]]*\})?\]/.exec(question);
+      if (loop) {
+        const want = Number(loop[1]);
+        const done = results.filter((r) => r.name === loop[2]).length;
+        if (done < want && offered.has(loop[2])) {
+          let input: Record<string, unknown> = {};
+          try {
+            input = loop[3] ? (JSON.parse(loop[3]) as Record<string, unknown>) : {};
+          } catch {
+            input = {};
+          }
+          calls = [{ name: loop[2], input }];
+        }
+      } else if (!results.length && !req.output) {
+        calls = directives(question).filter((d) => offered.has(d.name));
+        if (!calls.length && /اعضا|عضو/.test(question) && offered.has("list_members")) calls = [{ name: "list_members", input: {} }];
+        else if (!calls.length && /امروز|دسترسی/.test(question) && offered.has("get_org_context")) calls = [{ name: "get_org_context", input: {} }];
+      }
+      if (calls.length) {
+        const step = req.messages.length;
+        const toolCalls: ToolCall[] = calls.map((c, i) => ({ id: `fake_${step}_${i}`, name: c.name, input: c.input }));
+        const text = await emit(results.length ? "" : "برای پاسخ، داده‌ها را از سامانه می‌خوانم.");
+        usage.output = estimate(text) + 20;
+        return { text, toolCalls, stop: req.signal?.aborted ? "aborted" : "tool", usage, model: req.model, native: { role: "assistant", content: text || null } };
+      }
+
+      let answer: string;
+      const grounded = /<data name="sources">\n([^\n]*)\n<\/data>/.exec(question);
+      if (FAKE_QUEUE.length) {
+        answer = FAKE_QUEUE.shift()!;
+      } else if (grounded && !req.output) {
+        answer = groundedAnswer(grounded[1], question);
+      } else if (req.output) {
+        answer = jsonDirective(question, req.messages) ?? JSON.stringify(sampleFor(req.output.schema));
+      } else if (results.length) {
+        const lines = results.map((r) => {
+          if (r.is_error) return `- ابزار ${r.name} خطا داد: ${r.content.slice(0, 160)}`;
+          if (r.content.includes('"awaiting_confirmation"')) return `- پیش‌نویس ${r.name} آماده شد؛ تا آن را در کارت بالا تأیید نکنید چیزی ثبت نمی‌شود.`;
+          const f = facts(r.content);
+          return `- بر پایهٔ ${r.name}: ${f.length ? f.join("، ") : "داده‌ای برنگشت"}`;
+        });
+        answer = `پاسخ آزمایشی بر پایهٔ ابزارها:\n\n${lines.join("\n")}`;
+      } else if (/[«»؟]|[؀-ۿ]/.test(question)) {
+        answer = `پاسخ آزمایشی: «${question.replace(/\[[^\]]*\]/g, "").trim().slice(0, 300)}»`;
+      } else answer = `Fake answer: ${question.slice(0, 300)}`;
+      const sent = await emit(answer);
+      usage.output = estimate(sent);
+      if (req.signal?.aborted) return { text: sent, toolCalls: [], stop: "aborted", usage, model: req.model, native: null };
+      return { text: sent, toolCalls: [], stop: "end", usage, model: req.model, native: { role: "assistant", content: sent, connection: connectionId } };
+    },
+  };
+}

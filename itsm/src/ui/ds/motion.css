@@ -1,0 +1,50 @@
+/* Reusable motion (components.md §13). Tokens live in tokens.css §3; §6 there turns every movement amount into
+   the identity under prefers-reduced-motion or data-motion="reduced", so these keep only their opacity fade.
+   Transform and opacity only, ease-out only, never `transition: all`. Keyframes are for first appearance only
+   (launch, first load of a session); anything that can re-trigger uses a CSS transition. */
+@layer components {
+  /* enter: opacity + an 8 px rise (KPI tiles, cards on the first load of a session, list inserts) */
+  .ds-enter { animation: ds-enter var(--ds-dur-moderate) var(--ds-ease-out) both; animation-delay: calc(var(--ds-i, 0) * var(--ds-stagger)); }
+  /* fade: opacity only (skeleton → content, a module's nav swap) */
+  .ds-fade { animation: ds-fade var(--ds-dur-crossfade) linear both; }
+  /* pop: popovers and dialogs built by hand — scale .96 → 1 from the trigger's origin */
+  .ds-pop { animation: ds-pop var(--ds-dur-base) var(--ds-ease-out) both; }
+  /* stagger: the direct children enter one after another, 30 ms apart, at most 6 (the rest enter with the 6th) */
+  .ds-stagger > * { animation: ds-enter var(--ds-dur-moderate) var(--ds-ease-out) both; }
+  .ds-stagger > :nth-child(2) { animation-delay: calc(1 * var(--ds-stagger)); }
+  .ds-stagger > :nth-child(3) { animation-delay: calc(2 * var(--ds-stagger)); }
+  .ds-stagger > :nth-child(4) { animation-delay: calc(3 * var(--ds-stagger)); }
+  .ds-stagger > :nth-child(5) { animation-delay: calc(4 * var(--ds-stagger)); }
+  .ds-stagger > :nth-child(n + 6) { animation-delay: calc(5 * var(--ds-stagger)); }
+  /* press: buttons, rows and tiles that act like buttons */
+  .ds-press { transition: transform var(--ds-dur-fast) var(--ds-ease-out); }
+  .ds-press:active { transform: scale(var(--ds-press-scale)); }
+  /* launch: the mark's arch draws itself from the right foot, then its nuqta settles at the outlet like a drop
+     (login, onboarding, the splash and the boot screen only). The arch path carries pathLength="1". */
+  .ds-launch .ds-arch { stroke-dasharray: 1; animation: ds-draw 560ms var(--ds-ease-in-out) both; }
+  .ds-launch .ds-nq { animation: ds-set 420ms var(--ds-ease-out) 380ms both; transform-box: fill-box; transform-origin: 50% 50%; }
+
+  @keyframes ds-enter { from { opacity: 0; transform: translateY(var(--ds-enter-shift)); } to { opacity: 1; transform: none; } }
+  @keyframes ds-fade { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes ds-pop { from { opacity: 0; transform: scale(var(--ds-enter-scale)); } to { opacity: 1; transform: none; } }
+  @keyframes ds-set { from { opacity: 0; transform: translateY(-6px) scale(.6); } to { opacity: 1; transform: none; } }
+  @keyframes ds-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+
+  /* optimistic updates: the change shows at once (React 19 useOptimistic); until the server confirms, its element
+     carries data-pending (dimmed, a progress cursor, not actionable twice). On confirm add .ds-flash once (the accent
+     tint fades out over --ds-dur-flash); on failure the old value returns and a toast says why. */
+  [data-pending] { opacity: var(--ds-pending-opacity); cursor: progress; transition: opacity var(--ds-dur-fast) var(--ds-ease-out-quad); }
+  [data-pending] :is(button, a, input, [role="button"]) { pointer-events: none; }
+  .ds-flash { animation: ds-flash var(--ds-dur-flash) var(--ds-ease-out-quad) both; }
+  @keyframes ds-flash { from { background-color: var(--ds-accent-tint-2); } to { background-color: transparent; } }
+
+  /* a milestone (ds/celebrate.ts): nuqtas rise once from an element; a quiet ring under reduced motion */
+  .ds-celebrate { position: fixed; inset: 0; pointer-events: none; z-index: var(--ds-z-toast); overflow: hidden; }
+  .ds-celebrate-nq { position: absolute; border-radius: 1px; transform: translate(-50%, -50%) rotate(45deg); opacity: 0; }
+  .ds-celebrate-ring { position: absolute; border-radius: 50%; transform: translate(-50%, -50%); opacity: 0;
+    box-shadow: 0 0 0 2px var(--ds-brand-nuqta), 0 0 24px 6px color-mix(in oklab, var(--ds-brand-nuqta) 35%, transparent); }
+
+  /* the launch is pure movement: under reduced motion it is not played at all */
+  @media (prefers-reduced-motion: reduce) { .ds-launch :is(.ds-nq, .ds-arch) { animation: none; } }
+  :root[data-motion="reduced"] .ds-launch :is(.ds-nq, .ds-arch) { animation: none; }
+}

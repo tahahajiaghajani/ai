@@ -1,0 +1,21 @@
+{
+  "$comment": "The ONE place for the Windows-facing names of the server edition. Read by src/server-edition/names.ts (runtime, karizctl), scripts/build-server.mjs, packaging/server/scripts/*.ps1 (install, services, smoke test) and the WiX build (passed as -d defines). Internal identifiers (sm_ tables, itsm.* settings, ITSM_* variables) never derive from these names. Never change upgradeCode: it ties every later MSI to the installed product.",
+  "product": "Kariz Server",
+  "displayName": "کاریز — نسخهٔ سرور",
+  "manufacturer": "Kariz",
+  "msiFilePrefix": "Kariz-Server",
+  "upgradeCode": "C40A35C2-6C53-4E61-B9FF-C015F24FF145",
+  "installDir": "C:\\Program Files\\Kariz",
+  "dataDir": "C:\\ProgramData\\Kariz",
+  "configFile": "kariz.json",
+  "registryKey": "SOFTWARE\\Kariz\\Server",
+  "services": {
+    "db": { "name": "KarizDB", "displayName": "کاریز — پایگاه داده", "description": "PostgreSQL of the Kariz server edition (listens on 127.0.0.1 only)" },
+    "app": { "name": "KarizApp", "displayName": "کاریز — سرور برنامه", "description": "Kariz application server (HTTPS, background jobs, backups)" },
+    "backupTask": { "name": "KarizBackup", "description": "Optional scheduled task: karizctl backup" }
+  },
+  "ctl": "karizctl",
+  "firewallRule": "Kariz HTTPS",
+  "database": { "name": "kariz", "appRole": "kariz_app", "superuser": "kariz_admin", "port": 5432 },
+  "defaultHostName": "kariz.bank.local"
+}

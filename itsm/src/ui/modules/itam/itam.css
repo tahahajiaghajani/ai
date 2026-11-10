@@ -1,0 +1,232 @@
+/* IT asset management, suppliers and IT finance (design system tokens only; logical properties; tabular figures). */
+
+.itam-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+/* tiles that hold amounts: wider columns (one per row on a phone) */
+.itam-tiles.is-wide {
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+}
+
+.itam-two {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.itam-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.itam-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.itam-list > li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-block: 6px;
+  border-block-end: 1px solid var(--ds-line);
+  font-size: 13px;
+  min-inline-size: 0;
+}
+.itam-list > li:last-child {
+  border-block-end: 0;
+}
+
+.itam-dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 13px;
+}
+.itam-dl dt {
+  color: var(--ds-text-3);
+}
+.itam-dl dd {
+  margin: 0;
+  min-inline-size: 0;
+}
+
+.itam-fig {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-2, 8px);
+  font-size: 13px;
+}
+.itam-fig > span:first-child {
+  color: var(--ds-text-3);
+  font-size: 12px;
+}
+
+.itam-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-inline-size: 110px;
+}
+.itam-meter-bar {
+  flex: 1;
+  block-size: 6px;
+  border-radius: 3px;
+  background: var(--ds-line);
+  overflow: hidden;
+  min-inline-size: 56px;
+}
+.itam-meter-bar > span {
+  display: block;
+  block-size: 100%;
+  border-radius: 3px;
+}
+
+.itam-terms {
+  max-block-size: 260px;
+  overflow: auto;
+  padding: 8px 12px;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-2, 8px);
+  background: var(--ds-surface-2, transparent);
+}
+
+.itam-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.itam-month {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.itam-entry {
+  display: grid;
+  grid-template-columns: 72px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  padding-block: 4px;
+  border-block-end: 1px dashed var(--ds-line);
+  min-inline-size: 0;
+}
+.itam-entry:last-child {
+  border-block-end: 0;
+}
+.itam-entry > a,
+.itam-entry > span {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- labels: A4 sheets at real size */
+.itam-preview {
+  overflow: auto;
+  max-inline-size: 100%;
+  padding-block: 8px;
+}
+.itam-sheet {
+  position: relative;
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  margin-block-end: 16px;
+  box-shadow: 0 0 0 1px var(--ds-line);
+  direction: ltr;
+}
+.itam-label {
+  position: absolute;
+  direction: rtl;
+}
+.itam-label-in {
+  display: flex;
+  align-items: center;
+  gap: 2mm;
+  padding: 1.5mm 2mm;
+  box-sizing: border-box;
+  overflow: hidden;
+  outline: 1px dashed var(--ds-line);
+}
+.itam-label-qr {
+  flex: none;
+}
+.itam-label-qr svg {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+}
+.itam-label-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5mm;
+  min-inline-size: 0;
+  font-size: 7.5pt;
+  line-height: 1.25;
+}
+.itam-label-title {
+  font-size: 6.5pt;
+  opacity: 0.75;
+}
+.itam-label-tag {
+  font-family: var(--ds-font-num, inherit);
+  font-size: 10pt;
+  font-weight: var(--ds-weight-bold, 700);
+}
+.itam-label-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* printing the label sheets only: scoped to a page that shows them (other pages print as the platform prints them) */
+@page itam-labels {
+  size: A4;
+  margin: 0;
+}
+@media print {
+  body:has(.itam-print) * {
+    visibility: hidden;
+  }
+  body:has(.itam-print) .itam-print,
+  body:has(.itam-print) .itam-print * {
+    visibility: visible;
+  }
+  .itam-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    page: itam-labels;
+  }
+  .itam-sheet {
+    margin: 0;
+    box-shadow: none;
+    break-after: page;
+  }
+  .itam-label-in {
+    outline: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .itam-entry {
+    grid-template-columns: 64px 1fr;
+  }
+  .itam-entry > :last-child {
+    grid-column: 2;
+  }
+}
