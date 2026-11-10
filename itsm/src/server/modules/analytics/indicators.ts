@@ -20,6 +20,7 @@ import { readersOf } from "../../access";
 import { notifyPeople } from "../notify";
 import { liveRow, liveRows, num, sysOf, type Row } from "./common";
 import { isRestricted, runReport } from "./query";
+import { personalBreakdowns, personalReaders } from "./sharing";
 
 /** An indicator row as the definition the evaluator needs. */
 export function indicatorOf(row: Row): IndicatorDef & { id: string; formula_version: number; certified: boolean } {
@@ -314,6 +315,8 @@ async function upsertScore(sys: Ctx, ind: Row, def: IndicatorDef, period: Period
     s_all: !!ind.s_all,
     ...(ids ? { ids } : {}),
   };
+  // a breakdown by person: that person's figures, read only by them and their managers
+  if (breakdown && personalBreakdowns(ind.parts, ind.breakdowns).includes(breakdown)) Object.assign(data, { s_users: await personalReaders(sys.db, sys.org.id, element.key), s_groups: [], s_all: false });
   return sys.write(async (tx) => {
     await tx.query(`select pg_advisory_xact_lock(hashtext($1))`, [`analytics_score:${sys.org.id}:${key.indicator_id}:${key.formula_version}:${key.period_key}:${breakdown}:${element.key}`]);
     const [found] = await liveRows(tx, sys, "analytics_score", lookup, { limit: 1 });

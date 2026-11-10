@@ -67,9 +67,11 @@ export async function scoreRecordIn(tx: Tx, ctx: Ctx, table: string, id: string)
   if (!def || def.virtual) return null;
   const rec = await liveRow(tx, sys, table, id);
   const [existing] = await liveRows(tx, sys, "slm_xla_score", { and: [{ f: "table_key", op: "eq", v: table }, { f: "record_id", op: "eq", v: id }] }, { limit: 1 });
-  const policy = rec ? await policyOf(tx, sys, table, id) : null;
+  // a confidential record (an HR complaint, a privileged legal request…) gets no score row: its number, assignee and
+  // score would show to readers of experience scores who may not read the record
+  const policy = rec && rec.confidential !== true ? await policyOf(tx, sys, table, id) : null;
   if (!rec || !policy) {
-    // the record left every policy (or was deleted): its score goes too
+    // the record left every policy (or was deleted, or became confidential): its score goes too
     if (existing) await removeIn(tx, sys, "slm_xla_score", String(existing.id), { trusted: true });
     return null;
   }
@@ -81,6 +83,8 @@ export async function scoreRecordIn(tx: Tx, ctx: Ctx, table: string, id: string)
     reliability: r.reliability, quality: r.quality, effort: r.effort, survey: r.survey, drivers: r.drivers,
     service_id: isUuid(rec.service_id) ? rec.service_id : null, assignment_group_id: isUuid(group) ? group : null, assigned_to: isUuid(rec.assigned_to) ? rec.assigned_to : null,
     computed_at: new Date().toISOString(),
+    // the score stays in the record's workspace (a secure department's cases: only its members read their scores)
+    workspace_id: isUuid(rec.workspace_id) ? rec.workspace_id : null,
   };
   const low = r.score < Number(policy.threshold ?? 50);
   const alertNow = low && !existing?.alerted;
@@ -106,6 +110,15 @@ export function installXla(): (() => void)[] {
   off.push(
     onRecordEvent("slm.xla", async (e, jctx) => {
       if (!e.org_id || !actsHere(jctx.cfg) || e.table.startsWith("slm_") || e.via === "sync") return;
+      // a survey answer of the portal about a record rescores that record (the answer is one of its XLA facts)
+      if (e.table === "survey_response") {
+        const sys = await systemCtx(jctx.cfg, e.org_id);
+        const resp = await liveRow(jctx.db, sys, "survey_response", e.id).catch(() => null);
+        const target = resp && typeof resp.table_key === "string" ? tableDef(resp.table_key) : null;
+        if (!resp || !target || !isUuid(resp.record_id) || !(await policiesFor(jctx.db, sys, target.key)).length) return;
+        await enqueue(jctx.db, { kind: "slm.xla", orgId: e.org_id, payload: { table: target.key, id: resp.record_id }, delayMs: 20_000, dedupeKey: `slm.xla:${target.key}:${resp.record_id}`, maxAttempts: 4 });
+        return;
+      }
       const def = tableDef(e.table);
       if (!def || def.virtual || !def.states) return;
       const sys = await systemCtx(jctx.cfg, e.org_id);

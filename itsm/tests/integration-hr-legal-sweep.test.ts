@@ -242,6 +242,23 @@ describe("HR and legal records outside their workspaces", () => {
     }
   });
 
+  it("stored HR scores: HR reads them, the IT and tenant administrators do not", async () => {
+    await w.o.post(`${w.P}/esm/seed`, { force: true });
+    await w.o.post(`${w.P}/analytics/collect`, {}).catch(() => null);
+    await w.drain();
+    const ind = (await w.e.db.query<{ id: string }>(`select id from sm_analytics_indicators where org_id = $1 and key = 'esm.hr_backlog' and deleted_at is null`, [w.e.org]))[0];
+    expect(ind).toBeTruthy();
+    const stored = await w.e.db.query<{ value: string }>(`select value from sm_analytics_scores where org_id = $1 and indicator_id = $2 and deleted_at is null`, [w.e.org, ind.id]);
+    if (stored.length) {
+      const hr = (await w.p.hr.client.get(`${w.P}/r/analytics_score?size=500`).catch(() => ({ rows: [] }))).rows as { indicator_id: string }[];
+      expect(hr.some((r) => r.indicator_id === ind.id)).toBe(true);
+    }
+    for (const c of [w.o, w.p.admin.client, w.p.it.client, w.p.auditor.client]) {
+      const rows = (await c.get(`${w.P}/r/analytics_score?size=500`).catch(() => ({ rows: [] }))).rows as { indicator_id: string }[];
+      expect(rows.some((r) => r.indicator_id === ind.id)).toBe(false);
+    }
+  });
+
   it("insights", async () => {
     for (const who of outsiders) {
       const ins = await w.p[who].client.get(`${w.P}/ai/insights?period=daily`).catch(() => null);

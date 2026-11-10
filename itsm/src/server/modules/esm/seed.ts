@@ -311,7 +311,8 @@ function indicators(): Row[] {
       key: "esm.hr_backlog", name: "پرونده‌های باز منابع انسانی", practice: "other", unit: "count", direction: "down", grain: "day",
       description: "پرونده‌های منابع انسانی که هنوز باز است (فقط کسانی که پرونده‌ها را می‌بینند عدد را می‌بینند).",
       formula: "open", parts: [{ name: "open", table: "hr_case", fn: "count", filter: { f: "active", op: "eq", v: true } }],
-      breakdowns: ["coe", "assignment_group_id"], score_shares: shares,
+      // HR's secure cases: stored counts only for HR (never the IT or tenant administrator; live values follow each viewer's access)
+      breakdowns: ["coe", "assignment_group_id"], score_shares: [{ kind: "role", id: "hr_agent", right: "view" }],
     },
   ].map((k) => ({ active: true, collect: true, certified: false, decimals: null, ...k, library_key: k.key }));
 }

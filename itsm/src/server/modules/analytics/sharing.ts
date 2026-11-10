@@ -10,7 +10,7 @@ import { tableDef } from "@shared/tables";
 import type { CompiledShares, IndicatorPart, Share } from "@shared/analytics/types";
 import type { FieldGroup } from "@shared/model/types";
 import type { Ctx } from "../../context";
-import type { Queryable } from "../../db";
+import { pgArray, type Queryable } from "../../db";
 import { bad } from "../../http/errors";
 import { accessSettings, buildSubject, loadOrgSnapshot } from "../../access";
 import { updateIn, onRecordEvent } from "../../engine";
@@ -166,6 +166,59 @@ export async function indicatorScoreColumns(q: Queryable, orgId: string, ind: Ro
   return required.length ? gateScoreColumns(cols, required, members ?? (await memberAccess(q, orgId))) : cols;
 }
 
+/**
+ * The breakdowns of an indicator that name a person (a user field of a part's table: the assignee, the technician, the
+ * paged person…): their stored scores are that person's performance figures. Such a row is read only by the person
+ * and their managers (`personalReaders`), whoever reads the indicator's other scores.
+ */
+export function personalBreakdowns(parts: unknown, breakdowns: unknown): string[] {
+  const names = Array.isArray(breakdowns) ? (breakdowns as unknown[]).filter((b): b is string => typeof b === "string") : [];
+  if (!names.length) return [];
+  const ps = Array.isArray(parts) ? (parts as IndicatorPart[]) : [];
+  return names.filter((n) => ps.some((p) => {
+    const f = p && typeof p.table === "string" ? tableDef(p.table)?.fields.find((x) => x.name === n) : undefined;
+    return !!f && (f.type === "user" || f.type === "users");
+  }));
+}
+
+/** The person of a personal score and their managers: the direct manager of their profile and the leads of their groups. */
+export async function personalReaders(q: Queryable, orgId: string, userId: string): Promise<string[]> {
+  if (!/^[0-9a-f-]{36}$/i.test(userId)) return [];
+  const rows = await q.query<{ id: string }>(
+    `select mp.manager_id::text as id from sm_member_profiles mp
+      where mp.org_id = $1 and mp.user_id = $2::uuid and mp.deleted_at is null and mp.manager_id is not null
+     union
+     select lead.user_id::text from sm_group_members me
+       join sm_group_members lead on lead.org_id = me.org_id and lead.group_id = me.group_id and lead.kind = 'lead' and lead.deleted_at is null
+        and (lead.valid_from is null or lead.valid_from <= now()) and (lead.valid_to is null or lead.valid_to > now())
+      where me.org_id = $1 and me.user_id = $2::uuid and me.deleted_at is null and me.kind in ('member', 'lead')
+        and (me.valid_from is null or me.valid_from <= now()) and (me.valid_to is null or me.valid_to > now())`,
+    [orgId, userId],
+  ).catch(() => [] as { id: string }[]);
+  return [...new Set([userId.toLowerCase(), ...rows.map((r) => String(r.id).toLowerCase())])].sort();
+}
+
+/** Re-stamp the readers of an indicator's personal scores (managers or group leads changed). */
+export async function restampPersonalScores(q: Queryable, sys: Ctx, ind: Row): Promise<number> {
+  const personal = personalBreakdowns(ind.parts, ind.breakdowns);
+  if (!personal.length) return 0;
+  const table = tableDef("analytics_score")!.table;
+  const rows = await q.query<{ id: string; element: string; s_users: string[] | null }>(
+    `select id, element, s_users from ${table} where org_id = $1 and indicator_id = $2 and deleted_at is null and breakdown = any($3::text[])`,
+    [sys.org.id, ind.id, pgArray(personal)],
+  );
+  let changed = 0;
+  const cache = new Map<string, string[]>();
+  for (const r of rows) {
+    const readers = cache.get(r.element) ?? (await personalReaders(q, sys.org.id, r.element));
+    cache.set(r.element, readers);
+    if (same(readers, r.s_users)) continue;
+    await q.query(`update ${table} set s_users = $2::jsonb, s_groups = '[]'::jsonb, s_all = false, updated_at = now() where id = $1`, [r.id, JSON.stringify(readers)]);
+    changed++;
+  }
+  return changed;
+}
+
 const same = (a: unknown, b: unknown) => JSON.stringify([...((a as string[]) ?? [])].sort()) === JSON.stringify([...((b as string[]) ?? [])].sort());
 
 /**
@@ -193,6 +246,8 @@ export async function recomputeRoleShares(sys: Ctx): Promise<number> {
     // indicators made of guarded fields (amounts…) name their readers one by one: who holds the field group changes
     if (scoreFieldGroups(r.parts, r.breakdowns).length) members ??= await memberAccess(sys.db, sys.org.id);
     const cols = await indicatorScoreColumns(sys.db, sys.org.id, r, compiled, admins.has(String(r.owner_id ?? "").toLowerCase()), members);
+    // personal scores (a breakdown by person) follow the person's managers, whatever the indicator's readers
+    if (personalBreakdowns(r.parts, r.breakdowns).length) changed += await sys.write((tx) => restampPersonalScores(tx, sys, r));
     if (same(cols.s_users, r.s_users) && same(cols.s_groups, r.s_groups) && !!cols.s_all === !!r.s_all) continue;
     await sys.write((tx) => restampIndicator(tx, sys, r, cols));
     changed++;
@@ -209,11 +264,13 @@ export async function restampIndicator(q: Queryable, sys: Ctx, ind: Row, cols: R
   const table = tableDef("analytics_score")!.table;
   const users = JSON.stringify(cols.s_users);
   const groups = JSON.stringify(cols.s_groups);
+  // personal scores (a breakdown by person) keep their own readers: the person and their managers
+  const personal = personalBreakdowns(ind.parts, ind.breakdowns);
   await q.query(
     `update ${table} set s_users = $3::jsonb, s_groups = $4::jsonb, s_all = $5, updated_at = now()
-      where org_id = $1 and indicator_id = $2 and deleted_at is null
+      where org_id = $1 and indicator_id = $2 and deleted_at is null and not (breakdown = any($6::text[]))
         and (s_users is distinct from $3::jsonb or s_groups is distinct from $4::jsonb or s_all is distinct from $5)`,
-    [sys.org.id, ind.id, users, groups, !!cols.s_all],
+    [sys.org.id, ind.id, users, groups, !!cols.s_all, pgArray(personal)],
   );
 }
 
