@@ -5,8 +5,8 @@
 //   karizctl reset-password <email> | rotate-cert --pfx <file> --password <p> (or --cert <crt> --key <key>)
 //   karizctl allow list | allow add <host> | allow remove <host>
 //   karizctl diagnostics [--out <file.zip>] | setup-token | version
-// Installer steps (also safe to run by hand): init, db-init, pg-conf, db-bootstrap, migrate, pg-start, pg-stop,
-// wait-ready, purge.
+// Installer steps (also safe to run by hand): preflight, init, db-init, pg-conf, db-bootstrap, migrate, pg-start,
+// pg-stop, wait-ready, purge.
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, copyFileSync } from "node:fs";
 import { request as httpsRequest } from "node:https";
@@ -28,6 +28,8 @@ import { inspectCredentials, loadCredentials } from "./tls";
 import { RESTART_REQUEST, RELOAD_REQUEST } from "./cluster";
 import { zip, type ZipEntry } from "./zip";
 import type { DiskKind } from "./pgtune";
+import { PORT_CANDIDATES, parsePortSetting, portsToProbe, probePorts, PortSettingError, type PortKind, type PortRequest, type PortSetting } from "./ports";
+import { evaluatePreflight, type PreflightFacts } from "./preflight";
 
 export interface Args {
   cmd: string;
@@ -171,6 +173,55 @@ async function cmdInit(a: Args) {
   for (const d of Object.values(c.dirs)) mkdirSync(d, { recursive: true });
   saveServerConfig(file, c);
   say(JSON.stringify({ ok: true, config: file, created: !existing, secrets_generated: changed, public_url: c.public_url, data: c.dirs.data, https_port: c.listen.https_port, pg_port: c.db.port }, null, 2));
+}
+
+/**
+ * The installer's preflight: the machine's facts (flags from install.ps1) and the ports. Given ports (--https-port,
+ * --http-port, --pg-port: a number, auto, or 0 = HTTP off) must be free; the others are kept from an existing kariz.json
+ * or chosen from the fixed lists (443 → 8443 → 9443 …, 80 → 8080 → 8081 …, 5432 → 5433 …). The result (JSON: ok, ports,
+ * errors, warnings, notes) goes to --out and stdout; the exit code is 0 unless the command itself fails, so the
+ * installer reads every reason.
+ */
+async function cmdPreflight(a: Args) {
+  const file = configFile(a);
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const setting = (kind: PortKind, key: string): PortSetting => {
+    try {
+      return parsePortSetting(flag(a, key), kind);
+    } catch (e) {
+      if (!(e instanceof PortSettingError)) throw e;
+      errors.push(e.message);
+      return { mode: "auto" };
+    }
+  };
+  const req: PortRequest = { https: setting("https", "https-port"), http: setting("http", "http-port"), pg: setting("pg", "pg-port") };
+  if (existsSync(file)) {
+    try {
+      const c = loadServerConfig(file, {}).config;
+      req.kept = { https: c.listen.https_port, http: c.listen.http_port, pg: c.db.port };
+    } catch (e) {
+      warnings.push(`the existing configuration could not be read for its ports (${(e as Error).message}): ports chosen again`);
+    }
+  }
+  const num = (k: string) => (flag(a, k) !== undefined && flag(a, k) !== "" && Number.isFinite(Number(flag(a, k))) ? Number(flag(a, k)) : undefined);
+  const bool = (k: string) => (flag(a, k) === undefined ? undefined : flag(a, k) === "1" || flag(a, k) === "true");
+  const facts: PreflightFacts = {
+    admin: bool("admin"),
+    arch: flag(a, "arch") || undefined,
+    build: num("build"),
+    productType: num("product-type"),
+    memoryMb: num("memory-mb"),
+    freeDiskMb: num("free-mb"),
+    pendingReboot: bool("pending-reboot"),
+  };
+  const pgPorts = new Set<number>([...PORT_CANDIDATES.pg, ...(req.pg.mode === "fixed" ? [req.pg.port] : []), ...(req.kept?.pg ? [req.kept.pg] : [])]);
+  const held = await probePorts(portsToProbe(req), pgPorts);
+  const r = evaluatePreflight(facts, req, (p) => held.get(p) ?? null);
+  const result = { ...r, ok: r.ok && errors.length === 0, errors: [...errors, ...r.errors], warnings: [...warnings, ...r.warnings] };
+  const out = flag(a, "out");
+  if (out) writeFileSync(out, JSON.stringify(result, null, 2));
+  say(JSON.stringify(result));
 }
 
 async function cmdDbInit(a: Args) {
@@ -457,13 +508,16 @@ const HELP = `karizctl — ${EDITION.product} (${APP_NAME} ${APP_VERSION})
   diagnostics [--out <zip>]      diagnostics bundle without secrets
   setup-token                    a new one-time first-run setup URL
   version
-  installer steps: init, db-init, pg-conf [--disk ssd|hdd|san], db-bootstrap, migrate, pg-start, pg-stop, wait-ready, purge --yes
+  installer steps: preflight [--https-port n|auto] [--http-port n|auto|0] [--pg-port n|auto] [--out <json>], init, db-init, pg-conf [--disk ssd|hdd|san], db-bootstrap, migrate, pg-start, pg-stop, wait-ready, purge --yes
   every command: --config <kariz.json>`;
 
 export async function main(argv: string[]): Promise<number> {
   const a = parseArgs(argv);
   try {
     switch (a.cmd) {
+      case "preflight":
+        await cmdPreflight(a);
+        break;
       case "init":
         await cmdInit(a);
         break;

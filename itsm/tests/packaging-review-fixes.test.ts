@@ -40,11 +40,13 @@ describe("install.ps1", () => {
   it("locks the data folder to administrators and SYSTEM before any secret is written, and every run", () => {
     const lock = s.indexOf("Invoke-Native -File 'icacls.exe' -Arguments @($DataDir, '/inheritance:r', '/grant:r', '*S-1-5-32-544:(OI)(CI)F', '/grant:r', '*S-1-5-18:(OI)(CI)F'");
     expect(lock).toBeGreaterThan(0);
-    // before the log file, kariz.json (init) and the certificate (rotate-cert) — and outside the try that only an
-    // install reaching the permissions step would have fixed
-    expect(lock).toBeLessThan(s.indexOf("Set-LogFile"));
+    // before the log file, kariz.json (init) and the certificate (rotate-cert) — first thing of every run (inside the
+    // try only so that a failure there still reaches install-error.txt and the event log), never only once an install
+    // reaches the permissions step
+    expect(lock).toBeLessThan(s.indexOf("Set-LogFile (Join-Path $DataDir"));
     expect(lock).toBeLessThan(s.indexOf("Invoke-Ctl $initArgs"));
-    expect(lock).toBeLessThan(s.indexOf("\ntry {"));
+    expect(lock).toBeGreaterThan(s.indexOf("\ntry {"));
+    expect(lock).toBeLessThan(s.indexOf("Write-Step 'prerequisites'"));
     const init = s.indexOf("Invoke-Ctl $initArgs");
     expect(s.slice(init, init + 200)).toContain("Protect-File (Join-Path $DataDir 'kariz-admin.json')");
     // the TLS key is written after the lock too (inheriting it: the application's account must still read it later)
@@ -59,11 +61,14 @@ describe("install.ps1", () => {
   });
 
   it("keeps the configured ports on a re-install or an upgrade (only given ones are changed)", () => {
-    expect(s).toMatch(/\[string\]\$HttpsPort = '',\s*\n\s*\[string\]\$HttpPort = '',/);
-    expect(s).toContain("if ($httpsGiven -or -not $upgrade) { $initArgs += @('--https-port', $HttpsPort) }");
-    expect(s).toContain("if ($httpGiven -or -not $upgrade) { $initArgs += @('--http-port', $HttpPort) }");
-    expect(s).not.toMatch(/'init', '--data-dir', \$DataDir, '--install-dir', \$InstallDir, '--https-port'/);
-    expect(s).toContain("Get-JsonValue $listen 'https_port'");
+    expect(s).toMatch(/\[string\]\$HttpsPort = '',\s*\n\s*\[string\]\$HttpPort = '',\s*\n\s*\[string\]\$PgPort = '',/);
+    // karizctl preflight keeps kariz.json's ports unless one is given (src/server-edition/ports.ts, tested there); the
+    // ports it returns are the ones init writes
+    expect(s).toContain("$HttpsPort = [string]$pf.ports.https");
+    expect(s).toContain("$initArgs = @('init', '--data-dir', $DataDir, '--install-dir', $InstallDir, '--https-port', $HttpsPort, '--http-port', $HttpPort, '--pg-port', $PgPort)");
+    // only given ports reach the preflight (an empty argument would be dropped by Windows PowerShell 5.1)
+    expect(s).toContain("if ($HttpsPort) { $pfArgs += @('--https-port', $HttpsPort) }");
+    expect(s).toContain("if ($HttpsPort.Trim() -ieq 'auto') { $HttpsPort = '' }");
   });
 
   it("refuses a drive root, a system folder or a folder of other files as DATADIR, and marks its own", () => {

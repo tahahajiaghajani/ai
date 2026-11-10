@@ -35,6 +35,18 @@ function Fail([string]$Message) {
     throw $Message
 }
 
+# An entry in the Application event log (the source is registered on first use; administrators only). Best effort: a
+# failure to write it is logged, never fatal.
+function Write-EventLogEntry([string]$Source, [string]$Message, [string]$Type = 'Information', [int]$EventId = 1000) {
+    try {
+        if (-not [System.Diagnostics.EventLog]::SourceExists($Source)) { [System.Diagnostics.EventLog]::CreateEventSource($Source, 'Application') }
+        if ($Message.Length -gt 30000) { $Message = $Message.Substring(0, 30000) }
+        [System.Diagnostics.EventLog]::WriteEntry($Source, $Message, [System.Diagnostics.EventLogEntryType]$Type, $EventId)
+    } catch {
+        Write-Log "event log entry not written ($Source): $($_.Exception.Message)" 'WARN'
+    }
+}
+
 # The Windows-facing names: packaging/server/edition.json (copied next to the scripts' folder in the installation).
 function Read-Edition([string]$Root) {
     foreach ($p in @((Join-Path $Root 'edition.json'), (Join-Path $Root '..\edition.json'), (Join-Path $Root '..\..\edition.json'))) {

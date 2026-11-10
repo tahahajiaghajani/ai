@@ -16,6 +16,7 @@
   },
   "ctl": "karizctl",
   "firewallRule": "Kariz HTTPS",
+  "eventSource": "Kariz",
   "database": { "name": "kariz", "appRole": "kariz_app", "superuser": "kariz_admin", "port": 5432 },
   "defaultHostName": "kariz.bank.local"
 }
