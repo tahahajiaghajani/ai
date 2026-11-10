@@ -181,6 +181,22 @@ describe("accounts the directory refuses", () => {
     expect(r.status).toBe(401);
     expect(r.json.error.message).toMatch(/پیوند نخورده است/);
   });
+
+  it("links an existing member with a local password only through the administrator's synchronisation", async () => {
+    await w.owner.post(`${w.P}/members`, { email: "clerk2@corp.test", full_name: "کارمند پیشین", role: "member" });
+    w.dc.entries.push(person("clerk2", { name: "Clerk Two" }));
+    const r = await w.client().raw("POST", "/auth/directory", { login: "clerk2", password: "Passw0rd!" });
+    expect(r.status).toBe(401);
+    expect(r.json.error.message).toMatch(/پیوند نخورده است/);
+    const t = await w.owner.post(`${w.P}/integration/directory/${w.source.id}/login-test`, { login: "clerk2" });
+    expect(t.member).toMatchObject({ linked: false, local_password: true });
+    // the administrator's preview shows the link; once applied, the domain account signs in as that member
+    const p = await w.owner.post(`${w.P}/integration/directory/${w.source.id}/preview`);
+    expect(p.plan.links.map((l: { email: string }) => l.email)).toContain("clerk2@corp.test");
+    await w.owner.post(`${w.P}/integration/directory/${w.source.id}/apply`, { run_id: p.run_id, roles: false });
+    const ok = await w.signIn("clerk2", "Passw0rd!");
+    expect((await ok.c.get("/auth/me")).user.email).toBe("clerk2@corp.test");
+  });
 });
 
 describe("protecting the domain controller", () => {

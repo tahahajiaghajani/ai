@@ -90,6 +90,7 @@ function LoginTest({ ctx }: { ctx: RecordContext }) {
                 ))}
                 {STATE_LABELS.every(([k]) => !r.state?.[k]) ? <Chip tone="in">حساب فعال است</Chip> : null}
                 {r.member ? <Chip tone={r.member.active ? "in" : "warning"}>{r.member.linked ? "عضو پیوندخورده" : "عضو با همین ایمیل"}{r.member.active ? "" : " (غیرفعال)"}</Chip> : <Chip>در نخستین ورود ساخته می‌شود</Chip>}
+                {r.member && !r.member.linked && r.member.local_password ? <Chip tone="warning">رمز محلی دارد: با همگام‌سازی پیوند بزنید</Chip> : null}
               </div>
             </div>
           ) : null}

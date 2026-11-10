@@ -68,7 +68,7 @@ export function ReauthGate() {
   const windows = async () => {
     setBusy(true);
     setErr(null);
-    const res = await fetch("/api/auth/sso?reauth=1", { credentials: "same-origin" }).catch(() => null);
+    const res = await fetch("/api/auth/sso?reauth=1", { credentials: "same-origin", headers: { "x-itsm-reauth": "1" } }).catch(() => null);
     if (res?.ok) return close(true);
     const data = res ? await res.json().catch(() => null) : null;
     setErr(data?.error?.message ?? "تأیید با حساب ویندوز انجام نشد؛ گذرواژه را وارد کنید");

@@ -110,10 +110,12 @@ describe("Negotiate (Kerberos) on the server", () => {
     await c.raw("GET", "/auth/sso", undefined, { authorization: `Negotiate ${kerberos("CORP\\ali")}` });
     const before = (await w.db.one<{ reauth_at: string }>(`select reauth_at from sm_sessions where id = $1`, [c.cookie.split("=")[1].split(".")[0]]))!.reauth_at;
     await new Promise((r) => setTimeout(r, 20));
-    expect((await c.raw("GET", "/auth/sso?reauth=1", undefined, { authorization: `Negotiate ${kerberos("CORP\\ali")}` })).status).toBe(200);
+    // only from the app itself (a cross-site navigation cannot add the header)
+    expect((await c.raw("GET", "/auth/sso?reauth=1", undefined, { authorization: `Negotiate ${kerberos("CORP\\ali")}` })).status).toBe(400);
+    expect((await c.raw("GET", "/auth/sso?reauth=1", undefined, { authorization: `Negotiate ${kerberos("CORP\\ali")}`, "x-itsm-reauth": "1" })).status).toBe(200);
     const after = (await w.db.one<{ reauth_at: string }>(`select reauth_at from sm_sessions where id = $1`, [c.cookie.split("=")[1].split(".")[0]]))!.reauth_at;
     expect(new Date(after).getTime()).toBeGreaterThan(new Date(before).getTime());
-    expect((await c.raw("GET", "/auth/sso?reauth=1", undefined, { authorization: `Negotiate ${kerberos("CORP\\sara")}` })).status).toBe(401);
+    expect((await c.raw("GET", "/auth/sso?reauth=1", undefined, { authorization: `Negotiate ${kerberos("CORP\\sara")}`, "x-itsm-reauth": "1" })).status).toBe(401);
   });
 });
 

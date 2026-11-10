@@ -455,13 +455,19 @@ export async function provisionMember(cfg: ServerConfig, conf: LoginSourceConfig
   let userId: string | null = link?.local_id ?? null;
   if (userId && !(await db.one(`select 1 from sm_users where id = $1`, [userId]))) userId = null;
   if (!userId) {
-    const existing = await db.one<{ id: string; is_platform_admin: boolean }>(`select id, is_platform_admin from sm_users where lower(email) = $1`, [email]);
+    const existing = await db.one<{ id: string; is_platform_admin: boolean; local: boolean }>(
+      `select id, is_platform_admin, password_hash is not null as local from sm_users where lower(email) = $1`,
+      [email],
+    );
     if (existing) {
       known.user_id = existing.id;
-      // never take over an administrator of the platform, or an account that belongs to another organisation
+      // never take over an administrator of the platform, an account that belongs to another organisation, or one
+      // with a local password (the directory's e-mail is no proof of owning it: an administrator links it through the
+      // synchronisation's preview and apply)
       if (existing.is_platform_admin) throw fail("account_conflict", "حساب مدیر سامانه با ورود محلی کار می‌کند", known);
       const elsewhere = await db.one(`select 1 from sm_org_members where user_id = $1 and org_id <> $2 and deleted_at is null`, [existing.id, orgId]);
       if (elsewhere) throw fail("account_conflict", "این حساب عضو سازمان دیگری هم هست", known);
+      if (existing.local) throw fail("account_conflict", "حسابی با همین ایمیل رمز محلی دارد؛ مدیر آن را با همگام‌سازی (پیش‌نمایش و اعمال) به حساب سازمانی پیوند می‌دهد", known);
       userId = existing.id;
     }
   }
@@ -626,7 +632,7 @@ export interface LoginTestReport {
   state: ReturnType<typeof accountState> | null;
   groups: { dn: string; name: string; mapped: boolean }[];
   access: { roles: { role: string; source: string }[]; groups: string[]; unit_id: string | null; workspaces: string[]; approved: boolean; default_role: string | null } | null;
-  member: { user_id: string; active: boolean; linked: boolean } | null;
+  member: { user_id: string; active: boolean; linked: boolean; local_password?: boolean } | null;
 }
 
 /**
@@ -675,13 +681,13 @@ export async function testLogin(ctx: Ctx, sourceId: string, loginText: string): 
     const access = mappedAccess(conf.mappings, groups);
     report.access = { ...access, approved: conf.rolesApproved, default_role: conf.defaultRole };
     const link = await ctx.db.one<{ local_id: string }>(`select local_id from sm_directory_links where source_id = $1 and kind = 'user' and external_id = $2 and active`, [conf.id, dir.external_id]);
-    const byEmail = dir.email ? await ctx.db.one<{ user_id: string; is_active: boolean }>(
-      `select m.user_id, m.is_active from sm_org_members m join sm_users u on u.id = m.user_id where m.org_id = $1 and lower(u.email) = $2 and m.deleted_at is null`,
+    const byEmail = dir.email ? await ctx.db.one<{ user_id: string; is_active: boolean; local: boolean }>(
+      `select m.user_id, m.is_active, u.password_hash is not null as local from sm_org_members m join sm_users u on u.id = m.user_id where m.org_id = $1 and lower(u.email) = $2 and m.deleted_at is null`,
       [ctx.org.id, lower(dir.email)],
     ) : null;
     const memberRow = link ? await ctx.db.one<{ is_active: boolean }>(`select is_active from sm_org_members where org_id = $1 and user_id = $2 and deleted_at is null`, [ctx.org.id, link.local_id]) : null;
     if (link) report.member = { user_id: link.local_id, active: !!memberRow?.is_active, linked: true };
-    else if (byEmail) report.member = { user_id: byEmail.user_id, active: byEmail.is_active, linked: false };
+    else if (byEmail) report.member = { user_id: byEmail.user_id, active: byEmail.is_active, linked: false, local_password: byEmail.local };
     report.ok = true;
     return report;
   } finally {

@@ -277,6 +277,8 @@ authRoutes.get("/sso", async (c) => {
   const sources = (await loginSources(cfg)).filter((s) => (s.sso_mode === "negotiate" || s.sso_mode === "proxy") && (!hint || s.id === hint));
   if (!sources.length || cfg.mode === "desktop") throw await ssoRefused(c, cfg, "sso_unavailable", "sso");
   const reauth = c.req.query("reauth") === "1";
+  // the re-authentication comes from the app itself (a header a cross-site navigation cannot add)
+  if (reauth && c.req.header("x-itsm-reauth") !== "1") throw bad("درخواست تأیید دوباره معتبر نیست");
   const done = async (principal: string, method: "sso" | "proxy", fixed?: { sourceId: string; orgId: string }) => {
     if (reauth) return reauthWithWindows(c, principal);
     const s = await principalSignIn(c, cfg, principal, method, hint, fixed);
