@@ -70,9 +70,10 @@ describe("seed", () => {
 describe("the participant source and self-service", () => {
   it("lets every member read the reference data and their own rows, nothing of others", async () => {
     const skill = (await o.get(`${P}/r/wfm_skill?filter=${q({ f: "name", op: "eq", v: "شبکه" })}`)).rows[0];
-    // a single row of the reference data opens to everyone; lists stay with the area's grants (agents use the route)
+    // the reference data opens to every member — a single row, and (since participant-granted rows are listed by the
+    // engine's list and aggregate endpoints) the list too; nothing of the people's own rows comes with it
     expect((await p.req.client.get(`${P}/r/wfm_skill/${skill.id}`)).row.name).toBe("شبکه");
-    await p.a1.client.get(`${P}/r/wfm_skill?size=5`, 403);
+    expect(((await p.a1.client.get(`${P}/r/wfm_skill?size=50`)).rows as { id: string }[]).some((r) => r.id === skill.id)).toBe(true);
     expect((await p.a1.client.get(`${P}/workforce/skills/catalogue`)).skills.some((s: any) => s.id === skill.id)).toBe(true);
     const mine = await p.a1.client.post(`${P}/workforce/skills/mine`, { skill_id: skill.id, level: 3, evidence: "دورهٔ CCNA" });
     expect(mine.verified).toBe(false);

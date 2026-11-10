@@ -74,3 +74,19 @@ export async function principalCtx(cfg: ServerConfig, orgId: string, integration
 }
 
 export const isUuid = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+
+/**
+ * Of `groupIds`, the groups whose membership grants access on its own: roles of their members (`group.roles`) or a
+ * workspace (`workspace_id` — an HR, legal or SOC group carries its secure workspace). A directory or SCIM sync adds
+ * people to these only when role grants are confirmed (or automatic roles are on): membership there is a role grant.
+ */
+export async function grantingGroups(q: Queryable, orgId: string, groupIds: readonly string[]): Promise<Set<string>> {
+  const ids = [...new Set(groupIds.filter(isUuid))];
+  if (!ids.length) return new Set();
+  const rows = await q.query<{ id: string }>(
+    `select id from sm_groups where org_id = $1 and deleted_at is null and id = any($2::uuid[])
+       and (workspace_id is not null or jsonb_array_length(coalesce(case when jsonb_typeof(roles) = 'array' then roles end, '[]'::jsonb)) > 0)`,
+    [orgId, `{${ids.join(",")}}`],
+  );
+  return new Set(rows.map((r) => r.id));
+}

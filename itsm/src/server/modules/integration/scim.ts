@@ -17,7 +17,7 @@ import { addGroupMembers, memberCtx, saveMemberAccess } from "../../access";
 import { hasFeature, needWithinLimit } from "../admin/common";
 import { ensurePerson, setMemberActive } from "../admin/members";
 import { removeIn } from "../../engine";
-import { intLog, liveRow, liveRows, sysOf, isUuid, type Row } from "./common";
+import { grantingGroups, intLog, liveRow, liveRows, sysOf, isUuid, type Row } from "./common";
 import { mappingsOf, optionsOf } from "./directory";
 
 export class ScimError extends Error {
@@ -276,7 +276,10 @@ async function changeMembers(s: ScimSession, groupId: string, add: string[], rem
   const out = { added: 0, removed: 0, pending_roles: 0 };
   const ctx = s.ctx!;
   const users = add.filter(isUuid);
-  if (g.group_id && users.length) out.added = (await addGroupMembers(ctx, g.group_id, users)).added;
+  // a group whose membership grants roles or a (secure) workspace is a role grant: only with automatic roles on
+  const grants = g.group_id ? (await grantingGroups(s.cfg.db, s.orgId, [g.group_id])).has(g.group_id) : false;
+  if (g.group_id && users.length && grants && !optionsOf(s.source).auto_roles) out.pending_roles += users.length;
+  else if (g.group_id && users.length) out.added = (await addGroupMembers(ctx, g.group_id, users)).added;
   if (g.group_id && remove.length) {
     await ctx.write(async (tx) => {
       for (const u of remove.filter(isUuid)) {
@@ -295,7 +298,7 @@ async function changeMembers(s: ScimSession, groupId: string, add: string[], rem
         const roles = Array.isArray(p?.roles) ? (p!.roles as string[]) : [];
         if (!roles.includes(g.role)) await saveMemberAccess(ctx, u, { roles: [...roles, g.role] });
       }
-    } else out.pending_roles = users.length;
+    } else out.pending_roles += users.length;
   }
   return out;
 }

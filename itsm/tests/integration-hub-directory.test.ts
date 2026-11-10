@@ -234,6 +234,25 @@ describe("SCIM provisioning (Microsoft Entra ID)", () => {
     expect(sp.patch.supported).toBe(true);
   });
 
+  it("never adds people silently to a group whose membership grants roles or a secure workspace", async () => {
+    // an HR group carries its role and its secure workspace (ESM's departments): membership there is a role grant
+    const ws = (await e.owner.post(`${P}/r/workspace`, { key: "hr_scim", name: "منابع انسانی آزمون", secure: true })).row.id;
+    const hrGroup = (await e.owner.post(`${P}/r/group`, { name: "کارشناسان منابع انسانی آزمون", types: ["assignment"], roles: ["hr_agent"], workspace_id: ws })).row.id;
+    const cur = await e.owner.get(`${P}/r/directory_source/${src.id}`);
+    await e.owner.patch(`${P}/r/directory_source/${src.id}`, { group_map: [...(cur.row.group_map ?? []), { source: "HR Staff", group_id: hrGroup, role: null }], version: cur.row.version });
+    const reza = await json(scim("POST", "/Users", { ...user, userName: "reza@corp.ir", externalId: "aad-2", displayName: "رضا", emails: [{ value: "reza@corp.ir", primary: true }] }));
+    const g = await json(scim("POST", "/Groups", { schemas: ["urn:ietf:params:scim:schemas:core:2.0:Group"], displayName: "HR Staff" }));
+    expect((await scim("PATCH", `/Groups/${g.id}`, { schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"], Operations: [{ op: "add", path: "members", value: [{ value: reza.id }] }] })).status).toBe(204);
+    const members = (await e.owner.get(`${P}/r/group_member?filter=${encodeURIComponent(JSON.stringify({ f: "group_id", op: "eq", v: hrGroup }))}`)).rows as { user_id: string }[];
+    expect(members.map((x) => x.user_id)).not.toContain(reza.id);
+    // with automatic roles on the source, the same push adds them
+    const now = await e.owner.get(`${P}/r/directory_source/${src.id}`);
+    await e.owner.patch(`${P}/r/directory_source/${src.id}`, { auto_roles: true, version: now.row.version });
+    expect((await scim("PATCH", `/Groups/${g.id}`, { schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"], Operations: [{ op: "add", path: "members", value: [{ value: reza.id }] }] })).status).toBe(204);
+    const after = (await e.owner.get(`${P}/r/group_member?filter=${encodeURIComponent(JSON.stringify({ f: "group_id", op: "eq", v: hrGroup }))}`)).rows as { user_id: string }[];
+    expect(after.map((x) => x.user_id)).toContain(reza.id);
+  });
+
   it("parses Entra ID's filters and patches (pure)", () => {
     expect(parseScimFilter('userName eq "a@b.ir"')).toEqual({ attr: "username", value: "a@b.ir" });
     expect(parseScimFilter("userName sw a")).toBeNull();

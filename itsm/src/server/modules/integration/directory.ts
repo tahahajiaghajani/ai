@@ -21,7 +21,7 @@ import { audit } from "../data/crud";
 import { needFeature, needWithinLimit } from "../admin/common";
 import { ensurePerson, setMemberActive, type MembershipRole } from "../admin/members";
 import { ldapSearch } from "./ldap";
-import { intLog, liveRow, liveRows, needIntegrations, sysOf, type Row } from "./common";
+import { grantingGroups, intLog, liveRow, liveRows, needIntegrations, sysOf, type Row } from "./common";
 
 const HOUR = 3600_000;
 
@@ -250,7 +250,13 @@ export async function applyPlan(ctx: Ctx, src: Row, plan: DirPlan, roles: boolea
     const userId = ids.get(g.email) ?? (g.user.includes("@") ? undefined : g.user);
     if (userId) adds.set(g.group_id, [...(adds.get(g.group_id) ?? []), userId]);
   }
+  // membership of a group that grants roles or a (secure) workspace is a role grant: only when confirmed
+  const granting = await grantingGroups(ctx.db, ctx.org.id, [...adds.keys()]);
   for (const [group, users] of adds) {
+    if (granting.has(group) && !roles) {
+      out.roles_pending += users.length;
+      continue;
+    }
     try {
       const r = await addGroupMembers(ctx, group, users);
       out.group_adds += r.added;

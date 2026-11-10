@@ -1,9 +1,11 @@
 // «مرکز اتصال‌ها» (catalogue INT-008, INT-010, INT-017): every way the organisation connects to other systems on one
 // page — the record API and its integration users, outbound and inbound webhooks, LDAP/AD and SCIM, Jira and GitHub,
 // scheduled exports, and the notification connectors of the notification service (Slack, Microsoft Teams, Telegram,
-// Bale, Mattermost, webhooks, SMS) — each with its count, its health and its activity of the last day (counts only).
+// Bale, Mattermost, webhooks, SMS) and the portal's messenger bots (its own Telegram/Bale connectors, not a second
+// implementation) — each with its count, its health and its activity of the last day (counts only).
 import type { Ctx } from "../../context";
 import { CHANNEL_KINDS } from "@shared/notify";
+import { tableDef } from "@shared/tables";
 import { featureStates } from "../admin/common";
 import { needIntegrations } from "./common";
 
@@ -47,6 +49,19 @@ export async function hubOverview(ctx: Ctx): Promise<{ connectors: ConnectorCard
     { key: "exports", label: "خروجی‌های زمان‌بندی‌شده", group: "data", count: await one(ctx, live("sm_export_schedules")), failing: await one(ctx, live("sm_export_schedules", "and health = 'failing'")), ...(await log("export")), path: "integrations/exports", feature: feat("scheduled_exports") },
     { key: "legacy_hooks", label: "وب‌هوک‌های دریافتی پیشین", group: "events", count: await one(ctx, `select count(*)::int as n from sm_integrations where org_id = $1 and deleted_at is null`), failing: 0, calls_24h: await one(ctx, `select count(*)::int as n from sm_integration_events where org_id = $1 and topic <> 'inbound' and received_at > now() - interval '24 hours'`), errors_24h: 0, path: "settings/integrations", feature: null },
   ];
+  // the portal's messenger connectors (Telegram, Bale… bots people talk to) are the one implementation of chat
+  // connectors: the hub counts and links them rather than keeping its own
+  if (tableDef("portal_channel")) {
+    const calls = await ctx.db.one<{ calls: number; errors: number }>(
+      `select count(*)::int as calls, count(*) filter (where status = 'failed')::int as errors from sm_portal_channel_log where org_id = $1 and at > now() - interval '24 hours'`,
+      [ctx.org.id],
+    ).catch(() => null);
+    connectors.push({
+      key: "messengers", label: "پیام‌رسان‌های درگاه (تلگرام، بله…)", group: "messaging",
+      count: await one(ctx, live("sm_portal_channels")), failing: await one(ctx, live("sm_portal_channels", "and active and coalesce(last_error, '') <> ''")),
+      calls_24h: calls?.calls ?? 0, errors_24h: calls?.errors ?? 0, path: "portal-admin/channels", feature: null,
+    });
+  }
   const kinds = await ctx.db.query<{ kind: string; n: number }>(`select kind, count(*)::int as n from sm_notification_channels where org_id = $1 and deleted_at is null group by kind`, [ctx.org.id]);
   const channels = Object.entries(CHANNEL_KINDS).map(([kind, info]) => ({ kind, label: info.label, count: kinds.find((k) => k.kind === kind)?.n ?? 0 }));
   return { connectors, channels };
