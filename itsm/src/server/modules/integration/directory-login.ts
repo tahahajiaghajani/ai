@@ -807,18 +807,26 @@ export function validateLoginSettings(w: WriteArgs): void {
   const n = w.next;
   if (n.kind !== "ldap") return;
   if (w.op === "update" && !isSystem(w.ctx) && !w.trusted && SENSITIVE_FIELDS.some((f) => w.changed.has(f))) needRecentAuth(w.ctx);
-  const problem = caProblem(n.ca_cert as string | null);
-  if (problem) throw bad(problem);
-  const urls = [String(n.ldap_url ?? "").trim(), ...lines(n.dc_urls)].filter(Boolean);
-  for (const u of urls) if (!/^ldaps?:\/\/[^\s/]+/i.test(u)) throw bad(`نشانی «${u.slice(0, 80)}» باید با ldap:// یا ldaps:// شروع شود`);
-  if (n.tls_mode === "ldaps" && urls.some((u) => !/^ldaps:/i.test(u))) throw bad("با LDAPS همهٔ نشانی‌ها باید با ldaps:// (درگاه ۶۳۶) شروع شوند");
-  if (n.tls_mode === "starttls" && urls.some((u) => !/^ldap:/i.test(u))) throw bad("StartTLS روی نشانی‌های ldap:// (درگاه ۳۸۹) کار می‌کند");
-  for (const ip of lines(n.proxy_ips)) if (!/^(\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?|[0-9a-f:]+)$/i.test(ip)) throw bad(`نشانی پراکسی «${ip.slice(0, 60)}» معتبر نیست (یک نشانی IP یا شبکه مانند 10.0.0.0/24)`);
-  if (n.proxy_header && !/^[A-Za-z][A-Za-z0-9-]{0,79}$/.test(String(n.proxy_header))) throw bad("نام سرآیند کاربر پراکسی معتبر نیست");
-  for (const d of Array.isArray(n.login_domains) ? n.login_domains : []) {
-    if (!parseLogin(`x@${String(d)}`) && !parseLogin(`${String(d)}\\x`)) throw bad(`دامنهٔ «${String(d).slice(0, 60)}» معتبر نیست`);
+  // each setting is judged when it is set (a source saved under earlier rules stays editable for its other settings)
+  const set = (...fields: string[]) => w.op === "create" || fields.some((f) => w.changed.has(f));
+  if (set("ca_cert")) {
+    const problem = caProblem(n.ca_cert as string | null);
+    if (problem) throw bad(problem);
   }
-  if (n.sso_host && !/^[A-Za-z0-9.-]{1,200}$/.test(String(n.sso_host))) throw bad("نام میزبان سامانه فقط نام دامنه است (مانند kariz.bank.ir)");
+  if (set("ldap_url", "dc_urls", "tls_mode")) {
+    const urls = [String(n.ldap_url ?? "").trim(), ...lines(n.dc_urls)].filter(Boolean);
+    for (const u of urls) if (!/^ldaps?:\/\/[^\s/]+/i.test(u)) throw bad(`نشانی «${u.slice(0, 80)}» باید با ldap:// یا ldaps:// شروع شود`);
+    if (n.tls_mode === "ldaps" && urls.some((u) => !/^ldaps:/i.test(u))) throw bad("با LDAPS همهٔ نشانی‌ها باید با ldaps:// (درگاه ۶۳۶) شروع شوند");
+    if (n.tls_mode === "starttls" && urls.some((u) => !/^ldap:/i.test(u))) throw bad("StartTLS روی نشانی‌های ldap:// (درگاه ۳۸۹) کار می‌کند");
+  }
+  if (set("proxy_ips")) for (const ip of lines(n.proxy_ips)) if (!/^(\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?|[0-9a-f:]+)$/i.test(ip)) throw bad(`نشانی پراکسی «${ip.slice(0, 60)}» معتبر نیست (یک نشانی IP یا شبکه مانند 10.0.0.0/24)`);
+  if (set("proxy_header") && n.proxy_header && !/^[A-Za-z][A-Za-z0-9-]{0,79}$/.test(String(n.proxy_header))) throw bad("نام سرآیند کاربر پراکسی معتبر نیست");
+  if (set("login_domains")) {
+    for (const d of Array.isArray(n.login_domains) ? n.login_domains : []) {
+      if (!parseLogin(`x@${String(d)}`) && !parseLogin(`${String(d)}\\x`)) throw bad(`دامنهٔ «${String(d).slice(0, 60)}» معتبر نیست`);
+    }
+  }
+  if (set("sso_host") && n.sso_host && !/^[A-Za-z0-9.-]{1,200}$/.test(String(n.sso_host))) throw bad("نام میزبان سامانه فقط نام دامنه است (مانند kariz.bank.ir)");
 }
 
 // ---------------------------------------------------------------- the SSO checklist and the source's sign-ins
