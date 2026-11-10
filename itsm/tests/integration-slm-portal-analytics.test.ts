@@ -58,6 +58,13 @@ describe("XLA ↔ the portal's surveys", () => {
   });
 });
 
+describe("module KPIs as analytics indicators", () => {
+  it("SLM and workforce seed theirs now that the analytics tables exist", async () => {
+    const keys = (await w.e.db.query<{ key: string }>(`select key from sm_analytics_indicators where org_id = $1 and deleted_at is null`, [w.e.org])).map((r) => r.key);
+    for (const k of ["slm.attainment", "slm.xla_score", "workforce.kudos", "workforce.absence_days"]) expect(keys, k).toContain(k);
+  });
+});
+
 describe("personal KPI scores", () => {
   it("are read by the person and their managers only, and follow a change of manager", async () => {
     // two incidents assigned to the agent, one to nobody

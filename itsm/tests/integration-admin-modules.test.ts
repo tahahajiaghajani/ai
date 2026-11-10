@@ -52,6 +52,13 @@ beforeAll(async () => {
   await w.drain();
 }, 300_000);
 
+describe("module KPIs as analytics indicators", () => {
+  it("ESM, CSM and field service seed theirs now that the analytics tables exist", async () => {
+    const keys = (await w.e.db.query<{ key: string }>(`select key from sm_analytics_indicators where org_id = $1 and deleted_at is null`, [w.e.org])).map((r) => r.key);
+    for (const k of ["esm.hr_backlog", "esm.day_one_readiness", "csm.csat", "fsm.first_time_fix", "slm.attainment"]) expect(keys, k).toContain(k);
+  });
+});
+
 describe("studio tables in the generated AI tools", () => {
   it("offers a studio table under its own name, and no tools for unused slots; it is a sync root", async () => {
     const ctx = await memberCtx(w.e.cfg, w.e.org, w.e.ownerId);
