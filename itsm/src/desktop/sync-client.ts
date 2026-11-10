@@ -74,8 +74,20 @@ export async function resetSyncCursor(q: Pick<Db, "query">): Promise<void> {
  */
 async function sweepUnseen(tx: Pick<Db, "query">, orgId: string): Promise<number> {
   let n = 0;
-  for (const def of AGGREGATES) {
-    if (!def.engine) continue;
+  const engine = AGGREGATES.filter((d) => d.engine);
+  // first, in one statement, the tables that hold such rows at all (usually none or a few): a statement per table
+  // costs on this computer's embedded database
+  const unseen = (entity: string) =>
+    `t.org_id = $1 and not exists (select 1 from sm_sync_seen s where s.entity = ${entity} and s.id = t.id)
+     and not exists (select 1 from sm_outbox o where o.entity = ${entity} and o.id = t.id)`;
+  const found = engine.length
+    ? await tx.query<{ i: number }>(
+      engine.map((d, i) => `(select ${i}::int as i from ${ident(d.table)} t where ${unseen(`$${i + 2}::text`)} limit 1)`).join("\nunion all\n"),
+      [orgId, ...engine.map((d) => d.entity)],
+    )
+    : [];
+  for (const { i } of found) {
+    const def = engine[Number(i)];
     const gone = await tx.query(
       `delete from ${ident(def.table)} t where t.org_id = $1
          and not exists (select 1 from sm_sync_seen s where s.entity = $2 and s.id = t.id)
