@@ -593,7 +593,7 @@ async function crawlRole(url, orgId, role, state, targets, extra = {}) {
         const msg = String(e?.message ?? e).split("\n")[0];
         // a renderer that died (out of memory on a busy machine) gets one more chance on a fresh tab
         await tab.open().catch(() => {});
-        if (/crash|closed|disconnected/i.test(msg) && ++tries < 2) continue;
+        if (/crash|closed|disconnected|ERR_ABORTED|Target/i.test(msg) && ++tries < 2) continue;
         record({ role, route: t.href, step: "visit", console: [], exceptions: [], failed: [], forbidden: [], extra: [`${tries ? "renderer crashed twice" : "crawler"}: ${msg}`] });
         break;
       }
