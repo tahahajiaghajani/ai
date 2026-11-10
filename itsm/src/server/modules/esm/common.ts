@@ -1,7 +1,7 @@
 // Helpers of enterprise service management: reads through the access rule (shared with the change and release
 // modules — every read starts from `readable`), the module's settings row, the departments (profiles of access
 // workspaces) and who belongs to a workspace, the department administrator's authority, calendars and dates.
-import { grantIn } from "@shared/access";
+import { grantIn, scopeRank } from "@shared/access";
 import { CASE_TABLE_KIND, ESM_CONFIG_DEFAULTS, type EsmConfig } from "@shared/tables/esm";
 import type { BusinessCalendar } from "@shared/sla/calendar";
 import type { Ctx } from "../../context";
@@ -10,9 +10,9 @@ import { prepareSubject, snapshotFor, subjectOf, type Snapshot } from "../../acc
 import { isSystemCtx, orgTz } from "../../engine";
 import { calendarsOf } from "../sla/calendars";
 import { config as slaConfig } from "../sla/common";
-import { countRows, eqAll, isUuid, liveRow, liveRows, mayWriteRecord, sysOf, msOf, iso, type Row } from "../change/common";
+import { countRows, eqAll, isUuid, liveRow, liveRows, mayWorkRecord, mayWriteRecord, sysOf, msOf, iso, type Row } from "../change/common";
 
-export { countRows, eqAll, isUuid, liveRow, liveRows, mayWriteRecord, sysOf, msOf, iso, type Row };
+export { countRows, eqAll, isUuid, liveRow, liveRows, mayWorkRecord, mayWriteRecord, sysOf, msOf, iso, type Row };
 
 /** The organisation's ESM settings (its row, else the defaults). */
 export async function esmConfig(q: Queryable, ctx: Ctx): Promise<EsmConfig & { id: string | null; seeded: number }> {
@@ -88,6 +88,35 @@ export async function administersDepartment(q: Queryable, ctx: Ctx, dept: Row | 
   if (await administersEsm(q, ctx)) return true;
   if (!dept) return false;
   return [...((dept.admins as string[]) ?? []), dept.manager_id].includes(ctx.user.id);
+}
+
+/** HR staff: an hr write that reaches groups (HR agents and managers; requesters reach only their own rows), the system. */
+export async function hrStaff(q: Queryable, ctx: Ctx): Promise<boolean> {
+  if (isSystemCtx(ctx)) return true;
+  await prepareSubject(ctx, q);
+  return scopeRank(grantIn(subjectOf(ctx).eff, "hr").write) >= scopeRank("group");
+}
+
+/**
+ * HR authority over a department's people work (starting or owning an employee journey): its named administrators,
+ * or HR staff who belong to its workspace (a secure workspace: its explicit members only).
+ */
+export async function worksHrOf(q: Queryable, ctx: Ctx, dept: Row | null): Promise<boolean> {
+  if (isSystemCtx(ctx)) return true;
+  if (dept && [...((dept.admins as string[]) ?? []), dept.manager_id].includes(ctx.user.id)) return true;
+  if (!(await hrStaff(q, ctx))) return false;
+  const ws = isUuid(dept?.dept_workspace_id) ? String(dept!.dept_workspace_id).toLowerCase() : null;
+  if (!ws) return true;
+  const s = subjectOf(ctx);
+  return s.workspaces.includes(ws) || (s.eff.workspacesAll && !s.secureWorkspaces.includes(ws));
+}
+
+/** HR staff who work a group's HR records: hr write of group or more, in that group unless their write reaches everything. */
+export async function hrWorksGroup(q: Queryable, ctx: Ctx, groupId: unknown): Promise<boolean> {
+  if (!(await hrStaff(q, ctx))) return false;
+  if (isSystemCtx(ctx) || !isUuid(groupId)) return true;
+  const s = subjectOf(ctx);
+  return grantIn(s.eff, "hr").write === "all" || s.writeGroups.includes(String(groupId).toLowerCase());
 }
 
 /** The departments whose workspace the caller belongs to (their «میز واحد» homes). */

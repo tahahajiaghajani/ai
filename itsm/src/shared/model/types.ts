@@ -66,7 +66,7 @@ export type ColorKey = (typeof COLOR_KEYS)[number];
  * Field-level security groups: a field in a group is only visible to (and writable by) callers whose roles carry
  * the group; fields without a group follow row access (docs/spec/ACCESS.md § Field security).
  */
-export type FieldGroup = "internal" | "financial" | "personal" | "security" | "hr" | "admin" | "ai_private";
+export type FieldGroup = "internal" | "financial" | "personal" | "security" | "hr" | "admin" | "ai_private" | "dispatch";
 export const FIELD_GROUPS: Record<FieldGroup, string> = {
   internal: "داخلی (کارشناسان)",
   financial: "مالی",
@@ -75,6 +75,8 @@ export const FIELD_GROUPS: Record<FieldGroup, string> = {
   hr: "منابع انسانی",
   admin: "مدیریت",
   ai_private: "خصوصی هوش مصنوعی",
+  // where field staff start from and were last seen: the dispatchers' (never colleagues', nor the person's teammates')
+  dispatch: "موقعیت‌ها (توزیع)",
 };
 
 /**

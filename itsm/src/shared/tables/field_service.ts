@@ -316,11 +316,13 @@ const technician: TableDef = {
     { name: "contractor", label: "پیمانکار", type: "bool", default: false, list: true, filter: true, span: 8 },
     { name: "company", label: "شرکت پیمانکار", type: "string", maxLength: 120, span: 12 },
     { name: "vehicle", label: "خودرو", type: "string", maxLength: 80, span: 12 },
-    { name: "home_lat", label: "عرض محل شروع", type: "decimal", min: -90, max: 90, group: "personal", span: 6 },
-    { name: "home_lng", label: "طول محل شروع", type: "decimal", min: -180, max: 180, group: "personal", span: 6 },
-    { name: "last_lat", label: "آخرین عرض", type: "decimal", readonly: true, group: "personal", audit: false, noSync: true, span: 6 },
-    { name: "last_lng", label: "آخرین طول", type: "decimal", readonly: true, group: "personal", audit: false, noSync: true, span: 6 },
-    { name: "last_seen_at", label: "آخرین موقعیت", type: "datetime", readonly: true, group: "personal", audit: false, noSync: true, span: 8 },
+    // positions are the dispatchers' (field group «dispatch»): the technician table is public to field staff, so
+    // «personal» — which every technician carries for the customer's site phone — would show colleagues' homes
+    { name: "home_lat", label: "عرض محل شروع", type: "decimal", min: -90, max: 90, group: "dispatch", noSync: true, span: 6 },
+    { name: "home_lng", label: "طول محل شروع", type: "decimal", min: -180, max: 180, group: "dispatch", noSync: true, span: 6 },
+    { name: "last_lat", label: "آخرین عرض", type: "decimal", readonly: true, group: "dispatch", audit: false, noSync: true, span: 6 },
+    { name: "last_lng", label: "آخرین طول", type: "decimal", readonly: true, group: "dispatch", audit: false, noSync: true, span: 6 },
+    { name: "last_seen_at", label: "آخرین موقعیت", type: "datetime", readonly: true, group: "dispatch", audit: false, noSync: true, span: 8 },
     { name: "available", label: "در دسترس", type: "bool", default: true, list: true, filter: true, span: 8 },
     { name: "active", label: "فعال", type: "bool", default: true, filter: true, span: 8 },
   ],

@@ -70,9 +70,15 @@ async function workOrderAfter(w: WriteArgs & { row: Row }): Promise<void> {
 
 // ----- tasks -----------------------------------------------------------------------------------------------------------
 
+/** What the customer signed (FSM-023): after sign-off, the work's description and checklist answers stay as signed. */
+const SIGNED_FIELDS = ["resolution", "checklist_answers"];
+
 async function taskBefore(w: WriteArgs): Promise<void> {
   const { tx, ctx, next, prev, op } = w;
   if (op === "delete") return;
+  if (prev?.signed_at && !w.trusted && !isSystemCtx(ctx) && SIGNED_FIELDS.some((f) => w.changed.has(f))) {
+    throw forbidden("مشتری این کار را امضا کرده است؛ شرح کار و چک‌لیست پس از امضا تغییر نمی‌کند");
+  }
   const sys = sysOf(ctx);
   if (op === "create" || w.changed.has("work_order_id")) {
     const wo = await liveRow(tx, sys, "work_order", next.work_order_id);

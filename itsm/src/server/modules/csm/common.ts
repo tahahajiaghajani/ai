@@ -1,14 +1,14 @@
 // Helpers of customer service management: reads through the access rule (shared with the change module — every read
 // starts from `readable`), the module's settings row, the CSM manager's authority, and the contact behind a member.
-import { grantIn } from "@shared/access";
+import { grantIn, scopeRank } from "@shared/access";
 import { CSM_CONFIG_DEFAULTS, type CsmConfig } from "@shared/tables/csm";
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
 import { prepareSubject, subjectOf } from "../../access";
 import { isSystemCtx } from "../../engine";
-import { countRows, eqAll, isUuid, liveRow, liveRows, mayWriteRecord, sysOf, msOf, iso, type Row } from "../change/common";
+import { countRows, eqAll, isUuid, liveRow, liveRows, mayWorkRecord, mayWriteRecord, sysOf, msOf, iso, type Row } from "../change/common";
 
-export { countRows, eqAll, isUuid, liveRow, liveRows, mayWriteRecord, sysOf, msOf, iso, type Row };
+export { countRows, eqAll, isUuid, liveRow, liveRows, mayWorkRecord, mayWriteRecord, sysOf, msOf, iso, type Row };
 
 /** The organisation's CSM settings (its row, else the defaults). */
 export async function csmConfig(q: Queryable, ctx: Ctx): Promise<CsmConfig & { id: string | null; seeded: number; default_group_id: string | null; root_unit_id: string | null }> {
@@ -23,6 +23,16 @@ export async function managesCsm(q: Queryable, ctx: Ctx): Promise<boolean> {
   if (isSystemCtx(ctx)) return true;
   await prepareSubject(ctx, q);
   return grantIn(subjectOf(ctx).eff, "csm").approve === true;
+}
+
+/**
+ * CSM staff: the system, or a member whose csm write reaches groups (agents and managers). A customer contact's
+ * requester role writes only its own rows (own scope): it files cases, never accounts, entitlements or brands.
+ */
+export async function worksCsm(q: Queryable, ctx: Ctx): Promise<boolean> {
+  if (isSystemCtx(ctx)) return true;
+  await prepareSubject(ctx, q);
+  return scopeRank(grantIn(subjectOf(ctx).eff, "csm").write) >= scopeRank("group");
 }
 
 /** The contact records of a member (a member may be a contact of one account, with access to others). */

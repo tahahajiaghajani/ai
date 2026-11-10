@@ -79,7 +79,8 @@ Windows app's own provider need), changed only with the write grants of their ar
 - **Grants**: `Record<AreaKey | "*", Grant>`; `"*"` applies to every area a role does not name.
 - **Roles** (`RoleDef`): key, name, description, persona, grants, field_groups, contains (cycle-checked), workspaces
   (`member` | `all`), domains (`own` | `all`), active. Containment is resolved transitively (`roleClosure`).
-- **Field groups**: internal, financial, personal, security, hr, admin, ai_private.
+- **Field groups**: internal, financial, personal, security, hr, admin, ai_private, dispatch (field staff's home and last
+  known positions: the dispatchers' — the seeded role `dispatcher` carries it, field technicians do not).
 - **Personas and presets**: a member's persona (requester, agent, admin) and «پیش‌تنظیم دسترسی» presets used when
   inviting (`PERSONA_PRESETS`: requester, agent, team_lead, service_desk_manager, hr_agent, facilities_agent,
   vendor_agent, auditor, tenant_admin).

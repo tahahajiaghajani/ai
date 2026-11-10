@@ -11,14 +11,43 @@
 //   · entitlements keep their remaining units; the ledger is written by the module only
 //   · escalations: the account of their case, the case marked escalated when the escalation is accepted
 import { customerStatusOf, crossedWarning, resolveEntitlement, sentimentOf, unitsFor, unitsLeft, type EntitlementLike } from "@shared/csm/logic";
-import { ACCOUNT_CHILD_TABLES } from "@shared/tables/csm";
+import { ACCOUNT_CHILD_TABLES, ENTITLEMENT_STATES, NOTICE_STATES } from "@shared/tables/csm";
 import Decimal from "decimal.js";
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
 import { addJournalIn, createIn, emitEvent, isSystemCtx, onBeforeCommit, pushGuard, registerHooks, updateIn, validationError, type PushArgs, type WriteArgs } from "../../engine";
 import { tableDef } from "@shared/tables";
 import { forbidden } from "../../http/errors";
-import { countRows, csmConfig, ids, isUuid, liveRow, liveRows, sysOf, todayUtc, type Row } from "./common";
+import { contactsOfUser, countRows, csmConfig, ids, isUuid, liveRow, liveRows, sysOf, todayUtc, worksCsm, type Row } from "./common";
+
+// ----- who defines customers ------------------------------------------------------------------------------------------
+
+/**
+ * Tables that define customers and what they are entitled to (CSM-001…008): only CSM staff create or change them.
+ * The requester role every customer contact holds creates in area csm for its cases — never accounts, contracts,
+ * entitlements, brands or notices (an entitlement forged active would cover their cases; a brand would show in other
+ * customers' portals). A contact changes only its own requester fields (the engine's requester mode).
+ */
+export const CSM_DEFINITION_TABLES = [
+  "customer_account", "customer_contact", "customer_product", "install_base_item", "customer_contract", "entitlement",
+  "account_plan", "account_stakeholder", "account_review", "account_health", "customer_experience", "customer_notice", "csm_config",
+];
+
+/** States a definition starts in (a new entitlement is a draft until activated, a notice a draft until approved). */
+const INITIAL_STATE: Record<string, string> = { entitlement: ENTITLEMENT_STATES.initial, customer_notice: NOTICE_STATES.initial };
+
+async function staffOnly(w: WriteArgs): Promise<void> {
+  if (w.op === "delete" || w.trusted || isSystemCtx(w.ctx)) return;
+  const initial = INITIAL_STATE[w.def.key];
+  if (w.op === "create" && initial && w.next.state !== initial) {
+    if (w.via === "sync") throw validationError({ state: `«${w.def.label}» تازه در وضعیت آغازین ساخته می‌شود` });
+    w.next.state = initial;
+  }
+  if (await worksCsm(w.tx, w.ctx)) return;
+  // a contact's own requester fields (the engine keeps a contact's writes on their own row to those)
+  if (w.def.key === "customer_contact" && w.op !== "create") return;
+  throw forbidden(`«${w.def.label}» را کارشناسان خدمات مشتریان تعریف می‌کنند`);
+}
 
 // ----- accounts ------------------------------------------------------------------------------------------------------
 
@@ -113,27 +142,34 @@ const snapshotOf = (e: EntitlementLike & Row): Row => ({
   unit_type: e.unit_type ?? "none", units_remaining: unitsLeft(e), ends_on: e.ends_on ?? null,
 });
 
+/** The accounts a contact may file under: its own and the others it was given access to. */
+const accountsOf = (contact: Row): string[] => ids([contact.account_id, ...((contact.other_accounts as string[]) ?? [])]);
+
 async function caseBefore(w: WriteArgs): Promise<void> {
   const { tx, ctx, next, prev, op } = w;
   if (op === "delete") return;
   const sys = sysOf(ctx);
-  // the account and contact of the person the case is for
+  // the account and contact of the person the case is for — supplied, or the person's own contact
+  let contact: Row | null = null;
   if (isUuid(next.contact_id) && (op === "create" || w.changed.has("contact_id"))) {
-    const contact = await liveRow(tx, sys, "customer_contact", next.contact_id);
+    contact = await liveRow(tx, sys, "customer_contact", next.contact_id);
     if (!contact) throw validationError({ contact_id: "مخاطب پیدا نشد" });
-    const allowed = [contact.account_id, ...((contact.other_accounts as string[]) ?? [])];
-    if (isUuid(next.account_id) && !allowed.includes(next.account_id)) throw validationError({ contact_id: "این مخاطب از حساب دیگری است" });
-    if (!isUuid(next.account_id)) next.account_id = contact.account_id;
-  }
-  if (op === "create" && !isUuid(next.contact_id)) {
+  } else if (op === "create" && !isUuid(next.contact_id)) {
     const person = [next.requested_for, next.caller_id].find(isUuid);
     if (person) {
-      const [contact] = await liveRows(tx, sys, "customer_contact", { and: [{ f: "user_id", op: "eq", v: person }, { f: "active", op: "eq", v: true }] }, { limit: 1 });
-      if (contact) {
-        next.contact_id = contact.id;
-        if (!isUuid(next.account_id)) next.account_id = contact.account_id;
-      }
+      [contact] = await liveRows(tx, sys, "customer_contact", { and: [{ f: "user_id", op: "eq", v: person }, { f: "active", op: "eq", v: true }] }, { limit: 1 });
+      if (contact) next.contact_id = contact.id;
     }
+  }
+  if (contact) {
+    if (isUuid(next.account_id) && !accountsOf(contact).includes(String(next.account_id).toLowerCase())) throw validationError({ account_id: "این مخاطب از حساب دیگری است" });
+    if (!isUuid(next.account_id)) next.account_id = contact.account_id;
+  }
+  // a customer files only under the accounts their own contacts belong to (another account's entitlement, units,
+  // health and review pack are not theirs to use)
+  if ((op === "create" || w.changed.has("account_id") || w.changed.has("contact_id")) && isUuid(next.account_id) && !w.trusted && !isSystemCtx(ctx) && !(await worksCsm(tx, ctx))) {
+    const mine = new Set((await contactsOfUser(tx, ctx, ctx.user.id)).flatMap(accountsOf));
+    if (!mine.has(String(next.account_id).toLowerCase())) throw forbidden("پرونده را فقط برای حساب خودتان ثبت می‌کنید");
   }
   if (op === "create" && !next.proactive) {
     // the entitlement at intake (CSM-009): installed base → product → the account's default
@@ -158,6 +194,20 @@ async function caseBefore(w: WriteArgs): Promise<void> {
     if (next.state === "closed") next.resolution_accepted = true;
     if (next.state === "open") next.resolution_accepted = false;
   }
+}
+
+/** A Windows app's pushed case: the same account rule (the contact's accounts; a customer's own accounts only). */
+async function caseAccountGuard(w: WriteArgs): Promise<void> {
+  const { tx, ctx, next, prev } = w;
+  if (!isUuid(next.account_id) || w.trusted || isSystemCtx(ctx)) return;
+  if (prev && String(prev.account_id ?? "") === String(next.account_id) && String(prev.contact_id ?? "") === String(next.contact_id ?? "")) return;
+  if (isUuid(next.contact_id)) {
+    const contact = await liveRow(tx, sysOf(ctx), "customer_contact", next.contact_id);
+    if (!contact || !accountsOf(contact).includes(String(next.account_id).toLowerCase())) throw validationError({ account_id: "این مخاطب از حساب دیگری است" });
+  }
+  if (await worksCsm(tx, ctx)) return;
+  const mine = new Set((await contactsOfUser(tx, ctx, ctx.user.id)).flatMap(accountsOf));
+  if (!mine.has(String(next.account_id).toLowerCase())) throw forbidden("پرونده را فقط برای حساب خودتان ثبت می‌کنید");
 }
 
 /** Consume the case's units once, when it closes; warn the relationship manager when the threshold is crossed. */
@@ -245,9 +295,11 @@ async function escalationAfter(w: WriteArgs & { row: Row }): Promise<void> {
 
 export function installCsmHooks(): (() => void)[] {
   const offs: (() => void)[] = [
+    // definitions are CSM staff's (registered first: the guard runs before the hooks that derive)
+    ...CSM_DEFINITION_TABLES.map((t) => registerHooks(t, { beforeWrite: staffOnly, validatePush: pushGuard(staffOnly) })),
     registerHooks("customer_account", { beforeWrite: accountBefore, afterWrite: accountAfter }),
     registerHooks("customer_contact", { beforeWrite: contactBefore, afterWrite: contactAfter, derivePush: async (p) => ({ support_group_id: await supportGroupOf(p.tx, p.ctx, "customer_contact", p.next) }) }),
-    registerHooks("customer_case", { beforeWrite: caseBefore, afterWrite: caseAfter, derivePush: caseOnPush }),
+    registerHooks("customer_case", { beforeWrite: caseBefore, afterWrite: caseAfter, derivePush: caseOnPush, validatePush: pushGuard(caseAccountGuard) }),
     registerHooks("entitlement", { beforeWrite: entitlementBefore }),
     registerHooks("entitlement_ledger", { beforeWrite: ledgerGuard, validatePush: pushGuard(ledgerGuard) }),
     registerHooks("case_escalation", { afterWrite: escalationAfter }),

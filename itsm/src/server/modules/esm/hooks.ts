@@ -20,8 +20,8 @@ import type { Tx } from "../../db";
 import { isSystemCtx, onBeforeCommit, orgSchema, pushGuard, registerHooks, updateIn, validationError, type PushArgs, type WriteArgs } from "../../engine";
 import { forbidden } from "../../http/errors";
 import {
-  administersDepartment, administersEsm, defaultDepartment, departmentById, esmConfig, ids, isSecureWorkspace, isUuid, liveRow, liveRows,
-  mayWriteRecord, sysOf, workspaceMembersOf, eqAll, type Row,
+  administersDepartment, administersEsm, defaultDepartment, departmentById, esmConfig, hrStaff, hrWorksGroup, ids, isSecureWorkspace, isUuid, liveRow, liveRows,
+  mayWorkRecord, sysOf, workspaceMembersOf, eqAll, type Row,
 } from "./common";
 
 /** Tables of department records stamped with their department's workspace. */
@@ -123,9 +123,12 @@ async function caseBefore(w: WriteArgs): Promise<void> {
   const { ctx, tx, def, next, prev, op } = w;
   if (op === "delete") return;
   const { service, dept } = await placeOf(tx, ctx, def.key, next, prev);
-  // the workspace is the department's — a person never sets or moves it (a move is «انتقال», a trusted write)
-  if (prev && !w.trusted && !isSystemCtx(ctx) && (w.changed.has("workspace_id") || w.changed.has("department_id"))) {
-    if (next.workspace_id !== prev.workspace_id || next.department_id !== prev.department_id) throw forbidden("پرونده با «انتقال به واحد دیگر» به واحد دیگری می‌رود");
+  // the workspace is the department's — a person never sets or moves it, not by naming another department's service
+  // either (a move is «انتقال», a trusted write; a Windows app's push is held to the same rule)
+  if (prev && !w.trusted && !isSystemCtx(ctx)) {
+    const edited = (w.changed.has("workspace_id") || w.changed.has("department_id")) && (next.workspace_id !== prev.workspace_id || next.department_id !== prev.department_id);
+    const elsewhere = !!dept && isUuid(prev.department_id) && String(dept.id) !== String(prev.department_id);
+    if (edited || elsewhere) throw forbidden("پرونده با «انتقال به واحد دیگر» به واحد دیگری می‌رود");
   }
   if (dept) {
     next.department_id = dept.id;
@@ -185,12 +188,28 @@ async function caseAfter(w: WriteArgs & { row: Row }): Promise<void> {
   }
 }
 
-/** Derived columns of a pushed case (the cloud's own, never the push's). */
+/**
+ * Derived columns of a pushed case (the cloud's own, never the push's): a stored case keeps its department and
+ * workspace (only the trusted «انتقال» moves a case); a new one gets its service's or table's department; masking
+ * and confidentiality follow the service, the department, HR confidentiality and legal privilege.
+ */
 async function caseOnPush(p: PushArgs): Promise<Row> {
   const { tx, ctx, def, next, prev } = p;
-  const { dept } = await placeOf(tx, ctx, def.key, next, prev);
+  const sys = sysOf(ctx);
+  const serviceChanged = !prev || String(prev.dept_service_id ?? "") !== String(next.dept_service_id ?? "");
+  const service = isUuid(next.dept_service_id) ? await liveRow(tx, sys, "esm_service", next.dept_service_id) : null;
+  let dept: Row | null;
+  if (prev) dept = await departmentById(tx, ctx, prev.department_id);
+  else dept = await placeOf(tx, ctx, def.key, next, null).then((x) => x.dept).catch(() => defaultDepartment(tx, ctx, def.key));
   const cfg = await esmConfig(tx, ctx);
-  const out: Row = { department_id: dept?.id ?? prev?.department_id ?? null, workspace_id: dept?.dept_workspace_id ?? prev?.workspace_id ?? null, sensitive: !!(prev?.sensitive ?? next.sensitive) };
+  const out: Row = prev
+    ? { department_id: prev.department_id ?? null, workspace_id: prev.workspace_id ?? null }
+    : { department_id: dept?.id ?? null, workspace_id: dept?.dept_workspace_id ?? null };
+  out.sensitive = prev && !serviceChanged ? !!prev.sensitive : !!(service?.sensitive || dept?.sensitive);
+  if (def.fields.some((f) => f.name === "confidential")) {
+    out.confidential =
+      !!next.confidential || (serviceChanged && !!service?.confidential) || (def.key === "hr_case" && !!next.confidentiality && next.confidentiality !== "normal") || (def.key === "legal_request" && !!next.privileged);
+  }
   out.title = caseTitle(next.short_description, !!out.sensitive, cfg.masked_title);
   if (def.key === "hr_case") out.subject_readers = next.subject_visible !== false && isUuid(next.subject_person_id) ? [String(next.subject_person_id)] : [];
   return out;
@@ -203,15 +222,26 @@ async function hrWorkspace(tx: Tx, ctx: Ctx): Promise<string | null> {
   return ((await defaultDepartment(tx, ctx, "hr_case"))?.dept_workspace_id as string) ?? null;
 }
 
+/** What an HR task is, whose it is and where it points: HR sets them; the person who does it fills it in and finishes it. */
+const HR_TASK_LOCKED = ["type", "hr_case_id", "journey_id", "document_url", "assigned_to"];
+
 async function hrTaskBefore(w: WriteArgs): Promise<void> {
   const { ctx, tx, next, prev, op } = w;
   if (op === "delete") return;
   const sys = sysOf(ctx);
+  const person = !w.trusted && !isSystemCtx(ctx);
+  if (prev && person && HR_TASK_LOCKED.some((f) => w.changed.has(f)) && !(await hrStaff(tx, ctx))) {
+    throw forbidden("نوع، انجام‌دهنده، پرونده، سفر یا سند کار منابع انسانی را فقط کارشناسان منابع انسانی تغییر می‌دهند");
+  }
   if (op === "create" || w.changed.has("hr_case_id") || w.changed.has("journey_id")) {
     const parent = isUuid(next.hr_case_id) ? await liveRow(tx, sys, "hr_case", next.hr_case_id) : isUuid(next.journey_id) ? await liveRow(tx, sys, "journey", next.journey_id) : null;
-    // a task on someone's case or journey is given by someone who works it
-    if (parent && !w.trusted && !isSystemCtx(ctx) && !(await mayWriteRecord(tx, ctx, isUuid(next.hr_case_id) ? "hr_case" : "journey", parent.id))) {
-      throw forbidden("کار منابع انسانی را کسی می‌دهد که پرونده یا سفر را پیگیری می‌کند");
+    if (person) {
+      if (parent) {
+        // a task on someone's case or journey is given by someone who works it (its requester only follows it)
+        if (!(await mayWorkRecord(tx, ctx, isUuid(next.hr_case_id) ? "hr_case" : "journey", parent.id))) throw forbidden("کار منابع انسانی را کسی می‌دهد که پرونده یا سفر را پیگیری می‌کند");
+      } else if (!(await hrWorksGroup(tx, ctx, next.assignment_group_id))) {
+        throw forbidden("کار منابع انسانی بی پرونده یا سفر را فقط کارشناسان منابع انسانی همان گروه می‌دهند");
+      }
     }
     next.workspace_id = parent?.workspace_id ?? (await hrWorkspace(tx, ctx));
     if (parent && !next.assignment_group_id) next.assignment_group_id = parent.assignment_group_id ?? null;
@@ -221,6 +251,12 @@ async function hrTaskBefore(w: WriteArgs): Promise<void> {
     next.done_at = new Date().toISOString();
     if (next.signed_name && !prev?.signed_at) next.signed_at = new Date().toISOString();
   }
+}
+
+/** Skipping, failing or reopening HR work is HR's (the person who must do it cannot excuse themselves). */
+export async function hrStaffOnly(w: WriteArgs): Promise<string | null> {
+  if (w.trusted || isSystemCtx(w.ctx)) return null;
+  return (await hrStaff(w.tx, w.ctx)) ? null : `«${w.transition?.label ?? "این گام"}» با کارشناسان منابع انسانی است`;
 }
 
 async function hrTaskDone(w: WriteArgs): Promise<string | null> {
@@ -262,7 +298,7 @@ async function noteBefore(w: WriteArgs): Promise<void> {
   const sys = sysOf(ctx);
   const hrCase = await liveRow(tx, sys, "hr_case", next.hr_case_id);
   if (!hrCase) throw validationError({ hr_case_id: "پرونده پیدا نشد" });
-  if (op === "create" && !w.trusted && !isSystemCtx(ctx) && !(await mayWriteRecord(tx, ctx, "hr_case", hrCase.id))) throw forbidden("یادداشت روابط کار را کسی می‌نویسد که پرونده را پیگیری می‌کند");
+  if (op === "create" && !w.trusted && !isSystemCtx(ctx) && !(await mayWorkRecord(tx, ctx, "hr_case", hrCase.id))) throw forbidden("یادداشت روابط کار را کسی می‌نویسد که پرونده را پیگیری می‌کند");
   if (op === "create" && !isSystemCtx(ctx)) next.author_id = ctx.user.id;
   if (prev?.legal_hold && w.changed.has("body") && !isSystemCtx(ctx)) throw forbidden("یادداشت زیر نگهداری قانونی تغییر نمی‌کند");
   next.workspace_id = hrCase.workspace_id ?? null;
@@ -288,10 +324,13 @@ export function installEsmHooks(): (() => void)[] {
     offs.push(registerHooks(t, { beforeWrite: configBefore, afterWrite: configAfter, derivePush: (p) => adminsCopy(p.tx, p.ctx, p.def.key, p.next), validatePush: pushGuard(configBefore) }));
   }
   for (const t of DEPT_TABLES) {
-    offs.push(registerHooks(t, { beforeWrite: caseBefore, afterWrite: caseAfter, derivePush: caseOnPush }));
+    // a Windows app's push keeps the department (derivePush) and is held to the API's rules: no move by another
+    // department's service, active services only, who may file for whom, separation of duties on purchases, a
+    // secure department's watchers
+    offs.push(registerHooks(t, { beforeWrite: caseBefore, afterWrite: caseAfter, derivePush: caseOnPush, validatePush: pushGuard(caseBefore) }));
   }
   offs.push(
-    registerHooks("hr_task", { beforeWrite: hrTaskBefore, guards: { hr_task_done: hrTaskDone } }),
+    registerHooks("hr_task", { beforeWrite: hrTaskBefore, validatePush: pushGuard(hrTaskBefore), guards: { hr_task_done: hrTaskDone, hr_staff: hrStaffOnly } }),
     registerHooks("hr_profile", { beforeWrite: profileBefore }),
     registerHooks("approval", { beforeWrite: purchaseDecision }),
     registerHooks("hr_case_note", { beforeWrite: noteBefore, validatePush: pushGuard(async (w) => { if (w.prev?.legal_hold && w.changed.has("body")) throw forbidden("یادداشت زیر نگهداری قانونی تغییر نمی‌کند"); }) }),

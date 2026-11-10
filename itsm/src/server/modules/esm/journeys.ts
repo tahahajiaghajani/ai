@@ -23,7 +23,8 @@ import { notifyPeople } from "../notify";
 import { requestApprovalIn } from "../sla/approvals";
 import { placeOrder } from "../request/ordering";
 import { enqueue, type JobConfig } from "../../jobs";
-import { calendarFor, defaultDepartment, departmentById, esmConfig, eqAll, ids, isUuid, liveRow, liveRows, sysOf, todayOf, type Row } from "./common";
+import { memberCtx } from "../../access";
+import { calendarFor, defaultDepartment, departmentById, esmConfig, eqAll, ids, isUuid, liveRow, liveRows, sysOf, todayOf, worksHrOf, type Row } from "./common";
 
 const OPEN_JOURNEY = ["planned", "active", "waiting"];
 
@@ -75,9 +76,30 @@ export async function previewTemplate(ctx: Ctx, templateId: string, anchor: stri
 
 // ----- the journey's own hooks ------------------------------------------------------------------------------------------
 
+/**
+ * Who may start a journey or name its HR owner — its activities act in that owner's name (catalogue orders, cases of
+ * other departments, tasks in people's to-dos): HR of the template's department (its staff in its workspace, or its
+ * named administrators), and the owner they name must be HR of that department too. Also asked of a Windows push.
+ */
+async function journeyGuard(w: WriteArgs): Promise<void> {
+  const { ctx, tx, next, op } = w;
+  if (op === "delete" || w.trusted || isSystemCtx(ctx)) return;
+  const creating = op === "create";
+  if (!creating && !w.changed.has("hr_owner_id")) return;
+  const tpl = isUuid(next.template_id) ? await liveRow(tx, sysOf(ctx), "journey_template", next.template_id) : null;
+  const dept = (await departmentById(tx, ctx, tpl?.department_id)) ?? (await defaultDepartment(tx, ctx, "hr_case"));
+  if (creating && !(await worksHrOf(tx, ctx, dept))) throw forbidden("سفر کارمند را کارشناسان منابع انسانی همان واحد آغاز می‌کنند");
+  const owner = isUuid(next.hr_owner_id) ? String(next.hr_owner_id).toLowerCase() : null;
+  if (owner && owner !== String(ctx.user.id).toLowerCase()) {
+    const as = await memberCtx(ctx.cfg, ctx.org.id, owner, tx).catch(() => null);
+    if (!as || !(await worksHrOf(tx, as, dept))) throw validationError({ hr_owner_id: "مسئول منابع انسانی سفر باید از کارشناسان منابع انسانی همان واحد باشد" });
+  }
+}
+
 async function journeyBefore(w: WriteArgs): Promise<void> {
   const { ctx, tx, next, prev, op } = w;
   if (op === "delete") return;
+  await journeyGuard(w);
   const sys = sysOf(ctx);
   if (op === "create" || w.changed.has("template_id")) {
     const tpl = await liveRow(tx, sys, "journey_template", next.template_id);
@@ -211,7 +233,8 @@ export async function advanceJourneyIn(tx: Tx, ctx: Ctx, journeyId: string): Pro
       for (const code of ready) {
         const a = acts.find((x) => x.code === code)!;
         if (a.condition && !(await holdsOn(tx, ctx, a.condition as Cond, j))) {
-          await transitionIn(tx, sys, "journey_activity", String(a.id), "skipped", { outcome: "شرط این فعالیت برای این سفر برقرار نبود" }, { trusted: true });
+          // not this journey's work: no requirement of its first day either (readiness counts done day-one work only)
+          await transitionIn(tx, sys, "journey_activity", String(a.id), "skipped", { outcome: "شرط این فعالیت برای این سفر برقرار نبود", day_one: false }, { trusted: true });
           changed = true;
           continue;
         }
@@ -414,7 +437,7 @@ async function activityAfter(w: WriteArgs & { row: Row }): Promise<void> {
   onBeforeCommit(tx, `esm.journey.advance:${row.journey_id}`, async () => void (await advanceJourneyIn(tx, ctx, String(row.journey_id))));
 }
 
-export const journeyHooks = { journeyBefore, journeyAfter, activityBefore, activityDone, activityAfter };
+export const journeyHooks = { journeyGuard, journeyBefore, journeyAfter, activityBefore, activityDone, activityAfter };
 
 // ----- reads for the screens -----------------------------------------------------------------------------------------------
 
@@ -461,8 +484,10 @@ export async function myTodos(ctx: Ctx): Promise<Row> {
 }
 
 /**
- * Place the catalogue order of an «سفارش از کاتالوگ» activity for the employee, as the journey's HR owner (the request
- * module checks the item, entitlement, ordering for others and the answers in its own write), then link it.
+ * Place the catalogue order of an «سفارش از کاتالوگ» activity for the employee with the journey's HR owner's own
+ * access (a member context, never the system acting in their name: the request module checks the item, entitlement,
+ * ordering for others and the answers in its own write), then link it. A journey without an owner (started by the
+ * system) orders as the system.
  */
 export async function placeActivityOrder(cfg: JobConfig, orgId: string, activityId: string): Promise<void> {
   const sys = await systemCtx(cfg, orgId);
@@ -476,8 +501,13 @@ export async function placeActivityOrder(cfg: JobConfig, orgId: string, activity
     return;
   }
   const owner = isUuid(j.hr_owner_id) ? String(j.hr_owner_id) : null;
+  const as = owner ? await memberCtx(sys.cfg, orgId, owner).catch(() => null) : sys;
+  if (!as) {
+    await sys.write((tx) => failActivity(tx, sys, a, "مسئول منابع انسانی سفر عضو فعال سازمان نیست؛ مسئول دیگری بگذارید و فعالیت را بازگشایی کنید"));
+    return;
+  }
   try {
-    const res = await placeOrder(sysOf(sys, owner), { lines: [{ item_id: String(item.id), requested_for: String(j.subject_person_id), answers: (a.order_answers as Record<string, unknown>) ?? {} }], requested_for: String(j.subject_person_id), instructions: `${a.name} — ${j.name}`, channel: "api" });
+    const res = await placeOrder(as, { lines: [{ item_id: String(item.id), requested_for: String(j.subject_person_id), answers: (a.order_answers as Record<string, unknown>) ?? {} }], requested_for: String(j.subject_person_id), instructions: `${a.name} — ${j.name}`, channel: "api" });
     const it = res.items[0];
     const rec = it ? { table: "request_item", id: it.id, number: it.number } : res.produced ? { table: res.produced.table, id: res.produced.id, number: res.produced.number } : null;
     await sys.write(async (tx) => {

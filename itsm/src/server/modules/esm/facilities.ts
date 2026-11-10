@@ -49,14 +49,18 @@ async function reservationBefore(w: WriteArgs): Promise<void> {
   next.location_id = space.location_id ?? null;
   next.assignment_group_id = space.owner_group_id ?? null;
   if (op === "create") {
-    // a free space that needs no approval is confirmed at once; an occupied one waits in line
+    // a free space that needs no approval is confirmed at once; one that needs approval is requested (its owner group
+    // is asked); an occupied one waits in line — whatever state a person's request named
     const busy = await clashes(tx, ctx, String(space.id), start, end, null);
     if (busy.length) {
       next.state = "requested";
       const waiting = await liveRows(tx, sys, "reservation", { and: [{ f: "space_id", op: "eq", v: space.id }, { f: "state", op: "eq", v: "requested" }, { f: "waitlist_position", op: "nempty" }] }, { limit: 500 });
       next.waitlist_position = waiting.filter((r) => overlaps({ start, end }, { start: msOf(r.start_at) ?? 0, end: msOf(r.end_at) ?? 0 })).length + 1;
-    } else if (!space.requires_approval && next.state !== "confirmed") {
+    } else if (!space.requires_approval) {
       next.state = "confirmed";
+    } else if (!w.trusted && !isSystemCtx(ctx)) {
+      next.state = "requested";
+      next.waitlist_position = null;
     }
     return;
   }
@@ -148,8 +152,15 @@ export async function promoteWaiting(tx: Tx, ctx: Ctx, freed: Row): Promise<stri
   const span = { start: msOf(freed.start_at) ?? 0, end: msOf(freed.end_at) ?? 0 };
   const waiting = (await liveRows(tx, sys, "reservation", { and: [{ f: "space_id", op: "eq", v: freed.space_id }, { f: "state", op: "eq", v: "requested" }, { f: "waitlist_position", op: "nempty" }] }, { order: "t.waitlist_position, t.created_at", limit: 200 }))
     .filter((r) => overlaps(span, { start: msOf(r.start_at) ?? 0, end: msOf(r.end_at) ?? 0 }) && (msOf(r.end_at) ?? 0) > Date.now());
+  const space = await liveRow(tx, sys, "space", freed.space_id);
   for (const r of waiting) {
     if ((await clashes(tx, ctx, String(r.space_id), msOf(r.start_at)!, msOf(r.end_at)!, r.id)).length) continue;
+    if (space?.requires_approval && r.approval !== "approved") {
+      // a space that needs approval: the booking leaves the line and its owner group is asked (never confirmed unasked)
+      await updateIn(tx, sys, "reservation", String(r.id), { waitlist_position: null }, { trusted: true, keepVersion: true });
+      if (isUuid(space.owner_group_id) && r.approval !== "requested") await requestApprovalIn(tx, sys, "reservation", String(r.id), { groups: [String(space.owner_group_id)], name: `رزرو «${space.name}»`, rule: "any" });
+      return String(r.id);
+    }
     await transitionIn(tx, sys, "reservation", String(r.id), "confirmed", {}, { trusted: true });
     await emitEvent(tx, sys, { kind: "record.reservation_promoted", table: "reservation", id: String(r.id), number: (r.number as string) ?? null, data: { users: [r.booked_for, r.booked_by].filter(isUuid) } });
     return String(r.id);
@@ -177,8 +188,14 @@ export async function noShowJob(job: { org_id: string | null; payload: Record<st
 // ----- visitors -----------------------------------------------------------------------------------------------------------
 
 async function visitBefore(w: WriteArgs): Promise<void> {
-  const { next, prev, op } = w;
-  if (op === "delete" || !prev || !w.changed.has("state")) return;
+  const { next, prev, op, ctx } = w;
+  if (op === "delete") return;
+  // a visit is announced, not created already in: arrival goes through «ثبت ورود» (its NDA and safety guard)
+  if (op === "create" && !w.trusted && !isSystemCtx(ctx)) {
+    next.state = "expected";
+    return;
+  }
+  if (!prev || !w.changed.has("state")) return;
   const now = new Date().toISOString();
   if (next.state === "checked_in") {
     next.checked_in_at = now;

@@ -205,7 +205,9 @@ export function journeyProgress(acts: readonly LiveActivity[], today: string): J
   const open = acts.filter((a) => !ACTIVITY_FINISHED.has(a.state));
   const overdue = open.filter((a) => a.due_date && a.due_date < today).length;
   const dayOne = acts.filter((a) => a.day_one);
-  const dayOneDone = dayOne.filter((a) => ACTIVITY_SETTLED.has(a.state)).length;
+  // the first day is ready when its work is done — a skipped or failed day-one activity is not (an activity whose
+  // condition does not hold for the journey stops being a day-one one when it is skipped)
+  const dayOneDone = dayOne.filter((a) => a.state === "done").length;
   const dues = open.map((a) => a.due_date).filter((d): d is string => !!d).sort();
   return {
     total,

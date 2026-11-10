@@ -10,7 +10,7 @@ import type { Tx } from "../../db";
 import { createIn, updateIn } from "../../engine";
 import { eqAll, liveRows, sysOf, type Row } from "./common";
 
-export const FSM_SEED_VERSION = 1;
+export const FSM_SEED_VERSION = 2;
 
 export interface SeedCounts {
   skipped: boolean;
@@ -38,7 +38,7 @@ export const FSM_ROLES: Row[] = [
     key: "dispatcher", name: "توزیع‌کنندهٔ خدمات میدانی", persona: "agent", workspaces: "member", domains: "own", active: true,
     description: "همهٔ دستورهای کار و وظیفه‌ها، تابلوی توزیع و واگذاری به تکنسین‌ها؛ دیدن موقعیت‌های ورود و خروج",
     grants: { field_service: { read: "all", create: true, write: "group", approve: true }, csm: { read: "all" }, incident: { read: "all" }, cmdb: { read: "all" }, knowledge: { read: "all" }, reports: { read: "all" }, org: { read: "all" }, users: { read: "all" } },
-    field_groups: ["internal", "personal"], contains: ["requester"],
+    field_groups: ["internal", "personal", "dispatch"], contains: ["requester"],
   },
   {
     key: "field_manager", name: "مدیر خدمات میدانی", persona: "agent", workspaces: "member", domains: "own", active: true,
@@ -89,7 +89,12 @@ export async function seedFsmDefaultsIn(tx: Tx, ctx: Ctx, opts: { force?: boolea
   const [cfg] = await liveRows(tx, sys, "fsm_config", null, { order: "t.created_at", limit: 1 });
   if (cfg && Number(cfg.seeded ?? 0) >= FSM_SEED_VERSION && !opts.force) return { ...out, skipped: true };
   const config = cfg ?? (await ensure(tx, sys, out, "fsm_config", { config_key: "default" }, { name: "تنظیمات خدمات میدانی" }));
-  for (const r of FSM_ROLES) await ensure(tx, sys, out, "role", { key: r.key }, r);
+  for (const r of FSM_ROLES) {
+    const role = await ensure(tx, sys, out, "role", { key: r.key }, r);
+    // version 2: technicians' positions moved to the field group «dispatch» — the seeded dispatcher role keeps them
+    const groups = Array.isArray(role.field_groups) ? (role.field_groups as string[]) : [];
+    if (r.key === "dispatcher" && !groups.includes("dispatch")) await updateIn(tx, sys, "role", String(role.id), { field_groups: [...groups, "dispatch"] }, { trusted: true });
+  }
   const group = await ensure(tx, sys, out, "group", { name: "توزیع خدمات میدانی" }, { types: ["assignment"], roles: ["dispatcher"], description: "توزیع و پیگیری کار در محل", active: true });
   for (const t of TEMPLATES) await ensure(tx, sys, out, "wo_task_template", { name: t.name }, { ...t, active: true });
   const calendars = await liveRows(tx, sys, "calendar", null, { order: "t.created_at" });
