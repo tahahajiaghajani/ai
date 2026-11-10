@@ -43,7 +43,7 @@ before this round: **exists** / **partial** / **missing**. The last column says 
 | Operational status: in service, out of service, out of cash, maintenance, offline | missing | built: `asset.device_status` with a status-event ledger |
 | Vendor maintenance contracts with SLA penalties | partial (contracts, coverage) | built: `maintenance_sla` terms per contract (restore hours, availability target, penalty per hour) and computed penalties |
 | Preventive maintenance schedule → field-service visits | partial (field service has maintenance plans by CI) | built: one action creates PM plans for fleet devices (field service generates the work orders) |
-| Firmware / OS and end-of-support tracking (Windows on ATMs) | partial (model EOL date only) | built: OS, firmware and OS end-of-support per device, EOS buckets in the fleet view |
+| Firmware / OS and end-of-support tracking (Windows on ATMs) | partial (model EOL date only) | built: OS, firmware and OS end-of-support per device (filled from the published lifecycle of Windows XP/7/Embedded 7/10 LTSB-LTSC/11 LTSC), EOS buckets in the fleet view |
 | Cash-related incidents | missing | built: «بدون وجه نقد» opens an incident on the device's CI when asked |
 | Availability KPI per region | missing | built: availability from the status ledger per device, branch, region and contract |
 | ATM failure prediction | missing | built: rule-based risk score (incidents, downtime, age, EOS) as AI skill `itam.atm_failure_risk` |
@@ -55,7 +55,7 @@ before this round: **exists** / **partial** / **missing**. The last column says 
 | Depreciation (straight-line / declining, residual value) | exists (monthly, Jalali months) | kept |
 | Depreciation by Iranian fiscal year (1 Farvardin – end of Esfand), start-month convention | missing | built: `fiscalYearDepreciation` (opening, charge, closing per Jalali fiscal year; «از ماه بعد از بهره‌برداری») |
 | Asset register report «دفتر اموال» with Excel export | missing | built: by fiscal year, branch, class; totals; Excel |
-| Fixed-asset reconciliation with finance | partial (cost ledger in the financial module) | later: register totals vs. the GL import |
+| Fixed-asset reconciliation with finance | partial (cost ledger in the financial module) | built: the register compares each asset's charge for the year with the depreciation the cost ledger holds (the financial capture now honours the rule's first month); reconciliation with an external GL import later |
 | Insurance | missing | built: policy number and end date on the asset |
 | Leases | exists (lease contract and end) | kept |
 
@@ -81,4 +81,14 @@ before this round: **exists** / **partial** / **missing**. The last column says 
 | Need | Before | 1.1 |
 | --- | --- | --- |
 | Excel exports | exists (every list) | kept; register and fleet export added |
-| Fleet health, branch inventory, warranty/EOS expiry, audit discrepancies, asset value by unit | partial (asset dashboard) | built: fleet view, branch view, register totals by branch; analytics indicators later |
+| Fleet health, branch inventory, warranty/EOS expiry, audit discrepancies, asset value by unit | partial (asset dashboard) | built: fleet view, branch view, register totals by branch; KPIs `asset.fleet_down`, `asset.transfers_in_transit`, `asset.audit_discrepancies`, `asset.attestations_overdue` |
+
+## What is still open after 1.1
+
+- Links from assets to vulnerabilities and security incidents (the CI link exists; an asset-side panel does not).
+- Bank software licence models (core banking, database, Microsoft agreements) as seeded software models.
+- Branch scope for repairs, stock movements and disposal orders (central teams see them; a branch's staff do not).
+- Register and fleet views load up to 50 000 assets / 5 000 devices per request; a streamed Excel export for the
+  whole bank is later.
+- The custody chain is hashed on the runtime that writes it; a Windows app and the cloud writing custody for the same
+  asset at once fork the chain (verification reports the first break).
