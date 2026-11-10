@@ -37,6 +37,14 @@ function Fail([string]$Message) {
 
 # An entry in the Application event log (the source is registered on first use; administrators only). Best effort: a
 # failure to write it is logged, never fatal.
+function Initialize-EventSource([string]$Source) {
+    try {
+        if (-not [System.Diagnostics.EventLog]::SourceExists($Source)) { [System.Diagnostics.EventLog]::CreateEventSource($Source, 'Application') }
+    } catch {
+        Write-Log "event log source $Source not registered: $($_.Exception.Message)" 'WARN'
+    }
+}
+
 function Write-EventLogEntry([string]$Source, [string]$Message, [string]$Type = 'Information', [int]$EventId = 1000) {
     try {
         if (-not [System.Diagnostics.EventLog]::SourceExists($Source)) { [System.Diagnostics.EventLog]::CreateEventSource($Source, 'Application') }

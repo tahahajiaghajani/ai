@@ -196,6 +196,8 @@ try {
     Set-LogFile (Join-Path $DataDir ("logs\install-{0}.log" -f (Get-Date -Format 'yyyyMMdd-HHmmss')))
     $script:ErrorFile = Join-Path $DataDir 'logs\install-error.txt'
     if (Test-Path -LiteralPath $script:ErrorFile) { Remove-Item -LiteralPath $script:ErrorFile -Force -ErrorAction SilentlyContinue }
+    # registered early: Windows may need a moment before a new source can be written to
+    Initialize-EventSource (Get-EventSource)
 
     $node = Join-Path $InstallDir 'node\node.exe'
     $ctlJs = Join-Path $InstallDir 'app\karizctl.cjs'
