@@ -42,9 +42,30 @@ function zipEntries(buf: Uint8Array): Map<string, ZipEntry> {
   return out;
 }
 
-async function inflateRaw(data: Uint8Array): Promise<Uint8Array> {
-  const stream = new Blob([data as BlobPart]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+/** The most an archive entry of a spreadsheet may inflate to: a small file that inflates beyond it (a deflate bomb) stops. */
+export const SHEET_MAX_ENTRY_BYTES = 64 * 1024 * 1024;
+
+async function inflateRaw(data: Uint8Array, max = SHEET_MAX_ENTRY_BYTES): Promise<Uint8Array> {
+  const reader = new Blob([data as BlobPart]).stream().pipeThrough(new DecompressionStream("deflate-raw")).getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => undefined);
+      throw new Error("محتوای این فایل اکسل پس از گشودن از اندازهٔ مجاز بزرگ‌تر است");
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.byteLength;
+  }
+  return out;
 }
 
 async function zipText(buf: Uint8Array, entries: Map<string, ZipEntry>, name: string): Promise<string | null> {
@@ -100,7 +121,7 @@ function cleanNumber(v: string): string {
 
 // ---------------------------------------------------------------- xlsx
 
-export async function readXlsx(data: ArrayBuffer | Uint8Array): Promise<{ sheet: string; rows: SheetRows }> {
+export async function readXlsx(data: ArrayBuffer | Uint8Array, opts: { maxRows?: number } = {}): Promise<{ sheet: string; rows: SheetRows }> {
   const buf = data instanceof Uint8Array ? data : new Uint8Array(data);
   const entries = zipEntries(buf);
   const workbook = (await zipText(buf, entries, "xl/workbook.xml")) ?? "";
@@ -126,6 +147,8 @@ export async function readXlsx(data: ArrayBuffer | Uint8Array): Promise<{ sheet:
   for (const rm of xml.matchAll(/<row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/row>)/g)) {
     const ra = attrs(rm[1]);
     const r = ra.r ? Number(ra.r) - 1 : nextRow;
+    // rows past the reader's limit are never parsed (a sheet of millions of rows stops here)
+    if (opts.maxRows !== undefined && r >= opts.maxRows) break;
     nextRow = r + 1;
     const cells: string[] = [];
     let nextCol = 0;
@@ -179,7 +202,7 @@ export function decodeText(data: ArrayBuffer | Uint8Array): string {
   return text.replace(/^﻿/, "");
 }
 
-export function parseCsv(text: string): SheetRows {
+export function parseCsv(text: string, maxRows?: number): SheetRows {
   const firstLine = text.slice(0, text.search(/\r?\n|$/));
   const delim = [",", ";", "\t", "|"].map((d) => [d, firstLine.split(d).length] as const).sort((a, b) => b[1] - a[1])[0][0];
   const rows: SheetRows = [];
@@ -205,6 +228,7 @@ export function parseCsv(text: string): SheetRows {
       rows.push(row);
       row = [];
       cell = "";
+      if (maxRows !== undefined && rows.length >= maxRows) return rows;
     } else cell += ch;
   }
   if (cell !== "" || row.length) {
@@ -214,13 +238,13 @@ export function parseCsv(text: string): SheetRows {
   return rows;
 }
 
-/** First sheet of an .xlsx/.csv file; empty trailing rows removed. */
-export async function readSpreadsheet(name: string, data: ArrayBuffer | Uint8Array): Promise<{ sheet: string; rows: SheetRows }> {
+/** First sheet of an .xlsx/.csv file; empty trailing rows removed; at most `maxRows` rows (the header included) read. */
+export async function readSpreadsheet(name: string, data: ArrayBuffer | Uint8Array, opts: { maxRows?: number } = {}): Promise<{ sheet: string; rows: SheetRows }> {
   const lower = name.toLowerCase();
   if (lower.endsWith(".xls")) throw new Error("قالب قدیمی ‎.xls‎ پشتیبانی نمی‌شود؛ فایل را در اکسل با قالب ‎.xlsx‎ ذخیره کنید");
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
   const isZip = bytes[0] === 0x50 && bytes[1] === 0x4b;
-  const out = isZip ? await readXlsx(bytes) : { sheet: name.replace(/\.[^.]+$/, ""), rows: parseCsv(decodeText(bytes)) };
+  const out = isZip ? await readXlsx(bytes, opts) : { sheet: name.replace(/\.[^.]+$/, ""), rows: parseCsv(decodeText(bytes), opts.maxRows) };
   const rows = out.rows.map((r) => r.map((c) => (c ?? "").trim()));
   while (rows.length && rows[rows.length - 1].every((c) => !c)) rows.pop();
   return { sheet: out.sheet, rows };

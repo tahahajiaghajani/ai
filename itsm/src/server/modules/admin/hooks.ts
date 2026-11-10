@@ -10,6 +10,7 @@ import { webOnly, registerHooks, type WriteArgs } from "../../engine";
 import { isSystem } from "../../access/provider";
 import { enqueue } from "../../jobs";
 import { liveRows, needWithinLimit, sysOf } from "./common";
+import { scheduleImportIn } from "./imports";
 
 const existingTable = (key: unknown) => {
   const def = tableDef(String(key ?? ""));
@@ -81,7 +82,14 @@ export function installAdminHooks(): void {
   installed = true;
   registerHooks("custom_field", { beforeWrite: customField, ...webOnly("فیلد سفارشی") });
   registerHooks("custom_table", { beforeWrite: customTable, ...webOnly("جدول سفارشی") });
-  registerHooks("import_set", { beforeWrite: (w) => targetTable(w, "target_table"), ...webOnly("ورود داده") });
+  registerHooks("import_set", {
+    beforeWrite: (w) => targetTable(w, "target_table"),
+    ...webOnly("ورود داده"),
+    // a scheduled URL import starts when it is saved (and when its source or interval changes), not at its first manual run
+    afterWrite: async (w) => {
+      if (w.op === "create" || (w.op === "update" && ["source", "source_url", "schedule_hours"].some((f) => w.changed.has(f)))) await scheduleImportIn(w.tx, w.ctx.org.id, w.row);
+    },
+  });
   registerHooks("transform_map", { beforeWrite: transformMap, ...webOnly("نگاشت ورود داده") });
   registerHooks("data_export", { beforeWrite: dataExport, ...webOnly("خروجی داده"), afterWrite: dataExportAfter });
   registerHooks("system_notice", { beforeWrite: notice, ...webOnly("اطلاعیهٔ سامانه") });

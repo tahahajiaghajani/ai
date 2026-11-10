@@ -103,6 +103,9 @@ integrationHubRoutes.post("/secret", async (c) => {
   const input = await body(c, z.object({ table: z.string().max(63), id: UUID }));
   const field = SECRETS[input.table];
   if (!field) throw bad("این جدول راز قابل ساخت ندارد");
+  // a SCIM token acts as the source's approver: rotating it is a members' administrator's (and takes back the
+  // approval of anyone else — the directory hook)
+  if (input.table === "directory_source") ctx.need("users", "edit");
   const row = await liveRow(ctx.db, ctx, input.table, input.id);
   if (!row) throw notFound("ردیف پیدا نشد");
   const secret = randomToken(input.table === "directory_source" ? 32 : 24);

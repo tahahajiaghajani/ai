@@ -6,7 +6,7 @@
 // names the tables and operations it may use — the integration user's own access still decides every call.
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { Ctx } from "../../context";
-import type { Tx } from "../../db";
+import type { Queryable, Tx } from "../../db";
 import { insertRow } from "../../db/sql";
 import { uuidv7 } from "@shared/id";
 import { cleanScopes, type TableScope } from "@shared/integration/scopes";
@@ -14,7 +14,10 @@ import { bad, conflict, forbidden, notFound } from "../../http/errors";
 import { randomToken, sha256 } from "../../auth/password";
 import { audit } from "../data/crud";
 import { securityEvent } from "../platform/security";
-import { saveMemberAccess } from "../../access";
+import { exceeds } from "@shared/access";
+import { memberCtx, prepareSubject, saveMemberAccess, subjectOf } from "../../access";
+import { describeExcess } from "../../access/hooks";
+import { isSystem } from "../../access/provider";
 import { needWithinLimit } from "../admin/common";
 import { liveRow, needIntegrations, sysOf, type Row } from "./common";
 
@@ -103,10 +106,28 @@ export interface KeyInput {
   ip_allowlist?: string[] | null;
 }
 
+/**
+ * Nobody borrows an integration user with more access than their own: minting its key, binding it to a webhook, an
+ * inbound endpoint, an export or an issue connection, or running one of those as it, needs the caller's ITSM access
+ * to cover the integration user's (the rule for changing a member's roles). The owner is not held to it.
+ */
+export async function needPrincipalWithin(ctx: Ctx, integrationUserId: unknown, q: Queryable = ctx.db): Promise<void> {
+  if (isSystem(ctx) || (ctx.member.role === "owner" && !ctx.support)) return;
+  if (typeof integrationUserId !== "string" || !integrationUserId) return;
+  const user = await liveRow(q, sysOf(ctx), "integration_user", integrationUserId);
+  if (!user?.user_id) return;
+  const theirs = await memberCtx(ctx.cfg, ctx.org.id, String(user.user_id), q).catch(() => null);
+  if (!theirs) return;
+  await prepareSubject(ctx, q);
+  const above = exceeds(subjectOf(theirs).eff, subjectOf(ctx).eff);
+  if (above.length) throw forbidden(`دسترسی کاربر یکپارچه‌سازی «${user.name}» از شما بیشتر است (${describeExcess(above)})؛ این کار با مالک است`);
+}
+
 /** A new key of an integration user (shown once). */
 export async function createKey(ctx: Ctx, integrationUserId: string, input: KeyInput): Promise<{ key: string; prefix: string; id: string }> {
   needIntegrations(ctx, "full");
   const user = await userRow(ctx, integrationUserId);
+  await needPrincipalWithin(ctx, integrationUserId);
   if (user.active === false) throw bad("کاربر یکپارچه‌سازی غیرفعال است");
   const scopes = cleanScopes(input.scopes);
   if (!scopes.length) throw bad("دست‌کم یک جدول و یک کار برای کلید انتخاب کنید");

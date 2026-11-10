@@ -10,6 +10,7 @@ import { cleanInboundRules, jsonPath, mapInbound } from "@shared/integration/web
 import { bad, forbidden, notFound, unauthorized } from "../../http/errors";
 import { create, list, readSecret, systemCtx, update, updateIn } from "../../engine";
 import { hasFeature } from "../admin/common";
+import { needPrincipalWithin } from "./users";
 import { intLog, liveRow, needIntegrations, principalCtx, isUuid, type Row } from "./common";
 
 export const MAX_INBOUND_BYTES = 1_000_000;
@@ -131,5 +132,6 @@ export async function retryInbound(ctx: Ctx, eventId: string): Promise<InboundRe
   const ev = await ctx.db.one<{ id: string; integration_id: string; payload: unknown }>(`select id, integration_id, payload from sm_integration_events where id = $1 and org_id = $2 and topic = 'inbound'`, [eventId, ctx.org.id]);
   if (!ev) throw notFound("دریافتی پیدا نشد");
   const { sys, ep, orgId } = await endpointOf(ctx.cfg, ev.integration_id);
+  await needPrincipalWithin(ctx, ep.principal_id);
   return processStored(ctx.cfg, sys, ep, orgId, ev.id, ev.payload);
 }

@@ -8,7 +8,9 @@ import type { Ctx, ServerConfig } from "../../context";
 import { tableDef } from "@shared/tables";
 import { adfDoc, githubEvent, isClosedState, issueText, jiraEvent, noteOf, type IssueEvent, type IssueKind } from "@shared/integration/issues";
 import { bad, forbidden, notFound, unauthorized } from "../../http/errors";
-import { addJournalIn, createIn, get, listJournal, onRecordEvent, readSecret, systemCtx, transition, updateIn, type RecordEvent } from "../../engine";
+import { addJournalIn, condEnv, createIn, get, listJournal, onRecordEvent, orgSchema, readable, readSecret, systemCtx, transition, updateIn, type RecordEvent } from "../../engine";
+import type { Queryable } from "../../db";
+import { pgArray } from "../../db";
 import { access } from "../../access/provider";
 import { enqueue, registerJobHandler } from "../../jobs";
 import { needFeature, hasFeature } from "../admin/common";
@@ -108,7 +110,8 @@ export async function linkIssue(ctx: Ctx, input: { connection_id: string; table:
     if (!r.ok || !r.json) throw bad(failText(label(c), r));
     remote = c.kind === "github" ? remoteOf(c, r.json) : { key: String(r.json.key), id: String(r.json.id), url: `${c.api}/browse/${r.json.key}`, state: "", closed: false };
   }
-  const recLabel = `${rec.row.number ?? ""} ${String(rec.row[def.display] ?? "")}`.trim().slice(0, 250);
+  // the record's number only (its title stays with the record), shown to readers of the record (redactRefs)
+  const recLabel = String(rec.row.number ?? "").slice(0, 250) || null;
   const ref = await ctx.write(async (tx) => {
     const row = await createIn(
       tx,
@@ -120,7 +123,8 @@ export async function linkIssue(ctx: Ctx, input: { connection_id: string; table:
     if (def.features?.journal) {
       await addJournalIn(tx, ctx, def, rec.row, { kind: "work_note", body: `${input.remote_key ? "پیوند به" : "ساخت"} issue ${remote.key} در ${label(c)}${remote.url ? `: ${remote.url}` : ""}`, data: { origin: "issue_sync", ref: row.id } });
     }
-    await audit(tx, ctx, "issue_link", "external_ref", String(row.id), `${remote.key} در ${label(c)} ← ${recLabel}`);
+    // the audit names the record by table and id, never by its title (the platform's console reads every audit)
+    await audit(tx, ctx, "issue_link", "external_ref", String(row.id), `${remote.key} در ${label(c)} ← ${def.label} ${input.record_id}`);
     return row;
   });
   await markConnection(ctx.cfg, sys, String(c.row.id), { health: "ok", last_error: null });
@@ -129,6 +133,33 @@ export async function linkIssue(ctx: Ctx, input: { connection_id: string; table:
 
 async function markConnection(cfg: ServerConfig, sys: Ctx, id: string, patch: Record<string, unknown>): Promise<void> {
   await sys.write((tx) => updateIn(tx, sys, "issue_connection", id, patch, { trusted: true, keepVersion: true })).catch(() => undefined);
+}
+
+/**
+ * Rows of `external_ref` (redactRows): the linked record's label only for readers of that record — the hub's table
+ * is readable across the integrations area, the records it links are not (a confidential incident, a secure case).
+ */
+export async function redactRefs(q: Queryable, ctx: Ctx, _def: unknown, rows: Row[]): Promise<void> {
+  const shown = rows.filter((r) => r.record_label !== undefined && r.record_label !== null && isUuid(r.id));
+  if (!shown.length) return;
+  const keys = await q.query<{ id: string; table_key: string; record_id: string }>(`select id, table_key, record_id from sm_external_refs where id = any($1::uuid[])`, [pgArray(shown.map((r) => String(r.id)))]);
+  const byId = new Map(keys.map((k) => [k.id, k]));
+  const tables = new Map<string, string[]>();
+  for (const k of keys) if (isUuid(k.record_id)) tables.set(k.table_key, [...(tables.get(k.table_key) ?? []), k.record_id]);
+  const readableSet = new Set<string>();
+  const schema = await orgSchema(ctx, q);
+  const env = await condEnv(ctx);
+  for (const [table, ids] of tables) {
+    const def = schema.def(table) ?? tableDef(table);
+    if (!def || def.virtual) continue;
+    const params: unknown[] = [pgArray(ids)];
+    const where = readable(ctx, def, "t", params, env);
+    for (const r of await q.query<{ id: string }>(`select t.id from ${def.table} t where t.id = any($1::uuid[]) and ${where}`, params)) readableSet.add(`${table}:${r.id}`);
+  }
+  for (const r of shown) {
+    const k = byId.get(String(r.id));
+    if (!k || !readableSet.has(`${k.table_key}:${k.record_id}`)) r.record_label = null;
+  }
 }
 
 /** The external refs of a record (for whoever reads the record). */

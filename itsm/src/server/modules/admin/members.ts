@@ -13,7 +13,8 @@ import { bad, forbidden } from "../../http/errors";
 import { audit } from "../data/crud";
 import { securityEvent } from "../platform/security";
 import { addGroupMembers, saveMemberAccess } from "../../access";
-import { createIn } from "../../engine";
+import { createIn, updateIn } from "../../engine";
+import { RESETTABLE_SQL } from "../platform/members";
 import { liveRows, needWithinLimit, sysOf } from "./common";
 
 export type MembershipRole = "member" | "viewer";
@@ -90,7 +91,31 @@ export async function ensurePerson(tx: Tx, ctx: Ctx, p: { email: string; name: s
     await tx.query(`update sm_org_members set deleted_at = null, is_active = true, role = $2, overrides = '{}'::jsonb, title = coalesce($3, title) where id = $1`, [m.id, membershipRole, p.title ?? null]);
     joined = true;
   }
+  // new_account marks an account this organisation made (createdHere: only such an account's own data is the
+  // organisation's to change — its password, its name from a directory)
+  if (joined) await audit(tx, ctx, "member_add", "member", user.id, `${email} (از فهرست کاربران)`, { new_account: created });
   return { user_id: user.id, created, joined };
+}
+
+/**
+ * A directory's (LDAP, SCIM) name for a member. The account is global — the same person in other organisations — so
+ * its name changes only when this organisation made it for someone who works for no other organisation and is no
+ * platform admin (the rule of password resets); otherwise only this organisation's member profile shows the
+ * directory's name.
+ */
+export async function setDirectoryName(tx: Tx, ctx: Ctx, userId: string, name: string): Promise<"account" | "profile" | "none"> {
+  const clean = String(name ?? "").trim().slice(0, 120);
+  if (!clean) return "none";
+  const own = await tx.one(`select 1 from sm_users u where u.id = $2::uuid and ${RESETTABLE_SQL("$1", "u")}`, [ctx.org.id, userId]);
+  if (own) {
+    await tx.query(`update sm_users set full_name = $2 where id = $1`, [userId, clean]);
+    return "account";
+  }
+  const sys = sysOf(ctx);
+  const [profile] = await liveRows(tx, sys, "member_profile", { f: "user_id", op: "eq", v: userId }, { limit: 1 });
+  if (!profile) return "none";
+  if (profile.name !== clean) await updateIn(tx, sys, "member_profile", String(profile.id), { name: clean }, { trusted: true });
+  return "profile";
 }
 
 /** Switch a membership off or on (never an owner or a «مدیر», never the acting administrator). */

@@ -13,6 +13,7 @@ import { notifyPeople } from "../notify";
 import { audit } from "../data/crud";
 import { configRow, featureStates, liveRows, orgPlan, patchConfig, sysOf, usageOf, type Row } from "./common";
 import { cancelJob, jobSummary, retryJob } from "./platform";
+import { needAccessView } from "../../access";
 import { ADMIN_CHANGELOG } from "./changelog";
 
 // ---------------------------------------------------------------- onboarding (ADM-002)
@@ -236,13 +237,16 @@ export async function licences(ctx: Ctx) {
     return { user_id: m.user_id, name: m.name, email: m.email, seat, roles, last_login_at: m.last_login_at, idle };
   });
   const kinds: SeatKind[] = ["admin", "agent", "occasional", "integration"];
+  // who holds which seat (names, addresses, roles, last sign-in) is the members' list: only for those who see members
+  // and their access (the membership's «users» view and the access model's directory read); others get the totals
+  const seesPeople = ctx.can("users", "view") && (await needAccessView(ctx).then(() => true).catch(() => false));
   const summary = kinds.map((k) => {
     const quantity = pools.filter((p) => p.kind === k && p.active !== false && (!p.valid_until || String(p.valid_until) >= new Date().toISOString().slice(0, 10))).reduce((a, p) => a + Number(p.quantity ?? 0), 0);
     const used = people.filter((p) => p.seat === k).length;
     const idle = people.filter((p) => p.seat === k && p.idle).length;
     return { kind: k, quantity, used, idle, over: quantity > 0 && used > quantity, warning: quantity > 0 && used >= quantity * 0.9 };
   });
-  return { pools, summary, people: people.filter((p) => p.seat !== "none") };
+  return { pools, summary, people: seesPeople ? people.filter((p) => p.seat !== "none") : [] };
 }
 
 // ---------------------------------------------------------------- notices (ADM-035)

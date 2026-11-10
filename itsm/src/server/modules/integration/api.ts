@@ -100,10 +100,13 @@ export const apiScopes: MiddlewareHandler<Env> = async (c, next) => {
   const path = c.req.path.replace(/^\/api\/v1/, "");
   if (path.startsWith("/blobs")) throw forbidden("این مسیر فقط برای همگام‌سازی برنامهٔ ویندوز است");
   let body: unknown = undefined;
-  if (/\/bulk\/?$/.test(path)) body = await c.req.json().catch(() => undefined);
+  // what bulk changes and imports do depends on their body (a deletion; an import with a match key updates rows)
+  if (/\/(bulk|import)\/?$/.test(path)) body = await c.req.json().catch(() => undefined);
   const s = requestScope(c.req.method, path, body);
-  if (s && !scopeAllows(caller.key.table_scopes, s.table, s.op)) {
-    throw forbidden(`این کلید اجازهٔ «${OP_FA[s.op]}» در «${s.table}» را ندارد`);
+  if (s) {
+    for (const op of [s.op, ...(s.also ?? [])]) {
+      if (!scopeAllows(caller.key.table_scopes, s.table, op)) throw forbidden(`این کلید اجازهٔ «${OP_FA[op]}» در «${s.table}» را ندارد`);
+    }
   }
   await next();
 };

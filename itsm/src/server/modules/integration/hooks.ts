@@ -9,7 +9,8 @@ import { webOnly, registerHooks, type WriteArgs } from "../../engine";
 import { enqueue } from "../../jobs";
 import { isSystem } from "../../access/provider";
 import { needWithinLimit } from "../admin/common";
-import { createServiceMember, syncServiceMember } from "./users";
+import { createServiceMember, needPrincipalWithin, syncServiceMember } from "./users";
+import { redactRefs } from "./issues";
 import { invalidateSubscriptions } from "./webhooks";
 
 const HOUR = 3600_000;
@@ -53,12 +54,31 @@ function inbound(w: WriteArgs): void {
   if (w.op === "create" && !w.next.token) w.next.token = randomToken(24);
 }
 
+/**
+ * What an approval of a directory source covers: where it reads, how it authenticates, what it maps and grants, and
+ * whether it applies. A person other than the approver who changes any of these takes the approval back (and the
+ * source back to preview): the source acts with its approver's access, never with settings they did not approve.
+ */
+export const DIRECTORY_APPROVED_FIELDS = [
+  "kind", "ldap_url", "bind_dn", "bind_password", "base_dn", "user_filter", "attr_map", "group_map", "default_role", "membership_role", "auto_roles",
+  "deactivate_missing", "unit_from", "mode", "scim_token",
+];
+
 function directory(w: WriteArgs): void {
   if (w.op !== "create" && w.op !== "update") return;
   if (w.next.kind === "ldap" && w.next.ldap_url && !/^ldaps?:\/\/[^\s/]+/i.test(String(w.next.ldap_url))) throw bad("نشانی LDAP باید با ldap:// یا ldaps:// شروع شود");
+  // the web version reaches only public directories: their bind password never crosses the Internet in clear text
+  if (w.next.kind === "ldap" && w.next.ldap_url && w.ctx.cfg.mode !== "desktop" && !/^ldaps:\/\//i.test(String(w.next.ldap_url))) {
+    throw bad("در نسخهٔ وب فقط ldaps:// (LDAP روی TLS) پذیرفته می‌شود تا گذرواژهٔ اتصال رمزنگاری‌نشده از اینترنت نگذرد");
+  }
   if (w.next.kind === "scim" && w.op === "create" && !w.next.scim_token) w.next.scim_token = randomToken(32);
+  if (isSystem(w.ctx) || w.trusted) return;
   // the member whose access applies the synchronisation is set by the hub's «اعمال» (never typed)
-  if (!isSystem(w.ctx) && !w.trusted && w.changed.has("approved_by")) throw bad("تأییدکننده با «اعمال» تعیین می‌شود");
+  if (w.changed.has("approved_by")) throw bad("تأییدکننده با «اعمال» تعیین می‌شود");
+  if (w.op === "update" && w.prev?.approved_by && String(w.prev.approved_by) !== w.ctx.user.id && DIRECTORY_APPROVED_FIELDS.some((f) => w.changed.has(f))) {
+    w.next.approved_by = null;
+    if (w.next.mode === "apply") w.next.mode = "preview";
+  }
 }
 
 function issueConnection(w: WriteArgs): void {
@@ -86,14 +106,23 @@ async function exportScheduleAfter(w: WriteArgs & { row: Record<string, unknown>
   await enqueue(w.tx, { kind: "integration.export.run", orgId: w.ctx.org.id, payload: { id: w.row.id }, delayMs: hours * HOUR, dedupeKey: `export:${w.row.id}`, maxAttempts: 2 });
 }
 
+/** A row that acts as an integration user (webhook, inbound endpoint, export, issue connection) names one within the writer's access. */
+async function principalWithin(w: WriteArgs): Promise<void> {
+  if (w.op !== "create" && w.op !== "update") return;
+  if (isSystem(w.ctx) || w.trusted || !(w.op === "create" || w.changed.has("principal_id"))) return;
+  await needPrincipalWithin(w.ctx, w.next.principal_id, w.tx);
+}
+
 let installed = false;
 export function installIntegrationHooks(): void {
   if (installed) return;
   installed = true;
   registerHooks("integration_user", { beforeWrite: integrationUser, ...webOnly("کاربر یکپارچه‌سازی"), afterWrite: integrationUserAfter });
+  for (const t of ["webhook_subscription", "inbound_endpoint", "issue_connection", "export_schedule"]) registerHooks(t, { beforeWrite: principalWithin });
   registerHooks("webhook_subscription", { beforeWrite: webhook, ...webOnly("وب‌هوک") });
   registerHooks("inbound_endpoint", { beforeWrite: inbound, ...webOnly("نقطهٔ دریافت") });
   registerHooks("directory_source", { beforeWrite: directory, ...webOnly("منبع فهرست کاربران") });
   registerHooks("issue_connection", { beforeWrite: issueConnection, ...webOnly("اتصال Jira/GitHub") });
   registerHooks("export_schedule", { beforeWrite: exportSchedule, ...webOnly("خروجی زمان‌بندی‌شده"), afterWrite: exportScheduleAfter });
+  registerHooks("external_ref", { redactRows: redactRefs });
 }

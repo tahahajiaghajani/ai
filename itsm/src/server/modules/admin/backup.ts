@@ -17,6 +17,7 @@ import { FIELD_TYPES } from "@shared/model/types";
 import { bad, conflict, notFound } from "../../http/errors";
 import { enqueue, registerJobHandler, PermanentJobError } from "../../jobs";
 import { platformAudit } from "../platform/audit";
+import { securityEvent } from "../platform/security";
 
 /** The largest backup kept (compressed JSON); larger organisations use the database's own backups. */
 export const MAX_BACKUP_BYTES = 100 * 1024 * 1024;
@@ -125,14 +126,35 @@ async function runBackup(cfg: ServerConfig, id: string): Promise<void> {
   }
 }
 
-export async function backupContent(q: Queryable, id: string): Promise<{ data: Uint8Array; name: string; sha256: string }> {
+export async function backupContent(q: Queryable, id: string): Promise<{ data: Uint8Array; name: string; sha256: string; org_id: string }> {
   const b = await q.one<{ content: Uint8Array | null; sha256: string | null; org_id: string; created_at: string | Date; org_name: string | null }>(
     `select b.content, b.sha256, b.org_id, b.created_at, o.name as org_name from sm_backups b left join sm_orgs o on o.id = b.org_id where b.id = $1 and b.status = 'done'`,
     [id],
   );
   if (!b?.content) throw notFound("پشتیبان آماده‌ای با این شناسه نیست");
   const day = new Date(b.created_at).toISOString().slice(0, 10);
-  return { data: new Uint8Array(b.content), name: `backup-${b.org_id.slice(0, 8)}-${day}.json.gz`, sha256: b.sha256 ?? "" };
+  return { data: new Uint8Array(b.content), name: `backup-${b.org_id.slice(0, 8)}-${day}.json.gz`, sha256: b.sha256 ?? "", org_id: b.org_id };
+}
+
+/**
+ * A platform administrator takes a backup's file (the whole organisation: its records, journals and attachments, HR
+ * and security included): every download is recorded in the platform's audit (the organisation's audit view shows
+ * it) and in the organisation's security log — who, when, from where.
+ */
+export async function downloadBackup(cfg: ServerConfig, admin: AuthUser, id: string, meta: { ip?: string | null; user_agent?: string | null } = {}): Promise<{ data: Uint8Array; name: string; sha256: string; org_id: string }> {
+  const f = await backupContent(cfg.db, id);
+  await platformAudit(cfg.db, cfg, admin, { org_id: f.org_id, action: "backup_download", entity: "backup", entity_id: id, summary: "دریافت فایل پشتیبان", data: { ip: meta.ip ?? null } });
+  await securityEvent(cfg.db, { kind: "backup_download", org_id: f.org_id, user_id: admin.id, email: admin.email, ip: meta.ip ?? null, user_agent: meta.user_agent ?? null, data: { backup: id, by_name: admin.full_name ?? null } });
+  return f;
+}
+
+/** «بررسی پشتیبان» by a platform administrator: it reads the whole file, so it is recorded like a download. */
+export async function verifyBackupAs(cfg: ServerConfig, admin: AuthUser, id: string, meta: { ip?: string | null; user_agent?: string | null } = {}) {
+  const r = await verifyBackup(cfg.db, id);
+  const b = await cfg.db.one<{ org_id: string }>(`select org_id from sm_backups where id = $1`, [id]);
+  await platformAudit(cfg.db, cfg, admin, { org_id: b?.org_id ?? null, action: "backup_verify", entity: "backup", entity_id: id, summary: r.ok ? "بررسی فایل پشتیبان: سالم" : "بررسی فایل پشتیبان: ناسالم", data: { ip: meta.ip ?? null } });
+  await securityEvent(cfg.db, { kind: "backup_verify", org_id: b?.org_id ?? null, user_id: admin.id, email: admin.email, ip: meta.ip ?? null, user_agent: meta.user_agent ?? null, data: { backup: id, ok: r.ok } });
+  return r;
 }
 
 /** Check a stored backup: its hash and that it reads as a backup file. */
