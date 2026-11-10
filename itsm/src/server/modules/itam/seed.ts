@@ -7,6 +7,10 @@
 //   · software models (Windows, Windows Server, Office, Microsoft 365, antivirus, Acrobat, SQL Server, AutoCAD, 7-Zip,
 //     Chrome) with normalisation patterns and metrics, sample entitlements and a SaaS subscription
 //   · catalogue items of the request module bound to models (new laptop, phone) when they exist
+//   · the bank layer (version 2): bank device models (ATM, CRS, kiosk, POS, passbook printer, cheque scanner, signature
+//     pad, HSM, NVR, UPS, branch network, storage) and their depreciation classes, the roles «مسئول اموال شعبه»,
+//     «مدیر اموال منطقه» and «رئیس شعبه», the transfer approval and receipt SLA, the ATM maintenance group and the
+//     notifications of transfers and attestations
 //   · the procurement group and the «مدیر تدارکات» role, approval rules (requisitions, disposal), SLAs (a decision on a
 //     requisition in two working days, repairs in ten), notification rules for the module's events, and an inactive
 //     flow template for missing assets
@@ -317,6 +321,11 @@ export async function seedItamDefaultsIn(tx: Tx, ctx: Ctx, opts: { force?: boole
     type: "ola", target: "resolution", duration_mode: "fixed", duration: 10 * 9 * 3600, calendar_id: office, warn_percents: [75, 90],
     stop_condition: { f: "state", op: "in", v: ["repaired", "beyond_repair", "closed"] }, cancel_condition: { f: "state", op: "eq", v: "canceled" },
     description: "ده روز کاری تا تعمیر یا اعلام غیرقابل تعمیر بودن",
+  });
+  await ensure(tx, sys, out, "sla_definition", { table_key: "asset_transfer", name: "رسید حوالهٔ انتقال دارایی" }, {
+    type: "ola", target: "custom", duration_mode: "fixed", duration: 3 * 9 * 3600, calendar_id: office, warn_percents: [50, 75],
+    start_condition: { f: "state", op: "eq", v: "in_transit" }, stop_condition: { f: "state", op: "in", v: ["received", "received_partial", "closed"] },
+    cancel_condition: { f: "state", op: "eq", v: "canceled" }, description: "سه روز کاری از ارسال تا رسید شعبهٔ گیرنده",
   });
   for (const r of notificationRules()) await ensure(tx, sys, out, "notification_rule", { table_key: r.table_key, name: r.name }, r);
 
