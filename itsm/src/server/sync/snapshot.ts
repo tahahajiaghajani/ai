@@ -92,13 +92,16 @@ export function parseAfter(text: unknown): After | null {
 }
 export const afterText = (a: After): string => `${a.rev}:${a.id}`;
 
-/** SQL: rows of alias `a` after the keyset position (none: all). */
+/**
+ * SQL: rows of alias `a` after the keyset position (none: all). The plain lower bound on `rev` lets the `(org_id, rev)`
+ * index start at the position (a page never rescans the pages before it).
+ */
 export function afterSql(a: string, after: After | null, params: unknown[]): string {
   if (!after) return "true";
   params.push(after.rev, after.id);
   const r = `$${params.length - 1}`;
   const i = `$${params.length}`;
-  return `(${a}.rev > ${r} or (${a}.rev = ${r} and ${a}.id > ${i}::uuid))`;
+  return `${a}.rev >= ${r} and (${a}.rev > ${r} or ${a}.id > ${i}::uuid)`;
 }
 
 /** (rev, id) order as PostgreSQL sorts it (uuids compare as their lower-case text). */
