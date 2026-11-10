@@ -21,6 +21,7 @@ import adminIntegration from "./0080_admin_integration";
 import authDirectory from "./0090_auth_directory";
 import directoryIdentity from "./0091_directory_identity";
 import scale from "./0095_scale";
+import xidRevisions from "./0096_xid_revisions";
 import { ddlForAll } from "../../engine/ddl";
 
 export interface Migration {
@@ -60,6 +61,7 @@ export const MIGRATIONS: Migration[] = [
   { id: "0090_auth_directory", title: "ورود با حساب سازمانی و ورود خودکار ویندوز: روش و دامنهٔ نشست‌ها، سیاست نشست، شمارش ورودهای ناموفق و قفل محلی", sql: authDirectory },
   { id: "0091_directory_identity", title: "پیوند حساب‌ها با خود شیء فهرست کاربران (objectGUID)، نه فقط نام آن", sql: directoryIdentity },
   { id: "0095_scale", title: "مقیاس بانکی: جست‌وجوی سه‌حرفی (pg_trgm) و نمایه‌های BRIN جریان‌های افزایشی", sql: scale },
+  { id: "0096_xid_revisions", title: "همگام‌سازی بی قفل: بازبینی‌ها با شناسهٔ تراکنش، نسل همگام‌سازی سازمان و مرز پاک‌سازی", sql: xidRevisions },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].id;

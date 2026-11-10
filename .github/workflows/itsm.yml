@@ -58,6 +58,22 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4]
+    # a real PostgreSQL for the suites that need several connections at once (transaction-id sync revisions under
+    # concurrent writers: tests/sync-xid-pg.test.ts through tests/pg-real.ts — each takes a scratch database of its own)
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      ITSM_PG_URL: postgres://postgres:postgres@localhost:5432/postgres
     defaults:
       run:
         working-directory: itsm
@@ -69,6 +85,13 @@ jobs:
           cache: npm
           cache-dependency-path: itsm/package-lock.json
       - run: npm ci
+      # the server edition's own cluster (tests/server-edition-pg.test.ts: initdb, pg_ctl, pg_dump, pg_restore) uses
+      # the PostgreSQL binaries of the runner image when it has them
+      - name: PostgreSQL binaries for the server edition suite
+        run: |
+          for v in 17 16; do
+            if [ -x "/usr/lib/postgresql/$v/bin/initdb" ]; then echo "ITSM_PG_BIN=/usr/lib/postgresql/$v/bin" >> "$GITHUB_ENV"; break; fi
+          done
       - run: npx vitest run --shard=${{ matrix.shard }}/4
 
   windows:

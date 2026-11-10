@@ -4,7 +4,7 @@
 // Record engine rows: secrets never leave this computer; contents of attachments added here are uploaded after
 // the push; tombstones of the pull delete rows (and a record's journal, history, attachments and links) that the
 // linked account may no longer read; a `reset` (the account's scope epoch moved) reads everything again.
-import type { Db } from "@server/db";
+import { pgArray, type Db } from "@server/db";
 import type { Logger } from "@server/context";
 import { AGGREGATES, BY_ENTITY, type WireAggregate } from "@server/sync/registry";
 import { readAggregates, writeAggregate } from "@server/sync/apply";
@@ -38,6 +38,54 @@ export interface SyncState {
 const foreign = () => `coalesce(case o.entity ${AGGREGATES.map(
   (d) => `when '${d.entity}' then exists (select 1 from ${ident(d.table)} t where t.id = o.id and t.${d.table === "sm_orgs" ? "id" : "org_id"} <> $1)`,
 ).join(" ")} else false end, false)`;
+
+/** One page of GET /sync/pull (protocol 15). */
+interface PullPage {
+  aggregates: WireAggregate[];
+  tombstones?: { entity: string; id: string }[];
+  users: Record<string, unknown>[];
+  /** the cursor to keep: the session's snapshot once it is complete */
+  cursor?: string;
+  /** the session's snapshot and the position within it */
+  snap?: string | null;
+  after?: string | null;
+  /** the session reads everything there is (no cursor): drop what it did not bring */
+  full?: boolean;
+  has_more: boolean;
+  reset?: boolean;
+  epoch?: string;
+}
+
+/** Start the next pull from nothing (a new link, a protocol update, a restored local database). */
+export async function resetSyncCursor(q: Pick<Db, "query">): Promise<void> {
+  const kv = `insert into sm_kv (key, value, updated_at) values ($1, $2::jsonb, now()) on conflict (key) do update set value = excluded.value, updated_at = now()`;
+  for (const key of ["sync.since", "sync.snap", "sync.after"]) await q.query(kv, [key, JSON.stringify("")]);
+  // the numeric cursors of protocol 14 and earlier
+  await q.query(`delete from sm_kv where key in ('sync.cursor', 'sync.user_cursor')`);
+  await q.query(`delete from sm_sync_seen`);
+}
+
+/**
+ * The end of a pull session from nothing: rows of the organisation it did not bring — and that wait for no upload —
+ * leave this computer (with the attachment contents nothing refers to any more). Returns how many went.
+ */
+async function sweepUnseen(tx: Pick<Db, "query">, orgId: string): Promise<number> {
+  let n = 0;
+  for (const def of AGGREGATES) {
+    if (def.table === "sm_orgs") continue;
+    const gone = await tx.query(
+      `delete from ${ident(def.table)} t where t.org_id = $1
+         and not exists (select 1 from sm_sync_seen s where s.entity = $2 and s.id = t.id)
+         and not exists (select 1 from sm_outbox o where o.entity = $2 and o.id = t.id)
+       returning t.id`,
+      [orgId, def.entity],
+    );
+    n += gone.length;
+  }
+  await tx.query(`delete from sm_sync_seen`);
+  if (n) await tx.query(`delete from sm_blobs b where b.org_id = $1 and not exists (select 1 from sm_attachments a where a.org_id = b.org_id and a.sha256 = b.sha256)`, [orgId]);
+  return n;
+}
 
 export class SyncClient {
   state: SyncState = { linked: false, running: false, online: null, last_sync_at: null, last_error: null, pending: 0, failed: [], conflicts: 0, pushed: 0, pulled: 0 };
@@ -192,8 +240,7 @@ export class SyncClient {
     this.o.config.device_id = reg.device_id;
     this.o.save();
     this.state.linked = true;
-    await this.kvSet("sync.cursor", 0);
-    await this.kvSet("sync.user_cursor", 0);
+    await resetSyncCursor(this.o.db);
     if (input.direction === "upload") await this.queueEverything(orgId!);
     await this.syncNow();
     return { ok: true, org_id: orgId, state: this.state };
@@ -237,10 +284,7 @@ export class SyncClient {
     if (schema === SCHEMA_VERSION && protocol === SYNC_PROTOCOL) return;
     await this.o.db.tx(async (tx) => {
       const kv = `insert into sm_kv (key, value, updated_at) values ($1, $2::jsonb, now()) on conflict (key) do update set value = excluded.value, updated_at = now()`;
-      if (protocol !== SYNC_PROTOCOL) {
-        await tx.query(kv, ["sync.cursor", "0"]);
-        await tx.query(kv, ["sync.user_cursor", "0"]);
-      }
+      if (protocol !== SYNC_PROTOCOL) await resetSyncCursor(tx);
       await tx.query(`update sm_outbox set attempts = 0, last_error = null where attempts > 0`);
       await tx.query(kv, ["sync.schema", JSON.stringify(SCHEMA_VERSION)]);
       await tx.query(kv, ["sync.protocol", JSON.stringify(SYNC_PROTOCOL)]);
@@ -324,25 +368,54 @@ export class SyncClient {
     return total;
   }
 
+  /**
+   * Download what the web version changed since the last complete pull. The cursor is the server's snapshot of that
+   * pull (`sync.since`; revisions are transaction ids, docs/spec/ENGINE.md §13); a pull session reads the delta up to
+   * its own snapshot (`sync.snap`) a page at a time (`sync.after`), each page applied in one local transaction together
+   * with the cursor, so an interrupted session resumes where it stopped. A session from nothing (first link, an update
+   * of the protocol, a `reset`) reads everything there is: rows of the organisation it did not receive (and that wait
+   * for no upload) are dropped at its end — what the account may no longer read, what a restore of the server took
+   * back, tombstones the server removed for good — and one more session follows at once for rows that changed while it
+   * ran.
+   */
   async pullAll(opts: { upgrade?: boolean } = {}): Promise<number> {
     let count = 0;
     if (opts.upgrade !== false) await this.afterUpgrade();
+    let swept = false;
     for (let round = 0; round < 10000; round++) {
-      const cursor = await this.kvGet<number>("sync.cursor", 0);
-      const userCursor = await this.kvGet<number>("sync.user_cursor", 0);
-      const epoch = await this.kvGet<number | null>("sync.epoch", null);
-      const page = await this.api<{ aggregates: WireAggregate[]; tombstones?: { entity: string; id: string }[]; users: Record<string, unknown>[]; cursor: number; user_cursor: number; has_more: boolean; reset?: boolean; epoch?: number }>(
-        `/sync/pull?org_id=${this.o.config.cloud.org_id}&cursor=${cursor}&user_cursor=${userCursor}&device_id=${this.o.config.device_id}${epoch === null ? "" : `&epoch=${epoch}`}`,
-      );
+      const since = await this.kvGet<string>("sync.since", "");
+      const snap = await this.kvGet<string>("sync.snap", "");
+      const after = await this.kvGet<string>("sync.after", "");
+      const epoch = await this.kvGet<string | number | null>("sync.epoch", null);
+      const qs = new URLSearchParams({ org_id: String(this.o.config.cloud.org_id), device_id: String(this.o.config.device_id), protocol: String(SYNC_PROTOCOL) });
+      if (since) qs.set("since", String(since));
+      if (snap) qs.set("snap", String(snap));
+      if (after) qs.set("after", String(after));
+      if (epoch !== null && epoch !== undefined) qs.set("epoch", String(epoch));
+      const page = await this.api<PullPage>(`/sync/pull?${qs.toString()}`);
+      // a web version from before transaction-id revisions answers numeric cursors: it needs the update, not this app
+      if (!page.reset && typeof page.snap !== "string") {
+        throw new Error(`نسخه‌ی وب ${APP_NAME} هنوز به‌روز نشده است؛ دریافت تغییرها پس از به‌روزرسانی وب انجام می‌شود`);
+      }
       const orgId = this.o.config.cloud.org_id!;
+      let sweep = false;
       await this.o.db.tx(async (tx) => {
         await tx.query("set local itsm.applying = 'on'");
         const kv = `insert into sm_kv (key, value) values ($1, $2::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`;
         if (page.reset) {
-          // what this account may read changed: read everything again (tombstones drop what it may no longer read)
-          await tx.query(kv, ["sync.cursor", "0"]);
-          await tx.query(kv, ["sync.epoch", JSON.stringify(page.epoch ?? 0)]);
+          // what this account may read changed, or the server was restored: read everything again (and drop the rest)
+          await resetSyncCursor(tx);
+          await tx.query(kv, ["sync.epoch", JSON.stringify(page.epoch ?? "")]);
           return;
+        }
+        // a session from nothing starts: what it receives is recorded, the rest goes at its end
+        if (page.full && !snap) await tx.query(`delete from sm_sync_seen`);
+        if (page.full) {
+          const byEntity = new Map<string, string[]>();
+          for (const a of page.aggregates) byEntity.set(a.entity, [...(byEntity.get(a.entity) ?? []), a.id]);
+          for (const [entity, ids] of byEntity) {
+            await tx.query(`insert into sm_sync_seen (entity, id) select $1, unnest($2::uuid[]) on conflict do nothing`, [entity, pgArray(ids)]);
+          }
         }
         for (const u of page.users) await this.mergeUser(tx, u);
         const dirty = new Set((await tx.query<{ entity: string; id: string }>(`select entity, id from sm_outbox`)).map((r) => `${r.entity}:${r.id}`));
@@ -370,12 +443,23 @@ export class SyncClient {
           // contents no attachment here refers to any more leave this computer too
           await tx.query(`delete from sm_blobs b where b.org_id = $1 and not exists (select 1 from sm_attachments a where a.org_id = b.org_id and a.sha256 = b.sha256)`, [orgId]);
         }
-        await tx.query(kv, ["sync.cursor", JSON.stringify(page.cursor)]);
-        await tx.query(kv, ["sync.user_cursor", JSON.stringify(page.user_cursor)]);
+        if (page.full && !page.has_more) {
+          count += await sweepUnseen(tx, orgId);
+          sweep = true;
+        }
+        await tx.query(kv, ["sync.since", JSON.stringify(page.cursor ?? "")]);
+        await tx.query(kv, ["sync.snap", JSON.stringify(page.has_more ? page.snap ?? "" : "")]);
+        await tx.query(kv, ["sync.after", JSON.stringify(page.has_more ? page.after ?? "" : "")]);
         if (page.epoch !== undefined) await tx.query(kv, ["sync.epoch", JSON.stringify(page.epoch)]);
       });
       if (page.reset) continue;
-      if (!page.has_more) break;
+      if (page.has_more) continue;
+      // after a session from nothing, one more (rows that changed while it ran come now, not at the next sync)
+      if (sweep && !swept) {
+        swept = true;
+        continue;
+      }
+      break;
     }
     await this.purgeLocalOnly();
     this.state.pulled += count;
