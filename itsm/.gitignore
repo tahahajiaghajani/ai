@@ -14,3 +14,5 @@ desktop/app/
 desktop/release/
 desktop/build/generated/
 .local-data/
+.pgdata/
+.perf/
