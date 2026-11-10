@@ -33,6 +33,18 @@ function matcher(route: string): RegExp {
 interface Registry {
   routes: string[];
   nav: { key: string; path: string }[];
+  tables: string[];
+  newRecordPath: (table: string) => string;
+  recordPath: (table: string, id: string) => string;
+}
+
+const compiled = new Map<string, RegExp>();
+const re = (r: string) => compiled.get(r) ?? compiled.set(r, matcher(r)).get(r)!;
+/** The route React Router picks for a path: static segments outrank `:params`, which outrank a splat. */
+function bestRoute(routes: string[], path: string): string | null {
+  const score = (r: string) => r.split("/").reduce((n, s) => n + (s === "*" ? 0 : s.startsWith(":") ? 2 : 3), 0);
+  const hits = routes.filter((r) => re(r).test(path)).sort((a, b) => score(b) - score(a));
+  return hits[0] ?? null;
 }
 let reg: Registry;
 let classify: (routes: string[]) => { path: string; kind: string }[];
@@ -51,6 +63,26 @@ describe("the UI registry", () => {
     const res = reg.routes.map(matcher);
     const orphans = reg.nav.filter((i) => !res.some((r) => r.test(i.path.split("?")[0]))).map((i) => `${i.key} → ${i.path}`);
     expect(orphans).toEqual([]);
+  });
+
+  it("starts every table's «… تازه» on a new-record page, never on a record page that reads «new» as an id", () => {
+    // «مقالهٔ دانش تازه» on kb/articles went to kb/a/new — the reading view — and showed «این مقاله پیدا نشد»
+    // pages that read the id «new» themselves: the report designer opens an empty report
+    const readsNew = new Set(["analytics/reports/:id"]);
+    const bad: string[] = [];
+    for (const t of reg.tables) {
+      const p = reg.newRecordPath(t).split("?")[0];
+      const r = bestRoute(reg.routes, p);
+      // record lists register `<path>/new` (and `r/:table/new`); a route ending in a parameter took «new» as an id
+      if (!r) bad.push(`${t}: ${p} → no route`);
+      else if (/(^|\/):[^/]+$/.test(r) && !readsNew.has(r)) bad.push(`${t}: ${p} → ${r}`);
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it("opens every table's records on a registered page", () => {
+    const bad = reg.tables.map((t) => reg.recordPath(t, "0190f0f0-0000-7000-8000-000000000000")).filter((p) => !bestRoute(reg.routes, p));
+    expect(bad).toEqual([]);
   });
 
   it("registers each route once and only org-relative paths", () => {

@@ -191,7 +191,8 @@ const module = recordModule({
 
 // links to an article (notifications, references, lists, the palette) open the reading view; the record form stays
 // at kb/articles/:id («نسخه‌ها و جزئیات» on the reading view)
-registerRecordExtensions("kb_article", { path: "kb/a" });
+// a new article starts in the editor (kb/a/:id is the reading view)
+registerRecordExtensions("kb_article", { path: "kb/a", newPath: "kb/new" });
 
 // the pages first (the home, the member's own queues), then the tables and the rest of the group
 const [group] = module.nav;

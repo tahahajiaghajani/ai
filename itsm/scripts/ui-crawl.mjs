@@ -102,6 +102,8 @@ export async function loadRegistry() {
         `export { ROUTES, NAV, PUBLIC_ROUTES, SPACES } from "./src/ui/modules/registry";`,
         `export { gateAllows } from "./src/shared/access";`,
         `export { LEVEL_ORDER } from "./src/shared/permissions";`,
+        `export { recordPath, newRecordPath, tablePath } from "./src/ui/records/extensions";`,
+        `export { TABLES } from "./src/shared/tables";`,
       ].join("\n"),
       resolveDir: ROOT,
       loader: "ts",
@@ -129,7 +131,10 @@ export async function loadRegistry() {
   // the platform owner's console (sections of src/ui/pages/admin/Admin.tsx)
   const adminSrc = readFileSync(join(ROOT, "src/ui/pages/admin/Admin.tsx"), "utf8");
   const admin = [...adminSrc.matchAll(/\{\s*key:\s*"([^"]*)",\s*title:\s*"[^"]*",\s*icon:\s*\w+(?:,\s*edition:\s*"(\w+)")?/g)].map((m) => ({ key: m[1], edition: m[2] ?? null }));
-  return { routes, nav, publicRoutes: reg.PUBLIC_ROUTES.map((r) => r.path), portal, admin, gateAllows: reg.gateAllows, LEVEL_ORDER: reg.LEVEL_ORDER };
+  return {
+    routes, nav, publicRoutes: reg.PUBLIC_ROUTES.map((r) => r.path), portal, admin, gateAllows: reg.gateAllows, LEVEL_ORDER: reg.LEVEL_ORDER,
+    tables: [...reg.TABLES.keys()], recordPath: reg.recordPath, newRecordPath: reg.newRecordPath, tablePath: reg.tablePath,
+  };
 }
 
 /** Classifies the registered routes: record lists (they have `/new` and `/:id`), plain pages and parameterised ones. */

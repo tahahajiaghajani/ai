@@ -105,7 +105,8 @@ const module = recordModule({
 
 // links to reports and dashboards (a delivery's, a schedule's) open the designer and the dashboard page
 registerRecordExtensions("analytics_report", { path: "analytics/reports" });
-registerRecordExtensions("analytics_dashboard", { path: "analytics/dashboards" });
+// «داشبورد تازه» names and creates one in the library (analytics/dashboards/:id is the dashboard itself)
+registerRecordExtensions("analytics_dashboard", { path: "analytics/dashboards", newPath: "analytics/dashboards" });
 
 export const analyticsUi: ModuleUi = {
   ...module,
