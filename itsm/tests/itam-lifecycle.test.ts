@@ -4,6 +4,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { itamWorld, type ItamWorld } from "./itam-helpers";
 import { seedItamDefaults, checkStockRules } from "@server/modules/itam";
+import { BANK_MODELS } from "@server/modules/itam/seed";
 
 let w: ItamWorld;
 beforeAll(async () => {
@@ -15,13 +16,14 @@ describe("seeds", () => {
     const again = await seedItamDefaults(w.e.cfg, w.e.org);
     expect(again.skipped).toBe(true);
     const models = await w.o.post(`${w.P}/r/asset_model/query`, { size: 50 });
-    expect(models.rows.length).toBe(12);
+    // 12 office and data-centre models and the bank device models (ATM, CRS, kiosk, POS, HSM, CCTV, UPS, branch network…)
+    expect(models.rows.length).toBe(12 + BANK_MODELS.length);
     const sw = await w.o.post(`${w.P}/r/software_model/query`, { size: 50 });
     expect(sw.rows.map((r: any) => r.name)).toContain("Windows 11 Pro");
     const rules = await w.o.post(`${w.P}/r/notification_rule/query`, { filter: { f: "table_key", op: "eq", v: "asset" }, size: 20 });
     expect(rules.rows.length).toBeGreaterThanOrEqual(3);
     const roles = await w.o.get(`${w.P}/access/roles`);
-    expect(roles.roles.map((r: any) => r.key)).toEqual(expect.arrayContaining(["procurement_manager", "it_finance"]));
+    expect(roles.roles.map((r: any) => r.key)).toEqual(expect.arrayContaining(["procurement_manager", "it_finance", "branch_asset_officer", "regional_asset_manager", "branch_manager"]));
     const forced = await seedItamDefaults(w.e.cfg, w.e.org, { force: true });
     expect(forced.created.asset_model ?? 0).toBe(0);
   });
