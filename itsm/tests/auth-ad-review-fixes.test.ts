@@ -148,6 +148,11 @@ describe("password sign-in", () => {
     expect(third.id).not.toBe(me.id);
     expect(third.email).toBe("third@corp.test");
 
+    // the same DN and the former employee's mailbox address: still another object — refused, never the old account
+    w.dc.entries[i] = person("temp", { name: "Temp Person", mail: "temp@corp.test", password: "Fourth-Pass-1!", extra: { whenCreated: [generalized()] } });
+    expect((await w.client().raw("POST", "/auth/directory", { login: "CORP\\temp", password: "Fourth-Pass-1!" })).status).toBe(401);
+    expect(await reasons(w, "corp\\temp")).toContain("account_conflict");
+
     // moved to another OU: the same object, the same account, the link follows
     const mover = (await w.signIn("CORP\\mover", "Passw0rd!")).c;
     const moverId = (await mover.get("/auth/me")).user.id as string;

@@ -464,6 +464,21 @@ export interface DirectoryLink {
 }
 
 /**
+ * Move the link under `externalId` (another directory object's) to a name of its own — «object:<id>», or «former:…» for a
+ * link that remembers no object — so the name can be linked to someone else while the old account stays held.
+ */
+export async function setAsideLink(db: Queryable, sourceId: string, externalId: string): Promise<void> {
+  const row = await db.one<{ object_id: string | null }>(`select object_id from sm_directory_links where source_id = $1 and kind = 'user' and external_id = $2`, [sourceId, externalId]);
+  if (!row) return;
+  const aside = row.object_id ? `object:${row.object_id}` : `former:${externalId.slice(0, 400)}:${Date.now()}`;
+  if (await db.one(`select 1 from sm_directory_links where source_id = $1 and kind = 'user' and external_id = $2`, [sourceId, aside])) {
+    await db.query(`delete from sm_directory_links where source_id = $1 and kind = 'user' and external_id = $2`, [sourceId, externalId]);
+    return;
+  }
+  await db.query(`update sm_directory_links set external_id = $3, updated_at = now() where source_id = $1 and kind = 'user' and external_id = $2`, [sourceId, externalId, aside]);
+}
+
+/**
  * The member link of a directory person: found by the directory object first (a person whose DN moved keeps their
  * account), else by the external id — but never a link that remembers another object (a new person given a former
  * employee's DN), nor one written before this object existed (links of earlier versions remember no object).
@@ -511,9 +526,11 @@ export async function provisionMember(cfg: ServerConfig, conf: LoginSourceConfig
       const elsewhere = await db.one(`select 1 from sm_org_members where user_id = $1 and org_id <> $2 and deleted_at is null`, [existing.id, orgId]);
       if (elsewhere) throw fail("account_conflict", "این حساب عضو سازمان دیگری هم هست", known);
       if (existing.local) throw fail("account_conflict", "حسابی با همین ایمیل رمز محلی دارد؛ مدیر آن را با همگام‌سازی (پیش‌نمایش و اعمال) به حساب سازمانی پیوند می‌دهد", known);
+      // (a link under this very name counts too when it is another object's: a new person given a former employee's DN
+      // and mailbox address is still somebody else)
       const held = await db.one(
-        `select 1 from sm_directory_links where kind = 'user' and local_id = $1 and active and not (source_id = $2 and external_id = $3) limit 1`,
-        [existing.id, conf.id, dir.external_id],
+        `select 1 from sm_directory_links where kind = 'user' and local_id = $1 and active and not (source_id = $2 and external_id = $3 and $4::boolean) limit 1`,
+        [existing.id, conf.id, dir.external_id, !!link],
       );
       if (held) throw fail("account_conflict", "حسابی با همین ایمیل به هویت دیگری در فهرست کاربران پیوند دارد؛ مدیر پیوند را با همگام‌سازی (پیش‌نمایش و اعمال) جابه‌جا می‌کند", known);
       userId = existing.id;
@@ -638,9 +655,11 @@ export async function provisionMember(cfg: ServerConfig, conf: LoginSourceConfig
     groups: [...new Set([...keptGroups, ...(conf.rolesApproved ? [] : prev.groups.filter((g) => wanted.groups.includes(g)))])],
     workspaces: conf.rolesApproved ? wanted.workspaces : prev.workspaces,
   };
+  // a link under this name that is not this person's (a former employee's object) stays that object's, under its own
+  // identity: the former employee's account remains held (never reachable by e-mail) and the name is free
+  if (!(link && link.external_id === dir.external_id)) await setAsideLink(db, conf.id, dir.external_id);
   // the person's DN moved (found by the directory object): the link follows them
   if (link && link.external_id !== dir.external_id) {
-    await db.query(`delete from sm_directory_links where source_id = $1 and kind = 'user' and external_id = $2`, [conf.id, dir.external_id]);
     await db.query(`update sm_directory_links set external_id = $3 where source_id = $1 and kind = 'user' and external_id = $2`, [conf.id, link.external_id, dir.external_id]);
   }
   await db.query(
@@ -940,7 +959,7 @@ export async function ssoChecklist(ctx: Ctx, sourceId: string, requestHost: stri
   const checks = [
     { key: "login", label: "«ورود با حساب سازمانی» روشن است", ok: conf.loginEnabled },
     { key: "approved", label: "منبع با دسترسی یک مدیر تأیید شده است", ok: !!conf.approvedBy },
-    { key: "domains", label: "دامنه‌ها (NetBIOS و DNS) نوشته شده‌اند", ok: conf.domains.length > 0 },
+    { key: "domains", label: "دامنه‌ها (NetBIOS و DNS) نوشته شده‌اند (بدون آن‌ها ورود خودکار پذیرفته نمی‌شود)", ok: conf.domains.length > 0 },
     { key: "tls", label: "اتصال به کنترل‌کننده‌ها رمزنگاری‌شده است (LDAPS یا StartTLS)", ok: conf.tls === "ldaps" || conf.tls === "starttls" },
     { key: "host", label: "نام میزبان سامانه تعیین شده است", ok: !!String(src.sso_host ?? "").trim() },
     ...(conf.ssoMode === "negotiate"

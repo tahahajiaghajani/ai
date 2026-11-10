@@ -21,7 +21,7 @@ import { audit } from "../data/crud";
 import { needFeature, needWithinLimit } from "../admin/common";
 import { ensurePerson, setDirectoryName, setMemberActive, type MembershipRole } from "../admin/members";
 import { LdapError } from "./ldap";
-import { mappingFingerprint, openSourceConnection, nestedMemberships, rolesApproved } from "./directory-login";
+import { mappingFingerprint, openSourceConnection, nestedMemberships, rolesApproved, setAsideLink } from "./directory-login";
 import { revokeUserSessions } from "../../auth/session";
 import { needRecentAuth } from "../../auth/policy";
 import { securityEvent } from "../platform/security";
@@ -264,6 +264,9 @@ export async function applyPlan(ctx: Ctx, src: Row, plan: DirPlan, roles: boolea
     for (const l of plan.links) {
       const local = ids.get(l.email);
       if (!local) continue;
+      // a link under this name that remembers another directory object (a former employee's) stays that object's
+      const here = await tx.one<{ object_id: string | null }>(`select object_id from sm_directory_links where source_id = $1 and kind = 'user' and external_id = $2`, [src.id, l.external_id]);
+      if (here?.object_id && l.object_id && here.object_id !== l.object_id) await setAsideLink(tx, String(src.id), l.external_id);
       await tx.query(
         `insert into sm_directory_links (org_id, source_id, kind, external_id, local_id, external_name, active, updated_at, object_id) values ($1, $2, 'user', $3, $4, $5, true, now(), $6)
          on conflict (source_id, kind, external_id) do update set local_id = excluded.local_id, external_name = excluded.external_name, active = true, updated_at = now(),
