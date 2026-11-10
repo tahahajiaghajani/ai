@@ -4,7 +4,7 @@
 // stay in commit order. The probe of measurement runs reports wait and hold per labelled transaction.
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { engineOrg, type EngineOrg } from "./engine-helpers";
-import { createIn, systemCtx } from "@server/engine";
+import { createIn, removeIn, systemCtx, transitionIn, updateIn } from "@server/engine";
 import { setLockProbe, withLockLabel, type LockSample } from "@server/db/lockprobe";
 import { admitWrite, type Ctx } from "@server/context";
 import type { Tx } from "@server/db";
@@ -68,6 +68,29 @@ describe("the organisation's write lock", () => {
     // revisions continue the organisation's sequence
     const revs = (await e.db.query<{ rev: string }>(`select rev from sm_todos where org_id = $1 and short_description in ('قفل دیرهنگام', 'دومی') order by rev`, [e.org])).map((r) => Number(r.rev));
     expect(revs.every((r) => r > before)).toBe(true);
+  });
+
+  // one order for every writer — the organisation's lock, then the record's row (`for update`): bookkeeping that
+  // locked the row first and waited for the organisation's lock at its update would deadlock with an ordinary write
+  // holding that lock and waiting for the row (a notification pref saved twice, «همه را خواندم» from two devices)
+  it("is taken by an internal update, transition or delete before the record's row lock", async () => {
+    const make = (d: string) => sys.write((t) => createIn(t, sys, "todo", { short_description: d, assigned_to: e.ownerId }));
+    const [a, b, c] = [await make("ترتیب قفل ۱"), await make("ترتیب قفل ۲"), await make("ترتیب قفل ۳")];
+    const txs = await transactions(async () => {
+      await sys.write(async (t) => void (await updateIn(t, sys, "todo", String(a.id), { short_description: "ترتیب قفل — تازه" })), { internal: true });
+      await sys.write(async (t) => void (await transitionIn(t, sys, "todo", String(b.id), "in_progress")), { internal: true });
+      await sys.write(async (t) => void (await removeIn(t, sys, "todo", String(c.id))), { internal: true });
+    });
+    expect(txs).toHaveLength(3);
+    for (const tx of txs) {
+      const lock = tx.findIndex(isLock);
+      const row = tx.findIndex((q) => /^select t\.\*.* from sm_todos t where t\.id = \$1 .*for update of t$/i.test(q));
+      expect(lock).toBeGreaterThanOrEqual(0);
+      expect(row).toBeGreaterThan(lock);
+      expect(tx.filter(isLock)).toHaveLength(1);
+    }
+    expect((await e.db.one<{ state: string }>(`select state from sm_todos where id = $1`, [b.id]))!.state).toBe("in_progress");
+    expect((await e.db.one<{ deleted_at: string | null }>(`select deleted_at from sm_todos where id = $1`, [c.id]))!.deleted_at).toBeTruthy();
   });
 
   it("is not taken by bookkeeping that writes no synced row", async () => {

@@ -193,7 +193,9 @@ export interface WriteOptions {
   /**
    * Take the organisation's write lock as late as possible: not when the transaction starts but right before its first
    * write of a synced row (the engine calls `ensureOrgLock` before each statement; the sync trigger takes it at the
-   * latest). Reads, preparation and per-row work before that run without holding it. Only for work whose reads do not
+   * latest) — and before an update or delete locks the record's row (`for update`): every writer takes the
+   * organisation's lock before a row's, else two writers could wait for each other. Reads, preparation and per-row
+   * work before that run without holding it. Only for work whose reads do not
    * decide other records' writes (the notification service's bell rows); user writes keep the lock from the start.
    * Default: on for `internal` bookkeeping (single writes that need no serialisation beyond the revision order — a
    * write of a table that is not synced then takes no lock at all), off otherwise.

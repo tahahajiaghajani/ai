@@ -176,12 +176,38 @@ async function claim(db: Db, worker: string, n = 1): Promise<Job[]> {
   return take(`select id from sm_jobs where status = 'running' and locked_until < now() order by locked_until limit ${Math.max(1, Math.trunc(n))}`);
 }
 
+const isUniqueViolation = (e: unknown): boolean => !!e && typeof e === "object" && (e as { code?: string }).code === "23505";
+
 async function finish(db: Db, job: Job, status: JobStatus, opts: { error?: string; runInMs?: number; keepAttempt?: boolean } = {}) {
   if (status === "queued") {
+    const runInMs = Math.max(0, Math.round(opts.runInMs ?? 0));
+    // a job with a dedupe key may have got a queued twin while it ran («اجرا اکنون», a settings save): only one job of
+    // a key may be queued (sm_jobs_dedupe_uk), so this one then folds into the twin instead of failing the tick
+    try {
+      const back = await db.one<{ id: string }>(
+        `update sm_jobs set status = 'queued', run_at = now() + ($2::bigint * interval '1 millisecond'), locked_until = null, locked_by = null,
+                last_error = coalesce($3, last_error), attempts = attempts - $4, updated_at = now()
+         where id = $1 and ($6::text is null or not exists (
+           select 1 from sm_jobs t where coalesce(t.org_id, '${NIL}'::uuid) = coalesce($5::uuid, '${NIL}'::uuid)
+             and t.dedupe_key = $6::text and t.status = 'queued' and t.id <> $1))
+         returning id`,
+        [job.id, runInMs, opts.error ?? null, opts.keepAttempt ? 1 : 0, job.org_id ?? null, job.dedupe_key ?? null],
+      );
+      if (back || !job.dedupe_key) return;
+    } catch (e) {
+      // the twin was added between the check and the update
+      if (!job.dedupe_key || !isUniqueViolation(e)) throw e;
+    }
+    // the twin runs no later than this one would have run again; this one is done (its last error kept)
     await db.query(
-      `update sm_jobs set status = 'queued', run_at = now() + ($2::bigint * interval '1 millisecond'), locked_until = null, locked_by = null,
-              last_error = coalesce($3, last_error), attempts = attempts - $4, updated_at = now() where id = $1`,
-      [job.id, Math.max(0, Math.round(opts.runInMs ?? 0)), opts.error ?? null, opts.keepAttempt ? 1 : 0],
+      `update sm_jobs set run_at = least(run_at, now() + ($3::bigint * interval '1 millisecond')), updated_at = now()
+       where coalesce(org_id, '${NIL}'::uuid) = coalesce($1::uuid, '${NIL}'::uuid) and dedupe_key = $2 and status = 'queued'`,
+      [job.org_id ?? null, job.dedupe_key, runInMs],
+    );
+    await db.query(
+      `update sm_jobs set status = 'done', done_at = now(), locked_until = null, locked_by = null, last_error = coalesce($2, last_error),
+              updated_at = now() where id = $1`,
+      [job.id, opts.error ?? null],
     );
     return;
   }
@@ -250,17 +276,24 @@ export async function tick(cfg: JobConfig, opts: { budgetMs?: number; max?: numb
         const key = job.kind.startsWith("record.") && job.payload?.id ? `record:${job.payload.table ?? ""}:${job.payload.id}` : job.id;
         groups.set(key, [...(groups.get(key) ?? []), job]);
       }
-      const results = (
-        await Promise.all(
-          [...groups.values()].map(async (group) => {
-            const out: boolean[] = [];
-            for (const job of group) out.push(await runOne(cfg, job, deadline));
-            return out;
-          }),
-        )
-      ).flat();
-      for (const ok of results) if (ok) ran++;
-      else failed++;
+      // allSettled: the tick (and this process's guard against a second one) lasts until every claimed group ended —
+      // a tick that ended early would let the next one start a record's later event while its earlier one still runs
+      const settled = await Promise.allSettled(
+        [...groups.values()].map(async (group) => {
+          const out: boolean[] = [];
+          for (const job of group) out.push(await runOne(cfg, job, deadline));
+          return out;
+        }),
+      );
+      for (const s of settled) {
+        if (s.status === "rejected") {
+          failed++;
+          cfg.log.warn("job run failed", String((s.reason as Error)?.message ?? s.reason));
+          continue;
+        }
+        for (const ok of s.value) if (ok) ran++;
+        else failed++;
+      }
     }
     const left = await db.one(`select 1 from sm_jobs where status = 'queued' and run_at <= now() limit 1`);
     return { ran, failed, more: !!left };
@@ -294,11 +327,16 @@ async function runOne(cfg: JobConfig, job: Job, deadline: number): Promise<boole
     return true;
   } catch (e) {
     const error = String((e as Error)?.message ?? e).slice(0, 2000);
-    if (e instanceof PermanentJobError || job.attempts >= job.max_attempts) {
-      await finish(db, job, "failed", { error });
-      cfg.log.warn(`job ${job.kind} failed`, { id: job.id, error });
-    } else {
-      await finish(db, job, "queued", { error, runInMs: backoffMs(job.attempts) });
+    try {
+      if (e instanceof PermanentJobError || job.attempts >= job.max_attempts) {
+        await finish(db, job, "failed", { error });
+        cfg.log.warn(`job ${job.kind} failed`, { id: job.id, error });
+      } else {
+        await finish(db, job, "queued", { error, runInMs: backoffMs(job.attempts) });
+      }
+    } catch (e2) {
+      // never reject: the tick waits for every group it claimed. The job stays claimed until its lock expires.
+      cfg.log.warn(`job ${job.kind}: its outcome was not saved`, { id: job.id, error, cause: String((e2 as Error)?.message ?? e2).slice(0, 2000) });
     }
     return false;
   }

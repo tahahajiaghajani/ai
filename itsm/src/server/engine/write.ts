@@ -559,6 +559,10 @@ async function prepare(tx: Tx, ctx: Ctx, table: string) {
 async function startFrom(tx: Tx, ctx: Ctx, def: TableDef, env: CondEnv, id: string, opts: WriteOptions, op: "write" | "delete"): Promise<Row> {
   // a participant reads the record (an approver), so a write of it is refused rather than answered as unknown
   if (!(await canOpenRecords(ctx, def, tx))) throw notFound(`${def.label} پیدا نشد`);
+  // the organisation's write lock before the row's: every writer takes them in this order (an ordinary write took the
+  // first when it began). A `late`/`internal` write that locked the row first and then waited for the organisation's
+  // lock at its update would deadlock with an ordinary write holding that lock and waiting for the row.
+  await ensureOrgLock(tx, ctx.org.id);
   const prev = await loadReadable(tx, ctx, def, id, env, { lock: true });
   if (!prev) throw notFound(`${def.label} پیدا نشد`);
   if (!opts.skipAccess && !isSystemCtx(ctx)) {

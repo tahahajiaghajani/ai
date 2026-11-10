@@ -178,6 +178,74 @@ describe("job queue", () => {
     expect(calls).toEqual(["a", "b", "b"]);
     expect(await job(id)).toMatchObject({ status: "done" });
   });
+
+  // engine.archive runs again by itself; «اجرا اکنون» or a settings save while it runs queues a twin (same dedupe key)
+  it("folds a job that runs again into a twin queued while it ran, without failing the tick", async () => {
+    let runs = 0;
+    offs.push(registerJobHandler("test.twin", async () => {
+      if (++runs === 1) await enqueue(db, { kind: "test.twin", orgId: org, dedupeKey: "test.twin", delayMs: 3600_000 });
+      return { again: 0 };
+    }));
+    const first = await enqueue(db, { kind: "test.twin", orgId: org, dedupeKey: "test.twin" });
+    try {
+      const r = await tick(cfg, { budgetMs: 5000, max: 1 });
+      expect(r).toMatchObject({ ran: 1, failed: 0 });
+      const jobs = await listJobs(db, org, { kind: "test.twin" });
+      const queued = jobs.filter((j) => j.status === "queued");
+      expect(queued).toHaveLength(1);
+      expect(queued[0].id).not.toBe(first);
+      expect(jobs.find((j) => j.id === first)?.status).toBe("done");
+      // the twin runs no later than the job would have run again (now), not in an hour
+      expect(new Date((await job(queued[0].id))!.run_at).getTime()).toBeLessThan(Date.now() + 60_000);
+      expect(runs).toBe(1);
+    } finally {
+      await db.query(`delete from sm_jobs where kind = 'test.twin'`);
+    }
+  });
+
+  it("keeps a record's events in order when another job's outcome cannot be saved", async () => {
+    const order: string[] = [];
+    let open!: () => void;
+    const gate = new Promise<void>((r) => (open = r));
+    offs.push(registerJobHandler("record.test_late", async (j) => {
+      order.push(`start ${j.payload.step}`);
+      if (j.payload.step === 1) {
+        // the record's next event arrives while this one runs
+        await enqueue(db, { kind: "record.test_late", orgId: org, payload: { table: "todo", id: "late", step: 2 } });
+        await gate;
+      }
+      order.push(`end ${j.payload.step}`);
+    }));
+    offs.push(registerJobHandler("test.lost", async () => undefined));
+    const lost = await enqueue(db, { kind: "test.lost", orgId: org });
+    await enqueue(db, { kind: "record.test_late", orgId: org, payload: { table: "todo", id: "late", step: 1 } });
+    // the database refuses to record the outcome of `test.lost` (a lost connection)
+    const failing = (f: (text: string, params?: unknown[]) => Promise<unknown>) => (text: string, params?: unknown[]) =>
+      /^\s*update sm_jobs set status\b/.test(text) && params?.[0] === lost ? Promise.reject(new Error("connection lost")) : f(text, params);
+    const flaky = new Proxy(db, {
+      get(t, p) {
+        const v = Reflect.get(t, p, t);
+        if (p === "query" || p === "one") return failing((v as (text: string, params?: unknown[]) => Promise<unknown>).bind(t));
+        return typeof v === "function" ? v.bind(t) : v;
+      },
+    }) as Db;
+    const fcfg = { ...cfg, db: flaky };
+    try {
+      const first = tick(fcfg, { budgetMs: 5000, concurrency: 8 }).then(() => "ok", (e) => `rejected: ${e}`);
+      for (let i = 0; i < 400 && !order.includes("start 1"); i++) await new Promise((r) => setTimeout(r, 5));
+      expect(order).toEqual(["start 1"]);
+      await new Promise((r) => setTimeout(r, 30));
+      // a second tick of this process while the first still runs the record's first event: it must not start the next
+      const second = await tick(fcfg, { budgetMs: 2000, concurrency: 8 });
+      expect(second.busy).toBe(true);
+      open();
+      expect(await first).toBe("ok");
+      expect(order).toEqual(["start 1", "end 1", "start 2", "end 2"]);
+    } finally {
+      open();
+      await db.query(`delete from sm_jobs where kind in ('test.lost', 'record.test_late')`);
+    }
+  });
 });
 
 describe("job ticks on both runtimes", () => {
