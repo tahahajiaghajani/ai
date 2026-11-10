@@ -417,7 +417,7 @@ async function check(page, probe, base) {
 async function clickNew(page, probe, url, role, route) {
   const btn = page.locator(".ds-ph-actions button").filter({ hasText: /تازه\s*$/ }).first();
   if (!(await btn.isVisible().catch(() => false))) return null;
-  const label = ((await btn.textContent()) ?? "").trim();
+  const label = ((await btn.textContent({ timeout: 2000 }).catch(() => "")) ?? "").trim();
   await btn.click({ timeout: 5000 }).catch(() => {});
   const r = await check(page, probe, { role, route: `${route} → «${label}»`, step: "new" });
   // a form: any field to fill in (record forms, the custom editors, a form in a dialog)
@@ -446,7 +446,7 @@ async function openFirst(page, probe, url, role, route) {
   const n = await tabs.count().catch(() => 0);
   for (let i = 1; i < n; i++) {
     const tab = tabs.nth(i);
-    const name = ((await tab.textContent().catch(() => "")) ?? "").trim();
+    const name = ((await tab.textContent({ timeout: 2000 }).catch(() => "")) ?? "").trim();
     await tab.click({ timeout: 4000 }).catch(() => {});
     record(await check(page, probe, { role, route: `${recPath} → tab «${name}»`, step: "tab" }));
   }
@@ -457,9 +457,11 @@ async function openFirst(page, probe, url, role, route) {
 /** Pages that are not record lists: the primary header action, then the first link of the page. */
 async function clickActions(page, probe, url, role, route, href) {
   const primary = page.locator("main .ds-ph-actions .ant-btn-primary, #portal-main .ant-btn-primary").first();
-  const label = ((await primary.textContent().catch(() => "")) ?? "").trim().slice(0, 40);
+  const shown = await primary.isVisible().catch(() => false);
+  // (textContent waits for the element: read it only when there is one)
+  const label = shown ? ((await primary.textContent({ timeout: 2000 }).catch(() => "")) ?? "").trim().slice(0, 40) : "";
   // never a button that saves, sends, approves or deletes: the crawl only looks
-  if (await primary.isVisible().catch(() => false) && !SAVES.test(label)) {
+  if (shown && !SAVES.test(label)) {
     await primary.click({ timeout: 4000 }).catch(() => {});
     const r = await check(page, probe, { role, route: `${route} → «${label}»`, step: "action" });
     record(r);
@@ -484,7 +486,7 @@ async function clickActions(page, probe, url, role, route, href) {
   // (not a file download from the API)
   const link = page.locator("main a[href^='/']:not(.rk-open):not([href^='/api/']):not([download]), #portal-main a[href^='/']:not([href^='/api/']):not([download])").first();
   if (await link.isVisible().catch(() => false)) {
-    const target = await link.getAttribute("href");
+    const target = await link.getAttribute("href", { timeout: 2000 }).catch(() => "");
     await link.click({ timeout: 4000 }).catch(() => {});
     record(await check(page, probe, { role, route: `${route} → link ${target}`, step: "link" }));
   }
