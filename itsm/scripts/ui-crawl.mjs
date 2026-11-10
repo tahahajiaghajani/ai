@@ -770,7 +770,10 @@ async function main() {
     // the pages this run checked replace their previous results; the others are kept
     const prev = JSON.parse(readFileSync(prevFile, "utf8"));
     const redone = new Set(report.results.map((r) => `${r.role}|${r.target}`));
-    const kept = (prev.results ?? []).filter((r) => !redone.has(`${r.role}|${r.target}`));
+    // a role crawled in full replaces all its rows (a page it no longer sees must not keep an old problem)
+    const partial = !!(ONLY || SKIP || opt("from") || opt("before"));
+    const whole = new Set(partial ? [] : [...ROLES, ...(ROLES.includes("admin") ? ["anonymous"] : [])]);
+    const kept = (prev.results ?? []).filter((r) => !whole.has(r.role) && !redone.has(`${r.role}|${r.target}`));
     report.merged = { kept: kept.length, from: prev.started };
     report.results = [...kept, ...report.results];
   }
