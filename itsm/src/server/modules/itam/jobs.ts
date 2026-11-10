@@ -18,6 +18,7 @@ import { periodKeyOf } from "@shared/financial/logic";
 import { dueReminder, reminderList } from "@shared/supplier/logic";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
+import type { Tx } from "../../db";
 import { addJournalIn, createIn, emitEvent, onRecordEvent, systemCtx, transitionIn, updateIn, type RecordEvent } from "../../engine";
 import { enqueue, registerJobHandler, type JobContext } from "../../jobs";
 import { actsHere, notifyPeople } from "../notify";
@@ -222,6 +223,52 @@ async function onRequestItem(e: RecordEvent, sys: Ctx): Promise<void> {
   }
 }
 
+/**
+ * A part consumed on a field-service work order (`record.part_consumed`) leaves ITAM's stock: a serial number names
+ * the asset itself (in stock, in the named stockroom when one is given) — handed over to the work order's requester,
+ * or its technician; a part code names a model (its model number, else its name) whose quantity-tracked stock in the
+ * stockroom (or any stockroom) is decremented. The stock movement ledger follows the asset's change as for any move;
+ * the work order's journal says what was taken from where — or why nothing was.
+ */
+export async function consumePartIn(tx: Tx, sys: Ctx, e: RecordEvent): Promise<{ asset_id: string | null; problem: string | null }> {
+  const d = (e.data ?? {}) as { part_name?: string; part_code?: string | null; quantity?: unknown; serial_no?: string | null; stockroom?: string | null; work_order_id?: string | null };
+  const qty = Math.max(1, Math.round(Number(d.quantity ?? 1)) || 1);
+  const roomText = String(d.stockroom ?? "").trim().toLowerCase();
+  const rooms = roomText ? (await liveRows(tx, sys, "stockroom", null, { limit: 500 })).filter((r) => [r.name, r.code].some((v) => String(v ?? "").trim().toLowerCase() === roomText)) : [];
+  const inRoom: Cond[] = rooms.length ? [{ f: "stockroom_id", op: "in", v: rooms.map((r) => r.id) }] : [];
+  const wo = isUuid(d.work_order_id) ? await liveRow(tx, sys, "work_order", d.work_order_id) : null;
+  const task = isUuid(e.id) ? await liveRow(tx, sys, "parts_requirement", e.id) : null;
+  const holder = [wo?.requested_for, wo?.caller_id, task?.technician_id].find(isUuid) ?? null;
+  const note = async (body: string) => {
+    if (wo) await addJournalIn(tx, sys, tableDef("work_order")!, wo, { kind: "work_note", body }, { trusted: true });
+  };
+  let asset: Row | undefined;
+  if (d.serial_no) {
+    [asset] = await liveRows(tx, sys, "asset", { and: [{ f: "serial_number", op: "eq", v: String(d.serial_no) }, { f: "state", op: "eq", v: "in_stock" }, ...inRoom] }, { limit: 1 });
+    if (asset) {
+      await transitionIn(tx, sys, "asset", String(asset.id), "in_use", { ...(holder ? { assigned_to: holder } : {}), ...(wo?.location_id ? { location_id: wo.location_id } : {}), notes: `${asset.notes ? `${asset.notes}\n` : ""}نصب‌شده در دستور کار ${wo?.number ?? ""}`.trim() }, { trusted: true });
+      await note(`قطعهٔ «${d.part_name ?? ""}» (سریال ${d.serial_no}) از انبار برداشته شد: دارایی ${asset.number ?? ""}`);
+      return { asset_id: String(asset.id), problem: null };
+    }
+  }
+  const code = String(d.part_code ?? "").trim();
+  const models = code || d.part_name
+    ? (await liveRows(tx, sys, "asset_model", { or: [...(code ? [{ f: "model_number", op: "eq", v: code } as Cond] : []), ...(d.part_name ? [{ f: "name", op: "eq", v: String(d.part_name) } as Cond] : [])] }, { limit: 5 }))
+    : [];
+  if (models.length) {
+    const stock = await liveRows(tx, sys, "asset", { and: [{ f: "model_id", op: "in", v: models.map((m) => m.id) }, { f: "state", op: "eq", v: "in_stock" }, { f: "quantity", op: "gte", v: qty }, ...inRoom] }, { order: "t.created_at", limit: 1 });
+    asset = stock[0];
+    if (asset) {
+      await updateIn(tx, sys, "asset", String(asset.id), { quantity: Number(asset.quantity ?? 0) - qty }, { trusted: true });
+      await note(`${qty} عدد «${d.part_name ?? code}» از موجودی ${asset.number ?? ""} برداشته شد`);
+      return { asset_id: String(asset.id), problem: null };
+    }
+  }
+  const problem = `قطعهٔ «${d.part_name ?? code}» در موجودی دارایی‌ها${roomText ? ` (انبار «${d.stockroom}»)` : ""} پیدا نشد یا کافی نبود؛ موجودی دستی اصلاح شود`;
+  await note(problem);
+  return { asset_id: null, problem };
+}
+
 export function installItamJobs(): (() => void)[] {
   return [
     registerJobHandler("itam.ci_link", async (job, jctx) => {
@@ -266,6 +313,12 @@ export function installItamJobs(): (() => void)[] {
       if (!changed.some((c) => c === "serial_number" || c === "state")) return;
       await fromCi(await systemCtx(jctx.cfg, e.org_id), e.id, changed);
     }, { tables: ["ci"], kinds: ["record.updated", "record.state_changed"] }),
+    // field service: a part consumed on a work order leaves its stockroom here
+    onRecordEvent("itam.field_parts", async (e, jctx) => {
+      if (!actsHere(jctx.cfg) || !isUuid(e.org_id) || !tableDef("stock_movement")) return;
+      const sys = await systemCtx(jctx.cfg, e.org_id);
+      await sys.write((tx) => consumePartIn(tx, sys, e)).catch(() => undefined);
+    }, { tables: ["parts_requirement"], kinds: ["record.part_consumed"] }),
     onRecordEvent("itam.request", async (e, jctx) => {
       if (!actsHere(jctx.cfg) || !isUuid(e.org_id)) return;
       await ensureItamSweep(jctx.db, e.org_id);
