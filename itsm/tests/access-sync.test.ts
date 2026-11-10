@@ -83,7 +83,9 @@ describe("access-filtered synchronisation", () => {
     await client.syncNow();
     // the confidential ticket of their (new) group comes too: group members read it
     expect(await deskTickets()).toEqual([t.conf, t.mine, t.other].sort());
-    expect(await deskDb.one<{ value: number }>(`select value from sm_kv where key = 'sync.epoch'`)).toMatchObject({ value: after });
+    // the pull's epoch is the organisation's sync epoch and the member's scope epoch (SYNC_PROTOCOL 15)
+    const orgEpoch = Number((await cloudDb.one<{ epoch: number }>(`select epoch from sm_org_sync where org_id = $1`, [org]))?.epoch ?? 0);
+    expect(await deskDb.one<{ value: string }>(`select value from sm_kv where key = 'sync.epoch'`)).toMatchObject({ value: `${orgEpoch}.${after}` });
   });
 
   it("refuses a pushed change the agent may not make, and keeps hidden fields at the cloud's values", async () => {

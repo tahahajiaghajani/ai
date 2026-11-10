@@ -599,9 +599,10 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
 - **Pull filter**: only rows the linked account may read (provider + row rules; side rows follow their record;
   internal journal entries need the field group; history of hidden fields is left out); hidden fields are not sent; a
   row that changed but is no longer readable is sent as a **tombstone** and the desktop deletes it with its journal,
-  history, attachments and links. A session from nothing (`full`) sends no tombstones: the Windows app records what it
-  received (`sm_sync_seen`) and at the session's end drops the organisation's rows it did not receive and that wait for
-  no upload, then runs one more session at once (rows that changed while it ran).
+  history, attachments and links. In a session from nothing (`full`) the Windows app also records what it received
+  (`sm_sync_seen`) and at the session's end drops the organisation's engine rows it did not receive and that wait for
+  no upload — tombstones removed for good, what a restore took back — then runs one more session at once (rows that
+  changed while it ran).
 - **Sync epoch** (`sm_org_sync.epoch`; the pull's `epoch` is `<organisation>.<member scope>`): a Windows app whose epoch
   differs is told to `reset` and reads everything again. Bumped (`bumpSyncEpoch`, a timestamp-based value so a database
   restored from an older backup still moves past every epoch handed out before) by `karizctl restore` (the restored

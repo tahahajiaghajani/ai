@@ -67,9 +67,8 @@ export async function resetSyncCursor(q: Pick<Db, "query">): Promise<void> {
 
 /**
  * The end of a pull session from nothing: engine rows of the organisation it did not bring — and that wait for no
- * upload — leave this computer (with the attachment contents nothing refers to any more): what the account may no
- * longer read (such a session sends no tombstones), tombstones the server removed for good, what a restore of the
- * server took back. The platform's own roots (organisation, members) are always sent whole and only ever soft-deleted,
+ * upload — leave this computer (with the attachment contents nothing refers to any more): tombstones the server removed
+ * for good, what a restore of the server took back, anything the session's tombstones did not name. The platform's own roots (organisation, members) are always sent whole and only ever soft-deleted,
  * and a membership kept here for an account the web version does not know stays. Returns how many went.
  */
 async function sweepUnseen(tx: Pick<Db, "query">, orgId: string): Promise<number> {

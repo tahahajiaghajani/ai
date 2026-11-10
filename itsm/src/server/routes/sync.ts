@@ -386,8 +386,7 @@ syncRoutes.get("/pull", async (c) => {
         );
         const part = await replicaRows(q, ctx, s.def, stored);
         aggregates.push(...part.aggregates);
-        // a session from nothing sends no tombstones: the Windows app drops whatever it did not receive
-        if (since) tombstones.push(...part.tombstones);
+        tombstones.push(...part.tombstones);
       } else aggregates.push(...(await readAggregates(q, s.def, ids, windowOf("r", 2))));
     }
     // The members' accounts come along so that they can sign in on the desktop. A password hash

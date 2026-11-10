@@ -110,7 +110,8 @@ describe("every read and write path goes through the access provider", () => {
     // history rows of the hidden field are not sent either
     const fields = pull.aggregates.filter((a: { entity: string }) => a.entity === "history").map((a: { row: { field: string } }) => a.row.field);
     expect(fields).not.toContain("estimate");
-    expect(typeof pull.epoch).toBe("number");
+    // the organisation's sync epoch and the member's scope epoch (SYNC_PROTOCOL 15)
+    expect(pull.epoch).toMatch(/^\d+\.\d+$/);
   });
 
   it("asks it before every write", async () => {
