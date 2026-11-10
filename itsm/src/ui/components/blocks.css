@@ -9,8 +9,8 @@
   .blk-card + .blk-card, .blk-stack > * + * { margin-block-start: var(--ds-stack); }
   /* cards laid out in a grid take the grid's gap only, so the tops of the columns line up */
   .blk-cols > .blk-card + .blk-card { margin-block-start: 0; }
-  /* the modules' own card grids: a card beside another never drops by the stack gap (the grid's gap spaces them) */
-  :is(.slm-cols, .slm-kpis, .wfm-cols, .rq-grid, .rq-two, .pt-grid, .pt-two, .hm-grid, .sg-grid, .sg-split) > .blk-card + .blk-card { margin-block-start: 0; }
+  /* the modules' card grids (Tailwind `grid` or their own class): a card beside another never drops by the stack gap; the grid's gap spaces them */
+  :is(.grid, .slm-cols, .slm-kpis, .wfm-cols, .rq-grid, .rq-two, .pt-grid, .pt-two, .hm-grid, .sg-grid, .sg-split) > .blk-card + .blk-card { margin-block-start: 0; }
   .blk-card-h {
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
     min-block-size: 56px; padding: 12px 16px 12px 20px; padding-inline: 20px 16px;
