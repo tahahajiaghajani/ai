@@ -36,6 +36,20 @@ describe("gates", () => {
     expect(gateAllows(null, { area: "change", op: "admin" })).toBe(true);
   });
 
+  it("ask a gate's field group of the member's field groups (the SLM risk queue filters on internal fields)", () => {
+    const risk = NAV.flatMap((g) => g.items).find((i) => i.key === "slm:q:risk")!;
+    const pass = (grants: Record<string, FullGrant>, groups?: string[]) => [risk.access!].flat().every((a) => gateAllows(grants, a, groups));
+    // a custom role with service and SLA read but without «internal» no longer gets the item (its list answered 400)
+    const readers = grantsOf("agent");
+    expect(pass(readers, [])).toBe(false);
+    expect(pass(readers, ["internal"])).toBe(true);
+    // service read and «internal» without the SLA area: the server serves the list, so the item shows
+    const serviceOnly: Record<string, FullGrant> = { ...readers, sla: { ...readers.sla, read: "none" } };
+    expect(pass(serviceOnly, ["internal"])).toBe(true);
+    // an older server sends no field groups: the gate's group is not asked
+    expect(pass(readers, undefined)).toBe(true);
+  });
+
   it("name registered areas only", () => {
     for (const g of NAV) for (const i of g.items) for (const a of i.access ? [i.access].flat() : []) expect(isArea(a.area), i.key).toBe(true);
     for (const s of SPACES) if (s.access) expect(isArea(s.access.area), s.key).toBe(true);

@@ -1456,8 +1456,9 @@ export const TRANSFER_STATES: StateModel = {
   ],
   transitions: [
     { from: ["draft"], to: "pending_approval", label: "ارسال برای تأیید", guard: "transfer_has_items" },
-    { from: ["pending_approval"], to: "approved", label: "تأیید", roles: { area: "asset", level: "full" } },
-    { from: ["pending_approval"], to: "rejected", label: "رد", roles: { area: "asset", level: "full" } },
+    // never by the note's requester or issuer (guard «transfer_not_own»; the approvals service settles as the system)
+    { from: ["pending_approval"], to: "approved", label: "تأیید", roles: { area: "asset", level: "full" }, guard: "transfer_not_own" },
+    { from: ["pending_approval"], to: "rejected", label: "رد", roles: { area: "asset", level: "full" }, guard: "transfer_not_own" },
     { from: ["approved"], to: "in_transit", label: "صدور حواله و ارسال", guard: "transfer_can_dispatch" },
     // the receipt is the receiving branch's: its route checks their grant there and moves the assets as the system
     { from: ["in_transit"], to: "received", label: "رسید کامل", roles: SYSTEM_ONLY("asset") },

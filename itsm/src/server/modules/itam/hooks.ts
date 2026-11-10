@@ -483,7 +483,9 @@ const disposalGuards = {
       const asset = await liveRow(w.tx, sys, "asset", it.asset_id);
       if (!asset) continue;
       if (!(await dataBearing(w, asset))) continue;
-      if (!it.sanitization_method || it.sanitization_method === "not_applicable" || !it.sanitized_at || !it.certificate_no) missing.push(String(asset.number ?? asset.name));
+      // a data-bearing device leaves only on a certificate a second person witnessed and a third reviewed
+      const witnessed = isUuid(it.witness_id) && String(it.witness_id) !== String(it.sanitized_by ?? "");
+      if (!it.sanitization_method || it.sanitization_method === "not_applicable" || !it.sanitized_at || !it.certificate_no || !it.certificate_hash || !witnessed || !it.verified) missing.push(String(asset.number ?? asset.name));
     }
     return missing.length ? `گواهی پاک‌سازی داده برای این دارایی‌ها کامل نیست: ${missing.slice(0, 10).join("، ")}` : null;
   },

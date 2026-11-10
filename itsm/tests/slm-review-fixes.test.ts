@@ -186,6 +186,17 @@ describe("service level management", () => {
     expect(mine).toContain(score!.id);
   });
 
+  it("offers nobody but the system «امتیاز تجربه تازه» or import (rowAccess.write NEVER), and still refuses the create", async () => {
+    for (const who of [p.req, p.a3]) {
+      const meta = await who.client.get(`${P}/meta/tables/slm_xla_score`);
+      expect(meta.table.can.read).toBe(true);
+      expect(meta.table.can.create).toBe(false);
+      await who.client.post(`${P}/r/slm_xla_score`, { table_key: "incident", record_number: "INC-1", score: "0" }, 403);
+    }
+    // the owner sees a «… تازه» only where people write
+    expect((await o.get(`${P}/meta/tables/incident`)).table.can.create).toBe(true);
+  });
+
   it("does not show customers an agreement's measurement or its internal parties", async () => {
     const a = (await o.post(`${P}/r/service_agreement`, { name: "توافق مشتری آزمون", service_id: svc.id, customer_unit_id: unit, status: "active", valid_from: addDays(today(), -10), valid_to: addDays(today(), 300), supplier_name: "تأمین‌کنندهٔ پنهان", contract_ref: "UC-77" })).row;
     const seen = (await p.req.client.get(`${P}/r/service_agreement/${a.id}`)).row;

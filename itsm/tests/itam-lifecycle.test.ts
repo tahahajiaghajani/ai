@@ -118,7 +118,9 @@ describe("the asset lifecycle", () => {
     await w.p.am.client.post(`${w.P}/r/disposal_order/${order.id}/transition`, { to: "approved" });
     const refused = await w.p.am.client.post(`${w.P}/r/disposal_order/${order.id}/transition`, { to: "completed" }, 409);
     expect(refused.error.message).toContain("گواهی");
-    await w.p.am.client.patch(`${w.P}/r/disposal_item/${item.id}`, { sanitization_method: "purge", sanitized_at: new Date().toISOString(), certificate_no: "WIPE-1405-001", verified: true });
+    // the performer records the wipe with a witness; a third person who approves in the asset area reviews it
+    await w.p.am.client.patch(`${w.P}/r/disposal_item/${item.id}`, { sanitization_method: "purge", sanitized_at: new Date().toISOString(), certificate_no: "WIPE-1405-001", witness_id: w.p.agent.userId });
+    await w.o.patch(`${w.P}/r/disposal_item/${item.id}`, { verified: true });
     await w.p.am.client.post(`${w.P}/r/disposal_order/${order.id}/transition`, { to: "completed" });
     const gone = (await w.o.get(`${w.P}/r/asset/${a.id}`)).row;
     expect(gone.state).toBe("disposed");
