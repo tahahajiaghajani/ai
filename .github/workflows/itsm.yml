@@ -27,7 +27,7 @@ jobs:
     # a pull request from this repository is already built by the push of its branch
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: itsm
@@ -40,12 +40,35 @@ jobs:
           cache-dependency-path: itsm/package-lock.json
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
       - run: npm run check:schema
       - run: npm run build
 
+  # the whole suite (every test, nothing skipped) in four parallel shards: one runner needs more than 25 minutes
+  test:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    defaults:
+      run:
+        working-directory: itsm
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: itsm/package-lock.json
+      - run: npm ci
+      - run: npx vitest run --shard=${{ matrix.shard }}/4
+
   windows:
-    needs: check
+    needs: [check, test]
     runs-on: windows-latest
     timeout-minutes: 45
     defaults:
