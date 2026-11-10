@@ -32,10 +32,13 @@ function matcher(route: string): RegExp {
 
 interface Registry {
   routes: string[];
+  portal: string[];
   nav: { key: string; path: string }[];
   tables: string[];
   newRecordPath: (table: string) => string;
   recordPath: (table: string, id: string) => string;
+  tableDef: (table: string) => { key: string; fields: { name: string; readonly?: boolean; system?: boolean; base?: boolean; hidden?: boolean }[] } | undefined;
+  enterableOnCreate: (def: { fields: unknown[] }) => boolean;
 }
 
 const compiled = new Map<string, RegExp>();
@@ -69,10 +72,12 @@ describe("the UI registry", () => {
     // «مقالهٔ دانش تازه» on kb/articles went to kb/a/new — the reading view — and showed «این مقاله پیدا نشد»
     // pages that read the id «new» themselves: the report designer opens an empty report
     const readsNew = new Set(["analytics/reports/:id"]);
+    // the requester portal's own pages sit under the splat `portal/*` (src/ui/modules/portal/Shell.tsx)
+    const routes = [...reg.routes, ...reg.portal.filter((p) => p && p !== "*").map((p) => `portal/${p}`)];
     const bad: string[] = [];
     for (const t of reg.tables) {
       const p = reg.newRecordPath(t).split("?")[0];
-      const r = bestRoute(reg.routes, p);
+      const r = bestRoute(routes, p);
       // record lists register `<path>/new` (and `r/:table/new`); a route ending in a parameter took «new» as an id
       if (!r) bad.push(`${t}: ${p} → no route`);
       else if (/(^|\/):[^/]+$/.test(r) && !readsNew.has(r)) bad.push(`${t}: ${p} → ${r}`);
@@ -113,7 +118,7 @@ describe("a page that throws keeps the shell (error boundary)", () => {
     class Crashed extends PageBoundary {
       state = { error: new Error("Cannot read properties of undefined") };
     }
-    const html = renderToStaticMarkup(createElement(Crashed, { home: "/org-1" }, createElement("p", null, "page body")));
+    const html = renderToStaticMarkup(createElement(Crashed, { home: "/org-1", children: createElement("p", null, "page body") }));
     expect(html).toContain("این صفحه با خطا روبه‌رو شد");
     expect(html).toContain("Cannot read properties of undefined");
     expect(html).toContain("تلاش دوباره");
@@ -123,7 +128,7 @@ describe("a page that throws keeps the shell (error boundary)", () => {
   });
 
   it("renders the page itself while nothing threw", () => {
-    expect(renderToStaticMarkup(createElement(PageBoundary, { home: "/o" }, createElement("p", null, "page body")))).toBe("<p>page body</p>");
+    expect(renderToStaticMarkup(createElement(PageBoundary, { home: "/o", children: createElement("p", null, "page body") }))).toBe("<p>page body</p>");
   });
 
   it("wraps every page of the organisation and the whole app", () => {
@@ -169,5 +174,30 @@ describe("CMDB query («پرس‌وجوی پیکربندی»)", () => {
     const page = readFileSync(join(UI, "modules/cmdb/QueryPage.tsx"), "utf8");
     expect(page).toMatch(/disabled=\{!bounded\}/);
     expect(readFileSync(join(ROOT, "src/server/modules/cmdb/query.ts"), "utf8")).toMatch(/if \(!queryBounded\(/);
+  });
+});
+
+describe("«… تازه» only where a person can enter something", () => {
+  it("offers no new-record form for the tables the system writes", () => {
+    // their «… تازه» opened a form of read-only fields whose «ثبت» the server refused
+    for (const t of ["license_reconcile_run", "sec_verification", "grc_policy_ack"]) {
+      const def = reg.tableDef(t);
+      expect(def, t).toBeDefined();
+      expect(reg.enterableOnCreate(def!), t).toBe(false);
+    }
+    for (const t of ["incident", "release", "kb_article", "change_request"]) expect(reg.enterableOnCreate(reg.tableDef(t)!), t).toBe(true);
+  });
+
+  it("ignores the engine's, read-only and hidden fields", () => {
+    expect(reg.enterableOnCreate({ fields: [{ name: "number", system: true }, { name: "x", readonly: true }, { name: "y", hidden: true }] })).toBe(false);
+    expect(reg.enterableOnCreate({ fields: [{ name: "number", system: true }, { name: "name" }] })).toBe(true);
+  });
+
+  it("hides the list's «… تازه» and import, and explains on the form's own address", () => {
+    const list = readFileSync(join(UI, "records/list/RecordList.tsx"), "utf8");
+    expect(list).toMatch(/const creatable = def\.can\.create && enterableOnCreate\(def\)/);
+    expect(list).not.toMatch(/\{def\.can\.create \?/);
+    const page = readFileSync(join(UI, "records/page/RecordPage.tsx"), "utf8");
+    expect(page).toMatch(/if \(!enterableOnCreate\(def\)\)/);
   });
 });

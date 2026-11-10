@@ -24,8 +24,8 @@
 //        [--only <regex>] [--skip <regex>] [--no-build] [--no-records] [--no-actions] [--mobile main|all|none]
 //        [--keep-server] [--quick] [--merge] [--from <route>] [--before <route>]
 //
-// --quick: the administrator's menu pages, portal, consoles and sign-in pages without record pages, header actions
-// and phone widths, and the other roles' home pages (the CI smoke run). --merge: re-check some pages (--only) and keep the previous report's results for the others.
+// --quick: the administrator's main pages of every space, the portal, the consoles and the sign-in pages, without
+// record pages, header actions and phone widths, and the other roles' home pages (the CI smoke run, ~5 minutes). --merge: re-check some pages (--only) and keep the previous report's results for the others.
 // --from / --before: only the administrator's pages from one route on / before one (a long run split in parts).
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, createWriteStream } from "node:fs";
@@ -104,7 +104,8 @@ export async function loadRegistry() {
         `export { gateAllows } from "./src/shared/access";`,
         `export { LEVEL_ORDER } from "./src/shared/permissions";`,
         `export { recordPath, newRecordPath, tablePath } from "./src/ui/records/extensions";`,
-        `export { TABLES } from "./src/shared/tables";`,
+        `export { TABLES, tableDef } from "./src/shared/tables";`,
+        `export { enterableOnCreate } from "./src/ui/records/model/policies";`,
       ].join("\n"),
       resolveDir: ROOT,
       loader: "ts",
@@ -134,7 +135,7 @@ export async function loadRegistry() {
   const admin = [...adminSrc.matchAll(/\{\s*key:\s*"([^"]*)",\s*title:\s*"[^"]*",\s*icon:\s*\w+(?:,\s*edition:\s*"(\w+)")?/g)].map((m) => ({ key: m[1], edition: m[2] ?? null }));
   return {
     routes, nav, publicRoutes: reg.PUBLIC_ROUTES.map((r) => r.path), portal, admin, gateAllows: reg.gateAllows, LEVEL_ORDER: reg.LEVEL_ORDER,
-    tables: [...reg.TABLES.keys()], recordPath: reg.recordPath, newRecordPath: reg.newRecordPath, tablePath: reg.tablePath,
+    tables: [...reg.TABLES.keys()], tableDef: reg.tableDef, enterableOnCreate: reg.enterableOnCreate, recordPath: reg.recordPath, newRecordPath: reg.newRecordPath, tablePath: reg.tablePath,
   };
 }
 
@@ -263,8 +264,8 @@ async function ensureMember(call, orgId, u) {
 // ---------------------------------------------------------------- the browser side
 const LOADERS = ".sh-boot, .sh-wait, .ds-loader, .ant-skeleton, .ant-spin-spinning, .sh-loader";
 // page-level «not found» states (the org's 404, a record or table that is not there, a detail page's own); an empty
-// search result («چیزی پیدا نشد») is not one
-const NOT_FOUND = /^(?!چیزی پیدا نشد$)(?:این صفحه پیدا نشد|فهرست پیدا نشد|رکورد پیدا نشد|پیدا نشد|این جدول در دسترس نیست|این فهرست در دسترس نیست|دسترسی به این سازمان ممکن نیست|این [^ ]+ پیدا نشد|[^ ]+ پیدا نشد)$/;
+// search result («چیزی پیدا نشد», «داشبوردی پیدا نشد»: an indefinite noun) is not one
+const NOT_FOUND = /^(?:(?!چیزی )(?![^ ]*ی پیدا نشد$)(?:این صفحه پیدا نشد|فهرست پیدا نشد|رکورد پیدا نشد|پیدا نشد|این جدول در دسترس نیست|این فهرست در دسترس نیست|دسترسی به این سازمان ممکن نیست|این [^ ]+ پیدا نشد|[^ ]+ پیدا نشد)|بازبینی پیدا نشد)$/;
 const LOAD_FAILED = /بارگذاری انجام نشد|بارگذاری نشد|این بخش با خطا روبه‌رو شد|این صفحه با خطا روبه‌رو شد|خطای غیرمنتظره/;
 // requests that stay open by design (live updates)
 const LONG_LIVED = /\/(pulse|live|events\/stream|stream)(\?|$)/;
@@ -601,6 +602,13 @@ async function crawlRole(url, orgId, role, state, targets, extra = {}) {
 async function visitOne(tab, t, href, role, url) {
   await go(tab.page, href, { full: t.full });
   const r = await check(tab.page, tab.probe, { role, route: t.href, step: "visit" });
+  if (t.expectNotFound) {
+    // the page's job is to say «not found»
+    r.extra = r.notFound ? [] : ["expected the «not found» page"];
+    r.notFound = null;
+    record(r);
+    return;
+  }
   record(r);
   // a page that crashed leaves the app unmounted: the next one starts on a fresh tab
   if (r.blank || r.exceptions.length) return void (await tab.open());
@@ -657,8 +665,8 @@ async function main() {
       const state = await signIn(url, USERS.admin);
       log("signed in as the administrator through the login form");
       const targets = [{ href: orgHref(""), kind: "page", full: true }];
-      // --quick: the pages the menus and the palette list (not every list of every definition table)
-      const navPaths = new Set(reg.nav.map((i) => i.path));
+      // --quick: the main pages of every space (the sidebar's rows outside its «تعریف‌ها»/«گزارش‌ها» sections)
+      const navPaths = new Set(reg.nav.filter((i) => !i.section && (!i.action || i.workspace)).map((i) => i.path));
       for (const r of classified) {
         if (!allowedHere(r.path) || !pick(r.path) || (QUICK && !navPaths.has(r.path))) continue;
         if (r.kind === "list" || r.kind === "page") targets.push({ href: orgHref(r.path), kind: r.kind });
@@ -717,7 +725,8 @@ async function main() {
 
     // ------------------------------------------------ signed out: the sign-in pages and the published pages
     if (ROLES.includes("admin")) {
-      const anon = ["/login", "/signup", "/recover", "/setup", "/p/unknown-page"].filter(pick).map((h) => ({ href: h, kind: "page", full: true }));
+      // an unknown published link must answer with the public «not found» page
+      const anon = ["/login", "/signup", "/recover", "/setup", "/p/unknown-page"].filter(pick).map((h) => ({ href: h, kind: "page", full: true, ...(h.startsWith("/p/") ? { expectNotFound: true } : {}) }));
       await crawlRole(url, orgId, "anonymous", null, anon);
     }
 

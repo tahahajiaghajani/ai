@@ -18,6 +18,7 @@ import { encodeFilter } from "../model/filter";
 import { relTime } from "../model/activity";
 import type { LinkItem, TableMeta } from "../model/types";
 import { newRecordPath, recordPath, tablePath, type RecordContext, type SidePanelWidget } from "../extensions";
+import { enterableOnCreate } from "../model/policies";
 import { RecordNo, UserChip, FieldValue } from "../fields/display";
 import { RecordSelect, UserSelect } from "../fields/RecordSelect";
 
@@ -95,7 +96,7 @@ function RelatedCard({ schema, ctx, table, field, label }: { schema: Schema; ctx
       title={label ?? target.plural}
       count={total}
       actions={
-        target.can.create ? (
+        target.can.create && enterableOnCreate(target) ? (
           <Tooltip title={`${target.label} تازه`}>
             <Link className="rk-x" to={`/${orgId}/${newRecordPath(table)}?${new URLSearchParams({ [field]: ctx.row.id })}`} aria-label={`${target.label} تازه`}>
               <Plus {...I14} aria-hidden />

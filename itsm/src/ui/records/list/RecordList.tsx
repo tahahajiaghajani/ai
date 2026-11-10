@@ -30,6 +30,7 @@ import { extensionsFor, extensionsVersion, newRecordPath, recordPath, type ListP
 import { andAll, countConditions, describeFilter, fromCond, quickCond, quickFilters } from "../model/filter";
 import { fieldOf, isGroupable, isInlineEditable, isSortable, optionLabel, parseSort, recordLabel, displayText, type Schema } from "../model/schema";
 import { boardField } from "../model/kanban";
+import { enterableOnCreate } from "../model/policies";
 import { defaultView, emptyListState, stateOfView, viewBody, viewColumns, viewDirty, type ListMode } from "../model/views";
 import { isConflict, type RecordRow, type TableMeta, type ViewRow } from "../model/types";
 import { FieldValue, RecordNo, Empty } from "../fields/display";
@@ -368,6 +369,8 @@ function ListBody({ def, schema, preset: presetProp, title, actions, embedded, b
       setExporting(false);
     }
   };
+  // «… تازه» when the person may create and there is something to enter (tables the system writes have nothing)
+  const creatable = def.can.create && enterableOnCreate(def);
   const newPath = () => {
     const q = new URLSearchParams(newDefaults ?? {});
     return `/${orgId}/${newRecordPath(def.key)}${q.toString() ? `?${q}` : ""}`;
@@ -397,7 +400,7 @@ function ListBody({ def, schema, preset: presetProp, title, actions, embedded, b
   const selectedIds = [...sel];
   const moreMenu = [
     { key: "export", icon: <Download {...I16} />, label: exporting ? "در حال ساخت فایل…" : "خروجی اکسل", disabled: exporting },
-    ...(def.can.create && !embedded ? [{ key: "import", icon: <Upload {...I16} />, label: "ورود از اکسل" }] : []),
+    ...(creatable && !embedded ? [{ key: "import", icon: <Upload {...I16} />, label: "ورود از اکسل" }] : []),
   ];
 
   const header = embedded ? null : (
@@ -409,7 +412,7 @@ function ListBody({ def, schema, preset: presetProp, title, actions, embedded, b
           <Dropdown trigger={["click"]} rootClassName="ds-glass" menu={{ items: moreMenu, onClick: ({ key }) => (key === "export" ? doExport() : setImporting(true)) }}>
             <Button icon={<Ellipsis {...I16} />} aria-label="کارهای دیگر" />
           </Dropdown>
-          {def.can.create ? (
+          {creatable ? (
             <Button type="primary" icon={<Plus {...I16} />} onClick={() => nav(newPath())}>
               {def.label} تازه
             </Button>
@@ -427,7 +430,7 @@ function ListBody({ def, schema, preset: presetProp, title, actions, embedded, b
     <EmptyState
       icon={Inbox}
       title={preset.emptyText ?? `هنوز ${def.plural} ثبت نشده است`}
-      action={def.can.create ? <Button type="primary" icon={<Plus {...I16} />} onClick={() => nav(newPath())}>{def.label} تازه</Button> : undefined}
+      action={creatable ? <Button type="primary" icon={<Plus {...I16} />} onClick={() => nav(newPath())}>{def.label} تازه</Button> : undefined}
     />
   );
 
@@ -496,7 +499,7 @@ function ListBody({ def, schema, preset: presetProp, title, actions, embedded, b
           <Tooltip title="بازخوانی">
             <Button type="text" className="rk-tool" icon={<RotateCw {...I16} className={list.isFetching && !firstLoad ? "ds-spin" : undefined} />} onClick={() => list.refetch()} aria-label="بازخوانی" />
           </Tooltip>
-          {embedded && def.can.create ? (
+          {embedded && creatable ? (
             <Button icon={<Plus {...I16} />} onClick={() => nav(newPath())}>
               {def.label} تازه
             </Button>
