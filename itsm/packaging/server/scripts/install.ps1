@@ -224,6 +224,10 @@ try {
     foreach ($s in @($appSvc, $dbSvc)) { $svc = Get-Svc $s; if ($svc -and $svc.Status -eq 'Running') { $running += $s } }
     Stop-Svc $appSvc
     Stop-Svc $dbSvc
+    # their processes (server workers, PostgreSQL) may outlive the services' stop by a moment: the preflight would see
+    # the installation's own ports as busy (30 s at most)
+    $until = (Get-Date).AddSeconds(30)
+    while ((Get-Date) -lt $until -and @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith("$InstallDir\", [StringComparison]::OrdinalIgnoreCase) }).Count) { Start-Sleep -Milliseconds 500 }
     $pfFile = Join-Path $DataDir 'logs\preflight.json'
     if (Test-Path -LiteralPath $pfFile) { Remove-Item -LiteralPath $pfFile -Force }
     $pfArgs = @('preflight', '--out', $pfFile, '--admin', $(if (Test-Elevated) { '1' } else { '0' }), '--build', "$build", '--product-type', "$($os.ProductType)", '--memory-mb', "$memMb", '--pending-reboot', $(if (Test-PendingReboot) { '1' } else { '0' }))
