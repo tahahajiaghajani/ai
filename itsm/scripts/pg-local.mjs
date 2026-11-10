@@ -79,9 +79,12 @@ export function tune({ ramGb, cpus, os = process.platform, storage = "nvme", wor
   return { settings: s, workers: w, pool: p };
 }
 
-/** Node API processes for a machine: half the vCPUs (PostgreSQL gets the rest), at least 2, at most 12. */
+/**
+ * Node API processes for a machine: a third of the vCPUs (measured: PostgreSQL spends ~2.4× the CPU of Node per
+ * request — PERFORMANCE_FA.md §۵), at least 2, at most 12.
+ */
 export function recommendedWorkers(cpus) {
-  return Math.max(2, Math.min(12, Math.floor(cpus / 2)));
+  return Math.max(2, Math.min(12, Math.round(cpus / 3)));
 }
 
 /** postgres.js connections per Node process: a request holds one for a few milliseconds; 10 keeps p99 low. */

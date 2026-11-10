@@ -47,6 +47,9 @@ const SESSIONS = Number(opts.sessions ?? 3000);
 const URL_ = opts.url ?? process.env.DATABASE_URL ?? "postgres://postgres@127.0.0.1:55432/itsm";
 const MIN_FREE_GB = Number(opts["min-free"] ?? 5);
 const ONLY = opts.only ? String(opts.only).split(",") : null;
+// targeted full-cardinality runs: add this many incidents (numbered after the existing ones, spread over the same five
+// years) to an existing seed — e.g. --extra-incidents 2250000 on a 1/4 seed gives the full 3M at full density
+const EXTRA_INCIDENTS = Number(opts["extra-incidents"] ?? 0);
 
 /** Volumes at scale 1 (five years of a bank). */
 const FULL = {
@@ -452,6 +455,7 @@ async function records(sql, org, meta) {
 
   async function task(name, table, n, states, extra) {
     if (!want(name)) return;
+    const offset = extra.offset ?? 0;
     guardDisk(`before ${name}`);
     const t = Date.now();
     const batch = 250_000;
@@ -462,7 +466,7 @@ async function records(sql, org, meta) {
           caller_id, requested_for, opened_by, opened_at, assignment_group_id, assigned_to, location_id, resolved_at, resolved_by, closed_at, closed_by,
           close_code, close_notes, watch_list, reassignment_count, reopen_count, time_worked, first_response_at, active, sla_due, knowledge,
           unit_id, workspace_id, created_at, created_by, updated_at, updated_by, rev, version, custom${extra.cols ? `, ${extra.cols}` : ""})
-        select pg_temp.uuid7(x.created), $1, x.g,
+        select pg_temp.uuid7(x.created), $1, ${offset} + x.g,
           pg_temp.pick($2::text[]) || ' ' || pg_temp.pick($3::text[]) || ' — ' || e.code,
           pg_temp.pick($4::text[]) || ' ' || pg_temp.pick($4::text[]),
           x.state, (x.imp + x.urg - 1)::text, x.imp::text, x.urg::text, pg_temp.pick($5::text[]), pg_temp.pick($6::text[]),
@@ -502,15 +506,16 @@ async function records(sql, org, meta) {
       process.stdout.write(`\r  ${name} ${to.toLocaleString()} / ${n.toLocaleString()}   `);
     }
     process.stdout.write("\n");
-    await q(`insert into sm_numbers (org_id, table_key, last) values ($1, $2, $3) on conflict (org_id, table_key) do update set last = greatest(sm_numbers.last, excluded.last)`, [org, extra.key, n]);
+    await q(`insert into sm_numbers (org_id, table_key, last) values ($1, $2, $3) on conflict (org_id, table_key) do update set last = greatest(sm_numbers.last, excluded.last)`, [org, extra.key, offset + n]);
     log(`${name}: ${n.toLocaleString()} rows in ${((Date.now() - t) / 1000).toFixed(0)} s`);
   }
 
   // incidents: 35 % the central desk, 40 % the caller's province, 25 % a specialised group (busy ones first)
   const GROUP_IT = `case when x.rg < 0.35 then 1 when x.rg < 0.75 then 2 + greatest(e.prov, 0)
                          else 33 + floor(power(x.rq, 1.5) * 40)::int end`;
-  await task("incidents", "sm_incidents", N.incidents, { new: "new", work: "in_progress", hold: "on_hold", resolved: "resolved", closed: "closed", canceled: "canceled" },
-    { key: "incident", subjects: INC_SUBJECTS, group: GROUP_IT, ws: `'${IT}'::uuid`, cols: "affected_users", vals: "'[]'::jsonb" });
+  const incidentOffset = EXTRA_INCIDENTS ? Number((await q(`select coalesce(max(no), 0)::int as n from sm_incidents where org_id = $1`, [org]))[0].n) : 0;
+  await task("incidents", "sm_incidents", EXTRA_INCIDENTS || N.incidents, { new: "new", work: "in_progress", hold: "on_hold", resolved: "resolved", closed: "closed", canceled: "canceled" },
+    { key: "incident", subjects: INC_SUBJECTS, group: GROUP_IT, ws: `'${IT}'::uuid`, cols: "affected_users", vals: "'[]'::jsonb", offset: incidentOffset });
   await task("requests", "sm_requests", N.requests, { new: "submitted", work: "in_fulfilment", hold: "awaiting_approval", resolved: "delivered", closed: "closed_complete", canceled: "cancelled" },
     { key: "request", subjects: REQ_SUBJECTS, group: `case when x.rg < 0.5 then 1 else 2 + greatest(e.prov, 0) end`, ws: `'${IT}'::uuid`, cols: "items_count, fulfillers", vals: "1, '[]'::jsonb" });
   await task("changes", "sm_change_requests", N.changes, { new: "new", work: "implement", hold: "authorize", resolved: "review", closed: "closed", canceled: "canceled" },
