@@ -8,7 +8,7 @@
 //               deployments per environment, decisions, risk factors and the traceability matrix (REL-011/018)
 //   dashboard   reporting of a period (REL-040): releases by type and outcome, on-time share, rollbacks, early life
 //               support incidents, deployments per environment
-import { DAY_MS, readinessOf } from "@shared/release/logic";
+import { DAY_MS, readinessOf, UNSCHEDULED_RELEASES } from "@shared/release/logic";
 import { RELEASE_FAILED_CODES, RELEASE_LIVE } from "@shared/tables/release";
 import type { Ctx } from "../../context";
 import { addLinkIn, createIn, get, list, listAll, listLinks, orgTz } from "../../engine";
@@ -30,7 +30,7 @@ export interface RoadmapBand {
 }
 
 /** Releases overlapping [from, to) and the windows behind them. */
-export async function roadmap(ctx: Ctx, input: { from: string; to: string; service?: string | null; type?: string | null }): Promise<{ releases: Row[]; bands: RoadmapBand[]; display: Record<string, string>; timezone: string }> {
+export async function roadmap(ctx: Ctx, input: { from: string; to: string; service?: string | null; type?: string | null }): Promise<{ releases: Row[]; bands: RoadmapBand[]; display: Record<string, string>; timezone: string; unscheduled: number }> {
   const from = Date.parse(input.from);
   const to = Date.parse(input.to);
   const range = [{ f: "planned_end", op: "gte", v: new Date(from).toISOString() }, { f: "planned_start", op: "lt", v: new Date(to).toISOString() }];
@@ -65,7 +65,11 @@ export async function roadmap(ctx: Ctx, input: { from: string; to: string; servi
   } catch {
     // change management not installed: no change windows
   }
-  return { releases: r.rows, bands, display: r.display, timezone: tz };
+  const filters = [...(input.service ? [{ f: "service_id", op: "eq", v: input.service }] : []), ...(input.type ? [{ f: "type", op: "eq", v: input.type }] : [])];
+  const unscheduled = await list(ctx, "release", { filter: { and: [UNSCHEDULED_RELEASES, ...filters] } as never, fields: ["number"], size: 1, total: true })
+    .then((u) => u.total ?? 0)
+    .catch(() => 0);
+  return { releases: r.rows, bands, display: r.display, timezone: tz, unscheduled };
 }
 
 /** The readiness board: releases being tested or waiting for their decision. */

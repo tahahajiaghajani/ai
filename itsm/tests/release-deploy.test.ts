@@ -172,3 +172,16 @@ describe("access", () => {
     await w.p.dev.client.post(`${w.P}/r/devops_connection`, { name: "اتصال من", kind: "generic" }, 403);
   });
 });
+
+describe("roadmap («نقشهٔ راه انتشار»)", () => {
+  it("counts the open releases that have no planned release date — they have no bar on it (click-through QA)", async () => {
+    const q = `from=${encodeURIComponent(at(-10))}&to=${encodeURIComponent(at(30))}`;
+    const before = (await w.o.get(`${w.P}/release/roadmap?${q}`)).unscheduled as number;
+    const rel = await w.release({ short_description: "انتشار بی‌تاریخ", planned_start: null, planned_end: null });
+    const after = await w.o.get(`${w.P}/release/roadmap?${q}`);
+    expect(after.unscheduled).toBe(before + 1);
+    expect(after.releases.some((r: any) => r.id === rel.id)).toBe(false);
+    // the type filter applies to the count too
+    expect((await w.o.get(`${w.P}/release/roadmap?${q}&type=major`)).unscheduled).toBe(0);
+  });
+});

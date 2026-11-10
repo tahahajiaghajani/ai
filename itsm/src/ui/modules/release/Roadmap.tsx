@@ -3,12 +3,15 @@
 // Fridays and holidays shaded — with a range of one, three or six months, navigation, and filters by type. Releases
 // that need attention (overdue, high risk, rolled back) are outlined. Clicking a release opens it.
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Segmented, Select, Space } from "antd";
 import { ChevronRight, ChevronLeft, Plus, RotateCw } from "lucide-react";
 import { RELEASE_TYPES } from "@shared/tables/release";
 import { addDays, todayISO } from "@shared/jalali";
+import { faDigits } from "@shared/format";
+import { UNSCHEDULED_RELEASES } from "@shared/release/logic";
+import type { Cond } from "@shared/model/conditions";
 import { useOrg } from "../../lib/org";
 import { errorText } from "../../lib/api";
 import { PageHeader } from "../../components/layout";
@@ -18,6 +21,7 @@ import { recordPath, newRecordPath } from "../../records";
 import { TimelineGrid } from "../../records/board/TimelineGrid";
 import { getHolidaySource, type Holiday } from "../../records/extensions";
 import { windowRange } from "../../records/model/calendar";
+import { encodeFilter } from "../../records/model/filter";
 import { RELEASE_KEYS, releaseApi } from "./api";
 import { roadmapItems } from "./model";
 import "../../records/records.css";
@@ -88,6 +92,15 @@ export default function Roadmap() {
             busy={data.isFetching}
             empty={<EmptyState title="در این بازه انتشاری برنامه‌ریزی نشده است" />}
           />
+          {data.data.unscheduled ? (
+            // a release without a planned release date has no bar: say so, or the roadmap looks broken
+            <p className="text-[13px] text-ink-2">
+              <Link className="ds-link" to={`/${orgId}/releases?filter=${encodeURIComponent(encodeFilter(UNSCHEDULED_RELEASES as unknown as Cond))}`}>
+                {faDigits(data.data.unscheduled)} انتشار باز
+              </Link>{" "}
+              تاریخ عرضهٔ برنامه‌ریزی‌شده ندارد و در نقشهٔ راه دیده نمی‌شود.
+            </p>
+          ) : null}
           <ul className="flex flex-wrap gap-4 text-[12px] text-ink-3" aria-label="راهنمای نوارها">
             <li className="flex items-center gap-1.5"><i className="rk-sw" data-k="maintenance" aria-hidden />پنجرهٔ انتشار</li>
             <li className="flex items-center gap-1.5"><i className="rk-sw" data-k="freeze" aria-hidden />توقف انتشار یا انجماد تغییرات</li>

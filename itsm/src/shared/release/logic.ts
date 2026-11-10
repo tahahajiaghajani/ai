@@ -245,3 +245,9 @@ export function within(at: number, start: unknown, end: unknown): boolean {
 export function overlaps(a0: number, a1: number, b0: number, b1: number): boolean {
   return a0 < b1 && b0 < a1;
 }
+
+/**
+ * Open releases without a planned release date: the roadmap has no bar for them, so it counts them and links to this
+ * filter of «همهٔ انتشارها» (a release created without dates otherwise just «does not show up»).
+ */
+export const UNSCHEDULED_RELEASES = { and: [{ f: "planned_end", op: "empty" }, { f: "state", op: "nin", v: ["closed", "canceled"] }] } as const;
