@@ -34,6 +34,8 @@ export interface AggregateParams {
   metrics?: { fn: MetricFn; field?: string }[];
   /** at most this many groups (default 500, at most 5000) */
   limit?: number;
+  /** server-side only: one more SQL condition on the row alias (see ListParams.where) */
+  where?: ((alias: string, params: unknown[]) => string) | null;
 }
 
 export interface AggregateResult {
@@ -76,6 +78,7 @@ export async function aggregate(ctx: Ctx, table: string, p: AggregateParams): Pr
   const whereOf = (params: unknown[]) => {
     const where = [readable(ctx, def, "t", params, env)];
     if (filter) where.push(toSql(filter, def, "t", params, env, { ctx, lookup: schema.lookup }));
+    if (typeof p.where === "function") where.push(p.where("t", params));
     if (p.q) {
       const s = searchSql(def, "t", p.q, params, (f) => !visible || visible.has(f.name));
       if (s) where.push(s);

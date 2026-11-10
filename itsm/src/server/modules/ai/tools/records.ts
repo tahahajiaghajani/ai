@@ -30,6 +30,7 @@ import { access } from "../../../access/provider";
 import { subjectOf } from "../../../access/subject";
 import { AppError, bad, forbidden } from "../../../http/errors";
 import { orgTimeZone } from "../usage";
+import { AI_CLOSED, aiChannelOpen, aiChannelRule } from "../rag/registry";
 import { defineTool, type AiProposalInput, type AiToolDef, type ToolResult } from "./registry";
 import { bounded, pathOf } from "./common";
 import { conditionOf, fieldLine, legendOf, resolveValues, settableFields, shapeRow, shownFields, toolPathsProblem, toolTextSearch, valuesSchema, whereSchema, type WhereLeaf } from "./fields";
@@ -122,11 +123,14 @@ async function recordOf(ctx: Ctx, def: TableDef, input: { id?: string | null; nu
     const n = String(input.number ?? input.id ?? "").trim();
     if (!n) throw bad(`شناسه یا شمارهٔ ${def.label} را بدهید`);
     if (!def.numbered) throw bad(`${def.label} شماره ندارد؛ شناسهٔ آن را از جست‌وجو بدهید`);
-    const r = await list(ctx, def.key, { filter: { f: "number", op: "eq", v: n.toUpperCase() }, size: 1, total: false, fields: ["id"] });
+    const r = await list(ctx, def.key, { filter: { f: "number", op: "eq", v: n.toUpperCase() }, size: 1, total: false, fields: ["id"], where: aiChannelRule(def.key) });
     if (!r.rows.length) throw new AppError(404, "not_found", `${def.label} «${n}» پیدا نشد یا در دسترس شما نیست`);
     id = String(r.rows[0].id);
   }
-  return get(ctx, def.key, id.toLowerCase());
+  const rec = await get(ctx, def.key, id.toLowerCase());
+  // the record's own AI-use rule (a privileged legal request, an article «هرگز»…) holds for the generated tools too
+  if (!(await aiChannelOpen(ctx.db, ctx.org.id, def.key, String(rec.row.id)))) throw new AppError(403, "ai_closed", AI_CLOSED);
+  return rec;
 }
 
 export const recordPath = (table: string, id: string) => pathOf(table, id) ?? `r/${table}/${id}`;
@@ -245,7 +249,7 @@ function searchTool(schema: OrgSchema, def: TableDef, fields: FieldDef[]): AiToo
       const shown = shownFields(ctx, tdef);
       const wanted = p.fields?.length ? shown.filter((f) => p.fields!.includes(f.name)) : searchFields(ctx, tdef);
       const size = p.limit ?? 15;
-      const r = await list(ctx, tdef.key, { filter: cond, q: p.text || undefined, sort: p.sort || undefined, size, fields: [...new Set(["number", ...wanted.map((f) => f.name)])].filter((n) => tdef.fields.some((f) => f.name === n)), total: true });
+      const r = await list(ctx, tdef.key, { filter: cond, q: p.text || undefined, sort: p.sort || undefined, size, fields: [...new Set(["number", ...wanted.map((f) => f.name)])].filter((n) => tdef.fields.some((f) => f.name === n)), total: true, where: aiChannelRule(tdef.key) });
       const rows = r.rows.map((row) => shapeRow(sch, tdef, row, r.display, tz, wanted));
       return {
         data: { table: tdef.plural, total: r.total, returned: rows.length, truncated: (r.total ?? 0) > rows.length, rows, fields: legendOf(wanted) },
@@ -324,7 +328,7 @@ function aggregateTool(schema: OrgSchema, def: TableDef, fields: FieldDef[]): Ai
       if (kept) throw bad(kept);
       if (p.text && !toolTextSearch(tdef)) throw bad(`جست‌وجوی متنی «${tdef.plural}» در ابزارهای هوش مصنوعی ممکن نیست؛ با شرط روی فیلدها جست‌وجو کنید`);
       const metrics = p.metrics?.length ? p.metrics : [{ fn: "count" as const }];
-      const r = await aggregate(ctx, tdef.key, { filter: cond, q: p.text || undefined, groupBy: p.group_by ?? [], metrics, limit: p.limit ?? 50 });
+      const r = await aggregate(ctx, tdef.key, { filter: cond, q: p.text || undefined, groupBy: p.group_by ?? [], metrics, limit: p.limit ?? 50, where: aiChannelRule(tdef.key) });
       const mkey = (m: { fn: string; field?: string }) => (m.fn === "count" && !m.field ? "count" : `${m.fn}:${m.field}`);
       const rows = r.rows.map((x) => ({ label: x.labels.join(" / "), ...Object.fromEntries(metrics.map((m) => [mkey(m), x.values[mkey(m)] ?? null])) }));
       const chartRows = rows.map((x) => ({ label: x.label, value: x[mkey(metrics[0]) as keyof typeof x] as unknown }));
@@ -575,7 +579,7 @@ function batchTool(schema: OrgSchema, def: TableDef, fields: FieldDef[]): AiTool
       if (p.action === "update" && !Object.keys(data).length) throw bad("مقدارهای تازه (values) را بدهید");
       const sf0 = tdef.states?.field;
       const watched = [...Object.keys(data), ...(sf0 && p.action === "transition" ? [sf0] : [])];
-      const found = await list(ctx, tdef.key, { filter: cond, q: p.text || undefined, size: BATCH_MAX + 1, total: true, fields: [...new Set(["number", tdef.display, ...(sf0 ? [sf0] : []), ...watched])] });
+      const found = await list(ctx, tdef.key, { filter: cond, q: p.text || undefined, size: BATCH_MAX + 1, total: true, fields: [...new Set(["number", tdef.display, ...(sf0 ? [sf0] : []), ...watched])], where: aiChannelRule(tdef.key) });
       if (!found.rows.length) throw bad("هیچ رکوردی با این شرط‌ها در دسترس شما نیست");
       if ((found.total ?? found.rows.length) > BATCH_MAX) throw bad(`${formatNumber(found.total ?? 0)} رکورد جور است؛ یک پیشنهاد گروهی حداکثر ${formatNumber(BATCH_MAX)} رکورد را تغییر می‌دهد — شرط‌ها را تنگ‌تر کنید`);
       // every record is tried with the person's access in one rolled-back transaction: who would fail, and why

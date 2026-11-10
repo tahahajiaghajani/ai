@@ -14,7 +14,7 @@ import { installDocs } from "./docs";
 
 export { retrieve, fuse, tsQueryOf, type RetrieveOptions, type RetrievedPassage, type RetrieveResult } from "./retrieve";
 export { askWithCitations, checkCitations, askPrompt, publicPassages, ASK_SYSTEM, type AskOptions } from "./ask";
-export { registerRagSource, isRagTable, ragTables, defaultDocument, buildDocument, registerAiChannel, aiChannelOpen, AI_CLOSED, type RagSource, type RagBuildArgs, type RagDocument, type RagPart } from "./registry";
+export { registerRagSource, isRagTable, ragTables, defaultDocument, buildDocument, registerAiChannel, aiChannelOpen, aiChannelRule, AI_CLOSED, type RagSource, type RagBuildArgs, type RagDocument, type RagPart } from "./registry";
 export { indexNow, indexRecord, indexSession, queueBackfill, queueReconcile, reconcile, removeFromIndex, embedMissing, scheduleEmbed, ensureSchedules, RAG_JOBS, type IndexOutcome } from "./indexer";
 export { activeEmbedder, embedTexts, embedKey, EmbedUnavailableError, type EmbedderInfo } from "./embed";
 export { storeBackend, forceStoreBackend, setAnnMinRows, ensureAnnIndexes, type StoreBackend } from "./store";

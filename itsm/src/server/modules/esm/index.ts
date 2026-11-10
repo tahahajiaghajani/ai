@@ -9,8 +9,10 @@
 //     requester's answer moves «منتظر اطلاعات» on
 //   · jobs: esm.no_show (bookings nobody checked in to), esm.sweep (auto-close, journeys' due work, visitors who
 //     never came), esm.seed (the departments' content pack of a new organisation)
-//   · AI: skills esm.hr_case_summary and esm.onboarding_checklist; legal requests and employee-relations notes stay out
-//     of the assistant's generated tools; privileged legal requests never reach a model
+//   · AI: skills esm.hr_case_summary and esm.onboarding_checklist; the HR and legal tables' default data-use policies
+//     (`ESM_DATA_USE`: legal requests and employee-relations notes «هرگز», HR cases, tasks, profiles and HSE events
+//     «فقط محلی») hold for every AI surface, the generated tools included; privileged legal requests are closed to AI
+//     record by record (the AI-use rule the generated tools, skills and retrieval all honour)
 //   · the portal's registration hook (department sections) and the record meta `esm`
 import { stateCategory } from "@shared/model/task";
 import { tableDef } from "@shared/tables";
@@ -88,8 +90,8 @@ export function installEsmModule(): void {
     await transitionIn(s.tx, sys, "journey_activity", String(s.record.id), verdict === "approved" ? "done" : "failed", verdict === "approved" ? {} : { outcome: "تأیید نشد" }, { trusted: true });
   });
 
-  // AI: no skill and no retrieval reads a privileged legal request (the assistant's generated record tools follow
-  // reading access only; making them honour AI-channel rules is an engine request)
+  // AI: no skill, retrieval or generated record tool reads a privileged legal request (on top of the table's «هرگز»
+  // default, which an AI administrator may relax)
   registerAiChannel("legal_request", (alias) => `coalesce(${alias}.privileged, false) = false`);
 
   registerRecordMeta("esm_department", async ({ q, ctx, row }) => ({ esm: { administers: await administersDepartment(q, ctx, row) } }));

@@ -1131,3 +1131,20 @@ export const ESM_TABLES: TableDef[] = [
   serviceCase,
   esmConfig,
 ];
+
+/**
+ * Default AI data-use policies (docs/spec/AI.md §14.2) of the HR and legal records: legal requests (attorney–client
+ * material) and employee-relations notes reach no model at all — not the chain, skills, the assistant's generated tools
+ * or agents, retrieval answers, embeddings, insights or «پرسش تحلیلی»; HR cases, HR tasks, employment profiles and
+ * health-and-safety events go to the organisation's local models only. An AI administrator may set another policy per
+ * table («حاکمیت هوش مصنوعی»); the per-record rule (a privileged legal request is closed to AI) holds on top.
+ */
+export const ESM_DATA_USE: Record<string, "local" | "never"> = {
+  hr_case: "local",
+  hr_task: "local",
+  hr_profile: "local",
+  hse_event: "local",
+  hr_case_note: "never",
+  legal_request: "never",
+};
+for (const t of ESM_TABLES) if (ESM_DATA_USE[t.key]) t.dataUse = ESM_DATA_USE[t.key];

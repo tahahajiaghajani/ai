@@ -38,6 +38,11 @@ export interface ListParams {
   view?: string;
   /** count the matching rows (default true) */
   total?: boolean;
+  /**
+   * Server-side only (never from a request body): one more SQL condition on the row alias with its parameters — the
+   * AI-use rule of a table's records (`aiChannelRule`) when the assistant's generated tools list them.
+   */
+  where?: ((alias: string, params: unknown[]) => string) | null;
 }
 
 export interface ListResult {
@@ -177,6 +182,7 @@ export async function list(ctx: Ctx, table: string, p: ListParams = {}): Promise
   const params: unknown[] = [];
   const where = [readable(ctx, def, "t", params, env)];
   if (filter) where.push(toSql(filter, def, "t", params, env, { ctx, lookup: schema.lookup }));
+  if (typeof p.where === "function") where.push(p.where("t", params));
   const visible = access().visibleFields(ctx, def);
   if (p.q) {
     const s = searchSql(def, "t", p.q, params, (f) => !visible || visible.has(f.name));

@@ -59,13 +59,18 @@ export function registerAiChannel(table: string, rule: (alias: string, params: u
   };
 }
 
+/** The AI-use rule of a table's records (`aiChannel` of its source or a registered rule), or null when it has none. */
+export function aiChannelRule(table: string): ((alias: string, params: unknown[]) => string) | null {
+  const src = SOURCES.get(table);
+  return CHANNELS.get(table) ?? src?.aiChannel ?? src?.aiWhere ?? null;
+}
+
 /**
  * Does the record's AI-use rule hold (`aiChannel` of its source or a registered rule; none = yes)? Read as stored —
  * the caller's access to the record is checked by whoever loads it.
  */
 export async function aiChannelOpen(q: Queryable, orgId: string, table: string, id: string): Promise<boolean> {
-  const src = SOURCES.get(table);
-  const rule = CHANNELS.get(table) ?? src?.aiChannel ?? src?.aiWhere;
+  const rule = aiChannelRule(table);
   if (!rule) return true;
   const def = TABLES.get(table);
   if (!def || !/^[0-9a-f-]{36}$/i.test(id)) return false;
