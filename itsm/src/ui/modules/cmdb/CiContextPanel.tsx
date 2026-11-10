@@ -23,13 +23,15 @@ const ICON = { size: 14, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
 export const hasCiField = (ctx: RecordContext) => ctx.def.module !== "cmdb" && ctx.def.fields.some((f) => f.name === "ci_id" && f.type === "ref" && f.ref === "ci");
 
 export function CiContextPanel({ ctx }: { ctx: RecordContext }) {
-  const { api, orgId } = useOrg();
+  const { api, orgId, allows } = useOrg();
   const { message } = App.useApp();
   const ciId = String(ctx.row.ci_id ?? "");
+  // without the CMDB area the CI is not readable (a requester opening an incident: 404 GET r/ci/:id): no request
+  const canCi = allows({ area: "cmdb" });
   const [wrong, setWrong] = useState(false);
   const [correct, setCorrect] = useState<string | null>(null);
   const [note, setNote] = useState("");
-  const ci = useQuery({ queryKey: ["cmdb", orgId, "ci-lite", ciId], queryFn: () => recordsApi.get(api, "ci", ciId), enabled: !!ciId, staleTime: 30_000, retry: false });
+  const ci = useQuery({ queryKey: ["cmdb", orgId, "ci-lite", ciId], queryFn: () => recordsApi.get(api, "ci", ciId), enabled: !!ciId && canCi, staleTime: 30_000, retry: false });
   const q = { ci_ids: [ciId], state: "down" as const, depth: 8 };
   const impact = useQuery({ queryKey: CMDB_KEYS.impact(orgId, q), queryFn: () => cmdbApi.impact(api, q), enabled: !!ciId && !!ci.data, staleTime: 60_000 });
   const hasAffected = ctx.def.fields.some((f) => f.name === "affected_services" && f.type === "refs");

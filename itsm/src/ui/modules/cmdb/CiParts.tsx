@@ -174,12 +174,15 @@ export function CiAttrsTab({ ctx }: { ctx: RecordContext }) {
 
 /** «نقشهٔ وابستگی» tab: the map around the CI (two steps, both directions by default). */
 export function CiMapTab({ ctx }: { ctx: RecordContext }) {
-  const { api, orgId } = useOrg();
+  const { api, orgId, allows } = useOrg();
   const [direction, setDirection] = useState<"both" | "dependents" | "dependencies">("both");
   const [selected, setSelected] = useState<string | null>(null);
   const root = String(ctx.row.ci_id ?? ctx.row.id);
   const q = { roots: [root], depth: 2, direction, overlays: true };
-  const map = useQuery({ queryKey: CMDB_KEYS.map(orgId, q), queryFn: () => cmdbApi.map(api, q), staleTime: 30_000 });
+  // a service's «مدل خدمت» is open to whoever reads the service; the map is the CMDB's (a requester: 404, «نقشه بارگذاری نشد»)
+  const canMap = allows({ area: "cmdb" });
+  const map = useQuery({ queryKey: CMDB_KEYS.map(orgId, q), queryFn: () => cmdbApi.map(api, q), staleTime: 30_000, enabled: canMap });
+  if (!canMap) return <p className="text-[13px] text-ink-3">نقشهٔ پیکربندی را نمی‌توانید ببینید.</p>;
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2">

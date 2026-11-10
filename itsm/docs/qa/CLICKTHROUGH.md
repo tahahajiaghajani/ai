@@ -34,10 +34,59 @@ shared with four other build agents a full run took 34 minutes (2,364 checks) an
 (UI build, server start, 267 checks); it uses one headless Chromium and replaces a tab, context or browser that
 crashes.
 
+People who already exist (the demo pack's personas): `--org <id>` (the organisation to crawl), `--agent <email>` and
+`--requester <email>` with `--people-password <password>` sign in as them instead of creating the crawler's own agent
+and requester; their access is left as it is. With `--base` and `--out <dir>` several crawls can share one server.
+
 Not reached: the server edition's own pages (`/admin/server`, the server `/setup`) need the server edition; cloud
 mode needs PostgreSQL (`scripts/pg-local.mjs`) and was not crawled in this round.
 
-## How this report was produced (10 November 2026)
+## Round 2 — the merged 1.1-beta build with the bank demo pack (10 November 2026, `itsm-crawl`)
+
+The merged build (`0d8aa8a`: the crawler, the bank demo pack and the bank ITAM) was crawled in three phases on the
+desktop-mode local server (PGlite). `clickthrough.json` holds every check of the three phases, each row with its
+`phase`; `phases` sums them up. The tables below this section («Last run», «Every page») are those of phase 1.
+
+| Phase | What was crawled | Checks | Passed | Problems |
+|---|---|---|---|---|
+| 1 — without demo | full crawl of every role on the seeded organisation (every route, «… تازه», first records and their tabs and side panels, header actions, 390 px) | 2,228 | 2,227 | 1 (fixed) |
+| 2 — with the demo pack | pack «کوچک» loaded through `POST /api/o/:org/demo/load` (what «داده‌های نمایشی» calls; 53,125 rows, 5 min); administrator, demo IT agent «نگار کارشناس‌پور» and demo requester «سمیه شعبه‌دار» (the pack's shared password from the console) on ITAM, incidents and major incidents, changes and their calendar, CMDB and the service map, services, portal, analytics, AI pages and «داده‌های نمایشی»; the ITAM screens again as the asset manager «رامین دارایی» and the branch asset officer «یاسر اموالی» | 958 + 101 + 87 + 77, then 12 + 25 as the change manager «کاوه تغییری» and the desk manager «بهروز مدیرنیا» (pack loaded again) | all but 13 | 13 = 2 problems × several tabs (fixed, re-checked: 4/4) |
+| 3 — after the purge | «حذف کامل داده‌های نمایشی» in the console (report of 173,221 rows in 69 tables and 153 accounts, typed «حذف کامل»; the sign-in was minutes old, so the re-authentication gate let it through without asking), then `--quick` for every role (main pages, consoles, portal, sign-in pages) and the phase-2 pages again with their records and actions for every role | 267 + 110 | 377 | 0 |
+
+Also checked by hand (`page.evaluate` through Playwright):
+
+- **AI assistant panel** (Ctrl J) without a model: the administrator reads «هوش مصنوعی هنوز راه‌اندازی نشده است» with
+  «راه‌اندازی هوش مصنوعی»; the demo agent reads the same title with «از مدیر سازمان بخواهید هوش مصنوعی را راه‌اندازی
+  کند»; no request fails and the question box is not offered. The portal has no assistant button.
+- **Phone width (390 px)**: «ناوگان خودپرداز», «اموال شعبه‌ها», «دفتر اموال» as the asset manager — no horizontal
+  scroll; the crawler's 390 px step passed on every main page of every space in phases 1 and 2.
+- **After the purge**: the banner is gone on a fresh load (it stayed on the console page itself — fixed below); the
+  demo accounts no longer sign in (401); the members are the owner and the crawler's two people; searching «شعبه»,
+  «آزادی», «BR-», «کارشناس‌پور», «خودپرداز» and «aftab» in locations, organisation units, incidents, assets, CIs,
+  changes and articles finds nothing of the bank (the one incident with «شعبه» is the crawler's own seed, written after
+  the purge); the palette finds no demo person («نگار») or branch («شعبهٔ آزادی»).
+- **Second load and purge** (on the build with the fixes): the load with an API sign-in older than 15 minutes was
+  refused with 401 `reauth_required` until `POST /api/auth/reauth`; with the pack loaded again, the major incident's
+  «اتاق عملیات» (`incidents/:id/war-room`, which the crawl does not reach from its list) as the demo manager «بهروز
+  مدیرنیا» at 1,440 and 390 px and both audits' «شمارش» (`itam/audits/:id/scan`) at 390 px rendered with no failed
+  request and no horizontal scroll; the second «حذف کامل» from the console removed the banner on the same page without
+  a reload.
+
+### Findings of round 2
+
+| Route | Role | Problem | Status |
+|---|---|---|---|
+| `incidents/:id` (side panel «پیکربندی و اثر»), its tabs | demo requester | 404 `GET r/ci/:id`: the panel read the incident's CI although the requester has no CMDB read | fixed (`4614086`): the panel asks only with the CMDB area; it says «پیکربندی این رکورد را نمی‌توانید ببینید» |
+| `services/:id` → «مدل خدمت» (and the tabs opened after it) | demo requester | «نقشه بارگذاری نشد», 404 `POST cmdb/map`: a service is open to requesters, its CMDB map is not | fixed (`4614086`): the map asks only with the CMDB area, otherwise «نقشهٔ پیکربندی را نمی‌توانید ببینید» |
+| `settings/demo` after «حذف کامل» | admin | the banner «این سازمان دادهٔ نمایشی دارد» (and lists read before) stayed until a reload: the page refreshed them when the purge started, not when it ended | fixed (`c15a46d`): when the pack leaves «loading» or «purging» every query is refreshed |
+| `kb/articles` → «مقالهٔ دانش تازه» (`kb/new`) | admin | in an organisation younger than ~12 minutes (the knowledge seed job waits `SEED_DELAY_MS` + 2 min) there is no base yet; the administrator was told to ask the knowledge manager | fixed (`b8c252c`): a knowledge administrator reads «هنوز پایگاه دانشی ساخته نشده است» with «پایگاه دانش تازه»; the crawler still records no form for this one check (a timing of the crawl) |
+
+Tests: `tests/ui-clickthrough-bank.test.ts`.
+
+Not crawled in round 2: the demo SOC and HR personas (their pages are the administrator's in phase 2 filtered by their
+grants); the demo pack's «متوسط» and «بزرگ» sizes (server edition).
+
+## How this report was produced (round 1, 10 November 2026)
 
 1. A full crawl of every role (2,364 checks, 34 minutes, one headless Chromium on a 4-vCPU machine shared with four
    other build agents) on the build with the fixes up to the agent's sidebar: 18 problems — the requester's queue and
@@ -47,7 +96,7 @@ mode needs PostgreSQL (`scripts/pg-local.mjs`) and was not crawled in this round
 3. The seven pages whose renderer crashed were opened again (`--only … --merge`): all rendered. Result: 2,334 checks,
    all passed (the requester's and the agent's sidebars are shorter now, hence fewer checks than in step 1).
 
-## Findings of this round (1.1-beta)
+## Findings of round 1 (1.1-beta)
 
 Found by the crawler (and by reading the code around each finding), fixed on `itsm-qa` with a regression test
 each (`tests/ui-clickthrough.test.ts` unless named).
@@ -86,17 +135,24 @@ each (`tests/ui-clickthrough.test.ts` unless named).
 
 ## Last run
 
-- Started 2026-11-10T19:49:25.705Z, 46 s; version 1.0.0, desktop mode (desktop edition) on PGlite.
-- 1374 registered routes; 2334 checks, 2334 passed, 0 with a problem.
-- Re-checked pages merged into the run of 2026-11-10T19:37:31.405Z (2287 earlier checks kept).
-- مدیر سامانه (`admin`): 1561/1561 checks passed.
+- Started 2026-11-10T21:34:32.682Z, 1728 s; version 1.1.0, desktop mode (desktop edition) on PGlite.
+- 1397 registered routes; 2228 checks, 2227 passed, 1 with a problem.
+- مدیر سامانه (`admin`): 1452/1453 checks passed.
+- کارشناس فناوری اطلاعات (`agent`): 548/548 checks passed.
+- درخواست‌دهنده (`requester`): 222/222 checks passed.
 - بی‌ورود (`anonymous`): 5/5 checks passed.
-- کارشناس فناوری اطلاعات (`agent`): 545/545 checks passed.
-- درخواست‌دهنده (`requester`): 223/223 checks passed.
 
 ## Problems
 
-None.
+| Route | Role | Step | Issue |
+|---|---|---|---|
+| `/{org}/kb/articles → «مقالهٔ دانش تازه»` | admin | new | the new-record form did not render |
+
+## Not reached
+
+Parameterised pages without a record to open in this data (no first record in their list, or a parameter that is not a record id):
+
+`notify/rules/builtin/:key`, `flows/:id/design`, `flows/runs/:runId`, `catalog-items/:id/builder`, `docs/d/:id/edit`, `kb/n/:number`, `kb/edit/:versionId`, `projects/:id/gantt`, `analytics/dashboards/:id/settings`, `itam/audits/:id/scan`, `esm/d/:key`, `hr/journeys/:id/tracker`, `customers/accounts/:id/360`, `slm/agreements/:id/360`, `slm/reviews/:id/pack`, `studio/t/:slot`
 
 ## Every page
 
@@ -105,6 +161,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 
 | Route | Role | Steps | Result |
 |---|---|---|---|
+| `/{org}` | admin | visit, link | ok |
 | `/{org}/todo` | admin | visit, new, record, tab | ok |
 | `/{org}/r/todo` | admin | visit, new, record, tab | ok |
 | `/{org}/r/todo/new` | admin | visit | ok |
@@ -113,6 +170,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/settings/choices` | admin | visit | ok |
 | `/{org}/settings/forms` | admin | visit | ok |
 | `/{org}/settings/views` | admin | visit, action | ok |
+| `/{org}/settings/org` | admin | visit | ok |
 | `/{org}/settings/users` | admin | visit, action | ok |
 | `/{org}/settings/account` | admin | visit | ok |
 | `/{org}/settings/desktop` | admin | visit | ok |
@@ -133,7 +191,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/notify/channels` | admin | visit, new | ok |
 | `/{org}/notify/rules` | admin | visit, new | ok |
 | `/{org}/notify/templates` | admin | visit, new | ok |
-| `/{org}/notify/log` | admin | visit, link | ok |
+| `/{org}/notify/log` | admin | visit | ok |
 | `/{org}/notify/prefs` | admin | visit | ok |
 | `/{org}/approvals/delegations` | admin | visit, new | ok |
 | `/{org}/approvals/records` | admin | visit | ok |
@@ -224,9 +282,9 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/catalog-questions` | admin | visit, new | ok |
 | `/{org}/catalog-policies` | admin | visit, new | ok |
 | `/{org}/catalog-tasks` | admin | visit, new | ok |
-| `/{org}/catalog-item-versions` | admin | visit, record | ok |
+| `/{org}/catalog-item-versions` | admin | visit | ok |
 | `/{org}/request-answers` | admin | visit | ok |
-| `/{org}/request-settings/record` | admin | visit, new, record | ok |
+| `/{org}/request-settings/record` | admin | visit, new | ok |
 | `/{org}/request-carts` | admin | visit, new | ok |
 | `/{org}/request-cart-lines` | admin | visit, new | ok |
 | `/{org}/requests/mine` | admin | visit, action | ok |
@@ -239,6 +297,8 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/catalog` | admin | visit | ok |
 | `/{org}/catalog/cart` | admin | visit | ok |
 | `/{org}/requests/dashboard` | admin | visit | ok |
+| `/{org}/request-settings` | admin | visit | ok |
+| `/{org}/docs/collections` | admin | visit, new | ok |
 | `/{org}/docs` | admin | visit, action | ok |
 | `/{org}/docs/ask` | admin | visit | ok |
 | `/{org}/ask` | admin | visit | ok |
@@ -262,25 +322,26 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/cmdb/maps` | admin | visit, new | ok |
 | `/{org}/cmdb/queries` | admin | visit, new | ok |
 | `/{org}/cmdb/import-runs` | admin | visit, new | ok |
-| `/{org}/cmdb/sources` | admin | visit, new, record | ok |
+| `/{org}/cmdb/sources` | admin | visit, new | ok |
 | `/{org}/cmdb/collectors` | admin | visit, new | ok |
-| `/{org}/cmdb/classes` | admin | visit, new, record | ok |
-| `/{org}/cmdb/rel-types` | admin | visit, new, record | ok |
-| `/{org}/cmdb/identification-rules` | admin | visit, new, record | ok |
+| `/{org}/cmdb/classes` | admin | visit, new | ok |
+| `/{org}/cmdb/rel-types` | admin | visit, new | ok |
+| `/{org}/cmdb/identification-rules` | admin | visit, new | ok |
 | `/{org}/cmdb/reconciliation-rules` | admin | visit, new | ok |
-| `/{org}/cmdb/rules` | admin | visit, new, record | ok |
-| `/{org}/cmdb/rel-rules` | admin | visit, new, record | ok |
-| `/{org}/cmdb/policies` | admin | visit, new, record | ok |
+| `/{org}/cmdb/rules` | admin | visit, new | ok |
+| `/{org}/cmdb/rel-rules` | admin | visit, new | ok |
+| `/{org}/cmdb/policies` | admin | visit, new | ok |
 | `/{org}/cmdb/health-facts` | admin | visit, new, record | ok |
-| `/{org}/cmdb/settings` | admin | visit, new, record | ok |
+| `/{org}/cmdb/settings` | admin | visit, new | ok |
 | `/{org}/cmdb/mine` | admin | visit, action | ok |
 | `/{org}/cmdb/down` | admin | visit, action | ok |
 | `/{org}/cmdb/stale` | admin | visit, action | ok |
+| `/{org}/cmdb/no-owner` | admin | visit, action | ok |
 | `/{org}/cmdb` | admin | visit, link | ok |
 | `/{org}/cmdb/map` | admin | visit | ok |
 | `/{org}/cmdb/impact` | admin | visit, link | ok |
 | `/{org}/cmdb/import` | admin | visit | ok |
-| `/{org}/cmdb/class-manager` | admin | visit, link | ok |
+| `/{org}/cmdb/class-manager` | admin | visit | ok |
 | `/{org}/cmdb/query` | admin | visit, action | ok |
 | `/{org}/cmdb/local` | admin | visit, link | ok |
 | `/{org}/services` | admin | visit, new | ok |
@@ -293,18 +354,18 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/portfolio/agreements` | admin | visit, new | ok |
 | `/{org}/service-subscriptions` | admin | visit, new | ok |
 | `/{org}/portfolio/app-assessments` | admin | visit, new | ok |
-| `/{org}/portfolio/standards` | admin | visit, new, record | ok |
-| `/{org}/portfolio/capabilities` | admin | visit, new, record | ok |
-| `/{org}/portfolio/nodes` | admin | visit, new, record | ok |
+| `/{org}/portfolio/standards` | admin | visit, new | ok |
+| `/{org}/portfolio/capabilities` | admin | visit, new | ok |
+| `/{org}/portfolio/nodes` | admin | visit, new | ok |
 | `/{org}/portfolio/commitments` | admin | visit, new | ok |
 | `/{org}/portfolio/instances` | admin | visit, new | ok |
-| `/{org}/portfolio/settings` | admin | visit, new, record | ok |
+| `/{org}/portfolio/settings` | admin | visit, new | ok |
 | `/{org}/portfolio` | admin | visit, action | ok |
 | `/{org}/status` | admin | visit | ok |
 | `/{org}/my-services` | admin | visit | ok |
 | `/{org}/portfolio/rationalization` | admin | visit | ok |
-| `/{org}/portfolio/capability-map` | admin | visit, link | ok |
-| `/{org}/kb/articles` | admin | visit, new, record | ok |
+| `/{org}/portfolio/capability-map` | admin | visit | ok |
+| `/{org}/kb/articles` | admin | visit, new | **new: the new-record form did not render** |
 | `/{org}/kb/versions` | admin | visit, new | ok |
 | `/{org}/kb/tasks` | admin | visit, new | ok |
 | `/{org}/kb/snippets` | admin | visit, new | ok |
@@ -317,21 +378,21 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/kb/gaps` | admin | visit, new | ok |
 | `/{org}/kb/duplicates` | admin | visit, new | ok |
 | `/{org}/kb/quality-reviews` | admin | visit, new | ok |
-| `/{org}/kb/bases` | admin | visit, new, record | ok |
-| `/{org}/kb/categories` | admin | visit, new, record | ok |
-| `/{org}/kb/templates` | admin | visit, new, record | ok |
-| `/{org}/kb/glossary` | admin | visit, new, record | ok |
+| `/{org}/kb/bases` | admin | visit, new | ok |
+| `/{org}/kb/categories` | admin | visit, new | ok |
+| `/{org}/kb/templates` | admin | visit, new | ok |
+| `/{org}/kb/glossary` | admin | visit, new | ok |
 | `/{org}/kb/search-rules` | admin | visit, new | ok |
 | `/{org}/kb/licences` | admin | visit, new | ok |
 | `/{org}/kb/domains` | admin | visit, new | ok |
-| `/{org}/kb/settings` | admin | visit, new, record | ok |
-| `/{org}/kb` | admin | visit, action, link | ok |
-| `/{org}/kb/search` | admin | visit, link | ok |
+| `/{org}/kb/settings` | admin | visit, new | ok |
+| `/{org}/kb` | admin | visit, action | ok |
+| `/{org}/kb/search` | admin | visit | ok |
 | `/{org}/kb/new` | admin | visit | ok |
-| `/{org}/kb/a` | admin | visit, action, link | ok |
+| `/{org}/kb/a` | admin | visit, action | ok |
 | `/{org}/kb/diff` | admin | visit | ok |
 | `/{org}/kb/workspace` | admin | visit | ok |
-| `/{org}/kb/dashboard` | admin | visit, link | ok |
+| `/{org}/kb/dashboard` | admin | visit | ok |
 | `/{org}/kb/acknowledge` | admin | visit | ok |
 | `/{org}/kb/drafts` | admin | visit, action | ok |
 | `/{org}/kb/reviews` | admin | visit, action | ok |
@@ -343,14 +404,14 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/releases/flags` | admin | visit, new | ok |
 | `/{org}/releases/artifacts` | admin | visit, new | ok |
 | `/{org}/releases/bookings` | admin | visit, new | ok |
-| `/{org}/releases/templates` | admin | visit, new, record | ok |
-| `/{org}/releases/policies` | admin | visit, new, record | ok |
-| `/{org}/releases/checks` | admin | visit, new, record | ok |
-| `/{org}/releases/environments` | admin | visit, new, record | ok |
-| `/{org}/releases/windows` | admin | visit, new, record | ok |
+| `/{org}/releases/templates` | admin | visit, new | ok |
+| `/{org}/releases/policies` | admin | visit, new | ok |
+| `/{org}/releases/checks` | admin | visit, new | ok |
+| `/{org}/releases/environments` | admin | visit, new | ok |
+| `/{org}/releases/windows` | admin | visit, new | ok |
 | `/{org}/releases/check-results` | admin | visit, new | ok |
 | `/{org}/releases/decisions` | admin | visit, new | ok |
-| `/{org}/releases/settings` | admin | visit, new, record | ok |
+| `/{org}/releases/settings` | admin | visit, new | ok |
 | `/{org}/releases/mine` | admin | visit, action | ok |
 | `/{org}/releases/awaiting-decision` | admin | visit, action | ok |
 | `/{org}/releases/deploying` | admin | visit, action | ok |
@@ -362,9 +423,9 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/releases/roadmap` | admin | visit, action, item | ok |
 | `/{org}/releases/readiness` | admin | visit | ok |
 | `/{org}/releases/dashboard` | admin | visit | ok |
-| `/{org}/devops/connections` | admin | visit, new, record | ok |
-| `/{org}/devops/repositories` | admin | visit, new, record | ok |
-| `/{org}/devops/pipelines` | admin | visit, new, record | ok |
+| `/{org}/devops/connections` | admin | visit, new | ok |
+| `/{org}/devops/repositories` | admin | visit, new | ok |
+| `/{org}/devops/pipelines` | admin | visit, new | ok |
 | `/{org}/devops/gates` | admin | visit, new | ok |
 | `/{org}/devops/events` | admin | visit, new | ok |
 | `/{org}/devops/commits` | admin | visit, new | ok |
@@ -376,12 +437,12 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/projects` | admin | visit, new | ok |
 | `/{org}/project-tasks` | admin | visit, new | ok |
 | `/{org}/demands` | admin | visit, new | ok |
-| `/{org}/portfolios` | admin | visit, new, record | ok |
+| `/{org}/portfolios` | admin | visit, new | ok |
 | `/{org}/projects/raid` | admin | visit, new | ok |
 | `/{org}/projects/status-reports` | admin | visit, new | ok |
 | `/{org}/projects/allocations` | admin | visit, new | ok |
 | `/{org}/projects/time` | admin | visit, new | ok |
-| `/{org}/projects/settings` | admin | visit, new, record | ok |
+| `/{org}/projects/settings` | admin | visit, new | ok |
 | `/{org}/projects/mine` | admin | visit, action | ok |
 | `/{org}/projects/at-risk` | admin | visit, action | ok |
 | `/{org}/projects/my-tasks` | admin | visit, action | ok |
@@ -390,13 +451,13 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/projects/portfolio` | admin | visit | ok |
 | `/{org}/projects/demand-board` | admin | visit, action | ok |
 | `/{org}/projects/resources` | admin | visit | ok |
-| `/{org}/analytics/kpis` | admin | visit, new, record | ok |
+| `/{org}/analytics/kpis` | admin | visit, new | ok |
 | `/{org}/analytics/schedules` | admin | visit, new | ok |
 | `/{org}/analytics/received` | admin | visit, new | ok |
-| `/{org}/analytics/scores` | admin | visit, new, record | ok |
-| `/{org}/analytics/settings/record` | admin | visit, new, record | ok |
-| `/{org}/analytics` | admin | visit, action | ok |
-| `/{org}/analytics/dashboards` | admin | visit, action, link | ok |
+| `/{org}/analytics/scores` | admin | visit, new | ok |
+| `/{org}/analytics/settings/record` | admin | visit, new | ok |
+| `/{org}/analytics` | admin | visit | ok |
+| `/{org}/analytics/dashboards` | admin | visit, action | ok |
 | `/{org}/analytics/reports` | admin | visit, action | ok |
 | `/{org}/analytics/scorecard` | admin | visit | ok |
 | `/{org}/analytics/ask` | admin | visit | ok |
@@ -404,32 +465,32 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/alerts` | admin | visit, new | ok |
 | `/{org}/alert-groups` | admin | visit, new | ok |
 | `/{org}/events` | admin | visit, new | ok |
-| `/{org}/oncall/schedules` | admin | visit, new, record, tab ×2 | ok |
+| `/{org}/oncall/schedules` | admin | visit, new | ok |
 | `/{org}/oncall/overrides` | admin | visit, new | ok |
-| `/{org}/oncall/policies` | admin | visit, new, record, tab | ok |
+| `/{org}/oncall/policies` | admin | visit, new | ok |
 | `/{org}/pages` | admin | visit, new | ok |
 | `/{org}/oncall/rotations` | admin | visit, new | ok |
 | `/{org}/oncall/levels` | admin | visit, new | ok |
-| `/{org}/event/sources` | admin | visit, new, record | ok |
-| `/{org}/event/rules` | admin | visit, new, record | ok |
-| `/{org}/event/correlation` | admin | visit, new, record | ok |
-| `/{org}/event/incident-rules` | admin | visit, new, record | ok |
-| `/{org}/event/routes` | admin | visit, new, record | ok |
-| `/{org}/event/settings` | admin | visit, new, record | ok |
+| `/{org}/event/sources` | admin | visit, new | ok |
+| `/{org}/event/rules` | admin | visit, new | ok |
+| `/{org}/event/correlation` | admin | visit, new | ok |
+| `/{org}/event/incident-rules` | admin | visit, new | ok |
+| `/{org}/event/routes` | admin | visit, new | ok |
+| `/{org}/event/settings` | admin | visit, new | ok |
 | `/{org}/event/console` | admin | visit | ok |
 | `/{org}/oncall` | admin | visit | ok |
 | `/{org}/event/reports` | admin | visit | ok |
 | `/{org}/continuity/outages` | admin | visit, new | ok |
 | `/{org}/continuity/capacity` | admin | visit, new | ok |
-| `/{org}/continuity/bia` | admin | visit, new, record, tab ×2 | ok |
-| `/{org}/continuity/plans` | admin | visit, new, record, tab ×2 | ok |
+| `/{org}/continuity/bia` | admin | visit, new | ok |
+| `/{org}/continuity/plans` | admin | visit, new | ok |
 | `/{org}/continuity/exercises` | admin | visit, new | ok |
-| `/{org}/continuity/steps` | admin | visit, new, record | ok |
-| `/{org}/continuity/settings` | admin | visit, new, record | ok |
+| `/{org}/continuity/steps` | admin | visit, new | ok |
+| `/{org}/continuity/settings` | admin | visit, new | ok |
 | `/{org}/continuity/availability` | admin | visit | ok |
 | `/{org}/continuity/dashboard` | admin | visit | ok |
 | `/{org}/assets` | admin | visit, new | ok |
-| `/{org}/itam/stockrooms` | admin | visit, new, record, tab ×2 | ok |
+| `/{org}/itam/stockrooms` | admin | visit, new | ok |
 | `/{org}/itam/stock-rules` | admin | visit, new | ok |
 | `/{org}/itam/movements` | admin | visit, new | ok |
 | `/{org}/itam/audits` | admin | visit, new | ok |
@@ -437,6 +498,12 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/itam/repairs` | admin | visit, new | ok |
 | `/{org}/itam/disposals` | admin | visit, new | ok |
 | `/{org}/itam/disposal-items` | admin | visit, new | ok |
+| `/{org}/itam/transfers` | admin | visit, new | ok |
+| `/{org}/itam/transfer-items` | admin | visit, new | ok |
+| `/{org}/itam/attestations` | admin | visit, new | ok |
+| `/{org}/itam/custody` | admin | visit, new | ok |
+| `/{org}/itam/device-status` | admin | visit, new | ok |
+| `/{org}/itam/maintenance-slas` | admin | visit, new | ok |
 | `/{org}/itam/reservations` | admin | visit, new | ok |
 | `/{org}/itam/assignments` | admin | visit, new | ok |
 | `/{org}/itam/acknowledgements` | admin | visit, new | ok |
@@ -446,48 +513,52 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/itam/order-lines` | admin | visit, new | ok |
 | `/{org}/itam/receipts` | admin | visit, new | ok |
 | `/{org}/itam/receipt-lines` | admin | visit, new | ok |
-| `/{org}/itam/software` | admin | visit, new, record, tab ×2 | ok |
+| `/{org}/itam/software` | admin | visit, new | ok |
 | `/{org}/itam/installs` | admin | visit, new | ok |
+| `/{org}/itam/entitlements` | admin | visit, new | ok |
 | `/{org}/itam/allocations` | admin | visit, new | ok |
-| `/{org}/itam/reconcile-runs` | admin | visit, record, tab | ok |
+| `/{org}/itam/reconcile-runs` | admin | visit | ok |
 | `/{org}/itam/positions` | admin | visit, new | ok |
-| `/{org}/itam/saas` | admin | visit, new, record, tab | ok |
+| `/{org}/itam/saas` | admin | visit, new | ok |
 | `/{org}/itam/saas-accounts` | admin | visit, new | ok |
-| `/{org}/itam/models` | admin | visit, new, record, tab ×3 | ok |
-| `/{org}/itam/standards` | admin | visit, new, record | ok |
-| `/{org}/itam/depreciation` | admin | visit, new, record | ok |
-| `/{org}/itam/label-templates` | admin | visit, new, record | ok |
+| `/{org}/itam/models` | admin | visit, new | ok |
+| `/{org}/itam/standards` | admin | visit, new | ok |
+| `/{org}/itam/depreciation` | admin | visit, new | ok |
+| `/{org}/itam/label-templates` | admin | visit, new | ok |
 | `/{org}/itam/catalog-models` | admin | visit, new | ok |
-| `/{org}/itam/settings` | admin | visit, new, record | ok |
+| `/{org}/itam/settings` | admin | visit, new | ok |
 | `/{org}/itam` | admin | visit | ok |
 | `/{org}/itam/my-assets` | admin | visit | ok |
-| `/{org}/itam/stock` | admin | visit, link | ok |
-| `/{org}/itam/compliance` | admin | visit, link | ok |
+| `/{org}/itam/stock` | admin | visit | ok |
+| `/{org}/itam/compliance` | admin | visit | ok |
 | `/{org}/itam/labels` | admin | visit, action | ok |
+| `/{org}/itam/branches` | admin | visit, action | ok |
+| `/{org}/itam/fleet` | admin | visit | ok |
+| `/{org}/itam/register` | admin | visit | ok |
 | `/{org}/itam/warranty` | admin | visit, action | ok |
-| `/{org}/contracts` | admin | visit, new, record, tab ×4 | ok |
-| `/{org}/supplier/suppliers` | admin | visit, new, record, tab ×5 | ok |
-| `/{org}/supplier/contacts` | admin | visit, new, record | ok |
+| `/{org}/contracts` | admin | visit, new | ok |
+| `/{org}/supplier/suppliers` | admin | visit, new | ok |
+| `/{org}/supplier/contacts` | admin | visit, new | ok |
 | `/{org}/supplier/reviews` | admin | visit, new | ok |
 | `/{org}/supplier/scorecards` | admin | visit, new | ok |
-| `/{org}/supplier/obligations` | admin | visit, new, record | ok |
+| `/{org}/supplier/obligations` | admin | visit, new | ok |
 | `/{org}/supplier/guarantees` | admin | visit, new | ok |
 | `/{org}/supplier/coverage` | admin | visit, new | ok |
-| `/{org}/supplier/contract-lines` | admin | visit, new, record | ok |
-| `/{org}/supplier/settings` | admin | visit, new, record | ok |
-| `/{org}/supplier/renewals` | admin | visit, link | ok |
+| `/{org}/supplier/contract-lines` | admin | visit, new | ok |
+| `/{org}/supplier/settings` | admin | visit, new | ok |
+| `/{org}/supplier/renewals` | admin | visit | ok |
 | `/{org}/financial/entries` | admin | visit, new | ok |
-| `/{org}/financial/budgets` | admin | visit, new, record, tab | ok |
-| `/{org}/financial/budget-lines` | admin | visit, new, record | ok |
-| `/{org}/financial/allocation-rules` | admin | visit, new, record, tab | ok |
+| `/{org}/financial/budgets` | admin | visit, new | ok |
+| `/{org}/financial/budget-lines` | admin | visit, new | ok |
+| `/{org}/financial/allocation-rules` | admin | visit, new | ok |
 | `/{org}/financial/allocation-targets` | admin | visit, new | ok |
 | `/{org}/financial/allocation-runs` | admin | visit, new | ok |
 | `/{org}/financial/allocation-results` | admin | visit, new | ok |
-| `/{org}/financial/years` | admin | visit, new, record, tab | ok |
-| `/{org}/financial/periods` | admin | visit, new, record | ok |
-| `/{org}/financial/cost-types` | admin | visit, new, record | ok |
-| `/{org}/financial/rates` | admin | visit, new, record | ok |
-| `/{org}/financial/settings` | admin | visit, new, record | ok |
+| `/{org}/financial/years` | admin | visit, new | ok |
+| `/{org}/financial/periods` | admin | visit, new | ok |
+| `/{org}/financial/cost-types` | admin | visit, new | ok |
+| `/{org}/financial/rates` | admin | visit, new | ok |
+| `/{org}/financial/settings` | admin | visit, new | ok |
 | `/{org}/financial` | admin | visit | ok |
 | `/{org}/financial/spend` | admin | visit | ok |
 | `/{org}/security/incidents` | admin | visit, new | ok |
@@ -497,9 +568,9 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/security/clocks` | admin | visit, new | ok |
 | `/{org}/security/reviews` | admin | visit, new | ok |
 | `/{org}/security/verifications` | admin | visit | ok |
-| `/{org}/security/playbooks` | admin | visit, new, record | ok |
-| `/{org}/security/regimes` | admin | visit, new, record | ok |
-| `/{org}/security/settings` | admin | visit, new, record | ok |
+| `/{org}/security/playbooks` | admin | visit, new | ok |
+| `/{org}/security/regimes` | admin | visit, new | ok |
+| `/{org}/security/settings` | admin | visit, new | ok |
 | `/{org}/security/queue/mine` | admin | visit, action | ok |
 | `/{org}/security/queue/unassigned` | admin | visit, action | ok |
 | `/{org}/security/queue/critical` | admin | visit, action | ok |
@@ -516,12 +587,12 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/security/vuln/exceptions` | admin | visit, new | ok |
 | `/{org}/security/vuln/library` | admin | visit, new | ok |
 | `/{org}/security/vuln/scans` | admin | visit, new | ok |
-| `/{org}/grc/controls` | admin | visit, new, record, tab ×3 | ok |
-| `/{org}/grc/requirements` | admin | visit, new, record | ok |
-| `/{org}/grc/frameworks` | admin | visit, new, record, tab | ok |
+| `/{org}/grc/controls` | admin | visit, new | ok |
+| `/{org}/grc/requirements` | admin | visit, new | ok |
+| `/{org}/grc/frameworks` | admin | visit, new | ok |
 | `/{org}/grc/tests` | admin | visit, new | ok |
 | `/{org}/grc/evidence` | admin | visit, new | ok |
-| `/{org}/grc/issues` | admin | visit, new, record | ok |
+| `/{org}/grc/issues` | admin | visit, new | ok |
 | `/{org}/grc/policies` | admin | visit, new | ok |
 | `/{org}/grc/campaigns` | admin | visit, new | ok |
 | `/{org}/grc/acks` | admin | visit | ok |
@@ -532,7 +603,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/grc/reg-alerts` | admin | visit, new | ok |
 | `/{org}/grc/privacy/ropa` | admin | visit, new | ok |
 | `/{org}/grc/privacy/dsr` | admin | visit, new | ok |
-| `/{org}/grc/soa` | admin | visit, link | ok |
+| `/{org}/grc/soa` | admin | visit | ok |
 | `/{org}/grc/ask` | admin | visit | ok |
 | `/{org}/grc/dashboard` | admin | visit | ok |
 | `/{org}/grc/heatmap` | admin | visit | ok |
@@ -632,6 +703,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/slm/plans` | admin | visit, new, record, tab | ok |
 | `/{org}/slm/credits` | admin | visit, new | ok |
 | `/{org}/slm/compliance` | admin | visit, new | ok |
+| `/{org}/slm/xla-scores` | admin | visit, new | ok |
 | `/{org}/slm/targets` | admin | visit, new | ok |
 | `/{org}/slm/templates` | admin | visit, new, record, tab ×2 | ok |
 | `/{org}/slm/template-targets` | admin | visit, new, record | ok |
@@ -650,6 +722,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/workforce/capacity-settings` | admin | visit, new, record | ok |
 | `/{org}/workforce/kudos` | admin | visit, new | ok |
 | `/{org}/workforce/skills-catalogue` | admin | visit, new, record, tab | ok |
+| `/{org}/workforce/coverage` | admin | visit, new, record | ok |
 | `/{org}/workforce/shift-patterns` | admin | visit, new, record | ok |
 | `/{org}/workforce/points` | admin | visit, new | ok |
 | `/{org}/workforce/agents` | admin | visit, new | ok |
@@ -675,6 +748,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/settings/studio` | admin | visit, action, link | ok |
 | `/{org}/settings/logs` | admin | visit, link | ok |
 | `/{org}/settings/licences` | admin | visit, link | ok |
+| `/{org}/settings/demo` | admin | visit | ok |
 | `/{org}/integrations/users` | admin | visit, new | ok |
 | `/{org}/integrations/webhooks` | admin | visit, new | ok |
 | `/{org}/integrations/inbound` | admin | visit, new | ok |
@@ -691,7 +765,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/portal/todo` | admin | visit | ok |
 | `/{org}/portal/kb` | admin | visit, link | ok |
 | `/{org}/portal/profile` | admin | visit | ok |
-| `/{org}/portal/chat` | admin | visit, action | ok |
+| `/{org}/portal/chat` | admin | visit | ok |
 | `/{org}/portal/status` | admin | visit | ok |
 | `/{org}/portal/feedback` | admin | visit, link | ok |
 | `/admin` | admin | visit, link | ok |
@@ -704,10 +778,13 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/admin/announcements` | admin | visit, action | ok |
 | `/admin/ops` | admin | visit | ok |
 | `/admin/audit` | admin | visit | ok |
+| `/admin/orgs/{org}` | admin | visit, action, link | ok |
 | `/orgs` | admin | visit, link | ok |
 | `/orgs/new` | admin | visit | ok |
+| `390px /login` | admin | 390px | ok |
 | `390px /{org}` | admin | 390px | ok |
 | `390px /{org}/todo` | admin | 390px | ok |
+| `390px /{org}/settings/org` | admin | 390px | ok |
 | `390px /{org}/settings/users` | admin | 390px | ok |
 | `390px /{org}/settings/ai` | admin | 390px | ok |
 | `390px /{org}/settings/integrations` | admin | 390px | ok |
@@ -768,6 +845,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `390px /{org}/cmdb/mine` | admin | 390px | ok |
 | `390px /{org}/cmdb/down` | admin | 390px | ok |
 | `390px /{org}/cmdb/stale` | admin | 390px | ok |
+| `390px /{org}/cmdb/no-owner` | admin | 390px | ok |
 | `390px /{org}/cis` | admin | 390px | ok |
 | `390px /{org}/cmdb/relationships` | admin | 390px | ok |
 | `390px /{org}/cmdb/groups` | admin | 390px | ok |
@@ -942,16 +1020,13 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `390px /{org}/workforce/skills` | admin | 390px | ok |
 | `390px /{org}/workforce/time-off` | admin | 390px | ok |
 | `/{org}/incidents/:id/war-room` | admin | visit, action | ok |
-| `/login` | anonymous | visit | ok |
-| `/signup` | anonymous | visit | ok |
-| `/recover` | anonymous | visit | ok |
-| `/setup` | anonymous | visit | ok |
-| `/p/unknown-page` | anonymous | visit | ok |
+| `/{org}` | agent | visit ×2, link ×2 | ok (403: GET /api/local/backups, GET /api/local/settings) |
 | `/{org}/todo` | agent | visit, new, record, tab | ok |
 | `/{org}/settings/fields` | agent | visit | ok (403: POST /api/o/{org}/r/custom_field/query) |
 | `/{org}/settings/choices` | agent | visit | ok (403: POST /api/o/{org}/r/choice/query) |
 | `/{org}/settings/forms` | agent | visit | ok (403: POST /api/o/{org}/r/custom_field/query) |
 | `/{org}/settings/views` | agent | visit, action | ok |
+| `/{org}/settings/org` | agent | visit | ok |
 | `/{org}/settings/users` | agent | visit | ok |
 | `/{org}/settings/security` | agent | visit | ok |
 | `/{org}/settings/desktop` | agent | visit | ok (403: GET /api/local/backups, GET /api/local/settings) |
@@ -1044,6 +1119,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/cmdb/mine` | agent | visit | ok |
 | `/{org}/cmdb/down` | agent | visit | ok |
 | `/{org}/cmdb/stale` | agent | visit | ok |
+| `/{org}/cmdb/no-owner` | agent | visit | ok |
 | `/{org}/cis` | agent | visit, record, tab ×8 | ok |
 | `/{org}/cmdb/relationships` | agent | visit | ok |
 | `/{org}/cmdb/groups` | agent | visit | ok |
@@ -1137,7 +1213,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/analytics/kpis` | agent | visit, record | ok |
 | `/{org}/analytics/schedules` | agent | visit | ok |
 | `/{org}/analytics/received` | agent | visit | ok |
-| `/{org}/analytics` | agent | visit, link | ok |
+| `/{org}/analytics` | agent | visit | ok |
 | `/{org}/analytics/dashboards` | agent | visit, link | ok |
 | `/{org}/analytics/reports` | agent | visit | ok |
 | `/{org}/analytics/scorecard` | agent | visit | ok |
@@ -1159,11 +1235,15 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/itam/audits` | agent | visit | ok |
 | `/{org}/itam/repairs` | agent | visit | ok |
 | `/{org}/itam/disposals` | agent | visit | ok |
+| `/{org}/itam/transfers` | agent | visit | ok |
+| `/{org}/itam/attestations` | agent | visit | ok |
+| `/{org}/itam/custody` | agent | visit | ok |
 | `/{org}/itam/reservations` | agent | visit | ok |
 | `/{org}/itam/assignments` | agent | visit | ok |
 | `/{org}/itam/acknowledgements` | agent | visit | ok |
-| `/{org}/itam/software` | agent | visit ×2, record ×2, tab ×3 | ok |
+| `/{org}/itam/software` | agent | visit, record, tab ×2 | ok |
 | `/{org}/itam/installs` | agent | visit | ok |
+| `/{org}/itam/entitlements` | agent | visit, record, tab | ok |
 | `/{org}/itam/allocations` | agent | visit | ok |
 | `/{org}/itam/reconcile-runs` | agent | visit, record, tab | ok |
 | `/{org}/itam/saas` | agent | visit, record, tab | ok |
@@ -1174,6 +1254,9 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/itam/compliance` | agent | visit, link | ok |
 | `/{org}/itam/labels` | agent | visit, action | ok |
 | `/{org}/itam/warranty` | agent | visit | ok |
+| `/{org}/itam/branches` | agent | visit | ok |
+| `/{org}/itam/fleet` | agent | visit | ok |
+| `/{org}/itam/register` | agent | visit | ok (403: GET /api/o/{org}/itam/register?fy=1405) |
 | `/{org}/itam/my-assets` | agent | visit | ok |
 | `/{org}/supplier/suppliers` | agent | visit, record, tab ×4 | ok |
 | `/{org}/supplier/contacts` | agent | visit, record | ok |
@@ -1226,6 +1309,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/slm/plans` | agent | visit, record, tab | ok |
 | `/{org}/slm/credits` | agent | visit | ok |
 | `/{org}/slm/compliance` | agent | visit | ok |
+| `/{org}/slm/xla-scores` | agent | visit, new | ok |
 | `/{org}/slm/targets` | agent | visit | ok |
 | `/{org}/workforce` | agent | visit | ok |
 | `/{org}/workforce/team` | agent | visit | ok |
@@ -1242,9 +1326,22 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/portal/todo` | agent | visit | ok |
 | `/{org}/portal/kb` | agent | visit, link | ok |
 | `/{org}/portal/profile` | agent | visit | ok |
-| `/{org}/portal/chat` | agent | visit, action | ok |
+| `/{org}/portal/chat` | agent | visit | ok |
 | `/{org}/portal/status` | agent | visit | ok |
 | `/{org}/portal/feedback` | agent | visit, link | ok |
+| `390px /{org}` | agent | 390px ×2 | ok |
+| `390px /{org}/portal` | agent | 390px | ok |
+| `390px /{org}/todo` | agent | 390px | ok |
+| `390px /{org}/settings/org` | agent | 390px | ok |
+| `390px /{org}/settings/users` | agent | 390px | ok |
+| `390px /{org}/settings/security` | agent | 390px | ok |
+| `390px /{org}/settings/desktop` | agent | 390px | ok |
+| `390px /{org}/settings/audit` | agent | 390px | ok |
+| `390px /{org}/approvals` | agent | 390px | ok |
+| `390px /{org}/approvals/delegations` | agent | 390px | ok |
+| `390px /{org}/incidents/mine` | agent | 390px | ok |
+| `390px /{org}/incidents/unassigned` | agent | 390px | ok |
+| `390px /{org}/incidents/high` | agent | 390px | ok |
 | `/{org}` | requester | visit ×2, link ×2 | ok (403: GET /api/local/backups, GET /api/local/settings) |
 | `/{org}/todo` | requester | visit, new | ok |
 | `/{org}/settings/fields` | requester | visit | ok (403: POST /api/o/{org}/r/custom_field/query) |
@@ -1374,7 +1471,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/portal/todo` | requester | visit | ok |
 | `/{org}/portal/kb` | requester | visit, link | ok |
 | `/{org}/portal/profile` | requester | visit | ok |
-| `/{org}/portal/chat` | requester | visit, action | ok |
+| `/{org}/portal/chat` | requester | visit | ok |
 | `/{org}/portal/status` | requester | visit | ok |
 | `/{org}/portal/feedback` | requester | visit, link | ok |
 | `390px /{org}` | requester | 390px ×2 | ok |
@@ -1390,33 +1487,8 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `390px /{org}/incidents/mine` | requester | 390px | ok |
 | `390px /{org}/incidents/unassigned` | requester | 390px | ok |
 | `390px /{org}/incidents/high` | requester | 390px | ok |
-| `/{org}` | admin | visit, link | ok |
-| `/{org}/settings/org` | admin | visit | ok |
-| `/{org}/request-settings` | admin | visit, link | ok |
-| `/{org}/docs/collections` | admin | visit, new | ok |
-| `/{org}/cmdb/no-owner` | admin | visit, action | ok |
-| `/{org}/itam/entitlements` | admin | visit, new, record, tab | ok |
-| `/{org}/slm/xla-scores` | admin | visit, new | ok |
-| `/{org}/workforce/coverage` | admin | visit, new, record | ok |
-| `/admin/orgs/{org}` | admin | visit, action, link | ok |
-| `390px /login` | admin | 390px | ok |
-| `390px /{org}/settings/org` | admin | 390px | ok |
-| `390px /{org}/cmdb/no-owner` | admin | 390px | ok |
-| `/{org}` | agent | visit, link | ok (403: GET /api/local/backups, GET /api/local/settings) |
-| `/{org}/settings/org` | agent | visit | ok |
-| `/{org}/cmdb/no-owner` | agent | visit | ok |
-| `/{org}/itam/entitlements` | agent | visit, record, tab | ok |
-| `/{org}/slm/xla-scores` | agent | visit, new | ok |
-| `390px /{org}` | agent | 390px ×2 | ok |
-| `390px /{org}/portal` | agent | 390px | ok |
-| `390px /{org}/todo` | agent | 390px | ok |
-| `390px /{org}/settings/org` | agent | 390px | ok |
-| `390px /{org}/settings/users` | agent | 390px | ok |
-| `390px /{org}/settings/security` | agent | 390px | ok |
-| `390px /{org}/settings/desktop` | agent | 390px | ok |
-| `390px /{org}/settings/audit` | agent | 390px | ok |
-| `390px /{org}/approvals` | agent | 390px | ok |
-| `390px /{org}/approvals/delegations` | agent | 390px | ok |
-| `390px /{org}/incidents/mine` | agent | 390px | ok |
-| `390px /{org}/incidents/unassigned` | agent | 390px | ok |
-| `390px /{org}/incidents/high` | agent | 390px | ok |
+| `/login` | anonymous | visit | ok |
+| `/signup` | anonymous | visit | ok |
+| `/recover` | anonymous | visit | ok |
+| `/setup` | anonymous | visit | ok |
+| `/p/unknown-page` | anonymous | visit | ok |
