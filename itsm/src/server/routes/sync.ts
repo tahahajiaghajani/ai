@@ -62,7 +62,7 @@ async function orgCtx(c: C, orgId: string): Promise<Ctx> {
     [orgId, user.id],
   );
   if (!member || !member.is_active) throw forbidden("شما عضو این سازمان نیستید");
-  guardOrgSession(org, c.get("session"), user, member);
+  guardOrgSession(org, c.get("session"), user, member, cfg.mode);
   const status = await orgStatus(cfg.db, orgId);
   if (status.status === "suspended") throw statusError(status);
   return makeCtx(cfg, user, org, member, { status });

@@ -385,7 +385,8 @@ export function installDirectoryJobs(): void {
     try {
       const entries = await readLdap(cfg, sys, src);
       const plan = await planFor(ctx, src, entries);
-      const result = await applyPlan(ctx, src, plan, !!src.auto_roles);
+      // automatic roles only for the mappings the approver approved (as at sign-in): changed mappings wait for a new approval
+      const result = await applyPlan(ctx, src, plan, !!src.auto_roles && src.approved_map_hash === mappingFingerprint(src));
       await storeRun(ctx, String(src.id), "apply", plan, "done");
       await markSource(sys, src, { health: "ok", last_run_at: new Date().toISOString(), next_run_at: new Date(Date.now() + Number(src.schedule_hours) * HOUR).toISOString(), last_summary: summary(result) });
       await intLog(cfg.db, { org_id: job.org_id, kind: "directory", ref_id: String(src.id), actor: ctx.user.id, ok: true, summary: summary(result) });

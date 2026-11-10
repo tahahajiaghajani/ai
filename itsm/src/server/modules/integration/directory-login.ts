@@ -389,8 +389,8 @@ export async function routeLogin(cfg: ServerConfig, login: ParsedLogin, hint: st
     return s;
   }
   if (!all.length) throw fail("no_source");
-  // several organisations sign in through their directories here: each through its own link
-  if (new Set(all.map((s) => s.org_id)).size > 1 && !sso) throw fail("no_source");
+  // several organisations sign in through their directories here: each through its own link (Windows sign-in too)
+  if (new Set(all.map((s) => s.org_id)).size > 1) throw fail("no_source");
   if (login.domain) {
     const m = all.filter((s) => domainMatches(login.domain, s.login_domains));
     if (m.length === 1) return m[0];
@@ -490,9 +490,13 @@ export async function provisionMember(cfg: ServerConfig, conf: LoginSourceConfig
 
   // the account: name, and e-mail when the directory's changed and nobody else has it
   const account = await db.one<{ email: string; full_name: string }>(`select email, full_name from sm_users where id = $1`, [uid]);
-  if (dir.name && account && dir.name.slice(0, 120) !== account.full_name) await db.query(`update sm_users set full_name = $2 where id = $1`, [uid, dir.name.slice(0, 120)]);
-  if (account && lower(account.email) !== email && !(await db.one(`select 1 from sm_users where lower(email) = $1 and id <> $2`, [email, uid]))) {
-    await db.query(`update sm_users set email = $2 where id = $1`, [uid, email]);
+  const rename = !!dir.name && !!account && dir.name.slice(0, 120) !== account.full_name;
+  const remail = !!account && lower(account.email) !== email && !(await db.one(`select 1 from sm_users where lower(email) = $1 and id <> $2`, [email, uid]));
+  if (rename || remail) {
+    await actx.write(async (tx) => {
+      if (rename) await tx.query(`update sm_users set full_name = $2 where id = $1`, [uid, dir.name.slice(0, 120)]);
+      if (remail) await tx.query(`update sm_users set email = $2 where id = $1`, [uid, email]);
+    });
   }
 
   // the profile: title, phone, unit, manager, roles, workspaces

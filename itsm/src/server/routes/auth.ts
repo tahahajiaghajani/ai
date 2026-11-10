@@ -119,7 +119,7 @@ authRoutes.post("/login", async (c) => {
   // an organisation that signs in with its directory may close local passwords to all but its break-glass accounts
   // (told only now that the password was right: it says nothing about whether the account exists)
   const full = await cfg.db.one<{ id: string; is_platform_admin: boolean }>(`select id, is_platform_admin from sm_users where id = $1`, [user.id]);
-  if (full && !(await localLoginAllowed(cfg.db, full))) {
+  if (full && cfg.mode !== "desktop" && !(await localLoginAllowed(cfg.db, full))) {
     await securityEvent(cfg.db, { kind: "sign_in", ok: false, user_id: user.id, email: input.email, ...requestMeta(c), data: { method: "password", reason: "local_disabled" } });
     throw forbidden(loginMessage("local_disabled", APP_NAME));
   }

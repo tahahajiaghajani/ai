@@ -17,6 +17,8 @@ const Orgs = lazy(() => import("./pages/orgs/Orgs"));
 const OrgWizard = lazy(() => import("./pages/orgs/OrgWizard"));
 const Admin = lazy(() => import("./pages/admin/Admin"));
 const PublicArea = lazy(() => import("./pages/published/PublicArea"));
+// «تأیید دوبارهٔ هویت» before sensitive administration (src/ui/lib/api.ts retries the request once it is confirmed)
+const ReauthGate = lazy(() => import("./pages/auth/Reauth").then((m) => ({ default: m.ReauthGate })));
 
 /** True once `ms` have passed since mount: quick loads never flash a loader (components.md §8). */
 function useAfter(ms: number) {
@@ -143,6 +145,9 @@ function OrgArea() {
 export function App() {
   return (
     <Suspense fallback={<Loading full />}>
+      <Suspense fallback={null}>
+        <ReauthGate />
+      </Suspense>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />

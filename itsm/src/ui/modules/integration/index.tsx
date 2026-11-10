@@ -22,6 +22,7 @@ const SecretButton = lazy(() => import("./Panels").then((m) => ({ default: m.Sec
 const InboundEvents = lazy(() => import("./Panels").then((m) => ({ default: m.InboundEvents })));
 const DirectoryActions = lazy(() => import("./Panels").then((m) => ({ default: m.DirectoryActions })));
 const DirectoryUrls = lazy(() => import("./Panels").then((m) => ({ default: m.DirectoryUrls })));
+const DirectoryLogin = lazy(() => import("./DirectoryLogin").then((m) => ({ default: m.DirectoryLogin })));
 const IssueConnectionUrls = lazy(() => import("./Panels").then((m) => ({ default: m.IssueConnectionUrls })));
 const ExportActions = lazy(() => import("./Panels").then((m) => ({ default: m.ExportActions })));
 const IssuesPanel = lazy(() => import("./Panels").then((m) => ({ default: m.IssuesPanel })));
@@ -59,7 +60,12 @@ const module = recordModule({
     },
     {
       table: "directory_source", path: "integrations/directory", label: "فهرست کاربران (LDAP و SCIM)", noun: "منبع فهرست کاربران", icon: FolderSync, section: S, area: "integrations", keywords: "اکتیو دایرکتوری Active Directory LDAP SCIM Entra Azure AD همگام‌سازی کاربران",
-      extensions: { headerActions: action("integration:directory", DirectoryActions), sidePanels: [{ key: "integration:scim-url", title: "نشانی SCIM", order: 1, when: (ctx) => ctx.row.kind === "scim", render: widget(DirectoryUrls) }] },
+      extensions: {
+        headerActions: action("integration:directory", DirectoryActions),
+        sidePanels: [{ key: "integration:scim-url", title: "نشانی SCIM", order: 1, when: (ctx) => ctx.row.kind === "scim", render: widget(DirectoryUrls) }],
+        // «ورود با حساب سازمانی» and Windows SSO: login test, mapping preview, the SSO checklist, the source's sign-ins
+        tabs: [{ key: "integration:login", label: "ورود و SSO", order: 1, when: (ctx) => ctx.row.kind === "ldap", render: widget(DirectoryLogin) }],
+      },
     },
     {
       table: "issue_connection", path: "integrations/issues", label: "Jira و GitHub", noun: "اتصال Jira یا GitHub", icon: GitPullRequestArrow, section: S, area: "integrations", keywords: "جیرا گیت‌هاب issue همگام‌سازی",

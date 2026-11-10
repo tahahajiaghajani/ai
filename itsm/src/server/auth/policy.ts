@@ -57,9 +57,11 @@ export const LOCAL_CLOSED_MESSAGE = "ورود با ایمیل و رمز عبور
  * reaches only that organisation, and a local password session reaches an organisation that allows only directory
  * sign-in only for its break-glass accounts. Support sessions of platform administrators are not members' sessions.
  */
-export function guardOrgSession(org: Pick<OrgRow, "id" | "settings">, session: AuthSession | undefined | null, user: Pick<AuthUser, "id">, member: { id: string } | null): void {
+export function guardOrgSession(org: Pick<OrgRow, "id" | "settings">, session: AuthSession | undefined | null, user: Pick<AuthUser, "id">, member: { id: string } | null, mode?: string): void {
   if (!session) return;
   if (session.org_id && session.org_id !== org.id) throw forbidden(OTHER_ORG_MESSAGE);
+  // the Windows app signs its people in locally (the directory's secrets never travel to it): its policy copy does not close that
+  if (mode === "desktop") return;
   const method = session.auth_method ?? "password";
   if (!member?.id || session.kind !== "web" || !(method === "password" || method === "signup" || method === "recover")) return;
   const p = orgPolicy(org);

@@ -59,7 +59,7 @@ export const loadOrg: MiddlewareHandler<Env> = async (c, next) => {
     member = { id: "", org_id: orgId, user_id: user.id, role: "viewer", overrides: {}, is_active: true };
   }
   // a directory sign-in reaches only its organisation; a closed local sign-in only for break-glass accounts
-  guardOrgSession(org, c.get("session"), user, member.id ? member : null);
+  guardOrgSession(org, c.get("session"), user, member.id ? member : null, cfg.mode);
   c.set("ctx", makeCtx(cfg, user, org, member, { session: c.get("session") ?? null }));
   await next();
 };
