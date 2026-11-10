@@ -13,6 +13,7 @@ import type { Row, Tx } from "../../db";
 import { createIn, savepoint, systemCtx, updateIn } from "../../engine";
 import { hashPassword, readableCode } from "../../auth/password";
 import { addTimelineEvent, majorAction, sendUpdate } from "../incident";
+import { secureWorkspace } from "../security/common";
 import { ARTICLES, BANK_DOMAIN, BANK_NAME, BRANCH_STREETS, CHANGES, DEMO_SIZES, FIRST_NAMES, GROUPS, HQ_DEPARTMENTS, INCIDENTS, KNOWN_NAMES, LAST_NAMES, PROBLEMS, PROVINCES, REGION_OF, REGIONS, REQUESTS, Rng, SERVICES, type DemoSize, type Persona } from "./bank";
 
 /** What the steps share (saved with the pack between job invocations). */
@@ -35,6 +36,8 @@ export interface LoadMemo {
   problems: string[];
   suppliers: string[];
   counts: Record<string, number>;
+  /** tables whose records a module refused, with its reason (shown with the status) */
+  refused?: Record<string, string>;
 }
 
 export function newMemo(size: DemoSize, seed = 1405): LoadMemo {
@@ -93,6 +96,9 @@ async function put(tx: Tx, sys: Ctx, table: string, values: Record<string, unkno
   return createIn(tx, sys, table, clean(table, values), { trusted: true });
 }
 
+/** Records a module refused (table → the last reason), shown with the pack's status. */
+const refusals = new Map<string, string>();
+
 /** Create a record; when a module refuses the closed form of it (its own rules on closing), create it open instead. */
 async function putOpen(tx: Tx, sys: Ctx, table: string, values: Record<string, unknown>, open: Record<string, unknown>): Promise<Row | null> {
   try {
@@ -100,8 +106,18 @@ async function putOpen(tx: Tx, sys: Ctx, table: string, values: Record<string, u
   } catch {
     const rest = { ...values, ...open };
     for (const k of ["closed_at", "close_code", "close_notes", "resolved_at", "resolved_by"]) if (!(k in open)) delete rest[k];
-    return savepoint(tx, () => put(tx, sys, table, rest)).catch(() => null);
+    return savepoint(tx, () => put(tx, sys, table, rest)).catch((e: unknown) => {
+      refusals.set(`${sys.org.id}:${table}`, e instanceof Error ? e.message : String(e));
+      return null;
+    });
   }
+}
+
+/** Why records of a table were left out of this organisation's pack (empty when none were). */
+export function loadRefusals(orgId: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of refusals) if (k.startsWith(`${orgId}:`)) out[k.slice(orgId.length + 1)] = v;
+  return out;
 }
 
 const DAY = 86_400_000;
@@ -207,10 +223,19 @@ async function stepOrg({ orgId, memo }: StepArgs, sys: Ctx): Promise<boolean> {
   return true;
 }
 
+/** The workspace a demo group works in: HR and legal in their secure department workspaces, the SOC in security's. */
+async function workspaceOf(tx: Tx, sys: Ctx, key: string): Promise<string | undefined> {
+  if (key === "soc") return secureWorkspace(tx, sys);
+  const wsKey = key === "hr" ? "hr" : key === "legal" ? "legal" : null;
+  if (!wsKey) return undefined;
+  return (await tx.one<{ id: string }>(`select id from sm_workspaces where org_id = $1 and key = $2 and deleted_at is null limit 1`, [sys.org.id, wsKey]))?.id;
+}
+
 async function stepGroups({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
   await sys.write(async (tx) => {
     for (const g of GROUPS) {
-      const row = await put(tx, sys, "group", { name: g.name, types: g.types, roles: g.roles, active: true, description: `گروه نمایشی ${BANK_NAME}` });
+      const ws = await workspaceOf(tx, sys, g.key);
+      const row = await put(tx, sys, "group", { name: g.name, types: g.types, roles: g.roles, active: true, restricted: ws ? true : undefined, workspace_id: ws, description: `گروه نمایشی ${BANK_NAME}` });
       memo.groups[g.key] = String(row.id);
     }
     for (const r of REGIONS) {
@@ -811,11 +836,12 @@ async function stepSecurity({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
   const rng = new Rng(memo.seed + 31);
   const now = Date.now();
   const texts = ["کارزار فیشینگ با موضوع به‌روزرسانی حساب", "تلاش‌های ناموفق مکرر ورود به درگاه بانکداری اینترنتی", "بدافزار روی رایانهٔ یک شعبه", "اسکن درگاه‌های شبکهٔ شعب از نشانی ناشناس", "نشت احتمالی گذرواژه در یک انجمن"];
+  let made = 0;
   await sys.write(async (tx) => {
     for (let i = 0; i < size.security; i++) {
       const opened = pastMoment(rng, now, 300);
       const closed = (now - opened) / DAY > 20;
-      await putOpen(tx, sys, "sec_incident", {
+      const row = await putOpen(tx, sys, "sec_incident", {
         short_description: texts[i % texts.length],
         description: "رخداد امنیتی نمایشی؛ شاخص‌ها و جزئیات ساختگی است.",
         category: choose("sec_incident", "category", ["phishing", "malware", "unauthorized_access", "reconnaissance"]),
@@ -830,11 +856,12 @@ async function stepSecurity({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
         close_code: closed ? choose("sec_incident", "close_code", ["resolved", "contained"]) : undefined,
         close_notes: closed ? "مهار و ریشه‌کن شد؛ درس‌آموخته ثبت شد." : undefined,
       }, { state: choose("sec_incident", "state", ["analysis"]) });
+      if (row) made++;
     }
     const cves = [["CVE-2026-10001", "آسیب‌پذیری اجرای کد در سرور برنامه"], ["CVE-2026-10002", "دور زدن احراز هویت در درگاه مدیریت"], ["CVE-2026-10003", "افشای اطلاعات در کتابخانهٔ رمزنگاری"]];
     for (const [cve, title] of cves) await put(tx, sys, "sec_vulnerability", { cve_id: cve, title: `${title} (نمایشی)`, severity: choose("sec_vulnerability", "severity", ["high", "critical"]), cvss_score: 8.1, description: "شناسهٔ ساختگی برای دادهٔ نمایشی." });
   });
-  bump(memo, "sec_incident", size.security);
+  bump(memo, "sec_incident", made);
   bump(memo, "sec_vulnerability", 3);
   return true;
 }
@@ -844,12 +871,13 @@ async function stepHr({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
   const rng = new Rng(memo.seed + 37);
   const now = Date.now();
   const texts = ["درخواست گواهی اشتغال به کار", "اصلاح مرخصی ثبت‌شده", "پرسش دربارهٔ فیش حقوقی", "انتقال به شعبهٔ دیگر", "ثبت دورهٔ آموزشی اجباری"];
+  let made = 0;
   await sys.write(async (tx) => {
     for (let i = 0; i < size.hr; i++) {
       const who = rng.pick(memo.people.employees);
       const opened = pastMoment(rng, now, 200);
       const closed = (now - opened) / DAY > 15;
-      await putOpen(tx, sys, "hr_case", {
+      const row = await putOpen(tx, sys, "hr_case", {
         short_description: texts[i % texts.length],
         description: "پروندهٔ ساختگی منابع انسانی (دادهٔ نمایشی).",
         caller_id: who,
@@ -863,9 +891,10 @@ async function stepHr({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
         close_notes: closed ? "پاسخ داده شد." : undefined,
         sensitive: i % 5 === 0,
       }, { state: choose("hr_case", "state", ["in_progress"]) });
+      if (row) made++;
     }
   });
-  bump(memo, "hr_case", size.hr);
+  bump(memo, "hr_case", made);
   return true;
 }
 
@@ -873,12 +902,13 @@ async function stepField({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
   const size = DEMO_SIZES[memo.size];
   const rng = new Rng(memo.seed + 41);
   const now = Date.now();
+  let made = 0;
   await sys.write(async (tx) => {
     for (let i = 0; i < size.visits; i++) {
       const b = rng.pick(memo.branches);
       const opened = pastMoment(rng, now, 240);
       const done = (now - opened) / DAY > 7;
-      await putOpen(tx, sys, "work_order", {
+      const row = await putOpen(tx, sys, "work_order", {
         short_description: `بازدید تکنسین خودپرداز — ${b.name}`,
         description: rng.pick(["تعویض تسمهٔ مخزن اسکناس", "تعمیر کارت‌خوان", "سرویس دوره‌ای و تمیزکاری", "تعویض چاپگر رسید"]),
         location_id: b.location,
@@ -891,9 +921,10 @@ async function stepField({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
         close_code: done ? choose("work_order", "close_code", ["completed", "resolved", "fixed"]) : undefined,
         close_notes: done ? "دستگاه آزمایش و به سرویس برگشت." : undefined,
       }, { state: choose("work_order", "state", ["scheduled", "draft"]) });
+      if (row) made++;
     }
   });
-  bump(memo, "work_order", size.visits);
+  bump(memo, "work_order", made);
   return true;
 }
 
@@ -920,6 +951,8 @@ export async function runLoad(cfg: ServerConfig, orgId: string, memo: LoadMemo, 
     if (Date.now() >= deadline) return false;
     const step = STEPS[memo.step];
     const done = await step.run({ cfg, orgId, memo, deadline }, sys);
+    const refused = loadRefusals(orgId);
+    if (Object.keys(refused).length) memo.refused = { ...memo.refused, ...refused };
     if (done) {
       memo.step++;
       memo.cursor = 0;

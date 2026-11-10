@@ -23,7 +23,7 @@
 // Left behind: one content-free audit line per load and purge (counts only).
 import type { TableDef } from "@shared/model/types";
 import { physicalTables } from "@shared/tables";
-import type { Queryable } from "../../db";
+import { pgArray, type Queryable } from "../../db";
 import { archivable, archiveTableOf } from "../../engine/ddl";
 import { blobStore, type BlobStore } from "../../blobs";
 
@@ -91,7 +91,25 @@ export const COMPUTED_TABLES = [
   "sm_capacity_records",
   "sm_wfm_capacity",
   "sm_wfm_coverage",
+  // the search and AI index (real records re-indexed while demo data was there; demo records' entries go by record)
+  "sm_ai_rag_docs",
+  "sm_ai_chunks",
+  "sm_ai_rag_runs",
+  // run logs of organisation-wide computations
+  "sm_license_reconcile_runs",
+  "sm_allocation_runs",
+  "sm_allocation_results",
 ];
+
+/** Tables whose rows only ever grow (logs): never saved as real rows to put back. */
+const APPEND_ONLY = new Set(["sm_history", "sm_journal", "sm_audit", "sm_jobs", "sm_notification_log", "sm_security_events", "sm_kb_events", "sm_portal_events", "sm_ai_usage", "sm_ai_messages", "sm_int_log", "sm_api_usage"]);
+/** Above this many rows a table is not saved (a large organisation's records: see docs/DEMO_FA.md). */
+const SAVE_LIMIT = 20_000;
+/**
+ * The organisation's structure, people and their settings: a real row of these is never taken for something the demo
+ * period produced (removing it could change who reads what).
+ */
+const PEOPLE_AND_ACCESS = new Set(["sm_member_profiles", "sm_group_members", "sm_groups", "sm_roles", "sm_workspaces", "sm_org_units", "sm_locations", "sm_notification_prefs", "sm_portal_prefs", "sm_delegations", "sm_org_members", "sm_notifications", "sm_approvals", "sm_task_slas"]);
 
 /** Columns a tombstone keeps (identity, sync, and what a pull needs to judge a side row). */
 const TOMBSTONE_KEEP = new Set(["id", "org_id", "rev", "deleted_at", "created_at", "updated_at", "version", "table_key", "record_id", "from_table", "from_id", "to_table", "to_id", "field", "visibility", "kind"]);
@@ -404,27 +422,28 @@ export async function removeFiles(q: Queryable, orgId: string, shas: string[], s
   return n;
 }
 
-/** Save the computed tables' rows before the load (the purge puts them back). */
-export async function saveComputed(q: Queryable, orgId: string, info: TableInfo[]): Promise<number> {
-  let n = 0;
+/**
+ * Save the computed tables' rows before the load (the purge puts them back). A table with more than SAVE_LIMIT rows is
+ * left out (a large organisation's index: its demo entries still go by their record). Returns the tables saved.
+ */
+export async function saveComputed(q: Queryable, orgId: string, info: TableInfo[]): Promise<string[]> {
+  const saved: string[] = [];
   const names = new Set(info.map((t) => t.name));
   for (const table of COMPUTED_TABLES) {
     if (!names.has(table)) continue;
-    const rows = await q.query(
-      `insert into sm_demo_saved (org_id, tbl, row_id, data) select $1, ${lit(table)}, x.id, to_jsonb(x) from ${ident(table)} x where x.org_id = $1
-       on conflict (org_id, tbl, row_id) do nothing returning row_id`,
-      [orgId],
-    );
-    n += rows.length;
+    const c = await q.one<{ n: number }>(`select count(*)::int as n from (select 1 from ${ident(table)} where org_id = $1 limit ${SAVE_LIMIT + 1}) x`, [orgId]);
+    if ((c?.n ?? 0) > SAVE_LIMIT) continue;
+    await q.query(`insert into sm_demo_saved (org_id, tbl, row_id, data) select $1, ${lit(table)}, x.id, to_jsonb(x) from ${ident(table)} x where x.org_id = $1 on conflict (org_id, tbl, row_id) do nothing`, [orgId]);
+    saved.push(table);
   }
-  return n;
+  return saved;
 }
 
-/** Put the computed tables back as they were before the load. Returns rows restored per table. */
-export async function restoreComputed(q: Queryable, orgId: string, info: TableInfo[]): Promise<Record<string, number>> {
+/** Put the computed tables saved before the load back as they were. Returns rows restored per table. */
+export async function restoreComputed(q: Queryable, orgId: string, info: TableInfo[], saved: string[]): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
   const byName = new Map(info.map((t) => [t.name, t]));
-  for (const table of COMPUTED_TABLES) {
+  for (const table of saved) {
     const t = byName.get(table);
     if (!t || !hasIdOrg(t)) continue;
     // computed while demo data was there: recomputed from real data by the next run
@@ -444,6 +463,94 @@ export async function restoreComputed(q: Queryable, orgId: string, info: TableIn
     if (rows.length) out[table] = rows.length;
   }
   return out;
+}
+
+
+/**
+ * Save the organisation's real rows of the engine tables (configuration and small tables) before the load: what the
+ * platform or the pack's people change in them while demo data is there — a catalogue item's statistics, a flow's run
+ * counts, a CAB's next meeting — is put back by the purge (`restoreReal`). Changes real people made are kept.
+ */
+export async function saveReal(q: Queryable, orgId: string, info: TableInfo[]): Promise<number> {
+  let n = 0;
+  const computed = new Set(COMPUTED_TABLES);
+  for (const t of info) {
+    if (SKIP.has(t.name) || computed.has(t.name) || APPEND_ONLY.has(t.name) || !t.def || t.arc || !hasIdOrg(t) || !t.cols.has("updated_by")) continue;
+    // work records (incidents, requests, cases…) are the organisation's own: what the system does to them stays
+    if (t.def.fields.some((f) => f.name === "opened_at")) continue;
+    const c = await q.one<{ n: number }>(`select count(*)::int as n from (select 1 from ${ident(t.name)} where org_id = $1 limit ${SAVE_LIMIT + 1}) x`, [orgId]);
+    if (!c?.n || c.n > SAVE_LIMIT) continue;
+    const rows = await q.query(
+      `insert into sm_demo_saved (org_id, tbl, row_id, data) select $1, ${lit(t.name)}, x.id, to_jsonb(x) from ${ident(t.name)} x where x.org_id = $1
+       on conflict (org_id, tbl, row_id) do nothing returning row_id`,
+      [orgId],
+    );
+    n += rows.length;
+  }
+  return n;
+}
+
+/**
+ * Put back real rows that changed since the load when only the system or the pack's people changed them (a real
+ * person's change — their last stamp, or a history entry of theirs since the load — is kept). Returns rows per table.
+ */
+export async function restoreReal(q: Queryable, orgId: string, info: TableInfo[], since: string): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  const byName = new Map(info.map((t) => [t.name, t]));
+  const computed = new Set(COMPUTED_TABLES);
+  const tables = (await q.query<{ tbl: string }>(`select distinct tbl from sm_demo_saved where org_id = $1`, [orgId])).map((r) => r.tbl).filter((t) => !computed.has(t));
+  for (const table of tables) {
+    const t = byName.get(table);
+    if (!t || !hasIdOrg(t)) continue;
+    const cols = [...t.cols.values()].filter((c) => !c.generated && c.name !== "rev" && c.name !== "id" && c.name !== "org_id").map((c) => c.name);
+    const rows = await q.query(
+      `update ${ident(table)} x set ${cols.map((c) => `${ident(c)} = r.${ident(c)}`).join(", ")}
+         from sm_demo_saved s, jsonb_populate_record(null::${ident(table)}, s.data) r
+        where s.org_id = $1 and s.tbl = ${lit(table)} and x.id = s.row_id and x.org_id = $1
+          and (to_jsonb(x) - 'rev' - 'updated_at') <> (s.data - 'rev' - 'updated_at')
+          and (x.updated_by is null or ${isDemo("x.updated_by")})
+          and not exists (select 1 from sm_history h where h.org_id = $1 and h.record_id = x.id and h.at > $2::timestamptz
+                           and h.actor is not null and not ${isDemo("h.actor")})
+        returning x.id`,
+      [orgId, since],
+    );
+    if (!rows.length) continue;
+    out[table] = rows.length;
+    // the history of what was undone goes with it
+    await q.query(
+      `delete from sm_history h where h.org_id = $1 and h.record_id = any($2::uuid[]) and h.at > $3::timestamptz and (h.actor is null or ${isDemo("h.actor")})`,
+      [orgId, pgArray(rows.map((r) => String(r.id))), since],
+    );
+  }
+  return out;
+}
+
+/**
+ * Rows the system (or the pack's people) created while demo data was there, in tables that are not people's work nor
+ * the organisation's structure — a CAB meeting the schedule opened for demo changes, a compliance issue a demo
+ * indicator raised, a run log of a computation over demo data: they join the registry unless a real person has
+ * touched them since. Returns how many joined.
+ */
+export async function systemMadeSince(q: Queryable, orgId: string, info: TableInfo[], since: string): Promise<number> {
+  let n = 0;
+  const computed = new Set(COMPUTED_TABLES);
+  for (const t of info) {
+    if (SKIP.has(t.name) || computed.has(t.name) || APPEND_ONLY.has(t.name) || PEOPLE_AND_ACCESS.has(t.name) || !t.def || t.arc || !hasIdOrg(t)) continue;
+    if (!t.cols.has("created_by") || !t.cols.has("created_at") || t.cols.has("record_id") || t.def.fields.some((f) => f.name === "opened_at")) continue;
+    if (!(await hasRows(q, t, orgId))) continue;
+    const rows = await q.query(
+      `insert into sm_demo_rows (org_id, row_id, tbl)
+       select $1, x.id, ${lit(t.name)} from ${ident(t.name)} x
+        where x.org_id = $1 and x.created_at > $2::timestamptz
+          and (x.created_by is null or ${isDemo("x.created_by")})
+          and (x.updated_by is null or ${isDemo("x.updated_by")})
+          and not exists (select 1 from sm_history h where h.org_id = $1 and h.record_id = x.id and h.actor is not null and not ${isDemo("h.actor")})
+       on conflict do nothing returning row_id`,
+      [orgId, since],
+    );
+    n += rows.length;
+  }
+  return n;
 }
 
 /** Put the numbering counters back: as before the load, or past the highest number real rows took meanwhile. */

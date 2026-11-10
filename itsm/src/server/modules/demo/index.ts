@@ -17,7 +17,7 @@ import { invalidateCmdbCache } from "../cmdb/common";
 import { invalidateRules } from "../notify/rules";
 import { BANK_DOMAIN, BANK_NAME, DEMO_SIZES, KNOWN_NAMES, type DemoSize } from "./bank";
 import { newMemo, runLoad, STEPS, type LoadMemo } from "./load";
-import { clearReferences, demoFiles, expandDerived, referenceReport, registryCounts, removeAccounts, removeFiles, removeRows, restoreComputed, restoreCounters, saveComputed, tablesInfo, type PurgeReport, type RefReport } from "./purge";
+import { clearReferences, demoFiles, expandDerived, referenceReport, registryCounts, removeAccounts, removeFiles, removeRows, restoreComputed, restoreCounters, restoreReal, saveComputed, saveReal, systemMadeSince, tablesInfo, type PurgeReport, type RefReport } from "./purge";
 
 export { DEMO_SIZES, BANK_NAME, type DemoSize } from "./bank";
 export { tablesInfo, COMPUTED_TABLES, type PurgeReport, type RefReport } from "./purge";
@@ -29,7 +29,7 @@ interface PackRow {
   state: PackState;
   size: DemoSize;
   options: { force?: boolean };
-  progress: { memo?: LoadMemo; phase?: string; seeds_done?: boolean; saved?: boolean; purge?: string; files?: string[]; tombstones?: number; report?: PurgeReport };
+  progress: { memo?: LoadMemo; phase?: string; seeds_done?: boolean; saved?: boolean; saved_at?: string; computed?: string[]; purge?: string; files?: string[]; tombstones?: number; report?: PurgeReport };
   counts: Record<string, number>;
   counters: Record<string, number>;
   report: PurgeReport | null;
@@ -69,6 +69,8 @@ export interface DemoStatus {
   last?: { action: string; at: string; data: Record<string, unknown> | null } | null;
   /** real records already in the organisation (a load is refused unless forced) */
   real_records?: number;
+  /** tables whose records a module refused while loading, with its reason */
+  refused?: Record<string, string>;
 }
 
 /** Tables whose rows are an organisation's own work: a load is refused when real ones exist (unless forced). */
@@ -118,6 +120,7 @@ export async function demoStatus(q: Queryable, orgId: string, opts: { secrets?: 
     started_at: pack.started_at,
     loaded_at: pack.loaded_at,
     error: pack.error,
+    refused: memo?.refused,
     last,
   };
   if (pack.state === "loading" || pack.state === "failed") {
@@ -198,8 +201,12 @@ async function loadJob(cfg: JobConfig, orgId: string, deadline: number): Promise
       await inDemoScope(null, () =>
         db.tx(async (tx) => {
           const counters = await tx.query<{ table_key: string; last: number }>(`select table_key, last from sm_numbers where org_id = $1`, [orgId]);
-          await saveComputed(tx, orgId, info);
-          await tx.query(`update sm_demo_packs set counters = $2::jsonb, progress = progress || '{"seeds_done":true,"saved":true}'::jsonb, updated_at = now() where org_id = $1`, [orgId, JSON.stringify(Object.fromEntries(counters.map((c) => [c.table_key, c.last])))]);
+          const computed = await saveComputed(tx, orgId, info);
+          await saveReal(tx, orgId, info);
+          await tx.query(
+            `update sm_demo_packs set counters = $2::jsonb, progress = progress || jsonb_build_object('seeds_done', true, 'saved', true, 'saved_at', now(), 'computed', $3::jsonb), updated_at = now() where org_id = $1`,
+            [orgId, JSON.stringify(Object.fromEntries(counters.map((c) => [c.table_key, c.last]))), JSON.stringify(computed)],
+          );
         }),
       );
       return { again: 0 };
@@ -267,7 +274,9 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
       q.query(`update sm_demo_packs set progress = progress || $2::jsonb, updated_at = now() where org_id = $1`, [orgId, JSON.stringify({ purge: next, ...extra })]);
     if (phase === "expand") {
       await db.tx(async (tx) => {
-        const derived = await expandDerived(tx, orgId, info);
+        // what the system made while demo data was there (before the load was saved: nothing to go by)
+        const made = pack.progress.saved_at ? await systemMadeSince(tx, orgId, info, pack.progress.saved_at) : 0;
+        const derived = made + (await expandDerived(tx, orgId, info));
         const tables = await registryCounts(tx, orgId);
         const references = await referenceReport(tx, orgId, info);
         const report: PurgeReport = { tables, rows: Object.values(tables).reduce((s, n) => s + n, 0), derived, accounts: { removed: 0, kept: 0 }, references, files: 0, tombstones: 0, restored: {} };
@@ -305,7 +314,9 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
     }
     if (phase === "restore") {
       await db.tx(async (tx) => {
-        report.restored = await restoreComputed(tx, orgId, info);
+        report.restored = await restoreComputed(tx, orgId, info, pack.progress.computed ?? []);
+        const real = pack.progress.saved_at ? await restoreReal(tx, orgId, info, pack.progress.saved_at) : {};
+        for (const [k, v] of Object.entries(real)) report.restored[k] = (report.restored[k] ?? 0) + v;
         await restoreCounters(tx, orgId, pack.counters ?? {});
         await setPhase(tx, "finish", { report });
       });
