@@ -306,7 +306,7 @@ await ctx.write(async (tx) => {
   first statement that writes a synced row (`ensureOrgLock`, called by the engine before every insert, update and
   delete; the sync trigger at the latest) — for work whose reads decide no other record's write (the notification
   service's bell rows). `internal` bookkeeping is late by default and takes no lock when it writes no synced table.
-  Per process at most `ITSM_WRITERS_PER_ORG` (3) write transactions of an organisation are in the database at once
+  Per process at most `ITSM_WRITERS_PER_ORG` (3; the server edition reads `writers_per_org` from kariz.json, the variable wins) write transactions of an organisation are in the database at once
   (`admitWrite`); the rest wait without holding a pool connection, so one long write never starves the reads. Keep
   model calls, rendering and network out of write transactions; measure holds with the probe
   (`src/server/db/lockprobe.ts`, `scripts/serve-pg.mjs --lock-stats`, PERFORMANCE_FA.md §۱۳-۵).

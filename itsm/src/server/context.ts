@@ -234,12 +234,31 @@ const locked = new WeakSet<Tx>();
 
 /**
  * Write admission: at most this many write transactions of one organisation are in the database at once per process
- * (`ITSM_WRITERS_PER_ORG`, default 3). The organisation's writes are serialised by its write lock anyway; more of them
+ * (default 3; the server edition's kariz.json `writers_per_org`, the environment variable `ITSM_WRITERS_PER_ORG` wins). The organisation's writes are serialised by its write lock anyway; more of them
  * in the database would only hold pool connections while they wait for it — and when one write holds the lock long, a
  * queue of waiting writers empties the pool and every read of the process stalls behind them. The others wait here,
  * holding nothing. Bookkeeping (`internal`) and writes inside another write are not counted.
  */
-const WRITERS_PER_ORG = Math.max(1, Number(process.env.ITSM_WRITERS_PER_ORG ?? 3) || 3);
+const DEFAULT_WRITERS_PER_ORG = 3;
+const envWriters = (): number | null => {
+  const raw = process.env.ITSM_WRITERS_PER_ORG;
+  const n = Math.trunc(Number(raw));
+  return raw && Number.isFinite(n) && n >= 1 ? Math.min(64, n) : null;
+};
+let writersPerOrg = envWriters() ?? DEFAULT_WRITERS_PER_ORG;
+
+/**
+ * Set the admission width from a configuration (the server edition's kariz.json `writers_per_org`); the environment
+ * variable ITSM_WRITERS_PER_ORG wins. Returns the width in force.
+ */
+export function configureWriteAdmission(configured?: number | null): number {
+  const n = Math.trunc(Number(configured));
+  writersPerOrg = envWriters() ?? (Number.isFinite(n) && n >= 1 ? Math.min(64, n) : DEFAULT_WRITERS_PER_ORG);
+  return writersPerOrg;
+}
+
+/** The admission width in force. */
+export const writeAdmissionWidth = (): number => writersPerOrg;
 const admission = new Map<string, { busy: number; waiting: (() => void)[] }>();
 const insideWrite = new AsyncLocalStorage<true>();
 
@@ -247,7 +266,7 @@ export async function admitWrite<T>(orgId: string, fn: () => Promise<T>, opts: {
   if (opts.internal || insideWrite.getStore()) return fn();
   let slot = admission.get(orgId);
   if (!slot) admission.set(orgId, (slot = { busy: 0, waiting: [] }));
-  if (slot.busy >= WRITERS_PER_ORG) await new Promise<void>((resolve) => slot!.waiting.push(resolve));
+  if (slot.busy >= writersPerOrg) await new Promise<void>((resolve) => slot!.waiting.push(resolve));
   else slot.busy++;
   try {
     return await insideWrite.run(true, fn);

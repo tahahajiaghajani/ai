@@ -15,7 +15,7 @@ import { migrate, migrationStatus } from "@server/db/migrate";
 import { tick } from "@server/jobs";
 import { installBlobStore } from "@server/blobs";
 import { networkFetch, type NetworkPolicy } from "@server/net";
-import type { ServerConfig } from "@server/context";
+import { configureWriteAdmission, type ServerConfig } from "@server/context";
 import { proxyTrusted } from "@server/auth/session";
 import { APP_NAME } from "@shared/constants";
 import { changeAllowlist, databaseUrl, loadServerConfig, poolFor, workerCount, type ServerEditionConfig } from "./config";
@@ -152,6 +152,8 @@ export async function startServerEdition(o: StartOptions): Promise<RunningServer
 
   const pool = poolFor(current);
   if (pool.reduced) log.warn("config: pool_per_worker reduced to fit max_connections", { per_worker: pool.perWorker, workers: workerCount(current) });
+  // write admission: kariz.json writers_per_org (ITSM_WRITERS_PER_ORG wins)
+  configureWriteAdmission(current.writers_per_org);
   const metrics = new WorkerMetrics(workerId, pool.perWorker, current.log.slow_ms);
 
   // outbound policy: every fetch, plus a socket-level guard under it

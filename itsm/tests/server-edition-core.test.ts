@@ -440,6 +440,29 @@ describe("database extensions and connections of the server edition", () => {
     expect(scale).toMatch(/create extension pg_trgm;\s*exception when others then/);
   });
 
+  it("takes writers_per_org from kariz.json, and ITSM_WRITERS_PER_ORG wins", async () => {
+    const { configureWriteAdmission, writeAdmissionWidth } = await import("@server/context");
+    expect(defaultConfig("C:\\data").writers_per_org).toBe(3);
+    expect(normalize({ writers_per_org: 5 }).writers_per_org).toBe(5);
+    const warnings: string[] = [];
+    expect(normalize({ writers_per_org: 0 }, warnings).writers_per_org).toBe(3);
+    expect(warnings.join(" ")).toMatch(/writers_per_org/);
+    expect(normalize(envOverrides({ ITSM_WRITERS_PER_ORG: "6" })).writers_per_org).toBe(6);
+    const saved = process.env.ITSM_WRITERS_PER_ORG;
+    try {
+      delete process.env.ITSM_WRITERS_PER_ORG;
+      expect(configureWriteAdmission(5)).toBe(5);
+      expect(writeAdmissionWidth()).toBe(5);
+      expect(configureWriteAdmission(null)).toBe(3);
+      process.env.ITSM_WRITERS_PER_ORG = "2";
+      expect(configureWriteAdmission(5)).toBe(2);
+    } finally {
+      if (saved === undefined) delete process.env.ITSM_WRITERS_PER_ORG;
+      else process.env.ITSM_WRITERS_PER_ORG = saved;
+      configureWriteAdmission(null);
+    }
+  });
+
   it("opens its pools with prepared statements; the web runtime keeps them off", () => {
     const src = (f: string) => readFileSync(join(__dirname, "..", f), "utf8");
     expect(src("src/server-edition/worker.ts")).toMatch(/createPostgresDb\(\{[^}]*prepare: true/);

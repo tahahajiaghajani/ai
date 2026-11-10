@@ -244,8 +244,9 @@ msiexec /x Kariz-Server-1.0.0.msi /qn REMOVEDATA=1   (داده‌ها هم پا�
 | `listen.https_port` / `http_port` / `redirect_http` | ۴۴۳ / ۸۰ / روشن | درگاه‌ها |
 | `tls.pfx` + `tls.passphrase` یا `tls.cert` + `tls.key` | — | گواهی بانک (بدون آن: خودامضا) |
 | `tls.hsts_max_age` | ۳۱۵۳۶۰۰۰ | HSTS (ثانیه) |
-| `workers` / `pool_per_worker` | ۰ / ۰ | ۰ = خودکار (بخش ۳) |
-| `db.max_connections` / `db.reserve` | ۲۰۰ / ۱۰ | سقف اتصال‌ها و ذخیرهٔ مدیران |
+| `workers` / `pool_per_worker` | ۰ / ۰ | ۰ = خودکار: یک‌سوم هسته‌ها (۲ تا ۱۲) / ۱۰ اتصال در سرور ۸ هسته‌ای و بزرگ‌تر، وگرنه ۸ (بخش ۳) |
+| `db.max_connections` / `db.reserve` | ۰ / ۱۰ | ۰ = خودکار: workers × pool + ۳۰ و دست‌کم ۵۰؛ ذخیرهٔ مدیران و پشتیبان‌گیری |
+| `writers_per_org` | ۳ | پذیرش نوشتن: حداکثر تراکنش‌های نوشتن هم‌زمان هر سازمان در هر فرایند؛ بقیه بی‌آنکه اتصالی بگیرند منتظر می‌مانند ([PERFORMANCE_FA.md](PERFORMANCE_FA.md) §۱۳). متغیر `ITSM_WRITERS_PER_ORG` بر آن مقدم است |
 | `network.air_gapped` / `network.allow` | روشن / خالی | شبکهٔ بسته و فهرست مجاز |
 | `uploads.max_mb` / `request_max_mb` | ۲۵ / ۱۰ | سقف پیوست و سقف هر درخواست دیگر |
 | `antivirus.command` / `args` | خالی / آرگومان‌های Defender | مثلاً `C:\Program Files\Windows Defender\MpCmdRun.exe` با `-Scan -ScanType 3 -File {file} -DisableRemediation` |
@@ -256,7 +257,7 @@ msiexec /x Kariz-Server-1.0.0.msi /qn REMOVEDATA=1   (داده‌ها هم پا�
 | `auth.directory_lan` | روشن | دسترسی به کنترل‌کننده‌های دامنه در شبکهٔ بانک (از راه فهرست مجاز) |
 | `auth.cookie_secure` / `auth.cookie_samesite` | `always` / `Lax` | پرچم Secure کوکی نشست (`auto` فقط برای آزمایشگاه) و SameSite |
 
-متغیرهای محیطی همین کلیدها (بر فایل مقدم‌اند): `ITSM_TRUSTED_PROXIES`، `ITSM_DIRECTORY_LAN`، `ITSM_COOKIE_SECURE`، `ITSM_COOKIE_SAMESITE` — همان متغیرهایی که نسخه‌های دیگر هم می‌خوانند.
+متغیرهای محیطی همین کلیدها (بر فایل مقدم‌اند): `ITSM_TRUSTED_PROXIES`، `ITSM_WRITERS_PER_ORG`، `ITSM_DIRECTORY_LAN`، `ITSM_COOKIE_SECURE`، `ITSM_COOKIE_SAMESITE` — همان متغیرهایی که نسخه‌های دیگر هم می‌خوانند.
 
 ## ۲۱. `karizctl`
 

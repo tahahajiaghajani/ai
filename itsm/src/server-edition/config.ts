@@ -57,6 +57,11 @@ export interface ServerEditionConfig {
   workers: number;
   /** database connections per worker (0 = automatic: 10 on 8+ cores, else 8; see planPools) */
   pool_per_worker: number;
+  /**
+   * Write transactions of one organisation in the database at once, per worker (write admission, context.ts
+   * `admitWrite`; default 3 — PERFORMANCE_FA.md §۱۳). The environment variable ITSM_WRITERS_PER_ORG wins.
+   */
+  writers_per_org: number;
   network: { air_gapped: boolean; allow: string[] };
   uploads: { max_mb: number; request_max_mb: number };
   antivirus: AntivirusConfig;
@@ -130,6 +135,7 @@ export function defaultConfig(data = defaultDataDir()): ServerEditionConfig {
     dirs: dirsFor(data),
     workers: 0,
     pool_per_worker: 0,
+    writers_per_org: 3,
     network: { air_gapped: true, allow: [] },
     uploads: { max_mb: 25, request_max_mb: 10 },
     antivirus: { command: null, args: ["-Scan", "-ScanType", "3", "-File", "{file}", "-DisableRemediation"], timeout_s: 120, infected_codes: [2], on_error: "reject" },
@@ -241,6 +247,7 @@ export function normalize(raw: unknown, warnings: string[] = []): ServerEditionC
     dirs,
     workers: numberIn(w, "workers", c.workers, 0, 64, 0),
     pool_per_worker: numberIn(w, "pool_per_worker", c.pool_per_worker, 0, 200, 0),
+    writers_per_org: numberIn(w, "writers_per_org", c.writers_per_org, 1, 64, d.writers_per_org),
     network: { air_gapped: bool(c.network?.air_gapped, true), allow: [...new Set(list(c.network?.allow).map((h) => h.toLowerCase()))] },
     uploads: {
       max_mb: numberIn(w, "uploads.max_mb", c.uploads?.max_mb, 1, 100, d.uploads.max_mb),
@@ -310,6 +317,7 @@ export function envOverrides(env: Env = process.env): Obj {
   set("db.password", env.ITSM_DB_PASSWORD);
   set("workers", env.ITSM_WORKERS);
   set("pool_per_worker", env.ITSM_POOL_PER_WORKER);
+  set("writers_per_org", env.ITSM_WRITERS_PER_ORG);
   if (env.ITSM_AIR_GAPPED !== undefined) set("network.air_gapped", env.ITSM_AIR_GAPPED);
   if (env.ITSM_ALLOW_HOSTS !== undefined) set("network.allow", env.ITSM_ALLOW_HOSTS);
   set("log.level", env.ITSM_LOG_LEVEL);
