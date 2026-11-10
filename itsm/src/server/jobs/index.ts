@@ -210,7 +210,21 @@ export async function tick(cfg: JobConfig, opts: { budgetMs?: number; max?: numb
     while (Date.now() < deadline && ran + failed < max) {
       const jobs = await claim(db, worker, Math.min(width, max - ran - failed));
       if (!jobs.length) return { ran, failed, more: false };
-      const results = width === 1 ? [await runOne(cfg, jobs[0], deadline)] : await Promise.all(jobs.map((job) => runOne(cfg, job, deadline)));
+      // jobs of one record (its events) keep their order: they run one after the other, other groups alongside
+      const groups = new Map<string, Job[]>();
+      for (const job of jobs) {
+        const key = job.kind.startsWith("record.") && job.payload?.id ? `record:${job.payload.table ?? ""}:${job.payload.id}` : job.id;
+        groups.set(key, [...(groups.get(key) ?? []), job]);
+      }
+      const results = (
+        await Promise.all(
+          [...groups.values()].map(async (group) => {
+            const out: boolean[] = [];
+            for (const job of group) out.push(await runOne(cfg, job, deadline));
+            return out;
+          }),
+        )
+      ).flat();
       for (const ok of results) if (ok) ran++;
       else failed++;
     }

@@ -66,6 +66,22 @@ describe("job queue", () => {
     expect((await listJobs(db, org, { kind: "test.wide" })).every((j) => j.status === "done")).toBe(true);
   });
 
+  it("keeps the events of one record in order when jobs run together", async () => {
+    const order: string[] = [];
+    const off = registerJobHandler("record.test_order", async (job) => {
+      await new Promise((r) => setTimeout(r, job.payload.step === 1 ? 30 : 1));
+      order.push(`${job.payload.id}:${job.payload.step}`);
+    });
+    for (const [id, step] of [["a", 1], ["b", 1], ["a", 2], ["c", 1], ["a", 3]] as const) {
+      await enqueue(db, { kind: "record.test_order", orgId: org, payload: { table: "todo", id, step } });
+      await new Promise((r) => setTimeout(r, 2)); // distinct run_at
+    }
+    await tick(cfg, { budgetMs: 5000, concurrency: 5 });
+    off();
+    expect(order.filter((x) => x.startsWith("a:"))).toEqual(["a:1", "a:2", "a:3"]);
+    expect(order).toHaveLength(5);
+  });
+
   it("retries a failing job with backoff and keeps the last error", async () => {
     let calls = 0;
     offs.push(registerJobHandler("test.flaky", async () => {

@@ -7,6 +7,8 @@ import { engineOrg, type EngineOrg } from "./engine-helpers";
 import { aggregate, archiveBatch, archiveTableOf, get, list, listJournal, purgeArchived, systemCtx } from "@server/engine";
 import { tableDef } from "@shared/tables";
 import { tick } from "@server/jobs";
+import { afterEnginePush } from "@server/engine/sync";
+import { fromDb } from "@server/engine/read";
 
 describe("archival of old closed records", () => {
   let e: EngineOrg;
@@ -86,5 +88,32 @@ describe("archival of old closed records", () => {
     // still in the archive, still readable
     const ctx = await e.ctxOf(e.ownerId);
     expect((await get(ctx, "todo", ids.old)).meta.archived).toBe(true);
+  });
+
+  it("archives the newest copy of a record brought back, and lists a record back from a Windows app once", async () => {
+    const def = tableDef("todo")!;
+    const sys = await systemCtx(e.cfg, e.org);
+    const ctx = await e.ctxOf(e.ownerId);
+    const id = String((await e.owner.post(`${P()}/r/todo`, { short_description: "مودم شعبه" })).row.id);
+    const age = (title: string) =>
+      e.db.tx(async (tx) => {
+        await tx.query(`select set_config('itsm.applying', 'on', true)`);
+        await tx.query(`update sm_todos set active = false, deleted_at = null, short_description = $2, updated_at = now() - interval '5 years' where id = $1`, [id, title]);
+      });
+    await age("مودم شعبه");
+    expect(await archiveBatch(sys, def, 3)).toBe(1);
+    // back in the work table and old again: the archive keeps the newest copy, not the first one
+    await age("مودم شعبه (ویرایش)");
+    expect(await archiveBatch(sys, def, 3)).toBe(1);
+    expect((await e.db.one<{ t: string }>(`select short_description as t from ${archiveTableOf(def)} where id = $1`, [id]))?.t).toBe("مودم شعبه (ویرایش)");
+    // a Windows app's newer copy brings it back (the cloud applies the push): the archived copy goes
+    const stored = await e.db.one<Record<string, unknown>>(`select * from sm_todos where id = $1`, [id]);
+    await e.db.tx(async (tx) => {
+      await tx.query(`update sm_todos set deleted_at = null where id = $1`, [id]);
+      await afterEnginePush(tx, sys, { engine: "record", entity: "todo" } as never, { entity: "todo", id, row: {} } as never, { prev: fromDb(def, stored!) });
+    });
+    expect(await e.db.one(`select 1 from ${archiveTableOf(def)} where id = $1`, [id])).toBeNull();
+    expect((await list(ctx, "todo", { archived: true, size: 50 })).rows.map((r) => r.id)).not.toContain(id);
+    expect((await list(ctx, "todo", { size: 50 })).rows.map((r) => r.id)).toContain(id);
   });
 });

@@ -33,6 +33,7 @@ import { orgSchema, type OrgSchema } from "./schema";
 import { readable, SEARCH_COLUMN, writableRule } from "./sql";
 import { coerceValue, FieldError, KEEP } from "./values";
 import { canOpenRecords, fromDb, type Row } from "./read";
+import { archivable, archiveTableOf } from "./ddl";
 import { recordEvents, sameValue, stateEffects } from "./write";
 import { emitEvent } from "./events";
 import { emitLinkEvents } from "./links";
@@ -346,6 +347,9 @@ export async function afterEnginePush(tx: Tx, ctx: Ctx, agg: AggregateDef, wire:
   const stored = await tx.one<Row>(`select * from ${def.table} where id = $1`, [wire.id]);
   if (!stored) return;
   const row = fromDb(def, stored);
+  // a record moved to the archive (engine/archive.ts) that a Windows app's newer copy brought back is live again: its
+  // archived copy goes, so it is listed once (the nightly run moves it again once it is old enough)
+  if (!row.deleted_at && (!prev || prev.deleted_at) && archivable(def)) await tx.query(`delete from ${archiveTableOf(def)} where id = $1 and org_id = $2`, [wire.id, ctx.org.id]);
   if (row.deleted_at && (!prev || !prev.deleted_at)) {
     await recordEvents(tx, ctx, def, "delete", prev, row, new Set(), { via: "sync" });
     return;

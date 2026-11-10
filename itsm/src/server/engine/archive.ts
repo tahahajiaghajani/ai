@@ -63,8 +63,11 @@ async function sharedColumns(q: Queryable, def: TableDef): Promise<string[]> {
  */
 export async function archiveBatch(sys: Ctx, def: TableDef, years: number, limit = ARCHIVE_BATCH): Promise<number> {
   if (!archivable(def)) return 0;
-  const cols = (await sharedColumns(sys.db, def)).map((c) => `"${c}"`).join(", ");
-  if (!cols) return 0;
+  const names = await sharedColumns(sys.db, def);
+  if (!names.length) return 0;
+  const cols = names.map((c) => `"${c}"`).join(", ");
+  // a record archived before and brought back since (a Windows app's newer copy, engine/sync.ts) replaces its old copy
+  const sets = [...names.filter((c) => c !== "id").map((c) => `"${c}" = excluded."${c}"`), "archived_at = now()"].join(", ");
   return sys.write(async (tx) => {
     // the oldest untouched rows first (the hot table's updated_at index, read backwards)
     const ids = (
@@ -76,7 +79,7 @@ export async function archiveBatch(sys: Ctx, def: TableDef, years: number, limit
     ).map((r) => r.id);
     if (!ids.length) return 0;
     const list = pgArray(ids);
-    await tx.query(`insert into ${archiveTableOf(def)} (${cols}) select ${cols} from ${def.table} where id = any($1::uuid[]) on conflict (id) do nothing`, [list]);
+    await tx.query(`insert into ${archiveTableOf(def)} (${cols}) select ${cols} from ${def.table} where id = any($1::uuid[]) on conflict (id) do update set ${sets}`, [list]);
     // a tombstone: Windows apps that hold the record delete their copy (the sync trigger gives it a new revision)
     await tx.query(`update ${def.table} set deleted_at = now() where id = any($1::uuid[]) and org_id = $2`, [list, sys.org.id]);
     return ids.length;
