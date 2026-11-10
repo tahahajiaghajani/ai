@@ -66,3 +66,32 @@ describe("snapshot cursors", () => {
     expect(rest.map((r) => ({ rev: Number(r.rev), id: r.id }))).toEqual(ordered.slice(26));
   });
 });
+
+describe("the move to transaction-id revisions (migration 0096)", () => {
+  it("stamps counter revisions that ran ahead of the transaction ids, so a full pull still sees those rows", async () => {
+    const { makeServer, Client, signupWithOrg } = await import("./helpers");
+    await import("./fixtures/module");
+    const { default: migration } = await import("@server/db/migrations/0096_xid_revisions");
+    const { SYNC_PROTOCOL } = await import("@shared/constants");
+    const s = await makeServer({ mode: "cloud" });
+    const c = new Client(s.app);
+    const org = await signupWithOrg(c);
+    const item = (await c.post(`/o/${org}/data/test_item`, { name: "پیش از ارتقا" })).row;
+    // an import under the old counter: the revision is far ahead of the transaction ids
+    await s.db.tx(async (tx) => {
+      await tx.query(`set local session_replication_role = replica`);
+      await tx.query(`update sm_test_items set rev = 999999999 where id = $1`, [item.id]);
+    });
+    const ahead = await c.get(`/sync/pull?org_id=${org}&protocol=${SYNC_PROTOCOL}`);
+    expect(ahead.aggregates.some((a: { id: string }) => a.id === item.id)).toBe(false);
+    await s.db.exec(migration);
+    const rev = Number((await s.db.one<{ rev: number }>(`select rev from sm_test_items where id = $1`, [item.id]))!.rev);
+    expect(rev).toBeLessThan(999999999);
+    const page = await c.get(`/sync/pull?org_id=${org}&protocol=${SYNC_PROTOCOL}`);
+    expect(page.aggregates.find((a: { id: string }) => a.id === item.id)?.row.name).toBe("پیش از ارتقا");
+    // a Windows app of protocol 14 (numeric cursors) is told to update
+    const old = await c.req("GET", `/sync/pull?org_id=${org}&cursor=120&user_cursor=0`, undefined, 400);
+    expect(old.error.message).toContain("به‌روز");
+    await s.db.close();
+  }, 120_000);
+});
