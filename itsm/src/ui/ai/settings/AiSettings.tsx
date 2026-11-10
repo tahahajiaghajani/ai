@@ -9,6 +9,7 @@ import { useSearchParams } from "react-router";
 import { Plus, ShieldOff } from "lucide-react";
 import type { AiSettings as Settings } from "@shared/ai/types";
 import { useOrg } from "../../lib/org";
+import { useSession } from "../../lib/session";
 import { PageHeader } from "../../components/layout";
 import { EmptyState, Skeleton } from "../../components/display";
 import { fa } from "../../lib/fa";
@@ -73,6 +74,7 @@ export default function AiSettings() {
     setSp(next, { replace: true });
   };
 
+  const { meta } = useSession();
   const status = useAiStatus(manage);
   const presets = useAiPresets();
   const conns = useAiConnections(manage);
@@ -114,6 +116,12 @@ export default function AiSettings() {
           ) : null
         }
       />
+      {meta?.server?.air_gapped ? (
+        <Note className="mb-4">
+          <b>این سرور در شبکهٔ بسته (بدون اینترنت) کار می‌کند.</b> سرویس‌های اینترنتی مانند Claude، ChatGPT و Gemini در دسترس نیستند؛ مدل‌های شبکهٔ سازمان (Ollama، vLLM و سرویس‌های سازگار با OpenAI) را
+          اضافه کنید. جست‌وجوی معنایی پایه و پیش‌بینی‌ها بدون مدل هم کار می‌کنند. نشانی سرور مدل باید در فهرست میزبان‌های مجاز سرور باشد.
+        </Note>
+      ) : null}
       {view?.policy.disabled ? (
         <Note tone="warning" className="mb-4">
           <b>مدیر سامانه هوش مصنوعی را برای این سازمان خاموش کرده است.</b> تنظیمات می‌ماند و با روشن شدن دوباره به کار می‌افتد.

@@ -13,6 +13,7 @@ const Login = lazy(() => import("./pages/auth/Login"));
 const Signup = lazy(() => import("./pages/auth/Signup"));
 const Recover = lazy(() => import("./pages/auth/Recover"));
 const Setup = lazy(() => import("./pages/auth/Setup"));
+const ServerSetup = lazy(() => import("./pages/auth/ServerSetup"));
 const Orgs = lazy(() => import("./pages/orgs/Orgs"));
 const OrgWizard = lazy(() => import("./pages/orgs/OrgWizard"));
 const Admin = lazy(() => import("./pages/admin/Admin"));
@@ -53,6 +54,13 @@ export function Loading({ full }: { full?: boolean }) {
       ) : null}
     </div>
   );
+}
+
+/** First run: the Windows app's choices, or the server edition's one-time setup (/setup?token=…). */
+function SetupRoute() {
+  const { meta, loading } = useSession();
+  if (loading && !meta) return <Loading full />;
+  return meta?.edition === "server" ? <ServerSetup /> : <Setup />;
 }
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -147,7 +155,7 @@ export function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/recover" element={<Recover />} />
-        <Route path="/setup" element={<Setup />} />
+        <Route path="/setup" element={<SetupRoute />} />
         <Route path="/" element={<RequireAuth><Home /></RequireAuth>} />
         <Route path="/orgs" element={<RequireAuth><Orgs /></RequireAuth>} />
         <Route path="/orgs/new" element={<RequireAuth><OrgWizard /></RequireAuth>} />

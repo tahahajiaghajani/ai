@@ -5,7 +5,7 @@ import "./admin.css";
 import { lazy, Suspense, type ReactNode } from "react";
 import { Button, Tooltip } from "antd";
 import { Activity, ArrowRight, Building2, Gauge, HeartPulse, LogOut, ShieldAlert, Users } from "lucide-react";
-import { Layers, Megaphone, ServerCog, ScrollText } from "lucide-react";
+import { Layers, Megaphone, ServerCog, ScrollText, Server } from "lucide-react";
 import { AiIcon } from "../../components/shell/icons";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useSession } from "../../lib/session";
@@ -26,6 +26,8 @@ const Plans = lazy(() => import("../../modules/admin/platform/Plans"));
 const Announcements = lazy(() => import("../../modules/admin/platform/Announcements"));
 const Operations = lazy(() => import("../../modules/admin/platform/Operations"));
 const AuditAll = lazy(() => import("../../modules/admin/platform/AuditAll"));
+// the server edition's «سلامت سرور» (docs/SERVER_FA.md)
+const ServerHealth = lazy(() => import("../../modules/admin/platform/ServerHealth"));
 
 const NAV = [
   { key: "", title: "پیشخوان", icon: Gauge },
@@ -34,11 +36,12 @@ const NAV = [
   { key: "ai", title: "هوش مصنوعی", icon: AiIcon },
   { key: "security", title: "رویدادهای امنیتی", icon: ShieldAlert },
   { key: "health", title: "سلامت سامانه", icon: HeartPulse },
+  { key: "server", title: "سلامت سرور", icon: Server, edition: "server" },
   { key: "plans", title: "طرح‌ها و قابلیت‌ها", icon: Layers },
   { key: "announcements", title: "اطلاعیه‌ها", icon: Megaphone },
   { key: "ops", title: "کارها و پشتیبان‌ها", icon: ServerCog },
   { key: "audit", title: "رویدادهای سازمان‌ها", icon: ScrollText },
-] as const;
+] as { key: string; title: string; icon: typeof Gauge; edition?: "server" }[];
 
 /** "/admin/orgs/<id>" → ["orgs", "<id>"] */
 function useSection(): [string, string | null] {
@@ -49,9 +52,10 @@ function useSection(): [string, string | null] {
 
 function Nav({ support }: { support: number }) {
   const [section] = useSection();
+  const { meta } = useSession();
   return (
     <nav className="ad-nav" aria-label="بخش‌های مدیریت سامانه">
-      {NAV.map((n) => (
+      {NAV.filter((n) => !n.edition || n.edition === meta?.edition).map((n) => (
         <Link key={n.key} to={n.key ? `/admin/${n.key}` : "/admin"} aria-current={section === n.key ? "page" : undefined}>
           <n.icon {...ICON} aria-hidden />
           {n.title}
@@ -144,6 +148,7 @@ function Section() {
   if (section === "announcements") return <Announcements />;
   if (section === "ops") return <Operations />;
   if (section === "audit") return <AuditAll />;
+  if (section === "server") return <ServerHealth />;
   return <Overview />;
 }
 

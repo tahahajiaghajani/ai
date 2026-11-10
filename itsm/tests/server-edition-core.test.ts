@@ -311,7 +311,7 @@ describe("metrics and logs", () => {
     m.requestStarted();
     m.requestDone("POST", "/api/y", 503, 250);
     m.refused("api.openai.com", "fetch");
-    const db = m.wrapDb({ kind: "postgres", query: async () => [], one: async () => null, exec: async () => {}, tx: async (fn) => fn({} as never), close: async () => {} } as never);
+    const db = m.wrapDb({ kind: "postgres", query: async () => [], one: async () => null, exec: async () => {}, tx: async (fn: (tx: never) => unknown) => fn({} as never), close: async () => {} } as never);
     await db.query("select 1");
     const s = m.snapshot();
     expect(s.requests).toMatchObject({ total: 2, errors: 1, in_flight: 0 });
