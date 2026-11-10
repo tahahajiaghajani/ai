@@ -77,9 +77,10 @@ export interface ServerConfig {
    * Cookies and proxies of the installation (src/server/auth/session.ts; environment fallbacks ITSM_COOKIE_SECURE,
    * ITSM_COOKIE_SAMESITE, ITSM_TRUSTED_PROXIES): `cookieSecure` "auto" sets Secure on HTTPS requests (X-Forwarded-Proto
    * counts only from a trusted proxy), `trustedProxies` are the addresses whose X-Forwarded-For / -Proto are believed
-   * (loopback always is).
+   * (loopback always is). `directoryLan`: domain controllers on the installation's own network may be reached
+   * (an on-premises server; env ITSM_DIRECTORY_LAN=1) — the web version reaches public LDAP hosts only.
    */
-  auth?: { cookieSecure?: "auto" | "always" | "never"; cookieSameSite?: "Lax" | "Strict"; trustedProxies?: string[] };
+  auth?: { cookieSecure?: "auto" | "always" | "never"; cookieSameSite?: "Lax" | "Strict"; trustedProxies?: string[]; directoryLan?: boolean };
 }
 
 export interface AuthUser {

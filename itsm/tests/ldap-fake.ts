@@ -202,6 +202,8 @@ function makeMatcher(entries: () => FakeEntry[]) {
       case 0xa3: {
         const want = lower(f.children[1].value.toString("utf8"));
         const attr = strOf(f.children[0]);
+        // objectCategory=person: AD expands the short name to the class's DN
+        if (lower(attr) === "objectcategory") return attrOf(e, attr).some((v) => lower(v) === want || lower(v).startsWith(`cn=${want},`));
         return attrOf(e, attr).some((v) => (lower(attr) === "member" || lower(attr) === "memberof" || lower(attr) === "manager" ? normDn(v) === normDn(want) : lower(v) === want));
       }
       case 0xa4: {

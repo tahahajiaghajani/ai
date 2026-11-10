@@ -56,9 +56,12 @@ export function mappingsOf(src: Row): GroupMapping[] {
     .filter((m: GroupMapping) => m.source);
 }
 
-/** On the web version an LDAP server must be a public host (the Windows app reaches the office network). */
+/**
+ * On the web version an LDAP server must be a public host. The Windows app reaches the office network, and so does an
+ * on-premises installation that says so (cfg.auth.directoryLan, or ITSM_DIRECTORY_LAN=1: domain controllers on the LAN).
+ */
 export async function guardHost(cfg: ServerConfig, url: string): Promise<void> {
-  if (cfg.mode === "desktop") return;
+  if (cfg.mode === "desktop" || cfg.auth?.directoryLan || process.env.ITSM_DIRECTORY_LAN === "1") return;
   let host: string;
   try {
     host = new URL(url).hostname.replace(/^\[|\]$/g, "");
