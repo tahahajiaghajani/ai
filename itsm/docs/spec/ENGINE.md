@@ -301,6 +301,15 @@ await ctx.write(async (tx) => {
   `sum`, `avg` (6 decimals), `min`, `max` (also dates), `median`, `p90` on numbers; keys `count`, `sum:estimate`…
   Numeric results are decimal strings. `totals` are computed over records (an array grouping never counts a record
   twice there). Groups are ordered by bucket, otherwise by the first metric descending.
+- **The write lock** (`ctx.write`): an organisation's writes are serialised by its `sm_org_sync` row so sync revisions
+  follow commit order. A write takes it when it starts; `ctx.write(fn, { late: true })` takes it only right before its
+  first statement that writes a synced row (`ensureOrgLock`, called by the engine before every insert, update and
+  delete; the sync trigger at the latest) — for work whose reads decide no other record's write (the notification
+  service's bell rows). `internal` bookkeeping is late by default and takes no lock when it writes no synced table.
+  Per process at most `ITSM_WRITERS_PER_ORG` (3) write transactions of an organisation are in the database at once
+  (`admitWrite`); the rest wait without holding a pool connection, so one long write never starves the reads. Keep
+  model calls, rendering and network out of write transactions; measure holds with the probe
+  (`src/server/db/lockprobe.ts`, `scripts/serve-pg.mjs --lock-stats`, PERFORMANCE_FA.md §۱۳-۵).
 - **Set-based system rows**: `insertManyIn(tx, systemCtx, table, rows)` creates many rows with ONE insert — the
   platform's own output (a notification's bell rows for every recipient). Each row is coerced, defaulted, passed to the
   beforeWrite hooks (access anchors…) and validated like a create, the stored rows go to the afterWrite hooks, the
