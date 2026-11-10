@@ -155,6 +155,26 @@ describe("transfers between branches", () => {
   });
 });
 
+describe("transfer approval through the approvals service", () => {
+  it("asks the asset-management group and moves the note on its decision", async () => {
+    const group = await w.idOf("group", "name", "مدیریت دارایی");
+    await w.o.post(`${w.P}/access/groups/${group}/members`, { user_ids: [w.p.am.userId] });
+    const atm2 = (await w.p.am.client.post(`${w.P}/r/asset`, { model_id: atmModel, state: "in_use", branch_id: u.tajrish, department_id: u.tajrish, serial_number: "ATM-2" })).row;
+    const t = (await m.tajrish.client.post(`${w.P}/r/asset_transfer`, { title: "بازگشت خودپرداز به انبار منطقه", from_branch_id: u.tajrish, to_branch_id: u.tehran, reason: "return_to_central" })).row;
+    await m.tajrish.client.post(`${w.P}/r/asset_transfer_item`, { transfer_id: t.id, asset_id: atm2.id });
+    await m.tajrish.client.post(`${w.P}/r/asset_transfer/${t.id}/transition`, { to: "pending_approval" });
+    const a = (await w.p.am.client.get(`${w.P}/approvals/mine`)).approvals.find((x: any) => x.record_id === t.id);
+    expect(a).toBeTruthy();
+    await w.p.am.client.post(`${w.P}/approvals/${a.id}/decide`, { decision: "approved", comment: "تأیید" });
+    expect((await w.p.am.client.get(`${w.P}/r/asset_transfer/${t.id}`)).row.state).toBe("approved");
+    // the region (the destination itself) reads it; the receipt there puts the ATM in use at the region's unit
+    await m.tajrish.client.post(`${w.P}/r/asset_transfer/${t.id}/transition`, { to: "in_transit" });
+    const items = (await m.region.client.get(`${w.P}/itam/transfers/${t.id}/items`)).items;
+    expect((await m.region.client.post(`${w.P}/itam/transfers/${t.id}/receive`, { items: [{ id: items[0].id, result: "received" }] })).state).toBe("received");
+    expect((await w.p.am.client.get(`${w.P}/r/asset/${atm2.id}`)).row.branch_id).toBe(u.tehran);
+  });
+});
+
 describe("branch audit and reconciliation", () => {
   it("counts a branch, completes with discrepancies and closes only once they are settled", async () => {
     // a branch's officer cannot plan another branch's count
@@ -252,7 +272,7 @@ describe("the ATM fleet", () => {
     const atm = (await w.p.am.client.get(`${w.P}/r/asset/${a.atm.id}`)).row;
     expect(atm.ci_id).toBeTruthy();
     const r = await w.o.post(`${w.P}/itam/fleet/pm-plans`, { every_n: 3, interval_unit: "month" });
-    expect(r.created).toBe(1);
+    expect(r.created).toBe(2); // both ATMs (Vanak's and the one returned to the region)
     expect((await w.o.post(`${w.P}/itam/fleet/pm-plans`, {})).created).toBe(0);
     const plans = (await w.o.post(`${w.P}/r/maintenance_plan/query`, { filter: { f: "ci_id", op: "eq", v: atm.ci_id } })).rows;
     expect(plans).toHaveLength(1);
