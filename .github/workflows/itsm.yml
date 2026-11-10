@@ -74,7 +74,8 @@ jobs:
   # click-through QA (itsm/docs/qa/CLICKTHROUGH.md): the main page of every space, the requester portal, the platform
   # console and the sign-in pages as the administrator, and the agent's and requester's home pages, on the
   # Windows-flavour local server (PGlite) — console errors, crashes, «not found», failed API calls, endless loaders.
-  # The full crawl (every route, «… تازه», records and their tabs, phone width) is `npm run qa:crawl` (about an hour).
+  # About 7 minutes; the full crawl (every route, «… تازه», records and their tabs, phone width) is `npm run qa:crawl`
+  # (about 35 minutes).
   clickthrough:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest

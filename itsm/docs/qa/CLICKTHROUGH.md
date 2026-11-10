@@ -29,8 +29,10 @@ or calendar entry, and the first link.
 Options: `--base <url>` (a running server), `--roles admin,agent,requester`, `--only <regex>` / `--skip <regex>`,
 `--from <route>` / `--before <route>` (a long run in parts), `--merge` (re-checked pages replace their rows in the
 previous report), `--no-records`, `--no-actions`, `--mobile main|all|none`, `--quick` (the CI smoke run: main pages,
-consoles, portal and sign-in pages; the job `clickthrough` of `.github/workflows/itsm.yml`). A full run takes about an
-hour on a busy 4-vCPU machine; it uses one headless Chromium and replaces a tab, context or browser that crashes.
+consoles, portal and sign-in pages; the job `clickthrough` of `.github/workflows/itsm.yml`). On a busy 4-vCPU machine
+shared with four other build agents a full run took 34 minutes (2,364 checks) and `--quick` 7 minutes end to end
+(UI build, server start, 267 checks); it uses one headless Chromium and replaces a tab, context or browser that
+crashes.
 
 Not reached: the server edition's own pages (`/admin/server`, the server `/setup`) need the server edition; cloud
 mode needs PostgreSQL (`scripts/pg-local.mjs`) and was not crawled in this round.
