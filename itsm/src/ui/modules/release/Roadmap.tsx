@@ -58,7 +58,7 @@ export default function Roadmap() {
             <Button onClick={() => setFrom(addDays(today, -14))}>امروز</Button>
             <Button icon={<ChevronLeft {...ICON} />} onClick={() => setFrom(addDays(from, Math.round(days / 2)))} aria-label="پس‌تر" />
             {canCreate ? (
-              <Button type="primary" icon={<Plus {...ICON} />} onClick={() => nav(newRecordPath("release"))}>
+              <Button type="primary" icon={<Plus {...ICON} />} onClick={() => nav(`/${orgId}/${newRecordPath("release")}`)}>
                 انتشار تازه
               </Button>
             ) : null}
@@ -79,7 +79,7 @@ export default function Roadmap() {
             holidays={holidays.data ?? []}
             bands={data.data.bands}
             items={items}
-            onOpen={(id) => nav(recordPath("release", id))}
+            onOpen={(id) => nav(`/${orgId}/${recordPath("release", id)}`)}
             busy={data.isFetching}
             empty={<EmptyState title="در این بازه انتشاری برنامه‌ریزی نشده است" />}
           />

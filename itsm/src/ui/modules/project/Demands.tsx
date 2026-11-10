@@ -46,7 +46,7 @@ export default function Demands() {
     <div className="flex flex-col gap-4">
       <PageHeader
         title="تابلوی تقاضاها"
-        actions={allows({ area: "project", op: "create" }) ? <Button type="primary" icon={<Plus {...ICON} />} onClick={() => nav(newRecordPath("demand"))}>تقاضای تازه</Button> : null}
+        actions={allows({ area: "project", op: "create" }) ? <Button type="primary" icon={<Plus {...ICON} />} onClick={() => nav(`/${orgId}/${newRecordPath("demand")}`)}>تقاضای تازه</Button> : null}
       />
       {q.isLoading ? (
         <Loader />
