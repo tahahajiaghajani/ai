@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import net from "node:net";
 import { inflateRawSync } from "node:zlib";
-import { connectionsFor, memUnit, planPools, renderTuning, tunePostgres, withIncludes, CONF_INCLUDES } from "../src/server-edition/pgtune";
-import { databaseUrl, defaultConfig, ensureSecrets, envOverrides, loadServerConfig, newPassword, normalize, patchServerConfig, poolFor, redacted, saveServerConfig, workerCount } from "../src/server-edition/config";
+import { connectionsFor, memUnit, planPools, recommendedPool, recommendedWorkers, renderTuning, tunePostgres, withIncludes, CONF_INCLUDES, JOB_CONCURRENCY } from "../src/server-edition/pgtune";
+import { databaseUrl, defaultConfig, ensureSecrets, envOverrides, loadServerConfig, newPassword, normalize, patchServerConfig, poolFor, maxConnectionsFor, redacted, saveServerConfig, workerCount } from "../src/server-edition/config";
 import { allowEntryProblem, checkOutboundHost, hostAllowed, ipInCidr, isLoopbackHost, lanAllowed, networkFetch, OutboundBlockedError, policyNet, type NetworkPolicy } from "@server/net";
 import { installSocketGuard, uninstallSocketGuard } from "../src/server-edition/airgap";
 import { prometheus, routeOf, WorkerMetrics } from "../src/server-edition/metrics";
@@ -46,13 +46,22 @@ describe("names", () => {
 describe("PostgreSQL tuner", () => {
   const base = { ramMb: 32768, cpus: 8, disk: "ssd" as const, os: "windows" as const, connections: 120 };
 
-  it("gives PostgreSQL a share of the memory and sizes its settings from it", () => {
+  it("sizes memory from the whole machine like the load tests (PERFORMANCE_FA.md §۷)", () => {
     const r = tunePostgres(base);
-    expect(r.dbMemMb).toBe(Math.floor(32768 * 0.6));
-    expect(r.settings.shared_buffers).toBe(memUnit(Math.floor(r.dbMemMb / 4)));
-    expect(r.settings.effective_cache_size).toBe(memUnit(Math.floor((r.dbMemMb * 3) / 4)));
+    expect(r.dbMemMb).toBe(32768);
+    expect(r.settings.shared_buffers).toBe("8GB"); // 25 %
+    expect(r.settings.effective_cache_size).toBe(memUnit(Math.round(32768 * 0.7))); // 70 %
     expect(r.settings.max_connections).toBe("120");
     expect(r.settings.random_page_cost).toBe("1.1");
+    expect(r.settings.jit).toBe("off");
+    expect(r.settings.default_statistics_target).toBe("200");
+    expect(r.settings.idle_in_transaction_session_timeout).toBe("60s");
+    expect(r.settings.autovacuum_vacuum_scale_factor).toBe("0.05");
+    expect(r.settings.autovacuum_vacuum_insert_scale_factor).toBe("0.05");
+    expect(r.settings.autovacuum_analyze_scale_factor).toBe("0.02");
+    expect(r.settings.max_locks_per_transaction).toBe("256");
+    expect(r.settings.max_wal_size).toBe("8GB");
+    expect(r.settings.min_wal_size).toBe("1GB");
     expect(r.settings.listen_addresses).toBe("'127.0.0.1'");
     expect(r.settings.shared_preload_libraries).toBe("'pg_stat_statements'");
     expect(r.settings.log_min_duration_statement).toBe("1000");
@@ -70,14 +79,36 @@ describe("PostgreSQL tuner", () => {
 
   it("keeps values inside sane bounds on tiny and huge machines", () => {
     const tiny = tunePostgres({ ...base, ramMb: 2048, cpus: 2, connections: 300 });
-    expect(tiny.settings.shared_buffers).toBe("307MB");
+    expect(tiny.settings.shared_buffers).toBe("512MB");
     expect(tiny.settings.work_mem).toBe("4MB");
+    expect(tiny.settings.max_wal_size).toBe("2GB");
     expect(tiny.notes.length).toBeGreaterThan(0);
     const huge = tunePostgres({ ...base, ramMb: 512 * 1024, cpus: 64 });
-    expect(huge.settings.shared_buffers).toBe("8GB"); // the Windows cap
+    expect(huge.settings.shared_buffers).toBe("16GB"); // the cap
     expect(huge.settings.maintenance_work_mem).toBe("2GB");
     expect(huge.settings.work_mem).toBe("64MB");
-    expect(Number(huge.settings.max_parallel_workers_per_gather)).toBe(4);
+    expect(Number(huge.settings.max_parallel_workers_per_gather)).toBe(2);
+    expect(tunePostgres({ ...base, connections: 10 }).settings.max_connections).toBe("50");
+  });
+
+  it("reproduces the bank sizing table: workers, pools and max_connections", () => {
+    const rows: [number, number, number, number, number][] = [
+      // cpus, RAM GB, workers, pool, max_connections
+      [4, 16, 2, 8, 50],
+      [8, 32, 3, 10, 60],
+      [16, 64, 5, 10, 80],
+      [32, 128, 11, 10, 140],
+    ];
+    for (const [cpus, gb, w, p, max] of rows) {
+      expect(recommendedWorkers(cpus)).toBe(w);
+      expect(recommendedPool(cpus)).toBe(p);
+      expect(connectionsFor(w, p)).toBe(max);
+      expect(w * (p + 1) + 1).toBeLessThanOrEqual(max - 10);
+      expect(tunePostgres({ ramMb: gb * 1024, cpus, disk: "ssd", os: "windows", connections: connectionsFor(w, p) }).settings.max_connections).toBe(String(max));
+    }
+    expect(recommendedWorkers(64)).toBe(12);
+    expect(recommendedWorkers(1)).toBe(2);
+    expect(JOB_CONCURRENCY).toBe(4);
   });
 
   it("plans pools so that workers × (pool + 1) + 1 fits max_connections minus the reserve", () => {
@@ -87,13 +118,20 @@ describe("PostgreSQL tuner", () => {
         expect(p.total).toBe(workers * (p.perWorker + 1) + 1);
         if (max - 10 >= workers * 2 + 1) expect(p.total).toBeLessThanOrEqual(max - 10);
         expect(p.perWorker).toBeGreaterThanOrEqual(1);
+        expect(p.perWorker).toBeLessThanOrEqual(10);
       }
     }
     const asked = planPools({ workers: 8, maxConnections: 100, reserve: 10, requested: 50 });
     expect(asked.reduced).toBe(true);
     expect(asked.total).toBeLessThanOrEqual(90);
     expect(planPools({ workers: 2, maxConnections: 200, requested: 8 })).toMatchObject({ perWorker: 8, reduced: false });
-    expect(connectionsFor(4, 10)).toBeGreaterThanOrEqual(4 * 11 + 1 + 10);
+    expect(planPools({ workers: 5, maxConnections: 80, auto: 10 })).toMatchObject({ perWorker: 10, total: 56 });
+    // many configured workers: max_connections grows so the invariant still holds
+    for (const w of [1, 12, 20, 64]) for (const p of [1, 8, 10, 50]) {
+      const max = connectionsFor(w, p);
+      expect(w * (p + 1) + 1).toBeLessThanOrEqual(max - 10);
+      expect(max).toBeGreaterThanOrEqual(Math.max(50, w * p + 30));
+    }
   });
 
   it("writes an include file and includes it once at the end of postgresql.conf", () => {
@@ -171,9 +209,18 @@ describe("configuration", () => {
     c.db.password = "p@ss/word";
     expect(databaseUrl(c)).toBe(`postgres://kariz_app:p%40ss%2Fword@127.0.0.1:${EDITION.database.port}/kariz`);
     expect(workerCount(c, 1)).toBe(2);
-    expect(workerCount(c, 64)).toBe(16);
+    expect(workerCount(c, 16)).toBe(5);
+    expect(workerCount(c, 64)).toBe(12);
+    // automatic max_connections: workers × pool + 30 (16 vCPU: 5 × 10 + 30)
+    expect(c.db.max_connections).toBe(0);
+    expect(maxConnectionsFor(c, 16)).toBe(80);
+    expect(poolFor(c, 16)).toMatchObject({ perWorker: 10, total: 56 });
+    expect(poolFor(c, 4).perWorker).toBe(8);
+    expect(poolFor(c, 16).total).toBeLessThanOrEqual(maxConnectionsFor(c, 16) - c.db.reserve);
     c.workers = 3;
     expect(workerCount(c, 64)).toBe(3);
+    c.db.max_connections = 200;
+    expect(maxConnectionsFor(c, 8)).toBe(200);
     expect(poolFor(c, 8).total).toBeLessThanOrEqual(c.db.max_connections - c.db.reserve);
   });
 });

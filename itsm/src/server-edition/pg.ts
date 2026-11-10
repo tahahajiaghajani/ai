@@ -9,8 +9,8 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import postgres from "postgres";
 import type { ServerEditionConfig } from "./config";
-import { connectionsFor, renderTuning, tunePostgres, withIncludes, type DiskKind, type TuneInput } from "./pgtune";
-import { workerCount } from "./config";
+import { renderTuning, tunePostgres, withIncludes, type DiskKind, type TuneInput } from "./pgtune";
+import { maxConnectionsFor } from "./config";
 
 const isWindows = process.platform === "win32";
 
@@ -126,8 +126,7 @@ export function thisMachine(disk: DiskKind = "ssd"): Machine {
 
 /** The tuning input for this installation (connections from its workers and pools). */
 export function tuneInputFor(c: ServerEditionConfig, m: Machine): TuneInput {
-  const workers = workerCount(c, m.cpus);
-  return { ...m, connections: Math.max(c.db.max_connections, connectionsFor(workers, c.pool_per_worker || 10, c.db.reserve)), slowMs: Math.max(200, c.log.slow_ms) };
+  return { ...m, connections: maxConnectionsFor(c, m.cpus), slowMs: Math.max(200, c.log.slow_ms) };
 }
 
 /** Write kariz-tuning.conf, include it from postgresql.conf, and write pg_hba.conf. Returns the tuning notes. */

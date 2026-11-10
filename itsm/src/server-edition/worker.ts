@@ -19,6 +19,7 @@ import type { ServerConfig } from "@server/context";
 import { proxyTrusted } from "@server/auth/session";
 import { APP_NAME } from "@shared/constants";
 import { changeAllowlist, databaseUrl, loadServerConfig, poolFor, workerCount, type ServerEditionConfig } from "./config";
+import { JOB_CONCURRENCY } from "./pgtune";
 import { DIRECTORY_SETTINGS_PATH, EXIT_FATAL_CONFIG } from "./names";
 import { createLogger, echo, RotatingFile, type Level, type ServerLogger } from "./log";
 import { WorkerMetrics, type ClusterMetrics } from "./metrics";
@@ -261,7 +262,8 @@ export async function startServerEdition(o: StartOptions): Promise<RunningServer
   if (o.scheduler !== false) {
     scheduler = new Scheduler({
       lock: postgresLock(databaseUrl(current), { ssl: current.db.ssl }),
-      tick: () => tick(cfg, { budgetMs: 20_000, worker: `srv${workerId}-${process.pid}` }),
+      // the job runner: only the scheduler leader ticks, four jobs at once (batched SKIP LOCKED claims, per-record order)
+      tick: () => tick(cfg, { budgetMs: 20_000, concurrency: JOB_CONCURRENCY, worker: `srv${workerId}-${process.pid}` }),
       log,
       intervalMs: current.scheduler.interval_s * 1000,
       onLeadership: (v) => (metrics.leader = v),

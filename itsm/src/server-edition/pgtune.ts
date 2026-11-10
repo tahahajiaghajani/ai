@@ -1,9 +1,9 @@
-// The PostgreSQL tuner of the server edition: a pure function from the machine (RAM, CPU cores, disk kind) and the
-// expected connections to postgresql.conf settings, written by `karizctl pg-conf` into kariz-tuning.conf (included
-// from postgresql.conf; an administrator's own overrides go into kariz-local.conf, included after it and never
-// rewritten). The application server runs on the same machine, so the database gets a share of the memory, not all
-// of it. Final numbers are aligned with the load tests of docs/PERFORMANCE_FA.md by the integrator: change them here
-// (and the tests in tests/server-edition-pgtune.test.ts) only.
+// The PostgreSQL tuner — the ONE source of the settings, worker and pool formulas used by the server edition
+// (`karizctl pg-conf` writes them into kariz-tuning.conf, included from postgresql.conf; an administrator's own
+// overrides go into kariz-local.conf, included after it and never rewritten) and by the load-test tooling
+// (scripts/pg-local.mjs loads this file through tsx). The numbers are the measured ones of docs/PERFORMANCE_FA.md
+// §۷–۸ (and §۱۳-۷): change them here, and the tests in tests/server-edition-core.test.ts and
+// tests/integration-scale-server.test.ts, only.
 
 export type DiskKind = "ssd" | "hdd" | "san";
 export type OsKind = "windows" | "linux";
@@ -15,10 +15,8 @@ export interface TuneInput {
   cpus: number;
   disk: DiskKind;
   os: OsKind;
-  /** connections the application will open at most (workers × (pool + 1) + scheduler + tools); see planPools */
+  /** max_connections: connectionsFor(workers, pool) for this installation (at least 50) */
   connections: number;
-  /** share of the memory PostgreSQL may use (the application server runs on the same machine); default 0.6 */
-  dbShare?: number;
   /** statements slower than this are logged (ms); default 1000 */
   slowMs?: number;
 }
@@ -26,7 +24,7 @@ export interface TuneInput {
 export interface TuneResult {
   /** setting → value, in postgresql.conf syntax (strings already quoted) */
   settings: Record<string, string>;
-  /** the memory the calculation assumed for PostgreSQL (MB) */
+  /** the memory the calculation assumed (MB): the whole machine — shared_buffers is 25 % of it */
   dbMemMb: number;
   /** notes for the administrator (Persian), e.g. «حافظه کم است» */
   notes: string[];
@@ -37,6 +35,8 @@ export interface PoolPlanInput {
   workers: number;
   /** connections per worker the administrator asked for (0 = automatic) */
   requested?: number;
+  /** the automatic pool (recommendedPool(cpus)); default 10 */
+  auto?: number;
   /** PostgreSQL max_connections */
   maxConnections: number;
   /** connections kept free for administrators, backups and karizctl */
@@ -64,53 +64,68 @@ export function memUnit(mb: number): string {
   return `${m}MB`;
 }
 
-const DEFAULT_RESERVE = 10;
+export const DEFAULT_RESERVE = 10;
 /** Connections a worker keeps besides its pool: the scheduler's lock connection. */
 const PER_WORKER_EXTRA = 1;
 /** The leader's LISTEN connection. */
 const LISTENERS = 1;
+/** Connections above workers × pool: the job runner, backups, karizctl, monitoring and PostgreSQL's own slots. */
+const HEADROOM = 30;
 
 /**
- * Pool size per worker so that workers × (pool + 1) + 1 ≤ max_connections − reserve. Automatic: a third of what fits,
- * between 4 and 20 per worker (PostgreSQL is fastest with a few busy connections per core, not hundreds idle).
+ * Node API processes for a machine: a third of the vCPUs (measured: PostgreSQL spends ~2.4× the CPU of Node per
+ * request — PERFORMANCE_FA.md §۸), at least 2 (a crash never stops the service), at most 12.
+ */
+export function recommendedWorkers(cpus: number): number {
+  return Math.max(2, Math.min(12, Math.round(Math.max(1, cpus) / 3)));
+}
+
+/** postgres.js connections per Node process: a request holds one for a few milliseconds; 10 keeps p99 low. */
+export function recommendedPool(cpus: number): number {
+  return cpus >= 8 ? 10 : 8;
+}
+
+/** The job runner of the server edition (only on the scheduler leader): four jobs at once, batched claims. */
+export const JOB_CONCURRENCY = 4;
+
+/**
+ * Pool size per worker so that workers × (pool + 1) + 1 ≤ max_connections − reserve. Automatic: `auto`
+ * (recommendedPool) when it fits, else what fits.
  */
 export function planPools(p: PoolPlanInput): PoolPlan {
   const workers = Math.max(1, Math.floor(p.workers));
   const reserve = Math.max(3, Math.floor(p.reserve ?? DEFAULT_RESERVE));
   const budget = Math.max(workers * (1 + PER_WORKER_EXTRA) + LISTENERS, Math.floor(p.maxConnections) - reserve);
   const fits = Math.max(1, Math.floor((budget - LISTENERS) / workers) - PER_WORKER_EXTRA);
-  const auto = clamp(Math.floor(fits / 3), Math.min(4, fits), 20);
+  const auto = Math.max(1, Math.min(fits, Math.floor(p.auto ?? 10)));
   const requested = p.requested && p.requested > 0 ? Math.floor(p.requested) : 0;
   const perWorker = requested ? Math.min(requested, fits) : auto;
   return { perWorker, total: workers * (perWorker + PER_WORKER_EXTRA) + LISTENERS, reduced: requested > fits };
 }
 
 /**
- * max_connections for an installation: what the application opens (planned with the default pool), the reserve and
- * PostgreSQL's own superuser slots, rounded up to a multiple of 10, at least 50.
+ * max_connections for an installation: workers × pool + 30, at least 50 — and never less than what keeps S1's
+ * invariant workers × (pool + 1) + 1 ≤ max_connections − reserve (only matters for many configured workers).
  */
 export function connectionsFor(workers: number, perWorker = 10, reserve = DEFAULT_RESERVE): number {
-  const app = Math.max(1, workers) * (perWorker + PER_WORKER_EXTRA) + LISTENERS;
-  return Math.max(50, Math.ceil((app + reserve + 3) / 10) * 10);
+  const w = Math.max(1, Math.floor(workers));
+  const p = Math.max(1, Math.floor(perWorker));
+  return Math.max(50, w * p + HEADROOM, w * (p + PER_WORKER_EXTRA) + LISTENERS + reserve);
 }
 
 export function tunePostgres(input: TuneInput): TuneResult {
   const notes: string[] = [];
   const ramMb = Math.max(512, Math.floor(input.ramMb));
   const cpus = clamp(Math.floor(input.cpus) || 1, 1, 256);
-  const share = clamp(input.dbShare ?? 0.6, 0.2, 0.9);
-  const dbMemMb = Math.floor(ramMb * share);
   if (ramMb < 8 * GB) notes.push("حافظهٔ سرور کمتر از ۸ گیگابایت است؛ برای کار روزانهٔ یک بانک دست‌کم ۱۶ گیگابایت توصیه می‌شود");
-  const maxConnections = Math.max(20, Math.ceil(input.connections));
+  const maxConnections = Math.max(50, Math.ceil(input.connections));
 
-  // memory
-  const sharedBuffers = clamp(Math.floor(dbMemMb / 4), 128 * MB, input.os === "windows" ? 8 * GB : 16 * GB);
-  const effectiveCache = Math.max(sharedBuffers * 2, Math.floor((dbMemMb * 3) / 4));
-  const maintenance = clamp(Math.floor(dbMemMb / 16), 64 * MB, 2 * GB);
-  const parallelGather = clamp(Math.ceil(cpus / 2), 1, 4);
-  // every connection may sort/hash a few times at once, and parallel workers each get their own work_mem
-  const workMem = clamp(Math.floor((dbMemMb - sharedBuffers) / (maxConnections * 3) / parallelGather), 4 * MB, 64 * MB);
-  const walBuffers = clamp(Math.floor(sharedBuffers * 0.03), 1, 16 * MB);
+  // memory (PERFORMANCE_FA.md §۷): 25 % shared buffers up to 16 GB, 70 % effective cache
+  const sharedBuffers = clamp(Math.round(ramMb * 0.25), 128 * MB, 16 * GB);
+  const effectiveCache = Math.round(ramMb * 0.7);
+  // a sort or hash node may take work_mem; a busy OLTP query has a few — keep the worst case well inside RAM
+  const workMem = clamp(Math.floor((ramMb - sharedBuffers) / (maxConnections * 4)), 4 * MB, 64 * MB);
+  const maintenance = clamp(Math.round(ramMb / 16), 256 * MB, 2 * GB);
 
   const s: Record<string, string> = {};
   // connections and authentication
@@ -120,20 +135,25 @@ export function tunePostgres(input: TuneInput): TuneResult {
   s.max_connections = String(maxConnections);
   s.superuser_reserved_connections = "3";
   s.password_encryption = "'scram-sha-256'";
+  // the first migration creates ~400 tables and ~3 500 indexes in one transaction (one lock each)
+  s.max_locks_per_transaction = "256";
   // memory
   s.shared_buffers = memUnit(sharedBuffers);
   s.effective_cache_size = memUnit(effectiveCache);
   s.work_mem = memUnit(workMem);
   s.maintenance_work_mem = memUnit(maintenance);
-  s.autovacuum_work_mem = memUnit(clamp(Math.floor(maintenance / 2), 64 * MB, 1 * GB));
+  s.autovacuum_work_mem = memUnit(Math.min(1 * GB, maintenance));
+  // Windows needs the «Lock pages in memory» privilege for huge pages
   s.huge_pages = input.os === "windows" ? "off" : "try";
-  // write-ahead log and checkpoints
-  s.wal_buffers = memUnit(walBuffers);
-  s.min_wal_size = input.disk === "hdd" ? "512MB" : "1GB";
-  s.max_wal_size = input.disk === "hdd" ? "2GB" : "4GB";
+  // write-ahead log and checkpoints (sizes by RAM)
+  s.wal_buffers = ramMb >= 4 * GB ? "64MB" : memUnit(clamp(Math.floor(sharedBuffers * 0.03), 1, 16 * MB));
+  s.min_wal_size = ramMb >= 12 * GB ? "1GB" : "512MB";
+  s.max_wal_size = ramMb >= 32 * GB ? "8GB" : ramMb >= 12 * GB ? "4GB" : "2GB";
   s.checkpoint_timeout = "15min";
   s.checkpoint_completion_target = "0.9";
   s.wal_compression = "on";
+  // banking data: never off
+  s.synchronous_commit = "on";
   // planner and disk
   s.random_page_cost = input.disk === "hdd" ? "4.0" : "1.1";
   s.seq_page_cost = "1.0";
@@ -145,23 +165,25 @@ export function tunePostgres(input: TuneInput): TuneResult {
     s.effective_io_concurrency = input.disk === "hdd" ? "2" : input.disk === "san" ? "300" : "200";
     s.maintenance_io_concurrency = input.disk === "hdd" ? "10" : "100";
   }
-  s.default_statistics_target = "100";
+  // skewed distributions (groups, assignees)
+  s.default_statistics_target = "200";
+  // short OLTP queries: compiling them costs more than it saves
   s.jit = "off";
   // parallelism
   s.max_worker_processes = String(Math.max(8, cpus));
-  s.max_parallel_workers = String(cpus);
-  s.max_parallel_workers_per_gather = String(parallelGather);
-  s.max_parallel_maintenance_workers = String(clamp(Math.ceil(cpus / 2), 1, 4));
+  s.max_parallel_workers = String(Math.max(2, Math.floor(cpus / 2)));
+  s.max_parallel_workers_per_gather = String(cpus >= 8 ? 2 : 1);
+  s.max_parallel_maintenance_workers = String(clamp(Math.floor(cpus / 4), 1, 4));
   // autovacuum tuned for large, busy tables (incidents, history, journal, jobs)
   s.autovacuum_max_workers = String(cpus >= 8 ? 5 : 3);
-  s.autovacuum_naptime = "30s";
+  s.autovacuum_naptime = "15s";
   s.autovacuum_vacuum_scale_factor = "0.05";
-  s.autovacuum_analyze_scale_factor = "0.02";
   s.autovacuum_vacuum_insert_scale_factor = "0.05";
+  s.autovacuum_analyze_scale_factor = "0.02";
   s.autovacuum_vacuum_cost_limit = input.disk === "hdd" ? "400" : "2000";
   s.autovacuum_vacuum_cost_delay = "2ms";
-  // safety
-  s.idle_in_transaction_session_timeout = "10min";
+  // safety: a transaction left open never holds locks (or an organisation's write lock) for long
+  s.idle_in_transaction_session_timeout = "60s";
   s.timezone = "'UTC'";
   s.log_timezone = "'UTC'";
   s.lc_messages = "'C'";
@@ -188,7 +210,7 @@ export function tunePostgres(input: TuneInput): TuneResult {
 
   if (cpus < 4) notes.push("کمتر از ۴ هستهٔ پردازنده؛ کارهای پس‌زمینه و گزارش‌ها کند خواهند بود");
   if (input.disk === "hdd") notes.push("دیسک چرخان (HDD) برای پایگاه داده کند است؛ SSD یا SAN با تأخیر کم توصیه می‌شود");
-  return { settings: s, dbMemMb, notes };
+  return { settings: s, dbMemMb: ramMb, notes };
 }
 
 /** The include file kariz-tuning.conf: a header naming its source and one setting per line. */

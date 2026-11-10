@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // A real PostgreSQL for performance work (docs/PERFORMANCE_FA.md): one scriptable local cluster with the settings the
-// server edition's auto-tuner derives from the machine (`tune()` below is the formula; PERFORMANCE_FA.md §۵ is its table).
+// server edition's auto-tuner derives from the machine (`tune()` below calls src/server-edition/pgtune.ts, the one
+// formula; PERFORMANCE_FA.md §۷ is its table).
 //
 //   node scripts/pg-local.mjs init                 create the cluster (initdb) and its tuned settings
 //   node scripts/pg-local.mjs start [--fast]       start it (--fast: bulk-load settings — no fsync, minimal WAL, no autovacuum)
@@ -18,79 +19,44 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync, readFileSync, chownSync, statSync } from "node:fs";
 import { cpus as osCpus, totalmem } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
- * PostgreSQL settings for a machine (the server edition's auto-tuner follows this formula; see PERFORMANCE_FA.md).
- * `workers` Node processes × `pool` connections each, plus the job runner and maintenance, size max_connections.
- * Windows has no `effective_io_concurrency` (posix_fadvise) and needs a privilege for huge pages.
+ * The server edition's tuner (src/server-edition/pgtune.ts) is the ONE source of these numbers: this script loads it
+ * through tsx so a local measurement runs with exactly what an installation gets (PERFORMANCE_FA.md §۷).
  */
-export function tune({ ramGb, cpus, os = process.platform, storage = "nvme", workers, pool } = {}) {
-  const ram = Math.max(1, ramGb) * 1024; // MB
-  const w = workers ?? recommendedWorkers(cpus);
-  const p = pool ?? recommendedPool(cpus);
-  const maxConnections = Math.max(50, w * p + 30);
-  const sharedBuffers = Math.min(Math.round(ram * 0.25), 16 * 1024);
-  const effectiveCache = Math.round(ram * 0.7);
-  // a sort or hash node may take work_mem; a busy OLTP query has a few — keep the worst case well inside RAM
-  const workMem = Math.max(8, Math.min(64, Math.floor((ram - sharedBuffers) / (maxConnections * 4))));
-  const maintenance = Math.min(2048, Math.max(256, Math.round(ram / 16)));
-  const mb = (n) => `${n}MB`;
-  const s = {
-    max_connections: maxConnections,
-    // the first migration creates ~400 tables and ~3 500 indexes in one transaction (one lock each)
-    max_locks_per_transaction: 256,
-    shared_buffers: mb(sharedBuffers),
-    effective_cache_size: mb(effectiveCache),
-    work_mem: mb(workMem),
-    maintenance_work_mem: mb(maintenance),
-    autovacuum_work_mem: mb(Math.min(1024, maintenance)),
-    huge_pages: os === "win32" ? "off" : "try",
-    wal_buffers: "64MB",
-    min_wal_size: ram >= 12 * 1024 ? "1GB" : "512MB",
-    max_wal_size: ram >= 32 * 1024 ? "8GB" : ram >= 12 * 1024 ? "4GB" : "2GB",
-    checkpoint_timeout: "15min",
-    checkpoint_completion_target: 0.9,
-    wal_compression: "on",
-    random_page_cost: storage === "hdd" ? 4 : 1.1,
-    effective_io_concurrency: os === "win32" ? 0 : storage === "hdd" ? 2 : 200,
-    max_worker_processes: Math.max(8, cpus),
-    max_parallel_workers: Math.max(2, Math.floor(cpus / 2)),
-    max_parallel_workers_per_gather: cpus >= 8 ? 2 : 1,
-    max_parallel_maintenance_workers: Math.min(4, Math.max(1, Math.floor(cpus / 4))),
-    // short OLTP queries: compiling them costs more than it saves
-    jit: "off",
-    default_statistics_target: 200,
-    autovacuum_max_workers: cpus >= 8 ? 5 : 3,
-    autovacuum_naptime: "15s",
-    autovacuum_vacuum_cost_limit: 2000,
-    autovacuum_vacuum_scale_factor: 0.05,
-    autovacuum_vacuum_insert_scale_factor: 0.05,
-    autovacuum_analyze_scale_factor: 0.02,
-    idle_in_transaction_session_timeout: "60s",
-    shared_preload_libraries: "pg_stat_statements",
-    "pg_stat_statements.max": 5000,
-    "pg_stat_statements.track": "top",
-    track_io_timing: "on",
-    log_min_duration_statement: "1000ms",
-  };
-  return { settings: s, workers: w, pool: p };
+async function loadTuner() {
+  // both hooks: .ts files of a package without "type": "module" load as CommonJS
+  (await import("tsx/esm/api")).register();
+  (await import("tsx/cjs/api")).register();
+  return import(pathToFileURL(resolve(ROOT, "src/server-edition/pgtune.ts")).href);
 }
+const T = await loadTuner();
+
+/** Settings the local cluster leaves at PostgreSQL's defaults: logs stay in the -l file of pg_ctl. */
+const LOCAL_SKIP = new Set(["listen_addresses", "unix_socket_directories", "logging_collector", "log_directory", "log_filename", "log_rotation_age", "log_rotation_size", "log_truncate_on_rotation"]);
 
 /**
- * Node API processes for a machine: a third of the vCPUs (measured: PostgreSQL spends ~2.4× the CPU of Node per
- * request — PERFORMANCE_FA.md §۵), at least 2, at most 12.
+ * PostgreSQL settings for a machine — tunePostgres() of the server edition with its worker and pool formulas
+ * (recommendedWorkers, recommendedPool, connectionsFor). Values are in postgresql.conf syntax.
  */
-export function recommendedWorkers(cpus) {
-  return Math.max(2, Math.min(12, Math.round(cpus / 3)));
+export function tune({ ramGb, cpus, os = process.platform, storage = "nvme", workers, pool } = {}) {
+  const w = workers ?? T.recommendedWorkers(cpus);
+  const p = pool ?? T.recommendedPool(cpus);
+  const r = T.tunePostgres({
+    ramMb: Math.max(1, ramGb) * 1024,
+    cpus,
+    os: os === "win32" || os === "windows" ? "windows" : "linux",
+    disk: storage === "hdd" ? "hdd" : storage === "san" ? "san" : "ssd",
+    connections: T.connectionsFor(w, p),
+  });
+  return { settings: r.settings, workers: w, pool: p };
 }
 
-/** postgres.js connections per Node process: a request holds one for a few milliseconds; 10 keeps p99 low. */
-export function recommendedPool(cpus) {
-  return cpus >= 8 ? 10 : 8;
-}
+export const recommendedWorkers = (cpus) => T.recommendedWorkers(cpus);
+export const recommendedPool = (cpus) => T.recommendedPool(cpus);
 
 /** Bulk-load settings (seeding only — never for measurements or production). */
 const FAST = {
@@ -179,7 +145,7 @@ function writeConf(fast) {
     `listen_addresses = '127.0.0.1'`,
     `port = ${PORT}`,
     `unix_socket_directories = ''`,
-    ...Object.entries(settings).map(([k, v]) => `${k} = ${typeof v === "number" ? v : `'${v}'`}`),
+    ...Object.entries(settings).filter(([k]) => !LOCAL_SKIP.has(k)).map(([k, v]) => `${k} = ${v}`),
   ];
   writeFileSync(join(DATA, "itsm.conf"), `${lines.join("\n")}\n`);
   const fastFile = join(DATA, "itsm-fast.conf");

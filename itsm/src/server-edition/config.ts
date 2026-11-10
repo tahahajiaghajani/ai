@@ -8,7 +8,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { availableParallelism } from "node:os";
 import { randomBytes } from "node:crypto";
 import { CONFIG_ENV, EDITION } from "./names";
-import { planPools, type PoolPlan } from "./pgtune";
+import { connectionsFor, planPools, recommendedPool, recommendedWorkers, type PoolPlan } from "./pgtune";
 import { allowEntryProblem } from "@server/net";
 
 export interface AntivirusConfig {
@@ -48,13 +48,14 @@ export interface ServerEditionConfig {
     admin_user: string;
     admin_password: string;
     ssl: boolean;
+    /** PostgreSQL max_connections (0 = automatic: workers × pool + 30, at least 50 — pgtune.ts connectionsFor) */
     max_connections: number;
     reserve: number;
   };
   dirs: { data: string; blobs: string; backups: string; logs: string; pg_data: string; quarantine: string; tls: string };
-  /** application worker processes (0 = one per CPU core) */
+  /** application worker processes (0 = automatic: a third of the CPU cores, 2 to 12 — pgtune.ts recommendedWorkers) */
   workers: number;
-  /** database connections per worker (0 = automatic, see planPools) */
+  /** database connections per worker (0 = automatic: 10 on 8+ cores, else 8; see planPools) */
   pool_per_worker: number;
   network: { air_gapped: boolean; allow: string[] };
   uploads: { max_mb: number; request_max_mb: number };
@@ -125,7 +126,7 @@ export function defaultConfig(data = defaultDataDir()): ServerEditionConfig {
     public_url: `https://${EDITION.defaultHostName}`,
     listen: { address: "0.0.0.0", https_port: 443, http_port: 80, redirect_http: true },
     tls: { pfx: null, passphrase: null, cert: null, key: null, enabled: true, hsts_max_age: 31536000 },
-    db: { host: "127.0.0.1", port: EDITION.database.port, database: EDITION.database.name, user: EDITION.database.appRole, password: "", admin_user: EDITION.database.superuser, admin_password: "", ssl: false, max_connections: 200, reserve: 10 },
+    db: { host: "127.0.0.1", port: EDITION.database.port, database: EDITION.database.name, user: EDITION.database.appRole, password: "", admin_user: EDITION.database.superuser, admin_password: "", ssl: false, max_connections: 0, reserve: 10 },
     dirs: dirsFor(data),
     workers: 0,
     pool_per_worker: 0,
@@ -234,7 +235,7 @@ export function normalize(raw: unknown, warnings: string[] = []): ServerEditionC
       admin_user: str(c.db?.admin_user, d.db.admin_user),
       admin_password: typeof c.db?.admin_password === "string" ? c.db.admin_password : "",
       ssl: bool(c.db?.ssl, false),
-      max_connections: numberIn(w, "db.max_connections", c.db?.max_connections, 20, 10000, d.db.max_connections),
+      max_connections: c.db?.max_connections === 0 ? 0 : numberIn(w, "db.max_connections", c.db?.max_connections, 20, 10000, d.db.max_connections),
       reserve: numberIn(w, "db.reserve", c.db?.reserve, 3, 1000, d.db.reserve),
     },
     dirs,
@@ -440,14 +441,25 @@ export function ensureSecrets(c: ServerEditionConfig): boolean {
   return changed;
 }
 
-/** Worker processes: the configured count, or one per core (at least 2 so a crash never stops the service). */
+/** Worker processes: the configured count, or a third of the cores (2 to 12; pgtune.ts recommendedWorkers). */
 export function workerCount(c: ServerEditionConfig, cores = availableParallelism()): number {
-  return c.workers > 0 ? c.workers : Math.max(2, Math.min(cores, 16));
+  return c.workers > 0 ? c.workers : recommendedWorkers(cores);
+}
+
+/**
+ * PostgreSQL max_connections of this installation: the configured value (never below what the workers' pools need),
+ * or automatic (0) workers × pool + 30, at least 50 (pgtune.ts connectionsFor).
+ */
+export function maxConnectionsFor(c: ServerEditionConfig, cores = availableParallelism()): number {
+  const need = connectionsFor(workerCount(c, cores), c.pool_per_worker || recommendedPool(cores), c.db.reserve);
+  return c.db.max_connections > 0 ? Math.max(c.db.max_connections, need) : need;
 }
 
 /** Pool size of each worker for this configuration. */
 export function poolFor(c: ServerEditionConfig, cores = availableParallelism()): PoolPlan {
-  return planPools({ workers: workerCount(c, cores), requested: c.pool_per_worker, maxConnections: c.db.max_connections, reserve: c.db.reserve });
+  // an explicit max_connections is what PostgreSQL was told (kariz-local.conf may lower it): plan inside it
+  const max = c.db.max_connections > 0 ? c.db.max_connections : maxConnectionsFor(c, cores);
+  return planPools({ workers: workerCount(c, cores), requested: c.pool_per_worker, auto: recommendedPool(cores), maxConnections: max, reserve: c.db.reserve });
 }
 
 /** postgres:// URL of the application's database (password encoded). */
