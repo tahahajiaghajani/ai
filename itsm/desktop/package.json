@@ -2,8 +2,8 @@
   "name": "itsm-desktop",
   "version": "1.0.0",
   "private": true,
-  "description": "ITSM — نسخهٔ ویندوز (Electron)",
-  "author": "ITSM",
+  "description": "کاریز (Kariz) — نسخهٔ ویندوز (Electron)",
+  "author": "Kariz",
   "scripts": {
     "icons": "node scripts/make-icons.cjs",
     "dist": "electron-builder --win nsis --x64 --publish never",

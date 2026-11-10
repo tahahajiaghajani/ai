@@ -1,6 +1,7 @@
-# ITSM (itsm/) — typecheck, tests, database script check and web build; then the Windows installer built and
+# Kariz «کاریز» (itsm/) — typecheck, tests, database script check and web build; then the Windows installer built and
 # smoke-tested on a real Windows machine, uploaded as an artifact and published on the Releases page.
-# The product's name is provisional: «ITSM» (src/shared/constants.ts). Guide: itsm/docs/DESKTOP_FA.md
+# The product is «کاریز» / Kariz (APP_NAME / APP_NAME_EN in src/shared/constants.ts; the folder, tags, env vars and data
+# directory keep the neutral «itsm» identifiers). Guide: itsm/docs/DESKTOP_FA.md
 name: "ITSM · CI and Windows installer"
 
 on:
@@ -75,11 +76,11 @@ jobs:
         shell: pwsh
         working-directory: itsm/desktop
         run: |
-          $setup = Get-ChildItem release/ITSM-Setup-*.exe | Select-Object -First 1
+          $setup = Get-ChildItem release/Kariz-Setup-*.exe | Select-Object -First 1
           Write-Host "installer: $($setup.Name) $([math]::Round($setup.Length/1MB,1)) MB"
           Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
-          $app = Join-Path $env:LOCALAPPDATA 'Programs\ITSM\ITSM.exe'
-          if (!(Test-Path $app)) { throw "ITSM.exe was not installed" }
+          $app = Join-Path $env:LOCALAPPDATA 'Programs\Kariz\Kariz.exe'
+          if (!(Test-Path $app)) { throw "Kariz.exe was not installed" }
           $env:ITSM_SMOKE = '1'
           $env:ITSM_SMOKE_OUT = Join-Path $env:RUNNER_TEMP 'smoke.json'
           $env:ITSM_DATA_DIR = Join-Path $env:RUNNER_TEMP 'itsm-data'
@@ -87,12 +88,12 @@ jobs:
           Get-Content $env:ITSM_SMOKE_OUT
           Get-Content (Join-Path $env:ITSM_DATA_DIR 'logs\app.log') -ErrorAction SilentlyContinue | Select-Object -Last 30
           if ($p.ExitCode -ne 0) { throw "smoke test failed with exit code $($p.ExitCode)" }
-          $uninst = Join-Path $env:LOCALAPPDATA 'Programs\ITSM\Uninstall ITSM.exe'
+          $uninst = Join-Path $env:LOCALAPPDATA 'Programs\Kariz\Uninstall Kariz.exe'
           if (Test-Path $uninst) { Start-Process -FilePath $uninst -ArgumentList '/S' -Wait }
       - uses: actions/upload-artifact@v4
         with:
           name: itsm-windows-installer
-          path: itsm/desktop/release/ITSM-Setup-*.exe
+          path: itsm/desktop/release/Kariz-Setup-*.exe
           if-no-files-found: error
           retention-days: 30
       - name: Publish on the Releases page
@@ -101,7 +102,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=$(node -p "require('./desktop/package.json').version")
-          if [ "${GITHUB_REF_NAME}" = "main" ]; then TAG="itsm-v${VERSION}"; TITLE="ITSM ${VERSION} — نسخهٔ ویندوز"; PRE=""; else TAG="itsm-preview"; TITLE="ITSM ${VERSION} — پیش‌نمایش (${GITHUB_REF_NAME})"; PRE="--prerelease"; fi
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then TAG="itsm-v${VERSION}"; TITLE="کاریز (Kariz) ${VERSION} — نسخهٔ ویندوز"; PRE=""; else TAG="itsm-preview"; TITLE="کاریز (Kariz) ${VERSION} — پیش‌نمایش (${GITHUB_REF_NAME})"; PRE="--prerelease"; fi
           gh release delete "$TAG" --cleanup-tag -y 2>/dev/null || true
-          gh release create "$TAG" desktop/release/ITSM-Setup-*.exe --target "$GITHUB_SHA" --title "$TITLE" $PRE \
-            --notes "فایل نصب ویندوز «ITSM» (نام موقت؛ سامانهٔ سازمانی مدیریت خدمات فناوری اطلاعات). فایل ITSM-Setup را دانلود کنید (می‌توانید روی فلش هم کپی کنید) و اجرا کنید؛ همه‌چیز خودکار نصب می‌شود. راهنما: itsm/docs/DESKTOP_FA.md"
+          gh release create "$TAG" desktop/release/Kariz-Setup-*.exe --target "$GITHUB_SHA" --title "$TITLE" $PRE \
+            --notes "فایل نصب ویندوز «کاریز» (Kariz؛ سامانهٔ سازمانی مدیریت خدمات فناوری اطلاعات و خدمات سازمانی). فایل Kariz-Setup را دانلود کنید (می‌توانید روی فلش هم کپی کنید) و اجرا کنید؛ همه‌چیز خودکار نصب می‌شود. راهنما: itsm/docs/DESKTOP_FA.md"

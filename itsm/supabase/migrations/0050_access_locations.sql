@@ -1,4 +1,4 @@
--- «ITSM» migration 0050_access_locations — دسترسی: مکان عضو در محیط شرط‌ها (مکان من)
+-- «کاریز» migration 0050_access_locations — دسترسی: مکان عضو در محیط شرط‌ها (مکان من)
 create table if not exists sm_migrations (id text primary key, applied_at timestamptz not null default now());
 
 -- ---------------------------------------------------------------------------

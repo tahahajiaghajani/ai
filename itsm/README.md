@@ -1,8 +1,9 @@
-# ITSM
+# کاریز · Kariz
 
 <p align="center">
-  <b>مدیریت هوشمند خدمات فناوری اطلاعات</b><br />
-  <sub>سامانهٔ سازمانی مدیریت خدمات فناوری اطلاعات با هوش مصنوعی · نسخهٔ وب (Vercel + Supabase) و برنامهٔ ویندوز (بی‌اینترنت، با یک فایل نصب)، هم‌گام با هم.</sub>
+  <img src="docs/brand/logo/kariz-lockup-fa.svg" alt="کاریز" height="56" /><br />
+  <b>مدیریت هوشمند خدمات سازمان</b><br />
+  <sub>سامانهٔ سازمانی مدیریت خدمات فناوری اطلاعات و خدمات سازمانی با هوش مصنوعی · نسخهٔ وب (Vercel + Supabase) و برنامهٔ ویندوز (بی‌اینترنت، با یک فایل نصب)، هم‌گام با هم.</sub>
 </p>
 
 <p align="center">
@@ -15,7 +16,7 @@
 
 ---
 
-> **نام موقت.** «ITSM» نام موقت محصول است و برند نهایی بعداً انتخاب می‌شود. نام فقط در `src/shared/constants.ts` (`APP_NAME`، `APP_NAME_EN`، `APP_TAGLINE`…) تعریف شده و همه‌جا از همان خوانده می‌شود؛ نشانه (لوگو) هم یک تک‌نگار موقت است.
+> **نام و برند.** «کاریز» (Kariz) — قناتی که سه هزار سال آب را بی‌صدا، پیوسته و به‌اندازه به شهر رسانده است؛ کتاب برند: [`docs/BRAND_FA.md`](docs/BRAND_FA.md)، سامانهٔ طراحی: [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md). نام فقط در `src/shared/constants.ts` (`APP_NAME`، `APP_NAME_EN`، `APP_TAGLINE`…) تعریف شده و همه‌جا از همان خوانده می‌شود؛ شناسه‌های داخلی (`sm_*`، `itsm.*`، `ITSM_*`، `itsm:*`، پوشهٔ `%APPDATA%\ITSM`) عمداً بی‌نام مانده‌اند.
 
 این پوشه پروژه‌ای **مستقل** در همین مخزن است: `package.json` و lockfile خودش، پروژهٔ Vercel خودش (Root Directory: `itsm`)، پروژهٔ Supabase خودش و فایل نصب ویندوز خودش. هیچ کد، جدول یا تنظیمی با پروژه‌های دیگر مخزن مشترک نیست.
 
@@ -41,7 +42,7 @@
 | نسخهٔ ویندوز | [`docs/DESKTOP_FA.md`](docs/DESKTOP_FA.md) |
 | سامانهٔ طراحی | [`src/ui/ds/README.md`](src/ui/ds/README.md) |
 | پایگاه دادهٔ کامل برای Supabase | [`supabase/schema.sql`](supabase/schema.sql) |
-| فایل نصب ویندوز | صفحهٔ [**Releases**](https://github.com/tahahajiaghajani/ai/releases): `itsm-vX.Y.Z` (شاخهٔ `main`) یا `itsm-preview` (پیش‌نمایش) ← `ITSM-Setup-x.y.z.exe` |
+| فایل نصب ویندوز | صفحهٔ [**Releases**](https://github.com/tahahajiaghajani/ai/releases): `itsm-vX.Y.Z` (شاخهٔ `main`) یا `itsm-preview` (پیش‌نمایش) ← `Kariz-Setup-x.y.z.exe` |
 | CI و ساخت فایل نصب | [`.github/workflows/itsm.yml`](../.github/workflows/itsm.yml) |
 
 ## ساختار
