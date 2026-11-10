@@ -332,6 +332,8 @@
   --ds-dur-hero: 500ms;       /* first chart draw, launch mark */
   --ds-dur-flash: 1200ms;     /* changed live-rate cell: tint fades out */
   --ds-dur-pulse: 2000ms;     /* the sync nuqta while syncing — the only loop in the product */
+  --ds-dur-celebrate: 900ms;  /* a milestone (a major incident resolved, a change closed clean): nuqtas rise once — never a loop */
+  --ds-pending-opacity: .62;  /* an optimistic change not yet confirmed by the server (data-pending) */
   --ds-exit-ratio: .75;       /* exits run at ≈ 0.75 × the entry duration */
   --ds-stagger: 30ms;         /* at most 6 items, never blocks input */
 
@@ -522,6 +524,10 @@
   --ds-glass-ring: 0 0 0 1px rgb(33 29 24 / .08);
   --ds-glass-shadow: 0 0 0 1px rgb(33 29 24 / .08), inset 0 1px 0 rgb(255 255 255 / .7);
   --ds-tooltip-bg: #221D18;   --ds-tooltip-text: #F2F0EC;
+
+  /* ---- illustrations (ds/illustrations.tsx): quiet ink lines, a soft ground, turquoise water, the saffron nuqta ---- */
+  --ds-illus-ink: #A39D97;    --ds-illus-line: rgb(33 29 24 / .14);   --ds-illus-soft: #EFEBE5;
+  --ds-illus-water: #2CAFB9;  --ds-illus-light: #EEA023;              --ds-illus-alert: #D9605A;
 }
 
 
@@ -588,6 +594,8 @@
     --ds-glass-tint: rgb(25 23 21 / .72);  --ds-glass-float-tint: rgb(33 31 29 / .66);  --ds-glass-strong-tint: rgb(33 31 29 / .88);  --ds-glass-blur: saturate(1.7) blur(28px);
     --ds-glass-ring: 0 0 0 1px rgb(255 248 236 / .09);  --ds-glass-shadow: 0 0 0 1px rgb(255 248 236 / .09), inset 0 1px 0 rgb(255 248 236 / .07);
     --ds-tooltip-bg: #34312E;  --ds-tooltip-text: #F2F0EC;
+    --ds-illus-ink: #77726D;  --ds-illus-line: rgb(255 248 236 / .12);  --ds-illus-soft: #1F1C1A;
+    --ds-illus-water: #2CAFB9;  --ds-illus-light: #EEA023;  --ds-illus-alert: #EA7E73;
   }
 }
 :root[data-theme="dark"] {
@@ -645,6 +653,8 @@
     --ds-glass-tint: rgb(25 23 21 / .72);  --ds-glass-float-tint: rgb(33 31 29 / .66);  --ds-glass-strong-tint: rgb(33 31 29 / .88);  --ds-glass-blur: saturate(1.7) blur(28px);
     --ds-glass-ring: 0 0 0 1px rgb(255 248 236 / .09);  --ds-glass-shadow: 0 0 0 1px rgb(255 248 236 / .09), inset 0 1px 0 rgb(255 248 236 / .07);
     --ds-tooltip-bg: #34312E;  --ds-tooltip-text: #F2F0EC;
+    --ds-illus-ink: #77726D;  --ds-illus-line: rgb(255 248 236 / .12);  --ds-illus-soft: #1F1C1A;
+    --ds-illus-water: #2CAFB9;  --ds-illus-light: #EEA023;  --ds-illus-alert: #EA7E73;
 }
 
 
@@ -753,6 +763,8 @@
     color: inherit;
   }
   ::selection { background: var(--ds-selection); color: inherit; }
+  /* scrollbars: thin, in the theme's ink (standard properties; Chromium and Electron honour them over ::-webkit-*) */
+  * { scrollbar-width: thin; scrollbar-color: var(--ds-scrollbar) transparent; }
 
   /* ---- focus: an opaque 2 px ring with a 2 px gap; rows and grid cells draw it inside their box ---- */
   :focus-visible { outline: 2px solid var(--ds-focus-color); outline-offset: 2px; }
@@ -796,6 +808,11 @@
   .ds-unit  { font-size: calc(var(--ds-type-unit-scale) * 1em); color: var(--ds-text-3); font-weight: var(--ds-weight-regular); }
   .ds-excluded { color: var(--ds-text-3); text-decoration: none; }               /* bounced/returned: never struck through (the strike hides «۰») */
   .ds-sr    { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }  /* screen readers only */
+  /* identifiers that stay Latin (INC-000123 in an export, a serial, an IP): Geist with tabular Latin digits, LTR isolate.
+     Persian digits are the default everywhere else (DS Num draws every digit). */
+  .ds-id    { font-family: var(--ds-font-latin); font-feature-settings: normal; font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate; white-space: nowrap; }
+  /* directional icons follow the reading direction (ds/icons.tsx DirIcon): authored LTR, mirrored in RTL */
+  .ds-icon-dir:dir(rtl) { transform: scaleX(-1); }
 
   /* ---- links are ink, underlined: Dusk is kept for the primary action, focus and selection ---- */
   .ds-link { color: var(--ds-text); font-weight: var(--ds-weight-medium); text-decoration-line: underline; text-decoration-thickness: 1px;

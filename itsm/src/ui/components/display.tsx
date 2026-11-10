@@ -8,6 +8,7 @@ import { Inbox, ChevronLeft, type LucideIcon } from "lucide-react";
 import { D, type Num } from "@shared/money";
 import { formatNumber, faDigits } from "@shared/format";
 import { formatJalali, formatJalaliDateTime } from "@shared/jalali";
+import { Illustration, type IllustrationName } from "../ds/illustrations";
 import { splitDecimals } from "../lib/fa";
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
@@ -188,9 +189,10 @@ const ICON = { size: 16, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
 
 /**
  * Empty state (components.md §7): a 56 px sunken tile with a 28 px icon, a title, one helpful sentence and at most
- * one action (plus an optional quiet link). Never an illustration inside data views. Dusk stays rare: when the page
- * header already shows a primary button, a primary `action` is drawn as a default button (or pass `primary={false}`;
- * `primary` forces it back).
+ * one action (plus an optional quiet link). Page-level and first-run states may pass `art` for one of the brand's
+ * illustrations (ds/illustrations.tsx) instead of the tile; data views keep the tile. The accent stays rare: when the
+ * page header already shows a primary button, a primary `action` is drawn as a default button (or pass
+ * `primary={false}`; `primary` forces it back).
  */
 export function EmptyState({
   title = "هنوز موردی ثبت نشده است",
@@ -198,6 +200,7 @@ export function EmptyState({
   action,
   secondary,
   icon: Icon = Inbox,
+  art,
   compact,
   className,
   primary,
@@ -207,6 +210,7 @@ export function EmptyState({
   action?: ReactNode;
   secondary?: ReactNode;
   icon?: LucideIcon;
+  art?: IllustrationName;
   compact?: boolean;
   className?: string;
   primary?: boolean;
@@ -222,9 +226,13 @@ export function EmptyState({
   const act = demote && isPrimaryButton ? cloneElement(action as React.ReactElement<{ type?: string }>, { type: "default" }) : action;
   return (
     <div ref={ref} className={cx("ds-empty ds-fade", compact && "ds-empty-compact", className)}>
-      <div className="ds-empty-tile" aria-hidden>
-        <Icon size={compact ? 22 : 28} strokeWidth={1.5} absoluteStrokeWidth />
-      </div>
+      {art ? (
+        <Illustration name={art} size={compact ? 120 : 168} className="ds-empty-art" />
+      ) : (
+        <div className="ds-empty-tile" aria-hidden>
+          <Icon size={compact ? 22 : 28} strokeWidth={1.5} absoluteStrokeWidth />
+        </div>
+      )}
       <div className="ds-empty-title">{title}</div>
       {description ? <div className="ds-empty-text">{description}</div> : null}
       {act || secondary ? (

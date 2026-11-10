@@ -30,6 +30,20 @@
   @keyframes ds-set { from { opacity: 0; transform: translateY(-6px) scale(.6); } to { opacity: 1; transform: none; } }
   @keyframes ds-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
 
+  /* optimistic updates: the change shows at once (React 19 useOptimistic); until the server confirms, its element
+     carries data-pending (dimmed, a progress cursor, not actionable twice). On confirm add .ds-flash once (the accent
+     tint fades out over --ds-dur-flash); on failure the old value returns and a toast says why. */
+  [data-pending] { opacity: var(--ds-pending-opacity); cursor: progress; transition: opacity var(--ds-dur-fast) var(--ds-ease-out-quad); }
+  [data-pending] :is(button, a, input, [role="button"]) { pointer-events: none; }
+  .ds-flash { animation: ds-flash var(--ds-dur-flash) var(--ds-ease-out-quad) both; }
+  @keyframes ds-flash { from { background-color: var(--ds-accent-tint-2); } to { background-color: transparent; } }
+
+  /* a milestone (ds/celebrate.ts): nuqtas rise once from an element; a quiet ring under reduced motion */
+  .ds-celebrate { position: fixed; inset: 0; pointer-events: none; z-index: var(--ds-z-toast); overflow: hidden; }
+  .ds-celebrate-nq { position: absolute; border-radius: 1px; transform: translate(-50%, -50%) rotate(45deg); opacity: 0; }
+  .ds-celebrate-ring { position: absolute; border-radius: 50%; transform: translate(-50%, -50%); opacity: 0;
+    box-shadow: 0 0 0 2px var(--ds-brand-nuqta), 0 0 24px 6px color-mix(in oklab, var(--ds-brand-nuqta) 35%, transparent); }
+
   /* the launch is pure movement: under reduced motion it is not played at all */
   @media (prefers-reduced-motion: reduce) { .ds-launch :is(.ds-nq, .ds-arch) { animation: none; } }
   :root[data-motion="reduced"] .ds-launch :is(.ds-nq, .ds-arch) { animation: none; }
