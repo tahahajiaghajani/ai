@@ -51,6 +51,8 @@ const RequisitionActions = lazy(() => import("./WorkParts").then((m) => ({ defau
 
 const ASSETS: AccessGate = { area: "asset" };
 const SOFTWARE: AccessGate = { area: "software" };
+/** The register «دفتر اموال» (amounts): asset managers of a region or above, not a branch's own staff. */
+const REGION_ASSETS: AccessGate = { area: "asset", scope: "unit_tree" };
 const PROCUREMENT: AccessGate = { area: "procurement" };
 const MANAGE: AccessGate = { area: "asset", op: "create" };
 
@@ -138,7 +140,7 @@ const module = recordModule({
     { key: "itam:warranty", label: "ضمانت رو به پایان", path: "itam/warranty", icon: ShieldAlert, area: "work", access: ASSETS, keywords: "ضمانت گارانتی پایان" },
     { key: "itam:branches", label: "اموال شعبه‌ها", path: "itam/branches", icon: Building2, area: "work", access: ASSETS, workspace: true, section: BANK, keywords: "شعبه منطقه اموال انتقال حواله" },
     { key: "itam:fleet", label: "ناوگان خودپرداز", path: "itam/fleet", icon: Landmark, area: "work", access: ASSETS, workspace: true, section: BANK, keywords: "خودپرداز ATM CRS کیوسک دسترس‌پذیری نگهداری" },
-    { key: "itam:register", label: "دفتر اموال", path: "itam/register", icon: BookText, area: "work", access: ASSETS, section: BANK, keywords: "دفتر اموال استهلاک سال مالی دارایی ثابت" },
+    { key: "itam:register", label: "دفتر اموال", path: "itam/register", icon: BookText, area: "work", access: REGION_ASSETS, section: BANK, keywords: "دفتر اموال استهلاک سال مالی دارایی ثابت" },
   ],
   routes: [
     { path: "itam", element: lazyPage(<Dashboard />) },

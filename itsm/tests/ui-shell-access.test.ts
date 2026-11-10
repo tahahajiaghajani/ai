@@ -3,7 +3,7 @@
 // GET /api/o/:org `access`) pass — a requester no longer sees the change space, the fulfilment queues or the
 // catalogue's and knowledge's definitions (and the server still refuses them).
 import { describe, it, expect } from "vitest";
-import { composeEffective, gateAllows, isArea, roleCatalog, type FullGrant } from "@shared/access";
+import { composeEffective, gateAllows, isArea, roleCatalog, type FullGrant, type RoleDef } from "@shared/access";
 import { NAV, SPACES } from "../src/ui/modules/registry";
 import { SEARCHES } from "../src/ui/modules/registry";
 import { engineOrg } from "./engine-helpers";
@@ -19,6 +19,39 @@ function shell(grants: Record<string, FullGrant>) {
   const searches = SEARCHES.filter((x) => !x.access || gateAllows(grants, x.access)).map((x) => x.key);
   return { keys: new Set(items.map((i) => i.key)), spaces, searches };
 }
+
+/** The bank roles the ITAM module seeds as organisation rows (src/server/modules/itam/seed.ts BANK_ROLES). */
+const bankRole = (key: string, asset: Record<string, unknown>): RoleDef => ({ key, name: key, persona: "agent", grants: { asset } as never, field_groups: [], contains: [], workspaces: "member", domains: "own" });
+const BANK = [
+  bankRole("branch_asset_officer", { read: "unit", create: true, write: "unit", delete: "none", approve: false, admin: false }),
+  bankRole("regional_asset_manager", { read: "unit_tree", create: true, write: "unit_tree", delete: "none", approve: true, admin: false }),
+  bankRole("branch_manager", { read: "unit", create: false, write: "own", delete: "none", approve: false, admin: false }),
+];
+const bankGrantsOf = (...roles: string[]): Record<string, FullGrant> =>
+  composeEffective({ role: "member", levels: { work: "edit" }, explicit: roles, catalog: roleCatalog(BANK) }).grants;
+
+describe("bank ITAM and the demo console in the shell", () => {
+  it("a requester sees no ITAM pages but their own assets; a branch officer the branch inventory, not the register", () => {
+    const req = shell(grantsOf("requester"));
+    expect([...req.keys].filter((k) => k.startsWith("itam:") && k !== "itam:my-assets")).toEqual([]);
+    const officer = shell(bankGrantsOf("branch_asset_officer"));
+    for (const k of ["itam:branches", "itam:fleet", "itam:asset_transfer", "itam:branch_attestation", "itam:inventory_audit"]) expect(officer.keys.has(k)).toBe(true);
+    expect(officer.keys.has("itam:register")).toBe(false);
+    expect(officer.keys.has("itam:maintenance_sla")).toBe(false);
+    const manager = shell(bankGrantsOf("branch_manager"));
+    expect(manager.keys.has("itam:branches")).toBe(true);
+    expect(manager.keys.has("itam:register")).toBe(false);
+    const region = shell(bankGrantsOf("regional_asset_manager"));
+    expect(region.keys.has("itam:register")).toBe(true);
+    expect(shell(grantsOf("asset_manager")).keys.has("itam:register")).toBe(true);
+  });
+
+  it("the demo console is the tenant administrators' only", () => {
+    expect(shell(grantsOf("tenant_admin")).keys.has("admin:demo")).toBe(true);
+    for (const r of ["requester", "agent", "asset_manager", "service_desk_manager"]) expect(shell(grantsOf(r)).keys.has("admin:demo")).toBe(false);
+    expect(shell(bankGrantsOf("branch_asset_officer")).keys.has("admin:demo")).toBe(false);
+  });
+});
 
 describe("gates", () => {
   it("pass on the operation and the least scope; without grants (an older server) everything passes", () => {
