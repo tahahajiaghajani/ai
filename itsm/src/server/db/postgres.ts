@@ -125,7 +125,7 @@ export function createPostgresDb(opts: PostgresOptions): Db {
     ...(opts.maxLifetime ? { max_lifetime: opts.maxLifetime } : {}),
     ssl: opts.ssl === false ? false : "require",
     onnotice: () => {},
-    connection: { application_name: "itsm", ...(opts.statementTimeoutMs ? { statement_timeout: String(Math.trunc(opts.statementTimeoutMs)) } : {}) },
+    connection: { application_name: "itsm", ...(opts.statementTimeoutMs ? { statement_timeout: Math.trunc(opts.statementTimeoutMs) } : {}) },
     types: {
       // keep dates as 'YYYY-MM-DD' and timestamps as ISO strings, int8 as JS numbers
       date: { to: 1082, from: [1082], serialize: (x: unknown) => String(x), parse: (x: string) => x },

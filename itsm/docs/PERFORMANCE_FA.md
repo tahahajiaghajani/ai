@@ -143,7 +143,7 @@ Execution Time: 83.9 ms     (پیش: Seq Scan, 724,790 rows removed by filter, 1
 
 ## ۷. تنظیمات پیشنهادی PostgreSQL و Node (نسخهٔ سرور)
 
-خودکارتنظیم نسخهٔ سرور از همین فرمول (`tune()` در `scripts/pg-local.mjs`) پیروی می‌کند:
+خودکارتنظیم نسخهٔ سرور همین فرمول است: یک منبع، `src/server-edition/pgtune.ts` (`tunePostgres`، `recommendedWorkers`، `recommendedPool`، `connectionsFor`)، که `tune()` در `scripts/pg-local.mjs` هم همان را بار می‌کند. راهنمای نصب و اندازه‌گذاری سرور بانک: [SERVER_FA.md](SERVER_FA.md) بخش ۳.
 
 | تنظیم | ۴ هسته / ۱۶ گیگ | ۸ هسته / ۳۲ گیگ | **۱۶ هسته / ۶۴ گیگ** | ۳۲ هسته / ۱۲۸ گیگ | قاعده |
 | --- | --- | --- | --- | --- | --- |
@@ -175,6 +175,8 @@ Execution Time: 83.9 ms     (پیش: Seq Scan, 724,790 rows removed by filter, 1
 اجراکنندهٔ کارها (فقط یک فرایند، «رهبر» زمان‌بندی) با `tick(cfg, { budgetMs: 4000, concurrency: 4 })` هر ثانیه.
 
 ## ۸. جدول اندازه‌گذاری برای بانک‌ها
+
+همین جدول با تعداد فرایندها، اتصال‌ها و تنظیمات هر اندازه در [SERVER_FA.md](SERVER_FA.md) بخش ۳ آمده است.
 
 | اندازه | کارمند | کاربر هم‌زمان در اوج | رکوردها در ۵ سال | vCPU | RAM | دیسک داده + WAL + پشتیبان | IOPS پایدار |
 | --- | ---: | ---: | --- | ---: | ---: | --- | ---: |
