@@ -386,7 +386,7 @@ curl -X POST -H "Authorization: Bearer CRON_SECRET_شما" https://itsm-xyz.verc
 
 ### ۶-۲. نسخهٔ ویندوز (فایل نصب)
 
-**دریافت:** صفحهٔ `Releases` مخزن در GitHub ← آخرین «ITSM … نسخهٔ ویندوز» (برچسب `itsm-vX.Y.Z`؛ پیش‌نمایش شاخه‌های دیگر: `itsm-preview`) ← فایل `ITSM-Setup-x.y.z.exe`. GitHub Actions این فایل را با هر push در پوشهٔ `itsm` روی یک ویندوز واقعی می‌سازد، بی‌صدا نصب و آزمایش می‌کند و منتشر می‌کند (`.github/workflows/itsm.yml`). همان فایل در `Actions` ← اجرای آخر ← `Artifacts` ← `itsm-windows-installer` هم هست.
+**دریافت:** صفحهٔ `Releases` مخزن در GitHub ← آخرین «ITSM … نسخهٔ ویندوز» (برچسب `itsm-vX.Y.Z`؛ پیش‌نمایش شاخه‌های دیگر: `itsm-preview-<شاخه>`) ← فایل `ITSM-Setup-x.y.z.exe`. GitHub Actions این فایل را با هر push در پوشهٔ `itsm` روی یک ویندوز واقعی می‌سازد، بی‌صدا نصب و آزمایش می‌کند و منتشر می‌کند (`.github/workflows/itsm.yml`). همان فایل در `Actions` ← اجرای آخر ← `Artifacts` ← `itsm-windows-installer` هم هست.
 
 **نصب:** فایل را روی هر رایانهٔ ویندوز ۱۰ یا ۱۱ (۶۴ بیتی) اجرا کنید ← «بعدی» ← «موافقم» ← محل نصب ← «نصب». همه‌چیز (برنامه، پایگاه دادهٔ داخلی، قلم‌ها) در همین یک فایل است و به اینترنت یا نصب چیز دیگری نیاز ندارد.
 

@@ -1,7 +1,7 @@
 # CI (windows-latest): the air-gapped smoke test of the MSI. Outbound traffic is blocked with Windows Firewall (only
-# the CI runner's own processes and DNS stay allowed), then: silent install → /api/ready → first-run setup through its
-# API → sign-in → an incident created and opened → air-gap refusal → backup → the same MSI again (idempotent
-# re-install) → a second build of the same version (a real major upgrade with its pre-upgrade backup) → uninstall
+# the CI runner's own processes and DNS stay allowed), then: silent install -> /api/ready -> first-run setup through its
+# API -> sign-in -> an incident created and opened -> air-gap refusal -> backup -> the same MSI again (idempotent
+# re-install) -> a second build of the same version (a real major upgrade with its pre-upgrade backup) -> uninstall
 # keeping the data. Every step is logged; on failure the MSI and server logs are printed and kept for the artifact.
 param(
     [Parameter(Mandatory)][string]$Msi,
@@ -48,7 +48,7 @@ function Invoke-Msi([string[]]$Arguments, [string]$Log) {
     Write-Log "msiexec exit code $($p.ExitCode)"
     if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) {
         Write-Log "----- $Log (errors and custom action output) -----"
-        Get-Content $Log -Encoding Unicode -ErrorAction SilentlyContinue | Select-String -Pattern 'WixQuietExec|Return value 3|error|ERROR|STEP|WARN' | Select-Object -Last 120 | ForEach-Object { Write-Log "   $_" }
+        Get-Content $Log -Encoding Unicode -ErrorAction SilentlyContinue | Select-String -Pattern 'WixSilentExec|WixQuietExec|Return value 3|error|ERROR|STEP|WARN' | Select-Object -Last 120 | ForEach-Object { Write-Log "   $_" }
         Show-Logs
         Fail "msiexec failed with exit code $($p.ExitCode)"
     }
@@ -82,7 +82,7 @@ try {
     if (-not (Test-PortFree 80)) { $http = 8080; Write-Warn 'port 80 is busy on this runner: using 8080' }
     $script:base = if ($https -eq 443) { "https://$HostName" } else { "https://$($HostName):$https" }
     Add-Content -Path "$env:SystemRoot\System32\drivers\etc\hosts" -Value "`r`n127.0.0.1 $HostName" -Encoding ASCII
-    Write-Log "$HostName → 127.0.0.1"
+    Write-Log "$HostName -> 127.0.0.1"
 
     Write-Step 'block all outbound traffic (Windows Firewall), except the CI runner and DNS'
     $runner = Get-Process | Where-Object { $_.ProcessName -match '^Runner\.(Listener|Worker)$' -and $_.Path } | ForEach-Object { Split-Path -Parent (Split-Path -Parent $_.Path) } | Sort-Object -Unique

@@ -41,7 +41,7 @@
 | نسخهٔ ویندوز | [`docs/DESKTOP_FA.md`](docs/DESKTOP_FA.md) |
 | سامانهٔ طراحی | [`src/ui/ds/README.md`](src/ui/ds/README.md) |
 | پایگاه دادهٔ کامل برای Supabase | [`supabase/schema.sql`](supabase/schema.sql) |
-| فایل نصب ویندوز | صفحهٔ [**Releases**](https://github.com/tahahajiaghajani/ai/releases): `itsm-vX.Y.Z` (شاخهٔ `main`) یا `itsm-preview` (پیش‌نمایش) ← `ITSM-Setup-x.y.z.exe` |
+| فایل نصب ویندوز | صفحهٔ [**Releases**](https://github.com/tahahajiaghajani/ai/releases): `itsm-vX.Y.Z` (شاخهٔ `main`) یا `itsm-preview-<شاخه>` (پیش‌نمایش هر شاخه) ← `ITSM-Setup-x.y.z.exe` |
 | CI و ساخت فایل نصب | [`.github/workflows/itsm.yml`](../.github/workflows/itsm.yml) |
 
 ## ساختار

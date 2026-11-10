@@ -5,7 +5,8 @@
   LicenseRtf. MSI tables hold only ASCII text; the Persian display names belong to the Windows services (WinSW XML).
 
   Silent install:   msiexec /i Kariz-Server-x.y.z.msi /qn HOSTNAME=kariz.bank.local PORT=443 DATADIR=D:\Kariz CERTPATH=C:\certs\kariz.pfx CERTPASSWORD=…
-  Upgrade:          the same command with a newer MSI (pre-upgrade pg_dump backup, services replaced, migrations, start)
+  Upgrade:          msiexec /i <newer MSI> /qn (pre-upgrade pg_dump backup, services replaced, migrations, start; ports and the
+                    data folder are kept unless given; a failed upgrade rolls back and starts the old version again)
   Uninstall:        msiexec /x Kariz-Server-x.y.z.msi /qn            (data kept)
                     msiexec /x Kariz-Server-x.y.z.msi /qn REMOVEDATA=1   (data removed too)
 -->
@@ -20,14 +21,19 @@
     <Launch Condition="Installed OR PhysicalMemory &gt;= 3800" Message="[ProductName] needs at least 4 GB of memory (16 GB recommended)." />
 
     <Property Id="HOSTNAME" Secure="yes" />
-    <Property Id="PORT" Value="443" Secure="yes" />
-    <Property Id="HTTPPORT" Value="80" Secure="yes" />
-    <!-- an existing installation's data folder wins (upgrades and re-installs keep using it) -->
-    <Property Id="DATADIR" Value="$(var.DataDirDefault)" Secure="yes">
+    <!-- no defaults: install.ps1 keeps the ports of kariz.json on a re-install or upgrade, 443 / 80 on a first install -->
+    <Property Id="PORT" Secure="yes" />
+    <Property Id="HTTPPORT" Secure="yes" />
+    <!-- an existing installation's data folder is used again, unless DATADIR is given on the command line -->
+    <Property Id="DATADIR" Value="$(var.DataDirDefault)" Secure="yes" />
+    <Property Id="PREVIOUSDATADIR" Secure="yes">
       <RegistrySearch Id="PreviousDataDir" Root="HKLM" Key="$(var.RegistryKey)" Name="DataDir" Type="raw" Bitness="always64" />
     </Property>
+    <SetProperty Id="DATADIR" Value="[PREVIOUSDATADIR]" After="AppSearch" Sequence="both" Condition="PREVIOUSDATADIR AND DATADIR = &quot;$(var.DataDirDefault)&quot;" />
     <Property Id="CERTPATH" Secure="yes" />
     <Property Id="CERTPASSWORD" Secure="yes" Hidden="yes" />
+    <!-- the install action's command line carries CERTPASSWORD: hidden from the MSI log as well -->
+    <Property Id="KarizInstall" Hidden="yes" />
     <Property Id="AIRGAPPED" Value="1" Secure="yes" />
     <Property Id="WORKERS" Value="0" Secure="yes" />
     <Property Id="REMOVEDATA" Value="0" Secure="yes" />
@@ -51,17 +57,23 @@
 
     <!-- install, re-install and upgrade (new version's side): scripts\install.ps1 (idempotent) -->
     <SetProperty Id="KarizInstall" Before="KarizInstall" Sequence="execute" Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]scripts\install.ps1&quot; -InstallDir &quot;[INSTALLFOLDER].&quot; -DataDir &quot;[DATADIR].&quot; -HostName &quot;[HOSTNAME]&quot; -HttpsPort &quot;[PORT]&quot; -HttpPort &quot;[HTTPPORT]&quot; -CertPath &quot;[CERTPATH]&quot; -CertPassword &quot;[CERTPASSWORD]&quot; -AirGapped &quot;[AIRGAPPED]&quot; -Workers &quot;[WORKERS]&quot;" />
-    <CustomAction Id="KarizInstall" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec" Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
+    <!-- WixSilentExec: the scripts' output (and the one-time setup address) stays out of the MSI log; they keep their own
+         log in <data>\logs, readable by administrators only -->
+    <CustomAction Id="KarizInstall" BinaryRef="Wix4UtilCA_X64" DllEntry="WixSilentExec" Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
 
-    <!-- upgrade (old version's side): safety backup with pg_dump, services stopped and removed; data kept. A failed backup stops the upgrade. -->
+    <!-- upgrade (old version's side): safety backup with pg_dump, services stopped (kept registered); data kept. A failed backup stops the upgrade. -->
     <SetProperty Id="KarizPreUpgrade" Before="KarizPreUpgrade" Sequence="execute" Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]scripts\uninstall.ps1&quot; -InstallDir &quot;[INSTALLFOLDER].&quot; -Upgrade" />
-    <CustomAction Id="KarizPreUpgrade" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec" Execute="deferred" Impersonate="no" Return="check" />
+    <CustomAction Id="KarizPreUpgrade" BinaryRef="Wix4UtilCA_X64" DllEntry="WixSilentExec" Execute="deferred" Impersonate="no" Return="check" />
+    <!-- its rollback: a failed upgrade (the new version's install, or the backup itself) gets the old files back; this starts the old services again -->
+    <SetProperty Id="KarizPreUpgradeRollback" Before="KarizPreUpgradeRollback" Sequence="execute" Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]scripts\uninstall.ps1&quot; -InstallDir &quot;[INSTALLFOLDER].&quot; -Restore" />
+    <CustomAction Id="KarizPreUpgradeRollback" BinaryRef="Wix4UtilCA_X64" DllEntry="WixSilentExec" Execute="rollback" Impersonate="no" Return="ignore" />
 
     <!-- uninstall: services, firewall rule and shortcuts removed; data kept unless REMOVEDATA=1. Never blocks the removal. -->
     <SetProperty Id="KarizUninstall" Before="KarizUninstall" Sequence="execute" Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]scripts\uninstall.ps1&quot; -InstallDir &quot;[INSTALLFOLDER].&quot; -RemoveData &quot;[REMOVEDATA]&quot;" />
-    <CustomAction Id="KarizUninstall" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec" Execute="deferred" Impersonate="no" Return="ignore" />
+    <CustomAction Id="KarizUninstall" BinaryRef="Wix4UtilCA_X64" DllEntry="WixSilentExec" Execute="deferred" Impersonate="no" Return="ignore" />
 
     <InstallExecuteSequence>
+      <Custom Action="KarizPreUpgradeRollback" Before="KarizPreUpgrade" Condition="REMOVE~=&quot;ALL&quot; AND UPGRADINGPRODUCTCODE" />
       <Custom Action="KarizPreUpgrade" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot; AND UPGRADINGPRODUCTCODE" />
       <Custom Action="KarizUninstall" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
       <Custom Action="KarizInstall" Before="InstallFinalize" Condition="NOT REMOVE~=&quot;ALL&quot;" />

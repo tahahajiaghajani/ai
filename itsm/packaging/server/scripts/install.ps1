@@ -1,16 +1,17 @@
 # Installs or upgrades the server edition on this machine. Run by the MSI (elevated, as SYSTEM) after the files are in
 # place; safe to run again by hand from an elevated prompt (it is idempotent):
 #   powershell -ExecutionPolicy Bypass -File "C:\Program Files\Kariz\scripts\install.ps1" -HostName kariz.bank.local
-# Steps: prerequisites → configuration (kariz.json: generated secrets and database passwords, kept on upgrade) →
-# certificate → services (WinSW, virtual accounts, recovery, dependency) → folder permissions → PostgreSQL cluster
-# (initdb, tuned postgresql.conf, loopback-only pg_hba) → role, database, extensions → migrations → firewall →
-# start → readiness → one-time setup URL. A log is kept in <data>\logs\install-<time>.log.
+# Steps: prerequisites -> configuration (kariz.json: generated secrets and database passwords, kept on upgrade) ->
+# certificate -> services (WinSW, virtual accounts, recovery, dependency) -> folder permissions -> PostgreSQL cluster
+# (initdb, tuned postgresql.conf, loopback-only pg_hba) -> role, database, extensions -> migrations -> firewall ->
+# start -> readiness -> one-time setup URL. A log is kept in <data>\logs\install-<time>.log.
 param(
     [string]$InstallDir = '',
     [string]$DataDir = '',
     [string]$HostName = '',
-    [string]$HttpsPort = '443',
-    [string]$HttpPort = '80',
+    # empty: kept from kariz.json on a re-install or upgrade, 443 / 80 on a first install
+    [string]$HttpsPort = '',
+    [string]$HttpPort = '',
     [string]$CertPath = '',
     [string]$CertPassword = '',
     [string]$AirGapped = '1',
@@ -25,11 +26,39 @@ function Clean-Path([string]$p) {
     return $p
 }
 
+# The data folder: never a drive root, a system folder or a folder other software uses - its ACL is replaced below and
+# REMOVEDATA=1 deletes it. A first install takes a new or empty folder; one this product already uses carries the
+# marker (or kariz.json).
+function Assert-DataDir([string]$Path) {
+    $full = [IO.Path]::GetFullPath($Path).TrimEnd('\')
+    if ($full -eq [IO.Path]::GetPathRoot($full).TrimEnd('\')) { Fail "DATADIR must not be a drive root ($Path): use a folder such as D:\Kariz" }
+    $system = @($env:SystemRoot, $env:ProgramData, $env:ProgramFiles, ${env:ProgramFiles(x86)}, $(if ($env:PUBLIC) { Split-Path -Parent $env:PUBLIC }))
+    foreach ($sys in $system) {
+        if (-not $sys) { continue }
+        $s = [IO.Path]::GetFullPath($sys).TrimEnd('\')
+        if ($full -ieq $s -or $s.StartsWith("$full\", [StringComparison]::OrdinalIgnoreCase)) { Fail "DATADIR must not be a system folder or contain one ($Path)" }
+    }
+    if ($env:SystemRoot -and $full.StartsWith("$([IO.Path]::GetFullPath($env:SystemRoot).TrimEnd('\'))\", [StringComparison]::OrdinalIgnoreCase)) { Fail "DATADIR must not be inside the Windows folder ($Path)" }
+    if (Test-Path -LiteralPath $full) {
+        $ours = (Test-Path -LiteralPath (Join-Path $full $edition.configFile)) -or (Test-Path -LiteralPath (Join-Path $full $DataMarker))
+        $empty = -not (Get-ChildItem -LiteralPath $full -Force -ErrorAction SilentlyContinue | Select-Object -First 1)
+        if (-not $ours -and -not $empty) { Fail "DATADIR $Path already holds other files: choose a new or empty folder" }
+    }
+}
+
+$DataMarker = '.kariz-data'
 $edition = Read-Edition (Join-Path $PSScriptRoot '..')
 if (-not $InstallDir) { $InstallDir = Join-Path $PSScriptRoot '..' }
 $InstallDir = (Resolve-Path (Clean-Path $InstallDir)).Path
 if (-not $DataDir) { $DataDir = $edition.dataDir }
 $DataDir = Clean-Path $DataDir
+Assert-DataDir $DataDir
+New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
+# locked before anything is written into it (secrets, the superuser's password, the TLS key): administrators and
+# SYSTEM only - inheritance from C:\ProgramData (Users: read) or a drive root (Authenticated Users: modify) removed. The
+# services' own grants (kept on a re-install) are added once they exist. A failed install leaves nothing readable.
+Invoke-Native -File 'icacls.exe' -Arguments @($DataDir, '/inheritance:r', '/grant:r', '*S-1-5-32-544:(OI)(CI)F', '/grant:r', '*S-1-5-18:(OI)(CI)F', '/Q') -Quiet | Out-Null
+Set-Content -LiteralPath (Join-Path $DataDir $DataMarker) -Value 'Kariz Server data folder (uninstall with REMOVEDATA=1 deletes this folder)' -Encoding ASCII
 New-Item -ItemType Directory -Force -Path (Join-Path $DataDir 'logs') | Out-Null
 Set-LogFile (Join-Path $DataDir ("logs\install-{0}.log" -f (Get-Date -Format 'yyyyMMdd-HHmmss')))
 
@@ -43,10 +72,22 @@ $version = (Get-Content -LiteralPath (Join-Path $InstallDir 'VERSION') -Raw).Tri
 $created = @()
 $upgrade = $false
 
-function Invoke-Ctl([string[]]$Arguments, [string[]]$Mask = @()) {
+function Invoke-Ctl([string[]]$Arguments, [string[]]$Mask = @(), [switch]$Quiet) {
     $env:ITSM_SERVER_CONFIG = $config
     $env:ITSM_INSTALL_DIR = $InstallDir
-    return Invoke-Native -File $node -Arguments (@($ctlJs) + $Arguments + @('--config', $config)) -Mask $Mask
+    return Invoke-Native -File $node -Arguments (@($ctlJs) + $Arguments + @('--config', $config)) -Mask $Mask -Quiet:$Quiet
+}
+
+# an administrators-and-SYSTEM-only file (the superuser's password, the TLS key)
+function Protect-File([string]$Path) {
+    if (Test-Path -LiteralPath $Path) { Invoke-Native -File 'icacls.exe' -Arguments @($Path, '/inheritance:r', '/grant:r', '*S-1-5-32-544:F', '/grant:r', '*S-1-5-18:F', '/Q') -Quiet | Out-Null }
+}
+
+function Get-JsonValue($Object, [string]$Name) {
+    if ($null -eq $Object) { return $null }
+    $p = $Object.PSObject.Properties[$Name]
+    if ($p) { return $p.Value }
+    return $null
 }
 
 function Get-Svc([string]$Name) { return Get-Service -Name $Name -ErrorAction SilentlyContinue }
@@ -104,7 +145,7 @@ function Grant-Acl([string]$Path, [string[]]$Grants, [switch]$Reset) {
 }
 
 try {
-    Write-Step "$($edition.product) $version — $InstallDir → $DataDir"
+    Write-Step "$($edition.product) $version - $InstallDir -> $DataDir"
 
     # ----- prerequisites -------------------------------------------------------------------------------------------
     Write-Step 'prerequisites'
@@ -118,6 +159,15 @@ try {
     if ($free -lt 2GB) { Fail "less than 2 GB free on $drive" }
     if ($free -lt 20GB) { Write-Warn ("only {0:N1} GB free on {1}: plan for the database, attachments and backups" -f ($free / 1GB), $drive) }
     $upgrade = (Test-Path -LiteralPath $config)
+    # the ports: as given (PORT= / HTTPPORT=), else kept from kariz.json (a re-install or an upgrade never moves the
+    # server back to 443 / 80), else 443 / 80
+    $httpsGiven = [bool]$HttpsPort
+    $httpGiven = [bool]$HttpPort
+    $listen = $null
+    if ($upgrade) { try { $listen = Get-JsonValue (Get-Content -LiteralPath $config -Raw -Encoding UTF8 | ConvertFrom-Json) 'listen' } catch { Write-Warn "kariz.json could not be read for its ports: $($_.Exception.Message)" } }
+    if (-not $httpsGiven) { $v = Get-JsonValue $listen 'https_port'; $HttpsPort = if ($null -ne $v) { [string]$v } else { '443' } }
+    if (-not $httpGiven) { $v = Get-JsonValue $listen 'http_port'; $HttpPort = if ($null -ne $v) { [string]$v } else { '80' } }
+    Write-Log "ports: HTTPS $HttpsPort, HTTP $HttpPort$(if ($upgrade -and -not ($httpsGiven -or $httpGiven)) { ' (kept from the configuration)' })"
     foreach ($p in @([int]$HttpsPort, [int]$HttpPort)) {
         if ($p -le 0) { continue }
         $owner = Get-NetTCPConnection -State Listen -LocalPort $p -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -139,7 +189,9 @@ try {
 
     # ----- configuration ---------------------------------------------------------------------------------------------
     Write-Step 'configuration'
-    $initArgs = @('init', '--data-dir', $DataDir, '--install-dir', $InstallDir, '--https-port', $HttpsPort, '--http-port', $HttpPort, '--pg-port', "$($edition.database.port)")
+    $initArgs = @('init', '--data-dir', $DataDir, '--install-dir', $InstallDir, '--pg-port', "$($edition.database.port)")
+    if ($httpsGiven -or -not $upgrade) { $initArgs += @('--https-port', $HttpsPort) }
+    if ($httpGiven -or -not $upgrade) { $initArgs += @('--http-port', $HttpPort) }
     if ($HostName) {
         $url = if ([int]$HttpsPort -eq 443) { "https://$HostName" } else { "https://$($HostName):$HttpsPort" }
         $initArgs += @('--public-url', $url)
@@ -154,10 +206,13 @@ try {
     if ($AirGapped -eq '0') { $initArgs += @('--air-gapped', 'false') } elseif (-not $upgrade) { $initArgs += @('--air-gapped', 'true') }
     if ([int]$Workers -gt 0) { $initArgs += @('--workers', $Workers) }
     Invoke-Ctl $initArgs | Out-Null
+    Protect-File (Join-Path $DataDir 'kariz-admin.json')
 
     if ($CertPath) {
         Write-Step 'certificate'
         if (-not (Test-Path -LiteralPath $CertPath)) { Fail "certificate file not found: $CertPath" }
+        # the key lands in tls\, under the data folder locked above: administrators and SYSTEM (and, on a re-install, the
+        # application's account, which serves it) - never Users or Authenticated Users, even if a later step fails
         Invoke-Ctl @('rotate-cert', '--pfx', $CertPath, '--password', $CertPassword, '--no-restart') -Mask @($CertPassword) | Out-Null
     }
 
@@ -241,8 +296,9 @@ try {
     $setup = Join-Path $DataDir 'setup-url.txt'
     $users = 0
     try {
-        $out = Invoke-Ctl @('setup-token')
-        Write-Log "first-run setup: $(($out | Select-Object -Last 1))"
+        # the address holds the one-time token: written to setup-url.txt (administrators only), never to a log
+        Invoke-Ctl @('setup-token') -Quiet | Out-Null
+        Write-Log "first-run setup: the one-time address was written to $setup"
         $users = 0
     } catch {
         Write-Log 'first-run setup already done (accounts exist): no setup address issued'
@@ -250,7 +306,7 @@ try {
     }
     # administrators read it; the application removes it once the setup is done
     if (Test-Path $setup) { Invoke-Native -File 'icacls.exe' -Arguments @($setup, '/inheritance:r', '/grant:r', '*S-1-5-32-544:F', '/grant:r', '*S-1-5-18:F', '/grant:r', "NT SERVICE\$appSvc`:M", '/Q') -Quiet | Out-Null }
-    Write-Step ("{0} {1} is running: {2}{3}" -f $edition.product, $version, $publicUrl, $(if ($users) { '' } else { " — open the address in $setup to finish the setup" }))
+    Write-Step ("{0} {1} is running: {2}{3}" -f $edition.product, $version, $publicUrl, $(if ($users) { '' } else { " - open the address in $setup to finish the setup" }))
     exit 0
 } catch {
     Write-Log "INSTALL FAILED: $($_.Exception.Message)" 'ERROR'

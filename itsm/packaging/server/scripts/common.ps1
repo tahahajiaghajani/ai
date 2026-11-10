@@ -13,6 +13,8 @@ function Set-LogFile([string]$Path) {
 }
 
 function Write-Log([string]$Message, [string]$Level = 'INFO') {
+    # a safety net: a one-time setup address (or any URL with a token) never reaches a log or the MSI log
+    $Message = $Message -replace '(?i)(token=)[^&\s"'']+', '$1********'
     $line = '{0} [{1}] {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Level, $Message
     Write-Host $line
     if ($script:LogFile) {

@@ -106,7 +106,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=$(node -p "require('./desktop/package.json').version")
-          if [ "${GITHUB_REF_NAME}" = "main" ]; then TAG="itsm-v${VERSION}"; TITLE="ITSM ${VERSION} — نسخهٔ ویندوز"; PRE=""; else TAG="itsm-preview"; TITLE="ITSM ${VERSION} — پیش‌نمایش (${GITHUB_REF_NAME})"; PRE="--prerelease"; fi
+          # a preview release per branch: two branches pushed close together never mix their installers
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then TAG="itsm-v${VERSION}"; TITLE="ITSM ${VERSION} — نسخهٔ ویندوز"; PRE=""; else TAG="itsm-preview-${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}"; TITLE="ITSM ${VERSION} — پیش‌نمایش (${GITHUB_REF_NAME})"; PRE="--prerelease"; fi
           gh release delete "$TAG" --cleanup-tag -y 2>/dev/null || true
           gh release create "$TAG" desktop/release/ITSM-Setup-*.exe --target "$GITHUB_SHA" --title "$TITLE" $PRE \
             --notes "فایل نصب ویندوز «ITSM» (نام موقت؛ سامانهٔ سازمانی مدیریت خدمات فناوری اطلاعات). فایل ITSM-Setup را دانلود کنید (می‌توانید روی فلش هم کپی کنید) و اجرا کنید؛ همه‌چیز خودکار نصب می‌شود. راهنما: itsm/docs/DESKTOP_FA.md"
@@ -130,6 +131,17 @@ jobs:
           cache: npm
           cache-dependency-path: itsm/package-lock.json
       - run: npm ci
+      - name: The installer scripts parse under Windows PowerShell 5.1 (the MSI runs them with powershell.exe)
+        shell: powershell
+        run: |
+          $failed = 0
+          foreach ($f in Get-Item packaging/server/scripts/install.ps1, packaging/server/scripts/uninstall.ps1, packaging/server/scripts/common.ps1) {
+            $errors = $null
+            # a script without a byte-order mark is read in the ANSI code page, as powershell.exe -File reads it
+            [void][System.Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($f.FullName, [Text.Encoding]::Default), [ref]$null, [ref]$errors)
+            foreach ($e in @($errors)) { if ($e) { $failed++; Write-Host "::error file=itsm/packaging/server/scripts/$($f.Name),line=$($e.Extent.StartLineNumber)::$($e.Message)" } }
+          }
+          if ($failed) { exit 1 }
       - name: Cache pinned binaries (Node.js, PostgreSQL, WinSW, WiX)
         uses: actions/cache@v4
         with:
@@ -193,6 +205,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=$(node -p "require('./itsm/desktop/package.json').version")
-          if [ "${GITHUB_REF_NAME}" = "main" ]; then TAG="itsm-v${VERSION}"; else TAG="itsm-preview"; fi
-          gh release upload "$TAG" server-release/*.msi --clobber
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then TAG="itsm-v${VERSION}"; TITLE="ITSM ${VERSION} — نسخهٔ ویندوز"; PRE=""; else TAG="itsm-preview-${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}"; TITLE="ITSM ${VERSION} — پیش‌نمایش (${GITHUB_REF_NAME})"; PRE="--prerelease"; fi
+          # only this commit's release: a newer push of the branch re-created it and publishes its own MSI
+          TARGET=$(gh release view "$TAG" --json targetCommitish --jq .targetCommitish 2>/dev/null || true)
+          if [ -z "$TARGET" ]; then
+            gh release create "$TAG" server-release/*.msi --target "$GITHUB_SHA" --title "$TITLE" $PRE --notes "نسخهٔ سرور (MSI). راهنما: itsm/docs/SERVER_FA.md"
+          elif [ "$TARGET" != "$GITHUB_SHA" ]; then
+            echo "::notice::release $TAG is for $TARGET, not $GITHUB_SHA: the MSI is not added (a newer run publishes its own)"
+            exit 0
+          else
+            gh release upload "$TAG" server-release/*.msi --clobber
+          fi
           gh release view "$TAG" --json assets --jq '.assets[].name'
