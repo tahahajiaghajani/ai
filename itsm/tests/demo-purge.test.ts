@@ -111,24 +111,28 @@ async function pgOrg(): Promise<{ e: EngineOrg; close(): Promise<void> }> {
   await run("init", "--data-dir", dir, "--public-url", "https://kariz.test.local", "--https-port", "0", "--http-port", "0", "--pg-port", String(port), "--pg-bin", process.env.ITSM_PG_BIN!, "--workers", "1");
   await run("db-init");
   await run("pg-start");
-  await run("db-bootstrap");
-  await run("migrate");
-  const c = loadServerConfig(file).config;
-  const db = createPostgresDb({ url: databaseUrl(c), max: 4, ssl: c.db.ssl, prepare: true });
-  const cfg: ServerConfig = { mode: "cloud", db, secret: "test-secret", allowSignup: true, platformAdmins: [], origin: "cloud", log: quietLog, fetch: globalThis.fetch.bind(globalThis) };
-  const app = createApp(cfg);
-  const owner = new Client(app);
-  const org = await signupWithOrg(owner, { timezone: "Asia/Tehran" });
-  const me = await owner.get("/auth/me");
-  const e = { app, db, owner, org, ownerId: me.user.id, cfg } as unknown as EngineOrg;
-  return {
-    e,
-    async close() {
-      await db.close().catch(() => undefined);
-      await run("pg-stop").catch(() => undefined);
-      rmSync(dir, { recursive: true, force: true });
-    },
+  let db: ReturnType<typeof createPostgresDb> | null = null;
+  const close = async () => {
+    await db?.close().catch(() => undefined);
+    await run("pg-stop").catch(() => undefined);
+    rmSync(dir, { recursive: true, force: true });
   };
+  try {
+    await run("db-bootstrap");
+    await run("migrate");
+    const c = loadServerConfig(file).config;
+    db = createPostgresDb({ url: databaseUrl(c), max: 4, ssl: c.db.ssl, prepare: true });
+    const cfg: ServerConfig = { mode: "cloud", db, secret: "test-secret", allowSignup: true, platformAdmins: [], origin: "cloud", log: quietLog, fetch: globalThis.fetch.bind(globalThis) };
+    const app = createApp(cfg);
+    const owner = new Client(app);
+    const org = await signupWithOrg(owner, { timezone: "Asia/Tehran" });
+    const me = await owner.get("/auth/me");
+    return { e: { app, db, owner, org, ownerId: me.user.id, cfg } as unknown as EngineOrg, close };
+  } catch (err) {
+    // a cluster that started is never left running
+    await close();
+    throw err;
+  }
 }
 
 proof("demo pack on PGlite: load, exercise, purge — no trace", async () => ({ e: await engineOrg(), close: async () => {} }));
