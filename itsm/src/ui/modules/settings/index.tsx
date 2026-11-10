@@ -1,7 +1,7 @@
-// «تنظیمات»: the organisation, members and roles, AI, integrations, the Windows app, the audit log, the person's own
-// account and help — the settings space of the sidebar (opened from its footer), plus the palette's member search.
+// «تنظیمات»: the organisation, members and roles, AI, integrations, the Windows app, the audit log, the design
+// system's living style guide (admins), the person's own account and help — the settings space of the sidebar (opened from its footer), plus the palette's member search.
 import { lazy } from "react";
-import { Building2, UserCog, Plug, Monitor, ScrollText, CircleUser, CircleHelp, User } from "lucide-react";
+import { Building2, UserCog, Plug, Monitor, ScrollText, CircleUser, CircleHelp, User, Palette } from "lucide-react";
 import { normalizeFa } from "../../lib/fa";
 import { AiIcon } from "../../components/shell/icons";
 import type { ModuleUi } from "../registry";
@@ -13,6 +13,7 @@ const Desktop = lazy(() => import("./Desktop"));
 const Audit = lazy(() => import("./Audit"));
 const Integrations = lazy(() => import("./Integrations"));
 const Help = lazy(() => import("./Help"));
+const StyleGuide = lazy(() => import("./StyleGuide"));
 const AiSettings = lazy(() => import("../../ai/settings/AiSettings"));
 
 export const settingsUi: ModuleUi = {
@@ -28,6 +29,7 @@ export const settingsUi: ModuleUi = {
         { key: "integrations", label: "اتصال‌ها و API", path: "settings/integrations", area: "integrations", icon: Plug, keywords: "وب‌هوک webhook کلید API رویداد سامانهٔ دیگر" },
         { key: "desktop", label: "نسخهٔ ویندوز", path: "settings/desktop", desktopOnly: true, icon: Monitor, keywords: "پشتیبان شبکه همگام‌سازی بکاپ LAN ابری" },
         { key: "audit", label: "گزارش رویدادها", path: "settings/audit", area: "settings", icon: ScrollText, keywords: "تاریخچه تغییرات" },
+        { key: "style-guide", label: "راهنمای طراحی", path: "settings/style-guide", area: "settings", level: "full", icon: Palette, keywords: "برند نشانه لوگو رنگ قلم حروف حرکت نماد سامانهٔ طراحی کاریز style guide design system" },
         { key: "account", label: "حساب کاربری من", path: "settings/account", icon: CircleUser, section: "شما", keywords: "رمز عبور نشست دستگاه" },
         { key: "help", label: "راهنما و میانبرها", path: "help", icon: CircleHelp, section: "شما", keywords: "کمک آموزش کلید میانبر درباره" },
       ],
@@ -42,6 +44,7 @@ export const settingsUi: ModuleUi = {
     { path: "settings/integrations", element: <Integrations /> },
     { path: "settings/ai", element: <AiSettings /> },
     { path: "help", element: <Help /> },
+    { path: "settings/style-guide", element: <StyleGuide /> },
   ],
   segments: { settings: "settings", help: "settings" },
   searches: [

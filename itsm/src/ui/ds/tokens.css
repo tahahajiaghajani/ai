@@ -175,6 +175,9 @@
   --ds-zaferan-900: #4E3104;
   --ds-zaferan-950: #331F04;
 
+  /* Brand neutrals, the same in both themes (logo previews on paper and on charcoal, print, the brand book). */
+  --ds-ink: #221D18;  --ds-paper: #F7F4F0;  --ds-charcoal: #110F0E;  --ds-snow: #F2F0EC;
+
   /* Legacy names (v1 «شامگاه» Dusk was the primary scale): kept as aliases of the primary so old rules still resolve. */
   --ds-dusk-50: var(--ds-firuzeh-50);   --ds-dusk-100: var(--ds-firuzeh-100); --ds-dusk-200: var(--ds-firuzeh-200);
   --ds-dusk-300: var(--ds-firuzeh-300); --ds-dusk-400: var(--ds-firuzeh-400); --ds-dusk-500: var(--ds-firuzeh-500);
@@ -811,8 +814,12 @@
   /* identifiers that stay Latin (INC-000123 in an export, a serial, an IP): Geist with tabular Latin digits, LTR isolate.
      Persian digits are the default everywhere else (DS Num draws every digit). */
   .ds-id    { font-family: var(--ds-font-latin); font-feature-settings: normal; font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate; white-space: nowrap; }
-  /* directional icons follow the reading direction (ds/icons.tsx DirIcon): authored LTR, mirrored in RTL */
-  .ds-icon-dir:dir(rtl) { transform: scaleX(-1); }
+  /* directional icons follow the reading direction (ds/icons.tsx DirIcon): authored LTR, mirrored in RTL. Written with
+     [dir] attributes, not :dir() — the CSS minifier rewrites :dir() as a :lang() list, which follows lang="fa" instead
+     of the direction. Two levels of islands: RTL page → LTR island → RTL island. */
+  :where([dir="rtl"]) .ds-icon-dir { transform: scaleX(-1); }
+  :where([dir="rtl"]) :where([dir="ltr"]) .ds-icon-dir { transform: none; }
+  :where([dir="rtl"]) :where([dir="ltr"]) :where([dir="rtl"]) .ds-icon-dir { transform: scaleX(-1); }
 
   /* ---- links are ink, underlined: Dusk is kept for the primary action, focus and selection ---- */
   .ds-link { color: var(--ds-text); font-weight: var(--ds-weight-medium); text-decoration-line: underline; text-decoration-thickness: 1px;

@@ -70,7 +70,6 @@ const DRAWINGS: Record<IllustrationName, ReactNode> = {
       <path d="M40 98h20M100 98h20" stroke={WATER} strokeWidth={3} strokeLinecap="round" />
       <path d="M64 96c4-14 28-14 32 0" fill="none" stroke={INK} strokeWidth={1.6} strokeDasharray="1.5 4.5" strokeLinecap="round" />
       <path d={rh(80, 78, 5)} fill="none" stroke={LIGHT} strokeWidth={1.6} strokeLinejoin="round" />
-      <path d="M126 44v10M121 49h10" stroke={INK} strokeWidth={1.6} strokeLinecap="round" opacity={0.6} />
     </>
   ),
   locked: (

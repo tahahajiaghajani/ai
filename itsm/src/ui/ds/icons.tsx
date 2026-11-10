@@ -6,7 +6,7 @@
 // media playback, charts and trends, brand marks, objects (a truck, a phone).
 // This app is RTL-only and older screens pick the visual icon directly (ArrowRight for «بازگشت» in PageHeader): that
 // stays correct. New code names the direction instead — <DirIcon name="back" /> — which draws the LTR-authored icon and
-// mirrors it whenever its element is right-to-left (CSS :dir(rtl), class .ds-icon-dir in motion.css), so the same
+// mirrors it whenever its element is right-to-left (class .ds-icon-dir, tokens.css §8, by the nearest [dir]), so the same
 // component is right in an LTR island too (code, a Latin document).
 import type { CSSProperties } from "react";
 import {
