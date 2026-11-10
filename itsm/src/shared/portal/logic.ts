@@ -17,7 +17,7 @@ import { cardText } from "../ai/va";
 // ---------------------------------------------------------------------------------------------------------------
 // Home page widgets (PTL-002)
 
-export type WidgetType = "search" | "announcements" | "actions" | "my_items" | "popular" | "favorites" | "categories" | "topics" | "links" | "knowledge" | "status" | "assistant" | "text";
+export type WidgetType = "search" | "announcements" | "actions" | "my_items" | "popular" | "favorites" | "categories" | "topics" | "links" | "knowledge" | "status" | "assistant" | "text" | "departments";
 
 export interface WidgetDef {
   type: WidgetType;
@@ -46,6 +46,7 @@ export const PORTAL_WIDGETS: Record<WidgetType, WidgetDef> = {
   knowledge: { type: "knowledge", label: "مقاله‌های پرخواننده", description: "مقاله‌های دانش که کاربر می‌تواند بخواند", limit: { min: 2, max: 10, default: 5 } },
   status: { type: "status", label: "وضعیت خدمات", description: "وضعیت امروز خدمت‌هایی که روی صفحهٔ وضعیت منتشر شده‌اند" },
   assistant: { type: "assistant", label: "نوار دستیار", description: "دعوت به گفتگو با دستیار مجازی" },
+  departments: { type: "departments", label: "واحدها و خدمت‌های من", description: "بخش‌هایی که ماژول‌ها برای کاربر منتشر می‌کنند: واحدهای سازمان با خدمت‌ها و کاتالوگشان، حساب مشتری و بازدیدهای میدانی", limit: { min: 2, max: 12, default: 6 } },
   text: { type: "text", label: "متن دلخواه", description: "بخشی با متن Markdown (راه‌های تماس، ساعت کاری…)", text: true, repeat: true },
 };
 
@@ -68,6 +69,7 @@ export const DEFAULT_LAYOUT: WidgetInstance[] = [
   { id: "announcements", type: "announcements", enabled: true },
   { id: "actions", type: "actions", enabled: true },
   { id: "my_items", type: "my_items", enabled: true, limit: 4 },
+  { id: "departments", type: "departments", enabled: true, limit: 6 },
   { id: "popular", type: "popular", enabled: true, limit: 6 },
   { id: "favorites", type: "favorites", enabled: true, limit: 6 },
   { id: "topics", type: "topics", enabled: true, limit: 8 },

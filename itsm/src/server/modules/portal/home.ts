@@ -22,6 +22,8 @@ import { DAY_MS, isUuid, liveRow, liveRows, moduleLinksFor, sysOf, type PortalMo
 import { favoritesOf } from "./config";
 import { myItems } from "./items";
 import { pendingInvitations } from "./surveys";
+import { portalSections } from "../esm/portal";
+import type { PortalSection } from "@shared/esm/portal";
 
 const itemLite = (it: ItemCard, favs: Set<string>): ItemLite => ({
   id: it.id,
@@ -282,6 +284,8 @@ export async function portalHome(ctx: Ctx, cfg: PortalConfig): Promise<PortalHom
     }, [] as ArticleLite[]),
     part(has("status"), () => statusCard(ctx), null as PortalHome["status"]),
   ]);
+  // the sections the service modules publish for the person (each source fails on its own inside portalSections)
+  const sections = await part(has("departments"), () => portalSections(ctx), [] as PortalSection[]);
 
   const items = b?.items ?? [];
   const favItems = items.filter((i) => favs.has(i.id));
@@ -297,5 +301,6 @@ export async function portalHome(ctx: Ctx, cfg: PortalConfig): Promise<PortalHom
     links,
     knowledge,
     status,
+    sections,
   };
 }

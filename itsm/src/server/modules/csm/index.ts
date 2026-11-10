@@ -14,6 +14,7 @@ import { onRecordEvent, registerRecordMeta, systemCtx, transitionIn, updateIn } 
 import { enqueue, registerJobHandler, type JobConfig, type JobContext } from "../../jobs";
 import { actsHere } from "../notify";
 import { registerPortalSectionSource } from "../esm/portal";
+import { registerPortalItems } from "../portal/common";
 import { installCsmHooks } from "./hooks";
 import { autoCloseIn, healthSweepIn, proactiveCasesIn, syncInternalIn } from "./service";
 import { installCsmSkills } from "./ai";
@@ -53,6 +54,8 @@ export function installCsmModule(): void {
   installCsmHooks();
   installCsmSkills();
   registerPortalSectionSource("csm", customerSections);
+  // a contact's cases in the portal's «درخواست‌های من» and ticket pages (read with the contact's own access)
+  registerPortalItems({ table: "customer_case", kind_label: "پروندهٔ پشتیبانی" });
 
   registerRecordMeta("customer_case", async ({ ctx, def, row }) => ({ csm: { can_work: access().canWrite(ctx, def, row) } }));
   registerRecordMeta("customer_account", async ({ q, ctx, def, row }) => ({ csm: { can_work: access().canWrite(ctx, def, row), manages: await managesCsm(q, ctx) } }));

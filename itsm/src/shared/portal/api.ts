@@ -2,6 +2,7 @@
 // server and the screens. Everything here is a projection for requesters: no internal notes, no agent-only fields,
 // and only records that are the caller's own, shared with them, or (for managers) their people's.
 // Imported by the UI: keep it free of server imports.
+import type { PortalSection } from "@shared/esm/portal";
 import type { AnnouncementItem } from "../incident/api";
 import type { ServiceStatus } from "../service_portfolio/logic";
 import type { Stage, StageStep, StageTone, SurveyQuestion, WidgetInstance } from "./logic";
@@ -221,6 +222,8 @@ export interface PortalHome {
   links: LinkLite[];
   knowledge: ArticleLite[];
   status: { overall: ServiceStatus; services: { name: string; status: ServiceStatus; note: string | null }[] } | null;
+  /** the «departments» widget: the sections the service modules publish for the person (ESM departments, a CSM account, field visits) */
+  sections: PortalSection[];
 }
 
 export interface PortalCatalog {

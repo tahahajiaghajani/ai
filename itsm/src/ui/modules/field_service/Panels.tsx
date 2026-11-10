@@ -19,7 +19,7 @@ import { FIELD_KEYS, fieldApi } from "./api";
 import { AssignDialog } from "./AssignDialog";
 import { clock, kpiTone, minutesText, type Row } from "./model";
 
-const fieldMeta = (ctx: RecordContext) => ((ctx.meta as Row).field ?? {}) as { can_work?: boolean; mine?: boolean; dispatches?: boolean };
+const fieldMeta = (ctx: RecordContext) => ((ctx.meta as Row).field ?? {}) as { can_work?: boolean; can_book?: boolean; mine?: boolean; dispatches?: boolean };
 
 export function TaskAssign({ ctx }: { ctx: RecordContext }) {
   const { timezone } = useOrg();
@@ -49,12 +49,12 @@ export function SlotsPanel({ ctx }: { ctx: RecordContext }) {
   const r = ctx.row as Row;
   const meta = fieldMeta(ctx);
   const open = !["work_complete", "closed_complete", "closed_incomplete", "cancelled"].includes(String(r.state));
-  const q = useQuery({ queryKey: FIELD_KEYS.slots(orgId, r.id), queryFn: () => fieldApi.slots(api, r.id, null, 7), enabled: open && !!meta.can_work });
+  const q = useQuery({ queryKey: FIELD_KEYS.slots(orgId, r.id), queryFn: () => fieldApi.slots(api, r.id, null, 7), enabled: open && !!(meta.can_book ?? meta.can_work) });
   const book = useAction((start: string) => fieldApi.book(api, r.id, start), {
     success: (d) => `نوبت ${formatJalali(d.window_start)} ${clock(d.window_start, timezone)} ثبت شد`,
     onSuccess: () => { ctx.refresh(); qc.invalidateQueries({ queryKey: FIELD_KEYS.slots(orgId, r.id) }); },
   });
-  if (!open || !meta.can_work) return <p className="text-[12px] text-ink-3">نوبت‌دهی برای دستور کار باز است.</p>;
+  if (!open || !(meta.can_book ?? meta.can_work)) return <p className="text-[12px] text-ink-3">نوبت‌دهی برای دستور کار باز است.</p>;
   if (q.isLoading) return <Loader />;
   const slots = q.data?.slots ?? [];
   if (!slots.length) return <p className="text-[12px] text-ink-3">در هفت روز آینده بازهٔ آزادی نیست.</p>;

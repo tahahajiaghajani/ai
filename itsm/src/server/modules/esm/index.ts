@@ -23,6 +23,8 @@ import { onRecordEvent, registerHooks, registerRecordMeta, systemCtx, transition
 import { enqueue, registerJobHandler, type JobConfig, type JobContext } from "../../jobs";
 import { actsHere } from "../notify";
 import { registerAiChannel } from "../ai/rag/registry";
+import { registerPortalItems, registerPortalLink } from "../portal/common";
+import { orgSchema } from "../../engine";
 import { DEPT_TABLES, installEsmHooks } from "./hooks";
 import { advanceJourneyIn, followRecordIn, journeyHooks, JOB_ORDER, placeActivityOrder } from "./journeys";
 import { facilityHooks, installReservationApprovals, JOB_NO_SHOW, noShowJob } from "./facilities";
@@ -80,6 +82,26 @@ export function installEsmModule(): void {
   installReservationApprovals();
   installEsmSkills();
   registerPortalSectionSource("esm", departmentSections);
+  // the self-service portal: department cases in «درخواست‌های من» and their ticket pages (read with the person's own
+  // access; the display title — neutral for sensitive services — never the summary), «رزرو فضا» among the quick links
+  for (const table of DEPT_TABLES) {
+    const def = tableDef(table);
+    if (def) registerPortalItems({ table, kind_label: def.label, ...(def.fields.some((f) => f.name === "title") ? { title: "title" } : {}) });
+  }
+  registerPortalLink({
+    key: "esm.book_space",
+    name: "رزرو فضا",
+    path: "facilities/book",
+    description: "اتاق جلسه، میز یا تجهیزات را برای نیم‌ساعت‌های آزاد رزرو کنید",
+    icon: "calendar-range",
+    keywords: "رزرو اتاق جلسه میز فضا سالن تجهیزات",
+    sort_order: 20,
+    available: async (ctx) => {
+      if (ctx.actor === "system") return false;
+      const def = (await orgSchema(ctx)).def("reservation");
+      return !!def && access().canCreate(ctx, def, null);
+    },
+  });
 
   // an approval activity of a journey settles with its round
   onApprovalSettled("journey_activity", async (s) => {

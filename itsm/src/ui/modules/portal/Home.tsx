@@ -1,7 +1,10 @@
 // The portal's home page (PTL-001, PTL-002): the big search under a greeting, then the widgets of the published layout
 // in their order — announcements on air for the person, what waits for them, their open requests, popular services,
 // favourites and recent orders, topics and categories, popular articles, today's service status, quick links, the
-// assistant bar and the administrator's own text sections. Each widget shows nothing when it has nothing.
+// assistant bar and the administrator's own text sections. Each widget shows nothing when it has nothing. The
+// «departments» widget shows the sections the service modules publish for the person (ESM's departments with their
+// services and catalogue, a customer contact's account, a technician's visits): links open in the app (`appPath`),
+// a service opens its catalogue item's order form in the portal.
 import { Link, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "antd";
@@ -275,6 +278,75 @@ function Widget({ w, home, cfg }: { w: WidgetInstance; home: PortalHome; cfg: Po
             </Button>
           </div>
         </section>
+      ) : null;
+    case "departments":
+      return home.sections?.length ? (
+        <Section title={title}>
+          <div className="flex flex-col gap-3">
+            {home.sections.map((s) => {
+              const Icon = iconOf(s.icon);
+              return (
+                <div key={s.key} className="pt-card flex flex-col gap-2" data-section={s.kind}>
+                  <div className="flex items-center gap-2">
+                    <span className="pt-tile-ic" aria-hidden>
+                      <Icon {...I20} />
+                    </span>
+                    <span className="font-medium">{s.title}</span>
+                  </div>
+                  {s.intro ? <RecordMarkdown text={s.intro} /> : null}
+                  {s.facts.length ? (
+                    <dl className="flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
+                      {s.facts.map((f) => (
+                        <div key={f.key} className="flex gap-1">
+                          <dt className="text-ink-3">{f.label}:</dt>
+                          <dd>{f.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  ) : null}
+                  {s.services.length ? (
+                    <div className="pt-grid is-small">
+                      {s.services.slice(0, w.limit ?? 6).map((sv) => {
+                        const SIcon = iconOf(sv.icon);
+                        const body = (
+                          <>
+                            <span className="pt-tile-ic" aria-hidden>
+                              <SIcon {...I20} />
+                            </span>
+                            <span className="pt-tile-b">
+                              <span className="pt-tile-t">{sv.name}</span>
+                              {sv.description ? <span className="pt-tile-d">{sv.description}</span> : null}
+                            </span>
+                          </>
+                        );
+                        // a service files its case through its catalogue item's order form
+                        return sv.catalog_item_id ? (
+                          <Link key={sv.id} to={portalPath(orgId, `items/${sv.catalog_item_id}`)} className="pt-tile">
+                            {body}
+                          </Link>
+                        ) : (
+                          <div key={sv.id} className="pt-tile">
+                            {body}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                  {s.links.length ? (
+                    <div className="flex flex-wrap gap-2">
+                      {s.links.map((l) => (
+                        <Link key={l.key} className="pt-chip-btn" to={appPath(orgId, l.path)}>
+                          {l.label}
+                          {typeof l.count === "number" && l.count > 0 ? ` (${l.count.toLocaleString("fa-IR")})` : ""}
+                        </Link>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </Section>
       ) : null;
     case "text":
       return w.text?.trim() ? (
