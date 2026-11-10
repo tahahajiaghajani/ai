@@ -50,7 +50,7 @@ desktop-mode local server (PGlite). `clickthrough.json` holds every check of the
 | Phase | What was crawled | Checks | Passed | Problems |
 |---|---|---|---|---|
 | 1 — without demo | full crawl of every role on the seeded organisation (every route, «… تازه», first records and their tabs and side panels, header actions, 390 px) | 2,228 | 2,227 | 1 (fixed) |
-| 2 — with the demo pack | pack «کوچک» loaded through `POST /api/o/:org/demo/load` (what «داده‌های نمایشی» calls; 53,125 rows, 5 min); administrator, demo IT agent «نگار کارشناس‌پور» and demo requester «سمیه شعبه‌دار» (the pack's shared password from the console) on ITAM, incidents and major incidents, changes and their calendar, CMDB and the service map, services, portal, analytics, AI pages and «داده‌های نمایشی»; the ITAM screens again as the asset manager «رامین دارایی» and the branch asset officer «یاسر اموالی» | 958 + 101 + 87 + 77 | all but 13 | 13 = 2 problems × several tabs (fixed, re-checked: 4/4) |
+| 2 — with the demo pack | pack «کوچک» loaded through `POST /api/o/:org/demo/load` (what «داده‌های نمایشی» calls; 53,125 rows, 5 min); administrator, demo IT agent «نگار کارشناس‌پور» and demo requester «سمیه شعبه‌دار» (the pack's shared password from the console) on ITAM, incidents and major incidents, changes and their calendar, CMDB and the service map, services, portal, analytics, AI pages and «داده‌های نمایشی»; the ITAM screens again as the asset manager «رامین دارایی» and the branch asset officer «یاسر اموالی» | 958 + 101 + 87 + 77, then 12 + 25 as the change manager «کاوه تغییری» and the desk manager «بهروز مدیرنیا» (pack loaded again) | all but 13 | 13 = 2 problems × several tabs (fixed, re-checked: 4/4) |
 | 3 — after the purge | «حذف کامل داده‌های نمایشی» in the console (report of 173,221 rows in 69 tables and 153 accounts, typed «حذف کامل»; the sign-in was minutes old, so the re-authentication gate let it through without asking), then `--quick` for every role (main pages, consoles, portal, sign-in pages) and the phase-2 pages again with their records and actions for every role | 267 + 110 | 377 | 0 |
 
 Also checked by hand (`page.evaluate` through Playwright):
@@ -83,8 +83,8 @@ Also checked by hand (`page.evaluate` through Playwright):
 
 Tests: `tests/ui-clickthrough-bank.test.ts`.
 
-Not crawled in round 2: the demo manager, change, SOC and HR personas (their pages are the administrator's in phase 2
-filtered by their grants); the demo pack's «متوسط» and «بزرگ» sizes (server edition).
+Not crawled in round 2: the demo SOC and HR personas (their pages are the administrator's in phase 2 filtered by their
+grants); the demo pack's «متوسط» and «بزرگ» sizes (server edition).
 
 ## How this report was produced (round 1, 10 November 2026)
 

@@ -118,6 +118,30 @@
       "problems": 0
     },
     {
+      "phase": "demo-change",
+      "what": "demo change manager «کاوه تغییری» on the change pages (pack loaded again)",
+      "started": "2026-11-10T22:56:32.245Z",
+      "duration_s": 66,
+      "roles": [
+        "agent"
+      ],
+      "checks": 12,
+      "ok": 12,
+      "problems": 0
+    },
+    {
+      "phase": "demo-manager",
+      "what": "demo service desk and major-incident manager «بهروز مدیرنیا» on incidents and problems (pack loaded again)",
+      "started": "2026-11-10T22:56:32.268Z",
+      "duration_s": 107,
+      "roles": [
+        "requester"
+      ],
+      "checks": 25,
+      "ok": 25,
+      "problems": 0
+    },
+    {
       "phase": "after-purge",
       "what": "--quick after «حذف کامل داده‌های نمایشی»",
       "started": "2026-11-10T22:41:02.733Z",
@@ -147,8 +171,8 @@
     }
   ],
   "summary": {
-    "checks": 3832,
-    "ok": 3818,
+    "checks": 3869,
+    "ok": 3855,
     "problems": 14
   },
   "results": [
@@ -3607,6 +3631,43 @@
     {"phase":"demo-fixed","role":"requester","route":"/{org} → link /{org}/settings/desktop","step":"link","final":"/{org}/settings/desktop","ok":true,"issues":[],"target":"/{org}","forbidden":["403 GET /api/local/backups","403 GET /api/local/settings"]},
     {"phase":"demo-fixed","role":"requester","route":"/{org}/incidents","step":"visit","final":"/{org}/incidents","ok":true,"issues":[],"target":"/{org}/incidents"},
     {"phase":"demo-fixed","role":"requester","route":"/{org}/services","step":"visit","final":"/{org}/services","ok":true,"issues":[],"target":"/{org}/services"},
+    {"phase":"demo-change","role":"agent","route":"/{org}","step":"visit","final":"/{org}","ok":true,"issues":[],"target":"/{org}"},
+    {"phase":"demo-change","role":"agent","route":"/{org} → link /{org}/settings/desktop","step":"link","final":"/{org}/settings/desktop","ok":true,"issues":[],"target":"/{org}","forbidden":["403 GET /api/local/backups","403 GET /api/local/settings"]},
+    {"phase":"demo-change","role":"agent","route":"/{org}/changes","step":"visit","final":"/{org}/changes","ok":true,"issues":[],"target":"/{org}/changes"},
+    {"phase":"demo-change","role":"agent","route":"/{org}/change-tasks","step":"visit","final":"/{org}/change-tasks","ok":true,"issues":[],"target":"/{org}/change-tasks"},
+    {"phase":"demo-change","role":"agent","route":"/{org}/changes/conflicts","step":"visit","final":"/{org}/changes/conflicts","ok":true,"issues":[],"target":"/{org}/changes/conflicts"},
+    {"phase":"demo-change","role":"agent","route":"/{org}/changes/calendar","step":"visit","final":"/{org}/changes/calendar","ok":true,"issues":[],"target":"/{org}/changes/calendar"},
+    {"phase":"demo-change","role":"agent","route":"/{org}/changes/calendar → «تغییر تازه»","step":"action","final":"/{org}/changes/new","ok":true,"issues":[],"target":"/{org}/changes/calendar"},
+    {"phase":"demo-change","role":"agent","route":"/{org}/changes/calendar → item «CHG0000028 — تعویض گواهی‌های امنیتی بانک»","step":"item","final":"/{org}/changes/:id","ok":true,"issues":[],"target":"/{org}/changes/calendar"},
+    {"phase":"demo-change","role":"agent","route":"/{org}/changes/cab","step":"visit","final":"/{org}/changes/cab","ok":true,"issues":[],"target":"/{org}/changes/cab"},
+    {"phase":"demo-change","role":"agent","route":"/{org}/changes/cab → link /{org}/changes/cab-meetings/:id","step":"link","final":"/{org}/changes/cab-meetings/:id","ok":true,"issues":[],"target":"/{org}/changes/cab"},
+    {"phase":"demo-change","role":"agent","route":"/{org}/changes/dashboard","step":"visit","final":"/{org}/changes/dashboard","ok":true,"issues":[],"target":"/{org}/changes/dashboard"},
+    {"phase":"demo-change","role":"agent","route":"/{org}/changes/dashboard → link /{org}/changes/:id","step":"link","final":"/{org}/changes/:id","ok":true,"issues":[],"target":"/{org}/changes/dashboard"},
+    {"phase":"demo-manager","role":"requester","route":"/{org}","step":"visit","final":"/{org}","ok":true,"issues":[],"target":"/{org}"},
+    {"phase":"demo-manager","role":"requester","route":"/{org} → link /{org}/settings/desktop","step":"link","final":"/{org}/settings/desktop","ok":true,"issues":[],"target":"/{org}","forbidden":["403 GET /api/local/backups","403 GET /api/local/settings"]},
+    {"phase":"demo-manager","role":"requester","route":"/{org}/sla/timers","step":"visit","final":"/{org}/sla/timers","ok":true,"issues":[],"target":"/{org}/sla/timers"},
+    {"phase":"demo-manager","role":"requester","route":"/{org}/sla/timers → first record","step":"record","final":"/{org}/sla/timers/:id","ok":true,"issues":[],"target":"/{org}/sla/timers"},
+    {"phase":"demo-manager","role":"requester","route":"/{org}/incidents","step":"visit","final":"/{org}/incidents","ok":true,"issues":[],"target":"/{org}/incidents"},
+    {"phase":"demo-manager","role":"requester","route":"/{org}/incidents → «رخداد تازه»","step":"new","final":"/{org}/incidents/new","ok":true,"issues":[],"target":"/{org}/incidents"},
+    {"phase":"demo-manager","role":"requester","route":"/{org}/incidents → first record","step":"record","final":"/{org}/incidents/:id","ok":true,"issues":[],"target":"/{org}/incidents"},
+    {"phase":"demo-manager","role":"requester","route":"/{org}/incidents/:id → tab «رخداد عمده»","step":"tab","final":"/{org}/incidents/:id","ok":true,"issues":[],"target":"/{org}/incidents"},
+    {"phase":"demo-manager","role":"requester","route":"/{org}/incidents/:id → tab «نظر درخواست‌دهنده»","step":"tab","final":"/{org}/incidents/:id","ok":true,"issues":[],"target":"/{org}/incidents"},
+    {"phase":"demo-manager","role":"requester","route":"/{org}/incidents/:id → tab «توافق‌ها»","step":"tab","final":"/{org}/incidents/:id","ok":true,"issues":[],"target":"/{org}/incidents"},
+    {"phase":"demo-manager","role":"requester","route":"/{org}/incidents/:id → tab «کارهای رخداد»","step":"tab","final":"/{org}/incidents/:id","ok":true,"issues":[],"target":"/{org}/incidents"},
+    {"phase":"demo-manager","role":"requester","route":"/{org}/incidents/:id → tab «رخدادهای فرزند»","step":"tab","final":"/{org}/incidents/:id","ok":true,"issues":[],"target":"/{org}/incidents"},
+    {"phase":"demo-manager","role":"requester","route":"/{org}/incidents/:id → tab «بازبینی‌ها»","step":"tab","final":"/{org}/incidents/:id","ok":true,"issues":[],"target":"/{org}/incidents"},
+    {"phase":"demo-manager","role":"requester","route":"/{org}/incidents/dashboard","step":"visit","final":"/{org}/incidents/dashboard","ok":true,"issues":[],"target":"/{org}/incidents/dashboard"},
+    {"phase":"demo-manager","role":"requester","route":"/{org}/problems","step":"visit","final":"/{org}/problems","ok":true,"issues":[],"target":"/{org}/problems"},
+    {"phase":"demo-manager","role":"requester","route":"/{org}/problems → «مشکل تازه»","step":"new","final":"/{org}/problems/new","ok":true,"issues":[],"target":"/{org}/problems"},
+    {"phase":"demo-manager","role":"requester","route":"/{org}/problems → first record","step":"record","final":"/{org}/problems/:id","ok":true,"issues":[],"target":"/{org}/problems"},
+    {"phase":"demo-manager","role":"requester","route":"/{org}/problems/:id → tab «کارگاه تحلیل علت»","step":"tab","final":"/{org}/problems/:id","ok":true,"issues":[],"target":"/{org}/problems"},
+    {"phase":"demo-manager","role":"requester","route":"/{org}/problems/:id → tab «رخدادهای مرتبط»","step":"tab","final":"/{org}/problems/:id","ok":true,"issues":[],"target":"/{org}/problems"},
+    {"phase":"demo-manager","role":"requester","route":"/{org}/problems/:id → tab «خطاهای شناخته‌شده»","step":"tab","final":"/{org}/problems/:id","ok":true,"issues":[],"target":"/{org}/problems"},
+    {"phase":"demo-manager","role":"requester","route":"/{org}/problems/:id → tab «کارهای مشکل»","step":"tab","final":"/{org}/problems/:id","ok":true,"issues":[],"target":"/{org}/problems"},
+    {"phase":"demo-manager","role":"requester","route":"/{org}/problems/:id → tab «اقدام‌های اصلاحی»","step":"tab","final":"/{org}/problems/:id","ok":true,"issues":[],"target":"/{org}/problems"},
+    {"phase":"demo-manager","role":"requester","route":"/{org}/known-errors","step":"visit","final":"/{org}/known-errors","ok":true,"issues":[],"target":"/{org}/known-errors"},
+    {"phase":"demo-manager","role":"requester","route":"/{org}/known-errors → «خطای شناخته‌شده تازه»","step":"new","final":"/{org}/known-errors/new","ok":true,"issues":[],"target":"/{org}/known-errors"},
+    {"phase":"demo-manager","role":"requester","route":"/{org}/known-errors → first record","step":"record","final":"/{org}/known-errors/:id","ok":true,"issues":[],"target":"/{org}/known-errors"},
     {"phase":"after-purge","role":"admin","route":"/{org}","step":"visit","final":"/{org}","ok":true,"issues":[],"target":"/{org}"},
     {"phase":"after-purge","role":"admin","route":"/{org}/todo","step":"visit","final":"/{org}/todo","ok":true,"issues":[],"target":"/{org}/todo"},
     {"phase":"after-purge","role":"admin","route":"/{org}/settings/org","step":"visit","final":"/{org}/settings/org","ok":true,"issues":[],"target":"/{org}/settings/org"},
