@@ -16,12 +16,18 @@ import type { Db, Queryable } from "../db";
 import type { Logger, ServerConfig } from "../context";
 import { uuidv7 } from "@shared/id";
 import { withLockLabel } from "../db/lockprobe";
+import { inDemoScope } from "../db/scope";
 
 export type JobStatus = "queued" | "running" | "done" | "failed";
 
 export interface Job {
   id: string;
   org_id: string | null;
+  /**
+   * Work of the organisation's demo pack (src/server/db/scope.ts): queued by demo work and about demo rows (its payload
+   * names one, or it is the pack's own job). Its handler runs in the demo scope, so what it writes is demo data too.
+   */
+  demo?: boolean;
   kind: string;
   payload: Record<string, any>;
   status: JobStatus;
@@ -168,13 +174,26 @@ async function claim(db: Db, worker: string, n = 1): Promise<Job[]> {
       `update sm_jobs set status = 'running', attempts = attempts + 1, locked_by = $1,
               locked_until = now() + interval '5 minutes', updated_at = now()
        where id in (${pick} for update skip locked)
-       returning *`,
+       returning *, ${DEMO_JOB_SQL} as demo`,
       [worker],
     );
   const due = await take(`select id from sm_jobs where status = 'queued' and run_at <= now() order by run_at, id limit ${Math.max(1, Math.trunc(n))}`);
   if (due.length) return due.sort((a, b) => (a.run_at < b.run_at ? -1 : a.run_at > b.run_at ? 1 : a.id < b.id ? -1 : 1));
   return take(`select id from sm_jobs where status = 'running' and locked_until < now() order by locked_until limit ${Math.max(1, Math.trunc(n))}`);
 }
+
+/**
+ * Is a job demo work (docs/DEMO_FA.md)? It was queued inside a demo transaction (recorded in sm_demo_rows) and it is
+ * about demo data: the pack's own job (`__demo` in its payload) or a payload naming a demo row (a record's event, a
+ * per-record timer, a notification of a demo record…). An organisation-wide job that demo work happened to queue (a
+ * nightly roll-up, a re-index of a whole table) is not: it runs as ordinary work, and what it derives from demo rows
+ * is found by the purge through its references.
+ */
+const DEMO_JOB_SQL = `(sm_jobs.org_id is not null
+  and exists (select 1 from sm_demo_rows d where d.org_id = sm_jobs.org_id and d.row_id = sm_jobs.id)
+  and (sm_jobs.payload ? '__demo' or exists (
+    select 1 from regexp_matches(sm_jobs.payload::text, '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})', 'g') m
+    join sm_demo_rows r on r.org_id = sm_jobs.org_id and r.row_id = m[1]::uuid)))`;
 
 const isUniqueViolation = (e: unknown): boolean => !!e && typeof e === "object" && (e as { code?: string }).code === "23505";
 
@@ -256,6 +275,11 @@ const running = new WeakMap<Db, boolean>();
  * uses it for notification fan-out and SLA timers at scale: each round claims that many due jobs in one statement.
  */
 export async function tick(cfg: JobConfig, opts: { budgetMs?: number; max?: number; worker?: string; concurrency?: number } = {}): Promise<TickResult> {
+  // a tick started from inside demo work (a demo person's request) lends that scope to no job: each job sets its own
+  return inDemoScope(null, () => tickOutsideScope(cfg, opts));
+}
+
+async function tickOutsideScope(cfg: JobConfig, opts: { budgetMs?: number; max?: number; worker?: string; concurrency?: number }): Promise<TickResult> {
   const db = cfg.db;
   if (running.get(db)) return { ran: 0, failed: 0, busy: true, more: false };
   running.set(db, true);
@@ -320,8 +344,9 @@ async function runOne(cfg: JobConfig, job: Job, deadline: number): Promise<boole
   };
   try {
     if (!handler) throw new Error(`no handler for job kind "${job.kind}"`);
-    // the write-lock probe of measurement runs labels the locks a job takes with its kind (a no-op otherwise)
-    const r = await withLockLabel(`job ${job.kind}`, () => handler(job, jctx));
+    // the write-lock probe of measurement runs labels the locks a job takes with its kind (a no-op otherwise); a demo
+    // job's writes are demo data (src/server/db/scope.ts), any other job's are not
+    const r = await inDemoScope(job.demo && job.org_id ? job.org_id : null, () => withLockLabel(`job ${job.kind}`, () => handler(job, jctx)));
     if (r && typeof r.again === "number") await finish(db, job, "queued", { runInMs: r.again, keepAttempt: true });
     else await finish(db, job, "done");
     return true;

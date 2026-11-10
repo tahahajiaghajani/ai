@@ -156,5 +156,9 @@ export function createDiskBlobStore(o: DiskStoreOptions): BlobStore & { pathOf(o
       if (!ORG.test(org)) return shas;
       return shas.filter((s) => !SHA.test(s) || !existsSync(pathOf(org, s)));
     },
+    async remove(_q, org, sha) {
+      check(org, sha);
+      await rm(pathOf(org, sha), { force: true });
+    },
   };
 }
