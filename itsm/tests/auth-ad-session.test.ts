@@ -188,4 +188,29 @@ describe("where a session reaches", () => {
     await s.c.get("/admin/overview", 403);
     await w.db.query(`update sm_users set is_platform_admin = false where email = 'ali@corp.test'`);
   });
+
+  it("the scoped live pulse follows the same guard and never counts as activity for the idle timeout", async () => {
+    const s = await w.signIn("reza", "Passw0rd!");
+    const other = await w.owner.post("/orgs", { name: "سازمان سوم" });
+    await w.owner.post(`/o/${other.id}/members`, { email: "reza@corp.test", full_name: "Reza", role: "member" });
+    // guardOrgSession: a directory session polls only its own organisation
+    await s.c.get(`/o/${w.org}/pulse?t=incident`);
+    const refused = await s.c.get(`/o/${other.id}/pulse?t=incident`, 403);
+    expect(refused.error.message).toMatch(/سازمان دیگری/);
+    // polling — even without the client's background header — never moves the activity stamp
+    await w.owner.put(`${w.P}/auth/policy`, { session: { idle_minutes: 15 } });
+    const id = sessionId(s.c.cookie);
+    const seen = async () => new Date((await w.db.one<{ last_seen_at: string }>(`select last_seen_at from sm_sessions where id = $1`, [id]))!.last_seen_at).getTime();
+    await w.db.query(`update sm_sessions set last_seen_at = now() - interval '5 minutes' where id = $1`, [id]);
+    const before = await seen();
+    await s.c.get(`/o/${w.org}/pulse?t=incident&since=0`);
+    expect(await seen()).toBe(before);
+    // what the person does still counts
+    await s.c.get("/auth/me");
+    expect(await seen()).toBeGreaterThan(before);
+    // past the idle minutes the pulse alone finds the session ended
+    await w.db.query(`update sm_sessions set last_seen_at = now() - interval '16 minutes' where id = $1`, [id]);
+    await s.c.get(`/o/${w.org}/pulse?t=incident`, 401);
+    await w.owner.put(`${w.P}/auth/policy`, { session: { idle_minutes: 0 } });
+  });
 });

@@ -20,10 +20,21 @@ export type C = Context<Env>;
 
 export const router = () => new Hono<Env>();
 
+/** The live pulse (GET /api/o/:org/pulse) is polled by a screen, never asked for by the person. */
+const PULSE_PATH = /\/o\/[0-9a-f-]{36}\/pulse\/?$/i;
+
+/**
+ * Is this a request the person did not make? The client marks its timers with BACKGROUND_HEADER; the scoped live
+ * pulse counts as background whatever the client sends, so it never keeps a session past its idle timeout (S2).
+ */
+export function isBackgroundRequest(c: Pick<C, "req">): boolean {
+  return c.req.header(BACKGROUND_HEADER) === "1" || (c.req.method === "GET" && PULSE_PATH.test(c.req.path));
+}
+
 /** Loads the signed-in user (cookie or bearer token); 401 when missing. */
 export const requireUser: MiddlewareHandler<Env> = async (c, next) => {
   const cfg = c.get("cfg");
-  const resolved = await resolveToken(cfg.db, tokenFromRequest(c), { background: c.req.header(BACKGROUND_HEADER) === "1" });
+  const resolved = await resolveToken(cfg.db, tokenFromRequest(c), { background: isBackgroundRequest(c) });
   if (!resolved) throw unauthorized();
   c.set("user", resolved.user);
   c.set("session", resolved.session);
@@ -33,7 +44,7 @@ export const requireUser: MiddlewareHandler<Env> = async (c, next) => {
 /** Same as requireUser but continues anonymously. */
 export const optionalUser: MiddlewareHandler<Env> = async (c, next) => {
   const cfg = c.get("cfg");
-  const resolved = await resolveToken(cfg.db, tokenFromRequest(c), { background: c.req.header(BACKGROUND_HEADER) === "1" });
+  const resolved = await resolveToken(cfg.db, tokenFromRequest(c), { background: isBackgroundRequest(c) });
   if (resolved) {
     c.set("user", resolved.user);
     c.set("session", resolved.session);
