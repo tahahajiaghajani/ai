@@ -110,7 +110,7 @@ describe("the probe", () => {
     try {
       expect((await canListen(port, "0.0.0.0")).ok).toBe(false);
       const held = await probePorts([port]);
-      expect(held.get(port)).toMatch(/cannot listen|used by|reserved/);
+      expect(held.get(port)).toMatch(/used by|reserved|cannot listen/);
     } finally {
       await new Promise((r) => s.close(r));
     }

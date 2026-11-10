@@ -21,7 +21,7 @@
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
     <Launch Condition="VersionNT64" Message="[ProductName] requires 64-bit Windows Server 2019, 2022 or 2025 (Windows 10/11 for labs)." />
-    <Launch Condition="Privileged" Message="[ProductName] must be installed by an administrator." />
+    <Launch Condition="Privileged" Message="[ProductName] must be installed by an administrator: sign in with an administrator account, or run msiexec /i from a Command Prompt opened with Run as administrator." />
     <Launch Condition="Installed OR PhysicalMemory &gt;= 3800" Message="[ProductName] needs at least 4 GB of memory (16 GB recommended)." />
     <!-- the preflight before any file is copied (install.ps1 repeats it with karizctl preflight, which also checks the
          data folder's disk, a pending restart and the ports): an x64 processor (not ARM64), Windows build 17763 or later,

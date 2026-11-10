@@ -196,7 +196,7 @@ export async function probePorts(ports: number[], pgPorts: Set<number> = new Set
       continue;
     }
     const r = await canListen(p, pgPorts.has(p) ? "127.0.0.1" : "0.0.0.0");
-    if (!r.ok) out.set(p, r.code === "EACCES" ? "reserved by Windows or blocked (EACCES): see netsh int ipv4 show excludedportrange protocol=tcp" : `cannot listen: ${r.code}`);
+    if (!r.ok) out.set(p, r.code === "EACCES" ? "reserved by Windows or blocked (EACCES): see netsh int ipv4 show excludedportrange protocol=tcp" : r.code === "EADDRINUSE" ? "used by another program" : `cannot listen: ${r.code}`);
   }
   return out;
 }
