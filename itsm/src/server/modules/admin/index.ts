@@ -18,6 +18,9 @@ import { installImportJobs } from "./imports";
 import { expireExports, installExportJobs } from "./exports";
 import { installAdminSkills } from "./ai";
 import { seedAdminDefaultsIn, type AdminSeedCounts } from "./seed";
+import { registerToolTableView } from "../ai/tools/records";
+import { CUSTOM_SLOTS } from "@shared/admin/studio";
+import { liveRows, sysOf } from "./common";
 
 let installed = false;
 
@@ -36,6 +39,15 @@ export function installAdminModule(): void {
   installImportJobs();
   installExportJobs();
   installAdminSkills();
+  // the assistant's generated tools: a studio table under the organisation's own name; unused slots offer none
+  registerToolTableView(async (ctx) => {
+    const rows = await liveRows(ctx.db, sysOf(ctx), "custom_table", null);
+    const used = new Map(rows.map((r) => [String(r.slot), r]));
+    return new Map(CUSTOM_SLOTS.map((slot) => {
+      const r = used.get(slot);
+      return [slot, r ? { label: String(r.label), plural: String(r.plural ?? r.label), description: (r.description as string) ?? null } : null];
+    }));
+  });
   registerJobHandler("admin.seed", async (job, jctx) => {
     if (!job.org_id) return;
     await seedAdminDefaults(jctx.cfg, job.org_id);

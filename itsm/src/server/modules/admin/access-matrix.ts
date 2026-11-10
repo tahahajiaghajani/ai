@@ -16,6 +16,8 @@ import { access } from "../../access/provider";
 import { condEnv, orgSchema, requireReadable } from "../../engine";
 import { liveRows, sysOf } from "./common";
 import { isAiUnavailable, runSkill } from "../ai/skills/runtime";
+import { defaultDataUse, tablePolicies, type TablePolicy } from "../ai/datause";
+import { scopeColumns } from "@shared/access/evaluate";
 import { AiUnavailableError } from "../ai/errors";
 import { AI_CLOSED, aiChannelOpen } from "../ai/rag/registry";
 
@@ -33,6 +35,12 @@ export interface MatrixRow {
   approve: boolean;
   admin: boolean;
   hidden: string[];
+  /** parent-scoped rows (`scope.parent`): read only by those who read the parent record (its table) */
+  parent: string | null;
+  /** the table's AI data-use policy in this organisation (its default or the AI administrator's row) */
+  data_use: "cloud" | "local" | "never";
+  /** member matrix: rows reached only as a participant (an approver, a named reader…) without a role in the area */
+  participant?: boolean;
 }
 
 /** The organisation's names of its custom tables (slot → name). */
@@ -41,8 +49,9 @@ async function customNames(ctx: Ctx): Promise<Map<string, { label: string; plura
   return new Map(rows.map((r) => [String(r.slot), { label: String(r.label), plural: String(r.plural) }]));
 }
 
-function rowOf(def: TableDef, g: FullGrant, hidden: string[], names: Map<string, { label: string; plural: string }>): MatrixRow {
+function rowOf(def: TableDef, g: FullGrant, hidden: string[], names: Map<string, { label: string; plural: string }>, policies: Map<string, TablePolicy>): MatrixRow {
   const custom = isCustomSlot(def.key) ? names.get(def.key) : undefined;
+  const parent = scopeColumns(def).parent;
   return {
     table: def.key,
     label: custom?.label ?? def.label,
@@ -57,6 +66,8 @@ function rowOf(def: TableDef, g: FullGrant, hidden: string[], names: Map<string,
     approve: g.approve,
     admin: g.admin,
     hidden,
+    parent: parent ? (tableDef(parent.table)?.label ?? parent.table) : null,
+    data_use: policies.get(def.key)?.use ?? defaultDataUse(def.key),
   };
 }
 
@@ -72,19 +83,26 @@ export async function memberMatrix(ctx: Ctx, userId: string) {
   const schema = await orgSchema(target);
   const s = subjectOf(target);
   const names = await customNames(ctx);
+  const policies = await tablePolicies(ctx);
+  const participations = (await access().participations?.(target, ctx.db)) ?? new Set<string>();
   const rows: MatrixRow[] = [];
   for (const base of physicalTables()) {
     if (!shown(base, names)) continue;
     const def = schema.def(base.key)!;
     const visible = access().visibleFields(target, def);
     const hidden = visible ? def.fields.filter((f) => !visible.has(f.name)).map((f) => f.label) : [];
-    rows.push(rowOf(def, grantIn(s.eff, String(def.area)), hidden, names));
+    const g = grantIn(s.eff, String(def.area));
+    rows.push({ ...rowOf(def, g, hidden, names, policies), ...(g.read === "none" && participations.has(def.key) ? { participant: true } : {}) });
   }
+  // the organisation's secure workspaces and whether the member is in each (their records stay inside)
+  const secure = s.kind === "user" ? s.secureWorkspaces : [];
+  const wsNames = secure.length ? new Map((await liveRows(ctx.db, sysOf(ctx), "workspace", { f: "id", op: "in", v: secure })).map((w) => [String(w.id), String(w.name)])) : new Map<string, string>();
   return {
     user: { id: target.user.id, name: target.user.full_name || target.user.email },
     roles: s.eff.roles,
     legacy: s.eff.legacy,
     field_groups: s.eff.fieldGroups,
+    secure_workspaces: secure.map((id) => ({ id, name: wsNames.get(id) ?? id, member: s.kind === "user" && s.workspaces.includes(id) })),
     rows,
   };
 }
@@ -100,12 +118,13 @@ export async function roleMatrix(ctx: Ctx, key: string) {
   const eff = combineRoles(closure.map((k) => catalog.get(k)!).filter(Boolean));
   const schema = await orgSchema(ctx);
   const names = await customNames(ctx);
+  const policies = await tablePolicies(ctx);
   const rows: MatrixRow[] = [];
   for (const base of physicalTables()) {
     if (!shown(base, names)) continue;
     const def = schema.def(base.key)!;
     const hidden = def.fields.filter((f) => f.group && !eff.fieldGroups.includes(f.group)).map((f) => f.label);
-    rows.push(rowOf(def, grantIn(eff, String(def.area)), hidden, names));
+    rows.push(rowOf(def, grantIn(eff, String(def.area)), hidden, names, policies));
   }
   return { role: { key: role.key, name: role.name, persona: role.persona }, contains: closure.filter((k) => k !== key), field_groups: eff.fieldGroups, rows };
 }
@@ -155,8 +174,10 @@ export async function explainFor(ctx: Ctx, input: { user_id: string; table: stri
     hidden_fields: check.hidden_fields,
     participant_only: check.can.participant_only,
     record: check.record ? { label: check.record.label, explanation: check.record.explanation, writable_fields: check.record.writable_fields } : undefined,
+    data_use: (await tablePolicies(ctx)).get(check.table.key)?.use ?? defaultDataUse(check.table.key),
   };
-  const rule = explainAccessText(facts);
+  const DATA_USE_TEXT = { cloud: "مدل‌های ابری و محلی", local: "فقط مدل‌های محلی سازمان", never: "هیچ مدل هوش مصنوعی" } as const;
+  const rule = `${explainAccessText(facts)}\nدادهٔ «${facts.table.plural}» به ${DATA_USE_TEXT[facts.data_use]} داده می‌شود (سیاست دادهٔ هوش مصنوعی).`;
   let text = rule;
   let ai = false;
   let model: string | null = null;

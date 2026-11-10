@@ -70,6 +70,34 @@ const READ_ONLY_TABLES = new Set([
   "supplier_scorecard", "allocation_result",
 ]);
 
+/**
+ * What a module says about its tables for the generated tools, per organisation: a table's name in this organisation
+ * (a studio table's own label, plural and description) or `null` to leave it out (an unused custom-table slot).
+ */
+export type ToolTableView = (ctx: Ctx) => Promise<Map<string, { label: string; plural: string; description?: string | null } | null>>;
+const TABLE_VIEWS: ToolTableView[] = [];
+
+/** Register a module's view of its tables for the generated tools. Returns the removal. */
+export function registerToolTableView(fn: ToolTableView): () => void {
+  TABLE_VIEWS.push(fn);
+  return () => {
+    const i = TABLE_VIEWS.indexOf(fn);
+    if (i >= 0) TABLE_VIEWS.splice(i, 1);
+  };
+}
+
+async function toolTableViews(ctx: Ctx): Promise<Map<string, { label: string; plural: string; description?: string | null } | null>> {
+  const out = new Map<string, { label: string; plural: string; description?: string | null } | null>();
+  for (const fn of TABLE_VIEWS) {
+    try {
+      for (const [k, v] of await fn(ctx)) out.set(k, v);
+    } catch {
+      // one module's trouble never hides the other tools
+    }
+  }
+  return out;
+}
+
 /** A module keeps a table out of the generated tools (its own tools cover it). Returns the removal. */
 export function excludeFromTools(table: string): () => void {
   NO_TOOLS.add(table);
@@ -721,9 +749,14 @@ export async function recordTools(ctx: Ctx, opts: { proposals: boolean; tables?:
   const out: ToolEntry[] = [];
   const journalTables: TableDef[] = [];
   const linkTables: TableDef[] = [];
+  const views = await toolTableViews(ctx);
   for (const base of physicalTables()) {
     if (toolless(base) || (opts.tables && !opts.tables.has(base.key))) continue;
-    const def = schema.def(base.key);
+    const view = views.get(base.key);
+    if (view === null) continue;
+    const found = schema.def(base.key);
+    // a studio table under its own name (the model reads what the organisation calls it)
+    const def = found && view ? ({ ...found, label: view.label, plural: view.plural, description: view.description ?? found.description } as TableDef) : found;
     if (!def || !access().canReadTable(ctx, def)) continue;
     const shown = shownFields(ctx, def);
     const terms = tableTerms(def, shown);
