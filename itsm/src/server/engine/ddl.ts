@@ -10,7 +10,7 @@
 import { createHash } from "node:crypto";
 import type { FieldDef, TableDef } from "@shared/model/types";
 import { FIELD_TYPES } from "@shared/model/types";
-import { physicalTables } from "@shared/tables";
+import { onTableRegistered, physicalTables } from "@shared/tables";
 import type { Db } from "../db";
 import { normSql, searchColumn } from "./sql";
 
@@ -176,12 +176,31 @@ begin
 end
 $do$;`;
 
+/** Keys of the tables another table scopes as its parent (`scope.parent`), recomputed when a table registers. */
+let scopeParentKeys: Set<string> | null = null;
+onTableRegistered(() => {
+  scopeParentKeys = null;
+});
+function scopeParents(): Set<string> {
+  if (!scopeParentKeys) {
+    scopeParentKeys = new Set();
+    for (const x of physicalTables()) {
+      const ref = x.scope?.parent ? x.fields.find((f) => f.name === x.scope?.parent)?.ref : undefined;
+      if (ref) scopeParentKeys.add(ref);
+    }
+  }
+  return scopeParentKeys;
+}
+
 /**
  * Tables whose closed records may leave the hot table for an archive (docs/PERFORMANCE_FA.md §۸, engine/archive.ts):
- * numbered work records with an open/closed flag (`active`) that no other record scopes as its parent.
+ * numbered work records with an open/closed flag (`active`) that neither scope a parent nor are scoped as one — a
+ * child's read rule takes its parent's rule on the parent's hot row (access/predicate.ts `readTerms`, service.ts
+ * `parentOf`), so purging an archived parent's tombstone would hide its children (a security incident's tasks,
+ * evidence and regulatory clocks) from everyone.
  */
 export function archivable(def: TableDef): boolean {
-  if (def.virtual || !def.numbered || def.scope?.parent) return false;
+  if (def.virtual || !def.numbered || def.scope?.parent || scopeParents().has(def.key)) return false;
   return def.fields.some((f) => f.name === "active" && f.type === "bool" && !f.custom) && def.fields.some((f) => f.name === "closed_at" && !f.custom);
 }
 
