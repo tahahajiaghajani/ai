@@ -125,7 +125,8 @@ export async function addCustody(tx: Tx, ctx: Ctx, asset: Row, e: CustodyInput):
 export async function verifyCustody(q: Queryable, ctx: Ctx, assetId: string): Promise<{ rows: number; ok: boolean; broken_at: number | null; foreign?: number }> {
   const rows = await liveRows(q, sysOf(ctx), "asset_custody", { f: "asset_id", op: "eq", v: assetId }, { order: "t.seq", limit: 10000 });
   const key = custodyKey(ctx);
-  const desktop = ctx.cfg?.mode === "desktop";
+  // a Windows app linked to the web version (a standalone one signs and checks every row with its own key)
+  const desktop = ctx.cfg?.mode === "desktop" && !!(await ctx.cfg.desktop?.syncStatus().then((st) => !!st.linked).catch(() => false));
   let prev = "";
   let keyed = false;
   let foreign = 0;
