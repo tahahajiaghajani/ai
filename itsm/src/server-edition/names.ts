@@ -13,6 +13,8 @@ export interface EditionNames {
   installDir: string;
   dataDir: string;
   configFile: string;
+  /** HKLM key where the installer records the data folder (found again by upgrades) */
+  registryKey: string;
   services: {
     db: { name: string; displayName: string; description: string };
     app: { name: string; displayName: string; description: string };

@@ -361,6 +361,8 @@ describe("zip and karizctl arguments", () => {
   it("parses commands, positionals and flags", () => {
     expect(parseArgs(["restore", "C:\\backups\\x", "--yes", "--config", "c.json", "--disk=hdd"])).toEqual({ cmd: "restore", positional: ["C:\\backups\\x"], flags: { yes: true, config: "c.json", disk: "hdd" } });
     expect(parseArgs([]).cmd).toBe("help");
+    expect(parseArgs(["--config", "c.json", "status"])).toEqual({ cmd: "status", positional: [], flags: { config: "c.json" } });
+    expect(parseArgs(["--yes", "purge"])).toEqual({ cmd: "purge", positional: [], flags: { yes: true } });
   });
 
   it("ships no generated file it should not (the bundle folder is ignored by git)", () => {

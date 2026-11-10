@@ -8,6 +8,7 @@
   "installDir": "C:\\Program Files\\Kariz",
   "dataDir": "C:\\ProgramData\\Kariz",
   "configFile": "kariz.json",
+  "registryKey": "SOFTWARE\\Kariz\\Server",
   "services": {
     "db": { "name": "KarizDB", "displayName": "کاریز — پایگاه داده", "description": "PostgreSQL of the Kariz server edition (listens on 127.0.0.1 only)" },
     "app": { "name": "KarizApp", "displayName": "کاریز — سرور برنامه", "description": "Kariz application server (HTTPS, background jobs, backups)" },

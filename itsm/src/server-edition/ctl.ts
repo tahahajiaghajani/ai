@@ -35,18 +35,23 @@ export interface Args {
   flags: Record<string, string | true>;
 }
 
+/** Flags that never take a value (so `--yes restore …` and `restore … --yes` read the same). */
+const BOOL_FLAGS = new Set(["yes", "rolling", "force", "no-restart", "no-safety-backup", "help"]);
+
+/** `karizctl <command> [args] [--flag value | --flag=value | --switch]`; flags may also come before the command. */
 export function parseArgs(argv: string[]): Args {
-  const out: Args = { cmd: argv[0] ?? "help", positional: [], flags: {} };
-  for (let i = 1; i < argv.length; i++) {
+  const flags: Args["flags"] = {};
+  const positional: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a.startsWith("--")) {
       const [k, v] = a.slice(2).split("=", 2);
-      if (v !== undefined) out.flags[k] = v;
-      else if (i + 1 < argv.length && !argv[i + 1].startsWith("--")) out.flags[k] = argv[++i];
-      else out.flags[k] = true;
-    } else out.positional.push(a);
+      if (v !== undefined) flags[k] = v;
+      else if (!BOOL_FLAGS.has(k) && i + 1 < argv.length && !argv[i + 1].startsWith("--")) flags[k] = argv[++i];
+      else flags[k] = true;
+    } else positional.push(a);
   }
-  return out;
+  return { cmd: positional.shift() ?? "help", positional, flags };
 }
 
 const say = (s: string) => process.stdout.write(`${s}\n`);

@@ -226,6 +226,7 @@ export function setupRoutes(d: SetupDeps, hasUsers: () => Promise<boolean>) {
 
   r.post("/complete", async (c) => {
     if (limited(ipOf(c.req.raw.headers))) return c.json(fail(429, "rate_limited", "تلاش‌های زیاد؛ چند دقیقه بعد دوباره امتحان کنید"), 429);
+    if (await hasUsers()) return c.json(fail(409, "setup_done", "راه‌اندازی نخست پیش‌تر انجام شده است؛ وارد شوید"), 409);
     let raw: unknown;
     try {
       raw = await c.req.json();
@@ -238,7 +239,6 @@ export function setupRoutes(d: SetupDeps, hasUsers: () => Promise<boolean>) {
       return c.json({ error: { code: "validation", message: first?.message ?? "ورودی معتبر نیست", details: { path: first?.path?.join(".") } } }, 400);
     }
     const input = parsed.data;
-    if (await hasUsers()) return c.json(fail(409, "setup_done", "راه‌اندازی نخست پیش‌تر انجام شده است؛ وارد شوید"), 409);
     if (!tokenValid(fresh(), input.token)) return c.json(fail(403, "setup_token", "نشانی راه‌اندازی معتبر نیست یا منقضی شده است؛ با karizctl setup-token نشانی تازه بسازید"), 403);
     let publicUrl: string;
     try {

@@ -1,5 +1,7 @@
 # ITSM (itsm/) — typecheck, tests, database script check and web build; then the Windows installer built and
-# smoke-tested on a real Windows machine, uploaded as an artifact and published on the Releases page.
+# smoke-tested on a real Windows machine, uploaded as an artifact and published on the Releases page; and the server
+# edition's MSI (Windows Server, air-gapped intranet: itsm/docs/SERVER_FA.md) built from pinned, verified binaries and
+# smoke-tested with outbound traffic blocked, added to the same release.
 # The product's name is provisional: «ITSM» (src/shared/constants.ts). Guide: itsm/docs/DESKTOP_FA.md
 name: "ITSM · CI and Windows installer"
 
@@ -105,3 +107,80 @@ jobs:
           gh release delete "$TAG" --cleanup-tag -y 2>/dev/null || true
           gh release create "$TAG" desktop/release/ITSM-Setup-*.exe --target "$GITHUB_SHA" --title "$TITLE" $PRE \
             --notes "فایل نصب ویندوز «ITSM» (نام موقت؛ سامانهٔ سازمانی مدیریت خدمات فناوری اطلاعات). فایل ITSM-Setup را دانلود کنید (می‌توانید روی فلش هم کپی کنید) و اجرا کنید؛ همه‌چیز خودکار نصب می‌شود. راهنما: itsm/docs/DESKTOP_FA.md"
+
+  server:
+    # the server edition: bundle, pinned Node.js / PostgreSQL 17 / WinSW / WiX (SHA-256 checked, cached), pgvector
+    # compiled with MSVC, the MSI, and an air-gapped smoke test (install, setup, sign-in, incident, backup, re-install,
+    # upgrade, uninstall keeping data). Guide: itsm/docs/SERVER_FA.md; design: itsm/docs/spec/SERVER.md
+    needs: check
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: itsm
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: itsm/package-lock.json
+      - run: npm ci
+      - name: Cache pinned binaries (Node.js, PostgreSQL, WinSW, WiX)
+        uses: actions/cache@v4
+        with:
+          path: itsm/packaging/server/.cache
+          key: itsm-server-deps-${{ hashFiles('itsm/packaging/server/deps.json') }}
+      - name: Build the server bundle (server.cjs, karizctl.cjs, pre-compressed app)
+        run: node scripts/build-server.mjs
+      - name: Fetch and verify pinned binaries
+        run: ./packaging/server/scripts/fetch-deps.ps1 -Dist server-dist -Cache packaging/server/.cache
+      - name: Build pgvector with MSVC
+        run: ./packaging/server/scripts/build-pgvector.ps1 -Dist server-dist -Cache packaging/server/.cache -AllowMissing
+      - name: Build the MSI (and a second build of the same version for the upgrade test)
+        run: |
+          ./packaging/server/scripts/build-msi.ps1 -Dist server-dist -Cache packaging/server/.cache -Out server-release
+          ./packaging/server/scripts/build-msi.ps1 -Dist server-dist -Cache packaging/server/.cache -Out server-upgrade-test -Suffix '-upgrade-test'
+      - name: Air-gapped smoke test (install, setup, sign-in, incident, backup, re-install, upgrade, uninstall)
+        run: |
+          $msi = Get-ChildItem server-release/*.msi | Select-Object -First 1
+          $upgrade = Get-ChildItem server-upgrade-test/*.msi | Select-Object -First 1
+          ./packaging/server/scripts/smoke-test.ps1 -Msi $msi.FullName -UpgradeMsi $upgrade.FullName -Logs "$env:RUNNER_TEMP/kariz-logs"
+      - name: Restore outbound traffic
+        if: always()
+        run: Set-NetFirewallProfile -All -DefaultOutboundAction Allow
+      - uses: actions/upload-artifact@v4
+        with:
+          name: itsm-server-msi
+          path: itsm/server-release/*.msi
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: itsm-server-logs
+          path: ${{ runner.temp }}/kariz-logs
+          if-no-files-found: ignore
+          retention-days: 14
+
+  server-publish:
+    # after the desktop job created (or re-created) the release: add the server MSI to it
+    needs: [windows, server]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: itsm-server-msi
+          path: server-release
+      - name: Add the MSI to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(node -p "require('./itsm/desktop/package.json').version")
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then TAG="itsm-v${VERSION}"; else TAG="itsm-preview"; fi
+          gh release upload "$TAG" server-release/*.msi --clobber
+          gh release view "$TAG" --json assets --jq '.assets[].name'

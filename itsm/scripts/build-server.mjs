@@ -109,7 +109,7 @@ writeFileSync(
 );
 
 console.log("• installer scripts and templates");
-for (const d of ["scripts", "winsw", "wix"]) if (existsSync(join(root, "packaging/server", d))) cpSync(join(root, "packaging/server", d), join(out, d), { recursive: true });
+for (const d of ["scripts", "winsw"]) if (existsSync(join(root, "packaging/server", d))) cpSync(join(root, "packaging/server", d), join(out, d), { recursive: true });
 cpSync(join(root, "packaging/server/edition.json"), join(out, "edition.json"));
 writeFileSync(join(out, `${edition.ctl}.cmd`), `@echo off\r\n"%~dp0node\\node.exe" "%~dp0app\\karizctl.cjs" %*\r\n`);
 writeFileSync(join(out, "VERSION"), `${C.APP_VERSION}\n`);
