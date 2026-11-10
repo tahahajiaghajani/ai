@@ -93,7 +93,8 @@ function run(cmd, args, { env = {}, cwd = ROOT, logFile } = {}) {
  */
 export async function loadRegistry() {
   const { build } = require("esbuild");
-  const outfile = join(ROOT, "node_modules", ".cache", "ui-crawl", "registry.cjs");
+  // inside the checkout, so the bundle's packages resolve from its node_modules; one file per process
+  const outfile = join(ROOT, "node_modules", ".cache", "ui-crawl", `registry-${process.pid}.cjs`);
   mkdirSync(dirname(outfile), { recursive: true });
   await build({
     stdin: {
@@ -119,6 +120,7 @@ export async function loadRegistry() {
   });
   delete require.cache[outfile];
   const reg = require(outfile);
+  rmSync(outfile, { force: true });
   const routes = reg.ROUTES.map((r) => r.path);
   const nav = reg.NAV.flatMap((g) => g.items.map((i) => ({ ...i, group: g.key, groupModule: g.module, space: g.space })));
   // the requester portal's own pages (nested routes of `portal/*`)
@@ -247,7 +249,9 @@ async function ensureMember(call, orgId, u) {
 
 // ---------------------------------------------------------------- the browser side
 const LOADERS = ".sh-boot, .sh-wait, .ds-loader, .ant-skeleton, .ant-spin-spinning, .sh-loader";
-const NOT_FOUND = /این صفحه پیدا نشد|فهرست پیدا نشد|این جدول در دسترس نیست|این فهرست در دسترس نیست|این رکورد پیدا نشد|دسترسی به این سازمان ممکن نیست|پیدا نشد$/;
+// page-level «not found» states (the org's 404, a record or table that is not there, a detail page's own); an empty
+// search result («چیزی پیدا نشد») is not one
+const NOT_FOUND = /^(?!چیزی پیدا نشد$)(?:این صفحه پیدا نشد|فهرست پیدا نشد|رکورد پیدا نشد|پیدا نشد|این جدول در دسترس نیست|این فهرست در دسترس نیست|دسترسی به این سازمان ممکن نیست|این [^ ]+ پیدا نشد|[^ ]+ پیدا نشد)$/;
 const LOAD_FAILED = /بارگذاری انجام نشد|بارگذاری نشد|این بخش با خطا روبه‌رو شد|این صفحه با خطا روبه‌رو شد|خطای غیرمنتظره/;
 // requests that stay open by design (live updates)
 const LONG_LIVED = /\/(pulse|live|events\/stream|stream)(\?|$)/;
@@ -395,7 +399,12 @@ async function clickNew(page, probe, url, role, route) {
   const label = ((await btn.textContent()) ?? "").trim();
   await btn.click({ timeout: 5000 }).catch(() => {});
   const r = await check(page, probe, { role, route: `${route} → «${label}»`, step: "new" });
-  const form = await page.locator("main form, main .ant-form, main .rk-form, .ant-modal-content form, .ant-drawer-content form").first().isVisible().catch(() => false);
+  // a form: any field to fill in (record forms, the custom editors, a form in a dialog)
+  const form = await page
+    .locator("main form, main .ant-form, main input:not([type=hidden]):not([type=checkbox]):not([type=radio]), main textarea, main [contenteditable=true], .ant-modal-content input, .ant-drawer-content input")
+    .first()
+    .isVisible()
+    .catch(() => false);
   if (!form && !r.notFound) r.extra = ["the new-record form did not render"];
   return record(r);
 }

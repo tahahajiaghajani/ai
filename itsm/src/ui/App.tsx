@@ -6,6 +6,7 @@ import { useSession } from "./lib/session";
 import { OrgProvider, useOrgQuery } from "./lib/org";
 import { AppShell } from "./components/layout";
 import { BrandMark } from "./components/brand";
+import { PageBoundary } from "./components/crash";
 import { ROUTES } from "./modules/registry";
 import { errorText } from "./lib/api";
 
@@ -94,12 +95,15 @@ function Home() {
  * keep the open record's state (record #12's fields in the «تازه» form). Only the path counts: a
  * page changing its own query string keeps its state.
  */
-function Page({ children }: { children: ReactNode }) {
+function Page({ org, children }: { org: string; children: ReactNode }) {
   const { pathname } = useLocation();
-  // the page enters with the shared motion (opacity + an 8 px rise; opacity only under reduced motion)
+  // the page enters with the shared motion (opacity + an 8 px rise; opacity only under reduced motion); a page that
+  // throws while rendering shows its own error state inside the shell instead of blanking the app
   return (
     <Fragment key={pathname}>
-      <div className="ds-enter">{children}</div>
+      <div className="ds-enter">
+        <PageBoundary home={`/${org}`}>{children}</PageBoundary>
+      </div>
     </Fragment>
   );
 }
@@ -140,7 +144,7 @@ function OrgArea() {
         <Suspense fallback={<Loading />}>
           <Routes>
             {ROUTES.map((r) => (
-              <Route key={r.path} path={r.path} element={<Page>{r.element}</Page>} />
+              <Route key={r.path} path={r.path} element={<Page org={org!}>{r.element}</Page>} />
             ))}
             <Route path="*" element={<NotFound org={org!} />} />
           </Routes>
@@ -152,23 +156,25 @@ function OrgArea() {
 
 export function App() {
   return (
-    <Suspense fallback={<Loading full />}>
-      <Suspense fallback={null}>
-        <ReauthGate />
+    <PageBoundary>
+      <Suspense fallback={<Loading full />}>
+        <Suspense fallback={null}>
+          <ReauthGate />
+        </Suspense>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
+          <Route path="/recover" element={<Recover />} />
+          <Route path="/setup" element={<SetupRoute />} />
+          <Route path="/" element={<RequireAuth><Home /></RequireAuth>} />
+          <Route path="/orgs" element={<RequireAuth><Orgs /></RequireAuth>} />
+          <Route path="/orgs/new" element={<RequireAuth><OrgWizard /></RequireAuth>} />
+          <Route path="/admin/*" element={<RequireAuth><Admin /></RequireAuth>} />
+          {/* sign-in-free pages an organisation published (no session needed) */}
+          <Route path="/p/*" element={<PublicArea />} />
+          <Route path="/:org/*" element={<RequireAuth><OrgArea /></RequireAuth>} />
+        </Routes>
       </Suspense>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/signup" element={<Signup />} />
-        <Route path="/recover" element={<Recover />} />
-        <Route path="/setup" element={<SetupRoute />} />
-        <Route path="/" element={<RequireAuth><Home /></RequireAuth>} />
-        <Route path="/orgs" element={<RequireAuth><Orgs /></RequireAuth>} />
-        <Route path="/orgs/new" element={<RequireAuth><OrgWizard /></RequireAuth>} />
-        <Route path="/admin/*" element={<RequireAuth><Admin /></RequireAuth>} />
-        {/* sign-in-free pages an organisation published (no session needed) */}
-        <Route path="/p/*" element={<PublicArea />} />
-        <Route path="/:org/*" element={<RequireAuth><OrgArea /></RequireAuth>} />
-      </Routes>
-    </Suspense>
+    </PageBoundary>
   );
 }
