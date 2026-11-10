@@ -13,7 +13,7 @@
 //     `itam.atm_failure_risk` with a rule-based answer)
 //   · the asset register «دفتر اموال» by Jalali fiscal year; physical audit reconciliation; branch managers' periodic
 //     attestation; wipe certificates of disposal items
-import { createHash } from "node:crypto";
+import { createHash, createHmac, hkdfSync } from "node:crypto";
 import type { Cond } from "@shared/model/conditions";
 import { tableDef } from "@shared/tables";
 import { CUSTODY_EVENTS, DEVICE_STATUS, FLEET_CATEGORIES, MODEL_CATEGORIES, SANITIZATION_METHODS, TRANSFER_REASONS } from "@shared/tables/itam";
@@ -27,7 +27,7 @@ import { addDays, jalaliYearRange } from "@shared/jalali";
 import { D } from "@shared/money";
 import type { Ctx } from "../../context";
 import { pgArray, type Tx, type Queryable } from "../../db";
-import { aggregate, createIn, emitEvent, get, registerHooks, transitionIn, updateIn, pushGuard, type PushArgs, type WriteArgs } from "../../engine";
+import { aggregate, createIn, emitEvent, get, registerHooks, transitionIn, updateIn, pushGuard, type PushArgs, type TableHooks, type WriteArgs } from "../../engine";
 import { access } from "../../access/provider";
 import { registerParticipantSource, subjectOf } from "../../access";
 import { bad, conflict, forbidden } from "../../http/errors";
@@ -77,13 +77,30 @@ export interface CustodyInput {
 const idOrNull = (v: unknown): string | null => (isUuid(v) ? String(v).toLowerCase() : null);
 const isoOrNull = (v: unknown): string | null => (v ? new Date(String(v)).toISOString() : null);
 
-/** The SHA-256 of a custody row chained to the previous row's hash (the same canonical form on write and verify). */
-export function custodyDigest(prev: string, r: Row): string {
+/** Prefix of a keyed custody hash (HMAC-SHA256 with this runtime's custody key); a bare hex hash is the unkeyed v1. */
+export const CUSTODY_KEYED = "k1:";
+
+/**
+ * This runtime's custody key: derived (HKDF) from its own secret, which never leaves the server — the web version's,
+ * the server edition's, or a Windows app's own local server in standalone mode. Null without a secret (unkeyed v1).
+ */
+export function custodyKey(ctx: Ctx): Buffer | null {
+  const secret = ctx.cfg?.secret;
+  if (!secret) return null;
+  return Buffer.from(hkdfSync("sha256", Buffer.from(secret, "utf8"), Buffer.from("itsm", "utf8"), Buffer.from("itsm/itam-custody", "utf8"), 32));
+}
+
+/**
+ * The digest of a custody row chained to the previous row's hash (the same canonical form on write and verify): with a
+ * key, «k1:» + HMAC-SHA256 (a client cannot recompute it); without, the plain SHA-256 of chains written before 1.1.
+ */
+export function custodyDigest(prev: string, r: Row, key: Buffer | null = null): string {
   const canon = JSON.stringify([
     prev || "", idOrNull(r.asset_id), Number(r.seq), isoOrNull(r.at), String(r.event ?? ""), idOrNull(r.branch_id), idOrNull(r.from_branch_id),
     idOrNull(r.holder_id), idOrNull(r.from_holder_id), idOrNull(r.actor_id), r.reference ?? null, r.note ?? null,
   ]);
-  return createHash("sha256").update(canon).digest("hex");
+  if (!key) return createHash("sha256").update(canon).digest("hex");
+  return CUSTODY_KEYED + createHmac("sha256", key).update(canon).digest("hex");
 }
 
 /** Append a custody row for an asset (inside the write's transaction, as the system). */
@@ -96,19 +113,105 @@ export async function addCustody(tx: Tx, ctx: Ctx, asset: Row, e: CustodyInput):
     actor_id: actorOf(ctx), reference: e.reference ? String(e.reference).slice(0, 120) : null, note: e.note ? String(e.note).slice(0, 300) : null,
   };
   const prev = String(last?.hash ?? "");
-  await createIn(tx, sys, "asset_custody", { ...row, prev_hash: prev || null, hash: custodyDigest(prev, row), label: `${asset.asset_tag || asset.number || ""} — ${labelIn(CUSTODY_EVENTS, e.event)}`.slice(0, 300) }, { trusted: true });
+  await createIn(tx, sys, "asset_custody", { ...row, prev_hash: prev || null, hash: custodyDigest(prev, row, custodyKey(ctx)), label: `${asset.asset_tag || asset.number || ""} — ${labelIn(CUSTODY_EVENTS, e.event)}`.slice(0, 300) }, { trusted: true });
 }
 
-/** Re-compute an asset's chain: intact, or the first row whose hash does not follow. */
-export async function verifyCustody(q: Queryable, ctx: Ctx, assetId: string): Promise<{ rows: number; ok: boolean; broken_at: number | null }> {
+/**
+ * Re-compute an asset's chain: intact, or the first row whose hash does not follow. Rows written before the key (bare
+ * SHA-256) verify as such, but only before the first keyed row — once keyed, a chain never goes back to unkeyed rows.
+ * A Windows app linked to the web version holds rows the web version signed with its own key: there it can check the
+ * links of the chain, not those signatures (`foreign`: how many it could not check; the web version checks them all).
+ */
+export async function verifyCustody(q: Queryable, ctx: Ctx, assetId: string): Promise<{ rows: number; ok: boolean; broken_at: number | null; foreign?: number }> {
   const rows = await liveRows(q, sysOf(ctx), "asset_custody", { f: "asset_id", op: "eq", v: assetId }, { order: "t.seq", limit: 10000 });
+  const key = custodyKey(ctx);
+  // a Windows app linked to the web version (a standalone one signs and checks every row with its own key)
+  const desktop = ctx.cfg?.mode === "desktop" && !!(await ctx.cfg.desktop?.syncStatus().then((st) => !!st.linked).catch(() => false));
   let prev = "";
+  let keyed = false;
+  let foreign = 0;
   for (const r of rows) {
-    if (String(r.prev_hash ?? "") !== prev || custodyDigest(prev, r) !== r.hash) return { rows: rows.length, ok: false, broken_at: Number(r.seq) };
-    prev = String(r.hash);
+    const hash = String(r.hash ?? "");
+    const isKeyed = hash.startsWith(CUSTODY_KEYED);
+    const broken = { rows: rows.length, ok: false, broken_at: Number(r.seq) };
+    if (String(r.prev_hash ?? "") !== prev || (keyed && !isKeyed) || (isKeyed && !key)) return broken;
+    if (custodyDigest(prev, r, isKeyed ? key : null) !== hash) {
+      if (!(isKeyed && desktop)) return broken;
+      foreign++;
+    }
+    keyed ||= isKeyed;
+    prev = hash;
   }
-  return { rows: rows.length, ok: true, broken_at: null };
+  return foreign ? { rows: rows.length, ok: true, broken_at: null, foreign } : { rows: rows.length, ok: true, broken_at: null };
 }
+
+// ----- the ledgers on a Windows app's push -----
+
+const ledgerRefusals = new WeakMap<object, Map<string, string>>();
+const refuseLater = (p: PushArgs, msg: string) => {
+  let m = ledgerRefusals.get(p.tx);
+  if (!m) ledgerRefusals.set(p.tx, (m = new Map()));
+  m.set(`${p.def.key}:${String(p.next.id ?? "")}`, msg);
+};
+const refusedEarlier = (p: PushArgs) => ledgerRefusals.get(p.tx)?.get(`${p.def.key}:${String(p.next.id ?? "")}`) ?? null;
+
+/**
+ * The custody chain on a Windows app's push: its rows are never changed or removed; a new row is taken only as the next
+ * one of the asset's stored chain (its `seq` right after the stored last), recorded by the member who pushed it, and is
+ * chained and signed here with the web version's key (a pushed `prev_hash` / `hash` / `actor_id` is not taken).
+ */
+const custodyPush: Pick<TableHooks, "derivePush" | "validatePush" | "validatePushDelete"> = {
+  validatePushDelete: (p) => (isSys(p.ctx) ? null : "زنجیرهٔ نگهداری حذف نمی‌شود"),
+  async derivePush(p) {
+    if (p.prev || isSys(p.ctx)) return null;
+    const [last] = await liveRows(p.tx, sysOf(p.ctx), "asset_custody", { f: "asset_id", op: "eq", v: p.next.asset_id }, { order: "t.seq desc", limit: 1 });
+    const seq = Number(last?.seq ?? 0) + 1;
+    if (Number(p.next.seq) !== seq) refuseLater(p, "این رویداد دنبالهٔ زنجیرهٔ نگهداری ثبت‌شده نیست؛ پس از همگام‌سازی دوباره فرستاده می‌شود");
+    const at = p.next.at && Date.parse(String(p.next.at)) <= Date.now() + 5 * 60_000 ? new Date(String(p.next.at)).toISOString() : nowIso();
+    const row: Row = { ...p.next, seq, at, actor_id: actorOf(p.ctx) };
+    const prev = String(last?.hash ?? "");
+    return { seq, at, actor_id: row.actor_id, prev_hash: prev || null, hash: custodyDigest(prev, row, custodyKey(p.ctx)) };
+  },
+  async validatePush(p) {
+    if (isSys(p.ctx)) return null;
+    if (p.prev) return "زنجیرهٔ نگهداری تغییر نمی‌کند";
+    return refusedEarlier(p) ?? ledgerOnPush("زنجیرهٔ نگهداری")(p);
+  },
+};
+
+const STATUS_CLOSE = new Set(["to_at", "minutes"]);
+
+/**
+ * Device status periods on a Windows app's push: never removed; an existing period only closed (its end, once, not
+ * before its start nor in the future — the minutes are computed here); a new period only open, starting no earlier
+ * than the device's last stored one and not in the future, with the branch and contract of the stored device.
+ */
+const statusPush: Pick<TableHooks, "derivePush" | "validatePush" | "validatePushDelete"> = {
+  validatePushDelete: (p) => (isSys(p.ctx) ? null : "تاریخچهٔ وضعیت دستگاه حذف نمی‌شود"),
+  async derivePush(p) {
+    if (isSys(p.ctx)) return null;
+    const soon = Date.now() + 5 * 60_000;
+    if (p.prev) {
+      if ([...p.changed].some((f) => !STATUS_CLOSE.has(f)) || p.prev.to_at || !p.next.to_at) {
+        if (p.changed.size) refuseLater(p, "تاریخچهٔ وضعیت دستگاه تغییر نمی‌کند؛ فقط دورهٔ باز بسته می‌شود");
+        return { minutes: p.prev.minutes ?? null };
+      }
+      const from = Date.parse(String(p.prev.from_at));
+      const to = Date.parse(String(p.next.to_at));
+      if (!(to >= from && to <= soon)) refuseLater(p, "پایان دورهٔ وضعیت دستگاه پیش از آغاز آن یا در آینده است");
+      return { minutes: Math.max(0, Math.round((to - from) / 60_000)) };
+    }
+    const asset = isUuid(p.next.asset_id) ? await liveRow(p.tx, sysOf(p.ctx), "asset", p.next.asset_id) : null;
+    const [last] = await liveRows(p.tx, sysOf(p.ctx), "device_status_event", { f: "asset_id", op: "eq", v: p.next.asset_id }, { order: "t.from_at desc", limit: 1 });
+    const from = Date.parse(String(p.next.from_at));
+    if (p.next.to_at || !(from <= soon) || (last && from < Date.parse(String(last.from_at)))) refuseLater(p, "دورهٔ تازهٔ وضعیت دستگاه باید باز باشد و پس از آخرین دورهٔ ثبت‌شده آغاز شود");
+    return { minutes: null, branch_id: idOrNull(asset?.branch_id), contract_id: idOrNull(asset?.support_contract_id) };
+  },
+  async validatePush(p) {
+    if (isSys(p.ctx)) return null;
+    return refusedEarlier(p) ?? ledgerOnPush("تاریخچهٔ وضعیت دستگاه")(p);
+  },
+};
 
 // ---------------------------------------------------------------------------------------------------------------
 // Device status periods
@@ -202,7 +305,8 @@ async function assetAfter(w: WriteArgs): Promise<void> {
 // ----- transfers -----
 
 const OPEN_TRANSFER = ["draft", "pending_approval", "approved", "in_transit"];
-const DISPATCHABLE = ["in_stock", "in_use", "in_repair"];
+// the asset model sends to «در راه» only from these (a device in repair comes back from repair first)
+export const DISPATCHABLE = ["in_stock", "in_use"];
 
 async function transferBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete") {
@@ -211,10 +315,15 @@ async function transferBefore(w: WriteArgs): Promise<void> {
   }
   const n = w.next;
   if (n.from_branch_id && n.to_branch_id && String(n.from_branch_id) === String(n.to_branch_id)) throw bad("مبدأ و مقصد انتقال یکی است");
-  if (isSys(w.ctx) || w.via === "sync") return;
+  if (isSys(w.ctx)) return;
+  // access and frozen fields: asked of a Windows app's push too (pushGuard runs this hook with via "sync")
   if (w.op === "update" && w.prev?.state !== "draft" && ["from_branch_id", "to_branch_id", "from_stockroom_id"].some((f) => w.changed.has(f))) throw conflict("مبدأ و مقصد حوالهٔ صادرشده تغییر نمی‌کند");
+  // who asked for the note stays as it was (the approval's separation of duties rests on it)
+  if (w.op === "update" && w.changed.has("requested_by")) throw forbidden("درخواست‌کنندهٔ حواله پس از ثبت تغییر نمی‌کند");
   // the sending branch issues the note: only for a branch whose assets the caller may change
   if ((w.op === "create" || w.changed.has("from_branch_id")) && !mayActFor(w.ctx, n.from_branch_id)) throw forbidden("حواله را فقط برای دارایی‌های شعبه یا واحدی می‌توانید صادر کنید که اموال آن با شماست");
+  // derivations only on the API (a push carries the values the Windows app derived)
+  if (w.via === "sync") return;
   if (entering(w, "in_transit")) {
     n.dispatched_at = nowIso();
     n.dispatched_by = actorOf(w.ctx);
@@ -227,7 +336,17 @@ async function itemsOf(q: Queryable, ctx: Ctx, transferId: unknown): Promise<Row
   return liveRows(q, sysOf(ctx), "asset_transfer_item", { f: "transfer_id", op: "eq", v: transferId }, { limit: 5000, order: "t.created_at" });
 }
 
+/** Who asked for, issued or sent a note (none of them approves it or signs its receipt). */
+const transferParties = (t: Row): string[] => [t.requested_by, t.created_by, t.dispatched_by].filter(isUuid).map((x) => String(x));
+
 const transferGuards = {
+  // separation of duties: the requester (or whoever issued the note) does not approve or reject it; the approvals
+  // service (the system) settles it on the decision of someone else
+  transfer_not_own(w: WriteArgs): string | null {
+    if (isSys(w.ctx)) return null;
+    const me = String(w.ctx.user.id);
+    return [w.prev?.requested_by, w.prev?.created_by, w.next.requested_by, w.next.created_by].some((x) => isUuid(x) && String(x) === me) ? "حواله‌ای را که خودتان درخواست یا صادر کرده‌اید دیگری تأیید یا رد می‌کند" : null;
+  },
   async transfer_has_items(w: WriteArgs): Promise<string | null> {
     return transferProblem(w.next, await itemsOf(w.tx, w.ctx, w.next.id));
   },
@@ -266,7 +385,10 @@ async function unitName(q: Queryable, ctx: Ctx, id: unknown): Promise<string> {
 async function transferItemBefore(w: WriteArgs): Promise<void> {
   const parent = await needParentWrite(w, "asset_transfer", "transfer_id");
   if (!parent) throw bad("حواله پیدا نشد");
-  if (!isSys(w.ctx) && w.via !== "sync" && parent.state !== "draft") throw conflict("اقلام حواله فقط در پیش‌نویس تغییر می‌کند؛ آنچه تأیید شده همان است که ارسال می‌شود");
+  // what was approved is what is dispatched: a push may record the receipt of an item (its result), never add, drop
+  // or swap one once the note left the draft
+  const frozen = parent.state !== "draft" && (w.via !== "sync" || w.op !== "update" || ["asset_id", "transfer_id"].some((f) => w.changed.has(f)));
+  if (!isSys(w.ctx) && frozen) throw conflict("اقلام حواله فقط در پیش‌نویس تغییر می‌کند؛ آنچه تأیید شده همان است که ارسال می‌شود");
   if (w.op === "delete") return;
   const n = w.next;
   n.from_branch_id = parent.from_branch_id;
@@ -275,8 +397,9 @@ async function transferItemBefore(w: WriteArgs): Promise<void> {
     const a = await liveRow(w.tx, sysOf(w.ctx), "asset", n.asset_id);
     if (!a) throw bad("دارایی پیدا نشد");
     if (!isSys(w.ctx) && String(a.branch_id ?? "") !== String(parent.from_branch_id)) throw bad(`دارایی «${assetLabel(a)}» در شعبهٔ مبدأ این حواله ثبت نشده است`);
-    if (!isSys(w.ctx) && w.via !== "sync" && !access().canWrite(w.ctx, tableDef("asset")!, a)) throw forbidden("فقط دارایی‌ای را می‌توانید در حواله بگذارید که تغییر آن با شماست");
-    if (["disposed", "canceled", "retired", "missing", "on_order", "in_transit"].includes(String(a.state))) throw conflict(`دارایی «${assetLabel(a)}» قابل انتقال نیست`);
+    if (!isSys(w.ctx) && !access().canWrite(w.ctx, tableDef("asset")!, a)) throw forbidden("فقط دارایی‌ای را می‌توانید در حواله بگذارید که تغییر آن با شماست");
+    if (String(a.state) === "in_repair") throw conflict(`دارایی «${assetLabel(a)}» در تعمیر است؛ پس از بازگشت از تعمیر منتقل می‌شود`);
+    if (!DISPATCHABLE.includes(String(a.state))) throw conflict(`دارایی «${assetLabel(a)}» قابل انتقال نیست`);
     const busy = await liveRows(w.tx, sysOf(w.ctx), "asset_transfer_item", { and: [{ f: "asset_id", op: "eq", v: a.id }, { f: "transfer_id", op: "ne", v: parent.id }] }, { limit: 20 });
     for (const b of busy) {
       const other = await liveRow(w.tx, sysOf(w.ctx), "asset_transfer", b.transfer_id);
@@ -304,11 +427,15 @@ export function mayActFor(ctx: Ctx, branchId: unknown): boolean {
   return access().canWrite(ctx, tableDef("asset")!, { org_id: ctx.org.id, branch_id: branchId, state: "in_stock" });
 }
 
+/** May the caller sign the receipt of this note (the receiving branch, never its requester or sender)? */
+const canReceive = (ctx: Ctx, t: Row): boolean => t.state === "in_transit" && mayActFor(ctx, t.to_branch_id) && (isSys(ctx) || !transferParties(t).includes(String(ctx.user.id)));
+
 /** The receiving branch takes the receipt of a transfer: per item received, damaged or missing. */
 export async function receiveTransfer(ctx: Ctx, id: string, input: ReceiveInput): Promise<{ state: string; received: number; discrepancies: number }> {
   const { row: t } = await get(ctx, "asset_transfer", id);
   if (t.state !== "in_transit") throw conflict("این حواله در راه نیست");
   if (!mayActFor(ctx, t.to_branch_id)) throw forbidden("رسید این حواله با شعبه یا واحد گیرنده است");
+  if (!isSys(ctx) && transferParties(t).includes(String(ctx.user.id))) throw forbidden("رسید حواله را کسی جز درخواست‌کننده و فرستندهٔ آن امضا می‌کند");
   const sys = sysOf(ctx, ctx.user.id);
   const byId = new Map(input.items.map((i) => [String(i.id), i]));
   return ctx.write(async (tx) => {
@@ -462,7 +589,8 @@ export async function resolveAuditItem(ctx: Ctx, itemId: string, input: ResolveI
 // ----- attestation -----
 
 async function attestationBefore(w: WriteArgs): Promise<void> {
-  if (w.op === "delete" || isSys(w.ctx) || w.via === "sync") return;
+  // only checks: asked of a Windows app's push as well (pushGuard)
+  if (w.op === "delete" || isSys(w.ctx)) return;
   if (w.op === "update" && ["branch_id", "manager_id", "period_label", "due_date"].some((f) => w.changed.has(f)) && !(await holds(w.ctx, "asset", "write", "unit_tree", w.tx))) {
     throw forbidden("دوره، شعبه و رئیس شعبهٔ تأیید را مدیر اموال تعیین می‌کند");
   }
@@ -557,10 +685,40 @@ export async function openAttestations(sys: Ctx, today = orgToday(sys)): Promise
 
 // ----- disposal: wipe certificates -----
 
+/**
+ * Separation of duties of a wipe: the witness is someone other than the performer and than whoever records it, and the
+ * review («بازبینی شد») is a third person's who approves in the asset area. Only checks — a Windows app's push is
+ * asked the same (pushGuard).
+ */
+async function wipeSod(w: WriteArgs): Promise<void> {
+  if (w.op === "delete" || isSys(w.ctx)) return;
+  const n = w.next;
+  const me = String(w.ctx.user.id);
+  const by = isUuid(n.sanitized_by) ? String(n.sanitized_by) : null;
+  const witness = isUuid(n.witness_id) ? String(n.witness_id) : null;
+  if (["witness_id", "sanitized_by"].some((f) => w.changed.has(f)) && witness) {
+    if (witness === by) throw bad("شاهد پاک‌سازی باید کسی جز انجام‌دهندهٔ آن باشد");
+    if (witness === me) throw bad("شاهد پاک‌سازی را کس دیگری ثبت می‌کند، نه خود شاهد");
+  }
+  if (w.changed.has("verified") && n.verified) {
+    if (me === by || me === witness) throw forbidden("بازبینی پاک‌سازی با کسی جز انجام‌دهنده و شاهد آن است");
+    if (!(await holds(w.ctx, "asset", "approve", "own", w.tx))) throw forbidden("بازبینی پاک‌سازی با تأییدکنندهٔ اموال است");
+    if (!witness || witness === by) throw conflict("پیش از بازبینی، شاهدی جز انجام‌دهنده ثبت کنید");
+  }
+}
+
+/** Is the wipe evidence complete enough for a certificate: method, time, number and a witness other than the performer? */
+export function wipeReady(n: Row): boolean {
+  return !!(n.sanitized_at && n.certificate_no && n.sanitization_method && isUuid(n.witness_id) && String(n.witness_id) !== String(n.sanitized_by ?? ""));
+}
+
 async function disposalItemBank(w: WriteArgs): Promise<void> {
   if (w.op === "delete") return;
+  await wipeSod(w);
   const n = w.next;
-  const ready = !!(n.sanitized_at && n.certificate_no && n.sanitization_method);
+  // a changed wipe record is reviewed again
+  if (w.op === "update" && n.verified && !w.changed.has("verified") && ["sanitized_at", "certificate_no", "sanitization_method", "sanitized_by", "witness_id", "wipe_tool", "asset_id"].some((f) => w.changed.has(f))) n.verified = false;
+  const ready = wipeReady(n);
   if (!ready) {
     n.certificate_issued_at = null;
     n.certificate_hash = null;
@@ -615,6 +773,8 @@ async function namesOf(ctx: Ctx, ids: unknown[]): Promise<Map<string, string>> {
 
 export interface FleetInput {
   days?: number;
+  /** server use: every device row in the answer (the API caps the list at PAGING.fleetRows) */
+  allRows?: boolean;
 }
 
 const FLEET: Cond = { and: [{ f: "category", op: "in", v: FLEET_CATEGORIES }, { f: "state", op: "nin", v: ["disposed", "canceled", "retired", "on_order"] }] };
@@ -625,12 +785,15 @@ export async function fleet(ctx: Ctx, input: FleetInput = {}): Promise<Row> {
   const today = orgToday(ctx);
   const to = new Date().toISOString();
   const from = new Date(Date.now() - days * 86_400_000).toISOString();
-  const devices = await liveRows(ctx.db, ctx, "asset", FLEET, { limit: 5000, order: "t.no" });
+  // every device and every status period of the window (paged): the KPIs and penalties are never over a subset
+  const devices = (await everyRow(ctx.db, ctx, "asset", FLEET)).sort((x, y) => Number(x.no ?? 0) - Number(y.no ?? 0));
   const ids = devices.map((d) => String(d.id));
   const sys = sysOf(ctx);
-  const periods = ids.length
-    ? await liveRows(ctx.db, sys, "device_status_event", { and: [{ f: "asset_id", op: "in", v: ids }, { or: [{ f: "to_at", op: "empty" }, { f: "to_at", op: "gte", v: from }] }] } as Cond, { limit: 50000 })
-    : [];
+  const periods: Row[] = [];
+  for (let i = 0; i < ids.length; i += PAGING.size) {
+    periods.push(...(await everyRow(ctx.db, sys, "device_status_event", { and: [{ f: "asset_id", op: "in", v: ids.slice(i, i + PAGING.size) }, { or: [{ f: "to_at", op: "empty" }, { f: "to_at", op: "gte", v: from }] }] } as Cond)));
+  }
+  periods.sort((x, y) => String(x.from_at).localeCompare(String(y.from_at)));
   const byAsset = new Map<string, StatusPeriod[]>();
   for (const p of periods) {
     const k = String(p.asset_id);
@@ -726,7 +889,7 @@ export async function fleet(ctx: Ctx, input: FleetInput = {}): Promise<Row> {
     availability: rows.length ? D(allUp).mul(100).div(rows.length).toFixed(2) : "100.00",
     regions: [...regions.values()].map((r) => ({ id: r.id, name: r.name, devices: r.devices, availability: pct(r.up, r.total) })).sort((a, b) => Number(a.availability) - Number(b.availability)),
     contracts: [...contractAgg.values()].map((c) => ({ id: c.id, name: c.name, number: c.number, devices: c.devices, availability: pct(c.up, c.total), target: c.target, below_target: c.target ? Number(pct(c.up, c.total)) < Number(c.target) : false, breaches: c.breaches, late_hours: c.late_hours, penalty: financial ? c.penalty : null })),
-    devices: rows,
+    devices: input.allRows || rows.length <= PAGING.fleetRows ? rows : rows.slice(0, PAGING.fleetRows), truncated: !input.allRows && rows.length > PAGING.fleetRows,
     financial,
     can_manage: await holds(ctx, "asset", "write", "group"),
     can_plan: !!tableDef("maintenance_plan") && (await holds(ctx, "field_service", "create", "own")),
@@ -760,9 +923,9 @@ export async function setDeviceStatus(ctx: Ctx, id: string, input: { status: str
 export async function createPmPlans(ctx: Ctx, input: { every_n?: number; interval_unit?: string; group_id?: string | null; lead_days?: number }): Promise<{ created: number; skipped: number }> {
   if (!tableDef("maintenance_plan")) throw conflict("ماژول خدمات میدانی نصب نیست");
   if (!(await holds(ctx, "field_service", "create", "own"))) throw forbidden("ساخت برنامهٔ نگهداری با کارشناس خدمات میدانی است");
-  const devices = (await liveRows(ctx.db, ctx, "asset", FLEET, { limit: 5000, order: "t.no" })).filter((d) => isUuid(d.ci_id));
+  const devices = (await everyRow(ctx.db, ctx, "asset", FLEET)).filter((d) => isUuid(d.ci_id));
   const sys = sysOf(ctx, ctx.user.id);
-  const existing = new Set((await liveRows(ctx.db, sys, "maintenance_plan", { f: "status", op: "eq", v: "active" }, { limit: 20000 })).map((p) => String(p.ci_id ?? "")));
+  const existing = new Set((await everyRow(ctx.db, sys, "maintenance_plan", { f: "status", op: "eq", v: "active" })).map((p) => String(p.ci_id ?? "")));
   const todo = devices.filter((d) => !existing.has(String(d.ci_id)));
   const every = Math.max(1, Math.min(12, Math.floor(input.every_n ?? 3)));
   const unit = ["day", "week", "month"].includes(String(input.interval_unit)) ? String(input.interval_unit) : "month";
@@ -787,7 +950,7 @@ export async function createPmPlans(ctx: Ctx, input: { every_n?: number; interva
 /** The failure-risk facts of one device (AI skill `itam.atm_failure_risk`). */
 export async function deviceRisk(ctx: Ctx, id: string): Promise<Row> {
   const { row: a } = await get(ctx, "asset", id);
-  const f = await fleet(ctx, { days: 30 });
+  const f = await fleet(ctx, { days: 30, allRows: true });
   const d = (f.devices as Row[]).find((x) => x.id === String(a.id));
   return { device: d ?? { id: String(a.id), name: a.name, risk: null }, fleet_availability: f.availability };
 }
@@ -823,7 +986,8 @@ export async function assetRegister(ctx: Ctx, input: RegisterInput): Promise<Row
   const where: Cond[] = [{ f: "state", op: "nin", v: ["canceled", "on_order"] }, { f: "purchase_cost", op: "nempty" }];
   if (isUuid(input.branch_id)) where.push({ f: "branch_id", op: "eq", v: input.branch_id });
   if (input.category) where.push({ f: "category", op: "eq", v: input.category });
-  const assets = await liveRows(ctx.db, ctx, "asset", { and: where } as Cond, { limit: 50000, order: "t.no" });
+  // every asset of the year (paged), so the totals and the reconciliation cover them all; the rows shown are capped
+  const assets = (await everyRow(ctx.db, ctx, "asset", { and: where } as Cond)).sort((x, y) => Number(x.no ?? 0) - Number(y.no ?? 0));
   const sys = sysOf(ctx);
   const rules = new Map((await liveRows(ctx.db, sys, "depreciation_rule", null, { limit: 500 })).map((r) => [String(r.id), r]));
   const units = new Map((await liveRows(ctx.db, sys, "org_unit", null, { limit: 20000 })).map((u) => [String(u.id), u]));
@@ -834,7 +998,9 @@ export async function assetRegister(ctx: Ctx, input: RegisterInput): Promise<Row
   for (const a of assets) {
     const start = String(a.in_service_date || a.purchase_date || "").slice(0, 10) || null;
     if (start && start > range.end) continue;
-    const endRaw = a.disposed_at || (a.state === "retired" ? a.retired_at : null);
+    // the schedule runs until disposal, as the financial module posts it (a retired asset awaiting disposal still
+    // depreciates in the ledger), so the register and the cost ledger reconcile
+    const endRaw = a.disposed_at || null;
     const end = endRaw ? localDate(ctx, String(endRaw)) : null;
     if (end && end < range.start) continue;
     const rule = rules.get(String(a.depreciation_rule_id ?? ""));
@@ -868,7 +1034,7 @@ export async function assetRegister(ctx: Ctx, input: RegisterInput): Promise<Row
   }
   const t: Record<string, string | null> = Object.fromEntries(Object.entries(totals).map(([k, v]) => [k, v.toFixed(0)]));
   // reconciliation with finance: the year's depreciation the cost ledger holds per asset (when the caller reads it)
-  const ledger = await ledgerDepreciation(ctx, range.start, range.end);
+  const ledger = await ledgerDepreciation(ctx, range.start, range.end, rows.map((r) => String(r.id)));
   let mismatches = 0;
   if (ledger) {
     let posted = D(0);
@@ -882,21 +1048,50 @@ export async function assetRegister(ctx: Ctx, input: RegisterInput): Promise<Row
     t.ledger = posted.toFixed(0);
     t.difference = D(t.charge ?? "0").minus(posted).toFixed(0);
   }
+  // the totals above are over every row; the list itself is capped (the export of the list has them all)
+  const truncated = rows.length > PAGING.registerRows;
   return {
-    fiscal_year: fy, from: range.start, to: range.end, rows, totals: t, reconciled: !!ledger, mismatches,
+    fiscal_year: fy, from: range.start, to: range.end, rows: truncated ? rows.slice(0, PAGING.registerRows) : rows, total_rows: rows.length, truncated, totals: t, reconciled: !!ledger, mismatches,
     branches: [...byBranch.values()].map((b) => ({ branch: b.branch, count: b.count, cost: b.cost.toFixed(0), charge: b.charge.toFixed(0), book: b.book.toFixed(0) })).sort((x, y) => y.count - x.count),
   };
 }
 
-/** Depreciation the financial module posted per asset between two dates (null: no ledger or no read access). */
-async function ledgerDepreciation(ctx: Ctx, from: string, to: string): Promise<Map<string, string> | null> {
+/**
+ * Rows read per page by `everyRow` and asset ids per ledger query (`size`); most rows the register (`registerRows`)
+ * and the fleet view (`fleetRows`) list in one answer — their totals cover every row. Tests lower them.
+ */
+export const PAGING = { size: 5000, registerRows: 50_000, fleetRows: 5000 };
+
+/** Every live row of `table` the caller may read that matches `where`, read in keyset pages (by id). */
+export async function everyRow(q: Queryable, ctx: Ctx, table: string, where: Cond | null): Promise<Row[]> {
+  const out: Row[] = [];
+  let after: string | null = null;
+  for (;;) {
+    const parts: Cond[] = [...(where ? [where] : []), ...(after ? [{ f: "id", op: "gt", v: after } as Cond] : [])];
+    const page = await liveRows(q, ctx, table, parts.length ? ({ and: parts } as Cond) : null, { order: "t.id", limit: PAGING.size });
+    out.push(...page);
+    if (page.length < PAGING.size) return out;
+    after = String(page[page.length - 1].id);
+  }
+}
+
+/**
+ * Depreciation the financial module posted per asset between two dates, for the given assets (null: no ledger or no
+ * read access). Read per batch of asset ids, so every asset of a large register gets its own sum.
+ */
+async function ledgerDepreciation(ctx: Ctx, from: string, to: string, assetIds: string[]): Promise<Map<string, string> | null> {
   if (!tableDef("cost_entry") || !(await holds(ctx, "financial", "read"))) return null;
   try {
-    const r = await aggregate(ctx, "cost_entry", {
-      filter: { and: [{ f: "source", op: "eq", v: "depreciation" }, { f: "entry_date", op: "gte", v: from }, { f: "entry_date", op: "lte", v: to }, { f: "asset_id", op: "nempty" }] },
-      groupBy: ["asset_id"], metrics: [{ fn: "sum", field: "amount" }], limit: 5000,
-    });
-    return new Map(r.rows.map((x) => [String(x.keys[0]), String(x.values["sum:amount"] ?? "0")]));
+    const out = new Map<string, string>();
+    for (let i = 0; i < assetIds.length; i += PAGING.size) {
+      const chunk = assetIds.slice(i, i + PAGING.size);
+      const r = await aggregate(ctx, "cost_entry", {
+        filter: { and: [{ f: "source", op: "eq", v: "depreciation" }, { f: "entry_date", op: "gte", v: from }, { f: "entry_date", op: "lte", v: to }, { f: "asset_id", op: "in", v: chunk }] },
+        groupBy: ["asset_id"], metrics: [{ fn: "sum", field: "amount" }], limit: chunk.length + 1,
+      });
+      for (const x of r.rows) out.set(String(x.keys[0]), String(x.values["sum:amount"] ?? "0"));
+    }
+    return out;
   } catch {
     return null;
   }
@@ -978,16 +1173,16 @@ export async function transferInbox(ctx: Ctx): Promise<Row> {
   const units = new Map((await liveRows(ctx.db, sysOf(ctx), "org_unit", null, { limit: 20000 })).map((u) => [String(u.id), u]));
   const view = (t: Row) => ({
     id: t.id, number: t.number, title: t.title, state: t.state, reason: labelIn(TRANSFER_REASONS, t.reason), from: units.get(String(t.from_branch_id))?.name ?? null, to: units.get(String(t.to_branch_id))?.name ?? null,
-    items: t.item_count ?? 0, dispatched_at: t.dispatched_at ?? null, can_receive: t.state === "in_transit" && mayActFor(ctx, t.to_branch_id),
+    items: t.item_count ?? 0, dispatched_at: t.dispatched_at ?? null, can_receive: canReceive(ctx, t),
   });
-  return { incoming: rows.filter((t) => t.state === "in_transit" && mayActFor(ctx, t.to_branch_id)).map(view), all: rows.map(view) };
+  return { incoming: rows.filter((t) => canReceive(ctx, t)).map(view), all: rows.map(view) };
 }
 
 /** The items of a transfer for its receipt screen (the caller reads the transfer). */
 export async function transferItems(ctx: Ctx, id: string): Promise<Row> {
   const { row: t } = await get(ctx, "asset_transfer", id);
   const items = await itemsOf(ctx.db, ctx, id);
-  return { transfer: { id: t.id, number: t.number, title: t.title, state: t.state, can_receive: t.state === "in_transit" && mayActFor(ctx, t.to_branch_id) }, items: items.map((i) => ({ id: i.id, label: i.label, asset_id: i.asset_id, condition_out: i.condition_out, result: i.result, condition_in: i.condition_in, note: i.note })) };
+  return { transfer: { id: t.id, number: t.number, title: t.title, state: t.state, can_receive: canReceive(ctx, t) }, items: items.map((i) => ({ id: i.id, label: i.label, asset_id: i.asset_id, condition_out: i.condition_out, result: i.result, condition_in: i.condition_in, note: i.note })) };
 }
 
 /** An asset's custody chain with its verification (the caller reads the asset). */
@@ -1010,12 +1205,12 @@ export function installBankHooks(): (() => void)[] {
   off.push(registerHooks("asset", { beforeWrite: assetBefore, afterWrite: assetAfter, validatePush: assetPush }));
   off.push(registerHooks("asset_transfer", { beforeWrite: transferBefore, afterWrite: transferAfter, guards: transferGuards, validatePush: pushGuard(transferBefore) }));
   off.push(registerHooks("asset_transfer_item", { beforeWrite: transferItemBefore, afterWrite: transferItemAfter, validatePush: pushGuard(transferItemBefore) }));
-  off.push(registerHooks("asset_custody", { beforeWrite: systemOnly("زنجیرهٔ نگهداری"), validatePush: ledgerOnPush("زنجیرهٔ نگهداری") }));
-  off.push(registerHooks("device_status_event", { beforeWrite: systemOnly("تاریخچهٔ وضعیت دستگاه"), validatePush: ledgerOnPush("تاریخچهٔ وضعیت دستگاه") }));
+  off.push(registerHooks("asset_custody", { beforeWrite: systemOnly("زنجیرهٔ نگهداری"), ...custodyPush }));
+  off.push(registerHooks("device_status_event", { beforeWrite: systemOnly("تاریخچهٔ وضعیت دستگاه"), ...statusPush }));
   off.push(registerHooks("inventory_audit_item", { beforeWrite: auditItemBranch }));
   off.push(registerHooks("inventory_audit", { afterWrite: auditAfterBank, guards: auditGuards }));
   off.push(registerHooks("branch_attestation", { beforeWrite: attestationBefore, validatePush: pushGuard(attestationBefore) }));
-  off.push(registerHooks("disposal_item", { beforeWrite: disposalItemBank }));
+  off.push(registerHooks("disposal_item", { beforeWrite: disposalItemBank, validatePush: pushGuard(wipeSod) }));
   // the receiving branch reads the notes addressed to it (and their items): the destination within the subtree of
   // the reader's own unit — rows only, never the area (a reader needs a read grant in «asset» at all)
   off.push(registerParticipantSource({

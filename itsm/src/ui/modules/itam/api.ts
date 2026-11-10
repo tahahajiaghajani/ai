@@ -87,6 +87,8 @@ export interface Fleet {
   regions: { id: string; name: string; devices: number; availability: string }[];
   contracts: { id: string; name: string; number: string | null; devices: number; availability: string; target: string | null; below_target: boolean; breaches: number; late_hours: number; penalty: string | null }[];
   devices: FleetDevice[]; financial: boolean; can_manage: boolean; can_plan: boolean;
+  /** the list holds only the first devices (the counts, availability and penalties cover every one) */
+  truncated?: boolean;
 }
 export interface RegisterRow {
   id: string; number: string | null; asset_tag: string | null; name: string | null; category: string | null; model: string | null; serial_number: string | null; branch: string | null; branch_code: string | null;
@@ -97,6 +99,8 @@ export interface RegisterRow {
 }
 export interface AssetRegister {
   fiscal_year: number; from: string; to: string; rows: RegisterRow[]; totals: Record<string, string | null>; reconciled: boolean; mismatches: number;
+  /** the list holds only the first rows of `total_rows` (the totals and the reconciliation cover every one) */
+  truncated?: boolean; total_rows?: number;
   branches: { branch: string; count: number; cost: string; charge: string; book: string }[];
 }
 export interface WipeCertificate {
@@ -133,7 +137,7 @@ export const bankApi = {
   attest: (api: OrgApi, id: string, body: { signed_name: string; exceptions: { asset_id: string; issue: string; note?: string | null }[]; note?: string | null }) =>
     api.post<{ state: string; exceptions: number }>(`/itam/attestations/${id}/attest`, body),
   openAttestations: (api: OrgApi) => api.post<{ opened: number; overdue: number }>("/itam/attestations/open"),
-  custody: (api: OrgApi, id: string) => api.get<{ rows: Row[]; verified: { rows: number; ok: boolean; broken_at: number | null } }>(`/itam/assets/${id}/custody`),
+  custody: (api: OrgApi, id: string) => api.get<{ rows: Row[]; verified: { rows: number; ok: boolean; broken_at: number | null; foreign?: number } }>(`/itam/assets/${id}/custody`),
   certificate: (api: OrgApi, itemId: string) => api.get<WipeCertificate>(`/itam/disposal-items/${itemId}/certificate`),
 };
 

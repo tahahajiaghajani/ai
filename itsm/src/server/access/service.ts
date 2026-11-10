@@ -100,6 +100,8 @@ export function summarize(s: Subject, settings: AccessSettings): AccessSummary {
  */
 export interface ShellAccess {
   grants: Record<string, FullGrant>;
+  /** the field groups the member sees (screens gated on one: AccessGate.fieldGroup) */
+  field_groups: string[];
   roles: string[];
   legacy: boolean;
   persona: Persona;
@@ -122,7 +124,8 @@ export async function shellAccess(ctx: Ctx): Promise<ShellAccess> {
       if (p && PERSONA_RANK[p] > PERSONA_RANK[persona]) persona = p;
     }
   }
-  return { grants, roles: s.eff.roles, legacy: s.eff.legacy, persona };
+  const field_groups: string[] = s.kind === "system" ? Object.keys(FIELD_GROUPS) : [...s.eff.fieldGroups];
+  return { grants, field_groups, roles: s.eff.roles, legacy: s.eff.legacy, persona };
 }
 
 /** The caller's own effective access (GET /access/me). */

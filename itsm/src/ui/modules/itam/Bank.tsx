@@ -234,6 +234,7 @@ export function Fleet() {
             <StatCard title="پشتیبانی سیستم‌عامل پایان‌یافته" value={fa(d.eos.past)} />
             <StatCard title="پایان پشتیبانی تا ۶ ماه" value={fa(d.eos.soon)} />
           </div>
+          {d.truncated ? <Note tone="warning">{`ناوگان ${fa(d.total)} دستگاه دارد؛ شمارش‌ها، دسترس‌پذیری و جریمه‌ها همهٔ آن‌ها را می‌شمارند، اما فهرست و خروجی اکسل فقط ${fa(d.devices.length)} دستگاه نخست را دارد.`}</Note> : null}
           {d.eos.past ? <Note tone="danger">{`${fa(d.eos.past)} دستگاه با سیستم‌عاملی کار می‌کند که پشتیبانی آن پایان یافته است؛ ارتقا یا جداسازی شبکه را برنامه‌ریزی کنید.`}</Note> : null}
           <div className="itam-two">
             <Card title="دسترس‌پذیری مناطق">
@@ -351,6 +352,7 @@ export function Register() {
             {d.reconciled ? <StatCard title="ثبت‌شده در دفتر هزینه" value={<Money v={d.totals.ledger} compact />} /> : null}
             {d.reconciled ? <StatCard title="مغایرت با دفتر هزینه" value={d.mismatches ? <span><Money v={d.totals.difference} compact /> <Chip tone="warning">{`${fa(d.mismatches)} دارایی`}</Chip></span> : <Chip tone="in">بدون مغایرت</Chip>} /> : null}
           </div>
+          {d.truncated ? <Note tone="warning">{`بیش از ${fa(d.rows.length)} ردیف (${fa(d.total_rows ?? d.rows.length)} دارایی)؛ جمع‌ها و مغایرت همهٔ دارایی‌ها را می‌شمارند، اما فهرست و خروجی اکسل فقط ${fa(d.rows.length)} ردیف نخست را دارد. برای همهٔ ردیف‌ها، دفتر را به تفکیک شعبه یا رده بگیرید.`}</Note> : null}
           {d.branches.length > 1 ? (
             <Card title="به تفکیک شعبه">
               <Table<{ branch: string; count: number; cost: string; charge: string; book: string }> size="small" rowKey="branch" pagination={false} dataSource={d.branches} scroll={{ x: true }} columns={[

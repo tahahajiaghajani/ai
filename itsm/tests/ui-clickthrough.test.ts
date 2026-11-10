@@ -234,8 +234,8 @@ describe("the sidebar offers each role only lists it may read", () => {
     expect(item("problem:q:mine")?.access).toEqual({ area: "problem" });
     expect(item("cmdb:query")?.access).toEqual({ area: "cmdb" });
     expect(item("cmdb:map")?.access).toEqual({ area: "cmdb" });
-    // «توافق‌های در خطر» filters on the SLM's internal compliance fields: the SLM's readers, not every service reader
-    expect(item("slm:q:risk")?.access).toEqual([{ area: "service" }, { area: "sla" }]);
+    // «توافق‌های در خطر» filters on the internal compliance fields: service readers who see the «internal» group
+    expect(item("slm:q:risk")?.access).toEqual({ area: "service", fieldGroup: "internal" });
     expect(item("slm:q:in_force")?.access).toEqual({ area: "service" });
     // the tenant console's own pages (a member with a view of the settings saw them)
     expect(item("admin:licences")?.access).toEqual({ area: "settings" });

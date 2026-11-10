@@ -47,9 +47,10 @@ const REPORTS = "گزارش‌ها";
 export const SLM_SPACE = { key: "service-levels", label: "سطح خدمت", title: "مدیریت سطح خدمت", icon: Handshake, access: READS };
 
 const QUEUE_ICONS: Record<string, typeof Inbox> = { in_force: Handshake, risk: TriangleAlert, pipeline: PencilRuler, reviews: CalendarCheck };
-// the agreement lists are the service area's; «در خطر» also filters and sorts on compliance, which the SLM's readers see
-// (a requester who reads services got 400 there)
-const queueNav = (q: Queue): NavItem => ({ key: `slm:q:${q.key}`, label: q.label, path: q.path, icon: QUEUE_ICONS[q.key] ?? Inbox, area: "work", access: q.table !== "service_agreement" ? READS : q.key === "risk" ? [{ area: "service" }, READS] : { area: "service" }, keywords: "توافق سطح خدمت SLA OLA UC بازبینی" });
+// the agreement lists are the service area's; «در خطر» also filters and sorts on compliance, which the server shows
+// only with the «internal» field group (a requester who reads services got 400 there) — the gate asks what it asks
+const RISK_GATE: AccessGate = { area: "service", fieldGroup: "internal" };
+const queueNav = (q: Queue): NavItem => ({ key: `slm:q:${q.key}`, label: q.label, path: q.path, icon: QUEUE_ICONS[q.key] ?? Inbox, area: "work", access: q.table !== "service_agreement" ? READS : q.key === "risk" ? RISK_GATE : { area: "service" }, keywords: "توافق سطح خدمت SLA OLA UC بازبینی" });
 
 const module = recordModule({
   key: "slm",

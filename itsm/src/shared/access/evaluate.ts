@@ -312,11 +312,17 @@ export interface AccessGate {
   area: string;
   op?: "read" | "create" | "write" | "delete" | "approve" | "admin";
   scope?: Scope;
+  /** also a field group (a screen that filters or sorts on the group's fields: the server refuses those without it) */
+  fieldGroup?: string;
 }
 
-/** Does a member with `grants` (per area, from the shell's access) pass `gate`? Without grants (an older server), yes. */
-export function gateAllows(grants: Readonly<Record<string, FullGrant>> | null | undefined, gate: AccessGate): boolean {
+/**
+ * Does a member with `grants` (per area, from the shell's access) and `fieldGroups` pass `gate`? Without grants (an
+ * older server), yes; without field groups (an older server), a gate's field group is not asked.
+ */
+export function gateAllows(grants: Readonly<Record<string, FullGrant>> | null | undefined, gate: AccessGate, fieldGroups?: readonly string[] | null): boolean {
   if (!grants) return true;
+  if (gate.fieldGroup && fieldGroups && !fieldGroups.includes(gate.fieldGroup)) return false;
   const g = grants[gate.area] ?? grants["*"];
   if (!g) return false;
   const op = gate.op ?? "read";
