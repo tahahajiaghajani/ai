@@ -10,7 +10,7 @@
 //   · experience scores are read like survey answers (an agent reads their groups'), anchored to the record's domain
 //   · customers do not read an agreement's measurement or internal parties
 //   · a breach counts once, in the period it happened; quarterly agreements get a quarter's volume ceiling and their
-//     manual values
+//     manual values; a timer without a record left out by the ceiling does not empty the counts
 //   · the sweep resumes after the last agreement it finished, and closes the last period of an agreement that ended
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { engineOrg, type EngineOrg } from "./engine-helpers";
@@ -215,6 +215,22 @@ describe("service level management", () => {
     expect(m.excluded).toBe(0);
     expect(m.over_limit).toBe(false);
     expect(m.met).toBe(5);
+  });
+
+  it("keeps the records within the volume ceiling counted when a timer without a record is left out", async () => {
+    const def = (await o.post(`${P}/r/sla_definition`, { name: "حل آزمون بی‌رکورد", table_key: "problem", type: "sla", target: "resolution", duration_mode: "fixed", duration: 3600, warn_percents: [] })).row.id;
+    const cur = periodOf(today(), "month");
+    const at = (h: number) => new Date(Date.parse(`${cur.start}T00:00:00Z`) + h * 3_600_000).toISOString();
+    await sys.write(async (tx) => {
+      await createIn(tx, sys, "task_sla", { name: "ر", definition_id: def, table_key: "problem", record_id: uuidv7(), stage: "achieved", active: false, breached: false, start_at: at(10), stop_at: at(11) }, { trusted: true });
+      // a running timer saved without its record, started later: the one beyond a ceiling of one record
+      await createIn(tx, sys, "task_sla", { name: "ب", definition_id: def, table_key: "problem", stage: "in_progress", active: true, breached: false, start_at: at(12) }, { trusted: true });
+    });
+    const c = await timerCounts(e.db, sys, [def], windowOf(sys, cur), 1);
+    expect(c.volume).toBe(2);
+    expect(c.excluded).toBe(1);
+    expect(c.over_limit).toBe(true);
+    expect(c.met).toBe(1);
   });
 
   it("measures a quarterly agreement's manual target from the value recorded for the quarter", async () => {

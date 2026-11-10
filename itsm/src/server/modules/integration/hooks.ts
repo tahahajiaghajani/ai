@@ -68,7 +68,8 @@ function directory(w: WriteArgs): void {
   if (w.op !== "create" && w.op !== "update") return;
   if (w.next.kind === "ldap" && w.next.ldap_url && !/^ldaps?:\/\/[^\s/]+/i.test(String(w.next.ldap_url))) throw bad("نشانی LDAP باید با ldap:// یا ldaps:// شروع شود");
   // the web version reaches only public directories: their bind password never crosses the Internet in clear text
-  if (w.next.kind === "ldap" && w.next.ldap_url && w.ctx.cfg.mode !== "desktop" && !/^ldaps:\/\//i.test(String(w.next.ldap_url))) {
+  const addressSet = w.op === "create" || w.changed.has("ldap_url") || w.changed.has("kind");
+  if (addressSet && w.next.kind === "ldap" && w.next.ldap_url && w.ctx.cfg.mode !== "desktop" && !/^ldaps:\/\//i.test(String(w.next.ldap_url))) {
     throw bad("در نسخهٔ وب فقط ldaps:// (LDAP روی TLS) پذیرفته می‌شود تا گذرواژهٔ اتصال رمزنگاری‌نشده از اینترنت نگذرد");
   }
   if (w.next.kind === "scim" && w.op === "create" && !w.next.scim_token) w.next.scim_token = randomToken(32);

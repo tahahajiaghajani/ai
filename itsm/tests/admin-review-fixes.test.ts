@@ -7,7 +7,7 @@
 //   · a linked issue shows its record's label only to readers of the record
 //   · a create-only key cannot update through an import with a match key
 //   · the import-mapping assistant never sends a «هرگز» table's rows to a model
-//   · the web version takes only ldaps:// directories
+//   · the web version takes only ldaps:// directories (judged when the address is set: an older source stays editable)
 //   · spreadsheets are read within bounds (inflated size, rows)
 //   · CSV cells that start a formula are written as text
 //   · a scheduled URL import starts when saved and goes on after a failed run
@@ -109,7 +109,15 @@ describe("directory sources", () => {
 
   it("takes only ldaps:// directories on the web version", async () => {
     expect(await status(e.owner, "POST", `${P}/r/directory_source`, { name: "AD بی‌رمز", kind: "ldap", ldap_url: "ldap://dc.example.com:389", base_dn: "DC=corp,DC=ir" })).toBe(400);
-    await e.owner.post(`${P}/r/directory_source`, { name: "AD با TLS", kind: "ldap", ldap_url: "ldaps://dc.example.com:636", base_dn: "DC=corp,DC=ir" });
+    const src = (await e.owner.post(`${P}/r/directory_source`, { name: "AD با TLS", kind: "ldap", ldap_url: "ldaps://dc.example.com:636", base_dn: "DC=corp,DC=ir" })).row;
+    // a source saved before the rule keeps working for its other settings; a new plain address is refused
+    await e.db.query(`update sm_directory_sources set ldap_url = 'ldap://old-dc.example.com:389' where id = $1`, [src.id]);
+    let cur = (await e.owner.get(`${P}/r/directory_source/${src.id}`)).row;
+    await e.owner.patch(`${P}/r/directory_source/${src.id}`, { name: "AD قدیمی", version: cur.version });
+    cur = (await e.owner.get(`${P}/r/directory_source/${src.id}`)).row;
+    expect(cur.name).toBe("AD قدیمی");
+    expect(await status(e.owner, "PATCH", `${P}/r/directory_source/${src.id}`, { ldap_url: "ldap://new-dc.example.com:389", version: cur.version })).toBe(400);
+    await e.owner.patch(`${P}/r/directory_source/${src.id}`, { ldap_url: "ldaps://new-dc.example.com:636", version: cur.version });
   });
 });
 

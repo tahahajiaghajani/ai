@@ -77,7 +77,7 @@ export async function timerCounts(q: Queryable, ctx: Ctx, defIds: string[], w: W
        count(*) filter (where t.stage = 'achieved' and t.stop_at >= ${from} and t.stop_at < ${to}) as met,
        count(*) filter (where (t.stage = 'breached' or (t.active and t.breached)) and coalesce(t.breached_at, t.stop_at) >= ${from} and coalesce(t.breached_at, t.stop_at) < ${to}) as breached
      from ${def.table} t
-     where ${where} and t.deleted_at is null and t.definition_id = any(${defs}) and t.record_id not in (select record_id from excluded)`,
+     where ${where} and t.deleted_at is null and t.definition_id = any(${defs}) and not exists (select 1 from excluded x where x.record_id = t.record_id)`,
     params,
   );
   const volume = Number(row?.volume ?? 0);
