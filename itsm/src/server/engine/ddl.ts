@@ -121,9 +121,22 @@ export function ddlFor(def: TableDef): string {
  */
 export function searchIndex(def: TableDef): string {
   const col = searchColumn(def);
-  if (!col) return "";
   const t = def.table;
-  const like = `${t.replace(/_/g, "\\_")}\\_search\\_%`;
+  if (!col) {
+    // no stored document (any more): a column of an earlier list of search fields goes, with its indexes
+    if (def.virtual || !def.numbered) return "";
+    return [
+      "do $search$",
+      "declare old record;",
+      "begin",
+      `  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = '${t}' and column_name ~ '^search_[0-9a-f]{8}$' loop`,
+      `    execute format('alter table %I drop column if exists %I', '${t}', old.column_name);`,
+      "  end loop;",
+      "end",
+      "$search$;",
+    ].join("\n");
+  }
+  const like =`${t.replace(/_/g, "\\_")}\\_search\\_%`;
   const custom = normSql("custom::text");
   return [
     "do $search$",
@@ -193,8 +206,29 @@ export function archiveDdl(def: TableDef): string {
     out.push(`alter table ${a} add column if not exists ${f.name} ${columnType(f)};`);
   }
   const search = searchColumn(def);
-  if (search) out.push(`alter table ${a} add column if not exists ${search.name} text;`);
-  const idx = (suffix: string, body: string) => out.push(`create index if not exists ${shortName(`${a}_${suffix}`)} on ${a} ${body};`);
+  // the archive's copy of the stored search document (archival copies it): a column of an earlier list of search fields
+  // is dropped (with its index), and a new one is filled once from the archived rows' own fields
+  out.push(
+    [
+      "do $arcs$",
+      "declare old record;",
+      "begin",
+      `  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = '${a}' and column_name ~ '^search_[0-9a-f]{8}$'${search ? ` and column_name <> '${search.name}'` : ""} loop`,
+      `    execute format('alter table %I drop column if exists %I', '${a}', old.column_name);`,
+      "  end loop;",
+      ...(search
+        ? [
+            `  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = '${a}' and column_name = '${search.name}') then`,
+            `    execute format('alter table %I add column %I text', '${a}', '${search.name}');`,
+            `    execute format('update %I set %I = (%s)', '${a}', '${search.name}', $x$${search.expr}$x$);`,
+            "  end if;",
+          ]
+        : []),
+      "end",
+      "$arcs$;",
+    ].join("\n"),
+  );
+  const idx =(suffix: string, body: string) => out.push(`create index if not exists ${shortName(`${a}_${suffix}`)} on ${a} ${body};`);
   idx("no_idx", "(org_id, no)");
   idx("arch_idx", "(org_id, archived_at)");
   idx("upd_idx", "(org_id, updated_at desc, id desc) where deleted_at is null");

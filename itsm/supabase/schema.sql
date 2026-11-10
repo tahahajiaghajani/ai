@@ -12319,6 +12319,14 @@ create index if not exists sm_goods_receipts_upd_idx on sm_goods_receipts (org_i
 create index if not exists sm_goods_receipts_crt_idx on sm_goods_receipts (org_id, created_at desc, id desc) where deleted_at is null;
 create index if not exists sm_goods_receipts_po_id_idx on sm_goods_receipts (org_id, po_id) where deleted_at is null;
 create index if not exists sm_goods_receipts_state_idx on sm_goods_receipts (org_id, state) where deleted_at is null;
+do $search$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_goods_receipts' and column_name ~ '^search_[0-9a-f]{8}$' loop
+    execute format('alter table %I drop column if exists %I', 'sm_goods_receipts', old.column_name);
+  end loop;
+end
+$search$;
 drop trigger if exists sm_goods_receipts_sync on sm_goods_receipts;
 create trigger sm_goods_receipts_sync before insert or update on sm_goods_receipts for each row execute function sm_sync_touch('goods_receipt');
 alter table sm_goods_receipts enable row level security;
@@ -12587,6 +12595,14 @@ create index if not exists sm_grc_control_tests_state_idx on sm_grc_control_test
 create index if not exists sm_grc_control_tests_workspace_acc_idx on sm_grc_control_tests (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
 create index if not exists sm_grc_control_tests_unit_acc_idx on sm_grc_control_tests (org_id, unit_id) where deleted_at is null and unit_id is not null;
 create index if not exists sm_grc_control_tests_domain_acc_idx on sm_grc_control_tests (org_id, domain_id) where deleted_at is null and domain_id is not null;
+do $search$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_grc_control_tests' and column_name ~ '^search_[0-9a-f]{8}$' loop
+    execute format('alter table %I drop column if exists %I', 'sm_grc_control_tests', old.column_name);
+  end loop;
+end
+$search$;
 drop trigger if exists sm_grc_control_tests_sync on sm_grc_control_tests;
 create trigger sm_grc_control_tests_sync before insert or update on sm_grc_control_tests for each row execute function sm_sync_touch('grc_control_test');
 alter table sm_grc_control_tests enable row level security;
@@ -12715,20 +12731,11 @@ create index if not exists sm_grc_dsrs_unit_acc_idx on sm_grc_dsrs (org_id, unit
 create index if not exists sm_grc_dsrs_domain_acc_idx on sm_grc_dsrs (org_id, domain_id) where deleted_at is null and domain_id is not null;
 create index if not exists sm_grc_dsrs_assigned_to_idx on sm_grc_dsrs (org_id, assigned_to) where deleted_at is null;
 do $search$
-declare s text; old record;
+declare old record;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_grc_dsrs' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_daba7e6a' loop
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_grc_dsrs' and column_name ~ '^search_[0-9a-f]{8}$' loop
     execute format('alter table %I drop column if exists %I', 'sm_grc_dsrs', old.column_name);
   end loop;
-  execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_grc_dsrs', 'search_daba7e6a', $x$translate(coalesce(subject_name, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
-  select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
-  if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_grc_dsrs' and indexname like 'sm\_grc\_dsrs\_search\_%' and indexname not in ('sm_grc_dsrs_search_daba7e6a_trgm', 'sm_grc_dsrs_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
-    execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_grc_dsrs_search_daba7e6a_trgm', 'sm_grc_dsrs', 'search_daba7e6a', s);
-    execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_grc_dsrs_search_custom_trgm', 'sm_grc_dsrs', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
-  end if;
 end
 $search$;
 drop trigger if exists sm_grc_dsrs_sync on sm_grc_dsrs;
@@ -13636,6 +13643,14 @@ create index if not exists sm_grc_risk_acceptances_workspace_acc_idx on sm_grc_r
 create index if not exists sm_grc_risk_acceptances_unit_acc_idx on sm_grc_risk_acceptances (org_id, unit_id) where deleted_at is null and unit_id is not null;
 create index if not exists sm_grc_risk_acceptances_domain_acc_idx on sm_grc_risk_acceptances (org_id, domain_id) where deleted_at is null and domain_id is not null;
 create index if not exists sm_grc_risk_acceptances_requested_by_idx on sm_grc_risk_acceptances (org_id, requested_by) where deleted_at is null;
+do $search$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_grc_risk_acceptances' and column_name ~ '^search_[0-9a-f]{8}$' loop
+    execute format('alter table %I drop column if exists %I', 'sm_grc_risk_acceptances', old.column_name);
+  end loop;
+end
+$search$;
 drop trigger if exists sm_grc_risk_acceptances_sync on sm_grc_risk_acceptances;
 create trigger sm_grc_risk_acceptances_sync before insert or update on sm_grc_risk_acceptances for each row execute function sm_sync_touch('grc_risk_acceptance');
 alter table sm_grc_risk_acceptances enable row level security;
@@ -17964,6 +17979,14 @@ create unique index if not exists sm_license_reconcile_runs_no_uk on sm_license_
 create index if not exists sm_license_reconcile_runs_rev_idx on sm_license_reconcile_runs (org_id, rev);
 create index if not exists sm_license_reconcile_runs_upd_idx on sm_license_reconcile_runs (org_id, updated_at desc, id desc) where deleted_at is null;
 create index if not exists sm_license_reconcile_runs_crt_idx on sm_license_reconcile_runs (org_id, created_at desc, id desc) where deleted_at is null;
+do $search$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_license_reconcile_runs' and column_name ~ '^search_[0-9a-f]{8}$' loop
+    execute format('alter table %I drop column if exists %I', 'sm_license_reconcile_runs', old.column_name);
+  end loop;
+end
+$search$;
 drop trigger if exists sm_license_reconcile_runs_sync on sm_license_reconcile_runs;
 create trigger sm_license_reconcile_runs_sync before insert or update on sm_license_reconcile_runs for each row execute function sm_sync_touch('license_reconcile_run');
 alter table sm_license_reconcile_runs enable row level security;
@@ -23923,16 +23946,16 @@ create index if not exists sm_service_agreements_manager_id_idx on sm_service_ag
 do $search$
 declare s text; old record;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_service_agreements' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_6cc4283b' loop
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_service_agreements' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_56291d9d' loop
     execute format('alter table %I drop column if exists %I', 'sm_service_agreements', old.column_name);
   end loop;
-  execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_service_agreements', 'search_6cc4283b', $x$translate(coalesce(name, '') || ' ' || coalesce(supplier_name, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_service_agreements', 'search_56291d9d', $x$translate(coalesce(name, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_service_agreements' and indexname like 'sm\_service\_agreements\_search\_%' and indexname not in ('sm_service_agreements_search_6cc4283b_trgm', 'sm_service_agreements_search_custom_trgm') loop
+    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_service_agreements' and indexname like 'sm\_service\_agreements\_search\_%' and indexname not in ('sm_service_agreements_search_56291d9d_trgm', 'sm_service_agreements_search_custom_trgm') loop
       execute format('drop index if exists %I', old.indexname);
     end loop;
-    execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_service_agreements_search_6cc4283b_trgm', 'sm_service_agreements', 'search_6cc4283b', s);
+    execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_service_agreements_search_56291d9d_trgm', 'sm_service_agreements', 'search_56291d9d', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_service_agreements_search_custom_trgm', 'sm_service_agreements', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
 end
@@ -28501,7 +28524,18 @@ alter table sm_alerts_arc add column if not exists noise_label text;
 alter table sm_alerts_arc add column if not exists noise_reason text;
 alter table sm_alerts_arc add column if not exists watch_list jsonb;
 alter table sm_alerts_arc add column if not exists state text;
-alter table sm_alerts_arc add column if not exists search_3e573310 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_alerts_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_3e573310' loop
+    execute format('alter table %I drop column if exists %I', 'sm_alerts_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_alerts_arc' and column_name = 'search_3e573310') then
+    execute format('alter table %I add column %I text', 'sm_alerts_arc', 'search_3e573310');
+    execute format('update %I set %I = (%s)', 'sm_alerts_arc', 'search_3e573310', $x$translate(coalesce(short_description, '') || ' ' || coalesce(node, '') || ' ' || coalesce(resource, '') || ' ' || coalesce(metric, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_alerts_arc_no_idx on sm_alerts_arc (org_id, no);
 create index if not exists sm_alerts_arc_arch_idx on sm_alerts_arc (org_id, archived_at);
 create index if not exists sm_alerts_arc_upd_idx on sm_alerts_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -28561,7 +28595,18 @@ alter table sm_alert_groups_arc add column if not exists resolved_at timestamptz
 alter table sm_alert_groups_arc add column if not exists closed_at timestamptz;
 alter table sm_alert_groups_arc add column if not exists watch_list jsonb;
 alter table sm_alert_groups_arc add column if not exists state text;
-alter table sm_alert_groups_arc add column if not exists search_cae18f1d text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_alert_groups_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_cae18f1d' loop
+    execute format('alter table %I drop column if exists %I', 'sm_alert_groups_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_alert_groups_arc' and column_name = 'search_cae18f1d') then
+    execute format('alter table %I add column %I text', 'sm_alert_groups_arc', 'search_cae18f1d');
+    execute format('update %I set %I = (%s)', 'sm_alert_groups_arc', 'search_cae18f1d', $x$translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_alert_groups_arc_no_idx on sm_alert_groups_arc (org_id, no);
 create index if not exists sm_alert_groups_arc_arch_idx on sm_alert_groups_arc (org_id, archived_at);
 create index if not exists sm_alert_groups_arc_upd_idx on sm_alert_groups_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -28707,7 +28752,18 @@ alter table sm_change_requests_arc add column if not exists origin_id text;
 alter table sm_change_requests_arc add column if not exists model_states jsonb;
 alter table sm_change_requests_arc add column if not exists confidential boolean not null default false;
 alter table sm_change_requests_arc add column if not exists access_list jsonb;
-alter table sm_change_requests_arc add column if not exists search_1f830243 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_change_requests_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_1f830243' loop
+    execute format('alter table %I drop column if exists %I', 'sm_change_requests_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_change_requests_arc' and column_name = 'search_1f830243') then
+    execute format('alter table %I add column %I text', 'sm_change_requests_arc', 'search_1f830243');
+    execute format('update %I set %I = (%s)', 'sm_change_requests_arc', 'search_1f830243', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, '') || ' ' || coalesce(justification, '') || ' ' || coalesce(external_ref, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_change_requests_arc_no_idx on sm_change_requests_arc (org_id, no);
 create index if not exists sm_change_requests_arc_arch_idx on sm_change_requests_arc (org_id, archived_at);
 create index if not exists sm_change_requests_arc_upd_idx on sm_change_requests_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -28798,7 +28854,18 @@ alter table sm_change_tasks_arc add column if not exists checklist text;
 alter table sm_change_tasks_arc add column if not exists change_owner_id uuid;
 alter table sm_change_tasks_arc add column if not exists confidential boolean not null default false;
 alter table sm_change_tasks_arc add column if not exists access_list jsonb;
-alter table sm_change_tasks_arc add column if not exists search_f3bce210 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_change_tasks_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
+    execute format('alter table %I drop column if exists %I', 'sm_change_tasks_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_change_tasks_arc' and column_name = 'search_f3bce210') then
+    execute format('alter table %I add column %I text', 'sm_change_tasks_arc', 'search_f3bce210');
+    execute format('update %I set %I = (%s)', 'sm_change_tasks_arc', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_change_tasks_arc_no_idx on sm_change_tasks_arc (org_id, no);
 create index if not exists sm_change_tasks_arc_arch_idx on sm_change_tasks_arc (org_id, archived_at);
 create index if not exists sm_change_tasks_arc_upd_idx on sm_change_tasks_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -28879,7 +28946,18 @@ alter table sm_ci_cert_tasks_arc add column if not exists campaign_id uuid;
 alter table sm_ci_cert_tasks_arc add column if not exists ci_ids jsonb;
 alter table sm_ci_cert_tasks_arc add column if not exists corrections text;
 alter table sm_ci_cert_tasks_arc add column if not exists confirmed_count integer;
-alter table sm_ci_cert_tasks_arc add column if not exists search_f3bce210 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_ci_cert_tasks_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
+    execute format('alter table %I drop column if exists %I', 'sm_ci_cert_tasks_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_ci_cert_tasks_arc' and column_name = 'search_f3bce210') then
+    execute format('alter table %I add column %I text', 'sm_ci_cert_tasks_arc', 'search_f3bce210');
+    execute format('update %I set %I = (%s)', 'sm_ci_cert_tasks_arc', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_ci_cert_tasks_arc_no_idx on sm_ci_cert_tasks_arc (org_id, no);
 create index if not exists sm_ci_cert_tasks_arc_arch_idx on sm_ci_cert_tasks_arc (org_id, archived_at);
 create index if not exists sm_ci_cert_tasks_arc_upd_idx on sm_ci_cert_tasks_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -28963,7 +29041,18 @@ alter table sm_ci_drifts_arc add column if not exists source_id uuid;
 alter table sm_ci_drifts_arc add column if not exists change_id uuid;
 alter table sm_ci_drifts_arc add column if not exists decision text;
 alter table sm_ci_drifts_arc add column if not exists dedupe_key text;
-alter table sm_ci_drifts_arc add column if not exists search_f3bce210 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_ci_drifts_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
+    execute format('alter table %I drop column if exists %I', 'sm_ci_drifts_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_ci_drifts_arc' and column_name = 'search_f3bce210') then
+    execute format('alter table %I add column %I text', 'sm_ci_drifts_arc', 'search_f3bce210');
+    execute format('update %I set %I = (%s)', 'sm_ci_drifts_arc', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_ci_drifts_arc_no_idx on sm_ci_drifts_arc (org_id, no);
 create index if not exists sm_ci_drifts_arc_arch_idx on sm_ci_drifts_arc (org_id, archived_at);
 create index if not exists sm_ci_drifts_arc_upd_idx on sm_ci_drifts_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -29049,7 +29138,18 @@ alter table sm_cmdb_dedup_tasks_arc add column if not exists merged_at timestamp
 alter table sm_cmdb_dedup_tasks_arc add column if not exists merged_by uuid;
 alter table sm_cmdb_dedup_tasks_arc add column if not exists undone_at timestamptz;
 alter table sm_cmdb_dedup_tasks_arc add column if not exists merge_journal jsonb;
-alter table sm_cmdb_dedup_tasks_arc add column if not exists search_f3bce210 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_cmdb_dedup_tasks_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
+    execute format('alter table %I drop column if exists %I', 'sm_cmdb_dedup_tasks_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_cmdb_dedup_tasks_arc' and column_name = 'search_f3bce210') then
+    execute format('alter table %I add column %I text', 'sm_cmdb_dedup_tasks_arc', 'search_f3bce210');
+    execute format('update %I set %I = (%s)', 'sm_cmdb_dedup_tasks_arc', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_cmdb_dedup_tasks_arc_no_idx on sm_cmdb_dedup_tasks_arc (org_id, no);
 create index if not exists sm_cmdb_dedup_tasks_arc_arch_idx on sm_cmdb_dedup_tasks_arc (org_id, archived_at);
 create index if not exists sm_cmdb_dedup_tasks_arc_upd_idx on sm_cmdb_dedup_tasks_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -29131,7 +29231,18 @@ alter table sm_cmdb_findings_arc add column if not exists rule_id uuid;
 alter table sm_cmdb_findings_arc add column if not exists detail text;
 alter table sm_cmdb_findings_arc add column if not exists dedupe_key text;
 alter table sm_cmdb_findings_arc add column if not exists auto boolean not null default false;
-alter table sm_cmdb_findings_arc add column if not exists search_f3bce210 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_cmdb_findings_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
+    execute format('alter table %I drop column if exists %I', 'sm_cmdb_findings_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_cmdb_findings_arc' and column_name = 'search_f3bce210') then
+    execute format('alter table %I add column %I text', 'sm_cmdb_findings_arc', 'search_f3bce210');
+    execute format('update %I set %I = (%s)', 'sm_cmdb_findings_arc', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_cmdb_findings_arc_no_idx on sm_cmdb_findings_arc (org_id, no);
 create index if not exists sm_cmdb_findings_arc_arch_idx on sm_cmdb_findings_arc (org_id, archived_at);
 create index if not exists sm_cmdb_findings_arc_upd_idx on sm_cmdb_findings_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -29214,7 +29325,18 @@ alter table sm_corrective_actions_arc add column if not exists incident_id uuid;
 alter table sm_corrective_actions_arc add column if not exists period_review_id uuid;
 alter table sm_corrective_actions_arc add column if not exists tracker_url text;
 alter table sm_corrective_actions_arc add column if not exists evidence text;
-alter table sm_corrective_actions_arc add column if not exists search_f3bce210 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_corrective_actions_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
+    execute format('alter table %I drop column if exists %I', 'sm_corrective_actions_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_corrective_actions_arc' and column_name = 'search_f3bce210') then
+    execute format('alter table %I add column %I text', 'sm_corrective_actions_arc', 'search_f3bce210');
+    execute format('update %I set %I = (%s)', 'sm_corrective_actions_arc', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_corrective_actions_arc_no_idx on sm_corrective_actions_arc (org_id, no);
 create index if not exists sm_corrective_actions_arc_arch_idx on sm_corrective_actions_arc (org_id, archived_at);
 create index if not exists sm_corrective_actions_arc_upd_idx on sm_corrective_actions_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -29312,7 +29434,18 @@ alter table sm_customer_cases_arc add column if not exists root_cause text;
 alter table sm_customer_cases_arc add column if not exists resolution_accepted boolean not null default false;
 alter table sm_customer_cases_arc add column if not exists satisfaction integer;
 alter table sm_customer_cases_arc add column if not exists units_charged numeric;
-alter table sm_customer_cases_arc add column if not exists search_f3bce210 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_customer_cases_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
+    execute format('alter table %I drop column if exists %I', 'sm_customer_cases_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_customer_cases_arc' and column_name = 'search_f3bce210') then
+    execute format('alter table %I add column %I text', 'sm_customer_cases_arc', 'search_f3bce210');
+    execute format('update %I set %I = (%s)', 'sm_customer_cases_arc', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_customer_cases_arc_no_idx on sm_customer_cases_arc (org_id, no);
 create index if not exists sm_customer_cases_arc_arch_idx on sm_customer_cases_arc (org_id, archived_at);
 create index if not exists sm_customer_cases_arc_upd_idx on sm_customer_cases_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -29395,7 +29528,18 @@ alter table sm_defects_arc add column if not exists escaped boolean not null def
 alter table sm_defects_arc add column if not exists fix_version text;
 alter table sm_defects_arc add column if not exists known_error_id uuid;
 alter table sm_defects_arc add column if not exists steps text;
-alter table sm_defects_arc add column if not exists search_f3bce210 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_defects_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
+    execute format('alter table %I drop column if exists %I', 'sm_defects_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_defects_arc' and column_name = 'search_f3bce210') then
+    execute format('alter table %I add column %I text', 'sm_defects_arc', 'search_f3bce210');
+    execute format('update %I set %I = (%s)', 'sm_defects_arc', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_defects_arc_no_idx on sm_defects_arc (org_id, no);
 create index if not exists sm_defects_arc_arch_idx on sm_defects_arc (org_id, archived_at);
 create index if not exists sm_defects_arc_upd_idx on sm_defects_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -29506,7 +29650,18 @@ alter table sm_deployments_arc add column if not exists incidents_caused integer
 alter table sm_deployments_arc add column if not exists change_failure boolean not null default false;
 alter table sm_deployments_arc add column if not exists policy_note text;
 alter table sm_deployments_arc add column if not exists release_manager_id uuid;
-alter table sm_deployments_arc add column if not exists search_a6d70860 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_deployments_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_a6d70860' loop
+    execute format('alter table %I drop column if exists %I', 'sm_deployments_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_deployments_arc' and column_name = 'search_a6d70860') then
+    execute format('alter table %I add column %I text', 'sm_deployments_arc', 'search_a6d70860');
+    execute format('update %I set %I = (%s)', 'sm_deployments_arc', 'search_a6d70860', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, '') || ' ' || coalesce(artifact_version, '') || ' ' || coalesce(commit_sha, '') || ' ' || coalesce(external_id, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_deployments_arc_no_idx on sm_deployments_arc (org_id, no);
 create index if not exists sm_deployments_arc_arch_idx on sm_deployments_arc (org_id, archived_at);
 create index if not exists sm_deployments_arc_upd_idx on sm_deployments_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -29597,7 +29752,18 @@ alter table sm_facility_requests_arc add column if not exists space_id uuid;
 alter table sm_facility_requests_arc add column if not exists preferred_at timestamptz;
 alter table sm_facility_requests_arc add column if not exists reservation_id uuid;
 alter table sm_facility_requests_arc add column if not exists contractor text;
-alter table sm_facility_requests_arc add column if not exists search_f3bce210 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_facility_requests_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
+    execute format('alter table %I drop column if exists %I', 'sm_facility_requests_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_facility_requests_arc' and column_name = 'search_f3bce210') then
+    execute format('alter table %I add column %I text', 'sm_facility_requests_arc', 'search_f3bce210');
+    execute format('update %I set %I = (%s)', 'sm_facility_requests_arc', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_facility_requests_arc_no_idx on sm_facility_requests_arc (org_id, no);
 create index if not exists sm_facility_requests_arc_arch_idx on sm_facility_requests_arc (org_id, archived_at);
 create index if not exists sm_facility_requests_arc_upd_idx on sm_facility_requests_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -29691,7 +29857,18 @@ alter table sm_finance_cases_arc add column if not exists payment_due date;
 alter table sm_finance_cases_arc add column if not exists iban text;
 alter table sm_finance_cases_arc add column if not exists payment_ref text;
 alter table sm_finance_cases_arc add column if not exists paid_on date;
-alter table sm_finance_cases_arc add column if not exists search_7a2f1724 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_finance_cases_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_7a2f1724' loop
+    execute format('alter table %I drop column if exists %I', 'sm_finance_cases_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_finance_cases_arc' and column_name = 'search_7a2f1724') then
+    execute format('alter table %I add column %I text', 'sm_finance_cases_arc', 'search_7a2f1724');
+    execute format('update %I set %I = (%s)', 'sm_finance_cases_arc', 'search_7a2f1724', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, '') || ' ' || coalesce(invoice_no, '') || ' ' || coalesce(vendor_name, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_finance_cases_arc_no_idx on sm_finance_cases_arc (org_id, no);
 create index if not exists sm_finance_cases_arc_arch_idx on sm_finance_cases_arc (org_id, archived_at);
 create index if not exists sm_finance_cases_arc_upd_idx on sm_finance_cases_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -29788,7 +29965,18 @@ alter table sm_hr_cases_arc add column if not exists disciplinary boolean not nu
 alter table sm_hr_cases_arc add column if not exists legal_hold boolean not null default false;
 alter table sm_hr_cases_arc add column if not exists confidential boolean not null default false;
 alter table sm_hr_cases_arc add column if not exists access_list jsonb;
-alter table sm_hr_cases_arc add column if not exists search_f3bce210 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_hr_cases_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
+    execute format('alter table %I drop column if exists %I', 'sm_hr_cases_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_hr_cases_arc' and column_name = 'search_f3bce210') then
+    execute format('alter table %I add column %I text', 'sm_hr_cases_arc', 'search_f3bce210');
+    execute format('update %I set %I = (%s)', 'sm_hr_cases_arc', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_hr_cases_arc_no_idx on sm_hr_cases_arc (org_id, no);
 create index if not exists sm_hr_cases_arc_arch_idx on sm_hr_cases_arc (org_id, archived_at);
 create index if not exists sm_hr_cases_arc_upd_idx on sm_hr_cases_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -29885,7 +30073,18 @@ alter table sm_hse_events_arc add column if not exists reportable boolean not nu
 alter table sm_hse_events_arc add column if not exists reported_at timestamptz;
 alter table sm_hse_events_arc add column if not exists confidential boolean not null default false;
 alter table sm_hse_events_arc add column if not exists access_list jsonb;
-alter table sm_hse_events_arc add column if not exists search_f3bce210 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_hse_events_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
+    execute format('alter table %I drop column if exists %I', 'sm_hse_events_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_hse_events_arc' and column_name = 'search_f3bce210') then
+    execute format('alter table %I add column %I text', 'sm_hse_events_arc', 'search_f3bce210');
+    execute format('update %I set %I = (%s)', 'sm_hse_events_arc', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_hse_events_arc_no_idx on sm_hse_events_arc (org_id, no);
 create index if not exists sm_hse_events_arc_arch_idx on sm_hse_events_arc (org_id, archived_at);
 create index if not exists sm_hse_events_arc_upd_idx on sm_hse_events_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -30001,7 +30200,18 @@ alter table sm_incidents_arc add column if not exists satisfaction integer;
 alter table sm_incidents_arc add column if not exists satisfaction_comment text;
 alter table sm_incidents_arc add column if not exists confidential boolean not null default false;
 alter table sm_incidents_arc add column if not exists access_list jsonb;
-alter table sm_incidents_arc add column if not exists search_2a22db8c text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_incidents_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_2a22db8c' loop
+    execute format('alter table %I drop column if exists %I', 'sm_incidents_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_incidents_arc' and column_name = 'search_2a22db8c') then
+    execute format('alter table %I add column %I text', 'sm_incidents_arc', 'search_2a22db8c');
+    execute format('update %I set %I = (%s)', 'sm_incidents_arc', 'search_2a22db8c', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, '') || ' ' || coalesce(external_ref, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_incidents_arc_no_idx on sm_incidents_arc (org_id, no);
 create index if not exists sm_incidents_arc_arch_idx on sm_incidents_arc (org_id, archived_at);
 create index if not exists sm_incidents_arc_upd_idx on sm_incidents_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -30080,7 +30290,18 @@ alter table sm_incident_tasks_arc add column if not exists knowledge boolean not
 alter table sm_incident_tasks_arc add column if not exists incident_id uuid;
 alter table sm_incident_tasks_arc add column if not exists mandatory boolean not null default true;
 alter table sm_incident_tasks_arc add column if not exists sort_order integer;
-alter table sm_incident_tasks_arc add column if not exists search_f3bce210 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_incident_tasks_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
+    execute format('alter table %I drop column if exists %I', 'sm_incident_tasks_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_incident_tasks_arc' and column_name = 'search_f3bce210') then
+    execute format('alter table %I add column %I text', 'sm_incident_tasks_arc', 'search_f3bce210');
+    execute format('update %I set %I = (%s)', 'sm_incident_tasks_arc', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_incident_tasks_arc_no_idx on sm_incident_tasks_arc (org_id, no);
 create index if not exists sm_incident_tasks_arc_arch_idx on sm_incident_tasks_arc (org_id, archived_at);
 create index if not exists sm_incident_tasks_arc_upd_idx on sm_incident_tasks_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -30165,7 +30386,18 @@ alter table sm_kb_tasks_arc add column if not exists source_id text;
 alter table sm_kb_tasks_arc add column if not exists source_number text;
 alter table sm_kb_tasks_arc add column if not exists k_users jsonb;
 alter table sm_kb_tasks_arc add column if not exists k_groups jsonb;
-alter table sm_kb_tasks_arc add column if not exists search_f3bce210 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_kb_tasks_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
+    execute format('alter table %I drop column if exists %I', 'sm_kb_tasks_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_kb_tasks_arc' and column_name = 'search_f3bce210') then
+    execute format('alter table %I add column %I text', 'sm_kb_tasks_arc', 'search_f3bce210');
+    execute format('update %I set %I = (%s)', 'sm_kb_tasks_arc', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_kb_tasks_arc_no_idx on sm_kb_tasks_arc (org_id, no);
 create index if not exists sm_kb_tasks_arc_arch_idx on sm_kb_tasks_arc (org_id, archived_at);
 create index if not exists sm_kb_tasks_arc_upd_idx on sm_kb_tasks_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -30259,7 +30491,18 @@ alter table sm_legal_requests_arc add column if not exists conflict_notes text;
 alter table sm_legal_requests_arc add column if not exists outcome text;
 alter table sm_legal_requests_arc add column if not exists confidential boolean not null default false;
 alter table sm_legal_requests_arc add column if not exists access_list jsonb;
-alter table sm_legal_requests_arc add column if not exists search_3b95400c text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_legal_requests_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_3b95400c' loop
+    execute format('alter table %I drop column if exists %I', 'sm_legal_requests_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_legal_requests_arc' and column_name = 'search_3b95400c') then
+    execute format('alter table %I add column %I text', 'sm_legal_requests_arc', 'search_3b95400c');
+    execute format('update %I set %I = (%s)', 'sm_legal_requests_arc', 'search_3b95400c', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, '') || ' ' || coalesce(counterparty, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_legal_requests_arc_no_idx on sm_legal_requests_arc (org_id, no);
 create index if not exists sm_legal_requests_arc_arch_idx on sm_legal_requests_arc (org_id, archived_at);
 create index if not exists sm_legal_requests_arc_upd_idx on sm_legal_requests_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -30342,7 +30585,18 @@ alter table sm_portal_feedback_arc add column if not exists acknowledged_at time
 alter table sm_portal_feedback_arc add column if not exists responded_at timestamptz;
 alter table sm_portal_feedback_arc add column if not exists confidential boolean not null default false;
 alter table sm_portal_feedback_arc add column if not exists access_list jsonb;
-alter table sm_portal_feedback_arc add column if not exists search_f3bce210 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_portal_feedback_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
+    execute format('alter table %I drop column if exists %I', 'sm_portal_feedback_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_portal_feedback_arc' and column_name = 'search_f3bce210') then
+    execute format('alter table %I add column %I text', 'sm_portal_feedback_arc', 'search_f3bce210');
+    execute format('update %I set %I = (%s)', 'sm_portal_feedback_arc', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_portal_feedback_arc_no_idx on sm_portal_feedback_arc (org_id, no);
 create index if not exists sm_portal_feedback_arc_arch_idx on sm_portal_feedback_arc (org_id, archived_at);
 create index if not exists sm_portal_feedback_arc_upd_idx on sm_portal_feedback_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -30456,7 +30710,18 @@ alter table sm_problems_arc add column if not exists reminded_at timestamptz;
 alter table sm_problems_arc add column if not exists monitoring_done boolean not null default false;
 alter table sm_problems_arc add column if not exists confidential boolean not null default false;
 alter table sm_problems_arc add column if not exists access_list jsonb;
-alter table sm_problems_arc add column if not exists search_f3bce210 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_problems_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
+    execute format('alter table %I drop column if exists %I', 'sm_problems_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_problems_arc' and column_name = 'search_f3bce210') then
+    execute format('alter table %I add column %I text', 'sm_problems_arc', 'search_f3bce210');
+    execute format('update %I set %I = (%s)', 'sm_problems_arc', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_problems_arc_no_idx on sm_problems_arc (org_id, no);
 create index if not exists sm_problems_arc_arch_idx on sm_problems_arc (org_id, archived_at);
 create index if not exists sm_problems_arc_upd_idx on sm_problems_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -30537,7 +30802,18 @@ alter table sm_problem_tasks_arc add column if not exists problem_id uuid;
 alter table sm_problem_tasks_arc add column if not exists task_type text;
 alter table sm_problem_tasks_arc add column if not exists mandatory boolean not null default true;
 alter table sm_problem_tasks_arc add column if not exists findings text;
-alter table sm_problem_tasks_arc add column if not exists search_f3bce210 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_problem_tasks_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
+    execute format('alter table %I drop column if exists %I', 'sm_problem_tasks_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_problem_tasks_arc' and column_name = 'search_f3bce210') then
+    execute format('alter table %I add column %I text', 'sm_problem_tasks_arc', 'search_f3bce210');
+    execute format('update %I set %I = (%s)', 'sm_problem_tasks_arc', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_problem_tasks_arc_no_idx on sm_problem_tasks_arc (org_id, no);
 create index if not exists sm_problem_tasks_arc_arch_idx on sm_problem_tasks_arc (org_id, archived_at);
 create index if not exists sm_problem_tasks_arc_upd_idx on sm_problem_tasks_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -30632,7 +30908,18 @@ alter table sm_purchase_requests_arc add column if not exists receiver_id uuid;
 alter table sm_purchase_requests_arc add column if not exists po_number text;
 alter table sm_purchase_requests_arc add column if not exists received_at timestamptz;
 alter table sm_purchase_requests_arc add column if not exists receipt_notes text;
-alter table sm_purchase_requests_arc add column if not exists search_0aff9df4 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_purchase_requests_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_0aff9df4' loop
+    execute format('alter table %I drop column if exists %I', 'sm_purchase_requests_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_purchase_requests_arc' and column_name = 'search_0aff9df4') then
+    execute format('alter table %I add column %I text', 'sm_purchase_requests_arc', 'search_0aff9df4');
+    execute format('update %I set %I = (%s)', 'sm_purchase_requests_arc', 'search_0aff9df4', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, '') || ' ' || coalesce(supplier, '') || ' ' || coalesce(po_number, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_purchase_requests_arc_no_idx on sm_purchase_requests_arc (org_id, no);
 create index if not exists sm_purchase_requests_arc_arch_idx on sm_purchase_requests_arc (org_id, archived_at);
 create index if not exists sm_purchase_requests_arc_upd_idx on sm_purchase_requests_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -30756,7 +31043,18 @@ alter table sm_releases_arc add column if not exists els_incidents integer;
 alter table sm_releases_arc add column if not exists rolled_back boolean not null default false;
 alter table sm_releases_arc add column if not exists on_schedule boolean not null default false;
 alter table sm_releases_arc add column if not exists state_before_hold text;
-alter table sm_releases_arc add column if not exists search_9202f273 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_releases_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_9202f273' loop
+    execute format('alter table %I drop column if exists %I', 'sm_releases_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_releases_arc' and column_name = 'search_9202f273') then
+    execute format('alter table %I add column %I text', 'sm_releases_arc', 'search_9202f273');
+    execute format('update %I set %I = (%s)', 'sm_releases_arc', 'search_9202f273', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, '') || ' ' || coalesce(version_name, '') || ' ' || coalesce(release_notes, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_releases_arc_no_idx on sm_releases_arc (org_id, no);
 create index if not exists sm_releases_arc_arch_idx on sm_releases_arc (org_id, archived_at);
 create index if not exists sm_releases_arc_upd_idx on sm_releases_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -30840,7 +31138,18 @@ alter table sm_release_tasks_arc add column if not exists depends_on jsonb;
 alter table sm_release_tasks_arc add column if not exists sort_order integer;
 alter table sm_release_tasks_arc add column if not exists planned_hours numeric;
 alter table sm_release_tasks_arc add column if not exists release_manager_id uuid;
-alter table sm_release_tasks_arc add column if not exists search_f3bce210 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_release_tasks_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
+    execute format('alter table %I drop column if exists %I', 'sm_release_tasks_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_release_tasks_arc' and column_name = 'search_f3bce210') then
+    execute format('alter table %I add column %I text', 'sm_release_tasks_arc', 'search_f3bce210');
+    execute format('update %I set %I = (%s)', 'sm_release_tasks_arc', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_release_tasks_arc_no_idx on sm_release_tasks_arc (org_id, no);
 create index if not exists sm_release_tasks_arc_arch_idx on sm_release_tasks_arc (org_id, archived_at);
 create index if not exists sm_release_tasks_arc_upd_idx on sm_release_tasks_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -30924,7 +31233,18 @@ alter table sm_requests_arc add column if not exists total_price numeric;
 alter table sm_requests_arc add column if not exists recurring_total numeric;
 alter table sm_requests_arc add column if not exists stage text;
 alter table sm_requests_arc add column if not exists fulfillers jsonb;
-alter table sm_requests_arc add column if not exists search_f3bce210 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_requests_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
+    execute format('alter table %I drop column if exists %I', 'sm_requests_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_requests_arc' and column_name = 'search_f3bce210') then
+    execute format('alter table %I add column %I text', 'sm_requests_arc', 'search_f3bce210');
+    execute format('update %I set %I = (%s)', 'sm_requests_arc', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_requests_arc_no_idx on sm_requests_arc (org_id, no);
 create index if not exists sm_requests_arc_arch_idx on sm_requests_arc (org_id, archived_at);
 create index if not exists sm_requests_arc_upd_idx on sm_requests_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -31037,7 +31357,18 @@ alter table sm_request_items_arc add column if not exists info_since timestamptz
 alter table sm_request_items_arc add column if not exists info_wait bigint;
 alter table sm_request_items_arc add column if not exists reminded_at timestamptz;
 alter table sm_request_items_arc add column if not exists zero_touch boolean not null default false;
-alter table sm_request_items_arc add column if not exists search_f3bce210 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_request_items_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
+    execute format('alter table %I drop column if exists %I', 'sm_request_items_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_request_items_arc' and column_name = 'search_f3bce210') then
+    execute format('alter table %I add column %I text', 'sm_request_items_arc', 'search_f3bce210');
+    execute format('update %I set %I = (%s)', 'sm_request_items_arc', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_request_items_arc_no_idx on sm_request_items_arc (org_id, no);
 create index if not exists sm_request_items_arc_arch_idx on sm_request_items_arc (org_id, archived_at);
 create index if not exists sm_request_items_arc_upd_idx on sm_request_items_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -31129,7 +31460,18 @@ alter table sm_request_tasks_arc add column if not exists blocked_time bigint;
 alter table sm_request_tasks_arc add column if not exists deviation boolean not null default false;
 alter table sm_request_tasks_arc add column if not exists deviation_note text;
 alter table sm_request_tasks_arc add column if not exists revocation boolean not null default false;
-alter table sm_request_tasks_arc add column if not exists search_f3bce210 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_request_tasks_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
+    execute format('alter table %I drop column if exists %I', 'sm_request_tasks_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_request_tasks_arc' and column_name = 'search_f3bce210') then
+    execute format('alter table %I add column %I text', 'sm_request_tasks_arc', 'search_f3bce210');
+    execute format('update %I set %I = (%s)', 'sm_request_tasks_arc', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_request_tasks_arc_no_idx on sm_request_tasks_arc (org_id, no);
 create index if not exists sm_request_tasks_arc_arch_idx on sm_request_tasks_arc (org_id, archived_at);
 create index if not exists sm_request_tasks_arc_upd_idx on sm_request_tasks_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -31237,7 +31579,18 @@ alter table sm_sec_incidents_arc add column if not exists lessons text;
 alter table sm_sec_incidents_arc add column if not exists pir_done_at timestamptz;
 alter table sm_sec_incidents_arc add column if not exists confidential boolean not null default false;
 alter table sm_sec_incidents_arc add column if not exists access_list jsonb;
-alter table sm_sec_incidents_arc add column if not exists search_f3bce210 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_sec_incidents_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
+    execute format('alter table %I drop column if exists %I', 'sm_sec_incidents_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_sec_incidents_arc' and column_name = 'search_f3bce210') then
+    execute format('alter table %I add column %I text', 'sm_sec_incidents_arc', 'search_f3bce210');
+    execute format('update %I set %I = (%s)', 'sm_sec_incidents_arc', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_sec_incidents_arc_no_idx on sm_sec_incidents_arc (org_id, no);
 create index if not exists sm_sec_incidents_arc_arch_idx on sm_sec_incidents_arc (org_id, archived_at);
 create index if not exists sm_sec_incidents_arc_upd_idx on sm_sec_incidents_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -31319,7 +31672,18 @@ alter table sm_service_cases_arc add column if not exists journey_id uuid;
 alter table sm_service_cases_arc add column if not exists child_total integer;
 alter table sm_service_cases_arc add column if not exists child_open integer;
 alter table sm_service_cases_arc add column if not exists satisfaction integer;
-alter table sm_service_cases_arc add column if not exists search_f3bce210 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_service_cases_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
+    execute format('alter table %I drop column if exists %I', 'sm_service_cases_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_service_cases_arc' and column_name = 'search_f3bce210') then
+    execute format('alter table %I add column %I text', 'sm_service_cases_arc', 'search_f3bce210');
+    execute format('update %I set %I = (%s)', 'sm_service_cases_arc', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_service_cases_arc_no_idx on sm_service_cases_arc (org_id, no);
 create index if not exists sm_service_cases_arc_arch_idx on sm_service_cases_arc (org_id, archived_at);
 create index if not exists sm_service_cases_arc_upd_idx on sm_service_cases_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -31408,7 +31772,18 @@ alter table sm_slm_improvements_arc add column if not exists kpi_baseline numeri
 alter table sm_slm_improvements_arc add column if not exists kpi_target numeric;
 alter table sm_slm_improvements_arc add column if not exists kpi_actual numeric;
 alter table sm_slm_improvements_arc add column if not exists outcome text;
-alter table sm_slm_improvements_arc add column if not exists search_f3bce210 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_slm_improvements_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
+    execute format('alter table %I drop column if exists %I', 'sm_slm_improvements_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_slm_improvements_arc' and column_name = 'search_f3bce210') then
+    execute format('alter table %I add column %I text', 'sm_slm_improvements_arc', 'search_f3bce210');
+    execute format('update %I set %I = (%s)', 'sm_slm_improvements_arc', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_slm_improvements_arc_no_idx on sm_slm_improvements_arc (org_id, no);
 create index if not exists sm_slm_improvements_arc_arch_idx on sm_slm_improvements_arc (org_id, archived_at);
 create index if not exists sm_slm_improvements_arc_upd_idx on sm_slm_improvements_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -31486,7 +31861,18 @@ alter table sm_todos_arc add column if not exists sla_due timestamptz;
 alter table sm_todos_arc add column if not exists knowledge boolean not null default false;
 alter table sm_todos_arc add column if not exists tags jsonb;
 alter table sm_todos_arc add column if not exists estimate numeric;
-alter table sm_todos_arc add column if not exists search_f3bce210 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_todos_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
+    execute format('alter table %I drop column if exists %I', 'sm_todos_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_todos_arc' and column_name = 'search_f3bce210') then
+    execute format('alter table %I add column %I text', 'sm_todos_arc', 'search_f3bce210');
+    execute format('update %I set %I = (%s)', 'sm_todos_arc', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_todos_arc_no_idx on sm_todos_arc (org_id, no);
 create index if not exists sm_todos_arc_arch_idx on sm_todos_arc (org_id, archived_at);
 create index if not exists sm_todos_arc_upd_idx on sm_todos_arc (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -31590,7 +31976,18 @@ alter table sm_work_orders_arc add column if not exists scheduled_start timestam
 alter table sm_work_orders_arc add column if not exists work_minutes integer;
 alter table sm_work_orders_arc add column if not exists travel_minutes integer;
 alter table sm_work_orders_arc add column if not exists technicians jsonb;
-alter table sm_work_orders_arc add column if not exists search_8fe328e6 text;
+do $arcs$
+declare old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_work_orders_arc' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_8fe328e6' loop
+    execute format('alter table %I drop column if exists %I', 'sm_work_orders_arc', old.column_name);
+  end loop;
+  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = 'sm_work_orders_arc' and column_name = 'search_8fe328e6') then
+    execute format('alter table %I add column %I text', 'sm_work_orders_arc', 'search_8fe328e6');
+    execute format('update %I set %I = (%s)', 'sm_work_orders_arc', 'search_8fe328e6', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, '') || ' ' || coalesce(parent_number, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  end if;
+end
+$arcs$;
 create index if not exists sm_work_orders_arc_no_idx on sm_work_orders_arc (org_id, no);
 create index if not exists sm_work_orders_arc_arch_idx on sm_work_orders_arc (org_id, archived_at);
 create index if not exists sm_work_orders_arc_upd_idx on sm_work_orders_arc (org_id, updated_at desc, id desc) where deleted_at is null;

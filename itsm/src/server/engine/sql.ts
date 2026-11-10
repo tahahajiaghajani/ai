@@ -308,6 +308,16 @@ export function searchFieldsOf(def: TableDef): FieldDef[] {
   return def.fields.filter((f) => f.name === def.display && text(f));
 }
 
+/**
+ * The built-in search fields the stored document may hold: those every reader of a row may see. A field of a field
+ * group (internal, personal, financial…) never enters it — a member who reads the row but not that group could
+ * otherwise find rows by its hidden text; such fields are searched on their own columns (`searchSql`), and only for
+ * callers who see them.
+ */
+export function storedSearchFieldsOf(def: TableDef): FieldDef[] {
+  return searchFieldsOf(def).filter((f) => !f.group);
+}
+
 /** The normalised text of `fields` on the row aliased `alias` (null: the bare columns): `translate(coalesce(a, '') || ' ' || …)`. */
 export function searchDoc(fields: FieldDef[], alias: string | null): string {
   const col = (name: string) => (alias ? `${alias}.${name}` : name);
@@ -324,7 +334,7 @@ export function searchDoc(fields: FieldDef[], alias: string | null): string {
  */
 export function searchColumn(def: TableDef): { name: string; expr: string } | null {
   if (def.virtual || !def.numbered) return null;
-  const fields = searchFieldsOf(def);
+  const fields = storedSearchFieldsOf(def);
   if (!fields.length) return null;
   const expr = searchDoc(fields, null);
   return { name: `search_${createHash("sha256").update(expr).digest("hex").slice(0, 8)}`, expr };
@@ -349,9 +359,14 @@ export function searchSql(def: TableDef, alias: string, q: string, params: unkno
   }
   const terms = normalizeSearch(raw).split(/\s+/).filter(Boolean).slice(0, 8);
   if (!terms.length) return null;
-  const builtIn = searchFieldsOf(def);
-  const seen = builtIn.filter(visible);
+  const all = searchFieldsOf(def);
   const stored = searchColumn(def);
+  // fields of a field group never enter the stored document (storedSearchFieldsOf): they are searched on their own
+  // columns, and only when the caller sees them
+  const builtIn = stored ? storedSearchFieldsOf(def) : all;
+  const restricted = stored ? all.filter((f) => f.group && visible(f)) : [];
+  const restrictedDoc = restricted.length ? searchDoc(restricted, alias) : null;
+  const seen = builtIn.filter(visible);
   // the built-in fields: the stored document (one `like` on a column a trigram index answers), checked again on the
   // fields the caller sees when some are hidden from them; without a stored column (tables that are not numbered),
   // the document is computed as before
@@ -363,7 +378,7 @@ export function searchSql(def: TableDef, alias: string, q: string, params: unkno
   // the custom search fields decide; a word with a quote or a backslash is escaped in that JSON text, so it skips it
   const customIdx = normSql(`${alias}.custom::text`);
   const ors: string[] = [];
-  if (seen.length || customDoc) {
+  if (seen.length || restrictedDoc || customDoc) {
     ors.push(
       `(${terms
         .map((t) => {
@@ -371,6 +386,9 @@ export function searchSql(def: TableDef, alias: string, q: string, params: unkno
           const arms: string[] = [];
           // a word never spans two fields (it has no spaces): the whole document finds a superset of the shown fields
           if (seen.length && builtInDoc) arms.push(shownDoc ? `(${builtInDoc} like ${pattern} and ${shownDoc} like ${pattern})` : `${builtInDoc} like ${pattern}`);
+          // restricted search fields the caller sees: the normal per-field path (no index; a few columns of the rows the
+          // other conditions already narrowed)
+          if (restrictedDoc) arms.push(`${restrictedDoc} like ${pattern}`);
           // (`custom <> '{}'` is the partial index's own condition: a row without custom values matches nothing here)
           if (customDoc) arms.push(/["\\]/.test(t) ? `${customDoc} like ${pattern}` : `(${alias}.custom <> '{}'::jsonb and ${customIdx} like ${pattern} and ${customDoc} like ${pattern})`);
           return arms.length > 1 ? `(${arms.join(" or ")})` : arms[0];
