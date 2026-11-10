@@ -23,7 +23,7 @@ const demoRows = async (org: string) => (await e.db.query<{ row_id: string; tbl:
 
 beforeAll(async () => {
   e = await engineOrg();
-});
+}, 300_000);
 
 describe("demo capture", () => {
   it("records rows inserted in the demo scope, and only those", async () => {

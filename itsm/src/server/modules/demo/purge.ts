@@ -101,9 +101,6 @@ const STAMPS = new Set(["id", "org_id", "created_by", "updated_by"]);
 
 const ident = (s: string) => `"${s.replace(/"/g, '""')}"`;
 const lit = (s: string) => `'${s.replace(/'/g, "''")}'`;
-/** The organisation's demo ids (rows and accounts). $1 = the organisation. */
-const DEMO_IDS = `(select row_id from sm_demo_rows where org_id = $1)`;
-const DEMO_TEXT_IDS = `(select row_id::text from sm_demo_rows where org_id = $1)`;
 const UUID_RE = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 
 const infoCache = new WeakMap<object, Promise<TableInfo[]>>();
@@ -150,14 +147,25 @@ async function loadInfo(q: Queryable): Promise<TableInfo[]> {
 const isUuid = (c: ColInfo | undefined) => !!c && c.type === "uuid";
 const hasIdOrg = (t: TableInfo) => isUuid(t.cols.get("id")) && isUuid(t.cols.get("org_id"));
 
-/** A condition on alias `x` naming a demo row through column `col` (uuid or text). */
+/** Is the uuid expression `e` a demo id of the organisation ($1)? An index probe of sm_demo_rows' primary key. */
+const isDemo = (e: string) => `exists (select 1 from sm_demo_rows d where d.org_id = $1 and d.row_id = ${e})`;
+/** The same for a text expression (a uuid only when it looks like one: the cast never sees anything else). */
+const isDemoText = (e: string) => `(case when ${e} ~* '^${UUID_RE}$' then ${isDemo(`(${e})::uuid`)} else false end)`;
+
+/** A condition on alias `x` naming a demo row through column `col` (uuid, text or uuid array). */
 function names(t: TableInfo, col: string): string | null {
   const c = t.cols.get(col);
   if (!c) return null;
-  if (c.type === "uuid") return `x.${ident(col)} in ${DEMO_IDS}`;
-  if (c.type === "text" || c.type === "character varying") return `x.${ident(col)} in ${DEMO_TEXT_IDS}`;
-  if (c.type === "ARRAY") return `x.${ident(col)}::text[] && array${DEMO_TEXT_IDS}`;
+  const x = `x.${ident(col)}`;
+  if (c.type === "uuid") return `(${x} is not null and ${isDemo(x)})`;
+  if (c.type === "text" || c.type === "character varying") return `(${x} is not null and ${isDemoText(x)})`;
+  if (c.type === "ARRAY") return `(${x} is not null and exists (select 1 from unnest(${x}::text[]) u(v) where ${isDemoText("u.v")}))`;
   return null;
+}
+
+/** Does the organisation have rows in the table at all? (most tables of a young organisation are empty) */
+async function hasRows(q: Queryable, t: TableInfo, orgId: string): Promise<boolean> {
+  return !!(await q.one(`select 1 from ${ident(t.name)} where org_id = $1 limit 1`, [orgId]));
 }
 
 /**
@@ -170,7 +178,7 @@ export function derivedConds(t: TableInfo): string[] {
   const add = (c: string | null) => c && out.push(c);
   if (t.name === "sm_jobs") {
     // a job about demo data: its payload names a demo row
-    out.push(`exists (select 1 from regexp_matches(x.payload::text, ${lit(UUID_RE)}, 'g') m join sm_demo_rows d on d.org_id = $1 and d.row_id = m[1]::uuid)`);
+    out.push(`exists (select 1 from regexp_matches(x.payload::text, ${lit(`(${UUID_RE})`)}, 'g') m where ${isDemo("m[1]::uuid")})`);
     return out;
   }
   for (const col of ["record_id", "ref_id", "entity_id", "doc_id", "from_id", "to_id"]) add(names(t, col));
@@ -197,7 +205,7 @@ export async function expandDerived(q: Queryable, orgId: string, info: TableInfo
     for (const t of info) {
       if (SKIP.has(t.name) || !hasIdOrg(t)) continue;
       const conds = derivedConds(t);
-      if (!conds.length) continue;
+      if (!conds.length || !(await hasRows(q, t, orgId))) continue;
       const rows = await q.query<{ id: string }>(
         `insert into sm_demo_rows (org_id, row_id, tbl)
          select $1, x.id, ${lit(t.arc && t.def ? t.def.table : t.name)} from ${ident(t.name)} x
@@ -251,7 +259,7 @@ async function sweepReferences(q: Queryable, orgId: string, info: TableInfo[], a
   const out: RefReport[] = [];
   const real = `x.org_id = $1 and not exists (select 1 from sm_demo_rows d where d.org_id = $1 and d.row_id = x.id)`;
   for (const t of info) {
-    if (SKIP.has(t.name) || !t.def || !hasIdOrg(t)) continue;
+    if (SKIP.has(t.name) || !t.def || !hasIdOrg(t) || !(await hasRows(q, t, orgId))) continue;
     for (const f of refFields(t.def)) {
       const col = f.custom ? null : t.cols.get(f.name);
       if (!f.custom && !col) continue;
@@ -259,13 +267,12 @@ async function sweepReferences(q: Queryable, orgId: string, info: TableInfo[], a
       let clear: string;
       if (f.custom) {
         if (f.array || !t.cols.has("custom")) continue;
-        cond = `x.custom ->> ${lit(f.name)} in ${DEMO_TEXT_IDS}`;
+        cond = isDemoText(`x.custom ->> ${lit(f.name)}`);
         clear = `custom = custom - ${lit(f.name)}`;
       } else if (f.array) {
         if (col!.type !== "jsonb") continue;
-        const elem = `exists (select 1 from jsonb_array_elements_text(case when jsonb_typeof(x.${ident(f.name)}) = 'array' then x.${ident(f.name)} else '[]'::jsonb end) e(v) where e.v in ${DEMO_TEXT_IDS})`;
-        cond = elem;
-        clear = `${ident(f.name)} = (select coalesce(jsonb_agg(e.v), '[]'::jsonb) from jsonb_array_elements(${ident(f.name)}) e(v) where (e.v #>> '{}') not in ${DEMO_TEXT_IDS})`;
+        cond = `exists (select 1 from jsonb_array_elements_text(case when jsonb_typeof(x.${ident(f.name)}) = 'array' then x.${ident(f.name)} else '[]'::jsonb end) e(v) where ${isDemoText("e.v")})`;
+        clear = `${ident(f.name)} = (select coalesce(jsonb_agg(e.v), '[]'::jsonb) from jsonb_array_elements(${ident(f.name)}) e(v) where not coalesce(${isDemoText("(e.v #>> '{}')")}, false))`;
       } else {
         const c = names(t, f.name);
         if (!c) continue;
@@ -282,7 +289,7 @@ async function sweepReferences(q: Queryable, orgId: string, info: TableInfo[], a
     for (const col of ["unit_id", "domain_id", "workspace_id", "created_by", "updated_by"]) {
       const c = t.cols.get(col);
       if (!isUuid(c)) continue;
-      const n = await q.one<{ n: number }>(`select count(*)::int as n from ${ident(t.name)} x where ${real} and x.${ident(col)} in ${DEMO_IDS}`, [orgId]);
+      const n = await q.one<{ n: number }>(`select count(*)::int as n from ${ident(t.name)} x where ${real} and x.${ident(col)} is not null and ${isDemo(`x.${ident(col)}`)}`, [orgId]);
       if (n?.n) out.push({ table: t.name, field: col, rows: n.n, action: "reported" });
     }
   }
@@ -334,12 +341,12 @@ export async function removeRows(q: Queryable, orgId: string, info: TableInfo[],
   for (const t of info) {
     if (SKIP.has(t.name)) continue;
     if (t.name === "sm_outbox") {
-      removed += (await q.query(`delete from sm_outbox where id in ${DEMO_IDS} returning id`, [orgId])).length;
+      removed += (await q.query(`delete from sm_outbox x where ${isDemo("x.id")} returning id`, [orgId])).length;
       continue;
     }
     if (hasIdOrg(t) || !isUuid(t.cols.get("org_id"))) continue;
     const conds: string[] = [];
-    for (const c of t.cols.values()) if (c.type === "uuid" && !STAMPS.has(c.name)) conds.push(`x.${ident(c.name)} in ${DEMO_IDS}`);
+    for (const c of t.cols.values()) if (c.type === "uuid" && !STAMPS.has(c.name)) conds.push(`(x.${ident(c.name)} is not null and ${isDemo(`x.${ident(c.name)}`)})`);
     if (!conds.length) continue;
     removed += (await q.query(`delete from ${ident(t.name)} x where x.org_id = $1 and (${conds.join(" or ")}) returning 1 as k`, [orgId])).length;
   }
@@ -378,7 +385,7 @@ export async function removeAccounts(q: Queryable, orgId: string): Promise<{ rem
 /** Files of demo attachments no remaining attachment of the organisation uses. */
 export async function demoFiles(q: Queryable, orgId: string): Promise<string[]> {
   const rows = await q.query<{ sha256: string }>(
-    `select distinct a.sha256 from sm_attachments a where a.org_id = $1 and a.id in ${DEMO_IDS} and a.sha256 is not null`,
+    `select distinct a.sha256 from sm_attachments a where a.org_id = $1 and ${isDemo("a.id")} and a.sha256 is not null`,
     [orgId],
   );
   return rows.map((r) => r.sha256);
