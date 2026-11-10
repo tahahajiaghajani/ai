@@ -33,7 +33,7 @@ function matcher(route: string): RegExp {
 interface Registry {
   routes: string[];
   portal: string[];
-  nav: { key: string; path: string; access?: { area: string; op?: string } }[];
+  nav: { key: string; path: string; access?: { area: string; op?: string } | { area: string; op?: string }[] }[];
   tables: string[];
   newRecordPath: (table: string) => string;
   recordPath: (table: string, id: string) => string;
@@ -215,7 +215,7 @@ describe("the sidebar offers each role only lists it may read", () => {
     for (const role of reg.builtinRoles("open")) {
       for (const i of reg.nav) {
         const t = lists.get(i.path);
-        if (!t || (i.access && !reg.gateAllows(role.grants, i.access))) continue;
+        if (!t || (i.access && ![i.access].flat().every((g) => reg.gateAllows(role.grants, g)))) continue;
         const area = reg.tableDef(t)?.area;
         if (area && !reg.gateAllows(role.grants, { area })) bad.push(`${role.key}: ${i.key} → ${t} (${area})`);
       }
@@ -233,6 +233,13 @@ describe("the sidebar offers each role only lists it may read", () => {
     // queues without a gate of their own take the table's
     expect(item("problem:q:mine")?.access).toEqual({ area: "problem" });
     expect(item("cmdb:query")?.access).toEqual({ area: "cmdb" });
+    expect(item("cmdb:map")?.access).toEqual({ area: "cmdb" });
+    // «توافق‌های در خطر» filters on the SLM's internal compliance fields: the SLM's readers, not every service reader
+    expect(item("slm:q:risk")?.access).toEqual([{ area: "service" }, { area: "sla" }]);
+    expect(item("slm:q:in_force")?.access).toEqual({ area: "service" });
+    // the tenant console's own pages (a member with a view of the settings saw them)
+    expect(item("admin:licences")?.access).toEqual({ area: "settings" });
+    expect(item("admin:studio")?.access).toEqual({ area: "settings" });
   });
 });
 

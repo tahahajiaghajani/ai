@@ -69,8 +69,8 @@ export interface NavItem {
   path: string; // relative to /:org/
   area?: Area;
   level?: Level;
-  /** the member's ITSM access this item needs (an area, an operation, the least scope); hidden otherwise */
-  access?: AccessGate;
+  /** the member's ITSM access this item needs (an area, an operation, the least scope; several: all of them); hidden otherwise */
+  access?: AccessGate | readonly AccessGate[];
   module?: ModuleKey;
   desktopOnly?: boolean;
   cloudOnly?: boolean;

@@ -59,7 +59,7 @@ export function useVisibleNav(): NavGroup[] {
             (i) =>
               (!i.module || has(i.module)) &&
               (!i.area || can(i.area, i.level ?? "view")) &&
-              (!i.access || allows(i.access)) &&
+              (!i.access || [i.access].flat().every((g) => allows(g))) &&
               (!i.desktopOnly || meta?.mode === "desktop") &&
               (!i.cloudOnly || meta?.mode === "cloud"),
           ),

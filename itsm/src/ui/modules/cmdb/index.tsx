@@ -116,8 +116,8 @@ const module = recordModule({
         sidePanels: [{ key: "cmdb:health", title: "سلامت داده", order: 1, render: widget(CiHealthPanel) }],
         tabs: [
           { key: "cmdb:attrs", label: "ویژگی‌های کلاس", order: 1, render: widget(CiAttrsTab) },
-          { key: "cmdb:map", access: CMDB_READS, label: "نقشهٔ وابستگی", order: 2, render: widget(CiMapTab) },
-          { key: "cmdb:impact", access: CMDB_READS, label: "اثر", order: 3, render: widget(CiImpactTab) },
+          { key: "cmdb:map", label: "نقشهٔ وابستگی", order: 2, render: widget(CiMapTab) },
+          { key: "cmdb:impact", label: "اثر", order: 3, render: widget(CiImpactTab) },
           { key: "cmdb:provenance", label: "منشأ داده", order: 4, render: widget(CiProvenanceTab) },
         ],
         cardFields: ["class", "operational_status", "owned_by"],
@@ -154,8 +154,8 @@ const module = recordModule({
   ],
   nav: [
     { key: "cmdb:workspace", access: CMDB_READS, label: "داشبورد پیکربندی", path: "cmdb", icon: Activity, area: "work", workspace: true, keywords: "داشبورد سلامت کیفیت داده CMDB" },
-    { key: "cmdb:map", label: "نقشهٔ وابستگی", path: "cmdb/map", icon: GitFork, area: "work", workspace: true, keywords: "نقشه وابستگی خدمت گراف" },
-    { key: "cmdb:impact", label: "تحلیل اثر", path: "cmdb/impact", icon: Zap, area: "work", workspace: true, keywords: "تحلیل اثر دامنه blast radius چه می‌شود اگر" },
+    { key: "cmdb:map", access: CMDB_READS, label: "نقشهٔ وابستگی", path: "cmdb/map", icon: GitFork, area: "work", workspace: true, keywords: "نقشه وابستگی خدمت گراف" },
+    { key: "cmdb:impact", access: CMDB_READS, label: "تحلیل اثر", path: "cmdb/impact", icon: Zap, area: "work", workspace: true, keywords: "تحلیل اثر دامنه blast radius چه می‌شود اگر" },
     { key: "cmdb:query", access: CMDB_READS, label: "پرس‌وجو", path: "cmdb/query", icon: Search, area: "work", keywords: "پرس‌وجو جست‌وجوی پیشرفته رابطه" },
     { key: "cmdb:import", access: CMDB_READS, label: "ورود داده", path: "cmdb/import", icon: FileUp, section: DATA, area: "work", keywords: "ورود اکسل CSV JSON کشف" },
     { key: "cmdb:local", access: CMDB_READS, label: "موجودی این رایانه", path: "cmdb/local", icon: MonitorSmartphone, section: DATA, area: "work", desktopOnly: true, keywords: "موجودی رایانه کشف ویندوز" },

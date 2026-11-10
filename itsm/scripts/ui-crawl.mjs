@@ -733,7 +733,7 @@ async function main() {
       const can = (area, level = "view") => reg.LEVEL_ORDER.indexOf(perms[area] ?? "none") >= reg.LEVEL_ORDER.indexOf(level);
       const has = (m) => (info.org?.modules ?? []).includes(m);
       const visible = reg.nav.filter(
-        (i) => (!i.groupModule || has(i.groupModule)) && (!i.module || has(i.module)) && (!i.area || can(i.area, i.level ?? "view")) && (!i.access || reg.gateAllows(info.access?.grants, i.access)) && allowedHere(i.path) && !i.path.includes(":"),
+        (i) => (!i.groupModule || has(i.groupModule)) && (!i.module || has(i.module)) && (!i.area || can(i.area, i.level ?? "view")) && (!i.access || [i.access].flat().every((g) => reg.gateAllows(info.access?.grants, g))) && allowedHere(i.path) && !i.path.includes(":"),
       );
       log(`${role}: persona ${info.access?.persona}, ${visible.length} nav items visible`);
       const lists = new Set(classified.filter((r) => r.kind === "list").map((r) => r.path));
