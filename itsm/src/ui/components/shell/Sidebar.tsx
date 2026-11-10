@@ -1,7 +1,7 @@
 // The canvas sidebar (components.md §1.2): organisation switcher, space switcher, command entry, the
 // space's nav with section labels and counts, «نشان‌شده‌ها», and the footer with the sync state.
 // `rail` draws the 60 px icon rail (collapsed, or windows narrower than 1100 px).
-import { useMemo, useRef, useState, type ReactNode, type PointerEvent as RPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type PointerEvent as RPointerEvent } from "react";
 import { Link, useNavigate } from "react-router";
 import { Dropdown, Tooltip, type MenuProps } from "antd";
 import { useQuery } from "@tanstack/react-query";
@@ -15,6 +15,7 @@ import { BrandTile } from "../brand";
 import { Ic, Keys } from "./icons";
 import { sectionsOf, spaceOf, useStored, type ShellItem } from "./model";
 import { SyncLine, SyncNuqta, useSyncState } from "./sync";
+import { registerLiveTables } from "../../lib/live";
 
 export const SIDEBAR_W = 244;
 export const SIDEBAR_MIN = 200;
@@ -51,6 +52,8 @@ function useCounts(items: ShellItem[]): Record<string, number> | undefined {
     for (const i of items) if (i.count && !seen.has(i.count.key)) seen.set(i.count.key, i.count);
     return [...seen.values()];
   }, [items]);
+  // «زنده» asks about the tables the counts count (src/ui/lib/live.ts)
+  useEffect(() => registerLiveTables("shell-counts", defs.flatMap((d) => d.tables ?? [`module:${d.key.split(":")[0]}`])), [defs]);
   const q = useQuery({
     queryKey: ["shell-counts", orgId, defs.map((d) => d.key).join(",")],
     queryFn: async () => Object.fromEntries(await Promise.all(defs.map(async (d) => [d.key, await d.load(api).catch(() => 0)] as const))),

@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { InboxKind, NotifyEvent, NotifyPrefs, RecipientSpec, NotifyChannel, RuleGroupMode } from "@shared/notify";
 import type { Cond } from "@shared/model/conditions";
 import { useOrg } from "../../lib/org";
-import { registerLiveQueries } from "../../lib/live";
+import { registerLiveQueries, registerLiveTables } from "../../lib/live";
 
 export const KEYS = {
   count: (org: string) => ["notify-count", org],
@@ -19,6 +19,10 @@ export const KEYS = {
 };
 
 registerLiveQueries("notify-count", "notify-inbox", "notify-rules", "notify-log", "notify-email-log", "notify-inbox-status");
+// what «زنده» asks about for them: the person's own inbox rows (the pulse answers only rows they may read) and the rules
+registerLiveTables("notify-count", ["notification"]);
+registerLiveTables("notify-inbox", ["notification"]);
+registerLiveTables("notify-rules", ["notification_rule"]);
 
 export interface InboxItem {
   id: string;

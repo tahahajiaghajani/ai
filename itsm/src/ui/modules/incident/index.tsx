@@ -62,8 +62,8 @@ const groupCount = async (api: OrgApi) =>
   (await recordsApi.list(api, "incident", { filter: QUEUES[1].filter(Date.now()), size: 1, fields: ["number"], total: true })).total ?? 0;
 
 const COUNTS: Record<string, NonNullable<NavItem["count"]>> = {
-  mine: { key: "incident:mine", hint: "رخداد باز شما", load: myCount },
-  unassigned: { key: "incident:group", hint: "رخداد بی‌مسئول در گروه‌های شما", load: groupCount },
+  mine: { key: "incident:mine", hint: "رخداد باز شما", load: myCount, tables: ["incident"] },
+  unassigned: { key: "incident:group", hint: "رخداد بی‌مسئول در گروه‌های شما", load: groupCount, tables: ["incident"] },
 };
 
 const queueNav = (q: Queue, i: number): NavItem => ({

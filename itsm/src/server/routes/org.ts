@@ -17,7 +17,7 @@ import { uuidv7 } from "@shared/id";
 import { insertRow, updateRow } from "../db/sql";
 import { isEmail, isReservedEmail } from "@shared/validate";
 import { audit } from "../modules/data/crud";
-import { pulse } from "../live";
+import { scopedPulse } from "../live-scope";
 import { shellAccess } from "../access/service";
 
 const timezoneSchema = z.string().trim().max(64).refine(isTimeZone, "منطقهٔ زمانی معتبر نیست");
@@ -60,7 +60,11 @@ export const orgRoutes = router();
 orgRoutes.use("*", orgAccess);
 
 // «زنده»: a token that changes whenever this organisation's data changes (src/server/live.ts)
-orgRoutes.get("/pulse", async (c) => c.json({ pulse: await pulse(c.get("ctx")) }));
+/** «زنده»: the token, and with `t` (tables) / `r` (`table:id` records) which of them changed since `since`. */
+orgRoutes.get("/pulse", async (c) => {
+  const list = (v: string | undefined) => (v ? v.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 200) : []);
+  return c.json(await scopedPulse(c.get("ctx"), { since: c.req.query("since") ?? null, tables: list(c.req.query("t")), records: list(c.req.query("r")) }));
+});
 
 orgRoutes.get("/", async (c) => {
   const ctx = c.get("ctx");

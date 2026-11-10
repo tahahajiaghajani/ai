@@ -78,7 +78,7 @@ const queueNav = (q: Queue, i: number): NavItem => ({
   area: "work", access: FULFILS,
   workspace: i === 0,
   keywords: "درخواست خدمت قلم وظیفه صف کارتابل RITM RTSK",
-  ...(COUNTED[q.key] ? { count: { key: `request:${q.key}`, hint: COUNTED[q.key], load: queueCount(q) } } : {}),
+  ...(COUNTED[q.key] ? { count: { key: `request:${q.key}`, hint: COUNTED[q.key], load: queueCount(q), tables: [q.table] } } : {}),
 });
 
 const module = recordModule({
