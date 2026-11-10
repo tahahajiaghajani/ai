@@ -81,6 +81,8 @@ export async function notifyAdmins(cfg: ServerConfig, orgId: string, sourceId: s
 interface Attempt {
   method: AuthMethod;
   login: string;
+  /** what the local lockout counts: the account part of the login name, whatever form it was typed in */
+  lockName?: string;
   ip: string;
   userAgent: string | null;
   sourceId: string | null;
@@ -126,7 +128,7 @@ async function onFailure(cfg: ServerConfig, a: Attempt, f: LoginFailure, conf: L
   const sourceId = f.known.source_id ?? a.sourceId;
   if (orgId && sourceId && lockout && COUNTED.has(f.reason)) {
     const name = conf?.name ?? "";
-    const byName = await recordFailure(cfg.db, loginKey(orgId, sourceId, a.login), lockout.threshold, lockout.window_minutes, lockout.lock_minutes);
+    const byName = await recordFailure(cfg.db, loginKey(orgId, sourceId, a.lockName ?? a.login), lockout.threshold, lockout.window_minutes, lockout.lock_minutes);
     const byIp = await recordFailure(cfg.db, ipKey(orgId, a.ip), lockout.ip_threshold, lockout.window_minutes, lockout.lock_minutes);
     const spraying = await sourceFailure(cfg.db, sourceKey(orgId, sourceId, name), Math.max(50, lockout.ip_threshold * 3), lockout.window_minutes);
     if (byName.notify)
@@ -175,7 +177,7 @@ export async function directorySignIn(c: Context, cfg: ServerConfig, input: { lo
   const ip = clientIp(c);
   const userAgent = c.req.header("user-agent") ?? null;
   const parsed = parseLogin(input.login);
-  const a: Attempt = { method: "ldap", login: parsed?.key ?? String(input.login ?? "").trim().slice(0, 200), ip, userAgent, sourceId: null, orgId: null };
+  const a: Attempt = { method: "ldap", login: parsed?.key ?? String(input.login ?? "").trim().slice(0, 200), lockName: parsed?.name.toLowerCase(), ip, userAgent, sourceId: null, orgId: null };
   if (!parsed) throw loginError("bad_login");
   // an empty password is an unauthenticated bind that «succeeds»: refused before anything else is asked
   if (typeof input.password !== "string" || input.password.length === 0) throw loginError("empty_password");
@@ -195,11 +197,13 @@ export async function directorySignIn(c: Context, cfg: ServerConfig, input: { lo
     conf = loaded.conf;
     lockout = orgPolicy(await cfg.db.one(`select settings from sm_orgs where id = $1`, [ref.org_id])).lockout;
     if (await lockedUntil(cfg.db, ipKey(ref.org_id, ip))) throw new LoginFailure("rate_limited", "نشانی پس از تلاش‌های ناموفق کنار گذاشته شده است", { org_id: ref.org_id, source_id: ref.id });
-    // a login name locked here is refused without asking the domain controllers (they never see the guesses)
-    if (await lockedUntil(cfg.db, loginKey(ref.org_id, ref.id, parsed.key))) throw new LoginFailure("throttled", null, { org_id: ref.org_id, source_id: ref.id });
+    // a login name locked here is refused without asking the domain controllers (they never see the guesses); every
+    // form of one name (ali, CORP\ali, ali@corp…) counts together
+    const lockName = parsed.name.toLowerCase();
+    if (await lockedUntil(cfg.db, loginKey(ref.org_id, ref.id, lockName))) throw new LoginFailure("throttled", null, { org_id: ref.org_id, source_id: ref.id });
     const identity = await verifyDirectoryPassword(cfg, loaded.sys, conf, parsed, input.password);
     const result = await provisionMember(cfg, conf, identity);
-    await clearFailures(cfg.db, loginKey(ref.org_id, ref.id, parsed.key));
+    await clearFailures(cfg.db, loginKey(ref.org_id, ref.id, lockName));
     return await finish(c, cfg, a, conf, result, identity.dc);
   } catch (e) {
     if (!(e instanceof LoginFailure)) throw e;

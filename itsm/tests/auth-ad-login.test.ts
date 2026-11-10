@@ -202,8 +202,10 @@ describe("accounts the directory refuses", () => {
 describe("protecting the domain controller", () => {
   it("locks a login name locally after repeated failures — the DC never sees the next tries — and tells the administrators", async () => {
     const before = Number((await w.db.one<{ n: number }>(`select count(*)::int as n from sm_jobs where org_id = $1`, [w.org]))!.n);
+    // every form of the name counts together
+    const forms = ["ali", "CORP\\ali", "ali@corp.test", "ALI", "corp\\ALI"];
     for (let i = 0; i < 5; i++) {
-      const r = await w.client().raw("POST", "/auth/directory", { login: "ali", password: `guess-${i}` });
+      const r = await w.client().raw("POST", "/auth/directory", { login: forms[i], password: `guess-${i}` });
       expect(r.status).toBe(401);
     }
     w.dc.reset();
