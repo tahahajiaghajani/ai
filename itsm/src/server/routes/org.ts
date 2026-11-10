@@ -18,6 +18,7 @@ import { insertRow, updateRow } from "../db/sql";
 import { isEmail, isReservedEmail } from "@shared/validate";
 import { audit } from "../modules/data/crud";
 import { pulse } from "../live";
+import { needRecentAuthOf } from "../auth/policy";
 import { shellAccess } from "../access/service";
 
 const timezoneSchema = z.string().trim().max(64).refine(isTimeZone, "منطقهٔ زمانی معتبر نیست");
@@ -26,7 +27,12 @@ const modulesSchema = z.array(z.string().max(40)).max(50);
 export const orgsRoutes = router();
 orgsRoutes.use("*", requireUser);
 
-orgsRoutes.get("/", async (c) => c.json({ orgs: await accessibleOrgs(c.get("cfg").db, c.get("user")) }));
+orgsRoutes.get("/", async (c) => {
+  const orgs = await accessibleOrgs(c.get("cfg").db, c.get("user"));
+  // a directory sign-in sees only its organisation
+  const scoped = c.get("session")?.org_id;
+  return c.json({ orgs: scoped ? orgs.filter((o) => o.id === scoped) : orgs });
+});
 
 orgsRoutes.post("/", async (c) => {
   const cfg = c.get("cfg");
@@ -40,6 +46,7 @@ orgsRoutes.post("/", async (c) => {
     city: z.string().trim().max(80).nullish(),
     address: z.string().trim().max(400).nullish(),
   }));
+  if (c.get("session")?.org_id) throw forbidden("با حساب سازمانی نمی‌توان سازمان تازه ساخت؛ با ورود محلی وارد شوید");
   // On the Windows app, owning any organisation makes one an administrator of the installation
   // (backups, restore, LAN, cloud link — see routes/local.ts); only existing administrators add
   // organisations there, otherwise any member could promote themselves.
@@ -97,6 +104,8 @@ orgRoutes.patch("/", async (c) => {
     modules: modulesSchema.optional(),
   }));
   const { settings, modules, ...profile } = input;
+  // the sign-in and session policy changes only through «امنیت ورود و نشست‌ها» (checked, re-authenticated, audited)
+  if (settings && "auth" in settings) throw bad("سیاست ورود و نشست‌ها را از «امنیت ورود و نشست‌ها» تغییر دهید");
   if (settings && "timezone" in settings && (typeof settings.timezone !== "string" || !isTimeZone(settings.timezone))) throw bad("منطقهٔ زمانی معتبر نیست");
   const result = await ctx.write(async (tx) => {
     const patch: Record<string, unknown> = { ...profile, origin: ctx.cfg.origin };
@@ -210,6 +219,8 @@ orgRoutes.patch("/members/:id", async (c) => {
     title: z.string().trim().max(80).nullish(),
     is_active: z.boolean().optional(),
   }));
+  // a membership role or per-area overrides are privilege changes: a recent proof of identity
+  if (input.role !== undefined || input.overrides !== undefined) needRecentAuthOf(c, ctx);
   const m = await ctx.db.one<MemberState>(
     `select m.id, m.role, m.user_id, m.is_active, m.overrides, m.title, u.email from sm_org_members m join sm_users u on u.id = m.user_id
      where m.id = $1 and m.org_id = $2 and m.deleted_at is null`,
@@ -253,6 +264,7 @@ orgRoutes.patch("/members/:id", async (c) => {
 orgRoutes.post("/members/:id/password", async (c) => {
   const ctx = c.get("ctx");
   ctx.need("users", "full");
+  needRecentAuthOf(c, ctx);
   const input = await body(c, z.object({ password: z.string().optional() }));
   const m = await ctx.db.one<{ user_id: string; role: Role; overrides: Partial<Record<Area, Level>> | null; email: string }>(
     `select m.user_id, m.role, m.overrides, u.email from sm_org_members m join sm_users u on u.id = m.user_id where m.id = $1 and m.org_id = $2 and m.deleted_at is null`,

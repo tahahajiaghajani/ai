@@ -8,6 +8,7 @@ import { useAction } from "../../lib/hooks";
 import { PageHeader } from "../../components/layout";
 import { JDateTime } from "../../components/display";
 import { Card, ICON, ICON14 } from "../../components/blocks";
+import { METHOD_LABELS } from "@shared/auth/login";
 
 export default function Account() {
   const { me, refresh } = useSession();
@@ -15,6 +16,7 @@ export default function Account() {
   const profile = useAction((v: any) => api.patch("/auth/me", v), { success: "مشخصات ذخیره شد.", onSuccess: () => refresh() });
   const pw = useAction((v: any) => api.post("/auth/password", v), { success: "رمز عبور تغییر کرد؛ ورودهای دیگر بسته شد." });
   const revoke = useAction((id: string) => api.del(`/auth/sessions/${id}`), { success: "از آن دستگاه خارج شد.", invalidate: [["sessions"]] });
+  const others = useAction(() => api.post<{ sessions: number }>("/auth/sessions/revoke-all", {}), { success: "از همهٔ دستگاه‌های دیگر خارج شد.", invalidate: [["sessions"]] });
   return (
     <div>
       <PageHeader title="حساب کاربری من" subtitle={me?.user.email ? <bdi dir="ltr" className="ds-latin">{me.user.email}</bdi> : undefined} />
@@ -34,7 +36,18 @@ export default function Account() {
             <div className="flex justify-end"><Button htmlType="submit" loading={pw.isPending}>تغییر رمز</Button></div>
           </Form>
         </Card>
-        <Card title="دستگاه‌های واردشده" className="lg:col-span-2" flush>
+        <Card
+          title="دستگاه‌های واردشده"
+          className="lg:col-span-2"
+          flush
+          tools={
+            (sessions.data?.sessions ?? []).length > 1 ? (
+              <Button size="small" danger icon={<LogOut {...ICON14} />} loading={others.isPending} onClick={() => others.mutate(undefined)}>
+                خروج از همهٔ دستگاه‌های دیگر
+              </Button>
+            ) : null
+          }
+        >
           <Table
             className="blk-tbl"
             size="middle"
@@ -53,7 +66,7 @@ export default function Account() {
                 render: (v, r: any) => (
                   <span className="flex items-center gap-2">
                     <span className="blk-3 inline-grid">{v === "device" ? <Monitor {...ICON} /> : <Globe {...ICON} />}</span>
-                    <span>{v === "device" ? `برنامهٔ ویندوز${r.device_name ? `، ${r.device_name}` : ""}` : "مرورگر"}</span>
+                    <span>{v === "device" ? `برنامهٔ ویندوز${r.device_name ? `، ${r.device_name}` : ""}` : `مرورگر${r.auth_method && r.auth_method !== "password" && METHOD_LABELS[r.auth_method] ? ` · ${METHOD_LABELS[r.auth_method]}` : ""}`}</span>
                     {r.id === sessions.data?.current ? <span className="blk-plain">همین دستگاه</span> : null}
                   </span>
                 ),

@@ -12,6 +12,8 @@ import { needWithinLimit } from "../admin/common";
 import { createServiceMember, needPrincipalWithin, syncServiceMember } from "./users";
 import { redactRefs } from "./issues";
 import { invalidateSubscriptions } from "./webhooks";
+import { validateLoginSettings } from "./directory-login";
+import { directoryLan } from "./directory";
 
 const HOUR = 3600_000;
 
@@ -62,6 +64,8 @@ function inbound(w: WriteArgs): void {
 export const DIRECTORY_APPROVED_FIELDS = [
   "kind", "ldap_url", "bind_dn", "bind_password", "base_dn", "user_filter", "attr_map", "group_map", "default_role", "membership_role", "auto_roles",
   "deactivate_missing", "unit_from", "mode", "scim_token",
+  // «ورود با حساب سازمانی» and Windows sign-in: which domain controllers and certificates, who signs in, who is made, which proxies are believed
+  "dc_urls", "tls_mode", "ca_cert", "group_base_dn", "nested_groups", "login_enabled", "login_domains", "login_attr", "jit", "sso_mode", "proxy_ips", "proxy_secret", "proxy_header", "ntlm",
 ];
 
 function directory(w: WriteArgs): void {
@@ -69,7 +73,7 @@ function directory(w: WriteArgs): void {
   if (w.next.kind === "ldap" && w.next.ldap_url && !/^ldaps?:\/\/[^\s/]+/i.test(String(w.next.ldap_url))) throw bad("نشانی LDAP باید با ldap:// یا ldaps:// شروع شود");
   // the web version reaches only public directories: their bind password never crosses the Internet in clear text
   const addressSet = w.op === "create" || w.changed.has("ldap_url") || w.changed.has("kind");
-  if (addressSet && w.next.kind === "ldap" && w.next.ldap_url && w.ctx.cfg.mode !== "desktop" && !/^ldaps:\/\//i.test(String(w.next.ldap_url))) {
+  if (addressSet && w.next.kind === "ldap" && w.next.ldap_url && !directoryLan(w.ctx.cfg) && !/^ldaps:\/\//i.test(String(w.next.ldap_url))) {
     throw bad("در نسخهٔ وب فقط ldaps:// (LDAP روی TLS) پذیرفته می‌شود تا گذرواژهٔ اتصال رمزنگاری‌نشده از اینترنت نگذرد");
   }
   if (w.next.kind === "scim" && w.op === "create" && !w.next.scim_token) w.next.scim_token = randomToken(32);
@@ -80,6 +84,8 @@ function directory(w: WriteArgs): void {
     w.next.approved_by = null;
     if (w.next.mode === "apply") w.next.mode = "preview";
   }
+  // sign-in settings: addresses, TLS, the root CA, proxies; changing who signs in needs a recent proof of identity
+  validateLoginSettings(w);
 }
 
 function issueConnection(w: WriteArgs): void {

@@ -9268,10 +9268,29 @@ alter table sm_directory_sources add column if not exists user_filter text;
 alter table sm_directory_sources add column if not exists attr_map jsonb;
 alter table sm_directory_sources add column if not exists scim_token text;
 alter table sm_directory_sources add column if not exists group_map jsonb;
+alter table sm_directory_sources add column if not exists login_enabled boolean not null default false;
+alter table sm_directory_sources add column if not exists login_domains jsonb;
+alter table sm_directory_sources add column if not exists tls_mode text;
+alter table sm_directory_sources add column if not exists login_attr text;
+alter table sm_directory_sources add column if not exists dc_urls text;
+alter table sm_directory_sources add column if not exists ca_cert text;
+alter table sm_directory_sources add column if not exists group_base_dn text;
+alter table sm_directory_sources add column if not exists timeout_seconds integer;
+alter table sm_directory_sources add column if not exists nested_groups boolean not null default true;
+alter table sm_directory_sources add column if not exists jit boolean not null default true;
+alter table sm_directory_sources add column if not exists sso_mode text;
+alter table sm_directory_sources add column if not exists sso_auto boolean not null default false;
+alter table sm_directory_sources add column if not exists sso_host text;
+alter table sm_directory_sources add column if not exists sso_account text;
+alter table sm_directory_sources add column if not exists ntlm boolean not null default false;
+alter table sm_directory_sources add column if not exists proxy_header text;
+alter table sm_directory_sources add column if not exists proxy_ips text;
+alter table sm_directory_sources add column if not exists proxy_secret text;
 alter table sm_directory_sources add column if not exists health text;
 alter table sm_directory_sources add column if not exists last_run_at timestamptz;
 alter table sm_directory_sources add column if not exists next_run_at timestamptz;
 alter table sm_directory_sources add column if not exists last_summary text;
+alter table sm_directory_sources add column if not exists approved_map_hash text;
 create index if not exists sm_directory_sources_rev_idx on sm_directory_sources (org_id, rev);
 create index if not exists sm_directory_sources_upd_idx on sm_directory_sources (org_id, updated_at desc, id desc) where deleted_at is null;
 create index if not exists sm_directory_sources_crt_idx on sm_directory_sources (org_id, created_at desc, id desc) where deleted_at is null;
@@ -26573,3 +26592,35 @@ create index if not exists sm_directory_links_local_idx on sm_directory_links (o
 alter table sm_directory_links enable row level security;
 
 insert into sm_migrations (id) values ('0080_admin_integration') on conflict (id) do nothing;
+
+-- ---------------------------------------------------------------------------
+-- 0090_auth_directory — ورود با حساب سازمانی و ورود خودکار ویندوز: روش و دامنهٔ نشست‌ها، سیاست نشست، شمارش ورودهای ناموفق و قفل محلی
+-- ---------------------------------------------------------------------------
+alter table sm_sessions add column if not exists auth_method text;
+alter table sm_sessions add column if not exists org_id uuid;
+alter table sm_sessions add column if not exists source_id uuid;
+alter table sm_sessions add column if not exists login text;
+alter table sm_sessions add column if not exists reauth_at timestamptz;
+alter table sm_sessions add column if not exists idle_minutes int not null default 0;
+alter table sm_sessions add column if not exists browser_only boolean not null default false;
+alter table sm_sessions add column if not exists revoke_reason text;
+create index if not exists sm_sessions_org_idx on sm_sessions (org_id) where revoked_at is null;
+create index if not exists sm_sessions_live_idx on sm_sessions (user_id, last_seen_at desc) where revoked_at is null;
+
+create table if not exists sm_auth_throttle (
+  key text primary key,
+  org_id uuid,
+  kind text not null,
+  subject text,
+  failures int not null default 0,
+  window_start timestamptz not null default now(),
+  locked_until timestamptz,
+  notified_at timestamptz,
+  updated_at timestamptz not null default now()
+);
+create index if not exists sm_auth_throttle_org_idx on sm_auth_throttle (org_id, updated_at desc);
+alter table sm_auth_throttle enable row level security;
+
+alter table sm_directory_links add column if not exists granted jsonb;
+
+insert into sm_migrations (id) values ('0090_auth_directory') on conflict (id) do nothing;

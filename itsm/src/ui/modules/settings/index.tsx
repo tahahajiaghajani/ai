@@ -1,7 +1,7 @@
 // «تنظیمات»: the organisation, members and roles, AI, integrations, the Windows app, the audit log, the person's own
 // account and help — the settings space of the sidebar (opened from its footer), plus the palette's member search.
 import { lazy } from "react";
-import { Building2, UserCog, Plug, Monitor, ScrollText, CircleUser, CircleHelp, User } from "lucide-react";
+import { Building2, UserCog, Plug, Monitor, ScrollText, CircleUser, CircleHelp, User, ShieldCheck } from "lucide-react";
 import { normalizeFa } from "../../lib/fa";
 import { AiIcon } from "../../components/shell/icons";
 import type { ModuleUi } from "../registry";
@@ -13,6 +13,7 @@ const Desktop = lazy(() => import("./Desktop"));
 const Audit = lazy(() => import("./Audit"));
 const Integrations = lazy(() => import("./Integrations"));
 const Help = lazy(() => import("./Help"));
+const Security = lazy(() => import("./Security"));
 const AiSettings = lazy(() => import("../../ai/settings/AiSettings"));
 
 export const settingsUi: ModuleUi = {
@@ -26,6 +27,7 @@ export const settingsUi: ModuleUi = {
         { key: "members", label: "کاربران و دسترسی‌ها", path: "settings/users", area: "users", icon: UserCog, keywords: "اعضا نقش دسترسی کاربر جدید رمز" },
         { key: "ai", label: "هوش مصنوعی", path: "settings/ai", area: "ai", level: "full", icon: AiIcon, keywords: "دستیار کلید API مدل Claude Gemini OpenAI هوش مصنوعی مصرف بودجه" },
         { key: "integrations", label: "اتصال‌ها و API", path: "settings/integrations", area: "integrations", icon: Plug, keywords: "وب‌هوک webhook کلید API رویداد سامانهٔ دیگر" },
+        { key: "security", label: "امنیت ورود و نشست‌ها", path: "settings/security", area: "settings", icon: ShieldCheck, keywords: "نشست ورود SSO اکتیو دایرکتوری قفل گذرواژه خروج همه کوکی بیکاری حساب اضطراری" },
         { key: "desktop", label: "نسخهٔ ویندوز", path: "settings/desktop", desktopOnly: true, icon: Monitor, keywords: "پشتیبان شبکه همگام‌سازی بکاپ LAN ابری" },
         { key: "audit", label: "گزارش رویدادها", path: "settings/audit", area: "settings", icon: ScrollText, keywords: "تاریخچه تغییرات" },
         { key: "account", label: "حساب کاربری من", path: "settings/account", icon: CircleUser, section: "شما", keywords: "رمز عبور نشست دستگاه" },
@@ -40,6 +42,7 @@ export const settingsUi: ModuleUi = {
     { path: "settings/desktop", element: <Desktop /> },
     { path: "settings/audit", element: <Audit /> },
     { path: "settings/integrations", element: <Integrations /> },
+    { path: "settings/security", element: <Security /> },
     { path: "settings/ai", element: <AiSettings /> },
     { path: "help", element: <Help /> },
   ],

@@ -77,6 +77,7 @@ import { installAdminModule } from "../modules/admin";
 import { adminTenantRoutes } from "./admin-tenant";
 import { installIntegrationModule } from "../modules/integration";
 import { integrationHubRoutes } from "./integration";
+import { authAdminRoutes } from "./auth-admin";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
 installAccessModel();
@@ -200,3 +201,5 @@ moduleRoutes.route("/slm", slmRoutes);
 moduleRoutes.route("/workforce", workforceRoutes);
 moduleRoutes.route("/admin", adminTenantRoutes);
 moduleRoutes.route("/integration", integrationHubRoutes);
+// «امنیت ورود و نشست‌ها»: the organisation's session policy, sessions, sign-in audit and lockouts
+moduleRoutes.route("/auth", authAdminRoutes);

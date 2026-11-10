@@ -22,7 +22,18 @@ export function qs(params?: Query): string {
   return out ? `?${out}` : "";
 }
 
-async function request<T>(method: string, path: string, body?: unknown, query?: Query): Promise<T> {
+/**
+ * Sensitive administration answers 401 `reauth_required` once the sign-in is older than the organisation allows: the
+ * registered handler (ReauthGate) asks for the password or Windows and resolves true when the session is confirmed
+ * again — the request is then sent once more.
+ */
+type ReauthHandler = (details: unknown) => Promise<boolean>;
+let reauthHandler: ReauthHandler | null = null;
+export function setReauthHandler(h: ReauthHandler | null): void {
+  reauthHandler = h;
+}
+
+async function request<T>(method: string, path: string, body?: unknown, query?: Query, retried = false): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`/api${path}${qs(query)}`, {
@@ -43,7 +54,11 @@ async function request<T>(method: string, path: string, body?: unknown, query?: 
   }
   if (!res.ok) {
     const e = data?.error;
-    if (res.status === 401 && path !== "/auth/login" && path !== "/auth/me") window.dispatchEvent(new CustomEvent("itsm:unauthorized"));
+    if (res.status === 401 && e?.code === "reauth_required" && reauthHandler && !retried) {
+      if (await reauthHandler(e.details)) return request<T>(method, path, body, query, true);
+    }
+    // only a missing or ended session signs the screens out (not a refused password or a re-authentication)
+    if (res.status === 401 && (e?.code ?? "unauthorized") === "unauthorized" && path !== "/auth/login" && path !== "/auth/me") window.dispatchEvent(new CustomEvent("itsm:unauthorized"));
     throw new ApiError(res.status, e?.code ?? "error", e?.message ?? `خطای ${res.status}`, e?.details);
   }
   return data as T;

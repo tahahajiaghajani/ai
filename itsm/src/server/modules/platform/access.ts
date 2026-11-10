@@ -25,6 +25,6 @@ export const orgAccess: MiddlewareHandler<Env> = async (c, next) => {
     // a suspended organisation is closed to its members; a support session still sees it
     throw statusError(status);
   }
-  c.set("ctx", makeCtx(ctx.cfg, ctx.user, ctx.org, ctx.member, { support, status, request: { method: c.req.method, path: c.req.path } }));
+  c.set("ctx", makeCtx(ctx.cfg, ctx.user, ctx.org, ctx.member, { support, status, request: { method: c.req.method, path: c.req.path }, session: ctx.session ?? null }));
   await next();
 };

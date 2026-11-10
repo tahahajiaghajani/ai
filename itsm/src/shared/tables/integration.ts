@@ -6,7 +6,9 @@
 //   · inbound_endpoint — a URL other systems post JSON to; mapped to records of a table (create, or update by a
 //     correlation field) as its integration user
 //   · directory_source — LDAP / Active Directory synchronisation and SCIM provisioning (Microsoft Entra ID): attribute
-//     and group mappings, preview and dry run, the member who approved it (scheduled runs act as them)
+//     and group mappings, preview and dry run, the member who approved it (scheduled runs act as them); and «ورود با
+//     حساب سازمانی» (people sign in with their domain account: domain controllers, TLS and the root CA, login names,
+//     nested groups, just-in-time members) and Windows single sign-on (Kerberos on the server, or a trusted IIS proxy)
 //   · issue_connection / external_ref — Jira and GitHub: issues made from records, their keys, state and notes
 //   · export_schedule — table data sent on a schedule (to a file on a «خروجی داده» row, or POSTed to a URL)
 // Secrets (webhook signing secrets, tokens, bind passwords) are sealed fields: never returned, never synced.
@@ -114,6 +116,30 @@ const inbound: TableDef = {
   list: { columns: ["name", "target_table", "action", "last_received_at", "active"], order: "name" },
 };
 
+const LOGIN = "ورود با حساب سازمانی";
+const SSO = "ورود خودکار ویندوز (SSO)";
+
+/** How a source's connection is protected: LDAPS, StartTLS, or nothing (tests only). */
+export const DIRECTORY_TLS: Option[] = [
+  { value: "ldaps", label: "LDAPS (درگاه ۶۳۶)", color: "green" },
+  { value: "starttls", label: "StartTLS (درگاه ۳۸۹)", color: "green" },
+  { value: "none", label: "بدون رمزنگاری — فقط برای آزمایش", color: "red" },
+];
+
+/** The attribute a bare login name («ali») is looked up by. */
+export const DIRECTORY_LOGIN_ATTRS: Option[] = [
+  { value: "sAMAccountName", label: "نام کاربری ویندوز (sAMAccountName)" },
+  { value: "userPrincipalName", label: "نام اصلی (userPrincipalName)" },
+  { value: "mail", label: "ایمیل (mail)" },
+];
+
+/** Windows single sign-on of a source. */
+export const DIRECTORY_SSO: Option[] = [
+  { value: "off", label: "خاموش", color: "gray" },
+  { value: "negotiate", label: "Kerberos روی همین سرور (Negotiate)", color: "blue" },
+  { value: "proxy", label: "از راه IIS یا پراکسی معتمد", color: "indigo" },
+];
+
 export const DIRECTORY_KINDS: Option[] = [
   { value: "ldap", label: "LDAP / Active Directory", color: "blue" },
   { value: "scim", label: "SCIM (Microsoft Entra ID و دیگر IdPها)", color: "indigo" },
@@ -143,20 +169,39 @@ const directory: TableDef = {
     { name: "approved_by", label: "تأییدکنندهٔ همگام‌سازی", type: "user", system: true, span: 12, section: MAIN, help: "اجرای زمان‌بندی‌شده و SCIM با دسترسی این عضو انجام می‌شود" },
     { name: "ldap_url", label: "نشانی LDAP", type: "string", maxLength: 300, ltr: true, span: 12, section: "LDAP", help: "ldap://dc1.corp.local:389 یا ldaps://…:636" },
     { name: "bind_dn", label: "حساب اتصال (Bind DN)", type: "string", maxLength: 300, ltr: true, span: 12, section: "LDAP" },
-    { name: "bind_password", label: "گذرواژهٔ اتصال", type: "secret", span: 12, section: "LDAP" },
+    { name: "bind_password", label: "گذرواژهٔ اتصال", type: "secret", hint: false, span: 12, section: "LDAP" },
     { name: "base_dn", label: "ریشهٔ جست‌وجو (Base DN)", type: "string", maxLength: 300, ltr: true, span: 12, section: "LDAP" },
     { name: "user_filter", label: "پالایهٔ کاربران", type: "string", maxLength: 500, ltr: true, default: "(&(objectCategory=person)(objectClass=user))", span: 24, section: "LDAP" },
     { name: "attr_map", label: "نگاشت ویژگی‌ها", type: "json", default: {}, span: 24, section: "LDAP", help: "{ \"email\": \"mail\", \"name\": \"displayName\", \"department\": \"department\" }" },
     { name: "scim_token", label: "توکن SCIM", type: "secret", span: 12, section: "SCIM", help: "Secret Token در تنظیم تأمین Entra ID" },
-    { name: "group_map", label: "نگاشت گروه‌ها", type: "json", default: [], span: 24, section: MAP, help: "[{ \"source\": \"CN=IT,OU=Groups,DC=corp,DC=local\", \"group_id\": \"…\", \"role\": \"agent\" }]" },
+    { name: "group_map", label: "نگاشت گروه‌ها", type: "json", default: [], span: 24, section: MAP, help: "[{ \"source\": \"CN=Kariz-Agents,OU=Groups,DC=corp,DC=local\", \"group_id\": \"…\", \"role\": \"agent\", \"unit_id\": \"…\", \"workspace_id\": \"…\" }]" },
+    { name: "login_enabled", label: "ورود با حساب سازمانی", type: "bool", default: false, list: true, filter: true, span: 12, section: LOGIN, help: "اعضا با نام کاربری و گذرواژهٔ دامنه وارد می‌شوند؛ گذرواژه فقط به سرور دامنه فرستاده می‌شود" },
+    { name: "login_domains", label: "دامنه‌ها", type: "tags", span: 12, section: LOGIN, help: "نام NetBIOS و DNS دامنه (مانند CORP و corp.bank.ir) برای ورود با CORP\\ali یا ali@corp.bank.ir" },
+    { name: "tls_mode", label: "رمزنگاری اتصال", type: "choice", choices: DIRECTORY_TLS, default: "ldaps", span: 12, section: LOGIN, help: "گذرواژه‌ها فقط روی LDAPS یا StartTLS فرستاده می‌شوند" },
+    { name: "login_attr", label: "نام ورود", type: "choice", choices: DIRECTORY_LOGIN_ATTRS, default: "sAMAccountName", span: 12, section: LOGIN, help: "نامی که بدون دامنه نوشته می‌شود (ali) با این ویژگی جست‌وجو می‌شود" },
+    { name: "dc_urls", label: "کنترل‌کننده‌های دامنهٔ دیگر", type: "text", maxLength: 2000, ltr: true, span: 24, section: LOGIN, help: "هر خط یک نشانی (ldaps://dc2.corp.local:636)؛ اگر نشانی اصلی پاسخ ندهد، به ترتیب امتحان می‌شوند" },
+    { name: "ca_cert", label: "گواهی ریشهٔ سازمان (PEM)", type: "text", maxLength: 30000, ltr: true, span: 24, section: LOGIN, help: "گواهی مرجع صدور داخلی که گواهی کنترل‌کننده‌های دامنه را امضا کرده است (Base-64)؛ خالی: مرجع‌های شناخته‌شدهٔ سیستم‌عامل" },
+    { name: "group_base_dn", label: "ریشهٔ جست‌وجوی گروه‌ها", type: "string", maxLength: 300, ltr: true, span: 12, section: LOGIN, help: "خالی: همان ریشهٔ جست‌وجو" },
+    { name: "timeout_seconds", label: "زمان انتظار هر سرور (ثانیه)", type: "int", min: 2, max: 60, default: 10, span: 12, section: LOGIN },
+    { name: "nested_groups", label: "گروه‌های تودرتو", type: "bool", default: true, span: 12, section: LOGIN, help: "عضویت غیرمستقیم (گروه درون گروه) هم برای نگاشت‌ها شمرده می‌شود" },
+    { name: "jit", label: "ساخت عضو در نخستین ورود", type: "bool", default: true, span: 12, section: LOGIN, help: "خاموش: فقط کسانی وارد می‌شوند که پیش‌تر همگام‌سازی یا افزوده شده‌اند" },
+    { name: "sso_mode", label: "ورود خودکار ویندوز", type: "choice", choices: DIRECTORY_SSO, default: "off", span: 12, section: SSO },
+    { name: "sso_auto", label: "تلاش خودکار در صفحهٔ ورود", type: "bool", default: false, span: 12, section: SSO, help: "رایانه‌های عضو دامنه بی‌آنکه چیزی بنویسند وارد می‌شوند" },
+    { name: "sso_host", label: "نام میزبان سامانه", type: "string", maxLength: 200, ltr: true, span: 12, section: SSO, help: "همان نامی که کاربران در مرورگر می‌زنند، مانند kariz.bank.ir" },
+    { name: "sso_account", label: "حساب سرویس سامانه", type: "string", maxLength: 200, ltr: true, span: 12, section: SSO, help: "حساب ویندوزی که سرویس با آن اجرا می‌شود (BANK\\svc-kariz)؛ برای حساب Network Service نام رایانه با $ (KARIZ-SRV01$)" },
+    { name: "ntlm", label: "پذیرش NTLM", type: "bool", default: false, span: 12, section: SSO, help: "فقط Kerberos پیشنهاد می‌شود؛ NTLM برای رایانه‌های بیرون از دامنه است" },
+    { name: "proxy_header", label: "سرآیند کاربر پراکسی", type: "string", maxLength: 80, ltr: true, default: "X-Remote-User", span: 12, section: SSO },
+    { name: "proxy_ips", label: "نشانی‌های پراکسی معتمد", type: "text", maxLength: 2000, ltr: true, span: 12, section: SSO, help: "هر خط یک نشانی IP یا شبکه (10.0.0.5 یا 10.0.0.0/24)؛ سرآیند کاربر فقط از این نشانی‌ها پذیرفته می‌شود" },
+    { name: "proxy_secret", label: "راز مشترک پراکسی", type: "secret", hint: false, span: 12, section: SSO, help: "پراکسی همین راز را در سرآیند X-ITSM-Proxy-Secret می‌فرستد" },
     { name: "health", label: "سلامت", type: "choice", choices: INTEGRATION_HEALTH, default: "unknown", system: true, list: true, span: 8, section: STATUS },
     { name: "last_run_at", label: "آخرین اجرا", type: "datetime", system: true, audit: false, list: true, span: 8, section: STATUS },
     { name: "next_run_at", label: "اجرای بعد", type: "datetime", system: true, audit: false, span: 8, section: STATUS },
     { name: "last_summary", label: "خلاصهٔ آخرین اجرا", type: "text", system: true, audit: false, span: 24, section: STATUS },
+    { name: "approved_map_hash", label: "اثر نگاشت‌های تأییدشده", type: "string", maxLength: 64, system: true, hidden: true, audit: false, span: 12, section: STATUS },
   ],
   scope: { own: ["created_by"] },
-  form: { sections: [MAIN, "LDAP", "SCIM", MAP, STATUS] },
-  list: { columns: ["name", "kind", "mode", "health", "last_run_at", "active"], order: "name" },
+  form: { sections: [MAIN, "LDAP", LOGIN, SSO, "SCIM", MAP, STATUS] },
+  list: { columns: ["name", "kind", "mode", "login_enabled", "health", "last_run_at", "active"], order: "name" },
 };
 
 export const ISSUE_KINDS: Option[] = [

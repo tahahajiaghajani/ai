@@ -10,6 +10,7 @@
 // as tombstones, and a member whose scope epoch moved is told to read everything again (`reset`).
 import { z } from "zod";
 import { router, body, requireUser, type C } from "../http/hono";
+import { guardOrgSession } from "../auth/policy";
 import { bad, forbidden, notFound } from "../http/errors";
 import { makeCtx, lockOrg, type MemberRow, type OrgRow, type Ctx } from "../context";
 import type { Tx } from "../db";
@@ -61,6 +62,7 @@ async function orgCtx(c: C, orgId: string): Promise<Ctx> {
     [orgId, user.id],
   );
   if (!member || !member.is_active) throw forbidden("شما عضو این سازمان نیستید");
+  guardOrgSession(org, c.get("session"), user, member, cfg.mode);
   const status = await orgStatus(cfg.db, orgId);
   if (status.status === "suspended") throw statusError(status);
   return makeCtx(cfg, user, org, member, { status });

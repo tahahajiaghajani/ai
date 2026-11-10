@@ -73,6 +73,14 @@ export interface ServerConfig {
    * on the desktop (its own timer ticks every 10 s) and in tests (they tick explicitly).
    */
   waitUntil?: (work: () => Promise<unknown>) => void;
+  /**
+   * Cookies and proxies of the installation (src/server/auth/session.ts; environment fallbacks ITSM_COOKIE_SECURE,
+   * ITSM_COOKIE_SAMESITE, ITSM_TRUSTED_PROXIES): `cookieSecure` "auto" sets Secure on HTTPS requests (X-Forwarded-Proto
+   * counts only from a trusted proxy), `trustedProxies` are the addresses whose X-Forwarded-For / -Proto are believed
+   * (loopback always is). `directoryLan`: domain controllers on the installation's own network may be reached
+   * (an on-premises server; env ITSM_DIRECTORY_LAN=1) — the web version reaches public LDAP hosts only.
+   */
+  auth?: { cookieSecure?: "auto" | "always" | "never"; cookieSameSite?: "Lax" | "Strict"; trustedProxies?: string[]; directoryLan?: boolean };
 }
 
 export interface AuthUser {
@@ -90,6 +98,14 @@ export interface AuthSession {
   user_id: string;
   kind: "web" | "device" | "api";
   expires_at: string;
+  /** how it was opened: password, ldap (domain account), sso (Windows Kerberos), proxy (IIS), device… (src/server/auth) */
+  auth_method?: string | null;
+  /** a directory sign-in reaches only this organisation */
+  org_id?: string | null;
+  source_id?: string | null;
+  /** when the person last proved who they are (sensitive administration asks again after the policy's minutes) */
+  reauth_at?: string | null;
+  created_at?: string | null;
 }
 
 export interface OrgSettings {
@@ -164,6 +180,8 @@ export interface Ctx {
   support?: SupportSession | null;
   /** the organisation's platform status (loaded for /o/:org requests) */
   status?: OrgPlatformStatus | null;
+  /** the request's session (loaded for /o/:org requests): re-authentication of sensitive administration (src/server/auth/policy.ts) */
+  session?: AuthSession | null;
   can(area: Area, level: Level): boolean;
   need(area: Area, level: Level): void;
   /**
@@ -218,6 +236,8 @@ export interface CtxOptions {
   status?: OrgPlatformStatus | null;
   /** the request being served: describes a support session's changes in the audit log */
   request?: { method: string; path: string } | null;
+  /** the request's session (re-authentication of sensitive administration) */
+  session?: AuthSession | null;
 }
 
 export function makeCtx(cfg: ServerConfig, user: AuthUser, org: OrgRow, member: MemberRow, opts: CtxOptions = {}): Ctx {
@@ -236,6 +256,7 @@ export function makeCtx(cfg: ServerConfig, user: AuthUser, org: OrgRow, member: 
     actor: support ? "support" : "user",
     support,
     status: opts.status ?? null,
+    session: opts.session ?? null,
     can: (area, level) => {
       if (outsider) return !!support && rank(supportLevel(support.level, area)) >= rank(level);
       return canDo(member.role, area, level, member.overrides);

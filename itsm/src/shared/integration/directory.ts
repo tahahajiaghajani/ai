@@ -48,6 +48,31 @@ export interface GroupMapping {
   group_id: string | null;
   /** a role its members get — listed as a role grant, never applied silently */
   role?: string | null;
+  /** the organisation unit its members belong to (a directory sign-in sets it; the first matching mapping wins) */
+  unit_id?: string | null;
+  /** a workspace its members join — a grant like a role: only once approved */
+  workspace_id?: string | null;
+}
+
+/** What a person's directory groups map to: ITSM groups, roles (with the mapping that grants each), a unit, workspaces. */
+export interface MappedAccess {
+  groups: string[];
+  roles: { role: string; source: string }[];
+  unit_id: string | null;
+  workspaces: string[];
+}
+
+/** Apply the mappings to a person's directory groups (DNs or names; nested groups already resolved). */
+export function mappedAccess(mappings: GroupMapping[], groups: string[]): MappedAccess {
+  const out: MappedAccess = { groups: [], roles: [], unit_id: null, workspaces: [] };
+  for (const m of mappings) {
+    if (!groups.some((g) => groupMatches(g, m.source))) continue;
+    if (m.group_id && !out.groups.includes(m.group_id)) out.groups.push(m.group_id);
+    if (m.role && !out.roles.some((r) => r.role === m.role)) out.roles.push({ role: m.role, source: m.source });
+    if (m.unit_id && !out.unit_id) out.unit_id = m.unit_id;
+    if (m.workspace_id && !out.workspaces.includes(m.workspace_id)) out.workspaces.push(m.workspace_id);
+  }
+  return out;
 }
 
 export interface DirOptions {
