@@ -27,7 +27,7 @@ import { addDays, jalaliYearRange } from "@shared/jalali";
 import { D } from "@shared/money";
 import type { Ctx } from "../../context";
 import { pgArray, type Tx, type Queryable } from "../../db";
-import { createIn, emitEvent, get, registerHooks, transitionIn, updateIn, pushGuard, type WriteArgs } from "../../engine";
+import { createIn, emitEvent, get, registerHooks, transitionIn, updateIn, pushGuard, type PushArgs, type WriteArgs } from "../../engine";
 import { access } from "../../access/provider";
 import { registerParticipantSource, subjectOf } from "../../access";
 import { bad, conflict, forbidden } from "../../http/errors";
@@ -158,6 +158,25 @@ async function assetBefore(w: WriteArgs): Promise<void> {
     if (!n.branch_id) n.branch_id = unitOf(w.ctx);
     if (!mayActFor(w.ctx, n.branch_id)) throw forbidden("دارایی را فقط برای شعبه یا واحدی می‌توانید ثبت کنید که اموال آن با شماست");
   }
+}
+
+/**
+ * A Windows app's pushed asset (its own hooks ran there): a change of branch is taken only from someone who manages
+ * assets everywhere, or as the receipt of a transfer into a branch the member may act for; a new asset only in such
+ * a branch.
+ */
+async function assetPush(p: PushArgs): Promise<string | null> {
+  if (isSys(p.ctx)) return null;
+  const everywhere = await holds(p.ctx, "asset", "write", "all", p.tx);
+  if (everywhere) return null;
+  if (!p.prev) return p.next.branch_id && !mayActFor(p.ctx, p.next.branch_id) ? "دارایی را فقط برای شعبه یا واحدی می‌توانید ثبت کنید که اموال آن با شماست" : null;
+  if (!p.changed.has("branch_id")) return null;
+  const sys = sysOf(p.ctx);
+  for (const it of await liveRows(p.tx, sys, "asset_transfer_item", { f: "asset_id", op: "eq", v: p.next.id }, { limit: 50 })) {
+    const t = await liveRow(p.tx, sys, "asset_transfer", it.transfer_id);
+    if (t && ["in_transit", "received", "received_partial"].includes(String(t.state)) && String(t.to_branch_id) === String(p.next.branch_id) && String(t.from_branch_id) === String(p.prev.branch_id) && mayActFor(p.ctx, t.to_branch_id)) return null;
+  }
+  return "جابه‌جایی دارایی میان شعبه‌ها با حوالهٔ انتقال است";
 }
 
 async function assetAfter(w: WriteArgs): Promise<void> {
@@ -414,7 +433,8 @@ export async function resolveAuditItem(ctx: Ctx, itemId: string, input: ResolveI
           await addCustody(tx, ctx, a, { event: "branch_changed", branch_id: here, from_branch_id: a.branch_id, holder_id: a.assigned_to, reference: audit.number ? String(audit.number) : null, note: "پس از شمارش" });
         } else {
           // a draft transfer from the registered branch, for that branch to approve and dispatch
-          const t = await createIn(tx, sys, "asset_transfer", { title: `اصلاح دفتر پس از شمارش ${audit.number ?? ""}`, reason: "relocation", from_branch_id: a.branch_id, to_branch_id: here, requested_by: actorOf(ctx) }, { trusted: true });
+          // nobody of the counting branch owns it: the registered branch sends it for approval and dispatches it
+          const t = await createIn(tx, sys, "asset_transfer", { title: `اصلاح دفتر پس از شمارش ${audit.number ?? ""}`, reason: "relocation", from_branch_id: a.branch_id, to_branch_id: here, requested_by: null, notes: input.note ?? null }, { trusted: true });
           await createIn(tx, sys, "asset_transfer_item", { transfer_id: t.id, asset_id: a.id, condition_out: "good", note: `دیده‌شده در شمارش ${audit.number ?? ""}` }, { trusted: true });
           transferId = String(t.id);
         }
@@ -623,7 +643,9 @@ export async function fleet(ctx: Ctx, input: FleetInput = {}): Promise<Row> {
     return parent ?? u;
   };
   const slas = await liveRows(ctx.db, sys, "maintenance_sla", { f: "active", op: "eq", v: true }, { limit: 500 });
-  const contracts = new Map((await liveRows(ctx.db, sys, "contract", null, { limit: 5000 }).catch(() => [] as Row[])).map((c) => [String(c.id), c]));
+  // contract names as the caller may read them (a branch's staff may not read the vendor contracts)
+  const contractIds = [...new Set(devices.map((d) => d.support_contract_id).filter(isUuid).map(String))];
+  const contracts = new Map((contractIds.length ? await liveRows(ctx.db, ctx, "contract", { f: "id", op: "in", v: contractIds }, { limit: 5000 }).catch(() => [] as Row[]) : []).map((c) => [String(c.id), c]));
   const financial = await hasGroup(ctx, "financial");
   // incidents of the devices' CIs in the last 90 days (failure-risk input), counted as the system: a count, no content
   const ciIds = devices.map((d) => d.ci_id).filter(isUuid).map(String);
@@ -943,7 +965,7 @@ export function installBankHooks(): (() => void)[] {
   if (installed) return [];
   installed = true;
   const off: (() => void)[] = [];
-  off.push(registerHooks("asset", { beforeWrite: assetBefore, afterWrite: assetAfter }));
+  off.push(registerHooks("asset", { beforeWrite: assetBefore, afterWrite: assetAfter, validatePush: assetPush }));
   off.push(registerHooks("asset_transfer", { beforeWrite: transferBefore, afterWrite: transferAfter, guards: transferGuards, validatePush: pushGuard(transferBefore) }));
   off.push(registerHooks("asset_transfer_item", { beforeWrite: transferItemBefore, afterWrite: transferItemAfter, validatePush: pushGuard(transferItemBefore) }));
   off.push(registerHooks("asset_custody", { beforeWrite: systemOnly("زنجیرهٔ نگهداری"), validatePush: ledgerOnPush("زنجیرهٔ نگهداری") }));
