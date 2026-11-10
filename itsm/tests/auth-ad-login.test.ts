@@ -275,6 +275,22 @@ describe("the source's administration", () => {
     await w.owner.del(`${w.P}/r/directory_source/${bad.id}`);
   });
 
+  it("another administrator's change to the sign-in settings takes the approval back until it is approved again", async () => {
+    const added = await w.owner.post(`${w.P}/members`, { email: "deputy@bank.test", full_name: "معاون فناوری", role: "admin" });
+    const deputy = w.client();
+    await deputy.post("/auth/login", { email: "deputy@bank.test", password: added.temp_password });
+    const cur = (await deputy.get(`${w.P}/r/directory_source/${w.source.id}`)).row;
+    await deputy.patch(`${w.P}/r/directory_source/${w.source.id}`, { dc_urls: "ldaps://dc9.corp.test:636", version: cur.version });
+    const r = await w.client().raw("POST", "/auth/directory", { login: "sara", password: "Passw0rd!" });
+    expect(r.status).toBe(503);
+    expect((await events({ ok: "false", q: "sara" }))[0].data.reason).toBe("not_approved");
+    // back to the approved settings and approved again: sign-in works
+    const now = (await w.owner.get(`${w.P}/r/directory_source/${w.source.id}`)).row;
+    await w.owner.patch(`${w.P}/r/directory_source/${w.source.id}`, { dc_urls: null, mode: "apply", version: now.version });
+    await w.owner.post(`${w.P}/integration/directory/${w.source.id}/approve`);
+    await w.signIn("sara", "Passw0rd!");
+  });
+
   it("checks addresses, TLS and the root CA when a source is saved", async () => {
     const base = { name: "نادرست", kind: "ldap", bind_dn: "CN=x", base_dn: BASE };
     const e1 = await w.owner.post(`${w.P}/r/directory_source`, { ...base, ldap_url: "ldap://dc1.corp.test", tls_mode: "ldaps" }, 400);
