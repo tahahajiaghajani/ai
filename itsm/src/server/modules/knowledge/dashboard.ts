@@ -6,11 +6,14 @@
 //     results belong to the author and the coach), 90/0 of captured articles and the readiness of each base
 //   · the knowledge manager's workspace — insight cards, queues and the built-in knowledge routines
 // Counts of records come from `aggregate`/`countRows` with the caller's context; event figures from the stream.
+import { createHash, randomUUID } from "node:crypto";
 import type { KbCard, KbCount, KbDashboard, KbHome, KbWorkspace } from "@shared/knowledge/api";
+import type { TableDef } from "@shared/model/types";
 import { ARTICLE_TYPES, LIVE_STATES } from "@shared/tables/knowledge";
 import { scanSensitive } from "@shared/knowledge/logic";
 import type { Ctx } from "../../context";
 import { aggregate, condEnv, orgSchema, readable } from "../../engine";
+import { access } from "../../access/provider";
 import { forbidden } from "../../http/errors";
 import {
   addDaysISO, canAuthor, contributesTo, countRows, holdsInternal, isKbAdmin, isKbApprover, kbConfig, liveRows, managesBase, myGroups, sysOf, todayIn, writesAll, type Row,
@@ -32,11 +35,126 @@ async function counts(ctx: Ctx, field: string, filter: Record<string, unknown> |
   return new Map(r.rows.map((x) => [String(x.keys[0] ?? ""), Number(x.values.count ?? 0)]));
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// Article counts per audience (the knowledge home's bases and categories): cached for a minute per audience set
+
+/** Tables whose rows decide who reads an article (its own rules walk to its base and category). */
+const AUDIENCE_TABLES = ["kb_article", "kb_base", "kb_category"];
+const COUNT_TTL = 60_000;
+const MAX_ENTRIES = 5_000;
+/** A member id no row names: «somebody with these groups, units and roles» (never a real user). */
+const NOBODY = randomUUID();
+
+interface CountEntry {
+  at: number;
+  gen: string;
+  value: Promise<{ base: Map<string, number>; category: Map<string, number> }>;
+}
+const countCache = new Map<string, CountEntry>();
+const namedCache = new Map<string, { gen: string; users: Promise<Set<string>> }>();
+/** Exposed to tests: how many audience counts were computed and how many were served from the cache. */
+export const audienceCountStats = { computed: 0, served: 0 };
+
+/**
+ * The organisation's knowledge generation: the newest sync revision of articles, bases and categories. Publishing,
+ * retiring, moving an article or changing any audience moves it, so every process recounts at once (TTL otherwise).
+ */
+async function knowledgeGen(ctx: Ctx): Promise<string> {
+  const r = await ctx.db.one<{ g: string | null }>(
+    `select greatest((select max(rev) from sm_kb_articles where org_id = $1), (select max(rev) from sm_kb_bases where org_id = $1), (select max(rev) from sm_kb_categories where org_id = $1))::text as g`,
+    [ctx.org.id],
+  );
+  return r?.g ?? "0";
+}
+
+/** Everyone a person field of the audience tables names (author, owner, reviewers, readers, denied, contributors…). */
+function namedUsers(ctx: Ctx, gen: string, defs: TableDef[]): Promise<Set<string>> {
+  const hit = namedCache.get(ctx.org.id);
+  if (hit && hit.gen === gen) return hit.users;
+  const parts: string[] = [];
+  for (const def of defs) {
+    for (const f of def.fields) {
+      if (f.custom) continue;
+      if (f.type === "user") parts.push(`select ${f.name}::text as u from ${def.table} where org_id = $1 and ${f.name} is not null`);
+      else if (f.type === "users") parts.push(`select jsonb_array_elements_text(${f.name}) as u from ${def.table} where org_id = $1 and jsonb_typeof(${f.name}) = 'array'`);
+    }
+  }
+  const users = parts.length
+    ? ctx.db.query<{ u: string }>(`select distinct lower(u) as u from (${parts.join(" union all ")}) x`, [ctx.org.id]).then((rows) => new Set(rows.map((r) => r.u)))
+    : Promise.resolve(new Set<string>());
+  namedCache.set(ctx.org.id, { gen, users });
+  users.catch(() => namedCache.delete(ctx.org.id));
+  return users;
+}
+
+/**
+ * Readable live articles per base and per category, as `ctx` may read them — computed once a minute per AUDIENCE SET and
+ * shared by everyone in it. The key is the article read predicate itself (its SQL and every parameter: the person's
+ * groups, units, roles, workspaces, field groups, the participant terms that apply), so two people share counts only
+ * when the same predicate decides what they read. The person's own id is part of that predicate (author, reviewer,
+ * named reader, denied…); it is replaced by an id nobody holds only for people no audience row names and who take part
+ * in no knowledge record through a grant — for them it decides nothing, and the counts are computed for «somebody with
+ * these groups, units and roles». Anyone named gets counts of their own. The knowledge generation (newest revision of
+ * articles, bases, categories) is part of the key: publishing, retiring or an audience change recounts at once.
+ */
+async function audienceCounts(ctx: Ctx): Promise<{ base: Map<string, number>; category: Map<string, number> }> {
+  const schema = await orgSchema(ctx);
+  const defs = AUDIENCE_TABLES.map((k) => schema.def(k)).filter((d): d is TableDef => !!d);
+  const def = schema.def("kb_article");
+  if (!def || ctx.actor === "system") return { base: await counts(ctx, "base_id"), category: await counts(ctx, "category_id") };
+  const env = await condEnv(ctx);
+  const params: unknown[] = [];
+  const rule = readable(ctx, def, "t", params, env);
+  const gen = await knowledgeGen(ctx);
+  const me = ctx.user.id.toLowerCase();
+  const grants = access().participations ? await access().participations!(ctx, ctx.db) : new Set<string>();
+  const participates = [...grants].some((t) => AUDIENCE_TABLES.includes(t));
+  const anonymous = !participates && !(await namedUsers(ctx, gen, defs)).has(me);
+  // the person's own id wherever the predicate carries it: in its text, alone, in an array literal ("{…}") or a JSON list
+  const own = new RegExp(me.replace(/-/g, "\\-"), "gi");
+  const where = anonymous ? rule.replace(own, NOBODY) : rule;
+  const bound = anonymous ? params.map((v) => (typeof v === "string" ? v.replace(own, NOBODY) : v)) : params;
+  // the walks' table aliases are numbered per compilation (w218, w240…): numbered in order of appearance for the key
+  const aliases = new Map<string, number>();
+  const canonical = where.replace(/\bw(\d+)\b/g, (_, n: string) => `w#${aliases.get(n) ?? aliases.set(n, aliases.size).get(n)}`);
+  const key = createHash("sha256").update(JSON.stringify([ctx.org.id, gen, canonical, bound])).digest("base64url");
+  const hit = countCache.get(key);
+  if (hit && hit.gen === gen && Date.now() - hit.at < COUNT_TTL) {
+    audienceCountStats.served++;
+    return hit.value;
+  }
+  audienceCountStats.computed++;
+  const states = bound.length + 1;
+  const value = (async () => {
+    const rows = await ctx.db.query<{ base_id: string | null; category_id: string | null; n: number }>(
+      `select t.base_id::text as base_id, t.category_id::text as category_id, count(*)::int as n from ${def.table} t
+       where ${where} and t.state = any($${states}::text[]) group by 1, 2`,
+      [...bound, `{${LIVE_STATES.join(",")}}`],
+    );
+    const base = new Map<string, number>();
+    const category = new Map<string, number>();
+    for (const r of rows) {
+      if (r.base_id) base.set(r.base_id, (base.get(r.base_id) ?? 0) + r.n);
+      if (r.category_id) category.set(r.category_id, (category.get(r.category_id) ?? 0) + r.n);
+    }
+    return { base, category };
+  })();
+  countCache.set(key, { at: Date.now(), gen, value });
+  value.catch(() => countCache.delete(key));
+  if (countCache.size > MAX_ENTRIES) countCache.delete(countCache.keys().next().value!);
+  return value;
+}
+
+/** Forget the cached audience counts (tests; a process that knows knowledge changed may call it too). */
+export function clearAudienceCounts(): void {
+  countCache.clear();
+  namedCache.clear();
+}
+
 export async function kbHome(ctx: Ctx): Promise<KbHome> {
   const bases = await liveRows(ctx.db, ctx, "kb_base", { f: "state", op: "eq", v: "active" }, { order: "t.sort_order, t.name", limit: 200 });
   const cats = await liveRows(ctx.db, ctx, "kb_category", { f: "state", op: "eq", v: "active" }, { order: "t.depth, t.sort_order, t.name", limit: 2000 });
-  const perBase = await counts(ctx, "base_id");
-  const perCat = await counts(ctx, "category_id");
+  const { base: perBase, category: perCat } = await audienceCounts(ctx);
   // a category's count includes its sub-categories
   const total = new Map<string, number>();
   for (const c of cats) for (const id of String(c.path ?? "").split("/").filter(Boolean)) total.set(id, (total.get(id) ?? 0) + (perCat.get(c.id) ?? 0));
@@ -62,6 +180,22 @@ export async function kbHome(ctx: Ctx): Promise<KbHome> {
     can: { author: canAuthor(ctx), manage: isKbAdmin(ctx) || writesAll(ctx), ai: ctx.actor !== "system" && ctx.can("ai", "view"), internal: holdsInternal(ctx) },
     pending: { reviews, tasks, attestations, drafts },
   };
+}
+
+/**
+ * The article cards a home page shows — featured (by the categories), most viewed and newest — as the person may read
+ * them, without the knowledge home's counts and queues (the portal's home: a few small queries, not sixteen).
+ */
+export async function kbCards(ctx: Ctx, limit = 6): Promise<{ featured: KbCard[]; popular: KbCard[]; recent: KbCard[] }> {
+  const cats = await liveRows(ctx.db, ctx, "kb_category", { and: [{ f: "state", op: "eq", v: "active" }, { f: "featured", op: "nempty" }] }, { order: "t.depth, t.sort_order, t.name", limit: 200 });
+  const featuredIds = [...new Set(cats.flatMap((c) => (Array.isArray(c.featured) ? c.featured : [])))].slice(0, 12);
+  const [featuredRows, popular, recent] = await Promise.all([
+    cardsByIds(ctx, featuredIds),
+    liveRows(ctx.db, ctx, "kb_article", live, { order: "t.view_count desc, t.reuse_count desc, t.published_at desc", limit }),
+    liveRows(ctx.db, ctx, "kb_article", live, { order: "t.published_at desc nulls last", limit }),
+  ]);
+  const labels = await labelsOf(ctx, [...featuredRows, ...popular, ...recent]);
+  return { featured: featuredRows.map((r) => cardOf(r, labels)), popular: popular.map((r) => cardOf(r, labels)), recent: recent.map((r) => cardOf(r, labels)) };
 }
 
 const typeLabel = (v: string) => ARTICLE_TYPES.find((t) => t.value === v)?.label ?? v;
