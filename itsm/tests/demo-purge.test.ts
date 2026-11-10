@@ -22,6 +22,9 @@ import { runToEnd } from "@server/modules/demo";
 import { systemCtx, archiveBatch } from "@server/engine";
 import { TABLES } from "@shared/tables";
 import { collectAll } from "@server/modules/analytics/indicators";
+import { itamSweep } from "@server/modules/itam/jobs";
+import { fleet, openAttestations, verifyCustody } from "@server/modules/itam/bank";
+import { financialSweep } from "@server/modules/financial";
 
 /**
  * Columns that are bookkeeping, not content: counters that only move forward (sync revisions, the access version,
@@ -195,6 +198,44 @@ describe.skipIf(skip)(title, () => {
     expect((await e.owner.get(`/o/${e.org}/demo/banner`)).active).toBe(true);
     incidents = await e.db.query<{ id: string }>(`select id from sm_incidents where org_id = $1 and deleted_at is null order by opened_at desc limit 5`, [e.org]);
     expect(incidents.length).toBe(5);
+    // bank ITAM: no workflow of the pack was refused, and each is there
+    expect(Object.keys(status.refused ?? {}).filter((k) => k.startsWith("itam."))).toEqual([]);
+    // the smaller modules: the portal's announcement, the on-call schedule, monitoring alerts
+    expect(Object.keys(status.refused ?? {}).filter((k) => ["announcement", "oncall_schedule", "oncall_rotation", "alert"].includes(k))).toEqual([]);
+    expect(status.counts.announcement).toBe(1);
+    expect(status.counts.oncall_schedule).toBe(1);
+    expect(status.counts.alert).toBe(3);
+    const n = async (sql: string) => (await e.db.one<{ n: number }>(sql.replace("$org", "$1"), [e.org]))!.n;
+    expect(await n(`select count(distinct category)::int as n from sm_assets where org_id = $org and deleted_at is null and category in ('atm', 'crs', 'pos', 'desktop', 'passbook_printer', 'network', 'server')`)).toBe(7);
+    expect(await n(`select count(*)::int as n from sm_assets where org_id = $org and category = 'pos' and terminal_id is not null and psp is not null and merchant_id is not null`)).toBeGreaterThan(0);
+    expect(await n(`select count(distinct os_eos_date)::int as n from sm_assets where org_id = $org and category = 'atm' and os_eos_date is not null`)).toBeGreaterThan(1);
+    expect(await n(`select count(*)::int as n from sm_assets where org_id = $org and category = 'atm' and branch_id is not null and support_contract_id is not null and site_type is not null`)).toBeGreaterThan(0);
+    expect(await n(`select count(*)::int as n from sm_maintenance_slas where org_id = $org`)).toBe(1);
+    expect(await n(`select count(*)::int as n from sm_device_status_events where org_id = $org and to_at is not null and minutes > 0`)).toBeGreaterThan(0);
+    expect(await n(`select count(*)::int as n from sm_device_status_events where org_id = $org and to_at is null and status <> 'in_service' and incident_id is not null`)).toBeGreaterThan(0);
+    const states = (await e.db.query<{ state: string }>(`select distinct state from sm_asset_transfers where org_id = $1`, [e.org])).map((r) => r.state).sort();
+    expect(states).toEqual(["approved", "draft", "in_transit", "pending_approval", "received", "received_partial", "rejected"]);
+    // separation of duties: who asked, who approved and who received are three people
+    const done = await e.db.query<{ requested_by: string; received_by: string }>(`select requested_by, received_by from sm_asset_transfers where org_id = $1 and state in ('received', 'received_partial')`, [e.org]);
+    expect(done.length).toBeGreaterThan(0);
+    for (const t of done) expect(t.requested_by).not.toBe(t.received_by);
+    const attestations = (await e.db.query<{ state: string; overdue: boolean }>(`select state, overdue from sm_branch_attestations where org_id = $1`, [e.org]));
+    expect(attestations.some((x) => x.state === "attested")).toBe(true);
+    expect(attestations.some((x) => x.state === "attested_exceptions")).toBe(true);
+    expect(attestations.some((x) => x.state === "open" && x.overdue)).toBe(true);
+    expect(await n(`select count(*)::int as n from sm_inventory_audits where org_id = $org and state = 'completed' and discrepancy_open > 0`)).toBe(1);
+    const wiped = await e.db.query<{ asset_id: string; sanitized_by: string; witness_id: string; certificate_hash: string | null }>(`select asset_id, sanitized_by, witness_id, certificate_hash from sm_disposal_items where org_id = $1`, [e.org]);
+    expect(wiped.length).toBeGreaterThan(0);
+    for (const w of wiped) {
+      expect(w.certificate_hash).toBeTruthy();
+      expect(w.sanitized_by).not.toBe(w.witness_id);
+    }
+    expect(await n(`select count(*)::int as n from sm_assets where org_id = $org and state = 'disposed'`)).toBe(wiped.length);
+    // every custody chain the workflows wrote is intact
+    const sys = await systemCtx(e.cfg, e.org);
+    const moved = await e.db.query<{ asset_id: string }>(`select distinct asset_id from sm_asset_custody where org_id = $1 and event in ('dispatched', 'received', 'transfer_missing', 'attested', 'wiped', 'audited')`, [e.org]);
+    expect(moved.length).toBeGreaterThan(0);
+    for (const m of moved.slice(0, 30)) expect((await verifyCustody(e.db, sys, m.asset_id)).ok).toBe(true);
   }, 1_500_000);
 
   it("demo people follow the same access rules (secure HR workspace, security area, own records)", async () => {
@@ -217,6 +258,19 @@ describe.skipIf(skip)(title, () => {
     expect(own.length).toBeLessThan(all);
     for (const r of own) expect([r.caller_id, r.requested_for, r.opened_by].includes(requester.id) || (Array.isArray(r.watch_list) && r.watch_list.includes(requester.id))).toBe(true);
     expect((await rowsOf(agent.c, "incident")).length).toBeGreaterThan(own.length);
+    // bank ITAM: the branch's asset officer reads their branch's assets only; a requester no transfers or attestations
+    const branch = await persona("branch");
+    const unit = (await e.db.one<{ org_unit_id: string }>(`select org_unit_id from sm_member_profiles where org_id = $1 and user_id = $2`, [e.org, branch.id]))!.org_unit_id;
+    const theirs = await rowsOf(branch.c, "asset");
+    const assets = (await e.db.one<{ n: number }>(`select count(*)::int as n from sm_assets where org_id = $1 and deleted_at is null`, [e.org]))!.n;
+    expect(theirs.length).toBeGreaterThan(0);
+    expect(theirs.length).toBeLessThan(assets);
+    for (const r of theirs) expect(r.branch_id).toBe(unit);
+    for (const t of await rowsOf(branch.c, "asset_transfer")) expect([t.from_branch_id, t.to_branch_id]).toContain(unit);
+    expect(await rowsOf(requester.c, "asset_transfer")).toEqual([]);
+    expect(await rowsOf(requester.c, "branch_attestation")).toEqual([]);
+    expect(await rowsOf(requester.c, "maintenance_sla")).toEqual([]);
+    await branch.c.get(`/o/${e.org}/demo`, 403);
     // the console is the administrators': no persona reaches it
     await requester.c.get(`/o/${e.org}/demo`, 403);
     await agent.c.get(`/o/${e.org}/demo`, 403);
@@ -235,6 +289,12 @@ describe.skipIf(skip)(title, () => {
     // KPIs, models, archiving: the organisation's own computations over demo data
     const sys = await systemCtx(e.cfg, e.org);
     await collectAll(sys).catch(() => null);
+    // the ITAM jobs over the demo fleet: the daily sweep (reminders, attestation periods and overdue flags),
+    // depreciation into the cost ledger, the fleet's maintenance-SLA availability and penalties
+    await itamSweep(sys);
+    await openAttestations(sys);
+    await financialSweep(sys);
+    await fleet(sys, { days: 30 });
     const models = await e.db.query<{ key: string }>(`select key from sm_ai_models where org_id = $1 and table_key = 'incident' order by key limit 2`, [e.org]);
     for (const m of models) await enqueue(e.db, { kind: "ai.ml.train", orgId: e.org, payload: { key: m.key }, dedupeKey: `ai.ml.train:${m.key}` });
     await archiveBatch(sys, TABLES.get("incident")!, 0, 20);

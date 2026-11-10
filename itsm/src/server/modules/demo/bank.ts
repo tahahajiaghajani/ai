@@ -229,6 +229,7 @@ export const KNOWN_NAMES = {
   assets: { email: `assets@${BANK_DOMAIN}`, name: "رامین دارایی", title: "مدیر دارایی و ناوگان خودپرداز", roles: ["asset_manager", "configuration_manager"] },
   soc: { email: `soc@${BANK_DOMAIN}`, name: "لادن امن‌زاده", title: "تحلیل‌گر مرکز عملیات امنیت", roles: ["security_analyst"] },
   hr: { email: `hr@${BANK_DOMAIN}`, name: "پروانه منابعی", title: "کارشناس منابع انسانی", roles: ["hr_agent"] },
+  branch: { email: `branch@${BANK_DOMAIN}`, name: "یاسر اموالی", title: "مسئول اموال شعبهٔ میدان آزادی", roles: ["branch_asset_officer"] },
 } as const;
 
 export type Persona = keyof typeof KNOWN_NAMES;

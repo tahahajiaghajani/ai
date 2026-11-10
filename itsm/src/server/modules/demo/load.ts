@@ -10,7 +10,13 @@ import { CHOICE_LISTS, TABLES } from "@shared/tables";
 import { uuidv7 } from "@shared/id";
 import type { Ctx, ServerConfig } from "../../context";
 import type { Row, Tx } from "../../db";
-import { createIn, savepoint, systemCtx, updateIn } from "../../engine";
+import { create, createIn, savepoint, systemCtx, transition, update, updateIn } from "../../engine";
+import { memberCtx } from "../../access/service";
+import { periodKeyOf } from "@shared/financial/logic";
+import { addDays } from "@shared/jalali";
+import { attest, openAttestations, receiveTransfer, resolveAuditItem, setDeviceStatus, type AttestInput } from "../itam/bank";
+import { scan } from "../itam/stock";
+import { capture } from "../financial/service";
 import { hashPassword, readableCode } from "../../auth/password";
 import { addTimelineEvent, majorAction, sendUpdate } from "../incident";
 import { secureWorkspace } from "../security/common";
@@ -38,6 +44,8 @@ export interface LoadMemo {
   counts: Record<string, number>;
   /** tables whose records a module refused, with its reason (shown with the status) */
   refused?: Record<string, string>;
+  /** the bank's asset people: per branch unit its officer and manager, per region its asset manager */
+  itam?: { officers: Record<string, string>; managers: Record<string, string>; regional: Record<string, string> };
 }
 
 export function newMemo(size: DemoSize, seed = 1405): LoadMemo {
@@ -159,9 +167,11 @@ export const STEPS: Step[] = [
   { key: "org", label: "ساختار سازمانی و شعب", run: stepOrg },
   { key: "groups", label: "گروه‌های پشتیبانی", run: stepGroups },
   { key: "people", label: "کارکنان و کارشناسان", run: stepPeople },
+  { key: "branch_staff", label: "مسئولان اموال، رؤسای شعب و مدیران اموال منطقه", run: stepBranchStaff },
   { key: "services", label: "خدمت‌ها و پیکربندی", run: stepServices },
   { key: "suppliers", label: "تأمین‌کنندگان و قراردادها", run: stepSuppliers },
   { key: "assets", label: "دارایی‌ها و ناوگان خودپرداز", run: seedItamFleet },
+  { key: "itam_flows", label: "حواله‌های انتقال، شمارش، تأیید اموال شعب و اسقاط امن", run: stepItamFlows },
   { key: "knowledge", label: "مقاله‌های دانش", run: stepKnowledge },
   { key: "incidents", label: "رخدادها", run: stepIncidents },
   { key: "major", label: "رخداد عمدهٔ سوئیچ کارت", run: stepMajor },
@@ -172,6 +182,7 @@ export const STEPS: Step[] = [
   { key: "security", label: "امنیت", run: stepSecurity },
   { key: "hr", label: "پرونده‌های منابع انسانی", run: stepHr },
   { key: "field", label: "بازدیدهای میدانی", run: stepField },
+  { key: "extras", label: "اطلاعیهٔ درگاه، کشیک و هشدارهای پایش", run: stepExtras },
 ];
 
 async function stepOrg({ orgId, memo }: StepArgs, sys: Ctx): Promise<boolean> {
@@ -191,9 +202,10 @@ async function stepOrg({ orgId, memo }: StepArgs, sys: Ctx): Promise<boolean> {
     bump(memo, "location");
     // provinces → regions (the field-support areas) → branches
     const regionUnits: Record<string, string> = {};
-    for (const r of REGIONS) {
-      const u = await put(tx, sys, "org_unit", { name: `مدیریت شعب منطقهٔ ${r}`, kind: choose("org_unit", "kind", ["region", "division"]), parent_id: hq.id });
+    for (const [ri, r] of REGIONS.entries()) {
+      const u = await put(tx, sys, "org_unit", { name: `مدیریت شعب منطقهٔ ${r}`, code: `AFT-R${ri + 1}`, kind: choose("org_unit", "kind", ["division", "region"]), parent_id: hq.id });
       regionUnits[r] = String(u.id);
+      memo.units[`region:${r}`] = String(u.id);
       bump(memo, "org_unit");
     }
     const total = PROVINCES.reduce((s, p) => s + p[2], 0);
@@ -212,7 +224,7 @@ async function stepOrg({ orgId, memo }: StepArgs, sys: Ctx): Promise<boolean> {
         const code = String(1000 + made);
         const name = `شعبهٔ ${street} ${city}`;
         const loc = await put(tx, sys, "location", { name: `${name} (${code})`, code: `BR-${code}`, kind: choose("location", "kind", ["branch", "site", "office"]), parent_id: pLoc.id, address: `${city}، خیابان ${street}، پلاک ${rng.int(2, 280)}`, timezone: "Asia/Tehran" });
-        const unit = await put(tx, sys, "org_unit", { name: `${name} — کد ${code}`, code: `BR-${code}`, kind: choose("org_unit", "kind", ["branch", "department", "team"]), parent_id: pUnit.id, location_id: loc.id });
+        const unit = await put(tx, sys, "org_unit", { name: `${name} — کد ${code}`, code, kind: choose("org_unit", "kind", ["branch", "department", "team"]), parent_id: pUnit.id, location_id: loc.id });
         memo.branches.push({ unit: String(unit.id), location: String(loc.id), region, city, name });
         made++;
       }
@@ -270,9 +282,9 @@ async function stepPeople(a: StepArgs, sys: Ctx): Promise<boolean> {
     memo.password = readableCode(3, 4);
     const hash = await hashPassword(memo.password);
     await sys.write(async (tx) => {
-      const unitOf: Record<Persona, string | undefined> = { agent: memo.units.IT, manager: memo.units.IT, requester: memo.branches[0]?.unit, change: memo.units.IT, assets: memo.units.IT, soc: memo.units.SEC, hr: memo.units.HR };
+      const unitOf: Record<Persona, string | undefined> = { agent: memo.units.IT, manager: memo.units.IT, requester: memo.branches[0]?.unit, change: memo.units.IT, assets: memo.units.IT, soc: memo.units.SEC, hr: memo.units.HR, branch: memo.branches[0]?.unit };
       for (const [key, p] of Object.entries(KNOWN_NAMES) as [Persona, (typeof KNOWN_NAMES)[Persona]][]) {
-        const id = await addPerson(tx, sys, orgId, { email: mail(p.email.split("@")[0]), name: p.name, title: p.title, unit: unitOf[key], location: key === "requester" ? memo.branches[0]?.location : memo.units.hq_location, roles: [...p.roles], hash });
+        const id = await addPerson(tx, sys, orgId, { email: mail(p.email.split("@")[0]), name: p.name, title: p.title, unit: unitOf[key], location: key === "requester" || key === "branch" ? memo.branches[0]?.location : memo.units.hq_location, roles: [...p.roles], hash });
         memo.people.personas[key] = id;
       }
       const P = memo.people.personas;
@@ -436,7 +448,7 @@ async function stepSuppliers({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
       const sup = await put(tx, sys, "supplier", { name: s.name, kinds: s.kinds, criticality: choose("supplier", "criticality", ["critical", "high"]), city: "تهران", country: "ایران", state: choose("supplier", "state", ["active"]), notes: "تأمین‌کنندهٔ ساختگی دادهٔ نمایشی" });
       memo.suppliers.push(String(sup.id));
       const start = now - (200 + i * 40) * DAY;
-      await put(tx, sys, "contract", {
+      const contract = await put(tx, sys, "contract", {
         name: s.contract,
         supplier_id: sup.id,
         contract_type: choose("contract", "contract_type", ["maintenance", "support", "service"]),
@@ -449,6 +461,7 @@ async function stepSuppliers({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
         terms: "زمان پاسخ: ۴ ساعت کاری در شعب شهری، ۸ ساعت در شعب دیگر؛ قطعات اصلی با ضمانت.",
         state: choose("contract", "state", ["active"]),
       });
+      if (i === 0) memo.units.atm_contract = String(contract.id);
     }
   });
   bump(memo, "supplier", list.length);
@@ -456,68 +469,201 @@ async function stepSuppliers({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
   return true;
 }
 
+// ----- bank IT asset management -------------------------------------------------------------------------------------
+
+/** Branches with their own asset officer and manager (the first of the list; the rest are counted by the region). */
+function staffedCount(memo: LoadMemo): number {
+  return Math.min(memo.branches.length, memo.size === "small" ? 8 : memo.size === "medium" ? 24 : 60);
+}
+
 /**
- * IT asset management of the demo bank, in one place: asset models (ATM, cash recycler, POS terminal, branch PC,
- * passbook printer, branch router), the central and regional stockrooms, the fleet spread over the branches (in use or
- * in stock, with purchase, warranty and vendor) and a physical audit of the central stockroom. The bank-grade ITAM
- * tables (device classes, branch transfers, the ATM fleet, depreciation) extend this function when they arrive.
+ * The bank's asset people: a branch manager (the unit's manager) and an asset officer for each staffed branch, a
+ * regional asset manager for each region, and a branch stockroom in each staffed branch. The branch persona is the
+ * first branch's officer.
+ */
+async function stepBranchStaff(a: StepArgs, sys: Ctx): Promise<boolean> {
+  const { orgId, memo } = a;
+  const rng = new Rng(memo.seed + 29);
+  const tag = orgId.replace(/-/g, "").slice(0, 6);
+  const mail = (local: string) => `${local}.${tag}@${BANK_DOMAIN}`;
+  const itam: NonNullable<LoadMemo["itam"]> = { officers: {}, managers: {}, regional: {} };
+  await sys.write(async (tx) => {
+    const k = staffedCount(memo);
+    for (let i = 0; i < k; i++) {
+      const b = memo.branches[i];
+      const manager = await addPerson(tx, sys, orgId, { email: mail(`bm${i}`), name: personName(rng), title: `رئیس ${b.name}`, unit: b.unit, location: b.location, roles: ["branch_manager"], hash: null });
+      const officer = i === 0 && memo.people.personas.branch
+        ? memo.people.personas.branch
+        : await addPerson(tx, sys, orgId, { email: mail(`bo${i}`), name: personName(rng), title: `مسئول اموال ${b.name}`, unit: b.unit, location: b.location, roles: ["branch_asset_officer"], hash: null });
+      await updateIn(tx, sys, "org_unit", b.unit, { manager_id: manager }, { trusted: true });
+      await put(tx, sys, "stockroom", { name: `انبار ${b.name}`, code: `ST-${1000 + i}`, stockroom_type: choose("stockroom", "stockroom_type", ["branch"]), branch_id: b.unit, location_id: b.location, manager_id: officer, active: true });
+      itam.managers[b.unit] = manager;
+      itam.officers[b.unit] = officer;
+    }
+    bump(memo, "person", k * 2 - (memo.people.personas.branch ? 1 : 0));
+    bump(memo, "stockroom", k);
+    for (const r of REGIONS) {
+      const id = await addPerson(tx, sys, orgId, { email: mail(`ram${REGIONS.indexOf(r)}`), name: personName(rng), title: `مدیر اموال منطقهٔ ${r}`, unit: memo.units[`region:${r}`], location: memo.units.hq_location, roles: ["regional_asset_manager"], hash: null });
+      itam.regional[r] = id;
+    }
+    bump(memo, "person", REGIONS.length);
+  });
+  memo.itam = itam;
+  return true;
+}
+
+/** The bank's device classes in the pack, with their share of the fleet and the model used when none is seeded. */
+const FLEET_MIX: { key: string; weight: number; name: string; cost: number; life: number; fleet?: boolean }[] = [
+  { key: "atm", weight: 20, name: "خودپرداز نمونهٔ آفتاب ATM-500", cost: 3_200_000_000, life: 84, fleet: true },
+  { key: "crs", weight: 5, name: "دستگاه بازیافت پول CR-200", cost: 4_100_000_000, life: 84, fleet: true },
+  { key: "pos", weight: 20, name: "پایانهٔ فروش رومیزی POS-T1", cost: 95_000_000, life: 48 },
+  { key: "desktop", weight: 24, name: "رایانهٔ شعبه BR-PC", cost: 380_000_000, life: 60 },
+  { key: "passbook_printer", weight: 10, name: "چاپگر دفترچه PB-90", cost: 160_000_000, life: 60 },
+  { key: "network", weight: 8, name: "مسیریاب شعبه RT-20", cost: 240_000_000, life: 60 },
+  { key: "server", weight: 3, name: "سرور شعب مجازی SRV-2U", cost: 2_800_000_000, life: 60 },
+];
+const ATM_OS = ["Windows 10 IoT Enterprise LTSC 2021", "Windows 10 IoT Enterprise LTSC 2021", "Windows 10 IoT Enterprise LTSB 2016", "Windows Embedded Standard 7"];
+
+/** Class attributes (BANK_DEVICE_CLASSES) of a demo device. */
+function attributesOf(key: string, rng: Rng, n: number): Record<string, unknown> | undefined {
+  switch (key) {
+    case "atm":
+      return { cassettes: rng.pick([4, 4, 6]), dispenser: rng.pick(["اصطکاکی", "خلائی"]), deposit: rng.chance(0.4), cheque_deposit: false, contactless: rng.chance(0.6), epp_pci: true, xfs_version: rng.pick(["3.30", "3.20"]), agent_version: "7.2.1", connection: rng.pick(["فیبر", "فیبر", "ADSL", "4G"]), anti_skimming: rng.chance(0.8) };
+    case "crs":
+      return { cassettes: 6, recycle_cassettes: 4, capacity_notes: 12000, xfs_version: "3.30", epp_pci: true };
+    case "pos":
+      return { connection: rng.pick(["GPRS/4G", "LAN", "Wi-Fi"]), sim_serial: `8998${rng.int(10_000_000, 99_999_999)}`, shop_name: `فروشگاه نمونهٔ ${rng.pick(BRANCH_STREETS)} ${n}`, contactless: rng.chance(0.7) };
+    case "passbook_printer":
+      return { mag_stripe: true, interface: rng.pick(["USB", "LAN"]) };
+    case "network":
+      return { ports: rng.pick([4, 8, 24]), mgmt_ip: `10.${rng.int(10, 60)}.${rng.int(0, 254)}.1`, ios_version: "17.9.4a" };
+    case "server":
+      return { cores: rng.pick([16, 32]), ram_gb: rng.pick([128, 256]), rack: `R${rng.int(1, 12)}-U${rng.int(1, 40)}` };
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * IT asset management of the demo bank: the bank's device classes (the organisation's seeded bank models where there
+ * are, else the pack's own), depreciation rules, the ATM maintenance SLA, the central and regional stockrooms, and the
+ * fleet spread over the branches with branch, device class fields (terminal, PSP and merchant, operating system and
+ * its end of support, site, sensitivity, support contract, class attributes) and ATM/CRS status history. The workflows
+ * that move these assets (transfers, audits, attestations, disposal) are `stepItamFlows`.
  */
 async function seedItamFleet(a: StepArgs, sys: Ctx): Promise<boolean> {
   const { memo } = a;
   const size = DEMO_SIZES[memo.size];
   const rng = new Rng(memo.seed + 13);
   const now = Date.now();
-  // models and stockrooms first (cursor 0), then the fleet in batches
+  // models, rules, the SLA and stockrooms first (cursor 0), then the fleet in batches
   if (memo.cursor === 0) {
     await sys.write(async (tx) => {
-      const models: [string, string[], string[], number][] = [
-        ["خودپرداز نمونهٔ آفتاب ATM-500", ["atm", "kiosk", "hardware", "other"], ["hardware"], 3_200_000_000],
-        ["دستگاه بازیافت پول CR-200", ["atm", "kiosk", "hardware", "other"], ["hardware"], 4_100_000_000],
-        ["پایانهٔ فروش رومیزی POS-T1", ["pos", "terminal", "hardware", "other"], ["hardware"], 95_000_000],
-        ["رایانهٔ شعبه BR-PC", ["desktop", "computer"], ["hardware"], 380_000_000],
-        ["چاپگر دفترچه PB-90", ["printer", "peripheral"], ["hardware"], 160_000_000],
-        ["مسیریاب شعبه RT-20", ["network", "network_gear", "router", "hardware"], ["hardware"], 240_000_000],
-      ];
-      for (const [name, cat, cls, cost] of models) {
-        const m = await put(tx, sys, "asset_model", { name, category: choose("asset_model", "category", cat), asset_class: choose("asset_model", "asset_class", cls), unit_cost: cost, useful_life_months: 84, warranty_months: 24, status: choose("asset_model", "status", ["active", "approved"]) });
-        memo.units[`model:${name}`] = String(m.id);
+      const fleetRule = await put(tx, sys, "depreciation_rule", { name: "خط مستقیم ۷ ساله — خودپرداز و CRS (نمایشی)", method: "straight_line", life_months: 84, salvage_percent: "10", start_basis: "in_service", start_convention: "next_month", device_classes: ["atm", "crs", "kiosk"], active: true });
+      const branchRule = await put(tx, sys, "depreciation_rule", { name: "خط مستقیم ۵ ساله — تجهیزات شعبه (نمایشی)", method: "straight_line", life_months: 60, salvage_percent: "5", start_basis: "in_service", start_convention: "next_month", device_classes: ["pos", "desktop", "passbook_printer", "network", "server"], active: true });
+      // the bank's own cost centre: the fleet's purchases and depreciation post there, never to a real budget's
+      const cc = await put(tx, sys, "org_unit", { name: "مرکز هزینهٔ تجهیزات شعب و خودپردازها", code: "AFT-CC-ITB", kind: "cost_center", parent_id: memo.units.IT ?? memo.hq });
+      memo.units.cost_center = String(cc.id);
+      bump(memo, "org_unit");
+      memo.units.dep_fleet = String(fleetRule.id);
+      memo.units.dep_branch = String(branchRule.id);
+      bump(memo, "depreciation_rule", 2);
+      for (const c of FLEET_MIX) {
+        const seeded = await tx.one<{ id: string; unit_cost: string | null }>(`select id, unit_cost::text as unit_cost from sm_asset_models where org_id = $1 and category = $2 and deleted_at is null order by created_at limit 1`, [sys.org.id, c.key]);
+        if (seeded) {
+          memo.units[`model:${c.key}`] = seeded.id;
+          memo.units[`cost:${c.key}`] = seeded.unit_cost ?? String(c.cost);
+          continue;
+        }
+        const m = await put(tx, sys, "asset_model", { name: c.name, category: c.key, asset_class: choose("asset_model", "asset_class", ["hardware"]), unit_cost: c.cost, useful_life_months: c.life, warranty_months: 24, status: choose("asset_model", "status", ["active", "approved"]), data_bearing: ["atm", "crs", "desktop", "server", "network"].includes(c.key) });
+        memo.units[`model:${c.key}`] = String(m.id);
+        memo.units[`cost:${c.key}`] = String(c.cost);
+        bump(memo, "asset_model");
       }
-      bump(memo, "asset_model", models.length);
-      const central = await put(tx, sys, "stockroom", { name: "انبار مرکزی تجهیزات شعب (نمایشی)", code: "AFT-ST-1", location_id: memo.units.hq_location, group_id: memo.groups.assets, active: true });
+      if (memo.units.atm_contract) {
+        await put(tx, sys, "maintenance_sla", {
+          name: "توافق نگهداری خودپردازها و CRS (نمایشی)", contract_id: memo.units.atm_contract, categories: ["atm", "crs"], response_hours: 4, restore_hours: 8,
+          availability_target: "98", counts_maintenance: false, penalty_per_hour: "5000000", penalty_cap: "500000000", active: true, notes: "جریمه به ازای هر ساعت از کارافتادگی بیش از زمان بازگرداندن",
+        });
+        bump(memo, "maintenance_sla");
+      }
+      const central = await put(tx, sys, "stockroom", { name: "انبار مرکزی تجهیزات شعب (نمایشی)", code: "AFT-ST-1", stockroom_type: choose("stockroom", "stockroom_type", ["central", "main"]), location_id: memo.units.hq_location, group_id: memo.groups.assets, active: true });
       memo.units.stockroom = String(central.id);
       for (const r of REGIONS.slice(0, 3)) {
         const b = memo.branches.find((x) => x.region === r);
-        await put(tx, sys, "stockroom", { name: `انبار منطقه‌ای ${r}`, location_id: b?.location, group_id: memo.regionGroups[r], parent_id: central.id, active: true });
+        await put(tx, sys, "stockroom", { name: `انبار منطقه‌ای ${r}`, stockroom_type: choose("stockroom", "stockroom_type", ["regional"]), location_id: b?.location, group_id: memo.regionGroups[r], parent_id: central.id, active: true });
       }
       bump(memo, "stockroom", 4);
     });
     memo.cursor = 1;
   }
-  const modelIds = Object.entries(memo.units).filter(([k]) => k.startsWith("model:")).map(([, v]) => v);
-  const mix: [number, number][] = [[0, 26], [1, 6], [2, 22], [3, 26], [4, 12], [5, 8]];
+  const staffed = staffedCount(memo);
+  const mix: [number, number][] = FLEET_MIX.map((c, i) => [i, c.weight]);
+  const psps = optionValues("asset", "psp").filter((v) => v !== "other");
   let i = memo.cursor - 1;
   while (i < size.assets && Date.now() < a.deadline) {
     const n = Math.min(60, size.assets - i);
     await sys.write(async (tx) => {
       for (let k = 0; k < n; k++) {
-        const idx = rng.weighted(mix);
-        const b = memo.branches[(i + k) % memo.branches.length];
+        const c = FLEET_MIX[rng.weighted(mix)];
+        const no = i + k;
+        // the staffed branches hold a larger share (their officers transfer, count and attest them)
+        const b = rng.chance(0.35) && staffed ? memo.branches[rng.int(0, staffed - 1)] : memo.branches[no % memo.branches.length];
         const bought = now - rng.int(30, 6 * 365) * DAY;
-        const inUse = rng.chance(0.88);
-        await put(tx, sys, "asset", {
-          model_id: modelIds[idx],
-          asset_tag: `AFT-${String(100000 + i + k)}`,
+        const hq = c.key === "server";
+        const inUse = hq || rng.chance(0.88);
+        const atm = c.key === "atm" || c.key === "crs";
+        const asset = await put(tx, sys, "asset", {
+          model_id: memo.units[`model:${c.key}`],
+          category: c.key,
+          asset_tag: `AFT-${String(100000 + no)}`,
           serial_number: `SN${rng.int(10_000_000, 99_999_999)}`,
           state: inUse ? choose("asset", "state", ["in_use"]) : choose("asset", "state", ["in_stock"]),
-          location_id: inUse ? b.location : memo.units.hq_location,
+          branch_id: hq || !inUse ? memo.units.IT : b.unit,
+          department_id: hq || !inUse ? memo.units.IT : b.unit,
+          location_id: inUse && !hq ? b.location : memo.units.hq_location,
           stockroom_id: inUse ? undefined : memo.units.stockroom,
-          managed_by_group_id: idx <= 2 ? memo.groups.card : memo.regionGroups[b.region],
+          managed_by_group_id: atm || c.key === "pos" ? memo.groups.card : memo.regionGroups[b.region],
           purchase_date: dateOnly(bought),
+          purchase_cost: memo.units[`cost:${c.key}`],
           in_service_date: dateOnly(bought + 10 * DAY),
-          vendor_id: memo.suppliers[idx <= 1 ? 0 : idx === 2 ? 4 : 2],
+          depreciation_rule_id: atm ? memo.units.dep_fleet : memo.units.dep_branch,
+          cost_center_id: memo.units.cost_center,
+          vendor_id: memo.suppliers[atm ? 0 : c.key === "pos" ? 4 : 2],
           warranty_end: dateOnly(bought + 730 * DAY),
-          notes: idx <= 1 ? `دستگاه ${b.name}` : undefined,
+          support_contract_id: atm ? memo.units.atm_contract : undefined,
+          terminal_id: atm || c.key === "pos" ? `${c.key === "pos" ? "P" : "A"}${String(rng.int(10_000_000, 99_999_999))}` : undefined,
+          psp: c.key === "pos" && psps.length ? rng.pick(psps) : undefined,
+          merchant_id: c.key === "pos" ? String(rng.int(100_000_000, 999_999_999)) + String(rng.int(100_000, 999_999)) : undefined,
+          os_name: atm ? rng.pick(ATM_OS) : c.key === "desktop" ? rng.pick(["Windows 10 Pro 22H2", "Windows 11 Pro 23H2"]) : c.key === "server" ? "Windows Server 2019 Datacenter" : undefined,
+          site_type: atm ? choose("asset", "site_type", [rng.pick(["in_branch", "through_wall", "through_wall", "drive_through", "off_site"])]) : undefined,
+          sensitivity: choose("asset", "sensitivity", [atm || hq || c.key === "network" ? "confidential" : "internal"]),
+          attributes: attributesOf(c.key, rng, no),
+          notes: atm ? `دستگاه ${b.name}` : undefined,
         });
+        // the ATM/CRS status history of the last two months: outages with their minutes, then in service since
+        if (atm && inUse && rng.chance(0.6)) {
+          let t = now - 60 * DAY;
+          let lastEnd = 0;
+          for (let o = rng.int(1, 3); o > 0; o--) {
+            const from = t + rng.int(2, 18) * DAY + rng.int(0, 600) * 60_000;
+            const minutes = rng.int(25, 900);
+            const status = rng.pick(["out_of_service", "out_of_service", "out_of_cash", "offline", "maintenance"]);
+            if (from + minutes * 60_000 >= now - DAY) break;
+            await put(tx, sys, "device_status_event", {
+              asset_id: asset.id, status, from_at: iso(from), to_at: iso(from + minutes * 60_000), minutes, branch_id: b.unit, contract_id: memo.units.atm_contract,
+              reason: status === "out_of_cash" ? "اتمام وجه نقد کاست‌ها" : status === "offline" ? "قطع ارتباط با سوئیچ" : status === "maintenance" ? "سرویس دوره‌ای" : rng.pick(["گیر کردن اسکناس در دیسپنسر", "خرابی کارت‌خوان", "خطای چاپگر رسید"]),
+              label: `${asset.asset_tag ?? ""} — سابقهٔ وضعیت`,
+            });
+            bump(memo, "device_status_event");
+            lastEnd = from + minutes * 60_000;
+            t = lastEnd;
+          }
+          if (lastEnd) {
+            const open = await tx.one<{ id: string }>(`select id from sm_device_status_events where org_id = $1 and asset_id = $2 and to_at is null and deleted_at is null limit 1`, [sys.org.id, asset.id]);
+            if (open) await updateIn(tx, sys, "device_status_event", open.id, { from_at: iso(lastEnd) }, { trusted: true });
+          }
+        }
       }
     });
     i += n;
@@ -525,7 +671,7 @@ async function seedItamFleet(a: StepArgs, sys: Ctx): Promise<boolean> {
     bump(memo, "asset", n);
   }
   if (i < size.assets) return false;
-  // a physical audit of the central stockroom
+  // a quarterly count of the central stockroom (planned)
   await sys.write(async (tx) => {
     await put(tx, sys, "inventory_audit", { name: "شمارش فصلی انبار مرکزی", scope_kind: choose("inventory_audit", "scope_kind", ["stockroom"]), stockroom_id: memo.units.stockroom, group_id: memo.groups.assets, planned_date: dateOnly(now + 7 * DAY), notes: "شمارش دستگاه‌های رزرو خودپرداز و پایانهٔ فروش" });
   });
@@ -533,6 +679,166 @@ async function seedItamFleet(a: StepArgs, sys: Ctx): Promise<boolean> {
   memo.cursor = 0;
   return true;
 }
+
+/** Assets of a branch free to move (in use or in stock, in no transfer, of the given classes). */
+async function freeAssets(q: Tx | Ctx["db"], orgId: string, branch: string, n: number, classes = ["desktop", "passbook_printer", "pos", "network"]): Promise<{ id: string; asset_tag: string | null }[]> {
+  return q.query<{ id: string; asset_tag: string | null }>(
+    `select a.id, a.asset_tag from sm_assets a where a.org_id = $1 and a.branch_id = $2 and a.deleted_at is null and a.state in ('in_use', 'in_stock') and a.category = any($3::text[])
+       and not exists (select 1 from sm_asset_transfer_items i where i.org_id = $1 and i.asset_id = a.id and i.deleted_at is null) order by a.asset_tag limit $4`,
+    [orgId, branch, `{${classes.join(",")}}`, n],
+  );
+}
+
+const ITAM_PHASES = ["fleet_status", "transfers", "audit", "attestation", "disposal", "ledger"] as const;
+
+/**
+ * The bank ITAM workflows, each through the module's own services as the demo people who would do it (requester ≠
+ * approver ≠ receiver; the wipe's performer ≠ its witness), so the custody chain is the module's own: ATMs down now
+ * with their incidents, transfers between branches in every state, a branch count with discrepancies, the period's
+ * branch attestations (some attested, some with exceptions, some overdue), a secure disposal with wipe certificates,
+ * and the year's depreciation posted to the cost ledger so «دفتر اموال» reconciles with it. A phase a module refuses
+ * is recorded with the pack's status and the load goes on.
+ */
+async function stepItamFlows(a: StepArgs, sys: Ctx): Promise<boolean> {
+  const { cfg, orgId, memo } = a;
+  const itam = memo.itam;
+  const staffed = staffedCount(memo);
+  const per = memo.size === "small" ? 1 : memo.size === "medium" ? 2 : 4;
+  const as = (userId: string) => memberCtx(cfg, orgId, userId);
+  const regionOf = (unit: string) => memo.branches.find((b) => b.unit === unit)?.region ?? REGIONS[0];
+  const now = Date.now();
+  while (memo.cursor < ITAM_PHASES.length && Date.now() < a.deadline) {
+    const phase = ITAM_PHASES[memo.cursor];
+    try {
+      if (!itam || !staffed) throw new Error("شعبه‌ای با مسئول اموال نیست");
+      if (phase === "fleet_status") {
+        // ATMs down now, each with the incident the field technician opened
+        const downs = await sys.db.query<{ id: string; branch_id: string }>(
+          `select id, branch_id from sm_assets where org_id = $1 and deleted_at is null and category = 'atm' and state = 'in_use' and branch_id is not null order by asset_tag limit $2`,
+          [orgId, memo.size === "small" ? 5 : memo.size === "medium" ? 15 : 40],
+        );
+        for (const [k, d] of downs.entries()) {
+          const tech = memo.people.agents[`field:${regionOf(d.branch_id)}`]?.[0] ?? memo.people.personas.agent;
+          const actor = await systemCtx(cfg, orgId, { onBehalfOf: tech ?? null });
+          const status = ["out_of_service", "out_of_cash", "offline", "out_of_service", "maintenance"][k % 5];
+          await setDeviceStatus(actor, d.id, { status, reason: status === "out_of_cash" ? "کاست‌ها خالی است" : status === "offline" ? "قطع خط ارتباطی شعبه" : status === "maintenance" ? "تعویض دیسپنسر" : "خطای کارت‌خوان؛ کارت مشتری ضبط شد", incident: status !== "maintenance" });
+          bump(memo, "atm_down");
+        }
+      } else if (phase === "transfers") {
+        const states = ["draft", "pending_approval", "approved", "in_transit", "received", "received_partial", "rejected"];
+        let j = 0;
+        for (const state of states) {
+          for (let r = 0; r < per; r++, j++) {
+            const from = memo.branches[j % staffed];
+            const to = memo.branches[(j + 1) % staffed];
+            if (from.unit === to.unit) continue;
+            const assets = await freeAssets(sys.db, orgId, from.unit, state === "received_partial" ? 2 : 1);
+            if (assets.length < (state === "received_partial" ? 2 : 1)) continue;
+            const requester = await as(itam.officers[from.unit]);
+            const approver = await as(itam.regional[from.region]);
+            const receiver = await as(itam.officers[to.unit]);
+            const t = (await create(requester, "asset_transfer", { title: `انتقال تجهیزات از ${from.name} به ${to.name}`, reason: TRANSFER_PICK[j % TRANSFER_PICK.length], from_branch_id: from.unit, to_branch_id: to.unit, requested_by: itam.officers[from.unit], notes: "حوالهٔ نمایشی" })).row;
+            for (const x of assets) await create(requester, "asset_transfer_item", { transfer_id: t.id, asset_id: x.id, condition_out: "good" });
+            bump(memo, "asset_transfer");
+            if (state === "draft") continue;
+            await transition(requester, "asset_transfer", String(t.id), "pending_approval");
+            if (state === "pending_approval") continue;
+            if (state === "rejected") {
+              await transition(approver, "asset_transfer", String(t.id), "rejected");
+              continue;
+            }
+            await transition(approver, "asset_transfer", String(t.id), "approved");
+            if (state === "approved") continue;
+            await transition(requester, "asset_transfer", String(t.id), "in_transit", { carrier: "پست بانک (نمایشی)", waybill_no: `WB-${1405}${String(1000 + j)}` });
+            if (state === "in_transit") continue;
+            const items = await sys.db.query<{ id: string }>(`select id from sm_asset_transfer_items where org_id = $1 and transfer_id = $2 and deleted_at is null order by created_at`, [orgId, t.id]);
+            await receiveTransfer(receiver, String(t.id), {
+              items: items.map((it, k) => ({ id: it.id, result: state === "received_partial" ? (k === 0 ? "damaged" : "missing") : "received", condition_in: state === "received_partial" && k === 0 ? "damaged" : "good", note: state === "received_partial" && k === 0 ? "قاب دستگاه شکسته رسید" : null })),
+              note: state === "received" ? "سالم و کامل رسید" : "رسید با مغایرت",
+            });
+          }
+        }
+      } else if (phase === "audit") {
+        // the first branch's count: everything seen but one, an unregistered device found; one discrepancy settled
+        const b = memo.branches[0];
+        const counter = await as(itam.officers[b.unit]);
+        const audit = (await create(counter, "inventory_audit", { name: `شمارش سالانهٔ اموال ${b.name}`, scope_kind: "branch", branch_id: b.unit, location_id: b.location, planned_date: dateOnly(now - 2 * DAY), mark_missing: true, notes: "شمارش با گوشی و برچسب‌خوان" })).row;
+        await transition(counter, "inventory_audit", String(audit.id), "in_progress");
+        const expected = await sys.db.query<{ asset_tag: string | null }>(
+          `select a.asset_tag from sm_inventory_audit_items i join sm_assets a on a.id = i.asset_id where i.org_id = $1 and i.audit_id = $2 and i.deleted_at is null and i.expected order by a.asset_tag`,
+          [orgId, audit.id],
+        );
+        for (const x of expected.slice(1)) if (x.asset_tag) await scan(counter, String(audit.id), x.asset_tag);
+        await scan(counter, String(audit.id), "AFT-UNREG-7731");
+        await transition(counter, "inventory_audit", String(audit.id), "completed");
+        const missing = await sys.db.one<{ id: string }>(`select id from sm_inventory_audit_items where org_id = $1 and audit_id = $2 and result = 'missing' and deleted_at is null limit 1`, [orgId, audit.id]);
+        if (missing) await resolveAuditItem(await as(itam.regional[b.region]), missing.id, { resolution: "found", note: "در انبار شعبه پیدا شد" });
+        bump(memo, "inventory_audit");
+      } else if (phase === "attestation") {
+        // the period's attestation for every branch with assets; staffed branches' managers attest
+        await openAttestations(sys);
+        const today = dateOnly(now);
+        for (let i = 0; i < staffed; i++) {
+          const b = memo.branches[i];
+          const att = await sys.db.one<{ id: string }>(`select id from sm_branch_attestations where org_id = $1 and branch_id = $2 and state = 'open' and deleted_at is null order by created_at desc limit 1`, [orgId, b.unit]);
+          if (!att) continue;
+          if (i % 3 === 2) {
+            // overdue: the period's deadline passed without the manager's signature
+            await sys.write((tx) => updateIn(tx, sys, "branch_attestation", att.id, { due_date: dateOnly(now - (5 + i) * DAY) }, { trusted: true }));
+            continue;
+          }
+          const manager = await as(itam.managers[b.unit]);
+          const exceptions: AttestInput["exceptions"] = [];
+          if (i % 3 === 1) {
+            const [x] = await freeAssets(sys.db, orgId, b.unit, 1, ["desktop", "passbook_printer", "pos", "network", "atm"]);
+            if (x) exceptions.push({ asset_id: x.id, issue: "damaged", note: "صفحه‌کلید آسیب دیده است" });
+          }
+          await attest(manager, att.id, { signed_name: manager.user.full_name || "رئیس شعبه", exceptions, note: exceptions.length ? "یک قلم آسیب‌دیده" : null });
+          bump(memo, "branch_attestation");
+        }
+        await openAttestations(sys, today);
+      } else if (phase === "disposal") {
+        // old Windows 7 ATMs: approved, wiped by the field technician with the asset manager as witness, disposed
+        const olds = await sys.db.query<{ id: string }>(
+          `select id from sm_assets where org_id = $1 and deleted_at is null and category = 'atm' and state in ('in_use', 'in_stock') and os_name ilike '%embedded%7%'
+             and not exists (select 1 from sm_asset_transfer_items i where i.org_id = $1 and i.asset_id = sm_assets.id and i.deleted_at is null)
+             and (device_status is null or device_status = 'in_service') order by asset_tag limit 2`,
+          [orgId],
+        );
+        const manager = memo.people.personas.assets;
+        const tech = memo.people.agents[`field:${REGIONS[0]}`]?.[0] ?? memo.people.personas.agent;
+        if (olds.length && manager && tech) {
+          const am = await as(manager);
+          const order = (await create(am, "disposal_order", { title: "اسقاط امن خودپردازهای ویندوز ۷ (پایان پشتیبانی)", method: choose("disposal_order", "method", ["recycle", "destroy", "sell"]), vendor_id: memo.suppliers[0], owner_id: manager, group_id: memo.groups.assets, notes: "پاک‌سازی دیسک با گواهی پیش از تحویل به بازیافت" })).row;
+          for (const o of olds) await create(am, "disposal_item", { order_id: order.id, asset_id: o.id });
+          await transition(am, "disposal_order", String(order.id), "approved");
+          await transition(am, "disposal_order", String(order.id), "sanitizing");
+          const items = await sys.db.query<{ id: string }>(`select id from sm_disposal_items where org_id = $1 and order_id = $2 and deleted_at is null order by created_at`, [orgId, order.id]);
+          for (const [k, it] of items.entries()) {
+            await update(am, "disposal_item", it.id, { sanitization_method: "purge", sanitized_at: iso(now - (3 - k) * DAY), sanitized_by: tech, witness_id: manager, wipe_tool: "ابزار پاک‌سازی دیسک (نمایشی) — NIST 800-88 Purge", certificate_no: `WIPE-1405-${String(k + 1).padStart(4, "0")}`, verified: true });
+          }
+          await transition(am, "disposal_order", String(order.id), "completed", { certificate_no: "DSP-1405-0001", certificate_date: dateOnly(now - DAY) });
+          bump(memo, "disposal_order");
+        }
+      } else if (phase === "ledger") {
+        // the year's depreciation and purchases posted month by month (the register reconciles with this ledger)
+        const today = dateOnly(now);
+        const periods = new Set<string>();
+        for (let d = 0; d <= 370; d += 15) periods.add(periodKeyOf(addDays(today, -d)));
+        const year = periodKeyOf(today).slice(0, 4);
+        for (const p of [...periods].filter((x) => x.startsWith(year)).sort()) await capture(sys, p);
+      }
+    } catch (e) {
+      refusals.set(`${orgId}:itam.${phase}`, e instanceof Error ? e.message : String(e));
+    }
+    memo.cursor++;
+  }
+  if (memo.cursor < ITAM_PHASES.length) return false;
+  memo.cursor = 0;
+  return true;
+}
+
+const TRANSFER_PICK = ["relocation", "replacement", "repair", "relocation", "return_to_central"];
 
 async function stepKnowledge({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
   const size = DEMO_SIZES[memo.size];
@@ -901,6 +1207,47 @@ async function stepHr({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
     }
   });
   bump(memo, "hr_case", made);
+  return true;
+}
+
+/**
+ * Smaller modules of the pack: the portal's announcement of an ATM maintenance window, the card group's on-call
+ * schedule and rotation, and open monitoring alerts on the ATM network and the card switch. Each goes in its own
+ * savepoint: a module that refuses it is recorded with the pack's status.
+ */
+async function stepExtras({ orgId, memo }: StepArgs, sys: Ctx): Promise<boolean> {
+  const now = Date.now();
+  const tryPut = async (tx: Tx, table: string, values: Record<string, unknown>): Promise<Row | null> =>
+    savepoint(tx, () => put(tx, sys, table, values)).catch((e: unknown) => {
+      refusals.set(`${orgId}:${table}`, e instanceof Error ? e.message : String(e));
+      return null;
+    });
+  await sys.write(async (tx) => {
+    const a = await tryPut(tx, "announcement", {
+      title: "به‌روزرسانی نرم‌افزار خودپردازهای منطقهٔ تهران بزرگ", kind: "maintenance", audience: "everyone", state: "published", published_at: iso(now - DAY),
+      starts_at: iso(now + 2 * DAY), ends_at: iso(now + 2 * DAY + 4 * 3600_000), assignment_group_id: memo.groups.card,
+      body: "خودپردازهای شعب منطقهٔ تهران بزرگ پنجشنبه‌شب از ساعت ۲۲ تا ۲ بامداد به‌نوبت برای به‌روزرسانی از دسترس خارج می‌شوند (اطلاعیهٔ نمایشی).",
+    });
+    if (a) bump(memo, "announcement");
+    const members = (memo.people.agents.card ?? []).slice(0, 4);
+    if (memo.groups.card && members.length) {
+      const sched = await tryPut(tx, "oncall_schedule", { name: "کشیک کارت و خودپرداز", group_id: memo.groups.card, timezone: "Asia/Tehran", active: true, description: "کشیک هفتگی شبانه‌روزی (نمایشی)" });
+      if (sched) {
+        const rot = await tryPut(tx, "oncall_rotation", { schedule_id: sched.id, name: "چرخش هفتگی", layer: 1, rotation_type: "weekly", length_hours: 168, active: true, start_at: iso(now - 30 * DAY), members, restriction: "none" });
+        if (rot) bump(memo, "oncall_schedule");
+      }
+    }
+    const services = [memo.services.atm, memo.services.switch].filter(Boolean);
+    const alerts: [string, string, string][] = [
+      ["تأخیر پاسخ سوئیچ کارت بیش از ۲ ثانیه", "major", "switch-01"],
+      ["قطع ارتباط ۳ خودپرداز شعب اصفهان", "minor", "atm-gw-isf"],
+      ["پر شدن دیسک سرور پایش خودپردازها", "warning", "atm-mon-02"],
+    ];
+    for (const [i, [text, severity, node]] of alerts.entries()) {
+      const al = await tryPut(tx, "alert", { short_description: text, severity, node, resource: node, service_id: services[i % Math.max(1, services.length)], assignment_group_id: memo.groups.card, first_seen_at: iso(now - (i + 1) * 3600_000), last_seen_at: iso(now - 600_000), opened_at: iso(now - (i + 1) * 3600_000), event_count: 3 + i * 4 });
+      if (al) bump(memo, "alert");
+    }
+  });
   return true;
 }
 
