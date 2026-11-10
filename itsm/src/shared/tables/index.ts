@@ -40,6 +40,8 @@ import { CSM_CHOICE_LISTS, CSM_TABLES } from "./csm";
 import { FSM_CHOICE_LISTS, FSM_TABLES } from "./field_service";
 import { SLM_CHOICE_LISTS, SLM_TABLES } from "./slm";
 import { WORKFORCE_CHOICE_LISTS, WORKFORCE_TABLES } from "./workforce";
+import { ADMIN_TABLES } from "./admin";
+import { INTEGRATION_TABLES } from "./integration";
 
 export { CUSTOM_FIELD_TYPES, VIEW_KINDS } from "./core";
 
@@ -77,6 +79,8 @@ const MODULE_TABLES: TableDef[][] = [
   FSM_TABLES,
   SLM_TABLES,
   WORKFORCE_TABLES,
+  ADMIN_TABLES,
+  INTEGRATION_TABLES,
 ];
 
 /** Every table by key (resolved definitions). */

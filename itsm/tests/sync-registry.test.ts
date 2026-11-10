@@ -83,6 +83,13 @@ const LOCAL_ONLY: Record<string, string> = {
   sm_portal_widgets: "website widgets and their keys (served by the web version)",
   sm_portal_events: "portal event stream of this runtime (searches, deflections, views)",
   sm_portal_channel_log: "messages the connectors carried on this runtime",
+  // administration and the integration hub (each runtime keeps what it did; the definitions are engine tables)
+  sm_backups: "logical backups of an organisation, made by the platform owner on this runtime",
+  sm_api_usage: "per-key request counters of the record API (rate limiting)",
+  sm_int_log: "integration call log of this runtime (API, webhooks, directory, SCIM, issue sync, exports)",
+  sm_webhook_deliveries: "outbound webhook deliveries of this runtime (retries, dead letters, replays)",
+  sm_directory_runs: "LDAP/AD previews and applies, SCIM dry-run logs",
+  sm_directory_links: "which directory identity is which member or group (per source)",
 };
 
 describe("sync registry covers every organisation table", () => {

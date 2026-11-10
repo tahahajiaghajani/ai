@@ -73,6 +73,10 @@ import { installCsmModule } from "../modules/csm";
 import { csmRoutes } from "./csm";
 import { installFieldServiceModule } from "../modules/field_service";
 import { fieldServiceRoutes } from "./field_service";
+import { installAdminModule } from "../modules/admin";
+import { adminTenantRoutes } from "./admin-tenant";
+import { installIntegrationModule } from "../modules/integration";
+import { integrationHubRoutes } from "./integration";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
 installAccessModel();
@@ -134,6 +138,10 @@ installAnalyticsModule();
 installSlmModule();
 // workforce and agent experience (docs/modules/workforce_FA.md) — after service level management (agent home reads it)
 installWorkforceModule();
+// the administration consoles (docs/modules/admin_FA.md) — studio, imports, exports, seats, notices; its AI skills before installAiSkills
+installAdminModule();
+// the integration hub (docs/modules/integration_FA.md) — integration users and keys, webhooks, LDAP/AD, SCIM, Jira/GitHub, exports
+installIntegrationModule();
 
 // the AI skills (docs/spec/AI.md §11) — after every module whose AI extension points they implement
 installAiSkills();
@@ -190,3 +198,5 @@ moduleRoutes.route("/csm", csmRoutes);
 moduleRoutes.route("/field_service", fieldServiceRoutes);
 moduleRoutes.route("/slm", slmRoutes);
 moduleRoutes.route("/workforce", workforceRoutes);
+moduleRoutes.route("/admin", adminTenantRoutes);
+moduleRoutes.route("/integration", integrationHubRoutes);

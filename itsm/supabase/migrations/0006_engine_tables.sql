@@ -220,6 +220,47 @@ drop trigger if exists sm_account_stakeholders_sync on sm_account_stakeholders;
 create trigger sm_account_stakeholders_sync before insert or update on sm_account_stakeholders for each row execute function sm_sync_touch('account_stakeholder');
 alter table sm_account_stakeholders enable row level security;
 
+-- admin_config: تنظیمات کنسول مدیریت
+create table if not exists sm_admin_config (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_admin_config add column if not exists workspace_id uuid;
+alter table sm_admin_config add column if not exists domain_id uuid;
+alter table sm_admin_config add column if not exists unit_id uuid;
+alter table sm_admin_config add column if not exists created_at timestamptz not null default now();
+alter table sm_admin_config add column if not exists created_by uuid;
+alter table sm_admin_config add column if not exists updated_at timestamptz not null default now();
+alter table sm_admin_config add column if not exists updated_by uuid;
+alter table sm_admin_config add column if not exists rev bigint not null default 0;
+alter table sm_admin_config add column if not exists version integer not null default 1;
+alter table sm_admin_config add column if not exists deleted_at timestamptz;
+alter table sm_admin_config add column if not exists origin text;
+alter table sm_admin_config add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_admin_config add column if not exists key text;
+alter table sm_admin_config add column if not exists seeded integer;
+alter table sm_admin_config add column if not exists onboarding jsonb;
+alter table sm_admin_config add column if not exists flags jsonb;
+create index if not exists sm_admin_config_rev_idx on sm_admin_config (org_id, rev);
+create index if not exists sm_admin_config_upd_idx on sm_admin_config (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_admin_config_crt_idx on sm_admin_config (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_admin_config_key_uk on sm_admin_config (org_id, key) where deleted_at is null;
+drop trigger if exists sm_admin_config_sync on sm_admin_config;
+create trigger sm_admin_config_sync before insert or update on sm_admin_config for each row execute function sm_sync_touch('admin_config');
+alter table sm_admin_config enable row level security;
+
 -- ai_agent: عامل‌های هوش مصنوعی
 create table if not exists sm_ai_agents (
   id uuid primary key,
@@ -6477,6 +6518,506 @@ drop trigger if exists sm_csm_config_sync on sm_csm_config;
 create trigger sm_csm_config_sync before insert or update on sm_csm_config for each row execute function sm_sync_touch('csm_config');
 alter table sm_csm_config enable row level security;
 
+-- custom_01: جدول سفارشی ۱
+create table if not exists sm_custom_01 (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_custom_01 add column if not exists workspace_id uuid;
+alter table sm_custom_01 add column if not exists domain_id uuid;
+alter table sm_custom_01 add column if not exists unit_id uuid;
+alter table sm_custom_01 add column if not exists created_at timestamptz not null default now();
+alter table sm_custom_01 add column if not exists created_by uuid;
+alter table sm_custom_01 add column if not exists updated_at timestamptz not null default now();
+alter table sm_custom_01 add column if not exists updated_by uuid;
+alter table sm_custom_01 add column if not exists rev bigint not null default 0;
+alter table sm_custom_01 add column if not exists version integer not null default 1;
+alter table sm_custom_01 add column if not exists deleted_at timestamptz;
+alter table sm_custom_01 add column if not exists origin text;
+alter table sm_custom_01 add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_custom_01 add column if not exists no integer;
+alter table sm_custom_01 add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'CT01' || no::text else 'CT01' || lpad(no::text, 6, '0') end) stored;
+alter table sm_custom_01 add column if not exists title text;
+alter table sm_custom_01 add column if not exists owner_id uuid;
+alter table sm_custom_01 add column if not exists group_id uuid;
+alter table sm_custom_01 add column if not exists description text;
+alter table sm_custom_01 add column if not exists watch_list jsonb;
+alter table sm_custom_01 add column if not exists state text;
+create unique index if not exists sm_custom_01_no_uk on sm_custom_01 (org_id, no);
+create index if not exists sm_custom_01_rev_idx on sm_custom_01 (org_id, rev);
+create index if not exists sm_custom_01_upd_idx on sm_custom_01 (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_custom_01_crt_idx on sm_custom_01 (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_custom_01_state_idx on sm_custom_01 (org_id, state) where deleted_at is null;
+create index if not exists sm_custom_01_workspace_acc_idx on sm_custom_01 (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_custom_01_unit_acc_idx on sm_custom_01 (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_custom_01_domain_acc_idx on sm_custom_01 (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_custom_01_owner_id_idx on sm_custom_01 (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_custom_01_sync on sm_custom_01;
+create trigger sm_custom_01_sync before insert or update on sm_custom_01 for each row execute function sm_sync_touch('custom_01');
+alter table sm_custom_01 enable row level security;
+
+-- custom_02: جدول سفارشی ۲
+create table if not exists sm_custom_02 (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_custom_02 add column if not exists workspace_id uuid;
+alter table sm_custom_02 add column if not exists domain_id uuid;
+alter table sm_custom_02 add column if not exists unit_id uuid;
+alter table sm_custom_02 add column if not exists created_at timestamptz not null default now();
+alter table sm_custom_02 add column if not exists created_by uuid;
+alter table sm_custom_02 add column if not exists updated_at timestamptz not null default now();
+alter table sm_custom_02 add column if not exists updated_by uuid;
+alter table sm_custom_02 add column if not exists rev bigint not null default 0;
+alter table sm_custom_02 add column if not exists version integer not null default 1;
+alter table sm_custom_02 add column if not exists deleted_at timestamptz;
+alter table sm_custom_02 add column if not exists origin text;
+alter table sm_custom_02 add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_custom_02 add column if not exists no integer;
+alter table sm_custom_02 add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'CT02' || no::text else 'CT02' || lpad(no::text, 6, '0') end) stored;
+alter table sm_custom_02 add column if not exists title text;
+alter table sm_custom_02 add column if not exists owner_id uuid;
+alter table sm_custom_02 add column if not exists group_id uuid;
+alter table sm_custom_02 add column if not exists description text;
+alter table sm_custom_02 add column if not exists watch_list jsonb;
+alter table sm_custom_02 add column if not exists state text;
+create unique index if not exists sm_custom_02_no_uk on sm_custom_02 (org_id, no);
+create index if not exists sm_custom_02_rev_idx on sm_custom_02 (org_id, rev);
+create index if not exists sm_custom_02_upd_idx on sm_custom_02 (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_custom_02_crt_idx on sm_custom_02 (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_custom_02_state_idx on sm_custom_02 (org_id, state) where deleted_at is null;
+create index if not exists sm_custom_02_workspace_acc_idx on sm_custom_02 (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_custom_02_unit_acc_idx on sm_custom_02 (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_custom_02_domain_acc_idx on sm_custom_02 (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_custom_02_owner_id_idx on sm_custom_02 (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_custom_02_sync on sm_custom_02;
+create trigger sm_custom_02_sync before insert or update on sm_custom_02 for each row execute function sm_sync_touch('custom_02');
+alter table sm_custom_02 enable row level security;
+
+-- custom_03: جدول سفارشی ۳
+create table if not exists sm_custom_03 (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_custom_03 add column if not exists workspace_id uuid;
+alter table sm_custom_03 add column if not exists domain_id uuid;
+alter table sm_custom_03 add column if not exists unit_id uuid;
+alter table sm_custom_03 add column if not exists created_at timestamptz not null default now();
+alter table sm_custom_03 add column if not exists created_by uuid;
+alter table sm_custom_03 add column if not exists updated_at timestamptz not null default now();
+alter table sm_custom_03 add column if not exists updated_by uuid;
+alter table sm_custom_03 add column if not exists rev bigint not null default 0;
+alter table sm_custom_03 add column if not exists version integer not null default 1;
+alter table sm_custom_03 add column if not exists deleted_at timestamptz;
+alter table sm_custom_03 add column if not exists origin text;
+alter table sm_custom_03 add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_custom_03 add column if not exists no integer;
+alter table sm_custom_03 add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'CT03' || no::text else 'CT03' || lpad(no::text, 6, '0') end) stored;
+alter table sm_custom_03 add column if not exists title text;
+alter table sm_custom_03 add column if not exists owner_id uuid;
+alter table sm_custom_03 add column if not exists group_id uuid;
+alter table sm_custom_03 add column if not exists description text;
+alter table sm_custom_03 add column if not exists watch_list jsonb;
+alter table sm_custom_03 add column if not exists state text;
+create unique index if not exists sm_custom_03_no_uk on sm_custom_03 (org_id, no);
+create index if not exists sm_custom_03_rev_idx on sm_custom_03 (org_id, rev);
+create index if not exists sm_custom_03_upd_idx on sm_custom_03 (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_custom_03_crt_idx on sm_custom_03 (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_custom_03_state_idx on sm_custom_03 (org_id, state) where deleted_at is null;
+create index if not exists sm_custom_03_workspace_acc_idx on sm_custom_03 (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_custom_03_unit_acc_idx on sm_custom_03 (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_custom_03_domain_acc_idx on sm_custom_03 (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_custom_03_owner_id_idx on sm_custom_03 (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_custom_03_sync on sm_custom_03;
+create trigger sm_custom_03_sync before insert or update on sm_custom_03 for each row execute function sm_sync_touch('custom_03');
+alter table sm_custom_03 enable row level security;
+
+-- custom_04: جدول سفارشی ۴
+create table if not exists sm_custom_04 (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_custom_04 add column if not exists workspace_id uuid;
+alter table sm_custom_04 add column if not exists domain_id uuid;
+alter table sm_custom_04 add column if not exists unit_id uuid;
+alter table sm_custom_04 add column if not exists created_at timestamptz not null default now();
+alter table sm_custom_04 add column if not exists created_by uuid;
+alter table sm_custom_04 add column if not exists updated_at timestamptz not null default now();
+alter table sm_custom_04 add column if not exists updated_by uuid;
+alter table sm_custom_04 add column if not exists rev bigint not null default 0;
+alter table sm_custom_04 add column if not exists version integer not null default 1;
+alter table sm_custom_04 add column if not exists deleted_at timestamptz;
+alter table sm_custom_04 add column if not exists origin text;
+alter table sm_custom_04 add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_custom_04 add column if not exists no integer;
+alter table sm_custom_04 add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'CT04' || no::text else 'CT04' || lpad(no::text, 6, '0') end) stored;
+alter table sm_custom_04 add column if not exists title text;
+alter table sm_custom_04 add column if not exists owner_id uuid;
+alter table sm_custom_04 add column if not exists group_id uuid;
+alter table sm_custom_04 add column if not exists description text;
+alter table sm_custom_04 add column if not exists watch_list jsonb;
+alter table sm_custom_04 add column if not exists state text;
+create unique index if not exists sm_custom_04_no_uk on sm_custom_04 (org_id, no);
+create index if not exists sm_custom_04_rev_idx on sm_custom_04 (org_id, rev);
+create index if not exists sm_custom_04_upd_idx on sm_custom_04 (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_custom_04_crt_idx on sm_custom_04 (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_custom_04_state_idx on sm_custom_04 (org_id, state) where deleted_at is null;
+create index if not exists sm_custom_04_workspace_acc_idx on sm_custom_04 (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_custom_04_unit_acc_idx on sm_custom_04 (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_custom_04_domain_acc_idx on sm_custom_04 (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_custom_04_owner_id_idx on sm_custom_04 (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_custom_04_sync on sm_custom_04;
+create trigger sm_custom_04_sync before insert or update on sm_custom_04 for each row execute function sm_sync_touch('custom_04');
+alter table sm_custom_04 enable row level security;
+
+-- custom_05: جدول سفارشی ۵
+create table if not exists sm_custom_05 (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_custom_05 add column if not exists workspace_id uuid;
+alter table sm_custom_05 add column if not exists domain_id uuid;
+alter table sm_custom_05 add column if not exists unit_id uuid;
+alter table sm_custom_05 add column if not exists created_at timestamptz not null default now();
+alter table sm_custom_05 add column if not exists created_by uuid;
+alter table sm_custom_05 add column if not exists updated_at timestamptz not null default now();
+alter table sm_custom_05 add column if not exists updated_by uuid;
+alter table sm_custom_05 add column if not exists rev bigint not null default 0;
+alter table sm_custom_05 add column if not exists version integer not null default 1;
+alter table sm_custom_05 add column if not exists deleted_at timestamptz;
+alter table sm_custom_05 add column if not exists origin text;
+alter table sm_custom_05 add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_custom_05 add column if not exists no integer;
+alter table sm_custom_05 add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'CT05' || no::text else 'CT05' || lpad(no::text, 6, '0') end) stored;
+alter table sm_custom_05 add column if not exists title text;
+alter table sm_custom_05 add column if not exists owner_id uuid;
+alter table sm_custom_05 add column if not exists group_id uuid;
+alter table sm_custom_05 add column if not exists description text;
+alter table sm_custom_05 add column if not exists watch_list jsonb;
+alter table sm_custom_05 add column if not exists state text;
+create unique index if not exists sm_custom_05_no_uk on sm_custom_05 (org_id, no);
+create index if not exists sm_custom_05_rev_idx on sm_custom_05 (org_id, rev);
+create index if not exists sm_custom_05_upd_idx on sm_custom_05 (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_custom_05_crt_idx on sm_custom_05 (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_custom_05_state_idx on sm_custom_05 (org_id, state) where deleted_at is null;
+create index if not exists sm_custom_05_workspace_acc_idx on sm_custom_05 (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_custom_05_unit_acc_idx on sm_custom_05 (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_custom_05_domain_acc_idx on sm_custom_05 (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_custom_05_owner_id_idx on sm_custom_05 (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_custom_05_sync on sm_custom_05;
+create trigger sm_custom_05_sync before insert or update on sm_custom_05 for each row execute function sm_sync_touch('custom_05');
+alter table sm_custom_05 enable row level security;
+
+-- custom_06: جدول سفارشی ۶
+create table if not exists sm_custom_06 (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_custom_06 add column if not exists workspace_id uuid;
+alter table sm_custom_06 add column if not exists domain_id uuid;
+alter table sm_custom_06 add column if not exists unit_id uuid;
+alter table sm_custom_06 add column if not exists created_at timestamptz not null default now();
+alter table sm_custom_06 add column if not exists created_by uuid;
+alter table sm_custom_06 add column if not exists updated_at timestamptz not null default now();
+alter table sm_custom_06 add column if not exists updated_by uuid;
+alter table sm_custom_06 add column if not exists rev bigint not null default 0;
+alter table sm_custom_06 add column if not exists version integer not null default 1;
+alter table sm_custom_06 add column if not exists deleted_at timestamptz;
+alter table sm_custom_06 add column if not exists origin text;
+alter table sm_custom_06 add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_custom_06 add column if not exists no integer;
+alter table sm_custom_06 add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'CT06' || no::text else 'CT06' || lpad(no::text, 6, '0') end) stored;
+alter table sm_custom_06 add column if not exists title text;
+alter table sm_custom_06 add column if not exists owner_id uuid;
+alter table sm_custom_06 add column if not exists group_id uuid;
+alter table sm_custom_06 add column if not exists description text;
+alter table sm_custom_06 add column if not exists watch_list jsonb;
+alter table sm_custom_06 add column if not exists state text;
+create unique index if not exists sm_custom_06_no_uk on sm_custom_06 (org_id, no);
+create index if not exists sm_custom_06_rev_idx on sm_custom_06 (org_id, rev);
+create index if not exists sm_custom_06_upd_idx on sm_custom_06 (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_custom_06_crt_idx on sm_custom_06 (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_custom_06_state_idx on sm_custom_06 (org_id, state) where deleted_at is null;
+create index if not exists sm_custom_06_workspace_acc_idx on sm_custom_06 (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_custom_06_unit_acc_idx on sm_custom_06 (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_custom_06_domain_acc_idx on sm_custom_06 (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_custom_06_owner_id_idx on sm_custom_06 (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_custom_06_sync on sm_custom_06;
+create trigger sm_custom_06_sync before insert or update on sm_custom_06 for each row execute function sm_sync_touch('custom_06');
+alter table sm_custom_06 enable row level security;
+
+-- custom_07: جدول سفارشی ۷
+create table if not exists sm_custom_07 (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_custom_07 add column if not exists workspace_id uuid;
+alter table sm_custom_07 add column if not exists domain_id uuid;
+alter table sm_custom_07 add column if not exists unit_id uuid;
+alter table sm_custom_07 add column if not exists created_at timestamptz not null default now();
+alter table sm_custom_07 add column if not exists created_by uuid;
+alter table sm_custom_07 add column if not exists updated_at timestamptz not null default now();
+alter table sm_custom_07 add column if not exists updated_by uuid;
+alter table sm_custom_07 add column if not exists rev bigint not null default 0;
+alter table sm_custom_07 add column if not exists version integer not null default 1;
+alter table sm_custom_07 add column if not exists deleted_at timestamptz;
+alter table sm_custom_07 add column if not exists origin text;
+alter table sm_custom_07 add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_custom_07 add column if not exists no integer;
+alter table sm_custom_07 add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'CT07' || no::text else 'CT07' || lpad(no::text, 6, '0') end) stored;
+alter table sm_custom_07 add column if not exists title text;
+alter table sm_custom_07 add column if not exists owner_id uuid;
+alter table sm_custom_07 add column if not exists group_id uuid;
+alter table sm_custom_07 add column if not exists description text;
+alter table sm_custom_07 add column if not exists watch_list jsonb;
+alter table sm_custom_07 add column if not exists state text;
+create unique index if not exists sm_custom_07_no_uk on sm_custom_07 (org_id, no);
+create index if not exists sm_custom_07_rev_idx on sm_custom_07 (org_id, rev);
+create index if not exists sm_custom_07_upd_idx on sm_custom_07 (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_custom_07_crt_idx on sm_custom_07 (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_custom_07_state_idx on sm_custom_07 (org_id, state) where deleted_at is null;
+create index if not exists sm_custom_07_workspace_acc_idx on sm_custom_07 (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_custom_07_unit_acc_idx on sm_custom_07 (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_custom_07_domain_acc_idx on sm_custom_07 (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_custom_07_owner_id_idx on sm_custom_07 (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_custom_07_sync on sm_custom_07;
+create trigger sm_custom_07_sync before insert or update on sm_custom_07 for each row execute function sm_sync_touch('custom_07');
+alter table sm_custom_07 enable row level security;
+
+-- custom_08: جدول سفارشی ۸
+create table if not exists sm_custom_08 (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_custom_08 add column if not exists workspace_id uuid;
+alter table sm_custom_08 add column if not exists domain_id uuid;
+alter table sm_custom_08 add column if not exists unit_id uuid;
+alter table sm_custom_08 add column if not exists created_at timestamptz not null default now();
+alter table sm_custom_08 add column if not exists created_by uuid;
+alter table sm_custom_08 add column if not exists updated_at timestamptz not null default now();
+alter table sm_custom_08 add column if not exists updated_by uuid;
+alter table sm_custom_08 add column if not exists rev bigint not null default 0;
+alter table sm_custom_08 add column if not exists version integer not null default 1;
+alter table sm_custom_08 add column if not exists deleted_at timestamptz;
+alter table sm_custom_08 add column if not exists origin text;
+alter table sm_custom_08 add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_custom_08 add column if not exists no integer;
+alter table sm_custom_08 add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'CT08' || no::text else 'CT08' || lpad(no::text, 6, '0') end) stored;
+alter table sm_custom_08 add column if not exists title text;
+alter table sm_custom_08 add column if not exists owner_id uuid;
+alter table sm_custom_08 add column if not exists group_id uuid;
+alter table sm_custom_08 add column if not exists description text;
+alter table sm_custom_08 add column if not exists watch_list jsonb;
+alter table sm_custom_08 add column if not exists state text;
+create unique index if not exists sm_custom_08_no_uk on sm_custom_08 (org_id, no);
+create index if not exists sm_custom_08_rev_idx on sm_custom_08 (org_id, rev);
+create index if not exists sm_custom_08_upd_idx on sm_custom_08 (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_custom_08_crt_idx on sm_custom_08 (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_custom_08_state_idx on sm_custom_08 (org_id, state) where deleted_at is null;
+create index if not exists sm_custom_08_workspace_acc_idx on sm_custom_08 (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_custom_08_unit_acc_idx on sm_custom_08 (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_custom_08_domain_acc_idx on sm_custom_08 (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_custom_08_owner_id_idx on sm_custom_08 (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_custom_08_sync on sm_custom_08;
+create trigger sm_custom_08_sync before insert or update on sm_custom_08 for each row execute function sm_sync_touch('custom_08');
+alter table sm_custom_08 enable row level security;
+
+-- custom_09: جدول سفارشی ۹
+create table if not exists sm_custom_09 (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_custom_09 add column if not exists workspace_id uuid;
+alter table sm_custom_09 add column if not exists domain_id uuid;
+alter table sm_custom_09 add column if not exists unit_id uuid;
+alter table sm_custom_09 add column if not exists created_at timestamptz not null default now();
+alter table sm_custom_09 add column if not exists created_by uuid;
+alter table sm_custom_09 add column if not exists updated_at timestamptz not null default now();
+alter table sm_custom_09 add column if not exists updated_by uuid;
+alter table sm_custom_09 add column if not exists rev bigint not null default 0;
+alter table sm_custom_09 add column if not exists version integer not null default 1;
+alter table sm_custom_09 add column if not exists deleted_at timestamptz;
+alter table sm_custom_09 add column if not exists origin text;
+alter table sm_custom_09 add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_custom_09 add column if not exists no integer;
+alter table sm_custom_09 add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'CT09' || no::text else 'CT09' || lpad(no::text, 6, '0') end) stored;
+alter table sm_custom_09 add column if not exists title text;
+alter table sm_custom_09 add column if not exists owner_id uuid;
+alter table sm_custom_09 add column if not exists group_id uuid;
+alter table sm_custom_09 add column if not exists description text;
+alter table sm_custom_09 add column if not exists watch_list jsonb;
+alter table sm_custom_09 add column if not exists state text;
+create unique index if not exists sm_custom_09_no_uk on sm_custom_09 (org_id, no);
+create index if not exists sm_custom_09_rev_idx on sm_custom_09 (org_id, rev);
+create index if not exists sm_custom_09_upd_idx on sm_custom_09 (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_custom_09_crt_idx on sm_custom_09 (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_custom_09_state_idx on sm_custom_09 (org_id, state) where deleted_at is null;
+create index if not exists sm_custom_09_workspace_acc_idx on sm_custom_09 (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_custom_09_unit_acc_idx on sm_custom_09 (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_custom_09_domain_acc_idx on sm_custom_09 (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_custom_09_owner_id_idx on sm_custom_09 (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_custom_09_sync on sm_custom_09;
+create trigger sm_custom_09_sync before insert or update on sm_custom_09 for each row execute function sm_sync_touch('custom_09');
+alter table sm_custom_09 enable row level security;
+
+-- custom_10: جدول سفارشی ۱۰
+create table if not exists sm_custom_10 (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_custom_10 add column if not exists workspace_id uuid;
+alter table sm_custom_10 add column if not exists domain_id uuid;
+alter table sm_custom_10 add column if not exists unit_id uuid;
+alter table sm_custom_10 add column if not exists created_at timestamptz not null default now();
+alter table sm_custom_10 add column if not exists created_by uuid;
+alter table sm_custom_10 add column if not exists updated_at timestamptz not null default now();
+alter table sm_custom_10 add column if not exists updated_by uuid;
+alter table sm_custom_10 add column if not exists rev bigint not null default 0;
+alter table sm_custom_10 add column if not exists version integer not null default 1;
+alter table sm_custom_10 add column if not exists deleted_at timestamptz;
+alter table sm_custom_10 add column if not exists origin text;
+alter table sm_custom_10 add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_custom_10 add column if not exists no integer;
+alter table sm_custom_10 add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'CT10' || no::text else 'CT10' || lpad(no::text, 6, '0') end) stored;
+alter table sm_custom_10 add column if not exists title text;
+alter table sm_custom_10 add column if not exists owner_id uuid;
+alter table sm_custom_10 add column if not exists group_id uuid;
+alter table sm_custom_10 add column if not exists description text;
+alter table sm_custom_10 add column if not exists watch_list jsonb;
+alter table sm_custom_10 add column if not exists state text;
+create unique index if not exists sm_custom_10_no_uk on sm_custom_10 (org_id, no);
+create index if not exists sm_custom_10_rev_idx on sm_custom_10 (org_id, rev);
+create index if not exists sm_custom_10_upd_idx on sm_custom_10 (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_custom_10_crt_idx on sm_custom_10 (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_custom_10_state_idx on sm_custom_10 (org_id, state) where deleted_at is null;
+create index if not exists sm_custom_10_workspace_acc_idx on sm_custom_10 (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_custom_10_unit_acc_idx on sm_custom_10 (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_custom_10_domain_acc_idx on sm_custom_10 (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_custom_10_owner_id_idx on sm_custom_10 (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_custom_10_sync on sm_custom_10;
+create trigger sm_custom_10_sync before insert or update on sm_custom_10 for each row execute function sm_sync_touch('custom_10');
+alter table sm_custom_10 enable row level security;
+
 -- custom_field: فیلدهای سفارشی
 create table if not exists sm_custom_fields (
   id uuid primary key,
@@ -6530,6 +7071,53 @@ create unique index if not exists sm_custom_fields_table_key_name_uk on sm_custo
 drop trigger if exists sm_custom_fields_sync on sm_custom_fields;
 create trigger sm_custom_fields_sync before insert or update on sm_custom_fields for each row execute function sm_sync_touch('custom_field');
 alter table sm_custom_fields enable row level security;
+
+-- custom_table: جدول‌های سفارشی
+create table if not exists sm_custom_tables (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_custom_tables add column if not exists workspace_id uuid;
+alter table sm_custom_tables add column if not exists domain_id uuid;
+alter table sm_custom_tables add column if not exists unit_id uuid;
+alter table sm_custom_tables add column if not exists created_at timestamptz not null default now();
+alter table sm_custom_tables add column if not exists created_by uuid;
+alter table sm_custom_tables add column if not exists updated_at timestamptz not null default now();
+alter table sm_custom_tables add column if not exists updated_by uuid;
+alter table sm_custom_tables add column if not exists rev bigint not null default 0;
+alter table sm_custom_tables add column if not exists version integer not null default 1;
+alter table sm_custom_tables add column if not exists deleted_at timestamptz;
+alter table sm_custom_tables add column if not exists origin text;
+alter table sm_custom_tables add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_custom_tables add column if not exists label text;
+alter table sm_custom_tables add column if not exists plural text;
+alter table sm_custom_tables add column if not exists code text;
+alter table sm_custom_tables add column if not exists slot text;
+alter table sm_custom_tables add column if not exists icon text;
+alter table sm_custom_tables add column if not exists active boolean not null default true;
+alter table sm_custom_tables add column if not exists description text;
+alter table sm_custom_tables add column if not exists revision integer;
+alter table sm_custom_tables add column if not exists published_at timestamptz;
+create index if not exists sm_custom_tables_rev_idx on sm_custom_tables (org_id, rev);
+create index if not exists sm_custom_tables_upd_idx on sm_custom_tables (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_custom_tables_crt_idx on sm_custom_tables (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_custom_tables_slot_uk on sm_custom_tables (org_id, slot) where deleted_at is null;
+create unique index if not exists sm_custom_tables_code_uk on sm_custom_tables (org_id, code) where deleted_at is null;
+drop trigger if exists sm_custom_tables_sync on sm_custom_tables;
+create trigger sm_custom_tables_sync before insert or update on sm_custom_tables for each row execute function sm_sync_touch('custom_table');
+alter table sm_custom_tables enable row level security;
 
 -- customer_account: حساب‌های مشتری
 create table if not exists sm_customer_accounts (
@@ -7090,6 +7678,59 @@ create index if not exists sm_customer_reviews_attendees_gin on sm_customer_revi
 drop trigger if exists sm_customer_reviews_sync on sm_customer_reviews;
 create trigger sm_customer_reviews_sync before insert or update on sm_customer_reviews for each row execute function sm_sync_touch('customer_review');
 alter table sm_customer_reviews enable row level security;
+
+-- data_export: خروجی‌های داده
+create table if not exists sm_data_exports (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_data_exports add column if not exists workspace_id uuid;
+alter table sm_data_exports add column if not exists domain_id uuid;
+alter table sm_data_exports add column if not exists unit_id uuid;
+alter table sm_data_exports add column if not exists created_at timestamptz not null default now();
+alter table sm_data_exports add column if not exists created_by uuid;
+alter table sm_data_exports add column if not exists updated_at timestamptz not null default now();
+alter table sm_data_exports add column if not exists updated_by uuid;
+alter table sm_data_exports add column if not exists rev bigint not null default 0;
+alter table sm_data_exports add column if not exists version integer not null default 1;
+alter table sm_data_exports add column if not exists deleted_at timestamptz;
+alter table sm_data_exports add column if not exists origin text;
+alter table sm_data_exports add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_data_exports add column if not exists no integer;
+alter table sm_data_exports add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'DEX' || no::text else 'DEX' || lpad(no::text, 6, '0') end) stored;
+alter table sm_data_exports add column if not exists title text;
+alter table sm_data_exports add column if not exists tables jsonb;
+alter table sm_data_exports add column if not exists format text;
+alter table sm_data_exports add column if not exists include_journal boolean not null default false;
+alter table sm_data_exports add column if not exists status text;
+alter table sm_data_exports add column if not exists requested_for uuid;
+alter table sm_data_exports add column if not exists schedule_id uuid;
+alter table sm_data_exports add column if not exists stats jsonb;
+alter table sm_data_exports add column if not exists error text;
+alter table sm_data_exports add column if not exists expires_at timestamptz;
+create unique index if not exists sm_data_exports_no_uk on sm_data_exports (org_id, no);
+create index if not exists sm_data_exports_rev_idx on sm_data_exports (org_id, rev);
+create index if not exists sm_data_exports_upd_idx on sm_data_exports (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_data_exports_crt_idx on sm_data_exports (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_data_exports_workspace_acc_idx on sm_data_exports (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_data_exports_unit_acc_idx on sm_data_exports (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_data_exports_domain_acc_idx on sm_data_exports (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_data_exports_requested_for_idx on sm_data_exports (org_id, requested_for) where deleted_at is null;
+drop trigger if exists sm_data_exports_sync on sm_data_exports;
+create trigger sm_data_exports_sync before insert or update on sm_data_exports for each row execute function sm_sync_touch('data_export');
+alter table sm_data_exports enable row level security;
 
 -- defect: نقص‌ها
 create table if not exists sm_defects (
@@ -7846,6 +8487,68 @@ create unique index if not exists sm_devops_connections_hook_key_uk on sm_devops
 drop trigger if exists sm_devops_connections_sync on sm_devops_connections;
 create trigger sm_devops_connections_sync before insert or update on sm_devops_connections for each row execute function sm_sync_touch('devops_connection');
 alter table sm_devops_connections enable row level security;
+
+-- directory_source: منبع‌های فهرست کاربران
+create table if not exists sm_directory_sources (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_directory_sources add column if not exists workspace_id uuid;
+alter table sm_directory_sources add column if not exists domain_id uuid;
+alter table sm_directory_sources add column if not exists unit_id uuid;
+alter table sm_directory_sources add column if not exists created_at timestamptz not null default now();
+alter table sm_directory_sources add column if not exists created_by uuid;
+alter table sm_directory_sources add column if not exists updated_at timestamptz not null default now();
+alter table sm_directory_sources add column if not exists updated_by uuid;
+alter table sm_directory_sources add column if not exists rev bigint not null default 0;
+alter table sm_directory_sources add column if not exists version integer not null default 1;
+alter table sm_directory_sources add column if not exists deleted_at timestamptz;
+alter table sm_directory_sources add column if not exists origin text;
+alter table sm_directory_sources add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_directory_sources add column if not exists name text;
+alter table sm_directory_sources add column if not exists kind text;
+alter table sm_directory_sources add column if not exists active boolean not null default true;
+alter table sm_directory_sources add column if not exists mode text;
+alter table sm_directory_sources add column if not exists default_role text;
+alter table sm_directory_sources add column if not exists membership_role text;
+alter table sm_directory_sources add column if not exists auto_roles boolean not null default false;
+alter table sm_directory_sources add column if not exists deactivate_missing boolean not null default true;
+alter table sm_directory_sources add column if not exists unit_from text;
+alter table sm_directory_sources add column if not exists schedule_hours integer;
+alter table sm_directory_sources add column if not exists approved_by uuid;
+alter table sm_directory_sources add column if not exists ldap_url text;
+alter table sm_directory_sources add column if not exists bind_dn text;
+alter table sm_directory_sources add column if not exists bind_password text;
+alter table sm_directory_sources add column if not exists base_dn text;
+alter table sm_directory_sources add column if not exists user_filter text;
+alter table sm_directory_sources add column if not exists attr_map jsonb;
+alter table sm_directory_sources add column if not exists scim_token text;
+alter table sm_directory_sources add column if not exists group_map jsonb;
+alter table sm_directory_sources add column if not exists health text;
+alter table sm_directory_sources add column if not exists last_run_at timestamptz;
+alter table sm_directory_sources add column if not exists next_run_at timestamptz;
+alter table sm_directory_sources add column if not exists last_summary text;
+create index if not exists sm_directory_sources_rev_idx on sm_directory_sources (org_id, rev);
+create index if not exists sm_directory_sources_upd_idx on sm_directory_sources (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_directory_sources_crt_idx on sm_directory_sources (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_directory_sources_workspace_acc_idx on sm_directory_sources (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_directory_sources_unit_acc_idx on sm_directory_sources (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_directory_sources_domain_acc_idx on sm_directory_sources (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_directory_sources_sync on sm_directory_sources;
+create trigger sm_directory_sources_sync before insert or update on sm_directory_sources for each row execute function sm_sync_touch('directory_source');
+alter table sm_directory_sources enable row level security;
 
 -- discovery_collector: جمع‌آورنده‌های کشف
 create table if not exists sm_discovery_collectors (
@@ -8935,6 +9638,107 @@ create index if not exists sm_exercises_watch_list_gin on sm_exercises using gin
 drop trigger if exists sm_exercises_sync on sm_exercises;
 create trigger sm_exercises_sync before insert or update on sm_exercises for each row execute function sm_sync_touch('exercise');
 alter table sm_exercises enable row level security;
+
+-- export_schedule: خروجی‌های زمان‌بندی‌شده
+create table if not exists sm_export_schedules (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_export_schedules add column if not exists workspace_id uuid;
+alter table sm_export_schedules add column if not exists domain_id uuid;
+alter table sm_export_schedules add column if not exists unit_id uuid;
+alter table sm_export_schedules add column if not exists created_at timestamptz not null default now();
+alter table sm_export_schedules add column if not exists created_by uuid;
+alter table sm_export_schedules add column if not exists updated_at timestamptz not null default now();
+alter table sm_export_schedules add column if not exists updated_by uuid;
+alter table sm_export_schedules add column if not exists rev bigint not null default 0;
+alter table sm_export_schedules add column if not exists version integer not null default 1;
+alter table sm_export_schedules add column if not exists deleted_at timestamptz;
+alter table sm_export_schedules add column if not exists origin text;
+alter table sm_export_schedules add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_export_schedules add column if not exists name text;
+alter table sm_export_schedules add column if not exists active boolean not null default true;
+alter table sm_export_schedules add column if not exists tables jsonb;
+alter table sm_export_schedules add column if not exists format text;
+alter table sm_export_schedules add column if not exists every_hours integer;
+alter table sm_export_schedules add column if not exists principal_id uuid;
+alter table sm_export_schedules add column if not exists destination text;
+alter table sm_export_schedules add column if not exists url text;
+alter table sm_export_schedules add column if not exists secret text;
+alter table sm_export_schedules add column if not exists health text;
+alter table sm_export_schedules add column if not exists last_run_at timestamptz;
+alter table sm_export_schedules add column if not exists next_run_at timestamptz;
+alter table sm_export_schedules add column if not exists last_status text;
+create index if not exists sm_export_schedules_rev_idx on sm_export_schedules (org_id, rev);
+create index if not exists sm_export_schedules_upd_idx on sm_export_schedules (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_export_schedules_crt_idx on sm_export_schedules (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_export_schedules_workspace_acc_idx on sm_export_schedules (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_export_schedules_unit_acc_idx on sm_export_schedules (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_export_schedules_domain_acc_idx on sm_export_schedules (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_export_schedules_sync on sm_export_schedules;
+create trigger sm_export_schedules_sync before insert or update on sm_export_schedules for each row execute function sm_sync_touch('export_schedule');
+alter table sm_export_schedules enable row level security;
+
+-- external_ref: پیوندهای بیرونی
+create table if not exists sm_external_refs (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_external_refs add column if not exists workspace_id uuid;
+alter table sm_external_refs add column if not exists domain_id uuid;
+alter table sm_external_refs add column if not exists unit_id uuid;
+alter table sm_external_refs add column if not exists created_at timestamptz not null default now();
+alter table sm_external_refs add column if not exists created_by uuid;
+alter table sm_external_refs add column if not exists updated_at timestamptz not null default now();
+alter table sm_external_refs add column if not exists updated_by uuid;
+alter table sm_external_refs add column if not exists rev bigint not null default 0;
+alter table sm_external_refs add column if not exists version integer not null default 1;
+alter table sm_external_refs add column if not exists deleted_at timestamptz;
+alter table sm_external_refs add column if not exists origin text;
+alter table sm_external_refs add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_external_refs add column if not exists remote_key text;
+alter table sm_external_refs add column if not exists connection_id uuid;
+alter table sm_external_refs add column if not exists table_key text;
+alter table sm_external_refs add column if not exists record_id text;
+alter table sm_external_refs add column if not exists record_label text;
+alter table sm_external_refs add column if not exists remote_id text;
+alter table sm_external_refs add column if not exists remote_url text;
+alter table sm_external_refs add column if not exists remote_state text;
+alter table sm_external_refs add column if not exists sync_state text;
+alter table sm_external_refs add column if not exists last_synced_at timestamptz;
+alter table sm_external_refs add column if not exists error text;
+create index if not exists sm_external_refs_rev_idx on sm_external_refs (org_id, rev);
+create index if not exists sm_external_refs_upd_idx on sm_external_refs (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_external_refs_crt_idx on sm_external_refs (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_external_refs_record_id_idx on sm_external_refs (org_id, record_id) where deleted_at is null;
+create unique index if not exists sm_external_refs_connection_id_remote_key_uk on sm_external_refs (org_id, connection_id, remote_key) where deleted_at is null;
+drop trigger if exists sm_external_refs_sync on sm_external_refs;
+create trigger sm_external_refs_sync before insert or update on sm_external_refs for each row execute function sm_sync_touch('external_ref');
+alter table sm_external_refs enable row level security;
 
 -- facility_request: درخواست‌های پشتیبانی و تأسیسات
 create table if not exists sm_facility_requests (
@@ -11571,6 +12375,113 @@ drop trigger if exists sm_hse_events_sync on sm_hse_events;
 create trigger sm_hse_events_sync before insert or update on sm_hse_events for each row execute function sm_sync_touch('hse_event');
 alter table sm_hse_events enable row level security;
 
+-- import_set: مجموعه‌های ورود داده
+create table if not exists sm_import_sets (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_import_sets add column if not exists workspace_id uuid;
+alter table sm_import_sets add column if not exists domain_id uuid;
+alter table sm_import_sets add column if not exists unit_id uuid;
+alter table sm_import_sets add column if not exists created_at timestamptz not null default now();
+alter table sm_import_sets add column if not exists created_by uuid;
+alter table sm_import_sets add column if not exists updated_at timestamptz not null default now();
+alter table sm_import_sets add column if not exists updated_by uuid;
+alter table sm_import_sets add column if not exists rev bigint not null default 0;
+alter table sm_import_sets add column if not exists version integer not null default 1;
+alter table sm_import_sets add column if not exists deleted_at timestamptz;
+alter table sm_import_sets add column if not exists origin text;
+alter table sm_import_sets add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_import_sets add column if not exists no integer;
+alter table sm_import_sets add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'IMP' || no::text else 'IMP' || lpad(no::text, 6, '0') end) stored;
+alter table sm_import_sets add column if not exists name text;
+alter table sm_import_sets add column if not exists target_table text;
+alter table sm_import_sets add column if not exists transform_map_id uuid;
+alter table sm_import_sets add column if not exists source text;
+alter table sm_import_sets add column if not exists source_url text;
+alter table sm_import_sets add column if not exists schedule_hours integer;
+alter table sm_import_sets add column if not exists status text;
+alter table sm_import_sets add column if not exists headers jsonb;
+alter table sm_import_sets add column if not exists sample jsonb;
+alter table sm_import_sets add column if not exists rows_total integer;
+alter table sm_import_sets add column if not exists stats jsonb;
+alter table sm_import_sets add column if not exists last_run_at timestamptz;
+alter table sm_import_sets add column if not exists next_run_at timestamptz;
+alter table sm_import_sets add column if not exists last_error text;
+create unique index if not exists sm_import_sets_no_uk on sm_import_sets (org_id, no);
+create index if not exists sm_import_sets_rev_idx on sm_import_sets (org_id, rev);
+create index if not exists sm_import_sets_upd_idx on sm_import_sets (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_import_sets_crt_idx on sm_import_sets (org_id, created_at desc, id desc) where deleted_at is null;
+drop trigger if exists sm_import_sets_sync on sm_import_sets;
+create trigger sm_import_sets_sync before insert or update on sm_import_sets for each row execute function sm_sync_touch('import_set');
+alter table sm_import_sets enable row level security;
+
+-- inbound_endpoint: نقطه‌های دریافت
+create table if not exists sm_inbound_endpoints (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_inbound_endpoints add column if not exists workspace_id uuid;
+alter table sm_inbound_endpoints add column if not exists domain_id uuid;
+alter table sm_inbound_endpoints add column if not exists unit_id uuid;
+alter table sm_inbound_endpoints add column if not exists created_at timestamptz not null default now();
+alter table sm_inbound_endpoints add column if not exists created_by uuid;
+alter table sm_inbound_endpoints add column if not exists updated_at timestamptz not null default now();
+alter table sm_inbound_endpoints add column if not exists updated_by uuid;
+alter table sm_inbound_endpoints add column if not exists rev bigint not null default 0;
+alter table sm_inbound_endpoints add column if not exists version integer not null default 1;
+alter table sm_inbound_endpoints add column if not exists deleted_at timestamptz;
+alter table sm_inbound_endpoints add column if not exists origin text;
+alter table sm_inbound_endpoints add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_inbound_endpoints add column if not exists name text;
+alter table sm_inbound_endpoints add column if not exists active boolean not null default true;
+alter table sm_inbound_endpoints add column if not exists auth text;
+alter table sm_inbound_endpoints add column if not exists token text;
+alter table sm_inbound_endpoints add column if not exists principal_id uuid;
+alter table sm_inbound_endpoints add column if not exists target_table text;
+alter table sm_inbound_endpoints add column if not exists action text;
+alter table sm_inbound_endpoints add column if not exists match_field text;
+alter table sm_inbound_endpoints add column if not exists match_path text;
+alter table sm_inbound_endpoints add column if not exists mapping jsonb;
+alter table sm_inbound_endpoints add column if not exists defaults jsonb;
+alter table sm_inbound_endpoints add column if not exists description text;
+alter table sm_inbound_endpoints add column if not exists received integer;
+alter table sm_inbound_endpoints add column if not exists failed integer;
+alter table sm_inbound_endpoints add column if not exists last_received_at timestamptz;
+create index if not exists sm_inbound_endpoints_rev_idx on sm_inbound_endpoints (org_id, rev);
+create index if not exists sm_inbound_endpoints_upd_idx on sm_inbound_endpoints (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_inbound_endpoints_crt_idx on sm_inbound_endpoints (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_inbound_endpoints_workspace_acc_idx on sm_inbound_endpoints (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_inbound_endpoints_unit_acc_idx on sm_inbound_endpoints (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_inbound_endpoints_domain_acc_idx on sm_inbound_endpoints (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_inbound_endpoints_sync on sm_inbound_endpoints;
+create trigger sm_inbound_endpoints_sync before insert or update on sm_inbound_endpoints for each row execute function sm_sync_touch('inbound_endpoint');
+alter table sm_inbound_endpoints enable row level security;
+
 -- incident: رخدادها
 create table if not exists sm_incidents (
   id uuid primary key,
@@ -12140,6 +13051,54 @@ drop trigger if exists sm_install_base_items_sync on sm_install_base_items;
 create trigger sm_install_base_items_sync before insert or update on sm_install_base_items for each row execute function sm_sync_touch('install_base_item');
 alter table sm_install_base_items enable row level security;
 
+-- integration_user: کاربران یکپارچه‌سازی
+create table if not exists sm_integration_users (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_integration_users add column if not exists workspace_id uuid;
+alter table sm_integration_users add column if not exists domain_id uuid;
+alter table sm_integration_users add column if not exists unit_id uuid;
+alter table sm_integration_users add column if not exists created_at timestamptz not null default now();
+alter table sm_integration_users add column if not exists created_by uuid;
+alter table sm_integration_users add column if not exists updated_at timestamptz not null default now();
+alter table sm_integration_users add column if not exists updated_by uuid;
+alter table sm_integration_users add column if not exists rev bigint not null default 0;
+alter table sm_integration_users add column if not exists version integer not null default 1;
+alter table sm_integration_users add column if not exists deleted_at timestamptz;
+alter table sm_integration_users add column if not exists origin text;
+alter table sm_integration_users add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_integration_users add column if not exists name text;
+alter table sm_integration_users add column if not exists active boolean not null default true;
+alter table sm_integration_users add column if not exists rate_limit integer;
+alter table sm_integration_users add column if not exists owner_id uuid;
+alter table sm_integration_users add column if not exists ip_allowlist text;
+alter table sm_integration_users add column if not exists description text;
+alter table sm_integration_users add column if not exists user_id uuid;
+alter table sm_integration_users add column if not exists last_used_at timestamptz;
+create index if not exists sm_integration_users_rev_idx on sm_integration_users (org_id, rev);
+create index if not exists sm_integration_users_upd_idx on sm_integration_users (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_integration_users_crt_idx on sm_integration_users (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_integration_users_workspace_acc_idx on sm_integration_users (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_integration_users_unit_acc_idx on sm_integration_users (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_integration_users_domain_acc_idx on sm_integration_users (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_integration_users_owner_id_idx on sm_integration_users (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_integration_users_sync on sm_integration_users;
+create trigger sm_integration_users_sync before insert or update on sm_integration_users for each row execute function sm_sync_touch('integration_user');
+alter table sm_integration_users enable row level security;
+
 -- interaction: تعامل‌ها
 create table if not exists sm_interactions (
   id uuid primary key,
@@ -12306,6 +13265,62 @@ create index if not exists sm_inventory_audit_items_asset_id_idx on sm_inventory
 drop trigger if exists sm_inventory_audit_items_sync on sm_inventory_audit_items;
 create trigger sm_inventory_audit_items_sync before insert or update on sm_inventory_audit_items for each row execute function sm_sync_touch('inventory_audit_item');
 alter table sm_inventory_audit_items enable row level security;
+
+-- issue_connection: اتصال‌های Jira و GitHub
+create table if not exists sm_issue_connections (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_issue_connections add column if not exists workspace_id uuid;
+alter table sm_issue_connections add column if not exists domain_id uuid;
+alter table sm_issue_connections add column if not exists unit_id uuid;
+alter table sm_issue_connections add column if not exists created_at timestamptz not null default now();
+alter table sm_issue_connections add column if not exists created_by uuid;
+alter table sm_issue_connections add column if not exists updated_at timestamptz not null default now();
+alter table sm_issue_connections add column if not exists updated_by uuid;
+alter table sm_issue_connections add column if not exists rev bigint not null default 0;
+alter table sm_issue_connections add column if not exists version integer not null default 1;
+alter table sm_issue_connections add column if not exists deleted_at timestamptz;
+alter table sm_issue_connections add column if not exists origin text;
+alter table sm_issue_connections add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_issue_connections add column if not exists name text;
+alter table sm_issue_connections add column if not exists kind text;
+alter table sm_issue_connections add column if not exists active boolean not null default true;
+alter table sm_issue_connections add column if not exists base_url text;
+alter table sm_issue_connections add column if not exists repo text;
+alter table sm_issue_connections add column if not exists project_key text;
+alter table sm_issue_connections add column if not exists issue_type text;
+alter table sm_issue_connections add column if not exists auth_user text;
+alter table sm_issue_connections add column if not exists token text;
+alter table sm_issue_connections add column if not exists webhook_secret text;
+alter table sm_issue_connections add column if not exists principal_id uuid;
+alter table sm_issue_connections add column if not exists tables jsonb;
+alter table sm_issue_connections add column if not exists sync_comments text;
+alter table sm_issue_connections add column if not exists state_on_close text;
+alter table sm_issue_connections add column if not exists health text;
+alter table sm_issue_connections add column if not exists last_event_at timestamptz;
+alter table sm_issue_connections add column if not exists last_error text;
+create index if not exists sm_issue_connections_rev_idx on sm_issue_connections (org_id, rev);
+create index if not exists sm_issue_connections_upd_idx on sm_issue_connections (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_issue_connections_crt_idx on sm_issue_connections (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_issue_connections_workspace_acc_idx on sm_issue_connections (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_issue_connections_unit_acc_idx on sm_issue_connections (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_issue_connections_domain_acc_idx on sm_issue_connections (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_issue_connections_sync on sm_issue_connections;
+create trigger sm_issue_connections_sync before insert or update on sm_issue_connections for each row execute function sm_sync_touch('issue_connection');
+alter table sm_issue_connections enable row level security;
 
 -- itam_config: تنظیمات دارایی‌ها
 create table if not exists sm_itam_configs (
@@ -14147,6 +15162,48 @@ create index if not exists sm_legal_requests_watch_list_gin on sm_legal_requests
 drop trigger if exists sm_legal_requests_sync on sm_legal_requests;
 create trigger sm_legal_requests_sync before insert or update on sm_legal_requests for each row execute function sm_sync_touch('legal_request');
 alter table sm_legal_requests enable row level security;
+
+-- licence_pool: مجوزها و صندلی‌ها
+create table if not exists sm_licence_pools (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_licence_pools add column if not exists workspace_id uuid;
+alter table sm_licence_pools add column if not exists domain_id uuid;
+alter table sm_licence_pools add column if not exists unit_id uuid;
+alter table sm_licence_pools add column if not exists created_at timestamptz not null default now();
+alter table sm_licence_pools add column if not exists created_by uuid;
+alter table sm_licence_pools add column if not exists updated_at timestamptz not null default now();
+alter table sm_licence_pools add column if not exists updated_by uuid;
+alter table sm_licence_pools add column if not exists rev bigint not null default 0;
+alter table sm_licence_pools add column if not exists version integer not null default 1;
+alter table sm_licence_pools add column if not exists deleted_at timestamptz;
+alter table sm_licence_pools add column if not exists origin text;
+alter table sm_licence_pools add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_licence_pools add column if not exists name text;
+alter table sm_licence_pools add column if not exists kind text;
+alter table sm_licence_pools add column if not exists quantity integer;
+alter table sm_licence_pools add column if not exists valid_until date;
+alter table sm_licence_pools add column if not exists active boolean not null default true;
+alter table sm_licence_pools add column if not exists note text;
+create index if not exists sm_licence_pools_rev_idx on sm_licence_pools (org_id, rev);
+create index if not exists sm_licence_pools_upd_idx on sm_licence_pools (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_licence_pools_crt_idx on sm_licence_pools (org_id, created_at desc, id desc) where deleted_at is null;
+drop trigger if exists sm_licence_pools_sync on sm_licence_pools;
+create trigger sm_licence_pools_sync before insert or update on sm_licence_pools for each row execute function sm_sync_touch('licence_pool');
+alter table sm_licence_pools enable row level security;
 
 -- license_allocation: تخصیص‌های مجوز
 create table if not exists sm_license_allocations (
@@ -21389,6 +22446,48 @@ drop trigger if exists sm_stockrooms_sync on sm_stockrooms;
 create trigger sm_stockrooms_sync before insert or update on sm_stockrooms for each row execute function sm_sync_touch('stockroom');
 alter table sm_stockrooms enable row level security;
 
+-- studio_version: نسخه‌های استودیو
+create table if not exists sm_studio_versions (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_studio_versions add column if not exists workspace_id uuid;
+alter table sm_studio_versions add column if not exists domain_id uuid;
+alter table sm_studio_versions add column if not exists unit_id uuid;
+alter table sm_studio_versions add column if not exists created_at timestamptz not null default now();
+alter table sm_studio_versions add column if not exists created_by uuid;
+alter table sm_studio_versions add column if not exists updated_at timestamptz not null default now();
+alter table sm_studio_versions add column if not exists updated_by uuid;
+alter table sm_studio_versions add column if not exists rev bigint not null default 0;
+alter table sm_studio_versions add column if not exists version integer not null default 1;
+alter table sm_studio_versions add column if not exists deleted_at timestamptz;
+alter table sm_studio_versions add column if not exists origin text;
+alter table sm_studio_versions add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_studio_versions add column if not exists title text;
+alter table sm_studio_versions add column if not exists table_code text;
+alter table sm_studio_versions add column if not exists revision integer;
+alter table sm_studio_versions add column if not exists kind text;
+alter table sm_studio_versions add column if not exists note text;
+alter table sm_studio_versions add column if not exists snapshot jsonb;
+create index if not exists sm_studio_versions_rev_idx on sm_studio_versions (org_id, rev);
+create index if not exists sm_studio_versions_upd_idx on sm_studio_versions (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_studio_versions_crt_idx on sm_studio_versions (org_id, created_at desc, id desc) where deleted_at is null;
+drop trigger if exists sm_studio_versions_sync on sm_studio_versions;
+create trigger sm_studio_versions_sync before insert or update on sm_studio_versions for each row execute function sm_sync_touch('studio_version');
+alter table sm_studio_versions enable row level security;
+
 -- supplier: تأمین‌کنندگان
 create table if not exists sm_suppliers (
   id uuid primary key,
@@ -21934,6 +23033,51 @@ drop trigger if exists sm_survey_triggers_sync on sm_survey_triggers;
 create trigger sm_survey_triggers_sync before insert or update on sm_survey_triggers for each row execute function sm_sync_touch('survey_trigger');
 alter table sm_survey_triggers enable row level security;
 
+-- system_notice: اطلاعیه‌های سامانه
+create table if not exists sm_system_notices (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_system_notices add column if not exists workspace_id uuid;
+alter table sm_system_notices add column if not exists domain_id uuid;
+alter table sm_system_notices add column if not exists unit_id uuid;
+alter table sm_system_notices add column if not exists created_at timestamptz not null default now();
+alter table sm_system_notices add column if not exists created_by uuid;
+alter table sm_system_notices add column if not exists updated_at timestamptz not null default now();
+alter table sm_system_notices add column if not exists updated_by uuid;
+alter table sm_system_notices add column if not exists rev bigint not null default 0;
+alter table sm_system_notices add column if not exists version integer not null default 1;
+alter table sm_system_notices add column if not exists deleted_at timestamptz;
+alter table sm_system_notices add column if not exists origin text;
+alter table sm_system_notices add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_system_notices add column if not exists title text;
+alter table sm_system_notices add column if not exists body text;
+alter table sm_system_notices add column if not exists severity text;
+alter table sm_system_notices add column if not exists active boolean not null default true;
+alter table sm_system_notices add column if not exists starts_at timestamptz;
+alter table sm_system_notices add column if not exists ends_at timestamptz;
+alter table sm_system_notices add column if not exists source text;
+alter table sm_system_notices add column if not exists announcement_id text;
+alter table sm_system_notices add column if not exists published_at timestamptz;
+create index if not exists sm_system_notices_rev_idx on sm_system_notices (org_id, rev);
+create index if not exists sm_system_notices_upd_idx on sm_system_notices (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_system_notices_crt_idx on sm_system_notices (org_id, created_at desc, id desc) where deleted_at is null;
+drop trigger if exists sm_system_notices_sync on sm_system_notices;
+create trigger sm_system_notices_sync before insert or update on sm_system_notices for each row execute function sm_sync_touch('system_notice');
+alter table sm_system_notices enable row level security;
+
 -- task_sla: زمان‌سنج‌های توافق
 create table if not exists sm_task_slas (
   id uuid primary key,
@@ -22353,6 +23497,48 @@ drop trigger if exists sm_todos_sync on sm_todos;
 create trigger sm_todos_sync before insert or update on sm_todos for each row execute function sm_sync_touch('todo');
 alter table sm_todos enable row level security;
 
+-- transform_map: نقشه‌های تبدیل
+create table if not exists sm_transform_maps (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_transform_maps add column if not exists workspace_id uuid;
+alter table sm_transform_maps add column if not exists domain_id uuid;
+alter table sm_transform_maps add column if not exists unit_id uuid;
+alter table sm_transform_maps add column if not exists created_at timestamptz not null default now();
+alter table sm_transform_maps add column if not exists created_by uuid;
+alter table sm_transform_maps add column if not exists updated_at timestamptz not null default now();
+alter table sm_transform_maps add column if not exists updated_by uuid;
+alter table sm_transform_maps add column if not exists rev bigint not null default 0;
+alter table sm_transform_maps add column if not exists version integer not null default 1;
+alter table sm_transform_maps add column if not exists deleted_at timestamptz;
+alter table sm_transform_maps add column if not exists origin text;
+alter table sm_transform_maps add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_transform_maps add column if not exists name text;
+alter table sm_transform_maps add column if not exists target_table text;
+alter table sm_transform_maps add column if not exists rules jsonb;
+alter table sm_transform_maps add column if not exists key_field text;
+alter table sm_transform_maps add column if not exists active boolean not null default true;
+alter table sm_transform_maps add column if not exists description text;
+create index if not exists sm_transform_maps_rev_idx on sm_transform_maps (org_id, rev);
+create index if not exists sm_transform_maps_upd_idx on sm_transform_maps (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_transform_maps_crt_idx on sm_transform_maps (org_id, created_at desc, id desc) where deleted_at is null;
+drop trigger if exists sm_transform_maps_sync on sm_transform_maps;
+create trigger sm_transform_maps_sync before insert or update on sm_transform_maps for each row execute function sm_sync_touch('transform_map');
+alter table sm_transform_maps enable row level security;
+
 -- ui_policy: سیاست‌های فرم
 create table if not exists sm_ui_policies (
   id uuid primary key,
@@ -22705,6 +23891,60 @@ create index if not exists sm_visits_domain_acc_idx on sm_visits (org_id, domain
 drop trigger if exists sm_visits_sync on sm_visits;
 create trigger sm_visits_sync before insert or update on sm_visits for each row execute function sm_sync_touch('visit');
 alter table sm_visits enable row level security;
+
+-- webhook_subscription: وب‌هوک‌های خروجی
+create table if not exists sm_webhook_subscriptions (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_webhook_subscriptions add column if not exists workspace_id uuid;
+alter table sm_webhook_subscriptions add column if not exists domain_id uuid;
+alter table sm_webhook_subscriptions add column if not exists unit_id uuid;
+alter table sm_webhook_subscriptions add column if not exists created_at timestamptz not null default now();
+alter table sm_webhook_subscriptions add column if not exists created_by uuid;
+alter table sm_webhook_subscriptions add column if not exists updated_at timestamptz not null default now();
+alter table sm_webhook_subscriptions add column if not exists updated_by uuid;
+alter table sm_webhook_subscriptions add column if not exists rev bigint not null default 0;
+alter table sm_webhook_subscriptions add column if not exists version integer not null default 1;
+alter table sm_webhook_subscriptions add column if not exists deleted_at timestamptz;
+alter table sm_webhook_subscriptions add column if not exists origin text;
+alter table sm_webhook_subscriptions add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_webhook_subscriptions add column if not exists name text;
+alter table sm_webhook_subscriptions add column if not exists active boolean not null default true;
+alter table sm_webhook_subscriptions add column if not exists paused boolean not null default false;
+alter table sm_webhook_subscriptions add column if not exists url text;
+alter table sm_webhook_subscriptions add column if not exists secret text;
+alter table sm_webhook_subscriptions add column if not exists principal_id uuid;
+alter table sm_webhook_subscriptions add column if not exists table_key text;
+alter table sm_webhook_subscriptions add column if not exists events jsonb;
+alter table sm_webhook_subscriptions add column if not exists condition jsonb;
+alter table sm_webhook_subscriptions add column if not exists fields jsonb;
+alter table sm_webhook_subscriptions add column if not exists description text;
+alter table sm_webhook_subscriptions add column if not exists health text;
+alter table sm_webhook_subscriptions add column if not exists failures integer;
+alter table sm_webhook_subscriptions add column if not exists last_delivery_at timestamptz;
+alter table sm_webhook_subscriptions add column if not exists last_status text;
+create index if not exists sm_webhook_subscriptions_rev_idx on sm_webhook_subscriptions (org_id, rev);
+create index if not exists sm_webhook_subscriptions_upd_idx on sm_webhook_subscriptions (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_webhook_subscriptions_crt_idx on sm_webhook_subscriptions (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_webhook_subscriptions_workspace_acc_idx on sm_webhook_subscriptions (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_webhook_subscriptions_unit_acc_idx on sm_webhook_subscriptions (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_webhook_subscriptions_domain_acc_idx on sm_webhook_subscriptions (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_webhook_subscriptions_sync on sm_webhook_subscriptions;
+create trigger sm_webhook_subscriptions_sync before insert or update on sm_webhook_subscriptions for each row execute function sm_sync_touch('webhook_subscription');
+alter table sm_webhook_subscriptions enable row level security;
 
 -- wfm_absence: مرخصی‌ها و غیبت‌ها
 create table if not exists sm_wfm_absences (
