@@ -12,7 +12,7 @@ export interface AuthSteps {
 }
 
 /**
- * Login, sign-up, recovery and first-run layout (components.md §11): the calm form side at the start and the Dusk
+ * Login, sign-up, recovery and first-run layout (components.md §11): the calm form side at the start and the brand
  * brand panel at the end (a 200 px band above the form on phones). With `steps`, the panel shows the onboarding steps
  * as the mark's nuqta column (§11.2). `swapKey` replays the column's entrance when the step changes.
  */

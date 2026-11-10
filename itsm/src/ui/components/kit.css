@@ -317,7 +317,7 @@
 /* ====================================================================== filters row (components.md §2) */
 @layer components {
   /* the chip: a 30 px pill, 12/10 padding, 13/500 text-2, a 16 px text-3 icon, the chevron right after the words; no
-     ring at rest (the ring and the hover tint appear on hover); applied = the row's one Dusk element with an × */
+     ring at rest (the ring and the hover tint appear on hover); applied = the row's one accent element with an × */
   .ds-fchip {
     position: relative; display: inline-flex; align-items: center; flex: none; max-inline-size: 100%;
     block-size: 30px; border-radius: var(--ds-radius-pill); color: var(--ds-text-2);
