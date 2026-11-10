@@ -100,7 +100,7 @@ export async function loadRegistry() {
   await build({
     stdin: {
       contents: [
-        `export { ROUTES, NAV, PUBLIC_ROUTES, SPACES } from "./src/ui/modules/registry";`,
+        `export { ROUTES, NAV, PUBLIC_ROUTES, SPACES, listedTable } from "./src/ui/modules/registry";`,
         `export { gateAllows, builtinRoles } from "./src/shared/access";`,
         `export { LEVEL_ORDER } from "./src/shared/permissions";`,
         `export { recordPath, newRecordPath, tablePath } from "./src/ui/records/extensions";`,
@@ -135,6 +135,7 @@ export async function loadRegistry() {
   const admin = [...adminSrc.matchAll(/\{\s*key:\s*"([^"]*)",\s*title:\s*"[^"]*",\s*icon:\s*\w+(?:,\s*edition:\s*"(\w+)")?/g)].map((m) => ({ key: m[1], edition: m[2] ?? null }));
   return {
     routes, nav, publicRoutes: reg.PUBLIC_ROUTES.map((r) => r.path), portal, admin, gateAllows: reg.gateAllows, LEVEL_ORDER: reg.LEVEL_ORDER,
+    listed: new Map(reg.ROUTES.map((r) => [r.path, reg.listedTable(r.element)]).filter(([, t]) => t)),
     builtinRoles: reg.builtinRoles, tables: [...reg.TABLES.keys()], tableDef: reg.tableDef, enterableOnCreate: reg.enterableOnCreate, recordPath: reg.recordPath, newRecordPath: reg.newRecordPath, tablePath: reg.tablePath,
   };
 }

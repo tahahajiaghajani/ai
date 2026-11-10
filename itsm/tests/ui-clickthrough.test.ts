@@ -41,6 +41,8 @@ interface Registry {
   tablePath: (table: string) => string;
   gateAllows: (grants: Record<string, unknown>, gate: { area: string; op?: string }) => boolean;
   builtinRoles: (preset?: string) => { key: string; grants: Record<string, unknown> }[];
+  /** route path → the table its record list shows (queues included) */
+  listed: Map<string, string>;
   enterableOnCreate: (def: { fields: unknown[] }) => boolean;
 }
 
@@ -206,8 +208,9 @@ describe("«… تازه» only where a person can enter something", () => {
 });
 
 describe("the sidebar offers each role only lists it may read", () => {
-  it("hides the lists a built-in role cannot read (an agent saw workflows, SLA rules and notification settings: «فهرست پیدا نشد»)", () => {
-    const lists = new Map(reg.tables.map((t) => [reg.tablePath(t), t]));
+  it("hides the lists a built-in role cannot read (an agent saw workflows, SLA rules and notification settings, a requester the problem and CMDB queues: «فهرست پیدا نشد»)", () => {
+    // a table's own list and every queue (a module's RecordListRoute of the table)
+    const lists = new Map([...reg.tables.map((t) => [reg.tablePath(t), t] as const), ...reg.listed]);
     const bad: string[] = [];
     for (const role of reg.builtinRoles("open")) {
       for (const i of reg.nav) {
@@ -227,6 +230,9 @@ describe("the sidebar offers each role only lists it may read", () => {
     expect(item("notify:email_channel")?.access).toEqual({ area: "notifications" });
     expect(item("notify:rules")?.access).toEqual({ area: "notifications" });
     expect(item("release:release")?.access).toEqual({ area: "release" });
+    // queues without a gate of their own take the table's
+    expect(item("problem:q:mine")?.access).toEqual({ area: "problem" });
+    expect(item("cmdb:query")?.access).toEqual({ area: "cmdb" });
   });
 });
 
