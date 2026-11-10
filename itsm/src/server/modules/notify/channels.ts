@@ -12,6 +12,7 @@ import { fetchText, lanAllowed } from "../../net";
 import { guardedFetch } from "../ai/net";
 import { channelSecret } from "./mail";
 import { systemRows } from "./common";
+import { assertNotDemoOutbound } from "../../db/scope";
 
 export interface ChannelRow {
   id: string;
@@ -112,6 +113,8 @@ export function outsideRequest(kind: Exclude<ChannelKind, "sms">, endpoint: stri
 
 /** Post a message to a messenger or webhook channel. */
 export async function sendOutside(cfg: Partial<ServerConfig> & Pick<ServerConfig, "secret">, orgId: string, ch: ChannelRow, m: OutsideMessage): Promise<string> {
+  // nothing of the demo pack leaves the system (docs/DEMO_FA.md)
+  assertNotDemoOutbound();
   if (ch.kind === "sms") throw new Error("کانال پیامک برای پیام گروهی نیست");
   const endpoint = channelSecret(cfg, orgId, "notification_channel", "endpoint", ch as unknown as { id: string } & Record<string, unknown>);
   const token = channelSecret(cfg, orgId, "notification_channel", "token", ch as unknown as { id: string } & Record<string, unknown>);
@@ -162,6 +165,7 @@ export function smsRequest(ch: Pick<ChannelRow, "sms_url" | "sms_method" | "sms_
 
 /** Send an SMS through a gateway channel; resolves with the gateway's answer (cut). */
 export async function sendSms(cfg: Partial<ServerConfig> & Pick<ServerConfig, "secret">, orgId: string, ch: ChannelRow, m: SmsMessage): Promise<string> {
+  assertNotDemoOutbound();
   if (!ch.sms_url) throw new Error(`نشانی درگاه پیامک «${ch.name}» تنظیم نشده است`);
   const token = channelSecret(cfg, orgId, "notification_channel", "token", ch as unknown as { id: string } & Record<string, unknown>);
   const req = smsRequest(ch, token, m);

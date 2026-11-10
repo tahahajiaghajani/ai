@@ -15,9 +15,11 @@ import { conflict, bad } from "../../http/errors";
 import { invalidateSchema } from "../../engine/schema";
 import { invalidateCmdbCache } from "../cmdb/common";
 import { invalidateRules } from "../notify/rules";
+import { cloudLink } from "../ai/relay";
+import { demoSignInAllowed } from "./signin";
 import { BANK_DOMAIN, BANK_NAME, DEMO_SIZES, KNOWN_NAMES, type DemoSize } from "./bank";
 import { newMemo, runLoad, STEPS, type LoadMemo } from "./load";
-import { cleanHistory, clearReferences, computedSince, demoFiles, expandDerived, referenceReport, registryCounts, removeAccounts, removeFiles, removeRows, restoreComputed, restoreCounters, restoreReal, saveComputed, saveReal, systemMadeSince, tablesInfo, type PurgeReport, type RefReport } from "./purge";
+import { clearReferences, computedSince, demoFiles, expandDerived, keepRealTrail, referenceReport, registryCounts, removeAccounts, removeFiles, removeRows, restoreComputed, restoreCounters, revertTouched, saveComputed, tablesInfo, unattributedReport, type PurgeReport, type RefReport } from "./purge";
 
 export { DEMO_SIZES, BANK_NAME, type DemoSize } from "./bank";
 export { tablesInfo, COMPUTED_TABLES, type PurgeReport, type RefReport } from "./purge";
@@ -71,6 +73,8 @@ export interface DemoStatus {
   real_records?: number;
   /** tables whose records a module refused while loading, with its reason */
   refused?: Record<string, string>;
+  /** may the personas sign in now (off by default; an administrator turns it on for a presentation) */
+  signin?: boolean;
 }
 
 /** Tables whose rows are an organisation's own work: a load is refused when real ones exist (unless forced). */
@@ -132,6 +136,7 @@ export async function demoStatus(q: Queryable, orgId: string, opts: { secrets?: 
   if (pack.state === "loaded" || pack.state === "loading") {
     out.accounts = Object.entries(KNOWN_NAMES).map(([persona, p]) => ({ persona, email: emailOf(orgId, p.email.split("@")[0]), name: p.name, title: p.title }));
     if (opts.secrets) out.password = memo?.password ?? null;
+    out.signin = await demoSignInAllowed(q, orgId);
   }
   if (pack.state === "tombstoned") out.waiting_devices = await waitingDevices(q, orgId, pack.purge_mark ?? 0);
   return out;
@@ -141,6 +146,7 @@ export async function demoStatus(q: Queryable, orgId: string, opts: { secrets?: 
 export async function startDemoLoad(ctx: Ctx, input: { size: DemoSize; force?: boolean }): Promise<DemoStatus> {
   if (!DEMO_SIZES[input.size]) throw bad("اندازهٔ دادهٔ نمایشی معتبر نیست");
   const orgId = ctx.org.id;
+  await refuseLinkedDesktop(ctx.cfg as ServerConfig, ctx.db, orgId);
   await ctx.db.tx(async (tx) => {
     const pack = await packOf(tx, orgId);
     if (pack) throw conflict(pack.state === "failed" ? "بارگذاری قبلی ناتمام ماند؛ نخست آن را حذف کنید" : "دادهٔ نمایشی این سازمان از قبل بارگذاری شده است");
@@ -164,24 +170,60 @@ export async function purgePreview(ctx: Ctx): Promise<{ tables: Record<string, n
   return { tables, rows: Object.values(tables).reduce((s, n) => s + n, 0), references, accounts: tables.sm_users ?? 0 };
 }
 
-/** Start the purge (a job; always allowed, also for a failed or still running load). */
+/** Is the purge job of the organisation queued or running? */
+async function purgeQueued(q: Queryable, orgId: string): Promise<boolean> {
+  return !!(await q.one(`select 1 from sm_jobs where org_id = $1 and kind = 'demo.purge' and status in ('queued', 'running') limit 1`, [orgId]));
+}
+
+/**
+ * Start the purge (a job; always allowed, also for a failed or still running load — the load stops first). A pack
+ * already purged down to tombstones only waits for its finalisation (the purge never looks for demo rows twice); a
+ * purge whose job stopped (it failed, or the server restarted) is queued again.
+ */
 export async function startDemoPurge(ctx: Ctx): Promise<DemoStatus> {
   const orgId = ctx.org.id;
+  await refuseLinkedDesktop(ctx.cfg as ServerConfig, ctx.db, orgId);
   const pack = await packOf(ctx.db, orgId);
   const rows = await ctx.db.one<{ n: number }>(`select count(*)::int as n from sm_demo_rows where org_id = $1`, [orgId]);
   if (!pack && !rows?.n) throw conflict("این سازمان دادهٔ نمایشی ندارد");
-  if (pack?.state === "purging") return demoStatus(ctx.db, orgId);
+  if (pack?.state === "tombstoned") {
+    await inDemoScope(null, () => enqueue(ctx.db, { kind: "demo.finalize", orgId, payload: {}, dedupeKey: "demo.finalize" }));
+    return demoStatus(ctx.db, orgId);
+  }
+  if (pack?.state === "purging") {
+    if (!(await purgeQueued(ctx.db, orgId))) await inDemoScope(null, () => enqueue(ctx.db, { kind: "demo.purge", orgId, payload: { by: ctx.user.id }, dedupeKey: "demo.purge", maxAttempts: 20 }));
+    return demoStatus(ctx.db, orgId);
+  }
   await inDemoScope(null, async () => {
     await ctx.db.tx(async (tx) => {
-      if (pack) await tx.query(`update sm_demo_packs set state = 'purging', purge_started_at = now(), progress = progress || '{"purge":"expand"}'::jsonb, updated_at = now() where org_id = $1`, [orgId]);
-      else await tx.query(`insert into sm_demo_packs (org_id, state, progress, purge_started_at) values ($1, 'purging', '{"purge":"expand"}'::jsonb, now())`, [orgId]);
-      // a load still queued stops (its job goes with the registry)
+      // compare-and-set: only from the state read above (a load chunk ending now cannot take 'purging' back)
+      if (pack) {
+        const moved = await tx.query(
+          `update sm_demo_packs set state = 'purging', purge_started_at = now(), progress = progress || '{"purge":"expand"}'::jsonb, updated_at = now() where org_id = $1 and state in ('loading', 'loaded', 'failed') returning org_id`,
+          [orgId],
+        );
+        if (!moved.length) return;
+      } else await tx.query(`insert into sm_demo_packs (org_id, state, progress, purge_started_at) values ($1, 'purging', '{"purge":"expand"}'::jsonb, now()) on conflict (org_id) do nothing`, [orgId]);
+      // a load still queued stops (its job goes with the registry); a running chunk stops at its next step
       await tx.query(`update sm_jobs set status = 'done', done_at = now() where org_id = $1 and kind = 'demo.load' and status = 'queued'`, [orgId]);
       await enqueue(tx, { kind: "demo.purge", orgId, payload: { by: ctx.user.id }, dedupeKey: "demo.purge", maxAttempts: 20 });
     });
   });
   return demoStatus(ctx.db, orgId);
 }
+
+/**
+ * Demo data is loaded and purged on the server (or the web version), never in a Windows app linked to one: the app
+ * would push the pack to the server as its user's real work, where the purge cannot find it (docs/DEMO_FA.md).
+ */
+export async function refuseLinkedDesktop(cfg: Pick<ServerConfig, "mode"> & Partial<ServerConfig>, q: Queryable, orgId: string): Promise<void> {
+  if (cfg.mode !== "desktop") return;
+  const linked = (cfg.db && cloudLink(cfg as ServerConfig)) || (await q.one(`select 1 from sm_kv where key like 'sync.%' limit 1`)) || (await q.one(`select 1 from sm_devices where org_id = $1 limit 1`, [orgId]).catch(() => null));
+  if (linked) throw conflict("این برنامهٔ ویندوز به سرور یا نسخهٔ وب پیوند دارد؛ داده‌های نمایشی را روی سرور بارگذاری یا حذف کنید، نه در برنامهٔ ویندوز");
+}
+
+/** The pack left 'loading' (a purge started): the running load chunk stops at its next step. */
+class PackLeftLoading extends Error {}
 
 // ----- the load job ---------------------------------------------------------------------------------------------------
 
@@ -202,7 +244,6 @@ async function loadJob(cfg: JobConfig, orgId: string, deadline: number): Promise
         db.tx(async (tx) => {
           const counters = await tx.query<{ table_key: string; last: number }>(`select table_key, last from sm_numbers where org_id = $1`, [orgId]);
           const computed = await saveComputed(tx, orgId, info);
-          await saveReal(tx, orgId, info);
           await tx.query(
             `update sm_demo_packs set counters = $2::jsonb, progress = progress || jsonb_build_object('seeds_done', true, 'saved', true, 'saved_at', now(), 'computed', $3::jsonb), updated_at = now() where org_id = $1`,
             [orgId, JSON.stringify(Object.fromEntries(counters.map((c) => [c.table_key, c.last]))), JSON.stringify(computed)],
@@ -212,18 +253,41 @@ async function loadJob(cfg: JobConfig, orgId: string, deadline: number): Promise
       return { again: 0 };
     }
     const memo = pack.progress.memo ?? newMemo(pack.size);
-    const save = (m: LoadMemo) => inDemoScope(null, () => db.query(`update sm_demo_packs set progress = jsonb_set(progress, '{memo}', $2::jsonb), updated_at = now() where org_id = $1 and state = 'loading'`, [orgId, JSON.stringify(m)])).then(() => undefined);
+    // every step's memo is saved only while the pack is still loading: a purge that started stops the load here
+    const save = async (m: LoadMemo) => {
+      const r = await inDemoScope(null, () => db.query(`update sm_demo_packs set progress = jsonb_set(progress, '{memo}', $2::jsonb), updated_at = now() where org_id = $1 and state = 'loading' returning org_id`, [orgId, JSON.stringify(m)]));
+      if (!r.length) throw new PackLeftLoading("demo pack is no longer loading");
+    };
     const done = await runLoad(cfg as ServerConfig, orgId, memo, Math.min(deadline, Date.now() + 25_000), save);
     if (!done) return { again: 0 };
-    await inDemoScope(null, async () => {
-      await db.query(`update sm_demo_packs set state = 'loaded', loaded_at = now(), counts = $2::jsonb, updated_at = now() where org_id = $1`, [orgId, JSON.stringify(memo.counts)]);
-      await auditLine(db, orgId, pack.started_by, "demo_load", "داده‌های نمایشی بارگذاری شد", { size: pack.size, counts: memo.counts });
-    });
+    await finishLoad(db, orgId, { started_by: pack.started_by, size: pack.size }, memo.counts);
   } catch (e) {
+    if (e instanceof PackLeftLoading) return;
     const message = e instanceof Error ? e.message : String(e);
     cfg.log.error("demo load failed", { org: orgId, error: message });
-    await inDemoScope(null, () => db.query(`update sm_demo_packs set state = 'failed', error = $2, updated_at = now() where org_id = $1`, [orgId, message.slice(0, 500)]));
+    await failLoad(db, orgId, message);
   }
+}
+
+/**
+ * The load's last step: 'loading' → 'loaded' (compare-and-set: a purge that started meanwhile keeps 'purging') and its
+ * audit line. Returns whether the pack moved.
+ */
+export async function finishLoad(db: Db | Queryable, orgId: string, pack: { started_by: string | null; size: DemoSize }, counts: Record<string, number>): Promise<boolean> {
+  return inDemoScope(null, async () => {
+    const run = async (tx: Queryable) => {
+      const moved = await tx.query(`update sm_demo_packs set state = 'loaded', loaded_at = now(), counts = $2::jsonb, updated_at = now() where org_id = $1 and state = 'loading' returning org_id`, [orgId, JSON.stringify(counts)]);
+      if (moved.length) await auditLine(tx, orgId, pack.started_by, "demo_load", "داده‌های نمایشی بارگذاری شد", { size: pack.size, counts });
+      return moved.length > 0;
+    };
+    return "tx" in db ? (db as Db).tx(run) : run(db);
+  });
+}
+
+/** A load that stopped: 'loading' → 'failed' only (a purge that started meanwhile keeps 'purging'). */
+export async function failLoad(db: Queryable, orgId: string, message: string): Promise<boolean> {
+  const r = await inDemoScope(null, () => db.query(`update sm_demo_packs set state = 'failed', error = $2, updated_at = now() where org_id = $1 and state = 'loading' returning org_id`, [orgId, message.slice(0, 500)]));
+  return r.length > 0;
 }
 
 /** The content-free audit line (counts only), outside any demo scope: it stays after the purge. */
@@ -273,13 +337,24 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
     const setPhase = (q: Queryable, next: string, extra: Record<string, unknown> = {}) =>
       q.query(`update sm_demo_packs set progress = progress || $2::jsonb, updated_at = now() where org_id = $1`, [orgId, JSON.stringify({ purge: next, ...extra })]);
     if (phase === "expand") {
+      // a load chunk still running finishes its step first (it sees 'purging' at its next save and stops)
+      if (await db.one(`select 1 from sm_jobs where org_id = $1 and kind = 'demo.load' and status = 'running' and locked_until > now() limit 1`, [orgId])) return { again: 2000 };
       await db.tx(async (tx) => {
-        // what the system made while demo data was there (before the load was saved: nothing to go by)
-        const made = pack.progress.saved_at ? (await computedSince(tx, orgId, info, pack.progress.computed ?? [])) + (await systemMadeSince(tx, orgId, info, pack.progress.saved_at)) : 0;
+        // the computed tables' rows computed meanwhile (put back from the copy saved before the load)
+        const made = pack.progress.saved_at ? await computedSince(tx, orgId, info, pack.progress.computed ?? []) : 0;
+        // only what demo work wrote and what derives from it through a reference — never «made since the load»
         const derived = made + (await expandDerived(tx, orgId, info));
+        // what demo work changed in real rows goes back (only rows still as demo work left them)
+        const reverted = await revertTouched(tx, orgId, info);
+        // the trail of real records stays, whoever wrote it
+        const kept = await keepRealTrail(tx, orgId, info, reverted.ids);
         const tables = await registryCounts(tx, orgId);
         const references = await referenceReport(tx, orgId, info);
-        const report: PurgeReport = { tables, rows: Object.values(tables).reduce((s, n) => s + n, 0), derived, accounts: { removed: 0, kept: 0 }, references, files: 0, tombstones: 0, restored: {} };
+        const unattributed = pack.progress.saved_at ? await unattributedReport(tx, orgId, info, pack.progress.saved_at) : [];
+        const report: PurgeReport = {
+          tables, rows: Object.values(tables).reduce((s, n) => s + n, 0), derived, accounts: { removed: 0, kept: 0 }, references, files: 0, tombstones: 0,
+          restored: reverted.restored, left_real: reverted.left, kept_trail: kept, unattributed,
+        };
         await setPhase(tx, "clear", { report });
       });
       return { again: 0 };
@@ -294,8 +369,9 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
     }
     if (phase === "remove") {
       await db.tx(async (tx) => {
-        // work demo jobs did meanwhile joins the registry; what derives from it too
+        // work demo jobs did meanwhile joins the registry; what derives from it too (the trail of real records stays)
         report.derived += await expandDerived(tx, orgId, info);
+        report.kept_trail = (report.kept_trail ?? 0) + (await keepRealTrail(tx, orgId, info, null));
         const files = await demoFiles(tx, orgId);
         const tombstones = await hasDevices(tx, orgId);
         const r = await removeRows(tx, orgId, info, { tombstones });
@@ -314,10 +390,8 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
     }
     if (phase === "restore") {
       await db.tx(async (tx) => {
-        report.restored = await restoreComputed(tx, orgId, info, pack.progress.computed ?? []);
-        const real = pack.progress.saved_at ? await restoreReal(tx, orgId, info, pack.progress.saved_at) : {};
-        for (const [k, v] of Object.entries(real)) report.restored[k] = (report.restored[k] ?? 0) + v;
-        if (pack.progress.saved_at) await cleanHistory(tx, orgId, info, pack.progress.saved_at);
+        const computed = await restoreComputed(tx, orgId, info, pack.progress.computed ?? []);
+        for (const [k, v] of Object.entries(computed)) report.restored[k] = (report.restored[k] ?? 0) + v;
         await restoreCounters(tx, orgId, pack.counters ?? {});
         await setPhase(tx, "finish", { report });
       });
@@ -326,8 +400,10 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
     // finish: anything a demo job wrote while the purge ran goes too; then the audit line and the end of the pack
     await db.tx(async (tx) => {
       const late = await expandDerived(tx, orgId, info);
+      if (late) report.kept_trail = (report.kept_trail ?? 0) + (await keepRealTrail(tx, orgId, info, null));
       const left = await tx.one<{ n: number }>(`select count(*)::int as n from sm_demo_rows where org_id = $1 and tbl <> 'sm_users'`, [orgId]);
-      if (late || (left?.n && !report.tombstones)) {
+      // with tombstones: every registry row still live becomes one (rows a load chunk wrote after the remove phase too)
+      if (late || left?.n) {
         await removeRows(tx, orgId, info, { tombstones: report.tombstones > 0 });
         await removeAccounts(tx, orgId);
       }
@@ -349,6 +425,7 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
 async function finalRemove(q: Queryable, orgId: string): Promise<void> {
   await q.query(`delete from sm_demo_rows where org_id = $1`, [orgId]);
   await q.query(`delete from sm_demo_saved where org_id = $1`, [orgId]);
+  await q.query(`delete from sm_demo_touched where org_id = $1`, [orgId]);
   await q.query(`delete from sm_demo_packs where org_id = $1`, [orgId]);
 }
 

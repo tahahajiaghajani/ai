@@ -23,6 +23,8 @@ import { requestMeta, securityEvent, type SecurityEventInput } from "../modules/
 import type { Area, Level, Role } from "@shared/permissions";
 import { SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
+import { inDemoScope } from "../db/scope";
+import { demoSignInRefusal } from "../modules/demo/signin";
 import { afterEnginePush, checkEnginePush, pullEngine, replicaRows, scopeEpoch } from "../engine/sync";
 
 type StoredMember = MemberGrant & { is_active: boolean; deleted_at: string | null };
@@ -63,6 +65,9 @@ async function orgCtx(c: C, orgId: string): Promise<Ctx> {
   );
   if (!member || !member.is_active) throw forbidden("شما عضو این سازمان نیستید");
   guardOrgSession(org, c.get("session"), user, member, cfg.mode);
+  // a demo account reaches the organisation only while its administrators allow demo sign-in (docs/DEMO_FA.md)
+  const demoRefused = await demoSignInRefusal(cfg.db, user, orgId);
+  if (demoRefused) throw forbidden(demoRefused);
   const status = await orgStatus(cfg.db, orgId);
   if (status.status === "suspended") throw statusError(status);
   return makeCtx(cfg, user, org, member, { status });
@@ -131,6 +136,12 @@ syncRoutes.post("/push", async (c) => {
   const input = await body(c, pushSchema);
   if (input.protocol !== SYNC_PROTOCOL) throw bad("نسخه‌ی برنامه‌ی ویندوز با سرور هم‌خوان نیست؛ برنامه را به‌روز کنید");
   const ctx = await orgCtx(c, input.org_id);
+  // a demo person's push is demo work (docs/DEMO_FA.md): recorded with the pack and removed with it
+  if (ctx.user.prefs?.demo_org === ctx.org.id) return inDemoScope(ctx.org.id, () => pushAs(c, input, ctx));
+  return pushAs(c, input, ctx);
+});
+
+async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
   const results: { entity: string; id: string; status: "ok" | "conflict" | "error" | "skipped"; rev?: number; message?: string; renumbered?: unknown; aggregate?: WireAggregate }[] = [];
   const list = [...input.aggregates].sort((a, b) => (BY_ENTITY.get(a.entity)?.order ?? 99) - (BY_ENTITY.get(b.entity)?.order ?? 99));
   // privilege changes made on a Windows app are security events, as on the members page
@@ -259,7 +270,7 @@ syncRoutes.post("/push", async (c) => {
   await ctx.db.query(`update sm_devices set last_push_at = now() where id = $1 and org_id = $2 and user_id = $3`, [input.device_id, ctx.org.id, ctx.user.id]);
   const head = await ctx.db.one<{ rev: number }>(`select rev from sm_org_sync where org_id = $1`, [ctx.org.id]);
   return c.json({ results, head: head?.rev ?? 0 });
-});
+}
 
 syncRoutes.get("/pull", async (c) => {
   const q = c.req.query();

@@ -18,6 +18,7 @@ import { hasFeature } from "../admin/common";
 import { needPrincipalWithin } from "./users";
 import { callOut, failText } from "./net";
 import { intLog, liveRow, liveRows, needIntegrations, principalCtx, redactUrl, type Row } from "./common";
+import { demoQuiet } from "../../db/scope";
 
 /** Tables whose events are never delivered (the hub's own bookkeeping: a delivery would change them again). */
 const OWN_TABLES = new Set(["webhook_subscription", "inbound_endpoint", "integration_user", "export_schedule", "directory_source", "issue_connection", "external_ref", "data_export"]);
@@ -41,6 +42,8 @@ async function onEvent(e: RecordEvent, cfg: ServerConfig): Promise<void> {
   if (e.via === "sync" || OWN_TABLES.has(e.table)) return;
   const event = hookEventOf(e.kind);
   if (!event || !(await hasSubscriptions(cfg, e.org_id))) return;
+  // nothing of the demo pack leaves the system (docs/DEMO_FA.md)
+  if (await demoQuiet(cfg.db, e.org_id, e.id)) return;
   const sys = await systemCtx(cfg, e.org_id);
   const subs = await liveRows(cfg.db, sys, "webhook_subscription", { and: [{ f: "table_key", op: "eq", v: e.table }, { f: "active", op: "eq", v: true }, { f: "paused", op: "eq", v: false }] });
   const matching = subs.filter((s) => Array.isArray(s.events) && (s.events as string[]).includes(event));

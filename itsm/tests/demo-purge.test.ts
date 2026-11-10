@@ -193,6 +193,11 @@ describe.skipIf(skip)(title, () => {
     expect(status.counts.major_incident).toBe(1);
     expect(status.password).toBeTruthy();
     expect((await e.owner.get(`/o/${e.org}/demo/banner`)).active).toBe(true);
+    // demo sign-in is off by default: the presenter's administrator turns it on
+    expect(status.signin).toBe(false);
+    await e.owner.post(`/o/${e.org}/demo/signin`, { on: true });
+    status = await e.owner.get(`/o/${e.org}/demo`);
+    expect(status.signin).toBe(true);
     incidents = await e.db.query<{ id: string }>(`select id from sm_incidents where org_id = $1 and deleted_at is null order by opened_at desc limit 5`, [e.org]);
     expect(incidents.length).toBe(5);
   }, 1_500_000);

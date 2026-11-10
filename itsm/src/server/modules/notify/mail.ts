@@ -11,6 +11,7 @@ import { openSecret } from "../../engine";
 import { safeExternalUrl, lanAllowed, checkOutboundHost } from "../../net";
 import { aiNet, internalAddress } from "../ai/net";
 import { systemRows } from "./common";
+import { assertNotDemoOutbound } from "../../db/scope";
 
 // ----- channels -------------------------------------------------------------------------------------------------
 
@@ -158,6 +159,8 @@ export const AUTO_HEADERS: Record<string, string> = {
 
 /** Send one message through a channel; resolves with the provider's answer (throws its error). */
 export async function sendMail(cfg: Partial<ServerConfig> & Pick<ServerConfig, "secret">, orgId: string, ch: EmailChannelRow, m: MailInput): Promise<{ messageId: string; response: string; raw?: unknown }> {
+  // nothing of the demo pack leaves the system (docs/DEMO_FA.md)
+  assertNotDemoOutbound();
   const smtp = smtpOf(cfg, orgId, ch);
   if (!smtp.host) throw new Error("سرور SMTP کانال ایمیل تنظیم نشده است");
   if (factory === smtpTransport) await checkMailHost(cfg, smtp.host);

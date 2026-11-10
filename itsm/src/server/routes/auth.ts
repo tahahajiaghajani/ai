@@ -1,5 +1,6 @@
 // /api/auth — sign up, sign in (e-mail and password, a domain account, Windows single sign-on), sign out (here or
 // everywhere), current user, re-authentication, password change and recovery (docs/AD_FA.md for the directory parts).
+import { DEMO_SIGNIN_OFF, demoOrgOf, demoSignInAllowed } from "../modules/demo/signin";
 import { z } from "zod";
 import type { Context } from "hono";
 import { router, body, requireUser, limitByIp, rateLimit } from "../http/hono";
@@ -105,6 +106,12 @@ authRoutes.post("/login", async (c) => {
   if (user.disabled) {
     await securityEvent(cfg.db, { kind: "sign_in", ok: false, user_id: user.id, email: input.email, ...requestMeta(c), data: { reason: "disabled" } });
     throw forbidden("حساب شما غیرفعال شده است؛ با مدیر تماس بگیرید");
+  }
+  // the demo pack's people sign in only while their organisation's administrators allow it (docs/DEMO_FA.md)
+  const demoOrg = await demoOrgOf(cfg.db, user.id);
+  if (demoOrg && !(await demoSignInAllowed(cfg.db, demoOrg))) {
+    await securityEvent(cfg.db, { kind: "sign_in", ok: false, user_id: user.id, email: input.email, ...requestMeta(c), data: { reason: "demo_signin_off" } });
+    throw forbidden(DEMO_SIGNIN_OFF);
   }
   if (cfg.platformAdmins.includes(input.email)) {
     // only while the platform has no active administrator (see sign-up): otherwise whoever made an

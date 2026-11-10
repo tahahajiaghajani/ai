@@ -6,6 +6,8 @@ import { router, body } from "../http/hono";
 import { bad } from "../http/errors";
 import { needRecentAuthOf } from "../auth/policy";
 import { BANK_NAME, demoStatus, finalizeDemo, purgePreview, startDemoLoad, startDemoPurge } from "../modules/demo";
+import { demoSignInAllowed, setDemoSignIn } from "../modules/demo/signin";
+import { conflict } from "../http/errors";
 
 export const demoRoutes = router();
 
@@ -17,7 +19,8 @@ demoRoutes.get("/banner", async (c) => {
   // one indexed lookup: every page of every member asks
   const pack = await ctx.db.one<{ state: string }>(`select state from sm_demo_packs where org_id = $1`, [ctx.org.id]);
   // after the purge only content-free tombstones wait for Windows apps: nothing to warn about
-  return c.json({ active: !!pack && pack.state !== "tombstoned", state: pack?.state ?? "none", bank: BANK_NAME });
+  const active = !!pack && pack.state !== "tombstoned";
+  return c.json({ active, state: pack?.state ?? "none", bank: BANK_NAME, signin: active ? await demoSignInAllowed(ctx.db, ctx.org.id) : false });
 });
 
 demoRoutes.get("/", async (c) => {
@@ -56,4 +59,14 @@ demoRoutes.post("/finalize", async (c) => {
   const input = await body(c, z.object({ force: z.boolean().optional() }));
   needRecentAuthOf(c, ctx);
   return c.json(await finalizeDemo(ctx.cfg, ctx.org.id, { force: !!input.force }));
+});
+
+/** «ورود حساب‌های نمایشی»: off by default; an administrator turns it on for a presentation (and off after it). */
+demoRoutes.post("/signin", async (c) => {
+  const ctx = c.get("ctx");
+  ctx.need("settings", "full");
+  const input = await body(c, z.object({ on: z.boolean() }));
+  needRecentAuthOf(c, ctx);
+  if (!(await setDemoSignIn(ctx.db, ctx.org.id, input.on))) throw conflict("دادهٔ نمایشی بارگذاری‌شده‌ای در این سازمان نیست");
+  return c.json(await demoStatus(ctx.db, ctx.org.id, { secrets: true }));
 });
