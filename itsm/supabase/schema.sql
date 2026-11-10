@@ -10162,6 +10162,8 @@ alter table sm_depreciation_rules add column if not exists life_months integer;
 alter table sm_depreciation_rules add column if not exists rate_percent numeric;
 alter table sm_depreciation_rules add column if not exists salvage_percent numeric;
 alter table sm_depreciation_rules add column if not exists start_basis text;
+alter table sm_depreciation_rules add column if not exists start_convention text;
+alter table sm_depreciation_rules add column if not exists device_classes jsonb;
 alter table sm_depreciation_rules add column if not exists active boolean not null default true;
 alter table sm_depreciation_rules add column if not exists description text;
 create index if not exists sm_depreciation_rules_rev_idx on sm_depreciation_rules (org_id, rev);
