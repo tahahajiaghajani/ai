@@ -10,7 +10,7 @@ import { CHOICE_LISTS, TABLES } from "@shared/tables";
 import { uuidv7 } from "@shared/id";
 import type { Ctx, ServerConfig } from "../../context";
 import type { Row, Tx } from "../../db";
-import { createIn, systemCtx, updateIn } from "../../engine";
+import { createIn, savepoint, systemCtx, updateIn } from "../../engine";
 import { hashPassword, readableCode } from "../../auth/password";
 import { addTimelineEvent, majorAction, sendUpdate } from "../incident";
 import { ARTICLES, BANK_DOMAIN, BANK_NAME, BRANCH_STREETS, CHANGES, DEMO_SIZES, FIRST_NAMES, GROUPS, HQ_DEPARTMENTS, INCIDENTS, KNOWN_NAMES, LAST_NAMES, PROBLEMS, PROVINCES, REGION_OF, REGIONS, REQUESTS, Rng, SERVICES, type DemoSize, type Persona } from "./bank";
@@ -91,6 +91,17 @@ function clean(table: string, values: Record<string, unknown>): Record<string, u
 
 async function put(tx: Tx, sys: Ctx, table: string, values: Record<string, unknown>): Promise<Row> {
   return createIn(tx, sys, table, clean(table, values), { trusted: true });
+}
+
+/** Create a record; when a module refuses the closed form of it (its own rules on closing), create it open instead. */
+async function putOpen(tx: Tx, sys: Ctx, table: string, values: Record<string, unknown>, open: Record<string, unknown>): Promise<Row | null> {
+  try {
+    return await savepoint(tx, () => put(tx, sys, table, values));
+  } catch {
+    const rest = { ...values, ...open };
+    for (const k of ["closed_at", "close_code", "close_notes", "resolved_at", "resolved_by"]) if (!(k in open)) delete rest[k];
+    return savepoint(tx, () => put(tx, sys, table, rest)).catch(() => null);
+  }
 }
 
 const DAY = 86_400_000;
@@ -671,7 +682,7 @@ async function stepChanges({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
       const emergency = i % 9 === 4;
       const type = emergency ? (types.includes("emergency") ? "emergency" : types[0]) : c.risk === "low" ? (types.includes("standard") ? "standard" : types[0]) : types.includes("normal") ? "normal" : types[0];
       const state = future ? rng.pick(["assess", "authorize", "scheduled"]) : start > now ? "scheduled" : rng.chance(0.9) ? "closed" : "review";
-      await put(tx, sys, "change_request", {
+      await putOpen(tx, sys, "change_request", {
         short_description: c.text,
         description: c.plan,
         type,
@@ -695,45 +706,80 @@ async function stepChanges({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
         closed_at: state === "closed" ? iso(Math.min(now - 30_000, start + 6 * 3600_000)) : undefined,
         close_code: state === "closed" ? choose("change_request", "close_code", ["successful"]) : undefined,
         close_notes: state === "closed" ? "تغییر طبق برنامه اجرا و آزمون شد." : undefined,
-      });
+      }, { state: choose("change_request", "state", ["scheduled", "new"]) });
     }
   });
   bump(memo, "change_request", size.changes);
   return true;
 }
 
+/** Answers to an item's questions as a requester would give them (required ones; defaults where the item has them). */
+async function answersFor(tx: Tx, orgId: string, itemId: string, who: string): Promise<Record<string, unknown>> {
+  const vars = await tx.query<{ name: string; type: string; required: boolean; default_value: string | null; choices: unknown; ref_table: string | null }>(
+    `select v.name, v.type, v.required, v.default_value, v.choices, v.ref_table from sm_catalog_variables v
+      where v.org_id = $1 and v.deleted_at is null and coalesce(v.active, true)
+        and (v.item_id = $2 or v.set_id in (select jsonb_array_elements_text(coalesce(i.variable_sets, '[]'::jsonb))::uuid from sm_catalog_items i where i.id = $2))`,
+    [orgId, itemId],
+  );
+  const out: Record<string, unknown> = {};
+  for (const v of vars) {
+    if (v.default_value !== null && v.default_value !== "") {
+      out[v.name] = v.type === "checkbox" || v.type === "boolean" ? v.default_value === "true" : v.default_value;
+      continue;
+    }
+    if (!v.required) continue;
+    const first = Array.isArray(v.choices) && v.choices.length ? v.choices[0] : null;
+    const choice = Array.isArray(first) ? first[0] : first && typeof first === "object" ? (first as { value?: unknown }).value : first;
+    if (choice !== null && choice !== undefined) out[v.name] = String(choice);
+    else if (["checkbox", "boolean", "yes_no"].includes(v.type)) out[v.name] = v.type === "yes_no" ? "yes" : true;
+    else if (["date"].includes(v.type)) out[v.name] = dateOnly(Date.now() + 7 * DAY);
+    else if (["datetime"].includes(v.type)) out[v.name] = iso(Date.now() + 7 * DAY);
+    else if (["number", "integer", "decimal", "money"].includes(v.type)) out[v.name] = 1;
+    else if (["user", "reference"].includes(v.type) && (!v.ref_table || v.ref_table === "user")) out[v.name] = who;
+    else out[v.name] = "برای کار روزانهٔ شعبه";
+  }
+  return out;
+}
+
 async function stepRequests({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
   const size = DEMO_SIZES[memo.size];
   const rng = new Rng(memo.seed + 29);
   const now = Date.now();
+  let made = 0;
   await sys.write(async (tx) => {
-    const items = await tx.query<{ id: string; name: string; category_id: string | null }>(`select id, name, category_id from sm_catalog_items where org_id = $1 and deleted_at is null`, [sys.org.id]);
+    const items = await tx.query<{ id: string; name: string; category_id: string | null }>(`select id, name, category_id from sm_catalog_items where org_id = $1 and deleted_at is null and state = 'published'`, [sys.org.id]);
     const byName = new Map(items.map((x) => [x.name, x]));
     for (let i = 0; i < size.requests; i++) {
       const r = REQUESTS[i % REQUESTS.length];
       const item = byName.get(r.item);
       if (!item) continue;
-      const who = rng.chance(0.8) ? rng.pick(memo.people.employees) : memo.people.personas.requester;
+      const who = rng.chance(0.8) ? rng.pick(memo.people.employees) : memo.people.personas.requester!;
       const opened = pastMoment(rng, now, 360);
       const age = (now - opened) / DAY;
       const state = age > 30 ? "closed_complete" : age > 10 ? rng.pick(["in_fulfilment", "delivered", "closed_complete"]) : rng.pick(["submitted", "awaiting_approval", "in_fulfilment"]);
-      const req = await put(tx, sys, "request", { short_description: r.text, description: r.detail, caller_id: who, requested_for: who, opened_at: iso(opened), state: choose("request", "state", [state]), assignment_group_id: memo.groups.desk });
-      await put(tx, sys, "request_item", {
-        short_description: r.text,
-        description: r.detail,
-        request_id: req.id,
-        cat_item_id: item.id,
-        category_id: item.category_id,
-        quantity: 1,
-        caller_id: who,
-        requested_for: who,
-        opened_at: iso(opened),
-        assignment_group_id: r.item === "درخواست دسترسی" ? memo.groups.core : memo.groups.desk,
-        state: choose("request_item", "state", [state === "submitted" ? "pending" : state]),
-      });
+      const answers = await answersFor(tx, sys.org.id, item.id, who);
+      // an item whose questions this generator cannot answer is left out (never a half-written request)
+      await savepoint(tx, async () => {
+        const req = await put(tx, sys, "request", { short_description: r.text, description: r.detail, caller_id: who, requested_for: who, opened_at: iso(opened), state: choose("request", "state", [state]), assignment_group_id: memo.groups.desk });
+        await put(tx, sys, "request_item", {
+          short_description: r.text,
+          description: r.detail,
+          request_id: req.id,
+          cat_item_id: item.id,
+          category_id: item.category_id,
+          quantity: 1,
+          answers,
+          caller_id: who,
+          requested_for: who,
+          opened_at: iso(opened),
+          assignment_group_id: r.item === "درخواست دسترسی" ? memo.groups.core : memo.groups.desk,
+          state: choose("request_item", "state", [state === "submitted" ? "pending" : state]),
+        });
+        made++;
+      }).catch(() => undefined);
     }
   });
-  bump(memo, "request", size.requests);
+  bump(memo, "request", made);
   return true;
 }
 
@@ -749,6 +795,7 @@ async function stepSlm({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
         valid_from: dateOnly(now - 200 * DAY),
         valid_to: dateOnly(now + 165 * DAY),
         compliance_target: key === "core" ? 99.9 : 99.5,
+        at_risk_target: key === "core" ? 99.95 : 99.7,
         provider_group_id: memo.groups[SERVICES.find((s) => s.key === key)!.group],
         terms: "دسترس‌پذیری ماهانه، زمان پاسخ رخدادهای اولویت ۱ در ۱۵ دقیقه و حل در ۴ ساعت.",
         state: choose("service_agreement", "state", ["active"]),
@@ -768,7 +815,7 @@ async function stepSecurity({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
     for (let i = 0; i < size.security; i++) {
       const opened = pastMoment(rng, now, 300);
       const closed = (now - opened) / DAY > 20;
-      await put(tx, sys, "sec_incident", {
+      await putOpen(tx, sys, "sec_incident", {
         short_description: texts[i % texts.length],
         description: "رخداد امنیتی نمایشی؛ شاخص‌ها و جزئیات ساختگی است.",
         category: choose("sec_incident", "category", ["phishing", "malware", "unauthorized_access", "reconnaissance"]),
@@ -782,7 +829,7 @@ async function stepSecurity({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
         closed_at: closed ? iso(Math.min(now - 30_000, opened + 4 * DAY)) : undefined,
         close_code: closed ? choose("sec_incident", "close_code", ["resolved", "contained"]) : undefined,
         close_notes: closed ? "مهار و ریشه‌کن شد؛ درس‌آموخته ثبت شد." : undefined,
-      });
+      }, { state: choose("sec_incident", "state", ["analysis"]) });
     }
     const cves = [["CVE-2026-10001", "آسیب‌پذیری اجرای کد در سرور برنامه"], ["CVE-2026-10002", "دور زدن احراز هویت در درگاه مدیریت"], ["CVE-2026-10003", "افشای اطلاعات در کتابخانهٔ رمزنگاری"]];
     for (const [cve, title] of cves) await put(tx, sys, "sec_vulnerability", { cve_id: cve, title: `${title} (نمایشی)`, severity: choose("sec_vulnerability", "severity", ["high", "critical"]), cvss_score: 8.1, description: "شناسهٔ ساختگی برای دادهٔ نمایشی." });
@@ -802,7 +849,7 @@ async function stepHr({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
       const who = rng.pick(memo.people.employees);
       const opened = pastMoment(rng, now, 200);
       const closed = (now - opened) / DAY > 15;
-      await put(tx, sys, "hr_case", {
+      await putOpen(tx, sys, "hr_case", {
         short_description: texts[i % texts.length],
         description: "پروندهٔ ساختگی منابع انسانی (دادهٔ نمایشی).",
         caller_id: who,
@@ -815,7 +862,7 @@ async function stepHr({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
         close_code: closed ? choose("hr_case", "close_code", ["resolved", "completed", "solved"]) : undefined,
         close_notes: closed ? "پاسخ داده شد." : undefined,
         sensitive: i % 5 === 0,
-      });
+      }, { state: choose("hr_case", "state", ["in_progress"]) });
     }
   });
   bump(memo, "hr_case", size.hr);
@@ -831,7 +878,7 @@ async function stepField({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
       const b = rng.pick(memo.branches);
       const opened = pastMoment(rng, now, 240);
       const done = (now - opened) / DAY > 7;
-      await put(tx, sys, "work_order", {
+      await putOpen(tx, sys, "work_order", {
         short_description: `بازدید تکنسین خودپرداز — ${b.name}`,
         description: rng.pick(["تعویض تسمهٔ مخزن اسکناس", "تعمیر کارت‌خوان", "سرویس دوره‌ای و تمیزکاری", "تعویض چاپگر رسید"]),
         location_id: b.location,
@@ -843,7 +890,7 @@ async function stepField({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
         closed_at: done ? iso(Math.min(now - 30_000, opened + 2 * DAY)) : undefined,
         close_code: done ? choose("work_order", "close_code", ["completed", "resolved", "fixed"]) : undefined,
         close_notes: done ? "دستگاه آزمایش و به سرویس برگشت." : undefined,
-      });
+      }, { state: choose("work_order", "state", ["scheduled", "draft"]) });
     }
   });
   bump(memo, "work_order", size.visits);

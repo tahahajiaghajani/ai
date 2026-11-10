@@ -4,9 +4,9 @@
 // - for members of an organisation the platform admin made read-only: the status and its reason.
 import { useEffect, useState } from "react";
 import { Button, Tooltip } from "antd";
-import { LifeBuoy, Lock } from "lucide-react";
-import { useNavigate } from "react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { FlaskConical, LifeBuoy, Lock } from "lucide-react";
+import { Link, useNavigate } from "react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useOrg } from "../../lib/org";
 import { useSession } from "../../lib/session";
 import { useNotify } from "../../lib/hooks";
@@ -111,11 +111,38 @@ function StatusBand() {
   );
 }
 
+/** «این سازمان دادهٔ نمایشی دارد» while the demo pack is loaded (docs/DEMO_FA.md), on every page of the organisation. */
+function DemoBand() {
+  const { api, orgId, can } = useOrg();
+  const q = useQuery({
+    queryKey: ["demo-banner", orgId],
+    queryFn: () => api.get<{ active: boolean; state: string; bank: string }>("/demo/banner"),
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
+  });
+  if (!q.data?.active) return null;
+  return (
+    <div role="status" className="no-print flex min-h-9 flex-wrap items-center gap-x-3 gap-y-1 border-b border-[var(--ds-info-border)] bg-[var(--ds-info-tint)] px-4 py-1 text-[13px] leading-5 text-ink">
+      <span className="inline-flex items-center gap-2 font-semibold text-[var(--ds-info)]">
+        <FlaskConical {...ICON} aria-hidden />
+        این سازمان دادهٔ نمایشی دارد
+      </span>
+      <span className="text-ink-2 max-sm:hidden">{q.data.bank} — همهٔ نام‌ها و رکوردهای آن ساختگی است.</span>
+      {can("settings", "full") ? (
+        <Link className="ms-auto" to={`/${orgId}/settings/demo`}>
+          مدیریت داده‌های نمایشی
+        </Link>
+      ) : null}
+    </div>
+  );
+}
+
 export function SupportBanner() {
   return (
     <>
       <SupportBand />
       <StatusBand />
+      <DemoBand />
     </>
   );
 }

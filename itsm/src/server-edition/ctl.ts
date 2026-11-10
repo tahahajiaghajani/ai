@@ -36,7 +36,7 @@ export interface Args {
 }
 
 /** Flags that never take a value (so `--yes restore …` and `restore … --yes` read the same). */
-const BOOL_FLAGS = new Set(["yes", "rolling", "force", "no-restart", "no-safety-backup", "help"]);
+const BOOL_FLAGS = new Set(["yes", "rolling", "force", "no-restart", "no-safety-backup", "help", "wait"]);
 
 /** `karizctl <command> [args] [--flag value | --flag=value | --switch]`; flags may also come before the command. */
 export function parseArgs(argv: string[]): Args {
@@ -436,6 +436,92 @@ async function cmdPurge(a: Args) {
   say(`پوشهٔ داده پاک شد: ${data}`);
 }
 
+/**
+ * `karizctl demo load [--size small|medium|large] [--force] | status | purge --yes [--org <id>] [--wait]` — the demo
+ * pack (docs/DEMO_FA.md) of an organisation (the only one, or --org). The server's own workers run the load and the
+ * purge (jobs `demo.load`, `demo.purge`); this command queues them as the console does and, with --wait, follows them.
+ */
+async function cmdDemo(a: Args) {
+  const c = load(a);
+  const sub = a.positional[0] ?? "status";
+  await withDb(c, async (db) => {
+    let org = flag(a, "org");
+    if (!org) {
+      const orgs = await db.query<{ id: string; name: string }>(`select id, name from sm_orgs where deleted_at is null order by created_at`);
+      if (orgs.length !== 1) throw new UsageError(`سازمان را با --org <شناسه> مشخص کنید:\n${orgs.map((o) => `  ${o.id}  ${o.name}`).join("\n")}`);
+      org = orgs[0].id;
+    }
+    const status = async () => {
+      const p = await db.one<{ state: string; size: string; counts: Record<string, number>; progress: { memo?: { step?: number }; purge?: string }; error: string | null }>(`select state, size, counts, progress, error from sm_demo_packs where org_id = $1`, [org]);
+      const rows = await db.one<{ n: number }>(`select count(*)::int as n from sm_demo_rows where org_id = $1`, [org]);
+      return { p, rows: rows?.n ?? 0 };
+    };
+    const show = async () => {
+      const { p, rows } = await status();
+      if (!p) say("دادهٔ نمایشی بارگذاری نشده است");
+      else {
+        say(`وضعیت: ${p.state} · اندازه: ${p.size} · ردیف‌های ثبت‌شده: ${rows}${p.state === "loading" ? ` · گام ${p.progress.memo?.step ?? 0}` : ""}${p.state === "purging" ? ` · مرحله ${p.progress.purge ?? ""}` : ""}`);
+        if (p.error) warn(`خطا: ${p.error}`);
+        if (p.counts && Object.keys(p.counts).length) say(Object.entries(p.counts).map(([k, v]) => `  ${k}: ${v}`).join("\n"));
+      }
+      return p?.state ?? "none";
+    };
+    const wait = async (busy: string) => {
+      if (!a.flags.wait) return;
+      for (let i = 0; i < 24 * 60; i++) {
+        const { p } = await status();
+        if (!p || p.state !== busy) break;
+        await new Promise((r) => setTimeout(r, 5000));
+      }
+      await show();
+    };
+    if (sub === "status") {
+      await show();
+      return;
+    }
+    if (sub === "load") {
+      const size = flag(a, "size") ?? "medium";
+      if (!["small", "medium", "large"].includes(size)) throw new UsageError("اندازه: small | medium | large");
+      await db.tx(async (tx) => {
+        if (await tx.one(`select 1 from sm_demo_packs where org_id = $1`, [org])) throw new Error("دادهٔ نمایشی این سازمان از قبل هست (karizctl demo status)");
+        if (!a.flags.force) {
+          const real = await tx.one<{ n: number }>(
+            `select ((select count(*) from sm_incidents x where x.org_id = $1 and not exists (select 1 from sm_demo_rows d where d.org_id = $1 and d.row_id = x.id))
+                   + (select count(*) from sm_requests x where x.org_id = $1 and not exists (select 1 from sm_demo_rows d where d.org_id = $1 and d.row_id = x.id))
+                   + (select count(*) from sm_change_requests x where x.org_id = $1 and not exists (select 1 from sm_demo_rows d where d.org_id = $1 and d.row_id = x.id)))::int as n`,
+            [org],
+          );
+          if (real?.n) throw new Error(`این سازمان ${real.n} رکورد واقعی دارد؛ برای بارگذاری با وجود آن --force را بیفزایید`);
+        }
+        const memo = { size, seed: 1405, step: 0, cursor: 0, units: {}, branches: [], groups: {}, regionGroups: {}, people: { agents: {}, employees: [], personas: {} }, services: {}, cis: {}, incidents: [], problems: [], suppliers: [], counts: {} };
+        await tx.query(`insert into sm_demo_packs (org_id, state, size, options, progress) values ($1, 'loading', $2, $3::jsonb, $4::jsonb)`, [org, size, JSON.stringify({ force: !!a.flags.force, by: "karizctl" }), JSON.stringify({ memo })]);
+        // the pack's own job, queued inside the demo scope (the capture trigger records it): it runs as demo work
+        await tx.query(`select set_config('itsm.demo', $1, true)`, [org]);
+        await tx.query(`insert into sm_jobs (id, org_id, kind, payload, max_attempts, dedupe_key) values (gen_random_uuid(), $1, 'demo.load', '{"__demo":true}'::jsonb, 3, 'demo.load')`, [org]);
+      });
+      say("بارگذاری دادهٔ نمایشی در صف سرور است");
+      await wait("loading");
+      return;
+    }
+    if (sub === "purge") {
+      if (!a.flags.yes) throw new UsageError("همهٔ داده‌های نمایشی و هرچه از آن‌ها ساخته شده پاک می‌شود. برای ادامه --yes را بیفزایید");
+      await db.tx(async (tx) => {
+        const p = await tx.one(`select 1 from sm_demo_packs where org_id = $1`, [org]);
+        const rows = await tx.one<{ n: number }>(`select count(*)::int as n from sm_demo_rows where org_id = $1`, [org]);
+        if (!p && !rows?.n) throw new Error("این سازمان دادهٔ نمایشی ندارد");
+        if (p) await tx.query(`update sm_demo_packs set state = 'purging', purge_started_at = now(), progress = progress || '{"purge":"expand"}'::jsonb, updated_at = now() where org_id = $1`, [org]);
+        else await tx.query(`insert into sm_demo_packs (org_id, state, progress, purge_started_at) values ($1, 'purging', '{"purge":"expand"}'::jsonb, now())`, [org]);
+        await tx.query(`update sm_jobs set status = 'done', done_at = now() where org_id = $1 and kind = 'demo.load' and status = 'queued'`, [org]);
+        await tx.query(`insert into sm_jobs (id, org_id, kind, payload, max_attempts, dedupe_key) values (gen_random_uuid(), $1, 'demo.purge', '{"by":null}'::jsonb, 20, 'demo.purge') on conflict do nothing`, [org]);
+      });
+      say("حذف داده‌های نمایشی در صف سرور است");
+      await wait("purging");
+      return;
+    }
+    throw new UsageError("karizctl demo load [--size small|medium|large] [--force] | status | purge --yes [--org <id>] [--wait]");
+  });
+}
+
 async function cmdOrphans(a: Args) {
   const c = load(a);
   const rows = await orphanedAttachments(c);
@@ -455,6 +541,8 @@ const HELP = `karizctl — ${EDITION.product} (${APP_NAME} ${APP_VERSION})
   rotate-cert --pfx <f> --password <p> | --cert <crt> --key <key>
   allow list | add <host> | remove <host>     air-gap allowlist (hosts, *.suffix, IP, CIDR)
   diagnostics [--out <zip>]      diagnostics bundle without secrets
+  demo load [--size small|medium|large] [--force] | status | purge --yes   [--org <id>] [--wait]
+                                 the fictional demo bank: load it, see it, remove it without a trace
   setup-token                    a new one-time first-run setup URL
   version
   installer steps: init, db-init, pg-conf [--disk ssd|hdd|san], db-bootstrap, migrate, pg-start, pg-stop, wait-ready, purge --yes
@@ -548,6 +636,9 @@ export async function main(argv: string[]): Promise<number> {
         break;
       case "orphans":
         await cmdOrphans(a);
+        break;
+      case "demo":
+        await cmdDemo(a);
         break;
       case "version":
         say(`${APP_NAME} ${APP_VERSION} (${EDITION.product})`);

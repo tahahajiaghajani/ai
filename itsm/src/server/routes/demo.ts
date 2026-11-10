@@ -5,7 +5,6 @@ import { z } from "zod";
 import { router, body } from "../http/hono";
 import { bad } from "../http/errors";
 import { needRecentAuthOf } from "../auth/policy";
-import { audit } from "../modules/data/crud";
 import { demoStatus, finalizeDemo, purgePreview, startDemoLoad, startDemoPurge } from "../modules/demo";
 
 export const demoRoutes = router();
@@ -30,9 +29,8 @@ demoRoutes.post("/load", async (c) => {
   ctx.need("settings", "full");
   const input = await body(c, z.object({ size: z.enum(["small", "medium", "large"]), force: z.boolean().optional() }));
   needRecentAuthOf(c, ctx);
-  const s = await startDemoLoad(ctx, input);
-  await audit(ctx.db, ctx, "demo_load_start", "demo", null, `بارگذاری دادهٔ نمایشی (${input.size})`, { size: input.size, force: !!input.force });
-  return c.json(s);
+  // the audit line «داده‌های نمایشی بارگذاری شد» is written when the load ends (counts only)
+  return c.json(await startDemoLoad(ctx, input));
 });
 
 demoRoutes.get("/report", async (c) => {
