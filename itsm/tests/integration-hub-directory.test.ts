@@ -246,9 +246,14 @@ describe("SCIM provisioning (Microsoft Entra ID)", () => {
     expect((await scim("PATCH", `/Groups/${g.id}`, { schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"], Operations: [{ op: "add", path: "members", value: [{ value: reza.id }] }] })).status).toBe(204);
     const members = (await e.owner.get(`${P}/r/group_member?filter=${encodeURIComponent(JSON.stringify({ f: "group_id", op: "eq", v: hrGroup }))}`)).rows as { user_id: string }[];
     expect(members.map((x) => x.user_id)).not.toContain(reza.id);
-    // with automatic roles on the source, the same push adds them
+    // automatic roles switched on change the approved mappings' fingerprint: the push still waits (as LDAP sync and
+    // directory sign-in do) until the administrator approves the source again, then adds them
     const now = await e.owner.get(`${P}/r/directory_source/${src.id}`);
     await e.owner.patch(`${P}/r/directory_source/${src.id}`, { auto_roles: true, version: now.row.version });
+    expect((await scim("PATCH", `/Groups/${g.id}`, { schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"], Operations: [{ op: "add", path: "members", value: [{ value: reza.id }] }] })).status).toBe(204);
+    const waiting = (await e.owner.get(`${P}/r/group_member?filter=${encodeURIComponent(JSON.stringify({ f: "group_id", op: "eq", v: hrGroup }))}`)).rows as { user_id: string }[];
+    expect(waiting.map((x) => x.user_id)).not.toContain(reza.id);
+    await e.owner.post(`${P}/integration/directory/${src.id}/approve`);
     expect((await scim("PATCH", `/Groups/${g.id}`, { schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"], Operations: [{ op: "add", path: "members", value: [{ value: reza.id }] }] })).status).toBe(204);
     const after = (await e.owner.get(`${P}/r/group_member?filter=${encodeURIComponent(JSON.stringify({ f: "group_id", op: "eq", v: hrGroup }))}`)).rows as { user_id: string }[];
     expect(after.map((x) => x.user_id)).toContain(reza.id);

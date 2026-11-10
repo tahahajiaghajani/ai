@@ -20,6 +20,7 @@ import type { Ctx } from "../../context";
 import { createIn, emitEvent, systemCtx, transitionIn, updateIn } from "../../engine";
 import { enqueue, registerJobHandler, type JobContext } from "../../jobs";
 import { safeExternalUrl, fetchText, lanAllowed } from "../../net";
+import { guardedFetch } from "../ai/net";
 import { actsHere } from "../notify";
 import { registerTopicHandler } from "../integrations/service";
 import { cmdbConfig, eqAll, isUuid, liveRow, liveRows, sysOf, type Row } from "./common";
@@ -68,7 +69,11 @@ export async function runUrlSource(sys: Ctx, sourceId: string): Promise<{ rows: 
     return { rows: 0, error: "unsafe url" };
   }
   try {
-    const text = await fetchText(sys.cfg.fetch, url, `منبع «${src.name}»`, {}, 20_000);
+    // the web version: public https hosts only, checked again on the addresses the name resolves to and without
+    // redirects (guardedFetch); the Windows app and the server edition: their network (the server edition's cfg.fetch
+    // holds to its air-gap allowlist)
+    const f = lanAllowed(sys.cfg) ? sys.cfg.fetch : guardedFetch(sys.cfg.fetch);
+    const text = await fetchText(f, url, `منبع «${src.name}»`, {}, 20_000);
     const rows = src.format === "json" ? jsonArrayAt(JSON.parse(text), src.json_path).map((r) => flatten(r)) : csvObjects(text);
     const mapping = src.mapping && typeof src.mapping === "object" && Object.keys(src.mapping).length ? (src.mapping as Record<string, string>) : Object.fromEntries(Object.keys(rows[0] ?? {}).map((k) => [k, k]));
     const items = rows.slice(0, 1000).map((r) => mapRow(r, mapping, src.default_class ?? null));
