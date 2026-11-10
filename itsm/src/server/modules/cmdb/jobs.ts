@@ -143,13 +143,18 @@ export async function applyPolicies(sys: Ctx): Promise<{ affected: number; skipp
 }
 
 /** The full health pass, resumable: pages of CIs until the budget ends (progress kept in the job). */
+/** CIs per transaction of the nightly health pass. */
+const HEALTH_PAGE = 25;
+
 async function healthAll(sys: Ctx, job: { payload: Record<string, any> }, jctx: JobContext): Promise<{ again: number } | undefined> {
   let after: string | null = job.payload.after ?? null;
   let sums: Record<string, ClassSums> = job.payload.sums ?? {};
   let rules: Record<string, { checked: number; failing: number }> = job.payload.rules ?? {};
   const day: string = job.payload.day ?? todayISO(String(sys.org.settings?.timezone ?? "Asia/Tehran"));
   for (;;) {
-    const page = await sys.write((tx) => computeHealth(tx, sys, { after, limit: 200, full: true }));
+    // small pages: each is one write transaction holding the organisation's write lock (200 CIs held it 6-7 s on the
+    // bank seed and every write of the organisation waited behind it; PERFORMANCE_FA.md «دور دوم»)
+    const page = await sys.write((tx) => computeHealth(tx, sys, { after, limit: HEALTH_PAGE, full: true }));
     sums = addSums(sums, page.sums);
     rules = addRules(rules, page.rules);
     if (!page.last) break;
