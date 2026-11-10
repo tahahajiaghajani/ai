@@ -19,13 +19,13 @@ import { tableDef } from "@shared/tables";
 import { registerOrgSeed } from "../orgs/service";
 import { onApprovalSettled, SEED_DELAY_MS, settledVerdict } from "../sla";
 import { access } from "../../access/provider";
-import { onRecordEvent, registerHooks, registerRecordMeta, systemCtx, transitionIn } from "../../engine";
+import { onRecordEvent, pushGuard, registerHooks, registerRecordMeta, systemCtx, transitionIn } from "../../engine";
 import { enqueue, registerJobHandler, type JobConfig, type JobContext } from "../../jobs";
 import { actsHere } from "../notify";
 import { registerAiChannel } from "../ai/rag/registry";
 import { registerPortalItems, registerPortalLink } from "../portal/common";
 import { orgSchema } from "../../engine";
-import { DEPT_TABLES, installEsmHooks } from "./hooks";
+import { DEPT_TABLES, hrStaffOnly, installEsmHooks } from "./hooks";
 import { advanceJourneyIn, followRecordIn, journeyHooks, JOB_ORDER, placeActivityOrder } from "./journeys";
 import { facilityHooks, installReservationApprovals, JOB_NO_SHOW, noShowJob } from "./facilities";
 import { autoCloseIn, parentsOf, rollupChildrenIn } from "./cases";
@@ -74,8 +74,8 @@ export function installEsmModule(): void {
   installed = true;
   installEsmHooks();
   const j = journeyHooks;
-  registerHooks("journey", { beforeWrite: j.journeyBefore, afterWrite: j.journeyAfter });
-  registerHooks("journey_activity", { beforeWrite: j.activityBefore, afterWrite: j.activityAfter, guards: { activity_done: j.activityDone } });
+  registerHooks("journey", { beforeWrite: j.journeyBefore, afterWrite: j.journeyAfter, validatePush: pushGuard(j.journeyGuard) });
+  registerHooks("journey_activity", { beforeWrite: j.activityBefore, afterWrite: j.activityAfter, guards: { activity_done: j.activityDone, hr_staff: hrStaffOnly } });
   const f = facilityHooks;
   registerHooks("reservation", { beforeWrite: f.reservationBefore, afterWrite: f.reservationAfter, guards: { reservation_free: f.reservationFree, reservation_window: f.reservationWindow } });
   registerHooks("visit", { beforeWrite: f.visitBefore, afterWrite: f.visitAfter, guards: { visit_acknowledged: f.visitAcknowledged } });
@@ -120,7 +120,10 @@ export function installEsmModule(): void {
   for (const t of DEPT_TABLES) {
     registerRecordMeta(t, async ({ q, ctx, def, row }) => {
       const dept = await departmentById(q, ctx, row.department_id);
-      return { esm: { can_work: access().canWrite(ctx, def, row), department: dept ? { id: dept.id, key: dept.key, name: dept.name } : null } };
+      // working the case (transfer, child work) is for those who change it in full, never its requester's own-record mode
+      const prov = access();
+      const mode = prov.writeMode ? prov.writeMode(ctx, def, row) : prov.canWrite(ctx, def, row) ? "full" : null;
+      return { esm: { can_work: mode === "full", department: dept ? { id: dept.id, key: dept.key, name: dept.name } : null } };
     });
   }
 

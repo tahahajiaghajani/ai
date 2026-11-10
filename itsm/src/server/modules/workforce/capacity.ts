@@ -5,7 +5,7 @@
 // people resolved per working day) and the agents the forecast needs. The heatmap is teams × days coloured by
 // utilisation; people's loads are shown only to those who oversee the team.
 import { tableDef, TABLES } from "@shared/tables";
-import { addDays, weekday } from "@shared/jalali";
+import { addDays, diffDays, weekday } from "@shared/jalali";
 import { zonedMidnight } from "@shared/model/jalali-buckets";
 import type { TableDef } from "@shared/model/types";
 import { denseDays, forecastDaily, requiredFte, utilBand, utilisation, type UtilBand } from "@shared/workforce/logic";
@@ -161,9 +161,13 @@ export async function capacityView(ctx: Ctx, opts: { from?: string; days?: numbe
   const members = await membersOf(ctx.db, sys, groups);
   const allPeople = [...new Set([...members.values()].flat())];
   const loads = await openLoads(ctx.db, sys, groups);
-  const histFrom = addDays(from, -7 * cfg.history_weeks);
-  const created = await dailyCounts(ctx.db, sys, groups, histFrom, from, "created");
-  const resolved = await dailyCounts(ctx.db, sys, groups, histFrom, from, "resolved");
+  // history is what already happened: it ends today (exclusive) for a window that starts later — the days between
+  // today and a future `from` are forecast, never counted as days without demand
+  const histEnd = from < today ? from : today;
+  const lead = Math.max(0, diffDays(from, histEnd));
+  const histFrom = addDays(histEnd, -7 * cfg.history_weeks);
+  const created = await dailyCounts(ctx.db, sys, groups, histFrom, histEnd, "created");
+  const resolved = await dailyCounts(ctx.db, sys, groups, histFrom, histEnd, "resolved");
   const to = addDays(from, n);
   const holidayRows = await holidaysBetween(ctx.db, sys, histFrom, to).catch(() => []);
   const holidays = new Set(holidayRows.filter((h) => !h.half).map((h) => h.date));
@@ -182,8 +186,8 @@ export async function capacityView(ctx: Ctx, opts: { from?: string; days?: numbe
     const ms = members.get(gid) ?? [];
     const cap = caps.find((c) => c.group_id === gid && !isUuid(c.user_id));
     const maxOpen = num(cap?.max_open) ?? 8;
-    const hist = denseDays([...(created.get(gid) ?? new Map()).entries()].map(([day, count]) => ({ day, count })), histFrom, from);
-    const fc = forecastDaily(hist, from, n, holidays);
+    const hist = denseDays([...(created.get(gid) ?? new Map()).entries()].map(([day, count]) => ({ day, count })), histFrom, histEnd);
+    const fc = forecastDaily(hist, histEnd, lead + n, holidays);
     // throughput: the team's setting, else resolved per staffed working day of the history
     const resolvedTotal = [...(resolved.get(gid) ?? new Map()).values()].reduce((a, b) => a + b, 0);
     const workDays = hist.filter((h) => !holidays.has(h.day) && (office ? office.week[weekday(h.day)]?.length : weekday(h.day) !== 6)).length || 1;
@@ -210,7 +214,7 @@ export async function capacityView(ctx: Ctx, opts: { from?: string; days?: numbe
           hours += office.week[weekday(d)].reduce((a, [f, t]) => a + (t > f ? t - f : t + 1440 - f), 0) / 60;
         }
       }
-      const point = fc.points[i];
+      const point = fc.points[lead + i];
       const capacity = Math.round(staff * throughput * 10) / 10;
       const pct = capacity > 0 ? utilisation(point.predicted, capacity) : point.predicted > 0 ? 999 : null;
       const productive = staff ? hours / staff : 8;

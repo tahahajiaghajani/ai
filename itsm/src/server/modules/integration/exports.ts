@@ -8,6 +8,7 @@ import { bad, notFound } from "../../http/errors";
 import { readSecret, systemCtx, updateIn } from "../../engine";
 import { enqueue, registerJobHandler } from "../../jobs";
 import { hasFeature } from "../admin/common";
+import { needPrincipalWithin } from "./users";
 import { buildExport, requestExport, type ExportFormat } from "../admin/exports";
 import { callOut, failText } from "./net";
 import { intLog, liveRow, needIntegrations, principalCtx, redactUrl, type Row } from "./common";
@@ -60,6 +61,7 @@ export async function runScheduleNow(ctx: Ctx, id: string) {
   needIntegrations(ctx, "edit");
   const s = await liveRow(ctx.db, ctx, "export_schedule", id);
   if (!s) throw notFound("خروجی زمان‌بندی‌شده پیدا نشد");
+  await needPrincipalWithin(ctx, s.principal_id);
   return runSchedule(ctx.cfg, ctx.org.id, id);
 }
 

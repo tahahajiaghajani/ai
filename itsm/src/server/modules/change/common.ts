@@ -123,6 +123,24 @@ export async function mayWriteRecord(q: Queryable, ctx: Ctx, table: string, id: 
   return !!row && row.$writable !== false && access().canWrite(ctx, def, row);
 }
 
+/**
+ * Does the context work this record — change it in full, not only as its requester (the provider's `writeMode`
+ * "requester": their own record's requester fields and transitions)? Routes and hooks that act for the desk on a
+ * record (moving it to another department, spawning work elsewhere, giving tasks on it) ask this, not `mayWriteRecord`.
+ */
+export async function mayWorkRecord(q: Queryable, ctx: Ctx, table: string, id: unknown): Promise<boolean> {
+  if (isSystemCtx(ctx)) return true;
+  if (!isUuid(id)) return false;
+  const schema = await orgSchema(ctx, q);
+  const def = schema.def(table) ?? tableDef(table);
+  if (!def || def.virtual) return false;
+  await prepareSubject(ctx, q);
+  const row = await loadReadable(q, ctx, def, id, await condEnv(ctx));
+  if (!row || row.$writable === false) return false;
+  const prov = access();
+  return (prov.writeMode ? prov.writeMode(ctx, def, row) : prov.canWrite(ctx, def, row) ? "full" : null) === "full";
+}
+
 /** How many live rows of `table` the context may read match `where`. */
 export async function countRows(q: Queryable, ctx: Ctx, table: string, where: Cond | null): Promise<number> {
   const schema = await orgSchema(ctx, q);

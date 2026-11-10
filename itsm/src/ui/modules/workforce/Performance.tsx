@@ -71,7 +71,7 @@ function Leaderboard() {
       </label>
       <div className="wfm-cols">
         <Card title="تیم‌ها" meta={d.period}>
-          {d.teams.map((t, i) => <div key={t.group_id} className="flex justify-between text-[13px]"><span>{toFa(i + 1)}. {t.name}</span><span className="ds-num">{toFa(t.points)}</span></div>)}
+          {d.teams.map((t, i) => <div key={t.group_id} className="flex justify-between text-[13px]"><span>{toFa(i + 1)}. {t.name}</span>{t.points === null ? <span className="text-ink-3">تیم کوچک‌تر از حد نمایش</span> : <span className="ds-num">{toFa(t.points)}</span>}</div>)}
         </Card>
         <Card title="افراد (با رضایت خودشان)" meta={d.period}>
           {!d.people.length ? <p className="text-[13px] text-ink-3">هنوز کسی حضور در جدول را نپذیرفته است.</p> : d.people.map((p, i) => (

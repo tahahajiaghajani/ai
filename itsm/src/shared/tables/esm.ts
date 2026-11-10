@@ -520,8 +520,9 @@ export const HR_TASK_STATES: StateModel = {
   transitions: [
     { from: ["open"], to: "in_progress", label: "شروع" },
     { from: ["open", "in_progress"], to: "done", label: "انجام شد", guard: "hr_task_done" },
-    { from: ["open", "in_progress"], to: "skipped", label: "کنار گذاشتن", requires: ["outcome"], roles: { area: "hr", level: "edit" } },
-    { from: ["done", "skipped"], to: "open", label: "بازگشایی", roles: { area: "hr", level: "edit" } },
+    // the person who must do it cannot excuse themselves: skipping and reopening are HR's (guard hr_staff)
+    { from: ["open", "in_progress"], to: "skipped", label: "کنار گذاشتن", requires: ["outcome"], roles: { area: "hr", level: "edit" }, guard: "hr_staff" },
+    { from: ["done", "skipped"], to: "open", label: "بازگشایی", roles: { area: "hr", level: "edit" }, guard: "hr_staff" },
   ],
 };
 
@@ -716,9 +717,9 @@ export const ACTIVITY_STATES: StateModel = {
   transitions: [
     { from: ["pending"], to: "in_progress", label: "شروع" },
     { from: ["pending", "in_progress"], to: "done", label: "انجام شد", guard: "activity_done" },
-    { from: ["pending", "in_progress"], to: "skipped", label: "کنار گذاشتن", requires: ["outcome"] },
-    { from: ["in_progress"], to: "failed", label: "انجام نشد", requires: ["outcome"] },
-    { from: ["done", "skipped", "failed"], to: "pending", label: "بازگشایی" },
+    { from: ["pending", "in_progress"], to: "skipped", label: "کنار گذاشتن", requires: ["outcome"], guard: "hr_staff" },
+    { from: ["in_progress"], to: "failed", label: "انجام نشد", requires: ["outcome"], guard: "hr_staff" },
+    { from: ["done", "skipped", "failed"], to: "pending", label: "بازگشایی", guard: "hr_staff" },
   ],
 };
 

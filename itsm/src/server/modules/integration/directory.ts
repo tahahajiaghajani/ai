@@ -19,7 +19,7 @@ import { addGroupMembers, memberCtx, saveMemberAccess } from "../../access";
 import { aiNet, internalAddress } from "../ai/net";
 import { audit } from "../data/crud";
 import { needFeature, needWithinLimit } from "../admin/common";
-import { ensurePerson, setMemberActive, type MembershipRole } from "../admin/members";
+import { ensurePerson, setDirectoryName, setMemberActive, type MembershipRole } from "../admin/members";
 import { LdapError } from "./ldap";
 import { mappingFingerprint, openSourceConnection, nestedMemberships } from "./directory-login";
 import { revokeUserSessions } from "../../auth/session";
@@ -58,11 +58,19 @@ export function mappingsOf(src: Row): GroupMapping[] {
 }
 
 /**
- * On the web version an LDAP server must be a public host. The Windows app reaches the office network, and so does an
- * on-premises installation that says so (cfg.auth.directoryLan, or ITSM_DIRECTORY_LAN=1: domain controllers on the LAN).
+ * Domain controllers on the installation's own network may be reached: the Windows app, and an on-premises installation
+ * that says so (cfg.auth.directoryLan, or ITSM_DIRECTORY_LAN=1). The web version reaches public directories only.
+ */
+export const directoryLan = (cfg: Pick<ServerConfig, "mode" | "auth">): boolean => cfg.mode === "desktop" || !!cfg.auth?.directoryLan || process.env.ITSM_DIRECTORY_LAN === "1";
+
+/**
+ * On the web version an LDAP server must be a public host reached over TLS (ldaps://): the bind is a simple bind, and
+ * its DN and password must never cross the Internet in clear text. On the office network (directoryLan) the source's
+ * own TLS setting governs (LDAPS or StartTLS; plaintext only as «فقط برای آزمایش»).
  */
 export async function guardHost(cfg: ServerConfig, url: string): Promise<void> {
-  if (cfg.mode === "desktop" || cfg.auth?.directoryLan || process.env.ITSM_DIRECTORY_LAN === "1") return;
+  if (directoryLan(cfg)) return;
+  if (!/^ldaps:\/\//i.test(url)) throw bad("در نسخهٔ وب فقط ldaps:// (LDAP روی TLS) پذیرفته می‌شود تا گذرواژهٔ اتصال رمزنگاری‌نشده از اینترنت نگذرد");
   let host: string;
   try {
     host = new URL(url).hostname.replace(/^\[|\]$/g, "");
@@ -102,7 +110,7 @@ export async function readLdap(cfg: ServerConfig, sys: Ctx, src: Row): Promise<D
 /** The organisation's members as the planner sees them (roles, groups, profile). */
 export async function currentMembers(ctx: Ctx): Promise<CurrentMember[]> {
   const rows = await ctx.db.query<{ user_id: string; email: string; name: string; active: boolean; role: string; roles: unknown; title: string | null; phone: string | null; unit_id: string | null; manager_id: string | null; groups: string[] | null }>(
-    `select m.user_id, lower(u.email) as email, coalesce(nullif(u.full_name, ''), u.email) as name, (m.is_active and m.deleted_at is null) as active, m.role,
+    `select m.user_id, lower(u.email) as email, coalesce(nullif(p.name, ''), nullif(u.full_name, ''), u.email) as name, (m.is_active and m.deleted_at is null) as active, m.role,
             p.roles, p.title, p.phone, p.org_unit_id as unit_id, p.manager_id,
             (select array_agg(gm.group_id::text) from sm_group_members gm where gm.org_id = m.org_id and gm.user_id = m.user_id and gm.deleted_at is null) as groups
      from sm_org_members m join sm_users u on u.id = m.user_id
@@ -139,6 +147,8 @@ export async function planFor(ctx: Ctx, src: Row, entries: DirEntry[]): Promise<
     mappings: mappingsOf(src),
     units: units.map((u) => ({ id: String(u.id), name: String(u.name) })),
     options: optionsOf(src),
+    // platform administrators' addresses: their accounts are the platform's, never a directory's to make or change
+    reserved: ctx.cfg.platformAdmins ?? [],
   });
 }
 
@@ -216,7 +226,8 @@ export async function applyPlan(ctx: Ctx, src: Row, plan: DirPlan, roles: boolea
       ids.set(c.email, r.user_id);
       out.created++;
     }
-    for (const u of plan.update) if (u.changes.name) await tx.query(`update sm_users set full_name = $2 where id = $1`, [u.user_id, String(u.changes.name.to).slice(0, 120)]);
+    // the global account's name only when the account is this organisation's own; else the member profile's
+    for (const u of plan.update) if (u.changes.name) await setDirectoryName(tx, ctx, u.user_id, String(u.changes.name.to));
     for (const d of plan.deactivate)
       if (await setMemberActive(tx, ctx, d.user_id, false)) {
         out.deactivated++;
@@ -381,8 +392,8 @@ export function installDirectoryJobs(): void {
       await storeRun(sys, String(src.id), "apply", null, "failed", message);
       await markSource(sys, src, { health: "failing", last_run_at: new Date().toISOString(), last_summary: message.slice(0, 2000) }, message);
     };
-    const ctx = src.approved_by ? await memberCtx(cfg, job.org_id, String(src.approved_by)).catch(() => null) : null;
-    if (!ctx) return void (await fail("تأییدکنندهٔ این منبع دیگر عضو فعال نیست؛ یک مدیر باید همگام‌سازی را دوباره اعمال کند"));
+    const ctx = await approverCtx(cfg, job.org_id, src);
+    if (!ctx) return void (await fail("تأییدکنندهٔ این منبع دیگر عضو فعال نیست یا اختیارش را ندارد؛ یک مدیر باید همگام‌سازی را دوباره تأیید و اعمال کند"));
     try {
       const entries = await readLdap(cfg, sys, src);
       const plan = await planFor(ctx, src, entries);
@@ -396,6 +407,20 @@ export function installDirectoryJobs(): void {
     }
     return { again: Number(src.schedule_hours) * HOUR };
   });
+}
+
+/**
+ * The member a source's synchronisation acts as: its approver, while they are an active member who still holds
+ * integrations (full) and users (edit). When they no longer do, the approval is withdrawn (the source falls back to
+ * preview) and null is returned: a source never acts with rights its approver lost.
+ */
+export async function approverCtx(cfg: ServerConfig, orgId: string, src: Row): Promise<Ctx | null> {
+  if (!src.approved_by) return null;
+  const ctx = await memberCtx(cfg, orgId, String(src.approved_by)).catch(() => null);
+  if (ctx && ctx.actor === "user" && ctx.can("integrations", "full") && ctx.can("users", "edit")) return ctx;
+  const sys = await systemCtx(cfg, orgId);
+  await markSource(sys, src, { approved_by: null, mode: "preview", health: "failing" }, "تأییدکنندهٔ این منبع دیگر عضو فعال نیست یا اختیار مدیریت اعضا و یکپارچه‌سازی را ندارد؛ یک مدیر باید آن را دوباره تأیید کند");
+  return null;
 }
 
 /**

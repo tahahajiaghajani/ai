@@ -15,6 +15,7 @@ import { bad, notFound } from "../../http/errors";
 import { emitEvent, get, list, listJournal, onRecordEvent, readSecret, systemCtx, updateIn, type RecordEvent } from "../../engine";
 import { enqueue, registerJobHandler, PermanentJobError } from "../../jobs";
 import { hasFeature } from "../admin/common";
+import { needPrincipalWithin } from "./users";
 import { callOut, failText } from "./net";
 import { intLog, liveRow, liveRows, needIntegrations, principalCtx, redactUrl, type Row } from "./common";
 
@@ -194,6 +195,7 @@ export async function testSubscription(ctx: Ctx, id: string, recordId?: string |
   needIntegrations(ctx, "edit");
   const sub = await liveRow(ctx.db, ctx, "webhook_subscription", id);
   if (!sub) throw notFound("اشتراک پیدا نشد");
+  await needPrincipalWithin(ctx, sub.principal_id);
   const { ctx: p } = await principalCtx(ctx.cfg, ctx.org.id, String(sub.principal_id));
   let rid = recordId ?? null;
   let number: string | null = null;

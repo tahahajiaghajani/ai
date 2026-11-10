@@ -158,7 +158,7 @@ adminTenantRoutes.post("/studio/tables", async (c) => {
 
 adminTenantRoutes.get("/studio/fields/:table", async (c) => {
   const ctx = c.get("ctx");
-  ctx.need("settings", "view");
+  ctx.need("settings", "edit");
   return c.json({ fields: await fieldsOf(ctx.db, ctx, c.req.param("table")) });
 });
 

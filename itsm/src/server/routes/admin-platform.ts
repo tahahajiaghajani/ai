@@ -2,6 +2,7 @@
 // requireAdmin — and checked again here): plans and limits, organisations' plans and usage, feature flags,
 // announcements, the job monitor, backups, version and upgrade status, the audit log of every organisation and the
 // AI model catalogue. No route here returns an organisation's records; backups are files for the platform owner only.
+import { csvCell } from "@shared/csv";
 import { z } from "zod";
 import type { MiddlewareHandler } from "hono";
 import { router, body, type C, type Env } from "../http/hono";
@@ -11,7 +12,8 @@ import {
   auditAll, deleteAnnouncement, deleteFlag, deletePlan, jobAction, jobSummary, listAnnouncements, listFlags, listJobs, listPlans, orgUsage, publishAnnouncement,
   saveAnnouncement, saveFlag, savePlan, setOrgPlan, tickNow, versionStatus,
 } from "../modules/admin/platform";
-import { backupContent, createBackup, deleteBackup, listBackups, restoreBackup, verifyBackup } from "../modules/admin/backup";
+import { createBackup, deleteBackup, downloadBackup, listBackups, restoreBackup, verifyBackupAs } from "../modules/admin/backup";
+import { requestMeta } from "../modules/platform/security";
 import { contentDisposition } from "../engine";
 
 const onlyPlatform: MiddlewareHandler<Env> = async (c, next) => {
@@ -154,13 +156,14 @@ platformConsoleRoutes.post("/backups", async (c) => {
 });
 
 platformConsoleRoutes.get("/backups/:id/download", async (c) => {
-  const f = await backupContent(c.get("cfg").db, id(c.req.param("id"), "پشتیبان"));
+  // audited: the platform's audit and the organisation's security log record who took the file
+  const f = await downloadBackup(c.get("cfg"), c.get("user"), id(c.req.param("id"), "پشتیبان"), requestMeta(c));
   return new Response(Buffer.from(f.data), {
     headers: { "content-type": "application/gzip", "content-disposition": contentDisposition(f.name), "x-content-sha256": f.sha256, "cache-control": "no-store" },
   });
 });
 
-platformConsoleRoutes.post("/backups/:id/verify", async (c) => c.json(await verifyBackup(c.get("cfg").db, id(c.req.param("id"), "پشتیبان"))));
+platformConsoleRoutes.post("/backups/:id/verify", async (c) => c.json(await verifyBackupAs(c.get("cfg"), c.get("user"), id(c.req.param("id"), "پشتیبان"), requestMeta(c))));
 
 platformConsoleRoutes.post("/backups/:id/restore", async (c) => c.json(await restoreBackup(c.get("cfg"), c.get("user"), id(c.req.param("id"), "پشتیبان"))));
 
@@ -185,10 +188,8 @@ platformConsoleRoutes.get("/audit-all", async (c) => c.json(await auditAll(c.get
 
 platformConsoleRoutes.get("/audit-all.csv", async (c) => {
   const { rows } = await auditAll(c.get("cfg"), { ...auditFilters(c), limit: 1000 });
-  const cell = (v: unknown) => {
-    const s = v === null || v === undefined ? "" : v instanceof Date ? v.toISOString() : String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
+  // organisation and people names are their own text: formula-safe (a name «=cmd|…» stays text in Excel)
+  const cell = (v: unknown) => csvCell(v === null || v === undefined ? "" : v instanceof Date ? v.toISOString() : String(v));
   const head = ["زمان", "سازمان", "انجام‌دهنده", "گونه", "کار", "شرح"];
   const lines = [head.join(","), ...(rows as Record<string, unknown>[]).map((r) => [r.at, r.org_name, r.actor_name, r.actor_kind, r.action, r.summary].map(cell).join(","))];
   return new Response(`﻿${lines.join("\r\n")}`, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": contentDisposition("audit.csv"), "cache-control": "no-store" } });

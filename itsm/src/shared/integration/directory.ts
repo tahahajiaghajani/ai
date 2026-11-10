@@ -185,6 +185,8 @@ export function planDirectorySync(input: {
   mappings: GroupMapping[];
   units: { id: string; name: string }[];
   options: DirOptions;
+  /** addresses no directory makes or changes (the platform's administrators) */
+  reserved?: readonly string[];
 }): DirPlan {
   const plan = emptyPlan();
   const { options } = input;
@@ -218,6 +220,10 @@ export function planDirectorySync(input: {
     }
     if (RESERVED.test(email)) {
       plan.skipped.push({ external_id: e.external_id, name: e.name, reason: "نشانی رزروشدهٔ حساب‌های خدمت است" });
+      continue;
+    }
+    if ((input.reserved ?? []).some((r) => lower(r) === email)) {
+      plan.skipped.push({ external_id: e.external_id, name: e.name, reason: "نشانی مدیر سامانه است و حساب آن را خودش می‌سازد" });
       continue;
     }
     if (seenEmails.has(email)) {

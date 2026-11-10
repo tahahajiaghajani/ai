@@ -294,6 +294,10 @@ const absence: TableDef = {
     { name: "reject_reason", label: "دلیل رد", type: "text", maxLength: 2000, span: 24 },
     { name: "requested_by", label: "ثبت‌کننده", type: "user", readonly: true, span: 8 },
     { name: "applied", label: "در نمایهٔ فرد اعمال شد", type: "bool", default: false, system: true, audit: false },
+    // what applying wrote into the profile: its end (the profile shows this absence while it says so) and the
+    // profile's own delegate before it (restored when the absence ends)
+    { name: "applied_until", label: "پایان اعمال‌شده", type: "datetime", system: true, hidden: true, audit: false },
+    { name: "prev_delegate_id", label: "جانشین پیشین نمایه", type: "user", system: true, hidden: true, audit: false },
     { name: "label", label: "عنوان", type: "string", system: true, maxLength: 300, search: true, audit: false },
   ],
   states: ABSENCE_STATES,

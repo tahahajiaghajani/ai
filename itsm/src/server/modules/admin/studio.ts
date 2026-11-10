@@ -15,7 +15,7 @@ import {
 } from "@shared/admin/studio";
 import { TABLES } from "@shared/tables";
 import { bad, conflict, forbidden, notFound } from "../../http/errors";
-import { createIn, invalidateSchema, removeIn, updateIn } from "../../engine";
+import { condEnv, createIn, invalidateSchema, readable, removeIn, updateIn } from "../../engine";
 import { audit } from "../data/crud";
 import { liveRows, needFeature, needWithinLimit, sysOf, type Row } from "./common";
 
@@ -40,9 +40,12 @@ export interface SlotView {
   fields: number;
 }
 
-/** Every slot, with the organisation's table in it (if any), its record and field counts. */
+/**
+ * Every slot, with the organisation's table in it (if any), its record and field counts — the studio's, so for those
+ * who change settings; the records counted are the ones the caller reads.
+ */
 export async function studioOverview(ctx: Ctx): Promise<{ slots: SlotView[] }> {
-  ctx.need("settings", "view");
+  ctx.need("settings", "edit");
   const tables = await tableRows(ctx.db, ctx);
   const counts = await ctx.db.query<{ table_key: string; n: number }>(
     `select table_key, count(*)::int as n from sm_custom_fields where org_id = $1 and deleted_at is null and active and name like 'u\\_%' group by table_key`,
@@ -53,7 +56,10 @@ export async function studioOverview(ctx: Ctx): Promise<{ slots: SlotView[] }> {
     const table = tables.find((t) => t.slot === slot) ?? null;
     let records = 0;
     if (table) {
-      const r = await ctx.db.one<{ n: number }>(`select count(*)::int as n from ${TABLES.get(slot)!.table} where org_id = $1 and deleted_at is null`, [ctx.org.id]);
+      const def = TABLES.get(slot)!;
+      const params: unknown[] = [];
+      const where = readable(ctx, def, "t", params, await condEnv(ctx));
+      const r = await ctx.db.one<{ n: number }>(`select count(*)::int as n from ${def.table} t where ${where} and t.deleted_at is null`, params);
       records = r?.n ?? 0;
     }
     out.push({ slot, table, records, fields: counts.find((c) => c.table_key === slot)?.n ?? 0 });
@@ -300,7 +306,7 @@ async function saveForm(tx: Tx, ctx: Ctx, table: string, arrangement: FormArrang
 
 /** The package of the organisation's custom tables (all, or the named slots) and the u_* fields of built-in tables. */
 export async function exportPackage(ctx: Ctx, opts: { slots?: string[] | null; builtins?: boolean; title?: string | null } = {}): Promise<StudioPackage> {
-  ctx.need("settings", "view");
+  ctx.need("settings", "edit");
   const tables = await tableRows(ctx.db, ctx);
   const codes = new Map(tables.map((t) => [String(t.slot), String(t.code)]));
   const chosen = tables.filter((t) => !opts.slots?.length || opts.slots.includes(String(t.slot)));

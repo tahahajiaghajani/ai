@@ -44,8 +44,11 @@ export function scopeOps(scopes: TableScope[], table: string): ApiOp[] {
   return API_OPS.filter((o) => scopeAllows(scopes, table, o));
 }
 
-/** The table and operation of a record-API request (`/r/:table…`), null for paths outside the record API. */
-export function requestScope(method: string, path: string, body?: unknown): { table: string; op: ApiOp } | null {
+/**
+ * The table and operation of a record-API request (`/r/:table…`), null for paths outside the record API. `also`
+ * names further operations the request needs: an import with a match key updates the rows it finds.
+ */
+export function requestScope(method: string, path: string, body?: unknown): { table: string; op: ApiOp; also?: ApiOp[] } | null {
   const m = path.match(/^\/r\/([a-z][a-z0-9_]{0,62})(?:\/([^/]+))?(?:\/([a-z_]+))?(?:\/[^/]+)?\/?$/);
   if (!m) return null;
   const [, table, second, third] = m;
@@ -53,7 +56,10 @@ export function requestScope(method: string, path: string, body?: unknown): { ta
   if (M === "GET" || M === "HEAD") return { table, op: "read" };
   if (!second) return { table, op: M === "POST" ? "create" : "update" };
   if (second === "query" || second === "agg" || second === "export") return { table, op: "read" };
-  if (second === "import") return { table, op: "create" };
+  if (second === "import") {
+    const b = (body ?? {}) as { key?: unknown };
+    return b.key ? { table, op: "create", also: ["update"] } : { table, op: "create" };
+  }
   if (second === "bulk") {
     const b = (body ?? {}) as { delete?: unknown };
     return { table, op: b.delete ? "delete" : "update" };

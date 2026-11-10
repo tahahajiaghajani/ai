@@ -19,7 +19,7 @@ import { condEnv, createIn, emitEvent, orgSchema, orgTz, readable, updateIn } fr
 import { pgArray } from "../../db";
 import { scoreItem } from "../analytics";
 import { experienceResponses } from "./experience";
-import { countRows, isUuid, liveRow, liveRows, slmConfig, sysOf, todayOf, type Row } from "./common";
+import { isUuid, liveRow, liveRows, slmConfig, sysOf, todayOf, type Row } from "./common";
 
 export interface Window {
   /** ISO instants [from, to) */
@@ -41,47 +41,51 @@ export interface TimerCounts {
   over_limit: boolean;
 }
 
-/** Records (ids) whose first timer of these definitions started in the window after the first `limit` of them. */
-async function overLimitRecords(q: Queryable, sys: Ctx, defIds: string[], w: Window, limit: number): Promise<string[]> {
-  const schema = await orgSchema(sys, q);
-  const def = schema.def("task_sla")!;
-  const params: unknown[] = [];
-  const where = readable(sys, def, "t", params, await condEnv(sys));
-  params.push(pgArray(defIds), w.from, w.to, limit);
-  const n = params.length;
-  const rows = await q.query<{ record_id: string }>(
-    `with recs as (select t.record_id, min(t.start_at) as s from ${def.table} t where ${where} and t.deleted_at is null and t.definition_id = any($${n - 3}::uuid[]) and t.start_at >= $${n - 2}::timestamptz and t.start_at < $${n - 1}::timestamptz group by t.record_id),
-     ranked as (select record_id, row_number() over (order by s, record_id) as rn from recs)
-     select record_id from ranked where rn > $${n}`,
-    params,
-  );
-  return rows.map((r) => r.record_id);
-}
-
-/** Met and breached timers of these definitions in a window (SLM-034), with the volume ceiling applied (SLM-033). */
+/**
+ * Met and breached timers of these definitions in a window (SLM-034), with the volume ceiling applied (SLM-033):
+ *   · a met timer counts in the period it stopped; a breach counts once, in the period it happened (its `breached_at`
+ *     — whether the timer still runs or stopped later), so a breach that spans a period's close is not counted in both
+ *   · records beyond the first `volumeLimit` whose first timer started in the window are left out (one query: the
+ *     excluded set is a subquery, never a list cut short)
+ */
 export async function timerCounts(q: Queryable, ctx: Ctx, defIds: string[], w: Window, volumeLimit: number | null = null): Promise<TimerCounts> {
   const sys = sysOf(ctx);
   if (!defIds.length) return { met: 0, breached: 0, excluded: 0, volume: 0, over_limit: false };
-  const scope = { f: "definition_id", op: "in", v: defIds };
-  const inWindow = (f: string) => [{ f, op: "gte", v: w.from }, { f, op: "lt", v: w.to }];
-  const excluded = volumeLimit !== null && volumeLimit > 0 ? await overLimitRecords(q, sys, defIds, w, volumeLimit) : [];
-  const notExcluded = excluded.length ? [{ f: "record_id", op: "nin", v: excluded.slice(0, 500) }] : [];
-  const met = await countRows(q, sys, "task_sla", { and: [scope, { f: "stage", op: "eq", v: "achieved" }, ...inWindow("stop_at"), ...notExcluded] } as never);
-  const breached = await countRows(q, sys, "task_sla", {
-    and: [scope, ...notExcluded, { or: [{ and: [{ f: "stage", op: "eq", v: "breached" }, ...inWindow("stop_at")] }, { and: [{ f: "active", op: "eq", v: true }, { f: "breached", op: "eq", v: true }, ...inWindow("breached_at")] }] }],
-  } as never);
   const schema = await orgSchema(sys, q);
   const def = schema.def("task_sla")!;
+  const env = await condEnv(sys);
   const params: unknown[] = [];
-  const where = readable(sys, def, "t", params, await condEnv(sys));
+  const whereRecs = readable(sys, def, "r", params, env);
+  const where = readable(sys, def, "t", params, env);
   params.push(pgArray(defIds), w.from, w.to);
-  const v = await q.one<{ n: string | number }>(
-    `select count(distinct t.record_id) as n from ${def.table} t where ${where} and t.deleted_at is null and t.definition_id = any($${params.length - 2}::uuid[]) and t.start_at >= $${params.length - 1}::timestamptz and t.start_at < $${params.length}::timestamptz`,
+  const n = params.length;
+  const defs = `$${n - 2}::uuid[]`;
+  const from = `$${n - 1}::timestamptz`;
+  const to = `$${n}::timestamptz`;
+  const limit = volumeLimit !== null && volumeLimit > 0 ? volumeLimit : null;
+  if (limit !== null) params.push(limit);
+  const cut = limit === null ? "false" : `rn > $${params.length}`;
+  const row = await q.one<{ met: string | number; breached: string | number; excluded: string | number; volume: string | number }>(
+    `with recs as (
+       select r.record_id, min(r.start_at) as s from ${def.table} r
+        where ${whereRecs} and r.deleted_at is null and r.definition_id = any(${defs}) and r.start_at >= ${from} and r.start_at < ${to} group by r.record_id),
+     ranked as (select record_id, row_number() over (order by s, record_id) as rn from recs),
+     excluded as (select record_id from ranked where ${cut})
+     select
+       (select count(*) from recs) as volume,
+       (select count(*) from excluded) as excluded,
+       count(*) filter (where t.stage = 'achieved' and t.stop_at >= ${from} and t.stop_at < ${to}) as met,
+       count(*) filter (where (t.stage = 'breached' or (t.active and t.breached)) and coalesce(t.breached_at, t.stop_at) >= ${from} and coalesce(t.breached_at, t.stop_at) < ${to}) as breached
+     from ${def.table} t
+     where ${where} and t.deleted_at is null and t.definition_id = any(${defs}) and not exists (select 1 from excluded x where x.record_id = t.record_id)`,
     params,
   );
-  const volume = Number(v?.n ?? 0);
-  return { met, breached, excluded: excluded.length, volume, over_limit: volumeLimit !== null && volumeLimit > 0 && volume > volumeLimit };
+  const volume = Number(row?.volume ?? 0);
+  return { met: Number(row?.met ?? 0), breached: Number(row?.breached ?? 0), excluded: Number(row?.excluded ?? 0), volume, over_limit: limit !== null && volume > limit };
 }
+
+/** Months a measurement window spans (an agreement's review period): the monthly volume ceiling scales with it. */
+const monthsOf = (p: { unit?: string }): number => (p.unit === "quarter" ? 3 : p.unit === "year" ? 12 : 1);
 
 /** The service's availability over a period (the portfolio's daily figures). */
 export async function availabilityOf(q: Queryable, ctx: Ctx, serviceId: unknown, p: { start: string; end: string }): Promise<{ value: number | null; days: number }> {
@@ -128,15 +132,17 @@ export function goalsOf(t: Row, a: Row): { goal: number | null; at_risk: number 
   return { goal, at_risk: atRisk };
 }
 
-/** Measure one target over a period (as the system; reads only). */
-export async function measureTarget(q: Queryable, ctx: Ctx, a: Row, t: Row, p: { start: string; end: string }, kMin: number): Promise<TargetMeasure> {
+/** Measure one target over a period (as the system; reads only). `p` is the agreement's period (month, quarter or year). */
+export async function measureTarget(q: Queryable, ctx: Ctx, a: Row, t: Row, p: { start: string; end: string; key?: string; unit?: string }, kMin: number): Promise<TargetMeasure> {
   const w = windowOf(ctx, p);
   const { goal, at_risk } = goalsOf(t, a);
   const base: TargetMeasure = { value: null, goal, at_risk, status: "no_data", total: 0, met: 0, breached: 0, excluded: 0, volume: 0, over_limit: false };
   let value: number | null = null;
   if (t.kind === "timer") {
     if (!isUuid(t.definition_id)) return base;
-    const c = await timerCounts(q, ctx, [String(t.definition_id)], w, num(a.volume_limit));
+    // «سقف حجم ماهانه»: a quarter or a year allows that many records per month of it
+    const ceiling = num(a.volume_limit);
+    const c = await timerCounts(q, ctx, [String(t.definition_id)], w, ceiling === null ? null : ceiling * monthsOf(p));
     Object.assign(base, { met: c.met, breached: c.breached, total: c.met + c.breached, excluded: c.excluded, volume: c.volume, over_limit: c.over_limit });
     value = compliancePct(c.met, c.breached);
   } else if (t.kind === "availability") {
@@ -163,7 +169,8 @@ export async function measureTarget(q: Queryable, ctx: Ctx, a: Row, t: Row, p: {
     }
   } else if (t.kind === "manual") {
     const sys = sysOf(ctx);
-    const [row] = await liveRows(q, sys, "slm_compliance", { and: [{ f: "target_id", op: "eq", v: t.id }, { f: "period_key", op: "eq", v: periodOf(p.start, "month").key }] }, { limit: 1 });
+    // a manual value is stored under the agreement's period (setManualValue), a quarter's or a year's key included
+    const [row] = await liveRows(q, sys, "slm_compliance", { and: [{ f: "target_id", op: "eq", v: t.id }, { f: "period_key", op: "eq", v: p.key ?? periodOf(p.start, "month").key }] }, { limit: 1 });
     value = row ? num(row.value) : null;
     base.total = row ? 1 : 0;
   }

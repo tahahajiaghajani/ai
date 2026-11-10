@@ -3,6 +3,7 @@
 // (JSON with every table, a CSV per table, or one Excel workbook with a sheet per table). Scheduled exports of the
 // integration hub use the same code with their integration user (export_schedule). A job builds the files; the row
 // is readable only by who asked for it (and, for a schedule, its owner); a ready export expires after seven days.
+import { csvCell } from "@shared/csv";
 import type { Ctx, ServerConfig } from "../../context";
 import { tableDef } from "@shared/tables";
 import { bad, notFound } from "../../http/errors";
@@ -51,14 +52,15 @@ export async function requestExport(ctx: Ctx, input: ExportRequest, opts: { requ
   });
 }
 
-const csvCell = (v: unknown) => {
+/** A cell of an export: formula-safe text (a record's title «=HYPERLINK(…)» stays text in Excel), quoted when needed. */
+const exportCell = (v: unknown) => {
   if (v === null || v === undefined) return "";
-  const s = typeof v === "boolean" ? (v ? "بله" : "خیر") : String(v);
-  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  if (typeof v === "number") return String(v);
+  return csvCell(typeof v === "boolean" ? (v ? "بله" : "خیر") : String(v));
 };
 
 export function toCsv(r: ExportResult): string {
-  const lines = [r.columns.map((c) => csvCell(c.label)).join(","), ...r.rows.map((row) => row.map(csvCell).join(","))];
+  const lines = [r.columns.map((c) => exportCell(c.label)).join(","), ...r.rows.map((row) => row.map(exportCell).join(","))];
   // a BOM so Excel reads the Persian text as UTF-8
   return `﻿${lines.join("\r\n")}\r\n`;
 }

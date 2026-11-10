@@ -4,6 +4,7 @@
 // name, Jalali dates, the key field updating existing records), with the access of the member who runs it: the
 // administrator by hand, the import set's creator on a schedule — never the system.
 import type { Ctx, ServerConfig } from "../../context";
+import type { Queryable } from "../../db";
 import { readSpreadsheet } from "@shared/sheet";
 import { applySpec, specProblem, suggestMapping, type MapRule, type Suggestion, type TransformSpec } from "@shared/admin/mapping";
 import { bad, notFound } from "../../http/errors";
@@ -15,8 +16,11 @@ import { liveRow, needFeature, sysOf, type Row } from "./common";
 import { importFields } from "./ai";
 import { outsideFetch } from "../integration/net";
 import { isAiUnavailable, runSkill } from "../ai/skills/runtime";
+import { dataUsePlan } from "../ai/datause";
 
 export const MAX_IMPORT_ROWS = 20_000;
+/** The largest file an import reads from a URL (the shared server's memory is every organisation's). */
+export const MAX_IMPORT_BYTES = 50 * 1024 * 1024;
 const BATCH = 500;
 const HOUR = 3600_000;
 
@@ -36,6 +40,37 @@ function toObjects(rows: string[][]): { headers: string[]; rows: Record<string, 
   return { headers, rows: out };
 }
 
+/** A response body of at most `max` bytes (its announced length first, then counted while it streams). */
+async function boundedBody(res: Response, max: number, ac: AbortController): Promise<Uint8Array> {
+  const tooBig = () => bad(`فایل ورود از ${Math.round(max / 1024 / 1024)} مگابایت بزرگ‌تر است`);
+  if (Number(res.headers.get("content-length") ?? 0) > max) {
+    ac.abort();
+    throw tooBig();
+  }
+  if (!res.body) return new Uint8Array(await res.arrayBuffer());
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => undefined);
+      ac.abort();
+      throw tooBig();
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.byteLength;
+  }
+  return out;
+}
+
 /** The import set's file: its newest attachment, or the URL. */
 async function readSource(ctx: Ctx, set: Row): Promise<Sheet> {
   if (set.source === "url") {
@@ -48,21 +83,21 @@ async function readSource(ctx: Ctx, set: Row): Promise<Sheet> {
     try {
       const res = await outsideFetch(ctx.cfg)(url, { method: "GET", signal: ac.signal, redirect: "manual" });
       if (!res.ok) throw bad(`سرور فایل ورود پاسخ ${res.status} داد`);
-      data = new Uint8Array(await res.arrayBuffer());
+      data = await boundedBody(res, MAX_IMPORT_BYTES, ac);
     } catch (e) {
       if (e instanceof Error && e.name === "AbortError") throw bad("سرور فایل ورود پاسخ نداد (زمان تمام شد)");
       throw e;
     } finally {
       clearTimeout(timer);
     }
-    const sheet = await readSpreadsheet(name.toLowerCase().endsWith(".xlsx") ? name : name.toLowerCase().endsWith(".csv") ? name : `${name}.csv`, data);
+    const sheet = await readSpreadsheet(name.toLowerCase().endsWith(".xlsx") ? name : name.toLowerCase().endsWith(".csv") ? name : `${name}.csv`, data, { maxRows: MAX_IMPORT_ROWS + 1 });
     return { ...toObjects(sheet.rows), name };
   }
   const { attachments } = await listAttachments(ctx, "import_set", String(set.id));
   const file = [...attachments].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
   if (!file) throw bad("نخست فایل CSV یا اکسل را به این مجموعه پیوست کنید");
   const { data } = await readAttachment(ctx, file.id);
-  const sheet = await readSpreadsheet(file.name, data);
+  const sheet = await readSpreadsheet(file.name, data, { maxRows: MAX_IMPORT_ROWS + 1 });
   return { ...toObjects(sheet.rows), name: file.name };
 }
 
@@ -90,8 +125,11 @@ export async function suggestImport(ctx: Ctx, table: string, headers: string[], 
   ctx.need("settings", "edit");
   const fields = await importFields(ctx, table);
   if (!fields.length) throw bad(`جدول «${table}» برای ورود در دسترس شما نیست`);
+  // the sample rows are the target table's data: its data-use policy decides (never: no model at all; local: only a
+  // model on the organisation's own computers — the skill's runtime enforces it through `dataTables`)
+  if ((await dataUsePlan(ctx, [table])).use === "never") return { mapping: suggestMapping(headers, fields), ai: false };
   try {
-    const r = await runSkill(ctx, "admin.import_mapping", { params: { table, headers: JSON.stringify(headers.slice(0, 200)), sample: JSON.stringify(sample.slice(0, 3)) } }, { ephemeral: true });
+    const r = await runSkill(ctx, "admin.import_mapping", { params: { table, headers: JSON.stringify(headers.slice(0, 200)), sample: JSON.stringify(sample.slice(0, 3)) } }, { ephemeral: true, dataTables: [table] });
     const mapping = ((r.json ?? {}) as { mapping?: Suggestion[] }).mapping;
     if (Array.isArray(mapping) && mapping.length) {
       return { mapping: headers.map((h) => mapping.find((m) => m.header === h) ?? { header: h, field: null, confidence: 0, reason: "" }), ai: !r.fallback };
@@ -165,10 +203,14 @@ export async function runImport(ctx: Ctx, id: string, opts: { dryRun: boolean })
   return out;
 }
 
-/** Schedule the next run of an import set that reads a URL (called when it is saved). */
-export async function scheduleImport(ctx: Ctx, set: Row): Promise<void> {
-  if (Number(set.schedule_hours ?? 0) <= 0 || set.source !== "url") return;
-  await ctx.write((tx) => enqueue(tx, { kind: "admin.import.run", orgId: ctx.org.id, payload: { id: set.id }, delayMs: Number(set.schedule_hours) * HOUR, dedupeKey: `import:${set.id}`, maxAttempts: 3 }));
+/**
+ * Queue the next run of an import set that reads a URL on a schedule (the import set's hook calls it inside the write
+ * that saves it; a queued run with the same key is kept).
+ */
+export async function scheduleImportIn(q: Queryable, orgId: string, set: Row): Promise<boolean> {
+  if (Number(set.schedule_hours ?? 0) <= 0 || set.source !== "url") return false;
+  await enqueue(q, { kind: "admin.import.run", orgId, payload: { id: set.id }, delayMs: Number(set.schedule_hours) * HOUR, dedupeKey: `import:${set.id}`, maxAttempts: 3 });
+  return true;
 }
 
 let installed = false;
@@ -187,8 +229,12 @@ export function installImportJobs(): void {
       await sys.write((tx) => updateIn(tx, sys, "import_set", String(set.id), { status: "failed", last_error: "سازندهٔ این مجموعه دیگر عضو فعال نیست؛ ورود زمان‌بندی‌شده انجام نشد" }, { trusted: true }));
       return;
     }
-    await runImport(ctx, String(set.id), { dryRun: false }).catch(async (e) => {
-      await sys.write((tx) => updateIn(tx, sys, "import_set", String(set.id), { status: "failed", last_error: String((e as Error).message ?? e).slice(0, 2000) }, { trusted: true }));
+    // a failed run (the source down, a timeout) does not end the schedule: the next run is queued all the same
+    const ok = await runImport(ctx, String(set.id), { dryRun: false }).then(() => true).catch(async (e) => {
+      const next = new Date(Date.now() + Number(set.schedule_hours) * HOUR).toISOString();
+      await sys.write((tx) => updateIn(tx, sys, "import_set", String(set.id), { status: "failed", last_error: String((e as Error).message ?? e).slice(0, 2000), next_run_at: next }, { trusted: true }));
+      return false;
     });
+    if (!ok) await scheduleImportIn(cfg.db, job.org_id, set);
   });
 }

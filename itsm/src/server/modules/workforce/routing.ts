@@ -17,7 +17,9 @@ import type { Queryable } from "../../db";
 import { pgArray } from "../../db";
 import { condEnv, createIn, emitEvent, get, orgSchema, readable } from "../../engine";
 import { forbidden } from "../../http/errors";
-import { isUuid, liveRow, liveRows, membersOf, msOf, namesOf, sysOf, todayOf, workforceConfig, type Row } from "./common";
+import { grantIn } from "@shared/access";
+import { prepareSubject, subjectOf } from "../../access";
+import { groupsOfUser, isUuid, liveRow, liveRows, membersOf, msOf, myGroups, namesOf, overseenGroups, sysOf, todayOf, workforceConfig, type Row } from "./common";
 import { openByUser, workTables } from "./capacity";
 import { shiftNow } from "./schedule";
 
@@ -73,7 +75,8 @@ export async function suggestAssignees(ctx: Ctx, table: string, id: string): Pro
   const now = Date.now();
   const candidates: (RoutingCandidate & { name: string })[] = [];
   for (const u of people) {
-    const mine = countingSkills(skills.filter((s) => s.user_id === u).map((s) => ({ skill_id: String(s.skill_id), level: Number(s.level ?? 0), verified: !!s.verified, status: s.status, expires_at: s.expires_at })), today);
+    // the organisation's routing rule: the least level, and verified skills only when it asks for them
+    const mine = countingSkills(skills.filter((s) => s.user_id === u).map((s) => ({ skill_id: String(s.skill_id), level: Number(s.level ?? 0), verified: !!s.verified, status: s.status, expires_at: s.expires_at })), today, { minLevel: cfg.routing_min_level, needsVerified: cfg.routing_needs_verified });
     const m = skillMatch(required.map((x) => ({ skill_id: x.skill_id, level: x.level })), mine);
     const agent = agents.find((a) => a.user_id === u);
     const profile = profiles.find((p) => p.user_id === u);
@@ -92,18 +95,28 @@ export async function suggestAssignees(ctx: Ctx, table: string, id: string): Pro
   };
 }
 
-/** People with a skill at a level or above (counting skills only). */
+/**
+ * People with a skill at a level or above (counting skills only). A finder of people: only for callers who read the
+ * users directory (not external roles such as a vendor's agents); live presence only of the caller's own and
+ * overseen teams' people (like a team's board).
+ */
 export async function experts(ctx: Ctx, skillId: string, minLevel = 3): Promise<{ user_id: string; name: string; level: number; level_label: string; verified: boolean; presence: string | null }[]> {
   const sys = sysOf(ctx);
+  await prepareSubject(ctx, ctx.db);
+  if (grantIn(subjectOf(ctx).eff, "users").read === "none") throw forbidden("یافتن کارشناس برای کسانی است که فهرست اعضای سازمان را می‌بینند");
+  const over = await overseenGroups(ctx.db, ctx);
+  const near = new Set([...(await myGroups(ctx.db, ctx)), ...over.groups]);
   const rows = await liveRows(ctx.db, sys, "wfm_person_skill", { and: [{ f: "skill_id", op: "eq", v: skillId }, { f: "level", op: "gte", v: minLevel }] }, { order: "t.level desc", limit: 200 });
   const today = todayOf(ctx);
   const counting = rows.filter((r) => (r.status ?? "active") === "active" && (!r.expires_at || String(r.expires_at) >= today));
   const people = counting.map((r) => String(r.user_id));
   const names = await namesOf(ctx.db, ctx.org.id, people);
   const agents = people.length ? await liveRows(ctx.db, sys, "wfm_agent", { f: "user_id", op: "in", v: people }) : [];
+  const seen = new Map<string, boolean>();
+  for (const u of new Set(people)) seen.set(u, over.all || u === ctx.user.id || (await groupsOfUser(ctx.db, sys, u)).some((g) => near.has(g)));
   return counting.map((r) => ({
     user_id: String(r.user_id), name: names.get(String(r.user_id)) ?? "", level: Number(r.level), level_label: proficiencyLabel(r.level), verified: !!r.verified,
-    presence: agents.find((a) => a.user_id === r.user_id)?.presence ?? null,
+    presence: seen.get(String(r.user_id)) ? (agents.find((a) => a.user_id === r.user_id)?.presence ?? null) : null,
   }));
 }
 

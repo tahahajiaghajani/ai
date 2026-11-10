@@ -55,6 +55,9 @@ async function agreementBefore(w: WriteArgs): Promise<void> {
   const months = Number(n.review_months ?? 3) || 3;
   if (w.changed.has("state")) {
     const from = w.prev?.state;
+    // leaving force (expired, withdrawn) is remembered: the sweep closes the last period after it
+    if (inForce(String(from ?? "")) && !inForce(n.state)) n.left_force_on = today;
+    if (inForce(n.state)) n.left_force_on = null;
     // renewal completed: a new version of the agreement
     if (from === "renewal" && n.state === "active") n.agreement_version = Number(w.prev?.agreement_version ?? 1) + 1;
     // a review completed: the next one is due a cadence later
@@ -254,6 +257,14 @@ const creditHook = async (w: WriteArgs): Promise<void> => {
   await creditManager(w);
 };
 
+async function xlaScoreAnchors(w: WriteArgs): Promise<void> {
+  if (w.op === "delete") return;
+  const def = tableDef(String(w.next.table_key ?? ""));
+  const rec = def && !def.virtual && isUuid(w.next.record_id) ? await liveRow(w.tx, sysOf(w.ctx), def.key, w.next.record_id) : null;
+  w.next.domain_id = isUuid(rec?.domain_id) ? rec!.domain_id : null;
+  w.next.unit_id = isUuid(rec?.unit_id) ? rec!.unit_id : null;
+}
+
 export function installSlmHooks(): (() => void)[] {
   return [
     registerHooks(A, { beforeWrite: agreementBefore, ...pushFromBefore(agreementBefore), afterWrite: agreementAfter, guards: { agreement_ready: agreementReady } }),
@@ -263,6 +274,9 @@ export function installSlmHooks(): (() => void)[] {
     registerHooks("slm_improvement", { beforeWrite: improvementBefore, ...pushFromBefore(improvementBefore) }),
     registerHooks("slm_credit", { beforeWrite: creditHook, ...pushFromBefore(creditHook) }),
     registerHooks("slm_xla_policy", { beforeWrite: xlaPolicyBefore, ...pushFromBefore(xlaPolicyBefore) }),
+    // a score lives where its record lives: the record's domain and unit anchor it (with domain separation, readers of
+    // another domain never see it); the workspace is copied by the scoring
+    registerHooks("slm_xla_score", { beforeWrite: xlaScoreAnchors }),
   ];
 }
 

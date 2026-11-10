@@ -202,7 +202,7 @@ export async function directorySignIn(c: Context, cfg: ServerConfig, input: { lo
     const lockName = parsed.name.toLowerCase();
     if (await lockedUntil(cfg.db, loginKey(ref.org_id, ref.id, lockName))) throw new LoginFailure("throttled", null, { org_id: ref.org_id, source_id: ref.id });
     const identity = await verifyDirectoryPassword(cfg, loaded.sys, conf, parsed, input.password);
-    const result = await provisionMember(cfg, conf, identity);
+    const result = await provisionMember(cfg, conf, identity, loaded.src);
     await clearFailures(cfg.db, loginKey(ref.org_id, ref.id, lockName));
     return await finish(c, cfg, a, conf, result, identity.dc);
   } catch (e) {
@@ -233,7 +233,7 @@ export async function principalSignIn(c: Context, cfg: ServerConfig, principal: 
     conf = loaded.conf;
     if (parts.domain && conf.domains.length && !conf.domains.some((d) => d.toLowerCase() === parts.domain)) throw new LoginFailure("unknown_domain", null, { org_id: ref.org_id, source_id: ref.id });
     const identity = await directoryIdentity(cfg, loaded.sys, conf, parts.name, parts.domain);
-    const result = await provisionMember(cfg, conf, identity);
+    const result = await provisionMember(cfg, conf, identity, loaded.src);
     return await finish(c, cfg, a, conf, result, identity.dc);
   } catch (e) {
     if (!(e instanceof LoginFailure)) throw e;

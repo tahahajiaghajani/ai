@@ -16,7 +16,7 @@ import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
 import { addJournalIn, addLinkIn, createIn, get, isSystemCtx, list, orgTz, transitionIn, updateIn, validationError } from "../../engine";
-import { bad, forbidden, notFound } from "../../http/errors";
+import { bad, conflict, forbidden, notFound } from "../../http/errors";
 import { BOOKED, calendarFor, dispatches, fsmConfig, ids, isUuid, liveRow, liveRows, mayWriteRecord, msOf, sysOf, todayOf, TASK_OPEN, type Row } from "./common";
 
 const DAY = 86_400_000;
@@ -220,13 +220,21 @@ export async function visitStep(ctx: Ctx, taskId: string, step: string, input: {
   });
 }
 
-/** The customer's sign-off (FSM-023): the signer's name and the signature image (an attachment of the task). */
+/**
+ * The customer's sign-off (FSM-023): the signer's name and the signature image (an attachment of the task) — once,
+ * on work that is done (the customer signs the work and the report they see; afterwards the work's description and
+ * checklist stay as signed, see the task hook).
+ */
 export async function signOff(ctx: Ctx, taskId: string, input: { signer_name: string; attachment_id?: string | null }): Promise<Row> {
   await myTask(ctx, taskId);
   const name = String(input.signer_name ?? "").trim();
   if (name.length < 3) throw validationError({ signer_name: "نام امضاکننده را کامل بنویسید" });
   return ctx.write(async (tx) => {
     const sys = sysOf(ctx, ctx.user.id);
+    const task = await liveRow(tx, sysOf(ctx), "wo_task", taskId);
+    if (!task) throw notFound("وظیفه پیدا نشد");
+    if (task.state !== "work_complete") throw conflict("امضای مشتری پس از «کار انجام شد» گرفته می‌شود");
+    if (task.signed_at) throw conflict("مشتری این کار را پیش‌تر امضا کرده است؛ امضا عوض نمی‌شود");
     if (input.attachment_id) {
       const a = await tx.one<{ id: string }>(`select id from sm_attachments where org_id = $1 and id = $2 and table_key = 'wo_task' and record_id = $3 and deleted_at is null`, [ctx.org.id, input.attachment_id, taskId]);
       if (!a) throw validationError({ attachment_id: "تصویر امضا پیوست این وظیفه نیست" });

@@ -7,7 +7,8 @@
 import { addDays, diffDays } from "@shared/jalali";
 import { addJalaliMonths, inForce } from "@shared/slm/logic";
 import type { Ctx } from "../../context";
-import type { Queryable } from "../../db";
+import type { Queryable, Tx } from "../../db";
+import type { Period } from "@shared/slm/logic";
 import { zonedMidnight } from "@shared/model/jalali-buckets";
 import { createIn, emitEvent, onRecordEvent, orgTz, systemCtx, transitionIn, updateIn } from "../../engine";
 import { enqueue, registerJobHandler } from "../../jobs";
@@ -25,24 +26,55 @@ export async function ensureSlmSweep(q: Queryable, orgId: string, delayMs = 60_0
 }
 export const resetSlmSweepThrottle = () => lastSweep.clear();
 
-/** One pass of the sweep over an organisation (as the system). Returns what it did (tests read it). */
-export async function slmSweep(sys: Ctx, opts: { now?: number; deadline?: number } = {}): Promise<{ measured: number; finalized: number; started: number; reminded: number; reviews: number; more: boolean }> {
+/**
+ * Close an agreement's periods that ended without final rows (final rows, credits), newest first back to the first
+ * one already final: `latest` (the period just closed — always, when the agreement was in force in it), and the ones
+ * before it that were measured while in force (they have rows) but never closed — a sweep that missed a period
+ * boundary, an agreement revived after it expired. A period before the agreement's start is never closed.
+ */
+export async function finalizeClosedIn(tx: Tx, sys: Ctx, a: Row, latest: Period, now: number, maxBack = 24): Promise<number> {
+  const todo: Period[] = [];
+  let p = latest;
+  for (let i = 0; i < maxBack; i++) {
+    if (a.valid_from && String(p.end) <= String(a.valid_from).slice(0, 10)) break;
+    const rows = await liveRows(tx, sys, "slm_compliance", { and: [{ f: "agreement_id", op: "eq", v: a.id }, { f: "period_key", op: "eq", v: p.key }] }, { limit: 50 });
+    if (rows.some((r) => r.final)) break;
+    if (i > 0 && !rows.length) break;
+    todo.unshift(p);
+    p = agreementPeriod(a, addDays(p.start, -1));
+  }
+  for (const period of todo) await storeMeasures(tx, sys, String(a.id), { period, final: true, now });
+  return todo.length;
+}
+
+/**
+ * One pass of the sweep over an organisation (as the system). Returns what it did (tests read it). A pass cut short
+ * by its deadline returns `cursor` (the last agreement it finished, by id); the next run resumes after it, so every
+ * agreement is reached however many there are.
+ */
+export async function slmSweep(sys: Ctx, opts: { now?: number; deadline?: number; after?: string | null } = {}): Promise<{ measured: number; finalized: number; started: number; reminded: number; reviews: number; more: boolean; cursor: string | null }> {
   const now = opts.now ?? Date.now();
   const today = todayOf(sys, now);
   const cfg = await slmConfig(sys.db, sys);
-  const out = { measured: 0, finalized: 0, started: 0, reminded: 0, reviews: 0, more: false };
-  // enablement reached its start date → in force (the readiness guard still decides)
-  for (const a of await liveRows(sys.db, sys, "service_agreement", { and: [{ f: "state", op: "eq", v: "enablement" }, { f: "valid_from", op: "lte", v: today }] }, { limit: 500 })) {
-    try {
-      await sys.write((tx) => transitionIn(tx, sys, "service_agreement", String(a.id), "active", {}, { trusted: true }));
-      out.started++;
-    } catch {
-      // not ready (no targets, no supplier…): it stays in enablement for a person to finish
+  const out = { measured: 0, finalized: 0, started: 0, reminded: 0, reviews: 0, more: false, cursor: null as string | null };
+  const after = isUuid(opts.after) ? String(opts.after) : null;
+  const late = () => !!opts.deadline && Date.now() > opts.deadline;
+  if (!after) {
+    // enablement reached its start date → in force (the readiness guard still decides)
+    for (const a of await liveRows(sys.db, sys, "service_agreement", { and: [{ f: "state", op: "eq", v: "enablement" }, { f: "valid_from", op: "lte", v: today }] }, { limit: 500 })) {
+      try {
+        await sys.write((tx) => transitionIn(tx, sys, "service_agreement", String(a.id), "active", {}, { trusted: true }));
+        out.started++;
+      } catch {
+        // not ready (no targets, no supplier…): it stays in enablement for a person to finish
+      }
     }
   }
-  const agreements = await liveRows(sys.db, sys, "service_agreement", { f: "state", op: "in", v: ["active", "under_review", "renewal"] }, { order: "t.id", limit: 5000 });
+  const resume = after ? [{ f: "id", op: "gt", v: after }] : [];
+  const agreements = await liveRows(sys.db, sys, "service_agreement", { and: [{ f: "state", op: "in", v: ["active", "under_review", "renewal"] }, ...resume] } as never, { order: "t.id", limit: 5000 });
   for (const a of agreements) {
-    if (opts.deadline && Date.now() > opts.deadline) {
+    // at least one agreement per run, so that a pass always moves on
+    if (out.cursor && late()) {
       out.more = true;
       break;
     }
@@ -51,12 +83,9 @@ export async function slmSweep(sys: Ctx, opts: { now?: number; deadline?: number
     await sys.write(async (tx) => {
       await storeMeasures(tx, sys, String(a.id), { period, now });
       out.measured++;
-      // close the previous period once (its rows become final, missed targets with tiers become credits)
-      const [finalRow] = await liveRows(tx, sys, "slm_compliance", { and: [{ f: "agreement_id", op: "eq", v: a.id }, { f: "period_key", op: "eq", v: prev.key }, { f: "final", op: "eq", v: true }] }, { limit: 1 });
-      if (!finalRow && (!a.valid_from || String(a.valid_from) < period.start)) {
-        await storeMeasures(tx, sys, String(a.id), { period: prev, final: true, now });
-        out.finalized++;
-      }
+      // close the previous period once (its rows become final, missed targets with tiers become credits), and any
+      // earlier one measured in force but never closed
+      out.finalized += await finalizeClosedIn(tx, sys, a, prev, now);
       const patch: Row = {};
       // review due soon: remind once per due date and open the interval review
       if (a.next_review_at && diffDays(String(a.next_review_at), today) <= cfg.review_reminder_days && a.review_reminded_for !== a.next_review_at) {
@@ -83,7 +112,29 @@ export async function slmSweep(sys: Ctx, opts: { now?: number; deadline?: number
       }
       if (Object.keys(patch).length) await updateIn(tx, sys, "service_agreement", String(a.id), patch, { trusted: true, keepVersion: true, allowLocked: true });
     });
+    out.cursor = String(a.id);
   }
+  // agreements that left force (expired, withdrawn): their last period is closed once it is over, with the periods
+  // before it the sweep never closed — a credit for the last month is not lost because the agreement ended
+  if (!out.more) {
+    const since = addDays(today, -400);
+    const ended = await liveRows(sys.db, sys, "service_agreement", { and: [{ f: "state", op: "in", v: ["expired", "withdrawn"] }, { f: "left_force_on", op: "gte", v: since }] }, { order: "t.id", limit: 2000 });
+    for (const a of ended) {
+      if (late()) {
+        out.more = true;
+        break;
+      }
+      const last = [a.valid_to, a.left_force_on].filter((d): d is string => typeof d === "string" && !!d).map((d) => d.slice(0, 10)).sort()[0];
+      if (!last) continue;
+      // its last day in force: its end date, or the day it was withdrawn when that came first
+      const latest = agreementPeriod(a, last);
+      if (today < latest.end) continue;
+      const [final] = await liveRows(sys.db, sys, "slm_compliance", { and: [{ f: "agreement_id", op: "eq", v: a.id }, { f: "period_key", op: "eq", v: latest.key }, { f: "final", op: "eq", v: true }] }, { limit: 1 });
+      if (final) continue;
+      out.finalized += await sys.write((tx) => finalizeClosedIn(tx, sys, a, latest, now));
+    }
+  }
+  if (!out.more) out.cursor = null;
   return out;
 }
 
@@ -103,7 +154,9 @@ export function installSlmJobs(): (() => void)[] {
     registerJobHandler("slm.sweep", async (job, jctx) => {
       if (!job.org_id || !actsHere(jctx.cfg)) return;
       const sys = await systemCtx(jctx.cfg, job.org_id);
-      const r = await slmSweep(sys, { deadline: jctx.deadline });
+      // a pass cut short resumes after the last agreement it finished (kept in the job's payload)
+      const r = await slmSweep(sys, { deadline: jctx.deadline, after: isUuid(job.payload?.cursor) ? String(job.payload.cursor) : null });
+      await jctx.save(r.more && r.cursor ? { cursor: r.cursor } : {});
       if (r.more) return { again: 30_000 };
       const live = await liveRows(sys.db, sys, "service_agreement", { f: "state", op: "in", v: ["enablement", "active", "under_review", "renewal"] }, { limit: 1 });
       return live.length ? { again: SWEEP_EVERY } : undefined;

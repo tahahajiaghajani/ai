@@ -70,6 +70,22 @@ export async function affectedAccounts(tx: Tx, ctx: Ctx, incident: Row): Promise
   return accountIds.length ? liveRows(tx, sys, "customer_account", { and: [{ f: "id", op: "in", v: accountIds }, { f: "active", op: "eq", v: true }] }, { limit: 2000 }) : [];
 }
 
+/**
+ * The title of a proactive case: «اختلال در خدمت» with the name of the customer's own product or installed item the
+ * incident touches (through its CI), else of the incident's service as the catalogue names it — nothing internal.
+ */
+async function proactiveTitle(tx: Tx, sys: Ctx, acc: Row, incident: Row): Promise<string> {
+  const base = "اختلال در خدمت";
+  const cis = ids([incident.ci_id]);
+  if (cis.length) {
+    const [ibi] = await liveRows(tx, sys, "install_base_item", { and: [{ f: "account_id", op: "eq", v: acc.id }, { f: "ci_id", op: "in", v: cis }, { f: "status", op: "eq", v: "active" }] }, { limit: 1 });
+    const product = isUuid(ibi?.product_id) ? await liveRow(tx, sys, "customer_product", ibi!.product_id) : null;
+    const name = String(product?.name ?? ibi?.name ?? "").trim();
+    if (name) return `${base}: ${name}`.slice(0, 200);
+  }
+  return `${base} شما`;
+}
+
 /** Proactive cases for the accounts an incident affects (one per account, never twice). */
 export async function proactiveCasesIn(tx: Tx, ctx: Ctx, incidentId: string): Promise<{ created: number; accounts: number }> {
   const sys = sysOf(ctx);
@@ -88,8 +104,10 @@ export async function proactiveCasesIn(tx: Tx, ctx: Ctx, incidentId: string): Pr
   for (const acc of accounts) {
     if (covered.has(String(acc.id))) continue;
     const [contact] = await liveRows(tx, sys, "customer_contact", { and: [{ f: "account_id", op: "eq", v: acc.id }, { f: "active", op: "eq", v: true }, { f: "user_id", op: "nempty" }] }, { order: "t.is_primary desc, t.created_at", limit: 1 });
+    // the customer reads this case: its title is customer-safe text, never the internal incident's own title (hosts,
+    // change numbers, other customers' names)
     const c = await createIn(tx, sys, "customer_case", {
-      short_description: `اختلال در خدمت: ${String(incident.short_description ?? "").slice(0, 150)}`, case_type: "problem", account_id: acc.id, contact_id: contact?.id ?? null,
+      short_description: await proactiveTitle(tx, sys, acc, incident), case_type: "problem", account_id: acc.id, contact_id: contact?.id ?? null,
       requested_for: contact?.user_id ?? null, caller_id: contact?.user_id ?? null, channel: "monitoring", proactive: true, priority: incident.priority ?? "3",
       description: "این پرونده را پیش از تماس شما باز کردیم: اختلالی که بر خدمت شما اثر دارد شناسایی شده و در حال رفع آن هستیم.",
     }, { trusted: true });

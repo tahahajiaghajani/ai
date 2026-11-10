@@ -15,10 +15,10 @@ import { groupMatches } from "@shared/integration/directory";
 import { readSecret, systemCtx } from "../../engine";
 import { addGroupMembers, memberCtx, saveMemberAccess } from "../../access";
 import { hasFeature, needWithinLimit } from "../admin/common";
-import { ensurePerson, setMemberActive } from "../admin/members";
+import { ensurePerson, setDirectoryName, setMemberActive } from "../admin/members";
 import { removeIn } from "../../engine";
 import { grantingGroups, intLog, liveRow, liveRows, sysOf, isUuid, type Row } from "./common";
-import { mappingsOf, optionsOf } from "./directory";
+import { approverCtx, mappingsOf, optionsOf } from "./directory";
 
 export class ScimError extends Error {
   constructor(public status: number, message: string, public scimType?: string) {
@@ -63,8 +63,8 @@ export async function scimSession(cfg: ServerConfig, sourceId: string, authoriza
   let ctx: Ctx | null = null;
   if (!dryRun) {
     if (!source.approved_by) throw new ScimError(403, "این منبع SCIM هنوز از سوی مدیری تأیید نشده است");
-    ctx = await memberCtx(cfg, r.org_id, String(source.approved_by)).catch(() => null);
-    if (!ctx) throw new ScimError(403, "تأییدکنندهٔ این منبع دیگر عضو فعال نیست");
+    ctx = await approverCtx(cfg, r.org_id, source);
+    if (!ctx) throw new ScimError(403, "تأییدکنندهٔ این منبع دیگر عضو فعال نیست یا اختیارش را ندارد");
   }
   return { cfg, orgId: r.org_id, source, sys, ctx, dryRun, base };
 }
@@ -99,7 +99,7 @@ interface MemberView {
 async function memberById(s: ScimSession, userId: string): Promise<MemberView | null> {
   if (!isUuid(userId)) return null;
   return s.cfg.db.one<MemberView>(
-    `select m.user_id, lower(u.email) as email, coalesce(nullif(u.full_name, ''), u.email) as name, m.is_active as active, p.title,
+    `select m.user_id, lower(u.email) as email, coalesce(nullif(p.name, ''), nullif(u.full_name, ''), u.email) as name, m.is_active as active, p.title,
             (select l.external_id from sm_directory_links l where l.source_id = $3 and l.kind = 'user' and l.local_id = m.user_id limit 1) as external
      from sm_org_members m join sm_users u on u.id = m.user_id left join sm_member_profiles p on p.org_id = m.org_id and p.user_id = m.user_id and p.deleted_at is null
      where m.org_id = $1 and m.user_id = $2 and m.deleted_at is null`,
@@ -179,6 +179,7 @@ export async function createUser(s: ScimSession, body: Record<string, unknown>) 
   const u = userFromScim(body);
   if (!u.email || !isEmail(u.email)) throw new ScimError(400, "ایمیل کاربر معتبر نیست", "invalidValue");
   if (isReservedEmail(u.email)) throw new ScimError(400, "این نشانی برای حساب‌های خدمت کنار گذاشته شده است", "invalidValue");
+  if (s.cfg.platformAdmins?.includes(u.email.toLowerCase())) throw new ScimError(400, "این نشانی مدیر سامانه است و حساب آن را خودش می‌سازد", "invalidValue");
   await record(s, { op: "create_user", email: u.email, name: u.name, active: u.active, external: u.externalId ?? u.userName });
   if (s.dryRun) return { ...userResource(s, { user_id: uuidv7(), email: u.email, name: u.name ?? u.email, active: u.active, title: u.title, external: u.externalId }), meta: { resourceType: "User", note: "dry-run" } };
   const existing = await memberByEmail(s, u.email);
@@ -205,7 +206,8 @@ export async function patchUserById(s: ScimSession, id: string, ops: PatchOp[], 
   const next = replace ? userFromScim(replace) : patchUser(cur, ops);
   const ctx = s.ctx!;
   await ctx.write(async (tx) => {
-    if (next.name && next.name !== m.name) await tx.query(`update sm_users set full_name = $2 where id = $1`, [id, next.name.slice(0, 120)]);
+    // the global account's name only when the account is this organisation's own; else the member profile's
+    if (next.name && next.name !== m.name) await setDirectoryName(tx, ctx, id, next.name);
     if (next.active !== m.active) await setMemberActive(tx, ctx, id, next.active);
   });
   if (next.title !== cur.title || next.phone) await applyProfile(s, id, { ...next, title: next.title !== cur.title ? next.title : null }, false);

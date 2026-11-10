@@ -24,17 +24,17 @@ import { isEmail, isReservedEmail } from "@shared/validate";
 import { attrMapOf, cnOf, entryFromLdap, groupMatches, mappedAccess, type AttrMap, type GroupMapping } from "@shared/integration/directory";
 import { accountState, domainMatches, parseLogin, reasonOfAdCode, spnCommands, type LoginReason, type ParsedLogin } from "@shared/auth/login";
 import { createIn, readSecret, removeIn, systemCtx } from "../../engine";
-import { addGroupMembers, memberCtx, saveMemberAccess } from "../../access";
+import { addGroupMembers, saveMemberAccess } from "../../access";
 import { AppError, bad, notFound } from "../../http/errors";
 import { isSystem } from "../../access/provider";
 import { needRecentAuth } from "../../auth/policy";
 import { negotiateProblem } from "../../auth/sso";
 import type { WriteArgs } from "../../engine";
-import { ensurePerson } from "../admin/members";
+import { ensurePerson, setDirectoryName } from "../admin/members";
 import { hasFeature, needWithinLimit } from "../admin/common";
 import { caProblem, connectAny, escapeFilterValue, IN_CHAIN, LdapClient, LdapError, type LdapEntry, type LdapOptions } from "./ldap";
 import { grantingGroups, liveRow, liveRows, needIntegrations, sysOf, type Row } from "./common";
-import { guardHost, mappingsOf, optionsOf } from "./directory";
+import { approverCtx, guardHost, mappingsOf, optionsOf } from "./directory";
 
 /** A refused sign-in: the reason (audit), an administrator's detail (never a password), and what is known so far. */
 export class LoginFailure extends Error {
@@ -440,7 +440,7 @@ const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is
  * The member a verified directory identity is: linked, found by e-mail or created (just-in-time), with attributes
  * refreshed and approved mappings applied — always as the member who approved the source.
  */
-export async function provisionMember(cfg: ServerConfig, conf: LoginSourceConfig, id: DirectoryIdentity): Promise<ProvisionResult> {
+export async function provisionMember(cfg: ServerConfig, conf: LoginSourceConfig, id: DirectoryIdentity, src: Row): Promise<ProvisionResult> {
   const orgId = conf.orgId;
   const known: LoginFailure["known"] = { org_id: orgId, source_id: conf.id };
   const dir = entryFromLdap(id.entry.dn, id.entry.attrs, conf.map);
@@ -475,8 +475,9 @@ export async function provisionMember(cfg: ServerConfig, conf: LoginSourceConfig
   const member = userId ? await db.one<{ id: string; is_active: boolean }>(`select id, is_active from sm_org_members where org_id = $1 and user_id = $2 and deleted_at is null`, [orgId, userId]) : null;
   if (member && !member.is_active) throw fail("member_disabled", null, known);
   if (!member && !conf.jit) throw fail("jit_disabled", null, known);
-  const actx = await memberCtx(cfg, orgId, conf.approvedBy!).catch(() => null);
-  if (!actx) throw fail("not_approved", "تأییدکنندهٔ منبع دیگر عضو فعال نیست؛ منبع را دوباره تأیید کنید", known);
+  // the approver's access, while they still hold it (else the approval is withdrawn, as for the synchronisation)
+  const actx = await approverCtx(cfg, orgId, src);
+  if (!actx) throw fail("not_approved", "تأییدکنندهٔ منبع دیگر عضو فعال نیست یا اختیارش را ندارد؛ منبع را دوباره تأیید کنید", known);
   let created = false;
   if (!member) {
     try {
@@ -500,7 +501,8 @@ export async function provisionMember(cfg: ServerConfig, conf: LoginSourceConfig
   const remail = !!account && lower(account.email) !== email && !(await db.one(`select 1 from sm_users where lower(email) = $1 and id <> $2`, [email, uid]));
   if (rename || remail) {
     await actx.write(async (tx) => {
-      if (rename) await tx.query(`update sm_users set full_name = $2 where id = $1`, [uid, dir.name.slice(0, 120)]);
+      // the account's name only when the account is this organisation's own (else the member profile's)
+      if (rename) await setDirectoryName(tx, actx, uid, dir.name);
       if (remail) await tx.query(`update sm_users set email = $2 where id = $1`, [uid, email]);
     });
   }

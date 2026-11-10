@@ -13,6 +13,7 @@
 import { evaluate, type Cond } from "@shared/model/conditions";
 import { stateCategory } from "@shared/model/task";
 import { rankServices } from "@shared/esm/logic";
+import type { TableDef } from "@shared/model/types";
 import { tableDef } from "@shared/tables";
 import { CASE_TABLE_OPTIONS, isEsmCaseTable } from "@shared/tables/esm";
 import type { Ctx } from "../../context";
@@ -20,7 +21,7 @@ import type { Queryable, Tx } from "../../db";
 import { addJournalIn, addLinkIn, aggregate, condEnv, createIn, get, list, orgSchema, transitionIn, updateIn, validationError } from "../../engine";
 import { bad, forbidden, notFound } from "../../http/errors";
 import { DEPT_TABLES } from "./hooks";
-import { administersDepartment, departmentById, departments, esmConfig, isUuid, liveRow, liveRows, mayWriteRecord, myDepartments, sysOf, type Row } from "./common";
+import { administersDepartment, departmentById, departments, esmConfig, isSecureWorkspace, isUuid, liveRow, liveRows, mayWorkRecord, myDepartments, sysOf, type Row } from "./common";
 
 const OPEN = ["new", "active", "waiting"];
 
@@ -65,6 +66,30 @@ export async function routeText(ctx: Ctx, text: string): Promise<Row> {
 
 const MAPPED = ["short_description", "description", "requested_for", "caller_id", "priority", "urgency", "impact", "location_id", "channel"];
 
+/** How strictly a table keeps its records from AI (its data-use policy): cloud < local < never. */
+const dataUseRank = (def: TableDef | undefined): number => (def?.dataUse === "never" ? 2 : def?.dataUse === "local" ? 1 : 0);
+const hasField = (def: TableDef, name: string) => def.fields.some((f) => f.name === name);
+
+/**
+ * What of a protected case may reach a case of another table (transfer, child work): a privileged case stays with
+ * its own table; a confidential one only moves to a table that keeps confidentiality (and is marked so there); the
+ * text of a case of a secure workspace or of a stricter data-use policy than the target's stays behind — the new
+ * case carries only the reference and the agent's note. Returns the target's protection values and whether the text
+ * may be copied.
+ */
+async function protectionFor(tx: Tx, ctx: Ctx, src: TableDef, row: Row, target: TableDef, targetDept: Row): Promise<{ values: Row; copyText: boolean }> {
+  if (row.privileged) throw validationError({ department_id: "درخواست دارای امتیاز وکیل و موکل از جدول خود بیرون نمی‌رود؛ کار واحد دیگر را بی متن پرونده بسازید" });
+  const values: Row = {};
+  if (row.confidential) {
+    if (!target.features?.confidential) throw validationError({ department_id: `پروندهٔ محرمانه به «${target.label}» که محرمانگی ندارد منتقل نمی‌شود` });
+    values.confidential = true;
+    if (hasField(target, "access_list") && Array.isArray(row.access_list)) values.access_list = row.access_list;
+  }
+  const leavesSecure = (await isSecureWorkspace(tx, ctx, row.workspace_id)) && !(await isSecureWorkspace(tx, ctx, targetDept.dept_workspace_id));
+  const copyText = !row.confidential && !row.sensitive && !leavesSecure && dataUseRank(src) <= dataUseRank(target);
+  return { values, copyText };
+}
+
 /** Move a case to another department (ESM-009): re-key it, or hand it over as a new case of that department's type. */
 export async function transferCase(ctx: Ctx, table: string, id: string, input: { department_id?: unknown; service_id?: unknown; note?: unknown }): Promise<Row> {
   if (!isEsmCaseTable(table)) throw notFound("این نوع رکورد پروندهٔ واحد نیست");
@@ -72,7 +97,7 @@ export async function transferCase(ctx: Ctx, table: string, id: string, input: {
   if (!note) throw validationError({ note: "دلیل انتقال را بنویسید" });
   return ctx.write(async (tx) => {
     const sys = sysOf(ctx);
-    if (!(await mayWriteRecord(tx, ctx, table, id))) throw forbidden("پرونده را کسی منتقل می‌کند که روی آن کار می‌کند");
+    if (!(await mayWorkRecord(tx, ctx, table, id))) throw forbidden("پرونده را کسی منتقل می‌کند که روی آن کار می‌کند");
     const row = await liveRow(tx, sys, table, id);
     if (!row) throw notFound("پرونده پیدا نشد");
     if (!OPEN.includes(String(stateCategory(tableDef(table)?.states, row.state)))) throw bad("پروندهٔ بسته منتقل نمی‌شود");
@@ -93,8 +118,15 @@ export async function transferCase(ctx: Ctx, table: string, id: string, input: {
     }
     const values: Row = { department_id: dept.id, dept_service_id: service?.id ?? null };
     const tdef = tableDef(target)!;
+    const guard = await protectionFor(tx, ctx, tableDef(table)!, row, tdef, dept);
     for (const f of MAPPED) if (row[f] !== undefined && row[f] !== null && tdef.fields.some((x) => x.name === f)) values[f] = row[f];
-    values.description = `${row.description ?? ""}\n\n— منتقل‌شده از ${row.number ?? ""}: ${note}`.trim();
+    Object.assign(values, guard.values);
+    if (guard.copyText) values.description = `${row.description ?? ""}\n\n— منتقل‌شده از ${row.number ?? ""}: ${note}`.trim();
+    else {
+      // a protected case: its text stays where it was; the new case names it and carries the agent's note
+      values.short_description = `منتقل‌شده از ${row.number ?? "پروندهٔ واحد دیگر"}: ${note}`.slice(0, 200);
+      values.description = `— منتقل‌شده از ${row.number ?? ""} («${fromDept?.name ?? "واحد پیشین"}»): ${note}`.trim();
+    }
     // the case stays the requester's: the agent who moved it does not become one of its own people
     values.opened_by = row.opened_by ?? row.caller_id ?? null;
     const made = await createIn(tx, actor, target, values, { trusted: true });
@@ -112,7 +144,7 @@ export async function childCase(ctx: Ctx, table: string, id: string, input: { de
   if (!title) throw validationError({ short_description: "عنوان کار را بنویسید" });
   return ctx.write(async (tx) => {
     const sys = sysOf(ctx);
-    if (!(await mayWriteRecord(tx, ctx, table, id))) throw forbidden("کار واحد دیگر را کسی می‌سازد که روی پرونده کار می‌کند");
+    if (!(await mayWorkRecord(tx, ctx, table, id))) throw forbidden("کار واحد دیگر را کسی می‌سازد که روی پرونده کار می‌کند");
     const parent = await liveRow(tx, sys, table, id);
     if (!parent) throw notFound("پرونده پیدا نشد");
     const dept = await departmentById(tx, ctx, input.department_id);
@@ -122,9 +154,17 @@ export async function childCase(ctx: Ctx, table: string, id: string, input: { de
     const target = String(service?.case_table ?? dept.case_table);
     if (!isEsmCaseTable(target)) throw validationError({ department_id: "نوع پروندهٔ واحد مقصد معتبر نیست" });
     const actor = sysOf(ctx, ctx.user.id);
+    // the child carries the agent's own words; a confidential parent's child stays confidential (a privileged one has none elsewhere)
+    const tdef = tableDef(target)!;
+    const protect: Row = {};
+    if (target !== table && parent.privileged) throw validationError({ department_id: "درخواست دارای امتیاز وکیل و موکل کار واحد دیگری نمی‌سازد" });
+    if (parent.confidential) {
+      if (!tdef.features?.confidential) throw validationError({ department_id: `کار پروندهٔ محرمانه در «${tdef.label}» که محرمانگی ندارد ساخته نمی‌شود` });
+      protect.confidential = true;
+    }
     const child = await createIn(tx, actor, target, {
       short_description: title, description: `${String(input.description ?? "").trim()}\n\nبرای پروندهٔ ${parent.number ?? ""}`.trim(),
-      caller_id: ctx.user.id, requested_for: ctx.user.id, department_id: dept.id, dept_service_id: service?.id ?? null, priority: parent.priority ?? null,
+      caller_id: ctx.user.id, requested_for: ctx.user.id, department_id: dept.id, dept_service_id: service?.id ?? null, priority: parent.priority ?? null, ...protect,
     }, { trusted: true });
     await addLinkIn(tx, actor, target, String(child.id), { kind: "esm_child", table, id });
     await rollupChildrenIn(tx, ctx, table, id);
