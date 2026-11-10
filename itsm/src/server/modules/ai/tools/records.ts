@@ -51,8 +51,6 @@ export interface ToolEntry {
 
 // ---------------------------------------------------------------- which tables, which tools
 
-/** Tables that never get generated tools (private logs of the AI layer itself); modules may add theirs. */
-const NO_TOOLS = new Set<string>();
 /** Areas whose tables get read tools only (configuration: changing how the system behaves stays on its pages). */
 const READ_ONLY_AREAS = new Set(["settings", "users", "org", "notifications", "flows", "ai", "integrations", "sla"]);
 /** Tables changed only through their own screens (decisions, deliveries, saved views, simulations). */
@@ -98,13 +96,7 @@ async function toolTableViews(ctx: Ctx): Promise<Map<string, { label: string; pl
   return out;
 }
 
-/** A module keeps a table out of the generated tools (its own tools cover it). Returns the removal. */
-export function excludeFromTools(table: string): () => void {
-  NO_TOOLS.add(table);
-  return () => NO_TOOLS.delete(table);
-}
-
-const toolless = (def: TableDef) => def.virtual || def.key.startsWith("ai_") || def.key.startsWith("va_") || NO_TOOLS.has(def.key);
+const toolless = (def: TableDef) => def.virtual || def.key.startsWith("ai_") || def.key.startsWith("va_");
 export const draftable = (def: TableDef) => !READ_ONLY_AREAS.has(String(def.area)) && !READ_ONLY_TABLES.has(def.key);
 
 /** May the caller change some records of the table (a role's write scope, or creating)? Each draft checks the record itself. */

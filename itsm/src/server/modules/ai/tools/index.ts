@@ -66,6 +66,6 @@ export async function toolsForTurn(
   return [...registered, ...picked.map((e) => e.build())];
 }
 
-export { recordTools, excludeFromTools, registerToolTableView, type ToolEntry, type RecordOp, type ToolTableView } from "./records";
+export { recordTools, registerToolTableView, type ToolEntry, type RecordOp, type ToolTableView } from "./records";
 export { selectRecordTools, contextTable, TOOLS_PER_TURN } from "./select";
 export { installRecordExecutors } from "./record-executors";
