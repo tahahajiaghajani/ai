@@ -301,6 +301,11 @@ await ctx.write(async (tx) => {
   `sum`, `avg` (6 decimals), `min`, `max` (also dates), `median`, `p90` on numbers; keys `count`, `sum:estimate`…
   Numeric results are decimal strings. `totals` are computed over records (an array grouping never counts a record
   twice there). Groups are ordered by bucket, otherwise by the first metric descending.
+- **Set-based system rows**: `insertManyIn(tx, systemCtx, table, rows)` creates many rows with ONE insert — the
+  platform's own output (a notification's bell rows for every recipient). Each row is coerced, defaulted, passed to the
+  beforeWrite hooks (access anchors…) and validated like a create, the stored rows go to the afterWrite hooks, the
+  trigger gives every row its sync revision; no statement per row, **no record events**, no reference checks. Refused
+  for numbered tables, tables with a state model or with field history, and outside the system context.
 - Also: `recordMeta`, `checkFilter`, `exportRows`, `importRows` (§12), `tablesMeta`/`tableMeta`, `systemCtx(cfg,
   orgId, { onBehalfOf })` (a context in which the platform itself acts — allowed everything in its organisation by
   the provider, writes still hold the write lock), `condEnv(ctx)`, `orgSchema(ctx)` (effective defs with tenant
@@ -390,6 +395,8 @@ await tick(cfg, { budgetMs: 4000, max });   // → { ran, failed, more, busy? }
 
 - Enqueue inside the write transaction when the job follows a write (it exists exactly when the write committed).
   `dedupeKey`: no second job with that key per organisation while one is queued (the queued one's id is returned).
+  `enqueueMany(q, jobs)` adds many with one statement (same dedupe rule); `jctx.saveIn(tx, payload)` saves a job's
+  progress inside the transaction that does the work, so a retry after a crash skips what committed.
 - `tick` claims due jobs one at a time (`for update skip locked`; a running job's lock lasts 5 minutes and an expired
   lock is taken over), runs handlers outside transactions until the budget is spent. A throw → retry after 15 s, 30 s,
   1 min … ≤ 1 h (+20 % jitter) until `max_attempts`, then `failed` with `last_error`; `PermanentJobError` fails at

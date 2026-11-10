@@ -9,7 +9,7 @@ import { Navigate, useNavigate, useParams } from "react-router";
 import { Button, Checkbox, Input, Popconfirm, Select, Switch } from "antd";
 import { useQueryClient } from "@tanstack/react-query";
 import { BellRing, RotateCcw, Trash2 } from "lucide-react";
-import { NOTIFY_CHANNELS, NOTIFY_EVENTS, NOTIFY_EVENT_KEYS, type NotifyChannel, type NotifyEvent } from "@shared/notify";
+import { NOTIFY_CHANNELS, NOTIFY_EVENTS, NOTIFY_EVENT_KEYS, RULE_GROUP_MODES, type NotifyChannel, type NotifyEvent, type RecipientSpec, type RuleGroupMode } from "@shared/notify";
 import { ENTRY_KIND_OPTIONS } from "@shared/tables/notify";
 import type { Cond, Leaf } from "@shared/model/conditions";
 import { useOrg } from "../../lib/org";
@@ -42,6 +42,9 @@ function F({ label, error, wide, children }: { label: string; error?: string; wi
 
 const EVENT_OPTIONS = NOTIFY_EVENT_KEYS.map((k) => ({ value: k, label: NOTIFY_EVENTS[k].label }));
 const CHANNEL_OPTIONS = (Object.keys(NOTIFY_CHANNELS) as NotifyChannel[]).map((k) => ({ value: k, label: NOTIFY_CHANNELS[k].label }));
+const GROUP_MODE_OPTIONS = (Object.keys(RULE_GROUP_MODES) as RuleGroupMode[]).map((k) => ({ value: k, label: RULE_GROUP_MODES[k] }));
+/** Does the rule reach the members of groups (where the large-group setting matters)? */
+const reachesGroups = (r: RecipientSpec) => !!(r.assignment_group || r.groups?.length || r.fields?.length);
 
 export default function RuleEditor({ mode }: { mode: "new" | "builtin" | "row" }) {
   const { id, key } = useParams();
@@ -203,6 +206,13 @@ export default function RuleEditor({ mode }: { mode: "new" | "builtin" | "row" }
                 <Checkbox checked={d.notify_actor} onChange={(e) => set({ notify_actor: e.target.checked })} disabled={!canWrite}>
                   به انجام‌دهندهٔ تغییر هم خبر داده شود
                 </Checkbox>
+                {reachesGroups(d.recipients) ? (
+                  <div className="nf-form">
+                    <F label="اعضای گروه‌های بزرگ">
+                      <Select value={d.large_groups} options={GROUP_MODE_OPTIONS} onChange={(v) => set({ large_groups: v })} disabled={!canWrite} aria-label="اعضای گروه‌های بزرگ" />
+                    </F>
+                  </div>
+                ) : null}
               </div>
             </Card>
 

@@ -8,6 +8,7 @@
 // Imported by the UI: keep it free of server imports.
 import type { Option, TableDef } from "../model/types";
 import { FIELD_GROUPS } from "../model/types";
+import { GROUP_NOTIFY_MODES } from "../notify";
 
 export const UNIT_KINDS: Option[] = [
   { value: "company", label: "شرکت", color: "indigo" },
@@ -36,6 +37,9 @@ export const GROUP_TYPES: Option[] = [
   { value: "oncall", label: "آماده‌به‌کار", color: "orange" },
   { value: "general", label: "عمومی", color: "gray" },
 ];
+
+/** Who of a group hears notifications addressed to the group (`@shared/notify` GROUP_NOTIFY_MODES). */
+export const GROUP_NOTIFY_OPTIONS: Option[] = Object.entries(GROUP_NOTIFY_MODES).map(([value, label]) => ({ value, label }));
 
 export const MEMBER_KINDS: Option[] = [
   { value: "member", label: "عضو", color: "blue" },
@@ -148,6 +152,10 @@ const group: TableDef = {
     { name: "roles", label: "نقش‌های اعضا", type: "tags", span: 12, help: "اعضای گروه این نقش‌ها را هم دارند" },
     { name: "restricted", label: "محدود", type: "bool", default: false, list: true, filter: true, span: 6, help: "رکوردهای ارجاع‌شده به گروه محدود را فقط اعضای آن (و درخواست‌دهنده) می‌بینند" },
     { name: "active", label: "فعال", type: "bool", default: true, list: true, filter: true, span: 6 },
+    {
+      name: "notify_mode", label: "اعلان ارجاع به گروه", type: "choice", choices: GROUP_NOTIFY_OPTIONS, default: "auto", span: 12,
+      help: "در حالت خودکار، گروه بزرگ‌تر از ۵۰ نفر فقط به سرپرستان و مدیر گروه زنگوله می‌فرستد و اعضا رکورد را در صف و شمارهٔ صف گروه می‌بینند",
+    },
     { name: "description", label: "شرح", type: "text", span: 24 },
   ],
   scope: { public: true },

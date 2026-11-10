@@ -5,7 +5,7 @@
 // Delivery logs and the e-mail message log are local tables of each runtime (src/server/db/migrations/0010_notify.ts).
 // Imported by the UI: keep it free of server imports.
 import type { Option, TableDef } from "../model/types";
-import { CHANNEL_KINDS, DIGEST_MODES, INBOX_KINDS, NOTIFY_CHANNELS, NOTIFY_EVENTS } from "../notify";
+import { CHANNEL_KINDS, DIGEST_MODES, INBOX_KINDS, NOTIFY_CHANNELS, NOTIFY_EVENTS, RULE_GROUP_MODES } from "../notify";
 
 const options = (o: Record<string, string | { label: string }>): Option[] =>
   Object.entries(o).map(([value, l], i) => ({ value, label: typeof l === "string" ? l : l.label, order: i + 1 }));
@@ -44,6 +44,10 @@ const rule: TableDef = {
     { name: "condition", label: "شرط", type: "json", span: 24, help: "روی رکورد پس از تغییر؛ «تغییر کرد به» با مقدار پیشین مقایسه می‌کند" },
     { name: "recipients", label: "گیرندگان", type: "json", span: 24 },
     { name: "notify_actor", label: "به انجام‌دهندهٔ تغییر هم خبر داده شود", type: "bool", default: false, span: 12 },
+    {
+      name: "large_groups", label: "اعضای گروه‌های بزرگ", type: "choice", choices: options(RULE_GROUP_MODES), default: "group", span: 12,
+      help: "گروه‌های بزرگ‌تر از ۵۰ نفر به‌طور پیش‌فرض فقط به سرپرستان و مدیر گروه خبر می‌دهند و اعضا رکورد را در صف گروه می‌بینند",
+    },
     { name: "channels", label: "راه‌های ارسال", type: "multichoice", choices: NOTIFY_CHANNEL_OPTIONS, default: ["in_app"], list: true, span: 12 },
     { name: "targets", label: "کانال‌های بیرونی", type: "refs", ref: "notification_channel", span: 12 },
     { name: "template_id", label: "الگو", type: "ref", ref: "notification_template", list: true, span: 12 },

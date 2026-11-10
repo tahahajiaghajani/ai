@@ -15,6 +15,7 @@
 import type { Db, Queryable } from "../db";
 import type { Logger, ServerConfig } from "../context";
 import { uuidv7 } from "@shared/id";
+import { withLockLabel } from "../db/lockprobe";
 
 export type JobStatus = "queued" | "running" | "done" | "failed";
 
@@ -57,6 +58,11 @@ export interface JobContext {
   deadline: number;
   /** persist a new payload for this job (e.g. progress kept for its next attempt) */
   save(payload: Record<string, unknown>): Promise<void>;
+  /**
+   * The same inside the caller's transaction: progress that commits (or rolls back) with the work it records — a retry
+   * after a crash between the commit and the job's end then skips what is done.
+   */
+  saveIn(q: Queryable, payload: Record<string, unknown>): Promise<void>;
 }
 
 /** A handler returns nothing when the job is done, or `{ again: ms }` to run it again later (not an attempt). */
@@ -116,6 +122,34 @@ export async function enqueue(q: Queryable, job: JobInput): Promise<string> {
     [job.orgId ?? null, job.dedupeKey ?? null],
   );
   return twin?.id ?? id;
+}
+
+/**
+ * Add many jobs with one statement (set-based: the deliveries of one notification), with `enqueue`'s rules — a job whose
+ * dedupe key has a queued twin (also one earlier in the same list) is left out. Returns how many were added.
+ */
+export async function enqueueMany(q: Queryable, jobs: JobInput[]): Promise<number> {
+  if (!jobs.length) return 0;
+  enqueued += jobs.length;
+  const now = Date.now();
+  const rows = jobs.map((j) => ({
+    id: uuidv7(),
+    org_id: j.orgId ?? null,
+    kind: j.kind,
+    payload: j.payload ?? {},
+    run_at: j.runAt ? new Date(j.runAt).toISOString() : j.delayMs ? new Date(now + j.delayMs).toISOString() : null,
+    max_attempts: j.maxAttempts ?? 8,
+    dedupe_key: j.dedupeKey ?? null,
+  }));
+  const added = await q.query<{ id: string }>(
+    `insert into sm_jobs (id, org_id, kind, payload, run_at, max_attempts, dedupe_key)
+     select x.id, x.org_id, x.kind, x.payload, coalesce(x.run_at, now()), x.max_attempts, x.dedupe_key
+     from jsonb_to_recordset($1::jsonb) as x(id uuid, org_id uuid, kind text, payload jsonb, run_at timestamptz, max_attempts int, dedupe_key text)
+     on conflict (coalesce(org_id, '${NIL}'::uuid), dedupe_key) where dedupe_key is not null and status = 'queued' do nothing
+     returning id`,
+    [JSON.stringify(rows)],
+  );
+  return added.length;
 }
 
 /** Retry delay after `attempts` failed attempts: 15 s, 30 s, 1 min … at most 1 hour, with 20% jitter. */
@@ -247,10 +281,14 @@ async function runOne(cfg: JobConfig, job: Job, deadline: number): Promise<boole
       job.payload = payload as Record<string, any>;
       await db.query(`update sm_jobs set payload = $2::jsonb, updated_at = now() where id = $1`, [job.id, JSON.stringify(payload)]);
     },
+    saveIn: async (q, payload) => {
+      await q.query(`update sm_jobs set payload = $2::jsonb, updated_at = now() where id = $1`, [job.id, JSON.stringify(payload)]);
+    },
   };
   try {
     if (!handler) throw new Error(`no handler for job kind "${job.kind}"`);
-    const r = await handler(job, jctx);
+    // the write-lock probe of measurement runs labels the locks a job takes with its kind (a no-op otherwise)
+    const r = await withLockLabel(`job ${job.kind}`, () => handler(job, jctx));
     if (r && typeof r.again === "number") await finish(db, job, "queued", { runInMs: r.again, keepAttempt: true });
     else await finish(db, job, "done");
     return true;

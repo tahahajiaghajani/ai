@@ -97,6 +97,37 @@ export function cleanRecipients(raw: unknown): RecipientSpec {
   return out;
 }
 
+// ----- large groups ----------------------------------------------------------------------------------------------
+
+/**
+ * Who of a group hears a notification addressed to the group (the group's `notify_mode`):
+ * `auto` — every member while the group has at most `LARGE_GROUP` members, only its leads and its manager when it is
+ * larger (the members see the record in the group's queue and its count); `members` — every member; `leads` — leads
+ * (membership kind «سرپرست») and the group's manager only.
+ */
+export type GroupNotifyMode = "auto" | "members" | "leads";
+export const GROUP_NOTIFY_MODES: Record<GroupNotifyMode, string> = {
+  auto: "خودکار: در گروه‌های بزرگ‌تر از ۵۰ نفر فقط سرپرستان و مدیر گروه",
+  members: "همهٔ اعضا",
+  leads: "فقط سرپرستان و مدیر گروه",
+};
+/** A rule's say over large groups (`large_groups`): as each group decides, or always members / always leads. */
+export type RuleGroupMode = "group" | "members" | "leads";
+export const RULE_GROUP_MODES: Record<RuleGroupMode, string> = {
+  group: "مطابق تنظیم هر گروه",
+  members: "همهٔ اعضای گروه، هر اندازه",
+  leads: "فقط سرپرستان و مدیر گروه",
+};
+/** Groups larger than this are «large»: `auto` notifies their leads and manager instead of every member. */
+export const LARGE_GROUP = 50;
+
+/** Whom of a group a rule's notification reaches: every member, or only the leads and the manager. */
+export function groupAudience(rule: RuleGroupMode | null | undefined, group: GroupNotifyMode | null | undefined, members: number): "members" | "leads" {
+  if (rule === "members" || rule === "leads") return rule;
+  if (group === "members" || group === "leads") return group;
+  return members > LARGE_GROUP ? "leads" : "members";
+}
+
 export const hasRecipients = (r: RecipientSpec): boolean =>
   (Object.keys(RECIPIENT_FLAGS) as RecipientFlag[]).some((k) => r[k]) || !!(r.fields?.length || r.users?.length || r.groups?.length || r.roles?.length);
 

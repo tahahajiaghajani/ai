@@ -3,7 +3,7 @@
 // (/api/o/:org/notify — docs/spec/services/notify.md). Rules, templates and channels themselves are engine tables
 // (generic API /r/<table>). The inbox, the count and the logs refresh with «زنده».
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { InboxKind, NotifyEvent, NotifyPrefs, RecipientSpec, NotifyChannel } from "@shared/notify";
+import type { InboxKind, NotifyEvent, NotifyPrefs, RecipientSpec, NotifyChannel, RuleGroupMode } from "@shared/notify";
 import type { Cond } from "@shared/model/conditions";
 import { useOrg } from "../../lib/org";
 import { registerLiveQueries } from "../../lib/live";
@@ -62,6 +62,7 @@ export interface RuleView {
   condition: Cond | null;
   recipients: RecipientSpec;
   notify_actor: boolean;
+  large_groups?: RuleGroupMode;
   channels: NotifyChannel[];
   targets: string[];
   template_id: string | null;

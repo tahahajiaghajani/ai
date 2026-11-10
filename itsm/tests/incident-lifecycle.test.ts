@@ -253,8 +253,10 @@ describe("agent actions", () => {
     const inc = await w.incident();
     const h = await w.o.post(`${w.P}/incident/${inc.id}/escalate`, { kind: "hierarchical", reason: "نیاز به تصمیم مدیر" });
     expect(h.row.escalation).toBe(1);
-    const jobs = await w.e.db.query<{ payload: any }>(`select payload from sm_jobs where org_id = $1 and kind = 'notify.send'`, [w.e.org]);
-    expect(jobs.some((j) => j.payload.user === w.p.mim.userId && j.payload.rule?.name === "تشدید رخداد")).toBe(true);
+    // one notification to named people: a `notify.batch` job listing them (or a `notify.send` per person)
+    const jobs = await w.e.db.query<{ payload: any }>(`select payload from sm_jobs where org_id = $1 and kind in ('notify.send', 'notify.batch')`, [w.e.org]);
+    const told = (j: { payload: any }) => (j.payload.people ? j.payload.people.map((x: any) => x.user) : [j.payload.user]);
+    expect(jobs.some((j) => told(j).includes(w.p.mim.userId) && j.payload.rule?.name === "تشدید رخداد")).toBe(true);
     await w.o.post(`${w.P}/incident/${inc.id}/escalate`, { kind: "functional", reason: "x" }, 400);
     const f = await w.o.post(`${w.P}/incident/${inc.id}/escalate`, { kind: "functional", group_id: w.g.network, reason: "مشکل شبکه است" });
     expect([f.row.assignment_group_id, f.row.assigned_to, f.row.escalation]).toEqual([w.g.network, null, 2]);
