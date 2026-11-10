@@ -22,13 +22,26 @@ export async function tableColumns(q: Queryable, table: string): Promise<string[
 }
 
 /** Load full aggregates (root + children) by id. */
-export async function readAggregates(q: Queryable, def: AggregateDef, ids: string[]): Promise<WireAggregate[]> {
+export async function readAggregates(
+  q: Queryable,
+  def: AggregateDef,
+  ids: string[],
+  /** an extra condition on the roots (alias `r`; its parameters follow `$1`, the ids) — a pull's snapshot window */
+  only?: { where: string; params: unknown[] },
+): Promise<WireAggregate[]> {
   if (!ids.length) return [];
   const arr = `{${ids.join(",")}}`;
-  const roots = await q.query<Record<string, unknown>>(`select * from ${ident(def.table)} where id = any($1::uuid[])`, [arr]);
+  const roots = await q.query<Record<string, unknown>>(
+    `select * from ${ident(def.table)} r where r.id = any($1::uuid[])${only ? ` and ${only.where}` : ""}`,
+    [arr, ...(only?.params ?? [])],
+  );
+  // children of roots that did not qualify are not read
+  if (only && roots.length < ids.length) ids = roots.map((r) => String(r.id));
   const kids: Record<string, Map<string, Record<string, unknown>[]>> = {};
+  const parents = `{${ids.join(",")}}`;
   for (const ch of def.children ?? []) {
-    const rows = await q.query<Record<string, unknown>>(`select * from ${ident(ch.table)} where ${ident(ch.fk)} = any($1::uuid[])`, [arr]);
+    if (!ids.length) break;
+    const rows = await q.query<Record<string, unknown>>(`select * from ${ident(ch.table)} where ${ident(ch.fk)} = any($1::uuid[])`, [parents]);
     const m = new Map<string, Record<string, unknown>[]>();
     for (const r of rows) {
       const k = String(r[ch.fk]);

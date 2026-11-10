@@ -16,7 +16,7 @@ const LOCAL_ONLY: Record<string, string> = {
   sm_integrations: "other systems post their webhooks to the web version",
   sm_integration_events: "raw webhook deliveries (web version)",
   sm_dev_events: "raw DevOps tool deliveries (web version; commits, pull requests, builds and deployments travel)",
-  sm_org_sync: "per-organisation revision counter",
+  sm_org_sync: "per-organisation sync epoch and purge watermark (revisions are transaction ids)",
   // AI: each runtime (web, Windows) keeps its own connections — keys are encrypted with that
   // runtime's secret — and its own usage, conversations and proposals
   sm_ai_connections: "AI provider connections with this runtime's encrypted key",

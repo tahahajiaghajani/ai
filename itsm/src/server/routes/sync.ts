@@ -57,6 +57,8 @@ syncRoutes.use("*", requireUser);
 
 /** Rows per pull page (all synced tables and accounts together). */
 export const PULL_PAGE = 1000;
+/** Tables read by one statement of a pull page (each holds its tables' locks only while it runs). */
+const SOURCES_PER_STATEMENT = 24;
 
 async function orgCtx(c: C, orgId: string): Promise<Ctx> {
   const cfg = c.get("cfg");
@@ -278,18 +280,18 @@ type Source = { def: AggregateDef } | { users: true };
 /**
  * One page of a pull (docs/spec/ENGINE.md §13). A pull session reads the delta between the snapshot of the Windows
  * app's last complete pull (`since`; none: everything) and the session's own snapshot (`snap`, taken by its first page),
- * in (revision, id) order a page at a time (`after`). Each page runs in one repeatable-read transaction, so the rows,
- * their side rows and the access checks all see one moment; a row written again after `snap` is left to the next
- * session (its new revision is not visible in `snap`), never sent half-changed.
+ * in (revision, id) order a page at a time (`after`). Every statement keeps to that window, so a row written again
+ * after `snap` is left to the next session (its new revision is not visible in `snap`), never sent twice or half-changed.
  */
 syncRoutes.get("/pull", async (c) => {
-  const q = c.req.query();
-  if (q.protocol !== undefined ? Number(q.protocol) !== SYNC_PROTOCOL : q.cursor !== undefined && q.cursor !== "0") throw bad(OUTDATED);
-  const ctx = await orgCtx(c, q.org_id ?? "");
-  const since = parseSnap(q.since);
-  const snapIn = parseSnap(q.snap);
-  const after = parseAfter(q.after);
-  if ((q.since && !since) || (q.snap && !snapIn) || (q.after && !after)) throw bad(BAD_CURSOR);
+  const query = c.req.query();
+  if (query.protocol !== undefined ? Number(query.protocol) !== SYNC_PROTOCOL : query.cursor !== undefined && query.cursor !== "0") throw bad(OUTDATED);
+  const ctx = await orgCtx(c, query.org_id ?? "");
+  const since = parseSnap(query.since);
+  const snapIn = parseSnap(query.snap);
+  const after = parseAfter(query.after);
+  const q_epoch = query.epoch;
+  if ((query.since && !since) || (query.snap && !snapIn) || (query.after && !after)) throw bad(BAD_CURSOR);
   const log = ctx.cfg.log;
   // the database went back in transaction ids (restored into another cluster): every Windows app reads everything again
   await checkXidRegression(ctx.db, { log: (m) => log.warn(m) }).catch(() => undefined);
@@ -299,37 +301,42 @@ syncRoutes.get("/pull", async (c) => {
     await bumpSyncEpoch(ctx.db, ctx.org.id);
     log.warn("sync cursor ahead of the database: organisation sync epoch bumped", { org: ctx.org.id, cursor: snapText((snapIn ?? since)!), next: before.xmax });
   }
-  // the access environment and the schema are read once, before the page's transaction (cached on the context)
+  // the access environment and the schema are read once for the page (cached on the context)
   await condEnv(ctx);
   await orgSchema(ctx);
   const share = [ctx.org.id, ctx.user.id, ctx.can("users", "view"), false, ctx.can("users", "full"), ctx.member.role === "owner"];
-  const page = await ctx.db.tx(async (tx) => {
-    await tx.query("set transaction isolation level repeatable read, read only");
-    const cur = await currentSnap(tx);
-    const state = await orgSyncState(tx, ctx.org.id);
-    const epoch = `${state.epoch}.${await scopeEpoch(tx, ctx.org.id, ctx.user.id)}`;
+  const page = await (async () => {
+    const q = ctx.db;
+    const cur = await currentSnap(q);
+    const state = await orgSyncState(q, ctx.org.id);
+    const epoch = `${state.epoch}.${await scopeEpoch(q, ctx.org.id, ctx.user.id)}`;
     const started = !!(since || snapIn || after);
     // what this member may read changed, the database was restored, or tombstones this app never saw were removed
     // for good: everything again from the start
     // (purged tombstones are sequential archive batches: the newest one visible in the cursor means all of them were)
     const missedPurge = !!since && state.purged > 0 && !visibleIn(state.purged, since);
-    if (started && (q.epoch !== epoch || regressed || missedPurge)) {
+    if (started && (q_epoch !== epoch || regressed || missedPurge)) {
       return { reset: true as const, epoch, head: snapText(cur) };
     }
     const snap = snapIn ?? cur;
     const sources: Source[] = [...AGGREGATES.map((def) => ({ def })), { users: true as const }];
-    // one statement for every source: the first PULL_PAGE rows of each after the position, in (rev, id) order — an
-    // index probe per table, one round trip (a pull with nothing new costs one statement)
-    const params: unknown[] = [ctx.org.id];
-    const delta = deltaSql("t", since, snap, params);
-    const past = afterSql("t", after, params);
-    const branches = sources.map((s, i) => {
-      const table = "users" in s ? "sm_users" : ident(s.def.table);
-      const owner = "users" in s ? `t.id in (select user_id from sm_org_members where org_id = $1)` : `${s.def.table === "sm_orgs" ? "t.id" : "t.org_id"} = $1`;
-      return `(select ${i}::int as src, t.rev, t.id from ${table} t where ${owner} and ${delta} and ${past} order by t.rev, t.id limit ${PULL_PAGE})`;
-    });
-    const found = await tx.query<{ src: number; rev: number; id: string }>(branches.join("\nunion all\n"), params);
-    const cands: (After & { src: number })[] = found.map((r) => ({ src: Number(r.src), rev: Number(r.rev), id: String(r.id).toLowerCase() }));
+    // The page's candidates: the first PULL_PAGE rows of each source in the window after the position, in (rev, id)
+    // order. Short statements of SOURCES_PER_STATEMENT sources each (an index probe per table): every statement sees a
+    // newer snapshot than `snap`, and the window keeps only versions written by transactions visible in `snap` — a row
+    // written again since is left to the next session. No long transaction holding locks on every table.
+    const cands: (After & { src: number })[] = [];
+    for (let from = 0; from < sources.length; from += SOURCES_PER_STATEMENT) {
+      const params: unknown[] = [ctx.org.id];
+      const delta = deltaSql("t", since, snap, params);
+      const past = afterSql("t", after, params);
+      const branches = sources.slice(from, from + SOURCES_PER_STATEMENT).map((s, k) => {
+        const table = "users" in s ? "sm_users" : ident(s.def.table);
+        const owner = "users" in s ? `t.id in (select user_id from sm_org_members where org_id = $1)` : `${s.def.table === "sm_orgs" ? "t.id" : "t.org_id"} = $1`;
+        return `(select ${from + k}::int as src, t.rev, t.id from ${table} t where ${owner} and ${delta} and ${past} order by t.rev, t.id limit ${PULL_PAGE})`;
+      });
+      const found = await q.query<{ src: number; rev: number; id: string }>(branches.join("\nunion all\n"), params);
+      for (const r of found) cands.push({ src: Number(r.src), rev: Number(r.rev), id: String(r.id).toLowerCase() });
+    }
     // a source that filled its PULL_PAGE may have more: the page never goes past its last row
     let bound: After | null = null;
     const perSource = new Map<number, (After & { src: number })[]>();
@@ -356,6 +363,12 @@ syncRoutes.get("/pull", async (c) => {
       if (list) list.push(r.id);
       else bySource.set(r.src, [r.id]);
     }
+    // the rows themselves, still inside the window (a version written since the candidates were read is not sent)
+    const windowOf = (alias: string, first: number) => {
+      const params: unknown[] = Array.from({ length: first - 1 });
+      const where = deltaSql(alias, since, snap, params);
+      return { where, params: params.slice(first - 1) };
+    };
     let userIds: string[] = [];
     for (const [i, ids] of bySource) {
       const s = sources[i];
@@ -364,12 +377,16 @@ syncRoutes.get("/pull", async (c) => {
         continue;
       }
       if (s.def.engine) {
-        const stored = await tx.query<Record<string, unknown>>(`select * from ${ident(s.def.table)} where id = any($1::uuid[]) and org_id = $2`, [pgArray(ids), ctx.org.id]);
-        const part = await replicaRows(tx, ctx, s.def, stored);
+        const w = windowOf("r", 3);
+        const stored = await q.query<Record<string, unknown>>(
+          `select * from ${ident(s.def.table)} r where r.id = any($1::uuid[]) and r.org_id = $2 and ${w.where}`,
+          [pgArray(ids), ctx.org.id, ...w.params],
+        );
+        const part = await replicaRows(q, ctx, s.def, stored);
         aggregates.push(...part.aggregates);
         // a session from nothing sends no tombstones: the Windows app drops whatever it did not receive
         if (since) tombstones.push(...part.tombstones);
-      } else aggregates.push(...(await readAggregates(tx, s.def, ids)));
+      } else aggregates.push(...(await readAggregates(q, s.def, ids, windowOf("r", 2))));
     }
     // The members' accounts come along so that they can sign in on the desktop. A password hash
     // only goes where the caller could set that password anyway — the rule of «reset password» on
@@ -381,7 +398,7 @@ syncRoutes.get("/pull", async (c) => {
     const joined = aggregates.filter((a) => a.entity === "member").map((a) => String(a.row.user_id ?? "")).filter((id) => /^[0-9a-f-]{36}$/i.test(id));
     const wanted = [...new Set([...userIds, ...joined])];
     const users = wanted.length
-      ? await tx.query<Record<string, unknown>>(
+      ? await q.query<Record<string, unknown>>(
         `select ${USER_COLS} from sm_users u ${SHARE_JOIN}
          where u.id = any($7::uuid[]) and u.id in (select user_id from sm_org_members where org_id = $1)`,
         [...share, pgArray(wanted)],
@@ -399,13 +416,13 @@ syncRoutes.get("/pull", async (c) => {
       more,
       after: more && last ? { rev: last.rev, id: last.id } : null,
     };
-  });
+  })();
   if (page.reset) {
     return c.json({ aggregates: [], tombstones: [], users: [], cursor: "", snap: null, after: null, head: page.head, has_more: true, reset: true, epoch: page.epoch });
   }
-  if (q.device_id && /^[0-9a-f-]{36}$/i.test(q.device_id)) {
+  if (query.device_id && /^[0-9a-f-]{36}$/i.test(query.device_id)) {
     await ctx.db.query(`update sm_devices set last_pull_at = now(), cursor = $2 where id = $1 and org_id = $3 and user_id = $4`, [
-      q.device_id,
+      query.device_id,
       page.more ? (since?.xmin ?? 0) : page.snap.xmin,
       ctx.org.id,
       ctx.user.id,

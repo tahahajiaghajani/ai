@@ -1,5 +1,5 @@
 // One worker process of the server edition (or the whole server in a standalone run: development, tests). It builds
-// the shared API in its PostgreSQL ("cloud") mode — same accounts and sessions, same live pulse through sm_org_sync,
+// the shared API in its PostgreSQL ("cloud") mode — same accounts and sessions, same live pulse (database snapshots),
 // same modules — with the server edition's own parts: the air-gap policy around every outbound call, attachments on
 // disk, the scheduler candidate, metrics, the first-run setup and «سلامت سرور»; then serves it over HTTPS with the
 // bank's certificate (and redirects HTTP to HTTPS).

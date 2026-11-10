@@ -519,8 +519,8 @@ export async function runBatch(job: Job, jctx: JobContext): Promise<void | { aga
       if (wanted.length) sends.push(send(user, reasons, wanted));
     });
     const done = next + chunk.length;
-    // one transaction; the organisation's write lock only for the bell insert at its end (a `late` write): the log rows,
-    // the deliveries and the progress touch no synced table, the bells' per-row preparation needs no lock
+    // one short transaction, no organisation lock (sync revisions are transaction ids); `late` only matters with
+    // ITSM_SERIALIZE_WRITES: then the lock is taken just for the bell insert at its end
     const ids = bells.map(() => uuidv7());
     await sys.write(async (tx) => {
       await logMany(tx, [...bells.map((b, i) => ({ ...b.log, provider_id: ids[i] })), ...logs]);

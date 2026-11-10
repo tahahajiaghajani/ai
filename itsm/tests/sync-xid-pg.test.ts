@@ -427,9 +427,9 @@ describe.skipIf(!realPgAvailable())("sync revisions are transaction ids (real Po
   });
 
   it("randomised: writers × pullers in any commit and abort order — every replica ends with exactly the committed rows", async () => {
-    const WRITERS = 5;
-    const TXS = 30;
-    const PULLERS = 3;
+    const WRITERS = 6;
+    const TXS = 40;
+    const PULLERS = 4;
     let seed = 20261110;
     const rand = () => {
       seed = (seed * 1103515245 + 12345) % 2147483648;
@@ -485,6 +485,7 @@ describe.skipIf(!realPgAvailable())("sync revisions are transaction ids (real Po
       await expectConverged(r);
     }
     expect(committed).toBeGreaterThan(WRITERS * TXS * 0.6);
+    expect(replicas.every((r) => r.pages > 3)).toBe(true);
     expect(aborted).toBeGreaterThan(0);
   }, 180_000);
 

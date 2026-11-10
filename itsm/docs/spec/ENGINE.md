@@ -591,8 +591,9 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
   look is in its xip and comes later (a long transaction only delays its own rows), a row comes again only when it was
   written again. Pages of `PULL_PAGE` (1000) rows in `(rev, id)` order across every synced table and the members'
   accounts (`after = rev:id`; the rows of one big transaction share a revision and are split by id, never dropped).
-  Each page is one repeatable-read, read-only transaction: rows, side rows and access checks see one moment; a row
-  written again after `snap` is left to the next session (its new revision is not visible in `snap`). The answer
+  Every statement of a page keeps to the window (short statements of 24 tables each — no transaction holding locks on
+  every table): a row written again after `snap` is left to the next session (its new revision is not visible in
+  `snap`), never sent twice or half-changed. The answer
   carries `cursor` (the session's `snap` once it is complete), `snap`, `after`, `has_more`, `full` (a session from no
   cursor) and `epoch`. Pulls without `protocol=15` and a numeric cursor are refused with «update the app».
 - **Pull filter**: only rows the linked account may read (provider + row rules; side rows follow their record;
