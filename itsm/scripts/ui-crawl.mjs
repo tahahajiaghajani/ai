@@ -22,10 +22,11 @@
 //
 //   node scripts/ui-crawl.mjs [--base http://127.0.0.1:3939] [--port 4103] [--out docs/qa] [--roles admin,agent,requester]
 //        [--only <regex>] [--skip <regex>] [--no-build] [--no-records] [--no-actions] [--mobile main|all|none]
-//        [--keep-server] [--quick] [--merge]
+//        [--keep-server] [--quick] [--merge] [--from <route>] [--before <route>]
 //
-// --quick: the administrator's pages without the record pages and header actions, the other roles' home pages
-// (the CI smoke run). --merge: re-check some pages (--only) and keep the previous report's results for the others.
+// --quick: the administrator's menu pages, portal, consoles and sign-in pages without record pages, header actions
+// and phone widths, and the other roles' home pages (the CI smoke run). --merge: re-check some pages (--only) and keep the previous report's results for the others.
+// --from / --before: only the administrator's pages from one route on / before one (a long run split in parts).
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, createWriteStream } from "node:fs";
 import { tmpdir } from "node:os";
@@ -221,8 +222,8 @@ const SEED = [
   // planned dates inside the roadmap's default range, so its bar can be clicked
   ["release", { short_description: "انتشار نسخهٔ ۲.۴ سامانهٔ بانکداری اینترنتی", version_name: "2.4.0", planned_start: new Date(Date.now() + 2 * 86400000).toISOString(), planned_end: new Date(Date.now() + 9 * 86400000).toISOString() }],
   ["todo", { short_description: "تمدید گواهی SSL درگاه", priority: "2" }],
-  ["kb_article", { title: "راهنمای اتصال به VPN" }],
-  ["ci", { name: "SW-CORE-01" }],
+  ["kb_article", { title: "راهنمای اتصال به VPN", base_id: "{kb_base}" }],
+  ["ci", { name: "SRV-CORE-01", class: "server" }],
 ];
 
 async function seed(call, orgId, me) {
@@ -234,7 +235,13 @@ async function seed(call, orgId, me) {
         made[table] = have.rows[0].id;
         continue;
       }
-      made[table] = (await call("POST", `/o/${orgId}/r/${table}`, { ...row, ...(table === "incident" ? { caller_id: me } : {}) })).row.id;
+      // «{table}» stands for the first record of that table (an article's knowledge base)
+      const filled = {};
+      for (const [k, v] of Object.entries(row)) {
+        const ref = typeof v === "string" && v.match(/^\{(\w+)\}$/);
+        filled[k] = ref ? (await call("POST", `/o/${orgId}/r/${ref[1]}/query`, { size: 1, total: false })).rows[0]?.id ?? null : v;
+      }
+      made[table] = (await call("POST", `/o/${orgId}/r/${table}`, { ...filled, ...(table === "incident" ? { caller_id: me } : {}) })).row.id;
     } catch (e) {
       made[table] = `(${String(e.message).slice(0, 120)})`;
     }
@@ -477,8 +484,9 @@ async function clickActions(page, probe, url, role, route, href) {
   }
 }
 
-async function signIn(browser, url, u) {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: "fa-IR", timezoneId: "Asia/Tehran" });
+async function signIn(url, u) {
+  if (!B.browser?.isConnected()) await launch();
+  const ctx = await B.browser.newContext({ viewport: { width: 1440, height: 900 }, locale: "fa-IR", timezoneId: "Asia/Tehran" });
   const p = await ctx.newPage();
   await p.goto(`${url}/login`);
   await p.locator('input[autocomplete="username"]').fill(u.email, { timeout: 30000 });
@@ -490,102 +498,123 @@ async function signIn(browser, url, u) {
   return state;
 }
 
-async function crawlRole(browser, url, orgId, role, state, targets, extra = {}) {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: "fa-IR", timezoneId: "Asia/Tehran", storageState: state ?? undefined });
-  await ctx.addInitScript((org) => {
-    try {
-      localStorage.setItem("itsm.lastOrg", org);
-      localStorage.setItem("itsm.tour.done", "1");
-    } catch {}
-  }, orgId);
-  let page = await ctx.newPage();
-  let probe = new Probe(page, role);
-  let visits = 0;
+/** The browser, relaunched when it dies (a busy machine's out-of-memory killer takes the biggest process). */
+const B = { browser: null };
+async function launch() {
+  const { chromium } = require("playwright");
+  B.browser = await chromium.launch({ headless: true, args: ["--disable-dev-shm-usage", "--disable-gpu", "--disable-extensions"] });
+  return B.browser;
+}
+
+/**
+ * A tab of one role at one size that survives crashes: a dead tab is replaced, a dead context recreated, a dead
+ * browser relaunched. A fresh tab every 40 pages keeps the renderer's memory down.
+ */
+function tabs(url, orgId, role, state, size) {
+  let ctx = null;
+  const tab = { page: null, probe: null, uses: 0 };
+  tab.open = async () => {
+    await tab.page?.close().catch(() => {});
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        if (!B.browser?.isConnected()) {
+          ctx = null;
+          await launch();
+        }
+        if (!ctx) {
+          ctx = await B.browser.newContext({ ...size, locale: "fa-IR", timezoneId: "Asia/Tehran", storageState: state ?? undefined });
+          await ctx.addInitScript((org) => {
+            try {
+              localStorage.setItem("itsm.lastOrg", org);
+              localStorage.setItem("itsm.tour.done", "1");
+            } catch {}
+          }, orgId);
+        }
+        tab.page = await ctx.newPage();
+        tab.probe = new Probe(tab.page, role);
+        tab.uses = 0;
+        return tab;
+      } catch {
+        await ctx?.close().catch(() => {});
+        ctx = null;
+      }
+    }
+    throw new Error("could not open a browser tab three times");
+  };
+  tab.next = async () => {
+    if (!tab.page || tab.page.isClosed() || ++tab.uses >= 40) await tab.open();
+    return tab;
+  };
+  tab.close = async () => {
+    await ctx?.close().catch(() => {});
+    ctx = null;
+  };
+  return tab;
+}
+
+const DESKTOP = { viewport: { width: 1440, height: 900 } };
+const PHONE = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true };
+
+async function crawlRole(url, orgId, role, state, targets, extra = {}) {
+  const tab = tabs(url, orgId, role, state, DESKTOP);
   for (const t of targets) {
     const href = `${url}${t.href}`;
-    // a fresh tab every 40 pages: hundreds of pages in one tab pile up memory until the renderer is killed
-    if (++visits % 40 === 0) {
-      await page.close().catch(() => {});
-      page = await ctx.newPage();
-      probe = new Probe(page, role);
-    }
-    try {
-      await visitOne(t, href);
-    } catch (e) {
-      // a renderer that died (out of memory on a busy machine) gets one more chance on a fresh page
-      const crashed = /crash/i.test(String(e?.message ?? e));
-      await page.close().catch(() => {});
-      page = await ctx.newPage();
-      probe = new Probe(page, role);
-      if (!crashed) {
-        record({ role, route: t.href, step: "visit", console: [], exceptions: [], failed: [], forbidden: [], extra: [`crawler: ${String(e?.message ?? e).split("\n")[0]}`] });
-        continue;
-      }
+    target = t.href;
+    let tries = 0;
+    for (;;) {
       try {
-        await visitOne({ ...t, full: true }, href);
-      } catch (e2) {
-        record({ role, route: t.href, step: "visit", console: [], exceptions: [], failed: [], forbidden: [], extra: [`renderer crashed twice: ${String(e2?.message ?? e2).split("\n")[0]}`] });
-        await page.close().catch(() => {});
-        page = await ctx.newPage();
-        probe = new Probe(page, role);
+        await tab.next();
+        await visitOne(tab, t, href, role, url);
+        break;
+      } catch (e) {
+        const msg = String(e?.message ?? e).split("\n")[0];
+        // a renderer that died (out of memory on a busy machine) gets one more chance on a fresh tab
+        await tab.open().catch(() => {});
+        if (/crash|closed|disconnected/i.test(msg) && ++tries < 2) continue;
+        record({ role, route: t.href, step: "visit", console: [], exceptions: [], failed: [], forbidden: [], extra: [`${tries ? "renderer crashed twice" : "crawler"}: ${msg}`] });
+        break;
       }
     }
   }
-  async function visitOne(t, href) {
-    {
-      target = t.href;
-      await go(page, href, { full: t.full });
-      const r = await check(page, probe, { role, route: t.href, step: "visit" });
-      record(r);
-      if (r.blank || r.exceptions.length) {
-        // a crashed page leaves the app unmounted: start the next one afresh
-        await page.close().catch(() => {});
-        page = await ctx.newPage();
-        probe = new Probe(page, role);
-        return;
-      }
-      if (r.notFound) return;
-      if (t.kind === "list" && RECORDS) {
-        if (await clickNew(page, probe, url, role, t.href)) {
-          await go(page, href);
-          await probe.settle();
-          probe.take();
-        }
-        await openFirst(page, probe, url, role, t.href);
-      } else if (t.kind === "page" && ACTIONS) {
-        await clickActions(page, probe, url, role, t.href, href);
-      }
-    }
-  }
-  await ctx.close();
-  // phone width: horizontal overflow of the main pages
+  await tab.close();
+  // phone width: horizontal overflow of the main pages (the desktop visit reports the page's own problems)
   if (extra.mobile?.length) {
-    const m = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: "fa-IR", timezoneId: "Asia/Tehran", storageState: state ?? undefined });
-    await m.addInitScript((org) => {
-      try {
-        localStorage.setItem("itsm.lastOrg", org);
-      } catch {}
-    }, orgId);
-    let mp = await m.newPage();
-    let mprobe = new Probe(mp, role);
+    const ph = tabs(url, orgId, role, state, PHONE);
     for (const t of extra.mobile) {
       target = `390px ${t.href}`;
       try {
-        await go(mp, `${url}${t.href}`);
-        const r = await check(mp, mprobe, { role, route: t.href, step: "390px" });
-        r.overflow = r.hscroll ? r.width : 0;
-        // the desktop visit reports the page's own problems; here only the layout counts
-        record({ role, route: t.href, step: "390px", console: [], exceptions: r.exceptions, failed: [], forbidden: [], overflow: r.overflow, blank: r.blank });
-        if (r.blank) {
-          await mp.close().catch(() => {});
-          mp = await m.newPage();
-          mprobe = new Probe(mp, role);
-        }
+        await ph.next();
+        await go(ph.page, `${url}${t.href}`);
+        const r = await check(ph.page, ph.probe, { role, route: t.href, step: "390px" });
+        record({ role, route: t.href, step: "390px", console: [], exceptions: r.exceptions, failed: [], forbidden: [], overflow: r.hscroll ? r.width : 0, blank: r.blank });
+        if (r.blank) await ph.open();
       } catch (e) {
+        await ph.open().catch(() => {});
         record({ role, route: t.href, step: "390px", console: [], exceptions: [], failed: [], forbidden: [], extra: [`crawler: ${String(e?.message ?? e).split("\n")[0]}`] });
       }
     }
-    await m.close();
+    await ph.close();
+  }
+}
+
+/** One page: visit it, then its «… تازه» and first record (lists) or its header action and first item (pages). */
+async function visitOne(tab, t, href, role, url) {
+  await go(tab.page, href, { full: t.full });
+  const r = await check(tab.page, tab.probe, { role, route: t.href, step: "visit" });
+  record(r);
+  // a page that crashed leaves the app unmounted: the next one starts on a fresh tab
+  if (r.blank || r.exceptions.length) return void (await tab.open());
+  if (r.notFound) return;
+  const { page, probe } = tab;
+  if (t.kind === "list" && RECORDS) {
+    if (await clickNew(page, probe, url, role, t.href)) {
+      await go(page, href);
+      await probe.settle();
+      probe.take();
+    }
+    await openFirst(page, probe, url, role, t.href);
+  } else if (t.kind === "page" && ACTIONS) {
+    await clickActions(page, probe, url, role, t.href, href);
   }
 }
 
@@ -618,74 +647,85 @@ async function main() {
   const pick = (p) => (!ONLY || ONLY.test(p)) && (!SKIP || !SKIP.test(p));
   const orgHref = (p) => `/${orgId}${p ? `/${p}` : ""}`;
 
-  const { chromium } = require("playwright");
-  const browser = await chromium.launch({ headless: true, args: ["--disable-dev-shm-usage", "--disable-gpu", "--disable-extensions"] });
+  await launch();
   const report = { started: new Date(t0).toISOString(), url, mode: meta.mode, edition: meta.edition, version: meta.version, org_id: orgId, seeded, roles: ROLES, routes: reg.routes.length };
 
-  // ------------------------------------------------ the administrator: every route
-  if (ROLES.includes("admin")) {
-    const state = await signIn(browser, url, USERS.admin);
-    log("signed in as the administrator through the login form");
-    const targets = [{ href: orgHref(""), kind: "page", full: true }];
-    for (const r of classified) {
-      if (!allowedHere(r.path) || !pick(r.path)) continue;
-      if (r.kind === "list" || r.kind === "page") targets.push({ href: orgHref(r.path), kind: r.kind });
-      else if (r.kind === "nested") targets.push({ href: orgHref(r.path.slice(0, -2)), kind: "page" });
-      else if (r.kind === "param" && r.path.startsWith("r/:table")) targets.push({ href: orgHref(r.path.replace(":table", "todo").replace("/:id", `/${seeded.todo}`)), kind: r.path === "r/:table" ? "list" : "page" });
-    }
-    for (const p of reg.portal) if (p && !p.includes(":") && pick(`portal/${p}`)) targets.push({ href: orgHref(`portal/${p}`), kind: "page" });
-    for (const s of reg.admin) if (!s.edition || s.edition === meta.edition) if (pick(`/admin/${s.key}`)) targets.push({ href: s.key ? `/admin/${s.key}` : "/admin", kind: "page", full: true });
-    targets.push({ href: `/admin/orgs/${orgId}`, kind: "page", full: true });
-    for (const p of ["/orgs", "/orgs/new"]) if (pick(p)) targets.push({ href: p, kind: "page", full: true });
-    log(`administrator: ${targets.length} pages`);
-    const mobile = MOBILE === "none" ? [] : reg.nav.filter((i) => (MOBILE === "all" || !i.section) && (!i.action || i.workspace) && !i.path.includes(":") && allowedHere(i.path) && pick(i.path)).map((i) => ({ href: orgHref(i.path) }));
-    await crawlRole(browser, url, orgId, "admin", state, targets, { mobile: [{ href: "/login" }, ...mobile] });
-    // parameterised pages under a record list (`incidents/:id/war-room`, `flows/:id/design`): the list's first record
-    const params = classified.filter((r) => r.kind === "param" && !r.path.startsWith("r/:table") && !/\/:id$/.test(r.path) && pick(r.path));
-    const deep = [];
-    report.unreached = [];
-    for (const r of params) {
-      const m = r.path.match(/^(.*?)\/:id(\/.+)?$/);
-      const id = m ? firstIds.get(orgHref(m[1])) : null;
-      if (id) deep.push({ href: orgHref(`${m[1]}/${id}${m[2] ?? ""}`), kind: "page" });
-      else report.unreached.push(r.path);
-    }
-    if (deep.length && RECORDS) {
-      log(`administrator: ${deep.length} pages under records`);
-      await crawlRole(browser, url, orgId, "admin", state, deep);
-    }
-  }
-
-  // ------------------------------------------------ the agent and the requester: what their sidebar shows them
-  for (const role of ["agent", "requester"]) {
-    if (!ROLES.includes(role)) continue;
-    const state = await signIn(browser, url, USERS[role]);
-    const rc = client(url, state);
-    const info = await rc("GET", `/o/${orgId}`);
-    const perms = info.member?.permissions ?? {};
-    const can = (area, level = "view") => reg.LEVEL_ORDER.indexOf(perms[area] ?? "none") >= reg.LEVEL_ORDER.indexOf(level);
-    const has = (m) => (info.org?.modules ?? []).includes(m);
-    const visible = reg.nav.filter(
-      (i) => (!i.groupModule || has(i.groupModule)) && (!i.module || has(i.module)) && (!i.area || can(i.area, i.level ?? "view")) && (!i.access || reg.gateAllows(info.access?.grants, i.access)) && allowedHere(i.path) && !i.path.includes(":"),
-    );
-    log(`${role}: persona ${info.access?.persona}, ${visible.length} nav items visible`);
-    const lists = new Set(classified.filter((r) => r.kind === "list").map((r) => r.path));
-    const targets = [{ href: orgHref(""), kind: "page", full: true }];
-    if (!QUICK) {
-      for (const i of visible) if (pick(i.path)) targets.push({ href: orgHref(i.path), kind: lists.has(i.path) ? "list" : "page" });
+  // whatever happens, the report gets what was checked
+  try {
+    // ------------------------------------------------ the administrator: every route
+    if (ROLES.includes("admin")) {
+      const state = await signIn(url, USERS.admin);
+      log("signed in as the administrator through the login form");
+      const targets = [{ href: orgHref(""), kind: "page", full: true }];
+      // --quick: the pages the menus and the palette list (not every list of every definition table)
+      const navPaths = new Set(reg.nav.map((i) => i.path));
+      for (const r of classified) {
+        if (!allowedHere(r.path) || !pick(r.path) || (QUICK && !navPaths.has(r.path))) continue;
+        if (r.kind === "list" || r.kind === "page") targets.push({ href: orgHref(r.path), kind: r.kind });
+        else if (r.kind === "nested") targets.push({ href: orgHref(r.path.slice(0, -2)), kind: "page" });
+        else if (r.kind === "param" && r.path.startsWith("r/:table")) targets.push({ href: orgHref(r.path.replace(":table", "todo").replace("/:id", `/${seeded.todo}`)), kind: r.path === "r/:table" ? "list" : "page" });
+      }
       for (const p of reg.portal) if (p && !p.includes(":") && pick(`portal/${p}`)) targets.push({ href: orgHref(`portal/${p}`), kind: "page" });
+      for (const s of reg.admin) if (!s.edition || s.edition === meta.edition) if (pick(`/admin/${s.key}`)) targets.push({ href: s.key ? `/admin/${s.key}` : "/admin", kind: "page", full: true });
+      targets.push({ href: `/admin/orgs/${orgId}`, kind: "page", full: true });
+      for (const p of ["/orgs", "/orgs/new"]) if (pick(p)) targets.push({ href: p, kind: "page", full: true });
+      // --from / --before: a slice of the administrator's pages in registry order (a run split in parts)
+      const at = (k) => (opt(k) ? targets.findIndex((t) => t.href.endsWith(`/${opt(k)}`)) : -1);
+      if (at("before") >= 0) targets.splice(at("before"));
+      if (at("from") > 0) targets.splice(0, at("from"));
+      log(`administrator: ${targets.length} pages`);
+      const mobile = MOBILE === "none" ? [] : reg.nav.filter((i) => (MOBILE === "all" || !i.section) && (!i.action || i.workspace) && !i.path.includes(":") && allowedHere(i.path) && pick(i.path)).map((i) => ({ href: orgHref(i.path) }));
+      await crawlRole(url, orgId, "admin", state, targets, { mobile: [{ href: "/login" }, ...mobile] });
+      // parameterised pages under a record list (`incidents/:id/war-room`, `flows/:id/design`): the list's first record
+      const params = classified.filter((r) => r.kind === "param" && !r.path.startsWith("r/:table") && !/\/:id$/.test(r.path) && pick(r.path));
+      const deep = [];
+      report.unreached = [];
+      for (const r of params) {
+        const m = r.path.match(/^(.*?)\/:id(\/.+)?$/);
+        const id = m ? firstIds.get(orgHref(m[1])) : null;
+        if (id) deep.push({ href: orgHref(`${m[1]}/${id}${m[2] ?? ""}`), kind: "page" });
+        else report.unreached.push(r.path);
+      }
+      if (deep.length && RECORDS) {
+        log(`administrator: ${deep.length} pages under records`);
+        await crawlRole(url, orgId, "admin", state, deep);
+      }
     }
-    const mobile = MOBILE === "none" || QUICK ? [] : [{ href: orgHref("") }, { href: orgHref("portal") }, ...visible.filter((i) => !i.section && (!i.action || i.workspace)).slice(0, 12).map((i) => ({ href: orgHref(i.path) }))];
-    await crawlRole(browser, url, orgId, role, state, targets, { mobile });
-  }
 
-  // ------------------------------------------------ signed out: the sign-in pages and the published pages
-  if (ROLES.includes("admin")) {
-    const anon = ["/login", "/signup", "/recover", "/setup", "/p/unknown-page"].filter(pick).map((h) => ({ href: h, kind: "page", full: true }));
-    await crawlRole(browser, url, orgId, "anonymous", null, anon);
-  }
+    // ------------------------------------------------ the agent and the requester: what their sidebar shows them
+    for (const role of ["agent", "requester"]) {
+      if (!ROLES.includes(role)) continue;
+      const state = await signIn(url, USERS[role]);
+      const rc = client(url, state);
+      const info = await rc("GET", `/o/${orgId}`);
+      const perms = info.member?.permissions ?? {};
+      const can = (area, level = "view") => reg.LEVEL_ORDER.indexOf(perms[area] ?? "none") >= reg.LEVEL_ORDER.indexOf(level);
+      const has = (m) => (info.org?.modules ?? []).includes(m);
+      const visible = reg.nav.filter(
+        (i) => (!i.groupModule || has(i.groupModule)) && (!i.module || has(i.module)) && (!i.area || can(i.area, i.level ?? "view")) && (!i.access || reg.gateAllows(info.access?.grants, i.access)) && allowedHere(i.path) && !i.path.includes(":"),
+      );
+      log(`${role}: persona ${info.access?.persona}, ${visible.length} nav items visible`);
+      const lists = new Set(classified.filter((r) => r.kind === "list").map((r) => r.path));
+      const targets = [{ href: orgHref(""), kind: "page", full: true }];
+      if (!QUICK) {
+        for (const i of visible) if (pick(i.path)) targets.push({ href: orgHref(i.path), kind: lists.has(i.path) ? "list" : "page" });
+        for (const p of reg.portal) if (p && !p.includes(":") && pick(`portal/${p}`)) targets.push({ href: orgHref(`portal/${p}`), kind: "page" });
+      }
+      const mobile = MOBILE === "none" || QUICK ? [] : [{ href: orgHref("") }, { href: orgHref("portal") }, ...visible.filter((i) => !i.section && (!i.action || i.workspace)).slice(0, 12).map((i) => ({ href: orgHref(i.path) }))];
+      await crawlRole(url, orgId, role, state, targets, { mobile });
+    }
 
-  await browser.close();
+    // ------------------------------------------------ signed out: the sign-in pages and the published pages
+    if (ROLES.includes("admin")) {
+      const anon = ["/login", "/signup", "/recover", "/setup", "/p/unknown-page"].filter(pick).map((h) => ({ href: h, kind: "page", full: true }));
+      await crawlRole(url, orgId, "anonymous", null, anon);
+    }
+
+  } catch (e) {
+    report.fatal = String(e?.stack ?? e).slice(0, 2000);
+    log(`crawl stopped: ${report.fatal}`);
+  }
+  await B.browser?.close().catch(() => {});
   report.finished = new Date().toISOString();
   report.duration_s = Math.round((Date.now() - t0) / 1000);
   report.results = results.map(({ role, route, step, final, issues, ok, forbidden, target: tg }) => ({ role, route: norm(route), step, final: norm(final), ok, issues: issues.map(norm), target: tg, ...(forbidden?.length ? { forbidden: forbidden.map((f) => norm(`${f.status} ${f.method} ${f.url}`)) } : {}) }));
@@ -698,7 +738,7 @@ async function main() {
     report.merged = { kept: kept.length, from: prev.started };
     report.results = [...kept, ...report.results];
   }
-  report.summary = { checks: report.results.length, ok: report.results.filter((r) => r.ok).length, problems: report.results.filter((r) => !r.ok).length };
+  report.summary = { checks: report.results.length, ok: report.results.filter((r) => r.ok).length, problems: report.results.filter((r) => !r.ok).length + (report.fatal ? 1 : 0) };
   writeFileSync(join(OUT, "clickthrough.json"), JSON.stringify(report, null, 2) + "\n");
   writeFileSync(join(OUT, "CLICKTHROUGH.md"), markdown(report));
   log(`${report.summary.ok}/${report.summary.checks} checks passed in ${report.duration_s} s; ${join(OUT, "CLICKTHROUGH.md")}`);
@@ -730,6 +770,7 @@ function markdown(report) {
     "",
     `- Started ${report.started}, ${report.duration_s} s; version ${report.version}, ${report.mode} mode (${report.edition} edition) on PGlite.`,
     `- ${report.routes} registered routes; ${report.summary.checks} checks, ${report.summary.ok} passed, ${report.summary.problems} with a problem.`,
+    ...(report.fatal ? [`- **The crawl stopped early:** ${report.fatal.split("\n")[0]}`] : []),
     ...(report.merged ? [`- Re-checked pages merged into the run of ${report.merged.from} (${report.merged.kept} earlier checks kept).`] : []),
     ...Object.entries(byRole).map(([k, v]) => `- ${ROLE_TITLE[k] ?? k} (\`${k}\`): ${v.ok}/${v.checks} checks passed.`),
     "",
