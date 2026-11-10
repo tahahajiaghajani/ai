@@ -90,6 +90,9 @@ const LOCAL_ONLY: Record<string, string> = {
   sm_webhook_deliveries: "outbound webhook deliveries of this runtime (retries, dead letters, replays)",
   sm_directory_runs: "LDAP/AD previews and applies, SCIM dry-run logs",
   sm_directory_links: "which directory identity is which member or group (per source)",
+  // sign-in (the organisation a directory sign-in reaches; each runtime signs its own people in)
+  sm_sessions: "sessions of this runtime (a directory sign-in names the organisation it reaches)",
+  sm_auth_throttle: "failed sign-ins and local lockouts of this runtime",
 };
 
 describe("sync registry covers every organisation table", () => {

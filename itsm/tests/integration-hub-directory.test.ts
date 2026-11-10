@@ -89,6 +89,7 @@ describe("LDAP / Active Directory synchronisation", () => {
         kind: "ldap",
         mode: "apply",
         ldap_url: `ldap://127.0.0.1:${ldap.port}`,
+        tls_mode: "none",
         bind_dn: "CN=svc-itsm,OU=Service,DC=corp,DC=ir",
         bind_password: "pw",
         base_dn: "DC=corp,DC=ir",
@@ -152,7 +153,7 @@ describe("LDAP / Active Directory synchronisation", () => {
   });
 
   it("refuses wrong credentials, a preview-only source and members without the right", async () => {
-    const bad = (await e.owner.post(`${P}/r/directory_source`, { name: "گذرواژهٔ نادرست", kind: "ldap", ldap_url: `ldap://127.0.0.1:${ldap.port}`, bind_dn: "CN=x", bind_password: "nope", base_dn: "DC=corp,DC=ir" })).row;
+    const bad = (await e.owner.post(`${P}/r/directory_source`, { name: "گذرواژهٔ نادرست", kind: "ldap", ldap_url: `ldap://127.0.0.1:${ldap.port}`, tls_mode: "none", bind_dn: "CN=x", bind_password: "nope", base_dn: "DC=corp,DC=ir" })).row;
     const r = await e.owner.req("POST", `${P}/integration/directory/${bad.id}/preview`, {}, 400);
     expect(r.error.message).toContain("گذرواژه");
     const p = await e.owner.req("POST", `${P}/integration/directory/${src.id}/preview`, {});

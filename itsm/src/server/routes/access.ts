@@ -4,6 +4,7 @@
 // locations, groups, workspaces, profiles, roles) is also served by the generic engine API (/r/org_unit …).
 import { z } from "zod";
 import { router, body } from "../http/hono";
+import { needRecentAuthOf } from "../auth/policy";
 import { SCOPES } from "@shared/access";
 import { FIELD_GROUPS } from "@shared/model/types";
 import {
@@ -44,6 +45,7 @@ accessRoutes.get("/me", async (c) => c.json(await myAccess(c.get("ctx"))));
 accessRoutes.get("/roles", async (c) => c.json(await listRoles(c.get("ctx"))));
 
 accessRoutes.put("/roles/:key", async (c) => {
+  needRecentAuthOf(c, c.get("ctx"));
   const input = await body(c, roleSchema);
   return c.json({ role: await saveRole(c.get("ctx"), c.req.param("key"), input as Parameters<typeof saveRole>[2]) });
 });
@@ -54,6 +56,7 @@ accessRoutes.post("/roles/:key/reset", async (c) => {
 });
 
 accessRoutes.delete("/roles/:key", async (c) => {
+  needRecentAuthOf(c, c.get("ctx"));
   await deleteRole(c.get("ctx"), c.req.param("key"));
   return c.json({ ok: true });
 });
@@ -77,10 +80,13 @@ accessRoutes.get("/members/:userId", async (c) => c.json(await memberAccess(c.ge
 
 accessRoutes.put("/members/:userId", async (c) => {
   const input = await body(c, z.record(z.string(), z.unknown()));
+  // granting roles or workspaces is sensitive administration (a recent proof of identity)
+  if ("roles" in input || "workspaces" in input || "persona" in input) needRecentAuthOf(c, c.get("ctx"));
   return c.json(await saveMemberAccess(c.get("ctx"), UUID.parse(c.req.param("userId")), input));
 });
 
 accessRoutes.post("/members/:userId/preset", async (c) => {
+  needRecentAuthOf(c, c.get("ctx"));
   const input = await body(c, z.object({ preset: z.string().min(1) }));
   return c.json(await applyPreset(c.get("ctx"), UUID.parse(c.req.param("userId")), input.preset));
 });

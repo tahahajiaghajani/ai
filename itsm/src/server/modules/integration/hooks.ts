@@ -11,6 +11,7 @@ import { isSystem } from "../../access/provider";
 import { needWithinLimit } from "../admin/common";
 import { createServiceMember, syncServiceMember } from "./users";
 import { invalidateSubscriptions } from "./webhooks";
+import { validateLoginSettings } from "./directory-login";
 
 const HOUR = 3600_000;
 
@@ -59,6 +60,8 @@ function directory(w: WriteArgs): void {
   if (w.next.kind === "scim" && w.op === "create" && !w.next.scim_token) w.next.scim_token = randomToken(32);
   // the member whose access applies the synchronisation is set by the hub's «اعمال» (never typed)
   if (!isSystem(w.ctx) && !w.trusted && w.changed.has("approved_by")) throw bad("تأییدکننده با «اعمال» تعیین می‌شود");
+  // sign-in settings: addresses, TLS, the root CA, proxies; changing who signs in needs a recent proof of identity
+  validateLoginSettings(w);
 }
 
 function issueConnection(w: WriteArgs): void {

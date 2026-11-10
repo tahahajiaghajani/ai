@@ -8,19 +8,22 @@
 import { isIP } from "node:net";
 import type { Ctx, ServerConfig } from "../../context";
 import { uuidv7 } from "@shared/id";
-import { tableDef } from "@shared/tables";
 import {
   attrMapOf, entryFromLdap, planDirectorySync, planStats, withoutRoleGrants, type CurrentMember, type DirEntry, type DirOptions, type DirPlan, type GroupMapping,
 } from "@shared/integration/directory";
 import { bad, conflict, forbidden, notFound } from "../../http/errors";
-import { createIn, emitEvent, readSecret, removeIn, systemCtx, updateIn } from "../../engine";
+import { createIn, emitEvent, removeIn, systemCtx, updateIn } from "../../engine";
 import { enqueue, registerJobHandler } from "../../jobs";
 import { addGroupMembers, memberCtx, saveMemberAccess } from "../../access";
 import { aiNet, internalAddress } from "../ai/net";
 import { audit } from "../data/crud";
 import { needFeature, needWithinLimit } from "../admin/common";
 import { ensurePerson, setMemberActive, type MembershipRole } from "../admin/members";
-import { ldapSearch } from "./ldap";
+import { LdapError } from "./ldap";
+import { mappingFingerprint, openSourceConnection, nestedMemberships } from "./directory-login";
+import { revokeUserSessions } from "../../auth/session";
+import { needRecentAuth } from "../../auth/policy";
+import { securityEvent } from "../platform/security";
 import { grantingGroups, intLog, liveRow, liveRows, needIntegrations, sysOf, type Row } from "./common";
 
 const HOUR = 3600_000;
@@ -43,12 +46,18 @@ export function optionsOf(src: Row): DirOptions {
 export function mappingsOf(src: Row): GroupMapping[] {
   return (Array.isArray(src.group_map) ? src.group_map : [])
     .filter((m: unknown) => m && typeof m === "object")
-    .map((m: Record<string, unknown>) => ({ source: String(m.source ?? "").trim(), group_id: typeof m.group_id === "string" && m.group_id ? m.group_id : null, role: typeof m.role === "string" && m.role ? m.role : null }))
+    .map((m: Record<string, unknown>) => ({
+      source: String(m.source ?? "").trim(),
+      group_id: typeof m.group_id === "string" && m.group_id ? m.group_id : null,
+      role: typeof m.role === "string" && m.role ? m.role : null,
+      unit_id: typeof m.unit_id === "string" && m.unit_id ? m.unit_id : null,
+      workspace_id: typeof m.workspace_id === "string" && m.workspace_id ? m.workspace_id : null,
+    }))
     .filter((m: GroupMapping) => m.source);
 }
 
 /** On the web version an LDAP server must be a public host (the Windows app reaches the office network). */
-async function guardHost(cfg: ServerConfig, url: string): Promise<void> {
+export async function guardHost(cfg: ServerConfig, url: string): Promise<void> {
   if (cfg.mode === "desktop") return;
   let host: string;
   try {
@@ -61,15 +70,29 @@ async function guardHost(cfg: ServerConfig, url: string): Promise<void> {
   if (addresses.some(internalAddress)) throw bad("سرور LDAP در نشانی داخلی است؛ در نسخهٔ وب فقط سرورهای عمومی (یا برنامهٔ ویندوز در شبکهٔ سازمان) پذیرفته می‌شوند");
 }
 
-/** Read the people of an LDAP source. */
+/**
+ * Read the people of an LDAP source: the domain controllers in order (failover), LDAPS / StartTLS with the source's
+ * root CA, and — with nested groups on — the mapped groups' indirect members added to each person's groups.
+ */
 export async function readLdap(cfg: ServerConfig, sys: Ctx, src: Row): Promise<DirEntry[]> {
   if (!src.ldap_url || !src.base_dn) throw bad("نشانی LDAP و ریشهٔ جست‌وجو را تنظیم کنید");
-  await guardHost(cfg, String(src.ldap_url));
-  const password = (await readSecret(cfg.db, sys, tableDef("directory_source")!, String(src.id), "bind_password")) ?? "";
   const map = attrMapOf(src.attr_map);
   const attrs = [...new Set([map.email, map.name, map.username, map.title, map.phone, map.department, map.manager, map.groups, map.disabled, "userPrincipalName", "cn"])].filter((a) => a.toLowerCase() !== "distinguishedname");
-  const entries = await ldapSearch({ url: String(src.ldap_url), bindDn: String(src.bind_dn ?? ""), password, rejectUnauthorized: true }, String(src.base_dn), String(src.user_filter || "(objectClass=person)"), attrs);
-  return entries.map((e) => entryFromLdap(e.dn, e.attrs, map));
+  const { client, conf } = await openSourceConnection(cfg, sys, src);
+  try {
+    const entries = await client.search(String(src.base_dn), String(src.user_filter || "(objectClass=person)"), attrs);
+    const nested = await nestedMemberships(client, conf);
+    return entries.map((e) => {
+      const d = entryFromLdap(e.dn, e.attrs, map);
+      const more = nested.get(e.dn.toLowerCase());
+      return more ? { ...d, groups: [...new Set([...d.groups, ...more])] } : d;
+    });
+  } catch (e) {
+    if (e instanceof LdapError) throw bad(e.message);
+    throw e;
+  } finally {
+    client.close();
+  }
 }
 
 /** The organisation's members as the planner sees them (roles, groups, profile). */
@@ -176,6 +199,7 @@ export async function applyPlan(ctx: Ctx, src: Row, plan: DirPlan, roles: boolea
   const unitIds = new Map((await liveRows(ctx.db, sysOf(ctx), "org_unit", null)).map((u) => [String(u.name).toLowerCase(), String(u.id)]));
   const members = await currentMembers(ctx);
   for (const m of members) ids.set(m.email, m.user_id);
+  const deactivated: string[] = [];
   await ctx.write(async (tx) => {
     for (const name of plan.units) {
       if (unitIds.has(name.toLowerCase())) continue;
@@ -189,7 +213,11 @@ export async function applyPlan(ctx: Ctx, src: Row, plan: DirPlan, roles: boolea
       out.created++;
     }
     for (const u of plan.update) if (u.changes.name) await tx.query(`update sm_users set full_name = $2 where id = $1`, [u.user_id, String(u.changes.name.to).slice(0, 120)]);
-    for (const d of plan.deactivate) if (await setMemberActive(tx, ctx, d.user_id, false)) out.deactivated++;
+    for (const d of plan.deactivate)
+      if (await setMemberActive(tx, ctx, d.user_id, false)) {
+        out.deactivated++;
+        deactivated.push(d.user_id);
+      }
     for (const d of plan.reactivate) if (await setMemberActive(tx, ctx, d.user_id, true)) out.reactivated++;
     for (const l of plan.links) {
       const local = ids.get(l.email);
@@ -202,6 +230,12 @@ export async function applyPlan(ctx: Ctx, src: Row, plan: DirPlan, roles: boolea
     }
     await audit(tx, ctx, "directory_apply", "directory_source", String(src.id), `همگام‌سازی «${src.name}»: ${out.created} تازه، ${plan.update.length} به‌روز، ${out.deactivated} غیرفعال`, planStats(plan));
   });
+  // people the directory switched off lose their sessions here at once (all of them when this was their only organisation)
+  for (const userId of deactivated) {
+    const elsewhere = await ctx.db.one(`select 1 from sm_org_members where user_id = $1 and org_id <> $2 and deleted_at is null and is_active`, [userId, ctx.org.id]);
+    const n = await revokeUserSessions(ctx.db, userId, { reason: "directory", orgId: elsewhere ? ctx.org.id : null });
+    if (n) await securityEvent(ctx.db, { kind: "sessions_revoked", user_id: userId, org_id: ctx.org.id, data: { by: "directory", source: src.id, sessions: n } });
+  }
   // profiles through the access service (roles only as planned: the default role of new members, mapped roles when confirmed)
   const grants = new Map<string, string[]>();
   for (const g of roles ? plan.role_grants : []) grants.set(g.email, [...(grants.get(g.email) ?? []), g.role]);
@@ -284,6 +318,8 @@ export async function applyDirectory(ctx: Ctx, sourceId: string, runId: string, 
   ctx.need("users", "edit");
   await needFeature(ctx, "directory_sync");
   if (ctx.actor === "support") throw forbidden("همگام‌سازی فهرست کاربران را مدیر خود سازمان اعمال می‌کند");
+  // granting the mapped roles is sensitive administration
+  if (opts.roles) needRecentAuth(ctx);
   const src = await sourceRow(ctx, sourceId);
   if (src.mode !== "apply") throw conflict("این منبع در حالت «فقط پیش‌نمایش» است؛ برای اعمال، حالت آن را «اعمال» کنید");
   const run = await ctx.db.one<{ plan: DirPlan | null; started_at: string | Date; kind: string; status: string }>(`select plan, started_at, kind, status from sm_directory_runs where id = $1 and org_id = $2 and source_id = $3`, [runId, ctx.org.id, sourceId]);
@@ -365,9 +401,12 @@ export async function approveSource(ctx: Ctx, sourceId: string): Promise<Row> {
   needIntegrations(ctx, "full");
   ctx.need("users", "edit");
   if (ctx.actor === "support") throw forbidden("منبع فهرست کاربران را مدیر خود سازمان تأیید می‌کند");
+  needRecentAuth(ctx);
   const src = await sourceRow(ctx, sourceId);
   await needFeature(ctx, src.kind === "scim" ? "scim" : "directory_sync");
-  await markSource(ctx, src, { approved_by: ctx.user.id });
-  await audit(ctx.db, ctx, "directory_approve", "directory_source", sourceId, `تأیید منبع «${src.name}» با دسترسی ${ctx.user.full_name || ctx.user.email}`);
+  // the approval covers these very mappings: a directory sign-in grants mapped roles only while they are unchanged
+  const fingerprint = mappingFingerprint(src);
+  await markSource(ctx, src, { approved_by: ctx.user.id, approved_map_hash: fingerprint });
+  await audit(ctx.db, ctx, "directory_approve", "directory_source", sourceId, `تأیید منبع «${src.name}» و نگاشت‌های آن با دسترسی ${ctx.user.full_name || ctx.user.email}`, { mappings: mappingsOf(src).length, auto_roles: !!src.auto_roles });
   return sourceRow(ctx, sourceId);
 }

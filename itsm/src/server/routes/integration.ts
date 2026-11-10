@@ -24,6 +24,7 @@ import { apiAuth, apiScopes, metaForKey, openApiFor } from "../modules/integrati
 import { listDeliveries, replayDelivery, resumeSubscription, testSubscription } from "../modules/integration/webhooks";
 import { inboundEvents, MAX_INBOUND_BYTES, receiveInbound, retryInbound } from "../modules/integration/inbound";
 import { applyDirectory, approveSource, directoryRun, directoryRuns, previewDirectory, testDirectory } from "../modules/integration/directory";
+import { mappingPreview, sourceSignins, ssoChecklist, testLogin } from "../modules/integration/directory-login";
 import { linkIssue, receiveIssueHook, refreshRef, refsOf } from "../modules/integration/issues";
 import { runScheduleNow } from "../modules/integration/exports";
 import {
@@ -142,6 +143,14 @@ integrationHubRoutes.post("/directory/:id/apply", async (c) => {
 integrationHubRoutes.post("/directory/:id/approve", async (c) => c.json({ source: await approveSource(c.get("ctx"), uuid(c.req.param("id"), "منبع")) }));
 integrationHubRoutes.get("/directory/:id/runs", async (c) => c.json({ runs: await directoryRuns(c.get("ctx"), uuid(c.req.param("id"), "منبع")) }));
 integrationHubRoutes.get("/directory/runs/:runId", async (c) => c.json({ run: await directoryRun(c.get("ctx"), uuid(c.req.param("runId"), "اجرا")) }));
+// «ورود با حساب سازمانی»: test a login name without its password, preview the mappings, the SSO checklist, the source's sign-ins
+integrationHubRoutes.post("/directory/:id/login-test", async (c) => {
+  const input = await body(c, z.object({ login: z.string().trim().min(1, "نام کاربری را وارد کنید").max(300) }));
+  return c.json(await testLogin(c.get("ctx"), uuid(c.req.param("id"), "منبع"), input.login));
+});
+integrationHubRoutes.get("/directory/:id/mappings", async (c) => c.json(await mappingPreview(c.get("ctx"), uuid(c.req.param("id"), "منبع"))));
+integrationHubRoutes.get("/directory/:id/sso", async (c) => c.json(await ssoChecklist(c.get("ctx"), uuid(c.req.param("id"), "منبع"), new URL(c.req.url).host)));
+integrationHubRoutes.get("/directory/:id/signins", async (c) => c.json({ events: await sourceSignins(c.get("ctx"), uuid(c.req.param("id"), "منبع")) }));
 
 // ---------------------------------------------------------------- Jira and GitHub
 

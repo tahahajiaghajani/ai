@@ -18,6 +18,8 @@ import type { OrgStatus } from "../context";
 
 const requireAdmin: MiddlewareHandler<Env> = async (c, next) => {
   if (!c.get("user")?.is_platform_admin) throw forbidden("این بخش فقط برای مدیر سامانه است");
+  // a session an organisation's directory opened reaches only that organisation, never the platform's console
+  if (c.get("session")?.org_id) throw forbidden("مدیریت سامانه فقط با ورود محلی مدیر سامانه باز می‌شود");
   await next();
 };
 

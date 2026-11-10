@@ -73,6 +73,13 @@ export interface ServerConfig {
    * on the desktop (its own timer ticks every 10 s) and in tests (they tick explicitly).
    */
   waitUntil?: (work: () => Promise<unknown>) => void;
+  /**
+   * Cookies and proxies of the installation (src/server/auth/session.ts; environment fallbacks ITSM_COOKIE_SECURE,
+   * ITSM_COOKIE_SAMESITE, ITSM_TRUSTED_PROXIES): `cookieSecure` "auto" sets Secure on HTTPS requests (X-Forwarded-Proto
+   * counts only from a trusted proxy), `trustedProxies` are the addresses whose X-Forwarded-For / -Proto are believed
+   * (loopback always is).
+   */
+  auth?: { cookieSecure?: "auto" | "always" | "never"; cookieSameSite?: "Lax" | "Strict"; trustedProxies?: string[] };
 }
 
 export interface AuthUser {
@@ -90,6 +97,14 @@ export interface AuthSession {
   user_id: string;
   kind: "web" | "device" | "api";
   expires_at: string;
+  /** how it was opened: password, ldap (domain account), sso (Windows Kerberos), proxy (IIS), device… (src/server/auth) */
+  auth_method?: string | null;
+  /** a directory sign-in reaches only this organisation */
+  org_id?: string | null;
+  source_id?: string | null;
+  /** when the person last proved who they are (sensitive administration asks again after the policy's minutes) */
+  reauth_at?: string | null;
+  created_at?: string | null;
 }
 
 export interface OrgSettings {
@@ -164,6 +179,8 @@ export interface Ctx {
   support?: SupportSession | null;
   /** the organisation's platform status (loaded for /o/:org requests) */
   status?: OrgPlatformStatus | null;
+  /** the request's session (loaded for /o/:org requests): re-authentication of sensitive administration (src/server/auth/policy.ts) */
+  session?: AuthSession | null;
   can(area: Area, level: Level): boolean;
   need(area: Area, level: Level): void;
   /**
