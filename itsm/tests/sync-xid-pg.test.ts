@@ -14,7 +14,7 @@ import { createPostgresDb } from "@server/db/postgres";
 import { migrate } from "@server/db/migrate";
 import { createApp } from "@server/app";
 import { onBeforeCommit, pgArray, type Db } from "@server/db";
-import { systemCtx } from "@server/engine";
+import { create, systemCtx, update } from "@server/engine";
 import { configureWriteSerialisation, type ServerConfig } from "@server/context";
 import { checkXidRegression, currentSnap, notePurged, snapText } from "@server/sync/snapshot";
 import { SYNC_PROTOCOL } from "@shared/constants";
@@ -428,6 +428,26 @@ describe.skipIf(!realPgAvailable())("sync revisions are transaction ids (real Po
     await r.pullAll();
     expect(r.resets).toBe(1);
   });
+
+  it("engine writes of one organisation run concurrently (history, journal, events and all) and a replica converges", async () => {
+    const sys = await systemCtx(cfg, org);
+    const made = await Promise.all(Array.from({ length: 12 }, (_, i) => create(sys, "xid_note", { title: `موازی ${i}` })));
+    const ids = made.map((m) => String(m.row.id));
+    const r = new Replica(owner, org);
+    await r.pullAll();
+    // 12 records × 4 updates each, all at once; and 8 writers on one record (they queue on its row)
+    const results = await Promise.allSettled([
+      ...ids.flatMap((id, i) => Array.from({ length: 4 }, (_, k) => update(sys, "xid_note", id, { title: `موازی ${i}.${k}` }))),
+      ...Array.from({ length: 8 }, (_, k) => update(sys, "xid_note", ids[0], { title: `یک رکورد ${k}` })),
+      r.pullAll(),
+    ]);
+    const failed = results.filter((x) => x.status === "rejected").map((x) => String((x as PromiseRejectedResult).reason?.message ?? x));
+    expect(failed).toEqual([]);
+    await r.pullAll();
+    const stored = await db.query<{ id: string; title: string; rev: number }>(`select id, title, rev from sm_xid_notes where id = any($1::uuid[])`, [pgArray(ids)]);
+    for (const s of stored) expect({ id: s.id, title: r.rows.get(`xid_note:${s.id}`)?.title, rev: Number(r.rows.get(`xid_note:${s.id}`)?.rev) }).toEqual({ id: s.id, title: s.title, rev: Number(s.rev) });
+    expect(r.duplicates()).toEqual([]);
+  }, 120_000);
 
   it("randomised: writers × pullers in any commit and abort order — every replica ends with exactly the committed rows", async () => {
     const WRITERS = 6;
