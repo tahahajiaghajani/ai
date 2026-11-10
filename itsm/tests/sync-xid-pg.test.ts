@@ -3,7 +3,7 @@
 // order, and pulls read exact snapshot deltas — nothing missed, nothing twice. Skipped unless ITSM_PG_URL or ITSM_PG_BIN
 // (tests/pg-real.ts). Locally as root:
 //   ITSM_PG_BIN=/usr/lib/postgresql/16/bin npx vitest run tests/sync-xid-pg.test.ts
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { serve } from "@hono/node-server";
 import type { AddressInfo } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -20,16 +20,34 @@ import { checkXidRegression, currentSnap, notePurged, snapText } from "@server/s
 import { SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
 import { startLocal, type LocalServer } from "@local/server";
+import { registerTable } from "@shared/tables";
 import { Client, quietLog } from "./helpers";
 import { realPg, realPgAvailable, type RealPg } from "./pg-real";
+
+// an engine table of this suite (what the scoped pulse answers about)
+registerTable({
+  key: "xid_note",
+  table: "sm_xid_notes",
+  label: "یادداشت آزمون",
+  plural: "یادداشت‌های آزمون",
+  icon: "file",
+  module: "test",
+  area: "work",
+  display: "title",
+  fields: [{ name: "title", label: "عنوان", type: "text" }],
+  scope: {},
+});
 
 const EMAIL = "xid-owner@example.com";
 const PASSWORD = "xid-pass-1405";
 const INSERT = `insert into sm_test_items (id, org_id, name, code) values ($1, $2, $3, $4)`;
 
+/** Gates holding transactions open; a failed test releases its own (afterEach) so none outlives it. */
+const open: (() => void)[] = [];
 const deferred = () => {
   let resolve!: () => void;
   const promise = new Promise<void>((r) => (resolve = r));
+  open.push(resolve);
   return { promise, resolve };
 };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -144,6 +162,10 @@ describe.skipIf(!realPgAvailable())("sync revisions are transaction ids (real Po
     org = (await owner.post<{ id: string }>("/orgs", { name: "سازمان شناسهٔ تراکنش", timezone: "Asia/Tehran" })).id;
   }, 120_000);
 
+  afterEach(() => {
+    for (const release of open.splice(0)) release();
+  });
+
   afterAll(async () => {
     configureWriteSerialisation(false);
     await db?.close();
@@ -252,28 +274,34 @@ describe.skipIf(!realPgAvailable())("sync revisions are transaction ids (real Po
 
   it("the scoped pulse reports a write committed late by an older transaction", async () => {
     const pulse = (since?: string) =>
-      owner.get<{ pulse: string; changed?: string[] }>(`/o/${org}/pulse?t=test_item${since ? `&since=${encodeURIComponent(since)}` : ""}`);
+      owner.get<{ pulse: string; changed?: string[] }>(`/o/${org}/pulse?t=xid_note${since ? `&since=${encodeURIComponent(since)}` : ""}`);
+    const group = `insert into sm_xid_notes (id, org_id, title) values ($1, $2, $3)`;
     const p0 = (await pulse()).pulse;
     expect(p0.startsWith("x")).toBe(true);
     const gate = deferred();
     const wrote = deferred();
     const a = db.tx(async (tx) => {
-      await tx.query(INSERT, [uuidv7(), org, "پالس الف", code()]);
+      await tx.query(group, [uuidv7(), org, "گروه الف"]);
       wrote.resolve();
       await gate.promise;
     });
-    await wrote.promise;
-    await db.tx(async (tx) => void (await tx.query(INSERT, [uuidv7(), org, "پالس ب", code()])));
-    const p1 = await pulse(p0);
-    expect(p1.changed).toEqual(["test_item"]);
-    const p1b = await pulse(p1.pulse);
-    expect(p1b.changed).toEqual([]);
-    gate.resolve();
-    await a;
-    const p2 = await pulse(p1b.pulse);
-    expect(p2.changed).toEqual(["test_item"]);
-    const p3 = await pulse(p2.pulse);
-    expect(p3.changed).toEqual([]);
+    try {
+      await wrote.promise;
+      await db.tx(async (tx) => void (await tx.query(group, [uuidv7(), org, "گروه ب"])));
+      const p1 = await pulse(p0);
+      expect(p1.changed).toEqual(["xid_note"]);
+      const p1b = await pulse(p1.pulse);
+      expect(p1b.changed).toEqual([]);
+      gate.resolve();
+      await a;
+      const p2 = await pulse(p1b.pulse);
+      expect(p2.changed).toEqual(["xid_note"]);
+      const p3 = await pulse(p2.pulse);
+      expect(p3.changed).toEqual([]);
+    } finally {
+      gate.resolve();
+      await a.catch(() => undefined);
+    }
   });
 
   it("writes of one organisation no longer wait for each other (and the switch brings the lock back)", async () => {
@@ -485,13 +513,15 @@ describe.skipIf(!realPgAvailable())("sync revisions are transaction ids (real Po
       await desk.post("/local/sync");
       const want = (await db.query<{ name: string }>(`select name from sm_test_items where org_id = $1 and deleted_at is null`, [org])).map((r) => r.name).sort();
       const seen: string[] = [];
-      for (let after = ""; ; ) {
-        const page = await desk.get(`/o/${org}/data/test_item?limit=500${after ? `&after=${encodeURIComponent(after)}` : ""}`);
-        seen.push(...page.rows.map((r: { name: string }) => r.name));
-        if (!page.next) break;
-        after = page.next;
+      for (let page = 1; ; page++) {
+        const got = await desk.get(`/o/${org}/data/test_item?size=500&page=${page}`);
+        seen.push(...got.rows.map((r: { name: string }) => r.name));
+        if (got.rows.length < 500) break;
       }
       expect(seen.sort()).toEqual(want);
+      // what the office computer wrote through this Windows app reached the server
+      const lanRows = await db.query<{ name: string }>(`select name from sm_test_items where org_id = $1 and name like 'شبکه %'`, [org]);
+      expect(lanRows.length).toBe(4);
     } finally {
       await desktop?.close();
       await new Promise<void>((r) => server.close(() => r()));

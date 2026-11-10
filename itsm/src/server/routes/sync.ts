@@ -27,7 +27,7 @@ import { uuidv7 } from "@shared/id";
 import { afterEnginePush, checkEnginePush, replicaRows, scopeEpoch } from "../engine/sync";
 import { condEnv, orgSchema } from "../engine";
 import {
-  afterSql, afterText, bumpSyncEpoch, checkXidRegression, compareKey, covers, currentSnap, deltaSql, orgSyncState, parseAfter, parseSnap, snapText,
+  afterSql, afterText, bumpSyncEpoch, checkXidRegression, compareKey, covers, currentSnap, deltaSql, orgSyncState, parseAfter, parseSnap, snapText, visibleIn,
   type After,
 } from "../sync/snapshot";
 
@@ -311,7 +311,9 @@ syncRoutes.get("/pull", async (c) => {
     const started = !!(since || snapIn || after);
     // what this member may read changed, the database was restored, or tombstones this app never saw were removed
     // for good: everything again from the start
-    if (started && (q.epoch !== epoch || regressed || (since && since.xmin <= state.purged) || (snapIn && !covers(cur, snapIn)))) {
+    // (purged tombstones are sequential archive batches: the newest one visible in the cursor means all of them were)
+    const missedPurge = !!since && state.purged > 0 && !visibleIn(state.purged, since);
+    if (started && (q.epoch !== epoch || regressed || missedPurge || (snapIn && !covers(cur, snapIn)))) {
       return { reset: true as const, epoch, head: snapText(cur) };
     }
     const snap = snapIn ?? cur;
