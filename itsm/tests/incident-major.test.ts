@@ -6,6 +6,9 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { sweep } from "@server/modules/incident";
 import { backdate, world, type World } from "./incident-helpers";
 
+/** The people a queued notification names: a `notify.batch` job lists them, a `notify.send` job is one person's. */
+const told = (j: { payload: any }): string[] => (j.payload.people ? j.payload.people.map((x: any) => String(x.user)) : [String(j.payload.user)]);
+
 let w: World;
 let inc: Record<string, any>;
 beforeAll(async () => {
@@ -108,8 +111,8 @@ describe("the war room", () => {
     const after = await row();
     expect(Date.parse(after.last_update_at)).toBeGreaterThan(Date.parse(before.mi_declared_at) - 1);
     expect(Date.parse(after.next_update_at) - Date.parse(after.last_update_at)).toBe(20 * 60_000);
-    const sends = await w.e.db.query<{ payload: any }>(`select payload from sm_jobs where org_id = $1 and kind = 'notify.send' and payload->'rule'->>'name' = 'اطلاع‌رسانی رخداد'`, [w.e.org]);
-    expect(sends.map((s) => s.payload.user).sort()).toEqual([w.p.auditor.userId, w.p.mim.userId].sort());
+    const sends = await w.e.db.query<{ payload: any }>(`select payload from sm_jobs where org_id = $1 and kind in ('notify.send', 'notify.batch') and payload->'rule'->>'name' = 'اطلاع‌رسانی رخداد'`, [w.e.org]);
+    expect(sends.flatMap(told).sort()).toEqual([w.p.auditor.userId, w.p.mim.userId].sort());
     const tl = await w.o.get(`${w.P}/incident/${inc.id}/timeline`);
     expect(tl.items.some((x: any) => x.kind === "communication" && x.title.includes("به‌روزرسانی ۱"))).toBe(true);
     // to the affected people: a public reply on the incident
@@ -123,8 +126,8 @@ describe("the war room", () => {
     const first = await sweep(w.sys);
     expect(first.warned).toBe(1);
     expect((await sweep(w.sys)).warned).toBe(0);
-    const warn = await w.e.db.query<{ payload: any }>(`select payload from sm_jobs where org_id = $1 and kind = 'notify.send' and payload->'rule'->>'name' = 'رخداد عمده'`, [w.e.org]);
-    expect(warn.map((x) => x.payload.user).sort()).toEqual([w.p.agent.userId, w.p.mim.userId].sort());
+    const warn = await w.e.db.query<{ payload: any }>(`select payload from sm_jobs where org_id = $1 and kind in ('notify.send', 'notify.batch') and payload->'rule'->>'name' = 'رخداد عمده'`, [w.e.org]);
+    expect(warn.flatMap(told).sort()).toEqual([w.p.agent.userId, w.p.mim.userId].sort());
   });
 });
 

@@ -5,6 +5,8 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { createPgliteDb } from "@server/db/pglite";
 import { migrate } from "@server/db/migrate";
 import { AGGREGATES } from "@server/sync/registry";
+import { archivableTables } from "@server/engine/archive";
+import { archiveTableOf } from "@server/engine/ddl";
 import type { Db } from "@server/db";
 
 const LOCAL_ONLY: Record<string, string> = {
@@ -112,7 +114,9 @@ describe("sync registry covers every organisation table", () => {
   it("classifies every table with an org_id as a sync root, a child of one, or deliberately local", () => {
     const roots = new Set(AGGREGATES.map((a) => a.table));
     const children = new Set(AGGREGATES.flatMap((a) => (a.children ?? []).map((c) => c.table)));
-    const stray = tables.filter((t) => t.cols.includes("org_id") && !roots.has(t.name) && !children.has(t.name) && !(t.name in LOCAL_ONLY)).map((t) => t.name);
+    // archives of old closed records stay on the server (engine/archive.ts; hot tables tombstone what moved)
+    const archives = new Set(archivableTables().map(archiveTableOf));
+    const stray = tables.filter((t) => t.cols.includes("org_id") && !roots.has(t.name) && !children.has(t.name) && !(t.name in LOCAL_ONLY) && !archives.has(t.name)).map((t) => t.name);
     expect(stray).toEqual([]);
   });
 

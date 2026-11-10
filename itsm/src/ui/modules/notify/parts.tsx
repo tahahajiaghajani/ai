@@ -4,7 +4,7 @@
 import { useMemo } from "react";
 import { Checkbox, Select } from "antd";
 import { useQuery } from "@tanstack/react-query";
-import { RECIPIENT_FLAGS, type RecipientFlag, type RecipientSpec } from "@shared/notify";
+import { RECIPIENT_FLAGS, type RecipientFlag, type RecipientSpec, type RuleGroupMode } from "@shared/notify";
 import { builtinRoles } from "@shared/access/builtins";
 import { useOrg } from "../../lib/org";
 import { Field } from "../../components/blocks";
@@ -132,6 +132,7 @@ export interface RuleDraft {
   condition: RuleView["condition"];
   recipients: RecipientSpec;
   notify_actor: boolean;
+  large_groups: RuleGroupMode;
   channels: RuleView["channels"];
   targets: string[];
   template_id: string | null;
@@ -151,6 +152,7 @@ export const NEW_RULE: RuleDraft = {
   condition: null,
   recipients: {},
   notify_actor: false,
+  large_groups: "group",
   channels: ["in_app"],
   targets: [],
   template_id: null,
@@ -173,6 +175,7 @@ export function draftOf(rule: object): RuleDraft {
     condition: (r.condition as RuleDraft["condition"]) ?? null,
     recipients: (r.recipients as RecipientSpec | undefined) ?? {},
     notify_actor: !!r.notify_actor,
+    large_groups: r.large_groups === "members" || r.large_groups === "leads" ? r.large_groups : "group",
     channels: Array.isArray(r.channels) ? (r.channels as RuleDraft["channels"]) : [],
     targets: Array.isArray(r.targets) ? (r.targets as string[]) : [],
     template_id: (r.template_id as string | null) ?? null,

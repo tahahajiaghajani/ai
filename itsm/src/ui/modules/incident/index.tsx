@@ -54,6 +54,18 @@ const ICONS: Record<string, typeof Siren> = { mine: User, unassigned: Users, hig
 const myCount = async (api: OrgApi) =>
   (await recordsApi.list(api, "incident", { filter: QUEUES[0].filter(Date.now()), size: 1, fields: ["number"], total: true })).total ?? 0;
 
+/**
+ * The open incidents of the caller's groups nobody took yet: the group queue's count. A large group hears of a new
+ * incident here and through its leads (notify.md «گروه‌های بزرگ»), not through a bell for every member.
+ */
+const groupCount = async (api: OrgApi) =>
+  (await recordsApi.list(api, "incident", { filter: QUEUES[1].filter(Date.now()), size: 1, fields: ["number"], total: true })).total ?? 0;
+
+const COUNTS: Record<string, NonNullable<NavItem["count"]>> = {
+  mine: { key: "incident:mine", hint: "رخداد باز شما", load: myCount, tables: ["incident"] },
+  unassigned: { key: "incident:group", hint: "رخداد بی‌مسئول در گروه‌های شما", load: groupCount, tables: ["incident"] },
+};
+
 const queueNav = (q: Queue, i: number): NavItem => ({
   key: `incident:q:${q.key}`,
   label: q.label,
@@ -62,7 +74,7 @@ const queueNav = (q: Queue, i: number): NavItem => ({
   area: "work",
   workspace: i === 0,
   keywords: "رخداد صف کارتابل",
-  ...(i === 0 ? { count: { key: "incident:mine", hint: "رخداد باز شما", load: myCount } } : {}),
+  ...(COUNTS[q.key] ? { count: COUNTS[q.key] } : {}),
 });
 
 const module = recordModule({

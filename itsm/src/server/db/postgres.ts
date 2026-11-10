@@ -3,6 +3,7 @@
 // because the transaction pooler does not support them.
 import postgres from "postgres";
 import { runBeforeCommit, toIsoTimestamp, type Db, type Row, type Tx } from "./index";
+import { txEnded } from "./lockprobe";
 
 /**
  * postgres.js lets the server decide parameter types and serialises json/jsonb itself, so
@@ -139,20 +140,28 @@ export function createPostgresDb(opts: PostgresOptions): Db {
     kind: "postgres",
     ...base,
     async tx<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
-      const result = await sql.begin(async (t) => {
-        const sp = savepoints(t);
-        try {
-          const txq: Tx = { ...make(sp.sql), inTx: true };
-          const r = await fn(txq);
-          await runBeforeCommit(txq);
-          await sp.closeAll(true);
-          return r;
-        } catch (e) {
-          await sp.closeAll(false).catch(() => {});
-          throw e;
-        }
-      });
-      return result as T;
+      let txq: Tx | null = null;
+      let committed = false;
+      try {
+        const result = await sql.begin(async (t) => {
+          const sp = savepoints(t);
+          try {
+            txq = { ...make(sp.sql), inTx: true };
+            const r = await fn(txq);
+            await runBeforeCommit(txq);
+            await sp.closeAll(true);
+            return r;
+          } catch (e) {
+            await sp.closeAll(false).catch(() => {});
+            throw e;
+          }
+        });
+        committed = true;
+        return result as T;
+      } finally {
+        // the write-lock probe (off in production): the transaction is over, its lock released
+        txEnded(txq, committed);
+      }
     },
     async close() {
       await sql.end({ timeout: 5 });

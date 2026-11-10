@@ -56,6 +56,13 @@ export interface AccessProvider {
    */
   participations?(ctx: Ctx, q: Queryable): Promise<ReadonlySet<string>>;
   /**
+   * Before the engine reads rows of `def` for the caller (lists, aggregates, records: `canOpenRecords`), load what
+   * keeps `readWhere` small for this request — never what widens it: a provider may leave out terms it knows select
+   * nothing now (participant sources that name none of the table's rows for the caller). Optional; `readWhere` must
+   * be complete without it (paths that never call it get the whole predicate).
+   */
+  prepareRead?(ctx: Ctx, def: TableDef, q: Queryable): Promise<void>;
+  /**
    * Load whatever the synchronous methods above need about the caller (their roles, groups, units…) through `q` —
    * the request's transaction when there is one. The engine awaits it before any other call for a context
    * (`orgSchema`); a provider that needs nothing leaves it out.

@@ -25,11 +25,12 @@ import { access } from "../access/provider";
 import { scopeColumns } from "@shared/access";
 import { physicalTables } from "@shared/tables";
 import { actorId, condEnv, isSystemCtx } from "./env";
+import { ensureOrgLock } from "../context";
 import { orgSchema, type OrgSchema } from "./schema";
 import { checkRefs, coerceValue, isEmpty, KEEP, Problems, sealSecret, validateRow, type ValueContext } from "./values";
 import { allocateNumber, formatNumber } from "./numbering";
 import { hooksFor, guardFor, type Row, type WriteArgs, type WriteOp } from "./hooks";
-import { writeHistory } from "./history";
+import { audited, writeHistory } from "./history";
 import { changeSummary, emitEvent, type RecordEventInput } from "./events";
 import { canOpenRecords, fromDb, loadReadable } from "./read";
 import { notFound } from "../http/errors";
@@ -323,26 +324,7 @@ async function pipeline(p: PipelineInput): Promise<Row> {
   // module hooks (values they set are coerced like a caller's)
   const hooks = hooksFor(def.key);
   const w: WriteArgs = { tx, ctx, def, op, next, prev, changed, transition, env, input: new Set(Object.keys(values)), via: opts.via, trusted: !!opts.trusted };
-  if (hooks.some((h) => h.beforeWrite)) {
-    const before = { ...next };
-    for (const h of hooks) await h.beforeWrite?.(w);
-    for (const f of def.fields) {
-      if (f.base || sameValue(f, before[f.name], next[f.name])) continue;
-      const v = problems.try(() => coerceValue(f, next[f.name], vc, prev?.[f.name]));
-      if (v !== undefined && v !== KEEP) next[f.name] = v;
-      if (creating || !sameValue(f, prev?.[f.name], next[f.name])) changed.add(f.name);
-      else changed.delete(f.name);
-    }
-    // the access anchors (unit_id, domain_id) are never taken from input; the access model's hook sets them
-    for (const k of ANCHORS) {
-      const v = typeof next[k] === "string" && UUID.test(next[k]) ? String(next[k]).toLowerCase() : null;
-      if ((before[k] ?? null) === v) continue;
-      next[k] = v;
-      if (creating ? v !== null : (prev?.[k] ?? null) !== v) changed.add(k);
-      else changed.delete(k);
-    }
-    problems.throwIfAny();
-  }
+  await beforeWriteHooks(hooks, w, vc, problems);
 
   if (!creating && !changed.size) return prev!;
 
@@ -393,12 +375,40 @@ async function pipeline(p: PipelineInput): Promise<Row> {
   return stored;
 }
 
+/**
+ * The beforeWrite hooks of a write (the table's, then «*»'s): values they set are coerced like a caller's and decide
+ * `changed`; the access anchors (unit_id, domain_id) are never taken from input — the access model's hook sets them.
+ */
+async function beforeWriteHooks(hooks: ReturnType<typeof hooksFor>, w: WriteArgs, vc: ValueContext, problems: Problems): Promise<void> {
+  if (!hooks.some((h) => h.beforeWrite)) return;
+  const { def, next, prev, changed } = w;
+  const creating = !prev;
+  const before = { ...next };
+  for (const h of hooks) await h.beforeWrite?.(w);
+  for (const f of def.fields) {
+    if (f.base || sameValue(f, before[f.name], next[f.name])) continue;
+    const v = problems.try(() => coerceValue(f, next[f.name], vc, prev?.[f.name]));
+    if (v !== undefined && v !== KEEP) next[f.name] = v;
+    if (creating || !sameValue(f, prev?.[f.name], next[f.name])) changed.add(f.name);
+    else changed.delete(f.name);
+  }
+  for (const k of ANCHORS) {
+    const v = typeof next[k] === "string" && UUID.test(next[k]) ? String(next[k]).toLowerCase() : null;
+    if ((before[k] ?? null) === v) continue;
+    next[k] = v;
+    if (creating ? v !== null : (prev?.[k] ?? null) !== v) changed.add(k);
+    else changed.delete(k);
+  }
+  problems.throwIfAny();
+}
+
 function transitionError(def: TableDef, from: unknown, to: unknown): AppError {
   const label = (v: unknown) => def.states?.states.find((s) => s.value === v)?.label ?? String(v ?? "—");
   return new AppError(409, "transition", `انتقال از «${label(from)}» به «${label(to)}» مجاز نیست`);
 }
 
 async function insertRow(tx: Tx, ctx: Ctx, def: TableDef, next: Row): Promise<Row> {
+  await ensureOrgLock(tx, ctx.org.id);
   const cols: string[] = ["id", "org_id", "created_by", "updated_by", "origin"];
   const actor = actorId(ctx);
   const params: unknown[] = [next.id, ctx.org.id, actor, actor, ctx.cfg.origin ?? null];
@@ -426,6 +436,7 @@ async function insertRow(tx: Tx, ctx: Ctx, def: TableDef, next: Row): Promise<Ro
 }
 
 async function updateRow(tx: Tx, ctx: Ctx, def: TableDef, prev: Row, next: Row, changed: Set<string>, opts: WriteOptions): Promise<Row> {
+  await ensureOrgLock(tx, ctx.org.id);
   const sets: string[] = [];
   const params: unknown[] = [];
   const set = (col: string, v: unknown, cast = "") => {
@@ -586,6 +597,94 @@ export async function transitionIn(tx: Tx, ctx: Ctx, table: string, id: string, 
   return pipeline({ tx, ctx, def, schema, env, op: "transition", prev, input: { ...data, [model.field]: to }, opts, transition: t });
 }
 
+/** A value as `jsonb_to_recordset` reads it (json and array fields stay JSON, decimals and instants become text). */
+function recordsetValue(v: unknown): unknown {
+  if (v === undefined || v === null) return null;
+  if (v instanceof Date) return v.toISOString();
+  if (typeof v === "object" && !Array.isArray(v) && "toFixed" in (v as object) && "isZero" in (v as object)) return (v as { toFixed(): string }).toFixed();
+  return v;
+}
+
+/**
+ * Create many rows of `table` with ONE insert statement — set-based output of the platform itself (the bell rows of a
+ * notification for every recipient at once). System contexts only. Each row is coerced, defaulted, given to the
+ * beforeWrite hooks (the access anchors…) and validated as a create is, the stored rows go to the afterWrite hooks, and
+ * the sync trigger gives each its revision. Left out on purpose: a statement per row and the record events (no
+ * `record.created` per row: nothing reacts to the rows one by one), and the reference checks (the system names people
+ * and records it read). Numbered tables, tables with a state model and tables that keep field history are refused.
+ * `ids` gives rows their ids up front (a log can name them before the insert). In a `late` write the organisation's
+ * write lock is taken only for the insert itself, after the per-row work. Returns the stored rows in input order.
+ */
+export async function insertManyIn(tx: Tx, ctx: Ctx, table: string, inputs: Record<string, unknown>[], opts: { ids?: string[] } = {}): Promise<Row[]> {
+  if (!inputs.length) return [];
+  if (!isSystemCtx(ctx)) throw forbidden(`ردیف‌های «${table}» را فقط خود سامانه دسته‌ای می‌سازد`);
+  const { def, schema, env } = await prepare(tx, ctx, table);
+  if (def.numbered || def.states || def.fields.some((f) => audited(def, f))) throw new Error(`insertManyIn: «${def.key}» is numbered, has states or keeps history`);
+  const hooks = hooksFor(def.key);
+  const actor = actorId(ctx);
+  const nexts: { next: Row; w: WriteArgs }[] = [];
+  for (const [i, input] of inputs.entries()) {
+    const given = opts.ids?.[i];
+    const id = typeof given === "string" && UUID.test(given) ? given.toLowerCase() : uuidv7();
+    const vc = valueContext(ctx, def, schema, env, id);
+    const problems = new Problems();
+    const values = coerceInput(def, input, vc, null, { trusted: true }, problems);
+    problems.throwIfAny();
+    const next: Row = { id };
+    const changed = new Set<string>();
+    for (const [k, v] of Object.entries(values)) {
+      next[k] = v;
+      if (!isEmpty(v) || def.fields.find((f) => f.name === k)?.type === "bool") changed.add(k);
+    }
+    for (const f of def.fields) {
+      if (f.base || f.name in values) continue;
+      const d = defaultValue(f, ctx, env, vc);
+      if (d !== undefined && d !== null) {
+        next[f.name] = d;
+        changed.add(f.name);
+      } else next[f.name] = f.type === "bool" ? false : null;
+    }
+    if (values.workspace_id) next.workspace_id = values.workspace_id;
+    const w: WriteArgs = { tx, ctx, def, op: "create", next, prev: null, changed, env, input: new Set(Object.keys(values)), trusted: true };
+    await beforeWriteHooks(hooks, w, vc, problems);
+    validateRow(def, next, changed, vc, true, problems);
+    problems.throwIfAny();
+    nexts.push({ next, w });
+  }
+  const fields = def.fields.filter((f) => !f.base && !f.custom);
+  const base: [string, string][] = [["id", "uuid"], ["org_id", "uuid"], ["created_by", "uuid"], ["updated_by", "uuid"], ["origin", "text"], ["workspace_id", "uuid"], ["unit_id", "uuid"], ["domain_id", "uuid"], ["custom", "jsonb"]];
+  const present = new Set(def.fields.map((f) => f.name));
+  const cols: [string, string][] = [...base.filter(([c]) => !["workspace_id", "unit_id", "domain_id"].includes(c) || present.has(c)), ...fields.map((f) => [f.name, FIELD_TYPES[f.type].sql] as [string, string])];
+  const records = nexts.map(({ next }) => {
+    const custom: Row = {};
+    for (const f of def.fields) if (f.custom && !isEmpty(next[f.name])) custom[f.name] = next[f.name];
+    const r: Row = { id: next.id, org_id: ctx.org.id, created_by: actor, updated_by: actor, origin: ctx.cfg.origin ?? null, custom };
+    for (const k of ["workspace_id", ...ANCHORS]) if (present.has(k)) r[k] = next[k] ?? null;
+    for (const f of fields) r[f.name] = recordsetValue(next[f.name]);
+    return r;
+  });
+  const names = cols.map(([c]) => c).join(", ");
+  // the per-row work above ran without the organisation's write lock when the transaction is `late`: take it now
+  await ensureOrgLock(tx, ctx.org.id);
+  let stored: Row[];
+  try {
+    stored = await tx.query<Row>(
+      `insert into ${def.table} (${names}) select ${names} from jsonb_to_recordset($1::jsonb) as x(${cols.map(([c, t]) => `${c} ${t}`).join(", ")}) returning *`,
+      [JSON.stringify(records)],
+    );
+  } catch (e) {
+    throw uniqueError(def, e) ?? e;
+  }
+  const byId = new Map(stored.map((r) => [String(r.id), fromDb(def, r)]));
+  const out: Row[] = [];
+  for (const { next, w } of nexts) {
+    const row = byId.get(String(next.id))!;
+    for (const h of hooks) await h.afterWrite?.({ ...w, next: row, row });
+    out.push(row);
+  }
+  return out;
+}
+
 /** Soft-delete a record inside `tx`. */
 export async function removeIn(tx: Tx, ctx: Ctx, table: string, id: string, opts: WriteOptions = {}): Promise<void> {
   const { def, env } = await prepare(tx, ctx, table);
@@ -593,6 +692,7 @@ export async function removeIn(tx: Tx, ctx: Ctx, table: string, id: string, opts
   const hooks = hooksFor(def.key);
   const w: WriteArgs = { tx, ctx, def, op: "delete", next: { ...prev, deleted_at: new Date().toISOString() }, prev, changed: new Set(["deleted_at"]), env, input: new Set(), via: opts.via, trusted: !!opts.trusted };
   for (const h of hooks) await h.beforeWrite?.(w);
+  await ensureOrgLock(tx, ctx.org.id);
   const row = await tx.one<Row>(
     `update ${def.table} set deleted_at = now(), updated_at = now(), updated_by = $3, version = version + 1 where id = $1 and org_id = $2 returning *`,
     [prev.id, ctx.org.id, actorId(ctx)],

@@ -51,7 +51,7 @@ async function filterSet(ctx: Ctx, cls: string | null | undefined, cond: Cond | 
     params.push(pgArray(tree.descendants(cls)));
     parts.push(`t.class = any($${params.length}::text[])`);
   }
-  if (cond) parts.push(toSql(cond, def, "t", params, env, { ctx, lookup: schema.lookup }));
+  if (cond) parts.push(toSql(cond, def, "t", params, env, { ctx, lookup: schema.lookup, filter: true }));
   if (ids) {
     if (!ids.length) return [];
     params.push(pgArray(ids));

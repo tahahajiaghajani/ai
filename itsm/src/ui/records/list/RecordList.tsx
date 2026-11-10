@@ -17,7 +17,7 @@ import type { Cond } from "@shared/model/conditions";
 import { pathLabel, resolvePath } from "@shared/model/conditions";
 import type { FieldDef } from "@shared/model/types";
 import { FIELD_TYPES } from "@shared/model/types";
-import { faDigits } from "@shared/format";
+import { faDigits, formatNumber } from "@shared/format";
 import { useOrg } from "../../lib/org";
 import { useIsPhone, useLocalState, useNotify } from "../../lib/hooks";
 import { errorText } from "../../lib/api";
@@ -179,6 +179,8 @@ function ListBody({ def, schema, preset: presetProp, title, actions, embedded, b
 
   const rows = list.data?.rows ?? [];
   const total = list.data?.total ?? null;
+  // a list of more than 10 000 rows is counted up to there (the server's limit): «بیش از ۱۰٬۰۰۰ ردیف»
+  const capped = !!list.data?.capped;
   const display = list.data?.display ?? {};
   const firstLoad = list.isLoading && !list.data;
   const [active, setActive] = useState(-1);
@@ -622,7 +624,7 @@ function ListBody({ def, schema, preset: presetProp, title, actions, embedded, b
                   total: total ?? undefined,
                   showSizeChanger: true,
                   pageSizeOptions: [20, 50, 100, 200],
-                  showTotal: (t) => `${faDigits(t)} ردیف`,
+                  showTotal: (t) => (capped ? `بیش از ${formatNumber(t)} ردیف` : `${faDigits(t)} ردیف`),
                   size: "small",
                   hideOnSinglePage: (total ?? 0) <= 20,
                 }

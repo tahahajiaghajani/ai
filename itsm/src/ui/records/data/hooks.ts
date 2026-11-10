@@ -76,11 +76,27 @@ export function useMe() {
 
 // ---------------------------------------------------------------- reads
 
+/**
+ * Keyset cursors (ListResult.next) of the pages lists showed: moving to the next page continues after the last row of
+ * the page before (constant time at any depth) instead of skipping rows; a page reached otherwise uses its number.
+ */
+const cursors = new Map<string, string>();
+const cursorKey = (orgId: string, table: string, q: ListQuery, page: number) => JSON.stringify([orgId, table, { ...q, page: undefined, after: undefined }, page]);
+
 export function useRecordList(table: string | null | undefined, query: ListQuery, opts: { enabled?: boolean } = {}) {
   const { api, orgId } = useOrg();
   return useQuery({
     queryKey: keys.list(orgId, table ?? "", query),
-    queryFn: () => recordsApi.list(api, table!, query),
+    queryFn: async () => {
+      const page = query.page ?? 1;
+      const after = page > 1 ? cursors.get(cursorKey(orgId, table!, query, page)) : undefined;
+      const r = await recordsApi.list(api, table!, after ? { ...query, after } : query);
+      if (r.next) {
+        cursors.set(cursorKey(orgId, table!, query, page + 1), r.next);
+        if (cursors.size > 300) cursors.delete(cursors.keys().next().value!);
+      }
+      return r;
+    },
     enabled: !!table && opts.enabled !== false,
     placeholderData: keepPreviousData,
     staleTime: 10_000,

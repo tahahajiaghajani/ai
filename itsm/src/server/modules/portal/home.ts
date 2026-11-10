@@ -14,7 +14,7 @@ import { aggregate, list } from "../../engine";
 import { notFound } from "../../http/errors";
 import { browse, type BrowseResult, type ItemCard } from "../request";
 import { activeAnnouncements } from "../incident";
-import { kbHome, cardsByIds, labelsOf } from "../knowledge";
+import { kbCards, cardsByIds, labelsOf } from "../knowledge";
 import { myAttestations } from "../knowledge";
 import { statusPage } from "../service_portfolio";
 import { myApprovalCount } from "../sla";
@@ -278,7 +278,8 @@ export async function portalHome(ctx: Ctx, cfg: PortalConfig): Promise<PortalHom
     part(has("links"), () => quickLinks(ctx, lim("links", 8)), [] as LinkLite[]),
     part(has("topics"), () => topics(ctx), [] as TopicLite[]),
     part(has("knowledge"), async () => {
-      const h = await kbHome(ctx);
+      // the cards alone: the knowledge home's per-base counts and queues are not shown here
+      const h = await kbCards(ctx, lim("knowledge", 5));
       const cards = [...h.popular, ...h.featured, ...h.recent].filter((c, i, a) => !c.internal && a.findIndex((x) => x.id === c.id) === i);
       return cards.slice(0, lim("knowledge", 5)).map((c) => ({ id: c.id, number: c.number, title: c.title, summary: c.summary, base_name: c.base_name, helpful_yes: c.helpful_yes }) as ArticleLite);
     }, [] as ArticleLite[]),

@@ -18,3 +18,5 @@ desktop/build/generated/
 # server edition bundle and local test database
 server-dist/
 packaging/server/.cache/
+.pgdata/
+.perf/

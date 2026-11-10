@@ -14,11 +14,12 @@ import { AppError, bad, forbidden } from "../http/errors";
 import { access } from "../access/provider";
 import { condEnv, isSystemCtx } from "./env";
 import { defFor, type OrgSchema } from "./schema";
-import { fieldExpr, orderSql, pathExpr, readable, searchSql, sortable, toSql } from "./sql";
+import { fieldExpr, orderSql, pathExpr, ph, readable, searchSql, sortable, toSql } from "./sql";
 import { RefSet, resolveDisplay } from "./display";
 import { canOpenRecords, fromDb, loadReadable, pathVisible, requireReadable, toOutput, type Row } from "./read";
 import { metaProvidersFor, redactRows } from "./hooks";
 import { createIn, isLocked, removeIn, savepoint, transitionIn, updateIn, type WriteOptions } from "./write";
+import { archivable, archiveTableOf } from "./ddl";
 
 export interface ListParams {
   /** a condition (validated against the table; fields the caller may not see are refused) */
@@ -39,6 +40,20 @@ export interface ListParams {
   /** count the matching rows (default true) */
   total?: boolean;
   /**
+   * Count at most this many matching rows (the HTTP list API passes COUNT_LIMIT): an exact count reads every
+   * matching row, so a list of millions is counted up to the limit and reported as `capped` («بیش از ۱۰٬۰۰۰»).
+   * Server code that needs the exact number leaves it out.
+   */
+  countLimit?: number;
+  /**
+   * The `next` cursor of the previous page (keyset pagination): the page continues right after that row by the sort
+   * key instead of skipping `(page − 1) × size` rows — constant time at any depth. Only for sorts on never-empty
+   * keys (`updated_at`, `created_at`, `number`, in one direction); otherwise, or when the sort changed, `page` is used.
+   */
+  after?: string;
+  /** read the table's archive (old closed records, engine/archive.ts) instead of the hot table */
+  archived?: boolean;
+  /**
    * Server-side only (never from a request body): one more SQL condition on the row alias with its parameters — the
    * AI-use rule of a table's records (`aiChannelRule`) when the assistant's generated tools list them.
    */
@@ -47,8 +62,12 @@ export interface ListParams {
 
 export interface ListResult {
   rows: Row[];
-  /** matching rows (null when not counted) */
+  /** matching rows (null when not counted; with `capped`, a lower bound) */
   total: number | null;
+  /** more rows match than `total` (the count stopped at `countLimit`) */
+  capped?: boolean;
+  /** cursor of the next page (`after`), when the sort allows keyset pagination and the page was full */
+  next?: string | null;
   page: number;
   size: number;
   /** labels of the referenced records and members in `rows` */
@@ -181,7 +200,7 @@ export async function list(ctx: Ctx, table: string, p: ListParams = {}): Promise
   const page = Math.max(Math.trunc(p.page ?? 1) || 1, 1);
   const params: unknown[] = [];
   const where = [readable(ctx, def, "t", params, env)];
-  if (filter) where.push(toSql(filter, def, "t", params, env, { ctx, lookup: schema.lookup }));
+  if (filter) where.push(toSql(filter, def, "t", params, env, { ctx, lookup: schema.lookup, filter: true }));
   if (typeof p.where === "function") where.push(p.where("t", params));
   const visible = access().visibleFields(ctx, def);
   if (p.q) {
@@ -196,19 +215,39 @@ export async function list(ctx: Ctx, table: string, p: ListParams = {}): Promise
   const whereSql = where.map((w) => `(${w})`).join(" and ");
   const countParams = [...params];
   const sel = selection(ctx, def, schema, env, p.fields, params);
-  const order = orderSql(def, "t", p.sort || def.list?.order || "-updated_at", params, (f) => {
+  const sortSpec = p.sort || def.list?.order || "-updated_at";
+  const order = orderSql(def, "t", sortSpec, params, (f) => {
     if (visible && !visible.has(f.name)) return `فیلد «${f.label}» در دسترس نیست`;
     return sortable(f) ? null : `فهرست بر پایهٔ «${f.label}» مرتب نمی‌شود`;
   });
+  // keyset pagination: continue after the cursor's row instead of skipping rows (an index range scan at any depth)
+  const seek = p.ids ? null : seekOf(def, sortSpec);
+  const after = seek ? decodeCursor(p.after, sortSpec, seek.cols.length) : null;
+  let pageWhere = whereSql;
+  if (seek && after) {
+    const lhs = seek.cols.length > 1 ? `(${seek.cols.join(", ")})` : seek.cols[0];
+    const rhs = after.map((v, i) => `${ph(params, v)}::${seek.casts[i]}`);
+    pageWhere = `${whereSql} and ${lhs} ${seek.dir === "desc" ? "<" : ">"} ${rhs.length > 1 ? `(${rhs.join(", ")})` : rhs[0]}`;
+  }
+  // the archive has the same columns and the same read rule
+  const from = p.archived && archivable(def) ? archiveTableOf(def) : def.table;
   const rows = await ctx.db.query<Row>(
-    `select ${sel.sql.join(", ")} from ${def.table} t where ${whereSql} order by ${order} limit ${size} offset ${(page - 1) * size}`,
+    `select ${[...sel.sql, ...(seek ? seek.select : [])].join(", ")} from ${from} t where ${pageWhere} order by ${order} limit ${size}${after ? "" : ` offset ${(page - 1) * size}`}`,
     params,
   );
   let total: number | null = null;
+  let capped = false;
   if (p.total !== false) {
-    if (page === 1 && rows.length < size) total = rows.length;
-    else total = Number((await ctx.db.one<{ n: number }>(`select count(*)::int as n from ${def.table} t where ${whereSql}`, countParams))?.n ?? 0);
+    if (page === 1 && !after && rows.length < size) total = rows.length;
+    else if (p.countLimit && p.countLimit > 0) {
+      const limit = Math.trunc(p.countLimit);
+      const n = Number((await ctx.db.one<{ n: number }>(`select count(*)::int as n from (select 1 from ${from} t where ${whereSql} limit ${limit + 1}) x`, countParams))?.n ?? 0);
+      capped = n > limit;
+      total = capped ? limit : n;
+    } else total = Number((await ctx.db.one<{ n: number }>(`select count(*)::int as n from ${from} t where ${whereSql}`, countParams))?.n ?? 0);
   }
+  const last = rows[rows.length - 1];
+  const next = seek && rows.length === size && last ? encodeCursor(sortSpec, seek.select.map((_, i) => String(last[`$seek${i}`]))) : null;
   const out = rows.map((r) => outputSelected(def, r, sel));
   await redactRows(ctx.db, ctx, def, out);
   const refs = new RefSet();
@@ -216,11 +255,60 @@ export async function list(ctx: Ctx, table: string, p: ListParams = {}): Promise
     refs.addRow(def, r, sel.fields);
     for (const x of sel.paths) refs.addRow(x.def, { [x.field.name]: r[x.path] }, [x.field]);
   }
-  return { rows: out, total, page, size, display: await resolveDisplay(ctx.db, ctx, env, schema, refs) };
+  return { rows: out, total, ...(capped ? { capped } : {}), ...(seek ? { next } : {}), page, size, display: await resolveDisplay(ctx.db, ctx, env, schema, refs) };
 }
 
 /** The page size `list` never exceeds. */
 export const MAX_PAGE = 500;
+
+/** What the HTTP list API counts up to (beyond it a list says «بیش از ۱۰٬۰۰۰»). */
+export const COUNT_LIMIT = 10_000;
+
+/** Sort keys keyset pagination can seek on: never empty, compared as their column type. */
+const SEEK_KEYS: Record<string, { col: (def: TableDef) => string; cast: string }> = {
+  updated_at: { col: () => "t.updated_at", cast: "timestamptz" },
+  created_at: { col: () => "t.created_at", cast: "timestamptz" },
+  number: { col: () => "t.no", cast: "integer" },
+};
+
+interface Seek {
+  /** the sort as given (a cursor only continues the sort it was made for) */
+  sort: string;
+  /** select-list expressions of the key values (exact text: timestamps keep their microseconds) */
+  select: string[];
+  /** columns compared, in order */
+  cols: string[];
+  casts: string[];
+  dir: "asc" | "desc";
+}
+
+/** The keyset of a sort ("-updated_at", "number"…), or null when the sort cannot be sought. */
+function seekOf(def: TableDef, sort: string): Seek | null {
+  const parts = sort.split(",").map((x) => x.trim()).filter(Boolean);
+  if (parts.length !== 1) return null;
+  const desc = parts[0].startsWith("-");
+  const name = parts[0].replace(/^[-+]/, "");
+  const key = SEEK_KEYS[name];
+  if (!key || (name === "number" && !def.numbered) || !def.fields.some((f) => f.name === name)) return null;
+  const col = key.col(def);
+  // the number is unique; the instants are tied by the id (as orderSql orders them)
+  const cols = name === "number" ? [col] : [col, "t.id"];
+  const casts = name === "number" ? [key.cast] : [key.cast, "uuid"];
+  return { sort, select: cols.map((c, i) => `${c}::text as "$seek${i}"`), cols, casts, dir: desc ? "desc" : "asc" };
+}
+
+const encodeCursor = (sort: string, values: string[]) => Buffer.from(JSON.stringify({ s: sort, v: values })).toString("base64url");
+
+function decodeCursor(cursor: string | undefined, sort: string, n: number): string[] | null {
+  if (!cursor) return null;
+  try {
+    const c = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as { s?: unknown; v?: unknown };
+    if (c.s !== sort || !Array.isArray(c.v) || c.v.length !== n || c.v.some((x) => typeof x !== "string" || x.length > 64)) return null;
+    return c.v as string[];
+  } catch {
+    return null;
+  }
+}
 
 /**
  * All the rows of a list the caller may read (page after page of `MAX_PAGE`), up to `max` — for views that compute
@@ -335,13 +423,19 @@ export async function get(ctx: Ctx, table: string, id: string): Promise<RecordRe
     return { row: r.rows[0], display: r.display, meta: { canWrite: false, canDelete: false, readonly: def.fields.map((f) => f.name), transitions: [], locked: false } };
   }
   const env = await condEnv(ctx);
-  const row = await requireReadable(ctx, def, id, env);
+  // a record moved to the archive is read there, read-only (engine/archive.ts)
+  const row = await requireReadable(ctx, def, id, env, ctx.db, { archived: true });
   await redactRows(ctx.db, ctx, def, [row]);
   const visible = access().visibleFields(ctx, def);
   const out = toOutput(def, row, visible);
   const refs = new RefSet();
   refs.addRow(def, out);
-  const [display, meta] = await Promise.all([resolveDisplay(ctx.db, ctx, env, schema, refs), recordMeta(ctx.db, ctx, def, row, env)]);
+  const [display, meta] = await Promise.all([
+    resolveDisplay(ctx.db, ctx, env, schema, refs),
+    row.$archived
+      ? Promise.resolve<RecordMeta>({ canWrite: false, canDelete: false, readonly: def.fields.map((f) => f.name), transitions: [], locked: true, archived: true })
+      : recordMeta(ctx.db, ctx, def, row, env),
+  ]);
   // read only as a participant with a grant of its own (an approver without a role in the area)
   if (!access().canReadTable(ctx, def)) meta.reach = "participant";
   return { row: out, display, meta };

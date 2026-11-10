@@ -1,11 +1,14 @@
 // From a record event to messages: the subscriber matches the organisation's rules (and the built-ins), resolves the
-// recipients and queues one delivery job per person (`notify.send`) and per messenger/webhook channel
-// (`notify.hook`) — all in one transaction, so a retried event never queues half. A delivery renders the message
-// under the recipient's own access (render.ts: no access → nothing, hidden fields → «(محدود)»), honours their
-// preferences (switched-off events, quiet hours, e-mail digests; mandatory rules excepted) and sends through the
-// channels — in-app inbox rows, e-mail (SMTP), SMS — saving its progress so a retry never repeats a channel that
-// already went out. Every outcome lands in the delivery log. Held e-mails and SMS go out with `notify.flush`.
+// recipients and queues, with one statement, one job per rule (`notify.batch`, every recipient) and per
+// messenger/webhook channel (`notify.hook`), so a retried event never queues half. The batch renders the message for
+// each person under their own access (render.ts: no access → nothing, hidden fields → «(محدود)»), outside any
+// transaction, honours their preferences (switched-off events; mandatory rules excepted), then writes in ONE short
+// transaction the bell rows of everyone (one insert, no record event per row), their log rows (one insert), the
+// e-mail/SMS deliveries (one insert of `notify.send` jobs, one per person: each renders again when it sends, honours
+// quiet hours and digests and keeps its own retries) and its own progress — a retry never writes a bell twice.
+// Every outcome lands in the delivery log. Held e-mails and SMS go out with `notify.flush`.
 import { mentionedIds } from "@ui/records/model/mentions";
+import { uuidv7 } from "@shared/id";
 import type { TableDef } from "@shared/model/types";
 import { NOTIFY_TABLE_KEYS } from "@shared/tables/notify";
 import {
@@ -13,13 +16,14 @@ import {
 } from "@shared/notify";
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
-import { enqueue, PermanentJobError, registerJobHandler, type Job, type JobContext } from "../../jobs";
-import { condEnv, createIn, defFor, list, removeIn, type RecordEvent } from "../../engine";
+import { enqueue, enqueueMany, PermanentJobError, registerJobHandler, type Job, type JobContext, type JobInput } from "../../jobs";
+import { condEnv, createIn, defFor, insertManyIn, list, removeIn, type RecordEvent } from "../../engine";
+import { pgArray } from "../../db";
 import { memberCtx, readersOf } from "../../access";
 import { access } from "../../access/provider";
 import { AppError } from "../../http/errors";
 import { actsHere, errText, fullCfg, isUuid, recordUrl, sysCtx, systemRows, tzOf } from "./common";
-import { logDelivery, settleHeld, type LogInput } from "./log";
+import { logDelivery, logMany, settleHeld, type LogInput } from "./log";
 import { candidateRules, COMMENT_KINDS, eventRows, ruleHolds, snapOf, walkPaths, type RuleSnap } from "./rules";
 import { MAX_RECIPIENTS, eventUsersOf, resolveRecipients } from "./recipients";
 import { defaultTemplate, renderFor, type EventSnap, type Rendered, type TemplateText } from "./render";
@@ -27,6 +31,7 @@ import { emailLayout, markdownToHtml, markdownToText, newMessageId, outboundChan
 import { channelRows, sendOutside, sendSms, type ChannelRow } from "./channels";
 
 export const JOB_SEND = "notify.send";
+export const JOB_BATCH = "notify.batch";
 export const JOB_HOOK = "notify.hook";
 export const JOB_FLUSH = "notify.flush";
 
@@ -41,6 +46,16 @@ export interface SendPayload {
   done?: string[];
   /** log rows of failed attempts, by channel (a retry updates them) */
   logs?: Record<string, string>;
+}
+
+/** One rule's notification to everyone it reaches (`notify.batch`). */
+export interface BatchPayload {
+  org: string;
+  rule: RuleSnap & { inline?: TemplateText | null };
+  ev: EventSnap;
+  people: { user: string; reasons: string[] }[];
+  /** people before this index are done: their bell rows, log rows and deliveries committed with this number */
+  next?: number;
 }
 
 export interface HookPayload {
@@ -126,13 +141,14 @@ export async function dispatchEvent(e: RecordEvent, jctx: JobContext): Promise<n
     if (!ruleHolds(rule, def, rows, env, entry?.kind ?? null)) continue;
     const ev = snapEvent(e, rule.event, rule.custom_event);
     const snap = snapOf(rule);
-    const people = await resolveRecipients({ sys, def, row: rows.next, spec: rule.recipients, mentioned: mentions, eventUsers });
+    const people = await resolveRecipients({ sys, def, row: rows.next, spec: rule.recipients, mentioned: mentions, eventUsers, groupMode: rule.large_groups });
     if (!rule.notify_actor && e.actor) people.delete(e.actor.toLowerCase());
     const personal = rule.channels.filter((c) => c !== "webhook");
-    if (personal.length) {
+    if (personal.length && people.size) {
       const list = [...people].slice(0, MAX_RECIPIENTS);
       if (people.size > MAX_RECIPIENTS) jctx.log.warn("notification recipients truncated", { rule: rule.key, count: people.size });
-      for (const [user, reasons] of list) jobs.push({ kind: JOB_SEND, payload: { org: e.org_id, rule: snap, ev, user, reasons: [...reasons] } satisfies SendPayload as unknown as Record<string, unknown> });
+      const batch: BatchPayload = { org: e.org_id, rule: snap, ev, people: list.map(([user, reasons]) => ({ user, reasons: [...reasons] })) };
+      jobs.push({ kind: JOB_BATCH, payload: batch as unknown as Record<string, unknown> });
     }
     if (rule.channels.includes("webhook")) {
       for (const t of rule.targets) if (isUuid(t)) jobs.push({ kind: JOB_HOOK, payload: { org: e.org_id, rule: snap, ev, channel: t } satisfies HookPayload as unknown as Record<string, unknown> });
@@ -144,9 +160,8 @@ export async function dispatchEvent(e: RecordEvent, jctx: JobContext): Promise<n
     }
   }
   if (!jobs.length) return 0;
-  await jctx.db.tx(async (tx) => {
-    for (const j of jobs) await enqueue(tx, { kind: j.kind, orgId: e.org_id, payload: j.payload, maxAttempts: 6 });
-  });
+  // one statement: all of the event's deliveries or none
+  await enqueueMany(jctx.db, jobs.map((j) => ({ kind: j.kind, orgId: e.org_id, payload: j.payload, maxAttempts: 6 })));
   return jobs.length;
 }
 
@@ -198,6 +213,16 @@ function mentionWarning(e: RecordEvent, author: string, denied: string[]): SendP
 export async function prefsOf(sys: Ctx, user: string): Promise<NotifyPrefs & { id: string | null; read_before: string | null; version: number | null }> {
   const [row] = await systemRows<Record<string, any>>(sys, "notification_pref", "t.user_id = $1", [user], "limit 1");
   return { ...cleanPrefs(row), id: row?.id ?? null, read_before: row?.read_before ?? null, version: row?.version ?? null };
+}
+
+/** The preferences of many people (one query; defaults for those without a row). */
+async function prefsMany(sys: Ctx, users: string[]): Promise<Map<string, NotifyPrefs>> {
+  const out = new Map<string, NotifyPrefs>();
+  if (!users.length) return out;
+  const rows = await systemRows<Record<string, any>>(sys, "notification_pref", "t.user_id = any($1::uuid[])", [pgArray(users)]);
+  for (const r of rows) if (!out.has(String(r.user_id))) out.set(String(r.user_id), cleanPrefs(r));
+  for (const u of users) if (!out.has(u)) out.set(u, cleanPrefs(null));
+  return out;
 }
 
 async function templateOf(sys: Ctx, rule: SendPayload["rule"]): Promise<TemplateText> {
@@ -396,6 +421,118 @@ export async function runSend(job: Job, jctx: JobContext): Promise<void> {
   }
 }
 
+// ----- everyone a rule reaches (set-based) ----------------------------------------------------------------------------
+
+/** People handled per transaction (each chunk commits its bell rows, log rows, deliveries and the progress). */
+const BATCH_CHUNK = 100;
+/** People rendered at once (each render reads the record under their access). */
+const RENDER_WIDTH = 4;
+
+async function eachLimit<T>(items: T[], width: number, fn: (x: T) => Promise<void>): Promise<void> {
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(width, items.length) }, async () => {
+    while (i < items.length) await fn(items[i++]);
+  }));
+}
+
+/** The inbox row of a rendered notification. */
+function bellRow(p: { rule: RuleSnap; ev: EventSnap }, user: string, reasons: string[], r: Rendered): Record<string, unknown> {
+  return {
+    user_id: user,
+    title: r.title.slice(0, 300),
+    body: r.body.slice(0, 8000),
+    link: r.path.slice(0, 500),
+    table_key: p.ev.table,
+    record_id: p.ev.id,
+    record_number: r.number ? String(r.number).slice(0, 40) : null,
+    event: p.rule.event,
+    kind: p.rule.key.startsWith("system:") ? "system" : inboxKind(p.rule.event, reasons),
+    actor_id: p.ev.actor,
+    rule_key: p.rule.key.slice(0, 80),
+  };
+}
+
+/**
+ * `notify.batch`: one rule's notification to everyone it reaches. Per person, outside any transaction: their context,
+ * the message rendered under their access, their preferences. Then per chunk ONE short write: every bell row (one
+ * insert, no record event per row), every log row (one insert), the other channels' deliveries (one insert of
+ * `notify.send` jobs: e-mail and SMS render again when they go out, honour quiet hours and digests and retry on their
+ * own) and the progress — committed together, so a retry continues after the last chunk. A person whose message
+ * cannot be rendered now (an error, not «no access») gets a `notify.send` job of their own with its retries.
+ */
+export async function runBatch(job: Job, jctx: JobContext): Promise<void | { again: number }> {
+  const p = job.payload as unknown as BatchPayload;
+  if (!actsHere(jctx.cfg)) return;
+  const people = (Array.isArray(p.people) ? p.people : []).filter((x) => isUuid(x?.user)).map((x) => ({ user: x.user.toLowerCase(), reasons: Array.isArray(x.reasons) ? x.reasons.map(String) : [] }));
+  let next = Math.max(0, Math.trunc(Number(p.next ?? 0)));
+  if (next >= people.length) return;
+  const cfg = fullCfg(jctx.cfg);
+  const sys = await sysCtx(jctx.cfg, p.org);
+  const personal = p.rule.channels.filter((c): c is Exclude<NotifyChannel, "webhook"> => c !== "webhook");
+  const inApp = personal.includes("in_app");
+  const others = personal.filter((c) => c !== "in_app");
+  const tpl = inApp ? await templateOf(sys, p.rule) : null;
+  const entry = inApp && p.ev.entry ? await loadEntry(jctx.db, p.org, p.ev.table, p.ev.id, p.ev.entry.id) : null;
+  const gone = !!p.ev.entry && inApp && !entry;
+  const send = (user: string, reasons: string[], channels: NotifyChannel[]): JobInput => ({
+    kind: JOB_SEND,
+    orgId: p.org,
+    maxAttempts: 6,
+    payload: { org: p.org, rule: { ...p.rule, channels }, ev: p.ev, user, reasons } satisfies SendPayload as unknown as Record<string, unknown>,
+  });
+  while (next < people.length) {
+    const chunk = people.slice(next, next + BATCH_CHUNK);
+    const prefs = await prefsMany(sys, chunk.map((x) => x.user));
+    const bells: { row: Record<string, unknown>; log: LogInput }[] = [];
+    const logs: LogInput[] = [];
+    const sends: JobInput[] = [];
+    await eachLimit(chunk, RENDER_WIDTH, async ({ user, reasons }) => {
+      const base = { ...logBase(p), recipient_id: user };
+      const pref = prefs.get(user)!;
+      const wanted = others.filter((c) => p.rule.mandatory || !optedOut(pref, p.rule.event, c));
+      for (const c of others) if (!wanted.includes(c)) logs.push({ ...base, channel: c, status: "skipped", reason: "opted_out" });
+      // without an in-app part nothing is rendered here: each delivery renders under the person's access when it sends
+      if (!inApp) {
+        if (wanted.length) sends.push(send(user, reasons, wanted));
+        return;
+      }
+      const skipAll = (reason: string) => {
+        for (const c of ["in_app" as const, ...wanted]) logs.push({ ...base, channel: c, status: "skipped", reason });
+      };
+      const rctx = await memberCtx(cfg, p.org, user).catch(() => null);
+      if (!rctx) return skipAll("inactive");
+      if (gone) return skipAll("record_gone");
+      let r: Rendered | null;
+      try {
+        r = await renderFor(rctx, p.ev, tpl!, { cfg, entry, log: (m, d) => jctx.log.warn(m, d) });
+      } catch (e) {
+        if (!(e instanceof AppError && e.status === 404)) {
+          // not «no access»: this person's delivery retries on its own
+          sends.push(send(user, reasons, ["in_app", ...wanted]));
+          return;
+        }
+        r = null;
+      }
+      if (!r) return skipAll("no_access");
+      if (!p.rule.mandatory && optedOut(pref, p.rule.event, "in_app")) logs.push({ ...base, channel: "in_app", status: "skipped", reason: "opted_out" });
+      else bells.push({ row: bellRow(p, user, reasons, r), log: { ...base, channel: "in_app", status: "sent", subject: r.title, body: r.body } });
+      if (wanted.length) sends.push(send(user, reasons, wanted));
+    });
+    const done = next + chunk.length;
+    // one transaction; the organisation's write lock only for the bell insert at its end (a `late` write): the log rows,
+    // the deliveries and the progress touch no synced table, the bells' per-row preparation needs no lock
+    const ids = bells.map(() => uuidv7());
+    await sys.write(async (tx) => {
+      await logMany(tx, [...bells.map((b, i) => ({ ...b.log, provider_id: ids[i] })), ...logs]);
+      await enqueueMany(tx, sends);
+      await jctx.saveIn(tx, { ...p, next: done } as unknown as Record<string, unknown>);
+      await insertManyIn(tx, sys, "notification", bells.map((b) => b.row), { ids });
+    }, { late: true });
+    next = done;
+    if (next < people.length && Date.now() > jctx.deadline - 1000) return { again: 0 };
+  }
+}
+
 // ----- messengers and webhooks ----------------------------------------------------------------------------------
 
 export async function runHook(job: Job, jctx: JobContext): Promise<void> {
@@ -543,7 +680,8 @@ export async function notifyPeople(q: Queryable, orgId: string, n: DirectNotify)
     inline,
   };
   const ev: EventSnap = { event, kind: "record.notify", table: n.table, id: n.id, number: null, actor: n.actor ?? null, at: new Date().toISOString(), entry: null, data: n.label ? { label: n.label } : undefined, custom: event === "custom" ? n.label ?? "notify" : null };
-  for (const user of users) await enqueue(q, { kind: JOB_SEND, orgId, payload: { org: orgId, rule, ev, user, reasons: ["users"] } satisfies SendPayload as unknown as Record<string, unknown>, maxAttempts: 6 });
+  const batch: BatchPayload = { org: orgId, rule, ev, people: users.map((user) => ({ user, reasons: ["users"] })) };
+  await enqueue(q, { kind: JOB_BATCH, orgId, payload: batch as unknown as Record<string, unknown>, maxAttempts: 6 });
   return users.length;
 }
 
@@ -578,6 +716,7 @@ export async function runCleanup(job: Job, jctx: JobContext): Promise<void | { a
 
 export function registerDeliveryJobs(): void {
   registerJobHandler(JOB_SEND, runSend);
+  registerJobHandler(JOB_BATCH, runBatch);
   registerJobHandler(JOB_HOOK, runHook);
   registerJobHandler(JOB_FLUSH, runFlush);
   registerJobHandler(JOB_CLEANUP, runCleanup);

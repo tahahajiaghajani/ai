@@ -8,13 +8,16 @@ import type { Queryable } from "../db";
 import { notFound } from "../http/errors";
 import { access } from "../access/provider";
 import type { OrgSchema } from "./schema";
-import { readable, writableRule } from "./sql";
+import { readable, SEARCH_COLUMN, writableRule } from "./sql";
+import { archivable, archiveTableOf } from "./ddl";
 import { openSecret, secretView } from "./values";
 
 export type Row = Record<string, any>;
 
 /** Engine shape of a stored row: the custom fields' values as top-level u_* keys (the `custom` object is kept). */
 export function fromDb(def: TableDef, r: Row): Row {
+  // the stored search document (sql.ts searchColumn) never leaves the engine: it holds every search field's text
+  for (const k of Object.keys(r)) if (SEARCH_COLUMN.test(k)) delete r[k];
   const custom = (r.custom && typeof r.custom === "object" ? r.custom : {}) as Row;
   for (const f of def.fields) if (f.custom) r[f.name] = custom[f.name] ?? null;
   return r;
@@ -81,6 +84,11 @@ export interface LoadOptions {
   lock?: boolean;
   /** also deleted rows */
   deleted?: boolean;
+  /**
+   * a record that is not in the hot table may be read from its archive (engine/archive.ts) — read-only: the row
+   * comes back marked `$archived` and never `$writable`. Reads only (records, journal, history).
+   */
+  archived?: boolean;
 }
 
 /**
@@ -103,6 +111,8 @@ export async function loadReadable(q: Queryable, ctx: Ctx, def: TableDef, id: st
  * and exports ask `canReadTable` only.
  */
 export async function canOpenRecords(ctx: Ctx, def: TableDef, q: Queryable = ctx.db): Promise<boolean> {
+  // what keeps this request's read predicate of the table small (participants that name none of its rows)
+  await access().prepareRead?.(ctx, def, q);
   if (access().canReadTable(ctx, def)) return true;
   const p = access().participations;
   return !!p && !def.virtual && (await p.call(access(), ctx, q)).has(def.key);
@@ -131,7 +141,20 @@ export async function readSecret(q: Queryable, ctx: Ctx, def: TableDef, id: stri
 /** The readable row or 404 «رکورد پیدا نشد» (a row the caller may not read does not exist for them). */
 export async function requireReadable(ctx: Ctx, def: TableDef, id: string, env: CondEnv, q: Queryable = ctx.db, opts: LoadOptions = {}): Promise<Row> {
   if (!(await canOpenRecords(ctx, def, q))) throw notFound(`${def.label} پیدا نشد`);
-  const row = await loadReadable(q, ctx, def, id, env, opts);
+  const row = (await loadReadable(q, ctx, def, id, env, opts)) ?? (opts.archived && !opts.lock ? await loadArchived(q, ctx, def, id, env) : null);
   if (!row) throw notFound(`${def.label} پیدا نشد`);
+  return row;
+}
+
+/** An archived record the caller may read (the same read rule on the archive), read-only. */
+async function loadArchived(q: Queryable, ctx: Ctx, def: TableDef, id: string, env: CondEnv): Promise<Row | null> {
+  if (!archivable(def) || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
+  const params: unknown[] = [id.toLowerCase()];
+  const where = readable(ctx, def, "t", params, env);
+  const r = await q.one<Row>(`select t.* from ${archiveTableOf(def)} t where t.id = $1 and ${where}`, params).catch(() => null);
+  if (!r) return null;
+  const row = fromDb(def, r);
+  row.$archived = true;
+  row.$writable = false;
   return row;
 }

@@ -5,7 +5,7 @@
 // record, or the journal entry, gets nothing.
 import type { TableDef } from "@shared/model/types";
 import { scopeColumns } from "@shared/access";
-import type { RecipientSpec } from "@shared/notify";
+import { groupAudience, type GroupNotifyMode, type RecipientSpec, type RuleGroupMode } from "@shared/notify";
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
 import { pgArray } from "../../db";
@@ -37,6 +37,8 @@ export interface ResolveInput {
   mentioned?: string[];
   /** people the event names (`data.users`, `data.approvers`, `data.recipients`) */
   eventUsers?: string[];
+  /** the rule's say over large groups (default: as each group decides) */
+  groupMode?: RuleGroupMode;
 }
 
 const ids = (v: unknown): string[] => (Array.isArray(v) ? v : v === null || v === undefined ? [] : [v]).map(String).filter(isUuid).map((x) => x.toLowerCase());
@@ -61,6 +63,9 @@ export function requesterUsers(def: TableDef, row: Record<string, unknown>): str
 
 export const assigneeUsers = (def: TableDef, row: Record<string, unknown>) => fieldUsers(def, row, scopeColumns(def).assignee.map((c) => c.name));
 
+/** Group memberships in force now. */
+const VALID_NOW = `(t.valid_from is null or t.valid_from <= now()) and (t.valid_to is null or t.valid_to > now())`;
+
 /** Members (and leads and observers) of groups, within their validity. */
 export async function groupMembers(sys: Ctx, groups: string[], q: Queryable = sys.db): Promise<string[]> {
   const g = [...new Set(groups.filter(isUuid))];
@@ -68,12 +73,43 @@ export async function groupMembers(sys: Ctx, groups: string[], q: Queryable = sy
   const rows = await systemRows<{ user_id: string }>(
     sys,
     "group_member",
-    `t.group_id = any($1::uuid[]) and (t.valid_from is null or t.valid_from <= now()) and (t.valid_to is null or t.valid_to > now())`,
+    `t.group_id = any($1::uuid[]) and ${VALID_NOW}`,
     [pgArray(g)],
     "",
     q,
   );
   return rows.map((r) => String(r.user_id));
+}
+
+/**
+ * The people of groups a rule's notification reaches. Every current member (members, leads, observers) — or, for a
+ * group whose audience is «leads» (`groupAudience`: larger than LARGE_GROUP under «خودکار», or as the group or the rule
+ * says), only its leads and its manager: the others see the record in the group's queue and its count instead of one
+ * bell each. Two queries for any number of groups.
+ */
+export async function groupRecipients(sys: Ctx, groups: string[], rule: RuleGroupMode = "group"): Promise<string[]> {
+  const g = [...new Set(groups.filter(isUuid).map((x) => x.toLowerCase()))];
+  if (!g.length) return [];
+  const [defs, members] = await Promise.all([
+    systemRows<{ id: string; notify_mode: GroupNotifyMode | null; manager_id: string | null }>(sys, "group", "t.id = any($1::uuid[])", [pgArray(g)]),
+    systemRows<{ group_id: string; user_id: string; kind: string | null }>(sys, "group_member", `t.group_id = any($1::uuid[]) and ${VALID_NOW}`, [pgArray(g)]),
+  ]);
+  const byGroup = new Map<string, { user: string; kind: string | null }[]>();
+  for (const m of members) {
+    const k = String(m.group_id).toLowerCase();
+    if (!byGroup.has(k)) byGroup.set(k, []);
+    byGroup.get(k)!.push({ user: String(m.user_id), kind: m.kind ?? null });
+  }
+  const out: string[] = [];
+  for (const d of defs) {
+    const list = byGroup.get(String(d.id).toLowerCase()) ?? [];
+    if (groupAudience(rule, d.notify_mode, list.length) === "members") out.push(...list.map((m) => m.user));
+    else {
+      out.push(...list.filter((m) => m.kind === "lead").map((m) => m.user));
+      if (d.manager_id) out.push(String(d.manager_id));
+    }
+  }
+  return out;
 }
 
 async function managersOf(sys: Ctx, users: string[]): Promise<string[]> {
@@ -131,7 +167,8 @@ export async function resolveRecipients(x: ResolveInput): Promise<Map<string, Se
   if (spec.assignee) add(assignees, "assignee");
   if (spec.requester) add(requesters, "requester");
   if (spec.watchers && sc.watchers) add(ids(row[sc.watchers]), "watchers");
-  if (spec.assignment_group && group) add(await groupMembers(sys, [group]), "assignment_group");
+  const mode = x.groupMode ?? "group";
+  if (spec.assignment_group && group) add(await groupRecipients(sys, [group], mode), "assignment_group");
   if (spec.group_manager && group) add(await groupManagers(sys, [group]), "group_manager");
   if (spec.assignee_manager) add(await managersOf(sys, assignees), "assignee_manager");
   if (spec.requester_manager) add(await managersOf(sys, requesters), "requester_manager");
@@ -142,10 +179,10 @@ export async function resolveRecipients(x: ResolveInput): Promise<Map<string, Se
     add(fieldUsers(def, row, spec.fields), "fields");
     const groupFields = spec.fields.filter((n) => def.fields.find((f) => f.name === n)?.type === "group");
     const gs = groupFields.flatMap((n) => ids(row[n]));
-    if (gs.length) add(await groupMembers(sys, gs), "fields");
+    if (gs.length) add(await groupRecipients(sys, gs, mode), "fields");
   }
   if (spec.users?.length) add(spec.users, "users");
-  if (spec.groups?.length) add(await groupMembers(sys, spec.groups), "groups");
+  if (spec.groups?.length) add(await groupRecipients(sys, spec.groups, mode), "groups");
   if (spec.roles?.length) add(await roleHolders(sys, spec.roles), "roles");
   return out;
 }

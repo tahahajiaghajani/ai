@@ -68,4 +68,33 @@ describe("list performance", () => {
     const big = await plan({ size: 500, fields: ["number", "assigned_to", "caller_id", "created_by"] });
     expect(big.queries).toBe(small.queries);
   });
+
+  // docs/PERFORMANCE_FA.md §۶: the HTTP API counts up to COUNT_LIMIT; pages continue after a cursor (no OFFSET)
+  it("counts a long list up to the limit and pages by cursor", async () => {
+    const capped = await list(ctx, "todo", { countLimit: 1000, size: 20 });
+    expect(capped.total).toBe(1000);
+    expect(capped.capped).toBe(true);
+    const exact = await list(ctx, "todo", { size: 20 });
+    expect(exact.total).toBe(20000);
+    expect(exact.capped).toBeUndefined();
+    const ids = (r: { rows: Record<string, unknown>[] }) => r.rows.map((x) => String(x.id));
+    const p1 = await list(ctx, "todo", { sort: "-updated_at", size: 50, total: false });
+    expect(p1.next).toBeTruthy();
+    const viaCursor = await list(ctx, "todo", { sort: "-updated_at", size: 50, page: 2, after: p1.next!, total: false });
+    expect(ids(viaCursor)).toEqual(ids(await list(ctx, "todo", { sort: "-updated_at", size: 50, page: 2, total: false })));
+    expect(ids(viaCursor)).not.toContain(ids(p1)[0]);
+    // a cursor of another sort is ignored: the page number decides
+    const other = await list(ctx, "todo", { sort: "-created_at", size: 50, page: 2, after: p1.next!, total: false });
+    expect(ids(other)).toEqual(ids(await list(ctx, "todo", { sort: "-created_at", size: 50, page: 2, total: false })));
+    // sorts on keys that may be empty page by number
+    expect((await list(ctx, "todo", { sort: "priority", size: 50, total: false })).next).toBeUndefined();
+    // the cursor's page is an index range scan without OFFSET
+    seen = [];
+    await list(ctx, "todo", { sort: "-updated_at", size: 50, page: 300, after: p1.next!, total: false });
+    const q = seen.find((x) => /from sm_todos t where/.test(x.sql) && / limit 50/.test(x.sql))!;
+    expect(q.sql).not.toMatch(/offset/);
+    const plan = (await e.db.query<{ "QUERY PLAN": string }>(`explain ${q.sql}`, q.params)).map((r) => r["QUERY PLAN"]).join("\n");
+    expect(plan).toMatch(/Index Scan using sm_todos_upd_idx/);
+  });
 });
+

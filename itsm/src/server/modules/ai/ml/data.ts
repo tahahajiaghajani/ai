@@ -37,7 +37,7 @@ export async function readRows(sys: Ctx, def: TableDef, cols: readonly string[],
   const env = await condEnv(sys);
   const params: unknown[] = [];
   const parts = [readable(sys, def, "t", params, env)];
-  if (opts.where) parts.push(toSql(opts.where, def, "t", params, env, { ctx: sys, lookup: schema.lookup }));
+  if (opts.where) parts.push(toSql(opts.where, def, "t", params, env, { ctx: sys, lookup: schema.lookup, filter: true }));
   if (opts.training) parts.push(trainableSql(def));
   if (opts.ids) {
     params.push(`{${opts.ids.filter((x) => /^[0-9a-f-]{36}$/i.test(x)).join(",")}}`);

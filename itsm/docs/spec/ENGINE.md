@@ -290,7 +290,10 @@ await ctx.write(async (tx) => {
   `INC0000012` or `inc-12` is looked up by number alone), `sort` (up to 4 fields; static
   choices in option order, users/refs by display text, numbers by counter, empty last; text/markdown/json/arrays are
   not sortable), `view` (a saved view's filter, q, sort, columns, page size are the defaults; your `filter` is ANDed
-  to it), `ids`, `total: false` to skip counting.
+  to it), `ids`, `total: false` to skip counting, `countLimit` (the HTTP API passes 10 000: past it `total` is that
+  limit and `capped: true` — «بیش از ۱۰٬۰۰۰»), `after` (the previous page's `next` cursor: keyset pagination for sorts
+  on `updated_at`, `created_at` or `number` in one direction — an index range scan at any depth), `archived` (read the
+  table's archive of old closed records, §14).
 - **Aggregates** run in SQL: group by up to 3 fields or paths — choices, refs, users, groups, booleans, numbers, short
   texts; array fields count each element (`(خالی)` for none); dates/date-times by `bucket` day / week (from Saturday)
   / month / quarter / year on the Jalali calendar in the org's time zone. Bucket keys: `2026-03-21` (day, week),
@@ -298,6 +301,20 @@ await ctx.write(async (tx) => {
   `sum`, `avg` (6 decimals), `min`, `max` (also dates), `median`, `p90` on numbers; keys `count`, `sum:estimate`…
   Numeric results are decimal strings. `totals` are computed over records (an array grouping never counts a record
   twice there). Groups are ordered by bucket, otherwise by the first metric descending.
+- **The write lock** (`ctx.write`): an organisation's writes are serialised by its `sm_org_sync` row so sync revisions
+  follow commit order. A write takes it when it starts; `ctx.write(fn, { late: true })` takes it only right before its
+  first statement that writes a synced row (`ensureOrgLock`, called by the engine before every insert, update and
+  delete; the sync trigger at the latest) — for work whose reads decide no other record's write (the notification
+  service's bell rows). `internal` bookkeeping is late by default and takes no lock when it writes no synced table.
+  Per process at most `ITSM_WRITERS_PER_ORG` (3) write transactions of an organisation are in the database at once
+  (`admitWrite`); the rest wait without holding a pool connection, so one long write never starves the reads. Keep
+  model calls, rendering and network out of write transactions; measure holds with the probe
+  (`src/server/db/lockprobe.ts`, `scripts/serve-pg.mjs --lock-stats`, PERFORMANCE_FA.md §۱۳-۵).
+- **Set-based system rows**: `insertManyIn(tx, systemCtx, table, rows)` creates many rows with ONE insert — the
+  platform's own output (a notification's bell rows for every recipient). Each row is coerced, defaulted, passed to the
+  beforeWrite hooks (access anchors…) and validated like a create, the stored rows go to the afterWrite hooks, the
+  trigger gives every row its sync revision; no statement per row, **no record events**, no reference checks. Refused
+  for numbered tables, tables with a state model or with field history, and outside the system context.
 - Also: `recordMeta`, `checkFilter`, `exportRows`, `importRows` (§12), `tablesMeta`/`tableMeta`, `systemCtx(cfg,
   orgId, { onBehalfOf })` (a context in which the platform itself acts — allowed everything in its organisation by
   the provider, writes still hold the write lock), `condEnv(ctx)`, `orgSchema(ctx)` (effective defs with tenant
@@ -387,6 +404,8 @@ await tick(cfg, { budgetMs: 4000, max });   // → { ran, failed, more, busy? }
 
 - Enqueue inside the write transaction when the job follows a write (it exists exactly when the write committed).
   `dedupeKey`: no second job with that key per organisation while one is queued (the queued one's id is returned).
+  `enqueueMany(q, jobs)` adds many with one statement (same dedupe rule); `jctx.saveIn(tx, payload)` saves a job's
+  progress inside the transaction that does the work, so a retry after a crash skips what committed.
 - `tick` claims due jobs one at a time (`for update skip locked`; a running job's lock lasts 5 minutes and an expired
   lock is taken over), runs handlers outside transactions until the budget is spent. A throw → retry after 15 s, 30 s,
   1 min … ≤ 1 h (+20 % jitter) until `max_attempts`, then `failed` with `last_error`; `PermanentJobError` fails at
@@ -574,6 +593,12 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
   rows — the default list orders —, the state field,
   every `index: true` field — GIN for arrays —, `unique` fields/combinations), the `sm_sync_touch('<key>')` trigger
   and row level security.
+- Scale (docs/PERFORMANCE_FA.md): numbered tables with search fields store their normalised search document in a
+  generated column `search_<hash>` (never returned, never synced) with a trigram index where pg_trgm exists; task
+  tables get a partial open-queue index `(org_id, <group>, updated_at desc) where active` and a BRIN on `opened_at`;
+  archivable tables (numbered, `active` + `closed_at`, no parent scope) get `<table>_arc` and the nightly
+  `engine.archive` job (setting `archive: { enabled, years }`). Conditions compile to plain comparisons at positive
+  positions with `toSql(…, { filter: true })` — use it whenever the SQL is only a WHERE/ON filter.
 - Migration `0006_engine_tables` runs `ddlForAll()`; `reconcileSchema(db)` runs after the migrations on both
   runtimes and re-applies the generated DDL whenever its hash (`sm_meta` `engine.ddl`) changed. So a new table or
   field needs **no migration**. Changes are additive only: a removed field keeps its column, a type change keeps the

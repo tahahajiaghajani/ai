@@ -145,7 +145,7 @@ export { attachArticle, detachArticle, linkedArticles, recountReuse, reuseOf, KB
 export { captureFromRecord, articleFromKnownError, draftOfRecord } from "./capture";
 export { retireArticle, restoreArticle, reviewArticle, reownArticles } from "./lifecycle";
 export { checkVersion, computeHealth, findDuplicates, integrityChecks, sampleAqi, detectGaps } from "./quality";
-export { kbHome, kbDashboard, kbWorkspace } from "./dashboard";
+export { kbHome, kbCards, kbDashboard, kbWorkspace, clearAudienceCounts, audienceCountStats } from "./dashboard";
 export { kbSweep, ensureKbSweep, resetKbSweepThrottle, KB_SWEEP_EVERY, type KbSweepResult } from "./jobs";
 export { acknowledge, myAttestations, attestationStatus, audienceOf, remindAttestations } from "./attest";
 export { explainAccess } from "./explain";

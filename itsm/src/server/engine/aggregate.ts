@@ -14,6 +14,7 @@ import { access } from "../access/provider";
 import { condEnv } from "./env";
 import { defFor, type OrgSchema } from "./schema";
 import { pathExpr, readable, searchSql, toSql } from "./sql";
+import { archivable, archiveTableOf } from "./ddl";
 import { canOpenRecords, pathVisible } from "./read";
 import { RefSet, resolveDisplay, labelOf } from "./display";
 import { checkFilter } from "./records";
@@ -36,6 +37,8 @@ export interface AggregateParams {
   limit?: number;
   /** server-side only: one more SQL condition on the row alias (see ListParams.where) */
   where?: ((alias: string, params: unknown[]) => string) | null;
+  /** count the table's archive (old closed records, engine/archive.ts) instead of the hot table */
+  archived?: boolean;
 }
 
 export interface AggregateResult {
@@ -72,12 +75,14 @@ export async function aggregate(ctx: Ctx, table: string, p: AggregateParams): Pr
   const metrics = p.metrics?.length ? p.metrics : [{ fn: "count" as MetricFn }];
   if (metrics.length > 10) throw bad("حداکثر ده سنجه");
   const limit = Math.min(Math.max(Math.trunc(p.limit ?? 500) || 500, 1), 5000);
+  // the archive has the same columns and the same read rule
+  const from = p.archived && archivable(def) ? archiveTableOf(def) : def.table;
 
   // every statement builds its own parameter list (a statement must use exactly the parameters it is given)
   const visible = access().visibleFields(ctx, def);
   const whereOf = (params: unknown[]) => {
     const where = [readable(ctx, def, "t", params, env)];
-    if (filter) where.push(toSql(filter, def, "t", params, env, { ctx, lookup: schema.lookup }));
+    if (filter) where.push(toSql(filter, def, "t", params, env, { ctx, lookup: schema.lookup, filter: true }));
     if (typeof p.where === "function") where.push(p.where("t", params));
     if (p.q) {
       const s = searchSql(def, "t", p.q, params, (f) => !visible || visible.has(f.name));
@@ -132,8 +137,8 @@ export async function aggregate(ctx: Ctx, table: string, p: AggregateParams): Pr
     const e = expr(k.path, params).expr;
     const r = await ctx.db.one<{ lo: string | number | null; hi: string | number | null }>(
       dated
-        ? `select min(${e})::text as lo, max(${e})::text as hi from ${def.table} t where ${whereSql}`
-        : `select (extract(epoch from min(${e})) * 1000)::bigint as lo, (extract(epoch from max(${e})) * 1000)::bigint as hi from ${def.table} t where ${whereSql}`,
+        ? `select min(${e})::text as lo, max(${e})::text as hi from ${from} t where ${whereSql}`
+        : `select (extract(epoch from min(${e})) * 1000)::bigint as lo, (extract(epoch from max(${e})) * 1000)::bigint as hi from ${from} t where ${whereSql}`,
       params,
     );
     if (r?.lo === null || r?.lo === undefined || r.hi === null || r.hi === undefined) {
@@ -176,13 +181,13 @@ export async function aggregate(ctx: Ctx, table: string, p: AggregateParams): Pr
     : "1";
   const rows = keys.length
     ? await ctx.db.query<Record<string, unknown>>(
-      `select ${[...selects, ...metricSql].join(", ")} from ${def.table} t ${joins.join(" ")} where ${whereSql}${groupSql} order by ${order} limit ${limit}`,
+      `select ${[...selects, ...metricSql].join(", ")} from ${from} t ${joins.join(" ")} where ${whereSql}${groupSql} order by ${order} limit ${limit}`,
       params,
     )
     : [];
   const totalParams: unknown[] = [];
   const totalWhere = whereOf(totalParams);
-  const totalsRow = await ctx.db.one<Record<string, unknown>>(`select ${metricsOf(totalParams).join(", ")} from ${def.table} t where ${totalWhere}`, totalParams);
+  const totalsRow = await ctx.db.one<Record<string, unknown>>(`select ${metricsOf(totalParams).join(", ")} from ${from} t where ${totalWhere}`, totalParams);
 
   const metricKeys = metrics.map(metricKey);
   const refs = new RefSet();

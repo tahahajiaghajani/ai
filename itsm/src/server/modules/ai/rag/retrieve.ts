@@ -25,7 +25,7 @@ import { dataBlock } from "../redact";
 import { activeEmbedder, embedTexts, EmbedUnavailableError } from "./embed";
 import { cosine, LOCAL_DIMS, localEmbed } from "./local-embed";
 import { citationPath, isRagTable, ragSource, ragTables } from "./registry";
-import { hasAnnIndex, keyDims, parseVector, storeBackend, vectorSql, type StoreBackend } from "./store";
+import { hasAnnIndex, hasIterativeScan, keyDims, parseVector, storeBackend, vectorSql, type StoreBackend } from "./store";
 import { ensureSchedules } from "./indexer";
 
 export const DOC_TABLE = "doc_document";
@@ -237,7 +237,7 @@ export async function retrieve(ctx: Ctx, query: string, opts: RetrieveOptions = 
       // HNSW with filters: search on until enough rows pass the access filter (pgvector 0.8 iterative scans)
       return ctx.db.tx(async (tx) => {
         await tx.exec(`set local hnsw.ef_search = 200`);
-        if (backend.version && Number(backend.version.split(".")[1]) >= 8) await tx.exec(`set local hnsw.iterative_scan = relaxed_order`);
+        if (hasIterativeScan(backend.version)) await tx.exec(`set local hnsw.iterative_scan = relaxed_order`);
         return tx.query<{ id: string; score: number }>(sql, [...params, vecText(vec)]);
       });
     };

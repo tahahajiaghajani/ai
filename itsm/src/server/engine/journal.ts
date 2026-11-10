@@ -165,7 +165,7 @@ export async function listJournal(ctx: Ctx, table: string, id: string, opts: { k
   const { def, schema } = await defFor(ctx, table);
   needJournal(def);
   const env = await condEnv(ctx);
-  const record = await requireReadable(ctx, def, id, env);
+  const record = await requireReadable(ctx, def, id, env, ctx.db, { archived: true });
   const params: unknown[] = [ctx.org.id, def.key, id];
   const where = ["org_id = $1", "table_key = $2", "record_id = $3", "deleted_at is null"];
   if (!access().hasFieldGroup(ctx, "internal")) where.push(`visibility = 'public'`);

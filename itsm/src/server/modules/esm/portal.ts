@@ -37,14 +37,15 @@ export async function portalSections(ctx: Ctx): Promise<PortalSection[]> {
 export async function departmentSections(ctx: Ctx): Promise<PortalSection[]> {
   const { services, departments } = await servicesFor(ctx.db, ctx, ctx.user.id);
   const mine = new Map<string, number>();
-  for (const table of DEPT_TABLES) {
-    try {
-      const r = await list(ctx, table, { filter: { and: [{ or: [{ f: "requested_for", op: "is_me" }, { f: "caller_id", op: "is_me" }] }, { f: "active", op: "eq", v: true }] }, size: 500, fields: ["department_id"], total: false });
-      for (const row of r.rows) mine.set(String(row.department_id), (mine.get(String(row.department_id)) ?? 0) + 1);
-    } catch {
-      // a table the caller cannot read has no cases of theirs to count
-    }
-  }
+  // the case tables at once (each an indexed read of the caller's own open cases)
+  const lists = await Promise.all(
+    DEPT_TABLES.map((table) =>
+      list(ctx, table, { filter: { and: [{ or: [{ f: "requested_for", op: "is_me" }, { f: "caller_id", op: "is_me" }] }, { f: "active", op: "eq", v: true }] }, size: 500, fields: ["department_id"], total: false })
+        // a table the caller cannot read has no cases of theirs to count
+        .catch(() => null),
+    ),
+  );
+  for (const r of lists) for (const row of r?.rows ?? []) mine.set(String(row.department_id), (mine.get(String(row.department_id)) ?? 0) + 1);
   return departments.map((d) => ({
     key: `department:${d.key}`,
     kind: "department" as const,

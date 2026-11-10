@@ -12,7 +12,7 @@ import { tableDef } from "@shared/tables";
 import { NOTIFY_TABLE_KEYS } from "@shared/tables/notify";
 import {
   cleanRecipients, customKind, eventsOf, hasRecipients, NOTIFY_CHANNELS, NOTIFY_EVENTS, parseTemplate,
-  type NotifyChannel, type NotifyEvent, type RecipientSpec,
+  type NotifyChannel, type NotifyEvent, type RecipientSpec, type RuleGroupMode,
 } from "@shared/notify";
 import type { Ctx } from "../../context";
 import type { RecordEvent } from "../../engine";
@@ -32,6 +32,8 @@ export interface RuleDef {
   condition: Cond | null;
   recipients: RecipientSpec;
   notify_actor: boolean;
+  /** large groups among the recipients: as each group decides (`group`), every member, or leads and managers */
+  large_groups: RuleGroupMode;
   channels: NotifyChannel[];
   targets: string[];
   template_id: string | null;
@@ -65,7 +67,7 @@ export const snapOf = (r: RuleDef): RuleSnap => ({
 });
 
 interface Builtin {
-  rule: Omit<RuleDef, "key" | "id" | "table" | "active" | "custom_event" | "notify_actor" | "targets" | "template_id" | "digest" | "mandatory" | "condition"> & {
+  rule: Omit<RuleDef, "key" | "id" | "table" | "active" | "custom_event" | "notify_actor" | "large_groups" | "targets" | "template_id" | "digest" | "mandatory" | "condition"> & {
     condition?: (def: TableDef) => Cond | null;
     mandatory?: boolean;
   };
@@ -217,6 +219,7 @@ export function builtinRule(b: Builtin, def?: TableDef): RuleDef {
     table: "*",
     custom_event: null,
     notify_actor: false,
+    large_groups: "group",
     targets: [],
     template_id: null,
     digest: true,
@@ -241,6 +244,7 @@ export function rowRule(r: Record<string, any>): RuleDef {
     condition: r.condition && typeof r.condition === "object" && Object.keys(r.condition).length ? (r.condition as Cond) : null,
     recipients: cleanRecipients(r.recipients),
     notify_actor: !!r.notify_actor,
+    large_groups: r.large_groups === "members" || r.large_groups === "leads" ? r.large_groups : "group",
     channels: channels.length ? channels : ["in_app"],
     targets: Array.isArray(r.targets) ? r.targets.map(String) : [],
     template_id: r.template_id ? String(r.template_id) : null,

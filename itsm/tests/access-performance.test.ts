@@ -85,4 +85,25 @@ describe("list performance under the access predicate", () => {
       }
     });
   }
+
+  // docs/PERFORMANCE_FA.md §۶: the rule's terms are index conditions (a NULL term is as good as false in a filter)
+  it("compiles the read rule to plain index conditions on the own, group and unit anchors", async () => {
+    seen = [];
+    await list(await spied(who.agent), "acc_ticket", {});
+    const q = seen.find((x) => new RegExp(`from ${TICKET.table} t where`).test(x.sql) && / limit \d+/.test(x.sql))!;
+    expect(q.sql).not.toMatch(/coalesce\(t\.(caller_id|requested_for|opened_by|assigned_to|assignment_group_id|unit_id|watch_list)\b/);
+    expect(q.sql).toMatch(/t\.assignment_group_id = any\(\$\d+::uuid\[\]\)/);
+  });
+
+  it("finds a requester's own records through the own-field indexes", async () => {
+    const { plans: ps, rows } = await plans(who.req, {});
+    expect(rows).toBe(20);
+    expect(ps.join("\n")).toMatch(/Bitmap Index Scan on sm_acc_tickets_(caller_id|requested_for|opened_by)_idx/);
+  });
+
+  it("answers an agent's open queue from the open-group index", async () => {
+    const { plans: ps } = await plans(who.agent, { filter: { and: [{ f: "assignment_group_id", op: "is_my_group" }, { f: "active", op: "eq", v: true }] }, sort: "-updated_at" });
+    expect(ps.join("\n")).toMatch(/sm_acc_tickets_open_grp_idx/);
+  });
 });
+

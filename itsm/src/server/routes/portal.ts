@@ -57,7 +57,9 @@ portalRoutes.get("/home", async (c) => {
   const q = query(c, z.object({ portal: UUID.optional(), preview: z.enum(["1", "0"]).optional() }));
   const cfg = await portalConfig(ctx, { portal: q.portal ?? null, preview: q.preview === "1" });
   const home = await portalHome(ctx, cfg);
-  await logEvent(ctx.db, ctx, { kind: "home" });
+  // the analytics event does not hold the answer (best effort as ever: logPortalEvent never throws)
+  const logged = logEvent(ctx.db, ctx, { kind: "home" });
+  if (ctx.cfg.waitUntil) ctx.cfg.waitUntil(() => logged);
   return c.json(home);
 });
 

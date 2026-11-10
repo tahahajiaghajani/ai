@@ -3,6 +3,7 @@
 // PGlite (one connection), so a transaction holds the database until it ends.
 import { PGlite } from "@electric-sql/pglite";
 import { runBeforeCommit, serializeParam, toIsoTimestamp, type Db, type Row, type Tx } from "./index";
+import { txEnded } from "./lockprobe";
 
 export interface PgliteOptions {
   /** folder of the database; omit for an in-memory database (tests) */
@@ -56,35 +57,50 @@ export async function createPgliteDb(opts: PgliteOptions = {}): Promise<Db & { p
     pg,
     ...base,
     async tx<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
-      return pg.transaction(async (t) => {
-        const q = make(t as unknown as PGlite);
-        let failed: unknown = null;
-        const track = <A extends unknown[], R>(f: (...a: A) => Promise<R>) => async (...a: A): Promise<R> => {
-          try {
-            return await f(...a);
-          } catch (e) {
-            failed ??= e;
-            throw e;
-          }
-        };
-        const txq = { query: track(q.query), one: track(q.one), exec: track(q.exec), inTx: true } as Tx;
-        const r = await fn(txq);
-        await runBeforeCommit(txq);
-        // PostgreSQL answers COMMIT of a failed transaction with a silent ROLLBACK, so a statement
-        // that failed (and was caught) without a rollback to a savepoint would lose the whole
-        // transaction while the caller is told it succeeded. Fail it instead, as postgres.js does.
-        if (failed) {
-          try {
-            await t.query("select 1");
-          } catch {
-            throw failed;
-          }
-        }
-        return r;
-      });
+      let probed: Tx | null = null;
+      let committed = false;
+      try {
+        const out = await transaction(fn, (txq) => (probed = txq));
+        committed = true;
+        return out;
+      } finally {
+        // the write-lock probe (off unless a measurement installs it): the transaction is over
+        txEnded(probed, committed);
+      }
     },
     async close() {
       await pg.close();
     },
   };
+
+  /** One transaction; `seen` learns its handle (the write-lock probe reports by it). */
+  async function transaction<T>(fn: (tx: Tx) => Promise<T>, seen: (tx: Tx) => void): Promise<T> {
+    return pg.transaction(async (t) => {
+      const q = make(t as unknown as PGlite);
+      let failed: unknown = null;
+      const track = <A extends unknown[], R>(f: (...a: A) => Promise<R>) => async (...a: A): Promise<R> => {
+        try {
+          return await f(...a);
+        } catch (e) {
+          failed ??= e;
+          throw e;
+        }
+      };
+      const txq = { query: track(q.query), one: track(q.one), exec: track(q.exec), inTx: true } as Tx;
+      seen(txq);
+      const r = await fn(txq);
+      await runBeforeCommit(txq);
+      // PostgreSQL answers COMMIT of a failed transaction with a silent ROLLBACK, so a statement
+      // that failed (and was caught) without a rollback to a savepoint would lose the whole
+      // transaction while the caller is told it succeeded. Fail it instead, as postgres.js does.
+      if (failed) {
+        try {
+          await t.query("select 1");
+        } catch {
+          throw failed;
+        }
+      }
+      return r;
+    });
+  }
 }

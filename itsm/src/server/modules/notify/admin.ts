@@ -39,7 +39,7 @@ export interface RuleView extends RuleDef {
 /** Built-ins (replaced or not) and the organisation's rules. */
 export async function listRules(ctx: Ctx): Promise<{ rules: RuleView[] }> {
   await needSettings(ctx);
-  const r = await list(ctx, "notification_rule", { size: 500, total: false, fields: ["name", "active", "mandatory", "table_key", "event", "custom_event", "entry_kinds", "condition", "recipients", "notify_actor", "channels", "targets", "template_id", "digest", "builtin", "description"] });
+  const r = await list(ctx, "notification_rule", { size: 500, total: false, fields: ["name", "active", "mandatory", "table_key", "event", "custom_event", "entry_kinds", "condition", "recipients", "notify_actor", "large_groups", "channels", "targets", "template_id", "digest", "builtin", "description"] });
   const rows = r.rows.map((x) => ({ ...rowRule(x), version: Number(x.version) }));
   const out: RuleView[] = [];
   for (const b of BUILTINS) {

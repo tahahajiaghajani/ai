@@ -20,7 +20,7 @@ Configuration (engine tables, area `notifications`, module `notify`; generic lis
 
 | table | what | key fields |
 | --- | --- | --- |
-| `notification_rule` | when, to whom, how | `name`, `active`, `mandatory`, `table_key` (`*` for a built-in's copy), `event`, `custom_event`, `entry_kinds` (`comment`/`work_note`/`email_in`), `condition` (Cond JSON), `recipients` (RecipientSpec JSON), `notify_actor`, `channels` (`in_app`/`email`/`sms`/`webhook`), `targets` (refs `notification_channel`), `template_id`, `digest`, `builtin`, `description` |
+| `notification_rule` | when, to whom, how | `name`, `active`, `mandatory`, `table_key` (`*` for a built-in's copy), `event`, `custom_event`, `entry_kinds` (`comment`/`work_note`/`email_in`), `condition` (Cond JSON), `recipients` (RecipientSpec JSON), `notify_actor`, `large_groups` (`group`/`members`/`leads`, §4), `channels` (`in_app`/`email`/`sms`/`webhook`), `targets` (refs `notification_channel`), `template_id`, `digest`, `builtin`, `description` |
 | `notification_template` | subject/body/short text | `name`, `event`, `table_key` (sample table), `subject`, `body` (Markdown), `short_text` (SMS, messengers; empty → subject), `active` |
 | `notification_channel` | messengers, webhooks, SMS gateways | `kind` (`slack`/`teams`/`mattermost`/`telegram`/`bale`/`webhook`/`sms`), `principal_id` (whose access messages carry), `endpoint` (secret), `token` (secret), `chat_id`, `sms_url`, `sms_method`, `sms_content_type` (`form`/`json`), `sms_sender`, `sms_body`, `sms_headers` |
 | `email_channel` | the organisation's mailbox | `from_name`, `from_address`, `reply_to`, `is_default`, `smtp_host/port/security/user/password` (secret), `inbound`, `imap_host/port/security/user/password` (secret), `imap_folder`, `target_table` (default `todo`), `allow_list`, `deny_list`, `signature` (Markdown) |
@@ -99,7 +99,13 @@ channel; `fields` recipients are `user`, `users` or `group` fields.
 
 - `assignee`, `requester`, `watchers`, `assignment_group` use the table's scope columns (`TableDef.scope`); the
   requester side is `requested_for`/`caller_id` (who opened the record only when nobody else is named).
-- `assignment_group`/`groups`/group `fields`: members, leads and observers within their validity; `group_manager`:
+- `assignment_group`/`groups`/group `fields`: members, leads and observers within their validity — or, for a **large
+  group**, only its leads (membership kind «سرپرست») and its manager (`group.manager_id`). Who of a group hears it
+  (`groupAudience` in `@shared/notify`): the rule's `large_groups` when it is `members` or `leads`; else the group's
+  `notify_mode` («اعلان ارجاع به گروه»: `members`, `leads`, or `auto`, the default: every member up to `LARGE_GROUP` =
+  50, leads and manager above). The others see the record in the group queue and its count in the nav (incident
+  «بی‌مسئول در گروه‌های من», request «بی‌مسئول در گروه‌های من» and «وظایف گروه‌های من») instead of a bell each. A large
+  group without leads or manager tells nobody; give it a lead. `group_manager`:
   the group's managers; `*_manager`: the managers of those people; `roles`: holders on their profile or through a
   group's roles (`tenant_admin` also owners and «مدیر» members).
 - `oncall`: whoever an on-call source returns for the record's group (`registerOnCallSource`, §9).
@@ -154,10 +160,22 @@ renderer (everything escaped, links only `http(s)`/`mailto`).
 
 ## 6. Delivery
 
-1. The record-event subscriber (`onRecordEvent("notify", …)`) matches rules and resolves recipients, then queues in
-   **one transaction** one `notify.send` job per person and one `notify.hook` job per outside channel (6 attempts,
-   the queue's back-off). A retried event never queues half.
-2. `notify.send` renders under the recipient's access (no access → `skipped/no_access`), then per channel:
+1. The record-event subscriber (`onRecordEvent("notify", …)`) matches rules and resolves recipients, then queues with
+   **one statement** (`enqueueMany`) one `notify.batch` job per rule (every recipient, at most 500) and one
+   `notify.hook` job per outside channel (6 attempts, the queue's back-off). A retried event never queues half.
+   `notifyPeople` queues one `notify.batch` as well.
+2. `notify.batch` is set-based. Per person and **outside any transaction**: their context, the message rendered under
+   their access (no access → `skipped/no_access`, gone → `record_gone`, left the organisation → `inactive`), their
+   preferences (opt-outs per channel; mandatory rules ignore them). Then, per chunk of 100 people, **one short write**
+   under the organisation's write lock: every bell row with one insert (`insertManyIn`: values, defaults, the access
+   anchors and validation as a create, the sync revision from the trigger, **no `record.created` event per bell**),
+   every log row with one insert (`logMany`), the other channels' deliveries with one insert of `notify.send` jobs (one
+   per person: e-mail and SMS render again when they go out, apply quiet hours and digests and keep their own
+   retries) and the job's progress (`jctx.saveIn`) — so a retry never writes a bell twice. A person whose message fails
+   to render for another reason gets a `notify.send` job of their own. Measured on the bank seed: PERFORMANCE_FA.md
+   «دور دوم».
+3. `notify.send` (one person: e-mail/SMS of a batch, a failed render, a mention warning, jobs queued before the
+   upgrade) renders under the recipient's access (no access → `skipped/no_access`), then per channel:
    - preferences: `optouts` (`skipped/opted_out`) — **mandatory** rules ignore opt-outs, quiet hours and digests;
    - `in_app`: a `notification` row (the bell's count moves with «زنده»);
    - `email`: to the member's address through the default e-mail channel; inside quiet hours → `held/quiet` until
@@ -165,9 +183,9 @@ renderer (everything escaped, links only `http(s)`/`mailto`).
    - `sms`: to the member's mobile (`normalizeMobile`, Iranian numbers to `98…`) through the rule's SMS target or
      the first active SMS gateway; quiet hours hold it too.
    Progress is saved per channel, so a retry never repeats a channel that already went out.
-3. `notify.flush` sends what is held when it is due: one e-mail (or a digest listing every item) re-rendered under
+4. `notify.flush` sends what is held when it is due: one e-mail (or a digest listing every item) re-rendered under
    the recipient's access **at that moment**; items whose record is gone or now unreadable are skipped.
-4. `notify.hook` renders as the channel's `principal_id` (no principal or no access → skipped) and posts it.
+5. `notify.hook` renders as the channel's `principal_id` (no principal or no access → skipped) and posts it.
 
 Skip reasons (`SKIP_REASONS`): `no_access`, `inactive`, `opted_out`, `no_address`, `no_channel`,
 `channel_inactive`, `quiet`, `digest`, `record_gone`. Every outcome is a row of `sm_notification_log` (subject and a
@@ -301,7 +319,8 @@ POST /api/o/<org>/r/notification_rule
 - Settings space, section «اعلان‌ها»: **قانون‌های اعلان** (`notify/rules`: built-ins and the organisation's, a switch
   per rule; editor `notify/rules/new`, `notify/rules/:id`, `notify/rules/builtin/:key` with FilterBuilder plus a
   «و فقط وقتی … تغییر کرد (به/از …)» trigger for the rule-only operators, the recipients picker, channels and outside
-  channels, template, digest, mandatory, and a live preview), **الگوهای اعلان** (generic list; editor
+  channels, template, digest, mandatory, «اعضای گروه‌های بزرگ» when the rule reaches groups, and a live preview),
+  **الگوهای اعلان** (generic list; editor
   `notify/templates/:id` with Markdown, click-to-insert placeholders of the sample table, template problems as you
   type, the event's default text, and the preview in-app / e-mail (sandboxed frame) / short text), **کانال‌های
   ایمیل** and **پیام‌رسان‌ها و پیامک** (generic record pages with «ایمیل آزمایشی», «بررسی صندوق اکنون», the inbox
@@ -313,6 +332,9 @@ POST /api/o/<org>/r/notification_rule
 ## 12. Tests
 
 `tests/notify-template.test.ts` (template language, preferences helpers, adapters' requests),
+`tests/notify-fanout.test.ts` (one insert for a group's bells, no record event per bell, a re-run batch writes no bell
+twice, no access → nothing, opt-outs and quiet hours per person, the e-mail deliveries as jobs, `notifyPeople` as one
+batch, large groups: leads and manager under «خودکار», the group's and the rule's overrides),
 `tests/notify-rules.test.ts` (rules end to end: built-ins, conditions with `changes_to`, recipients, actor, access
 filtering, field masks, internal notes, content blocks rendered as the recipient, mentions, opt-outs, mandatory,
 inbox, snooze, log; knowledge's `kb_suggestions` block in `tests/knowledge-flow.test.ts`),

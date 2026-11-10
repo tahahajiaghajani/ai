@@ -11,6 +11,7 @@ import { ImageInput } from "../../components/data";
 import { EmptyState } from "../../components/display";
 import { DEFAULT_TIMEZONE, MODULES, TIMEZONES, type ModuleKey } from "@shared/constants";
 import { Note, cx } from "../../components/blocks";
+import { ArchiveSettings } from "./Archive";
 
 function Sec({ title, desc, children }: { title: ReactNode; desc?: ReactNode; children: ReactNode }) {
   return (
@@ -61,6 +62,7 @@ export default function OrgSettings() {
         items={[
           { key: "profile", label: "مشخصات" },
           { key: "settings", label: "زمان و چاپ" },
+          { key: "archive", label: "بایگانی" },
           { key: "modules", label: "بخش‌ها" },
         ]}
       />
@@ -134,6 +136,8 @@ export default function OrgSettings() {
           </div>
           {editable ? <SaveBar loading={save.isPending} /> : null}
         </Form>
+      ) : tab === "archive" ? (
+        <ArchiveSettings section={(title, desc, body) => <Sec title={title} desc={desc ?? undefined}>{body}</Sec>} />
       ) : MODULES.length ? (
         <Form layout="vertical" disabled={!can("settings", "full")} initialValues={{ modules: org.modules }} onFinish={(v) => save.mutate(v)} className="blk-card">
           <div className="px-5 pt-5">

@@ -1,4 +1,5 @@
 // Server configuration and the per-request context handed to services.
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { Db, Tx } from "./db";
 import type { Area, Level, Role } from "@shared/permissions";
 import { can as canDo, AREAS, LEVEL_ORDER } from "@shared/permissions";
@@ -9,6 +10,7 @@ import { recordSupportWrite } from "./modules/platform/support";
 import { bumpLocal } from "./live";
 import type { NetworkPolicy } from "./net";
 import type { BlobStore } from "./blobs";
+import { lockGranted, lockProbeOn } from "./db/lockprobe";
 
 export type Mode = "cloud" | "desktop";
 
@@ -188,6 +190,15 @@ export interface WriteOptions {
    * support change in the audit log.
    */
   internal?: boolean;
+  /**
+   * Take the organisation's write lock as late as possible: not when the transaction starts but right before its first
+   * write of a synced row (the engine calls `ensureOrgLock` before each statement; the sync trigger takes it at the
+   * latest). Reads, preparation and per-row work before that run without holding it. Only for work whose reads do not
+   * decide other records' writes (the notification service's bell rows); user writes keep the lock from the start.
+   * Default: on for `internal` bookkeeping (single writes that need no serialisation beyond the revision order — a
+   * write of a table that is not synced then takes no lock at all), off otherwise.
+   */
+  late?: boolean;
 }
 
 export interface Ctx {
@@ -218,13 +229,54 @@ export interface Ctx {
   hasModule(m: ModuleKey): boolean;
 }
 
+/** Transactions holding their organisation's write lock (taken through `lockOrg`). */
+const locked = new WeakSet<Tx>();
+
+/**
+ * Write admission: at most this many write transactions of one organisation are in the database at once per process
+ * (`ITSM_WRITERS_PER_ORG`, default 3). The organisation's writes are serialised by its write lock anyway; more of them
+ * in the database would only hold pool connections while they wait for it — and when one write holds the lock long, a
+ * queue of waiting writers empties the pool and every read of the process stalls behind them. The others wait here,
+ * holding nothing. Bookkeeping (`internal`) and writes inside another write are not counted.
+ */
+const WRITERS_PER_ORG = Math.max(1, Number(process.env.ITSM_WRITERS_PER_ORG ?? 3) || 3);
+const admission = new Map<string, { busy: number; waiting: (() => void)[] }>();
+const insideWrite = new AsyncLocalStorage<true>();
+
+export async function admitWrite<T>(orgId: string, fn: () => Promise<T>, opts: { internal?: boolean } = {}): Promise<T> {
+  if (opts.internal || insideWrite.getStore()) return fn();
+  let slot = admission.get(orgId);
+  if (!slot) admission.set(orgId, (slot = { busy: 0, waiting: [] }));
+  if (slot.busy >= WRITERS_PER_ORG) await new Promise<void>((resolve) => slot!.waiting.push(resolve));
+  else slot.busy++;
+  try {
+    return await insideWrite.run(true, fn);
+  } finally {
+    // hand the place to the next writer (it does not count itself again), or free it
+    const next = slot.waiting.shift();
+    if (next) next();
+    else if (--slot.busy === 0) admission.delete(orgId);
+  }
+}
+
 /** Serialises writes of one organisation (and keeps revision numbers in commit order). */
 export async function lockOrg(tx: Tx, orgId: string): Promise<void> {
+  const t0 = lockProbeOn() ? performance.now() : 0;
   await tx.query(
     `insert into sm_org_sync (org_id, rev) values ($1, 0)
      on conflict (org_id) do update set rev = sm_org_sync.rev`,
     [orgId],
   );
+  locked.add(tx);
+  if (t0) lockGranted(tx, performance.now() - t0);
+}
+
+/**
+ * The write lock before a statement that writes synced rows: taken now unless this transaction holds it already (a
+ * `late` write takes it here, at its first write; any other write took it when it began). Cheap when held.
+ */
+export async function ensureOrgLock(tx: Tx, orgId: string): Promise<void> {
+  if (!locked.has(tx)) await lockOrg(tx, orgId);
 }
 
 export const NOT_MEMBER_MESSAGE = "شما عضو این سازمان نیستید؛ برای کار در آن، از «مدیریت سامانه» حالت پشتیبانی را آغاز کنید";
@@ -294,8 +346,9 @@ export function makeCtx(cfg: ServerConfig, user: AuthUser, org: OrgRow, member: 
     write: async (fn, wopts) => {
       if (outsider && !support) throw forbidden(NOT_MEMBER_MESSAGE);
       if (support?.level === "view" && !wopts?.internal) throw forbidden(SUPPORT_VIEW_ONLY_MESSAGE);
-      const result = await cfg.db.tx(async (tx) => {
-        await lockOrg(tx, org.id);
+      const result = await admitWrite(org.id, () => cfg.db.tx(async (tx) => {
+        // bookkeeping (`internal`) takes the lock only if it writes synced rows, and only then
+        if (!(wopts?.late ?? wopts?.internal)) await lockOrg(tx, org.id);
         if (!wopts?.internal) await assertWritable(tx, org.id);
         if (support) {
           const live = await tx.one(
@@ -308,7 +361,7 @@ export function makeCtx(cfg: ServerConfig, user: AuthUser, org: OrgRow, member: 
         const out = await fn(tx);
         if (support && !wopts?.internal) await recordSupportWrite(tx, cfg, org.id, user.id, support.id, opts.request ?? null);
         return out;
-      });
+      }), wopts);
       cfg.desktop?.notifyLocalWrite();
       if (cfg.mode !== "cloud") bumpLocal(org.id);
       return result;

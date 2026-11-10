@@ -15,6 +15,7 @@ import { addLink, listLinks, removeLink } from "../engine/links";
 import { watch } from "../engine/watchers";
 import { addAttachment, contentDisposition, listAttachments, missingBlobs, openAttachment, putBlob, removeAttachment } from "../engine/attachments";
 import { exportRows, importRows } from "../engine/transfer";
+import { archiveSettings, archiveSummary, scheduleArchive } from "../engine/archive";
 import { tableMeta, tablesMeta } from "../engine/meta";
 
 export const recordRoutes = router();
@@ -46,6 +47,8 @@ const listBody = z.object({
   ids: z.array(z.string()).max(500).optional(),
   view: z.string().uuid().optional(),
   total: z.boolean().optional(),
+  after: z.string().max(400).optional(),
+  archived: z.boolean().optional(),
 });
 
 function listQuery(c: C): records.ListParams {
@@ -60,6 +63,8 @@ function listQuery(c: C): records.ListParams {
     ids: csv(q.ids),
     view: q.view || undefined,
     total: q.total === "false" ? false : undefined,
+    after: q.after ? String(q.after).slice(0, 400) : undefined,
+    archived: q.archived === "1" || q.archived === "true" ? true : undefined,
   };
 }
 
@@ -81,11 +86,43 @@ recordRoutes.get("/meta/tables/:key", async (c) => c.json(await tableMeta(c.get(
 
 // --- collection ---------------------------------------------------------------------------------------------------
 
-recordRoutes.get("/r/:table", async (c) => c.json(await records.list(c.get("ctx"), c.req.param("table"), listQuery(c))));
+// --- archive of old closed records (engine/archive.ts) -----------------------------------------------------------
+
+recordRoutes.get("/archive", async (c) => {
+  const ctx = c.get("ctx");
+  ctx.need("settings", "view");
+  return c.json(await archiveSummary(ctx));
+});
+
+recordRoutes.put("/archive", async (c) => {
+  const ctx = c.get("ctx");
+  ctx.need("settings", "full");
+  const p = await body(c, z.object({ enabled: z.boolean(), years: z.number().int().min(1).max(30) }));
+  await ctx.write(async (tx) => {
+    await tx.query(
+      `update sm_orgs set settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{archive}', $2::jsonb), updated_at = now() where id = $1`,
+      [ctx.org.id, JSON.stringify({ enabled: p.enabled, years: p.years })],
+    );
+    if (p.enabled) await scheduleArchive(tx, ctx.org.id, { tz: (ctx.org.settings?.timezone as string | undefined) || undefined });
+  });
+  ctx.org.settings = { ...(ctx.org.settings ?? {}), archive: { enabled: p.enabled, years: p.years } };
+  return c.json(await archiveSummary(ctx));
+});
+
+recordRoutes.post("/archive/run", async (c) => {
+  const ctx = c.get("ctx");
+  ctx.need("settings", "full");
+  if (!archiveSettings(ctx.org).enabled) throw bad("بایگانی روشن نیست");
+  await ctx.write((tx) => scheduleArchive(tx, ctx.org.id, { now: true }), { internal: true });
+  return c.json({ ok: true });
+});
+
+// lists count up to COUNT_LIMIT matching rows («بیش از ۱۰٬۰۰۰» beyond it): an exact count of millions reads them all
+recordRoutes.get("/r/:table", async (c) => c.json(await records.list(c.get("ctx"), c.req.param("table"), { ...listQuery(c), countLimit: records.COUNT_LIMIT })));
 
 recordRoutes.post("/r/:table/query", async (c) => {
   const p = await body(c, listBody);
-  return c.json(await records.list(c.get("ctx"), c.req.param("table"), p));
+  return c.json(await records.list(c.get("ctx"), c.req.param("table"), { ...p, countLimit: records.COUNT_LIMIT }));
 });
 
 recordRoutes.post("/r/:table", async (c) => {
@@ -102,6 +139,7 @@ recordRoutes.post("/r/:table/agg", async (c) => {
       groupBy: z.array(z.union([z.string().max(120), z.object({ field: z.string().max(120), bucket: z.enum(DATE_UNITS).optional() })])).max(3).optional(),
       metrics: z.array(z.object({ fn: z.enum(METRIC_FNS as [MetricFn, ...MetricFn[]]), field: z.string().max(120).optional() })).max(10).optional(),
       limit: z.number().int().min(1).max(5000).optional(),
+      archived: z.boolean().optional(),
     }),
   );
   return c.json(await aggregate(c.get("ctx"), c.req.param("table"), p));

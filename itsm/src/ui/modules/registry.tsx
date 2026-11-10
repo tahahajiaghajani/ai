@@ -58,6 +58,8 @@ export interface NavCount {
   /** what the number counts, for the tooltip: «درخواست باز» */
   hint: string;
   load: (api: OrgApi) => Promise<number>;
+  /** the tables it counts (what «زنده» asks about for it); default: the tables of the module its key starts with */
+  tables?: string[];
 }
 
 export interface NavItem {

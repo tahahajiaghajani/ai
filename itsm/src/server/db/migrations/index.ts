@@ -20,6 +20,7 @@ import portalSurveys from "./0070_portal_surveys";
 import adminIntegration from "./0080_admin_integration";
 import authDirectory from "./0090_auth_directory";
 import directoryIdentity from "./0091_directory_identity";
+import scale from "./0095_scale";
 import { ddlForAll } from "../../engine/ddl";
 
 export interface Migration {
@@ -58,6 +59,7 @@ export const MIGRATIONS: Migration[] = [
   { id: "0080_admin_integration", title: "مدیریت و اتصال‌ها: طرح‌ها، کلیدهای قابلیت، اطلاعیه‌ها، پشتیبان‌ها، کلیدهای API کاربران یکپارچه‌سازی، گزارش اتصال‌ها و فهرست کاربران", sql: adminIntegration },
   { id: "0090_auth_directory", title: "ورود با حساب سازمانی و ورود خودکار ویندوز: روش و دامنهٔ نشست‌ها، سیاست نشست، شمارش ورودهای ناموفق و قفل محلی", sql: authDirectory },
   { id: "0091_directory_identity", title: "پیوند حساب‌ها با خود شیء فهرست کاربران (objectGUID)، نه فقط نام آن", sql: directoryIdentity },
+  { id: "0095_scale", title: "مقیاس بانکی: جست‌وجوی سه‌حرفی (pg_trgm) و نمایه‌های BRIN جریان‌های افزایشی", sql: scale },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].id;

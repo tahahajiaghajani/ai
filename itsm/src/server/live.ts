@@ -1,5 +1,8 @@
 // «زنده»: a cheap token that changes whenever an organisation's data changes, so open screens can
-// refresh what another device changed (GET /o/:org/pulse, polled by src/ui/lib/live.ts).
+// refresh what another device changed (GET /o/:org/pulse, polled by src/ui/lib/live.ts). Screens name the
+// tables and records they show and are told which of those changed (src/server/live-scope.ts): a write
+// elsewhere in the organisation no longer refetches every open page, and nothing the member may not read
+// is ever signalled.
 // - Web version: the organisation's sync revision (sm_org_sync), which sm_sync_touch moves on every
 //   change of a synced record, whoever made it: a browser or phone, a Windows app's upload, the
 //   platform admin. One indexed row read, no table scan.

@@ -140,21 +140,28 @@ export async function myItems(ctx: Ctx, p: { tab?: ItemsTab; state?: ItemsState;
   const schema = await orgSchema(ctx);
   const cards: PortalTicketCard[] = [];
   let total = 0;
-  for (const t of portalItemTables()) {
-    const def = schema.def(t.table);
-    // a table read through a role, or one the person takes part in (a work order they asked for)
-    if (!def || def.virtual || !def.states || !(access().canReadTable(ctx, def) || (await canOpenRecords(ctx, def)))) continue;
-    const rel = subject ? relationCond(subject, def, tab) : null;
-    if (!rel) continue;
-    const st = statesWhere(def, state);
-    const filter: Cond = st ? { and: [rel, st] } : rel;
-    try {
-      const r = await list(ctx, def.key, { filter, q: p.q?.trim() || undefined, sort: "-updated_at", size: Math.min(500, page * size), fields: cardFields(def), total: true });
-      total += r.total ?? r.rows.length;
-      for (const row of r.rows) cards.push(cardOf(ctx, def, row, r.display, tab));
-    } catch {
-      // a table the person cannot list (a refused filter, a customised table): the others still show
-    }
+  // every item table at once (each an indexed read of the person's own rows): the page waits for the slowest, not the sum
+  const pages = await Promise.all(
+    portalItemTables().map(async (t) => {
+      const def = schema.def(t.table);
+      // a table read through a role, or one the person takes part in (a work order they asked for)
+      if (!def || def.virtual || !def.states || !(access().canReadTable(ctx, def) || (await canOpenRecords(ctx, def)))) return null;
+      const rel = subject ? relationCond(subject, def, tab) : null;
+      if (!rel) return null;
+      const st = statesWhere(def, state);
+      const filter: Cond = st ? { and: [rel, st] } : rel;
+      try {
+        return { def, r: await list(ctx, def.key, { filter, q: p.q?.trim() || undefined, sort: "-updated_at", size: Math.min(500, page * size), fields: cardFields(def), total: true }) };
+      } catch {
+        // a table the person cannot list (a refused filter, a customised table): the others still show
+        return null;
+      }
+    }),
+  );
+  for (const x of pages) {
+    if (!x) continue;
+    total += x.r.total ?? x.r.rows.length;
+    for (const row of x.r.rows) cards.push(cardOf(ctx, x.def, row, x.r.display, tab));
   }
   cards.sort((a, b) => String(b.updated_at ?? "").localeCompare(String(a.updated_at ?? "")));
   return { items: cards.slice((page - 1) * size, page * size), total, page, size, team };

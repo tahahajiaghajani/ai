@@ -29,6 +29,26 @@ export function forceStoreBackend(db: Db, kind: StoreBackend["kind"] | null): vo
 
 const ident = (s: string) => `"${s.replace(/"/g, '""')}"`;
 
+/**
+ * Is an extension version (`pg_extension.extversion`: "0.8.0", "0.10.2", "1.0") at least `major.minor`? Both parts
+ * are compared — 1.x is newer than 0.8 although its minor is 0 — and an unreadable version counts as older.
+ */
+export function versionAtLeast(version: string | null | undefined, major: number, minor: number): boolean {
+  const m = /^\s*v?(\d+)(?:\.(\d+))?/.exec(String(version ?? ""));
+  if (!m) return false;
+  const a = Number(m[1]);
+  const b = Number(m[2] ?? 0);
+  return a > major || (a === major && b >= minor);
+}
+
+/**
+ * pgvector 0.8.0 brought iterative index scans (`hnsw.iterative_scan`): an HNSW search with the access filter goes on
+ * until enough rows pass it. Older versions return what `ef_search` found and filter that.
+ */
+export function hasIterativeScan(version: string | null | undefined): boolean {
+  return versionAtLeast(version, 0, 8);
+}
+
 /** `vector` type name, the cosine operator and functions, qualified with the extension's schema. */
 export function vectorSql(b: StoreBackend): { type: string; op: string; ops: string; fn: (name: string) => string } {
   const s = b.schema && b.schema !== "public" ? `${ident(b.schema)}.` : "";

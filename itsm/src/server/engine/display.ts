@@ -13,6 +13,7 @@ import { access } from "../access/provider";
 import type { OrgSchema } from "./schema";
 import { optionsOf } from "./schema";
 import { fieldExpr, readable } from "./sql";
+import { archivable, archiveTableOf } from "./ddl";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -74,11 +75,28 @@ export async function resolveDisplay(q: Queryable, ctx: Ctx, env: CondEnv, schem
       `select ${cols.join(", ")} from ${def.table} t where t.id = any($1::uuid[]) and ${where}`,
       params,
     );
-    for (const r of rows) {
+    // records moved to the archive (engine/archive.ts) leave a tombstone for a while, then nothing: read their label there
+    let archived = new Set<string>();
+    let found = rows;
+    if (archivable(def)) {
+      const missing = ids.filter((id) => !rows.some((r) => r.id === id && !r.deleted_at));
+      if (missing.length) {
+        const ap: unknown[] = [pgArray(missing)];
+        const aw = readable(ctx, def, "t", ap, env);
+        const arc = await q.query<{ id: string; deleted_at: string | null; number?: string | null; d?: unknown }>(
+          `select ${cols.join(", ")} from ${archiveTableOf(def)} t where t.id = any($1::uuid[]) and ${aw}`,
+          ap,
+        ).catch(() => []);
+        archived = new Set(arc.map((r) => r.id));
+        found = [...rows.filter((r) => !archived.has(r.id)), ...arc];
+      }
+    }
+    for (const r of found) {
       let label = showField ? labelOf(showField, r.d, schema) : "";
       if (def.numbered && r.number && showField?.name !== "number") label = label ? `${r.number} — ${label}` : r.number;
       if (!label) label = r.number ?? "—";
-      if (r.deleted_at) label += " (حذف‌شده)";
+      if (archived.has(r.id)) label += " (بایگانی)";
+      else if (r.deleted_at) label += " (حذف‌شده)";
       out[r.id] = label;
     }
   }

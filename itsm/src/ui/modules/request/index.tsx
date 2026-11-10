@@ -22,6 +22,8 @@ import { recordModule } from "../../records/module";
 import type { RecordContext } from "../../records/extensions";
 import { Loader } from "../../components/display";
 import { cartCount } from "./api";
+import { recordsApi } from "../../records/data/api";
+import type { OrgApi } from "../../lib/api";
 import { QUEUES, rowTone, type Queue } from "./model";
 
 const ItemActions = lazy(() => import("./ItemPanels").then((m) => ({ default: m.ItemActions })));
@@ -60,6 +62,14 @@ const CATALOG = "کاتالوگ";
 const ICONS: Record<string, typeof ShoppingBag> = { mine: User, unassigned: Users, "my-tasks": ClipboardList, "group-tasks": ListTodo, approval: Stamp, info: Hourglass, overdue: AlarmClock };
 const DONE_ITEM = ["delivered", "closed_complete", "closed_incomplete"];
 
+/**
+ * The group queues' counts (items and tasks of the caller's groups nobody took yet): a large group hears of new work
+ * here and through its leads (notify.md «گروه‌های بزرگ»), not through a bell for every member.
+ */
+const queueCount = (q: Queue) => async (api: OrgApi) =>
+  (await recordsApi.list(api, q.table, { filter: q.filter(Date.now()), size: 1, fields: ["number"], total: true })).total ?? 0;
+const COUNTED: Record<string, string> = { unassigned: "قلم بی‌مسئول در گروه‌های شما", "group-tasks": "وظیفهٔ بی‌مسئول در گروه‌های شما" };
+
 const queueNav = (q: Queue, i: number): NavItem => ({
   key: `request:q:${q.key}`,
   label: q.label,
@@ -68,6 +78,7 @@ const queueNav = (q: Queue, i: number): NavItem => ({
   area: "work", access: FULFILS,
   workspace: i === 0,
   keywords: "درخواست خدمت قلم وظیفه صف کارتابل RITM RTSK",
+  ...(COUNTED[q.key] ? { count: { key: `request:${q.key}`, hint: COUNTED[q.key], load: queueCount(q), tables: [q.table] } } : {}),
 });
 
 const module = recordModule({

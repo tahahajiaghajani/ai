@@ -1,8 +1,8 @@
 // The record engine's public API for server code (modules, services, jobs, the AI layer). The HTTP API in
 // src/server/routes/records.ts is a thin layer over the same functions. docs/spec/ENGINE.md documents all of it.
-export { list, listAll, MAX_PAGE, get, create, update, transition, remove, bulkUpdate, recordMeta, checkFilter } from "./records";
+export { list, listAll, MAX_PAGE, COUNT_LIMIT, get, create, update, transition, remove, bulkUpdate, recordMeta, checkFilter } from "./records";
 export type { ListParams, ListResult, RecordMeta, RecordResult, BulkParams, BulkResult } from "./records";
-export { createIn, updateIn, transitionIn, removeIn, savepoint, isLocked, assignmentFields, LOCKED_MESSAGE, VERSION_MESSAGE } from "./write";
+export { createIn, updateIn, transitionIn, removeIn, insertManyIn, savepoint, isLocked, assignmentFields, LOCKED_MESSAGE, VERSION_MESSAGE } from "./write";
 export type { WriteOptions } from "./write";
 export { aggregate, METRIC_FNS } from "./aggregate";
 export type { AggregateParams, AggregateResult, GroupBy, MetricFn } from "./aggregate";
@@ -34,4 +34,5 @@ export { loadReadable, requireReadable, canOpenRecords, readSecret, toOutput, fr
 export { onBeforeCommit } from "../db";
 export { RefSet, resolveDisplay, labelOf } from "./display";
 export { bumpScopeEpoch, scopeEpoch } from "./sync";
-export { ddlFor, ddlForAll, reconcileSchema } from "./ddl";
+export { ddlFor, ddlForAll, reconcileSchema, archivable, archiveTableOf } from "./ddl";
+export { archiveSettings, archiveBatch, purgeArchived, archivableTables, scheduleArchive, archiveSummary, ARCHIVE_DEFAULT_YEARS, type ArchiveSettings } from "./archive";

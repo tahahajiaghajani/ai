@@ -30,9 +30,10 @@ import { readAggregates } from "../sync/apply";
 import { access } from "../access/provider";
 import { condEnv, isSystemCtx } from "./env";
 import { orgSchema, type OrgSchema } from "./schema";
-import { readable, writableRule } from "./sql";
+import { readable, SEARCH_COLUMN, writableRule } from "./sql";
 import { coerceValue, FieldError, KEEP } from "./values";
 import { canOpenRecords, fromDb, type Row } from "./read";
+import { archivable, archiveTableOf } from "./ddl";
 import { recordEvents, sameValue, stateEffects } from "./write";
 import { emitEvent } from "./events";
 import { emitLinkEvents } from "./links";
@@ -346,6 +347,9 @@ export async function afterEnginePush(tx: Tx, ctx: Ctx, agg: AggregateDef, wire:
   const stored = await tx.one<Row>(`select * from ${def.table} where id = $1`, [wire.id]);
   if (!stored) return;
   const row = fromDb(def, stored);
+  // a record moved to the archive (engine/archive.ts) that a Windows app's newer copy brought back is live again: its
+  // archived copy goes, so it is listed once (the nightly run moves it again once it is old enough)
+  if (!row.deleted_at && (!prev || prev.deleted_at) && archivable(def)) await tx.query(`delete from ${archiveTableOf(def)} where id = $1 and org_id = $2`, [wire.id, ctx.org.id]);
   if (row.deleted_at && (!prev || !prev.deleted_at)) {
     await recordEvents(tx, ctx, def, "delete", prev, row, new Set(), { via: "sync" });
     return;
@@ -379,6 +383,8 @@ export async function pullEngine(ctx: Ctx, agg: AggregateDef, cursor: number, up
 export async function replicaRows(q: Queryable, ctx: Ctx, agg: AggregateDef, rows: Row[]): Promise<EnginePull> {
   const out: EnginePull = { aggregates: [], tombstones: [] };
   if (!rows.length) return out;
+  // the stored search document holds every search field's text (hidden ones too): it never goes down
+  for (const r of rows) for (const k of Object.keys(r)) if (SEARCH_COLUMN.test(k)) delete r[k];
   const schema = await orgSchema(ctx, q);
   const env = await condEnv(ctx);
   let ok: Set<string>;

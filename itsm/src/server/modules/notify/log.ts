@@ -60,6 +60,30 @@ export async function logDelivery(q: Queryable, x: LogInput): Promise<string> {
   return id;
 }
 
+/** Many delivery outcomes with one statement (every recipient of a notification at once). Returns their ids in order. */
+export async function logMany(q: Queryable, rows: LogInput[]): Promise<string[]> {
+  if (!rows.length) return [];
+  const ids = rows.map(() => uuidv7());
+  const records = rows.map((x, i) => ({
+    id: ids[i], org_id: x.org, rule_key: x.rule_key ?? null, rule_name: x.rule_name ?? null, event: x.event, table_key: x.table_key ?? null,
+    record_id: x.record_id ?? null, record_number: x.record_number ?? null, channel: x.channel, recipient_id: x.recipient_id ?? null,
+    target: x.target ? String(x.target).slice(0, 300) : null, status: x.status, reason: x.reason ?? null, error: x.error ? String(x.error).slice(0, 1000) : null,
+    provider_id: x.provider_id ? String(x.provider_id).slice(0, 300) : null, subject: x.subject ? String(x.subject).slice(0, 300) : null,
+    body_hash: x.body ? bodyHash(x.body) : null, due_at: x.due_at ? new Date(x.due_at).toISOString() : null, payload: x.payload ?? null,
+  }));
+  await q.query(
+    `insert into sm_notification_log (id, org_id, rule_key, rule_name, event, table_key, record_id, record_number, channel, recipient_id, target,
+       status, reason, error, provider_id, subject, body_hash, due_at, payload)
+     select id, org_id, rule_key, rule_name, event, table_key, record_id, record_number, channel, recipient_id, target,
+       status, reason, error, provider_id, subject, body_hash, due_at, payload
+     from jsonb_to_recordset($1::jsonb) as x(id uuid, org_id uuid, rule_key text, rule_name text, event text, table_key text, record_id uuid,
+       record_number text, channel text, recipient_id uuid, target text, status text, reason text, error text, provider_id text, subject text,
+       body_hash text, due_at timestamptz, payload jsonb)`,
+    [JSON.stringify(records)],
+  );
+  return ids;
+}
+
 /** Mark a held row as gone out (or skipped) once its quiet time or digest came. */
 export async function settleHeld(q: Queryable, id: string, status: Exclude<LogStatus, "held">, extra: { reason?: string | null; error?: string | null; provider_id?: string | null; subject?: string | null } = {}): Promise<void> {
   await q.query(
