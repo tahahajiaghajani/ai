@@ -54,6 +54,8 @@ $wixArgs = @(
     '-d', "SourceDir=$Dist",
     '-d', "LicenseRtf=$(Join-Path $PSScriptRoot '..\wix\License.rtf')",
     '-d', "IconFile=$(Join-Path $Dist 'icon.ico')",
+    # the server MSI's own English texts over WixUI's (the failure dialog names install-error.txt)
+    '-culture', 'en-US', '-loc', (Join-Path $PSScriptRoot '..\wix\Package.en-us.wxl'),
     '-o', $msi
 ) + $ext
 Invoke-Native -File $wix -Arguments $wixArgs | Out-Null
