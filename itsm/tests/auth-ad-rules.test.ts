@@ -5,6 +5,7 @@ import { describe, it, expect } from "vitest";
 import { accountState, domainMatches, filetimeMs, loginMessage, parseLogin, reasonOfAdCode, spnCommands, VERIFIED_REASONS, GENERIC_LOGIN_MESSAGE } from "@shared/auth/login";
 import { normalizePolicy, policyProblems, strictestSession, DEFAULT_POLICY, BANK_POLICY } from "@shared/auth/policy";
 import { loginFilter, principalFilter } from "@server/modules/integration/directory-login";
+import { clientIp, isHttps, isTrustedProxy } from "@server/auth/session";
 import { filetime, NEVER } from "./ldap-fake";
 
 describe("login names", () => {
@@ -86,5 +87,34 @@ describe("the SSO checklist", () => {
     expect(spnCommands("https://Kariz.Bank.ir/", "BANK\\svc-kariz")).toEqual(["setspn -Q HTTP/kariz.bank.ir", "setspn -S HTTP/kariz.bank.ir BANK\\svc-kariz", "setspn -S HTTP/kariz BANK\\svc-kariz"]);
     expect(spnCommands("kariz", "KARIZ-SRV01$")).toEqual(["setspn -Q HTTP/kariz", "setspn -S HTTP/kariz KARIZ-SRV01$"]);
     expect(spnCommands("", "x")).toEqual([]);
+  });
+});
+
+describe("where a request comes from", () => {
+  const ctxOf = (o: { peer?: string; headers?: Record<string, string>; url?: string; trusted?: string[] }) =>
+    ({
+      req: { url: o.url ?? "http://kariz.test/api/x", header: (n: string) => o.headers?.[n.toLowerCase()] },
+      env: o.peer ? { incoming: { socket: { remoteAddress: o.peer } } } : undefined,
+      get: (k: string) => (k === "cfg" ? { auth: { trustedProxies: o.trusted } } : undefined),
+    }) as unknown as Parameters<typeof clientIp>[0];
+
+  it("believes X-Forwarded-For only from a trusted proxy", () => {
+    // the platform hides the socket (Vercel): its proxy's first hop
+    expect(clientIp(ctxOf({ headers: { "x-forwarded-for": "203.0.113.5, 10.0.0.1" } }))).toBe("203.0.113.5");
+    // a client straight on the socket cannot choose its address
+    expect(clientIp(ctxOf({ peer: "198.51.100.9", headers: { "x-forwarded-for": "10.0.0.5" } }))).toBe("198.51.100.9");
+    // IIS on the same server (loopback): the nearest hop that is not a proxy of ours
+    expect(clientIp(ctxOf({ peer: "127.0.0.1", headers: { "x-forwarded-for": "203.0.113.5, 127.0.0.1" } }))).toBe("203.0.113.5");
+    expect(clientIp(ctxOf({ peer: "::ffff:10.1.1.1", trusted: ["10.0.0.0/8"], headers: { "x-forwarded-for": "198.51.100.7:5555" } }))).toBe("198.51.100.7");
+    expect(clientIp(ctxOf({ peer: "10.1.1.1", headers: { "x-forwarded-for": "198.51.100.7" } }))).toBe("10.1.1.1");
+    expect(isTrustedProxy(undefined, "127.0.0.1")).toBe(true);
+    expect(isTrustedProxy({ auth: { trustedProxies: [] } } as never, "10.0.0.1")).toBe(false);
+  });
+
+  it("knows HTTPS from the URL, or from X-Forwarded-Proto of a trusted proxy", () => {
+    expect(isHttps(ctxOf({ url: "https://kariz.test/api/x" }))).toBe(true);
+    expect(isHttps(ctxOf({ headers: { "x-forwarded-proto": "https" } }))).toBe(true);
+    expect(isHttps(ctxOf({ peer: "127.0.0.1", headers: { "x-forwarded-proto": "https" } }))).toBe(true);
+    expect(isHttps(ctxOf({ peer: "198.51.100.9", headers: { "x-forwarded-proto": "https" } }))).toBe(false);
   });
 });
