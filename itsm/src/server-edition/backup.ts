@@ -54,7 +54,7 @@ function stamp(d = new Date()) {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
-const dbEnv = (password: string): NodeJS.ProcessEnv => ({ PGPASSWORD: password, PGCONNECT_TIMEOUT: "15", PGAPPNAME: "itsm-backup" });
+const dbEnv = (password: string): Record<string, string> => ({ PGPASSWORD: password, PGCONNECT_TIMEOUT: "15", PGAPPNAME: "itsm-backup" });
 const conn = (c: ServerEditionConfig, admin = false) => ["-h", c.db.host, "-p", String(c.db.port), "-U", admin ? c.db.admin_user : c.db.user];
 
 async function sha256File(file: string): Promise<string> {

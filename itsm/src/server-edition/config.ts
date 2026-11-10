@@ -269,7 +269,7 @@ export function normalize(raw: unknown, warnings: string[] = []): ServerEditionC
     secret: typeof c.secret === "string" ? c.secret : "",
     platform_admins: [...new Set(list(c.platform_admins).map((e) => e.toLowerCase()))],
     metrics_token: typeof c.metrics_token === "string" ? c.metrics_token : "",
-    trusted_proxies: proxiesOf(w, c),
+    trusted_proxies: proxiesOf(w, c as unknown as Obj),
     auth: {
       directory_lan: bool(c.auth?.directory_lan, d.auth.directory_lan),
       cookie_secure: ["auto", "always", "never"].includes(String(c.auth?.cookie_secure)) ? (c.auth.cookie_secure as ServerEditionConfig["auth"]["cookie_secure"]) : d.auth.cookie_secure,

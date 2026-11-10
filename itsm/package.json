@@ -9,7 +9,7 @@
     "build": "npm run build:ui && next build",
     "build:ui": "vite build",
     "start:local": "tsx scripts/serve-local.mts",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "node --max-old-space-size=6144 node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "schema": "tsx scripts/gen-schema.mts",
     "check:schema": "tsx scripts/gen-schema.mts --check"
