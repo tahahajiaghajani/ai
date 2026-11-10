@@ -462,7 +462,8 @@ async function clickActions(page, probe, url, role, route, href) {
   // (textContent waits for the element: read it only when there is one)
   const label = shown ? ((await primary.textContent({ timeout: 2000 }).catch(() => "")) ?? "").trim().slice(0, 40) : "";
   // never a button that saves, sends, approves or deletes: the crawl only looks
-  if (shown && !SAVES.test(label)) {
+  // (an icon-only primary button is usually «send»: skipped too)
+  if (shown && label && !SAVES.test(label)) {
     await primary.click({ timeout: 4000 }).catch(() => {});
     const r = await check(page, probe, { role, route: `${route} → «${label}»`, step: "action" });
     record(r);
@@ -778,7 +779,9 @@ async function main() {
     report.results = [...kept, ...report.results];
   }
   report.summary = { checks: report.results.length, ok: report.results.filter((r) => r.ok).length, problems: report.results.filter((r) => !r.ok).length + (report.fatal ? 1 : 0) };
-  writeFileSync(join(OUT, "clickthrough.json"), JSON.stringify(report, null, 2) + "\n");
+  // one check per line: small, and a re-run's diff shows what changed
+  const head = JSON.stringify({ ...report, results: "@results@" }, null, 2);
+  writeFileSync(join(OUT, "clickthrough.json"), head.replace('"@results@"', `[\n${report.results.map((r) => `    ${JSON.stringify(r)}`).join(",\n")}\n  ]`) + "\n");
   writeFileSync(join(OUT, "CLICKTHROUGH.md"), markdown(report));
   log(`${report.summary.ok}/${report.summary.checks} checks passed in ${report.duration_s} s; ${join(OUT, "CLICKTHROUGH.md")}`);
   return report.summary.problems ? 1 : 0;
