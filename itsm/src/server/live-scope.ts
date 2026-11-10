@@ -90,9 +90,11 @@ export async function scopedPulse(ctx: Ctx, scope: PulseScope): Promise<PulseAns
   if (ctx.cfg.mode !== "cloud" || !now.startsWith("x")) return everything();
   const upto = parseSnap(now.slice(1));
   const from = since.startsWith("x") ? parseSnap(since.slice(1)) : null;
-  // a token of another format (a screen from before an update), from a database that went back in transaction ids
-  // (a restore) or from long ago: everything it may read
-  if (!upto || !from || from.xmax > upto.xmax || upto.xmax - from.xmin > MAX_WINDOW) return everything();
+  // a malformed token, or one of another format (a screen from before an update): nothing — its next look carries
+  // this answer's token
+  if (!upto || !from) return { pulse: now, changed: [] };
+  // a token from a database that went back in transaction ids (a restore) or from long ago: everything it may read
+  if (from.xmax > upto.xmax || upto.xmax - from.xmin > MAX_WINDOW) return everything();
   return { pulse: now, changed: await changedIn(ctx, defs, askedTables, askedRecords, from, upto) };
 }
 

@@ -66,13 +66,16 @@ export async function resetSyncCursor(q: Pick<Db, "query">): Promise<void> {
 }
 
 /**
- * The end of a pull session from nothing: rows of the organisation it did not bring — and that wait for no upload —
- * leave this computer (with the attachment contents nothing refers to any more). Returns how many went.
+ * The end of a pull session from nothing: engine rows of the organisation it did not bring — and that wait for no
+ * upload — leave this computer (with the attachment contents nothing refers to any more): what the account may no
+ * longer read (such a session sends no tombstones), tombstones the server removed for good, what a restore of the
+ * server took back. The platform's own roots (organisation, members) are always sent whole and only ever soft-deleted,
+ * and a membership kept here for an account the web version does not know stays. Returns how many went.
  */
 async function sweepUnseen(tx: Pick<Db, "query">, orgId: string): Promise<number> {
   let n = 0;
   for (const def of AGGREGATES) {
-    if (def.table === "sm_orgs") continue;
+    if (!def.engine) continue;
     const gone = await tx.query(
       `delete from ${ident(def.table)} t where t.org_id = $1
          and not exists (select 1 from sm_sync_seen s where s.entity = $2 and s.id = t.id)

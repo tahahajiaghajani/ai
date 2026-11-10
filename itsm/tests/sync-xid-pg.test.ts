@@ -21,6 +21,7 @@ import { SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
 import { startLocal, type LocalServer } from "@local/server";
 import { registerTable } from "@shared/tables";
+import { BY_ENTITY } from "@server/sync/registry";
 import { Client, quietLog } from "./helpers";
 import { realPg, realPgAvailable, type RealPg } from "./pg-real";
 
@@ -95,7 +96,8 @@ class Replica {
       for (const t of (page.tombstones ?? []) as { entity: string; id: string }[]) this.rows.delete(`${t.entity}:${t.id}`);
       let sweep = false;
       if (page.full && !page.has_more) {
-        for (const key of [...this.rows.keys()]) if (!key.startsWith("org:") && !this.seen.has(key)) this.rows.delete(key);
+        // engine rows only (the platform's roots are always sent whole), as src/desktop/sync-client.ts does
+        for (const key of [...this.rows.keys()]) if (BY_ENTITY.get(key.split(":")[0])?.engine && !this.seen.has(key)) this.rows.delete(key);
         this.seen.clear();
         sweep = true;
       }
@@ -181,6 +183,16 @@ describe.skipIf(!realPgAvailable())("sync revisions are transaction ids (real Po
     expect(await rev(id)).toBe(xid);
     const lockRow = await db.one<{ rev: number }>(`select rev from sm_org_sync where org_id = $1`, [org]);
     expect(Number(lockRow?.rev ?? 0)).toBe(0);
+  });
+
+  it("needs no privilege: an ordinary role (Supabase's pooled one alike) reads snapshots and transaction ids", async () => {
+    await db.exec(`do $r$ begin if not exists (select 1 from pg_roles where rolname = 'itsm_xid_app') then create role itsm_xid_app; end if; end $r$`);
+    const got = await db.tx(async (tx) => {
+      await tx.query(`set local role itsm_xid_app`);
+      return tx.one<{ s: string; x: string }>(`select pg_current_snapshot()::text as s, pg_current_xact_id()::text as x`);
+    });
+    expect(got?.s).toMatch(/^\d+:\d+:/);
+    expect(Number(got?.x)).toBeGreaterThan(0);
   });
 
   it("a transaction that began first and commits last still arrives (A writes, B commits, pull, A commits)", async () => {
@@ -381,31 +393,33 @@ describe.skipIf(!realPgAvailable())("sync revisions are transaction ids (real Po
   });
 
   it("tombstones removed for good: an app that never saw them reads everything again and drops them", async () => {
+    const note = `insert into sm_xid_notes (id, org_id, title) values ($1, $2, $3)`;
+    const noteRev = async (id: string) => Number((await db.one<{ rev: number }>(`select rev from sm_xid_notes where id = $1`, [id]))!.rev);
     const gone = uuidv7();
-    await db.tx(async (tx) => void (await tx.query(INSERT, [gone, org, "بایگانی‌شدنی", code()])));
+    await db.tx(async (tx) => void (await tx.query(note, [gone, org, "بایگانی‌شدنی"])));
     const r = new Replica(owner, org);
     await r.pullAll();
-    expect(r.item(gone)).toBeDefined();
+    expect(r.rows.get(`xid_note:${gone}`)).toBeDefined();
     // the record is archived (a tombstone with a new revision) and its tombstone purged before this app pulls again
-    await db.tx(async (tx) => void (await tx.query(`update sm_test_items set deleted_at = now() where id = $1`, [gone])));
-    const tomb = await rev(gone);
+    await db.tx(async (tx) => void (await tx.query(`update sm_xid_notes set deleted_at = now() where id = $1`, [gone])));
+    const tomb = await noteRev(gone);
     await db.tx(async (tx) => {
-      await tx.query(`delete from sm_test_items where id = $1`, [gone]);
+      await tx.query(`delete from sm_xid_notes where id = $1`, [gone]);
       await notePurged(tx, org, tomb);
     });
     await r.pullAll();
     expect(r.resets).toBe(1);
-    expect(r.item(gone)).toBeUndefined();
+    expect(r.rows.get(`xid_note:${gone}`)).toBeUndefined();
     await expectConverged(r);
     // an app that saw the tombstone before the purge is not reset
     const id2 = uuidv7();
-    await db.tx(async (tx) => void (await tx.query(INSERT, [id2, org, "دومی", code()])));
-    await db.tx(async (tx) => void (await tx.query(`update sm_test_items set deleted_at = now() where id = $1`, [id2])));
+    await db.tx(async (tx) => void (await tx.query(note, [id2, org, "دومی"])));
+    await db.tx(async (tx) => void (await tx.query(`update sm_xid_notes set deleted_at = now() where id = $1`, [id2])));
     await r.pullAll();
-    expect(r.item(id2)?.deleted_at).toBeTruthy();
-    const tomb2 = await rev(id2);
+    expect(r.rows.get(`xid_note:${id2}`)?.deleted_at).toBeTruthy();
+    const tomb2 = await noteRev(id2);
     await db.tx(async (tx) => {
-      await tx.query(`delete from sm_test_items where id = $1`, [id2]);
+      await tx.query(`delete from sm_xid_notes where id = $1`, [id2]);
       await notePurged(tx, org, tomb2);
     });
     await r.pullAll();
