@@ -34,7 +34,7 @@ export function archiveSettings(org: Pick<OrgRow, "settings">): ArchiveSettings 
   return { enabled: a.enabled === true, years: Number.isInteger(years) && years >= 1 && years <= 30 ? years : ARCHIVE_DEFAULT_YEARS };
 }
 
-/** The archivable tables (numbered work records with an open/closed flag, not scoped by a parent). */
+/** The archivable tables (numbered work records with an open/closed flag, neither scoped by a parent nor scoped as one). */
 export function archivableTables(): TableDef[] {
   return physicalTables().filter(archivable);
 }
