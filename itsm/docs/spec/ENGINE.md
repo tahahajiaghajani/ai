@@ -594,7 +594,9 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
   every `index: true` field — GIN for arrays —, `unique` fields/combinations), the `sm_sync_touch('<key>')` trigger
   and row level security.
 - Scale (docs/PERFORMANCE_FA.md): numbered tables with search fields store their normalised search document in a
-  generated column `search_<hash>` (never returned, never synced) with a trigram index where pg_trgm exists; task
+  generated column `search_<hash>` (never returned, never synced) with a trigram index where pg_trgm exists — only
+  the search fields every reader may see (`storedSearchFieldsOf`: no field-group fields; those are searched on their
+  own columns for callers who see them, so nobody finds a row by text hidden from them); task
   tables get a partial open-queue index `(org_id, <group>, updated_at desc) where active` and a BRIN on `opened_at`;
   archivable tables (numbered, `active` + `closed_at`, no parent scope) get `<table>_arc` and the nightly
   `engine.archive` job (setting `archive: { enabled, years }`). Conditions compile to plain comparisons at positive
