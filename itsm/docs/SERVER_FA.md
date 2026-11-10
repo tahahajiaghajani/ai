@@ -260,7 +260,7 @@ msiexec /x Kariz-Server-1.0.0.msi /qn REMOVEDATA=1   (داده‌ها هم پا�
 | `tls.hsts_max_age` | ۳۱۵۳۶۰۰۰ | HSTS (ثانیه) |
 | `workers` / `pool_per_worker` | ۰ / ۰ | ۰ = خودکار: یک‌سوم هسته‌ها (۲ تا ۱۲) / ۱۰ اتصال در سرور ۸ هسته‌ای و بزرگ‌تر، وگرنه ۸ (بخش ۳) |
 | `db.max_connections` / `db.reserve` | ۰ / ۱۰ | ۰ = خودکار: workers × pool + ۳۰ و دست‌کم ۵۰؛ ذخیرهٔ مدیران و پشتیبان‌گیری |
-| `writers_per_org` | ۳ | پذیرش نوشتن: حداکثر تراکنش‌های نوشتن هم‌زمان هر سازمان در هر فرایند؛ بقیه بی‌آنکه اتصالی بگیرند منتظر می‌مانند ([PERFORMANCE_FA.md](PERFORMANCE_FA.md) §۱۳). متغیر `ITSM_WRITERS_PER_ORG` بر آن مقدم است |
+| `writers_per_org` | ۳ | پذیرش نوشتن: حداکثر تراکنش‌های نوشتن هم‌زمان هر سازمان در هر فرایند؛ بقیه بی‌آنکه اتصالی بگیرند منتظر می‌مانند ([PERFORMANCE_FA.md](PERFORMANCE_FA.md) §۱۳ و §۱۴). از دور سوم قفل سازمانی در کار نیست و این فقط محدودکنندهٔ انفجار است؛ اگر نوشتن‌ها پشت آن منتظر ماندند بالاتر ببرید. متغیر `ITSM_WRITERS_PER_ORG` بر آن مقدم است. (متغیر `ITSM_SERIALIZE_WRITES=1` قفل سازمانی پیش از دور سوم را برای احتیاط برمی‌گرداند.) |
 | `network.air_gapped` / `network.allow` | روشن / خالی | شبکهٔ بسته و فهرست مجاز |
 | `uploads.max_mb` / `request_max_mb` | ۲۵ / ۱۰ | سقف پیوست و سقف هر درخواست دیگر |
 | `antivirus.command` / `args` | خالی / آرگومان‌های Defender | مثلاً `C:\Program Files\Windows Defender\MpCmdRun.exe` با `-Scan -ScanType 3 -File {file} -DisableRemediation` |
