@@ -36,15 +36,17 @@ let req: Who; // requester role: only own records
 let small = ""; // a small group: a1, a2, req
 let n = 0;
 
-/** Statements that insert bell rows, counted while `fn` runs (every transaction of the database layer). */
-async function countBellInserts(fn: () => Promise<void>): Promise<number> {
-  let count = 0;
+/** The statements of every transaction that runs while `fn` does, in order (the database layer's `tx`). */
+async function transactions(fn: () => Promise<void>): Promise<string[][]> {
+  const out: string[][] = [];
   const db = e.db as { tx: (f: (tx: Tx) => Promise<unknown>) => Promise<unknown> };
   const orig = db.tx.bind(e.db);
   db.tx = (f) =>
     orig((tx: Tx) => {
+      const seen: string[] = [];
+      out.push(seen);
       const watch = <T extends (...a: any[]) => any>(g: T) => ((text: string, ...rest: unknown[]) => {
-        if (/insert into sm_notifications\b/i.test(text)) count++;
+        seen.push(text.replace(/\s+/g, " ").trim());
         return g(text, ...rest);
       }) as unknown as T;
       return f({ ...tx, query: watch(tx.query.bind(tx)), one: watch(tx.one.bind(tx)) });
@@ -54,8 +56,10 @@ async function countBellInserts(fn: () => Promise<void>): Promise<number> {
   } finally {
     db.tx = orig;
   }
-  return count;
+  return out;
 }
+const isBellInsert = (q: string) => /^insert into sm_notifications\b/i.test(q);
+const isLock = (q: string) => /^insert into sm_org_sync\b/i.test(q);
 
 async function drain() {
   for (let i = 0; i < 40; i++) {
@@ -117,11 +121,19 @@ describe("one notification, set-based", () => {
   it("writes every member's bell with one insert and no record event per bell; whoever may not read gets nothing", async () => {
     const t = await ticket("قطعی شبکهٔ شعبه");
     let id = "";
-    const inserts = await countBellInserts(async () => {
+    const txs = await transactions(async () => {
       id = await assignToGroup(small, "", t);
     });
     // one statement for the group's bells (the assignment raises one notification: the built-in «ارجاع به گروه»)
-    expect(inserts).toBe(1);
+    expect(txs.flat().filter(isBellInsert)).toHaveLength(1);
+    // the organisation's write lock is taken last in that transaction, right before the bell insert: the log rows,
+    // the deliveries, the progress and the rows' preparation ran without it
+    const batch = txs.find((x) => x.some(isBellInsert))!;
+    const lock = batch.findIndex(isLock);
+    expect(lock).toBeGreaterThan(batch.findIndex((q) => /^insert into sm_notification_log\b/i.test(q)));
+    expect(lock).toBeGreaterThan(batch.findIndex((q) => /^update sm_jobs set payload\b/i.test(q)));
+    expect(batch.slice(lock + 1).filter((q) => !/^(select|insert into sm_notifications)\b/i.test(q))).toEqual([]);
+    expect(batch.indexOf(batch.find(isBellInsert)!)).toBe(lock + 1);
     expect((await bells(id)).map((b) => b.user_id).sort()).toEqual([a1.userId, a2.userId].sort());
     expect((await bells(id)).every((b) => b.event === "assigned")).toBe(true);
     // the requester is in the group but may not read the ticket: nothing, logged as no access

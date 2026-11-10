@@ -83,9 +83,9 @@ export async function systemCtx(cfg: Pick<ServerConfig, "db"> & Partial<ServerCo
     status: null,
     can: () => true,
     need: () => undefined,
-    write: async <T,>(fn: (tx: Tx) => Promise<T>, wopts?: { internal?: boolean }) => {
+    write: async <T,>(fn: (tx: Tx) => Promise<T>, wopts?: { internal?: boolean; late?: boolean }) => {
       const out = await cfg.db.tx(async (tx) => {
-        await lockOrg(tx, orgId);
+        if (!(wopts?.late ?? wopts?.internal)) await lockOrg(tx, orgId);
         if (!wopts?.internal) await assertWritable(tx, orgId);
         return fn(tx);
       });

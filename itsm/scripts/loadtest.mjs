@@ -21,7 +21,7 @@
 //
 //   node scripts/loadtest.mjs --vus 200 --ramp 60 --duration 120 [--think 4000] [--label before] [--url http://127.0.0.1:3940/api]
 //        [--mix agents=0.7,requesters=0.25,heads=0.05] [--db postgres://postgres@127.0.0.1:55432/itsm] [--no-pulse] [--lock-stats]
-//        [--assign-weight 2]
+//        [--assign-weight 2] [--legacy-pulse]
 import postgres from "postgres";
 import { execFileSync } from "node:child_process";
 import { readFileSync, mkdirSync, writeFileSync, existsSync, readdirSync, rmSync } from "node:fs";
@@ -52,6 +52,8 @@ const THINK = Number(opts.think ?? 4000);
 const LABEL = String(opts.label ?? "run");
 const PULSE = !opts["no-pulse"];
 const LOCK_STATS = !!opts["lock-stats"];
+// --legacy-pulse: ask the pulse without a scope (the token only), as the shell did before scoped answers
+const LEGACY_PULSE = !!opts["legacy-pulse"];
 const ASSIGN_WEIGHT = Number(opts["assign-weight"] ?? 2);
 const DB_URL = opts.db ?? "postgres://postgres@127.0.0.1:55432/itsm";
 const MIX = Object.fromEntries(String(opts.mix ?? "agents=0.7,requesters=0.25,heads=0.05").split(",").map((p) => p.split("=")).map(([k, v]) => [k, Number(v)]));
@@ -271,9 +273,11 @@ async function pulse(vu) {
   const tables = [...new Set([...(page?.tables ?? []), ...SHELL])];
   const ids = page?.ids ?? [];
   const qs = new URLSearchParams();
-  if (vu.pulse) qs.set("since", vu.pulse);
-  qs.set("t", tables.join(","));
-  if (ids.length) qs.set("r", ids.join(","));
+  if (!LEGACY_PULSE) {
+    if (vu.pulse) qs.set("since", vu.pulse);
+    qs.set("t", tables.join(","));
+    if (ids.length) qs.set("r", ids.join(","));
+  }
   const r = await call(vu, "GET", `${O}/pulse?${qs}`, null, "/pulse");
   if (!r.ok) return false;
   const prev = vu.pulse ?? null;

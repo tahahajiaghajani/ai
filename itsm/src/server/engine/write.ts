@@ -25,6 +25,7 @@ import { access } from "../access/provider";
 import { scopeColumns } from "@shared/access";
 import { physicalTables } from "@shared/tables";
 import { actorId, condEnv, isSystemCtx } from "./env";
+import { ensureOrgLock } from "../context";
 import { orgSchema, type OrgSchema } from "./schema";
 import { checkRefs, coerceValue, isEmpty, KEEP, Problems, sealSecret, validateRow, type ValueContext } from "./values";
 import { allocateNumber, formatNumber } from "./numbering";
@@ -407,6 +408,7 @@ function transitionError(def: TableDef, from: unknown, to: unknown): AppError {
 }
 
 async function insertRow(tx: Tx, ctx: Ctx, def: TableDef, next: Row): Promise<Row> {
+  await ensureOrgLock(tx, ctx.org.id);
   const cols: string[] = ["id", "org_id", "created_by", "updated_by", "origin"];
   const actor = actorId(ctx);
   const params: unknown[] = [next.id, ctx.org.id, actor, actor, ctx.cfg.origin ?? null];
@@ -434,6 +436,7 @@ async function insertRow(tx: Tx, ctx: Ctx, def: TableDef, next: Row): Promise<Ro
 }
 
 async function updateRow(tx: Tx, ctx: Ctx, def: TableDef, prev: Row, next: Row, changed: Set<string>, opts: WriteOptions): Promise<Row> {
+  await ensureOrgLock(tx, ctx.org.id);
   const sets: string[] = [];
   const params: unknown[] = [];
   const set = (col: string, v: unknown, cast = "") => {
@@ -609,9 +612,10 @@ function recordsetValue(v: unknown): unknown {
  * the sync trigger gives each its revision. Left out on purpose: a statement per row and the record events (no
  * `record.created` per row: nothing reacts to the rows one by one), and the reference checks (the system names people
  * and records it read). Numbered tables, tables with a state model and tables that keep field history are refused.
- * Returns the stored rows (engine shape) in input order.
+ * `ids` gives rows their ids up front (a log can name them before the insert). In a `late` write the organisation's
+ * write lock is taken only for the insert itself, after the per-row work. Returns the stored rows in input order.
  */
-export async function insertManyIn(tx: Tx, ctx: Ctx, table: string, inputs: Record<string, unknown>[]): Promise<Row[]> {
+export async function insertManyIn(tx: Tx, ctx: Ctx, table: string, inputs: Record<string, unknown>[], opts: { ids?: string[] } = {}): Promise<Row[]> {
   if (!inputs.length) return [];
   if (!isSystemCtx(ctx)) throw forbidden(`ردیف‌های «${table}» را فقط خود سامانه دسته‌ای می‌سازد`);
   const { def, schema, env } = await prepare(tx, ctx, table);
@@ -619,8 +623,9 @@ export async function insertManyIn(tx: Tx, ctx: Ctx, table: string, inputs: Reco
   const hooks = hooksFor(def.key);
   const actor = actorId(ctx);
   const nexts: { next: Row; w: WriteArgs }[] = [];
-  for (const input of inputs) {
-    const id = uuidv7();
+  for (const [i, input] of inputs.entries()) {
+    const given = opts.ids?.[i];
+    const id = typeof given === "string" && UUID.test(given) ? given.toLowerCase() : uuidv7();
     const vc = valueContext(ctx, def, schema, env, id);
     const problems = new Problems();
     const values = coerceInput(def, input, vc, null, { trusted: true }, problems);
@@ -659,6 +664,8 @@ export async function insertManyIn(tx: Tx, ctx: Ctx, table: string, inputs: Reco
     return r;
   });
   const names = cols.map(([c]) => c).join(", ");
+  // the per-row work above ran without the organisation's write lock when the transaction is `late`: take it now
+  await ensureOrgLock(tx, ctx.org.id);
   let stored: Row[];
   try {
     stored = await tx.query<Row>(
@@ -685,6 +692,7 @@ export async function removeIn(tx: Tx, ctx: Ctx, table: string, id: string, opts
   const hooks = hooksFor(def.key);
   const w: WriteArgs = { tx, ctx, def, op: "delete", next: { ...prev, deleted_at: new Date().toISOString() }, prev, changed: new Set(["deleted_at"]), env, input: new Set(), via: opts.via, trusted: !!opts.trusted };
   for (const h of hooks) await h.beforeWrite?.(w);
+  await ensureOrgLock(tx, ctx.org.id);
   const row = await tx.one<Row>(
     `update ${def.table} set deleted_at = now(), updated_at = now(), updated_by = $3, version = version + 1 where id = $1 and org_id = $2 returning *`,
     [prev.id, ctx.org.id, actorId(ctx)],

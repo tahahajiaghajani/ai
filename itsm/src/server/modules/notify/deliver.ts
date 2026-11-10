@@ -8,6 +8,7 @@
 // quiet hours and digests and keeps its own retries) and its own progress — a retry never writes a bell twice.
 // Every outcome lands in the delivery log. Held e-mails and SMS go out with `notify.flush`.
 import { mentionedIds } from "@ui/records/model/mentions";
+import { uuidv7 } from "@shared/id";
 import type { TableDef } from "@shared/model/types";
 import { NOTIFY_TABLE_KEYS } from "@shared/tables/notify";
 import {
@@ -518,12 +519,15 @@ export async function runBatch(job: Job, jctx: JobContext): Promise<void | { aga
       if (wanted.length) sends.push(send(user, reasons, wanted));
     });
     const done = next + chunk.length;
+    // one transaction; the organisation's write lock only for the bell insert at its end (a `late` write): the log rows,
+    // the deliveries and the progress touch no synced table, the bells' per-row preparation needs no lock
+    const ids = bells.map(() => uuidv7());
     await sys.write(async (tx) => {
-      const rows = await insertManyIn(tx, sys, "notification", bells.map((b) => b.row));
-      await logMany(tx, [...bells.map((b, i) => ({ ...b.log, provider_id: String(rows[i].id) })), ...logs]);
+      await logMany(tx, [...bells.map((b, i) => ({ ...b.log, provider_id: ids[i] })), ...logs]);
       await enqueueMany(tx, sends);
       await jctx.saveIn(tx, { ...p, next: done } as unknown as Record<string, unknown>);
-    });
+      await insertManyIn(tx, sys, "notification", bells.map((b) => b.row), { ids });
+    }, { late: true });
     next = done;
     if (next < people.length && Date.now() > jctx.deadline - 1000) return { again: 0 };
   }

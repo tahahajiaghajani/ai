@@ -148,6 +148,15 @@ export interface WriteOptions {
    * support change in the audit log.
    */
   internal?: boolean;
+  /**
+   * Take the organisation's write lock as late as possible: not when the transaction starts but right before its first
+   * write of a synced row (the engine calls `ensureOrgLock` before each statement; the sync trigger takes it at the
+   * latest). Reads, preparation and per-row work before that run without holding it. Only for work whose reads do not
+   * decide other records' writes (the notification service's bell rows); user writes keep the lock from the start.
+   * Default: on for `internal` bookkeeping (single writes that need no serialisation beyond the revision order — a
+   * write of a table that is not synced then takes no lock at all), off otherwise.
+   */
+  late?: boolean;
 }
 
 export interface Ctx {
@@ -176,6 +185,9 @@ export interface Ctx {
   hasModule(m: ModuleKey): boolean;
 }
 
+/** Transactions holding their organisation's write lock (taken through `lockOrg`). */
+const locked = new WeakSet<Tx>();
+
 /** Serialises writes of one organisation (and keeps revision numbers in commit order). */
 export async function lockOrg(tx: Tx, orgId: string): Promise<void> {
   const t0 = lockProbeOn() ? performance.now() : 0;
@@ -184,7 +196,16 @@ export async function lockOrg(tx: Tx, orgId: string): Promise<void> {
      on conflict (org_id) do update set rev = sm_org_sync.rev`,
     [orgId],
   );
+  locked.add(tx);
   if (t0) lockGranted(tx, performance.now() - t0);
+}
+
+/**
+ * The write lock before a statement that writes synced rows: taken now unless this transaction holds it already (a
+ * `late` write takes it here, at its first write; any other write took it when it began). Cheap when held.
+ */
+export async function ensureOrgLock(tx: Tx, orgId: string): Promise<void> {
+  if (!locked.has(tx)) await lockOrg(tx, orgId);
 }
 
 export const NOT_MEMBER_MESSAGE = "شما عضو این سازمان نیستید؛ برای کار در آن، از «مدیریت سامانه» حالت پشتیبانی را آغاز کنید";
@@ -252,7 +273,8 @@ export function makeCtx(cfg: ServerConfig, user: AuthUser, org: OrgRow, member: 
       if (outsider && !support) throw forbidden(NOT_MEMBER_MESSAGE);
       if (support?.level === "view" && !wopts?.internal) throw forbidden(SUPPORT_VIEW_ONLY_MESSAGE);
       const result = await cfg.db.tx(async (tx) => {
-        await lockOrg(tx, org.id);
+        // bookkeeping (`internal`) takes the lock only if it writes synced rows, and only then
+        if (!(wopts?.late ?? wopts?.internal)) await lockOrg(tx, org.id);
         if (!wopts?.internal) await assertWritable(tx, org.id);
         if (support) {
           const live = await tx.one(
