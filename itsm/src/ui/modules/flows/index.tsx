@@ -49,7 +49,7 @@ const ui = recordModule({
     { table: "flow_connection", path: "flow-connections", label: "اتصال‌های HTTP", noun: "اتصال HTTP", icon: Plug, section: SECTION, keywords: "اتصال سرویس بیرونی API کلید میزبان مجاز http" },
     { table: "flow_version", path: "flow-versions", label: "نسخه‌های گردش‌کار", icon: History, hidden: true, newAction: false, search: false },
   ],
-  nav: [{ key: "flows:runs", label: "اجراهای گردش‌کار", path: "flows/runs", icon: History, section: SECTION, keywords: "اجرا تاریخچه گزارش گام خطا انتظار تأیید run" }],
+  nav: [{ key: "flows:runs", access: { area: "flows" }, label: "اجراهای گردش‌کار", path: "flows/runs", icon: History, section: SECTION, keywords: "اجرا تاریخچه گزارش گام خطا انتظار تأیید run" }],
   routes: [
     { path: "flows/:id/design", element: <Designer /> },
     { path: "flows/runs", element: <Runs /> },

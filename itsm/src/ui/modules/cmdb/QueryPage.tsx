@@ -5,9 +5,10 @@
 import { useState } from "react";
 import { Link } from "react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { App, Button, Input, Modal, Segmented, Select, Space, Table } from "antd";
+import { App, Button, Input, Modal, Segmented, Select, Space, Table, Tooltip } from "antd";
 import { ArrowDown, Play, Plus, Save, Trash2 } from "lucide-react";
 import type { Cond } from "@shared/model/conditions";
+import { queryBounded } from "@shared/cmdb/logic";
 import { faDigits } from "@shared/format";
 import { useOrg } from "../../lib/org";
 import { fa } from "../../lib/fa";
@@ -40,6 +41,7 @@ export default function QueryPage() {
   const [name, setName] = useState("");
   const input: QueryInput = { class: cls, condition: cond, steps: steps.map((s) => ({ type: s.type, direction: s.direction, class: s.class, condition: s.condition })), size: 100 };
   const run = useMutation({ mutationFn: () => cmdbApi.query(api, input), onError: (e: Error) => message.error(e.message) });
+  const bounded = queryBounded(input);
   const save = useMutation({
     mutationFn: () => recordsApi.create(api, "cmdb_query", { name: name.trim(), class: cls, condition: cond, steps: input.steps }),
     onSuccess: () => {
@@ -59,7 +61,10 @@ export default function QueryPage() {
         actions={
           <Space wrap>
             <Button icon={<Save {...ICON} />} onClick={() => setSaveOpen(true)}>ذخیره</Button>
-            <Button type="primary" icon={<Play {...ICON} />} loading={run.isPending} onClick={() => run.mutate()}>اجرا</Button>
+            {/* the server refuses a query of the whole database (no class, condition or step): say so before it is sent */}
+            <Tooltip title={bounded ? undefined : "یک کلاس، شرط یا گام انتخاب کنید"}>
+              <Button type="primary" icon={<Play {...ICON} />} loading={run.isPending} disabled={!bounded} onClick={() => run.mutate()}>اجرا</Button>
+            </Tooltip>
           </Space>
         }
       />

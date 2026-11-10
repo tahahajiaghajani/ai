@@ -50,11 +50,11 @@ export const notifyUi = recordModule({
     },
   ],
   nav: [
-    { key: "notify:rules", label: "قانون‌های اعلان", path: "notify/rules", icon: BellRing, section: S, area: "settings", keywords: "اعلان رویداد گیرنده ارجاع پاسخ نام بردن هشدار" },
-    { key: "notify:rules:new", label: "قانون اعلان تازه", path: "notify/rules/new", icon: BellRing, area: "settings", level: "edit", action: true },
-    { key: "notify:templates", label: "الگوهای اعلان", path: "notify/templates", icon: FileText, section: S, area: "settings", keywords: "متن موضوع ایمیل جای‌نگهدار" },
-    { key: "notify:templates:new", label: "الگوی اعلان تازه", path: "notify/templates/new", icon: FileText, area: "settings", level: "edit", action: true },
-    { key: "notify:log", label: "گزارش ارسال", path: "notify/log", icon: ScrollText, section: S, area: "settings", keywords: "ارسال شده ناموفق ایمیل رسیده تحویل" },
+    { key: "notify:rules", label: "قانون‌های اعلان", path: "notify/rules", icon: BellRing, section: S, area: "settings", access: { area: "notifications" }, keywords: "اعلان رویداد گیرنده ارجاع پاسخ نام بردن هشدار" },
+    { key: "notify:rules:new", label: "قانون اعلان تازه", path: "notify/rules/new", icon: BellRing, area: "settings", access: { area: "notifications", op: "create" }, level: "edit", action: true },
+    { key: "notify:templates", label: "الگوهای اعلان", path: "notify/templates", icon: FileText, section: S, area: "settings", access: { area: "notifications" }, keywords: "متن موضوع ایمیل جای‌نگهدار" },
+    { key: "notify:templates:new", label: "الگوی اعلان تازه", path: "notify/templates/new", icon: FileText, area: "settings", access: { area: "notifications", op: "create" }, level: "edit", action: true },
+    { key: "notify:log", label: "گزارش ارسال", path: "notify/log", icon: ScrollText, section: S, area: "settings", access: { area: "notifications" }, keywords: "ارسال شده ناموفق ایمیل رسیده تحویل" },
     { key: "notify:prefs", label: "اعلان‌های من", path: "notify/prefs", icon: BellDot, section: "شما", keywords: "اعلان خاموش ساعت سکوت خلاصه ایمیل پیامک" },
   ],
   routes: [

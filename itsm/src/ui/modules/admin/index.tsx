@@ -8,6 +8,7 @@
 import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
 import { LayoutDashboard, Palette, UserPlus, Grid3x3, Shapes, ScrollText, IdCard, FileInput, ArrowRightLeft, Download, Megaphone } from "lucide-react";
 import type { ModuleUi } from "../registry";
+import type { AccessGate } from "@shared/access";
 import { recordModule } from "../../records/module";
 import type { RecordContext } from "../../records/extensions";
 import { Loader } from "../../components/display";
@@ -34,6 +35,12 @@ const page = (node: ReactNode) => <Suspense fallback={<Loader />}>{node}</Suspen
 const S = "کنسول مدیریت";
 const DATA = "ورود و خروج داده";
 
+/**
+ * The tenant administrator's console pages need the organisation's settings area (tenant admins hold it): members
+ * with only a view of the settings saw the console, studio, logs and licences and hit lists they cannot read.
+ */
+const ADMINISTERS: AccessGate = { area: "settings" };
+
 const module = recordModule({
   key: "admin",
   spaceKey: "settings",
@@ -48,13 +55,13 @@ const module = recordModule({
     { table: "studio_version", path: "settings/studio/versions", label: "نسخه‌های استودیو", icon: Shapes, area: "settings", hidden: true, newAction: false, search: false },
   ],
   nav: [
-    { key: "admin:home", label: "کنسول مدیریت", path: "settings/admin", icon: LayoutDashboard, section: S, area: "settings", keywords: "راه‌اندازی طرح محدودیت قابلیت مدیر سازمان" },
-    { key: "admin:branding", label: "برند و ظاهر", path: "settings/branding", icon: Palette, section: S, area: "settings", keywords: "رنگ لوگو نشان پرتال پیام ورود پانویس ایمیل" },
+    { key: "admin:home", access: ADMINISTERS, label: "کنسول مدیریت", path: "settings/admin", icon: LayoutDashboard, section: S, area: "settings", keywords: "راه‌اندازی طرح محدودیت قابلیت مدیر سازمان" },
+    { key: "admin:branding", access: ADMINISTERS, label: "برند و ظاهر", path: "settings/branding", icon: Palette, section: S, area: "settings", keywords: "رنگ لوگو نشان پرتال پیام ورود پانویس ایمیل" },
     { key: "admin:member-import", label: "ورود گروهی اعضا", path: "settings/member-import", icon: UserPlus, section: S, area: "users", level: "edit", keywords: "اکسل CSV افزودن کاربران کارکنان" },
     { key: "admin:matrix", label: "ماتریس دسترسی", path: "access/matrix", icon: Grid3x3, section: S, area: "users", keywords: "چه کسی چه می‌بیند نقش جدول خواندن نوشتن توضیح" },
-    { key: "admin:studio", label: "استودیو", path: "settings/studio", icon: Shapes, section: S, area: "settings", keywords: "جدول سفارشی فیلد سفارشی فرم فهرست نسخه بسته" },
-    { key: "admin:logs", label: "گزارش‌های سامانه", path: "settings/logs", icon: ScrollText, section: S, area: "settings", level: "full", keywords: "کار پس‌زمینه اعلان جریان کار اتصال امنیت خطا" },
-    { key: "admin:licences", label: "مجوزها و صندلی‌ها", path: "settings/licences", icon: IdCard, section: S, area: "settings", keywords: "لایسنس صندلی کارشناس کاربر بیکار" },
+    { key: "admin:studio", access: ADMINISTERS, label: "استودیو", path: "settings/studio", icon: Shapes, section: S, area: "settings", keywords: "جدول سفارشی فیلد سفارشی فرم فهرست نسخه بسته" },
+    { key: "admin:logs", access: ADMINISTERS, label: "گزارش‌های سامانه", path: "settings/logs", icon: ScrollText, section: S, area: "settings", level: "full", keywords: "کار پس‌زمینه اعلان جریان کار اتصال امنیت خطا" },
+    { key: "admin:licences", access: ADMINISTERS, label: "مجوزها و صندلی‌ها", path: "settings/licences", icon: IdCard, section: S, area: "settings", keywords: "لایسنس صندلی کارشناس کاربر بیکار" },
   ],
   routes: [
     { path: "settings/admin", element: page(<Home />) },

@@ -71,6 +71,39 @@ jobs:
       - run: npm ci
       - run: npx vitest run --shard=${{ matrix.shard }}/4
 
+  # click-through QA (itsm/docs/qa/CLICKTHROUGH.md): the main page of every space, the requester portal, the platform
+  # console and the sign-in pages as the administrator, and the agent's and requester's home pages, on the
+  # Windows-flavour local server (PGlite) — console errors, crashes, «not found», failed API calls, endless loaders.
+  # About 7 minutes; the full crawl (every route, «… تازه», records and their tabs, phone width) is `npm run qa:crawl`
+  # (about 35 minutes).
+  clickthrough:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: itsm
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: itsm/package-lock.json
+      - run: npm ci
+      - name: Playwright and its Chromium (a tool of the crawler, not a dependency of the app)
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1.63.0
+          npx playwright install --with-deps chromium
+      - name: Click-through of the main pages
+        run: npm run qa:crawl -- --quick --out qa-report
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: itsm-clickthrough
+          path: itsm/qa-report
+          if-no-files-found: ignore
+
   windows:
     needs: [check, test]
     runs-on: windows-latest

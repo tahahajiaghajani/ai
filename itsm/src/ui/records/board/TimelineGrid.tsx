@@ -40,7 +40,8 @@ export interface TimelineGridProps {
   holidays?: readonly Holiday[];
   bands?: readonly CalendarBand[];
   items: readonly TimelineItem[];
-  onOpen: (id: string) => void;
+  /** opens an item; without it the bars only show (a person's shifts on the on-call page are no records) */
+  onOpen?: (id: string) => void;
   /** shown when no item falls in the range */
   empty?: ReactNode;
   busy?: boolean;
@@ -84,22 +85,33 @@ export function TimelineGrid({ from, days, tz, today, holidays = [], bands = [],
           {bars.map((b) => {
             const it = b.item;
             const title = it.title ?? [it.number, it.label].filter(Boolean).join(" — ");
+            const props = {
+              className: cx("rk-tg-bar", b.clippedStart && "is-clip-s", b.clippedEnd && "is-clip-e", !onOpen && "is-static"),
+              "data-tone": it.tone ?? undefined,
+              "data-cat": it.category,
+              "data-c": it.color,
+              style: { insetInlineStart: `${b.left}%`, inlineSize: `${b.width}%`, insetBlockStart: 22 + b.lane * LANE },
+              "aria-label": title.replace(/\n/g, "، "),
+            };
+            const body = (
+              <>
+                {it.tone === "danger" ? <OctagonAlert {...ICON14} className="rk-tg-icon is-danger" aria-hidden /> : it.tone === "warning" ? <TriangleAlert {...ICON14} className="rk-tg-icon is-warning" aria-hidden /> : null}
+                {it.number ? <span className="rk-tg-no ds-ltr">{it.number}</span> : null}
+                <span className="rk-tg-t">{it.label}</span>
+              </>
+            );
             return (
               <Tooltip key={it.id} title={<span style={{ whiteSpace: "pre-line" }}>{title}</span>}>
-                <button
-                  type="button"
-                  className={cx("rk-tg-bar", b.clippedStart && "is-clip-s", b.clippedEnd && "is-clip-e")}
-                  data-tone={it.tone ?? undefined}
-                  data-cat={it.category}
-                  data-c={it.color}
-                  style={{ insetInlineStart: `${b.left}%`, inlineSize: `${b.width}%`, insetBlockStart: 22 + b.lane * LANE }}
-                  onClick={() => onOpen(it.id)}
-                  aria-label={title.replace(/\n/g, "، ")}
-                >
-                  {it.tone === "danger" ? <OctagonAlert {...ICON14} className="rk-tg-icon is-danger" aria-hidden /> : it.tone === "warning" ? <TriangleAlert {...ICON14} className="rk-tg-icon is-warning" aria-hidden /> : null}
-                  {it.number ? <span className="rk-tg-no ds-ltr">{it.number}</span> : null}
-                  <span className="rk-tg-t">{it.label}</span>
-                </button>
+                {onOpen ? (
+                  <button type="button" {...props} onClick={() => onOpen(it.id)}>
+                    {body}
+                  </button>
+                ) : (
+                  // nothing to open: not a button (a bar that looks clickable and does nothing was a dead end)
+                  <span role="img" {...props}>
+                    {body}
+                  </span>
+                )}
               </Tooltip>
             );
           })}

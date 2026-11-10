@@ -710,3 +710,10 @@ export function flatten(obj: Record<string, unknown>, prefix = "", out: Record<s
 
 /** The family layer of a class (0 = business services at the top of a layered map, 5 = facilities at the bottom). */
 export const familyLayer = (f: ClassFamily | undefined) => CLASS_FAMILIES[f ?? "logical"]?.layer ?? 2;
+
+// ---------------------------------------------------------------------------------------------------------------
+// «پرس‌وجوی پیکربندی»: a query names a class, a condition or a relationship step — never the whole database. The
+// server refuses an unbounded one; the query page keeps «اجرا» off until it is bounded.
+export function queryBounded(q: { class?: string | null; condition?: unknown; steps?: readonly unknown[] | null }): boolean {
+  return !!q.class || !!q.condition || !!q.steps?.length;
+}

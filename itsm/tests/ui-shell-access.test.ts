@@ -13,7 +13,8 @@ const grantsOf = (...roles: string[]): Record<string, FullGrant> =>
 
 /** What the shell would offer: items, spaces with an item, palette searches. */
 function shell(grants: Record<string, FullGrant>) {
-  const items = NAV.flatMap((g) => g.items.filter((i) => !i.access || gateAllows(grants, i.access)).map((i) => ({ ...i, space: g.space })));
+  // an item may name several gates: the shell needs all of them
+  const items = NAV.flatMap((g) => g.items.filter((i) => !i.access || [i.access].flat().every((a) => gateAllows(grants, a))).map((i) => ({ ...i, space: g.space })));
   const spaces = SPACES.filter((s) => (!s.access || gateAllows(grants, s.access)) && items.some((i) => i.space === s.key && !i.common)).map((s) => s.key);
   const searches = SEARCHES.filter((x) => !x.access || gateAllows(grants, x.access)).map((x) => x.key);
   return { keys: new Set(items.map((i) => i.key)), spaces, searches };
@@ -36,7 +37,7 @@ describe("gates", () => {
   });
 
   it("name registered areas only", () => {
-    for (const g of NAV) for (const i of g.items) if (i.access) expect(isArea(i.access.area), i.key).toBe(true);
+    for (const g of NAV) for (const i of g.items) for (const a of i.access ? [i.access].flat() : []) expect(isArea(a.area), i.key).toBe(true);
     for (const s of SPACES) if (s.access) expect(isArea(s.access.area), s.key).toBe(true);
   });
 });

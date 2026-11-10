@@ -15,7 +15,8 @@ const Viewer = lazy(() => import("./Viewer"));
 const AskPage = lazy(() => import("./AskPage"));
 
 // links to documents (search, references, citations) open the viewer
-registerRecordExtensions("doc_document", { path: "docs/d" });
+// documents are added by upload in the library (docs/d/:id is the viewer)
+registerRecordExtensions("doc_document", { path: "docs/d", newPath: "docs" });
 
 const S = "دانش و اسناد";
 

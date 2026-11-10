@@ -15,6 +15,7 @@ import {
   Boxes, GitFork, Zap, Activity, FileUp, Network, Shapes, Link2, ListTree, SearchCheck, Copy, GitCompareArrows, Camera, Lightbulb, Map as MapIcon,
   Workflow, Database, Radar, ScrollText, ShieldCheck, ClipboardCheck, Settings2, Search, MonitorSmartphone, User, OctagonAlert, Hourglass, UserX, Fingerprint, Scale, FlaskConical,
 } from "lucide-react";
+import type { AccessGate } from "@shared/access";
 import type { ModuleUi, NavItem } from "../registry";
 import { recordModule, RecordListRoute } from "../../records/module";
 import { registerRecordExtensions, registerRefPicker, type RecordContext } from "../../records/extensions";
@@ -83,6 +84,9 @@ const ciRowTone = (r: Record<string, unknown>): "danger" | "warning" | null =>
 
 const myCount = async (api: OrgApi) => (await recordsApi.list(api, "ci", { filter: CI_QUEUES[0].filter, size: 1, fields: ["number"], total: true })).total ?? 0;
 
+/** The configuration database's own pages need read in its area (a requester saw them and got «فهرست پیدا نشد»). */
+const CMDB_READS: AccessGate = { area: "cmdb" };
+
 const queueNav = (q: CiQueue, i: number): NavItem => ({
   key: `cmdb:q:${q.key}`,
   label: q.label,
@@ -149,13 +153,13 @@ const module = recordModule({
     { table: "cmdb_config", path: "cmdb/settings", label: "تنظیمات پیکربندی", icon: Settings2, section: DEF, area: "settings", search: false, newAction: false, keywords: "تنظیمات وزن سلامت کنترل پیکربندی" },
   ],
   nav: [
-    { key: "cmdb:workspace", label: "داشبورد پیکربندی", path: "cmdb", icon: Activity, area: "work", workspace: true, keywords: "داشبورد سلامت کیفیت داده CMDB" },
-    { key: "cmdb:map", label: "نقشهٔ وابستگی", path: "cmdb/map", icon: GitFork, area: "work", workspace: true, keywords: "نقشه وابستگی خدمت گراف" },
-    { key: "cmdb:impact", label: "تحلیل اثر", path: "cmdb/impact", icon: Zap, area: "work", workspace: true, keywords: "تحلیل اثر دامنه blast radius چه می‌شود اگر" },
-    { key: "cmdb:query", label: "پرس‌وجو", path: "cmdb/query", icon: Search, area: "work", keywords: "پرس‌وجو جست‌وجوی پیشرفته رابطه" },
-    { key: "cmdb:import", label: "ورود داده", path: "cmdb/import", icon: FileUp, section: DATA, area: "work", keywords: "ورود اکسل CSV JSON کشف" },
-    { key: "cmdb:local", label: "موجودی این رایانه", path: "cmdb/local", icon: MonitorSmartphone, section: DATA, area: "work", desktopOnly: true, keywords: "موجودی رایانه کشف ویندوز" },
-    { key: "cmdb:classes-manager", label: "مدیریت کلاس‌ها", path: "cmdb/class-manager", icon: ListTree, section: DEF, area: "settings", keywords: "کلاس ویژگی درخت CSDM" },
+    { key: "cmdb:workspace", access: CMDB_READS, label: "داشبورد پیکربندی", path: "cmdb", icon: Activity, area: "work", workspace: true, keywords: "داشبورد سلامت کیفیت داده CMDB" },
+    { key: "cmdb:map", access: CMDB_READS, label: "نقشهٔ وابستگی", path: "cmdb/map", icon: GitFork, area: "work", workspace: true, keywords: "نقشه وابستگی خدمت گراف" },
+    { key: "cmdb:impact", access: CMDB_READS, label: "تحلیل اثر", path: "cmdb/impact", icon: Zap, area: "work", workspace: true, keywords: "تحلیل اثر دامنه blast radius چه می‌شود اگر" },
+    { key: "cmdb:query", access: CMDB_READS, label: "پرس‌وجو", path: "cmdb/query", icon: Search, area: "work", keywords: "پرس‌وجو جست‌وجوی پیشرفته رابطه" },
+    { key: "cmdb:import", access: CMDB_READS, label: "ورود داده", path: "cmdb/import", icon: FileUp, section: DATA, area: "work", keywords: "ورود اکسل CSV JSON کشف" },
+    { key: "cmdb:local", access: CMDB_READS, label: "موجودی این رایانه", path: "cmdb/local", icon: MonitorSmartphone, section: DATA, area: "work", desktopOnly: true, keywords: "موجودی رایانه کشف ویندوز" },
+    { key: "cmdb:classes-manager", access: CMDB_READS, label: "مدیریت کلاس‌ها", path: "cmdb/class-manager", icon: ListTree, section: DEF, area: "settings", keywords: "کلاس ویژگی درخت CSDM" },
   ],
   routes: [
     ...CI_QUEUES.map((q) => ({ path: q.path, element: <RecordListRoute table="ci" title={q.label} preset={{ filter: q.filter, columns: CI_COLUMNS, rowTone: ciRowTone, emptyText: q.emptyText }} /> })),

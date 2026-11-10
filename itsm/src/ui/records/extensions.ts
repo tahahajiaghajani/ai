@@ -80,6 +80,7 @@ export interface RecordTab {
 export function forParticipants(ext: RecordExtensions): RecordExtensions {
   return {
     path: ext.path,
+    newPath: ext.newPath,
     list: ext.list,
     policies: ext.policies,
     cardFields: ext.cardFields,
@@ -138,6 +139,11 @@ export interface ListPreset {
 export interface RecordExtensions {
   /** org-relative base path of the table's pages («incidents» → incidents, incidents/new, incidents/:id) */
   path?: string;
+  /**
+   * org-relative path where a new record starts when it is not `<path>/new` — the base path's `:id` page is a custom
+   * one that would read «new» as an id («این مقاله پیدا نشد»): the article editor `kb/new`, the documents library
+   */
+  newPath?: string;
   list?: ListPreset;
   policies?: UiPolicy[];
   headerActions?: (ctx: RecordContext) => ReactNode;
@@ -187,6 +193,7 @@ export function extensionsFor(table: string): RecordExtensions {
   const headers: NonNullable<RecordExtensions["headerActions"]>[] = [];
   for (const p of parts) {
     if (p.path) out.path = p.path;
+    if (p.newPath) out.newPath = p.newPath;
     if (p.list) out.list = mergePreset(out.list, p.list);
     if (p.policies) out.policies = [...(out.policies ?? []), ...p.policies];
     if (p.headerActions) headers.push(p.headerActions);
@@ -278,8 +285,8 @@ export const refPickerFor = (table: string): ((p: RefPickerProps) => ReactNode) 
 export const tablePath = (table: string): string => extensionsFor(table).path ?? `r/${table}`;
 /** Org-relative path of a record. */
 export const recordPath = (table: string, id: string): string => `${tablePath(table)}/${id}`;
-/** Org-relative path of a new record's form. */
-export const newRecordPath = (table: string): string => `${tablePath(table)}/new`;
+/** Org-relative path of a new record's form (the table's own start page when it has one). */
+export const newRecordPath = (table: string): string => extensionsFor(table).newPath ?? `${tablePath(table)}/new`;
 
 // ---------------------------------------------------------------- pluggable sources
 

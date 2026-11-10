@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Tabs } from "antd";
-import { CircleAlert, SearchX, RotateCw } from "lucide-react";
+import { CircleAlert, Lock, SearchX, RotateCw } from "lucide-react";
 import type { FieldDef } from "@shared/model/types";
 import { FIELD_TYPES } from "@shared/model/types";
 import { todayISO } from "@shared/jalali";
@@ -20,7 +20,7 @@ import { PageHeader } from "../../components/layout";
 import { useMe, useRecord, useRecordActions, useTableDef } from "../data/hooks";
 import { extensionsFor, extensionsVersion, forParticipants, getPolicySource, recordPath, tablePath, type RecordContext, type RecordExtensions } from "../extensions";
 import { formLayout } from "../model/layout";
-import { formState, missingRequired, type UiPolicy } from "../model/policies";
+import { enterableOnCreate, formState, missingRequired, type UiPolicy } from "../model/policies";
 import { recordLabel, displayText, fieldOf, isEmptyValue, type Schema } from "../model/schema";
 import { changedValues } from "../model/values";
 import { fieldErrorsOf, isConflict, type RecordResult, type RecordRow, type RecordTransition, type TableMeta } from "../model/types";
@@ -207,6 +207,20 @@ function CreateRecord({ def, schema, extensions, back }: { def: TableMeta; schem
     });
     if (errors[field]) setErrors(({ [field]: _gone, ...rest }) => rest);
   };
+
+  // a table the system writes (every field the engine's or read-only): nothing to enter, «ثبت» would be refused
+  if (!enterableOnCreate(def))
+    return (
+      <div className="rk-rp">
+        <PageHeader title={`${def.label} تازه`} back={back} />
+        <EmptyState
+          icon={Lock}
+          title={`${def.plural} را سامانه ثبت می‌کند`}
+          description="این رکوردها خودکار ساخته می‌شوند و رکورد تازه‌ای را نمی‌توان دستی ثبت کرد."
+          action={<Button onClick={() => nav(back)}>بازگشت به فهرست</Button>}
+        />
+      </div>
+    );
 
   return (
     <div className="rk-rp">

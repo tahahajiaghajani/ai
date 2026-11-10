@@ -142,7 +142,7 @@ export default function OnCall() {
                   <>
                     <div className="ev-layer">
                       <h3>کشیک نهایی (با جایگزینی‌ها)</h3>
-                      <TimelineGrid from={anchor} days={days} tz={timezone} today={today} holidays={(holidays.data?.holidays ?? []).map((h) => ({ date: h.date, title: h.title, half: h.half }))} items={shiftItems(view)} onOpen={() => undefined} busy={shifts.isFetching} empty="در این بازه چرخشی تعریف نشده است" />
+                      <TimelineGrid from={anchor} days={days} tz={timezone} today={today} holidays={(holidays.data?.holidays ?? []).map((h) => ({ date: h.date, title: h.title, half: h.half }))} items={shiftItems(view)} busy={shifts.isFetching} empty="در این بازه چرخشی تعریف نشده است" />
                     </div>
                     {view.gaps.length ? <p className="text-[13px] text-danger">{fa(view.gaps.length)} بازهٔ بی‌کشیک (خلأ پوشش) در این بازه هست؛ با جایگزینی یا چرخش تازه پوشش دهید.</p> : null}
                     {view.layers.map((l) => (
