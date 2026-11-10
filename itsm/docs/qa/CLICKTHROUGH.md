@@ -65,6 +65,12 @@ Also checked by hand (`page.evaluate` through Playwright):
   «آزادی», «BR-», «کارشناس‌پور», «خودپرداز» and «aftab» in locations, organisation units, incidents, assets, CIs,
   changes and articles finds nothing of the bank (the one incident with «شعبه» is the crawler's own seed, written after
   the purge); the palette finds no demo person («نگار») or branch («شعبهٔ آزادی»).
+- **Second load and purge** (on the build with the fixes): the load with an API sign-in older than 15 minutes was
+  refused with 401 `reauth_required` until `POST /api/auth/reauth`; with the pack loaded again, the major incident's
+  «اتاق عملیات» (`incidents/:id/war-room`, which the crawl does not reach from its list) as the demo manager «بهروز
+  مدیرنیا» at 1,440 and 390 px and both audits' «شمارش» (`itam/audits/:id/scan`) at 390 px rendered with no failed
+  request and no horizontal scroll; the second «حذف کامل» from the console removed the banner on the same page without
+  a reload.
 
 ### Findings of round 2
 
