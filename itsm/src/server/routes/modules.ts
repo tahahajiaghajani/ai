@@ -63,6 +63,12 @@ import { installAiGovernance } from "../modules/ai/governance";
 import { governanceRoutes } from "./ai-governance";
 import { installInsights } from "../modules/ai/insights";
 import { insightRoutes } from "./ai-insights";
+import { installEsmModule } from "../modules/esm";
+import { esmRoutes } from "./esm";
+import { installCsmModule } from "../modules/csm";
+import { csmRoutes } from "./csm";
+import { installFieldServiceModule } from "../modules/field_service";
+import { fieldServiceRoutes } from "./field_service";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
 installAccessModel();
@@ -110,6 +116,14 @@ installContinuityModule();
 // security operations, vulnerability response and GRC (docs/modules/security_FA.md) — after the SLA service, the RAG
 // index and the modules whose records it links (incidents, CIs, changes); before analytics, which reports on its tables
 installSecurityModule();
+// enterprise service management (docs/modules/esm_FA.md) — after the request module (department catalogues) and the
+// SLA service (approvals of journey activities and bookings)
+installEsmModule();
+// customer service management (docs/modules/csm_FA.md) — after incidents (proactive cases, internal escalation) and ESM
+// (the portal's registration hook)
+installCsmModule();
+// field service management (docs/modules/field_service_FA.md) — after CSM (coverage from entitlements) and ESM
+installFieldServiceModule();
 // analytics, reporting and KPIs (docs/modules/analytics_FA.md) — after every module whose tables it reports on
 installAnalyticsModule();
 
@@ -163,3 +177,6 @@ moduleRoutes.route("/supplier", supplierRoutes);
 moduleRoutes.route("/financial", financialRoutes);
 moduleRoutes.route("/security", securityRoutes);
 moduleRoutes.route("/portal", portalRoutes);
+moduleRoutes.route("/esm", esmRoutes);
+moduleRoutes.route("/csm", csmRoutes);
+moduleRoutes.route("/field_service", fieldServiceRoutes);

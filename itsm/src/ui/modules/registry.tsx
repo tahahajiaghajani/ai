@@ -40,6 +40,9 @@ import { supplierUi } from "./supplier";
 import { financialUi } from "./financial";
 import { securityUi } from "./security";
 import { portalUi } from "./portal";
+import { esmUi } from "./esm";
+import { csmUi } from "./csm";
+import { fieldServiceUi } from "./field_service";
 
 /** A sidebar space: «خانه», «تنظیمات», or one a module adds (its key, e.g. "service-desk"). */
 export type SpaceKey = string;
@@ -181,6 +184,9 @@ const UIS: ModuleUi[] = [
   financialUi,
   securityUi,
   portalUi,
+  esmUi,
+  csmUi,
+  fieldServiceUi,
 ];
 
 /** In the order of the segmented control. «تنظیمات» is not a segment: the footer's gear opens it. */

@@ -35,6 +35,9 @@ import { FINANCIAL_CHOICE_LISTS, FINANCIAL_TABLES } from "./financial";
 import { SECURITY_CHOICE_LISTS, SECURITY_TABLES } from "./security";
 import { PORTAL_TABLES } from "./portal";
 import { AI_GOVERNANCE_TABLES } from "./ai-governance";
+import { ESM_CHOICE_LISTS, ESM_TABLES } from "./esm";
+import { CSM_CHOICE_LISTS, CSM_TABLES } from "./csm";
+import { FSM_CHOICE_LISTS, FSM_TABLES } from "./field_service";
 
 export { CUSTOM_FIELD_TYPES, VIEW_KINDS } from "./core";
 
@@ -67,6 +70,9 @@ const MODULE_TABLES: TableDef[][] = [
   SECURITY_TABLES,
   PORTAL_TABLES,
   AI_GOVERNANCE_TABLES,
+  ESM_TABLES,
+  CSM_TABLES,
+  FSM_TABLES,
 ];
 
 /** Every table by key (resolved definitions). */
@@ -249,6 +255,9 @@ for (const [key, options] of Object.entries(ITAM_CHOICE_LISTS)) registerChoiceLi
 for (const [key, options] of Object.entries(SUPPLIER_CHOICE_LISTS)) registerChoiceList(key, options);
 for (const [key, options] of Object.entries(FINANCIAL_CHOICE_LISTS)) registerChoiceList(key, options);
 for (const [key, options] of Object.entries(SECURITY_CHOICE_LISTS)) registerChoiceList(key, options);
+for (const [key, options] of Object.entries(ESM_CHOICE_LISTS)) registerChoiceList(key, options);
+for (const [key, options] of Object.entries(CSM_CHOICE_LISTS)) registerChoiceList(key, options);
+for (const [key, options] of Object.entries(FSM_CHOICE_LISTS)) registerChoiceList(key, options);
 
 /** The members of the organisation as a reference target (virtual: no table of its own). */
 export const USER_DEF = buildTable(USER_TABLE);
