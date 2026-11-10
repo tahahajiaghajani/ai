@@ -504,6 +504,20 @@ async function signIn(url, u) {
   return state;
 }
 
+function withTimeout(p, ms, what) {
+  let timer;
+  return Promise.race([p, new Promise((_, fail) => (timer = setTimeout(() => fail(new Error(`crashed or hung: ${what}`)), ms)))]).finally(() => clearTimeout(timer));
+}
+
+// Playwright can throw from its own CDP session when a renderer dies mid-message: drop the browser (the next tab
+// relaunches it) instead of losing the run
+process.on("uncaughtException", (e) => {
+  console.error(`[ui-crawl] browser connection lost: ${String(e?.message ?? e).split("\n")[0]}`);
+  const b = B.browser;
+  B.browser = null;
+  b?.close().catch(() => {});
+});
+
 /** The browser, relaunched when it dies (a busy machine's out-of-memory killer takes the biggest process). */
 const B = { browser: null };
 async function launch() {
@@ -523,7 +537,7 @@ function tabs(url, orgId, role, state, size) {
     await tab.page?.close().catch(() => {});
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        if (!B.browser?.isConnected()) {
+        if (!B.browser || !B.browser.isConnected()) {
           ctx = null;
           await launch();
         }
@@ -570,7 +584,8 @@ async function crawlRole(url, orgId, role, state, targets, extra = {}) {
     for (;;) {
       try {
         await tab.next();
-        await visitOne(tab, t, href, role, url);
+        // a page that hangs the browser (or a lost CDP session) must not stop the crawl
+        await withTimeout(visitOne(tab, t, href, role, url), 180000, `${t.href} took over 3 minutes`);
         break;
       } catch (e) {
         const msg = String(e?.message ?? e).split("\n")[0];
