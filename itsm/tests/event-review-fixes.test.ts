@@ -171,6 +171,10 @@ describe("the console's keys on a group row", () => {
 describe("correlated groups across teams under «نیاز به دانستن»", () => {
   it("acts only on the members the caller may read and act on, and shows only what they may read", async () => {
     await w.o.put(`${w.P}/access/settings`, { preset: "need_to_know", domain_separation: false });
+    // the database team pages its own people: without a policy of its own, its alert would page the network on-call
+    // through the organisation's default policy, and whose turn that is depends on the day the test runs
+    const dbPolicy = (await w.o.post(`${w.P}/r/escalation_policy`, { name: "ارتقای پایگاه داده", group_id: w.g.db, is_default: true, repeat_times: 0 })).row.id as string;
+    await w.o.post(`${w.P}/r/escalation_level`, { policy_id: dbPolicy, level: 1, delay_minutes: 0, target: "group", target_group_id: w.g.db, channels: ["in_app"] });
     const host = (await w.o.post(`${w.P}/r/ci`, { name: "srv-x1", class: "server", state: "operational", hostname: "srv-x1", support_group_id: w.g.db })).row.id as string;
     const app = (await w.o.post(`${w.P}/r/ci`, { name: "سامانهٔ انبار", class: "business_application", state: "operational", criticality: "1", support_group_id: w.g.network })).row.id as string;
     await w.o.post(`${w.P}/r/ci_rel`, { parent_id: app, type: "depends_on", child_id: host });
