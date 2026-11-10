@@ -2,6 +2,7 @@
 // they may write, never for configuration); search/get/aggregate/history return only readable rows and visible fields
 // (internal notes only for those who read them); tool retrieval offers the few tools that fit the page and the question;
 // tool results reach the model as untrusted data.
+import { isCustomSlot } from "@shared/admin/studio";
 import "./fixtures/access";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { world, type World } from "./incident-helpers";
@@ -55,7 +56,8 @@ describe("generated record tools: catalogue and reads", () => {
       const names = new Set((await recordTools(ctx, { proposals: true })).map((e) => e.name));
       for (const base of physicalTables()) {
         const def = schema.def(base.key)!;
-        const expected = access().canReadTable(ctx, def) && !def.key.startsWith("ai_") && !def.key.startsWith("va_");
+        // a custom-table slot the organisation has not claimed in the studio offers no tools (registerToolTableView)
+        const expected = access().canReadTable(ctx, def) && !def.key.startsWith("ai_") && !def.key.startsWith("va_") && !isCustomSlot(def.key);
         expect(names.has(`search_${def.key}`), `${who} search_${def.key}`).toBe(expected);
         if (!access().canReadTable(ctx, def)) {
           for (const op of ["get", "aggregate", "history", "draft_create", "draft_update", "draft_transition", "draft_batch"]) expect(names.has(`${op}_${def.key}`)).toBe(false);

@@ -15,7 +15,7 @@ import { STAGE_LABELS, STAGE_TONES, isOpenStage, stageOf, stageSteps, type Stage
 import type { PortalAction, PortalAttachment, PortalItemsPage, PortalTicket, PortalTicketCard, TimelineEntry } from "@shared/portal/api";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
-import { addJournal, get, list, listAttachments, listHistory, listJournal, orgSchema, orgTz, transition } from "../../engine";
+import { addJournal, canOpenRecords, get, list, listAttachments, listHistory, listJournal, orgSchema, orgTz, transition } from "../../engine";
 import { access } from "../../access/provider";
 import { bad, forbidden, notFound } from "../../http/errors";
 import { recordApprovals, recordTimers } from "../sla";
@@ -142,7 +142,8 @@ export async function myItems(ctx: Ctx, p: { tab?: ItemsTab; state?: ItemsState;
   let total = 0;
   for (const t of portalItemTables()) {
     const def = schema.def(t.table);
-    if (!def || def.virtual || !def.states || !access().canReadTable(ctx, def)) continue;
+    // a table read through a role, or one the person takes part in (a work order they asked for)
+    if (!def || def.virtual || !def.states || !(access().canReadTable(ctx, def) || (await canOpenRecords(ctx, def)))) continue;
     const rel = subject ? relationCond(subject, def, tab) : null;
     if (!rel) continue;
     const st = statesWhere(def, state);

@@ -14,6 +14,7 @@ import { enqueue, registerJobHandler, type JobConfig, type JobContext } from "..
 import { actsHere } from "../notify";
 import { registerPortalSectionSource } from "../esm/portal";
 import { registerPortalItems } from "../portal/common";
+import { registerParticipantSource } from "../../access";
 import type { Ctx } from "../../context";
 import { installFieldHooks } from "./hooks";
 import { installFieldSkills } from "./ai";
@@ -89,6 +90,23 @@ export function installFieldServiceModule(): void {
   registerPortalSectionSource("field_service.customer", customerVisitSections);
   // the requester's work orders in the portal's «درخواست‌های من» and ticket pages (their own access)
   registerPortalItems({ table: "work_order", kind_label: "بازدید خدمات میدانی" });
+  // a work order's requester (or caller) reads it without a role in field service: its status and appointment in
+  // the portal; visits, technicians and parts stay the dispatchers'
+  registerParticipantSource({
+    name: "field_service.requester",
+    reach: "grant",
+    sql(def, alias, params, userId) {
+      if (def.key !== "work_order") return null;
+      params.push(userId);
+      return `(${alias}.requested_for = $${params.length}::uuid or ${alias}.caller_id = $${params.length}::uuid)`;
+    },
+    async tables(q, orgId, userId) {
+      const t = tableDef("work_order");
+      if (!t) return [];
+      const r = await q.one(`select 1 from ${t.table} where org_id = $1 and deleted_at is null and (requested_for = $2 or caller_id = $2) limit 1`, [orgId, userId]);
+      return r ? ["work_order"] : [];
+    },
+  });
   registerRecordMeta("wo_task", async ({ q, ctx, def, row }) => ({ field: { can_work: access().canWrite(ctx, def, row), mine: row.technician_id === ctx.user.id, dispatches: await dispatches(q, ctx), map_provider: (await fsmConfig(q, ctx)).map_provider } }));
   // the work order's requester books their own visit (the slots panel; the server checks the same in bookingAllowed)
   registerRecordMeta("work_order", async ({ q, ctx, def, row }) => {
