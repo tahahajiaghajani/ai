@@ -39,7 +39,10 @@ function Show-Logs {
 }
 
 function Invoke-Msi([string[]]$Arguments, [string]$Log) {
-    $all = $Arguments + @('/qn', '/norestart', '/l*v', $Log)
+    # Start-Process joins arguments without quoting them: quote paths and KEY=values that contain spaces
+    $all = ($Arguments + @('/qn', '/norestart', '/l*v', $Log)) | ForEach-Object {
+        if ($_ -match '\s' -and $_ -notmatch '"') { if ($_ -match '^([A-Z]+)=(.*)$') { "$($Matches[1])=`"$($Matches[2])`"" } else { "`"$_`"" } } else { $_ }
+    }
     Write-Log "msiexec $($all -join ' ')"
     $p = Start-Process -FilePath 'msiexec.exe' -ArgumentList $all -Wait -PassThru
     Write-Log "msiexec exit code $($p.ExitCode)"
@@ -90,6 +93,8 @@ try {
         Write-Log "runner kept online: $root"
     }
     New-NetFirewallRule -DisplayName 'ci-allow-dns' -Direction Outbound -Protocol UDP -RemotePort 53 -Action Allow | Out-Null
+    # the cloud VM's own platform endpoints (Azure wire server and instance metadata), not the Internet
+    New-NetFirewallRule -DisplayName 'ci-allow-platform' -Direction Outbound -RemoteAddress 168.63.129.16, 169.254.169.254 -Action Allow | Out-Null
     Set-NetFirewallProfile -All -Enabled True -DefaultOutboundAction Block
     $leaked = $true
     try { Invoke-WebRequest -Uri 'https://www.microsoft.com/' -TimeoutSec 15 -UseBasicParsing | Out-Null } catch { $leaked = $false; Write-Log "outbound blocked as expected: $($_.Exception.Message)" }
@@ -127,6 +132,6 @@ try {
     Write-Step 'smoke test passed'
 } finally {
     foreach ($p in $savedProfiles) { Set-NetFirewallProfile -Name $p.Name -Enabled $p.Enabled -DefaultOutboundAction $p.DefaultOutboundAction -ErrorAction SilentlyContinue }
-    Get-NetFirewallRule -DisplayName 'ci-allow-runner', 'ci-allow-dns' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+    Get-NetFirewallRule -DisplayName 'ci-allow-runner', 'ci-allow-dns', 'ci-allow-platform' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
     Write-Log 'outbound traffic restored'
 }

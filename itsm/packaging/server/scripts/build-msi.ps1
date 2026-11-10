@@ -17,7 +17,7 @@ Set-LogFile (Join-Path $Out 'build-msi.log')
 $edition = Read-Edition $Dist
 $deps = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\deps.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 $version = (Get-Content -LiteralPath (Join-Path $Dist 'VERSION') -Raw).Trim()
-foreach ($need in @('node\node.exe', 'app\server.cjs', 'app\karizctl.cjs', 'app\public\index.html', 'pgsql\bin\postgres.exe', 'winsw\WinSW-x64.exe', 'scripts\install.ps1', 'edition.json')) {
+foreach ($need in @('node\node.exe', 'app\server.cjs', 'app\karizctl.cjs', 'app\public\index.html', 'pgsql\bin\postgres.exe', 'winsw\WinSW-x64.exe', 'scripts\install.ps1', 'edition.json', 'icon.ico')) {
     if (-not (Test-Path (Join-Path $Dist $need))) { Fail "payload incomplete: $need missing in $Dist" }
 }
 
@@ -53,6 +53,7 @@ $wixArgs = @(
     '-d', "RegistryKey=$($edition.registryKey)",
     '-d', "SourceDir=$Dist",
     '-d', "LicenseRtf=$(Join-Path $PSScriptRoot '..\wix\License.rtf')",
+    '-d', "IconFile=$(Join-Path $Dist 'icon.ico')",
     '-o', $msi
 ) + $ext
 Invoke-Native -File $wix -Arguments $wixArgs | Out-Null

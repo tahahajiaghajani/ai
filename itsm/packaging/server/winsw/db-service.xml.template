@@ -1,5 +1,5 @@
 <!--
-  WinSW 2.12 service: PostgreSQL of the server edition. install.ps1 fills the {{…}} placeholders, writes this file next
+  WinSW 2.12 service: PostgreSQL of the server edition. install.ps1 fills the double-brace placeholders, writes this file next
   to a copy of WinSW-x64.exe named after the service, installs it and runs it as the virtual account NT SERVICE\{{DB_NAME}}.
   postgres.exe runs in the foreground; stopping the service runs pg_ctl stop -m fast (a clean shutdown).
 -->

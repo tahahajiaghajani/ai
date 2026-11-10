@@ -31,6 +31,9 @@
     <Property Id="AIRGAPPED" Value="1" Secure="yes" />
     <Property Id="WORKERS" Value="0" Secure="yes" />
     <Property Id="REMOVEDATA" Value="0" Secure="yes" />
+    <!-- the product's icon (desktop/build/icon.ico: the brand's mark when it lands) -->
+    <Icon Id="ProductIcon" SourceFile="$(var.IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
     <Property Id="ARPNOMODIFY" Value="1" />
     <Property Id="ARPNOREPAIR" Value="1" />
 

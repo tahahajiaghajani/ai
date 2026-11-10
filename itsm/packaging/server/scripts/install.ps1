@@ -128,6 +128,11 @@ try {
         }
     }
     if ($upgrade) { Write-Log "existing installation found ($config): upgrade, data and secrets kept" }
+    $pgOwner = Get-NetTCPConnection -State Listen -LocalPort $edition.database.port -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($pgOwner) {
+        $pgProc = Get-Process -Id $pgOwner.OwningProcess -ErrorAction SilentlyContinue
+        if (-not ($pgProc -and $pgProc.Path -like "$InstallDir*")) { Fail "port $($edition.database.port) (PostgreSQL) is used by $($pgProc.ProcessName) (pid $($pgOwner.OwningProcess)): stop that database server first" }
+    }
 
     # ----- stop what runs (re-install, upgrade) ----------------------------------------------------------------------
     Stop-Svc $appSvc
@@ -203,8 +208,8 @@ try {
     Get-NetFirewallRule -DisplayName $edition.firewallRule -ErrorAction SilentlyContinue | Remove-NetFirewallRule
     $ports = @([int]$HttpsPort)
     if ([int]$HttpPort -gt 0) { $ports += [int]$HttpPort }
-    New-NetFirewallRule -DisplayName $edition.firewallRule -Direction Inbound -Protocol TCP -LocalPort $ports -Action Allow -Profile Domain, Private | Out-Null
-    Write-Log "inbound TCP $($ports -join ', ') allowed (Domain, Private profiles); PostgreSQL listens on 127.0.0.1 only"
+    New-NetFirewallRule -DisplayName $edition.firewallRule -Direction Inbound -Protocol TCP -LocalPort $ports -Action Allow -Profile Any | Out-Null
+    Write-Log "inbound TCP $($ports -join ', ') allowed (all profiles; narrow it to Domain if your policy asks); PostgreSQL listens on 127.0.0.1 only"
     [Environment]::SetEnvironmentVariable('ITSM_SERVER_CONFIG', $config, 'Machine')
     $path = [Environment]::GetEnvironmentVariable('Path', 'Machine')
     if (($path -split ';') -notcontains $InstallDir) { [Environment]::SetEnvironmentVariable('Path', "$path;$InstallDir", 'Machine') }
@@ -227,7 +232,7 @@ try {
     Invoke-Ctl @('wait-ready', '--timeout', '300') | Out-Null
     $publicUrl = (Get-Content -LiteralPath $config -Raw -Encoding UTF8 | ConvertFrom-Json).public_url
     $start = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs'
-    Write-Utf8 (Join-Path $start "$($edition.product).url") "[InternetShortcut]`r`nURL=$publicUrl/`r`n"
+    Write-Utf8 (Join-Path $start "$($edition.product).url") "[InternetShortcut]`r`nURL=$publicUrl/`r`nIconFile=$(Join-Path $InstallDir 'icon.ico')`r`nIconIndex=0`r`n"
 
     # a fresh platform: the one-time setup address (only its hash stays in kariz.json)
     $setup = Join-Path $DataDir 'setup-url.txt'

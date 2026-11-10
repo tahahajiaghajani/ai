@@ -95,7 +95,8 @@ function Get-Pinned {
 function Expand-Zip([string]$Zip, [string]$Destination) {
     if (Test-Path $Destination) { Remove-Item -Recurse -Force $Destination }
     New-Item -ItemType Directory -Force -Path $Destination | Out-Null
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    # ZipFile lives in System.IO.Compression.FileSystem (Windows PowerShell 5.1) or System.IO.Compression.ZipFile (7.x)
+    foreach ($a in @('System.IO.Compression.FileSystem', 'System.IO.Compression.ZipFile')) { try { Add-Type -AssemblyName $a -ErrorAction Stop } catch { } }
     [System.IO.Compression.ZipFile]::ExtractToDirectory($Zip, $Destination)
 }
 

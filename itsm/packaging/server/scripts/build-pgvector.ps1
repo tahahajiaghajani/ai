@@ -27,9 +27,18 @@ try {
 
     $vcvars = Join-Path (Get-VsPath) 'VC\Auxiliary\Build\vcvars64.bat'
     if (-not (Test-Path $vcvars)) { Fail "vcvars64.bat not found: $vcvars" }
-    $cmd = "call `"$vcvars`" >nul && set `"PGROOT=$full`" && cd /d `"$src`" && nmake /NOLOGO /F Makefile.win && nmake /NOLOGO /F Makefile.win install"
+    # a batch file: no command-line quoting between PowerShell and cmd.exe
+    $bat = Join-Path $Cache 'build-pgvector.cmd'
+    Set-Content -LiteralPath $bat -Encoding ASCII -Value @(
+        '@echo off',
+        "call `"$vcvars`" >nul || exit /b 1",
+        "set `"PGROOT=$full`"",
+        "cd /d `"$src`" || exit /b 1",
+        'nmake /NOLOGO /F Makefile.win || exit /b 1',
+        'nmake /NOLOGO /F Makefile.win install || exit /b 1'
+    )
     Write-Step 'nmake /F Makefile.win (MSVC x64)'
-    Invoke-Native -File 'cmd.exe' -Arguments @('/d', '/c', $cmd) | Out-Null
+    Invoke-Native -File 'cmd.exe' -Arguments @('/d', '/c', $bat) | Out-Null
 
     $dll = Join-Path $full 'lib\vector.dll'
     if (-not (Test-Path $dll)) { Fail 'vector.dll was not produced' }

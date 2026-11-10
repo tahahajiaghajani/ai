@@ -111,6 +111,8 @@ writeFileSync(
 console.log("• installer scripts and templates");
 for (const d of ["scripts", "winsw"]) if (existsSync(join(root, "packaging/server", d))) cpSync(join(root, "packaging/server", d), join(out, d), { recursive: true });
 cpSync(join(root, "packaging/server/edition.json"), join(out, "edition.json"));
+// the product's icon (MSI «Programs and Features», Start-menu shortcut): the brand's mark lands in desktop/build/icon.ico
+cpSync(join(root, "desktop/build/icon.ico"), join(out, "icon.ico"));
 writeFileSync(join(out, `${edition.ctl}.cmd`), `@echo off\r\n"%~dp0node\\node.exe" "%~dp0app\\karizctl.cjs" %*\r\n`);
 writeFileSync(join(out, "VERSION"), `${C.APP_VERSION}\n`);
 if (C.APP_VERSION !== pkg.version) console.warn(`! package.json version ${pkg.version} differs from APP_VERSION ${C.APP_VERSION}`);
