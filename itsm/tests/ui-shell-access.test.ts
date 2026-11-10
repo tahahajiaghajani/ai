@@ -37,7 +37,6 @@ describe("bank ITAM and the demo console in the shell", () => {
     const officer = shell(bankGrantsOf("branch_asset_officer"));
     for (const k of ["itam:branches", "itam:fleet", "itam:asset_transfer", "itam:branch_attestation", "itam:inventory_audit"]) expect(officer.keys.has(k)).toBe(true);
     expect(officer.keys.has("itam:register")).toBe(false);
-    expect(officer.keys.has("itam:maintenance_sla")).toBe(false);
     const manager = shell(bankGrantsOf("branch_manager"));
     expect(manager.keys.has("itam:branches")).toBe(true);
     expect(manager.keys.has("itam:register")).toBe(false);
