@@ -17,3 +17,24 @@ describe("«مقالهٔ تازه» in a new organisation", () => {
     expect(src("src/ui/modules/knowledge/index.tsx")).toMatch(/table: "kb_base", path: "kb\/bases"/);
   });
 });
+
+describe("a requester's incident and service pages ask nothing of the CMDB they cannot read", () => {
+  it("the CI side panel and the «مدل خدمت» map are gated by the CMDB area (404 GET r/ci/:id, 404 POST cmdb/map, «نقشه بارگذاری نشد»)", async () => {
+    const { tableDef } = await import("../src/shared/tables");
+    // the gate is the CI table's own access area
+    expect(tableDef("ci")?.area).toBe("cmdb");
+    const panel = src("src/ui/modules/cmdb/CiContextPanel.tsx");
+    expect(panel).toContain('const canCi = allows({ area: "cmdb" });');
+    expect(panel).toMatch(/recordsApi\.get\(api, "ci", ciId\), enabled: !!ciId && canCi/);
+    const map = src("src/ui/modules/cmdb/CiParts.tsx");
+    expect(map).toContain('const canMap = allows({ area: "cmdb" });');
+    expect(map).toMatch(/cmdbApi\.map\(api, q\), staleTime: 30_000, enabled: canMap/);
+    expect(map).toContain("if (!canMap) return");
+  });
+
+  it("the demo requester persona holds no CMDB read (the gate hides, the server keeps refusing)", async () => {
+    const { gateAllows } = await import("../src/shared/access");
+    expect(gateAllows({ cmdb: { read: "none", create: false, write: "none", delete: "none", approve: false, admin: false } } as never, { area: "cmdb" })).toBe(false);
+    expect(gateAllows({ cmdb: { read: "all", create: false, write: "none", delete: "none", approve: false, admin: false } } as never, { area: "cmdb" })).toBe(true);
+  });
+});
