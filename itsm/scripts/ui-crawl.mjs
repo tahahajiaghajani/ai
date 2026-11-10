@@ -129,7 +129,7 @@ export async function loadRegistry() {
   const nav = reg.NAV.flatMap((g) => g.items.map((i) => ({ ...i, group: g.key, groupModule: g.module, space: g.space })));
   // the requester portal's own pages (nested routes of `portal/*`)
   const shell = readFileSync(join(ROOT, "src/ui/modules/portal/Shell.tsx"), "utf8");
-  const portal = [...shell.matchAll(/<Route\s+path="([^"]*)"/g)].map((m) => m[1]).filter((p) => p !== "*");
+  const portal = [...new Set([...shell.matchAll(/<Route\s+path="([^"]*)"/g)].map((m) => m[1].replace(/\/?\*$/, "")))];
   // the platform owner's console (sections of src/ui/pages/admin/Admin.tsx)
   const adminSrc = readFileSync(join(ROOT, "src/ui/pages/admin/Admin.tsx"), "utf8");
   const admin = [...adminSrc.matchAll(/\{\s*key:\s*"([^"]*)",\s*title:\s*"[^"]*",\s*icon:\s*\w+(?:,\s*edition:\s*"(\w+)")?/g)].map((m) => ({ key: m[1], edition: m[2] ?? null }));
@@ -477,7 +477,8 @@ async function clickActions(page, probe, url, role, route, href) {
     probe.take();
   }
   // the first link into the app from the page's own content (not the shell's nav)
-  const link = page.locator("main a[href^='/']:not(.rk-open), #portal-main a[href^='/']").first();
+  // (not a file download from the API)
+  const link = page.locator("main a[href^='/']:not(.rk-open):not([href^='/api/']):not([download]), #portal-main a[href^='/']:not([href^='/api/']):not([download])").first();
   if (await link.isVisible().catch(() => false)) {
     const target = await link.getAttribute("href");
     await link.click({ timeout: 4000 }).catch(() => {});
