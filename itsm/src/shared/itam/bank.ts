@@ -182,6 +182,8 @@ export function fiscalYearDepreciation(input: FyInput, fy: number): FyResult {
     opening_cost: before && !disposedBefore ? cost.toString() : zero, additions: acquired ? cost.toString() : zero, disposals: zero,
     opening_accumulated: zero, charge: zero, closing_accumulated: zero, closing_book: zero, months_charged: 0,
   };
+  // without a start date the asset is carried at cost, undepreciated (a gap the register makes visible)
+  if (!input.start && !disposedBefore) return { ...base, opening_cost: cost.toString(), closing_book: disposedIn ? zero : cost.toString(), disposals: disposedIn ? cost.toString() : zero };
   if (!input.start || input.start > fyEnd || disposedBefore) return base;
   const first = input.convention === "next_month" ? nextJalaliMonthStart(input.start) : input.start;
   const schedule = depreciationSchedule({ cost: input.cost, salvage: input.salvage, lifeMonths: input.lifeMonths, method: input.method, ratePercent: input.ratePercent, start: first });

@@ -30,6 +30,8 @@ describe("depreciation by Jalali fiscal year", () => {
     const last = fiscalYearDepreciation({ ...base, convention: "next_month" }, 1410);
     expect(last.charge).toBe("7000000");
     expect(fiscalYearDepreciation({ ...base, convention: "next_month" }, 1411)).toMatchObject({ charge: "0", closing_accumulated: "84000000", closing_book: "0" });
+    // without a start date: carried at cost, undepreciated
+    expect(fiscalYearDepreciation({ ...base, start: null }, 1404)).toMatchObject({ opening_cost: "84000000", charge: "0", closing_book: "84000000" });
     // before the asset existed: nothing
     expect(fiscalYearDepreciation({ ...base, convention: "next_month" }, 1402)).toMatchObject({ opening_cost: "0", additions: "0", charge: "0" });
   });

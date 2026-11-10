@@ -32,7 +32,7 @@ import { access } from "../../access/provider";
 import { registerParticipantSource, subjectOf } from "../../access";
 import { bad, conflict, forbidden } from "../../http/errors";
 import { onApprovalSettled, settledVerdict } from "../sla";
-import { holds, hasGroup, isUuid, itamConfig, liveRow, liveRows, orgToday, sysOf, type Row } from "./common";
+import { holds, hasGroup, isUuid, itamConfig, liveRow, liveRows, localDate, orgToday, sysOf, type Row } from "./common";
 import { ledgerOnPush, needParentWrite, systemOnly } from "./hooks";
 
 const NIL = "00000000-0000-0000-0000-000000000000";
@@ -835,7 +835,7 @@ export async function assetRegister(ctx: Ctx, input: RegisterInput): Promise<Row
     const start = String(a.in_service_date || a.purchase_date || "").slice(0, 10) || null;
     if (start && start > range.end) continue;
     const endRaw = a.disposed_at || (a.state === "retired" ? a.retired_at : null);
-    const end = endRaw ? String(endRaw).slice(0, 10) : null;
+    const end = endRaw ? localDate(ctx, String(endRaw)) : null;
     if (end && end < range.start) continue;
     const rule = rules.get(String(a.depreciation_rule_id ?? ""));
     const salvage = a.salvage_value ?? (rule?.salvage_percent ? D(a.purchase_cost as string).mul(rule.salvage_percent as string).div(100).toFixed(0) : "0");
