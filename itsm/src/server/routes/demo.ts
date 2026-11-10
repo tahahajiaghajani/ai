@@ -5,7 +5,7 @@ import { z } from "zod";
 import { router, body } from "../http/hono";
 import { bad } from "../http/errors";
 import { needRecentAuthOf } from "../auth/policy";
-import { demoStatus, finalizeDemo, purgePreview, startDemoLoad, startDemoPurge } from "../modules/demo";
+import { BANK_NAME, demoStatus, finalizeDemo, purgePreview, startDemoLoad, startDemoPurge } from "../modules/demo";
 
 export const demoRoutes = router();
 
@@ -14,8 +14,10 @@ export const PURGE_PHRASE = "حذف کامل";
 
 demoRoutes.get("/banner", async (c) => {
   const ctx = c.get("ctx");
-  const s = await demoStatus(ctx.db, ctx.org.id);
-  return c.json({ active: s.state !== "none", state: s.state, bank: s.bank });
+  // one indexed lookup: every page of every member asks
+  const pack = await ctx.db.one<{ state: string }>(`select state from sm_demo_packs where org_id = $1`, [ctx.org.id]);
+  // after the purge only content-free tombstones wait for Windows apps: nothing to warn about
+  return c.json({ active: !!pack && pack.state !== "tombstoned", state: pack?.state ?? "none", bank: BANK_NAME });
 });
 
 demoRoutes.get("/", async (c) => {
