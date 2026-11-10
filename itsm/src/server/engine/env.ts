@@ -4,7 +4,7 @@
 import type { CondEnv } from "@shared/model/conditions";
 import { DEFAULT_TIMEZONE } from "@shared/constants";
 import type { AuthUser, Ctx, MemberRow, OrgRow, ServerConfig } from "../context";
-import { lockOrg } from "../context";
+import { admitWrite, lockOrg } from "../context";
 import type { Tx } from "../db";
 import { access } from "../access/provider";
 import { assertWritable } from "../modules/platform/org-admin";
@@ -84,11 +84,11 @@ export async function systemCtx(cfg: Pick<ServerConfig, "db"> & Partial<ServerCo
     can: () => true,
     need: () => undefined,
     write: async <T,>(fn: (tx: Tx) => Promise<T>, wopts?: { internal?: boolean; late?: boolean }) => {
-      const out = await cfg.db.tx(async (tx) => {
+      const out = await admitWrite(orgId, () => cfg.db.tx(async (tx) => {
         if (!(wopts?.late ?? wopts?.internal)) await lockOrg(tx, orgId);
         if (!wopts?.internal) await assertWritable(tx, orgId);
         return fn(tx);
-      });
+      }), wopts);
       if (full.mode !== "cloud") bumpLocal(orgId);
       full.desktop?.notifyLocalWrite();
       return out;

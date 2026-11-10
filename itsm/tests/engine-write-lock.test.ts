@@ -6,7 +6,7 @@ import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { engineOrg, type EngineOrg } from "./engine-helpers";
 import { createIn, systemCtx } from "@server/engine";
 import { setLockProbe, withLockLabel, type LockSample } from "@server/db/lockprobe";
-import type { Ctx } from "@server/context";
+import { admitWrite, type Ctx } from "@server/context";
 import type { Tx } from "@server/db";
 
 let e: EngineOrg;
@@ -87,5 +87,40 @@ describe("the organisation's write lock", () => {
     setLockProbe(null);
     await sys.write(async (t) => void (await createIn(t, sys, "todo", { short_description: "بی‌سنجش" })));
     expect(samples).toHaveLength(1);
+  });
+});
+
+describe("write admission", () => {
+  it("lets at most three writes of an organisation into the database at once; nested writes and bookkeeping pass", async () => {
+    let inside = 0;
+    let peak = 0;
+    const gates: (() => void)[] = [];
+    const work = () =>
+      admitWrite("org-admission", async () => {
+        inside++;
+        peak = Math.max(peak, inside);
+        // a write inside a write never waits for a place (it would wait for itself)
+        await admitWrite("org-admission", async () => undefined);
+        await new Promise<void>((r) => gates.push(r));
+        inside--;
+      });
+    const all = Array.from({ length: 7 }, work);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(inside).toBe(3);
+    // bookkeeping is not counted
+    let booked = false;
+    await admitWrite("org-admission", async () => void (booked = true), { internal: true });
+    expect(booked).toBe(true);
+    // another organisation is not held up
+    let other = false;
+    await admitWrite("org-other", async () => void (other = true));
+    expect(other).toBe(true);
+    while (gates.length) {
+      gates.shift()!();
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    await Promise.all(all);
+    expect(peak).toBe(3);
+    expect(inside).toBe(0);
   });
 });
