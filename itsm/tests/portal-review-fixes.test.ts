@@ -1,12 +1,13 @@
 // Review fixes of the self-service portal (each case failed before its fix):
 //   · what survey invitations and responses copy from a record (title, number, person, comment) shows only to readers
-//     of that record
+//     of that record; the record page's survey panel answers only them
 //   · anonymous surveys: no group on the invitation or the response, the answer's day only, the answers held and
 //     written in shuffled batches (nothing ties a response to the invitation answered)
 //   · survey answers never arrive from a Windows app push; a linked Windows app answers on the web version
 //   · one response per invitation (row lock and unique index)
 //   · the ticket's outage banner follows the announcement's audience and window and the parent incident
-//   · a manager's or watcher's portal reply is neither the desk's first response nor a staff reply
+//   · a manager's or watcher's portal reply is neither the desk's first response nor a staff reply; a desk agent's
+//     comment is, even through a request's context that has read nothing yet (its access loads on the spot)
 //   · quick links and topics follow their audience in the record API; a workspace's portal is its members'; the draft
 //     layout is for those who run the portal
 //   · messenger webhooks are limited per key, not per client address (wrong keys are, per client)
@@ -15,8 +16,9 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { portalWorld, statusOf, type PortalWorld } from "./portal-helpers";
 import type { Client } from "./helpers";
-import { createIn, transitionIn, updateIn } from "@server/engine";
+import { addJournalIn, createIn, transitionIn, updateIn } from "@server/engine";
 import { memberCtx } from "@server/access";
+import { makeCtx } from "@server/context";
 import { releaseHeldAnswers, submitSurvey, ANONYMOUS_BATCH } from "@server/modules/portal";
 import { registerCloudLink } from "@server/modules/ai/relay";
 import { resetRateLimits } from "@server/http/ratelimit";
@@ -86,6 +88,10 @@ describe("surveys", () => {
     expect(resp.some((r) => r.respondent_id === w.p.req.userId)).toBe(false);
     const results = await w.p.sdm.client.get(`${w.P}/portal/survey-results?days=30`);
     expect(JSON.stringify(results.comments)).not.toContain(TOKEN);
+    // the record page's «نظرسنجی» panel: nothing of a record the caller may not open, the answer for its readers
+    expect((await w.p.sdm.client.get(`${w.P}/portal/record-surveys/portal_feedback/${fb.id}`)).responses).toEqual([]);
+    const panel = (await w.p.req.client.get(`${w.P}/portal/record-surveys/portal_feedback/${fb.id}`)).responses as any[];
+    expect(panel.some((r) => String(r.comment ?? "").includes(TOKEN))).toBe(true);
   });
 
   it("keep anonymous answers apart from their invitations", async () => {
@@ -174,6 +180,22 @@ describe("the ticket page", () => {
     expect((await stored("incident", inc.id)).first_response_at).toBeTruthy();
     t = await w.p.req.client.get(`${w.P}/portal/tickets/incident/${inc.id}`);
     expect(t.timeline.find((e: any) => e.body === "در حال بررسی هستیم").staff).toBe(true);
+  });
+
+  it("weighs a desk agent's first response even through a request's context that has read nothing yet", async () => {
+    const inc = await w.incident(w.p.req.client, { short_description: "چاپگر طبقهٔ دوم چاپ نمی‌کند" });
+    await w.sys.write((tx) => updateIn(tx, w.sys, "incident", inc.id, { assignment_group_id: w.g.desk }, { trusted: true }));
+    // a request's context as the HTTP layer makes it: its access subject loads with its first engine call
+    const q = w.e.db;
+    const [user, org, member] = await Promise.all([
+      q.one<any>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from sm_users where id = $1`, [w.p.agent.userId]),
+      q.one<any>(`select * from sm_orgs where id = $1`, [w.e.org]),
+      q.one<any>(`select id, org_id, user_id, role, overrides, is_active from sm_org_members where org_id = $1 and user_id = $2 and deleted_at is null`, [w.e.org, w.p.agent.userId]),
+    ]);
+    const fresh = makeCtx(w.e.cfg, user, org, member);
+    const row = await stored("incident", inc.id);
+    await fresh.write((tx) => addJournalIn(tx, fresh, tableDef("incident")!, row, { kind: "comment", body: "چاپگر را بررسی می‌کنیم" }));
+    expect((await stored("incident", inc.id)).first_response_at).toBeTruthy();
   });
 
   it("shows dates of facts in Jalali, in the organisation's time zone", async () => {

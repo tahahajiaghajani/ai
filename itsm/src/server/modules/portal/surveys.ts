@@ -596,6 +596,9 @@ export async function surveyResults(ctx: Ctx, opts: { survey?: string | null; da
 
 /** The responses about one record the caller may read (the record page's «نظرسنجی» panel). */
 export async function recordSurveys(ctx: Ctx, table: string, id: string): Promise<{ responses: { id: string; title: string; csat: number | null; score: number | null; comment: string | null; at: string | null }[] }> {
+  // the record's own readers only: its responses copy the record's title and its people's words, and even their scores
+  // and days are nothing to show of a record the caller may not open
+  if (ctx.actor !== "system" && !(await liveRow(ctx.db, ctx, table, id))) return { responses: [] };
   const rows = await liveRows(ctx.db, ctx, "survey_response", { and: [{ f: "table_key", op: "eq", v: table }, { f: "record_id", op: "eq", v: id }] }, { order: "t.submitted_at desc", limit: 20 }).catch(() => [] as Row[]);
   return { responses: rows.map((r) => ({ id: String(r.id), title: String(r.title ?? ""), csat: typeof r.csat === "number" ? r.csat : null, score: typeof r.score === "number" ? r.score : null, comment: (r.comment as string) ?? null, at: (r.submitted_at as string) ?? null })) };
 }

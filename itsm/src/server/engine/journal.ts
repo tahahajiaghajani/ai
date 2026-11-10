@@ -12,7 +12,7 @@ import { pgArray } from "../db";
 import { bad, forbidden } from "../http/errors";
 import { access } from "../access/provider";
 import { actorId, condEnv, isSystemCtx } from "./env";
-import { defFor } from "./schema";
+import { defFor, orgSchema } from "./schema";
 import { RefSet, resolveDisplay } from "./display";
 import { requireReadable, type Row } from "./read";
 import { checkSide, filterSide } from "./hooks";
@@ -102,8 +102,12 @@ export async function addJournalIn(tx: Tx, ctx: Ctx, def: TableDef, row: Row, in
   // not answer for the desk
   if (kind === "comment" && author && def.fields.some((f) => f.name === "first_response_at") && !row.first_response_at) {
     const own = [row.caller_id, row.requested_for].filter(Boolean);
-    const prov = access();
-    const works = isSystemCtx(ctx) || author !== actorId(ctx) || (prov.writeMode ? prov.writeMode(ctx, def, row) === "full" : prov.canWrite(ctx, def, row));
+    let works = isSystemCtx(ctx) || author !== actorId(ctx);
+    if (!works && !own.includes(author)) {
+      await orgSchema(ctx, tx); // loads the caller's access subject (once per request) — a module's own ctx may not have it yet
+      const prov = access();
+      works = prov.writeMode ? prov.writeMode(ctx, def, { ...row, org_id: row.org_id ?? ctx.org.id }) === "full" : prov.canWrite(ctx, def, row);
+    }
     if (!own.includes(author) && works) {
       const stamped = await tx.one<Row>(`update ${def.table} set first_response_at = now() where id = $1 and org_id = $2 and first_response_at is null returning first_response_at`, [row.id, ctx.org.id]);
       if (stamped) await writeHistory(tx, ctx, def, row.id, { first_response_at: null }, stamped, ["first_response_at"]);
