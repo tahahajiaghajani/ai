@@ -84,7 +84,13 @@ function safeEq(a: string, b: string): boolean {
 
 type SessionRow = AuthSession & { token_hash: string; revoked_at: string | null; last_seen_at: string; idle_minutes: number | null };
 
-export async function resolveToken(db: Db, token: string | undefined | null): Promise<{ user: AuthUser; session: AuthSession } | null> {
+/**
+ * The header a client sends on requests the person did not make (the live pulse, refresh timers): they never count
+ * as activity, so the idle timeout ends a session left open on a visible screen.
+ */
+export const BACKGROUND_HEADER = "x-itsm-background";
+
+export async function resolveToken(db: Db, token: string | undefined | null, opts: { background?: boolean } = {}): Promise<{ user: AuthUser; session: AuthSession } | null> {
   if (!token) return null;
   const dot = token.indexOf(".");
   if (dot < 0) return null;
@@ -105,9 +111,10 @@ export async function resolveToken(db: Db, token: string | undefined | null): Pr
     [row.user_id],
   );
   if (!user || user.disabled) return null;
-  // sliding activity stamp: every 10 minutes, or often enough for the idle timeout to be measured within a tenth
+  // sliding activity stamp: every 10 minutes, or often enough for the idle timeout to be measured within a tenth —
+  // never from a background request while the session has an idle timeout (it would keep an abandoned screen alive)
   const every = idle > 0 ? Math.max(30_000, (idle * 60_000) / 10) : 600_000;
-  if (quiet > every) await db.query("update sm_sessions set last_seen_at = now() where id = $1", [row.id]);
+  if (quiet > every && !(idle > 0 && opts.background)) await db.query("update sm_sessions set last_seen_at = now() where id = $1", [row.id]);
   return {
     user,
     session: { id: row.id, user_id: row.user_id, kind: row.kind, expires_at: row.expires_at, auth_method: row.auth_method ?? null, org_id: row.org_id ?? null, source_id: row.source_id ?? null, reauth_at: row.reauth_at ?? null, created_at: row.created_at ?? null },

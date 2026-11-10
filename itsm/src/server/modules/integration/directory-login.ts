@@ -18,10 +18,11 @@
 //               mapping granted is taken back when the person leaves the directory group.
 // Single sign-on (Kerberos, a trusted proxy) proves who the person is and joins at step 2 without a password.
 import type { Ctx, ServerConfig } from "../../context";
+import type { Queryable } from "../../db";
 import { createHash } from "node:crypto";
 import { tableDef } from "@shared/tables";
 import { isEmail, isReservedEmail } from "@shared/validate";
-import { attrMapOf, cnOf, entryFromLdap, groupMatches, mappedAccess, type AttrMap, type GroupMapping } from "@shared/integration/directory";
+import { attrMapOf, cnOf, entryFromLdap, groupMatches, mappedAccess, type AttrMap, type DirEntry, type GroupMapping } from "@shared/integration/directory";
 import { accountState, domainMatches, parseLogin, reasonOfAdCode, spnCommands, type LoginReason, type ParsedLogin } from "@shared/auth/login";
 import { createIn, readSecret, removeIn, systemCtx } from "../../engine";
 import { addGroupMembers, saveMemberAccess } from "../../access";
@@ -223,8 +224,11 @@ const hostOf = (url: string) => {
 
 const STATE_ATTRS = ["userAccountControl", "lockoutTime", "accountExpires", "pwdLastSet", "msDS-UserPasswordExpiryTimeComputed", "msDS-User-Account-Control-Computed"];
 
+/** The directory object's own identity and age (links remember the object, not only its DN). */
+export const IDENTITY_ATTRS = ["objectGUID", "entryUUID", "whenCreated", "createTimestamp"];
+
 function userAttributes(map: AttrMap): string[] {
-  return [...new Set([map.email, map.name, map.username, map.title, map.phone, map.department, map.manager, map.groups, map.id, map.disabled, "userPrincipalName", "sAMAccountName", "mail", "cn", "displayName", ...STATE_ATTRS])].filter(
+  return [...new Set([map.email, map.name, map.username, map.title, map.phone, map.department, map.manager, map.groups, map.id, map.disabled, "userPrincipalName", "sAMAccountName", "mail", "cn", "displayName", ...IDENTITY_ATTRS, ...STATE_ATTRS])].filter(
     (a) => a && !["distinguishedname", "dn"].includes(a.toLowerCase()),
   );
 }
@@ -319,7 +323,15 @@ function stateRefusal(conf: LoginSourceConfig, entry: LdapEntry, base: LoginFail
 }
 
 /** Check a password with the domain: the person's entry, their state, a bind as them, their groups. */
-export async function verifyDirectoryPassword(cfg: ServerConfig, sys: Ctx, conf: LoginSourceConfig, login: ParsedLogin, password: string): Promise<DirectoryIdentity> {
+export async function verifyDirectoryPassword(
+  cfg: ServerConfig,
+  sys: Ctx,
+  conf: LoginSourceConfig,
+  login: ParsedLogin,
+  password: string,
+  /** called with the person found, before their password is tried (the lockout counts the account here) */
+  beforeBind?: (entry: LdapEntry) => Promise<void>,
+): Promise<DirectoryIdentity> {
   const known: LoginFailure["known"] = { org_id: conf.orgId, source_id: conf.id };
   // an empty simple bind is an unauthenticated bind that «succeeds»: refused before any domain controller is asked
   if (typeof password !== "string" || password.length === 0) throw fail("empty_password", null, known);
@@ -329,6 +341,7 @@ export async function verifyDirectoryPassword(cfg: ServerConfig, sys: Ctx, conf:
     const entry = await findPerson(client, conf, loginFilter(conf, login), known);
     // locked out now: the domain is not asked to check a password (it would only extend the lockout)
     if (accountState(entry.attrs).locked) throw fail("locked", null, known);
+    await beforeBind?.(entry);
     const user = new LdapClient({ ...options, url });
     try {
       await user.connect();
@@ -442,6 +455,32 @@ interface Granted {
 const lower = (s: unknown) => String(s ?? "").trim().toLowerCase();
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
+export interface DirectoryLink {
+  external_id: string;
+  local_id: string;
+  granted: Granted | null;
+  object_id: string | null;
+  updated_at: string | Date;
+}
+
+/**
+ * The member link of a directory person: found by the directory object first (a person whose DN moved keeps their
+ * account), else by the external id — but never a link that remembers another object (a new person given a former
+ * employee's DN), nor one written before this object existed (links of earlier versions remember no object).
+ */
+export async function linkOf(db: Queryable, sourceId: string, dir: Pick<DirEntry, "external_id" | "object_id" | "created_at">): Promise<DirectoryLink | null> {
+  const cols = `external_id, local_id, granted, object_id, updated_at`;
+  if (dir.object_id) {
+    const byObject = await db.one<DirectoryLink>(`select ${cols} from sm_directory_links where source_id = $1 and kind = 'user' and object_id = $2 and active order by updated_at desc limit 1`, [sourceId, dir.object_id]);
+    if (byObject) return byObject;
+  }
+  const byName = await db.one<DirectoryLink>(`select ${cols} from sm_directory_links where source_id = $1 and kind = 'user' and external_id = $2 and active`, [sourceId, dir.external_id]);
+  if (!byName) return null;
+  if (byName.object_id && dir.object_id) return byName.object_id === dir.object_id ? byName : null;
+  if (!byName.object_id && dir.created_at && Date.parse(dir.created_at) > new Date(byName.updated_at).getTime()) return null;
+  return byName;
+}
+
 /**
  * The member a verified directory identity is: linked, found by e-mail or created (just-in-time), with attributes
  * refreshed and approved mappings applied — always as the member who approved the source.
@@ -454,10 +493,7 @@ export async function provisionMember(cfg: ServerConfig, conf: LoginSourceConfig
   if (!email || !isEmail(email)) throw fail("no_email", null, known);
   if (isReservedEmail(email) || cfg.platformAdmins.includes(email)) throw fail("reserved_email", null, known);
   const db = cfg.db;
-  const link = await db.one<{ local_id: string; granted: Granted | null }>(
-    `select local_id, granted from sm_directory_links where source_id = $1 and kind = 'user' and external_id = $2 and active`,
-    [conf.id, dir.external_id],
-  );
+  const link = await linkOf(db, conf.id, dir);
   let userId: string | null = link?.local_id ?? null;
   if (userId && !(await db.one(`select 1 from sm_users where id = $1`, [userId]))) userId = null;
   if (!userId) {
@@ -467,13 +503,19 @@ export async function provisionMember(cfg: ServerConfig, conf: LoginSourceConfig
     );
     if (existing) {
       known.user_id = existing.id;
-      // never take over an administrator of the platform, an account that belongs to another organisation, or one
-      // with a local password (the directory's e-mail is no proof of owning it: an administrator links it through the
-      // synchronisation's preview and apply)
+      // never take over an administrator of the platform, an account that belongs to another organisation, one with a
+      // local password, or one another directory identity already holds (anyone who can set «mail» on some account
+      // could otherwise sign in as its owner): the directory's e-mail is no proof of owning it — an administrator links
+      // it through the synchronisation's preview and apply
       if (existing.is_platform_admin) throw fail("account_conflict", "حساب مدیر سامانه با ورود محلی کار می‌کند", known);
       const elsewhere = await db.one(`select 1 from sm_org_members where user_id = $1 and org_id <> $2 and deleted_at is null`, [existing.id, orgId]);
       if (elsewhere) throw fail("account_conflict", "این حساب عضو سازمان دیگری هم هست", known);
       if (existing.local) throw fail("account_conflict", "حسابی با همین ایمیل رمز محلی دارد؛ مدیر آن را با همگام‌سازی (پیش‌نمایش و اعمال) به حساب سازمانی پیوند می‌دهد", known);
+      const held = await db.one(
+        `select 1 from sm_directory_links where kind = 'user' and local_id = $1 and active and not (source_id = $2 and external_id = $3) limit 1`,
+        [existing.id, conf.id, dir.external_id],
+      );
+      if (held) throw fail("account_conflict", "حسابی با همین ایمیل به هویت دیگری در فهرست کاربران پیوند دارد؛ مدیر پیوند را با همگام‌سازی (پیش‌نمایش و اعمال) جابه‌جا می‌کند", known);
       userId = existing.id;
     }
   }
@@ -596,10 +638,16 @@ export async function provisionMember(cfg: ServerConfig, conf: LoginSourceConfig
     groups: [...new Set([...keptGroups, ...(conf.rolesApproved ? [] : prev.groups.filter((g) => wanted.groups.includes(g)))])],
     workspaces: conf.rolesApproved ? wanted.workspaces : prev.workspaces,
   };
+  // the person's DN moved (found by the directory object): the link follows them
+  if (link && link.external_id !== dir.external_id) {
+    await db.query(`delete from sm_directory_links where source_id = $1 and kind = 'user' and external_id = $2`, [conf.id, dir.external_id]);
+    await db.query(`update sm_directory_links set external_id = $3 where source_id = $1 and kind = 'user' and external_id = $2`, [conf.id, link.external_id, dir.external_id]);
+  }
   await db.query(
-    `insert into sm_directory_links (org_id, source_id, kind, external_id, local_id, external_name, active, updated_at, granted) values ($1, $2, 'user', $3, $4, $5, true, now(), $6)
-     on conflict (source_id, kind, external_id) do update set local_id = excluded.local_id, external_name = excluded.external_name, active = true, updated_at = now(), granted = excluded.granted`,
-    [orgId, conf.id, dir.external_id, uid, email, granted],
+    `insert into sm_directory_links (org_id, source_id, kind, external_id, local_id, external_name, active, updated_at, granted, object_id) values ($1, $2, 'user', $3, $4, $5, true, now(), $6, $7)
+     on conflict (source_id, kind, external_id) do update set local_id = excluded.local_id, external_name = excluded.external_name, active = true, updated_at = now(), granted = excluded.granted,
+       object_id = coalesce(excluded.object_id, sm_directory_links.object_id)`,
+    [orgId, conf.id, dir.external_id, uid, email, granted, dir.object_id ?? null],
   );
   return { user_id: uid, email, created, roles, pending_roles: [...new Set(pending)], groups_added: added, groups_removed: removed, problems };
 }
@@ -833,6 +881,37 @@ export function validateLoginSettings(w: WriteArgs): void {
     }
   }
   if (set("sso_host") && n.sso_host && !/^[A-Za-z0-9.-]{1,200}$/.test(String(n.sso_host))) throw bad("نام میزبان سامانه فقط نام دامنه است (مانند kariz.bank.ir)");
+  // Windows sign-in names a person by DOMAIN\name: without the source's domains a user of another (trusted) domain
+  // would be taken for the same-named account of this one
+  const sso = n.sso_mode === "negotiate" || n.sso_mode === "proxy";
+  if (sso && set("sso_mode", "login_domains") && !(Array.isArray(n.login_domains) && n.login_domains.some((d) => String(d ?? "").trim())))
+    throw bad("برای ورود خودکار ویندوز، دامنه‌های منبع را بنویسید (نام NetBIOS و DNS، مانند CORP و corp.bank.ir)");
+}
+
+/** The DNS domain a DN lives in (…,DC=corp,DC=bank,DC=ir → corp.bank.ir); null without DC components. */
+export function dnsDomainOf(dn: string): string | null {
+  const labels = [...dn.matchAll(/(?:^|,)\s*dc\s*=\s*((?:\\.|[^,])+)/gi)].map((m) => m[1].trim().toLowerCase());
+  return labels.length ? labels.join(".") : null;
+}
+
+/**
+ * Does the entry a single-sign-on principal found belong to the principal's domain? A realm (name@corp.bank.ir) must
+ * be the entry's DNS domain or its UPN's; a NetBIOS domain (CORP\name) the source's DNS domain of that name (its
+ * first label), or one of the source's DNS domains when none is named so. A directory without DC components (o=bank)
+ * has nothing to compare.
+ */
+export function entryInDomain(conf: Pick<LoginSourceConfig, "domains">, entry: LdapEntry, domain: string): boolean {
+  const own = dnsDomainOf(entry.dn);
+  if (!own) return true;
+  const d = domain.toLowerCase();
+  if (d.includes(".")) {
+    const upn = Object.entries(entry.attrs).find(([k]) => k.toLowerCase() === "userprincipalname")?.[1]?.[0] ?? "";
+    return own === d || upn.toLowerCase().endsWith(`@${d}`);
+  }
+  const dns = conf.domains.map((x) => x.toLowerCase()).filter((x) => x.includes("."));
+  if (!dns.length) return false;
+  const named = dns.filter((x) => x.split(".")[0] === d);
+  return named.length ? named.includes(own) : dns.includes(own);
 }
 
 // ---------------------------------------------------------------- the SSO checklist and the source's sign-ins

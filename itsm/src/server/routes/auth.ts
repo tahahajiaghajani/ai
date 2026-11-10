@@ -279,9 +279,9 @@ authRoutes.get("/sso", async (c) => {
   const reauth = c.req.query("reauth") === "1";
   // the re-authentication comes from the app itself (a header a cross-site navigation cannot add)
   if (reauth && c.req.header("x-itsm-reauth") !== "1") throw bad("درخواست تأیید دوباره معتبر نیست");
-  const done = async (principal: string, method: "sso" | "proxy", fixed?: { sourceId: string; orgId: string }) => {
+  const done = async (principal: string, method: "sso" | "proxy", fixed?: { sourceId: string; orgId: string }, ntlm = false) => {
     if (reauth) return reauthWithWindows(c, principal);
-    const s = await principalSignIn(c, cfg, principal, method, hint, fixed);
+    const s = await principalSignIn(c, cfg, principal, method, hint, fixed, ntlm);
     if (c.req.query("redirect") === "1") return c.redirect(safeNext(c.req.query("next")), 302);
     return c.json({ ok: true, user_id: s.user_id, org_id: s.org_id });
   };
@@ -338,7 +338,9 @@ authRoutes.get("/sso", async (c) => {
   if (r.response) c.header("WWW-Authenticate", `Negotiate ${r.response.toString("base64")}`);
   if (!r.done) return c.json({ error: { code: "negotiate", message: "ورود خودکار ادامه دارد", details: null } }, 401);
   if (!r.principal) throw await ssoRefused(c, cfg, "sso_failed", "sso", { orgId: negs[0].org_id, sourceId: negs[0].id, detail: "نام کاربر از ویندوز نرسید" });
-  return done(r.principal, "sso");
+  // an NTLM handshake (every leg carries NTLMSSP) is judged again by the source the person is routed to: one source
+  // that allows NTLM never opens the others to it
+  return done(r.principal, "sso", undefined, isNtlmToken(token));
 });
 
 /** Re-authentication through Windows: the same person as the session's own sign-in. */

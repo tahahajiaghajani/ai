@@ -83,6 +83,25 @@ export const intOf = (n: BerNode) => {
 };
 export const strOf = (n: BerNode) => n.value.toString("utf8");
 
+/** Active Directory's objectGUID (16 bytes, the first three groups little-endian) as its usual text form. */
+export function guidOf(b: Buffer): string {
+  if (b.length !== 16) return b.toString("utf8");
+  const hex = (x: Buffer) => x.toString("hex");
+  const le = (from: number, to: number) => hex(Buffer.from(b.subarray(from, to)).reverse());
+  return `${le(0, 4)}-${le(4, 6)}-${le(6, 8)}-${hex(b.subarray(8, 10))}-${hex(b.subarray(10, 16))}`;
+}
+
+/** A Windows security identifier (objectSid) as text (S-1-5-21-…). */
+export function sidOf(b: Buffer): string {
+  const n = b.length >= 8 ? b[1] : -1;
+  if (n < 0 || b.length < 8 + 4 * n) return b.toString("hex");
+  const subs = Array.from({ length: n }, (_, i) => `-${b.readUInt32LE(8 + 4 * i)}`).join("");
+  return `S-${b[0]}-${b.readUIntBE(2, 6)}${subs}`;
+}
+
+/** Attributes whose values are bytes, not text: read as text they would be garbled (and two objects could look alike). */
+const BINARY_ATTRS: Record<string, (b: Buffer) => string> = { objectguid: guidOf, objectsid: sidOf };
+
 // ---------------------------------------------------------------- filters (RFC 4515)
 
 function unescape(v: string): Buffer {
@@ -292,6 +311,8 @@ export class LdapClient {
   private nextId = 1;
   private waiting = new Map<number, Waiter>();
   private failure: Error | null = null;
+  /** stop reading after this message (StartTLS: whatever follows its answer in clear text is never parsed) */
+  private holdAfter: number | null = null;
   /** the server answered over TLS (ldaps:// or after StartTLS) */
   encrypted = false;
   readonly host: string;
@@ -365,14 +386,25 @@ export class LdapClient {
 
   /** StartTLS (RFC 4511 §4.14): the ExtendedRequest, then the TLS handshake over the same connection. */
   private async startTls(host: string, timeout: number): Promise<void> {
+    this.holdAfter = this.nextId;
     await this.send(seq(0x77, tlv(0x80, Buffer.from(START_TLS))), (op) => {
       if (op.tag !== 0x78) throw new LdapError("پاسخ StartTLS شناخته نیست", "protocol");
       const [code, , message] = op.children;
       const c = code ? intOf(code) : 0;
       if (c !== 0) throw new LdapError(`سرور LDAP ${host} StartTLS را نپذیرفت${message && strOf(message) ? ` (${strOf(message).slice(0, 200)})` : ""}`, "tls", c);
       return true;
-    });
+    }).finally(() => (this.holdAfter = null));
     const plain = this.socket as net.Socket;
+    // nothing may follow the StartTLS answer in clear text: bytes after it (from anyone on the path) would otherwise
+    // wait in the buffer and be read as if they had come over TLS — a forged answer to the next bind, completed by
+    // the first byte of the real one
+    if (this.buffer.length > 0) {
+      const e = new LdapError(`سرور LDAP ${host} پس از پاسخ StartTLS دادهٔ رمزنگاری‌نشده فرستاد؛ اتصال بسته شد`, "protocol");
+      this.fail(e);
+      plain.destroy();
+      throw e;
+    }
+    this.buffer = Buffer.alloc(0);
     plain.removeAllListeners("data");
     plain.removeAllListeners("error");
     plain.removeAllListeners("close");
@@ -416,17 +448,21 @@ export class LdapClient {
       this.buffer = this.buffer.subarray(r.end);
       const [idNode, op, controls] = r.node.children;
       if (!idNode || !op) continue;
-      const w = this.waiting.get(intOf(idNode));
-      if (!w) continue;
-      try {
-        if (w.onMessage(op, controls && controls.tag === 0xa0 ? controls : null)) {
-          this.waiting.delete(intOf(idNode));
-          w.resolve();
+      const id = intOf(idNode);
+      const w = this.waiting.get(id);
+      if (w) {
+        try {
+          if (w.onMessage(op, controls && controls.tag === 0xa0 ? controls : null)) {
+            this.waiting.delete(id);
+            w.resolve();
+          }
+        } catch (e) {
+          this.waiting.delete(id);
+          w.reject(e as Error);
         }
-      } catch (e) {
-        this.waiting.delete(intOf(idNode));
-        w.reject(e as Error);
       }
+      // the StartTLS answer: what follows stays unread (startTls refuses the connection when anything does)
+      if (this.holdAfter !== null && id === this.holdAfter) return;
     }
   }
 
@@ -491,7 +527,9 @@ export class LdapClient {
             const entry: LdapEntry = { dn: strOf(dn), attrs: {} };
             for (const a of attrs?.children ?? []) {
               const [type, vals] = a.children;
-              entry.attrs[strOf(type)] = (vals?.children ?? []).map(strOf);
+              const name = strOf(type);
+              const binary = BINARY_ATTRS[name.toLowerCase()];
+              entry.attrs[name] = (vals?.children ?? []).map((v) => (binary ? binary(v.value) : strOf(v)));
             }
             if (out.length < max) out.push(entry);
             return false;

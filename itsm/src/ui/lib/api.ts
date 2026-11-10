@@ -33,13 +33,32 @@ export function setReauthHandler(h: ReauthHandler | null): void {
   reauthHandler = h;
 }
 
+/**
+ * The session's idle timeout counts what the person does, not what the screen does by itself: requests sent with no
+ * key press, click or touch in the last minute (the live pulse, refetch timers) carry BACKGROUND_HEADER and do not
+ * keep the session alive on the server.
+ */
+export const BACKGROUND_HEADER = "x-itsm-background";
+const ACTIVE_MS = 60_000;
+let lastInput = Date.now();
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  const seen = () => {
+    lastInput = Date.now();
+  };
+  for (const e of ["pointerdown", "keydown", "wheel", "touchstart"]) window.addEventListener(e, seen, { passive: true, capture: true });
+}
+/** Was there no input for a while (requests sent now are the screen's own)? */
+export const inBackground = (now = Date.now()) => now - lastInput > ACTIVE_MS;
+
 async function request<T>(method: string, path: string, body?: unknown, query?: Query, retried = false): Promise<T> {
   let res: Response;
   try {
+    const headers: Record<string, string> = body !== undefined ? { "content-type": "application/json" } : {};
+    if (inBackground()) headers[BACKGROUND_HEADER] = "1";
     res = await fetch(`/api${path}${qs(query)}`, {
       method,
       credentials: "same-origin",
-      headers: body !== undefined ? { "content-type": "application/json" } : undefined,
+      headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch {

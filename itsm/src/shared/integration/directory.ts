@@ -22,6 +22,13 @@ export interface DirEntry {
   /** the directory groups (DNs or names) the person belongs to */
   groups: string[];
   active: boolean;
+  /**
+   * The directory object itself, whatever its name (AD objectGUID, OpenLDAP entryUUID): a link remembers it, so a new
+   * person given a former employee's DN never opens that employee's account. Null when the directory has none.
+   */
+  object_id?: string | null;
+  /** when the directory object was made (AD whenCreated / createTimestamp, ISO), when known */
+  created_at?: string | null;
 }
 
 export interface CurrentMember {
@@ -136,7 +143,7 @@ export interface DirPlan {
   group_removes: PlanGroupChange[];
   role_grants: PlanRoleGrant[];
   units: string[];
-  links: { external_id: string; email: string }[];
+  links: { external_id: string; email: string; object_id?: string | null }[];
   skipped: { external_id: string; name: string; reason: string }[];
 }
 
@@ -167,11 +174,66 @@ export function cnOf(dn: string): string {
   return m ? m[1].replace(/\\,/g, ",").trim() : dn.trim();
 }
 
-/** Does a directory group (DN or name) match a mapping's source (DN, CN or name; case-insensitive)? */
+/**
+ * A DN in one spelling (RFC 4514): attribute types and values compared case-insensitively, spaces around the
+ * separators ignored, escapes («\,» and «\2C», «\D8\A7» and «ا») read the same.
+ */
+export function canonicalDn(dn: string): string {
+  const enc = new TextEncoder();
+  const dec = new TextDecoder();
+  const out: string[] = [];
+  let bytes: number[] = [];
+  let type = "";
+  let inValue = false;
+  const text = () => {
+    const t = dec.decode(new Uint8Array(bytes)).trim().toLowerCase();
+    bytes = [];
+    return t;
+  };
+  for (let i = 0; i < dn.length; i++) {
+    const ch = dn[i];
+    if (ch === "\\" && i + 1 < dn.length) {
+      const hex = dn.slice(i + 1, i + 3);
+      if (/^[0-9a-f]{2}$/i.test(hex)) {
+        bytes.push(parseInt(hex, 16));
+        i += 2;
+      } else {
+        bytes.push(...enc.encode(dn[i + 1]));
+        i++;
+      }
+      continue;
+    }
+    if (!inValue && ch === "=") {
+      type = text();
+      inValue = true;
+      continue;
+    }
+    if (ch === "," || ch === ";" || ch === "+") {
+      out.push(`${type}=${text()}${ch === "+" ? "+" : ""}`);
+      type = "";
+      inValue = false;
+      continue;
+    }
+    bytes.push(...enc.encode(ch));
+  }
+  out.push(`${type}=${text()}`);
+  return out.join(",").replace(/\+,/g, "+");
+}
+
+/** Is a mapping's source a full DN (CN=…,OU=…), not a group's bare name? */
+export const isFullDn = (source: string): boolean => /^\s*[a-z][a-z0-9-]*\s*=/i.test(source) && canonicalDn(source).includes(",");
+
+/**
+ * Does a directory group match a mapping's source? A full DN matches that very group only (Active Directory keeps a
+ * CN unique only within its container: a look-alike «CN=Kariz-Admins» another OU's administrator makes never
+ * matches); a bare name (or «CN=name») matches any group with that CN — the mapping screen says so.
+ */
 export function groupMatches(group: string, source: string): boolean {
-  const g = lower(group);
-  const s = lower(source);
-  return !!s && (g === s || lower(cnOf(group)) === s || lower(cnOf(source)) === lower(cnOf(group)));
+  const s = source.trim();
+  if (!s) return false;
+  if (isFullDn(s)) return canonicalDn(group) === canonicalDn(s);
+  const name = lower(cnOf(s));
+  return lower(group) === lower(s) || lower(cnOf(group)) === name;
 }
 
 /**
@@ -182,6 +244,8 @@ export function planDirectorySync(input: {
   entries: DirEntry[];
   members: CurrentMember[];
   links: Record<string, string>;
+  /** the directory objects the links remember (external id → objectGUID / entryUUID) */
+  linkObjects?: Record<string, string | null>;
   mappings: GroupMapping[];
   units: { id: string; name: string }[];
   options: DirOptions;
@@ -257,10 +321,12 @@ export function planDirectorySync(input: {
       });
       for (const g of want.groups) plan.group_adds.push({ group_id: g, user: email, email });
       for (const r of want.roles) if (r.role !== options.default_role) plan.role_grants.push({ user: email, email, role: r.role, source: r.source });
-      plan.links.push({ external_id: e.external_id, email });
+      plan.links.push({ external_id: e.external_id, email, object_id: e.object_id ?? null });
       continue;
     }
-    if (input.links[e.external_id] !== current.user_id) plan.links.push({ external_id: e.external_id, email });
+    // a link is (re)written when it is missing or names another member, and when it does not yet remember the object
+    if (input.links[e.external_id] !== current.user_id || (e.object_id && (input.linkObjects?.[e.external_id] ?? null) !== e.object_id))
+      plan.links.push({ external_id: e.external_id, email, object_id: e.object_id ?? null });
     const ours = linkedUsers.has(current.user_id) || input.links[e.external_id] === current.user_id;
     if (!e.active) {
       if (current.active && ours && current.role !== "owner" && current.role !== "admin") plan.deactivate.push({ user_id: current.user_id, email, name: current.name, reason: "در فهرست کاربران غیرفعال شده است" });
@@ -346,6 +412,15 @@ export function attrMapOf(raw: unknown): AttrMap {
 
 const first = (v: string[] | undefined) => (v && v.length ? v[0] : null);
 
+/** LDAP GeneralizedTime («20261110083000.0Z») as ISO; null when it does not read. */
+export function generalizedTime(v: string): string | null {
+  const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})?(?:[.,]\d+)?(Z|[+-]\d{4})?$/.exec(v.trim());
+  if (!m) return null;
+  const tz = !m[7] || m[7] === "Z" ? "Z" : `${m[7].slice(0, 3)}:${m[7].slice(3)}`;
+  const d = new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6] ?? "00"}${tz}`);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 /** A directory entry from an LDAP search result (attribute names compared case-insensitively). */
 export function entryFromLdap(dn: string, attrs: Record<string, string[]>, map: AttrMap): DirEntry {
   const get = (name: string) => {
@@ -357,8 +432,11 @@ export function entryFromLdap(dn: string, attrs: Record<string, string[]>, map: 
   // Active Directory: bit 2 of userAccountControl = the account is disabled
   const disabled = map.disabled.toLowerCase() === "useraccountcontrol" ? Number.isFinite(uac) && (uac & 2) === 2 : /^(true|1|yes|disabled)$/i.test(String(first(get(map.disabled)) ?? ""));
   const email = first(get(map.email)) ?? (/@/.test(first(get("userPrincipalName")) ?? "") ? first(get("userPrincipalName")) : null);
+  const created = first(get("whenCreated")) ?? first(get("createTimestamp"));
   return {
     external_id: first(get(map.id)) ?? dn,
+    object_id: first(get("objectGUID"))?.toLowerCase() ?? first(get("entryUUID"))?.toLowerCase() ?? null,
+    created_at: created ? generalizedTime(created) : null,
     email: email ? email.trim().toLowerCase() : null,
     name: (first(get(map.name)) ?? first(get("cn")) ?? "").trim(),
     username: first(get(map.username)),

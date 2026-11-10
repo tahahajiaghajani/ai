@@ -27,6 +27,11 @@ authAdminRoutes.get("/policy", async (c) => {
   const ctx = c.get("ctx");
   ctx.need("settings", "view");
   const policy = orgPolicy(ctx.org);
+  const cookie = { secure: cookieSecure(c), https: isHttps(c), mode: ctx.cfg.auth?.cookieSecure ?? (process.env.ITSM_COOKIE_SECURE || "auto") };
+  const session = { method: c.get("session").auth_method ?? "password", org_scoped: !!c.get("session").org_id };
+  // who the break-glass accounts are and how many guesses the lockout allows are for those who administer them: any
+  // other member (every directory member is a viewer at least) sees the session rules only
+  if (!ctx.can("settings", "full") && !ctx.can("users", "full")) return c.json({ policy: { session: policy.session, local_login: policy.local_login }, sources: [], breakglass: [], cookie, session });
   const sources = await ctx.db.query<{ id: string; name: string; login_enabled: boolean; approved: boolean; sso_mode: string | null; active: boolean }>(
     `select id, name, login_enabled, approved_by is not null as approved, sso_mode, active from sm_directory_sources where org_id = $1 and deleted_at is null and kind = 'ldap' order by name`,
     [ctx.org.id],
@@ -38,8 +43,8 @@ authAdminRoutes.get("/policy", async (c) => {
     policy,
     sources,
     breakglass: people,
-    cookie: { secure: cookieSecure(c), https: isHttps(c), mode: ctx.cfg.auth?.cookieSecure ?? (process.env.ITSM_COOKIE_SECURE || "auto") },
-    session: { method: c.get("session").auth_method ?? "password", org_scoped: !!c.get("session").org_id },
+    cookie,
+    session,
   });
 });
 

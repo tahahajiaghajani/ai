@@ -18,7 +18,8 @@ import { METHOD_LABELS, REASON_LABELS } from "@shared/auth/login";
 type Row = Record<string, any>;
 
 interface PolicyView {
-  policy: AuthPolicy;
+  /** without settings (or users) «full»: the session rules only — no lockout thresholds, no break-glass accounts */
+  policy: Pick<AuthPolicy, "session" | "local_login"> & Partial<AuthPolicy>;
   sources: { id: string; name: string; login_enabled: boolean; approved: boolean; sso_mode: string | null; active: boolean }[];
   breakglass: { id: string; full_name: string; email: string }[];
   cookie: { secure: boolean; https: boolean; mode: string };
@@ -112,7 +113,7 @@ function Policy() {
               ]}
             />
           </Form.Item>
-          <Form.Item name="breakglass" label="حساب‌های اضطراری (ورود محلی اگر سرور دامنه در دسترس نبود)" hidden={localLogin !== "breakglass"}>
+          <Form.Item name="breakglass" label="حساب‌های اضطراری (ورود محلی اگر سرور دامنه در دسترس نبود)" hidden={localLogin !== "breakglass" || !q.data?.policy.breakglass}>
             <Select
               mode="multiple"
               optionFilterProp="label"
@@ -122,6 +123,7 @@ function Policy() {
           </Form.Item>
           {!directory ? <Note>پیش از بستن ورود محلی، «ورود با حساب سازمانی» را در یک منبع «فهرست کاربران» روشن و تأیید کنید.</Note> : null}
         </Card>
+        {q.data?.policy.lockout ? (
         <Card title="قفل محلی در برابر حدس گذرواژه">
           <div className="grid gap-x-4 sm:grid-cols-2">
             <Form.Item name={["lockout", "threshold"]} label="تلاش ناموفق یک نام کاربری" extra="کمتر از آستانهٔ قفل دامنه">
@@ -138,6 +140,7 @@ function Policy() {
             </Form.Item>
           </div>
         </Card>
+        ) : null}
       </div>
       {editable ? (
         <div className="mt-4 flex justify-end">

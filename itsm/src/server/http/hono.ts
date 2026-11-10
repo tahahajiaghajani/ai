@@ -5,7 +5,7 @@ import { ZodError } from "zod";
 import type { AuthSession, AuthUser, Ctx, MemberRow, OrgRow, ServerConfig } from "../context";
 import { makeCtx } from "../context";
 import { AppError, bad, dbErrorMessage, forbidden, notFound, tooMany, unauthorized, zodToAppError } from "./errors";
-import { resolveToken, tokenFromRequest, clientIp } from "../auth/session";
+import { BACKGROUND_HEADER, resolveToken, tokenFromRequest, clientIp } from "../auth/session";
 import { guardOrgSession } from "../auth/policy";
 import { AiUnavailableError, aiHttpError } from "../modules/ai/errors";
 
@@ -23,7 +23,7 @@ export const router = () => new Hono<Env>();
 /** Loads the signed-in user (cookie or bearer token); 401 when missing. */
 export const requireUser: MiddlewareHandler<Env> = async (c, next) => {
   const cfg = c.get("cfg");
-  const resolved = await resolveToken(cfg.db, tokenFromRequest(c));
+  const resolved = await resolveToken(cfg.db, tokenFromRequest(c), { background: c.req.header(BACKGROUND_HEADER) === "1" });
   if (!resolved) throw unauthorized();
   c.set("user", resolved.user);
   c.set("session", resolved.session);
@@ -33,7 +33,7 @@ export const requireUser: MiddlewareHandler<Env> = async (c, next) => {
 /** Same as requireUser but continues anonymously. */
 export const optionalUser: MiddlewareHandler<Env> = async (c, next) => {
   const cfg = c.get("cfg");
-  const resolved = await resolveToken(cfg.db, tokenFromRequest(c));
+  const resolved = await resolveToken(cfg.db, tokenFromRequest(c), { background: c.req.header(BACKGROUND_HEADER) === "1" });
   if (resolved) {
     c.set("user", resolved.user);
     c.set("session", resolved.session);

@@ -8,7 +8,7 @@
 // root CA, server certificates it signs (for 127.0.0.1 / localhost, expired, or for another name) and a foreign CA.
 import net from "node:net";
 import tls from "node:tls";
-import { createPrivateKey, generateKeyPairSync, sign, type KeyObject } from "node:crypto";
+import { createPrivateKey, generateKeyPairSync, randomUUID, sign, type KeyObject } from "node:crypto";
 import { berBool, berInt, berStr, intOf, readTlv, seq, strOf, tlv, IN_CHAIN, type BerNode } from "@server/modules/integration/ldap";
 
 // ---------------------------------------------------------------- certificates
@@ -106,6 +106,8 @@ export interface FakeOptions {
   requireTls?: boolean;
   /** entries a page (paged results) */
   pageSize?: number;
+  /** bytes sent in clear text right behind the StartTLS answer (an attacker on the path) */
+  afterStartTls?: Buffer;
 }
 
 export interface FakeLdap {
@@ -302,7 +304,7 @@ export async function fakeLdap(initial: FakeEntry[], o: FakeOptions = {}): Promi
             write(seq(0x30, berInt(id), seq(0x78, berInt(2, 0x0a), berStr(""), berStr("unsupported extended operation"))));
             continue;
           }
-          write(seq(0x30, berInt(id), seq(0x78, berInt(0, 0x0a), berStr(""), berStr(""))));
+          write(Buffer.concat([seq(0x30, berInt(id), seq(0x78, berInt(0, 0x0a), berStr(""), berStr(""))), o.afterStartTls ?? Buffer.alloc(0)]));
           state.starttls++;
           sock.removeListener("data", onData);
           const secure = new tls.TLSSocket(sock, { isServer: true, key: o.cert.key, cert: o.cert.pem });
@@ -385,7 +387,7 @@ export async function fakeLdap(initial: FakeEntry[], o: FakeOptions = {}): Promi
           for (const p of page) {
             const attrs = Object.entries(p.attrs)
               .filter(([k]) => !wanted.length || wanted.includes(lower(k)))
-              .map(([k, vals]) => seq(0x30, berStr(k), seq(0x31, ...vals.map((v) => berStr(v)))));
+              .map(([k, vals]) => seq(0x30, berStr(k), seq(0x31, ...vals.map((v) => berStr(lower(k) === "objectguid" ? guidBytes(v) : v)))));
             write(seq(0x30, berInt(id), seq(0x64, berStr(p.dn), seq(0x30, ...attrs))));
           }
           const next = start + size < all.length ? String(start + size) : "";
@@ -441,6 +443,15 @@ const FILETIME_EPOCH = 11644473600000;
 export const filetime = (ms: number) => String(BigInt(ms + FILETIME_EPOCH) * 10000n);
 export const NEVER = "9223372036854775807";
 
+/** AD's objectGUID bytes of a GUID's text form (the first three groups little-endian). */
+export function guidBytes(guid: string): Buffer {
+  const b = Buffer.from(guid.replace(/-/g, ""), "hex");
+  return Buffer.concat([Buffer.from(b.subarray(0, 4)).reverse(), Buffer.from(b.subarray(4, 6)).reverse(), Buffer.from(b.subarray(6, 8)).reverse(), b.subarray(8)]);
+}
+
+/** LDAP GeneralizedTime of a moment («20261110083000.0Z»). */
+export const generalized = (d = new Date()) => `${d.toISOString().replace(/[-:T]/g, "").slice(0, 14)}.0Z`;
+
 export function person(sam: string, o: { name?: string; mail?: string | null; upn?: string; uac?: number; password?: string; groups?: string[]; extra?: Record<string, string[]>; bindCode?: string; alwaysCode?: string; ou?: string } = {}): FakeEntry {
   const dn = `CN=${o.name ?? sam},OU=${o.ou ?? "Staff"},${BASE}`;
   return {
@@ -457,6 +468,9 @@ export function person(sam: string, o: { name?: string; mail?: string | null; up
       cn: [o.name ?? sam],
       ...(o.mail === null ? {} : { mail: [o.mail ?? `${sam}@corp.test`] }),
       userAccountControl: [String(o.uac ?? 512)],
+      // every directory object has its own identity, whatever its DN
+      objectGUID: [randomUUID()],
+      whenCreated: [generalized(new Date(Date.now() - 365 * 86400_000))],
       pwdLastSet: [filetime(Date.now() - 86400_000)],
       accountExpires: [NEVER],
       "msDS-UserPasswordExpiryTimeComputed": [filetime(Date.now() + 30 * 86400_000)],

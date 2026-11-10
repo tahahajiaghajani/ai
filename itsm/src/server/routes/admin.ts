@@ -107,6 +107,7 @@ adminRoutes.get("/orgs/:id", async (c) => {
 });
 
 adminRoutes.patch("/orgs/:id", async (c) => {
+  await needRecentPlatformAuth(c);
   const id = c.req.param("id");
   if (!isId(id)) throw notFound("سازمان پیدا نشد");
   const input = await body(
@@ -172,19 +173,27 @@ adminRoutes.get("/users/:id", async (c) => {
   return c.json(detail);
 });
 
+// what takes over or changes an account (a temporary password, platform administration, disabling, signing out) asks
+// the console's session to prove itself again, as the organisations' own equivalents do
 adminRoutes.patch("/users/:id", async (c) => {
+  await needRecentPlatformAuth(c);
   const input = await body(c, z.object({ disabled: z.boolean(), reason: z.string().trim().max(300).nullish() }));
   return c.json(await setUserDisabled(c.get("cfg"), c.get("user"), c.req.param("id"), input.disabled, input.reason || null, requestMeta(c)));
 });
 
-adminRoutes.post("/users/:id/sign-out", async (c) => c.json(await signOutEverywhere(c.get("cfg"), c.get("user"), c.req.param("id"), requestMeta(c))));
+adminRoutes.post("/users/:id/sign-out", async (c) => {
+  await needRecentPlatformAuth(c);
+  return c.json(await signOutEverywhere(c.get("cfg"), c.get("user"), c.req.param("id"), requestMeta(c)));
+});
 
 adminRoutes.post("/users/:id/password", async (c) => {
+  await needRecentPlatformAuth(c);
   const input = await body(c, z.object({ reason: z.string().max(300) }));
   return c.json(await temporaryPassword(c.get("cfg"), c.get("user"), c.req.param("id"), input.reason, requestMeta(c)));
 });
 
 adminRoutes.post("/users/:id/platform-admin", async (c) => {
+  await needRecentPlatformAuth(c);
   const input = await body(c, z.object({ granted: z.boolean() }));
   return c.json(await setPlatformAdmin(c.get("cfg"), c.get("user"), c.req.param("id"), input.granted, requestMeta(c)));
 });

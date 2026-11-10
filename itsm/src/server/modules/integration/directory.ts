@@ -106,7 +106,10 @@ export async function guardHost(cfg: ServerConfig, url: string): Promise<void> {
 export async function readLdap(cfg: ServerConfig, sys: Ctx, src: Row): Promise<DirEntry[]> {
   if (!src.ldap_url || !src.base_dn) throw bad("نشانی LDAP و ریشهٔ جست‌وجو را تنظیم کنید");
   const map = attrMapOf(src.attr_map);
-  const attrs = [...new Set([map.email, map.name, map.username, map.title, map.phone, map.department, map.manager, map.groups, map.disabled, "userPrincipalName", "cn"])].filter((a) => a.toLowerCase() !== "distinguishedname");
+  // the object's own identity and age too: links remember the object, not only its DN
+  const attrs = [...new Set([map.email, map.name, map.username, map.title, map.phone, map.department, map.manager, map.groups, map.disabled, map.id, "userPrincipalName", "cn", "objectGUID", "entryUUID", "whenCreated", "createTimestamp"])].filter(
+    (a) => a.toLowerCase() !== "distinguishedname" && a.toLowerCase() !== "dn",
+  );
   const { client, conf } = await openSourceConnection(cfg, sys, src);
   try {
     const entries = await client.search(String(src.base_dn), String(src.user_filter || "(objectClass=person)"), attrs);
@@ -155,12 +158,19 @@ export async function linksOf(ctx: Ctx, sourceId: string, kind: "user" | "group"
   return Object.fromEntries(rows.map((r) => [r.external_id, r.local_id]));
 }
 
+/** The directory objects the source's member links remember (external id → objectGUID / entryUUID). */
+async function linkObjectsOf(ctx: Ctx, sourceId: string): Promise<Record<string, string | null>> {
+  const rows = await ctx.db.query<{ external_id: string; object_id: string | null }>(`select external_id, object_id from sm_directory_links where org_id = $1 and source_id = $2 and kind = 'user' and active`, [ctx.org.id, sourceId]);
+  return Object.fromEntries(rows.map((r) => [r.external_id, r.object_id]));
+}
+
 export async function planFor(ctx: Ctx, src: Row, entries: DirEntry[]): Promise<DirPlan> {
   const units = await liveRows(ctx.db, sysOf(ctx), "org_unit", null);
   return planDirectorySync({
     entries,
     members: await currentMembers(ctx),
     links: await linksOf(ctx, String(src.id)),
+    linkObjects: await linkObjectsOf(ctx, String(src.id)),
     mappings: mappingsOf(src),
     units: units.map((u) => ({ id: String(u.id), name: String(u.name) })),
     options: optionsOf(src),
@@ -255,9 +265,10 @@ export async function applyPlan(ctx: Ctx, src: Row, plan: DirPlan, roles: boolea
       const local = ids.get(l.email);
       if (!local) continue;
       await tx.query(
-        `insert into sm_directory_links (org_id, source_id, kind, external_id, local_id, external_name, active, updated_at) values ($1, $2, 'user', $3, $4, $5, true, now())
-         on conflict (source_id, kind, external_id) do update set local_id = excluded.local_id, external_name = excluded.external_name, active = true, updated_at = now()`,
-        [ctx.org.id, src.id, l.external_id, local, l.email],
+        `insert into sm_directory_links (org_id, source_id, kind, external_id, local_id, external_name, active, updated_at, object_id) values ($1, $2, 'user', $3, $4, $5, true, now(), $6)
+         on conflict (source_id, kind, external_id) do update set local_id = excluded.local_id, external_name = excluded.external_name, active = true, updated_at = now(),
+           object_id = coalesce(excluded.object_id, sm_directory_links.object_id)`,
+        [ctx.org.id, src.id, l.external_id, local, l.email, l.object_id ?? null],
       );
     }
     await audit(tx, ctx, "directory_apply", "directory_source", String(src.id), `همگام‌سازی «${src.name}»: ${out.created} تازه، ${plan.update.length} به‌روز، ${out.deactivated} غیرفعال`, planStats(plan));

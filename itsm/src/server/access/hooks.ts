@@ -12,6 +12,7 @@
 import type { Ctx } from "../context";
 import type { Tx } from "../db";
 import { bad, conflict, forbidden } from "../http/errors";
+import { needRecentAuth } from "../auth/policy";
 import { registerHooks, isSystemCtx, type WriteArgs } from "../engine";
 import {
   combineRoles, exceeds, roleClosure, roleProblem, scopeColumns, composeEffective, grantIn, OP_LABELS, areaLabel,
@@ -198,8 +199,19 @@ function roleFromRow(r: Record<string, unknown>): RoleDef {
   };
 }
 
+/**
+ * Changing who holds which access is sensitive administration: a person's session must have proven who they are
+ * recently (the organisation's re-authentication minutes), on every path — the access routes, the generic record
+ * API, a Windows app's push. Server code (system contexts, trusted writes, sessionless contexts) is not asked.
+ */
+function needRecentProof(w: WriteArgs): void {
+  if (isSystemCtx(w.ctx) || w.trusted) return;
+  needRecentAuth(w.ctx);
+}
+
 async function roleHook(w: WriteArgs): Promise<void> {
   const { ctx, tx, next, prev, op } = w;
+  needRecentProof(w);
   const s = isOwner(ctx) ? null : await callerSubject(ctx, tx);
   if (op === "delete") {
     if (s) checkDefinable(s, roleFromRow(prev!), "remove");
@@ -250,6 +262,7 @@ async function profileHook(w: WriteArgs): Promise<void> {
     if (!self && touched("delegate_id") && idOf(next.delegate_id) === ctx.user.id) throw forbidden("خودتان را جانشین عضو دیگری نکنید؛ جانشین را خود او یا مدیر دیگری می‌گذارد");
   }
   const rolesChanged = op === "create" ? strings(next.roles).length > 0 : w.changed.has("roles");
+  if (rolesChanged || (op === "create" ? strings(next.workspaces).length > 0 || !!next.persona : w.changed.has("workspaces") || w.changed.has("persona"))) needRecentProof(w);
   if (!rolesChanged) return;
   const roles = [...new Set(strings(next.roles))];
   next.roles = roles;
@@ -273,6 +286,7 @@ async function groupHook(w: WriteArgs): Promise<void> {
   const { ctx, tx, next, op } = w;
   if (op === "delete") return;
   if (op === "create" ? strings(next.roles).length > 0 : w.changed.has("roles")) {
+    needRecentProof(w);
     next.roles = [...new Set(strings(next.roles))];
     const s = isOwner(ctx) ? null : await callerSubject(ctx, tx);
     checkGrantable(ctx, await snapshotFor(ctx, tx, true), strings(next.roles), s);
@@ -285,6 +299,18 @@ async function groupHook(w: WriteArgs): Promise<void> {
  */
 async function membershipHook(w: WriteArgs): Promise<void> {
   const { ctx, tx, next, prev, op } = w;
+  // joining or leaving a group that grants roles or a workspace grants or takes access: a recent proof of identity
+  if (!isSystemCtx(ctx) && !w.trusted && (op === "create" || op === "delete" || ["user_id", "group_id"].some((f) => w.changed.has(f)))) {
+    const ids = [...new Set([next?.group_id, prev?.group_id].filter(Boolean).map(String))].filter((x) => /^[0-9a-f-]{36}$/i.test(x));
+    const granting = ids.length
+      ? await tx.one(
+          `select 1 from sm_groups where org_id = $1 and id = any($2::uuid[]) and deleted_at is null
+             and (workspace_id is not null or jsonb_array_length(coalesce(case when jsonb_typeof(roles) = 'array' then roles end, '[]'::jsonb)) > 0) limit 1`,
+          [ctx.org.id, `{${ids.join(",")}}`],
+        )
+      : null;
+    if (granting) needRecentProof(w);
+  }
   if (op === "delete" || isOwner(ctx) || String(next.user_id) !== ctx.user.id) return;
   if (op !== "create" && !["user_id", "group_id", "kind"].some((f) => w.changed.has(f))) return;
   const s = await callerSubject(ctx, tx);

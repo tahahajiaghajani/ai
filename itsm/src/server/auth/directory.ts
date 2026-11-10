@@ -21,11 +21,11 @@ import { rateLimit } from "../http/hono";
 import { securityEvent } from "../modules/platform/security";
 import { notifyPeople } from "../modules/notify";
 import {
-  directoryIdentity, loadLoginSource, LoginFailure, provisionMember, routeLogin, verifyDirectoryPassword, type LoginSourceConfig, type ProvisionResult,
+  directoryIdentity, entryInDomain, linkOf, loadLoginSource, LoginFailure, provisionMember, routeLogin, verifyDirectoryPassword, type LoginSourceConfig, type ProvisionResult,
 } from "../modules/integration/directory-login";
 import { clientIp, issueSession, revokeUserSessions, setSessionCookie, type AuthMethod, type IssuedSession } from "./session";
 import { orgPolicy } from "./policy";
-import { clearFailures, ipKey, lockedUntil, loginKey, recordFailure, sourceFailure, sourceKey } from "./throttle";
+import { accountKey, clearFailures, confirmFailure, ipKey, lockedUntil, loginKey, recordFailure, releaseAttempt, reserveAttempt, sourceFailure, sourceKey, type ThrottleKey } from "./throttle";
 
 /** Failures that count towards the local lockout (a guess at a password or a name). */
 const COUNTED = new Set<LoginReason>(["unknown_account", "wrong_password", "locked", "ambiguous_account"]);
@@ -122,13 +122,23 @@ async function revokeRefused(cfg: ServerConfig, f: LoginFailure): Promise<void> 
   if (n) await securityEvent(cfg.db, { kind: "sessions_revoked", user_id: link.local_id, org_id: f.known.org_id, data: { reason: f.reason, by: "directory", sessions: n } });
 }
 
-/** What a failure does: counters (and the notifications they raise), the audit, sessions of refused people. */
-async function onFailure(cfg: ServerConfig, a: Attempt, f: LoginFailure, conf: LoginSourceConfig | null, lockout: ReturnType<typeof orgPolicy>["lockout"] | null): Promise<void> {
+/**
+ * What a failure does: counters (and the notifications they raise), the audit, sessions of refused people. `reserved`
+ * are the login-name and account keys this attempt already counted before asking the domain (directorySignIn): a guess
+ * confirms them (locking at the threshold), anything else gives them back.
+ */
+async function onFailure(cfg: ServerConfig, a: Attempt, f: LoginFailure, conf: LoginSourceConfig | null, lockout: ReturnType<typeof orgPolicy>["lockout"] | null, reserved: ThrottleKey[] = []): Promise<void> {
   const orgId = f.known.org_id ?? a.orgId;
   const sourceId = f.known.source_id ?? a.sourceId;
+  if (!(lockout && COUNTED.has(f.reason))) for (const k of reserved) await releaseAttempt(cfg.db, k);
   if (orgId && sourceId && lockout && COUNTED.has(f.reason)) {
     const name = conf?.name ?? "";
-    const byName = await recordFailure(cfg.db, loginKey(orgId, sourceId, a.lockName ?? a.login), lockout.threshold, lockout.window_minutes, lockout.lock_minutes);
+    let byName = { failures: 0, locked: false, notify: false };
+    if (reserved.length) for (const k of reserved) {
+      const r = await confirmFailure(cfg.db, k, lockout.threshold, lockout.lock_minutes);
+      if (r.failures >= byName.failures) byName = { ...r, notify: byName.notify || r.notify };
+    }
+    else byName = await recordFailure(cfg.db, loginKey(orgId, sourceId, a.lockName ?? a.login), lockout.threshold, lockout.window_minutes, lockout.lock_minutes);
     const byIp = await recordFailure(cfg.db, ipKey(orgId, a.ip), lockout.ip_threshold, lockout.window_minutes, lockout.lock_minutes);
     const spraying = await sourceFailure(cfg.db, sourceKey(orgId, sourceId, name), Math.max(50, lockout.ip_threshold * 3), lockout.window_minutes);
     if (byName.notify)
@@ -189,6 +199,7 @@ export async function directorySignIn(c: Context, cfg: ServerConfig, input: { lo
   }
   let conf: LoginSourceConfig | null = null;
   let lockout: ReturnType<typeof orgPolicy>["lockout"] | null = null;
+  const reserved: ThrottleKey[] = [];
   try {
     const ref = await routeLogin(cfg, parsed, input.source ?? null);
     a.sourceId = ref.id;
@@ -198,23 +209,36 @@ export async function directorySignIn(c: Context, cfg: ServerConfig, input: { lo
     lockout = orgPolicy(await cfg.db.one(`select settings from sm_orgs where id = $1`, [ref.org_id])).lockout;
     if (await lockedUntil(cfg.db, ipKey(ref.org_id, ip))) throw new LoginFailure("rate_limited", "نشانی پس از تلاش‌های ناموفق کنار گذاشته شده است", { org_id: ref.org_id, source_id: ref.id });
     // a login name locked here is refused without asking the domain controllers (they never see the guesses); every
-    // form of one name (ali, CORP\ali, ali@corp…) counts together
-    const lockName = parsed.name.toLowerCase();
-    if (await lockedUntil(cfg.db, loginKey(ref.org_id, ref.id, lockName))) throw new LoginFailure("throttled", null, { org_id: ref.org_id, source_id: ref.id });
-    const identity = await verifyDirectoryPassword(cfg, loaded.sys, conf, parsed, input.password);
+    // form of one name (ali, CORP\ali, ali@corp…) counts together, and so — once the directory found the person —
+    // does every name of one account (ali, ali.rezaei@…). Each attempt is counted before the domain is asked, in one
+    // statement: guesses sent in parallel cannot all pass and lock the person's domain account.
+    const lock = lockout;
+    const reserve = async (k: ThrottleKey) => {
+      const n = await reserveAttempt(cfg.db, k, lock.threshold, lock.window_minutes);
+      if (n !== null) reserved.push(k);
+      if (n === null || n > lock.threshold) throw new LoginFailure("throttled", null, { org_id: ref.org_id, source_id: ref.id });
+    };
+    await reserve(loginKey(ref.org_id, ref.id, parsed.name.toLowerCase()));
+    const identity = await verifyDirectoryPassword(cfg, loaded.sys, conf, parsed, input.password, async (entry) => {
+      const dir = entryFromLdap(entry.dn, entry.attrs, loaded.conf.map);
+      await reserve(accountKey(ref.org_id, ref.id, dir.object_id ?? entry.dn.toLowerCase(), dir.username ?? parsed.name));
+    });
     const result = await provisionMember(cfg, conf, identity, loaded.src);
-    await clearFailures(cfg.db, loginKey(ref.org_id, ref.id, lockName));
+    for (const k of reserved.splice(0)) await clearFailures(cfg.db, k);
     return await finish(c, cfg, a, conf, result, identity.dc);
   } catch (e) {
-    if (!(e instanceof LoginFailure)) throw e;
-    await onFailure(cfg, a, e, conf, lockout);
+    if (!(e instanceof LoginFailure)) {
+      for (const k of reserved) await releaseAttempt(cfg.db, k).catch(() => undefined);
+      throw e;
+    }
+    await onFailure(cfg, a, e, conf, lockout, reserved);
     if (statusOf(e.reason) === 401) await pad(started);
     throw loginError(e.reason);
   }
 }
 
 /** Single sign-on: a principal Windows (Kerberos through Negotiate, or the trusted proxy) vouched for. */
-export async function principalSignIn(c: Context, cfg: ServerConfig, principal: string, method: "sso" | "proxy", hint: string | null, fixed?: { sourceId: string; orgId: string }): Promise<SignedIn> {
+export async function principalSignIn(c: Context, cfg: ServerConfig, principal: string, method: "sso" | "proxy", hint: string | null, fixed?: { sourceId: string; orgId: string }, ntlm = false): Promise<SignedIn> {
   const ip = clientIp(c);
   const userAgent = c.req.header("user-agent") ?? null;
   const parts = principalParts(principal);
@@ -231,8 +255,13 @@ export async function principalSignIn(c: Context, cfg: ServerConfig, principal: 
     a.orgId = ref.org_id;
     const loaded = await loadLoginSource(cfg, ref);
     conf = loaded.conf;
-    if (parts.domain && conf.domains.length && !conf.domains.some((d) => d.toLowerCase() === parts.domain)) throw new LoginFailure("unknown_domain", null, { org_id: ref.org_id, source_id: ref.id });
+    const known = { org_id: ref.org_id, source_id: ref.id };
+    // Windows vouches for DOMAIN\name: the domain must be one the source lists (never assumed: a same-named account of
+    // another, trusted domain is somebody else), and the account found must live in it
+    if (!parts.domain || !conf.domains.length || !conf.domains.some((d) => d.toLowerCase() === parts.domain)) throw new LoginFailure("unknown_domain", parts.domain ? null : "نام کاربر ویندوز دامنه ندارد", known);
     const identity = await directoryIdentity(cfg, loaded.sys, conf, parts.name, parts.domain);
+    if (!entryInDomain(conf, identity.entry, parts.domain)) throw new LoginFailure("unknown_domain", `حساب پیداشده (${identity.entry.dn.slice(0, 200)}) در دامنهٔ ${parts.domain} نیست`, known);
+    if (method === "sso" && ntlm && !conf.ntlm) throw new LoginFailure("ntlm_refused", "این منبع ورود با NTLM را نمی‌پذیرد", known);
     const result = await provisionMember(cfg, conf, identity, loaded.src);
     return await finish(c, cfg, a, conf, result, identity.dc);
   } catch (e) {
@@ -262,8 +291,8 @@ export async function directoryReauth(cfg: ServerConfig, session: { user_id: str
   try {
     const { conf, sys } = await loadLoginSource(cfg, { id: session.source_id, org_id: session.org_id });
     const identity = await verifyDirectoryPassword(cfg, sys, conf, parsed, password);
-    const external = entryFromLdap(identity.entry.dn, identity.entry.attrs, conf.map).external_id;
-    const link = await cfg.db.one<{ local_id: string }>(`select local_id from sm_directory_links where source_id = $1 and kind = 'user' and external_id = $2 and active`, [conf.id, external]);
+    // the same directory object that signed in (a new person at a former employee's DN is somebody else)
+    const link = await linkOf(cfg.db, conf.id, entryFromLdap(identity.entry.dn, identity.entry.attrs, conf.map));
     return !!link && link.local_id === session.user_id;
   } catch (e) {
     if (e instanceof LoginFailure) return false;
