@@ -136,8 +136,10 @@ jobs:
 
   server:
     # the server edition: bundle, pinned Node.js / PostgreSQL 17 / WinSW / WiX (SHA-256 checked, cached), pgvector
-    # compiled with MSVC, the MSI, and an air-gapped smoke test (install, setup, sign-in, incident, backup, re-install,
-    # upgrade, uninstall keeping data). Guide: itsm/docs/SERVER_FA.md; design: itsm/docs/spec/SERVER.md
+    # compiled with MSVC, the MSI, and an air-gapped smoke test (install with 443/80 held by other programs on the free
+    # ports it picks, setup, sign-in, incident, backup, re-install with the setup dialog's properties, upgrade keeping the
+    # ports, uninstall keeping data, a given busy port refused with its reason in install-error.txt and the event log).
+    # Guide: itsm/docs/SERVER_FA.md; design: itsm/docs/spec/SERVER.md
     needs: [check, test]
     runs-on: windows-latest
     timeout-minutes: 90
@@ -157,7 +159,7 @@ jobs:
         shell: powershell
         run: |
           $failed = 0
-          foreach ($f in Get-Item packaging/server/scripts/install.ps1, packaging/server/scripts/uninstall.ps1, packaging/server/scripts/common.ps1) {
+          foreach ($f in Get-Item packaging/server/scripts/install.ps1, packaging/server/scripts/uninstall.ps1, packaging/server/scripts/common.ps1, packaging/server/scripts/smoke-test.ps1, packaging/server/scripts/build-msi.ps1) {
             $errors = $null
             # a script without a byte-order mark is read in the ANSI code page, as powershell.exe -File reads it
             [void][System.Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($f.FullName, [Text.Encoding]::Default), [ref]$null, [ref]$errors)
@@ -188,7 +190,7 @@ jobs:
         run: |
           ./packaging/server/scripts/build-msi.ps1 -Dist server-dist -Cache packaging/server/.cache -Out server-release
           ./packaging/server/scripts/build-msi.ps1 -Dist server-dist -Cache packaging/server/.cache -Out server-upgrade-test -Suffix '-upgrade-test'
-      - name: Air-gapped smoke test (install, setup, sign-in, incident, backup, re-install, upgrade, uninstall)
+      - name: Air-gapped smoke test (443/80 held, default ports, setup, sign-in, incident, backup, re-install with dialog properties, upgrade, uninstall, busy given port)
         run: |
           $msi = Get-ChildItem server-release/*.msi | Select-Object -First 1
           $upgrade = Get-ChildItem server-upgrade-test/*.msi | Select-Object -First 1
