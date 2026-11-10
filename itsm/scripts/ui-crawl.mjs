@@ -66,6 +66,11 @@ const USERS = {
   agent: { email: "agent@example.com", password: PASSWORD, full_name: "رضا کارشناس", preset: "agent" },
   requester: { email: "requester@example.com", password: PASSWORD, full_name: "مریم درخواست‌دهنده", preset: "requester" },
 };
+// --agent / --requester <email> (with --people-password): crawl as people who already exist in the organisation (the
+// demo pack's personas) — their access is left as it is
+for (const role of ["agent", "requester"]) {
+  if (opt(role)) USERS[role] = { email: opt(role), password: opt("people-password", PASSWORD), full_name: opt(role) };
+}
 const ORG = { name: "واحد فناوری اطلاعات نمونه", timezone: "Asia/Tehran" };
 const ROLE_TITLE = { admin: "مدیر سامانه", agent: "کارشناس فناوری اطلاعات", requester: "درخواست‌دهنده", anonymous: "بی‌ورود" };
 
@@ -664,7 +669,7 @@ async function main() {
   else await call("POST", "/auth/login", { email: USERS.admin.email, password: USERS.admin.password });
   const me = (await call("GET", "/auth/me")).user.id;
   const orgs = (await call("GET", "/orgs")).orgs;
-  const orgId = orgs.find((o) => o.name === ORG.name)?.id ?? (await call("POST", "/orgs", ORG)).id;
+  const orgId = opt("org") ?? orgs.find((o) => o.name === ORG.name)?.id ?? (await call("POST", "/orgs", ORG)).id;
   const ids = {};
   for (const role of ["agent", "requester"]) if (ROLES.includes(role)) ids[role] = await ensureMember(call, orgId, USERS[role]);
   const seeded = await seed(call, orgId, me);
