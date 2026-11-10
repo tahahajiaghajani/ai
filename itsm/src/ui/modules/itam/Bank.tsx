@@ -310,6 +310,10 @@ export function Register() {
         { title: "استهلاک انباشتهٔ پایان سال", value: (r: RegisterRow) => r.closing_accumulated, type: "number" as const },
         { title: "ارزش دفتری پایان سال", value: (r: RegisterRow) => r.closing_book, type: "number" as const },
         { title: "ماه‌های استهلاک سال", value: (r: RegisterRow) => r.months_charged, type: "number" as const },
+        ...(d.reconciled ? [
+          { title: "ثبت‌شده در دفتر هزینه", value: (r: RegisterRow) => r.ledger ?? "", type: "number" as const },
+          { title: "مغایرت", value: (r: RegisterRow) => r.difference ?? "", type: "number" as const },
+        ] : []),
       ], d.rows, `دفتر اموال ${fy}`);
     } catch (e) {
       message.error((e as Error).message);
@@ -325,6 +329,7 @@ export function Register() {
     { title: "استهلاک سال", key: "ch", align: "end" as const, render: (_: unknown, r: RegisterRow) => <Money v={r.charge} suffix={false} /> },
     { title: "انباشتهٔ پایان سال", key: "ca", align: "end" as const, render: (_: unknown, r: RegisterRow) => <Money v={r.closing_accumulated} suffix={false} /> },
     { title: "ارزش دفتری", key: "bk", align: "end" as const, render: (_: unknown, r: RegisterRow) => <Money v={r.closing_book} suffix={false} /> },
+    ...(d?.reconciled ? [{ title: "مغایرت با دفتر هزینه", key: "df", align: "end" as const, render: (_: unknown, r: RegisterRow) => (r.difference && r.difference !== "0" ? <Chip tone="warning"><Money v={r.difference} suffix={false} /></Chip> : <span className="text-ink-3">—</span>) }] : []),
   ];
   return (
     <div>
@@ -343,6 +348,8 @@ export function Register() {
             <StatCard title="استهلاک انباشتهٔ اول سال" value={<Money v={d.totals.opening_accumulated} compact />} />
             <StatCard title={`استهلاک سال ${fa(d.fiscal_year).replace(/٬/g, "")}`} value={<Money v={d.totals.charge} compact />} />
             <StatCard title="ارزش دفتری پایان سال" value={<Money v={d.totals.closing_book} compact />} />
+            {d.reconciled ? <StatCard title="ثبت‌شده در دفتر هزینه" value={<Money v={d.totals.ledger} compact />} /> : null}
+            {d.reconciled ? <StatCard title="مغایرت با دفتر هزینه" value={d.mismatches ? <span><Money v={d.totals.difference} compact /> <Chip tone="warning">{`${fa(d.mismatches)} دارایی`}</Chip></span> : <Chip tone="in">بدون مغایرت</Chip>} /> : null}
           </div>
           {d.branches.length > 1 ? (
             <Card title="به تفکیک شعبه">

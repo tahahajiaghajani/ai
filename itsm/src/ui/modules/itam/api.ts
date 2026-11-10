@@ -92,9 +92,11 @@ export interface RegisterRow {
   id: string; number: string | null; asset_tag: string | null; name: string | null; category: string | null; model: string | null; serial_number: string | null; branch: string | null; branch_code: string | null;
   state: string; in_service: string | null; end: string | null; method: string; life_months: number | null; cost: string; opening_cost: string; additions: string; disposals: string;
   opening_accumulated: string; charge: string; closing_accumulated: string; closing_book: string; months_charged: number;
+  /** reconciliation: the year's depreciation in the cost ledger and the register's charge minus it */
+  ledger?: string; difference?: string;
 }
 export interface AssetRegister {
-  fiscal_year: number; from: string; to: string; rows: RegisterRow[]; totals: Record<string, string>;
+  fiscal_year: number; from: string; to: string; rows: RegisterRow[]; totals: Record<string, string | null>; reconciled: boolean; mismatches: number;
   branches: { branch: string; count: number; cost: string; charge: string; book: string }[];
 }
 export interface WipeCertificate {

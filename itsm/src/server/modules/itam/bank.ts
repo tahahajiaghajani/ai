@@ -866,11 +866,40 @@ export async function assetRegister(ctx: Ctx, input: RegisterInput): Promise<Row
     b.book = b.book.plus(r.closing_book);
     byBranch.set(k, b);
   }
-  const t = Object.fromEntries(Object.entries(totals).map(([k, v]) => [k, v.toFixed(0)]));
+  const t: Record<string, string | null> = Object.fromEntries(Object.entries(totals).map(([k, v]) => [k, v.toFixed(0)]));
+  // reconciliation with finance: the year's depreciation the cost ledger holds per asset (when the caller reads it)
+  const ledger = await ledgerDepreciation(ctx, range.start, range.end);
+  let mismatches = 0;
+  if (ledger) {
+    let posted = D(0);
+    for (const r of rows) {
+      const l = ledger.get(String(r.id)) ?? "0";
+      posted = posted.plus(l);
+      r.ledger = D(l).toFixed(0);
+      r.difference = D(String(r.charge)).minus(l).toFixed(0);
+      if (r.difference !== "0") mismatches++;
+    }
+    t.ledger = posted.toFixed(0);
+    t.difference = D(t.charge ?? "0").minus(posted).toFixed(0);
+  }
   return {
-    fiscal_year: fy, from: range.start, to: range.end, rows, totals: t,
+    fiscal_year: fy, from: range.start, to: range.end, rows, totals: t, reconciled: !!ledger, mismatches,
     branches: [...byBranch.values()].map((b) => ({ branch: b.branch, count: b.count, cost: b.cost.toFixed(0), charge: b.charge.toFixed(0), book: b.book.toFixed(0) })).sort((x, y) => y.count - x.count),
   };
+}
+
+/** Depreciation the financial module posted per asset between two dates (null: no ledger or no read access). */
+async function ledgerDepreciation(ctx: Ctx, from: string, to: string): Promise<Map<string, string> | null> {
+  if (!tableDef("cost_entry") || !(await holds(ctx, "financial", "read"))) return null;
+  try {
+    const r = await aggregate(ctx, "cost_entry", {
+      filter: { and: [{ f: "source", op: "eq", v: "depreciation" }, { f: "entry_date", op: "gte", v: from }, { f: "entry_date", op: "lte", v: to }, { f: "asset_id", op: "nempty" }] },
+      groupBy: ["asset_id"], metrics: [{ fn: "sum", field: "amount" }], limit: 5000,
+    });
+    return new Map(r.rows.map((x) => [String(x.keys[0]), String(x.values["sum:amount"] ?? "0")]));
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------------------------------------------

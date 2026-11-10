@@ -29,7 +29,7 @@ import { ASSET_STATES, MOVEMENT_KINDS } from "@shared/tables/itam";
 import { assetTagFor, ciStatusOf, depreciation, matchSoftware, substateFor, type DepMethod } from "@shared/itam/logic";
 import { addJalaliMonths } from "@shared/supplier/logic";
 import { addDays, toJalali } from "@shared/jalali";
-import { deviceClass, tagFromPattern } from "@shared/itam/bank";
+import { deviceClass, nextJalaliMonthStart, tagFromPattern } from "@shared/itam/bank";
 import { D, mul, round } from "@shared/money";
 import { addJournalIn, createIn, onBeforeCommit, pushGuard, registerHooks, transitionIn, updateIn, savepoint, type PushArgs, type TableHooks, type WriteArgs } from "../../engine";
 import { access } from "../../access/provider";
@@ -91,8 +91,9 @@ const movementLabel = (kind: string) => MOVEMENT_KINDS.find((k) => k.value === k
 /** The book value of an asset today by its depreciation rule (null when it has no cost, rule or start date). */
 export function bookValueOf(rule: Row | null | undefined, a: Row, today: string): { book_value: string; accumulated_depreciation: string; book_value_at: string } | null {
   if (!rule || a.purchase_cost === null || a.purchase_cost === undefined || a.purchase_cost === "") return null;
-  const start = String((rule.start_basis === "purchase" ? a.purchase_date : a.in_service_date || a.purchase_date) ?? "");
-  if (!start) return null;
+  const basis = String((rule.start_basis === "purchase" ? a.purchase_date : a.in_service_date || a.purchase_date) ?? "");
+  if (!basis) return null;
+  const start = rule.start_convention === "next_month" ? nextJalaliMonthStart(basis) : basis;
   const salvage = a.salvage_value ?? (rule.salvage_percent ? String((Number(a.purchase_cost) * Number(rule.salvage_percent)) / 100) : "0");
   const d = depreciation({ cost: a.purchase_cost, salvage, lifeMonths: Number(rule.life_months ?? 36), method: rule.method as DepMethod, ratePercent: rule.rate_percent, start, asOf: today });
   return { book_value: d.bookValue, accumulated_depreciation: d.accumulated, book_value_at: today };

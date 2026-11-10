@@ -310,6 +310,21 @@ describe("the asset register «دفتر اموال»", () => {
     const region = await m.region.client.get(`${w.P}/itam/register?fy=1404`);
     expect(region.rows.some((r: any) => r.id === a.n1.id)).toBe(false);
   });
+
+  it("reconciles the year's depreciation with the cost ledger the financial module posts (same first month)", async () => {
+    const cc = (await w.o.post(`${w.P}/r/org_unit`, { name: "مرکز هزینهٔ شعب", kind: "cost_center", parent_id: u.bank })).row.id;
+    await w.p.am.client.patch(`${w.P}/r/asset/${a.atm.id}`, { cost_center_id: cc });
+    // Tir 1404 is the ATM's first charged month («از ماه بعد از بهره‌برداری»); Khordad has no charge
+    await w.p.fin.client.post(`${w.P}/financial/capture`, { period: "1404-03" });
+    await w.p.fin.client.post(`${w.P}/financial/capture`, { period: "1404-04" });
+    const reg = await w.p.am.client.get(`${w.P}/itam/register?fy=1404&branch_id=${u.vanak}`);
+    expect(reg.reconciled).toBe(true);
+    const atm = reg.rows.find((r: any) => r.id === a.atm.id);
+    const month = Math.round((45000000000 * 0.95) / 84);
+    expect(Number(atm.ledger)).toBe(month);
+    expect(Number(atm.difference)).toBe(Number(atm.charge) - month);
+    expect(reg.mismatches).toBeGreaterThanOrEqual(1);
+  });
 });
 
 describe("secure disposal", () => {
