@@ -290,7 +290,7 @@ syncRoutes.get("/pull", async (c) => {
   const since = parseSnap(query.since);
   const snapIn = parseSnap(query.snap);
   const after = parseAfter(query.after);
-  const q_epoch = query.epoch;
+  const clientEpoch = query.epoch;
   if ((query.since && !since) || (query.snap && !snapIn) || (query.after && !after)) throw bad(BAD_CURSOR);
   const log = ctx.cfg.log;
   // the database went back in transaction ids (restored into another cluster): every Windows app reads everything again
@@ -317,7 +317,7 @@ syncRoutes.get("/pull", async (c) => {
     // for good: everything again from the start
     // (purged tombstones are sequential archive batches: the newest one visible in the cursor means all of them were)
     const missedPurge = !!since && state.purged > 0 && !visibleIn(state.purged, since);
-    if (started && (q_epoch !== epoch || regressed || missedPurge)) {
+    if (started && (clientEpoch !== epoch || regressed || missedPurge)) {
       return { reset: true as const, epoch, head: snapText(cur) };
     }
     const snap = snapIn ?? cur;
