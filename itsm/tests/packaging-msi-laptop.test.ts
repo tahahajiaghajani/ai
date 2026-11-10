@@ -64,7 +64,7 @@ describe("the «Server settings» dialog", () => {
 describe("a failed install says where the reason is", () => {
   it("the failure dialog names install-error.txt and the event log (WixUI's texts replaced at build time)", () => {
     const wxl = read("wix/Package.en-us.wxl");
-    expect(wxl).toContain('<WixLocalization Culture="en-US" xmlns="http://wixtoolset.org/schemas/v4/wxl">');
+    expect(wxl).toContain('<WixLocalization Culture="en-US" Codepage="1252" xmlns="http://wixtoolset.org/schemas/v4/wxl">');
     expect(wxl).toMatch(/<String Id="FatalErrorDescription1" Value="[^"]*\[DATADIR\]\\logs\\install-error\.txt[^"]*event log \(source Kariz\)/);
     expect(wxl).toContain('<String Id="FatalErrorDescription2"');
     expect([...wxl].every((c) => c.charCodeAt(0) < 0x80)).toBe(true);
