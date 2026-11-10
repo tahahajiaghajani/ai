@@ -22,6 +22,7 @@ import { needFeature, needWithinLimit } from "../admin/common";
 import { ensurePerson, setMemberActive, type MembershipRole } from "../admin/members";
 import { ldapSearch } from "./ldap";
 import { grantingGroups, intLog, liveRow, liveRows, needIntegrations, sysOf, type Row } from "./common";
+import { lanAllowed, checkOutboundHost } from "../../net";
 
 const HOUR = 3600_000;
 
@@ -56,6 +57,10 @@ async function guardHost(cfg: ServerConfig, url: string): Promise<void> {
   } catch {
     throw bad("نشانی LDAP معتبر نیست");
   }
+  // the server edition reaches the organisation's domain controllers (air-gapped: only those on its allowlist)
+  if (lanAllowed(cfg)) return checkOutboundHost(cfg.network, host, "سرور LDAP").catch((e) => {
+    throw bad((e as Error).message);
+  });
   const addresses = isIP(host) ? [host] : await aiNet.lookup(host).catch(() => []);
   if (!addresses.length) throw bad(`نشانی سرور LDAP پیدا نشد (${host})`);
   if (addresses.some(internalAddress)) throw bad("سرور LDAP در نشانی داخلی است؛ در نسخهٔ وب فقط سرورهای عمومی (یا برنامهٔ ویندوز در شبکهٔ سازمان) پذیرفته می‌شوند");

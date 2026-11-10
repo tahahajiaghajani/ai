@@ -35,6 +35,12 @@ const isoBefore = (v: string | undefined) => (v && !Number.isNaN(Date.parse(v)) 
 
 adminRoutes.get("/overview", async (c) => c.json(await overview(c.get("cfg"))));
 adminRoutes.get("/health", async (c) => c.json(await systemHealth(c.get("cfg"))));
+// «سلامت سرور» of the server edition (src/server-edition/health.ts); absent elsewhere
+adminRoutes.get("/server", async (c) => {
+  const server = c.get("cfg").server;
+  if (!server) throw notFound("این بخش فقط در نسخهٔ سرور است");
+  return c.json(await server.health());
+});
 
 /** Kept for older clients: the overview's main figures in the earlier shape. */
 adminRoutes.get("/stats", async (c) => {

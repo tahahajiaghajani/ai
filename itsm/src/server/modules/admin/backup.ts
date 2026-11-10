@@ -17,6 +17,7 @@ import { FIELD_TYPES } from "@shared/model/types";
 import { bad, conflict, notFound } from "../../http/errors";
 import { enqueue, registerJobHandler, PermanentJobError } from "../../jobs";
 import { platformAudit } from "../platform/audit";
+import { blobStore } from "../../blobs";
 
 /** The largest backup kept (compressed JSON); larger organisations use the database's own backups. */
 export const MAX_BACKUP_BYTES = 100 * 1024 * 1024;
@@ -93,10 +94,13 @@ export async function buildBackup(q: Queryable, orgId: string): Promise<BackupFi
   }
   const side: BackupFile["side"] = {};
   for (const t of SIDE_TABLES) side[t] = (await q.query<Record<string, unknown>>(`select * from ${t} where org_id = $1 and deleted_at is null`, [orgId])).map(plainRow);
-  const blobs = (await q.query<{ sha256: string; size: string | number; data: Uint8Array }>(
-    `select b.sha256, b.size, b.data from sm_blobs b where b.org_id = $1 and exists (select 1 from sm_attachments a where a.org_id = b.org_id and a.sha256 = b.sha256 and a.deleted_at is null)`,
-    [orgId],
-  )).map((b) => ({ sha256: b.sha256, size: Number(b.size), data: Buffer.from(b.data).toString("base64") }));
+  // contents from the runtime's blob store (sm_blobs, or the server edition's disk); one missing here is left out
+  const blobs: BackupFile["blobs"] = [];
+  const shas = await q.query<{ sha256: string }>(`select distinct sha256 from sm_attachments where org_id = $1 and deleted_at is null order by sha256`, [orgId]);
+  for (const { sha256 } of shas) {
+    const data = await blobStore().get(q, orgId, sha256);
+    if (data) blobs.push({ sha256, size: data.byteLength, data: Buffer.from(data).toString("base64") });
+  }
   return { format: "itsm-backup", version: 1, app_version: APP_VERSION, created_at: new Date().toISOString(), org: plainRow(org), members: members.map(plainRow), tables, side, blobs };
 }
 
@@ -263,7 +267,7 @@ export async function restoreBackup(cfg: ServerConfig, admin: AuthUser, id: stri
       await insertRows(tx, t, cols, out);
     }
     for (const b of file.blobs ?? []) {
-      await tx.query(`insert into sm_blobs (org_id, sha256, size, data) values ($1, $2, $3, decode($4, 'base64')) on conflict do nothing`, [newOrg, b.sha256, b.size, b.data]);
+      await blobStore(cfg).put(tx, newOrg, b.sha256, new Uint8Array(Buffer.from(b.data, "base64")));
     }
     await platformAudit(tx, cfg, admin, { org_id: newOrg, action: "backup_restore", entity: "backup", entity_id: id, summary: `بازیابی پشتیبان در سازمان تازهٔ «${name}»`, data: { source_org: file.org.id, rows: count } });
   });

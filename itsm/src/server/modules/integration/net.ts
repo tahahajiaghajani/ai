@@ -3,13 +3,14 @@
 // network is allowed; always with a timeout and a Persian message naming the service.
 import type { ServerConfig } from "../../context";
 import { guardedFetch } from "../ai/net";
+import { lanAllowed } from "../../net";
 
 export const OUT_TIMEOUT_MS = 15_000;
 
 /** fetch for calls to other systems. */
 export function outsideFetch(cfg: Partial<ServerConfig>): typeof fetch {
   const f = cfg.fetch ?? fetch;
-  return cfg.mode === "desktop" ? f : guardedFetch(f);
+  return lanAllowed(cfg) ? f : guardedFetch(f);
 }
 
 export interface OutResult {

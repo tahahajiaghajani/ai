@@ -8,7 +8,7 @@ import { APP_NAME_EN } from "@shared/constants";
 import { CHANNEL_KINDS, renderTemplate, type ChannelKind } from "@shared/notify";
 import type { Ctx, ServerConfig } from "../../context";
 import { pgArray } from "../../db";
-import { fetchText } from "../../net";
+import { fetchText, lanAllowed } from "../../net";
 import { guardedFetch } from "../ai/net";
 import { channelSecret } from "./mail";
 import { systemRows } from "./common";
@@ -51,10 +51,13 @@ export interface OutsideMessage {
 
 export const TIMEOUT = 15_000;
 
-/** fetch for outside channels: guarded on the web version, the office network allowed on the Windows app. */
+/**
+ * fetch for outside channels: guarded on the web version, the office network allowed on the Windows app and the server
+ * edition (whose fetch enforces its air-gap allowlist).
+ */
 export function channelFetch(cfg: Partial<ServerConfig>): typeof fetch {
   const f = cfg.fetch ?? fetch;
-  return cfg.mode === "desktop" ? f : guardedFetch(f);
+  return lanAllowed(cfg) ? f : guardedFetch(f);
 }
 
 const json = (body: unknown) => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });

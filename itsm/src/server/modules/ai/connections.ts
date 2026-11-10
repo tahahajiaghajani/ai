@@ -11,7 +11,7 @@ import { aiErrorText } from "@shared/ai/errors";
 import { uuidv7 } from "@shared/id";
 import { bad, conflict, notFound } from "../../http/errors";
 import { audit } from "../data/crud";
-import { safeExternalUrl } from "../../net";
+import { safeExternalUrl, lanAllowed, hostAllowed, OutboundBlockedError } from "../../net";
 import { cleanKey, decryptKey, encryptKey, keyFingerprint, keyHint, keyReadable, KeyUnreadableError, scrubSecrets } from "./crypto";
 import { createAdapter } from "./adapters";
 import { embedApiOf, embedCall } from "./adapters/embed";
@@ -21,7 +21,7 @@ import { ProviderError, type AdapterEnv, type ResolvedConnection } from "./types
 import { recordUsage } from "./usage";
 import { disabledByPlatform, loadPolicy } from "./settings";
 import { AiUnavailableError } from "./errors";
-import { guardedFetch } from "./net";
+import { guardedFetch, lanFetch } from "./net";
 import { orgAiDisabled } from "../platform/org-admin";
 import { securityEvent } from "../platform/security";
 
@@ -61,9 +61,12 @@ export function appSecretMissing(cfg: ServerConfig): boolean {
 export const APP_SECRET_MESSAGE =
   "در نسخهٔ وب تا وقتی متغیر APP_SECRET در Vercel تنظیم نشده، کلیدها ذخیره نمی‌شوند: کلید رمزگذاری‌شده با جابه‌جایی پایگاه داده از دست می‌رود. APP_SECRET را بگذارید و برنامه را دوباره مستقر کنید.";
 
-/** Provider calls on the web version go through the SSRF guard (public addresses only, no redirects). */
+/**
+ * Provider calls on the web version go through the SSRF guard (public addresses only, no redirects); the Windows app and
+ * the server edition reach their own network (the server edition's fetch enforces its air-gap allowlist).
+ */
 export function adapterEnv(cfg: ServerConfig): AdapterEnv {
-  return { fetch: cfg.mode === "cloud" ? guardedFetch(cfg.fetch) : cfg.fetch, mode: cfg.mode, publicUrl: cfg.publicUrl };
+  return { fetch: lanAllowed(cfg) ? lanFetch(cfg.fetch) : guardedFetch(cfg.fetch), mode: cfg.mode, publicUrl: cfg.publicUrl };
 }
 
 /** Where a connection's key is sent: the preset and its effective base URL. */
@@ -133,7 +136,26 @@ export const connectionTestSchema = connectionInputSchema.extend({ connection_id
 /** Presets this organisation may use here (runtime, test mode and the platform policy). */
 export async function availablePresets(ctx: Ctx): Promise<AiPreset[]> {
   const policy = await loadPolicy(ctx.cfg);
-  return presetsFor({ desktop: ctx.cfg.mode === "desktop", fake: fakeEnabled(), allowedPresets: policy.allowed_presets, allowedProtocols: policy.allowed_protocols });
+  // local model servers are offered wherever the internal network is reachable (the Windows app, the server edition);
+  // an air-gapped server edition leaves out cloud services whose fixed address is not on its allowlist
+  const all = presetsFor({ desktop: lanAllowed(ctx.cfg), fake: fakeEnabled(), allowedPresets: policy.allowed_presets, allowedProtocols: policy.allowed_protocols });
+  return all.filter((p) => !presetBlocked(ctx.cfg, p));
+}
+
+/**
+ * Why a preset cannot be used on an air-gapped server edition: a cloud service with a fixed address that is not on
+ * the allowlist (services whose address the organisation types — custom, local servers — are checked by address).
+ */
+export function presetBlocked(cfg: ServerConfig, preset: AiPreset): string | null {
+  if (!cfg.network?.airGapped || preset.test_only || !preset.base_url) return null;
+  if (preset.runtimes.includes("desktop") && !preset.runtimes.includes("web")) return null;
+  let host = "";
+  try {
+    host = new URL(preset.base_url).hostname;
+  } catch {
+    return null;
+  }
+  return hostAllowed(cfg.network, host) ? null : `«${preset.label}» یک سرویس اینترنتی است و این سرور در حالت شبکهٔ بسته (بدون اینترنت) کار می‌کند؛ از مدل‌های محلی شبکهٔ سازمان استفاده کنید`;
 }
 
 async function usablePreset(ctx: Ctx, id: string): Promise<AiPreset> {
@@ -141,7 +163,8 @@ async function usablePreset(ctx: Ctx, id: string): Promise<AiPreset> {
   if (!preset) throw bad("سرویس انتخاب‌شده شناخته نیست");
   const ok = (await availablePresets(ctx)).some((p) => p.id === id);
   if (!ok) {
-    if (preset.runtimes.includes("desktop") && !preset.runtimes.includes("web") && ctx.cfg.mode === "cloud") throw bad("مدل‌های محلی فقط در نسخهٔ ویندوز در دسترس‌اند");
+    if (presetBlocked(ctx.cfg, preset)) throw bad(presetBlocked(ctx.cfg, preset)!);
+    if (preset.runtimes.includes("desktop") && !preset.runtimes.includes("web") && !lanAllowed(ctx.cfg)) throw bad("مدل‌های محلی فقط در نسخهٔ ویندوز در دسترس‌اند");
     throw bad("این سرویس در این نسخه یا طبق سیاست سامانه مجاز نیست");
   }
   return preset;
@@ -161,10 +184,11 @@ export function checkBaseUrl(cfg: ServerConfig, preset: AiPreset, raw: string | 
     throw bad("نشانی سرویس معتبر نیست");
   }
   if (u.username || u.password) throw bad("نشانی سرویس نباید نام کاربری یا گذرواژه داشته باشد");
-  if (cfg.mode === "cloud") {
+  if (!lanAllowed(cfg)) {
     const problem = safeExternalUrl(s);
     if (problem) throw bad(`نشانی سرویس: ${problem}`);
   } else if (u.protocol !== "https:" && u.protocol !== "http:") throw bad("نشانی سرویس باید با http:// یا https:// شروع شود");
+  else if (!hostAllowed(cfg.network, u.hostname)) throw bad(new OutboundBlockedError(u.hostname, "نشانی سرویس").message);
   return s;
 }
 
@@ -387,7 +411,7 @@ export function resolveConnection(cfg: ServerConfig, row: ConnRow): ResolvedConn
   const baseUrl = row.base_url ?? preset.base_url ?? "";
   if (!baseUrl && preset.id !== "fake") throw new ProviderError("not_configured", "نشانی سرویس ثبت نشده است");
   // a web address the guard refuses never gets a request (stored rows may predate a policy change)
-  if (cfg.mode === "cloud" && preset.id !== "fake" && safeExternalUrl(baseUrl)) throw new ProviderError("network", "نشانی داخلی در نسخهٔ وب مجاز نیست");
+  if (!lanAllowed(cfg) && preset.id !== "fake" && safeExternalUrl(baseUrl)) throw new ProviderError("network", "نشانی داخلی در نسخهٔ وب مجاز نیست");
   return { id: row.id, label: row.label, preset, protocol: row.protocol, baseUrl, key };
 }
 

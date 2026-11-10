@@ -14,6 +14,7 @@ import { filtersSide } from "../../../engine/hooks";
 import { maskText } from "../redact";
 import type { RagDocument, RagPart } from "./chunker";
 import { fileKind, parseFile } from "./parsers";
+import { blobStore } from "../../../blobs";
 
 export type { RagDocument, RagPart };
 
@@ -173,9 +174,9 @@ export async function attachmentParts(q: Queryable, orgId: string, table: string
     const fileGroup = only ? (only.get(String(a.id).toLowerCase()) ?? null) : group;
     const kind = fileKind(a.name, a.mime);
     if (Number(a.size) > ATTACHMENT_LIMITS.bytes || kind === "image" || kind === "other") continue;
-    const blob = await q.one<{ b64: string }>(`select encode(data, 'base64') as b64 from sm_blobs where org_id = $1 and sha256 = $2`, [orgId, a.sha256]);
+    const blob = await blobStore().get(q, orgId, a.sha256);
     if (!blob) continue;
-    const parsed = await parseFile(a.name, a.mime, new Uint8Array(Buffer.from(blob.b64, "base64"))).catch(() => null);
+    const parsed = await parseFile(a.name, a.mime, blob).catch(() => null);
     if (!parsed || parsed.kind !== "text") continue;
     let budget: number = ATTACHMENT_LIMITS.chars;
     const many = parsed.pages.length > 1;

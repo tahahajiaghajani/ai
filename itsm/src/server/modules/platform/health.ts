@@ -58,7 +58,8 @@ export async function systemHealth(cfg: ServerConfig): Promise<SystemHealth> {
   const have = new Set(applied);
   const missing = MIGRATIONS.filter((m) => !have.has(m.id)).map((m) => m.id);
   const secret = secretSource(cfg);
-  const limit = cfg.mode === "cloud" ? FREE_DB_BYTES : null;
+  // the size cap of Supabase Free; the server edition's own PostgreSQL has none
+  const limit = cfg.mode === "cloud" && !cfg.server ? FREE_DB_BYTES : null;
   const checks: HealthCheck[] = [];
 
   checks.push(

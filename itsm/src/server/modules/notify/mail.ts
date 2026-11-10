@@ -8,7 +8,7 @@ import { APP_NAME } from "@shared/constants";
 import type { Ctx, ServerConfig } from "../../context";
 import type { Queryable } from "../../db";
 import { openSecret } from "../../engine";
-import { safeExternalUrl } from "../../net";
+import { safeExternalUrl, lanAllowed, checkOutboundHost } from "../../net";
 import { aiNet, internalAddress } from "../ai/net";
 import { systemRows } from "./common";
 
@@ -66,7 +66,8 @@ export function channelSecret(cfg: Pick<ServerConfig, "secret">, orgId: string, 
  * resolves to, a loopback/private/link-local address is refused. The Windows app may use the office's own server.
  */
 export async function checkMailHost(cfg: Partial<ServerConfig>, host: string): Promise<void> {
-  if (cfg.mode === "desktop") return;
+  // the server edition reaches its own network, and air-gapped only the hosts on its allowlist
+  if (lanAllowed(cfg)) return checkOutboundHost(cfg.network, host, "سرور ایمیل");
   const h = host.trim().toLowerCase();
   if (!h) throw new Error("نشانی سرور را وارد کنید");
   if (safeExternalUrl(`https://${h.includes(":") && !h.startsWith("[") ? `[${h}]` : h}/`)) throw new Error("سرور داخلی در نسخهٔ وب مجاز نیست");
