@@ -1,7 +1,7 @@
 /* The app stylesheet. The design system lives in ./ds/ (README.md there).
    Layer order: Ant Design's CSS-in-JS (<StyleProvider layer>) sits in `antd`, between Tailwind's base and its
    components/utilities, so ds-antd.css (components) and Tailwind utilities still adjust Ant Design. */
-@layer theme, base, antd, components, utilities;
+@layer properties, theme, base, antd, components, utilities; /* also declared inline at the top of index.html (the source of truth: see there) */
 @import "tailwindcss";
 @import "./ds/tokens.css"; /* fonts, tokens, base primitives (@layer base) */
 @import "./ds/ds-antd.css"; /* @layer components: after antd's CSS-in-JS layer */

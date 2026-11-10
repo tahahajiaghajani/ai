@@ -2,6 +2,11 @@
 <html lang="fa" dir="rtl">
   <head>
     <meta charset="UTF-8" />
+    <!-- The cascade-layer order, declared before any stylesheet loads. Browsers order layers by first appearance; Vite
+         links shared chunk CSS (which opens @layer components) before the entry CSS and the minifier drops the order
+         statement of styles.css, so without this Tailwind's preflight (base) beat every design-system rule and antd beat
+         all of them. Keep it identical to the first statement of styles.css. -->
+    <style>@layer properties, theme, base, antd, components, utilities;</style>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex" />
     <!-- %APP_…% placeholders are filled from src/shared/constants.ts by vite.config.ts -->
