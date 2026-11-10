@@ -102,7 +102,8 @@ export function cleanRecipients(raw: unknown): RecipientSpec {
 /**
  * Who of a group hears a notification addressed to the group (the group's `notify_mode`):
  * `auto` — every member while the group has at most `LARGE_GROUP` members, only its leads and its manager when it is
- * larger (the members see the record in the group's queue and its count); `members` — every member; `leads` — leads
+ * larger (the members see the record in the group's queue and its count) — and every member again when a large group
+ * has neither a lead nor a manager (a notification never reaches nobody); `members` — every member; `leads` — leads
  * (membership kind «سرپرست») and the group's manager only.
  */
 export type GroupNotifyMode = "auto" | "members" | "leads";
@@ -121,11 +122,27 @@ export const RULE_GROUP_MODES: Record<RuleGroupMode, string> = {
 /** Groups larger than this are «large»: `auto` notifies their leads and manager instead of every member. */
 export const LARGE_GROUP = 50;
 
-/** Whom of a group a rule's notification reaches: every member, or only the leads and the manager. */
-export function groupAudience(rule: RuleGroupMode | null | undefined, group: GroupNotifyMode | null | undefined, members: number): "members" | "leads" {
+/**
+ * Whom of a group a rule's notification reaches: every member, or only the leads and the manager. `hasLeads`: the
+ * group has a lead or a manager — without one, «خودکار» notifies the members of a large group too.
+ */
+export function groupAudience(rule: RuleGroupMode | null | undefined, group: GroupNotifyMode | null | undefined, members: number, hasLeads = true): "members" | "leads" {
   if (rule === "members" || rule === "leads") return rule;
   if (group === "members" || group === "leads") return group;
-  return members > LARGE_GROUP ? "leads" : "members";
+  return members > LARGE_GROUP && hasLeads ? "leads" : "members";
+}
+
+/**
+ * The warning of the group form about its notifications (null: none): a large group under «خودکار» without a lead or
+ * a manager notifies every member; «فقط سرپرستان و مدیر گروه» without either notifies nobody.
+ */
+export function groupNotifyWarning(mode: GroupNotifyMode | null | undefined, members: number, hasLeads: boolean): string | null {
+  if (hasLeads) return null;
+  if (mode === "leads") return "این گروه سرپرست یا مدیر ندارد؛ با «فقط سرپرستان و مدیر گروه» اعلان‌های ارجاع به گروه به کسی نمی‌رسد.";
+  if ((mode ?? "auto") === "auto" && members > LARGE_GROUP) {
+    return "این گروه بیش از ۵۰ عضو دارد ولی سرپرست یا مدیر ندارد؛ اعلان‌های ارجاع به گروه به همهٔ اعضا می‌رسد. برای کم کردن اعلان‌ها، سرپرست یا مدیر گروه را تعیین کنید.";
+  }
+  return null;
 }
 
 export const hasRecipients = (r: RecipientSpec): boolean =>

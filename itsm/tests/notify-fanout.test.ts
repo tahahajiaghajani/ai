@@ -7,7 +7,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { engineOrg, outbox, type EngineOrg } from "./engine-helpers";
 import type { Client } from "./helpers";
 import { registerTable } from "@shared/tables";
-import { groupAudience, LARGE_GROUP } from "@shared/notify";
+import { groupAudience, groupNotifyWarning, LARGE_GROUP } from "@shared/notify";
 import { tick } from "@server/jobs";
 import { notifyPeople } from "@server/modules/notify";
 import type { Tx } from "@server/db";
@@ -212,7 +212,24 @@ describe("large groups", () => {
     expect(groupAudience("group", "leads", 3)).toBe("leads");
     expect(groupAudience("members", "leads", 3)).toBe("members");
     expect(groupAudience("leads", "members", 3)).toBe("leads");
+    // «خودکار» never reaches nobody: a large group without a lead or a manager notifies its members
+    expect(groupAudience("group", "auto", LARGE_GROUP + 1, false)).toBe("members");
+    expect(groupAudience(null, null, 500, false)).toBe("members");
+    expect(groupAudience("group", "auto", LARGE_GROUP + 1, true)).toBe("leads");
+    // the group form warns about it (and about «فقط سرپرستان» without leads)
+    expect(groupNotifyWarning("auto", LARGE_GROUP + 1, false)).toMatch(/همهٔ اعضا/);
+    expect(groupNotifyWarning(null, LARGE_GROUP + 1, false)).toMatch(/همهٔ اعضا/);
+    expect(groupNotifyWarning("auto", LARGE_GROUP + 1, true)).toBeNull();
+    expect(groupNotifyWarning("auto", LARGE_GROUP, false)).toBeNull();
+    expect(groupNotifyWarning("members", 500, false)).toBeNull();
+    expect(groupNotifyWarning("leads", 3, false)).toMatch(/به کسی نمی‌رسد/);
   });
+
+  it("falls back to every member of a large group that has no lead and no manager («خودکار»)", async () => {
+    const g = await group("میز بزرگ بی‌سرپرست", crowd);
+    const id = await assignToGroup(g, "گروه بزرگ بدون سرپرست");
+    expect((await bells(id)).map((b) => b.user_id).sort()).toEqual([...crowd].sort());
+  }, 120_000);
 
   it("tells a large group's leads and manager, not every member («خودکار»)", async () => {
     const g = await group("میز خدمت بزرگ", crowd, { manager_id: manager }, [lead]);

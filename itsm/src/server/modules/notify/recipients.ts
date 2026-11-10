@@ -103,7 +103,9 @@ export async function groupRecipients(sys: Ctx, groups: string[], rule: RuleGrou
   const out: string[] = [];
   for (const d of defs) {
     const list = byGroup.get(String(d.id).toLowerCase()) ?? [];
-    if (groupAudience(rule, d.notify_mode, list.length) === "members") out.push(...list.map((m) => m.user));
+    // «خودکار» falls back to the members of a large group that has neither a lead nor a manager
+    const hasLeads = !!d.manager_id || list.some((m) => m.kind === "lead");
+    if (groupAudience(rule, d.notify_mode, list.length, hasLeads) === "members") out.push(...list.map((m) => m.user));
     else {
       out.push(...list.filter((m) => m.kind === "lead").map((m) => m.user));
       if (d.manager_id) out.push(String(d.manager_id));

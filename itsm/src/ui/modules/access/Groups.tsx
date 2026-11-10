@@ -2,9 +2,10 @@
 // their members inherit — with their members (bulk add, member / lead / observer, removal). Admins of the org
 // structure change everything; a team lead changes the memberships of the groups they work in.
 import { useEffect, useMemo, useState } from "react";
-import { Button, Drawer, Form, Input, Select, Switch, Table, Popconfirm, Tabs } from "antd";
+import { Alert, Button, Drawer, Form, Input, Select, Switch, Table, Popconfirm, Tabs } from "antd";
 import { Plus, Search, Trash2, ShieldAlert } from "lucide-react";
-import { GROUP_TYPES, MEMBER_KINDS } from "@shared/tables/access";
+import { GROUP_NOTIFY_OPTIONS, GROUP_TYPES, MEMBER_KINDS } from "@shared/tables/access";
+import { groupNotifyWarning, type GroupNotifyMode } from "@shared/notify";
 import { faDigits } from "@shared/format";
 import { useOrg } from "../../lib/org";
 import { useAction } from "../../lib/hooks";
@@ -138,7 +139,7 @@ function GroupDrawer({ open, onClose, group, groups, memberships, names, onCreat
   useEffect(() => {
     form.resetFields();
     if (group) form.setFieldsValue(group);
-    else form.setFieldsValue({ types: ["assignment"], active: true, restricted: false, roles: [] });
+    else form.setFieldsValue({ types: ["assignment"], active: true, restricted: false, roles: [], notify_mode: "auto" });
     setAdding([]);
   }, [group?.id, group?.version, open, form]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -170,6 +171,11 @@ function GroupDrawer({ open, onClose, group, groups, memberships, names, onCreat
     invalidate: [KEYS.table("group_member"), KEYS.me],
   });
   const drop = useAction((m: Membership) => api.del(`/r/group_member/${m.id}?version=${m.version}`), { success: "از گروه برداشته شد.", invalidate: [KEYS.table("group_member"), KEYS.me, KEYS.members] });
+
+  // a large group under «خودکار» without a lead or a manager notifies every member (and «فقط سرپرستان» nobody)
+  const notifyMode = Form.useWatch("notify_mode", form) as GroupNotifyMode | undefined;
+  const managerId = Form.useWatch("manager_id", form) as string | null | undefined;
+  const notifyWarning = group ? groupNotifyWarning(notifyMode ?? "auto", memberships.length, !!managerId || memberships.some((m) => m.kind === "lead")) : null;
 
   const details = (
     <Form form={form} layout="vertical" requiredMark={false} disabled={!manageOrg} onFinish={(v) => save.mutate(v)}>
@@ -207,6 +213,10 @@ function GroupDrawer({ open, onClose, group, groups, memberships, names, onCreat
           <Switch />
         </Form.Item>
       </div>
+      <Form.Item name="notify_mode" label="اعلان ارجاع به گروه">
+        <Select options={GROUP_NOTIFY_OPTIONS.map((o) => ({ value: o.value, label: o.label }))} />
+      </Form.Item>
+      {notifyWarning ? <Alert type="warning" showIcon className="mb-4" title={notifyWarning} /> : null}
       <Form.Item name="description" label="شرح">
         <Input.TextArea autoSize={{ minRows: 2, maxRows: 6 }} />
       </Form.Item>
