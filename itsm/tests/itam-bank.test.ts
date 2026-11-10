@@ -62,6 +62,17 @@ describe("branch-scoped access", () => {
     expect(region.rows.find((r: any) => r.id === a.v1.id).purchase_cost).toBe("650000000");
   });
 
+  it("counts the branch inventory over the branches the caller may read", async () => {
+    const mine = await m.vanak.client.get(`${w.P}/itam/branches`);
+    expect(mine.branches.map((b: any) => b.name)).toEqual(["شعبهٔ ونک"]);
+    expect(mine.branches[0]).toMatchObject({ total: 4, fleet: 1, fleet_down: 0, value: null });
+    expect(mine.branches[0].by_state.in_use).toBe(4);
+    const region = await m.region.client.get(`${w.P}/itam/branches`);
+    expect(region.branches.map((b: any) => b.name).sort()).toEqual(["شعبهٔ تجریش", "شعبهٔ ونک"]);
+    expect(region.financial).toBe(true);
+    expect(region.total).toBe(5);
+  });
+
   it("lets an auditor read every branch and change nothing", async () => {
     const all = await w.p.auditor.client.post(`${w.P}/r/asset/query`, { size: 100 });
     for (const x of Object.values(a)) expect(all.rows.some((r: any) => r.id === x.id)).toBe(true);

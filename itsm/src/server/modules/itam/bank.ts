@@ -27,7 +27,7 @@ import { addDays, jalaliYearRange } from "@shared/jalali";
 import { D } from "@shared/money";
 import type { Ctx } from "../../context";
 import { pgArray, type Tx, type Queryable } from "../../db";
-import { createIn, emitEvent, get, registerHooks, transitionIn, updateIn, pushGuard, type PushArgs, type WriteArgs } from "../../engine";
+import { aggregate, createIn, emitEvent, get, registerHooks, transitionIn, updateIn, pushGuard, type PushArgs, type WriteArgs } from "../../engine";
 import { access } from "../../access/provider";
 import { registerParticipantSource, subjectOf } from "../../access";
 import { bad, conflict, forbidden } from "../../http/errors";
@@ -876,8 +876,19 @@ export async function assetRegister(ctx: Ctx, input: RegisterInput): Promise<Row
 
 /** Per branch the caller may read: asset counts by state, open transfers in and out, audits and attestations. */
 export async function branchInventory(ctx: Ctx): Promise<Row> {
-  const assets = await liveRows(ctx.db, ctx, "asset", { f: "state", op: "nin", v: ["disposed", "canceled"] }, { limit: 50000 });
   const financial = await hasGroup(ctx, "financial");
+  // counts through the engine's aggregate (the caller's access; one group per branch, so thousands of branches fit)
+  const LIVE: Cond = { f: "state", op: "nin", v: ["disposed", "canceled"] };
+  const byBranch = async (filter: Cond, sum = false) => {
+    const r = await aggregate(ctx, "asset", { filter, groupBy: ["branch_id"], metrics: [{ fn: "count" }, ...(sum ? [{ fn: "sum" as const, field: "book_value" }] : [])], limit: 5000 });
+    return new Map(r.rows.map((x) => [String(x.keys[0] ?? ""), { n: Number(x.values.count ?? 0), value: sum ? String(x.values["sum:book_value"] ?? "0") : null }]));
+  };
+  const totals = await byBranch(LIVE, financial);
+  const states: Record<string, Map<string, { n: number }>> = {};
+  for (const st of ["in_use", "in_stock", "in_transit", "in_repair", "missing", "retired"]) states[st] = await byBranch({ f: "state", op: "eq", v: st });
+  const FLEET_LIVE: Cond = { and: [LIVE, { f: "category", op: "in", v: FLEET_CATEGORIES }] };
+  const fleetAll = await byBranch(FLEET_LIVE);
+  const fleetDown = await byBranch({ and: [FLEET_LIVE, { f: "device_status", op: "in", v: ["out_of_service", "out_of_cash", "maintenance", "offline"] }] });
   const sys = sysOf(ctx);
   const units = new Map((await liveRows(ctx.db, sys, "org_unit", null, { limit: 20000 })).map((u) => [String(u.id), u]));
   const transfers = await liveRows(ctx.db, ctx, "asset_transfer", { f: "state", op: "in", v: OPEN_TRANSFER }, { limit: 5000 });
@@ -894,17 +905,17 @@ export async function branchInventory(ctx: Ctx): Promise<Row> {
     }
     return r;
   };
-  for (const a of assets) {
-    const r = row(String(a.branch_id ?? ""));
-    r.total = Number(r.total) + 1;
+  let total = 0;
+  for (const [id, t] of totals) {
+    const r = row(id);
+    r.total = t.n;
+    total += t.n;
+    if (financial) r.value = D(t.value ?? "0").toFixed(0);
     const by = r.by_state as Record<string, number>;
-    by[String(a.state)] = (by[String(a.state)] ?? 0) + 1;
-    if (a.state === "missing") r.missing = Number(r.missing) + 1;
-    if (financial && a.book_value !== undefined) r.value = D(String(r.value ?? "0")).plus(String(a.book_value ?? a.purchase_cost ?? "0")).toFixed(0);
-    if (FLEET_CATEGORIES.includes(String(a.category))) {
-      r.fleet = Number(r.fleet) + 1;
-      if (a.device_status && a.device_status !== "in_service") r.fleet_down = Number(r.fleet_down) + 1;
-    }
+    for (const [st, m] of Object.entries(states)) by[st] = m.get(id)?.n ?? 0;
+    r.missing = by.missing ?? 0;
+    r.fleet = fleetAll.get(id)?.n ?? 0;
+    r.fleet_down = fleetDown.get(id)?.n ?? 0;
   }
   for (const t of transfers) {
     if (out.has(String(t.from_branch_id)) || units.has(String(t.from_branch_id))) {
@@ -927,7 +938,7 @@ export async function branchInventory(ctx: Ctx): Promise<Row> {
     r.attestation = { id: a.id, number: a.number, state: a.state, period: a.period_label, due_date: a.due_date ?? null, overdue: !!a.overdue, exceptions: a.exception_count ?? 0 };
   }
   const branches = [...out.values()].sort((x, y) => Number(y.total) - Number(x.total));
-  return { branches, financial, can_transfer: await holds(ctx, "asset", "create", "own"), total: assets.length };
+  return { branches, financial, can_transfer: await holds(ctx, "asset", "create", "own"), total };
 }
 
 /** Open transfers addressed to the caller's branches (the receipt inbox) and sent from them. */
