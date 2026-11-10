@@ -1,0 +1,47 @@
+/* Screens of workforce and agent experience (ds tokens only; logical properties for RTL; phone-friendly). */
+.wfm-home { display: grid; gap: 16px; grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr); align-items: start; }
+@media (max-width: 960px) { .wfm-home { grid-template-columns: 1fr; } }
+.wfm-cols { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); align-items: start; }
+.wfm-next { border-inline-start: 3px solid var(--ds-accent, var(--ds-in)); }
+
+.wfm-list { display: flex; flex-direction: column; }
+.wfm-list li { display: flex; flex-direction: column; gap: 2px; padding-block: 8px; border-block-end: 1px solid var(--ds-line); }
+.wfm-list li:last-child { border-block-end: 0; }
+.wfm-list-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wfm-list-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12px; color: var(--ds-text-3); }
+
+.wfm-board, .wfm-heat { border-collapse: separate; border-spacing: 2px; font-size: 12px; }
+.wfm-board th, .wfm-heat th { font-weight: normal; color: var(--ds-text-3); padding: 4px 6px; white-space: nowrap; }
+.wfm-board thead th span, .wfm-heat thead th span { display: block; text-align: center; line-height: 1.4; }
+.wfm-board thead th.is-holiday, .wfm-heat thead th.is-holiday { color: var(--ds-holiday, var(--ds-danger)); }
+.wfm-board td { min-inline-size: 34px; block-size: 30px; text-align: center; border-radius: 4px; background: var(--ds-sunken); }
+.wfm-board tr.is-me th { color: var(--ds-text); font-weight: var(--ds-weight-medium, 540); }
+.wfm-board td[data-color="gold"] { background: color-mix(in oklab, var(--ds-warning) 22%, transparent); }
+.wfm-board td[data-color="orange"] { background: color-mix(in oklab, var(--ds-warning) 34%, transparent); }
+.wfm-board td[data-color="indigo"], .wfm-board td[data-color="purple"], .wfm-board td[data-color="blue"] { background: color-mix(in oklab, var(--ds-in) 22%, transparent); }
+.wfm-board td[data-color="teal"], .wfm-board td[data-color="green"] { background: color-mix(in oklab, var(--ds-in) 14%, transparent); }
+.wfm-board td[data-color="off"] { background: color-mix(in oklab, var(--ds-danger) 14%, transparent); }
+.wfm-board .wfm-off { color: var(--ds-danger); }
+.wfm-board .wfm-coverage th { color: var(--ds-text-2); }
+.wfm-board .wfm-coverage td { background: transparent; }
+.wfm-board .wfm-coverage td[data-gap="1"] { background: color-mix(in oklab, var(--ds-danger) 24%, transparent); font-weight: var(--ds-weight-medium, 540); }
+
+.wfm-heat td { min-inline-size: 42px; block-size: 34px; text-align: center; border-radius: 4px; }
+.wfm-heat td[data-tone="idle"] { background: var(--ds-sunken); color: var(--ds-text-3); }
+.wfm-heat td[data-tone="optimal"] { background: color-mix(in oklab, var(--ds-in) 20%, transparent); }
+.wfm-heat td[data-tone="high"] { background: color-mix(in oklab, var(--ds-warning) 26%, transparent); }
+.wfm-heat td[data-tone="overloaded"] { background: color-mix(in oklab, var(--ds-danger) 28%, transparent); font-weight: var(--ds-weight-medium, 540); }
+.wfm-heat td[data-tone="holiday"] { background: repeating-linear-gradient(135deg, var(--ds-sunken) 0 4px, transparent 4px 8px); }
+.wfm-heat td[data-tone="none"] { background: transparent; }
+.wfm-heat tbody th { min-inline-size: 170px; }
+
+.wfm-people { inline-size: 100%; border-collapse: collapse; font-size: 13px; }
+.wfm-people th, .wfm-people td { padding: 6px 8px; border-block-end: 1px solid var(--ds-line); text-align: start; vertical-align: middle; }
+.wfm-people thead th { color: var(--ds-text-3); font-weight: normal; white-space: nowrap; }
+
+.wfm-score { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 0; }
+.wfm-score div { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 8px; background: var(--ds-sunken); }
+.wfm-score dt { font-size: 12px; color: var(--ds-text-3); }
+.wfm-score dd { margin: 0; font-size: 18px; color: var(--ds-text); }
+
+.wfm-form { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-block-end: 12px; }

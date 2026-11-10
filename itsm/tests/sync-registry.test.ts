@@ -44,6 +44,10 @@ const LOCAL_ONLY: Record<string, string> = {
   // event management: raw monitoring events stay with the runtime that received them (short retention); alerts travel
   sm_events: "raw monitoring events of this runtime (normalised deliveries; their alerts are synchronised)",
   sm_ai_doc_pages: "text read from smart documents on this runtime",
+  // workforce: presence is the state of the runtime people work on (a heartbeat a minute would flood sync); skills,
+  // rosters, time off, points and kudos travel
+  sm_wfm_agents: "presence (and personal preferences) of each person on this runtime",
+  sm_wfm_presence_log: "presence intervals of this runtime (time available, utilisation)",
   sm_ai_rag_runs: "AI index runs (backfills, re-embedding, reconciliation)",
   // predictive AI and insights (docs/spec/AI.md §13–14): each runtime trains its classical models on the data it holds
   // and keeps their outputs; governance logs record what this runtime refused

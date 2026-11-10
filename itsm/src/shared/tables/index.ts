@@ -38,6 +38,8 @@ import { AI_GOVERNANCE_TABLES } from "./ai-governance";
 import { ESM_CHOICE_LISTS, ESM_TABLES } from "./esm";
 import { CSM_CHOICE_LISTS, CSM_TABLES } from "./csm";
 import { FSM_CHOICE_LISTS, FSM_TABLES } from "./field_service";
+import { SLM_CHOICE_LISTS, SLM_TABLES } from "./slm";
+import { WORKFORCE_CHOICE_LISTS, WORKFORCE_TABLES } from "./workforce";
 
 export { CUSTOM_FIELD_TYPES, VIEW_KINDS } from "./core";
 
@@ -73,6 +75,8 @@ const MODULE_TABLES: TableDef[][] = [
   ESM_TABLES,
   CSM_TABLES,
   FSM_TABLES,
+  SLM_TABLES,
+  WORKFORCE_TABLES,
 ];
 
 /** Every table by key (resolved definitions). */
@@ -258,6 +262,8 @@ for (const [key, options] of Object.entries(SECURITY_CHOICE_LISTS)) registerChoi
 for (const [key, options] of Object.entries(ESM_CHOICE_LISTS)) registerChoiceList(key, options);
 for (const [key, options] of Object.entries(CSM_CHOICE_LISTS)) registerChoiceList(key, options);
 for (const [key, options] of Object.entries(FSM_CHOICE_LISTS)) registerChoiceList(key, options);
+for (const [key, options] of Object.entries(SLM_CHOICE_LISTS)) registerChoiceList(key, options);
+for (const [key, options] of Object.entries(WORKFORCE_CHOICE_LISTS)) registerChoiceList(key, options);
 
 /** The members of the organisation as a reference target (virtual: no table of its own). */
 export const USER_DEF = buildTable(USER_TABLE);

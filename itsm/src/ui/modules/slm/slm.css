@@ -1,0 +1,39 @@
+/* Screens of service level management (ds tokens only; logical properties for RTL; phone-friendly). */
+.slm-kpis { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.slm-cols { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); align-items: start; }
+.slm-stats { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.slm-kpi-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+
+.slm-targets { display: flex; flex-direction: column; }
+.slm-target { display: grid; grid-template-columns: minmax(200px, 2fr) minmax(160px, 1.4fr) minmax(110px, 1fr); gap: 14px; align-items: center; padding-block: 10px; border-block-end: 1px solid var(--ds-line); }
+.slm-target:last-child { border-block-end: 0; }
+.slm-target-main { display: flex; flex-direction: column; gap: 4px; min-inline-size: 0; }
+.slm-target-bar { display: flex; flex-direction: column; gap: 4px; }
+.slm-bar { position: relative; block-size: 8px; border-radius: 4px; background: var(--ds-sunken); overflow: visible; }
+.slm-bar-fill { position: absolute; inset-block: 0; inset-inline-start: 0; border-radius: 4px; background: var(--ds-in); }
+.slm-bar-fill[data-status="at_risk"] { background: var(--ds-warning); }
+.slm-bar-fill[data-status="missed"] { background: var(--ds-danger); }
+.slm-bar-fill[data-status="no_data"] { background: var(--ds-line-2, var(--ds-line)); }
+.slm-bar-goal { position: absolute; inset-block: -3px; inline-size: 2px; background: var(--ds-text); border-radius: 1px; }
+@media (max-width: 720px) {
+  .slm-target { grid-template-columns: 1fr; gap: 6px; }
+}
+
+.slm-mini { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(60px, 1fr) auto; gap: 8px; align-items: center; font-size: 13px; padding-block: 2px; }
+.slm-mini-bar { block-size: 6px; border-radius: 3px; background: var(--ds-sunken); overflow: hidden; }
+.slm-mini-bar i { display: block; block-size: 100%; background: color-mix(in oklab, var(--ds-danger) 70%, transparent); }
+
+.slm-table { inline-size: 100%; border-collapse: collapse; font-size: 13px; }
+.slm-table th, .slm-table td { padding: 6px 8px; border-block-end: 1px solid var(--ds-line); text-align: start; vertical-align: middle; }
+.slm-table thead th { color: var(--ds-text-3); font-weight: normal; white-space: nowrap; }
+
+.slm-doc { line-height: 1.9; }
+.slm-doc table { inline-size: 100%; }
+
+.slm-templates { display: grid !important; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.slm-template { display: flex !important; flex-direction: column; gap: 2px; block-size: auto !important; padding: 10px 12px !important; line-height: 1.6 !important; border-radius: 8px !important; white-space: normal; }
+.slm-form { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+
+@media print {
+  .slm-pack .no-print { display: none !important; }
+}

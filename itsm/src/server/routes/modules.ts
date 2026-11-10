@@ -41,6 +41,10 @@ import { installEventModule } from "../modules/event";
 import { eventRoutes } from "./event";
 import { installContinuityModule } from "../modules/continuity";
 import { continuityRoutes } from "./continuity";
+import { installSlmModule } from "../modules/slm";
+import { slmRoutes } from "./slm";
+import { installWorkforceModule } from "../modules/workforce";
+import { workforceRoutes } from "./workforce";
 import { installAiSkills } from "../modules/ai/skills";
 import { installSecurityModule } from "../modules/security";
 import { securityRoutes } from "./security";
@@ -126,6 +130,10 @@ installCsmModule();
 installFieldServiceModule();
 // analytics, reporting and KPIs (docs/modules/analytics_FA.md) — after every module whose tables it reports on
 installAnalyticsModule();
+// service level management (docs/modules/slm_FA.md) — after the service portfolio (its agreements) and analytics
+installSlmModule();
+// workforce and agent experience (docs/modules/workforce_FA.md) — after service level management (agent home reads it)
+installWorkforceModule();
 
 // the AI skills (docs/spec/AI.md §11) — after every module whose AI extension points they implement
 installAiSkills();
@@ -180,3 +188,5 @@ moduleRoutes.route("/portal", portalRoutes);
 moduleRoutes.route("/esm", esmRoutes);
 moduleRoutes.route("/csm", csmRoutes);
 moduleRoutes.route("/field_service", fieldServiceRoutes);
+moduleRoutes.route("/slm", slmRoutes);
+moduleRoutes.route("/workforce", workforceRoutes);
