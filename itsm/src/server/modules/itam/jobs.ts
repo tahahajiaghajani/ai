@@ -27,6 +27,7 @@ import { discoveredStep, fromCi, linkCi } from "./assets";
 import { checkStockRules } from "./stock";
 import { reconcile, renormalize, syncInstalls } from "./sam";
 import { bookValueOf, setHandOver } from "./hooks";
+import { openAttestations } from "./bank";
 
 export const SWEEP_EVERY = 24 * 3600_000;
 const lastSweep = new Map<string, number>();
@@ -305,6 +306,8 @@ export function installItamJobs(): (() => void)[] {
       // discovered hardware: a reviewable count until an asset manager made the first batch, then capped daily batches
       await discoveredStep(sys, 200).catch(() => undefined);
       await reconcile(sys, "schedule").catch(() => undefined);
+      // branch managers' periodic attestation: the period's rows per branch, overdue flags
+      await openAttestations(sys).catch(() => undefined);
       return { again: SWEEP_EVERY };
     }),
     onRecordEvent("itam.ci", async (e, jctx) => {

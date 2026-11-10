@@ -8,6 +8,8 @@
 //   · the approvals service settles requisitions (approved / rejected) and disposal orders (approved)
 //   · the AI skills (licence optimisation narrative, asset summary) with rule-based fallbacks (ai.ts)
 //   · the seed of a new organisation (seed.ts), queued after the SLA service's calendars and the request catalogue
+//   · the bank layer (bank.ts): branch-scoped assets, transfers between branches with receipts, the chain of custody,
+//     device status and the ATM fleet, the asset register by fiscal year, audit reconciliation, branch attestation
 import type { TableDef } from "@shared/model/types";
 import { registerParticipantSource } from "../../access";
 import { onApprovalSettled, SEED_DELAY_MS, settledVerdict } from "../sla";
@@ -15,6 +17,7 @@ import { registerOrgSeed } from "../orgs/service";
 import { registerRecordMeta, systemCtx, transitionIn } from "../../engine";
 import { enqueue, registerJobHandler, type JobConfig } from "../../jobs";
 import { installItamHooks } from "./hooks";
+import { installBankHooks } from "./bank";
 import { ensureItamSweep, installItamJobs } from "./jobs";
 import { installItamAi } from "./ai";
 import { seedItamDefaultsIn, type SeedCounts } from "./seed";
@@ -35,6 +38,7 @@ export function installItamModule(): void {
   if (installed) return;
   installed = true;
   installItamHooks();
+  installBankHooks();
   installItamJobs();
   installItamAi();
   registerParticipantSource({
@@ -83,3 +87,7 @@ export { syncInstalls, renormalize, reconcile, compliance, licenceFacts } from "
 export { itamSweep, ensureItamSweep, resetItamSweepThrottle } from "./jobs";
 export { itamText, licenceNarrative, assetSummaryText, ITAM_SKILLS } from "./ai";
 export { itamConfig, holds, hasGroup } from "./common";
+export {
+  addCustody, verifyCustody, custodyDigest, custodyOf, receiveTransfer, resolveAuditItem, attest, openAttestations, wipeCertificate, fleet, setDeviceStatus, createPmPlans,
+  deviceRisk, riskText, assetRegister, branchInventory, transferInbox, transferItems,
+} from "./bank";

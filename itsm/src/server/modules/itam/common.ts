@@ -18,7 +18,7 @@ export { liveRow, liveRows, countRows, eqAll, isUuid, sysOf, type Row } from "..
 export type GrantOp = "read" | "create" | "write" | "delete" | "approve" | "admin";
 
 /** Does the caller hold `op` in `area` (read/write/delete: with a scope of at least `scope`, default own)? */
-export async function holds(ctx: Ctx, area: string, op: GrantOp, scope: "own" | "group" | "all" = "own", q?: Queryable): Promise<boolean> {
+export async function holds(ctx: Ctx, area: string, op: GrantOp, scope: "own" | "group" | "unit" | "unit_tree" | "domain" | "all" = "own", q?: Queryable): Promise<boolean> {
   if (ctx.actor === "system") return true;
   await orgSchema(ctx, q);
   try {
