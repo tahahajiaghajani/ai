@@ -70,6 +70,38 @@ export function demoCaptureDdl(table: string): string {
   return `create or replace trigger ${name} after insert on ${table} for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();`;
 }
 
+/**
+ * What demo work changed in REAL rows (docs/DEMO_FA.md, migration 0099_demo_touch): an AFTER UPDATE OR DELETE trigger
+ * that, inside the demo scope only, keeps the row's image before demo work first touched it and its image after the
+ * last demo write in `sm_demo_touched`. The purge puts exactly those rows back, and only when nothing outside the demo
+ * scope changed them since (otherwise it reports them). Demo rows themselves are skipped.
+ */
+export const DEMO_TOUCH_FN = `create or replace function sm_demo_touch() returns trigger language plpgsql as $demo$
+declare
+  v_old jsonb := to_jsonb(old);
+  v_new jsonb := case when tg_op = 'UPDATE' then to_jsonb(new) else null end;
+begin
+  if exists (select 1 from sm_demo_rows d where d.org_id = old.org_id and d.row_id = old.id) then
+    return null;
+  end if;
+  insert into sm_demo_touched (org_id, row_id, tbl, before, after, conflict, at)
+  values (old.org_id, old.id, tg_table_name, v_old, v_new, false, now())
+  on conflict (org_id, row_id) do update
+     set after = excluded.after,
+         -- something outside the demo scope changed the row between two demo writes: never put it back blindly
+         conflict = sm_demo_touched.conflict or sm_demo_touched.after is null
+           or (sm_demo_touched.after - 'rev' - 'updated_at') <> (v_old - 'rev' - 'updated_at'),
+         at = now();
+  return null;
+end
+$demo$;`;
+
+/** The change-capture trigger of one table (it must have `id uuid` and `org_id uuid`). */
+export function demoTouchDdl(table: string): string {
+  const name = shortName(`${table}_demo_t`);
+  return `create or replace trigger ${name} after update or delete on ${table} for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();`;
+}
+
 /** Idempotent DDL of one table. */
 export function ddlFor(def: TableDef): string {
   if (def.virtual) return "";
@@ -128,6 +160,7 @@ export function ddlFor(def: TableDef): string {
     out.push(`create trigger ${t}_sync before insert or update on ${t} for each row execute function sm_sync_touch('${def.key}');`);
   }
   out.push(demoCaptureDdl(t));
+  out.push(demoTouchDdl(t));
   out.push(`alter table ${t} enable row level security;`);
   return out.join("\n");
 }
@@ -296,7 +329,7 @@ export function archiveDdl(def: TableDef): string {
 /** The DDL of every registered table (deterministic: sorted by key), archives after their tables. */
 export function ddlForAll(): string {
   const archives = physicalTables().map(archiveDdl).filter(Boolean);
-  return `${DEMO_CAPTURE_FN}\n\n${physicalTables().map(ddlFor).join("\n\n")}\n\n${archives.length ? `${archives.join("\n\n")}\n\n` : ""}${REVOKE}\n`;
+  return `${DEMO_CAPTURE_FN}\n\n${DEMO_TOUCH_FN}\n\n${physicalTables().map(ddlFor).join("\n\n")}\n\n${archives.length ? `${archives.join("\n\n")}\n\n` : ""}${REVOKE}\n`;
 }
 
 export function ddlHash(sql = ddlForAll()): string {

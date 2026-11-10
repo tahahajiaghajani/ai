@@ -4,7 +4,7 @@
 // and the result. Only content-free audit lines remain.
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Alert, Button, Checkbox, Input, Modal, Progress, Segmented, Table, Typography } from "antd";
+import { Alert, Button, Checkbox, Input, Modal, Progress, Segmented, Switch, Table, Typography } from "antd";
 import { Database, Trash2, Upload } from "lucide-react";
 import { useOrg } from "../../lib/org";
 import { useSession } from "../../lib/session";
@@ -29,6 +29,7 @@ interface Status {
   error?: string | null;
   accounts?: { persona: string; email: string; name: string; title: string }[];
   password?: string | null;
+  signin?: boolean;
   waiting_devices?: number;
   last?: { action: string; at: string; data: Record<string, unknown> | null } | null;
   real_records?: number;
@@ -97,6 +98,19 @@ export default function Demo() {
     try {
       await api.post("/demo/load", { size, force });
       n.ok("بارگذاری دادهٔ نمایشی آغاز شد.");
+      refresh();
+    } catch (e) {
+      n.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const setSignin = async (on: boolean) => {
+    setBusy(true);
+    try {
+      await api.post("/demo/signin", { on });
+      n.ok(on ? "ورود با حساب‌های نمایشی روشن شد." : "ورود با حساب‌های نمایشی خاموش شد.");
       refresh();
     } catch (e) {
       n.error(e);
@@ -194,6 +208,10 @@ export default function Demo() {
 
           {s.accounts?.length ? (
             <Card title="حساب‌های نمایش" meta={s.password ? <span>گذرواژهٔ مشترک: <Typography.Text code copyable className="ltr">{s.password}</Typography.Text></span> : undefined}>
+              <label className="mb-3 inline-flex items-center gap-2">
+                <Switch size="small" checked={!!s.signin} loading={busy} onChange={(on) => void setSignin(on)} />
+                <span>ورود با حساب‌های نمایشی {s.signin ? "روشن است؛ پس از ارائه آن را خاموش کنید" : "خاموش است"}</span>
+              </label>
               <Table
                 size="small"
                 rowKey="email"

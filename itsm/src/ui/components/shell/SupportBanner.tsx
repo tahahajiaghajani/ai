@@ -116,7 +116,7 @@ function DemoBand() {
   const { api, orgId, can } = useOrg();
   const q = useQuery({
     queryKey: ["demo-banner", orgId],
-    queryFn: () => api.get<{ active: boolean; state: string; bank: string }>("/demo/banner"),
+    queryFn: () => api.get<{ active: boolean; state: string; bank: string; signin?: boolean }>("/demo/banner"),
     staleTime: 60_000,
     refetchInterval: 5 * 60_000,
   });
@@ -128,6 +128,7 @@ function DemoBand() {
         این سازمان دادهٔ نمایشی دارد
       </span>
       <span className="text-ink-2 max-sm:hidden">{q.data.bank} — همهٔ نام‌ها و رکوردهای آن ساختگی است.</span>
+      <span className="text-ink-2 max-sm:hidden">{q.data.signin ? "ورود با حساب‌های نمایشی روشن است." : "ورود با حساب‌های نمایشی خاموش است."}</span>
       {can("settings", "full") ? (
         <Link className="ms-auto" to={`/${orgId}/settings/demo`}>
           مدیریت داده‌های نمایشی

@@ -1,26 +1,30 @@
-// The demo pack's zero-trace purge (docs/DEMO_FA.md). What the pack made is known exactly: every row a demo transaction
-// inserted is in `sm_demo_rows` (src/server/db/scope.ts, the capture triggers of migration 0098_demo), and so are the
-// pack's accounts. The purge finds what derives from those rows although demo work did not write it, removes all of it,
-// clears what real rows say about it, and puts back what the organisation's own computations changed meanwhile:
+// The demo pack's purge (docs/DEMO_FA.md). Its rule: it never deletes, reverts or erases the history of REAL data; what
+// cannot be attributed to demo work with certainty is left and reported. What the pack made is known exactly: every
+// row a demo transaction inserted is in `sm_demo_rows` (src/server/db/scope.ts, the capture triggers of migration
+// 0098_demo), and so are the pack's accounts; every real row demo work changed or deleted has its before and after
+// images in `sm_demo_touched` (migration 0099_demo_touch).
 //
-// 1. expand — rows that exist only because of a demo row join the set (to a fixed point): side rows of a demo record
-//    (journal, history, attachments, links, approvals, SLA timers, bells, notification log, RAG documents, chunks and
-//    vectors, predictions, survey answers… — any table with a `record_id`/`ref_id` naming one), parent-scoped children
-//    (`TableDef.parent`), a person's own rows (`user_id` of a demo account), and every platform row (jobs, audit, AI
-//    threads and usage, sessions, devices, security events, search and portal events…) that names a demo row anywhere.
-// 2. report — counts per table, and the real rows that refer to demo rows (a reference field, an anchor, a stamp).
+// 1. expand — rows that exist only because of a demo row join the set (to a fixed point), always through a reference,
+//    never by time or authorship alone: side rows of a demo record (journal, history, attachments, links, approvals,
+//    SLA timers, bells, notification log, RAG documents… — any table with a `record_id`/`ref_id` naming one),
+//    parent-scoped children (`TableDef.parent`), rows that cannot exist without one (required references), a demo
+//    person's own rows (`user_id`, `created_by`), and platform rows (jobs, AI threads, sessions…) naming a demo row.
+//    Then the real rows demo work changed go back (`revertTouched`: only rows still as demo work left them), and the
+//    trail of real records (history, journal, audit, sign-ins) leaves the set (`keepRealTrail`).
+// 2. report — counts per table; the real rows that refer to demo rows; real rows demo work changed that were left;
+//    rows the platform made outside the demo scope that refer to demo rows (`unattributedReport`: kept).
 // 3. clear — references of real rows: optional reference fields are emptied (one-to-many lists lose the demo ids);
 //    required ones, access anchors and authorship stamps are only reported (a real row is never deleted).
 // 4. remove — the rows themselves, their archive copies (`_arc`) and their tables without ids (extracted pages, flow
 //    timers, scope epochs…). Synchronised rows of an organisation with Windows apps become content-free tombstones
 //    first (the apps drop their copies on their next pull) and go for good once every app has passed them
 //    (`finalizeDemo`); without apps they go at once. Files no remaining attachment uses leave the blob store.
-// 5. accounts — the pack's people leave with their memberships, sessions and devices; an account that also belongs to
-//    another organisation is kept there (only its demo mark goes).
+// 5. accounts — the pack's people leave with their memberships and sessions (their sign-in records stay); an account
+//    that also belongs to another organisation is kept there (only its demo mark goes).
 // 6. restore — numbering counters, and the computed tables (KPI scores, trained models, insights…) as they were
 //    before the load (`sm_demo_saved`): what the platform computed while demo data was there is recomputed from real
 //    data on its next run.
-// Left behind: one content-free audit line per load and purge (counts only).
+// Left behind: one content-free audit line per load and purge (counts only), and the trail of real records.
 import type { TableDef } from "@shared/model/types";
 import { physicalTables } from "@shared/tables";
 import { pgArray, type Queryable } from "../../db";
@@ -50,6 +54,7 @@ const SKIP = new Set([
   "sm_demo_rows",
   "sm_demo_packs",
   "sm_demo_saved",
+  "sm_demo_touched",
   "sm_orgs",
   "sm_users",
   "sm_migrations",
@@ -101,16 +106,8 @@ export const COMPUTED_TABLES = [
   "sm_allocation_results",
 ];
 
-/** Tables whose rows only ever grow (logs): never saved as real rows to put back. */
-const APPEND_ONLY = new Set(["sm_history", "sm_journal", "sm_audit", "sm_jobs", "sm_notification_log", "sm_security_events", "sm_kb_events", "sm_portal_events", "sm_ai_usage", "sm_ai_messages", "sm_int_log", "sm_api_usage"]);
 /** Above this many rows a table is not saved (a large organisation's records: see docs/DEMO_FA.md). */
 const SAVE_LIMIT = 20_000;
-/**
- * The organisation's structure, people and their settings: a real row of these is never taken for something the demo
- * period produced (removing it could change who reads what).
- */
-const PEOPLE_AND_ACCESS = new Set(["sm_member_profiles", "sm_group_members", "sm_groups", "sm_roles", "sm_workspaces", "sm_org_units", "sm_locations", "sm_notification_prefs", "sm_portal_prefs", "sm_delegations", "sm_org_members", "sm_notifications", "sm_approvals", "sm_task_slas"]);
-
 /** Columns a tombstone keeps (identity, sync, and what a pull needs to judge a side row). */
 const TOMBSTONE_KEEP = new Set(["id", "org_id", "rev", "deleted_at", "created_at", "updated_at", "version", "table_key", "record_id", "from_table", "from_id", "to_table", "to_id", "field", "visibility", "kind"]);
 
@@ -199,6 +196,13 @@ export function derivedConds(t: TableInfo): string[] {
     out.push(`exists (select 1 from regexp_matches(x.payload::text, ${lit(`(${UUID_RE})`)}, 'g') m where ${isDemo("m[1]::uuid")})`);
     return out;
   }
+  // the trail of a record (history, journal, audit, sign-ins): derived only from the record it is about, never from who
+  // wrote it — a demo person's entry on a real record stays (keepRealTrail)
+  const trail = TRAIL_TABLES[t.name];
+  if (trail) {
+    if (trail.record) add(names(t, trail.record));
+    return out;
+  }
   for (const col of ["record_id", "ref_id", "entity_id", "doc_id", "from_id", "to_id"]) add(names(t, col));
   if (!t.def) {
     for (const c of t.cols.values()) if (c.type === "uuid" && !STAMPS.has(c.name)) add(names(t, c.name));
@@ -206,6 +210,8 @@ export function derivedConds(t: TableInfo): string[] {
   }
   if (t.def.scope?.parent) add(names(t, t.def.scope.parent));
   add(names(t, "user_id"));
+  // a row a demo person made (outside the demo scope's capture, e.g. pushed from a Windows app before the scope covered it)
+  add(names(t, "created_by"));
   // a row that is not a record of its own (no number) and cannot exist without the row it names: a line, a
   // relationship, a membership, an assignment, an answer
   if (!t.def.numbered) for (const f of t.def.fields) if (!f.base && f.required && (f.type === "ref" || f.type === "user" || f.type === "group")) add(names(t, f.name));
@@ -259,6 +265,12 @@ export interface PurgeReport {
   /** synchronised rows left as tombstones until every Windows app has pulled them */
   tombstones: number;
   restored: Record<string, number>;
+  /** real rows demo work changed that were left as they are (something outside the demo scope changed them since) */
+  left_real?: TouchReport[];
+  /** trail rows (history, journal, audit, sign-ins) demo work wrote about real records: kept */
+  kept_trail?: number;
+  /** rows the platform made outside the demo scope since the load that refer to demo rows: kept, only reported */
+  unattributed?: Unattributed[];
 }
 
 /** Reference fields of an engine table (the columns a real row may point at a demo row with). */
@@ -385,7 +397,7 @@ export async function removeAccounts(q: Queryable, orgId: string): Promise<{ rem
     // a membership, a session or a sign-in record the capture did not see (outside any organisation's scope)
     await q.query(`delete from sm_org_members where org_id = $1 and user_id = $2`, [orgId, u.id]);
     await q.query(`delete from sm_sessions where user_id = $1 and (org_id = $2 or org_id is null or $3::boolean = false)`, [u.id, orgId, u.elsewhere]);
-    await q.query(`delete from sm_security_events where user_id = $1 and (org_id = $2 or org_id is null or $3::boolean = false)`, [u.id, orgId, u.elsewhere]);
+    // sign-in records stay (docs/DEMO_FA.md): who signed in as a demo account, and when, is never erased
     await q.query(`delete from sm_scope_epochs where user_id = $1 and org_id = $2`, [u.id, orgId]);
     if (u.elsewhere) {
       await q.query(`update sm_users set prefs = prefs - 'demo_org' where id = $1 and prefs ->> 'demo_org' = $2`, [u.id, orgId]);
@@ -484,16 +496,22 @@ export async function restoreComputed(q: Queryable, orgId: string, info: TableIn
       [orgId],
     );
     if (gone.length) await dropTrail(q, orgId, gone.map((r) => r.id));
-    const cols = [...t.cols.values()].filter((c) => !c.generated && c.name !== "rev").map((c) => c.name);
+    // only the columns the saved copy has (all of a table's rows were saved at once, with one shape) and the table
+    // still has: a column an upgrade added keeps its default or its value, one it dropped is ignored
+    const sample = await q.one<{ data: Record<string, unknown> }>(`select data from sm_demo_saved where org_id = $1 and tbl = ${lit(table)} limit 1`, [orgId]);
+    if (!sample) continue;
+    const cols = [...t.cols.values()].filter((c) => !c.generated && c.name !== "rev" && Object.prototype.hasOwnProperty.call(sample.data, c.name)).map((c) => c.name);
+    if (!cols.includes("id")) continue;
     const list = cols.map(ident).join(", ");
     const sets = cols.filter((c) => c !== "id").map((c) => `${ident(c)} = excluded.${ident(c)}`).join(", ");
+    const same = cols.filter((c) => c !== "updated_at").map((c) => `(to_jsonb(x) -> ${lit(c)}) is not distinct from (s.data -> ${lit(c)})`).join(" and ");
     // rows still as saved are left alone (no new revision); changed or missing ones are written back
     const rows = await q.query(
       `insert into ${ident(table)} (${list})
        select ${cols.map((c) => `r.${ident(c)}`).join(", ")} from sm_demo_saved s, jsonb_populate_record(null::${ident(table)}, s.data) r
         where s.org_id = $1 and s.tbl = ${lit(table)}
-          and not exists (select 1 from ${ident(table)} x where x.id = s.row_id and (to_jsonb(x) - 'rev' - 'updated_at') = (s.data - 'rev' - 'updated_at'))
-       on conflict (id) do update set ${sets} returning id`,
+          and not exists (select 1 from ${ident(table)} x where x.id = s.row_id and ${same})
+       on conflict (id) do update set ${sets || "id = excluded.id"} returning id`,
       [orgId],
     );
     if (rows.length) out[table] = rows.length;
@@ -502,114 +520,156 @@ export async function restoreComputed(q: Queryable, orgId: string, info: TableIn
 }
 
 
-/**
- * Save the organisation's real rows of the engine tables (configuration and small tables) before the load: what the
- * platform or the pack's people change in them while demo data is there — a catalogue item's statistics, a flow's run
- * counts, a CAB's next meeting — is put back by the purge (`restoreReal`). Changes real people made are kept.
- */
-export async function saveReal(q: Queryable, orgId: string, info: TableInfo[]): Promise<number> {
-  let n = 0;
-  const computed = new Set(COMPUTED_TABLES);
-  for (const t of info) {
-    if (SKIP.has(t.name) || computed.has(t.name) || APPEND_ONLY.has(t.name) || !t.def || t.arc || !hasIdOrg(t) || !t.cols.has("updated_by")) continue;
-    // work records (incidents, requests, cases…) are the organisation's own: what the system does to them stays
-    if (t.def.fields.some((f) => f.name === "opened_at")) continue;
-    const c = await q.one<{ n: number }>(`select count(*)::int as n from (select 1 from ${ident(t.name)} where org_id = $1 limit ${SAVE_LIMIT + 1}) x`, [orgId]);
-    if (!c?.n || c.n > SAVE_LIMIT) continue;
-    const rows = await q.query(
-      `insert into sm_demo_saved (org_id, tbl, row_id, data) select $1, ${lit(t.name)}, x.id, to_jsonb(x) from ${ident(t.name)} x where x.org_id = $1
-       on conflict (org_id, tbl, row_id) do nothing returning row_id`,
-      [orgId],
-    );
-    n += rows.length;
-  }
-  return n;
+/** The trail tables: what happened to a record and who did it. On REAL records they are kept, whoever wrote them. */
+export const TRAIL_TABLES: Record<string, { record: string; actor: string | null }> = {
+  sm_history: { record: "record_id", actor: "actor" },
+  sm_journal: { record: "record_id", actor: "author" },
+  sm_audit: { record: "entity_id", actor: "user_id" },
+  sm_security_events: { record: "", actor: "user_id" },
+};
+
+export interface TouchReport {
+  table: string;
+  rows: number;
+  /** why the rows were left as they are (something outside the demo scope changed them since, or they are gone) */
+  reason: "changed_since" | "row_gone" | "archived";
 }
 
+const TOUCH_SKIP = new Set(["rev", "updated_at"]);
+/** Platform bookkeeping and trail tables: what demo work changed in them is never put back (a job's state, a session…). */
+const TOUCH_NEVER = new Set(["sm_jobs", "sm_sessions", "sm_scope_epochs", "sm_access_state", "sm_devices", "sm_outbox", "sm_auth_throttle", "sm_kv", ...Object.keys(TRAIL_TABLES)]);
+
 /**
- * Put back real rows that changed since the load when only the system or the pack's people changed them (a real
- * person's change — their last stamp, or a history entry of theirs since the load — is kept). Returns rows per table.
+ * Put back the real rows demo work changed or deleted (`sm_demo_touched`, captured inside the demo scope only): a row
+ * goes back to its image before demo work first touched it, column by column for the columns that image has and the
+ * table still has — but only when the row is still exactly as demo work left it. A row something outside the demo
+ * scope changed since (a real person, the platform's own jobs, an upgrade) is left alone and reported. Returns the
+ * rows put back per table, their ids and the report of the rest.
  */
-export async function restoreReal(q: Queryable, orgId: string, info: TableInfo[], since: string): Promise<Record<string, number>> {
-  const out: Record<string, number> = {};
+export async function revertTouched(q: Queryable, orgId: string, info: TableInfo[]): Promise<{ restored: Record<string, number>; ids: string[]; left: TouchReport[] }> {
+  const restored: Record<string, number> = {};
+  const ids: string[] = [];
+  const left = new Map<string, TouchReport>();
+  const note = (table: string, reason: TouchReport["reason"], n: number) => {
+    if (!n) return;
+    const k = `${table}:${reason}`;
+    const r = left.get(k) ?? { table, rows: 0, reason };
+    r.rows += n;
+    left.set(k, r);
+  };
   const byName = new Map(info.map((t) => [t.name, t]));
-  const computed = new Set(COMPUTED_TABLES);
-  const tables = (await q.query<{ tbl: string }>(`select distinct tbl from sm_demo_saved where org_id = $1`, [orgId])).map((r) => r.tbl).filter((t) => !computed.has(t));
+  const tables = (await q.query<{ tbl: string }>(`select distinct tbl from sm_demo_touched where org_id = $1`, [orgId])).map((r) => r.tbl);
   for (const table of tables) {
     const t = byName.get(table);
-    if (!t || !hasIdOrg(t)) continue;
-    const cols = [...t.cols.values()].filter((c) => !c.generated && c.name !== "rev" && c.name !== "id" && c.name !== "org_id").map((c) => c.name);
-    const rows = await q.query(
-      `update ${ident(table)} x set ${cols.map((c) => `${ident(c)} = r.${ident(c)}`).join(", ")}
-         from sm_demo_saved s, jsonb_populate_record(null::${ident(table)}, s.data) r
-        where s.org_id = $1 and s.tbl = ${lit(table)} and x.id = s.row_id and x.org_id = $1
-          and (to_jsonb(x) - 'rev' - 'updated_at') <> (s.data - 'rev' - 'updated_at')
-          and (x.updated_by is null or ${isDemo("x.updated_by")})
-          and not exists (select 1 from sm_history h where h.org_id = $1 and h.record_id = x.id and h.at > $2::timestamptz
-                           and h.actor is not null and not ${isDemo("h.actor")})
+    if (!t || !hasIdOrg(t) || SKIP.has(table) || TOUCH_NEVER.has(table)) continue;
+    const cols = [...t.cols.values()].filter((c) => !c.generated && c.name !== "id" && c.name !== "org_id" && !TOUCH_SKIP.has(c.name)).map((c) => c.name);
+    if (!cols.length) continue;
+    // still as demo work left it: every column of the after-image the table still has is unchanged
+    const asLeft = `not exists (select 1 from jsonb_each(s.after) e(k, v) where not (e.k = any(array['rev','updated_at'])) and to_jsonb(x) ? e.k and (to_jsonb(x) -> e.k) is distinct from e.v)`;
+    const tsel = `from sm_demo_touched s where s.org_id = $1 and s.tbl = ${lit(table)}`;
+    // updated rows
+    const done = await q.query<{ id: string }>(
+      `update ${ident(table)} x set ${cols.map((c) => `${ident(c)} = case when s.before ? ${lit(c)} then r.${ident(c)} else x.${ident(c)} end`).join(", ")}
+         from sm_demo_touched s, jsonb_populate_record(null::${ident(table)}, s.before) r
+        where s.org_id = $1 and s.tbl = ${lit(table)} and s.after is not null and not s.conflict and x.id = s.row_id and x.org_id = $1 and ${asLeft}
         returning x.id`,
+      [orgId],
+    );
+    const changed = await q.one<{ n: number }>(
+      `select count(*)::int as n ${tsel} and s.after is not null and exists (select 1 from ${ident(table)} x where x.id = s.row_id and x.org_id = $1)
+          and not (s.row_id = any($2::uuid[]))`,
+      [orgId, pgArray(done.map((r) => String(r.id)))],
+    );
+    note(table, "changed_since", changed?.n ?? 0);
+    const goneSince = await q.one<{ n: number }>(`select count(*)::int as n ${tsel} and s.after is not null and not exists (select 1 from ${ident(table)} x where x.id = s.row_id)`, [orgId]);
+    note(table, "row_gone", goneSince?.n ?? 0);
+    // deleted rows: written back with the columns their image has (the rest take their defaults), unless they exist again
+    const deleted = await q.query<{ row_id: string; before: Record<string, unknown> }>(`select s.row_id, s.before ${tsel} and s.after is null and not s.conflict`, [orgId]);
+    const arc = t.def && archivable(t.def) && byName.has(archiveTableOf(t.def)) ? archiveTableOf(t.def) : null;
+    const back: string[] = [];
+    for (const d of deleted) {
+      if (await q.one(`select 1 from ${ident(table)} where id = $1`, [d.row_id])) {
+        note(table, "changed_since", 1);
+        continue;
+      }
+      if (arc && (await q.one(`select 1 from ${ident(arc)} where id = $1`, [d.row_id]))) {
+        note(table, "archived", 1);
+        continue;
+      }
+      const use = [...t.cols.values()].filter((c) => !c.generated && c.name !== "rev" && Object.prototype.hasOwnProperty.call(d.before, c.name)).map((c) => c.name);
+      await q.query(
+        `insert into ${ident(table)} (${use.map(ident).join(", ")}) select ${use.map((c) => `r.${ident(c)}`).join(", ")} from jsonb_populate_record(null::${ident(table)}, $1::jsonb) r`,
+        [JSON.stringify(d.before)],
+      );
+      back.push(d.row_id);
+    }
+    const conflicts = await q.one<{ n: number }>(`select count(*)::int as n ${tsel} and s.conflict`, [orgId]);
+    note(table, "changed_since", conflicts?.n ?? 0);
+    const n = done.length + back.length;
+    if (n) restored[table] = n;
+    ids.push(...done.map((r) => String(r.id)), ...back);
+  }
+  return { restored, ids, left: [...left.values()] };
+}
+
+/**
+ * Trail rows on REAL records stay (docs/DEMO_FA.md): history, journal and audit lines demo work wrote about a record
+ * that is not demo data leave the registry, whoever wrote them — a demo person's entry keeps its actor, shown as a
+ * removed demo account. The one exception: the platform's own history lines (no actor) written inside the demo scope
+ * about a row the purge has just put back, which describe a change that no longer exists. Sign-in records of the
+ * pack's people stay too. Returns how many rows were kept.
+ */
+export async function keepRealTrail(q: Queryable, orgId: string, info: TableInfo[], restoredIds: string[] | null): Promise<number> {
+  let kept = 0;
+  const names = new Set(info.map((t) => t.name));
+  for (const [table, c] of Object.entries(TRAIL_TABLES)) {
+    if (!names.has(table)) continue;
+    let cond: string;
+    if (!c.record) cond = "true";
+    else {
+      const rec = `x.${ident(c.record)}`;
+      const real = `(${rec} is null or not ${isDemo(rec)})`;
+      // (null: the rows put back were settled when they were put back — the platform's lines of demo work stay demo)
+      if (table === "sm_history") cond = restoredIds ? `${real} and not (x.actor is null and ${rec} = any($2::uuid[]))` : `${real} and x.actor is not null`;
+      // an audit line about no record stays only when a person wrote it (the platform's own lines of demo work go)
+      else if (table === "sm_audit") cond = `((${rec} is not null and not ${isDemo(rec)}) or (${rec} is null and x.user_id is not null))`;
+      else cond = real;
+    }
+    const rows = await q.query(
+      `delete from sm_demo_rows d using ${ident(table)} x
+        where d.org_id = $1 and d.tbl = ${lit(table)} and x.id = d.row_id and ${cond}
+        returning d.row_id`,
+      [orgId, ...(table === "sm_history" && restoredIds ? [pgArray(restoredIds)] : [])],
+    );
+    kept += rows.length;
+  }
+  return kept;
+}
+
+export interface Unattributed {
+  table: string;
+  rows: number;
+}
+
+/**
+ * Rows the platform created outside the demo scope since the load that refer to demo rows (a reference field names
+ * one): perhaps made because of demo data, perhaps real work. They are never removed by time or authorship alone —
+ * only reported (the purge's report lists them; their references to demo rows are cleared like any real row's).
+ */
+export async function unattributedReport(q: Queryable, orgId: string, info: TableInfo[], since: string): Promise<Unattributed[]> {
+  const out: Unattributed[] = [];
+  for (const t of info) {
+    if (SKIP.has(t.name) || !t.def || t.arc || !hasIdOrg(t) || !t.cols.has("created_at") || !t.cols.has("created_by")) continue;
+    const conds = refFields(t.def).filter((f) => !f.array && !f.custom).map((f) => names(t, f.name)).filter((c): c is string => !!c);
+    if (!conds.length || !(await hasRows(q, t, orgId))) continue;
+    const n = await q.one<{ n: number }>(
+      `select count(*)::int as n from ${ident(t.name)} x
+        where x.org_id = $1 and x.created_at > $2::timestamptz and x.created_by is null and not ${isDemo("x.id")} and (${conds.join(" or ")})`,
       [orgId, since],
     );
-    if (!rows.length) continue;
-    out[table] = rows.length;
-    // the history of what was undone goes with it
-    await q.query(
-      `delete from sm_history h where h.org_id = $1 and h.record_id = any($2::uuid[]) and h.at > $3::timestamptz and (h.actor is null or ${isDemo("h.actor")})`,
-      [orgId, pgArray(rows.map((r) => String(r.id))), since],
-    );
+    if (n?.n) out.push({ table: t.name, rows: n.n });
   }
   return out;
-}
-
-/**
- * Rows the system (or the pack's people) created while demo data was there, in tables that are not people's work nor
- * the organisation's structure — a CAB meeting the schedule opened for demo changes, a compliance issue a demo
- * indicator raised, a run log of a computation over demo data: they join the registry unless a real person has
- * touched them since. Returns how many joined.
- */
-export async function systemMadeSince(q: Queryable, orgId: string, info: TableInfo[], since: string): Promise<number> {
-  let n = 0;
-  const computed = new Set(COMPUTED_TABLES);
-  for (const t of info) {
-    if (SKIP.has(t.name) || computed.has(t.name) || APPEND_ONLY.has(t.name) || PEOPLE_AND_ACCESS.has(t.name) || !t.def || t.arc || !hasIdOrg(t)) continue;
-    if (!t.cols.has("created_by") || !t.cols.has("created_at") || t.cols.has("record_id") || t.def.fields.some((f) => f.name === "opened_at")) continue;
-    if (!(await hasRows(q, t, orgId))) continue;
-    const rows = await q.query(
-      `insert into sm_demo_rows (org_id, row_id, tbl)
-       select $1, x.id, ${lit(t.name)} from ${ident(t.name)} x
-        where x.org_id = $1 and x.created_at > $2::timestamptz
-          and (x.created_by is null or ${isDemo("x.created_by")})
-          and (x.updated_by is null or ${isDemo("x.updated_by")})
-          and not exists (select 1 from sm_history h where h.org_id = $1 and h.record_id = x.id and h.actor is not null and not ${isDemo("h.actor")})
-       on conflict do nothing returning row_id`,
-      [orgId, since],
-    );
-    n += rows.length;
-  }
-  return n;
-}
-
-/**
- * History entries the system or the pack's people wrote since the save about saved rows that are now as they were saved
- * (put back, or changed and changed back): they describe nothing that happened to the data that stays.
- */
-export async function cleanHistory(q: Queryable, orgId: string, info: TableInfo[], since: string): Promise<number> {
-  let n = 0;
-  const names = new Set(info.map((t) => t.name));
-  const tables = (await q.query<{ tbl: string }>(`select distinct tbl from sm_demo_saved where org_id = $1`, [orgId])).map((r) => r.tbl);
-  for (const table of tables) {
-    if (!names.has(table)) continue;
-    const rows = await q.query(
-      `delete from sm_history h using ${ident(table)} x, sm_demo_saved s
-        where h.org_id = $1 and h.at > $2::timestamptz and (h.actor is null or ${isDemo("h.actor")})
-          and s.org_id = $1 and s.tbl = ${lit(table)} and s.row_id = h.record_id and x.id = s.row_id
-          and (to_jsonb(x) - 'rev' - 'updated_at') = (s.data - 'rev' - 'updated_at')
-        returning h.id`,
-      [orgId, since],
-    );
-    n += rows.length;
-  }
-  return n;
 }
 
 /** Put the numbering counters back: as before the load, or past the highest number real rows took meanwhile. */

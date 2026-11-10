@@ -37,6 +37,15 @@ const BOOKKEEPING: Record<string, string[]> = {
   sm_scope_epochs: ["epoch", "updated_at"],
   sm_users: ["last_login_at", "updated_at"],
 };
+/**
+ * The organisation's own work outside the demo scope while demo data was there: organisation-wide jobs (the CAB
+ * schedule opening its next meeting, automated control monitoring raising issues, rule and knowledge statistics).
+ * Their rows and changes cannot be attributed to demo work with certainty, so the purge leaves them (docs/DEMO_FA.md,
+ * «the purge never deletes, reverts or erases real data») — tests/demo-safety.test.ts proves that rule. Allowed here,
+ * with their own history and numbering counters; nothing in them may name a demo row.
+ */
+const REAL_WORK = new Set(["sm_cab_meetings", "sm_grc_issues", "sm_grc_controls", "sm_cmdb_rules", "sm_ci_rel_rules", "sm_kb_articles", "sm_kb_bases", "sm_itam_configs", "sm_numbers"]);
+
 /** Checked on their own below: the job queue (scheduling state) and the audit log (the allowed lines). */
 const SPECIAL = new Set(["sm_jobs", "sm_audit", "sm_org_sync", "sm_migrations"]);
 
@@ -194,8 +203,15 @@ describe.skipIf(skip)(title, () => {
     expect(status.counts.branch).toBe(60);
     expect(status.counts.request).toBeGreaterThan(10);
     expect(status.counts.major_incident).toBe(1);
-    expect(status.password).toBeTruthy();
+    // no clear-text password until demo sign-in is turned on
+    expect(status.password ?? null).toBeNull();
     expect((await e.owner.get(`/o/${e.org}/demo/banner`)).active).toBe(true);
+    // demo sign-in is off by default: the presenter's administrator turns it on
+    expect(status.signin).toBe(false);
+    await e.owner.post(`/o/${e.org}/demo/signin`, { on: true });
+    status = await e.owner.get(`/o/${e.org}/demo`);
+    expect(status.signin).toBe(true);
+    expect(status.password).toBeTruthy();
     incidents = await e.db.query<{ id: string }>(`select id from sm_incidents where org_id = $1 and deleted_at is null order by opened_at desc limit 5`, [e.org]);
     expect(incidents.length).toBe(5);
     // bank ITAM: no workflow of the pack was refused, and each is there
@@ -216,20 +232,27 @@ describe.skipIf(skip)(title, () => {
     const states = (await e.db.query<{ state: string }>(`select distinct state from sm_asset_transfers where org_id = $1`, [e.org])).map((r) => r.state).sort();
     expect(states).toEqual(["approved", "draft", "in_transit", "pending_approval", "received", "received_partial", "rejected"]);
     // separation of duties: who asked, who approved and who received are three people
-    const done = await e.db.query<{ requested_by: string; received_by: string }>(`select requested_by, received_by from sm_asset_transfers where org_id = $1 and state in ('received', 'received_partial')`, [e.org]);
+    const done = await e.db.query<{ requested_by: string; created_by: string; dispatched_by: string; received_by: string }>(`select requested_by, created_by, dispatched_by, received_by from sm_asset_transfers where org_id = $1 and state in ('received', 'received_partial')`, [e.org]);
     expect(done.length).toBeGreaterThan(0);
-    for (const t of done) expect(t.requested_by).not.toBe(t.received_by);
+    for (const t of done) {
+      expect(t.received_by).toBeTruthy();
+      expect([t.requested_by, t.created_by, t.dispatched_by]).not.toContain(t.received_by);
+    }
     const attestations = (await e.db.query<{ state: string; overdue: boolean }>(`select state, overdue from sm_branch_attestations where org_id = $1`, [e.org]));
     expect(attestations.some((x) => x.state === "attested")).toBe(true);
     expect(attestations.some((x) => x.state === "attested_exceptions")).toBe(true);
     expect(attestations.some((x) => x.state === "open" && x.overdue)).toBe(true);
     expect(await n(`select count(*)::int as n from sm_inventory_audits where org_id = $org and state = 'completed' and discrepancy_open > 0`)).toBe(1);
-    const wiped = await e.db.query<{ asset_id: string; sanitized_by: string; witness_id: string; certificate_hash: string | null }>(`select asset_id, sanitized_by, witness_id, certificate_hash from sm_disposal_items where org_id = $1`, [e.org]);
+    const wiped = await e.db.query<{ asset_id: string; sanitized_by: string; witness_id: string; certificate_hash: string | null; verified: boolean }>(`select asset_id, sanitized_by, witness_id, certificate_hash, verified from sm_disposal_items where org_id = $1`, [e.org]);
     expect(wiped.length).toBeGreaterThan(0);
     for (const w of wiped) {
       expect(w.certificate_hash).toBeTruthy();
+      expect(w.witness_id).toBeTruthy();
       expect(w.sanitized_by).not.toBe(w.witness_id);
+      expect(w.verified).toBe(true);
     }
+    // the custody chain is keyed (written only by the module's services with this runtime's secret)
+    expect(await n(`select count(*)::int as n from sm_asset_custody where org_id = $org and hash not like 'k1:%'`)).toBe(0);
     expect(await n(`select count(*)::int as n from sm_assets where org_id = $org and state = 'disposed'`)).toBe(wiped.length);
     // every custody chain the workflows wrote is intact
     const sys = await systemCtx(e.cfg, e.org);
@@ -304,6 +327,7 @@ describe.skipIf(skip)(title, () => {
     expect(rows!.n).toBeGreaterThan(1000);
 
     // ----- purge
+    const demoRowIds = new Set((await e.db.query<{ id: string }>(`select row_id::text as id from sm_demo_rows where org_id = $1`, [e.org])).map((r) => r.id));
     const report = await e.owner.get(`/o/${e.org}/demo/report`);
     expect(report.rows).toBeGreaterThan(1000);
     await e.owner.post(`/o/${e.org}/demo/purge`, { confirm: "اشتباه" }, 400);
@@ -320,7 +344,39 @@ describe.skipIf(skip)(title, () => {
     // ----- no trace
     const after = await snapshot(e.db);
     log("snapshot after");
-    const differences = diff(before, after);
+    // the organisation's own work outside the demo scope stays (see REAL_WORK); the demo accounts' sign-in records stay
+    const demoIds = new Set((await e.db.query<{ id: string }>(`select id::text as id from sm_users where email like '%aftab-bank.example'`)).map((r) => r.id));
+    expect(demoIds.size).toBe(0);
+    const kept = new Set<string>();
+    // rows of the organisation's own work, made or changed meanwhile (their history stays with them)
+    for (const t of REAL_WORK) for (const [k, h] of after.get(t) ?? []) if (before.get(t)?.get(k) !== h) kept.add(k);
+    const allowed = async (line: string): Promise<boolean> => {
+      const t = line.split(":")[0];
+      if (REAL_WORK.has(t)) return true;
+      const added = [...(after.get(t)?.keys() ?? [])].filter((k) => !before.get(t)?.has(k));
+      const changed = [...(before.get(t)?.keys() ?? [])].filter((k) => !after.get(t)?.has(k) || after.get(t)!.get(k) !== before.get(t)!.get(k));
+      if (changed.length) return false;
+      if (t === "sm_history") {
+        const recs = await e.db.query<{ record_id: string }>(`select record_id::text as record_id from sm_history where id::text = any($1::text[])`, [`{${added.join(",")}}`]);
+        return recs.every((r) => kept.has(r.record_id));
+      }
+      if (t === "sm_security_events") {
+        const rows = await e.db.query<{ email: string | null; kind: string }>(`select email, kind from sm_security_events where id::text = any($1::text[])`, [`{${added.join(",")}}`]);
+        return rows.every((r) => !!r.email?.endsWith("aftab-bank.example") && r.kind === "sign_in");
+      }
+      return false;
+    };
+    // what the organisation's own work left names no demo row
+    for (const t of REAL_WORK) {
+      if (t === "sm_numbers") continue;
+      const rows = await e.db.query<{ j: string }>(`select to_jsonb(x)::text as j from ${t} x where x.org_id = $1`, [e.org]);
+      const named = rows.flatMap((r) => r.j.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g) ?? []).filter((id) => demoRowIds.has(id));
+      expect(named, `${t} names demo rows`).toEqual([]);
+    }
+    const all = diff(before, after);
+    const differences: string[] = [];
+    for (const d of all) if (!(await allowed(d))) differences.push(d);
+    log(`left as the organisation's own work: ${all.filter((d) => !differences.includes(d)).join(" | ")}`);
     if (differences.length) {
       // what is left, for the one who fixes it
       for (const [t, m] of after) {
@@ -336,7 +392,8 @@ describe.skipIf(skip)(title, () => {
     // the job queue: nothing about demo data, no demo job left
     const uuid = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
     const newJobs = await e.db.query<{ id: string; kind: string; payload: unknown }>(`select id, kind, payload from sm_jobs`);
-    const known = new Set([...before.values()].flatMap((m) => [...m.keys()]));
+    // (ids of rows that exist now: the organisation's own work left in place has its own record events)
+    const known = new Set([...before.values(), ...after.values()].flatMap((m) => [...m.keys()]));
     const strays = newJobs.filter((j) => !jobsBefore.has(j.id)).filter((j) => (JSON.stringify(j.payload).match(uuid) ?? []).some((id) => !known.has(id) && id !== e.org && id !== e.ownerId));
     expect(strays.map((j) => j.kind)).toEqual([]);
     expect(newJobs.filter((j) => j.kind === "demo.load").length).toBe(0);
