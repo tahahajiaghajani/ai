@@ -2,7 +2,7 @@
 // size, see what it holds and the personas to sign in as, and remove it completely: a pre-purge report (what goes,
 // the real records that refer to it), a typed confirmation and the platform's re-authentication, then a progress bar
 // and the result. Only content-free audit lines remain.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, Button, Checkbox, Input, Modal, Progress, Segmented, Table, Typography } from "antd";
 import { Database, Trash2, Upload } from "lucide-react";
@@ -91,6 +91,14 @@ export default function Demo() {
     void qc.invalidateQueries({ queryKey: ["admin", "demo"] });
     void qc.invalidateQueries({ queryKey: ["demo-banner"] });
   };
+  // a load or purge ends in the background: then the banner and every list read before are out of date (the banner
+  // «این سازمان دادهٔ نمایشی دارد» stayed on screen after the purge until a reload)
+  const lastState = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const was = lastState.current;
+    lastState.current = s?.state;
+    if (was && s?.state && was !== s.state && (was === "loading" || was === "purging")) void qc.invalidateQueries();
+  }, [s?.state, qc]);
 
   const load = async () => {
     setBusy(true);

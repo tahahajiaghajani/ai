@@ -38,3 +38,14 @@ describe("a requester's incident and service pages ask nothing of the CMDB they 
     expect(gateAllows({ cmdb: { read: "all", create: false, write: "none", delete: "none", approve: false, admin: false } } as never, { area: "cmdb" })).toBe(true);
   });
 });
+
+describe("«داده‌های نمایشی»: the end of a background load or purge refreshes the app", () => {
+  it("invalidates every query when the pack leaves «loading» or «purging» (the demo banner stayed after the purge until a reload)", () => {
+    const s = src("src/ui/modules/admin/Demo.tsx");
+    // the banner reads ["demo-banner"] with a one-minute staleTime and a five-minute refetch
+    expect(src("src/ui/components/shell/SupportBanner.tsx")).toContain('queryKey: ["demo-banner", orgId]');
+    expect(s).toMatch(/useEffect\(\(\) => \{\s*const was = lastState\.current;/);
+    expect(s).toMatch(/\(was === "loading" \|\| was === "purging"\)\) void qc\.invalidateQueries\(\);/);
+    expect(s).toContain("}, [s?.state, qc]);");
+  });
+});
