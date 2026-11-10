@@ -7,6 +7,7 @@ import { forbidden } from "./http/errors";
 import { assertWritable } from "./modules/platform/org-admin";
 import { recordSupportWrite } from "./modules/platform/support";
 import { bumpLocal } from "./live";
+import { lockGranted, lockProbeOn } from "./db/lockprobe";
 
 export type Mode = "cloud" | "desktop";
 
@@ -177,11 +178,13 @@ export interface Ctx {
 
 /** Serialises writes of one organisation (and keeps revision numbers in commit order). */
 export async function lockOrg(tx: Tx, orgId: string): Promise<void> {
+  const t0 = lockProbeOn() ? performance.now() : 0;
   await tx.query(
     `insert into sm_org_sync (org_id, rev) values ($1, 0)
      on conflict (org_id) do update set rev = sm_org_sync.rev`,
     [orgId],
   );
+  if (t0) lockGranted(tx, performance.now() - t0);
 }
 
 export const NOT_MEMBER_MESSAGE = "شما عضو این سازمان نیستید؛ برای کار در آن، از «مدیریت سامانه» حالت پشتیبانی را آغاز کنید";

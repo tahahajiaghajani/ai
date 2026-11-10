@@ -5,10 +5,14 @@
 // needs: a pool per worker, one job-runner process (the "leader": worker 1 ticks the queue every --tick ms) and
 // optional ticks after writes (--tick-on-write, the web version's behaviour).
 //
-//   node scripts/serve-pg.mjs [--port 3940] [--workers 1] [--pool 10] [--tick 1000] [--job-concurrency 4] [--tick-on-write] [--url postgres://…]
+//   node scripts/serve-pg.mjs [--port 3940] [--workers 1] [--pool 10] [--tick 1000] [--job-concurrency 4] [--tick-on-write] [--lock-stats] [--url postgres://…]
 //
 // Worker count 1 runs in this process; more fork workers (the primary migrates once, then forks).
+// --lock-stats: the write-lock probe (src/server/db/lockprobe.ts) records every transaction that took an organisation's
+// write lock — its route or job kind, wait and hold time; SIGUSR2 makes each worker write what it recorded since the
+// last signal to .perf/lockstats-<pid>.json and start over (scripts/loadtest.mjs does both around a run).
 import cluster from "node:cluster";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -42,14 +46,15 @@ export async function loadServer() {
   (await import("tsx/esm/api")).register();
   (await import("tsx/cjs/api")).register();
   const mod = (p) => import(pathToFileURL(resolve(ROOT, p)).href);
-  const [app, pg, migrate, jobs, context] = await Promise.all([
+  const [app, pg, migrate, jobs, context, probe] = await Promise.all([
     mod("src/server/app.ts"),
     mod("src/server/db/postgres.ts"),
     mod("src/server/db/migrate.ts"),
     mod("src/server/jobs/index.ts"),
     mod("src/server/context.ts"),
+    mod("src/server/db/lockprobe.ts"),
   ]);
-  return { createApp: app.createApp, createPostgresDb: pg.createPostgresDb, migrate: migrate.migrate, tick: jobs.tick, consoleLogger: context.consoleLogger };
+  return { createApp: app.createApp, createPostgresDb: pg.createPostgresDb, migrate: migrate.migrate, tick: jobs.tick, consoleLogger: context.consoleLogger, probe };
 }
 
 const quiet = (log) => ({
@@ -76,7 +81,24 @@ async function serveOne(worker, { migrateFirst }) {
   };
   const app = s.createApp(cfg);
   const { serve } = await import("@hono/node-server");
-  const server = serve({ fetch: app.fetch, port: PORT, hostname: "127.0.0.1" });
+  let fetch = app.fetch;
+  if (opts["lock-stats"]) {
+    const samples = [];
+    s.probe.setLockProbe((x) => samples.push(x));
+    // what a transaction belonged to: the route with ids folded ("PATCH /api/o/:org/r/incident/:id")
+    const UUIDS = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+    const labelOf = (req) => {
+      const u = new URL(req.url);
+      return `${req.method} ${u.pathname.replace(/\/o\/[0-9a-f-]{36}/i, "/o/:org").replace(UUIDS, ":id")}`;
+    };
+    fetch = (req, ...rest) => s.probe.withLockLabel(labelOf(req), () => app.fetch(req, ...rest));
+    process.on("SIGUSR2", () => {
+      const out = samples.splice(0, samples.length);
+      mkdirSync(resolve(ROOT, ".perf"), { recursive: true });
+      writeFileSync(resolve(ROOT, ".perf", `lockstats-${process.pid}.json`), JSON.stringify({ pid: process.pid, worker, at: new Date().toISOString(), samples: out }));
+    });
+  }
+  const server = serve({ fetch, port: PORT, hostname: "127.0.0.1" });
   // keep-alive connections of a load generator outlive Node's 5 s default
   server.keepAliveTimeout = 65_000;
   if (TICK > 0 && worker === 1) {
@@ -108,6 +130,8 @@ if (!isMain) {
   await s.migrate(db, (m) => console.log(`[primary] ${m}`));
   await db.close();
   for (let i = 1; i <= WORKERS; i++) cluster.fork({ ITSM_WORKER: String(i) });
+  // the load test signals every serve-pg process for lock statistics: the primary has none (and must not die of it)
+  process.on("SIGUSR2", () => {});
   let stopping = false;
   cluster.on("exit", (w, code) => {
     if (stopping) return;

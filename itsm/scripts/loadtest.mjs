@@ -10,11 +10,21 @@
 // and department heads (their units' records). Reports p50/p95/p99 per action and per request, throughput, errors,
 // the database's time and top statements (pg_stat_statements), CPU of the server and of PostgreSQL, and load averages.
 //
+// «زنده» as the staff shell does it (src/ui/lib/live.ts; the portal's light shell does not poll): every 12 s a staff
+// user asks the pulse about the tables and records of the screen they are on and of the shell (the bell, the nav
+// counts); what it reports changed is fetched again — the screen's lists or the record with its activity, the bell's
+// count, the nav count. A server without scoped answers (only a token) makes every token change refetch everything.
+// Refetches per active user and minute are reported. «ارجاع به گروه» (assign_group) moves an open incident to a large
+// group without an assignee (the central service desk, 450 people, or the Tehran province group) — the built-in
+// notification «ارجاع به گروه» then fans out. --lock-stats reads the write-lock probe of scripts/serve-pg.mjs
+// --lock-stats: acquisitions, wait and hold time per route and job kind.
+//
 //   node scripts/loadtest.mjs --vus 200 --ramp 60 --duration 120 [--think 4000] [--label before] [--url http://127.0.0.1:3940/api]
-//        [--mix agents=0.7,requesters=0.25,heads=0.05] [--db postgres://postgres@127.0.0.1:55432/itsm] [--no-pulse]
+//        [--mix agents=0.7,requesters=0.25,heads=0.05] [--db postgres://postgres@127.0.0.1:55432/itsm] [--no-pulse] [--lock-stats]
+//        [--assign-weight 2]
 import postgres from "postgres";
 import { execFileSync } from "node:child_process";
-import { readFileSync, mkdirSync, writeFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, mkdirSync, writeFileSync, existsSync, readdirSync, rmSync } from "node:fs";
 import { loadavg } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,6 +51,8 @@ const DURATION = Number(opts.duration ?? 60) * 1000;
 const THINK = Number(opts.think ?? 4000);
 const LABEL = String(opts.label ?? "run");
 const PULSE = !opts["no-pulse"];
+const LOCK_STATS = !!opts["lock-stats"];
+const ASSIGN_WEIGHT = Number(opts["assign-weight"] ?? 2);
 const DB_URL = opts.db ?? "postgres://postgres@127.0.0.1:55432/itsm";
 const MIX = Object.fromEntries(String(opts.mix ?? "agents=0.7,requesters=0.25,heads=0.05").split(",").map((p) => p.split("=")).map(([k, v]) => [k, Number(v)]));
 const bank = JSON.parse(readFileSync(join(ROOT, ".perf", "bank.json"), "utf8"));
@@ -64,7 +76,7 @@ const q = (a, p) => {
 };
 let measuring = false;
 
-async function call(vu, method, path, body, route) {
+async function call(vu, method, path, body, route, opts = {}) {
   const t = performance.now();
   let ok = false;
   let status = 0;
@@ -78,7 +90,7 @@ async function call(vu, method, path, body, route) {
     status = res.status;
     const text = await res.text();
     data = text ? JSON.parse(text) : null;
-    ok = res.status < 400 || (res.status === 409 && method !== "GET");
+    ok = res.status < 400 || (res.status === 409 && method !== "GET") || (res.status === 404 && !!opts.expect404);
     if (!ok && errors.length < 50) errors.push({ route, status, message: String(data?.error?.message ?? text).slice(0, 200) });
   } catch (e) {
     if (errors.length < 50) errors.push({ route, status: 0, message: String(e?.message ?? e).slice(0, 200) });
@@ -129,22 +141,30 @@ const think = () => sleep(Math.max(300, -Math.log(1 - Math.random()) * THINK));
 
 let catalog = null;
 const badItems = new Set();
+// «ارجاع به گروه»: the central service desk (450 people) and the largest province group (bank.json)
+const BIG_GROUPS = [bank.groups.find((g) => g.kind === "l1")?.id, bank.groups.find((g) => g.kind === "prov")?.id].filter(Boolean);
+let assigned = 0;
 
 async function agentAct(vu) {
-  const kind = pickW({ queue: 30, open: 25, note: 10, state: 5, search: 15, dashboard: 10, page_deep: 5 });
+  const kind = pickW({ queue: 30, open: 25, note: 10, state: 5, assign: ASSIGN_WEIGHT, search: 15, dashboard: 10, page_deep: 5 });
   if (kind === "queue" || (kind !== "search" && kind !== "dashboard" && !vu.rows?.length)) {
     const qd = pick(QUEUES.filter((x) => vu.kinds.some((k) => ["l1", "prov", "spec", "cab"].includes(k)) || !x.table.startsWith("incident") || x.filter === null || true));
+    const url = `${O}/r/${qd.table}?size=50&sort=${encodeURIComponent(qd.sort)}${qd.filter ? `&filter=${enc(qd.filter)}` : ""}`;
+    vu.page = { tables: [qd.table], ids: [], refetch: (changed) => (changed.has(qd.table) ? [call(vu, "GET", url, null, `/r/${qd.table}?queue (refetch)`)] : []) };
     return action(`queue:${qd.name}`, async () => {
-      const r = await call(vu, "GET", `${O}/r/${qd.table}?size=50&sort=${encodeURIComponent(qd.sort)}${qd.filter ? `&filter=${enc(qd.filter)}` : ""}`, null, `/r/${qd.table}?queue`);
+      const r = await call(vu, "GET", url, null, `/r/${qd.table}?queue`);
       if (r.ok && qd.table === "incident") vu.rows = r.data.rows;
       return r.ok;
     });
   }
   if (kind === "page_deep") {
-    return action("queue:deep_page", async () => (await call(vu, "GET", `${O}/r/incident?size=50&sort=-updated_at&page=${5 + Math.floor(Math.random() * 40)}`, null, "/r/incident?page")).ok);
+    const url = `${O}/r/incident?size=50&sort=-updated_at&page=${5 + Math.floor(Math.random() * 40)}`;
+    vu.page = { tables: ["incident"], ids: [], refetch: (changed) => (changed.has("incident") ? [call(vu, "GET", url, null, "/r/incident?page (refetch)")] : []) };
+    return action("queue:deep_page", async () => (await call(vu, "GET", url, null, "/r/incident?page")).ok);
   }
   if (kind === "open") {
     const row = pick(vu.rows);
+    recordPage(vu, row.id);
     return action("open_record", async () => {
       const id = row.id;
       const rs = await Promise.all([
@@ -162,10 +182,30 @@ async function agentAct(vu) {
   }
   if (kind === "note") {
     const row = pick(vu.rows);
+    recordPage(vu, row.id);
     return action("add_work_note", async () => (await call(vu, "POST", `${O}/r/incident/${row.id}/journal`, { kind: "work_note", body: `پیگیری شد؛ ${pick(TERMS)} بررسی شد.` }, "/r/incident/:id/journal POST")).ok);
+  }
+  if (kind === "assign") {
+    const row = pick(vu.rows);
+    recordPage(vu, row.id);
+    return action("assign_group", async () => {
+      const cur = await call(vu, "GET", `${O}/r/incident/${row.id}`, null, "/r/incident/:id");
+      if (!cur.ok) return cur.status === 404;
+      const rec = cur.data.row;
+      if (!cur.data.meta.canWrite || !rec.active) return true;
+      const to = rec.assignment_group_id === BIG_GROUPS[0] ? BIG_GROUPS[1] : BIG_GROUPS[0];
+      const r = await call(vu, "PATCH", `${O}/r/incident/${row.id}`, { assignment_group_id: to, assigned_to: null, version: rec.version }, "/r/incident/:id PATCH (group)", { expect404: true });
+      // the record left the agent's groups: the write committed and the answer is «not found» (need to know)
+      if (r.ok || r.status === 404) {
+        assigned++;
+        vu.rows = vu.rows.filter((x) => x.id !== row.id);
+      }
+      return r.ok || r.status === 404 || r.status === 403;
+    });
   }
   if (kind === "state") {
     const row = pick(vu.rows);
+    recordPage(vu, row.id);
     return action("change_state", async () => {
       const cur = await call(vu, "GET", `${O}/r/incident/${row.id}`, null, "/r/incident/:id");
       if (!cur.ok) return false;
@@ -181,20 +221,83 @@ async function agentAct(vu) {
   }
   if (kind === "search") {
     const term = pick(TERMS);
+    // the palette's results are not a live screen: the shell's own queries stay
+    vu.page = null;
     return action("global_search", async () => {
       const rs = await Promise.all(SEARCH_TABLES.map((t) => call(vu, "GET", `${O}/r/${t}?q=${encodeURIComponent(term)}&size=5&total=false&fields=number,${DISPLAY[t]}`, null, `/r/${t}?q`)));
       return rs.every((x) => x.ok || x.status === 403);
     });
   }
-  return action("dashboard", async () => {
-    const filter = { and: [{ f: "assignment_group_id", op: "is_my_group" }, ACTIVE] };
-    const rs = await Promise.all([
-      call(vu, "POST", `${O}/r/incident/agg`, { filter, groupBy: ["priority"], metrics: [{ fn: "count" }] }, "/r/incident/agg"),
-      call(vu, "POST", `${O}/r/incident/agg`, { filter: ACTIVE, groupBy: ["state"], metrics: [{ fn: "count" }] }, "/r/incident/agg"),
-      call(vu, "POST", `${O}/r/incident/agg`, { filter: { f: "opened_at", op: "relative", v: { unit: "month", n: 6, dir: "past" } }, groupBy: [{ field: "opened_at", bucket: "month" }], metrics: [{ fn: "count" }] }, "/r/incident/agg"),
-    ]);
-    return rs.every((x) => x.ok);
-  });
+  const filter = { and: [{ f: "assignment_group_id", op: "is_my_group" }, ACTIVE] };
+  const aggs = (suffix = "") => [
+    call(vu, "POST", `${O}/r/incident/agg`, { filter, groupBy: ["priority"], metrics: [{ fn: "count" }] }, `/r/incident/agg${suffix}`),
+    call(vu, "POST", `${O}/r/incident/agg`, { filter: ACTIVE, groupBy: ["state"], metrics: [{ fn: "count" }] }, `/r/incident/agg${suffix}`),
+    call(vu, "POST", `${O}/r/incident/agg`, { filter: { f: "opened_at", op: "relative", v: { unit: "month", n: 6, dir: "past" } }, groupBy: [{ field: "opened_at", bucket: "month" }], metrics: [{ fn: "count" }] }, `/r/incident/agg${suffix}`),
+  ];
+  vu.page = { tables: ["incident"], ids: [], refetch: (changed) => (changed.has("incident") ? aggs(" (refetch)") : []) };
+  return action("dashboard", async () => (await Promise.all(aggs())).every((x) => x.ok));
+}
+
+/** The record page of an incident: the record with its activity, attachments and links, and its related tasks. */
+function recordPage(vu, id) {
+  const ref = `incident:${id}`;
+  vu.page = {
+    tables: ["incident_task"],
+    ids: [ref],
+    refetch: (changed) => [
+      ...(changed.has(ref)
+        ? [
+            call(vu, "GET", `${O}/r/incident/${id}`, null, "/r/incident/:id (refetch)"),
+            call(vu, "GET", `${O}/r/incident/${id}/journal?limit=50`, null, "/r/incident/:id/journal (refetch)"),
+            call(vu, "GET", `${O}/r/incident/${id}/history?limit=50`, null, "/r/incident/:id/history (refetch)"),
+            call(vu, "GET", `${O}/r/incident/${id}/attachments`, null, "/r/incident/:id/attachments (refetch)"),
+            call(vu, "GET", `${O}/r/incident/${id}/links`, null, "/r/incident/:id/links (refetch)"),
+          ]
+        : []),
+      ...(changed.has("incident_task") ? [call(vu, "GET", `${O}/r/incident_task?size=20&filter=${enc({ f: "parent_id", op: "eq", v: id })}`, null, "/r/incident_task?related (refetch)")] : []),
+    ],
+  };
+}
+
+// ----- «زنده» ------------------------------------------------------------------------------------------------------
+/** What the staff shell keeps on screen everywhere: the bell's count and the nav count of «رخدادهای من». */
+const SHELL = ["notification", "incident"];
+const MINE = { and: [{ f: "assigned_to", op: "is_me" }, ACTIVE] };
+const pulseStats = { polls: 0, rounds: 0, requests: 0, scoped: 0 };
+
+/** One look at the pulse, and the refetches it causes (a token-only answer: everything on screen). */
+async function pulse(vu) {
+  const page = vu.page ?? null;
+  const tables = [...new Set([...(page?.tables ?? []), ...SHELL])];
+  const ids = page?.ids ?? [];
+  const qs = new URLSearchParams();
+  if (vu.pulse) qs.set("since", vu.pulse);
+  qs.set("t", tables.join(","));
+  if (ids.length) qs.set("r", ids.join(","));
+  const r = await call(vu, "GET", `${O}/pulse?${qs}`, null, "/pulse");
+  if (!r.ok) return false;
+  const prev = vu.pulse ?? null;
+  vu.pulse = r.data.pulse;
+  if (measuring) pulseStats.polls++;
+  if (prev === null) return true;
+  let changed;
+  if (Array.isArray(r.data.changed)) {
+    if (measuring) pulseStats.scoped++;
+    changed = new Set(r.data.changed);
+  } else changed = prev !== r.data.pulse ? new Set([...tables, ...ids]) : new Set();
+  if (!changed.size) return true;
+  const work = [
+    ...(page ? page.refetch(changed) : []),
+    ...(changed.has("notification") ? [call(vu, "GET", `${O}/notify/inbox/count`, null, "/notify/inbox/count (refetch)")] : []),
+    ...(changed.has("incident") ? [call(vu, "GET", `${O}/r/incident?size=1&total=true&fields=number&filter=${enc(MINE)}`, null, "/r/incident?mine-count (refetch)")] : []),
+  ];
+  if (!work.length) return true;
+  if (measuring) {
+    pulseStats.rounds++;
+    pulseStats.requests += work.length;
+  }
+  await action("refetch", async () => (await Promise.all(work)).every((x) => x.ok || x.status === 404));
+  return true;
 }
 
 async function requesterAct(vu) {
@@ -234,18 +337,43 @@ async function requesterAct(vu) {
 
 async function headAct(vu) {
   const kind = pickW({ incidents: 50, requests: 30, agg: 20 });
-  if (kind === "incidents") return action("head_unit_incidents", async () => (await call(vu, "GET", `${O}/r/incident?size=50&sort=-updated_at`, null, "/r/incident?head")).ok);
-  if (kind === "requests") return action("head_unit_requests", async () => (await call(vu, "GET", `${O}/r/request?size=50&sort=-updated_at`, null, "/r/request?head")).ok);
-  return action("head_dashboard", async () => (await call(vu, "POST", `${O}/r/incident/agg`, { filter: ACTIVE, groupBy: ["priority"], metrics: [{ fn: "count" }] }, "/r/incident/agg")).ok);
+  const listPage = (table, route) => {
+    const url = `${O}/r/${table}?size=50&sort=-updated_at`;
+    vu.page = { tables: [table], ids: [], refetch: (changed) => (changed.has(table) ? [call(vu, "GET", url, null, `${route} (refetch)`)] : []) };
+    return url;
+  };
+  if (kind === "incidents") {
+    const url = listPage("incident", "/r/incident?head");
+    return action("head_unit_incidents", async () => (await call(vu, "GET", url, null, "/r/incident?head")).ok);
+  }
+  if (kind === "requests") {
+    const url = listPage("request", "/r/request?head");
+    return action("head_unit_requests", async () => (await call(vu, "GET", url, null, "/r/request?head")).ok);
+  }
+  const agg = (suffix = "") => call(vu, "POST", `${O}/r/incident/agg`, { filter: ACTIVE, groupBy: ["priority"], metrics: [{ fn: "count" }] }, `/r/incident/agg${suffix}`);
+  vu.page = { tables: ["incident"], ids: [], refetch: (changed) => (changed.has("incident") ? [agg(" (refetch)")] : []) };
+  return action("head_dashboard", async () => (await agg()).ok);
 }
 
 let stopAt = Infinity;
+let activeMs = 0;
 async function runVu(vu) {
   let nextPulse = Date.now() + Math.random() * 12_000;
+  const started = Date.now();
+  // the portal's light shell does not poll «زنده»; the staff shell does
+  const polls = PULSE && vu.persona !== "requester";
+  try {
+    await loop(vu, polls, () => nextPulse, (t) => (nextPulse = t));
+  } finally {
+    if (polls) activeMs += Date.now() - started;
+  }
+}
+
+async function loop(vu, polls, next, setNext) {
   while (Date.now() < stopAt) {
-    if (PULSE && Date.now() >= nextPulse) {
-      nextPulse = Date.now() + 12_000;
-      await action("live_pulse", async () => (await call(vu, "GET", `${O}/pulse`, null, "/pulse")).ok);
+    if (polls && Date.now() >= next()) {
+      setNext(Date.now() + 12_000);
+      await action("live_pulse", () => pulse(vu));
     }
     if (vu.persona === "agent") await agentAct(vu);
     else if (vu.persona === "requester") await requesterAct(vu);
@@ -271,6 +399,68 @@ function cpuTicks(match) {
   return total;
 }
 const isServer = (cmd) => cmd.includes("serve-pg.mjs");
+
+/** serve-pg processes (the primary of a cluster too: it ignores the signal). */
+function serverPids() {
+  const out = [];
+  for (const pid of readdirSync("/proc").filter((x) => /^\d+$/.test(x))) {
+    try {
+      if (isServer(readFileSync(`/proc/${pid}/cmdline`, "utf8"))) out.push(Number(pid));
+    } catch {
+      // gone
+    }
+  }
+  return out;
+}
+
+/** Ask every server for its write-lock samples since the last ask (scripts/serve-pg.mjs --lock-stats). */
+async function lockSamples() {
+  const pids = serverPids();
+  for (const pid of pids) {
+    try {
+      rmSync(join(ROOT, ".perf", `lockstats-${pid}.json`), { force: true });
+      process.kill(pid, "SIGUSR2");
+    } catch {
+      // gone
+    }
+  }
+  const samples = [];
+  const until = Date.now() + 5000;
+  const pending = new Set(pids);
+  while (pending.size && Date.now() < until) {
+    await sleep(200);
+    for (const pid of [...pending]) {
+      const f = join(ROOT, ".perf", `lockstats-${pid}.json`);
+      if (!existsSync(f)) continue;
+      try {
+        samples.push(...JSON.parse(readFileSync(f, "utf8")).samples);
+        pending.delete(pid);
+        rmSync(f, { force: true });
+      } catch {
+        // still being written
+      }
+    }
+  }
+  return samples;
+}
+
+function lockReport(samples, wallS) {
+  const by = new Map();
+  for (const x of samples) {
+    let e = by.get(x.label);
+    if (!e) by.set(x.label, (e = { label: x.label, n: 0, wait: [], hold: [] }));
+    e.n++;
+    e.wait.push(x.waitMs);
+    e.hold.push(x.holdMs);
+  }
+  const sum = (a) => a.reduce((p, v) => p + v, 0);
+  const row = (label, n, wait, hold) => ({
+    label, n, perS: +(n / wallS).toFixed(1), waitMean: +(sum(wait) / Math.max(1, n)).toFixed(1), waitP95: +q(wait, 0.95).toFixed(1),
+    holdMean: +(sum(hold) / Math.max(1, n)).toFixed(1), holdP95: +q(hold, 0.95).toFixed(1), holdMax: +(hold.length ? Math.max(...hold) : 0).toFixed(1), holdTotalS: +(sum(hold) / 1000).toFixed(1),
+  });
+  const all = row("(all)", samples.length, samples.map((x) => x.waitMs), samples.map((x) => x.holdMs));
+  return { all: { ...all, busyPct: +((100 * all.holdTotalS) / wallS).toFixed(1) }, byLabel: [...by.values()].map((e) => row(e.label, e.n, e.wait, e.hold)).sort((a, b) => b.holdTotalS - a.holdTotalS) };
+}
 const isPg = (cmd) => cmd.startsWith("postgres:") || cmd.includes("/postgres\0") || cmd.includes("bin/postgres");
 
 async function main() {
@@ -295,6 +485,8 @@ async function main() {
     at: Date.now(),
   };
   await sql`select pg_stat_statements_reset()`.catch(() => null);
+  if (LOCK_STATS) await lockSamples();
+  const jobsFrom = new Date().toISOString();
   measuring = true;
   const t0 = Date.now();
   stopAt = t0 + RAMP + DURATION;
@@ -314,6 +506,10 @@ async function main() {
   measuring = false;
   const wall = (Date.now() - t0) / 1000;
   const steady = DURATION / 1000;
+  const locks = LOCK_STATS ? lockReport(await lockSamples(), wall) : null;
+  const jobs = await sql`select kind, count(*)::int as n from sm_jobs where org_id = ${bank.org} and done_at >= ${jobsFrom} group by kind order by 2 desc limit 15`.catch(() => []);
+  const backlog = (await sql`select count(*)::int as n from sm_jobs where org_id = ${bank.org} and status = 'queued' and run_at <= now()`.catch(() => [{ n: -1 }]))[0].n;
+  const bells = (await sql`select count(*)::int as n from sm_notifications where org_id = ${bank.org} and created_at >= ${jobsFrom}`.catch(() => [{ n: -1 }]))[0].n;
   const after = {
     load: loadavg(),
     server: cpuTicks(isServer),
@@ -354,6 +550,17 @@ async function main() {
       hitRatio: +((Number(after.db.blks_hit) - Number(before.db.blks_hit)) / Math.max(1, Number(after.db.blks_hit) - Number(before.db.blks_hit) + Number(after.db.blks_read) - Number(before.db.blks_read))).toFixed(4),
       top: top.map((r) => ({ ...r, calls: Number(r.calls), rows: Number(r.rows), hit: Number(r.hit), read: Number(r.read), total_ms: Number(r.total_ms), mean_ms: Number(r.mean_ms), max_ms: Number(r.max_ms) })),
     },
+    live: {
+      activeUserMin: +(activeMs / 60_000).toFixed(1),
+      polls: pulseStats.polls,
+      scopedAnswers: pulseStats.scoped,
+      refetchRounds: pulseStats.rounds,
+      refetchRequests: pulseStats.requests,
+      roundsPerUserMin: +(pulseStats.rounds / Math.max(1e-9, activeMs / 60_000)).toFixed(2),
+      requestsPerUserMin: +(pulseStats.requests / Math.max(1e-9, activeMs / 60_000)).toFixed(2),
+    },
+    fanout: { assignedToGroup: assigned, bellRows: bells, jobsDone: jobs.map((j) => ({ kind: j.kind, n: Number(j.n) })), dueBacklog: Number(backlog) },
+    locks,
     actions: acts,
     routes: reqs,
     errors: errors.slice(0, 20),
@@ -363,6 +570,15 @@ async function main() {
   console.log(`\n\n## ${LABEL}: ${VUS} users (ramp ${RAMP / 1000}s + ${steady}s), think ${THINK} ms, load ${report.load.before.join("/")} → ${report.load.after.join("/")}`);
   console.log(`requests ${totalReq} · ${report.requests.rps} req/s · errors ${report.requests.errPct}% · p50 ${report.requests.p50} · p95 ${report.requests.p95} · p99 ${report.requests.p99} ms`);
   console.log(`CPU: server ${report.cpu.serverCores} cores, PostgreSQL ${report.cpu.postgresCores} cores · DB ${report.db.msPerRequest} ms/request, ${report.db.statements} statements, hit ratio ${report.db.hitRatio}`);
+  const lv = report.live;
+  console.log(`live: ${lv.polls} polls (${lv.scopedAnswers} scoped), ${lv.refetchRounds} refetch rounds / ${lv.refetchRequests} requests over ${lv.activeUserMin} user-minutes → ${lv.roundsPerUserMin} rounds and ${lv.requestsPerUserMin} refetch requests per user per minute`);
+  console.log(`fan-out: ${assigned} assignments to a large group, ${bells} bell rows, due backlog ${backlog}; jobs done: ${jobs.map((j) => `${j.kind} ${j.n}`).join(", ")}`);
+  if (locks) {
+    const a = locks.all;
+    console.log(`write lock: ${a.n} acquisitions (${a.perS}/s), wait mean ${a.waitMean} p95 ${a.waitP95} ms, hold mean ${a.holdMean} p95 ${a.holdP95} max ${a.holdMax} ms, held ${a.holdTotalS} s = ${a.busyPct}% of the run`);
+    console.log("\n| transaction | n | /s | wait mean | wait p95 | hold mean | hold p95 | hold max | held s |\n|---|---:|---:|---:|---:|---:|---:|---:|---:|");
+    for (const r of locks.byLabel.slice(0, 25)) console.log(`| ${r.label} | ${r.n} | ${r.perS} | ${r.waitMean} | ${r.waitP95} | ${r.holdMean} | ${r.holdP95} | ${r.holdMax} | ${r.holdTotalS} |`);
+  }
   console.log("\n| action | n | err% | p50 | p95 | p99 | max |\n|---|---:|---:|---:|---:|---:|---:|");
   for (const a of acts) console.log(`| ${a.name} | ${a.n} | ${a.errPct} | ${a.p50} | ${a.p95} | ${a.p99} | ${a.max} |`);
   console.log("\n| route | n | err% | p50 | p95 | p99 |\n|---|---:|---:|---:|---:|---:|");
