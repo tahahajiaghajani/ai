@@ -35,6 +35,8 @@ export const EVENT_KIND: Record<string, string> = {
   org_status: "وضعیت سازمان",
   ai_key: "کلید هوش مصنوعی",
   price_key: "کلید منبع قیمت",
+  reauth: "تأیید دوبارهٔ هویت",
+  directory_test: "آزمایش اتصال فهرست کاربران",
 };
 
 const REASON: Record<string, string> = {

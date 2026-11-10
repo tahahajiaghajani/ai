@@ -2,8 +2,9 @@
 // /api/v1/scim/:source/… with the source's secret token. The identity provider creates, changes and switches off
 // people; members are matched by e-mail and linked to the provider's ids (sm_directory_links). Nothing is ever deleted
 // (a removed person is switched off). Groups are linked, never created as ITSM groups: membership changes reach only the
-// ITSM groups an administrator mapped, and roles mapped to them are granted only with automatic roles on the source
-// (otherwise they wait for the administrator). In «پیش‌نمایش» mode (a dry run) requests are answered and recorded in
+// ITSM groups an administrator mapped, and roles mapped to them are granted only with automatic roles on the source and
+// an approval that covers the current mappings (rolesApproved: approved_map_hash; otherwise they wait for the
+// administrator, like LDAP sync and directory sign-in). In «پیش‌نمایش» mode (a dry run) requests are answered and recorded in
 // the source's run log, and nothing changes. Writes act as the member who approved the source — never the system.
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { Ctx, ServerConfig } from "../../context";
@@ -19,6 +20,7 @@ import { ensurePerson, setDirectoryName, setMemberActive } from "../admin/member
 import { removeIn } from "../../engine";
 import { grantingGroups, intLog, liveRow, liveRows, sysOf, isUuid, type Row } from "./common";
 import { approverCtx, mappingsOf, optionsOf } from "./directory";
+import { rolesApproved } from "./directory-login";
 
 export class ScimError extends Error {
   constructor(public status: number, message: string, public scimType?: string) {
@@ -280,7 +282,9 @@ async function changeMembers(s: ScimSession, groupId: string, add: string[], rem
   const users = add.filter(isUuid);
   // a group whose membership grants roles or a (secure) workspace is a role grant: only with automatic roles on
   const grants = g.group_id ? (await grantingGroups(s.cfg.db, s.orgId, [g.group_id])).has(g.group_id) : false;
-  if (g.group_id && users.length && grants && !optionsOf(s.source).auto_roles) out.pending_roles += users.length;
+  // (and only while the approval covers the current mappings — the same rule as LDAP sync and directory sign-in)
+  const approved = rolesApproved(s.source);
+  if (g.group_id && users.length && grants && !approved) out.pending_roles += users.length;
   else if (g.group_id && users.length) out.added = (await addGroupMembers(ctx, g.group_id, users)).added;
   if (g.group_id && remove.length) {
     await ctx.write(async (tx) => {
@@ -294,7 +298,7 @@ async function changeMembers(s: ScimSession, groupId: string, add: string[], rem
     });
   }
   if (g.role && users.length) {
-    if (optionsOf(s.source).auto_roles) {
+    if (approved) {
       for (const u of users) {
         const p = await s.cfg.db.one<{ roles: unknown }>(`select roles from sm_member_profiles where org_id = $1 and user_id = $2 and deleted_at is null`, [s.orgId, u]);
         const roles = Array.isArray(p?.roles) ? (p!.roles as string[]) : [];

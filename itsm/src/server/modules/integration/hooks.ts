@@ -83,6 +83,7 @@ function directory(w: WriteArgs): void {
   if (w.changed.has("approved_by")) throw bad("تأییدکننده با «اعمال» تعیین می‌شود");
   if (w.op === "update" && w.prev?.approved_by && String(w.prev.approved_by) !== w.ctx.user.id && DIRECTORY_APPROVED_FIELDS.some((f) => w.changed.has(f))) {
     w.next.approved_by = null;
+    w.next.approved_map_hash = null;
     if (w.next.mode === "apply") w.next.mode = "preview";
   }
   // sign-in settings: addresses, TLS, the root CA, proxies; changing who signs in needs a recent proof of identity

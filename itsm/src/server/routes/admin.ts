@@ -5,7 +5,9 @@
 import { z } from "zod";
 import type { MiddlewareHandler } from "hono";
 import { router, body, requireUser, type Env } from "../http/hono";
-import { forbidden, notFound } from "../http/errors";
+import { bad, forbidden, notFound } from "../http/errors";
+import { needRecentPlatformAuth } from "../auth/policy";
+import { platformAudit } from "../modules/platform/audit";
 import { aiAdminRoutes } from "./ai-admin";
 import { platformConsoleRoutes } from "./admin-platform";
 import { adminAudit, listOrgs, listUsers, orgDetail, overview, userDetail } from "../modules/platform/console";
@@ -42,6 +44,29 @@ adminRoutes.get("/server", async (c) => {
   const server = c.get("cfg").server;
   if (!server) throw notFound("این بخش فقط در نسخهٔ سرور است");
   return c.json(await server.health());
+});
+
+// the air-gap allowlist: an explicit, re-authenticated and audited action of the platform owner (never automatic)
+adminRoutes.put("/server/allow", async (c) => {
+  const cfg = c.get("cfg");
+  const server = cfg.server;
+  if (!server) throw notFound("این بخش فقط در نسخهٔ سرور است");
+  await needRecentPlatformAuth(c);
+  const input = await body(c, z.object({ add: z.array(z.string().trim().min(1).max(260)).max(50).optional(), remove: z.array(z.string().trim().min(1).max(260)).max(50).optional() }));
+  if (!input.add?.length && !input.remove?.length) throw bad("میزبانی برای افزودن یا برداشتن نیامد");
+  let result: { allow: string[] };
+  try {
+    result = await server.allow(input);
+  } catch (e) {
+    throw bad(String((e as Error).message ?? e));
+  }
+  await platformAudit(cfg.db, cfg, c.get("user"), {
+    action: "server.allow",
+    entity: "server",
+    summary: `فهرست مجاز شبکهٔ بسته: ${[...(input.add ?? []).map((h) => `+${h}`), ...(input.remove ?? []).map((h) => `-${h}`)].join(" ")}`,
+    data: { add: input.add ?? [], remove: input.remove ?? [] },
+  });
+  return c.json(result);
 });
 
 /** Kept for older clients: the overview's main figures in the earlier shape. */

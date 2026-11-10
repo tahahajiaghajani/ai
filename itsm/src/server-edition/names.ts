@@ -29,10 +29,10 @@ export interface EditionNames {
 export const EDITION: EditionNames = edition;
 
 /**
- * Where the first-run setup sends the administrator for Active Directory / LDAP sign-in and directory sync: the
- * integration hub's «فهرست کاربران (LDAP و SCIM)» page (the AD engineer adds the sign-in settings there).
+ * Where the first-run setup sends the administrator: the integration hub's «فهرست کاربران (LDAP و SCIM)» (the AD
+ * engineer adds the sign-in settings there) and «امنیت ورود و نشست‌ها» (session policy, break-glass accounts).
  */
-export const DIRECTORY_SETTINGS_PATH = "/integrations/directory";
+export { DIRECTORY_SETTINGS_PATH, SECURITY_SETTINGS_PATH } from "@shared/auth/paths";
 
 /** Environment variable naming the configuration file (default: <dataDir>\kariz.json on Windows). */
 export const CONFIG_ENV = "ITSM_SERVER_CONFIG";

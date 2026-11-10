@@ -320,9 +320,12 @@ export async function deleteRole(ctx: Ctx, key: string): Promise<void> {
   });
 }
 
-/** A fresh context for the same caller (a write above changed what the cached subject was built from). */
-async function refreshed(ctx: Ctx): Promise<Ctx> {
-  const fresh = makeCtx(ctx.cfg, ctx.user, ctx.org, ctx.member, { support: ctx.support ?? null, status: ctx.status ?? null });
+/**
+ * A fresh context for the same caller (a write above changed what the cached subject was built from) — the same
+ * session too, so needRecentAuth and the session's organisation still apply on the rebuilt context.
+ */
+export async function refreshed(ctx: Ctx): Promise<Ctx> {
+  const fresh = makeCtx(ctx.cfg, ctx.user, ctx.org, ctx.member, { support: ctx.support ?? null, status: ctx.status ?? null, session: ctx.session ?? null });
   await prepareSubject(fresh);
   return fresh;
 }

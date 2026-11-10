@@ -9,6 +9,7 @@ import { availableParallelism } from "node:os";
 import { randomBytes } from "node:crypto";
 import { CONFIG_ENV, EDITION } from "./names";
 import { planPools, type PoolPlan } from "./pgtune";
+import { allowEntryProblem } from "@server/net";
 
 export interface AntivirusConfig {
   /** scanner executable, e.g. C:\Program Files\Windows Defender\MpCmdRun.exe; null = no scanning */
@@ -387,6 +388,24 @@ export function patchServerConfig(file: string, patch: (c: ServerEditionConfig) 
   saveServerConfig(file, config);
   return config;
 }
+
+/**
+ * Add or remove air-gap allowlist entries in the file (the web console's and karizctl's one path): every entry is
+ * checked first (allowEntryProblem) and a bad one refuses the whole change with a Persian message. Answers the list.
+ */
+export function changeAllowlist(file: string, change: { add?: string[]; remove?: string[] }): string[] {
+  const add = (change.add ?? []).map((h) => h.trim().toLowerCase()).filter(Boolean);
+  const remove = new Set((change.remove ?? []).map((h) => h.trim().toLowerCase()).filter(Boolean));
+  for (const h of add) {
+    const problem = allowEntryProblem(h);
+    if (problem) throw new AllowlistError(`«${h}»: ${problem}`);
+  }
+  return patchServerConfig(file, (x) => {
+    x.network.allow = [...new Set([...x.network.allow.filter((e) => !remove.has(e)), ...add])];
+  }).network.allow;
+}
+
+export class AllowlistError extends Error {}
 
 export const newSecret = (bytes = 32) => randomBytes(bytes).toString("hex");
 

@@ -14,6 +14,7 @@ import {
 } from "../modules/admin/platform";
 import { createBackup, deleteBackup, downloadBackup, listBackups, restoreBackup, verifyBackupAs } from "../modules/admin/backup";
 import { requestMeta } from "../modules/platform/security";
+import { needRecentPlatformAuth } from "../auth/policy";
 import { contentDisposition } from "../engine";
 
 const onlyPlatform: MiddlewareHandler<Env> = async (c, next) => {
@@ -155,7 +156,15 @@ platformConsoleRoutes.post("/backups", async (c) => {
   return c.json({ backup: await createBackup(c.get("cfg"), c.get("user"), id(input.org_id, "سازمان"), input.note || null) });
 });
 
+// a fresh confirmation first (the console's link asks it through the ReauthGate, then navigates to the file)
+platformConsoleRoutes.post("/backups/:id/download-check", async (c) => {
+  await needRecentPlatformAuth(c);
+  id(c.req.param("id"), "پشتیبان");
+  return c.json({ ok: true });
+});
+
 platformConsoleRoutes.get("/backups/:id/download", async (c) => {
+  await needRecentPlatformAuth(c);
   // audited: the platform's audit and the organisation's security log record who took the file
   const f = await downloadBackup(c.get("cfg"), c.get("user"), id(c.req.param("id"), "پشتیبان"), requestMeta(c));
   return new Response(Buffer.from(f.data), {
@@ -165,7 +174,10 @@ platformConsoleRoutes.get("/backups/:id/download", async (c) => {
 
 platformConsoleRoutes.post("/backups/:id/verify", async (c) => c.json(await verifyBackupAs(c.get("cfg"), c.get("user"), id(c.req.param("id"), "پشتیبان"), requestMeta(c))));
 
-platformConsoleRoutes.post("/backups/:id/restore", async (c) => c.json(await restoreBackup(c.get("cfg"), c.get("user"), id(c.req.param("id"), "پشتیبان"))));
+platformConsoleRoutes.post("/backups/:id/restore", async (c) => {
+  await needRecentPlatformAuth(c);
+  return c.json(await restoreBackup(c.get("cfg"), c.get("user"), id(c.req.param("id"), "پشتیبان")));
+});
 
 platformConsoleRoutes.delete("/backups/:id", async (c) => {
   await deleteBackup(c.get("cfg"), c.get("user"), id(c.req.param("id"), "پشتیبان"));

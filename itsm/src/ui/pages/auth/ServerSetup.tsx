@@ -15,6 +15,7 @@ import { RecoveryCode } from "./RecoveryCode";
 import { passwordIcon } from "./Login";
 import { FormAlert, ICON, LTR, PasswordRules, newPasswordRules, useBlurValidation } from "../kit";
 import { APP_NAME } from "@shared/constants";
+import { SECURITY_SETTINGS_PATH } from "@shared/auth/paths";
 
 interface CertInfo {
   subject: string;
@@ -81,7 +82,7 @@ export default function ServerSetup() {
   const [busy, setBusy] = useState(false);
   const [cert, setCert] = useState<{ info: CertInfo; warning: string | null } | null>(null);
   const [certFiles, setCertFiles] = useState<{ pfx?: File; cert?: File; key?: File; passphrase?: string }>({});
-  const [result, setResult] = useState<{ org_id: string; recovery_code: string | null; warnings: string[]; directory_path: string } | null>(null);
+  const [result, setResult] = useState<{ org_id: string; recovery_code: string | null; warnings: string[]; directory_path: string; security_path?: string } | null>(null);
   const [kept, setKept] = useState(false);
   const s = q.data;
 
@@ -112,6 +113,8 @@ export default function ServerSetup() {
 
   if (result) {
     const directory = result.directory_path;
+    // the paths come from the server (named once in @shared/auth/paths); an older server answers without the second
+    const security = result.security_path ?? `/${result.org_id}${SECURITY_SETTINGS_PATH}`;
     return (
       <AuthLayout title="سرور آماده است" subtitle="کد بازیابی حساب مدیر را جای امنی نگه دارید؛ دیگر نشان داده نمی‌شود." steps={{ labels: [...STEPS, "پایان"], current: 4 }}>
         {result.warnings.length ? (
@@ -137,7 +140,13 @@ export default function ServerSetup() {
               await refresh();
               nav(directory, { replace: true });
             }}>
-              ورود با Active Directory (فهرست کاربران)
+              فهرست کاربران (LDAP و SCIM)
+            </Button>
+            <Button size="large" block icon={<Lock {...ICON} />} onClick={async () => {
+              await refresh();
+              nav(security, { replace: true });
+            }}>
+              امنیت ورود و نشست‌ها
             </Button>
           </div>
         )}
@@ -186,7 +195,7 @@ export default function ServerSetup() {
       const smtp = v.smtp_host?.trim()
         ? { host: v.smtp_host.trim(), port: v.smtp_port ?? 25, security: v.smtp_security ?? "starttls", user: v.smtp_user || undefined, password: v.smtp_password || undefined, from_address: v.smtp_from ?? "" }
         : null;
-      const r = await api.post<{ org_id: string; recovery_code: string | null; warnings: string[]; directory_path: string }>("/setup/complete", {
+      const r = await api.post<{ org_id: string; recovery_code: string | null; warnings: string[]; directory_path: string; security_path?: string }>("/setup/complete", {
         token,
         org: { name: v.org_name },
         admin: { full_name: v.full_name, email: v.email, password: v.password },

@@ -105,6 +105,11 @@ function Backups() {
     },
   });
   const verify = useAction((id: string) => api.post<{ ok: boolean; message: string; tables: number; rows: number }>(`/admin/backups/${id}/verify`), { success: (r) => (r.ok ? `${r.message} (${fa(r.tables)} جدول، ${fa(r.rows)} ردیف)` : r.message) });
+  // the file is sensitive: a fresh confirmation (ReauthGate) first, then the browser downloads it
+  const download = useAction(async (id: string) => {
+    await api.post(`/admin/backups/${id}/download-check`);
+    window.location.assign(`/api/admin/backups/${id}/download`);
+  });
   const restore = useAction((id: string) => api.post<{ org_id: string; name: string }>(`/admin/backups/${id}/restore`), { success: (r) => `سازمان «${r.name}» از پشتیبان ساخته شد`, onSuccess: () => qc.invalidateQueries({ queryKey: ["admin"] }) });
   const remove = useAction((id: string) => api.del(`/admin/backups/${id}`), { success: "پشتیبان حذف شد", onSuccess: refresh });
   return (
@@ -137,9 +142,7 @@ function Backups() {
                 <span className="flex gap-1">
                   {r.status === "ready" ? (
                     <>
-                      <a href={`/api/admin/backups/${r.id}/download`} aria-label="دریافت" className="ant-btn ant-btn-text ant-btn-sm ant-btn-icon-only inline-flex items-center justify-center">
-                        <Download {...ICON} />
-                      </a>
+                      <Button size="small" type="text" aria-label="دریافت" loading={download.isPending && download.variables === r.id} icon={<Download {...ICON} />} onClick={() => download.mutate(r.id)} />
                       <Button size="small" type="text" aria-label="بررسی سلامت" loading={verify.isPending && verify.variables === r.id} icon={<CheckCheck {...ICON} />} onClick={() => verify.mutate(r.id)} />
                       <Popconfirm title="از این پشتیبان سازمانی تازه ساخته شود؟" description="سازمان فعلی دست نمی‌خورد؛ رازها و کلیدها بازگردانده نمی‌شوند." okText="بازگردانی" cancelText="انصراف" onConfirm={() => restore.mutateAsync(r.id)}>
                         <Button size="small" type="text" aria-label="بازگردانی" icon={<Undo2 {...ICON} />} />

@@ -7,7 +7,7 @@ import type { Context } from "hono";
 import type { AuthSession, AuthUser, Ctx, OrgRow } from "../context";
 import type { Queryable } from "../db";
 import { AppError, forbidden } from "../http/errors";
-import { normalizePolicy, strictestSession, type AuthPolicy, type SessionPolicy } from "@shared/auth/policy";
+import { DEFAULT_POLICY, normalizePolicy, strictestSession, type AuthPolicy, type SessionPolicy } from "@shared/auth/policy";
 
 /** The organisation's policy (its settings.auth, normalised). */
 export function orgPolicy(org: Pick<OrgRow, "settings"> | null | undefined): AuthPolicy {
@@ -88,6 +88,22 @@ export function needRecentAuth(ctx: Pick<Ctx, "org" | "actor"> & { session?: Aut
 /** needRecentAuth for a route handler (the session of the request). */
 export function needRecentAuthOf(c: Context, ctx: Ctx): void {
   needRecentAuth(ctx, (c as unknown as { get(k: "session"): AuthSession | undefined }).get("session") ?? null);
+}
+
+/**
+ * needRecentAuth for the platform owner's console (no organisation in the request): the strictest re-authentication
+ * window of the owner's organisations, and DEFAULT_POLICY's when none sets one — the console's sensitive actions
+ * (backup files and restores, the server edition's air-gap allowlist, its configuration) always ask again.
+ */
+export async function needRecentPlatformAuth(c: Context): Promise<void> {
+  const s = (c as unknown as { get(k: "session"): AuthSession | undefined }).get("session") ?? null;
+  const user = (c as unknown as { get(k: "user"): AuthUser | undefined }).get("user");
+  const cfg = (c as unknown as { get(k: "cfg"): { db: Queryable } | undefined }).get("cfg");
+  if (!s || !user || !cfg) return;
+  const minutes = (await userSessionPolicy(cfg.db, user.id)).reauth_minutes || DEFAULT_POLICY.session.reauth_minutes;
+  const at = Date.parse(String(s.reauth_at ?? s.created_at ?? ""));
+  if (Number.isFinite(at) && Date.now() - at <= minutes * 60_000) return;
+  throw new AppError(401, REAUTH_CODE, "برای این کار دوباره هویت خود را تأیید کنید", { minutes, method: s.auth_method ?? "password" });
 }
 
 /**

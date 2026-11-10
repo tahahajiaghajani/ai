@@ -21,12 +21,13 @@ import { audit } from "../data/crud";
 import { needFeature, needWithinLimit } from "../admin/common";
 import { ensurePerson, setDirectoryName, setMemberActive, type MembershipRole } from "../admin/members";
 import { LdapError } from "./ldap";
-import { mappingFingerprint, openSourceConnection, nestedMemberships } from "./directory-login";
+import { mappingFingerprint, openSourceConnection, nestedMemberships, rolesApproved } from "./directory-login";
 import { revokeUserSessions } from "../../auth/session";
 import { needRecentAuth } from "../../auth/policy";
 import { securityEvent } from "../platform/security";
 import { grantingGroups, intLog, liveRow, liveRows, needIntegrations, sysOf, type Row } from "./common";
 import { lanAllowed, checkOutboundHost, OutboundBlockedError } from "../../net";
+import { recordDirectoryTest } from "../platform/signin-health";
 
 const HOUR = 3600_000;
 
@@ -373,11 +374,17 @@ export async function testDirectory(ctx: Ctx, sourceId: string): Promise<{ ok: b
   needIntegrations(ctx, "edit");
   const src = await sourceRow(ctx, sourceId);
   if (src.kind !== "ldap") throw bad("آزمایش اتصال برای منبع LDAP است");
+  // the result also reaches the platform owner's «سلامت سرور» (the latest test per source: names and the message only)
+  const record = (ok: boolean, message: string) => recordDirectoryTest(ctx.db, { org_id: ctx.org.id, user_id: ctx.user.id, source_id: sourceId, ok, message }).catch(() => undefined);
   try {
     const entries = await readLdap(ctx.cfg, sysOf(ctx), src);
-    return { ok: true, count: entries.length, sample: entries.slice(0, 5).map((e) => ({ name: e.name, email: e.email })), message: `اتصال برقرار است؛ ${entries.length.toLocaleString("fa-IR")} نفر خوانده شد` };
+    const message = `اتصال برقرار است؛ ${entries.length.toLocaleString("fa-IR")} نفر خوانده شد`;
+    await record(true, message);
+    return { ok: true, count: entries.length, sample: entries.slice(0, 5).map((e) => ({ name: e.name, email: e.email })), message };
   } catch (e) {
-    return { ok: false, count: 0, sample: [], message: String((e as Error).message ?? e) };
+    const message = String((e as Error).message ?? e);
+    await record(false, message);
+    return { ok: false, count: 0, sample: [], message };
   }
 }
 
@@ -414,7 +421,7 @@ export function installDirectoryJobs(): void {
       const entries = await readLdap(cfg, sys, src);
       const plan = await planFor(ctx, src, entries);
       // automatic roles only for the mappings the approver approved (as at sign-in): changed mappings wait for a new approval
-      const result = await applyPlan(ctx, src, plan, !!src.auto_roles && src.approved_map_hash === mappingFingerprint(src));
+      const result = await applyPlan(ctx, src, plan, rolesApproved(src));
       await storeRun(ctx, String(src.id), "apply", plan, "done");
       await markSource(sys, src, { health: "ok", last_run_at: new Date().toISOString(), next_run_at: new Date(Date.now() + Number(src.schedule_hours) * HOUR).toISOString(), last_summary: summary(result) });
       await intLog(cfg.db, { org_id: job.org_id, kind: "directory", ref_id: String(src.id), actor: ctx.user.id, ok: true, summary: summary(result) });

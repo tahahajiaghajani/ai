@@ -1,8 +1,11 @@
 // «سلامت سرور» (server edition only): the checks in plain Persian, then the database (size, connections, cache hit
 // ratio, slowest statements from pg_stat_statements), free disk space per folder, the job queue, the worker processes
 // and the scheduler leader, backups, the certificate and the air-gap policy (with recently refused hosts).
-import { Button, Table, Tag } from "antd";
-import { CheckCircle2, CircleAlert, Info, RefreshCw, TriangleAlert } from "lucide-react";
+import { useState } from "react";
+import { Button, Input, Popconfirm, Table, Tag } from "antd";
+import { CheckCircle2, CircleAlert, Info, Plus, RefreshCw, TriangleAlert, X } from "lucide-react";
+import { api } from "../../../lib/api";
+import { useAction } from "../../../lib/hooks";
 import { PageHeader } from "../../../components/layout";
 import { Skeleton, StatCard } from "../../../components/display";
 import { Card } from "../../../components/blocks";
@@ -45,6 +48,8 @@ interface ServerHealth {
   backup: { enabled: boolean; dir: string; time: string; next: string | null; last: { ok: boolean; at: string; size: number; verified: boolean; error: string | null } | null; count: number };
   certificate: { subject: string; names: string[]; valid_to: string; days_left: number; self_signed: boolean } | null;
   network: { air_gapped: boolean; allow: string[]; refused: { host: string; at: string; via: string }[] };
+  sign_in?: { failed_1h: number; succeeded_1h: number; locked_1h: number; sources: { org: string; source: string; at: string; ok: boolean; message: string }[] };
+  trusted_proxies?: string[];
   public_url: string;
 }
 
@@ -59,6 +64,15 @@ const Ltr = ({ children }: { children: React.ReactNode }) => (
 export default function ServerHealthPage() {
   const q = useAdminQuery<ServerHealth>(["server-health"], "/admin/server");
   const h = q.data;
+  const [host, setHost] = useState("");
+  // an explicit, re-authenticated change of the air-gap allowlist (never automatic: a refused host is only offered)
+  const allow = useAction((change: { add?: string[]; remove?: string[] }) => api.put<{ allow: string[] }>("/admin/server/allow", change), {
+    success: "فهرست مجاز به‌روز شد",
+    onSuccess: () => {
+      setHost("");
+      void q.refetch();
+    },
+  });
   const leader = h?.workers.find((w) => w.leader);
   return (
     <div>
@@ -180,19 +194,59 @@ export default function ServerHealthPage() {
                 "HTTPS در این سرور خاموش است (پشت پراکسی)"
               )}
               <br />
-              شبکهٔ بسته: {h.network.air_gapped ? "روشن" : "خاموش"} · میزبان‌های مجاز: <Ltr>{h.network.allow.join(", ") || "—"}</Ltr>
+              شبکهٔ بسته: {h.network.air_gapped ? "روشن" : "خاموش"}
+              {h.trusted_proxies?.length ? (
+                <>
+                  {" "}· پراکسی‌های معتمد: <Ltr>{h.trusted_proxies.join(", ")}</Ltr>
+                </>
+              ) : null}
             </p>
+            <div className="mt-3 flex flex-wrap items-center gap-1">
+              {h.network.allow.map((e) => (
+                <Tag key={e} closable closeIcon={<X size={12} />} onClose={(ev) => {
+                  ev.preventDefault();
+                  allow.mutate({ remove: [e] });
+                }}>
+                  <Ltr>{e}</Ltr>
+                </Tag>
+              ))}
+              <Input size="small" dir="ltr" className="w-56" value={host} onChange={(e) => setHost(e.target.value)} placeholder="dc1.bank.local" onPressEnter={() => host.trim() && allow.mutate({ add: [host.trim()] })} />
+              <Button size="small" icon={<Plus {...ICON} />} disabled={!host.trim()} loading={allow.isPending} onClick={() => allow.mutate({ add: [host.trim()] })}>
+                افزودن میزبان مجاز
+              </Button>
+            </div>
             {h.network.refused.length ? (
               <div className="mt-3">
                 <span className="block text-[13px] font-medium text-ink">تلاش‌های ردشده برای اتصال به بیرون</span>
                 {h.network.refused.map((r) => (
-                  <span key={`${r.host}${r.at}`} className="block text-[13px] text-ink-3">
+                  <span key={`${r.host}${r.at}`} className="flex items-center gap-2 text-[13px] text-ink-3">
                     <Ltr>{r.host}</Ltr> · <When v={r.at} />
+                    {h.network.allow.includes(r.host) ? null : (
+                      <Popconfirm title={`«${r.host}» به فهرست مجاز افزوده شود؟`} okText="افزودن" cancelText="انصراف" onConfirm={() => allow.mutateAsync({ add: [r.host] })}>
+                        <Button size="small" type="link">
+                          مجاز کن
+                        </Button>
+                      </Popconfirm>
+                    )}
                   </span>
                 ))}
               </div>
             ) : null}
           </Card>
+          {h.sign_in ? (
+            <Card title="ورود کاربران" className="ad-section-gap">
+              <p className="text-[13px] leading-6 text-ink-2">
+                یک ساعت گذشته: {fa(h.sign_in.succeeded_1h)} ورود موفق · {fa(h.sign_in.failed_1h)} ورود ناموفق · {fa(h.sign_in.locked_1h)} قفل موقت
+              </p>
+              {h.sign_in.sources.map((x) => (
+                <span key={`${x.org}${x.source}`} className="block text-[13px] text-ink-3">
+                  <Tag color={x.ok ? "green" : "red"}>{x.ok ? "اتصال برقرار" : "ناموفق"}</Tag>
+                  {x.org} · {x.source} · <When v={x.at} />
+                  {x.ok ? null : <span className="block text-ink-2">{x.message}</span>}
+                </span>
+              ))}
+            </Card>
+          ) : null}
         </>
       )}
     </div>

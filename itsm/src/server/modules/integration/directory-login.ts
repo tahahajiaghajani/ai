@@ -103,6 +103,12 @@ export function mappingFingerprint(src: Row): string {
     .slice(0, 32);
 }
 
+/**
+ * May this source's mappings grant roles by themselves? Only with automatic roles on AND the approval covering these
+ * very mappings (approved_map_hash = mappingFingerprint): the one rule of LDAP sync, directory sign-in and SCIM.
+ */
+export const rolesApproved = (src: Row): boolean => !!src.auto_roles && !!src.approved_map_hash && src.approved_map_hash === mappingFingerprint(src);
+
 /** The effective TLS mode of a source (rows saved before sign-in existed follow their URL). */
 export function tlsModeOf(src: Row): TlsMode | "legacy" {
   const m = String(src.tls_mode ?? "");
@@ -137,7 +143,7 @@ export function sourceConfig(src: Row): LoginSourceConfig {
     membership: src.membership_role === "member" ? "member" : "viewer",
     unitFromDepartment: o.unit_from === "department",
     approvedBy: typeof src.approved_by === "string" && src.approved_by ? src.approved_by : null,
-    rolesApproved: !!src.auto_roles && !!src.approved_map_hash && src.approved_map_hash === mappingFingerprint(src),
+    rolesApproved: rolesApproved(src),
     ssoMode: sso,
     ssoAuto: !!src.sso_auto,
     ntlm: !!src.ntlm,

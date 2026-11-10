@@ -18,7 +18,7 @@ import { networkFetch, type NetworkPolicy } from "@server/net";
 import type { ServerConfig } from "@server/context";
 import { proxyTrusted } from "@server/auth/session";
 import { APP_NAME } from "@shared/constants";
-import { databaseUrl, loadServerConfig, poolFor, workerCount, type ServerEditionConfig } from "./config";
+import { changeAllowlist, databaseUrl, loadServerConfig, poolFor, workerCount, type ServerEditionConfig } from "./config";
 import { DIRECTORY_SETTINGS_PATH, EXIT_FATAL_CONFIG } from "./names";
 import { createLogger, echo, RotatingFile, type Level, type ServerLogger } from "./log";
 import { WorkerMetrics, type ClusterMetrics } from "./metrics";
@@ -220,6 +220,12 @@ export async function startServerEdition(o: StartOptions): Promise<RunningServer
     server: {
       health: () => serverHealth({ db, config: current, cluster, cert: () => certInfo }),
       info: () => ({ air_gapped: current.network.air_gapped, public_url: current.public_url, directory_path: DIRECTORY_SETTINGS_PATH }),
+      allow: async (change) => {
+        const next = changeAllowlist(o.file, change);
+        reload();
+        if (o.ipc) send({ t: "reload" });
+        return { allow: next };
+      },
     },
   };
   const api = createApp(cfg);

@@ -26,6 +26,7 @@ export type SecurityEventKind =
   | "ai_key" // AI connection key added, replaced or removed
   | "api_key" // an API key created or revoked (data.name, data.prefix)
   | "webhook" // an inbound webhook created, its secret replaced, or removed
+  | "directory_test" // a directory source's connection test (data.source, data.message; «سلامت سرور» shows the latest per source)
   | (string & {});
 
 export interface SecurityEventInput {

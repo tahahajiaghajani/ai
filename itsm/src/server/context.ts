@@ -55,6 +55,11 @@ export interface DesktopBridge {
 export interface ServerEditionBridge {
   health(): Promise<Record<string, unknown>>;
   info(): { air_gapped: boolean; public_url: string; directory_path: string };
+  /**
+   * Change the air-gap allowlist (kariz.json network.allow) — only by the platform owner's explicit action on
+   * «سلامت سرور» (re-authenticated, audited); nothing adds a host by itself. Answers the list now in force.
+   */
+  allow(change: { add?: string[]; remove?: string[] }): Promise<{ allow: string[] }>;
 }
 
 export interface ServerConfig {

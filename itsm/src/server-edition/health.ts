@@ -10,6 +10,7 @@ import type { ClusterMetrics } from "./metrics";
 import type { CertInfo } from "./tls";
 import { backupRoot, lastBackup, listBackups } from "./backup";
 import { nextDaily } from "./scheduler";
+import { signInHealth } from "@server/modules/platform/signin-health";
 
 export type Tone = "ok" | "warning" | "danger" | "neutral";
 export interface Check {
@@ -122,6 +123,13 @@ export async function serverHealth(d: HealthDeps) {
     });
   }
   add(queue && queue.failed > 0 ? { key: "jobs", title: "کارهای پس‌زمینه", tone: "warning", value: `${fa(queue.failed)} کار ناموفق در ۲۴ ساعت`, detail: "«کارها و پشتیبان‌ها» را ببینید" } : { key: "jobs", title: "کارهای پس‌زمینه", tone: (queue?.oldest ?? 0) > 300 ? "warning" : "ok", value: `${fa(queue?.due ?? 0)} کار در صف` });
+  const signIn = await signInHealth(d.db);
+  const failedTests = signIn.sources.filter((x) => !x.ok).length;
+  add(
+    failedTests || signIn.locked_1h
+      ? { key: "sign_in", title: "ورود کاربران", tone: "warning", value: `${fa(signIn.failed_1h)} ورود ناموفق و ${fa(signIn.locked_1h)} قفل در یک ساعت گذشته`, detail: failedTests ? `آزمایش اتصال ${fa(failedTests)} منبع فهرست کاربران ناموفق بود` : undefined }
+      : { key: "sign_in", title: "ورود کاربران", tone: "ok", value: `${fa(signIn.succeeded_1h)} ورود موفق، ${fa(signIn.failed_1h)} ناموفق در یک ساعت گذشته` },
+  );
   add(c.network.air_gapped ? { key: "network", title: "شبکهٔ بسته", tone: "ok", value: `روشن؛ ${fa(c.network.allow.length)} میزبان مجاز` } : { key: "network", title: "شبکهٔ بسته", tone: "warning", value: "خاموش", detail: "سرور می‌تواند به هر نشانی وصل شود؛ در شبکهٔ بانک network.air_gapped را روشن کنید" });
 
   return {
@@ -147,6 +155,8 @@ export async function serverHealth(d: HealthDeps) {
     backup: { enabled: c.backup.enabled, dir: backupRoot(c), time: c.backup.time, keep: c.backup.keep, next: c.backup.enabled ? nextDaily(c.backup.time).toISOString() : null, last, count: backups.length, recent: backups.slice(0, 5) },
     certificate: cert,
     network: { air_gapped: c.network.air_gapped, allow: c.network.allow, refused },
+    sign_in: signIn,
+    trusted_proxies: c.trusted_proxies,
     public_url: c.public_url,
   };
 }

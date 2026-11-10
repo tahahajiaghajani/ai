@@ -14,7 +14,8 @@ import { join } from "node:path";
 import type { Db } from "@server/db";
 import type { Logger } from "@server/context";
 import { allowEntryProblem } from "@server/net";
-import { DIRECTORY_SETTINGS_PATH } from "./names";
+import { DIRECTORY_SETTINGS_PATH, SECURITY_SETTINGS_PATH } from "./names";
+import { normalizePolicy } from "@shared/auth/policy";
 import { loadServerConfig, patchServerConfig, publicHost, type ServerEditionConfig } from "./config";
 import { certCovers, inspectCredentials, type CertInfo } from "./tls";
 
@@ -293,6 +294,9 @@ export function setupRoutes(d: SetupDeps, hasUsers: () => Promise<boolean>) {
     if (!org.res.ok) return c.json(org.json ?? fail(500, "org", "ساخت سازمان ناموفق بود"), org.res.status as 400);
     const orgId = String(org.json?.id ?? "");
     const warnings: string[] = [];
+    // the first administrator is the organisation's local break-glass account under the sign-in policy
+    // («امنیت ورود و نشست‌ها»): closing local sign-in for the directory later can never lock the bank out
+    await markBreakglass(d.db, orgId, input.admin.email).catch((e) => warnings.push(`حساب اضطراری ثبت نشد: ${(e as Error).message}`));
     // a self-hosted installation has no SaaS ceilings: «سازمانی» becomes the default plan (changeable in «طرح‌ها»)
     await d.db
       .query(`update sm_plans set is_default = (key = 'enterprise') where exists (select 1 from sm_plans where key = 'enterprise')`)
@@ -332,10 +336,20 @@ export function setupRoutes(d: SetupDeps, hasUsers: () => Promise<boolean>) {
     if (hostChanged && !(before.tls.pfx || (before.tls.cert && before.tls.key))) d.restart("public_url");
     // the administrator is signed in right away
     if (setCookie) c.header("set-cookie", setCookie);
-    return c.json({ ok: true, org_id: orgId, recovery_code: signup.json?.recovery_code ?? null, warnings, directory_path: `/${orgId}${DIRECTORY_SETTINGS_PATH}`, restarting: hostChanged });
+    return c.json({ ok: true, org_id: orgId, recovery_code: signup.json?.recovery_code ?? null, warnings, directory_path: `/${orgId}${DIRECTORY_SETTINGS_PATH}`, security_path: `/${orgId}${SECURITY_SETTINGS_PATH}`, restarting: hostChanged });
   });
 
   return r;
+}
+
+/** Add the account to the organisation's break-glass list (sm_orgs.settings.auth.breakglass), keeping its policy. */
+export async function markBreakglass(db: Db, orgId: string, email: string): Promise<void> {
+  const u = await db.one<{ id: string }>(`select id from sm_users where lower(email) = lower($1)`, [email]);
+  const o = await db.one<{ settings: Record<string, unknown> | null }>(`select settings from sm_orgs where id = $1`, [orgId]);
+  if (!u || !o) throw new Error("حساب یا سازمان پیدا نشد");
+  const policy = normalizePolicy((o.settings ?? {}).auth);
+  const next = normalizePolicy({ ...policy, breakglass: [...new Set([...policy.breakglass, u.id.toLowerCase()])] });
+  await db.query(`update sm_orgs set settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{auth}', $2::jsonb, true) where id = $1`, [orgId, JSON.stringify(next)]);
 }
 
 /** The configuration as stored now (setup and karizctl change it while the server runs). */
