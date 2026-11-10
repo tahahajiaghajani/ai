@@ -16,6 +16,8 @@ import { access } from "../../access/provider";
 import { condEnv, orgSchema, requireReadable } from "../../engine";
 import { liveRows, sysOf } from "./common";
 import { isAiUnavailable, runSkill } from "../ai/skills/runtime";
+import { AiUnavailableError } from "../ai/errors";
+import { AI_CLOSED, aiChannelOpen } from "../ai/rag/registry";
 
 export interface MatrixRow {
   table: string;
@@ -159,7 +161,10 @@ export async function explainFor(ctx: Ctx, input: { user_id: string; table: stri
   let ai = false;
   let model: string | null = null;
   try {
-    const r = await runSkill(ctx, "admin.access_explain", { params: { facts: JSON.stringify(facts) } }, { ephemeral: true });
+    // a record's label is that table's data: the explanation goes to a model only as its data-use policy allows (an HR
+    // case «فقط محلی», a legal request «هرگز»), and never for a record closed to AI (a privileged legal request)
+    if (check.record && !(await aiChannelOpen(ctx.db, ctx.org.id, check.table.key, check.record.id))) throw new AiUnavailableError("policy", AI_CLOSED);
+    const r = await runSkill(ctx, "admin.access_explain", { params: { facts: JSON.stringify(facts) } }, { ephemeral: true, ...(check.record ? { dataTables: [check.table.key] } : {}) });
     if (r.text && !r.fallback) {
       text = r.text;
       ai = true;
