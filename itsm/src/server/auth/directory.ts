@@ -46,9 +46,12 @@ export function loginError(reason: LoginReason): AppError {
   return new AppError(status, status === 429 ? "rate_limited" : status === 503 ? "directory_unavailable" : status === 400 ? "bad_request" : "sign_in_refused", message, { reason: VERIFIED_REASONS.has(reason) ? reason : undefined });
 }
 
-/** Failures take at least ~0.4 s (plus jitter) whatever happened, so timing does not tell an unknown name from a known one. */
+/**
+ * Failures take at least ~0.6–0.9 s whatever happened (an unknown name costs one search, a wrong password a search and
+ * a bind), so timing does not tell an unknown name from a known one — and guessing stays slow.
+ */
 async function pad(started: number): Promise<void> {
-  const wait = 350 + Math.floor(Math.random() * 150) - (Date.now() - started);
+  const wait = 600 + Math.floor(Math.random() * 300) - (Date.now() - started);
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
 }
 

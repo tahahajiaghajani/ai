@@ -115,8 +115,8 @@ function Mappings({ ctx }: { ctx: RecordContext }) {
   const { api } = useOrg();
   const q = useQuery({ queryKey: ["directory", "mappings", ctx.row.id], queryFn: () => api.get<{ approved: boolean; changed: boolean; rows: Row[] }>(`/integration/directory/${ctx.row.id}/mappings`), retry: false });
   if (q.isLoading) return <Loader />;
-  if (q.error) return <Note tone="danger">{String((q.error as Error).message)}</Note>;
-  const d = q.data!;
+  if (q.error || !q.data) return <Note tone="danger">{String((q.error as Error | null)?.message ?? "نگاشت‌ها خوانده نشد")}</Note>;
+  const d = q.data;
   return (
     <Card title="پیش‌نمایش نگاشت‌ها" flush>
       <div className="p-3">
@@ -148,9 +148,10 @@ function Mappings({ ctx }: { ctx: RecordContext }) {
 
 function SsoSetup({ ctx }: { ctx: RecordContext }) {
   const { api } = useOrg();
-  const q = useQuery({ queryKey: ["directory", "sso", ctx.row.id], queryFn: () => api.get<Row>(`/integration/directory/${ctx.row.id}/sso`) });
+  const q = useQuery({ queryKey: ["directory", "sso", ctx.row.id], queryFn: () => api.get<Row>(`/integration/directory/${ctx.row.id}/sso`), retry: false });
   if (q.isLoading) return <Loader />;
-  const d = q.data!;
+  if (q.error || !q.data) return <Note tone="danger">{String((q.error as Error | null)?.message ?? "فهرست راه‌اندازی خوانده نشد")}</Note>;
+  const d = q.data;
   const link = `${origin()}/login?dir=${ctx.row.id}`;
   const host = d.host || "kariz.bank.example";
   return (

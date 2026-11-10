@@ -12,7 +12,8 @@ import {
   attrMapOf, entryFromLdap, planDirectorySync, planStats, withoutRoleGrants, type CurrentMember, type DirEntry, type DirOptions, type DirPlan, type GroupMapping,
 } from "@shared/integration/directory";
 import { bad, conflict, forbidden, notFound } from "../../http/errors";
-import { createIn, emitEvent, removeIn, systemCtx, updateIn } from "../../engine";
+import { createIn, emitEvent, removeIn, secretView, systemCtx, updateIn } from "../../engine";
+import { tableDef } from "@shared/tables";
 import { enqueue, registerJobHandler } from "../../jobs";
 import { addGroupMembers, memberCtx, saveMemberAccess } from "../../access";
 import { aiNet, internalAddress } from "../ai/net";
@@ -412,5 +413,8 @@ export async function approveSource(ctx: Ctx, sourceId: string): Promise<Row> {
   const fingerprint = mappingFingerprint(src);
   await markSource(ctx, src, { approved_by: ctx.user.id, approved_map_hash: fingerprint });
   await audit(ctx.db, ctx, "directory_approve", "directory_source", sourceId, `تأیید منبع «${src.name}» و نگاشت‌های آن با دسترسی ${ctx.user.full_name || ctx.user.email}`, { mappings: mappingsOf(src).length, auto_roles: !!src.auto_roles });
-  return sourceRow(ctx, sourceId);
+  // the row as callers see it: secrets only as «set» (never their sealed value or its last characters)
+  const row = await sourceRow(ctx, sourceId);
+  for (const f of tableDef("directory_source")!.fields) if (f.type === "secret" && f.name in row) row[f.name] = secretView(row[f.name], { hint: f.hint });
+  return row;
 }

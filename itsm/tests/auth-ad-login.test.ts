@@ -246,9 +246,13 @@ describe("the source's administration", () => {
     expect(JSON.stringify(t)).not.toContain("Passw0rd");
     const missing = await w.owner.post(`${w.P}/integration/directory/${w.source.id}/login-test`, { login: "ghost" });
     expect(missing.ok).toBe(false);
-    // the service account's password never comes back
+    // the service account's password never comes back, not even its last characters
     const row = (await w.owner.get(`${w.P}/r/directory_source/${w.source.id}`)).row;
-    expect(JSON.stringify(row)).not.toContain("Svc-Pass-1!");
+    expect(row.bind_password).toEqual({ secret: true, hint: "…" });
+    expect(JSON.stringify(row)).not.toMatch(/s-1!/);
+    const approved = (await w.owner.post(`${w.P}/integration/directory/${w.source.id}/approve`)).source;
+    expect(approved.bind_password).toEqual({ secret: true, hint: "…" });
+    expect(JSON.stringify(approved)).not.toMatch(/s-1!|"v":/);
   });
 
   it("refuses certificates its root CA did not sign (and says why to the administrators)", async () => {
