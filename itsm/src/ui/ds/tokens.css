@@ -821,7 +821,7 @@
   :where([dir="rtl"]) :where([dir="ltr"]) .ds-icon-dir { transform: none; }
   :where([dir="rtl"]) :where([dir="ltr"]) :where([dir="rtl"]) .ds-icon-dir { transform: scaleX(-1); }
 
-  /* ---- links are ink, underlined: Dusk is kept for the primary action, focus and selection ---- */
+  /* ---- links are ink, underlined: the turquoise accent is kept for the primary action, focus and selection ---- */
   .ds-link { color: var(--ds-text); font-weight: var(--ds-weight-medium); text-decoration-line: underline; text-decoration-thickness: 1px;
     text-decoration-color: rgb(var(--ds-ink-rgb) / .28); text-underline-offset: 4px;
     transition: text-decoration-color var(--ds-dur-base) var(--ds-ease-out-quad); }
