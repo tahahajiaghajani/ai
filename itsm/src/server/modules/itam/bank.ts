@@ -464,8 +464,10 @@ export async function attest(ctx: Ctx, id: string, input: AttestInput): Promise<
   const { row: att } = await get(ctx, "branch_attestation", id);
   if (att.state !== "open") throw conflict("این تأیید باز نیست");
   const def = tableDef("branch_attestation")!;
+  // the named branch manager attests; when none is named (or for them), only someone who approves in the area and
+  // may change the attestation — never the branch's asset officer, whose work the attestation checks
   const isManager = !!att.manager_id && att.manager_id === ctx.user.id;
-  if (!isManager && !access().canWrite(ctx, def, att)) throw forbidden("تأیید اموال شعبه با رئیس شعبه است");
+  if (!isManager && !(access().canWrite(ctx, def, att) && (await holds(ctx, "asset", "approve")))) throw forbidden("تأیید اموال شعبه با رئیس شعبه است");
   const name = String(input.signed_name ?? "").trim();
   if (name.length < 3) throw bad("نام امضاکننده را بنویسید");
   const sys = sysOf(ctx, ctx.user.id);

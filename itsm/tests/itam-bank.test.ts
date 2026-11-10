@@ -228,6 +228,8 @@ describe("branch managers' attestation", () => {
     // only the branch's people attest; the signature is required
     await m.tajrish.client.post(`${w.P}/itam/attestations/${mine[0].id}/attest`, { signed_name: "x x x", exceptions: [] }, 404);
     await m.boss.client.post(`${w.P}/itam/attestations/${mine[0].id}/attest`, { signed_name: "", exceptions: [] }, 400);
+    // the branch's asset officer, whose work the attestation checks, cannot sign it
+    await m.vanak.client.post(`${w.P}/itam/attestations/${mine[0].id}/attest`, { signed_name: "مسئول اموال", exceptions: [] }, 403);
     const res = await m.boss.client.post(`${w.P}/itam/attestations/${mine[0].id}/attest`, { signed_name: "رئیس شعبهٔ ونک", exceptions: [{ asset_id: a.atm.id, issue: "damaged", note: "صفحه‌نمایش خط دارد" }] });
     expect(res).toEqual({ state: "attested_exceptions", exceptions: 1 });
     const att = (await w.p.am.client.get(`${w.P}/r/branch_attestation/${mine[0].id}`)).row;
@@ -310,5 +312,15 @@ describe("secure disposal", () => {
     expect(cert).toMatchObject({ certificate_no: "WIPE-1405-001", tool: "Blancco", asset: { serial: "N-1", branch: "شعبهٔ نقش جهان" } });
     const chain = await w.p.am.client.get(`${w.P}/itam/assets/${a.n1.id}/custody`);
     expect(chain.rows.map((x: any) => x.event)).toContain("wiped");
+  });
+});
+
+describe("asset tags «پلاک اموال»", () => {
+  it("numbers new assets by the organisation's pattern: branch code, class code and digits", async () => {
+    const cfg = (await w.o.post(`${w.P}/r/itam_config/query`, {})).rows[0];
+    await w.o.patch(`${w.P}/r/itam_config/${cfg.id}`, { tag_prefix: "BK-", tag_pattern: "{prefix}{branch}-{class}-{seq}" });
+    const atm = (await w.p.am.client.post(`${w.P}/r/asset`, { model_id: atmModel, state: "in_use", branch_id: u.vanak, department_id: u.vanak, serial_number: "ATM-TAG" })).row;
+    const digits = String(atm.number).replace(/\D/g, "");
+    expect((await w.p.am.client.get(`${w.P}/r/asset/${atm.id}`)).row.asset_tag).toBe(`BK-1001-ATM-${digits}`);
   });
 });
