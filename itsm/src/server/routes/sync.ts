@@ -27,7 +27,7 @@ import { uuidv7 } from "@shared/id";
 import { afterEnginePush, checkEnginePush, replicaRows, scopeEpoch } from "../engine/sync";
 import { condEnv, orgSchema } from "../engine";
 import {
-  afterSql, afterText, bumpSyncEpoch, checkXidRegression, compareKey, covers, currentSnap, deltaSql, orgSyncState, parseAfter, parseSnap, snapText, visibleIn,
+  afterSql, afterText, bumpSyncEpoch, checkXidRegression, compareKey, currentSnap, deltaSql, orgSyncState, parseAfter, parseSnap, snapText, visibleIn,
   type After,
 } from "../sync/snapshot";
 
@@ -313,27 +313,35 @@ syncRoutes.get("/pull", async (c) => {
     // for good: everything again from the start
     // (purged tombstones are sequential archive batches: the newest one visible in the cursor means all of them were)
     const missedPurge = !!since && state.purged > 0 && !visibleIn(state.purged, since);
-    if (started && (q.epoch !== epoch || regressed || missedPurge || (snapIn && !covers(cur, snapIn)))) {
+    if (started && (q.epoch !== epoch || regressed || missedPurge)) {
       return { reset: true as const, epoch, head: snapText(cur) };
     }
     const snap = snapIn ?? cur;
     const sources: Source[] = [...AGGREGATES.map((def) => ({ def })), { users: true as const }];
-    const cands: (After & { src: number })[] = [];
-    let bound: After | null = null;
-    for (const [i, s] of sources.entries()) {
-      const params: unknown[] = [ctx.org.id];
+    // one statement for every source: the first PULL_PAGE rows of each after the position, in (rev, id) order — an
+    // index probe per table, one round trip (a pull with nothing new costs one statement)
+    const params: unknown[] = [ctx.org.id];
+    const delta = deltaSql("t", since, snap, params);
+    const past = afterSql("t", after, params);
+    const branches = sources.map((s, i) => {
       const table = "users" in s ? "sm_users" : ident(s.def.table);
       const owner = "users" in s ? `t.id in (select user_id from sm_org_members where org_id = $1)` : `${s.def.table === "sm_orgs" ? "t.id" : "t.org_id"} = $1`;
-      const rows = await tx.query<{ rev: number; id: string }>(
-        `select t.rev, t.id from ${table} t where ${owner} and ${deltaSql("t", since, snap, params)} and ${afterSql("t", after, params)}
-         order by t.rev, t.id limit ${PULL_PAGE}`,
-        params,
-      );
-      for (const r of rows) cands.push({ src: i, rev: Number(r.rev), id: String(r.id).toLowerCase() });
-      if (rows.length === PULL_PAGE) {
-        const last = { rev: Number(rows[rows.length - 1].rev), id: String(rows[rows.length - 1].id).toLowerCase() };
-        if (!bound || compareKey(last, bound) < 0) bound = last;
-      }
+      return `(select ${i}::int as src, t.rev, t.id from ${table} t where ${owner} and ${delta} and ${past} order by t.rev, t.id limit ${PULL_PAGE})`;
+    });
+    const found = await tx.query<{ src: number; rev: number; id: string }>(branches.join("\nunion all\n"), params);
+    const cands: (After & { src: number })[] = found.map((r) => ({ src: Number(r.src), rev: Number(r.rev), id: String(r.id).toLowerCase() }));
+    // a source that filled its PULL_PAGE may have more: the page never goes past its last row
+    let bound: After | null = null;
+    const perSource = new Map<number, (After & { src: number })[]>();
+    for (const c of cands) {
+      const list = perSource.get(c.src);
+      if (list) list.push(c);
+      else perSource.set(c.src, [c]);
+    }
+    for (const list of perSource.values()) {
+      if (list.length < PULL_PAGE) continue;
+      const last = list.reduce((m, x) => (compareKey(x, m) > 0 ? x : m));
+      if (!bound || compareKey(last, bound) < 0) bound = last;
     }
     // the page: the first PULL_PAGE rows in (rev, id) order, never past the last row of a source that had more
     cands.sort(compareKey);
@@ -343,7 +351,11 @@ syncRoutes.get("/pull", async (c) => {
     const aggregates: WireAggregate[] = [];
     const tombstones: { entity: string; id: string }[] = [];
     const bySource = new Map<number, string[]>();
-    for (const r of rows) bySource.set(r.src, [...(bySource.get(r.src) ?? []), r.id]);
+    for (const r of rows) {
+      const list = bySource.get(r.src);
+      if (list) list.push(r.id);
+      else bySource.set(r.src, [r.id]);
+    }
     let userIds: string[] = [];
     for (const [i, ids] of bySource) {
       const s = sources[i];
