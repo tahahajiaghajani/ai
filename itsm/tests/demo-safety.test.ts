@@ -116,6 +116,24 @@ describe("the purge never deletes, reverts or erases real data", () => {
     expect(await e.db.one(`select 1 from sm_demo_rows where org_id = $1 and row_id = $2`, [e.org, ids.pushed])).toBeTruthy();
   });
 
+  it("a demo account makes no organisation of its own, and sign-in off retires the shared password", async () => {
+    const before = await e.db.one<{ n: number }>(`select count(*)::int as n from sm_orgs`);
+    await agentClient.post("/orgs", { name: "سازمان حساب نمایشی", timezone: "Asia/Tehran" }, 403);
+    expect((await e.db.one<{ n: number }>(`select count(*)::int as n from sm_orgs`))!.n).toBe(before!.n);
+    const shown = (await e.owner.get(`/o/${e.org}/demo`)).password;
+    expect(shown).toBeTruthy();
+    await e.owner.post(`/o/${e.org}/demo/signin`, { on: false });
+    // the password once on the projector no longer signs anyone in, even should the account outlive the pack
+    await e.db.query(`update sm_users set prefs = prefs - 'demo_org' where id = $1`, [agent.id]);
+    const late = new Client(e.app);
+    await late.post("/auth/login", { email: agent.email, password: shown }, 401);
+    await e.db.query(`update sm_users set prefs = jsonb_set(prefs, '{demo_org}', to_jsonb($2::text)) where id = $1`, [agent.id, e.org]);
+    // back on for the rest: a fresh password
+    const on = await e.owner.post(`/o/${e.org}/demo/signin`, { on: true });
+    agentClient = new Client(e.app);
+    await agentClient.post("/auth/login", { email: agent.email, password: on.password });
+  });
+
   it("purges only demo work: real system rows, system changes and their history, the real trail stay", async () => {
     // the platform changes a real row outside the demo scope (no actor)
     await sys.write((tx) => updateIn(tx, sys, "todo", ids.systemChanged, { short_description: "نسخهٔ ۲" }, { trusted: true }));
@@ -258,5 +276,12 @@ describe("nothing about demo records leaves the system", () => {
     expect(await e.db.one(`select 1 from sm_notifications where org_id = $1 and record_id = $2 and user_id = $3`, [e.org, inc, mgr.userId])).toBeNull();
     // a message that would leave the system inside the demo scope is refused at the sender
     await expect(inDemoScope(e.org, () => sendMail(e.cfg, e.org, { id: uuidv7(), smtp_host: "smtp.itsm.example" } as never, { to: "x@example.com", subject: "x", text: "x" } as never))).rejects.toBeInstanceOf(DemoOutboundError);
+    // a scheduled export to an outside address leaves the demo records out (an export kept inside the system keeps them)
+    const { buildExport } = await import("@server/modules/admin/exports");
+    const text = async (withoutDemo: boolean) => new TextDecoder().decode((await buildExport(sys, ["incident"], "json", { base: "x", withoutDemo })).files[0].data);
+    expect(await text(false)).toContain("قطعی سوئیچ کارت (نمایشی)");
+    const out = await text(true);
+    expect(out).not.toContain("قطعی سوئیچ کارت (نمایشی)");
+    expect(out).toContain("قطعی واقعی");
   }, 600_000);
 });

@@ -47,6 +47,8 @@ export async function setDemoSignIn(q: Queryable, orgId: string, on: boolean): P
     );
   } else {
     await q.query(`update sm_demo_packs set options = options || '{"signin": false}'::jsonb, progress = progress #- '{memo,password}', updated_at = now() where org_id = $1`, [orgId]);
+    // the password shown on the projector stops working (a password nobody knows)
+    await q.query(`update sm_users set password_hash = $2 where prefs ->> 'demo_org' = $1::text and password_hash is not null`, [orgId, await hashPassword(readableCode(6, 4))]);
     await q.query(`delete from sm_sessions where user_id in (select id from sm_users where prefs ->> 'demo_org' = $1::text)`, [orgId]);
   }
   return true;

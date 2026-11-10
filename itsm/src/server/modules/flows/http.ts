@@ -13,7 +13,7 @@ import { renderBody } from "@shared/flows";
 import { faDigits } from "@shared/format";
 import { registerBuiltinStepHandler, type StepContext, type StepOutcome } from "./registry";
 import { lanAllowed } from "../../net";
-import { demoScopeOrg } from "../../db/scope";
+import { demoQuiet } from "../../db/scope";
 
 export interface ConnectionRow {
   id: string;
@@ -143,7 +143,8 @@ export async function callHttp(s: StepContext): Promise<StepOutcome> {
   }
   const seconds = Math.min(Math.max(Number(c.timeout ?? conn.timeout ?? 15) || 15, 1), Math.min(conn.timeout ?? 60, 60), 60);
   // a flow run of demo work calls nothing outside the system (docs/DEMO_FA.md)
-  if (demoScopeOrg()) return { error: "داده‌های نمایشی: فراخوانی بیرونی در کار نمایشی انجام نمی‌شود" };
+  // — nor a run started on a demo record by a real person or the system, outside the demo scope
+  if (await demoQuiet(s.cfg.db, s.orgId, s.triggerRecord?.id)) return { error: "داده‌های نمایشی: فراخوانی بیرونی در کار نمایشی انجام نمی‌شود" };
   const fetcher = desktop ? s.cfg.fetch : guardedFetch(s.cfg.fetch);
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), seconds * 1000);

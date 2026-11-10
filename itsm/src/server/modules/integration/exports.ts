@@ -30,7 +30,8 @@ export async function runSchedule(cfg: ServerConfig, orgId: string, id: string):
     let message: string;
     if (s.destination === "webhook") {
       if (!s.url) throw bad("نشانی مقصد تنظیم نشده است");
-      const built = await buildExport(ctx, tables, "json", { base: `export-${id.slice(0, 8)}` });
+      // the demo pack's records never leave the system (docs/DEMO_FA.md)
+      const built = await buildExport(ctx, tables, "json", { base: `export-${id.slice(0, 8)}`, withoutDemo: true });
       const body = new TextDecoder().decode(built.files[0]?.data ?? new Uint8Array());
       const secret = await readSecret(cfg.db, sys, tableDef("export_schedule")!, id, "secret");
       const r = await callOut(cfg, String(s.url), { method: "POST", headers: { "content-type": "application/json", ...(secret ? { "X-Signature": `sha256=${createHmac("sha256", secret).update(body, "utf8").digest("hex")}` } : {}), "X-Event": "export" }, body }, `نشانی خروجی «${s.name}»`, 30_000);

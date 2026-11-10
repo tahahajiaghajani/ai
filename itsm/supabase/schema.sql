@@ -11084,6 +11084,7 @@ alter table sm_disposal_items add column if not exists certificate_no text;
 alter table sm_disposal_items add column if not exists verified boolean not null default false;
 alter table sm_disposal_items add column if not exists wipe_tool text;
 alter table sm_disposal_items add column if not exists witness_id uuid;
+alter table sm_disposal_items add column if not exists evidence_by uuid;
 alter table sm_disposal_items add column if not exists certificate_issued_at timestamptz;
 alter table sm_disposal_items add column if not exists certificate_hash text;
 alter table sm_disposal_items add column if not exists note text;

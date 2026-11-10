@@ -242,6 +242,11 @@ export interface ScopeFields {
   requester?: string[];
   /** fields a caller who reaches a record only as its requester may change (unset = no requester restriction) */
   requesterWritable?: string[];
+  /**
+   * further user fields whose people never approve the record through the approvals service (on top of the requester
+   * and assignee fields), e.g. whoever issued a note on someone else's behalf (`created_by`)
+   */
+  approvalSod?: string[];
   /** transitions a caller who reaches a record only as its requester may take (unset = none when requesterWritable is set) */
   requesterTransitions?: { from?: string[]; to: string }[];
   /** field group whose holders read confidential rows (features.confidential; default "hr" in area hr, else "security") */

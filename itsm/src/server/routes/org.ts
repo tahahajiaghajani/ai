@@ -47,6 +47,8 @@ orgsRoutes.post("/", async (c) => {
     address: z.string().trim().max(400).nullish(),
   }));
   if (c.get("session")?.org_id) throw forbidden("با حساب سازمانی نمی‌توان سازمان تازه ساخت؛ با ورود محلی وارد شوید");
+  // a demo account works only inside its demo organisation (what it made elsewhere would outlive the purge)
+  if (c.get("user").prefs?.demo_org) throw forbidden("حساب نمایشی سازمان تازه نمی‌سازد");
   // On the Windows app, owning any organisation makes one an administrator of the installation
   // (backups, restore, LAN, cloud link — see routes/local.ts); only existing administrators add
   // organisations there, otherwise any member could promote themselves.

@@ -27,7 +27,7 @@ import { addDays, jalaliYearRange } from "@shared/jalali";
 import { D } from "@shared/money";
 import type { Ctx } from "../../context";
 import { pgArray, type Tx, type Queryable } from "../../db";
-import { aggregate, createIn, emitEvent, get, registerHooks, transitionIn, updateIn, pushGuard, type PushArgs, type TableHooks, type WriteArgs } from "../../engine";
+import { aggregate, createIn, emitEvent, get, registerHooks, transitionIn, updateIn, pushGuard, pushFromBefore, type PushArgs, type TableHooks, type WriteArgs } from "../../engine";
 import { access } from "../../access/provider";
 import { registerParticipantSource, subjectOf } from "../../access";
 import { bad, conflict, forbidden } from "../../http/errors";
@@ -156,6 +156,31 @@ const refuseLater = (p: PushArgs, msg: string) => {
 const refusedEarlier = (p: PushArgs) => ledgerRefusals.get(p.tx)?.get(`${p.def.key}:${String(p.next.id ?? "")}`) ?? null;
 
 /**
+ * A pushed custody row is the trace of the asset change the Windows app made (assetAfter there): one of those events,
+ * matching the asset as the cloud now stores it (pushed before its trace), dated no earlier than the stored chain's
+ * last row. The events of the web version's processes (dispatch, receipt, count, attestation, wipe) are never pushed.
+ */
+async function custodyMatchesAsset(p: PushArgs, last: Row | undefined): Promise<boolean> {
+  const n = p.next;
+  const a = isUuid(n.asset_id) ? await liveRow(p.tx, sysOf(p.ctx), "asset", n.asset_id) : null;
+  if (!a) return false;
+  const at = Date.parse(String(n.at ?? ""));
+  if (last && Number.isFinite(at) && at < Date.parse(String(last.at))) return false;
+  if (idOrNull(n.branch_id) !== idOrNull(a.branch_id)) return false;
+  const holder = idOrNull(n.holder_id);
+  switch (String(n.event)) {
+    case "registered": return !last;
+    case "branch_changed": return !!last && idOrNull(n.from_branch_id) !== idOrNull(a.branch_id);
+    case "assigned": return !!holder && holder === idOrNull(a.assigned_to);
+    case "returned": return !a.assigned_to;
+    case "missing": return a.state === "missing";
+    case "repair_out": return a.state === "in_repair";
+    case "repair_in": return a.state !== "in_repair";
+    default: return false;
+  }
+}
+
+/**
  * The custody chain on a Windows app's push: its rows are never changed or removed; a new row is taken only as the next
  * one of the asset's stored chain (its `seq` right after the stored last), recorded by the member who pushed it, and is
  * chained and signed here with the web version's key (a pushed `prev_hash` / `hash` / `actor_id` is not taken).
@@ -167,6 +192,7 @@ const custodyPush: Pick<TableHooks, "derivePush" | "validatePush" | "validatePus
     const [last] = await liveRows(p.tx, sysOf(p.ctx), "asset_custody", { f: "asset_id", op: "eq", v: p.next.asset_id }, { order: "t.seq desc", limit: 1 });
     const seq = Number(last?.seq ?? 0) + 1;
     if (Number(p.next.seq) !== seq) refuseLater(p, "این رویداد دنبالهٔ زنجیرهٔ نگهداری ثبت‌شده نیست؛ پس از همگام‌سازی دوباره فرستاده می‌شود");
+    else if (!(await custodyMatchesAsset(p, last))) refuseLater(p, "رویداد نگهداری فقط همراه همان تغییر دارایی ثبت می‌شود (ارسال، رسید، شمارش، تأیید و پاک‌سازی را نسخهٔ وب ثبت می‌کند)");
     const at = p.next.at && Date.parse(String(p.next.at)) <= Date.now() + 5 * 60_000 ? new Date(String(p.next.at)).toISOString() : nowIso();
     const row: Row = { ...p.next, seq, at, actor_id: actorOf(p.ctx) };
     const prev = String(last?.hash ?? "");
@@ -199,6 +225,16 @@ const statusPush: Pick<TableHooks, "derivePush" | "validatePush" | "validatePush
       const from = Date.parse(String(p.prev.from_at));
       const to = Date.parse(String(p.next.to_at));
       if (!(to >= from && to <= soon)) refuseLater(p, "پایان دورهٔ وضعیت دستگاه پیش از آغاز آن یا در آینده است");
+      // a period ends only when the device left that status (a later period, or the stored device in another status),
+      // and not before then: a branch does not shorten an outage
+      else {
+        const sys = sysOf(p.ctx);
+        const [later] = await liveRows(p.tx, sys, "device_status_event", { and: [{ f: "asset_id", op: "eq", v: p.prev.asset_id }, { f: "from_at", op: "gt", v: p.prev.from_at }] } as Cond, { order: "t.from_at", limit: 1 });
+        const asset = later ? null : await liveRow(p.tx, sys, "asset", p.prev.asset_id);
+        const changedAt = asset && asset.device_status !== p.prev.status ? Date.parse(String(asset.device_status_at ?? "")) : NaN;
+        const since = later ? Date.parse(String(later.from_at)) : asset && asset.device_status !== p.prev.status ? (Number.isFinite(changedAt) ? changedAt : from) : NaN;
+        if (!(to >= since - 60_000)) refuseLater(p, "دورهٔ وضعیت دستگاه با تغییر وضعیت خود دستگاه و از همان زمان بسته می‌شود");
+      }
       return { minutes: Math.max(0, Math.round((to - from) / 60_000)) };
     }
     const asset = isUuid(p.next.asset_id) ? await liveRow(p.tx, sysOf(p.ctx), "asset", p.next.asset_id) : null;
@@ -317,11 +353,16 @@ async function transferBefore(w: WriteArgs): Promise<void> {
   if (n.from_branch_id && n.to_branch_id && String(n.from_branch_id) === String(n.to_branch_id)) throw bad("مبدأ و مقصد انتقال یکی است");
   if (isSys(w.ctx)) return;
   // access and frozen fields: asked of a Windows app's push too (pushGuard runs this hook with via "sync")
-  if (w.op === "update" && w.prev?.state !== "draft" && ["from_branch_id", "to_branch_id", "from_stockroom_id"].some((f) => w.changed.has(f))) throw conflict("مبدأ و مقصد حوالهٔ صادرشده تغییر نمی‌کند");
+  // a member's note starts as a draft (approval and dispatch are transitions, never a created state)
+  if (w.op === "create" && n.state && n.state !== "draft") throw conflict("حوالهٔ تازه پیش‌نویس است؛ تأیید و ارسال آن از گردش حواله می‌گذرد");
+  if (w.op === "update" && w.prev?.state !== "draft" && ["from_branch_id", "to_branch_id", "from_stockroom_id", "to_stockroom_id"].some((f) => w.changed.has(f))) throw conflict("مبدأ و مقصد حوالهٔ صادرشده تغییر نمی‌کند");
   // who asked for the note stays as it was (the approval's separation of duties rests on it)
   if (w.op === "update" && w.changed.has("requested_by")) throw forbidden("درخواست‌کنندهٔ حواله پس از ثبت تغییر نمی‌کند");
   // the sending branch issues the note: only for a branch whose assets the caller may change
   if ((w.op === "create" || w.changed.has("from_branch_id")) && !mayActFor(w.ctx, n.from_branch_id)) throw forbidden("حواله را فقط برای دارایی‌های شعبه یا واحدی می‌توانید صادر کنید که اموال آن با شماست");
+  // the dispatch is the web version's: it records who sent the note (who never signs its receipt), puts the assets in
+  // transit and writes their custody rows — a push runs none of that, so a push does not dispatch
+  if (w.via === "sync" && entering(w, "in_transit")) throw conflict("ارسال حواله در نسخهٔ وب ثبت می‌شود");
   // derivations only on the API (a push carries the values the Windows app derived)
   if (w.via === "sync") return;
   if (entering(w, "in_transit")) {
@@ -591,7 +632,8 @@ export async function resolveAuditItem(ctx: Ctx, itemId: string, input: ResolveI
 async function attestationBefore(w: WriteArgs): Promise<void> {
   // only checks: asked of a Windows app's push as well (pushGuard)
   if (w.op === "delete" || isSys(w.ctx)) return;
-  if (w.op === "update" && ["branch_id", "manager_id", "period_label", "due_date"].some((f) => w.changed.has(f)) && !(await holds(w.ctx, "asset", "write", "unit_tree", w.tx))) {
+  // a new attestation names them as well (an officer who opened one naming themselves would attest their own branch)
+  if ((w.op === "create" || ["branch_id", "manager_id", "period_label", "due_date"].some((f) => w.changed.has(f))) && !(await holds(w.ctx, "asset", "write", "unit_tree", w.tx))) {
     throw forbidden("دوره، شعبه و رئیس شعبهٔ تأیید را مدیر اموال تعیین می‌کند");
   }
 }
@@ -690,6 +732,8 @@ export async function openAttestations(sys: Ctx, today = orgToday(sys)): Promise
  * review («بازبینی شد») is a third person's who approves in the asset area. Only checks — a Windows app's push is
  * asked the same (pushGuard).
  */
+const WIPE_EVIDENCE = ["sanitized_at", "certificate_no", "sanitization_method", "sanitized_by", "witness_id", "wipe_tool", "asset_id"];
+
 async function wipeSod(w: WriteArgs): Promise<void> {
   if (w.op === "delete" || isSys(w.ctx)) return;
   const n = w.next;
@@ -701,7 +745,9 @@ async function wipeSod(w: WriteArgs): Promise<void> {
     if (witness === me) throw bad("شاهد پاک‌سازی را کس دیگری ثبت می‌کند، نه خود شاهد");
   }
   if (w.changed.has("verified") && n.verified) {
-    if (me === by || me === witness) throw forbidden("بازبینی پاک‌سازی با کسی جز انجام‌دهنده و شاهد آن است");
+    // whoever recorded the evidence (in this write or last) does not review it either
+    const recorder = WIPE_EVIDENCE.some((f) => w.changed.has(f)) ? me : isUuid(w.prev?.evidence_by) ? String(w.prev!.evidence_by) : null;
+    if (me === by || me === witness || me === recorder) throw forbidden("بازبینی پاک‌سازی با کسی جز انجام‌دهنده، شاهد و ثبت‌کنندهٔ آن است");
     if (!(await holds(w.ctx, "asset", "approve", "own", w.tx))) throw forbidden("بازبینی پاک‌سازی با تأییدکنندهٔ اموال است");
     if (!witness || witness === by) throw conflict("پیش از بازبینی، شاهدی جز انجام‌دهنده ثبت کنید");
   }
@@ -716,15 +762,26 @@ async function disposalItemBank(w: WriteArgs): Promise<void> {
   if (w.op === "delete") return;
   await wipeSod(w);
   const n = w.next;
+  const evidence = WIPE_EVIDENCE.some((f) => w.changed.has(f));
+  // who recorded the evidence (the system's imports name the performer); a Windows app's push takes the cloud's
+  // (the asset on the line is not evidence: whoever lists it on the order records nothing of the wipe)
+  if (WIPE_EVIDENCE.some((f) => f !== "asset_id" && w.changed.has(f))) n.evidence_by = isSys(w.ctx) ? (w.changed.has("evidence_by") ? n.evidence_by : (n.sanitized_by ?? null)) : String(w.ctx.user.id);
+  else if (!isSys(w.ctx)) n.evidence_by = w.prev?.evidence_by ?? null;
   // a changed wipe record is reviewed again
-  if (w.op === "update" && n.verified && !w.changed.has("verified") && ["sanitized_at", "certificate_no", "sanitization_method", "sanitized_by", "witness_id", "wipe_tool", "asset_id"].some((f) => w.changed.has(f))) n.verified = false;
+  if (w.op === "update" && n.verified && !w.changed.has("verified") && evidence) n.verified = false;
   const ready = wipeReady(n);
   if (!ready) {
     n.certificate_issued_at = null;
     n.certificate_hash = null;
     return;
   }
-  if (["sanitized_at", "certificate_no", "sanitization_method", "sanitized_by", "witness_id", "wipe_tool", "asset_id"].some((f) => w.changed.has(f)) || !n.certificate_hash) {
+  // the certificate is issued here only: an unchanged record keeps the stored one (a pushed fingerprint is not taken)
+  if (!evidence && w.op === "update" && w.prev?.certificate_hash) {
+    n.certificate_issued_at = w.prev.certificate_issued_at ?? null;
+    n.certificate_hash = w.prev.certificate_hash;
+    return;
+  }
+  {
     const a = await liveRow(w.tx, sysOf(w.ctx), "asset", n.asset_id);
     n.certificate_issued_at = nowIso();
     n.certificate_hash = createHash("sha256").update(JSON.stringify(certificateBody(a ?? {}, n))).digest("hex");
@@ -1210,7 +1267,7 @@ export function installBankHooks(): (() => void)[] {
   off.push(registerHooks("inventory_audit_item", { beforeWrite: auditItemBranch }));
   off.push(registerHooks("inventory_audit", { afterWrite: auditAfterBank, guards: auditGuards }));
   off.push(registerHooks("branch_attestation", { beforeWrite: attestationBefore, validatePush: pushGuard(attestationBefore) }));
-  off.push(registerHooks("disposal_item", { beforeWrite: disposalItemBank, validatePush: pushGuard(wipeSod) }));
+  off.push(registerHooks("disposal_item", { beforeWrite: disposalItemBank, ...pushFromBefore(disposalItemBank) }));
   // the receiving branch reads the notes addressed to it (and their items): the destination within the subtree of
   // the reader's own unit — rows only, never the area (a reader needs a read grant in «asset» at all)
   off.push(registerParticipantSource({

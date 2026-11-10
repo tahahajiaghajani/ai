@@ -7,7 +7,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import type { Ctx, ServerConfig } from "../../context";
 import { tableDef } from "@shared/tables";
 import { adfDoc, githubEvent, isClosedState, issueText, jiraEvent, noteOf, type IssueEvent, type IssueKind } from "@shared/integration/issues";
-import { bad, forbidden, notFound, unauthorized } from "../../http/errors";
+import { bad, conflict, forbidden, notFound, unauthorized } from "../../http/errors";
+import { demoQuiet } from "../../db/scope";
 import { addJournalIn, condEnv, createIn, get, listJournal, onRecordEvent, orgSchema, readable, readSecret, systemCtx, transition, updateIn, type RecordEvent } from "../../engine";
 import type { Queryable } from "../../db";
 import { pgArray } from "../../db";
@@ -94,6 +95,8 @@ export async function linkIssue(ctx: Ctx, input: { connection_id: string; table:
   if (!def) throw notFound(`جدول «${input.table}» وجود ندارد`);
   // the record as the caller reads it: only what they see leaves the system, and only if they work it
   const rec = await get(ctx, input.table, input.record_id);
+  // a demo record never leaves the system (docs/DEMO_FA.md), whoever links it
+  if (await demoQuiet(ctx.db, ctx.org.id, input.record_id)) throw conflict("داده‌های نمایشی: رکورد نمایشی به سامانهٔ بیرونی فرستاده نمی‌شود");
   if (!rec.meta.canWrite || access().writeMode?.(ctx, def, rec.row) === "requester") throw forbidden("فقط کسی که روی این رکورد کار می‌کند می‌تواند issue بسازد");
   const existing = await liveRows(ctx.db, sys, "external_ref", { and: [{ f: "connection_id", op: "eq", v: c.row.id }, { f: "record_id", op: "eq", v: input.record_id }, { f: "sync_state", op: "ne", v: "unlinked" }] }, { limit: 1 });
   if (existing.length) throw bad(`این رکورد پیش‌تر به ${existing[0].remote_key} پیوند خورده است`);
@@ -174,6 +177,7 @@ export async function refreshRef(ctx: Ctx, refId: string): Promise<Row> {
   const ref = await liveRow(ctx.db, sys, "external_ref", refId);
   if (!ref) throw notFound("پیوند پیدا نشد");
   await get(ctx, String(ref.table_key), String(ref.record_id));
+  if (await demoQuiet(ctx.db, ctx.org.id, String(ref.record_id))) throw conflict("داده‌های نمایشی: رکورد نمایشی به سامانهٔ بیرونی فرستاده نمی‌شود");
   const c = await connection(ctx.cfg, sys, String(ref.connection_id));
   try {
     const remote = await fetchIssue(ctx.cfg, c, String(ref.remote_key));
@@ -249,12 +253,14 @@ export async function receiveIssueHook(cfg: ServerConfig, connectionId: string, 
 
 async function onComment(e: RecordEvent, cfg: ServerConfig): Promise<void> {
   if (e.via === "sync" || !e.entry) return;
+  if (await demoQuiet(cfg.db, e.org_id, e.id)) return;
   const hasRefs = await cfg.db.one(`select 1 from sm_external_refs where org_id = $1 and table_key = $2 and record_id = $3 and deleted_at is null and sync_state <> 'unlinked' limit 1`, [e.org_id, e.table, e.id]);
   if (!hasRefs) return;
   await cfg.db.tx((tx) => enqueue(tx, { kind: "integration.issue.comment", orgId: e.org_id, payload: { table: e.table, id: e.id, entry: e.entry!.id }, maxAttempts: 5 }));
 }
 
 async function pushComment(cfg: ServerConfig, orgId: string, p: { table: string; id: string; entry: string }): Promise<void> {
+  if (await demoQuiet(cfg.db, orgId, p.id)) return;
   const sys = await systemCtx(cfg, orgId);
   const refs = await liveRows(cfg.db, sys, "external_ref", { and: [{ f: "table_key", op: "eq", v: p.table }, { f: "record_id", op: "eq", v: p.id }, { f: "sync_state", op: "ne", v: "unlinked" }] });
   for (const ref of refs) {

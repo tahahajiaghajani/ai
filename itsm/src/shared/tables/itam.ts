@@ -841,6 +841,7 @@ const disposalItem: TableDef = {
     { name: "verified", label: "بازبینی شد", type: "bool", default: false, list: true, filter: true, span: 12 },
     { name: "wipe_tool", label: "ابزار یا روش پاک‌سازی", type: "string", maxLength: 120, span: 12, help: "نرم‌افزار پاک‌سازی، دستگاه دیگاوس یا خردکن" },
     { name: "witness_id", label: "شاهد", type: "user", span: 12, help: "کسی جز انجام‌دهنده که پاک‌سازی یا تخریب را دید" },
+    { name: "evidence_by", label: "ثبت‌کنندهٔ شواهد", type: "user", readonly: true, span: 12, help: "کسی که شواهد پاک‌سازی را ثبت کرد (بازبینی با او نیست)" },
     { name: "certificate_issued_at", label: "صدور گواهی", type: "datetime", readonly: true, span: 12 },
     { name: "certificate_hash", label: "اثر انگشت گواهی (SHA-256)", type: "string", maxLength: 80, ltr: true, readonly: true, span: 24 },
     { name: "note", label: "یادداشت", type: "text", span: 24 },
@@ -1506,7 +1507,7 @@ const transfer: TableDef = {
   states: TRANSFER_STATES,
   // the sending branch owns the note (unit scope); the receiving branch reads it through the module's participant
   // source «itam.transfer_receiver» and takes the receipt through the module's route
-  scope: { own: ["requested_by"], requester: ["requested_by"], unit: "from_branch_id" },
+  scope: { own: ["requested_by"], requester: ["requested_by"], approvalSod: ["created_by"], unit: "from_branch_id" },
   features: { journal: true, attachments: true, approvals: true },
   form: {
     sections: [T_MAIN, T_RCPT],

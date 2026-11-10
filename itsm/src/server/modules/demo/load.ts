@@ -815,10 +815,11 @@ async function stepItamFlows(a: StepArgs, sys: Ctx): Promise<boolean> {
           await transition(am, "disposal_order", String(order.id), "approved");
           await transition(am, "disposal_order", String(order.id), "sanitizing");
           const items = await sys.db.query<{ id: string }>(`select id from sm_disposal_items where org_id = $1 and order_id = $2 and deleted_at is null order by created_at`, [orgId, order.id]);
-          // three people: the field technician wipes, the region's asset manager witnesses, the asset manager (who
-          // records the certificate and approves in the asset area) reviews it afterwards
+          // three people: the field technician wipes (and records it), the region's asset manager witnesses, the asset
+          // manager (who approves in the asset area) reviews it afterwards
           for (const [k, it] of items.entries()) {
-            await update(am, "disposal_item", it.id, { sanitization_method: "purge", sanitized_at: iso(now - (3 - k) * DAY), sanitized_by: tech, witness_id: witness, wipe_tool: "ابزار پاک‌سازی دیسک (نمایشی) — NIST 800-88 Purge", certificate_no: `WIPE-1405-${String(k + 1).padStart(4, "0")}` });
+            // the technician's evidence, entered as the import of the technician's record (who records it does not review it)
+            await update(sys, "disposal_item", it.id, { sanitization_method: "purge", sanitized_at: iso(now - (3 - k) * DAY), sanitized_by: tech, witness_id: witness, wipe_tool: "ابزار پاک‌سازی دیسک (نمایشی) — NIST 800-88 Purge", certificate_no: `WIPE-1405-${String(k + 1).padStart(4, "0")}` });
             await update(am, "disposal_item", it.id, { verified: true });
           }
           await transition(am, "disposal_order", String(order.id), "completed", { certificate_no: "DSP-1405-0001", certificate_date: dateOnly(now - DAY) });

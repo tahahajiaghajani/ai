@@ -30,6 +30,7 @@ import { physicalTables } from "@shared/tables";
 import { pgArray, type Queryable } from "../../db";
 import { archivable, archiveTableOf } from "../../engine/ddl";
 import { blobStore, type BlobStore } from "../../blobs";
+import { hashPassword, readableCode } from "../../auth/password";
 
 export interface ColInfo {
   name: string;
@@ -400,7 +401,9 @@ export async function removeAccounts(q: Queryable, orgId: string): Promise<{ rem
     // sign-in records stay (docs/DEMO_FA.md): who signed in as a demo account, and when, is never erased
     await q.query(`delete from sm_scope_epochs where user_id = $1 and org_id = $2`, [u.id, orgId]);
     if (u.elsewhere) {
-      await q.query(`update sm_users set prefs = prefs - 'demo_org' where id = $1 and prefs ->> 'demo_org' = $2`, [u.id, orgId]);
+      // kept for its other memberships, but no longer signs in with the demo's shared password, and signed out
+      await q.query(`update sm_users set prefs = prefs - 'demo_org', password_hash = case when password_hash is null then null else $3 end where id = $1 and prefs ->> 'demo_org' = $2`, [u.id, orgId, await hashPassword(readableCode(6, 4))]);
+      await q.query(`delete from sm_sessions where user_id = $1`, [u.id]);
       kept++;
       continue;
     }

@@ -71,7 +71,7 @@ export interface BuiltExport {
 }
 
 /** Build the files of an export with `ctx`'s access. */
-export async function buildExport(ctx: Ctx, tables: string[], format: ExportFormat, opts: { journal?: boolean; base: string }): Promise<BuiltExport> {
+export async function buildExport(ctx: Ctx, tables: string[], format: ExportFormat, opts: { journal?: boolean; base: string; withoutDemo?: boolean }): Promise<BuiltExport> {
   const results: Record<string, ExportResult & { label: string }> = {};
   const stats: BuiltExport["stats"] = {};
   const journals: Record<string, Record<string, unknown[]>> = {};
@@ -79,7 +79,7 @@ export async function buildExport(ctx: Ctx, tables: string[], format: ExportForm
     const def = tableDef(t);
     if (!def) continue;
     try {
-      const r = await exportRows(ctx, t, { limit: 10_000 });
+      const r = await exportRows(ctx, t, { limit: 10_000, withoutDemo: opts.withoutDemo });
       results[t] = { ...r, label: def.plural };
       stats[t] = { rows: r.rows.length, truncated: r.truncated };
       if (opts.journal && format === "json" && def.features?.journal) {

@@ -452,8 +452,10 @@ describe("the custody chain is the server's", () => {
     expect((await pushed(m.tajrish.client, "asset_custody", last.id, { deleted_at: new Date().toISOString() })).status).toBe("error");
     const forged = await pushNew(m.tajrish.client, "asset_custody", { asset_id: assetId, seq: Number(last.seq) + 5, at: new Date().toISOString(), event: "attested", note: "جعلی", hash: "0".repeat(64) });
     expect(forged.status).toBe("error");
-    // a row that continues the chain is chained and signed here, recorded as the member's
-    const next = await pushNew(m.tajrish.client, "asset_custody", { asset_id: assetId, seq: Number(last.seq) + 1, at: new Date().toISOString(), event: "assigned", branch_id: u.tajrish, actor_id: m.region.userId, prev_hash: "x", hash: "0".repeat(64) });
+    // a row that continues the chain (the trace of the asset change pushed before it) is chained and signed here,
+    // recorded as the member's
+    expect((await pushed(m.tajrish.client, "asset", assetId, { assigned_to: m.tajrish.userId })).status).toBe("ok");
+    const next = await pushNew(m.tajrish.client, "asset_custody", { asset_id: assetId, seq: Number(last.seq) + 1, at: new Date().toISOString(), event: "assigned", branch_id: u.tajrish, holder_id: m.tajrish.userId, actor_id: m.region.userId, prev_hash: "x", hash: "0".repeat(64) });
     expect(next.status).toBe("ok");
     const signed = await w.p.am.client.get(`${w.P}/itam/assets/${assetId}/custody`);
     expect(signed.verified.ok).toBe(true);
@@ -494,6 +496,8 @@ describe("the custody chain is the server's", () => {
     const open = periods[periods.length - 1];
     expect(open.to_at).toBeFalsy();
     const end = new Date(Date.now() - 1000);
+    // ...once the device itself left that status (the app pushes the device's change before its period)
+    expect((await pushed(m.vanak.client, "asset", a.atm.id, { device_status: "in_service", device_status_at: end.toISOString() })).status).toBe("ok");
     expect((await pushed(m.vanak.client, "device_status_event", open.id, { to_at: end.toISOString(), minutes: 99999 })).status).toBe("ok");
     expect((await stored("device_status_event", open.id)).minutes).toBe(Math.max(0, Math.round((end.getTime() - Date.parse(open.from_at)) / 60_000)));
   });
@@ -561,3 +565,85 @@ describe("totals over every row", () => {
     }
   });
 });
+
+// 1.1-beta re-verification: the variants of the review findings that stayed open
+describe("re-verified: pushes and separation of duties hold for new rows too", () => {
+  it("lets no branch officer open an attestation naming themselves, online or pushed", async () => {
+    await m.tajrish.client.post(`${w.P}/r/branch_attestation`, { title: "تأیید خودم", branch_id: u.tajrish, manager_id: m.tajrish.userId }, 403);
+    expect((await pushNew(m.tajrish.client, "branch_attestation", { title: "تأیید خودم", branch_id: u.tajrish, manager_id: m.tajrish.userId, state: "open" })).status).toBe("error");
+    const mine = await w.e.db.query(`select 1 from sm_branch_attestations where manager_id = $1`, [m.tajrish.userId]);
+    expect(mine.length).toBe(0);
+  });
+
+  it("starts every member's note as a draft and keeps an approved note's destination stockroom", async () => {
+    expect((await pushNew(m.tajrish.client, "asset_transfer", { title: "تأییدشده از پیش", from_branch_id: u.tajrish, to_branch_id: u.vanak, state: "approved", requested_by: m.tajrish.userId })).status).toBe("error");
+    await m.tajrish.client.post(`${w.P}/r/asset_transfer`, { title: "تأییدشده از پیش", from_branch_id: u.tajrish, to_branch_id: u.vanak, state: "approved" }, 409);
+    const t = (await m.tajrish.client.post(`${w.P}/r/asset_transfer`, { title: "به ونک با انبار", from_branch_id: u.tajrish, to_branch_id: u.vanak })).row;
+    await m.tajrish.client.post(`${w.P}/r/asset_transfer_item`, { transfer_id: t.id, asset_id: a.t1.id });
+    await m.tajrish.client.post(`${w.P}/r/asset_transfer/${t.id}/transition`, { to: "pending_approval" });
+    await m.region.client.post(`${w.P}/r/asset_transfer/${t.id}/transition`, { to: "approved" });
+    const room = (await w.p.am.client.post(`${w.P}/r/stockroom/query`, {})).rows[0];
+    if (room) expect((await pushed(m.tajrish.client, "asset_transfer", t.id, { to_stockroom_id: room.id })).status).toBe("error");
+    // the dispatch is the web version's: a push does not send the note (nor name, or leave out, who sent it)
+    expect((await pushed(w.p.am.client, "asset_transfer", t.id, { state: "in_transit", dispatched_by: null, dispatched_at: new Date().toISOString() })).status).toBe("error");
+    const after = await stored("asset_transfer", t.id);
+    expect(after.state).toBe("approved");
+    expect(after.dispatched_by).toBeNull();
+    await m.tajrish.client.post(`${w.P}/r/asset_transfer/${t.id}/transition`, { to: "canceled" });
+  });
+
+  it("lets nobody approve, through the approvals service, a note they issued for someone else", async () => {
+    const x = await fresh(u.vanak, { serial_number: "SOD-ISSUER" });
+    const t = (await w.p.am.client.post(`${w.P}/r/asset_transfer`, { title: "به نام دیگری", from_branch_id: u.vanak, to_branch_id: u.tajrish, requested_by: m.vanak.userId })).row;
+    expect(t.requested_by).toBe(m.vanak.userId);
+    await w.p.am.client.post(`${w.P}/r/asset_transfer_item`, { transfer_id: t.id, asset_id: x.id });
+    await w.p.am.client.post(`${w.P}/r/asset_transfer/${t.id}/transition`, { to: "pending_approval" });
+    const mine = (await w.p.am.client.get(`${w.P}/approvals/mine`)).approvals.filter((y: any) => y.record_id === t.id);
+    expect(mine).toEqual([]);
+    expect(await w.e.db.one(`select 1 from sm_approvals where record_id = $1 and approver_id = $2`, [t.id, w.p.am.userId])).toBeNull();
+    expect((await stored("asset_transfer", t.id)).state).toBe("pending_approval");
+  });
+
+  it("takes no pushed custody row that matches no change of the asset, and no outage shortened without one", async () => {
+    const x = await fresh(u.tajrish, { serial_number: "CUSTODY-FORGE" });
+    const chain = (await w.p.am.client.get(`${w.P}/itam/assets/${x.id}/custody`)).rows;
+    const last = chain[chain.length - 1];
+    const seq = Number(last.seq);
+    expect((await pushNew(m.tajrish.client, "asset_custody", { asset_id: x.id, seq: seq + 1, at: new Date().toISOString(), event: "received", branch_id: u.tajrish, from_branch_id: u.naqsh, reference: "TRF-FAKE", note: "رسید جعلی" })).status).toBe("error");
+    const old = new Date(Date.now() - 400 * 86_400_000).toISOString();
+    expect((await pushNew(m.tajrish.client, "asset_custody", { asset_id: x.id, seq: seq + 1, at: old, event: "attested", branch_id: u.tajrish, note: "امضا: رئیس" })).status).toBe("error");
+    expect((await w.p.am.client.get(`${w.P}/itam/assets/${x.id}/custody`)).rows.map((r: any) => r.event)).toEqual(chain.map((r: any) => r.event));
+    // an ATM offline for three days: a push closing the period after one minute, the device still offline, is refused
+    const atm = await fresh(u.vanak, { model_id: atmModel, serial_number: "ATM-OUTAGE", terminal_id: "10010077" });
+    await m.vanak.client.post(`${w.P}/itam/fleet/${atm.id}/status`, { status: "offline" });
+    const periods = (await w.p.am.client.post(`${w.P}/r/device_status_event/query`, { filter: { f: "asset_id", op: "eq", v: atm.id }, sort: "from_at" })).rows;
+    const open = periods[periods.length - 1];
+    expect(open.status).toBe("offline");
+    const from = new Date(Date.now() - 3 * 86_400_000);
+    await w.e.db.query(`update sm_device_status_events set from_at = $2 where id = $1`, [open.id, from.toISOString()]);
+    expect((await pushed(m.vanak.client, "device_status_event", open.id, { to_at: new Date(from.getTime() + 60_000).toISOString() })).status).toBe("error");
+    const kept = await stored("device_status_event", open.id);
+    expect(kept.to_at).toBeNull();
+    expect(kept.minutes).toBeNull();
+  });
+
+  it("keeps the review of a wipe from whoever recorded its evidence, and a pushed fingerprint is not taken", async () => {
+    const x = await fresh(u.naqsh, { serial_number: "WIPE-ONE-PERSON" });
+    const order = (await w.p.am.client.post(`${w.P}/r/disposal_order`, { title: "اسقاط یک‌نفره", method: "destroy" })).row;
+    const item = (await w.p.am.client.post(`${w.P}/r/disposal_item`, { order_id: order.id, asset_id: x.id })).row;
+    const done = (await w.p.am.client.patch(`${w.P}/r/disposal_item/${item.id}`, { sanitization_method: "purge", sanitized_at: new Date().toISOString(), certificate_no: "WIPE-ONE-1", sanitized_by: w.p.agent.userId, witness_id: w.p.req.userId })).row;
+    expect(done.certificate_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(done.evidence_by).toBe(w.p.am.userId);
+    // am named two other people, yet recorded it: am does not review it
+    await w.p.am.client.patch(`${w.P}/r/disposal_item/${item.id}`, { verified: true }, 403);
+    expect((await w.o.patch(`${w.P}/r/disposal_item/${item.id}`, { verified: true })).row.verified).toBe(true);
+    // a pushed item with a fingerprint of the app's own: the certificate is issued here only
+    const y = await fresh(u.naqsh, { serial_number: "WIPE-PUSH" });
+    const r = await pushNew(w.p.am.client, "disposal_item", { order_id: order.id, asset_id: y.id, sanitization_method: "purge", sanitized_at: new Date().toISOString(), certificate_no: "WIPE-PUSH-1", sanitized_by: w.p.am.userId, certificate_hash: "a".repeat(64), certificate_issued_at: new Date().toISOString(), verified: false });
+    if (r.status === "ok") {
+      const row = await w.e.db.one<Record<string, any>>(`select certificate_hash from sm_disposal_items where asset_id = $1`, [y.id]);
+      expect(row?.certificate_hash ?? null).toBeNull();
+    }
+  });
+});
+

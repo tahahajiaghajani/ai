@@ -20,6 +20,8 @@ describe("demo data and a linked Windows app", () => {
   let client: SyncClient;
   let org = "";
   let deskCfg: ServerConfig;
+  let cloudApp: { fetch: (r: Request) => Response | Promise<Response> };
+  let cloudFetchOf: () => typeof fetch;
 
   beforeAll(async () => {
     const cloudSrv = await makeServer({ mode: "cloud" });
@@ -30,6 +32,8 @@ describe("demo data and a linked Windows app", () => {
     deskApp = deskSrv.app;
     deskCfg = { mode: "desktop", db: deskDb, secret: "desktop-secret", allowSignup: false, platformAdmins: [], origin: "desktop", log: quietLog, fetch, desktop: bridge };
     const cloudFetch = (async (u: RequestInfo | URL, init?: RequestInit) => cloudSrv.app.fetch(new Request(String(u), init))) as typeof fetch;
+    cloudApp = cloudSrv.app;
+    cloudFetchOf = () => cloudFetch;
     const web = new Client(cloudSrv.app, "http://cloud.test");
     await web.post("/auth/signup", { email: EMAIL, password: PASSWORD, full_name: "مالک ابری" });
     org = (await web.post<{ id: string }>("/orgs", { name: "سازمان پیوندخورده", timezone: "Asia/Tehran" })).id;
@@ -56,4 +60,23 @@ describe("demo data and a linked Windows app", () => {
     await client.syncNow();
     expect(await cloudDb.one(`select 1 from sm_todos where id = $1`, [demo])).toBeNull();
   }, 120_000);
+
+  it("refuses to upload a standalone app's organisation while it holds demo data", async () => {
+    // a standalone app (not linked) may load the small pack; uploading it would make the demo the server's real data
+    const bridge = { notifyLocalWrite() {}, fetchBlob: () => Promise.reject(new Error("no blobs")) } as unknown as DesktopBridge;
+    const solo = await makeServer({ mode: "desktop", config: { desktop: bridge, secret: "solo-secret" } });
+    const local = new Client(solo.app, "http://solo.test");
+    await local.post("/auth/signup", { email: "solo@example.com", password: PASSWORD, full_name: "مدیر محلی" });
+    const soloOrg = (await local.post<{ id: string }>("/orgs", { name: "سازمان محلی", timezone: "Asia/Tehran" })).id;
+    const soloCfg: ServerConfig = { ...deskCfg, db: solo.db, secret: "solo-secret", desktop: bridge };
+    const sys = await systemCtx(soloCfg, soloOrg);
+    const demo = await inDemoScope(soloOrg, () => sys.write(async (tx) => String((await createIn(tx, sys, "todo", { short_description: "کار نمایشی محلی" }, { trusted: true })).id)));
+    await solo.db.query(`insert into sm_demo_rows (org_id, row_id, tbl) values ($1, $2, 'sm_todos') on conflict do nothing`, [soloOrg, demo]);
+    const cloud = new Client(cloudApp, "http://cloud.test");
+    await cloud.post("/auth/signup", { email: "solo-cloud@example.com", password: PASSWORD, full_name: "مدیر ابری" });
+    const up = new SyncClient({ db: solo.db, config: defaultConfig(), save() {}, log: quietLog, fetch: cloudFetchOf() });
+    await expect(up.link({ url: "http://cloud.test", email: "solo-cloud@example.com", password: PASSWORD, orgId: soloOrg, direction: "upload" })).rejects.toThrow(/نمایشی/);
+    expect(await cloudDb.one(`select 1 from sm_orgs where id = $1`, [soloOrg])).toBeNull();
+    expect(await cloudDb.one(`select 1 from sm_todos where id = $1`, [demo])).toBeNull();
+  }, 600_000);
 });
