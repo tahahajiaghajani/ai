@@ -8,7 +8,9 @@ import { evaluate, describe as describeCond, validateCond, type Cond, type CondE
 import { windowDates } from "@shared/model/jalali-buckets";
 import { toSql, searchSql, parseNumber } from "@server/engine/sql";
 import type { Db } from "@server/db";
-import { makeServer, Client, signupWithOrg } from "./helpers";
+import { makeServer, Client, signupWithOrg, quietLog } from "./helpers";
+import { makeCtx, type Ctx, type MemberRow, type OrgRow, type AuthUser } from "@server/context";
+import type { SqlOptions } from "@server/engine/sql";
 
 const OPTS = [
   { value: "a", label: "الف" },
@@ -327,9 +329,9 @@ describe("conditions: evaluate (JS) and toSql (SQL) agree", () => {
     }
   });
 
-  async function sqlIds(cond: Cond): Promise<string[]> {
+  async function sqlIds(cond: Cond, opts: SqlOptions = {}): Promise<string[]> {
     const params: unknown[] = [org];
-    const where = toSql(cond, def(), "t", params, ENV);
+    const where = toSql(cond, def(), "t", params, ENV, opts);
     const rows = await db.query<{ id: string }>(`select t.id from sm_cond_rows t where t.org_id = $1 and ${where} order by t.id`, params);
     return rows.map((r) => r.id);
   }
@@ -349,6 +351,44 @@ describe("conditions: evaluate (JS) and toSql (SQL) agree", () => {
     }
     // the fixtures discriminate: most conditions split the rows
     expect(nonTrivial).toBeGreaterThan(CONDS.length * 0.7);
+  });
+
+  // filter mode (docs/PERFORMANCE_FA.md): positive leaves are plain comparisons an index answers; in a WHERE clause
+  // they select exactly the rows the NULL-free form selects, under any nesting of `not`
+  it("filter mode selects the same rows, under negation and double negation", async () => {
+    for (const cond of CONDS) {
+      for (const c of [cond, { not: cond }, { not: { not: cond } }, { or: [{ not: cond }, cond] }, { and: [cond, { not: { not: cond } }] }] as Cond[]) {
+        expect(await sqlIds(c, { filter: true }), JSON.stringify(c)).toEqual(jsIds(c));
+      }
+    }
+    const params: unknown[] = [];
+    const plain = toSql({ and: [{ f: "qty", op: "eq", v: 5 }, { not: { f: "qty", op: "eq", v: 6 } }] }, def(), "t", params, ENV, { filter: true });
+    expect(plain).toMatch(/\(t\.qty = \$1::integer\)/);
+    expect(plain).toMatch(/not \(coalesce\(t\.qty = \$2::integer, false\)\)/);
+  });
+
+  // a positive test through a reference is a set test with the caller's access (`ref in (select id …)`), evaluated
+  // once per query; with a context, in both modes, it selects what evaluate selects (and its negation too)
+  it("tests through a reference as set tests, with the caller's access", async () => {
+    const user = (await db.one<AuthUser>(`select id, email, full_name, mobile, is_platform_admin, disabled, prefs from sm_users where email = 'owner@example.com'`))!;
+    const orgRow = (await db.one<OrgRow>(`select * from sm_orgs where id = $1`, [org]))!;
+    const member = (await db.one<MemberRow>(`select id, org_id, user_id, role, overrides, is_active from sm_org_members where org_id = $1 and user_id = $2`, [org, user.id]))!;
+    const cfg = { mode: "cloud", db, secret: "s", allowSignup: true, platformAdmins: [], origin: "cloud", log: quietLog, fetch: globalThis.fetch } as never;
+    const ctx: Ctx = makeCtx(cfg, user, orgRow, member);
+    const { orgSchema } = await import("@server/engine/schema");
+    await orgSchema(ctx); // the provider loads the caller's subject
+    const walks = CONDS.filter((c) => JSON.stringify(c).includes("ref_id."));
+    expect(walks.length).toBeGreaterThan(3);
+    for (const cond of walks) {
+      for (const c of [cond, { not: cond }] as Cond[]) {
+        expect(await sqlIds(c, { ctx, filter: true }), `filter ${JSON.stringify(c)}`).toEqual(jsIds(c));
+        expect(await sqlIds(c, { ctx }), JSON.stringify(c)).toEqual(jsIds(c));
+      }
+    }
+    const params: unknown[] = [];
+    expect(toSql({ f: "ref_id.name", op: "eq", v: "چاپگر" }, def(), "t", params, ENV, { ctx, filter: true })).toMatch(/\(t\.ref_id in \(select w\d+\.id from sm_cond_refs w\d+ where/);
+    // negative operators keep the walk (they hold on an empty value)
+    expect(toSql({ f: "ref_id.name", op: "empty" }, def(), "t", [], ENV, { ctx, filter: true })).not.toMatch(/t\.ref_id in \(select/);
   });
 
   it("spot checks of the semantics", () => {
@@ -394,6 +434,18 @@ describe("conditions: evaluate (JS) and toSql (SQL) agree", () => {
     expect(await run("cr2")).toEqual([id(2)]);
     expect(await run("2")).toEqual([id(1), id(2)]); // the number, and «۱۲» in a text
     expect(await run("printer")).toEqual([id(2)]);
+    // the stored search document answers, and a hidden search field is checked again on the fields the caller sees
+    expect(searchSql(def(), "t", "سرور", [])).toMatch(/t\.search_[0-9a-f]{8} like/);
+    const hidden = async (q: string) => {
+      const params: unknown[] = [org];
+      const where = searchSql(def(), "t", q, params, (f) => f.name !== "title")!;
+      return (await db.query<{ id: string }>(`select t.id from sm_cond_rows t where t.org_id = $1 and ${where} order by t.id`, params)).map((r) => r.id);
+    };
+    const inTitle = String(ROWS[0].title).split(/\s+/)[0];
+    const everywhere = await run(inTitle);
+    expect(everywhere).toContain(id(1));
+    expect((await hidden(inTitle)).length).toBeLessThanOrEqual(everywhere.length);
+    for (const r of await hidden(inTitle)) expect(String(ROWS.find((x) => x.id === r)!.body ?? "")).toContain(inTitle);
     expect(parseNumber(def(), "cr-12")).toBe(12);
     expect(parseNumber(def(), "۰۰۷")).toBe(7);
     expect(parseNumber(def(), "abc")).toBeNull();

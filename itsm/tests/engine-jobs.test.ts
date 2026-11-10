@@ -43,6 +43,29 @@ describe("job queue", () => {
     await tick(cfg);
   });
 
+  // the server edition's runner (docs/PERFORMANCE_FA.md): several due jobs claimed per statement and run together,
+  // each exactly once
+  it("runs due jobs several at a time with concurrency, each once", async () => {
+    const seenRuns: string[] = [];
+    let inFlight = 0;
+    let peak = 0;
+    const off = registerJobHandler("test.wide", async (job) => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 20));
+      seenRuns.push(String(job.payload.n));
+      inFlight--;
+    });
+    for (let n = 0; n < 10; n++) await enqueue(db, { kind: "test.wide", orgId: org, payload: { n } });
+    const r = await tick(cfg, { budgetMs: 5000, concurrency: 4 });
+    off();
+    expect(r.ran).toBe(10);
+    expect(seenRuns.sort()).toEqual(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]);
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(4);
+    expect((await listJobs(db, org, { kind: "test.wide" })).every((j) => j.status === "done")).toBe(true);
+  });
+
   it("retries a failing job with backoff and keeps the last error", async () => {
     let calls = 0;
     offs.push(registerJobHandler("test.flaky", async () => {
