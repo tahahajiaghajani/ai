@@ -12,7 +12,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "schema": "tsx scripts/gen-schema.mts",
-    "check:schema": "tsx scripts/gen-schema.mts --check"
+    "check:schema": "tsx scripts/gen-schema.mts --check",
+    "tokens": "tsx scripts/ds-tokens.ts --write",
+    "check:tokens": "tsx scripts/ds-tokens.ts --check",
+    "brand": "tsx scripts/brand-assets.mts"
   },
   "engines": {
     "node": ">=22.12"
