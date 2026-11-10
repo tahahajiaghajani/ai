@@ -439,6 +439,28 @@ export async function saveComputed(q: Queryable, orgId: string, info: TableInfo[
   return saved;
 }
 
+/**
+ * Rows of the saved computed tables that were computed while demo data was there (not in the saved copy) join the
+ * registry: they go like demo rows, with everything that names them (record events, history, links). Returns how many.
+ */
+export async function computedSince(q: Queryable, orgId: string, info: TableInfo[], saved: string[]): Promise<number> {
+  let n = 0;
+  const byName = new Map(info.map((t) => [t.name, t]));
+  for (const table of saved) {
+    const t = byName.get(table);
+    if (!t || !hasIdOrg(t)) continue;
+    const rows = await q.query(
+      `insert into sm_demo_rows (org_id, row_id, tbl)
+       select $1, x.id, ${lit(table)} from ${ident(table)} x
+        where x.org_id = $1 and not exists (select 1 from sm_demo_saved s where s.org_id = $1 and s.tbl = ${lit(table)} and s.row_id = x.id)
+       on conflict do nothing returning row_id`,
+      [orgId],
+    );
+    n += rows.length;
+  }
+  return n;
+}
+
 /** The engine's trail of rows removed outside the registry: their history, journal, links and attachments. */
 async function dropTrail(q: Queryable, orgId: string, ids: string[]): Promise<void> {
   const list = pgArray(ids);
@@ -457,7 +479,8 @@ export async function restoreComputed(q: Queryable, orgId: string, info: TableIn
     if (!t || !hasIdOrg(t)) continue;
     // computed while demo data was there: recomputed from real data by the next run (its trail goes with it)
     const gone = await q.query<{ id: string }>(
-      `delete from ${ident(table)} x where x.org_id = $1 and not exists (select 1 from sm_demo_saved s where s.org_id = $1 and s.tbl = ${lit(table)} and s.row_id = x.id) returning x.id`,
+      `delete from ${ident(table)} x where x.org_id = $1 and not exists (select 1 from sm_demo_saved s where s.org_id = $1 and s.tbl = ${lit(table)} and s.row_id = x.id)
+         and not ${isDemo("x.id")} returning x.id`,
       [orgId],
     );
     if (gone.length) await dropTrail(q, orgId, gone.map((r) => r.id));

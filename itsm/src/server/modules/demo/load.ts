@@ -161,7 +161,7 @@ export const STEPS: Step[] = [
   { key: "people", label: "کارکنان و کارشناسان", run: stepPeople },
   { key: "services", label: "خدمت‌ها و پیکربندی", run: stepServices },
   { key: "suppliers", label: "تأمین‌کنندگان و قراردادها", run: stepSuppliers },
-  { key: "assets", label: "دارایی‌ها و ناوگان خودپرداز", run: stepAssets },
+  { key: "assets", label: "دارایی‌ها و ناوگان خودپرداز", run: seedItamFleet },
   { key: "knowledge", label: "مقاله‌های دانش", run: stepKnowledge },
   { key: "incidents", label: "رخدادها", run: stepIncidents },
   { key: "major", label: "رخداد عمدهٔ سوئیچ کارت", run: stepMajor },
@@ -456,7 +456,13 @@ async function stepSuppliers({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
   return true;
 }
 
-async function stepAssets(a: StepArgs, sys: Ctx): Promise<boolean> {
+/**
+ * IT asset management of the demo bank, in one place: asset models (ATM, cash recycler, POS terminal, branch PC,
+ * passbook printer, branch router), the central and regional stockrooms, the fleet spread over the branches (in use or
+ * in stock, with purchase, warranty and vendor) and a physical audit of the central stockroom. The bank-grade ITAM
+ * tables (device classes, branch transfers, the ATM fleet, depreciation) extend this function when they arrive.
+ */
+async function seedItamFleet(a: StepArgs, sys: Ctx): Promise<boolean> {
   const { memo } = a;
   const size = DEMO_SIZES[memo.size];
   const rng = new Rng(memo.seed + 13);

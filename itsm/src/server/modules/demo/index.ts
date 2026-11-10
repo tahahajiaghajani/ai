@@ -17,7 +17,7 @@ import { invalidateCmdbCache } from "../cmdb/common";
 import { invalidateRules } from "../notify/rules";
 import { BANK_DOMAIN, BANK_NAME, DEMO_SIZES, KNOWN_NAMES, type DemoSize } from "./bank";
 import { newMemo, runLoad, STEPS, type LoadMemo } from "./load";
-import { cleanHistory, clearReferences, demoFiles, expandDerived, referenceReport, registryCounts, removeAccounts, removeFiles, removeRows, restoreComputed, restoreCounters, restoreReal, saveComputed, saveReal, systemMadeSince, tablesInfo, type PurgeReport, type RefReport } from "./purge";
+import { cleanHistory, clearReferences, computedSince, demoFiles, expandDerived, referenceReport, registryCounts, removeAccounts, removeFiles, removeRows, restoreComputed, restoreCounters, restoreReal, saveComputed, saveReal, systemMadeSince, tablesInfo, type PurgeReport, type RefReport } from "./purge";
 
 export { DEMO_SIZES, BANK_NAME, type DemoSize } from "./bank";
 export { tablesInfo, COMPUTED_TABLES, type PurgeReport, type RefReport } from "./purge";
@@ -275,7 +275,7 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
     if (phase === "expand") {
       await db.tx(async (tx) => {
         // what the system made while demo data was there (before the load was saved: nothing to go by)
-        const made = pack.progress.saved_at ? await systemMadeSince(tx, orgId, info, pack.progress.saved_at) : 0;
+        const made = pack.progress.saved_at ? (await computedSince(tx, orgId, info, pack.progress.computed ?? [])) + (await systemMadeSince(tx, orgId, info, pack.progress.saved_at)) : 0;
         const derived = made + (await expandDerived(tx, orgId, info));
         const tables = await registryCounts(tx, orgId);
         const references = await referenceReport(tx, orgId, info);
