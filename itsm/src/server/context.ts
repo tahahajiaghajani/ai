@@ -236,6 +236,8 @@ export interface CtxOptions {
   status?: OrgPlatformStatus | null;
   /** the request being served: describes a support session's changes in the audit log */
   request?: { method: string; path: string } | null;
+  /** the request's session (re-authentication of sensitive administration) */
+  session?: AuthSession | null;
 }
 
 export function makeCtx(cfg: ServerConfig, user: AuthUser, org: OrgRow, member: MemberRow, opts: CtxOptions = {}): Ctx {
@@ -254,6 +256,7 @@ export function makeCtx(cfg: ServerConfig, user: AuthUser, org: OrgRow, member: 
     actor: support ? "support" : "user",
     support,
     status: opts.status ?? null,
+    session: opts.session ?? null,
     can: (area, level) => {
       if (outsider) return !!support && rank(supportLevel(support.level, area)) >= rank(level);
       return canDo(member.role, area, level, member.overrides);
