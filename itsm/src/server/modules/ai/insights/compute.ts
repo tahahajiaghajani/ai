@@ -197,6 +197,10 @@ async function volumeInsights(sys: Ctx, def: TableDef, p: Period): Promise<Insig
 async function backlogInsight(sys: Ctx, def: TableDef, p: Period): Promise<InsightDraft[]> {
   if (!def.fields.some((f) => f.name === "active")) return [];
   const open: Cond = { f: "active", op: "eq", v: true };
+  // who may see the card is asked of the records it counted — those open now — not of the ones open when it is read:
+  // created before now and still open, or closed or changed since (a superset, never a smaller set)
+  const at = iso(Date.now());
+  const counted: Cond = { and: [{ f: "created_at", op: "lt", v: at }, { or: [open, { f: "closed_at", op: "gt", v: at }, { f: "updated_at", op: "gt", v: at }] }] };
   const total = await count(sys, def.key, open);
   if (!total) return [];
   const agedAt = iso(Date.parse(p.to) - 7 * 86_400_000);
@@ -220,7 +224,7 @@ async function backlogInsight(sys: Ctx, def: TableDef, p: Period): Promise<Insig
       numbers: { open: total, aged, aged_pct: Math.round(share * 10) / 10 },
       drivers,
       driver_field: field,
-      scope: { table: def.key, cond: open },
+      scope: { table: def.key, cond: def.fields.some((f) => f.name === "closed_at") ? counted : open },
       fields: ["active", "created_at", ...(field ? [field] : [])],
       refs: driverRefs(def, field, drivers),
       narrative: `اکنون ${faDigits(total)} ${def.label} باز است و ${faDigits(aged)} مورد (${pct(share)}) بیش از یک هفته است که باز مانده.${drivers[0] ? ` بیشترین کار کهنه نزد «${drivers[0].label}» است (${faDigits(drivers[0].current)}).` : ""}`,
@@ -394,9 +398,12 @@ async function fulfilmentInsight(sys: Ctx, def: TableDef, p: Period): Promise<In
   ];
 }
 
-async function alertStorm(sys: Ctx, def: TableDef): Promise<InsightDraft[]> {
-  const now = Date.now();
-  const hourStart = now - (now % 3_600_000);
+/** The tables whose hourly volume can storm: monitoring events, alerts and pages (never configuration rows). */
+export const STORM_TABLES = ["event", "alert", "page"] as const;
+
+/** A storm in the hour that ends at `end` (an hour boundary) of one table, against the 48 hours before it. */
+async function alertStorm(sys: Ctx, def: TableDef, end: number): Promise<InsightDraft[]> {
+  const hourStart = end - (end % 3_600_000);
   const from = iso(hourStart - 48 * 3_600_000);
   const rows = await sys.db.query<{ h: string; n: number }>(
     `select date_trunc('hour', t.created_at) as h, count(*)::int as n from ${def.table} t where t.org_id = $1 and t.deleted_at is null and t.created_at >= $2 and t.created_at < $3 group by 1`,
@@ -438,7 +445,22 @@ export async function computeInsights(sys: Ctx, p: Period): Promise<InsightDraft
       out.push(...(await volumeInsights(sys, def, p)), ...(await backlogInsight(sys, def, p)), ...(await resolutionInsight(sys, def, p)), ...(await reopenInsight(sys, def, p)), ...(await slaInsight(sys, def, p)));
       if (def.key === "change_request") out.push(...(await changeInsight(sys, def, p)));
       out.push(...(await fulfilmentInsight(sys, def, p)));
-    } else if (def.module === "event") out.push(...(await alertStorm(sys, def)));
+    }
   }
   return out.sort((a, b) => b.score - a.score);
+}
+
+/**
+ * Alert storms of the completed hours ending at `ends` (hour boundaries), for the event tables — the hourly check of
+ * the insights' tick (every hour is examined once; a card is keyed by its table and hour).
+ */
+export async function stormInsights(sys: Ctx, ends: readonly number[]): Promise<InsightDraft[]> {
+  const schema = await orgSchema(sys);
+  const out: InsightDraft[] = [];
+  for (const key of STORM_TABLES) {
+    const def = schema.def(key);
+    if (!def || def.virtual) continue;
+    for (const end of ends) out.push(...(await alertStorm(sys, def, end)));
+  }
+  return out;
 }

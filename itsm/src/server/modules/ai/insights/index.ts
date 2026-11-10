@@ -24,11 +24,11 @@ import { loadSettings } from "../settings";
 import { principalCtx } from "../skills/principal";
 import { defineSkill, registerSkill } from "../skills/registry";
 import { isAiUnavailable, runForModule } from "../skills/runtime";
-import { computeInsights, periodOf, type Period } from "./compute";
-import { canSee, computed, insightRows, saveInsights, storeNarrative, viewOf, visibleInsights, VisibilityCache, type InsightRow } from "./views";
+import { computeInsights, periodOf, stormInsights, type Period } from "./compute";
+import { canSee, computed, insightRows, saveInsights, saveStorms, storeNarrative, viewOf, visibleInsights, VisibilityCache, type InsightRow } from "./views";
 
-export { periodOf, computeInsights, type Period } from "./compute";
-export { canSee, insightRows, visibleInsights, viewOf, saveInsights } from "./views";
+export { periodOf, computeInsights, stormInsights, STORM_TABLES, type Period } from "./compute";
+export { canSee, insightRows, visibleInsights, viewOf, saveInsights, saveStorms } from "./views";
 
 export const INSIGHTS_TICK_EVERY = 60 * 60_000;
 
@@ -61,9 +61,17 @@ function factsOf(v: InsightView): Record<string, unknown> {
 }
 
 /** A model's narrative of a card, as `ctx` (the AI principal in jobs, the viewer on request), under the table's policy. */
-export async function narrateInsight(ctx: Ctx, v: InsightView, table: string): Promise<string | null> {
+/**
+ * The tables an insight card's facts come from: the card's own table and the table its numbers were counted in (an
+ * SLA card of security incidents counts task_sla rows) — the narrative runs under the strictest data-use policy of
+ * them all (spec §16.2: the card's table decides).
+ */
+export const insightTables = (row: { table_key?: string | null; scope?: { table?: string | null } | null }): string[] =>
+  [...new Set([row.table_key, row.scope?.table].filter((t): t is string => typeof t === "string" && !!t))];
+
+export async function narrateInsight(ctx: Ctx, v: InsightView, tables: string | readonly string[]): Promise<string | null> {
   try {
-    const r = await runForModule(ctx, NARRATE.key, { params: {} }, { ephemeral: true, facts: { facts: factsOf(v) }, dataTables: [table] });
+    const r = await runForModule(ctx, NARRATE.key, { params: {} }, { ephemeral: true, facts: { facts: factsOf(v) }, dataTables: typeof tables === "string" ? [tables] : [...tables] });
     const text = String(r.text ?? "").trim();
     return text || null;
   } catch (e) {
@@ -84,7 +92,7 @@ export async function runPeriod(cfg: ServerConfig, orgId: string, p: Period): Pr
     const cache = new VisibilityCache(pctx);
     for (const r of rows.slice(0, 8)) {
       if (!(await canSee(pctx, r, cache))) continue;
-      const text = await narrateInsight(pctx, await viewOf(sys, r), r.scope?.table || r.table_key);
+      const text = await narrateInsight(pctx, await viewOf(sys, r), insightTables(r));
       if (text) await storeNarrative(sys, r.id, text);
     }
   }
@@ -196,6 +204,9 @@ export function installInsights(): void {
           if (actsHere(cfg) && settings.digest === kind) await enqueue(jctx.db, { kind: "ai.insights.digest", orgId, payload: { period: kind, key: p.key }, dedupeKey: `ai.insights.digest:${kind}:${p.key}`, maxAttempts: 3 });
         }
       }
+      // alert storms: the hours completed since the last ticks (each hour once, whenever the tick runs)
+      const hour = Date.now() - (Date.now() % 3_600_000);
+      await saveStorms(sys, await stormInsights(sys, [hour, hour - 3_600_000, hour - 2 * 3_600_000]), tz);
       if (actsHere(cfg)) await announceAnomalies(cfg, orgId);
     }
     return { again: INSIGHTS_TICK_EVERY };

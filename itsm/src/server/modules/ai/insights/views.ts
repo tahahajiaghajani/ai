@@ -10,6 +10,8 @@
 // Narratives are written from the card's numbers only; a model's narrative is cached on the card for everyone who passes
 // the same rule.
 import { uuidv7 } from "@shared/id";
+import { dateISOIn, formatJalaliDateTime } from "@shared/jalali";
+import { pgArray } from "../../../db";
 import type { Cond } from "@shared/model/conditions";
 import { INSIGHT_KINDS, type InsightView } from "@shared/ai/insights";
 import type { Ctx } from "../../../context";
@@ -42,36 +44,51 @@ export interface InsightRow {
 const RUN = "_run";
 const COLS = `id, period, period_key, kind, table_key, subject, scope, fields, refs, severity, score::float8 as score, title, numbers, drivers, narrative, narrative_ai, notified_at, created_at`;
 
-/** Store a period's cards (replacing the period's earlier run) and its run marker. */
+const INSERT_COLS = `(id, org_id, period, period_key, kind, table_key, subject, scope, fields, refs, severity, score, title, numbers, drivers, narrative)
+  values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::text[], $10::jsonb, $11, $12, $13, $14::jsonb, $15::jsonb, $16)`;
+
+const draftParams = (sys: Ctx, period: string, key: string, label: string, d: InsightDraft): unknown[] => [
+  uuidv7(),
+  sys.org.id,
+  period,
+  key,
+  d.kind,
+  d.table,
+  d.subject,
+  JSON.stringify({ ...d.scope, label }),
+  `{${d.fields.join(",")}}`,
+  JSON.stringify(d.refs),
+  d.severity,
+  d.score,
+  d.title,
+  JSON.stringify(d.numbers),
+  JSON.stringify(d.drivers.map((x) => ({ ...x, field: d.driver_field }))),
+  d.narrative,
+];
+
+/**
+ * Store a period's cards and its run marker. A card computed again («محاسبه اکنون») is the same card — updated in place
+ * by its key (period, kind, table, subject), keeping its id, its announcement (`notified_at`: never announced twice) and
+ * a model's narrative; cards the new run no longer finds go. Alert storms are the hourly check's (`saveStorms`).
+ */
 export async function saveInsights(sys: Ctx, p: Period, drafts: readonly InsightDraft[]): Promise<number> {
   await sys.write(
     async (tx) => {
-      await tx.query(`delete from sm_ai_insights where org_id = $1 and period = $2 and period_key = $3 and kind <> 'alert_storm'`, [sys.org.id, p.kind, p.key]);
       for (const d of drafts) {
         await tx.query(
-          `insert into sm_ai_insights (id, org_id, period, period_key, kind, table_key, subject, scope, fields, refs, severity, score, title, numbers, drivers, narrative)
-           values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::text[], $10::jsonb, $11, $12, $13, $14::jsonb, $15::jsonb, $16)
-           on conflict (org_id, period, period_key, kind, table_key, subject) do nothing`,
-          [
-            uuidv7(),
-            sys.org.id,
-            p.kind,
-            p.key,
-            d.kind,
-            d.table,
-            d.subject,
-            JSON.stringify({ ...d.scope, label: p.label }),
-            `{${d.fields.join(",")}}`,
-            JSON.stringify(d.refs),
-            d.severity,
-            d.score,
-            d.title,
-            JSON.stringify(d.numbers),
-            JSON.stringify(d.drivers.map((x) => ({ ...x, field: d.driver_field }))),
-            d.narrative,
-          ],
+          `insert into sm_ai_insights ${INSERT_COLS}
+           on conflict (org_id, period, period_key, kind, table_key, subject) do update set
+             scope = excluded.scope, fields = excluded.fields, refs = excluded.refs, severity = excluded.severity, score = excluded.score,
+             title = excluded.title, numbers = excluded.numbers, drivers = excluded.drivers,
+             narrative = case when sm_ai_insights.narrative_ai then sm_ai_insights.narrative else excluded.narrative end`,
+          draftParams(sys, p.kind, p.key, p.label, d),
         );
       }
+      const keep = drafts.map((d) => `${d.kind}|${d.table}|${d.subject}`);
+      await tx.query(
+        `delete from sm_ai_insights where org_id = $1 and period = $2 and period_key = $3 and kind not in ('alert_storm', $4) and not ((kind || '|' || table_key || '|' || subject) = any($5::text[]))`,
+        [sys.org.id, p.kind, p.key, RUN, pgArray(keep)],
+      );
       await tx.query(
         `insert into sm_ai_insights (id, org_id, period, period_key, kind, table_key, title) values ($1, $2, $3, $4, $5, '', '') on conflict (org_id, period, period_key, kind, table_key, subject) do nothing`,
         [uuidv7(), sys.org.id, p.kind, p.key, RUN],
@@ -80,6 +97,25 @@ export async function saveInsights(sys: Ctx, p: Period, drafts: readonly Insight
     { internal: true },
   );
   return drafts.length;
+}
+
+/** Store the hourly check's alert storms under the day of their hour (one card per table and hour, never again). */
+export async function saveStorms(sys: Ctx, drafts: readonly InsightDraft[], tz: string): Promise<number> {
+  if (!drafts.length) return 0;
+  let n = 0;
+  await sys.write(
+    async (tx) => {
+      for (const d of drafts) {
+        const hour = Date.parse(`${d.subject}:00:00.000Z`);
+        const day = Number.isNaN(hour) ? new Date().toISOString().slice(0, 10) : dateISOIn(hour, tz);
+        const label = Number.isNaN(hour) ? d.subject : formatJalaliDateTime(new Date(hour).toISOString(), tz);
+        const r = await tx.query(`insert into sm_ai_insights ${INSERT_COLS} on conflict (org_id, period, period_key, kind, table_key, subject) do nothing returning id`, draftParams(sys, "daily", day, label, d));
+        n += r.length;
+      }
+    },
+    { internal: true },
+  );
+  return n;
 }
 
 /** Was the period already computed on this runtime? */

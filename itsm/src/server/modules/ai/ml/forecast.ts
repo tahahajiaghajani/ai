@@ -34,13 +34,19 @@ export interface ForecastView extends VolumeForecast {
   assumptions: { handle_minutes: number; productive_hours: number; handle_from_data: boolean };
 }
 
-/** Official holidays (full days) of the organisation's default calendar sets between two dates. */
+/**
+ * Official holidays (full days) of the organisation's default calendar sets between two dates — the sets the default
+ * calendar uses (default ["ir"]); a set of one site's shutdown days is not the whole organisation's holiday.
+ */
 export async function holidaysBetween(ctx: Ctx, from: string, to: string): Promise<Set<string>> {
   const sys = await systemCtx(ctx.cfg, ctx.org.id);
   const schema = await orgSchema(sys);
   const def = schema.def("holiday");
   if (!def) return new Set();
-  const rows = await readRows(sys, def, ["date", "half_day", "active"], { where: { and: [{ f: "date", op: "gte", v: from }, { f: "date", op: "lte", v: to }, { f: "active", op: "eq", v: true }] }, limit: 2000, order: "t.date" });
+  const cal = schema.def("calendar");
+  const [dflt] = cal ? await readRows(sys, cal, ["holiday_sets", "is_default", "active"], { where: { and: [{ f: "is_default", op: "eq", v: true }, { f: "active", op: "eq", v: true }] }, limit: 1, order: "t.created_at" }) : [];
+  const sets = Array.isArray(dflt?.holiday_sets) && (dflt!.holiday_sets as unknown[]).length ? (dflt!.holiday_sets as unknown[]).map(String) : ["ir"];
+  const rows = await readRows(sys, def, ["date", "half_day", "active", "holiday_set"], { where: { and: [{ f: "date", op: "gte", v: from }, { f: "date", op: "lte", v: to }, { f: "active", op: "eq", v: true }, { f: "holiday_set", op: "in", v: sets }] }, limit: 2000, order: "t.date" });
   return new Set(rows.filter((r) => r.half_day !== true).map((r) => String(r.date).slice(0, 10)));
 }
 

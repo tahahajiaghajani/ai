@@ -9,7 +9,7 @@ import type { InsightsResult } from "@shared/ai/insights";
 import { orgTz, systemCtx } from "../engine";
 import { todayISO } from "@shared/jalali";
 import { loadSettings } from "../modules/ai/settings";
-import { canSee, ensureInsightsTick, insightRows, narrateInsight, periodOf, runPeriod, sendDigests, viewOf, visibleInsights } from "../modules/ai/insights";
+import { canSee, ensureInsightsTick, insightRows, insightTables, narrateInsight, periodOf, runPeriod, sendDigests, viewOf, visibleInsights } from "../modules/ai/insights";
 import { storeNarrative } from "../modules/ai/insights/views";
 
 export const insightRoutes = router();
@@ -37,7 +37,7 @@ insightRoutes.post("/insights/:id/narrate", async (c) => {
   if (!row || !(await canSee(ctx, row))) throw notFound("بینش پیدا نشد");
   const view = await viewOf(ctx, row);
   if (row.narrative_ai && row.narrative) return c.json({ text: row.narrative, ai: true });
-  const text = await narrateInsight(ctx, view, row.scope?.table || row.table_key);
+  const text = await narrateInsight(ctx, view, insightTables(row));
   if (!text) return c.json({ text: row.narrative ?? "", ai: false });
   await storeNarrative(ctx, row.id, text);
   return c.json({ text, ai: true });

@@ -261,9 +261,8 @@ export async function topPredictions(q: Queryable, orgId: string, modelKey: stri
 }
 
 export async function decidePrediction(ctx: Ctx, id: string, status: "applied" | "dismissed"): Promise<void> {
-  await ctx.write((tx) => tx.query(`update sm_ai_predictions set status = $3, decided_by = $4, decided_at = now(), updated_at = now() where org_id = $1 and id = $2`, [ctx.org.id, id, status, ctx.user.id]), {
-    internal: true,
-  });
+  // a person's decision: an ordinary write (a read-only organisation or a view-only support session decides nothing)
+  await ctx.write((tx) => tx.query(`update sm_ai_predictions set status = $3, decided_by = $4, decided_at = now(), updated_at = now() where org_id = $1 and id = $2`, [ctx.org.id, id, status, ctx.user.id]));
 }
 
 /** Record the value a record ended with (acceptance and online accuracy of the model). */

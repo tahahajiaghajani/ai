@@ -11,6 +11,7 @@ import { trainTextClassifier, type TextExample } from "./core/classify";
 import { fieldToken, textTokens } from "./core/features";
 import { trainRisk } from "./core/risk";
 import { readRows, rowText } from "./data";
+import { liveRefLabels } from "./labels";
 import { riskData } from "./risk-models";
 import type { ClassifierSpec, ModelSpec, RiskSpec } from "./specs";
 import { rescheduleModel, saveTraining, type ModelRow, type TrainingOutcome } from "./store";
@@ -41,7 +42,11 @@ async function trainClassifier(sys: Ctx, m: ModelRow, spec: ClassifierSpec): Pro
     params: [new Date(Date.now() - 365 * DAY).toISOString()],
     limit: 20_000,
   });
-  const examples: TextExample[] = rows.map((r) => ({ tokens: rowTokens(r, spec), label: String(r[spec.target]) })).filter((e) => e.tokens.length > 0);
+  // labels that name no live row any more (a deleted or retired group) are not learnt
+  const live = await liveRefLabels(sys.db, sys.org.id, def, spec.target, [...new Set(rows.map((r) => String(r[spec.target])))]);
+  const examples: TextExample[] = rows
+    .map((r) => ({ tokens: rowTokens(r, spec), label: String(r[spec.target]) }))
+    .filter((e) => e.tokens.length > 0 && (!live || live.has(e.label)));
   const empty = { metrics: null, baseline: null, beats: false, params: null, summary: {} };
   if (examples.length < MIN_EXAMPLES) {
     return { ...empty, status: "insufficient", rows: examples.length, error: `دادهٔ کافی نیست: دست‌کم ${MIN_EXAMPLES} رکورد با «${def.fields.find((f) => f.name === spec.target)?.label ?? spec.target}» لازم است و ${examples.length} رکورد هست` };

@@ -16,6 +16,7 @@ import { riskData } from "./risk-models";
 import type { ClassifierSpec, DuplicateSpec, ModelSpec, RiskSpec } from "./specs";
 import { dropPredictions, modelRow, modelRows, upsertPredictions, usableParams, type ModelRow, type PredictionInput } from "./store";
 import { rowTokens } from "./train";
+import { liveRefLabels } from "./labels";
 
 const DAY = 86_400_000;
 
@@ -38,6 +39,17 @@ export async function classifiersOf(q: Queryable, orgId: string, table: string, 
   return out;
 }
 
+/** Classifier answers without labels that name no live row any more (an answer left with none is dropped). */
+export async function liveOutputs(q: Queryable, orgId: string, def: TableDef, outs: ClassifierOutput[]): Promise<ClassifierOutput[]> {
+  const kept: ClassifierOutput[] = [];
+  for (const o of outs) {
+    const live = await liveRefLabels(q, orgId, def, o.field, o.top.map((t) => t.label));
+    const top = live ? o.top.filter((t) => live.has(t.label)) : o.top;
+    if (top.length) kept.push(top.length === o.top.length ? o : { ...o, top });
+  }
+  return kept;
+}
+
 /** Every usable classifier's answer for a row (an empty text gives none). */
 export function classify(models: readonly { m: ModelRow; spec: ClassifierSpec; c: LoadedClassifier }[], row: Record<string, unknown>): ClassifierOutput[] {
   const out: ClassifierOutput[] = [];
@@ -57,7 +69,7 @@ export async function scoreRecord(sys: Ctx, def: TableDef, id: string, specs: re
   if (!cols.length) return 0;
   const [row] = await readRows(sys, def, cols, { ids: [id], limit: 1 });
   if (!row) return 0;
-  const items: PredictionInput[] = classify(models, row).map((o) => ({
+  const items: PredictionInput[] = (await liveOutputs(sys.db, sys.org.id, def, classify(models, row))).map((o) => ({
     model: o.model,
     record_id: id,
     field: o.field,
@@ -148,8 +160,12 @@ export async function predictGroup(q: Queryable, ctx: Ctx, def: TableDef, row: R
   const c = await usableParams(q, m, (raw) => loadClassifier(raw as never));
   if (!c) return null;
   const p = predictText(c, rowTokens(row, spec), 3);
-  const top = p.top[0];
-  if (!top || top.confidence < m.threshold_apply) return null;
+  // the most confident label above the threshold that is still a live, active assignment group (a group deleted or
+  // retired after training is skipped: the rule's own group or the next rule applies instead)
+  const sure = p.top.filter((t) => t.confidence >= m.threshold_apply!);
+  const live = await liveRefLabels(q, ctx.org.id, def, field, sure.map((t) => t.label), { assignment: true });
+  const top = sure.find((t) => !live || live.has(t.label));
+  if (!top) return null;
   if (typeof row.id === "string") {
     // a write that failed after its rules ran leaves its entry behind: keep the map small
     if (pendingApplied.size > 500) for (const k of [...pendingApplied.keys()].slice(0, 250)) pendingApplied.delete(k);

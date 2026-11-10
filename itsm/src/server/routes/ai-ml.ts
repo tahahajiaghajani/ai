@@ -13,7 +13,7 @@ import { enqueue } from "../jobs";
 import { access } from "../access/provider";
 import { readableIds } from "../access/service";
 import {
-  applyPrediction, clustersFor, decideCluster, dismissPrediction, draftPredictions, ensureMlTick, forecastFor, modelRow, modelViews, patchModel, recordPredictions,
+  applyPrediction, clustersFor, decideCluster, dismissPrediction, draftPredictions, ensureMlTick, forecastFor, modelRow, modelViews, patchModel, readsWholeCluster, recordPredictions,
 } from "../modules/ai/ml";
 
 export const mlRoutes = router();
@@ -70,8 +70,12 @@ mlRoutes.post("/ml/clusters/:id/dismiss", async (c) => {
   const ctx = c.get("ctx");
   const cid = id(c.req.param("id"));
   const table = TABLE.parse((await body(c, z.object({ table: TABLE }))).table);
-  // only someone who sees the cluster (enough readable members) decides it
+  // the decision is the organisation's (a dismissed cluster is suppressed for everyone): only someone who could open a
+  // problem from it and reads every one of its records decides it
   if (!(await clustersFor(ctx, table, { id: cid })).length) throw forbidden("این خوشه را نمی‌بینید");
+  const pdef = (await orgSchema(ctx)).def("problem");
+  if (!pdef || !access().canCreate(ctx, pdef)) throw forbidden("کنار گذاشتن نامزد مسئله با کسانی است که مسئله ثبت می‌کنند");
+  if (!(await readsWholeCluster(ctx, table, cid))) throw forbidden("همهٔ رکوردهای این خوشه را نمی‌بینید؛ تصمیم دربارهٔ آن با کسی است که همه را می‌بیند");
   await decideCluster(ctx, cid, { status: "dismissed" });
   return c.json({ ok: true });
 });
@@ -89,8 +93,9 @@ mlRoutes.post("/ml/clusters/:id/problem", async (c) => {
   const schema = await orgSchema(ctx);
   const pdef = schema.def("problem");
   if (!pdef || !access().canCreate(ctx, pdef)) throw forbidden("اجازهٔ ثبت مسئله ندارید");
-  const list = cluster.members.map((m) => `- ${m.number ?? ""} ${m.title}`.trim()).join("\n");
-  const problem = await create(ctx, "problem", { short_description: input.title, description: `نامزد مسئله از خوشهٔ ${cluster.size} رکورد مشابه (پیشنهاد هوش مصنوعی):\n\n${list}` });
+  // no member's number or title goes into the problem (its readers are not theirs): the members are linked below, and
+  // the problem's related records list them for each reader under their own access
+  const problem = await create(ctx, "problem", { short_description: input.title, description: `نامزد مسئله از خوشهٔ ${cluster.size} رکورد مشابه (پیشنهاد هوش مصنوعی)؛ رکوردهای پیوندشده در «رکوردهای مرتبط» مسئله آمده‌اند.` });
   const pid = String(problem.row.id);
   let linked = 0;
   const readable = await readableIds(ctx, input.table, cluster.members.map((m) => m.id));

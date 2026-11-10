@@ -130,17 +130,24 @@ export async function clustersFor(ctx: Ctx, table: string, opts: { status?: stri
   return out;
 }
 
-/** A person's decision on a cluster: dismissed, or turned into a problem (its id). */
+/** A person's decision on a cluster: dismissed, or turned into a problem (its id) — an ordinary write. */
 export async function decideCluster(ctx: Ctx, id: string, decision: { status: "dismissed" } | { status: "converted"; problem_id: string }): Promise<void> {
-  await ctx.write(
-    (tx) =>
-      tx.query(`update sm_ai_clusters set status = $3, problem_id = $4, decided_by = $5, decided_at = now() where org_id = $1 and id = $2`, [
-        ctx.org.id,
-        id,
-        decision.status,
-        decision.status === "converted" ? decision.problem_id : null,
-        ctx.user.id,
-      ]),
-    { internal: true },
+  await ctx.write((tx) =>
+    tx.query(`update sm_ai_clusters set status = $3, problem_id = $4, decided_by = $5, decided_at = now() where org_id = $1 and id = $2`, [
+      ctx.org.id,
+      id,
+      decision.status,
+      decision.status === "converted" ? decision.problem_id : null,
+      ctx.user.id,
+    ]),
   );
+}
+
+/** Does the caller read every member of the cluster (not only the few that make it visible to them)? */
+export async function readsWholeCluster(ctx: Ctx, table: string, id: string): Promise<boolean> {
+  const r = await ctx.db.one<{ members: string[] }>(`select members from sm_ai_clusters where org_id = $1 and table_key = $2 and id = $3`, [ctx.org.id, table, id]);
+  if (!r) return false;
+  const members = [...new Set((r.members ?? []).map(String))];
+  const readable = await readableIds(ctx, table, members);
+  return members.every((m) => readable.has(m));
 }

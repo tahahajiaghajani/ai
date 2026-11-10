@@ -18,7 +18,7 @@ import { access } from "../../../access/provider";
 import { readableIds } from "../../../access/service";
 import { condEnv, get, orgSchema, RefSet, resolveDisplay, update, type OrgSchema } from "../../../engine";
 import { audit } from "../../data/crud";
-import { classifiersOf, classify } from "./score";
+import { classifiersOf, classify, liveOutputs } from "./score";
 import { modelSpecs, riskModelDef, slaRiskDef, type ModelSpec } from "./specs";
 import { decidePrediction, modelRow, modelRows, predictionById, predictionsOf, type ModelRow, type PredictionRow } from "./store";
 
@@ -106,7 +106,8 @@ export async function recordPredictions(ctx: Ctx, table: string, id: string): Pr
 
   // classifiers: now, from what the viewer sees
   const usable = await classifiersOf(ctx.db, ctx.org.id, table, specs);
-  const live = classify(usable, row).filter((o) => sees(o.field));
+  // labels that name no live row (a deleted or retired group) are never suggested
+  const live = (await liveOutputs(ctx.db, ctx.org.id, def, classify(usable, row))).filter((o) => sees(o.field));
   // duplicates: the other record must be readable too
   const dups = stored.filter((p) => p.kind === "duplicate" && p.value);
   const dupReadable = dups.length ? await readableIds(ctx, table, dups.flatMap((p) => [p.value!, ...p.alternatives.map((a) => a.value)])) : new Set<string>();
@@ -233,7 +234,7 @@ export async function draftPredictions(ctx: Ctx, input: MlDraftInput): Promise<M
   const values: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(input.values ?? {})) if (def.fields.some((f) => f.name === k) && (!visible || visible.has(k))) values[k] = typeof v === "string" ? v.slice(0, 6000) : v;
   const usable = await classifiersOf(ctx.db, ctx.org.id, def.key, modelSpecs(schema));
-  const outs = classify(usable, values).filter((o) => (!visible || visible.has(o.field)) && (!writable || writable.has(o.field)));
+  const outs = (await liveOutputs(ctx.db, ctx.org.id, def, classify(usable, values))).filter((o) => (!visible || visible.has(o.field)) && (!writable || writable.has(o.field)));
   const label = await labeller(ctx, schema, def, outs.flatMap((o) => [...o.top.map((t) => ({ field: o.field, value: t.label })), ...o.why.filter((w) => w.feature.startsWith("@")).map((w) => ({ field: w.feature.slice(1).split("=")[0], value: w.feature.split("=").slice(1).join("=") }))]));
   return outs.map((o) => {
     const f = def.fields.find((x) => x.name === o.field)!;
@@ -264,12 +265,20 @@ export async function draftPredictions(ctx: Ctx, input: MlDraftInput): Promise<M
   });
 }
 
-/** The stored prediction behind an action, checked against the record's access. */
+/**
+ * The stored prediction behind an action, checked against the record's access: deciding it (applying or dismissing)
+ * is changing the record — its write access, and the predicted field seen and writable (a reader who may not change the
+ * record does not decide for those who work it).
+ */
 async function ownPrediction(ctx: Ctx, id: string): Promise<{ p: PredictionRow; row: Record<string, unknown>; version: number }> {
   const p = await predictionById(ctx.db, ctx.org.id, id);
   if (!p) throw notFound("پیش‌بینی پیدا نشد");
   const rec = await get(ctx, p.table_key, p.record_id);
-  return { p, row: rec.row as Record<string, unknown>, version: Number((rec.row as { version?: number }).version ?? 0) };
+  const meta = rec.meta as { canWrite?: boolean; readonly?: string[] };
+  const row = rec.row as Record<string, unknown>;
+  if (meta.canWrite !== true) throw forbidden("تصمیم دربارهٔ پیشنهادهای این رکورد با کسانی است که آن را تغییر می‌دهند");
+  if (p.field && (!(p.field in row) || (meta.readonly ?? []).includes(p.field))) throw forbidden("این فیلد را نمی‌توانید تغییر دهید");
+  return { p, row, version: Number((row as { version?: number }).version ?? 0) };
 }
 
 /**
@@ -279,7 +288,15 @@ async function ownPrediction(ctx: Ctx, id: string): Promise<{ p: PredictionRow; 
 export async function applyPrediction(ctx: Ctx, id: string, input: { value?: string | null; version?: number }): Promise<{ ok: true }> {
   const { p, row, version } = await ownPrediction(ctx, id);
   if (p.kind !== "classifier" || !p.field) throw bad("این پیش‌بینی مقداری برای اعمال ندارد");
+  // what the record page offers: the stored prediction, and the model's answer now for the record as the viewer sees
+  // it (a retrained model or an edited text suggests labels the stored row never had)
   const allowed = new Set([p.value, ...p.alternatives.map((a) => String(a.value))]);
+  const schema = await orgSchema(ctx);
+  const def = schema.def(p.table_key);
+  if (def) {
+    const usable = (await classifiersOf(ctx.db, ctx.org.id, p.table_key, modelSpecs(schema))).filter((x) => x.m.key === p.model_key);
+    for (const o of await liveOutputs(ctx.db, ctx.org.id, def, classify(usable, row))) for (const t of o.top) allowed.add(t.label);
+  }
   const value = input.value ?? p.value;
   if (!value || !allowed.has(value)) throw bad("این مقدار در پیشنهادهای مدل نیست");
   if (!(p.field in row)) throw forbidden("این فیلد را نمی‌بینید");
@@ -300,8 +317,13 @@ export async function dismissPrediction(ctx: Ctx, id: string): Promise<{ ok: tru
 export async function modelViews(ctx: Ctx): Promise<MlModelView[]> {
   ctx.need("ai", "full");
   const schema = await orgSchema(ctx);
-  const counts = await ctx.db.query<{ model_key: string; status: string; n: number; agreed: number }>(
-    `select model_key, status, count(*)::int as n, count(*) filter (where actual is not null and actual = value)::int as agreed from sm_ai_predictions where org_id = $1 group by 1, 2`,
+  // acceptance «درست»: of the predictions whose record's final value is known, how many it matched — counted over the
+  // same rows, never over applied ones (applying a suggestion makes the record agree with it)
+  const counts = await ctx.db.query<{ model_key: string; status: string; n: number; judged: number; agreed: number }>(
+    `select model_key, status, count(*)::int as n,
+       count(*) filter (where actual is not null and status not in ('applied', 'auto_applied'))::int as judged,
+       count(*) filter (where actual is not null and actual = value and status not in ('applied', 'auto_applied'))::int as agreed
+     from sm_ai_predictions where org_id = $1 group by 1, 2`,
     [ctx.org.id],
   );
   return (await modelRows(ctx.db, ctx.org.id)).map((m) => {
@@ -332,7 +354,7 @@ export async function modelViews(ctx: Ctx): Promise<MlModelView[]> {
       trained_at: m.trained_at,
       train_after: m.train_after,
       last_error: m.last_error,
-      predictions: { open: n("open"), applied: n("applied"), auto_applied: n("auto_applied"), dismissed: n("dismissed"), outcome: n("outcome"), agreed: c.reduce((a, x) => a + Number(x.agreed), 0) },
+      predictions: { open: n("open"), applied: n("applied"), auto_applied: n("auto_applied"), dismissed: n("dismissed"), outcome: c.reduce((a, x) => a + Number(x.judged), 0), agreed: c.reduce((a, x) => a + Number(x.agreed), 0) },
     };
   });
 }

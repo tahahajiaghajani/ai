@@ -8,6 +8,11 @@ import type { ModuleUi } from "../registry";
 import { agentsApi } from "../../ai/agents/api";
 import "../../ai/ml/register";
 
+import type { AccessGate } from "@shared/access";
+
+/** «پرسش تحلیلی» reads through the reports engine (askReport needs the reports area). */
+export const REPORTS: AccessGate = { area: "reports" };
+
 const ProposalsInbox = lazy(() => import("../../ai/agents/Inbox"));
 const VirtualAgentTestPage = lazy(() => import("../../ai/va/TestPage"));
 const InsightsPage = lazy(() => import("../../ai/insights/InsightsPage"));
@@ -33,7 +38,8 @@ export const aiUi: ModuleUi = {
           count: { key: "ai:proposals", hint: "پیشنهاد در انتظار شما", load: agentsApi.inboxCount },
         },
         { key: "ai:insights", label: "بینش‌ها", path: "ai/insights", icon: Lightbulb, area: "ai", keywords: "بینش تغییر حجم ناهنجاری جهش روند خلاصه هفتگی روزانه" },
-        { key: "ai:ask-report", label: "پرسش تحلیلی", path: "ai/ask-report", icon: BarChart3, area: "ai", keywords: "پرسش گزارش نمودار آمار تعداد میانگین تحلیل" },
+        // «پرسش تحلیلی» answers with the reports engine: only for members who read reports (the server refuses others)
+        { key: "ai:ask-report", label: "پرسش تحلیلی", path: "ai/ask-report", icon: BarChart3, area: "ai", access: REPORTS, keywords: "پرسش گزارش نمودار آمار تعداد میانگین تحلیل" },
         { key: "ai:forecast", label: "پیش‌بینی حجم کار", path: "ai/forecast", icon: TrendingUp, area: "ai", keywords: "پیش‌بینی حجم کار نیرو تعطیلات هفته روند" },
         { key: "ai:clusters", label: "نامزدهای مسئله", path: "ai/clusters", icon: Network, area: "ai", keywords: "خوشه رخداد مشابه تکراری مسئله مشکل" },
         { key: "ai:virtual-agent", label: "دستیار مجازی (آزمایش)", path: "ai/virtual-agent", icon: MessagesSquare, area: "ai", level: "full", keywords: "دستیار مجازی گفتگو درخواست‌کننده ربات چت" },
@@ -54,6 +60,7 @@ export const aiUi: ModuleUi = {
       group: "پرسش تحلیلی",
       icon: BarChart3,
       area: "ai",
+      access: REPORTS,
       minLength: 4,
       async run(_api, q) {
         const text = q.trim().slice(0, 500);

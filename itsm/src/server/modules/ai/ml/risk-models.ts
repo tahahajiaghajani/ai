@@ -131,7 +131,7 @@ export async function slaOpen(sys: Ctx, r: RiskModelDef): Promise<RiskRow[]> {
   if (!def) return [];
   const { sla, cats, timeCols, tz } = await slaParts(sys, def);
   if (!sla) return [];
-  const slas = await readRows(sys, sla, ["record_id", "definition_id", "name", "stage", "start_at", "planned_end_at", "percent"], {
+  const slas = await readRows(sys, sla, ["record_id", "definition_id", "name", "stage", "start_at", "planned_end_at"], {
     where: { and: [{ f: "table_key", op: "eq", v: def.key }, { f: "stage", op: "in", v: ["in_progress", "paused"] }] },
     order: "t.planned_end_at nulls last, t.id",
     limit: 5000,
@@ -159,9 +159,10 @@ export async function slaOpen(sys: Ctx, r: RiskModelDef): Promise<RiskRow[]> {
     const start = ms(s.start_at);
     const due = ms(s.planned_end_at);
     if (start === null) continue;
+    // the share of the SLA's span gone by on the wall clock — the very feature the model was trained on (training
+    // samples points of (planned_end_at − start_at) in wall time; the timer's business percent is another scale)
     const wall = due && due > start ? (now - start) / (due - start) : 0;
-    const pct = typeof s.percent === "number" ? s.percent / 100 : Number(s.percent ?? NaN) / 100;
-    const elapsed = Math.min(3, Math.max(0, Number.isFinite(pct) ? pct : wall));
+    const elapsed = Math.min(3, Math.max(0, wall));
     const x: Record<string, unknown> = {
       ...Object.fromEntries(cats.map((c) => [c, rec[c]])),
       sla: s.definition_id,

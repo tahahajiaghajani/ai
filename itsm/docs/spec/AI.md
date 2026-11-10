@@ -668,13 +668,14 @@ history of earlier versions and the trained parameters.
   `auto_applied`, `dismissed`, `outcome`), for a draft being typed (`POST /ai/ml/predict`, with the person's own
   values, nothing stored) and for the record page (computed again from the row as the viewer sees it, §13.6).
 - Triage: an assignment rule with «گروه با پیش‌بینی هوش مصنوعی» (`assignment_rule.ai_group`) takes the model's group
-  only at or above the model's `threshold_apply` (set by an AI administrator; empty = never) — else the rule's own group,
-  or the next rule. Such an assignment is recorded as `auto_applied`. The SLA service exposes the hook
+  only at or above the model's `threshold_apply` (set by an AI administrator; empty = never), and only a live, active
+  assignment group — else the rule's own group, or the next rule. Labels that name no live row (a deleted or retired
+  group) are neither learnt by training nor suggested. Such an assignment is recorded as `auto_applied`. The SLA service exposes the hook
   (`setAssignmentPredictor`); the AI layer registers it.
 - When the real value is set later the prediction records the outcome (agreement rates in the governance console).
 - SLA breach (`risk:sla:<table>`): a finished SLA is one example at a quarter, half or three quarters of its target
   (chosen by its id), with the record's priority, category, group, service and channel, the SLA definition, the share
-  of time elapsed, the record's age, its group's open work then, the start hour, weekday and off-hours; open SLAs are
+  of the SLA's span (start to planned end) gone by on the wall clock — in training and in scoring alike —, the record's age, its group's open work then, the start hour, weekday and off-hours; open SLAs are
   scored every few minutes with the same features. Change failure (`risk:change_failure`): implemented changes, failed
   or backed out or with incidents caused, by type, category, declared risk, priority, group, model, CIs touched, lead
   time, window length, night and weekend starts, an untested backout, conflicts and CAB. Bands: «خطر زیاد» at or above
@@ -693,7 +694,9 @@ history of earlier versions and the trained parameters.
   clusters close to an open problem's text, or repeating one a person dismissed or turned into a problem, are dropped.
   Shown with **late binding**: a viewer sees only the members they read, label words come from those members, and a
   cluster is listed only while at least 3 of its members are readable to them. «ثبت مسئله» creates it with the
-  viewer's access (their create right) and links the members they may update; «نه» dismisses the cluster.
+  viewer's access (their create right) and links the members they may update — the problem's text names no member;
+  «نه» dismisses the cluster for the organisation, so only someone with the problem create right who reads every
+  member may.
 
 ### 13.5 Forecasts and anomalies
 
@@ -701,7 +704,7 @@ history of earlier versions and the trained parameters.
 group or channel — counted by the engine with the **viewer's** access (`aggregate`), 26 weeks or 105 weeks of history.
 Daily: ETS / Holt-Winters / seasonal naive chosen by backtest (the analytics toolkit), with the Iranian week as the
 season (period 7, Saturday first — the Friday and Thursday pattern is learnt, not assumed); Jalali holidays of the
-organisation's calendars are replaced by their weekday's normal level before fitting and get their own measured factor
+sets the organisation's default calendar uses are replaced by their weekday's normal level before fitting and get their own measured factor
 (the median holiday ratio) in the forecast; p10–p90 band. Weekly (Jalali weeks): a yearly season once two years exist.
 The backtest gives MAE, MASE (below 1 = better than «no change») and the band's coverage. Anomalies of the history:
 generalised ESD on seasonal residuals. Staffing hints per day: people for the median and the busy case = forecast ÷
@@ -715,7 +718,9 @@ A prediction is shown to whoever may read its record, and only through what they
 the viewer's access (404 otherwise); a classifier's suggestion is computed from the row as they see it and shown only
 for a field they see; «چرا؟» names words of the visible text and values of visible fields; a duplicate needs both
 records readable; labels of groups, services and records are resolved with the viewer's access. «اعمال» writes the
-field through the record service with the viewer's access; «رد» records the dismissal. The record page's side panel
+field through the record service with the viewer's access (the value may be the stored prediction's or the model's
+answer now); deciding — «اعمال» or «رد» — needs the record's write access and the field writable. The models' «پذیرش»
+counts, over predictions not applied whose final value is known, how many the model got right. The record page's side panel
 «پیش‌بینی هوشمند» (registered on `"*"` for task tables with models) and the create form's suggestions (`createAssist`
 slot of the record kit) are the UI. Models, their metrics and thresholds are for AI administrators only.
 
@@ -802,7 +807,12 @@ Saturday for last Iranian week, idempotently (`sm_ai_insights`, unique per perio
 - tables whose records carry SLAs: compliance of the SLAs that ended and the definitions that breached most;
 - tables with a change outcome: the share of implemented changes that succeeded;
 - requested items: fulfilment time and the items that took longest;
-- tables of the event module: alert storms (the last hour against the 48 before).
+- the event module's events, alerts and pages (never its configuration tables): alert storms — an hourly check of
+  every completed hour against the 48 before it, one card per table and hour, filed under the hour's day (not part of
+  the daily or weekly runs). A period computed again keeps its cards (same id, announcement and model narrative),
+  updated in place; the backlog card's visibility rule names the records it counted (created before the run and open
+  then), not those open when it is read. A card's narrative runs under the data-use policies of its table and of the
+  table its numbers were counted in (an SLA card: the task table and task_sla).
 
 Each card keeps its numbers, drivers and severity, and what it was computed over: its table, the condition of its
 rows, the fields it grouped or measured by and the records its drivers name.

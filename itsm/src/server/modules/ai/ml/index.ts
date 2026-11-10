@@ -13,7 +13,7 @@ import { installNlReport } from "../nlreport";
 
 export { ensureMlTick, runModel } from "./jobs";
 export { forecastFor, holidaysBetween } from "./forecast";
-export { clustersFor, decideCluster, runClusters } from "./clusters";
+export { clustersFor, decideCluster, readsWholeCluster, runClusters } from "./clusters";
 export { applyPrediction, dismissPrediction, draftPredictions, modelViews, patchModel, recordPredictions } from "./views";
 export { modelSpecs, registerPredictionTarget, registerRiskModel, type ModelSpec, type RiskModelDef } from "./specs";
 export { modelRow, modelRows, syncModels, clearParamsCache } from "./store";

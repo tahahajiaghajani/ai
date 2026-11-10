@@ -156,7 +156,10 @@ export interface MlModelView {
   trained_at: string | null;
   train_after: string | null;
   last_error: string | null;
-  /** live counts of the predictions of this model (all records: AI administrators only) */
+  /**
+   * live counts of the predictions of this model (all records: AI administrators only); `outcome`: those (not applied)
+   * whose record's final value is known, `agreed`: of them, the ones the model got right
+   */
   predictions: { open: number; applied: number; auto_applied: number; dismissed: number; outcome: number; agreed: number };
 }
 
