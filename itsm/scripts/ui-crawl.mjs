@@ -469,7 +469,7 @@ async function clickActions(page, probe, url, role, route, href) {
     probe.take();
   }
   // the first item of the page: a timeline bar, a board card or a calendar entry opens its record
-  const item = page.locator("main .rk-tg-bar, main .rk-kcard, main .rk-cal-row").first();
+  const item = page.locator("main button.rk-tg-bar, main .rk-kcard, main .rk-cal-row").first();
   if (await item.isVisible().catch(() => false)) {
     const name = ((await item.getAttribute("aria-label").catch(() => null)) ?? (await item.textContent().catch(() => "")) ?? "").trim().slice(0, 40);
     await item.click({ timeout: 4000 }).catch(() => {});

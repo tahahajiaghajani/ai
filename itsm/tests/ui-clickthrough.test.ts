@@ -229,3 +229,17 @@ describe("the sidebar offers each role only lists it may read", () => {
     expect(item("release:release")?.access).toEqual({ area: "release" });
   });
 });
+
+describe("timeline bars open what they show, or are not buttons", () => {
+  it("draws bars without onOpen as static (the on-call shifts looked clickable and did nothing)", async () => {
+    const { TimelineGrid } = await import("../src/ui/records/board/TimelineGrid");
+    const items = [{ id: "s0", start: "2026-11-05T08:00:00Z", end: "2026-11-07T08:00:00Z", label: "کشیک" }];
+    const base = { from: "2026-11-01", days: 30, tz: "Asia/Tehran", today: "2026-11-10", items };
+    const still = renderToStaticMarkup(createElement(TimelineGrid, base));
+    expect(still).toContain("is-static");
+    expect(still).not.toContain("<button");
+    const live = renderToStaticMarkup(createElement(TimelineGrid, { ...base, onOpen: () => undefined }));
+    expect(live).toMatch(/<button[^>]*class="rk-tg-bar/);
+    expect(readFileSync(join(UI, "modules/event/OnCall.tsx"), "utf8")).not.toContain("onOpen={() => undefined}");
+  });
+});
