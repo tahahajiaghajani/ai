@@ -27,7 +27,7 @@ import { uuidv7 } from "@shared/id";
 import { afterEnginePush, checkEnginePush, replicaRows, scopeEpoch } from "../engine/sync";
 import { condEnv, orgSchema } from "../engine";
 import {
-  afterSql, afterText, bumpSyncEpoch, checkXidRegression, compareKey, currentSnap, deltaSql, orgSyncState, parseAfter, parseSnap, snapText, visibleIn,
+  afterSql, afterText, checkXidRegression, compareKey, currentSnap, deltaSql, orgSyncState, parseAfter, parseSnap, snapText, visibleIn,
   type After,
 } from "../sync/snapshot";
 
@@ -298,8 +298,10 @@ syncRoutes.get("/pull", async (c) => {
   const before = await currentSnap(ctx.db);
   const regressed = [since, snapIn].some((s) => !!s && s.xmax > before.xmax);
   if (regressed) {
-    await bumpSyncEpoch(ctx.db, ctx.org.id);
-    log.warn("sync cursor ahead of the database: organisation sync epoch bumped", { org: ctx.org.id, cursor: snapText((snapIn ?? since)!), next: before.xmax });
+    // this app reads everything again; the database's high-water mark decides whether every organisation's epoch moves
+    // (once per regression — a bump per app would make every other app read everything again for each of them)
+    log.warn("sync cursor ahead of the database: reading everything again", { org: ctx.org.id, cursor: snapText((snapIn ?? since)!), next: before.xmax });
+    await checkXidRegression(ctx.db, { force: true, log: (m) => log.warn(m) }).catch(() => undefined);
   }
   // the access environment and the schema are read once for the page (cached on the context)
   await condEnv(ctx);

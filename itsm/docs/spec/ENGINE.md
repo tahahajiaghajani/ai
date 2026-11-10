@@ -605,10 +605,11 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
 - **Sync epoch** (`sm_org_sync.epoch`; the pull's `epoch` is `<organisation>.<member scope>`): a Windows app whose epoch
   differs is told to `reset` and reads everything again. Bumped (`bumpSyncEpoch`, a timestamp-based value so a database
   restored from an older backup still moves past every epoch handed out before) by `karizctl restore` (the restored
-  database, before it takes the live name), a tenant backup restore, a pull whose cursor is ahead of the database's
-  next transaction id (restored into another cluster), and `checkXidRegression` (the high-water mark `sm_meta
-  sync.xid_high`, raised once a minute per process and checked at every startup: ids below it mean the database went
-  back). A restored Windows app database starts its next pull from nothing (`resetSyncCursor`).
+  database, before it takes the live name), a tenant backup restore and `checkXidRegression` (the high-water mark
+  `sm_meta sync.xid_high`, raised once a minute per process and checked at every startup: ids below it mean the
+  database went back — restored into another cluster — and every organisation's epoch moves once). A pull whose cursor
+  is ahead of the database's next transaction id is told to `reset` (that app alone) and runs the check at once. A
+  restored Windows app database starts its next pull from nothing (`resetSyncCursor`).
 - **Tombstone purge**: `purgeArchived` removes archived records' tombstones after 30 days and raises
   `sm_org_sync.purged` to the newest revision removed; a cursor that does not see it never received those tombstones
   and is reset (full read, which drops them).

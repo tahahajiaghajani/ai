@@ -368,7 +368,7 @@ describe.skipIf(!realPgAvailable())("sync revisions are transaction ids (real Po
     expect(Number((await db.one<{ done: number }>(`select done from xid_rollup where id = 1`))!.done)).toBe(2);
   });
 
-  it("a cursor ahead of the database (restored into another cluster) resets every Windows app once", async () => {
+  it("a cursor ahead of the database resets that app; a database that went back resets every app once", async () => {
     const r = new Replica(owner, org);
     await r.pullAll();
     const other = new Replica(owner, org);
@@ -379,9 +379,9 @@ describe.skipIf(!realPgAvailable())("sync revisions are transaction ids (real Po
     await r.pullAll();
     expect(r.resets).toBe(1);
     await expectConverged(r);
-    // the organisation's epoch moved: the other Windows app reads everything again too
+    // the database itself did not go back (its high-water mark is not ahead): the other app's cursor stays good
     await other.pullAll();
-    expect(other.resets).toBe(1);
+    expect(other.resets).toBe(0);
     await expectConverged(other);
     // the database's high-water mark is ahead of its next transaction id (a restore the server did not run itself)
     await db.query(`insert into sm_meta (key, value) values ('sync.xid_high', $1) on conflict (key) do update set value = excluded.value`, [String(cur.xmax + 5_000_000)]);
@@ -390,6 +390,9 @@ describe.skipIf(!realPgAvailable())("sync revisions are transaction ids (real Po
     await r.pullAll();
     expect(r.resets).toBe(2);
     await expectConverged(r);
+    await other.pullAll();
+    expect(other.resets).toBe(1);
+    await expectConverged(other);
   });
 
   it("tombstones removed for good: an app that never saw them reads everything again and drops them", async () => {
