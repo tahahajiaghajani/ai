@@ -80,7 +80,7 @@ export async function archiveBatch(sys: Ctx, def: TableDef, years: number, limit
     // a tombstone: Windows apps that hold the record delete their copy (the sync trigger gives it a new revision)
     await tx.query(`update ${def.table} set deleted_at = now() where id = any($1::uuid[]) and org_id = $2`, [list, sys.org.id]);
     return ids.length;
-  }, { internal: true });
+  });
 }
 
 /** Remove for good the tombstones of records archived more than ARCHIVE_TOMBSTONE_DAYS ago. Returns how many. */
@@ -109,6 +109,8 @@ function untilNight(tz: string, now = new Date()): number {
 /** Queue the organisation's archival run (now, or at its next night) unless one is queued. */
 export async function scheduleArchive(q: Queryable, orgId: string, opts: { now?: boolean; tz?: string } = {}): Promise<void> {
   await enqueue(q, { kind: "engine.archive", orgId, dedupeKey: "engine.archive", delayMs: opts.now ? 0 : untilNight(opts.tz ?? "Asia/Tehran"), maxAttempts: 5 });
+  // «اجرا اکنون» brings a run already queued for the night forward
+  if (opts.now) await q.query(`update sm_jobs set run_at = now() where org_id = $1 and kind = 'engine.archive' and status = 'queued' and run_at > now()`, [orgId]);
 }
 
 registerJobHandler("engine.archive", async (job, jctx: JobContext) => {

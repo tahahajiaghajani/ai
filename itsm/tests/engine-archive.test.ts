@@ -41,8 +41,9 @@ describe("archival of old closed records", () => {
   it("moves closed records untouched for the years set, at night, and keeps them readable and searchable", async () => {
     const saved = await e.owner.put(`${P()}/archive`, { enabled: true, years: 3 });
     expect(saved.settings).toEqual({ enabled: true, years: 3 });
+    // saving queues the nightly run; «اجرا اکنون» brings it forward
+    expect((await e.db.one<{ later: boolean }>(`select run_at > now() as later from sm_jobs where kind = 'engine.archive' and status = 'queued'`))?.later).toBe(true);
     await e.owner.post(`${P()}/archive/run`, {});
-    await e.db.query(`update sm_jobs set run_at = now() where kind = 'engine.archive'`);
     await tick(e.cfg, { budgetMs: 20_000 });
     const ctx = await e.ctxOf(e.ownerId);
     const hot = await list(ctx, "todo", { size: 50 });
