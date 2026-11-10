@@ -113,7 +113,8 @@ async function pgOrg(): Promise<{ e: EngineOrg; close(): Promise<void> }> {
   await run("pg-start");
   await run("db-bootstrap");
   await run("migrate");
-  const db = createPostgresDb({ url: databaseUrl(loadServerConfig(file).config), max: 4 });
+  const c = loadServerConfig(file).config;
+  const db = createPostgresDb({ url: databaseUrl(c), max: 4, ssl: c.db.ssl, prepare: true });
   const cfg: ServerConfig = { mode: "cloud", db, secret: "test-secret", allowSignup: true, platformAdmins: [], origin: "cloud", log: quietLog, fetch: globalThis.fetch.bind(globalThis) };
   const app = createApp(cfg);
   const owner = new Client(app);
