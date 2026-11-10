@@ -124,19 +124,22 @@ export function backoffMs(attempts: number): number {
   return Math.round(base * (1 + Math.random() * 0.2));
 }
 
-async function claim(db: Db, worker: string): Promise<Job | null> {
+/**
+ * Claim up to `n` due jobs in one statement (`for update skip locked`: concurrent ticks of other processes never take
+ * the same job; the partial index sm_jobs_due_idx answers it), else jobs whose worker died (lock expired).
+ */
+async function claim(db: Db, worker: string, n = 1): Promise<Job[]> {
   const take = (pick: string) =>
-    db.one<Job>(
+    db.query<Job>(
       `update sm_jobs set status = 'running', attempts = attempts + 1, locked_by = $1,
               locked_until = now() + interval '5 minutes', updated_at = now()
-       where id = (${pick} for update skip locked)
+       where id in (${pick} for update skip locked)
        returning *`,
       [worker],
     );
-  return (
-    (await take(`select id from sm_jobs where status = 'queued' and run_at <= now() order by run_at, id limit 1`)) ??
-    (await take(`select id from sm_jobs where status = 'running' and locked_until < now() order by locked_until limit 1`))
-  );
+  const due = await take(`select id from sm_jobs where status = 'queued' and run_at <= now() order by run_at, id limit ${Math.max(1, Math.trunc(n))}`);
+  if (due.length) return due.sort((a, b) => (a.run_at < b.run_at ? -1 : a.run_at > b.run_at ? 1 : a.id < b.id ? -1 : 1));
+  return take(`select id from sm_jobs where status = 'running' and locked_until < now() order by locked_until limit ${Math.max(1, Math.trunc(n))}`);
 }
 
 async function finish(db: Db, job: Job, status: JobStatus, opts: { error?: string; runInMs?: number; keepAttempt?: boolean } = {}) {
@@ -155,13 +158,25 @@ async function finish(db: Db, job: Job, status: JobStatus, opts: { error?: strin
 }
 
 let lastCleanup = 0;
-/** Finished jobs are kept a while for inspection: done 3 days, failed 30 days (at most once an hour per process). */
-async function cleanup(db: Db) {
+/**
+ * Finished jobs are kept a while for inspection: done 3 days, failed 30 days (at most once an hour per process). In
+ * batches of 5 000 (sm_jobs_finished_idx): a busy organisation finishes hundreds of thousands of jobs a day, and one
+ * statement deleting them all would hold the table and the WAL for long.
+ */
+async function cleanup(db: Db, deadline: number) {
   if (Date.now() - lastCleanup < 3600_000) return;
   lastCleanup = Date.now();
-  await db.query(
-    `delete from sm_jobs where (status = 'done' and done_at < now() - interval '3 days') or (status = 'failed' and done_at < now() - interval '30 days')`,
-  );
+  for (let round = 0; round < 200 && Date.now() < deadline; round++) {
+    const gone = await db.query<{ id: string }>(
+      `delete from sm_jobs where id in (
+         select id from sm_jobs where (status = 'done' and done_at < now() - interval '3 days') or (status = 'failed' and done_at < now() - interval '30 days')
+         limit 5000)
+       returning id`,
+    );
+    if (gone.length < 5000) return;
+  }
+  // more left than one tick's budget: the next tick of this process goes on
+  lastCleanup = 0;
 }
 
 export interface TickResult {
@@ -175,21 +190,28 @@ export interface TickResult {
 
 const running = new WeakMap<Db, boolean>();
 
-/** Run due jobs until `budgetMs` is spent (default 8 s) or `max` jobs ran. */
-export async function tick(cfg: JobConfig, opts: { budgetMs?: number; max?: number; worker?: string } = {}): Promise<TickResult> {
+/**
+ * Run due jobs until `budgetMs` is spent (default 8 s) or `max` jobs ran. `concurrency` (default 1: one job after the
+ * other, as PGlite's single connection needs) runs up to that many jobs at once — the server edition's job runner
+ * uses it for notification fan-out and SLA timers at scale: each round claims that many due jobs in one statement.
+ */
+export async function tick(cfg: JobConfig, opts: { budgetMs?: number; max?: number; worker?: string; concurrency?: number } = {}): Promise<TickResult> {
   const db = cfg.db;
   if (running.get(db)) return { ran: 0, failed: 0, busy: true, more: false };
   running.set(db, true);
   const deadline = Date.now() + (opts.budgetMs ?? 8000);
   const worker = opts.worker ?? `w${process.pid}-${uuidv7().slice(-8)}`;
+  const width = Math.max(1, Math.min(32, Math.trunc(opts.concurrency ?? 1)));
+  const max = opts.max ?? 1000;
   let ran = 0;
   let failed = 0;
   try {
-    await cleanup(db).catch((e) => cfg.log.warn("job cleanup failed", String((e as Error)?.message ?? e)));
-    while (Date.now() < deadline && ran + failed < (opts.max ?? 1000)) {
-      const job = await claim(db, worker);
-      if (!job) return { ran, failed, more: false };
-      if (await runOne(cfg, job, deadline)) ran++;
+    await cleanup(db, deadline).catch((e) => cfg.log.warn("job cleanup failed", String((e as Error)?.message ?? e)));
+    while (Date.now() < deadline && ran + failed < max) {
+      const jobs = await claim(db, worker, Math.min(width, max - ran - failed));
+      if (!jobs.length) return { ran, failed, more: false };
+      const results = width === 1 ? [await runOne(cfg, jobs[0], deadline)] : await Promise.all(jobs.map((job) => runOne(cfg, job, deadline)));
+      for (const ok of results) if (ok) ran++;
       else failed++;
     }
     const left = await db.one(`select 1 from sm_jobs where status = 'queued' and run_at <= now() limit 1`);

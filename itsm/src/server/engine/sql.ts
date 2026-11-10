@@ -105,9 +105,36 @@ export function pathExpr(def: TableDef, path: string, alias: string, params: unk
 
 const iso = (ms: number) => new Date(ms).toISOString();
 
+/** Operators that are false on an empty value (docs/spec/ENGINE.md §3): a test of them on a walked field needs a row. */
+const POSITIVE_OPS = new Set(["eq", "in", "contains", "starts", "ends", "lt", "lte", "gt", "gte", "between", "relative", "nempty", "is_me", "is_my_group", "in_my_groups", "in_my_unit", "in_my_unit_tree", "in_my_unit_line", "is_my_location"]);
+
+/**
+ * A positive test of a field one reference away (`base_id.name nempty`, `problem_id.state eq …`) as a set test:
+ * `t.base_id in (select b.id from <base> b where <readable b> and <test on b.name>)` — the same rows (the walked value
+ * is empty exactly when the reference is empty or names no readable row, and the operator is false on an empty
+ * value), but PostgreSQL answers it once per query (a semi-join, or a hashed subplan inside an OR) instead of a
+ * correlated subquery per row. Null when the leaf keeps the walk (not a positive operator, a member or system walk…).
+ */
+function walkAsSet(leaf: Leaf, def: TableDef, alias: string, params: unknown[], env: CondEnv, opts: SqlOptions): string | null {
+  if (!opts.ctx || !POSITIVE_OPS.has(leaf.op)) return null;
+  const dot = leaf.f.indexOf(".");
+  if (dot < 0) return null;
+  const ref = def.fields.find((f) => f.name === leaf.f.slice(0, dot));
+  if (!ref || ref.custom || FIELD_TYPES[ref.type].array || FIELD_TYPES[ref.type].family !== "ref") return null;
+  const targetKey = refTarget(ref, def.key);
+  if (!targetKey || targetKey === "user") return null;
+  const target = targetKey === def.key ? def : (opts.lookup ?? tableDef)(targetKey);
+  if (!target || target.virtual) return null;
+  const b = nextAlias();
+  const inner = leafSql({ ...leaf, f: leaf.f.slice(dot + 1) }, target, b, params, env, { ...opts, root: b, filter: true, negated: false });
+  if (inner === "false") return "false";
+  const set = `${fieldExpr(def, ref, alias)} in (select ${b}.id from ${target.table} ${b} where ${readable(opts.ctx, target, b, params, env)} and ${inner})`;
+  return opts.filter && !opts.negated ? `(${set})` : `coalesce(${set}, false)`;
+}
+
 function leafSql(leaf: Leaf, def: TableDef, alias: string, params: unknown[], env: CondEnv, opts: SqlOptions): string {
   const mark = params.length;
-  const sql = leafBody(leaf, def, alias, params, env, opts);
+  const sql = walkAsSet(leaf, def, alias, params, env, opts) ?? leafBody(leaf, def, alias, params, env, opts);
   // a test that compiles to a constant (an empty «my groups», an invalid operand…) does not use the dot-walk's
   // subquery — drop the parameters it pushed (the linked table's access check), or PostgreSQL rejects the query for
   // parameters it cannot type

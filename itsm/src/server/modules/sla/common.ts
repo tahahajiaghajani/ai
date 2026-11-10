@@ -54,7 +54,7 @@ export async function liveRows(q: Queryable, ctx: Ctx, table: string, where: Con
   const env = await condEnv(ctx);
   const params: unknown[] = [];
   const parts = [readable(ctx, def, "t", params, env)];
-  if (where) parts.push(toSql(where, def, "t", params, env, { ctx, lookup: schema.lookup }));
+  if (where) parts.push(toSql(where, def, "t", params, env, { ctx, lookup: schema.lookup, filter: true }));
   const rows = await q.query<Row>(`select t.* from ${def.table} t where ${parts.join(" and ")} order by ${order}`, params);
   return rows.map((r) => fromDb(def, r));
 }

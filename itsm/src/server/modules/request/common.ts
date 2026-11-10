@@ -50,7 +50,7 @@ export async function liveRows(q: Queryable, ctx: Ctx, table: string, where: Con
   const env = await condEnv(ctx);
   const params: unknown[] = [];
   const parts = [readable(ctx, def, "t", params, env)];
-  if (where) parts.push(toSql(where, def, "t", params, env, { ctx, lookup: schema.lookup }));
+  if (where) parts.push(toSql(where, def, "t", params, env, { ctx, lookup: schema.lookup, filter: true }));
   // all rows up to the limit (more than a page is read page by page; never cut silently)
   return selectRows(q, def, `select t.* from ${def.table} t where ${parts.join(" and ")}`, params, opts.order ?? "t.id", opts.limit ?? null);
 }

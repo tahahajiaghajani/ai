@@ -56,7 +56,7 @@ export async function liveRows(q: Queryable, ctx: Ctx, table: string, where: Con
   const env = await condEnv(ctx);
   const params: unknown[] = [];
   const parts = [readable(ctx, def, "t", params, env)];
-  if (where) parts.push(toSql(where, def, "t", params, env, { ctx, lookup: schema.lookup }));
+  if (where) parts.push(toSql(where, def, "t", params, env, { ctx, lookup: schema.lookup, filter: true }));
   return selectRows(q, def, `select t.* from ${def.table} t where ${parts.join(" and ")}`, params, opts.order ?? "t.id", opts.limit ?? null);
 }
 
@@ -127,7 +127,7 @@ export async function countRows(q: Queryable, ctx: Ctx, table: string, where: Co
   const env = await condEnv(ctx);
   const params: unknown[] = [];
   const parts = [readable(ctx, def, "t", params, env)];
-  if (where) parts.push(toSql(where, def, "t", params, env, { ctx, lookup: schema.lookup }));
+  if (where) parts.push(toSql(where, def, "t", params, env, { ctx, lookup: schema.lookup, filter: true }));
   const r = await q.one<{ n: string | number }>(`select count(*) as n from ${def.table} t where ${parts.join(" and ")}`, params);
   return Number(r?.n ?? 0);
 }

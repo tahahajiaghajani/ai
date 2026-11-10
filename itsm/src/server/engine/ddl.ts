@@ -98,6 +98,9 @@ export function ddlFor(def: TableDef): string {
     const g = def.fields.find((f) => f.name === def.scope!.group);
     if (g && !g.custom && !g.base) idx("open_grp_idx", `(org_id, ${g.name}, updated_at desc) where deleted_at is null and active`);
   }
+  // time windows of dashboards and reports (opened in the last six months, by month…): records arrive in time order,
+  // so a BRIN index of a few pages narrows a window to its share of the table
+  if (def.fields.some((f) => f.name === "opened_at" && f.type === "datetime" && !f.custom && !f.base)) idx("opened_brin", "using brin (opened_at)");
   const search = searchIndex(def);
   if (search) out.push(search);
   out.push(`drop trigger if exists ${t}_sync on ${t};`);

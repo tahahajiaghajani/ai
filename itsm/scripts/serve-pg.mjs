@@ -5,7 +5,7 @@
 // needs: a pool per worker, one job-runner process (the "leader": worker 1 ticks the queue every --tick ms) and
 // optional ticks after writes (--tick-on-write, the web version's behaviour).
 //
-//   node scripts/serve-pg.mjs [--port 3940] [--workers 1] [--pool 10] [--tick 1000] [--tick-on-write] [--url postgres://…]
+//   node scripts/serve-pg.mjs [--port 3940] [--workers 1] [--pool 10] [--tick 1000] [--job-concurrency 4] [--tick-on-write] [--url postgres://…]
 //
 // Worker count 1 runs in this process; more fork workers (the primary migrates once, then forks).
 import cluster from "node:cluster";
@@ -32,6 +32,7 @@ const PORT = Number(opts.port ?? process.env.PORT ?? 3940);
 const WORKERS = Math.max(1, Number(opts.workers ?? process.env.ITSM_WORKERS ?? 1));
 const POOL = Math.max(1, Number(opts.pool ?? process.env.DATABASE_POOL_MAX ?? 10));
 const TICK = Number(opts.tick ?? 1000);
+const JOB_CONCURRENCY = Number(opts["job-concurrency"] ?? 4);
 const URL_ = opts.url ?? process.env.DATABASE_URL ?? "postgres://postgres@127.0.0.1:55432/itsm";
 
 /** Load the server's TypeScript modules through tsx (tsconfig paths resolve from the project root). */
@@ -83,7 +84,7 @@ async function serveOne(worker, { migrateFirst }) {
     setInterval(() => {
       if (busy) return;
       busy = true;
-      s.tick(cfg, { budgetMs: 4000 })
+      s.tick(cfg, { budgetMs: 4000, concurrency: JOB_CONCURRENCY })
         .catch((e) => cfg.log.warn("job tick failed", String(e?.message ?? e)))
         .finally(() => (busy = false));
     }, TICK).unref();

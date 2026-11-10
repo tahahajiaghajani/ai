@@ -1563,6 +1563,7 @@ create index if not exists sm_alerts_domain_acc_idx on sm_alerts (org_id, domain
 create index if not exists sm_alerts_responders_gin on sm_alerts using gin (responders);
 create index if not exists sm_alerts_watch_list_gin on sm_alerts using gin (watch_list);
 create index if not exists sm_alerts_open_grp_idx on sm_alerts (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_alerts_opened_brin on sm_alerts using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -1652,6 +1653,7 @@ create index if not exists sm_alert_groups_domain_acc_idx on sm_alert_groups (or
 create index if not exists sm_alert_groups_assigned_to_idx on sm_alert_groups (org_id, assigned_to) where deleted_at is null;
 create index if not exists sm_alert_groups_watch_list_gin on sm_alert_groups using gin (watch_list);
 create index if not exists sm_alert_groups_open_grp_idx on sm_alert_groups (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_alert_groups_opened_brin on sm_alert_groups using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -5094,6 +5096,7 @@ create index if not exists sm_change_requests_requested_for_idx on sm_change_req
 create index if not exists sm_change_requests_opened_by_idx on sm_change_requests (org_id, opened_by) where deleted_at is null;
 create index if not exists sm_change_requests_watch_list_gin on sm_change_requests using gin (watch_list);
 create index if not exists sm_change_requests_open_grp_idx on sm_change_requests (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_change_requests_opened_brin on sm_change_requests using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -5307,6 +5310,7 @@ create index if not exists sm_change_tasks_opened_by_idx on sm_change_tasks (org
 create index if not exists sm_change_tasks_change_owner_id_idx on sm_change_tasks (org_id, change_owner_id) where deleted_at is null;
 create index if not exists sm_change_tasks_watch_list_gin on sm_change_tasks using gin (watch_list);
 create index if not exists sm_change_tasks_open_grp_idx on sm_change_tasks (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_change_tasks_opened_brin on sm_change_tasks using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -5907,6 +5911,7 @@ create index if not exists sm_ci_cert_tasks_requested_for_idx on sm_ci_cert_task
 create index if not exists sm_ci_cert_tasks_opened_by_idx on sm_ci_cert_tasks (org_id, opened_by) where deleted_at is null;
 create index if not exists sm_ci_cert_tasks_watch_list_gin on sm_ci_cert_tasks using gin (watch_list);
 create index if not exists sm_ci_cert_tasks_open_grp_idx on sm_ci_cert_tasks (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_ci_cert_tasks_opened_brin on sm_ci_cert_tasks using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -6081,6 +6086,7 @@ create index if not exists sm_ci_drifts_requested_for_idx on sm_ci_drifts (org_i
 create index if not exists sm_ci_drifts_opened_by_idx on sm_ci_drifts (org_id, opened_by) where deleted_at is null;
 create index if not exists sm_ci_drifts_watch_list_gin on sm_ci_drifts using gin (watch_list);
 create index if not exists sm_ci_drifts_open_grp_idx on sm_ci_drifts (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_ci_drifts_opened_brin on sm_ci_drifts using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -6694,6 +6700,7 @@ create index if not exists sm_cmdb_dedup_tasks_requested_for_idx on sm_cmdb_dedu
 create index if not exists sm_cmdb_dedup_tasks_opened_by_idx on sm_cmdb_dedup_tasks (org_id, opened_by) where deleted_at is null;
 create index if not exists sm_cmdb_dedup_tasks_watch_list_gin on sm_cmdb_dedup_tasks using gin (watch_list);
 create index if not exists sm_cmdb_dedup_tasks_open_grp_idx on sm_cmdb_dedup_tasks (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_cmdb_dedup_tasks_opened_brin on sm_cmdb_dedup_tasks using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -6806,6 +6813,7 @@ create index if not exists sm_cmdb_findings_requested_for_idx on sm_cmdb_finding
 create index if not exists sm_cmdb_findings_opened_by_idx on sm_cmdb_findings (org_id, opened_by) where deleted_at is null;
 create index if not exists sm_cmdb_findings_watch_list_gin on sm_cmdb_findings using gin (watch_list);
 create index if not exists sm_cmdb_findings_open_grp_idx on sm_cmdb_findings (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_cmdb_findings_opened_brin on sm_cmdb_findings using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -7720,6 +7728,7 @@ create index if not exists sm_corrective_actions_requested_for_idx on sm_correct
 create index if not exists sm_corrective_actions_opened_by_idx on sm_corrective_actions (org_id, opened_by) where deleted_at is null;
 create index if not exists sm_corrective_actions_watch_list_gin on sm_corrective_actions using gin (watch_list);
 create index if not exists sm_corrective_actions_open_grp_idx on sm_corrective_actions (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_corrective_actions_opened_brin on sm_corrective_actions using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -8912,6 +8921,7 @@ create index if not exists sm_customer_cases_requested_for_idx on sm_customer_ca
 create index if not exists sm_customer_cases_opened_by_idx on sm_customer_cases (org_id, opened_by) where deleted_at is null;
 create index if not exists sm_customer_cases_watch_list_gin on sm_customer_cases using gin (watch_list);
 create index if not exists sm_customer_cases_open_grp_idx on sm_customer_cases (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_customer_cases_opened_brin on sm_customer_cases using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -9525,6 +9535,7 @@ create index if not exists sm_defects_requested_for_idx on sm_defects (org_id, r
 create index if not exists sm_defects_opened_by_idx on sm_defects (org_id, opened_by) where deleted_at is null;
 create index if not exists sm_defects_watch_list_gin on sm_defects using gin (watch_list);
 create index if not exists sm_defects_open_grp_idx on sm_defects (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_defects_opened_brin on sm_defects using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -9816,6 +9827,7 @@ create index if not exists sm_deployments_release_manager_id_idx on sm_deploymen
 create index if not exists sm_deployments_on_behalf_of_idx on sm_deployments (org_id, on_behalf_of) where deleted_at is null;
 create index if not exists sm_deployments_watch_list_gin on sm_deployments using gin (watch_list);
 create index if not exists sm_deployments_open_grp_idx on sm_deployments (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_deployments_opened_brin on sm_deployments using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -10131,6 +10143,7 @@ create index if not exists sm_dev_pull_requests_crt_idx on sm_dev_pull_requests 
 create index if not exists sm_dev_pull_requests_repository_id_idx on sm_dev_pull_requests (org_id, repository_id) where deleted_at is null;
 create index if not exists sm_dev_pull_requests_keys_gin on sm_dev_pull_requests using gin (keys);
 create unique index if not exists sm_dev_pull_requests_repository_id_pr_number_uk on sm_dev_pull_requests (org_id, repository_id, pr_number) where deleted_at is null;
+create index if not exists sm_dev_pull_requests_opened_brin on sm_dev_pull_requests using brin (opened_at);
 drop trigger if exists sm_dev_pull_requests_sync on sm_dev_pull_requests;
 create trigger sm_dev_pull_requests_sync before insert or update on sm_dev_pull_requests for each row execute function sm_sync_touch('dev_pull_request');
 alter table sm_dev_pull_requests enable row level security;
@@ -11663,6 +11676,7 @@ create index if not exists sm_facility_requests_requested_for_idx on sm_facility
 create index if not exists sm_facility_requests_opened_by_idx on sm_facility_requests (org_id, opened_by) where deleted_at is null;
 create index if not exists sm_facility_requests_watch_list_gin on sm_facility_requests using gin (watch_list);
 create index if not exists sm_facility_requests_open_grp_idx on sm_facility_requests (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_facility_requests_opened_brin on sm_facility_requests using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -11892,6 +11906,7 @@ create index if not exists sm_finance_cases_requested_for_idx on sm_finance_case
 create index if not exists sm_finance_cases_opened_by_idx on sm_finance_cases (org_id, opened_by) where deleted_at is null;
 create index if not exists sm_finance_cases_watch_list_gin on sm_finance_cases using gin (watch_list);
 create index if not exists sm_finance_cases_open_grp_idx on sm_finance_cases (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_finance_cases_opened_brin on sm_finance_cases using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -14205,6 +14220,7 @@ create index if not exists sm_hr_cases_opened_by_idx on sm_hr_cases (org_id, ope
 create index if not exists sm_hr_cases_subject_readers_gin on sm_hr_cases using gin (subject_readers);
 create index if not exists sm_hr_cases_watch_list_gin on sm_hr_cases using gin (watch_list);
 create index if not exists sm_hr_cases_open_grp_idx on sm_hr_cases (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_hr_cases_opened_brin on sm_hr_cases using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -14524,6 +14540,7 @@ create index if not exists sm_hse_events_requested_for_idx on sm_hse_events (org
 create index if not exists sm_hse_events_opened_by_idx on sm_hse_events (org_id, opened_by) where deleted_at is null;
 create index if not exists sm_hse_events_watch_list_gin on sm_hse_events using gin (watch_list);
 create index if not exists sm_hse_events_open_grp_idx on sm_hse_events (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_hse_events_opened_brin on sm_hse_events using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -14798,6 +14815,7 @@ create index if not exists sm_incidents_opened_by_idx on sm_incidents (org_id, o
 create index if not exists sm_incidents_affected_users_gin on sm_incidents using gin (affected_users);
 create index if not exists sm_incidents_watch_list_gin on sm_incidents using gin (watch_list);
 create index if not exists sm_incidents_open_grp_idx on sm_incidents (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_incidents_opened_brin on sm_incidents using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -15172,6 +15190,7 @@ create index if not exists sm_incident_tasks_requested_for_idx on sm_incident_ta
 create index if not exists sm_incident_tasks_opened_by_idx on sm_incident_tasks (org_id, opened_by) where deleted_at is null;
 create index if not exists sm_incident_tasks_watch_list_gin on sm_incident_tasks using gin (watch_list);
 create index if not exists sm_incident_tasks_open_grp_idx on sm_incident_tasks (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_incident_tasks_opened_brin on sm_incident_tasks using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -17246,6 +17265,7 @@ create index if not exists sm_kb_tasks_requested_for_idx on sm_kb_tasks (org_id,
 create index if not exists sm_kb_tasks_opened_by_idx on sm_kb_tasks (org_id, opened_by) where deleted_at is null;
 create index if not exists sm_kb_tasks_watch_list_gin on sm_kb_tasks using gin (watch_list);
 create index if not exists sm_kb_tasks_open_grp_idx on sm_kb_tasks (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_kb_tasks_opened_brin on sm_kb_tasks using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -17625,6 +17645,7 @@ create index if not exists sm_legal_requests_requested_for_idx on sm_legal_reque
 create index if not exists sm_legal_requests_opened_by_idx on sm_legal_requests (org_id, opened_by) where deleted_at is null;
 create index if not exists sm_legal_requests_watch_list_gin on sm_legal_requests using gin (watch_list);
 create index if not exists sm_legal_requests_open_grp_idx on sm_legal_requests (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_legal_requests_opened_brin on sm_legal_requests using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -19117,6 +19138,7 @@ create index if not exists sm_portal_feedback_requested_for_idx on sm_portal_fee
 create index if not exists sm_portal_feedback_opened_by_idx on sm_portal_feedback (org_id, opened_by) where deleted_at is null;
 create index if not exists sm_portal_feedback_watch_list_gin on sm_portal_feedback using gin (watch_list);
 create index if not exists sm_portal_feedback_open_grp_idx on sm_portal_feedback (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_portal_feedback_opened_brin on sm_portal_feedback using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -19699,6 +19721,7 @@ create index if not exists sm_problems_requested_for_idx on sm_problems (org_id,
 create index if not exists sm_problems_opened_by_idx on sm_problems (org_id, opened_by) where deleted_at is null;
 create index if not exists sm_problems_watch_list_gin on sm_problems using gin (watch_list);
 create index if not exists sm_problems_open_grp_idx on sm_problems (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_problems_opened_brin on sm_problems using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -19933,6 +19956,7 @@ create index if not exists sm_problem_tasks_requested_for_idx on sm_problem_task
 create index if not exists sm_problem_tasks_opened_by_idx on sm_problem_tasks (org_id, opened_by) where deleted_at is null;
 create index if not exists sm_problem_tasks_watch_list_gin on sm_problem_tasks using gin (watch_list);
 create index if not exists sm_problem_tasks_open_grp_idx on sm_problem_tasks (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_problem_tasks_opened_brin on sm_problem_tasks using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -20494,6 +20518,7 @@ create index if not exists sm_purchase_requests_requested_for_idx on sm_purchase
 create index if not exists sm_purchase_requests_opened_by_idx on sm_purchase_requests (org_id, opened_by) where deleted_at is null;
 create index if not exists sm_purchase_requests_watch_list_gin on sm_purchase_requests using gin (watch_list);
 create index if not exists sm_purchase_requests_open_grp_idx on sm_purchase_requests (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_purchase_requests_opened_brin on sm_purchase_requests using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -20846,6 +20871,7 @@ create index if not exists sm_releases_requested_for_idx on sm_releases (org_id,
 create index if not exists sm_releases_opened_by_idx on sm_releases (org_id, opened_by) where deleted_at is null;
 create index if not exists sm_releases_watch_list_gin on sm_releases using gin (watch_list);
 create index if not exists sm_releases_open_grp_idx on sm_releases (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_releases_opened_brin on sm_releases using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -21321,6 +21347,7 @@ create index if not exists sm_release_tasks_opened_by_idx on sm_release_tasks (o
 create index if not exists sm_release_tasks_release_manager_id_idx on sm_release_tasks (org_id, release_manager_id) where deleted_at is null;
 create index if not exists sm_release_tasks_watch_list_gin on sm_release_tasks using gin (watch_list);
 create index if not exists sm_release_tasks_open_grp_idx on sm_release_tasks (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_release_tasks_opened_brin on sm_release_tasks using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -21609,6 +21636,7 @@ create index if not exists sm_requests_opened_by_idx on sm_requests (org_id, ope
 create index if not exists sm_requests_fulfillers_gin on sm_requests using gin (fulfillers);
 create index if not exists sm_requests_watch_list_gin on sm_requests using gin (watch_list);
 create index if not exists sm_requests_open_grp_idx on sm_requests (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_requests_opened_brin on sm_requests using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -21956,6 +21984,7 @@ create index if not exists sm_request_items_opened_by_idx on sm_request_items (o
 create index if not exists sm_request_items_fulfillers_gin on sm_request_items using gin (fulfillers);
 create index if not exists sm_request_items_watch_list_gin on sm_request_items using gin (watch_list);
 create index if not exists sm_request_items_open_grp_idx on sm_request_items (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_request_items_opened_brin on sm_request_items using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -22148,6 +22177,7 @@ create index if not exists sm_request_tasks_domain_acc_idx on sm_request_tasks (
 create index if not exists sm_request_tasks_requested_for_idx on sm_request_tasks (org_id, requested_for) where deleted_at is null;
 create index if not exists sm_request_tasks_watch_list_gin on sm_request_tasks using gin (watch_list);
 create index if not exists sm_request_tasks_open_grp_idx on sm_request_tasks (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_request_tasks_opened_brin on sm_request_tasks using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -22779,6 +22809,7 @@ create index if not exists sm_sec_incidents_unit_acc_idx on sm_sec_incidents (or
 create index if not exists sm_sec_incidents_domain_acc_idx on sm_sec_incidents (org_id, domain_id) where deleted_at is null and domain_id is not null;
 create index if not exists sm_sec_incidents_watch_list_gin on sm_sec_incidents using gin (watch_list);
 create index if not exists sm_sec_incidents_open_grp_idx on sm_sec_incidents (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_sec_incidents_opened_brin on sm_sec_incidents using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -23263,6 +23294,7 @@ create index if not exists sm_sec_tasks_requested_for_idx on sm_sec_tasks (org_i
 create index if not exists sm_sec_tasks_opened_by_idx on sm_sec_tasks (org_id, opened_by) where deleted_at is null;
 create index if not exists sm_sec_tasks_watch_list_gin on sm_sec_tasks using gin (watch_list);
 create index if not exists sm_sec_tasks_open_grp_idx on sm_sec_tasks (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_sec_tasks_opened_brin on sm_sec_tasks using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -23980,6 +24012,7 @@ create index if not exists sm_service_cases_requested_for_idx on sm_service_case
 create index if not exists sm_service_cases_opened_by_idx on sm_service_cases (org_id, opened_by) where deleted_at is null;
 create index if not exists sm_service_cases_watch_list_gin on sm_service_cases using gin (watch_list);
 create index if not exists sm_service_cases_open_grp_idx on sm_service_cases (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_service_cases_opened_brin on sm_service_cases using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -24883,6 +24916,7 @@ create index if not exists sm_slm_improvements_requested_for_idx on sm_slm_impro
 create index if not exists sm_slm_improvements_opened_by_idx on sm_slm_improvements (org_id, opened_by) where deleted_at is null;
 create index if not exists sm_slm_improvements_watch_list_gin on sm_slm_improvements using gin (watch_list);
 create index if not exists sm_slm_improvements_open_grp_idx on sm_slm_improvements (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_slm_improvements_opened_brin on sm_slm_improvements using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -26865,6 +26899,7 @@ create index if not exists sm_todos_requested_for_idx on sm_todos (org_id, reque
 create index if not exists sm_todos_opened_by_idx on sm_todos (org_id, opened_by) where deleted_at is null;
 create index if not exists sm_todos_watch_list_gin on sm_todos using gin (watch_list);
 create index if not exists sm_todos_open_grp_idx on sm_todos (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_todos_opened_brin on sm_todos using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
@@ -28301,6 +28336,7 @@ create index if not exists sm_work_orders_opened_by_idx on sm_work_orders (org_i
 create index if not exists sm_work_orders_technicians_gin on sm_work_orders using gin (technicians);
 create index if not exists sm_work_orders_watch_list_gin on sm_work_orders using gin (watch_list);
 create index if not exists sm_work_orders_open_grp_idx on sm_work_orders (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_work_orders_opened_brin on sm_work_orders using brin (opened_at);
 do $search$
 declare s text; old record;
 begin
