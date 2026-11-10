@@ -5,7 +5,7 @@
   "description": "کاریز (Kariz) — نسخهٔ ویندوز (Electron)",
   "author": "Kariz",
   "scripts": {
-    "icons": "node scripts/make-icons.cjs",
+    "icons": "cd .. && npx tsx scripts/brand-assets.mts",
     "dist": "electron-builder --win nsis --x64 --publish never",
     "dist:dir": "electron-builder --win dir --x64 --publish never"
   },

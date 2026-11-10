@@ -130,56 +130,93 @@
 
 
 /* -----------------------------------------------------------------------------------------------------
-   §2  BRAND CONSTANTS (same in both themes)
+   §2  BRAND CONSTANTS (same in both themes) — «کاریز» / Kariz (docs/BRAND_FA.md). Mirrors src/shared/brand.ts
+   (BRAND_COLORS, TILE_GRADIENT, SKY_GRADIENT); tests/design-system.test.ts keeps the two equal.
    ----------------------------------------------------------------------------------------------------- */
 :root {
-  /* Primary scale — «شامگاه» Dusk, OKLCH hue 332. 700 is the signature colour.
-     L: .975 .95 .905 .84 .75 .62 .50 .405 .335 .265 .205
-     (The UI's accent roles in §4/§5 are tuned separately; this scale is for illustration and brand work.) */
-  --ds-dusk-50:  #FCF4FA;
-  --ds-dusk-100: #F9E9F6;
-  --ds-dusk-200: #F2D5ED;
-  --ds-dusk-300: #E7BADF;
-  --ds-dusk-400: #D298C9;
-  --ds-dusk-500: #B168A7;
-  --ds-dusk-600: #8C4384;
-  --ds-dusk-700: #6A2E63;   /* signature */
-  --ds-dusk-800: #50224B;
-  --ds-dusk-900: #381634;
-  --ds-dusk-950: #240D21;
+  /* Primary — «فیروزه» turquoise, OKLCH h 203: water at the kariz outlet, the domes' tiles. 700 is the signature on
+     paper (white text 5.8:1), 400 on charcoal. L: .975 .955 .91 .85 .77 .69 .61 .50 .43 .35 .26 */
+  --ds-firuzeh-50:  #EEF9FA;
+  --ds-firuzeh-100: #E0F5F7;
+  --ds-firuzeh-200: #BFEBEF;
+  --ds-firuzeh-300: #96DCE2;
+  --ds-firuzeh-400: #61C6CF;
+  --ds-firuzeh-500: #2CAFB9;
+  --ds-firuzeh-600: #0C959E;
+  --ds-firuzeh-700: #0A7178;   /* signature */
+  --ds-firuzeh-800: #075B61;
+  --ds-firuzeh-900: #044348;
+  --ds-firuzeh-950: #022A2D;
+
+  /* Secondary — «لاجورد» lapis, OKLCH h 268: the night of the brand surfaces, AI and information.
+     L: .97 .94 .88 .80 .70 .60 .51 .44 .37 .29 .21 */
+  --ds-lajvard-50:  #F2F5FE;
+  --ds-lajvard-100: #E4EBFD;
+  --ds-lajvard-200: #C8D7FE;
+  --ds-lajvard-300: #A3BCFC;
+  --ds-lajvard-400: #7C9AEF;
+  --ds-lajvard-500: #5778DF;
+  --ds-lajvard-600: #3D5BC6;
+  --ds-lajvard-700: #2E47A9;
+  --ds-lajvard-800: #233783;
+  --ds-lajvard-900: #16255C;
+  --ds-lajvard-950: #0B1538;
+
+  /* Warmth — «زعفران» saffron, OKLCH h 72: the lit nuqta, celebration, «on hold». L: .975 .945 .895 .835 .765 .665 .58 .50 .42 .34 .26 */
+  --ds-zaferan-50:  #FEF5EB;
+  --ds-zaferan-100: #FEE9D0;
+  --ds-zaferan-200: #FED4A2;
+  --ds-zaferan-300: #FEBA5F;
+  --ds-zaferan-400: #EEA023;
+  --ds-zaferan-500: #C8830B;
+  --ds-zaferan-600: #A66C08;
+  --ds-zaferan-700: #875806;
+  --ds-zaferan-800: #6A4404;
+  --ds-zaferan-900: #4E3104;
+  --ds-zaferan-950: #331F04;
+
+  /* Legacy names (v1 «شامگاه» Dusk was the primary scale): kept as aliases of the primary so old rules still resolve. */
+  --ds-dusk-50: var(--ds-firuzeh-50);   --ds-dusk-100: var(--ds-firuzeh-100); --ds-dusk-200: var(--ds-firuzeh-200);
+  --ds-dusk-300: var(--ds-firuzeh-300); --ds-dusk-400: var(--ds-firuzeh-400); --ds-dusk-500: var(--ds-firuzeh-500);
+  --ds-dusk-600: var(--ds-firuzeh-600); --ds-dusk-700: var(--ds-firuzeh-700); --ds-dusk-800: var(--ds-firuzeh-800);
+  --ds-dusk-900: var(--ds-firuzeh-900); --ds-dusk-950: var(--ds-firuzeh-950);
 
   /* The only gradients. Never on buttons, text, sidebars or table headers. */
-  /* 1 · «شامگاه» — brand surfaces only: login/onboarding, splash, installer, About, OG image.
-         The sky darkens toward the zenith; the last light sits ON the horizon line, not at the bottom edge,
-         so it is drawn by the horizon element itself (1a) and holds for any copy length or window height.
+  /* 1 · «شب کاریز» the kariz night — brand surfaces only: login/onboarding, splash, installer, About.
+         Lapis darkening toward the zenith; the light sits ON the horizon line (1a), where the water comes up.
          Always pair with the grain (--ds-grain). */
-  --ds-grad-dusk: linear-gradient(180deg, #1C0A1A 0%, #2B1027 45%, #43203D 100%);
-  /* 1a · the horizon (components.md §11.1): a 1 px line, its light and the sea below it.
+  --ds-grad-brand: linear-gradient(180deg, #08112D 0%, #0D1E47 50%, #123A62 100%);
+  /* 1a · the horizon (components.md §11.1): a 1 px line, its light and the water below it.
          --ds-horizon-light paints `.horizon::after`, a box from 300 px above the line to 1300 px below it
          (inset-block-start: -300px; block-size: 1600px; z-index: -1), so y = 300 px is the line. The light is
          centred 54 px from the start (right) edge, under the resting nuqta. */
-  --ds-horizon-line: linear-gradient(90deg, rgb(255 236 226 / 0), rgb(255 236 226 / .20) 35%, rgb(255 236 226 / .50));
+  --ds-horizon-line: linear-gradient(90deg, rgb(225 245 247 / 0), rgb(225 245 247 / .22) 35%, rgb(225 245 247 / .55));
   --ds-horizon-light:
-    radial-gradient(240px 110px at calc(100% - 54px) 300px, rgb(248 176 132 / .42), transparent 70%),
-    radial-gradient(620px 230px at calc(100% - 140px) 300px, rgb(166 82 152 / .50), transparent 72%),
-    linear-gradient(180deg, transparent 300px, rgb(14 4 12 / .38) 301px, rgb(14 4 12 / .50) 700px);
-  --ds-horizon-glow: 0 0 0 4px rgb(255 255 255 / .10), 0 0 20px 6px rgb(255 214 190 / .38);   /* the resting nuqta */
-  /* 1b · small tiles with no horizon (organisation switcher, app icon — matches final/app-icon.svg): the ember sits
-         in the lower start corner. */
-  --ds-grad-dusk-tile:
-    radial-gradient(120% 70% at 85% 118%, rgb(226 134 112 / .30), transparent 62%),
-    linear-gradient(162deg, #240D21 0%, #381634 38%, #50224B 72%, #6A2E63 100%);
+    radial-gradient(220px 100px at calc(100% - 54px) 300px, rgb(254 186 95 / .34), transparent 70%),
+    radial-gradient(640px 240px at calc(100% - 140px) 300px, rgb(44 175 185 / .42), transparent 72%),
+    linear-gradient(180deg, transparent 300px, rgb(4 18 34 / .30) 301px, rgb(4 18 34 / .46) 700px);
+  --ds-horizon-glow: 0 0 0 4px rgb(255 255 255 / .10), 0 0 20px 6px rgb(254 186 95 / .40);   /* the resting nuqta */
+  /* 1b · the app icon's tile (organisation switcher, About, the home page) — matches docs/brand/logo/kariz-app-icon.svg:
+         lapis night at the top, turquoise water at the bottom end, a glow rising from below. */
+  --ds-grad-brand-tile:
+    radial-gradient(75% 75% at 50% 105%, rgb(44 175 185 / .45), transparent 100%),
+    linear-gradient(162deg, #0E1C48 0%, #10456E 55%, #0A808A 100%);
+  /* legacy names */
+  --ds-grad-dusk: var(--ds-grad-brand);
+  --ds-grad-dusk-tile: var(--ds-grad-brand-tile);
   /* (2 · chart area and 4 · glass edge are theme-dependent: §4/§5.) */
 
-  /* Grain: fractal noise, 160 px tile, used at opacity .06–.08 with mix-blend-mode: overlay, on Dusk only. */
+  /* Grain: fractal noise, 160 px tile, used at opacity .06–.08 with mix-blend-mode: overlay, on the brand night only. */
   --ds-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='.33 .33 .33 0 0 .33 .33 .33 0 0 .33 .33 .33 0 0 0 0 0 0 1'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
   --ds-grain-size: 160px;
   --ds-grain-opacity: .07;
 
-  /* Text on brand surfaces (Dusk gradient): white / 72 % white for secondary (≥ 7.9:1) / 56 % (≥ 5.4:1) */
+  /* Text on brand surfaces (the kariz night): white / 74 % white for secondary (≥ 8.6:1) / 58 % (≥ 5.5:1) */
   --ds-on-brand: #FFFFFF;
-  --ds-on-brand-2: rgb(255 255 255 / .72);
-  --ds-on-brand-3: rgb(255 255 255 / .56);
+  --ds-on-brand-2: rgb(255 255 255 / .74);
+  --ds-on-brand-3: rgb(255 255 255 / .58);
+  /* the mark's nuqta on the brand night and the app tile */
+  --ds-brand-nuqta-on-brand: #FEBA5F;
 }
 
 
@@ -370,6 +407,9 @@
   --ds-focus-gap: var(--ds-surface);  /* the 2 px gap of the ring; raised layers redeclare it (§8) */
   --ds-focus-ring: 0 0 0 2px var(--ds-focus-gap), 0 0 0 4px var(--ds-focus-color);  /* where an outline cannot be used */
 
+  /* ---- the logo on this theme (components/brand.tsx): turquoise arch, saffron nuqta, ink name ---- */
+  --ds-brand-arch: #0A7178;   --ds-brand-nuqta: #C8830B;   --ds-brand-word: var(--ds-text);
+
   /* ---- semantic (data only; chips are text on their own tint, never a solid fill) ---- */
   --ds-in: #1B7248;           --ds-in-tint: #E4EDE7;       --ds-in-border: #BFD7CA;      /* money in, success · chip 4.95:1 */
   --ds-in-halo: rgb(27 114 72 / .18);                                                    /* 3 px halo of the live/sync nuqta */
@@ -448,6 +488,7 @@
     --ds-accent: #934F8A;  --ds-accent-hover: #9E5995;  --ds-accent-text: #D8B1D4;  --ds-accent-line: #CA9AC5;  --ds-accent-line-rgb: 202 154 197;  --ds-accent-bar: #CA9AC5;
     --ds-accent-tint: #2A2027;  --ds-accent-tint-2: #372634;  --ds-accent-border: #5F425A;  --ds-on-accent: #FFFFFF;  --ds-selection: #4E2B49;
     --ds-focus-color: #D8B1D4;
+    --ds-brand-arch: #61C6CF;  --ds-brand-nuqta: #EEA023;  --ds-brand-word: var(--ds-text);
     --ds-in: #6DC794;  --ds-in-tint: #253027;  --ds-in-border: #344F3E;  --ds-in-halo: rgb(109 199 148 / .18);
     --ds-danger: #EA7E73;  --ds-danger-tint: #362522;  --ds-danger-border: #5C3833;  --ds-danger-solid: #BB4840;  --ds-danger-solid-hover: #A73E37;
     --ds-warning: #F2A866;  --ds-warning-tint: #3A281B;  --ds-warning-border: #6F4829;  --ds-warning-fill: #F29A43;
@@ -474,6 +515,7 @@
 }
 :root[data-theme="dark"] {
     color-scheme: dark;
+    --ds-brand-arch: #61C6CF;  --ds-brand-nuqta: #EEA023;  --ds-brand-word: var(--ds-text);
     --ds-canvas: #110F0E;  --ds-surface: #191715;  --ds-raised: #211F1D;  --ds-sunken: #0B0A08;  --ds-well: #151311;
     --ds-text: #F2F0EC;  --ds-text-2: #D3CEC8;  --ds-text-3: #BAB5AF;  --ds-text-4: #66625E;  --ds-ink-rgb: 255 248 236;
     --ds-line: rgb(255 248 236 / .07);  --ds-line-2: rgb(255 248 236 / .12);  --ds-line-3: rgb(255 248 236 / .20);  --ds-control-strong: #827D78;

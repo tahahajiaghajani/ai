@@ -1,6 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="256" height="256">
-  <!-- placeholder monogram (desktop/scripts/make-icons.cjs, src/ui/components/brand.tsx) -->
-  <defs><linearGradient id="t" x1="0" y1="0" x2=".35" y2="1"><stop offset="0" stop-color="#240D21"/><stop offset="1" stop-color="#6A2E63"/></linearGradient></defs>
-  <rect width="24" height="24" rx="5.4" fill="url(#t)"/>
-  <g fill="#FFFFFF"><rect x="6" y="6" width="3" height="12"/><rect x="11" y="6" width="7" height="3"/><rect x="13" y="9" width="3" height="9"/></g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="256" height="256" role="img" aria-label="کاریز"><title>کاریز</title><defs><linearGradient id="kz-tile" x1="0" y1="0" x2=".42" y2="1"><stop offset="0" stop-color="#0E1C48"/><stop offset="0.55" stop-color="#10456E"/><stop offset="1" stop-color="#0A808A"/></linearGradient><radialGradient id="kz-glow" cx=".5" cy="1.05" r=".75"><stop offset="0" stop-color="#2CAFB9" stop-opacity=".45"/><stop offset="1" stop-color="#2CAFB9" stop-opacity="0"/></radialGradient></defs><rect width="24" height="24" rx="5.4" fill="url(#kz-tile)"/><rect width="24" height="24" rx="5.4" fill="url(#kz-glow)"/><g transform="translate(0.434 -0.491) scale(0.964)"><path d="M17.6 19.6V11.4a5.6 5.6 0 0 0-11.2 0v8.2" fill="none" stroke="#FFFFFF" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 14.1l2.75 2.75L12 19.6l-2.75-2.75z" fill="#FEBA5F"/></g></svg>

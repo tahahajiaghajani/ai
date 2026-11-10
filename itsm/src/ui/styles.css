@@ -93,36 +93,31 @@
   }
 }
 
-/* the mark's one colour: the accent on paper, warm white on charcoal (components/brand.tsx) */
+/* the mark's colour (components/brand.tsx): the arch in the theme's turquoise; its nuqta and name have their own tokens */
 @layer components {
   .ds-mark-color {
-    color: var(--ds-dusk-700);
-  }
-  :root[data-theme="dark"] .ds-mark-color {
-    color: #f2f0ec;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) .ds-mark-color {
-      color: #f2f0ec;
-    }
+    color: var(--ds-brand-arch);
   }
 }
 
-/* boot screen (index.html, before React mounts): the placeholder mark's tiles settle, on the canvas */
+/* boot screen (index.html, before React mounts): the mark draws itself on the canvas (static under reduced motion) */
 .boot {
   height: 100%;
   display: grid;
   place-content: center;
   justify-items: center;
   gap: 14px;
-  color: var(--ds-dusk-700);
 }
 .boot-mark {
   inline-size: 56px;
   block-size: 56px;
+  overflow: visible;
 }
-:root[data-theme="dark"] .boot {
-  color: #f2f0ec;
+.boot-mark .ds-arch {
+  stroke: var(--ds-brand-arch);
+}
+.boot-mark .ds-nq {
+  fill: var(--ds-brand-nuqta);
 }
 
 /* printing: only the printable sheet (tokens.css §7 switches to light ink on white and the static print fonts) */
