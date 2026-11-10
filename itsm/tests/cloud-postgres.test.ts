@@ -143,6 +143,45 @@ describe("database adapters behave the same", () => {
   });
 });
 
+describe("prepared statements (the server edition's pools)", () => {
+  let pg: PGlite;
+  let server: PGLiteSocketServer;
+  let db: Db;
+
+  beforeAll(async () => {
+    pg = await PGlite.create();
+    const port = 55000 + Math.floor(Math.random() * 5000);
+    server = new PGLiteSocketServer({ db: pg, port, host: "127.0.0.1" });
+    await server.start();
+    db = createPostgresDb({ url: `postgres://postgres:postgres@127.0.0.1:${port}/postgres`, ssl: false, max: 1, prepare: true, idleTimeout: 5, connectTimeout: 10 });
+    await db.exec(`create table sm_p (id int primary key, v text, doc jsonb)`);
+  });
+
+  afterAll(async () => {
+    await db?.close();
+    await server?.stop();
+    await pg?.close();
+  });
+
+  it("prepares parameterised statements once and runs them again, in and out of transactions", async () => {
+    for (let i = 1; i <= 3; i++) await db.query(`insert into sm_p (id, v, doc) values ($1, $2, $3::jsonb)`, [i, `v${i}`, { n: i }]);
+    const named = await db.query<{ n: number }>(`select count(*)::int as n from pg_prepared_statements where statement like 'insert into sm_p%'`);
+    expect(named[0].n).toBe(1); // one named statement, executed three times
+    const r = await db.tx(async (tx) => {
+      await tx.query(`update sm_p set v = $2 where id = $1`, [1, "x"]);
+      await tx.query(`savepoint s1`);
+      try {
+        await tx.query(`insert into sm_p (id, v, doc) values ($1, $2, $3::jsonb)`, [2, "duplicate", {}]);
+      } catch {
+        await tx.query(`rollback to savepoint s1`);
+      }
+      return tx.one<{ v: string; doc: { n: number } }>(`select v, doc from sm_p where id = $1`, [1]);
+    });
+    expect(r).toEqual({ v: "x", doc: { n: 1 } });
+    expect((await db.query<{ id: number }>(`select id from sm_p where id = any($1::int[]) order by id`, ["{1,2,3}"])).map((x) => x.id)).toEqual([1, 2, 3]);
+  });
+});
+
 describe("indexes for the hot queries", () => {
   it("the sync pull finds changed rows of every aggregate by (organisation, revision)", async () => {
     const db = await createPgliteDb();

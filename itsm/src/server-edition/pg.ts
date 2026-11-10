@@ -158,9 +158,17 @@ const ident = (s: string) => `"${s.replace(/"/g, '""')}"`;
 const literal = (s: string) => `'${s.replace(/'/g, "''")}'`;
 
 /**
+ * Extensions the installer creates as the superuser, each only when this PostgreSQL build has it (an absent one is
+ * reported, never fatal): pg_stat_statements for «سلامت سرور»; pg_trgm (EDB's bundled contrib) for the trigram
+ * indexes of the stored search documents — migration 0095 creates it too where the role may, and the DDL skips the
+ * indexes where it is absent; pgvector for retrieval (a portable store otherwise); pgcrypto.
+ */
+export const SERVER_EXTENSIONS = ["pg_stat_statements", "pg_trgm", "vector", "pgcrypto"] as const;
+
+/**
  * As the superuser: the application's role (password from the configuration), its database (owned by it, UTF8), and
- * the extensions only a superuser may create (pg_stat_statements; pgvector when this build has it — retrieval
- * falls back to its portable store otherwise). Idempotent: also run on every upgrade.
+ * the extensions only a superuser may create (SERVER_EXTENSIONS). Idempotent: also run on every upgrade, before the
+ * migrations.
  */
 export async function bootstrapDatabase(c: ServerEditionConfig): Promise<BootstrapResult> {
   const admin = (db: string) =>
@@ -185,7 +193,7 @@ export async function bootstrapDatabase(c: ServerEditionConfig): Promise<Bootstr
   }
   const app = admin(c.db.database);
   try {
-    for (const ext of ["pg_stat_statements", "vector", "pgcrypto"]) {
+    for (const ext of SERVER_EXTENSIONS) {
       try {
         await app.unsafe(`create extension if not exists ${ident(ext)}`);
         const [v] = await app`select extversion from pg_extension where extname = ${ext}`;

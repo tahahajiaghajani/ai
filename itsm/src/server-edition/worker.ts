@@ -172,7 +172,7 @@ export async function startServerEdition(o: StartOptions): Promise<RunningServer
     },
   });
 
-  const rawDb = createPostgresDb({ url: databaseUrl(current), max: pool.perWorker, ssl: current.db.ssl });
+  const rawDb = createPostgresDb({ url: databaseUrl(current), max: pool.perWorker, ssl: current.db.ssl, prepare: true });
   const db = metrics.wrapDb(rawDb);
   if (o.migrate) await migrate(db, (m) => log.info(m));
 

@@ -46,7 +46,7 @@ export async function runPrimary(file: string): Promise<void> {
   log.info("supervisor starting", { pid: process.pid, node: process.version, config: file });
   try {
     await waitForDb(c, 10 * 60_000);
-    const db = createPostgresDb({ url: databaseUrl(c), max: 2, ssl: c.db.ssl });
+    const db = createPostgresDb({ url: databaseUrl(c), max: 2, ssl: c.db.ssl, prepare: true });
     try {
       const ran = await migrate(db, (m) => log.info(`migration: ${m}`));
       log.info("migrations applied", { count: ran.length });

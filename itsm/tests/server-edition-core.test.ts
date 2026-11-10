@@ -428,3 +428,22 @@ describe("zip and karizctl arguments", () => {
     expect(existsSync(join(__dirname, "../packaging/server/externals.json"))).toBe(true);
   });
 });
+
+describe("database extensions and connections of the server edition", () => {
+  it("creates pg_trgm at install (as the superuser) and the migration only where it is available", async () => {
+    const { SERVER_EXTENSIONS } = await import("../src/server-edition/pg");
+    expect(SERVER_EXTENSIONS).toContain("pg_trgm");
+    expect(SERVER_EXTENSIONS).toContain("pg_stat_statements");
+    const scale = (await import("@server/db/migrations/0095_scale")).default;
+    // harmless where absent (PGlite) or not permitted: checked against pg_available_extensions, errors become notices
+    expect(scale).toMatch(/pg_available_extensions where name = 'pg_trgm'/);
+    expect(scale).toMatch(/create extension pg_trgm;\s*exception when others then/);
+  });
+
+  it("opens its pools with prepared statements; the web runtime keeps them off", () => {
+    const src = (f: string) => readFileSync(join(__dirname, "..", f), "utf8");
+    expect(src("src/server-edition/worker.ts")).toMatch(/createPostgresDb\(\{[^}]*prepare: true/);
+    expect(src("src/server/cloud.ts")).not.toMatch(/prepare: true/);
+    expect(src("src/server/db/postgres.ts")).toMatch(/const prepare = opts\.prepare \?\? false;/);
+  });
+});

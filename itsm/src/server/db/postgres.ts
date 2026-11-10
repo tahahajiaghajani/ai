@@ -23,6 +23,20 @@ export interface PostgresOptions {
   url: string;
   max?: number;
   ssl?: boolean;
+  /**
+   * Named prepared statements for parameterised queries (parsed and planned once per connection). Off by default:
+   * Supabase's transaction pooler (the web deployment) does not keep them. The server edition talks to its own
+   * PostgreSQL directly and turns them on.
+   */
+  prepare?: boolean;
+  /** Seconds an idle connection stays open (default 20). */
+  idleTimeout?: number;
+  /** Seconds to wait for a new connection (default 15). */
+  connectTimeout?: number;
+  /** Seconds after which a connection is replaced (postgres.js default: 30–60 minutes); bounds prepared statements. */
+  maxLifetime?: number;
+  /** Server-side statement timeout in milliseconds for every statement of this pool (default: none). */
+  statementTimeoutMs?: number;
 }
 
 const ROLLED_BACK = Symbol("rolled back to savepoint");
@@ -88,7 +102,7 @@ function savepoints(t: postgres.TransactionSql) {
   const sql = new Proxy(t, {
     get(target, prop) {
       if (prop === "unsafe") {
-        return async (text: string, params?: never[]) => ((await handle(text)) ? [] : top().unsafe(text, params));
+        return async (text: string, params?: never[], options?: never) => ((await handle(text)) ? [] : top().unsafe(text, params, options));
       }
       return Reflect.get(target, prop);
     },
@@ -102,14 +116,16 @@ function savepoints(t: postgres.TransactionSql) {
 }
 
 export function createPostgresDb(opts: PostgresOptions): Db {
+  const prepare = opts.prepare ?? false;
   const sql = postgres(opts.url, {
-    prepare: false,
+    prepare,
     max: opts.max ?? 3,
-    idle_timeout: 20,
-    connect_timeout: 15,
+    idle_timeout: opts.idleTimeout ?? 20,
+    connect_timeout: opts.connectTimeout ?? 15,
+    ...(opts.maxLifetime ? { max_lifetime: opts.maxLifetime } : {}),
     ssl: opts.ssl === false ? false : "require",
     onnotice: () => {},
-    connection: { application_name: "itsm" },
+    connection: { application_name: "itsm", ...(opts.statementTimeoutMs ? { statement_timeout: String(Math.trunc(opts.statementTimeoutMs)) } : {}) },
     types: {
       // keep dates as 'YYYY-MM-DD' and timestamps as ISO strings, int8 as JS numbers
       date: { to: 1082, from: [1082], serialize: (x: unknown) => String(x), parse: (x: string) => x },
@@ -121,13 +137,15 @@ export function createPostgresDb(opts: PostgresOptions): Db {
     },
   });
 
+  // postgres.js runs `unsafe` text unprepared unless asked per statement (the pool option covers tagged templates only)
+  const per = prepare ? { prepare: true } : undefined;
   const make = (s: postgres.Sql | postgres.TransactionSql): Pick<Tx, "query" | "one" | "exec"> => ({
     async query<T = Row>(text: string, params: unknown[] = []): Promise<T[]> {
-      const rows = await s.unsafe(text, params.map(pgParam) as never[]);
+      const rows = await s.unsafe(text, params.map(pgParam) as never[], per);
       return rows as unknown as T[];
     },
     async one<T = Row>(text: string, params: unknown[] = []): Promise<T | null> {
-      const rows = await s.unsafe(text, params.map(pgParam) as never[]);
+      const rows = await s.unsafe(text, params.map(pgParam) as never[], per);
       return ((rows as unknown as T[])[0] ?? null) as T | null;
     },
     async exec(text: string): Promise<void> {

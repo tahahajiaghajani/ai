@@ -2,8 +2,7 @@
 // (`karizctl pg-conf` writes them into kariz-tuning.conf, included from postgresql.conf; an administrator's own
 // overrides go into kariz-local.conf, included after it and never rewritten) and by the load-test tooling
 // (scripts/pg-local.mjs loads this file through tsx). The numbers are the measured ones of docs/PERFORMANCE_FA.md
-// §۷–۸ (and §۱۳-۷): change them here, and the tests in tests/server-edition-core.test.ts and
-// tests/integration-scale-server.test.ts, only.
+// §۷–۸ (and §۱۳-۷): change them here (and their tests in tests/server-edition-core.test.ts) only.
 
 export type DiskKind = "ssd" | "hdd" | "san";
 export type OsKind = "windows" | "linux";

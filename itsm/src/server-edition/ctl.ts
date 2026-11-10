@@ -140,7 +140,7 @@ function load(a: Args): ServerEditionConfig {
 }
 
 async function withDb<T>(c: ServerEditionConfig, fn: (db: ReturnType<typeof createPostgresDb>) => Promise<T>): Promise<T> {
-  const db = createPostgresDb({ url: databaseUrl(c), max: 2, ssl: c.db.ssl });
+  const db = createPostgresDb({ url: databaseUrl(c), max: 2, ssl: c.db.ssl, prepare: true });
   try {
     return await fn(db);
   } finally {
