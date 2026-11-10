@@ -115,6 +115,8 @@ export function tunePostgres(input: TuneInput): TuneResult {
   const s: Record<string, string> = {};
   // connections and authentication
   s.listen_addresses = "'127.0.0.1'";
+  // TCP on loopback only: no Unix-domain socket (its default folder may not be writable by the service account)
+  s.unix_socket_directories = "''";
   s.max_connections = String(maxConnections);
   s.superuser_reserved_connections = "3";
   s.password_encryption = "'scram-sha-256'";
@@ -180,6 +182,9 @@ export function tunePostgres(input: TuneInput): TuneResult {
   s.log_lock_waits = "on";
   s.log_temp_files = "10240";
   s.log_autovacuum_min_duration = "10s";
+  // statements are logged without their values (people's data never lands in the PostgreSQL log)
+  s.log_parameter_max_length = "0";
+  s.log_parameter_max_length_on_error = "0";
 
   if (cpus < 4) notes.push("کمتر از ۴ هستهٔ پردازنده؛ کارهای پس‌زمینه و گزارش‌ها کند خواهند بود");
   if (input.disk === "hdd") notes.push("دیسک چرخان (HDD) برای پایگاه داده کند است؛ SSD یا SAN با تأخیر کم توصیه می‌شود");

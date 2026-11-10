@@ -26,7 +26,7 @@ export interface RunResult {
  * Run a program and collect its output; rejects with the tail of the output when it fails. Server programs (initdb,
  * pg_ctl, postgres) refuse to run as root on Linux: ITSM_PG_RUNAS=<user> runs them as that user (development only).
  */
-export function run(cmd: string, args: string[], opts: { env?: NodeJS.ProcessEnv; input?: string; timeoutMs?: number; asServer?: boolean; cwd?: string } = {}): Promise<RunResult> {
+export function run(cmd: string, args: string[], opts: { env?: NodeJS.ProcessEnv; input?: string; timeoutMs?: number; asServer?: boolean; cwd?: string; maxOutput?: number } = {}): Promise<RunResult> {
   let file = cmd;
   let argv = args;
   const runAs = process.env.ITSM_PG_RUNAS;
@@ -39,7 +39,8 @@ export function run(cmd: string, args: string[], opts: { env?: NodeJS.ProcessEnv
     let out = "";
     const keep = (b: Buffer) => {
       out += b.toString("utf8");
-      if (out.length > 200_000) out = out.slice(-100_000);
+      const max = opts.maxOutput ?? 200_000;
+      if (out.length > max) out = out.slice(-Math.floor(max / 2));
     };
     child.stdout.on("data", keep);
     child.stderr.on("data", keep);

@@ -133,7 +133,7 @@ export async function backupNow(o: BackupOptions): Promise<BackupManifest & { fo
     let detail = "verification off";
     let missing = 0;
     if (c.backup.verify) {
-      const list = await run(pgExe(bin, "pg_restore"), ["--list", dump], { timeoutMs: 3600_000 });
+      const list = await run(pgExe(bin, "pg_restore"), ["--list", dump], { timeoutMs: 3600_000, maxOutput: 64 * 1048576 });
       const entries = list.out.split(/\r?\n/).filter((l) => /^\d+;/.test(l)).length;
       const tables = list.out.split(/\r?\n/).filter((l) => / TABLE DATA /.test(l)).length;
       missing = await missingInMirror(c, mirror).catch(() => -1);

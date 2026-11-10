@@ -16,6 +16,8 @@ import { waitForDb } from "./pg";
 import type { ClusterMetrics, WorkerSnapshot } from "./metrics";
 
 export const RESTART_REQUEST = "restart.request";
+/** `karizctl allow …` changed the allowlist: the workers re-read the configuration (no restart). */
+export const RELOAD_REQUEST = "reload.request";
 
 interface Slot {
   id: number;
@@ -188,7 +190,15 @@ export async function runPrimary(file: string): Promise<void> {
 
   // karizctl restart --rolling: a request file in the data folder
   const requestFile = join(c.dirs.data, RESTART_REQUEST);
+  const reloadFile = join(c.dirs.data, RELOAD_REQUEST);
   setInterval(() => {
+    if (existsSync(reloadFile)) {
+      rmSync(reloadFile, { force: true });
+      c = loadServerConfig(file).config;
+      log.setLevel(c.log.level);
+      log.info("configuration reload requested by file");
+      for (const s of slots) s.worker?.send({ t: "reload" });
+    }
     if (!existsSync(requestFile)) return;
     rmSync(requestFile, { force: true });
     log.info("rolling restart requested by file");

@@ -139,6 +139,8 @@ function currentCert(c: ServerEditionConfig): CertInfo | null {
 
 export function setupRoutes(d: SetupDeps, hasUsers: () => Promise<boolean>) {
   const r = new Hono();
+  // the token is read from the file every time: `karizctl setup-token` may issue a new one while the server runs
+  const fresh = () => loadServerConfig(d.file).config;
   // guesses at the token are pointless (24 random bytes) but still slowed down
   const attempts = new Map<string, { n: number; at: number }>();
   const limited = (ip: string) => {
@@ -154,7 +156,7 @@ export function setupRoutes(d: SetupDeps, hasUsers: () => Promise<boolean>) {
   const ipOf = (h: Headers) => h.get("x-real-ip") ?? "local";
 
   r.get("/state", async (c) => {
-    const cfg = d.config();
+    const cfg = fresh();
     const token = c.req.query("token");
     const done = await hasUsers();
     if (!done && token && limited(ipOf(c.req.raw.headers))) return c.json(fail(429, "rate_limited", "تلاش‌های زیاد؛ چند دقیقه بعد دوباره امتحان کنید"), 429);
@@ -184,7 +186,7 @@ export function setupRoutes(d: SetupDeps, hasUsers: () => Promise<boolean>) {
     if (!form) return c.json(fail(400, "bad_request", "فایل گواهی دریافت نشد"), 400);
     const token = typeof form.token === "string" ? form.token : null;
     if (limited(ipOf(c.req.raw.headers))) return c.json(fail(429, "rate_limited", "تلاش‌های زیاد؛ چند دقیقه بعد دوباره امتحان کنید"), 429);
-    if ((await hasUsers()) || !tokenValid(d.config(), token)) return c.json(fail(403, "setup_token", "نشانی راه‌اندازی معتبر نیست یا پیش‌تر به کار رفته است"), 403);
+    if ((await hasUsers()) || !tokenValid(fresh(), token)) return c.json(fail(403, "setup_token", "نشانی راه‌اندازی معتبر نیست یا پیش‌تر به کار رفته است"), 403);
     const file = (k: string) => (form[k] && typeof form[k] !== "string" ? (form[k] as File) : null);
     const pfx = file("pfx");
     const cert = file("cert");
@@ -237,7 +239,7 @@ export function setupRoutes(d: SetupDeps, hasUsers: () => Promise<boolean>) {
     }
     const input = parsed.data;
     if (await hasUsers()) return c.json(fail(409, "setup_done", "راه‌اندازی نخست پیش‌تر انجام شده است؛ وارد شوید"), 409);
-    if (!tokenValid(d.config(), input.token)) return c.json(fail(403, "setup_token", "نشانی راه‌اندازی معتبر نیست یا منقضی شده است؛ با karizctl setup-token نشانی تازه بسازید"), 403);
+    if (!tokenValid(fresh(), input.token)) return c.json(fail(403, "setup_token", "نشانی راه‌اندازی معتبر نیست یا منقضی شده است؛ با karizctl setup-token نشانی تازه بسازید"), 403);
     let publicUrl: string;
     try {
       const u = new URL(input.public_url);
