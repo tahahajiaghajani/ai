@@ -101,7 +101,7 @@ export async function loadRegistry() {
     stdin: {
       contents: [
         `export { ROUTES, NAV, PUBLIC_ROUTES, SPACES } from "./src/ui/modules/registry";`,
-        `export { gateAllows } from "./src/shared/access";`,
+        `export { gateAllows, builtinRoles } from "./src/shared/access";`,
         `export { LEVEL_ORDER } from "./src/shared/permissions";`,
         `export { recordPath, newRecordPath, tablePath } from "./src/ui/records/extensions";`,
         `export { TABLES, tableDef } from "./src/shared/tables";`,
@@ -135,7 +135,7 @@ export async function loadRegistry() {
   const admin = [...adminSrc.matchAll(/\{\s*key:\s*"([^"]*)",\s*title:\s*"[^"]*",\s*icon:\s*\w+(?:,\s*edition:\s*"(\w+)")?/g)].map((m) => ({ key: m[1], edition: m[2] ?? null }));
   return {
     routes, nav, publicRoutes: reg.PUBLIC_ROUTES.map((r) => r.path), portal, admin, gateAllows: reg.gateAllows, LEVEL_ORDER: reg.LEVEL_ORDER,
-    tables: [...reg.TABLES.keys()], tableDef: reg.tableDef, enterableOnCreate: reg.enterableOnCreate, recordPath: reg.recordPath, newRecordPath: reg.newRecordPath, tablePath: reg.tablePath,
+    builtinRoles: reg.builtinRoles, tables: [...reg.TABLES.keys()], tableDef: reg.tableDef, enterableOnCreate: reg.enterableOnCreate, recordPath: reg.recordPath, newRecordPath: reg.newRecordPath, tablePath: reg.tablePath,
   };
 }
 
@@ -291,6 +291,9 @@ async function facts(page) {
   );
 }
 
+/** labels of buttons that change data (the crawl never presses them) */
+const SAVES = /^(ثبت|ذخیره|ارسال|فرستادن|تأیید|حذف|انتشار عمومی|اجرای|بستن|لغو)/;
+
 class Probe {
   constructor(page, role) {
     this.page = page;
@@ -369,7 +372,7 @@ const results = [];
 let target = "";
 const norm = (s) => String(s ?? "").replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, ":id");
 function record(entry) {
-  entry.target = norm(target);
+  entry.target = target;
   const issues = [];
   const e = entry;
   if (e.exceptions?.length) issues.push(`uncaught exception: ${e.exceptions[0].split("\n")[0]}`);
@@ -454,8 +457,9 @@ async function openFirst(page, probe, url, role, route) {
 /** Pages that are not record lists: the primary header action, then the first link of the page. */
 async function clickActions(page, probe, url, role, route, href) {
   const primary = page.locator("main .ds-ph-actions .ant-btn-primary, #portal-main .ant-btn-primary").first();
-  if (await primary.isVisible().catch(() => false)) {
-    const label = ((await primary.textContent()) ?? "").trim().slice(0, 40);
+  const label = ((await primary.textContent().catch(() => "")) ?? "").trim().slice(0, 40);
+  // never a button that saves, sends, approves or deletes: the crawl only looks
+  if (await primary.isVisible().catch(() => false) && !SAVES.test(label)) {
     await primary.click({ timeout: 4000 }).catch(() => {});
     const r = await check(page, probe, { role, route: `${route} → «${label}»`, step: "action" });
     record(r);
@@ -715,9 +719,11 @@ async function main() {
       );
       log(`${role}: persona ${info.access?.persona}, ${visible.length} nav items visible`);
       const lists = new Set(classified.filter((r) => r.kind === "list").map((r) => r.path));
+    // a palette action that is a list's new-record form is checked through the list's «… تازه»
+    const forms = new Set(classified.filter((r) => r.kind === "new").map((r) => r.path));
       const targets = [{ href: orgHref(""), kind: "page", full: true }];
       if (!QUICK) {
-        for (const i of visible) if (pick(i.path)) targets.push({ href: orgHref(i.path), kind: lists.has(i.path) ? "list" : "page" });
+        for (const i of visible) if (pick(i.path) && !forms.has(i.path)) targets.push({ href: orgHref(i.path), kind: lists.has(i.path) ? "list" : "page" });
         for (const p of reg.portal) if (p && !p.includes(":") && pick(`portal/${p}`)) targets.push({ href: orgHref(`portal/${p}`), kind: "page" });
       }
       const mobile = MOBILE === "none" || QUICK ? [] : [{ href: orgHref("") }, { href: orgHref("portal") }, ...visible.filter((i) => !i.section && (!i.action || i.workspace)).slice(0, 12).map((i) => ({ href: orgHref(i.path) }))];
@@ -738,7 +744,9 @@ async function main() {
   await B.browser?.close().catch(() => {});
   report.finished = new Date().toISOString();
   report.duration_s = Math.round((Date.now() - t0) / 1000);
-  report.results = results.map(({ role, route, step, final, issues, ok, forbidden, target: tg }) => ({ role, route: norm(route), step, final: norm(final), ok, issues: issues.map(norm), target: tg, ...(forbidden?.length ? { forbidden: forbidden.map((f) => norm(`${f.status} ${f.method} ${f.url}`)) } : {}) }));
+  // the organisation reads {org}, other ids :id (runs on different data compare and merge)
+  const clean = (v) => norm(String(v ?? "").split(orgId).join("{org}"));
+  report.results = results.map(({ role, route, step, final, issues, ok, forbidden, target: tg }) => ({ role, route: clean(route), step, final: clean(final), ok, issues: issues.map(clean), target: clean(tg), ...(forbidden?.length ? { forbidden: forbidden.map((f) => clean(`${f.status} ${f.method} ${f.url}`)) } : {}) }));
   const prevFile = join(OUT, "clickthrough.json");
   if (flag("merge") && existsSync(prevFile)) {
     // the pages this run checked replace their previous results; the others are kept
@@ -755,7 +763,21 @@ async function main() {
   return report.summary.problems ? 1 : 0;
 }
 
-/** The report: what was crawled, the problems first, then every check; the hand-written part is kept. */
+/** Checks grouped by the page (and role) they belong to, in crawl order. */
+function pages(rows) {
+  const out = new Map();
+  for (const r of rows) {
+    const key = `${r.role}|${r.target || r.route}`;
+    if (!out.has(key)) out.set(key, { role: r.role, target: r.target || r.route, counts: {}, bad: [], forbidden: new Set() });
+    const g = out.get(key);
+    g.counts[r.step] = (g.counts[r.step] ?? 0) + 1;
+    if (!r.ok) g.bad.push(r);
+    for (const f of r.forbidden ?? []) g.forbidden.add(f.replace(/^403 /, ""));
+  }
+  return [...out.values()].map((g) => ({ ...g, steps: Object.entries(g.counts).map(([k, n]) => (n > 1 ? `${k} ×${n}` : k)).join(", "), forbidden: [...g.forbidden].slice(0, 3).join(", ") }));
+}
+
+/** The report: what was crawled, the problems first, then every page; the hand-written part is kept. */
 function markdown(report) {
   const file = join(OUT, "CLICKTHROUGH.md");
   const prev = existsSync(file) ? readFileSync(file, "utf8") : "";
@@ -792,11 +814,14 @@ function markdown(report) {
     ...(report.unreached?.length
       ? ["## Not reached", "", "Parameterised pages without a record to open in this data (no first record in their list, or a parameter that is not a record id):", "", report.unreached.map((p) => `\`${p}\``).join(", "), ""]
       : []),
-    "## Every check",
+    "## Every page",
     "",
-    "| Route | Role | Step | Result |",
+    "One row per page and role: the steps checked on it (visit, «تازه», record, its tabs, header action, item, link,",
+    "390px) and the result; a 403 is listed for the agent and the requester (their pages may hold parts they cannot use).",
+    "",
+    "| Route | Role | Steps | Result |",
     "|---|---|---|---|",
-    ...rows.map((r) => `| \`${esc(r.route)}\` | ${r.role} | ${r.step} | ${r.ok ? (r.forbidden?.length ? `ok (expected 403: ${esc(r.forbidden.length)})` : "ok") : `**${esc(r.issues.join("; "))}**`} |`),
+    ...pages(rows).map((g) => `| \`${esc(g.target)}\` | ${g.role} | ${esc(g.steps)} | ${g.bad.length ? `**${esc(g.bad.map((r) => `${r.step}: ${r.issues.join("; ")}`).join(" / "))}**` : g.forbidden ? `ok (403: ${esc(g.forbidden)})` : "ok"} |`),
     "",
   ];
   return lines.join("\n").replace(/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, "/:id");

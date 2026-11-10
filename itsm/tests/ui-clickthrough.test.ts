@@ -33,11 +33,14 @@ function matcher(route: string): RegExp {
 interface Registry {
   routes: string[];
   portal: string[];
-  nav: { key: string; path: string }[];
+  nav: { key: string; path: string; access?: { area: string; op?: string } }[];
   tables: string[];
   newRecordPath: (table: string) => string;
   recordPath: (table: string, id: string) => string;
-  tableDef: (table: string) => { key: string; fields: { name: string; readonly?: boolean; system?: boolean; base?: boolean; hidden?: boolean }[] } | undefined;
+  tableDef: (table: string) => { key: string; area?: string; fields: { name: string; readonly?: boolean; system?: boolean; base?: boolean; hidden?: boolean }[] } | undefined;
+  tablePath: (table: string) => string;
+  gateAllows: (grants: Record<string, unknown>, gate: { area: string; op?: string }) => boolean;
+  builtinRoles: (preset?: string) => { key: string; grants: Record<string, unknown> }[];
   enterableOnCreate: (def: { fields: unknown[] }) => boolean;
 }
 
@@ -199,5 +202,30 @@ describe("«… تازه» only where a person can enter something", () => {
     expect(list).not.toMatch(/\{def\.can\.create \?/);
     const page = readFileSync(join(UI, "records/page/RecordPage.tsx"), "utf8");
     expect(page).toMatch(/if \(!enterableOnCreate\(def\)\)/);
+  });
+});
+
+describe("the sidebar offers each role only lists it may read", () => {
+  it("hides the lists a built-in role cannot read (an agent saw workflows, SLA rules and notification settings: «فهرست پیدا نشد»)", () => {
+    const lists = new Map(reg.tables.map((t) => [reg.tablePath(t), t]));
+    const bad: string[] = [];
+    for (const role of reg.builtinRoles("open")) {
+      for (const i of reg.nav) {
+        const t = lists.get(i.path);
+        if (!t || (i.access && !reg.gateAllows(role.grants, i.access))) continue;
+        const area = reg.tableDef(t)?.area;
+        if (area && !reg.gateAllows(role.grants, { area })) bad.push(`${role.key}: ${i.key} → ${t} (${area})`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it("gates a table's nav item by its own area unless the module names another", () => {
+    const item = (key: string) => reg.nav.find((i) => i.key === key);
+    expect(item("flows:flow")?.access).toEqual({ area: "flows" });
+    expect(item("sla:business_rule")?.access).toEqual({ area: "settings" });
+    expect(item("notify:email_channel")?.access).toEqual({ area: "notifications" });
+    expect(item("notify:rules")?.access).toEqual({ area: "notifications" });
+    expect(item("release:release")?.access).toEqual({ area: "release" });
   });
 });

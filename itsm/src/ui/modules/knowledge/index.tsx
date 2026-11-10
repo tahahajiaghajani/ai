@@ -155,7 +155,8 @@ const module = recordModule({
     { table: "kb_search_rule", path: "kb/search-rules", label: "قاعده‌های جست‌وجو", noun: "قاعدهٔ جست‌وجو", icon: ListFilter, section: S_DEFS, area: "work", access: ADMINISTERS, search: false, keywords: "جست‌وجو سنجاق پنهان تقویت" },
     { table: "kb_licence", path: "kb/licences", label: "مجوزهای KCS", noun: "مجوز", icon: Award, section: S_DEFS, area: "work", access: ADMINISTERS, keywords: "KCS مجوز منتشرکننده مربی" },
     { table: "kb_domain", path: "kb/domains", label: "حوزه‌های دانش", noun: "حوزهٔ دانش", icon: Network, section: S_DEFS, area: "work", access: ADMINISTERS, keywords: "حوزه دانش متخصص روال" },
-    { table: "kb_config", path: "kb/settings", label: "تنظیمات دانش", noun: "تنظیمات", icon: Settings2, section: S_DEFS, area: "settings", access: ADMINISTERS, search: false, newAction: false, keywords: "تنظیمات دانش بازبینی اعتبار سطل" },
+    // the settings row is the organisation's (area «settings»): a knowledge manager without it got «فهرست پیدا نشد»
+    { table: "kb_config", path: "kb/settings", label: "تنظیمات دانش", noun: "تنظیمات", icon: Settings2, section: S_DEFS, area: "settings", access: { area: "settings" }, search: false, newAction: false, keywords: "تنظیمات دانش بازبینی اعتبار سطل" },
   ],
   nav: NAV.filter((n) => n.section || n.action),
   routes: [

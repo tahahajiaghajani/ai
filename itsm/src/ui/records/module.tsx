@@ -7,6 +7,7 @@ import { lazy, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import type { Area, Level } from "@shared/permissions";
 import type { AccessGate } from "@shared/access";
+import { tableDef } from "@shared/tables";
 import type { AppRoute, ModuleUi, NavCount, NavGroup, NavItem, PaletteSearch, Space, SpaceKey } from "../modules/registry";
 import { recordsApi } from "./data/api";
 import { displayText } from "./model/schema";
@@ -103,6 +104,17 @@ export function recordSearch(table: string, o: { key?: string; group: string; ic
   };
 }
 
+/**
+ * The access a table's nav item, palette action and search need: the module's gate, else read in the table's own
+ * access area. Without it the sidebar offered an agent lists the server refuses (workflows, SLA and notification
+ * settings answered «فهرست پیدا نشد»); owners and administrators hold every area, so they lose nothing.
+ */
+export function tableGate(table: string, access?: AccessGate): AccessGate | undefined {
+  if (access) return access;
+  const area = tableDef(table)?.area;
+  return area ? { area } : undefined;
+}
+
 /** The ModuleUi of a module built on engine tables (see RecordModuleSpec). */
 export function recordModule(spec: RecordModuleSpec): ModuleUi {
   const space = spec.space?.key ?? spec.spaceKey ?? "home";
@@ -113,16 +125,17 @@ export function recordModule(spec: RecordModuleSpec): ModuleUi {
     registerRecordExtensions(t.table, { ...(t.extensions ?? {}), path: t.path });
     // the assistant knows the record or list a page shows (src/ui/ai/assistant/context.ts)
     registerRecordRoute(t.path, t.table);
+    const gate = tableGate(t.table, t.access);
     if (!t.hidden)
-      items.push({ key: `${spec.key}:${t.table}`, label: t.label, path: t.path, icon: t.icon, section: t.section, area: t.area, level: t.level, access: t.access, keywords: t.keywords, workspace: t.workspace, count: t.count });
+      items.push({ key: `${spec.key}:${t.table}`, label: t.label, path: t.path, icon: t.icon, section: t.section, area: t.area, level: t.level, access: gate, keywords: t.keywords, workspace: t.workspace, count: t.count });
     if (t.newAction !== false)
-      items.push({ key: `${spec.key}:${t.table}:new`, label: `${t.noun ?? t.label} تازه`, path: `${t.path}/new`, icon: t.icon, area: t.area, level: "edit", access: t.access ? { area: t.access.area, op: "create" } : undefined, action: true, keywords: t.keywords });
+      items.push({ key: `${spec.key}:${t.table}:new`, label: `${t.noun ?? t.label} تازه`, path: `${t.path}/new`, icon: t.icon, area: t.area, level: "edit", access: gate ? { area: gate.area, op: "create" } : undefined, action: true, keywords: t.keywords });
     routes.push(
       { path: t.path, element: <RecordListRoute table={t.table} title={t.list?.title} preset={t.list?.preset} actions={t.list?.actions} /> },
       { path: `${t.path}/new`, element: <RecordPageRoute table={t.table} id="new" /> },
       { path: `${t.path}/:id`, element: <RecordPageRoute table={t.table} /> },
     );
-    if (t.search !== false && t.icon) searches.push(recordSearch(t.table, { group: t.search?.group ?? t.label, icon: t.icon, area: t.area, level: t.level, access: t.access, minLength: t.search?.minLength }));
+    if (t.search !== false && t.icon) searches.push(recordSearch(t.table, { group: t.search?.group ?? t.label, icon: t.icon, area: t.area, level: t.level, access: gate, minLength: t.search?.minLength }));
   }
   const groups: NavGroup[] = [{ key: spec.group.key, label: spec.group.label, space, items: [...items, ...(spec.nav ?? [])] }];
   return {

@@ -90,8 +90,8 @@ const settingsUi = recordModule({
     { table: "ui_policy", path: "sla/ui-policies", label: "سیاست‌های فرم", noun: "سیاست فرم", icon: SlidersHorizontal, section: RULES, area: "settings", keywords: "فرم الزامی فقط‌خواندنی پنهان شرط" },
   ],
   nav: [
-    { key: "sla:holidays", label: "تعطیلات", path: "sla/holidays", icon: CalendarX, section: SLAS, area: "settings", keywords: "تعطیل رسمی نوروز قمری نیمه‌تعطیل تقویم" },
-    { key: "sla:categories", label: "دسته‌بندی‌ها", path: "sla/categories", icon: FolderTree, section: RULES, area: "settings", keywords: "دسته زیردسته درخت گروه پیش‌فرض" },
+    { key: "sla:holidays", label: "تعطیلات", path: "sla/holidays", icon: CalendarX, section: SLAS, area: "settings", access: { area: "sla" }, keywords: "تعطیل رسمی نوروز قمری نیمه‌تعطیل تقویم" },
+    { key: "sla:categories", label: "دسته‌بندی‌ها", path: "sla/categories", icon: FolderTree, section: RULES, area: "settings", access: { area: "settings" }, keywords: "دسته زیردسته درخت گروه پیش‌فرض" },
   ],
   routes: [
     { path: "sla/holidays", element: <Holidays /> },

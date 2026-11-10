@@ -69,7 +69,8 @@ const module = recordModule({
     { table: "slm_csi_plan", path: "slm/plans", label: "برنامه‌های بهبود", noun: "برنامهٔ بهبود", icon: MapIcon, area: "work", access: READS, keywords: "برنامه بهبود مستمر" },
     { table: "slm_credit", path: "slm/credits", label: "جریمه‌های خدمت", noun: "جریمهٔ خدمت", icon: BadgePercent, area: "work", access: READS, newAction: false, keywords: "جریمه اعتبار خدمت اعتراض CRD" },
     { table: "slm_compliance", path: "slm/compliance", label: "انطباق دوره‌ها", noun: "انطباق دوره", icon: CalendarCheck, section: REPORTS, area: "work", access: READS, newAction: false, keywords: "انطباق دوره ماهانه" },
-    { table: "slm_xla_score", path: "slm/xla-scores", label: "امتیازهای تجربه", noun: "امتیاز تجربه", icon: Smile, section: REPORTS, area: "work", access: READS, newAction: false, keywords: "تجربه XLA امتیاز" },
+    // XLA scores are survey results (area «survey»): a service owner without it got «فهرست پیدا نشد»
+    { table: "slm_xla_score", path: "slm/xla-scores", label: "امتیازهای تجربه", noun: "امتیاز تجربه", icon: Smile, section: REPORTS, area: "work", access: { area: "survey" }, newAction: false, keywords: "تجربه XLA امتیاز" },
     {
       table: "slm_target", path: "slm/targets", label: "اهداف توافق‌ها", noun: "هدف توافق", icon: Target, section: DEFS, area: "work", access: READS, keywords: "هدف توافق زمان پاسخ حل دسترس‌پذیری",
       extensions: { sidePanels: [{ key: "slm:recommend", title: "پیشنهاد هدف و شبیه‌سازی", order: 1, render: widget(TargetPanel) }] },
