@@ -42,6 +42,9 @@ jobs:
           cache-dependency-path: itsm/package-lock.json
       - run: npm ci
       - run: npm run typecheck
+        env:
+          # the TypeScript program of all modules needs more than Node's default heap on smaller runners
+          NODE_OPTIONS: --max-old-space-size=6144
       - run: npm test
       - run: npm run check:schema
       - run: npm run build
@@ -134,8 +137,17 @@ jobs:
           key: itsm-server-deps-${{ hashFiles('itsm/packaging/server/deps.json') }}
       - name: Build the server bundle (server.cjs, karizctl.cjs, pre-compressed app)
         run: node scripts/build-server.mjs
+      - name: Windows sign-in module in the package (node-expose-sspi, loaded from app/node_modules)
+        run: |
+          foreach ($f in @("package.json", "lib/api.js", "lib/arch/x64/node-expose-sspi.node")) {
+            if (-not (Test-Path "server-dist/app/node_modules/node-expose-sspi/$f")) { throw "node-expose-sspi/$f is missing from the server package" }
+          }
       - name: Fetch and verify pinned binaries
         run: ./packaging/server/scripts/fetch-deps.ps1 -Dist server-dist -Cache packaging/server/.cache
+      - name: The binding loads with the packaged Node.js, as src/server/auth/sso.ts loads it
+        run: |
+          & server-dist/node/node.exe -e "const r=require('module').createRequire(require('path').resolve('server-dist/app/noop.js')); const m=r('node-expose-sspi/lib/api.js'); if(!m.sspi) throw new Error('no sspi binding'); console.log('node-expose-sspi loads')"
+          if ($LASTEXITCODE -ne 0) { throw "node-expose-sspi does not load with the packaged Node.js" }
       - name: Build pgvector with MSVC
         run: ./packaging/server/scripts/build-pgvector.ps1 -Dist server-dist -Cache packaging/server/.cache -AllowMissing
       - name: Build the MSI (and a second build of the same version for the upgrade test)
