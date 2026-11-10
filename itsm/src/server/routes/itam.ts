@@ -17,7 +17,8 @@ import { aggregate, defFor, get, list } from "../engine";
 import {
   asset360, confirmDiscovered, checkStockRules, checkin, checkout, compliance, decideAck, ensureItamSweep, hasGroup, holds, itamConfig, itamText, leaverReturn,
   licenceFacts, licenceNarrative, linkCi, myAssets, ordersFromRequisition, receive, reconcile, reportAsset, requisitionFromRules, scan, seedItamDefaultsIn, stockDashboard,
-  syncInstalls, assetSummaryText,
+  syncInstalls, assetSummaryText, branchInventory, transferInbox, transferItems, receiveTransfer, fleet, setDeviceStatus, createPmPlans, deviceRisk, riskText,
+  assetRegister, resolveAuditItem, attest, openAttestations, custodyOf, wipeCertificate,
 } from "../modules/itam";
 import { isUuid, liveRows, orgToday, sysOf } from "../modules/itam/common";
 
@@ -280,3 +281,80 @@ itamRoutes.post("/discovered", async (c) => {
   await needManage(ctx);
   return c.json(await confirmDiscovered(ctx, 500));
 });
+
+// ----- bank: branches, transfers, the ATM fleet, the asset register, reconciliation, attestation, custody ----------
+// (src/server/modules/itam/bank.ts; every service reads with the caller's access and checks their grant before acting)
+
+itamRoutes.get("/branches", async (c) => c.json(await branchInventory(c.get("ctx"))));
+
+itamRoutes.get("/transfers/inbox", async (c) => c.json(await transferInbox(c.get("ctx"))));
+
+itamRoutes.get("/transfers/:id/items", async (c) => c.json(await transferItems(c.get("ctx"), id(c.req.param("id")))));
+
+itamRoutes.post("/transfers/:id/receive", async (c) => {
+  const input = await body(c, z.object({
+    items: z.array(z.object({ id: UUID, result: z.enum(["received", "damaged", "missing"]), condition_in: z.enum(["new", "good", "fair", "poor", "damaged"]).nullish(), note: z.string().max(300).nullish() })).max(5000),
+    note: z.string().max(2000).nullish(),
+  }));
+  return c.json(await receiveTransfer(c.get("ctx"), id(c.req.param("id")), { items: input.items.map((i) => ({ ...i, id: i.id.toLowerCase() })), note: input.note ?? null }));
+});
+
+itamRoutes.get("/fleet", async (c) => {
+  const q = query(c, z.object({ days: z.coerce.number().int().min(1).max(365).optional() }));
+  return c.json(await fleet(c.get("ctx"), { days: q.days }));
+});
+
+itamRoutes.post("/fleet/:id/status", async (c) => {
+  const input = await body(c, z.object({ status: z.enum(["in_service", "out_of_service", "out_of_cash", "maintenance", "offline"]), reason: z.string().max(300).nullish(), incident: z.boolean().optional() }));
+  return c.json(await setDeviceStatus(c.get("ctx"), id(c.req.param("id")), { status: input.status, reason: input.reason ?? null, incident: !!input.incident }));
+});
+
+itamRoutes.post("/fleet/pm-plans", async (c) => {
+  const input = await body(c, z.object({ every_n: z.number().int().min(1).max(12).optional(), interval_unit: z.enum(["day", "week", "month"]).optional(), group_id: UUID.nullish(), lead_days: z.number().int().min(0).max(30).optional() }));
+  return c.json(await createPmPlans(c.get("ctx"), { every_n: input.every_n, interval_unit: input.interval_unit, group_id: input.group_id ?? null, lead_days: input.lead_days }));
+});
+
+itamRoutes.post("/fleet/:id/risk", async (c) => {
+  const ctx = c.get("ctx");
+  const assetId = id(c.req.param("id"));
+  await get(ctx, "asset", assetId);
+  return c.json(await itamText(ctx, "itam.atm_failure_risk", { table: "asset", id: assetId }, async () => riskText(await deviceRisk(ctx, assetId))));
+});
+
+itamRoutes.get("/register", async (c) => {
+  const q = query(c, z.object({ fy: z.coerce.number().int().min(1300).max(1500), branch_id: UUID.optional(), category: z.string().max(40).optional() }));
+  return c.json(await assetRegister(c.get("ctx"), { fy: q.fy, branch_id: q.branch_id?.toLowerCase() ?? null, category: q.category ?? null }));
+});
+
+itamRoutes.post("/audit-items/:id/resolve", async (c) => {
+  const input = await body(c, z.object({
+    resolution: z.enum(["confirmed_missing", "found", "transferred", "registered", "written_off", "ignored"]), note: z.string().max(300).nullish(), model_id: UUID.nullish(),
+  }));
+  return c.json(await resolveAuditItem(c.get("ctx"), id(c.req.param("id")), { resolution: input.resolution, note: input.note ?? null, model_id: input.model_id?.toLowerCase() ?? null }));
+});
+
+itamRoutes.post("/attestations/:id/attest", async (c) => {
+  const input = await body(c, z.object({
+    signed_name: z.string().min(1).max(120),
+    exceptions: z.array(z.object({ asset_id: UUID, issue: z.enum(["missing", "damaged", "wrong_location", "other"]), note: z.string().max(300).nullish() })).max(5000).default([]),
+    note: z.string().max(2000).nullish(),
+  }));
+  return c.json(await attest(c.get("ctx"), id(c.req.param("id")), { signed_name: input.signed_name, exceptions: input.exceptions.map((e) => ({ ...e, asset_id: e.asset_id.toLowerCase() })), note: input.note ?? null }));
+});
+
+itamRoutes.get("/attestations/:id/assets", async (c) => {
+  const ctx = c.get("ctx");
+  const { row } = await get(ctx, "branch_attestation", id(c.req.param("id")));
+  const r = await list(ctx, "asset", { filter: { and: [{ f: "branch_id", op: "eq", v: row.branch_id }, { f: "state", op: "nin", v: ["disposed", "canceled", "on_order"] }] }, size: 1000, total: false, sort: "number", fields: ["number", "name", "asset_tag", "serial_number", "model_id", "state", "location_id", "assigned_to"] });
+  return c.json({ attestation: row, assets: r.rows });
+});
+
+itamRoutes.post("/attestations/open", async (c) => {
+  const ctx = c.get("ctx");
+  if (!(await holds(ctx, "asset", "write", "all"))) throw forbidden("باز کردن دورهٔ تأیید اموال شعبه‌ها با مدیر دارایی است");
+  return c.json(await openAttestations(sysOf(ctx)));
+});
+
+itamRoutes.get("/assets/:id/custody", async (c) => c.json(await custodyOf(c.get("ctx"), id(c.req.param("id")))));
+
+itamRoutes.get("/disposal-items/:id/certificate", async (c) => c.json(await wipeCertificate(c.get("ctx"), id(c.req.param("id")))));

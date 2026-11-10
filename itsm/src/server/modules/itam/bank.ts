@@ -26,7 +26,7 @@ import type { DepMethod } from "@shared/itam/logic";
 import { addDays, jalaliYearRange } from "@shared/jalali";
 import { D } from "@shared/money";
 import type { Ctx } from "../../context";
-import type { Tx, Queryable } from "../../db";
+import { pgArray, type Tx, type Queryable } from "../../db";
 import { createIn, emitEvent, get, registerHooks, transitionIn, updateIn, pushGuard, type WriteArgs } from "../../engine";
 import { access } from "../../access/provider";
 import { registerParticipantSource, subjectOf } from "../../access";
@@ -156,7 +156,7 @@ async function assetBefore(w: WriteArgs): Promise<void> {
   if (w.op === "update" && w.changed.has("branch_id") && !everywhere) throw forbidden("جابه‌جایی دارایی میان شعبه‌ها با حوالهٔ انتقال است");
   if (w.op === "create" && !everywhere) {
     if (!n.branch_id) n.branch_id = unitOf(w.ctx);
-    if (!access().canWrite(w.ctx, w.def, n)) throw forbidden("دارایی را فقط برای شعبه یا واحدی می‌توانید ثبت کنید که اموال آن با شماست");
+    if (!mayActFor(w.ctx, n.branch_id)) throw forbidden("دارایی را فقط برای شعبه یا واحدی می‌توانید ثبت کنید که اموال آن با شماست");
   }
 }
 
@@ -193,7 +193,7 @@ async function transferBefore(w: WriteArgs): Promise<void> {
   if (isSys(w.ctx) || w.via === "sync") return;
   if (w.op === "update" && w.prev?.state !== "draft" && ["from_branch_id", "to_branch_id", "from_stockroom_id"].some((f) => w.changed.has(f))) throw conflict("مبدأ و مقصد حوالهٔ صادرشده تغییر نمی‌کند");
   // the sending branch issues the note: only for a branch whose assets the caller may change
-  if ((w.op === "create" || w.changed.has("from_branch_id")) && !access().canWrite(w.ctx, w.def, n)) throw forbidden("حواله را فقط برای دارایی‌های شعبه یا واحدی می‌توانید صادر کنید که اموال آن با شماست");
+  if ((w.op === "create" || w.changed.has("from_branch_id")) && !mayActFor(w.ctx, n.from_branch_id)) throw forbidden("حواله را فقط برای دارایی‌های شعبه یا واحدی می‌توانید صادر کنید که اموال آن با شماست");
   if (entering(w, "in_transit")) {
     n.dispatched_at = nowIso();
     n.dispatched_by = actorOf(w.ctx);
@@ -254,6 +254,7 @@ async function transferItemBefore(w: WriteArgs): Promise<void> {
     const a = await liveRow(w.tx, sysOf(w.ctx), "asset", n.asset_id);
     if (!a) throw bad("دارایی پیدا نشد");
     if (!isSys(w.ctx) && String(a.branch_id ?? "") !== String(parent.from_branch_id)) throw bad(`دارایی «${assetLabel(a)}» در شعبهٔ مبدأ این حواله ثبت نشده است`);
+    if (!isSys(w.ctx) && w.via !== "sync" && !access().canWrite(w.ctx, tableDef("asset")!, a)) throw forbidden("فقط دارایی‌ای را می‌توانید در حواله بگذارید که تغییر آن با شماست");
     if (["disposed", "canceled", "retired", "missing", "on_order", "in_transit"].includes(String(a.state))) throw conflict(`دارایی «${assetLabel(a)}» قابل انتقال نیست`);
     const busy = await liveRows(w.tx, sysOf(w.ctx), "asset_transfer_item", { and: [{ f: "asset_id", op: "eq", v: a.id }, { f: "transfer_id", op: "ne", v: parent.id }] }, { limit: 20 });
     for (const b of busy) {
@@ -276,8 +277,8 @@ export interface ReceiveInput {
   note?: string | null;
 }
 
-/** May the caller act for `branchId` (would they be able to change an asset of that branch)? */
-function mayActFor(ctx: Ctx, branchId: unknown): boolean {
+/** May the caller act for `branchId` (would they be able to change an asset of that branch that names nobody)? */
+export function mayActFor(ctx: Ctx, branchId: unknown): boolean {
   if (isSys(ctx)) return true;
   return access().canWrite(ctx, tableDef("asset")!, { org_id: ctx.org.id, branch_id: branchId, state: "in_stock" });
 }
@@ -581,7 +582,7 @@ export async function wipeCertificate(ctx: Ctx, itemId: string): Promise<Row> {
 async function namesOf(ctx: Ctx, ids: unknown[]): Promise<Map<string, string>> {
   const list = ids.filter(isUuid).map((x) => String(x));
   if (!list.length) return new Map();
-  const rows = await ctx.db.query<{ id: string; name: string }>(`select id, coalesce(nullif(full_name, ''), email) as name from sm_users where id = any($1::uuid[])`, [list]);
+  const rows = await ctx.db.query<{ id: string; name: string }>(`select id, coalesce(nullif(full_name, ''), email) as name from sm_users where id = any($1::uuid[])`, [pgArray(list)]);
   return new Map(rows.map((r) => [String(r.id), r.name]));
 }
 
@@ -627,16 +628,16 @@ export async function fleet(ctx: Ctx, input: FleetInput = {}): Promise<Row> {
   const incidents = new Map<string, number>();
   if (ciIds.length && tableDef("incident")) {
     const since = new Date(Date.now() - 90 * 86_400_000).toISOString();
-    const rows = await ctx.db.query<{ ci_id: string; n: string }>(`select ci_id, count(*) as n from sm_incidents where org_id = $1 and deleted_at is null and ci_id = any($2::uuid[]) and created_at >= $3 group by ci_id`, [ctx.org.id, ciIds, since]).catch(() => []);
+    const rows = await ctx.db.query<{ ci_id: string; n: string }>(`select ci_id, count(*) as n from sm_incidents where org_id = $1 and deleted_at is null and ci_id = any($2::uuid[]) and created_at >= $3 group by ci_id`, [ctx.org.id, pgArray(ciIds), since]).catch(() => []);
     for (const r of rows) incidents.set(String(r.ci_id), Number(r.n));
   }
   // work orders and maintenance plans (field service) of the devices' CIs
   const openWo = new Map<string, number>();
   const nextPm = new Map<string, string>();
   if (ciIds.length && tableDef("work_order")) {
-    const wo = await ctx.db.query<{ ci_id: string; n: string }>(`select ci_id, count(*) as n from sm_work_orders where org_id = $1 and deleted_at is null and ci_id = any($2::uuid[]) and state not in ('closed', 'canceled', 'completed') group by ci_id`, [ctx.org.id, ciIds]).catch(() => []);
+    const wo = await ctx.db.query<{ ci_id: string; n: string }>(`select ci_id, count(*) as n from sm_work_orders where org_id = $1 and deleted_at is null and ci_id = any($2::uuid[]) and state not in ('closed', 'canceled', 'completed') group by ci_id`, [ctx.org.id, pgArray(ciIds)]).catch(() => []);
     for (const r of wo) openWo.set(String(r.ci_id), Number(r.n));
-    const pm = await ctx.db.query<{ ci_id: string; d: string }>(`select ci_id, min(next_due)::text as d from sm_maintenance_plans where org_id = $1 and deleted_at is null and status = 'active' and ci_id = any($2::uuid[]) group by ci_id`, [ctx.org.id, ciIds]).catch(() => []);
+    const pm = await ctx.db.query<{ ci_id: string; d: string }>(`select ci_id, min(next_due)::text as d from sm_maintenance_plans where org_id = $1 and deleted_at is null and status = 'active' and ci_id = any($2::uuid[]) group by ci_id`, [ctx.org.id, pgArray(ciIds)]).catch(() => []);
     for (const r of pm) nextPm.set(String(r.ci_id), String(r.d).slice(0, 10));
   }
   const models = new Map((await liveRows(ctx.db, sys, "asset_model", { f: "category", op: "in", v: FLEET_CATEGORIES }, { limit: 2000 })).map((m) => [String(m.id), m]));

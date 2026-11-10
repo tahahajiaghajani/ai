@@ -750,7 +750,7 @@ const auditBefore = (w: WriteArgs) => {
     throw bad(k === "branch" ? "شعبهٔ شمارش را مشخص کنید" : k === "location" ? "مکان شمارش را مشخص کنید" : "انبار شمارش را مشخص کنید");
   }
   // a branch's staff count their own branch: the audit is anchored to it (scope.unit)
-  if (!isSys(w.ctx) && w.via !== "sync" && (w.op === "create" || w.changed.has("branch_id")) && w.next.branch_id && !access().canWrite(w.ctx, w.def, w.next)) {
+  if (!isSys(w.ctx) && w.via !== "sync" && (w.op === "create" || w.changed.has("branch_id")) && w.next.branch_id && !access().canWrite(w.ctx, tableDef("asset")!, { org_id: w.ctx.org.id, branch_id: w.next.branch_id, state: "in_stock" })) {
     throw forbidden("شمارش را فقط برای شعبه یا واحدی می‌توانید برنامه بگذارید که اموال آن با شماست");
   }
 };
