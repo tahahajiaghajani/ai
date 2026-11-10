@@ -35,16 +35,18 @@ internal identifiers stay neutral (`sm_*`, `itsm.*`, `ITSM_*`).
   `'self'` only and the SHA-256 of index.html's inline script, `frame-ancestors 'self'`, HSTS on HTTPS,
   X-Frame-Options, Referrer-Policy, Permissions-Policy, COOP/CORP; a route's own CSP — attachment contents — is kept);
   `/api/cron/*` answers 404 (the scheduler leader ticks); `/api/ready` (DB, migrations, accepting) and
-  `/api/server/metrics` (Prometheus text, bearer `metrics_token`); `bodyLimit` per request (`uploads.max_mb` for
-  upload paths, `uploads.request_max_mb` otherwise); `/api/setup/*`; the setup gate (until the first account exists
+  `/api/server/metrics` (Prometheus text, bearer `metrics_token`); a size limit per request (`uploads.max_mb` for
+  upload paths, `uploads.request_max_mb` otherwise) that never buffers: a declared length is judged at once, a chunked
+  body is counted while the route reads it after its own authentication (`byteLimit`, 413); `/api/setup/*`; the setup gate (until the first account exists
   every API but health/ready/meta/setup answers 503 `setup_required`); brotli/gzip of API answers (never
   `text/event-stream`); the static SPA (`static.ts`: `.br`/`.gz` variants, immutable `/assets` and `/fonts`, no-cache
   index.html, weak ETags, SPA fallback, 404 for missing assets, no path escape).
 - **Node-level request preparation** (`nodeHandler`, @hono/node-server, so the API sees the TCP peer as
   `c.env.incoming`): unless the peer is one of `trusted_proxies` (IP/CIDR) or loopback — `proxyTrusted` of
   `src/server/auth/session.ts`, the same rule the API's sign-in applies to `cfg.auth.trustedProxies` — client-supplied
-  `X-Forwarded-*`/`X-Real-IP`/`Forwarded` are dropped and `X-Real-IP` is set from the socket (rate limits and audit see
-  the real client; `sameOrigin` cannot be fooled with a forged `X-Forwarded-Host`). `cfg.auth` comes from kariz.json
+  `X-Forwarded-*`/`X-Real-IP`/`Forwarded` are dropped — from `req.headers` and `req.rawHeaders`, which @hono/node-server
+  builds Requests from — and `X-Real-IP` is set from the socket (rate limits, IP allowlists, the setup limiter and audit
+  see the real client; `sameOrigin` cannot be fooled with a forged `X-Forwarded-Host`). `cfg.auth` comes from kariz.json
   (`trusted_proxies`, `auth.directory_lan`, `auth.cookie_secure` "always", `auth.cookie_samesite`; env
   `ITSM_TRUSTED_PROXIES`, `ITSM_DIRECTORY_LAN`, `ITSM_COOKIE_SECURE`, `ITSM_COOKIE_SAMESITE`) and is reloaded with the
   file. A directory source's trusted-proxy SSO header is believed only from a peer on both the source's list and the
@@ -132,14 +134,18 @@ internal identifiers stay neutral (`sm_*`, `itsm.*`, `ITSM_*`).
 - `build-msi.ps1`: WiX 5 from the verified local feed (`nuget.config` with only that source), extension DLLs from the
   verified packages; `Package.wxs` harvests the payload with `<Files>`, `MajorUpgrade AllowSameVersionUpgrades`,
   launch conditions, properties (HOSTNAME, PORT, HTTPPORT, DATADIR (+ RegistrySearch), CERTPATH, CERTPASSWORD
-  (hidden, `HideTarget`), AIRGAPPED, WORKERS, REMOVEDATA), deferred `WixQuietExec` actions: `install.ps1`
-  (install/re-install/upgrade), `uninstall.ps1 -Upgrade` (old version's side: pre-upgrade backup, a failure stops the
-  upgrade), `uninstall.ps1` (removal; never blocks it).
-- `install.ps1` (Windows PowerShell 5.1, idempotent): prerequisites (build ≥ 17763, memory, disk, ports), `karizctl
-  init` (secrets kept), certificate, WinSW services with virtual accounts + `sc failure`, ACLs (data folder: Admins,
-  SYSTEM, `NT SERVICE\KarizApp` modify; `db`: `NT SERVICE\KarizDB` only; `kariz.json`: Admins, SYSTEM, app),
+  (hidden, `HideTarget`; the action's own property hidden too), AIRGAPPED, WORKERS, REMOVEDATA; PORT/HTTPPORT without
+  defaults, DATADIR from the registry only when not given), deferred `WixSilentExec` actions (no script output in the
+  MSI log): `install.ps1` (install/re-install/upgrade), `uninstall.ps1 -Upgrade` (old version's side: pre-upgrade
+  backup, a failure stops the upgrade; services stopped, kept registered) with its rollback `uninstall.ps1 -Restore`
+  (a failed upgrade starts the old services again), `uninstall.ps1` (removal; never blocks it).
+- `install.ps1` (Windows PowerShell 5.1 — ASCII only, parsed by 5.1 in CI —, idempotent): DATADIR checked (no drive
+  root, system folder or foreign folder; marker `.kariz-data`) and locked to Admins/SYSTEM before anything is written,
+  prerequisites (build ≥ 17763, memory, disk, ports — kept from kariz.json unless given), `karizctl init` (secrets
+  kept), certificate, WinSW services with virtual accounts + `sc failure`, ACLs (data folder: Admins, SYSTEM,
+  `NT SERVICE\KarizApp` modify; `db`: `NT SERVICE\KarizDB` only; `kariz.json`: Admins, SYSTEM, app),
   `db-init`/`pg-conf` (disk media detected), start DB, bootstrap, migrate, firewall rule, machine env/PATH, registry,
-  start app, `wait-ready`, setup token. Logged to `<data>\logs\install-<time>.log` and the MSI log.
+  start app, `wait-ready`, setup token (to `setup-url.txt` only). Logged to `<data>\logs\install-<time>.log`.
 - CI (`.github/workflows/itsm.yml`): job `server` on `windows-latest` (build, fetch, pgvector, MSI twice — the second
   build has the same version and another ProductCode, for a real major upgrade), `smoke-test.ps1`: Windows Firewall
   default outbound **Block** (only the runner's own executables and DNS allowed; verified with a request that must
