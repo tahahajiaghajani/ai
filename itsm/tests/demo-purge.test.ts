@@ -44,7 +44,11 @@ const BOOKKEEPING: Record<string, string[]> = {
  * «the purge never deletes, reverts or erases real data») — tests/demo-safety.test.ts proves that rule. Allowed here,
  * with their own history and numbering counters; nothing in them may name a demo row.
  */
-const REAL_WORK = new Set(["sm_cab_meetings", "sm_grc_issues", "sm_grc_controls", "sm_cmdb_rules", "sm_ci_rel_rules", "sm_kb_articles", "sm_kb_bases", "sm_itam_configs", "sm_numbers"]);
+// sm_analytics_configs / sm_analytics_dashboards: the organisation's own analytics seed (SEED_DELAY_MS + 2 min after it is
+// created) and daily snapshot (analytics/jobs.ts: last_snapshot_on, collected_at) run on their own clock, outside the demo
+// scope, and can land between the two snapshots on a loaded machine; the purge rightly keeps that work. The check below
+// still proves these tables name no demo row.
+const REAL_WORK = new Set(["sm_cab_meetings", "sm_grc_issues", "sm_grc_controls", "sm_cmdb_rules", "sm_ci_rel_rules", "sm_kb_articles", "sm_kb_bases", "sm_itam_configs", "sm_analytics_configs", "sm_analytics_dashboards", "sm_numbers"]);
 
 /** Checked on their own below: the job queue (scheduling state) and the audit log (the allowed lines). */
 const SPECIAL = new Set(["sm_jobs", "sm_audit", "sm_org_sync", "sm_migrations"]);
