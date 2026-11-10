@@ -34,4 +34,5 @@ export { loadReadable, requireReadable, canOpenRecords, readSecret, toOutput, fr
 export { onBeforeCommit } from "../db";
 export { RefSet, resolveDisplay, labelOf } from "./display";
 export { bumpScopeEpoch, scopeEpoch } from "./sync";
-export { ddlFor, ddlForAll, reconcileSchema } from "./ddl";
+export { ddlFor, ddlForAll, reconcileSchema, archivable, archiveTableOf } from "./ddl";
+export { archiveSettings, archiveBatch, purgeArchived, archivableTables, scheduleArchive, archiveSummary, ARCHIVE_DEFAULT_YEARS, type ArchiveSettings } from "./archive";

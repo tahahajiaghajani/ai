@@ -70,7 +70,7 @@ export async function listHistory(ctx: Ctx, table: string, id: string, opts: { l
   const { def, schema } = await defFor(ctx, table);
   if (def.features?.history === false) throw forbidden("این جدول تاریخچه ندارد");
   const env = await condEnv(ctx);
-  await requireReadable(ctx, def, id, env);
+  await requireReadable(ctx, def, id, env, ctx.db, { archived: true });
   const visible = access().visibleFields(ctx, def);
   const params: unknown[] = [ctx.org.id, def.key, id];
   let cond = "";

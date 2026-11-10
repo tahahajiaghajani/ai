@@ -19,6 +19,7 @@ import { RefSet, resolveDisplay } from "./display";
 import { canOpenRecords, fromDb, loadReadable, pathVisible, requireReadable, toOutput, type Row } from "./read";
 import { metaProvidersFor, redactRows } from "./hooks";
 import { createIn, isLocked, removeIn, savepoint, transitionIn, updateIn, type WriteOptions } from "./write";
+import { archivable, archiveTableOf } from "./ddl";
 
 export interface ListParams {
   /** a condition (validated against the table; fields the caller may not see are refused) */
@@ -50,6 +51,8 @@ export interface ListParams {
    * keys (`updated_at`, `created_at`, `number`, in one direction); otherwise, or when the sort changed, `page` is used.
    */
   after?: string;
+  /** read the table's archive (old closed records, engine/archive.ts) instead of the hot table */
+  archived?: boolean;
   /**
    * Server-side only (never from a request body): one more SQL condition on the row alias with its parameters — the
    * AI-use rule of a table's records (`aiChannelRule`) when the assistant's generated tools list them.
@@ -226,8 +229,10 @@ export async function list(ctx: Ctx, table: string, p: ListParams = {}): Promise
     const rhs = after.map((v, i) => `${ph(params, v)}::${seek.casts[i]}`);
     pageWhere = `${whereSql} and ${lhs} ${seek.dir === "desc" ? "<" : ">"} ${rhs.length > 1 ? `(${rhs.join(", ")})` : rhs[0]}`;
   }
+  // the archive has the same columns and the same read rule
+  const from = p.archived && archivable(def) ? archiveTableOf(def) : def.table;
   const rows = await ctx.db.query<Row>(
-    `select ${[...sel.sql, ...(seek ? seek.select : [])].join(", ")} from ${def.table} t where ${pageWhere} order by ${order} limit ${size}${after ? "" : ` offset ${(page - 1) * size}`}`,
+    `select ${[...sel.sql, ...(seek ? seek.select : [])].join(", ")} from ${from} t where ${pageWhere} order by ${order} limit ${size}${after ? "" : ` offset ${(page - 1) * size}`}`,
     params,
   );
   let total: number | null = null;
@@ -236,10 +241,10 @@ export async function list(ctx: Ctx, table: string, p: ListParams = {}): Promise
     if (page === 1 && !after && rows.length < size) total = rows.length;
     else if (p.countLimit && p.countLimit > 0) {
       const limit = Math.trunc(p.countLimit);
-      const n = Number((await ctx.db.one<{ n: number }>(`select count(*)::int as n from (select 1 from ${def.table} t where ${whereSql} limit ${limit + 1}) x`, countParams))?.n ?? 0);
+      const n = Number((await ctx.db.one<{ n: number }>(`select count(*)::int as n from (select 1 from ${from} t where ${whereSql} limit ${limit + 1}) x`, countParams))?.n ?? 0);
       capped = n > limit;
       total = capped ? limit : n;
-    } else total = Number((await ctx.db.one<{ n: number }>(`select count(*)::int as n from ${def.table} t where ${whereSql}`, countParams))?.n ?? 0);
+    } else total = Number((await ctx.db.one<{ n: number }>(`select count(*)::int as n from ${from} t where ${whereSql}`, countParams))?.n ?? 0);
   }
   const last = rows[rows.length - 1];
   const next = seek && rows.length === size && last ? encodeCursor(sortSpec, seek.select.map((_, i) => String(last[`$seek${i}`]))) : null;
@@ -418,13 +423,19 @@ export async function get(ctx: Ctx, table: string, id: string): Promise<RecordRe
     return { row: r.rows[0], display: r.display, meta: { canWrite: false, canDelete: false, readonly: def.fields.map((f) => f.name), transitions: [], locked: false } };
   }
   const env = await condEnv(ctx);
-  const row = await requireReadable(ctx, def, id, env);
+  // a record moved to the archive is read there, read-only (engine/archive.ts)
+  const row = await requireReadable(ctx, def, id, env, ctx.db, { archived: true });
   await redactRows(ctx.db, ctx, def, [row]);
   const visible = access().visibleFields(ctx, def);
   const out = toOutput(def, row, visible);
   const refs = new RefSet();
   refs.addRow(def, out);
-  const [display, meta] = await Promise.all([resolveDisplay(ctx.db, ctx, env, schema, refs), recordMeta(ctx.db, ctx, def, row, env)]);
+  const [display, meta] = await Promise.all([
+    resolveDisplay(ctx.db, ctx, env, schema, refs),
+    row.$archived
+      ? Promise.resolve<RecordMeta>({ canWrite: false, canDelete: false, readonly: def.fields.map((f) => f.name), transitions: [], locked: true, archived: true })
+      : recordMeta(ctx.db, ctx, def, row, env),
+  ]);
   // read only as a participant with a grant of its own (an approver without a role in the area)
   if (!access().canReadTable(ctx, def)) meta.reach = "participant";
   return { row: out, display, meta };

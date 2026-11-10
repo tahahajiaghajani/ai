@@ -77,7 +77,7 @@ describe("list performance", () => {
     const exact = await list(ctx, "todo", { size: 20 });
     expect(exact.total).toBe(20000);
     expect(exact.capped).toBeUndefined();
-    const ids = (r: { rows: { id: unknown }[] }) => r.rows.map((x) => String(x.id));
+    const ids = (r: { rows: Record<string, unknown>[] }) => r.rows.map((x) => String(x.id));
     const p1 = await list(ctx, "todo", { sort: "-updated_at", size: 50, total: false });
     expect(p1.next).toBeTruthy();
     const viaCursor = await list(ctx, "todo", { sort: "-updated_at", size: 50, page: 2, after: p1.next!, total: false });

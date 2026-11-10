@@ -163,9 +163,66 @@ begin
 end
 $do$;`;
 
-/** The DDL of every registered table (deterministic: sorted by key). */
+/**
+ * Tables whose closed records may leave the hot table for an archive (docs/PERFORMANCE_FA.md §۸, engine/archive.ts):
+ * numbered work records with an open/closed flag (`active`) that no other record scopes as its parent.
+ */
+export function archivable(def: TableDef): boolean {
+  if (def.virtual || !def.numbered || def.scope?.parent) return false;
+  return def.fields.some((f) => f.name === "active" && f.type === "bool" && !f.custom) && def.fields.some((f) => f.name === "closed_at" && !f.custom);
+}
+
+/** The archive table of an archivable table. */
+export const archiveTableOf = (def: TableDef) => shortName(`${def.table}_arc`);
+
+/**
+ * The archive of an archivable table: the same columns (numbers and the search document kept as stored, not
+ * generated), the record's archival time, the indexes reads of old records use — by number, by the requester and
+ * the group, newest first, the search document (trigram, where pg_trgm exists) — no sync trigger (archived records
+ * stay on the server) and row level security.
+ */
+export function archiveDdl(def: TableDef): string {
+  if (!archivable(def)) return "";
+  const a = archiveTableOf(def);
+  const out: string[] = [`-- ${def.key}: archive`];
+  out.push(`create table if not exists ${a} (\n  id uuid primary key,\n  org_id uuid not null references sm_orgs(id) on delete cascade,\n  archived_at timestamptz not null default now()\n);`);
+  for (const col of BASE_DDL) out.push(`alter table ${a} add column if not exists ${col};`);
+  out.push(`alter table ${a} add column if not exists no integer;`, `alter table ${a} add column if not exists number text;`);
+  for (const f of def.fields) {
+    if (f.base || f.custom) continue;
+    out.push(`alter table ${a} add column if not exists ${f.name} ${columnType(f)};`);
+  }
+  const search = searchColumn(def);
+  if (search) out.push(`alter table ${a} add column if not exists ${search.name} text;`);
+  const idx = (suffix: string, body: string) => out.push(`create index if not exists ${shortName(`${a}_${suffix}`)} on ${a} ${body};`);
+  idx("no_idx", "(org_id, no)");
+  idx("arch_idx", "(org_id, archived_at)");
+  idx("upd_idx", "(org_id, updated_at desc, id desc) where deleted_at is null");
+  for (const name of [...new Set([...(def.scope?.own ?? []), def.scope?.group, "unit_id"].filter(Boolean) as string[])]) {
+    const f = def.fields.find((x) => x.name === name);
+    if (f && !f.custom && !FIELD_TYPES[f.type].array) idx(`${name}_idx`, `(org_id, ${name}) where deleted_at is null`);
+  }
+  if (search) {
+    out.push(
+      [
+        "do $arc$",
+        "declare s text;",
+        "begin",
+        "  select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';",
+        `  if s is not null then execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', '${shortName(`${a}_${search.name}_trgm`)}', '${a}', '${search.name}', s); end if;`,
+        "end",
+        "$arc$;",
+      ].join("\n"),
+    );
+  }
+  out.push(`alter table ${a} enable row level security;`);
+  return out.join("\n");
+}
+
+/** The DDL of every registered table (deterministic: sorted by key), archives after their tables. */
 export function ddlForAll(): string {
-  return `${physicalTables().map(ddlFor).join("\n\n")}\n\n${REVOKE}\n`;
+  const archives = physicalTables().map(archiveDdl).filter(Boolean);
+  return `${physicalTables().map(ddlFor).join("\n\n")}\n\n${archives.length ? `${archives.join("\n\n")}\n\n` : ""}${REVOKE}\n`;
 }
 
 export function ddlHash(sql = ddlForAll()): string {
