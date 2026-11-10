@@ -121,7 +121,7 @@ export async function overview(cfg: ServerConfig) {
       orgs: { total: n("orgs_total"), active_30d: n("orgs_active_30d"), new_30d: n("orgs_new_30d"), read_only: n("orgs_read_only"), suspended: n("orgs_suspended") },
       users: { total: n("users_total"), active_today: n("users_active_today"), active_7d: n("users_active_7d"), disabled: n("users_disabled"), admins: n("users_admins"), new_30d: n("users_new_30d") },
       devices: { total: n("devices_total"), active_7d: n("devices_active_7d") },
-      db: { bytes: n("db_bytes"), limit: cfg.mode === "cloud" ? FREE_DB_BYTES : null },
+      db: { bytes: n("db_bytes"), limit: cfg.mode === "cloud" && !cfg.server ? FREE_DB_BYTES : null },
       ai,
       security: { events_24h: n("events_24h"), failed_sign_ins_24h: failed },
       support: { active: n("support_active") },

@@ -12,6 +12,7 @@ import { pickPath } from "@shared/json-path";
 import { renderBody } from "@shared/flows";
 import { faDigits } from "@shared/format";
 import { registerBuiltinStepHandler, type StepContext, type StepOutcome } from "./registry";
+import { lanAllowed } from "../../net";
 
 export interface ConnectionRow {
   id: string;
@@ -110,7 +111,8 @@ export async function callHttp(s: StepContext): Promise<StepOutcome> {
   } catch {
     return { error: "نشانی درخواست معتبر نیست" };
   }
-  const desktop = s.cfg.mode === "desktop";
+  // the Windows app and the server edition reach their own network (http:// servers included)
+  const desktop = lanAllowed(s.cfg);
   if (url.protocol !== "https:" && !(desktop && url.protocol === "http:")) return { error: "فقط نشانی‌های https:// مجازند" };
   if (url.username || url.password) return { error: "نام کاربری و گذرواژه در نشانی مجاز نیست؛ آن‌ها را در اتصال ثبت کنید" };
   if (!hostAllowed(url.hostname, conn)) return { error: `میزبان «${url.hostname}» در فهرست مجاز اتصال «${conn.name}» نیست` };

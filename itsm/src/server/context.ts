@@ -7,6 +7,8 @@ import { forbidden } from "./http/errors";
 import { assertWritable } from "./modules/platform/org-admin";
 import { recordSupportWrite } from "./modules/platform/support";
 import { bumpLocal } from "./live";
+import type { NetworkPolicy } from "./net";
+import type { BlobStore } from "./blobs";
 
 export type Mode = "cloud" | "desktop";
 
@@ -46,6 +48,15 @@ export interface DesktopBridge {
   fetchBlob?(orgId: string, attachmentId: string): Promise<Uint8Array | null>;
 }
 
+/**
+ * Capabilities of the server edition (Windows Server on an organisation's intranet, src/server-edition): the platform
+ * owner's «سلامت سرور» and what /api/meta tells the screens. Absent on the web version and the Windows app.
+ */
+export interface ServerEditionBridge {
+  health(): Promise<Record<string, unknown>>;
+  info(): { air_gapped: boolean; public_url: string; directory_path: string };
+}
+
 export interface ServerConfig {
   mode: Mode;
   db: Db;
@@ -81,6 +92,15 @@ export interface ServerConfig {
    * (an on-premises server; env ITSM_DIRECTORY_LAN=1) — the web version reaches public LDAP hosts only.
    */
   auth?: { cookieSecure?: "auto" | "always" | "never"; cookieSameSite?: "Lax" | "Strict"; trustedProxies?: string[]; directoryLan?: boolean };
+  /**
+   * Outbound network policy (src/server/net.ts): absent = the mode's default (web: public hosts only; Windows app:
+   * the office network). The server edition reaches its intranet and, air-gapped, only its allowlist.
+   */
+  network?: NetworkPolicy;
+  /** Where attachment contents live (src/server/blobs.ts); absent = the database (sm_blobs). */
+  blobs?: BlobStore;
+  /** The server edition's operations (absent elsewhere). */
+  server?: ServerEditionBridge;
 }
 
 export interface AuthUser {

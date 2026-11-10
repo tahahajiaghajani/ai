@@ -7,6 +7,10 @@ export interface Meta {
   app: string;
   version: string;
   mode: "cloud" | "desktop";
+  /** the web version, the Windows app, or the server edition (Windows Server on an organisation's intranet) */
+  edition?: "web" | "desktop" | "server";
+  /** the server edition: air-gapped network, public address and the directory (AD) settings page */
+  server?: { air_gapped: boolean; public_url: string; directory_path: string } | null;
   allow_signup: boolean;
   first_run: boolean;
   schema: { pending: string[]; current: string; latest: string } | null;

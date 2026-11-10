@@ -1,0 +1,28 @@
+<!--
+  WinSW 2.12 service: the application server of the server edition (node.exe app\server.cjs: a supervisor and one
+  worker per core). Starts after {{DB_NAME}}; runs as the virtual account NT SERVICE\{{APP_NAME}}. Stopping sends
+  Ctrl+C: the supervisor lets requests in flight finish and stops its workers.
+-->
+<service>
+  <id>{{APP_NAME}}</id>
+  <name>{{APP_DISPLAY}}</name>
+  <description>{{APP_DESCRIPTION}}</description>
+  <executable>{{INSTALL_DIR}}\node\node.exe</executable>
+  <arguments>--max-old-space-size={{NODE_HEAP_MB}} "{{INSTALL_DIR}}\app\server.cjs"</arguments>
+  <workingdirectory>{{INSTALL_DIR}}\app</workingdirectory>
+  <depend>{{DB_NAME}}</depend>
+  <stoptimeout>60 sec</stoptimeout>
+  <startmode>Automatic</startmode>
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+  <onfailure action="restart" delay="60 sec"/>
+  <resetfailure>1 hour</resetfailure>
+  <env name="ITSM_SERVER_CONFIG" value="{{DATA_DIR}}\kariz.json"/>
+  <env name="ITSM_INSTALL_DIR" value="{{INSTALL_DIR}}"/>
+  <env name="NODE_ENV" value="production"/>
+  <logpath>{{DATA_DIR}}\logs\service</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>8</keepFiles>
+  </log>
+</service>

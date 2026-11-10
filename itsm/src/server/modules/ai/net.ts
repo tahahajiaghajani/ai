@@ -10,7 +10,7 @@
 // does not expose without the undici package.
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { safeExternalUrl } from "../../net";
+import { safeExternalUrl, OutboundBlockedError } from "../../net";
 import { BlockedAddressError, ProviderError } from "./types";
 
 /** Name resolution used by the guard (tests replace it to stay off the network). */
@@ -28,6 +28,21 @@ function urlOf(input: RequestInfo | URL): URL {
   if (typeof input === "string") return new URL(input);
   if (input instanceof URL) return input;
   return new URL(input.url);
+}
+
+/**
+ * fetch for provider calls on runtimes that reach the internal network (the Windows app, the server edition): a host
+ * the air-gap policy refuses becomes a BlockedAddressError (shown on the connection, never retried).
+ */
+export function lanFetch(inner: typeof fetch): typeof fetch {
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    try {
+      return await inner(input, init);
+    } catch (e) {
+      if (e instanceof OutboundBlockedError) throw new BlockedAddressError(e.message);
+      throw e;
+    }
+  }) as typeof fetch;
 }
 
 /** fetch for provider calls on the web version: public hosts only, no redirects. */

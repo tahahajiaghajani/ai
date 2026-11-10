@@ -14,3 +14,7 @@ desktop/app/
 desktop/release/
 desktop/build/generated/
 .local-data/
+
+# server edition bundle and local test database
+server-dist/
+packaging/server/.cache/

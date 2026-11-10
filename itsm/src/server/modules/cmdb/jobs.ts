@@ -19,7 +19,7 @@ import { addDays, todayISO } from "@shared/jalali";
 import type { Ctx } from "../../context";
 import { createIn, emitEvent, systemCtx, transitionIn, updateIn } from "../../engine";
 import { enqueue, registerJobHandler, type JobContext } from "../../jobs";
-import { safeExternalUrl, fetchText } from "../../net";
+import { safeExternalUrl, fetchText, lanAllowed } from "../../net";
 import { actsHere } from "../notify";
 import { registerTopicHandler } from "../integrations/service";
 import { cmdbConfig, eqAll, isUuid, liveRow, liveRows, sysOf, type Row } from "./common";
@@ -62,7 +62,7 @@ export async function runUrlSource(sys: Ctx, sourceId: string): Promise<{ rows: 
   const src = await liveRow(sys.db, sys, "cmdb_data_source", sourceId);
   if (!src || src.kind !== "url" || !src.url) return { rows: 0, error: "منبع نشانی وب نیست" };
   const mark = (status: string) => sys.write((tx) => updateIn(tx, sys, "cmdb_data_source", src.id, { last_run_at: new Date().toISOString(), last_status: status.slice(0, 300) }, { trusted: true, keepVersion: true }));
-  const url = sys.cfg.mode === "cloud" ? safeExternalUrl(String(src.url)) : String(src.url);
+  const url = lanAllowed(sys.cfg) || !safeExternalUrl(String(src.url)) ? String(src.url) : null;
   if (!url) {
     await mark("نشانی منبع عمومی و امن (https) نیست");
     return { rows: 0, error: "unsafe url" };

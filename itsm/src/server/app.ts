@@ -53,6 +53,9 @@ export function createApp(cfg: ServerConfig) {
       version: APP_VERSION,
       sync_protocol: SYNC_PROTOCOL,
       mode: cfg.mode,
+      // the web version, the Windows app, or the server edition (Windows Server on an organisation's intranet)
+      edition: cfg.server ? "server" : cfg.mode === "desktop" ? "desktop" : "web",
+      server: cfg.server ? cfg.server.info() : null,
       allow_signup: cfg.allowSignup || (users?.n ?? 0) === 0,
       first_run: (users?.n ?? 0) === 0,
       schema: status ? { pending: status.pending, current: status.current, latest: status.latest } : null,

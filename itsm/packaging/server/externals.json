@@ -1,0 +1,6 @@
+{
+  "$comment": "The ONE list of packages the server bundle (app/server.cjs, app/karizctl.cjs) does not inline. scripts/build-server.mjs marks them external and copies each installed one with its dependency closure into app/node_modules. 'native' packages are optional and loaded lazily (Windows SSO: the AD engineer's kerberos or node-expose-sspi); their prebuilt win32-x64 binaries arrive with `npm ci` on the Windows CI runner (prebuild-install / node-gyp-build), never at install time on the bank's server. A listed package that is not installed is skipped with a note. 'unused' packages are imported by code the server edition never runs (the Windows app's PGlite) and are neither bundled nor shipped.",
+  "external": [],
+  "native": ["kerberos", "node-expose-sspi"],
+  "unused": ["@electric-sql/pglite", "@electric-sql/pglite/*", "@electric-sql/pglite-pgvector", "@electric-sql/pglite-socket", "electron"]
+}

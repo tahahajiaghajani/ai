@@ -18,6 +18,7 @@ import type { TableDef } from "@shared/model/types";
 import type { Ctx } from "../context";
 import type { Queryable } from "../db";
 import { pgArray } from "../db";
+import { blobStore, type BlobStream } from "../blobs";
 import { AppError, bad, forbidden, notFound } from "../http/errors";
 import { access } from "../access/provider";
 import { actorId, condEnv, isSystemCtx } from "./env";
@@ -132,11 +133,9 @@ function needAttachments(def: TableDef) {
   if (!def.features?.attachments) throw bad(`«${def.plural}» پیوست ندارد`);
 }
 
-async function storeBlob(q: Queryable, orgId: string, sha: string, data: Uint8Array): Promise<void> {
-  await q.query(
-    `insert into sm_blobs (org_id, sha256, size, data) values ($1, $2, $3, decode($4, 'base64')) on conflict (org_id, sha256) do nothing`,
-    [orgId, sha, data.byteLength, Buffer.from(data).toString("base64")],
-  );
+// contents go to the runtime's blob store (src/server/blobs.ts: sm_blobs, or the server edition's disk)
+async function storeBlob(cfg: Ctx["cfg"], q: Queryable, orgId: string, sha: string, data: Uint8Array): Promise<void> {
+  await blobStore(cfg).put(q, orgId, sha, data);
 }
 
 /** Attach a file to a record the caller may read. */
@@ -145,6 +144,8 @@ export async function addAttachment(ctx: Ctx, table: string, id: string, file: U
   needAttachments(def);
   checkUpload(ctx, file);
   const env = await condEnv(ctx);
+  // a store that writes and scans files does it before the write lock is taken
+  await blobStore(ctx.cfg).prepare?.(ctx.org.id, sha256Hex(file.data), file.data);
   return ctx.write(async (tx) => {
     const record = await requireReadable(ctx, def, id, env, tx);
     await checkSide({ tx, ctx, def, record, kind: "attachment" });
@@ -168,7 +169,7 @@ export async function addAttachmentIn(tx: Queryable, ctx: Ctx, def: TableDef, re
   const name = safeFileName(file.name);
   const mime = sniffMime(file.data, name);
   const sha = sha256Hex(file.data);
-  await storeBlob(tx, ctx.org.id, sha, file.data);
+  await storeBlob(ctx.cfg, tx, ctx.org.id, sha, file.data);
   const row = await tx.one<Row>(
     `insert into sm_attachments (id, org_id, table_key, record_id, name, mime, size, sha256, uploaded_by, origin)
      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning *`,
@@ -226,8 +227,8 @@ export async function removeAttachment(ctx: Ctx, table: string, id: string, atta
   return { ok: true };
 }
 
-/** An attachment's metadata and content, if the caller may read its record (fetched from the cloud on the desktop). */
-export async function readAttachment(ctx: Ctx, attachmentId: string): Promise<{ meta: AttachmentView; data: Uint8Array }> {
+/** The attachment row, if the caller may read its record. */
+async function readableAttachment(ctx: Ctx, attachmentId: string): Promise<Row> {
   if (!/^[0-9a-f-]{36}$/i.test(attachmentId)) throw notFound("پیوست پیدا نشد");
   const att = await ctx.db.one<Row>(`select * from sm_attachments where id = $1 and org_id = $2 and deleted_at is null`, [attachmentId, ctx.org.id]);
   if (!att) throw notFound("پیوست پیدا نشد");
@@ -239,16 +240,38 @@ export async function readAttachment(ctx: Ctx, attachmentId: string): Promise<{ 
     throw notFound("پیوست پیدا نشد");
   });
   if (!(await filterSide({ q: ctx.db, ctx, def, record, kind: "attachment", rows: [att] })).length) throw notFound("پیوست پیدا نشد");
-  let blob = await ctx.db.one<{ b64: string }>(`select encode(data, 'base64') as b64 from sm_blobs where org_id = $1 and sha256 = $2`, [ctx.org.id, att.sha256]);
-  if (!blob && ctx.cfg.desktop?.fetchBlob) {
-    const data = await ctx.cfg.desktop.fetchBlob(ctx.org.id, att.id).catch(() => null);
-    if (data && sha256Hex(data) === att.sha256) {
-      await storeBlob(ctx.db, ctx.org.id, att.sha256, data);
-      return { meta: view(att), data };
+  return att;
+}
+
+const blobMissing = () => new AppError(404, "blob_missing", "محتوای این پیوست هنوز به این‌جا نرسیده است؛ پس از همگام‌سازی دوباره امتحان کنید");
+
+/** An attachment's metadata and content, if the caller may read its record (fetched from the cloud on the desktop). */
+export async function readAttachment(ctx: Ctx, attachmentId: string): Promise<{ meta: AttachmentView; data: Uint8Array }> {
+  const att = await readableAttachment(ctx, attachmentId);
+  const store = blobStore(ctx.cfg);
+  const data = await store.get(ctx.db, ctx.org.id, att.sha256);
+  if (data) return { meta: view(att), data };
+  if (ctx.cfg.desktop?.fetchBlob) {
+    const fetched = await ctx.cfg.desktop.fetchBlob(ctx.org.id, att.id).catch(() => null);
+    if (fetched && sha256Hex(fetched) === att.sha256) {
+      await storeBlob(ctx.cfg, ctx.db, ctx.org.id, att.sha256, fetched);
+      return { meta: view(att), data: fetched };
     }
   }
-  if (!blob) throw new AppError(404, "blob_missing", "محتوای این پیوست هنوز به این‌جا نرسیده است؛ پس از همگام‌سازی دوباره امتحان کنید");
-  return { meta: view(att), data: new Uint8Array(Buffer.from(blob.b64, "base64")) };
+  throw blobMissing();
+}
+
+/**
+ * An attachment's content for the download route: a stream when the store can serve one (the server edition's files,
+ * never loaded into memory), else the bytes.
+ */
+export async function openAttachment(ctx: Ctx, attachmentId: string): Promise<{ meta: AttachmentView } & ({ stream: BlobStream; data?: undefined } | { data: Uint8Array; stream?: undefined })> {
+  const store = blobStore(ctx.cfg);
+  if (!store.open) return readAttachment(ctx, attachmentId);
+  const att = await readableAttachment(ctx, attachmentId);
+  const stream = await store.open(ctx.org.id, att.sha256);
+  if (!stream) throw blobMissing();
+  return { meta: view(att), stream };
 }
 
 /** Of these contents, the ones attachments of the organisation use but this database lacks. */
@@ -256,12 +279,10 @@ export async function missingBlobs(ctx: Ctx, shas: string[]): Promise<string[]> 
   const clean = [...new Set(shas.filter((s) => /^[0-9a-f]{64}$/.test(s)))].slice(0, 1000);
   if (!clean.length) return [];
   const rows = await ctx.db.query<{ sha256: string }>(
-    `select distinct a.sha256 from sm_attachments a
-     where a.org_id = $1 and a.sha256 = any($2::text[]) and a.deleted_at is null
-       and not exists (select 1 from sm_blobs b where b.org_id = a.org_id and b.sha256 = a.sha256)`,
+    `select distinct a.sha256 from sm_attachments a where a.org_id = $1 and a.sha256 = any($2::text[]) and a.deleted_at is null`,
     [ctx.org.id, pgArray(clean)],
   );
-  return rows.map((r) => r.sha256);
+  return blobStore(ctx.cfg).missing(ctx.db, ctx.org.id, rows.map((r) => r.sha256));
 }
 
 /** Store a content an attachment of a record the caller may read refers to (the Windows app's offline uploads). */
@@ -282,7 +303,11 @@ export async function putBlob(ctx: Ctx, sha: string, data: Uint8Array): Promise<
     }
   }
   if (!allowed) throw notFound("پیوستی با این محتوا پیدا نشد");
-  const had = await ctx.db.one(`select 1 from sm_blobs where org_id = $1 and sha256 = $2`, [ctx.org.id, sha]);
-  if (!had) await ctx.write((tx) => storeBlob(tx, ctx.org.id, sha, data), { internal: true });
+  const store = blobStore(ctx.cfg);
+  const had = await store.has(ctx.db, ctx.org.id, sha);
+  if (!had) {
+    await store.prepare?.(ctx.org.id, sha, data);
+    await ctx.write((tx) => storeBlob(ctx.cfg, tx, ctx.org.id, sha, data), { internal: true });
+  }
   return { ok: true, stored: !had };
 }

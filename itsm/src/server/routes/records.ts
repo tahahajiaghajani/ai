@@ -13,7 +13,7 @@ import { addJournal, JOURNAL_KINDS, listJournal, type JournalKind } from "../eng
 import { listHistory } from "../engine/history";
 import { addLink, listLinks, removeLink } from "../engine/links";
 import { watch } from "../engine/watchers";
-import { addAttachment, contentDisposition, listAttachments, missingBlobs, putBlob, readAttachment, removeAttachment } from "../engine/attachments";
+import { addAttachment, contentDisposition, listAttachments, missingBlobs, openAttachment, putBlob, removeAttachment } from "../engine/attachments";
 import { exportRows, importRows } from "../engine/transfer";
 import { tableMeta, tablesMeta } from "../engine/meta";
 
@@ -212,13 +212,14 @@ recordRoutes.delete("/r/:table/:id/attachments/:attachmentId", async (c) =>
 
 /** An attachment's content: `attachment` unless ?inline=1 for a raster image; never sniffed, never scripted. */
 recordRoutes.get("/attachments/:id/content", async (c) => {
-  const { meta, data } = await readAttachment(c.get("ctx"), c.req.param("id"));
+  // a stream when the blob store serves files (the server edition), else the bytes
+  const { meta, data, stream } = await openAttachment(c.get("ctx"), c.req.param("id"));
   const inline = c.req.query("inline") === "1" && meta.previewable;
-  return new Response(Buffer.from(data), {
+  return new Response(stream ? stream.stream : Buffer.from(data), {
     status: 200,
     headers: {
       "content-type": inline || meta.mime !== "text/html" ? meta.mime : "application/octet-stream",
-      "content-length": String(data.byteLength),
+      "content-length": String(stream ? stream.size : data.byteLength),
       "content-disposition": contentDisposition(meta.name, inline),
       "x-content-type-options": "nosniff",
       "content-security-policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox",

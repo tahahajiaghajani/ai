@@ -11,7 +11,7 @@ import type { Queryable, Tx } from "../../db";
 import { isSystemCtx, orgSchema, orgTz, registerHooks, registerRecordMeta } from "../../engine";
 import { prepareSubject, subjectOf } from "../../access";
 import { bad, forbidden } from "../../http/errors";
-import { safeExternalUrl } from "../../net";
+import { safeExternalUrl, lanAllowed } from "../../net";
 import { fullGrant, grantIn, type FullGrant } from "@shared/access";
 import { FLOW_LIMITS, FLOW_TABLE_KEYS, describeSchedule, emptyGraph, nextOccurrence, scheduleProblem, type ScheduleSpec } from "@shared/flows";
 import { faDigits } from "@shared/format";
@@ -104,14 +104,14 @@ export function installFlowHooks(): void {
       if (w.op === "delete") return;
       const n = w.next;
       const base = String(n.base_url ?? "");
-      if (w.ctx.cfg.mode === "cloud") {
+      if (!lanAllowed(w.ctx.cfg)) {
         const p = safeExternalUrl(base);
         if (p) throw bad(p, { fields: { base_url: p } });
       } else if (!/^https?:\/\//i.test(base)) throw bad("نشانی باید با https:// یا http:// شروع شود", { fields: { base_url: "نشانی معتبر نیست" } });
       for (const h of Array.isArray(n.hosts) ? (n.hosts as string[]) : []) {
         const host = String(h).trim();
         if (!HOST.test(host)) throw bad(`«${host}» نام میزبان معتبری نیست`, { fields: { hosts: `«${host}» معتبر نیست` } });
-        if (w.ctx.cfg.mode === "cloud" && safeExternalUrl(`https://${host.replace(/^\*\./, "x.")}/`)) throw bad(`میزبان داخلی «${host}» در نسخهٔ وب مجاز نیست`, { fields: { hosts: "میزبان داخلی مجاز نیست" } });
+        if (!lanAllowed(w.ctx.cfg) && safeExternalUrl(`https://${host.replace(/^\*\./, "x.")}/`)) throw bad(`میزبان داخلی «${host}» در نسخهٔ وب مجاز نیست`, { fields: { hosts: "میزبان داخلی مجاز نیست" } });
       }
       if ((n.auth === "header" || n.auth === "query") && !/^[A-Za-z0-9_.-]{1,80}$/.test(String(n.auth_name ?? ""))) {
         throw bad("نام سرآیند یا پارامتر کلید را وارد کنید", { fields: { auth_name: "نام سرآیند یا پارامتر را وارد کنید" } });

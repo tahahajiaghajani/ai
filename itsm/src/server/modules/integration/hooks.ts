@@ -14,6 +14,7 @@ import { redactRefs } from "./issues";
 import { invalidateSubscriptions } from "./webhooks";
 import { validateLoginSettings } from "./directory-login";
 import { directoryLan } from "./directory";
+import { lanAllowed } from "../../net";
 
 const HOUR = 3600_000;
 
@@ -25,7 +26,7 @@ const tableOk = (key: unknown) => {
 const httpsOnly = (w: WriteArgs, url: unknown, what: string) => {
   const s = String(url ?? "");
   if (!s) return;
-  if (w.ctx.cfg.mode !== "desktop" && !/^https:\/\//i.test(s)) throw bad(`${what} باید با https:// شروع شود`);
+  if (!lanAllowed(w.ctx.cfg) && !/^https:\/\//i.test(s)) throw bad(`${what} باید با https:// شروع شود`);
 };
 
 async function integrationUser(w: WriteArgs): Promise<void> {

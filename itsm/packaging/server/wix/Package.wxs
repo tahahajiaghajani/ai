@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The server edition's MSI (WiX v5). build-msi.ps1 passes the names from packaging/server/edition.json as defines:
+  ProductName, Manufacturer, Version, UpgradeCode, InstallFolderName, DataDirDefault, SourceDir (the payload) and
+  LicenseRtf. MSI tables hold only ASCII text; the Persian display names belong to the Windows services (WinSW XML).
+
+  Silent install:   msiexec /i Kariz-Server-x.y.z.msi /qn HOSTNAME=kariz.bank.local PORT=443 DATADIR=D:\Kariz CERTPATH=C:\certs\kariz.pfx CERTPASSWORD=…
+  Upgrade:          the same command with a newer MSI (pre-upgrade pg_dump backup, services replaced, migrations, start)
+  Uninstall:        msiexec /x Kariz-Server-x.y.z.msi /qn            (data kept)
+                    msiexec /x Kariz-Server-x.y.z.msi /qn REMOVEDATA=1   (data removed too)
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="$(var.ProductName)" Manufacturer="$(var.Manufacturer)" Version="$(var.Version)" UpgradeCode="$(var.UpgradeCode)" Scope="perMachine" Compressed="yes" InstallerVersion="500" Language="1033">
+    <SummaryInformation Description="$(var.ProductName) $(var.Version)" Manufacturer="$(var.Manufacturer)" />
+    <MajorUpgrade AllowSameVersionUpgrades="yes" Schedule="afterInstallInitialize" DowngradeErrorMessage="A newer version of [ProductName] is already installed. Uninstall it first (data is kept) to install this one." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Launch Condition="VersionNT64" Message="[ProductName] requires 64-bit Windows Server 2019, 2022 or 2025 (Windows 10/11 for labs)." />
+    <Launch Condition="Privileged" Message="[ProductName] must be installed by an administrator." />
+    <Launch Condition="Installed OR PhysicalMemory &gt;= 3800" Message="[ProductName] needs at least 4 GB of memory (16 GB recommended)." />
+
+    <Property Id="HOSTNAME" Secure="yes" />
+    <Property Id="PORT" Value="443" Secure="yes" />
+    <Property Id="HTTPPORT" Value="80" Secure="yes" />
+    <!-- an existing installation's data folder wins (upgrades and re-installs keep using it) -->
+    <Property Id="DATADIR" Value="$(var.DataDirDefault)" Secure="yes">
+      <RegistrySearch Id="PreviousDataDir" Root="HKLM" Key="$(var.RegistryKey)" Name="DataDir" Type="raw" Bitness="always64" />
+    </Property>
+    <Property Id="CERTPATH" Secure="yes" />
+    <Property Id="CERTPASSWORD" Secure="yes" Hidden="yes" />
+    <Property Id="AIRGAPPED" Value="1" Secure="yes" />
+    <Property Id="WORKERS" Value="0" Secure="yes" />
+    <Property Id="REMOVEDATA" Value="0" Secure="yes" />
+    <!-- the product's icon (desktop/build/icon.ico: the brand's mark when it lands) -->
+    <Icon Id="ProductIcon" SourceFile="$(var.IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="$(var.InstallFolderName)" />
+    </StandardDirectory>
+
+    <ComponentGroup Id="Payload" Directory="INSTALLFOLDER">
+      <Files Include="$(var.SourceDir)\**" />
+    </ComponentGroup>
+
+    <Feature Id="Main" Title="$(var.ProductName)" Level="1" AllowAbsent="no">
+      <ComponentGroupRef Id="Payload" />
+    </Feature>
+
+    <!-- install, re-install and upgrade (new version's side): scripts\install.ps1 (idempotent) -->
+    <SetProperty Id="KarizInstall" Before="KarizInstall" Sequence="execute" Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]scripts\install.ps1&quot; -InstallDir &quot;[INSTALLFOLDER].&quot; -DataDir &quot;[DATADIR].&quot; -HostName &quot;[HOSTNAME]&quot; -HttpsPort &quot;[PORT]&quot; -HttpPort &quot;[HTTPPORT]&quot; -CertPath &quot;[CERTPATH]&quot; -CertPassword &quot;[CERTPASSWORD]&quot; -AirGapped &quot;[AIRGAPPED]&quot; -Workers &quot;[WORKERS]&quot;" />
+    <CustomAction Id="KarizInstall" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec" Execute="deferred" Impersonate="no" Return="check" HideTarget="yes" />
+
+    <!-- upgrade (old version's side): safety backup with pg_dump, services stopped and removed; data kept. A failed backup stops the upgrade. -->
+    <SetProperty Id="KarizPreUpgrade" Before="KarizPreUpgrade" Sequence="execute" Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]scripts\uninstall.ps1&quot; -InstallDir &quot;[INSTALLFOLDER].&quot; -Upgrade" />
+    <CustomAction Id="KarizPreUpgrade" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec" Execute="deferred" Impersonate="no" Return="check" />
+
+    <!-- uninstall: services, firewall rule and shortcuts removed; data kept unless REMOVEDATA=1. Never blocks the removal. -->
+    <SetProperty Id="KarizUninstall" Before="KarizUninstall" Sequence="execute" Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]scripts\uninstall.ps1&quot; -InstallDir &quot;[INSTALLFOLDER].&quot; -RemoveData &quot;[REMOVEDATA]&quot;" />
+    <CustomAction Id="KarizUninstall" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec" Execute="deferred" Impersonate="no" Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="KarizPreUpgrade" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot; AND UPGRADINGPRODUCTCODE" />
+      <Custom Action="KarizUninstall" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="KarizInstall" Before="InstallFinalize" Condition="NOT REMOVE~=&quot;ALL&quot;" />
+    </InstallExecuteSequence>
+
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.LicenseRtf)" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT" Value="The one-time first-run setup address was written to setup-url.txt in the data folder ($(var.DataDirDefault) unless you chose another). Open it in a browser on this server to create the organisation and its administrator. Lost it? Run: karizctl setup-token" />
+  </Package>
+</Wix>
