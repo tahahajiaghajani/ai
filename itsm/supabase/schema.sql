@@ -19255,7 +19255,7 @@ create index if not exists sm_survey_responses_rev_idx on sm_survey_responses (o
 create index if not exists sm_survey_responses_upd_idx on sm_survey_responses (org_id, updated_at desc, id desc) where deleted_at is null;
 create index if not exists sm_survey_responses_crt_idx on sm_survey_responses (org_id, created_at desc, id desc) where deleted_at is null;
 create index if not exists sm_survey_responses_survey_id_idx on sm_survey_responses (org_id, survey_id) where deleted_at is null;
-create index if not exists sm_survey_responses_invitation_id_idx on sm_survey_responses (org_id, invitation_id) where deleted_at is null;
+create unique index if not exists sm_survey_responses_invitation_id_uk on sm_survey_responses (org_id, invitation_id) where deleted_at is null;
 create index if not exists sm_survey_responses_respondent_id_idx on sm_survey_responses (org_id, respondent_id) where deleted_at is null;
 create index if not exists sm_survey_responses_group_id_idx on sm_survey_responses (org_id, group_id) where deleted_at is null;
 create index if not exists sm_survey_responses_record_id_idx on sm_survey_responses (org_id, record_id) where deleted_at is null;
@@ -20705,3 +20705,17 @@ create unique index if not exists sm_portal_channel_log_msg_key on sm_portal_cha
 alter table sm_portal_channel_log enable row level security;
 
 insert into sm_migrations (id) values ('0067_portal') on conflict (id) do nothing;
+
+-- ---------------------------------------------------------------------------
+-- 0070_portal_surveys — درگاه سلف‌سرویس: پاسخ‌های نظرسنجی بی‌نام در انتظار ثبت دسته‌ای
+-- ---------------------------------------------------------------------------
+create table if not exists sm_survey_held (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  survey_id uuid not null,
+  payload jsonb not null
+);
+create index if not exists sm_survey_held_survey_idx on sm_survey_held (org_id, survey_id);
+alter table sm_survey_held enable row level security;
+
+insert into sm_migrations (id) values ('0070_portal_surveys') on conflict (id) do nothing;

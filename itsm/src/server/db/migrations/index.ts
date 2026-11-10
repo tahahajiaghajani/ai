@@ -16,6 +16,7 @@ import grantEpochs from "./0053_grant_epochs";
 import aiAgents from "./0058_ai_agents";
 import aiMl from "./0064_ai_ml";
 import portal from "./0067_portal";
+import portalSurveys from "./0070_portal_surveys";
 import { ddlForAll } from "../../engine/ddl";
 
 export interface Migration {
@@ -50,6 +51,7 @@ export const MIGRATIONS: Migration[] = [
   { id: "0058_ai_agents", title: "عامل‌های هوش مصنوعی: پیشنهادهای عامل‌ها، مسیر رسیدگی و نتیجهٔ هر ردیف", sql: aiAgents },
   { id: "0064_ai_ml", title: "هوش مصنوعی پیش‌بین: مدل‌ها، پیش‌بینی‌ها، خوشه‌ها، بینش‌ها و گزارش حاکمیت", sql: aiMl },
   { id: "0067_portal", title: "درگاه سلف‌سرویس: جریان رویدادهای درگاه و گزارش پیام‌های کانال‌های پیام‌رسان", sql: portal },
+  { id: "0070_portal_surveys", title: "درگاه سلف‌سرویس: پاسخ‌های نظرسنجی بی‌نام در انتظار ثبت دسته‌ای", sql: portalSurveys },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].id;

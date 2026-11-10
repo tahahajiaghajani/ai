@@ -18523,7 +18523,7 @@ create index if not exists sm_survey_responses_rev_idx on sm_survey_responses (o
 create index if not exists sm_survey_responses_upd_idx on sm_survey_responses (org_id, updated_at desc, id desc) where deleted_at is null;
 create index if not exists sm_survey_responses_crt_idx on sm_survey_responses (org_id, created_at desc, id desc) where deleted_at is null;
 create index if not exists sm_survey_responses_survey_id_idx on sm_survey_responses (org_id, survey_id) where deleted_at is null;
-create index if not exists sm_survey_responses_invitation_id_idx on sm_survey_responses (org_id, invitation_id) where deleted_at is null;
+create unique index if not exists sm_survey_responses_invitation_id_uk on sm_survey_responses (org_id, invitation_id) where deleted_at is null;
 create index if not exists sm_survey_responses_respondent_id_idx on sm_survey_responses (org_id, respondent_id) where deleted_at is null;
 create index if not exists sm_survey_responses_group_id_idx on sm_survey_responses (org_id, group_id) where deleted_at is null;
 create index if not exists sm_survey_responses_record_id_idx on sm_survey_responses (org_id, record_id) where deleted_at is null;

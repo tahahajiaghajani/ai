@@ -246,7 +246,7 @@ export function toSql(cond: Cond | null | undefined, def: TableDef, alias: strin
 export function readable(ctx: Ctx, def: TableDef, alias: string, params: unknown[], env: CondEnv, opts: { deleted?: "live" | "any" } = {}): string {
   const parts = [access().readWhere(ctx, def, alias, params)];
   if (opts.deleted !== "any") parts.push(`${alias}.deleted_at is null`);
-  if (def.rowAccess?.read && !isSystem(ctx)) parts.push(toSql(def.rowAccess.read, def, alias, params, env, { ctx }));
+  if (def.rowAccess?.read && !isSystem(ctx) && !(def.rowAccess.managersReadAll && access().canCreate(ctx, def, null))) parts.push(toSql(def.rowAccess.read, def, alias, params, env, { ctx }));
   return parts.map((x) => `(${x})`).join(" and ");
 }
 

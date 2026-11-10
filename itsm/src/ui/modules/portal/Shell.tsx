@@ -11,7 +11,7 @@ import { Dropdown, type MenuProps } from "antd";
 import { Bell, BookOpen, Briefcase, CircleUser, House, LayoutGrid, LogOut, MessageCircle, MessageSquareHeart, Activity, Settings2, ListChecks } from "lucide-react";
 import { useOrg } from "../../lib/org";
 import { useSession } from "../../lib/session";
-import { usePageTitle } from "../../components/shell/context";
+import { usePageTitle, useShell } from "../../components/shell/context";
 import { Loader } from "../../components/display";
 import { RecordMarkdown } from "../../records";
 import { usePortalConfig, usePortalTodo, type PortalConfig } from "./api";
@@ -39,18 +39,23 @@ const Topic = lazy(() => import("./Topic"));
 
 const I = { size: 18, strokeWidth: 1.5, absoluteStrokeWidth: true } as const;
 
-/** Keep the app's shell beneath out of focus and of the accessibility tree while the portal is open. */
+/**
+ * Keep the app's shell beneath out of focus and of the accessibility tree while the portal is open — its command
+ * palette (Ctrl K) and assistant too, which live outside `.sh-app` (the shell's `cover`).
+ */
 function useInertShell() {
+  const shell = useShell();
   useEffect(() => {
+    shell?.cover(true);
     const app = document.querySelector<HTMLElement>(".sh-app");
-    if (!app) return;
-    app.setAttribute("inert", "");
-    app.setAttribute("aria-hidden", "true");
+    app?.setAttribute("inert", "");
+    app?.setAttribute("aria-hidden", "true");
     return () => {
-      app.removeAttribute("inert");
-      app.removeAttribute("aria-hidden");
+      shell?.cover(false);
+      app?.removeAttribute("inert");
+      app?.removeAttribute("aria-hidden");
     };
-  }, []);
+  }, [shell]);
 }
 
 /** The portal's configuration for its pages (also passed as a prop where a page needs it). */

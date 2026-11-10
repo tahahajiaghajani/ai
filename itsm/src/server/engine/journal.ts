@@ -11,7 +11,7 @@ import type { Queryable, Tx } from "../db";
 import { pgArray } from "../db";
 import { bad, forbidden } from "../http/errors";
 import { access } from "../access/provider";
-import { actorId, condEnv } from "./env";
+import { actorId, condEnv, isSystemCtx } from "./env";
 import { defFor } from "./schema";
 import { RefSet, resolveDisplay } from "./display";
 import { requireReadable, type Row } from "./read";
@@ -97,10 +97,14 @@ export async function addJournalIn(tx: Tx, ctx: Ctx, def: TableDef, row: Row, in
      values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11) returning *`,
     [uuidv7(), ctx.org.id, def.key, row.id, kind, visibility, body, author, input.data ? JSON.stringify(input.data) : null, JSON.stringify(attachments), ctx.cfg.origin ?? null],
   );
-  // a task's first response: the first public comment of someone other than the requester
+  // a task's first response: the first public comment of someone who works the record — not its requester, and (for
+  // a person's own comment) one who may change it in full: a manager following a reportee's ticket or a watcher does
+  // not answer for the desk
   if (kind === "comment" && author && def.fields.some((f) => f.name === "first_response_at") && !row.first_response_at) {
     const own = [row.caller_id, row.requested_for].filter(Boolean);
-    if (!own.includes(author)) {
+    const prov = access();
+    const works = isSystemCtx(ctx) || author !== actorId(ctx) || (prov.writeMode ? prov.writeMode(ctx, def, row) === "full" : prov.canWrite(ctx, def, row));
+    if (!own.includes(author) && works) {
       const stamped = await tx.one<Row>(`update ${def.table} set first_response_at = now() where id = $1 and org_id = $2 and first_response_at is null returning first_response_at`, [row.id, ctx.org.id]);
       if (stamped) await writeHistory(tx, ctx, def, row.id, { first_response_at: null }, stamped, ["first_response_at"]);
     }

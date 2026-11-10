@@ -15,11 +15,16 @@ import { STAGE_LABELS, STAGE_TONES, isOpenStage, stageOf, stageSteps, type Stage
 import type { PortalAction, PortalAttachment, PortalItemsPage, PortalTicket, PortalTicketCard, TimelineEntry } from "@shared/portal/api";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
-import { addJournal, get, list, listAttachments, listHistory, listJournal, orgSchema, transition } from "../../engine";
+import { addJournal, get, list, listAttachments, listHistory, listJournal, orgSchema, orgTz, transition } from "../../engine";
 import { access } from "../../access/provider";
 import { bad, forbidden, notFound } from "../../http/errors";
 import { recordApprovals, recordTimers } from "../sla";
 import { answersView } from "../request";
+import { audienceOf } from "../incident";
+import { memberCtx } from "../../access";
+import { grantIn } from "@shared/access/model";
+import { announcementActive, announcementReaches } from "@shared/incident/logic";
+import { formatJalaliDateTime } from "@shared/jalali";
 import { isUuid, liveRows, logEvent, portalItemTable, portalItemTables, subjectFor, sysOf, type Row } from "./common";
 import type { Subject } from "@shared/access/evaluate";
 import { pendingInvitationFor } from "./surveys";
@@ -29,10 +34,13 @@ export type ItemsState = "open" | "closed" | "all";
 
 const DONE = new Set(["closed", "canceled"]);
 
-/** The requester fields of a table (whose record it is), in priority order. */
+/**
+ * The requester fields of a table (whose record it is), in priority order — the access model's: a table that names
+ * none (`requester: []`, e.g. security incidents, whose reporter is no way in) has no requester.
+ */
 export function requesterFields(def: TableDef): string[] {
   const has = (n: string) => def.fields.some((f) => f.name === n);
-  const r = def.scope?.requester?.length ? def.scope.requester : (def.scope?.own ?? []).filter((f) => f !== "assigned_to");
+  const r = def.scope?.requester ?? (def.scope?.own ?? []).filter((f) => f !== "assigned_to");
   return r.filter(has);
 }
 
@@ -210,7 +218,19 @@ function factsOf(ctx: Ctx, def: TableDef, row: Row, display: Record<string, stri
   if (can("requested_for") && row.requested_for && row.requested_for !== ctx.user.id && name(row.requested_for)) out.push({ label: "برای", value: name(row.requested_for)! });
   if (can("caller_id") && row.caller_id && row.caller_id !== ctx.user.id && row.caller_id !== row.requested_for && name(row.caller_id)) out.push({ label: "ثبت به نام", value: name(row.caller_id)! });
   if (can("assigned_to") && name(row.assigned_to)) out.push({ label: "کارشناس رسیدگی‌کننده", value: name(row.assigned_to)!.split(" ")[0] });
-  if (can("due_at") && typeof row.due_at === "string") out.push({ label: "موعد", value: row.due_at });
+  if (can("due_at") && typeof row.due_at === "string") out.push({ label: "موعد", value: formatJalaliDateTime(row.due_at, orgTz(ctx)) || row.due_at });
+  return out;
+}
+
+/** Of `authors`, those who work records of `area` (their write reaches beyond their own records): «کارشناس». */
+async function staffAuthors(ctx: Ctx, area: string, authors: string[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (const a of authors.slice(0, 20)) {
+    const m = await memberCtx(ctx.cfg, ctx.org.id, a, ctx.db).catch(() => null);
+    const s = m ? await subjectFor(m).catch(() => null) : null;
+    const g = s ? grantIn(s.eff, area) : null;
+    if (g && g.write !== "none" && g.write !== "own") out.add(a);
+  }
   return out;
 }
 
@@ -226,9 +246,11 @@ export async function ticketView(ctx: Ctx, table: string, id: string): Promise<P
   const hidden = await internalAttachmentIds(ctx, table, id);
   if (def.features?.journal) {
     const j = await listJournal(ctx, table, id, { limit: 300 }).catch(() => ({ entries: [], display: {} as Record<string, string> }));
-    for (const e of j.entries) {
-      if (e.visibility !== "public" || !PUBLIC_KINDS.has(e.kind)) continue;
-      timeline.push({ id: e.id, kind: "comment", at: e.created_at, author_name: e.author ? (j.display[e.author] ?? display[e.author] ?? null) : null, mine: e.author === ctx.user.id, staff: !!e.author && !requesters.has(e.author) && e.author !== ctx.user.id, body: e.body, label: null, attachments: e.attachments.filter((a) => !hidden.has(a.id)).map((a) => ({ id: a.id, name: a.name })) });
+    const shown = j.entries.filter((e) => e.visibility === "public" && PUBLIC_KINDS.has(e.kind));
+    // a reply is the desk's when its author works such records (a manager or a watcher who wrote is not staff)
+    const staff = await staffAuthors(ctx, def.area, [...new Set(shown.map((e) => e.author).filter((a): a is string => !!a && a !== ctx.user.id && !requesters.has(a)))]);
+    for (const e of shown) {
+      timeline.push({ id: e.id, kind: "comment", at: e.created_at, author_name: e.author ? (j.display[e.author] ?? display[e.author] ?? null) : null, mine: e.author === ctx.user.id, staff: !!e.author && staff.has(e.author), body: e.body, label: null, attachments: e.attachments.filter((a) => !hidden.has(a.id)).map((a) => ({ id: a.id, name: a.name })) });
     }
   }
   if (def.states && def.features?.history !== false) {
@@ -267,10 +289,18 @@ export async function ticketView(ctx: Ctx, table: string, id: string): Promise<P
     if (t?.due_at) promise = { label: t.type === "response" ? "پاسخ تا" : "انجام تا", due_at: t.due_at, late: t.breached };
   }
 
+  // the banner of an outage this incident is part of (its own announcement or its parent's), on air and meant for the
+  // person — the same audience and window as the announcements everyone sees
   let outage: PortalTicket["outage"] = null;
   if (table === "incident") {
-    const [a] = await liveRows(ctx.db, sysOf(ctx), "announcement", { and: [{ f: "incident_id", op: "eq", v: id }, { f: "state", op: "eq", v: "published" }] }, { limit: 1 });
-    if (a) outage = { title: String(a.title ?? ""), kind: String(a.kind ?? "outage") };
+    const incidents = [id, ...(isUuid(row.parent_id) ? [String(row.parent_id)] : [])];
+    const rows = await liveRows(ctx.db, sysOf(ctx), "announcement", { and: [{ f: "incident_id", op: "in", v: incidents }, { f: "state", op: "eq", v: "published" }] }, { order: "t.created_at desc", limit: 20 });
+    const live = rows.filter((a) => announcementActive(a, Date.now()));
+    if (live.length) {
+      const me = await audienceOf(ctx);
+      const a = live.find((x) => announcementReaches(x, me));
+      if (a) outage = { title: String(a.title ?? ""), kind: String(a.kind ?? "outage") };
+    }
   }
 
   let answers: { label: string; value: string }[] = [];

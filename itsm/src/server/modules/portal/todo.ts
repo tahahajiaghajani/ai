@@ -5,7 +5,9 @@
 // open answers of an order (sensitive and secret answers stay with the requester and the fulfillers).
 import type { PortalApproval, PortalTodo } from "@shared/portal/api";
 import type { Ctx } from "../../context";
-import { get } from "../../engine";
+import { get, orgTz } from "../../engine";
+import { tableDef } from "@shared/tables";
+import { formatJalali, formatJalaliDateTime } from "@shared/jalali";
 import { notFound } from "../../http/errors";
 import { myApprovals } from "../sla";
 import { myAttestations } from "../knowledge";
@@ -41,10 +43,14 @@ export async function portalTodo(ctx: Ctx): Promise<PortalTodo> {
   };
 }
 
-const factValue = (row: Record<string, unknown>, display: Record<string, string>, f: string): string | null => {
+/** A fact as people read it: names for references, Persian digits, Jalali dates and times in the organisation's zone. */
+const factValue = (ctx: Ctx, table: string, row: Record<string, unknown>, display: Record<string, string>, f: string): string | null => {
   const v = row[f];
   if (v === null || v === undefined || v === "") return null;
   if (typeof v === "string" && display[v]) return display[v];
+  const type = tableDef(table)?.fields.find((x) => x.name === f)?.type;
+  if (type === "datetime" && typeof v === "string") return formatJalaliDateTime(v, orgTz(ctx)) || null;
+  if (type === "date" && typeof v === "string") return formatJalali(v) || null;
   return typeof v === "number" ? v.toLocaleString("fa-IR") : String(v);
 };
 
@@ -58,7 +64,7 @@ export async function approvalDetail(ctx: Ctx, approvalId: string): Promise<Port
   const { row, display } = await get(ctx, a.table_key, a.record_id);
   const facts: { label: string; value: string }[] = [];
   const add = (label: string, f: string) => {
-    const v = factValue(row, display, f);
+    const v = factValue(ctx, a.table_key, row, display, f);
     if (v) facts.push({ label, value: v });
   };
   add("خدمت سفارش‌داده‌شده", "cat_item_id");

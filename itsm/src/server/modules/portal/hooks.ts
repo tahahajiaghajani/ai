@@ -14,8 +14,9 @@ import { originOf } from "@shared/portal/logic";
 import { tableDef } from "@shared/tables";
 import { pushGuard, registerHooks, type PushArgs, type WriteArgs } from "../../engine";
 import { bad, forbidden } from "../../http/errors";
-import { publishesKnowledge, type Row } from "./common";
+import { managesPortal, publishesKnowledge, type Row } from "./common";
 import { requesterFields } from "./items";
+import { redactSurveyRows } from "./surveys";
 
 function runtimeOnly(w: WriteArgs, what: string): void {
   if (w.ctx.actor !== "system") throw forbidden(`${what} را فقط سامانه ثبت می‌کند`);
@@ -73,14 +74,13 @@ function invitationPush(p: PushArgs): string | null {
   return null;
 }
 
-/** An answer from a Windows app: new, by its member (or anonymous), to an invitation of theirs. */
-async function responsePush(p: PushArgs): Promise<string | null> {
-  if (p.prev) return "پاسخ نظرسنجی پس از ثبت تغییر نمی‌کند";
-  const me = memberOf(p);
-  if (p.next.respondent_id && String(p.next.respondent_id) !== me) return "پاسخ نظرسنجی به نام دیگری پذیرفته نمی‌شود";
-  if (!p.next.invitation_id) return p.next.respondent_id ? null : "پاسخ بی‌نام فقط از نسخهٔ وب پذیرفته می‌شود";
-  const inv = await p.tx.one<{ user_id: string | null }>(`select user_id from sm_survey_invitations where org_id = $1 and id = $2 and deleted_at is null`, [p.ctx.org.id, p.next.invitation_id]);
-  return inv && String(inv.user_id ?? "") === me ? null : "این دعوت نظرسنجی از آنِ شما نیست";
+/**
+ * An answer from a Windows app: never. Surveys are answered where their invitations are made (the web version, or a
+ * Windows app not linked to one): a pushed answer would name any survey, group, record and score, and the web version's
+ * invitation would stay open to a second answer — a linked Windows app sends people to the web version instead.
+ */
+function responsePush(p: PushArgs): string | null {
+  return p.ctx.actor === "system" ? null : "پاسخ نظرسنجی از برنامهٔ ویندوز پذیرفته نمی‌شود؛ از نسخهٔ وب یا پیوند رایانامهٔ دعوت پاسخ دهید";
 }
 
 let installed = false;
@@ -95,6 +95,11 @@ export function installPortalHooks(): void {
     },
     // a Windows push runs no beforeWrite: the cloud keeps the layout clean there too
     derivePush: (p) => (p.next.layout !== null && p.next.layout !== undefined ? { layout: normalizeLayout(p.next.layout) } : null),
+    // the draft home layout (custom blocks in preview, «فقط برای شما») is for those who run the portal
+    async redactRows(_q, ctx, _def, rows) {
+      if (await managesPortal(ctx)) return;
+      for (const r of rows) if ("layout" in r) r.layout = null;
+    },
   });
 
   registerHooks("portal_topic", { validatePush: pushGuard(topicCycle) });
@@ -103,8 +108,8 @@ export function installPortalHooks(): void {
   // the module's own rows: from a Windows app (whose portal wrote them for its signed-in member) only that member's —
   // their preferences, their answer to an invitation of theirs, the invitation marked answered — never anyone else's
   registerHooks("portal_pref", { beforeWrite: (w) => runtimeOnly(w, "ترجیح‌های درگاه"), validatePush: (p) => (String(p.next.user_id ?? "") === memberOf(p) ? null : "ترجیح‌های درگاه دیگران از برنامهٔ ویندوز پذیرفته نمی‌شود") });
-  registerHooks("survey_invitation", { beforeWrite: (w) => runtimeOnly(w, "دعوت‌های نظرسنجی"), validatePush: invitationPush });
-  registerHooks("survey_response", { beforeWrite: (w) => runtimeOnly(w, "پاسخ‌های نظرسنجی"), validatePush: responsePush });
+  registerHooks("survey_invitation", { beforeWrite: (w) => runtimeOnly(w, "دعوت‌های نظرسنجی"), validatePush: invitationPush, redactRows: redactSurveyRows });
+  registerHooks("survey_response", { beforeWrite: (w) => runtimeOnly(w, "پاسخ‌های نظرسنجی"), validatePush: responsePush, redactRows: redactSurveyRows });
   registerHooks("portal_channel_identity", { beforeWrite: (w) => runtimeOnly(w, "حساب‌های پیام‌رسان") });
   registerHooks("portal_link_code", { beforeWrite: (w) => runtimeOnly(w, "کدهای اتصال") });
 

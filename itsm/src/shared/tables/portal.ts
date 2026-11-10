@@ -17,7 +17,8 @@
 //                         to members only through a one-time code
 //   · portal_widget       the website widget (PTL-025): allowed origins, what guests may search
 // The portal's analytics stream (searches, answers, deflections, widget and public pages; PTL-050) and the messaging
-// connectors' delivery log are local runtime tables (migration 0067_portal: sm_portal_events, sm_portal_channel_log).
+// connectors' delivery log are local runtime tables (migration 0067_portal: sm_portal_events, sm_portal_channel_log), and
+// so are anonymous survey answers waiting to be written in a batch (0070_portal_surveys: sm_survey_held).
 //
 // Access (docs/spec/ACCESS.md): definitions live in the areas of what they are about — the portal's look and its
 // content in `catalog` (requesters read the catalogue; the portal's routes read these rows as the system and filter
@@ -28,6 +29,7 @@
 // identities, codes) are guarded by its hooks.
 // Imported by the UI: keep it free of server imports.
 import { NEVER } from "../model/conditions";
+import { AUDIENCE_COND } from "../portal/logic";
 import type { FieldDef, Option, StateModel, TableDef } from "../model/types";
 import { TASK_SCOPE } from "../model/task";
 import { hideTaskFields } from "./incident";
@@ -192,7 +194,9 @@ const portal: TableDef = {
     { name: "published_by", label: "منتشرکنندهٔ چیدمان", type: "user", readonly: true, audit: false, span: 8, section: BEHAVIOUR },
     { name: "seeded", label: "پیش‌فرض‌ها افزوده شد", type: "int", readonly: true, hidden: true, default: 0 },
   ],
-  scope: { public: true },
+  // read with the catalogue's grant and the workspace rule (a workspace's portal is its members'); the portal module
+  // reads the portals itself, and the draft layout shows only to those who run the portal (hook redactRows)
+  scope: {},
   features: { attachments: true },
   form: { sections: [MAIN, LOOK, BEHAVIOUR] },
   list: { columns: ["name", "workspace_id", "active", "accent", "layout_version", "updated_at"], order: "sort_order,name" },
@@ -223,6 +227,9 @@ const link: TableDef = {
     ...audienceFields(),
   ],
   scope: { public: true },
+  // the record API, search and Windows replicas hold to the audience too (the portal's routes test the same rule);
+  // whoever manages the catalogue's content sees every link
+  rowAccess: { read: AUDIENCE_COND, managersReadAll: true },
   form: { sections: [MAIN, AUDIENCE] },
   list: { columns: ["name", "url", "section_name", "active", "sort_order"], order: "sort_order,name" },
 };
@@ -250,6 +257,7 @@ const topic: TableDef = {
     ...audienceFields(),
   ],
   scope: { public: true },
+  rowAccess: { read: AUDIENCE_COND, managersReadAll: true },
   form: { sections: [MAIN, "محتوا", AUDIENCE] },
   list: { columns: ["name", "parent_id", "active", "sort_order"], order: "sort_order,name" },
 };
@@ -503,7 +511,8 @@ const response: TableDef = {
   fields: [
     { name: "title", label: "عنوان", type: "string", maxLength: 250, readonly: true, list: true, search: true, span: 24 },
     { name: "survey_id", label: "نظرسنجی", type: "ref", ref: "survey", required: true, readonly: true, list: true, filter: true, index: true, span: 12 },
-    { name: "invitation_id", label: "دعوت", type: "ref", ref: "survey_invitation", readonly: true, index: true, span: 12 },
+    // one response per invitation (also under concurrent answers); anonymous responses name none
+    { name: "invitation_id", label: "دعوت", type: "ref", ref: "survey_invitation", readonly: true, unique: true, span: 12 },
     { name: "respondent_id", label: "پاسخ‌دهنده", type: "user", readonly: true, list: true, filter: true, index: true, span: 12 },
     { name: "group_id", label: "گروه رکورد", type: "group", readonly: true, list: true, filter: true, index: true, span: 12 },
     { name: "table_key", label: "جدول رکورد", type: "string", maxLength: 60, ltr: true, readonly: true, filter: true, span: 8 },

@@ -22,8 +22,8 @@
 import { z } from "zod";
 import { router, body, query, type C } from "../http/hono";
 import { AppError, bad, forbidden, notFound } from "../http/errors";
-import { rateLimit, type RateLimitOptions } from "../http/ratelimit";
-import { publicRoutes } from "./public";
+import { clientIp, hit, rateLimit, type RateLimitOptions } from "../http/ratelimit";
+import { PUBLIC_LIMIT, exemptFromPublicLimit, publicRoutes } from "./public";
 import {
   approvalDetail, catalogPage, channelLog, choosePortal, ensurePortalSweep, logEvent, managesChannels, myIdentities, myItems, newChannelSecret, newLinkCode, portalAnalytics, portalConfig, portalHome, portalLogo, portalSearch,
   portalTodo, publicKbArticle, publicKbHome, publicKbSearch, publicKbVote, publicSurveyView, publications, publishLayout, receiveHook, recordSurveys, registerChannelWebhook, replySuggestions, replyToTicket, rotateChannelKey,
@@ -238,10 +238,29 @@ const SURVEY_LIMIT: RateLimitOptions = { name: "portal-survey", limit: 20, windo
 
 const headersOf = (c: C) => (name: string) => c.req.header(name);
 
+/**
+ * Deliveries with a wrong key or signature from one client in a minute (the public budget, for those only): a
+ * messenger delivers every organisation's bots from a few addresses, so good deliveries are limited per key alone.
+ */
+const BAD_HOOK_LIMIT = { name: "portal-hook-bad", limit: PUBLIC_LIMIT.limit, windowMs: PUBLIC_LIMIT.windowMs };
+
+exemptFromPublicLimit("POST", /\/public\/portal\/hooks\/[^/]+\/?$/);
 publicRoutes.post("/portal/hooks/:key", rateLimit(HOOK_LIMIT), async (c) => {
   if (Number(c.req.header("content-length") ?? 0) > MAX_HOOK_BYTES) throw new AppError(413, "too_large", "حجم پیام بیش از اندازه است");
   const raw = await c.req.text();
-  return c.json(await receiveHook(c.get("cfg"), c.req.param("key"), headersOf(c), raw));
+  try {
+    return c.json(await receiveHook(c.get("cfg"), c.req.param("key"), headersOf(c), raw));
+  } catch (e) {
+    const status = (e as { status?: number }).status;
+    if (status === 401 || status === 404) {
+      const wait = hit(BAD_HOOK_LIMIT, clientIp(c));
+      if (wait) {
+        c.header("Retry-After", String(wait));
+        throw new AppError(429, "rate_limited", "درخواست‌ها بیش از اندازه است؛ کمی بعد دوباره امتحان کنید");
+      }
+    }
+    throw e;
+  }
 });
 
 publicRoutes.get("/portal/survey/:token", async (c) => c.json(await publicSurveyView(c.get("cfg"), c.req.param("token"))));

@@ -12,7 +12,7 @@ import { Logo as BrandLogo } from "./brand";
 import { Sidebar, SIDEBAR_W, SIDEBAR_MIN, SIDEBAR_MAX } from "./shell/Sidebar";
 import { Topbar, type Crumb } from "./shell/Topbar";
 import { CommandPalette as Palette, type PaletteCommand } from "./shell/CommandPalette";
-import { ShellCtx, usePageTitle, type ShellApi } from "./shell/context";
+import { ShellCtx, togglesPalette, usePageTitle, type ShellApi } from "./shell/context";
 import { SupportBanner } from "./shell/SupportBanner";
 import { AssistantHost } from "../ai/assistant/AssistantHost";
 import { openAssistant } from "../ai/assistant/bus";
@@ -104,20 +104,26 @@ export function AppShell({ children }: { children: ReactNode }) {
   };
   const onLeaveSettings = () => go(memory.pages[fallback] ?? "");
 
+  // a surface covering the shell (the portal): no palette or assistant above it
+  const [covered, setCovered] = useState(0);
+  const cover = useCallback((on: boolean) => {
+    setCovered((n) => Math.max(0, n + (on ? 1 : -1)));
+    if (on) setPalette(false);
+  }, []);
   const openPalette = useCallback(() => setPalette(true), []);
-  const shell = useMemo<ShellApi>(() => ({ setTitle, openPalette, openAssistant }), [openPalette]);
+  const shell = useMemo<ShellApi>(() => ({ setTitle, openPalette, openAssistant, cover }), [openPalette, cover]);
 
-  // Ctrl K (any keyboard layout: the K key types «ن» on the Persian layout) toggles the palette
+  // Ctrl K (any keyboard layout: the K key types «ن» on the Persian layout) toggles the palette — not while covered
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.code === "KeyK" || ["k", "K", "ن", "ك"].includes(e.key))) {
+      if (togglesPalette(e, covered > 0)) {
         e.preventDefault();
         setPalette((p) => !p);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [covered]);
 
   // close the drawer on navigation; leave it when the window grows
   useEffect(() => setDrawer(false), [loc.pathname]);
@@ -240,8 +246,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Drawer>
         ) : null}
       </div>
-      <Palette open={palette} onClose={() => setPalette(false)} commands={commands} />
-      <AssistantHost />
+      {covered ? null : (
+        <>
+          <Palette open={palette} onClose={() => setPalette(false)} commands={commands} />
+          <AssistantHost />
+        </>
+      )}
     </ShellCtx.Provider>
   );
 }

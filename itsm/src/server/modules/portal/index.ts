@@ -14,7 +14,7 @@ import { enqueue, registerJobHandler, type JobConfig } from "../../jobs";
 import { registerOrgSeed } from "../orgs/service";
 import { SEED_DELAY_MS } from "../sla";
 import { installPortalHooks } from "./hooks";
-import { installSurveys, expireInvitations } from "./surveys";
+import { installSurveys, expireInvitations, releaseHeldAnswers } from "./surveys";
 import { installChannels, cleanChannels } from "./channels";
 import { installPortalSkills } from "./ai";
 import { seedPortalDefaultsWith, type SeedCounts } from "./seed";
@@ -32,6 +32,7 @@ export async function seedPortalDefaults(cfg: JobConfig, orgId: string, opts: { 
 /** The daily sweep of an organisation (see the file's head). */
 export async function portalSweep(sys: Ctx): Promise<{ expired: number }> {
   const expired = await expireInvitations(sys);
+  await releaseHeldAnswers(sys);
   await cleanChannels(sys);
   await sys.db.query(`delete from sm_portal_events where org_id = $1 and at < now() - interval '180 days'`, [sys.org.id]);
   return { expired };
@@ -71,6 +72,7 @@ export { portalSearch } from "./search";
 export { portalTodo, approvalDetail } from "./todo";
 export {
   surveyToken, readSurveyToken, surveyLink, surveyQuestions, surveyView, publicSurveyView, submitSurvey, submitPublicSurvey, sendCampaign, surveyResults, recordSurveys, pendingInvitations, surveyOnStateChange, expireInvitations,
+  releaseHeldAnswers, redactSurveyRows, ANONYMOUS_BATCH,
 } from "./surveys";
 export { newChannelSecret, rotateChannelKey, registerChannelWebhook, channelLog, newLinkCode, myIdentities, unlinkIdentity, receiveHook, verifyHook, processChannelMessage, hookUrl, JOB_MESSAGE, MAX_HOOK_BYTES } from "./channels";
 export { publicKbHome, publicKbSearch, publicKbArticle, publicKbVote, publications, setPublication, slugOf, idOfSlug, PUBLIC_BASE, publicArticles } from "./publickb";

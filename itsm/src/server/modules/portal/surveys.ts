@@ -8,11 +8,18 @@
 //     rendered under the invitee's access); the template block `{{block.survey_link}}` puts the signed single-use link
 //     (/p/survey/<token>: the organisation and the invitation under an HMAC of the runtime's secret) and the portal page
 //     into the message for the invitee only.
-//   · answering — in the portal (signed in, the invitee only) or by the signed link (no sign-in); answers are checked
-//     (`checkSurveyAnswers`), the metrics computed (`responseMetrics`), the invitation marked answered in the same
-//     transaction (a second answer is refused), and — for a named response — the satisfaction written back to the
-//     record when its table keeps one (incident: satisfaction; requested item: rating). An anonymous survey stores no
-//     respondent, invitation or record on the response.
+//   · answering — in the portal (signed in, the invitee only) or by the signed link (no sign-in), where invitations are
+//     made (a Windows app linked to the web version sends people to the web version: its answers would not reach the
+//     web version's invitation); answers are checked (`checkSurveyAnswers`), the metrics computed (`responseMetrics`),
+//     the invitation claimed under a row lock and marked answered in the same transaction (a second or concurrent answer
+//     is refused; one response per invitation is also a unique index), and — for a named response — the satisfaction
+//     written back to the record when its table keeps one (incident: satisfaction; requested item: rating).
+//   · anonymity — an anonymous survey stores no respondent, invitation, record or group on the response, its
+//     invitations carry no group (the rated group's agents do not list who answered) and the answer's day only; the
+//     answers are held (sm_survey_held, local) and written in shuffled batches of at least ANONYMOUS_BATCH, so neither
+//     a time, an id nor a number ties a response to the invitation answered.
+//   · what responses and invitations copy from their record (title, number, the person, the comment) shows only to
+//     readers of that record (`redactSurveyRows`).
 //   · campaigns — «ارسال به مخاطبان» invites the active members of a survey's audience once each.
 //   · results — aggregates in SQL over the responses the caller may read (`aggregate` with their context).
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -20,8 +27,10 @@ import { checkSurveyAnswers, csatPctOf, npsOf, responseMetrics, sampled, type Qu
 import type { SurveyResults, SurveyView } from "@shared/portal/api";
 import type { Cond } from "@shared/model/conditions";
 import { tableDef } from "@shared/tables";
+import type { TableDef } from "@shared/model/types";
+import { uuidv7 } from "@shared/id";
 import type { Ctx, ServerConfig } from "../../context";
-import type { Tx } from "../../db";
+import { pgArray, type Queryable, type Tx } from "../../db";
 import { aggregate, createIn, onRecordEvent, orgSchema, systemCtx, updateIn, validationError, type RecordEvent } from "../../engine";
 import type { JobContext } from "../../jobs";
 import { AppError, bad, forbidden, notFound } from "../../http/errors";
@@ -107,7 +116,8 @@ export async function inviteIn(
       survey_id: survey.id,
       trigger_id: about?.trigger ?? null,
       user_id: user,
-      group_id: about?.group ?? null,
+      // an anonymous survey's invitation names no group: the rated group's agents do not list who answered it
+      group_id: survey.anonymous === true ? null : (about?.group ?? null),
       table_key: about?.table ?? null,
       record_id: about?.id ?? null,
       record_number: about?.number ?? null,
@@ -239,8 +249,12 @@ export async function publicSurveyView(cfg: ServerConfig, token: string): Promis
   return viewOf(sys, inv, false);
 }
 
+/** Answers of anonymous surveys are written in shuffled batches of at least this many (see the file's head). */
+export const ANONYMOUS_BATCH = 5;
+
 /** Store one answer of an invitation (see the file's head); returns the survey's closing words. */
 async function answer(sys: Ctx, invitationId: string, raw: Record<string, unknown>, channel: string, actor: string | null): Promise<{ thanks: string }> {
+  if (!actsHere(sys.cfg)) throw bad("در برنامهٔ ویندوزِ متصل به نسخهٔ وب به نظرسنجی پاسخ داده نمی‌شود؛ از نسخهٔ وب یا پیوند رایانامهٔ دعوت پاسخ دهید");
   const inv0 = await liveRow(sys.db, sys, "survey_invitation", invitationId);
   if (!inv0) throw notFound("نظرسنجی پیدا نشد");
   const survey = await liveRow(sys.db, sys, "survey", inv0.survey_id);
@@ -251,6 +265,9 @@ async function answer(sys: Ctx, invitationId: string, raw: Record<string, unknow
   const metrics = responseMetrics(questions, clean, Number(survey.satisfied_from ?? 4));
   const anonymous = survey.anonymous === true;
   await sys.write(async (tx) => {
+    // the invitation claimed under a row lock: a concurrent answer waits here and then finds it answered
+    const claim = await tx.one<{ status: string }>(`select status from sm_survey_invitations where org_id = $1 and id = $2 and deleted_at is null for update`, [sys.org.id, invitationId]);
+    if (!claim) throw notFound("نظرسنجی پیدا نشد");
     const inv = await liveRow(tx, sys, "survey_invitation", invitationId);
     if (!inv) throw notFound("نظرسنجی پیدا نشد");
     if (inv.status === "answered") throw new AppError(409, "conflict", "به این نظرسنجی پیش‌تر پاسخ داده‌اید؛ سپاسگزاریم");
@@ -260,42 +277,41 @@ async function answer(sys: Ctx, invitationId: string, raw: Record<string, unknow
       throw new AppError(410, "gone", "مهلت این نظرسنجی گذشته است");
     }
     const at = nowIso();
+    const day = `${at.slice(0, 10)}T00:00:00.000Z`;
     let service: string | null = null;
     if (!anonymous && inv.table_key && isUuid(inv.record_id)) {
       const rec = await liveRow(tx, sys, String(inv.table_key), inv.record_id).catch(() => null);
       service = rec && isUuid(rec.service_id) ? String(rec.service_id) : null;
     }
-    await createIn(
-      tx,
-      sys,
-      "survey_response",
-      {
-        title: anonymous ? String(survey.name) : String(inv.title ?? survey.name),
-        survey_id: survey.id,
-        invitation_id: anonymous ? null : inv.id,
-        respondent_id: anonymous ? null : inv.user_id,
-        group_id: inv.group_id ?? null,
-        table_key: anonymous ? null : (inv.table_key ?? null),
-        record_id: anonymous ? null : (inv.record_id ?? null),
-        record_number: anonymous ? null : (inv.record_number ?? null),
-        service_id: service,
-        channel,
-        answers: clean,
-        csat: metrics.csat,
-        satisfied: metrics.satisfied,
-        nps: metrics.nps,
-        ces: metrics.ces,
-        happiness: metrics.happiness,
-        lost_minutes: metrics.lost_minutes,
-        score: metrics.score,
-        comment: metrics.comment,
-        // an anonymous answer keeps only its day
-        submitted_at: anonymous ? `${at.slice(0, 10)}T00:00:00.000Z` : at,
-      },
-      { trusted: true },
-    );
-    await updateIn(tx, sys, "survey_invitation", invitationId, { status: "answered", answered_at: at }, { trusted: true });
-    await updateIn(tx, sys, "survey", String(survey.id), { response_count: Number(survey.response_count ?? 0) + 1 }, { trusted: true });
+    const response: Row = {
+      title: anonymous ? String(survey.name) : String(inv.title ?? survey.name),
+      survey_id: survey.id,
+      invitation_id: anonymous ? null : inv.id,
+      respondent_id: anonymous ? null : inv.user_id,
+      group_id: anonymous ? null : (inv.group_id ?? null),
+      table_key: anonymous ? null : (inv.table_key ?? null),
+      record_id: anonymous ? null : (inv.record_id ?? null),
+      record_number: anonymous ? null : (inv.record_number ?? null),
+      service_id: service,
+      channel,
+      answers: clean,
+      csat: metrics.csat,
+      satisfied: metrics.satisfied,
+      nps: metrics.nps,
+      ces: metrics.ces,
+      happiness: metrics.happiness,
+      lost_minutes: metrics.lost_minutes,
+      score: metrics.score,
+      comment: metrics.comment,
+      submitted_at: at,
+    };
+    // an anonymous answer is held and written later with others (nothing of this moment on the response)
+    if (anonymous) await tx.query(`insert into sm_survey_held (id, org_id, survey_id, payload) values ($1, $2, $3, $4::jsonb)`, [uuidv7(), sys.org.id, String(survey.id), JSON.stringify(response)]);
+    else await createIn(tx, sys, "survey_response", response, { trusted: true });
+    await updateIn(tx, sys, "survey_invitation", invitationId, { status: "answered", answered_at: anonymous ? day : at }, { trusted: true });
+    // the survey's count from its locked row (concurrent answers add up)
+    const counted = await tx.one<{ n: number | string | null }>(`select response_count as n from sm_surveys where org_id = $1 and id = $2 for update`, [sys.org.id, String(survey.id)]);
+    await updateIn(tx, sys, "survey", String(survey.id), { response_count: Number(counted?.n ?? 0) + 1 }, { trusted: true });
     // the satisfaction on the record itself, when its table keeps one (a named answer only)
     if (!anonymous && metrics.csat !== null && inv.table_key && isUuid(inv.record_id)) {
       const def = tableDef(String(inv.table_key));
@@ -308,8 +324,75 @@ async function answer(sys: Ctx, invitationId: string, raw: Record<string, unknow
       }
     }
   });
-  await logPortalEvent(sys.db, sys.org.id, anonymous ? null : actor, { kind: "survey", channel: channel === "email" ? "public" : "portal", value: metrics.score ?? null, ref_table: "survey", ref_id: String(survey.id) }, sys.cfg.log);
+  if (anonymous) await releaseHeldAnswers(sys, String(survey.id)).catch(() => undefined);
+  await logPortalEvent(sys.db, sys.org.id, anonymous ? null : actor, { kind: "survey", channel: channel === "email" ? "public" : "portal", value: anonymous ? null : (metrics.score ?? null), ref_table: "survey", ref_id: String(survey.id) }, sys.cfg.log);
   return { thanks: String(survey.thanks ?? "از وقتی که گذاشتید سپاسگزاریم.") };
+}
+
+/**
+ * Write the held answers of anonymous surveys (one survey, or all of the organisation) as responses — a survey's only
+ * once at least ANONYMOUS_BATCH wait, all of them in one transaction, in random order, stamped with the day of writing:
+ * which response came from which invitation is no longer told by an id, a number or a time.
+ */
+export async function releaseHeldAnswers(sys: Ctx, surveyId?: string): Promise<number> {
+  const ready = await sys.db.query<{ survey_id: string }>(
+    `select survey_id from sm_survey_held where org_id = $1 ${surveyId ? "and survey_id = $2" : ""} group by survey_id having count(*) >= ${ANONYMOUS_BATCH}`,
+    surveyId ? [sys.org.id, surveyId] : [sys.org.id],
+  );
+  let written = 0;
+  for (const { survey_id } of ready) {
+    written += await sys.write(async (tx) => {
+      const held = await tx.query<{ id: string; payload: Row }>(`select id, payload from sm_survey_held where org_id = $1 and survey_id = $2 for update skip locked`, [sys.org.id, survey_id]);
+      if (held.length < ANONYMOUS_BATCH) return 0;
+      const day = `${nowIso().slice(0, 10)}T00:00:00.000Z`;
+      for (let i = held.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [held[i], held[j]] = [held[j], held[i]];
+      }
+      for (const h of held) {
+        const payload = typeof h.payload === "string" ? (JSON.parse(h.payload) as Row) : h.payload;
+        await createIn(tx, sys, "survey_response", { ...payload, invitation_id: null, respondent_id: null, group_id: null, table_key: null, record_id: null, record_number: null, submitted_at: day }, { trusted: true });
+      }
+      await tx.query(`delete from sm_survey_held where org_id = $1 and id = any($2::uuid[])`, [sys.org.id, pgArray(held.map((h) => String(h.id)))]);
+      return held.length;
+    });
+  }
+  return written;
+}
+
+/**
+ * Rows of `survey_invitation` and `survey_response` (redactRows): what they copy from their record — its title and
+ * number, the record's table and id, the person and their words — shows only to readers of that record (a confidential
+ * complaint, an incident of a restricted group or a secure workspace stays with its readers); the scores stay.
+ */
+export async function redactSurveyRows(q: Queryable, ctx: Ctx, def: TableDef, rows: Row[]): Promise<void> {
+  const ids = [...new Set(rows.map((r) => r.id).filter(isUuid).map(String))];
+  if (!ids.length) return;
+  const sys = sysOf(ctx);
+  const stored = new Map((await q.query<{ id: string; table_key: string | null; record_id: string | null; survey_id: string | null }>(
+    `select id, table_key, record_id, survey_id from ${def.table} where org_id = $1 and id = any($2::uuid[])`,
+    [ctx.org.id, pgArray(ids)],
+  )).map((r) => [String(r.id), r] as const));
+  const byTable = new Map<string, Set<string>>();
+  for (const r of stored.values()) if (r.table_key && isUuid(r.record_id)) (byTable.get(r.table_key) ?? byTable.set(r.table_key, new Set()).get(r.table_key)!).add(String(r.record_id));
+  if (!byTable.size) return;
+  const readable = new Set<string>();
+  for (const [table, recs] of byTable) {
+    if (!tableDef(table)) continue;
+    const seen = await liveRows(q, ctx, table, { f: "id", op: "in", v: [...recs].slice(0, 1000) }, { limit: 1000 }).catch(() => [] as Row[]);
+    for (const r of seen) readable.add(`${table}:${String(r.id)}`);
+  }
+  const hidden = [...stored.values()].filter((r) => r.table_key && isUuid(r.record_id) && !readable.has(`${r.table_key}:${String(r.record_id)}`));
+  if (!hidden.length) return;
+  const surveyIds = [...new Set(hidden.map((r) => r.survey_id).filter(isUuid).map(String))];
+  const names = new Map((await liveRows(q, sys, "survey", { f: "id", op: "in", v: surveyIds }, { limit: surveyIds.length || 1 })).map((s) => [String(s.id), String(s.name ?? "")] as const));
+  const hide = new Map(hidden.map((r) => [String(r.id), r] as const));
+  for (const r of rows) {
+    const h = hide.get(String(r.id));
+    if (!h) continue;
+    if ("title" in r) r.title = names.get(String(h.survey_id)) || "نظرسنجی";
+    for (const f of ["table_key", "record_id", "record_number", "user_id", "respondent_id", "invitation_id", "comment", "answers"]) if (f in r) r[f] = null;
+  }
 }
 
 /** Answer in the portal (the invitee, signed in). */
@@ -481,6 +564,8 @@ export async function surveyResults(ctx: Ctx, opts: { survey?: string | null; da
   const invitedN = Number(invited?.totals.count ?? 0);
   const responses = Number(totals.totals.count ?? 0);
   const comments = await liveRows(ctx.db, ctx, "survey_response", { and: [...base, { f: "comment", op: "nempty" }] }, { order: "t.submitted_at desc", limit: 30 }).catch(() => [] as Row[]);
+  // a comment about a record the caller may not read is not theirs to see (redactSurveyRows)
+  if (ctx.actor !== "system" && comments.length) await redactSurveyRows(ctx.db, ctx, tableDef("survey_response")!, comments);
   const pct = (x: { yes: number; all: number } | undefined) => (x && x.all ? Math.round((x.yes / x.all) * 100) : null);
   return {
     survey: surveyRow ? { id: String(surveyRow.id), name: String(surveyRow.name), kind: String(surveyRow.kind) } : null,
@@ -505,7 +590,7 @@ export async function surveyResults(ctx: Ctx, opts: { survey?: string | null; da
       const k = r.keys[0] === null || r.keys[0] === undefined ? null : String(r.keys[0]);
       return { id: k, name: k ? (groups.display[k] ?? r.labels[0] ?? "—") : "بدون گروه", responses: Number(r.values.count ?? 0), csat_pct: pct(satByGroup.get(k ?? "")) };
     }),
-    comments: comments.map((c) => ({ id: String(c.id), at: String(c.submitted_at ?? c.created_at ?? ""), csat: typeof c.csat === "number" ? c.csat : null, comment: String(c.comment ?? ""), record_number: (c.record_number as string) ?? null })),
+    comments: comments.filter((c) => c.comment).map((c) => ({ id: String(c.id), at: String(c.submitted_at ?? c.created_at ?? ""), csat: typeof c.csat === "number" ? c.csat : null, comment: String(c.comment ?? ""), record_number: (c.record_number as string) ?? null })),
   };
 }
 

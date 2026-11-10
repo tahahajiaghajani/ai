@@ -9,9 +9,23 @@ export interface ShellApi {
   openPalette: () => void;
   /** opens the assistant «دستیار» (see src/ui/ai/assistant/bus.ts) */
   openAssistant: (req?: AssistantRequest) => void;
+  /**
+   * A full-screen surface of its own covers the shell (the requester's portal): while covered, the shell's command
+   * palette (Ctrl K) and the assistant are neither shown nor opened above it.
+   */
+  cover: (on: boolean) => void;
 }
 
 export const ShellCtx = createContext<ShellApi | null>(null);
+
+/**
+ * Does this key press toggle the command palette? Ctrl K (or ⌘K) on any keyboard layout — the K key types «ن» on the
+ * Persian one — and never while a surface of its own covers the shell (the portal).
+ */
+export function togglesPalette(e: { ctrlKey: boolean; metaKey: boolean; altKey: boolean; code: string; key: string }, covered: boolean): boolean {
+  if (covered) return false;
+  return (e.ctrlKey || e.metaKey) && !e.altKey && (e.code === "KeyK" || ["k", "K", "ن", "ك"].includes(e.key));
+}
 
 export function useShell(): ShellApi | null {
   return useContext(ShellCtx);

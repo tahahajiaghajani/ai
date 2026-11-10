@@ -339,8 +339,10 @@ export interface TableDef {
   /**
    * Row rules every caller is held to on top of the access provider — e.g. personal saved views:
    * `{ read: { or: [{ f: "owner_id", op: "is_me" }, { f: "shared", op: "eq", v: true }] }, write: { f: "owner_id", op: "is_me" } }`.
+   * `managersReadAll`: callers who may create rows of the table (they manage its content — the portal's quick links
+   * and topics, whose `read` is their audience) read every row, outside the read rule too.
    */
-  rowAccess?: { read?: Cond; write?: Cond };
+  rowAccess?: { read?: Cond; write?: Cond; managersReadAll?: boolean };
   /** levels of `area` the default provider asks for (default: read view, create/write edit, delete full) */
   levels?: { read?: Level; create?: Level; write?: Level; delete?: Level };
   /** a reference target without a physical engine table (the members of the organisation) */
