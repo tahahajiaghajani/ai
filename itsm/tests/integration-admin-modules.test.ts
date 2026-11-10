@@ -14,6 +14,8 @@ import { BY_ENTITY } from "@server/sync/registry";
 import type { AiStreamEvent } from "@shared/ai/types";
 import { esmWorld, type EsmWorld } from "./esm-helpers";
 import type { Client } from "./helpers";
+import { uuidv7 } from "@shared/id";
+import { SYNC_PROTOCOL } from "@shared/constants";
 
 vi.setConfig({ testTimeout: 180_000 });
 
@@ -124,5 +126,38 @@ describe("the access matrix explorer", () => {
     // the explainer states the table's data-use policy
     const ex = await w.o.post(`${w.P}/admin/access/explain`, { user_id: w.p.hr.userId, table: "hr_case" });
     expect(ex.rule).toContain("فقط مدل‌های محلی سازمان");
+  });
+});
+
+describe("Windows pushes of the merged modules' tables", () => {
+  type Result = { entity: string; id: string; status: string; message?: string };
+  const push = async (c: Client, entity: string, row: Record<string, unknown>, base_rev = 0): Promise<Result> =>
+    ((await c.post(`/sync/push`, { org_id: w.e.org, device_id: uuidv7(), protocol: SYNC_PROTOCOL, aggregates: [{ entity, id: row.id, base_rev, row: { org_id: w.e.org, updated_at: new Date().toISOString(), ...row } }] })).results as Result[])[0];
+
+  it("the console's and the hub's tables change only on the web version", async () => {
+    for (const [entity, row] of [
+      ["webhook_subscription", { name: "وب‌هوک از ویندوز", url: "https://example.com/hook", tables: ["incident"], events: ["created"], active: true }],
+      ["integration_user", { name: "کاربر از ویندوز" }],
+      ["custom_table", { slot: "custom_09", label: "جدول از ویندوز", plural: "جدول‌ها از ویندوز", code: "winpush" }],
+      ["system_notice", { title: "اطلاعیه از ویندوز", body: "متن", active: true }],
+    ] as const) {
+      const id = uuidv7();
+      const r = await push(w.o, entity, { id, ...row });
+      expect(r.status, entity).toBe("error");
+      expect(r.message, entity).toContain("فقط در نسخهٔ وب");
+      expect(await w.e.db.one(`select 1 from sm_${entity === "integration_user" ? "integration_users" : entity === "webhook_subscription" ? "webhook_subscriptions" : entity === "custom_table" ? "custom_tables" : "system_notices"} where id = $1`, [id]).catch(() => null)).toBeFalsy();
+    }
+  });
+
+  it("field service, SLM and workforce derive their fields and hold their rules on a push", async () => {
+    // a technician pushed with a made-up name: the cloud names them from their account
+    const id = uuidv7();
+    const r = await push(w.o, "technician", { id, user_id: w.p.it.userId, name: "نام ساختگی", skills: [], available: true, active: true });
+    expect(r.status, r.message).toBe("ok");
+    const tech = await w.e.db.one<{ name: string }>(`select name from sm_technicians where id = $1`, [id]);
+    expect(tech!.name).not.toBe("نام ساختگی");
+    // a malformed skills list is refused as the API refuses it
+    const bad = await push(w.o, "technician", { id: uuidv7(), user_id: w.p.fac.userId, skills: "نه فهرست", available: true, active: true });
+    expect(bad.status).toBe("error");
   });
 });

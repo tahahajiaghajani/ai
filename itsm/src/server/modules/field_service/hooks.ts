@@ -15,7 +15,7 @@ import { formatJalaliDateTime } from "@shared/jalali";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
-import { addJournalIn, createIn, emitEvent, isSystemCtx, onBeforeCommit, orgTz, registerHooks, transitionIn, updateIn, validationError, type WriteArgs } from "../../engine";
+import { pushFromBefore, addJournalIn, createIn, emitEvent, isSystemCtx, onBeforeCommit, orgTz, registerHooks, transitionIn, updateIn, validationError, type WriteArgs } from "../../engine";
 import { forbidden } from "../../http/errors";
 import { fsmConfig, ids, isUuid, liveRow, liveRows, msOf, sysOf, todayOf, type Row } from "./common";
 
@@ -244,10 +244,10 @@ async function technicianBefore(w: WriteArgs): Promise<void> {
 
 export function installFieldHooks(): (() => void)[] {
   return [
-    registerHooks("work_order", { beforeWrite: workOrderBefore, afterWrite: workOrderAfter, guards: { wo_has_tasks: woHasTasks, wo_tasks_done: woTasksDone } }),
-    registerHooks("wo_task", { beforeWrite: taskBefore, afterWrite: taskAfter, guards: { wot_checklist: taskChecklist } }),
-    registerHooks("parts_requirement", { beforeWrite: childOfTask, afterWrite: partAfter }),
-    registerHooks("field_time_entry", { beforeWrite: childOfTask }),
-    registerHooks("technician", { beforeWrite: technicianBefore }),
+    registerHooks("work_order", { beforeWrite: workOrderBefore, ...pushFromBefore(workOrderBefore), afterWrite: workOrderAfter, guards: { wo_has_tasks: woHasTasks, wo_tasks_done: woTasksDone } }),
+    registerHooks("wo_task", { beforeWrite: taskBefore, ...pushFromBefore(taskBefore), afterWrite: taskAfter, guards: { wot_checklist: taskChecklist } }),
+    registerHooks("parts_requirement", { beforeWrite: childOfTask, ...pushFromBefore(childOfTask), afterWrite: partAfter }),
+    registerHooks("field_time_entry", { beforeWrite: childOfTask, ...pushFromBefore(childOfTask) }),
+    registerHooks("technician", { beforeWrite: technicianBefore, ...pushFromBefore(technicianBefore) }),
   ];
 }

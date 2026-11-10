@@ -14,7 +14,7 @@ import { businessBetween, weekMinutes } from "@shared/sla/calendar";
 import { formatJalali } from "@shared/jalali";
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
-import { createIn, isSystemCtx, registerHooks, SYSTEM_USER, updateIn, validationError, type WriteArgs } from "../../engine";
+import { pushFromBefore, createIn, isSystemCtx, registerHooks, SYSTEM_USER, updateIn, validationError, type WriteArgs } from "../../engine";
 import { bad } from "../../http/errors";
 import { enqueue } from "../../jobs";
 import { calendarFor } from "../sla";
@@ -222,13 +222,13 @@ async function kudosAfter(w: WriteArgs & { row: Row }): Promise<void> {
 
 export function installWorkforceHooks(): (() => void)[] {
   return [
-    registerHooks("wfm_person_skill", { beforeWrite: personSkillBefore, afterWrite: personSkillAfter }),
+    registerHooks("wfm_person_skill", { beforeWrite: personSkillBefore, ...pushFromBefore(personSkillBefore), afterWrite: personSkillAfter }),
     registerHooks("wfm_skill", { afterWrite: skillAfter }),
-    registerHooks("wfm_coverage", { beforeWrite: coverageBefore }),
-    registerHooks("wfm_capacity", { beforeWrite: capacityBefore }),
-    registerHooks("wfm_roster", { beforeWrite: rosterBefore }),
-    registerHooks("wfm_absence", { beforeWrite: absenceBefore, afterWrite: absenceAfter }),
-    registerHooks("wfm_kudos", { beforeWrite: kudosBefore, afterWrite: kudosAfter }),
+    registerHooks("wfm_coverage", { beforeWrite: coverageBefore, ...pushFromBefore(coverageBefore) }),
+    registerHooks("wfm_capacity", { beforeWrite: capacityBefore, ...pushFromBefore(capacityBefore) }),
+    registerHooks("wfm_roster", { beforeWrite: rosterBefore, ...pushFromBefore(rosterBefore) }),
+    registerHooks("wfm_absence", { beforeWrite: absenceBefore, ...pushFromBefore(absenceBefore), afterWrite: absenceAfter }),
+    registerHooks("wfm_kudos", { beforeWrite: kudosBefore, ...pushFromBefore(kudosBefore), afterWrite: kudosAfter }),
   ];
 }
 

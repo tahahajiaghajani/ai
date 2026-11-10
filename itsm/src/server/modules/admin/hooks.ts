@@ -6,7 +6,7 @@ import { tableDef } from "@shared/tables";
 import { TABLE_CODE, isCustomSlot } from "@shared/admin/studio";
 import { specProblem, type MapRule } from "@shared/admin/mapping";
 import { bad, forbidden } from "../../http/errors";
-import { registerHooks, type WriteArgs } from "../../engine";
+import { webOnly, registerHooks, type WriteArgs } from "../../engine";
 import { isSystem } from "../../access/provider";
 import { enqueue } from "../../jobs";
 import { liveRows, needWithinLimit, sysOf } from "./common";
@@ -79,10 +79,10 @@ let installed = false;
 export function installAdminHooks(): void {
   if (installed) return;
   installed = true;
-  registerHooks("custom_field", { beforeWrite: customField });
-  registerHooks("custom_table", { beforeWrite: customTable });
-  registerHooks("import_set", { beforeWrite: (w) => targetTable(w, "target_table") });
-  registerHooks("transform_map", { beforeWrite: transformMap });
-  registerHooks("data_export", { beforeWrite: dataExport, afterWrite: dataExportAfter });
-  registerHooks("system_notice", { beforeWrite: notice });
+  registerHooks("custom_field", { beforeWrite: customField, ...webOnly("فیلد سفارشی") });
+  registerHooks("custom_table", { beforeWrite: customTable, ...webOnly("جدول سفارشی") });
+  registerHooks("import_set", { beforeWrite: (w) => targetTable(w, "target_table"), ...webOnly("ورود داده") });
+  registerHooks("transform_map", { beforeWrite: transformMap, ...webOnly("نگاشت ورود داده") });
+  registerHooks("data_export", { beforeWrite: dataExport, ...webOnly("خروجی داده"), afterWrite: dataExportAfter });
+  registerHooks("system_notice", { beforeWrite: notice, ...webOnly("اطلاعیهٔ سامانه") });
 }

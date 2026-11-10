@@ -12,7 +12,7 @@
 import { AGREEMENT_IN_FORCE, CUSTOMER_KINDS } from "@shared/tables/slm";
 import { addJalaliMonths, improvementScore, inForce, num, parseTiers, stateFromStatus, statusFromState, weightsProblem } from "@shared/slm/logic";
 import { tableDef } from "@shared/tables";
-import { registerHooks, transitionIn, updateIn, validationError, isSystemCtx, type WriteArgs } from "../../engine";
+import { pushFromBefore, registerHooks, transitionIn, updateIn, validationError, isSystemCtx, type WriteArgs } from "../../engine";
 import { bad, conflict } from "../../http/errors";
 import type { Row } from "./common";
 import { countRows, isUuid, liveRow, liveRows, slmConfig, sysOf, todayOf } from "./common";
@@ -248,15 +248,21 @@ function xlaPolicyBefore(w: WriteArgs): void {
   if (!def || def.virtual) throw validationError({ table_key: `جدول «${w.next.table_key ?? ""}» شناخته نیست` });
 }
 
+/** A credit: its derived values, then the manager rule. */
+const creditHook = async (w: WriteArgs): Promise<void> => {
+  creditBefore(w);
+  await creditManager(w);
+};
+
 export function installSlmHooks(): (() => void)[] {
   return [
-    registerHooks(A, { beforeWrite: agreementBefore, afterWrite: agreementAfter, guards: { agreement_ready: agreementReady } }),
-    registerHooks("slm_target", { beforeWrite: targetBefore, afterWrite: targetAfter }),
-    registerHooks("slm_template_target", { beforeWrite: templateTargetBefore }),
-    registerHooks("slm_review", { beforeWrite: reviewBefore, afterWrite: reviewAfter, guards: { review_pack: reviewPackGuard, review_closable: reviewClosable } }),
-    registerHooks("slm_improvement", { beforeWrite: improvementBefore }),
-    registerHooks("slm_credit", { beforeWrite: async (w) => { creditBefore(w); await creditManager(w); } }),
-    registerHooks("slm_xla_policy", { beforeWrite: xlaPolicyBefore }),
+    registerHooks(A, { beforeWrite: agreementBefore, ...pushFromBefore(agreementBefore), afterWrite: agreementAfter, guards: { agreement_ready: agreementReady } }),
+    registerHooks("slm_target", { beforeWrite: targetBefore, ...pushFromBefore(targetBefore), afterWrite: targetAfter }),
+    registerHooks("slm_template_target", { beforeWrite: templateTargetBefore, ...pushFromBefore(templateTargetBefore) }),
+    registerHooks("slm_review", { beforeWrite: reviewBefore, ...pushFromBefore(reviewBefore), afterWrite: reviewAfter, guards: { review_pack: reviewPackGuard, review_closable: reviewClosable } }),
+    registerHooks("slm_improvement", { beforeWrite: improvementBefore, ...pushFromBefore(improvementBefore) }),
+    registerHooks("slm_credit", { beforeWrite: creditHook, ...pushFromBefore(creditHook) }),
+    registerHooks("slm_xla_policy", { beforeWrite: xlaPolicyBefore, ...pushFromBefore(xlaPolicyBefore) }),
   ];
 }
 

@@ -145,6 +145,63 @@ export function pushGuard(guard: (w: WriteArgs) => unknown): (p: PushArgs) => Pr
   };
 }
 
+let pushSeq = 0;
+const pushRefusals = new WeakMap<object, Map<string, string>>();
+const pushKey = (p: PushArgs) => `${p.def.key}:${String(p.next.id ?? p.prev?.id ?? "")}`;
+
+/**
+ * A module's `beforeWrite` that both checks and derives, asked of a Windows app's push (which runs no `beforeWrite`):
+ * the hook runs on a copy of the pushed row (op "create"/"update", via "sync", never trusted) inside a savepoint that
+ * is always rolled back — its side effects are the API's, not a push's. A refusal (an error with a 4xx status and a
+ * Persian message) becomes the push's answer (`validatePush`); the system and readonly fields it sets on the copy are
+ * the cloud's values of those fields (`derivePush`). For a hook that only refuses, `pushGuard` is enough.
+ */
+export function pushFromBefore(before: (w: WriteArgs) => unknown): Pick<TableHooks, "derivePush" | "validatePush"> {
+  return {
+    async derivePush(p) {
+      const next: Row = { ...p.next };
+      const name = `sm_pb${++pushSeq}`;
+      await p.tx.query(`savepoint ${name}`);
+      let refusal: string | null = null;
+      try {
+        await before({ tx: p.tx, ctx: p.ctx, def: p.def, op: p.prev ? "update" : "create", next, prev: p.prev, changed: p.changed, input: p.changed, env: p.env, via: "sync", trusted: false });
+      } catch (e) {
+        const status = (e as { status?: unknown })?.status;
+        if (!(typeof status === "number" && status >= 400 && status < 500)) {
+          await p.tx.query(`rollback to savepoint ${name}`);
+          throw e;
+        }
+        refusal = String((e as Error).message || "این تغییر پذیرفته نشد");
+      }
+      await p.tx.query(`rollback to savepoint ${name}`);
+      let stash = pushRefusals.get(p.tx);
+      if (!stash) pushRefusals.set(p.tx, (stash = new Map()));
+      if (refusal) {
+        stash.set(pushKey(p), refusal);
+        return null;
+      }
+      stash.delete(pushKey(p));
+      const out: Row = {};
+      for (const f of p.def.fields) {
+        if (f.base || !(f.system || f.readonly) || !(f.name in next)) continue;
+        if (JSON.stringify(next[f.name] ?? null) !== JSON.stringify(p.next[f.name] ?? null)) out[f.name] = next[f.name];
+      }
+      return out;
+    },
+    validatePush(p) {
+      if (p.ctx.actor === "system") return null;
+      return pushRefusals.get(p.tx)?.get(pushKey(p)) ?? null;
+    },
+  };
+}
+
+/** A console-managed table that a Windows app's push may not change (created, edited and deleted on the web version). */
+export function webOnly(label: string): Pick<TableHooks, "validatePush" | "validatePushDelete"> {
+  const refusal = `«${label}» فقط در نسخهٔ وب تغییر می‌کند`;
+  const check = (p: PushArgs) => (p.ctx.actor === "system" ? null : refusal);
+  return { validatePush: check, validatePushDelete: check };
+}
+
 export function hooksFor(table: string): TableHooks[] {
   return [...(registry.get(table) ?? []), ...(registry.get("*") ?? [])];
 }

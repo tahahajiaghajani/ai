@@ -20,7 +20,7 @@ export { exportRows, importRows } from "./transfer";
 export type { ExportParams, ExportResult, ImportParams, ImportResult } from "./transfer";
 export { tablesMeta, tableMeta } from "./meta";
 export type { TableMeta } from "./meta";
-export { registerHooks, registerRecordMeta, hooksFor, redactRows, pushGuard, type SideArgs, type SideFilterArgs } from "./hooks";
+export { registerHooks, registerRecordMeta, hooksFor, redactRows, pushGuard, pushFromBefore, webOnly, type SideArgs, type SideFilterArgs } from "./hooks";
 export type { TableHooks, WriteArgs, WriteOp, MetaArgs, MetaProvider, PushArgs } from "./hooks";
 export { onRecordEvent, emitEvent } from "./events";
 export type { RecordEvent, RecordEventKind, RecordEventHandler, RecordEventInput } from "./events";

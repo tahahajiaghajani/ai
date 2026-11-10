@@ -5,7 +5,7 @@
 import { randomToken } from "../../auth/password";
 import { tableDef } from "@shared/tables";
 import { bad } from "../../http/errors";
-import { registerHooks, type WriteArgs } from "../../engine";
+import { webOnly, registerHooks, type WriteArgs } from "../../engine";
 import { enqueue } from "../../jobs";
 import { isSystem } from "../../access/provider";
 import { needWithinLimit } from "../admin/common";
@@ -90,10 +90,10 @@ let installed = false;
 export function installIntegrationHooks(): void {
   if (installed) return;
   installed = true;
-  registerHooks("integration_user", { beforeWrite: integrationUser, afterWrite: integrationUserAfter });
-  registerHooks("webhook_subscription", { beforeWrite: webhook });
-  registerHooks("inbound_endpoint", { beforeWrite: inbound });
-  registerHooks("directory_source", { beforeWrite: directory });
-  registerHooks("issue_connection", { beforeWrite: issueConnection });
-  registerHooks("export_schedule", { beforeWrite: exportSchedule, afterWrite: exportScheduleAfter });
+  registerHooks("integration_user", { beforeWrite: integrationUser, ...webOnly("کاربر یکپارچه‌سازی"), afterWrite: integrationUserAfter });
+  registerHooks("webhook_subscription", { beforeWrite: webhook, ...webOnly("وب‌هوک") });
+  registerHooks("inbound_endpoint", { beforeWrite: inbound, ...webOnly("نقطهٔ دریافت") });
+  registerHooks("directory_source", { beforeWrite: directory, ...webOnly("منبع فهرست کاربران") });
+  registerHooks("issue_connection", { beforeWrite: issueConnection, ...webOnly("اتصال Jira/GitHub") });
+  registerHooks("export_schedule", { beforeWrite: exportSchedule, ...webOnly("خروجی زمان‌بندی‌شده"), afterWrite: exportScheduleAfter });
 }
