@@ -105,7 +105,9 @@ channel; `fields` recipients are `user`, `users` or `group` fields.
   `notify_mode` («اعلان ارجاع به گروه»: `members`, `leads`, or `auto`, the default: every member up to `LARGE_GROUP` =
   50, leads and manager above). The others see the record in the group queue and its count in the nav (incident
   «بی‌مسئول در گروه‌های من», request «بی‌مسئول در گروه‌های من» and «وظایف گروه‌های من») instead of a bell each. A large
-  group without leads or manager tells nobody; give it a lead. `group_manager`:
+  group under `auto` that has neither a lead nor a manager falls back to every member (never nobody), and the group
+  form warns about it (`groupNotifyWarning`); an explicit `leads` with neither still tells nobody — give it a lead.
+  `group_manager`:
   the group's managers; `*_manager`: the managers of those people; `roles`: holders on their profile or through a
   group's roles (`tenant_admin` also owners and «مدیر» members).
 - `oncall`: whoever an on-call source returns for the record's group (`registerOnCallSource`, §9).
