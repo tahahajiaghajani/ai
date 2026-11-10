@@ -4,6 +4,7 @@
 import postgres from "postgres";
 import { runBeforeCommit, toIsoTimestamp, type Db, type Row, type Tx } from "./index";
 import { txEnded } from "./lockprobe";
+import { DEMO_SCOPE_SQL, demoScopeOrg, scopedWrite } from "./scope";
 
 /**
  * postgres.js lets the server decide parameter types and serialises json/jsonb itself, so
@@ -153,36 +154,46 @@ export function createPostgresDb(opts: PostgresOptions): Db {
     },
   });
 
-  const base = make(sql);
+  const direct = make(sql);
+  // a lone write of demo work runs in a transaction that carries the demo setting (src/server/db/scope.ts)
+  const base = {
+    query: <T = Row>(text: string, params: unknown[] = []): Promise<T[]> => (scopedWrite(text) ? tx((t) => t.query<T>(text, params)) : direct.query<T>(text, params)),
+    one: <T = Row>(text: string, params: unknown[] = []): Promise<T | null> => (scopedWrite(text) ? tx((t) => t.one<T>(text, params)) : direct.one<T>(text, params)),
+    exec: (text: string): Promise<void> => (scopedWrite(text) ? tx((t) => t.exec(text)) : direct.exec(text)),
+  };
   return {
     kind: "postgres",
     ...base,
-    async tx<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
-      let txq: Tx | null = null;
-      let committed = false;
-      try {
-        const result = await sql.begin(async (t) => {
-          const sp = savepoints(t);
-          try {
-            txq = { ...make(sp.sql), inTx: true };
-            const r = await fn(txq);
-            await runBeforeCommit(txq);
-            await sp.closeAll(true);
-            return r;
-          } catch (e) {
-            await sp.closeAll(false).catch(() => {});
-            throw e;
-          }
-        });
-        committed = true;
-        return result as T;
-      } finally {
-        // the write-lock probe (off in production): the transaction is over, its lock released
-        txEnded(txq, committed);
-      }
-    },
+    tx,
     async close() {
       await sql.end({ timeout: 5 });
     },
   };
+
+  async function tx<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
+    let txq: Tx | null = null;
+    let committed = false;
+    try {
+      const result = await sql.begin(async (t) => {
+        const sp = savepoints(t);
+        try {
+          const demo = demoScopeOrg();
+          if (demo) await t.unsafe(DEMO_SCOPE_SQL, [demo] as never[]);
+          txq = { ...make(sp.sql), inTx: true };
+          const r = await fn(txq);
+          await runBeforeCommit(txq);
+          await sp.closeAll(true);
+          return r;
+        } catch (e) {
+          await sp.closeAll(false).catch(() => {});
+          throw e;
+        }
+      });
+      committed = true;
+      return result as T;
+    } finally {
+      // the write-lock probe (off in production): the transaction is over, its lock released
+      txEnded(txq, committed);
+    }
+  }
 }

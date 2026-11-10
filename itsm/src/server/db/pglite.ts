@@ -4,6 +4,7 @@
 import { PGlite } from "@electric-sql/pglite";
 import { runBeforeCommit, serializeParam, toIsoTimestamp, type Db, type Row, type Tx } from "./index";
 import { txEnded } from "./lockprobe";
+import { DEMO_SCOPE_SQL, demoScopeOrg, scopedWrite } from "./scope";
 
 export interface PgliteOptions {
   /** folder of the database; omit for an in-memory database (tests) */
@@ -51,7 +52,13 @@ export async function createPgliteDb(opts: PgliteOptions = {}): Promise<Db & { p
     },
   });
 
-  const base = make(pg);
+  const direct = make(pg);
+  // a lone write of demo work runs in a transaction that carries the demo setting (src/server/db/scope.ts)
+  const base = {
+    query: <T = Row>(text: string, params: unknown[] = []): Promise<T[]> => (scopedWrite(text) ? transaction((t) => t.query<T>(text, params), () => {}) : direct.query<T>(text, params)),
+    one: <T = Row>(text: string, params: unknown[] = []): Promise<T | null> => (scopedWrite(text) ? transaction((t) => t.one<T>(text, params), () => {}) : direct.one<T>(text, params)),
+    exec: (text: string): Promise<void> => (scopedWrite(text) ? transaction((t) => t.exec(text), () => {}) : direct.exec(text)),
+  };
   return {
     kind: "pglite",
     pg,
@@ -77,6 +84,8 @@ export async function createPgliteDb(opts: PgliteOptions = {}): Promise<Db & { p
   async function transaction<T>(fn: (tx: Tx) => Promise<T>, seen: (tx: Tx) => void): Promise<T> {
     return pg.transaction(async (t) => {
       const q = make(t as unknown as PGlite);
+      const demo = demoScopeOrg();
+      if (demo) await t.query(DEMO_SCOPE_SQL, [demo]);
       let failed: unknown = null;
       const track = <A extends unknown[], R>(f: (...a: A) => Promise<R>) => async (...a: A): Promise<R> => {
         try {

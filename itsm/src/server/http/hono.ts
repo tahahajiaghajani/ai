@@ -7,6 +7,7 @@ import { makeCtx } from "../context";
 import { AppError, bad, dbErrorMessage, forbidden, notFound, tooMany, unauthorized, zodToAppError } from "./errors";
 import { BACKGROUND_HEADER, resolveToken, tokenFromRequest, clientIp } from "../auth/session";
 import { guardOrgSession } from "../auth/policy";
+import { inDemoScope } from "../db/scope";
 import { AiUnavailableError, aiHttpError } from "../modules/ai/errors";
 
 export type Vars = {
@@ -72,7 +73,9 @@ export const loadOrg: MiddlewareHandler<Env> = async (c, next) => {
   // a directory sign-in reaches only its organisation; a closed local sign-in only for break-glass accounts
   guardOrgSession(org, c.get("session"), user, member.id ? member : null, cfg.mode);
   c.set("ctx", makeCtx(cfg, user, org, member, { session: c.get("session") ?? null }));
-  await next();
+  // the people of the organisation's demo pack (docs/DEMO_FA.md): what they do is demo data, removed with the pack
+  if (member.id && user.prefs?.demo_org === org.id) await inDemoScope(org.id, () => next());
+  else await next();
 };
 
 /** Mutations must be JSON from the same origin (cheap CSRF defence on top of SameSite cookies). */

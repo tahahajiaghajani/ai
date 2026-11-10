@@ -50,6 +50,26 @@ const BASE_DDL = [
   "custom jsonb not null default '{}'::jsonb",
 ];
 
+/**
+ * The demo pack's capture (docs/DEMO_FA.md, src/server/db/scope.ts): every table with `id` and `org_id` has an AFTER
+ * INSERT trigger that, inside a transaction carrying `itsm.demo = <the row's organisation>`, records the new row in
+ * `sm_demo_rows` (migration 0098_demo). The WHEN clause is evaluated without calling the function, so ordinary writes
+ * pay nothing but one setting lookup per row.
+ */
+export const DEMO_CAPTURE_FN = `create or replace function sm_demo_capture() returns trigger language plpgsql as $demo$
+begin
+  insert into sm_demo_rows (org_id, row_id, tbl) values (new.org_id, new.id, tg_table_name) on conflict do nothing;
+  return null;
+end
+$demo$;`;
+
+/** The capture trigger of one table (it must have `id uuid` and `org_id uuid`). */
+export function demoCaptureDdl(table: string): string {
+  const name = shortName(`${table}_demo`);
+  // one statement per table (a fresh database runs this for every table: migrations stay fast on the embedded one)
+  return `create or replace trigger ${name} after insert on ${table} for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();`;
+}
+
 /** Idempotent DDL of one table. */
 export function ddlFor(def: TableDef): string {
   if (def.virtual) return "";
@@ -107,6 +127,7 @@ export function ddlFor(def: TableDef): string {
   if (def.features?.sync !== false) {
     out.push(`create trigger ${t}_sync before insert or update on ${t} for each row execute function sm_sync_touch('${def.key}');`);
   }
+  out.push(demoCaptureDdl(t));
   out.push(`alter table ${t} enable row level security;`);
   return out.join("\n");
 }
@@ -275,7 +296,7 @@ export function archiveDdl(def: TableDef): string {
 /** The DDL of every registered table (deterministic: sorted by key), archives after their tables. */
 export function ddlForAll(): string {
   const archives = physicalTables().map(archiveDdl).filter(Boolean);
-  return `${physicalTables().map(ddlFor).join("\n\n")}\n\n${archives.length ? `${archives.join("\n\n")}\n\n` : ""}${REVOKE}\n`;
+  return `${DEMO_CAPTURE_FN}\n\n${physicalTables().map(ddlFor).join("\n\n")}\n\n${archives.length ? `${archives.join("\n\n")}\n\n` : ""}${REVOKE}\n`;
 }
 
 export function ddlHash(sql = ddlForAll()): string {

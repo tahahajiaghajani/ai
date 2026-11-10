@@ -736,6 +736,13 @@ insert into sm_migrations (id) values ('0005_engine') on conflict (id) do nothin
 -- ---------------------------------------------------------------------------
 -- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها)
 -- ---------------------------------------------------------------------------
+create or replace function sm_demo_capture() returns trigger language plpgsql as $demo$
+begin
+  insert into sm_demo_rows (org_id, row_id, tbl) values (new.org_id, new.id, tg_table_name) on conflict do nothing;
+  return null;
+end
+$demo$;
+
 -- account_health: سلامت روزانهٔ حساب‌ها
 create table if not exists sm_account_health (
   id uuid primary key,
@@ -787,6 +794,7 @@ create index if not exists sm_account_health_unit_acc_idx on sm_account_health (
 create index if not exists sm_account_health_domain_acc_idx on sm_account_health (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_account_health_sync on sm_account_health;
 create trigger sm_account_health_sync before insert or update on sm_account_health for each row execute function sm_sync_touch('account_health');
+create or replace trigger sm_account_health_demo after insert on sm_account_health for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_account_health enable row level security;
 
 -- account_plan: برنامه‌های حساب
@@ -839,6 +847,7 @@ create index if not exists sm_account_plans_unit_acc_idx on sm_account_plans (or
 create index if not exists sm_account_plans_domain_acc_idx on sm_account_plans (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_account_plans_sync on sm_account_plans;
 create trigger sm_account_plans_sync before insert or update on sm_account_plans for each row execute function sm_sync_touch('account_plan');
+create or replace trigger sm_account_plans_demo after insert on sm_account_plans for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_account_plans enable row level security;
 
 -- account_review: بازبینی‌های خدمت (فصلی)
@@ -915,6 +924,7 @@ end
 $search$;
 drop trigger if exists sm_account_reviews_sync on sm_account_reviews;
 create trigger sm_account_reviews_sync before insert or update on sm_account_reviews for each row execute function sm_sync_touch('account_review');
+create or replace trigger sm_account_reviews_demo after insert on sm_account_reviews for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_account_reviews enable row level security;
 
 -- account_stakeholder: نقشهٔ ذی‌نفعان
@@ -967,6 +977,7 @@ create index if not exists sm_account_stakeholders_domain_acc_idx on sm_account_
 create index if not exists sm_account_stakeholders_owner_id_idx on sm_account_stakeholders (org_id, owner_id) where deleted_at is null;
 drop trigger if exists sm_account_stakeholders_sync on sm_account_stakeholders;
 create trigger sm_account_stakeholders_sync before insert or update on sm_account_stakeholders for each row execute function sm_sync_touch('account_stakeholder');
+create or replace trigger sm_account_stakeholders_demo after insert on sm_account_stakeholders for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_account_stakeholders enable row level security;
 
 -- admin_config: تنظیمات کنسول مدیریت
@@ -1008,6 +1019,7 @@ create index if not exists sm_admin_config_crt_idx on sm_admin_config (org_id, c
 create unique index if not exists sm_admin_config_key_uk on sm_admin_config (org_id, key) where deleted_at is null;
 drop trigger if exists sm_admin_config_sync on sm_admin_config;
 create trigger sm_admin_config_sync before insert or update on sm_admin_config for each row execute function sm_sync_touch('admin_config');
+create or replace trigger sm_admin_config_demo after insert on sm_admin_config for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_admin_config enable row level security;
 
 -- ai_agent: عامل‌های هوش مصنوعی
@@ -1076,6 +1088,7 @@ create index if not exists sm_ai_agents_crt_idx on sm_ai_agents (org_id, created
 create unique index if not exists sm_ai_agents_key_uk on sm_ai_agents (org_id, key) where deleted_at is null;
 drop trigger if exists sm_ai_agents_sync on sm_ai_agents;
 create trigger sm_ai_agents_sync before insert or update on sm_ai_agents for each row execute function sm_sync_touch('ai_agent');
+create or replace trigger sm_ai_agents_demo after insert on sm_ai_agents for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_ai_agents enable row level security;
 
 -- ai_agent_run: اجراهای عامل
@@ -1144,6 +1157,7 @@ create index if not exists sm_ai_agent_runs_workspace_acc_idx on sm_ai_agent_run
 create index if not exists sm_ai_agent_runs_unit_acc_idx on sm_ai_agent_runs (org_id, unit_id) where deleted_at is null and unit_id is not null;
 create index if not exists sm_ai_agent_runs_domain_acc_idx on sm_ai_agent_runs (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_ai_agent_runs_sync on sm_ai_agent_runs;
+create or replace trigger sm_ai_agent_runs_demo after insert on sm_ai_agent_runs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_ai_agent_runs enable row level security;
 
 -- ai_data_policy: سیاست‌های دادهٔ هوش مصنوعی
@@ -1185,6 +1199,7 @@ create index if not exists sm_ai_data_policies_crt_idx on sm_ai_data_policies (o
 create unique index if not exists sm_ai_data_policies_table_key_uk on sm_ai_data_policies (org_id, table_key) where deleted_at is null;
 drop trigger if exists sm_ai_data_policies_sync on sm_ai_data_policies;
 create trigger sm_ai_data_policies_sync before insert or update on sm_ai_data_policies for each row execute function sm_sync_touch('ai_data_policy');
+create or replace trigger sm_ai_data_policies_demo after insert on sm_ai_data_policies for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_ai_data_policies enable row level security;
 
 -- ai_digest: خلاصه‌های بینش
@@ -1233,6 +1248,7 @@ create index if not exists sm_ai_digests_unit_acc_idx on sm_ai_digests (org_id, 
 create index if not exists sm_ai_digests_domain_acc_idx on sm_ai_digests (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_ai_digests_sync on sm_ai_digests;
 create trigger sm_ai_digests_sync before insert or update on sm_ai_digests for each row execute function sm_sync_touch('ai_digest');
+create or replace trigger sm_ai_digests_demo after insert on sm_ai_digests for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_ai_digests enable row level security;
 
 -- ai_skill: مهارت‌های هوش مصنوعی
@@ -1296,6 +1312,7 @@ create index if not exists sm_ai_skills_crt_idx on sm_ai_skills (org_id, created
 create unique index if not exists sm_ai_skills_key_uk on sm_ai_skills (org_id, key) where deleted_at is null;
 drop trigger if exists sm_ai_skills_sync on sm_ai_skills;
 create trigger sm_ai_skills_sync before insert or update on sm_ai_skills for each row execute function sm_sync_touch('ai_skill');
+create or replace trigger sm_ai_skills_demo after insert on sm_ai_skills for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_ai_skills enable row level security;
 
 -- ai_skill_eval: مجموعه‌های ارزیابی مهارت
@@ -1340,6 +1357,7 @@ create index if not exists sm_ai_skill_evals_crt_idx on sm_ai_skill_evals (org_i
 create index if not exists sm_ai_skill_evals_skill_key_idx on sm_ai_skill_evals (org_id, skill_key) where deleted_at is null;
 drop trigger if exists sm_ai_skill_evals_sync on sm_ai_skill_evals;
 create trigger sm_ai_skill_evals_sync before insert or update on sm_ai_skill_evals for each row execute function sm_sync_touch('ai_skill_eval');
+create or replace trigger sm_ai_skill_evals_demo after insert on sm_ai_skill_evals for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_ai_skill_evals enable row level security;
 
 -- ai_skill_run: اجراهای مهارت
@@ -1408,6 +1426,7 @@ create index if not exists sm_ai_skill_runs_workspace_acc_idx on sm_ai_skill_run
 create index if not exists sm_ai_skill_runs_unit_acc_idx on sm_ai_skill_runs (org_id, unit_id) where deleted_at is null and unit_id is not null;
 create index if not exists sm_ai_skill_runs_domain_acc_idx on sm_ai_skill_runs (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_ai_skill_runs_sync on sm_ai_skill_runs;
+create or replace trigger sm_ai_skill_runs_demo after insert on sm_ai_skill_runs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_ai_skill_runs enable row level security;
 
 -- ai_skill_version: نسخه‌های مهارت
@@ -1457,6 +1476,7 @@ create index if not exists sm_ai_skill_versions_crt_idx on sm_ai_skill_versions 
 create index if not exists sm_ai_skill_versions_skill_id_idx on sm_ai_skill_versions (org_id, skill_id) where deleted_at is null;
 drop trigger if exists sm_ai_skill_versions_sync on sm_ai_skill_versions;
 create trigger sm_ai_skill_versions_sync before insert or update on sm_ai_skill_versions for each row execute function sm_sync_touch('ai_skill_version');
+create or replace trigger sm_ai_skill_versions_demo after insert on sm_ai_skill_versions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_ai_skill_versions enable row level security;
 
 -- alert: هشدارها
@@ -1583,6 +1603,7 @@ end
 $search$;
 drop trigger if exists sm_alerts_sync on sm_alerts;
 create trigger sm_alerts_sync before insert or update on sm_alerts for each row execute function sm_sync_touch('alert');
+create or replace trigger sm_alerts_demo after insert on sm_alerts for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_alerts enable row level security;
 
 -- alert_group: گروه‌های هم‌بسته
@@ -1673,6 +1694,7 @@ end
 $search$;
 drop trigger if exists sm_alert_groups_sync on sm_alert_groups;
 create trigger sm_alert_groups_sync before insert or update on sm_alert_groups for each row execute function sm_sync_touch('alert_group');
+create or replace trigger sm_alert_groups_demo after insert on sm_alert_groups for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_alert_groups enable row level security;
 
 -- alert_incident_rule: قاعده‌های ساخت رخداد
@@ -1720,6 +1742,7 @@ create index if not exists sm_alert_incident_rules_upd_idx on sm_alert_incident_
 create index if not exists sm_alert_incident_rules_crt_idx on sm_alert_incident_rules (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_alert_incident_rules_sync on sm_alert_incident_rules;
 create trigger sm_alert_incident_rules_sync before insert or update on sm_alert_incident_rules for each row execute function sm_sync_touch('alert_incident_rule');
+create or replace trigger sm_alert_incident_rules_demo after insert on sm_alert_incident_rules for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_alert_incident_rules enable row level security;
 
 -- alert_route: قاعده‌های مسیریابی هشدار
@@ -1765,6 +1788,7 @@ create index if not exists sm_alert_routes_upd_idx on sm_alert_routes (org_id, u
 create index if not exists sm_alert_routes_crt_idx on sm_alert_routes (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_alert_routes_sync on sm_alert_routes;
 create trigger sm_alert_routes_sync before insert or update on sm_alert_routes for each row execute function sm_sync_touch('alert_route');
+create or replace trigger sm_alert_routes_demo after insert on sm_alert_routes for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_alert_routes enable row level security;
 
 -- allocation_result: نتیجه‌های تسهیم
@@ -1812,6 +1836,7 @@ create index if not exists sm_allocation_results_run_id_idx on sm_allocation_res
 create index if not exists sm_allocation_results_service_id_idx on sm_allocation_results (org_id, service_id) where deleted_at is null;
 drop trigger if exists sm_allocation_results_sync on sm_allocation_results;
 create trigger sm_allocation_results_sync before insert or update on sm_allocation_results for each row execute function sm_sync_touch('allocation_result');
+create or replace trigger sm_allocation_results_demo after insert on sm_allocation_results for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_allocation_results enable row level security;
 
 -- allocation_rule: قاعده‌های تسهیم
@@ -1855,6 +1880,7 @@ create index if not exists sm_allocation_rules_upd_idx on sm_allocation_rules (o
 create index if not exists sm_allocation_rules_crt_idx on sm_allocation_rules (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_allocation_rules_sync on sm_allocation_rules;
 create trigger sm_allocation_rules_sync before insert or update on sm_allocation_rules for each row execute function sm_sync_touch('allocation_rule');
+create or replace trigger sm_allocation_rules_demo after insert on sm_allocation_rules for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_allocation_rules enable row level security;
 
 -- allocation_run: اجراهای تسهیم
@@ -1924,6 +1950,7 @@ end
 $search$;
 drop trigger if exists sm_allocation_runs_sync on sm_allocation_runs;
 create trigger sm_allocation_runs_sync before insert or update on sm_allocation_runs for each row execute function sm_sync_touch('allocation_run');
+create or replace trigger sm_allocation_runs_demo after insert on sm_allocation_runs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_allocation_runs enable row level security;
 
 -- allocation_target: مقصدهای تسهیم
@@ -1966,6 +1993,7 @@ create index if not exists sm_allocation_targets_rule_id_idx on sm_allocation_ta
 create unique index if not exists sm_allocation_targets_rule_id_service_id_uk on sm_allocation_targets (org_id, rule_id, service_id) where deleted_at is null;
 drop trigger if exists sm_allocation_targets_sync on sm_allocation_targets;
 create trigger sm_allocation_targets_sync before insert or update on sm_allocation_targets for each row execute function sm_sync_touch('allocation_target');
+create or replace trigger sm_allocation_targets_demo after insert on sm_allocation_targets for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_allocation_targets enable row level security;
 
 -- analytics_config: تنظیمات گزارش‌ها
@@ -2011,6 +2039,7 @@ create index if not exists sm_analytics_configs_crt_idx on sm_analytics_configs 
 create unique index if not exists sm_analytics_configs_config_key_uk on sm_analytics_configs (org_id, config_key) where deleted_at is null;
 drop trigger if exists sm_analytics_configs_sync on sm_analytics_configs;
 create trigger sm_analytics_configs_sync before insert or update on sm_analytics_configs for each row execute function sm_sync_touch('analytics_config');
+create or replace trigger sm_analytics_configs_demo after insert on sm_analytics_configs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_analytics_configs enable row level security;
 
 -- analytics_dashboard: داشبوردها
@@ -2095,6 +2124,7 @@ end
 $search$;
 drop trigger if exists sm_analytics_dashboards_sync on sm_analytics_dashboards;
 create trigger sm_analytics_dashboards_sync before insert or update on sm_analytics_dashboards for each row execute function sm_sync_touch('analytics_dashboard');
+create or replace trigger sm_analytics_dashboards_demo after insert on sm_analytics_dashboards for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_analytics_dashboards enable row level security;
 
 -- analytics_delivery: گزارش‌های تحویل‌شده
@@ -2145,6 +2175,7 @@ create index if not exists sm_analytics_deliveries_domain_acc_idx on sm_analytic
 create index if not exists sm_analytics_deliveries_recipient_id_idx on sm_analytics_deliveries (org_id, recipient_id) where deleted_at is null;
 drop trigger if exists sm_analytics_deliveries_sync on sm_analytics_deliveries;
 create trigger sm_analytics_deliveries_sync before insert or update on sm_analytics_deliveries for each row execute function sm_sync_touch('analytics_delivery');
+create or replace trigger sm_analytics_deliveries_demo after insert on sm_analytics_deliveries for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_analytics_deliveries enable row level security;
 
 -- analytics_indicator: شاخص‌ها
@@ -2233,6 +2264,7 @@ end
 $search$;
 drop trigger if exists sm_analytics_indicators_sync on sm_analytics_indicators;
 create trigger sm_analytics_indicators_sync before insert or update on sm_analytics_indicators for each row execute function sm_sync_touch('analytics_indicator');
+create or replace trigger sm_analytics_indicators_demo after insert on sm_analytics_indicators for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_analytics_indicators enable row level security;
 
 -- analytics_report: گزارش‌ها
@@ -2314,6 +2346,7 @@ end
 $search$;
 drop trigger if exists sm_analytics_reports_sync on sm_analytics_reports;
 create trigger sm_analytics_reports_sync before insert or update on sm_analytics_reports for each row execute function sm_sync_touch('analytics_report');
+create or replace trigger sm_analytics_reports_demo after insert on sm_analytics_reports for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_analytics_reports enable row level security;
 
 -- analytics_schedule: ارسال‌های زمان‌بندی‌شده
@@ -2390,6 +2423,7 @@ end
 $search$;
 drop trigger if exists sm_analytics_schedules_sync on sm_analytics_schedules;
 create trigger sm_analytics_schedules_sync before insert or update on sm_analytics_schedules for each row execute function sm_sync_touch('analytics_schedule');
+create or replace trigger sm_analytics_schedules_demo after insert on sm_analytics_schedules for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_analytics_schedules enable row level security;
 
 -- analytics_score: امتیازهای شاخص
@@ -2449,6 +2483,7 @@ create index if not exists sm_analytics_scores_indicator_id_idx on sm_analytics_
 create unique index if not exists sm_analytics_scores_indicator_id_formula_version_perio_12ed0422 on sm_analytics_scores (org_id, indicator_id, formula_version, period_key, breakdown, element) where deleted_at is null;
 drop trigger if exists sm_analytics_scores_sync on sm_analytics_scores;
 create trigger sm_analytics_scores_sync before insert or update on sm_analytics_scores for each row execute function sm_sync_touch('analytics_score');
+create or replace trigger sm_analytics_scores_demo after insert on sm_analytics_scores for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_analytics_scores enable row level security;
 
 -- announcement: اطلاعیه‌ها
@@ -2529,6 +2564,7 @@ end
 $search$;
 drop trigger if exists sm_announcements_sync on sm_announcements;
 create trigger sm_announcements_sync before insert or update on sm_announcements for each row execute function sm_sync_touch('announcement');
+create or replace trigger sm_announcements_demo after insert on sm_announcements for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_announcements enable row level security;
 
 -- app_assessment: ارزیابی‌های سامانه
@@ -2604,6 +2640,7 @@ end
 $search$;
 drop trigger if exists sm_app_assessments_sync on sm_app_assessments;
 create trigger sm_app_assessments_sync before insert or update on sm_app_assessments for each row execute function sm_sync_touch('app_assessment');
+create or replace trigger sm_app_assessments_demo after insert on sm_app_assessments for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_app_assessments enable row level security;
 
 -- approval: تأییدها
@@ -2670,6 +2707,7 @@ create index if not exists sm_approvals_unit_acc_idx on sm_approvals (org_id, un
 create index if not exists sm_approvals_domain_acc_idx on sm_approvals (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_approvals_sync on sm_approvals;
 create trigger sm_approvals_sync before insert or update on sm_approvals for each row execute function sm_sync_touch('approval');
+create or replace trigger sm_approvals_demo after insert on sm_approvals for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_approvals enable row level security;
 
 -- approval_rule: قواعد تأیید
@@ -2720,6 +2758,7 @@ create index if not exists sm_approval_rules_crt_idx on sm_approval_rules (org_i
 create unique index if not exists sm_approval_rules_table_key_name_uk on sm_approval_rules (org_id, table_key, name) where deleted_at is null;
 drop trigger if exists sm_approval_rules_sync on sm_approval_rules;
 create trigger sm_approval_rules_sync before insert or update on sm_approval_rules for each row execute function sm_sync_touch('approval_rule');
+create or replace trigger sm_approval_rules_demo after insert on sm_approval_rules for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_approval_rules enable row level security;
 
 -- artifact: کتابخانهٔ نرم‌افزار (DML)
@@ -2790,6 +2829,7 @@ end
 $search$;
 drop trigger if exists sm_artifacts_sync on sm_artifacts;
 create trigger sm_artifacts_sync before insert or update on sm_artifacts for each row execute function sm_sync_touch('artifact');
+create or replace trigger sm_artifacts_demo after insert on sm_artifacts for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_artifacts enable row level security;
 
 -- asset: دارایی‌ها
@@ -2936,6 +2976,7 @@ end
 $search$;
 drop trigger if exists sm_assets_sync on sm_assets;
 create trigger sm_assets_sync before insert or update on sm_assets for each row execute function sm_sync_touch('asset');
+create or replace trigger sm_assets_demo after insert on sm_assets for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_assets enable row level security;
 
 -- asset_acknowledgement: تعهدنامه‌های دارایی
@@ -3009,6 +3050,7 @@ end
 $search$;
 drop trigger if exists sm_asset_acks_sync on sm_asset_acks;
 create trigger sm_asset_acks_sync before insert or update on sm_asset_acks for each row execute function sm_sync_touch('asset_acknowledgement');
+create or replace trigger sm_asset_acks_demo after insert on sm_asset_acks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_asset_acks enable row level security;
 
 -- asset_assignment: تاریخچهٔ تحویل دارایی‌ها
@@ -3065,6 +3107,7 @@ create index if not exists sm_asset_assignments_domain_acc_idx on sm_asset_assig
 create index if not exists sm_asset_assignments_assigned_to_idx on sm_asset_assignments (org_id, assigned_to) where deleted_at is null;
 drop trigger if exists sm_asset_assignments_sync on sm_asset_assignments;
 create trigger sm_asset_assignments_sync before insert or update on sm_asset_assignments for each row execute function sm_sync_touch('asset_assignment');
+create or replace trigger sm_asset_assignments_demo after insert on sm_asset_assignments for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_asset_assignments enable row level security;
 
 -- asset_custody: زنجیرهٔ نگهداری دارایی‌ها
@@ -3117,6 +3160,7 @@ create index if not exists sm_asset_custody_asset_id_idx on sm_asset_custody (or
 create index if not exists sm_asset_custody_branch_id_idx on sm_asset_custody (org_id, branch_id) where deleted_at is null;
 drop trigger if exists sm_asset_custody_sync on sm_asset_custody;
 create trigger sm_asset_custody_sync before insert or update on sm_asset_custody for each row execute function sm_sync_touch('asset_custody');
+create or replace trigger sm_asset_custody_demo after insert on sm_asset_custody for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_asset_custody enable row level security;
 
 -- asset_model: مدل‌های کالا
@@ -3195,6 +3239,7 @@ end
 $search$;
 drop trigger if exists sm_asset_models_sync on sm_asset_models;
 create trigger sm_asset_models_sync before insert or update on sm_asset_models for each row execute function sm_sync_touch('asset_model');
+create or replace trigger sm_asset_models_demo after insert on sm_asset_models for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_asset_models enable row level security;
 
 -- asset_reservation: رزروهای دارایی امانی
@@ -3264,6 +3309,7 @@ end
 $search$;
 drop trigger if exists sm_asset_reservations_sync on sm_asset_reservations;
 create trigger sm_asset_reservations_sync before insert or update on sm_asset_reservations for each row execute function sm_sync_touch('asset_reservation');
+create or replace trigger sm_asset_reservations_demo after insert on sm_asset_reservations for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_asset_reservations enable row level security;
 
 -- asset_transfer: حواله‌های انتقال دارایی
@@ -3347,6 +3393,7 @@ end
 $search$;
 drop trigger if exists sm_asset_transfers_sync on sm_asset_transfers;
 create trigger sm_asset_transfers_sync before insert or update on sm_asset_transfers for each row execute function sm_sync_touch('asset_transfer');
+create or replace trigger sm_asset_transfers_demo after insert on sm_asset_transfers for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_asset_transfers enable row level security;
 
 -- asset_transfer_item: اقلام حواله‌های انتقال
@@ -3397,6 +3444,7 @@ create index if not exists sm_asset_transfer_items_to_branch_id_idx on sm_asset_
 create unique index if not exists sm_asset_transfer_items_transfer_id_asset_id_uk on sm_asset_transfer_items (org_id, transfer_id, asset_id) where deleted_at is null;
 drop trigger if exists sm_asset_transfer_items_sync on sm_asset_transfer_items;
 create trigger sm_asset_transfer_items_sync before insert or update on sm_asset_transfer_items for each row execute function sm_sync_touch('asset_transfer_item');
+create or replace trigger sm_asset_transfer_items_demo after insert on sm_asset_transfer_items for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_asset_transfer_items enable row level security;
 
 -- assignment_rule: قواعد ارجاع
@@ -3444,6 +3492,7 @@ create index if not exists sm_assignment_rules_upd_idx on sm_assignment_rules (o
 create index if not exists sm_assignment_rules_crt_idx on sm_assignment_rules (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_assignment_rules_sync on sm_assignment_rules;
 create trigger sm_assignment_rules_sync before insert or update on sm_assignment_rules for each row execute function sm_sync_touch('assignment_rule');
+create or replace trigger sm_assignment_rules_demo after insert on sm_assignment_rules for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_assignment_rules enable row level security;
 
 -- bia: تحلیل‌های اثر کسب‌وکار
@@ -3534,6 +3583,7 @@ end
 $search$;
 drop trigger if exists sm_bias_sync on sm_bias;
 create trigger sm_bias_sync before insert or update on sm_bias for each row execute function sm_sync_touch('bia');
+create or replace trigger sm_bias_demo after insert on sm_bias for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_bias enable row level security;
 
 -- branch_attestation: تأییدهای دوره‌ای اموال شعبه‌ها
@@ -3610,6 +3660,7 @@ end
 $search$;
 drop trigger if exists sm_branch_attestations_sync on sm_branch_attestations;
 create trigger sm_branch_attestations_sync before insert or update on sm_branch_attestations for each row execute function sm_sync_touch('branch_attestation');
+create or replace trigger sm_branch_attestations_demo after insert on sm_branch_attestations for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_branch_attestations enable row level security;
 
 -- budget: بودجه‌ها
@@ -3684,6 +3735,7 @@ end
 $search$;
 drop trigger if exists sm_budgets_sync on sm_budgets;
 create trigger sm_budgets_sync before insert or update on sm_budgets for each row execute function sm_sync_touch('budget');
+create or replace trigger sm_budgets_demo after insert on sm_budgets for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_budgets enable row level security;
 
 -- budget_line: سطرهای بودجه
@@ -3727,6 +3779,7 @@ create index if not exists sm_budget_lines_crt_idx on sm_budget_lines (org_id, c
 create index if not exists sm_budget_lines_budget_id_idx on sm_budget_lines (org_id, budget_id) where deleted_at is null;
 drop trigger if exists sm_budget_lines_sync on sm_budget_lines;
 create trigger sm_budget_lines_sync before insert or update on sm_budget_lines for each row execute function sm_sync_touch('budget_line');
+create or replace trigger sm_budget_lines_demo after insert on sm_budget_lines for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_budget_lines enable row level security;
 
 -- business_capability: قابلیت‌های کسب‌وکار
@@ -3773,6 +3826,7 @@ create index if not exists sm_business_capabilities_crt_idx on sm_business_capab
 create index if not exists sm_business_capabilities_parent_id_idx on sm_business_capabilities (org_id, parent_id) where deleted_at is null;
 drop trigger if exists sm_business_capabilities_sync on sm_business_capabilities;
 create trigger sm_business_capabilities_sync before insert or update on sm_business_capabilities for each row execute function sm_sync_touch('business_capability');
+create or replace trigger sm_business_capabilities_demo after insert on sm_business_capabilities for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_business_capabilities enable row level security;
 
 -- business_rule: قواعد کسب‌وکار
@@ -3818,6 +3872,7 @@ create index if not exists sm_business_rules_upd_idx on sm_business_rules (org_i
 create index if not exists sm_business_rules_crt_idx on sm_business_rules (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_business_rules_sync on sm_business_rules;
 create trigger sm_business_rules_sync before insert or update on sm_business_rules for each row execute function sm_sync_touch('business_rule');
+create or replace trigger sm_business_rules_demo after insert on sm_business_rules for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_business_rules enable row level security;
 
 -- cab: هیئت‌های CAB
@@ -3874,6 +3929,7 @@ create index if not exists sm_cabs_manager_id_idx on sm_cabs (org_id, manager_id
 create index if not exists sm_cabs_open_grp_idx on sm_cabs (org_id, group_id, updated_at desc) where deleted_at is null and active;
 drop trigger if exists sm_cabs_sync on sm_cabs;
 create trigger sm_cabs_sync before insert or update on sm_cabs for each row execute function sm_sync_touch('cab');
+create or replace trigger sm_cabs_demo after insert on sm_cabs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_cabs enable row level security;
 
 -- cab_agenda_item: موردهای دستور جلسه
@@ -3924,6 +3980,7 @@ create index if not exists sm_cab_agenda_items_change_id_idx on sm_cab_agenda_it
 create unique index if not exists sm_cab_agenda_items_meeting_id_change_id_kind_uk on sm_cab_agenda_items (org_id, meeting_id, change_id, kind) where deleted_at is null;
 drop trigger if exists sm_cab_agenda_items_sync on sm_cab_agenda_items;
 create trigger sm_cab_agenda_items_sync before insert or update on sm_cab_agenda_items for each row execute function sm_sync_touch('cab_agenda_item');
+create or replace trigger sm_cab_agenda_items_demo after insert on sm_cab_agenda_items for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_cab_agenda_items enable row level security;
 
 -- cab_meeting: جلسه‌های CAB
@@ -4001,6 +4058,7 @@ end
 $search$;
 drop trigger if exists sm_cab_meetings_sync on sm_cab_meetings;
 create trigger sm_cab_meetings_sync before insert or update on sm_cab_meetings for each row execute function sm_sync_touch('cab_meeting');
+create or replace trigger sm_cab_meetings_demo after insert on sm_cab_meetings for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_cab_meetings enable row level security;
 
 -- calendar: تقویم‌های کاری
@@ -4045,6 +4103,7 @@ create index if not exists sm_calendars_crt_idx on sm_calendars (org_id, created
 create unique index if not exists sm_calendars_name_uk on sm_calendars (org_id, name) where deleted_at is null;
 drop trigger if exists sm_calendars_sync on sm_calendars;
 create trigger sm_calendars_sync before insert or update on sm_calendars for each row execute function sm_sync_touch('calendar');
+create or replace trigger sm_calendars_demo after insert on sm_calendars for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_calendars enable row level security;
 
 -- capacity_record: رکوردهای ظرفیت
@@ -4106,6 +4165,7 @@ create index if not exists sm_capacity_records_domain_acc_idx on sm_capacity_rec
 create index if not exists sm_capacity_records_owner_id_idx on sm_capacity_records (org_id, owner_id) where deleted_at is null;
 drop trigger if exists sm_capacity_records_sync on sm_capacity_records;
 create trigger sm_capacity_records_sync before insert or update on sm_capacity_records for each row execute function sm_sync_touch('capacity_record');
+create or replace trigger sm_capacity_records_demo after insert on sm_capacity_records for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_capacity_records enable row level security;
 
 -- case_escalation: تشدیدها
@@ -4186,6 +4246,7 @@ end
 $search$;
 drop trigger if exists sm_case_escalations_sync on sm_case_escalations;
 create trigger sm_case_escalations_sync before insert or update on sm_case_escalations for each row execute function sm_sync_touch('case_escalation');
+create or replace trigger sm_case_escalations_demo after insert on sm_case_escalations for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_case_escalations enable row level security;
 
 -- catalog: کاتالوگ‌ها
@@ -4240,6 +4301,7 @@ create index if not exists sm_catalogs_owner_id_idx on sm_catalogs (org_id, owne
 create index if not exists sm_catalogs_managers_gin on sm_catalogs using gin (managers);
 drop trigger if exists sm_catalogs_sync on sm_catalogs;
 create trigger sm_catalogs_sync before insert or update on sm_catalogs for each row execute function sm_sync_touch('catalog');
+create or replace trigger sm_catalogs_demo after insert on sm_catalogs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_catalogs enable row level security;
 
 -- catalog_audience: مخاطبان کاتالوگ
@@ -4291,6 +4353,7 @@ create index if not exists sm_catalog_audiences_crt_idx on sm_catalog_audiences 
 create unique index if not exists sm_catalog_audiences_name_uk on sm_catalog_audiences (org_id, name) where deleted_at is null;
 drop trigger if exists sm_catalog_audiences_sync on sm_catalog_audiences;
 create trigger sm_catalog_audiences_sync before insert or update on sm_catalog_audiences for each row execute function sm_sync_touch('catalog_audience');
+create or replace trigger sm_catalog_audiences_demo after insert on sm_catalog_audiences for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_catalog_audiences enable row level security;
 
 -- catalog_category: دسته‌های کاتالوگ
@@ -4337,6 +4400,7 @@ create index if not exists sm_catalog_categories_crt_idx on sm_catalog_categorie
 create index if not exists sm_catalog_categories_catalog_id_idx on sm_catalog_categories (org_id, catalog_id) where deleted_at is null;
 drop trigger if exists sm_catalog_categories_sync on sm_catalog_categories;
 create trigger sm_catalog_categories_sync before insert or update on sm_catalog_categories for each row execute function sm_sync_touch('catalog_category');
+create or replace trigger sm_catalog_categories_demo after insert on sm_catalog_categories for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_catalog_categories enable row level security;
 
 -- catalog_item: اقلام کاتالوگ
@@ -4460,6 +4524,7 @@ end
 $search$;
 drop trigger if exists sm_catalog_items_sync on sm_catalog_items;
 create trigger sm_catalog_items_sync before insert or update on sm_catalog_items for each row execute function sm_sync_touch('catalog_item');
+create or replace trigger sm_catalog_items_demo after insert on sm_catalog_items for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_catalog_items enable row level security;
 
 -- catalog_item_model: مدل‌های اقلام کاتالوگ
@@ -4505,6 +4570,7 @@ create index if not exists sm_catalog_item_models_model_id_idx on sm_catalog_ite
 create unique index if not exists sm_catalog_item_models_catalog_item_id_model_id_uk on sm_catalog_item_models (org_id, catalog_item_id, model_id) where deleted_at is null;
 drop trigger if exists sm_catalog_item_models_sync on sm_catalog_item_models;
 create trigger sm_catalog_item_models_sync before insert or update on sm_catalog_item_models for each row execute function sm_sync_touch('catalog_item_model');
+create or replace trigger sm_catalog_item_models_demo after insert on sm_catalog_item_models for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_catalog_item_models enable row level security;
 
 -- catalog_item_version: نسخه‌های قلم کاتالوگ
@@ -4548,6 +4614,7 @@ create index if not exists sm_catalog_item_versions_item_id_idx on sm_catalog_it
 create unique index if not exists sm_catalog_item_versions_item_id_version_no_uk on sm_catalog_item_versions (org_id, item_id, version_no) where deleted_at is null;
 drop trigger if exists sm_catalog_item_versions_sync on sm_catalog_item_versions;
 create trigger sm_catalog_item_versions_sync before insert or update on sm_catalog_item_versions for each row execute function sm_sync_touch('catalog_item_version');
+create or replace trigger sm_catalog_item_versions_demo after insert on sm_catalog_item_versions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_catalog_item_versions enable row level security;
 
 -- catalog_task_template: الگوهای وظیفهٔ انجام
@@ -4597,6 +4664,7 @@ create index if not exists sm_catalog_task_templates_crt_idx on sm_catalog_task_
 create index if not exists sm_catalog_task_templates_item_id_idx on sm_catalog_task_templates (org_id, item_id) where deleted_at is null;
 drop trigger if exists sm_catalog_task_templates_sync on sm_catalog_task_templates;
 create trigger sm_catalog_task_templates_sync before insert or update on sm_catalog_task_templates for each row execute function sm_sync_touch('catalog_task_template');
+create or replace trigger sm_catalog_task_templates_demo after insert on sm_catalog_task_templates for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_catalog_task_templates enable row level security;
 
 -- catalog_ui_policy: سیاست‌های فرم سفارش
@@ -4644,6 +4712,7 @@ create index if not exists sm_catalog_ui_policies_item_id_idx on sm_catalog_ui_p
 create index if not exists sm_catalog_ui_policies_set_id_idx on sm_catalog_ui_policies (org_id, set_id) where deleted_at is null;
 drop trigger if exists sm_catalog_ui_policies_sync on sm_catalog_ui_policies;
 create trigger sm_catalog_ui_policies_sync before insert or update on sm_catalog_ui_policies for each row execute function sm_sync_touch('catalog_ui_policy');
+create or replace trigger sm_catalog_ui_policies_demo after insert on sm_catalog_ui_policies for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_catalog_ui_policies enable row level security;
 
 -- catalog_variable: پرسش‌های فرم
@@ -4707,6 +4776,7 @@ create index if not exists sm_catalog_variables_item_id_idx on sm_catalog_variab
 create index if not exists sm_catalog_variables_set_id_idx on sm_catalog_variables (org_id, set_id) where deleted_at is null;
 drop trigger if exists sm_catalog_variables_sync on sm_catalog_variables;
 create trigger sm_catalog_variables_sync before insert or update on sm_catalog_variables for each row execute function sm_sync_touch('catalog_variable');
+create or replace trigger sm_catalog_variables_demo after insert on sm_catalog_variables for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_catalog_variables enable row level security;
 
 -- category: دسته‌بندی‌ها
@@ -4753,6 +4823,7 @@ create index if not exists sm_categories_parent_id_idx on sm_categories (org_id,
 create unique index if not exists sm_categories_table_key_value_uk on sm_categories (org_id, table_key, value) where deleted_at is null;
 drop trigger if exists sm_categories_sync on sm_categories;
 create trigger sm_categories_sync before insert or update on sm_categories for each row execute function sm_sync_touch('category');
+create or replace trigger sm_categories_demo after insert on sm_categories for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_categories enable row level security;
 
 -- change_config: تنظیمات تغییر
@@ -4815,6 +4886,7 @@ create index if not exists sm_change_configs_crt_idx on sm_change_configs (org_i
 create unique index if not exists sm_change_configs_config_key_uk on sm_change_configs (org_id, config_key) where deleted_at is null;
 drop trigger if exists sm_change_configs_sync on sm_change_configs;
 create trigger sm_change_configs_sync before insert or update on sm_change_configs for each row execute function sm_sync_touch('change_config');
+create or replace trigger sm_change_configs_demo after insert on sm_change_configs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_change_configs enable row level security;
 
 -- change_conflict: تداخل‌های تغییر
@@ -4878,6 +4950,7 @@ create index if not exists sm_change_conflicts_assigned_to_idx on sm_change_conf
 create index if not exists sm_change_conflicts_open_grp_idx on sm_change_conflicts (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
 drop trigger if exists sm_change_conflicts_sync on sm_change_conflicts;
 create trigger sm_change_conflicts_sync before insert or update on sm_change_conflicts for each row execute function sm_sync_touch('change_conflict');
+create or replace trigger sm_change_conflicts_demo after insert on sm_change_conflicts for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_change_conflicts enable row level security;
 
 -- change_gate: دروازه‌های استقرار
@@ -4958,6 +5031,7 @@ end
 $search$;
 drop trigger if exists sm_change_gates_sync on sm_change_gates;
 create trigger sm_change_gates_sync before insert or update on sm_change_gates for each row execute function sm_sync_touch('change_gate');
+create or replace trigger sm_change_gates_demo after insert on sm_change_gates for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_change_gates enable row level security;
 
 -- change_lockdown: قرنطینه‌های تغییرات
@@ -5029,6 +5103,7 @@ end
 $search$;
 drop trigger if exists sm_change_lockdowns_sync on sm_change_lockdowns;
 create trigger sm_change_lockdowns_sync before insert or update on sm_change_lockdowns for each row execute function sm_sync_touch('change_lockdown');
+create or replace trigger sm_change_lockdowns_demo after insert on sm_change_lockdowns for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_change_lockdowns enable row level security;
 
 -- change_model: مدل‌های تغییر
@@ -5080,6 +5155,7 @@ create index if not exists sm_change_models_crt_idx on sm_change_models (org_id,
 create unique index if not exists sm_change_models_name_uk on sm_change_models (org_id, name) where deleted_at is null;
 drop trigger if exists sm_change_models_sync on sm_change_models;
 create trigger sm_change_models_sync before insert or update on sm_change_models for each row execute function sm_sync_touch('change_model');
+create or replace trigger sm_change_models_demo after insert on sm_change_models for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_change_models enable row level security;
 
 -- change_outage: قطعی‌های برنامه‌ریزی‌شده
@@ -5126,6 +5202,7 @@ create index if not exists sm_change_outages_crt_idx on sm_change_outages (org_i
 create index if not exists sm_change_outages_change_id_idx on sm_change_outages (org_id, change_id) where deleted_at is null;
 drop trigger if exists sm_change_outages_sync on sm_change_outages;
 create trigger sm_change_outages_sync before insert or update on sm_change_outages for each row execute function sm_sync_touch('change_outage');
+create or replace trigger sm_change_outages_demo after insert on sm_change_outages for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_change_outages enable row level security;
 
 -- change_pir: بازبینی‌های پس از اجرا
@@ -5209,6 +5286,7 @@ end
 $search$;
 drop trigger if exists sm_change_pirs_sync on sm_change_pirs;
 create trigger sm_change_pirs_sync before insert or update on sm_change_pirs for each row execute function sm_sync_touch('change_pir');
+create or replace trigger sm_change_pirs_demo after insert on sm_change_pirs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_change_pirs enable row level security;
 
 -- change_request: تغییرها
@@ -5394,6 +5472,7 @@ end
 $search$;
 drop trigger if exists sm_change_requests_sync on sm_change_requests;
 create trigger sm_change_requests_sync before insert or update on sm_change_requests for each row execute function sm_sync_touch('change_request');
+create or replace trigger sm_change_requests_demo after insert on sm_change_requests for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_change_requests enable row level security;
 
 -- change_risk_question: پرسش‌های ارزیابی ریسک
@@ -5440,6 +5519,7 @@ create index if not exists sm_change_risk_questions_upd_idx on sm_change_risk_qu
 create index if not exists sm_change_risk_questions_crt_idx on sm_change_risk_questions (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_change_risk_questions_sync on sm_change_risk_questions;
 create trigger sm_change_risk_questions_sync before insert or update on sm_change_risk_questions for each row execute function sm_sync_touch('change_risk_question');
+create or replace trigger sm_change_risk_questions_demo after insert on sm_change_risk_questions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_change_risk_questions enable row level security;
 
 -- change_success_score: امتیازهای موفقیت تیم‌ها
@@ -5488,6 +5568,7 @@ create index if not exists sm_change_success_scores_crt_idx on sm_change_success
 create unique index if not exists sm_change_success_scores_group_id_uk on sm_change_success_scores (org_id, group_id) where deleted_at is null;
 drop trigger if exists sm_change_success_scores_sync on sm_change_success_scores;
 create trigger sm_change_success_scores_sync before insert or update on sm_change_success_scores for each row execute function sm_sync_touch('change_success_score');
+create or replace trigger sm_change_success_scores_demo after insert on sm_change_success_scores for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_change_success_scores enable row level security;
 
 -- change_task: کارهای تغییر
@@ -5608,6 +5689,7 @@ end
 $search$;
 drop trigger if exists sm_change_tasks_sync on sm_change_tasks;
 create trigger sm_change_tasks_sync before insert or update on sm_change_tasks for each row execute function sm_sync_touch('change_task');
+create or replace trigger sm_change_tasks_demo after insert on sm_change_tasks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_change_tasks enable row level security;
 
 -- change_template: الگوها و تغییرهای استاندارد
@@ -5700,6 +5782,7 @@ end
 $search$;
 drop trigger if exists sm_change_templates_sync on sm_change_templates;
 create trigger sm_change_templates_sync before insert or update on sm_change_templates for each row execute function sm_sync_touch('change_template');
+create or replace trigger sm_change_templates_demo after insert on sm_change_templates for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_change_templates enable row level security;
 
 -- change_window: پنجره‌های زمانی
@@ -5777,6 +5860,7 @@ end
 $search$;
 drop trigger if exists sm_change_windows_sync on sm_change_windows;
 create trigger sm_change_windows_sync before insert or update on sm_change_windows for each row execute function sm_sync_touch('change_window');
+create or replace trigger sm_change_windows_demo after insert on sm_change_windows for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_change_windows enable row level security;
 
 -- choice: فهرست‌های گزینه
@@ -5821,6 +5905,7 @@ create index if not exists sm_choices_crt_idx on sm_choices (org_id, created_at 
 create unique index if not exists sm_choices_list_value_uk on sm_choices (org_id, list, value) where deleted_at is null;
 drop trigger if exists sm_choices_sync on sm_choices;
 create trigger sm_choices_sync before insert or update on sm_choices for each row execute function sm_sync_touch('choice');
+create or replace trigger sm_choices_demo after insert on sm_choices for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_choices enable row level security;
 
 -- ci: پیکربندی‌ها
@@ -5953,6 +6038,7 @@ end
 $search$;
 drop trigger if exists sm_cis_sync on sm_cis;
 create trigger sm_cis_sync before insert or update on sm_cis for each row execute function sm_sync_touch('ci');
+create or replace trigger sm_cis_demo after insert on sm_cis for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_cis enable row level security;
 
 -- ci_baseline: خط‌های مبنای پیکربندی
@@ -6029,6 +6115,7 @@ end
 $search$;
 drop trigger if exists sm_ci_baselines_sync on sm_ci_baselines;
 create trigger sm_ci_baselines_sync before insert or update on sm_ci_baselines for each row execute function sm_sync_touch('ci_baseline');
+create or replace trigger sm_ci_baselines_demo after insert on sm_ci_baselines for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_ci_baselines enable row level security;
 
 -- ci_cert_campaign: دوره‌های تأیید داده
@@ -6099,6 +6186,7 @@ end
 $search$;
 drop trigger if exists sm_ci_cert_campaigns_sync on sm_ci_cert_campaigns;
 create trigger sm_ci_cert_campaigns_sync before insert or update on sm_ci_cert_campaigns for each row execute function sm_sync_touch('ci_cert_campaign');
+create or replace trigger sm_ci_cert_campaigns_demo after insert on sm_ci_cert_campaigns for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_ci_cert_campaigns enable row level security;
 
 -- ci_cert_task: تأییدهای دادهٔ پیکربندی
@@ -6209,6 +6297,7 @@ end
 $search$;
 drop trigger if exists sm_ci_cert_tasks_sync on sm_ci_cert_tasks;
 create trigger sm_ci_cert_tasks_sync before insert or update on sm_ci_cert_tasks for each row execute function sm_sync_touch('ci_cert_task');
+create or replace trigger sm_ci_cert_tasks_demo after insert on sm_ci_cert_tasks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_ci_cert_tasks enable row level security;
 
 -- ci_class: کلاس‌های پیکربندی
@@ -6269,6 +6358,7 @@ create index if not exists sm_ci_classes_crt_idx on sm_ci_classes (org_id, creat
 create unique index if not exists sm_ci_classes_key_uk on sm_ci_classes (org_id, key) where deleted_at is null;
 drop trigger if exists sm_ci_classes_sync on sm_ci_classes;
 create trigger sm_ci_classes_sync before insert or update on sm_ci_classes for each row execute function sm_sync_touch('ci_class');
+create or replace trigger sm_ci_classes_demo after insert on sm_ci_classes for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_ci_classes enable row level security;
 
 -- ci_drift: انحراف‌های پیکربندی
@@ -6384,6 +6474,7 @@ end
 $search$;
 drop trigger if exists sm_ci_drifts_sync on sm_ci_drifts;
 create trigger sm_ci_drifts_sync before insert or update on sm_ci_drifts for each row execute function sm_sync_touch('ci_drift');
+create or replace trigger sm_ci_drifts_demo after insert on sm_ci_drifts for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_ci_drifts enable row level security;
 
 -- ci_group: گروه‌های پیکربندی
@@ -6436,6 +6527,7 @@ create index if not exists sm_ci_groups_domain_acc_idx on sm_ci_groups (org_id, 
 create index if not exists sm_ci_groups_open_grp_idx on sm_ci_groups (org_id, owner_group_id, updated_at desc) where deleted_at is null and active;
 drop trigger if exists sm_ci_groups_sync on sm_ci_groups;
 create trigger sm_ci_groups_sync before insert or update on sm_ci_groups for each row execute function sm_sync_touch('ci_group');
+create or replace trigger sm_ci_groups_demo after insert on sm_ci_groups for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_ci_groups enable row level security;
 
 -- ci_identification_rule: قاعده‌های شناسایی
@@ -6478,6 +6570,7 @@ create index if not exists sm_ci_ident_rules_upd_idx on sm_ci_ident_rules (org_i
 create index if not exists sm_ci_ident_rules_crt_idx on sm_ci_ident_rules (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_ci_ident_rules_sync on sm_ci_ident_rules;
 create trigger sm_ci_ident_rules_sync before insert or update on sm_ci_ident_rules for each row execute function sm_sync_touch('ci_identification_rule');
+create or replace trigger sm_ci_ident_rules_demo after insert on sm_ci_ident_rules for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_ci_ident_rules enable row level security;
 
 -- ci_impact_sim: شبیه‌سازی‌های اثر
@@ -6527,6 +6620,7 @@ create index if not exists sm_ci_impact_sims_domain_acc_idx on sm_ci_impact_sims
 create index if not exists sm_ci_impact_sims_owner_id_idx on sm_ci_impact_sims (org_id, owner_id) where deleted_at is null;
 drop trigger if exists sm_ci_impact_sims_sync on sm_ci_impact_sims;
 create trigger sm_ci_impact_sims_sync before insert or update on sm_ci_impact_sims for each row execute function sm_sync_touch('ci_impact_sim');
+create or replace trigger sm_ci_impact_sims_demo after insert on sm_ci_impact_sims for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_ci_impact_sims enable row level security;
 
 -- ci_reconciliation_rule: قاعده‌های آشتی داده
@@ -6570,6 +6664,7 @@ create index if not exists sm_ci_recon_rules_upd_idx on sm_ci_recon_rules (org_i
 create index if not exists sm_ci_recon_rules_crt_idx on sm_ci_recon_rules (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_ci_recon_rules_sync on sm_ci_recon_rules;
 create trigger sm_ci_recon_rules_sync before insert or update on sm_ci_recon_rules for each row execute function sm_sync_touch('ci_reconciliation_rule');
+create or replace trigger sm_ci_recon_rules_demo after insert on sm_ci_recon_rules for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_ci_recon_rules enable row level security;
 
 -- ci_rel: رابطه‌های پیکربندی
@@ -6628,6 +6723,7 @@ create index if not exists sm_ci_rels_domain_acc_idx on sm_ci_rels (org_id, doma
 create index if not exists sm_ci_rels_owned_by_idx on sm_ci_rels (org_id, owned_by) where deleted_at is null;
 drop trigger if exists sm_ci_rels_sync on sm_ci_rels;
 create trigger sm_ci_rels_sync before insert or update on sm_ci_rels for each row execute function sm_sync_touch('ci_rel');
+create or replace trigger sm_ci_rels_demo after insert on sm_ci_rels for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_ci_rels enable row level security;
 
 -- ci_rel_rule: قاعده‌های رابطه‌سازی
@@ -6674,6 +6770,7 @@ create index if not exists sm_ci_rel_rules_upd_idx on sm_ci_rel_rules (org_id, u
 create index if not exists sm_ci_rel_rules_crt_idx on sm_ci_rel_rules (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_ci_rel_rules_sync on sm_ci_rel_rules;
 create trigger sm_ci_rel_rules_sync before insert or update on sm_ci_rel_rules for each row execute function sm_sync_touch('ci_rel_rule');
+create or replace trigger sm_ci_rel_rules_demo after insert on sm_ci_rel_rules for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_ci_rel_rules enable row level security;
 
 -- ci_rel_suggestion: پیشنهادهای رابطه
@@ -6725,6 +6822,7 @@ create index if not exists sm_ci_rel_suggestions_pair_key_idx on sm_ci_rel_sugge
 create index if not exists sm_ci_rel_suggestions_state_idx on sm_ci_rel_suggestions (org_id, state) where deleted_at is null;
 drop trigger if exists sm_ci_rel_suggestions_sync on sm_ci_rel_suggestions;
 create trigger sm_ci_rel_suggestions_sync before insert or update on sm_ci_rel_suggestions for each row execute function sm_sync_touch('ci_rel_suggestion');
+create or replace trigger sm_ci_rel_suggestions_demo after insert on sm_ci_rel_suggestions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_ci_rel_suggestions enable row level security;
 
 -- ci_rel_type: نوع‌های رابطه
@@ -6774,6 +6872,7 @@ create index if not exists sm_ci_rel_types_crt_idx on sm_ci_rel_types (org_id, c
 create unique index if not exists sm_ci_rel_types_key_uk on sm_ci_rel_types (org_id, key) where deleted_at is null;
 drop trigger if exists sm_ci_rel_types_sync on sm_ci_rel_types;
 create trigger sm_ci_rel_types_sync before insert or update on sm_ci_rel_types for each row execute function sm_sync_touch('ci_rel_type');
+create or replace trigger sm_ci_rel_types_demo after insert on sm_ci_rel_types for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_ci_rel_types enable row level security;
 
 -- cmdb_config: تنظیمات پیکربندی
@@ -6825,6 +6924,7 @@ create index if not exists sm_cmdb_configs_crt_idx on sm_cmdb_configs (org_id, c
 create unique index if not exists sm_cmdb_configs_config_key_uk on sm_cmdb_configs (org_id, config_key) where deleted_at is null;
 drop trigger if exists sm_cmdb_configs_sync on sm_cmdb_configs;
 create trigger sm_cmdb_configs_sync before insert or update on sm_cmdb_configs for each row execute function sm_sync_touch('cmdb_config');
+create or replace trigger sm_cmdb_configs_demo after insert on sm_cmdb_configs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_cmdb_configs enable row level security;
 
 -- cmdb_data_source: منبع‌های دادهٔ پیکربندی
@@ -6882,6 +6982,7 @@ create index if not exists sm_cmdb_sources_domain_acc_idx on sm_cmdb_sources (or
 create index if not exists sm_cmdb_sources_owner_id_idx on sm_cmdb_sources (org_id, owner_id) where deleted_at is null;
 drop trigger if exists sm_cmdb_sources_sync on sm_cmdb_sources;
 create trigger sm_cmdb_sources_sync before insert or update on sm_cmdb_sources for each row execute function sm_sync_touch('cmdb_data_source');
+create or replace trigger sm_cmdb_sources_demo after insert on sm_cmdb_sources for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_cmdb_sources enable row level security;
 
 -- cmdb_dedup_task: بررسی‌های تکراری
@@ -6998,6 +7099,7 @@ end
 $search$;
 drop trigger if exists sm_cmdb_dedup_tasks_sync on sm_cmdb_dedup_tasks;
 create trigger sm_cmdb_dedup_tasks_sync before insert or update on sm_cmdb_dedup_tasks for each row execute function sm_sync_touch('cmdb_dedup_task');
+create or replace trigger sm_cmdb_dedup_tasks_demo after insert on sm_cmdb_dedup_tasks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_cmdb_dedup_tasks enable row level security;
 
 -- cmdb_finding: یافته‌های کیفیت داده
@@ -7111,6 +7213,7 @@ end
 $search$;
 drop trigger if exists sm_cmdb_findings_sync on sm_cmdb_findings;
 create trigger sm_cmdb_findings_sync before insert or update on sm_cmdb_findings for each row execute function sm_sync_touch('cmdb_finding');
+create or replace trigger sm_cmdb_findings_demo after insert on sm_cmdb_findings for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_cmdb_findings enable row level security;
 
 -- cmdb_health_fact: سلامت روزانهٔ کلاس‌ها
@@ -7160,6 +7263,7 @@ create index if not exists sm_cmdb_health_facts_day_idx on sm_cmdb_health_facts 
 create unique index if not exists sm_cmdb_health_facts_day_class_uk on sm_cmdb_health_facts (org_id, day, class) where deleted_at is null;
 drop trigger if exists sm_cmdb_health_facts_sync on sm_cmdb_health_facts;
 create trigger sm_cmdb_health_facts_sync before insert or update on sm_cmdb_health_facts for each row execute function sm_sync_touch('cmdb_health_fact');
+create or replace trigger sm_cmdb_health_facts_demo after insert on sm_cmdb_health_facts for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_cmdb_health_facts enable row level security;
 
 -- cmdb_import_run: اجراهای ورود داده
@@ -7236,6 +7340,7 @@ end
 $search$;
 drop trigger if exists sm_cmdb_import_runs_sync on sm_cmdb_import_runs;
 create trigger sm_cmdb_import_runs_sync before insert or update on sm_cmdb_import_runs for each row execute function sm_sync_touch('cmdb_import_run');
+create or replace trigger sm_cmdb_import_runs_demo after insert on sm_cmdb_import_runs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_cmdb_import_runs enable row level security;
 
 -- cmdb_map: نقشه‌های ذخیره‌شده
@@ -7287,6 +7392,7 @@ create index if not exists sm_cmdb_maps_domain_acc_idx on sm_cmdb_maps (org_id, 
 create index if not exists sm_cmdb_maps_owner_id_idx on sm_cmdb_maps (org_id, owner_id) where deleted_at is null;
 drop trigger if exists sm_cmdb_maps_sync on sm_cmdb_maps;
 create trigger sm_cmdb_maps_sync before insert or update on sm_cmdb_maps for each row execute function sm_sync_touch('cmdb_map');
+create or replace trigger sm_cmdb_maps_demo after insert on sm_cmdb_maps for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_cmdb_maps enable row level security;
 
 -- cmdb_policy: سیاست‌های دادهٔ پیکربندی
@@ -7333,6 +7439,7 @@ create index if not exists sm_cmdb_policies_upd_idx on sm_cmdb_policies (org_id,
 create index if not exists sm_cmdb_policies_crt_idx on sm_cmdb_policies (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_cmdb_policies_sync on sm_cmdb_policies;
 create trigger sm_cmdb_policies_sync before insert or update on sm_cmdb_policies for each row execute function sm_sync_touch('cmdb_policy');
+create or replace trigger sm_cmdb_policies_demo after insert on sm_cmdb_policies for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_cmdb_policies enable row level security;
 
 -- cmdb_query: پرس‌وجوهای پیکربندی
@@ -7380,6 +7487,7 @@ create index if not exists sm_cmdb_queries_domain_acc_idx on sm_cmdb_queries (or
 create index if not exists sm_cmdb_queries_owner_id_idx on sm_cmdb_queries (org_id, owner_id) where deleted_at is null;
 drop trigger if exists sm_cmdb_queries_sync on sm_cmdb_queries;
 create trigger sm_cmdb_queries_sync before insert or update on sm_cmdb_queries for each row execute function sm_sync_touch('cmdb_query');
+create or replace trigger sm_cmdb_queries_demo after insert on sm_cmdb_queries for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_cmdb_queries enable row level security;
 
 -- cmdb_rule: قاعده‌های کیفیت داده و ممیزی
@@ -7432,6 +7540,7 @@ create index if not exists sm_cmdb_rules_upd_idx on sm_cmdb_rules (org_id, updat
 create index if not exists sm_cmdb_rules_crt_idx on sm_cmdb_rules (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_cmdb_rules_sync on sm_cmdb_rules;
 create trigger sm_cmdb_rules_sync before insert or update on sm_cmdb_rules for each row execute function sm_sync_touch('cmdb_rule');
+create or replace trigger sm_cmdb_rules_demo after insert on sm_cmdb_rules for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_cmdb_rules enable row level security;
 
 -- continuity_config: تنظیمات تداوم و دسترس‌پذیری
@@ -7477,6 +7586,7 @@ create index if not exists sm_continuity_configs_crt_idx on sm_continuity_config
 create unique index if not exists sm_continuity_configs_config_key_uk on sm_continuity_configs (org_id, config_key) where deleted_at is null;
 drop trigger if exists sm_continuity_configs_sync on sm_continuity_configs;
 create trigger sm_continuity_configs_sync before insert or update on sm_continuity_configs for each row execute function sm_sync_touch('continuity_config');
+create or replace trigger sm_continuity_configs_demo after insert on sm_continuity_configs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_continuity_configs enable row level security;
 
 -- continuity_plan: طرح‌های تداوم و بازیابی
@@ -7560,6 +7670,7 @@ end
 $search$;
 drop trigger if exists sm_continuity_plans_sync on sm_continuity_plans;
 create trigger sm_continuity_plans_sync before insert or update on sm_continuity_plans for each row execute function sm_sync_touch('continuity_plan');
+create or replace trigger sm_continuity_plans_demo after insert on sm_continuity_plans for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_continuity_plans enable row level security;
 
 -- contract: قراردادها
@@ -7661,6 +7772,7 @@ end
 $search$;
 drop trigger if exists sm_contracts_sync on sm_contracts;
 create trigger sm_contracts_sync before insert or update on sm_contracts for each row execute function sm_sync_touch('contract');
+create or replace trigger sm_contracts_demo after insert on sm_contracts for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_contracts enable row level security;
 
 -- contract_coverage: پوشش‌های قرارداد
@@ -7713,6 +7825,7 @@ create index if not exists sm_contract_coverages_ci_id_idx on sm_contract_covera
 create index if not exists sm_contract_coverages_service_id_idx on sm_contract_coverages (org_id, service_id) where deleted_at is null;
 drop trigger if exists sm_contract_coverages_sync on sm_contract_coverages;
 create trigger sm_contract_coverages_sync before insert or update on sm_contract_coverages for each row execute function sm_sync_touch('contract_coverage');
+create or replace trigger sm_contract_coverages_demo after insert on sm_contract_coverages for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_contract_coverages enable row level security;
 
 -- contract_guarantee: ضمانت‌نامه‌ها و سپرده‌ها
@@ -7790,6 +7903,7 @@ end
 $search$;
 drop trigger if exists sm_contract_guarantees_sync on sm_contract_guarantees;
 create trigger sm_contract_guarantees_sync before insert or update on sm_contract_guarantees for each row execute function sm_sync_touch('contract_guarantee');
+create or replace trigger sm_contract_guarantees_demo after insert on sm_contract_guarantees for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_contract_guarantees enable row level security;
 
 -- contract_line: سطرهای قرارداد
@@ -7837,6 +7951,7 @@ create index if not exists sm_contract_lines_crt_idx on sm_contract_lines (org_i
 create index if not exists sm_contract_lines_contract_id_idx on sm_contract_lines (org_id, contract_id) where deleted_at is null;
 drop trigger if exists sm_contract_lines_sync on sm_contract_lines;
 create trigger sm_contract_lines_sync before insert or update on sm_contract_lines for each row execute function sm_sync_touch('contract_line');
+create or replace trigger sm_contract_lines_demo after insert on sm_contract_lines for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_contract_lines enable row level security;
 
 -- contract_obligation: تعهدهای قراردادی
@@ -7911,6 +8026,7 @@ end
 $search$;
 drop trigger if exists sm_contract_obligations_sync on sm_contract_obligations;
 create trigger sm_contract_obligations_sync before insert or update on sm_contract_obligations for each row execute function sm_sync_touch('contract_obligation');
+create or replace trigger sm_contract_obligations_demo after insert on sm_contract_obligations for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_contract_obligations enable row level security;
 
 -- corrective_action: اقدام‌های اصلاحی و پیشگیرانه
@@ -8026,6 +8142,7 @@ end
 $search$;
 drop trigger if exists sm_corrective_actions_sync on sm_corrective_actions;
 create trigger sm_corrective_actions_sync before insert or update on sm_corrective_actions for each row execute function sm_sync_touch('corrective_action');
+create or replace trigger sm_corrective_actions_demo after insert on sm_corrective_actions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_corrective_actions enable row level security;
 
 -- correlation_rule: قاعده‌های هم‌بستگی
@@ -8071,6 +8188,7 @@ create index if not exists sm_correlation_rules_upd_idx on sm_correlation_rules 
 create index if not exists sm_correlation_rules_crt_idx on sm_correlation_rules (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_correlation_rules_sync on sm_correlation_rules;
 create trigger sm_correlation_rules_sync before insert or update on sm_correlation_rules for each row execute function sm_sync_touch('correlation_rule');
+create or replace trigger sm_correlation_rules_demo after insert on sm_correlation_rules for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_correlation_rules enable row level security;
 
 -- cost_entry: دفتر هزینه
@@ -8154,6 +8272,7 @@ end
 $search$;
 drop trigger if exists sm_cost_entries_sync on sm_cost_entries;
 create trigger sm_cost_entries_sync before insert or update on sm_cost_entries for each row execute function sm_sync_touch('cost_entry');
+create or replace trigger sm_cost_entries_demo after insert on sm_cost_entries for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_cost_entries enable row level security;
 
 -- cost_type: انواع هزینه
@@ -8199,6 +8318,7 @@ create index if not exists sm_cost_types_crt_idx on sm_cost_types (org_id, creat
 create unique index if not exists sm_cost_types_code_uk on sm_cost_types (org_id, code) where deleted_at is null;
 drop trigger if exists sm_cost_types_sync on sm_cost_types;
 create trigger sm_cost_types_sync before insert or update on sm_cost_types for each row execute function sm_sync_touch('cost_type');
+create or replace trigger sm_cost_types_demo after insert on sm_cost_types for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_cost_types enable row level security;
 
 -- csm_config: تنظیمات خدمات مشتریان
@@ -8245,6 +8365,7 @@ create index if not exists sm_csm_config_crt_idx on sm_csm_config (org_id, creat
 create unique index if not exists sm_csm_config_config_key_uk on sm_csm_config (org_id, config_key) where deleted_at is null;
 drop trigger if exists sm_csm_config_sync on sm_csm_config;
 create trigger sm_csm_config_sync before insert or update on sm_csm_config for each row execute function sm_sync_touch('csm_config');
+create or replace trigger sm_csm_config_demo after insert on sm_csm_config for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_csm_config enable row level security;
 
 -- custom_01: جدول سفارشی ۱
@@ -8312,6 +8433,7 @@ end
 $search$;
 drop trigger if exists sm_custom_01_sync on sm_custom_01;
 create trigger sm_custom_01_sync before insert or update on sm_custom_01 for each row execute function sm_sync_touch('custom_01');
+create or replace trigger sm_custom_01_demo after insert on sm_custom_01 for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_custom_01 enable row level security;
 
 -- custom_02: جدول سفارشی ۲
@@ -8379,6 +8501,7 @@ end
 $search$;
 drop trigger if exists sm_custom_02_sync on sm_custom_02;
 create trigger sm_custom_02_sync before insert or update on sm_custom_02 for each row execute function sm_sync_touch('custom_02');
+create or replace trigger sm_custom_02_demo after insert on sm_custom_02 for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_custom_02 enable row level security;
 
 -- custom_03: جدول سفارشی ۳
@@ -8446,6 +8569,7 @@ end
 $search$;
 drop trigger if exists sm_custom_03_sync on sm_custom_03;
 create trigger sm_custom_03_sync before insert or update on sm_custom_03 for each row execute function sm_sync_touch('custom_03');
+create or replace trigger sm_custom_03_demo after insert on sm_custom_03 for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_custom_03 enable row level security;
 
 -- custom_04: جدول سفارشی ۴
@@ -8513,6 +8637,7 @@ end
 $search$;
 drop trigger if exists sm_custom_04_sync on sm_custom_04;
 create trigger sm_custom_04_sync before insert or update on sm_custom_04 for each row execute function sm_sync_touch('custom_04');
+create or replace trigger sm_custom_04_demo after insert on sm_custom_04 for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_custom_04 enable row level security;
 
 -- custom_05: جدول سفارشی ۵
@@ -8580,6 +8705,7 @@ end
 $search$;
 drop trigger if exists sm_custom_05_sync on sm_custom_05;
 create trigger sm_custom_05_sync before insert or update on sm_custom_05 for each row execute function sm_sync_touch('custom_05');
+create or replace trigger sm_custom_05_demo after insert on sm_custom_05 for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_custom_05 enable row level security;
 
 -- custom_06: جدول سفارشی ۶
@@ -8647,6 +8773,7 @@ end
 $search$;
 drop trigger if exists sm_custom_06_sync on sm_custom_06;
 create trigger sm_custom_06_sync before insert or update on sm_custom_06 for each row execute function sm_sync_touch('custom_06');
+create or replace trigger sm_custom_06_demo after insert on sm_custom_06 for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_custom_06 enable row level security;
 
 -- custom_07: جدول سفارشی ۷
@@ -8714,6 +8841,7 @@ end
 $search$;
 drop trigger if exists sm_custom_07_sync on sm_custom_07;
 create trigger sm_custom_07_sync before insert or update on sm_custom_07 for each row execute function sm_sync_touch('custom_07');
+create or replace trigger sm_custom_07_demo after insert on sm_custom_07 for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_custom_07 enable row level security;
 
 -- custom_08: جدول سفارشی ۸
@@ -8781,6 +8909,7 @@ end
 $search$;
 drop trigger if exists sm_custom_08_sync on sm_custom_08;
 create trigger sm_custom_08_sync before insert or update on sm_custom_08 for each row execute function sm_sync_touch('custom_08');
+create or replace trigger sm_custom_08_demo after insert on sm_custom_08 for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_custom_08 enable row level security;
 
 -- custom_09: جدول سفارشی ۹
@@ -8848,6 +8977,7 @@ end
 $search$;
 drop trigger if exists sm_custom_09_sync on sm_custom_09;
 create trigger sm_custom_09_sync before insert or update on sm_custom_09 for each row execute function sm_sync_touch('custom_09');
+create or replace trigger sm_custom_09_demo after insert on sm_custom_09 for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_custom_09 enable row level security;
 
 -- custom_10: جدول سفارشی ۱۰
@@ -8915,6 +9045,7 @@ end
 $search$;
 drop trigger if exists sm_custom_10_sync on sm_custom_10;
 create trigger sm_custom_10_sync before insert or update on sm_custom_10 for each row execute function sm_sync_touch('custom_10');
+create or replace trigger sm_custom_10_demo after insert on sm_custom_10 for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_custom_10 enable row level security;
 
 -- custom_field: فیلدهای سفارشی
@@ -8969,6 +9100,7 @@ create index if not exists sm_custom_fields_crt_idx on sm_custom_fields (org_id,
 create unique index if not exists sm_custom_fields_table_key_name_uk on sm_custom_fields (org_id, table_key, name) where deleted_at is null;
 drop trigger if exists sm_custom_fields_sync on sm_custom_fields;
 create trigger sm_custom_fields_sync before insert or update on sm_custom_fields for each row execute function sm_sync_touch('custom_field');
+create or replace trigger sm_custom_fields_demo after insert on sm_custom_fields for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_custom_fields enable row level security;
 
 -- custom_table: جدول‌های سفارشی
@@ -9016,6 +9148,7 @@ create unique index if not exists sm_custom_tables_slot_uk on sm_custom_tables (
 create unique index if not exists sm_custom_tables_code_uk on sm_custom_tables (org_id, code) where deleted_at is null;
 drop trigger if exists sm_custom_tables_sync on sm_custom_tables;
 create trigger sm_custom_tables_sync before insert or update on sm_custom_tables for each row execute function sm_sync_touch('custom_table');
+create or replace trigger sm_custom_tables_demo after insert on sm_custom_tables for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_custom_tables enable row level security;
 
 -- customer_account: حساب‌های مشتری
@@ -9087,6 +9220,7 @@ create index if not exists sm_customer_accounts_domain_acc_idx on sm_customer_ac
 create index if not exists sm_customer_accounts_open_grp_idx on sm_customer_accounts (org_id, support_group_id, updated_at desc) where deleted_at is null and active;
 drop trigger if exists sm_customer_accounts_sync on sm_customer_accounts;
 create trigger sm_customer_accounts_sync before insert or update on sm_customer_accounts for each row execute function sm_sync_touch('customer_account');
+create or replace trigger sm_customer_accounts_demo after insert on sm_customer_accounts for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_customer_accounts enable row level security;
 
 -- customer_case: پرونده‌های مشتری
@@ -9219,6 +9353,7 @@ end
 $search$;
 drop trigger if exists sm_customer_cases_sync on sm_customer_cases;
 create trigger sm_customer_cases_sync before insert or update on sm_customer_cases for each row execute function sm_sync_touch('customer_case');
+create or replace trigger sm_customer_cases_demo after insert on sm_customer_cases for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_customer_cases enable row level security;
 
 -- customer_contact: مخاطبان مشتری
@@ -9277,6 +9412,7 @@ create index if not exists sm_customer_contacts_domain_acc_idx on sm_customer_co
 create index if not exists sm_customer_contacts_open_grp_idx on sm_customer_contacts (org_id, support_group_id, updated_at desc) where deleted_at is null and active;
 drop trigger if exists sm_customer_contacts_sync on sm_customer_contacts;
 create trigger sm_customer_contacts_sync before insert or update on sm_customer_contacts for each row execute function sm_sync_touch('customer_contact');
+create or replace trigger sm_customer_contacts_demo after insert on sm_customer_contacts for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_customer_contacts enable row level security;
 
 -- customer_contract: قراردادهای مشتری
@@ -9350,6 +9486,7 @@ end
 $search$;
 drop trigger if exists sm_customer_contracts_sync on sm_customer_contracts;
 create trigger sm_customer_contracts_sync before insert or update on sm_customer_contracts for each row execute function sm_sync_touch('customer_contract');
+create or replace trigger sm_customer_contracts_demo after insert on sm_customer_contracts for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_customer_contracts enable row level security;
 
 -- customer_experience: تجربه‌های مشتری
@@ -9402,6 +9539,7 @@ create index if not exists sm_customer_experiences_domain_acc_idx on sm_customer
 create index if not exists sm_customer_experiences_open_grp_idx on sm_customer_experiences (org_id, support_group_id, updated_at desc) where deleted_at is null and active;
 drop trigger if exists sm_customer_experiences_sync on sm_customer_experiences;
 create trigger sm_customer_experiences_sync before insert or update on sm_customer_experiences for each row execute function sm_sync_touch('customer_experience');
+create or replace trigger sm_customer_experiences_demo after insert on sm_customer_experiences for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_customer_experiences enable row level security;
 
 -- customer_notice: اطلاع‌رسانی‌های مشتریان
@@ -9477,6 +9615,7 @@ end
 $search$;
 drop trigger if exists sm_customer_notices_sync on sm_customer_notices;
 create trigger sm_customer_notices_sync before insert or update on sm_customer_notices for each row execute function sm_sync_touch('customer_notice');
+create or replace trigger sm_customer_notices_demo after insert on sm_customer_notices for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_customer_notices enable row level security;
 
 -- customer_product: محصولات
@@ -9527,6 +9666,7 @@ create index if not exists sm_customer_products_domain_acc_idx on sm_customer_pr
 create index if not exists sm_customer_products_open_grp_idx on sm_customer_products (org_id, support_group_id, updated_at desc) where deleted_at is null and active;
 drop trigger if exists sm_customer_products_sync on sm_customer_products;
 create trigger sm_customer_products_sync before insert or update on sm_customer_products for each row execute function sm_sync_touch('customer_product');
+create or replace trigger sm_customer_products_demo after insert on sm_customer_products for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_customer_products enable row level security;
 
 -- customer_relationship: ارتباط با مشتریان
@@ -9577,6 +9717,7 @@ create index if not exists sm_customer_relationships_domain_acc_idx on sm_custom
 create index if not exists sm_customer_relationships_manager_id_idx on sm_customer_relationships (org_id, manager_id) where deleted_at is null;
 drop trigger if exists sm_customer_relationships_sync on sm_customer_relationships;
 create trigger sm_customer_relationships_sync before insert or update on sm_customer_relationships for each row execute function sm_sync_touch('customer_relationship');
+create or replace trigger sm_customer_relationships_demo after insert on sm_customer_relationships for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_customer_relationships enable row level security;
 
 -- customer_review: بازبینی‌های با مشتری
@@ -9650,6 +9791,7 @@ end
 $search$;
 drop trigger if exists sm_customer_reviews_sync on sm_customer_reviews;
 create trigger sm_customer_reviews_sync before insert or update on sm_customer_reviews for each row execute function sm_sync_touch('customer_review');
+create or replace trigger sm_customer_reviews_demo after insert on sm_customer_reviews for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_customer_reviews enable row level security;
 
 -- data_export: خروجی‌های داده
@@ -9720,6 +9862,7 @@ end
 $search$;
 drop trigger if exists sm_data_exports_sync on sm_data_exports;
 create trigger sm_data_exports_sync before insert or update on sm_data_exports for each row execute function sm_sync_touch('data_export');
+create or replace trigger sm_data_exports_demo after insert on sm_data_exports for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_data_exports enable row level security;
 
 -- defect: نقص‌ها
@@ -9833,6 +9976,7 @@ end
 $search$;
 drop trigger if exists sm_defects_sync on sm_defects;
 create trigger sm_defects_sync before insert or update on sm_defects for each row execute function sm_sync_touch('defect');
+create or replace trigger sm_defects_demo after insert on sm_defects for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_defects enable row level security;
 
 -- delegation: جانشینی‌ها
@@ -9881,6 +10025,7 @@ create index if not exists sm_delegations_unit_acc_idx on sm_delegations (org_id
 create index if not exists sm_delegations_domain_acc_idx on sm_delegations (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_delegations_sync on sm_delegations;
 create trigger sm_delegations_sync before insert or update on sm_delegations for each row execute function sm_sync_touch('delegation');
+create or replace trigger sm_delegations_demo after insert on sm_delegations for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_delegations enable row level security;
 
 -- demand: تقاضاها
@@ -9978,6 +10123,7 @@ end
 $search$;
 drop trigger if exists sm_demands_sync on sm_demands;
 create trigger sm_demands_sync before insert or update on sm_demands for each row execute function sm_sync_touch('demand');
+create or replace trigger sm_demands_demo after insert on sm_demands for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_demands enable row level security;
 
 -- deployment: استقرارها
@@ -10125,6 +10271,7 @@ end
 $search$;
 drop trigger if exists sm_deployments_sync on sm_deployments;
 create trigger sm_deployments_sync before insert or update on sm_deployments for each row execute function sm_sync_touch('deployment');
+create or replace trigger sm_deployments_demo after insert on sm_deployments for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_deployments enable row level security;
 
 -- depreciation_rule: قاعده‌های استهلاک
@@ -10171,6 +10318,7 @@ create index if not exists sm_depreciation_rules_upd_idx on sm_depreciation_rule
 create index if not exists sm_depreciation_rules_crt_idx on sm_depreciation_rules (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_depreciation_rules_sync on sm_depreciation_rules;
 create trigger sm_depreciation_rules_sync before insert or update on sm_depreciation_rules for each row execute function sm_sync_touch('depreciation_rule');
+create or replace trigger sm_depreciation_rules_demo after insert on sm_depreciation_rules for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_depreciation_rules enable row level security;
 
 -- dev_build: اجراهای خط لوله
@@ -10229,6 +10377,7 @@ create index if not exists sm_dev_builds_keys_gin on sm_dev_builds using gin (ke
 create unique index if not exists sm_dev_builds_connection_id_external_id_uk on sm_dev_builds (org_id, connection_id, external_id) where deleted_at is null;
 drop trigger if exists sm_dev_builds_sync on sm_dev_builds;
 create trigger sm_dev_builds_sync before insert or update on sm_dev_builds for each row execute function sm_sync_touch('dev_build');
+create or replace trigger sm_dev_builds_demo after insert on sm_dev_builds for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_dev_builds enable row level security;
 
 -- dev_commit: کامیت‌ها
@@ -10278,6 +10427,7 @@ create index if not exists sm_dev_commits_keys_gin on sm_dev_commits using gin (
 create unique index if not exists sm_dev_commits_repository_id_sha_uk on sm_dev_commits (org_id, repository_id, sha) where deleted_at is null;
 drop trigger if exists sm_dev_commits_sync on sm_dev_commits;
 create trigger sm_dev_commits_sync before insert or update on sm_dev_commits for each row execute function sm_sync_touch('dev_commit');
+create or replace trigger sm_dev_commits_demo after insert on sm_dev_commits for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_dev_commits enable row level security;
 
 -- dev_event: رویدادهای دریافتی
@@ -10329,6 +10479,7 @@ create index if not exists sm_dev_events_received_at_idx on sm_dev_events (org_i
 create index if not exists sm_dev_events_payload_hash_idx on sm_dev_events (org_id, payload_hash) where deleted_at is null;
 create unique index if not exists sm_dev_events_connection_id_delivery_id_uk on sm_dev_events (org_id, connection_id, delivery_id) where deleted_at is null;
 drop trigger if exists sm_dev_events_sync on sm_dev_events;
+create or replace trigger sm_dev_events_demo after insert on sm_dev_events for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_dev_events enable row level security;
 
 -- dev_pipeline: خط لوله‌ها
@@ -10375,6 +10526,7 @@ create index if not exists sm_dev_pipelines_connection_id_idx on sm_dev_pipeline
 create unique index if not exists sm_dev_pipelines_connection_id_name_uk on sm_dev_pipelines (org_id, connection_id, name) where deleted_at is null;
 drop trigger if exists sm_dev_pipelines_sync on sm_dev_pipelines;
 create trigger sm_dev_pipelines_sync before insert or update on sm_dev_pipelines for each row execute function sm_sync_touch('dev_pipeline');
+create or replace trigger sm_dev_pipelines_demo after insert on sm_dev_pipelines for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_dev_pipelines enable row level security;
 
 -- dev_pull_request: درخواست‌های ادغام
@@ -10426,6 +10578,7 @@ create unique index if not exists sm_dev_pull_requests_repository_id_pr_number_u
 create index if not exists sm_dev_pull_requests_opened_brin on sm_dev_pull_requests using brin (opened_at);
 drop trigger if exists sm_dev_pull_requests_sync on sm_dev_pull_requests;
 create trigger sm_dev_pull_requests_sync before insert or update on sm_dev_pull_requests for each row execute function sm_sync_touch('dev_pull_request');
+create or replace trigger sm_dev_pull_requests_demo after insert on sm_dev_pull_requests for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_dev_pull_requests enable row level security;
 
 -- dev_repository: مخزن‌های کد
@@ -10477,6 +10630,7 @@ create index if not exists sm_dev_repositories_domain_acc_idx on sm_dev_reposito
 create index if not exists sm_dev_repositories_open_grp_idx on sm_dev_repositories (org_id, owner_group_id, updated_at desc) where deleted_at is null and active;
 drop trigger if exists sm_dev_repositories_sync on sm_dev_repositories;
 create trigger sm_dev_repositories_sync before insert or update on sm_dev_repositories for each row execute function sm_sync_touch('dev_repository');
+create or replace trigger sm_dev_repositories_demo after insert on sm_dev_repositories for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_dev_repositories enable row level security;
 
 -- device_status_event: تاریخچهٔ وضعیت دستگاه‌ها
@@ -10525,6 +10679,7 @@ create index if not exists sm_device_status_events_asset_id_idx on sm_device_sta
 create index if not exists sm_device_status_events_branch_id_idx on sm_device_status_events (org_id, branch_id) where deleted_at is null;
 drop trigger if exists sm_device_status_events_sync on sm_device_status_events;
 create trigger sm_device_status_events_sync before insert or update on sm_device_status_events for each row execute function sm_sync_touch('device_status_event');
+create or replace trigger sm_device_status_events_demo after insert on sm_device_status_events for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_device_status_events enable row level security;
 
 -- devops_connection: اتصال‌های دواپس
@@ -10583,6 +10738,7 @@ create index if not exists sm_devops_connections_crt_idx on sm_devops_connection
 create unique index if not exists sm_devops_connections_hook_key_uk on sm_devops_connections (org_id, hook_key) where deleted_at is null;
 drop trigger if exists sm_devops_connections_sync on sm_devops_connections;
 create trigger sm_devops_connections_sync before insert or update on sm_devops_connections for each row execute function sm_sync_touch('devops_connection');
+create or replace trigger sm_devops_connections_demo after insert on sm_devops_connections for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_devops_connections enable row level security;
 
 -- directory_source: منبع‌های فهرست کاربران
@@ -10664,6 +10820,7 @@ create index if not exists sm_directory_sources_unit_acc_idx on sm_directory_sou
 create index if not exists sm_directory_sources_domain_acc_idx on sm_directory_sources (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_directory_sources_sync on sm_directory_sources;
 create trigger sm_directory_sources_sync before insert or update on sm_directory_sources for each row execute function sm_sync_touch('directory_source');
+create or replace trigger sm_directory_sources_demo after insert on sm_directory_sources for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_directory_sources enable row level security;
 
 -- discovery_collector: جمع‌آورنده‌های کشف
@@ -10715,6 +10872,7 @@ create index if not exists sm_discovery_collectors_crt_idx on sm_discovery_colle
 create index if not exists sm_discovery_collectors_machine_id_idx on sm_discovery_collectors (org_id, machine_id) where deleted_at is null;
 drop trigger if exists sm_discovery_collectors_sync on sm_discovery_collectors;
 create trigger sm_discovery_collectors_sync before insert or update on sm_discovery_collectors for each row execute function sm_sync_touch('discovery_collector');
+create or replace trigger sm_discovery_collectors_demo after insert on sm_discovery_collectors for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_discovery_collectors enable row level security;
 
 -- disposal_item: اقلام اسقاط
@@ -10767,6 +10925,7 @@ create index if not exists sm_disposal_items_asset_id_idx on sm_disposal_items (
 create unique index if not exists sm_disposal_items_order_id_asset_id_uk on sm_disposal_items (org_id, order_id, asset_id) where deleted_at is null;
 drop trigger if exists sm_disposal_items_sync on sm_disposal_items;
 create trigger sm_disposal_items_sync before insert or update on sm_disposal_items for each row execute function sm_sync_touch('disposal_item');
+create or replace trigger sm_disposal_items_demo after insert on sm_disposal_items for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_disposal_items enable row level security;
 
 -- disposal_order: دستورهای اسقاط
@@ -10839,6 +10998,7 @@ end
 $search$;
 drop trigger if exists sm_disposal_orders_sync on sm_disposal_orders;
 create trigger sm_disposal_orders_sync before insert or update on sm_disposal_orders for each row execute function sm_sync_touch('disposal_order');
+create or replace trigger sm_disposal_orders_demo after insert on sm_disposal_orders for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_disposal_orders enable row level security;
 
 -- doc_collection: مجموعه‌های اسناد
@@ -10889,6 +11049,7 @@ create index if not exists sm_doc_collections_unit_acc_idx on sm_doc_collections
 create index if not exists sm_doc_collections_domain_acc_idx on sm_doc_collections (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_doc_collections_sync on sm_doc_collections;
 create trigger sm_doc_collections_sync before insert or update on sm_doc_collections for each row execute function sm_sync_touch('doc_collection');
+create or replace trigger sm_doc_collections_demo after insert on sm_doc_collections for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_doc_collections enable row level security;
 
 -- doc_document: اسناد
@@ -10944,6 +11105,7 @@ create index if not exists sm_doc_documents_unit_acc_idx on sm_doc_documents (or
 create index if not exists sm_doc_documents_domain_acc_idx on sm_doc_documents (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_doc_documents_sync on sm_doc_documents;
 create trigger sm_doc_documents_sync before insert or update on sm_doc_documents for each row execute function sm_sync_touch('doc_document');
+create or replace trigger sm_doc_documents_demo after insert on sm_doc_documents for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_doc_documents enable row level security;
 
 -- email_channel: کانال‌های ایمیل
@@ -11003,6 +11165,7 @@ create index if not exists sm_email_channels_upd_idx on sm_email_channels (org_i
 create index if not exists sm_email_channels_crt_idx on sm_email_channels (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_email_channels_sync on sm_email_channels;
 create trigger sm_email_channels_sync before insert or update on sm_email_channels for each row execute function sm_sync_touch('email_channel');
+create or replace trigger sm_email_channels_demo after insert on sm_email_channels for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_email_channels enable row level security;
 
 -- entitlement: استحقاق‌ها
@@ -11091,6 +11254,7 @@ end
 $search$;
 drop trigger if exists sm_entitlements_sync on sm_entitlements;
 create trigger sm_entitlements_sync before insert or update on sm_entitlements for each row execute function sm_sync_touch('entitlement');
+create or replace trigger sm_entitlements_demo after insert on sm_entitlements for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_entitlements enable row level security;
 
 -- entitlement_ledger: دفتر مصرف استحقاق
@@ -11140,6 +11304,7 @@ create index if not exists sm_entitlement_ledger_unit_acc_idx on sm_entitlement_
 create index if not exists sm_entitlement_ledger_domain_acc_idx on sm_entitlement_ledger (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_entitlement_ledger_sync on sm_entitlement_ledger;
 create trigger sm_entitlement_ledger_sync before insert or update on sm_entitlement_ledger for each row execute function sm_sync_touch('entitlement_ledger');
+create or replace trigger sm_entitlement_ledger_demo after insert on sm_entitlement_ledger for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_entitlement_ledger enable row level security;
 
 -- environment_booking: رزروهای محیط
@@ -11210,6 +11375,7 @@ end
 $search$;
 drop trigger if exists sm_environment_bookings_sync on sm_environment_bookings;
 create trigger sm_environment_bookings_sync before insert or update on sm_environment_bookings for each row execute function sm_sync_touch('environment_booking');
+create or replace trigger sm_environment_bookings_demo after insert on sm_environment_bookings for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_environment_bookings enable row level security;
 
 -- escalation_level: سطح‌های ارتقا
@@ -11257,6 +11423,7 @@ create index if not exists sm_escalation_levels_policy_id_idx on sm_escalation_l
 create unique index if not exists sm_escalation_levels_policy_id_level_uk on sm_escalation_levels (org_id, policy_id, level) where deleted_at is null;
 drop trigger if exists sm_escalation_levels_sync on sm_escalation_levels;
 create trigger sm_escalation_levels_sync before insert or update on sm_escalation_levels for each row execute function sm_sync_touch('escalation_level');
+create or replace trigger sm_escalation_levels_demo after insert on sm_escalation_levels for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_escalation_levels enable row level security;
 
 -- escalation_policy: سیاست‌های ارتقا
@@ -11303,6 +11470,7 @@ create index if not exists sm_escalation_policies_domain_acc_idx on sm_escalatio
 create index if not exists sm_escalation_policies_open_grp_idx on sm_escalation_policies (org_id, group_id, updated_at desc) where deleted_at is null and active;
 drop trigger if exists sm_escalation_policies_sync on sm_escalation_policies;
 create trigger sm_escalation_policies_sync before insert or update on sm_escalation_policies for each row execute function sm_sync_touch('escalation_policy');
+create or replace trigger sm_escalation_policies_demo after insert on sm_escalation_policies for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_escalation_policies enable row level security;
 
 -- esm_config: تنظیمات خدمات سازمانی
@@ -11347,6 +11515,7 @@ create index if not exists sm_esm_config_crt_idx on sm_esm_config (org_id, creat
 create unique index if not exists sm_esm_config_config_key_uk on sm_esm_config (org_id, config_key) where deleted_at is null;
 drop trigger if exists sm_esm_config_sync on sm_esm_config;
 create trigger sm_esm_config_sync before insert or update on sm_esm_config for each row execute function sm_sync_touch('esm_config');
+create or replace trigger sm_esm_config_demo after insert on sm_esm_config for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_esm_config enable row level security;
 
 -- esm_department: واحدهای خدمت‌دهنده
@@ -11411,6 +11580,7 @@ create index if not exists sm_esm_departments_domain_acc_idx on sm_esm_departmen
 create index if not exists sm_esm_departments_dept_admins_gin on sm_esm_departments using gin (dept_admins);
 drop trigger if exists sm_esm_departments_sync on sm_esm_departments;
 create trigger sm_esm_departments_sync before insert or update on sm_esm_departments for each row execute function sm_sync_touch('esm_department');
+create or replace trigger sm_esm_departments_demo after insert on sm_esm_departments for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_esm_departments enable row level security;
 
 -- esm_service: خدمت‌های واحدها
@@ -11476,6 +11646,7 @@ create index if not exists sm_esm_services_domain_acc_idx on sm_esm_services (or
 create index if not exists sm_esm_services_dept_admins_gin on sm_esm_services using gin (dept_admins);
 drop trigger if exists sm_esm_services_sync on sm_esm_services;
 create trigger sm_esm_services_sync before insert or update on sm_esm_services for each row execute function sm_sync_touch('esm_service');
+create or replace trigger sm_esm_services_demo after insert on sm_esm_services for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_esm_services enable row level security;
 
 -- event: رویدادها
@@ -11539,6 +11710,7 @@ create index if not exists sm_events_dedupe_key_idx on sm_events (org_id, dedupe
 create index if not exists sm_events_alert_id_idx on sm_events (org_id, alert_id) where deleted_at is null;
 create index if not exists sm_events_outcome_idx on sm_events (org_id, outcome) where deleted_at is null;
 drop trigger if exists sm_events_sync on sm_events;
+create or replace trigger sm_events_demo after insert on sm_events for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_events enable row level security;
 
 -- event_config: تنظیمات رویداد و کشیک
@@ -11588,6 +11760,7 @@ create index if not exists sm_event_configs_crt_idx on sm_event_configs (org_id,
 create unique index if not exists sm_event_configs_config_key_uk on sm_event_configs (org_id, config_key) where deleted_at is null;
 drop trigger if exists sm_event_configs_sync on sm_event_configs;
 create trigger sm_event_configs_sync before insert or update on sm_event_configs for each row execute function sm_sync_touch('event_config');
+create or replace trigger sm_event_configs_demo after insert on sm_event_configs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_event_configs enable row level security;
 
 -- event_rule: قاعده‌های پردازش رویداد
@@ -11643,6 +11816,7 @@ create index if not exists sm_event_rules_upd_idx on sm_event_rules (org_id, upd
 create index if not exists sm_event_rules_crt_idx on sm_event_rules (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_event_rules_sync on sm_event_rules;
 create trigger sm_event_rules_sync before insert or update on sm_event_rules for each row execute function sm_sync_touch('event_rule');
+create or replace trigger sm_event_rules_demo after insert on sm_event_rules for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_event_rules enable row level security;
 
 -- event_source: منبع‌های رویداد
@@ -11697,6 +11871,7 @@ create index if not exists sm_event_sources_crt_idx on sm_event_sources (org_id,
 create index if not exists sm_event_sources_token_hash_idx on sm_event_sources (org_id, token_hash) where deleted_at is null;
 drop trigger if exists sm_event_sources_sync on sm_event_sources;
 create trigger sm_event_sources_sync before insert or update on sm_event_sources for each row execute function sm_sync_touch('event_source');
+create or replace trigger sm_event_sources_demo after insert on sm_event_sources for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_event_sources enable row level security;
 
 -- exchange_rate: نرخ‌های ارز
@@ -11739,6 +11914,7 @@ create index if not exists sm_exchange_rates_crt_idx on sm_exchange_rates (org_i
 create unique index if not exists sm_exchange_rates_currency_rate_date_rate_type_uk on sm_exchange_rates (org_id, currency, rate_date, rate_type) where deleted_at is null;
 drop trigger if exists sm_exchange_rates_sync on sm_exchange_rates;
 create trigger sm_exchange_rates_sync before insert or update on sm_exchange_rates for each row execute function sm_sync_touch('exchange_rate');
+create or replace trigger sm_exchange_rates_demo after insert on sm_exchange_rates for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_exchange_rates enable row level security;
 
 -- exercise: مانورهای تداوم
@@ -11826,6 +12002,7 @@ end
 $search$;
 drop trigger if exists sm_exercises_sync on sm_exercises;
 create trigger sm_exercises_sync before insert or update on sm_exercises for each row execute function sm_sync_touch('exercise');
+create or replace trigger sm_exercises_demo after insert on sm_exercises for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_exercises enable row level security;
 
 -- export_schedule: خروجی‌های زمان‌بندی‌شده
@@ -11878,6 +12055,7 @@ create index if not exists sm_export_schedules_unit_acc_idx on sm_export_schedul
 create index if not exists sm_export_schedules_domain_acc_idx on sm_export_schedules (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_export_schedules_sync on sm_export_schedules;
 create trigger sm_export_schedules_sync before insert or update on sm_export_schedules for each row execute function sm_sync_touch('export_schedule');
+create or replace trigger sm_export_schedules_demo after insert on sm_export_schedules for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_export_schedules enable row level security;
 
 -- external_ref: پیوندهای بیرونی
@@ -11927,6 +12105,7 @@ create index if not exists sm_external_refs_record_id_idx on sm_external_refs (o
 create unique index if not exists sm_external_refs_connection_id_remote_key_uk on sm_external_refs (org_id, connection_id, remote_key) where deleted_at is null;
 drop trigger if exists sm_external_refs_sync on sm_external_refs;
 create trigger sm_external_refs_sync before insert or update on sm_external_refs for each row execute function sm_sync_touch('external_ref');
+create or replace trigger sm_external_refs_demo after insert on sm_external_refs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_external_refs enable row level security;
 
 -- facility_request: درخواست‌های پشتیبانی و تأسیسات
@@ -12047,6 +12226,7 @@ end
 $search$;
 drop trigger if exists sm_facility_requests_sync on sm_facility_requests;
 create trigger sm_facility_requests_sync before insert or update on sm_facility_requests for each row execute function sm_sync_touch('facility_request');
+create or replace trigger sm_facility_requests_demo after insert on sm_facility_requests for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_facility_requests enable row level security;
 
 -- feature_flag: پرچم‌های ویژگی
@@ -12099,6 +12279,7 @@ create index if not exists sm_feature_flags_domain_acc_idx on sm_feature_flags (
 create index if not exists sm_feature_flags_owner_id_idx on sm_feature_flags (org_id, owner_id) where deleted_at is null;
 drop trigger if exists sm_feature_flags_sync on sm_feature_flags;
 create trigger sm_feature_flags_sync before insert or update on sm_feature_flags for each row execute function sm_sync_touch('feature_flag');
+create or replace trigger sm_feature_flags_demo after insert on sm_feature_flags for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_feature_flags enable row level security;
 
 -- field_time_entry: زمان و هزینهٔ میدانی
@@ -12152,6 +12333,7 @@ create index if not exists sm_field_time_entries_unit_acc_idx on sm_field_time_e
 create index if not exists sm_field_time_entries_domain_acc_idx on sm_field_time_entries (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_field_time_entries_sync on sm_field_time_entries;
 create trigger sm_field_time_entries_sync before insert or update on sm_field_time_entries for each row execute function sm_sync_touch('field_time_entry');
+create or replace trigger sm_field_time_entries_demo after insert on sm_field_time_entries for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_field_time_entries enable row level security;
 
 -- finance_case: پرونده‌های مالی
@@ -12277,6 +12459,7 @@ end
 $search$;
 drop trigger if exists sm_finance_cases_sync on sm_finance_cases;
 create trigger sm_finance_cases_sync before insert or update on sm_finance_cases for each row execute function sm_sync_touch('finance_case');
+create or replace trigger sm_finance_cases_demo after insert on sm_finance_cases for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_finance_cases enable row level security;
 
 -- financial_config: تنظیمات مالی
@@ -12322,6 +12505,7 @@ create index if not exists sm_financial_configs_crt_idx on sm_financial_configs 
 create unique index if not exists sm_financial_configs_config_key_uk on sm_financial_configs (org_id, config_key) where deleted_at is null;
 drop trigger if exists sm_financial_configs_sync on sm_financial_configs;
 create trigger sm_financial_configs_sync before insert or update on sm_financial_configs for each row execute function sm_sync_touch('financial_config');
+create or replace trigger sm_financial_configs_demo after insert on sm_financial_configs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_financial_configs enable row level security;
 
 -- fiscal_period: دوره‌های مالی
@@ -12368,6 +12552,7 @@ create unique index if not exists sm_fiscal_periods_key_uk on sm_fiscal_periods 
 create unique index if not exists sm_fiscal_periods_fiscal_year_id_month_uk on sm_fiscal_periods (org_id, fiscal_year_id, month) where deleted_at is null;
 drop trigger if exists sm_fiscal_periods_sync on sm_fiscal_periods;
 create trigger sm_fiscal_periods_sync before insert or update on sm_fiscal_periods for each row execute function sm_sync_touch('fiscal_period');
+create or replace trigger sm_fiscal_periods_demo after insert on sm_fiscal_periods for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_fiscal_periods enable row level security;
 
 -- fiscal_year: سال‌های مالی
@@ -12411,6 +12596,7 @@ create index if not exists sm_fiscal_years_crt_idx on sm_fiscal_years (org_id, c
 create unique index if not exists sm_fiscal_years_year_uk on sm_fiscal_years (org_id, year) where deleted_at is null;
 drop trigger if exists sm_fiscal_years_sync on sm_fiscal_years;
 create trigger sm_fiscal_years_sync before insert or update on sm_fiscal_years for each row execute function sm_sync_touch('fiscal_year');
+create or replace trigger sm_fiscal_years_demo after insert on sm_fiscal_years for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_fiscal_years enable row level security;
 
 -- flow: گردش‌کارها
@@ -12467,6 +12653,7 @@ create index if not exists sm_flows_trigger_table_idx on sm_flows (org_id, trigg
 create unique index if not exists sm_flows_name_uk on sm_flows (org_id, name) where deleted_at is null;
 drop trigger if exists sm_flows_sync on sm_flows;
 create trigger sm_flows_sync before insert or update on sm_flows for each row execute function sm_sync_touch('flow');
+create or replace trigger sm_flows_demo after insert on sm_flows for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_flows enable row level security;
 
 -- flow_connection: اتصال‌های HTTP
@@ -12515,6 +12702,7 @@ create index if not exists sm_flow_connections_crt_idx on sm_flow_connections (o
 create unique index if not exists sm_flow_connections_name_uk on sm_flow_connections (org_id, name) where deleted_at is null;
 drop trigger if exists sm_flow_connections_sync on sm_flow_connections;
 create trigger sm_flow_connections_sync before insert or update on sm_flow_connections for each row execute function sm_sync_touch('flow_connection');
+create or replace trigger sm_flow_connections_demo after insert on sm_flow_connections for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_flow_connections enable row level security;
 
 -- flow_version: نسخه‌های گردش‌کار
@@ -12559,6 +12747,7 @@ create index if not exists sm_flow_versions_flow_id_idx on sm_flow_versions (org
 create unique index if not exists sm_flow_versions_flow_id_version_no_uk on sm_flow_versions (org_id, flow_id, version_no) where deleted_at is null;
 drop trigger if exists sm_flow_versions_sync on sm_flow_versions;
 create trigger sm_flow_versions_sync before insert or update on sm_flow_versions for each row execute function sm_sync_touch('flow_version');
+create or replace trigger sm_flow_versions_demo after insert on sm_flow_versions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_flow_versions enable row level security;
 
 -- fsm_config: تنظیمات خدمات میدانی
@@ -12605,6 +12794,7 @@ create index if not exists sm_fsm_config_crt_idx on sm_fsm_config (org_id, creat
 create unique index if not exists sm_fsm_config_config_key_uk on sm_fsm_config (org_id, config_key) where deleted_at is null;
 drop trigger if exists sm_fsm_config_sync on sm_fsm_config;
 create trigger sm_fsm_config_sync before insert or update on sm_fsm_config for each row execute function sm_sync_touch('fsm_config');
+create or replace trigger sm_fsm_config_demo after insert on sm_fsm_config for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_fsm_config enable row level security;
 
 -- goods_receipt: رسیدهای کالا
@@ -12661,6 +12851,7 @@ end
 $search$;
 drop trigger if exists sm_goods_receipts_sync on sm_goods_receipts;
 create trigger sm_goods_receipts_sync before insert or update on sm_goods_receipts for each row execute function sm_sync_touch('goods_receipt');
+create or replace trigger sm_goods_receipts_demo after insert on sm_goods_receipts for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_goods_receipts enable row level security;
 
 -- goods_receipt_line: سطرهای رسید کالا
@@ -12705,6 +12896,7 @@ create index if not exists sm_goods_receipt_lines_crt_idx on sm_goods_receipt_li
 create index if not exists sm_goods_receipt_lines_receipt_id_idx on sm_goods_receipt_lines (org_id, receipt_id) where deleted_at is null;
 drop trigger if exists sm_goods_receipt_lines_sync on sm_goods_receipt_lines;
 create trigger sm_goods_receipt_lines_sync before insert or update on sm_goods_receipt_lines for each row execute function sm_sync_touch('goods_receipt_line');
+create or replace trigger sm_goods_receipt_lines_demo after insert on sm_goods_receipt_lines for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_goods_receipt_lines enable row level security;
 
 -- grc_audit: ممیزی‌ها
@@ -12782,6 +12974,7 @@ end
 $search$;
 drop trigger if exists sm_grc_audits_sync on sm_grc_audits;
 create trigger sm_grc_audits_sync before insert or update on sm_grc_audits for each row execute function sm_sync_touch('grc_audit');
+create or replace trigger sm_grc_audits_demo after insert on sm_grc_audits for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_grc_audits enable row level security;
 
 -- grc_control: کتابخانهٔ کنترل‌ها
@@ -12867,6 +13060,7 @@ end
 $search$;
 drop trigger if exists sm_grc_controls_sync on sm_grc_controls;
 create trigger sm_grc_controls_sync before insert or update on sm_grc_controls for each row execute function sm_sync_touch('grc_control');
+create or replace trigger sm_grc_controls_demo after insert on sm_grc_controls for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_grc_controls enable row level security;
 
 -- grc_control_test: آزمون‌ها و خودارزیابی‌های کنترل
@@ -12937,6 +13131,7 @@ end
 $search$;
 drop trigger if exists sm_grc_control_tests_sync on sm_grc_control_tests;
 create trigger sm_grc_control_tests_sync before insert or update on sm_grc_control_tests for each row execute function sm_sync_touch('grc_control_test');
+create or replace trigger sm_grc_control_tests_demo after insert on sm_grc_control_tests for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_grc_control_tests enable row level security;
 
 -- grc_csf_profile: پروفایل‌های NIST CSF
@@ -13008,6 +13203,7 @@ end
 $search$;
 drop trigger if exists sm_grc_csf_profiles_sync on sm_grc_csf_profiles;
 create trigger sm_grc_csf_profiles_sync before insert or update on sm_grc_csf_profiles for each row execute function sm_sync_touch('grc_csf_profile');
+create or replace trigger sm_grc_csf_profiles_demo after insert on sm_grc_csf_profiles for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_grc_csf_profiles enable row level security;
 
 -- grc_dsr: درخواست‌های صاحبان داده
@@ -13072,6 +13268,7 @@ end
 $search$;
 drop trigger if exists sm_grc_dsrs_sync on sm_grc_dsrs;
 create trigger sm_grc_dsrs_sync before insert or update on sm_grc_dsrs for each row execute function sm_sync_touch('grc_dsr');
+create or replace trigger sm_grc_dsrs_demo after insert on sm_grc_dsrs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_grc_dsrs enable row level security;
 
 -- grc_evidence: شواهد انطباق
@@ -13153,6 +13350,7 @@ end
 $search$;
 drop trigger if exists sm_grc_evidence_sync on sm_grc_evidence;
 create trigger sm_grc_evidence_sync before insert or update on sm_grc_evidence for each row execute function sm_sync_touch('grc_evidence');
+create or replace trigger sm_grc_evidence_demo after insert on sm_grc_evidence for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_grc_evidence enable row level security;
 
 -- grc_finding: یافته‌های ممیزی
@@ -13228,6 +13426,7 @@ end
 $search$;
 drop trigger if exists sm_grc_findings_sync on sm_grc_findings;
 create trigger sm_grc_findings_sync before insert or update on sm_grc_findings for each row execute function sm_sync_touch('grc_finding');
+create or replace trigger sm_grc_findings_demo after insert on sm_grc_findings for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_grc_findings enable row level security;
 
 -- grc_framework: چارچوب‌ها و مقررات
@@ -13275,6 +13474,7 @@ create index if not exists sm_grc_frameworks_crt_idx on sm_grc_frameworks (org_i
 create unique index if not exists sm_grc_frameworks_key_uk on sm_grc_frameworks (org_id, key) where deleted_at is null;
 drop trigger if exists sm_grc_frameworks_sync on sm_grc_frameworks;
 create trigger sm_grc_frameworks_sync before insert or update on sm_grc_frameworks for each row execute function sm_sync_touch('grc_framework');
+create or replace trigger sm_grc_frameworks_demo after insert on sm_grc_frameworks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_grc_frameworks enable row level security;
 
 -- grc_issue: مسائل و رفع آن‌ها
@@ -13353,6 +13553,7 @@ end
 $search$;
 drop trigger if exists sm_grc_issues_sync on sm_grc_issues;
 create trigger sm_grc_issues_sync before insert or update on sm_grc_issues for each row execute function sm_sync_touch('grc_issue');
+create or replace trigger sm_grc_issues_demo after insert on sm_grc_issues for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_grc_issues enable row level security;
 
 -- grc_kri: شاخص‌های کلیدی ریسک
@@ -13405,6 +13606,7 @@ create index if not exists sm_grc_kris_domain_acc_idx on sm_grc_kris (org_id, do
 create index if not exists sm_grc_kris_owner_id_idx on sm_grc_kris (org_id, owner_id) where deleted_at is null;
 drop trigger if exists sm_grc_kris_sync on sm_grc_kris;
 create trigger sm_grc_kris_sync before insert or update on sm_grc_kris for each row execute function sm_sync_touch('grc_kri');
+create or replace trigger sm_grc_kris_demo after insert on sm_grc_kris for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_grc_kris enable row level security;
 
 -- grc_policy: خط‌مشی‌ها و استانداردها
@@ -13485,6 +13687,7 @@ end
 $search$;
 drop trigger if exists sm_grc_policies_sync on sm_grc_policies;
 create trigger sm_grc_policies_sync before insert or update on sm_grc_policies for each row execute function sm_sync_touch('grc_policy');
+create or replace trigger sm_grc_policies_demo after insert on sm_grc_policies for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_grc_policies enable row level security;
 
 -- grc_policy_ack: پذیرش‌های خط‌مشی
@@ -13533,6 +13736,7 @@ create index if not exists sm_grc_policy_acks_unit_acc_idx on sm_grc_policy_acks
 create index if not exists sm_grc_policy_acks_domain_acc_idx on sm_grc_policy_acks (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_grc_policy_acks_sync on sm_grc_policy_acks;
 create trigger sm_grc_policy_acks_sync before insert or update on sm_grc_policy_acks for each row execute function sm_sync_touch('grc_policy_ack');
+create or replace trigger sm_grc_policy_acks_demo after insert on sm_grc_policy_acks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_grc_policy_acks enable row level security;
 
 -- grc_policy_campaign: کارزارهای پذیرش خط‌مشی
@@ -13610,6 +13814,7 @@ end
 $search$;
 drop trigger if exists sm_grc_policy_campaigns_sync on sm_grc_policy_campaigns;
 create trigger sm_grc_policy_campaigns_sync before insert or update on sm_grc_policy_campaigns for each row execute function sm_sync_touch('grc_policy_campaign');
+create or replace trigger sm_grc_policy_campaigns_demo after insert on sm_grc_policy_campaigns for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_grc_policy_campaigns enable row level security;
 
 -- grc_policy_exception: استثناهای خط‌مشی
@@ -13687,6 +13892,7 @@ end
 $search$;
 drop trigger if exists sm_grc_policy_exceptions_sync on sm_grc_policy_exceptions;
 create trigger sm_grc_policy_exceptions_sync before insert or update on sm_grc_policy_exceptions for each row execute function sm_sync_touch('grc_policy_exception');
+create or replace trigger sm_grc_policy_exceptions_demo after insert on sm_grc_policy_exceptions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_grc_policy_exceptions enable row level security;
 
 -- grc_reg_alert: هشدارهای تغییر مقررات
@@ -13762,6 +13968,7 @@ end
 $search$;
 drop trigger if exists sm_grc_reg_alerts_sync on sm_grc_reg_alerts;
 create trigger sm_grc_reg_alerts_sync before insert or update on sm_grc_reg_alerts for each row execute function sm_sync_touch('grc_reg_alert');
+create or replace trigger sm_grc_reg_alerts_demo after insert on sm_grc_reg_alerts for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_grc_reg_alerts enable row level security;
 
 -- grc_requirement: الزام‌ها و بیانیهٔ کاربست‌پذیری
@@ -13820,6 +14027,7 @@ create index if not exists sm_grc_requirements_owner_id_idx on sm_grc_requiremen
 create unique index if not exists sm_grc_requirements_framework_id_code_uk on sm_grc_requirements (org_id, framework_id, code) where deleted_at is null;
 drop trigger if exists sm_grc_requirements_sync on sm_grc_requirements;
 create trigger sm_grc_requirements_sync before insert or update on sm_grc_requirements for each row execute function sm_sync_touch('grc_requirement');
+create or replace trigger sm_grc_requirements_demo after insert on sm_grc_requirements for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_grc_requirements enable row level security;
 
 -- grc_risk: ثبت ریسک‌ها
@@ -13919,6 +14127,7 @@ end
 $search$;
 drop trigger if exists sm_grc_risks_sync on sm_grc_risks;
 create trigger sm_grc_risks_sync before insert or update on sm_grc_risks for each row execute function sm_sync_touch('grc_risk');
+create or replace trigger sm_grc_risks_demo after insert on sm_grc_risks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_grc_risks enable row level security;
 
 -- grc_risk_acceptance: پذیرش‌های ریسک
@@ -13985,6 +14194,7 @@ end
 $search$;
 drop trigger if exists sm_grc_risk_acceptances_sync on sm_grc_risk_acceptances;
 create trigger sm_grc_risk_acceptances_sync before insert or update on sm_grc_risk_acceptances for each row execute function sm_sync_touch('grc_risk_acceptance');
+create or replace trigger sm_grc_risk_acceptances_demo after insert on sm_grc_risk_acceptances for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_grc_risk_acceptances enable row level security;
 
 -- grc_risk_action: اقدام‌های درمان ریسک
@@ -14056,6 +14266,7 @@ end
 $search$;
 drop trigger if exists sm_grc_risk_actions_sync on sm_grc_risk_actions;
 create trigger sm_grc_risk_actions_sync before insert or update on sm_grc_risk_actions for each row execute function sm_sync_touch('grc_risk_action');
+create or replace trigger sm_grc_risk_actions_demo after insert on sm_grc_risk_actions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_grc_risk_actions enable row level security;
 
 -- grc_risk_appetite: اشتها و تحمل ریسک
@@ -14097,6 +14308,7 @@ create index if not exists sm_grc_risk_appetites_crt_idx on sm_grc_risk_appetite
 create unique index if not exists sm_grc_risk_appetites_category_uk on sm_grc_risk_appetites (org_id, category) where deleted_at is null;
 drop trigger if exists sm_grc_risk_appetites_sync on sm_grc_risk_appetites;
 create trigger sm_grc_risk_appetites_sync before insert or update on sm_grc_risk_appetites for each row execute function sm_sync_touch('grc_risk_appetite');
+create or replace trigger sm_grc_risk_appetites_demo after insert on sm_grc_risk_appetites for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_grc_risk_appetites enable row level security;
 
 -- grc_risk_event: رویدادهای زیان
@@ -14169,6 +14381,7 @@ end
 $search$;
 drop trigger if exists sm_grc_risk_events_sync on sm_grc_risk_events;
 create trigger sm_grc_risk_events_sync before insert or update on sm_grc_risk_events for each row execute function sm_sync_touch('grc_risk_event');
+create or replace trigger sm_grc_risk_events_demo after insert on sm_grc_risk_events for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_grc_risk_events enable row level security;
 
 -- grc_risk_matrix: ماتریس‌ها و مقیاس‌های ریسک
@@ -14212,6 +14425,7 @@ create index if not exists sm_grc_risk_matrices_upd_idx on sm_grc_risk_matrices 
 create index if not exists sm_grc_risk_matrices_crt_idx on sm_grc_risk_matrices (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_grc_risk_matrices_sync on sm_grc_risk_matrices;
 create trigger sm_grc_risk_matrices_sync before insert or update on sm_grc_risk_matrices for each row execute function sm_sync_touch('grc_risk_matrix');
+create or replace trigger sm_grc_risk_matrices_demo after insert on sm_grc_risk_matrices for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_grc_risk_matrices enable row level security;
 
 -- grc_ropa: ثبت فعالیت‌های پردازش
@@ -14288,6 +14502,7 @@ end
 $search$;
 drop trigger if exists sm_grc_ropa_sync on sm_grc_ropa;
 create trigger sm_grc_ropa_sync before insert or update on sm_grc_ropa for each row execute function sm_sync_touch('grc_ropa');
+create or replace trigger sm_grc_ropa_demo after insert on sm_grc_ropa for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_grc_ropa enable row level security;
 
 -- group: گروه‌ها
@@ -14336,6 +14551,7 @@ create index if not exists sm_groups_crt_idx on sm_groups (org_id, created_at de
 create index if not exists sm_groups_parent_id_idx on sm_groups (org_id, parent_id) where deleted_at is null;
 drop trigger if exists sm_groups_sync on sm_groups;
 create trigger sm_groups_sync before insert or update on sm_groups for each row execute function sm_sync_touch('group');
+create or replace trigger sm_groups_demo after insert on sm_groups for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_groups enable row level security;
 
 -- group_member: عضویت‌های گروه
@@ -14383,6 +14599,7 @@ create index if not exists sm_group_members_unit_acc_idx on sm_group_members (or
 create index if not exists sm_group_members_domain_acc_idx on sm_group_members (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_group_members_sync on sm_group_members;
 create trigger sm_group_members_sync before insert or update on sm_group_members for each row execute function sm_sync_touch('group_member');
+create or replace trigger sm_group_members_demo after insert on sm_group_members for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_group_members enable row level security;
 
 -- hardware_standard: استانداردهای سخت‌افزار
@@ -14427,6 +14644,7 @@ create index if not exists sm_hardware_standards_upd_idx on sm_hardware_standard
 create index if not exists sm_hardware_standards_crt_idx on sm_hardware_standards (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_hardware_standards_sync on sm_hardware_standards;
 create trigger sm_hardware_standards_sync before insert or update on sm_hardware_standards for each row execute function sm_sync_touch('hardware_standard');
+create or replace trigger sm_hardware_standards_demo after insert on sm_hardware_standards for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_hardware_standards enable row level security;
 
 -- holiday: تعطیلات
@@ -14477,6 +14695,7 @@ create index if not exists sm_holidays_date_idx on sm_holidays (org_id, date) wh
 create unique index if not exists sm_holidays_holiday_set_date_uk on sm_holidays (org_id, holiday_set, date) where deleted_at is null;
 drop trigger if exists sm_holidays_sync on sm_holidays;
 create trigger sm_holidays_sync before insert or update on sm_holidays for each row execute function sm_sync_touch('holiday');
+create or replace trigger sm_holidays_demo after insert on sm_holidays for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_holidays enable row level security;
 
 -- hr_case: پرونده‌های منابع انسانی
@@ -14607,6 +14826,7 @@ end
 $search$;
 drop trigger if exists sm_hr_cases_sync on sm_hr_cases;
 create trigger sm_hr_cases_sync before insert or update on sm_hr_cases for each row execute function sm_sync_touch('hr_case');
+create or replace trigger sm_hr_cases_demo after insert on sm_hr_cases for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_hr_cases enable row level security;
 
 -- hr_case_note: یادداشت‌های روابط کار
@@ -14655,6 +14875,7 @@ create index if not exists sm_hr_case_notes_author_id_idx on sm_hr_case_notes (o
 create index if not exists sm_hr_case_notes_specialists_gin on sm_hr_case_notes using gin (specialists);
 drop trigger if exists sm_hr_case_notes_sync on sm_hr_case_notes;
 create trigger sm_hr_case_notes_sync before insert or update on sm_hr_case_notes for each row execute function sm_sync_touch('hr_case_note');
+create or replace trigger sm_hr_case_notes_demo after insert on sm_hr_case_notes for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_hr_case_notes enable row level security;
 
 -- hr_profile: نمایه‌های استخدامی
@@ -14716,6 +14937,7 @@ create index if not exists sm_hr_profiles_domain_acc_idx on sm_hr_profiles (org_
 create index if not exists sm_hr_profiles_user_id_idx on sm_hr_profiles (org_id, user_id) where deleted_at is null;
 drop trigger if exists sm_hr_profiles_sync on sm_hr_profiles;
 create trigger sm_hr_profiles_sync before insert or update on sm_hr_profiles for each row execute function sm_sync_touch('hr_profile');
+create or replace trigger sm_hr_profiles_demo after insert on sm_hr_profiles for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_hr_profiles enable row level security;
 
 -- hr_task: کارهای منابع انسانی
@@ -14799,6 +15021,7 @@ end
 $search$;
 drop trigger if exists sm_hr_tasks_sync on sm_hr_tasks;
 create trigger sm_hr_tasks_sync before insert or update on sm_hr_tasks for each row execute function sm_sync_touch('hr_task');
+create or replace trigger sm_hr_tasks_demo after insert on sm_hr_tasks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_hr_tasks enable row level security;
 
 -- hse_event: رویدادهای ایمنی و بهداشت کار
@@ -14927,6 +15150,7 @@ end
 $search$;
 drop trigger if exists sm_hse_events_sync on sm_hse_events;
 create trigger sm_hse_events_sync before insert or update on sm_hse_events for each row execute function sm_sync_touch('hse_event');
+create or replace trigger sm_hse_events_demo after insert on sm_hse_events for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_hse_events enable row level security;
 
 -- import_set: مجموعه‌های ورود داده
@@ -14997,6 +15221,7 @@ end
 $search$;
 drop trigger if exists sm_import_sets_sync on sm_import_sets;
 create trigger sm_import_sets_sync before insert or update on sm_import_sets for each row execute function sm_sync_touch('import_set');
+create or replace trigger sm_import_sets_demo after insert on sm_import_sets for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_import_sets enable row level security;
 
 -- inbound_endpoint: نقطه‌های دریافت
@@ -15051,6 +15276,7 @@ create index if not exists sm_inbound_endpoints_unit_acc_idx on sm_inbound_endpo
 create index if not exists sm_inbound_endpoints_domain_acc_idx on sm_inbound_endpoints (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_inbound_endpoints_sync on sm_inbound_endpoints;
 create trigger sm_inbound_endpoints_sync before insert or update on sm_inbound_endpoints for each row execute function sm_sync_touch('inbound_endpoint');
+create or replace trigger sm_inbound_endpoints_demo after insert on sm_inbound_endpoints for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_inbound_endpoints enable row level security;
 
 -- incident: رخدادها
@@ -15202,6 +15428,7 @@ end
 $search$;
 drop trigger if exists sm_incidents_sync on sm_incidents;
 create trigger sm_incidents_sync before insert or update on sm_incidents for each row execute function sm_sync_touch('incident');
+create or replace trigger sm_incidents_demo after insert on sm_incidents for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_incidents enable row level security;
 
 -- incident_config: تنظیمات رخداد
@@ -15257,6 +15484,7 @@ create index if not exists sm_incident_configs_crt_idx on sm_incident_configs (o
 create unique index if not exists sm_incident_configs_config_key_uk on sm_incident_configs (org_id, config_key) where deleted_at is null;
 drop trigger if exists sm_incident_configs_sync on sm_incident_configs;
 create trigger sm_incident_configs_sync before insert or update on sm_incident_configs for each row execute function sm_sync_touch('incident_config');
+create or replace trigger sm_incident_configs_demo after insert on sm_incident_configs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_incident_configs enable row level security;
 
 -- incident_period_review: بازبینی‌های دوره‌ای رخدادها
@@ -15334,6 +15562,7 @@ end
 $search$;
 drop trigger if exists sm_incident_period_reviews_sync on sm_incident_period_reviews;
 create trigger sm_incident_period_reviews_sync before insert or update on sm_incident_period_reviews for each row execute function sm_sync_touch('incident_period_review');
+create or replace trigger sm_incident_period_reviews_demo after insert on sm_incident_period_reviews for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_incident_period_reviews enable row level security;
 
 -- incident_response: پاسخ‌های آماده
@@ -15382,6 +15611,7 @@ create index if not exists sm_incident_responses_domain_acc_idx on sm_incident_r
 create index if not exists sm_incident_responses_open_grp_idx on sm_incident_responses (org_id, group_id, updated_at desc) where deleted_at is null and active;
 drop trigger if exists sm_incident_responses_sync on sm_incident_responses;
 create trigger sm_incident_responses_sync before insert or update on sm_incident_responses for each row execute function sm_sync_touch('incident_response');
+create or replace trigger sm_incident_responses_demo after insert on sm_incident_responses for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_incident_responses enable row level security;
 
 -- incident_review: بازبینی‌های پس از رخداد
@@ -15468,6 +15698,7 @@ end
 $search$;
 drop trigger if exists sm_incident_reviews_sync on sm_incident_reviews;
 create trigger sm_incident_reviews_sync before insert or update on sm_incident_reviews for each row execute function sm_sync_touch('incident_review');
+create or replace trigger sm_incident_reviews_demo after insert on sm_incident_reviews for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_incident_reviews enable row level security;
 
 -- incident_task: کارهای رخداد
@@ -15577,6 +15808,7 @@ end
 $search$;
 drop trigger if exists sm_incident_tasks_sync on sm_incident_tasks;
 create trigger sm_incident_tasks_sync before insert or update on sm_incident_tasks for each row execute function sm_sync_touch('incident_task');
+create or replace trigger sm_incident_tasks_demo after insert on sm_incident_tasks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_incident_tasks enable row level security;
 
 -- incident_template: الگوهای رخداد
@@ -15634,6 +15866,7 @@ create index if not exists sm_incident_templates_domain_acc_idx on sm_incident_t
 create index if not exists sm_incident_templates_open_grp_idx on sm_incident_templates (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
 drop trigger if exists sm_incident_templates_sync on sm_incident_templates;
 create trigger sm_incident_templates_sync before insert or update on sm_incident_templates for each row execute function sm_sync_touch('incident_template');
+create or replace trigger sm_incident_templates_demo after insert on sm_incident_templates for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_incident_templates enable row level security;
 
 -- install_base_item: پایگاه نصب
@@ -15711,6 +15944,7 @@ end
 $search$;
 drop trigger if exists sm_install_base_items_sync on sm_install_base_items;
 create trigger sm_install_base_items_sync before insert or update on sm_install_base_items for each row execute function sm_sync_touch('install_base_item');
+create or replace trigger sm_install_base_items_demo after insert on sm_install_base_items for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_install_base_items enable row level security;
 
 -- integration_user: کاربران یکپارچه‌سازی
@@ -15759,6 +15993,7 @@ create index if not exists sm_integration_users_domain_acc_idx on sm_integration
 create index if not exists sm_integration_users_owner_id_idx on sm_integration_users (org_id, owner_id) where deleted_at is null;
 drop trigger if exists sm_integration_users_sync on sm_integration_users;
 create trigger sm_integration_users_sync before insert or update on sm_integration_users for each row execute function sm_sync_touch('integration_user');
+create or replace trigger sm_integration_users_demo after insert on sm_integration_users for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_integration_users enable row level security;
 
 -- interaction: تعامل‌ها
@@ -15836,6 +16071,7 @@ end
 $search$;
 drop trigger if exists sm_interactions_sync on sm_interactions;
 create trigger sm_interactions_sync before insert or update on sm_interactions for each row execute function sm_sync_touch('interaction');
+create or replace trigger sm_interactions_demo after insert on sm_interactions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_interactions enable row level security;
 
 -- inventory_audit: شمارش‌های دارایی
@@ -15916,6 +16152,7 @@ end
 $search$;
 drop trigger if exists sm_inventory_audits_sync on sm_inventory_audits;
 create trigger sm_inventory_audits_sync before insert or update on sm_inventory_audits for each row execute function sm_sync_touch('inventory_audit');
+create or replace trigger sm_inventory_audits_demo after insert on sm_inventory_audits for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_inventory_audits enable row level security;
 
 -- inventory_audit_item: اقلام شمارش
@@ -15970,6 +16207,7 @@ create index if not exists sm_inventory_audit_items_asset_id_idx on sm_inventory
 create index if not exists sm_inventory_audit_items_branch_id_idx on sm_inventory_audit_items (org_id, branch_id) where deleted_at is null;
 drop trigger if exists sm_inventory_audit_items_sync on sm_inventory_audit_items;
 create trigger sm_inventory_audit_items_sync before insert or update on sm_inventory_audit_items for each row execute function sm_sync_touch('inventory_audit_item');
+create or replace trigger sm_inventory_audit_items_demo after insert on sm_inventory_audit_items for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_inventory_audit_items enable row level security;
 
 -- issue_connection: اتصال‌های Jira و GitHub
@@ -16026,6 +16264,7 @@ create index if not exists sm_issue_connections_unit_acc_idx on sm_issue_connect
 create index if not exists sm_issue_connections_domain_acc_idx on sm_issue_connections (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_issue_connections_sync on sm_issue_connections;
 create trigger sm_issue_connections_sync before insert or update on sm_issue_connections for each row execute function sm_sync_touch('issue_connection');
+create or replace trigger sm_issue_connections_demo after insert on sm_issue_connections for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_issue_connections enable row level security;
 
 -- itam_config: تنظیمات دارایی‌ها
@@ -16080,6 +16319,7 @@ create index if not exists sm_itam_configs_crt_idx on sm_itam_configs (org_id, c
 create unique index if not exists sm_itam_configs_config_key_uk on sm_itam_configs (org_id, config_key) where deleted_at is null;
 drop trigger if exists sm_itam_configs_sync on sm_itam_configs;
 create trigger sm_itam_configs_sync before insert or update on sm_itam_configs for each row execute function sm_sync_touch('itam_config');
+create or replace trigger sm_itam_configs_demo after insert on sm_itam_configs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_itam_configs enable row level security;
 
 -- journey: سفرهای کارکنان
@@ -16176,6 +16416,7 @@ end
 $search$;
 drop trigger if exists sm_journeys_sync on sm_journeys;
 create trigger sm_journeys_sync before insert or update on sm_journeys for each row execute function sm_sync_touch('journey');
+create or replace trigger sm_journeys_demo after insert on sm_journeys for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_journeys enable row level security;
 
 -- journey_activity: فعالیت‌های سفر
@@ -16252,6 +16493,7 @@ create index if not exists sm_journey_activities_domain_acc_idx on sm_journey_ac
 create index if not exists sm_journey_activities_journey_readers_gin on sm_journey_activities using gin (journey_readers);
 drop trigger if exists sm_journey_activities_sync on sm_journey_activities;
 create trigger sm_journey_activities_sync before insert or update on sm_journey_activities for each row execute function sm_sync_touch('journey_activity');
+create or replace trigger sm_journey_activities_demo after insert on sm_journey_activities for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_journey_activities enable row level security;
 
 -- journey_template: الگوهای سفر کارمند
@@ -16305,6 +16547,7 @@ create index if not exists sm_journey_templates_dept_admins_gin on sm_journey_te
 create index if not exists sm_journey_templates_open_grp_idx on sm_journey_templates (org_id, owner_group_id, updated_at desc) where deleted_at is null and active;
 drop trigger if exists sm_journey_templates_sync on sm_journey_templates;
 create trigger sm_journey_templates_sync before insert or update on sm_journey_templates for each row execute function sm_sync_touch('journey_template');
+create or replace trigger sm_journey_templates_demo after insert on sm_journey_templates for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_journey_templates enable row level security;
 
 -- journey_template_activity: فعالیت‌های الگوهای سفر
@@ -16368,6 +16611,7 @@ create index if not exists sm_journey_template_activities_domain_acc_idx on sm_j
 create index if not exists sm_journey_template_activities_dept_admins_gin on sm_journey_template_activities using gin (dept_admins);
 drop trigger if exists sm_journey_template_activities_sync on sm_journey_template_activities;
 create trigger sm_journey_template_activities_sync before insert or update on sm_journey_template_activities for each row execute function sm_sync_touch('journey_template_activity');
+create or replace trigger sm_journey_template_activities_demo after insert on sm_journey_template_activities for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_journey_template_activities enable row level security;
 
 -- kb_ack: تأییدهای مطالعه
@@ -16420,6 +16664,7 @@ create index if not exists sm_kb_acks_unit_acc_idx on sm_kb_acks (org_id, unit_i
 create index if not exists sm_kb_acks_domain_acc_idx on sm_kb_acks (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_kb_acks_sync on sm_kb_acks;
 create trigger sm_kb_acks_sync before insert or update on sm_kb_acks for each row execute function sm_sync_touch('kb_ack');
+create or replace trigger sm_kb_acks_demo after insert on sm_kb_acks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_kb_acks enable row level security;
 
 -- kb_article: مقاله‌های دانش
@@ -16575,6 +16820,7 @@ end
 $search$;
 drop trigger if exists sm_kb_articles_sync on sm_kb_articles;
 create trigger sm_kb_articles_sync before insert or update on sm_kb_articles for each row execute function sm_sync_touch('kb_article');
+create or replace trigger sm_kb_articles_demo after insert on sm_kb_articles for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_kb_articles enable row level security;
 
 -- kb_attestation: کارزارهای تأیید مطالعه
@@ -16654,6 +16900,7 @@ end
 $search$;
 drop trigger if exists sm_kb_attestations_sync on sm_kb_attestations;
 create trigger sm_kb_attestations_sync before insert or update on sm_kb_attestations for each row execute function sm_sync_touch('kb_attestation');
+create or replace trigger sm_kb_attestations_demo after insert on sm_kb_attestations for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_kb_attestations enable row level security;
 
 -- kb_base: پایگاه‌های دانش
@@ -16748,6 +16995,7 @@ create index if not exists sm_kb_bases_unit_acc_idx on sm_kb_bases (org_id, unit
 create index if not exists sm_kb_bases_domain_acc_idx on sm_kb_bases (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_kb_bases_sync on sm_kb_bases;
 create trigger sm_kb_bases_sync before insert or update on sm_kb_bases for each row execute function sm_sync_touch('kb_base');
+create or replace trigger sm_kb_bases_demo after insert on sm_kb_bases for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_kb_bases enable row level security;
 
 -- kb_block: بلوک‌های دانش
@@ -16818,6 +17066,7 @@ end
 $search$;
 drop trigger if exists sm_kb_blocks_sync on sm_kb_blocks;
 create trigger sm_kb_blocks_sync before insert or update on sm_kb_blocks for each row execute function sm_sync_touch('kb_block');
+create or replace trigger sm_kb_blocks_demo after insert on sm_kb_blocks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_kb_blocks enable row level security;
 
 -- kb_category: دسته‌های دانش
@@ -16884,6 +17133,7 @@ create index if not exists sm_kb_categories_k_groups_gin on sm_kb_categories usi
 create index if not exists sm_kb_categories_state_idx on sm_kb_categories (org_id, state) where deleted_at is null;
 drop trigger if exists sm_kb_categories_sync on sm_kb_categories;
 create trigger sm_kb_categories_sync before insert or update on sm_kb_categories for each row execute function sm_sync_touch('kb_category');
+create or replace trigger sm_kb_categories_demo after insert on sm_kb_categories for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_kb_categories enable row level security;
 
 -- kb_config: تنظیمات دانش
@@ -16938,6 +17188,7 @@ create index if not exists sm_kb_configs_crt_idx on sm_kb_configs (org_id, creat
 create unique index if not exists sm_kb_configs_config_key_uk on sm_kb_configs (org_id, config_key) where deleted_at is null;
 drop trigger if exists sm_kb_configs_sync on sm_kb_configs;
 create trigger sm_kb_configs_sync before insert or update on sm_kb_configs for each row execute function sm_sync_touch('kb_config');
+create or replace trigger sm_kb_configs_demo after insert on sm_kb_configs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_kb_configs enable row level security;
 
 -- kb_decision_tree: درخت‌های تصمیم
@@ -17016,6 +17267,7 @@ end
 $search$;
 drop trigger if exists sm_kb_decision_trees_sync on sm_kb_decision_trees;
 create trigger sm_kb_decision_trees_sync before insert or update on sm_kb_decision_trees for each row execute function sm_sync_touch('kb_decision_tree');
+create or replace trigger sm_kb_decision_trees_demo after insert on sm_kb_decision_trees for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_kb_decision_trees enable row level security;
 
 -- kb_domain: حوزه‌های دانش
@@ -17060,6 +17312,7 @@ create index if not exists sm_kb_domains_crt_idx on sm_kb_domains (org_id, creat
 create unique index if not exists sm_kb_domains_name_uk on sm_kb_domains (org_id, name) where deleted_at is null;
 drop trigger if exists sm_kb_domains_sync on sm_kb_domains;
 create trigger sm_kb_domains_sync before insert or update on sm_kb_domains for each row execute function sm_sync_touch('kb_domain');
+create or replace trigger sm_kb_domains_demo after insert on sm_kb_domains for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_kb_domains enable row level security;
 
 -- kb_duplicate: مقاله‌های احتمالاً تکراری
@@ -17108,6 +17361,7 @@ create index if not exists sm_kb_duplicates_state_idx on sm_kb_duplicates (org_i
 create unique index if not exists sm_kb_duplicates_pair_key_uk on sm_kb_duplicates (org_id, pair_key) where deleted_at is null;
 drop trigger if exists sm_kb_duplicates_sync on sm_kb_duplicates;
 create trigger sm_kb_duplicates_sync before insert or update on sm_kb_duplicates for each row execute function sm_sync_touch('kb_duplicate');
+create or replace trigger sm_kb_duplicates_demo after insert on sm_kb_duplicates for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_kb_duplicates enable row level security;
 
 -- kb_feedback: بازخوردهای مقاله
@@ -17163,6 +17417,7 @@ create index if not exists sm_kb_feedback_unit_acc_idx on sm_kb_feedback (org_id
 create index if not exists sm_kb_feedback_domain_acc_idx on sm_kb_feedback (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_kb_feedback_sync on sm_kb_feedback;
 create trigger sm_kb_feedback_sync before insert or update on sm_kb_feedback for each row execute function sm_sync_touch('kb_feedback');
+create or replace trigger sm_kb_feedback_demo after insert on sm_kb_feedback for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_kb_feedback enable row level security;
 
 -- kb_gap: شکاف‌های دانش
@@ -17239,6 +17494,7 @@ end
 $search$;
 drop trigger if exists sm_kb_gaps_sync on sm_kb_gaps;
 create trigger sm_kb_gaps_sync before insert or update on sm_kb_gaps for each row execute function sm_sync_touch('kb_gap');
+create or replace trigger sm_kb_gaps_demo after insert on sm_kb_gaps for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_kb_gaps enable row level security;
 
 -- kb_glossary: واژه‌نامهٔ سازمان
@@ -17282,6 +17538,7 @@ create index if not exists sm_kb_glossary_crt_idx on sm_kb_glossary (org_id, cre
 create unique index if not exists sm_kb_glossary_term_uk on sm_kb_glossary (org_id, term) where deleted_at is null;
 drop trigger if exists sm_kb_glossary_sync on sm_kb_glossary;
 create trigger sm_kb_glossary_sync before insert or update on sm_kb_glossary for each row execute function sm_sync_touch('kb_glossary');
+create or replace trigger sm_kb_glossary_demo after insert on sm_kb_glossary for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_kb_glossary enable row level security;
 
 -- kb_licence: مجوزهای KCS
@@ -17328,6 +17585,7 @@ create index if not exists sm_kb_licences_user_id_idx on sm_kb_licences (org_id,
 create index if not exists sm_kb_licences_state_idx on sm_kb_licences (org_id, state) where deleted_at is null;
 drop trigger if exists sm_kb_licences_sync on sm_kb_licences;
 create trigger sm_kb_licences_sync before insert or update on sm_kb_licences for each row execute function sm_sync_touch('kb_licence');
+create or replace trigger sm_kb_licences_demo after insert on sm_kb_licences for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_kb_licences enable row level security;
 
 -- kb_quality_review: ارزیابی‌های کیفیت (AQI)
@@ -17380,6 +17638,7 @@ create index if not exists sm_kb_quality_reviews_unit_acc_idx on sm_kb_quality_r
 create index if not exists sm_kb_quality_reviews_domain_acc_idx on sm_kb_quality_reviews (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_kb_quality_reviews_sync on sm_kb_quality_reviews;
 create trigger sm_kb_quality_reviews_sync before insert or update on sm_kb_quality_reviews for each row execute function sm_sync_touch('kb_quality_review');
+create or replace trigger sm_kb_quality_reviews_demo after insert on sm_kb_quality_reviews for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_kb_quality_reviews enable row level security;
 
 -- kb_search_rule: قاعده‌های جست‌وجوی دانش
@@ -17421,6 +17680,7 @@ create index if not exists sm_kb_search_rules_upd_idx on sm_kb_search_rules (org
 create index if not exists sm_kb_search_rules_crt_idx on sm_kb_search_rules (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_kb_search_rules_sync on sm_kb_search_rules;
 create trigger sm_kb_search_rules_sync before insert or update on sm_kb_search_rules for each row execute function sm_sync_touch('kb_search_rule');
+create or replace trigger sm_kb_search_rules_demo after insert on sm_kb_search_rules for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_kb_search_rules enable row level security;
 
 -- kb_snippet: پاسخ‌های کوتاه
@@ -17500,6 +17760,7 @@ end
 $search$;
 drop trigger if exists sm_kb_snippets_sync on sm_kb_snippets;
 create trigger sm_kb_snippets_sync before insert or update on sm_kb_snippets for each row execute function sm_sync_touch('kb_snippet');
+create or replace trigger sm_kb_snippets_demo after insert on sm_kb_snippets for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_kb_snippets enable row level security;
 
 -- kb_subscription: اشتراک‌های دانش
@@ -17547,6 +17808,7 @@ create index if not exists sm_kb_subscriptions_unit_acc_idx on sm_kb_subscriptio
 create index if not exists sm_kb_subscriptions_domain_acc_idx on sm_kb_subscriptions (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_kb_subscriptions_sync on sm_kb_subscriptions;
 create trigger sm_kb_subscriptions_sync before insert or update on sm_kb_subscriptions for each row execute function sm_sync_touch('kb_subscription');
+create or replace trigger sm_kb_subscriptions_demo after insert on sm_kb_subscriptions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_kb_subscriptions enable row level security;
 
 -- kb_task: کارهای دانش
@@ -17665,6 +17927,7 @@ end
 $search$;
 drop trigger if exists sm_kb_tasks_sync on sm_kb_tasks;
 create trigger sm_kb_tasks_sync before insert or update on sm_kb_tasks for each row execute function sm_sync_touch('kb_task');
+create or replace trigger sm_kb_tasks_demo after insert on sm_kb_tasks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_kb_tasks enable row level security;
 
 -- kb_template: قالب‌های مقاله
@@ -17709,6 +17972,7 @@ create index if not exists sm_kb_templates_crt_idx on sm_kb_templates (org_id, c
 create unique index if not exists sm_kb_templates_name_uk on sm_kb_templates (org_id, name) where deleted_at is null;
 drop trigger if exists sm_kb_templates_sync on sm_kb_templates;
 create trigger sm_kb_templates_sync before insert or update on sm_kb_templates for each row execute function sm_sync_touch('kb_template');
+create or replace trigger sm_kb_templates_demo after insert on sm_kb_templates for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_kb_templates enable row level security;
 
 -- kb_version: نسخه‌های مقاله
@@ -17786,6 +18050,7 @@ create index if not exists sm_kb_versions_unit_acc_idx on sm_kb_versions (org_id
 create index if not exists sm_kb_versions_domain_acc_idx on sm_kb_versions (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_kb_versions_sync on sm_kb_versions;
 create trigger sm_kb_versions_sync before insert or update on sm_kb_versions for each row execute function sm_sync_touch('kb_version');
+create or replace trigger sm_kb_versions_demo after insert on sm_kb_versions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_kb_versions enable row level security;
 
 -- known_error: خطاهای شناخته‌شده
@@ -17871,6 +18136,7 @@ end
 $search$;
 drop trigger if exists sm_known_errors_sync on sm_known_errors;
 create trigger sm_known_errors_sync before insert or update on sm_known_errors for each row execute function sm_sync_touch('known_error');
+create or replace trigger sm_known_errors_demo after insert on sm_known_errors for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_known_errors enable row level security;
 
 -- label_template: الگوهای برچسب
@@ -17920,6 +18186,7 @@ create index if not exists sm_label_templates_upd_idx on sm_label_templates (org
 create index if not exists sm_label_templates_crt_idx on sm_label_templates (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_label_templates_sync on sm_label_templates;
 create trigger sm_label_templates_sync before insert or update on sm_label_templates for each row execute function sm_sync_touch('label_template');
+create or replace trigger sm_label_templates_demo after insert on sm_label_templates for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_label_templates enable row level security;
 
 -- legal_request: درخواست‌های حقوقی
@@ -18045,6 +18312,7 @@ end
 $search$;
 drop trigger if exists sm_legal_requests_sync on sm_legal_requests;
 create trigger sm_legal_requests_sync before insert or update on sm_legal_requests for each row execute function sm_sync_touch('legal_request');
+create or replace trigger sm_legal_requests_demo after insert on sm_legal_requests for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_legal_requests enable row level security;
 
 -- licence_pool: مجوزها و صندلی‌ها
@@ -18087,6 +18355,7 @@ create index if not exists sm_licence_pools_upd_idx on sm_licence_pools (org_id,
 create index if not exists sm_licence_pools_crt_idx on sm_licence_pools (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_licence_pools_sync on sm_licence_pools;
 create trigger sm_licence_pools_sync before insert or update on sm_licence_pools for each row execute function sm_sync_touch('licence_pool');
+create or replace trigger sm_licence_pools_demo after insert on sm_licence_pools for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_licence_pools enable row level security;
 
 -- license_allocation: تخصیص‌های مجوز
@@ -18136,6 +18405,7 @@ create index if not exists sm_license_allocations_domain_acc_idx on sm_license_a
 create index if not exists sm_license_allocations_user_id_idx on sm_license_allocations (org_id, user_id) where deleted_at is null;
 drop trigger if exists sm_license_allocations_sync on sm_license_allocations;
 create trigger sm_license_allocations_sync before insert or update on sm_license_allocations for each row execute function sm_sync_touch('license_allocation');
+create or replace trigger sm_license_allocations_demo after insert on sm_license_allocations for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_license_allocations enable row level security;
 
 -- license_entitlement: مجوزهای نرم‌افزار
@@ -18222,6 +18492,7 @@ end
 $search$;
 drop trigger if exists sm_license_entitlements_sync on sm_license_entitlements;
 create trigger sm_license_entitlements_sync before insert or update on sm_license_entitlements for each row execute function sm_sync_touch('license_entitlement');
+create or replace trigger sm_license_entitlements_demo after insert on sm_license_entitlements for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_license_entitlements enable row level security;
 
 -- license_position: وضعیت مجوزها
@@ -18276,6 +18547,7 @@ create index if not exists sm_license_positions_run_id_idx on sm_license_positio
 create index if not exists sm_license_positions_software_model_id_idx on sm_license_positions (org_id, software_model_id) where deleted_at is null;
 drop trigger if exists sm_license_positions_sync on sm_license_positions;
 create trigger sm_license_positions_sync before insert or update on sm_license_positions for each row execute function sm_sync_touch('license_position');
+create or replace trigger sm_license_positions_demo after insert on sm_license_positions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_license_positions enable row level security;
 
 -- license_reconcile_run: اجراهای تطبیق مجوز
@@ -18334,6 +18606,7 @@ end
 $search$;
 drop trigger if exists sm_license_reconcile_runs_sync on sm_license_reconcile_runs;
 create trigger sm_license_reconcile_runs_sync before insert or update on sm_license_reconcile_runs for each row execute function sm_sync_touch('license_reconcile_run');
+create or replace trigger sm_license_reconcile_runs_demo after insert on sm_license_reconcile_runs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_license_reconcile_runs enable row level security;
 
 -- location: مکان‌ها
@@ -18381,6 +18654,7 @@ create unique index if not exists sm_locations_code_uk on sm_locations (org_id, 
 create index if not exists sm_locations_parent_id_idx on sm_locations (org_id, parent_id) where deleted_at is null;
 drop trigger if exists sm_locations_sync on sm_locations;
 create trigger sm_locations_sync before insert or update on sm_locations for each row execute function sm_sync_touch('location');
+create or replace trigger sm_locations_demo after insert on sm_locations for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_locations enable row level security;
 
 -- maintenance_plan: برنامه‌های نگهداری
@@ -18457,6 +18731,7 @@ end
 $search$;
 drop trigger if exists sm_maintenance_plans_sync on sm_maintenance_plans;
 create trigger sm_maintenance_plans_sync before insert or update on sm_maintenance_plans for each row execute function sm_sync_touch('maintenance_plan');
+create or replace trigger sm_maintenance_plans_demo after insert on sm_maintenance_plans for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_maintenance_plans enable row level security;
 
 -- maintenance_sla: تعهدهای نگهداری دستگاه‌ها
@@ -18504,6 +18779,7 @@ create index if not exists sm_maintenance_slas_upd_idx on sm_maintenance_slas (o
 create index if not exists sm_maintenance_slas_crt_idx on sm_maintenance_slas (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_maintenance_slas_sync on sm_maintenance_slas;
 create trigger sm_maintenance_slas_sync before insert or update on sm_maintenance_slas for each row execute function sm_sync_touch('maintenance_sla');
+create or replace trigger sm_maintenance_slas_demo after insert on sm_maintenance_slas for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_maintenance_slas enable row level security;
 
 -- member_profile: نمایه‌های اعضا
@@ -18565,6 +18841,7 @@ create index if not exists sm_member_profiles_domain_acc_idx on sm_member_profil
 create index if not exists sm_member_profiles_user_id_idx on sm_member_profiles (org_id, user_id) where deleted_at is null;
 drop trigger if exists sm_member_profiles_sync on sm_member_profiles;
 create trigger sm_member_profiles_sync before insert or update on sm_member_profiles for each row execute function sm_sync_touch('member_profile');
+create or replace trigger sm_member_profiles_demo after insert on sm_member_profiles for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_member_profiles enable row level security;
 
 -- notification: اعلان‌ها
@@ -18618,6 +18895,7 @@ create index if not exists sm_notifications_domain_acc_idx on sm_notifications (
 create index if not exists sm_notifications_user_id_idx on sm_notifications (org_id, user_id) where deleted_at is null;
 drop trigger if exists sm_notifications_sync on sm_notifications;
 create trigger sm_notifications_sync before insert or update on sm_notifications for each row execute function sm_sync_touch('notification');
+create or replace trigger sm_notifications_demo after insert on sm_notifications for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_notifications enable row level security;
 
 -- notification_channel: کانال‌های پیام
@@ -18668,6 +18946,7 @@ create index if not exists sm_notification_channels_upd_idx on sm_notification_c
 create index if not exists sm_notification_channels_crt_idx on sm_notification_channels (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_notification_channels_sync on sm_notification_channels;
 create trigger sm_notification_channels_sync before insert or update on sm_notification_channels for each row execute function sm_sync_touch('notification_channel');
+create or replace trigger sm_notification_channels_demo after insert on sm_notification_channels for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_notification_channels enable row level security;
 
 -- notification_pref: تنظیمات اعلان
@@ -18716,6 +18995,7 @@ create index if not exists sm_notification_prefs_domain_acc_idx on sm_notificati
 create index if not exists sm_notification_prefs_user_id_idx on sm_notification_prefs (org_id, user_id) where deleted_at is null;
 drop trigger if exists sm_notification_prefs_sync on sm_notification_prefs;
 create trigger sm_notification_prefs_sync before insert or update on sm_notification_prefs for each row execute function sm_sync_touch('notification_pref');
+create or replace trigger sm_notification_prefs_demo after insert on sm_notification_prefs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_notification_prefs enable row level security;
 
 -- notification_rule: قانون‌های اعلان
@@ -18770,6 +19050,7 @@ create index if not exists sm_notification_rules_crt_idx on sm_notification_rule
 create unique index if not exists sm_notification_rules_builtin_uk on sm_notification_rules (org_id, builtin) where deleted_at is null;
 drop trigger if exists sm_notification_rules_sync on sm_notification_rules;
 create trigger sm_notification_rules_sync before insert or update on sm_notification_rules for each row execute function sm_sync_touch('notification_rule');
+create or replace trigger sm_notification_rules_demo after insert on sm_notification_rules for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_notification_rules enable row level security;
 
 -- notification_template: الگوهای اعلان
@@ -18814,6 +19095,7 @@ create index if not exists sm_notification_templates_upd_idx on sm_notification_
 create index if not exists sm_notification_templates_crt_idx on sm_notification_templates (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_notification_templates_sync on sm_notification_templates;
 create trigger sm_notification_templates_sync before insert or update on sm_notification_templates for each row execute function sm_sync_touch('notification_template');
+create or replace trigger sm_notification_templates_demo after insert on sm_notification_templates for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_notification_templates enable row level security;
 
 -- oncall_override: جایگزینی‌های کشیک
@@ -18862,6 +19144,7 @@ create index if not exists sm_oncall_overrides_user_id_idx on sm_oncall_override
 create index if not exists sm_oncall_overrides_replaces_id_idx on sm_oncall_overrides (org_id, replaces_id) where deleted_at is null;
 drop trigger if exists sm_oncall_overrides_sync on sm_oncall_overrides;
 create trigger sm_oncall_overrides_sync before insert or update on sm_oncall_overrides for each row execute function sm_sync_touch('oncall_override');
+create or replace trigger sm_oncall_overrides_demo after insert on sm_oncall_overrides for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_oncall_overrides enable row level security;
 
 -- oncall_rotation: چرخش‌های کشیک
@@ -18912,6 +19195,7 @@ create index if not exists sm_oncall_rotations_crt_idx on sm_oncall_rotations (o
 create index if not exists sm_oncall_rotations_schedule_id_idx on sm_oncall_rotations (org_id, schedule_id) where deleted_at is null;
 drop trigger if exists sm_oncall_rotations_sync on sm_oncall_rotations;
 create trigger sm_oncall_rotations_sync before insert or update on sm_oncall_rotations for each row execute function sm_sync_touch('oncall_rotation');
+create or replace trigger sm_oncall_rotations_demo after insert on sm_oncall_rotations for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_oncall_rotations enable row level security;
 
 -- oncall_schedule: برنامه‌های کشیک
@@ -18959,6 +19243,7 @@ create index if not exists sm_oncall_schedules_domain_acc_idx on sm_oncall_sched
 create index if not exists sm_oncall_schedules_open_grp_idx on sm_oncall_schedules (org_id, group_id, updated_at desc) where deleted_at is null and active;
 drop trigger if exists sm_oncall_schedules_sync on sm_oncall_schedules;
 create trigger sm_oncall_schedules_sync before insert or update on sm_oncall_schedules for each row execute function sm_sync_touch('oncall_schedule');
+create or replace trigger sm_oncall_schedules_demo after insert on sm_oncall_schedules for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_oncall_schedules enable row level security;
 
 -- order_guide_rule: قاعده‌های راهنمای سفارش
@@ -19006,6 +19291,7 @@ create index if not exists sm_order_guide_rules_crt_idx on sm_order_guide_rules 
 create index if not exists sm_order_guide_rules_guide_id_idx on sm_order_guide_rules (org_id, guide_id) where deleted_at is null;
 drop trigger if exists sm_order_guide_rules_sync on sm_order_guide_rules;
 create trigger sm_order_guide_rules_sync before insert or update on sm_order_guide_rules for each row execute function sm_sync_touch('order_guide_rule');
+create or replace trigger sm_order_guide_rules_demo after insert on sm_order_guide_rules for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_order_guide_rules enable row level security;
 
 -- org_unit: واحدهای سازمانی
@@ -19056,6 +19342,7 @@ create index if not exists sm_org_units_parent_id_idx on sm_org_units (org_id, p
 create index if not exists sm_org_units_manager_id_idx on sm_org_units (org_id, manager_id) where deleted_at is null;
 drop trigger if exists sm_org_units_sync on sm_org_units;
 create trigger sm_org_units_sync before insert or update on sm_org_units for each row execute function sm_sync_touch('org_unit');
+create or replace trigger sm_org_units_demo after insert on sm_org_units for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_org_units enable row level security;
 
 -- outage: قطعی‌ها
@@ -19145,6 +19432,7 @@ end
 $search$;
 drop trigger if exists sm_outages_sync on sm_outages;
 create trigger sm_outages_sync before insert or update on sm_outages for each row execute function sm_sync_touch('outage');
+create or replace trigger sm_outages_demo after insert on sm_outages for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_outages enable row level security;
 
 -- page: فراخوان‌ها
@@ -19219,6 +19507,7 @@ end
 $search$;
 drop trigger if exists sm_pages_sync on sm_pages;
 create trigger sm_pages_sync before insert or update on sm_pages for each row execute function sm_sync_touch('page');
+create or replace trigger sm_pages_demo after insert on sm_pages for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_pages enable row level security;
 
 -- parts_requirement: قطعه‌های لازم
@@ -19275,6 +19564,7 @@ create index if not exists sm_parts_requirements_unit_acc_idx on sm_parts_requir
 create index if not exists sm_parts_requirements_domain_acc_idx on sm_parts_requirements (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_parts_requirements_sync on sm_parts_requirements;
 create trigger sm_parts_requirements_sync before insert or update on sm_parts_requirements for each row execute function sm_sync_touch('parts_requirement');
+create or replace trigger sm_parts_requirements_demo after insert on sm_parts_requirements for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_parts_requirements enable row level security;
 
 -- plan_step: گام‌های بازیابی
@@ -19323,6 +19613,7 @@ create index if not exists sm_plan_steps_domain_acc_idx on sm_plan_steps (org_id
 create index if not exists sm_plan_steps_owner_id_idx on sm_plan_steps (org_id, owner_id) where deleted_at is null;
 drop trigger if exists sm_plan_steps_sync on sm_plan_steps;
 create trigger sm_plan_steps_sync before insert or update on sm_plan_steps for each row execute function sm_sync_touch('plan_step');
+create or replace trigger sm_plan_steps_demo after insert on sm_plan_steps for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_plan_steps enable row level security;
 
 -- portal: درگاه‌ها
@@ -19380,6 +19671,7 @@ create index if not exists sm_portals_upd_idx on sm_portals (org_id, updated_at 
 create index if not exists sm_portals_crt_idx on sm_portals (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_portals_sync on sm_portals;
 create trigger sm_portals_sync before insert or update on sm_portals for each row execute function sm_sync_touch('portal');
+create or replace trigger sm_portals_demo after insert on sm_portals for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_portals enable row level security;
 
 -- portal_channel: کانال‌های پیام‌رسان
@@ -19433,6 +19725,7 @@ create index if not exists sm_portal_channels_upd_idx on sm_portal_channels (org
 create index if not exists sm_portal_channels_crt_idx on sm_portal_channels (org_id, created_at desc, id desc) where deleted_at is null;
 create index if not exists sm_portal_channels_hook_key_idx on sm_portal_channels (org_id, hook_key) where deleted_at is null;
 drop trigger if exists sm_portal_channels_sync on sm_portal_channels;
+create or replace trigger sm_portal_channels_demo after insert on sm_portal_channels for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_portal_channels enable row level security;
 
 -- portal_channel_identity: حساب‌های پیام‌رسان
@@ -19482,6 +19775,7 @@ create index if not exists sm_portal_channel_identities_workspace_acc_idx on sm_
 create index if not exists sm_portal_channel_identities_unit_acc_idx on sm_portal_channel_identities (org_id, unit_id) where deleted_at is null and unit_id is not null;
 create index if not exists sm_portal_channel_identities_domain_acc_idx on sm_portal_channel_identities (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_portal_channel_identities_sync on sm_portal_channel_identities;
+create or replace trigger sm_portal_channel_identities_demo after insert on sm_portal_channel_identities for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_portal_channel_identities enable row level security;
 
 -- portal_feedback: بازخوردها
@@ -19594,6 +19888,7 @@ end
 $search$;
 drop trigger if exists sm_portal_feedback_sync on sm_portal_feedback;
 create trigger sm_portal_feedback_sync before insert or update on sm_portal_feedback for each row execute function sm_sync_touch('portal_feedback');
+create or replace trigger sm_portal_feedback_demo after insert on sm_portal_feedback for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_portal_feedback enable row level security;
 
 -- portal_kb_publication: انتشارهای عمومی دانش
@@ -19640,6 +19935,7 @@ create index if not exists sm_portal_kb_publications_crt_idx on sm_portal_kb_pub
 create index if not exists sm_portal_kb_publications_token_idx on sm_portal_kb_publications (org_id, token) where deleted_at is null;
 drop trigger if exists sm_portal_kb_publications_sync on sm_portal_kb_publications;
 create trigger sm_portal_kb_publications_sync before insert or update on sm_portal_kb_publications for each row execute function sm_sync_touch('portal_kb_publication');
+create or replace trigger sm_portal_kb_publications_demo after insert on sm_portal_kb_publications for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_portal_kb_publications enable row level security;
 
 -- portal_link: پیوندهای سریع
@@ -19688,6 +19984,7 @@ create index if not exists sm_portal_links_upd_idx on sm_portal_links (org_id, u
 create index if not exists sm_portal_links_crt_idx on sm_portal_links (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_portal_links_sync on sm_portal_links;
 create trigger sm_portal_links_sync before insert or update on sm_portal_links for each row execute function sm_sync_touch('portal_link');
+create or replace trigger sm_portal_links_demo after insert on sm_portal_links for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_portal_links enable row level security;
 
 -- portal_link_code: کدهای اتصال پیام‌رسان
@@ -19732,6 +20029,7 @@ create index if not exists sm_portal_link_codes_workspace_acc_idx on sm_portal_l
 create index if not exists sm_portal_link_codes_unit_acc_idx on sm_portal_link_codes (org_id, unit_id) where deleted_at is null and unit_id is not null;
 create index if not exists sm_portal_link_codes_domain_acc_idx on sm_portal_link_codes (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_portal_link_codes_sync on sm_portal_link_codes;
+create or replace trigger sm_portal_link_codes_demo after insert on sm_portal_link_codes for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_portal_link_codes enable row level security;
 
 -- portal_pref: ترجیح‌های درگاه
@@ -19776,6 +20074,7 @@ create index if not exists sm_portal_prefs_unit_acc_idx on sm_portal_prefs (org_
 create index if not exists sm_portal_prefs_domain_acc_idx on sm_portal_prefs (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_portal_prefs_sync on sm_portal_prefs;
 create trigger sm_portal_prefs_sync before insert or update on sm_portal_prefs for each row execute function sm_sync_touch('portal_pref');
+create or replace trigger sm_portal_prefs_demo after insert on sm_portal_prefs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_portal_prefs enable row level security;
 
 -- portal_topic: موضوع‌های درگاه
@@ -19826,6 +20125,7 @@ create index if not exists sm_portal_topics_crt_idx on sm_portal_topics (org_id,
 create index if not exists sm_portal_topics_parent_id_idx on sm_portal_topics (org_id, parent_id) where deleted_at is null;
 drop trigger if exists sm_portal_topics_sync on sm_portal_topics;
 create trigger sm_portal_topics_sync before insert or update on sm_portal_topics for each row execute function sm_sync_touch('portal_topic');
+create or replace trigger sm_portal_topics_demo after insert on sm_portal_topics for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_portal_topics enable row level security;
 
 -- portal_widget: ابزارک‌های وب‌سایت
@@ -19872,6 +20172,7 @@ create index if not exists sm_portal_widgets_upd_idx on sm_portal_widgets (org_i
 create index if not exists sm_portal_widgets_crt_idx on sm_portal_widgets (org_id, created_at desc, id desc) where deleted_at is null;
 create index if not exists sm_portal_widgets_widget_key_idx on sm_portal_widgets (org_id, widget_key) where deleted_at is null;
 drop trigger if exists sm_portal_widgets_sync on sm_portal_widgets;
+create or replace trigger sm_portal_widgets_demo after insert on sm_portal_widgets for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_portal_widgets enable row level security;
 
 -- portfolio: سبدهای پروژه
@@ -19942,6 +20243,7 @@ end
 $search$;
 drop trigger if exists sm_portfolios_sync on sm_portfolios;
 create trigger sm_portfolios_sync before insert or update on sm_portfolios for each row execute function sm_sync_touch('portfolio');
+create or replace trigger sm_portfolios_demo after insert on sm_portfolios for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_portfolios enable row level security;
 
 -- portfolio_node: شاخه‌های سبد خدمات
@@ -19988,6 +20290,7 @@ create index if not exists sm_portfolio_nodes_parent_id_idx on sm_portfolio_node
 create index if not exists sm_portfolio_nodes_path_idx on sm_portfolio_nodes (org_id, path) where deleted_at is null;
 drop trigger if exists sm_portfolio_nodes_sync on sm_portfolio_nodes;
 create trigger sm_portfolio_nodes_sync before insert or update on sm_portfolio_nodes for each row execute function sm_sync_touch('portfolio_node');
+create or replace trigger sm_portfolio_nodes_demo after insert on sm_portfolio_nodes for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_portfolio_nodes enable row level security;
 
 -- priority_matrix: ماتریس‌های اولویت
@@ -20033,6 +20336,7 @@ create index if not exists sm_priority_matrices_crt_idx on sm_priority_matrices 
 create unique index if not exists sm_priority_matrices_table_key_uk on sm_priority_matrices (org_id, table_key) where deleted_at is null;
 drop trigger if exists sm_priority_matrices_sync on sm_priority_matrices;
 create trigger sm_priority_matrices_sync before insert or update on sm_priority_matrices for each row execute function sm_sync_touch('priority_matrix');
+create or replace trigger sm_priority_matrices_demo after insert on sm_priority_matrices for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_priority_matrices enable row level security;
 
 -- problem: مشکلات
@@ -20177,6 +20481,7 @@ end
 $search$;
 drop trigger if exists sm_problems_sync on sm_problems;
 create trigger sm_problems_sync before insert or update on sm_problems for each row execute function sm_sync_touch('problem');
+create or replace trigger sm_problems_demo after insert on sm_problems for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_problems enable row level security;
 
 -- problem_candidate: نامزدهای مشکل
@@ -20254,6 +20559,7 @@ end
 $search$;
 drop trigger if exists sm_problem_candidates_sync on sm_problem_candidates;
 create trigger sm_problem_candidates_sync before insert or update on sm_problem_candidates for each row execute function sm_sync_touch('problem_candidate');
+create or replace trigger sm_problem_candidates_demo after insert on sm_problem_candidates for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_problem_candidates enable row level security;
 
 -- problem_config: تنظیمات مشکل
@@ -20302,6 +20608,7 @@ create index if not exists sm_problem_configs_crt_idx on sm_problem_configs (org
 create unique index if not exists sm_problem_configs_config_key_uk on sm_problem_configs (org_id, config_key) where deleted_at is null;
 drop trigger if exists sm_problem_configs_sync on sm_problem_configs;
 create trigger sm_problem_configs_sync before insert or update on sm_problem_configs for each row execute function sm_sync_touch('problem_config');
+create or replace trigger sm_problem_configs_demo after insert on sm_problem_configs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_problem_configs enable row level security;
 
 -- problem_task: کارهای مشکل
@@ -20412,6 +20719,7 @@ end
 $search$;
 drop trigger if exists sm_problem_tasks_sync on sm_problem_tasks;
 create trigger sm_problem_tasks_sync before insert or update on sm_problem_tasks for each row execute function sm_sync_touch('problem_task');
+create or replace trigger sm_problem_tasks_demo after insert on sm_problem_tasks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_problem_tasks enable row level security;
 
 -- problem_template: الگوهای مشکل
@@ -20472,6 +20780,7 @@ create index if not exists sm_problem_templates_domain_acc_idx on sm_problem_tem
 create index if not exists sm_problem_templates_open_grp_idx on sm_problem_templates (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
 drop trigger if exists sm_problem_templates_sync on sm_problem_templates;
 create trigger sm_problem_templates_sync before insert or update on sm_problem_templates for each row execute function sm_sync_touch('problem_template');
+create or replace trigger sm_problem_templates_demo after insert on sm_problem_templates for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_problem_templates enable row level security;
 
 -- project: پروژه‌ها
@@ -20586,6 +20895,7 @@ end
 $search$;
 drop trigger if exists sm_projects_sync on sm_projects;
 create trigger sm_projects_sync before insert or update on sm_projects for each row execute function sm_sync_touch('project');
+create or replace trigger sm_projects_demo after insert on sm_projects for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_projects enable row level security;
 
 -- project_config: تنظیمات پروژه‌ها
@@ -20632,6 +20942,7 @@ create index if not exists sm_project_configs_crt_idx on sm_project_configs (org
 create unique index if not exists sm_project_configs_config_key_uk on sm_project_configs (org_id, config_key) where deleted_at is null;
 drop trigger if exists sm_project_configs_sync on sm_project_configs;
 create trigger sm_project_configs_sync before insert or update on sm_project_configs for each row execute function sm_sync_touch('project_config');
+create or replace trigger sm_project_configs_demo after insert on sm_project_configs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_project_configs enable row level security;
 
 -- project_task: کارهای پروژه
@@ -20725,6 +21036,7 @@ end
 $search$;
 drop trigger if exists sm_project_tasks_sync on sm_project_tasks;
 create trigger sm_project_tasks_sync before insert or update on sm_project_tasks for each row execute function sm_sync_touch('project_task');
+create or replace trigger sm_project_tasks_demo after insert on sm_project_tasks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_project_tasks enable row level security;
 
 -- purchase_order: سفارش‌های خرید
@@ -20801,6 +21113,7 @@ end
 $search$;
 drop trigger if exists sm_purchase_orders_sync on sm_purchase_orders;
 create trigger sm_purchase_orders_sync before insert or update on sm_purchase_orders for each row execute function sm_sync_touch('purchase_order');
+create or replace trigger sm_purchase_orders_demo after insert on sm_purchase_orders for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_purchase_orders enable row level security;
 
 -- purchase_order_line: سطرهای سفارش خرید
@@ -20847,6 +21160,7 @@ create index if not exists sm_purchase_order_lines_crt_idx on sm_purchase_order_
 create index if not exists sm_purchase_order_lines_po_id_idx on sm_purchase_order_lines (org_id, po_id) where deleted_at is null;
 drop trigger if exists sm_purchase_order_lines_sync on sm_purchase_order_lines;
 create trigger sm_purchase_order_lines_sync before insert or update on sm_purchase_order_lines for each row execute function sm_sync_touch('purchase_order_line');
+create or replace trigger sm_purchase_order_lines_demo after insert on sm_purchase_order_lines for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_purchase_order_lines enable row level security;
 
 -- purchase_request: درخواست‌های خرید
@@ -20974,6 +21288,7 @@ end
 $search$;
 drop trigger if exists sm_purchase_requests_sync on sm_purchase_requests;
 create trigger sm_purchase_requests_sync before insert or update on sm_purchase_requests for each row execute function sm_sync_touch('purchase_request');
+create or replace trigger sm_purchase_requests_demo after insert on sm_purchase_requests for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_purchase_requests enable row level security;
 
 -- purchase_requisition: درخواست‌های خرید
@@ -21048,6 +21363,7 @@ end
 $search$;
 drop trigger if exists sm_purchase_requisitions_sync on sm_purchase_requisitions;
 create trigger sm_purchase_requisitions_sync before insert or update on sm_purchase_requisitions for each row execute function sm_sync_touch('purchase_requisition');
+create or replace trigger sm_purchase_requisitions_demo after insert on sm_purchase_requisitions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_purchase_requisitions enable row level security;
 
 -- purchase_requisition_line: اقلام درخواست خرید
@@ -21091,6 +21407,7 @@ create index if not exists sm_purchase_requisition_lines_crt_idx on sm_purchase_
 create index if not exists sm_purchase_requisition_lines_requisition_id_idx on sm_purchase_requisition_lines (org_id, requisition_id) where deleted_at is null;
 drop trigger if exists sm_purchase_requisition_lines_sync on sm_purchase_requisition_lines;
 create trigger sm_purchase_requisition_lines_sync before insert or update on sm_purchase_requisition_lines for each row execute function sm_sync_touch('purchase_requisition_line');
+create or replace trigger sm_purchase_requisition_lines_demo after insert on sm_purchase_requisition_lines for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_purchase_requisition_lines enable row level security;
 
 -- raid_item: ریسک‌ها، مسئله‌ها و تصمیم‌ها
@@ -21168,6 +21485,7 @@ end
 $search$;
 drop trigger if exists sm_raid_items_sync on sm_raid_items;
 create trigger sm_raid_items_sync before insert or update on sm_raid_items for each row execute function sm_sync_touch('raid_item');
+create or replace trigger sm_raid_items_demo after insert on sm_raid_items for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_raid_items enable row level security;
 
 -- release: انتشارها
@@ -21327,6 +21645,7 @@ end
 $search$;
 drop trigger if exists sm_releases_sync on sm_releases;
 create trigger sm_releases_sync before insert or update on sm_releases for each row execute function sm_sync_touch('release');
+create or replace trigger sm_releases_demo after insert on sm_releases for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_releases enable row level security;
 
 -- release_check: بررسی‌های آمادگی
@@ -21374,6 +21693,7 @@ create index if not exists sm_release_checks_crt_idx on sm_release_checks (org_i
 create unique index if not exists sm_release_checks_key_uk on sm_release_checks (org_id, key) where deleted_at is null;
 drop trigger if exists sm_release_checks_sync on sm_release_checks;
 create trigger sm_release_checks_sync before insert or update on sm_release_checks for each row execute function sm_sync_touch('release_check');
+create or replace trigger sm_release_checks_demo after insert on sm_release_checks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_release_checks enable row level security;
 
 -- release_check_result: نتیجه‌های بررسی آمادگی
@@ -21433,6 +21753,7 @@ create index if not exists sm_release_check_results_release_manager_id_idx on sm
 create index if not exists sm_release_check_results_assigned_to_idx on sm_release_check_results (org_id, assigned_to) where deleted_at is null;
 drop trigger if exists sm_release_check_results_sync on sm_release_check_results;
 create trigger sm_release_check_results_sync before insert or update on sm_release_check_results for each row execute function sm_sync_touch('release_check_result');
+create or replace trigger sm_release_check_results_demo after insert on sm_release_check_results for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_release_check_results enable row level security;
 
 -- release_config: تنظیمات انتشار
@@ -21482,6 +21803,7 @@ create index if not exists sm_release_configs_crt_idx on sm_release_configs (org
 create unique index if not exists sm_release_configs_config_key_uk on sm_release_configs (org_id, config_key) where deleted_at is null;
 drop trigger if exists sm_release_configs_sync on sm_release_configs;
 create trigger sm_release_configs_sync before insert or update on sm_release_configs for each row execute function sm_sync_touch('release_config');
+create or replace trigger sm_release_configs_demo after insert on sm_release_configs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_release_configs enable row level security;
 
 -- release_decision: تصمیم‌های اجرا
@@ -21535,6 +21857,7 @@ create index if not exists sm_release_decisions_release_manager_id_idx on sm_rel
 create index if not exists sm_release_decisions_assigned_to_idx on sm_release_decisions (org_id, assigned_to) where deleted_at is null;
 drop trigger if exists sm_release_decisions_sync on sm_release_decisions;
 create trigger sm_release_decisions_sync before insert or update on sm_release_decisions for each row execute function sm_sync_touch('release_decision');
+create or replace trigger sm_release_decisions_demo after insert on sm_release_decisions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_release_decisions enable row level security;
 
 -- release_environment: محیط‌ها
@@ -21586,6 +21909,7 @@ create index if not exists sm_release_environments_crt_idx on sm_release_environ
 create unique index if not exists sm_release_environments_key_uk on sm_release_environments (org_id, key) where deleted_at is null;
 drop trigger if exists sm_release_environments_sync on sm_release_environments;
 create trigger sm_release_environments_sync before insert or update on sm_release_environments for each row execute function sm_sync_touch('release_environment');
+create or replace trigger sm_release_environments_demo after insert on sm_release_environments for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_release_environments enable row level security;
 
 -- release_note: یادداشت‌های انتشار
@@ -21642,6 +21966,7 @@ create index if not exists sm_release_notes_release_manager_id_idx on sm_release
 create index if not exists sm_release_notes_assigned_to_idx on sm_release_notes (org_id, assigned_to) where deleted_at is null;
 drop trigger if exists sm_release_notes_sync on sm_release_notes;
 create trigger sm_release_notes_sync before insert or update on sm_release_notes for each row execute function sm_sync_touch('release_note');
+create or replace trigger sm_release_notes_demo after insert on sm_release_notes for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_release_notes enable row level security;
 
 -- release_policy: خط‌مشی‌های انتشار
@@ -21689,6 +22014,7 @@ create index if not exists sm_release_policies_upd_idx on sm_release_policies (o
 create index if not exists sm_release_policies_crt_idx on sm_release_policies (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_release_policies_sync on sm_release_policies;
 create trigger sm_release_policies_sync before insert or update on sm_release_policies for each row execute function sm_sync_touch('release_policy');
+create or replace trigger sm_release_policies_demo after insert on sm_release_policies for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_release_policies enable row level security;
 
 -- release_task: کارهای انتشار
@@ -21803,6 +22129,7 @@ end
 $search$;
 drop trigger if exists sm_release_tasks_sync on sm_release_tasks;
 create trigger sm_release_tasks_sync before insert or update on sm_release_tasks for each row execute function sm_sync_touch('release_task');
+create or replace trigger sm_release_tasks_demo after insert on sm_release_tasks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_release_tasks enable row level security;
 
 -- release_template: الگوهای انتشار
@@ -21853,6 +22180,7 @@ create index if not exists sm_release_templates_upd_idx on sm_release_templates 
 create index if not exists sm_release_templates_crt_idx on sm_release_templates (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_release_templates_sync on sm_release_templates;
 create trigger sm_release_templates_sync before insert or update on sm_release_templates for each row execute function sm_sync_touch('release_template');
+create or replace trigger sm_release_templates_demo after insert on sm_release_templates for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_release_templates enable row level security;
 
 -- release_window: پنجره‌های انتشار
@@ -21901,6 +22229,7 @@ create index if not exists sm_release_windows_upd_idx on sm_release_windows (org
 create index if not exists sm_release_windows_crt_idx on sm_release_windows (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_release_windows_sync on sm_release_windows;
 create trigger sm_release_windows_sync before insert or update on sm_release_windows for each row execute function sm_sync_touch('release_window');
+create or replace trigger sm_release_windows_demo after insert on sm_release_windows for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_release_windows enable row level security;
 
 -- repair_order: تعمیرهای دارایی
@@ -21979,6 +22308,7 @@ end
 $search$;
 drop trigger if exists sm_repair_orders_sync on sm_repair_orders;
 create trigger sm_repair_orders_sync before insert or update on sm_repair_orders for each row execute function sm_sync_touch('repair_order');
+create or replace trigger sm_repair_orders_demo after insert on sm_repair_orders for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_repair_orders enable row level security;
 
 -- request: درخواست‌های خدمت
@@ -22092,6 +22422,7 @@ end
 $search$;
 drop trigger if exists sm_requests_sync on sm_requests;
 create trigger sm_requests_sync before insert or update on sm_requests for each row execute function sm_sync_touch('request');
+create or replace trigger sm_requests_demo after insert on sm_requests for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_requests enable row level security;
 
 -- request_answer: پاسخ‌های سفارش
@@ -22146,6 +22477,7 @@ create index if not exists sm_request_answers_requested_for_idx on sm_request_an
 create index if not exists sm_request_answers_caller_id_idx on sm_request_answers (org_id, caller_id) where deleted_at is null;
 drop trigger if exists sm_request_answers_sync on sm_request_answers;
 create trigger sm_request_answers_sync before insert or update on sm_request_answers for each row execute function sm_sync_touch('request_answer');
+create or replace trigger sm_request_answers_demo after insert on sm_request_answers for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_request_answers enable row level security;
 
 -- request_cart: سبدهای سفارش
@@ -22196,6 +22528,7 @@ create index if not exists sm_request_carts_unit_acc_idx on sm_request_carts (or
 create index if not exists sm_request_carts_domain_acc_idx on sm_request_carts (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_request_carts_sync on sm_request_carts;
 create trigger sm_request_carts_sync before insert or update on sm_request_carts for each row execute function sm_sync_touch('request_cart');
+create or replace trigger sm_request_carts_demo after insert on sm_request_carts for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_request_carts enable row level security;
 
 -- request_cart_line: اقلام سبد
@@ -22250,6 +22583,7 @@ create index if not exists sm_request_cart_lines_unit_acc_idx on sm_request_cart
 create index if not exists sm_request_cart_lines_domain_acc_idx on sm_request_cart_lines (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_request_cart_lines_sync on sm_request_cart_lines;
 create trigger sm_request_cart_lines_sync before insert or update on sm_request_cart_lines for each row execute function sm_sync_touch('request_cart_line');
+create or replace trigger sm_request_cart_lines_demo after insert on sm_request_cart_lines for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_request_cart_lines enable row level security;
 
 -- request_config: تنظیمات درخواست خدمت
@@ -22295,6 +22629,7 @@ create index if not exists sm_request_configs_upd_idx on sm_request_configs (org
 create index if not exists sm_request_configs_crt_idx on sm_request_configs (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_request_configs_sync on sm_request_configs;
 create trigger sm_request_configs_sync before insert or update on sm_request_configs for each row execute function sm_sync_touch('request_config');
+create or replace trigger sm_request_configs_demo after insert on sm_request_configs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_request_configs enable row level security;
 
 -- request_item: اقلام درخواست‌شده
@@ -22440,6 +22775,7 @@ end
 $search$;
 drop trigger if exists sm_request_items_sync on sm_request_items;
 create trigger sm_request_items_sync before insert or update on sm_request_items for each row execute function sm_sync_touch('request_item');
+create or replace trigger sm_request_items_demo after insert on sm_request_items for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_request_items enable row level security;
 
 -- request_subscription: اشتراک‌های خدمت
@@ -22512,6 +22848,7 @@ end
 $search$;
 drop trigger if exists sm_request_subscriptions_sync on sm_request_subscriptions;
 create trigger sm_request_subscriptions_sync before insert or update on sm_request_subscriptions for each row execute function sm_sync_touch('request_subscription');
+create or replace trigger sm_request_subscriptions_demo after insert on sm_request_subscriptions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_request_subscriptions enable row level security;
 
 -- request_task: وظایف انجام
@@ -22633,6 +22970,7 @@ end
 $search$;
 drop trigger if exists sm_request_tasks_sync on sm_request_tasks;
 create trigger sm_request_tasks_sync before insert or update on sm_request_tasks for each row execute function sm_sync_touch('request_task');
+create or replace trigger sm_request_tasks_demo after insert on sm_request_tasks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_request_tasks enable row level security;
 
 -- reservation: رزروها
@@ -22717,6 +23055,7 @@ end
 $search$;
 drop trigger if exists sm_reservations_sync on sm_reservations;
 create trigger sm_reservations_sync before insert or update on sm_reservations for each row execute function sm_sync_touch('reservation');
+create or replace trigger sm_reservations_demo after insert on sm_reservations for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_reservations enable row level security;
 
 -- resource_allocation: تخصیص‌های منابع
@@ -22769,6 +23108,7 @@ create index if not exists sm_resource_allocations_domain_acc_idx on sm_resource
 create index if not exists sm_resource_allocations_project_manager_id_idx on sm_resource_allocations (org_id, project_manager_id) where deleted_at is null;
 drop trigger if exists sm_resource_allocations_sync on sm_resource_allocations;
 create trigger sm_resource_allocations_sync before insert or update on sm_resource_allocations for each row execute function sm_sync_touch('resource_allocation');
+create or replace trigger sm_resource_allocations_demo after insert on sm_resource_allocations for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_resource_allocations enable row level security;
 
 -- role: نقش‌ها
@@ -22816,6 +23156,7 @@ create index if not exists sm_roles_crt_idx on sm_roles (org_id, created_at desc
 create unique index if not exists sm_roles_key_uk on sm_roles (org_id, key) where deleted_at is null;
 drop trigger if exists sm_roles_sync on sm_roles;
 create trigger sm_roles_sync before insert or update on sm_roles for each row execute function sm_sync_touch('role');
+create or replace trigger sm_roles_demo after insert on sm_roles for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_roles enable row level security;
 
 -- saas_account: حساب‌های SaaS
@@ -22865,6 +23206,7 @@ create index if not exists sm_saas_accounts_domain_acc_idx on sm_saas_accounts (
 create index if not exists sm_saas_accounts_user_id_idx on sm_saas_accounts (org_id, user_id) where deleted_at is null;
 drop trigger if exists sm_saas_accounts_sync on sm_saas_accounts;
 create trigger sm_saas_accounts_sync before insert or update on sm_saas_accounts for each row execute function sm_sync_touch('saas_account');
+create or replace trigger sm_saas_accounts_demo after insert on sm_saas_accounts for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_saas_accounts enable row level security;
 
 -- saas_subscription: اشتراک‌های SaaS
@@ -22947,6 +23289,7 @@ end
 $search$;
 drop trigger if exists sm_saas_subscriptions_sync on sm_saas_subscriptions;
 create trigger sm_saas_subscriptions_sync before insert or update on sm_saas_subscriptions for each row execute function sm_sync_touch('saas_subscription');
+create or replace trigger sm_saas_subscriptions_demo after insert on sm_saas_subscriptions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_saas_subscriptions enable row level security;
 
 -- schedule: زمان‌بندی‌ها
@@ -22990,6 +23333,7 @@ create index if not exists sm_schedules_upd_idx on sm_schedules (org_id, updated
 create index if not exists sm_schedules_crt_idx on sm_schedules (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_schedules_sync on sm_schedules;
 create trigger sm_schedules_sync before insert or update on sm_schedules for each row execute function sm_sync_touch('schedule');
+create or replace trigger sm_schedules_demo after insert on sm_schedules for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_schedules enable row level security;
 
 -- sec_config: تنظیمات امنیت
@@ -23046,6 +23390,7 @@ create index if not exists sm_sec_configs_crt_idx on sm_sec_configs (org_id, cre
 create unique index if not exists sm_sec_configs_config_key_uk on sm_sec_configs (org_id, config_key) where deleted_at is null;
 drop trigger if exists sm_sec_configs_sync on sm_sec_configs;
 create trigger sm_sec_configs_sync before insert or update on sm_sec_configs for each row execute function sm_sync_touch('sec_config');
+create or replace trigger sm_sec_configs_demo after insert on sm_sec_configs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_sec_configs enable row level security;
 
 -- sec_evidence: شواهد و زنجیرهٔ حضانت
@@ -23126,6 +23471,7 @@ end
 $search$;
 drop trigger if exists sm_sec_evidence_sync on sm_sec_evidence;
 create trigger sm_sec_evidence_sync before insert or update on sm_sec_evidence for each row execute function sm_sync_touch('sec_evidence');
+create or replace trigger sm_sec_evidence_demo after insert on sm_sec_evidence for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_sec_evidence enable row level security;
 
 -- sec_incident: رخدادهای امنیتی
@@ -23265,6 +23611,7 @@ end
 $search$;
 drop trigger if exists sm_sec_incidents_sync on sm_sec_incidents;
 create trigger sm_sec_incidents_sync before insert or update on sm_sec_incidents for each row execute function sm_sync_touch('sec_incident');
+create or replace trigger sm_sec_incidents_demo after insert on sm_sec_incidents for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_sec_incidents enable row level security;
 
 -- sec_observable: نشانگرها و اطلاعات تهدید
@@ -23325,6 +23672,7 @@ create index if not exists sm_sec_observables_unit_acc_idx on sm_sec_observables
 create index if not exists sm_sec_observables_domain_acc_idx on sm_sec_observables (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_sec_observables_sync on sm_sec_observables;
 create trigger sm_sec_observables_sync before insert or update on sm_sec_observables for each row execute function sm_sync_touch('sec_observable');
+create or replace trigger sm_sec_observables_demo after insert on sm_sec_observables for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_sec_observables enable row level security;
 
 -- sec_playbook: دستورالعمل‌های پاسخ
@@ -23368,6 +23716,7 @@ create index if not exists sm_sec_playbooks_upd_idx on sm_sec_playbooks (org_id,
 create index if not exists sm_sec_playbooks_crt_idx on sm_sec_playbooks (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_sec_playbooks_sync on sm_sec_playbooks;
 create trigger sm_sec_playbooks_sync before insert or update on sm_sec_playbooks for each row execute function sm_sync_touch('sec_playbook');
+create or replace trigger sm_sec_playbooks_demo after insert on sm_sec_playbooks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_sec_playbooks enable row level security;
 
 -- sec_reg_clock: ساعت‌های اطلاع‌رسانی الزامی
@@ -23444,6 +23793,7 @@ end
 $search$;
 drop trigger if exists sm_sec_reg_clocks_sync on sm_sec_reg_clocks;
 create trigger sm_sec_reg_clocks_sync before insert or update on sm_sec_reg_clocks for each row execute function sm_sync_touch('sec_reg_clock');
+create or replace trigger sm_sec_reg_clocks_demo after insert on sm_sec_reg_clocks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_sec_reg_clocks enable row level security;
 
 -- sec_reg_regime: مقررات اطلاع‌رسانی
@@ -23489,6 +23839,7 @@ create index if not exists sm_sec_reg_regimes_crt_idx on sm_sec_reg_regimes (org
 create unique index if not exists sm_sec_reg_regimes_key_uk on sm_sec_reg_regimes (org_id, key) where deleted_at is null;
 drop trigger if exists sm_sec_reg_regimes_sync on sm_sec_reg_regimes;
 create trigger sm_sec_reg_regimes_sync before insert or update on sm_sec_reg_regimes for each row execute function sm_sync_touch('sec_reg_regime');
+create or replace trigger sm_sec_reg_regimes_demo after insert on sm_sec_reg_regimes for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_sec_reg_regimes enable row level security;
 
 -- sec_review: بازبینی‌های امنیتی
@@ -23562,6 +23913,7 @@ end
 $search$;
 drop trigger if exists sm_sec_reviews_sync on sm_sec_reviews;
 create trigger sm_sec_reviews_sync before insert or update on sm_sec_reviews for each row execute function sm_sync_touch('sec_review');
+create or replace trigger sm_sec_reviews_demo after insert on sm_sec_reviews for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_sec_reviews enable row level security;
 
 -- sec_scan_import: ورودهای پویش
@@ -23633,6 +23985,7 @@ end
 $search$;
 drop trigger if exists sm_sec_scan_imports_sync on sm_sec_scan_imports;
 create trigger sm_sec_scan_imports_sync before insert or update on sm_sec_scan_imports for each row execute function sm_sync_touch('sec_scan_import');
+create or replace trigger sm_sec_scan_imports_demo after insert on sm_sec_scan_imports for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_sec_scan_imports enable row level security;
 
 -- sec_task: کارهای پاسخ
@@ -23750,6 +24103,7 @@ end
 $search$;
 drop trigger if exists sm_sec_tasks_sync on sm_sec_tasks;
 create trigger sm_sec_tasks_sync before insert or update on sm_sec_tasks for each row execute function sm_sync_touch('sec_task');
+create or replace trigger sm_sec_tasks_demo after insert on sm_sec_tasks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_sec_tasks enable row level security;
 
 -- sec_verification: احراز هویت‌های تماس‌گیرنده
@@ -23803,6 +24157,7 @@ create index if not exists sm_sec_verifications_domain_acc_idx on sm_sec_verific
 create index if not exists sm_sec_verifications_requested_by_idx on sm_sec_verifications (org_id, requested_by) where deleted_at is null;
 drop trigger if exists sm_sec_verifications_sync on sm_sec_verifications;
 create trigger sm_sec_verifications_sync before insert or update on sm_sec_verifications for each row execute function sm_sync_touch('sec_verification');
+create or replace trigger sm_sec_verifications_demo after insert on sm_sec_verifications for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_sec_verifications enable row level security;
 
 -- sec_vuln_exception: استثناهای آسیب‌پذیری
@@ -23882,6 +24237,7 @@ end
 $search$;
 drop trigger if exists sm_sec_vuln_exceptions_sync on sm_sec_vuln_exceptions;
 create trigger sm_sec_vuln_exceptions_sync before insert or update on sm_sec_vuln_exceptions for each row execute function sm_sync_touch('sec_vuln_exception');
+create or replace trigger sm_sec_vuln_exceptions_demo after insert on sm_sec_vuln_exceptions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_sec_vuln_exceptions enable row level security;
 
 -- sec_vuln_item: موردهای آسیب‌پذیر
@@ -23995,6 +24351,7 @@ end
 $search$;
 drop trigger if exists sm_sec_vuln_items_sync on sm_sec_vuln_items;
 create trigger sm_sec_vuln_items_sync before insert or update on sm_sec_vuln_items for each row execute function sm_sync_touch('sec_vuln_item');
+create or replace trigger sm_sec_vuln_items_demo after insert on sm_sec_vuln_items for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_sec_vuln_items enable row level security;
 
 -- sec_vuln_remediation: گروه‌های رفع آسیب‌پذیری
@@ -24069,6 +24426,7 @@ end
 $search$;
 drop trigger if exists sm_sec_vuln_remediations_sync on sm_sec_vuln_remediations;
 create trigger sm_sec_vuln_remediations_sync before insert or update on sm_sec_vuln_remediations for each row execute function sm_sync_touch('sec_vuln_remediation');
+create or replace trigger sm_sec_vuln_remediations_demo after insert on sm_sec_vuln_remediations for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_sec_vuln_remediations enable row level security;
 
 -- sec_vulnerability: کتابخانهٔ آسیب‌پذیری‌ها
@@ -24129,6 +24487,7 @@ create index if not exists sm_sec_vulnerabilities_crt_idx on sm_sec_vulnerabilit
 create unique index if not exists sm_sec_vulnerabilities_cve_id_uk on sm_sec_vulnerabilities (org_id, cve_id) where deleted_at is null;
 drop trigger if exists sm_sec_vulnerabilities_sync on sm_sec_vulnerabilities;
 create trigger sm_sec_vulnerabilities_sync before insert or update on sm_sec_vulnerabilities for each row execute function sm_sync_touch('sec_vulnerability');
+create or replace trigger sm_sec_vulnerabilities_demo after insert on sm_sec_vulnerabilities for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_sec_vulnerabilities enable row level security;
 
 -- service: خدمت‌ها
@@ -24245,6 +24604,7 @@ end
 $search$;
 drop trigger if exists sm_services_sync on sm_services;
 create trigger sm_services_sync before insert or update on sm_services for each row execute function sm_sync_touch('service');
+create or replace trigger sm_services_demo after insert on sm_services for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_services enable row level security;
 
 -- service_agreement: توافق‌های مشتری
@@ -24354,6 +24714,7 @@ end
 $search$;
 drop trigger if exists sm_service_agreements_sync on sm_service_agreements;
 create trigger sm_service_agreements_sync before insert or update on sm_service_agreements for each row execute function sm_sync_touch('service_agreement');
+create or replace trigger sm_service_agreements_demo after insert on sm_service_agreements for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_service_agreements enable row level security;
 
 -- service_case: پرونده‌های واحدها
@@ -24469,6 +24830,7 @@ end
 $search$;
 drop trigger if exists sm_service_cases_sync on sm_service_cases;
 create trigger sm_service_cases_sync before insert or update on sm_service_cases for each row execute function sm_sync_touch('service_case');
+create or replace trigger sm_service_cases_demo after insert on sm_service_cases for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_service_cases enable row level security;
 
 -- service_commitment: تعهدهای خدمت
@@ -24523,6 +24885,7 @@ create index if not exists sm_service_commitments_domain_acc_idx on sm_service_c
 create index if not exists sm_service_commitments_owner_id_idx on sm_service_commitments (org_id, owner_id) where deleted_at is null;
 drop trigger if exists sm_service_commitments_sync on sm_service_commitments;
 create trigger sm_service_commitments_sync before insert or update on sm_service_commitments for each row execute function sm_sync_touch('service_commitment');
+create or replace trigger sm_service_commitments_demo after insert on sm_service_commitments for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_service_commitments enable row level security;
 
 -- service_config: تنظیمات سبد خدمات
@@ -24573,6 +24936,7 @@ create unique index if not exists sm_service_configs_config_key_uk on sm_service
 create index if not exists sm_service_configs_status_page_token_idx on sm_service_configs (org_id, status_page_token) where deleted_at is null;
 drop trigger if exists sm_service_configs_sync on sm_service_configs;
 create trigger sm_service_configs_sync before insert or update on sm_service_configs for each row execute function sm_sync_touch('service_config');
+create or replace trigger sm_service_configs_demo after insert on sm_service_configs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_service_configs enable row level security;
 
 -- service_design_package: بسته‌های طراحی و گذار
@@ -24647,6 +25011,7 @@ end
 $search$;
 drop trigger if exists sm_service_design_packages_sync on sm_service_design_packages;
 create trigger sm_service_design_packages_sync before insert or update on sm_service_design_packages for each row execute function sm_sync_touch('service_design_package');
+create or replace trigger sm_service_design_packages_demo after insert on sm_service_design_packages for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_service_design_packages enable row level security;
 
 -- service_instance: نمونه‌های استقرار خدمت
@@ -24698,6 +25063,7 @@ create index if not exists sm_service_instances_owner_id_idx on sm_service_insta
 create index if not exists sm_service_instances_open_grp_idx on sm_service_instances (org_id, support_group_id, updated_at desc) where deleted_at is null and active;
 drop trigger if exists sm_service_instances_sync on sm_service_instances;
 create trigger sm_service_instances_sync before insert or update on sm_service_instances for each row execute function sm_sync_touch('service_instance');
+create or replace trigger sm_service_instances_demo after insert on sm_service_instances for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_service_instances enable row level security;
 
 -- service_offering: گزینه‌های خدمت
@@ -24781,6 +25147,7 @@ end
 $search$;
 drop trigger if exists sm_service_offerings_sync on sm_service_offerings;
 create trigger sm_service_offerings_sync before insert or update on sm_service_offerings for each row execute function sm_sync_touch('service_offering');
+create or replace trigger sm_service_offerings_demo after insert on sm_service_offerings for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_service_offerings enable row level security;
 
 -- service_proposal: پیشنهادهای خدمت
@@ -24860,6 +25227,7 @@ end
 $search$;
 drop trigger if exists sm_service_proposals_sync on sm_service_proposals;
 create trigger sm_service_proposals_sync before insert or update on sm_service_proposals for each row execute function sm_sync_touch('service_proposal');
+create or replace trigger sm_service_proposals_demo after insert on sm_service_proposals for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_service_proposals enable row level security;
 
 -- service_score_fact: امتیازهای روزانهٔ خدمت
@@ -24909,6 +25277,7 @@ create index if not exists sm_service_score_facts_service_id_idx on sm_service_s
 create unique index if not exists sm_service_score_facts_day_service_id_uk on sm_service_score_facts (org_id, day, service_id) where deleted_at is null;
 drop trigger if exists sm_service_score_facts_sync on sm_service_score_facts;
 create trigger sm_service_score_facts_sync before insert or update on sm_service_score_facts for each row execute function sm_sync_touch('service_score_fact');
+create or replace trigger sm_service_score_facts_demo after insert on sm_service_score_facts for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_service_score_facts enable row level security;
 
 -- service_subscription: اشتراک‌های اطلاع‌رسانی خدمت
@@ -24963,6 +25332,7 @@ create index if not exists sm_service_subscriptions_unit_acc_idx on sm_service_s
 create index if not exists sm_service_subscriptions_domain_acc_idx on sm_service_subscriptions (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_service_subscriptions_sync on sm_service_subscriptions;
 create trigger sm_service_subscriptions_sync before insert or update on sm_service_subscriptions for each row execute function sm_sync_touch('service_subscription');
+create or replace trigger sm_service_subscriptions_demo after insert on sm_service_subscriptions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_service_subscriptions enable row level security;
 
 -- sla_definition: تعریف‌های توافق سطح خدمت
@@ -25024,6 +25394,7 @@ create index if not exists sm_sla_definitions_crt_idx on sm_sla_definitions (org
 create unique index if not exists sm_sla_definitions_table_key_name_uk on sm_sla_definitions (org_id, table_key, name) where deleted_at is null;
 drop trigger if exists sm_sla_definitions_sync on sm_sla_definitions;
 create trigger sm_sla_definitions_sync before insert or update on sm_sla_definitions for each row execute function sm_sync_touch('sla_definition');
+create or replace trigger sm_sla_definitions_demo after insert on sm_sla_definitions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_sla_definitions enable row level security;
 
 -- slm_compliance: انطباق دوره‌ها
@@ -25080,6 +25451,7 @@ create index if not exists sm_slm_compliance_target_id_idx on sm_slm_compliance 
 create unique index if not exists sm_slm_compliance_target_id_period_key_uk on sm_slm_compliance (org_id, target_id, period_key) where deleted_at is null;
 drop trigger if exists sm_slm_compliance_sync on sm_slm_compliance;
 create trigger sm_slm_compliance_sync before insert or update on sm_slm_compliance for each row execute function sm_sync_touch('slm_compliance');
+create or replace trigger sm_slm_compliance_demo after insert on sm_slm_compliance for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_slm_compliance enable row level security;
 
 -- slm_config: تنظیمات سطح خدمت
@@ -25128,6 +25500,7 @@ create index if not exists sm_slm_config_crt_idx on sm_slm_config (org_id, creat
 create unique index if not exists sm_slm_config_config_key_uk on sm_slm_config (org_id, config_key) where deleted_at is null;
 drop trigger if exists sm_slm_config_sync on sm_slm_config;
 create trigger sm_slm_config_sync before insert or update on sm_slm_config for each row execute function sm_sync_touch('slm_config');
+create or replace trigger sm_slm_config_demo after insert on sm_slm_config for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_slm_config enable row level security;
 
 -- slm_credit: جریمه‌های خدمت
@@ -25204,6 +25577,7 @@ end
 $search$;
 drop trigger if exists sm_slm_credits_sync on sm_slm_credits;
 create trigger sm_slm_credits_sync before insert or update on sm_slm_credits for each row execute function sm_sync_touch('slm_credit');
+create or replace trigger sm_slm_credits_demo after insert on sm_slm_credits for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_slm_credits enable row level security;
 
 -- slm_csi_plan: برنامه‌های بهبود
@@ -25252,6 +25626,7 @@ create index if not exists sm_slm_csi_plans_domain_acc_idx on sm_slm_csi_plans (
 create index if not exists sm_slm_csi_plans_owner_id_idx on sm_slm_csi_plans (org_id, owner_id) where deleted_at is null;
 drop trigger if exists sm_slm_csi_plans_sync on sm_slm_csi_plans;
 create trigger sm_slm_csi_plans_sync before insert or update on sm_slm_csi_plans for each row execute function sm_sync_touch('slm_csi_plan');
+create or replace trigger sm_slm_csi_plans_demo after insert on sm_slm_csi_plans for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_slm_csi_plans enable row level security;
 
 -- slm_improvement: ثبت بهبود مستمر
@@ -25373,6 +25748,7 @@ end
 $search$;
 drop trigger if exists sm_slm_improvements_sync on sm_slm_improvements;
 create trigger sm_slm_improvements_sync before insert or update on sm_slm_improvements for each row execute function sm_sync_touch('slm_improvement');
+create or replace trigger sm_slm_improvements_demo after insert on sm_slm_improvements for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_slm_improvements enable row level security;
 
 -- slm_review: بازبینی‌های خدمت
@@ -25456,6 +25832,7 @@ end
 $search$;
 drop trigger if exists sm_slm_reviews_sync on sm_slm_reviews;
 create trigger sm_slm_reviews_sync before insert or update on sm_slm_reviews for each row execute function sm_sync_touch('slm_review');
+create or replace trigger sm_slm_reviews_demo after insert on sm_slm_reviews for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_slm_reviews enable row level security;
 
 -- slm_target: اهداف توافق‌ها
@@ -25522,6 +25899,7 @@ create index if not exists sm_slm_targets_agreement_id_idx on sm_slm_targets (or
 create index if not exists sm_slm_targets_definition_id_idx on sm_slm_targets (org_id, definition_id) where deleted_at is null;
 drop trigger if exists sm_slm_targets_sync on sm_slm_targets;
 create trigger sm_slm_targets_sync before insert or update on sm_slm_targets for each row execute function sm_sync_touch('slm_target');
+create or replace trigger sm_slm_targets_demo after insert on sm_slm_targets for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_slm_targets enable row level security;
 
 -- slm_template: الگوهای توافق
@@ -25572,6 +25950,7 @@ create index if not exists sm_slm_templates_upd_idx on sm_slm_templates (org_id,
 create index if not exists sm_slm_templates_crt_idx on sm_slm_templates (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_slm_templates_sync on sm_slm_templates;
 create trigger sm_slm_templates_sync before insert or update on sm_slm_templates for each row execute function sm_sync_touch('slm_template');
+create or replace trigger sm_slm_templates_demo after insert on sm_slm_templates for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_slm_templates enable row level security;
 
 -- slm_template_target: اهداف الگوها
@@ -25627,6 +26006,7 @@ create index if not exists sm_slm_template_targets_crt_idx on sm_slm_template_ta
 create index if not exists sm_slm_template_targets_template_id_idx on sm_slm_template_targets (org_id, template_id) where deleted_at is null;
 drop trigger if exists sm_slm_template_targets_sync on sm_slm_template_targets;
 create trigger sm_slm_template_targets_sync before insert or update on sm_slm_template_targets for each row execute function sm_sync_touch('slm_template_target');
+create or replace trigger sm_slm_template_targets_demo after insert on sm_slm_template_targets for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_slm_template_targets enable row level security;
 
 -- slm_xla_policy: سیاست‌های تجربه (XLA)
@@ -25700,6 +26080,7 @@ end
 $search$;
 drop trigger if exists sm_slm_xla_policies_sync on sm_slm_xla_policies;
 create trigger sm_slm_xla_policies_sync before insert or update on sm_slm_xla_policies for each row execute function sm_sync_touch('slm_xla_policy');
+create or replace trigger sm_slm_xla_policies_demo after insert on sm_slm_xla_policies for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_slm_xla_policies enable row level security;
 
 -- slm_xla_score: امتیازهای تجربه
@@ -25759,6 +26140,7 @@ create index if not exists sm_slm_xla_scores_domain_acc_idx on sm_slm_xla_scores
 create index if not exists sm_slm_xla_scores_assigned_to_idx on sm_slm_xla_scores (org_id, assigned_to) where deleted_at is null;
 drop trigger if exists sm_slm_xla_scores_sync on sm_slm_xla_scores;
 create trigger sm_slm_xla_scores_sync before insert or update on sm_slm_xla_scores for each row execute function sm_sync_touch('slm_xla_score');
+create or replace trigger sm_slm_xla_scores_demo after insert on sm_slm_xla_scores for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_slm_xla_scores enable row level security;
 
 -- software_install: نصب‌های نرم‌افزار
@@ -25818,6 +26200,7 @@ create index if not exists sm_software_installs_domain_acc_idx on sm_software_in
 create index if not exists sm_software_installs_user_id_idx on sm_software_installs (org_id, user_id) where deleted_at is null;
 drop trigger if exists sm_software_installs_sync on sm_software_installs;
 create trigger sm_software_installs_sync before insert or update on sm_software_installs for each row execute function sm_sync_touch('software_install');
+create or replace trigger sm_software_installs_demo after insert on sm_software_installs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_software_installs enable row level security;
 
 -- software_model: مدل‌های نرم‌افزار
@@ -25889,6 +26272,7 @@ end
 $search$;
 drop trigger if exists sm_software_models_sync on sm_software_models;
 create trigger sm_software_models_sync before insert or update on sm_software_models for each row execute function sm_sync_touch('software_model');
+create or replace trigger sm_software_models_demo after insert on sm_software_models for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_software_models enable row level security;
 
 -- space: فضاها و منابع
@@ -25947,6 +26331,7 @@ create index if not exists sm_spaces_domain_acc_idx on sm_spaces (org_id, domain
 create index if not exists sm_spaces_open_grp_idx on sm_spaces (org_id, owner_group_id, updated_at desc) where deleted_at is null and active;
 drop trigger if exists sm_spaces_sync on sm_spaces;
 create trigger sm_spaces_sync before insert or update on sm_spaces for each row execute function sm_sync_touch('space');
+create or replace trigger sm_spaces_demo after insert on sm_spaces for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_spaces enable row level security;
 
 -- status_report: گزارش‌های وضعیت
@@ -26028,6 +26413,7 @@ end
 $search$;
 drop trigger if exists sm_status_reports_sync on sm_status_reports;
 create trigger sm_status_reports_sync before insert or update on sm_status_reports for each row execute function sm_sync_touch('status_report');
+create or replace trigger sm_status_reports_demo after insert on sm_status_reports for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_status_reports enable row level security;
 
 -- stock_movement: گردش موجودی
@@ -26078,6 +26464,7 @@ create index if not exists sm_stock_movements_stockroom_id_idx on sm_stock_movem
 create index if not exists sm_stock_movements_asset_id_idx on sm_stock_movements (org_id, asset_id) where deleted_at is null;
 drop trigger if exists sm_stock_movements_sync on sm_stock_movements;
 create trigger sm_stock_movements_sync before insert or update on sm_stock_movements for each row execute function sm_sync_touch('stock_movement');
+create or replace trigger sm_stock_movements_demo after insert on sm_stock_movements for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_stock_movements enable row level security;
 
 -- stock_rule: قاعده‌های موجودی
@@ -26130,6 +26517,7 @@ create index if not exists sm_stock_rules_stockroom_id_idx on sm_stock_rules (or
 create unique index if not exists sm_stock_rules_model_id_stockroom_id_uk on sm_stock_rules (org_id, model_id, stockroom_id) where deleted_at is null;
 drop trigger if exists sm_stock_rules_sync on sm_stock_rules;
 create trigger sm_stock_rules_sync before insert or update on sm_stock_rules for each row execute function sm_sync_touch('stock_rule');
+create or replace trigger sm_stock_rules_demo after insert on sm_stock_rules for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_stock_rules enable row level security;
 
 -- stockroom: انبارها
@@ -26182,6 +26570,7 @@ create index if not exists sm_stockrooms_manager_id_idx on sm_stockrooms (org_id
 create index if not exists sm_stockrooms_open_grp_idx on sm_stockrooms (org_id, group_id, updated_at desc) where deleted_at is null and active;
 drop trigger if exists sm_stockrooms_sync on sm_stockrooms;
 create trigger sm_stockrooms_sync before insert or update on sm_stockrooms for each row execute function sm_sync_touch('stockroom');
+create or replace trigger sm_stockrooms_demo after insert on sm_stockrooms for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_stockrooms enable row level security;
 
 -- studio_version: نسخه‌های استودیو
@@ -26224,6 +26613,7 @@ create index if not exists sm_studio_versions_upd_idx on sm_studio_versions (org
 create index if not exists sm_studio_versions_crt_idx on sm_studio_versions (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_studio_versions_sync on sm_studio_versions;
 create trigger sm_studio_versions_sync before insert or update on sm_studio_versions for each row execute function sm_sync_touch('studio_version');
+create or replace trigger sm_studio_versions_demo after insert on sm_studio_versions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_studio_versions enable row level security;
 
 -- supplier: تأمین‌کنندگان
@@ -26310,6 +26700,7 @@ end
 $search$;
 drop trigger if exists sm_suppliers_sync on sm_suppliers;
 create trigger sm_suppliers_sync before insert or update on sm_suppliers for each row execute function sm_sync_touch('supplier');
+create or replace trigger sm_suppliers_demo after insert on sm_suppliers for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_suppliers enable row level security;
 
 -- supplier_config: تنظیمات تأمین‌کنندگان و قراردادها
@@ -26356,6 +26747,7 @@ create index if not exists sm_supplier_configs_crt_idx on sm_supplier_configs (o
 create unique index if not exists sm_supplier_configs_config_key_uk on sm_supplier_configs (org_id, config_key) where deleted_at is null;
 drop trigger if exists sm_supplier_configs_sync on sm_supplier_configs;
 create trigger sm_supplier_configs_sync before insert or update on sm_supplier_configs for each row execute function sm_sync_touch('supplier_config');
+create or replace trigger sm_supplier_configs_demo after insert on sm_supplier_configs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_supplier_configs enable row level security;
 
 -- supplier_contact: مخاطبان تأمین‌کنندگان
@@ -26405,6 +26797,7 @@ create index if not exists sm_supplier_contacts_crt_idx on sm_supplier_contacts 
 create index if not exists sm_supplier_contacts_supplier_id_idx on sm_supplier_contacts (org_id, supplier_id) where deleted_at is null;
 drop trigger if exists sm_supplier_contacts_sync on sm_supplier_contacts;
 create trigger sm_supplier_contacts_sync before insert or update on sm_supplier_contacts for each row execute function sm_sync_touch('supplier_contact');
+create or replace trigger sm_supplier_contacts_demo after insert on sm_supplier_contacts for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_supplier_contacts enable row level security;
 
 -- supplier_review: بازبینی‌های تأمین‌کنندگان
@@ -26479,6 +26872,7 @@ end
 $search$;
 drop trigger if exists sm_supplier_reviews_sync on sm_supplier_reviews;
 create trigger sm_supplier_reviews_sync before insert or update on sm_supplier_reviews for each row execute function sm_sync_touch('supplier_review');
+create or replace trigger sm_supplier_reviews_demo after insert on sm_supplier_reviews for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_supplier_reviews enable row level security;
 
 -- supplier_scorecard: کارنامه‌های تأمین‌کنندگان
@@ -26528,6 +26922,7 @@ create index if not exists sm_supplier_scorecards_period_idx on sm_supplier_scor
 create unique index if not exists sm_supplier_scorecards_supplier_id_period_uk on sm_supplier_scorecards (org_id, supplier_id, period) where deleted_at is null;
 drop trigger if exists sm_supplier_scorecards_sync on sm_supplier_scorecards;
 create trigger sm_supplier_scorecards_sync before insert or update on sm_supplier_scorecards for each row execute function sm_sync_touch('supplier_scorecard');
+create or replace trigger sm_supplier_scorecards_demo after insert on sm_supplier_scorecards for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_supplier_scorecards enable row level security;
 
 -- survey: نظرسنجی‌ها
@@ -26605,6 +27000,7 @@ end
 $search$;
 drop trigger if exists sm_surveys_sync on sm_surveys;
 create trigger sm_surveys_sync before insert or update on sm_surveys for each row execute function sm_sync_touch('survey');
+create or replace trigger sm_surveys_demo after insert on sm_surveys for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_surveys enable row level security;
 
 -- survey_invitation: دعوت‌های نظرسنجی
@@ -26680,6 +27076,7 @@ end
 $search$;
 drop trigger if exists sm_survey_invitations_sync on sm_survey_invitations;
 create trigger sm_survey_invitations_sync before insert or update on sm_survey_invitations for each row execute function sm_sync_touch('survey_invitation');
+create or replace trigger sm_survey_invitations_demo after insert on sm_survey_invitations for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_survey_invitations enable row level security;
 
 -- survey_question: پرسش‌های نظرسنجی
@@ -26725,6 +27122,7 @@ create index if not exists sm_survey_questions_crt_idx on sm_survey_questions (o
 create index if not exists sm_survey_questions_survey_id_idx on sm_survey_questions (org_id, survey_id) where deleted_at is null;
 drop trigger if exists sm_survey_questions_sync on sm_survey_questions;
 create trigger sm_survey_questions_sync before insert or update on sm_survey_questions for each row execute function sm_sync_touch('survey_question');
+create or replace trigger sm_survey_questions_demo after insert on sm_survey_questions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_survey_questions enable row level security;
 
 -- survey_response: پاسخ‌های نظرسنجی
@@ -26809,6 +27207,7 @@ end
 $search$;
 drop trigger if exists sm_survey_responses_sync on sm_survey_responses;
 create trigger sm_survey_responses_sync before insert or update on sm_survey_responses for each row execute function sm_sync_touch('survey_response');
+create or replace trigger sm_survey_responses_demo after insert on sm_survey_responses for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_survey_responses enable row level security;
 
 -- survey_trigger: زمان‌های ارسال نظرسنجی
@@ -26855,6 +27254,7 @@ create index if not exists sm_survey_triggers_crt_idx on sm_survey_triggers (org
 create index if not exists sm_survey_triggers_survey_id_idx on sm_survey_triggers (org_id, survey_id) where deleted_at is null;
 drop trigger if exists sm_survey_triggers_sync on sm_survey_triggers;
 create trigger sm_survey_triggers_sync before insert or update on sm_survey_triggers for each row execute function sm_sync_touch('survey_trigger');
+create or replace trigger sm_survey_triggers_demo after insert on sm_survey_triggers for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_survey_triggers enable row level security;
 
 -- system_notice: اطلاعیه‌های سامانه
@@ -26900,6 +27300,7 @@ create index if not exists sm_system_notices_upd_idx on sm_system_notices (org_i
 create index if not exists sm_system_notices_crt_idx on sm_system_notices (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_system_notices_sync on sm_system_notices;
 create trigger sm_system_notices_sync before insert or update on sm_system_notices for each row execute function sm_sync_touch('system_notice');
+create or replace trigger sm_system_notices_demo after insert on sm_system_notices for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_system_notices enable row level security;
 
 -- task_sla: زمان‌سنج‌های توافق
@@ -26963,6 +27364,7 @@ create index if not exists sm_task_slas_stage_idx on sm_task_slas (org_id, stage
 create index if not exists sm_task_slas_planned_end_at_idx on sm_task_slas (org_id, planned_end_at) where deleted_at is null;
 drop trigger if exists sm_task_slas_sync on sm_task_slas;
 create trigger sm_task_slas_sync before insert or update on sm_task_slas for each row execute function sm_sync_touch('task_sla');
+create or replace trigger sm_task_slas_demo after insert on sm_task_slas for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_task_slas enable row level security;
 
 -- tech_debt: بدهی‌های فنی
@@ -27036,6 +27438,7 @@ end
 $search$;
 drop trigger if exists sm_tech_debts_sync on sm_tech_debts;
 create trigger sm_tech_debts_sync before insert or update on sm_tech_debts for each row execute function sm_sync_touch('tech_debt');
+create or replace trigger sm_tech_debts_demo after insert on sm_tech_debts for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_tech_debts enable row level security;
 
 -- technician: تکنسین‌ها
@@ -27097,6 +27500,7 @@ create index if not exists sm_technicians_user_id_idx on sm_technicians (org_id,
 create index if not exists sm_technicians_open_grp_idx on sm_technicians (org_id, dispatch_group_id, updated_at desc) where deleted_at is null and active;
 drop trigger if exists sm_technicians_sync on sm_technicians;
 create trigger sm_technicians_sync before insert or update on sm_technicians for each row execute function sm_sync_touch('technician');
+create or replace trigger sm_technicians_demo after insert on sm_technicians for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_technicians enable row level security;
 
 -- technology_standard: استانداردهای فناوری
@@ -27143,6 +27547,7 @@ create index if not exists sm_technology_standards_upd_idx on sm_technology_stan
 create index if not exists sm_technology_standards_crt_idx on sm_technology_standards (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_technology_standards_sync on sm_technology_standards;
 create trigger sm_technology_standards_sync before insert or update on sm_technology_standards for each row execute function sm_sync_touch('technology_standard');
+create or replace trigger sm_technology_standards_demo after insert on sm_technology_standards for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_technology_standards enable row level security;
 
 -- territory: قلمروها
@@ -27194,6 +27599,7 @@ create index if not exists sm_territories_domain_acc_idx on sm_territories (org_
 create index if not exists sm_territories_open_grp_idx on sm_territories (org_id, dispatch_group_id, updated_at desc) where deleted_at is null and active;
 drop trigger if exists sm_territories_sync on sm_territories;
 create trigger sm_territories_sync before insert or update on sm_territories for each row execute function sm_sync_touch('territory');
+create or replace trigger sm_territories_demo after insert on sm_territories for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_territories enable row level security;
 
 -- time_entry: ثبت‌های زمان
@@ -27250,6 +27656,7 @@ create index if not exists sm_time_entries_domain_acc_idx on sm_time_entries (or
 create index if not exists sm_time_entries_project_manager_id_idx on sm_time_entries (org_id, project_manager_id) where deleted_at is null;
 drop trigger if exists sm_time_entries_sync on sm_time_entries;
 create trigger sm_time_entries_sync before insert or update on sm_time_entries for each row execute function sm_sync_touch('time_entry');
+create or replace trigger sm_time_entries_demo after insert on sm_time_entries for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_time_entries enable row level security;
 
 -- todo: کارها
@@ -27357,6 +27764,7 @@ end
 $search$;
 drop trigger if exists sm_todos_sync on sm_todos;
 create trigger sm_todos_sync before insert or update on sm_todos for each row execute function sm_sync_touch('todo');
+create or replace trigger sm_todos_demo after insert on sm_todos for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_todos enable row level security;
 
 -- transform_map: نقشه‌های تبدیل
@@ -27399,6 +27807,7 @@ create index if not exists sm_transform_maps_upd_idx on sm_transform_maps (org_i
 create index if not exists sm_transform_maps_crt_idx on sm_transform_maps (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_transform_maps_sync on sm_transform_maps;
 create trigger sm_transform_maps_sync before insert or update on sm_transform_maps for each row execute function sm_sync_touch('transform_map');
+create or replace trigger sm_transform_maps_demo after insert on sm_transform_maps for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_transform_maps enable row level security;
 
 -- ui_policy: سیاست‌های فرم
@@ -27445,6 +27854,7 @@ create index if not exists sm_ui_policies_upd_idx on sm_ui_policies (org_id, upd
 create index if not exists sm_ui_policies_crt_idx on sm_ui_policies (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_ui_policies_sync on sm_ui_policies;
 create trigger sm_ui_policies_sync before insert or update on sm_ui_policies for each row execute function sm_sync_touch('ui_policy');
+create or replace trigger sm_ui_policies_demo after insert on sm_ui_policies for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_ui_policies enable row level security;
 
 -- va_conversation: گفتگوهای دستیار مجازی
@@ -27496,6 +27906,7 @@ create index if not exists sm_va_conversations_workspace_acc_idx on sm_va_conver
 create index if not exists sm_va_conversations_unit_acc_idx on sm_va_conversations (org_id, unit_id) where deleted_at is null and unit_id is not null;
 create index if not exists sm_va_conversations_domain_acc_idx on sm_va_conversations (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_va_conversations_sync on sm_va_conversations;
+create or replace trigger sm_va_conversations_demo after insert on sm_va_conversations for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_va_conversations enable row level security;
 
 -- va_message: پیام‌های دستیار مجازی
@@ -27543,6 +27954,7 @@ create index if not exists sm_va_messages_workspace_acc_idx on sm_va_messages (o
 create index if not exists sm_va_messages_unit_acc_idx on sm_va_messages (org_id, unit_id) where deleted_at is null and unit_id is not null;
 create index if not exists sm_va_messages_domain_acc_idx on sm_va_messages (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_va_messages_sync on sm_va_messages;
+create or replace trigger sm_va_messages_demo after insert on sm_va_messages for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_va_messages enable row level security;
 
 -- va_topic: موضوع‌های دستیار مجازی
@@ -27591,6 +28003,7 @@ create index if not exists sm_va_topics_crt_idx on sm_va_topics (org_id, created
 create unique index if not exists sm_va_topics_key_uk on sm_va_topics (org_id, key) where deleted_at is null;
 drop trigger if exists sm_va_topics_sync on sm_va_topics;
 create trigger sm_va_topics_sync before insert or update on sm_va_topics for each row execute function sm_sync_touch('va_topic');
+create or replace trigger sm_va_topics_demo after insert on sm_va_topics for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_va_topics enable row level security;
 
 -- variable_set: مجموعه‌پرسش‌ها
@@ -27636,6 +28049,7 @@ create index if not exists sm_variable_sets_crt_idx on sm_variable_sets (org_id,
 create unique index if not exists sm_variable_sets_code_uk on sm_variable_sets (org_id, code) where deleted_at is null;
 drop trigger if exists sm_variable_sets_sync on sm_variable_sets;
 create trigger sm_variable_sets_sync before insert or update on sm_variable_sets for each row execute function sm_sync_touch('variable_set');
+create or replace trigger sm_variable_sets_demo after insert on sm_variable_sets for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_variable_sets enable row level security;
 
 -- view: نماهای ذخیره‌شده
@@ -27688,6 +28102,7 @@ create index if not exists sm_views_domain_acc_idx on sm_views (org_id, domain_i
 create index if not exists sm_views_owner_id_idx on sm_views (org_id, owner_id) where deleted_at is null;
 drop trigger if exists sm_views_sync on sm_views;
 create trigger sm_views_sync before insert or update on sm_views for each row execute function sm_sync_touch('view');
+create or replace trigger sm_views_demo after insert on sm_views for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_views enable row level security;
 
 -- visit: مراجعه‌کنندگان
@@ -27769,6 +28184,7 @@ end
 $search$;
 drop trigger if exists sm_visits_sync on sm_visits;
 create trigger sm_visits_sync before insert or update on sm_visits for each row execute function sm_sync_touch('visit');
+create or replace trigger sm_visits_demo after insert on sm_visits for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_visits enable row level security;
 
 -- webhook_subscription: وب‌هوک‌های خروجی
@@ -27823,6 +28239,7 @@ create index if not exists sm_webhook_subscriptions_unit_acc_idx on sm_webhook_s
 create index if not exists sm_webhook_subscriptions_domain_acc_idx on sm_webhook_subscriptions (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_webhook_subscriptions_sync on sm_webhook_subscriptions;
 create trigger sm_webhook_subscriptions_sync before insert or update on sm_webhook_subscriptions for each row execute function sm_sync_touch('webhook_subscription');
+create or replace trigger sm_webhook_subscriptions_demo after insert on sm_webhook_subscriptions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_webhook_subscriptions enable row level security;
 
 -- wfm_absence: مرخصی‌ها و غیبت‌ها
@@ -27901,6 +28318,7 @@ end
 $search$;
 drop trigger if exists sm_wfm_absences_sync on sm_wfm_absences;
 create trigger sm_wfm_absences_sync before insert or update on sm_wfm_absences for each row execute function sm_sync_touch('wfm_absence');
+create or replace trigger sm_wfm_absences_demo after insert on sm_wfm_absences for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_wfm_absences enable row level security;
 
 -- wfm_agent: وضعیت کارشناسان
@@ -27949,6 +28367,7 @@ create index if not exists sm_wfm_agents_unit_acc_idx on sm_wfm_agents (org_id, 
 create index if not exists sm_wfm_agents_domain_acc_idx on sm_wfm_agents (org_id, domain_id) where deleted_at is null and domain_id is not null;
 create index if not exists sm_wfm_agents_user_id_idx on sm_wfm_agents (org_id, user_id) where deleted_at is null;
 drop trigger if exists sm_wfm_agents_sync on sm_wfm_agents;
+create or replace trigger sm_wfm_agents_demo after insert on sm_wfm_agents for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_wfm_agents enable row level security;
 
 -- wfm_capacity: ظرفیت تیم‌ها
@@ -28001,6 +28420,7 @@ create index if not exists sm_wfm_capacity_domain_acc_idx on sm_wfm_capacity (or
 create index if not exists sm_wfm_capacity_user_id_idx on sm_wfm_capacity (org_id, user_id) where deleted_at is null;
 drop trigger if exists sm_wfm_capacity_sync on sm_wfm_capacity;
 create trigger sm_wfm_capacity_sync before insert or update on sm_wfm_capacity for each row execute function sm_sync_touch('wfm_capacity');
+create or replace trigger sm_wfm_capacity_demo after insert on sm_wfm_capacity for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_wfm_capacity enable row level security;
 
 -- wfm_certification: گواهینامه‌ها
@@ -28050,6 +28470,7 @@ create index if not exists sm_wfm_certifications_unit_acc_idx on sm_wfm_certific
 create index if not exists sm_wfm_certifications_domain_acc_idx on sm_wfm_certifications (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_wfm_certifications_sync on sm_wfm_certifications;
 create trigger sm_wfm_certifications_sync before insert or update on sm_wfm_certifications for each row execute function sm_sync_touch('wfm_certification');
+create or replace trigger sm_wfm_certifications_demo after insert on sm_wfm_certifications for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_wfm_certifications enable row level security;
 
 -- wfm_config: تنظیمات نیروی کار
@@ -28107,6 +28528,7 @@ create index if not exists sm_wfm_config_crt_idx on sm_wfm_config (org_id, creat
 create unique index if not exists sm_wfm_config_config_key_uk on sm_wfm_config (org_id, config_key) where deleted_at is null;
 drop trigger if exists sm_wfm_config_sync on sm_wfm_config;
 create trigger sm_wfm_config_sync before insert or update on sm_wfm_config for each row execute function sm_sync_touch('wfm_config');
+create or replace trigger sm_wfm_config_demo after insert on sm_wfm_config for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_wfm_config enable row level security;
 
 -- wfm_coverage: نیازهای مهارتی
@@ -28155,6 +28577,7 @@ create index if not exists sm_wfm_coverage_unit_acc_idx on sm_wfm_coverage (org_
 create index if not exists sm_wfm_coverage_domain_acc_idx on sm_wfm_coverage (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_wfm_coverage_sync on sm_wfm_coverage;
 create trigger sm_wfm_coverage_sync before insert or update on sm_wfm_coverage for each row execute function sm_sync_touch('wfm_coverage');
+create or replace trigger sm_wfm_coverage_demo after insert on sm_wfm_coverage for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_wfm_coverage enable row level security;
 
 -- wfm_kudos: قدردانی‌ها
@@ -28202,6 +28625,7 @@ create index if not exists sm_wfm_kudos_domain_acc_idx on sm_wfm_kudos (org_id, 
 create index if not exists sm_wfm_kudos_from_id_idx on sm_wfm_kudos (org_id, from_id) where deleted_at is null;
 drop trigger if exists sm_wfm_kudos_sync on sm_wfm_kudos;
 create trigger sm_wfm_kudos_sync before insert or update on sm_wfm_kudos for each row execute function sm_sync_touch('wfm_kudos');
+create or replace trigger sm_wfm_kudos_demo after insert on sm_wfm_kudos for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_wfm_kudos enable row level security;
 
 -- wfm_person_skill: مهارت‌های افراد
@@ -28255,6 +28679,7 @@ create index if not exists sm_wfm_person_skills_unit_acc_idx on sm_wfm_person_sk
 create index if not exists sm_wfm_person_skills_domain_acc_idx on sm_wfm_person_skills (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_wfm_person_skills_sync on sm_wfm_person_skills;
 create trigger sm_wfm_person_skills_sync before insert or update on sm_wfm_person_skills for each row execute function sm_sync_touch('wfm_person_skill');
+create or replace trigger sm_wfm_person_skills_demo after insert on sm_wfm_person_skills for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_wfm_person_skills enable row level security;
 
 -- wfm_points: دفتر امتیازها
@@ -28305,6 +28730,7 @@ create index if not exists sm_wfm_points_unit_acc_idx on sm_wfm_points (org_id, 
 create index if not exists sm_wfm_points_domain_acc_idx on sm_wfm_points (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_wfm_points_sync on sm_wfm_points;
 create trigger sm_wfm_points_sync before insert or update on sm_wfm_points for each row execute function sm_sync_touch('wfm_points');
+create or replace trigger sm_wfm_points_demo after insert on sm_wfm_points for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_wfm_points enable row level security;
 
 -- wfm_presence_log: سابقهٔ حضور
@@ -28349,6 +28775,7 @@ create index if not exists sm_wfm_presence_log_workspace_acc_idx on sm_wfm_prese
 create index if not exists sm_wfm_presence_log_unit_acc_idx on sm_wfm_presence_log (org_id, unit_id) where deleted_at is null and unit_id is not null;
 create index if not exists sm_wfm_presence_log_domain_acc_idx on sm_wfm_presence_log (org_id, domain_id) where deleted_at is null and domain_id is not null;
 drop trigger if exists sm_wfm_presence_log_sync on sm_wfm_presence_log;
+create or replace trigger sm_wfm_presence_log_demo after insert on sm_wfm_presence_log for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_wfm_presence_log enable row level security;
 
 -- wfm_roster: برنامه‌های شیفت
@@ -28418,6 +28845,7 @@ end
 $search$;
 drop trigger if exists sm_wfm_rosters_sync on sm_wfm_rosters;
 create trigger sm_wfm_rosters_sync before insert or update on sm_wfm_rosters for each row execute function sm_sync_touch('wfm_roster');
+create or replace trigger sm_wfm_rosters_demo after insert on sm_wfm_rosters for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_wfm_rosters enable row level security;
 
 -- wfm_shift_pattern: الگوهای شیفت
@@ -28462,6 +28890,7 @@ create index if not exists sm_wfm_shift_patterns_crt_idx on sm_wfm_shift_pattern
 create unique index if not exists sm_wfm_shift_patterns_name_uk on sm_wfm_shift_patterns (org_id, name) where deleted_at is null;
 drop trigger if exists sm_wfm_shift_patterns_sync on sm_wfm_shift_patterns;
 create trigger sm_wfm_shift_patterns_sync before insert or update on sm_wfm_shift_patterns for each row execute function sm_sync_touch('wfm_shift_pattern');
+create or replace trigger sm_wfm_shift_patterns_demo after insert on sm_wfm_shift_patterns for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_wfm_shift_patterns enable row level security;
 
 -- wfm_skill: فهرست مهارت‌ها
@@ -28506,6 +28935,7 @@ create index if not exists sm_wfm_skills_crt_idx on sm_wfm_skills (org_id, creat
 create unique index if not exists sm_wfm_skills_name_uk on sm_wfm_skills (org_id, name) where deleted_at is null;
 drop trigger if exists sm_wfm_skills_sync on sm_wfm_skills;
 create trigger sm_wfm_skills_sync before insert or update on sm_wfm_skills for each row execute function sm_sync_touch('wfm_skill');
+create or replace trigger sm_wfm_skills_demo after insert on sm_wfm_skills for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_wfm_skills enable row level security;
 
 -- wo_task: وظیفه‌های دستور کار
@@ -28615,6 +29045,7 @@ end
 $search$;
 drop trigger if exists sm_wo_tasks_sync on sm_wo_tasks;
 create trigger sm_wo_tasks_sync before insert or update on sm_wo_tasks for each row execute function sm_sync_touch('wo_task');
+create or replace trigger sm_wo_tasks_demo after insert on sm_wo_tasks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_wo_tasks enable row level security;
 
 -- wo_task_template: الگوهای وظیفهٔ میدانی
@@ -28660,6 +29091,7 @@ create index if not exists sm_wo_task_templates_upd_idx on sm_wo_task_templates 
 create index if not exists sm_wo_task_templates_crt_idx on sm_wo_task_templates (org_id, created_at desc, id desc) where deleted_at is null;
 drop trigger if exists sm_wo_task_templates_sync on sm_wo_task_templates;
 create trigger sm_wo_task_templates_sync before insert or update on sm_wo_task_templates for each row execute function sm_sync_touch('wo_task_template');
+create or replace trigger sm_wo_task_templates_demo after insert on sm_wo_task_templates for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_wo_task_templates enable row level security;
 
 -- work_order: دستورهای کار
@@ -28796,6 +29228,7 @@ end
 $search$;
 drop trigger if exists sm_work_orders_sync on sm_work_orders;
 create trigger sm_work_orders_sync before insert or update on sm_work_orders for each row execute function sm_sync_touch('work_order');
+create or replace trigger sm_work_orders_demo after insert on sm_work_orders for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_work_orders enable row level security;
 
 -- workspace: فضاهای کاری
@@ -28841,6 +29274,7 @@ create index if not exists sm_workspaces_crt_idx on sm_workspaces (org_id, creat
 create unique index if not exists sm_workspaces_key_uk on sm_workspaces (org_id, key) where deleted_at is null;
 drop trigger if exists sm_workspaces_sync on sm_workspaces;
 create trigger sm_workspaces_sync before insert or update on sm_workspaces for each row execute function sm_sync_touch('workspace');
+create or replace trigger sm_workspaces_demo after insert on sm_workspaces for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 alter table sm_workspaces enable row level security;
 
 -- alert: archive
@@ -33289,3 +33723,75 @@ create index if not exists sm_audit_at_brin on sm_audit using brin (at);
 create index if not exists sm_notification_log_created_brin on sm_notification_log using brin (created_at);
 
 insert into sm_migrations (id) values ('0095_scale') on conflict (id) do nothing;
+
+-- ---------------------------------------------------------------------------
+-- 0098_demo — داده‌های نمایشی: بستهٔ نمایشی سازمان و فهرست همهٔ ردیف‌هایی که ساخته است (برای حذف بی‌ردپا)
+-- ---------------------------------------------------------------------------
+create table if not exists sm_demo_packs (
+  org_id uuid primary key references sm_orgs(id) on delete cascade,
+  state text not null default 'loading',
+  size text not null default 'small',
+  options jsonb not null default '{}'::jsonb,
+  progress jsonb not null default '{}'::jsonb,
+  counts jsonb not null default '{}'::jsonb,
+  counters jsonb not null default '{}'::jsonb,
+  report jsonb,
+  error text,
+  started_by uuid,
+  started_at timestamptz not null default now(),
+  loaded_at timestamptz,
+  purge_started_at timestamptz,
+  purge_mark bigint,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists sm_demo_rows (
+  org_id uuid not null,
+  row_id uuid not null,
+  tbl text not null,
+  primary key (org_id, row_id)
+);
+create index if not exists sm_demo_rows_tbl_idx on sm_demo_rows (org_id, tbl);
+
+-- the computed tables' rows as they were before the load (purge.ts COMPUTED_TABLES): put back by the purge
+create table if not exists sm_demo_saved (
+  org_id uuid not null,
+  tbl text not null,
+  row_id uuid not null,
+  data jsonb not null,
+  primary key (org_id, tbl, row_id)
+);
+
+alter table sm_demo_packs enable row level security;
+alter table sm_demo_rows enable row level security;
+alter table sm_demo_saved enable row level security;
+
+create or replace function sm_demo_capture() returns trigger language plpgsql as $demo$
+begin
+  insert into sm_demo_rows (org_id, row_id, tbl) values (new.org_id, new.id, tg_table_name) on conflict do nothing;
+  return null;
+end
+$demo$;
+
+-- the platform's own tables with id + org_id (the engine's tables got theirs with their DDL): read from pg_catalog,
+-- which is fast everywhere (information_schema is slow on the embedded database), and only where it is missing
+do $capture$
+declare
+  t record;
+begin
+  for t in
+    select c.relname as table_name
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace and n.nspname = current_schema()
+     where c.relkind = 'r' and c.relname like 'sm\_%' and c.relname not like '%\_arc'
+       and c.relname not in ('sm_orgs', 'sm_demo_rows', 'sm_demo_packs', 'sm_demo_saved')
+       and exists (select 1 from pg_attribute a where a.attrelid = c.oid and a.attname = 'id' and a.atttypid = 'uuid'::regtype and not a.attisdropped)
+       and exists (select 1 from pg_attribute a where a.attrelid = c.oid and a.attname = 'org_id' and a.atttypid = 'uuid'::regtype and not a.attisdropped)
+       and not exists (select 1 from pg_trigger g where g.tgrelid = c.oid and g.tgname = left(c.relname || '_demo', 63))
+  loop
+    execute format('create trigger %I after insert on %I for each row when (current_setting(''itsm.demo'', true) = new.org_id::text) execute function sm_demo_capture()', left(t.table_name || '_demo', 63), t.table_name);
+  end loop;
+end
+$capture$;
+
+insert into sm_migrations (id) values ('0098_demo') on conflict (id) do nothing;

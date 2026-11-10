@@ -6,7 +6,7 @@
 //   record pages  analyse / suggest a mapping / dry run / run an import set; publish a notice
 //   elsewhere     the platform owner's console sections (src/ui/pages/admin, lazy from ./platform)
 import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
-import { LayoutDashboard, Palette, UserPlus, Grid3x3, Shapes, ScrollText, IdCard, FileInput, ArrowRightLeft, Download, Megaphone } from "lucide-react";
+import { LayoutDashboard, Palette, UserPlus, Grid3x3, Shapes, ScrollText, IdCard, FileInput, ArrowRightLeft, Download, Megaphone, FlaskConical } from "lucide-react";
 import type { ModuleUi } from "../registry";
 import type { AccessGate } from "@shared/access";
 import { recordModule } from "../../records/module";
@@ -21,6 +21,7 @@ const Studio = lazy(() => import("./Studio"));
 const CustomTable = lazy(() => import("./Studio").then((m) => ({ default: m.CustomTable })));
 const Logs = lazy(() => import("./Logs"));
 const Licences = lazy(() => import("./Licences"));
+const Demo = lazy(() => import("./Demo"));
 const ImportActions = lazy(() => import("./Panels").then((m) => ({ default: m.ImportActions })));
 const NoticeActions = lazy(() => import("./Panels").then((m) => ({ default: m.NoticeActions })));
 const ExportButton = lazy(() => import("./Panels").then((m) => ({ default: m.ExportButton })));
@@ -62,6 +63,7 @@ const module = recordModule({
     { key: "admin:studio", access: ADMINISTERS, label: "استودیو", path: "settings/studio", icon: Shapes, section: S, area: "settings", keywords: "جدول سفارشی فیلد سفارشی فرم فهرست نسخه بسته" },
     { key: "admin:logs", access: ADMINISTERS, label: "گزارش‌های سامانه", path: "settings/logs", icon: ScrollText, section: S, area: "settings", level: "full", keywords: "کار پس‌زمینه اعلان جریان کار اتصال امنیت خطا" },
     { key: "admin:licences", access: ADMINISTERS, label: "مجوزها و صندلی‌ها", path: "settings/licences", icon: IdCard, section: S, area: "settings", keywords: "لایسنس صندلی کارشناس کاربر بیکار" },
+    { key: "admin:demo", access: ADMINISTERS, label: "داده‌های نمایشی", path: "settings/demo", icon: FlaskConical, section: S, area: "settings", level: "full", keywords: "دمو نمایش بانک نمونه آفتاب آزمایشی بارگذاری حذف" },
   ],
   routes: [
     { path: "settings/admin", element: page(<Home />) },
@@ -72,6 +74,7 @@ const module = recordModule({
     { path: "studio/t/:slot", element: page(<CustomTable />) },
     { path: "settings/logs", element: page(<Logs />) },
     { path: "settings/licences", element: page(<Licences />) },
+    { path: "settings/demo", element: page(<Demo />) },
   ],
   segments: { studio: "settings" },
 });

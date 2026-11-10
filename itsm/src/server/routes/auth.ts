@@ -151,6 +151,8 @@ authRoutes.patch("/me", requireUser, async (c) => {
   const cfg = c.get("cfg");
   const input = await body(c, z.object({ full_name: z.string().trim().min(2).max(120).optional(), mobile: z.string().trim().max(20).nullable().optional(), prefs: z.record(z.string(), z.unknown()).optional() }));
   const u = c.get("user");
+  // the mark of a demo pack's person (docs/DEMO_FA.md) is the platform's, never the person's to change
+  if (input.prefs) delete input.prefs.demo_org;
   await cfg.db.query(
     `update sm_users set full_name = coalesce($2, full_name), mobile = case when $3::boolean then $4 else mobile end,
        prefs = case when $5::jsonb is null then prefs else prefs || $5::jsonb end where id = $1`,

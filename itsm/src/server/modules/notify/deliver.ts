@@ -393,7 +393,9 @@ export async function runSend(job: Job, jctx: JobContext): Promise<void> {
       } else {
         const target = c === "email" ? rctx.user.email : normalizeMobile(rctx.user.mobile);
         const quiet = p.rule.mandatory ? null : quietUntil(prefs, now, tz);
-        if (!target) await outcome(jctx, p, c, { ...base, status: "skipped", reason: "no_address" });
+        // the demo pack's people (docs/DEMO_FA.md) have fictional addresses: nothing leaves the system for them
+        if (rctx.user.prefs?.demo_org) await outcome(jctx, p, c, { ...base, status: "skipped", reason: "demo" });
+        else if (!target) await outcome(jctx, p, c, { ...base, status: "skipped", reason: "no_address" });
         else if (quiet) await holdFor(jctx, p, c, quiet, "quiet");
         else if (c === "email" && !p.rule.mandatory && p.rule.digest && prefs.digest !== "none") await holdFor(jctx, p, c, nextDigestAt(prefs.digest, now, tz, prefs.digest_hour), "digest");
         else if (c === "email") {
@@ -609,6 +611,11 @@ export async function runFlush(job: Job, jctx: JobContext): Promise<void> {
     else items.push({ h, r, ev });
   }
   if (!items.length) return;
+  if (rctx.user.prefs?.demo_org) {
+    // the demo pack's people (docs/DEMO_FA.md) have fictional addresses: nothing leaves the system for them
+    for (const i of items) await settleHeld(jctx.db, i.h.id, "skipped", { reason: "demo" });
+    return;
+  }
   if (channel === "email") {
     const to = rctx.user.email;
     const digest = items.length > 1 || items.some((i) => i.h.reason === "digest");
