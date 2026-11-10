@@ -402,6 +402,29 @@ export function monthsBetween(from: string, to: string): number {
   return Math.max(0, (z.jy - a.jy) * 12 + (z.jm - a.jm) - (z.jd < a.jd ? 1 : 0));
 }
 
+/**
+ * Published end-of-support dates of the operating systems that run self-service devices (the vendor's lifecycle
+ * pages; a starting value for `asset.os_eos_date` — the organisation checks and corrects it). Most specific first.
+ */
+export const OS_LIFECYCLE: { match: RegExp; label: string; eos: string }[] = [
+  { match: /windows\s*11.*iot.*ltsc\s*2024|windows\s*11.*ltsc\s*2024/i, label: "Windows 11 IoT Enterprise LTSC 2024", eos: "2034-10-10" },
+  { match: /windows\s*10.*iot.*(ltsc\s*2021|2021\s*ltsc)/i, label: "Windows 10 IoT Enterprise LTSC 2021", eos: "2032-01-13" },
+  { match: /windows\s*10.*(ltsc\s*2021|2021\s*ltsc)/i, label: "Windows 10 Enterprise LTSC 2021", eos: "2027-01-12" },
+  { match: /windows\s*10.*(ltsc\s*2019|2019\s*ltsc)/i, label: "Windows 10 Enterprise LTSC 2019", eos: "2029-01-09" },
+  { match: /windows\s*10.*(ltsb\s*2016|2016\s*ltsb)/i, label: "Windows 10 Enterprise LTSB 2016", eos: "2026-10-13" },
+  { match: /windows\s*10.*(ltsb\s*2015|2015\s*ltsb)/i, label: "Windows 10 Enterprise LTSB 2015", eos: "2025-10-14" },
+  { match: /embedded\s*standard\s*7|windows\s*7\s*embedded|wes\s*7/i, label: "Windows Embedded Standard 7", eos: "2020-10-13" },
+  { match: /windows\s*7/i, label: "Windows 7", eos: "2020-01-14" },
+  { match: /windows\s*xp/i, label: "Windows XP", eos: "2014-04-08" },
+];
+
+/** The published end of support of an operating system name, or null. */
+export function osEndOfSupport(name: unknown): string | null {
+  const text = String(name ?? "").trim();
+  if (!text) return null;
+  return OS_LIFECYCLE.find((o) => o.match.test(text))?.eos ?? null;
+}
+
 /** End-of-support buckets of a device (today, within 180 days, later, unknown). */
 export function eosBucket(today: string, eos: unknown): "past" | "soon" | "ok" | "unknown" {
   const days = daysTo(today, eos);

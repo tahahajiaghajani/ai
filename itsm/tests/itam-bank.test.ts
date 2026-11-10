@@ -42,7 +42,7 @@ beforeAll(async () => {
   a.v3 = await mk(u.vanak, { serial_number: "V-3" });
   a.t1 = await mk(u.tajrish, { serial_number: "T-1" });
   a.n1 = await mk(u.naqsh, { serial_number: "N-1" });
-  a.atm = await mk(u.vanak, { model_id: atmModel, serial_number: "ATM-1", terminal_id: "10010001", purchase_cost: "45000000000", in_service_date: "2025-06-01" });
+  a.atm = await mk(u.vanak, { model_id: atmModel, serial_number: "ATM-1", terminal_id: "10010001", purchase_cost: "45000000000", in_service_date: "2025-06-01", os_name: "Windows 10 IoT Enterprise LTSC 2021" });
 }, 180_000);
 
 const ids = (rows: any[]) => rows.map((r) => r.id).sort();
@@ -253,6 +253,7 @@ describe("branch managers' attestation", () => {
 describe("the ATM fleet", () => {
   it("starts a device in service, records status periods and opens a cash incident on request", async () => {
     expect(a.atm.device_status).toBe("in_service");
+    expect(a.atm.os_eos_date).toBe("2032-01-13"); // the published end of support of its OS
     const r = await m.vanak.client.post(`${w.P}/itam/fleet/${a.atm.id}/status`, { status: "out_of_cash", reason: "کاست‌ها خالی است", incident: true });
     expect(r.asset.device_status).toBe("out_of_cash");
     expect(r.incident?.number).toBeTruthy();

@@ -19,7 +19,7 @@ import { tableDef } from "@shared/tables";
 import { CUSTODY_EVENTS, DEVICE_STATUS, FLEET_CATEGORIES, MODEL_CATEGORIES, SANITIZATION_METHODS, TRANSFER_REASONS } from "@shared/tables/itam";
 import {
   RESOLUTIONS_FOR, attestationDue, attestationPeriod, availabilityOf, cleanAttributes, daysTo, deviceClass, eosBucket, failureRisk, fiscalYearDepreciation,
-  isFleetCategory, monthsBetween, openDiscrepancies, penaltyOf, receiptOutcome, transferProblem,
+  isFleetCategory, monthsBetween, openDiscrepancies, osEndOfSupport, penaltyOf, receiptOutcome, transferProblem,
   type AuditResolution, type AuditResult, type StatusPeriod, type TransferItemResult,
 } from "@shared/itam/bank";
 import type { DepMethod } from "@shared/itam/logic";
@@ -150,6 +150,8 @@ async function assetBefore(w: WriteArgs): Promise<void> {
     }
   }
   if (w.op === "create" && !n.device_status && isFleetCategory(n.category)) n.device_status = "in_service";
+  // the published end of support of a known operating system, unless one was entered
+  if ((w.op === "create" || w.changed.has("os_name")) && n.os_name && !n.os_eos_date && !w.input?.has("os_eos_date")) n.os_eos_date = osEndOfSupport(n.os_name);
   if (w.changed.has("device_status") || (w.op === "create" && n.device_status)) n.device_status_at = nowIso();
   if (isSys(w.ctx) || w.via === "sync") return;
   const everywhere = await holds(w.ctx, "asset", "write", "all", w.tx);

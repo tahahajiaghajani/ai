@@ -41,6 +41,7 @@ const Fleet = lazy(() => import("./Bank").then((m) => ({ default: m.Fleet })));
 const Register = lazy(() => import("./Bank").then((m) => ({ default: m.Register })));
 const MobileScan = lazy(() => import("./MobileScan"));
 const TransferActions = lazy(() => import("./BankParts").then((m) => ({ default: m.TransferActions })));
+const TransferPrintTab = lazy(() => import("./BankParts").then((m) => ({ default: m.TransferPrintTab })));
 const AuditReconcileTab = lazy(() => import("./BankParts").then((m) => ({ default: m.AuditReconcileTab })));
 const AuditMobileAction = lazy(() => import("./BankParts").then((m) => ({ default: m.AuditMobileAction })));
 const AttestAction = lazy(() => import("./BankParts").then((m) => ({ default: m.AttestAction })));
@@ -94,7 +95,8 @@ const module = recordModule({
     { table: "disposal_item", path: "itam/disposal-items", label: "اقلام اسقاط", icon: Recycle, hidden: true, search: false, newAction: false, extensions: { headerActions: action("itam-wipe-cert", WipeCertificateAction) } },
     {
       table: "asset_transfer", path: "itam/transfers", label: "حواله‌های انتقال", noun: "حوالهٔ انتقال", icon: Truck, section: BANK, area: "work", access: ASSETS,
-      keywords: "حواله انتقال رسید شعبه جابه‌جایی", extensions: { headerActions: action("itam-transfer", TransferActions) },
+      keywords: "حواله انتقال رسید شعبه جابه‌جایی",
+      extensions: { headerActions: action("itam-transfer", TransferActions), tabs: [{ key: "itam:transfer", label: "حواله و رسید", order: 0, participants: true, render: widget(TransferPrintTab) }] },
     },
     { table: "asset_transfer_item", path: "itam/transfer-items", label: "اقلام حواله", icon: Truck, hidden: true, search: false, newAction: false },
     {

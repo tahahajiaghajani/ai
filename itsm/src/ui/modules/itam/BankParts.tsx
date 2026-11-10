@@ -8,13 +8,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Checkbox, Drawer, Input, InputNumber, Modal, Select, Switch, Table } from "antd";
-import { BadgeCheck, FileBadge, PackageCheck, ShieldCheck, Smartphone, Stamp } from "lucide-react";
+import { BadgeCheck, FileBadge, PackageCheck, Printer, ShieldCheck, Smartphone, Stamp } from "lucide-react";
 import { deviceClass, RESOLUTIONS_FOR, type AuditResult } from "@shared/itam/bank";
-import { AUDIT_RESOLUTIONS, CONDITIONS, CUSTODY_EVENTS } from "@shared/tables/itam";
+import { AUDIT_RESOLUTIONS, CONDITIONS, CUSTODY_EVENTS, TRANSFER_ITEM_RESULTS, TRANSFER_REASONS } from "@shared/tables/itam";
 import { formatJalaliDateTime } from "@shared/jalali";
 import { useOrg } from "../../lib/org";
 import { fa } from "../../lib/fa";
-import { Card, Field, Note } from "../../components/blocks";
+import { Card, Field, Note, PrintFoot, PrintHead } from "../../components/blocks";
 import { Chip, Loader } from "../../components/display";
 import { DateInput } from "../../components/inputs";
 import { recordsApi, RecordSelect } from "../../records";
@@ -81,6 +81,34 @@ export function TransferActions({ ctx }: { ctx: RecordContext }) {
       <Button type="primary" icon={<PackageCheck {...ICON} />} onClick={() => setOpen(true)}>ثبت رسید</Button>
       {open ? <ReceiveDrawer transferId={String(ctx.row.id)} title={String(ctx.row.number ?? "")} onClose={() => setOpen(false)} onDone={() => { setOpen(false); ctx.refresh(); void qc.invalidateQueries({ queryKey: ["itam", orgId] }); }} /> : null}
     </>
+  );
+}
+
+/** «حواله و رسید»: the note's items with their receipt, printable with the three signatures of the hand-over. */
+export function TransferPrintTab({ ctx }: { ctx: RecordContext }) {
+  const { api, orgId } = useOrg();
+  const id = String(ctx.row.id);
+  const q = useQuery({ queryKey: BANK_KEYS.transfer(orgId, id), queryFn: () => bankApi.transferItems(api, id) });
+  const name = (field: string) => ctx.display[String(ctx.row[field] ?? "")] ?? "—";
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="no-print"><Button size="small" icon={<Printer {...ICON} />} onClick={() => window.print()}>چاپ حواله</Button></div>
+      <PrintHead title={`حوالهٔ انتقال دارایی — ${String(ctx.row.title ?? "")}`} no={String(ctx.row.number ?? "")} date={ctx.row.dispatched_at ? String(ctx.row.dispatched_at).slice(0, 10) : null}
+        lines={[`از ${name("from_branch_id")} به ${name("to_branch_id")}`, label(TRANSFER_REASONS, ctx.row.reason), ctx.row.waybill_no ? `بارنامه ${String(ctx.row.waybill_no)}` : ""]} />
+      {q.isLoading ? <Loader /> : (
+        <Card title="اقلام" flush>
+          <Table<TransferItemView> size="small" rowKey="id" pagination={false} dataSource={q.data?.items ?? []} columns={[
+            { title: "ردیف", key: "i", width: 60, render: (_: unknown, __: TransferItemView, i: number) => <span className="ds-num">{fa(i + 1)}</span> },
+            { title: "دارایی", dataIndex: "label" },
+            { title: "هنگام ارسال", key: "out", render: (_: unknown, r: TransferItemView) => label(CONDITIONS, r.condition_out) },
+            { title: "رسید", key: "res", render: (_: unknown, r: TransferItemView) => label(TRANSFER_ITEM_RESULTS, r.result) },
+            { title: "هنگام رسید", key: "in", render: (_: unknown, r: TransferItemView) => (r.condition_in ? label(CONDITIONS, r.condition_in) : "—") },
+            { title: "یادداشت", dataIndex: "note" },
+          ]} />
+        </Card>
+      )}
+      <PrintFoot sign={["تحویل‌دهنده (شعبهٔ مبدأ)", "حمل‌کننده", "تحویل‌گیرنده (شعبهٔ مقصد)"]} />
+    </div>
   );
 }
 

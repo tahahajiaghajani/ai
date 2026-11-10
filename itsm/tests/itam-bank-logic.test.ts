@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
   attestationPeriod, availabilityOf, cleanAttributes, failureRisk, fiscalYearDepreciation, nextJalaliMonthStart, openDiscrepancies, penaltyOf, receiptOutcome, RESOLUTIONS_FOR,
-  tagFromPattern, transferProblem, BANK_DEVICE_CLASSES, deviceClass, eosBucket,
+  tagFromPattern, transferProblem, BANK_DEVICE_CLASSES, deviceClass, eosBucket, osEndOfSupport,
 } from "@shared/itam/bank";
 import { fromJalali } from "@shared/jalali";
 import { MODEL_CATEGORIES } from "@shared/tables/itam";
@@ -105,6 +105,13 @@ describe("availability and penalties", () => {
     expect(eosBucket("2026-11-10", "2026-10-01")).toBe("past");
     expect(eosBucket("2026-11-10", "2027-02-01")).toBe("soon");
     expect(eosBucket("2026-11-10", null)).toBe("unknown");
+    // the published end of support of the operating systems ATMs run
+    expect(osEndOfSupport("Microsoft Windows 10 IoT Enterprise LTSC 2021")).toBe("2032-01-13");
+    expect(osEndOfSupport("Windows 10 Enterprise 2016 LTSB")).toBe("2026-10-13");
+    expect(osEndOfSupport("Windows 10 Enterprise LTSB 2016")).toBe("2026-10-13");
+    expect(osEndOfSupport("Windows Embedded Standard 7 SP1")).toBe("2020-10-13");
+    expect(osEndOfSupport("Windows 7 Professional")).toBe("2020-01-14");
+    expect(osEndOfSupport("Ubuntu 22.04")).toBeNull();
   });
 });
 
