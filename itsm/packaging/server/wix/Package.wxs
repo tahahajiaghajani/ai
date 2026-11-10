@@ -40,7 +40,7 @@
     <!-- the product's icon (desktop/build/icon.ico: the brand's mark when it lands) -->
     <Icon Id="ProductIcon" SourceFile="$(var.IconFile)" />
     <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
-    <Property Id="ARPNOMODIFY" Value="1" />
+    <!-- ARPNOMODIFY=1 comes from WixUI_InstallDir (declaring it here is a duplicate-symbol link error) -->
     <Property Id="ARPNOREPAIR" Value="1" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
