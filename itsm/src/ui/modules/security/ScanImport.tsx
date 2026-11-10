@@ -15,7 +15,7 @@ import { decodeText } from "@shared/sheet";
 import { securityApi, type ScanImportResult } from "./api";
 
 const fa = (n: number) => n.toLocaleString("fa-IR");
-const MAX = 20_000_000;
+const MAX = 10_000_000;
 
 export default function ScanImport() {
   const { api, orgId } = useOrg();
@@ -46,7 +46,7 @@ export default function ScanImport() {
               </p>
               <p className="text-[12px] text-ink-3">Nessus (CSV یا ‎.nessus)، Qualys (CSV یا XML)، OpenVAS (CSV یا XML)، JSON</p>
             </Upload.Dragger>
-            {tooBig ? <Alert type="warning" showIcon title="پرونده بزرگ است؛ آن را چند بخش کنید (حداکثر ۲۰ مگابایت)." /> : null}
+            {tooBig ? <Alert type="warning" showIcon title="پرونده بزرگ است؛ آن را چند بخش کنید (حداکثر ۱۰ مگابایت)." /> : null}
             <Select
               className="w-full"
               value={scanner}

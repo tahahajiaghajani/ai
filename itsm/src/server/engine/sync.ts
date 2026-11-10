@@ -134,6 +134,14 @@ async function checkRecord(tx: Tx, ctx: Ctx, def: TableDef, schema: OrgSchema, e
     if (!visibleNow.has(wire.id)) return `این ${def.label} در دسترس شما نیست`;
     const deleting = !!row.deleted_at && !prev.deleted_at;
     if (!(await canWriteRow(tx, ctx, def, prev, env, deleting ? "delete" : "write"))) return deleting ? `اجازهٔ حذف این ${def.label} را ندارید` : `اجازهٔ تغییر این ${def.label} را ندارید`;
+    // a deletion asks the modules' delete rules (their beforeWrite refusals) of the stored row
+    if (deleting && !isSystemCtx(ctx)) {
+      for (const h of hooksFor(def.key)) {
+        if (!h.validatePushDelete) continue;
+        const refusal = await h.validatePushDelete({ tx, ctx, def, prev, next: { ...prev }, changed: new Set(), env });
+        if (refusal) return refusal;
+      }
+    }
     for (const c of PINNED) if (c in row || c === "no") row[c] = prev[c];
   } else if (!isSystemCtx(ctx) && !access().canCreate(ctx, def, row)) {
     return `اجازهٔ ایجاد ${def.label} را ندارید`;

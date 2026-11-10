@@ -170,7 +170,7 @@ export const SIR_STATES: StateModel = {
     { from: ["analysis", "contain", "eradicate", "recover"], to: "review", label: "بازبینی پس از رخداد", requires: ["close_code"], guard: "sec_can_review" },
     { from: ["review"], to: "recover", label: "بازگشت به بازیابی" },
     { from: ["review"], to: "closed", label: "بستن", requires: ["close_notes"], guard: "sec_can_close" },
-    { from: ["draft", "analysis"], to: "canceled", label: "لغو", requires: ["close_code", "close_notes"] },
+    { from: ["draft", "analysis"], to: "canceled", label: "لغو", requires: ["close_code", "close_notes"], guard: "sec_can_cancel" },
   ],
   locked: ["closed", "canceled"],
 };
@@ -206,7 +206,7 @@ const secIncident: TableDef = {
     { name: "source", label: "منبع", type: "choice", choices: SIR_SOURCES, default: "manual", filter: true, span: 8, section: MAIN },
     { name: "attack_vector", label: "مسیر حمله", type: "choice", choices: ATTACK_VECTORS, filter: true, span: 8, section: MAIN },
     { name: "mitre_techniques", label: "تکنیک‌های MITRE ATT&CK", type: "tags", filter: true, search: true, span: 16, section: MAIN, help: "مانند T1566 یا T1486" },
-    { name: "caller_id", label: "گزارش‌دهنده", type: "user", section: MAIN },
+    { name: "caller_id", label: "گزارش‌دهنده", type: "user", index: true, section: MAIN },
     { name: "assignment_group_id", label: "گروه پاسخ", type: "group", section: MAIN },
     { name: "assigned_to", label: "تحلیل‌گر", type: "user", section: MAIN },
     { name: "lead_id", label: "فرماندهٔ پاسخ", type: "user", filter: true, index: true, span: 8, section: MAIN },
@@ -250,9 +250,11 @@ const secIncident: TableDef = {
   states: SIR_STATES,
   scope: {
     ...TASK_SCOPE,
-    own: ["caller_id", "opened_by", "assigned_to", "lead_id"],
-    requester: ["caller_id", "opened_by"],
-    // the reporter of a security incident changes nothing on it: the SOC works it
+    // the reporter (caller_id: a phishing reporter, the caller of a promoted IT incident) and whoever opened it are no
+    // way in: an own or requester field opens a record without the secure workspace to anyone holding any security
+    // grant. Reporters follow their reports through «گزارش‌های من» (myReports, read as the system); the SOC works it.
+    own: ["assigned_to", "lead_id"],
+    requester: [],
     requesterWritable: [],
     requesterTransitions: [],
   },
@@ -298,12 +300,14 @@ const secTask: TableDef = {
     { name: "approval", label: "تأیید", type: "choice", choices: APPROVAL_STATES, default: "not_requested", readonly: true, filter: true, span: 8 },
     { name: "executed_at", label: "زمان اجرا", type: "datetime", system: true, sort: true, span: 8 },
     { name: "executed_by", label: "اجراکننده", type: "user", system: true, span: 8 },
+    { name: "started_by", label: "آغازکننده", type: "user", system: true, span: 8, help: "کسی که کار را شروع کرد و تأیید اقدام را خواست؛ خودش آن را تأیید نمی‌کند" },
     { name: "action_result", label: "نتیجهٔ اقدام", type: "text", span: 24 },
     ...hideTaskFields(["channel", "category", "subcategory", "impact", "urgency", "requested_for", "offering_id", "knowledge", "escalation", "parent_id", "close_code", "service_id", "location_id"]),
   ],
   states: SEC_TASK_STATES,
-  // parent-scoped (ACCESS §7): a response task is read only by those who may read its security incident
-  scope: { ...TASK_SCOPE, requesterWritable: [], requesterTransitions: [], parent: "sec_incident_id" },
+  // parent-scoped (ACCESS §7): a response task is read only by those who may read its security incident. Whoever
+  // started it asked for its approval: a requester-side field, so the approvals' separation of duties leaves them out.
+  scope: { ...TASK_SCOPE, requester: [...(TASK_SCOPE.requester ?? []), "started_by"], requesterWritable: [], requesterTransitions: [], parent: "sec_incident_id" },
   features: { approvals: true },
   list: { columns: ["number", "short_description", "sec_incident_id", "phase", "state", "action", "approval", "assigned_to"], order: "sort_order,number" },
 };
@@ -555,7 +559,8 @@ export const VULN_ITEM_STATES: StateModel = {
     { from: ["open", "in_remediation", "deferred", "exception"], to: "fixed", label: "رفع شد", requires: ["close_notes"] },
     { from: ["fixed"], to: "closed", label: "تأیید رفع" },
     { from: ["fixed", "closed"], to: "open", label: "بازگشایی (دوباره دیده شد)" },
-    { from: ["open", "in_remediation"], to: "false_positive", label: "مثبت کاذب", requires: ["close_notes"] },
+    // only through an approved «false positive» exception (applied by the module as the system), like a deferral
+    { from: ["open", "in_remediation"], to: "false_positive", label: "مثبت کاذب", requires: ["close_notes"], guard: "sec_vuln_exception_approved", roles: { area: "security", level: "full" } },
     { from: ["false_positive"], to: "open", label: "بازگشایی" },
   ],
   locked: ["closed", "canceled"],
@@ -680,27 +685,37 @@ const secRemediation: TableDef = {
   list: { columns: ["number", "title", "assignment_group_id", "state", "open_count", "item_count", "due_at"], order: "due_at" },
 };
 
-export const EXCEPTION_STATES: StateModel = {
-  field: "state",
-  initial: "draft",
-  states: [
-    { value: "draft", label: "پیش‌نویس", category: "new", color: "blue" },
-    { value: "requested", label: "در انتظار تأیید", category: "waiting", color: "gold" },
-    { value: "approved", label: "تأییدشده", category: "active", color: "green" },
-    { value: "rejected", label: "ردشده", category: "canceled", color: "red" },
-    { value: "expired", label: "منقضی", category: "closed", color: "gray" },
-    { value: "revoked", label: "ابطال‌شده", category: "closed", color: "gray" },
-  ],
-  transitions: [
-    { from: ["draft", "rejected"], to: "requested", label: "درخواست تأیید", guard: "sec_exception_valid" },
-    { from: ["requested"], to: "draft", label: "بازگشت به پیش‌نویس" },
-    { from: ["requested"], to: "approved", label: "تأیید", roles: { area: "security", level: "full" }, guard: "sec_exception_valid" },
-    { from: ["requested"], to: "rejected", label: "رد", roles: { area: "security", level: "full" } },
-    { from: ["approved"], to: "revoked", label: "ابطال", requires: ["notes"] },
-    { from: ["approved"], to: "expired", label: "انقضا", roles: { area: "security", level: "full" } },
-  ],
-  locked: ["closed"],
-};
+/**
+ * An exception's lifecycle (vulnerability exceptions in the security area, policy waivers in compliance). Approving
+ * and rejecting are the approval round's decision (the module moves the record as the system when it settles); a
+ * person takes them only after the round decided, or where no round asks — and never the exception's requester
+ * (guards `sec_exception_approve` / `sec_exception_reject`).
+ */
+export function exceptionStates(area: "security" | "compliance"): StateModel {
+  return {
+    field: "state",
+    initial: "draft",
+    states: [
+      { value: "draft", label: "پیش‌نویس", category: "new", color: "blue" },
+      { value: "requested", label: "در انتظار تأیید", category: "waiting", color: "gold" },
+      { value: "approved", label: "تأییدشده", category: "active", color: "green" },
+      { value: "rejected", label: "ردشده", category: "canceled", color: "red" },
+      { value: "expired", label: "منقضی", category: "closed", color: "gray" },
+      { value: "revoked", label: "ابطال‌شده", category: "closed", color: "gray" },
+    ],
+    transitions: [
+      { from: ["draft", "rejected"], to: "requested", label: "درخواست تأیید", guard: "sec_exception_valid" },
+      { from: ["requested"], to: "draft", label: "بازگشت به پیش‌نویس" },
+      { from: ["requested"], to: "approved", label: "تأیید", roles: { area, level: "full" }, guard: "sec_exception_approve" },
+      { from: ["requested"], to: "rejected", label: "رد", roles: { area, level: "full" }, guard: "sec_exception_reject" },
+      { from: ["approved"], to: "revoked", label: "ابطال", requires: ["notes"] },
+      { from: ["approved"], to: "expired", label: "انقضا", roles: { area, level: "full" } },
+    ],
+    locked: ["closed"],
+  };
+}
+
+export const EXCEPTION_STATES: StateModel = exceptionStates("security");
 
 const secException: TableDef = {
   key: "sec_vuln_exception",
@@ -1345,7 +1360,7 @@ const grcPolicyException: TableDef = {
     { name: "warned_at", label: "یادآوری انقضا", type: "datetime", system: true, audit: false, span: 8 },
     { name: "notes", label: "یادداشت", type: "text", span: 24 },
   ],
-  states: EXCEPTION_STATES,
+  states: exceptionStates("compliance"),
   scope: { own: ["requested_by", "approver_id"], group: "assignment_group_id", requester: ["requested_by"] },
   features: { journal: true, attachments: true, approvals: true },
   list: { columns: ["number", "title", "policy_id", "state", "expires_at", "requested_by"], order: "expires_at" },

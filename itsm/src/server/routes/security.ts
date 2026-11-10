@@ -5,7 +5,8 @@
 // does not allow). Routes every member may use: the phishing report, «گزارش‌های من» and «خط‌مشی‌های من».
 import { z } from "zod";
 import { router, body, query } from "../http/hono";
-import { forbidden } from "../http/errors";
+import { AppError, forbidden } from "../http/errors";
+import { bodyLimit } from "hono/body-limit";
 import { access } from "../access/provider";
 import { defFor } from "../engine";
 import { liveRow } from "../modules/incident";
@@ -107,9 +108,12 @@ securityRoutes.post("/phishing", async (c) => {
 securityRoutes.get("/my-reports", async (c) => c.json({ reports: await myReports(c.get("ctx")) }));
 
 // ----- vulnerability response -----
-securityRoutes.post("/scans/import", async (c) => {
+// a scanner export of up to 10 million characters (the body read no further: JSON escapes add a little)
+const SCAN_CHARS = 10_000_000;
+const SCAN_BODY = 16 * 1024 * 1024;
+securityRoutes.post("/scans/import", bodyLimit({ maxSize: SCAN_BODY, onError: () => { throw new AppError(413, "too_large", "پرونده بزرگ است (حداکثر ۱۰ مگابایت)؛ آن را چند بخش کنید"); } }), async (c) => {
   const input = await body(c, z.object({
-    name: text(200).min(1), content: z.string().min(1, "پرونده خالی است").max(20_000_000, "پرونده بزرگ است؛ آن را چند بخش کنید"),
+    name: text(200).min(1), content: z.string().min(1, "پرونده خالی است").max(SCAN_CHARS, "پرونده بزرگ است (حداکثر ۱۰ مگابایت)؛ آن را چند بخش کنید"),
     scanner: z.enum(["nessus", "qualys", "openvas", "generic"]).optional().nullable(), format: z.enum(["csv", "xml", "json"]).optional().nullable(), dry_run: z.boolean().optional(),
   }));
   return c.json(await importScan(c.get("ctx"), input));

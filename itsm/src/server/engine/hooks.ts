@@ -93,6 +93,12 @@ export interface TableHooks {
   /** a sync push of a record (rules with side effects ran where the person acted): a Persian refusal or null */
   validatePush?(p: PushArgs): Promise<HookResult> | HookResult;
   /**
+   * A member's pushed deletion of a stored record (`next` is the stored row): a Persian refusal or null. A push runs no
+   * `beforeWrite`, and `validatePush` / `derivePush` never see deletions — a module whose `beforeWrite` refuses some
+   * deletions («held evidence is not deleted») asks the same here. Never called for the system.
+   */
+  validatePushDelete?(p: PushArgs): Promise<HookResult> | HookResult;
+  /**
    * A record a member pushed from a Windows app: the values of the fields the module derives from other data (compiled
    * audiences, access flags…), as the cloud computes them — they are never taken from the push. Base columns are
    * never set this way except the access anchors `unit_id` / `domain_id` a module copies (an alert's from its CI) and

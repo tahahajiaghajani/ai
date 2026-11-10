@@ -116,12 +116,20 @@ async function canReview(w: WriteArgs): Promise<string | null> {
   return open.length ? `کارهای لازمِ پاسخ هنوز باز است: ${numbers(open)}` : null;
 }
 
+/** A regulatory clock still running keeps the incident open (closed or canceled alike). */
+async function runningClocks(w: WriteArgs): Promise<string | null> {
+  const clocks = await liveRows(w.tx, sysOf(w.ctx), "sec_reg_clock", { and: [{ f: "sec_incident_id", op: "eq", v: w.next.id }, { f: "state", op: "eq", v: "running" }] }, { limit: 5 });
+  return clocks.length ? `اطلاع‌رسانی الزامی هنوز در جریان است: ${numbers(clocks)} (نخست ارسال را ثبت کنید یا ساعت را با توضیح «لازم نیست» کنید)` : null;
+}
+
+const canCancel = (w: WriteArgs) => runningClocks(w);
+
 async function canClose(w: WriteArgs): Promise<string | null> {
   const n = w.next;
   const open = await openTasks(w.tx, w.ctx, String(n.id));
   if (open.length) return `کارهای لازم هنوز باز است: ${numbers(open)}`;
-  const clocks = await liveRows(w.tx, sysOf(w.ctx), "sec_reg_clock", { and: [{ f: "sec_incident_id", op: "eq", v: n.id }, { f: "state", op: "eq", v: "running" }] }, { limit: 5 });
-  if (clocks.length) return `اطلاع‌رسانی الزامی هنوز در جریان است: ${numbers(clocks)}`;
+  const running = await runningClocks(w);
+  if (running) return running;
   const important = n.major === true || n.severity === "1" || n.severity === "2";
   if (n.close_code === "true_positive" && important && !String(n.lessons ?? "").trim()) return "برای رخداد امنیتی مهم، پیش از بستن درس‌آموخته‌ها را در «بازبینی پس از رخداد» بنویسید";
   return null;
@@ -148,6 +156,8 @@ async function taskBefore(w: WriteArgs): Promise<void> {
   }
   if (n.action && n.action !== "none") n.requires_approval = true;
   if (!PHASES.some((p) => p.value === n.phase)) n.phase = "analysis";
+  // whoever starts the task asks for its approval (the rule's round begins with this write): never its approver
+  if (entering(w, "in_progress") && actorOf(w.ctx)) n.started_by = actorOf(w.ctx);
   if (entering(w, "closed_complete") && n.action && n.action !== "none" && !n.executed_at) {
     n.executed_at = iso();
     n.executed_by = actorOf(w.ctx);
@@ -167,19 +177,52 @@ async function taskAfter(w: WriteArgs & { row: Row }): Promise<void> {
   }, { trusted: true, author: actorOf(w.ctx) });
 }
 
+const NEEDS_APPROVAL = "اقدام مهار پیش از انجام، تأیید انسانی می‌خواهد (کار را «شروع» کنید تا تأیید درخواست شود)";
+
+/**
+ * Four eyes on a containment action: the stored approval (only the approvals service sets it) is «approved», and no
+ * approving decision is by the person who asked for it (the round's requester, the task's starter) or by the person
+ * completing it now.
+ */
+async function approvedByAnother(q: Queryable, ctx: Ctx, task: Row, approval: unknown, actor: string): Promise<string | null> {
+  if (approval !== "approved") return NEEDS_APPROVAL;
+  const rows = await liveRows(q, sysOf(ctx), "approval", eqAll({ table_key: "sec_task", record_id: String(task.id) }), { limit: 200 });
+  const askers = new Set([actor, task.started_by].filter((x): x is string => typeof x === "string" && !!x));
+  const own = rows.find((r) => r.state === "approved" && r.decided_by && (askers.has(String(r.decided_by)) || r.decided_by === r.requested_by));
+  return own ? "اقدام مهار را کسی جز درخواست‌کننده و انجام‌دهندهٔ آن تأیید می‌کند؛ تأیید دوباره بخواهید یا انجامش را به عضو دیگری بسپارید" : null;
+}
+
 function taskDerived(p: PushArgs): Row {
-  return p.next.action && p.next.action !== "none" ? { requires_approval: true } : {};
+  // only the approvals service decides a task's approval; who started and who executed it is the cloud's stamp
+  const out: Row = {
+    approval: p.prev ? (p.prev.approval ?? "not_requested") : "not_requested",
+    started_by: p.prev?.started_by ?? null,
+    executed_at: p.prev?.executed_at ?? null,
+    executed_by: p.prev?.executed_by ?? null,
+  };
+  const entered = (state: string) => p.next.state === state && p.prev?.state !== state;
+  if (entered("in_progress")) out.started_by = p.ctx.user.id;
+  if (p.next.action && p.next.action !== "none") {
+    out.requires_approval = true;
+    if (entered("closed_complete") && !out.executed_at) {
+      out.executed_at = new Date().toISOString();
+      out.executed_by = p.ctx.user.id;
+    }
+  }
+  return out;
 }
 
-function taskPush(p: PushArgs): string | null {
+async function taskPush(p: PushArgs): Promise<string | null> {
   const completing = p.next.state === "closed_complete" && p.prev?.state !== "closed_complete";
-  if (completing && p.next.requires_approval === true && p.next.approval !== "approved") return "اقدام مهار پیش از انجام، تأیید انسانی می‌خواهد (کار را «شروع» کنید تا تأیید درخواست شود)";
-  return null;
+  const needs = p.next.requires_approval === true || p.prev?.requires_approval === true || (!!p.next.action && p.next.action !== "none");
+  if (!completing || !needs) return null;
+  return approvedByAnother(p.tx, p.ctx, { ...p.next, started_by: p.prev?.started_by ?? null }, p.prev?.approval ?? "not_requested", p.ctx.user.id);
 }
 
-function canComplete(w: WriteArgs): string | null {
-  if (w.next.requires_approval === true && w.next.approval !== "approved" && w.ctx.actor !== "system") return "اقدام مهار پیش از انجام، تأیید انسانی می‌خواهد (کار را «شروع» کنید تا تأیید درخواست شود)";
-  return null;
+async function canComplete(w: WriteArgs): Promise<string | null> {
+  if (w.next.requires_approval !== true || w.ctx.actor === "system") return null;
+  // the stored approval: a write never sets it (it is the approvals service's)
+  return approvedByAnother(w.tx, w.ctx, { ...w.next, started_by: w.prev?.started_by ?? w.next.started_by ?? null }, w.prev ? w.prev.approval : w.next.approval, w.ctx.user.id);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -204,9 +247,35 @@ async function observableBefore(w: WriteArgs): Promise<void> {
 // ---------------------------------------------------------------------------------------------------------------
 // Evidence and chain of custody
 
+const HELD_NOT_DELETED = "شاهدِ زیر توقیف قانونی حذف نمی‌شود";
+
+/**
+ * The chain-of-custody entries a change of evidence adds (who, when, what): collection, transfers, state changes,
+ * holds, moves and hash changes — the same on the web and for a Windows app's push (never taken from the push).
+ */
+function custodyLog(prev: Row | null | undefined, next: Row, changed: (f: string) => boolean, by: string | null, at: string): Row[] {
+  const log: Row[] = Array.isArray(prev?.custody_log) ? [...(prev!.custody_log as Row[])] : [];
+  if (!prev) log.push({ at, action: "collected", to: next.custodian_id ?? next.collected_by ?? by, by, location: next.location ?? null });
+  else {
+    if (changed("custodian_id")) log.push({ at, action: "transfer", from: prev.custodian_id ?? null, to: next.custodian_id ?? null, by, location: next.location ?? null });
+    if (changed("state")) log.push({ at, action: next.state, by });
+    if (changed("legal_hold")) log.push({ at, action: next.legal_hold ? "hold" : "hold_lifted", by });
+    if (changed("location") && !changed("custodian_id")) log.push({ at, action: "moved", by, location: next.location ?? null });
+    if (changed("sha256") && prev.sha256) log.push({ at, action: "hash_changed", by, from: prev.sha256, to: next.sha256 });
+  }
+  return log.slice(-500);
+}
+
+/** Lifting a legal hold is a step of its own (never with a release or destruction) by holders of the approve right. */
+async function holdLiftRefusal(ctx: Ctx, prev: Row | null | undefined, next: Row): Promise<string | null> {
+  if (!prev?.legal_hold || next.legal_hold || ctx.actor === "system") return null;
+  if (next.state !== prev.state) return "توقیف قانونی را جدا از آزادسازی یا امحا بردارید";
+  return (await managesArea(ctx, "security")) ? null : "برداشتن توقیف قانونی با دارندگان حق تأیید امنیت است";
+}
+
 async function evidenceBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete") {
-    if (w.prev?.legal_hold) throw forbidden("شاهدِ زیر توقیف قانونی حذف نمی‌شود");
+    if (w.prev?.legal_hold) throw forbidden(HELD_NOT_DELETED);
     return;
   }
   const n = w.next;
@@ -220,22 +289,23 @@ async function evidenceBefore(w: WriteArgs): Promise<void> {
     if (!sir) throw validationError({ sec_incident_id: "رخداد امنیتی پیدا نشد" });
     if (!n.assignment_group_id && sir.assignment_group_id) n.assignment_group_id = sir.assignment_group_id;
   }
-  const at = iso();
-  const by = actorOf(w.ctx);
-  const log: Row[] = Array.isArray(w.prev?.custody_log) ? [...(w.prev!.custody_log as Row[])] : [];
-  if (w.op === "create") log.push({ at, action: "collected", to: n.custodian_id ?? n.collected_by ?? by, by, location: n.location ?? null });
-  else {
-    if (w.changed.has("custodian_id")) log.push({ at, action: "transfer", from: w.prev?.custodian_id ?? null, to: n.custodian_id ?? null, by, location: n.location ?? null });
-    if (w.changed.has("state")) log.push({ at, action: n.state, by });
-    if (w.changed.has("legal_hold")) log.push({ at, action: n.legal_hold ? "hold" : "hold_lifted", by });
-    if (w.changed.has("location") && !w.changed.has("custodian_id")) log.push({ at, action: "moved", by, location: n.location ?? null });
-    if (w.changed.has("sha256") && w.prev?.sha256) log.push({ at, action: "hash_changed", by, from: w.prev.sha256, to: n.sha256 });
-  }
-  n.custody_log = log.slice(-500);
+  const lift = await holdLiftRefusal(w.ctx, w.op === "create" ? null : w.prev, n);
+  if (lift) throw forbidden(lift);
+  n.custody_log = custodyLog(w.op === "create" ? null : w.prev, n, (f) => w.changed.has(f), actorOf(w.ctx), iso());
 }
 
+/** A Windows app's push: the custody log is the cloud's (stored log plus this change's entries), never the push's. */
+async function evidenceDerived(p: PushArgs): Promise<Row> {
+  return { ...(await secureDerived(p)), custody_log: custodyLog(p.prev, p.next, (f) => p.changed.has(f), actorOf(p.ctx), iso()) };
+}
+
+async function evidencePush(p: PushArgs): Promise<string | null> {
+  return holdLiftRefusal(p.ctx, p.prev, p.next);
+}
+
+/** Release and destruction: the stored hold counts (lifting it in the same write does not open the way). */
 function evidenceRelease(w: WriteArgs): string | null {
-  return w.next.legal_hold ? "این شاهد زیر توقیف قانونی است؛ پیش از آزادسازی یا امحا، توقیف را بردارید" : null;
+  return w.prev?.legal_hold || w.next.legal_hold ? "این شاهد زیر توقیف قانونی است؛ پیش از آزادسازی یا امحا، توقیف را بردارید" : null;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -378,11 +448,18 @@ async function itemAfter(w: WriteArgs & { row: Row }): Promise<void> {
   for (const vid of new Set([row.vulnerability_id, w.prev?.vulnerability_id].filter(isUuid))) onBeforeCommit(tx, `sec.vul:${vid}`, () => recountVulnerability(tx, ctx, vid));
 }
 
+/** The item state each kind of exception leads to (deferral → deferred, false positive → false_positive…). */
+const EXCEPTION_TARGET: Record<string, string> = { deferral: "deferred", risk_acceptance: "exception", not_affected: "exception", false_positive: "false_positive" };
+
 async function exceptionApproved(w: WriteArgs): Promise<string | null> {
   const excId = w.next.exception_id;
-  if (!isUuid(excId)) return "تعویق یا استثنا فقط با یک استثنای تأییدشده ممکن است (از «استثناهای آسیب‌پذیری» درخواست کنید)";
+  if (!isUuid(excId)) return "تعویق، استثنا یا مثبت کاذب فقط با یک استثنای تأییدشده ممکن است (از «استثناهای آسیب‌پذیری» درخواست کنید)";
   const exc = await liveRow(w.tx, sysOf(w.ctx), "sec_vuln_exception", excId);
   if (!exc || exc.state !== "approved") return "استثنای این مورد تأیید نشده است";
+  // the exception covers this item (named, or its vulnerability) and is of the kind that leads to this state
+  const covers = ids(exc.items).includes(String(w.next.id).toLowerCase()) || (!!exc.vulnerability_id && exc.vulnerability_id === w.next.vulnerability_id);
+  if (!covers) return "استثنای تأییدشده این مورد را در بر نمی‌گیرد";
+  if (EXCEPTION_TARGET[String(exc.kind)] !== w.next.state) return "نوع استثنای تأییدشده با این وضعیت نمی‌خواند";
   return null;
 }
 
@@ -392,8 +469,35 @@ async function itemDerived(p: PushArgs): Promise<Row> {
   return { risk_score: n.risk_score, risk_rating: n.risk_rating, ssvc: n.ssvc, due_at: n.due_at, overdue: n.overdue, dedupe_key: p.prev?.dedupe_key ?? n.dedupe_key };
 }
 
+/** The requester of an exception or waiver is whoever files it (a member never files one for another to approve). */
+function stampRequester(w: WriteArgs): void {
+  const me = actorOf(w.ctx);
+  if (!me) return;
+  if (w.op === "create") w.next.requested_by = me;
+  else if (w.changed.has("requested_by")) w.next.requested_by = w.prev?.requested_by ?? null;
+}
+
+/**
+ * A person approving or rejecting an exception or a waiver: the approval round decides it (the module then moves the
+ * record as the system); a person moves it only once the round has decided, or where no round asks — and never the
+ * person who asked for it.
+ */
+function exceptionDecision(to: "approved" | "rejected", valid?: (w: WriteArgs) => Promise<string | null> | string | null) {
+  return async (w: WriteArgs): Promise<string | null> => {
+    const invalid = valid ? await valid(w) : null;
+    if (invalid || w.ctx.actor === "system") return invalid;
+    const me = w.ctx.user.id;
+    if ([w.prev?.requested_by, w.next.requested_by, w.prev?.created_by].includes(me)) return "درخواست‌کنندهٔ استثنا خودش درباره‌اش تصمیم نمی‌گیرد";
+    const approval = w.prev ? w.prev.approval : w.next.approval;
+    if (approval === "requested") return "تصمیم این استثنا با تأییدکنندگان آن است (از «تأییدهای من»)";
+    if (to === "approved" && approval === "rejected") return "تأییدکنندگان این استثنا را رد کرده‌اند";
+    return null;
+  };
+}
+
 async function exceptionBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete") return;
+  stampRequester(w);
   const n = w.next;
   if (!n.assignment_group_id) {
     const cfg = await securityConfig(w.tx, w.ctx);
@@ -600,6 +704,7 @@ async function campaignStart(w: WriteArgs): Promise<string | null> {
 
 function waiverBefore(w: WriteArgs): void {
   if (w.op === "delete") return;
+  stampRequester(w);
   if (entering(w, "approved")) w.next.approved_at = iso();
 }
 
@@ -724,21 +829,38 @@ async function acceptanceActive(w: WriteArgs): Promise<string | null> {
 async function acceptanceBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete") return;
   const n = w.next;
-  if (w.op === "create" || w.changed.has("risk_id")) {
+  const riskChanged = w.op === "create" || w.changed.has("risk_id");
+  if (riskChanged || w.changed.has("accepted_by")) {
     const risk = await liveRow(w.tx, sysOf(w.ctx), "grc_risk", n.risk_id);
     if (!risk) throw validationError({ risk_id: "ریسک پیدا نشد" });
-    if (!n.accepted_by) n.accepted_by = risk.owner_id ?? null;
-    if (!n.accepted_by) throw validationError({ accepted_by: "ریسک مالک ندارد؛ نخست مالک ریسک را تعیین کنید" });
-    n.residual_score = risk.residual_score ?? null;
-    if (!n.assignment_group_id && risk.assignment_group_id) n.assignment_group_id = risk.assignment_group_id;
+    // a member files an acceptance only of a risk they read (a reference proves only that it exists)
+    if (riskChanged && actorOf(w.ctx) && !(await liveRow(w.tx, w.ctx, "grc_risk", n.risk_id))) throw validationError({ risk_id: "ریسک پیدا نشد" });
+    // the one who accepts is the risk's owner, never a name the requester picks
+    const owner = (risk.owner_id as string | null) ?? null;
+    if (!owner) throw validationError({ accepted_by: "ریسک مالک ندارد؛ نخست مالک ریسک را تعیین کنید" });
+    if (n.accepted_by && n.accepted_by !== owner && actorOf(w.ctx)) throw validationError({ accepted_by: "پذیرندهٔ ریسک فقط مالک کنونی آن است" });
+    n.accepted_by = owner;
+    if (riskChanged) {
+      n.residual_score = risk.residual_score ?? null;
+      if (!n.assignment_group_id && risk.assignment_group_id) n.assignment_group_id = risk.assignment_group_id;
+    }
   }
   if ((w.op === "create" || w.changed.has("expires_at")) && String(n.expires_at ?? "") <= todayOf(w.ctx)) throw validationError({ expires_at: "تاریخ انقضا باید در آینده باشد" });
   if (entering(w, "active")) n.accepted_at = iso();
 }
 
-async function acceptanceByOwner(w: WriteArgs): Promise<string | null> {
-  if (w.ctx.actor === "system" || w.ctx.user.id === w.next.accepted_by || (await managesArea(w.ctx, "risk"))) return null;
-  return "پذیرش یا رد ریسک با مالک آن است";
+/**
+ * Accepting or rejecting a risk is its current owner's decision (the stored risk's owner, who is also the acceptance's
+ * `accepted_by`) — nobody accepts it on the owner's behalf. The approval round's outcome (the system) activates an
+ * acceptance only while its `accepted_by` still owns the risk.
+ */
+async function acceptanceByOwner(w: WriteArgs & { transition?: { to: string } }): Promise<string | null> {
+  const risk = await liveRow(w.tx, sysOf(w.ctx), "grc_risk", w.next.risk_id);
+  if (!risk) return "ریسک این پذیرش پیدا نشد";
+  const owner = (risk.owner_id as string | null) ?? null;
+  const to = w.transition?.to ?? w.next.state;
+  if (w.ctx.actor === "system") return to === "active" && (!owner || w.next.accepted_by !== owner) ? "پذیرنده دیگر مالک ریسک نیست؛ پذیرش را دوباره درخواست کنید" : null;
+  return owner && w.ctx.user.id === owner && w.next.accepted_by === owner ? null : "پذیرش یا رد ریسک فقط با مالک کنونی آن است";
 }
 
 async function acceptanceAfter(w: WriteArgs & { row: Row }): Promise<void> {
@@ -786,20 +908,25 @@ export function installSecurityHooks(): void {
   if (installed) return;
   installed = true;
   // a Windows push runs no beforeWrite: only members of the secure workspace create its records there too
-  for (const t of SECURE_TABLES) registerHooks(t, { beforeWrite: secureBefore, derivePush: t === "sec_incident" ? sirDerived : secureDerived, validatePush: pushGuard(secureBefore) });
+  for (const t of SECURE_TABLES) registerHooks(t, { beforeWrite: secureBefore, derivePush: t === "sec_incident" ? sirDerived : t === "sec_evidence" ? evidenceDerived : secureDerived, validatePush: pushGuard(secureBefore) });
   // a containment action always asks for approval, and is completed only once approved — also from a Windows push
   registerHooks("sec_task", { derivePush: taskDerived, validatePush: taskPush });
-  registerHooks("sec_incident", { beforeWrite: sirBefore, afterWrite: sirAfter, guards: { sec_can_review: canReview, sec_can_close: canClose } });
+  registerHooks("sec_incident", { beforeWrite: sirBefore, afterWrite: sirAfter, guards: { sec_can_review: canReview, sec_can_close: canClose, sec_can_cancel: canCancel } });
   registerHooks("sec_task", { beforeWrite: taskBefore, afterWrite: taskAfter, guards: { sec_task_can_complete: canComplete } });
   registerHooks("sec_observable", { beforeWrite: observableBefore });
-  registerHooks("sec_evidence", { beforeWrite: evidenceBefore, guards: { sec_evidence_release: evidenceRelease } });
+  registerHooks("sec_evidence", {
+    beforeWrite: evidenceBefore,
+    guards: { sec_evidence_release: evidenceRelease },
+    validatePush: evidencePush,
+    validatePushDelete: (p) => (p.prev?.legal_hold ? HELD_NOT_DELETED : null),
+  });
   registerHooks("sec_reg_clock", { beforeWrite: clockBefore, afterWrite: clockAfter, guards: { sec_reg_all_submitted: allSubmitted } });
   registerHooks("sec_reg_regime", { beforeWrite: regimeBefore });
   registerHooks("sec_playbook", { beforeWrite: playbookBefore });
   registerHooks("sec_config", { beforeWrite: configBefore });
   registerHooks("sec_vulnerability", { beforeWrite: vulnBefore, afterWrite: vulnAfter });
   registerHooks("sec_vuln_item", { beforeWrite: itemBefore, afterWrite: itemAfter, guards: { sec_vuln_exception_approved: exceptionApproved }, derivePush: itemDerived });
-  registerHooks("sec_vuln_exception", { beforeWrite: exceptionBefore, afterWrite: exceptionAfter, guards: { sec_exception_valid: exceptionValid } });
+  registerHooks("sec_vuln_exception", { beforeWrite: exceptionBefore, afterWrite: exceptionAfter, guards: { sec_exception_valid: exceptionValid, sec_exception_approve: exceptionDecision("approved", exceptionValid), sec_exception_reject: exceptionDecision("rejected") } });
 
   registerHooks("grc_requirement", { beforeWrite: requirementBefore, afterWrite: requirementAfter });
   registerHooks("grc_control", { beforeWrite: controlBefore, afterWrite: controlAfter });
@@ -814,12 +941,12 @@ export function installSecurityHooks(): void {
     validatePush: (p) => (publishedContentEdit(p.prev, p.next, p.changed) ? PUBLISHED_REFUSAL : null),
   });
   registerHooks("grc_policy_campaign", { beforeWrite: campaignBefore, guards: { grc_campaign_start: campaignStart } });
-  registerHooks("grc_policy_exception", { beforeWrite: waiverBefore, guards: { sec_exception_valid: waiverValid } });
+  registerHooks("grc_policy_exception", { beforeWrite: waiverBefore, guards: { sec_exception_valid: waiverValid, sec_exception_approve: exceptionDecision("approved", waiverValid), sec_exception_reject: exceptionDecision("rejected") } });
   registerHooks("grc_audit", { beforeWrite: auditBefore, guards: { grc_audit_can_close: auditCanClose } });
   registerHooks("grc_csf_profile", { beforeWrite: profileBefore });
   registerHooks("grc_dsr", { beforeWrite: dsrBefore });
   registerHooks("grc_risk", { beforeWrite: riskBefore, guards: { grc_risk_acceptance_active: acceptanceActive } });
-  registerHooks("grc_risk_acceptance", { beforeWrite: acceptanceBefore, afterWrite: acceptanceAfter, guards: { grc_acceptance_by_owner: acceptanceByOwner } });
+  registerHooks("grc_risk_acceptance", { beforeWrite: acceptanceBefore, afterWrite: acceptanceAfter, guards: { grc_acceptance_by_owner: acceptanceByOwner }, validatePush: pushGuard(acceptanceBefore) });
   registerHooks("grc_risk_matrix", { beforeWrite: matrixBefore, afterWrite: matrixAfter });
   registerHooks("grc_kri", { beforeWrite: kriBefore });
 }

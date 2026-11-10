@@ -541,7 +541,9 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
   and the engine's effects of the transition (resolved/closed stamps, `active`) are the cloud's own; fields a module
   derives from other data are recomputed by its `derivePush` hook (knowledge: compiled contributors, audience units,
   the internal flag; of the base columns only the access anchors `unit_id`, `domain_id` and `workspace_id` — an
-  alert's from its CI, security records' secure workspace) and never taken from the push; a new journal entry or history row is in the account's own name
+  alert's from its CI, security records' secure workspace) and never taken from the push; a pushed deletion asks the
+  module's `validatePushDelete` (the delete rules its `beforeWrite` holds a web delete to: held evidence is not
+  deleted); a new journal entry or history row is in the account's own name
   or has no author (the system's note of something module code did while they acted) — never someone else's — and
   anything but their own comment or work note needs write access to its record. A push that lost to a newer cloud copy (`conflict`) gets that copy back through the pull's projection
   (`replicaRows`: readability, replica-only fields, hidden fields, redaction, side filters) — a row the account may not

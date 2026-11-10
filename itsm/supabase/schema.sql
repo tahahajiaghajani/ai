@@ -17026,6 +17026,7 @@ create index if not exists sm_sec_incidents_rev_idx on sm_sec_incidents (org_id,
 create index if not exists sm_sec_incidents_upd_idx on sm_sec_incidents (org_id, updated_at desc, id desc) where deleted_at is null;
 create index if not exists sm_sec_incidents_crt_idx on sm_sec_incidents (org_id, created_at desc, id desc) where deleted_at is null;
 create index if not exists sm_sec_incidents_state_idx on sm_sec_incidents (org_id, state) where deleted_at is null;
+create index if not exists sm_sec_incidents_caller_id_idx on sm_sec_incidents (org_id, caller_id) where deleted_at is null;
 create index if not exists sm_sec_incidents_assignment_group_id_idx on sm_sec_incidents (org_id, assignment_group_id) where deleted_at is null;
 create index if not exists sm_sec_incidents_assigned_to_idx on sm_sec_incidents (org_id, assigned_to) where deleted_at is null;
 create index if not exists sm_sec_incidents_lead_id_idx on sm_sec_incidents (org_id, lead_id) where deleted_at is null;
@@ -17033,8 +17034,6 @@ create index if not exists sm_sec_incidents_it_incident_id_idx on sm_sec_inciden
 create index if not exists sm_sec_incidents_workspace_acc_idx on sm_sec_incidents (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
 create index if not exists sm_sec_incidents_unit_acc_idx on sm_sec_incidents (org_id, unit_id) where deleted_at is null and unit_id is not null;
 create index if not exists sm_sec_incidents_domain_acc_idx on sm_sec_incidents (org_id, domain_id) where deleted_at is null and domain_id is not null;
-create index if not exists sm_sec_incidents_caller_id_idx on sm_sec_incidents (org_id, caller_id) where deleted_at is null;
-create index if not exists sm_sec_incidents_opened_by_idx on sm_sec_incidents (org_id, opened_by) where deleted_at is null;
 create index if not exists sm_sec_incidents_watch_list_gin on sm_sec_incidents using gin (watch_list);
 drop trigger if exists sm_sec_incidents_sync on sm_sec_incidents;
 create trigger sm_sec_incidents_sync before insert or update on sm_sec_incidents for each row execute function sm_sync_touch('sec_incident');
@@ -17434,6 +17433,7 @@ alter table sm_sec_tasks add column if not exists action_target text;
 alter table sm_sec_tasks add column if not exists requires_approval boolean not null default false;
 alter table sm_sec_tasks add column if not exists executed_at timestamptz;
 alter table sm_sec_tasks add column if not exists executed_by uuid;
+alter table sm_sec_tasks add column if not exists started_by uuid;
 alter table sm_sec_tasks add column if not exists action_result text;
 create unique index if not exists sm_sec_tasks_no_uk on sm_sec_tasks (org_id, no);
 create index if not exists sm_sec_tasks_rev_idx on sm_sec_tasks (org_id, rev);

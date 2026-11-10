@@ -12,7 +12,8 @@ import { roleClosure } from "@shared/access/model";
 import type { AccessRiskFlag, HardeningCheck, HardeningReport, PiiFieldFinding, PrivilegedAction, PrivilegedReview, VerificationState } from "@shared/security/api";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
-import { addJournalIn, createIn, defFor, get, update, updateIn } from "../../engine";
+import type { Tx } from "../../db";
+import { addJournalIn, createIn, defFor, get, updateIn } from "../../engine";
 import { accessSettings, listMemberAccess, snapshotFor, subjectOf } from "../../access";
 import { access } from "../../access/provider";
 import { grantIn } from "@shared/access/model";
@@ -252,8 +253,14 @@ export async function scanPii(ctx: Ctx, table: string, id: string): Promise<PiiF
   return out;
 }
 
-/** Replace the personal data found in the chosen fields (the caller's own update: write access and field rights). */
+/**
+ * Replace the personal data found in the chosen fields (the caller's own update: write access and field rights) and,
+ * in the same transaction, in those fields' history (old and new values) — the record's activity stream and the
+ * history rows Windows replicas pull would otherwise keep the originals. Done on the web version (a Windows app's
+ * history rows are the cloud's to change).
+ */
 export async function redactPii(ctx: Ctx, table: string, id: string, fields: string[]): Promise<{ fields: string[]; redacted: number }> {
+  if (ctx.cfg.mode === "desktop") throw bad("پاک‌سازی دادهٔ شخصی را در نسخهٔ وب انجام دهید تا تاریخچهٔ رکورد هم پاک شود");
   const { def } = await defFor(ctx, table);
   const r = await get(ctx, table, id);
   const patch: Row = {};
@@ -267,8 +274,30 @@ export async function redactPii(ctx: Ctx, table: string, id: string, fields: str
     n += found.length;
   }
   if (!n) return { fields: [], redacted: 0 };
-  await update(ctx, table, id, patch, { version: r.row.version as number });
+  await ctx.write(async (tx) => {
+    await updateIn(tx, ctx, table, id, patch, { version: r.row.version as number });
+    await scrubHistory(tx, ctx, def.key, id, Object.keys(patch));
+  });
   return { fields: Object.keys(patch), redacted: n };
+}
+
+/** Redact personal data in the stored history of a record's fields (the sync trigger re-sends the rows to replicas). */
+async function scrubHistory(tx: Tx, ctx: Ctx, table: string, id: string, fields: string[]): Promise<number> {
+  const rows = await tx.query<{ id: string; field: string; old: unknown; new: unknown }>(
+    `select id, field, old, new from sm_history where org_id = $1 and table_key = $2 and record_id = $3 and deleted_at is null`,
+    [ctx.org.id, table, id],
+  );
+  const clean = (v: unknown) => (typeof v === "string" && v ? redact(v, detectPii(v)) : v);
+  let n = 0;
+  for (const h of rows) {
+    if (!fields.includes(h.field)) continue;
+    const old = clean(h.old);
+    const neu = clean(h.new);
+    if (old === h.old && neu === h.new) continue;
+    await tx.query(`update sm_history set old = $2::jsonb, new = $3::jsonb where id = $1`, [h.id, JSON.stringify(old ?? null), JSON.stringify(neu ?? null)]);
+    n++;
+  }
+  return n;
 }
 
 export { readsArea };

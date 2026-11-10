@@ -74,9 +74,11 @@ export function validLuhn(v: string): boolean {
 /** Iranian postal codes: 10 digits, no 0 or 2 in the first five, the fifth not 5. */
 export const validPostalCode = (v: string) => /^[13-9]{4}[1346-9][013-9]{5}$/.test(latinDigits(v).replace(/\D/g, "")) && !/^(\d)\1{9}$/.test(latinDigits(v));
 
-const mask = (v: string, keep = 4) => {
+/** Asterisks for all but the last `keep` characters (keep 0: nothing of the value is shown). */
+export const mask = (v: string, keep = 4) => {
   const t = v.replace(/\s/g, "");
-  return t.length <= keep ? "*".repeat(t.length) : `${"*".repeat(Math.min(12, t.length - keep))}${t.slice(-keep)}`;
+  if (t.length <= keep) return "*".repeat(t.length);
+  return `${"*".repeat(Math.min(12, t.length - keep))}${keep > 0 ? t.slice(t.length - keep) : ""}`;
 };
 
 interface Rule {

@@ -31,8 +31,13 @@ export default function ReportPhishing() {
       <div className="flex max-w-3xl flex-col gap-4">
         {receipt ? (
           <Note>
-            شمارهٔ پیگیری: <bdi className="ds-num">{receipt.receipt ?? "—"}</bdi>
-            {receipt.grouped ? " — همین رایانامه پیش‌تر هم گزارش شده بود و گزارش شما به آن افزوده شد." : ""} روی پیوندهای آن رایانامه نزنید و آن را پاک کنید.
+            {receipt.receipt ? (
+              <>
+                شمارهٔ پیگیری: <bdi className="ds-num">{receipt.receipt}</bdi>
+                {" — "}
+              </>
+            ) : null}
+            {receipt.grouped ? "همین رایانامه پیش‌تر هم گزارش شده بود و گزارش شما به بررسی آن افزوده شد؛ وضعیت را در فهرست زیر ببینید." : ""} روی پیوندهای آن رایانامه نزنید و آن را پاک کنید.
           </Note>
         ) : null}
         <Card>

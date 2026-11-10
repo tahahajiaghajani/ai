@@ -61,13 +61,71 @@ export const decodeEntities = (s: string) =>
     return ENT[e.toLowerCase()] ?? m;
   });
 
-/** Parse an XML document into a tree (namespaces kept in names; mismatched end tags close up to their match). */
+/**
+ * Limits of the XML reader — far beyond any scanner export, short of what a crafted file could make the server do:
+ * nesting depth, elements, attributes per element, and wall time (the reader runs on the request's event loop).
+ */
+export const XML_LIMITS = { depth: 256, elements: 1_000_000, attrs: 200, budgetMs: 15_000 };
+
+const isSpace = (c: number) => c === 32 || c === 9 || c === 10 || c === 13;
+
+/** The attributes of a start tag (`s` from `from` on), in one pass: `name = "value"` or `name = 'value'`. */
+function readAttrs(s: string, from: number, out: Record<string, string>): void {
+  const n = s.length;
+  let i = from;
+  let count = 0;
+  while (i < n && count < XML_LIMITS.attrs) {
+    while (i < n && isSpace(s.charCodeAt(i))) i++;
+    const start = i;
+    while (i < n && !isSpace(s.charCodeAt(i)) && s[i] !== "=") i++;
+    const name = s.slice(start, i);
+    while (i < n && isSpace(s.charCodeAt(i))) i++;
+    if (s[i] !== "=") {
+      if (i === start) i++;
+      continue; // a name without a value
+    }
+    i++;
+    while (i < n && isSpace(s.charCodeAt(i))) i++;
+    const q = s[i];
+    if (q === '"' || q === "'") {
+      const e = s.indexOf(q, i + 1);
+      if (e < 0) break;
+      if (name) {
+        out[name] = decodeEntities(s.slice(i + 1, e));
+        count++;
+      }
+      i = e + 1;
+    } else while (i < n && !isSpace(s.charCodeAt(i))) i++; // an unquoted value is not XML: skipped
+  }
+}
+
+/**
+ * Parse an XML document into a tree (namespaces kept in names; mismatched end tags close up to their match). Linear in
+ * the input: open elements are indexed by name (an end tag finds its match without walking the stack) and attributes
+ * are read in one pass. Throws past `XML_LIMITS`.
+ */
 export function parseXml(src: string): XNode {
   const root: XNode = { name: "#root", attrs: {}, children: [], text: "" };
   const stack: XNode[] = [root];
+  // the stack positions of the open elements of each name, innermost last
+  const open = new Map<string, number[]>();
+  const closeTo = (depth: number) => {
+    while (stack.length > depth) {
+      const node = stack.pop()!;
+      const at = open.get(node.name);
+      if (at) {
+        at.pop();
+        if (!at.length) open.delete(node.name);
+      }
+    }
+  };
+  const started = Date.now();
+  let elements = 0;
+  let steps = 0;
   let i = 0;
   const n = src.length;
   while (i < n) {
+    if ((++steps & 1023) === 0 && Date.now() - started > XML_LIMITS.budgetMs) throw new Error("پرونده بیش از حد پیچیده است");
     const lt = src.indexOf("<", i);
     const top = stack[stack.length - 1];
     if (lt < 0) {
@@ -92,8 +150,9 @@ export function parseXml(src: string): XNode {
       const e = src.indexOf(">", lt + 2);
       const name = src.slice(lt + 2, e < 0 ? n : e).trim();
       i = e < 0 ? n : e + 1;
-      const at = stack.map((x) => x.name).lastIndexOf(name);
-      if (at > 0) stack.length = at;
+      // close up to the innermost open element of that name; an end tag without one is dropped
+      const at = open.get(name);
+      if (at?.length) closeTo(at[at.length - 1]);
     } else {
       // a start tag: find its end outside quoted attribute values
       let j = lt + 1;
@@ -110,12 +169,19 @@ export function parseXml(src: string): XNode {
       i = j + 1;
       const selfClosing = body.endsWith("/");
       const inner = selfClosing ? body.slice(0, -1) : body;
-      const m = /^([^\s/>]+)/.exec(inner);
+      const m = /^[^\s/>]+/.exec(inner);
       if (!m) continue;
-      const node: XNode = { name: m[1], attrs: {}, children: [], text: "" };
-      for (const a of inner.slice(m[1].length).matchAll(/([^\s=]+)\s*=\s*("([^"]*)"|'([^']*)')/g)) node.attrs[a[1]] = decodeEntities(a[3] ?? a[4] ?? "");
+      if (++elements > XML_LIMITS.elements) throw new Error("پرونده بیش از حد عنصر دارد");
+      const node: XNode = { name: m[0], attrs: {}, children: [], text: "" };
+      readAttrs(inner, m[0].length, node.attrs);
       top.children.push(node);
-      if (!selfClosing) stack.push(node);
+      if (!selfClosing) {
+        if (stack.length > XML_LIMITS.depth) throw new Error("پرونده بیش از حد تودرتو است");
+        const at = open.get(node.name);
+        if (at) at.push(stack.length);
+        else open.set(node.name, [stack.length]);
+        stack.push(node);
+      }
     }
   }
   return root;

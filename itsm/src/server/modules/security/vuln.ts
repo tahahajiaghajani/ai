@@ -116,20 +116,25 @@ interface HostKey {
   fqdn: string | null;
 }
 
+/** Values per lookup query (host names, FQDNs, addresses; the autoclose sweep's CIs and hosts). */
+const LOOKUP_BATCH = 500;
+
 export async function matchHosts(q: Queryable, ctx: Ctx, hosts: HostKey[]): Promise<Map<string, Row | null>> {
   const sys = sysOf(ctx);
   const out = new Map<string, Row | null>();
   if (!hosts.length || !tableDef("ci")) return out;
-  const vals = (xs: (string | null)[]) => [...new Set(xs.filter(Boolean).flatMap((x) => [x!, x!.toLowerCase(), x!.toUpperCase()]))].slice(0, 500);
+  const vals = (xs: (string | null)[]) => [...new Set(xs.filter(Boolean).flatMap((x) => [x!, x!.toLowerCase(), x!.toUpperCase()]))];
   const fqdns = vals(hosts.map((h) => h.fqdn));
   const names = vals(hosts.flatMap((h) => [h.hostname, h.fqdn ? h.fqdn.split(".")[0] : null]));
-  const ips = [...new Set(hosts.map((h) => h.ip).filter(Boolean) as string[])].slice(0, 500);
-  const or = [
-    ...(fqdns.length ? [{ f: "fqdn", op: "in" as const, v: fqdns }] : []),
-    ...(names.length ? [{ f: "hostname", op: "in" as const, v: names }] : []),
-    ...(ips.length ? [{ f: "ip_address", op: "in" as const, v: ips }] : []),
-  ];
-  const cis = or.length ? await liveRows(q, sys, "ci", { or }, { limit: 5000 }) : [];
+  const ips = [...new Set(hosts.map((h) => h.ip).filter(Boolean) as string[])];
+  // every host is looked up (in batches): a cut list would leave assets unmatched — duplicates of their CI-keyed items
+  const found = new Map<string, Row>();
+  for (const [f, values] of [["fqdn", fqdns], ["hostname", names], ["ip_address", ips]] as const) {
+    for (let i = 0; i < values.length; i += LOOKUP_BATCH) {
+      for (const c of await liveRows(q, sys, "ci", { f, op: "in", v: values.slice(i, i + LOOKUP_BATCH) }, { limit: 5000 })) found.set(String(c.id), c);
+    }
+  }
+  const cis = [...found.values()];
   const low = (v: unknown) => String(v ?? "").toLowerCase();
   for (const h of hosts) {
     const tries: ((c: Row) => boolean)[] = [
@@ -212,7 +217,7 @@ export async function importScan(ctx: Ctx, input: ImportInput): Promise<ScanImpo
     const existing = await existingItems(ctx.db, sys, [...candidates.values()], vulnKeysAll);
     result.created = [...candidates.keys()].filter((k) => !existing.has(k)).length;
     result.updated = candidates.size - result.created;
-    result.reopened = [...existing.values()].filter((r) => ["fixed", "closed"].includes(r.state)).length;
+    result.reopened = [...existing.values()].filter(seenAgainReopens).length;
     return result;
   }
 
@@ -254,7 +259,7 @@ export async function importScan(ctx: Ctx, input: ImportInput): Promise<ScanImpo
         const patch: Row = { last_seen_at: now, times_seen: Number(it.times_seen ?? 0) + 1, last_scan_id: imp.id, missing_since: null, proof: c.f.proof ?? it.proof ?? null };
         if (!it.port && c.f.port) patch.port = c.f.port;
         await updateIn(tx, sys, "sec_vuln_item", it.id, patch, { trusted: true, keepVersion: true, allowLocked: true });
-        if (["fixed", "closed"].includes(it.state)) {
+        if (seenAgainReopens(it)) {
           await transitionIn(tx, sys, "sec_vuln_item", it.id, "open");
           await addJournalIn(tx, sys, tableDef("sec_vuln_item")!, it, { kind: "work_note", body: `در پویش ${imp.number ?? ""} دوباره دیده شد؛ مورد بازگشایی شد و موعد رفع از نخستین کشف ادامه دارد.` }, { trusted: true });
           result.reopened++;
@@ -272,8 +277,17 @@ export async function importScan(ctx: Ctx, input: ImportInput): Promise<ScanImpo
 
     // verification by rescan: what this scanner found before on the covered assets and no longer sees is fixed
     if (cfg.autoclose_missing && (coveredCis.length || unmatchedHosts.length)) {
-      const cond = { and: [{ f: "source", op: "eq" as const, v: scanner }, { f: "state", op: "in" as const, v: [...OPEN, "fixed"] }, { or: [...(coveredCis.length ? [{ f: "ci_id", op: "in" as const, v: coveredCis.slice(0, 500) }] : []), ...(unmatchedHosts.length ? [{ and: [{ f: "ci_id", op: "empty" as const }, { f: "host", op: "in" as const, v: unmatchedHosts.slice(0, 500) }] }] : [])] }] };
-      for (const it of await liveRows(tx, sys, "sec_vuln_item", cond, { limit: 10_000 })) {
+      // every covered asset, in batches (CIs, then hosts without a CI)
+      const scopes = [
+        ...chunks(coveredCis, LOOKUP_BATCH).map((v) => ({ f: "ci_id", op: "in" as const, v })),
+        ...chunks(unmatchedHosts, LOOKUP_BATCH).map((v) => ({ and: [{ f: "ci_id", op: "empty" as const }, { f: "host", op: "in" as const, v }] })),
+      ];
+      const missing = new Map<string, Row>();
+      for (const scope of scopes) {
+        const cond = { and: [{ f: "source", op: "eq" as const, v: scanner }, { f: "state", op: "in" as const, v: [...OPEN, "fixed"] }, scope] };
+        for (const it of await liveRows(tx, sys, "sec_vuln_item", cond, { limit: 10_000 })) missing.set(String(it.id), it);
+      }
+      for (const it of missing.values()) {
         if (seen.has(it.id)) continue;
         if (it.state === "fixed") await transitionIn(tx, sys, "sec_vuln_item", it.id, "closed");
         else await transitionIn(tx, sys, "sec_vuln_item", it.id, "fixed", { close_notes: `در پویش ${imp.number ?? ""} دیگر دیده نشد` });
@@ -285,6 +299,11 @@ export async function importScan(ctx: Ctx, input: ImportInput): Promise<ScanImpo
     return result;
   });
 }
+
+const chunks = <T>(xs: T[], n: number): T[][] => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n));
+
+/** A finding seen again reopens a fixed or closed item, and a «false positive» no approved exception stands behind. */
+const seenAgainReopens = (it: Row) => ["fixed", "closed"].includes(String(it.state)) || (it.state === "false_positive" && !isUuid(it.exception_id));
 
 async function existingItems(q: Queryable, sys: Ctx, cands: Candidate[], vulnKeysAll: string[], known?: Map<string, Row>): Promise<Map<string, Row>> {
   const vulns = known ?? new Map<string, Row>();

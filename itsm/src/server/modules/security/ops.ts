@@ -138,10 +138,19 @@ export interface PhishingReport {
   note?: string | null;
 }
 
+/** The sender's address of a mail ("Name <a@b.c>" or "a@b.c"), normalised; null when there is none. */
+export function senderAddress(sender: unknown): string | null {
+  const raw = String(sender ?? "");
+  const v = (/<([^<>]+)>/.exec(raw)?.[1] ?? raw).trim();
+  return /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(v) ? normalizeObservable("email", v) : null;
+}
+
 /**
  * «گزارش رایانامهٔ مشکوک»: any member reports a suspected phishing mail. Indicators are extracted; a report of the
- * same sender or link within seven days joins the open incident (grouping), otherwise a new security incident starts.
- * The reporter gets only a receipt number and later a redacted status (`myReports`).
+ * same sender address or the same link within seven days joins the open incident (grouping — never on a domain: two
+ * strangers' mails from one free-mail domain are not one incident), otherwise a new security incident starts.
+ * The reporter gets only a receipt number of their own report and later a redacted status (`myReports`); a report
+ * that joins another reporter's incident gets no number (that number is the first reporter's).
  */
 export async function reportPhishing(ctx: Ctx, input: PhishingReport): Promise<{ receipt: string | null; grouped: boolean }> {
   if (ctx.actor === "system") throw bad("گزارش فیشینگ با خود عضو است");
@@ -150,15 +159,17 @@ export async function reportPhishing(ctx: Ctx, input: PhishingReport): Promise<{
   const text = [input.sender ? `فرستنده: ${input.sender}` : "", input.headers ? `سرآیندها:\n${input.headers}` : "", input.body ?? ""].filter(Boolean).join("\n\n").slice(0, 50_000);
   const found = extractObservables(`${input.sender ?? ""}\n${input.body ?? ""}\n${input.headers ?? ""}`, 50);
   const senderDomain = String(input.sender ?? "").split("@")[1]?.toLowerCase().replace(/[>\s].*$/, "") || null;
-  const keys = new Set(found.filter((o) => o.type === "url" || o.type === "domain").map((o) => o.value));
-  if (senderDomain) keys.add(senderDomain);
+  const sender = senderAddress(input.sender);
+  // grouping keys: the full sender address and full links of the mail (a domain is shared by unrelated senders)
+  const urls = found.filter((o) => o.type === "url").map((o) => o.value);
+  const keys = new Set([...urls, ...(sender ? [sender] : [])]);
   const sys = sysOf(ctx, ctx.user.id);
   return sys.write(async (tx) => {
     await secureWorkspace(tx, sys);
-    // grouping: an open phishing incident of the last week sharing the sender's domain or a link
+    // grouping: an open phishing incident of the last week sharing the sender's address or a link
     let target: Row | null = null;
     if (keys.size) {
-      const obs = await liveRows(tx, sys, "sec_observable", { f: "normalized", op: "in", v: [...keys].slice(0, 100) }, { limit: 100 });
+      const obs = await liveRows(tx, sys, "sec_observable", { and: [{ f: "type", op: "in", v: ["url", "email"] }, { f: "normalized", op: "in", v: [...keys].slice(0, 100) }] }, { limit: 100 });
       const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
       const sirIds = [...new Set(obs.flatMap((o) => ids(o.incidents)))];
       if (sirIds.length) {
@@ -178,8 +189,9 @@ export async function reportPhishing(ctx: Ctx, input: PhishingReport): Promise<{
     }
     for (const o of found) await upsertObservable(tx, sys, sir.id, o.type, o.value, { source: "phishing" });
     if (senderDomain) await upsertObservable(tx, sys, sir.id, "domain", senderDomain, { source: "phishing" });
-    if (input.sender && /@/.test(input.sender)) await upsertObservable(tx, sys, sir.id, "email", String(input.sender).replace(/^.*</, "").replace(/>.*$/, "").trim(), { source: "phishing" });
-    return { receipt: (sir.number as string) ?? null, grouped: !!target };
+    if (sender) await upsertObservable(tx, sys, sir.id, "email", sender, { source: "phishing" });
+    // a report joined to another reporter's incident gets no number: that number is the first reporter's receipt
+    return { receipt: target ? null : ((sir.number as string) ?? null), grouped: !!target };
   });
 }
 
