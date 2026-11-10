@@ -223,8 +223,9 @@ export async function startServerEdition(o: StartOptions): Promise<RunningServer
       log,
       intervalMs: current.scheduler.interval_s * 1000,
       onLeadership: (v) => (metrics.leader = v),
+      // every tick is recorded: «سلامت سرور» shows the scheduler is alive even when the queue is empty
       onTick: (r, ms) => {
-        if (r.ran || r.failed) metrics.lastTick = { at: new Date().toISOString(), ran: r.ran, failed: r.failed, ms };
+        metrics.lastTick = { at: new Date().toISOString(), ran: r.ran, failed: r.failed, ms };
       },
       chores: async () => {
         if (backupDue(current)) await backupNow({ config: current, label: "auto", log });

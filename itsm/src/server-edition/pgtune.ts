@@ -206,9 +206,11 @@ export function renderTuning(result: TuneResult, input: TuneInput, generatedAt =
 /** The include lines appended once to postgresql.conf. */
 export const CONF_INCLUDES = ["include_if_exists = 'kariz-tuning.conf'", "include_if_exists = 'kariz-local.conf'"];
 
+const MARK = "# Kariz server edition";
+
 /** postgresql.conf with the include lines present exactly once (at the end, so they win over initdb's defaults). */
 export function withIncludes(conf: string): string {
-  const lines = conf.split(/\r?\n/).filter((l) => !CONF_INCLUDES.includes(l.trim()));
+  const lines = conf.split(/\r?\n/).filter((l) => !CONF_INCLUDES.includes(l.trim()) && l.trim() !== MARK);
   while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
-  return [...lines, "", "# Kariz server edition", ...CONF_INCLUDES, ""].join("\n");
+  return [...lines, "", MARK, ...CONF_INCLUDES, ""].join("\n");
 }
