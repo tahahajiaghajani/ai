@@ -61,7 +61,7 @@ const STEPS = ["سازمان و مدیر", "نشانی و گواهی", "ایمی
 function Section({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
   return (
     <fieldset className="mb-5 rounded-[var(--ds-radius-md)] border border-line p-4">
-      <legend className="flex items-center gap-2 px-1 text-[13px] font-[var(--ds-weight-medium)] text-ink-2">
+      <legend className="mb-0 flex w-auto items-center gap-2 border-0 px-1 text-[13px] font-[var(--ds-weight-medium)] text-ink-2">
         {icon}
         {title}
       </legend>

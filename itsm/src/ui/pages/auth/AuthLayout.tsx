@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Monitor, Globe } from "lucide-react";
+import { Monitor, Globe, Server } from "lucide-react";
 import { Logo } from "../../components/brand";
 import { APP_DESCRIPTION, APP_NAME, APP_TAGLINE, APP_TAGLINE_EN } from "@shared/constants";
 import { useSession } from "../../lib/session";
@@ -12,7 +12,7 @@ export interface AuthSteps {
 }
 
 /**
- * Login, sign-up, recovery and first-run layout (components.md §11): the calm form side at the start and the Dusk
+ * Login, sign-up, recovery and first-run layout (components.md §11): the calm form side at the start and the brand
  * brand panel at the end (a 200 px band above the form on phones). With `steps`, the panel shows the onboarding steps
  * as the mark's nuqta column (§11.2). `swapKey` replays the column's entrance when the step changes.
  */
@@ -35,6 +35,8 @@ export function AuthLayout({
 }) {
   const { meta } = useSession();
   const desktop = meta?.mode === "desktop";
+  // the server edition (Windows Server on the organisation's intranet) names itself, never «نسخهٔ وب»
+  const server = !desktop && meta?.edition === "server";
   // «۱٫۰٫۰»: Persian digits with the Persian decimal separator, never ASCII full stops between them
   const version = meta?.version ? toPersianDigits(meta.version).replace(/\./g, "٫") : null;
   return (
@@ -43,8 +45,8 @@ export function AuthLayout({
         <div className="pg-form-top">
           {meta ? (
             <span className="pg-mode">
-              {desktop ? <Monitor {...ICON} aria-hidden /> : <Globe {...ICON} aria-hidden />}
-              {desktop ? "نسخهٔ ویندوز" : "نسخهٔ وب"}
+              {desktop ? <Monitor {...ICON} aria-hidden /> : server ? <Server {...ICON} aria-hidden /> : <Globe {...ICON} aria-hidden />}
+              {desktop ? "نسخهٔ ویندوز" : server ? "نسخهٔ سرور" : "نسخهٔ وب"}
             </span>
           ) : (
             <span />
@@ -77,7 +79,7 @@ export function AuthLayout({
 
         <footer className="pg-form-foot">
           <span className="ds-nuqta" data-live="" aria-hidden />
-          <span>{desktop ? "داده‌ها روی همین رایانه نگه داشته می‌شوند" : "سامانه در دسترس است"}</span>
+          <span>{desktop ? "داده‌ها روی همین رایانه نگه داشته می‌شوند" : server ? "داده‌ها روی سرور سازمان می‌مانند" : "سامانه در دسترس است"}</span>
           <span className="pg-foot-end">{version ? <span>
                 نسخهٔ <span className="ds-num">{version}</span>
               </span> : null}</span>

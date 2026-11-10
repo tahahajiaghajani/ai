@@ -67,7 +67,7 @@ export default function ServerHealthPage() {
   const [host, setHost] = useState("");
   // an explicit, re-authenticated change of the air-gap allowlist (never automatic: a refused host is only offered)
   const allow = useAction((change: { add?: string[]; remove?: string[] }) => api.put<{ allow: string[] }>("/admin/server/allow", change), {
-    success: "فهرست مجاز به‌روز شد",
+    success: "فهرست نشانی‌های مجاز به‌روز شد.",
     onSuccess: () => {
       setHost("");
       void q.refetch();

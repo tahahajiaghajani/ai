@@ -2,6 +2,11 @@
 <html lang="fa" dir="rtl">
   <head>
     <meta charset="UTF-8" />
+    <!-- The cascade-layer order, declared before any stylesheet loads. Browsers order layers by first appearance; Vite
+         links shared chunk CSS (which opens @layer components) before the entry CSS and the minifier drops the order
+         statement of styles.css, so without this Tailwind's preflight (base) beat every design-system rule and antd beat
+         all of them. Keep it identical to the first statement of styles.css. -->
+    <style>@layer properties, theme, base, antd, components, utilities;</style>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex" />
     <!-- %APP_…% placeholders are filled from src/shared/constants.ts by vite.config.ts -->
@@ -39,11 +44,10 @@
   <body>
     <div id="root">
       <div class="boot" role="status" aria-label="%APP_NAME% در حال باز شدن است">
-        <!-- the placeholder monogram of src/ui/components/brand.tsx -->
-        <svg class="boot-mark ds-launch" viewBox="5 5 14 14" aria-hidden="true" fill="currentColor">
-          <rect class="ds-nq" x="6" y="6" width="3" height="12" />
-          <rect class="ds-nq" x="11" y="6" width="7" height="3" />
-          <rect class="ds-nq" x="13" y="9" width="3" height="9" />
+        <!-- the mark of src/shared/brand.ts (MARK): the kariz arch and its nuqta -->
+        <svg class="boot-mark ds-launch" viewBox="4.5 3.7 15 15" aria-hidden="true">
+          <path class="ds-arch" pathLength="1" d="M17.6 19.6V11.4a5.6 5.6 0 0 0-11.2 0v8.2" fill="none" stroke-width="2.8" stroke-linecap="round" />
+          <path class="ds-nq" d="M12 14.1l2.75 2.75L12 19.6l-2.75-2.75z" />
         </svg>
       </div>
     </div>

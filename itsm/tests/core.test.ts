@@ -5,7 +5,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import "./fixtures/module";
 import { makeServer, Client, signupWithOrg, ORG_NAME } from "./helpers";
 import type { Db } from "@server/db";
-import { DEFAULT_TIMEZONE, SYNC_PROTOCOL } from "@shared/constants";
+import { APP_NAME, DEFAULT_TIMEZONE, SYNC_PROTOCOL } from "@shared/constants";
 
 describe("core: accounts, organisations, settings and members", () => {
   let c: Client;
@@ -29,7 +29,7 @@ describe("core: accounts, organisations, settings and members", () => {
     expect(me.user).toMatchObject({ email: "owner@example.com", is_platform_admin: true });
     expect(me.orgs.map((o: { id: string }) => o.id)).toEqual([org]);
     const meta = await c.get("/meta");
-    expect(meta).toMatchObject({ app: "ITSM", version: "1.0.0", sync_protocol: SYNC_PROTOCOL, first_run: false, signed_in: true });
+    expect(meta).toMatchObject({ app: APP_NAME, version: "1.0.0", sync_protocol: SYNC_PROTOCOL, first_run: false, signed_in: true });
     expect(meta.schema.pending).toEqual([]);
     const health = await c.get("/health");
     expect(health).toMatchObject({ ok: true, db: "ok", mode: "cloud" });

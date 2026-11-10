@@ -1,4 +1,4 @@
--- «ITSM» migration 0067_portal — درگاه سلف‌سرویس: جریان رویدادهای درگاه و گزارش پیام‌های کانال‌های پیام‌رسان
+-- «کاریز» migration 0067_portal — درگاه سلف‌سرویس: جریان رویدادهای درگاه و گزارش پیام‌های کانال‌های پیام‌رسان
 create table if not exists sm_migrations (id text primary key, applied_at timestamptz not null default now());
 
 -- ---------------------------------------------------------------------------

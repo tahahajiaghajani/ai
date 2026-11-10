@@ -1,4 +1,4 @@
--- «ITSM» migration 0052_ai_skills — مهارت‌های هوش مصنوعی: پیشنهادهای وابسته به رکورد
+-- «کاریز» migration 0052_ai_skills — مهارت‌های هوش مصنوعی: پیشنهادهای وابسته به رکورد
 create table if not exists sm_migrations (id text primary key, applied_at timestamptz not null default now());
 
 -- ---------------------------------------------------------------------------

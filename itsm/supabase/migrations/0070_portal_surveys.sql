@@ -1,4 +1,4 @@
--- «ITSM» migration 0070_portal_surveys — درگاه سلف‌سرویس: پاسخ‌های نظرسنجی بی‌نام در انتظار ثبت دسته‌ای
+-- «کاریز» migration 0070_portal_surveys — درگاه سلف‌سرویس: پاسخ‌های نظرسنجی بی‌نام در انتظار ثبت دسته‌ای
 create table if not exists sm_migrations (id text primary key, applied_at timestamptz not null default now());
 
 -- ---------------------------------------------------------------------------

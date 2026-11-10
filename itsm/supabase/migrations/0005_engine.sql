@@ -1,4 +1,4 @@
--- «ITSM» migration 0005_engine — موتور رکوردها: صف کارها، تاریخچه، یادداشت‌ها، پیوست‌ها، پیوندها و شماره‌ها
+-- «کاریز» migration 0005_engine — موتور رکوردها: صف کارها، تاریخچه، یادداشت‌ها، پیوست‌ها، پیوندها و شماره‌ها
 create table if not exists sm_migrations (id text primary key, applied_at timestamptz not null default now());
 
 -- ---------------------------------------------------------------------------

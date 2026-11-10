@@ -1,4 +1,4 @@
--- «ITSM» migration 0002_platform — مدیریت سامانه: حالت پشتیبانی، رویدادهای امنیتی و وضعیت سازمان‌ها
+-- «کاریز» migration 0002_platform — مدیریت سامانه: حالت پشتیبانی، رویدادهای امنیتی و وضعیت سازمان‌ها
 create table if not exists sm_migrations (id text primary key, applied_at timestamptz not null default now());
 
 -- ---------------------------------------------------------------------------

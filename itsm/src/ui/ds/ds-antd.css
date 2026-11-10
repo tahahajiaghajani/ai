@@ -23,6 +23,9 @@
      .ant-input-affix-wrapper-focused, .ant-input-number-focused, .ant-picker-focused, .ant-select-focused, .ant-select-open,
      [class*="-status-error"], [class*="-status-warning"], [class*="-disabled"]) { border-bottom-color: revert-layer; }
 
+  /* press: buttons give under the pointer (scale .98; identity under reduced motion, tokens.css §6) */
+  .ant-btn:not(:disabled):active { transform: scale(var(--ds-press-scale)); }
+
   /* switch "on": an ink track (Switch.colorPrimary) with a canvas thumb */
   .ant-switch.ant-switch-checked .ant-switch-handle::before { background-color: var(--ds-canvas); }
 
@@ -30,7 +33,7 @@
   .ant-segmented .ant-segmented-item { font-weight: var(--ds-weight-medium); }
   .ant-segmented .ant-segmented-item-selected { font-weight: 600; }
 
-  /* links are ink with a quiet underline; Dusk is reserved for the primary action, focus and selection */
+  /* links are ink with a quiet underline; the turquoise accent is reserved for the primary action, focus and selection */
   :is(.ant-typography a, a.ant-typography, .ant-btn-variant-link) {
     text-decoration-line: underline; text-decoration-thickness: 1px; text-decoration-color: rgb(var(--ds-ink-rgb) / .28); text-underline-offset: 4px;
   }
@@ -56,11 +59,11 @@
   .ant-table-summary > tr > td,
   .ant-table-summary > tr > th { border-block-start: 1px solid var(--ds-line-3); border-block-end: 0; font-weight: 600; background: var(--ds-surface); }
 
-  /* the selected row (the record open in the sheet): the neutral fill (rowSelectedBg) plus a 3 px Dusk bar at the start
+  /* the selected row (the record open in the sheet): the neutral fill (rowSelectedBg) plus a 3 px accent bar at the start
      edge. inset −3 px draws on the right, the start side of this RTL-only app. */
   .ant-table-tbody > tr.ant-table-row-selected > td:first-child { box-shadow: inset calc(-1 * var(--ds-selected-bar)) 0 0 var(--ds-accent-bar); }
 
-  /* sorted column: no tinted column (bodySortBg is transparent); the active header and its arrow turn ink (not Dusk) */
+  /* sorted column: no tinted column (bodySortBg is transparent); the active header and its arrow turn ink (not the accent) */
   .ant-table-column-sort.ant-table-cell, th.ant-table-column-has-sorters.ant-table-column-sort { color: var(--ds-text); }
   .ant-table-column-sorter :is(.ant-table-column-sorter-up, .ant-table-column-sorter-down).active { color: var(--ds-text); }
 
@@ -83,7 +86,7 @@
   .ant-alert-warning .ant-alert-title { color: var(--ds-text); }
   .ant-alert-warning .ant-alert-title b { color: var(--ds-warning); font-weight: 600; }
 
-  /* calendars: today is a neutral ring at 600 (selected stays Dusk); give Fridays className "ds-holiday" in cellRender */
+  /* calendars: today is a neutral ring at 600 (selected stays turquoise); give Fridays className "ds-holiday" in cellRender */
   .ant-picker-cell-in-view.ant-picker-cell-today .ant-picker-cell-inner { font-weight: 600; }
   .ant-picker-cell-in-view.ant-picker-cell-today .ant-picker-cell-inner::before { border-color: var(--ds-control-strong); }
   .ant-picker-cell-in-view .ds-holiday { color: var(--ds-holiday); }

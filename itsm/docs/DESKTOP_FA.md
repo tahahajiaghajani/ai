@@ -1,6 +1,6 @@
-# «ITSM» روی ویندوز
+# «کاریز» روی ویندوز
 
-نسخهٔ ویندوز همان برنامهٔ نسخهٔ وب است که **کامل روی خود رایانه** اجرا می‌شود: رابط کاربری، سرور و پایگاه دادهٔ PostgreSQL، همه در یک فایل نصب. بی‌اینترنت کار می‌کند و هر وقت بخواهید با نسخهٔ وب هم‌گام می‌شود. («ITSM» نام موقت برنامه است.)
+نسخهٔ ویندوز همان برنامهٔ نسخهٔ وب است که **کامل روی خود رایانه** اجرا می‌شود: رابط کاربری، سرور و پایگاه دادهٔ PostgreSQL، همه در یک فایل نصب. بی‌اینترنت کار می‌کند و هر وقت بخواهید با نسخهٔ وب هم‌گام می‌شود.
 
 ## نیازمندی‌ها
 - ویندوز ۱۰ یا ۱۱، ۶۴ بیتی
@@ -8,10 +8,10 @@
 - هیچ نرم‌افزار دیگری لازم نیست (نه SQL Server، نه .NET، نه نصب جداگانهٔ پایگاه داده)
 
 ## نصب
-1. فایل `ITSM-Setup-x.y.z.exe` را از صفحهٔ **Releases** مخزن GitHub دانلود کنید (یا از روی فلش کپی کنید): نسخهٔ پایدار با برچسب `itsm-vX.Y.Z` (از شاخهٔ `main`) و پیش‌نمایش هر شاخه با `itsm-preview-<شاخه>`. همان فایل در `Actions` ← اجرای «ITSM · CI and Windows installer» ← `Artifacts` ← `itsm-windows-installer` هم هست.
+1. فایل `Kariz-Setup-x.y.z.exe` را از صفحهٔ **Releases** مخزن GitHub دانلود کنید (یا از روی فلش کپی کنید): نسخهٔ پایدار با برچسب `itsm-vX.Y.Z` (از شاخهٔ `main`) و پیش‌نمایش هر شاخه با `itsm-preview-<شاخه>`. همان فایل در `Actions` ← اجرای «ITSM · CI and Windows installer» ← `Artifacts` ← `itsm-windows-installer` هم هست.
 2. اجرا کنید. اگر ویندوز پیغام «Windows protected your PC» داد: **More info ← Run anyway** (فایل امضای تجاری ندارد).
-3. خوش‌آمد ← شرایط استفاده (موافقم) ← محل نصب (پیش‌فرض: `%LOCALAPPDATA%\Programs\ITSM`) ← نصب ← «اجرای ITSM».
-4. میان‌بر «ITSM» روی میز کار و در منوی شروع ساخته می‌شود. نصب به رمز مدیر ویندوز (Administrator) نیاز ندارد و برای همان کاربر ویندوز انجام می‌شود.
+3. خوش‌آمد ← شرایط استفاده (موافقم) ← محل نصب (پیش‌فرض: `%LOCALAPPDATA%\Programs\Kariz`) ← نصب ← «اجرای Kariz».
+4. میان‌بر «Kariz» روی میز کار و در منوی شروع ساخته می‌شود. نصب به رمز مدیر ویندوز (Administrator) نیاز ندارد و برای همان کاربر ویندوز انجام می‌شود.
 
 > فایل نصب را می‌توانید روی هر تعداد رایانه نصب کنید؛ هر نصب پایگاه دادهٔ خودش را دارد مگر این‌که به حساب ابری یا به سرور شبکه وصلش کنید.
 
@@ -58,7 +58,7 @@
 
 ## محل داده‌ها و حذف برنامه
 - برنامه پوشهٔ خود را صریح تعیین می‌کند: `%APPDATA%\ITSM` (پروفایل Electron) و داده‌ها در `%APPDATA%\ITSM\data` — پایگاه داده در `db`، پشتیبان‌ها در `backups`، گزارش برنامه در `logs\app.log`، تنظیمات در `config.json` و تم پنجره در `window.json`.
-- برنامه در `%LOCALAPPDATA%\Programs\ITSM\ITSM.exe` نصب می‌شود.
+- برنامه در `%LOCALAPPDATA%\Programs\Kariz\Kariz.exe` نصب می‌شود (نصب‌های پیشین با نام ITSM هنگام به‌روزرسانی در همان پوشهٔ قبلی می‌مانند؛ داده‌ها همیشه در `%APPDATA%\ITSM` است).
 - حذف برنامه از «Settings ← Apps» داده‌ها و پشتیبان‌ها را پاک **نمی‌کند**؛ با نصب دوباره همه‌چیز سر جایش است. اگر می‌خواهید کامل پاک شود، پوشهٔ `%APPDATA%\ITSM` را دستی حذف کنید.
 
 ## چاپ
@@ -83,7 +83,7 @@
   - `main.ts`: پوشهٔ `%APPDATA%\ITSM` را صریح تعیین می‌کند (`app.setPath("userData")`؛ `ITSM_DATA_DIR` جای پوشهٔ داده را عوض می‌کند)، سرور محلی را در utility process اجرا می‌کند (`ITSM_DATA_DIR`، `ITSM_STATIC_DIR`؛ پورت پیش‌فرض ۳۹۳۹ یا `ITSM_PORT`)، پنجره، Tray، چاپ و PDF، حالت کلاینت شبکه و آزمون دود (`--smoke-test` یا `ITSM_SMOKE=1`: سلامت، صفحه و `/api/meta` را می‌سنجد، نتیجه را در `ITSM_SMOKE_OUT` می‌نویسد و با کد ۰ یا ۱ بسته می‌شود). نام و توضیح برنامه از `src/shared/constants.ts` می‌آیند (esbuild آن را در `main.cjs` می‌گذارد) و شناسهٔ ویندوز (`app.itsm.desktop`) همان `appId` فایل نصب است.
   - `preload.ts`: پل امن صفحه به برنامه، فقط `window.itsm` (`print`، `printers`، `savePdf`، `openPath`، `setServer`، `relaunch`) با کانال‌های `itsm:*`، و گزارش تم صفحه (`itsm:theme`). هر کانال فقط به صفحهٔ خود برنامه پاسخ می‌دهد.
   - `splash.html`: صفحهٔ آغاز ۵۲۰ × ۳۲۰ بی‌قاب با گوشه‌های گرد؛ نام و شعار را از رشتهٔ نشانی (`?name=…&tagline=…`) می‌گیرد، قلم‌های Arad، DS Num و Geist را از فونت‌های همراه برنامه می‌خواند و API آن `itsm.step / progress / status / version / ready` است.
-- تصویرهای ویندوز در `desktop/build`: `icon.ico` (۱۶ تا ۲۵۶ پیکسل)، `icon.png`، `tray.png` و `tray@1.5x.png` و `tray@2x.png`، و تصویرهای نصب‌کننده (`installerSidebar.bmp`، `installerHeader.bmp`). همه از نشانهٔ موقت با `cd desktop && npm run icons` ساخته می‌شوند (`desktop/scripts/make-icons.cjs`؛ همان اسکریپت favicon و نشان‌های PWA را هم می‌سازد). متن مجوز فارسی: `desktop/build/license_fa.txt`؛ متن صفحه‌های نصب: `desktop/build/installer.nsh` (با `${PRODUCT_NAME}`).
-- بسته‌بندی: `desktop/electron-builder.yml` (`productName: ITSM`، `executableName: ITSM`، `artifactName: ITSM-Setup-${version}.exe`، میان‌بر `ITSM`، NSIS فارسی برای همان کاربر، داده‌ها با حذف برنامه پاک نمی‌شوند). نسخهٔ فایل نصب `version` در `desktop/package.json` است و باید با `APP_VERSION` یکی باشد.
+- تصویرهای ویندوز در `desktop/build`: `icon.ico` (۱۶ تا ۲۵۶ پیکسل)، `icon.png`، `tray.png` و `tray@1.5x.png` و `tray@2x.png`، و تصویرهای نصب‌کننده (`installerSidebar.bmp` ۱۶۴ × ۳۱۴، `installerHeader.bmp` ۱۵۰ × ۵۷). همه از یک طرح — نشانهٔ «کاریز» در `src/shared/brand.ts` — با `cd desktop && npm run icons` ساخته می‌شوند (`scripts/brand-assets.mts`، با Chromium از Playwright؛ همان اسکریپت favicon، نشان‌های PWA و طرح‌های اصلی `docs/brand/logo` را هم می‌سازد). خروجی‌ها در مخزن ثبت می‌شوند و ساخت و CI آن را اجرا نمی‌کنند. متن مجوز فارسی: `desktop/build/license_fa.txt`؛ متن صفحه‌های نصب: `desktop/build/installer.nsh` (با `${PRODUCT_NAME}`).
+- بسته‌بندی: `desktop/electron-builder.yml` (`productName: Kariz`، `executableName: Kariz`، `artifactName: Kariz-Setup-${version}.exe`، میان‌بر `Kariz`، NSIS فارسی برای همان کاربر، داده‌ها با حذف برنامه پاک نمی‌شوند). نسخهٔ فایل نصب `version` در `desktop/package.json` است و باید با `APP_VERSION` یکی باشد.
 - ساخت: `(cd desktop && npm ci)`، `node scripts/build-desktop.mjs` (رابط کاربری، `backend.cjs`، `main.cjs`، `preload.cjs`، صفحهٔ آغاز، نشان‌ها، PGlite و `package.json` را در `desktop/app` می‌گذارد) و سپس `cd desktop && npx electron-builder --win nsis --x64`. CI (`.github/workflows/itsm.yml` در ریشهٔ مخزن) همین را روی ویندوز واقعی می‌سازد، بی‌صدا نصب و با `ITSM.exe --smoke-test` آزمایش می‌کند (گزارش در `ITSM_DATA_DIR\logs\app.log`)، فایل را با نام `itsm-windows-installer` نگه می‌دارد و در Releases منتشر می‌کند (`itsm-vX.Y.Z` از `main`، `itsm-preview-<شاخه>` از شاخه‌های دیگر).
 - نام‌های داخلی هرگز از نام محصول ساخته نمی‌شوند: متغیرهای محیطی `ITSM_*`، کانال‌های IPC `itsm:*`، `window.itsm`، جدول‌های `sm_*`، تنظیم PostgreSQL `itsm.*`، کلیدهای مرورگر `itsm.*` و پوشهٔ `%APPDATA%\ITSM`.

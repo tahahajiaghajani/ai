@@ -1,4 +1,4 @@
--- «ITSM» migration 0095_scale — مقیاس بانکی: جست‌وجوی سه‌حرفی (pg_trgm) و نمایه‌های BRIN جریان‌های افزایشی
+-- «کاریز» migration 0095_scale — مقیاس بانکی: جست‌وجوی سه‌حرفی (pg_trgm) و نمایه‌های BRIN جریان‌های افزایشی
 create table if not exists sm_migrations (id text primary key, applied_at timestamptz not null default now());
 
 -- ---------------------------------------------------------------------------

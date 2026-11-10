@@ -160,7 +160,7 @@ const directory: TableDef = {
     { name: "kind", label: "گونه", type: "choice", choices: DIRECTORY_KINDS, required: true, default: "ldap", list: true, filter: true, span: 6, section: MAIN },
     { name: "active", label: "فعال", type: "bool", default: true, list: true, filter: true, span: 6, section: MAIN },
     { name: "mode", label: "حالت", type: "choice", choices: [{ value: "preview", label: "فقط پیش‌نمایش (آزمایشی)" }, { value: "apply", label: "اعمال" }], default: "preview", list: true, span: 12, section: MAIN, help: "در حالت پیش‌نمایش هیچ تغییری ثبت نمی‌شود؛ SCIM درخواست‌ها را فقط گزارش می‌کند" },
-    { name: "default_role", label: "نقش اعضای تازه", type: "string", maxLength: 41, default: "requester", ltr: true, span: 12, section: MAIN, help: "نقش ITSM هر عضو تازه (پیش‌فرض: درخواست‌دهنده)" },
+    { name: "default_role", label: "نقش اعضای تازه", type: "string", maxLength: 41, default: "requester", ltr: true, span: 12, section: MAIN, help: "نقش هر عضو تازه در کاریز (پیش‌فرض: درخواست‌دهنده)" },
     { name: "membership_role", label: "عضویت پایه", type: "choice", choices: [{ value: "viewer", label: "ناظر" }, { value: "member", label: "عضو" }], default: "viewer", span: 12, section: MAIN },
     { name: "auto_roles", label: "نقش‌های نگاشت‌شده خودکار داده شود", type: "bool", default: false, span: 12, section: MAIN, help: "خاموش: نقش‌های گروه‌ها فقط پس از تأیید شما در «اعمال» داده می‌شوند" },
     { name: "deactivate_missing", label: "غیرفعال کردن کسانی که دیگر در فهرست نیستند", type: "bool", default: true, span: 12, section: MAIN },

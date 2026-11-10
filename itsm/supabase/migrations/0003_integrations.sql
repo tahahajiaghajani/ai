@@ -1,4 +1,4 @@
--- «ITSM» migration 0003_integrations — اتصال‌ها: کلیدهای API و وب‌هوک‌ها
+-- «کاریز» migration 0003_integrations — اتصال‌ها: کلیدهای API و وب‌هوک‌ها
 create table if not exists sm_migrations (id text primary key, applied_at timestamptz not null default now());
 
 -- ---------------------------------------------------------------------------

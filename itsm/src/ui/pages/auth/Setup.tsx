@@ -37,7 +37,7 @@ interface Option {
   d: string;
 }
 
-/** A radio group of cards: arrow keys move the choice, Enter continues (components.md §5: ink, never Dusk). */
+/** A radio group of cards: arrow keys move the choice, Enter continues (components.md §5: ink, never the accent). */
 function ChoiceCards({ options, value, onChange, onEnter }: { options: Option[]; value: Mode; onChange: (v: Mode) => void; onEnter: () => void }) {
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   const onKey = (e: KeyboardEvent, i: number) => {

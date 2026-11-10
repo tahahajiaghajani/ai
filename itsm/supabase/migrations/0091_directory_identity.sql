@@ -1,4 +1,4 @@
--- «ITSM» migration 0091_directory_identity — پیوند حساب‌ها با خود شیء فهرست کاربران (objectGUID)، نه فقط نام آن
+-- «کاریز» migration 0091_directory_identity — پیوند حساب‌ها با خود شیء فهرست کاربران (objectGUID)، نه فقط نام آن
 create table if not exists sm_migrations (id text primary key, applied_at timestamptz not null default now());
 
 -- ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Checkbox, Input, Modal, Select, Space, Table, Typography } from "antd";
 import { KeyRound, PlugZap, Play, RotateCcw, Trash2, Eye, CheckCheck, BadgeCheck, Plus, ExternalLink, RefreshCw, Send } from "lucide-react";
 import { API_OPS, API_OP_LABELS, type ApiOp, type TableScope } from "@shared/integration/scopes";
+import { APP_NAME } from "@shared/constants";
 import { useOrg } from "../../lib/org";
 import { useAction } from "../../lib/hooks";
 import { fa } from "../../lib/fa";
@@ -102,7 +103,7 @@ export function UserAccess({ ctx }: { ctx: RecordContext }) {
   return (
     <div className="flex flex-col gap-4">
       <section className="flex flex-col gap-2" aria-label="نقش‌ها">
-        <div className="text-[13px] text-ink-2">نقش‌های ITSM این کاربر (هر کلید فقط درون این دسترسی کار می‌کند)</div>
+        <div className="text-[13px] text-ink-2">نقش‌های این کاربر در {APP_NAME} (هر کلید فقط درون این دسترسی کار می‌کند)</div>
         <Select mode="multiple" value={current} onChange={setChosen} options={(catalog.data?.roles ?? []).map((r) => ({ value: r.key, label: r.name }))} placeholder="بدون نقش: هیچ درخواستی پذیرفته نمی‌شود" disabled={!full} aria-label="نقش‌ها" />
         {chosen ? (
           <Space>

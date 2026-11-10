@@ -8,6 +8,7 @@ import { Inbox, ChevronLeft, type LucideIcon } from "lucide-react";
 import { D, type Num } from "@shared/money";
 import { formatNumber, faDigits } from "@shared/format";
 import { formatJalali, formatJalaliDateTime } from "@shared/jalali";
+import { Illustration, type IllustrationName } from "../ds/illustrations";
 import { splitDecimals } from "../lib/fa";
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
@@ -86,8 +87,8 @@ export function Fa({ children }: { children: ReactNode }) {
 
 // ---------------------------------------------------------------- status
 
-/** Chip tones (components.md §4.3): tint fill + coloured text + a 5 px nuqta. Info (blue) is retired. */
-export type ChipTone = "warning" | "danger" | "neutral" | "in" | "accent";
+/** Chip tones (components.md §4.3): tint fill + coloured text + a 5 px nuqta. `info` is lapis, `ai` the AI's lapis. */
+export type ChipTone = "warning" | "danger" | "neutral" | "in" | "accent" | "info" | "ai";
 
 /** A 22 px status chip: the nuqta, then the word. `fig` when it holds a figure (13 px, tabular). */
 export function Chip({ tone = "neutral", fig, dot = true, children, className, title }: { tone?: ChipTone; fig?: boolean; dot?: boolean; children: ReactNode; className?: string; title?: string }) {
@@ -96,6 +97,47 @@ export function Chip({ tone = "neutral", fig, dot = true, children, className, t
       {dot ? <i className="ds-nuqta" aria-hidden /> : null}
       <span>{children}</span>
     </span>
+  );
+}
+
+/** The six record-state families of the design system (tokens --ds-state-*; docs/DESIGN_SYSTEM.md). */
+export type StateKind = "new" | "progress" | "hold" | "resolved" | "closed" | "cancelled";
+/** An engine state category (@shared/model/types) → its family. */
+export const STATE_KIND: Record<string, StateKind> = { new: "new", active: "progress", waiting: "hold", resolved: "resolved", closed: "closed", canceled: "cancelled", cancelled: "cancelled" };
+
+/** A record state as a chip in its family's colours (the label is always written: colour is never the only signal). */
+export function StateChip({ state, children, className, title }: { state: StateKind; children: ReactNode; className?: string; title?: string }) {
+  return (
+    <span className={cx("ds-chip", className)} data-state={state} title={title}>
+      <i className="ds-nuqta" aria-hidden />
+      <span>{children}</span>
+    </span>
+  );
+}
+
+/** A priority (1 = critical … 5 = planning): «P1» in Latin, then the label; the P1 nuqta draws attention once. */
+export function PriorityChip({ p, children, className }: { p: 1 | 2 | 3 | 4 | 5; children?: ReactNode; className?: string }) {
+  return (
+    <span className={cx("ds-chip", className)} data-p={p}>
+      <i className="ds-nuqta" aria-hidden />
+      <b>{`P${p}`}</b>
+      {children ? <span>{children}</span> : null}
+    </span>
+  );
+}
+
+/** The five priorities' words (docs/BRAND_FA.md §4): P1 critical … P5 planning. */
+export const PRIORITY_LABEL: Record<1 | 2 | 3 | 4 | 5, string> = { 1: "بحرانی", 2: "زیاد", 3: "متوسط", 4: "کم", 5: "برنامه‌ریزی" };
+
+/** A record's priority value ("1" … "5" or a number) as its chip with the word; nothing when it is not one of the five. */
+export function PriorityValue({ v, className }: { v: unknown; className?: string }) {
+  const p = Number(v);
+  if (!Number.isInteger(p) || p < 1 || p > 5) return null;
+  const k = p as 1 | 2 | 3 | 4 | 5;
+  return (
+    <PriorityChip p={k} className={className}>
+      {PRIORITY_LABEL[k]}
+    </PriorityChip>
   );
 }
 
@@ -162,9 +204,10 @@ const ICON = { size: 16, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
 
 /**
  * Empty state (components.md §7): a 56 px sunken tile with a 28 px icon, a title, one helpful sentence and at most
- * one action (plus an optional quiet link). Never an illustration inside data views. Dusk stays rare: when the page
- * header already shows a primary button, a primary `action` is drawn as a default button (or pass `primary={false}`;
- * `primary` forces it back).
+ * one action (plus an optional quiet link). Page-level and first-run states may pass `art` for one of the brand's
+ * illustrations (ds/illustrations.tsx) instead of the tile; data views keep the tile. The accent stays rare: when the
+ * page header already shows a primary button, a primary `action` is drawn as a default button (or pass
+ * `primary={false}`; `primary` forces it back).
  */
 export function EmptyState({
   title = "هنوز موردی ثبت نشده است",
@@ -172,6 +215,7 @@ export function EmptyState({
   action,
   secondary,
   icon: Icon = Inbox,
+  art,
   compact,
   className,
   primary,
@@ -181,6 +225,7 @@ export function EmptyState({
   action?: ReactNode;
   secondary?: ReactNode;
   icon?: LucideIcon;
+  art?: IllustrationName;
   compact?: boolean;
   className?: string;
   primary?: boolean;
@@ -196,9 +241,13 @@ export function EmptyState({
   const act = demote && isPrimaryButton ? cloneElement(action as React.ReactElement<{ type?: string }>, { type: "default" }) : action;
   return (
     <div ref={ref} className={cx("ds-empty ds-fade", compact && "ds-empty-compact", className)}>
-      <div className="ds-empty-tile" aria-hidden>
-        <Icon size={compact ? 22 : 28} strokeWidth={1.5} absoluteStrokeWidth />
-      </div>
+      {art ? (
+        <Illustration name={art} size={compact ? 120 : 168} className="ds-empty-art" />
+      ) : (
+        <div className="ds-empty-tile" aria-hidden>
+          <Icon size={compact ? 22 : 28} strokeWidth={1.5} absoluteStrokeWidth />
+        </div>
+      )}
       <div className="ds-empty-title">{title}</div>
       {description ? <div className="ds-empty-text">{description}</div> : null}
       {act || secondary ? (

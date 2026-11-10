@@ -1,4 +1,4 @@
--- «ITSM» migration 0090_auth_directory — ورود با حساب سازمانی و ورود خودکار ویندوز: روش و دامنهٔ نشست‌ها، سیاست نشست، شمارش ورودهای ناموفق و قفل محلی
+-- «کاریز» migration 0090_auth_directory — ورود با حساب سازمانی و ورود خودکار ویندوز: روش و دامنهٔ نشست‌ها، سیاست نشست، شمارش ورودهای ناموفق و قفل محلی
 create table if not exists sm_migrations (id text primary key, applied_at timestamptz not null default now());
 
 -- ---------------------------------------------------------------------------
