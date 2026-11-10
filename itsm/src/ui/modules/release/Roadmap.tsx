@@ -6,10 +6,11 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Segmented, Select, Space } from "antd";
-import { ChevronRight, ChevronLeft, Plus } from "lucide-react";
+import { ChevronRight, ChevronLeft, Plus, RotateCw } from "lucide-react";
 import { RELEASE_TYPES } from "@shared/tables/release";
 import { addDays, todayISO } from "@shared/jalali";
 import { useOrg } from "../../lib/org";
+import { errorText } from "../../lib/api";
 import { PageHeader } from "../../components/layout";
 import { EmptyState, Loader } from "../../components/display";
 import { ICON } from "../../components/blocks";
@@ -68,7 +69,11 @@ export default function Roadmap() {
       {data.isLoading ? (
         <Loader />
       ) : !data.data ? (
-        <EmptyState title="نقشهٔ راه بارگذاری نشد" />
+        <EmptyState
+          title="نقشهٔ راه بارگذاری نشد"
+          description={data.error ? errorText(data.error) : undefined}
+          action={<Button icon={<RotateCw {...ICON} />} onClick={() => data.refetch()}>تلاش دوباره</Button>}
+        />
       ) : (
         <>
           <TimelineGrid
@@ -84,9 +89,9 @@ export default function Roadmap() {
             empty={<EmptyState title="در این بازه انتشاری برنامه‌ریزی نشده است" />}
           />
           <ul className="flex flex-wrap gap-4 text-[12px] text-ink-3" aria-label="راهنمای نوارها">
-            <li className="flex items-center gap-1.5"><span className="rk-tg-band inline-block h-3 w-6" data-k="maintenance" />پنجرهٔ انتشار</li>
-            <li className="flex items-center gap-1.5"><span className="rk-tg-band inline-block h-3 w-6" data-k="freeze" />توقف انتشار یا انجماد تغییرات</li>
-            <li className="flex items-center gap-1.5"><span className="rk-tg-band inline-block h-3 w-6" data-k="blackout" />ممنوعیت تغییر</li>
+            <li className="flex items-center gap-1.5"><i className="rk-sw" data-k="maintenance" aria-hidden />پنجرهٔ انتشار</li>
+            <li className="flex items-center gap-1.5"><i className="rk-sw" data-k="freeze" aria-hidden />توقف انتشار یا انجماد تغییرات</li>
+            <li className="flex items-center gap-1.5"><i className="rk-sw" data-k="blackout" aria-hidden />ممنوعیت تغییر</li>
           </ul>
         </>
       )}

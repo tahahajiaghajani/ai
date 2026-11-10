@@ -22,10 +22,10 @@
 //
 //   node scripts/ui-crawl.mjs [--base http://127.0.0.1:3939] [--port 4103] [--out docs/qa] [--roles admin,agent,requester]
 //        [--only <regex>] [--skip <regex>] [--no-build] [--no-records] [--no-actions] [--mobile main|all|none]
-//        [--keep-server] [--quick]
+//        [--keep-server] [--quick] [--merge]
 //
 // --quick: the administrator's pages without the record pages and header actions, the other roles' home pages
-// (the CI smoke run).
+// (the CI smoke run). --merge: re-check some pages (--only) and keep the previous report's results for the others.
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, createWriteStream } from "node:fs";
 import { tmpdir } from "node:os";
@@ -195,8 +195,9 @@ async function startServer() {
 }
 
 // ---------------------------------------------------------------- API set-up
-function client(url) {
-  let cookie = "";
+function client(url, state = null) {
+  // a browser session's cookie (storageState) or the one the first sign-in sets
+  let cookie = (state?.cookies ?? []).map((c) => `${c.name}=${c.value}`).join("; ");
   return async function call(method, path, body) {
     const res = await fetch(`${url}/api${path}`, { method, headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) }, body: body ? JSON.stringify(body) : undefined });
     const set = res.headers.get("set-cookie");
@@ -320,17 +321,17 @@ class Probe {
     this.reset();
     return c;
   }
-  /** Waits until no API call is open for 400 ms and no loader is on screen; false after SPIN_MS. */
+  /** Waits until no API call is open for 300 ms and no loader is on screen; false after SPIN_MS. */
   async settle(ms = SPIN_MS) {
     const until = Date.now() + ms;
     let quietSince = 0;
     while (Date.now() < until) {
-      await this.page.waitForTimeout(120);
+      await this.page.waitForTimeout(100);
       let busy = this.inflight.size > 0;
       if (!busy) busy = await this.page.locator(LOADERS).first().isVisible().catch(() => false);
       if (busy) quietSince = 0;
       else if (!quietSince) quietSince = Date.now();
-      else if (Date.now() - quietSince >= 400) return true;
+      else if (Date.now() - quietSince >= 300) return true;
     }
     return false;
   }
@@ -351,7 +352,11 @@ async function go(page, href, { full = false } = {}) {
 
 // ---------------------------------------------------------------- the crawl
 const results = [];
+/** the page a check belongs to (its visit), for --merge */
+let target = "";
+const norm = (s) => String(s ?? "").replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, ":id");
 function record(entry) {
+  entry.target = norm(target);
   const issues = [];
   const e = entry;
   if (e.exceptions?.length) issues.push(`uncaught exception: ${e.exceptions[0].split("\n")[0]}`);
@@ -410,9 +415,13 @@ async function clickNew(page, probe, url, role, route) {
 }
 
 /** Opens the first record of a list: the record page, each tab and the side panels must render. */
+/** list href → the id of its first record (the parameterised pages under the list open it) */
+const firstIds = new Map();
 async function openFirst(page, probe, url, role, route) {
   const link = page.locator("main a.rk-open").first();
   if (!(await link.isVisible().catch(() => false))) return null;
+  const id = ((await link.getAttribute("href").catch(() => null)) ?? "").split("?")[0].split("/").pop();
+  if (id && !firstIds.has(route)) firstIds.set(route, id);
   await link.click({ timeout: 5000 }).catch(() => {});
   const r = await check(page, probe, { role, route: `${route} → first record`, step: "record" });
   const recPath = r.final;
@@ -486,8 +495,15 @@ async function crawlRole(browser, url, orgId, role, state, targets, extra = {}) 
   }, orgId);
   let page = await ctx.newPage();
   let probe = new Probe(page, role);
+  let visits = 0;
   for (const t of targets) {
     const href = `${url}${t.href}`;
+    // a fresh tab every 40 pages: hundreds of pages in one tab pile up memory until the renderer is killed
+    if (++visits % 40 === 0) {
+      await page.close().catch(() => {});
+      page = await ctx.newPage();
+      probe = new Probe(page, role);
+    }
     try {
       await visitOne(t, href);
     } catch (e) {
@@ -512,6 +528,7 @@ async function crawlRole(browser, url, orgId, role, state, targets, extra = {}) 
   }
   async function visitOne(t, href) {
     {
+      target = t.href;
       await go(page, href, { full: t.full });
       const r = await check(page, probe, { role, route: t.href, step: "visit" });
       record(r);
@@ -547,6 +564,7 @@ async function crawlRole(browser, url, orgId, role, state, targets, extra = {}) 
     let mp = await m.newPage();
     let mprobe = new Probe(mp, role);
     for (const t of extra.mobile) {
+      target = `390px ${t.href}`;
       try {
         await go(mp, `${url}${t.href}`);
         const r = await check(mp, mprobe, { role, route: t.href, step: "390px" });
@@ -614,24 +632,30 @@ async function main() {
     for (const s of reg.admin) if (!s.edition || s.edition === meta.edition) if (pick(`/admin/${s.key}`)) targets.push({ href: s.key ? `/admin/${s.key}` : "/admin", kind: "page", full: true });
     targets.push({ href: `/admin/orgs/${orgId}`, kind: "page", full: true });
     for (const p of ["/orgs", "/orgs/new"]) if (pick(p)) targets.push({ href: p, kind: "page", full: true });
-    const params = classified.filter((r) => r.kind === "param" && !r.path.startsWith("r/:table") && !/\/:id$/.test(r.path));
-    // parameterised pages under a record list (`incidents/:id/war-room`): the first record of that list
-    for (const r of params) {
-      const m = r.path.match(/^(.*?)\/:id\/(.+)$/);
-      const table = m ? Object.entries(SEED_PATHS).find(([, path]) => path === m[1])?.[0] : null;
-      if (m && table && /^[0-9a-f-]{36}$/.test(seeded[table] ?? "") && pick(r.path)) targets.push({ href: orgHref(`${m[1]}/${seeded[table]}/${m[2]}`), kind: "page" });
-    }
     log(`administrator: ${targets.length} pages`);
     const mobile = MOBILE === "none" ? [] : reg.nav.filter((i) => (MOBILE === "all" || !i.section) && (!i.action || i.workspace) && !i.path.includes(":") && allowedHere(i.path) && pick(i.path)).map((i) => ({ href: orgHref(i.path) }));
     await crawlRole(browser, url, orgId, "admin", state, targets, { mobile: [{ href: "/login" }, ...mobile] });
+    // parameterised pages under a record list (`incidents/:id/war-room`, `flows/:id/design`): the list's first record
+    const params = classified.filter((r) => r.kind === "param" && !r.path.startsWith("r/:table") && !/\/:id$/.test(r.path) && pick(r.path));
+    const deep = [];
+    report.unreached = [];
+    for (const r of params) {
+      const m = r.path.match(/^(.*?)\/:id(\/.+)?$/);
+      const id = m ? firstIds.get(orgHref(m[1])) : null;
+      if (id) deep.push({ href: orgHref(`${m[1]}/${id}${m[2] ?? ""}`), kind: "page" });
+      else report.unreached.push(r.path);
+    }
+    if (deep.length && RECORDS) {
+      log(`administrator: ${deep.length} pages under records`);
+      await crawlRole(browser, url, orgId, "admin", state, deep);
+    }
   }
 
   // ------------------------------------------------ the agent and the requester: what their sidebar shows them
   for (const role of ["agent", "requester"]) {
     if (!ROLES.includes(role)) continue;
     const state = await signIn(browser, url, USERS[role]);
-    const rc = client(url);
-    await rc("POST", "/auth/login", { email: USERS[role].email, password: USERS[role].password });
+    const rc = client(url, state);
     const info = await rc("GET", `/o/${orgId}`);
     const perms = info.member?.permissions ?? {};
     const can = (area, level = "view") => reg.LEVEL_ORDER.indexOf(perms[area] ?? "none") >= reg.LEVEL_ORDER.indexOf(level);
@@ -659,16 +683,22 @@ async function main() {
   await browser.close();
   report.finished = new Date().toISOString();
   report.duration_s = Math.round((Date.now() - t0) / 1000);
-  report.results = results.map(({ role, route, step, final, issues, ok, forbidden }) => ({ role, route, step, final, ok, issues, ...(forbidden?.length ? { forbidden: forbidden.map((f) => `${f.status} ${f.method} ${f.url}`) } : {}) }));
-  report.summary = { checks: results.length, ok: results.filter((r) => r.ok).length, problems: results.filter((r) => !r.ok).length };
+  report.results = results.map(({ role, route, step, final, issues, ok, forbidden, target: tg }) => ({ role, route: norm(route), step, final: norm(final), ok, issues: issues.map(norm), target: tg, ...(forbidden?.length ? { forbidden: forbidden.map((f) => norm(`${f.status} ${f.method} ${f.url}`)) } : {}) }));
+  const prevFile = join(OUT, "clickthrough.json");
+  if (flag("merge") && existsSync(prevFile)) {
+    // the pages this run checked replace their previous results; the others are kept
+    const prev = JSON.parse(readFileSync(prevFile, "utf8"));
+    const redone = new Set(report.results.map((r) => `${r.role}|${r.target}`));
+    const kept = (prev.results ?? []).filter((r) => !redone.has(`${r.role}|${r.target}`));
+    report.merged = { kept: kept.length, from: prev.started };
+    report.results = [...kept, ...report.results];
+  }
+  report.summary = { checks: report.results.length, ok: report.results.filter((r) => r.ok).length, problems: report.results.filter((r) => !r.ok).length };
   writeFileSync(join(OUT, "clickthrough.json"), JSON.stringify(report, null, 2) + "\n");
   writeFileSync(join(OUT, "CLICKTHROUGH.md"), markdown(report));
   log(`${report.summary.ok}/${report.summary.checks} checks passed in ${report.duration_s} s; ${join(OUT, "CLICKTHROUGH.md")}`);
   return report.summary.problems ? 1 : 0;
 }
-
-/** Record lists of the seeded tables (the parameterised pages under them open the seeded record). */
-const SEED_PATHS = { incident: "incidents", problem: "problems", change_request: "changes", release: "releases", todo: "todo", kb_article: "kb/articles", ci: "cis" };
 
 /** The report: what was crawled, the problems first, then every check; the hand-written part is kept. */
 function markdown(report) {
@@ -695,6 +725,7 @@ function markdown(report) {
     "",
     `- Started ${report.started}, ${report.duration_s} s; version ${report.version}, ${report.mode} mode (${report.edition} edition) on PGlite.`,
     `- ${report.routes} registered routes; ${report.summary.checks} checks, ${report.summary.ok} passed, ${report.summary.problems} with a problem.`,
+    ...(report.merged ? [`- Re-checked pages merged into the run of ${report.merged.from} (${report.merged.kept} earlier checks kept).`] : []),
     ...Object.entries(byRole).map(([k, v]) => `- ${ROLE_TITLE[k] ?? k} (\`${k}\`): ${v.ok}/${v.checks} checks passed.`),
     "",
     "## Problems",
@@ -702,6 +733,9 @@ function markdown(report) {
     bad.length ? "| Route | Role | Step | Issue |\n|---|---|---|---|" : "None.",
     ...bad.map((r) => `| \`${esc(r.route)}\` | ${r.role} | ${r.step} | ${esc(r.issues.join("; "))} |`),
     "",
+    ...(report.unreached?.length
+      ? ["## Not reached", "", "Parameterised pages without a record to open in this data (no first record in their list, or a parameter that is not a record id):", "", report.unreached.map((p) => `\`${p}\``).join(", "), ""]
+      : []),
     "## Every check",
     "",
     "| Route | Role | Step | Result |",

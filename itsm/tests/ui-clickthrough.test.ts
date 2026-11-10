@@ -4,11 +4,23 @@
 import { describe, expect, it, beforeAll } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
 import { PageBoundary, crashMessage } from "../src/ui/components/crash";
+import { queryBounded } from "../src/shared/cmdb/logic";
 
 const ROOT = join(__dirname, "..");
+const UI = join(ROOT, "src", "ui");
+
+function files(dir: string, re = /\.(tsx|ts)$/): string[] {
+  const out: string[] = [];
+  for (const name of readdirSync(dir)) {
+    const p = join(dir, name);
+    if (statSync(p).isDirectory()) out.push(...files(p, re));
+    else if (re.test(name)) out.push(p);
+  }
+  return out;
+}
 
 /** React Router's matching of a registered path (`:param` = one segment, a trailing `*` = the rest, maybe nothing). */
 function matcher(route: string): RegExp {
@@ -87,5 +99,43 @@ describe("a page that throws keeps the shell (error boundary)", () => {
     expect(app).toMatch(/<PageBoundary home=\{`\/\$\{org\}`\}>\{children\}<\/PageBoundary>/);
     expect(app).toMatch(/element=\{<Page org=\{org!\}>\{r\.element\}<\/Page>\}/);
     expect(app).toMatch(/return \(\s*<PageBoundary>\s*<Suspense/);
+  });
+});
+
+describe("release roadmap («نقشهٔ راه انتشار»)", () => {
+  it("draws its legend with swatches: a timeline band is absolutely positioned and floated over the page header", () => {
+    const bad = files(UI)
+      .filter((f) => !f.endsWith(join("records", "board", "TimelineGrid.tsx")))
+      .filter((f) => /className="[^"]*\brk-tg-band\b/.test(readFileSync(f, "utf8")))
+      .map((f) => relative(UI, f));
+    expect(bad, "use <i className=\"rk-sw\" data-k=…> for a legend").toEqual([]);
+    expect(readFileSync(join(UI, "modules/release/Roadmap.tsx"), "utf8")).toMatch(/className="rk-sw" data-k="maintenance"/);
+  });
+
+  it("starts a month's name at its first day, so the first one is not cut off at the edge («بان» for «آبان»)", () => {
+    const css = readFileSync(join(UI, "records/records.css"), "utf8");
+    expect(css).toMatch(/\.rk-tg-head b \{[^}]*align-self: flex-start/);
+  });
+
+  it("offers «تلاش دوباره» with the reason when the roadmap does not load", () => {
+    const src = readFileSync(join(UI, "modules/release/Roadmap.tsx"), "utf8");
+    expect(src).toMatch(/title="نقشهٔ راه بارگذاری نشد"\s*description=\{data\.error \? errorText\(data\.error\)/);
+    expect(src).toContain("data.refetch()");
+  });
+});
+
+describe("CMDB query («پرس‌وجوی پیکربندی»)", () => {
+  it("is bounded by a class, a condition or a step", () => {
+    expect(queryBounded({ class: null, condition: null, steps: [] })).toBe(false);
+    expect(queryBounded({})).toBe(false);
+    expect(queryBounded({ class: "server" })).toBe(true);
+    expect(queryBounded({ condition: { f: "name", op: "eq", v: "x" } })).toBe(true);
+    expect(queryBounded({ steps: [{ type: "depends_on" }] })).toBe(true);
+  });
+
+  it("keeps «اجرا» off until the query is bounded (the server answered 400 to the empty query)", () => {
+    const page = readFileSync(join(UI, "modules/cmdb/QueryPage.tsx"), "utf8");
+    expect(page).toMatch(/disabled=\{!bounded\}/);
+    expect(readFileSync(join(ROOT, "src/server/modules/cmdb/query.ts"), "utf8")).toMatch(/if \(!queryBounded\(/);
   });
 });
