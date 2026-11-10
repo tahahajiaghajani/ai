@@ -71,7 +71,9 @@ it — Supabase (`create extension vector`, schema-qualified type and operator),
 `@electric-sql/pglite-pgvector` (loaded by `createPgliteDb`, shipped by `scripts/build-desktop.mjs`). The vector columns
 `lvec_v vector(384)` and `vec_v vector` are added at startup; search is exact, and once an embedding key (or the local
 vectors) has `ANN_MIN_ROWS` (20 000) chunks an HNSW index is created per key (`((vec_v::vector(d)) vector_cosine_ops)
-where vec_key = '<key>'`, d ≤ 2000) and queried with `hnsw.iterative_scan = relaxed_order` so filters keep recall.
+where vec_key = '<key>'`, d ≤ 2000) and queried with `hnsw.iterative_scan = relaxed_order` so filters keep recall
+(pgvector 0.8 or later: `hasIterativeScan` compares major and minor, so 1.x keeps it; older versions filter what
+`ef_search = 200` found).
 Without pgvector the **portable store** keeps `real[]` arrays and compares vectors in the server over the
 access-filtered candidates (full text, LIKE, the newest 300 chunks). `forceStoreBackend(db, "portable")` runs a
 database that way (desktop parity tests).
