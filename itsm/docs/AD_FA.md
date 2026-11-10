@@ -97,6 +97,8 @@ Add-ADGroupMember -Identity "Kariz-Agents" -Members "Kariz-Agents-Network"
 (&(objectCategory=person)(objectClass=user)(memberOf:1.2.840.113556.1.4.1941:=CN=Kariz-Users,OU=Groups,DC=corp,DC=bank,DC=ir))
 ```
 
+نسخهٔ وب فقط به سرورهای LDAP با نشانی عمومی وصل می‌شود؛ نسخهٔ سرور و برنامهٔ ویندوز به کنترل‌کننده‌های شبکهٔ داخلی (نصب درون‌سازمانی با `ITSM_DIRECTORY_LAN=1`).
+
 سپس:
 
 1. در زبانهٔ **«ورود و SSO»** ← «آزمایش ورود»، نام یک کاربر (بی‌گذرواژه) را بزنید: اتصال، حساب خدمت، پیدا شدن کاربر، وضعیت حساب، گروه‌ها (با تودرتوها) و نقش‌هایی که می‌گیرد نمایش داده می‌شود.

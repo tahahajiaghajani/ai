@@ -840,7 +840,8 @@ export async function ssoChecklist(ctx: Ctx, sourceId: string, requestHost: stri
   const host = String(src.sso_host ?? "").trim() || requestHost.replace(/:\d+$/, "");
   const account = String(src.sso_account ?? "").trim();
   const secret = !!(await ctx.db.one(`select 1 from sm_directory_sources where id = $1 and org_id = $2 and proxy_secret is not null and proxy_secret <> ''`, [sourceId, ctx.org.id]));
-  const problem = negotiateProblem();
+  // the native module is loaded only for a source that uses Negotiate
+  const problem = conf.ssoMode === "negotiate" ? negotiateProblem() : null;
   const checks = [
     { key: "login", label: "«ورود با حساب سازمانی» روشن است", ok: conf.loginEnabled },
     { key: "approved", label: "منبع با دسترسی یک مدیر تأیید شده است", ok: !!conf.approvedBy },
