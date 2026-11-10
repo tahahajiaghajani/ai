@@ -1,5 +1,5 @@
 // Who may load and remove the demo pack (docs/DEMO_FA.md), and what it may not touch: only the organisation's
-// administrators (settings, full) see the console API (the personas' password with it) — every member sees the banner;
+// administrators (settings, full) see the console API (the personas' password with it, only while demo sign-in is on) — every member sees the banner;
 // another organisation's people reach nothing; a load over real records is refused unless forced; the purge confirms
 // with the typed phrase; a purge removes nothing of another organisation, nor any real row.
 import { describe, it, expect, beforeAll } from "vitest";

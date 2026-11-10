@@ -693,7 +693,7 @@ const ITAM_PHASES = ["fleet_status", "transfers", "audit", "attestation", "dispo
 
 /**
  * The bank ITAM workflows, each through the module's own services as the demo people who would do it (requester ≠
- * approver ≠ receiver; the wipe's performer ≠ its witness), so the custody chain is the module's own: ATMs down now
+ * approver ≠ receiver; the wipe's performer ≠ its witness ≠ its reviewer), so the custody chain is the module's own: ATMs down now
  * with their incidents, transfers between branches in every state, a branch count with discrepancies, the period's
  * branch attestations (some attested, some with exceptions, some overdue), a secure disposal with wipe certificates,
  * and the year's depreciation posted to the cost ledger so «دفتر اموال» reconciles with it. A phase a module refuses
@@ -798,7 +798,7 @@ async function stepItamFlows(a: StepArgs, sys: Ctx): Promise<boolean> {
         }
         await openAttestations(sys, today);
       } else if (phase === "disposal") {
-        // old Windows 7 ATMs: approved, wiped by the field technician with the asset manager as witness, disposed
+        // old Windows 7 ATMs: approved, wiped by the field technician before a witness, reviewed by a third person, disposed
         const olds = await sys.db.query<{ id: string }>(
           `select id from sm_assets where org_id = $1 and deleted_at is null and category = 'atm' and state in ('in_use', 'in_stock') and os_name ilike '%embedded%7%'
              and not exists (select 1 from sm_asset_transfer_items i where i.org_id = $1 and i.asset_id = sm_assets.id and i.deleted_at is null)
@@ -807,15 +807,19 @@ async function stepItamFlows(a: StepArgs, sys: Ctx): Promise<boolean> {
         );
         const manager = memo.people.personas.assets;
         const tech = memo.people.agents[`field:${REGIONS[0]}`]?.[0] ?? memo.people.personas.agent;
-        if (olds.length && manager && tech) {
+        const witness = itam.regional[REGIONS[0]];
+        if (olds.length && manager && tech && witness && new Set([manager, tech, witness]).size === 3) {
           const am = await as(manager);
           const order = (await create(am, "disposal_order", { title: "اسقاط امن خودپردازهای ویندوز ۷ (پایان پشتیبانی)", method: choose("disposal_order", "method", ["recycle", "destroy", "sell"]), vendor_id: memo.suppliers[0], owner_id: manager, group_id: memo.groups.assets, notes: "پاک‌سازی دیسک با گواهی پیش از تحویل به بازیافت" })).row;
           for (const o of olds) await create(am, "disposal_item", { order_id: order.id, asset_id: o.id });
           await transition(am, "disposal_order", String(order.id), "approved");
           await transition(am, "disposal_order", String(order.id), "sanitizing");
           const items = await sys.db.query<{ id: string }>(`select id from sm_disposal_items where org_id = $1 and order_id = $2 and deleted_at is null order by created_at`, [orgId, order.id]);
+          // three people: the field technician wipes, the region's asset manager witnesses, the asset manager (who
+          // records the certificate and approves in the asset area) reviews it afterwards
           for (const [k, it] of items.entries()) {
-            await update(am, "disposal_item", it.id, { sanitization_method: "purge", sanitized_at: iso(now - (3 - k) * DAY), sanitized_by: tech, witness_id: manager, wipe_tool: "ابزار پاک‌سازی دیسک (نمایشی) — NIST 800-88 Purge", certificate_no: `WIPE-1405-${String(k + 1).padStart(4, "0")}`, verified: true });
+            await update(am, "disposal_item", it.id, { sanitization_method: "purge", sanitized_at: iso(now - (3 - k) * DAY), sanitized_by: tech, witness_id: witness, wipe_tool: "ابزار پاک‌سازی دیسک (نمایشی) — NIST 800-88 Purge", certificate_no: `WIPE-1405-${String(k + 1).padStart(4, "0")}` });
+            await update(am, "disposal_item", it.id, { verified: true });
           }
           await transition(am, "disposal_order", String(order.id), "completed", { certificate_no: "DSP-1405-0001", certificate_date: dateOnly(now - DAY) });
           bump(memo, "disposal_order");
