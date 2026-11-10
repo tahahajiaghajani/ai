@@ -24,8 +24,12 @@ export interface PreflightFacts {
 }
 
 export const MIN_BUILD = 17763;
-/** the MSI's own launch condition: PhysicalMemory >= 3800 */
-export const MIN_MEMORY_MB = 3800;
+/**
+ * The memory Windows shows (TotalVisibleMemorySize) is below the installed size: firmware and integrated graphics
+ * reserve part of it (a 4 GB laptop may show 3.5 GB). The MSI's own gate is PhysicalMemory >= 3800; this one only
+ * stops a by-hand run on a machine that clearly has less than 4 GB.
+ */
+export const MIN_MEMORY_MB = 3000;
 export const MIN_DISK_MB = 2048;
 
 export interface PreflightResult extends PortChoice {

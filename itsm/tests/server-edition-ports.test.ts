@@ -139,6 +139,12 @@ describe("evaluatePreflight", () => {
     expect(r.errors).toHaveLength(5);
   });
 
+  it("lets a 4 GB laptop whose graphics reserve part of the memory through (the MSI gates on the physical size)", () => {
+    const r = evaluatePreflight({ admin: true, arch: "AMD64", build: 19045, productType: 1, memoryMb: 3500, freeDiskMb: 30_000 }, req(), () => null);
+    expect(r.ok).toBe(true);
+    expect(r.warnings.join(" ")).toContain("less than 8 GB");
+  });
+
   it("warns (never stops) on a pending restart, little memory or little disk", () => {
     const r = evaluatePreflight({ admin: true, arch: "AMD64", build: 20348, productType: 3, memoryMb: 6000, freeDiskMb: 10_000, pendingReboot: true }, req(), free);
     expect(r.ok).toBe(true);
