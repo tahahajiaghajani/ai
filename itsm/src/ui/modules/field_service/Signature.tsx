@@ -22,7 +22,9 @@ export function SignaturePad({ onChange }: { onChange: (file: File | null) => vo
     g.lineWidth = 2;
     g.lineCap = "round";
     g.lineJoin = "round";
-    g.strokeStyle = getComputedStyle(c).color || "#111";
+    // the ink of the theme (the canvas inherits --ds-text as its colour); a canvas keeps its default black otherwise
+    const ink = getComputedStyle(c).color || getComputedStyle(c).getPropertyValue("--ds-text").trim();
+    if (ink) g.strokeStyle = ink;
   }, []);
 
   const point = (e: React.PointerEvent<HTMLCanvasElement>) => {
