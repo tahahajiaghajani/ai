@@ -323,7 +323,7 @@ export interface ServerTableProps<T> {
   select?: (data: any) => { rows: T[]; total: number };
   /** extra buttons beside reload/export */
   tools?: ReactNode;
-  /** the record open in the side sheet: the neutral selected fill plus the 3 px Dusk start bar */
+  /** the record open in the side sheet: the neutral selected fill plus the 3 px accent start bar */
   activeKey?: string | null;
   /** what an empty, unfiltered table shows (default: a quiet «هنوز موردی ثبت نشده است») */
   empty?: ReactNode;

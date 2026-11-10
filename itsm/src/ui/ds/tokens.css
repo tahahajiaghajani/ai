@@ -1,49 +1,49 @@
 /* =====================================================================================================
-   Design system «ds» — design tokens                                         tokens.css · v1.2
-   The source of truth of src/ui (web + Windows app). The product's brand is chosen later; until then the
-   placeholder mark lives in src/ui/components/brand.tsx and these tokens stay brand-neutral in name.
+   Design system «ds» — design tokens                                         tokens.css · v2.0 «کاریز»
+   The source of truth of src/ui (web + Windows app). The brand is «کاریز» / Kariz (docs/BRAND_FA.md); engineers'
+   guide: docs/DESIGN_SYSTEM.md. Token names stay brand-neutral (--ds-*), so modules never name the brand.
 
-   v1.2 sets the whole interface in Arad with every digit drawn by «DS Num», a digit-only subset of
-   Vazirmatn that keeps number columns tabular and the separators narrow. UI weights are 450 / 540 / 600.
-
-   v1.1 applies the polish and usability reviews (components.md lists every rule that changed):
-     opaque focus colour and a 3:1 control edge (--ds-control-strong) · denser ledgers (40 / 32 px rows,
-     48 px top bar) · a neutral selected row with a Dusk start bar (--ds-accent-bar) · paler, lilac accent
-     tints · warning moved off the amber hue · info (blue) retired · figure weights 440 / 500 · decimals at
-     full size below 24 px · brighter dark-theme secondary text · the dark top bar no longer a lighter band ·
-     the brand surface lit at its horizon · --ds-holiday for calendars.
+   v2.0 (Kariz) keeps every v1 name and value role and changes the colours: the accent is «فیروزه» turquoise, the
+   second material and information are «لاجورد» lapis, warmth is «زعفران» saffron, on «کاهگل و مرکب» paper and ink and
+   «شب کویر» warm charcoal. New roles: info, AI, record states, priorities P1–P5, SLA, named hues, sequential and
+   diverging chart ramps, scrollbars; v1 names (Dusk, sea, grad-dusk…) and names modules used without a definition are
+   aliases (§2, §3b). Contrast is checked by scripts/ds-tokens.mjs (npm test runs it).
+   v1.2 set the whole interface in Arad with every digit drawn by «DS Num», a digit-only subset of Vazirmatn that keeps
+   number columns tabular and the separators narrow. UI weights are 450 / 540 / 600.
 
    What is here
      §1  @font-face — Arad (text and titles), DS Num (digits), Geist, Geist Mono + static print set
-     §2  Brand constants — Dusk «شامگاه» (primary) 50–950, brand gradients, grain
+     §2  Brand constants — firuzeh, lajvard and zaferan 50–950, the brand gradients, grain
      §3  Scale tokens — type, spacing, radii, sizes, density, z-index, motion (theme-independent)
-     §4  Light theme «کاغذ و مرکب» (paper and ink) — the default
-     §5  Dark theme «زغال گرم» (warm charcoal) — OS preference and the in-app toggle
+     §3b Role aliases — success, SLA, chart status, legacy and missing names
+     §4  Light theme «کاهگل و مرکب» (adobe paper and ink) — the default
+     §5  Dark theme «شب کویر» (desert night, warm charcoal) — OS preference and the in-app toggle
      §6  Preference and capability overrides — reduced motion, reduced transparency, more contrast,
          forced colours, no backdrop-filter, the Windows app's low-power switch
      §7  Print
-     §8  Base primitives — root defaults, form-control inheritance, focus, type/number/bidi helpers,
-         the rhombic nuqta (◆), the sync pulse
+     §8  Base primitives — root defaults, form-control inheritance, focus, selection, scrollbars, type/number/bidi
+         helpers, the rhombic nuqta (◆), the sync pulse
 
    How to use
      • Theme: <html data-theme="light|dark">. With no attribute the OS preference decides (§5).
        Motion/power overrides: data-motion="reduced", data-power="low" (both optional, set by the app).
-       Density: data-density="compact" on a page or panel (ledgers and lists; components.md §4.1).
+       Density: data-density="compact" on a page or panel (ledgers and lists).
      • Every value is a plain hex or rgb() — no oklch()/color-mix()/light-dark() — so the same values can be
-       fed to Ant Design's theme algorithm (it parses hex/rgb only) and render identically everywhere.
-       The OKLCH source of each colour is noted; palettes come from director/scripts/palette.mjs.
-     • Never set type with the `font` shorthand. In Chromium (checked on 153) `font:` resets
-       font-feature-settings ("ss01" → Persian digits), font-variation-settings ("DSTY" 3 → rhombic dots) and
-       font-variant-numeric (tabular-nums). Use the longhands or the .ds-t-* classes in §8.
-     • Import order in the app: `@layer theme, base, antd, components, utilities;` first, then Tailwind,
-       then this file. Custom properties are unlayered on purpose; §8 lives in `@layer base`.
+       fed to Ant Design's theme algorithm (it parses hex/rgb only) and render identically everywhere. The OKLCH
+       source of each brand colour is noted; ds-palette.ts is generated from this file (node scripts/ds-tokens.mjs --write).
+     • Never set type with the `font` shorthand. In Chromium `font:` resets font-feature-settings ("ss01" → Persian
+       digits), font-variation-settings ("DSTY" 3 → rhombic dots) and font-variant-numeric (tabular-nums). Use the
+       longhands or the .ds-t-* classes in §8.
+     • Layer order `@layer properties, theme, base, antd, components, utilities;` is declared inline at the top of
+       index.html (before any stylesheet) and again in styles.css. Custom properties are unlayered on purpose; §8 lives
+       in `@layer base`.
      • Themes apply to <html> only (custom properties that reference other properties are resolved there).
        §6/§7 overrides use `:root:root:root` where they must beat the dark-theme selectors.
 
-   Contrast (WCAG 2): every text token below is ≥ 4.5:1 on canvas, surface, raised, sunken and well of its theme
-   (--ds-text-4 is for disabled controls only, never for content). Non-text (1.4.11): the focus colour,
-   --ds-control-strong and --ds-accent-bar reach 3:1 on every fill they touch. Dark --ds-text-3 also reaches
-   APCA |Lc| 60. All pairs, both themes: scripts/check-tokens.mjs → build/token-report.json.
+   Contrast (WCAG 2.2 AA): every text token is ≥ 4.5:1 on canvas, surface, raised, sunken and well of its theme, and
+   every state/priority/semantic text on its own tint (--ds-text-4 is for disabled controls only). Non-text (1.4.11):
+   focus, --ds-control-strong, --ds-accent-bar and every chart colour reach 3:1 on the surfaces they sit on.
+   All pairs, both themes: `node scripts/ds-tokens.mjs` (also run by tests/design-system.test.ts).
    ===================================================================================================== */
 
 
@@ -130,56 +130,96 @@
 
 
 /* -----------------------------------------------------------------------------------------------------
-   §2  BRAND CONSTANTS (same in both themes)
+   §2  BRAND CONSTANTS (same in both themes) — «کاریز» / Kariz (docs/BRAND_FA.md). Mirrors src/shared/brand.ts
+   (BRAND_COLORS, TILE_GRADIENT, SKY_GRADIENT); tests/design-system.test.ts keeps the two equal.
    ----------------------------------------------------------------------------------------------------- */
 :root {
-  /* Primary scale — «شامگاه» Dusk, OKLCH hue 332. 700 is the signature colour.
-     L: .975 .95 .905 .84 .75 .62 .50 .405 .335 .265 .205
-     (The UI's accent roles in §4/§5 are tuned separately; this scale is for illustration and brand work.) */
-  --ds-dusk-50:  #FCF4FA;
-  --ds-dusk-100: #F9E9F6;
-  --ds-dusk-200: #F2D5ED;
-  --ds-dusk-300: #E7BADF;
-  --ds-dusk-400: #D298C9;
-  --ds-dusk-500: #B168A7;
-  --ds-dusk-600: #8C4384;
-  --ds-dusk-700: #6A2E63;   /* signature */
-  --ds-dusk-800: #50224B;
-  --ds-dusk-900: #381634;
-  --ds-dusk-950: #240D21;
+  /* Primary — «فیروزه» turquoise, OKLCH h 203: water at the kariz outlet, the domes' tiles. 700 is the signature on
+     paper (white text 5.8:1), 400 on charcoal. L: .975 .955 .91 .85 .77 .69 .61 .50 .43 .35 .26 */
+  --ds-firuzeh-50:  #EEF9FA;
+  --ds-firuzeh-100: #E0F5F7;
+  --ds-firuzeh-200: #BFEBEF;
+  --ds-firuzeh-300: #96DCE2;
+  --ds-firuzeh-400: #61C6CF;
+  --ds-firuzeh-500: #2CAFB9;
+  --ds-firuzeh-600: #0C959E;
+  --ds-firuzeh-700: #0A7178;   /* signature */
+  --ds-firuzeh-800: #075B61;
+  --ds-firuzeh-900: #044348;
+  --ds-firuzeh-950: #022A2D;
+
+  /* Secondary — «لاجورد» lapis, OKLCH h 268: the night of the brand surfaces, AI and information.
+     L: .97 .94 .88 .80 .70 .60 .51 .44 .37 .29 .21 */
+  --ds-lajvard-50:  #F2F5FE;
+  --ds-lajvard-100: #E4EBFD;
+  --ds-lajvard-200: #C8D7FE;
+  --ds-lajvard-300: #A3BCFC;
+  --ds-lajvard-400: #7C9AEF;
+  --ds-lajvard-500: #5778DF;
+  --ds-lajvard-600: #3D5BC6;
+  --ds-lajvard-700: #2E47A9;
+  --ds-lajvard-800: #233783;
+  --ds-lajvard-900: #16255C;
+  --ds-lajvard-950: #0B1538;
+
+  /* Warmth — «زعفران» saffron, OKLCH h 72: the lit nuqta, celebration, «on hold». L: .975 .945 .895 .835 .765 .665 .58 .50 .42 .34 .26 */
+  --ds-zaferan-50:  #FEF5EB;
+  --ds-zaferan-100: #FEE9D0;
+  --ds-zaferan-200: #FED4A2;
+  --ds-zaferan-300: #FEBA5F;
+  --ds-zaferan-400: #EEA023;
+  --ds-zaferan-500: #C8830B;
+  --ds-zaferan-600: #A66C08;
+  --ds-zaferan-700: #875806;
+  --ds-zaferan-800: #6A4404;
+  --ds-zaferan-900: #4E3104;
+  --ds-zaferan-950: #331F04;
+
+  /* Brand neutrals, the same in both themes (logo previews on paper and on charcoal, print, the brand book). */
+  --ds-ink: #221D18;  --ds-paper: #F7F4F0;  --ds-charcoal: #110F0E;  --ds-snow: #F2F0EC;
+
+  /* Legacy names (v1 «شامگاه» Dusk was the primary scale): kept as aliases of the primary so old rules still resolve. */
+  --ds-dusk-50: var(--ds-firuzeh-50);   --ds-dusk-100: var(--ds-firuzeh-100); --ds-dusk-200: var(--ds-firuzeh-200);
+  --ds-dusk-300: var(--ds-firuzeh-300); --ds-dusk-400: var(--ds-firuzeh-400); --ds-dusk-500: var(--ds-firuzeh-500);
+  --ds-dusk-600: var(--ds-firuzeh-600); --ds-dusk-700: var(--ds-firuzeh-700); --ds-dusk-800: var(--ds-firuzeh-800);
+  --ds-dusk-900: var(--ds-firuzeh-900); --ds-dusk-950: var(--ds-firuzeh-950);
 
   /* The only gradients. Never on buttons, text, sidebars or table headers. */
-  /* 1 · «شامگاه» — brand surfaces only: login/onboarding, splash, installer, About, OG image.
-         The sky darkens toward the zenith; the last light sits ON the horizon line, not at the bottom edge,
-         so it is drawn by the horizon element itself (1a) and holds for any copy length or window height.
+  /* 1 · «شب کاریز» the kariz night — brand surfaces only: login/onboarding, splash, installer, About.
+         Lapis darkening toward the zenith; the light sits ON the horizon line (1a), where the water comes up.
          Always pair with the grain (--ds-grain). */
-  --ds-grad-dusk: linear-gradient(180deg, #1C0A1A 0%, #2B1027 45%, #43203D 100%);
-  /* 1a · the horizon (components.md §11.1): a 1 px line, its light and the sea below it.
+  --ds-grad-brand: linear-gradient(180deg, #08112D 0%, #0D1E47 50%, #123A62 100%);
+  /* 1a · the horizon (components.md §11.1): a 1 px line, its light and the water below it.
          --ds-horizon-light paints `.horizon::after`, a box from 300 px above the line to 1300 px below it
          (inset-block-start: -300px; block-size: 1600px; z-index: -1), so y = 300 px is the line. The light is
          centred 54 px from the start (right) edge, under the resting nuqta. */
-  --ds-horizon-line: linear-gradient(90deg, rgb(255 236 226 / 0), rgb(255 236 226 / .20) 35%, rgb(255 236 226 / .50));
+  --ds-horizon-line: linear-gradient(90deg, rgb(225 245 247 / 0), rgb(225 245 247 / .22) 35%, rgb(225 245 247 / .55));
   --ds-horizon-light:
-    radial-gradient(240px 110px at calc(100% - 54px) 300px, rgb(248 176 132 / .42), transparent 70%),
-    radial-gradient(620px 230px at calc(100% - 140px) 300px, rgb(166 82 152 / .50), transparent 72%),
-    linear-gradient(180deg, transparent 300px, rgb(14 4 12 / .38) 301px, rgb(14 4 12 / .50) 700px);
-  --ds-horizon-glow: 0 0 0 4px rgb(255 255 255 / .10), 0 0 20px 6px rgb(255 214 190 / .38);   /* the resting nuqta */
-  /* 1b · small tiles with no horizon (organisation switcher, app icon — matches final/app-icon.svg): the ember sits
-         in the lower start corner. */
-  --ds-grad-dusk-tile:
-    radial-gradient(120% 70% at 85% 118%, rgb(226 134 112 / .30), transparent 62%),
-    linear-gradient(162deg, #240D21 0%, #381634 38%, #50224B 72%, #6A2E63 100%);
+    radial-gradient(220px 100px at calc(100% - 54px) 300px, rgb(254 186 95 / .34), transparent 70%),
+    radial-gradient(640px 240px at calc(100% - 140px) 300px, rgb(44 175 185 / .42), transparent 72%),
+    linear-gradient(180deg, transparent 300px, rgb(4 18 34 / .30) 301px, rgb(4 18 34 / .46) 700px);
+  --ds-horizon-glow: 0 0 0 4px rgb(255 255 255 / .10), 0 0 20px 6px rgb(254 186 95 / .40);   /* the resting nuqta */
+  /* 1b · the app icon's tile (organisation switcher, About, the home page) — matches docs/brand/logo/kariz-app-icon.svg:
+         lapis night at the top, turquoise water at the bottom end, a glow rising from below. */
+  --ds-grad-brand-tile:
+    radial-gradient(75% 75% at 50% 105%, rgb(44 175 185 / .45), transparent 100%),
+    linear-gradient(162deg, #0E1C48 0%, #10456E 55%, #0A808A 100%);
+  /* legacy names */
+  --ds-grad-dusk: var(--ds-grad-brand);
+  --ds-grad-dusk-tile: var(--ds-grad-brand-tile);
   /* (2 · chart area and 4 · glass edge are theme-dependent: §4/§5.) */
 
-  /* Grain: fractal noise, 160 px tile, used at opacity .06–.08 with mix-blend-mode: overlay, on Dusk only. */
+  /* Grain: fractal noise, 160 px tile, used at opacity .06–.08 with mix-blend-mode: overlay, on the brand night only. */
   --ds-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='.33 .33 .33 0 0 .33 .33 .33 0 0 .33 .33 .33 0 0 0 0 0 0 1'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
   --ds-grain-size: 160px;
   --ds-grain-opacity: .07;
 
-  /* Text on brand surfaces (Dusk gradient): white / 72 % white for secondary (≥ 7.9:1) / 56 % (≥ 5.4:1) */
+  /* Text on brand surfaces (the kariz night): white / 74 % white for secondary (≥ 8.6:1) / 58 % (≥ 5.5:1) */
   --ds-on-brand: #FFFFFF;
-  --ds-on-brand-2: rgb(255 255 255 / .72);
-  --ds-on-brand-3: rgb(255 255 255 / .56);
+  --ds-on-brand-2: rgb(255 255 255 / .74);
+  --ds-on-brand-3: rgb(255 255 255 / .58);
+  /* the mark's nuqta on the brand night and the app tile */
+  --ds-brand-nuqta-on-brand: #FEBA5F;
 }
 
 
@@ -295,6 +335,8 @@
   --ds-dur-hero: 500ms;       /* first chart draw, launch mark */
   --ds-dur-flash: 1200ms;     /* changed live-rate cell: tint fades out */
   --ds-dur-pulse: 2000ms;     /* the sync nuqta while syncing — the only loop in the product */
+  --ds-dur-celebrate: 900ms;  /* a milestone (a major incident resolved, a change closed clean): nuqtas rise once — never a loop */
+  --ds-pending-opacity: .62;  /* an optimistic change not yet confirmed by the server (data-pending) */
   --ds-exit-ratio: .75;       /* exits run at ≈ 0.75 × the entry duration */
   --ds-stagger: 30ms;         /* at most 6 items, never blocks input */
 
@@ -320,8 +362,31 @@
 
 
 /* -----------------------------------------------------------------------------------------------------
-   §4  LIGHT THEME «کاغذ و مرکب» — warm paper and ink (default)
-   Neutrals: paper hue 80, ink hue 72 (OKLCH); 90–95 % of every screen is these.
+   §3b ROLE ALIASES — names that point at theme tokens (§4/§5), so they follow the theme (resolved on <html>)
+   ----------------------------------------------------------------------------------------------------- */
+:root {
+  /* success is the semantic «in» */
+  --ds-success: var(--ds-in);  --ds-success-tint: var(--ds-in-tint);  --ds-success-border: var(--ds-in-border);
+  /* SLA (records/model/colors.ts slaTone): on track, at risk (≥ 75 % of the target used), breached, paused, met */
+  --ds-sla-ok: var(--ds-in);                 --ds-sla-ok-text: var(--ds-in);          --ds-sla-ok-tint: var(--ds-in-tint);
+  --ds-sla-risk: var(--ds-p2);               --ds-sla-risk-text: var(--ds-warning);   --ds-sla-risk-tint: var(--ds-warning-tint);
+  --ds-sla-breach: var(--ds-danger);         --ds-sla-breach-text: var(--ds-danger);  --ds-sla-breach-tint: var(--ds-danger-tint);
+  --ds-sla-paused: var(--ds-control-strong); --ds-sla-paused-text: var(--ds-text-3);  --ds-sla-paused-tint: var(--ds-neutral-tint);
+  --ds-sla-met: var(--ds-in);                --ds-sla-met-text: var(--ds-in);         --ds-sla-met-tint: var(--ds-in-tint);
+  /* status in charts (good → critical): reserved meanings, never a series colour; always with an icon and a label */
+  --ds-status-good: var(--ds-in);  --ds-status-warning: var(--ds-p3);  --ds-status-serious: var(--ds-p2);  --ds-status-critical: var(--ds-danger);
+  /* names modules used before they were defined */
+  --ds-radius-2: var(--ds-radius-md);
+  --ds-surface-2: var(--ds-well);
+  --ds-weight-bold: var(--ds-weight-strong);
+  --ds-font-num: var(--ds-font-sans);
+}
+
+
+/* -----------------------------------------------------------------------------------------------------
+   §4  LIGHT THEME «کاهگل و مرکب» — adobe paper and ink (default)
+   Neutrals: paper hue 80, ink hue 72 (OKLCH); 90–95 % of every screen is these. The colours are the brand's:
+   turquoise for action and selection, lapis for information and AI, saffron for warmth and «on hold».
    ----------------------------------------------------------------------------------------------------- */
 :root {
   color-scheme: light;
@@ -334,9 +399,9 @@
   --ds-well: #F4F1EC;         /* recessed area INSIDE raised layers (sheet, dialog): sums, tracks — sunken is relative to the canvas */
 
   /* ---- text (ink) ---- */
-  --ds-text: #221D18;         /* primary ink; outflow amounts; links (underlined) · 16.6:1 on surface */
+  --ds-text: #221D18;         /* primary ink; links (underlined) · 16.6:1 on surface */
   --ds-text-2: #544F49;       /* secondary; decimals in cells · 8.0:1 */
-  --ds-text-3: #6E6964;       /* labels, table headers, meta, placeholders, excluded amounts · 5.4 surface / 4.69 sunken and selected row */
+  --ds-text-3: #6E6964;       /* labels, table headers, meta, placeholders · 5.4 surface / 4.69 sunken and selected row */
   --ds-text-4: #9C9792;       /* disabled controls only — never content (2.9:1) */
   --ds-ink-rgb: 33 29 24;     /* base of every alpha line, tint and shadow */
 
@@ -352,51 +417,81 @@
   --ds-pressed: rgb(33 29 24 / .10);
   --ds-segment-on: #FFFFFF;           /* segmented "on" pill (raised, with --ds-shadow-segment, weight 600) */
   --ds-scrim: rgb(10 8 7 / .42);      /* behind dialogs and the palette (never behind the side sheet) */
+  --ds-scrollbar: rgb(33 29 24 / .22);       --ds-scrollbar-hover: rgb(33 29 24 / .36);
 
-  /* ---- accent: Dusk. Reserved for the primary action, focus, the selected-state indicator (active tab, selected
-         row and palette bars, selected day, applied filter) and the main chart series — at most one per region. ---- */
-  --ds-accent: #6A2E63;               /* the single primary action per view · white text 9.6:1 */
-  --ds-accent-hover: #50224B;         /* hover and pressed */
-  --ds-accent-text: #8C4384;          /* active tab text, caret, text-field focus ring · 6.4:1 (links are ink) */
-  --ds-accent-line: #8C4384;          /* the main chart series */
-  --ds-accent-line-rgb: 140 67 132;
-  --ds-accent-bar: #6A2E63;           /* start bar of the selected table row and palette row · 8.3:1 on --ds-selected */
-  --ds-accent-tint: #FAF5F9;          /* selected option, in-range days          OKLCH .975 .007 332 (lilac, not pink) */
-  --ds-accent-tint-2: #F6EDF4;        /* applied filter, "this period" chip, the scrubbed date · .955 .013 */
-  --ds-accent-border: #E6CDE2;        /* applied filter edge                                        .875 .039 */
+  /* ---- accent: «فیروزه» turquoise. Reserved for the primary action, focus, the selected-state indicator (active tab,
+         selected row and palette bars, selected day, applied filter) and the main chart series — at most one per region. ---- */
+  --ds-accent: #0A7178;               /* the single primary action per view · white text 5.8:1        firuzeh-700 */
+  --ds-accent-hover: #075B61;         /* hover and pressed · white 7.8:1                               firuzeh-800 */
+  --ds-accent-text: #0A7178;          /* active tab text, caret, applied filter · 5.7 surface / 5.0 sunken and selected (links are ink) */
+  --ds-accent-line: #0C959E;          /* the main chart series = --ds-chart-1 · 3.6:1                  firuzeh-600 */
+  --ds-accent-line-rgb: 12 149 158;
+  --ds-accent-bar: #0A7178;           /* start bar of the selected table row and palette row · 5.0:1 on --ds-selected */
+  --ds-accent-tint: #EEF9FA;          /* selected option, in-range days                                firuzeh-50 */
+  --ds-accent-tint-2: #E0F5F7;        /* applied filter, "this period" chip, the scrubbed date · accent-text 5.1:1 */
+  --ds-accent-border: #BFEBEF;        /* applied filter edge                                           firuzeh-200 */
   --ds-on-accent: #FFFFFF;
-  --ds-selection: #F0DCEC;            /* ::selection                                                .915 .030 */
-  --ds-focus-color: #8C4384;          /* opaque: 5.6–6.5:1 on every light fill (was 45 % alpha, 2.06:1) */
+  --ds-selection: #BFEBEF;            /* ::selection (ink stays ink: 14:1) */
+  --ds-focus-color: #0A7178;          /* opaque: 5.0–5.8:1 on every light fill */
   --ds-focus-gap: var(--ds-surface);  /* the 2 px gap of the ring; raised layers redeclare it (§8) */
   --ds-focus-ring: 0 0 0 2px var(--ds-focus-gap), 0 0 0 4px var(--ds-focus-color);  /* where an outline cannot be used */
 
+  /* ---- the logo on this theme (components/brand.tsx): turquoise arch, saffron nuqta, ink name ---- */
+  --ds-brand-arch: #0A7178;   --ds-brand-nuqta: #C8830B;   --ds-brand-word: var(--ds-text);
+
   /* ---- semantic (data only; chips are text on their own tint, never a solid fill) ---- */
-  --ds-in: #1B7248;           --ds-in-tint: #E4EDE7;       --ds-in-border: #BFD7CA;      /* money in, success · chip 4.95:1 */
+  --ds-in: #1B7248;           --ds-in-tint: #E4EDE7;       --ds-in-border: #BFD7CA;      /* success, resolved, met · chip 4.95:1 */
   --ds-in-halo: rgb(27 114 72 / .18);                                                    /* 3 px halo of the live/sync nuqta */
-  --ds-danger: #B63731;       --ds-danger-tint: #F6E6E5;   --ds-danger-border: #EBC6C4;  /* errors, overdue, bounced — nothing else · chip 4.85:1 */
+  --ds-danger: #B63731;       --ds-danger-tint: #F6E6E5;   --ds-danger-border: #EBC6C4;  /* errors, breached, overdue, P1 · chip 4.85:1 */
   --ds-danger-solid: #B63731; --ds-danger-solid-hover: #A12B27;                          /* destructive button fill, white text */
-  --ds-warning: #A35612;      --ds-warning-tint: #FEEFE4;  --ds-warning-border: #F8CAA7; /* OKLCH h 55–62, off the amber hue (78–85) · 4.66–5.39:1 on every fill, 4.79 on its tint */
+  --ds-danger-active: #8D2521; --ds-danger-hover-text: #A12B27; --ds-on-danger: #FFFFFF;   /* antd: pressed fill, hovered text, text on the danger fill */
+  --ds-warning: #A35612;      --ds-warning-tint: #FEEFE4;  --ds-warning-border: #F8CAA7; /* OKLCH h 55–62, off the amber hue · 4.66–5.39:1 on every fill, 4.79 on its tint */
   --ds-warning-fill: #F29A43;                                                            /* nuqta, icon, meter segment — never text */
-  --ds-neutral-tint: #F2F1EF;                                                            /* neutral chip: draft, in transit, archived */
+  --ds-info: #2E47A9;         --ds-info-tint: #F2F5FE;     --ds-info-border: #C8D7FE;    /* «لاجورد» lapis: information, «new», hints · 8.0:1, 7.4 on its tint */
+  --ds-info-fill: #3D5BC6;                                                               /* nuqta, icon, meter segment          lajvard-600 */
+  --ds-neutral-tint: #F2F1EF;                                                            /* neutral chip: draft, closed, archived */
   --ds-holiday: #B63731;      /* Fridays and holidays in calendars: the cultural red, a role of its own so danger stays rare */
-  /* Outflow is --ds-text (ink), never red. Excluded amounts (bounced, returned) are --ds-text-3 and never struck through.
-     Info (blue) is retired: a neutral chip + icon, or a --ds-sea nuqta. No amber surfaces:
-     warning banners are --ds-surface + --ds-ring with a --ds-warning-fill nuqta; only 22 px chips use --ds-warning-tint. */
+  /* No amber surfaces: warning banners are --ds-surface + --ds-ring with a --ds-warning-fill nuqta; only 22 px chips use
+     --ds-warning-tint. Outflow amounts are ink, never red; excluded amounts are --ds-text-3, never struck through. */
 
-  /* ---- a second material (teal «دریا»): a module's own accent, sparingly ---- */
-  --ds-sea-text: #13676F;     --ds-sea: #2D8992;           --ds-sea-tint: #E1F2F4;       --ds-sea-line: #A3CDD2;
+  /* ---- a second material «دریا» (sea): internal notes, viewers, callouts — now lapis, so it never reads as the accent ---- */
+  --ds-sea-text: #2E47A9;     --ds-sea: #3D5BC6;           --ds-sea-tint: #F2F5FE;       --ds-sea-line: #C8D7FE;
 
-  /* ---- charts: categorical, FIXED order, never cycled; past 6 series fold into «سایر» or facet.
-     Validated (dataviz validator, adjacent pairs): worst CVD ΔE 14.7, normal 24.4. Slots 2 and 8 are under 3:1
-     on surface → charts always carry direct labels or a table view. Scatter/all-pairs forms: max 3 series. ---- */
-  --ds-chart-1: #8C4384;      /* dusk «شامگاه» */
-  --ds-chart-2: #E3A638;      /* saffron «زعفران» (2.13:1 — labels required) */
-  --ds-chart-3: #0298A4;      /* sea «دریا» */
-  --ds-chart-4: #C45E3D;      /* clay «سفال» */
-  --ds-chart-5: #495AB2;      /* indigo «نیل» */
-  --ds-chart-6: #659D58;      /* sage «مریم‌گلی» */
-  --ds-chart-7: #7B4200;      /* walnut «گردو» */
-  --ds-chart-8: #7BB5F0;      /* sky «آسمان» (2.15:1 — labels required) */
+  /* ---- AI: lapis, the depth the answers come up from (assistant, suggestions, predictions) ---- */
+  --ds-ai: #3D5BC6;           --ds-ai-text: #2E47A9;       --ds-ai-tint: #F2F5FE;        --ds-ai-border: #C8D7FE;
+  --ds-grad-ai: linear-gradient(135deg, #3D5BC6 0%, #0C959E 100%);   /* the AI badge and the assistant's spark only */
+
+  /* ---- record states (the state categories of @shared/model/types): hue = nuqta/bar ≥ 3:1, text ≥ 4.5:1 on tint ---- */
+  --ds-state-new: #3D5BC6;        --ds-state-new-text: #2E47A9;        --ds-state-new-tint: #F2F5FE;          /* جدید — lapis */
+  --ds-state-progress: #0C959E;   --ds-state-progress-text: #0A7178;   --ds-state-progress-tint: #EEF9FA;     /* در جریان — turquoise */
+  --ds-state-hold: #BA7A08;       --ds-state-hold-text: #875806;       --ds-state-hold-tint: #FEF5EB;         /* در انتظار — saffron */
+  --ds-state-resolved: #1B7248;   --ds-state-resolved-text: #1B7248;   --ds-state-resolved-tint: #E4EDE7;     /* حل‌شده — green */
+  --ds-state-closed: #8A847E;     --ds-state-closed-text: #544F49;     --ds-state-closed-tint: #F2F1EF;       /* بسته — ink */
+  --ds-state-cancelled: #8A847E;  --ds-state-cancelled-text: #6E6964; --ds-state-cancelled-tint: #F2F1EF;    /* لغوشده — hollow nuqta, quieter text */
+
+  /* ---- priorities P1–P5 (critical → planning): hue = the nuqta/bar, text on tint ≥ 4.5:1; always with the label ---- */
+  --ds-p1: #B63731;   --ds-p1-text: #B63731;   --ds-p1-tint: #F6E6E5;    /* بحرانی */
+  --ds-p2: #D66919;   --ds-p2-text: #A35612;   --ds-p2-tint: #FEEFE4;    /* زیاد */
+  --ds-p3: #BA7A08;   --ds-p3-text: #875806;   --ds-p3-tint: #FEF5EB;    /* متوسط */
+  --ds-p4: #3D5BC6;   --ds-p4-text: #2E47A9;   --ds-p4-tint: #F2F5FE;    /* کم */
+  --ds-p5: #8A847E;   --ds-p5-text: #6E6964;   --ds-p5-tint: #F2F1EF;    /* برنامه‌ریزی */
+
+  /* ---- named colours of options and portals (COLOR_KEYS): text on surface ≥ 4.5:1, white on fill ≥ 4.5:1 ---- */
+  --ds-hue-gray: #6E6964;   --ds-hue-red: #B63731;    --ds-hue-orange: #A35612;  --ds-hue-gold: #875806;   --ds-hue-green: #1B7248;
+  --ds-hue-teal: #0A7178;   --ds-hue-blue: #196EA9;   --ds-hue-indigo: #3D5BC6;  --ds-hue-purple: #8C3D83; --ds-hue-magenta: #AB366E;
+  --ds-on-hue: #FFFFFF;     /* text on a filled hue */
+
+  /* ---- charts: categorical, FIXED order, never cycled; past 8 series fold into «سایر» or facet.
+     Validated (dataviz validator, adjacent pairs, Machado 2009): worst CVD ΔE 13.6, normal 21.0; all ≥ 3:1 on surface
+     (charts sit on surface or raised). Each slot keeps the hue family it always had except 1 (now the brand) and 3. ---- */
+  --ds-chart-1: #0C959E;      /* firuzeh «فیروزه» — the main series */
+  --ds-chart-2: #C8830B;      /* zaferan «زعفران» */
+  --ds-chart-3: #8C3D83;      /* shamgah «شامگاه» (the v1 brand, now a series) */
+  --ds-chart-4: #D36340;      /* sofal «سفال» clay */
+  --ds-chart-5: #3D5BC6;      /* lajvard «لاجورد» lapis */
+  --ds-chart-6: #559647;      /* pesteh «پسته» pistachio */
+  --ds-chart-7: #874805;      /* gerdu «گردو» walnut */
+  --ds-chart-8: #3B9AD1;      /* aseman «آسمان» sky */
   --ds-chart-other: #B5B0AA;  /* «سایر» fold-in, neutral */
   --ds-chart-grid: rgb(33 29 24 / .06);       /* ≤ 3 hairlines, solid, or none */
   --ds-chart-axis: rgb(33 29 24 / .22);       /* baseline */
@@ -404,8 +499,14 @@
   --ds-chart-compare: #6E6964;                /* comparison period: dashed 4 3, 1.25 px */
   --ds-chart-area-top: .16;                   /* gradient 2 · accent-line from 16 % to 2 % */
   --ds-chart-area-bottom: .02;
-  --ds-grad-chart-area: linear-gradient(180deg, rgb(140 67 132 / .16), rgb(140 67 132 / .02));
+  --ds-grad-chart-area: linear-gradient(180deg, rgb(12 149 158 / .16), rgb(12 149 158 / .02));
   --ds-hero-glow: none;                       /* dark theme only */
+  /* sequential (magnitude: heatmaps, capacity, density) — one hue, light → dark, ΔL ≥ .06 */
+  --ds-seq-1: #D8F5F7; --ds-seq-2: #B3E3E8; --ds-seq-3: #86D1D8; --ds-seq-4: #58BEC7; --ds-seq-5: #2CA9B3;
+  --ds-seq-6: #0D939C; --ds-seq-7: #0B7C84; --ds-seq-8: #09666C; --ds-seq-9: #065056;
+  /* diverging (polarity: below ↔ above target) — lapis ↔ neutral ↔ clay, 4 steps per arm, gray midpoint */
+  --ds-div-1: #2B439D; --ds-div-2: #4764C2; --ds-div-3: #758FD6; --ds-div-4: #B0C0E9; --ds-div-5: #E9E7E5;
+  --ds-div-6: #E4B4A5; --ds-div-7: #D77C60; --ds-div-8: #BE512D; --ds-div-9: #95330F;
 
   /* ---- elevation: shadows tinted with ink 33 29 24, never pure black ---- */
   --ds-ring: 0 0 0 1px rgb(33 29 24 / .08);
@@ -426,16 +527,19 @@
   --ds-glass-ring: 0 0 0 1px rgb(33 29 24 / .08);
   --ds-glass-shadow: 0 0 0 1px rgb(33 29 24 / .08), inset 0 1px 0 rgb(255 255 255 / .7);
   --ds-tooltip-bg: #221D18;   --ds-tooltip-text: #F2F0EC;
+
+  /* ---- illustrations (ds/illustrations.tsx): quiet ink lines, a soft ground, turquoise water, the saffron nuqta ---- */
+  --ds-illus-ink: #A39D97;    --ds-illus-line: rgb(33 29 24 / .14);   --ds-illus-soft: #EFEBE5;
+  --ds-illus-water: #2CAFB9;  --ds-illus-light: #EEA023;              --ds-illus-alert: #D9605A;
 }
 
 
 /* -----------------------------------------------------------------------------------------------------
-   §5  DARK THEME «زغال گرم» — warm charcoal, never navy. Elevation = lighter surface + hairline ring +
+   §5  DARK THEME «شب کویر» desert night — warm charcoal, never navy. Elevation = lighter surface + hairline ring +
    top highlight; only floating layers cast shadows. The two blocks below MUST stay identical
-   (scripts/check-tokens.mjs fails the build if they drift).
-   Accent: lower chroma than light (accent-text C .065, accent-line .081) so links, lines and bars read orchid,
-   not pink. Secondary text is brighter than WCAG alone asks (APCA |Lc| ≥ 75 / ≥ 60 on canvas, surface and raised). The top bar's glass is built
-   on the panel colour, so it never shows as a lighter band; floating layers keep the raised tint.
+   (tests/design-system.test.ts fails if they drift). Turquoise and lapis step up in lightness (texts ≥ 7:1) while the
+   primary button keeps white text (5.3:1); secondary text is brighter than WCAG alone asks (APCA |Lc| ≥ 75 / ≥ 60).
+   The top bar's glass is built on the panel colour, so it never shows as a lighter band.
    ----------------------------------------------------------------------------------------------------- */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -444,21 +548,44 @@
     --ds-text: #F2F0EC;  --ds-text-2: #D3CEC8;  --ds-text-3: #BAB5AF;  --ds-text-4: #66625E;  --ds-ink-rgb: 255 248 236;
     --ds-line: rgb(255 248 236 / .07);  --ds-line-2: rgb(255 248 236 / .12);  --ds-line-3: rgb(255 248 236 / .20);  --ds-control-strong: #827D78;
     --ds-hover: rgb(255 248 236 / .05);  --ds-hover-row: rgb(255 248 236 / .05);  --ds-selected: rgb(255 248 236 / .08);  --ds-pressed: rgb(255 248 236 / .11);
-    --ds-segment-on: #2A2725;  --ds-scrim: rgb(10 8 7 / .56);
-    --ds-accent: #934F8A;  --ds-accent-hover: #9E5995;  --ds-accent-text: #D8B1D4;  --ds-accent-line: #CA9AC5;  --ds-accent-line-rgb: 202 154 197;  --ds-accent-bar: #CA9AC5;
-    --ds-accent-tint: #2A2027;  --ds-accent-tint-2: #372634;  --ds-accent-border: #5F425A;  --ds-on-accent: #FFFFFF;  --ds-selection: #4E2B49;
-    --ds-focus-color: #D8B1D4;
+    --ds-segment-on: #2A2725;  --ds-scrim: rgb(10 8 7 / .56);  --ds-scrollbar: rgb(255 248 236 / .20);  --ds-scrollbar-hover: rgb(255 248 236 / .34);
+    --ds-accent: #0C777F;  --ds-accent-hover: #0A7E86;  --ds-accent-text: #71CFD7;  --ds-accent-line: #11A5B0;  --ds-accent-line-rgb: 17 165 176;  --ds-accent-bar: #61C6CF;
+    --ds-accent-tint: #102324;  --ds-accent-tint-2: #112E30;  --ds-accent-border: #1C5055;  --ds-on-accent: #FFFFFF;  --ds-selection: #03464B;
+    --ds-focus-color: #71CFD7;
+    --ds-brand-arch: #61C6CF;  --ds-brand-nuqta: #EEA023;  --ds-brand-word: var(--ds-text);
     --ds-in: #6DC794;  --ds-in-tint: #253027;  --ds-in-border: #344F3E;  --ds-in-halo: rgb(109 199 148 / .18);
     --ds-danger: #EA7E73;  --ds-danger-tint: #362522;  --ds-danger-border: #5C3833;  --ds-danger-solid: #BB4840;  --ds-danger-solid-hover: #A73E37;
+    --ds-danger-active: #D86C61;  --ds-danger-hover-text: #F0958B;  --ds-on-danger: #1A0F0D;
     --ds-warning: #F2A866;  --ds-warning-tint: #3A281B;  --ds-warning-border: #6F4829;  --ds-warning-fill: #F29A43;
+    --ds-info: #9FB6F2;  --ds-info-tint: #1A2133;  --ds-info-border: #37466E;  --ds-info-fill: #7C9AEF;
     --ds-neutral-tint: #2B2926;  --ds-holiday: #EA7E73;
-    --ds-sea-text: #7BC6CE;  --ds-sea: #49A1AB;  --ds-sea-tint: #11282B;  --ds-sea-line: #255F65;
-    --ds-chart-1: #A15397;  --ds-chart-2: #BF881E;  --ds-chart-3: #17A7B4;  --ds-chart-4: #C35C3C;
-    --ds-chart-5: #5568C1;  --ds-chart-6: #69A25D;  --ds-chart-7: #904E18;  --ds-chart-8: #5194D5;  --ds-chart-other: #5E5A56;
+    --ds-sea-text: #9FB6F2;  --ds-sea: #7C9AEF;  --ds-sea-tint: #1A2133;  --ds-sea-line: #37466E;
+    --ds-ai: #7C9AEF;  --ds-ai-text: #9FB6F2;  --ds-ai-tint: #1A2133;  --ds-ai-border: #37466E;
+    --ds-grad-ai: linear-gradient(135deg, #5778DF 0%, #11A5B0 100%);
+    --ds-state-new: #7C9AEF;  --ds-state-new-text: #9FB6F2;  --ds-state-new-tint: #1A2133;
+    --ds-state-progress: #61C6CF;  --ds-state-progress-text: #71CFD7;  --ds-state-progress-tint: #102324;
+    --ds-state-hold: #C6820B;  --ds-state-hold-text: #E4AC59;  --ds-state-hold-tint: #2B1F11;
+    --ds-state-resolved: #6DC794;  --ds-state-resolved-text: #6DC794;  --ds-state-resolved-tint: #253027;
+    --ds-state-closed: #827D78;  --ds-state-closed-text: #D3CEC8;  --ds-state-closed-tint: #2B2926;
+    --ds-state-cancelled: #827D78;  --ds-state-cancelled-text: #BAB5AF;  --ds-state-cancelled-tint: #2B2926;
+    --ds-p1: #EA7E73;  --ds-p1-text: #EA7E73;  --ds-p1-tint: #362522;
+    --ds-p2: #F29A43;  --ds-p2-text: #F2A866;  --ds-p2-tint: #3A281B;
+    --ds-p3: #C6820B;  --ds-p3-text: #E4AC59;  --ds-p3-tint: #2B1F11;
+    --ds-p4: #7C9AEF;  --ds-p4-text: #9FB6F2;  --ds-p4-tint: #1A2133;
+    --ds-p5: #827D78;  --ds-p5-text: #BAB5AF;  --ds-p5-tint: #2B2926;
+    --ds-hue-gray: #BAB5AF;  --ds-hue-red: #EA7E73;  --ds-hue-orange: #F2A866;  --ds-hue-gold: #E4AC59;  --ds-hue-green: #6DC794;
+    --ds-hue-teal: #4FBDC7;  --ds-hue-blue: #6CB2EC;  --ds-hue-indigo: #8DA8F1;  --ds-hue-purple: #D491CA;  --ds-hue-magenta: #EA86AF;
+    --ds-on-hue: #10100F;
+    --ds-chart-1: #11A5B0;  --ds-chart-2: #C6820B;  --ds-chart-3: #A25198;  --ds-chart-4: #DD6D49;
+    --ds-chart-5: #5577E5;  --ds-chart-6: #5E9F50;  --ds-chart-7: #9D5C23;  --ds-chart-8: #3D9CD3;  --ds-chart-other: #5E5A56;
     --ds-chart-grid: rgb(255 248 236 / .06);  --ds-chart-axis: rgb(255 248 236 / .20);  --ds-chart-crosshair: rgb(255 248 236 / .25);  --ds-chart-compare: #94908B;
     --ds-chart-area-top: .12;  --ds-chart-area-bottom: 0;
-    --ds-grad-chart-area: linear-gradient(180deg, rgb(202 154 197 / .12), rgb(202 154 197 / 0));
-    --ds-hero-glow: radial-gradient(70% 90% at 50% 0%, rgb(147 79 138 / .06), transparent 70%);
+    --ds-grad-chart-area: linear-gradient(180deg, rgb(17 165 176 / .14), rgb(17 165 176 / 0));
+    --ds-hero-glow: radial-gradient(70% 90% at 50% 0%, rgb(17 165 176 / .06), transparent 70%);
+    --ds-seq-1: #103A3D;  --ds-seq-2: #104E53;  --ds-seq-3: #09646B;  --ds-seq-4: #0B7A82;  --ds-seq-5: #0E919B;
+    --ds-seq-6: #1AA9B3;  --ds-seq-7: #4FBDC7;  --ds-seq-8: #7FD1D8;  --ds-seq-9: #ADE3E8;
+    --ds-div-1: #AEC3F9;  --ds-div-2: #7C9AEF;  --ds-div-3: #5270CF;  --ds-div-4: #374F9D;  --ds-div-5: #363533;
+    --ds-div-6: #8B381D;  --ds-div-7: #BE512D;  --ds-div-8: #E28061;  --ds-div-9: #F3B39F;
     --ds-ring: 0 0 0 1px rgb(255 248 236 / .07);
     --ds-shadow-e1: 0 0 0 1px rgb(255 248 236 / .07), inset 0 1px 0 rgb(255 248 236 / .04);
     --ds-shadow-e2: 0 0 0 1px rgb(255 248 236 / .08), inset 0 1px 0 rgb(255 248 236 / .05);
@@ -470,6 +597,8 @@
     --ds-glass-tint: rgb(25 23 21 / .72);  --ds-glass-float-tint: rgb(33 31 29 / .66);  --ds-glass-strong-tint: rgb(33 31 29 / .88);  --ds-glass-blur: saturate(1.7) blur(28px);
     --ds-glass-ring: 0 0 0 1px rgb(255 248 236 / .09);  --ds-glass-shadow: 0 0 0 1px rgb(255 248 236 / .09), inset 0 1px 0 rgb(255 248 236 / .07);
     --ds-tooltip-bg: #34312E;  --ds-tooltip-text: #F2F0EC;
+    --ds-illus-ink: #77726D;  --ds-illus-line: rgb(255 248 236 / .12);  --ds-illus-soft: #1F1C1A;
+    --ds-illus-water: #2CAFB9;  --ds-illus-light: #EEA023;  --ds-illus-alert: #EA7E73;
   }
 }
 :root[data-theme="dark"] {
@@ -478,21 +607,44 @@
     --ds-text: #F2F0EC;  --ds-text-2: #D3CEC8;  --ds-text-3: #BAB5AF;  --ds-text-4: #66625E;  --ds-ink-rgb: 255 248 236;
     --ds-line: rgb(255 248 236 / .07);  --ds-line-2: rgb(255 248 236 / .12);  --ds-line-3: rgb(255 248 236 / .20);  --ds-control-strong: #827D78;
     --ds-hover: rgb(255 248 236 / .05);  --ds-hover-row: rgb(255 248 236 / .05);  --ds-selected: rgb(255 248 236 / .08);  --ds-pressed: rgb(255 248 236 / .11);
-    --ds-segment-on: #2A2725;  --ds-scrim: rgb(10 8 7 / .56);
-    --ds-accent: #934F8A;  --ds-accent-hover: #9E5995;  --ds-accent-text: #D8B1D4;  --ds-accent-line: #CA9AC5;  --ds-accent-line-rgb: 202 154 197;  --ds-accent-bar: #CA9AC5;
-    --ds-accent-tint: #2A2027;  --ds-accent-tint-2: #372634;  --ds-accent-border: #5F425A;  --ds-on-accent: #FFFFFF;  --ds-selection: #4E2B49;
-    --ds-focus-color: #D8B1D4;
+    --ds-segment-on: #2A2725;  --ds-scrim: rgb(10 8 7 / .56);  --ds-scrollbar: rgb(255 248 236 / .20);  --ds-scrollbar-hover: rgb(255 248 236 / .34);
+    --ds-accent: #0C777F;  --ds-accent-hover: #0A7E86;  --ds-accent-text: #71CFD7;  --ds-accent-line: #11A5B0;  --ds-accent-line-rgb: 17 165 176;  --ds-accent-bar: #61C6CF;
+    --ds-accent-tint: #102324;  --ds-accent-tint-2: #112E30;  --ds-accent-border: #1C5055;  --ds-on-accent: #FFFFFF;  --ds-selection: #03464B;
+    --ds-focus-color: #71CFD7;
+    --ds-brand-arch: #61C6CF;  --ds-brand-nuqta: #EEA023;  --ds-brand-word: var(--ds-text);
     --ds-in: #6DC794;  --ds-in-tint: #253027;  --ds-in-border: #344F3E;  --ds-in-halo: rgb(109 199 148 / .18);
     --ds-danger: #EA7E73;  --ds-danger-tint: #362522;  --ds-danger-border: #5C3833;  --ds-danger-solid: #BB4840;  --ds-danger-solid-hover: #A73E37;
+    --ds-danger-active: #D86C61;  --ds-danger-hover-text: #F0958B;  --ds-on-danger: #1A0F0D;
     --ds-warning: #F2A866;  --ds-warning-tint: #3A281B;  --ds-warning-border: #6F4829;  --ds-warning-fill: #F29A43;
+    --ds-info: #9FB6F2;  --ds-info-tint: #1A2133;  --ds-info-border: #37466E;  --ds-info-fill: #7C9AEF;
     --ds-neutral-tint: #2B2926;  --ds-holiday: #EA7E73;
-    --ds-sea-text: #7BC6CE;  --ds-sea: #49A1AB;  --ds-sea-tint: #11282B;  --ds-sea-line: #255F65;
-    --ds-chart-1: #A15397;  --ds-chart-2: #BF881E;  --ds-chart-3: #17A7B4;  --ds-chart-4: #C35C3C;
-    --ds-chart-5: #5568C1;  --ds-chart-6: #69A25D;  --ds-chart-7: #904E18;  --ds-chart-8: #5194D5;  --ds-chart-other: #5E5A56;
+    --ds-sea-text: #9FB6F2;  --ds-sea: #7C9AEF;  --ds-sea-tint: #1A2133;  --ds-sea-line: #37466E;
+    --ds-ai: #7C9AEF;  --ds-ai-text: #9FB6F2;  --ds-ai-tint: #1A2133;  --ds-ai-border: #37466E;
+    --ds-grad-ai: linear-gradient(135deg, #5778DF 0%, #11A5B0 100%);
+    --ds-state-new: #7C9AEF;  --ds-state-new-text: #9FB6F2;  --ds-state-new-tint: #1A2133;
+    --ds-state-progress: #61C6CF;  --ds-state-progress-text: #71CFD7;  --ds-state-progress-tint: #102324;
+    --ds-state-hold: #C6820B;  --ds-state-hold-text: #E4AC59;  --ds-state-hold-tint: #2B1F11;
+    --ds-state-resolved: #6DC794;  --ds-state-resolved-text: #6DC794;  --ds-state-resolved-tint: #253027;
+    --ds-state-closed: #827D78;  --ds-state-closed-text: #D3CEC8;  --ds-state-closed-tint: #2B2926;
+    --ds-state-cancelled: #827D78;  --ds-state-cancelled-text: #BAB5AF;  --ds-state-cancelled-tint: #2B2926;
+    --ds-p1: #EA7E73;  --ds-p1-text: #EA7E73;  --ds-p1-tint: #362522;
+    --ds-p2: #F29A43;  --ds-p2-text: #F2A866;  --ds-p2-tint: #3A281B;
+    --ds-p3: #C6820B;  --ds-p3-text: #E4AC59;  --ds-p3-tint: #2B1F11;
+    --ds-p4: #7C9AEF;  --ds-p4-text: #9FB6F2;  --ds-p4-tint: #1A2133;
+    --ds-p5: #827D78;  --ds-p5-text: #BAB5AF;  --ds-p5-tint: #2B2926;
+    --ds-hue-gray: #BAB5AF;  --ds-hue-red: #EA7E73;  --ds-hue-orange: #F2A866;  --ds-hue-gold: #E4AC59;  --ds-hue-green: #6DC794;
+    --ds-hue-teal: #4FBDC7;  --ds-hue-blue: #6CB2EC;  --ds-hue-indigo: #8DA8F1;  --ds-hue-purple: #D491CA;  --ds-hue-magenta: #EA86AF;
+    --ds-on-hue: #10100F;
+    --ds-chart-1: #11A5B0;  --ds-chart-2: #C6820B;  --ds-chart-3: #A25198;  --ds-chart-4: #DD6D49;
+    --ds-chart-5: #5577E5;  --ds-chart-6: #5E9F50;  --ds-chart-7: #9D5C23;  --ds-chart-8: #3D9CD3;  --ds-chart-other: #5E5A56;
     --ds-chart-grid: rgb(255 248 236 / .06);  --ds-chart-axis: rgb(255 248 236 / .20);  --ds-chart-crosshair: rgb(255 248 236 / .25);  --ds-chart-compare: #94908B;
     --ds-chart-area-top: .12;  --ds-chart-area-bottom: 0;
-    --ds-grad-chart-area: linear-gradient(180deg, rgb(202 154 197 / .12), rgb(202 154 197 / 0));
-    --ds-hero-glow: radial-gradient(70% 90% at 50% 0%, rgb(147 79 138 / .06), transparent 70%);
+    --ds-grad-chart-area: linear-gradient(180deg, rgb(17 165 176 / .14), rgb(17 165 176 / 0));
+    --ds-hero-glow: radial-gradient(70% 90% at 50% 0%, rgb(17 165 176 / .06), transparent 70%);
+    --ds-seq-1: #103A3D;  --ds-seq-2: #104E53;  --ds-seq-3: #09646B;  --ds-seq-4: #0B7A82;  --ds-seq-5: #0E919B;
+    --ds-seq-6: #1AA9B3;  --ds-seq-7: #4FBDC7;  --ds-seq-8: #7FD1D8;  --ds-seq-9: #ADE3E8;
+    --ds-div-1: #AEC3F9;  --ds-div-2: #7C9AEF;  --ds-div-3: #5270CF;  --ds-div-4: #374F9D;  --ds-div-5: #363533;
+    --ds-div-6: #8B381D;  --ds-div-7: #BE512D;  --ds-div-8: #E28061;  --ds-div-9: #F3B39F;
     --ds-ring: 0 0 0 1px rgb(255 248 236 / .07);
     --ds-shadow-e1: 0 0 0 1px rgb(255 248 236 / .07), inset 0 1px 0 rgb(255 248 236 / .04);
     --ds-shadow-e2: 0 0 0 1px rgb(255 248 236 / .08), inset 0 1px 0 rgb(255 248 236 / .05);
@@ -504,6 +656,8 @@
     --ds-glass-tint: rgb(25 23 21 / .72);  --ds-glass-float-tint: rgb(33 31 29 / .66);  --ds-glass-strong-tint: rgb(33 31 29 / .88);  --ds-glass-blur: saturate(1.7) blur(28px);
     --ds-glass-ring: 0 0 0 1px rgb(255 248 236 / .09);  --ds-glass-shadow: 0 0 0 1px rgb(255 248 236 / .09), inset 0 1px 0 rgb(255 248 236 / .07);
     --ds-tooltip-bg: #34312E;  --ds-tooltip-text: #F2F0EC;
+    --ds-illus-ink: #77726D;  --ds-illus-line: rgb(255 248 236 / .12);  --ds-illus-soft: #1F1C1A;
+    --ds-illus-water: #2CAFB9;  --ds-illus-light: #EEA023;  --ds-illus-alert: #EA7E73;
 }
 
 
@@ -567,7 +721,7 @@
     --ds-canvas: #FFFFFF; --ds-surface: #FFFFFF; --ds-raised: #FFFFFF; --ds-sunken: #F4F2EF; --ds-well: #F4F2EF;
     --ds-text: #000000; --ds-text-2: #2E2A26; --ds-text-3: #57524C; --ds-ink-rgb: 0 0 0;
     --ds-line: rgb(0 0 0 / .18); --ds-line-2: rgb(0 0 0 / .30); --ds-line-3: rgb(0 0 0 / .55); --ds-control-strong: #57524C;
-    --ds-accent: #6A2E63; --ds-accent-text: #6A2E63; --ds-in: #1B7248; --ds-danger: #B63731;
+    --ds-accent: #0A7178; --ds-accent-text: #0A7178; --ds-in: #1B7248; --ds-danger: #B63731; --ds-info: #2E47A9;
     --ds-ring: none; --ds-shadow-e1: none; --ds-shadow-e2: none; --ds-shadow-e3: none; --ds-shadow-e4: none;
     --ds-glass-tint: #FFFFFF; --ds-glass-float-tint: #FFFFFF; --ds-glass-strong-tint: #FFFFFF; --ds-glass-blur: none;
     --ds-glass-bg: #FFFFFF; --ds-glass-float: #FFFFFF; --ds-glass-strong: #FFFFFF; --ds-glass-filter: none; --ds-hero-glow: none;
@@ -612,6 +766,8 @@
     color: inherit;
   }
   ::selection { background: var(--ds-selection); color: inherit; }
+  /* scrollbars: thin, in the theme's ink (standard properties; Chromium and Electron honour them over ::-webkit-*) */
+  * { scrollbar-width: thin; scrollbar-color: var(--ds-scrollbar) transparent; }
 
   /* ---- focus: an opaque 2 px ring with a 2 px gap; rows and grid cells draw it inside their box ---- */
   :focus-visible { outline: 2px solid var(--ds-focus-color); outline-offset: 2px; }
@@ -655,8 +811,17 @@
   .ds-unit  { font-size: calc(var(--ds-type-unit-scale) * 1em); color: var(--ds-text-3); font-weight: var(--ds-weight-regular); }
   .ds-excluded { color: var(--ds-text-3); text-decoration: none; }               /* bounced/returned: never struck through (the strike hides «۰») */
   .ds-sr    { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }  /* screen readers only */
+  /* identifiers that stay Latin (INC-000123 in an export, a serial, an IP): Geist with tabular Latin digits, LTR isolate.
+     Persian digits are the default everywhere else (DS Num draws every digit). */
+  .ds-id    { font-family: var(--ds-font-latin); font-feature-settings: normal; font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate; white-space: nowrap; }
+  /* directional icons follow the reading direction (ds/icons.tsx DirIcon): authored LTR, mirrored in RTL. Written with
+     [dir] attributes, not :dir() — the CSS minifier rewrites :dir() as a :lang() list, which follows lang="fa" instead
+     of the direction. Two levels of islands: RTL page → LTR island → RTL island. */
+  :where([dir="rtl"]) .ds-icon-dir { transform: scaleX(-1); }
+  :where([dir="rtl"]) :where([dir="ltr"]) .ds-icon-dir { transform: none; }
+  :where([dir="rtl"]) :where([dir="ltr"]) :where([dir="rtl"]) .ds-icon-dir { transform: scaleX(-1); }
 
-  /* ---- links are ink, underlined: Dusk is kept for the primary action, focus and selection ---- */
+  /* ---- links are ink, underlined: the turquoise accent is kept for the primary action, focus and selection ---- */
   .ds-link { color: var(--ds-text); font-weight: var(--ds-weight-medium); text-decoration-line: underline; text-decoration-thickness: 1px;
     text-decoration-color: rgb(var(--ds-ink-rgb) / .28); text-underline-offset: 4px;
     transition: text-decoration-color var(--ds-dur-base) var(--ds-ease-out-quad); }

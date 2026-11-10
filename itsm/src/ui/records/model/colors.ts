@@ -4,18 +4,19 @@
 import type { ColorKey, StateCategory } from "@shared/model/types";
 import { STATE_CATEGORIES } from "@shared/model/types";
 
-/** The token each named colour maps to (records.css reads the same mapping through `data-c`). */
+/** The token each named colour maps to (records.css reads the same mapping through `data-c`): the --ds-hue-* tokens,
+ * which keep their hue whatever the chart order (tokens.css §4/§5). */
 export const COLOR_TOKENS: Record<ColorKey, string> = {
-  gray: "var(--ds-text-3)",
-  red: "var(--ds-danger)",
-  orange: "var(--ds-warning)",
-  gold: "var(--ds-chart-2)",
-  green: "var(--ds-in)",
-  teal: "var(--ds-sea)",
-  blue: "var(--ds-chart-8)",
-  indigo: "var(--ds-chart-5)",
-  purple: "var(--ds-chart-1)",
-  magenta: "var(--ds-chart-4)",
+  gray: "var(--ds-hue-gray)",
+  red: "var(--ds-hue-red)",
+  orange: "var(--ds-hue-orange)",
+  gold: "var(--ds-hue-gold)",
+  green: "var(--ds-hue-green)",
+  teal: "var(--ds-hue-teal)",
+  blue: "var(--ds-hue-blue)",
+  indigo: "var(--ds-hue-indigo)",
+  purple: "var(--ds-hue-purple)",
+  magenta: "var(--ds-hue-magenta)",
 };
 
 export const COLOR_LABELS: Record<ColorKey, string> = {

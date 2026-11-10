@@ -1,6 +1,7 @@
 // Design system «ds» — Ant Design 6 theme (checked against antd 6.6.8: `tsc --strict` with excess-property checks,
 // and rendered in build/antd-proof-*.png). Values come from ./ds-palette.ts, generated from ../tokens.css.
-// v1.1: links in ink, Dusk only for the primary action / focus / selection / main series; 2 px field focus;
+// v2.0 «کاریز»: the accent is turquoise (firuzeh), information and AI are lapis (lajvard) — docs/DESIGN_SYSTEM.md.
+// v1.1: links in ink, the accent only for the primary action / focus / selection / main series; 2 px field focus;
 // 3:1 control edges; ink checkbox, radio and switch; 40 / 32 px table rows; neutral selected row + start bar.
 import type { ConfigProviderProps, ThemeConfig } from "antd";
 import { theme as antTheme } from "antd";
@@ -30,7 +31,7 @@ export function dsTheme(mode: DsMode): ThemeConfig {
   const warningShadow = `0 0 0 1px ${p.warning}, 0 0 0 4px ${warningHalo}`;
 
   // input-like controls share one look: surface fill, a line-2 outline with a 3:1 bottom edge (ds-antd.css),
-  // line-3 on hover, a 2 px Dusk ring + soft halo on focus
+  // line-3 on hover, a 2 px turquoise ring + soft halo on focus
   const field: NonNullable<NonNullable<ThemeConfig["components"]>["Input"]> = {
     activeBorderColor: p.accentText,
     hoverBorderColor: p.line3,
@@ -61,19 +62,19 @@ export function dsTheme(mode: DsMode): ThemeConfig {
       colorWarning: p.warning,
       colorError: p.danger,
       colorInfo: p.info,
-      // links are ink with a 1 px underline at 28 % (ds-antd.css): Dusk stays rare
+      // links are ink with a 1 px underline at 28 % (ds-antd.css): the accent stays rare
       colorLink: p.text,
       colorLinkHover: p.text,
       colorLinkActive: p.text2,
       // explicit map tokens, so antd's palette generator never invents off-brand hovers
       colorPrimaryHover: p.accentHover,
-      colorPrimaryActive: dark ? "#884880" : p.accentHover,
+      colorPrimaryActive: p.accentHover,
       colorPrimaryBg: p.accentTint,
       colorPrimaryBgHover: p.accentTint2,
       colorPrimaryBorder: p.accentBorder,
-      colorPrimaryBorderHover: dark ? "#7B5475" : "#D6B0CF", // OKLCH h 332: L .50 C .07 / L .80 C .06
+      colorPrimaryBorderHover: dark ? "#27686E" : "#96DCE2", // OKLCH h 203: L .45 C .055 / firuzeh-300
       colorPrimaryText: p.accentText,
-      colorPrimaryTextHover: dark ? "#E8C9E4" : p.accent,
+      colorPrimaryTextHover: dark ? "#A9E4E9" : p.accentHover, // a lighter turquoise on charcoal, a deeper one on paper
       colorPrimaryTextActive: dark ? p.accentLine : p.accentHover,
       colorSuccessBg: p.inTint,
       colorSuccessBgHover: p.inTint,
@@ -93,7 +94,7 @@ export function dsTheme(mode: DsMode): ThemeConfig {
       colorWarningBorder: p.warningBorder,
       colorWarningText: p.warning,
       colorWarningOutline: warningHalo,
-      // info (blue) is retired: antd's info roles render as the neutral chip (ink-2 on neutral tint)
+      // information is lapis («لاجورد»): antd info alerts, messages and badges read as lapis text on its tint
       colorInfoBg: p.infoTint,
       colorInfoBgHover: p.infoTint,
       colorInfoBorder: p.infoBorder,
@@ -130,7 +131,7 @@ export function dsTheme(mode: DsMode): ThemeConfig {
       colorBgContainerDisabled: p.sunken,
       colorBgTextHover: p.hover,
       colorBgTextActive: p.pressed,
-      colorBgSolid: p.text, // color="default" variant="solid": an ink button (rare; never instead of the Dusk primary)
+      colorBgSolid: p.text, // color="default" variant="solid": an ink button (rare; never instead of the turquoise primary)
       colorBgSolidHover: dark ? "#FFFFFF" : "#000000",
       colorBgSolidActive: p.text2,
       colorTextLightSolid: "#FFFFFF",
@@ -347,7 +348,7 @@ export function dsTheme(mode: DsMode): ThemeConfig {
         itemMarginBottom: 16,
         inlineItemMarginBottom: 0,
       },
-      // checkbox, radio and switch: a 3:1 control-strong edge at rest; "on" is an ink fill with a canvas mark (not Dusk)
+      // checkbox, radio and switch: a 3:1 control-strong edge at rest; "on" is an ink fill with a canvas mark (not the accent)
       Checkbox: { borderRadiusSM: 4, colorBorder: p.controlStrong, colorPrimary: p.text, colorPrimaryHover: p.text2, colorWhite: p.canvas },
       Radio: { radioSize: 16, dotSize: 8, colorBorder: p.controlStrong, colorPrimary: p.text, colorPrimaryHover: p.text2, colorWhite: p.canvas, buttonBg: p.raised, buttonCheckedBg: p.raised, buttonColor: p.text2, buttonSolidCheckedBg: p.text, buttonSolidCheckedHoverBg: p.text2, buttonSolidCheckedActiveBg: p.text2, buttonSolidCheckedColor: p.canvas },
       // off: white thumb on the control-strong track (3.7 / 4.1:1); on: ink track, canvas thumb (ds-antd.css)

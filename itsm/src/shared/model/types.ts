@@ -359,7 +359,7 @@ export const BASE_COLUMNS = [
 
 /** Labels of the state categories. */
 export const STATE_CATEGORIES: Record<StateCategory, { label: string; color: ColorKey; open: boolean }> = {
-  new: { label: "جدید", color: "blue", open: true },
+  new: { label: "جدید", color: "indigo", open: true }, // lapis: --ds-state-new (tokens.css)
   active: { label: "در جریان", color: "teal", open: true },
   waiting: { label: "در انتظار", color: "gold", open: true },
   resolved: { label: "حل‌شده", color: "green", open: false },

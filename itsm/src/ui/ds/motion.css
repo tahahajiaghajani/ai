@@ -19,17 +19,32 @@
   /* press: buttons, rows and tiles that act like buttons */
   .ds-press { transition: transform var(--ds-dur-fast) var(--ds-ease-out); }
   .ds-press:active { transform: scale(var(--ds-press-scale)); }
-  /* launch: the mark's three nuqtas set beside the alef (login, splash and the boot screen only) */
-  .ds-launch .ds-nq { animation: ds-set 450ms var(--ds-ease-out) both; transform-box: fill-box; }
-  .ds-launch .ds-nq:nth-of-type(2) { animation-delay: 60ms; }
-  .ds-launch .ds-nq:nth-of-type(3) { animation-delay: 120ms; }
+  /* launch: the mark's arch draws itself from the right foot, then its nuqta settles at the outlet like a drop
+     (login, onboarding, the splash and the boot screen only). The arch path carries pathLength="1". */
+  .ds-launch .ds-arch { stroke-dasharray: 1; animation: ds-draw 560ms var(--ds-ease-in-out) both; }
+  .ds-launch .ds-nq { animation: ds-set 420ms var(--ds-ease-out) 380ms both; transform-box: fill-box; transform-origin: 50% 50%; }
 
   @keyframes ds-enter { from { opacity: 0; transform: translateY(var(--ds-enter-shift)); } to { opacity: 1; transform: none; } }
   @keyframes ds-fade { from { opacity: 0; } to { opacity: 1; } }
   @keyframes ds-pop { from { opacity: 0; transform: scale(var(--ds-enter-scale)); } to { opacity: 1; transform: none; } }
-  @keyframes ds-set { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+  @keyframes ds-set { from { opacity: 0; transform: translateY(-6px) scale(.6); } to { opacity: 1; transform: none; } }
+  @keyframes ds-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+
+  /* optimistic updates: the change shows at once (React 19 useOptimistic); until the server confirms, its element
+     carries data-pending (dimmed, a progress cursor, not actionable twice). On confirm add .ds-flash once (the accent
+     tint fades out over --ds-dur-flash); on failure the old value returns and a toast says why. */
+  [data-pending] { opacity: var(--ds-pending-opacity); cursor: progress; transition: opacity var(--ds-dur-fast) var(--ds-ease-out-quad); }
+  [data-pending] :is(button, a, input, [role="button"]) { pointer-events: none; }
+  .ds-flash { animation: ds-flash var(--ds-dur-flash) var(--ds-ease-out-quad) both; }
+  @keyframes ds-flash { from { background-color: var(--ds-accent-tint-2); } to { background-color: transparent; } }
+
+  /* a milestone (ds/celebrate.ts): nuqtas rise once from an element; a quiet ring under reduced motion */
+  .ds-celebrate { position: fixed; inset: 0; pointer-events: none; z-index: var(--ds-z-toast); overflow: hidden; }
+  .ds-celebrate-nq { position: absolute; border-radius: 1px; transform: translate(-50%, -50%) rotate(45deg); opacity: 0; }
+  .ds-celebrate-ring { position: absolute; border-radius: 50%; transform: translate(-50%, -50%); opacity: 0;
+    box-shadow: 0 0 0 2px var(--ds-brand-nuqta), 0 0 24px 6px color-mix(in oklab, var(--ds-brand-nuqta) 35%, transparent); }
 
   /* the launch is pure movement: under reduced motion it is not played at all */
-  @media (prefers-reduced-motion: reduce) { .ds-launch .ds-nq { animation: none; } }
-  :root[data-motion="reduced"] .ds-launch .ds-nq { animation: none; }
+  @media (prefers-reduced-motion: reduce) { .ds-launch :is(.ds-nq, .ds-arch) { animation: none; } }
+  :root[data-motion="reduced"] .ds-launch :is(.ds-nq, .ds-arch) { animation: none; }
 }

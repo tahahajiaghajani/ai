@@ -1,4 +1,4 @@
-/* The brand surface (components.md §11.1): login, onboarding, About. The Dusk sky with grain, the tagline that
+/* The brand surface (components.md §11.1): login, onboarding, About. The kariz night with grain, the tagline that
    settles onto the horizon, and its last light. Only on brand surfaces — never inside the app. */
 @layer components {
   .ds-brand {
@@ -7,7 +7,7 @@
     overflow: hidden;
     border-radius: var(--ds-radius-xl);
     color: var(--ds-on-brand);
-    background: var(--ds-grad-dusk);
+    background: var(--ds-grad-brand);
     box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.1);
   }
   .ds-brand::after {

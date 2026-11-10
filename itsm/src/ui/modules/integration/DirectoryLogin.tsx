@@ -18,7 +18,7 @@ import { Signins } from "../settings/Security";
 
 type Row = Record<string, any>;
 const origin = () => (typeof window !== "undefined" ? window.location.origin : "");
-const Ok = ({ ok }: { ok: boolean }) => (ok ? <CircleCheck {...ICON14} className="text-[var(--ds-ok,green)]" aria-label="بله" /> : <CircleX {...ICON14} className="text-[var(--ds-danger,red)]" aria-label="نه" />);
+const Ok = ({ ok }: { ok: boolean }) => (ok ? <CircleCheck {...ICON14} className="text-[var(--ds-success)]" aria-label="بله" /> : <CircleX {...ICON14} className="text-[var(--ds-danger)]" aria-label="نه" />);
 const Code = ({ children }: { children: string }) => (
   <Typography.Paragraph copyable className="ltr ds-mono m-0 break-all text-[12px]">
     {children}

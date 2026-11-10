@@ -3,16 +3,16 @@
    dark come from the tokens. Named option colours (`data-c`) map to tokens here and in model/colors.ts. */
 @layer components {
   /* ================================================================== named colours */
-  [data-c] { --rk-hue: var(--ds-text-3); }
-  [data-c="red"] { --rk-hue: var(--ds-danger); }
-  [data-c="orange"] { --rk-hue: var(--ds-warning); }
-  [data-c="gold"] { --rk-hue: var(--ds-chart-2); }
-  [data-c="green"] { --rk-hue: var(--ds-in); }
-  [data-c="teal"] { --rk-hue: var(--ds-sea); }
-  [data-c="blue"] { --rk-hue: var(--ds-chart-8); }
-  [data-c="indigo"] { --rk-hue: var(--ds-chart-5); }
-  [data-c="purple"] { --rk-hue: var(--ds-chart-1); }
-  [data-c="magenta"] { --rk-hue: var(--ds-chart-4); }
+  [data-c] { --rk-hue: var(--ds-hue-gray); }
+  [data-c="red"] { --rk-hue: var(--ds-hue-red); }
+  [data-c="orange"] { --rk-hue: var(--ds-hue-orange); }
+  [data-c="gold"] { --rk-hue: var(--ds-hue-gold); }
+  [data-c="green"] { --rk-hue: var(--ds-hue-green); }
+  [data-c="teal"] { --rk-hue: var(--ds-hue-teal); }
+  [data-c="blue"] { --rk-hue: var(--ds-hue-blue); }
+  [data-c="indigo"] { --rk-hue: var(--ds-hue-indigo); }
+  [data-c="purple"] { --rk-hue: var(--ds-hue-purple); }
+  [data-c="magenta"] { --rk-hue: var(--ds-hue-magenta); }
 
   /* ================================================================== values */
   .rk-tag {
@@ -357,7 +357,7 @@
   .rk-tg-bar[data-tone="danger"] { border-color: var(--ds-danger); box-shadow: inset 3px 0 0 var(--ds-danger); }
   .rk-tg-bar[data-tone="warning"] { border-color: var(--ds-warning-border); box-shadow: inset 3px 0 0 var(--ds-warning-fill); }
   .rk-tg-bar[data-cat="waiting"] { background: var(--ds-surface); border-style: dashed; }
-  .rk-tg-bar[data-cat="active"]:not([data-c]) { background: color-mix(in oklab, var(--ds-sea) 10%, var(--ds-raised)); }
+  .rk-tg-bar[data-cat="active"]:not([data-c]) { background: color-mix(in oklab, var(--ds-state-progress) 10%, var(--ds-raised)); }
   .rk-tg-bar:is([data-cat="resolved"], [data-cat="closed"]) { color: var(--ds-text-2); }
   .rk-tg-bar.is-clip-s { border-start-start-radius: 0; border-end-start-radius: 0; }
   .rk-tg-bar.is-clip-e { border-start-end-radius: 0; border-end-end-radius: 0; }

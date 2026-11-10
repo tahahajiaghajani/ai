@@ -1,9 +1,9 @@
 # Windows installer (NSIS, Persian, per-user by default, keeps data on uninstall).
-# The product's name is APP_NAME_EN of src/shared/constants.ts (tests/desktop.test.ts checks productName, executableName,
+# The product's name is APP_NAME_EN of src/shared/constants.ts («کاریز» / Kariz) (tests/desktop.test.ts checks productName, executableName,
 # artifactName and shortcutName against it); appId is an internal identifier and stays when the product is renamed.
 appId: app.itsm.desktop
-productName: ITSM
-copyright: "© ITSM"
+productName: Kariz
+copyright: "© Kariz"
 directories:
   app: app
   output: release
@@ -25,9 +25,9 @@ win:
     - target: nsis
       arch: [x64]
   icon: build/icon.ico
-  artifactName: "ITSM-Setup-${version}.exe"
-  executableName: ITSM
-  legalTrademarks: "ITSM"
+  artifactName: "Kariz-Setup-${version}.exe"
+  executableName: Kariz
+  legalTrademarks: "Kariz «کاریز»"
   requestedExecutionLevel: asInvoker
 nsis:
   oneClick: false
@@ -47,8 +47,8 @@ nsis:
   unicode: true
   createDesktopShortcut: always
   createStartMenuShortcut: true
-  shortcutName: "ITSM"
-  uninstallDisplayName: "ITSM — مدیریت هوشمند خدمات فناوری اطلاعات"
+  shortcutName: "Kariz"
+  uninstallDisplayName: "Kariz (کاریز) — مدیریت هوشمند خدمات سازمان"
   menuCategory: false
   runAfterFinish: true
   deleteAppDataOnUninstall: false

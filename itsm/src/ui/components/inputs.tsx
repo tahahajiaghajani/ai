@@ -191,7 +191,7 @@ export function PctInput(props: NumberInputProps) {
 
 /**
  * The Jalali month grid (antd-theme.md §7): 7 × 6 cells, today a neutral ring at 600, the selected day the calendar's
- * one Dusk element, Fridays in the holiday red. Keyboard: ←/→ a day (mirrored: ← is the next day), ↑/↓ a week,
+ * one accent element, Fridays in the holiday red. Keyboard: ←/→ a day (mirrored: ← is the next day), ↑/↓ a week,
  * PageUp/PageDown a month, Home/End the row, Enter picks, Esc closes.
  */
 export function JalaliCalendar({
@@ -602,7 +602,7 @@ export interface FilterChipProps {
 
 /**
  * A dimension filter (components.md §2): a 30 px pill with no ring at rest (the ring and the hover tint appear on
- * hover), the chevron right after the words; applied, it is the row's one Dusk element (accent-tint-2 fill,
+ * hover), the chevron right after the words; applied, it is the row's one accent element (accent-tint-2 fill,
  * accent-text, accent-border ring) and shows the chosen value with an × to clear.
  */
 export function FilterChip({ label, value, onChange, options, icon, allowClear = true, disabled, className }: FilterChipProps) {
@@ -635,7 +635,7 @@ export function FilterChip({ label, value, onChange, options, icon, allowClear =
 
 /**
  * A boolean filter («با پیش‌نویس‌ها»، «سررسیدگذشته»): the same pill with a 14 px box at the start that reads as a
- * toggle at rest and fills with a check when on (then the chip wears the applied Dusk tint). `aria-pressed`.
+ * toggle at rest and fills with a check when on (then the chip wears the applied accent tint). `aria-pressed`.
  */
 export function ToggleChip({ on, onChange, children, title, disabled, className }: { on: boolean; onChange: (on: boolean) => void; children: ReactNode; title?: string; disabled?: boolean; className?: string }) {
   return (

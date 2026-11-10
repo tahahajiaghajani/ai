@@ -1,4 +1,4 @@
--- «ITSM» migration 0064_ai_ml — هوش مصنوعی پیش‌بین: مدل‌ها، پیش‌بینی‌ها، خوشه‌ها، بینش‌ها و گزارش حاکمیت
+-- «کاریز» migration 0064_ai_ml — هوش مصنوعی پیش‌بین: مدل‌ها، پیش‌بینی‌ها، خوشه‌ها، بینش‌ها و گزارش حاکمیت
 create table if not exists sm_migrations (id text primary key, applied_at timestamptz not null default now());
 
 -- ---------------------------------------------------------------------------

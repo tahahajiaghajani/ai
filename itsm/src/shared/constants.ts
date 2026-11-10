@@ -1,18 +1,20 @@
 // App-wide constants shared by the web app, the desktop app and the server.
 
 /**
- * The product's name. It is provisional (the brand is chosen later), so it lives here only: use these
- * constants wherever the app names itself and never derive an internal identifier from them (tables are
- * sm_*, settings itsm.*, environment variables ITSM_*, IPC channels itsm:*).
+ * The product's name: «کاریز» / Kariz — the Persian qanat, the channel that has carried water to towns quietly,
+ * steadily and by measure for three thousand years (docs/BRAND_FA.md). It lives here only: use these constants
+ * wherever the app names itself and never derive an internal identifier from them (tables are sm_*, settings
+ * itsm.*, environment variables ITSM_*, IPC channels itsm:*, appId app.itsm.desktop, data in %APPDATA%\ITSM).
+ * The drawn logo (src/shared/brand.ts) declares the name it draws; brand.tsx falls back to text if they differ.
  */
-export const APP_NAME = "ITSM";
-/** The Latin name. */
-export const APP_NAME_EN = "ITSM";
+export const APP_NAME = "کاریز";
+/** The Latin name (installer, executable, shortcuts, Latin contexts). */
+export const APP_NAME_EN = "Kariz";
 /** The tagline. */
-export const APP_TAGLINE = "مدیریت هوشمند خدمات فناوری اطلاعات";
-export const APP_TAGLINE_EN = "Intelligent IT service management";
+export const APP_TAGLINE = "مدیریت هوشمند خدمات سازمان";
+export const APP_TAGLINE_EN = "Intelligent service management";
 /** What the app is, in one line (window titles, the About screen, meta descriptions). */
-export const APP_DESCRIPTION = "سامانهٔ سازمانی مدیریت خدمات فناوری اطلاعات با هوش مصنوعی";
+export const APP_DESCRIPTION = "سامانهٔ سازمانی مدیریت خدمات فناوری اطلاعات و خدمات سازمانی، با هوش مصنوعی";
 /** Bumped with every release; the desktop app compares it with the cloud to offer updates. */
 export const APP_VERSION = "1.0.0";
 /**

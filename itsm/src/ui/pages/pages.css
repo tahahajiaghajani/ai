@@ -107,7 +107,7 @@
   .pg-form-foot .ds-nuqta[data-live] { margin-inline: 2px 2px; }
   .pg-form-foot .pg-foot-end { margin-inline-start: auto; display: flex; align-items: center; gap: 16px; }
 
-  /* the Dusk panel: 8 px inset except on the start side (brand.css draws the sky, grain and horizon) */
+  /* the brand panel: 8 px inset except on the start side (brand.css draws the sky, grain and horizon) */
   .pg-brand { margin: 8px; margin-inline-start: 0; min-block-size: calc(100dvh - 16px); position: sticky; inset-block-start: 8px; max-block-size: calc(100dvh - 16px); }
   .pg-auth .ds-brand .ds-tagline { font-size: clamp(30px, 4.2vw, var(--ds-type-display-xl-size)); line-height: 1.2; }
   .pg-brand .ds-brand-in { min-block-size: 0; }
@@ -291,7 +291,7 @@
   .pg-choice-d { display: block; margin-block-start: 2px; font-size: 13px; line-height: 20px; color: var(--ds-text-2); text-wrap: pretty; }
   .pg-choice-m { display: block; margin-block-start: 8px; font-size: 12px; line-height: 18px; color: var(--ds-text-3); }
   .pg-choice-tx { flex: 1; min-inline-size: 0; }
-  /* the radio at the end of a choice: ink, never Dusk (§5) */
+  /* the radio at the end of a choice: ink, never the accent (§5) */
   .pg-radio { flex: none; margin-block-start: 3px; inline-size: 16px; block-size: 16px; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--ds-control-strong); display: grid; place-items: center; }
   .pg-radio::after { content: ""; inline-size: 8px; block-size: 8px; border-radius: 50%; background: var(--ds-canvas); transform: scale(0); transition: transform var(--ds-dur-base) var(--ds-ease-out); }
   [aria-checked="true"] > .pg-radio { background: var(--ds-text); box-shadow: none; }
