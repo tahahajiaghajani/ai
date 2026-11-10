@@ -50,19 +50,22 @@ begin
 end
 $demo$;
 
+-- the platform's own tables with id + org_id (the engine's tables got theirs with their DDL): read from pg_catalog,
+-- which is fast everywhere (information_schema is slow on the embedded database), and only where it is missing
 do $capture$
 declare
   t record;
 begin
   for t in
-    select c.table_name from information_schema.columns c
-    join information_schema.tables tb on tb.table_schema = c.table_schema and tb.table_name = c.table_name and tb.table_type = 'BASE TABLE'
-    join information_schema.columns o on o.table_schema = c.table_schema and o.table_name = c.table_name and o.column_name = 'org_id' and o.data_type = 'uuid'
-    where c.table_schema = current_schema() and c.column_name = 'id' and c.data_type = 'uuid'
-      and c.table_name like 'sm\_%' and c.table_name not like '%\_arc'
-      and c.table_name not in ('sm_orgs', 'sm_demo_rows', 'sm_demo_packs', 'sm_demo_saved')
+    select c.relname as table_name
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace and n.nspname = current_schema()
+     where c.relkind = 'r' and c.relname like 'sm\_%' and c.relname not like '%\_arc'
+       and c.relname not in ('sm_orgs', 'sm_demo_rows', 'sm_demo_packs', 'sm_demo_saved')
+       and exists (select 1 from pg_attribute a where a.attrelid = c.oid and a.attname = 'id' and a.atttypid = 'uuid'::regtype and not a.attisdropped)
+       and exists (select 1 from pg_attribute a where a.attrelid = c.oid and a.attname = 'org_id' and a.atttypid = 'uuid'::regtype and not a.attisdropped)
+       and not exists (select 1 from pg_trigger g where g.tgrelid = c.oid and g.tgname = left(c.relname || '_demo', 63))
   loop
-    execute format('drop trigger if exists %I on %I', left(t.table_name || '_demo', 63), t.table_name);
     execute format('create trigger %I after insert on %I for each row when (current_setting(''itsm.demo'', true) = new.org_id::text) execute function sm_demo_capture()', left(t.table_name || '_demo', 63), t.table_name);
   end loop;
 end

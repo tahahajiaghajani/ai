@@ -66,10 +66,8 @@ $demo$;`;
 /** The capture trigger of one table (it must have `id uuid` and `org_id uuid`). */
 export function demoCaptureDdl(table: string): string {
   const name = shortName(`${table}_demo`);
-  return [
-    `drop trigger if exists ${name} on ${table};`,
-    `create trigger ${name} after insert on ${table} for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();`,
-  ].join("\n");
+  // one statement per table (a fresh database runs this for every table: migrations stay fast on the embedded one)
+  return `create or replace trigger ${name} after insert on ${table} for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();`;
 }
 
 /** Idempotent DDL of one table. */
