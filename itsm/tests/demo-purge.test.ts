@@ -255,7 +255,15 @@ describe.skipIf(skip)(title, () => {
     // ----- no trace
     const after = await snapshot(e.db);
     log("snapshot after");
-    expect(diff(before, after)).toEqual([]);
+    const differences = diff(before, after);
+    if (differences.length) {
+      // what is left, for the one who fixes it
+      for (const [t, m] of after) {
+        const added = [...m.keys()].filter((k) => !before.get(t)?.has(k)).slice(0, 3);
+        for (const k of added) log(`left in ${t}: ${JSON.stringify(await e.db.one(`select * from ${t} where id::text = $1`, [k]).catch(() => null)).slice(0, 400)}`);
+      }
+    }
+    expect(differences).toEqual([]);
     // the audit log: exactly the two content-free lines more
     const audit = await e.db.query<{ action: string; summary: string; entity_id: string | null }>(`select action, summary, entity_id from sm_audit order by at`);
     expect(audit.length).toBe(auditBefore + 2);

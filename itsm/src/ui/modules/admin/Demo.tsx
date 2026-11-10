@@ -7,6 +7,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, Button, Checkbox, Input, Modal, Progress, Segmented, Table, Typography } from "antd";
 import { Database, Trash2, Upload } from "lucide-react";
 import { useOrg } from "../../lib/org";
+import { useSession } from "../../lib/session";
 import { useNotify } from "../../lib/hooks";
 import { fa } from "../../lib/fa";
 import { PageHeader } from "../../components/layout";
@@ -79,7 +80,9 @@ export default function Demo() {
     queryFn: () => api.get<Status>("/demo"),
     refetchInterval: (query) => (["loading", "purging"].includes((query.state.data as Status | undefined)?.state ?? "") ? 2000 : false),
   });
-  const [size, setSize] = useState<Size>("medium");
+  // the Windows app's embedded database: the small bank (docs/DEMO_FA.md)
+  const { meta } = useSession();
+  const [size, setSize] = useState<Size>(meta?.mode === "desktop" ? "small" : "medium");
   const [force, setForce] = useState(false);
   const [busy, setBusy] = useState(false);
   const [purgeOpen, setPurgeOpen] = useState(false);

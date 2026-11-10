@@ -17,7 +17,7 @@ import { invalidateCmdbCache } from "../cmdb/common";
 import { invalidateRules } from "../notify/rules";
 import { BANK_DOMAIN, BANK_NAME, DEMO_SIZES, KNOWN_NAMES, type DemoSize } from "./bank";
 import { newMemo, runLoad, STEPS, type LoadMemo } from "./load";
-import { clearReferences, demoFiles, expandDerived, referenceReport, registryCounts, removeAccounts, removeFiles, removeRows, restoreComputed, restoreCounters, restoreReal, saveComputed, saveReal, systemMadeSince, tablesInfo, type PurgeReport, type RefReport } from "./purge";
+import { cleanHistory, clearReferences, demoFiles, expandDerived, referenceReport, registryCounts, removeAccounts, removeFiles, removeRows, restoreComputed, restoreCounters, restoreReal, saveComputed, saveReal, systemMadeSince, tablesInfo, type PurgeReport, type RefReport } from "./purge";
 
 export { DEMO_SIZES, BANK_NAME, type DemoSize } from "./bank";
 export { tablesInfo, COMPUTED_TABLES, type PurgeReport, type RefReport } from "./purge";
@@ -317,6 +317,7 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
         report.restored = await restoreComputed(tx, orgId, info, pack.progress.computed ?? []);
         const real = pack.progress.saved_at ? await restoreReal(tx, orgId, info, pack.progress.saved_at) : {};
         for (const [k, v] of Object.entries(real)) report.restored[k] = (report.restored[k] ?? 0) + v;
+        if (pack.progress.saved_at) await cleanHistory(tx, orgId, info, pack.progress.saved_at);
         await restoreCounters(tx, orgId, pack.counters ?? {});
         await setPhase(tx, "finish", { report });
       });

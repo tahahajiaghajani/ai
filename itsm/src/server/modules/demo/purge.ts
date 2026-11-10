@@ -439,6 +439,15 @@ export async function saveComputed(q: Queryable, orgId: string, info: TableInfo[
   return saved;
 }
 
+/** The engine's trail of rows removed outside the registry: their history, journal, links and attachments. */
+async function dropTrail(q: Queryable, orgId: string, ids: string[]): Promise<void> {
+  const list = pgArray(ids);
+  await q.query(`delete from sm_history where org_id = $1 and record_id = any($2::uuid[])`, [orgId, list]);
+  await q.query(`delete from sm_journal where org_id = $1 and record_id = any($2::uuid[])`, [orgId, list]);
+  await q.query(`delete from sm_attachments where org_id = $1 and record_id = any($2::uuid[])`, [orgId, list]);
+  await q.query(`delete from sm_links where org_id = $1 and (from_id = any($2::uuid[]) or to_id = any($2::uuid[]))`, [orgId, list]);
+}
+
 /** Put the computed tables saved before the load back as they were. Returns rows restored per table. */
 export async function restoreComputed(q: Queryable, orgId: string, info: TableInfo[], saved: string[]): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
@@ -446,8 +455,12 @@ export async function restoreComputed(q: Queryable, orgId: string, info: TableIn
   for (const table of saved) {
     const t = byName.get(table);
     if (!t || !hasIdOrg(t)) continue;
-    // computed while demo data was there: recomputed from real data by the next run
-    await q.query(`delete from ${ident(table)} x where x.org_id = $1 and not exists (select 1 from sm_demo_saved s where s.org_id = $1 and s.tbl = ${lit(table)} and s.row_id = x.id)`, [orgId]);
+    // computed while demo data was there: recomputed from real data by the next run (its trail goes with it)
+    const gone = await q.query<{ id: string }>(
+      `delete from ${ident(table)} x where x.org_id = $1 and not exists (select 1 from sm_demo_saved s where s.org_id = $1 and s.tbl = ${lit(table)} and s.row_id = x.id) returning x.id`,
+      [orgId],
+    );
+    if (gone.length) await dropTrail(q, orgId, gone.map((r) => r.id));
     const cols = [...t.cols.values()].filter((c) => !c.generated && c.name !== "rev").map((c) => c.name);
     const list = cols.map(ident).join(", ");
     const sets = cols.filter((c) => c !== "id").map((c) => `${ident(c)} = excluded.${ident(c)}`).join(", ");
@@ -546,6 +559,29 @@ export async function systemMadeSince(q: Queryable, orgId: string, info: TableIn
           and (x.updated_by is null or ${isDemo("x.updated_by")})
           and not exists (select 1 from sm_history h where h.org_id = $1 and h.record_id = x.id and h.actor is not null and not ${isDemo("h.actor")})
        on conflict do nothing returning row_id`,
+      [orgId, since],
+    );
+    n += rows.length;
+  }
+  return n;
+}
+
+/**
+ * History entries the system or the pack's people wrote since the save about saved rows that are now as they were saved
+ * (put back, or changed and changed back): they describe nothing that happened to the data that stays.
+ */
+export async function cleanHistory(q: Queryable, orgId: string, info: TableInfo[], since: string): Promise<number> {
+  let n = 0;
+  const names = new Set(info.map((t) => t.name));
+  const tables = (await q.query<{ tbl: string }>(`select distinct tbl from sm_demo_saved where org_id = $1`, [orgId])).map((r) => r.tbl);
+  for (const table of tables) {
+    if (!names.has(table)) continue;
+    const rows = await q.query(
+      `delete from sm_history h using ${ident(table)} x, sm_demo_saved s
+        where h.org_id = $1 and h.at > $2::timestamptz and (h.actor is null or ${isDemo("h.actor")})
+          and s.org_id = $1 and s.tbl = ${lit(table)} and s.row_id = h.record_id and x.id = s.row_id
+          and (to_jsonb(x) - 'rev' - 'updated_at') = (s.data - 'rev' - 'updated_at')
+        returning h.id`,
       [orgId, since],
     );
     n += rows.length;
