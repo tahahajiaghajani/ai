@@ -289,7 +289,7 @@ export function WipeCertificateAction({ ctx }: { ctx: RecordContext }) {
       <Modal open={open && !!c} title="گواهی پاک‌سازی امن داده" width={720} onCancel={() => setOpen(false)} footer={<Button type="primary" onClick={() => window.print()}>چاپ</Button>} destroyOnHidden>
         {c ? (
           <div className="itam-cert flex flex-col gap-2 text-[13px]">
-            <div className="text-[15px] font-[var(--ds-weight-semibold)]">{c.org}</div>
+            <div className="text-[15px] font-[var(--ds-weight-strong)]">{c.org}</div>
             <div>{`گواهی شمارهٔ ${c.certificate_no} — صادره ${formatJalaliDateTime(c.issued_at)}`}</div>
             <div>{`بدین‌وسیله گواهی می‌شود دادهٔ دارایی «${c.asset?.name ?? ""}» با پلاک ${c.asset?.tag ?? c.asset?.number ?? "—"} و سریال ${c.asset?.serial ?? "—"} (${c.asset?.model ?? "—"})${c.asset?.branch ? `، شعبهٔ ${c.asset.branch}` : ""}، با روش «${c.method}»${c.tool ? ` و ابزار ${c.tool}` : ""} در ${c.sanitized_at ? formatJalaliDateTime(c.sanitized_at) : "—"} پاک‌سازی شد.`}</div>
             <div>{`انجام‌دهنده: ${c.sanitized_by ?? "—"} — شاهد: ${c.witness ?? "—"}${c.order ? ` — دستور اسقاط ${c.order.number ?? ""}` : ""}`}</div>
