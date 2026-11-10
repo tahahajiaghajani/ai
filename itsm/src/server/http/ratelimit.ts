@@ -1,9 +1,12 @@
 // Rate limiting of sign-in-free routes (public pages' APIs, the public status page): a fixed window per client and
 // limiter — over the limit a request gets 429 with Retry-After, in Persian. Counters live in the process (the web
 // version's instances count apart; the limit is a brake on scraping and floods, not an accounting), bounded in size.
-// The client is the first X-Forwarded-For hop the platform's proxy set (Vercel), else X-Real-IP, else "local".
-import type { MiddlewareHandler } from "hono";
+// The client is the socket's peer on a Node server (the server edition, the Windows app; forwarding headers count only
+// from the installation's trusted proxies — clientIp of auth/session.ts), else the first X-Forwarded-For hop the
+// platform's proxy set (Vercel), else X-Real-IP, else "local".
+import type { Context, MiddlewareHandler } from "hono";
 import { AppError } from "./errors";
+import { clientIp as peerAwareIp, peerAddress } from "../auth/session";
 
 export interface RateLimitOptions {
   /** the limiter's name (its counters are apart from other limiters') */
@@ -18,8 +21,12 @@ export interface RateLimitOptions {
 const MAX_KEYS = 20_000;
 const counters = new Map<string, { start: number; count: number }>();
 
-/** The client's address as the platform's proxy reports it. */
-export function clientIp(c: { req: { header(name: string): string | undefined } }): string {
+/**
+ * The client's address: on a Node server the socket's peer (a client cannot pick its own address with X-Forwarded-For
+ * or X-Real-IP to escape a limit or an IP allowlist); where the platform hides the socket, as its proxy reports it.
+ */
+export function clientIp(c: Context): string {
+  if (peerAddress(c) !== null) return peerAwareIp(c);
   const fwd = c.req.header("x-forwarded-for");
   if (fwd) return fwd.split(",")[0]!.trim() || "local";
   return c.req.header("x-real-ip")?.trim() || "local";

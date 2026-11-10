@@ -170,17 +170,24 @@ const stripPort = (hop: string) => {
  * that is not one of ours), so a client cannot choose its own address for rate limits and the audit.
  */
 export function clientIp(c: Context): string {
+  return clientIpUnder(c, trustedList(cfgOf(c)));
+}
+
+/**
+ * clientIp under an explicit list of the installation's reverse proxies — for code in front of the API that has no
+ * cfg (the server edition's first-run setup reads kariz.json trusted_proxies).
+ */
+export function clientIpUnder(c: Context, proxies: readonly string[]): string {
   const peer = peerAddress(c);
   const xff = c.req.header("x-forwarded-for");
   if (peer === null) {
     if (xff) return stripPort(xff.split(",")[0]);
     return c.req.header("x-real-ip") ?? "local";
   }
-  const cfg = cfgOf(c);
-  if (!isTrustedProxy(cfg, peer)) return peer;
+  if (!proxyTrusted(proxies, peer)) return peer;
   if (!xff) return c.req.header("x-real-ip")?.trim() || peer;
   const hops = xff.split(",").map(stripPort).filter(Boolean);
-  for (let i = hops.length - 1; i >= 0; i--) if (!isTrustedProxy(cfg, hops[i])) return hops[i];
+  for (let i = hops.length - 1; i >= 0; i--) if (!proxyTrusted(proxies, hops[i])) return hops[i];
   return hops[0] ?? peer;
 }
 

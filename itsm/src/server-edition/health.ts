@@ -8,7 +8,7 @@ import { APP_VERSION } from "@shared/constants";
 import type { ServerEditionConfig } from "./config";
 import type { ClusterMetrics } from "./metrics";
 import type { CertInfo } from "./tls";
-import { backupRoot, lastBackup, listBackups } from "./backup";
+import { backupRoot, lastBackup, listBackups, nextBackupRetry } from "./backup";
 import { nextDaily } from "./scheduler";
 import { signInHealth } from "@server/modules/platform/signin-health";
 
@@ -111,8 +111,14 @@ export async function serverHealth(d: HealthDeps) {
   const ageH = last ? (Date.now() - Date.parse(last.at)) / 3600_000 : null;
   if (!c.backup.enabled) add({ key: "backup", title: "پشتیبان‌گیری", tone: "warning", value: "خاموش", detail: "پشتیبان‌گیری خودکار در kariz.json خاموش است" });
   else if (!last) add({ key: "backup", title: "آخرین پشتیبان", tone: "warning", value: "هنوز گرفته نشده", detail: `نخستین پشتیبان خودکار ساعت ${c.backup.time} گرفته می‌شود؛ یا «karizctl backup» را اجرا کنید` });
-  else if (!last.ok) add({ key: "backup", title: "آخرین پشتیبان", tone: "danger", value: "ناموفق", detail: last.error ?? undefined });
-  else add({ key: "backup", title: "آخرین پشتیبان", tone: ageH! > 36 ? "danger" : !last.verified && c.backup.verify ? "warning" : "ok", value: `${fa(ageH!)} ساعت پیش${last.verified ? "، بررسی‌شده" : ""}` });
+  else if (!last.ok) {
+    const retry = nextBackupRetry(c);
+    const wait = retry ? Math.max(0, (Date.parse(retry) - Date.now()) / 60_000) : null;
+    const retryText = wait === null ? null : `تلاش خودکار بعدی ${wait < 1 ? "تا یک دقیقهٔ دیگر" : `حدود ${fa(wait)} دقیقهٔ دیگر`}${last.failures && last.failures > 1 ? ` (${fa(last.failures)} بار پیاپی ناموفق)` : ""}`;
+    add({ key: "backup", title: "آخرین پشتیبان", tone: "danger", value: "ناموفق", detail: [last.error, retryText].filter(Boolean).join(" — ") || undefined });
+  } else add({ key: "backup", title: "آخرین پشتیبان", tone: ageH! > 36 ? "danger" : !last.verified && c.backup.verify ? "warning" : "ok", value: `${fa(ageH!)} ساعت پیش${last.verified ? "، بررسی‌شده" : ""}` });
+  // attachment rows whose content never reached the server: reported, never a failed backup
+  if (last?.ok && last.orphaned) add({ key: "backup_orphans", title: "پیوست‌های بی‌محتوا", tone: "warning", value: `${fa(last.orphaned)} پیوست`, detail: "محتوای این پیوست‌ها هرگز به سرور نرسیده است (بارگذاری ردشده، قرنطینه‌شده یا ناتمام)؛ پشتیبان را ناموفق نمی‌کند. فهرست: karizctl orphans" });
   if (cert) {
     add({
       key: "certificate",

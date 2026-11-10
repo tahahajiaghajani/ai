@@ -4,11 +4,11 @@
 // metrics endpoints, the first-run setup and its gate, and the web version's cron routes made inert (the scheduler
 // leader ticks the queue here).
 import { Hono, type Context } from "hono";
-import { bodyLimit } from "hono/body-limit";
 import { Readable } from "node:stream";
 import { constants as zc, createBrotliCompress, createGzip } from "node:zlib";
 import { timingSafeEqual } from "node:crypto";
 import type { Logger } from "@server/context";
+import { AppError } from "@server/http/errors";
 import type { WorkerMetrics, ClusterMetrics } from "./metrics";
 import { prometheus } from "./metrics";
 import type { StaticSite } from "./static";
@@ -94,6 +94,31 @@ function bearerMatches(header: string | undefined, token: string): boolean {
 
 const json = (c: Context, status: number, code: string, message: string) => c.json({ error: { code, message } }, status as 400);
 
+/** A body over the size limit: the API's error handler answers 413 (AppError), and so does Hono's default one. */
+export class PayloadTooLarge extends AppError {
+  constructor(message: string) {
+    super(413, "too_large", message);
+  }
+  getResponse(): Response {
+    return new Response(JSON.stringify({ error: { code: this.code, message: this.message } }), { status: 413, headers: { "content-type": "application/json; charset=utf-8" } });
+  }
+}
+
+/**
+ * Passes a body through and fails it with 413 once more than `max` bytes went by: the route that reads it gets the
+ * error, nothing is buffered on the way.
+ */
+export function byteLimit(max: number, message: string): TransformStream<Uint8Array, Uint8Array> {
+  let seen = 0;
+  return new TransformStream({
+    transform(chunk, ctl) {
+      seen += chunk.byteLength;
+      if (seen > max) ctl.error(new PayloadTooLarge(message));
+      else ctl.enqueue(chunk);
+    },
+  });
+}
+
 export function createFront(d: FrontDeps) {
   const app = new Hono();
   const csp = cspFor(d.site.scriptHashes);
@@ -148,11 +173,19 @@ export function createFront(d: FrontDeps) {
     return c.text(prometheus(m, { queue }), 200, { "content-type": "text/plain; version=0.0.4; charset=utf-8" });
   });
 
-  // request size limits before anything reads a body
+  // request size limits, without reading anything here: a declared length is judged at once; a body without one
+  // (chunked) is counted while the route reads it — which a route does only after its own authentication — so no
+  // client, signed in or not, can make this process hold an upload in memory before anyone knows who sent it
   app.use("/api/*", async (c, next) => {
     const cfg = d.config();
     const mb = isUploadPath(c.req.path) ? cfg.uploads.max_mb + 1 : cfg.uploads.request_max_mb;
-    return bodyLimit({ maxSize: mb * 1024 * 1024, onError: (cc) => json(cc, 413, "too_large", `حجم درخواست بیش از ${mb.toLocaleString("fa-IR")} مگابایت است`) })(c, next);
+    const message = `حجم درخواست بیش از ${mb.toLocaleString("fa-IR")} مگابایت است`;
+    const length = c.req.header("content-length");
+    if (length !== undefined && !c.req.header("transfer-encoding")) return Number(length) > mb * 1024 * 1024 ? json(c, 413, "too_large", message) : next();
+    if (c.req.method === "GET" || c.req.method === "HEAD") return next();
+    const body = c.req.raw.body;
+    if (body) c.req.raw = new Request(c.req.raw, { body: body.pipeThrough(byteLimit(mb * 1024 * 1024, message)), duplex: "half" } as RequestInit);
+    return next();
   });
 
   app.route("/api/setup", d.setup);
@@ -172,6 +205,7 @@ export function createFront(d: FrontDeps) {
   app.all("*", (c) => d.site.serve(c.req.raw) ?? json(c, 405, "method_not_allowed", "این روش پشتیبانی نمی‌شود"));
 
   app.onError((err, c) => {
+    if (err instanceof PayloadTooLarge) return err.getResponse();
     d.log.error("request failed", { path: c.req.path, error: String(err?.message ?? err) });
     return json(c, 500, "internal", "خطای داخلی سرور؛ گزارش آن در پوشهٔ logs ثبت شد");
   });

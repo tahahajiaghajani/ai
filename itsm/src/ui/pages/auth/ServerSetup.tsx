@@ -171,12 +171,12 @@ export default function ServerSetup() {
     setBusy(true);
     try {
       const fd = new FormData();
-      fd.set("token", token);
       if (certFiles.pfx) fd.set("pfx", certFiles.pfx);
       if (certFiles.cert) fd.set("cert", certFiles.cert);
       if (certFiles.key) fd.set("key", certFiles.key);
       fd.set("passphrase", certFiles.passphrase ?? "");
-      const res = await fetch("/api/setup/certificate", { method: "POST", body: fd, credentials: "same-origin" });
+      // the token goes in a header: the server checks it before it reads the upload
+      const res = await fetch("/api/setup/certificate", { method: "POST", body: fd, headers: { "x-setup-token": token }, credentials: "same-origin" });
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error?.message ?? `خطای ${res.status}`);
       setCert({ info: data.cert, warning: data.warning ?? null });

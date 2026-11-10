@@ -2,7 +2,9 @@
 // (src/server/net.ts networkFetch / checkOutboundHost). Every TCP connection this process opens — fetch (undici),
 // http.request, SMTP (nodemailer), IMAP, LDAP, a library's telemetry — goes through net.Socket#connect; a destination
 // that is not loopback, not the database and not on the allowlist is refused with EAIRGAP (and logged) before any
-// packet leaves. Names allowed only through an IP/CIDR entry are checked again on the addresses they resolve to.
+// packet leaves. Names allowed only through an IP/CIDR entry are checked again on the addresses they resolve to. An
+// SMTP client that resolved an allowed name itself (nodemailer connects to the address when a name has one) passes
+// when the address is one of that name's answers right now.
 import net from "node:net";
 import dns from "node:dns";
 import { hostAllowed, isLoopbackHost, type NetworkPolicy } from "@server/net";
@@ -31,8 +33,31 @@ interface ConnectOptions {
   host?: string;
   port?: number | string;
   path?: string;
+  servername?: string;
   lookup?: typeof dns.lookup;
 }
+
+const normIp = (a: string) => a.toLowerCase().replace(/^\[|\]$/g, "").replace(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/, "$1");
+
+/**
+ * What a name resolves to now: the system resolver (hosts file, DNS) and the DNS servers asked directly (as nodemailer
+ * asks them), together. Replaceable in tests.
+ */
+export const guardDns = {
+  addresses: (name: string): Promise<string[]> =>
+    new Promise((done) => {
+      const out = new Set<string>();
+      let pending = 3;
+      const add = (list: readonly string[]) => {
+        for (const a of list) out.add(normIp(a));
+        if (--pending === 0) done([...out]);
+      };
+      dns.lookup(name, { all: true }, (err, list) => add(err ? [] : list.map((x) => x.address)));
+      const r = new dns.Resolver({ timeout: 3000, tries: 2 });
+      r.resolve4(name, (err, list) => add(err ? [] : list));
+      r.resolve6(name, (err, list) => add(err ? [] : list));
+    }),
+};
 
 /** The options object of Socket#connect's argument forms (already-normalised array, options, port/host, path). */
 function optionsOf(args: unknown[]): ConnectOptions | null {
@@ -76,8 +101,32 @@ export function installSocketGuard(policy: NetworkPolicy, opts: { extraHosts?: s
       process.nextTick(() => this.destroy(err));
       return this;
     };
+    const literal = net.isIP(host.replace(/^\[|\]$/g, "")) !== 0;
+    // an address an SMTP client resolved from an allowed name (o.servername): connected by that name, through a lookup
+    // that answers this address only when the name resolves to it now — nodemailer resolves a single-address name
+    // itself and connects to the address, which no name entry could otherwise admit
+    const name = typeof o.servername === "string" ? o.servername.toLowerCase().replace(/\.+$/, "") : "";
+    if (literal && name && net.isIP(name) === 0 && allowedNow(s, name)) {
+      const ip = normIp(host);
+      o.host = name;
+      o.lookup = ((_hostname: string, lopts: dns.LookupOptions, cb: (err: NodeJS.ErrnoException | null, address: string | dns.LookupAddress[], family?: number) => void) => {
+        guardDns.addresses(name).then(
+          (list) => {
+            if (!list.includes(ip)) {
+              s.onRefused(host, port);
+              return cb(new AirGapError(host, port) as unknown as NodeJS.ErrnoException, "", 0);
+            }
+            const family = net.isIP(ip);
+            if (lopts?.all) cb(null, [{ address: ip, family }]);
+            else cb(null, ip, family);
+          },
+          (e: NodeJS.ErrnoException) => cb(e, "", 0),
+        );
+      }) as unknown as typeof dns.lookup;
+      return original.apply(this, args);
+    }
     // an IP literal or a name with no IP/CIDR entries that could admit it: refused at once
-    if (net.isIP(host.replace(/^\[|\]$/g, "")) || !hasIpEntries(s.policy)) return refuse();
+    if (literal || !hasIpEntries(s.policy)) return refuse();
     // a name: allowed only when every address it resolves to is allowed (checked on the actual lookup)
     const inner = o.lookup ?? dns.lookup;
     o.lookup = ((hostname: string, lopts: dns.LookupOptions, cb: (err: NodeJS.ErrnoException | null, address: string | dns.LookupAddress[], family?: number) => void) => {

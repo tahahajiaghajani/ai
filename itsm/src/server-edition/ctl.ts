@@ -1,7 +1,7 @@
 // karizctl — the administrator's command line of the server edition (bundled as app\karizctl.cjs; karizctl.cmd in the
 // installation folder). Run it from an elevated prompt on the server:
 //   karizctl status | start | stop | restart [--rolling]
-//   karizctl backup | backups | restore <folder> [--yes]
+//   karizctl backup | backups | orphans | restore <folder> [--yes]
 //   karizctl reset-password <email> | rotate-cert --pfx <file> --password <p> (or --cert <crt> --key <key>)
 //   karizctl allow list | allow add <host> | allow remove <host>
 //   karizctl diagnostics [--out <file.zip>] | setup-token | version
@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, wri
 import { request as httpsRequest } from "node:https";
 import { request as httpRequest } from "node:http";
 import { hostname, release, totalmem, cpus } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, parse, resolve } from "node:path";
 import { APP_NAME, APP_VERSION } from "@shared/constants";
 import { createPostgresDb } from "@server/db/postgres";
 import { migrate, migrationStatus } from "@server/db/migrate";
@@ -22,7 +22,7 @@ import { allowEntryProblem } from "@server/net";
 import { databaseUrl, defaultConfigFile, dirsFor, ensureSecrets, loadServerConfig, patchServerConfig, redacted, saveServerConfig, type ServerEditionConfig } from "./config";
 import { EDITION } from "./names";
 import { bootstrapDatabase, initCluster, pgCtl, thisMachine, tuneInputFor, waitForDb, writePgConfig } from "./pg";
-import { backupNow, backupRoot, lastBackup, listBackups, pgBinOf, restoreBackup } from "./backup";
+import { backupNow, backupRoot, lastBackup, listBackups, orphanedAttachments, restoreBackup } from "./backup";
 import { issueSetupToken } from "./setup";
 import { inspectCredentials, loadCredentials } from "./tls";
 import { RESTART_REQUEST, RELOAD_REQUEST } from "./cluster";
@@ -110,6 +110,29 @@ function configFile(a: Args) {
   return resolve(flag(a, "config") ?? defaultConfigFile());
 }
 
+/**
+ * Where PostgreSQL's programs are for karizctl. Never kariz.json's pg_bin: the application's account may edit that file
+ * (setup, allowlist), and karizctl runs as an administrator or SYSTEM (the installer, the pre-upgrade backup, the
+ * nightly task) — a pg_dump.exe of the application's choosing would run with those rights. Only what the
+ * administrator gives (--pg-bin, ITSM_PG_BIN) or the installation folder itself (ITSM_INSTALL_DIR from the installer's
+ * scripts, else the folder this karizctl was installed into: <install>\app\karizctl.cjs → <install>\pgsql\bin).
+ */
+export function trustedPgBin(a: Args, env: Record<string, string | undefined> = process.env, script = process.argv[1] ?? "."): string {
+  const given = flag(a, "pg-bin") ?? env.ITSM_PG_BIN;
+  if (given) return resolve(given);
+  const install = env.ITSM_INSTALL_DIR ? resolve(env.ITSM_INSTALL_DIR) : dirname(dirname(resolve(script)));
+  return join(install, "pgsql", "bin");
+}
+
+/**
+ * The data folder karizctl may delete or write its own files into: the folder of the configuration file (given by
+ * --config / ITSM_SERVER_CONFIG, set by an administrator), never kariz.json's dirs.data, which the application's
+ * account may edit.
+ */
+export function trustedDataDir(a: Args): string {
+  return dirname(configFile(a));
+}
+
 function load(a: Args): ServerEditionConfig {
   const file = configFile(a);
   if (!existsSync(file)) throw new UsageError(`فایل پیکربندی ${file} نیست؛ نخست «karizctl init» را اجرا کنید`);
@@ -156,7 +179,7 @@ async function cmdDbInit(a: Args) {
     say(`پایگاه دادهٔ موجود در ${c.dirs.pg_data} نگه داشته شد (نصب دوباره یا ارتقا)`);
     return;
   }
-  const r = await initCluster({ bin: pgBinOf(c), dataDir: c.dirs.pg_data, superuser: c.db.admin_user, password: c.db.admin_password, icuLocale: flag(a, "icu-locale") ?? "fa-IR" });
+  const r = await initCluster({ bin: trustedPgBin(a), dataDir: c.dirs.pg_data, superuser: c.db.admin_user, password: c.db.admin_password, icuLocale: flag(a, "icu-locale") ?? "fa-IR" });
   const t = writePgConfig(c.dirs.pg_data, tuneInputFor(c, thisMachine((flag(a, "disk") as DiskKind) ?? "ssd")), { port: c.db.port });
   say(`پایگاه داده ساخته شد: ${c.dirs.pg_data} (ترتیب‌بندی ${r.collation})`);
   for (const n of t.notes) say(`  ! ${n}`);
@@ -226,8 +249,10 @@ async function cmdStatus(a: Args) {
 async function cmdBackup(a: Args) {
   const c = load(a);
   const label = (flag(a, "label") as "manual" | "pre-upgrade" | undefined) ?? "manual";
-  const r = await backupNow({ config: c, label, log: { info: (m, d) => say(`  ${m} ${d ? JSON.stringify(d) : ""}`), warn: (m) => warn(m), error: (m, d) => warn(`${m} ${d ? JSON.stringify(d) : ""}`) } });
+  const r = await backupNow({ config: c, label, bin: trustedPgBin(a), log: { info: (m, d) => say(`  ${m} ${d ? JSON.stringify(d) : ""}`), warn: (m) => warn(m), error: (m, d) => warn(`${m} ${d ? JSON.stringify(d) : ""}`) } });
   say(`پشتیبان گرفته شد: ${r.folder} (${Math.round(r.dump.size / 1024)} KB، ${r.blobs.files} فایل پیوست${r.verified ? "، بررسی‌شده" : ""})`);
+  // attachment rows whose content never reached the server are no failure of the backup (and never stop an upgrade)
+  if (r.blobs.orphaned) warn(`هشدار: ${r.blobs.orphaned} پیوست محتوایی روی سرور ندارد (بارگذاری‌اش رد یا قرنطینه شده یا هرگز نرسیده است)؛ فهرست: karizctl orphans`);
   if (c.backup.verify && !r.verified) throw new Error(`بررسی پشتیبان ناموفق بود: ${r.verify_detail}`);
 }
 
@@ -246,7 +271,7 @@ async function cmdRestore(a: Args) {
   const log = { info: (m: string, d?: unknown) => say(`  ${m} ${d ? JSON.stringify(d) : ""}`), warn: (m: string) => warn(m), error: (m: string, d?: unknown) => warn(`${m} ${d ? JSON.stringify(d) : ""}`) };
   if (!a.flags["no-safety-backup"]) {
     say("پشتیبان ایمنی پیش از بازگردانی…");
-    await backupNow({ config: c, label: "pre-restore", log });
+    await backupNow({ config: c, label: "pre-restore", log, bin: trustedPgBin(a) });
   }
   const app = EDITION.services.app.name;
   if (isWindows) {
@@ -254,7 +279,7 @@ async function cmdRestore(a: Args) {
     await service("stop", app);
   }
   try {
-    const r = await restoreBackup({ config: c, from: resolve(from), log });
+    const r = await restoreBackup({ config: c, from: resolve(from), log, bin: trustedPgBin(a) });
     say(`بازگردانی شد. پایگاه دادهٔ پیشین: ${r.previous ?? "—"} (پس از اطمینان، با psql حذفش کنید)؛ ${r.blobs_copied} فایل پیوست بازگشت`);
   } finally {
     if (isWindows) {
@@ -380,7 +405,8 @@ async function cmdDiagnostics(a: Args) {
       if (text !== null) entries.push({ name: `logs/${dir === c.dirs.logs ? "" : dir.endsWith("service") ? "service/" : "postgresql/"}${f}`, data: text.replace(/(password|passphrase|secret|token)(["'=:\s]+)[^\s",']+/gi, "$1$2(hidden)") });
     }
   }
-  const out = resolve(flag(a, "out") ?? join(c.dirs.data, `diagnostics-${new Date().toISOString().replace(/[:.]/g, "-")}.zip`));
+  // by default next to the configuration file (an administrator's folder), not a folder kariz.json names
+  const out = resolve(flag(a, "out") ?? join(trustedDataDir(a), `diagnostics-${new Date().toISOString().replace(/[:.]/g, "-")}.zip`));
   writeFileSync(out, zip(entries));
   say(`بستهٔ عیب‌یابی (بدون رمز و کلید): ${out}`);
 }
@@ -400,9 +426,22 @@ async function cmdSetupToken(a: Args) {
 async function cmdPurge(a: Args) {
   const c = load(a);
   if (!a.flags.yes) throw new UsageError("همهٔ داده‌ها (پایگاه داده، پیوست‌ها، پشتیبان‌های داخل پوشهٔ داده، گزارش‌ها) پاک می‌شود. برای ادامه --yes را بیفزایید");
+  // only the folder of the configuration file, and only when kariz.json agrees: a dirs.data the application's account
+  // wrote (another folder, a drive root) is never deleted with an administrator's rights
+  const data = trustedDataDir(a);
+  if (parse(data).root === data) throw new UsageError(`پوشهٔ داده ریشهٔ دیسک است (${data})؛ پاک نشد`);
+  if (resolve(c.dirs.data).toLowerCase() !== resolve(data).toLowerCase()) throw new UsageError(`پوشهٔ دادهٔ kariz.json (${c.dirs.data}) پوشهٔ فایل پیکربندی (${data}) نیست؛ چیزی پاک نشد`);
   if (isWindows) for (const s of [EDITION.services.app.name, EDITION.services.db.name]) if (scState(s)) await service("stop", s).catch(() => undefined);
-  rmSync(c.dirs.data, { recursive: true, force: true });
-  say(`پوشهٔ داده پاک شد: ${c.dirs.data}`);
+  rmSync(data, { recursive: true, force: true });
+  say(`پوشهٔ داده پاک شد: ${data}`);
+}
+
+async function cmdOrphans(a: Args) {
+  const c = load(a);
+  const rows = await orphanedAttachments(c);
+  if (!rows.length) say("همهٔ پیوست‌ها محتوا دارند");
+  for (const r of rows) say(`${r.created_at}\t${r.org_id}\t${r.table_key}/${r.record_id}\t${r.name}\t${r.sha256}\t${r.id}`);
+  if (rows.length) say(`${rows.length} پیوست بی‌محتوا (بارگذاری ردشده، قرنطینه‌شده یا ناتمام؛ پشتیبان را ناموفق نمی‌کنند). برای پاک‌کردن، پیوست را در برنامه حذف کنید یا کاربر آن را دوباره بفرستد.`);
 }
 
 const HELP = `karizctl — ${EDITION.product} (${APP_NAME} ${APP_VERSION})
@@ -410,6 +449,7 @@ const HELP = `karizctl — ${EDITION.product} (${APP_NAME} ${APP_VERSION})
   start | stop | restart         the ${EDITION.services.app.name} and ${EDITION.services.db.name} services (restart --rolling: no downtime)
   backup                         back up now (pg_dump + attachment files, verified)
   backups                        list backups
+  orphans                        attachments whose content never reached the server
   restore <folder> --yes         restore a backup (a safety backup is taken first)
   reset-password <email>         temporary password for an account (sessions are closed)
   rotate-cert --pfx <f> --password <p> | --cert <crt> --key <key>
@@ -442,13 +482,13 @@ export async function main(argv: string[]): Promise<number> {
       case "pg-start": {
         const c = load(a);
         // the log file sits in the data folder: the database server account can write there
-        await pgCtl(pgBinOf(c), c.dirs.pg_data, "start", join(c.dirs.pg_data, "pg_ctl.log"));
+        await pgCtl(trustedPgBin(a), c.dirs.pg_data, "start", join(c.dirs.pg_data, "pg_ctl.log"));
         say("PostgreSQL started");
         break;
       }
       case "pg-stop": {
         const c = load(a);
-        await pgCtl(pgBinOf(c), c.dirs.pg_data, "stop");
+        await pgCtl(trustedPgBin(a), c.dirs.pg_data, "stop");
         say("PostgreSQL stopped");
         break;
       }
@@ -505,6 +545,9 @@ export async function main(argv: string[]): Promise<number> {
         break;
       case "purge":
         await cmdPurge(a);
+        break;
+      case "orphans":
+        await cmdOrphans(a);
         break;
       case "version":
         say(`${APP_NAME} ${APP_VERSION} (${EDITION.product})`);

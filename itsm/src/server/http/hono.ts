@@ -89,7 +89,9 @@ export async function body<T>(c: C, schema: ZodType<T>): Promise<T> {
   if (ct.includes("application/json")) {
     try {
       raw = await c.req.json();
-    } catch {
+    } catch (e) {
+      // a body over the size limit (the server edition counts chunked bodies while they are read) stays a 413
+      if (e instanceof AppError) throw e;
       throw bad("بدنه‌ی درخواست JSON معتبر نیست");
     }
   }

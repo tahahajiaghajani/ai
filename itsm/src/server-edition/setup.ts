@@ -6,7 +6,7 @@
 // public address, installs the bank's certificate (until then a generated self-signed one), the bank's SMTP (Exchange)
 // as the organisation's e-mail channel, local AI servers (added to the air-gap allowlist), the backup folder, and links
 // to the Active Directory settings (DIRECTORY_SETTINGS_PATH). The token is consumed when the setup completes.
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -14,6 +14,8 @@ import { join } from "node:path";
 import type { Db } from "@server/db";
 import type { Logger } from "@server/context";
 import { allowEntryProblem } from "@server/net";
+import { clientIpUnder } from "@server/auth/session";
+import { hit } from "@server/http/ratelimit";
 import { DIRECTORY_SETTINGS_PATH, SECURITY_SETTINGS_PATH } from "./names";
 import { normalizePolicy } from "@shared/auth/policy";
 import { loadServerConfig, patchServerConfig, publicHost, type ServerEditionConfig } from "./config";
@@ -21,6 +23,9 @@ import { certCovers, inspectCredentials, type CertInfo } from "./tls";
 
 export const SETUP_TTL_DAYS = 14;
 export const SETUP_URL_FILE = "setup-url.txt";
+/** The header that carries the setup token of a certificate upload (checked before the body is read). */
+export const SETUP_TOKEN_HEADER = "x-setup-token";
+const SETUP_LIMIT = { name: "server-setup", limit: 30, windowMs: 600_000 };
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
@@ -142,25 +147,19 @@ export function setupRoutes(d: SetupDeps, hasUsers: () => Promise<boolean>) {
   const r = new Hono();
   // the token is read from the file every time: `karizctl setup-token` may issue a new one while the server runs
   const fresh = () => loadServerConfig(d.file).config;
-  // guesses at the token are pointless (24 random bytes) but still slowed down
-  const attempts = new Map<string, { n: number; at: number }>();
-  const limited = (ip: string) => {
-    const now = Date.now();
-    const a = attempts.get(ip);
-    if (!a || now - a.at > 600_000) {
-      attempts.set(ip, { n: 1, at: now });
-      return false;
-    }
-    a.n++;
-    return a.n > 30;
-  };
-  const ipOf = (h: Headers) => h.get("x-real-ip") ?? "local";
+  // guesses at the token are pointless (24 random bytes) but still slowed down: 30 per 10 minutes and client, counted
+  // in the process's bounded rate-limit counters
+  const limited = (ip: string) => hit(SETUP_LIMIT, ip) > 0;
+  // the client is the socket's peer (forwarding headers only from kariz.json's trusted proxies): a client that sends
+  // no X-Real-IP does not share one bucket with everybody else, and one that sends a new value each time is still
+  // counted under its own address
+  const ipOf = (c: Context) => clientIpUnder(c, d.config().trusted_proxies);
 
   r.get("/state", async (c) => {
     const cfg = fresh();
     const token = c.req.query("token");
     const done = await hasUsers();
-    if (!done && token && limited(ipOf(c.req.raw.headers))) return c.json(fail(429, "rate_limited", "تلاش‌های زیاد؛ چند دقیقه بعد دوباره امتحان کنید"), 429);
+    if (!done && token && limited(ipOf(c))) return c.json(fail(429, "rate_limited", "تلاش‌های زیاد؛ چند دقیقه بعد دوباره امتحان کنید"), 429);
     const valid = !done && tokenValid(cfg, token);
     return c.json({
       required: !done,
@@ -183,11 +182,14 @@ export function setupRoutes(d: SetupDeps, hasUsers: () => Promise<boolean>) {
   });
 
   r.post("/certificate", async (c) => {
+    // the token travels in a header (or the query) and is checked before the body is read: nobody without it — and
+    // nobody at all once the setup is done — gets an upload read into memory
+    const token = c.req.header(SETUP_TOKEN_HEADER) ?? c.req.query("token") ?? null;
+    if (await hasUsers()) return c.json(fail(403, "setup_token", "نشانی راه‌اندازی معتبر نیست یا پیش‌تر به کار رفته است"), 403);
+    if (limited(ipOf(c))) return c.json(fail(429, "rate_limited", "تلاش‌های زیاد؛ چند دقیقه بعد دوباره امتحان کنید"), 429);
+    if (!tokenValid(fresh(), token)) return c.json(fail(403, "setup_token", "نشانی راه‌اندازی معتبر نیست یا پیش‌تر به کار رفته است"), 403);
     const form = await c.req.parseBody().catch(() => null);
     if (!form) return c.json(fail(400, "bad_request", "فایل گواهی دریافت نشد"), 400);
-    const token = typeof form.token === "string" ? form.token : null;
-    if (limited(ipOf(c.req.raw.headers))) return c.json(fail(429, "rate_limited", "تلاش‌های زیاد؛ چند دقیقه بعد دوباره امتحان کنید"), 429);
-    if ((await hasUsers()) || !tokenValid(fresh(), token)) return c.json(fail(403, "setup_token", "نشانی راه‌اندازی معتبر نیست یا پیش‌تر به کار رفته است"), 403);
     const file = (k: string) => (form[k] && typeof form[k] !== "string" ? (form[k] as File) : null);
     const pfx = file("pfx");
     const cert = file("cert");
@@ -226,8 +228,9 @@ export function setupRoutes(d: SetupDeps, hasUsers: () => Promise<boolean>) {
   });
 
   r.post("/complete", async (c) => {
-    if (limited(ipOf(c.req.raw.headers))) return c.json(fail(429, "rate_limited", "تلاش‌های زیاد؛ چند دقیقه بعد دوباره امتحان کنید"), 429);
+    // after the setup nothing is counted (the answer is the same for everybody)
     if (await hasUsers()) return c.json(fail(409, "setup_done", "راه‌اندازی نخست پیش‌تر انجام شده است؛ وارد شوید"), 409);
+    if (limited(ipOf(c))) return c.json(fail(429, "rate_limited", "تلاش‌های زیاد؛ چند دقیقه بعد دوباره امتحان کنید"), 429);
     let raw: unknown;
     try {
       raw = await c.req.json();
@@ -271,7 +274,7 @@ export function setupRoutes(d: SetupDeps, hasUsers: () => Promise<boolean>) {
 
     const origin = publicUrl;
     const headers = (cookie?: string) => {
-      const h: Record<string, string> = { "content-type": "application/json", "x-real-ip": ipOf(c.req.raw.headers), host: new URL(origin).host, "x-forwarded-proto": new URL(origin).protocol.replace(":", "") };
+      const h: Record<string, string> = { "content-type": "application/json", "x-real-ip": ipOf(c), host: new URL(origin).host, "x-forwarded-proto": new URL(origin).protocol.replace(":", "") };
       if (cookie) h.cookie = cookie;
       return h;
     };

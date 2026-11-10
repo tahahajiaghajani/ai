@@ -87,6 +87,9 @@ export function defaultStaticDir(): string {
   return existsSync(join(beside, "index.html")) ? beside : resolve("public");
 }
 
+/** Headers a client could forge to choose its address, host or scheme (kept only from a trusted proxy). */
+const FORWARDING_HEADERS = new Set(["x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip", "forwarded"]);
+
 /**
  * Strip forwarding headers a client could forge and name the real client (rate limits, audit): kept only when the TCP
  * peer is one of the installation's reverse proxies (kariz.json trusted_proxies, or loopback) — the same rule the API's
@@ -95,8 +98,17 @@ export function defaultStaticDir(): string {
 export function prepareRequest(req: IncomingMessage, trustedProxies: readonly string[]) {
   const ip = (req.socket.remoteAddress ?? "").replace(/^::ffff:/i, "");
   if (proxyTrusted(trustedProxies, ip)) return;
-  for (const h of ["x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip", "forwarded"]) delete req.headers[h];
+  for (const h of FORWARDING_HEADERS) delete req.headers[h];
   if (ip) req.headers["x-real-ip"] = ip;
+  // @hono/node-server builds the Request's headers from rawHeaders (as soon as anything iterates them or reads the
+  // body: the body limit, new Request(...)), not from req.headers — the raw list is rewritten the same way, or the
+  // forged headers would come back and the socket's X-Real-IP would be lost
+  const raw: string[] = [];
+  for (let i = 0; i + 1 < req.rawHeaders.length; i += 2) {
+    if (!FORWARDING_HEADERS.has(req.rawHeaders[i].toLowerCase())) raw.push(req.rawHeaders[i], req.rawHeaders[i + 1]);
+  }
+  if (ip) raw.push("X-Real-IP", ip);
+  req.rawHeaders = raw;
 }
 
 /**
