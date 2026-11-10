@@ -158,7 +158,8 @@ export function createFront(d: FrontDeps) {
   app.route("/api/setup", d.setup);
 
   // until the first account exists only the setup may change anything
-  const open = new Set(["/api/health", "/api/ready", "/api/meta"]);
+  // (/auth/me answers 401 without a session: the app's start-up asks it before showing the setup)
+  const open = new Set(["/api/health", "/api/ready", "/api/meta", "/api/auth/me"]);
   app.use("/api/*", async (c, next) => {
     if (!open.has(c.req.path) && (await d.setupRequired())) {
       return json(c, 503, "setup_required", "راه‌اندازی نخست سرور هنوز انجام نشده است؛ نشانی راه‌اندازی را از پایان نصب (پوشهٔ داده، فایل setup-url.txt) یا با «karizctl setup-token» بردارید");

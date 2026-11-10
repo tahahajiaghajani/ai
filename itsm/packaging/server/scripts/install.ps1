@@ -185,6 +185,9 @@ try {
     Grant-Acl (Join-Path $DataDir 'logs\service') @("NT SERVICE\$dbSvc`:(OI)(CI)M")
     # the configuration (secrets, passwords): administrators, SYSTEM and the application's account (it updates it)
     Invoke-Native -File 'icacls.exe' -Arguments @($config, '/inheritance:r', '/grant:r', '*S-1-5-32-544:F', '/grant:r', '*S-1-5-18:F', '/grant:r', "NT SERVICE\$appSvc`:M", '/Q') | Out-Null
+    # the PostgreSQL superuser's password: administrators and SYSTEM only (the application never needs it)
+    $adminFile = Join-Path $DataDir 'kariz-admin.json'
+    if (Test-Path $adminFile) { Invoke-Native -File 'icacls.exe' -Arguments @($adminFile, '/inheritance:r', '/grant:r', '*S-1-5-32-544:F', '/grant:r', '*S-1-5-18:F', '/Q') | Out-Null }
     Grant-Acl (Join-Path $DataDir 'tls') @("NT SERVICE\$appSvc`:(OI)(CI)M") -Reset
 
     # ----- PostgreSQL ------------------------------------------------------------------------------------------------

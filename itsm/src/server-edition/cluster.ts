@@ -114,6 +114,13 @@ export async function runPrimary(file: string): Promise<void> {
       slot.crashes = [...slot.crashes.filter((t) => now - t < 300_000), now];
       const delay = Math.min(60_000, 1000 * 2 ** Math.min(6, slot.crashes.length - 1));
       restarts++;
+      // every worker keeps crashing (a port taken, a broken disk…): give up, so the service manager restarts the
+      // service and Windows records the failure instead of a «running» service that serves nothing
+      if (slots.every((s) => s.crashes.filter((t) => now - t < 300_000).length >= 8)) {
+        log.error("every worker keeps crashing; the supervisor stops (see the errors above)");
+        out.close();
+        process.exit(1);
+      }
       log.error("worker exited; restarting", { worker: slot.id, code, signal, in_ms: delay, crashes_5min: slot.crashes.length });
       setTimeout(() => {
         if (!stopping && !slot.worker) fork(slot);

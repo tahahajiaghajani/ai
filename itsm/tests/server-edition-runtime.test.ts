@@ -337,27 +337,34 @@ describe("scheduler leader election", () => {
   it("lets exactly one worker tick, hands over when the leader stops, and wakes the leader from a follower", async () => {
     const hub = new Hub();
     const ticks = { a: 0, b: 0 };
+    // a long interval: after the first tick only a wake-up makes the leader tick again
     const make = (id: "a" | "b") =>
-      new Scheduler({ lock: lockOf(hub, id), log, intervalMs: 50, retryMs: 60, tick: async () => (ticks[id]++, { ran: 0, failed: 0, more: false }) });
+      new Scheduler({ lock: lockOf(hub, id), log, intervalMs: 60_000, retryMs: 60, tick: async () => (ticks[id]++, { ran: 0, failed: 0, more: false }) });
+    const until = async (cond: () => boolean, ms = 15_000) => {
+      const end = Date.now() + ms;
+      while (!cond()) {
+        if (Date.now() > end) throw new Error("condition not reached in time");
+        await wait(20);
+      }
+    };
     const a = make("a");
     const b = make("b");
     a.start();
     b.start();
-    await wait(1200);
+    await until(() => (a.isLeader || b.isLeader) && ticks.a + ticks.b >= 1);
+    await wait(300);
     expect([a.isLeader, b.isLeader].filter(Boolean)).toHaveLength(1);
-    const [leader, follower, lk, fk] = a.isLeader ? [a, b, "a", "b"] as const : [b, a, "b", "a"] as const;
-    expect(ticks[lk]).toBeGreaterThan(3);
+    const [leader, follower, lk, fk] = a.isLeader ? ([a, b, "a", "b"] as const) : ([b, a, "b", "a"] as const);
     expect(ticks[fk]).toBe(0);
-    // a write on the follower wakes the leader at once
+    // a write on the follower wakes the leader (NOTIFY) — the interval alone would not tick for a minute
     const before = ticks[lk];
     follower.wake();
-    await wait(30);
-    expect(ticks[lk]).toBeGreaterThan(before);
+    await until(() => ticks[lk] > before);
+    expect(ticks[fk]).toBe(0);
+    // the leader stops: the follower takes over and ticks
     await leader.stop();
-    const handed = ticks[fk];
-    await wait(1500);
-    expect(follower.isLeader).toBe(true);
-    expect(ticks[fk]).toBeGreaterThan(handed);
+    await until(() => follower.isLeader && ticks[fk] >= 1);
+    expect(hub.holder).toBe(fk);
     await follower.stop();
     expect(hub.holder).toBeNull();
   });

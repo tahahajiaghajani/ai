@@ -279,6 +279,25 @@ export function envOverrides(env: NodeJS.ProcessEnv = process.env): Obj {
   return o;
 }
 
+/**
+ * The PostgreSQL superuser's credentials live apart from kariz.json, in kariz-admin.json next to it, readable by
+ * administrators and SYSTEM only: karizctl (run by an administrator) needs them for bootstrap and restore, the
+ * application never does.
+ */
+export function adminFileOf(file: string): string {
+  return join(dirname(file), "kariz-admin.json");
+}
+
+function readAdmin(file: string): { admin_user?: string; admin_password?: string } | null {
+  try {
+    const raw = JSON.parse(readFileSync(adminFileOf(file), "utf8").replace(/^\uFEFF/, ""));
+    return isObj(raw) ? (raw as { admin_user?: string; admin_password?: string }) : null;
+  } catch {
+    // absent, or not readable by this account (the application's)
+    return null;
+  }
+}
+
 /** Read the configuration file (a broken file is an error: the installer wrote it, a guess would be worse). */
 export function loadServerConfig(file = defaultConfigFile(), env: NodeJS.ProcessEnv = process.env): LoadedConfig {
   const warnings: string[] = [];
@@ -291,7 +310,13 @@ export function loadServerConfig(file = defaultConfigFile(), env: NodeJS.Process
       throw new Error(`فایل پیکربندی ${file} JSON معتبر نیست: ${(e as Error).message}`);
     }
   }
-  const merged = merge(isObj(raw) ? raw : {}, envOverrides(env));
+  const base = isObj(raw) ? raw : {};
+  const admin = readAdmin(file);
+  if (admin) {
+    const db = isObj(base.db) ? base.db : {};
+    base.db = { ...db, ...(admin.admin_user ? { admin_user: admin.admin_user } : {}), ...(admin.admin_password ? { admin_password: admin.admin_password } : {}) };
+  }
+  const merged = merge(base, envOverrides(env));
   const config = normalize(merged, warnings);
   return { config, file, warnings };
 }
@@ -299,9 +324,19 @@ export function loadServerConfig(file = defaultConfigFile(), env: NodeJS.Process
 /** Write the configuration atomically (a temporary file renamed over the old one keeps its ACL on Windows). */
 export function saveServerConfig(file: string, config: ServerEditionConfig): void {
   mkdirSync(dirname(file), { recursive: true });
-  const tmp = `${file}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(config, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-  renameSync(tmp, file);
+  const write = (path: string, value: unknown) => {
+    const tmp = `${path}.tmp`;
+    writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    renameSync(tmp, path);
+  };
+  // the superuser's password never goes into kariz.json; it is (re)written only by a process that knows it
+  write(file, { ...config, db: { ...config.db, admin_password: "" } });
+  if (config.db.admin_password) {
+    const current = readAdmin(file);
+    if (!current || current.admin_password !== config.db.admin_password || current.admin_user !== config.db.admin_user) {
+      write(adminFileOf(file), { admin_user: config.db.admin_user, admin_password: config.db.admin_password });
+    }
+  }
 }
 
 /** Update a few values of the stored file (setup, karizctl): the file is re-read so concurrent edits are kept. */

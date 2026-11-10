@@ -28,7 +28,7 @@
 | سرویس `KarizDB` | PostgreSQL 17 فقط روی `127.0.0.1` (درگاه ۵۴۳۲)؛ حساب مجازی `NT SERVICE\KarizDB` |
 | سرویس `KarizApp` | سرور برنامه (Node.js): یک ناظر و به تعداد هسته‌ها فرایند کاری؛ HTTPS روی ۴۴۳ و انتقال HTTP ۸۰ به HTTPS؛ حساب مجازی `NT SERVICE\KarizApp`؛ پس از `KarizDB` روشن می‌شود |
 | `C:\Program Files\Kariz` | برنامه، Node.js، PostgreSQL، `karizctl.cmd`، اسکریپت‌های نصب |
-| `C:\ProgramData\Kariz` | `kariz.json` (پیکربندی و رمزها)، `db` (پایگاه داده)، `blobs` (پیوست‌ها)، `backups`، `logs`، `tls`، `quarantine` |
+| `C:\ProgramData\Kariz` | `kariz.json` (پیکربندی، کلید رمزنگاری، رمز حساب برنامه در پایگاه داده)، `kariz-admin.json` (رمز مدیر PostgreSQL؛ فقط مدیران ویندوز)، `db` (پایگاه داده)، `blobs` (پیوست‌ها)، `backups`، `logs`، `tls`، `quarantine` |
 | بازیابی خودکار | هر دو سرویس پس از خطا تا سه بار دوباره روشن می‌شوند؛ فرایند کاریِ ازکارافتاده را ناظر بی‌درنگ جایگزین می‌کند |
 
 ## ۳. اندازهٔ سخت‌افزار
@@ -187,7 +187,7 @@ MSI نسخهٔ تازه را مثل نصب اجرا کنید (گرافیکی ی�
 - [ ] گواهی از CA بانک نصب شده، نام سرور در SAN است، تاریخ انقضا در «سلامت سرور» پایش می‌شود.
 - [ ] HTTP (درگاه ۸۰) فقط برای انتقال به HTTPS باز است یا با `HTTPPORT=0` بسته است.
 - [ ] سرویس‌ها با حساب‌های مجازی `NT SERVICE\KarizDB` و `NT SERVICE\KarizApp` اجرا می‌شوند (نه LocalSystem).
-- [ ] دسترسی پوشهٔ `C:\ProgramData\Kariz`: فقط Administrators، SYSTEM و حساب‌های سرویس؛ `kariz.json` (کلید رمزنگاری و رمزهای پایگاه داده) را کسی جز مدیران نمی‌خواند.
+- [ ] دسترسی پوشهٔ `C:\ProgramData\Kariz`: فقط Administrators، SYSTEM و حساب‌های سرویس؛ `kariz.json` را فقط مدیران و حساب برنامه می‌خوانند و `kariz-admin.json` (رمز مدیر PostgreSQL، که برنامه هرگز لازم ندارد) را فقط مدیران.
 - [ ] PostgreSQL فقط روی `127.0.0.1`، `pg_hba.conf` فقط loopback با SCRAM.
 - [ ] شبکهٔ بسته روشن است (`network.air_gapped: true`) و فهرست مجاز فقط میزبان‌های لازم را دارد؛ دیوارهٔ آتش بانک هم خروجی را محدود می‌کند.
 - [ ] ثبت‌نام آزاد خاموش است؛ حساب‌ها از AD می‌آیند؛ حساب مدیر سامانه رمز قوی و کد بازیابیِ نگه‌داری‌شده دارد.

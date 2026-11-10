@@ -144,7 +144,18 @@ describe("configuration", () => {
     expect(back.db.admin_password).toBe(c.db.admin_password);
     const shown = JSON.stringify(redacted(back));
     for (const s of [c.secret, c.db.password, c.db.admin_password, c.metrics_token]) expect(shown).not.toContain(s);
+    // the superuser's password lives apart (administrators only); the application, which cannot read it, never erases it
+    expect(readFileSync(file, "utf8")).not.toContain(c.db.admin_password);
+    expect(JSON.parse(readFileSync(join(dir, "kariz-admin.json"), "utf8")).admin_password).toBe(c.db.admin_password);
+    const asAdmin = loadServerConfig(file, {}).config;
+    rmSync(join(dir, "kariz-admin.json"));
+    const withoutAdmin = loadServerConfig(file, {}).config;
+    expect(withoutAdmin.db.admin_password).toBe("");
+    saveServerConfig(file, withoutAdmin);
+    expect(existsSync(join(dir, "kariz-admin.json"))).toBe(false);
+    saveServerConfig(file, asAdmin);
     patchServerConfig(file, (x) => x.network.allow.push("smtp.bank.local"));
+    expect(loadServerConfig(file, {}).config.db.admin_password).toBe(c.db.admin_password);
     expect(loadServerConfig(file, {}).config.network.allow).toEqual(["smtp.bank.local"]);
     expect(newPassword(40)).toMatch(/^[A-Za-z0-9]{40}$/);
   });

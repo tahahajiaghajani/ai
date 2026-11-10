@@ -82,6 +82,10 @@ internal identifiers stay neutral (`sm_*`, `itsm.*`, `ITSM_*`).
   loopback + SCRAM, bootstrap of the app role/database/extensions (`pg_stat_statements`, `vector`, `pgcrypto`) as the
   superuser. `planPools`: `workers × (pool + 1) + 1 ≤ max_connections − reserve`. **The integrator aligns the tuner's
   numbers with `docs/PERFORMANCE_FA.md` (S3)**: edit `tunePostgres`/`planPools` and their tests only.
+- **Credentials**: `kariz.json` holds the app secret, the metrics token and the application role's password (readable by
+  `NT SERVICE\KarizApp`); the PostgreSQL superuser's password lives in `kariz-admin.json` next to it, readable by
+  Administrators and SYSTEM only — `loadServerConfig` merges it when readable (karizctl as administrator), the
+  application never has it, and `saveServerConfig` never writes it from a process that could not read it.
 - **karizctl** (`ctl.ts`): status, services (`sc.exe`), backup/restore, reset-password, rotate-cert, allowlist,
   diagnostics (zip without secrets: redacted config, versions, readiness, migrations, non-default pg settings,
   activity, jobs, log tails with secret-looking values masked), setup-token, purge, and the installer steps (init,
