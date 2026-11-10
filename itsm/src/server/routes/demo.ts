@@ -67,6 +67,6 @@ demoRoutes.post("/signin", async (c) => {
   ctx.need("settings", "full");
   const input = await body(c, z.object({ on: z.boolean() }));
   needRecentAuthOf(c, ctx);
-  if (!(await setDemoSignIn(ctx.db, ctx.org.id, input.on))) throw conflict("دادهٔ نمایشی بارگذاری‌شده‌ای در این سازمان نیست");
+  if (!(await setDemoSignIn(ctx.db, ctx.org.id, input.on))) throw conflict("دادهٔ نمایشی بارگذاری‌شده‌ای در این سازمان نیست (یا بارگذاری هنوز تمام نشده است)");
   return c.json(await demoStatus(ctx.db, ctx.org.id, { secrets: true }));
 });

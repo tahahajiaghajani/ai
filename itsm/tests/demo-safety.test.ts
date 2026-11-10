@@ -87,9 +87,13 @@ describe("the purge never deletes, reverts or erases real data", () => {
     agentClient = new Client(e.app);
     await agentClient.post("/auth/login", { email: agent.email, password: PASSWORD }, 403);
     expect((await e.owner.get(`/o/${e.org}/demo/banner`)).signin).toBe(false);
-    await e.owner.post(`/o/${e.org}/demo/signin`, { on: true });
+    expect((await e.owner.get(`/o/${e.org}/demo`)).password ?? null).toBeNull();
+    const on = await e.owner.post(`/o/${e.org}/demo/signin`, { on: true });
     expect((await e.owner.get(`/o/${e.org}/demo/banner`)).signin).toBe(true);
-    await agentClient.post("/auth/login", { email: agent.email, password: PASSWORD });
+    // a fresh shared password while sign-in is on
+    expect(on.password).toBeTruthy();
+    await agentClient.post("/auth/login", { email: agent.email, password: PASSWORD }, 401);
+    await agentClient.post("/auth/login", { email: agent.email, password: on.password });
     expect((await agentClient.get(`/o/${e.org}/r/incident/${ids.ownerInc}`)).row.id).toBe(ids.ownerInc);
     // the personas never hold an administrator's role
     const m = await e.db.one<{ role: string }>(`select role from sm_org_members where org_id = $1 and user_id = $2`, [e.org, agent.id]);

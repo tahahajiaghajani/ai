@@ -135,8 +135,9 @@ export async function demoStatus(q: Queryable, orgId: string, opts: { secrets?: 
   if (pack.state === "purging") out.progress = { done: PURGE_PHASES.indexOf(pack.progress.purge ?? "expand"), total: PURGE_PHASES.length, label: PURGE_LABELS[pack.progress.purge ?? "expand"] ?? "" };
   if (pack.state === "loaded" || pack.state === "loading") {
     out.accounts = Object.entries(KNOWN_NAMES).map(([persona, p]) => ({ persona, email: emailOf(orgId, p.email.split("@")[0]), name: p.name, title: p.title }));
-    if (opts.secrets) out.password = memo?.password ?? null;
     out.signin = await demoSignInAllowed(q, orgId);
+    // the shared password exists only while demo sign-in is on (signin.ts)
+    if (opts.secrets) out.password = out.signin ? (memo?.password ?? null) : null;
   }
   if (pack.state === "tombstoned") out.waiting_devices = await waitingDevices(q, orgId, pack.purge_mark ?? 0);
   return out;
@@ -276,7 +277,8 @@ async function loadJob(cfg: JobConfig, orgId: string, deadline: number): Promise
 export async function finishLoad(db: Db | Queryable, orgId: string, pack: { started_by: string | null; size: DemoSize }, counts: Record<string, number>): Promise<boolean> {
   return inDemoScope(null, async () => {
     const run = async (tx: Queryable) => {
-      const moved = await tx.query(`update sm_demo_packs set state = 'loaded', loaded_at = now(), counts = $2::jsonb, updated_at = now() where org_id = $1 and state = 'loading' returning org_id`, [orgId, JSON.stringify(counts)]);
+      // the personas' password is not kept in clear text: turning demo sign-in on gives them a fresh one (signin.ts)
+      const moved = await tx.query(`update sm_demo_packs set state = 'loaded', loaded_at = now(), counts = $2::jsonb, progress = progress #- '{memo,password}', updated_at = now() where org_id = $1 and state = 'loading' returning org_id`, [orgId, JSON.stringify(counts)]);
       if (moved.length) await auditLine(tx, orgId, pack.started_by, "demo_load", "داده‌های نمایشی بارگذاری شد", { size: pack.size, counts });
       return moved.length > 0;
     };
@@ -407,7 +409,9 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
         await removeRows(tx, orgId, info, { tombstones: report.tombstones > 0 });
         await removeAccounts(tx, orgId);
       }
-      const counts = { rows: report.rows, derived: report.derived, tables: Object.keys(report.tables).length, accounts: report.accounts, files: report.files, references: report.references.reduce((s, r) => s + r.rows, 0), tombstones: report.tombstones };
+      const counts = { rows: report.rows, derived: report.derived, tables: Object.keys(report.tables).length, accounts: report.accounts, files: report.files, references: report.references.reduce((s, r) => s + r.rows, 0), tombstones: report.tombstones,
+        // what was left and only reported (content-free: tables and counts)
+        left_real: report.left_real ?? [], kept_trail: report.kept_trail ?? 0, unattributed: report.unattributed ?? [] };
       await auditLine(tx, orgId, by, "demo_purge", "داده‌های نمایشی حذف شد", counts);
       if (report.tombstones > 0) {
         const mark = await tx.one<{ rev: number }>(`select rev from sm_org_sync where org_id = $1`, [orgId]);

@@ -506,10 +506,16 @@ async function cmdDemo(a: Args) {
     if (sub === "purge") {
       if (!a.flags.yes) throw new UsageError("همهٔ داده‌های نمایشی و هرچه از آن‌ها ساخته شده پاک می‌شود. برای ادامه --yes را بیفزایید");
       await db.tx(async (tx) => {
-        const p = await tx.one(`select 1 from sm_demo_packs where org_id = $1`, [org]);
+        const p = await tx.one<{ state: string }>(`select state from sm_demo_packs where org_id = $1`, [org]);
         const rows = await tx.one<{ n: number }>(`select count(*)::int as n from sm_demo_rows where org_id = $1`, [org]);
         if (!p && !rows?.n) throw new Error("این سازمان دادهٔ نمایشی ندارد");
-        if (p) await tx.query(`update sm_demo_packs set state = 'purging', purge_started_at = now(), progress = progress || '{"purge":"expand"}'::jsonb, updated_at = now() where org_id = $1`, [org]);
+        // a pack already purged down to tombstones is only finalised (demo rows are never looked for twice)
+        if (p?.state === "tombstoned") {
+          await tx.query(`insert into sm_jobs (id, org_id, kind, payload, dedupe_key) values (gen_random_uuid(), $1, 'demo.finalize', '{}'::jsonb, 'demo.finalize') on conflict do nothing`, [org]);
+          return;
+        }
+        // compare-and-set: a purge already running keeps its phase
+        if (p) await tx.query(`update sm_demo_packs set state = 'purging', purge_started_at = now(), progress = progress || '{"purge":"expand"}'::jsonb, updated_at = now() where org_id = $1 and state in ('loading', 'loaded', 'failed')`, [org]);
         else await tx.query(`insert into sm_demo_packs (org_id, state, progress, purge_started_at) values ($1, 'purging', '{"purge":"expand"}'::jsonb, now())`, [org]);
         await tx.query(`update sm_jobs set status = 'done', done_at = now() where org_id = $1 and kind = 'demo.load' and status = 'queued'`, [org]);
         await tx.query(`insert into sm_jobs (id, org_id, kind, payload, max_attempts, dedupe_key) values (gen_random_uuid(), $1, 'demo.purge', '{"by":null}'::jsonb, 20, 'demo.purge') on conflict do nothing`, [org]);
