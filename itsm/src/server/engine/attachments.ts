@@ -194,12 +194,15 @@ export async function moveAttachmentsIn(tx: Queryable, ctx: Ctx, from: { table: 
   return rows.length;
 }
 
-/** Attachments of a record the caller may read, newest last. */
+/**
+ * Attachments of a record the caller may read, newest last — an archived record's too (read-only: they stay keyed by
+ * the record id, and the archive's read rule is the same as the hot table's).
+ */
 export async function listAttachments(ctx: Ctx, table: string, id: string): Promise<{ attachments: AttachmentView[]; display: Record<string, string> }> {
   const { def, schema } = await defFor(ctx, table);
   needAttachments(def);
   const env = await condEnv(ctx);
-  const record = await requireReadable(ctx, def, id, env);
+  const record = await requireReadable(ctx, def, id, env, ctx.db, { archived: true });
   const all = await ctx.db.query<Row>(
     `select * from sm_attachments where org_id = $1 and table_key = $2 and record_id = $3 and deleted_at is null order by created_at, id`,
     [ctx.org.id, def.key, id],
@@ -227,7 +230,10 @@ export async function removeAttachment(ctx: Ctx, table: string, id: string, atta
   return { ok: true };
 }
 
-/** The attachment row, if the caller may read its record. */
+/**
+ * The attachment row, if the caller may read its record — an archived record included (downloads stay possible,
+ * read-only, from the same blob store under the same read rule).
+ */
 async function readableAttachment(ctx: Ctx, attachmentId: string): Promise<Row> {
   if (!/^[0-9a-f-]{36}$/i.test(attachmentId)) throw notFound("پیوست پیدا نشد");
   const att = await ctx.db.one<Row>(`select * from sm_attachments where id = $1 and org_id = $2 and deleted_at is null`, [attachmentId, ctx.org.id]);
@@ -236,7 +242,7 @@ async function readableAttachment(ctx: Ctx, attachmentId: string): Promise<Row> 
     throw notFound("پیوست پیدا نشد");
   });
   const env = await condEnv(ctx);
-  const record = await requireReadable(ctx, def, att.record_id, env).catch(() => {
+  const record = await requireReadable(ctx, def, att.record_id, env, ctx.db, { archived: true }).catch(() => {
     throw notFound("پیوست پیدا نشد");
   });
   if (!(await filterSide({ q: ctx.db, ctx, def, record, kind: "attachment", rows: [att] })).length) throw notFound("پیوست پیدا نشد");

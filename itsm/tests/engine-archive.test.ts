@@ -4,7 +4,7 @@
 // searchable; nothing moves while the setting is off.
 import { describe, it, expect, beforeAll } from "vitest";
 import { engineOrg, type EngineOrg } from "./engine-helpers";
-import { aggregate, archiveBatch, archiveTableOf, get, list, listJournal, purgeArchived, systemCtx } from "@server/engine";
+import { addAttachment, aggregate, archiveBatch, archiveTableOf, get, list, listAttachments, listJournal, purgeArchived, readAttachment, systemCtx } from "@server/engine";
 import { tableDef } from "@shared/tables";
 import { tick } from "@server/jobs";
 import { afterEnginePush } from "@server/engine/sync";
@@ -25,6 +25,8 @@ describe("archival of old closed records", () => {
       });
     }
     await e.owner.post(`${P()}/r/todo/${ids.old}/journal`, { kind: "comment", body: "یادداشت قدیمی" });
+    const att = await addAttachment(await e.ctxOf(e.ownerId), "todo", ids.old, { name: "old-report.txt", type: "text/plain", data: new TextEncoder().encode("گزارش بایگانی‌شده") });
+    ids.att = att.id;
     // five years untouched (the closed one and the open one); `itsm.applying` keeps the sync trigger off updated_at
     await e.db.tx(async (tx) => {
       await tx.query(`select set_config('itsm.applying', 'on', true)`);
@@ -63,6 +65,17 @@ describe("archival of old closed records", () => {
     expect(rec.meta.transitions).toEqual([]);
     expect((await listJournal(ctx, "todo", ids.old)).entries.some((x) => x.body === "یادداشت قدیمی")).toBe(true);
     await e.owner.patch(`${P()}/r/todo/${ids.old}`, { short_description: "تغییر" }, 404);
+    // its attachments stay listed and downloadable (read-only, the same blob store, the same read rule)
+    expect((await listAttachments(ctx, "todo", ids.old)).attachments.map((a) => a.id)).toEqual([ids.att]);
+    expect(new TextDecoder().decode((await readAttachment(ctx, ids.att)).data)).toBe("گزارش بایگانی‌شده");
+    const res = await e.app.fetch(new Request(`http://local.test/api${P()}/attachments/${ids.att}/content`, { headers: { cookie: e.owner.cookie } }));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("گزارش بایگانی‌شده");
+    await expect(addAttachment(ctx, "todo", ids.old, { name: "new.txt", data: new Uint8Array([1]) })).rejects.toMatchObject({ status: 404 });
+    const viewer = await e.member("viewer", "archive-viewer@example.com");
+    const vctx = await e.ctxOf(viewer.userId);
+    const readsRecord = await get(vctx, "todo", ids.old).then(() => true, () => false);
+    expect(await readAttachment(vctx, ids.att).then(() => true, () => false)).toBe(readsRecord);
     // the hot table keeps a tombstone (a new sync revision) until it is purged
     const tomb = await e.db.one<{ deleted_at: string | null }>(`select deleted_at from sm_todos where id = $1`, [ids.old]);
     expect(tomb?.deleted_at).toBeTruthy();
