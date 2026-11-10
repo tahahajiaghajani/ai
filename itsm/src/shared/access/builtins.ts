@@ -34,6 +34,9 @@ export function builtinRoles(preset: DeskPreset = "open"): RoleDef[] {
       csm: requesterSide,
       work: requesterSide,
       survey: requesterSide,
+      // field service: the requester reads their own work orders (status and appointment in the portal); visits,
+      // technicians and parts stay the dispatchers'
+      field_service: { read: "own" },
       knowledge: R(),
       catalog: R(),
       service: R(),
