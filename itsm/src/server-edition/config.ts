@@ -66,8 +66,21 @@ export interface ServerEditionConfig {
   platform_admins: string[];
   /** bearer token of GET /api/server/metrics for monitoring tools (generated at install) */
   metrics_token: string;
-  /** a reverse proxy in front sets X-Forwarded-*: trust it (default: clients connect directly) */
-  trust_proxy: boolean;
+  /**
+   * The installation's reverse proxies (IIS with Windows Authentication, a load balancer): IP addresses and CIDR
+   * ranges. ONE list for the HTTP front (X-Forwarded-* / X-Real-IP / Forwarded are kept only from these TCP peers and
+   * loopback, dropped from everyone else) and for sign-in (cfg.auth.trustedProxies: the client address, HTTPS and a
+   * directory source's trusted-proxy SSO header are believed only from them). Empty: clients connect directly.
+   */
+  trusted_proxies: string[];
+  /** sign-in and sessions (cfg.auth of src/server/context.ts; docs/AD_FA.md) */
+  auth: {
+    /** domain controllers on the bank's network may be reached (through the air-gap allowlist) */
+    directory_lan: boolean;
+    /** the session cookie's Secure flag: "always" behind HTTPS (the default), "auto" only for labs */
+    cookie_secure: "auto" | "always" | "never";
+    cookie_samesite: "Lax" | "Strict";
+  };
   setup: { token_hash: string | null; expires_at: string | null; completed_at: string | null };
   /** where pg_dump/pg_restore/pg_ctl live (default: <install>\pgsql\bin) */
   pg_bin: string | null;
@@ -124,7 +137,8 @@ export function defaultConfig(data = defaultDataDir()): ServerEditionConfig {
     secret: "",
     platform_admins: [],
     metrics_token: "",
-    trust_proxy: false,
+    trusted_proxies: [],
+    auth: { directory_lan: true, cookie_secure: "always", cookie_samesite: "Lax" },
     setup: { token_hash: null, expires_at: null, completed_at: null },
     pg_bin: null,
   };
@@ -158,6 +172,20 @@ const list = (v: unknown) =>
   (Array.isArray(v) ? v : typeof v === "string" ? v.split(/[,;\s]+/) : [])
     .map((s) => String(s).trim())
     .filter(Boolean);
+
+const PROXY_ENTRY = /^(\d{1,3}(\.\d{1,3}){3}|[0-9a-f:]*:[0-9a-f:.]*)(\/\d{1,3})?$/i;
+
+/** The trusted proxies (IP addresses and CIDR ranges; host names are refused: a proxy is judged by its TCP peer). */
+function proxiesOf(w: string[], c: Obj): string[] {
+  const out: string[] = [];
+  for (const e of list(c.trusted_proxies)) {
+    if (PROXY_ENTRY.test(e)) out.push(e.toLowerCase());
+    else w.push(`trusted_proxies: «${e}» نشانی IP یا بازهٔ CIDR نیست؛ کنار گذاشته شد`);
+  }
+  // the earlier boolean trusted every peer's X-Forwarded-*; it is replaced by the list
+  if (c.trust_proxy === true && !out.length) w.push("trust_proxy دیگر به کار نمی‌رود؛ نشانی پراکسی معکوس را در trusted_proxies بنویسید (تا آن زمان X-Forwarded-* فقط از خود سرور پذیرفته می‌شود)");
+  return [...new Set(out)];
+}
 
 /** Check and normalise a raw configuration object (from the file, merged with the environment). */
 export function normalize(raw: unknown, warnings: string[] = []): ServerEditionConfig {
@@ -240,7 +268,12 @@ export function normalize(raw: unknown, warnings: string[] = []): ServerEditionC
     secret: typeof c.secret === "string" ? c.secret : "",
     platform_admins: [...new Set(list(c.platform_admins).map((e) => e.toLowerCase()))],
     metrics_token: typeof c.metrics_token === "string" ? c.metrics_token : "",
-    trust_proxy: bool(c.trust_proxy, false),
+    trusted_proxies: proxiesOf(w, c),
+    auth: {
+      directory_lan: bool(c.auth?.directory_lan, d.auth.directory_lan),
+      cookie_secure: ["auto", "always", "never"].includes(String(c.auth?.cookie_secure)) ? (c.auth.cookie_secure as ServerEditionConfig["auth"]["cookie_secure"]) : d.auth.cookie_secure,
+      cookie_samesite: String(c.auth?.cookie_samesite).toLowerCase() === "strict" ? "Strict" : "Lax",
+    },
     setup: {
       token_hash: strOrNull(c.setup?.token_hash),
       expires_at: strOrNull(c.setup?.expires_at),
@@ -250,8 +283,11 @@ export function normalize(raw: unknown, warnings: string[] = []): ServerEditionC
   };
 }
 
+/** Environment variables (a plain record, so tests and karizctl pass their own without Next.js' ProcessEnv typing). */
+export type Env = Record<string, string | undefined>;
+
 /** Environment overrides (ITSM_*), applied over the file. */
-export function envOverrides(env: NodeJS.ProcessEnv = process.env): Obj {
+export function envOverrides(env: Env = process.env): Obj {
   const o: Obj = {};
   const set = (path: string, v: unknown) => {
     if (v === undefined || v === "") return;
@@ -276,6 +312,11 @@ export function envOverrides(env: NodeJS.ProcessEnv = process.env): Obj {
   if (env.ITSM_ALLOW_HOSTS !== undefined) set("network.allow", env.ITSM_ALLOW_HOSTS);
   set("log.level", env.ITSM_LOG_LEVEL);
   set("pg_bin", env.ITSM_PG_BIN);
+  // sign-in (the same variables the other runtimes read: src/server/auth/session.ts, modules/integration/directory.ts)
+  if (env.ITSM_TRUSTED_PROXIES !== undefined) set("trusted_proxies", env.ITSM_TRUSTED_PROXIES);
+  if (env.ITSM_DIRECTORY_LAN !== undefined) set("auth.directory_lan", env.ITSM_DIRECTORY_LAN);
+  set("auth.cookie_secure", env.ITSM_COOKIE_SECURE?.toLowerCase());
+  set("auth.cookie_samesite", env.ITSM_COOKIE_SAMESITE);
   return o;
 }
 
@@ -299,7 +340,7 @@ function readAdmin(file: string): { admin_user?: string; admin_password?: string
 }
 
 /** Read the configuration file (a broken file is an error: the installer wrote it, a guess would be worse). */
-export function loadServerConfig(file = defaultConfigFile(), env: NodeJS.ProcessEnv = process.env): LoadedConfig {
+export function loadServerConfig(file = defaultConfigFile(), env: Env = process.env): LoadedConfig {
   const warnings: string[] = [];
   let raw: unknown = {};
   if (existsSync(file)) {

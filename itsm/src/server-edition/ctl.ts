@@ -140,6 +140,7 @@ async function cmdInit(a: Args) {
   if (num("workers") !== undefined) c.workers = num("workers")!;
   if (flag(a, "air-gapped") !== undefined) c.network.air_gapped = flag(a, "air-gapped") !== "false";
   if (flag(a, "allow")) c.network.allow = [...new Set([...c.network.allow, ...flag(a, "allow")!.split(/[,;\s]+/).filter(Boolean).map((h) => h.toLowerCase())])];
+  if (flag(a, "trusted-proxies")) c.trusted_proxies = [...new Set(flag(a, "trusted-proxies")!.split(/[,;\s]+/).filter(Boolean).map((h) => h.toLowerCase()))];
   if (flag(a, "install-dir")) c.pg_bin = join(resolve(flag(a, "install-dir")!), "pgsql", "bin");
   if (flag(a, "pg-bin")) c.pg_bin = resolve(flag(a, "pg-bin")!);
   if (flag(a, "tls") === "false") c.tls.enabled = false;

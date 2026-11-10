@@ -123,7 +123,7 @@ describe("configuration", () => {
   });
 
   it("applies ITSM_* environment overrides over the file", () => {
-    const o = envOverrides({ ITSM_HTTPS_PORT: "9443", ITSM_AIR_GAPPED: "false", ITSM_ALLOW_HOSTS: "a.local,b.local", ITSM_DB_PASSWORD: "x" } as NodeJS.ProcessEnv);
+    const o = envOverrides({ ITSM_HTTPS_PORT: "9443", ITSM_AIR_GAPPED: "false", ITSM_ALLOW_HOSTS: "a.local,b.local", ITSM_DB_PASSWORD: "x" });
     const c = normalize(o);
     expect(c.listen.https_port).toBe(9443);
     expect(c.network.air_gapped).toBe(false);

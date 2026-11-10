@@ -138,14 +138,24 @@ function trustedList(cfg: ServerConfig | undefined): string[] {
 
 const isLoopback = (ip: string) => ip === "::1" || /^127\./.test(ip);
 
-/** Is `ip` this installation's own reverse proxy (loopback, or listed in cfg.auth.trustedProxies / ITSM_TRUSTED_PROXIES)? */
-export function isTrustedProxy(cfg: ServerConfig | undefined, ip: string | null | undefined): boolean {
+/**
+ * Is `ip` one of the proxies on `list` (or loopback, a proxy on the same server)? The one rule for the installation's
+ * reverse proxies — the server edition's HTTP front applies it to the TCP peer before the API sees the request.
+ */
+export function proxyTrusted(list: readonly string[], ip: string | null | undefined): boolean {
   if (!ip) return false;
   const a = ip.replace(/^::ffff:/, "");
   if (isLoopback(a)) return true;
-  const list = trustedList(cfg);
-  return list.length > 0 && ipAllowed(a, list);
+  return list.length > 0 && ipAllowed(a, [...list]);
 }
+
+/** Is `ip` this installation's own reverse proxy (loopback, or listed in cfg.auth.trustedProxies / ITSM_TRUSTED_PROXIES)? */
+export function isTrustedProxy(cfg: ServerConfig | undefined, ip: string | null | undefined): boolean {
+  return proxyTrusted(trustedList(cfg), ip);
+}
+
+/** Has this installation listed its reverse proxies (cfg.auth.trustedProxies / ITSM_TRUSTED_PROXIES)? */
+export const proxiesListed = (cfg: ServerConfig | undefined): boolean => cfg?.auth?.trustedProxies !== undefined || !!String(process.env.ITSM_TRUSTED_PROXIES ?? "").trim();
 
 const stripPort = (hop: string) => {
   const h = hop.trim().replace(/^"|"$/g, "");

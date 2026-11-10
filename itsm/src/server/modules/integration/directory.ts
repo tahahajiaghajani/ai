@@ -26,7 +26,7 @@ import { revokeUserSessions } from "../../auth/session";
 import { needRecentAuth } from "../../auth/policy";
 import { securityEvent } from "../platform/security";
 import { grantingGroups, intLog, liveRow, liveRows, needIntegrations, sysOf, type Row } from "./common";
-import { lanAllowed, checkOutboundHost } from "../../net";
+import { lanAllowed, checkOutboundHost, OutboundBlockedError } from "../../net";
 
 const HOUR = 3600_000;
 
@@ -59,29 +59,40 @@ export function mappingsOf(src: Row): GroupMapping[] {
 }
 
 /**
- * Domain controllers on the installation's own network may be reached: the Windows app, and an on-premises installation
- * that says so (cfg.auth.directoryLan, or ITSM_DIRECTORY_LAN=1). The web version reaches public directories only.
+ * Domain controllers on the installation's own network may be reached: the Windows app, the server edition (its LAN,
+ * through the air-gap allowlist) and an on-premises installation that says so (cfg.auth.directoryLan, or
+ * ITSM_DIRECTORY_LAN=1). The web version reaches public directories only.
  */
-export const directoryLan = (cfg: Pick<ServerConfig, "mode" | "auth">): boolean => cfg.mode === "desktop" || !!cfg.auth?.directoryLan || process.env.ITSM_DIRECTORY_LAN === "1";
+export const directoryLan = (cfg: Pick<ServerConfig, "mode" | "auth" | "network">): boolean => lanAllowed(cfg) || !!cfg.auth?.directoryLan || process.env.ITSM_DIRECTORY_LAN === "1";
+
+/** The administrator's message when the air gap refuses a domain controller: the host and the two ways to allow it. */
+export const dcBlockedMessage = (host: string): string =>
+  `کنترل‌کنندهٔ دامنه «${host}» در فهرست میزبان‌های مجاز شبکهٔ بستهٔ سرور نیست و اتصال به آن برقرار نشد. مدیر سرور می‌تواند آن را با «karizctl allow add ${host}» روی سرور بیفزاید (فهرست کنونی و تلاش‌های ردشده در صفحهٔ «سلامت سرور» کنسول مدیر سامانه دیده می‌شود)؛ سامانه هیچ میزبانی را خودکار مجاز نمی‌کند`;
 
 /**
- * On the web version an LDAP server must be a public host reached over TLS (ldaps://): the bind is a simple bind, and
- * its DN and password must never cross the Internet in clear text. On the office network (directoryLan) the source's
- * own TLS setting governs (LDAPS or StartTLS; plaintext only as «فقط برای آزمایش»).
+ * Every domain-controller connection (sign-in, synchronisation, the connection test) passes here first.
+ * - Where the installation has an outbound policy (the server edition), the host must pass it: air-gapped, only hosts
+ *   on its allowlist (the socket guard refuses the rest again, below this check).
+ * - On the office network (directoryLan) the source's own TLS setting governs (LDAPS or StartTLS; plaintext only as
+ *   «فقط برای آزمایش»).
+ * - On the web version an LDAP server must be a public host reached over TLS (ldaps://): the bind is a simple bind, and
+ *   its DN and password must never cross the Internet in clear text.
  */
 export async function guardHost(cfg: ServerConfig, url: string): Promise<void> {
-  if (directoryLan(cfg)) return;
-  if (!/^ldaps:\/\//i.test(url)) throw bad("در نسخهٔ وب فقط ldaps:// (LDAP روی TLS) پذیرفته می‌شود تا گذرواژهٔ اتصال رمزنگاری‌نشده از اینترنت نگذرد");
+  const lan = directoryLan(cfg);
+  if (!lan && !/^ldaps:\/\//i.test(url)) throw bad("در نسخهٔ وب فقط ldaps:// (LDAP روی TLS) پذیرفته می‌شود تا گذرواژهٔ اتصال رمزنگاری‌نشده از اینترنت نگذرد");
   let host: string;
   try {
     host = new URL(url).hostname.replace(/^\[|\]$/g, "");
   } catch {
     throw bad("نشانی LDAP معتبر نیست");
   }
-  // the server edition reaches the organisation's domain controllers (air-gapped: only those on its allowlist)
-  if (lanAllowed(cfg)) return checkOutboundHost(cfg.network, host, "سرور LDAP").catch((e) => {
-    throw bad((e as Error).message);
-  });
+  if (cfg.network) {
+    await checkOutboundHost(cfg.network, host, "سرور LDAP").catch((e) => {
+      throw bad(e instanceof OutboundBlockedError ? dcBlockedMessage(host) : String((e as Error).message ?? e));
+    });
+  }
+  if (lan) return;
   const addresses = isIP(host) ? [host] : await aiNet.lookup(host).catch(() => []);
   if (!addresses.length) throw bad(`نشانی سرور LDAP پیدا نشد (${host})`);
   if (addresses.some(internalAddress)) throw bad("سرور LDAP در نشانی داخلی است؛ در نسخهٔ وب فقط سرورهای عمومی (یا برنامهٔ ویندوز در شبکهٔ سازمان) پذیرفته می‌شوند");

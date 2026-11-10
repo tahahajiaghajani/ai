@@ -16,6 +16,7 @@ import { tick } from "@server/jobs";
 import { installBlobStore } from "@server/blobs";
 import { networkFetch, type NetworkPolicy } from "@server/net";
 import type { ServerConfig } from "@server/context";
+import { proxyTrusted } from "@server/auth/session";
 import { APP_NAME } from "@shared/constants";
 import { databaseUrl, loadServerConfig, poolFor, workerCount, type ServerEditionConfig } from "./config";
 import { DIRECTORY_SETTINGS_PATH, EXIT_FATAL_CONFIG } from "./names";
@@ -86,12 +87,33 @@ export function defaultStaticDir(): string {
   return existsSync(join(beside, "index.html")) ? beside : resolve("public");
 }
 
-/** Strip forwarding headers a client could forge and name the real client (rate limits, audit). */
-export function prepareRequest(req: IncomingMessage, trustProxy: boolean) {
-  if (trustProxy) return;
-  for (const h of ["x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip", "forwarded"]) delete req.headers[h];
+/**
+ * Strip forwarding headers a client could forge and name the real client (rate limits, audit): kept only when the TCP
+ * peer is one of the installation's reverse proxies (kariz.json trusted_proxies, or loopback) — the same rule the API's
+ * sign-in applies (proxyTrusted of src/server/auth/session.ts), so the front and the API never disagree.
+ */
+export function prepareRequest(req: IncomingMessage, trustedProxies: readonly string[]) {
   const ip = (req.socket.remoteAddress ?? "").replace(/^::ffff:/i, "");
+  if (proxyTrusted(trustedProxies, ip)) return;
+  for (const h of ["x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "x-real-ip", "forwarded"]) delete req.headers[h];
   if (ip) req.headers["x-real-ip"] = ip;
+}
+
+/**
+ * The Node request handler of the front: forwarding headers prepared, then @hono/node-server, which hands the API the
+ * IncomingMessage as c.env.incoming — the API's sign-in reads the real TCP peer from it (peerAddress).
+ */
+export function nodeHandler(fetch: (req: Request, env?: unknown) => Response | Promise<Response>, trustedProxies: () => readonly string[]) {
+  const listener = getRequestListener(fetch);
+  return (req: IncomingMessage, res: ServerResponse) => {
+    prepareRequest(req, trustedProxies());
+    void listener(req, res);
+  };
+}
+
+/** cfg.auth of the API from the server edition's configuration (sign-in, cookies, the one trusted-proxy list). */
+export function authConfig(c: ServerEditionConfig): NonNullable<ServerConfig["auth"]> {
+  return { directoryLan: c.auth.directory_lan, cookieSecure: c.auth.cookie_secure, cookieSameSite: c.auth.cookie_samesite, trustedProxies: [...c.trusted_proxies] };
 }
 
 export async function startServerEdition(o: StartOptions): Promise<RunningServer> {
@@ -194,6 +216,7 @@ export async function startServerEdition(o: StartOptions): Promise<RunningServer
     waitUntil: () => scheduler?.wake(),
     network,
     blobs,
+    auth: authConfig(current),
     server: {
       health: () => serverHealth({ db, config: current, cluster, cert: () => certInfo }),
       info: () => ({ air_gapped: current.network.air_gapped, public_url: current.public_url, directory_path: DIRECTORY_SETTINGS_PATH }),
@@ -209,6 +232,7 @@ export async function startServerEdition(o: StartOptions): Promise<RunningServer
       network.allow = [...next.network.allow];
       platformAdmins.splice(0, platformAdmins.length, ...next.platform_admins);
       cfg.publicUrl = next.public_url;
+      cfg.auth = authConfig(next);
       log.setLevel(next.log.level);
       log.info("config reloaded");
     } catch (e) {
@@ -292,11 +316,7 @@ export async function startServerEdition(o: StartOptions): Promise<RunningServer
     https: current.tls.enabled,
   });
 
-  const listener = getRequestListener(front.fetch);
-  const handle = (req: IncomingMessage, res: ServerResponse) => {
-    prepareRequest(req, current.trust_proxy);
-    void listener(req, res);
-  };
+  const handle = nodeHandler(front.fetch, () => current.trusted_proxies);
   const servers: Server[] = [];
   const listen = (server: Server, port: number) =>
     new Promise<number>((ok, fail) => {

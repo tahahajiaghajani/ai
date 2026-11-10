@@ -5,7 +5,7 @@ import type { Context } from "hono";
 import { router, body, requireUser, limitByIp, rateLimit } from "../http/hono";
 import { bad, forbidden, tooMany, unauthorized } from "../http/errors";
 import { hashPassword, verifyPassword, passwordProblem, readableCode, sha256 } from "../auth/password";
-import { issueSession, setSessionCookie, clearSessionCookie, revokeSession, revokeUserSessions, resolveToken, tokenFromRequest, clientIp, peerAddress } from "../auth/session";
+import { issueSession, setSessionCookie, clearSessionCookie, revokeSession, revokeUserSessions, resolveToken, tokenFromRequest, clientIp, peerAddress, isTrustedProxy, proxiesListed } from "../auth/session";
 import type { ServerConfig } from "../context";
 import { localLoginAllowed, userSessionPolicy } from "../auth/policy";
 import { directoryReauth, directorySignIn, principalSignIn, ssoRefused } from "../auth/directory";
@@ -300,7 +300,10 @@ authRoutes.get("/sso", async (c) => {
     const secret = c.req.header(PROXY_SECRET_HEADER);
     if (!name && !secret) continue;
     const peer = peerAddress(c);
-    if (!proxyPeerAllowed(conf.proxyIps, peer)) throw await ssoRefused(c, cfg, "proxy_untrusted", "proxy", { orgId: ref.org_id, sourceId: ref.id, principal: name ?? null, detail: `نشانی ${peer ?? "نامعلوم"} در فهرست پراکسی‌های معتمد نیست` });
+    // an installation that lists its reverse proxies (the server edition: kariz.json trusted_proxies) believes a proxy
+    // header only from them as well — one list for the HTTP front, the client address and SSO
+    const installationTrusts = !proxiesListed(cfg) || isTrustedProxy(cfg, peer);
+    if (!proxyPeerAllowed(conf.proxyIps, peer) || !installationTrusts) throw await ssoRefused(c, cfg, "proxy_untrusted", "proxy", { orgId: ref.org_id, sourceId: ref.id, principal: name ?? null, detail: `نشانی ${peer ?? "نامعلوم"} در فهرست پراکسی‌های معتمد نیست` });
     const sys = await systemCtx(cfg, ref.org_id);
     if (!(await proxySecretMatches(cfg, sys, ref.id, secret))) throw await ssoRefused(c, cfg, "proxy_secret", "proxy", { orgId: ref.org_id, sourceId: ref.id, principal: name ?? null });
     if (!name?.trim()) throw await ssoRefused(c, cfg, "sso_failed", "proxy", { orgId: ref.org_id, sourceId: ref.id, detail: "پراکسی نام کاربر را نفرستاد" });

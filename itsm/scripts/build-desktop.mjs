@@ -35,7 +35,9 @@ await build({
   format: "cjs",
   target: "node22",
   tsconfig: join(root, "tsconfig.json"),
-  external: ["@electric-sql/pglite", "@electric-sql/pglite/*", "@electric-sql/pglite-pgvector"],
+  // node-expose-sspi (Windows SSO of the server edition) is loaded by a name in a variable and never bundled; listed so
+  // a static import added later stays a run-time require instead of inlining a native binding
+  external: ["@electric-sql/pglite", "@electric-sql/pglite/*", "@electric-sql/pglite-pgvector", "node-expose-sspi", "node-expose-sspi/*"],
   minify: true,
   sourcemap: false,
   legalComments: "none",

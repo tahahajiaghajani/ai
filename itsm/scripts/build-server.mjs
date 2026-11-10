@@ -96,8 +96,18 @@ const copyPackage = (name, why) => {
     return;
   }
   copied.add(name);
-  cpSync(src, join(app, "node_modules", name), { recursive: true, dereference: true, filter: (s) => !/[\\/](test|tests|docs|example|examples|\.github)[\\/]?$/.test(s) && !s.endsWith(".md") && !s.endsWith(".d.ts") });
   const p = JSON.parse(readFileSync(join(src, "package.json"), "utf8"));
+  const only = externals.files?.[name];
+  if (only) {
+    // only the listed paths (a native binding's loader and its win32-x64 binary), no dependency closure
+    for (const f of only) {
+      if (!existsSync(join(src, f))) throw new Error(`${name}: ${f} is missing from the installed package (packaging/server/externals.json "files")`);
+      cpSync(join(src, f), join(app, "node_modules", name, f), { recursive: true, dereference: true });
+    }
+    console.log(`  + ${name}@${p.version} (${only.join(", ")})`);
+    return;
+  }
+  cpSync(src, join(app, "node_modules", name), { recursive: true, dereference: true, filter: (s) => !/[\\/](test|tests|docs|example|examples|\.github)[\\/]?$/.test(s) && !s.endsWith(".md") && !s.endsWith(".d.ts") });
   for (const dep of [...Object.keys(p.dependencies ?? {}), ...Object.keys(p.optionalDependencies ?? {})]) copyPackage(dep, `dependency of ${name}`);
   console.log(`  + ${name}@${p.version}`);
 };
