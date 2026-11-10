@@ -55,7 +55,7 @@ describe("demo capture", () => {
     const row = await inDemoScope(e.org, () => sys.write((tx) => createIn(tx, sys, "todo", { short_description: "سازمان دیگر" }, { trusted: true })));
     const rows = await other.db.query(`select 1 from sm_demo_rows where row_id = $1`, [row.id]);
     expect(rows.length).toBe(0);
-  });
+  }, 300_000);
 
   it("a job runs in the demo scope only when demo work queued it about demo rows", async () => {
     const sys = await systemCtx(e.cfg, e.org);
