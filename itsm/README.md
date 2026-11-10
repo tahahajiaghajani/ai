@@ -22,7 +22,7 @@
 
 ## این نسخه چه دارد
 
-این نسخه **بنیان سکو** است: همهٔ زیرساختی که ماژول‌های مدیریت خدمات (درخواست و رخداد، مشکل، تغییر، کاتالوگ خدمات، پایگاه دانش، دارایی‌ها و CMDB، سطح خدمات…) روی آن ساخته می‌شوند. خودِ این ماژول‌ها هنوز ساخته نشده‌اند.
+آنچه نسخهٔ ۱٫۰ دارد، سه نسخهٔ نصب و محدودیت‌های شناخته‌شده در [`docs/RELEASE_FA.md`](docs/RELEASE_FA.md) آمده است؛ فهرست کامل قابلیت‌ها در [`docs/FEATURES_FA.md`](docs/FEATURES_FA.md). بنیان سکو، که ماژول‌های مدیریت خدمات (درخواست و رخداد، مشکل، تغییر، کاتالوگ خدمات، پایگاه دانش، دارایی‌ها و CMDB، سطح خدمات…) روی آن ساخته شده‌اند:
 
 - **راه‌اندازی نخستین اجرا، ثبت‌نام، ورود و بازیابی رمز** با کد بازیابی؛ نشست‌های امن، خروج از همهٔ دستگاه‌ها.
 - **سازمان‌ها** با ویزارد ساده (نام و منطقهٔ زمانی)، **اعضا و نقش‌ها** (مالک، مدیر، عضو، ناظر) و دسترسی بخش‌به‌بخش، تنظیمات سازمان و «گزارش رویدادها».
@@ -39,8 +39,13 @@
 | راه‌اندازی کامل: Supabase، Vercel، نسخهٔ ویندوز | [`docs/SETUP_FA.md`](docs/SETUP_FA.md) |
 | معماری و قواعد داده | [`docs/ARCHITECTURE_FA.md`](docs/ARCHITECTURE_FA.md) |
 | هوش مصنوعی و اتصال‌های رایگان و محلی | [`docs/AI_FA.md`](docs/AI_FA.md) |
+| یادداشت انتشار: آنچه این نسخه دارد، سه نسخهٔ نصب، محدودیت‌ها | [`docs/RELEASE_FA.md`](docs/RELEASE_FA.md) |
 | نسخهٔ ویندوز | [`docs/DESKTOP_FA.md`](docs/DESKTOP_FA.md) |
-| سامانهٔ طراحی | [`src/ui/ds/README.md`](src/ui/ds/README.md) |
+| نسخهٔ سرور: نصب MSI روی ویندوز سرور در شبکهٔ بسته، پشتیبان‌گیری، ارتقا | [`docs/SERVER_FA.md`](docs/SERVER_FA.md) |
+| ورود با Active Directory و ورود خودکار ویندوز (SSO) | [`docs/AD_FA.md`](docs/AD_FA.md) |
+| کارایی در مقیاس بانک: آزمون بار، اندازهٔ سرور، تنظیم PostgreSQL | [`docs/PERFORMANCE_FA.md`](docs/PERFORMANCE_FA.md) |
+| کتاب برند «کاریز»: داستان، نام، نشانه، رنگ، لحن | [`docs/BRAND_FA.md`](docs/BRAND_FA.md) |
+| سامانهٔ طراحی (راهنمای مهندسان): توکن‌ها، اجزا، ساختن صفحه | [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md) و [`src/ui/ds/README.md`](src/ui/ds/README.md) |
 | پایگاه دادهٔ کامل برای Supabase | [`supabase/schema.sql`](supabase/schema.sql) |
 | فایل نصب ویندوز | صفحهٔ [**Releases**](https://github.com/tahahajiaghajani/ai/releases): `itsm-vX.Y.Z` (شاخهٔ `main`) یا `itsm-preview-<شاخه>` (پیش‌نمایش هر شاخه) ← `Kariz-Setup-x.y.z.exe` |
 | CI و ساخت فایل نصب | [`.github/workflows/itsm.yml`](../.github/workflows/itsm.yml) |
