@@ -16,6 +16,7 @@ import { addJournalIn, addLink, createIn, emitEvent, onRecordEvent, systemCtx, t
 import { enqueue, registerJobHandler, type JobContext } from "../../jobs";
 import { actsHere, notifyPeople } from "../notify";
 import { iso, isUuid, liveRows, requestConfig, secondsBetween, sysOf, type Row } from "./common";
+import { lockedRow } from "../incident/common";
 import { calendarOf, checkFlows, JOB_FLOWS, JOB_LINK } from "./fulfil";
 
 export const JOB_SWEEP = "request.sweep";
@@ -64,14 +65,20 @@ export async function sweep(sys: Ctx, now = Date.now()): Promise<SweepResult> {
   // delivered items the requester did not confirm
   const delivered = await liveRows(q, sys, "request_item", { f: "state", op: "eq", v: "delivered" }, { limit: 500 });
   if (delivered.length) out.pending = true;
+  // (each item locked and checked again inside its write: the list was read once, and the requester may have refused
+  // the delivery or answered since — the sweep then leaves the item to them)
   for (const r of delivered) {
     const due = after(r.resolved_at, cfg.confirm_days);
     if (!cfg.confirm_days || due === null || due > now) continue;
-    await sys.write(async (tx) => {
+    const confirmed = await sys.write(async (tx) => {
+      const cur = await lockedRow(tx, sys, "request_item", r.id);
+      const curDue = cur ? after(cur.resolved_at, cfg.confirm_days) : null;
+      if (!cur || cur.state !== "delivered" || curDue === null || curDue > now) return false;
       await transitionIn(tx, sys, "request_item", String(r.id), "closed_complete", {}, { trusted: true });
-      await addJournalIn(tx, sys, def, r, { kind: "system", body: `تحویل پس از ${cfg.confirm_days.toLocaleString("fa-IR")} روز کاری بی‌پاسخ خودبه‌خود تأیید شد.` }, { trusted: true });
+      await addJournalIn(tx, sys, def, cur, { kind: "system", body: `تحویل پس از ${cfg.confirm_days.toLocaleString("fa-IR")} روز کاری بی‌پاسخ خودبه‌خود تأیید شد.` }, { trusted: true });
+      return true;
     });
-    out.confirmed++;
+    if (confirmed) out.confirmed++;
   }
   // waiting for the requester: a reminder, then cancellation
   const waiting = await liveRows(q, sys, "request_item", { f: "state", op: "eq", v: "awaiting_info" }, { limit: 500 });
@@ -79,10 +86,14 @@ export async function sweep(sys: Ctx, now = Date.now()): Promise<SweepResult> {
   for (const r of waiting) {
     const cancelAt = after(r.info_since, cfg.info_cancel_days);
     if (cfg.info_cancel_days && cancelAt !== null && cancelAt <= now) {
-      await sys.write(async (tx) => {
+      const cancelled = await sys.write(async (tx) => {
+        const cur = await lockedRow(tx, sys, "request_item", r.id);
+        const curAt = cur ? after(cur.info_since, cfg.info_cancel_days) : null;
+        if (!cur || cur.state !== "awaiting_info" || curAt === null || curAt > now) return false;
         await transitionIn(tx, sys, "request_item", String(r.id), "cancelled", { close_code: "cancelled", close_notes: "پاسخی از درخواست‌کننده نرسید؛ قلم خودبه‌خود لغو شد" }, { trusted: true });
+        return true;
       });
-      out.cancelled++;
+      if (cancelled) out.cancelled++;
       continue;
     }
     const remindAt = after(r.info_since, cfg.info_reminder_days);
