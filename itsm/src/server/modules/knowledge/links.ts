@@ -8,7 +8,7 @@ import type { Ctx } from "../../context";
 import type { Queryable, Tx } from "../../db";
 import { addJournalIn, addLink, defFor, get, listLinks, removeLink, updateIn, type LinkView } from "../../engine";
 import { bad, forbidden, notFound } from "../../http/errors";
-import { requesterOnly } from "../incident/common";
+import { lockedRow, requesterOnly } from "../incident/common";
 import { articleOf, isUuid, liveRow, sysOf } from "./common";
 import { logEvent } from "./events";
 
@@ -35,10 +35,13 @@ export async function reuseOf(q: Queryable, orgId: string, articleId: string): P
   return { count: Number(r?.n ?? 0), last: r?.last ?? null };
 }
 
-/** Keep the article's reuse counter in step with its links (as the system). */
+/**
+ * Keep the article's reuse counter in step with its links (as the system). The article is locked before the links are
+ * counted: two records linked to it at once take turns, and the later count sees the earlier link committed.
+ */
 export async function recountReuse(tx: Tx, ctx: Ctx, articleId: string): Promise<number> {
   const sys = sysOf(ctx);
-  const a = await articleOf(tx, sys, articleId);
+  const a = await lockedRow(tx, sys, "kb_article", articleId);
   if (!a) return 0;
   const { count, last } = await reuseOf(tx, ctx.org.id, articleId);
   if (Number(a.reuse_count ?? 0) !== count || (last && a.last_used_at !== last)) {

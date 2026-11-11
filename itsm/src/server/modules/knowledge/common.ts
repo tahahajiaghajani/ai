@@ -5,7 +5,7 @@
 import { grantIn } from "@shared/access/model";
 import { KB_CONFIG_DEFAULTS, DEFAULT_AQI_ITEMS, type AqiItem, type KbConfig } from "@shared/tables/knowledge";
 import type { Ctx } from "../../context";
-import { pgArray, type Queryable } from "../../db";
+import { lockKey, pgArray, type Queryable } from "../../db";
 import { access } from "../../access/provider";
 import { subjectOf } from "../../access";
 import { condEnv, fromDb, orgSchema, orgTz, readable, toSql } from "../../engine";
@@ -175,3 +175,14 @@ export const addDaysISO = (iso: string, days: number): string => {
 };
 
 export const daysBetween = (fromIso: string, toIso: string): number => Math.round((Date.parse(`${toIso}T00:00:00Z`) - Date.parse(`${fromIso}T00:00:00Z`)) / 86_400_000);
+
+/**
+ * The open knowledge task of `kind` matching `where` (an article's, a departed owner's), looked for inside the caller's
+ * write under the task's key: the workspace's «اجرا» running the sweep while the scheduled sweep runs (or two sweeps of
+ * a busy server) make each task once — the second finds the first one's task.
+ */
+export async function openKbTaskIn(tx: Queryable, ctx: Ctx, kind: string, key: string, where: Cond): Promise<Row | null> {
+  await lockKey(tx, `kb.task:${kind}:${key}`);
+  const [open] = await liveRows(tx, sysOf(ctx), "kb_task", { and: [where, { f: "kind", op: "eq", v: kind }, { f: "active", op: "eq", v: true }] }, { limit: 1 });
+  return open ?? null;
+}

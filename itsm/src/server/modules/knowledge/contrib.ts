@@ -13,9 +13,10 @@
 // Changes flow down with the job `kb.contrib` — a base → its categories, snippets, trees and articles; a category →
 // its articles; an article → its children — in bounded batches that queue themselves again until nothing is stale.
 import type { Ctx } from "../../context";
+import type { Queryable } from "../../db";
 import { condEnv, orgSchema, readable, registerHooks, systemCtx, updateIn, type PushArgs, type WriteArgs } from "../../engine";
 import { enqueue, registerJobHandler } from "../../jobs";
-import { ids, isUuid, liveRow, liveRows, sysOf, type Row } from "./common";
+import { ids, isUuid, liveRow, sysOf, type Row } from "./common";
 
 export interface Contrib {
   k_users: string[];
@@ -93,8 +94,29 @@ async function articleAfter(w: WriteArgs & { row: Row }): Promise<void> {
 
 const BATCH = 200;
 
-/** Bring the rows of `table` under `parentField = parentId` to their wanted values (a batch); true when more remain. */
-async function syncRows(sys: Ctx, table: string, parentField: string, parentId: string, wantOf: (r: Row) => Contrib, cols: string[] = []): Promise<boolean> {
+/** What a row should carry, worked out from its parents as `q` reads them now (null: leave the row as it is). */
+type WantOf = (q: Queryable, r: Row) => Promise<Contrib | null>;
+
+/** Parents read once per reader: the job's own reads, then each batch's transaction (which sees later commits). */
+function parentsOf(sys: Ctx, table: string): (q: Queryable, id: unknown) => Promise<Row | null> {
+  const seen = new WeakMap<Queryable, Map<string, Promise<Row | null>>>();
+  return (q, id) => {
+    if (!isUuid(id)) return Promise.resolve(null);
+    let m = seen.get(q);
+    if (!m) seen.set(q, (m = new Map()));
+    let p = m.get(id);
+    if (!p) m.set(id, (p = liveRow(q, sys, table, id)));
+    return p;
+  };
+}
+
+/**
+ * Bring the rows of `table` under `parentField = parentId` to their wanted values (a batch); true when more remain.
+ * Stale rows are found outside a transaction; inside the write each one is locked, read again and its wanted values
+ * worked out from what is stored now — a row moved to another base, category or article since the read (whose own
+ * hook gave it that parent's values) is left alone, and a parent changed since is taken as it is now.
+ */
+async function syncRows(sys: Ctx, table: string, parentField: string, parentId: string, wantOf: WantOf, cols: string[] = []): Promise<boolean> {
   const schema = await orgSchema(sys);
   const def = schema.def(table);
   if (!def) return false;
@@ -103,12 +125,20 @@ async function syncRows(sys: Ctx, table: string, parentField: string, parentId: 
   const where = [readable(sys, def, "t", params, env)];
   params.push(parentId);
   where.push(`t.${parentField} = $${params.length}::uuid`);
-  const rows = await sys.db.query<Row>(`select t.id, t.k_users, t.k_groups${cols.map((c) => `, t.${c}`).join("")} from ${def.table} t where ${where.join(" and ")} order by t.id limit 20000`, params);
-  const todo = rows.map((r) => ({ id: String(r.id), want: wantOf(r), r })).filter((x) => !same(x.r.k_users, x.want.k_users) || !same(x.r.k_groups, x.want.k_groups));
+  const select = `select t.id, t.k_users, t.k_groups, t.${parentField}${cols.filter((c) => c !== parentField).map((c) => `, t.${c}`).join("")} from ${def.table} t`;
+  const rows = await sys.db.query<Row>(`${select} where ${where.join(" and ")} order by t.id limit 20000`, params);
+  const stale = (r: Row, want: Contrib | null): want is Contrib => !!want && (!same(r.k_users, want.k_users) || !same(r.k_groups, want.k_groups));
+  const todo: string[] = [];
+  for (const r of rows) if (stale(r, await wantOf(sys.db, r))) todo.push(String(r.id));
   if (!todo.length) return false;
   const batch = todo.slice(0, BATCH);
   await sys.write(async (tx) => {
-    for (const x of batch) await updateIn(tx, sys, table, x.id, { ...x.want }, { trusted: true, keepVersion: true, allowLocked: true });
+    for (const id of batch) {
+      const cur = await tx.one<Row>(`${select} where t.org_id = $1 and t.id = $2 and t.deleted_at is null for update of t`, [sys.org.id, id]);
+      if (!cur || String(cur[parentField] ?? "") !== parentId) continue;
+      const want = await wantOf(tx, cur);
+      if (stale(cur, want)) await updateIn(tx, sys, table, id, { ...want }, { trusted: true, keepVersion: true, allowLocked: true });
+    }
   });
   return todo.length > batch.length;
 }
@@ -116,22 +146,25 @@ async function syncRows(sys: Ctx, table: string, parentField: string, parentId: 
 /** One round of propagation from a base, a category or an article; true when another round is needed. */
 export async function propagateContrib(sys: Ctx, p: { base_id?: string; category_id?: string; article_id?: string }): Promise<boolean> {
   let more = false;
-  if (isUuid(p.base_id)) {
-    const base = await liveRow(sys.db, sys, "kb_base", p.base_id);
-    if (base) {
-      for (const t of BASE_CHILDREN) more = (await syncRows(sys, t, "base_id", base.id, () => baseContrib(base))) || more;
-      const cats = new Map((await liveRows(sys.db, sys, "kb_category", { f: "base_id", op: "eq", v: base.id }, { limit: 5000 })).map((c) => [String(c.id), c]));
-      more = (await syncRows(sys, "kb_article", "base_id", base.id, (r) => articleContrib(base, r.category_id ? cats.get(String(r.category_id)) ?? null : null), ["category_id"])) || more;
-    }
+  const baseOf = parentsOf(sys, "kb_base");
+  const categoryOf = parentsOf(sys, "kb_category");
+  const articleOf = parentsOf(sys, "kb_article");
+  const baseId = p.base_id;
+  if (isUuid(baseId) && (await baseOf(sys.db, baseId))) {
+    for (const t of BASE_CHILDREN) more = (await syncRows(sys, t, "base_id", baseId, async (q) => baseContrib(await baseOf(q, baseId)))) || more;
+    more = (await syncRows(sys, "kb_article", "base_id", baseId, async (q, r) => articleContrib(await baseOf(q, baseId), await categoryOf(q, r.category_id)), ["category_id"])) || more;
   }
-  if (isUuid(p.category_id)) {
-    const category = await liveRow(sys.db, sys, "kb_category", p.category_id);
-    const base = category ? await liveRow(sys.db, sys, "kb_base", category.base_id) : null;
-    if (category && base) more = (await syncRows(sys, "kb_article", "category_id", category.id, () => articleContrib(base, category))) || more;
+  const categoryId = p.category_id;
+  if (isUuid(categoryId) && (await categoryOf(sys.db, categoryId))) {
+    // an article of the category: its own base's contributors and this category's managed-by groups
+    more = (await syncRows(sys, "kb_article", "category_id", categoryId, async (q, r) => {
+      const base = await baseOf(q, r.base_id);
+      return base ? articleContrib(base, await categoryOf(q, categoryId)) : null;
+    }, ["base_id"])) || more;
   }
-  if (isUuid(p.article_id)) {
-    const article = await liveRow(sys.db, sys, "kb_article", p.article_id);
-    if (article) for (const t of ARTICLE_CHILDREN) more = (await syncRows(sys, t, "article_id", article.id, () => workersOf(article))) || more;
+  const articleId = p.article_id;
+  if (isUuid(articleId) && (await articleOf(sys.db, articleId))) {
+    for (const t of ARTICLE_CHILDREN) more = (await syncRows(sys, t, "article_id", articleId, async (q) => workersOf(await articleOf(q, articleId)))) || more;
   }
   return more;
 }
