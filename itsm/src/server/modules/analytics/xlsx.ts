@@ -3,7 +3,6 @@
 // (durations in hours, percentages 0–100, dates as Jalali text), list reports with labels instead of ids, and a last
 // sheet saying what the file is: the definition, the time window, when it was made and for whom. Built on the server
 // with write-excel-file (the UI's downloads use the same library in the browser).
-import writeXlsxFile from "write-excel-file/node";
 import type { Cell, SheetData } from "write-excel-file/node";
 import { formatJalali, formatJalaliDateTime } from "@shared/jalali";
 import { STATUS_LABELS, formatValue } from "@shared/analytics/kpi";
@@ -101,6 +100,8 @@ export function aboutSheet(lines: [string, string][]): XlsxSheet {
 /** The workbook as bytes. */
 export async function workbook(sheets: XlsxSheet[]): Promise<Uint8Array> {
   const used = new Set<string>();
+  // loaded on the first export (not at a cold start)
+  const { default: writeXlsxFile } = await import("write-excel-file/node");
   const out = await writeXlsxFile(
     sheets.map((s) => ({ data: s.data, sheet: safeSheet(s.name, used), rightToLeft: true, stickyRowsCount: 1, columns: s.widths.map((width) => ({ width })) })),
   ).toBuffer();

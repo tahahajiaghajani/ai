@@ -61,13 +61,16 @@ export const loadOrg: MiddlewareHandler<Env> = async (c, next) => {
   const user = c.get("user");
   const orgId = c.req.param("org") ?? "";
   if (!/^[0-9a-f-]{36}$/i.test(orgId)) throw notFound("سازمان پیدا نشد");
-  const org = await cfg.db.one<OrgRow>(`select * from sm_orgs where id = $1 and deleted_at is null`, [orgId]);
-  if (!org) throw notFound("سازمان پیدا نشد");
-  let member = await cfg.db.one<MemberRow>(
-    `select id, org_id, user_id, role, overrides, is_active from sm_org_members
-     where org_id = $1 and user_id = $2 and deleted_at is null`,
+  // the organisation and the caller's membership in one round trip (every organisation request starts here)
+  const row = await cfg.db.one<OrgRow & { m__id: string | null; m__role: MemberRow["role"]; m__overrides: MemberRow["overrides"]; m__is_active: boolean }>(
+    `select o.*, m.id as m__id, m.role as m__role, m.overrides as m__overrides, m.is_active as m__is_active
+       from sm_orgs o left join sm_org_members m on m.org_id = o.id and m.user_id = $2 and m.deleted_at is null
+      where o.id = $1 and o.deleted_at is null`,
     [orgId, user.id],
   );
+  if (!row) throw notFound("سازمان پیدا نشد");
+  const { m__id, m__role, m__overrides, m__is_active, ...org } = row;
+  let member: MemberRow | null = m__id ? { id: m__id, org_id: orgId, user_id: user.id, role: m__role, overrides: m__overrides, is_active: m__is_active } : null;
   if (!member || !member.is_active) {
     if (!user.is_platform_admin) throw forbidden("شما عضو این سازمان نیستید");
     member = { id: "", org_id: orgId, user_id: user.id, role: "viewer", overrides: {}, is_active: true };
