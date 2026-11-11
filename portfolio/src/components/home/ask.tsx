@@ -4,7 +4,7 @@ import { ui } from "@/content/ui";
 import { ChatPanel } from "@/components/chat/chat-panel";
 
 /** The assistant, inline: what it is on one side, the live conversation on the other. */
-export function Ask({ lang }: { lang: Lang }) {
+export function Ask({ lang, index }: { lang: Lang; index: string }) {
   const fa = lang === "fa";
   return (
     <section id="ask" className="tone-invert">
@@ -12,7 +12,7 @@ export function Ask({ lang }: { lang: Lang }) {
         <div className="col-span-12 flex flex-col justify-between gap-10 lg:col-span-5">
           <div>
             <p className="mb-6 flex items-center gap-3 font-mono text-[0.65rem] uppercase tracking-[0.22em] text-muted">
-              <span className="text-fg">{num(lang, "08")}</span>
+              <span className="text-fg">{num(lang, index)}</span>
               <span className="h-px w-6 bg-line-strong" />
               <span className={fa ? "font-fa text-[0.8rem] normal-case tracking-normal" : ""}>{ui.sections.ask[lang]}</span>
             </p>

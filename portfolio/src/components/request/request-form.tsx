@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import type { Lang } from "@/lib/i18n";
 import { href, num } from "@/lib/i18n";
 import { ui } from "@/content/ui";
-import { KINDS, PRIORITY_LABEL, type RequestKind } from "@/lib/request-meta";
+import { KINDS, PRIORITY_LABEL, isKind, type RequestKind } from "@/lib/request-meta";
 import { submitRequest, type SubmitResult } from "@/app/actions/request";
 
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
@@ -31,16 +31,35 @@ export function RequestForm({ lang }: { lang: Lang }) {
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [more, setMore] = useState(false);
   const body = useRef<HTMLTextAreaElement>(null);
+  // the description the form last filled in itself (the visitor has not touched it while it still reads the same)
+  const seeded = useRef("");
   const fa = lang === "fa";
 
-  // a question from the assistant can seed the description
+  // a question from the assistant, or an edition a visitor asked for, can seed the description and the request type
   useEffect(() => {
     const take = () => {
       try {
+        // both wait in sessionStorage until a form is here to take them (not the receipt of a request just sent)
+        const el = body.current;
+        if (!el) return;
+        const k = sessionStorage.getItem("request:kind");
+        if (k) {
+          sessionStorage.removeItem("request:kind");
+          if (isKind(k)) setKind(k);
+        }
+        // a seed is used up once taken, so it never turns up later in an unrelated request. It replaces a description
+        // the form filled in itself; once the visitor has typed, their text stays and each seed is added below it
         const seed = sessionStorage.getItem("request:seed");
-        if (seed && body.current && !body.current.value) {
-          body.current.value = seed;
+        if (seed) {
           sessionStorage.removeItem("request:seed");
+          const typed = el.value.trimEnd();
+          if (!typed || el.value === seeded.current) {
+            el.value = seed;
+            seeded.current = seed;
+          } else {
+            if (!typed.includes(seed)) el.value = `${typed}\n${seed}`;
+            seeded.current = "";
+          }
         }
       } catch {}
     };
@@ -119,7 +138,8 @@ export function RequestForm({ lang }: { lang: Lang }) {
     : "";
 
   return (
-    <form onSubmit={onSubmit} className="relative" noValidate aria-busy={pending}>
+    // focusable from script only: a request opened from elsewhere on the page puts focus here, before the first field
+    <form id="request-form" tabIndex={-1} onSubmit={onSubmit} className="relative" noValidate aria-busy={pending}>
       <fieldset className="mb-10">
         <legend className="mb-4 text-[0.78rem] text-muted">{ui.request.kind[lang]}</legend>
         <div className="flex flex-wrap gap-2" role="radiogroup">

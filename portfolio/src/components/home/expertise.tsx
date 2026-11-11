@@ -10,14 +10,14 @@ import { Glyph } from "@/components/home/glyphs";
 import { PlusIcon } from "@/components/brand/icons";
 
 /** Disciplines as a list that opens on hover or tap; a live diagram of the open one stays pinned beside it. */
-export function Expertise({ lang }: { lang: Lang }) {
+export function Expertise({ lang, index }: { lang: Lang; index: string }) {
   const [active, setActive] = useState(0);
   const fa = lang === "fa";
   return (
     <section id="expertise" className="mx-auto max-w-[1800px] px-5 py-24 md:px-10 md:py-36">
       <SectionHead
         lang={lang}
-        index="02"
+        index={index}
         eyebrow={ui.sections.expertise[lang]}
         title={
           fa ? (

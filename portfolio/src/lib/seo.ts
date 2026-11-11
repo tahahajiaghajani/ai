@@ -62,15 +62,28 @@ export function pageAlternates(lang: Lang, path: string): Metadata["alternates"]
 
 /**
  * Title, description and share cards of one page that exists in both languages. A page's openGraph and twitter replace
- * the layout's whole objects, so the site name, locale and image are repeated here.
+ * the layout's whole objects, so the site name, locale and image are repeated here. A page may bring its own share
+ * image (1200×630) and, for a post, its publication time.
  */
-export function pageMetadata(lang: Lang, path: string, title: string, description: string): Metadata {
+export function pageMetadata(
+  lang: Lang,
+  path: string,
+  title: string,
+  description: string,
+  opts: { image?: { url: string; alt: string }; publishedTime?: string; type?: "article" | "website" } = {},
+): Metadata {
   const share = `${title} | ${NAME[lang]}`;
+  const image = opts.image ? { url: opts.image.url, width: 1200, height: 630, alt: opts.image.alt } : ogImage(lang);
+  const base = { siteName: NAME[lang], locale: LOCALE[lang], url: href(lang, path), title: share, description, images: [image] };
   return {
     title,
     description,
     alternates: pageAlternates(lang, path),
-    openGraph: { type: "article", siteName: NAME[lang], locale: LOCALE[lang], url: href(lang, path), title: share, description, images: [ogImage(lang)] },
-    twitter: { card: "summary_large_image", title: share, description, images: [ogImage(lang).url] },
+    // a listing (the blog) is a website; a case study or a post is an article
+    openGraph:
+      opts.type === "website"
+        ? { ...base, type: "website" }
+        : { ...base, type: "article", ...(opts.publishedTime ? { publishedTime: opts.publishedTime, authors: [NAME[lang]] } : {}) },
+    twitter: { card: "summary_large_image", title: share, description, images: [image.url] },
   };
 }

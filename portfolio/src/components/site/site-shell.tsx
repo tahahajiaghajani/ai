@@ -8,6 +8,8 @@ import { Footer } from "@/components/site/footer";
 import { ChatLauncher } from "@/components/chat/chat-launcher";
 import { ChatProvider } from "@/components/chat/chat-context";
 import { PROJECTS } from "@/content/projects";
+import { PRODUCTS } from "@/content/products";
+import { POSTS } from "@/content/blog";
 
 export function SiteShell({ lang, children }: { lang: Lang; children: React.ReactNode }) {
   return (
@@ -16,7 +18,14 @@ export function SiteShell({ lang, children }: { lang: Lang; children: React.Reac
         {ui.nav.skip[lang]}
       </a>
       <Preloader lang={lang} />
-      <ChatProvider lang={lang} works={PROJECTS.map((p) => ({ slug: p.slug, title: p.title[lang] }))}>
+      <ChatProvider
+        lang={lang}
+        pages={[
+          ...PROJECTS.map((p) => ({ kind: "work" as const, slug: p.slug, title: p.title[lang] })),
+          ...PRODUCTS.map((p) => ({ kind: "product" as const, slug: p.slug, title: p.name[lang] })),
+          ...POSTS.map((p) => ({ kind: "post" as const, slug: p.slug, title: p.title[lang] })),
+        ]}
+      >
         <MotionProvider>
           <Header lang={lang} />
           <main id="main">{children}</main>

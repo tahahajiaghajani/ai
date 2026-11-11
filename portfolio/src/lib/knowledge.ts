@@ -9,6 +9,8 @@ import { PROJECTS } from "@/content/projects";
 import { JOURNEY } from "@/content/journey";
 import { ORGS } from "@/content/orgs";
 import { FACTS } from "@/content/facts";
+import { PRODUCTS } from "@/content/products";
+import { POSTS } from "@/content/blog";
 
 const strip = (s: string) => s.replace(/\*\*/g, "").replace(/`/g, "");
 
@@ -80,6 +82,54 @@ export function siteKnowledge(): KnowledgeEntry[] {
       ]
         .filter(Boolean)
         .join("\n"),
+    });
+  }
+
+  // a short pinned line, so "what do you sell / what products" always finds both, whatever else is retrieved
+  add({
+    id: "products",
+    pinned: true,
+    title: "Taha's own products / محصولات طاها",
+    tags: ["products", "محصول", "محصولات", ...PRODUCTS.flatMap((x) => [x.name.en, x.name.fa])],
+    body: [
+      ...PRODUCTS.map((x) => `- ${x.name.en} (${x.name.fa}) [[product:${x.slug}]]: ${x.category.en.replace(/^Product · /, "")} — ${x.tagline.en}. Web version (live): ${x.editions.find((e) => e.href)?.href}. ${x.editions.filter((e) => !e.href).map((e) => e.kind).join(" and ")} edition(s) locked: contact Taha to use them.`),
+      "The web versions open to everyone; the Windows (and, for Kariz, server) editions are provided by arrangement: the visitor contacts Taha ([[action:ticket]] or [[action:contact]]). Never share installer or download links.",
+    ].join("\n"),
+  });
+  for (const x of PRODUCTS) {
+    const web = x.editions.find((e) => e.href);
+    add({
+      id: `product-${x.slug}`,
+      pinned: false,
+      title: `Product: ${x.name.en} / ${x.name.fa} [[product:${x.slug}]]`,
+      tags: [...x.tags, ...x.stack, x.category.en, x.category.fa],
+      body: [
+        `Home-page section: /#${x.slug} (Persian) and /en#${x.slug} (English). Marker to link it: [[product:${x.slug}]]`,
+        `${x.category.en} / ${x.category.fa}. Tagline: ${x.tagline.en} / ${x.tagline.fa}`,
+        `Summary: ${x.summary.en}`,
+        `Editions: ${x.editions.map((e) => `${e.kind}${e.href ? ` (live: ${e.href})` : " (locked: contact Taha)"} — ${e.note.en}`).join("; ")}`,
+        `Features: ${x.features.en.join("; ")}`,
+        `Role: ${x.role.en}. Built: ${x.period.en}. Status: ${x.status.en}.`,
+        `Stack: ${x.stack.join(", ")}`,
+        x.note ? `Note: ${x.note.en}` : "",
+        web ? `To try it, open the web version: ${web.href}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    });
+  }
+  for (const p of POSTS) {
+    add({
+      id: `post-${p.slug}`,
+      pinned: false,
+      title: `Blog post: ${p.title.en} / ${p.title.fa} [[post:${p.slug}]]`,
+      tags: p.tags,
+      body: [
+        `Blog post page: /blog/${p.slug} (Persian) and /en/blog/${p.slug} (English), published ${p.date.slice(0, 10)}. Marker to link it: [[post:${p.slug}]]`,
+        `Summary: ${p.dek.en} / ${p.dek.fa}`,
+        ...p.facts.map((f) => `${f.k.en}: ${f.v.en}`),
+        ...p.blocks.flatMap((b) => (b.kind === "text" ? [`${b.heading ? `${b.heading.en}: ` : ""}${strip(b.text.en)}`] : b.kind === "list" ? [`${b.heading?.en ?? ""}: ${b.items.en.join("; ")}`] : [])),
+      ].join("\n"),
     });
   }
 

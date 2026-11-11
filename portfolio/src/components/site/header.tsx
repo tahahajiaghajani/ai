@@ -13,15 +13,18 @@ import { CrossIcon } from "@/components/brand/icons";
 import { useLenis } from "@/components/fx/motion";
 import { ThemeToggle } from "@/components/site/theme-toggle";
 
-// "home" has no section: it goes to the top of the home page
-const LINKS = [
+// sections of the home page (by hash; "home" has none: it goes to the top) and pages of their own (by path)
+type NavLink = { key: keyof typeof ui.nav; hash: string; path?: undefined } | { key: keyof typeof ui.nav; path: string; hash?: undefined };
+const LINKS: NavLink[] = [
   { key: "home", hash: "" },
+  { key: "products", hash: "#products" },
   { key: "work", hash: "#work" },
   { key: "expertise", hash: "#expertise" },
   { key: "journey", hash: "#journey" },
+  { key: "blog", path: "/blog" },
   { key: "ask", hash: "#ask" },
   { key: "contact", hash: "#contact" },
-] as const;
+];
 
 /** The same page in the other language. */
 export function otherLangPath(pathname: string, lang: Lang): string {
@@ -124,6 +127,28 @@ export function Header({ lang }: { lang: Lang }) {
     else window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  // a page of its own is a client-side navigation; on that very page the link goes back to its top instead
+  const visit = (path: string) => (e: React.MouseEvent) => {
+    setOpen(false);
+    if (pathname !== href(lang, path)) return;
+    e.preventDefault();
+    if (lenis) {
+      lenis.start();
+      lenis.scrollTo(0, { duration: 1.6 });
+    } else window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  // home sections stay plain anchors (off the home page they load it afresh, as before); pages use client-side links
+  const navItem = (l: NavLink, props: { className: string; "data-menu-item"?: boolean }, children: React.ReactNode) =>
+    l.path !== undefined ? (
+      <Link key={l.key} href={href(lang, l.path)} onClick={visit(l.path)} aria-current={pathname.startsWith(href(lang, l.path)) ? "page" : undefined} {...props}>
+        {children}
+      </Link>
+    ) : (
+      <a key={l.key} href={`${home}${l.hash}`} onClick={go(l.hash)} {...props}>
+        {children}
+      </a>
+    );
+
   return (
     <>
       <header ref={bar} className="fixed inset-x-0 top-0 z-50 text-white mix-blend-difference">
@@ -132,18 +157,22 @@ export function Header({ lang }: { lang: Lang }) {
           <Link href={home} onClick={go("")} className="group flex items-center gap-3" aria-label={PROFILE.name[lang]}>
             <Mark className="size-8" />
             <span className="hidden flex-col leading-none sm:flex">
-              <span className={lang === "fa" ? "text-[0.95rem] font-semibold" : "latin text-[0.78rem] font-semibold uppercase tracking-[0.24em]"}>{PROFILE.name[lang]}</span>
+              <span className={`whitespace-nowrap ${lang === "fa" ? "text-[0.95rem] font-semibold" : "latin text-[0.78rem] font-semibold uppercase tracking-[0.24em]"}`}>{PROFILE.name[lang]}</span>
               <span className="mt-1 whitespace-nowrap font-mono text-[0.6rem] uppercase tracking-[0.2em] opacity-60 lg:max-xl:hidden">AI · Systems · Design</span>
             </span>
           </Link>
 
           <nav aria-label={lang === "fa" ? "بخش‌ها" : "Sections"} className="hidden items-center gap-5 lg:flex xl:gap-8">
-            {LINKS.map((l, i) => (
-              <a key={l.key} href={`${home}${l.hash}`} onClick={go(l.hash)} className="group flex items-baseline gap-1.5 whitespace-nowrap text-[0.82rem]">
-                <span className="font-mono text-[0.6rem] opacity-50">{num(lang, `0${i + 1}`)}</span>
-                <span className="link-draw pb-0.5">{ui.nav[l.key][lang]}</span>
-              </a>
-            ))}
+            {LINKS.map((l, i) =>
+              navItem(
+                l,
+                { className: "group flex items-baseline gap-1.5 whitespace-nowrap text-[0.82rem]" },
+                <>
+                  <span className="font-mono text-[0.6rem] opacity-50">{num(lang, `0${i + 1}`)}</span>
+                  <span className="link-draw pb-0.5">{ui.nav[l.key][lang]}</span>
+                </>,
+              ),
+            )}
           </nav>
 
           <div className="flex items-center gap-2 sm:gap-3">
@@ -151,7 +180,8 @@ export function Header({ lang }: { lang: Lang }) {
               {ui.nav.langShort[lang]}
             </a>
             <ThemeToggle label={ui.nav.theme[lang]} />
-            <a href={`${home}#contact`} onClick={go("#contact")} className="hidden h-10 items-center whitespace-nowrap rounded-full bg-white px-5 text-[0.8rem] font-semibold text-black transition-transform hover:scale-[1.04] md:flex">
+            {/* between 1024 and 1279 px the eight section links need the room; "Contact" is among them */}
+            <a href={`${home}#contact`} onClick={go("#contact")} className="hidden h-10 items-center whitespace-nowrap rounded-full bg-white px-5 text-[0.8rem] font-semibold text-black transition-transform hover:scale-[1.04] md:flex lg:max-xl:hidden">
               {ui.nav.start[lang]}
             </a>
             <button ref={menuBtn} type="button" onClick={() => setOpen(true)} className="grid size-10 place-items-center rounded-full border border-white/30 lg:hidden" aria-label={ui.nav.menu[lang]} aria-expanded={open} aria-controls="site-menu">
@@ -183,10 +213,14 @@ export function Header({ lang }: { lang: Lang }) {
         <nav className="flex flex-1 flex-col justify-center gap-2 px-6">
           {LINKS.map((l, i) => (
             <div key={l.key} className="overflow-hidden">
-              <a data-menu-item href={`${home}${l.hash}`} onClick={go(l.hash)} className="flex items-baseline gap-4 py-1 text-[clamp(2rem,min(11vw,9svh),4.5rem)] font-semibold leading-[1.05] tracking-tight">
-                <span className="font-mono text-sm opacity-50">{num(lang, `0${i + 1}`)}</span>
-                {ui.nav[l.key][lang]}
-              </a>
+              {navItem(
+                l,
+                { "data-menu-item": true, className: "flex items-baseline gap-4 py-1 text-[clamp(2rem,min(11vw,7.5svh),4.5rem)] font-semibold leading-[1.05] tracking-tight" },
+                <>
+                  <span className="font-mono text-sm opacity-50">{num(lang, `0${i + 1}`)}</span>
+                  {ui.nav[l.key][lang]}
+                </>,
+              )}
             </div>
           ))}
         </nav>

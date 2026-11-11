@@ -24,8 +24,8 @@ export const JOURNEY: Role[] = [
     title: { fa: "سازنده‌ی محصول و استودیوی شخصی", en: "Independent product builder" },
     period: { fa: "۱۴۰۵", en: "2026" },
     body: {
-      fa: "Task Flow (پلتفرم تسک‌دهی با ایجنت‌های هوش مصنوعی)، سندو (همراه چندعاملی با جهان سه‌بعدی)، وب‌سایت و سامانه‌ی فروش سلین و سامانه‌های سفارشی؛ از برند تا استقرار.",
-      en: "Task Flow (a task platform run by AI agents), Sendō (a multi-agent companion in a 3D world), the CELIN website and partner-sales platform, and custom systems — from brand to deployment.",
+      fa: "محصولات سیراف (حسابداری و مدیریت کسب‌وکار برای کالا، طلا و ارز) و کاریز (مدیریت خدمات سازمان با هوش مصنوعی)، Task Flow (پلتفرم تسک‌دهی با ایجنت‌های هوش مصنوعی)، سندو (همراه چندعاملی با جهان سه‌بعدی)، وب‌سایت و سامانه‌ی فروش سلین و سامانه‌های سفارشی؛ از برند تا استقرار.",
+      en: "The products Siraf (accounting and business management for goods, gold and currency) and Kariz (enterprise service management with AI), Task Flow (a task platform run by AI agents), Sendō (a multi-agent companion in a 3D world), the CELIN website and partner-sales platform, and custom systems — from brand to deployment.",
     },
   },
   {

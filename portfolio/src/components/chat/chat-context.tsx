@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { Lang } from "@/lib/i18n";
+import type { PageKind } from "@/lib/markers";
 import { ui } from "@/content/ui";
 
 export interface Msg {
@@ -12,12 +13,19 @@ export interface Msg {
   local?: boolean;
 }
 
+export interface ChatPage {
+  kind: PageKind;
+  slug: string;
+  title: string;
+}
+
 interface ChatState {
   lang: Lang;
   messages: Msg[];
   busy: boolean;
   open: boolean;
-  works: { slug: string; title: string }[];
+  /** pages the assistant may link: case studies, products and posts */
+  pages: ChatPage[];
   setOpen: (v: boolean) => void;
   send: (text: string) => void;
   stop: () => void;
@@ -38,7 +46,7 @@ const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Ma
  * One conversation per visit and language, shared by the inline assistant and the floating launcher, kept in
  * sessionStorage so it survives navigation. Answers stream in as plain text.
  */
-export function ChatProvider({ lang, works, children }: { lang: Lang; works: { slug: string; title: string }[]; children: React.ReactNode }) {
+export function ChatProvider({ lang, pages, children }: { lang: Lang; pages: ChatPage[]; children: React.ReactNode }) {
   const key = `chat:${lang}`;
   const [messages, setMessages] = useState<Msg[]>([]);
   const [busy, setBusy] = useState(false);
@@ -116,5 +124,5 @@ export function ChatProvider({ lang, works, children }: { lang: Lang; works: { s
     setMessages([]);
   }, []);
 
-  return <Ctx.Provider value={{ lang, messages, busy, open, works, setOpen, send, stop, reset }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ lang, messages, busy, open, pages, setOpen, send, stop, reset }}>{children}</Ctx.Provider>;
 }
