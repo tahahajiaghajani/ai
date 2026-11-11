@@ -141,3 +141,62 @@ describe("DR on a rebuilt server: the backup says which application key sealed i
     expect(ctl).toMatch(/r\.key_mismatch[\s\S]{0,200}warn\(/);
   });
 });
+
+// The server edition measured as people use it (docs/qa/PERFORMANCE_E2E_FA.md §2): every page of the administrator
+// and of a requester-only member (time to first byte, DOMContentLoaded, content visible, API calls), the load test per
+// endpoint, KarizApp's and KarizDB's memory and CPU at idle and under the load — each against a budget, in a report.
+describe("the simulation measures the server edition's speed against budgets", () => {
+  const sim = (f: string) => readFileSync(join(SIM_JS, f), "utf8");
+  type Usage = { cpu_avg_pct: number | null; private_peak_mb: number; ws_peak_mb: number; processes: number };
+  const perf = async () =>
+    (await import(join(SIM_JS, "perf.mjs"))) as {
+      SERVER_BUDGETS: Record<string, number>;
+      summarizeResources(samples: { ms: number; procs: object[] }[]): { app: Usage; db: Usage };
+    };
+  const ps = () => readFileSync(join(SIM_PS, "bank-sim.ps1"), "utf8");
+
+  it("measures every page of the administrator and of a requester-only member, on the small data and the demo pack", () => {
+    const b = sim("browser.mjs");
+    for (const m of ["contentVisible(page)", "navTiming(page)", "recorder.start()", "await recorder.stop()", "pageRow({", "checkPages(C, measured"]) expect(b).toContain(m);
+    // the requester: the member made with the «درخواست‌دهنده» preset, on the portal's pages
+    expect(b).toMatch(/PEOPLE\.find\(\(p\) => p\.preset === "requester"\)/);
+    for (const page of ["portal", "catalogue", "requests", "knowledge", "ticket"]) expect(b).toContain(`"${page}"`);
+    expect(b).toContain("requester-catalogue-item");
+    expect(b).toMatch(/const PHASES = \{ setup, pages, demo, perf, purged \}/);
+    expect(ps()).toMatch(/Invoke-Js 'browser\.mjs' 'browser-perf'/);
+    // the browser trusts the server only through the Windows store (perf.mjs is one of the simulation's scripts)
+    expect(sim("perf.mjs")).not.toMatch(/ignoreHTTPSErrors|rejectUnauthorized/);
+  });
+
+  it("samples KarizApp and KarizDB at idle and under the load, and reports the load per endpoint", () => {
+    const s = ps();
+    expect(s).toMatch(/\$idle = Start-Sampler 'idle'[\s\S]*Stop-Sampler \$idle[\s\S]*\$busy = Start-Sampler 'load'[\s\S]*'api-load'[\s\S]*Stop-Sampler \$busy[\s\S]*'perf-resources'/);
+    expect(readFileSync(join(SIM_PS, "resources.ps1"), "utf8")).toMatch(/Win32_Process[\s\S]*WorkingSetSize[\s\S]*PrivatePageCount[\s\S]*KernelModeTime/);
+    const api = sim("api.mjs");
+    for (const ep of ["GET r/incident (list)", "GET r/incident?q (search)", "GET r/incident/:id", "GET r/incident/:id/journal", "GET r/incident/:id/attachments", "POST r/incident", "PATCH r/incident/:id"]) expect(api).toContain(`"${ep}"`);
+    expect(s).toMatch(/Invoke-Js 'perf\.mjs' 'perf-report' @\('--dir', \$Out\)/);
+  });
+
+  it("has a budget for every measure, and every budget is checked", async () => {
+    const { SERVER_BUDGETS } = await perf();
+    const keys = ["page_ttfb_p95_ms", "page_dcl_p95_ms", "page_content_p95_ms", "page_content_max_ms", "api_p95_ms", "api_calls_per_page_max", "signin_ms", "load_endpoint_p95_ms", "load_endpoint_p99_ms", "app_private_peak_mb", "db_private_peak_mb", "idle_cpu_pct"];
+    expect(Object.keys(SERVER_BUDGETS).sort()).toEqual([...keys].sort());
+    const code = sim("perf.mjs") + sim("api.mjs");
+    for (const k of keys) {
+      expect(typeof SERVER_BUDGETS[k]).toBe("number");
+      expect(code, k).toMatch(new RegExp(`B\\.${k}\\b`));
+    }
+  });
+
+  it("sums the samples into CPU per service (% of one core) and memory peaks", async () => {
+    const { summarizeResources } = await perf();
+    const proc = (pid: number, name: string, cpu: number) => ({ pid, ppid: 0, name, ws: 300 * 1048576, priv: 100 * 1048576, cpu100ns: cpu });
+    // two seconds apart: a node.exe that used one second of processor time is 50% of a core; a new process is skipped
+    const s = summarizeResources([
+      { ms: 0, procs: [proc(1, "node.exe", 0), proc(2, "postgres.exe", 0)] },
+      { ms: 2000, procs: [proc(1, "node.exe", 10_000_000), proc(2, "postgres.exe", 4_000_000), proc(3, "postgres.exe", 9_000_000)] },
+    ]);
+    expect(s.app).toMatchObject({ cpu_avg_pct: 50, private_peak_mb: 100, ws_peak_mb: 300, processes: 1 });
+    expect(s.db).toMatchObject({ cpu_avg_pct: 20, private_peak_mb: 200, processes: 2 });
+  });
+});

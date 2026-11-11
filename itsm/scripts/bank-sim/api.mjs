@@ -27,6 +27,7 @@ import { readFileSync, existsSync, writeFileSync } from "node:fs";
 import { cpus, totalmem } from "node:os";
 import { request as httpRequest } from "node:http";
 import { Api, Checks, State, parseArgs, waitReady, sleep, log, ADMIN, PEOPLE, PASSWORD } from "./lib.mjs";
+import { SERVER_BUDGETS } from "./perf.mjs";
 
 const a = parseArgs();
 const BASE = String(a.base ?? "https://kariz.bank.local");
@@ -542,6 +543,14 @@ async function load() {
     n++;
     if (!ok) errors.push(`${k}: ${detail}`);
   };
+  // every endpoint on its own as well (an operation of several calls is one operation above)
+  const ep = {};
+  const timed = async (key, p) => {
+    const t = Date.now();
+    const r = await p;
+    (ep[key] ??= []).push(Date.now() - t);
+    return r;
+  };
   const TERMS = ["خودپرداز", "شعبه", "کارت", "VPN", "چاپگر", "سوئیچ"];
   const pick = (x) => x[Math.floor(Math.random() * x.length)];
   const end = Date.now() + seconds * 1000;
@@ -555,25 +564,29 @@ async function load() {
       const t = Date.now();
       try {
         if (kind === "list") {
-          const r = await api.raw("GET", `${P}/r/incident?size=50&sort=-updated_at`);
+          const r = await timed("GET r/incident (list)", api.raw("GET", `${P}/r/incident?size=50&sort=-updated_at`));
           if (r.status === 200) rows = r.json.rows ?? rows;
           record("list", Date.now() - t, r.status === 200, r.status);
         } else if (kind === "search") {
-          const r = await api.raw("GET", `${P}/r/incident?q=${encodeURIComponent(pick(TERMS))}&size=10&total=false`);
+          const r = await timed("GET r/incident?q (search)", api.raw("GET", `${P}/r/incident?q=${encodeURIComponent(pick(TERMS))}&size=10&total=false`));
           record("search", Date.now() - t, r.status === 200, r.status);
         } else if (kind === "open") {
           const row = rows.length ? pick(rows) : null;
           if (!row) continue;
-          const rs = await Promise.all([api.raw("GET", `${P}/r/incident/${row.id}`), api.raw("GET", `${P}/r/incident/${row.id}/journal?limit=50`), api.raw("GET", `${P}/r/incident/${row.id}/attachments`)]);
+          const rs = await Promise.all([
+            timed("GET r/incident/:id", api.raw("GET", `${P}/r/incident/${row.id}`)),
+            timed("GET r/incident/:id/journal", api.raw("GET", `${P}/r/incident/${row.id}/journal?limit=50`)),
+            timed("GET r/incident/:id/attachments", api.raw("GET", `${P}/r/incident/${row.id}/attachments`)),
+          ]);
           record("open", Date.now() - t, rs.every((x) => x.status === 200), rs.map((x) => x.status).join("/"));
         } else if (kind === "create") {
-          const r = await api.raw("POST", `${P}/r/incident`, { body: { short_description: `آزمون بار ${i}-${mine.length + 1}: ${pick(TERMS)} شعبه` } });
+          const r = await timed("POST r/incident", api.raw("POST", `${P}/r/incident`, { body: { short_description: `آزمون بار ${i}-${mine.length + 1}: ${pick(TERMS)} شعبه` } }));
           if (r.status === 200) mine.push(r.json.row);
           record("create", Date.now() - t, r.status === 200, `${r.status} ${JSON.stringify(r.json).slice(0, 200)}`);
         } else {
           const row = mine.length ? pick(mine) : null;
           if (!row) continue;
-          const r = await api.raw("PATCH", `${P}/r/incident/${row.id}`, { body: { description: `به‌روزرسانی ${new Date().toISOString()}`, version: row.version } });
+          const r = await timed("PATCH r/incident/:id", api.raw("PATCH", `${P}/r/incident/${row.id}`, { body: { description: `به‌روزرسانی ${new Date().toISOString()}`, version: row.version } }));
           if (r.status === 200) row.version = r.json.row?.version ?? row.version + 1;
           record("update", Date.now() - t, r.status === 200, `${r.status} ${JSON.stringify(r.json).slice(0, 200)}`);
         }
@@ -587,8 +600,16 @@ async function load() {
   await Promise.all(Array.from({ length: users }, (_, i) => vu(i)));
   const secs = (Date.now() - t0) / 1000;
   const per = Object.fromEntries(Object.entries(lat).map(([k, v]) => [k, { n: v.length, p50: pct(v, 50), p95: pct(v, 95), p99: pct(v, 99) }]));
-  C.metric("load", { users, seconds: Math.round(secs), requests: n, rps: Math.round((n / secs) * 10) / 10, p50: pct(all, 50), p95: pct(all, 95), p99: pct(all, 99), errors: errors.length, per, machine: { cpus: cpus().length, model: cpus()[0]?.model, ram_gb: Math.round(totalmem() / 1073741824) } });
+  const endpoints = Object.fromEntries(Object.entries(ep).map(([k, v]) => [k, { n: v.length, p50: pct(v, 50), p95: pct(v, 95), p99: pct(v, 99) }]));
+  C.metric("load", { users, seconds: Math.round(secs), requests: n, rps: Math.round((n / secs) * 10) / 10, p50: pct(all, 50), p95: pct(all, 95), p99: pct(all, 99), errors: errors.length, per: { ...per, ...endpoints }, machine: { cpus: cpus().length, model: cpus()[0]?.model, ram_gb: Math.round(totalmem() / 1073741824) } });
   C.check(errors.length === 0, `${n} operations by ${users} virtual users in ${Math.round(secs)} s without an error`, errors.slice(0, 10).join(" | "));
+  // the budgets of perf.mjs, per endpoint (docs/qa/PERFORMANCE_E2E_FA.md §2)
+  const B = SERVER_BUDGETS;
+  for (const [k, v] of Object.entries(endpoints)) {
+    if (v.n < 5) continue;
+    C.check(v.p95 <= B.load_endpoint_p95_ms, `load ${k}: p95 ${v.p95} ms ≤ ${B.load_endpoint_p95_ms} ms (${v.n} calls)`);
+    C.check(v.p99 <= B.load_endpoint_p99_ms, `load ${k}: p99 ${v.p99} ms ≤ ${B.load_endpoint_p99_ms} ms`);
+  }
 }
 
 const PHASES = { fresh, populate, notify: notifyPhase, "ad-store": adStore, verify, security, "demo-on": demoOn, "demo-off": demoOff, mark, dr, ready, load };

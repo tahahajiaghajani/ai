@@ -33,7 +33,7 @@ param(
 
 $Started = Get-Date
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
-foreach ($d in @('logs', 'phases', 'shots', 'pki', 'server-logs')) { New-Item -ItemType Directory -Force -Path (Join-Path $Out $d) | Out-Null }
+foreach ($d in @('logs', 'phases', 'shots', 'pki', 'server-logs', 'perf')) { New-Item -ItemType Directory -Force -Path (Join-Path $Out $d) | Out-Null }
 Set-LogFile (Join-Path $Out 'logs\bank-sim.log')
 $Msi10 = (Resolve-Path $Msi10).Path
 $Msi11 = (Resolve-Path $Msi11).Path
@@ -263,6 +263,31 @@ function Get-AppWorkers {
     return [pscustomobject]@{ Supervisor = $sup; Workers = $workers }
 }
 
+# KarizApp's and KarizDB's processes sampled in the background (resources.ps1: memory and processor time every 2 s)
+# into perf\resources-<Label>.jsonl, for docs/qa/PERFORMANCE_E2E_FA.md section 2; scripts/bank-sim/perf.mjs sums them up.
+function Start-Sampler([string]$Label) {
+    $file = Join-Path (Join-Path $Out 'perf') "resources-$Label.jsonl"
+    $stop = "$file.stop"
+    Remove-Item -LiteralPath $file, $stop -Force -ErrorAction SilentlyContinue
+    $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $q = { param($v) '"' + ([string]$v).TrimEnd('\') + '"' }
+    $argList = @('-NoProfile', '-NonInteractive', '-File', (& $q (Join-Path $PSScriptRoot 'resources.ps1')), '-InstallDir', (& $q $InstallDir), '-Out', (& $q $file), '-Stop', (& $q $stop))
+    $p = Start-Process -FilePath $ps -ArgumentList $argList -PassThru -WindowStyle Hidden
+    $null = $p.Handle
+    Write-Log "resource sampler '$Label' running (pid $($p.Id)): $file"
+    return [pscustomobject]@{ Label = $Label; Out = $file; Stop = $stop; Process = $p }
+}
+
+function Stop-Sampler($Sampler) {
+    if (-not $Sampler) { return }
+    Set-Content -LiteralPath $Sampler.Stop -Value 'stop' -Encoding ASCII
+    if (-not $Sampler.Process.WaitForExit(20000)) { try { Stop-Process -Id $Sampler.Process.Id -Force } catch { } }
+    Remove-Item -LiteralPath $Sampler.Stop -Force -ErrorAction SilentlyContinue
+    $n = 0
+    if (Test-Path -LiteralPath $Sampler.Out) { $n = @(Get-Content -LiteralPath $Sampler.Out).Count }
+    Write-Log "resource sampler '$($Sampler.Label)' stopped: $n samples"
+}
+
 # Allow ACEs of everyone / users / authenticated users / interactive / guests on a path ($WriteOnly: only write-ish rights).
 $WideSids = @('S-1-1-0', 'S-1-5-11', 'S-1-5-32-545', 'S-1-5-4', 'S-1-5-32-546', 'S-1-5-7', 'S-1-5-2')
 function Get-WideAces([string]$Path, [switch]$WriteOnly) {
@@ -422,9 +447,14 @@ try {
         Invoke-CtlWatched @('demo', 'load', '--size', 'medium', '--wait', '--force') 45 'demo-load' | Out-Null
         Invoke-Js 'api.mjs' 'api-demo-on' | Out-Null
         Invoke-Js 'browser.mjs' 'browser-demo' @('--shots', (Join-Path $Out 'shots')) | Out-Null
+        # the administrator's and the requester's main pages measured on the medium pack's volume (budgets: perf.mjs);
+        # a page over its budget is recorded and the purge still runs
+        $perfError = $null
+        try { Invoke-Js 'browser.mjs' 'browser-perf' @('--shots', (Join-Path $Out 'shots')) | Out-Null } catch { $perfError = $_.Exception.Message }
         Invoke-CtlWatched @('demo', 'purge', '--yes', '--wait') 30 'demo-purge' | Out-Null
         Invoke-Js 'browser.mjs' 'browser-purged' @('--shots', (Join-Path $Out 'shots')) | Out-Null
         Invoke-Js 'api.mjs' 'api-demo-off' | Out-Null
+        if ($perfError) { Fail $perfError }
     }
 
     Invoke-Scenario 8 'Security posture' {
@@ -533,7 +563,20 @@ try {
     Invoke-Scenario 10 "Load ($LoadUsers virtual users, $LoadSeconds s)" {
         $cs = Get-CimInstance Win32_ComputerSystem
         Note ("machine: {0} logical processors, {1:N1} GB memory, {2}" -f $cs.NumberOfLogicalProcessors, ($cs.TotalPhysicalMemory / 1GB), (Get-CimInstance Win32_Processor | Select-Object -First 1).Name)
-        Invoke-Js 'api.mjs' 'api-load' @('--users', "$LoadUsers", '--seconds', "$LoadSeconds") | Out-Null
+        # KarizApp and KarizDB for a minute with nobody on the server, then under the load (docs/qa/PERFORMANCE_E2E_FA.md)
+        $idle = Start-Sampler 'idle'
+        Start-Sleep -Seconds 60
+        Stop-Sampler $idle
+        $busy = Start-Sampler 'load'
+        $load = $null
+        try { $load = Invoke-Js 'api.mjs' 'api-load' @('--users', "$LoadUsers", '--seconds', "$LoadSeconds") -AllowFail } finally { Stop-Sampler $busy }
+        $res = Invoke-Js 'perf.mjs' 'perf-resources' @('--idle', $idle.Out, '--load', $busy.Out) -AllowFail
+        $bad = @()
+        foreach ($r in @(@('api-load', $load), @('perf-resources', $res))) {
+            if (-not $r[1]) { $bad += "$($r[0]): no result"; continue }
+            $bad += @($r[1].checks | Where-Object { -not $_.ok } | ForEach-Object { "$($r[0]): $($_.what) $($_.detail)" })
+        }
+        if ($bad.Count) { Fail ($bad -join ' | ') }
     }
 
     Invoke-Scenario 11 'DR drill: restore the backup of scenario 4' {
@@ -625,6 +668,8 @@ if ($Only.Count -and -not $Report) { if ($script:Aborted) { exit 1 }; exit 0 }
     if ($script:Findings.Count) { $md += ''; $md += '## Findings'; foreach ($f in $script:Findings) { $md += "- $f" } }
     Write-Utf8 (Join-Path $Out 'report.md') ($md -join "`r`n")
     if ($env:GITHUB_STEP_SUMMARY) { Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value ($md -join "`n") -Encoding UTF8 }
+    # the server's speed per page and persona, the load per endpoint, KarizApp and KarizDB (perf\server-perf.md, the summary)
+    try { Invoke-Js 'perf.mjs' 'perf-report' @('--dir', $Out) -AllowFail | Out-Null } catch { Write-Log "performance report: $($_.Exception.Message)" 'WARN' }
     Write-Log ("{0} scenario(s), {1} failed" -f $script:Results.Count, $failed.Count)
 }
 if (@($script:Results | Where-Object { $_.status -eq 'fail' }).Count -or $script:Results.Count -lt 14) { exit 1 }
