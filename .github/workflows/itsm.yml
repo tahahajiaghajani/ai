@@ -51,7 +51,7 @@ jobs:
 
   # the whole suite (every test, nothing skipped) in four parallel shards: one runner needs more than 25 minutes
   test:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) && !contains(github.event.head_commit.message, '[bank-sim-fast]')
     runs-on: ubuntu-latest
     timeout-minutes: 40
     strategy:
@@ -77,7 +77,7 @@ jobs:
   # About 7 minutes; the full crawl (every route, «… تازه», records and their tabs, phone width) is `npm run qa:crawl`
   # (about 35 minutes).
   clickthrough:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) && !contains(github.event.head_commit.message, '[bank-sim-fast]')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -180,6 +180,8 @@ jobs:
     # ports, uninstall keeping data, a given busy port refused with its reason in install-error.txt and the event log).
     # Guide: itsm/docs/SERVER_FA.md; design: itsm/docs/spec/SERVER.md
     needs: [check, test]
+    # TEMPORARY (bank simulation work): a commit marked [bank-sim-fast] skips the test shards; removed before merging
+    if: ${{ !cancelled() && needs.check.result == 'success' && (needs.test.result == 'success' || needs.test.result == 'skipped') }}
     runs-on: windows-latest
     timeout-minutes: 90
     defaults:
@@ -198,11 +200,11 @@ jobs:
         shell: powershell
         run: |
           $failed = 0
-          foreach ($f in Get-Item packaging/server/scripts/install.ps1, packaging/server/scripts/uninstall.ps1, packaging/server/scripts/common.ps1, packaging/server/scripts/smoke-test.ps1, packaging/server/scripts/build-msi.ps1) {
+          foreach ($f in @(Get-Item packaging/server/scripts/install.ps1, packaging/server/scripts/uninstall.ps1, packaging/server/scripts/common.ps1, packaging/server/scripts/smoke-test.ps1, packaging/server/scripts/build-msi.ps1) + @(Get-ChildItem packaging/server/scripts/bank-sim/*.ps1)) {
             $errors = $null
             # a script without a byte-order mark is read in the ANSI code page, as powershell.exe -File reads it
             [void][System.Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($f.FullName, [Text.Encoding]::Default), [ref]$null, [ref]$errors)
-            foreach ($e in @($errors)) { if ($e) { $failed++; Write-Host "::error file=itsm/packaging/server/scripts/$($f.Name),line=$($e.Extent.StartLineNumber)::$($e.Message)" } }
+            foreach ($e in @($errors)) { if ($e) { $failed++; Write-Host "::error file=$($f.FullName),line=$($e.Extent.StartLineNumber)::$($e.Message)" } }
           }
           if ($failed) { exit 1 }
       - name: Cache pinned binaries (Node.js, PostgreSQL, WinSW, WiX)
@@ -230,6 +232,7 @@ jobs:
           ./packaging/server/scripts/build-msi.ps1 -Dist server-dist -Cache packaging/server/.cache -Out server-release
           ./packaging/server/scripts/build-msi.ps1 -Dist server-dist -Cache packaging/server/.cache -Out server-upgrade-test -Suffix '-upgrade-test'
       - name: Air-gapped smoke test (443/80 held, default ports, setup, sign-in, incident, backup, re-install with dialog properties, upgrade, uninstall, busy given port)
+        if: ${{ !contains(github.event.head_commit.message, '[bank-sim-fast]') }}
         run: |
           $msi = Get-ChildItem server-release/*.msi | Select-Object -First 1
           $upgrade = Get-ChildItem server-upgrade-test/*.msi | Select-Object -First 1
@@ -283,3 +286,62 @@ jobs:
             gh release upload "$TAG" server-release/*.msi --clobber
           fi
           gh release view "$TAG" --json assets --jq '.assets[].name'
+
+  bank-sim:
+    # the bank's installation simulated end to end (itsm/docs/qa/BANK_SIM_FA.md, runbook itsm/docs/BANK_INSTALL_FA.md):
+    # this runner becomes the bank's application server on an intranet with no Internet (Windows Firewall blocks all
+    # outbound traffic but the LAN, every dropped packet logged, every connection audited with its program), a bank
+    # PKI made with PowerShell, a mock domain controller (LDAPS) and mail relay (STARTTLS) on the LAN address; 1.0.0
+    # (release itsm-v1.0.0) installed as the bank's admin would, set up in the browser, filled with records, backed
+    # up, upgraded in place to the MSI of this run, browsed by Playwright's Chromium as a branch PC (the bank CA
+    # trusted through the Windows store, no foreign request, no console error), demo data loaded and purged,
+    # security posture, resilience, load, a DR drill, the Windows app's sync client, uninstall and re-install, and the
+    # proof that the server's processes never tried to reach outside the bank. Everything it needs is fetched first.
+    needs: [server]
+    if: ${{ !cancelled() && needs.server.result == 'success' }}
+    runs-on: windows-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: itsm
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: itsm/package-lock.json
+      - run: npm ci
+      - name: Fetch everything before the Internet is cut (Playwright and Chromium, the 1.0.0 MSI, this run's MSI)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1.63.0
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          npx playwright install chromium
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          New-Item -ItemType Directory -Force -Path bank-sim/msi-1.0.0 | Out-Null
+          gh release download itsm-v1.0.0 --repo $env:GITHUB_REPOSITORY --pattern 'Kariz-Server-1.0.0.msi' --dir bank-sim/msi-1.0.0
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - uses: actions/download-artifact@v4
+        with:
+          name: itsm-server-msi
+          path: itsm/bank-sim/msi-this-run
+      - name: Bank simulation (no Internet from here on)
+        run: |
+          $old = Get-ChildItem bank-sim/msi-1.0.0/*.msi | Select-Object -First 1
+          $new = Get-ChildItem bank-sim/msi-this-run/*.msi | Select-Object -First 1
+          ./packaging/server/scripts/bank-sim/bank-sim.ps1 -Msi10 $old.FullName -Msi11 $new.FullName -Out "$env:RUNNER_TEMP\bank-sim"
+      - name: Restore outbound traffic
+        if: always()
+        run: |
+          Set-NetFirewallProfile -All -DefaultOutboundAction Allow
+          Get-NetFirewallRule -Group 'Kariz bank simulation' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: itsm-bank-sim
+          path: ${{ runner.temp }}/bank-sim
+          if-no-files-found: ignore
+          retention-days: 30

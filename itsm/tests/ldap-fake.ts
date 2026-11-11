@@ -108,6 +108,10 @@ export interface FakeOptions {
   pageSize?: number;
   /** bytes sent in clear text right behind the StartTLS answer (an attacker on the path) */
   afterStartTls?: Buffer;
+  /** the TLS key material instead of `cert` (scripts/bank-sim/ldap-mock.mjs: a PFX issued by a Windows CA) */
+  tlsOptions?: tls.SecureContextOptions;
+  /** where to listen (default 127.0.0.1 on a free port) */
+  listen?: { host: string; port: number };
 }
 
 export interface FakeLdap {
@@ -270,6 +274,7 @@ export async function fakeLdap(initial: FakeEntry[], o: FakeOptions = {}): Promi
     },
   };
   const { match, byDn } = makeMatcher(() => state.entries);
+  const keyMaterial = (): tls.SecureContextOptions => o.tlsOptions ?? { key: o.cert!.key, cert: o.cert!.pem };
   const sockets = new Set<net.Socket>();
 
   const serve = (raw: net.Socket, encryptedFromStart: boolean) => {
@@ -300,14 +305,14 @@ export async function fakeLdap(initial: FakeEntry[], o: FakeOptions = {}): Promi
         const id = intOf(idNode);
         if (op.tag === 0x77) {
           const nameNode = op.children.find((x) => x.tag === 0x80);
-          if (nameNode?.value.toString("utf8") !== START_TLS || !o.cert || encrypted) {
+          if (nameNode?.value.toString("utf8") !== START_TLS || !(o.cert || o.tlsOptions) || encrypted) {
             write(seq(0x30, berInt(id), seq(0x78, berInt(2, 0x0a), berStr(""), berStr("unsupported extended operation"))));
             continue;
           }
           write(Buffer.concat([seq(0x30, berInt(id), seq(0x78, berInt(0, 0x0a), berStr(""), berStr(""))), o.afterStartTls ?? Buffer.alloc(0)]));
           state.starttls++;
           sock.removeListener("data", onData);
-          const secure = new tls.TLSSocket(sock, { isServer: true, key: o.cert.key, cert: o.cert.pem });
+          const secure = new tls.TLSSocket(sock, { isServer: true, secureContext: tls.createSecureContext(keyMaterial()) });
           secure.on("error", () => secure.destroy());
           secure.on("data", onData);
           sock = secure;
@@ -406,7 +411,7 @@ export async function fakeLdap(initial: FakeEntry[], o: FakeOptions = {}): Promi
 
   const server =
     o.mode === "ldaps"
-      ? tls.createServer({ key: o.cert!.key, cert: o.cert!.pem }, (s) => serve(s, true))
+      ? tls.createServer(keyMaterial(), (s) => serve(s, true))
       : net.createServer((s) => serve(s, false));
   server.on("connection", (s: net.Socket) => {
     state.connections++;
@@ -414,9 +419,10 @@ export async function fakeLdap(initial: FakeEntry[], o: FakeOptions = {}): Promi
     s.on("close", () => sockets.delete(s));
   });
   server.on("tlsClientError", () => undefined);
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+  const at = o.listen ?? { host: "127.0.0.1", port: 0 };
+  await new Promise<void>((resolve) => server.listen(at.port, at.host, () => resolve()));
   state.port = (server.address() as net.AddressInfo).port;
-  state.url = `${o.mode === "ldaps" ? "ldaps" : "ldap"}://127.0.0.1:${state.port}`;
+  state.url = `${o.mode === "ldaps" ? "ldaps" : "ldap"}://${at.host}:${state.port}`;
   state.close = () =>
     new Promise<void>((resolve) => {
       for (const s of sockets) s.destroy();
