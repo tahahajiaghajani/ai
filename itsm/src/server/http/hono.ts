@@ -2,6 +2,7 @@
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import type { ZodType } from "zod";
 import { ZodError } from "zod";
+import { randomUUID } from "node:crypto";
 import type { AuthSession, AuthUser, Ctx, MemberRow, OrgRow, ServerConfig } from "../context";
 import { makeCtx } from "../context";
 import { AppError, bad, dbErrorMessage, forbidden, notFound, tooMany, unauthorized, zodToAppError } from "./errors";
@@ -139,9 +140,11 @@ export function errorResponse(err: unknown, c: Context) {
     const mapped = dbErrorMessage(err);
     if (mapped) e = mapped;
     else {
+      // an id the person can quote and the operator finds in the log, with the stack
+      const id = randomUUID().slice(0, 8);
       const cfg = (c as C).get?.("cfg");
-      cfg?.log.error("unhandled error", { path: c.req.path, err: String((err as Error)?.stack ?? err) });
-      e = new AppError(500, "internal", "خطای داخلی سرور؛ دوباره امتحان کنید");
+      cfg?.log.error(`unhandled error [${id}]`, { id, method: c.req.method, path: c.req.path, err: String((err as Error)?.stack ?? err) });
+      e = new AppError(500, "internal", `خطای داخلی سرور؛ دوباره امتحان کنید (کد پیگیری: ${id})`, { error_id: id });
     }
   }
   return c.json({ error: { code: e.code, message: e.message, details: e.details ?? null } }, e.status as 400);

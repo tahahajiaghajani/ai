@@ -19,6 +19,8 @@ const Orgs = lazy(() => import("./pages/orgs/Orgs"));
 const OrgWizard = lazy(() => import("./pages/orgs/OrgWizard"));
 const Admin = lazy(() => import("./pages/admin/Admin"));
 const PublicArea = lazy(() => import("./pages/published/PublicArea"));
+// «آماده‌سازی پایگاه داده»: the web version prepares its database (or cannot reach it) — never a raw server error
+const Preparing = lazy(() => import("./pages/auth/Preparing").then((m) => ({ default: m.Preparing })));
 // «تأیید دوبارهٔ هویت» before sensitive administration (src/ui/lib/api.ts retries the request once it is confirmed)
 const ReauthGate = lazy(() => import("./pages/auth/Reauth").then((m) => ({ default: m.ReauthGate })));
 
@@ -155,6 +157,15 @@ function OrgArea() {
 }
 
 export function App() {
+  const { serverError } = useSession();
+  if (serverError)
+    return (
+      <PageBoundary>
+        <Suspense fallback={<Loading full />}>
+          <Preparing error={serverError} />
+        </Suspense>
+      </PageBoundary>
+    );
   return (
     <PageBoundary>
       <Suspense fallback={<Loading full />}>

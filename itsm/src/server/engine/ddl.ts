@@ -108,16 +108,20 @@ export function ddlFor(def: TableDef): string {
   const t = def.table;
   const out: string[] = [];
   out.push(`-- ${def.key}: ${def.plural}`);
-  out.push(`create table if not exists ${t} (\n  id uuid primary key,\n  org_id uuid not null references sm_orgs(id) on delete cascade,\n  ${BASE_DDL.join(",\n  ")}\n);`);
-  for (const col of BASE_DDL) out.push(`alter table ${t} add column if not exists ${col};`);
-  if (def.numbered) {
-    out.push(`alter table ${t} add column if not exists no integer;`);
-    out.push(`alter table ${t} add column if not exists number text generated always as ${numberExpr(def)} stored;`);
-  }
-  for (const f of def.fields) {
-    if (f.base || f.custom) continue;
-    out.push(`alter table ${t} add column if not exists ${f.name} ${columnType(f)};`);
-  }
+  const own = def.fields.filter((f) => !f.base && !f.custom).map((f) => `${f.name} ${columnType(f)}`);
+  const numbered = def.numbered ? ["no integer", `number text generated always as ${numberExpr(def)} stored`] : [];
+  const searchCol = searchColumn(def);
+  // a fresh table is created whole, in one statement (its stored columns too: adding one later rewrites the table);
+  // an older copy of it is first brought up to date column by column — skipped on a fresh database, where those
+  // thousands of statements would each find their column already there
+  const columns = [...BASE_DDL, ...numbered, ...own, ...(searchCol ? [`${searchCol.name} text generated always as (${searchCol.expr}) stored`] : [])];
+  const alters = [...BASE_DDL, ...numbered, ...own].map((col) => `    alter table ${t} add column if not exists ${col};`);
+  out.push(["do $cols$", "begin", `  if to_regclass('${t}') is not null then`, ...alters, "  end if;", "end", "$cols$;"].join("\n"));
+  out.push(`create table if not exists ${t} (\n  id uuid primary key,\n  org_id uuid not null references sm_orgs(id) on delete cascade,\n  ${columns.join(",\n  ")}\n);`);
+  // the stored search document before any index: adding a stored generated column rewrites the table and rebuilds every
+  // index already on it (each build is a file sync), so a fresh table gets it while it has only its primary key
+  const search = searchIndex(def);
+  if (search) out.push(search);
   const idx = (suffix: string, body: string, unique = false) =>
     out.push(`create ${unique ? "unique " : ""}index if not exists ${shortName(`${t}_${suffix}`)} on ${t} ${body};`);
   if (def.numbered) idx("no_uk", "(org_id, no)", true);
@@ -153,8 +157,6 @@ export function ddlFor(def: TableDef): string {
   // time windows of dashboards and reports (opened in the last six months, by month…): records arrive in time order,
   // so a BRIN index of a few pages narrows a window to its share of the table
   if (def.fields.some((f) => f.name === "opened_at" && f.type === "datetime" && !f.custom && !f.base)) idx("opened_brin", "using brin (opened_at)");
-  const search = searchIndex(def);
-  if (search) out.push(search);
   out.push(`drop trigger if exists ${t}_sync on ${t};`);
   if (def.features?.sync !== false) {
     out.push(`create trigger ${t}_sync before insert or update on ${t} for each row execute function sm_sync_touch('${def.key}');`);
@@ -326,10 +328,33 @@ export function archiveDdl(def: TableDef): string {
   return out.join("\n");
 }
 
+/**
+ * pg_trgm where the server offers it (PostgreSQL, Supabase), before any table: the search documents' trigram indexes
+ * (`searchIndex`) are created with their tables, so a fresh database never builds the tables twice. The same block as
+ * migration 0095_scale (which still runs for databases made before it); PGlite has no pg_trgm and skips it.
+ */
+export const TRGM_EXTENSION = `do $ext$
+begin
+  if not exists (select 1 from pg_extension where extname = 'pg_trgm')
+     and exists (select 1 from pg_available_extensions where name = 'pg_trgm') then
+    begin
+      create extension pg_trgm;
+    exception when others then
+      raise notice 'pg_trgm not installed: %', sqlerrm;
+    end;
+  end if;
+end
+$ext$;`;
+
+/** The generated DDL in its pieces, in order: functions and extension, one per table (sorted by key), archives, REVOKE. */
+function ddlPieces(): string[] {
+  const tables = physicalTables();
+  return [`${DEMO_CAPTURE_FN}\n\n${DEMO_TOUCH_FN}\n\n${TRGM_EXTENSION}`, ...tables.map(ddlFor).filter(Boolean), ...tables.map(archiveDdl).filter(Boolean), REVOKE];
+}
+
 /** The DDL of every registered table (deterministic: sorted by key), archives after their tables. */
 export function ddlForAll(): string {
-  const archives = physicalTables().map(archiveDdl).filter(Boolean);
-  return `${DEMO_CAPTURE_FN}\n\n${DEMO_TOUCH_FN}\n\n${physicalTables().map(ddlFor).join("\n\n")}\n\n${archives.length ? `${archives.join("\n\n")}\n\n` : ""}${REVOKE}\n`;
+  return `${ddlPieces().join("\n\n")}\n`;
 }
 
 export function ddlHash(sql = ddlForAll()): string {
@@ -337,27 +362,125 @@ export function ddlHash(sql = ddlForAll()): string {
 }
 
 const META_KEY = "engine.ddl";
+/** sm_meta keys of the chunks of one DDL version already applied: `engine.ddl.part:<hash>:<index>`. */
+const PART_KEY = "engine.ddl.part:";
+/**
+ * sm_meta keys of every DDL version ever completed here: `engine.ddl.seen:<hash>`. The DDL is additive (a removed field
+ * keeps its column), so a version once applied stays applied: an older deployment still serving while a newer build
+ * migrated the database (Vercel builds before it switches) finds its own version seen and does not apply it again.
+ */
+const SEEN_KEY = "engine.ddl.seen:";
 
 /**
- * Apply the generated DDL when it changed since it was last applied to this database. Returns true when it ran.
- * Serialised with the migrations' advisory lock (several cloud instances may start at once).
+ * Bytes of generated DDL per chunk. A chunk is one step of the migration (one transaction): about 25 tables, a second
+ * or two on a small database — well inside one request of a serverless function (Vercel: 60 s) — and a few of them
+ * together still fit the Supabase SQL Editor (supabase/manual, ≈ 0.98 MB per query there).
+ */
+export const ENGINE_CHUNK_BYTES = 100_000;
+
+export interface EngineChunk {
+  /** 0-based position and the number of chunks of this DDL version */
+  index: number;
+  total: number;
+  /** the DDL version (sha256 of `ddlForAll()`) */
+  hash: string;
+  /** names of the tables it creates or brings up to date (progress and logs) */
+  tables: string[];
+  /**
+   * The chunk's DDL and its own bookkeeping: it records itself in sm_meta and, when it completes the set, records the
+   * version (`engine.ddl`) and the migration 0006 — so the app (src/server/db/migrate.ts) and a person pasting
+   * supabase/manual into the SQL Editor run the very same text and either resumes where the other stopped.
+   */
+  sql: string;
+}
+
+let plan: { hash: string; chunks: EngineChunk[] } | null = null;
+onTableRegistered(() => {
+  plan = null;
+});
+
+/** The generated DDL in chunks of about `ENGINE_CHUNK_BYTES` (cached until a table registers). */
+export function engineChunks(): { hash: string; chunks: EngineChunk[] } {
+  if (plan) return plan;
+  const pieces = ddlPieces();
+  const hash = ddlHash(`${pieces.join("\n\n")}\n`);
+  const groups: string[][] = [];
+  let size = Infinity;
+  for (const p of pieces) {
+    if (size + p.length > ENGINE_CHUNK_BYTES && groups.length && groups[groups.length - 1].length) size = Infinity;
+    if (size === Infinity) {
+      groups.push([]);
+      size = 0;
+    }
+    groups[groups.length - 1].push(p);
+    size += p.length;
+  }
+  const total = groups.length;
+  const chunks = groups.map((g, index): EngineChunk => {
+    const body = g.join("\n\n");
+    const tables = [...new Set([...body.matchAll(/^create table if not exists (\w+)/gm)].map((m) => m[1]))];
+    const part = `${PART_KEY}${hash}:${index}`;
+    const sql = [
+      `-- engine DDL ${index + 1}/${total} (${hash.slice(0, 12)})`,
+      body,
+      `insert into sm_meta (key, value, updated_at) values ('${part}', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();`,
+      "do $engine$",
+      "begin",
+      `  if (select count(*) from sm_meta where key like '${PART_KEY}${hash}:%') >= ${total} then`,
+      `    insert into sm_meta (key, value, updated_at) values ('${META_KEY}', '${hash}', now()) on conflict (key) do update set value = excluded.value, updated_at = now();`,
+      `    insert into sm_meta (key, value, updated_at) values ('${SEEN_KEY}${hash}', 'done', now()) on conflict (key) do nothing;`,
+      `    delete from sm_meta where key like '${PART_KEY}%';`,
+      "    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;",
+      "  end if;",
+      "end",
+      "$engine$;",
+    ].join("\n");
+    return { index, total, hash, tables, sql };
+  });
+  plan = { hash, chunks };
+  return plan;
+}
+
+/** What of the current DDL version this database has: everything (`complete`), or the chunks already applied. */
+export interface EngineProgress {
+  complete: boolean;
+  done: Set<number>;
+}
+
+/** Parse what sm_meta says about the engine DDL (the stored version and the chunk keys). */
+export function engineProgress(stored: string | null | undefined, parts: string[], hash = engineChunks().hash): EngineProgress {
+  if (stored === hash || parts.includes(`${SEEN_KEY}${hash}`)) return { complete: true, done: new Set() };
+  const prefix = `${PART_KEY}${hash}:`;
+  return { complete: false, done: new Set(parts.filter((k) => k.startsWith(prefix)).map((k) => Number(k.slice(prefix.length)))) };
+}
+
+/** sm_meta's facts about the engine DDL: the stored version, and the chunk and version keys (`parts`). */
+export async function readEngineProgress(q: Pick<Db, "query">): Promise<{ stored: string | null; parts: string[] }> {
+  const rows = await q.query<{ key: string; value: string | null }>(`select key, value from sm_meta where key = '${META_KEY}' or key like '${PART_KEY}%' or key like '${SEEN_KEY}%'`);
+  return { stored: rows.find((r) => r.key === META_KEY)?.value ?? null, parts: rows.filter((r) => r.key !== META_KEY).map((r) => r.key) };
+}
+
+/**
+ * Apply the generated DDL when it changed since it was last applied to this database, chunk by chunk (each its own
+ * transaction under the migrations' advisory lock; several cloud instances may start at once). Returns true when it ran.
+ * The web version runs the same chunks within a time budget per request (src/server/db/migrate.ts `migrateSteps`).
  */
 export async function reconcileSchema(db: Db, log: (msg: string) => void = () => {}): Promise<boolean> {
-  const sql = ddlForAll();
-  const hash = ddlHash(sql);
-  const stored = await db.one<{ value: string }>(`select value from sm_meta where key = $1`, [META_KEY]).catch(() => null);
-  if (stored?.value === hash) return false;
-  const ran = await db.tx(async (tx) => {
-    await tx.query("select pg_advisory_xact_lock(724100)");
-    const again = await tx.one<{ value: string }>(`select value from sm_meta where key = $1`, [META_KEY]);
-    if (again?.value === hash) return false;
-    await tx.exec(sql);
-    await tx.query(
-      `insert into sm_meta (key, value, updated_at) values ($1, $2, now()) on conflict (key) do update set value = excluded.value, updated_at = now()`,
-      [META_KEY, hash],
-    );
-    return true;
-  });
+  const { hash, chunks } = engineChunks();
+  const first = await readEngineProgress(db).catch(() => ({ stored: null, parts: [] as string[] }));
+  if (first.stored === hash) return false;
+  let ran = false;
+  for (const chunk of chunks) {
+    const did = await db.tx(async (tx) => {
+      await tx.query("select pg_advisory_xact_lock(724100)");
+      const r = await readEngineProgress(tx);
+      const p = engineProgress(r.stored, r.parts, hash);
+      if (p.complete || p.done.has(chunk.index)) return false;
+      await tx.exec(chunk.sql);
+      return true;
+    });
+    ran ||= did;
+  }
   if (ran) log("engine schema reconciled");
   return ran;
 }

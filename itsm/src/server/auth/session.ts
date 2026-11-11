@@ -44,7 +44,7 @@ export interface SessionMeta {
 
 const SESSION_COLUMNS = "id, user_id, kind, expires_at, auth_method, org_id, source_id, reauth_at, created_at";
 
-export async function issueSession(db: Db, userId: string, kind: AuthSession["kind"], meta: SessionMeta = {}): Promise<IssuedSession> {
+export async function issueSession(db: Queryable, userId: string, kind: AuthSession["kind"], meta: SessionMeta = {}): Promise<IssuedSession> {
   const secret = randomToken(32);
   const policy = kind === "web" ? (meta.policy ?? null) : null;
   const hours = kind === "device" ? DEVICE_DAYS * 24 : policy ? policy.absolute_hours : WEB_DAYS * 24;
