@@ -30,6 +30,22 @@ describe("the purge derives a platform-raised record from the demo row it cannot
     expect(viaCi[0]).toMatch(/x\.updated_by is null or exists \(select 1 from sm_demo_rows d where d\.org_id = \$1 and d\.row_id = x\.updated_by\)/);
   });
 
+  it("a work order the field service's schedule generated from a demo maintenance plan is derived; one a real person made or changed is not", () => {
+    // a demo plan keeps generating while the pack is loaded: its next visit a quarter later is made by the sweep, outside
+    // the demo scope, and names the plan only through an optional reference that the platform alone sets
+    const plan = TABLES.get("work_order")?.fields.find((f) => f.name === "maintenance_plan_id");
+    expect(plan?.type).toBe("ref");
+    expect(plan?.required, "an optional reference").toBeFalsy();
+    expect(plan?.readonly, "set by the platform only").toBe(true);
+    const conds = derivedConds(info("work_order", ["id", "org_id", "maintenance_plan_id", "location_id", "entitlement_id", "created_by", "updated_by"]));
+    const viaPlan = conds.filter((c) => c.includes(`x."maintenance_plan_id"`));
+    expect(viaPlan, "derived through maintenance_plan_id").toHaveLength(1);
+    expect(viaPlan[0]).toContain("x.created_by is null");
+    expect(viaPlan[0]).toMatch(/x\.updated_by is null or exists \(select 1 from sm_demo_rows d where d\.org_id = \$1 and d\.row_id = x\.updated_by\)/);
+    // its other optional references (the place of the visit, the customer's entitlement) never derive it
+    for (const name of ["location_id", "entitlement_id"]) expect(conds.some((c) => c.includes(`x."${name}"`)), name).toBe(false);
+  });
+
   it("an optional reference of a numbered record never derives it (a real incident naming a demo CI stays)", () => {
     const def = TABLES.get("incident");
     const optional = def?.fields.find((f) => f.type === "ref" && !f.required && !f.base);

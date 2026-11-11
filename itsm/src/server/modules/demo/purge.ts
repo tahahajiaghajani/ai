@@ -107,6 +107,19 @@ export const COMPUTED_TABLES = [
   "sm_allocation_results",
 ];
 
+/**
+ * Computed columns of the organisation's own rows: statistics an organisation-wide job writes onto real definitions
+ * from the records — a catalogue item's fulfilment times and orders of the last 90 days (request.stats, from request
+ * items: the pack's too while it is loaded). The job is not demo work, so nothing records what it changed; the columns
+ * are saved with the computed tables before the load (`<table>#columns` in sm_demo_saved) and put back by the purge on
+ * the rows that were there — the next scheduled run recomputes them from real data. Only the platform writes them
+ * (read-only, without history). A computed column of real rows added later belongs here.
+ */
+export const COMPUTED_COLUMNS: Record<string, readonly string[]> = {
+  sm_catalog_items: ["sle_p50", "sle_p85", "sle_p95", "sle_samples", "orders_90d"],
+};
+const COLUMNS = "#columns";
+
 /** Above this many rows a table is not saved (a large organisation's records: see docs/DEMO_FA.md). */
 const SAVE_LIMIT = 20_000;
 /** Columns a tombstone keeps (identity, sync, and what a pull needs to judge a side row). */
@@ -114,6 +127,16 @@ const TOMBSTONE_KEEP = new Set(["id", "org_id", "rev", "deleted_at", "created_at
 
 /** Columns that name who wrote a platform row, not what it is about (a real setting a demo person touched stays). */
 const STAMPS = new Set(["id", "org_id", "created_by", "updated_by"]);
+
+/**
+ * References that name the definition a module's schedule generated a record from (set by the platform only). A demo
+ * definition keeps generating while the pack is loaded — a demo maintenance plan's next visit a quarter later, made by
+ * the field service's sweep outside the demo scope — and what it generates is demo data like the definition. A
+ * generator of records from a definition the pack loads belongs here.
+ */
+const GENERATED_FROM: Record<string, readonly string[]> = {
+  work_order: ["maintenance_plan_id"],
+};
 
 const ident = (s: string) => `"${s.replace(/"/g, '""')}"`;
 const lit = (s: string) => `'${s.replace(/'/g, "''")}'`;
@@ -218,10 +241,12 @@ export function derivedConds(t: TableInfo): string[] {
   if (!t.def.numbered) for (const f of t.def.fields) if (!f.base && f.required && (f.type === "ref" || f.type === "user" || f.type === "group")) add(names(t, f.name));
   // a record the platform raised by itself (no person made it, no real person changed it) that cannot exist without the
   // demo row it names — e.g. a CMDB finding a scheduled check opened about a demo CI while the pack was loaded: it is
-  // about demo data. A record a real person made or changed stays (its reference is reported, never deleted).
+  // about demo data — or that a module's schedule generated from a demo definition (GENERATED_FROM). A record a real
+  // person made or changed stays (its reference is reported, never deleted).
   if (t.def.numbered && t.cols.has("created_by") && t.cols.has("updated_by")) {
+    const generated = GENERATED_FROM[t.def.key] ?? [];
     for (const f of t.def.fields) {
-      if (f.base || !f.required || f.type !== "ref") continue;
+      if (f.base || !(f.required || generated.includes(f.name)) || f.type !== "ref") continue;
       const c = names(t, f.name);
       if (c) add(`(${c} and x.created_by is null and (x.updated_by is null or ${isDemo("x.updated_by")}))`);
     }
@@ -453,13 +478,28 @@ export async function removeFiles(q: Queryable, orgId: string, shas: string[], s
  */
 export async function saveComputed(q: Queryable, orgId: string, info: TableInfo[]): Promise<string[]> {
   const saved: string[] = [];
-  const names = new Set(info.map((t) => t.name));
-  for (const table of COMPUTED_TABLES) {
-    if (!names.has(table)) continue;
+  const byName = new Map(info.map((t) => [t.name, t]));
+  const tooMany = async (table: string) => {
     const c = await q.one<{ n: number }>(`select count(*)::int as n from (select 1 from ${ident(table)} where org_id = $1 limit ${SAVE_LIMIT + 1}) x`, [orgId]);
-    if ((c?.n ?? 0) > SAVE_LIMIT) continue;
+    return (c?.n ?? 0) > SAVE_LIMIT;
+  };
+  for (const table of COMPUTED_TABLES) {
+    if (!byName.has(table) || (await tooMany(table))) continue;
     await q.query(`insert into sm_demo_saved (org_id, tbl, row_id, data) select $1, ${lit(table)}, x.id, to_jsonb(x) from ${ident(table)} x where x.org_id = $1 on conflict (org_id, tbl, row_id) do nothing`, [orgId]);
     saved.push(table);
+  }
+  // the computed columns of real rows: only those columns, per row (COMPUTED_COLUMNS)
+  for (const [table, want] of Object.entries(COMPUTED_COLUMNS)) {
+    const t = byName.get(table);
+    const cols = t && hasIdOrg(t) ? want.filter((c) => t.cols.has(c) && !t.cols.get(c)!.generated) : [];
+    if (!cols.length || (await tooMany(table))) continue;
+    await q.query(
+      `insert into sm_demo_saved (org_id, tbl, row_id, data)
+       select $1, ${lit(table + COLUMNS)}, x.id, jsonb_build_object(${cols.map((c) => `${lit(c)}, x.${ident(c)}`).join(", ")}) from ${ident(table)} x where x.org_id = $1
+       on conflict (org_id, tbl, row_id) do nothing`,
+      [orgId],
+    );
+    saved.push(table + COLUMNS);
   }
   return saved;
 }
@@ -472,7 +512,8 @@ export async function computedSince(q: Queryable, orgId: string, info: TableInfo
   let n = 0;
   const byName = new Map(info.map((t) => [t.name, t]));
   for (const table of saved) {
-    const t = byName.get(table);
+    // (computed columns of real rows: a row their saved copy lacks is real data made meanwhile, never demo data)
+    const t = table.endsWith(COLUMNS) ? null : byName.get(table);
     if (!t || !hasIdOrg(t)) continue;
     const rows = await q.query(
       `insert into sm_demo_rows (org_id, row_id, tbl)
@@ -495,11 +536,38 @@ async function dropTrail(q: Queryable, orgId: string, ids: string[]): Promise<vo
   await q.query(`delete from sm_links where org_id = $1 and (from_id = any($2::uuid[]) or to_id = any($2::uuid[]))`, [orgId, list]);
 }
 
+/**
+ * Put the computed columns of real rows back (COMPUTED_COLUMNS, saved as `tag`): on the rows that were there before the
+ * load, the saved columns the table still has — only rows whose values differ (no new revision for the rest). A row
+ * made meanwhile keeps its values (real data; the next scheduled run recomputes them). Returns the rows put back.
+ */
+async function restoreColumns(q: Queryable, orgId: string, t: TableInfo | undefined, tag: string): Promise<number> {
+  if (!t || !hasIdOrg(t)) return 0;
+  const sample = await q.one<{ data: Record<string, unknown> }>(`select data from sm_demo_saved where org_id = $1 and tbl = ${lit(tag)} limit 1`, [orgId]);
+  const cols = sample ? Object.keys(sample.data).filter((c) => t.cols.has(c) && !t.cols.get(c)!.generated && c !== "id" && c !== "org_id") : [];
+  if (!cols.length) return 0;
+  const rows = await q.query(
+    `update ${ident(t.name)} x set ${cols.map((c) => `${ident(c)} = r.${ident(c)}`).join(", ")}
+       from sm_demo_saved s, jsonb_populate_record(null::${ident(t.name)}, s.data) r
+      where s.org_id = $1 and s.tbl = ${lit(tag)} and x.id = s.row_id and x.org_id = $1
+        and (${cols.map((c) => `x.${ident(c)} is distinct from r.${ident(c)}`).join(" or ")})
+      returning x.id`,
+    [orgId],
+  );
+  return rows.length;
+}
+
 /** Put the computed tables saved before the load back as they were. Returns rows restored per table. */
 export async function restoreComputed(q: Queryable, orgId: string, info: TableInfo[], saved: string[]): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
   const byName = new Map(info.map((t) => [t.name, t]));
   for (const table of saved) {
+    if (table.endsWith(COLUMNS)) {
+      const name = table.slice(0, -COLUMNS.length);
+      const n = await restoreColumns(q, orgId, byName.get(name), table);
+      if (n) out[name] = (out[name] ?? 0) + n;
+      continue;
+    }
     const t = byName.get(table);
     if (!t || !hasIdOrg(t)) continue;
     // computed while demo data was there (the job queue runs on during the purge too): recomputed from real data by the

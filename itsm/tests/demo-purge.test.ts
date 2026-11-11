@@ -26,6 +26,18 @@ import { itamSweep } from "@server/modules/itam/jobs";
 import { fleet, openAttestations, verifyCustody } from "@server/modules/itam/bank";
 import { financialSweep } from "@server/modules/financial";
 import { applyPolicies } from "@server/modules/cmdb/jobs";
+import { csmSweep } from "@server/modules/csm";
+import { esmSweep } from "@server/modules/esm";
+import { fsmSweep } from "@server/modules/field_service";
+import { generateMaintenanceIn } from "@server/modules/field_service/service";
+import { workforceSweep } from "@server/modules/workforce";
+import { slmSweep } from "@server/modules/slm/jobs";
+import { releaseSweep } from "@server/modules/release/jobs";
+import { sweep as eventSweep } from "@server/modules/event/jobs";
+import { continuitySweep } from "@server/modules/continuity/jobs";
+import { securitySweep } from "@server/modules/security/jobs";
+import { portalSweep } from "@server/modules/portal";
+import { periodKeyOf } from "@shared/financial/logic";
 
 /**
  * Columns that are bookkeeping, not content: counters that only move forward (sync revisions, the access version,
@@ -109,6 +121,23 @@ async function settle(e: EngineOrg, budgetMs = 90_000) {
     await e.db.query(`update sm_jobs set run_at = now() where status = 'queued' and run_at > now() and (kind like '%seed%' or kind like '%install%')`);
     const r = await tick(e.cfg, { budgetMs: 10_000 });
     if (!r.ran && !r.more) break;
+  }
+}
+
+/**
+ * Run the queue until nothing is due and no job of these kinds waits either — their delay (an XLA rescore waits 20 s
+ * after the record's last event) skipped, as if that time had passed — within the budget. `settle` stops once nothing
+ * is due, or when its budget ends with a backlog on a loaded machine; what the platform computes from the pack (XLA
+ * scores, the library's ingestion) is asserted only once its jobs ran.
+ */
+async function drain(e: EngineOrg, kinds: string[], budgetMs = 300_000) {
+  const list = kinds.map((k) => `'${k}'`).join(", ");
+  const until = Date.now() + budgetMs;
+  while (Date.now() < until) {
+    await e.db.query(`update sm_jobs set run_at = now() where status = 'queued' and run_at > now() and kind in (${list})`);
+    const r = await tick(e.cfg, { budgetMs: 10_000 });
+    if (r.ran || r.more) continue;
+    if (!(await e.db.one(`select 1 from sm_jobs where status = 'queued' and kind in (${list}) limit 1`))) return;
   }
 }
 
@@ -213,6 +242,9 @@ describe.skipIf(skip)(title, () => {
     expect((await e.owner.get(`/o/${e.org}/demo/banner`)).active).toBe(true);
     // demo sign-in is off by default: the presenter's administrator turns it on
     expect(status.signin).toBe(false);
+    // turning it on asks for a recent sign-in (15 minutes; a slow machine's load takes longer): the administrator
+    // confirms their identity again, as the console's prompt has them do
+    await e.owner.post("/auth/reauth", { password: "s3cret-pass" });
     await e.owner.post(`/o/${e.org}/demo/signin`, { on: true });
     status = await e.owner.get(`/o/${e.org}/demo`);
     expect(status.signin).toBe(true);
@@ -224,9 +256,29 @@ describe.skipIf(skip)(title, () => {
     // the smaller modules: the portal's announcement, the on-call schedule, monitoring alerts
     expect(Object.keys(status.refused ?? {}).filter((k) => ["announcement", "oncall_schedule", "oncall_rotation", "alert"].includes(k))).toEqual([]);
     expect(status.counts.announcement).toBe(1);
-    expect(status.counts.oncall_schedule).toBe(1);
-    expect(status.counts.alert).toBe(3);
+    expect(status.counts.oncall_schedule).toBeGreaterThan(1);
+    expect(status.counts.alert).toBeGreaterThan(3);
+    // the rest of the bank: no module refused any part of the pack, and every module has its records
+    expect(status.refused ?? {}).toEqual({});
+    for (const k of ["budget", "allocation_rule", "allocation_run", "slm_xla_policy", "wfm_person_skill", "wfm_roster", "wfm_absence", "customer_account", "customer_case", "case_escalation", "install_base_item",
+      "facility_request", "finance_case", "legal_request", "purchase_request", "reservation", "territory", "technician", "work_order", "parts_requirement", "maintenance_plan", "event", "bia", "continuity_plan", "exercise", "outage",
+      "grc_control", "grc_risk", "release", "deployment", "dev_repository", "project", "project_task", "portal_link", "portal_topic", "survey", "survey_response", "doc_document", "analytics_dashboard", "analytics_indicator"]) {
+      expect(status.counts[k] ?? 0, k).toBeGreaterThan(0);
+    }
     const n = async (sql: string) => (await e.db.one<{ n: number }>(sql.replace("$org", "$1"), [e.org]))!.n;
+    // the personas of the rest of the bank are there, none an administrator (membership role member, no tenant_admin)
+    for (const key of ["finance", "csm", "field", "ops", "release", "pm", "grc", "wfm"]) expect(status.accounts.map((a: { persona: string }) => a.persona)).toContain(key);
+    expect(await n(`select count(*)::int as n from sm_org_members m join sm_users u on u.id = m.user_id where m.org_id = $org and u.email like '%aftab-bank.example' and m.role not in ('member', 'viewer')`)).toBe(0);
+    expect(await n(`select count(*)::int as n from sm_member_profiles p join sm_users u on u.id = p.user_id where p.org_id = $org and u.email like '%aftab-bank.example' and p.roles ? 'tenant_admin'`)).toBe(0);
+    // finance: the chargeback was calculated and posted by the module's own services (the debits of the departments)
+    // (a chargeback needs two closed months of the fiscal year: none in its first two months)
+    const month = Number(periodKeyOf(new Date().toISOString().slice(0, 10)).slice(5, 7));
+    expect(await n(`select count(*)::int as n from sm_allocation_runs where org_id = $org and mode = 'chargeback' and state = 'posted'`)).toBe(month >= 3 ? 1 : 0);
+    if (month >= 3) expect(await n(`select count(*)::int as n from sm_cost_entries where org_id = $org and source = 'allocation'`)).toBeGreaterThan(0);
+    // events: the pipeline raised an incident from the critical alert of the card switch
+    expect(await n(`select count(*)::int as n from sm_alerts where org_id = $org and incident_id is not null and severity = 'critical'`)).toBeGreaterThan(0);
+    // field service: the module generated the first occurrence of each region's plan
+    expect(await n(`select count(*)::int as n from sm_work_orders where org_id = $org and maintenance_plan_id is not null`)).toBeGreaterThan(0);
     expect(await n(`select count(distinct category)::int as n from sm_assets where org_id = $org and deleted_at is null and category in ('atm', 'crs', 'pos', 'desktop', 'passbook_printer', 'network', 'server')`)).toBe(7);
     expect(await n(`select count(*)::int as n from sm_assets where org_id = $org and category = 'pos' and terminal_id is not null and psp is not null and merchant_id is not null`)).toBeGreaterThan(0);
     expect(await n(`select count(distinct os_eos_date)::int as n from sm_assets where org_id = $org and category = 'atm' and os_eos_date is not null`)).toBeGreaterThan(1);
@@ -331,8 +383,65 @@ describe.skipIf(skip)(title, () => {
     const models = await e.db.query<{ key: string }>(`select key from sm_ai_models where org_id = $1 and table_key = 'incident' order by key limit 2`, [e.org]);
     for (const m of models) await enqueue(e.db, { kind: "ai.ml.train", orgId: e.org, payload: { key: m.key }, dedupeKey: `ai.ml.train:${m.key}` });
     await archiveBatch(sys, TABLES.get("incident")!, 0, 20);
+    // the rest of the bank: each module's own scheduled work over the demo data, outside the demo scope — customer
+    // service (auto-close, account health), the departments, field service (maintenance generation, positions),
+    // workforce (absences, certificates, profiles), service levels (measures, reviews), releases, monitoring,
+    // continuity, security and GRC (control monitoring, KRIs, planned tests) and the portal (survey expiry)
+    await csmSweep(e.cfg, e.org);
+    await esmSweep(e.cfg, e.org);
+    await fsmSweep(e.cfg, e.org);
+    // a quarter later, with the pack still loaded: the field service's schedule generates the next visit of each demo
+    // maintenance plan, outside the demo scope — what a demo definition generates is demo data and goes with it
+    const nextVisits = await sys.write((tx) => generateMaintenanceIn(tx, sys, new Date(Date.now() + 92 * 86_400_000).toISOString().slice(0, 10)));
+    expect(nextVisits, "the demo maintenance plans' next visits").toBeGreaterThan(0);
+    await workforceSweep(sys);
+    await slmSweep(sys);
+    await releaseSweep(sys);
+    await eventSweep(sys);
+    await continuitySweep(sys);
+    await securitySweep(sys);
+    await portalSweep(sys);
+    // demo people at work in the new modules (requests of the pack's people: demo work): a customer-service note, a
+    // monitoring engineer acknowledging an alert of their team, the IT finance manager reversing a ledger entry
+    const csm = await persona("csm");
+    const kase = await e.db.one<{ id: string }>(`select id from sm_customer_cases where org_id = $1 and state not in ('closed', 'cancelled') and deleted_at is null order by opened_at desc limit 1`, [e.org]);
+    await csm.c.post(`/o/${e.org}/r/customer_case/${kase!.id}/journal`, { kind: "comment", body: "با مدیر مالی پذیرنده تماس گرفته شد" });
+    const ops = await persona("ops");
+    const alert = await e.db.one<{ id: string }>(
+      `select a.id from sm_alerts a join sm_event_sources s on s.id = a.source_id where a.org_id = $1 and a.state = 'open' and a.deleted_at is null and s.name like 'پایش خودپردازها%' and a.node like 'aft-switch-%' order by a.opened_at limit 1`, [e.org]);
+    expect(alert, "an open card switch alert of the pack's monitoring").toBeTruthy();
+    await ops.c.post(`/o/${e.org}/event/alerts/${alert!.id}/ack`, {});
+    const finance = await persona("finance");
+    const entry = await e.db.one<{ id: string }>(`select id from sm_cost_entries where org_id = $1 and source = 'contract' and not reversed and reversal_of is null and deleted_at is null order by entry_date limit 1`, [e.org]);
+    await finance.c.post(`/o/${e.org}/financial/entries/${entry!.id}/reverse`, { reason: "ثبت تکراری قرارداد (نمایشی)" });
+    // the real owner's note on a demo customer case (a side row of demo data, removed with it)
+    await e.owner.post(`/o/${e.org}/r/customer_case/${kase!.id}/journal`, { kind: "work_note", body: "یادداشت مالک روی پروندهٔ نمایشی" });
     await settle(e, 180_000);
+    // the platform's own computations over the pack: every XLA rescore and document ingestion ran
+    await drain(e, ["slm.xla", "docs.ingest"]);
     log("exercised");
+    const count = async (sql: string) => (await e.db.one<{ n: number }>(sql, [e.org]))!.n;
+    // experience scores are the platform's (the SLM module's job), from the demo records: the bank's ATM policy scored the
+    // ATM incidents, and survey answers of the pack's people rescored theirs
+    expect(await count(`select count(*)::int as n from sm_slm_xla_scores s join sm_slm_xla_policies p on p.id = s.policy_id where s.org_id = $1 and p.name = 'تجربهٔ شعب و مشتریان از خرابی خودپرداز'`)).toBeGreaterThan(0);
+    expect(await count(`select count(*)::int as n from sm_slm_xla_scores where org_id = $1 and survey`)).toBeGreaterThan(0);
+    // the AI library read and indexed the bank's documents
+    expect(await count(`select count(*)::int as n from sm_doc_documents where org_id = $1 and status = 'ready'`)).toBe(4);
+    expect(await count(`select count(*)::int as n from sm_ai_chunks where org_id = $1 and table_key = 'doc_document'`)).toBeGreaterThan(0);
+    // nothing about the pack left the system (every module's notifications included: customer notices, on-call paging,
+    // survey invitations, case updates…): no e-mail, SMS or other delivery about a demo record or to a demo person was
+    // sent, held for later or attempted, and no real person got a bell about a demo record
+    const demoRow = (col: string) => `exists (select 1 from sm_demo_rows d where d.org_id = $1 and d.row_id = l.${col})`;
+    const leaks = await e.db.query<{ channel: string; status: string; reason: string | null; table_key: string | null }>(
+      `select l.channel, l.status, l.reason, l.table_key from sm_notification_log l
+        where l.org_id = $1 and l.status <> 'skipped'
+          and ((l.channel <> 'in_app' and (${demoRow("record_id")} or ${demoRow("recipient_id")}))
+            or (l.channel = 'in_app' and ${demoRow("record_id")} and l.recipient_id is not null and not ${demoRow("recipient_id")}))
+        limit 20`,
+      [e.org],
+    );
+    expect(leaks).toEqual([]);
+    expect(await count(`select count(*)::int as n from sm_notification_log l where l.org_id = $1 and l.channel <> 'in_app' and l.reason = 'demo'`), "deliveries held back as demo").toBeGreaterThan(0);
     const rows = await e.db.one<{ n: number }>(`select count(*)::int as n from sm_demo_rows where org_id = $1`, [e.org]);
     expect(rows!.n).toBeGreaterThan(1000);
     // the platform raised findings about demo CIs by itself (outside the demo scope): the purge must take them too
@@ -346,6 +455,8 @@ describe.skipIf(skip)(title, () => {
     const demoRowIds = new Set((await e.db.query<{ id: string }>(`select row_id::text as id from sm_demo_rows where org_id = $1`, [e.org])).map((r) => r.id));
     const report = await e.owner.get(`/o/${e.org}/demo/report`);
     expect(report.rows).toBeGreaterThan(1000);
+    // the purge asks for a recent sign-in too
+    await e.owner.post("/auth/reauth", { password: "s3cret-pass" });
     await e.owner.post(`/o/${e.org}/demo/purge`, { confirm: "اشتباه" }, 400);
     await e.owner.post(`/o/${e.org}/demo/purge`, { confirm: "حذف کامل" });
     await runToEnd(e.cfg, e.org, "purge", { budgetMs: 900_000 });
@@ -377,8 +488,10 @@ describe.skipIf(skip)(title, () => {
         return recs.every((r) => kept.has(r.record_id));
       }
       if (t === "sm_security_events") {
-        const rows = await e.db.query<{ email: string | null; kind: string }>(`select email, kind from sm_security_events where id::text = any($1::text[])`, [`{${added.join(",")}}`]);
-        return rows.every((r) => !!r.email?.endsWith("aftab-bank.example") && r.kind === "sign_in");
+        // the demo accounts' sign-ins, and the administrator's own confirmations of identity before turning demo sign-in
+        // on and before the purge (a real person's security record: never removed)
+        const rows = await e.db.query<{ email: string | null; kind: string; user_id: string | null }>(`select email, kind, user_id::text as user_id from sm_security_events where id::text = any($1::text[])`, [`{${added.join(",")}}`]);
+        return rows.every((r) => (!!r.email?.endsWith("aftab-bank.example") && r.kind === "sign_in") || (r.kind === "reauth" && r.user_id === e.ownerId));
       }
       return false;
     };
