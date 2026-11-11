@@ -327,14 +327,24 @@ function createTray() {
   tray.on("double-click", () => (win ? win.show() : createWindow(serverUrl)));
 }
 
+/**
+ * Asks the local server to close the database and waits until it has exited (at most `ms`), then makes sure it is gone.
+ * Closing is a checkpoint and PGlite's own shutdown (src/server/db/pglite.ts): usually well under a second, as the
+ * running app checkpoints its log as it goes. Killing it earlier only costs a replay of the log at the next start.
+ */
+async function stopBackend(ms = 10_000) {
+  const b = backend;
+  if (!b) return;
+  const exited = new Promise<void>((r) => b.once("exit", () => r()));
+  b.postMessage({ type: "shutdown" });
+  await Promise.race([exited, new Promise((r) => setTimeout(r, ms))]);
+  if (backend === b) b.kill();
+}
+
 async function quit() {
   quitting = true;
   try {
-    if (backend) {
-      backend.postMessage({ type: "shutdown" });
-      await new Promise((r) => setTimeout(r, 1500));
-      backend?.kill();
-    }
+    await stopBackend();
   } finally {
     app.exit(0);
   }
@@ -466,8 +476,7 @@ async function smokeTest() {
     if (out) writeFileSync(out, JSON.stringify({ ok, health, ui: page.includes('id="root"'), schema: meta.schema }));
     log(`[smoke] ${JSON.stringify(health)}`);
     quitting = true;
-    backend?.postMessage({ type: "shutdown" });
-    await new Promise((r) => setTimeout(r, 1500));
+    await stopBackend();
     app.exit(ok ? 0 : 1);
   } catch (e) {
     if (out) writeFileSync(out, JSON.stringify({ ok: false, error: String(e) }));

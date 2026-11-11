@@ -1,10 +1,15 @@
 // Desktop/test adapter: PostgreSQL running inside the app (PGlite, WebAssembly).
 // The data directory is a normal PostgreSQL data folder on disk; queries are serialised by
-// PGlite (one connection), so a transaction holds the database until it ends.
+// PGlite (one connection), so a transaction holds the database until it ends. A data folder's
+// write-ahead log is kept small by ./wal.ts (PGlite has no checkpointer of its own).
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { runBeforeCommit, serializeParam, toIsoTimestamp, type Db, type Row, type Tx } from "./index";
 import { txEnded } from "./lockprobe";
 import { DEMO_SCOPE_SQL, demoScopeOrg, scopedWrite } from "./scope";
+import { createWalGuard, openWal, walStartParams, type CheckpointInfo, type WalGuard, type WalGuardOptions } from "./wal";
+import type { Logger } from "../context";
 
 export interface PgliteOptions {
   /** folder of the database; omit for an in-memory database (tests) */
@@ -15,7 +20,19 @@ export interface PgliteOptions {
   loadDataDir?: Blob;
   /** offer the pgvector extension to the database (default true; the AI index enables it when it is offered) */
   vector?: boolean;
+  /** where the write-ahead log's checkpoints are reported (a data folder only) */
+  log?: Pick<Logger, "info" | "warn">;
+  /** the checkpoint scheduler of a data folder (./wal.ts): its thresholds and clock (tests), or false for none */
+  wal?: WalGuardOptions | false;
 }
+
+export type PgliteDb = Db & {
+  pg: PGlite;
+  /** CHECKPOINT now (after an open transaction ends): before a dump of the data folder */
+  checkpoint(reason: string): Promise<CheckpointInfo | null>;
+  /** the write-ahead log's scheduler of a data folder (null in memory) */
+  wal: WalGuard | null;
+};
 
 let vectorExt: Promise<unknown | null> | null = null;
 /** The pgvector build for PGlite when it is installed (the Windows app ships it); null otherwise. */
@@ -31,12 +48,34 @@ const parsers = {
   20: (v: string) => Number(v),
 };
 
-export async function createPgliteDb(opts: PgliteOptions = {}): Promise<Db & { pg: PGlite }> {
+export async function createPgliteDb(opts: PgliteOptions = {}): Promise<PgliteDb> {
   const vector = opts.vector === false ? null : await pgliteVector();
-  const options = { parsers, ...(opts.loadDataDir ? { loadDataDir: opts.loadDataDir } : {}), ...(vector ? { extensions: { vector } } : {}) } as ConstructorParameters<typeof PGlite>[0];
+  const options = {
+    parsers,
+    ...(opts.loadDataDir ? { loadDataDir: opts.loadDataDir } : {}),
+    ...(vector ? { extensions: { vector } } : {}),
+    // a data folder: the write-ahead log's limits in force from this start (./wal.ts)
+    ...(opts.dataDir ? { startParams: walStartParams(PGlite.defaultStartParams) } : {}),
+  } as ConstructorParameters<typeof PGlite>[0];
   const pg = opts.dataDir ? new PGlite(opts.dataDir, options) : new PGlite(options);
   await pg.waitReady;
   if (opts.desktop) await pg.exec(`set itsm.mode = 'desktop'`);
+  let wal: WalGuard | null = null;
+  if (opts.dataDir) {
+    // before anyone else uses the database: the limits persisted, an older version's spare segments walked, a checkpoint
+    // (an optimisation: if it fails the database still opens, with the limits of the start parameters)
+    try {
+      const r = await openWal(pg, join(opts.dataDir, "pg_wal"), (p) => readdirSync(p));
+      if (r.persisted || r.walked || r.segments_after < r.segments_before) opts.log?.info("database log prepared", r);
+    } catch (e) {
+      opts.log?.warn("database log not prepared", String((e as Error)?.message ?? e));
+    }
+    if (opts.wal !== false) {
+      wal = createWalGuard(pg, { log: opts.log, ...opts.wal });
+      wal.start();
+    }
+  }
+  const track = <T>(fn: () => Promise<T>): Promise<T> => (wal ? wal.track(fn) : fn());
 
   const make = (q: Pick<PGlite, "query" | "exec">) => ({
     async query<T = Row>(text: string, params: unknown[] = []): Promise<T[]> {
@@ -54,20 +93,22 @@ export async function createPgliteDb(opts: PgliteOptions = {}): Promise<Db & { p
 
   const direct = make(pg);
   // a lone write of demo work runs in a transaction that carries the demo setting (src/server/db/scope.ts)
+  // every call of the app counts as activity: the checkpoint scheduler waits for an idle moment
   const base = {
-    query: <T = Row>(text: string, params: unknown[] = []): Promise<T[]> => (scopedWrite(text) ? transaction((t) => t.query<T>(text, params), () => {}) : direct.query<T>(text, params)),
-    one: <T = Row>(text: string, params: unknown[] = []): Promise<T | null> => (scopedWrite(text) ? transaction((t) => t.one<T>(text, params), () => {}) : direct.one<T>(text, params)),
-    exec: (text: string): Promise<void> => (scopedWrite(text) ? transaction((t) => t.exec(text), () => {}) : direct.exec(text)),
+    query: <T = Row>(text: string, params: unknown[] = []): Promise<T[]> => track(() => (scopedWrite(text) ? transaction((t) => t.query<T>(text, params), () => {}) : direct.query<T>(text, params))),
+    one: <T = Row>(text: string, params: unknown[] = []): Promise<T | null> => track(() => (scopedWrite(text) ? transaction((t) => t.one<T>(text, params), () => {}) : direct.one<T>(text, params))),
+    exec: (text: string): Promise<void> => track(() => (scopedWrite(text) ? transaction((t) => t.exec(text), () => {}) : direct.exec(text))),
   };
   return {
     kind: "pglite",
     pg,
+    wal,
     ...base,
     async tx<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
       let probed: Tx | null = null;
       let committed = false;
       try {
-        const out = await transaction(fn, (txq) => (probed = txq));
+        const out = await track(() => transaction(fn, (txq) => (probed = txq)));
         committed = true;
         return out;
       } finally {
@@ -75,7 +116,17 @@ export async function createPgliteDb(opts: PgliteOptions = {}): Promise<Db & { p
         txEnded(probed, committed);
       }
     },
+    async checkpoint(reason: string) {
+      if (wal) return wal.checkpoint(reason);
+      if (!opts.dataDir) return null;
+      await pg.exec("CHECKPOINT");
+      return { reason, ms: 0, bytes: 0 };
+    },
     async close() {
+      // a checkpoint first: the shutdown checkpoint of close() is then short, and a quit that cannot wait for it
+      // replays only what was written after this one
+      wal?.stop();
+      if (opts.dataDir && !pg.closed) await (wal ? wal.checkpoint("close") : pg.exec("CHECKPOINT")).catch((e) => opts.log?.warn("database checkpoint before close failed", String((e as Error)?.message ?? e)));
       await pg.close();
     },
   };
