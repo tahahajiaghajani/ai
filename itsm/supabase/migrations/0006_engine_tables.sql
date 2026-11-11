@@ -11745,6 +11745,60 @@ create or replace trigger sm_feature_flags_demo after insert on sm_feature_flags
 create or replace trigger sm_feature_flags_demo_t after update or delete on sm_feature_flags for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_feature_flags enable row level security;
 
+-- field_def: فیلدها
+create table if not exists sm_field_defs (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_field_defs add column if not exists workspace_id uuid;
+alter table sm_field_defs add column if not exists domain_id uuid;
+alter table sm_field_defs add column if not exists unit_id uuid;
+alter table sm_field_defs add column if not exists created_at timestamptz not null default now();
+alter table sm_field_defs add column if not exists created_by uuid;
+alter table sm_field_defs add column if not exists updated_at timestamptz not null default now();
+alter table sm_field_defs add column if not exists updated_by uuid;
+alter table sm_field_defs add column if not exists rev bigint not null default 0;
+alter table sm_field_defs add column if not exists version integer not null default 1;
+alter table sm_field_defs add column if not exists deleted_at timestamptz;
+alter table sm_field_defs add column if not exists origin text;
+alter table sm_field_defs add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_field_defs add column if not exists label text;
+alter table sm_field_defs add column if not exists name text;
+alter table sm_field_defs add column if not exists type text;
+alter table sm_field_defs add column if not exists help text;
+alter table sm_field_defs add column if not exists placeholder text;
+alter table sm_field_defs add column if not exists default_value jsonb;
+alter table sm_field_defs add column if not exists options jsonb;
+alter table sm_field_defs add column if not exists choices text;
+alter table sm_field_defs add column if not exists depends_on text;
+alter table sm_field_defs add column if not exists validation jsonb;
+alter table sm_field_defs add column if not exists field_group text;
+alter table sm_field_defs add column if not exists list boolean not null default false;
+alter table sm_field_defs add column if not exists search boolean not null default false;
+alter table sm_field_defs add column if not exists filter boolean not null default false;
+alter table sm_field_defs add column if not exists status text;
+create index if not exists sm_field_defs_rev_idx on sm_field_defs (org_id, rev);
+create index if not exists sm_field_defs_upd_idx on sm_field_defs (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_field_defs_crt_idx on sm_field_defs (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_field_defs_name_uk on sm_field_defs (org_id, name) where deleted_at is null;
+drop trigger if exists sm_field_defs_sync on sm_field_defs;
+create trigger sm_field_defs_sync before insert or update on sm_field_defs for each row execute function sm_sync_touch('field_def');
+create or replace trigger sm_field_defs_demo after insert on sm_field_defs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_field_defs_demo_t after update or delete on sm_field_defs for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_field_defs enable row level security;
+
 -- field_time_entry: زمان و هزینهٔ میدانی
 create table if not exists sm_field_time_entries (
   id uuid primary key,
@@ -11799,6 +11853,55 @@ create trigger sm_field_time_entries_sync before insert or update on sm_field_ti
 create or replace trigger sm_field_time_entries_demo after insert on sm_field_time_entries for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_field_time_entries_demo_t after update or delete on sm_field_time_entries for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_field_time_entries enable row level security;
+
+-- field_type: نوع‌های فیلد
+create table if not exists sm_field_types (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_field_types add column if not exists workspace_id uuid;
+alter table sm_field_types add column if not exists domain_id uuid;
+alter table sm_field_types add column if not exists unit_id uuid;
+alter table sm_field_types add column if not exists created_at timestamptz not null default now();
+alter table sm_field_types add column if not exists created_by uuid;
+alter table sm_field_types add column if not exists updated_at timestamptz not null default now();
+alter table sm_field_types add column if not exists updated_by uuid;
+alter table sm_field_types add column if not exists rev bigint not null default 0;
+alter table sm_field_types add column if not exists version integer not null default 1;
+alter table sm_field_types add column if not exists deleted_at timestamptz;
+alter table sm_field_types add column if not exists origin text;
+alter table sm_field_types add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_field_types add column if not exists name text;
+alter table sm_field_types add column if not exists key text;
+alter table sm_field_types add column if not exists base text;
+alter table sm_field_types add column if not exists widget text;
+alter table sm_field_types add column if not exists validation jsonb;
+alter table sm_field_types add column if not exists display jsonb;
+alter table sm_field_types add column if not exists options jsonb;
+alter table sm_field_types add column if not exists choices text;
+alter table sm_field_types add column if not exists status text;
+alter table sm_field_types add column if not exists description text;
+create index if not exists sm_field_types_rev_idx on sm_field_types (org_id, rev);
+create index if not exists sm_field_types_upd_idx on sm_field_types (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_field_types_crt_idx on sm_field_types (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_field_types_key_uk on sm_field_types (org_id, key) where deleted_at is null;
+drop trigger if exists sm_field_types_sync on sm_field_types;
+create trigger sm_field_types_sync before insert or update on sm_field_types for each row execute function sm_sync_touch('field_type');
+create or replace trigger sm_field_types_demo after insert on sm_field_types for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_field_types_demo_t after update or delete on sm_field_types for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_field_types enable row level security;
 
 -- finance_case: پرونده‌های مالی
 create table if not exists sm_finance_cases (

@@ -9,6 +9,7 @@ import { BASE_COLUMNS, FIELD_TYPES, refTarget } from "../model/types";
 import { setTableLookup, validateCond } from "../model/conditions";
 import { CLOSE_CODES, DEFAULT_TASK_STATES, TASK_FIELDS, TASK_SCOPE } from "../model/task";
 import { CORE_CHOICE_LISTS, CORE_TABLES, USER_TABLE } from "./core";
+import { FIELDS_TABLES } from "./fields";
 import { ACCESS_TABLES } from "./access";
 import { NOTIFY_TABLES } from "./notify";
 import { SLA_CHOICE_LISTS, SLA_SERVICE_TABLES } from "./sla";
@@ -48,6 +49,7 @@ export { CUSTOM_FIELD_TYPES, VIEW_KINDS } from "./core";
 /** Table definitions per module; a module adds its file's export here. */
 const MODULE_TABLES: TableDef[][] = [
   CORE_TABLES,
+  FIELDS_TABLES,
   ACCESS_TABLES,
   NOTIFY_TABLES,
   SLA_SERVICE_TABLES,
