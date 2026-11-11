@@ -67,21 +67,27 @@ export interface WalGuardOptions {
   idleMs?: number;
   /** how often the scheduler looks at the log */
   pollMs?: number;
+  /** ... once the log is past half of `volumeBytes` (so a burst of writes meets `hardBytes` promptly) */
+  busyPollMs?: number;
   /** how often it looks for an idle moment once a checkpoint is due */
   idleCheckMs?: number;
 }
 
 /**
- * The scheduler's defaults, from the bank pack «کوچک» measured with scripts/perf-pglite-wal.mjs: a checkpoint there took
- * tens of milliseconds and wrote what 32 MB of log had dirtied; pg_wal stays near 100 MB.
+ * The scheduler's defaults, from the bank pack «کوچک» (scripts/perf-pglite-wal.mjs and the installed app's run of
+ * scripts/desktop-e2e.mjs): a checkpoint after 32 MB of log took 35–230 ms; the app's job timer leaves the database idle
+ * for 2 s of every 10 even while the pack loads, so the idle-time checkpoint is the usual one; under writes with no pause
+ * at all the hard limit keeps pg_wal near 64 MB of new log (plus what a look every 2 s lets through) and the recycled
+ * segments. A look is one tiny query.
  */
 export const WAL_DEFAULTS = {
   volumeBytes: 32 * MB,
-  hardBytes: 128 * MB,
+  hardBytes: 64 * MB,
   maxAgeMs: 5 * 60_000,
   dirtyBytes: 64 * 1024,
   idleMs: 1000,
-  pollMs: 10_000,
+  pollMs: 2000,
+  busyPollMs: 250,
   idleCheckMs: 250,
 } as const;
 
@@ -128,6 +134,8 @@ export function createWalGuard(pg: WalPg, options: WalGuardOptions = {}): WalGua
   let dirtySince: number | null = null;
   let due: string | null = null;
   let lastPoll = -Infinity;
+  /** the log since the last checkpoint at the last look */
+  let last = 0;
   let timer: unknown = null;
   let stopped = true;
   let running: Promise<CheckpointInfo> | null = null;
@@ -138,13 +146,20 @@ export function createWalGuard(pg: WalPg, options: WalGuardOptions = {}): WalGua
     if (!stopped) timer = clock.setTimeout(() => void step(), ms);
   };
 
+  /** how long until the scheduler looks at the log again: sooner once it has grown past half the volume */
+  const pollEvery = () => (last >= o.volumeBytes / 2 ? o.busyPollMs : o.pollMs);
+  let stepping = false;
+
   async function step() {
+    if (stepping || stopped) return;
+    stepping = true;
+    if (timer !== null) clock.clearTimeout(timer);
     timer = null;
-    if (stopped) return;
     try {
-      if (!due || clock.now() - lastPoll >= o.pollMs) {
+      if (clock.now() - lastPoll >= pollEvery()) {
         const d = await walSinceCheckpoint(pg);
         lastPoll = clock.now();
+        last = d;
         if (stopped) return;
         if (d < o.dirtyBytes) dirtySince = null;
         else dirtySince ??= clock.now();
@@ -163,9 +178,19 @@ export function createWalGuard(pg: WalPg, options: WalGuardOptions = {}): WalGua
     } catch (e) {
       if (!stopped) log?.warn("database checkpoint failed", String((e as Error)?.message ?? e));
     } finally {
-      if (timer === null) schedule(due ? o.idleCheckMs : o.pollMs);
+      stepping = false;
+      if (timer === null) schedule(due ? Math.min(o.idleCheckMs, pollEvery()) : pollEvery());
     }
   }
+
+  /**
+   * After each call of the app: a look at the log when one is due. PGlite answers through promises alone, so a run of
+   * database work (a job tick, a demo load) keeps Node's timers from firing until it pauses; the hard limit must not
+   * wait for that pause.
+   */
+  const kick = () => {
+    if (!stopped && !stepping && clock.now() - lastPoll >= pollEvery()) void step();
+  };
 
   const guard: WalGuard = {
     async track<T>(fn: () => Promise<T>): Promise<T> {
@@ -176,6 +201,7 @@ export function createWalGuard(pg: WalPg, options: WalGuardOptions = {}): WalGua
       } finally {
         inflight--;
         lastActivity = clock.now();
+        kick();
       }
     },
     checkpoint(reason: string): Promise<CheckpointInfo> {
@@ -185,6 +211,7 @@ export function createWalGuard(pg: WalPg, options: WalGuardOptions = {}): WalGua
         await pg.exec("CHECKPOINT");
         const info: CheckpointInfo = { reason, ms: Math.round(performance.now() - t0), bytes };
         dirtySince = null;
+        last = 0;
         stats.checkpoints++;
         stats.total_ms += info.ms;
         stats.max_ms = Math.max(stats.max_ms, info.ms);

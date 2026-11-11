@@ -31,8 +31,12 @@ function fakeClock() {
   let now = 0;
   let timers: { at: number; fn: () => void; id: number }[] = [];
   let ids = 0;
-  const clock: WalClock & { advance(ms: number): Promise<void> } = {
+  const clock: WalClock & { advance(ms: number): Promise<void>; skip(ms: number): void } = {
     now: () => now,
+    /** time passes with no timer firing (a run of database work keeps Node's timers waiting) */
+    skip(ms: number) {
+      now += ms;
+    },
     setTimeout(fn, ms) {
       const t = { at: now + ms, fn, id: ++ids };
       timers.push(t);
@@ -82,7 +86,7 @@ function fakePg() {
 }
 
 describe("the checkpoint scheduler", () => {
-  const opts = { volumeBytes: 32 * MB, hardBytes: 128 * MB, maxAgeMs: 300_000, dirtyBytes: 64 * 1024, idleMs: 1000, pollMs: 10_000, idleCheckMs: 250 };
+  const opts = { volumeBytes: 32 * MB, hardBytes: 64 * MB, maxAgeMs: 300_000, dirtyBytes: 64 * 1024, idleMs: 1000, pollMs: 10_000, busyPollMs: 1000, idleCheckMs: 250 };
 
   it("checkpoints after a volume of log, once the database is idle", async () => {
     const clock = fakeClock();
@@ -121,11 +125,31 @@ describe("the checkpoint scheduler", () => {
     pg.since = 40 * MB;
     await clock.advance(15_000);
     expect(pg.checkpoints).toBe(0);
-    pg.since = 130 * MB;
-    await clock.advance(10_000);
+    // past half the volume the log is looked at every second: the hard limit is met within one
+    pg.since = 70 * MB;
+    await clock.advance(1_100);
     expect(pg.checkpoints).toBe(1);
     release();
     await busy;
+    g.stop();
+  });
+
+  it("when a run of database work keeps the timers from firing, the app's own calls look at the log", async () => {
+    const clock = fakeClock();
+    const pg = fakePg();
+    const g = createWalGuard(pg, { clock, ...opts });
+    g.start();
+    // PGlite answers through promises: back-to-back calls never let a timer run
+    pg.since = 70 * MB;
+    clock.skip(11_000);
+    await g.track(async () => {});
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(pg.checkpoints).toBe(1);
+    // the next call within the poll interval does not look again
+    pg.since = 80 * MB;
+    await g.track(async () => {});
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(pg.checkpoints).toBe(1);
     g.stop();
   });
 
@@ -239,6 +263,35 @@ describe("a PGlite data folder", () => {
     // its redo point lies after everything the transaction wrote, its commit included
     const after = (await db.one<{ ok: boolean }>(`select (pg_control_checkpoint()).redo_lsn > $1::pg_lsn as ok`, [inside]))!;
     expect(after.ok).toBe(true);
+    await db.close();
+  });
+
+  it("lets the event loop turn during a run of database work (a request, a file of the page or a timer is not held up)", async () => {
+    const dir = temp();
+    const db = await createPgliteDb({ dataDir: dir, vector: false, wal: false });
+    await db.exec(`create table r (id int, v text)`);
+    const delays: number[] = [];
+    let stop = false;
+    const probe = () => {
+      if (stop) return;
+      const at = performance.now();
+      setTimeout(() => {
+        delays.push(performance.now() - at);
+        probe();
+      }, 5);
+    };
+    probe();
+    // back-to-back work, as a job tick or the demo pack's load does it: PGlite answers through promises alone
+    const t0 = performance.now();
+    while (performance.now() - t0 < 1500) {
+      await db.tx(async (tx) => {
+        await tx.query(`insert into r select g, 'x' from generate_series(1, 20) g`);
+      });
+      await db.query(`select count(*) from r`);
+    }
+    stop = true;
+    expect(delays.length).toBeGreaterThan(5);
+    expect(Math.max(...delays)).toBeLessThan(750);
     await db.close();
   });
 
