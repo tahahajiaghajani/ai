@@ -42,22 +42,27 @@ const C = new Checks("desktop-e2e", join(OUT, "checks.json"));
  * loader; API times as the renderer saw them.
  */
 const BUDGETS = {
-  // first launch after the installation: PGlite's initdb and every migration (24.6 s on the runner, run 43088978809)
+  // first launch after the installation: PGlite's initdb and every migration (19.2 s on the runner, run 43104019774;
+  // 24.6 s in run 43088978809)
   cold_start_ms: 60_000,
-  // a later launch to the first screen (2.3 s)
-  warm_start_ms: 10_000,
-  // a route change and the API as the renderer saw them: 10.0 s and 8.5 s (p95) before the database let the event loop
-  // turn during background work (run 43088978809); the gate sits well below those and above the numbers since
-  nav_visible_p95_ms: 6_000,
-  nav_visible_max_ms: 12_000,
+  // a later launch to the first screen (2.7 s)
+  warm_start_ms: 8_000,
+  // a route change to content and the API as the renderer saw them, 95th percentile: 1.36 / 1.63 s (administrator) and
+  // 1.48 / 0.82 s (member) in run 43104019774 — 10.0 / 8.5 s before the database let the event loop turn during
+  // background work (run 43088978809)
+  nav_visible_p95_ms: 4_000,
+  nav_visible_max_ms: 8_000,
   api_p95_ms: 3_000,
-  order_ms: 15_000,
-  // the bank demo pack «کوچک» (236 s)
-  demo_load_s: 900,
-  // closing the window to the app's exit; the app kills its local server after 10 s
-  close_ms: 10_000,
+  // «ثبت درخواست» to the request's page (0.93 / 0.98 s)
+  order_ms: 5_000,
+  // the bank demo pack «کوچک» (292 s; 236 s before)
+  demo_load_s: 600,
+  // closing the window to the app's exit (0.24 s; 7.2 s before; the app kills its local server after 10 s)
+  close_ms: 3_000,
+  // peak working sets: the local server with PGlite 1.18 GB, all the app's processes 1.52 GB
   backend_peak_mb: 2_000,
-  total_peak_mb: 4_000,
+  total_peak_mb: 3_000,
+  // the local server while the app sits idle after the demo pack (its indexing and jobs): 21% of a core
   idle_backend_cpu_pct: 30,
   // the database's write-ahead log after the run (64 MB: src/server/db/wal.ts)
   pg_wal_mb: 160,
