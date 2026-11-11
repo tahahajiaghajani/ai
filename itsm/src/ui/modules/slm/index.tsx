@@ -47,7 +47,10 @@ const REPORTS = "گزارش‌ها";
 export const SLM_SPACE = { key: "service-levels", label: "سطح خدمت", title: "مدیریت سطح خدمت", icon: Handshake, access: READS };
 
 const QUEUE_ICONS: Record<string, typeof Inbox> = { in_force: Handshake, risk: TriangleAlert, pipeline: PencilRuler, reviews: CalendarCheck };
-const queueNav = (q: Queue): NavItem => ({ key: `slm:q:${q.key}`, label: q.label, path: q.path, icon: QUEUE_ICONS[q.key] ?? Inbox, area: "work", access: q.table === "service_agreement" ? { area: "service" } : READS, keywords: "توافق سطح خدمت SLA OLA UC بازبینی" });
+// the agreement lists are the service area's; «در خطر» also filters and sorts on compliance, which the server shows
+// only with the «internal» field group (a requester who reads services got 400 there) — the gate asks what it asks
+const RISK_GATE: AccessGate = { area: "service", fieldGroup: "internal" };
+const queueNav = (q: Queue): NavItem => ({ key: `slm:q:${q.key}`, label: q.label, path: q.path, icon: QUEUE_ICONS[q.key] ?? Inbox, area: "work", access: q.table !== "service_agreement" ? READS : q.key === "risk" ? RISK_GATE : { area: "service" }, keywords: "توافق سطح خدمت SLA OLA UC بازبینی" });
 
 const module = recordModule({
   key: "slm",
@@ -69,7 +72,8 @@ const module = recordModule({
     { table: "slm_csi_plan", path: "slm/plans", label: "برنامه‌های بهبود", noun: "برنامهٔ بهبود", icon: MapIcon, area: "work", access: READS, keywords: "برنامه بهبود مستمر" },
     { table: "slm_credit", path: "slm/credits", label: "جریمه‌های خدمت", noun: "جریمهٔ خدمت", icon: BadgePercent, area: "work", access: READS, newAction: false, keywords: "جریمه اعتبار خدمت اعتراض CRD" },
     { table: "slm_compliance", path: "slm/compliance", label: "انطباق دوره‌ها", noun: "انطباق دوره", icon: CalendarCheck, section: REPORTS, area: "work", access: READS, newAction: false, keywords: "انطباق دوره ماهانه" },
-    { table: "slm_xla_score", path: "slm/xla-scores", label: "امتیازهای تجربه", noun: "امتیاز تجربه", icon: Smile, section: REPORTS, area: "work", access: READS, newAction: false, keywords: "تجربه XLA امتیاز" },
+    // XLA scores are survey results (area «survey»): a service owner without it got «فهرست پیدا نشد»
+    { table: "slm_xla_score", path: "slm/xla-scores", label: "امتیازهای تجربه", noun: "امتیاز تجربه", icon: Smile, section: REPORTS, area: "work", access: { area: "survey" }, newAction: false, keywords: "تجربه XLA امتیاز" },
     {
       table: "slm_target", path: "slm/targets", label: "اهداف توافق‌ها", noun: "هدف توافق", icon: Target, section: DEFS, area: "work", access: READS, keywords: "هدف توافق زمان پاسخ حل دسترس‌پذیری",
       extensions: { sidePanels: [{ key: "slm:recommend", title: "پیشنهاد هدف و شبیه‌سازی", order: 1, render: widget(TargetPanel) }] },

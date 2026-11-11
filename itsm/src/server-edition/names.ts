@@ -22,6 +22,8 @@ export interface EditionNames {
   };
   ctl: string;
   firewallRule: string;
+  /** the Application event log source of the installer (install-error reasons, installs) */
+  eventSource: string;
   database: { name: string; appRole: string; superuser: string; port: number };
   defaultHostName: string;
 }

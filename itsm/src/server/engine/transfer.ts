@@ -32,6 +32,8 @@ export interface ExportParams {
   view?: string;
   /** at most this many rows (default and maximum 10,000) */
   limit?: number;
+  /** leave out the demo pack's rows (an export that leaves the system: docs/DEMO_FA.md) */
+  withoutDemo?: boolean;
 }
 
 export type Cell = string | number | boolean | null;
@@ -71,6 +73,9 @@ export async function exportRows(ctx: Ctx, table: string, p: ExportParams): Prom
   const limit = Math.min(Math.max(p.limit ?? 10_000, 1), 10_000);
   const rows: Cell[][] = [];
   let truncated = false;
+  const demo = p.withoutDemo
+    ? new Set((await ctx.db.query<{ id: string }>(`select row_id::text as id from sm_demo_rows where org_id = $1 and tbl = $2`, [ctx.org.id, def.table])).map((x) => x.id.toLowerCase()))
+    : null;
   for (let page = 1; rows.length < limit; page++) {
     const r = await list(ctx, table, { filter: p.filter, q: p.q, sort: p.sort, view: p.view, fields: fields.map((f) => f.name), page, size: 500, total: false });
     for (const row of r.rows) {
@@ -78,6 +83,7 @@ export async function exportRows(ctx: Ctx, table: string, p: ExportParams): Prom
         truncated = true;
         break;
       }
+      if (demo?.has(String(row.id ?? "").toLowerCase())) continue;
       rows.push(columns.map((c) => (c.name === "number" ? (row.number ?? null) : cell(fields.find((f) => f.name === c.name)!, row[c.name], r.display, schema))));
     }
     if (r.rows.length < 500) break;

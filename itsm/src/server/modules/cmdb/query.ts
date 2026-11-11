@@ -5,6 +5,7 @@
 // when a cap was reached. The same query tree is what saved queries store and what natural-language search produces.
 import type { Cond } from "@shared/model/conditions";
 import { tableDef } from "@shared/tables";
+import { queryBounded } from "@shared/cmdb/logic";
 import type { Ctx } from "../../context";
 import { pgArray } from "../../db";
 import { bad } from "../../http/errors";
@@ -67,7 +68,7 @@ export async function runQuery(ctx: Ctx, query: CmdbQuery): Promise<QueryResult>
   const def = schema.def("ci") ?? tableDef("ci")!;
   if (!access().canReadTable(ctx, def)) throw bad("به پایگاه پیکربندی دسترسی ندارید");
   const steps = (query.steps ?? []).slice(0, 5);
-  if (!query.class && !query.condition && !steps.length) throw bad("پرس‌وجو بدون کلاس یا شرط همهٔ پایگاه را می‌گردد؛ دست‌کم یکی را مشخص کنید");
+  if (!queryBounded({ ...query, steps })) throw bad("پرس‌وجو بدون کلاس یا شرط همهٔ پایگاه را می‌گردد؛ دست‌کم یکی را مشخص کنید");
   if (query.condition) checkFilter(ctx, def, schema, query.condition);
   for (const s of steps) if (s.condition) checkFilter(ctx, def, schema, s.condition);
   const tree = await classTree(ctx.db, ctx);

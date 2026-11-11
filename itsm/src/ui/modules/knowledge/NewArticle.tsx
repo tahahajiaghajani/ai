@@ -24,7 +24,7 @@ interface TreeNode {
 const treeData = (nodes: CategoryTree[]): TreeNode[] => nodes.map((n) => ({ value: n.id, title: n.name, children: treeData(n.children) }));
 
 export default function NewArticle() {
-  const { api, orgId } = useOrg();
+  const { api, orgId, allows } = useOrg();
   const nav = useNavigate();
   const [sp] = useSearchParams();
   const home = useKbHome();
@@ -47,7 +47,21 @@ export default function NewArticle() {
     return (
       <div>
         <PageHeader title="مقالهٔ تازه" back={`/${orgId}/kb`} />
-        <EmptyState icon={FilePlus2} title="پایگاهی نیست که در آن بنویسید" description="از مدیر دانش بخواهید شما را به مشارکت‌کنندگان یک پایگاه بیفزاید." />
+        {!home.data?.bases?.length && allows({ area: "knowledge", op: "admin" }) ? (
+          // a new organisation: its default bases are made a few minutes after it (the knowledge seed job)
+          <EmptyState
+            icon={FilePlus2}
+            title="هنوز پایگاه دانشی ساخته نشده است"
+            description="پایگاه‌های پیش‌فرض چند دقیقه پس از ساخت سازمان آماده می‌شوند؛ می‌توانید همین حالا یک پایگاه بسازید."
+            action={
+              <Button type="primary" onClick={() => nav(`/${orgId}/kb/bases/new`)}>
+                پایگاه دانش تازه
+              </Button>
+            }
+          />
+        ) : (
+          <EmptyState icon={FilePlus2} title="پایگاهی نیست که در آن بنویسید" description="از مدیر دانش بخواهید شما را به مشارکت‌کنندگان یک پایگاه بیفزاید." />
+        )}
       </div>
     );
   const types = (meta.data?.types ?? []).map((t) => ({ value: t.value, label: t.label }));

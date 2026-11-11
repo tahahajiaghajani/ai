@@ -249,7 +249,7 @@ export function ScheduleTab({ ctx }: { ctx: RecordContext }) {
                   <ul className="flex flex-col gap-1">
                     {impact.data.simulations.map((s) => (
                       <li key={s.id} className="flex flex-col">
-                        {s.mine ? <Link className="ds-link text-[13px]" to={recordPath("ci_impact_sim", s.id)}>{s.name}</Link> : <span className="text-[13px]">{s.name}</span>}
+                        {s.mine ? <Link className="ds-link text-[13px]" to={`/${orgId}/${recordPath("ci_impact_sim", s.id)}`}>{s.name}</Link> : <span className="text-[13px]">{s.name}</span>}
                         {s.summary ? <span className="text-[12px] text-ink-3">{s.summary}</span> : null}
                       </li>
                     ))}

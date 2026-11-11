@@ -7,12 +7,13 @@
 // with small section labels («گزارش‌ها»، «تعریف‌ها»…). Items marked `common` («خانه») sit at the top of every space.
 // Settings and help form their own space, opened from the sidebar footer. Every route stays reachable from the nav
 // and from the command palette (Ctrl K), which also searches the records modules register (`searches`).
-import type { ReactNode } from "react";
+import { isValidElement, type ReactNode } from "react";
 import { House, Settings, type LucideIcon } from "lucide-react";
 import type { Area, Level } from "@shared/permissions";
 import type { AccessGate } from "@shared/access";
 import type { ModuleKey } from "@shared/constants";
 import type { OrgApi } from "../lib/api";
+import { RecordListRoute, tableGate } from "../records/module";
 import { homeUi } from "./home";
 import { recordsUi } from "./records";
 import { settingsUi } from "./settings";
@@ -68,8 +69,8 @@ export interface NavItem {
   path: string; // relative to /:org/
   area?: Area;
   level?: Level;
-  /** the member's ITSM access this item needs (an area, an operation, the least scope); hidden otherwise */
-  access?: AccessGate;
+  /** the member's ITSM access this item needs (an area, an operation, the least scope; several: all of them); hidden otherwise */
+  access?: AccessGate | readonly AccessGate[];
   module?: ModuleKey;
   desktopOnly?: boolean;
   cloudOnly?: boolean;
@@ -205,9 +206,27 @@ export const SPACES: Space[] = [HOME_SPACE, ...UIS.flatMap((u) => u.spaces ?? []
 /** The first path segment → space, for routes that are not nav items (editors, detail pages). */
 export const SPACE_OF_SEGMENT: Record<string, SpaceKey | undefined> = Object.assign({}, ...UIS.map((u) => u.segments ?? {}));
 
-export const NAV: NavGroup[] = UIS.flatMap((u) => u.nav);
-
 export const ROUTES: AppRoute[] = UIS.flatMap((u) => u.routes);
+
+/** The table a route lists when it is a record list (a module's queue: `<RecordListRoute table=…>`). */
+export function listedTable(element: ReactNode): string | null {
+  return isValidElement<{ table?: unknown }>(element) && element.type === RecordListRoute && typeof element.props.table === "string" ? element.props.table : null;
+}
+
+const LISTED = new Map(ROUTES.map((r) => [r.path, listedTable(r.element)]));
+
+/**
+ * Every nav item; one without its own gate that opens a record list (a queue) needs read in that table's area, like
+ * the table's own list (records/module.tsx tableGate): a requester saw the problem and CMDB queues and got
+ * «فهرست پیدا نشد».
+ */
+export const NAV: NavGroup[] = UIS.flatMap((u) => u.nav).map((g) => ({
+  ...g,
+  items: g.items.map((i) => {
+    const table = i.access ? null : LISTED.get(i.path);
+    return table ? { ...i, access: tableGate(table) } : i;
+  }),
+}));
 
 export const SEARCHES: PaletteSearch[] = UIS.flatMap((u) => u.searches ?? []);
 

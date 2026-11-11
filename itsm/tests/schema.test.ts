@@ -11,7 +11,7 @@ const ROOT = join(__dirname, "..");
 
 describe("migrations", () => {
   it("are numbered, titled in Persian and in order", () => {
-    expect(MIGRATIONS.map((m) => m.id)).toEqual(["0001_core", "0002_platform", "0003_integrations", "0004_ai", "0005_engine", "0006_engine_tables", "0007_access", "0010_notify", "0011_flows", "0020_ai_rag", "0045_knowledge", "0050_access_locations", "0052_ai_skills", "0053_grant_epochs", "0058_ai_agents", "0064_ai_ml", "0067_portal", "0070_portal_surveys", "0080_admin_integration", "0090_auth_directory", "0091_directory_identity", "0095_scale"]);
+    expect(MIGRATIONS.map((m) => m.id)).toEqual(["0001_core", "0002_platform", "0003_integrations", "0004_ai", "0005_engine", "0006_engine_tables", "0007_access", "0010_notify", "0011_flows", "0020_ai_rag", "0045_knowledge", "0050_access_locations", "0052_ai_skills", "0053_grant_epochs", "0058_ai_agents", "0064_ai_ml", "0067_portal", "0070_portal_surveys", "0080_admin_integration", "0090_auth_directory", "0091_directory_identity", "0095_scale", "0098_demo", "0099_demo_touch"]);
     for (const m of MIGRATIONS) expect(m.title).toMatch(/[؀-ۿ]/);
   });
 

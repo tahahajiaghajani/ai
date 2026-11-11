@@ -4,6 +4,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { itamWorld, type ItamWorld } from "./itam-helpers";
 import { seedItamDefaults, checkStockRules } from "@server/modules/itam";
+import { BANK_MODELS } from "@server/modules/itam/seed";
 
 let w: ItamWorld;
 beforeAll(async () => {
@@ -15,13 +16,14 @@ describe("seeds", () => {
     const again = await seedItamDefaults(w.e.cfg, w.e.org);
     expect(again.skipped).toBe(true);
     const models = await w.o.post(`${w.P}/r/asset_model/query`, { size: 50 });
-    expect(models.rows.length).toBe(12);
+    // 12 office and data-centre models and the bank device models (ATM, CRS, kiosk, POS, HSM, CCTV, UPS, branch network…)
+    expect(models.rows.length).toBe(12 + BANK_MODELS.length);
     const sw = await w.o.post(`${w.P}/r/software_model/query`, { size: 50 });
     expect(sw.rows.map((r: any) => r.name)).toContain("Windows 11 Pro");
     const rules = await w.o.post(`${w.P}/r/notification_rule/query`, { filter: { f: "table_key", op: "eq", v: "asset" }, size: 20 });
     expect(rules.rows.length).toBeGreaterThanOrEqual(3);
     const roles = await w.o.get(`${w.P}/access/roles`);
-    expect(roles.roles.map((r: any) => r.key)).toEqual(expect.arrayContaining(["procurement_manager", "it_finance"]));
+    expect(roles.roles.map((r: any) => r.key)).toEqual(expect.arrayContaining(["procurement_manager", "it_finance", "branch_asset_officer", "regional_asset_manager", "branch_manager"]));
     const forced = await seedItamDefaults(w.e.cfg, w.e.org, { force: true });
     expect(forced.created.asset_model ?? 0).toBe(0);
   });
@@ -116,7 +118,9 @@ describe("the asset lifecycle", () => {
     await w.p.am.client.post(`${w.P}/r/disposal_order/${order.id}/transition`, { to: "approved" });
     const refused = await w.p.am.client.post(`${w.P}/r/disposal_order/${order.id}/transition`, { to: "completed" }, 409);
     expect(refused.error.message).toContain("گواهی");
-    await w.p.am.client.patch(`${w.P}/r/disposal_item/${item.id}`, { sanitization_method: "purge", sanitized_at: new Date().toISOString(), certificate_no: "WIPE-1405-001", verified: true });
+    // the performer records the wipe with a witness; a third person who approves in the asset area reviews it
+    await w.p.am.client.patch(`${w.P}/r/disposal_item/${item.id}`, { sanitization_method: "purge", sanitized_at: new Date().toISOString(), certificate_no: "WIPE-1405-001", witness_id: w.p.agent.userId });
+    await w.o.patch(`${w.P}/r/disposal_item/${item.id}`, { verified: true });
     await w.p.am.client.post(`${w.P}/r/disposal_order/${order.id}/transition`, { to: "completed" });
     const gone = (await w.o.get(`${w.P}/r/asset/${a.id}`)).row;
     expect(gone.state).toBe("disposed");

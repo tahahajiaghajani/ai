@@ -75,6 +75,8 @@ import { installFieldServiceModule } from "../modules/field_service";
 import { fieldServiceRoutes } from "./field_service";
 import { installAdminModule } from "../modules/admin";
 import { adminTenantRoutes } from "./admin-tenant";
+import { demoRoutes } from "./demo";
+import { installDemoModule } from "../modules/demo";
 import { installIntegrationModule } from "../modules/integration";
 import { integrationHubRoutes } from "./integration";
 import { authAdminRoutes } from "./auth-admin";
@@ -158,6 +160,8 @@ installAiMl();
 installAiGovernance();
 // insights (docs/spec/AI.md §16): daily and weekly cards, digests by role
 installInsights();
+// demo data (docs/DEMO_FA.md): the fictional bank, loaded and removed without a trace — after every module it fills
+installDemoModule();
 
 export const moduleRoutes = router();
 
@@ -200,6 +204,7 @@ moduleRoutes.route("/field_service", fieldServiceRoutes);
 moduleRoutes.route("/slm", slmRoutes);
 moduleRoutes.route("/workforce", workforceRoutes);
 moduleRoutes.route("/admin", adminTenantRoutes);
+moduleRoutes.route("/demo", demoRoutes);
 moduleRoutes.route("/integration", integrationHubRoutes);
 // «امنیت ورود و نشست‌ها»: the organisation's session policy, sessions, sign-in audit and lockouts
 moduleRoutes.route("/auth", authAdminRoutes);

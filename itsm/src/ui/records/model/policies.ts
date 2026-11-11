@@ -60,6 +60,13 @@ export interface FormContext {
 /** Fields the engine maintains: shown read-only, left off a new record's form. */
 export const isEngineField = (f: FieldDef): boolean => !!(f.system || f.base);
 
+/**
+ * Whether a person can enter anything in a new record of the table: a field that is not the engine's, not read-only
+ * and not hidden. Tables the system writes (license reconciliation runs, caller verifications, policy
+ * acknowledgements…) have none: their lists offer no «… تازه» (its form had nothing to fill and «ثبت» was refused).
+ */
+export const enterableOnCreate = (def: Pick<TableDef, "fields">): boolean => def.fields.some((f) => !isEngineField(f) && !f.readonly && !f.hidden);
+
 /** The state of every field of `def` for `row` under `policies`. */
 export function formState(def: TableDef, row: Record<string, unknown>, policies: readonly UiPolicy[], ctx: FormContext): FormState {
   const hidden = new Set<string>();

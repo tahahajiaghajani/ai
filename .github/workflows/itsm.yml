@@ -71,6 +71,39 @@ jobs:
       - run: npm ci
       - run: npx vitest run --shard=${{ matrix.shard }}/4
 
+  # click-through QA (itsm/docs/qa/CLICKTHROUGH.md): the main page of every space, the requester portal, the platform
+  # console and the sign-in pages as the administrator, and the agent's and requester's home pages, on the
+  # Windows-flavour local server (PGlite) — console errors, crashes, «not found», failed API calls, endless loaders.
+  # About 7 minutes; the full crawl (every route, «… تازه», records and their tabs, phone width) is `npm run qa:crawl`
+  # (about 35 minutes).
+  clickthrough:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: itsm
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: itsm/package-lock.json
+      - run: npm ci
+      - name: Playwright and its Chromium (a tool of the crawler, not a dependency of the app)
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1.63.0
+          npx playwright install --with-deps chromium
+      - name: Click-through of the main pages
+        run: npm run qa:crawl -- --quick --out qa-report
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: itsm-clickthrough
+          path: itsm/qa-report
+          if-no-files-found: ignore
+
   windows:
     needs: [check, test]
     runs-on: windows-latest
@@ -128,16 +161,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=$(node -p "require('./desktop/package.json').version")
-          # a preview release per branch: two branches pushed close together never mix their installers
-          if [ "${GITHUB_REF_NAME}" = "main" ]; then TAG="itsm-v${VERSION}"; TITLE="کاریز (Kariz) ${VERSION} — نسخهٔ ویندوز"; PRE=""; else TAG="itsm-preview-${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}"; TITLE="کاریز (Kariz) ${VERSION} — پیش‌نمایش (${GITHUB_REF_NAME})"; PRE="--prerelease"; fi
+          CHANNEL=$(node -p "require('./desktop/package.json').releaseChannel || ''")
+          NOTES="فایل نصب ویندوز «کاریز» (Kariz؛ سامانهٔ سازمانی مدیریت خدمات فناوری اطلاعات و خدمات سازمانی). فایل Kariz-Setup را دانلود کنید (می‌توانید روی فلش هم کپی کنید) و اجرا کنید؛ همه‌چیز خودکار نصب می‌شود. راهنما: itsm/docs/DESKTOP_FA.md"
+          # a beta (releaseChannel "beta" in desktop/package.json) is its own pre-release itsm-v<version>-beta, so the last
+          # official release stays «Latest»; otherwise main publishes itsm-v<version> and every other branch its own preview
+          # (two branches pushed close together never mix their installers)
+          if [ "$CHANNEL" = "beta" ]; then TAG="itsm-v${VERSION}-beta"; TITLE="کاریز (Kariz) ${VERSION} — بتا"; PRE="--prerelease"
+            NOTES="نسخهٔ آزمایشی (بتا) «کاریز» ${VERSION}. Kariz-Setup: نسخهٔ ویندوز (نصب با یک کلیک). Kariz-Server: نسخهٔ سرور برای شبکهٔ داخلی (MSI). تازه‌ها و راهنمای نصب: itsm/docs/RELEASE_FA.md"
+          elif [ "${GITHUB_REF_NAME}" = "main" ]; then TAG="itsm-v${VERSION}"; TITLE="کاریز (Kariz) ${VERSION} — نسخهٔ ویندوز"; PRE=""; else TAG="itsm-preview-${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}"; TITLE="کاریز (Kariz) ${VERSION} — پیش‌نمایش (${GITHUB_REF_NAME})"; PRE="--prerelease"; fi
           gh release delete "$TAG" --cleanup-tag -y 2>/dev/null || true
-          gh release create "$TAG" desktop/release/Kariz-Setup-*.exe --target "$GITHUB_SHA" --title "$TITLE" $PRE \
-            --notes "فایل نصب ویندوز «کاریز» (Kariz؛ سامانهٔ سازمانی مدیریت خدمات فناوری اطلاعات و خدمات سازمانی). فایل Kariz-Setup را دانلود کنید (می‌توانید روی فلش هم کپی کنید) و اجرا کنید؛ همه‌چیز خودکار نصب می‌شود. راهنما: itsm/docs/DESKTOP_FA.md"
+          gh release create "$TAG" desktop/release/Kariz-Setup-*.exe --target "$GITHUB_SHA" --title "$TITLE" $PRE --notes "$NOTES"
 
   server:
     # the server edition: bundle, pinned Node.js / PostgreSQL 17 / WinSW / WiX (SHA-256 checked, cached), pgvector
-    # compiled with MSVC, the MSI, and an air-gapped smoke test (install, setup, sign-in, incident, backup, re-install,
-    # upgrade, uninstall keeping data). Guide: itsm/docs/SERVER_FA.md; design: itsm/docs/spec/SERVER.md
+    # compiled with MSVC, the MSI, and an air-gapped smoke test (install with 443/80 held by other programs on the free
+    # ports it picks, setup, sign-in, incident, backup, re-install with the setup dialog's properties, upgrade keeping the
+    # ports, uninstall keeping data, a given busy port refused with its reason in install-error.txt and the event log).
+    # Guide: itsm/docs/SERVER_FA.md; design: itsm/docs/spec/SERVER.md
     needs: [check, test]
     runs-on: windows-latest
     timeout-minutes: 90
@@ -157,7 +197,7 @@ jobs:
         shell: powershell
         run: |
           $failed = 0
-          foreach ($f in Get-Item packaging/server/scripts/install.ps1, packaging/server/scripts/uninstall.ps1, packaging/server/scripts/common.ps1) {
+          foreach ($f in Get-Item packaging/server/scripts/install.ps1, packaging/server/scripts/uninstall.ps1, packaging/server/scripts/common.ps1, packaging/server/scripts/smoke-test.ps1, packaging/server/scripts/build-msi.ps1) {
             $errors = $null
             # a script without a byte-order mark is read in the ANSI code page, as powershell.exe -File reads it
             [void][System.Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($f.FullName, [Text.Encoding]::Default), [ref]$null, [ref]$errors)
@@ -188,7 +228,7 @@ jobs:
         run: |
           ./packaging/server/scripts/build-msi.ps1 -Dist server-dist -Cache packaging/server/.cache -Out server-release
           ./packaging/server/scripts/build-msi.ps1 -Dist server-dist -Cache packaging/server/.cache -Out server-upgrade-test -Suffix '-upgrade-test'
-      - name: Air-gapped smoke test (install, setup, sign-in, incident, backup, re-install, upgrade, uninstall)
+      - name: Air-gapped smoke test (443/80 held, default ports, setup, sign-in, incident, backup, re-install with dialog properties, upgrade, uninstall, busy given port)
         run: |
           $msi = Get-ChildItem server-release/*.msi | Select-Object -First 1
           $upgrade = Get-ChildItem server-upgrade-test/*.msi | Select-Object -First 1
@@ -227,7 +267,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=$(node -p "require('./itsm/desktop/package.json').version")
-          if [ "${GITHUB_REF_NAME}" = "main" ]; then TAG="itsm-v${VERSION}"; TITLE="کاریز (Kariz) ${VERSION} — نسخهٔ ویندوز"; PRE=""; else TAG="itsm-preview-${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}"; TITLE="کاریز (Kariz) ${VERSION} — پیش‌نمایش (${GITHUB_REF_NAME})"; PRE="--prerelease"; fi
+          CHANNEL=$(node -p "require('./itsm/desktop/package.json').releaseChannel || ''")
+          # the same tag rules as the windows job's «Publish on the Releases page»
+          if [ "$CHANNEL" = "beta" ]; then TAG="itsm-v${VERSION}-beta"; TITLE="کاریز (Kariz) ${VERSION} — بتا"; PRE="--prerelease"
+          elif [ "${GITHUB_REF_NAME}" = "main" ]; then TAG="itsm-v${VERSION}"; TITLE="کاریز (Kariz) ${VERSION} — نسخهٔ ویندوز"; PRE=""; else TAG="itsm-preview-${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}"; TITLE="کاریز (Kariz) ${VERSION} — پیش‌نمایش (${GITHUB_REF_NAME})"; PRE="--prerelease"; fi
           # only this commit's release: a newer push of the branch re-created it and publishes its own MSI
           TARGET=$(gh release view "$TAG" --json targetCommitish --jq .targetCommitish 2>/dev/null || true)
           if [ -z "$TARGET" ]; then

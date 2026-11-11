@@ -178,6 +178,13 @@ export class SyncClient {
       const org = orgId ? local.find((o) => o.id === orgId) : local[0];
       if (!org) throw new Error("سازمانی روی این رایانه نیست که بارگذاری شود");
       orgId = String(org.id);
+      // demo data never reaches the server as real data (the server's purge cannot find it there, and a linked app
+      // no longer purges): the demo is purged here first
+      const demo = await this.o.db.one<{ n: number }>(
+        `select ((select count(*) from sm_demo_packs where org_id = $1) + (select count(*) from sm_demo_rows where org_id = $1))::int as n`,
+        [orgId],
+      );
+      if ((demo?.n ?? 0) > 0) throw new Error("داده‌های نمایشی روی این سازمان است؛ پیش از بارگذاری روی سرور، آن‌ها را از «داده‌های نمایشی» پاک کنید");
       await this.api("/sync/adopt", { url, token, body: { org } });
     } else {
       if (!orgId) throw new Error("سازمان ابری را انتخاب کنید");
@@ -209,7 +216,8 @@ export class SyncClient {
   private async queueEverything(orgId: string) {
     for (const def of AGGREGATES) {
       await this.o.db.query(
-        `insert into sm_outbox (entity, id, changed_at) select $1, id, now() from ${ident(def.table)} where ${def.table === "sm_orgs" ? "id" : "org_id"} = $2
+        `insert into sm_outbox (entity, id, changed_at) select $1, id, now() from ${ident(def.table)} t where ${def.table === "sm_orgs" ? "id" : "org_id"} = $2
+           and not exists (select 1 from sm_demo_rows d where d.org_id = $2 and d.row_id = t.id)
          on conflict (entity, id) do update set changed_at = now(), attempts = 0`,
         [def.entity, orgId],
       );

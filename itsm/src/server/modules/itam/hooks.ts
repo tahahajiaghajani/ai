@@ -28,7 +28,8 @@ import { tableDef } from "@shared/tables";
 import { ASSET_STATES, MOVEMENT_KINDS } from "@shared/tables/itam";
 import { assetTagFor, ciStatusOf, depreciation, matchSoftware, substateFor, type DepMethod } from "@shared/itam/logic";
 import { addJalaliMonths } from "@shared/supplier/logic";
-import { addDays } from "@shared/jalali";
+import { addDays, toJalali } from "@shared/jalali";
+import { deviceClass, nextJalaliMonthStart, tagFromPattern } from "@shared/itam/bank";
 import { D, mul, round } from "@shared/money";
 import { addJournalIn, createIn, onBeforeCommit, pushGuard, registerHooks, transitionIn, updateIn, savepoint, type PushArgs, type TableHooks, type WriteArgs } from "../../engine";
 import { access } from "../../access/provider";
@@ -59,7 +60,7 @@ export function setHandOver(tx: Tx, assetId: string, info: HandOver): void {
 const handOverOf = (tx: Tx, assetId: string): HandOver => handOvers.get(tx)?.get(assetId) ?? {};
 
 /** A child row (a line, an item) is changed by whoever may change its parent record; the system always may. */
-async function needParentWrite(w: WriteArgs, parentTable: string, field: string, opts: { draftStates?: string[] } = {}): Promise<Row | null> {
+export async function needParentWrite(w: WriteArgs, parentTable: string, field: string, opts: { draftStates?: string[] } = {}): Promise<Row | null> {
   const id = w.next?.[field] ?? w.prev?.[field];
   if (!isUuid(id)) return null;
   const parent = await liveRow(w.tx, sysOf(w.ctx), parentTable, id);
@@ -75,7 +76,7 @@ async function needParentWrite(w: WriteArgs, parentTable: string, field: string,
 }
 
 /** Ledgers the module writes itself (stock movements, assignment history). */
-function systemOnly(label: string) {
+export function systemOnly(label: string) {
   return (w: WriteArgs) => {
     if (!isSys(w.ctx)) throw forbidden(`${label} را سامانه ثبت می‌کند و دستی تغییر نمی‌کند`);
   };
@@ -90,8 +91,9 @@ const movementLabel = (kind: string) => MOVEMENT_KINDS.find((k) => k.value === k
 /** The book value of an asset today by its depreciation rule (null when it has no cost, rule or start date). */
 export function bookValueOf(rule: Row | null | undefined, a: Row, today: string): { book_value: string; accumulated_depreciation: string; book_value_at: string } | null {
   if (!rule || a.purchase_cost === null || a.purchase_cost === undefined || a.purchase_cost === "") return null;
-  const start = String((rule.start_basis === "purchase" ? a.purchase_date : a.in_service_date || a.purchase_date) ?? "");
-  if (!start) return null;
+  const basis = String((rule.start_basis === "purchase" ? a.purchase_date : a.in_service_date || a.purchase_date) ?? "");
+  if (!basis) return null;
+  const start = rule.start_convention === "next_month" ? nextJalaliMonthStart(basis) : basis;
   const salvage = a.salvage_value ?? (rule.salvage_percent ? String((Number(a.purchase_cost) * Number(rule.salvage_percent)) / 100) : "0");
   const d = depreciation({ cost: a.purchase_cost, salvage, lifeMonths: Number(rule.life_months ?? 36), method: rule.method as DepMethod, ratePercent: rule.rate_percent, start, asOf: today });
   return { book_value: d.bookValue, accumulated_depreciation: d.accumulated, book_value_at: today };
@@ -257,7 +259,14 @@ async function assetAfter(w: WriteArgs): Promise<void> {
   const sys = sysOf(w.ctx);
   if (w.op === "create" && !row.asset_tag) {
     const cfg = await itamConfig(w.tx, w.ctx);
-    const tag = assetTagFor(cfg.tag_prefix, row.number);
+    let tag = assetTagFor(cfg.tag_prefix, row.number);
+    if (cfg.tag_pattern) {
+      // the organisation's numbering («پلاک اموال»): branch code, device class code, Jalali year, record digits
+      const branch = isUuid(row.branch_id) ? await liveRow(w.tx, sys, "org_unit", row.branch_id) : null;
+      tag = tagFromPattern(String(cfg.tag_pattern), {
+        prefix: cfg.tag_prefix, branch: (branch?.code as string) ?? null, cls: deviceClass(row.category)?.code ?? String(row.category ?? "").toUpperCase().slice(0, 4), year: toJalali(orgToday(w.ctx)).jy, number: row.number as string,
+      }) ?? tag;
+    }
     if (tag) {
       const name = row.name && !String(row.name).includes("—") && !row.serial_number ? `${row.name} — ${tag}` : row.name;
       await updateIn(w.tx, sys, "asset", row.id, { asset_tag: tag, name }, { trusted: true, keepVersion: true }).catch(() => undefined);
@@ -348,12 +357,14 @@ async function auditAfter(w: WriteArgs): Promise<void> {
   // completion stamps or marks missing only assets they may change
   const actor = w.ctx;
   if (entering(w, "in_progress")) {
-    const where = a.scope_kind === "location"
+    const where = a.scope_kind === "branch"
+      ? { and: [{ f: "branch_id", op: "eq", v: a.branch_id }, { f: "state", op: "in", v: ["in_stock", "in_use", "in_repair"] }] }
+      : a.scope_kind === "location"
       ? { and: [{ f: "location_id", op: "eq", v: a.location_id }, { f: "state", op: "in", v: ["in_stock", "in_use"] }] }
       : { and: [{ f: "stockroom_id", op: "eq", v: a.stockroom_id }, { f: "state", op: "eq", v: "in_stock" }] };
     const assets = await liveRows(w.tx, actor, "asset", where as never, { limit: 5000, order: "t.no" });
     for (const asset of assets) {
-      await createIn(w.tx, sys, "inventory_audit_item", { audit_id: a.id, asset_id: asset.id, expected: true, result: "pending", label: `${asset.number ?? ""} — ${asset.name ?? ""}`.slice(0, 300) }, { trusted: true });
+      await createIn(w.tx, sys, "inventory_audit_item", { audit_id: a.id, asset_id: asset.id, expected: true, result: "pending", branch_id: a.branch_id ?? null, label: `${asset.number ?? ""} — ${asset.name ?? ""}`.slice(0, 300) }, { trusted: true });
     }
     await updateIn(w.tx, sys, "inventory_audit", a.id, { expected_count: assets.length, found_count: 0, missing_count: 0, unexpected_count: 0, started_at: now() }, { trusted: true, keepVersion: true });
   }
@@ -472,7 +483,9 @@ const disposalGuards = {
       const asset = await liveRow(w.tx, sys, "asset", it.asset_id);
       if (!asset) continue;
       if (!(await dataBearing(w, asset))) continue;
-      if (!it.sanitization_method || it.sanitization_method === "not_applicable" || !it.sanitized_at || !it.certificate_no) missing.push(String(asset.number ?? asset.name));
+      // a data-bearing device leaves only on a certificate a second person witnessed and a third reviewed
+      const witnessed = isUuid(it.witness_id) && String(it.witness_id) !== String(it.sanitized_by ?? "");
+      if (!it.sanitization_method || it.sanitization_method === "not_applicable" || !it.sanitized_at || !it.certificate_no || !it.certificate_hash || !witnessed || !it.verified) missing.push(String(asset.number ?? asset.name));
     }
     return missing.length ? `گواهی پاک‌سازی داده برای این دارایی‌ها کامل نیست: ${missing.slice(0, 10).join("، ")}` : null;
   },
@@ -735,7 +748,14 @@ const reservationBefore = (w: WriteArgs) => {
 };
 const auditBefore = (w: WriteArgs) => {
   if (w.op === "delete") return;
-  if (w.next.scope_kind === "location" ? !w.next.location_id : !w.next.stockroom_id) throw bad(w.next.scope_kind === "location" ? "مکان شمارش را مشخص کنید" : "انبار شمارش را مشخص کنید");
+  const k = w.next.scope_kind;
+  if (k === "branch" ? !w.next.branch_id : k === "location" ? !w.next.location_id : !w.next.stockroom_id) {
+    throw bad(k === "branch" ? "شعبهٔ شمارش را مشخص کنید" : k === "location" ? "مکان شمارش را مشخص کنید" : "انبار شمارش را مشخص کنید");
+  }
+  // a branch's staff count their own branch: the audit is anchored to it (scope.unit)
+  if (!isSys(w.ctx) && w.via !== "sync" && (w.op === "create" || w.changed.has("branch_id")) && w.next.branch_id && !access().canWrite(w.ctx, tableDef("asset")!, { org_id: w.ctx.org.id, branch_id: w.next.branch_id, state: "in_stock" })) {
+    throw forbidden("شمارش را فقط برای شعبه یا واحدی می‌توانید برنامه بگذارید که اموال آن با شماست");
+  }
 };
 async function auditItemBefore(w: WriteArgs): Promise<void> {
   await needParentWrite(w, "inventory_audit", "audit_id", { draftStates: ["planned", "in_progress"] });
@@ -764,7 +784,7 @@ async function saasAccountBefore(w: WriteArgs): Promise<void> {
  * takes these rows, but only from a member who may change the asset they record (a ledger row of an asset the member
  * may not change is refused). A row that names no asset is the module's alone.
  */
-function ledgerOnPush(label: string): (p: PushArgs) => Promise<string | null> {
+export function ledgerOnPush(label: string): (p: PushArgs) => Promise<string | null> {
   return async (p) => {
     const asset = isUuid(p.next.asset_id) ? await liveRow(p.tx, sysOf(p.ctx), "asset", p.next.asset_id) : null;
     if (!asset) return `${label} را سامانه ثبت می‌کند و دستی تغییر نمی‌کند`;

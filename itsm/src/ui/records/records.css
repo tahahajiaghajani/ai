@@ -332,7 +332,9 @@
   .rk-tg-head > span:first-child { border-inline-start: 0; }
   .rk-tg-head > span.is-off { color: var(--ds-holiday); }
   .rk-tg-head > span.is-today { color: var(--ds-text); font-weight: var(--ds-weight-strong); }
-  .rk-tg-head b { font-weight: var(--ds-weight-medium); color: var(--ds-text-2); font-size: 11px; }
+  /* the month starts at its first day's column and runs on into the next ones (centred, the first column's name was
+     cut off at the timeline's edge: «بان» for «آبان») */
+  .rk-tg-head b { align-self: flex-start; padding-inline-start: 3px; font-weight: var(--ds-weight-medium); color: var(--ds-text-2); font-size: 11px; }
   .rk-tg-body { position: relative; min-block-size: 96px; }
   .rk-tg-cols { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(var(--rk-tg-days), minmax(0, 1fr)); pointer-events: none; }
   .rk-tg-cols > i { border-inline-start: 1px solid var(--ds-line); }
@@ -347,6 +349,7 @@
     border-radius: var(--ds-radius-sm); background: var(--ds-raised); color: var(--ds-text); font: inherit; font-size: 12px; text-align: start; white-space: nowrap; cursor: pointer;
     box-shadow: var(--ds-shadow-e1);
   }
+  .rk-tg-bar.is-static { cursor: default; }
   .rk-tg-bar[data-c] { background: color-mix(in oklab, var(--rk-hue) 14%, var(--ds-raised)); }
   .rk-tg-bar:focus-visible { outline: 2px solid var(--ds-focus-color); outline-offset: 1px; }
   .rk-tg-t { overflow: hidden; text-overflow: ellipsis; min-inline-size: 0; }

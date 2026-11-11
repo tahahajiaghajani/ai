@@ -7,6 +7,10 @@
 //   · software models (Windows, Windows Server, Office, Microsoft 365, antivirus, Acrobat, SQL Server, AutoCAD, 7-Zip,
 //     Chrome) with normalisation patterns and metrics, sample entitlements and a SaaS subscription
 //   · catalogue items of the request module bound to models (new laptop, phone) when they exist
+//   · the bank layer (version 2): bank device models (ATM, CRS, kiosk, POS, passbook printer, cheque scanner, signature
+//     pad, HSM, NVR, UPS, branch network, storage) and their depreciation classes, the roles «مسئول اموال شعبه»,
+//     «مدیر اموال منطقه» and «رئیس شعبه», the transfer approval and receipt SLA, the ATM maintenance group and the
+//     notifications of transfers and attestations
 //   · the procurement group and the «مدیر تدارکات» role, approval rules (requisitions, disposal), SLAs (a decision on a
 //     requisition in two working days, repairs in ten), notification rules for the module's events, and an inactive
 //     flow template for missing assets
@@ -21,7 +25,7 @@ import { seedCalendarsIn } from "../sla";
 import { triggerOf } from "../flows/service";
 import { eqAll, liveRows, sysOf, type Row } from "./common";
 
-export const ITAM_SEED_VERSION = 1;
+export const ITAM_SEED_VERSION = 2;
 
 export interface SeedCounts {
   skipped: boolean;
@@ -55,6 +59,10 @@ const DEPRECIATION = [
   { name: "رایانه و تلفن — ۳ سال خط مستقیم", method: "straight_line", life_months: 36, salvage_percent: "5" },
   { name: "سرور و تجهیز شبکه — ۵ سال خط مستقیم", method: "straight_line", life_months: 60, salvage_percent: "5" },
   { name: "نمایشگر و چاپگر — ۴ سال نزولی", method: "declining_balance", life_months: 48, salvage_percent: "10" },
+  // bank device classes (the organisation's finance policy decides; these are starting points)
+  { name: "خودپرداز، CRS و کیوسک — ۷ سال خط مستقیم", method: "straight_line", life_months: 84, salvage_percent: "5", start_convention: "next_month", device_classes: ["atm", "crs", "kiosk"] },
+  { name: "پایانه و تجهیزات باجه — ۴ سال خط مستقیم", method: "straight_line", life_months: 48, salvage_percent: "0", start_convention: "next_month", device_classes: ["pos", "passbook_printer", "cheque_scanner", "signature_pad"] },
+  { name: "امنیت و زیرساخت شعبه — ۵ سال نزولی", method: "declining_balance", life_months: 60, salvage_percent: "5", start_convention: "next_month", device_classes: ["hsm", "cctv", "ups", "network"] },
 ];
 
 const MAKERS: [string, string[]][] = [
@@ -62,6 +70,10 @@ const MAKERS: [string, string[]][] = [
   ["Hewlett Packard Enterprise", ["manufacturer"]], ["LG", ["manufacturer"]], ["Logitech", ["manufacturer"]], ["Microsoft", ["publisher", "cloud"]],
   ["ESET", ["publisher"]], ["Adobe", ["publisher"]], ["Autodesk", ["publisher"]], ["Google", ["publisher"]], ["Igor Pavlov (7-Zip)", ["publisher"]],
   ["فن‌آوران نمونه (فروشندهٔ سخت‌افزار)", ["reseller", "maintenance"]],
+  // bank devices
+  ["NCR Atleos", ["manufacturer"]], ["Diebold Nixdorf", ["manufacturer"]], ["GRG Banking", ["manufacturer"]], ["Hyosung TNS", ["manufacturer"]], ["PAX Technology", ["manufacturer"]],
+  ["Verifone", ["manufacturer"]], ["Thales", ["manufacturer"]], ["Olivetti", ["manufacturer"]], ["Panini", ["manufacturer"]], ["Wacom", ["manufacturer"]], ["Hikvision", ["manufacturer"]],
+  ["APC by Schneider Electric", ["manufacturer"]], ["Cisco", ["manufacturer"]],
 ];
 
 interface ModelSeed {
@@ -96,6 +108,46 @@ const MODELS: ModelSeed[] = [
   { name: "دل PowerEdge R750", maker: "Dell", model_number: "R750", category: "server", ci_class: "server", unit_cost: "5200000000", warranty_months: 36, useful_life_months: 60, dep: 1, data_bearing: true },
   { name: "لاجیتک MK270 (صفحه‌کلید و موشواره)", maker: "Logitech", model_number: "920-004518", category: "peripheral", asset_class: "accessory", tracking: "quantity", ci_class: null, unit_cost: "9500000", warranty_months: 12, useful_life_months: 36, dep: 2 },
   { name: "کارتریج تونر HP 85A", maker: "HP", model_number: "CE285A", category: "consumable", asset_class: "consumable", tracking: "quantity", ci_class: null, unit_cost: "6500000", warranty_months: 0, useful_life_months: 12, dep: 2 },
+];
+
+/** Bank device models (BANK_DEVICE_CLASSES: CI class, data-bearing, depreciation class) — prices are placeholders. */
+export const BANK_MODELS: ModelSeed[] = [
+  { name: "ان‌سی‌آر SelfServ 22e (خودپرداز)", maker: "NCR Atleos", model_number: "6622e", category: "atm", ci_class: "computer", unit_cost: "45000000000", warranty_months: 12, useful_life_months: 84, dep: 3, data_bearing: true, specs: "خودپرداز دیواری، ۴ کاست، صفحه‌کلید رمزنگار با گواهی PCI، کارت‌خوان بی‌تماس" },
+  { name: "جی‌آر‌جی H68N (خودپرداز)", maker: "GRG Banking", model_number: "H68N", category: "atm", ci_class: "computer", unit_cost: "38000000000", warranty_months: 12, useful_life_months: 84, dep: 3, data_bearing: true, specs: "خودپرداز داخل شعبه، ۴ کاست" },
+  { name: "هیوسونگ MX8800 (CRS)", maker: "Hyosung TNS", model_number: "MX8800", category: "crs", ci_class: "computer", unit_cost: "60000000000", warranty_months: 12, useful_life_months: 84, dep: 3, data_bearing: true, specs: "خودپرداز بازیافتی با پذیرش وجه نقد" },
+  { name: "دیبولد نیکسدورف DN Series 200V (CRS)", maker: "Diebold Nixdorf", model_number: "DN200V", category: "crs", ci_class: "computer", unit_cost: "65000000000", warranty_months: 12, useful_life_months: 84, dep: 3, data_bearing: true },
+  { name: "کیوسک خدمات بانکی ۲۱ اینچ", maker: "GRG Banking", model_number: "K21", category: "kiosk", ci_class: "computer", unit_cost: "18000000000", warranty_months: 12, useful_life_months: 60, dep: 3, data_bearing: true, specs: "صورت‌حساب، پرداخت قبض و صدور کارت فوری" },
+  { name: "پکس S90 (پایانهٔ فروش)", maker: "PAX Technology", model_number: "S90", category: "pos", ci_class: null, unit_cost: "150000000", warranty_months: 12, useful_life_months: 48, dep: 4 },
+  { name: "پکس A920 (پایانهٔ فروش اندرویدی)", maker: "PAX Technology", model_number: "A920", category: "pos", ci_class: null, unit_cost: "280000000", warranty_months: 12, useful_life_months: 48, dep: 4 },
+  { name: "وریفون VX675 (پایانهٔ سیار)", maker: "Verifone", model_number: "VX675", category: "pos", ci_class: null, unit_cost: "170000000", warranty_months: 12, useful_life_months: 48, dep: 4 },
+  { name: "اولیوتی PR2 Plus (چاپگر دفترچه)", maker: "Olivetti", model_number: "PR2 Plus", category: "passbook_printer", ci_class: null, unit_cost: "900000000", warranty_months: 12, useful_life_months: 60, dep: 4 },
+  { name: "پانینی Vision X (اسکنر چک)", maker: "Panini", model_number: "Vision X", category: "cheque_scanner", ci_class: null, unit_cost: "1500000000", warranty_months: 12, useful_life_months: 60, dep: 4 },
+  { name: "واکام STU-540 (پد امضا)", maker: "Wacom", model_number: "STU-540", category: "signature_pad", ci_class: null, unit_cost: "250000000", warranty_months: 12, useful_life_months: 48, dep: 4 },
+  { name: "تالس payShield 10K (HSM)", maker: "Thales", model_number: "payShield 10K", category: "hsm", ci_class: null, unit_cost: "35000000000", warranty_months: 36, useful_life_months: 60, dep: 5, data_bearing: true, specs: "HSM پرداخت با گواهی FIPS 140-2 سطح ۳" },
+  { name: "هایک‌ویژن DS-7716NI (NVR شانزده‌کاناله)", maker: "Hikvision", model_number: "DS-7716NI-K4", category: "cctv", ci_class: null, unit_cost: "600000000", warranty_months: 24, useful_life_months: 60, dep: 5, data_bearing: true },
+  { name: "ای‌پی‌سی Smart-UPS SRT 3000", maker: "APC by Schneider Electric", model_number: "SRT3KXLI", category: "ups", ci_class: "ups", unit_cost: "1800000000", warranty_months: 24, useful_life_months: 60, dep: 5 },
+  { name: "سیسکو ISR 1111 (مسیریاب شعبه)", maker: "Cisco", model_number: "C1111-4P", category: "network", ci_class: "network_device", unit_cost: "900000000", warranty_months: 12, useful_life_months: 60, dep: 5, data_bearing: true },
+  { name: "سیسکو Catalyst 1000 (سوئیچ شعبه)", maker: "Cisco", model_number: "C1000-24T", category: "network", ci_class: "network_device", unit_cost: "650000000", warranty_months: 12, useful_life_months: 60, dep: 5 },
+  { name: "اچ‌پی‌ای MSA 2060 (ذخیره‌ساز مرکز داده)", maker: "Hewlett Packard Enterprise", model_number: "MSA 2060", category: "storage", ci_class: "storage", unit_cost: "25000000000", warranty_months: 36, useful_life_months: 60, dep: 1, data_bearing: true },
+];
+
+/** The bank roles (organisation rows: the access matrix shows and edits them). */
+const BANK_ROLES = [
+  {
+    key: "branch_asset_officer", name: "مسئول اموال شعبه", persona: "agent",
+    description: "دارایی‌های شعبه یا واحد خود را می‌بیند و تغییر می‌دهد، حوالهٔ انتقال صادر می‌کند، رسید می‌گیرد و شمارش شعبه را انجام می‌دهد؛ بدون اطلاعات مالی",
+    grants: { asset: { read: "unit", create: true, write: "unit", delete: "none", approve: false, admin: false } }, field_groups: [] as string[],
+  },
+  {
+    key: "regional_asset_manager", name: "مدیر اموال منطقه", persona: "agent",
+    description: "دارایی‌های همهٔ شعبه‌های منطقه (درخت واحد): تأیید حواله‌ها، شمارش‌ها، تأییدهای رؤسای شعبه و دفتر اموال با اطلاعات مالی",
+    grants: { asset: { read: "unit_tree", create: true, write: "unit_tree", delete: "none", approve: true, admin: false }, reports: READ }, field_groups: ["financial"],
+  },
+  {
+    key: "branch_manager", name: "رئیس شعبه", persona: "agent",
+    description: "دارایی‌های شعبه را می‌بیند و فهرست اموال شعبه را دوره‌ای تأیید می‌کند",
+    grants: { asset: { read: "unit", create: false, write: "own", delete: "none", approve: false, admin: false } }, field_groups: [] as string[],
+  },
 ];
 
 interface SoftwareSeed {
@@ -145,6 +197,10 @@ function notificationRules(): Row[] {
     { table_key: "purchase_requisition", name: "درخواست خرید تأیید یا رد شد", event: "state_changed", condition: { or: [{ f: "state", op: "changes_to", v: "approved" }, { f: "state", op: "changes_to", v: "rejected" }] }, recipients: { fields: ["requested_for"] }, channels: ["in_app", "email"] },
     { table_key: "repair_order", name: "تعمیر دارایی انجام شد", event: "state_changed", condition: { or: [{ f: "state", op: "changes_to", v: "repaired" }, { f: "state", op: "changes_to", v: "beyond_repair" }] }, recipients: { fields: ["assigned_to"], roles: ["asset_manager"] }, channels: ["in_app"] },
     { table_key: "disposal_order", name: "دستور اسقاط تازه", event: "created", recipients: { roles: ["asset_manager"] }, channels: ["in_app"] },
+    { table_key: "asset_transfer", name: "حوالهٔ انتقال دارایی در راه است", event: "state_changed", condition: { f: "state", op: "changes_to", v: "in_transit" }, recipients: { roles: ["branch_asset_officer", "regional_asset_manager"] }, channels: ["in_app"] },
+    { table_key: "asset_transfer", name: "رسید انتقال با مغایرت", event: "custom", custom_event: "itam.transfer_discrepancy", recipients: { fields: ["requested_by"], roles: ["asset_manager", "regional_asset_manager"] }, channels: ["in_app", "email"] },
+    { table_key: "branch_attestation", name: "تأیید اموال شعبه منتظر شماست", event: "created", recipients: { fields: ["manager_id"] }, channels: ["in_app", "email"] },
+    { table_key: "branch_attestation", name: "تأیید اموال شعبه با استثنا", event: "custom", custom_event: "itam.attestation_exceptions", recipients: { roles: ["asset_manager", "regional_asset_manager"] }, channels: ["in_app", "email"] },
   ].map((r) => ({ ...base, ...r }));
 }
 
@@ -180,7 +236,7 @@ export async function seedItamDefaultsIn(tx: Tx, ctx: Ctx, opts: { force?: boole
   const makers = new Map<string, Row>();
   for (const [name, kinds] of MAKERS) makers.set(name, await ensure(tx, sys, out, "supplier", { name }, { kinds, state: "active", criticality: "medium" }));
   const models = new Map<string, Row>();
-  for (const m of MODELS) {
+  for (const m of [...MODELS, ...BANK_MODELS]) {
     models.set(m.name, await ensure(tx, sys, out, "asset_model", { name: m.name }, {
       manufacturer_id: makers.get(m.maker)?.id ?? null, model_number: m.model_number, category: m.category, asset_class: m.asset_class ?? "hardware", tracking: m.tracking ?? "individual",
       ci_class: m.ci_class ?? null, unit_cost: m.unit_cost, warranty_months: m.warranty_months, useful_life_months: m.useful_life_months, depreciation_rule_id: deps[m.dep]?.id ?? null,
@@ -243,6 +299,18 @@ export async function seedItamDefaultsIn(tx: Tx, ctx: Ctx, opts: { force?: boole
     condition: { f: "state", op: "eq", v: "requested" } as Cond, mode: "sequential", active: true, expire_after: 14 * 86400,
     levels: [{ name: "مدیریت دارایی", sources: [{ kind: "groups", groups: [assetGroup.id] }], rule: "any" }],
   });
+  // bank: roles, the transfer approval, the ATM maintenance group
+  for (const r of BANK_ROLES) {
+    const [found] = await liveRows(tx, sys, "role", eqAll({ key: r.key }), { limit: 1 });
+    if (found) continue;
+    await createIn(tx, sys, "role", { ...r, contains: ["requester"], workspaces: "member", domains: "own", active: true }, { trusted: true });
+    out.created.role = (out.created.role ?? 0) + 1;
+  }
+  await ensure(tx, sys, out, "approval_rule", { table_key: "asset_transfer", name: "تأیید حوالهٔ انتقال دارایی" }, {
+    condition: { f: "state", op: "eq", v: "pending_approval" } as Cond, mode: "sequential", active: true, expire_after: 7 * 86400, remind_every: 86400,
+    levels: [{ name: "مدیریت دارایی", sources: [{ kind: "groups", groups: [assetGroup.id] }], rule: "any" }],
+  });
+  await ensure(tx, sys, out, "group", { name: "نگهداری خودپردازها" }, { types: ["assignment"], description: "نگهداری پیشگیرانه و تعمیر خودپرداز، CRS و کیوسک" });
   const office = await officeCalendar(tx, sys, out);
   await ensure(tx, sys, out, "sla_definition", { table_key: "purchase_requisition", name: "تصمیم دربارهٔ درخواست خرید" }, {
     type: "ola", target: "custom", duration_mode: "fixed", duration: 2 * 9 * 3600, calendar_id: office, warn_percents: [50, 75],
@@ -253,6 +321,11 @@ export async function seedItamDefaultsIn(tx: Tx, ctx: Ctx, opts: { force?: boole
     type: "ola", target: "resolution", duration_mode: "fixed", duration: 10 * 9 * 3600, calendar_id: office, warn_percents: [75, 90],
     stop_condition: { f: "state", op: "in", v: ["repaired", "beyond_repair", "closed"] }, cancel_condition: { f: "state", op: "eq", v: "canceled" },
     description: "ده روز کاری تا تعمیر یا اعلام غیرقابل تعمیر بودن",
+  });
+  await ensure(tx, sys, out, "sla_definition", { table_key: "asset_transfer", name: "رسید حوالهٔ انتقال دارایی" }, {
+    type: "ola", target: "custom", duration_mode: "fixed", duration: 3 * 9 * 3600, calendar_id: office, warn_percents: [50, 75],
+    start_condition: { f: "state", op: "eq", v: "in_transit" }, stop_condition: { f: "state", op: "in", v: ["received", "received_partial", "closed"] },
+    cancel_condition: { f: "state", op: "eq", v: "canceled" }, description: "سه روز کاری از ارسال تا رسید شعبهٔ گیرنده",
   });
   for (const r of notificationRules()) await ensure(tx, sys, out, "notification_rule", { table_key: r.table_key, name: r.name }, r);
 

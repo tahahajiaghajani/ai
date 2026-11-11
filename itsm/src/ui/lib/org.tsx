@@ -33,7 +33,7 @@ export interface OrgInfo {
   /** the organisation's platform status: read_only refuses changes, suspended closes it to members */
   status?: { status: OrgStatus; reason: string | null };
   /** the member's effective ITSM access: grants per area, roles, working persona (nav items and spaces name a gate) */
-  access?: { grants: Record<string, FullGrant>; roles: string[]; legacy: boolean; persona: Persona };
+  access?: { grants: Record<string, FullGrant>; field_groups?: string[]; roles: string[]; legacy: boolean; persona: Persona };
 }
 
 export type OrgStatus = "active" | "read_only" | "suspended";
@@ -95,7 +95,7 @@ export function OrgProvider({ orgId, info, children }: { orgId: string; info: Or
       org: info.org,
       api: orgApi(orgId),
       can: (area, level = "view") => LEVEL_ORDER.indexOf(perms[area] ?? "none") >= LEVEL_ORDER.indexOf(level),
-      allows: (gate) => gateAllows(info.access?.grants, gate),
+      allows: (gate) => gateAllows(info.access?.grants, gate, info.access?.field_groups),
       persona: info.access?.persona ?? "agent",
       has: (m) => (info.org.modules ?? []).includes(m),
       timezone: info.org.settings?.timezone || DEFAULT_TIMEZONE,

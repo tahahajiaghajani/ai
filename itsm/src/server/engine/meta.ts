@@ -2,6 +2,7 @@
 // (custom fields, relabelled fields, its choice lists) and as the caller may use it (tables they may read, fields
 // they may see, whether they may create).
 import type { FieldDef, Option, TableDef } from "@shared/model/types";
+import { isNever } from "@shared/model/conditions";
 import type { Ctx } from "../context";
 import { forbidden, notFound } from "../http/errors";
 import { access } from "../access/provider";
@@ -21,7 +22,8 @@ function metaOf(ctx: Ctx, def: TableDef, lists: Set<string>, participant = false
   const fields = def.fields.filter((f) => !visible || visible.has(f.name));
   for (const f of fields) if (typeof f.choices === "string") lists.add(f.choices);
   if (participant) return { ...def, fields, can: { read: true, create: false, participant: true } };
-  return { ...def, fields, can: { read: true, create: !def.virtual && (isSystemCtx(ctx) || access().canCreate(ctx, def, null)) } };
+  // a table only the system writes (rowAccess.write NEVER: computed scores, logs) offers nobody else «… تازه» or import
+  return { ...def, fields, can: { read: true, create: !def.virtual && (isSystemCtx(ctx) || (!isNever(def.rowAccess?.write) && access().canCreate(ctx, def, null))) } };
 }
 
 function choicesOf(schema: OrgSchema, lists: Set<string>): Record<string, Option[]> {

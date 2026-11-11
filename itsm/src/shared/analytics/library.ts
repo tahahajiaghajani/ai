@@ -369,6 +369,31 @@ export const KPI_LIBRARY: LibraryIndicator[] = [
     ],
     target: 100, warn: 95, crit: 85, score_roles: ASSET_READERS, collect: true,
   },
+  // the bank layer of ITAM: the ATM fleet, transfers between branches, audit discrepancies, branch attestation
+  {
+    key: "asset.fleet_down", name: "خودپردازهای از سرویس خارج", practice: "asset", unit: "count", direction: "down", grain: "day",
+    description: "خودپردازها، CRSها و کیوسک‌هایی که در لحظهٔ اندازه‌گیری «در سرویس» نیستند (خارج از سرویس، بدون وجه نقد، در نگهداری یا قطع ارتباط).",
+    formula: "down", parts: [{ name: "down", table: "asset", fn: "count", filter: { and: [{ f: "category", op: "in", v: ["atm", "crs", "kiosk"] }, { f: "device_status", op: "in", v: ["out_of_service", "out_of_cash", "maintenance", "offline"] }, { f: "state", op: "nin", v: ["disposed", "canceled", "retired"] }] } }],
+    target: 0, warn: 5, crit: 20, breakdowns: ["branch_id", "device_status"], score_roles: ASSET_READERS, collect: true,
+  },
+  {
+    key: "asset.transfers_in_transit", name: "حواله‌های انتقال در راه", practice: "asset", unit: "count", direction: "down", grain: "day",
+    description: "حواله‌های انتقال دارایی میان شعبه‌ها که ارسال شده‌اند و شعبهٔ گیرنده هنوز رسید نزده است.",
+    formula: "open", parts: [{ name: "open", table: "asset_transfer", fn: "count", filter: { f: "state", op: "eq", v: "in_transit" } }],
+    target: 0, warn: 10, crit: 30, breakdowns: ["to_branch_id"], score_roles: ASSET_READERS, collect: true,
+  },
+  {
+    key: "asset.audit_discrepancies", name: "مغایرت‌های باز شمارش", practice: "asset", unit: "count", direction: "down", grain: "day",
+    description: "اقلام دیده‌نشده، جابه‌جا یا ناشناختهٔ شمارش‌های پایان‌یافته که هنوز تعیین تکلیف نشده‌اند.",
+    formula: "open", parts: [{ name: "open", table: "inventory_audit", fn: "sum", field: "discrepancy_open", filter: { f: "state", op: "eq", v: "completed" } }],
+    target: 0, warn: 5, crit: 20, breakdowns: ["branch_id"], score_roles: ASSET_READERS, collect: true,
+  },
+  {
+    key: "asset.attestations_overdue", name: "تأییدهای دیرکردهٔ اموال شعبه", practice: "asset", unit: "count", direction: "down", grain: "day",
+    description: "تأییدهای دوره‌ای اموال شعبه که مهلتشان گذشته و رئیس شعبه هنوز امضا نکرده است.",
+    formula: "late", parts: [{ name: "late", table: "branch_attestation", fn: "count", filter: { and: [{ f: "state", op: "eq", v: "open" }, { f: "overdue", op: "eq", v: true }] } }],
+    target: 0, warn: 3, crit: 10, breakdowns: ["branch_id"], score_roles: ASSET_READERS, collect: true,
+  },
   // ----- suppliers and contracts (the supplier module installed) -------------------------------------------------------
   {
     key: "supplier.contracts_expiring", name: "قراردادهای رو به پایان (۹۰ روز)", practice: "supplier", unit: "count", direction: "down", grain: "day",

@@ -20,7 +20,7 @@ import { cx } from "../../components/blocks";
 import { FieldValue, RecordNo } from "../../records";
 import { recordPath } from "../../records";
 import type { Schema } from "../../records/model/schema";
-import { Link } from "react-router";
+import { Link, useParams } from "react-router";
 import { axisValue, chartData, deltaTone, exactValue, gaugeShare, arcPoint, heatFill, heatInk, matrix, cellKey, paretoData, OTHER_COLOR, seriesColor, type ChartData } from "./model";
 
 const AXIS_TICK = { fontSize: 12, fill: "var(--ds-text-3)" };
@@ -475,6 +475,8 @@ function Gauge({ spec, result: r }: ResultViewProps) {
 // ----- records ---------------------------------------------------------------------------------------------------------
 
 function RecordsTable({ result: r, schema }: ResultViewProps) {
+  // record links are absolute (/:org/…): a relative link would resolve against the current page and find nothing
+  const { org } = useParams();
   const l = r.list;
   const def = schema?.def(r.table);
   if (!l || !l.rows.length) return <EmptyState compact title="رکوردی نیست" />;
@@ -495,7 +497,7 @@ function RecordsTable({ result: r, schema }: ResultViewProps) {
                 const f = def?.fields.find((x) => x.name === c.name);
                 const v = row[c.name];
                 const cell = c.name === "number" ? <RecordNo no={String(v ?? "")} /> : f ? <FieldValue field={f} value={v} table={r.table} schema={schema} display={l.display} compact /> : String(v ?? "");
-                return <td key={c.name}>{i === 0 ? <Link to={recordPath(r.table, String(row.id))} className="ds-link">{cell}</Link> : cell}</td>;
+                return <td key={c.name}>{i === 0 ? <Link to={org ? `/${org}/${recordPath(r.table, String(row.id))}` : recordPath(r.table, String(row.id))} className="ds-link">{cell}</Link> : cell}</td>;
               })}
             </tr>
           ))}

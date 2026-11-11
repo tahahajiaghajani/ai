@@ -101,7 +101,8 @@ const module = recordModule({
 });
 
 // a survey invitation (its notification, «کارهای من») opens the survey in the portal
-registerRecordExtensions("survey_invitation", { path: "portal/surveys" });
+// an invitation opens as the portal's survey page; the system sends them (its new-record page says so)
+registerRecordExtensions("survey_invitation", { path: "portal/surveys", newPath: "portal-admin/invitations/new" });
 registerRecordExtensions("portal_feedback", { sidePanels: [{ key: "portal:surveys", title: "نظرسنجی‌ها", order: 60, render: widget(RecordSurveys) }] });
 
 const [group] = module.nav;

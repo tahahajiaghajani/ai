@@ -130,6 +130,7 @@ Durations `--ds-dur-instant` 0, `-fast` 100, `-base` 160, `-moderate` 200, `-slo
 | `npm run brand` | Redraws every brand asset from `src/shared/brand.ts` (needs Playwright's Chromium; outputs are committed). |
 | `tests/design-system.test.ts` | Runs the checks above, verifies every `var(--ds-*)` read without a fallback exists, the layer-order guard, the drawn name vs `APP_NAME`, the masters, and the formats of the icons and installer bitmaps. |
 | `node scripts/ui-shots.mjs` | Screenshots of every page in light, dark and phone, with a console/error report. |
+| `npm run qa:crawl` | Click-through QA of every registered route as administrator, agent and requester («… تازه», first record and its tabs, header actions, phone overflow); writes `docs/qa/CLICKTHROUGH.md`. |
 
 **Changing a colour:** edit `tokens.css` (the light block and **both** dark blocks), run `npm run tokens`, then
 `npx vitest run tests/design-system.test.ts`. If a brand scale changes, update `BRAND_COLORS` in `src/shared/brand.ts`

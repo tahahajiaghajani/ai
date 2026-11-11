@@ -40,11 +40,13 @@ describe("install.ps1", () => {
   it("locks the data folder to administrators and SYSTEM before any secret is written, and every run", () => {
     const lock = s.indexOf("Invoke-Native -File 'icacls.exe' -Arguments @($DataDir, '/inheritance:r', '/grant:r', '*S-1-5-32-544:(OI)(CI)F', '/grant:r', '*S-1-5-18:(OI)(CI)F'");
     expect(lock).toBeGreaterThan(0);
-    // before the log file, kariz.json (init) and the certificate (rotate-cert) — and outside the try that only an
-    // install reaching the permissions step would have fixed
-    expect(lock).toBeLessThan(s.indexOf("Set-LogFile"));
+    // before the log file, kariz.json (init) and the certificate (rotate-cert) — first thing of every run (inside the
+    // try only so that a failure there still reaches install-error.txt and the event log), never only once an install
+    // reaches the permissions step
+    expect(lock).toBeLessThan(s.indexOf("Set-LogFile (Join-Path $DataDir"));
     expect(lock).toBeLessThan(s.indexOf("Invoke-Ctl $initArgs"));
-    expect(lock).toBeLessThan(s.indexOf("\ntry {"));
+    expect(lock).toBeGreaterThan(s.indexOf("\ntry {"));
+    expect(lock).toBeLessThan(s.indexOf("Write-Step 'prerequisites'"));
     const init = s.indexOf("Invoke-Ctl $initArgs");
     expect(s.slice(init, init + 200)).toContain("Protect-File (Join-Path $DataDir 'kariz-admin.json')");
     // the TLS key is written after the lock too (inheriting it: the application's account must still read it later)
@@ -59,11 +61,14 @@ describe("install.ps1", () => {
   });
 
   it("keeps the configured ports on a re-install or an upgrade (only given ones are changed)", () => {
-    expect(s).toMatch(/\[string\]\$HttpsPort = '',\s*\n\s*\[string\]\$HttpPort = '',/);
-    expect(s).toContain("if ($httpsGiven -or -not $upgrade) { $initArgs += @('--https-port', $HttpsPort) }");
-    expect(s).toContain("if ($httpGiven -or -not $upgrade) { $initArgs += @('--http-port', $HttpPort) }");
-    expect(s).not.toMatch(/'init', '--data-dir', \$DataDir, '--install-dir', \$InstallDir, '--https-port'/);
-    expect(s).toContain("Get-JsonValue $listen 'https_port'");
+    expect(s).toMatch(/\[string\]\$HttpsPort = '',\s*\n\s*\[string\]\$HttpPort = '',\s*\n\s*\[string\]\$PgPort = '',/);
+    // karizctl preflight keeps kariz.json's ports unless one is given (src/server-edition/ports.ts, tested there); the
+    // ports it returns are the ones init writes
+    expect(s).toContain("$HttpsPort = [string]$pf.ports.https");
+    expect(s).toContain("$initArgs = @('init', '--data-dir', $DataDir, '--install-dir', $InstallDir, '--https-port', $HttpsPort, '--http-port', $HttpPort, '--pg-port', $PgPort)");
+    // only given ports reach the preflight (an empty argument would be dropped by Windows PowerShell 5.1)
+    expect(s).toContain("if ($HttpsPort) { $pfArgs += @('--https-port', $HttpsPort) }");
+    expect(s).toContain("if ($HttpsPort.Trim() -ieq 'auto') { $HttpsPort = '' }");
   });
 
   it("refuses a drive root, a system folder or a folder of other files as DATADIR, and marks its own", () => {
@@ -105,8 +110,17 @@ describe("Package.wxs", () => {
 
   it("keeps CERTPASSWORD and the setup address out of the MSI log", () => {
     expect(x).toMatch(/<Property Id="KarizInstall" Hidden="yes" \/>/);
-    expect(x).not.toContain("WixQuietExec");
     for (const id of ["KarizInstall", "KarizPreUpgrade", "KarizPreUpgradeRollback", "KarizUninstall"]) expect(x).toMatch(new RegExp(`<CustomAction Id="${id}"[^>]*DllEntry="WixSilentExec"`));
+    expect(x).toMatch(/<CustomAction Id="KarizInstall"[^>]*HideTarget="yes"/);
+    // the logged variant (its output reaches the MSI log, /l*v) never carries the password and runs only without one
+    const logged = /<SetProperty Id="KarizInstallLogged"[^>]*Value="([^"]*)"/.exec(x)![1];
+    expect(logged).toContain("install.ps1");
+    expect(logged).not.toContain("CERTPASSWORD");
+    expect(logged).not.toContain("-CertPassword");
+    expect(x).toMatch(/<CustomAction Id="KarizInstallLogged"[^>]*DllEntry="WixQuietExec"/);
+    expect(x).toContain('<Custom Action="KarizInstallLogged" Before="InstallFinalize" Condition="NOT REMOVE~=&quot;ALL&quot; AND NOT CERTPASSWORD" />');
+    expect(x).toContain('<Custom Action="KarizInstall" Before="InstallFinalize" Condition="NOT REMOVE~=&quot;ALL&quot; AND CERTPASSWORD" />');
+    expect(x.match(/DllEntry="WixQuietExec"/g)).toHaveLength(1);
   });
 
   it("rolls a failed upgrade back to running services", () => {
@@ -118,6 +132,10 @@ describe("Package.wxs", () => {
   it("gives PORT and HTTPPORT no defaults (install.ps1 keeps the configured ones)", () => {
     expect(x).toMatch(/<Property Id="PORT" Secure="yes" \/>/);
     expect(x).toMatch(/<Property Id="HTTPPORT" Secure="yes" \/>/);
+    expect(x).toMatch(/<Property Id="PGPORT" Secure="yes" \/>/);
+    // «auto» only for the dialog of a double-click install (InstallUISequence): the same as empty for install.ps1
+    expect(x).toContain('<SetProperty Id="PORT" Action="KarizUiPort" Value="auto" After="AppSearch" Sequence="ui" Condition="NOT PORT" />');
+    expect(x).toContain('<SetProperty Id="HTTPPORT" Action="KarizUiHttpPort" Value="auto" After="AppSearch" Sequence="ui" Condition="NOT HTTPPORT" />');
   });
 
   it("uses the remembered data folder only when DATADIR was not given on the command line", () => {

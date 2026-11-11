@@ -15,6 +15,7 @@ import { lazy } from "react";
 import {
   Activity, Boxes, MonitorSmartphone, Package, PackageSearch, ShieldCheck, QrCode, Warehouse, Gauge, ArrowLeftRight, ScanBarcode, Wrench, Recycle, CalendarClock, ShoppingCart, FileText,
   PackageCheck, AppWindow, HardDriveDownload, KeyRound, UserCheck, Scale, Cloud, UserRound, BadgeCheck, TrendingDown, Link2, Settings2, Signature, Hand, ShieldAlert,
+  Building2, Landmark, BookText, Truck, Stamp, Timer, Link as LinkIcon, Activity as Pulse,
 } from "lucide-react";
 import type { AccessGate } from "@shared/access";
 import type { Cond } from "@shared/model/conditions";
@@ -35,10 +36,23 @@ const RequestAssetsPanel = lazy(() => import("./AssetParts").then((m) => ({ defa
 const LeaverAction = lazy(() => import("./AssetParts").then((m) => ({ default: m.LeaverAction })));
 const AuditScanTab = lazy(() => import("./WorkParts").then((m) => ({ default: m.AuditScanTab })));
 const PoActions = lazy(() => import("./WorkParts").then((m) => ({ default: m.PoActions })));
+const Branches = lazy(() => import("./Bank").then((m) => ({ default: m.Branches })));
+const Fleet = lazy(() => import("./Bank").then((m) => ({ default: m.Fleet })));
+const Register = lazy(() => import("./Bank").then((m) => ({ default: m.Register })));
+const MobileScan = lazy(() => import("./MobileScan"));
+const TransferActions = lazy(() => import("./BankParts").then((m) => ({ default: m.TransferActions })));
+const TransferPrintTab = lazy(() => import("./BankParts").then((m) => ({ default: m.TransferPrintTab })));
+const AuditReconcileTab = lazy(() => import("./BankParts").then((m) => ({ default: m.AuditReconcileTab })));
+const AuditMobileAction = lazy(() => import("./BankParts").then((m) => ({ default: m.AuditMobileAction })));
+const AttestAction = lazy(() => import("./BankParts").then((m) => ({ default: m.AttestAction })));
+const AssetClassTab = lazy(() => import("./BankParts").then((m) => ({ default: m.AssetClassTab })));
+const WipeCertificateAction = lazy(() => import("./BankParts").then((m) => ({ default: m.WipeCertificateAction })));
 const RequisitionActions = lazy(() => import("./WorkParts").then((m) => ({ default: m.RequisitionActions })));
 
 const ASSETS: AccessGate = { area: "asset" };
 const SOFTWARE: AccessGate = { area: "software" };
+/** The register «دفتر اموال» (amounts): asset managers of a region or above, not a branch's own staff. */
+const REGION_ASSETS: AccessGate = { area: "asset", scope: "unit_tree" };
 const PROCUREMENT: AccessGate = { area: "procurement" };
 const MANAGE: AccessGate = { area: "asset", op: "create" };
 
@@ -46,8 +60,9 @@ const STOCK = "انبار و عملیات";
 const BUY = "تدارکات";
 const SW = "نرم‌افزار";
 const DEF = "تعریف‌ها";
+const BANK = "شعبه‌ها و ناوگان";
 
-const ASSET_COLUMNS = ["number", "asset_tag", "name", "model_id", "state", "substate", "assigned_to", "location_id", "warranty_end"];
+const ASSET_COLUMNS = ["number", "asset_tag", "name", "model_id", "branch_id", "state", "substate", "assigned_to", "warranty_end"];
 const rowTone = (r: Record<string, unknown>): "danger" | "warning" | null => (r.state === "missing" ? "danger" : r.substate === "to_be_returned" || r.substate === "defective" ? "warning" : null);
 const WARRANTY: Cond = { and: [{ f: "state", op: "nin", v: ["disposed", "canceled", "retired"] }, { f: "warranty_end", op: "relative", v: { unit: "day", n: 90, dir: "next" } }] };
 
@@ -62,18 +77,37 @@ const module = recordModule({
       list: { preset: { columns: ASSET_COLUMNS, rowTone, emptyText: "هنوز دارایی‌ای ثبت نشده است" } },
       extensions: {
         headerActions: action("itam-asset", AssetActions),
-        tabs: [{ key: "itam:360", label: "نمای ۳۶۰", order: 0, participants: true, render: widget(Asset360Tab) }],
+        tabs: [
+          { key: "itam:360", label: "نمای ۳۶۰", order: 0, participants: true, render: widget(Asset360Tab) },
+          { key: "itam:class", label: "ویژگی‌ها و نگهداری", order: 1, render: widget(AssetClassTab) },
+        ],
         cardFields: ["model_id", "assigned_to", "substate"],
       },
     },
     { table: "stockroom", path: "itam/stockrooms", label: "انبارها", noun: "انبار", icon: Warehouse, section: STOCK, area: "work", access: ASSETS, keywords: "انبار انبارک محل" },
     { table: "stock_rule", path: "itam/stock-rules", label: "قاعده‌های موجودی", noun: "قاعدهٔ موجودی", icon: Gauge, section: STOCK, area: "work", access: ASSETS, search: false, keywords: "نقطهٔ سفارش کمینه بیشینه" },
     { table: "stock_movement", path: "itam/movements", label: "گردش موجودی", icon: ArrowLeftRight, section: STOCK, area: "work", access: ASSETS, search: false, newAction: false, keywords: "گردش ورود خروج انبار" },
-    { table: "inventory_audit", path: "itam/audits", label: "شمارش و ممیزی", noun: "شمارش", icon: ScanBarcode, section: STOCK, area: "work", access: ASSETS, keywords: "شمارش انبارگردانی ممیزی اسکن بارکد QR", extensions: { tabs: [{ key: "itam:scan", label: "شمارش", order: 0, render: widget(AuditScanTab) }] } },
+    { table: "inventory_audit", path: "itam/audits", label: "شمارش و ممیزی", noun: "شمارش", icon: ScanBarcode, section: STOCK, area: "work", access: ASSETS, keywords: "شمارش انبارگردانی ممیزی اسکن بارکد QR", extensions: {
+        headerActions: action("itam-audit-mobile", AuditMobileAction),
+        tabs: [{ key: "itam:scan", label: "شمارش", order: 0, render: widget(AuditScanTab) }, { key: "itam:reconcile", label: "مغایرت‌ها", order: 1, render: widget(AuditReconcileTab) }],
+      } },
     { table: "inventory_audit_item", path: "itam/audit-items", label: "اقلام شمارش", icon: ScanBarcode, hidden: true, search: false, newAction: false },
     { table: "repair_order", path: "itam/repairs", label: "تعمیرها", noun: "تعمیر", icon: Wrench, section: STOCK, area: "work", access: ASSETS, keywords: "تعمیر RMA گارانتی خرابی" },
     { table: "disposal_order", path: "itam/disposals", label: "اسقاط", noun: "دستور اسقاط", icon: Recycle, section: STOCK, area: "work", access: ASSETS, keywords: "اسقاط امحا بازیافت پاک‌سازی داده گواهی" },
-    { table: "disposal_item", path: "itam/disposal-items", label: "اقلام اسقاط", icon: Recycle, hidden: true, search: false, newAction: false },
+    { table: "disposal_item", path: "itam/disposal-items", label: "اقلام اسقاط", icon: Recycle, hidden: true, search: false, newAction: false, extensions: { headerActions: action("itam-wipe-cert", WipeCertificateAction) } },
+    {
+      table: "asset_transfer", path: "itam/transfers", label: "حواله‌های انتقال", noun: "حوالهٔ انتقال", icon: Truck, section: BANK, area: "work", access: ASSETS,
+      keywords: "حواله انتقال رسید شعبه جابه‌جایی",
+      extensions: { headerActions: action("itam-transfer", TransferActions), tabs: [{ key: "itam:transfer", label: "حواله و رسید", order: 0, participants: true, render: widget(TransferPrintTab) }] },
+    },
+    { table: "asset_transfer_item", path: "itam/transfer-items", label: "اقلام حواله", icon: Truck, hidden: true, search: false, newAction: false },
+    {
+      table: "branch_attestation", path: "itam/attestations", label: "تأیید اموال شعبه", noun: "تأیید اموال شعبه", icon: Stamp, section: BANK, area: "work", access: ASSETS, newAction: false,
+      keywords: "تأیید رئیس شعبه اموال دوره‌ای امضا", extensions: { headerActions: action("itam-attest", AttestAction) },
+    },
+    { table: "asset_custody", path: "itam/custody", label: "زنجیرهٔ نگهداری", icon: LinkIcon, section: BANK, area: "work", access: ASSETS, search: false, newAction: false, keywords: "زنجیره نگهداری ممیزی مسئولیت" },
+    { table: "device_status_event", path: "itam/device-status", label: "تاریخچهٔ وضعیت دستگاه‌ها", icon: Pulse, hidden: true, search: false, newAction: false },
+    { table: "maintenance_sla", path: "itam/maintenance-slas", label: "تعهدهای نگهداری دستگاه", noun: "تعهد نگهداری", icon: Timer, section: DEF, area: "work", access: MANAGE, search: false, keywords: "جریمه پیمانکار نگهداری خودپرداز SLA" },
     { table: "asset_reservation", path: "itam/reservations", label: "رزرو امانی", noun: "رزرو", icon: CalendarClock, section: STOCK, area: "work", access: ASSETS, keywords: "امانی رزرو قرض" },
     { table: "asset_assignment", path: "itam/assignments", label: "تاریخچهٔ تحویل", icon: Hand, section: STOCK, area: "work", access: ASSETS, search: false, newAction: false },
     { table: "asset_acknowledgement", path: "itam/acknowledgements", label: "تعهدنامه‌ها", noun: "تعهدنامه", icon: Signature, section: STOCK, area: "work", access: ASSETS, newAction: false, keywords: "تعهدنامه رسید امضا" },
@@ -104,6 +138,9 @@ const module = recordModule({
     { key: "itam:compliance", label: "انطباق مجوزها", path: "itam/compliance", icon: ShieldCheck, area: "work", access: SOFTWARE, workspace: true, keywords: "انطباق مجوز لایسنس کمبود ممیزی True-up" },
     { key: "itam:labels", label: "چاپ برچسب", path: "itam/labels", icon: QrCode, area: "work", access: ASSETS, section: STOCK, keywords: "برچسب QR بارکد چاپ" },
     { key: "itam:warranty", label: "ضمانت رو به پایان", path: "itam/warranty", icon: ShieldAlert, area: "work", access: ASSETS, keywords: "ضمانت گارانتی پایان" },
+    { key: "itam:branches", label: "اموال شعبه‌ها", path: "itam/branches", icon: Building2, area: "work", access: ASSETS, workspace: true, section: BANK, keywords: "شعبه منطقه اموال انتقال حواله" },
+    { key: "itam:fleet", label: "ناوگان خودپرداز", path: "itam/fleet", icon: Landmark, area: "work", access: ASSETS, workspace: true, section: BANK, keywords: "خودپرداز ATM CRS کیوسک دسترس‌پذیری نگهداری" },
+    { key: "itam:register", label: "دفتر اموال", path: "itam/register", icon: BookText, area: "work", access: REGION_ASSETS, section: BANK, keywords: "دفتر اموال استهلاک سال مالی دارایی ثابت" },
   ],
   routes: [
     { path: "itam", element: lazyPage(<Dashboard />) },
@@ -111,6 +148,10 @@ const module = recordModule({
     { path: "itam/stock", element: lazyPage(<StockPage />) },
     { path: "itam/compliance", element: lazyPage(<Compliance />) },
     { path: "itam/labels", element: lazyPage(<Labels />) },
+    { path: "itam/branches", element: lazyPage(<Branches />) },
+    { path: "itam/fleet", element: lazyPage(<Fleet />) },
+    { path: "itam/register", element: lazyPage(<Register />) },
+    { path: "itam/audits/:id/scan", element: lazyPage(<MobileScan />) },
     { path: "itam/warranty", element: <RecordListRoute table="asset" title="ضمانت رو به پایان (۹۰ روز)" preset={{ filter: WARRANTY, columns: ASSET_COLUMNS, sort: "warranty_end", emptyText: "ضمانت هیچ دارایی‌ای در ۹۰ روز آینده پایان نمی‌یابد" }} /> },
   ],
   segments: { assets: "assets", itam: "assets" },

@@ -136,7 +136,7 @@ export async function managerOf(q: Queryable, ctx: Ctx, user: string, depth = 1)
 /** Fields whose people never approve a record (requester side and assignee), unless the rule allows it. */
 function sodFields(def: TableDef): string[] {
   const requester = def.scope.requester ?? (def.scope.own ?? []).filter((n) => n !== "assigned_to");
-  return [...new Set([...requester, ...(def.fields.some((f) => f.name === "assigned_to") ? ["assigned_to"] : [])])];
+  return [...new Set([...requester, ...(def.scope.approvalSod ?? []), ...(def.fields.some((f) => f.name === "assigned_to") ? ["assigned_to"] : [])])];
 }
 
 function sodUsers(def: TableDef, row: Row): Set<string> {

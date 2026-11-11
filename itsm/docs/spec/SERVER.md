@@ -133,25 +133,40 @@ internal identifiers stay neutral (`sm_*`, `itsm.*`, `ITSM_*`).
   `PGROOT` = the full EDB tree; `-AllowMissing` turns a failure into a warning + `PGVECTOR-NOT-INCLUDED.txt`.
 - `build-msi.ps1`: WiX 5 from the verified local feed (`nuget.config` with only that source), extension DLLs from the
   verified packages; `Package.wxs` harvests the payload with `<Files>`, `MajorUpgrade AllowSameVersionUpgrades`,
-  launch conditions, properties (HOSTNAME, PORT, HTTPPORT, DATADIR (+ RegistrySearch), CERTPATH, CERTPASSWORD
-  (hidden, `HideTarget`; the action's own property hidden too), AIRGAPPED, WORKERS, REMOVEDATA; PORT/HTTPPORT without
-  defaults, DATADIR from the registry only when not given), deferred `WixSilentExec` actions (no script output in the
-  MSI log): `install.ps1` (install/re-install/upgrade), `uninstall.ps1 -Upgrade` (old version's side: pre-upgrade
+  launch conditions (the preflight before any file is copied: Privileged, VersionNT64, PhysicalMemory, an x64 processor
+  from `PROCESSOR_ARCHITECTURE`, `CurrentBuildNumber` ≥ 17763, no PowerShell GPO `EnableScripts=0`/`AllSigned`),
+  properties (HOSTNAME, PORT, HTTPPORT, PGPORT, DATADIR (+ RegistrySearch), CERTPATH, CERTPASSWORD (hidden,
+  `HideTarget`; the action's own property hidden too), AIRGAPPED, WORKERS, REMOVEDATA; ports without defaults — `auto`
+  only in the UI sequence —, DATADIR from the registry only when not given), the «Server settings» dialog after
+  InstallDirDlg (HOSTNAME defaulting to Tcpip Hostname.Domain on a first install, PORT/HTTPPORT `auto`, DATADIR;
+  validated with ControlEvent conditions; navigation by a later-ordered NewDialog), `Package.en-us.wxl` (built with
+  `-culture en-US -loc`) replacing WixUI's FatalError text so a failure names `install-error.txt` and the event log.
+  Deferred actions: `install.ps1` through `WixQuietExec` when no CERTPASSWORD is given (its non-secret output in the
+  `/l*v` log) and `WixSilentExec` when one is (nothing in the MSI log), `uninstall.ps1 -Upgrade` (old version's side: pre-upgrade
   backup, a failure stops the upgrade; services stopped, kept registered) with its rollback `uninstall.ps1 -Restore`
   (a failed upgrade starts the old services again), `uninstall.ps1` (removal; never blocks it).
 - `install.ps1` (Windows PowerShell 5.1 — ASCII only, parsed by 5.1 in CI —, idempotent): DATADIR checked (no drive
   root, system folder or foreign folder; marker `.kariz-data`) and locked to Admins/SYSTEM before anything is written,
-  prerequisites (build ≥ 17763, memory, disk, ports — kept from kariz.json unless given), `karizctl init` (secrets
+  `karizctl preflight` (facts gathered in PowerShell — elevated, arch, build, product type, memory, free disk, pending
+  restart — judged by `src/server-edition/preflight.ts`; ports by `ports.ts`: given ones must be free, else kept from
+  kariz.json, else the first free of 443/8443/9443…, 80/8080/8081…, 5432/5433…, probed with a real bind plus netstat's
+  listeners; its own services are stopped first on a re-install), `karizctl init` with the chosen ports (secrets
   kept), certificate, WinSW services with virtual accounts + `sc failure`, ACLs (data folder: Admins, SYSTEM,
   `NT SERVICE\KarizApp` modify; `db`: `NT SERVICE\KarizDB` only; `kariz.json`: Admins, SYSTEM, app),
   `db-init`/`pg-conf` (disk media detected), start DB, bootstrap, migrate, firewall rule, machine env/PATH, registry,
-  start app, `wait-ready`, setup token (to `setup-url.txt` only). Logged to `<data>\logs\install-<time>.log`.
+  start app, `wait-ready`, setup token (to `setup-url.txt` only). Logged to `<data>\logs\install-<time>.log`; a
+  failure's reason (secrets masked) goes to `<data>\logs\install-error.txt` and the Application event log (source
+  `Kariz`, event 1001; a successful install logs event 1000 with the address and ports).
 - CI (`.github/workflows/itsm.yml`): job `server` on `windows-latest` (build, fetch, pgvector, MSI twice — the second
   build has the same version and another ProductCode, for a real major upgrade), `smoke-test.ps1`: Windows Firewall
   default outbound **Block** (only the runner's own executables and DNS allowed; verified with a request that must
-  fail), silent install, `smoke.mjs` (ready, headers, setup gate, setup through its API, sign-in, incident create/open,
-  air-gap refusal, «سلامت سرور»), backup, the same MSI again (idempotent), the upgrade MSI (pre-upgrade backup checked),
-  smoke again, diagnostics, uninstall keeping data; firewall restored in `finally` and in an `always()` step. Job
+  fail), 443 and 80 held by dummy listeners, silent install with default ports (fallback ports checked in kariz.json,
+  the firewall rule and setup-url.txt, whose address the smoke client uses; the install's output in the MSI log, no
+  setup token), `smoke.mjs` (ready, headers, setup gate, setup through its API, sign-in, incident create/open, air-gap
+  refusal, «سلامت سرور»), backup, the same MSI again with the dialog's properties (`PORT=auto` kept, `HTTPPORT=0`
+  off), the upgrade MSI (pre-upgrade backup checked, ports kept), smoke again, diagnostics, uninstall keeping data, then
+  `PORT=443` while held: the install must fail with the reason in install-error.txt, the event log and the MSI log;
+  firewall restored in `finally` and in an `always()` step. Job
   `server-publish` (after `windows` and `server`) uploads the MSI to the release the desktop job created.
 
 ## Testing

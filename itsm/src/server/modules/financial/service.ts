@@ -14,6 +14,7 @@ import type { Cond } from "@shared/model/conditions";
 import type { BvaPayload, ServiceCost, SpendPayload, Statement } from "@shared/financial/api";
 import { allocate, budgetVsActual, fiscalPeriods, fiscalYearOf, inputHash, monthlyShare, periodKeyOf, periodRange, type MoneyUnit } from "@shared/financial/logic";
 import { depreciationSchedule, type DepMethod } from "@shared/itam/logic";
+import { nextJalaliMonthStart } from "@shared/itam/bank";
 import { COST_SOURCES, FINANCIAL_CONFIG_DEFAULTS } from "@shared/tables/financial";
 import { JALALI_MONTHS } from "@shared/jalali";
 import { faDigits } from "@shared/format";
@@ -89,8 +90,10 @@ export async function capture(sys: Ctx, period: string): Promise<CaptureResult> 
     if (!rule || ["canceled", "on_order"].includes(String(a.state))) continue;
     // a disposed asset depreciates through the month of its disposal (its write-off is the book value after it)
     if (a.state === "disposed" && (dayOf(a.disposed_at) ?? "") < String(p.start_date)) continue;
-    const start = String((rule.start_basis === "purchase" ? a.purchase_date : a.in_service_date || a.purchase_date) ?? "");
-    if (!start) continue;
+    const basis = String((rule.start_basis === "purchase" ? a.purchase_date : a.in_service_date || a.purchase_date) ?? "");
+    if (!basis) continue;
+    // the rule's first month: the month of the start or the month after it (ITAM's «نخستین ماه استهلاک»)
+    const start = rule.start_convention === "next_month" ? nextJalaliMonthStart(basis) : basis;
     const salvage = a.salvage_value ?? (rule.salvage_percent ? String((Number(a.purchase_cost) * Number(rule.salvage_percent)) / 100) : "0");
     const month = depreciationSchedule({ cost: a.purchase_cost, salvage, lifeMonths: Number(rule.life_months ?? 36), method: rule.method as DepMethod, ratePercent: rule.rate_percent, start }).find((x) => x.period === period);
     if (month) add(`dep:${a.id}:${period}`, "depreciation", CODES.depreciation, month.charge, { ...base, capex_opex: "opex", description: `استهلاک ${a.number ?? ""} — ${periodLabel(period)}` });

@@ -12,6 +12,7 @@ import { registerSkill, defineSkill, runSkill, isAiUnavailable } from "../ai/ski
 import type { SkillRuntimeInput } from "../ai/skills";
 import { asset360 } from "./assets";
 import { licenceFacts } from "./sam";
+import { deviceRisk, riskText } from "./bank";
 
 type Facts = Record<string, any>;
 const metricLabel = (m: unknown) => LICENSE_METRICS.find((x) => x.value === m)?.label ?? String(m ?? "");
@@ -111,6 +112,25 @@ export const ITAM_SKILLS = [
     factKeys: ["asset360"],
     facts: async (ctx: Ctx, input: SkillRuntimeInput) => (input.id ? { asset360: await asset360(ctx, input.id) } : {}),
     fallback: async (ctx: Ctx, input: SkillRuntimeInput) => ({ text: input.id ? assetSummaryText(await asset360(ctx, input.id)) : "" }),
+  }),
+  defineSkill({
+    key: "itam.atm_failure_risk",
+    name: "پیش‌بینی خرابی خودپرداز",
+    description: "ریسک خرابی یک خودپرداز، CRS یا کیوسک از رخدادهای ۹۰ روز، ازکارافتادگی ۳۰ روز، عمر دستگاه و پایان پشتیبانی سیستم‌عامل، با پیشنهاد اقدام",
+    module: "itam",
+    catalog: ["ITAM-074"],
+    target: "record",
+    tables: ["asset"],
+    output: "text",
+    tier: "fast",
+    inputs: { journal: "none", links: false },
+    surfaces: ["panel"],
+    order: 20,
+    system: "کار تو: برای کارشناس نگهداری خودپردازها، ریسک خرابی دستگاه را از داده‌های محاسبه‌شده (امتیاز، دلیل‌ها) کوتاه و اولویت‌دار توضیح بده و یک اقدام پیشگیرانهٔ مشخص پیشنهاد کن. عددی نساز؛ فقط از داده‌ها.",
+    template: "دستگاه:\n{{record}}\n\nداده‌های محاسبه‌شده:\n{{facts}}",
+    factKeys: ["risk"],
+    facts: async (ctx: Ctx, input: SkillRuntimeInput) => (input.id ? { risk: await deviceRisk(ctx, input.id) } : {}),
+    fallback: async (ctx: Ctx, input: SkillRuntimeInput) => ({ text: input.id ? riskText(await deviceRisk(ctx, input.id)) : "" }),
   }),
 ];
 

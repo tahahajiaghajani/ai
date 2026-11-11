@@ -43,7 +43,7 @@ const rec = (id: string) => `/release/records/${id}`;
 export const releaseApi = {
   meta: (api: OrgApi) => api.get<ReleaseMeta>("/release/meta"),
   seed: (api: OrgApi, force = false) => api.post<{ skipped: boolean; created: Record<string, number> }>("/release/seed", { force }),
-  roadmap: (api: OrgApi, q: { from: string; to: string; type?: string; service?: string }) => api.get<{ releases: Row[]; bands: Band[]; display: Record<string, string>; timezone: string }>("/release/roadmap", q),
+  roadmap: (api: OrgApi, q: { from: string; to: string; type?: string; service?: string }) => api.get<{ releases: Row[]; bands: Band[]; display: Record<string, string>; timezone: string; unscheduled?: number }>("/release/roadmap", q),
   board: (api: OrgApi) => api.get<{ releases: (Row & { checks: Row[]; readiness: Readiness })[]; display: Record<string, string> }>("/release/board"),
   dashboard: (api: OrgApi, days: number) => api.get<Row>("/release/dashboard", { days }),
   overview: (api: OrgApi, id: string) => api.get<Row>(`${rec(id)}/overview`),

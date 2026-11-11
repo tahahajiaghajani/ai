@@ -19,6 +19,7 @@ import type { Queryable } from "../../db";
 import { enqueue, enqueueMany, PermanentJobError, registerJobHandler, type Job, type JobContext, type JobInput } from "../../jobs";
 import { condEnv, createIn, defFor, insertManyIn, list, removeIn, type RecordEvent } from "../../engine";
 import { pgArray } from "../../db";
+import { demoPeople, demoQuiet } from "../../db/scope";
 import { memberCtx, readersOf } from "../../access";
 import { access } from "../../access/provider";
 import { AppError } from "../../http/errors";
@@ -134,6 +135,9 @@ export async function dispatchEvent(e: RecordEvent, jctx: JobContext): Promise<n
   const commentable = !!entry && COMMENT_KINDS.has(entry.kind);
   const mentions = commentable ? mentionedIds(entry!.body).filter((u) => u !== entry!.author) : [];
   const eventUsers = eventUsersOf(e.data);
+  // a record of the demo pack, or demo work (docs/DEMO_FA.md): nothing leaves the system, and only the pack's own
+  // people get bells (real people hear nothing about demo records)
+  const quiet = await demoQuiet(jctx.db, e.org_id, e.id);
   const jobs: QueuedJob[] = [];
   for (const rule of rules) {
     if ((rule.event === "commented" || rule.event === "mentioned") && !commentable) continue;
@@ -143,18 +147,22 @@ export async function dispatchEvent(e: RecordEvent, jctx: JobContext): Promise<n
     const snap = snapOf(rule);
     const people = await resolveRecipients({ sys, def, row: rows.next, spec: rule.recipients, mentioned: mentions, eventUsers, groupMode: rule.large_groups });
     if (!rule.notify_actor && e.actor) people.delete(e.actor.toLowerCase());
-    const personal = rule.channels.filter((c) => c !== "webhook");
+    if (quiet) {
+      const demo = await demoPeople(jctx.db, e.org_id, [...people.keys()]);
+      for (const u of [...people.keys()]) if (!demo.has(u.toLowerCase())) people.delete(u);
+    }
+    const personal = rule.channels.filter((c) => c !== "webhook" && (!quiet || c === "in_app"));
     if (personal.length && people.size) {
       const list = [...people].slice(0, MAX_RECIPIENTS);
       if (people.size > MAX_RECIPIENTS) jctx.log.warn("notification recipients truncated", { rule: rule.key, count: people.size });
       const batch: BatchPayload = { org: e.org_id, rule: snap, ev, people: list.map(([user, reasons]) => ({ user, reasons: [...reasons] })) };
       jobs.push({ kind: JOB_BATCH, payload: batch as unknown as Record<string, unknown> });
     }
-    if (rule.channels.includes("webhook")) {
+    if (rule.channels.includes("webhook") && !quiet) {
       for (const t of rule.targets) if (isUuid(t)) jobs.push({ kind: JOB_HOOK, payload: { org: e.org_id, rule: snap, ev, channel: t } satisfies HookPayload as unknown as Record<string, unknown> });
     }
     // an @mention of someone who cannot read the record (or this internal note): the author hears it, they do not
-    if (rule.event === "mentioned" && entry?.author && rule.recipients.mentioned) {
+    if (rule.event === "mentioned" && entry?.author && rule.recipients.mentioned && (!quiet || (await demoPeople(jctx.db, e.org_id, [entry.author])).size)) {
       const denied = await mentionDenied(jctx, e, mentions, entry);
       if (denied.length) jobs.push({ kind: JOB_SEND, payload: mentionWarning(e, entry.author, denied) as unknown as Record<string, unknown> });
     }
@@ -383,9 +391,14 @@ export async function runSend(job: Job, jctx: JobContext): Promise<void> {
   const prefs = await prefsOf(sys, p.user);
   const tz = tzOf(sys.org);
   const now = new Date();
+  // demo data (docs/DEMO_FA.md): nothing leaves the system; a bell only for the pack's own people
+  const quiet = await demoQuiet(jctx.db, p.org, p.ev.id);
+  const demoPerson = rctx.user.prefs?.demo_org === p.org;
   for (const c of channels) {
     try {
-      if (!p.rule.mandatory && optedOut(prefs, p.rule.event, c)) {
+      if (quiet && (c !== "in_app" || !demoPerson)) {
+        await outcome(jctx, p, c, { ...base, status: "skipped", reason: "demo" });
+      } else if (!p.rule.mandatory && optedOut(prefs, p.rule.event, c)) {
         await outcome(jctx, p, c, { ...base, status: "skipped", reason: "opted_out" });
       } else if (c === "in_app") {
         const id = await inApp(sys, p, r);
@@ -393,7 +406,9 @@ export async function runSend(job: Job, jctx: JobContext): Promise<void> {
       } else {
         const target = c === "email" ? rctx.user.email : normalizeMobile(rctx.user.mobile);
         const quiet = p.rule.mandatory ? null : quietUntil(prefs, now, tz);
-        if (!target) await outcome(jctx, p, c, { ...base, status: "skipped", reason: "no_address" });
+        // the demo pack's people (docs/DEMO_FA.md) have fictional addresses: nothing leaves the system for them
+        if (rctx.user.prefs?.demo_org) await outcome(jctx, p, c, { ...base, status: "skipped", reason: "demo" });
+        else if (!target) await outcome(jctx, p, c, { ...base, status: "skipped", reason: "no_address" });
         else if (quiet) await holdFor(jctx, p, c, quiet, "quiet");
         else if (c === "email" && !p.rule.mandatory && p.rule.digest && prefs.digest !== "none") await holdFor(jctx, p, c, nextDigestAt(prefs.digest, now, tz, prefs.digest_hour), "digest");
         else if (c === "email") {
@@ -474,6 +489,8 @@ export async function runBatch(job: Job, jctx: JobContext): Promise<void | { aga
   const tpl = inApp ? await templateOf(sys, p.rule) : null;
   const entry = inApp && p.ev.entry ? await loadEntry(jctx.db, p.org, p.ev.table, p.ev.id, p.ev.entry.id) : null;
   const gone = !!p.ev.entry && inApp && !entry;
+  // demo data (docs/DEMO_FA.md): nothing leaves the system; a bell only for the pack's own people
+  const quiet = await demoQuiet(jctx.db, p.org, p.ev.id);
   const send = (user: string, reasons: string[], channels: NotifyChannel[]): JobInput => ({
     kind: JOB_SEND,
     orgId: p.org,
@@ -483,14 +500,23 @@ export async function runBatch(job: Job, jctx: JobContext): Promise<void | { aga
   while (next < people.length) {
     const chunk = people.slice(next, next + BATCH_CHUNK);
     const prefs = await prefsMany(sys, chunk.map((x) => x.user));
+    const demo = quiet ? await demoPeople(jctx.db, p.org, chunk.map((x) => x.user)) : new Set<string>();
     const bells: { row: Record<string, unknown>; log: LogInput }[] = [];
     const logs: LogInput[] = [];
     const sends: JobInput[] = [];
     await eachLimit(chunk, RENDER_WIDTH, async ({ user, reasons }) => {
       const base = { ...logBase(p), recipient_id: user };
       const pref = prefs.get(user)!;
-      const wanted = others.filter((c) => p.rule.mandatory || !optedOut(pref, p.rule.event, c));
-      for (const c of others) if (!wanted.includes(c)) logs.push({ ...base, channel: c, status: "skipped", reason: "opted_out" });
+      if (quiet) {
+        for (const c of others) logs.push({ ...base, channel: c, status: "skipped", reason: "demo" });
+        if (!demo.has(user)) {
+          if (inApp) logs.push({ ...base, channel: "in_app", status: "skipped", reason: "demo" });
+          return;
+        }
+        if (!inApp) return;
+      }
+      const wanted = quiet ? [] : others.filter((c) => p.rule.mandatory || !optedOut(pref, p.rule.event, c));
+      if (!quiet) for (const c of others) if (!wanted.includes(c)) logs.push({ ...base, channel: c, status: "skipped", reason: "opted_out" });
       // without an in-app part nothing is rendered here: each delivery renders under the person's access when it sends
       if (!inApp) {
         if (wanted.length) sends.push(send(user, reasons, wanted));
@@ -542,6 +568,8 @@ export async function runHook(job: Job, jctx: JobContext): Promise<void> {
   const sys = await sysCtx(jctx.cfg, p.org);
   const [ch] = await channelRows(sys, [p.channel]);
   const base = { ...logBase(p), target: ch?.name ?? p.channel };
+  // demo data (docs/DEMO_FA.md): nothing leaves the system
+  if (await demoQuiet(jctx.db, p.org, p.ev.id)) return void (await outcome(jctx, p, "webhook", { ...base, status: "skipped", reason: "demo" }));
   if (!ch || !ch.active || ch.kind === "sms") return void (await outcome(jctx, p, "webhook", { ...base, status: "skipped", reason: "channel_inactive" }));
   // what the channel may receive: what its principal may read
   const rctx = ch.principal_id ? await memberCtx(cfg, p.org, ch.principal_id).catch(() => null) : null;
@@ -603,12 +631,22 @@ export async function runFlush(job: Job, jctx: JobContext): Promise<void> {
       continue;
     }
     const ev = h.payload.ev;
+    if (await demoQuiet(jctx.db, org, ev.id)) {
+      // demo data (docs/DEMO_FA.md): nothing leaves the system
+      await settleHeld(jctx.db, h.id, "skipped", { reason: "demo" });
+      continue;
+    }
     const entry = ev.entry ? await loadEntry(jctx.db, org, ev.table, ev.id, ev.entry.id) : null;
     const r = ev.entry && !entry ? null : await renderFor(rctx, ev, await templateOf(sys, h.payload.rule), { cfg, entry, log: (m, d) => jctx.log.warn(m, d) }).catch(() => null);
     if (!r) await settleHeld(jctx.db, h.id, "skipped", { reason: "no_access" });
     else items.push({ h, r, ev });
   }
   if (!items.length) return;
+  if (rctx.user.prefs?.demo_org) {
+    // the demo pack's people (docs/DEMO_FA.md) have fictional addresses: nothing leaves the system for them
+    for (const i of items) await settleHeld(jctx.db, i.h.id, "skipped", { reason: "demo" });
+    return;
+  }
   if (channel === "email") {
     const to = rctx.user.email;
     const digest = items.length > 1 || items.some((i) => i.h.reason === "digest");

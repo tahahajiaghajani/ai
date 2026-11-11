@@ -161,4 +161,35 @@ describe("flows: HTTP step", () => {
     const d = await run(line(N("h", "call_http", { connection: off })));
     expect(d.run.error).toMatch(/غیرفعال/);
   });
+
+  it("calls nothing outside for a run started on a demo record, even by a real person outside the demo scope", async () => {
+    aiNet.lookup = async () => ["93.184.216.34"];
+    const c = await conn({});
+    const todo = (await o.owner.post(`${k.P}/r/todo`, { short_description: "کار نمایشی" })).row.id as string;
+    await o.db.query(`insert into sm_demo_rows (org_id, row_id, tbl) values ($1, $2, 'sm_todos') on conflict do nothing`, [o.org, todo]);
+    const start = (id: string) =>
+      o.db.tx((tx) =>
+        startRun(tx, {
+          orgId: o.org,
+          flow: { id: flowId, name: "HTTP" },
+          version: { id: null, no: null },
+          graph: line(N("h", "call_http", { connection: c, method: "POST", path: "/tickets", body: '{"t": "{{trigger.record.short_description}}"}' })) as never,
+          trigger: { kind: "record", table: "todo", id, event: "updated", actor: o.ownerId, at: new Date().toISOString(), changed: [], changes: {} } as never,
+          actorId: o.ownerId,
+          runAs: { kind: "user", userId: o.ownerId },
+          depth: 0,
+          test: false,
+        }),
+      );
+    const id = await start(todo);
+    await executeRun(cfg, id, { deadline: Date.now() + 15_000 });
+    expect(calls).toEqual([]);
+    expect((await k.detail(id)).run.error).toMatch(/نمایشی/);
+    // control: the same flow on a real record calls out
+    const real = (await o.owner.post(`${k.P}/r/todo`, { short_description: "کار واقعی" })).row.id as string;
+    const rid = await start(real);
+    await executeRun(cfg, rid, { deadline: Date.now() + 15_000 });
+    expect(calls.length).toBe(1);
+  });
 });
+

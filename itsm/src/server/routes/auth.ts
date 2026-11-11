@@ -1,5 +1,6 @@
 // /api/auth — sign up, sign in (e-mail and password, a domain account, Windows single sign-on), sign out (here or
 // everywhere), current user, re-authentication, password change and recovery (docs/AD_FA.md for the directory parts).
+import { DEMO_SIGNIN_OFF, demoOrgOf, demoSignInAllowed } from "../modules/demo/signin";
 import { z } from "zod";
 import type { Context } from "hono";
 import { router, body, requireUser, limitByIp, rateLimit } from "../http/hono";
@@ -106,6 +107,12 @@ authRoutes.post("/login", async (c) => {
     await securityEvent(cfg.db, { kind: "sign_in", ok: false, user_id: user.id, email: input.email, ...requestMeta(c), data: { reason: "disabled" } });
     throw forbidden("حساب شما غیرفعال شده است؛ با مدیر تماس بگیرید");
   }
+  // the demo pack's people sign in only while their organisation's administrators allow it (docs/DEMO_FA.md)
+  const demoOrg = await demoOrgOf(cfg.db, user.id);
+  if (demoOrg && !(await demoSignInAllowed(cfg.db, demoOrg))) {
+    await securityEvent(cfg.db, { kind: "sign_in", ok: false, user_id: user.id, email: input.email, ...requestMeta(c), data: { reason: "demo_signin_off" } });
+    throw forbidden(DEMO_SIGNIN_OFF);
+  }
   if (cfg.platformAdmins.includes(input.email)) {
     // only while the platform has no active administrator (see sign-up): otherwise whoever made an
     // account with a listed address first — by sign-up or as an organisation's new member — would get it
@@ -151,6 +158,8 @@ authRoutes.patch("/me", requireUser, async (c) => {
   const cfg = c.get("cfg");
   const input = await body(c, z.object({ full_name: z.string().trim().min(2).max(120).optional(), mobile: z.string().trim().max(20).nullable().optional(), prefs: z.record(z.string(), z.unknown()).optional() }));
   const u = c.get("user");
+  // the mark of a demo pack's person (docs/DEMO_FA.md) is the platform's, never the person's to change
+  if (input.prefs) delete input.prefs.demo_org;
   await cfg.db.query(
     `update sm_users set full_name = coalesce($2, full_name), mobile = case when $3::boolean then $4 else mobile end,
        prefs = case when $5::jsonb is null then prefs else prefs || $5::jsonb end where id = $1`,

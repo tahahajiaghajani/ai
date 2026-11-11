@@ -31,6 +31,11 @@ export interface BlobStore {
   has(q: Queryable, orgId: string, sha256: string): Promise<boolean>;
   /** Of these contents, the ones not stored. */
   missing(q: Queryable, orgId: string, shas: string[]): Promise<string[]>;
+  /**
+   * Remove a content for good (the demo pack's purge, docs/DEMO_FA.md: a content no attachment of the organisation
+   * refers to any more). Absent: nothing to do.
+   */
+  remove?(q: Queryable, orgId: string, sha256: string): Promise<void>;
 }
 
 /** The database store (sm_blobs). */
@@ -54,6 +59,9 @@ export const dbBlobStore: BlobStore = {
     const have = await q.query<{ sha256: string }>(`select sha256 from sm_blobs where org_id = $1 and sha256 = any($2::text[])`, [orgId, pgArray(shas)]);
     const set = new Set(have.map((r) => r.sha256));
     return shas.filter((s) => !set.has(s));
+  },
+  async remove(q, orgId, sha) {
+    await q.query(`delete from sm_blobs where org_id = $1 and sha256 = $2`, [orgId, sha]);
   },
 };
 
