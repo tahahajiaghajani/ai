@@ -170,6 +170,34 @@ describe("the checkpoint scheduler", () => {
     g.stop();
   });
 
+  it("a checkpoint made outside the scheduler (migrations, a backup) settles the one it had due", async () => {
+    const clock = fakeClock();
+    const pg = fakePg();
+    const g = createWalGuard(pg, { clock, ...opts });
+    g.start();
+    // the scheduler finds a volume of log while the app is busy: due, waiting for an idle moment
+    let release!: () => void;
+    const busy = g.track(() => new Promise<void>((r) => (release = r)));
+    pg.since = 40 * MB;
+    await clock.advance(10_500);
+    expect(pg.checkpoints).toBe(0);
+    // the local server checkpoints its migrations (or a backup does) before that moment comes
+    await g.checkpoint("migrations");
+    expect(pg.checkpoints).toBe(1);
+    release();
+    await busy;
+    // the idle moment brings no second checkpoint of an empty log (desktop-e2e: «volume, 0 MB» 1.5 s after migrations)
+    await clock.advance(60_000);
+    expect(pg.checkpoints).toBe(1);
+    expect(g.stats().last?.reason).toBe("migrations");
+    // and the next volume is still met
+    pg.since = 40 * MB;
+    await clock.advance(12_000);
+    expect(pg.checkpoints).toBe(2);
+    expect(g.stats().last?.reason).toBe("volume");
+    g.stop();
+  });
+
   it("stop() ends the polling, and concurrent checkpoints share one", async () => {
     const clock = fakeClock();
     const pg = fakePg();

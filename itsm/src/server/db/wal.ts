@@ -210,6 +210,8 @@ export function createWalGuard(pg: WalPg, options: WalGuardOptions = {}): WalGua
         const t0 = performance.now();
         await pg.exec("CHECKPOINT");
         const info: CheckpointInfo = { reason, ms: Math.round(performance.now() - t0), bytes };
+        // whoever asked for it (migrations, a backup, the scheduler), it settles a checkpoint the scheduler had due
+        due = null;
         dirtySince = null;
         last = 0;
         stats.checkpoints++;
