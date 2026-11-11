@@ -319,8 +319,8 @@ await ctx.write(async (tx) => {
     effect is inside the transaction), a job's handler runs again from its stored payload before the attempt counts,
     a sync push and every other request answer 503 «سیستم مشغول است؛ دوباره امتحان کنید» (never a 500).
   `ITSM_SERIALIZE_WRITES=1` (the server edition: kariz.json `serialize_writes`, the variable wins) brings back the
-  organisation lock on every write (from its start; `late`/`internal` ones at
-  their first synced statement — `ensureOrgLock`) as an operational fallback; sync does not depend on it. `lockOrg`
+  organisation lock on every write (from its start; `late`/`internal` ones at their first synced statement —
+  `ensureOrgLock`) as an operational fallback; sync does not depend on it. `lockOrg`
   stays for rare organisation-wide changes (creating or adopting an organisation, restores). Per process at most
   `ITSM_WRITERS_PER_ORG` (3; the server edition reads `writers_per_org` from kariz.json, the variable wins) write
   transactions of an organisation are in the database at once (`admitWrite`): a throttle that keeps a burst (an
