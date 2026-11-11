@@ -171,7 +171,9 @@ internal identifiers stay neutral (`sm_*`, `itsm.*`, `ITSM_*`).
 - CI job `bank-sim` (after `server`; `packaging/server/scripts/bank-sim/*.ps1` + `scripts/bank-sim/*.mjs`; report
   `docs/qa/BANK_SIM_FA.md`, runbook `docs/BANK_INSTALL_FA.md`): the bank's installation end to end with no Internet —
   everything fetched first (Playwright + Chromium, the 1.0.0 MSI of release `itsm-v1.0.0`, this run's MSI), then
-  Windows Firewall default outbound Block with only the runner's agent, `LocalSubnet` and the platform's DNS allowed,
+  Windows Firewall default outbound Block with only the CI machine's own programs (C:\actions-runner, running programs
+  outside %SystemRoot% and those connected outside the LAN at the cut; never node/powershell/chrome/msiexec; snapshot in
+  `logs/ci-machine-at-cut.txt`), `LocalSubnet` and the platform's DNS allowed,
   dropped packets logged and every connection audited with its program (Security 5156/5157); a PKI made with
   `New-SelfSignedCertificate` (root in LocalMachine\Root, PFX per server), a mock LDAPS domain controller
   (`tests/ldap-fake.ts` bundled with esbuild, `tlsOptions`/`listen`) and a STARTTLS mail relay on the LAN address;
@@ -182,7 +184,9 @@ internal identifiers stay neutral (`sm_*`, `itsm.*`, `ITSM_*`).
   posture (redirect, HSTS, TLS 1.0/1.1 refused, PostgreSQL loopback only, listening ports, ACLs, virtual accounts,
   diagnostics without secrets), resilience (worker kill, service restarts, postmaster kill), load, a DR drill
   (RTO/RPO), the Windows app's sync client headless, uninstall/re-install/REMOVEDATA=1 leftovers, and no outbound
-  attempt by the installation's programs. Report, logs and screenshots are uploaded on success and failure.
+  attempt by the installation's programs. The scenarios run in seven steps (`-Only 1,2,3` ...), the context carried
+  over in `context.json`, the evidence uploaded after every step (`overwrite: true`, so a lost runner still leaves its
+  logs) and a `-Report` step that always runs (report.md, job summary, network restored).
 
 ## Testing
 

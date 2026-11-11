@@ -58,9 +58,10 @@ function Enable-BankNetwork([object]$Lan, [string]$LogDir) {
     # judged by the connection audit at the end, which records attempts whether a rule allowed them or not).
     # - the runner's agent, as smoke-test.ps1 does, and everything else in its folder (C:\actions-runner: every cached
     #   version, the Node.js the actions run with, the artifact upload);
-    # - the hosted machine's provisioning / health agents: every running program outside the Windows folder, and every
-    #   program holding a connection outside loopback and the LAN right now. Blocking them for longer than a few
-    #   minutes made GitHub declare the runner lost (run 42953772211: the job died after an hour with no log).
+    # - the hosted machine's provisioning / health agents (C:\ProgramData\GitHub\HostedComputeAgent, provjobd, the Azure
+    #   guest agent): every running program outside the Windows folder. Blocking them for longer than a few minutes made
+    #   GitHub declare the runner lost (run 42953772211: the job died after an hour with no log). A program Windows
+    #   Firewall cannot name in a rule keeps the addresses it is connected to instead.
     # The test's own tools (Node.js, PowerShell, Chromium, msiexec) are never allowed: they are the bank's PCs.
     $snapshot = Join-Path $LogDir 'ci-machine-at-cut.txt'
     $procs = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
@@ -81,20 +82,35 @@ function Enable-BankNetwork([object]$Lan, [string]$LogDir) {
     }
     $tools = '\\(node|powershell|pwsh|chrome|chrome_crashpad_handler|headless_shell|msiexec|cmd|conhost)\.exe$'
     $win = [IO.Path]::GetFullPath($env:SystemRoot).TrimEnd('\') + '\'
-    $outside = @($conns | Where-Object { $_.State -eq 'Established' -and -not (Test-InsideBank ([string]$_.RemoteAddress) $Lan) } | ForEach-Object { [int]$_.OwningProcess })
+    # Windows' own programs (svchost and the like) stay blocked, as on the bank's server; so do packaged desktop apps
+    $skip = @($win, "$env:ProgramFiles\WindowsApps\")
     foreach ($p in $procs) {
         $exe = [string]$p.ExecutablePath
-        if (-not $exe -or $allow.Contains($exe)) { continue }
-        $isTool = $exe -match $tools -and -not ($roots | Where-Object { $exe.StartsWith("$_\", [StringComparison]::OrdinalIgnoreCase) })
-        if ($isTool) { continue }
-        $system = $exe.StartsWith($win, [StringComparison]::OrdinalIgnoreCase)
-        if (-not $system -or $outside -contains [int]$p.ProcessId) {
-            [void]$allow.Add($exe)
-            Write-Log "CI machine program kept online: $exe"
+        if (-not $exe) { continue }
+        # 8.3 short names (C:\Users\RUNNER~1\...) in their long form: a firewall rule names the real path
+        try { $exe = (Get-Item -LiteralPath $exe -ErrorAction Stop).FullName } catch { }
+        if ($allow.Contains($exe)) { continue }
+        if ($exe -match $tools) { continue }
+        if ($skip | Where-Object { $exe.StartsWith($_, [StringComparison]::OrdinalIgnoreCase) }) { continue }
+        [void]$allow.Add($exe)
+    }
+    $kept = 0
+    foreach ($exe in $allow) {
+        try {
+            New-NetFirewallRule -Group $script:FwGroup -DisplayName 'bank-sim: CI machine' -Direction Outbound -Program $exe -Action Allow -ErrorAction Stop | Out-Null
+            $kept++
+            if (-not ($roots | Where-Object { $exe.StartsWith("$_\", [StringComparison]::OrdinalIgnoreCase) })) { Write-Log "CI machine program kept online: $exe" }
+        } catch {
+            $why = $_.Exception.Message.Trim()
+            $ids = @($procs | Where-Object { $_.ExecutablePath -and ($_.ExecutablePath -eq $exe -or ((Get-Item -LiteralPath $_.ExecutablePath -ErrorAction SilentlyContinue).FullName -eq $exe)) } | ForEach-Object { [int]$_.ProcessId })
+            $to = @($conns | Where-Object { $ids -contains [int]$_.OwningProcess -and -not (Test-InsideBank ([string]$_.RemoteAddress) $Lan) } | ForEach-Object { [string]$_.RemoteAddress } | Sort-Object -Unique)
+            if ($to.Count) {
+                New-NetFirewallRule -Group $script:FwGroup -DisplayName 'bank-sim: CI machine (by address)' -Direction Outbound -RemoteAddress $to -Action Allow | Out-Null
+                Write-Log "CI machine program kept online by address ($($to -join ', ')): $exe (no program rule: $why)"
+            } else { Write-Log "no allow rule for $exe ($why)" 'WARN' }
         }
     }
-    foreach ($exe in $allow) { New-NetFirewallRule -Group $script:FwGroup -DisplayName 'bank-sim: CI machine' -Direction Outbound -Program $exe -Action Allow | Out-Null }
-    Write-Log "$($allow.Count) program(s) of the CI machine kept online (snapshot: $snapshot)"
+    Write-Log "$kept program(s) of the CI machine kept online (snapshot: $snapshot)"
     # the runner's agent first in line for the processor (the server, a load test and a browser share four cores)
     Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -match '^Runner\.(Listener|Worker)$' } | ForEach-Object { try { $_.PriorityClass = 'High'; Write-Log "priority High: $($_.ProcessName) ($($_.Id))" } catch { } }
     # the bank's LAN (the machine's own subnet: domain controller, mail relay, PCs) and the platform's DNS / metadata
