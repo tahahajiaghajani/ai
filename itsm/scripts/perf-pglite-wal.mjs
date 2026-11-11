@@ -1,5 +1,5 @@
 // The write-ahead log of the Windows app's database (PGlite data folder), measured the way the app opens it
-// (docs/PERFORMANCE_FA.md §14): pg_wal during the bank demo pack «کوچک» and an hour of simulated work, start-up after a
+// (docs/PERFORMANCE_FA.md §15): pg_wal during the bank demo pack «کوچک» and an hour of simulated work, start-up after a
 // forced quit (crash recovery) and after a clean close, and a backup (size, time, peak memory).
 //
 //   node scripts/perf-pglite-wal.mjs --dir <scratch folder> [--rounds 40] [--cap-mb 600] [--size small] [--out report.json]

@@ -1,4 +1,4 @@
-// The write-ahead log of a PGlite data folder, kept small (docs/PERFORMANCE_FA.md §14).
+// The write-ahead log of a PGlite data folder, kept small (docs/PERFORMANCE_FA.md §15).
 //
 // PGlite runs PostgreSQL as one standalone backend: there is no checkpointer process, and the WAL-volume trigger in
 // XLogWrite only asks for a checkpoint under a postmaster. So nothing checkpoints while the Windows app runs: pg_wal grows

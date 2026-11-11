@@ -1,4 +1,4 @@
-// The Windows app's write-ahead log stays bounded (src/server/db/wal.ts, docs/PERFORMANCE_FA.md §14): PGlite has no
+// The Windows app's write-ahead log stays bounded (src/server/db/wal.ts, docs/PERFORMANCE_FA.md §15): PGlite has no
 // checkpointer, so without checkpoints of our own pg_wal grows until close. The scheduler (fake clock), the limits on a
 // data folder of an older version, no checkpoint inside a transaction, a backup restored after the change.
 import { describe, expect, it, afterAll } from "vitest";
