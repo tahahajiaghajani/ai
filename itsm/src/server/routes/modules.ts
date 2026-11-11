@@ -74,6 +74,7 @@ import { csmRoutes } from "./csm";
 import { installFieldServiceModule } from "../modules/field_service";
 import { fieldServiceRoutes } from "./field_service";
 import { installAdminModule } from "../modules/admin";
+import { installFieldsModule } from "../modules/fields";
 import { adminTenantRoutes } from "./admin-tenant";
 import { demoRoutes } from "./demo";
 import { installDemoModule } from "../modules/demo";
@@ -143,6 +144,8 @@ installSlmModule();
 installWorkforceModule();
 // the administration consoles (docs/modules/admin_FA.md) — studio, imports, exports, seats, notices; its AI skills before installAiSkills
 installAdminModule();
+// the field library (design F, F1): integrity of field types and library fields
+installFieldsModule();
 // the integration hub (docs/modules/integration_FA.md) — integration users and keys, webhooks, LDAP/AD, SCIM, Jira/GitHub, exports
 installIntegrationModule();
 
