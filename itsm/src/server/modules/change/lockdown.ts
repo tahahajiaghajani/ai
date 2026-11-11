@@ -24,8 +24,8 @@ export const IN_FLIGHT = ["scheduled", "implement"];
 
 /**
  * Take the organisation's lockdown key until the transaction ends (see the head of this file). The engine's own lock
- * of a change comes first where a change's write takes it (the lifecycle guard), the key first where a lockdown's
- * work then locks the changes it holds or resumes.
+ * of a change comes first where a change's write takes it (the lifecycle guard), the key first where the work then
+ * locks changes: a lockdown's start and end (the changes they hold or resume) and «ادامه» of a held change.
  */
 export async function lockLockdowns(tx: Tx, orgId: string): Promise<void> {
   await lockKey(tx, `change.lockdown:${orgId}`);

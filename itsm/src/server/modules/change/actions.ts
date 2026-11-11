@@ -162,9 +162,11 @@ export async function resumeChange(ctx: Ctx, id: string, input: { note?: string 
   if (!row.on_hold) throw conflict("این تغییر متوقف نیست");
   return ctx.write(async (tx) => {
     const sys = sysOf(ctx, ctx.user.id);
+    // the lockdown key, then the change: the order a lockdown's start and end take them (key, then the changes they
+    // hold or resume) — a resumption and a lockdown ending at the same moment wait for each other, never deadlock
+    await lockLockdowns(tx, ctx.org.id);
     const cur = await lockedRow(tx, sysOf(ctx), "change_request", id);
     if (!cur || !cur.on_hold) throw conflict("این تغییر متوقف نیست");
-    await lockLockdowns(tx, ctx.org.id);
     const holds = await holdsOn(tx, ctx, cur);
     const still = (await activeLockdowns(tx, ctx)).find((l) => lockdownApplies(lockdownLike(l), cur, holds));
     if (still && cur.on_hold_reason === "lockdown") throw conflict(`قرنطینهٔ تغییرات «${still.title}» هنوز برقرار است`);
