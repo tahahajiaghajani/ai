@@ -45,7 +45,7 @@ export function ProductSection({ p, lang, index, invert = false, flip = false }:
         </header>
 
         {/* ------------------------------------------------------------ screens + what it is + editions */}
-        <div className="mt-16 grid grid-cols-12 gap-x-4 gap-y-14 md:mt-24 lg:gap-y-0">
+        <div className="mt-16 grid grid-cols-12 gap-x-4 gap-y-14 md:mt-24 lg:gap-x-8 lg:gap-y-0">
           {lead ? (
             <figure className={`col-span-12 lg:col-span-7 lg:row-start-1 ${flip ? "lg:col-start-6" : "lg:col-start-1"}`}>
               {/* the second screen hangs over the lead's lower corner; the padding keeps its room in the flow */}
@@ -56,7 +56,7 @@ export function ProductSection({ p, lang, index, invert = false, flip = false }:
                   </div>
                 </div>
                 {second ? (
-                  <div className={`group absolute bottom-0 w-[54%] shadow-[0_40px_90px_-30px_rgb(0_0_0/0.55)] ${flip ? "start-[-2%] xl:start-[-6%]" : "end-[-2%] xl:end-[-6%]"}`}>
+                  <div className={`group absolute bottom-0 w-[54%] shadow-[0_40px_90px_-30px_rgb(0_0_0/0.55)] ${flip ? "start-[-2%] lg:start-0 xl:start-[-6%]" : "end-[-2%] lg:end-0 xl:end-[-6%]"}`}>
                     <div data-reveal>
                       <div data-reveal-inner>
                         <Media m={second} lang={lang} sizes="(min-width: 1024px) 30vw, 54vw" />

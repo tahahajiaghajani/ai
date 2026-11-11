@@ -32,18 +32,18 @@ export function ProductEditions({ product, editions, lang }: { product: string; 
   useEffect(() => {
     const el = note.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    let first = true;
-    let timer = 0;
-    const ro = new ResizeObserver(() => {
-      if (first) return void (first = false); // the observer reports once on start; nothing has moved yet
-      window.clearTimeout(timer);
-      timer = window.setTimeout(() => ScrollTrigger.refresh(), 150);
+    // only a change of height moves the sections below (a width change comes with a window resize, which
+    // ScrollTrigger handles itself); the observer's first report is its starting size
+    let height = -1;
+    const ro = new ResizeObserver(([entry]) => {
+      const h = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
+      const changed = height >= 0 && Math.abs(h - height) > 0.5;
+      height = h;
+      // the "safe" refresh shares ScrollTrigger's own resize debounce and waits for a scroll in progress to end
+      if (changed) ScrollTrigger.refresh(true);
     });
     ro.observe(el);
-    return () => {
-      ro.disconnect();
-      window.clearTimeout(timer);
-    };
+    return () => ro.disconnect();
   }, []);
   const fa = lang === "fa";
   const c = PROFILE.contact;
