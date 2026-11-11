@@ -8,7 +8,8 @@ import { stateCategory } from "@shared/model/task";
 import { candidateGroups, type CandidateGroup, type CandidateIncident } from "@shared/problem/logic";
 import { createHash } from "node:crypto";
 import type { Ctx } from "../../context";
-import type { Tx } from "../../db";
+import { lockKey, type Tx } from "../../db";
+import { lockedRow } from "../incident/common";
 import { addJournalIn, createIn, defFor, get, list, savepoint, transitionIn, updateIn } from "../../engine";
 import { AppError, bad, conflict, forbidden, notFound } from "../../http/errors";
 import { canWork, eqAll, faList, isUuid, liveRow, liveRows, problemConfig, problemAi, sysOf, type Row } from "../incident";
@@ -21,11 +22,15 @@ export interface Outcome {
   failed: { id: string; message: string }[];
 }
 
-/** The problem locked for this transaction (404 when the caller may not read it). */
+/**
+ * The problem locked for this transaction (404 when the caller may not read it): a merge, a link, a shared solution
+ * of one problem at the same moment take turns, and each decides from the stored row (a link never lands on a problem
+ * a merge is closing; a solution is shared once).
+ */
 async function lockProblem(tx: Tx, ctx: Ctx, id: string): Promise<{ def: Awaited<ReturnType<typeof defFor>>["def"]; row: Row }> {
   if (!isUuid(id)) throw notFound("مشکل پیدا نشد");
   const { def } = await defFor(ctx, "problem", tx);
-  const row = await liveRow(tx, ctx, "problem", id);
+  const row = await lockedRow(tx, ctx, "problem", id);
   if (!row) throw notFound("مشکل پیدا نشد");
   return { def, row };
 }
@@ -77,6 +82,31 @@ export async function createFromIncidents(ctx: Ctx, incidentIds: string[], input
   const read = await list(ctx, "incident", { ids, size: ids.length, total: false, fields: ["number", "short_description", "description", "category", "subcategory", "service_id", "ci_id", "impact", "urgency", "opened_at", "major_state", "assignment_group_id", "workspace_id", "problem_id"] });
   if (!read.rows.length) throw notFound("رخدادها پیدا نشدند");
   const rows = [...read.rows].sort((a, b) => Date.parse(a.opened_at ?? "") - Date.parse(b.opened_at ?? ""));
+  const made = await ctx.write(async (tx) => {
+    // the incidents locked (in id order) before the problem is made: an automatic problem of the same incident at
+    // this moment (a resolved major incident, `autoProblemFor`) takes turns with this one and finds them linked
+    for (const r of [...rows].sort((a, b) => String(a.id).localeCompare(String(b.id)))) await lockedRow(tx, sysOf(ctx), "incident", r.id);
+    return problemFromRowsIn(tx, ctx, rows, input);
+  });
+  // read after the commit: the incidents' counts are recounted just before it (problem/hooks.ts)
+  return { ...made, problem: (await liveRow(ctx.db, sysOf(ctx), "problem", made.problem.id)) ?? made.problem };
+}
+
+/**
+ * The problem of a resolved major incident (the settings' «مشکل خودکار»), made once: the incident is locked and read
+ * again inside the write, and nothing is made when it is linked already — by a manager's «ثبت مشکل» at the same
+ * moment, or an earlier run of this event.
+ */
+export async function autoProblemFor(ctx: Ctx, incidentId: string): Promise<Row | null> {
+  return ctx.write(async (tx) => {
+    const inc = await lockedRow(tx, sysOf(ctx), "incident", incidentId);
+    if (!inc || inc.problem_id) return null;
+    return (await problemFromRowsIn(tx, ctx, [inc], { source: "major_incident" })).problem;
+  });
+}
+
+/** Make the problem of `rows` (incidents, oldest first) and link them (inside the caller's write). */
+async function problemFromRowsIn(tx: Tx, ctx: Ctx, rows: Row[], input: FromIncidentsInput): Promise<{ problem: Row } & Outcome> {
   const first = rows[0];
   const most = <K extends string>(k: K) => {
     const n = new Map<string, number>();
@@ -85,7 +115,7 @@ export async function createFromIncidents(ctx: Ctx, incidentIds: string[], input
   };
   const major = rows.some((r) => ["accepted", "resolved", "pir_done"].includes(String(r.major_state ?? "")));
   const lines = rows.slice(0, 30).map((r) => `- ${r.number}: ${String(r.short_description ?? "").slice(0, 160)}`);
-  return ctx.write(async (tx) => {
+  {
     const problem = await createIn(tx, ctx, "problem", {
       short_description: input.short_description?.trim() || String(first.short_description ?? "").slice(0, 200),
       description: input.description?.trim() || `رخدادهای مرتبط:\n${lines.join("\n")}${rows.length > 30 ? "\n- …" : ""}`,
@@ -105,7 +135,7 @@ export async function createFromIncidents(ctx: Ctx, incidentIds: string[], input
     const linked = await linkIn(tx, ctx, problem, rows.filter((r) => r.problem_id !== problem.id).map((r) => r.id));
     await note(tx, ctx, "problem", problem, `از ${rows.length} رخداد ساخته شد${linked.done.length ? `؛ پیوند: ${faList(linked.done)}` : ""}.`);
     return { problem: (await liveRow(tx, sysOf(ctx), "problem", problem.id)) ?? problem, ...linked };
-  });
+  }
 }
 
 /** Link (or unlink) incidents to a problem the caller may read. */
@@ -256,6 +286,8 @@ export async function runCandidates(sys: Ctx, now = Date.now()): Promise<{ creat
       continue;
     }
     await sys.write(async (tx) => {
+      // one candidate per pattern: the daily sweep and «اجرای قاعده‌ها» at the same moment take turns on its key
+      await lockKey(tx, `problem.candidate:${sys.org.id}:${g.signature}`);
       const [c] = await liveRows(tx, sys, "problem_candidate", eqAll({ signature: g.signature }), { order: "t.created_at desc", limit: 1 });
       const values = {
         title: g.title, rule_kind: g.rule_kind, incidents: g.incidents, score: g.score, first_at: g.first_at, last_at: g.last_at,
