@@ -17,9 +17,10 @@ export async function schemaIsCurrent(db: Queryable): Promise<boolean> {
     );
     // every migration of this build is recorded and this build's engine DDL is (or once was: it is additive) applied
     return !!r && r.missing === 0 && r.engine;
-  } catch {
-    // no sm_migrations / sm_meta yet (a fresh database)
-    return false;
+  } catch (e) {
+    // no sm_migrations / sm_meta yet (a fresh database); anything else (no connection, wrong password) is the caller's
+    if ((e as { code?: string })?.code === "42P01") return false;
+    throw e;
   }
 }
 

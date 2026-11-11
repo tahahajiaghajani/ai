@@ -130,6 +130,18 @@ describe("web version start-up", () => {
   }, 600_000);
 });
 
+describe("web version without its database", () => {
+  it("answers 503 with a Persian message and an error id, never a bare 500", async () => {
+    const call = await webVersion("postgres://postgres:postgres@127.0.0.1:9/postgres");
+    for (const path of ["/health", "/meta", "/auth/me"]) {
+      const r = await call("GET", path);
+      expect(r.status).toBe(503);
+      expect(r.json.error.code).toBe("db_unreachable");
+      expect(r.json.error.message).toMatch(/پایگاه داده پاسخ نمی‌دهد.*کد پیگیری: [0-9a-f]{8}/);
+    }
+  }, 120_000);
+});
+
 describe("sign-up and sign-in on every state an account can be in", () => {
   it("an interrupted sign-up leaves no account: the next sign-up with that address works", async () => {
     const s = await makeServer({ mode: "cloud", config: { platformAdmins: [OWNER.email] } });

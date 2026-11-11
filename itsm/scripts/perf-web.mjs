@@ -100,8 +100,7 @@ async function seed() {
 /** pg_stat_statements of one database: total calls (round trips that ran a statement), reset between requests. */
 async function statements(url) {
   if (!url) return null;
-  const require = createRequire(import.meta.url);
-  const postgres = require("postgres");
+  const postgres = (await import("postgres")).default;
   const sql = postgres(url, { max: 1, prepare: false, onnotice: () => {}, ssl: url.includes("sslmode=disable") || /127\.0\.0\.1|localhost/.test(url) ? false : "require" });
   const db = (await sql`select current_database() as d`)[0].d;
   return {
@@ -125,19 +124,20 @@ async function apiMode() {
   const runs = Number(opt("runs", 15));
   const api = client(base);
   const { org } = await signIn(api);
-  // targets: the first incident, the catalogue, a search word taken from it
-  const list = await api("GET", `/o/${org}/r/incident?limit=25`);
+  // targets: the first incident and a search word taken from it
+  const list = await api("POST", `/o/${org}/r/incident/query`, { size: 1, fields: ["number", "short_description"] });
   const incident = list.json?.rows?.[0]?.id;
   const word = String(list.json?.rows?.[0]?.short_description ?? "سرور").split(/\s+/)[0];
+  const count = { filter: { and: [{ f: "assigned_to", op: "is_me" }, { f: "active", op: "eq", v: true }] }, size: 1, fields: ["number"], total: true };
   const cases = [
     ["sign-in", () => client(base)("POST", "/auth/login", { email, password })],
     ["me", () => api("GET", "/auth/me")],
-    ["home: organisation", () => api("GET", `/o/${org}`)],
-    ["home: dashboard", () => api("GET", `/o/${org}/home`)],
-    ["incident list", () => api("GET", `/o/${org}/r/incident?limit=25`)],
+    ["organisation", () => api("GET", `/o/${org}`)],
+    ["badge count (one)", () => api("POST", `/o/${org}/r/incident/query`, count)],
+    ["incident list (25)", () => api("POST", `/o/${org}/r/incident/query`, { size: 25 })],
     ["incident record", () => api("GET", `/o/${org}/r/incident/${incident}`)],
-    ["catalogue", () => api("GET", `/o/${org}/request/catalog`)],
-    ["search", () => api("GET", `/o/${org}/search?q=${encodeURIComponent(word)}`)],
+    ["catalogue (portal)", () => api("GET", `/o/${org}/portal/catalog`)],
+    ["search (incidents)", () => api("POST", `/o/${org}/r/incident/query`, { q: word, size: 25 })],
   ];
   const pg = await statements(opt("pg"));
   const out = [];
@@ -149,10 +149,13 @@ async function apiMode() {
     }
     const ms = [];
     let trips = null;
-    for (let i = 0; i < runs; i++) {
+    // sign-in is rate limited per address (8 in 15 minutes): a few runs only
+    const n = name === "sign-in" ? Math.min(runs, 5) : runs;
+    for (let i = 0; i < n; i++) {
       if (pg && i === 0) await pg.reset();
       const r = await fn();
       if (pg && i === 0) trips = await pg.calls();
+      if (r.status !== 200) throw new Error(`${name}: ${r.status} ${JSON.stringify(r.json).slice(0, 160)} (sign-in limits: restart the server)`);
       ms.push(r.ms);
     }
     out.push({ name, status: 200, median: Math.round(pct(ms, 50)), p95: Math.round(pct(ms, 95)), bytes: first.bytes, db_round_trips: trips });
