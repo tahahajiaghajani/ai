@@ -30,10 +30,12 @@ export const recalcLater = (w: WriteArgs, projectId: unknown) =>
  * The project a task, RAID item, status report or allocation is added to (or moved to): it exists, is open, and the
  * person may change it — a member who only reads a project adds nothing to its plan, risks or reports.
  */
-async function parentProject(w: WriteArgs): Promise<Row> {
+async function parentProject(w: WriteArgs, mode: "share" | "update" = "share"): Promise<Row> {
   // shared lock until commit: the project's «closed» gate in flight finishes first (and nothing is added to a closed
-  // project); a closing that comes later waits for this row and counts it
-  const p = await lockedRow(w.tx, sysOf(w.ctx), "project", w.next.project_id, "share");
+  // project); a closing that comes later waits for this row and counts it. A write that then changes the project
+  // itself asks for the row locked for update at once (`mode`): two of them holding it shared and each upgrading
+  // would deadlock
+  const p = await lockedRow(w.tx, sysOf(w.ctx), "project", w.next.project_id, mode);
   if (!p) throw bad("پروژه پیدا نشد");
   if (["closed", "canceled"].includes(String(p.state)) && w.op === "create") throw conflict("به پروژهٔ بسته یا لغوشده نمی‌توان چیزی افزود");
   if (!w.trusted && !isSystemCtx(w.ctx) && !(await mayWriteRecord(w.tx, w.ctx, "project", p.id))) throw forbidden(`به پروژهٔ «${p.name ?? p.number ?? ""}» فقط کسانی چیزی می‌افزایند که پروژه را تغییر می‌دهند`);
@@ -242,7 +244,9 @@ export function installProjectHooks(): (() => void)[] {
     registerHooks("status_report", {
       async beforeWrite(w) {
         if (w.op === "delete") return;
-        const p = w.op === "create" || w.changed.has("project_id") ? await parentProject(w) : null;
+        // a report published as it is written stamps its project (afterWrite): the project locked for update then
+        const publishing = w.changed.has("state") && w.next.state === "published" && w.prev?.state !== "published";
+        const p = w.op === "create" || w.changed.has("project_id") ? await parentProject(w, publishing ? "update" : "share") : null;
         if (p) Object.assign(w.next, projectCopy(p, "status_report"));
         if (w.changed.has("state") && w.next.state === "published") {
           if (w.prev?.state === "published") return;
