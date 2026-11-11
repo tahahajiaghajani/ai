@@ -162,6 +162,42 @@ function Invoke-Ctl([string[]]$Arguments, [switch]$Timed) {
     return $sw.Elapsed.TotalSeconds
 }
 
+# The server's background work (demo pack, queued / running / failed jobs) into the log and phases\jobs-<Label>.json.
+function Show-Jobs([string]$Label) {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $NodeExe (Join-Path $Js 'jobs.mjs') --config $Config --out (Join-Path $Out "phases\jobs-$Label.json") 2>&1 | ForEach-Object { Write-Log "    [jobs] $_" } } finally { $ErrorActionPreference = $prev }
+}
+
+# A long karizctl command (demo load / purge --wait) with a time budget: the server's queue is shown every two minutes,
+# and a command that overruns is stopped with the queue's state, the server's logs and its output kept.
+function Invoke-CtlWatched([string[]]$Arguments, [int]$BudgetMinutes, [string]$Label) {
+    $o = Join-Path $Out "logs\karizctl-$Label.out.log"
+    $e = Join-Path $Out "logs\karizctl-$Label.err.log"
+    $list = ($Arguments + @('--config', $Config)) | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } }
+    Write-Log "karizctl $($Arguments -join ' ') (budget $BudgetMinutes min)"
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $p = Start-Process -FilePath $Ctl -ArgumentList $list -RedirectStandardOutput $o -RedirectStandardError $e -PassThru -WindowStyle Hidden
+    $null = $p.Handle
+    $next = 60
+    while (-not $p.WaitForExit(10000)) {
+        if ($sw.Elapsed.TotalSeconds -ge $next) { Write-Log ("karizctl {0}: {1:N0} s so far" -f $Label, $sw.Elapsed.TotalSeconds); Show-Jobs $Label; $next += 120 }
+        if ($sw.Elapsed.TotalMinutes -ge $BudgetMinutes) {
+            Show-Jobs "$Label-overrun"
+            & taskkill.exe /T /F /PID $p.Id 2>&1 | Out-Null
+            Get-Content $o, $e -ErrorAction SilentlyContinue | Select-Object -Last 20 | ForEach-Object { Write-Log "    $_" }
+            Copy-ServerLogs
+            Fail ("karizctl {0} did not finish within {1} minutes" -f ($Arguments -join ' '), $BudgetMinutes)
+        }
+    }
+    $sw.Stop()
+    Get-Content $o, $e -ErrorAction SilentlyContinue | ForEach-Object { Write-Log "    $_" }
+    if ($p.ExitCode -ne 0) { Show-Jobs "$Label-failed"; Fail "karizctl $($Arguments -join ' ') exited with code $($p.ExitCode)" }
+    Note ("karizctl {0}: {1:N1} s" -f ($Arguments -join ' '), $sw.Elapsed.TotalSeconds)
+    Show-Jobs "$Label-done"
+    return $sw.Elapsed.TotalSeconds
+}
+
 function Invoke-Msi([string[]]$Arguments, [string]$Log, [string[]]$Mask = @(), [switch]$AllowFail) {
     $all = ($Arguments + @('/qn', '/norestart', '/l*v', $Log)) | ForEach-Object {
         if ($_ -match '\s' -and $_ -notmatch '"') { if ($_ -match '^([A-Z]+)=(.*)$') { "$($Matches[1])=`"$($Matches[2])`"" } else { "`"$_`"" } } else { $_ }
@@ -383,10 +419,10 @@ try {
     }
 
     Invoke-Scenario 7 'Demo data on the server (load, browse, purge)' {
-        Invoke-Ctl @('demo', 'load', '--size', 'medium', '--wait', '--force') -Timed | Out-Null
+        Invoke-CtlWatched @('demo', 'load', '--size', 'medium', '--wait', '--force') 45 'demo-load' | Out-Null
         Invoke-Js 'api.mjs' 'api-demo-on' | Out-Null
         Invoke-Js 'browser.mjs' 'browser-demo' @('--shots', (Join-Path $Out 'shots')) | Out-Null
-        Invoke-Ctl @('demo', 'purge', '--yes', '--wait') -Timed | Out-Null
+        Invoke-CtlWatched @('demo', 'purge', '--yes', '--wait') 30 'demo-purge' | Out-Null
         Invoke-Js 'browser.mjs' 'browser-purged' @('--shots', (Join-Path $Out 'shots')) | Out-Null
         Invoke-Js 'api.mjs' 'api-demo-off' | Out-Null
     }

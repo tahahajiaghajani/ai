@@ -300,7 +300,7 @@ jobs:
     needs: [server]
     if: ${{ !cancelled() && needs.server.result == 'success' }}
     runs-on: windows-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     defaults:
       run:
         working-directory: itsm
