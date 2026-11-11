@@ -299,7 +299,9 @@ async function pipeline(p: PipelineInput): Promise<Row> {
   if (!creating && isLocked(def, prev) && !transition && !opts.allowLocked && !isSystemCtx(ctx)) {
     throw new AppError(409, "locked", LOCKED_MESSAGE);
   }
-  if (transition && !creating && !opts.skipAccess && !isSystemCtx(ctx) && !access().canTransition(ctx, def, prev!, transition)) {
+  // trusted server code is held to the module's rule, never to the organisation's narrowing (`also`, design F §4.2)
+  const asked = opts.trusted && transition?.also ? { ...transition, also: undefined } : transition;
+  if (transition && !creating && !opts.skipAccess && !isSystemCtx(ctx) && !access().canTransition(ctx, def, prev!, asked!)) {
     throw forbidden(`اجازهٔ «${transition.label}» را ندارید`);
   }
   if (model && (creating || changed.has(model.field))) stateEffects(def, prev, next, actor, now, changed);
