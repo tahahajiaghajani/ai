@@ -329,3 +329,6 @@ update public.celin_products set description_en = 'The tennis necklace, bracelet
 where description_en = 'The tennis necklace, bracelet and drop earrings in atomic-cut stones — the foundation of any jewelry box.';
 
 insert into public.celin_migrations (name) values ('20261111100000_celin_membership_pro') on conflict (name) do nothing;
+
+-- the API sees the new columns and function at once (Supabase also does this on its own)
+notify pgrst, 'reload schema';
