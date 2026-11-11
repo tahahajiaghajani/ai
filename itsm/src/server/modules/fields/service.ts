@@ -251,7 +251,7 @@ const OVERRIDE_COLUMNS = ["label", "help", "placeholder", "form_hidden", "requir
 
 async function overrideRows(q: Queryable, orgId: string, table: string): Promise<Row[]> {
   return q.query<Row>(
-    `select id, name, label, help, placeholder, form_hidden, required, required_for, library_id, options, active from sm_custom_fields
+    `select id, name, label, help, placeholder, form_hidden, required, required_for, library_id, options, active, list, section from sm_custom_fields
      where org_id = $1 and table_key = $2 and deleted_at is null order by sort_order, name`,
     [orgId, table],
   );
@@ -318,7 +318,8 @@ export async function saveSystemOverrides(ctx: Ctx, table: string, input: { fiel
       }
       const own = base.fields.find((x) => x.name === name)!;
       const next = { label: r?.label ?? own.label, help: r?.help ?? null, placeholder: r?.placeholder ?? null, form_hidden: !!r?.form_hidden, required: !!r?.required, required_for: r?.required_for ?? null, ...data };
-      const atDefaults = (blank(next.label) || next.label === own.label) && blank(next.help) && blank(next.placeholder) && !next.form_hidden && !next.required;
+      // the older custom-field manager's list flag and form section live on the same row: it stays for them
+      const atDefaults = (blank(next.label) || next.label === own.label) && blank(next.help) && blank(next.placeholder) && !next.form_hidden && !next.required && !r?.list && blank(r?.section);
       if (atDefaults) {
         if (r && r.active !== false) await removeIn(tx, sys, "custom_field", String(r.id));
         continue;

@@ -79,13 +79,16 @@ async function requirementsBefore(w: WriteArgs): Promise<void> {
 async function transitionRules(w: WriteArgs & { transition: NonNullable<WriteArgs["transition"]> }): Promise<string | null> {
   if (w.trusted || isSystemCtx(w.ctx)) return null;
   const t = w.transition;
-  const missing = missingNeeds(t, w.next);
+  // a pushed row carries the organisation's fields in `custom`: judge the values the push brings
+  const row: Row = { ...w.next };
+  if (w.via === "sync" && row.custom && typeof row.custom === "object") for (const f of w.def.fields) if (f.custom) row[f.name] = (row.custom as Row)[f.name] ?? null;
+  const missing = missingNeeds(t, row);
   if (missing.length) {
     const label = (n: string) => w.def.fields.find((f) => f.name === n)?.label ?? n;
     return `برای «${t.label}»، «${missing.map(label).join("» و «")}» را وارد کنید`;
   }
   const schema = await orgSchema(w.ctx, w.tx);
-  return transitionBlocked(t, w.next, w.env, w.def, schema.lookup);
+  return transitionBlocked(t, row, w.env, w.def, schema.lookup);
 }
 
 let installed = false;

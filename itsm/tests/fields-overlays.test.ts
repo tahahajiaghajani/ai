@@ -256,7 +256,16 @@ describe("the lifecycle overlay `_states`", () => {
     expect((await sys.write((tx) => transitionIn(tx, sys, "todo", v.id, "canceled", { close_notes: "لغو سامانه" }))).state).toBe("canceled");
   });
 
+  it("judges the organisation fields a Windows app pushes with the transition", async () => {
+    await e.owner.put(`${P}/lifecycles/todo`, { transitions: [{ key: key("in_progress", "new"), requires: ["u_amount"] }] });
+    const t = (await member.client.post(`${R}/todo`, { short_description: "مبلغ لازم", assigned_to: member.userId })).row;
+    expect(await push(member.client, "todo", t.id, { state: "in_progress" })).toMatchObject({ status: "error", message: "برای «شروع کار»، «مبلغ» را وارد کنید" });
+    expect((await push(member.client, "todo", t.id, { state: "in_progress", custom: { u_amount: "2000" } })).status).toBe("ok");
+    expect((await e.owner.get(`${R}/todo/${t.id}`)).row).toMatchObject({ state: "in_progress", u_amount: "2000" });
+  });
+
   it("refuses a requirement on a hidden field, and hiding a field a transition requires", async () => {
+    await e.owner.put(`${P}/lifecycles/todo`, { transitions: [{ key: key("in_progress", "new"), requires: ["due_at"] }] });
     await e.owner.put(`${P}/forms/system/todo/overrides`, { fields: { channel: { form_hidden: true } } });
     expect(msg(await e.owner.put(`${P}/lifecycles/todo`, { transitions: [{ key: key("in_progress", "new"), requires: ["channel"] }] }, 400))).toBe(
       "«مجرای دریافت» در فرم پنهان است و برای «شروع کار» لازم نمی‌شود؛ نخست آن را در فرم نشان دهید",
