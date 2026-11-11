@@ -10,11 +10,16 @@ import { registerTable } from "@shared/tables";
 import type { TableDef } from "@shared/model/types";
 import { SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
+import MailComposer from "nodemailer/lib/mail-composer";
 import { createPostgresDb } from "@server/db/postgres";
-import type { Db, Tx } from "@server/db";
-import { archiveBatch, archiveTableOf, createIn, purgeArchived, systemCtx, transitionIn, updateIn } from "@server/engine";
+import type { Db, Queryable, Tx } from "@server/db";
+import { archiveBatch, archiveTableOf, createIn, purgeArchived, registerHooks, systemCtx, transitionIn, updateIn } from "@server/engine";
 import { fireTimer } from "@server/modules/sla";
 import { securitySweep } from "@server/modules/security/jobs";
+import { autoPromote } from "@server/modules/security/ops";
+import { ingestMessage } from "@server/modules/notify";
+import { emailChannels } from "@server/modules/notify/mail";
+import { checkXidRegression } from "@server/sync/snapshot";
 import { tableDef } from "@shared/tables";
 import { Client, useServerDb } from "./helpers";
 import { engineOrg, type EngineOrg } from "./engine-helpers";
@@ -48,8 +53,8 @@ const deferred = () => {
   return { promise, resolve };
 };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-/** How long a racer is given to reach (and wait at) its lock before the holder lets go. */
-const SETTLE = 700;
+/** The longest a racer is given to reach (and wait at) its lock before the holder lets go. */
+const SETTLE = 4000;
 
 /**
  * Hold a transaction open: `work` runs, then the transaction waits (holding every lock it took) until `release()`.
@@ -64,19 +69,48 @@ function hold(db: Db, work: (tx: Tx) => Promise<unknown>) {
     await gate.promise;
   });
   done.catch(() => inside.resolve());
-  return { ready: inside.promise, release: () => gate.resolve(), done };
+  return { db, ready: inside.promise, release: () => gate.resolve(), done };
 }
 
-/** Run `race` while `holder` holds its locks; release after the racers had time to read and queue. */
-async function whileHeld<T>(holder: ReturnType<typeof hold>, race: () => Promise<T>): Promise<PromiseSettledResult<Awaited<T>>> {
+/**
+ * Wait until `n` sessions of this database wait for a lock (row, transaction or advisory), `settled` resolved, or `ms`
+ * passed — so a holder lets go only once the racers are queued behind it (a racer that never waits, the code before a
+ * fix, finishes or reaches its write meanwhile).
+ */
+async function queued(db: Db, n: number, settled: Promise<unknown>, ms = SETTLE): Promise<void> {
+  let done = false;
+  settled.then(() => (done = true), () => (done = true));
+  const until = Date.now() + ms;
+  while (!done && Date.now() < until) {
+    const w = await db.one<{ n: number }>(`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock' and pid <> pg_backend_pid()`);
+    if ((w?.n ?? 0) >= n) return;
+    await sleep(25);
+  }
+}
+
+/** Run `race` while `holder` holds its locks; release once `waiters` racers are queued behind it (or have finished). */
+async function whileHeld<T>(holder: ReturnType<typeof hold>, race: () => Promise<T>, waiters = 1): Promise<PromiseSettledResult<Awaited<T>>> {
   await holder.ready;
   const racing = race();
   racing.catch(() => undefined);
-  await sleep(SETTLE);
+  await queued(holder.db, waiters, racing);
   holder.release();
   await holder.done;
   const [out] = await Promise.allSettled([racing]);
   return out as PromiseSettledResult<Awaited<T>>;
+}
+
+/**
+ * A meeting point inside writes (a test's own hook): every caller waits until `n` have arrived — all of them decided
+ * their write from what they read and have not committed — then all go on (at the latest after `ms`).
+ */
+function meeting(n: number, ms = SETTLE) {
+  let arrived = 0;
+  const all = deferred();
+  return async () => {
+    if (++arrived >= n) all.resolve();
+    await Promise.race([all.promise, sleep(ms)]);
+  };
 }
 
 /** An HTTP call whose outcome is part of the test: { status, data } instead of throwing. */
@@ -119,9 +153,10 @@ describe.skipIf(!realPgAvailable())("writes side by side (real PostgreSQL)", () 
 
   afterAll(async () => {
     useServerDb(null);
-    for (const db of pools.splice(0)) await db.close().catch(() => undefined);
+    // the worlds' pools at once (each gives its connections a few seconds), then the server
+    await Promise.all(pools.splice(0).map((db) => Promise.race([db.close().catch(() => undefined), sleep(15_000)])));
     await pg?.stop();
-  });
+  }, 120_000);
 
   // ---------------------------------------------------------------------------------------------------- platform
 
@@ -238,10 +273,145 @@ describe.skipIf(!realPgAvailable())("writes side by side (real PostgreSQL)", () 
       const sys = await systemCtx(e.cfg, e.org);
       // the record is held by a write of its own while both timers' jobs fire
       const holder = hold(e.db, (tx) => tx.query(`select 1 from sm_race_cases where id = $1 for update`, [row.id]));
-      const fired = await whileHeld(holder, () => Promise.all(timers.map((t) => fireTimer(sys, t.id))));
+      const fired = await whileHeld(holder, () => Promise.all(timers.map((t) => fireTimer(sys, t.id))), 2);
       expect(fired.status, message(fired)).toBe("fulfilled");
       const after = await e.db.one<{ escalation: number }>(`select escalation from sm_race_cases where id = $1`, [row.id]);
       expect(Number(after!.escalation)).toBe(2);
+    });
+
+    /** Hold the record counter of `table` (every create of the table waits there, after its hooks decided). */
+    const holdNumbers = async (table: string) => {
+      const row = await e.db.one(`select 1 from sm_numbers where org_id = $1 and table_key = $2`, [e.org, table]);
+      if (!row) await e.owner.post(`${P()}/r/${table}`, { short_description: "شمارنده" });
+      return hold(e.db, (tx) => tx.query(`select 1 from sm_numbers where org_id = $1 and table_key = $2 for update`, [e.org, table]));
+    };
+
+    it("A1-13: two records created for a round-robin group at once go to two different members", async () => {
+      const m1 = await e.member("member", `rr1-${process.pid}@example.com`);
+      const m2 = await e.member("member", `rr2-${process.pid}@example.com`);
+      const group = (await e.owner.post(`${P()}/r/group`, { name: "نوبتی هم‌زمان" })).row.id as string;
+      await e.owner.post(`${P()}/access/groups/${group}/members`, { user_ids: [m1.userId, m2.userId] });
+      const title = "نوبتی هم‌زمان آزمون";
+      await e.owner.post(`${P()}/r/assignment_rule`, { name: "ارجاع نوبتی هم‌زمان", table_key: "race_case", condition: { f: "short_description", op: "eq", v: title }, group_id: group, method: "round_robin" });
+      const numbers = await holdNumbers("race_case");
+      const both = await whileHeld(numbers, () => Promise.all([0, 1].map(() => e.owner.post(`${P()}/r/race_case`, { short_description: title }))), 2);
+      expect(both.status, message(both)).toBe("fulfilled");
+      const rows = await e.db.query<{ assigned_to: string }>(`select assigned_to from sm_race_cases where org_id = $1 and short_description = $2 and deleted_at is null`, [e.org, title]);
+      expect(rows.length).toBe(2);
+      expect(new Set(rows.map((r) => r.assigned_to))).toEqual(new Set([m1.userId, m2.userId]));
+    });
+
+    it("A1-15: two additions that each counted one below the plan's ceiling leave the organisation at it", async () => {
+      const used = async () => (await e.db.one<{ n: number }>(`select count(*)::int as n from sm_custom_fields where org_id = $1 and deleted_at is null and active and name like 'u\\_%'`, [e.org]))!.n;
+      const before = await used();
+      await e.db.query(`insert into sm_org_admin (org_id, limits) values ($1, $2::jsonb) on conflict (org_id) do update set limits = excluded.limits`, [e.org, JSON.stringify({ custom_fields: before + 1 })]);
+      // both additions counted and inserted, neither committed
+      const meet = meeting(2);
+      const unhook = registerHooks("custom_field", { afterWrite: async (w) => void (String(w.row.name).startsWith("u_race_") && (await meet())) });
+      try {
+        const made = await Promise.all(["u_race_a", "u_race_b"].map((name) => call(e.owner, "POST", `${P()}/r/custom_field`, { table_key: "race_case", name, label: `فیلد ${name}`, type: "string" })));
+        expect(made.map((m) => m.status).sort()).toEqual([200, 403]);
+        expect(await used()).toBe(before + 1);
+      } finally {
+        unhook();
+        await e.db.query(`update sm_org_admin set limits = '{}'::jsonb where org_id = $1`, [e.org]);
+      }
+    });
+
+    it("A1-16: one e-mail fetched by two processes at once becomes one record", async () => {
+      const sender = await e.member("member", `mail-${process.pid}@example.com`);
+      expect(sender.userId).toBeTruthy();
+      const ch = (
+        await e.owner.post(`${P()}/r/email_channel`, {
+          name: "صندوق هم‌زمان", from_name: "میز خدمت", from_address: "race-desk@itsm.example", smtp_host: "smtp.itsm.example", smtp_user: "desk", smtp_password: "smtp-secret",
+          inbound: true, imap_host: "imap.itsm.example", imap_user: "desk", imap_password: "imap-secret",
+        })
+      ).row;
+      const sys = await systemCtx(e.cfg, e.org);
+      const channel = (await emailChannels(sys)).find((c) => c.id === ch.id)!;
+      const subject = `چاپگر طبقهٔ سوم ${process.pid}`;
+      const source = await new MailComposer({ from: `mail-${process.pid}@example.com`, to: "race-desk@itsm.example", subject, text: "چاپ نمی‌کند", messageId: `<${uuidv7()}@mail.example>` }).compile().build();
+      const numbers = await holdNumbers("todo");
+      const both = await whileHeld(numbers, () => Promise.all([0, 1].map(() => ingestMessage(e.cfg, sys, channel, source))), 2);
+      expect(both.status, message(both)).toBe("fulfilled");
+      const outcomes = (both as PromiseFulfilledResult<{ status: string }[]>).value.map((o) => o.status).sort();
+      expect(outcomes).toEqual(["created", "duplicate"]);
+      const made = await e.db.query(`select id from sm_todos where org_id = $1 and short_description = $2 and deleted_at is null`, [e.org, subject]);
+      expect(made.length).toBe(1);
+    });
+
+    it("A1-17: two inbound deliveries about one external object at once make one record and update it", async () => {
+      const iu = (await e.owner.post(`${P()}/r/integration_user`, { name: "پایش هم‌زمان" })).row;
+      await e.owner.put(`${P()}/integration/users/${iu.id}/roles`, { roles: ["agent"] });
+      const ep = (
+        await e.owner.post(`${P()}/r/inbound_endpoint`, {
+          name: "هشدار هم‌زمان", principal_id: iu.id, target_table: "todo", action: "upsert", match_field: "short_description", match_path: "$.alert.title",
+          mapping: [{ path: "$.alert.title", field: "short_description" }, { path: "$.alert.details", field: "description" }],
+        })
+      ).row;
+      const { secret, path } = await e.owner.post(`${P()}/integration/secret`, { table: "inbound_endpoint", id: ep.id });
+      const title = `دیسک پر شد ${process.pid}`;
+      const deliver = async (key: string, details: string) =>
+        (await e.app.fetch(new Request(`http://local.test${path}`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${secret}`, "idempotency-key": key }, body: JSON.stringify({ alert: { title, details } }) }))).json();
+      const numbers = await holdNumbers("todo");
+      const both = await whileHeld(numbers, () => Promise.all([deliver(`race-${uuidv7()}`, "۹۸٪"), deliver(`race-${uuidv7()}`, "۹۹٪")]), 2);
+      expect(both.status, message(both)).toBe("fulfilled");
+      const answers = (both as PromiseFulfilledResult<{ ok: boolean; action: string }[]>).value;
+      expect(answers.map((a) => a.ok)).toEqual([true, true]);
+      expect(answers.map((a) => a.action).sort()).toEqual(["created", "updated"]);
+      const made = await e.db.query(`select id from sm_todos where org_id = $1 and short_description = $2 and deleted_at is null`, [e.org, title]);
+      expect(made.length).toBe(1);
+    });
+
+    it("A1-20: two approvers of one «any» level deciding at once: one decides, the other is told it is closed (no deadlock)", async () => {
+      const a1 = await e.member("member", `apv1-${process.pid}@example.com`);
+      const a2 = await e.member("member", `apv2-${process.pid}@example.com`);
+      const title = "تأیید هم‌زمان آزمون";
+      await e.owner.post(`${P()}/r/approval_rule`, { name: "تأیید هم‌زمان", table_key: "race_case", condition: { f: "short_description", op: "eq", v: title }, levels: [{ sources: [{ kind: "users", users: [a1.userId, a2.userId] }], rule: "any" }] });
+      const rec = (await e.owner.post(`${P()}/r/race_case`, { short_description: title })).row;
+      const rows = await e.db.query<{ id: string; approver_id: string }>(`select id, approver_id from sm_approvals where org_id = $1 and record_id = $2 and state = 'requested'`, [e.org, rec.id]);
+      expect(rows.length).toBe(2);
+      const idOf = (u: string) => rows.find((r) => r.approver_id === u)!.id;
+      // the record is held by a write of its own while both approvers decide
+      const holder = hold(e.db, (tx) => tx.query(`select 1 from sm_race_cases where id = $1 for update`, [rec.id]));
+      const both = await whileHeld(
+        holder,
+        () => Promise.all([call(a1.client, "POST", `${P()}/approvals/${idOf(a1.userId)}/decide`, { decision: "approved" }), call(a2.client, "POST", `${P()}/approvals/${idOf(a2.userId)}/decide`, { decision: "approved" })]),
+        2,
+      );
+      expect(both.status, message(both)).toBe("fulfilled");
+      const statuses = (both as PromiseFulfilledResult<{ status: number }[]>).value.map((r) => r.status).sort();
+      expect(statuses).toEqual([200, 409]);
+      expect((await e.db.one<{ approval: string }>(`select approval from sm_race_cases where id = $1`, [rec.id]))!.approval).toBe("approved");
+    });
+
+    it("A1-14: a mark another process raised meanwhile is never taken for a transaction-id regression", async () => {
+      const epochs = async () => (await e.db.query<{ org_id: string; epoch: string }>(`select org_id, epoch::text as epoch from sm_org_sync order by org_id`)).map((r) => `${r.org_id}:${r.epoch}`);
+      await checkXidRegression(e.db, { force: true });
+      const before = await epochs();
+      // after this process's first statement, other transactions run and another process raises the mark
+      let first = true;
+      const meanwhile = async () => {
+        if (!first) return;
+        first = false;
+        for (let i = 0; i < 3; i++) await e.db.tx((tx) => tx.query(`select pg_current_xact_id()`));
+        await checkXidRegression(e.db, { force: true });
+      };
+      const q: Queryable = {
+        query: async (text, params) => {
+          const r = await e.db.query(text, params);
+          await meanwhile();
+          return r as never;
+        },
+        one: async (text, params) => {
+          const r = await e.db.one(text, params);
+          await meanwhile();
+          return r as never;
+        },
+        exec: (text) => e.db.exec(text),
+      };
+      expect(await checkXidRegression(q, { force: true })).toBe(false);
+      expect(await epochs()).toEqual(before);
     });
   });
 
@@ -276,8 +446,10 @@ describe.skipIf(!realPgAvailable())("writes side by side (real PostgreSQL)", () 
       // two starts of one regime at once give one clock
       const d = await w.sir({ category: "other", severity: "3" });
       const holder = hold(w.e.db, (tx) => tx.query(`select 1 from sm_sec_incidents where id = $1 for update`, [d.id]));
-      const two = await whileHeld(holder, () =>
-        Promise.allSettled([0, 1].map(() => w.sys.write((tx) => createIn(tx, w.sys, "sec_reg_clock", { sec_incident_id: d.id, regime_id: regime, aware_at: new Date().toISOString() })))),
+      const two = await whileHeld(
+        holder,
+        () => Promise.allSettled([0, 1].map(() => w.sys.write((tx) => createIn(tx, w.sys, "sec_reg_clock", { sec_incident_id: d.id, regime_id: regime, aware_at: new Date().toISOString() })))),
+        2,
       );
       expect(two.status).toBe("fulfilled");
       const made = await w.e.db.query(`select id from sm_sec_reg_clocks where sec_incident_id = $1 and deleted_at is null`, [d.id]);
@@ -300,7 +472,7 @@ describe.skipIf(!realPgAvailable())("writes side by side (real PostgreSQL)", () 
       await defer.ready;
       const revoke = w.sys.write((tx) => transitionIn(tx, w.sys, "sec_vuln_exception", exc.id, "revoked", { notes: "ابطال" }));
       revoke.catch(() => undefined);
-      await sleep(SETTLE);
+      await queued(w.e.db, 1, revoke);
       defer.release();
       await defer.done;
       await revoke;
@@ -316,8 +488,10 @@ describe.skipIf(!realPgAvailable())("writes side by side (real PostgreSQL)", () 
       const aware = new Date(Date.now() - 70 * 3600_000).toISOString();
       const clock = (await w.p.soc.client.post(`${w.P}/security/incidents/${r.id}/clocks`, { regime_id: nis2.id, aware_at: aware })).row;
       const holder = hold(w.e.db, (tx) => tx.query(`select 1 from sm_sec_reg_clocks where id = $1 for update`, [clock.id]));
-      const both = await whileHeld(holder, () =>
-        Promise.allSettled([securitySweep(w.sys), w.p.soc.client.post(`${w.P}/security/clocks/${clock.id}/submit`, { stage: "early_warning", reference: "CERT-9" })]),
+      const both = await whileHeld(
+        holder,
+        () => Promise.allSettled([securitySweep(w.sys), w.p.soc.client.post(`${w.P}/security/clocks/${clock.id}/submit`, { stage: "early_warning", reference: "CERT-9" })]),
+        2,
       );
       expect(both.status).toBe("fulfilled");
       const outcomes = (both as PromiseFulfilledResult<PromiseSettledResult<unknown>[]>).value;
@@ -325,6 +499,65 @@ describe.skipIf(!realPgAvailable())("writes side by side (real PostgreSQL)", () 
       const c = (await w.e.db.one<{ deadlines: { stage: string; submitted_at?: string | null; warned?: string | null }[] }>(`select deadlines from sm_sec_reg_clocks where id = $1`, [clock.id]))!;
       expect(c.deadlines.find((d) => d.stage === "early_warning")?.submitted_at).toBeTruthy();
       expect(c.deadlines.find((d) => d.stage === "notification")?.warned).toBeTruthy();
+    });
+
+    it("A1-10: an indicator added to two incidents at once stays on both", async () => {
+      const [s0, s1, s2] = [await w.sir(), await w.sir(), await w.sir()];
+      const value = `198.51.100.${(process.pid % 200) + 1}`;
+      const first = await w.p.soc.client.post(`${w.P}/security/incidents/${s0.id}/observables`, { values: [value] });
+      const oid = first.observables[0].id as string;
+      // the indicator is held by a write of its own while two analysts add it to their incidents
+      const holder = hold(w.e.db, (tx) => tx.query(`select 1 from sm_sec_observables where id = $1 for update`, [oid]));
+      const both = await whileHeld(holder, () => Promise.all([s1, s2].map((s) => w.p.soc.client.post(`${w.P}/security/incidents/${s.id}/observables`, { values: [value] }))), 2);
+      expect(both.status, message(both)).toBe("fulfilled");
+      const o = await w.e.db.one<{ incidents: string[] }>(`select incidents from sm_sec_observables where id = $1`, [oid]);
+      expect([...o!.incidents].sort()).toEqual([s0.id, s1.id, s2.id].sort());
+    });
+
+    it("A1-11: an IT incident promoted by hand and automatically at once gets one security incident", async () => {
+      const inc = (await w.p.agent.client.post(`${w.P}/r/incident`, { short_description: "باج‌افزار هم‌زمان", category: "software" })).row;
+      // flagged for the subscriber's automatic promotion (as stored, without the flag's confidentiality: the analyst reads it)
+      await w.e.db.query(`update sm_incidents set security_incident = true where id = $1`, [inc.id]);
+      // the IT incident is held by a write of its own while the subscriber and an analyst promote it
+      const holder = hold(w.e.db, (tx) => tx.query(`select 1 from sm_incidents where id = $1 for update`, [inc.id]));
+      const both = await whileHeld(holder, () => Promise.all([autoPromote(w.sys, inc.id), w.p.soc.client.post(`${w.P}/security/promote/${inc.id}`, {})]), 2);
+      expect(both.status, message(both)).toBe("fulfilled");
+      const sirs = await w.e.db.query(`select id from sm_sec_incidents where org_id = $1 and it_incident_id = $2 and deleted_at is null`, [w.e.org, inc.id]);
+      expect(sirs.length).toBe(1);
+    });
+
+    it("A1-12: a playbook applied again twice at once adds each missing step once", async () => {
+      const s = await w.sir({ category: "malware" });
+      const pbId = (await w.e.db.one<{ playbook_id: string }>(`select playbook_id from sm_sec_incidents where id = $1`, [s.id]))!.playbook_id;
+      expect(pbId).toBeTruthy();
+      const steps = (await w.e.db.one<{ steps: unknown[] }>(`select steps from sm_sec_playbooks where id = $1`, [pbId]))!.steps;
+      const step = `گام تازهٔ آزمون ${process.pid}`;
+      // the playbook gained a step after it was applied; two analysts apply it again at once
+      await w.e.db.query(`update sm_sec_playbooks set steps = $2::jsonb where id = $1`, [pbId, JSON.stringify([...steps, { title: step, phase: "analysis", mandatory: false }])]);
+      try {
+        const holder = hold(w.e.db, (tx) => tx.query(`select 1 from sm_sec_incidents where id = $1 for update`, [s.id]));
+        const both = await whileHeld(holder, () => Promise.all([w.p.soc.client, w.p.soc2.client].map((c) => c.post(`${w.P}/security/incidents/${s.id}/playbook`, { playbook_id: pbId }))), 2);
+        expect(both.status, message(both)).toBe("fulfilled");
+        const tasks = await w.e.db.query(`select id from sm_sec_tasks where sec_incident_id = $1 and deleted_at is null and short_description = $2`, [s.id, step]);
+        expect(tasks.length).toBe(1);
+      } finally {
+        await w.e.db.query(`update sm_sec_playbooks set steps = $2::jsonb where id = $1`, [pbId, JSON.stringify(steps)]);
+      }
+    });
+
+    it("A1-19: two members acknowledging a policy at once are both counted", async () => {
+      let pol = (await w.p.grc.client.post(`${w.P}/r/grc_policy`, { title: "خط‌مشی هم‌زمانی", kind: "policy", body: "متن خط‌مشی", approver_id: w.p.ciso.userId })).row;
+      pol = (await w.p.grc.client.post(`${w.P}/r/grc_policy/${pol.id}/transition`, { to: "review", version: pol.version })).row;
+      await w.drain();
+      const ap = ((await w.p.ciso.client.get(`${w.P}/approvals/mine`)).approvals as any[]).find((a) => a.record_id === pol.id);
+      await w.p.ciso.client.post(`${w.P}/approvals/${ap.id}/decide`, { decision: "approved" });
+      let camp = (await w.p.grc.client.post(`${w.P}/r/grc_policy_campaign`, { title: "پذیرش هم‌زمان", policy_id: pol.id, due_at: new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10), target_users: [w.p.req.userId, w.p.agent.userId] })).row;
+      camp = (await w.p.grc.client.post(`${w.P}/r/grc_policy_campaign/${camp.id}/transition`, { to: "active", version: camp.version })).row;
+      // the campaign is held by a write of its own while both members acknowledge
+      const holder = hold(w.e.db, (tx) => tx.query(`select 1 from sm_grc_policy_campaigns where id = $1 for update`, [camp.id]));
+      const both = await whileHeld(holder, () => Promise.all([w.p.req.client, w.p.agent.client].map((c) => c.post(`${w.P}/security/policies/campaigns/${camp.id}/ack`, {}))), 2);
+      expect(both.status, message(both)).toBe("fulfilled");
+      expect(Number((await w.e.db.one<{ ack_count: number }>(`select ack_count from sm_grc_policy_campaigns where id = $1`, [camp.id]))!.ack_count)).toBe(2);
     });
   });
 
