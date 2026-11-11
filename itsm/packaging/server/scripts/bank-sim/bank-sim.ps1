@@ -267,7 +267,10 @@ try {
         if ($c.public_url -ne $Base) { Fail "public URL $($c.public_url), expected $Base" }
         $script:Ports = [pscustomobject]@{ https = [int]$c.listen.https_port; http = [int]$c.listen.http_port; pg = [int]$c.db.port; pfx = [string]$c.tls.pfx }
         Invoke-Js 'api.mjs' 'api-fresh' @('--setup-file', (Join-Path $DataDir 'setup-url.txt')) | Out-Null
-        Invoke-Js 'browser.mjs' 'browser-setup' @('--shots', (Join-Path $Out 'shots')) | Out-Null
+        # 1.0.0 hashes its pre-paint theme script over the CR LF of a Windows build, so Chromium refuses it (fixed in 1.1.0;
+        # every later browser phase runs on 1.1.0 and fails on any console error)
+        $bs = Invoke-Js 'browser.mjs' 'browser-setup' @('--shots', (Join-Path $Out 'shots'), '--allow-console', "violates the following Content Security Policy directive 'script-src")
+        if (Get-Prop $bs.metrics 'known_console') { Finding '1.0.0: the CSP hash of the pre-paint theme script was computed over the CR LF line ends of the Windows build, while browsers hash the script after turning CR LF into LF: Chromium refused the script (console error, theme applied late). Fixed in 1.1.0 (newlines normalised before hashing)' }
         $pop = Invoke-Js 'api.mjs' 'api-populate' @('--mail-file', $MailFile, '--ldap-info', (Join-Path $Out 'logs\ldap-info.json'), '--ca-pem', $script:Pki.rootPem)
         if (Get-Prop $pop.metrics 'seeds_on_demand') { Finding '1.0.0: the modules'' defaults (IT catalogue, knowledge bases, SLA calendars) arrive 10-12 minutes after the first-run setup; fixed in 1.1.0 (the setup runs them at once)' }
         # the e-mail channel of the setup: STARTTLS on 587 with the relay's bank-CA certificate
@@ -314,6 +317,8 @@ try {
         Invoke-Js 'api.mjs' 'api-verify-upgrade' @('--expect-version', '1.1.0', '--expect-protocol', '15') | Out-Null
         Invoke-Js 'api.mjs' 'api-notify-3' @('--mail-file', $MailFile, '--smtp-port', '587', '--smtp-security', 'starttls', '--who', 'agent2', '--mail-timeout', '120') | Out-Null
         Note '1.1.0 delivers over STARTTLS to the relay whose certificate the bank CA issued'
+        Invoke-Js 'api.mjs' 'api-ad-store' | Out-Null
+        Note '1.1.0 reaches LDAPS with no root pasted in the source (the Windows store), and with it'
     }
 
     Invoke-Scenario 6 'A LAN client in a browser (admin and agent pages; no foreign request, no console error)' {

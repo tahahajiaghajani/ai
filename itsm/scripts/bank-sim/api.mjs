@@ -270,6 +270,28 @@ async function notifyPhase() {
   C.metric("delivered", ok);
 }
 
+/** After the upgrade: LDAPS with no root pasted in the source trusts the Windows store (1.1: --use-system-ca). */
+async function adStore() {
+  const api = await admin();
+  const P = `/o/${orgOf()}`;
+  const id = state.get("directory").id;
+  const cur = (await api.get(`${P}/r/directory_source/${id}`)).row;
+  const ca = cur.ca_cert;
+  await api.patch(`${P}/r/directory_source/${id}`, { ca_cert: null, version: cur.version });
+  try {
+    const test = await api.post(`${P}/integration/directory/${id}/test`);
+    C.check(test.ok === true, "LDAPS without a pasted root: the bank CA is trusted through the Windows store", JSON.stringify(test).slice(0, 500));
+    await adSignIn("maryam", "agent");
+  } finally {
+    const now = (await api.get(`${P}/r/directory_source/${id}`)).row;
+    await api.patch(`${P}/r/directory_source/${id}`, { ca_cert: ca, version: now.version });
+    // another administrator's edit clears the approval: approve the source again (re-authenticated)
+    await api.post("/auth/reauth", { password: ADMIN.password });
+    const ap = await api.raw("POST", `${P}/integration/directory/${id}/approve`, { body: {} });
+    C.check(ap.status === 200, "the source is approved again after the edit", `${ap.status}`);
+  }
+}
+
 async function verify() {
   const ms = await waitReady(BASE, 300_000);
   C.check(true, `ready (${ms} ms)`);
@@ -569,7 +591,7 @@ async function load() {
   C.check(errors.length === 0, `${n} operations by ${users} virtual users in ${Math.round(secs)} s without an error`, errors.slice(0, 10).join(" | "));
 }
 
-const PHASES = { fresh, populate, notify: notifyPhase, verify, security, "demo-on": demoOn, "demo-off": demoOff, mark, dr, ready, load };
+const PHASES = { fresh, populate, notify: notifyPhase, "ad-store": adStore, verify, security, "demo-on": demoOn, "demo-off": demoOff, mark, dr, ready, load };
 const fn = PHASES[String(a.phase)];
 if (!fn) {
   log(`unknown phase ${a.phase}`);

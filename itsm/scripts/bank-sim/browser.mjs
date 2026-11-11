@@ -27,6 +27,8 @@ const C = new Checks(`browser-${a.phase}`, a.out ? String(a.out) : null);
 const SHOTS = String(a.shots ?? "shots");
 mkdirSync(SHOTS, { recursive: true });
 
+const ALLOW = a["allow-console"] ? new RegExp(String(a["allow-console"])) : null;
+const known = [];
 const foreign = [];
 const consoleErrors = [];
 const serverErrors = [];
@@ -59,6 +61,12 @@ function watch(page, label) {
     // an API answer of 4xx is the app's own business (a 401 before sign-in, a 403 for a role): reported through the
     // response listener (5xx fails the run), as scripts/ui-crawl.mjs does; any other console error fails it
     if (/^Failed to load resource: the server responded with a status of 4\d\d/.test(m.text())) return;
+    // --allow-console <regex>: an error the run already knows of (an older version's bug, fixed in this build), kept
+    // as a note and a metric for the report instead of failing the phase
+    if (ALLOW && ALLOW.test(m.text())) {
+      known.push(`${label}: ${m.text().slice(0, 300)}`);
+      return;
+    }
     consoleErrors.push(`${label}: ${m.text().slice(0, 400)}`);
   });
   page.on("pageerror", (e) => consoleErrors.push(`${label}: uncaught ${String(e.message ?? e).slice(0, 400)}`));
@@ -228,6 +236,10 @@ await C.run(async () => {
     C.check(foreign.length === 0, `no request left the bank's origin (${ORIGIN})`, JSON.stringify(foreign.slice(0, 20)));
     C.check(consoleErrors.length === 0, "no console error or uncaught exception", consoleErrors.slice(0, 20).join(" | "));
     C.check(serverErrors.length === 0, "no server error (5xx) answered a page", serverErrors.slice(0, 20).join(" | "));
+    if (known.length) {
+      C.metric("known_console", known.length);
+      C.note(`known console error(s) of this version: ${known[0]}`);
+    }
     writeFileSync(join(SHOTS, `requests-${a.phase}.json`), JSON.stringify({ foreign, consoleErrors, serverErrors, visited }, null, 2));
     log(`${visited.length} pages, ${foreign.length} foreign requests, ${consoleErrors.length} console errors`);
   }
