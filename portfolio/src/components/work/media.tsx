@@ -29,10 +29,12 @@ export function Media({ m, lang, sizes = "100vw", priority = false, className = 
       />
     );
   }
+  // a tiny blurred preview holds the picture's place until it arrives
+  const blur = m.blur ? ({ placeholder: "blur", blurDataURL: m.blur } as const) : {};
   const img = fill ? (
-    <Image src={m.src} alt={m.alt[lang]} fill sizes={sizes} priority={priority} quality={82} className={`object-cover ${m.tone === "mono" ? "mono-media" : ""}`} />
+    <Image src={m.src} alt={m.alt[lang]} fill sizes={sizes} priority={priority} quality={82} {...blur} style={m.focus ? { objectPosition: m.focus } : undefined} className={`object-cover ${m.tone === "mono" ? "mono-media" : ""}`} />
   ) : (
-    <Image src={m.src} alt={m.alt[lang]} width={m.w} height={m.h} sizes={sizes} priority={priority} quality={82} className={`h-auto w-full ${m.tone === "mono" ? "mono-media" : ""}`} />
+    <Image src={m.src} alt={m.alt[lang]} width={m.w} height={m.h} sizes={sizes} priority={priority} quality={82} {...blur} className={`h-auto w-full ${m.tone === "mono" ? "mono-media" : ""}`} />
   );
   if (m.frame === "browser") {
     return (
@@ -57,11 +59,17 @@ export function Media({ m, lang, sizes = "100vw", priority = false, className = 
   return <div className={`relative overflow-hidden ${fill ? "size-full" : ""} ${className}`}>{img}</div>;
 }
 
+/** A caption under a picture: tracked mono capitals in English, plain Persian (never letter-spaced) in Persian. */
+export function Caption({ lang, children, className = "" }: { lang: Lang; children: React.ReactNode; className?: string }) {
+  const style = lang === "fa" ? "text-[0.8rem] leading-relaxed" : "font-mono text-[0.66rem] uppercase tracking-[0.14em]";
+  return <figcaption className={`mt-3 text-faint ${style} ${className}`}>{children}</figcaption>;
+}
+
 export function MediaFigure({ m, lang, sizes }: { m: MediaData; lang: Lang; sizes?: string }) {
   return (
     <figure data-fade className="group">
       <Media m={m} lang={lang} sizes={sizes} />
-      {m.caption ? <figcaption className="mt-3 font-mono text-[0.66rem] uppercase tracking-[0.14em] text-faint">{m.caption[lang]}</figcaption> : null}
+      {m.caption ? <Caption lang={lang}>{m.caption[lang]}</Caption> : null}
     </figure>
   );
 }

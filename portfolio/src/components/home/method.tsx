@@ -15,7 +15,7 @@ gsap.registerPlugin(ScrollTrigger);
  * a rule draws across, each step's number fills as it is reached. Phones, reduced motion and no JS get a plain list
  * with every step reached (the walk starts from step one only while the pin runs).
  */
-export function Method({ lang }: { lang: Lang }) {
+export function Method({ lang, index }: { lang: Lang; index: string }) {
   const root = useRef<HTMLElement>(null);
   const [step, setStep] = useState(METHOD.length - 1);
   const fa = lang === "fa";
@@ -54,7 +54,7 @@ export function Method({ lang }: { lang: Lang }) {
       <div className="mx-auto flex h-full max-w-[1800px] flex-col justify-between gap-16 px-5 py-24 md:px-10 lg:py-16">
         <div className="grid grid-cols-12 gap-x-4">
           <p className="col-span-12 mb-6 flex items-center gap-3 font-mono text-[0.65rem] uppercase tracking-[0.22em] text-muted md:col-span-3">
-            <span className="text-fg">{num(lang, "04")}</span>
+            <span className="text-fg">{num(lang, index)}</span>
             <span className="h-px w-6 bg-line-strong" />
             <span className={fa ? "font-fa text-[0.8rem] normal-case tracking-normal" : ""}>{ui.sections.method[lang]}</span>
           </p>

@@ -78,12 +78,12 @@ const GROUPS: { title: { fa: string; en: string }; tools: Tool[] }[] = [
   },
 ];
 
-export function Toolbox({ lang }: { lang: Lang }) {
+export function Toolbox({ lang, index }: { lang: Lang; index: string }) {
   return (
     <section id="toolbox" className="mx-auto max-w-[1800px] px-5 py-24 md:px-10 md:py-32">
       <SectionHead
         lang={lang}
-        index="07"
+        index={index}
         eyebrow={ui.sections.toolbox[lang]}
         title={lang === "fa" ? <>ابزار درست برای هر لایه</> : <>The right tool <span className="font-serif font-normal italic">for every layer</span></>}
       />

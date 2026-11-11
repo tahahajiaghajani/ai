@@ -11,23 +11,15 @@ import { CrossIcon } from "@/components/brand/icons";
 import { Prose } from "@/components/work/prose";
 import { useChat, type Msg } from "@/components/chat/chat-context";
 import { useLenis } from "@/components/fx/motion";
+import { openRequest } from "@/lib/open-request";
 
 /** Opens the request form (on the home page) with the visitor's last question as a starting point. */
 export function requestFromChat(lang: "fa" | "en", seed: string) {
-  try {
-    sessionStorage.setItem("request:seed", seed.slice(0, 1500));
-  } catch {}
-  const home = href(lang, "/");
-  if (location.pathname === home) {
-    window.dispatchEvent(new Event("request:seed"));
-    document.getElementById("contact")?.scrollIntoView({ behavior: "smooth" });
-  } else {
-    location.href = `${home}#contact`;
-  }
+  openRequest(lang, { seed });
 }
 
 function Actions({ actions, lastQuestion }: { actions: ChatAction[]; lastQuestion: string }) {
-  const { lang, works, setOpen } = useChat();
+  const { lang, pages, setOpen } = useChat();
   const lenis = useLenis();
   const [showContact, setShowContact] = useState(false);
   if (!actions.length) return null;
@@ -36,10 +28,32 @@ function Actions({ actions, lastQuestion }: { actions: ChatAction[]; lastQuestio
     <div className="mt-3 flex flex-col gap-2">
       <div className="flex flex-wrap gap-2">
         {actions.map((a, i) => {
-          if (a.kind === "work") {
-            const w = works.find((x) => x.slug === a.slug);
+          if (a.kind === "work" || a.kind === "product" || a.kind === "post") {
+            const w = pages.find((x) => x.kind === a.kind && x.slug === a.slug);
             if (!w) return null;
-            const to = href(lang, `/work/${a.slug}`);
+            const chip = "group flex items-center gap-2 rounded-full border border-line-strong px-3 py-1.5 text-[0.78rem] hover:bg-fg hover:text-bg";
+            const cue = <span className="font-mono text-[0.6rem] uppercase tracking-[0.14em] opacity-60">{a.kind === "post" ? ui.blog.read[lang] : ui.work.view[lang]}</span>;
+            if (a.kind === "product") {
+              // a product is a section of the home page: glide to it there, else load the home page at it
+              const home = href(lang, "/");
+              const go = (e: React.MouseEvent) => {
+                setOpen(false);
+                const target = document.getElementById(a.slug);
+                if (location.pathname !== home || !target) return;
+                e.preventDefault();
+                if (lenis) {
+                  lenis.start();
+                  lenis.scrollTo(target, { offset: -40, duration: 1.6 });
+                } else target.scrollIntoView({ behavior: "smooth" });
+              };
+              return (
+                <a key={i} href={`${home}#${a.slug}`} onClick={go} className={chip}>
+                  {cue}
+                  {w.title}
+                </a>
+              );
+            }
+            const to = href(lang, a.kind === "post" ? `/blog/${a.slug}` : `/work/${a.slug}`);
             const visit = (e: React.MouseEvent) => {
               setOpen(false);
               // already reading that project: a link to the current address does nothing, so go to its top instead
@@ -51,8 +65,8 @@ function Actions({ actions, lastQuestion }: { actions: ChatAction[]; lastQuestio
               } else window.scrollTo({ top: 0, behavior: "smooth" });
             };
             return (
-              <Link key={i} href={to} onClick={visit} className="group flex items-center gap-2 rounded-full border border-line-strong px-3 py-1.5 text-[0.78rem] hover:bg-fg hover:text-bg">
-                <span className="font-mono text-[0.6rem] uppercase tracking-[0.14em] opacity-60">{ui.work.view[lang]}</span>
+              <Link key={i} href={to} onClick={visit} className={chip}>
+                {cue}
                 {w.title}
               </Link>
             );

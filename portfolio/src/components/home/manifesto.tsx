@@ -11,12 +11,12 @@ export interface Fact {
 }
 
 /** The statement, lit word by word as it crosses the screen, and the numbers under it. */
-export function Manifesto({ lang, facts }: { lang: Lang; facts: Fact[] }) {
+export function Manifesto({ lang, index, facts }: { lang: Lang; index: string; facts: Fact[] }) {
   return (
     <section id="about" className="relative mx-auto max-w-[1800px] px-5 py-28 md:px-10 md:py-40">
       <div className="grid grid-cols-12 gap-x-4">
         <p className="col-span-12 mb-10 flex items-center gap-3 font-mono text-[0.65rem] uppercase tracking-[0.22em] text-muted md:col-span-3">
-          <span className="text-fg">{num(lang, "01")}</span>
+          <span className="text-fg">{num(lang, index)}</span>
           <span className="h-px w-6 bg-line-strong" />
           <span className={lang === "fa" ? "font-fa text-[0.8rem] normal-case tracking-normal" : ""}>{ui.sections.manifesto[lang]}</span>
         </p>

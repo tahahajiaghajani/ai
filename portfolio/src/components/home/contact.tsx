@@ -5,7 +5,7 @@ import { PROFILE } from "@/content/profile";
 import { RequestForm } from "@/components/request/request-form";
 
 /** Start a project: what happens next and how to reach Taha directly, beside the AI-triaged request form. */
-export function Contact({ lang }: { lang: Lang }) {
+export function Contact({ lang, index }: { lang: Lang; index: string }) {
   const fa = lang === "fa";
   const c = PROFILE.contact;
   const steps = fa
@@ -16,7 +16,7 @@ export function Contact({ lang }: { lang: Lang }) {
       <div className="grid grid-cols-12 gap-x-4 gap-y-16">
         <div className="col-span-12 lg:col-span-5">
           <p className="mb-6 flex items-center gap-3 font-mono text-[0.65rem] uppercase tracking-[0.22em] text-muted">
-            <span className="text-fg">{num(lang, "09")}</span>
+            <span className="text-fg">{num(lang, index)}</span>
             <span className="h-px w-6 bg-line-strong" />
             <span className={fa ? "font-fa text-[0.8rem] normal-case tracking-normal" : ""}>{ui.sections.contact[lang]}</span>
           </p>

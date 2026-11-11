@@ -29,7 +29,9 @@ export function prefersReducedMotion(): boolean {
  * - `data-split` headings reveal line by line from a mask. Persian is split into words and lines only — splitting
  *   Persian into letters would break the joined script;
  * - `data-parallax="0.2"` drifts an element against the scroll;
- * - `data-scrub-words` paragraphs light up word by word while they cross the viewport.
+ * - `data-scrub-words` paragraphs light up word by word while they cross the viewport;
+ * - `data-reveal` pictures open from a mask as they enter, their `[data-reveal-inner]` settling from a slight zoom
+ *   (once revealed they keep `data-revealed`, so a second bind never hides them again).
  */
 function bindScrollMotion(root: HTMLElement): () => void {
   const ctx = gsap.context(() => {
@@ -45,6 +47,21 @@ function bindScrollMotion(root: HTMLElement): () => void {
         onEnter: (els) =>
           gsap.to(els, { opacity: 1, y: 0, duration: 1.1, ease: "expo.out", stagger: 0.08, overwrite: true }),
       });
+    }
+
+    for (const el of gsap.utils.toArray<HTMLElement>("[data-reveal]:not([data-revealed])", root)) {
+      const done = () => {
+        el.dataset.revealed = "";
+        gsap.set(el, { clearProps: "clipPath" });
+      };
+      if (reduce) {
+        done();
+        continue;
+      }
+      const inner = el.querySelector<HTMLElement>("[data-reveal-inner]");
+      const tl = gsap.timeline({ scrollTrigger: { trigger: el, start: "top 90%", once: true }, onComplete: done });
+      tl.fromTo(el, { clipPath: "inset(100% 0% 0% 0%)" }, { clipPath: "inset(0% 0% 0% 0%)", duration: 1.35, ease: "expo.inOut" });
+      if (inner) tl.fromTo(inner, { scale: 1.16 }, { scale: 1, duration: 1.9, ease: "expo.out", clearProps: "transform" }, 0.1);
     }
 
     if (!reduce) {

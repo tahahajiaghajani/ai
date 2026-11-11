@@ -5,13 +5,13 @@ import { ORGS } from "@/content/orgs";
 import { SectionHead } from "@/components/home/section-head";
 
 /** Career and education as a ledger: period, role, place, one line of what it meant. */
-export function Journey({ lang }: { lang: Lang }) {
+export function Journey({ lang, index }: { lang: Lang; index: string }) {
   const fa = lang === "fa";
   return (
     <section id="journey" className="mx-auto max-w-[1800px] px-5 py-24 md:px-10 md:py-36">
       <SectionHead
         lang={lang}
-        index="05"
+        index={index}
         eyebrow={ui.sections.journey[lang]}
         title={fa ? <>مهندس مکانیک، معمار هوش مصنوعی، <span className="font-light">سازنده.</span></> : <>Mechanical engineer, AI architect, <span className="font-serif font-normal italic">builder.</span></>}
       />

@@ -28,6 +28,8 @@ export function chatSystemPrompt(knowledge: KnowledgeEntry[]): string {
 # Actions (they become buttons; never mention them in the text)
 End with up to two markers on their own last line when helpful:
 [[work:<slug>]] — link a relevant case study (use the slug from <knowledge>, e.g. [[work:turbine-vision]])
+[[product:<slug>]] — link one of Taha's own products (siraf, kariz) when the visitor asks about it
+[[post:<slug>]] — link a blog post (use the slug from <knowledge>)
 [[action:ticket]] — the visitor wants to start a project, a demo, a meeting or a quote
 [[action:contact]] — the visitor asks for e-mail, phone or Telegram
 

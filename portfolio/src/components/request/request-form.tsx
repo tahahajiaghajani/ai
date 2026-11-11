@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import type { Lang } from "@/lib/i18n";
 import { href, num } from "@/lib/i18n";
 import { ui } from "@/content/ui";
-import { KINDS, PRIORITY_LABEL, type RequestKind } from "@/lib/request-meta";
+import { KINDS, PRIORITY_LABEL, isKind, type RequestKind } from "@/lib/request-meta";
 import { submitRequest, type SubmitResult } from "@/app/actions/request";
 
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
@@ -33,10 +33,15 @@ export function RequestForm({ lang }: { lang: Lang }) {
   const body = useRef<HTMLTextAreaElement>(null);
   const fa = lang === "fa";
 
-  // a question from the assistant can seed the description
+  // a question from the assistant, or an edition a visitor asked for, can seed the description and the request type
   useEffect(() => {
     const take = () => {
       try {
+        const k = sessionStorage.getItem("request:kind");
+        if (k) {
+          sessionStorage.removeItem("request:kind");
+          if (isKind(k)) setKind(k);
+        }
         const seed = sessionStorage.getItem("request:seed");
         if (seed && body.current && !body.current.value) {
           body.current.value = seed;

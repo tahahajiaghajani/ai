@@ -17,11 +17,17 @@ export type Media =
       tone?: "mono" | "color";
       /** gallery width in twelfths on wide screens (default: 4 for tall pictures, 12 otherwise) */
       span?: Span;
+      /** a tiny base64 preview shown blurred while the picture loads */
+      blur?: string;
+      /** where the picture is anchored when it is cropped to fill a box (CSS object-position) */
+      focus?: string;
     }
   | { kind: "video"; src: string; poster: string; alt: L; w: number; h: number; caption?: L; span?: Span }
   | { kind: "art"; art: ArtKind; alt: L; caption?: L };
 
 export type Span = 3 | 4 | 5 | 6 | 7 | 8 | 12;
+
+export type ImageMedia = Extract<Media, { kind: "image" }>;
 
 /** Generative covers drawn on canvas/SVG, one per kind of system. */
 export type ArtKind = "graph" | "vision" | "signal" | "flow" | "orbit" | "grid" | "type" | "mesh" | "wave";
@@ -100,4 +106,69 @@ export interface Role {
   period: L;
   body: L;
   current?: boolean;
+}
+
+/** How a product reaches people: the web version is open to everyone; the others are given on request. */
+export type EditionKind = "web" | "windows" | "server";
+
+export interface Edition {
+  kind: EditionKind;
+  /** the live address; an edition without one is locked (visitors contact Taha to use it) */
+  href?: string;
+  /** one line on where and how it runs */
+  note: L;
+}
+
+/** A product of Taha's own, promoted on the home page in a section of its own. */
+export interface Product {
+  /** also the id of its home-page section */
+  slug: string;
+  name: L;
+  /** the eyebrow: what kind of product it is */
+  category: L;
+  /** the product's own line */
+  tagline: L;
+  summary: L;
+  features: L<string[]>;
+  editions: Edition[];
+  /** screenshots: the first leads, a second one sits over its corner */
+  shots: Media[];
+  stack: string[];
+  status: L;
+  period: L;
+  role: L;
+  /** authorship and honesty notes */
+  note?: L;
+  /** extra retrieval words for the assistant (both languages) */
+  tags: string[];
+}
+
+/** One block of a blog post's body. */
+export type PostBlock =
+  | { kind: "text"; heading?: L; text: L }
+  | { kind: "list"; heading?: L; items: L<string[]> }
+  | { kind: "figure"; media: Media }
+  | { kind: "gallery"; items: Media[] }
+  | { kind: "quote"; text: L; cite?: L };
+
+export interface Post {
+  slug: string;
+  /** publication date (ISO, Tehran) */
+  date: string;
+  title: L;
+  /** the standfirst under the title */
+  dek: L;
+  kicker: L;
+  cover: Media;
+  /** the share image (1200×630) */
+  og: string;
+  /** facts shown beside the cover */
+  facts: { k: L; v: L }[];
+  blocks: PostBlock[];
+  /** retrieval words for the assistant (both languages) */
+  tags: string[];
+  /** case studies to read next */
+  related?: string[];
+  sources?: { label: L; href: string }[];
+  note?: L;
 }

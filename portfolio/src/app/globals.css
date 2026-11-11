@@ -365,6 +365,9 @@ html.js [data-fade] {
   opacity: 0;
   transform: translateY(28px);
 }
+html.js [data-reveal]:not([data-revealed]) {
+  clip-path: inset(100% 0 0 0);
+}
 
 /* code blocks */
 .code {
@@ -380,7 +383,8 @@ html.js [data-fade] {
 .code .t-p { color: var(--fg-muted); }
 
 /* prose inside case studies and chat answers */
-.prose-mono p + p { margin-top: 1em; }
+.prose-mono p + p,
+.prose-mono ul + p { margin-top: 1em; }
 .prose-mono strong { font-weight: 650; color: var(--fg); }
 .prose-mono ul { list-style: none; padding: 0; margin-top: 0.6em; }
 .prose-mono li { position: relative; padding-inline-start: 1.1em; margin-top: 0.35em; }
@@ -402,6 +406,9 @@ html.js [data-fade] {
   html.js [data-fade] {
     opacity: 1;
     transform: none;
+  }
+  html.js [data-reveal]:not([data-revealed]) {
+    clip-path: none;
   }
   .grain::after {
     animation: none;

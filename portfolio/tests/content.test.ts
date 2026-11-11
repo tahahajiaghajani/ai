@@ -5,6 +5,8 @@ import { PROJECTS } from "@/content/projects";
 import { JOURNEY } from "@/content/journey";
 import { ORGS } from "@/content/orgs";
 import { ui } from "@/content/ui";
+import { PRODUCTS } from "@/content/products";
+import { POSTS, postImages } from "@/content/blog";
 import type { Media } from "@/content/types";
 
 const pub = (p: string) => path.join(__dirname, "..", "public", p.replace(/^\//, ""));
@@ -50,6 +52,79 @@ describe("projects", () => {
       });
       it("names known organisations", () => {
         for (const o of p.orgs ?? []) expect(ORGS.some((x) => x.key === o), o).toBe(true);
+      });
+    });
+  }
+});
+
+describe("products", () => {
+  it("have unique slugs that are not other section ids", () => {
+    const slugs = PRODUCTS.map((p) => p.slug);
+    expect(new Set(slugs).size).toBe(slugs.length);
+    const taken = ["about", "products", "expertise", "work", "method", "journey", "blog", "toolbox", "ask", "contact", "main", "site-menu", "work-index"];
+    for (const s of slugs) expect(taken.includes(s), s).toBe(false);
+  });
+  for (const p of PRODUCTS) {
+    describe(p.slug, () => {
+      it("is complete in both languages", () => {
+        for (const k of ["name", "category", "tagline", "summary", "status", "period", "role"] as const) {
+          expect(filled(p[k].fa), `${k}.fa`).toBe(true);
+          expect(filled(p[k].en), `${k}.en`).toBe(true);
+        }
+        expect(p.features.fa.length).toBe(p.features.en.length);
+        expect(p.features.fa.length).toBeGreaterThan(0);
+      });
+      it("opens only its web version; every other edition is locked", () => {
+        const web = p.editions.filter((e) => e.kind === "web");
+        expect(web).toHaveLength(1);
+        expect(web[0].href).toMatch(/^https:\/\//);
+        for (const e of p.editions) {
+          expect(filled(e.note.fa) && filled(e.note.en), e.kind).toBe(true);
+          if (e.kind !== "web") expect(e.href, `${e.kind} must stay locked`).toBeUndefined();
+        }
+        expect(new Set(p.editions.map((e) => e.kind)).size).toBe(p.editions.length);
+      });
+      it("points only at screenshots that exist", () => {
+        p.shots.forEach(media);
+      });
+    });
+  }
+  it("Siraf has web and Windows editions; Kariz adds the server edition", () => {
+    const kinds = (slug: string) => PRODUCTS.find((p) => p.slug === slug)?.editions.map((e) => e.kind);
+    expect(kinds("siraf")).toEqual(["web", "windows"]);
+    expect(kinds("kariz")).toEqual(["web", "windows", "server"]);
+  });
+});
+
+describe("posts", () => {
+  it("have unique slugs", () => {
+    expect(new Set(POSTS.map((p) => p.slug)).size).toBe(POSTS.length);
+  });
+  for (const p of POSTS) {
+    describe(p.slug, () => {
+      it("is complete in both languages", () => {
+        for (const k of ["title", "dek", "kicker"] as const) {
+          expect(filled(p[k].fa), `${k}.fa`).toBe(true);
+          expect(filled(p[k].en), `${k}.en`).toBe(true);
+        }
+        expect(Number.isNaN(Date.parse(p.date))).toBe(false);
+        for (const f of p.facts) expect(filled(f.k.fa) && filled(f.k.en) && filled(f.v.fa) && filled(f.v.en)).toBe(true);
+        for (const b of p.blocks) {
+          if (b.kind === "text" || b.kind === "quote") expect(filled(b.text.fa) && filled(b.text.en)).toBe(true);
+          if (b.kind === "list") expect(b.items.fa.length).toBe(b.items.en.length);
+        }
+        for (const s of p.sources ?? []) {
+          expect(filled(s.label.fa) && filled(s.label.en)).toBe(true);
+          expect(s.href).toMatch(/^https:\/\//);
+        }
+      });
+      it("points only at pictures that exist", () => {
+        expect(existsSync(pub(p.og)), p.og).toBe(true);
+        postImages(p).forEach(media);
+        expect(postImages(p)[0]).toBe(p.cover);
+      });
+      it("relates only to existing case studies", () => {
+        for (const r of p.related ?? []) expect(PROJECTS.some((x) => x.slug === r), r).toBe(true);
       });
     });
   }
