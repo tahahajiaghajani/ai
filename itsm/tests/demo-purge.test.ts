@@ -346,6 +346,10 @@ describe.skipIf(skip)(title, () => {
     const demoRowIds = new Set((await e.db.query<{ id: string }>(`select row_id::text as id from sm_demo_rows where org_id = $1`, [e.org])).map((r) => r.id));
     const report = await e.owner.get(`/o/${e.org}/demo/report`);
     expect(report.rows).toBeGreaterThan(1000);
+    // the console confirms the administrator's password right before the purge (sensitive administration, POST
+    // /auth/reauth): on a busy machine this test's sign-up is older than the re-authentication window by now. Only its
+    // effect here (a fresh `reauth_at`, bookkeeping above), so the security log keeps what the comparison below allows
+    await e.db.query(`update sm_sessions set reauth_at = now() where user_id = $1`, [e.ownerId]);
     await e.owner.post(`/o/${e.org}/demo/purge`, { confirm: "اشتباه" }, 400);
     await e.owner.post(`/o/${e.org}/demo/purge`, { confirm: "حذف کامل" });
     await runToEnd(e.cfg, e.org, "purge", { budgetMs: 900_000 });
