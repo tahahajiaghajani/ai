@@ -385,14 +385,14 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
     }
     if (phase === "accounts") {
       await db.tx(async (tx) => {
-        report.accounts = await removeAccounts(tx, orgId);
+        report.accounts = await removeAccounts(tx, orgId, { tombstones: report.tombstones > 0 });
         await setPhase(tx, "restore", { report });
       });
       return { again: 0 };
     }
     if (phase === "restore") {
       await db.tx(async (tx) => {
-        const computed = await restoreComputed(tx, orgId, info, pack.progress.computed ?? []);
+        const computed = await restoreComputed(tx, orgId, info, pack.progress.computed ?? [], { tombstones: report.tombstones > 0 });
         for (const [k, v] of Object.entries(computed)) report.restored[k] = (report.restored[k] ?? 0) + v;
         await restoreCounters(tx, orgId, pack.counters ?? {});
         await setPhase(tx, "finish", { report });
@@ -403,7 +403,7 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
     await db.tx(async (tx) => {
       // the job queue ran on after the restore phase: what a computation made or changed since is put back once more
       // (and its numbers freed); what it made joins the registry and goes below with what names it
-      const again = await restoreComputed(tx, orgId, info, pack.progress.computed ?? []);
+      const again = await restoreComputed(tx, orgId, info, pack.progress.computed ?? [], { tombstones: report.tombstones > 0 });
       for (const [k, v] of Object.entries(again)) report.restored[k] = (report.restored[k] ?? 0) + v;
       await restoreCounters(tx, orgId, pack.counters ?? {});
       const late = await expandDerived(tx, orgId, info);
@@ -412,15 +412,18 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
       // with tombstones: every registry row still live becomes one (rows a load chunk wrote after the remove phase too)
       if (late || left?.n) {
         await removeRows(tx, orgId, info, { tombstones: report.tombstones > 0 });
-        await removeAccounts(tx, orgId);
+        await removeAccounts(tx, orgId, { tombstones: report.tombstones > 0 });
       }
       const counts = { rows: report.rows, derived: report.derived, tables: Object.keys(report.tables).length, accounts: report.accounts, files: report.files, references: report.references.reduce((s, r) => s + r.rows, 0), tombstones: report.tombstones,
         // what was left and only reported (content-free: tables and counts)
         left_real: report.left_real ?? [], kept_trail: report.kept_trail ?? 0, unattributed: report.unattributed ?? [] };
       await auditLine(tx, orgId, by, "demo_purge", "داده‌های نمایشی حذف شد", counts);
       if (report.tombstones > 0) {
-        const mark = await tx.one<{ rev: number }>(`select rev from sm_org_sync where org_id = $1`, [orgId]);
-        await tx.query(`update sm_demo_packs set state = 'tombstoned', purge_mark = $2, report = $3::jsonb, updated_at = now() where org_id = $1`, [orgId, mark?.rev ?? 0, JSON.stringify(report)]);
+        // the apps must pass this transaction (the last that wrote tombstones; the earlier phases committed before it):
+        // a device's cursor is the oldest transaction id its last complete pull did not see (routes/sync.ts), so it has
+        // seen every tombstone once that id is above this transaction's
+        const mark = await tx.one<{ x: string }>(`select (pg_current_xact_id()::text::bigint + 1)::text as x`);
+        await tx.query(`update sm_demo_packs set state = 'tombstoned', purge_mark = $2, report = $3::jsonb, updated_at = now() where org_id = $1`, [orgId, Number(mark?.x ?? 0), JSON.stringify(report)]);
         await enqueue(tx, { kind: "demo.finalize", orgId, payload: {}, dedupeKey: "demo.finalize", delayMs: 10 * 60_000 });
       } else {
         await finalRemove(tx, orgId);
@@ -452,8 +455,10 @@ export async function finalizeDemo(cfg: JobConfig, orgId: string, opts: { force?
     const info = await tablesInfo(db);
     await db.tx(async (tx) => {
       const files = (pack.progress.files ?? []) as string[];
+      // the tombstones go for good: removeRows and removeAccounts raise the purge watermark to their newest revision, so
+      // an app that never pulled them (away for 30 days, or left behind by `force`) reads everything again
       await removeRows(tx, orgId, info, { tombstones: false });
-      await removeAccounts(tx, orgId);
+      await removeAccounts(tx, orgId, { tombstones: false });
       await removeFiles(tx, orgId, files, (cfg as ServerConfig).blobs ?? undefined);
       await finalRemove(tx, orgId);
     });

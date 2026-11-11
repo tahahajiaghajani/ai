@@ -26,7 +26,7 @@ internal identifiers stay neutral (`sm_*`, `itsm.*`, `ITSM_*`).
   `karizctl`, IPC from the setup after a certificate/host change, SIGHUP on Unix), broadcasts configuration reloads
   (`reload.request`, IPC), is the single writer of the rotating JSON log, aggregates worker metrics, and stops
   gracefully on SIGINT/SIGTERM/SIGBREAK (WinSW sends Ctrl+C). `--standalone` runs one process (dev, tests).
-- **Worker** builds `createApp` in **cloud mode** (same auth and sessions, live pulse via `sm_org_sync`, every module)
+- **Worker** builds `createApp` in **cloud mode** (same auth and sessions, live pulse via database snapshots, every module)
   with: `network` (policy, air-gapped by default), `fetch: networkFetch(policy, fetch)`, `blobs` (disk store),
   `waitUntil` → scheduler wake-up, `server` bridge (health, meta info), `allowSignup: false`, `secretSource:
   "installation"`, `platformAdmins` from the configuration (mutated in place on reload). The database is wrapped by

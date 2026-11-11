@@ -15,6 +15,7 @@ import postgres from "postgres";
 import type { Logger } from "@server/context";
 import { APP_VERSION } from "@shared/constants";
 import { SCHEMA_VERSION } from "@server/db/migrations";
+import { BUMP_ALL_EPOCHS_SQL } from "@server/sync/snapshot";
 import type { ServerEditionConfig } from "./config";
 import { pgExe, run } from "./pg";
 
@@ -344,6 +345,14 @@ export async function restoreBackup(o: RestoreOptions): Promise<RestoreResult> {
     o.log?.info("restore: pg_restore", { dump, into: temp });
     try {
       await run(pgExe(bin, "pg_restore"), [...conn(c, true), "-d", temp, "--exit-on-error", "-j", "4", dump], { env: dbEnv(c.db.admin_password), timeoutMs: 12 * 3600_000 });
+      // Windows apps linked to this server hold newer data than the backup: every organisation's sync epoch moves, so
+      // each one reads everything again and drops what the restored database no longer has (docs/spec/ENGINE.md §13)
+      const restored = postgres({ host: c.db.host, port: c.db.port, database: temp, username: c.db.admin_user, password: c.db.admin_password, max: 1, ssl: c.db.ssl ? "require" : false, onnotice: () => {} });
+      try {
+        await restored.unsafe(BUMP_ALL_EPOCHS_SQL);
+      } finally {
+        await restored.end({ timeout: 5 });
+      }
     } catch (e) {
       await admin.unsafe(`drop database if exists ${ident(temp)} with (force)`).catch(() => undefined);
       throw e;

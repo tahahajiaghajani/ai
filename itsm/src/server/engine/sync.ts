@@ -368,7 +368,11 @@ export interface EnginePull {
   tombstones: { entity: string; id: string }[];
 }
 
-/** Engine rows of a pull window (rev in (cursor, upto]) as the linked account may see them. */
+/**
+ * Engine rows with a revision in (cursor, upto] as the linked account may see them — for a quiet database (tests,
+ * tools): revisions are transaction ids, not in commit order, so the pull route reads snapshot deltas instead
+ * (routes/sync.ts, src/server/sync/snapshot.ts) and hands the rows to `replicaRows`.
+ */
 export async function pullEngine(ctx: Ctx, agg: AggregateDef, cursor: number, upto: number): Promise<EnginePull> {
   const rows = await ctx.db.query<Row>(`select * from ${agg.table} where org_id = $1 and rev > $2 and rev <= $3 order by rev`, [ctx.org.id, cursor, upto]);
   return replicaRows(ctx.db, ctx, agg, rows);

@@ -191,14 +191,10 @@ export interface WriteOptions {
    */
   internal?: boolean;
   /**
-   * Take the organisation's write lock as late as possible: not when the transaction starts but right before its first
-   * write of a synced row (the engine calls `ensureOrgLock` before each statement; the sync trigger takes it at the
-   * latest) — and before an update or delete locks the record's row (`for update`): every writer takes the
-   * organisation's lock before a row's, else two writers could wait for each other. Reads, preparation and per-row
-   * work before that run without holding it. Only for work whose reads do not
-   * decide other records' writes (the notification service's bell rows); user writes keep the lock from the start.
-   * Default: on for `internal` bookkeeping (single writes that need no serialisation beyond the revision order — a
-   * write of a table that is not synced then takes no lock at all), off otherwise.
+   * Only with organisation-wide write serialisation switched on (`ITSM_SERIALIZE_WRITES`, off by default — sync
+   * revisions are transaction ids and need no lock): take the organisation's lock as late as possible, right before
+   * the first write of a synced row (`ensureOrgLock`) instead of when the transaction starts. Default: on for
+   * `internal` bookkeeping, off otherwise. Without serialisation it changes nothing.
    */
   late?: boolean;
 }
@@ -223,9 +219,9 @@ export interface Ctx {
   can(area: Area, level: Level): boolean;
   need(area: Area, level: Level): void;
   /**
-   * Run `fn` in a write transaction holding the organisation's write lock. Refused while the
-   * organisation is read-only or suspended (unless `internal`); inside a support session every change
-   * is tagged and listed in the organisation's audit log.
+   * Run `fn` in a write transaction (no organisation-wide lock: rows lock themselves, derived values recompute under
+   * their before-commit key — docs/spec/ENGINE.md §5). Refused while the organisation is read-only or suspended
+   * (unless `internal`); inside a support session every change is tagged and listed in the organisation's audit log.
    */
   write<T>(fn: (tx: Tx) => Promise<T>, opts?: WriteOptions): Promise<T>;
   hasModule(m: ModuleKey): boolean;
@@ -235,11 +231,36 @@ export interface Ctx {
 const locked = new WeakSet<Tx>();
 
 /**
+ * Organisation-wide write serialisation (docs/PERFORMANCE_FA.md «دور سوم»). Sync revisions are the ids of the writing
+ * transactions and pulls compare snapshots (src/server/sync/snapshot.ts), so no write needs the organisation's lock any
+ * more: writes of different records run side by side, a record's own writes queue on its row (`for update`), and
+ * values derived from several rows recompute under their before-commit key (`onBeforeCommit`, an advisory lock per
+ * key). Off by default. `ITSM_SERIALIZE_WRITES=1` brings back the previous behaviour — every write holds the
+ * organisation's lock from its start (`late`/`internal` ones from their first synced statement) — as an operational
+ * fallback; sync correctness does not depend on it either way.
+ */
+const envSerialize = (): boolean | null => {
+  const raw = (process.env.ITSM_SERIALIZE_WRITES ?? "").trim().toLowerCase();
+  if (!raw) return null;
+  return raw === "1" || raw === "true" || raw === "on" || raw === "yes";
+};
+let serialiseWrites = envSerialize() ?? false;
+
+/** Switch organisation-wide write serialisation (tests, the server edition's settings); the environment variable wins. */
+export function configureWriteSerialisation(on?: boolean | null): boolean {
+  serialiseWrites = envSerialize() ?? on === true;
+  return serialiseWrites;
+}
+
+/** Whether writes of an organisation are serialised by its lock (off unless switched on). */
+export const writesSerialised = (): boolean => serialiseWrites;
+
+/**
  * Write admission: at most this many write transactions of one organisation are in the database at once per process
- * (default 3; the server edition's kariz.json `writers_per_org`, the environment variable `ITSM_WRITERS_PER_ORG` wins). The organisation's writes are serialised by its write lock anyway; more of them
- * in the database would only hold pool connections while they wait for it — and when one write holds the lock long, a
- * queue of waiting writers empties the pool and every read of the process stalls behind them. The others wait here,
- * holding nothing. Bookkeeping (`internal`) and writes inside another write are not counted.
+ * (default 3; the server edition's kariz.json `writers_per_org`, the environment variable `ITSM_WRITERS_PER_ORG` wins).
+ * Writes no longer wait for one lock, so this is only a throttle: a burst of one organisation's writes (an import, a
+ * notification storm) holds at most this many pool connections per process and reads keep theirs. The others wait
+ * here, holding nothing. Bookkeeping (`internal`) and writes inside another write are not counted.
  */
 const DEFAULT_WRITERS_PER_ORG = 3;
 const envWriters = (): number | null => {
@@ -280,7 +301,10 @@ export async function admitWrite<T>(orgId: string, fn: () => Promise<T>, opts: {
   }
 }
 
-/** Serialises writes of one organisation (and keeps revision numbers in commit order). */
+/**
+ * The organisation's lock (its sm_org_sync row) until commit: for rare organisation-wide changes (creating or adopting
+ * an organisation, restores) and, with `ITSM_SERIALIZE_WRITES`, for every write. Sync revisions do not need it.
+ */
 export async function lockOrg(tx: Tx, orgId: string): Promise<void> {
   const t0 = lockProbeOn() ? performance.now() : 0;
   await tx.query(
@@ -293,11 +317,12 @@ export async function lockOrg(tx: Tx, orgId: string): Promise<void> {
 }
 
 /**
- * The write lock before a statement that writes synced rows: taken now unless this transaction holds it already (a
- * `late` write takes it here, at its first write; any other write took it when it began). Cheap when held.
+ * Before a statement that writes synced rows: with write serialisation switched on, the organisation's lock unless this
+ * transaction holds it already (a `late` write takes it here, at its first write). Off (the default): nothing — the
+ * engine keeps calling it so that the switch keeps its old lock order (organisation before row).
  */
 export async function ensureOrgLock(tx: Tx, orgId: string): Promise<void> {
-  if (!locked.has(tx)) await lockOrg(tx, orgId);
+  if (serialiseWrites && !locked.has(tx)) await lockOrg(tx, orgId);
 }
 
 export const NOT_MEMBER_MESSAGE = "شما عضو این سازمان نیستید؛ برای کار در آن، از «مدیریت سامانه» حالت پشتیبانی را آغاز کنید";
@@ -368,8 +393,8 @@ export function makeCtx(cfg: ServerConfig, user: AuthUser, org: OrgRow, member: 
       if (outsider && !support) throw forbidden(NOT_MEMBER_MESSAGE);
       if (support?.level === "view" && !wopts?.internal) throw forbidden(SUPPORT_VIEW_ONLY_MESSAGE);
       const result = await admitWrite(org.id, () => cfg.db.tx(async (tx) => {
-        // bookkeeping (`internal`) takes the lock only if it writes synced rows, and only then
-        if (!(wopts?.late ?? wopts?.internal)) await lockOrg(tx, org.id);
+        // organisation-wide serialisation only when switched on (bookkeeping then takes it only if it writes synced rows)
+        if (serialiseWrites && !(wopts?.late ?? wopts?.internal)) await lockOrg(tx, org.id);
         if (!wopts?.internal) await assertWritable(tx, org.id);
         if (support) {
           const live = await tx.one(

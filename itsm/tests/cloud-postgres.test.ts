@@ -12,6 +12,7 @@ import { createApp } from "@server/app";
 import type { Db } from "@server/db";
 import "./fixtures/module";
 import { Client, quietLog } from "./helpers";
+import { SYNC_PROTOCOL } from "@shared/constants";
 
 describe("cloud runtime over the PostgreSQL protocol (postgres.js)", () => {
   let pg: PGlite;
@@ -70,7 +71,7 @@ describe("cloud runtime over the PostgreSQL protocol (postgres.js)", () => {
     const login = await c.post<{ token: string }>("/auth/login", { email: "cloud@example.com", password: "cloud-pass-1405", device: { name: "test" } });
     const dev = new Client({ fetch: (r: Request) => createApp({ mode: "cloud", db, secret: "s", allowSignup: true, platformAdmins: [], origin: "cloud", log: quietLog, fetch: globalThis.fetch.bind(globalThis) }).fetch(r) });
     dev.token = login.token;
-    const page = await dev.get(`/sync/pull?org_id=${org}&cursor=0`);
+    const page = await dev.get(`/sync/pull?org_id=${org}&protocol=${SYNC_PROTOCOL}`);
     const by = (e: string) => page.aggregates.filter((a: { entity: string }) => a.entity === e);
     expect(by("org")).toHaveLength(1);
     expect(by("org")[0].row.settings.timezone).toBe("Asia/Tehran");

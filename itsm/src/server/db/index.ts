@@ -49,13 +49,20 @@ export function onBeforeCommit(tx: Tx, key: string, fn: BeforeCommit): boolean {
   return true;
 }
 
-/** Run the transaction's before-commit work (the database layers call it when the transaction's function resolved). */
+/**
+ * Run the transaction's before-commit work (the database layers call it when the transaction's function resolved).
+ * Each key is first locked for the rest of the transaction (a transaction-level advisory lock on the key's hash, keys
+ * of a round in sorted order): writes of one organisation run side by side (no organisation-wide lock), so two
+ * transactions recomputing the same derived value — an order's totals from its items, a group's roll-up — take turns,
+ * and the second one's statements see what the first one committed (READ COMMITTED: a new snapshot per statement).
+ */
 export async function runBeforeCommit(tx: Tx): Promise<void> {
   for (let round = 0; ; round++) {
     const m = pending.get(tx);
     if (!m || !m.size) return;
     if (round >= MAX_BEFORE_COMMIT_ROUNDS) throw new Error(`before-commit work keeps queueing more work: ${[...m.keys()].slice(0, 5).join(", ")}`);
     pending.delete(tx);
+    for (const key of [...m.keys()].sort()) await tx.query(`select pg_advisory_xact_lock(hashtextextended($1, 0))`, [`itsm.before_commit:${key}`]);
     for (const fn of m.values()) await fn();
   }
 }

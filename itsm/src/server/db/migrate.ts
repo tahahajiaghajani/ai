@@ -1,6 +1,7 @@
 import type { Db } from "./index";
 import { MIGRATIONS, SCHEMA_VERSION } from "./migrations";
 import { reconcileSchema } from "../engine/ddl";
+import { checkXidRegression } from "../sync/snapshot";
 
 export interface MigrationStatus {
   applied: string[];
@@ -49,5 +50,8 @@ export async function migrate(db: Db, log: (msg: string) => void = () => {}): Pr
   }
   // the record engine's tables follow the table registry (new tables and fields of this version)
   await reconcileSchema(db, log);
+  // a database restored into another cluster may hand out transaction ids below its stored revisions: one full
+  // re-read for every Windows app (src/server/sync/snapshot.ts)
+  await checkXidRegression(db, { force: true, log }).catch((e) => log(`xid check skipped: ${String((e as Error)?.message ?? e)}`));
   return done;
 }

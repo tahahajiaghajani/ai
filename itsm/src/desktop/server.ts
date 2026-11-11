@@ -16,6 +16,7 @@ import { tick } from "@server/jobs";
 import { loadConfig, saveConfig, type LocalConfig } from "./config";
 import { createBridge } from "./bridge";
 import { takePendingRestore, undoRestore, restorePending } from "./backup";
+import { resetSyncCursor } from "./sync-client";
 import { APP_NAME } from "@shared/constants";
 
 export interface LocalOptions {
@@ -67,6 +68,9 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
     }
   } else db = await createPgliteDb({ dataDir: opts.memory ? undefined : dbDir, desktop: true });
   await migrate(db, (m) => log.info(m));
+  // a restored local database: its sync cursor is the backup's — the next pull reads everything again from the web
+  // version (and drops what it no longer has); changes waiting for upload stay queued
+  if (restore) await resetSyncCursor(db).catch((e) => log.warn("sync cursor reset failed", String((e as Error)?.message ?? e)));
 
   const staticDir = resolve(opts.staticDir);
   const indexFile = join(staticDir, "index.html");
