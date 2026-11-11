@@ -36,6 +36,9 @@ describe("database scripts for running by hand", () => {
     // the setup guide names the parts the owner pastes, first to last, and no other count (docs/SETUP_FA.md §۱)
     const guide = readFileSync(join(ROOT, "docs", "SETUP_FA.md"), "utf8");
     for (const f of [expected[0], expected[1], expected[expected.length - 1]]) expect(guide, `docs/SETUP_FA.md names ${f}`).toContain(`\`${f}\``);
+    // and no fixed number of migration steps: the plan changes with the engine's chunks (it says `done: <n>/<n> steps`)
+    expect(guide.match(/done: \d+\/\d+ steps/g) ?? []).toEqual([]);
+    expect(guide).toContain("`done: <n>/<n> steps`");
     const totals = [...guide.matchAll(/\b\d\d-of-(\d\d)\.sql\b/g)].map((m) => m[1]);
     expect(totals.filter((n) => n !== String(expected.length).padStart(2, "0"))).toEqual([]);
     expect(SCHEMA_FINGERPRINT.engine).toBe(engineChunks().hash);

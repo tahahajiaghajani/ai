@@ -195,3 +195,17 @@ describe("sign-up and sign-in on every state an account can be in", () => {
 
 // keep the PGlite import used (the adapter for the in-process servers above)
 void createPgliteDb;
+
+describe("«تازه‌ها» of this release", () => {
+  it("tells people the web version no longer shows a server error while it prepares its database and sign-up is atomic", async () => {
+    const { ADMIN_CHANGELOG } = await import("@server/modules/admin/changelog");
+    const { readFileSync } = await import("node:fs");
+    const line = ADMIN_CHANGELOG[0].items.find((x) => x.startsWith("نسخهٔ وب"));
+    expect(line).toMatch(/آماده‌سازی پایگاه داده/);
+    expect(line).toMatch(/ثبت‌نام/);
+    const notes = readFileSync(join(__dirname, "..", "docs", "RELEASE_FA.md"), "utf8");
+    const beta = notes.slice(notes.indexOf("### تازه‌ها"), notes.indexOf("### سه نسخه و نصب"));
+    expect(beta).toMatch(/\*\*نسخهٔ وب:\*\* هنگام آماده‌سازی پایگاه داده/);
+    expect(beta).toMatch(/حساب نیمه‌کاره/);
+  });
+});
