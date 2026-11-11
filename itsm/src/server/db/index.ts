@@ -62,9 +62,19 @@ export async function runBeforeCommit(tx: Tx): Promise<void> {
     if (!m || !m.size) return;
     if (round >= MAX_BEFORE_COMMIT_ROUNDS) throw new Error(`before-commit work keeps queueing more work: ${[...m.keys()].slice(0, 5).join(", ")}`);
     pending.delete(tx);
-    for (const key of [...m.keys()].sort()) await tx.query(`select pg_advisory_xact_lock(hashtextextended($1, 0))`, [`itsm.before_commit:${key}`]);
+    for (const key of [...m.keys()].sort()) await lockBeforeCommitKey(tx, key);
     for (const fn of m.values()) await fn();
   }
+}
+
+/**
+ * Take the lock of before-commit key `key` now, as `runBeforeCommit` takes it just before the commit (re-entrant: the
+ * commit's own take is then a no-op). For work outside before-commit that decides the same value (a job checking an
+ * item's work as its tasks' writes do at commit), or a writer that must hold the key before the rows the key's work
+ * locks (the key first, then the row — the order the work takes them).
+ */
+export async function lockBeforeCommitKey(tx: Queryable, key: string): Promise<void> {
+  await tx.query(`select pg_advisory_xact_lock(hashtextextended($1, 0))`, [`itsm.before_commit:${key}`]);
 }
 
 /**

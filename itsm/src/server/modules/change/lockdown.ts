@@ -4,9 +4,16 @@
 // تغییرات» when `hold_in_flight` is set, once (`applied_at`); the
 // lifecycle guard refuses scheduling or implementing a non-emergency change it covers; ending it resumes the changes it
 // held (unless another active lockdown still covers them). Conflicts of kind «lockdown» show the overlap on the calendar.
+//
+// Writes run side by side (no organisation lock): what a lockdown holds is decided from the changes as stored, and the
+// lifecycle guard decides from the lockdowns as stored. They take turns on the organisation's lockdown key
+// (`lockLockdowns`): a lockdown starting or ending, a non-emergency change moving into scheduling or implementation
+// from outside them, and «ادامه» of a held change — so the later one's reads see what the earlier one committed (a
+// change authorized while a lockdown starts is held by it; a lockdown starting while another ends holds what that one
+// resumes).
 import { lockdownApplies } from "@shared/change/logic";
 import type { Ctx } from "../../context";
-import type { Tx } from "../../db";
+import { lockKey, type Tx } from "../../db";
 import { addJournalIn, defFor, emitEvent, updateIn } from "../../engine";
 import { enqueue } from "../../jobs";
 import { eqAll, liveRows, msOf, sysOf, type Row } from "./common";
@@ -15,9 +22,20 @@ import { activeLockdowns, holdsOn, lockdownLike } from "./schedule";
 /** States whose changes a lockdown holds. */
 export const IN_FLIGHT = ["scheduled", "implement"];
 
+/**
+ * Take the organisation's lockdown key until the transaction ends (see the head of this file). The engine's own lock
+ * of a change comes first where a change's write takes it (the lifecycle guard), the key first where a lockdown's
+ * work then locks the changes it holds or resumes.
+ */
+export async function lockLockdowns(tx: Tx, orgId: string): Promise<void> {
+  await lockKey(tx, `change.lockdown:${orgId}`);
+}
+
 /** Put the in-flight changes a lockdown covers on hold. Returns how many. */
 export async function applyLockdown(tx: Tx, ctx: Ctx, lockdown: Row, actor: string | null): Promise<number> {
   const sys = sysOf(ctx);
+  // a change being authorized or resumed at this moment commits first and is read here as it is now
+  await lockLockdowns(tx, ctx.org.id);
   const { def } = await defFor(sys, "change_request", tx);
   const l = lockdownLike(lockdown);
   let n = 0;
@@ -48,6 +66,8 @@ export async function startLockdown(tx: Tx, ctx: Ctx, lockdown: Row, actor: stri
 /** Resume the changes a lockdown held (those no other active lockdown covers). Returns how many. */
 export async function releaseLockdown(tx: Tx, ctx: Ctx, lockdown: Row, actor: string | null): Promise<number> {
   const sys = sysOf(ctx);
+  // a lockdown starting at this moment either committed (it is among the others here) or waits and holds what this resumes
+  await lockLockdowns(tx, ctx.org.id);
   const { def } = await defFor(sys, "change_request", tx);
   const others = (await activeLockdowns(tx, sys)).filter((x) => x.id !== lockdown.id);
   let n = 0;

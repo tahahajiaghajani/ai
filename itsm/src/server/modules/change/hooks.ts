@@ -30,9 +30,10 @@ import {
 } from "@shared/change/logic";
 import { CHANGE_TYPES, FAILED_CODES, HOLD_REASONS, TASK_DONE } from "@shared/tables/change";
 import type { Ctx } from "../../context";
-import type { Tx } from "../../db";
+import { onBeforeCommit, type Tx } from "../../db";
 import { access } from "../../access/provider";
 import { addJournalIn, defFor, emitEvent, isSystemCtx, registerHooks, savepoint, transitionIn, updateIn, validationError, type WriteArgs } from "../../engine";
+import { lockedRow } from "../incident/common";
 import { forbidden } from "../../http/errors";
 import { enqueue } from "../../jobs";
 import { notifyPeople } from "../notify";
@@ -42,7 +43,7 @@ import {
   actorOf, changeConfig, countRows, dbNow, eqAll, faList, fieldLabel, isUuid, liveRow, liveRows, managesChanges, modelLike, msOf, riskQuestions, sysOf, type Row,
 } from "./common";
 import { impactedServicesOf } from "./impact";
-import { lockdownDue, releaseLockdown, startLockdown } from "./lockdown";
+import { IN_FLIGHT, lockdownDue, lockLockdowns, releaseLockdown, startLockdown } from "./lockdown";
 import { ensurePir } from "./pir";
 import { lockdownOnMajor, resumeWaitingOn } from "./linked";
 import { holdsOn, leadDays, planConflicts, riskFor, scheduleBlocks, storeConflicts, syncConflictState, teamScoreOf, type ConflictPlan } from "./schedule";
@@ -125,9 +126,10 @@ async function changeBefore(w: W): Promise<void> {
   const sourceIgnored = person(w) && !!w.input?.has("risk_source") && n.risk_source === "template";
   if (sourceIgnored) n.risk_source = p?.risk_source ?? null;
 
-  // a template fills the empty fields of a new change
+  // a template fills the empty fields of a new change — read locked until commit: a failure suspending it at this
+  // moment finishes first (a suspended standard template is refused), and its usage is counted from the stored row
   if (creating && n.template_id) {
-    const t = await liveRow(w.tx, sys, "change_template", n.template_id);
+    const t = await lockedRow(w.tx, sys, "change_template", n.template_id);
     if (!t) fields.template_id = "الگو پیدا نشد";
     else if (t.kind === "standard" && t.state !== "published") fields.template_id = `تغییر استاندارد «${t.name}» منتشر نشده است`;
     else applyTemplate(n, t);
@@ -331,6 +333,10 @@ async function changeGuard(w: W & { transition: NonNullable<W["transition"]> }):
     }
   }
   if (forward && (to === "scheduled" || to === "implement")) {
+    // a lockdown starting at this moment takes turns with this move (lockdown.ts): one that committed is read below,
+    // one that starts later waits and then holds this change in flight. Moves inside scheduling and implementation need
+    // no turn — a starting lockdown reads such a change as stored and waits for its row
+    if (n.type !== "emergency" && !IN_FLIGHT.includes(from)) await lockLockdowns(w.tx, w.ctx.org.id);
     const b = await scheduleBlocks(w.tx, sys, n);
     if (b.lockdowns.length) return `قرنطینهٔ تغییرات «${b.lockdowns[0].title}» برقرار است؛ فقط تغییرهای اضطراری مجازند`;
     if (b.windows.length && blank(n.blackout_override_reason)) {
@@ -361,7 +367,8 @@ async function note(w: W, row: Row, body: string, kind: "system" | "work_note" =
 /** A closed change counts for its template; a standard change failing a second time suspends its template (CHG-012). */
 async function templateOutcome(w: WA, row: Row): Promise<void> {
   const sys = sysOf(w.ctx);
-  const t = await liveRow(w.tx, sys, "change_template", row.template_id);
+  // counted on the template locked and read again: two closings at once count twice, and the second failure suspends it
+  const t = await lockedRow(w.tx, sys, "change_template", row.template_id);
   if (!t) return;
   const code = String(row.close_code ?? "");
   const failed = FAILED_CODES.includes(code);
@@ -389,7 +396,8 @@ async function changeAfter(w: WA): Promise<void> {
   const id = String(row.id);
 
   if (creating && row.template_id) {
-    const t = await liveRow(w.tx, sys, "change_template", row.template_id);
+    // locked since the before-write hook: the use is counted on the stored row
+    const t = await lockedRow(w.tx, sys, "change_template", row.template_id);
     if (t) {
       await createTemplateTasks(w.tx, w.ctx, row, t.tasks);
       await updateIn(w.tx, sys, "change_template", String(t.id), { usage_count: Number(t.usage_count ?? 0) + 1, last_used_at: nowIso() }, { trusted: true, keepVersion: true });
@@ -401,7 +409,9 @@ async function changeAfter(w: WA): Promise<void> {
   if (plan) {
     conflictPlans.get(w.tx)!.delete(id);
     const r = await storeConflicts(w.tx, w.ctx, row, plan);
-    for (const o of r.others) await enqueue(w.tx, { kind: "change.conflicts", orgId: w.ctx.org.id, payload: { id: o }, dedupeKey: `change.conflicts:${o}` });
+    // the change itself too: a change written at the same moment (another one created on the same CI) was not
+    // committed when this plan was made — after both commits, the job sees it (and tells the changes it then meets)
+    for (const o of [...r.others, id]) await enqueue(w.tx, { kind: "change.conflicts", orgId: w.ctx.org.id, payload: { id: o }, dedupeKey: `change.conflicts:${o}` });
   }
 
   // its tasks and review keep the change's confidentiality (their hooks merge it in)
@@ -416,7 +426,7 @@ async function changeAfter(w: WA): Promise<void> {
     }
   }
 
-  if (!creating && w.changed.has("state") && (row.state === "implement" || row.state === "review")) await activateTasks(w.tx, w.ctx, id);
+  if (!creating && w.changed.has("state") && (row.state === "implement" || row.state === "review")) tasksBeforeCommit(w, id);
 
   // the post-implementation review, when one is needed
   if (row.state === "review" && row.pir_required && !row.pir_id) {
@@ -532,17 +542,38 @@ async function taskReady(w: W): Promise<string | null> {
   return null;
 }
 
+/** Changes whose mandatory task a transaction finished (the before-commit work announces when none is left open). */
+const mandatoryDone = new WeakMap<Tx, Set<string>>();
+
+/**
+ * The change's waiting tasks become ready just before commit, under the change's key: two tasks finished at once (the
+ * dependencies of a third) take turns there, and the later one sees both done — never a task left waiting with its
+ * dependencies done. The note «همهٔ کارهای لازم … انجام شد» follows the same way.
+ */
+function tasksBeforeCommit(w: W, changeId: string): void {
+  const tx = w.tx;
+  const ctx = w.ctx;
+  onBeforeCommit(tx, `change.tasks:${changeId}`, async () => {
+    await activateTasks(tx, ctx, changeId);
+    if (!mandatoryDone.get(tx)?.delete(changeId)) return;
+    const sys = sysOf(ctx);
+    const change = await liveRow(tx, sys, "change_request", changeId);
+    if (change?.state !== "implement") return;
+    if ((await openMandatoryTasks(tx, sys, changeId)).length) return;
+    const { def } = await defFor(sys, "change_request", tx);
+    await addJournalIn(tx, sys, def, change, { kind: "system", body: "همهٔ کارهای لازم این تغییر انجام شد؛ نتیجهٔ اجرا را ثبت و اجرا را پایان دهید." }, { trusted: true });
+  });
+}
+
 async function taskAfter(w: WA): Promise<void> {
   if (w.op === "delete" || !w.changed.has("state") || !TASK_DONE.includes(String(w.row.state))) return;
-  const sys = sysOf(w.ctx);
   const changeId = String(w.row.change_id);
-  await activateTasks(w.tx, w.ctx, changeId);
-  if (!w.row.mandatory) return;
-  const change = await liveRow(w.tx, sys, "change_request", changeId);
-  if (change?.state !== "implement") return;
-  if ((await openMandatoryTasks(w.tx, sys, changeId)).length) return;
-  const { def } = await defFor(sys, "change_request", w.tx);
-  await addJournalIn(w.tx, sys, def, change, { kind: "system", body: "همهٔ کارهای لازم این تغییر انجام شد؛ نتیجهٔ اجرا را ثبت و اجرا را پایان دهید." }, { trusted: true });
+  if (w.row.mandatory) {
+    let m = mandatoryDone.get(w.tx);
+    if (!m) mandatoryDone.set(w.tx, (m = new Set()));
+    m.add(changeId);
+  }
+  tasksBeforeCommit(w, changeId);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -634,8 +665,11 @@ async function meetingAfter(w: WA): Promise<void> {
   if (w.op === "create" && (row.state === "planned" || row.state === "in_progress")) await refreshAgenda(w.tx, w.ctx, String(row.id));
   if (!entering(w, "completed")) return;
   // what the meeting did not decide goes to the next one
-  for (const i of await liveRows(w.tx, sys, "cab_agenda_item", eqAll({ meeting_id: row.id }))) {
-    if (i.decision === "pending" || i.decision === "voting") {
+  for (const listed of await liveRows(w.tx, sys, "cab_agenda_item", eqAll({ meeting_id: row.id }))) {
+    if (listed.decision !== "pending" && listed.decision !== "voting") continue;
+    // read again locked: a decision recorded at this moment (the CAB approved) stays
+    const i = await lockedRow(w.tx, sys, "cab_agenda_item", listed.id);
+    if (i && (i.decision === "pending" || i.decision === "voting")) {
       await updateIn(w.tx, sys, "cab_agenda_item", String(i.id), { decision: "deferred", decided_at: nowIso(), decision_notes: i.decision_notes ?? "در این جلسه تصمیمی گرفته نشد؛ به جلسهٔ بعد رفت" }, { trusted: true });
     }
   }

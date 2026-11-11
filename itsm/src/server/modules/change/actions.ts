@@ -15,6 +15,8 @@ import { bad, conflict, forbidden } from "../../http/errors";
 import { aiCapabilities } from "./ai";
 import { changeConfig, hasTable, isUuid, liveRow, liveRows, msOf, sysOf, type Row } from "./common";
 import { activeLockdowns, holdsOn, lockdownLike, riskFor, teamScoreOf } from "./schedule";
+import { IN_FLIGHT, lockLockdowns } from "./lockdown";
+import { lockedRow } from "../incident/common";
 
 /** The risk of a change as its panel shows it: questions with options, answers, factors, explanation, notice. */
 export async function riskView(ctx: Ctx, id: string): Promise<Row> {
@@ -146,20 +148,34 @@ export async function holdChange(ctx: Ctx, id: string, input: { reason: string; 
   });
 }
 
-/** Take a change off hold (not while a lockdown that holds it is active). */
+/**
+ * Take a change off hold (not while a lockdown that holds it is active). Decided inside the write, from the change
+ * locked and the lockdowns as stored, under the lockdown key (lockdown.ts): a lockdown starting at the same moment
+ * either committed — and is seen here — or waits and then holds the resumed change. A change held for another reason
+ * while a lockdown that holds changes in flight covers it stays stopped: the hold passes to the lockdown, whose end
+ * resumes it (it never resumes straight into the lockdown).
+ */
 export async function resumeChange(ctx: Ctx, id: string, input: { note?: string | null }): Promise<Row> {
   const { row } = await get(ctx, "change_request", id);
   const { def } = await defFor(ctx, "change_request");
   if (!access().canWrite(ctx, def, row)) throw forbidden("اجازهٔ تغییر این درخواست تغییر را ندارید");
   if (!row.on_hold) throw conflict("این تغییر متوقف نیست");
-  if (row.on_hold_reason === "lockdown") {
-    const holds = await holdsOn(ctx.db, ctx, row);
-    const still = (await activeLockdowns(ctx.db, ctx)).find((l) => lockdownApplies(lockdownLike(l), row, holds));
-    if (still) throw conflict(`قرنطینهٔ تغییرات «${still.title}» هنوز برقرار است`);
-  }
   return ctx.write(async (tx) => {
-    const stored = await updateIn(tx, sysOf(ctx, ctx.user.id), "change_request", id, { on_hold: false, on_hold_reason: null, lockdown_id: null }, { trusted: true });
-    await addJournalIn(tx, sysOf(ctx, ctx.user.id), def, stored, { kind: "system", body: `توقف تغییر برداشته شد${input.note ? `: ${input.note}` : "."}` }, { trusted: true, author: ctx.user.id });
+    const sys = sysOf(ctx, ctx.user.id);
+    const cur = await lockedRow(tx, sysOf(ctx), "change_request", id);
+    if (!cur || !cur.on_hold) throw conflict("این تغییر متوقف نیست");
+    await lockLockdowns(tx, ctx.org.id);
+    const holds = await holdsOn(tx, ctx, cur);
+    const still = (await activeLockdowns(tx, ctx)).find((l) => lockdownApplies(lockdownLike(l), cur, holds));
+    if (still && cur.on_hold_reason === "lockdown") throw conflict(`قرنطینهٔ تغییرات «${still.title}» هنوز برقرار است`);
+    if (still && still.hold_in_flight !== false && IN_FLIGHT.includes(String(cur.state))) {
+      const reason = HOLD_REASONS.find((o) => o.value === cur.on_hold_reason)?.label ?? "بدون دلیل";
+      const stored = await updateIn(tx, sys, "change_request", id, { on_hold_reason: "lockdown", lockdown_id: still.id }, { trusted: true });
+      await addJournalIn(tx, sys, def, stored, { kind: "system", body: `توقف «${reason}» برداشته شد، ولی قرنطینهٔ تغییرات «${still.title}» برقرار است؛ تغییر تا پایان قرنطینه متوقف می‌ماند${input.note ? ` (${input.note})` : ""}.` }, { trusted: true, author: ctx.user.id });
+      return stored;
+    }
+    const stored = await updateIn(tx, sys, "change_request", id, { on_hold: false, on_hold_reason: null, lockdown_id: null }, { trusted: true });
+    await addJournalIn(tx, sys, def, stored, { kind: "system", body: `توقف تغییر برداشته شد${input.note ? `: ${input.note}` : "."}` }, { trusted: true, author: ctx.user.id });
     return stored;
   });
 }
