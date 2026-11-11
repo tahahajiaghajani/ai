@@ -14,7 +14,7 @@ import { guardOrgSession } from "../auth/policy";
 import { bad, forbidden, notFound } from "../http/errors";
 import { makeCtx, lockOrg, type MemberRow, type OrgRow, type Ctx } from "../context";
 import type { Tx } from "../db";
-import { AGGREGATES, BY_ENTITY, type WireAggregate } from "../sync/registry";
+import { AGGREGATES, BY_ENTITY, comparePush, setPushBatch, type WireAggregate } from "../sync/registry";
 import { readAggregates, writeAggregate } from "../sync/apply";
 import { ident } from "../db/sql";
 import { orgStatus, statusError } from "../modules/platform/org-admin";
@@ -143,7 +143,10 @@ syncRoutes.post("/push", async (c) => {
 
 async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
   const results: { entity: string; id: string; status: "ok" | "conflict" | "error" | "skipped"; rev?: number; message?: string; renumbered?: unknown; aggregate?: WireAggregate }[] = [];
-  const list = [...input.aggregates].sort((a, b) => (BY_ENTITY.get(a.entity)?.order ?? 99) - (BY_ENTITY.get(b.entity)?.order ?? 99));
+  // apply order, then the modules' own (a ledger after the record it traces, in its own sequence): a Windows app sends its
+  // outbox in whatever order it reads it; a module judging a row may look at the push's other rows (setPushBatch)
+  const list = [...input.aggregates].sort(comparePush);
+  setPushBatch(ctx, list);
   // privilege changes made on a Windows app are security events, as on the members page
   const memberEvents: { kind: string; user_id: string; data: Record<string, unknown> }[] = [];
   const memberEvent = (was: StoredMember | null, next: MemberGrant & { live: boolean }) => {

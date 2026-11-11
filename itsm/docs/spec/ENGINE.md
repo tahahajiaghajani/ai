@@ -564,7 +564,12 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
   module's `validatePushDelete` (the delete rules its `beforeWrite` holds a web delete to: held evidence is not
   deleted); a new journal entry or history row is in the account's own name
   or has no author (the system's note of something module code did while they acted) — never someone else's — and
-  anything but their own comment or work note needs write access to its record. A push that lost to a newer cloud copy (`conflict`) gets that copy back through the pull's projection
+  anything but their own comment or work note needs write access to its record. The push applies its rows in the
+  aggregates' order, then the modules' own (`registerPushOrder` in `src/server/sync/registry.ts`: a ledger after the
+  record it traces, in its own sequence — a Windows app sends its outbox in whatever order it reads it), and a module
+  judging a row may look at the push's other rows (`pushBatchOf(ctx)`): ITAM takes a device's custody rows and status
+  periods as one segment and decides their links and times within the push's bounds (docs/modules/itam_FA.md
+  «تغییرهای برنامهٔ ویندوز»). A push that lost to a newer cloud copy (`conflict`) gets that copy back through the pull's projection
   (`replicaRows`: readability, replica-only fields, hidden fields, redaction, side filters) — a row the account may not
   read is answered `skipped`, with nothing of it.
 - **Numbers**: both sides allocate from their own counter; on a clash the cloud gives the pushed record the next free
