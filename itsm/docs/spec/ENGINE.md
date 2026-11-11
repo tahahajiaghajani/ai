@@ -309,10 +309,17 @@ await ctx.write(async (tx) => {
     are recomputed in before-commit work (`onBeforeCommit(tx, key, fn)`): each key is locked for the rest of the
     transaction (an advisory lock on its hash) before its work runs, so two transactions recomputing the same value take
     turns and the second one reads what the first one committed. Module code that decides one record's write from
-    other rows does it there, or locks the row it decides (`loadReadable(…, { lock: true })` as approvals do);
-  - deadlocks between writers that lock rows in opposite orders end one of them with 503 «سیستم مشغول است؛ دوباره
-    امتحان کنید» (`40P01`/`40001`); jobs retry by themselves.
-  `ITSM_SERIALIZE_WRITES=1` brings back the organisation lock on every write (from its start; `late`/`internal` ones at
+    other rows does it there, or locks the row it decides (`loadReadable(…, { lock: true })` as approvals do,
+    `lockedRow(q, ctx, table, id, "update" | "share")` in modules: a parent's state, a list stored on a row);
+  - **create-if-absent and choices from other records** (one open issue per control, the next assignee of a group, a
+    link and its reverse) take a transaction lock on a narrow key first (`lockKey(tx, key)` — a key naming the
+    organisation or a record, never a bare kind), or rely on a unique index with `on conflict`;
+  - a deadlock or a serialization failure (`40P01`/`40001`) rolls one transaction back: the engine's single-record
+    `create`/`update`/`transition`/`remove` run again (`ctx.write(fn, { retry: true })` — only for work whose every
+    effect is inside the transaction), a job's handler runs again from its stored payload before the attempt counts,
+    a sync push and every other request answer 503 «سیستم مشغول است؛ دوباره امتحان کنید» (never a 500).
+  `ITSM_SERIALIZE_WRITES=1` (the server edition: kariz.json `serialize_writes`, the variable wins) brings back the
+  organisation lock on every write (from its start; `late`/`internal` ones at
   their first synced statement — `ensureOrgLock`) as an operational fallback; sync does not depend on it. `lockOrg`
   stays for rare organisation-wide changes (creating or adopting an organisation, restores). Per process at most
   `ITSM_WRITERS_PER_ORG` (3; the server edition reads `writers_per_org` from kariz.json, the variable wins) write
