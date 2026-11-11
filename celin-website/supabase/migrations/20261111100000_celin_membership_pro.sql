@@ -6,14 +6,20 @@
 -- 2. Membership and Pro (src/lib/pricing.ts):
 --    - an approved member (membership code) sees stock and pays the list price (200% of the admin's price), stepped
 --      down by the number of pieces in one order; a Pro account always pays the admin's price;
---    - celin_users.pro_at / pro_by: the account is Pro from then on ('auto' when its accepted orders reached the
---      threshold, 'admin' when set by hand);
+--    - celin_users.pro_at / pro_by: the account is Pro from then on ('auto' when the goods of its accepted orders
+--      reached the threshold, 'admin' when set by hand); pro_off_at: when the admin last took Pro away (only orders
+--      placed after it count towards Pro again);
 --    - celin_pro_codes.kind: 'member' (the membership code) or 'pro' (the separate code issued with Pro);
 --    - an order keeps what the member saw: celin_order_items.list_price (one piece at the list price),
 --      celin_orders.list_subtotal (the lines at the list price) and pricing (level, percentages, pieces), while
 --      unit_price / subtotal stay what is charged;
---    - celin_place_order(…, p_pricing): the order function with these rules (the four-argument one stays for
---      the version of the site that is live while this file runs).
+--    - celin_place_order(…, p_pricing): the order function with these rules. The older four-argument one is
+--      dropped: it charged everyone the admin's price (an older deployment of the site can no longer place orders
+--      at the wrong price; the new site refuses orders until this file has run).
+-- 3. Texts the admin saved in «تصاویر سایت» that still hold an old default are brought in line (membership wording,
+--    no «ضمانت», the owner's year-of-birth line, stones and plating lines, the CELIN collection link); product specs
+--    and descriptions of the starter catalogue that still say «تراش اتمی» say «تراش مشابه برلیان». Only values that
+--    still equal the old text exactly change, so anything the owner wrote stays as it is.
 
 -- ------------------------------------------------------------------ 1. collections
 do $$
@@ -63,6 +69,7 @@ end $$;
 -- ------------------------------------------------------------------ 2. membership and Pro
 alter table public.celin_users add column if not exists pro_at timestamptz;
 alter table public.celin_users add column if not exists pro_by text not null default '';
+alter table public.celin_users add column if not exists pro_off_at timestamptz;
 
 alter table public.celin_pro_codes add column if not exists kind text not null default 'member';
 do $$
@@ -75,8 +82,6 @@ end $$;
 alter table public.celin_order_items add column if not exists list_price bigint;
 alter table public.celin_orders add column if not exists list_subtotal bigint not null default 0;
 alter table public.celin_orders add column if not exists pricing jsonb not null default '{}'::jsonb;
--- «how much has this account bought in the last 30 days»
-create index if not exists celin_orders_user_created_idx on public.celin_orders (user_id, created_at desc);
 
 -- Places an order in one transaction, as celin_place_order(uuid, jsonb, jsonb, text) does (locks, published and in
 -- stock, the price from the database, stock lowered), with the price rules of the account:
@@ -242,5 +247,85 @@ $$;
 
 revoke all on function public.celin_place_order(uuid, jsonb, jsonb, text, jsonb) from public, anon, authenticated;
 grant execute on function public.celin_place_order(uuid, jsonb, jsonb, text, jsonb) to service_role;
+
+-- the older order function charged every account the admin's price
+drop function if exists public.celin_place_order(uuid, jsonb, jsonb, text);
+
+-- ------------------------------------------------------------------ 3. saved texts
+update public.celin_slots set texts = jsonb_set(texts, '{eyebrow,fa}', to_jsonb('نگهداری'::text)), updated_at = now()
+where key = 'care.hero' and texts #>> '{eyebrow,fa}' = 'نگهداری و ضمانت';
+update public.celin_slots set texts = jsonb_set(texts, '{eyebrow,en}', to_jsonb('Care'::text)), updated_at = now()
+where key = 'care.hero' and texts #>> '{eyebrow,en}' = 'Care & warranty';
+update public.celin_slots set texts = jsonb_set(texts, '{body,fa}', to_jsonb('سلین در سال ۱۳۸۵ بعد از یک دهه تجربه در صنعت بدلیجات و زیورآلات متولد شد.'::text)), updated_at = now()
+where key = 'home.house' and texts #>> '{body,fa}' = 'سلین در سال ۱۳۸۵ متولد شد؛ با نگاهی متفاوت به دنیای زیورآلات و رؤیای خلق آثاری که زیبایی، ظرافت و کیفیت را در کنار یکدیگر معنا کنند.';
+update public.celin_slots set texts = jsonb_set(texts, '{body,en}', to_jsonb('CELIN was born in 2006, after a decade of experience in the costume jewelry and jewelry industry.'::text)), updated_at = now()
+where key = 'home.house' and texts #>> '{body,en}' = 'CELIN was born in 2006, with a different eye on the world of jewelry and a dream of creating pieces in which beauty, finesse and quality find their meaning together.';
+update public.celin_slots set texts = jsonb_set(texts, '{eyebrow,fa}', to_jsonb('اعضای سلین'::text)), updated_at = now()
+where key = 'home.pro' and texts #>> '{eyebrow,fa}' = 'اعضای Pro';
+update public.celin_slots set texts = jsonb_set(texts, '{eyebrow,en}', to_jsonb('CELIN members'::text)), updated_at = now()
+where key = 'home.pro' and texts #>> '{eyebrow,en}' = 'Pro members';
+update public.celin_slots set texts = jsonb_set(texts, '{title,fa}', to_jsonb('موجودی، قیمت و سفارش برای اعضا'::text)), updated_at = now()
+where key = 'home.pro' and texts #>> '{title,fa}' = 'قیمت، موجودی و سفارش برای همکاران';
+update public.celin_slots set texts = jsonb_set(texts, '{title,en}', to_jsonb('Stock, prices and ordering for members'::text)), updated_at = now()
+where key = 'home.pro' and texts #>> '{title,en}' = 'Prices, stock and ordering for partners';
+update public.celin_slots set texts = jsonb_set(texts, '{body,fa}', to_jsonb('با عضویت سلین، موجودی و قیمت همه‌ی آثار را می‌بینید و سفارش خود را مستقیم ثبت می‌کنید؛ با خرید بیشتر، حساب شما خودبه‌خود Pro می‌شود.'::text)), updated_at = now()
+where key = 'home.pro' and texts #>> '{body,fa}' = 'با اشتراک Pro، قیمت و موجودی همه‌ی آثار را می‌بینید و سفارش خود را مستقیم ثبت می‌کنید.';
+update public.celin_slots set texts = jsonb_set(texts, '{body,en}', to_jsonb('As a CELIN member you see the stock and price of every piece and place your orders directly; buy more and your account becomes Pro on its own.'::text)), updated_at = now()
+where key = 'home.pro' and texts #>> '{body,en}' = 'With Pro membership you see the price and stock of every piece and place your orders directly.';
+update public.celin_slots set texts = jsonb_set(texts, '{cta,fa}', to_jsonb('درخواست عضویت'::text)), updated_at = now()
+where key = 'home.pro' and texts #>> '{cta,fa}' = 'درخواست اشتراک Pro';
+update public.celin_slots set texts = jsonb_set(texts, '{cta,en}', to_jsonb('Request membership'::text)), updated_at = now()
+where key = 'home.pro' and texts #>> '{cta,en}' = 'Request Pro membership';
+update public.celin_slots set texts = jsonb_set(texts, '{title,fa}', to_jsonb('عضویت و Pro سلین'::text)), updated_at = now()
+where key = 'pro.hero' and texts #>> '{title,fa}' = 'اشتراک Pro سلین';
+update public.celin_slots set texts = jsonb_set(texts, '{title,en}', to_jsonb('CELIN membership & Pro'::text)), updated_at = now()
+where key = 'pro.hero' and texts #>> '{title,en}' = 'CELIN Pro membership';
+update public.celin_slots set texts = jsonb_set(texts, '{subtitle,fa}', to_jsonb('برای پرسش درباره‌ی آثار، سفارش‌ها و عضویت، از هر راهی که برایتان آسان‌تر است با ما گفتگو کنید.'::text)), updated_at = now()
+where key = 'contact.hero' and texts #>> '{subtitle,fa}' = 'برای پرسش درباره‌ی آثار، سفارش‌ها و اشتراک Pro، از هر راهی که برایتان آسان‌تر است با ما گفتگو کنید.';
+update public.celin_slots set texts = jsonb_set(texts, '{subtitle,en}', to_jsonb('For questions about a piece, an order or membership, reach us whichever way suits you best.'::text)), updated_at = now()
+where key = 'contact.hero' and texts #>> '{subtitle,en}' = 'For questions about a piece, an order or Pro membership, reach us whichever way suits you best.';
+update public.celin_slots set texts = jsonb_set(texts, '{title,fa}', to_jsonb('سلین، روی دست'::text)), updated_at = now()
+where key = 'shop.editorial' and texts #>> '{title,fa}' = 'گلبرگ، روی دست';
+update public.celin_slots set texts = jsonb_set(texts, '{title,en}', to_jsonb('CELIN, worn'::text)), updated_at = now()
+where key = 'shop.editorial' and texts #>> '{title,en}' = 'Golbarg, worn';
+update public.celin_slots set texts = jsonb_set(texts, '{href,fa}', to_jsonb('/collections/celin'::text)), updated_at = now()
+where key = 'shop.editorial' and texts #>> '{href,fa}' = '/collections/golbarg';
+update public.celin_slots set texts = jsonb_set(texts, '{href,en}', to_jsonb('/collections/celin'::text)), updated_at = now()
+where key = 'shop.editorial' and texts #>> '{href,en}' = '/collections/golbarg';
+update public.celin_slots set texts = jsonb_set(texts, '{body,fa}', to_jsonb('نگین‌های درخشان با تراش مشابه برلیان، رنگ‌های خاص همچون زمرد، یاقوت سرخ، یاقوت کبود، سیترین و برلیان.'::text)), updated_at = now()
+where key = 'home.craft.2' and texts #>> '{body,fa}' = 'نگین‌های درخشان با تراش اتمی؛ وجه‌هایی متقارن که نور را مثل جواهر برمی‌گردانند.';
+update public.celin_slots set texts = jsonb_set(texts, '{body,en}', to_jsonb('Brilliant stones with a diamond-like cut, in special colors such as emerald, ruby, sapphire, citrine and diamond white.'::text)), updated_at = now()
+where key = 'home.craft.2' and texts #>> '{body,en}' = 'Brilliant stones with an atomic cut: symmetrical facets that return light like a fine jewel.';
+update public.celin_slots set texts = jsonb_set(texts, '{body,fa}', to_jsonb('آبکاری‌های با کیفیت بالای رودیوم، طلا و شامپاین گلد، به همراه لایه‌ی حفاظ نانو برای تثبیت بهتر کیفیت آبکاری.'::text)), updated_at = now()
+where key = 'home.craft.4' and texts #>> '{body,fa}' = 'آبکاری‌های باکیفیت رودیوم و طلا، برای درخششی ماندگار در رنگ‌های نقره‌ای و طلایی.';
+update public.celin_slots set texts = jsonb_set(texts, '{body,en}', to_jsonb('High-quality rhodium, gold and champagne-gold plating, with a nano protective layer that keeps the plating at its best.'::text)), updated_at = now()
+where key = 'home.craft.4' and texts #>> '{body,en}' = 'Quality rhodium and gold plating, for a lasting shine in silver and gold tones.';
+update public.celin_slots set texts = jsonb_set(texts, '{eyebrow,fa}', to_jsonb('تراش مشابه برلیان'::text)), updated_at = now()
+where key = 'home.interlude' and texts #>> '{eyebrow,fa}' = 'تراش اتمی';
+update public.celin_slots set texts = jsonb_set(texts, '{eyebrow,en}', to_jsonb('Diamond-like cut'::text)), updated_at = now()
+where key = 'home.interlude' and texts #>> '{eyebrow,en}' = 'Atomic cut';
+update public.celin_slots set texts = jsonb_set(texts, '{body,fa}', to_jsonb('در سلین، هر قطعه با الهام از ساختار و ظرافت طلا و جواهر طراحی و ساخته می‌شود؛ با نگین‌های درخشان، مخراج‌کاری دقیق و آبکاری‌های باکیفیت رودیوم، طلا و شامپاین گلد.'::text)), updated_at = now()
+where key = 'home.interlude' and texts #>> '{body,fa}' = 'در سلین، هر قطعه با الهام از ساختار و ظرافت طلا و جواهر طراحی و ساخته می‌شود؛ با نگین‌های درخشان، مخراج‌کاری دقیق و آبکاری‌های باکیفیت رودیوم و طلا.';
+update public.celin_slots set texts = jsonb_set(texts, '{body,en}', to_jsonb('At CELIN, every piece is designed and made in the spirit of the structure and finesse of gold and jewels: brilliant stones, precise stone setting and quality rhodium, gold and champagne-gold plating.'::text)), updated_at = now()
+where key = 'home.interlude' and texts #>> '{body,en}' = 'At CELIN, every piece is designed and made in the spirit of gold and jewels, with their structure and finesse: brilliant stones, precise stone setting and quality rhodium and gold plating.';
+
+update public.celin_products
+set specs = (
+  select coalesce(jsonb_agg(
+    case
+      when s->>'value_fa' = 'سفید با تراش اتمی' or s->>'value_en' = 'White, atomic cut' then
+        s
+        || case when s->>'value_fa' = 'سفید با تراش اتمی' then jsonb_build_object('value_fa', 'سفید با تراش مشابه برلیان') else '{}'::jsonb end
+        || case when s->>'value_en' = 'White, atomic cut' then jsonb_build_object('value_en', 'White, diamond-like cut') else '{}'::jsonb end
+      else s
+    end order by o), '[]'::jsonb)
+  from jsonb_array_elements(specs) with ordinality as e(s, o))
+where specs @> '[{"value_fa": "سفید با تراش اتمی"}]'::jsonb
+   or specs @> '[{"value_en": "White, atomic cut"}]'::jsonb;
+
+update public.celin_products set description_fa = 'گردنبند، دستبند و گوشواره‌ی آویز تنیسی از نگین‌هایی با تراش مشابه برلیان؛ پایه‌ی هر جعبه‌ی جواهر.'
+where description_fa = 'گردنبند، دستبند و گوشواره‌ی آویز تنیسی از نگین‌های تراش اتمی؛ پایه‌ی هر جعبه‌ی جواهر.';
+update public.celin_products set description_en = 'The tennis necklace, bracelet and drop earrings in stones with a diamond-like cut — the foundation of any jewelry box.'
+where description_en = 'The tennis necklace, bracelet and drop earrings in atomic-cut stones — the foundation of any jewelry box.';
 
 insert into public.celin_migrations (name) values ('20261111100000_celin_membership_pro') on conflict (name) do nothing;

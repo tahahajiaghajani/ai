@@ -18,7 +18,7 @@ export const craftCopy = {
       step: "مرحله‌ی",
       tags: [
         ["به‌روزترین طرح‌های روز دنیا", "دیزاینرهای بین‌المللی"],
-        ["نگین‌های درخشان", "تراش اتمی"],
+        ["نگین‌های درخشان", "تراش مشابه برلیان"],
         ["انتخاب نگین", "نشاندن هر سنگ"],
         ["رودیوم", "طلا", "شامپاین گلد"],
       ],
@@ -34,7 +34,7 @@ export const craftCopy = {
   en: {
     meta: {
       title: "The craft",
-      description: "At CELIN, every piece is designed and made in the spirit of gold and jewels, with their structure and finesse: brilliant stones, precise stone setting and quality rhodium and gold plating.",
+      description: "At CELIN, every piece is designed and made in the spirit of the structure and finesse of gold and jewels: brilliant stones, precise stone setting and quality rhodium, gold and champagne-gold plating.",
     },
     lede: { eyebrow: story.en.chapters[0].title, text: story.en.chapters[0].text },
     steps: {
@@ -43,7 +43,7 @@ export const craftCopy = {
       step: "Step",
       tags: [
         ["The latest designs from around the world", "International designers"],
-        ["Brilliant stones", "Atomic cut"],
+        ["Brilliant stones", "Diamond-like cut"],
         ["Choosing each stone", "Setting each stone"],
         ["Rhodium", "Gold", "Champagne gold"],
       ],

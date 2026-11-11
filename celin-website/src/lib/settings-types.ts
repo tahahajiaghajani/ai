@@ -25,7 +25,7 @@ export interface AnnouncementSettings {
 export interface ShopSettings {
   /** smallest order total in Toman (0 = none) */
   minOrder: number;
-  /** how Pro members see stock: the exact number, or «موجود / رو به اتمام / ناموجود» */
+  /** how members see stock: the exact number, or «موجود / رو به اتمام / ناموجود» */
   stockDisplay: "exact" | "level";
   /** at or below this the level reads «رو به اتمام» */
   lowStock: number;

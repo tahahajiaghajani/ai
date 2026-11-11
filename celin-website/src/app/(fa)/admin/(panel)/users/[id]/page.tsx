@@ -81,7 +81,7 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
                   {m.level !== "pro" && settings.pro.proThreshold > 0 && <span className="text-muted"> از {formatPrice(settings.pro.proThreshold, "fa")}</span>}
                 </Row>
               </div>
-              <p className="mt-3 text-xs leading-5 text-muted">سفارش‌های تأییدشده (در حال آماده‌سازی، آماده‌ی ارسال یا ارسال‌شده) حساب می‌شوند؛ با رسیدن به این مبلغ، حساب خودبه‌خود Pro می‌شود و کد Pro می‌گیرد.</p>
+              <p className="mt-3 text-xs leading-5 text-muted">مبلغ کالاهای سفارش‌های تأییدشده (در حال آماده‌سازی، آماده‌ی ارسال یا ارسال‌شده؛ بدون هزینه‌ی ارسال) حساب می‌شود؛ با رسیدن به این مبلغ، حساب خودبه‌خود Pro می‌شود و کد Pro می‌گیرد. پس از «برداشتن Pro»، شمارش از نو شروع می‌شود.</p>
               <div className="mt-4 flex flex-wrap gap-2">
                 <SetProButton userId={m.id} on={m.level !== "pro"} />
               </div>

@@ -6,6 +6,7 @@ import { DaysPicker } from "@/components/admin/pro-code-dialog";
 import { Badge, Button, ConfirmButton, Field, Input, MoneyInput, Select, Textarea, Toggle } from "@/components/admin/ui";
 import { useAction } from "@/components/admin/toast";
 import type { Result } from "@/lib/action";
+import { num } from "@/lib/format";
 import type { AnnouncementSettings, ContactSettings, NotifyChannel, ProSettings, SeoSettings, ShopSettings, SmsProvider } from "@/lib/settings-types";
 
 /** Client-safe view of the secret groups: never the encrypted values, only whether one is stored. */
@@ -288,11 +289,11 @@ function PriceLadder({ f, set }: { f: ProSettings; set: <K extends keyof ProSett
           {f.steps.map((s, i) => (
             <div key={i} className="flex flex-wrap items-center gap-2 text-sm text-ink-2">
               <span>از</span>
-              <Input value={String(s.min)} onChange={(e) => step(i, "min", e.target.value)} inputMode="numeric" dir="ltr" className="w-20" aria-label={`پله‌ی ${i + 1}: از چند قطعه`} />
+              <Input value={String(s.min)} onChange={(e) => step(i, "min", e.target.value)} inputMode="numeric" dir="ltr" className="w-20" aria-label={`پله‌ی ${num(i + 1, "fa")}: از چند قطعه`} />
               <span>قطعه:</span>
-              <Input value={String(s.pct)} onChange={(e) => step(i, "pct", e.target.value)} inputMode="numeric" dir="ltr" className="w-20" aria-label={`پله‌ی ${i + 1}: درصد`} />
+              <Input value={String(s.pct)} onChange={(e) => step(i, "pct", e.target.value)} inputMode="numeric" dir="ltr" className="w-20" aria-label={`پله‌ی ${num(i + 1, "fa")}: درصد`} />
               <span>درصد</span>
-              <Button variant="ghost" size="sm" icon="trash" onClick={() => set("steps")(f.steps.filter((_, j) => j !== i))} aria-label={`حذف پله‌ی ${i + 1}`} />
+              <Button variant="ghost" size="sm" icon="trash" onClick={() => set("steps")(f.steps.filter((_, j) => j !== i))} aria-label={`حذف پله‌ی ${num(i + 1, "fa")}`} />
             </div>
           ))}
         </div>

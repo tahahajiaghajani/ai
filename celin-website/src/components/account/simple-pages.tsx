@@ -8,6 +8,7 @@ import { lightProduct, requireMember, storeContact } from "@/lib/member";
 import { listMessages } from "@/lib/messages";
 import { recentPurchases } from "@/lib/orders";
 import { getSettings } from "@/lib/settings";
+import { pricingFor } from "@/lib/pricing";
 import { latestRequest, proStatus } from "@/lib/pro";
 import { MarkMessagesRead } from "@/components/account/mark-read";
 import { Membership, type MembershipSnapshot } from "@/components/account/membership";
@@ -37,6 +38,7 @@ export async function AccountProPage({ lang }: { lang: Lang }) {
     reply: request?.status === "rejected" ? request.reply : "",
     requestedAt: request?.created_at ?? null,
     progress,
+    hasSteps: pricingFor("member", settings.pro).steps.length > 0,
   };
   const withCode = !pro.active && !pro.issued;
   return (

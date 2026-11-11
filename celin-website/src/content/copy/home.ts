@@ -3,7 +3,7 @@ export const homeCopy = {
   fa: {
     all: "همه‌ی زیورآلات",
     statement: { eyebrow: "ظرافت، کیفیت، اصالت", seal: "سلین" },
-    arcade: { eyebrow: "مجموعه‌ها", title: "مجموعه‌های سلین", all: "همه‌ی مجموعه‌ها", discover: "کشف مجموعه", soon: "به زودی" },
+    arcade: { eyebrow: "مجموعه‌ها", title: "مجموعه‌های سلین", all: "همه‌ی مجموعه‌ها", discover: "کشف مجموعه", soon: "به‌زودی" },
     featured: { eyebrow: "آثار برگزیده", title: "درخششی برای هر روز و هر شب", all: "همه‌ی زیورآلات" },
     craft: { eyebrow: "هنر ساخت", title: "زیبایی، در جزئیات", body: "چهار مرحله، از طرح تا درخشش.", link: "هنر ساخت" },
     house: { signature: "گالـــری اعتـــماد", signatureLabel: "گالری اعتماد" },

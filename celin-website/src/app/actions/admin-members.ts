@@ -119,7 +119,7 @@ export async function adminIssueCode(input: Record<string, unknown>): Promise<Re
     refresh();
     const d = deliveredNote(r.delivered);
     const ended = r.ended ? ` کد قبلی (که استفاده شده بود) باطل شد و عضو از همه‌ی دستگاه‌ها خارج شد${r.passwordCleared ? "؛ رمزی هم که با آن کد ساخته شده بود پاک شد" : ""}.` : "";
-    return { ok: true, message: "کد عضویت تازه صادر شد (کدهای قبلی این حساب باطل شدند).", code: r.code, note: `${d.note}${ended}`, warn: d.warn };
+    return { ok: true, message: r.pro ? "کد Pro تازه صادر شد (کدهای قبلی این حساب باطل شدند)." : "کد عضویت تازه صادر شد (کدهای قبلی این حساب باطل شدند).", code: r.code, note: `${d.note}${ended}`, warn: d.warn };
   });
 }
 
@@ -132,7 +132,7 @@ export async function adminRevokeCode(input: Record<string, unknown>): Promise<R
     const r = await revokeMemberCode(text(input.id, 40));
     refresh();
     const extra = r.ended ? ` عضو از همه‌ی دستگاه‌ها خارج شد${r.passwordCleared ? " و رمزی که با این کد ساخته بود پاک شد" : ""}.` : "";
-    return { ok: true, message: `کد باطل شد؛ قیمت‌ها برای این حساب دیگر نمایش داده نمی‌شود.${extra}` };
+    return { ok: true, message: r.pro ? `کد باطل شد؛ این حساب Pro است و قیمت عمده را همچنان می‌بیند (برای پایان Pro، «برداشتن Pro»).${extra}` : `کد باطل شد؛ قیمت‌ها برای این حساب دیگر نمایش داده نمی‌شود.${extra}` };
   });
 }
 

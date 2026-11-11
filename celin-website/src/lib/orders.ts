@@ -116,17 +116,22 @@ export interface OrderSummary extends Order {
   preview: Pick<OrderItem, "name_fa" | "name_en" | "image" | "qty">[];
 }
 
-/** Toman of a member's own accepted orders placed within the last `days` days (progress towards Pro). */
+/**
+ * A member's progress towards Pro: the goods (subtotal − discount, never shipping) of their own accepted orders
+ * placed within the last `days` days, and after the admin last took Pro away — the same count as members.ts goodsBought.
+ */
 export async function recentPurchases(userId: string, days: number): Promise<number> {
   const c = db();
   if (!c) return 0;
-  const since = new Date(Date.now() - days * 86400_000).toISOString();
-  const { data, error } = await c.from("celin_orders").select("total").eq("user_id", userId).in("status", [...ACCEPTED_STATUSES]).gte("created_at", since).limit(2000);
+  const u = await c.from("celin_users").select("pro_off_at").eq("id", userId).maybeSingle();
+  const off = u.error ? null : ((u.data as { pro_off_at: string | null } | null)?.pro_off_at ?? null);
+  const since = new Date(Math.max(Date.now() - days * 86400_000, off ? Date.parse(off) : 0)).toISOString();
+  const { data, error } = await c.from("celin_orders").select("subtotal, discount").eq("user_id", userId).in("status", [...ACCEPTED_STATUSES]).gte("created_at", since).limit(2000);
   if (error) {
     if (!isMissingTable(error)) console.error("[orders] recent", error.message);
     return 0;
   }
-  return ((data ?? []) as { total: number }[]).reduce((sum, r) => sum + Number(r.total ?? 0), 0);
+  return ((data ?? []) as { subtotal: number; discount: number }[]).reduce((sum, r) => sum + Math.max(0, Number(r.subtotal ?? 0) - Number(r.discount ?? 0)), 0);
 }
 
 /** A member's orders, newest first, with a small preview of their lines. */

@@ -5,7 +5,7 @@ import { EMAIL_RE, hashPassword, PASSWORD_MAX, PASSWORD_MIN, PROFILE_COLUMNS, US
 import { allRows, db, isMissingColumn, isMissingTable, requireDb, UserError } from "@/lib/db";
 import { mailHtml, sendEmail } from "@/lib/email";
 import { env } from "@/lib/env";
-import { formatPrice, normalizePhone } from "@/lib/format";
+import { formatPrice, normalizePhone, num } from "@/lib/format";
 import { codeMark, postMessage, untilMark } from "@/lib/messages";
 import { CODE_COLUMNS, CODES, codeState, issueCode, proSince, REQUESTS, revealCode, wasUsed, type CodeRow, type CodeState } from "@/lib/pro";
 import { notifyTeam } from "@/lib/notify";
@@ -63,7 +63,7 @@ export async function listMembers(): Promise<MemberRow[] | null> {
   await assertAdmin();
   const c = db();
   if (!c) return null;
-  let users: (Account & { created_at: string; last_sign_in_at: string | null; created_by_admin: boolean; admin_note: string; password_hash: string | null; password_from_code?: boolean; pro_at?: string | null; pro_by?: string })[];
+  let users: (Account & { created_at: string; last_sign_in_at: string | null; created_by_admin: boolean; admin_note: string; password_hash: string | null; password_from_code?: boolean; pro_at?: string | null; pro_by?: string; pro_off_at?: string | null })[];
   const read = (extra: string) => allRows<(typeof users)[number]>((a, b) => c.from(USERS).select(`${PROFILE_COLUMNS}, created_at, last_sign_in_at, created_by_admin, admin_note, password_hash${extra}`).order("created_at", { ascending: false }).range(a, b));
   try {
     // each step back is a database from before a later SQL file (round five: pro_at; hardening: password_from_code)
@@ -75,7 +75,7 @@ export async function listMembers(): Promise<MemberRow[] | null> {
         throw e;
       }
     };
-    users = (await tryRead(", password_from_code, pro_at, pro_by")) ?? (await tryRead(", password_from_code")) ?? (await read(""));
+    users = (await tryRead(", password_from_code, pro_at, pro_by, pro_off_at")) ?? (await tryRead(", password_from_code")) ?? (await read(""));
   } catch (e) {
     if (isMissingTable(e as { code?: string })) return null;
     throw e;
@@ -84,21 +84,24 @@ export async function listMembers(): Promise<MemberRow[] | null> {
   const windowStart = Date.now() - settings.pro.proDays * 86400_000;
   const [codes, orders, requests] = await Promise.all([
     allRows<CodeRow>((a, b) => c.from(CODES).select(CODE_COLUMNS).is("revoked_at", null).order("created_at", { ascending: false }).range(a, b)),
-    allRows<{ user_id: string; total: number; status: string; created_at: string }>((a, b) => c.from("celin_orders").select("user_id, total, status, created_at").order("created_at").range(a, b)),
+    allRows<{ user_id: string; total: number; subtotal: number; discount: number; status: string; created_at: string }>((a, b) => c.from("celin_orders").select("user_id, total, subtotal, discount, status, created_at").order("created_at").range(a, b)),
     allRows<{ user_id: string }>((a, b) => c.from(REQUESTS).select("user_id").eq("status", "pending").range(a, b)),
   ]);
   const codeOf = new Map<string, CodeRow>();
   for (const k of codes) if (!codeOf.has(k.user_id)) codeOf.set(k.user_id, k);
+  // the count towards Pro starts again when the admin takes Pro away (goodsBought)
+  const offAt = new Map(users.map((u) => [u.id, u.pro_off_at ? Date.parse(u.pro_off_at) : 0]));
   const stats = new Map<string, { n: number; spent: number; recent: number }>();
   for (const o of orders) {
     const s = stats.get(o.user_id) ?? { n: 0, spent: 0, recent: 0 };
     s.n++;
     if (o.status !== "cancelled") s.spent += Number(o.total);
-    if (ACCEPTED_STATUSES.includes(o.status as never) && Date.parse(o.created_at) >= windowStart) s.recent += Number(o.total);
+    const from = Math.max(windowStart, offAt.get(o.user_id) ?? 0);
+    if (ACCEPTED_STATUSES.includes(o.status as never) && Date.parse(o.created_at) >= from) s.recent += Math.max(0, Number(o.subtotal) - Number(o.discount));
     stats.set(o.user_id, s);
   }
   const pending = new Set(requests.map((r) => r.user_id));
-  return users.map(({ password_hash, password_from_code, pro_at, pro_by, ...u }) => {
+  return users.map(({ password_hash, password_from_code, pro_at, pro_by, pro_off_at: _off, ...u }) => {
     const k = codeOf.get(u.id);
     const memberActive = k ? codeState(k) === "active" : false;
     return {
@@ -132,7 +135,7 @@ export interface Delivered {
  * only as a placeholder naming this code, see messages.ts), SMS, e-mail. Module-private: callers check the
  * admin session.
  */
-async function deliverCode(user: Pick<Account, "id" | "name" | "phone" | "email">, issued: { code: string; id: string; expiresAt: string | null }, reason: "request" | "admin" | "pro"): Promise<Delivered> {
+async function deliverCode(user: Pick<Account, "id" | "name" | "phone" | "email">, issued: { code: string; id: string; expiresAt: string | null }, reason: "request" | "admin" | "pro" | "pro-new"): Promise<Delivered> {
   await assertAdmin();
   const { code } = issued;
   const mark = codeMark(issued.id);
@@ -140,7 +143,7 @@ async function deliverCode(user: Pick<Account, "id" | "name" | "phone" | "email"
   const site = env.siteUrl.replace(/^https?:\/\//, "");
   // inside Persian text the digit groups of "1234 5678 9012" would be laid out right-to-left; a leading LRM keeps their order
   const faCode = `\u200e${code}`;
-  if (reason === "pro") return deliverProCode(user, issued, s, faCode, mark, site);
+  if (reason === "pro" || reason === "pro-new") return deliverProCode(user, issued, s, faCode, mark, site, reason === "pro");
   // «اعتبار تا …» is drawn from the code row when the message is read (renewals, revokes and new expiries change it)
   const until = untilMark(issued.id);
   await postMessage(user.id, {
@@ -183,16 +186,18 @@ async function deliverProCode(
   faCode: string,
   mark: string,
   site: string,
+  fresh: boolean,
 ): Promise<Delivered> {
+  if (!fresh) return deliverNewProCode(user, issued, s, faCode, mark, site);
   await postMessage(user.id, {
     kind: "pro",
     title_fa: "حساب شما Pro شد",
     title_en: "Your account is now Pro",
     body_fa: s.pro.codeInInbox
-      ? `از این پس همه‌ی قیمت‌ها را با قیمت عمده می‌بینید و سفارش‌هایتان با همین قیمت ثبت می‌شود.\nکد Pro شما: ${mark}\nبرای ورود با کد، این کد را به کار ببرید؛ کد عضویت قبلی دیگر کار نمی‌کند.`
+      ? `از این پس همه‌ی قیمت‌ها را با قیمت عمده می‌بینید و سفارش‌هایتان با همین قیمت ثبت می‌شود.\nکد Pro شما: ${mark}\nبرای ورود به حساب با کد، همین کد را به کار ببرید؛ کد عضویت قبلی دیگر کار نمی‌کند.`
       : "از این پس همه‌ی قیمت‌ها را با قیمت عمده می‌بینید و سفارش‌هایتان با همین قیمت ثبت می‌شود. کد Pro شما از طریق پیامک یا تماس فروشگاه برایتان ارسال می‌شود.",
     body_en: s.pro.codeInInbox
-      ? `From now on you see every price at the wholesale price, and your orders are placed at it.\nYour Pro code: ${mark}\nUse this code to sign in with a code; your previous membership code no longer works.`
+      ? `From now on you see every price at the wholesale price, and your orders are placed at it.\nYour Pro code: ${mark}\nFrom now on, sign in with this code; your previous membership code no longer works.`
       : "From now on you see every price at the wholesale price, and your orders are placed at it. Your Pro code will reach you by text message or a call from the store.",
     link: "/account/pro",
   });
@@ -207,7 +212,7 @@ async function deliverProCode(
   if (user.email) {
     const html = mailHtml(
       "fa",
-      [`${user.name ? `${user.name} عزیز، ` : ""}حساب شما در سلین Pro شد.`, "از این پس همه‌ی قیمت‌ها را با قیمت عمده می‌بینید و سفارش‌هایتان با همین قیمت ثبت می‌شود.", `کد Pro شما: ${faCode}`, "برای ورود با کد، این کد را به کار ببرید؛ کد عضویت قبلی دیگر کار نمی‌کند."],
+      [`${user.name ? `${user.name} عزیز، ` : ""}حساب شما در سلین Pro شد.`, "از این پس همه‌ی قیمت‌ها را با قیمت عمده می‌بینید و سفارش‌هایتان با همین قیمت ثبت می‌شود.", `کد Pro شما: ${faCode}`, "برای ورود به حساب با کد، همین کد را به کار ببرید؛ کد عضویت قبلی دیگر کار نمی‌کند."],
       { href: `${env.siteUrl}/account/pro`, label: "حساب من" },
     );
     email = (await sendEmail(user.email, "حساب Pro سلین", html)).ok;
@@ -215,18 +220,72 @@ async function deliverProCode(
   return { inbox: s.pro.codeInInbox, sms, smsError, email };
 }
 
-/** Toman of an account's accepted orders placed within the last `days` days. */
-export async function acceptedTotal(userId: string, days: number): Promise<number> {
+/** A new Pro code for an account that is Pro already (the admin's «کد تازه»): the code changes, the prices do not. */
+async function deliverNewProCode(
+  user: Pick<Account, "id" | "name" | "phone" | "email">,
+  issued: { code: string; id: string },
+  s: Awaited<ReturnType<typeof getSettings>>,
+  faCode: string,
+  mark: string,
+  site: string,
+): Promise<Delivered> {
+  await postMessage(user.id, {
+    kind: "pro",
+    title_fa: "کد Pro تازه‌ی شما",
+    title_en: "Your new Pro code",
+    body_fa: s.pro.codeInInbox ? `کد Pro تازه‌ی شما: ${mark}\nاز این پس برای ورود با کد، همین کد را به کار ببرید؛ کد قبلی دیگر کار نمی‌کند.` : "کد Pro تازه‌ی شما از طریق پیامک یا تماس فروشگاه برایتان ارسال می‌شود.",
+    body_en: s.pro.codeInInbox ? `Your new Pro code: ${mark}\nFrom now on, sign in with this code; the previous one no longer works.` : "Your new Pro code will reach you by text message or a call from the store.",
+    link: "/account/pro",
+  });
+  let sms = false;
+  let smsError = "";
+  if (s.sms.onCode && s.sms.provider !== "none") {
+    const r = await sendSms(user.phone, { kind: "code", code: issued.code, text: `سلین | کد Pro تازه‌ی شما: ${faCode}\n${site}/account/pro` }, s.sms);
+    sms = r.ok;
+    smsError = r.ok ? "" : String((r as { error?: string }).error ?? "failed");
+  }
+  let email = false;
+  if (user.email) {
+    const html = mailHtml("fa", [`${user.name ? `${user.name} عزیز، ` : ""}کد Pro تازه‌ی شما: ${faCode}`, "از این پس برای ورود با کد، همین کد را به کار ببرید؛ کد قبلی دیگر کار نمی‌کند."], { href: `${env.siteUrl}/account/pro`, label: "حساب من" });
+    email = (await sendEmail(user.email, "کد Pro سلین", html)).ok;
+  }
+  return { inbox: s.pro.codeInInbox, sms, smsError, email };
+}
+
+/** What an account's Pro state rests on (null columns: round five's database file has not run yet). */
+async function proRow(userId: string): Promise<{ pro_at: string | null; pro_by: string; pro_off_at: string | null; name: string; phone: string } | null> {
+  const { data, error } = await requireDb().from(USERS).select("name, phone, pro_at, pro_by, pro_off_at").eq("id", userId).maybeSingle();
+  if (error) {
+    if (isMissingColumn(error)) throw new UserError(MIGRATION_NEEDED);
+    throw new Error(error.message);
+  }
+  return (data as { pro_at: string | null; pro_by: string; pro_off_at: string | null; name: string; phone: string } | null) ?? null;
+}
+
+const MIGRATION_NEEDED = "فایل SQL تازه (20261111100000_celin_membership_pro) هنوز در Supabase اجرا نشده است؛ «اتصالات» را ببینید.";
+
+/**
+ * The goods (subtotal − the admin's discount; never shipping) of an account's accepted orders placed within the last
+ * `days` days — and after `after` (when the admin last took Pro away), so the orders that earned a removed Pro do
+ * not give it straight back.
+ */
+export async function acceptedTotal(userId: string, days: number, after?: string | null): Promise<number> {
   await assertAdmin();
-  const since = new Date(Date.now() - days * 86400_000).toISOString();
-  const rows = await allRows<{ total: number }>((a, b) => requireDb().from("celin_orders").select("total").eq("user_id", userId).in("status", [...ACCEPTED_STATUSES]).gte("created_at", since).range(a, b));
-  return rows.reduce((sum, r) => sum + Number(r.total ?? 0), 0);
+  return goodsBought(userId, days, after);
+}
+
+export async function goodsBought(userId: string, days: number, after?: string | null): Promise<number> {
+  const windowStart = Date.now() - days * 86400_000;
+  const since = new Date(Math.max(windowStart, after ? Date.parse(after) : 0)).toISOString();
+  const rows = await allRows<{ subtotal: number; discount: number }>((a, b) => requireDb().from("celin_orders").select("subtotal, discount").eq("user_id", userId).in("status", [...ACCEPTED_STATUSES]).gte("created_at", since).range(a, b));
+  return rows.reduce((sum, r) => sum + Math.max(0, Number(r.subtotal ?? 0) - Number(r.discount ?? 0)), 0);
 }
 
 /**
  * Makes an account Pro now (only if it is not already): it pays the admin's prices from then on and gets its own
- * Pro code, which replaces the membership code — nobody is signed out (the account itself is unchanged). False when
- * it was Pro already (another change got there first).
+ * Pro code, which replaces the membership code — nobody is signed out (the code is not marked as used until the
+ * member enters it). False when it was Pro already (another change got there first). If the code cannot be
+ * issued, Pro is taken back so the account is never left without a working code.
  */
 async function makePro(userId: string, by: "auto" | "admin"): Promise<boolean> {
   await assertAdmin();
@@ -234,49 +293,77 @@ async function makePro(userId: string, by: "auto" | "admin"): Promise<boolean> {
   const now = new Date().toISOString();
   const { data, error } = await c.from(USERS).update({ pro_at: now, pro_by: by, updated_at: now }).eq("id", userId).is("pro_at", null).select("id, name, phone, email");
   if (error) {
-    if (isMissingColumn(error)) throw new UserError("فایل SQL تازه (۲۰۲۶۱۱۱۱) هنوز در Supabase اجرا نشده است؛ «اتصالات» را ببینید.");
+    if (isMissingColumn(error)) throw new UserError(MIGRATION_NEEDED);
     throw new Error(error.message);
   }
   const user = ((data ?? []) as Pick<Account, "id" | "name" | "phone" | "email">[])[0];
   if (!user) return false;
-  const issued = await issueCode(user.id, { kind: "pro", activate: true, days: null });
-  await deliverCode(user, issued, "pro");
+  let issued: Awaited<ReturnType<typeof issueCode>>;
+  try {
+    issued = await issueCode(user.id, { kind: "pro", days: null });
+  } catch (e) {
+    await c.from(USERS).update({ pro_at: null, pro_by: "", updated_at: new Date().toISOString() }).eq("id", user.id);
+    throw e;
+  }
+  try {
+    await deliverCode(user, issued, "pro");
+  } catch (e) {
+    // the account is Pro and its code exists (the admin can show or resend it); only the message failed
+    console.error("[pro] deliver", e);
+  }
   return true;
 }
 
 /**
- * Pro, automatically: once an account's accepted orders of the last `proDays` days reach `proThreshold` Toman, it
- * becomes Pro (makePro). Called after the admin accepts an order or changes its amounts; never throws (the order
- * change itself has already happened), a failure is logged.
+ * Pro, automatically: once the goods of an account's accepted orders of the last `proDays` days reach
+ * `proThreshold` Toman, it becomes Pro (makePro). Called after the admin accepts an order or raises its amount;
+ * never throws (the order change itself has already happened): a failure comes back as `error` for the admin.
  */
-export async function checkPro(userId: string): Promise<{ promoted: boolean; total: number }> {
+export async function checkPro(userId: string): Promise<{ promoted: boolean; total: number; error?: string }> {
   await assertAdmin();
   try {
     const s = (await getSettings()).pro;
-    if (s.proThreshold <= 0 || (await proSince(userId))) return { promoted: false, total: 0 };
-    const total = await acceptedTotal(userId, s.proDays);
+    if (s.proThreshold <= 0) return { promoted: false, total: 0 };
+    const row = await proRow(userId);
+    if (!row || row.pro_at) return { promoted: false, total: 0 };
+    const total = await goodsBought(userId, s.proDays, row.pro_off_at);
     if (total < s.proThreshold) return { promoted: false, total };
     const promoted = await makePro(userId, "auto");
-    if (promoted) {
-      const { data } = await requireDb().from(USERS).select("name, phone").eq("id", userId).maybeSingle();
-      const who = data as Pick<Account, "name" | "phone"> | null;
-      await notifyTeam(`حساب ${who?.name || "بی‌نام"} — ${who?.phone ?? ""} با ${formatPrice(total, "fa")} خرید تأییدشده در ${s.proDays} روز گذشته Pro شد.\n${env.siteUrl}/admin/users/${userId}`);
-    }
+    if (promoted) await notifyTeam(`حساب ${row.name || "بی‌نام"} — ${row.phone} با ${formatPrice(total, "fa")} خرید تأییدشده در ${num(s.proDays, "fa")} روز گذشته Pro شد.\n${env.siteUrl}/admin/users/${userId}`);
     return { promoted, total };
   } catch (e) {
     console.error("[pro] check", e);
-    return { promoted: false, total: 0 };
+    return { promoted: false, total: 0, error: e instanceof UserError ? e.message : "بررسی Pro انجام نشد؛ جزئیات در لاگ سرور است." };
   }
 }
 
-/** Admin: makes an account Pro by hand, or takes Pro back (its code then works as a membership code). */
+/**
+ * After an accepted order of an automatically Pro account is cancelled: whether its remaining purchases still reach
+ * the threshold (false: the admin is told, and may take Pro back by hand — it is never taken back on its own).
+ */
+export async function proStillEarned(userId: string): Promise<boolean> {
+  await assertAdmin();
+  try {
+    const row = await proRow(userId);
+    if (!row?.pro_at || row.pro_by !== "auto") return true;
+    const s = (await getSettings()).pro;
+    return (await goodsBought(userId, s.proDays, row.pro_off_at)) >= s.proThreshold;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Admin: makes an account Pro by hand, or takes Pro back (its code then works as a membership code). Taking it back
+ * also restarts the count: only orders placed after that moment can make the account Pro again on their own.
+ */
 export async function setMemberPro(userId: string, on: boolean): Promise<{ changed: boolean }> {
   await assertAdmin();
   if (on) return { changed: await makePro(userId, "admin") };
   const now = new Date().toISOString();
-  const { data, error } = await requireDb().from(USERS).update({ pro_at: null, pro_by: "", updated_at: now }).eq("id", userId).not("pro_at", "is", null).select("id");
+  const { data, error } = await requireDb().from(USERS).update({ pro_at: null, pro_by: "", pro_off_at: now, updated_at: now }).eq("id", userId).not("pro_at", "is", null).select("id");
   if (error) {
-    if (isMissingColumn(error)) throw new UserError("فایل SQL تازه (۲۰۲۶۱۱۱۱) هنوز در Supabase اجرا نشده است؛ «اتصالات» را ببینید.");
+    if (isMissingColumn(error)) throw new UserError(MIGRATION_NEEDED);
     throw new Error(error.message);
   }
   return { changed: Boolean((data as unknown[] | null)?.length) };
@@ -527,22 +614,24 @@ export async function rejectRequest(requestId: string, reply: string): Promise<v
 }
 
 /** Issues (or re-issues) a code for an account directly, without a request. */
-export async function issueForMember(userId: string, daysInput?: unknown): Promise<{ code: string; delivered: Delivered; ended: boolean; passwordCleared: boolean }> {
+export async function issueForMember(userId: string, daysInput?: unknown): Promise<{ code: string; delivered: Delivered; ended: boolean; passwordCleared: boolean; pro: boolean }> {
   await assertAdmin();
   const c = requireDb();
   const { data, error } = await c.from(USERS).select("id, name, phone, email").eq("id", userId).maybeSingle();
   if (error) throw new Error(error.message);
   const user = data as Pick<Account, "id" | "name" | "phone" | "email"> | null;
   if (!user) throw new UserError("حساب پیدا نشد.");
-  const days = Math.max(0, Math.round(Number(daysInput ?? (await getSettings()).pro.defaultDays) || 0));
-  const issued = await issueCode(user.id, { days });
+  // a Pro account gets a new Pro code (no expiry); everyone else a membership code
+  const pro = Boolean(await proSince(user.id));
+  const days = pro ? 0 : Math.max(0, Math.round(Number(daysInput ?? (await getSettings()).pro.defaultDays) || 0));
+  const issued = await issueCode(user.id, pro ? { kind: "pro", days: null } : { days });
   // the replaced code was used (still working or expired since — a renewal): whoever used it is signed out and a
   // password made with it is removed (a leaked code is the usual reason to replace one)
   const { passwordCleared } = issued.replacedLive ? await endCodeAccess(user.id) : { passwordCleared: false };
   // an open request of this member is answered by this code
   await c.from(REQUESTS).update({ status: "approved", decided_at: new Date().toISOString() }).eq("user_id", user.id).eq("status", "pending");
-  const delivered = await deliverCode(user, issued, "admin");
-  return { code: issued.code, delivered, ended: issued.replacedLive, passwordCleared };
+  const delivered = await deliverCode(user, issued, pro ? "pro-new" : "admin");
+  return { code: issued.code, delivered, ended: issued.replacedLive, passwordCleared, pro };
 }
 
 export async function listCodes(): Promise<CodeListRow[] | null> {
@@ -578,7 +667,7 @@ export async function revealMemberCode(codeId: string): Promise<string> {
  * Revokes a code. If it was in use, every session of the account ends and a password set from a code
  * session is removed (whoever had the code loses the account too); the member gets an inbox note.
  */
-export async function revokeMemberCode(codeId: string): Promise<{ ended: boolean; passwordCleared: boolean }> {
+export async function revokeMemberCode(codeId: string): Promise<{ ended: boolean; passwordCleared: boolean; pro: boolean }> {
   await assertAdmin();
   const c = requireDb();
   // the returned row is the one after the update: a use of the code that got in before it shows in
@@ -586,10 +675,21 @@ export async function revokeMemberCode(codeId: string): Promise<{ ended: boolean
   const { data, error } = await c.from(CODES).update({ revoked_at: new Date().toISOString() }).eq("id", codeId).is("revoked_at", null).select("user_id, redeemed_at, last_used_at, expires_at").maybeSingle();
   if (error) throw new Error(error.message);
   const row = data as { user_id: string; redeemed_at: string | null; last_used_at: string | null; expires_at: string | null } | null;
-  if (!row) return { ended: false, passwordCleared: false };
+  if (!row) return { ended: false, passwordCleared: false, pro: false };
   const used = wasUsed([row]);
   const { passwordCleared } = used ? await endCodeAccess(row.user_id) : { passwordCleared: false };
-  if (used && codeState({ ...row, revoked_at: null }) === "active") {
+  // a Pro account keeps its prices without a code (only «برداشتن Pro» ends Pro)
+  const pro = Boolean(await proSince(row.user_id));
+  if (pro) {
+    await postMessage(row.user_id, {
+      kind: "pro",
+      title_fa: "کد Pro شما باطل شد",
+      title_en: "Your Pro code has been revoked",
+      body_fa: "کد Pro شما از سوی فروشگاه باطل شد و دیگر برای ورود با کد کار نمی‌کند. حساب شما همچنان Pro است؛ برای کد تازه با فروشگاه تماس بگیرید.",
+      body_en: "Your Pro code was revoked by the store and no longer signs you in. Your account is still Pro — contact the store for a new code.",
+      link: "/account/pro",
+    });
+  } else if (used && codeState({ ...row, revoked_at: null }) === "active") {
     await postMessage(row.user_id, {
       kind: "pro",
       title_fa: "عضویت شما پایان یافت",
@@ -599,7 +699,7 @@ export async function revokeMemberCode(codeId: string): Promise<{ ended: boolean
       link: "/account/pro",
     });
   }
-  return { ended: used, passwordCleared };
+  return { ended: used, passwordCleared, pro };
 }
 
 /** Sets a new expiry: `days` from today (0 = never expires). */

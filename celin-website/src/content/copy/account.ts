@@ -105,7 +105,7 @@ const fa = {
     // the two levels and what lies between them: membership, the quantity discount, Pro
     benefits: (l: LevelsInfo) => [
       { title: "عضویت", text: "پس از تأیید فروشگاه، کد عضویت می‌گیرید؛ موجودی و قیمت اعضا را می‌بینید و سفارش خود را آنلاین ثبت می‌کنید." },
-      ...(l.steps ? [{ title: "تخفیف تعداد", text: "هرچه قطعه‌های یک سفارش بیشتر باشد، مبلغ فاکتور کمتر می‌شود؛ تخفیف در سبد و فاکتور نمایش داده می‌شود." }] : []),
+      ...(l.steps ? [{ title: "تخفیف تعداد", text: "هرچه قطعه‌های یک سفارش بیشتر باشد، مبلغ فاکتور کمتر می‌شود؛ تخفیف در سفارش و فاکتور نمایش داده می‌شود." }] : []),
       {
         title: "Pro",
         text: l.threshold
@@ -131,7 +131,7 @@ const fa = {
         a: `قیمت عمده، قیمت پایه‌ی سلین است؛ ${l.times ? `قیمت اعضا ${l.times} برابر آن است` : "قیمت اعضا همان قیمت عمده است"}${l.steps ? " و با قطعه‌های بیشتر در یک سفارش، مبلغ فاکتور کمتر می‌شود" : ""}. حساب‌های Pro همیشه با قیمت عمده خرید می‌کنند.`,
       },
       { q: "چه کسانی می‌توانند درخواست بدهند؟", a: "فروشگاه‌های حضوری و آنلاین، عمده‌فروشان و همکارانی که سلین را به مشتریان خود می‌رسانند. درخواست خرید شخصی هم بررسی می‌شود." },
-      { q: "تأیید درخواست چقدر طول می‌کشد؟", a: "معمولاً تا یک روز کاری. کد عضویت در بخش پیام‌های حساب شما قرار می‌گیرد و در صورت امکان پیامک هم می‌شود." },
+      { q: "تأیید درخواست چقدر طول می‌کشد؟", a: "معمولاً تا یک روز کاری. کد عضویت در بخش پیام‌های حساب شما قرار می‌گیرد و در صورت امکان با پیامک هم فرستاده می‌شود." },
     ],
     minQ: "حداقل سفارش دارد؟",
     minYes: "بله؛ مبلغ حداقل سفارش پس از فعال شدن عضویت، در صفحه‌ی سفارش نمایش داده می‌شود.",
@@ -162,7 +162,8 @@ const fa = {
     activeTitle: "عضویت شما فعال است",
     activeUntil: (d: string) => `عضویت شما فعال است تا ${d}`,
     activeNoEnd: "عضویت شما بدون تاریخ پایان فعال است.",
-    memberPrices: "قیمت هر قطعه برای اعضا نمایش داده می‌شود و با تعداد بیشتر در یک سفارش، مبلغ فاکتور کمتر می‌شود.",
+    memberPrices: "قیمت هر قطعه با قیمت اعضا نمایش داده می‌شود.",
+    memberSteps: "با تعداد بیشتر در یک سفارش، مبلغ فاکتور کمتر می‌شود.",
     proTitle: "حساب شما Pro است",
     proLead: "همه‌ی قیمت‌ها را با قیمت عمده می‌بینید و سفارش‌هایتان با همین قیمت ثبت می‌شود.",
     proSince: (d: string) => `Pro از ${d}`,
@@ -426,7 +427,7 @@ const en: AccountCopy = {
       { q: "What is membership?", a: "Live stock, members' prices and online ordering for CELIN's shops and partners, from your own account — opened with your membership code once the store approves you." },
       {
         q: "How do members' prices differ from wholesale prices?",
-        a: `The wholesale price is CELIN's base price; ${l.times ? `the members' price is ${l.times}× that` : "the members' price is the same"}${l.steps ? ", and the more pieces in one order, the lower the invoice" : ""}. Pro accounts always buy at the wholesale price.`,
+        a: `The wholesale price is CELIN's base price; ${l.times ? `the members' price is ${l.times} times that` : "the members' price is the same"}${l.steps ? ", and the more pieces in one order, the lower the invoice" : ""}. Pro accounts always buy at the wholesale price.`,
       },
       { q: "Who can apply?", a: "Shops in person and online, wholesalers and partners who bring CELIN to their clients. Personal requests are reviewed too." },
       { q: "How long does approval take?", a: "Usually within one working day. Your membership code arrives in your account messages, and by text message where possible." },
@@ -460,7 +461,8 @@ const en: AccountCopy = {
     activeTitle: "Your membership is active",
     activeUntil: (d: string) => `Your membership is active until ${d}`,
     activeNoEnd: "Your membership is active with no end date.",
-    memberPrices: "Each piece shows the members' price, and the more pieces in one order, the lower the invoice.",
+    memberPrices: "Each piece shows the members' price.",
+    memberSteps: "The more pieces in one order, the lower the invoice.",
     proTitle: "Your account is Pro",
     proLead: "You see every price at the wholesale price, and your orders are placed at it.",
     proSince: (d: string) => `Pro since ${d}`,

@@ -56,7 +56,7 @@ export function ProInvite({ lang, d }: { lang: Lang; d: ProInviteData }) {
             <div className="relative text-center lg:col-span-7 lg:text-start">
               <p className="flex items-center justify-center gap-3 font-label text-xs tracking-[0.36em] text-gold-on-dark lg:justify-start">
                 <span aria-hidden className="h-px w-8 bg-[image:var(--metal-champagne)]" />
-                <span className="ltr">CELIN PRO</span>
+                <span className="ltr">CELIN MEMBERS</span>
               </p>
               <p className="label mt-4 text-on-night-muted!">{d.eyebrow}</p>
               <SplitWords text={d.title} className="display mt-3 text-4xl leading-[1.4]! font-bold sm:text-5xl" wordClassName="text-metal-light" />

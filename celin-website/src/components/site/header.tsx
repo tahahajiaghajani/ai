@@ -34,7 +34,7 @@ function Logo({ lang, className, light }: { lang: Lang; className: string; light
   return (
     <Link href={href(lang, "/")} className={`relative block ${className}`} aria-label={lang === "fa" ? "سلین، گالری اعتماد — صفحه‌ی اصلی" : "CELIN, Etemad Gallery — home"}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/brand/celin-logo.svg" alt="CELIN — گالری اعتماد" className={`h-full w-auto transition-opacity duration-500 ${light ? "opacity-0" : "opacity-100"}`} width={794} height={379} />
+      <img src="/brand/celin-logo.svg" alt={lang === "fa" ? "سلین — گالری اعتماد" : "CELIN — Etemad Gallery"} className={`h-full w-auto transition-opacity duration-500 ${light ? "opacity-0" : "opacity-100"}`} width={794} height={379} />
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/brand/celin-logo-reverse.svg" alt="" aria-hidden className={`absolute inset-0 h-full w-auto transition-opacity duration-500 ${light ? "opacity-100" : "opacity-0"}`} width={794} height={379} />
     </Link>
@@ -466,7 +466,7 @@ export function Header({ lang, menu }: { lang: Lang; menu: MenuData }) {
               </Link>
             </nav>
           </div>
-          <Logo lang={lang} className="h-12 lg:h-14" light={light} />
+          <Logo lang={lang} className="h-14 lg:h-[4.25rem]" light={light} />
           {/* end: utilities */}
           <div className="-me-2.5 flex items-center justify-end gap-0.5 sm:gap-1">
             <span className="hidden sm:block">

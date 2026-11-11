@@ -203,7 +203,7 @@ export function revealCode(row: Pick<CodeRow, "code_enc">): string {
   return decrypt(row.code_enc);
 }
 
-/** The member's most recent Pro request (for the "pending" / "declined" states), or null. */
+/** The account's most recent membership request (for the "pending" / "declined" states), or null. */
 export async function latestRequest(userId: string): Promise<{ status: "pending" | "approved" | "rejected"; reply: string; created_at: string } | null> {
   const c = db();
   if (!c) return null;

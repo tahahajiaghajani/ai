@@ -25,7 +25,7 @@ export const productCopy = {
     details: "جزئیات و مشخصات",
     making: "هنر ساخت سلین",
     makingLink: "هنر ساخت",
-    materials: ["نگین با تراش اتمی", "مخراج‌کاری دقیق", "آبکاری رودیوم و طلا"],
+    materials: ["نگین با تراش مشابه برلیان", "مخراج‌کاری دقیق", "آبکاری رودیوم، طلا و شامپاین گلد"],
     care: "نگهداری",
     delivery: "بسته‌بندی و ارسال",
     careText: [
@@ -70,11 +70,11 @@ export const productCopy = {
     concierge: "A question about this piece?",
     whatsapp: "Chat on WhatsApp",
     call: "Call",
-    service: ["Orders are confirmed by the store — no online payment", "The CELIN box with a care card", "Follow your order from your account"],
+    service: ["Orders are confirmed by the store — no online payment", "CELIN packaging with a care card", "Follow your order from your account"],
     details: "Details",
     making: "How CELIN is made",
     makingLink: "The craft",
-    materials: ["Atomic-cut stones", "Precise setting", "Rhodium & gold plating"],
+    materials: ["Diamond-like-cut stones", "Precise setting", "Rhodium, gold & champagne-gold plating"],
     care: "Care",
     delivery: "Packaging & delivery",
     careText: [

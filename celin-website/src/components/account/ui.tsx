@@ -240,8 +240,7 @@ export function MiniProgress({ status, lang, className = "" }: { status: OrderSt
   );
 }
 
-/** «عضو PRO» / "PRO Member" — the words in the reading order of each language, a copper rhombus before them. */
-/** «عضو سلین» for a member; «حساب PRO» for a Pro account. */
+/** «عضو سلین» for a member; «حساب PRO» for a Pro account — a copper rhombus before the words. */
 export function ProChip({ lang, pro = false, className = "" }: { lang: Lang; pro?: boolean; className?: string }) {
   const c = accountCopy(lang).nav;
   return (

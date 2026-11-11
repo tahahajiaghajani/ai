@@ -366,7 +366,8 @@ export function ShopGrid({ lang, products, collections, editorial }: { lang: Lan
               [
                 ["metal", tr.tone, facet("metal", TONES.map((v) => ({ v, label: c.tones[v] })))],
                 ["stone", tr.stone, facet("stone", STONES.map((v) => ({ v, label: c.stones[v] })))],
-                ["collection", tr.collection, facet("collection", collections.map((k) => ({ v: k.slug, label: k.name })))],
+                // one collection only (every piece in «سلین»): nothing to choose, so no group
+                ["collection", tr.collection, collections.length > 1 ? facet("collection", collections.map((k) => ({ v: k.slug, label: k.name }))) : []],
               ] as const
             ).map(([key, label, options]) =>
               options.length ? (

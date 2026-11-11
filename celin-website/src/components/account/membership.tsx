@@ -29,6 +29,8 @@ export interface MembershipSnapshot {
   proSince: string | null;
   /** how far a member is from Pro: accepted orders in the last `days` days, against `threshold` (0 = off) */
   progress?: { recent: number; threshold: number; days: number };
+  /** the members' invoice steps down with more pieces (settings.pro.steps is not empty) */
+  hasSteps?: boolean;
   issued: boolean;
   expiresAt: string | null;
   since: string | null;
@@ -162,7 +164,10 @@ export function Membership({ lang, variant, initial, contact }: { lang: Lang; va
         <p className="title-section mt-2 text-metal-light">{isPro ? c.proTitle : c.activeTitle}</p>
         <p className="mt-1 font-ui text-sm leading-7 text-on-night-muted">{isPro ? c.proLead : until}</p>
         {variant === "account" && !isPro && (
-          <p className="mt-3 max-w-lg font-ui text-sm leading-7 text-on-night-muted">{c.memberPrices}</p>
+          <p className="mt-3 max-w-lg font-ui text-sm leading-7 text-on-night-muted">
+            {c.memberPrices}
+            {initial?.hasSteps && ` ${c.memberSteps}`}
+          </p>
         )}
         {variant === "account" && progress && (
           <div className="mt-5 max-w-md font-ui text-sm">

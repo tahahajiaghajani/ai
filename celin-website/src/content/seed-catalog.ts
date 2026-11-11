@@ -101,7 +101,7 @@ const GT: Spec = { label_fa: "پوشش", label_en: "Finish", value_fa: "طلای
 const RS: Spec = { label_fa: "پوشش", label_en: "Finish", value_fa: "رزگلد (آبکاری رزگلد)", value_en: "Rose-gold-tone" };
 const TT: Spec = { label_fa: "پوشش", label_en: "Finish", value_fa: "طلایی یا نقره‌ای (رودیوم)", value_en: "Gold-tone or silver-tone (rhodium plated)" };
 const stones = (fa: string, en: string): Spec => ({ label_fa: "نگین", label_en: "Stones", value_fa: fa, value_en: en });
-const WHITE = stones("سفید با تراش اتمی", "White, atomic cut");
+const WHITE = stones("سفید با تراش مشابه برلیان", "White, diamond-like cut");
 // the brand's own wording (story.ts): «مخراج‌کاری دقیق»; how the stones are set is not claimed beyond it
 const HAND: Spec = { label_fa: "نشاندن نگین", label_en: "Setting", value_fa: "مخراج‌کاری دقیق", value_en: "Precise stone setting" };
 const includes = (fa: string, en: string): Spec => ({ label_fa: "شامل", label_en: "Includes", value_fa: fa, value_en: en });
@@ -157,8 +157,8 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     name_en: "Yas tennis set",
     subtitle_fa: "تراش گرد · سفید · نقره‌ای (رودیوم)",
     subtitle_en: "Round cut, White, Rhodium plated",
-    description_fa: "گردنبند، دستبند و گوشواره‌ی آویز تنیسی از نگین‌های تراش اتمی؛ پایه‌ی هر جعبه‌ی جواهر.",
-    description_en: "The tennis necklace, bracelet and drop earrings in atomic-cut stones — the foundation of any jewelry box.",
+    description_fa: "گردنبند، دستبند و گوشواره‌ی آویز تنیسی از نگین‌هایی با تراش مشابه برلیان؛ پایه‌ی هر جعبه‌ی جواهر.",
+    description_en: "The tennis necklace, bracelet and drop earrings in stones with a diamond-like cut — the foundation of any jewelry box.",
     category: "sets",
     collection: "celin",
     metal: "silver",

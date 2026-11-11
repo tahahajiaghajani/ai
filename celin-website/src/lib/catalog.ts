@@ -300,7 +300,7 @@ export function related(catalog: Catalog, p: Product, n = 4): Product[] {
 }
 
 /**
- * Prices and stock of every published product, for a Pro member only (the caller checks). Not cached:
+ * Prices and stock of every published product, for members only (the caller checks). Not cached:
  * stock changes with every order.
  */
 export async function proPrices(): Promise<ProPrices> {

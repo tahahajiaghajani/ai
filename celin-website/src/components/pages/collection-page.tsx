@@ -61,7 +61,7 @@ export async function CollectionPage({ lang, slug }: { lang: Lang; slug: string 
         sparkle={14}
         crumbs={[{ label: nav.home, path: "/" }, { label: nav.collections, path: "/collections" }, { label: name }]}
         d={{ eyebrow: c.collection, title: name, subtitle: tagline || (products.length === 0 ? c.soon : ""), media: col.media }}
-        latin={["CELIN", (col.name_en || col.slug).toUpperCase()]}
+        latin={["CELIN", col.slug === "celin" ? "ETEMAD GALLERY" : (col.name_en || col.slug).toUpperCase()]}
         actions={
           <>
             {products.length > 0 && (

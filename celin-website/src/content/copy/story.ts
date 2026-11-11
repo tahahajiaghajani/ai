@@ -48,12 +48,12 @@ export const story = {
     motto: "CELIN — more than an ornament: a signature of finesse, quality and authenticity",
     mottoShort: "More than an ornament",
     signature: "A signature of finesse, quality and authenticity",
-    born: "CELIN was born in 2006, after a decade of experience in the costume jewelry and jewelry trade.",
+    born: "CELIN was born in 2006, after a decade of experience in the costume jewelry and jewelry industry.",
     chapters: [
       {
         key: "craft",
         title: "In the spirit of gold and jewels",
-        text: "At CELIN, every piece is designed and made in the spirit of gold and jewels, with their structure and finesse — brilliant cubic zirconia stones, precise setting and quality rhodium, gold and champagne-gold plating. Attention to detail, from choosing a stone to the finesse of setting it, is an inseparable part of who we are.",
+        text: "At CELIN, every piece is designed and made in the spirit of the structure and finesse of gold and jewels, using brilliant cubic zirconia stones, precise setting and quality rhodium, gold and champagne-gold plating. Attention to detail, from choosing a stone to the finesse of setting it, is an inseparable part of who we are.",
       },
       {
         key: "design",
