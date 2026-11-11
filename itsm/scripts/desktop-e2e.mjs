@@ -42,17 +42,23 @@ const C = new Checks("desktop-e2e", join(OUT, "checks.json"));
  * loader; API times as the renderer saw them.
  */
 const BUDGETS = {
-  cold_start_ms: 120_000,
-  warm_start_ms: 30_000,
+  // first launch after the installation: PGlite's initdb and every migration (24.6 s on the runner, run 43088978809)
+  cold_start_ms: 60_000,
+  // a later launch to the first screen (2.3 s)
+  warm_start_ms: 10_000,
   nav_visible_p95_ms: 4_000,
   nav_visible_max_ms: 12_000,
   api_p95_ms: 2_000,
   order_ms: 15_000,
-  demo_load_s: 1_800,
+  // the bank demo pack «کوچک» (236 s)
+  demo_load_s: 900,
+  // closing the window to the app's exit; the app kills its local server after 10 s
+  close_ms: 10_000,
   backend_peak_mb: 2_000,
   total_peak_mb: 4_000,
   idle_backend_cpu_pct: 30,
-  pg_wal_mb: 256,
+  // the database's write-ahead log after the run (64 MB: src/server/db/wal.ts)
+  pg_wal_mb: 160,
 };
 
 const ADMIN = { full_name: "مدیر فناوری اطلاعات", email: "it.admin@kariz-e2e.example", password: "Kariz-Desk-Pass-1405!" };
@@ -136,7 +142,11 @@ async function interactive(expect, ms = 240_000) {
   await page.waitForFunction(
     ({ loaders }) => {
       const root = document.getElementById("root");
-      return !!root && !document.querySelector(loaders) && (root.innerText || "").trim().length > 20 && document.fonts.status === "loaded";
+      const onScreen = (el) => {
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth;
+      };
+      return !!root && ![...document.querySelectorAll(loaders)].some(onScreen) && (root.innerText || "").trim().length > 20 && document.fonts.status === "loaded";
     },
     { loaders: LOADERS },
     { timeout: ms, polling: 50 },
@@ -291,7 +301,12 @@ async function go(persona, name, path, { click } = {}) {
     await page.waitForFunction(
       ({ loaders, main, before, from, path, moves }) => {
         const root = document.getElementById("root");
-        if (!root || document.querySelector(loaders)) return false;
+        // a loader on screen (one below the fold, or hidden, waits for the person to scroll there)
+        const onScreen = (el) => {
+          const r = el.getBoundingClientRect();
+          return r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth;
+        };
+        if (!root || [...document.querySelectorAll(loaders)].some(onScreen)) return false;
         // a click on a record, a service or «ثبت درخواست» always leads to another page
         if (moves && location.pathname === from) return false;
         if (path && location.pathname === from && from !== path.split("?")[0]) return false;
@@ -570,12 +585,13 @@ function finish() {
     if (p.by_phase.idle) budget("idle_server_cpu_pct", p.by_phase.idle.cpu.server, BUDGETS.idle_backend_cpu_pct, "CPU of the local server while the app sits idle (% of a core)");
   }
   if (report.database.pg_wal_mb !== undefined) budget("pg_wal_mb", report.database.pg_wal_mb, BUDGETS.pg_wal_mb, "the database's write-ahead log after the run (MB)");
+  if (report.close.first) budget("close_ms", report.close.first.ms, BUDGETS.close_ms, "closing the window to the app's exit after the run (ms)");
   report.budget_results = results;
   report.finished = new Date().toISOString();
   report.seconds = Math.round((Date.now() - T0) / 1000);
   report.failures = C.failures;
   report.checks = C.items;
-  writeFileSync(join(OUT, "report.json"), JSON.stringify({ ...report, samples }, null, 2));
+  writeFileSync(join(OUT, "report.json"), JSON.stringify({ ...report, api_log: apiLog, samples }, null, 2));
   const md = markdown();
   writeFileSync(join(OUT, "report.md"), md);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${md}\n`);
