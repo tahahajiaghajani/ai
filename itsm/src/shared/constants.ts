@@ -24,8 +24,10 @@ export const APP_VERSION = "1.1.0";
  * 15: bank ITAM (asset branch and device fields, transfers, custody, device status, maintenance SLAs, attestation);
  * 16: revisions are transaction ids and pull cursors are database snapshots (no organisation write lock; a 1.1.0-beta
  * app, protocol 15, is told to update — docs/spec/ENGINE.md §13).
+ * 17: fields, forms and workflows (design F): new synced kinds (field types and library fields first) and the custom
+ * field's library_id, placeholder, form_hidden and required_for.
  */
-export const SYNC_PROTOCOL = 16;
+export const SYNC_PROTOCOL = 17;
 
 /**
  * Optional modules an organisation switches on («ماژول‌ها»). The platform itself has none; later modules
