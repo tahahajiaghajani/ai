@@ -114,10 +114,29 @@ async function signIn(email, password) {
     throw e;
   }
   C.check(true, `the sign-in page opens over HTTPS for ${email} (certificate trusted through the Windows store)`);
+  // with Active Directory sign-in on, the page opens on «حساب سازمانی»; a local account (the administrator's
+  // break-glass account, a member made by hand) picks «ایمیل و رمز عبور», as people do
+  const local = page.getByText("ایمیل و رمز عبور", { exact: true });
+  await page.locator('input[autocomplete="username"]').waitFor({ timeout: 30_000 });
+  if (await local.count()) {
+    if (!signIn.sawDirectory) {
+      const first = await page.locator('input[autocomplete="username"]').getAttribute("placeholder");
+      C.check(/\\/.test(first ?? ""), "with AD sign-in on, the sign-in page opens on the organisation's account (DOMAIN\\user)", first ?? "");
+      signIn.sawDirectory = true;
+    }
+    await local.click();
+  }
   await page.locator('input[autocomplete="username"]').fill(email, { timeout: 30_000 });
   await page.locator('input[autocomplete="current-password"]').fill(password);
   await page.locator('button[type="submit"]').click();
-  await page.waitForURL((x) => !x.pathname.startsWith("/login"), { timeout: 60_000 });
+  try {
+    await page.waitForURL((x) => !x.pathname.startsWith("/login"), { timeout: 60_000 });
+  } catch (e) {
+    await page.screenshot({ path: join(SHOTS, `signin-failed-${email.replace(/[^a-z0-9]+/gi, "-")}.png`) }).catch(() => {});
+    const text = (await page.locator("body").innerText().catch(() => "")).slice(0, 400);
+    C.check(false, `${email} signs in through the form`, text);
+    throw e;
+  }
   await settle(page);
   return { ctx, page };
 }
