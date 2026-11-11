@@ -163,10 +163,11 @@ jobs:
           VERSION=$(node -p "require('./desktop/package.json').version")
           CHANNEL=$(node -p "require('./desktop/package.json').releaseChannel || ''")
           NOTES="فایل نصب ویندوز «کاریز» (Kariz؛ سامانهٔ سازمانی مدیریت خدمات فناوری اطلاعات و خدمات سازمانی). فایل Kariz-Setup را دانلود کنید (می‌توانید روی فلش هم کپی کنید) و اجرا کنید؛ همه‌چیز خودکار نصب می‌شود. راهنما: itsm/docs/DESKTOP_FA.md"
-          # a beta (releaseChannel "beta" in desktop/package.json) is its own pre-release itsm-v<version>-beta, so the last
-          # official release stays «Latest»; otherwise main publishes itsm-v<version> and every other branch its own preview
-          # (two branches pushed close together never mix their installers)
-          if [ "$CHANNEL" = "beta" ]; then TAG="itsm-v${VERSION}-beta"; TITLE="کاریز (Kariz) ${VERSION} — بتا"; PRE="--prerelease"
+          # on main, a beta (releaseChannel "beta" in desktop/package.json) is its own pre-release itsm-v<version>-beta, so
+          # the last official release stays «Latest», and a final version publishes itsm-v<version>; every other branch
+          # publishes only its own preview (work in progress never replaces a release people download, and two branches
+          # pushed close together never mix their installers)
+          if [ "$CHANNEL" = "beta" ] && [ "${GITHUB_REF_NAME}" = "main" ]; then TAG="itsm-v${VERSION}-beta"; TITLE="کاریز (Kariz) ${VERSION} — بتا"; PRE="--prerelease"
             NOTES="نسخهٔ آزمایشی (بتا) «کاریز» ${VERSION}. Kariz-Setup: نسخهٔ ویندوز (نصب با یک کلیک). Kariz-Server: نسخهٔ سرور برای شبکهٔ داخلی (MSI). تازه‌ها و راهنمای نصب: itsm/docs/RELEASE_FA.md"
           elif [ "${GITHUB_REF_NAME}" = "main" ]; then TAG="itsm-v${VERSION}"; TITLE="کاریز (Kariz) ${VERSION} — نسخهٔ ویندوز"; PRE=""; else TAG="itsm-preview-${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}"; TITLE="کاریز (Kariz) ${VERSION} — پیش‌نمایش (${GITHUB_REF_NAME})"; PRE="--prerelease"; fi
           gh release delete "$TAG" --cleanup-tag -y 2>/dev/null || true
@@ -269,7 +270,7 @@ jobs:
           VERSION=$(node -p "require('./itsm/desktop/package.json').version")
           CHANNEL=$(node -p "require('./itsm/desktop/package.json').releaseChannel || ''")
           # the same tag rules as the windows job's «Publish on the Releases page»
-          if [ "$CHANNEL" = "beta" ]; then TAG="itsm-v${VERSION}-beta"; TITLE="کاریز (Kariz) ${VERSION} — بتا"; PRE="--prerelease"
+          if [ "$CHANNEL" = "beta" ] && [ "${GITHUB_REF_NAME}" = "main" ]; then TAG="itsm-v${VERSION}-beta"; TITLE="کاریز (Kariz) ${VERSION} — بتا"; PRE="--prerelease"
           elif [ "${GITHUB_REF_NAME}" = "main" ]; then TAG="itsm-v${VERSION}"; TITLE="کاریز (Kariz) ${VERSION} — نسخهٔ ویندوز"; PRE=""; else TAG="itsm-preview-${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}"; TITLE="کاریز (Kariz) ${VERSION} — پیش‌نمایش (${GITHUB_REF_NAME})"; PRE="--prerelease"; fi
           # only this commit's release: a newer push of the branch re-created it and publishes its own MSI
           TARGET=$(gh release view "$TAG" --json targetCommitish --jq .targetCommitish 2>/dev/null || true)
