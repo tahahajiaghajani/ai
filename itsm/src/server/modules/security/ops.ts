@@ -265,8 +265,11 @@ export async function addObservables(ctx: Ctx, sirId: string, values: string[], 
   if (!clean.length) throw bad("نشانگری وارد نشده است");
   const sys = sysOf(ctx, ctx.user.id);
   return ctx.write(async (tx) => {
-    const out: Row[] = [];
-    for (const v of clean) out.push(await upsertObservable(tx, sys, sirId, "", v, { source: "manual", ...(opts.is_ioc ? { is_ioc: true } : {}), ...(opts.verdict ? { verdict: opts.verdict } : {}) }));
+    // each stored indicator is locked while it is added to: in sorted order, so two analysts adding the same values
+    // to their incidents take turns instead of waiting for each other in opposite orders (answered in the given order)
+    const byValue = new Map<string, Row>();
+    for (const v of [...clean].sort()) byValue.set(v, await upsertObservable(tx, sys, sirId, "", v, { source: "manual", ...(opts.is_ioc ? { is_ioc: true } : {}), ...(opts.verdict ? { verdict: opts.verdict } : {}) }));
+    const out = clean.map((v) => byValue.get(v)!);
     return { added: out.length, observables: out };
   });
 }
