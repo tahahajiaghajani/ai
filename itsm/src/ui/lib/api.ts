@@ -136,6 +136,8 @@ export const publicApi = {
 export function orgApi(orgId: string) {
   const p = (path: string) => `/o/${orgId}${path}`;
   return {
+    /** the organisation this client talks to (the records client batches per organisation) */
+    orgId,
     get: <T = any>(path: string, query?: Query) => api.get<T>(p(path), query),
     post: <T = any>(path: string, body: unknown = {}) => api.post<T>(p(path), body),
     put: <T = any>(path: string, body: unknown = {}) => api.put<T>(p(path), body),

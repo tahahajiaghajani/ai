@@ -6,8 +6,7 @@
 // same transaction as the message's log row, so a message is processed exactly once. Loop protection: our own
 // messages and addresses, auto-replies and bounces, bulk and list mail, and a sender rate limit; plus the channel's
 // allow and deny lists.
-import { ImapFlow } from "imapflow";
-import { simpleParser, type ParsedMail } from "mailparser";
+import type { ParsedMail } from "mailparser";
 import { uuidv7 } from "@shared/id";
 import { physicalTables, tableDef } from "@shared/tables";
 import { NOTIFY_TABLE_KEYS } from "@shared/tables/notify";
@@ -53,6 +52,8 @@ export interface MailboxSession {
 export type MailboxOpener = (c: ImapConfig) => Promise<MailboxSession>;
 
 const imapflowOpener: MailboxOpener = async (c) => {
+  // loaded when a mailbox is polled (a cold start of the web version does not pay for imapflow)
+  const { ImapFlow } = await import("imapflow");
   const client = new ImapFlow({
     host: c.host,
     port: c.port,
@@ -309,6 +310,7 @@ const BODY_MAX = 50_000;
 /** Process one raw message of a channel (the IMAP poll, «بررسی صندوق اکنون», tests with fixture e-mails). */
 export async function ingestMessage(cfg: ServerConfig, sys: Ctx, ch: EmailChannelRow, raw: Buffer | Uint8Array | string, opts: { uid?: number | null } = {}): Promise<IngestResult> {
   const buf = typeof raw === "string" ? Buffer.from(raw, "utf8") : Buffer.from(raw);
+  const { simpleParser } = await import("mailparser");
   const p = await simpleParser(buf, { skipTextLinks: true, maxHtmlLengthToParse: 2_000_000 });
   const messageId = normId(p.messageId ?? "") || `<uid.${opts.uid ?? uuidv7()}.${ch.id}@inbound.local>`;
   const org = sys.org.id;
