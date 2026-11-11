@@ -74,7 +74,7 @@ const fieldDef: TableDef = {
     { name: "type", label: "نوع فیلد", type: "string", required: true, maxLength: 42, list: true, filter: true, ltr: true, span: 12, help: "کلید یکی از نوع‌های پایه یا نوع‌های سازمان" },
     { name: "help", label: "راهنما", type: "string", maxLength: 300, span: 24 },
     { name: "placeholder", label: "متن نمونه", type: "string", maxLength: 120, span: 12 },
-    { name: "default_value", label: "مقدار پیش‌فرض", type: "json", span: 12, help: "یک مقدار، یا $today، $now، $me، $my_unit و $my_domain" },
+    { name: "default_value", label: "مقدار پیش‌فرض", type: "string", maxLength: 500, ltr: true, span: 12, help: "یک مقدار، یا $today، $now، $me، $my_unit و $my_domain" },
     { name: "options", label: "گزینه‌های ثابت", type: "json", span: 24 },
     { name: "choices", label: "فهرست گزینه‌ها", type: "string", maxLength: 80, ltr: true, span: 12, help: "کلید یک فهرست گزینهٔ مشترک؛ ویرایش فهرست‌های مشترک دسترسی «تنظیمات سازمان» می‌خواهد" },
     { name: "depends_on", label: "وابسته به", type: "string", maxLength: 42, ltr: true, span: 12, help: "فیلد گزینه‌ای دیگری از کتابخانه که گزینه‌های این فیلد را پالایش می‌کند" },

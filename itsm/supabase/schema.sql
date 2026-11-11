@@ -12515,7 +12515,7 @@ alter table sm_field_defs add column if not exists name text;
 alter table sm_field_defs add column if not exists type text;
 alter table sm_field_defs add column if not exists help text;
 alter table sm_field_defs add column if not exists placeholder text;
-alter table sm_field_defs add column if not exists default_value jsonb;
+alter table sm_field_defs add column if not exists default_value text;
 alter table sm_field_defs add column if not exists options jsonb;
 alter table sm_field_defs add column if not exists choices text;
 alter table sm_field_defs add column if not exists depends_on text;
