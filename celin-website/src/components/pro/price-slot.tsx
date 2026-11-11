@@ -51,7 +51,7 @@ export function PriceSlot({
   useEffect(() => setHint(document.cookie.split("; ").includes("celin_pro_ui=1")), []);
 
   const box = size === "pdp" ? "min-h-8 text-lg" : "min-h-5 text-sm";
-  // loading: before hydration, or while a Pro member's prices are on their way
+  // loading: before hydration, or while a member's prices are on their way
   if (hint === null || (book === undefined && hint)) {
     // without the app (no JS, or the boot failsafe) nothing ever loads: the locked words instead of an endless bar
     return (

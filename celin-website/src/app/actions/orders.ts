@@ -17,7 +17,7 @@ import { env } from "@/lib/env";
 
 const MSG = {
   signedOut: { fa: "برای ثبت سفارش وارد حساب خود شوید.", en: "Please sign in to place an order." },
-  notPro: { fa: "ثبت سفارش ویژه‌ی اعضای سلین است.", en: "Ordering is for CELIN members." },
+  notPro: { fa: "ثبت سفارش ویژه‌ی اعضای سلین است؛ عضویت را درخواست کنید یا با کد وارد شوید.", en: "Ordering is for CELIN members — request membership, or sign in with your code." },
   empty: { fa: "سفارش شما خالی است.", en: "Your order is empty." },
   unavailable: { fa: "ثبت سفارش هنوز راه‌اندازی نشده است؛ لطفاً با فروشگاه تماس بگیرید.", en: "Online ordering is not set up yet — please contact the store." },
   name: { fa: "نام گیرنده را بنویسید.", en: "Please enter the recipient's name." },

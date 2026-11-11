@@ -15,7 +15,8 @@ import { useMe } from "@/components/pro/session";
 import { ProSteps } from "@/components/pro/steps";
 
 /**
- * The Pro sheet, mounted once per page: «ورود کد Pro» | «درخواست اشتراک». Opened with openProSheet().
+ * The membership sheet, mounted once per page: «ورود با کد» (a membership or a Pro code) | «درخواست عضویت».
+ * Opened with openProSheet().
  * The private salon: an espresso panel, the PRO hallmark under an arcade of champagne hairlines, then the
  * 12-digit code in its cells — or the way to membership with its four steps. The hallmark turns and glows
  * when a code is accepted, then the sheet closes and the prices fade in.
@@ -79,7 +80,7 @@ export function ProSheet({ lang }: { lang: Lang }) {
             <span aria-hidden className="absolute inset-0 -z-10 bg-mesh-cocoa opacity-80" />
             <ProHallmark className="size-14 shrink-0" />
             <p className="font-ui text-sm leading-7">
-              <span className="block title-card text-metal-light">{c.proBar.active}</span>
+              <span className="block title-card text-metal-light">{c.proBar.eyebrow}</span>
               {s.success}
             </p>
           </div>
@@ -103,8 +104,8 @@ export function ProSheet({ lang }: { lang: Lang }) {
           <div className="relative px-5 pb-9 sm:px-9 md:py-9">
             {active ? (
               <div className="frame-metal relative bg-white/5 px-5 py-4 text-center font-ui text-sm leading-7 text-on-night">
-                {s.activeNote}
-                {me?.pro.expiresAt && <span className="block text-xs text-on-night-muted">{s.until(formatDate(me.pro.expiresAt, lang))}</span>}
+                {me?.pro.level === "pro" ? s.activeProNote : s.activeNote}
+                {me?.pro.level !== "pro" && me?.pro.expiresAt && <span className="block text-xs text-on-night-muted">{s.until(formatDate(me.pro.expiresAt, lang))}</span>}
               </div>
             ) : (
               <>

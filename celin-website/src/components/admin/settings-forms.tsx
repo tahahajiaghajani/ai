@@ -221,7 +221,7 @@ export function ShopForm({ initial }: { initial: ShopSettings }) {
         <Field label="حداقل مبلغ سفارش" hint="خالی یا صفر یعنی بدون حداقل.">
           <MoneyInput value={f.minOrder || null} onChange={(v) => set("minOrder")(v ?? 0)} placeholder="بدون حداقل" />
         </Field>
-        <Field label="نمایش موجودی به اعضای Pro" hint={f.stockDisplay === "level" ? "عدد دقیق فقط زیر آستانه‌ی «رو به اتمام» دیده می‌شود." : undefined}>
+        <Field label="نمایش موجودی به اعضا" hint={f.stockDisplay === "level" ? "عدد دقیق فقط زیر آستانه‌ی «رو به اتمام» دیده می‌شود." : undefined}>
           <Select value={f.stockDisplay} onChange={(e) => set("stockDisplay")(e.target.value === "level" ? "level" : "exact")}>
             <option value="exact">عدد دقیق (مثلاً ۴ عدد)</option>
             <option value="level">سطح (موجود / رو به اتمام / ناموجود)</option>
@@ -243,7 +243,7 @@ export function ShopForm({ initial }: { initial: ShopSettings }) {
   );
 }
 
-// ------------------------------------------------------------------ pro
+// ------------------------------------------------------------------ membership and Pro
 
 export function ProForm({ initial }: { initial: ProSettings }) {
   const { f, set } = useForm(initial);
@@ -348,7 +348,7 @@ export function NotifyForm({ initial }: { initial: NotifyView }) {
         </>
       }
     >
-      <Field label="کانال" hint="سفارش و درخواست Pro تازه به این گفتگو فرستاده می‌شود.">
+      <Field label="کانال" hint="سفارش و درخواست عضویت تازه به این گفتگو فرستاده می‌شود.">
         <Select value={f.channel} onChange={(e) => setF((x) => ({ ...x, channel: e.target.value as NotifyChannel }))}>
           <option value="none">خاموش</option>
           <option value="telegram">تلگرام</option>
@@ -391,7 +391,7 @@ export function NotifyForm({ initial }: { initial: NotifyView }) {
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
             <Toggle checked={f.onOrder} onChange={(v) => setF((x) => ({ ...x, onOrder: v }))} label="سفارش تازه" />
-            <Toggle checked={f.onRequest} onChange={(v) => setF((x) => ({ ...x, onRequest: v }))} label="درخواست Pro تازه" />
+            <Toggle checked={f.onRequest} onChange={(v) => setF((x) => ({ ...x, onRequest: v }))} label="درخواست عضویت تازه" />
           </div>
         </>
       )}
@@ -449,10 +449,10 @@ export function SmsForm({ initial }: { initial: SmsView }) {
           {smsir && (
             <div className="grid gap-4 sm:grid-cols-2">
               <Field
-                label="شناسه‌ی قالب کد Pro"
+                label="شناسه‌ی قالب کد عضویت و Pro"
                 hint={
                   <>
-                    متن قالب باید <span className="ltr">#CODE#</span> داشته باشد؛ مثلاً «سلین | کد اشتراک Pro شما: <span className="ltr">#CODE#</span>».
+                    متن قالب باید <span className="ltr">#CODE#</span> داشته باشد؛ مثلاً «سلین | کد اختصاصی شما: <span className="ltr">#CODE#</span>».
                   </>
                 }
               >
@@ -487,7 +487,7 @@ export function SmsForm({ initial }: { initial: SmsView }) {
             </div>
           )}
           <div className="grid gap-2 sm:grid-cols-2">
-            <Toggle checked={f.onCode} onChange={(v) => setF((x) => ({ ...x, onCode: v }))} label="ارسال کد Pro" />
+            <Toggle checked={f.onCode} onChange={(v) => setF((x) => ({ ...x, onCode: v }))} label="ارسال کد عضویت و Pro" />
             <Toggle checked={f.onStatus} onChange={(v) => setF((x) => ({ ...x, onStatus: v }))} label="ارسال تغییر وضعیت سفارش" />
           </div>
           <div className="border-t border-line pt-4">

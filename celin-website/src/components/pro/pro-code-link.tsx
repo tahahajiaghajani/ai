@@ -6,7 +6,7 @@ import { href } from "@/lib/i18n";
 import { openProSheet } from "@/components/pro/events";
 
 /**
- * «ورود با کد Pro»: a link to the code tab of the sign-in page that opens the Pro sheet in place once the page is
+ * «ورود با کد»: a link to the code tab of the sign-in page that opens the membership sheet in place once the page is
  * running. Until then — a slow network, a script that failed, an old page from before an update — and with a
  * modified click (new tab), it simply goes to that page, so the button always does something.
  */

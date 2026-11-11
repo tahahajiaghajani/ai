@@ -29,9 +29,9 @@ export interface ProInviteData {
 }
 
 /**
- * The invitation to Pro on living cocoa light: a jewel-box frame of champagne rules with its keystone, the
- * arch picture with the PRO hallmark stamped on it, three promises in a ledger of small arches, two ways in.
- * A member sees that prices are shown to them instead.
+ * The invitation to membership on living cocoa light: a jewel-box frame of champagne rules with its keystone, the
+ * arch picture with the members' hallmark stamped on it, three promises in a ledger of small arches, two ways in.
+ * A member (or a Pro account) sees that prices are shown to them instead.
  */
 export function ProInvite({ lang, d }: { lang: Lang; d: ProInviteData }) {
   const me = useMe();
@@ -84,8 +84,8 @@ export function ProInvite({ lang, d }: { lang: Lang; d: ProInviteData }) {
                     </Link>
                     <p className="flex items-center gap-2.5 font-ui text-sm text-on-night-muted">
                       <span aria-hidden className="size-1.5 rotate-45 bg-gold-glow" />
-                      {c.proBar.activeText}
-                      {me?.pro.expiresAt && <span className="text-xs">· {c.proSheet.until(formatDate(me.pro.expiresAt, lang))}</span>}
+                      {me?.pro.level === "pro" ? c.proBar.activeProText : c.proBar.activeText}
+                      {me?.pro.level !== "pro" && me?.pro.expiresAt && <span className="text-xs">· {c.proSheet.until(formatDate(me.pro.expiresAt, lang))}</span>}
                     </p>
                   </>
                 ) : (

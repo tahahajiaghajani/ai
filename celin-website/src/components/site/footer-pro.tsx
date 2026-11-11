@@ -7,7 +7,7 @@ import { href } from "@/lib/i18n";
 import { ProCodeLink } from "@/components/pro/pro-code-link";
 import { ProSeal } from "@/components/pro/seal";
 
-/** The footer's Pro column: the seal with the members' line, then the ways in (request, code, orders). */
+/** The footer's «عضویت و Pro» column: the seal with the members' line, then the ways in (request, code, orders). */
 export function FooterProLinks({ lang, className }: { lang: Lang; className: string }) {
   const c = commonCopy(lang);
   return (

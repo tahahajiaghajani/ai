@@ -226,7 +226,7 @@ export function Membership({ lang, variant, initial, contact }: { lang: Lang; va
     );
   }
 
-  // a former Pro member is told when and why the membership ended (expired / revoked)
+  // a former member is told when and why the membership ended (expired / revoked)
   const ended = proEndedText(lang, me?.pro.ended);
 
   if (variant === "compact") {

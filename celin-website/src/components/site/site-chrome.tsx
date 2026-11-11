@@ -15,7 +15,7 @@ import { SmoothScroll } from "@/components/fx/smooth-scroll";
 import { Cursor } from "@/components/fx/cursor";
 import { collectionsCopy } from "@/content/copy/collections";
 
-/** Header, menus, Pro sheet, search and footer around every public page (static: no per-user data here). */
+/** Header, menus, membership sheet, search and footer around every public page (static: no per-user data here). */
 export async function SiteChrome({ lang, children }: { lang: Lang; children: ReactNode }) {
   const [catalog, settings, slots] = await Promise.all([getCatalog(), getSettings(), getSlots()]);
   const promo = slots["menu.promo"];

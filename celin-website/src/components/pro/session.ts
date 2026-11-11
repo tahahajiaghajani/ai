@@ -7,9 +7,9 @@ import type { PriceLevel, Pricing } from "@/lib/pricing";
 import { cart } from "@/components/cart/cart-store";
 
 /**
- * The visitor's account and (for Pro members) prices, loaded once per page view from /api/me and
+ * The visitor's account and (for members and Pro accounts) prices, loaded once per page view from /api/me and
  * /api/pro/prices. Visitors cost nothing: both are asked only when the readable hint cookies say someone is
- * signed in here (celin_ui, or the admin hint celin_admin_ui) / has Pro (celin_pro_ui). Public pages stay
+ * signed in here (celin_ui, or the admin hint celin_admin_ui) / is a member or Pro (celin_pro_ui). Public pages stay
  * static and identical for everyone.
  */
 
@@ -126,7 +126,7 @@ export function useAdmin(): boolean | undefined {
   return useSession().admin;
 }
 
-/** Prices for Pro members; `undefined` while loading, `null` when this visitor has no Pro. */
+/** Prices for members and Pro accounts; `undefined` while loading, `null` when this visitor has no membership. */
 export function usePriceBook(): PriceBook | null | undefined {
   return useSession().book;
 }

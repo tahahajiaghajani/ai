@@ -13,7 +13,7 @@ import { ACCEPTED_STATUSES } from "@/lib/order-meta";
 import { getSettings, getSettingsFresh } from "@/lib/settings";
 import { sendSms } from "@/lib/sms";
 
-/** Admin side of accounts and Pro membership. Every exported function checks the admin session first. */
+/** Admin side of accounts, membership and Pro. Every exported function checks the admin session first. */
 
 export interface MemberRow extends Account {
   created_at: string;
@@ -315,7 +315,7 @@ export interface CreateMemberInput {
   days?: unknown;
 }
 
-/** Admin creates an account by hand (optionally with a password) and, if asked, issues its Pro code. */
+/** Admin creates an account by hand (optionally with a password) and, if asked, issues its membership code. */
 export async function createMember(input: CreateMemberInput): Promise<{ id: string; code: string | null; delivered: Delivered | null }> {
   await assertAdmin();
   const c = requireDb();
@@ -396,7 +396,7 @@ export async function setMemberPassword(id: string, password: string): Promise<v
   await assertAdmin();
   if (password.length < PASSWORD_MIN || password.length > PASSWORD_MAX) throw new UserError("رمز عبور باید دست‌کم ۸ نویسه باشد.");
   const password_hash = await hashPassword(password);
-  // a password the admin sets is the account's own, not tied to a Pro code
+  // a password the admin sets is the account's own, not tied to a membership or Pro code
   try {
     await bumpSession(id, { password_hash, password_from_code: false });
   } catch (e) {
@@ -413,7 +413,7 @@ export async function setMemberDisabled(id: string, disabled: boolean): Promise<
 /**
  * Users → «مدیر کردن» / «برداشتن دسترسی مدیر». Making an account admin follows the same rules as the activation
  * on /admin/login (promotionBlock: the ADMIN_PHONES allow-list, an own password — an admin never signs in with
- * a Pro code), it is logged with who did it and the team is told; every session of the account ends either way.
+ * a code), it is logged with who did it and the team is told; every session of the account ends either way.
  * The last admin account cannot lose the role while ADMIN_PASSWORD is not set (nobody could open the panel).
  */
 export async function setMemberRole(id: string, role: "user" | "admin"): Promise<{ changed: boolean; who: Pick<Account, "name" | "phone"> }> {
@@ -449,7 +449,7 @@ export async function deleteMember(id: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
-// ------------------------------------------------------------------ Pro requests & codes
+// ------------------------------------------------------------------ membership requests & codes
 
 export async function listRequests(): Promise<RequestRow[] | null> {
   await assertAdmin();
@@ -518,10 +518,10 @@ export async function rejectRequest(requestId: string, reply: string): Promise<v
   }
   await postMessage((data as { user_id: string }).user_id, {
     kind: "pro",
-    title_fa: "درباره‌ی درخواست اشتراک Pro",
-    title_en: "About your Pro request",
-    body_fa: reply.trim() ? reply.trim().slice(0, 800) : "درخواست اشتراک Pro شما در حال حاضر تأیید نشد. برای اطلاعات بیشتر با فروشگاه در تماس باشید.",
-    body_en: reply.trim() ? reply.trim().slice(0, 800) : "Your Pro request was not approved at this time. Please contact the store for details.",
+    title_fa: "درباره‌ی درخواست عضویت",
+    title_en: "About your membership request",
+    body_fa: reply.trim() ? reply.trim().slice(0, 800) : "درخواست عضویت شما در حال حاضر تأیید نشد. برای اطلاعات بیشتر با فروشگاه در تماس باشید.",
+    body_en: reply.trim() ? reply.trim().slice(0, 800) : "Your membership request was not approved at this time. Please contact the store for details.",
     link: "/account/pro",
   });
 }
@@ -592,10 +592,10 @@ export async function revokeMemberCode(codeId: string): Promise<{ ended: boolean
   if (used && codeState({ ...row, revoked_at: null }) === "active") {
     await postMessage(row.user_id, {
       kind: "pro",
-      title_fa: "اشتراک Pro شما پایان یافت",
-      title_en: "Your Pro membership has ended",
-      body_fa: "کد اشتراک Pro شما از سوی فروشگاه باطل شد و قیمت‌ها و موجودی دیگر نمایش داده نمی‌شود. برای تمدید یا کد تازه، از بخش «اشتراک Pro» درخواست دهید یا با فروشگاه تماس بگیرید.",
-      body_en: "Your Pro code was revoked by the store, so prices and stock are no longer shown. To renew, send a request under “Pro membership” or contact the store.",
+      title_fa: "عضویت شما پایان یافت",
+      title_en: "Your membership has ended",
+      body_fa: "کد عضویت شما از سوی فروشگاه باطل شد و قیمت‌ها و موجودی دیگر نمایش داده نمی‌شود. برای تمدید یا کد تازه، از بخش «عضویت و Pro» درخواست دهید یا با فروشگاه تماس بگیرید.",
+      body_en: "Your membership code was revoked by the store, so prices and stock are no longer shown. To renew, send a request under “Membership & Pro” or contact the store.",
       link: "/account/pro",
     });
   }

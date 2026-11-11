@@ -9,7 +9,7 @@ import { AccountHeader } from "@/components/account/ui";
 
 /**
  * /account/cart «سفارش جدید». The basket lives in the browser, so the page hands over the published
- * catalogue's names and pictures (never prices: those come from the Pro price layer after a session check).
+ * catalogue's names and pictures (never prices: those come from the members' price layer after a session check).
  */
 export async function CartPage({ lang }: { lang: Lang }) {
   const me = await requireMember(lang, "/account/cart");

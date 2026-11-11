@@ -41,7 +41,7 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
         sub={
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span className="ltr">{formatPhone(m.phone, "fa")}</span>
-            <span>عضویت {formatDate(m.created_at, "fa")}</span>
+            <span>ثبت‌نام {formatDate(m.created_at, "fa")}</span>
             {m.last_sign_in_at && <span>آخرین ورود {formatDate(m.last_sign_in_at, "fa", true)}</span>}
           </span>
         }
@@ -55,7 +55,7 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
         }
       />
 
-      {/* phone: Pro and contact first, then the profile, orders and security */}
+      {/* phone: price level, membership and contact first, then the profile, orders and security */}
       <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="contents min-w-0 lg:block lg:space-y-6">
           <div className="order-3 lg:order-none">
@@ -63,7 +63,7 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
           </div>
           <div className="order-4 lg:order-none">
             <Card title="سفارش‌ها" sub={m.orders ? `${num(m.orders, "fa")} سفارش · جمع خرید ${formatPrice(m.spent, "fa")}` : undefined} padded={!orders.length}>
-              {orders.length ? <OrdersList orders={orders} variant="member" bare /> : <p className="text-sm text-muted">این عضو هنوز سفارشی ثبت نکرده است.</p>}
+              {orders.length ? <OrdersList orders={orders} variant="member" bare /> : <p className="text-sm text-muted">این حساب هنوز سفارشی ثبت نکرده است.</p>}
             </Card>
           </div>
         </div>

@@ -14,7 +14,7 @@ import { OrderRow } from "@/components/account/order-row";
 import { AccountHeader, SectionTitle, btn } from "@/components/account/ui";
 import { WishlistPeek } from "@/components/account/wishlist-view";
 
-/** /account «پیشخوان»: greeting, Pro state, orders in progress, latest messages, a few saved pieces. */
+/** /account «پیشخوان»: greeting, membership or Pro, orders in progress, latest messages, a few saved pieces. */
 export async function DashboardPage({ lang }: { lang: Lang }) {
   const me = await requireMember(lang, "/account");
   const c = accountCopy(lang).dashboard;
@@ -43,7 +43,7 @@ export async function DashboardPage({ lang }: { lang: Lang }) {
     <>
       <AccountHeader lang={lang} title={name ? c.hello(name) : c.helloPlain} back={null} />
       <div className="mb-14 lg:hidden">
-        <AccountMenuList lang={lang} initial={{ name: me.name, pro: pro.active, unread }} />
+        <AccountMenuList lang={lang} initial={{ name: me.name, pro: pro.active, level: pro.level, unread }} />
       </div>
 
       <div className="space-y-14">

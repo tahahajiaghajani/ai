@@ -125,6 +125,11 @@ const SLOT_VIDEO = "20261023180000_celin_slot_video.sql";
 const HARDENING = "20261024090000_celin_hardening.sql";
 /** From this file on, every SQL file records its own name in celin_migrations. */
 const RECORDING_FROM = "20261024120000_celin_admin_fixes.sql";
+/** What a recorded file brings, shown beside its name in Connections («فایل تازه» for one not listed here). */
+const FILE_REASONS: Record<string, string> = {
+  [RECORDING_FROM]: "پیام‌های کد عضویت و تصاویر سفارش‌ها",
+  "20261111100000_celin_membership_pro.sql": "قیمت اعضا، Pro خودکار و مجموعه‌های سلین و میرا",
+};
 
 /**
  * Files that only change stored content are recognised by what they change: while a product spec still holds
@@ -167,7 +172,7 @@ export async function pendingMigrations(): Promise<{ file: string; why: string }
     return files.map((file) => ({ file, why: file === INIT ? `${missing.length ? `${missing.length} جدول` : "تابع‌های پایگاه داده"} ساخته نشده است` : "پس از فایل اول" }));
   }
   if (missing.includes("celin_videos")) add(SLOT_VIDEO, "جدول ویدئوهای تصاویر سایت ساخته نشده است");
-  if (versionError) add(HARDENING, "قواعد وضعیت سفارش و امنیت کدهای Pro");
+  if (versionError) add(HARDENING, "قواعد وضعیت سفارش و امنیت کدهای عضویت");
   // content files: the product specs still say what they remove
   const checks = CONTENT_CHECKS.map((k) => ({ ...k, file: files.find((f) => f.startsWith(k.prefix)) })).filter((k) => k.file);
   if (checks.length) {
@@ -182,7 +187,7 @@ export async function pendingMigrations(): Promise<{ file: string; why: string }
   // newer files record their name
   const { data, error } = await c.from("celin_migrations").select("name");
   const recorded = new Set(error ? [] : ((data ?? []) as { name: string }[]).map((r) => `${r.name}.sql`));
-  for (const f of files) if (f >= RECORDING_FROM && !recorded.has(f)) add(f, f === RECORDING_FROM ? "پیام‌های کد Pro و تصاویر سفارش‌ها" : "فایل تازه");
+  for (const f of files) if (f >= RECORDING_FROM && !recorded.has(f)) add(f, FILE_REASONS[f] ?? "فایل تازه");
   return out.sort((a, b) => a.file.localeCompare(b.file));
 }
 
@@ -199,7 +204,7 @@ export async function healthReport(): Promise<{ items: HealthItem[]; missingTabl
       key: "db",
       title: "پایگاه داده (Supabase)",
       state: "error",
-      detail: `${vars.join(" و ")} در Vercel تنظیم نشده است؛ تا آن زمان ثبت‌نام، ورود اعضا، اشتراک Pro و سفارش خاموش است (بازدیدکننده پیام «به‌زودی فعال می‌شود» می‌بیند). مقدارها را از Supabase ← Project Settings ← API Keys بردارید، در Vercel ← Settings ← Environment Variables بگذارید و دوباره Deploy کنید.`,
+      detail: `${vars.join(" و ")} در Vercel تنظیم نشده است؛ تا آن زمان ثبت‌نام، ورود اعضا، عضویت و سفارش خاموش است (بازدیدکننده پیام «به‌زودی فعال می‌شود» می‌بیند). مقدارها را از Supabase ← Project Settings ← API Keys بردارید، در Vercel ← Settings ← Environment Variables بگذارید و دوباره Deploy کنید.`,
     });
   } else {
     const results = await Promise.all(TABLES.map(async (t) => ({ t, r: await c.from(t).select("*", { count: "exact", head: true }) })));
@@ -255,9 +260,9 @@ export async function healthReport(): Promise<{ items: HealthItem[]; missingTabl
         : { key: "catalog", title: "کاتالوگ محصولات", state: "warn", detail: "هنوز محصولات نمونه نمایش داده می‌شوند؛ در «محصولات» آن‌ها را وارد کنید یا محصول تازه بسازید." },
     );
     const notifyOk = s.notify.channel !== "none" && s.notify.chatId && decrypt(s.notify.botTokenEnc);
-    items.push({ key: "notify", title: "اعلان به مدیر (تلگرام/بله)", state: notifyOk ? "ok" : "warn", detail: notifyOk ? `از طریق ${s.notify.channel === "bale" ? "بله" : "تلگرام"}` : "تنظیم نشده (اختیاری): سفارش و درخواست تازه فقط در پنل دیده می‌شود." });
+    items.push({ key: "notify", title: "اعلان به مدیر (تلگرام/بله)", state: notifyOk ? "ok" : "warn", detail: notifyOk ? `از طریق ${s.notify.channel === "bale" ? "بله" : "تلگرام"}` : "تنظیم نشده (اختیاری): سفارش و درخواست عضویت تازه فقط در پنل دیده می‌شود." });
     const smsOk = s.sms.provider !== "none" && decrypt(s.sms.apiKeyEnc);
-    items.push({ key: "sms", title: "پیامک به اعضا", state: smsOk ? "ok" : "warn", detail: smsOk ? (s.sms.provider === "kavenegar" ? "کاوه‌نگار" : "SMS.ir") : "تنظیم نشده (اختیاری): کد Pro در پیام‌های حساب کاربر و با دکمه‌های اشتراک‌گذاری به او می‌رسد." });
+    items.push({ key: "sms", title: "پیامک به اعضا", state: smsOk ? "ok" : "warn", detail: smsOk ? (s.sms.provider === "kavenegar" ? "کاوه‌نگار" : "SMS.ir") : "تنظیم نشده (اختیاری): کد عضویت در پیام‌های حساب کاربر و با دکمه‌های اشتراک‌گذاری به او می‌رسد." });
     const mail = await emailConfig();
     items.push({ key: "email", title: "ایمیل (Resend)", state: mail ? "ok" : "warn", detail: mail ? `فرستنده: ${mail.from}` : "تنظیم نشده (اختیاری)." });
   }
@@ -271,7 +276,7 @@ export async function healthReport(): Promise<{ items: HealthItem[]; missingTabl
         ? ip.ignored
           ? { key: "ip", title: "IP بازدیدکننده (محدودیت تلاش‌ها)", state: "warn", detail: `TRUSTED_IP_HEADER روی Vercel بدون TRUSTED_PROXY_SECRET نادیده گرفته می‌شود (هر کسی می‌تواند آن را مستقیم به نشانی ‎vercel.app بفرستد)؛ IP از سرآیند خود Vercel خوانده می‌شود. راهنما: docs/SETUP_FA.md بخش ۷.` }
           : { key: "ip", title: "IP بازدیدکننده (محدودیت تلاش‌ها)", state: "ok", detail: "از سرآیند خود Vercel خوانده می‌شود. اگر CDN داخلی (مثل ابرآروان) جلوی سایت گذاشته‌اید، TRUSTED_IP_HEADER و TRUSTED_PROXY_SECRET را هم بگذارید (راهنما بخش ۷)." }
-        : { key: "ip", title: "IP بازدیدکننده (محدودیت تلاش‌ها)", state: "warn", detail: "TRUSTED_IP_HEADER تنظیم نشده است: روی سرور خودتان نمی‌توان به IP اعلام‌شده اعتماد کرد، پس محدودیت تلاش‌های ورود، ثبت‌نام و کد Pro میان همه‌ی بازدیدکننده‌ها مشترک است. نام سرآیندی را که پراکسی IP واقعی را در آن می‌گذارد تنظیم کنید (راهنما بخش ۷)." },
+        : { key: "ip", title: "IP بازدیدکننده (محدودیت تلاش‌ها)", state: "warn", detail: "TRUSTED_IP_HEADER تنظیم نشده است: روی سرور خودتان نمی‌توان به IP اعلام‌شده اعتماد کرد، پس محدودیت تلاش‌های ورود، ثبت‌نام و وارد کردن کد میان همه‌ی بازدیدکننده‌ها مشترک است. نام سرآیندی را که پراکسی IP واقعی را در آن می‌گذارد تنظیم کنید (راهنما بخش ۷)." },
   );
   return { items, missingTables: missing, pending, supabaseProject: ref };
 }

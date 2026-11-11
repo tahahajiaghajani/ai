@@ -241,14 +241,21 @@ export function MiniProgress({ status, lang, className = "" }: { status: OrderSt
 }
 
 /** «عضو PRO» / "PRO Member" — the words in the reading order of each language, a copper rhombus before them. */
-export function ProChip({ lang, className = "" }: { lang: Lang; className?: string }) {
-  const member = accountCopy(lang).nav.member;
+/** «عضو سلین» for a member; «حساب PRO» for a Pro account. */
+export function ProChip({ lang, pro = false, className = "" }: { lang: Lang; pro?: boolean; className?: string }) {
+  const c = accountCopy(lang).nav;
   return (
     <span className={`inline-flex h-8 items-center gap-2 border border-gold/45 bg-gold-mist/60 px-3 font-ui text-xs text-gold-text ${className}`}>
       <span aria-hidden className="size-1.5 rotate-45 bg-[image:var(--metal-copper)]" />
-      {lang === "fa" && <span>{member}</span>}
-      <span className="font-label text-[11px] tracking-[0.18em] ltr">PRO</span>
-      {lang === "en" && <span>{member}</span>}
+      {!pro ? (
+        <span>{c.member}</span>
+      ) : (
+        <>
+          {lang === "fa" && <span>{c.proAccount}</span>}
+          <span className="font-label text-[11px] tracking-[0.18em] ltr">PRO</span>
+          {lang === "en" && <span>{c.proAccount}</span>}
+        </>
+      )}
     </span>
   );
 }

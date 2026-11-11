@@ -106,21 +106,21 @@ function AdminLink({ lang, row }: { lang: Lang; row?: boolean }) {
 }
 
 /**
- * «PRO» at the top on every screen: the Pro page (membership and Pro). A Pro account sees a quiet gold chip that
- * opens its Pro page in the account; on phones a signed-in member keeps the room for the account and the basket.
+ * «PRO» at the top on every screen: the «عضویت و Pro» page. A Pro account sees a quiet gold chip that opens its
+ * «عضویت و Pro» section in the account; on phones a signed-in member keeps the room for the account and the basket.
  */
 function ProButton({ lang }: { lang: Lang }) {
   const me = useMe();
   const c = commonCopy(lang);
   if (me?.pro.level === "pro") {
     return (
-      <Link href={href(lang, "/account/pro")} className="hidden h-7 items-center border border-gold/60 px-2.5 font-label text-[11px] tracking-[0.16em] text-gold-text group-data-light/header:border-gold-on-dark/60 group-data-light/header:text-gold-on-dark sm:inline-flex ltr" title={c.proBar.active}>
+      <Link href={href(lang, "/account/pro")} className="hidden h-7 items-center border border-gold/60 px-2.5 font-label text-[11px] tracking-[0.16em] text-gold-text group-data-light/header:border-gold-on-dark/60 group-data-light/header:text-gold-on-dark sm:inline-flex ltr" title={c.proBar.activePro}>
         PRO
       </Link>
     );
   }
   return (
-    <Link href={href(lang, "/pro")} className={`${me ? "hidden sm:inline-flex" : "inline-flex"} h-11 items-center px-1.5 font-label text-xs font-semibold tracking-[0.14em] opacity-85 transition-opacity hover:opacity-100 sm:px-2 ltr`} aria-label={c.proSheet.title}>
+    <Link href={href(lang, "/pro")} className={`${me ? "hidden sm:inline-flex" : "inline-flex"} h-11 items-center px-1.5 font-label text-xs font-semibold tracking-[0.14em] opacity-85 transition-opacity hover:opacity-100 sm:px-2 ltr`} aria-label={c.nav.membership}>
       PRO
     </Link>
   );
@@ -171,7 +171,7 @@ function LangLink({ lang }: { lang: Lang }) {
   );
 }
 
-/** «Pro» in the phone menu: the menu hands its history entry over to the Pro sheet. */
+/** «ورود با کد» in the phone menu: the menu hands its history entry over to the code sheet. */
 function DrawerProButton({ lang }: { lang: Lang }) {
   const c = commonCopy(lang);
   const nav = useOverlayNav();

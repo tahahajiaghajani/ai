@@ -98,7 +98,7 @@ export function SecurityCard({
             pass.run(() => adminSetPassword({ id, password }), { onOk: () => setPassword("") });
           }}
         >
-          <Field label="رمز عبور تازه" hint={hasPassword ? "با ذخیره، عضو از همه‌ی دستگاه‌ها خارج می‌شود." : "این حساب رمز ندارد و با کد Pro وارد می‌شود."}>
+          <Field label="رمز عبور تازه" hint={hasPassword ? "با ذخیره، عضو از همه‌ی دستگاه‌ها خارج می‌شود." : "این حساب رمز ندارد و با کد وارد می‌شود."}>
             <div className="flex gap-2">
               <div className="relative min-w-0 flex-1">
                 <Input
@@ -183,7 +183,7 @@ function RoleSection({ id, admin, block, name, phone }: { id: string; admin: boo
             <>
               <p>{who} به همه‌ی بخش‌های پنل دسترسی کامل پیدا می‌کند.</p>
               <ul className="list-inside list-disc space-y-1 text-xs leading-6 text-muted">
-                <li>از این پس فقط با شماره و رمز خودش وارد پنل می‌شود؛ حساب مدیر با کد Pro وارد نمی‌شود.</li>
+                <li>از این پس فقط با شماره و رمز خودش وارد پنل می‌شود؛ حساب مدیر با کد وارد نمی‌شود.</li>
                 <li>همه‌ی نشست‌های باز این حساب بسته می‌شود.</li>
                 <li>این کار با نام شما ثبت می‌شود و اگر «اعلان به مدیر» تنظیم باشد، خبرش فرستاده می‌شود.</li>
               </ul>
@@ -213,7 +213,7 @@ export function DangerCard({ id, orders }: { id: string; orders: number }) {
       </header>
       <div className="space-y-3 p-5">
         <p className="text-xs leading-6 text-ink-2">
-          حساب، کدهای Pro، درخواست‌ها و پیام‌های این عضو برای همیشه حذف می‌شود.
+          حساب، کدها، درخواست‌ها و پیام‌های این کاربر برای همیشه حذف می‌شود.
           {orders > 0 ? " سفارش‌های او در فهرست سفارش‌ها باقی می‌مانند." : ""} اگر فقط می‌خواهید جلوی ورود را بگیرید، حساب را غیرفعال کنید.
         </p>
         <ConfirmButton

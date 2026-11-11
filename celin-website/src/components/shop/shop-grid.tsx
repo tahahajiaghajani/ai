@@ -202,7 +202,7 @@ export function ShopGridFallback({ lang, products, collections, editorial }: { l
 
 /**
  * The listing grid with filters kept in the URL (?metal=gold&stone=paraiba&collection=nour&sort=new).
- * Filtering runs in the browser over the static product list; price sorting only exists for Pro members.
+ * Filtering runs in the browser over the static product list; price sorting only exists for members.
  */
 export function ShopGrid({ lang, products, collections, editorial }: { lang: Lang; products: Product[]; collections: { slug: string; name: string }[]; editorial?: ReactNode }) {
   const tr = T[lang];

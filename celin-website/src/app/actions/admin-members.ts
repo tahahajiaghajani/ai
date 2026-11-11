@@ -20,7 +20,7 @@ import {
 } from "@/lib/members";
 import { text, type Result } from "@/lib/action";
 
-/** Admin: accounts, Pro requests and codes. Every action runs through guard() (session check first). */
+/** Admin: accounts, membership requests and codes, Pro. Every action runs through guard() (session check first). */
 
 function refresh() {
   revalidatePath("/admin", "layout");
@@ -39,7 +39,7 @@ export async function adminCreateMember(input: Record<string, unknown>): Promise
   return guard(async () => {
     const r = await createMember({ ...input, name: input.name, phone: input.phone });
     refresh();
-    return { ok: true, message: r.code ? "حساب ساخته شد و کد Pro صادر شد." : "حساب ساخته شد.", id: r.id, code: r.code, ...deliveredNote(r.delivered) };
+    return { ok: true, message: r.code ? "حساب ساخته شد و کد عضویت صادر شد." : "حساب ساخته شد.", id: r.id, code: r.code, ...deliveredNote(r.delivered) };
   });
 }
 
@@ -101,7 +101,7 @@ export async function adminApproveRequest(input: Record<string, unknown>): Promi
   return guard(async () => {
     const r = await approveRequest(text(input.id, 40), input.days);
     refresh();
-    return { ok: true, message: "درخواست تأیید و کد صادر شد.", code: r.code, ...deliveredNote(r.delivered), name: r.user.name, phone: r.user.phone };
+    return { ok: true, message: "درخواست عضویت تأیید شد و کد عضویت صادر شد.", code: r.code, ...deliveredNote(r.delivered), name: r.user.name, phone: r.user.phone };
   });
 }
 
@@ -119,7 +119,7 @@ export async function adminIssueCode(input: Record<string, unknown>): Promise<Re
     refresh();
     const d = deliveredNote(r.delivered);
     const ended = r.ended ? ` کد قبلی (که استفاده شده بود) باطل شد و عضو از همه‌ی دستگاه‌ها خارج شد${r.passwordCleared ? "؛ رمزی هم که با آن کد ساخته شده بود پاک شد" : ""}.` : "";
-    return { ok: true, message: "کد تازه صادر شد (کدهای قبلی این حساب باطل شدند).", code: r.code, note: `${d.note}${ended}`, warn: d.warn };
+    return { ok: true, message: "کد عضویت تازه صادر شد (کدهای قبلی این حساب باطل شدند).", code: r.code, note: `${d.note}${ended}`, warn: d.warn };
   });
 }
 

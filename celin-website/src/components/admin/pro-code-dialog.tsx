@@ -7,7 +7,7 @@ import { Icon, type IconName } from "@/components/ui/icons";
 import { formatPhone, num } from "@/lib/format";
 
 /**
- * The Pro code, shown big after it is issued or revealed, with ready-made ways to send it to the member.
+ * A membership (or Pro) code, shown big after it is issued or revealed, with ready-made ways to send it to the member.
  * One dialog per page (ProCodeProvider), opened from any button with useProCode().show(...): the button
  * that issued a code may disappear when the page refreshes (e.g. an approved request), the dialog stays.
  */
@@ -46,9 +46,12 @@ export function ProCodeProvider({ siteUrl, children }: { siteUrl: string; childr
   );
 }
 
-/** The text for the member. The LRM before the code keeps its digit groups in order inside Persian text. */
+/**
+ * The text for the member: «کد اختصاصی», which fits a membership code and a revealed Pro code alike. The LRM before
+ * the code keeps its digit groups in order inside Persian text.
+ */
 export function codeMessage(code: string, siteUrl: string): string {
-  return `سلین | کد اشتراک Pro شما: \u200e${code}\nورود: ${siteUrl}/pro`;
+  return `سلین | کد اختصاصی شما: \u200e${code}\nورود: ${siteUrl}/pro`;
 }
 
 function ShareLink({ href, icon, children }: { href: string; icon: IconName; children: ReactNode }) {
@@ -70,7 +73,7 @@ export function CodeDialog({ value, siteUrl, onClose }: { value: ShownCode | nul
   const msg = v ? codeMessage(v.code, siteUrl) : "";
   const phone = v?.phone && /^09\d{9}$/.test(v.phone) ? v.phone : "";
   return (
-    <Dialog open={Boolean(v)} onClose={onClose} title={v?.fresh ? "کد اشتراک Pro صادر شد" : "کد اشتراک Pro"}>
+    <Dialog open={Boolean(v)} onClose={onClose} title={v?.fresh ? "کد عضویت صادر شد" : "کد اختصاصی"}>
       {v && (
         <div className="space-y-5">
           {(v.name || phone) && (
@@ -108,7 +111,7 @@ export function CodeDialog({ value, siteUrl, onClose }: { value: ShownCode | nul
                   پیامک
                 </ShareLink>
               )}
-              <ShareLink href={`https://t.me/share/url?url=${encodeURIComponent(`${siteUrl}/pro`)}&text=${encodeURIComponent(`سلین | کد اشتراک Pro شما: \u200e${v.code}`)}`} icon="telegram">
+              <ShareLink href={`https://t.me/share/url?url=${encodeURIComponent(`${siteUrl}/pro`)}&text=${encodeURIComponent(`سلین | کد اختصاصی شما: \u200e${v.code}`)}`} icon="telegram">
                 تلگرام
               </ShareLink>
             </div>
