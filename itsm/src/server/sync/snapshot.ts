@@ -205,9 +205,13 @@ export async function checkXidRegression(q: Queryable, opts: { force?: boolean; 
   const now = Date.now();
   if (!opts.force && now - markedAt < MARK_EVERY_MS) return false;
   markedAt = now;
-  const cur = await currentSnap(q);
-  const row = await q.one<{ value: unknown }>(`select value from sm_meta where key = $1`, [MARK]).catch(() => null);
-  const mark = Number(row?.value ?? 0);
+  // the snapshot and the mark in ONE statement (one snapshot): a mark this statement sees was written by a transaction
+  // that committed before it, whose own snapshot's xmax is below this one's — two statements would let another
+  // process raise the mark in between, and an older xmax read first would look like a regression (every Windows app of
+  // every organisation reading everything again for nothing)
+  const both = await q.one<{ s: string; mark: unknown }>(`select pg_current_snapshot()::text as s, (select value from sm_meta where key = $1) as mark`, [MARK]).catch(() => null);
+  const cur = parseSnap(both?.s) ?? (await currentSnap(q));
+  const mark = Number(both?.mark ?? 0);
   if (Number.isFinite(mark) && mark > cur.xmax) {
     const n = await bumpAllSyncEpochs(q);
     await q.query(`insert into sm_meta (key, value, updated_at) values ($1, $2, now()) on conflict (key) do update set value = excluded.value, updated_at = now()`, [MARK, String(cur.xmax)]);

@@ -96,11 +96,16 @@ export async function archiveBatch(sys: Ctx, def: TableDef, years: number, limit
 export async function purgeArchived(sys: Ctx, def: TableDef, limit = 2000): Promise<number> {
   if (!archivable(def)) return 0;
   return sys.db.tx(async (tx) => {
+    // `t.deleted_at is not null` on the deleted row itself: a Windows app's push that restores a tombstone (live again,
+    // its archive copy removed) while this runs makes the delete wait for its row; PostgreSQL then re-checks only the
+    // conditions on `t` against the restored version — a condition only inside the subquery would not be re-checked
+    // and the live record would be removed for good. Rows another writer holds are skipped (purged next night).
     const rows = await tx.query<{ id: string; rev: number }>(
-      `delete from ${def.table} t where t.id in (
+      `delete from ${def.table} t where t.deleted_at is not null and t.org_id = $1 and t.id in (
          select a.id from ${archiveTableOf(def)} a join ${def.table} h on h.id = a.id
          where a.org_id = $1 and a.archived_at < now() - make_interval(days => ${ARCHIVE_TOMBSTONE_DAYS}) and h.deleted_at is not null
-         limit ${Math.max(1, Math.trunc(limit))})
+         limit ${Math.max(1, Math.trunc(limit))}
+         for update of h skip locked)
        returning t.id, t.rev`,
       [sys.org.id],
     );

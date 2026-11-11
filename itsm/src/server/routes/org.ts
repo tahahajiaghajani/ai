@@ -11,7 +11,7 @@ import { supportPermissions } from "../context";
 import { orgAccess } from "../modules/platform/access";
 import { accessibleOrgs, endSupport, listSupportSessions, SUPPORT_LEVEL_TITLE } from "../modules/platform/support";
 import { requestMeta, securityEvent } from "../modules/platform/security";
-import { createdHere, memberChangeProblem, RESETTABLE_SQL } from "../modules/platform/members";
+import { createdHere, lockActiveOwners, memberChangeProblem, RESETTABLE_SQL } from "../modules/platform/members";
 import { hashPassword, passwordProblem, readableCode } from "../auth/password";
 import { uuidv7 } from "@shared/id";
 import { insertRow, updateRow } from "../db/sql";
@@ -115,9 +115,15 @@ orgRoutes.patch("/", async (c) => {
   if (settings && "timezone" in settings && (typeof settings.timezone !== "string" || !isTimeZone(settings.timezone))) throw bad("منطقهٔ زمانی معتبر نیست");
   const result = await ctx.write(async (tx) => {
     const patch: Record<string, unknown> = { ...profile, origin: ctx.cfg.origin };
+    // the organisation's row as it is now, locked until commit: a settings group another write saved after this request
+    // loaded the organisation (the sign-in policy, archive or access settings…) is merged into, never overwritten
+    const stored = (await tx.one<{ settings: Record<string, unknown> | null; modules: string[] | null }>(
+      `select settings, modules from sm_orgs where id = $1 for update`,
+      [ctx.org.id],
+    )) ?? { settings: ctx.org.settings ?? {}, modules: ctx.org.modules ?? [] };
     if (settings) {
       // one level deep: a form that saves part of a settings group keeps the rest of it
-      const prev = (ctx.org.settings ?? {}) as Record<string, unknown>;
+      const prev = (stored.settings ?? {}) as Record<string, unknown>;
       const merged: Record<string, unknown> = { ...prev };
       for (const [k, v] of Object.entries(settings as Record<string, unknown>)) {
         const old = prev[k];
@@ -129,7 +135,7 @@ orgRoutes.patch("/", async (c) => {
     if (modules) {
       ctx.need("settings", "full");
       const next = knownModules(modules);
-      const added = next.filter((m) => !(ctx.org.modules ?? []).includes(m));
+      const added = next.filter((m) => !((stored.modules ?? []) as string[]).includes(m));
       patch.modules = next;
       if (added.length) await seedOrg(tx, ctx.org.id, added, ctx.cfg.origin);
     }
@@ -245,8 +251,10 @@ orgRoutes.patch("/members/:id", async (c) => {
   const losesOwner = m.role === "owner" && m.is_active && ((input.role && input.role !== "owner") || input.is_active === false);
   await ctx.write(async (tx) => {
     if (losesOwner) {
-      const owners = await tx.one<{ n: number }>(`select count(*)::int as n from sm_org_members where org_id = $1 and role = 'owner' and deleted_at is null and is_active`, [ctx.org.id]);
-      if ((owners?.n ?? 0) <= 1) throw bad("سازمان باید دست‌کم یک مالک فعال داشته باشد");
+      // the active owners locked first (id order): a concurrent demotion of the other owner finishes before this count
+      // and is not counted, so two owners demoting each other never leave the organisation without one
+      const owners = await lockActiveOwners(tx, ctx.org.id);
+      if (owners.includes(String(m.id)) && owners.length <= 1) throw bad("سازمان باید دست‌کم یک مالک فعال داشته باشد");
     }
     await updateRow(tx, "sm_org_members", { id: m.id, org_id: ctx.org.id }, { ...input, origin: ctx.cfg.origin });
   });

@@ -333,12 +333,30 @@ async function linkedDesktop(cfg: JobConfig): Promise<boolean> {
   return !!s && (s as { linked?: unknown }).linked === true;
 }
 
+/**
+ * Timer `id` and its record, both locked for the transaction — the record first, then the timer: the order every write
+ * of the record takes (its write locks it, then plans and writes its timers). A change of the record in flight (a new
+ * priority and target, a resolution) finishes first and this reads the timer as that write left it; two timers of one
+ * record breaching at once take turns on the record, so the second one's actions see the first one's (escalation + 1
+ * twice, never the same level written twice).
+ */
+async function lockTimer(tx: Tx, sys: Ctx, tdef: TableDef, id: string, env: CondEnv): Promise<{ def: TableDef | null; record: Row | null; t: Row | null }> {
+  const peek = await loadReadable(tx, sys, tdef, id, env);
+  if (!peek) return { def: null, record: null, t: null };
+  const schema = await orgSchema(sys, tx);
+  const found = schema.def(String(peek.table_key));
+  const def = found && !found.virtual ? found : null;
+  const record = def ? await loadReadable(tx, sys, def, String(peek.record_id), env, { lock: true }) : null;
+  const t = await loadReadable(tx, sys, tdef, id, env, { lock: true });
+  return { def, record, t };
+}
+
 /** Look at timer `id` now: record the highest warning reached and the breach (once), return when to look again. */
 export async function fireTimer(sys: Ctx, id: string): Promise<number | null> {
   return sys.write(async (tx) => {
     const { def: tdef } = await defFor(sys, "task_sla", tx);
     const env = await condEnv(sys);
-    const t = await loadReadable(tx, sys, tdef, id, env, { lock: true });
+    const { def, record, t } = await lockTimer(tx, sys, tdef, id, env);
     if (!t || !isLive(t as TimerRow)) return null;
     const cfg = await config(tx, sys);
     const d = cfg.rows.sla_definition.find((x) => x.id === t.definition_id);
@@ -348,9 +366,6 @@ export async function fireTimer(sys: Ctx, id: string): Promise<number | null> {
     const due = dueEvents(t as TimerRow, cal, levels, now);
     const values: Row = { ...snapshot(due.state, now) };
     if (due.state.running && due.state.plannedEnd !== null) values.planned_end_at = iso(due.state.plannedEnd);
-    const schema = await orgSchema(sys, tx);
-    const def = schema.def(String(t.table_key));
-    const record = def && !def.virtual ? await loadReadable(tx, sys, def, String(t.record_id), env) : null;
     if (due.warn !== null) values.warned = due.warn;
     if (due.breach) {
       values.breached = true;
@@ -375,12 +390,16 @@ async function recalc(sys: Ctx, deadline: number, after: string | null): Promise
   for (const r of todo) {
     if (Date.now() > deadline) return r.id;
     await sys.write(async (tx) => {
-      const cal = await calendarFor(tx, sys, r.calendar_id, r.timezone);
+      // the record, then the timer, locked and read again (the list above is only the candidates)
+      const { def: tdef } = await defFor(sys, "task_sla", tx);
+      const { t: cur } = await lockTimer(tx, sys, tdef, String(r.id), await condEnv(sys));
+      if (!cur || cur.active !== true) return;
+      const cal = await calendarFor(tx, sys, cur.calendar_id, cur.timezone);
       const now = Date.now();
-      const t = evaluateTimer(r as TimerRow, cal, now);
+      const t = evaluateTimer(cur as TimerRow, cal, now);
       if (!t.running || t.plannedEnd === null) return;
-      if (msOf(r.planned_end_at) !== t.plannedEnd) await updateIn(tx, sys, "task_sla", r.id, { planned_end_at: iso(t.plannedEnd), ...snapshot(t, now) }, { trusted: true, keepVersion: true });
-      await schedule(tx, sys.org.id, r.id, now);
+      if (msOf(cur.planned_end_at) !== t.plannedEnd) await updateIn(tx, sys, "task_sla", cur.id, { planned_end_at: iso(t.plannedEnd), ...snapshot(t, now) }, { trusted: true, keepVersion: true });
+      await schedule(tx, sys.org.id, cur.id, now);
     });
   }
   return null;

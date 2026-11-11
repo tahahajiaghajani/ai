@@ -229,7 +229,10 @@ const previousOrgRule = pushRules.get("org");
 pushRules.set("org", async (tx, ctx, agg, existing) => {
   const row = agg.row as Record<string, unknown>;
   if (row.settings && typeof row.settings === "object" && !Array.isArray(row.settings)) {
-    const current = (ctx.org.settings as Record<string, unknown> | undefined)?.auth;
+    // the stored policy as it is now (the push locked the organisation's row): a policy tightened after this request
+    // loaded the organisation is kept, never the request's older copy
+    const stored = await tx.one<{ auth: unknown }>(`select settings->'auth' as auth from sm_orgs where id = $1`, [ctx.org.id]);
+    const current = stored?.auth ?? undefined;
     const pushed = { ...(row.settings as Record<string, unknown>) };
     if (current === undefined) delete pushed.auth;
     else pushed.auth = current;

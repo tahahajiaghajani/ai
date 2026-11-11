@@ -14,12 +14,12 @@ import { router, body, requireUser, type C } from "../http/hono";
 import { guardOrgSession } from "../auth/policy";
 import { bad, forbidden, notFound } from "../http/errors";
 import { makeCtx, lockOrg, type MemberRow, type OrgRow, type Ctx } from "../context";
-import { pgArray, type Tx } from "../db";
+import { isTransientDbError, pgArray, type Tx } from "../db";
 import { AGGREGATES, BY_ENTITY, type AggregateDef, type WireAggregate } from "../sync/registry";
 import { readAggregates, writeAggregate } from "../sync/apply";
 import { ident } from "../db/sql";
 import { orgStatus, statusError } from "../modules/platform/org-admin";
-import { CREATED_HERE_SQL, memberChangeProblem, OWNER_ONLY_MESSAGE, sameGrant, type MemberGrant } from "../modules/platform/members";
+import { CREATED_HERE_SQL, lockActiveOwners, memberChangeProblem, OWNER_ONLY_MESSAGE, sameGrant, type MemberGrant } from "../modules/platform/members";
 import { requestMeta, securityEvent, type SecurityEventInput } from "../modules/platform/security";
 import type { Area, Level, Role } from "@shared/permissions";
 import { SYNC_PROTOCOL } from "@shared/constants";
@@ -194,7 +194,10 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
           continue;
         }
       }
-      const existing = await tx.one<{ org_id: string; rev: number; updated_at: string }>(`select org_id, rev, updated_at from ${ident(def.table)} where id = $1`, [agg.id]);
+      // locked until the push commits (the upsert below locks it anyway, this only takes the lock earlier): a web write of
+      // the same row in flight finishes first, so the stale check, the module's rules and the write all judge the
+      // version this push replaces — never a copy that a concurrent write is about to change (lost as «ok»)
+      const existing = await tx.one<{ org_id: string; rev: number; updated_at: string }>(`select org_id, rev, updated_at from ${ident(def.table)} where id = $1 for update`, [agg.id]);
       if (existing && existing.org_id !== ctx.org.id) {
         results.push({ entity: agg.entity, id: agg.id, status: "error", message: "شناسه متعلق به سازمان دیگری است" });
         continue;
@@ -257,11 +260,10 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
           continue;
         }
         if (wasLive && was!.role === "owner" && (!next.live || next.role !== "owner")) {
-          const others = await tx.one<{ n: number }>(
-            `select count(*)::int as n from sm_org_members where org_id = $1 and id <> $2 and role = 'owner' and is_active and deleted_at is null`,
-            [ctx.org.id, agg.id],
-          );
-          if (!others?.n) {
+          // the active owners locked (id order, as the members page does): a demotion of another owner in flight
+          // finishes first and is not counted, so two of them never leave the organisation without an owner
+          const owners = await lockActiveOwners(tx, ctx.org.id);
+          if (!owners.some((id) => id !== agg.id)) {
             results.push({ entity: agg.entity, id: agg.id, status: "error", message: "سازمان باید دست‌کم یک مالک فعال داشته باشد" });
             continue;
           }
@@ -275,6 +277,8 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
         results.push({ entity: agg.entity, id: agg.id, status: "ok", rev: now?.rev, renumbered: r.renumbered });
         if (memberChange) memberEvents.push(memberEvent(memberChange.was, memberChange.next));
       } catch (e) {
+        // a deadlock or serialization failure aborted the whole push: it is answered 503 and the app pushes again
+        if (isTransientDbError(e)) throw e;
         results.push({ entity: agg.entity, id: agg.id, status: "error", message: String((e as Error).message ?? e).slice(0, 300) });
       }
     }
