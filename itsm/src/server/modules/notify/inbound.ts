@@ -21,6 +21,7 @@ import { addAttachmentIn, addJournalIn, createIn, maxAttachmentBytes, systemCtx 
 import { readersOf } from "../../access";
 import { actsHere, errText, fullCfg, isUuid, sysCtx, systemRows } from "./common";
 import { channelSecret, checkMailHost, emailChannels, type EmailChannelRow } from "./mail";
+import { assertNotDemoOutbound } from "../../db/scope";
 
 // ----- the mailbox (tests replace it) -----------------------------------------------------------------------------------
 
@@ -53,6 +54,8 @@ export interface MailboxSession {
 export type MailboxOpener = (c: ImapConfig) => Promise<MailboxSession>;
 
 const imapflowOpener: MailboxOpener = async (c) => {
+  // no connection leaves inside the demo pack's work (docs/DEMO_FA.md)
+  assertNotDemoOutbound();
   const client = new ImapFlow({
     host: c.host,
     port: c.port,
@@ -406,6 +409,9 @@ const MAX_MESSAGE_BYTES = 25 * 1024 * 1024;
 
 /** Read a channel's new mail now. */
 export async function pollChannel(cfg: ServerConfig, sys: Ctx, ch: EmailChannelRow): Promise<PollResult> {
+  // never inside the demo pack's work (docs/DEMO_FA.md): no mailbox is opened, whichever opener is set, and nothing
+  // of the channel's state changes (a real message read there would become demo data, deleted by the purge)
+  assertNotDemoOutbound();
   const key = `${sys.org.id}:${ch.id}`;
   if (polling.has(key)) throw new Error("خواندن این صندوق هم‌اکنون در جریان است");
   polling.add(key);

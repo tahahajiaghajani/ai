@@ -59,6 +59,9 @@ export async function demoPeople(q: Queryable, orgId: string, users: string[]): 
   return new Set(rows.map((r) => r.id.toLowerCase()));
 }
 
+/** What a refused outbound call tells a person: nothing of the demo pack left the system. */
+export const DEMO_OUTBOUND_TEXT = "داده‌های نمایشی از سامانه بیرون نمی‌رود؛ چیزی فرستاده نشد";
+
 /** Thrown by an outbound sender asked to send something inside the demo scope (nothing of demo work leaves the system). */
 export class DemoOutboundError extends Error {
   constructor() {
@@ -69,4 +72,15 @@ export class DemoOutboundError extends Error {
 /** Refuse an outbound message (email, SMS, messenger, webhook, HTTP call of a flow) inside a demo scope. */
 export function assertNotDemoOutbound(): void {
   if (store.getStore()) throw new DemoOutboundError();
+}
+
+/**
+ * `f` refusing inside a demo scope, before any connection (a rejected DemoOutboundError): the fetch of the platform's
+ * outbound clients — the integration hub's `outsideFetch`/`callOut`, messengers and SMS gateways, the portal's bots,
+ * flows' HTTP calls, the CMDB's URL sources, the event module's SNS confirmation — so that a caller added later
+ * cannot send demo work out either. The AI providers' fetch is the one deliberate exception (docs/DEMO_FA.md: the
+ * organisation's own model under its data-use policy; the demo script asks the assistant about demo records).
+ */
+export function demoSafeFetch(f: typeof fetch): typeof fetch {
+  return ((input: RequestInfo | URL, init?: RequestInit) => (store.getStore() ? Promise.reject(new DemoOutboundError()) : f(input, init))) as typeof fetch;
 }
