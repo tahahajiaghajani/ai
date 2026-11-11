@@ -9,7 +9,7 @@
 //     which the engine's writes and the push path (`checkPushedChange`) both run; never for the system or trusted code.
 // Module requirements stay FieldDef.required and `Transition.requires`, which bind every write.
 import type { FieldDef, TableDef } from "@shared/model/types";
-import { missingNeeds, transitionBlocked } from "@shared/model/lifecycle";
+import { missingNeeds, transitionBlocked, type EffectiveTransition } from "@shared/model/lifecycle";
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
 import { access } from "../../access/provider";
@@ -77,8 +77,8 @@ async function requirementsBefore(w: WriteArgs): Promise<void> {
 
 /** The organisation's fields and condition of the transition being taken (people's writes only). */
 async function transitionRules(w: WriteArgs & { transition: NonNullable<WriteArgs["transition"]> }): Promise<string | null> {
-  if (w.trusted || isSystemCtx(w.ctx)) return null;
-  const t = w.transition;
+  const t = w.transition as EffectiveTransition;
+  if (w.trusted || isSystemCtx(w.ctx) || (!t.needs?.length && !t.when)) return null;
   // a pushed row carries the organisation's fields in `custom`: judge the values the push brings
   const row: Row = { ...w.next };
   if (w.via === "sync" && row.custom && typeof row.custom === "object") for (const f of w.def.fields) if (f.custom) row[f.name] = (row.custom as Row)[f.name] ?? null;

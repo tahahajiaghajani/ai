@@ -25,7 +25,7 @@ import { prepareSubject } from "../../access/subject";
 import { createIn, orgSchema, removeIn, systemCtx, updateIn } from "../../engine";
 import type { Row } from "../../engine/hooks";
 import { SETTINGS_ENV, orgFieldTypes } from "./hooks";
-import { fieldUsage, type FieldUsage } from "./usage";
+import { libraryUsage, type FieldUsage } from "./usage";
 import { NO_LIBRARY_TABLES, portalReportsThroughCatalogue } from "./combinations";
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -99,31 +99,24 @@ export interface LibraryEntry {
 /** GET /fields/library — every library field with its type and where it is used. */
 export async function libraryList(ctx: Ctx): Promise<{ fields: LibraryEntry[] }> {
   await needDesignRead(ctx);
-  const [rows, types, attached] = await Promise.all([
+  const [rows, types] = await Promise.all([
     ctx.db.query<Row>(
       `select id, name, label, type, field_group, status, help, placeholder from sm_field_defs where org_id = $1 and deleted_at is null order by label, name`,
       [ctx.org.id],
     ),
     orgFieldTypes(ctx.db, ctx.org.id),
-    ctx.db.query<{ library_id: string; table_key: string }>(
-      `select distinct library_id, table_key from sm_custom_fields where org_id = $1 and library_id is not null and deleted_at is null order by table_key`,
-      [ctx.org.id],
-    ),
   ]);
-  const tables = new Map<string, string[]>();
-  for (const a of attached) tables.set(String(a.library_id), [...(tables.get(String(a.library_id)) ?? []), a.table_key]);
-  const fields: LibraryEntry[] = [];
-  for (const r of rows) {
+  // the tables it is attached to, and the forms and published versions (F2, F4) through `registerFieldUsage`
+  const usage = await libraryUsage(ctx.db, ctx.org.id, rows.map((r) => ({ id: String(r.id), name: String(r.name) })));
+  const fields: LibraryEntry[] = rows.map((r) => {
     const type = resolveFieldType(r.type, types, SETTINGS_ENV);
-    // forms and published versions (F2, F4) report through `registerFieldUsage`; the tables are counted above
-    const more = await fieldUsage(ctx.db, ctx.org.id, { id: String(r.id), name: String(r.name) });
-    fields.push({
+    const u = usage.get(String(r.id))!;
+    return {
       id: String(r.id), name: String(r.name), label: String(r.label), type: String(r.type), type_label: type?.label ?? String(r.type),
       storage: type?.base ?? null, group: type?.group ?? null, field_group: r.field_group ?? null, status: String(r.status ?? "active"),
-      help: r.help ?? null, placeholder: r.placeholder ?? null,
-      usage: { tables: [...new Set([...(tables.get(String(r.id)) ?? []), ...more.tables])], forms: more.forms, versions: more.versions },
-    });
-  }
+      help: r.help ?? null, placeholder: r.placeholder ?? null, usage: { tables: [...new Set(u.tables)], forms: u.forms, versions: u.versions },
+    };
+  });
   return { fields };
 }
 

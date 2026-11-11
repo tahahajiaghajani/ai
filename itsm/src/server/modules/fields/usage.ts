@@ -39,6 +39,27 @@ export async function fieldUsage(q: Queryable, orgId: string, field: { id: strin
 
 export const inUse = (u: FieldUsage): boolean => u.tables.length + u.forms.length + u.versions.length > 0;
 
+/** Where each of many library fields is used (the library's list): one query for the tables, then the sources. */
+export async function libraryUsage(q: Queryable, orgId: string, fields: { id: string; name: string }[]): Promise<Map<string, FieldUsage>> {
+  const out = new Map<string, FieldUsage>(fields.map((f) => [f.id, { tables: [], forms: [], versions: [] }]));
+  if (!fields.length) return out;
+  const rows = await q.query<{ library_id: string; table_key: string }>(
+    `select distinct library_id, table_key from sm_custom_fields where org_id = $1 and library_id is not null and deleted_at is null order by table_key`,
+    [orgId],
+  );
+  for (const r of rows) out.get(String(r.library_id))?.tables.push(r.table_key);
+  for (const source of sources) {
+    for (const f of fields) {
+      const u = await source(q, orgId, f);
+      const mine = out.get(f.id)!;
+      mine.tables.push(...(u.tables ?? []));
+      mine.forms.push(...(u.forms ?? []));
+      mine.versions.push(...(u.versions ?? []));
+    }
+  }
+  return out;
+}
+
 /** Live library fields of a type. */
 export async function fieldsOfType(q: Queryable, orgId: string, typeKey: string): Promise<{ id: string; name: string; label: string }[]> {
   return q.query(`select id, name, label from sm_field_defs where org_id = $1 and type = $2 and deleted_at is null order by label limit 50`, [orgId, typeKey]);
