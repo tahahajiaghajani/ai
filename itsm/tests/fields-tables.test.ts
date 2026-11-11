@@ -70,11 +70,19 @@ describe("the field library on the server", () => {
     expect(await no("field_def", { name: "u_f4", label: "x", type: "date", default_value: "$tomorrow" })).toContain("شناخته نیست");
     expect(await no("field_def", { name: "u_f5", label: "x", type: "date", default_value: "$me" })).toBe("مقدار پیش‌فرض «$me» به نوع «تاریخ» نمی‌خورد");
     expect(await no("field_def", { name: "u_f6", label: "x", type: "string", depends_on: "u_other" })).toBe("فقط فیلد گزینه‌ای به فیلد دیگری وابسته می‌شود");
+    // the «نقش سازمانی» picker only once the positions table exists (package F3)
+    if (tableDef("position")) await e.owner.post(`${P}/field_def`, { name: "u_post", label: "نقش", type: "position" });
+    else expect(await no("field_def", { name: "u_post", label: "نقش", type: "position" })).toBe("نوع «نقش سازمانی» هنوز در این سامانه به کار نمی‌رود");
+    if (!tableDef("position")) expect(await no("field_type", { key: "u_post", name: "نقش", base: "position" })).toBe("نوع «نقش سازمانی» هنوز در این سامانه به کار نمی‌رود");
     // what is well formed goes through
     const branch = (await e.owner.post(`${P}/field_type`, { key: "u_branch", name: "شعبه", base: "unit", validation: { refFilter: { f: "kind", op: "eq", v: "branch" } } })).row;
     expect(branch.validation).toEqual({ refFilter: { f: "kind", op: "eq", v: "branch" } });
     await e.owner.post(`${P}/field_def`, { name: "u_contract", label: "قرارداد", type: "record", validation: { ref: "contract" } });
     await e.owner.post(`${P}/field_def`, { name: "u_start", label: "تاریخ شروع", type: "date", default_value: "$today", validation: { minDate: "$today" } });
+    // «واحد من» fits a unit, whether the type fixes the table or the field names it
+    await e.owner.post(`${P}/field_def`, { name: "u_my_branch", label: "شعبهٔ من", type: "u_branch", default_value: "$my_unit" });
+    await e.owner.post(`${P}/field_def`, { name: "u_my_unit", label: "واحد من", type: "record", validation: { ref: "org_unit" }, default_value: "$my_unit" });
+    expect(await no("field_def", { name: "u_my_ci", label: "x", type: "record", validation: { ref: "ci" }, default_value: "$my_unit" })).toBe("مقدار پیش‌فرض «$my_unit» به نوع «رکورد» نمی‌خورد");
   });
 
   it("keeps a used field's name, storage and row: it is retired instead", async () => {

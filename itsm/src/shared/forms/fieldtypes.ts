@@ -274,7 +274,8 @@ export function cleanSettings(b: BuiltinFieldType, raw: unknown, env: SettingsEn
   if (typeof raw !== "object" || Array.isArray(raw)) return { settings: s, problems: ["تنظیمات نوع فیلد معتبر نیست"] };
   const x = raw as Record<string, unknown>;
   const editable = new Set<SettingKey>(b.editable);
-  const has = (k: SettingKey) => x[k] !== undefined && x[k] !== null && x[k] !== "";
+  // unset: absent, null, empty text or an empty list (a form that always sends `options: []`)
+  const has = (k: SettingKey) => x[k] !== undefined && x[k] !== null && x[k] !== "" && !(Array.isArray(x[k]) && (x[k] as unknown[]).length === 0);
   for (const k of Object.keys(x) as SettingKey[]) {
     if (k === "widget" || !has(k) || editable.has(k)) continue;
     if (KNOWN_KEYS.has(k)) problems.push(`«${SETTING_LABELS[k]}» برای نوع «${b.label}» تنظیم نمی‌شود`);

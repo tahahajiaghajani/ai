@@ -63,6 +63,7 @@ async function fieldTypeBefore({ tx, ctx, op, next, prev }: WriteArgs): Promise<
   if (!TYPE_KEY.test(key)) throw bad("کلید نوع فیلد باید با u_ شروع شود و فقط حرف کوچک لاتین، رقم و _ داشته باشد (حداکثر ۴۲ نویسه)");
   const base = builtinFieldType(next.base);
   if (!base) throw bad(`نوع پایهٔ «${String(next.base ?? "")}» وجود ندارد`);
+  if (base.settings.ref && !SETTINGS_ENV.tableExists!(base.settings.ref)) throw bad(`نوع «${base.label}» هنوز در این سامانه به کار نمی‌رود`);
   if (op === "update" && prev && prev.base !== next.base) {
     const before = builtinFieldType(prev.base);
     if (before && before.base !== base.base) {
@@ -100,6 +101,9 @@ async function fieldDefBefore({ tx, ctx, op, next, prev }: WriteArgs): Promise<v
   if (!type) throw bad(`نوع فیلد «${String(next.type ?? "")}» وجود ندارد`);
   const typeChanged = op === "create" || prev?.type !== next.type;
   if (typeChanged && type.retired) throw bad(`نوع «${type.label}» بازنشسته است و برای فیلد تازه به کار نمی‌رود`);
+  // a built-in type whose fixed target table has not landed yet (the «نقش سازمانی» picker before the positions)
+  const fixed = type.builtin.settings.ref;
+  if (typeChanged && fixed && !SETTINGS_ENV.tableExists!(fixed)) throw bad(`نوع «${type.builtin.label}» هنوز در این سامانه به کار نمی‌رود`);
   if (op === "update" && prev) {
     const renamed = prev.name !== next.name;
     const before = typeChanged ? resolveFieldType(prev.type, types, SETTINGS_ENV) : type;
@@ -112,9 +116,8 @@ async function fieldDefBefore({ tx, ctx, op, next, prev }: WriteArgs): Promise<v
   }
   const { problems } = libraryFieldSettings(next, type, SETTINGS_ENV);
   if (problems.length) throw bad(problems[0]);
-  if (!libraryFieldDef({ name, label, type: String(next.type), validation: next.validation, options: next.options, choices: next.choices }, type, SETTINGS_ENV)) {
-    throw bad(`جدول مقصد «${label}» را برگزینید`);
-  }
+  const field = libraryFieldDef({ name, label, type: String(next.type), validation: next.validation, options: next.options, choices: next.choices }, type, SETTINGS_ENV);
+  if (!field) throw bad(`جدول مقصد «${label}» را برگزینید`);
   const dependsOn = next.depends_on ? String(next.depends_on) : "";
   if (dependsOn) {
     if (type.base !== "choice" && type.base !== "multichoice") throw bad("فقط فیلد گزینه‌ای به فیلد دیگری وابسته می‌شود");
@@ -124,7 +127,7 @@ async function fieldDefBefore({ tx, ctx, op, next, prev }: WriteArgs): Promise<v
   if (typeof dflt === "string" && dflt.startsWith("$")) {
     const fits = TOKEN_TYPES[dflt];
     if (!fits) throw bad(`مقدار پیش‌فرض «${dflt}» شناخته نیست؛ $today، $now، $me، $my_unit یا $my_domain`);
-    const unitRef = dflt === "$my_unit" || dflt === "$my_domain" ? type.settings.ref === "org_unit" : true;
+    const unitRef = dflt === "$my_unit" || dflt === "$my_domain" ? field.ref === "org_unit" : true;
     if (!fits.includes(type.base) || !unitRef) throw bad(`مقدار پیش‌فرض «${dflt}» به نوع «${type.label}» نمی‌خورد`);
   }
 }

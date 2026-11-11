@@ -78,6 +78,8 @@ describe("settings of a type or a field", () => {
     const str = builtinFieldType("string")!;
     expect(cleanSettings(str, { pattern: "^\\d{6}$", patternMessage: "شش رقم", maxLength: 6, unknown_key: 1 })).toEqual({ settings: { pattern: "^\\d{6}$", patternMessage: "شش رقم", maxLength: 6 }, problems: [] });
     expect(cleanSettings(str, { pattern: "(a+)+" }).problems[0]).toContain("تکرار");
+    // what a form sends empty is not a setting
+    expect(cleanSettings(str, { options: [], choices: "", accept: null })).toEqual({ settings: {}, problems: [] });
     expect(cleanSettings(str, { maxLength: 501 }).problems[0]).toContain("۵۰۰");
   });
 
