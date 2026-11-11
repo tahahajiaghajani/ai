@@ -51,6 +51,13 @@ const BOOKKEEPING: Record<string, string[]> = {
 // still proves these tables name no demo row.
 const REAL_WORK = new Set(["sm_cab_meetings", "sm_grc_issues", "sm_grc_controls", "sm_cmdb_rules", "sm_ci_rel_rules", "sm_kb_articles", "sm_kb_bases", "sm_itam_configs", "sm_analytics_configs", "sm_analytics_dashboards", "sm_numbers"]);
 
+/**
+ * The retrieval index (RAG) follows its records: rows that index the organisation's own work left in place (REAL_WORK,
+ * e.g. the controls the security sweep's measureIndicators updated and the GRC issue it raised) are re-indexed by the
+ * same organisation-wide jobs and may land between the two snapshots on a slow machine. Allowed only for those records.
+ */
+const RAG_INDEX = new Set(["sm_ai_rag_docs", "sm_ai_chunks"]);
+
 /** Checked on their own below: the job queue (scheduling state) and the audit log (the allowed lines). */
 const SPECIAL = new Set(["sm_jobs", "sm_audit", "sm_org_sync", "sm_migrations"]);
 
@@ -162,12 +169,15 @@ describe.skipIf(skip)(title, () => {
   let before: Snapshot;
   let auditBefore: number;
   let jobsBefore: Set<string>;
+  /** the record each retrieval-index row indexed before the load (rows re-indexed meanwhile are gone from the database) */
+  const ragBefore = new Map<string, string>();
 
   beforeAll(async () => {
     ({ e, close } = await make());
     await settle(e, 240_000);
     log("seeded");
     before = await snapshot(e.db);
+    for (const t of RAG_INDEX) for (const r of await e.db.query<{ id: string; record_id: string }>(`select id::text as id, record_id::text as record_id from ${t}`)) ragBefore.set(r.id, r.record_id);
     log("snapshot before");
     auditBefore = (await e.db.one<{ n: number }>(`select count(*)::int as n from sm_audit`))!.n;
     jobsBefore = new Set((await e.db.query<{ id: string }>(`select id from sm_jobs`)).map((r) => r.id));
@@ -346,6 +356,10 @@ describe.skipIf(skip)(title, () => {
     const demoRowIds = new Set((await e.db.query<{ id: string }>(`select row_id::text as id from sm_demo_rows where org_id = $1`, [e.org])).map((r) => r.id));
     const report = await e.owner.get(`/o/${e.org}/demo/report`);
     expect(report.rows).toBeGreaterThan(1000);
+    // the console confirms the administrator's password right before the purge (sensitive administration, POST
+    // /auth/reauth): on a busy machine this test's sign-up is older than the re-authentication window by now. Only its
+    // effect here (a fresh `reauth_at`, bookkeeping above), so the security log keeps what the comparison below allows
+    await e.db.query(`update sm_sessions set reauth_at = now() where user_id = $1`, [e.ownerId]);
     await e.owner.post(`/o/${e.org}/demo/purge`, { confirm: "اشتباه" }, 400);
     await e.owner.post(`/o/${e.org}/demo/purge`, { confirm: "حذف کامل" });
     await runToEnd(e.cfg, e.org, "purge", { budgetMs: 900_000 });
@@ -371,6 +385,12 @@ describe.skipIf(skip)(title, () => {
       if (REAL_WORK.has(t)) return true;
       const added = [...(after.get(t)?.keys() ?? [])].filter((k) => !before.get(t)?.has(k));
       const changed = [...(before.get(t)?.keys() ?? [])].filter((k) => !after.get(t)?.has(k) || after.get(t)!.get(k) !== before.get(t)!.get(k));
+      if (RAG_INDEX.has(t)) {
+        const ids = [...added, ...changed];
+        const now = await e.db.query<{ id: string; record_id: string }>(`select id::text as id, record_id::text as record_id from ${t} where id::text = any($1::text[])`, [`{${ids.join(",")}}`]);
+        const recordOf = new Map(now.map((r) => [r.id, r.record_id]));
+        return ids.every((id) => kept.has(recordOf.get(id) ?? ragBefore.get(id) ?? ""));
+      }
       if (changed.length) return false;
       if (t === "sm_history") {
         const recs = await e.db.query<{ record_id: string }>(`select record_id::text as record_id from sm_history where id::text = any($1::text[])`, [`{${added.join(",")}}`]);

@@ -43,6 +43,13 @@ export class Rng {
   chance(p: number): boolean {
     return this.next() < p;
   }
+  /** Where the sequence stands: a load step resumed by another job invocation continues from it (load.ts). */
+  get state(): number {
+    return this.s;
+  }
+  set state(s: number) {
+    this.s = s | 0;
+  }
 }
 
 export const FIRST_NAMES = "علی محمد حسین رضا مهدی امیر حمید سعید مجید مسعود جواد حسن احمد مرتضی مصطفی بهرام فرهاد کامران داریوش سیاوش پویا آرش بابک کیوان نیما مریم زهرا فاطمه سارا نرگس لیلا مینا شیرین پریسا الهام نازنین سمیرا مهسا فرشته آزاده نسرین رویا ژیلا هدیه یاسمن ترانه مهتاب".split(" ");

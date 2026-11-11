@@ -6,7 +6,8 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { inChunks, newMemo, type StepArgs } from "@server/modules/demo/load";
+import { batchRng, inChunks, newMemo, type LoadMemo, type StepArgs } from "@server/modules/demo/load";
+import { Rng } from "@server/modules/demo/bank";
 
 const fakeSys = (log: number[][]) =>
   ({
@@ -51,4 +52,70 @@ describe("the demo load's long steps work in chunks up to their deadline", () =>
       expect(body, fn).toMatch(/Date\.now\(\) < a\.deadline/);
     }
   });
+
+  // A step that works in batches (people, the ITAM fleet) and is resumed by the next job invocation continues its random
+  // sequence where its last batch left it. It used to start again from the step's seed, so an interrupted load (20 s
+  // demo ticks on the web, a loaded server edition) replayed the first draws: duplicate serials and terminal ids, and
+  // one of the seven asset categories missing.
+  it("a batched step resumed by another job invocation draws the same sequence as an uninterrupted one", () => {
+    const SEED = 1405 + 13;
+    /** the batch loop of stepPeople / seedItamFleet: draws per item, memo saved after each batch, `limit` batches per run */
+    const run = (memo: LoadMemo, items: number, limit: number, out: number[]): boolean => {
+      const rng = batchRng(memo, SEED);
+      if (memo.cursor === 0) {
+        out.push(rng.next());
+        memo.cursor = 1;
+      }
+      let i = memo.cursor - 1;
+      let batches = 0;
+      while (i < items && batches < limit) {
+        const n = Math.min(40, items - i);
+        for (let k = 0; k < n; k++) out.push(rng.next());
+        i += n;
+        batches++;
+        memo.cursor = i + 1;
+        memo.rng = rng.state;
+      }
+      if (i < items) return false;
+      memo.cursor = 0;
+      delete memo.rng;
+      return true;
+    };
+    const whole: number[] = [];
+    expect(run(newMemo("medium"), 150, Infinity, whole)).toBe(true);
+    // the same step cut after every batch, each invocation a new Rng from the memo
+    const memo = newMemo("medium");
+    const pieces: number[] = [];
+    let runs = 0;
+    while (!run(memo, 150, 1, pieces)) runs++;
+    expect(runs).toBe(3);
+    expect(pieces).toEqual(whole);
+    expect(new Set(pieces).size).toBe(pieces.length);
+    expect(memo.rng).toBeUndefined();
+    // what the step did before: a new sequence from the seed at every invocation replays the first draws
+    const replayed: number[] = [];
+    const old = newMemo("medium");
+    for (;;) {
+      delete old.rng;
+      if (run(old, 150, 1, replayed)) break;
+    }
+    expect(replayed.length).toBe(whole.length);
+    expect(new Set(replayed).size).toBeLessThan(replayed.length);
+    // a fresh step (cursor 0) never takes a stale position left in the memo
+    const stale = newMemo("medium");
+    stale.rng = 12345;
+    expect(batchRng(stale, SEED).next()).toBe(new Rng(SEED).next());
+  });
+
+  it("the people and fleet steps keep their random position across invocations", () => {
+    const src = readFileSync(join(__dirname, "../src/server/modules/demo/load.ts"), "utf8");
+    for (const [fn, seed] of [["stepPeople", "memo.seed + 7"], ["seedItamFleet", "memo.seed + 13"]]) {
+      const body = src.slice(src.indexOf(`async function ${fn}(`), src.indexOf("\n}\n", src.indexOf(`async function ${fn}(`)));
+      expect(body, fn).toContain(`batchRng(memo, ${seed})`);
+      expect(body, fn).not.toMatch(/new Rng\(/);
+      expect(body, fn).toContain("memo.rng = rng.state;");
+      expect(body, fn).toContain("delete memo.rng;");
+    }
+  });
 });
+

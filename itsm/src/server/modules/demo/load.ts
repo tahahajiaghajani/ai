@@ -29,6 +29,11 @@ export interface LoadMemo {
   /** step index and the cursor inside it */
   step: number;
   cursor: number;
+  /**
+   * where the random sequence of a step that works in batches stood after its last batch: the step resumed by the next
+   * job invocation continues the same draws, so the pack is the same however a busy server split the work
+   */
+  rng?: number;
   password?: string;
   hq?: string;
   units: Record<string, string>;
@@ -46,6 +51,16 @@ export interface LoadMemo {
   refused?: Record<string, string>;
   /** the bank's asset people: per branch unit its officer and manager, per region its asset manager */
   itam?: { officers: Record<string, string>; managers: Record<string, string>; regional: Record<string, string> };
+}
+
+/**
+ * The random sequence of a step that works in batches: from the step's seed when it starts (`cursor` 0 or 1: its first
+ * batch has not run), from where its last batch left it when another job invocation resumes it (`memo.rng`).
+ */
+export function batchRng(memo: LoadMemo, seed: number): Rng {
+  const rng = new Rng(seed);
+  if (memo.cursor > 1 && typeof memo.rng === "number") rng.state = memo.rng;
+  return rng;
 }
 
 export function newMemo(size: DemoSize, seed = 1405): LoadMemo {
@@ -296,7 +311,7 @@ async function addPerson(tx: Tx, sys: Ctx, orgId: string, p: { email: string; na
 async function stepPeople(a: StepArgs, sys: Ctx): Promise<boolean> {
   const { orgId, memo } = a;
   const size = DEMO_SIZES[memo.size];
-  const rng = new Rng(memo.seed + 7);
+  const rng = batchRng(memo, memo.seed + 7);
   const tag = orgId.replace(/-/g, "").slice(0, 6);
   const mail = (local: string) => `${local}.${tag}@${BANK_DOMAIN}`;
   if (memo.cursor === 0) {
@@ -359,9 +374,11 @@ async function stepPeople(a: StepArgs, sys: Ctx): Promise<boolean> {
     });
     i += batch.length;
     memo.cursor = i + 1;
+    memo.rng = rng.state;
   }
   if (i < plan.length) return false;
   memo.cursor = 0;
+  delete memo.rng;
   return true;
 }
 
@@ -575,7 +592,7 @@ function attributesOf(key: string, rng: Rng, n: number): Record<string, unknown>
 async function seedItamFleet(a: StepArgs, sys: Ctx): Promise<boolean> {
   const { memo } = a;
   const size = DEMO_SIZES[memo.size];
-  const rng = new Rng(memo.seed + 13);
+  const rng = batchRng(memo, memo.seed + 13);
   const now = Date.now();
   // models, rules, the SLA and stockrooms first (cursor 0), then the fleet in batches
   if (memo.cursor === 0) {
@@ -689,9 +706,11 @@ async function seedItamFleet(a: StepArgs, sys: Ctx): Promise<boolean> {
     });
     i += n;
     memo.cursor = i + 1;
+    memo.rng = rng.state;
     bump(memo, "asset", n);
   }
   if (i < size.assets) return false;
+  delete memo.rng;
   // a quarterly count of the central stockroom (planned)
   await sys.write(async (tx) => {
     await put(tx, sys, "inventory_audit", { name: "شمارش فصلی انبار مرکزی", scope_kind: choose("inventory_audit", "scope_kind", ["stockroom"]), stockroom_id: memo.units.stockroom, group_id: memo.groups.assets, planned_date: dateOnly(now + 7 * DAY), notes: "شمارش دستگاه‌های رزرو خودپرداز و پایانهٔ فروش" });
