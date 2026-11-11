@@ -12,6 +12,7 @@
 // refuses is recorded with the pack's status (`refused`) and the load goes on. Only fictional names: every company is
 // «… نمونهٔ …», every address `.example`.
 import { tableDef } from "@shared/tables";
+import { faDigits } from "@shared/format";
 import { periodKeyOf } from "@shared/financial/logic";
 import { fingerprintOf, normalize, type SourceSpec } from "@shared/event/logic";
 import type { Cond } from "@shared/model/conditions";
@@ -25,7 +26,7 @@ import { uploadDocument } from "../ai/rag/docs";
 import { processEvent } from "../event/pipeline";
 import { generateMaintenanceIn } from "../field_service/service";
 import { BANK_DOMAIN, BANK_NAME, DEMO_SIZES, FIRST_NAMES, LAST_NAMES, REGIONS, Rng, SERVICES } from "./bank";
-import { DAY, bump, choose, dateOnly, iso, keepRng, pastMoment, personOf, put, putOpen, refuse, stepRng, tryPut, type LoadMemo, type StepArgs } from "./load";
+import { DAY, bump, choose, dateOnly, iso, pastMoment, personOf, put, putOpen, refuse, resumeRng, tryPut, type LoadMemo, type StepArgs } from "./load";
 
 // ----- shared -------------------------------------------------------------------------------------------------------
 
@@ -40,11 +41,12 @@ function listOf(memo: LoadMemo, key: string): string[] {
 
 /**
  * Run a step's phases from `memo.cursor` until the deadline: each phase once (a long one returns false to be called
- * again in the next invocation, from where it saved itself), a phase a module refuses is recorded (`<step>.<phase>`)
- * and the load goes on. The step's random source (`stepRng(memo, step, …)`) is kept after each phase, so phases run in
- * later invocations continue its sequence. True when the last phase is done.
+ * again in the next invocation, from where it saved itself — its chunks keep `memo.rng` as they commit), a phase a
+ * module refuses is recorded (`<step>.<phase>`) and the load goes on. The step's random source (`resumeRng(memo, …)`) is
+ * kept in `memo.rng` after each phase, so phases run in later invocations continue its sequence, and deleted when the
+ * step ends. True when the last phase is done.
  */
-async function phased(a: StepArgs, step: string, phases: readonly string[], run: (phase: string) => Promise<void | boolean>, rng?: Rng): Promise<boolean> {
+export async function phased(a: StepArgs, step: string, phases: readonly string[], run: (phase: string) => Promise<void | boolean>, rng?: Rng): Promise<boolean> {
   const { orgId, memo } = a;
   while (memo.cursor < phases.length && Date.now() < a.deadline) {
     const phase = phases[memo.cursor];
@@ -54,11 +56,11 @@ async function phased(a: StepArgs, step: string, phases: readonly string[], run:
       refuse(orgId, `${step}.${phase}`, e);
     }
     memo.cursor++;
-    if (rng) keepRng(memo, step, rng);
+    if (rng) memo.rng = rng.state;
   }
   if (memo.cursor < phases.length) return false;
   memo.cursor = 0;
-  if (rng) keepRng(memo, step, null);
+  delete memo.rng;
   return true;
 }
 
@@ -75,29 +77,42 @@ async function idBy(q: Tx | Ctx["db"], orgId: string, table: string, col: string
 
 const pad = (n: number, w = 3) => String(n).padStart(w, "0");
 
+/** The Jalali year of a moment (the pack's year-named records follow the load's date, never a fixed year). */
+export const jalaliYear = (ms: number): string => periodKeyOf(dateOnly(ms)).slice(0, 4);
+
 // ----- experience (XLA) ---------------------------------------------------------------------------------------------
 
 /**
- * The bank's experience policy for ATM incidents, before the incidents are written: the SLM module's job scores every
- * incident by the first policy it matches (this one for the ATM service, the seeded one for the rest) and rescores it
- * when its survey answer arrives (stepPortal) — the scores are the platform's, never written here.
+ * The bank's experience policies, before the incidents and requests are written: the SLM module's job scores every
+ * record by the first policy it matches (these come first, for the pack's ATM incidents and the requests of the pack's
+ * groups; the seeded ones for the rest) and rescores it when its survey answer arrives (stepPortal) — the scores are the
+ * platform's, never written here. Each policy matches only the pack's records: one without a condition would come
+ * before the organisation's own policy for every real record of its table (rescored outside the demo scope, with the
+ * demo policy's threshold raising «تجربهٔ پایین» bells to real assignees).
  */
 export async function stepExperience({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
+  const groups = [...Object.values(memo.groups), ...Object.values(memo.regionGroups)].filter(Boolean);
   await sys.write(async (tx) => {
-    const p = await tryPut(tx, sys, "slm_xla_policy", {
-      name: "تجربهٔ شعب و مشتریان از خرابی خودپرداز",
-      table_key: "incident", active: true, sort_order: 5, threshold: 60,
-      condition: memo.services.atm ? { f: "service_id", op: "eq", v: memo.services.atm } : null,
-      w_reliability: 50, w_quality: 30, w_effort: 20, p_breach: 35, p_reopen: 25, p_reassign: 10, p_late_response: 20, response_hours: "2", p_chase: 10, use_survey: true,
-      description: "خودپرداز از کار افتاده صف مشتریان شعبه را می‌سازد: پاسخ دیرتر از دو ساعت و نقض زمان رفع بیش از هر چیز از تجربه می‌کاهد (سیاست نمایشی).",
-    });
-    if (p) bump(memo, "slm_xla_policy");
-    const r = await tryPut(tx, sys, "slm_xla_policy", {
-      name: "تجربهٔ کارکنان شعب از درخواست‌های خدمت",
-      table_key: "request_item", active: true, sort_order: 5, threshold: 55, response_hours: "8", use_survey: true,
-      description: "درخواست‌های کارکنان شعب (لپ‌تاپ، دسترسی کربنکینگ، VPN): پیگیری‌های پیاپی درخواست‌کننده زحمت او را نشان می‌دهد (سیاست نمایشی).",
-    });
-    if (r) bump(memo, "slm_xla_policy");
+    if (memo.services.atm) {
+      const p = await tryPut(tx, sys, "slm_xla_policy", {
+        name: "تجربهٔ شعب و مشتریان از خرابی خودپرداز",
+        table_key: "incident", active: true, sort_order: 5, threshold: 60,
+        condition: { f: "service_id", op: "eq", v: memo.services.atm },
+        w_reliability: 50, w_quality: 30, w_effort: 20, p_breach: 35, p_reopen: 25, p_reassign: 10, p_late_response: 20, response_hours: "2", p_chase: 10, use_survey: true,
+        description: "خودپرداز از کار افتاده صف مشتریان شعبه را می‌سازد: پاسخ دیرتر از دو ساعت و نقض زمان رفع بیش از هر چیز از تجربه می‌کاهد (سیاست نمایشی).",
+      });
+      if (p) bump(memo, "slm_xla_policy");
+    }
+    if (groups.length) {
+      // the pack's request items go to its desk and core banking groups (stepRequests)
+      const r = await tryPut(tx, sys, "slm_xla_policy", {
+        name: "تجربهٔ کارکنان شعب از درخواست‌های خدمت",
+        table_key: "request_item", active: true, sort_order: 5, threshold: 55, response_hours: "8", use_survey: true,
+        condition: { f: "assignment_group_id", op: "in", v: groups },
+        description: "درخواست‌های کارکنان شعب (لپ‌تاپ، دسترسی کربنکینگ، VPN): پیگیری‌های پیاپی درخواست‌کننده زحمت او را نشان می‌دهد (سیاست نمایشی).",
+      });
+      if (r) bump(memo, "slm_xla_policy");
+    }
   });
   return true;
 }
@@ -141,10 +156,11 @@ const ALLOCATION_RULES: [string, string, string, [string, number][]][] = [
 
 /**
  * IT finance of the demo bank: annual budgets of its cost centres sized from the year's actual so far (some lines
- * over, some under — the variance view has something to say), one awaiting the finance committee's approval and a
- * draft (next year's proposal once the platform opened next year, else a mid-year revision); allocation rules from the data-centre, branch-equipment and channel centres to the bank's services;
- * a showback of the last months and a chargeback of the first half posted to the consuming departments — calculated
- * and posted by the finance persona through the module's own services.
+ * over, some under — the variance view has something to say), the security budget awaiting the approval of the bank's
+ * finance committee (the pack's own group and rule) and a draft (next year's proposal once the platform opened next
+ * year, else a mid-year revision); allocation rules from the data-centre, branch-equipment and channel centres to the
+ * bank's services; a showback of the last months and a chargeback of the first half posted to the consuming
+ * departments — calculated and posted by the finance persona through the module's own services.
  */
 export async function stepFinance(a: StepArgs, sys: Ctx): Promise<boolean> {
   const { cfg, orgId, memo } = a;
@@ -152,9 +168,29 @@ export async function stepFinance(a: StepArgs, sys: Ctx): Promise<boolean> {
   const key = periodKeyOf(dateOnly(now));
   const jy = Number(key.slice(0, 4));
   const month = Number(key.slice(5, 7));
-  return phased(a, "finance", ["budgets", "rules", "runs"], async (phase) => {
+  return phased(a, "finance", ["committee", "budgets", "rules", "runs"], async (phase) => {
     const types = new Map((await sys.db.query<{ id: string; code: string }>(`select id, code from sm_cost_types where org_id = $1 and deleted_at is null`, [orgId])).map((t) => [t.code, t.id]));
-    if (phase === "budgets") {
+    if (phase === "committee") {
+      // the bank's finance committee and its approval rule, for the pack's cost centres only: the IT finance manager
+      // approves the bank's budgets (the security budget's owner is the head of risk and security — who submits a budget
+      // never approves it). Never the organisation's own committee or rule: those approve real budgets, and the pack's
+      // people approve no real record (the approvals service leaves them out, sla/approvals.ts)
+      const finance = memo.people.personas.finance;
+      const centres = COST_CENTRES.map(([k]) => memo.units[`cc:${k}`]).filter((x): x is string => !!x);
+      if (!finance || !centres.length) return;
+      await sys.write(async (tx) => {
+        const committee = await put(tx, sys, "group", { name: `کمیتهٔ مالی ${BANK_NAME}`, types: ["approval"], active: true, description: "تأیید بودجه‌های مراکز هزینهٔ بانک (گروه نمایشی)" });
+        await put(tx, sys, "group_member", { group_id: committee.id, user_id: finance, kind: choose("group_member", "kind", ["lead", "member"]) });
+        await put(tx, sys, "approval_rule", {
+          table_key: "budget", name: "تأیید بودجهٔ مراکز هزینهٔ بانک نمونه", mode: "sequential", active: true, sort_order: 50, expire_after: 14 * 86_400, allow_self_approval: false,
+          condition: { and: [{ f: "state", op: "eq", v: "submitted" }, { f: "cost_center_id", op: "in", v: centres }] },
+          levels: [{ name: "کمیتهٔ مالی بانک", sources: [{ kind: "groups", groups: [committee.id] }], rule: "any" }],
+          description: "قاعدهٔ نمایشی: بودجه‌های مراکز هزینهٔ بانک نمونه را کمیتهٔ مالی بانک تأیید می‌کند",
+        });
+      });
+      bump(memo, "group");
+      bump(memo, "group_member");
+    } else if (phase === "budgets") {
       const year = await ensureFiscalYear(sys, jy);
       // next year's calendar only when the platform has opened it already (its daily sweep does near the year's end):
       // the pack never makes a fiscal year that real budgets could then be planned in
@@ -168,9 +204,11 @@ export async function stepFinance(a: StepArgs, sys: Ctx): Promise<boolean> {
         [orgId, year.start_date, year.end_date],
       );
       for (const r of rows) actual.set(`${r.cc}:${r.code}`, Number(r.total));
-      const owner = memo.people.personas.finance ?? null;
+      // the IT finance manager owns the budgets; the security budget is the head of risk and security's (the finance
+      // manager approves it)
+      const ownerOf = (cc: string) => (cc === memo.units["cc:sec"] ? memo.people.personas.grc : undefined) ?? memo.people.personas.finance ?? null;
       const make = async (tx: Tx, fy: Row, cc: string, name: string, state: string, monthly: boolean, lines: [string, number, number][]) => {
-        const b = await put(tx, sys, "budget", { name, fiscal_year_id: fy.id, cost_center_id: cc, owner_id: owner, alert_percent: 90, state: "draft", notes: "بودجهٔ نمایشی بانک نمونهٔ آفتاب" });
+        const b = await put(tx, sys, "budget", { name, fiscal_year_id: fy.id, cost_center_id: cc, owner_id: ownerOf(cc), alert_percent: 90, state: "draft", notes: "بودجهٔ نمایشی بانک نمونهٔ آفتاب" });
         for (const [code, share, floor] of lines) {
           const type = types.get(code);
           if (!type) continue;
@@ -206,10 +244,30 @@ export async function stepFinance(a: StepArgs, sys: Ctx): Promise<boolean> {
     } else if (phase === "runs") {
       const finance = memo.people.personas.finance;
       if (!finance) return;
-      const fx = await memberCtx(cfg, orgId, finance);
       const year = await ensureFiscalYear(sys, jy);
       const periodOf = async (m: number) => (await sys.db.one<{ id: string }>(`select id from sm_fiscal_periods where org_id = $1 and fiscal_year_id = $2 and month = $3 and deleted_at is null`, [orgId, year.id, m]))?.id;
       const last = Math.max(1, month - 1);
+      // an allocation run takes every active rule of the organisation: when a rule of its own has real costs to share in
+      // the runs' months, the pack's showback and chargeback would allocate (and post) the organisation's real costs —
+      // the pack makes neither then. (Demo costs on a real centre — a demo asset without a cost centre posts to the
+      // default one — are the pack's own and do not count.)
+      const span = await sys.db.one<{ start: string; end: string }>(
+        `select min(start_date)::text as start, max(end_date)::text as end from sm_fiscal_periods where org_id = $1 and fiscal_year_id = $2 and month between $3 and $4 and deleted_at is null`,
+        [orgId, year.id, month >= 3 ? 1 : Math.max(1, last - 2), last],
+      );
+      const real = span?.start && span.end ? await sys.db.one<{ name: string }>(
+        `select c.name from sm_allocation_rules r join sm_org_units c on c.id = r.source_cost_center_id
+          where r.org_id = $1 and r.active and r.deleted_at is null and not exists (select 1 from sm_demo_rows d where d.org_id = $1 and d.row_id = r.id)
+            and exists (select 1 from sm_cost_entries e where e.org_id = $1 and e.cost_center_id = r.source_cost_center_id and e.deleted_at is null and e.source <> 'allocation'
+              and e.entry_date between $2 and $3 and not exists (select 1 from sm_demo_rows d where d.org_id = $1 and d.row_id = e.id))
+          limit 1`,
+        [orgId, span.start, span.end],
+      ) : null;
+      if (real) {
+        refuse(orgId, "finance.runs", new Error(`نمایش و بازپرداخت هزینهٔ نمایشی اجرا نشد: هزینه‌های واقعی سازمان در «${real.name}» در این ماه‌ها با قاعدهٔ تسهیم خود سازمان تسهیم می‌شود و اجرای نمایشی آن‌ها را هم حساب می‌کرد`));
+        return;
+      }
+      const fx = await memberCtx(cfg, orgId, finance);
       // a showback of the last three closed months
       const from = await periodOf(Math.max(1, last - 2));
       const to = await periodOf(last);
@@ -288,7 +346,7 @@ const CERTS: [string, string][] = [
  */
 export async function stepWorkforce(a: StepArgs, sys: Ctx): Promise<boolean> {
   const { orgId, memo } = a;
-  const rng = stepRng(memo, "workforce", memo.seed + 53);
+  const rng = resumeRng(memo, memo.seed + 53);
   const now = Date.now();
   const s = scaleOf(memo);
   return phased(a, "workforce", ["skills", "people", "rosters", "absences", "oncall"], async (phase) => {
@@ -462,6 +520,9 @@ const CASES: [string, string, string, string, string | null][] = [
   ["قطع پرداخت با کارت‌های بی‌تماس در پایانه‌های تازه", "پایانه‌های تازه‌نصب پرداخت بی‌تماس را نمی‌پذیرند.", "problem", "pos", null],
 ];
 
+/** The first complaint (the strategic merchant's late settlement): an open case of CUS-001, escalated by the pack. */
+const FIRST_COMPLAINT = CASES.findIndex((c) => !!c[4]);
+
 /**
  * Customer service for the bank's merchants and corporate clients: accounts (each gets its company unit from the
  * module), contacts, products, support contracts and entitlements by tier, the installed base of POS terminals (the
@@ -470,7 +531,7 @@ const CASES: [string, string, string, string, string | null][] = [
  */
 export async function stepCsm(a: StepArgs, sys: Ctx): Promise<boolean> {
   const { orgId, memo } = a;
-  const rng = stepRng(memo, "csm", memo.seed + 59);
+  const rng = resumeRng(memo, memo.seed + 59);
   const now = Date.now();
   const size = DEMO_SIZES[memo.size];
   const group = memo.groups.csm ?? memo.groups.card;
@@ -550,12 +611,16 @@ export async function stepCsm(a: StepArgs, sys: Ctx): Promise<boolean> {
         await sys.write(async (tx) => {
           for (let i = at; i < Math.min(size.cases, at + 20); i++) {
             const [title, detail, type, product, severity] = CASES[i % CASES.length];
-            // a case of the product's customers
+            // a case of the product's customers; the first complaint is the strategic merchant's, still open — the one its
+            // escalation is about (below)
+            const lead = i === FIRST_COMPLAINT;
             const fits = ACCOUNTS.map((acc, k) => ({ acc, k })).filter((x) => x.acc.products.includes(product));
-            const pick = fits.length ? fits[i % fits.length] : { acc: ACCOUNTS[0], k: 0 };
+            const pick = lead || !fits.length ? { acc: ACCOUNTS[0], k: 0 } : fits[i % fits.length];
             const account = accounts[pick.k];
             if (!account) continue;
-            const opened = pastMoment(rng, now, 120);
+            const drawn = pastMoment(rng, now, 120);
+            // (the lead complaint: whole days later, in the last two days at the same office hour — a fresh case is open)
+            const opened = lead ? drawn + Math.max(0, Math.ceil((now - 2 * DAY - drawn) / DAY)) * DAY : drawn;
             const age = (now - opened) / DAY;
             const state = age > 30 ? (rng.chance(0.85) ? "closed" : "resolved") : age > 7 ? rng.pick(["resolved", "open", "awaiting_customer"]) : rng.pick(["new", "open", "open", "awaiting_internal"]);
             const done = state === "resolved" || state === "closed";
@@ -571,18 +636,21 @@ export async function stepCsm(a: StepArgs, sys: Ctx): Promise<boolean> {
               root_cause: done && type !== "question" ? "پیکربندی نادرست پایانه پس از به‌روزرسانی نرم‌افزار" : undefined, satisfaction: done ? rng.pick([3, 4, 5, 5]) : undefined,
             }, { state: "open" });
             if (row) bump(memo, "customer_case");
+            if (row && lead) memo.units["csm:lead"] = String(row.id);
           }
         });
-        keepRng(memo, "csm", rng);
+        memo.rng = rng.state;
       }
       delete memo.units["csm:at"];
     } else if (phase === "escalation") {
       await sys.write(async (tx) => {
-        // the strategic merchant's open complaint escalated with an executive sponsor
-        const complaint = await tx.one<{ id: string }>(
-          `select c.id from sm_customer_cases c where c.org_id = $1 and c.account_id = $2 and c.complaint and c.state not in ('resolved', 'closed', 'cancelled') and c.deleted_at is null order by c.opened_at limit 1`,
-          [orgId, accounts[0]],
-        );
+        // the strategic merchant's open complaint (the first complaint of the cases, written open for it) escalated with
+        // an executive sponsor
+        const open = `c.org_id = $1 and c.account_id = $2 and c.complaint and c.state not in ('resolved', 'closed', 'cancelled') and c.deleted_at is null`;
+        const complaint =
+          (await tx.one<{ id: string }>(`select c.id from sm_customer_cases c where ${open} and c.id = $3`, [orgId, accounts[0], memo.units["csm:lead"] ?? null])) ??
+          (await tx.one<{ id: string }>(`select c.id from sm_customer_cases c where ${open} order by c.opened_at limit 1`, [orgId, accounts[0]]));
+        delete memo.units["csm:lead"];
         if (accounts[0] && (await tryPut(tx, sys, "case_escalation", {
           short_description: "تشدید: تأخیر تسویهٔ پایانه‌های فروشگاه‌های زنجیره‌ای", reason: "customer_request", case_id: complaint?.id, account_id: accounts[0], severity: "high",
           owner_id: owner, executive_sponsor_id: memo.people.personas.manager, cadence: "daily", next_update_at: iso(now + DAY), requested_by: owner, state: "active",
@@ -602,14 +670,17 @@ export async function stepCsm(a: StepArgs, sys: Ctx): Promise<boolean> {
 
 // ----- the departments' services (ESM) ---------------------------------------------------------------------------------
 
-/** Requests of the departments: [table, service code, title, description, extra values]. */
-const ESM_CASES: [string, string, string, string, Record<string, unknown>][] = [
+/**
+ * Requests of the departments: [table, service code, title, description, extra values] — `jy` the Jalali year of the
+ * load (the pack's dates are all relative to it; so are its invoice numbers).
+ */
+const esmCases = (jy: string): [string, string, string, string, Record<string, unknown>][] => [
   ["facility_request", "fac_maintenance", "تعمیر کولر گازی سالن مشتریان", "کولر سالن انتظار شعبه از دیروز آب می‌چکاند و خنک نمی‌کند.", { request_type: "maintenance" }],
   ["facility_request", "fac_maintenance", "خرابی درب کرکره‌ای ورودی خودپرداز", "کرکرهٔ اتاقک خودپرداز بیرونی نیمه‌باز گیر کرده است.", { request_type: "maintenance" }],
   ["facility_request", "fac_cleaning", "نظافت پس از بازسازی باجهٔ شمارهٔ ۲", "گرد و غبار کار بنایی روی میزها و دستگاه شمارش اسکناس مانده است.", { request_type: "cleaning" }],
   ["facility_request", "fac_access_card", "کارت تردد کارمند تازهٔ شعبه", "کارمند تازه از شنبه در شعبه کار می‌کند و کارت تردد ندارد.", { request_type: "access_card" }],
   ["facility_request", "fac_desk", "جابه‌جایی میز کارشناس اعتبارات", "میز کارشناس اعتبارات برای دسترسی بهتر مشتریان به طبقهٔ همکف منتقل شود.", { request_type: "move" }],
-  ["finance_case", "fin_payment", "پیگیری پرداخت صورتحساب نگهداری خودپردازها — فصل دوم", "صورتحساب فصل دوم پیمانکار نگهداری هنوز پرداخت نشده است.", { case_kind: "invoice", amount: "4625000000", currency: "IRR", invoice_no: "INV-1405-0218", vendor_name: "شرکت نمونهٔ خدمات خودپرداز پارس" }],
+  ["finance_case", "fin_payment", "پیگیری پرداخت صورتحساب نگهداری خودپردازها — فصل دوم", "صورتحساب فصل دوم پیمانکار نگهداری هنوز پرداخت نشده است.", { case_kind: "invoice", amount: "4625000000", currency: "IRR", invoice_no: `INV-${jy}-0218`, vendor_name: "شرکت نمونهٔ خدمات خودپرداز پارس" }],
   ["finance_case", "fin_expense", "بازپرداخت هزینهٔ مأموریت بازرسی شعب استان فارس", "هزینهٔ اقامت و ایاب‌وذهاب سه روز مأموریت بازرسی شعب.", { case_kind: "expense_claim", amount: "86000000", currency: "IRR" }],
   ["finance_case", "fin_vendor", "تعریف تأمین‌کنندهٔ تازه: شرکت نمونهٔ تجهیزات امنیتی", "برای خرید دوربین‌های شعب، تأمین‌کنندهٔ تازه تعریف شود.", { case_kind: "vendor_setup", vendor_name: "شرکت نمونهٔ تجهیزات امنیتی" }],
   ["legal_request", "legal_contract", "بررسی قرارداد نگهداری خودپردازها با شرکت نمونهٔ خدمات خودپرداز پارس", "پیش‌نویس تمدید قرارداد با بند جریمهٔ تازه برای زمان بازگرداندن.", { matter_type: "contract_review", counterparty: "شرکت نمونهٔ خدمات خودپرداز پارس", contract_value: "18500000000", privileged: true }],
@@ -626,18 +697,19 @@ const ESM_CASES: [string, string, string, string, Record<string, unknown>][] = [
  */
 export async function stepEsm(a: StepArgs, sys: Ctx): Promise<boolean> {
   const { orgId, memo } = a;
-  const rng = stepRng(memo, "esm", memo.seed + 61);
+  const rng = resumeRng(memo, memo.seed + 61);
   const now = Date.now();
   const s = scaleOf(memo);
   return phased(a, "esm", ["cases", "facilities"], async (phase) => {
     if (phase === "cases") {
       const services = new Map((await sys.db.query<{ id: string; code: string }>(`select id, code from sm_esm_services where org_id = $1 and deleted_at is null`, [orgId])).map((r) => [r.code, r.id]));
       await sys.write(async (tx) => {
+        const cases = esmCases(jalaliYear(now));
         for (let round = 0; round < s; round++) {
-          for (const [i, [table, code, title, detail, extra]] of ESM_CASES.entries()) {
+          for (const [i, [table, code, title, detail, extra]] of cases.entries()) {
             if (!tableDef(table)) continue;
             const service = services.get(code);
-            const n = round * ESM_CASES.length + i;
+            const n = round * cases.length + i;
             const who = memo.people.employees[(n * 7) % Math.max(1, memo.people.employees.length)] ?? memo.people.personas.requester;
             const branch = memo.branches[(n * 3) % Math.max(1, memo.branches.length)];
             const opened = pastMoment(rng, now, 90);
@@ -753,7 +825,7 @@ const WO_TEXTS = ["تعویض تسمهٔ مخزن اسکناس", "تعمیر ک�
 export async function stepField(a: StepArgs, sys: Ctx): Promise<boolean> {
   const { orgId, memo } = a;
   const size = DEMO_SIZES[memo.size];
-  const rng = stepRng(memo, "field", memo.seed + 41);
+  const rng = resumeRng(memo, memo.seed + 41);
   const now = Date.now();
   return phased(a, "field", ["setup", "orders", "plans"], async (phase) => {
     if (phase === "setup") {
@@ -844,24 +916,30 @@ export async function stepField(a: StepArgs, sys: Ctx): Promise<boolean> {
             }
           }
         });
-        keepRng(memo, "field", rng);
+        memo.rng = rng.state;
       }
       delete memo.units["field:at"];
       bump(memo, "work_order", made);
     } else if (phase === "plans") {
-      // quarterly preventive maintenance of each region's ATMs; the module generates the occurrences due now
+      // quarterly preventive maintenance of each region's ATMs; the module generates the occurrences due now — of these
+      // plans only: another active plan of the organisation that is due is real work, generated outside the demo scope
+      // by the module's own schedule (never a demo row the purge would take, nor a demo change of the real plan)
       if (!memo.units["wo_tpl:pm"]) return;
       await sys.write(async (tx) => {
+        const plans: string[] = [];
         for (const [i, r] of REGIONS.entries()) {
           const branch = memo.branches.find((b) => b.region === r);
           if (!branch) continue;
-          if (await tryPut(tx, sys, "maintenance_plan", {
+          const plan = await tryPut(tx, sys, "maintenance_plan", {
             name: `سرویس فصلی خودپردازهای منطقهٔ ${r}`, status: "active", generates: "work_order", location_id: branch.location, template_id: memo.units["wo_tpl:pm"], group_id: memo.regionGroups[r], territory_id: memo.units[`territory:${r}`],
             every_n: 3, interval_unit: "month", lead_days: 7, horizon: 1, next_due: dateOnly(now + (2 + i) * DAY), priority: "4",
             description: "سرویس دوره‌ای کارت‌خوان، دیسپنسر و چاپگر رسید خودپردازهای منطقه (برنامهٔ نمایشی)",
-          })) bump(memo, "maintenance_plan");
+          });
+          if (!plan) continue;
+          plans.push(String(plan.id));
+          bump(memo, "maintenance_plan");
         }
-        const n = await generateMaintenanceIn(tx, sys);
+        const n = await generateMaintenanceIn(tx, sys, undefined, plans);
         bump(memo, "work_order", n);
       });
     }
@@ -1028,7 +1106,7 @@ export async function stepContinuityGrc(a: StepArgs, sys: Ctx): Promise<boolean>
     } else if (phase === "controls") {
       if (!tableDef("grc_control")) return;
       await sys.write(async (tx) => {
-        const fw = await tryPut(tx, sys, "grc_framework", { name: "الزامات امنیتی کارت، خودپرداز و تداوم بانک (نمونه)", key: "aftab_bank_controls", kind: "internal", edition: "1405", publisher: BANK_NAME, description: "بستهٔ الزامات داخلی نمایشی بانک برای کارت، خودپرداز، دسترسی و تداوم" });
+        const fw = await tryPut(tx, sys, "grc_framework", { name: "الزامات امنیتی کارت، خودپرداز و تداوم بانک (نمونه)", key: "aftab_bank_controls", kind: "internal", edition: jalaliYear(now), publisher: BANK_NAME, description: "بستهٔ الزامات داخلی نمایشی بانک برای کارت، خودپرداز، دسترسی و تداوم" });
         if (!fw) return;
         bump(memo, "grc_framework");
         const reqs: Record<string, string> = {};
@@ -1054,12 +1132,15 @@ export async function stepContinuityGrc(a: StepArgs, sys: Ctx): Promise<boolean>
       const controls = JSON.parse(memo.units["grc:controls"] ?? "{}") as Record<string, string>;
       await sys.write(async (tx) => {
         const risks: string[] = [];
-        for (const r of RISKS) {
+        for (const [k, r] of RISKS.entries()) {
+          // reviewed by their owner in the last months (the module stamps a person's review; the pack writes as the
+          // system, so it says when): the organisation's control «periodic risk review» measures the register's open risks,
+          // and a register of never-reviewed risks would fail it and have the hourly monitoring raise a real issue
           const row = await tryPut(tx, sys, "grc_risk", {
             title: r.title, category: r.category, cause: r.cause, event: r.event, consequence: r.consequence, owner_id: owner, reporter_id: owner, assignment_group_id: memo.groups.soc,
             services: r.services.map((s) => memo.services[s]).filter(Boolean), inherent_likelihood: r.li, inherent_impact: r.ii, controls: r.controls.map((c) => controls[c]).filter(Boolean),
             control_effectiveness: r.controls.length ? "moderate" : "none", residual_likelihood: r.lr, residual_impact: r.ir, target_likelihood: "1", target_impact: r.ir,
-            treatment: r.treatment, review_due: dateOnly(now + 60 * DAY), treatment_plan: "برنامهٔ درمان نمایشی با مالک و موعد", state: r.state,
+            treatment: r.treatment, review_due: dateOnly(now + 60 * DAY), last_reviewed_at: iso(now - (15 + 20 * k) * DAY), treatment_plan: "برنامهٔ درمان نمایشی با مالک و موعد", state: r.state,
           });
           if (row) risks.push(String(row.id));
         }
@@ -1086,7 +1167,7 @@ export async function stepContinuityGrc(a: StepArgs, sys: Ctx): Promise<boolean>
  */
 export async function stepDelivery(a: StepArgs, sys: Ctx): Promise<boolean> {
   const { orgId, memo } = a;
-  const rng = stepRng(memo, "delivery", memo.seed + 67);
+  const rng = resumeRng(memo, memo.seed + 67);
   const now = Date.now();
   const rm = memo.people.personas.release ?? memo.people.personas.change;
   const pm = memo.people.personas.pm ?? memo.people.personas.manager;
@@ -1168,7 +1249,7 @@ export async function stepDelivery(a: StepArgs, sys: Ctx): Promise<boolean> {
     } else if (phase === "projects") {
       if (!tableDef("project")) return;
       await sys.write(async (tx) => {
-        const pf = await tryPut(tx, sys, "portfolio", { name: "تحول دیجیتال بانک ۱۴۰۵", code: "PF-DT", owner_id: memo.people.personas.manager, manager_id: pm, budget: "250000000000", goals: "- کاهش ۳۰ درصدی خرابی خودپردازها\n- نوسازی کانال‌های الکترونیک\n- آمادگی سایت پشتیبان دوم" });
+        const pf = await tryPut(tx, sys, "portfolio", { name: `تحول دیجیتال بانک ${faDigits(jalaliYear(now))}`, code: "PF-DT", owner_id: memo.people.personas.manager, manager_id: pm, budget: "250000000000", goals: "- کاهش ۳۰ درصدی خرابی خودپردازها\n- نوسازی کانال‌های الکترونیک\n- آمادگی سایت پشتیبان دوم" });
         if (pf) bump(memo, "portfolio");
         for (const [title, type, state, score] of [["پرداخت با کد QR در پایانه‌های فروش", "new_service", "submitted", 8], ["داشبورد لحظه‌ای وضعیت خودپردازها برای رؤسای شعب", "enhancement", "qualified", 6], ["خودکارسازی تطبیق تسویهٔ پذیرندگان", "project", "approved", 7], ["گفتگوی هوشمند پشتیبانی مشتریان", "idea", "screening", 5]] as const) {
           if (await tryPut(tx, sys, "demand", { title, type, submitted_by: memo.people.personas.requester, business_owner_id: memo.people.personas.manager, portfolio_id: pf?.id, org_unit_id: memo.units.CARD ?? memo.units.IT, problem: "شرح نیاز کسب‌وکار (نمایشی)", objectives: "کاهش زمان و هزینهٔ رسیدگی", risk: "medium", est_hours: String(score * 120), est_capex: String(score * 3_000_000_000), business_value: score, time_criticality: Math.max(1, score - 2), risk_reduction: 3, job_size: 5, state })) bump(memo, "demand");

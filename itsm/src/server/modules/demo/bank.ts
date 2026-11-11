@@ -20,16 +20,6 @@ export class Rng {
   constructor(seed: number) {
     this.s = seed | 0;
   }
-  /** Where the sequence stands (saved with the pack: a step resumed in a later job continues the same sequence). */
-  get state(): number {
-    return this.s;
-  }
-  /** A generator continuing a saved sequence. */
-  static resume(state: number): Rng {
-    const r = new Rng(0);
-    r.s = state | 0;
-    return r;
-  }
   next(): number {
     this.s = (this.s + 0x6d2b79f5) | 0;
     let t = this.s;
@@ -52,6 +42,13 @@ export class Rng {
   }
   chance(p: number): boolean {
     return this.next() < p;
+  }
+  /** Where the sequence stands: a load step resumed by another job invocation continues from it (load.ts). */
+  get state(): number {
+    return this.s;
+  }
+  set state(s: number) {
+    this.s = s | 0;
   }
 }
 

@@ -30,6 +30,11 @@ export interface LoadMemo {
   /** step index and the cursor inside it */
   step: number;
   cursor: number;
+  /**
+   * where the random sequence of a step that works in batches stood after its last batch: the step resumed by the next
+   * job invocation continues the same draws, so the pack is the same however a busy server split the work
+   */
+  rng?: number;
   password?: string;
   hq?: string;
   units: Record<string, string>;
@@ -39,6 +44,8 @@ export interface LoadMemo {
   people: { agents: Record<string, string[]>; employees: string[]; personas: Partial<Record<Persona, string>> };
   services: Record<string, string>;
   cis: Record<string, string[]>;
+  /** ids the later steps of the rest of the bank share (customer accounts, cost centres, surveys…; modules.ts) */
+  lists?: Record<string, string[]>;
   incidents: string[];
   problems: string[];
   suppliers: string[];
@@ -47,31 +54,20 @@ export interface LoadMemo {
   refused?: Record<string, string>;
   /** the bank's asset people: per branch unit its officer and manager, per region its asset manager */
   itam?: { officers: Record<string, string>; managers: Record<string, string>; regional: Record<string, string> };
-  /** ids the later steps of the rest of the bank share (customer accounts, cost centres, surveys…; modules.ts) */
-  lists?: Record<string, string[]>;
-  /** where the random sequence of a step that runs over several job invocations stands (stepRng) */
-  rng?: Record<string, number>;
+}
+
+/**
+ * The random sequence of a step that works in batches: from the step's seed when it starts (`cursor` 0 or 1: its first
+ * batch has not run), from where its last batch left it when another job invocation resumes it (`memo.rng`).
+ */
+function batchRng(memo: LoadMemo, seed: number): Rng {
+  const rng = new Rng(seed);
+  if (memo.cursor > 1 && typeof memo.rng === "number") rng.state = memo.rng;
+  return rng;
 }
 
 export function newMemo(size: DemoSize, seed = 1405): LoadMemo {
   return { size, seed, step: 0, cursor: 0, units: {}, branches: [], groups: {}, regionGroups: {}, people: { agents: {}, employees: [], personas: {} }, services: {}, cis: {}, incidents: [], problems: [], suppliers: [], counts: {} };
-}
-
-/**
- * The random source of a step that may run over several job invocations (a slow machine, a larger pack): it continues
- * where the step's last committed chunk left it, so a resumed step makes the same bank as one that ran at once — never a
- * replay of the sequence its first chunk already used (the same device classes, branches and names again).
- */
-export function stepRng(memo: LoadMemo, key: string, seed: number): Rng {
-  const saved = memo.rng?.[key];
-  return saved === undefined ? new Rng(seed) : Rng.resume(saved);
-}
-
-/** Remember where a step's random sequence stands after a committed chunk; null when the step is done. */
-export function keepRng(memo: LoadMemo, key: string, rng: Rng | null): void {
-  memo.rng ??= {};
-  if (rng) memo.rng[key] = rng.state;
-  else delete memo.rng[key];
 }
 
 // ----- engine helpers -----------------------------------------------------------------------------------------------
@@ -183,6 +179,19 @@ function personName(rng: Rng): string {
 
 export function bump(memo: LoadMemo, key: string, n = 1) {
   memo.counts[key] = (memo.counts[key] ?? 0) + n;
+}
+
+/**
+ * The random sequence of a step that runs in phases or chunks (the incidents; the rest of the bank's steps, modules.ts
+ * `phased`): from the step's seed when it starts, from where its last committed phase or chunk left it (`memo.rng`)
+ * when another job invocation resumes it — at any cursor: unlike a batched step's first part (`batchRng`), a phased
+ * step's first phase draws too, so its second phase resumes at cursor 1. The step deletes `memo.rng` when it ends, so
+ * only the running step's sequence is ever kept.
+ */
+export function resumeRng(memo: LoadMemo, seed: number): Rng {
+  const rng = new Rng(seed);
+  if (typeof memo.rng === "number") rng.state = memo.rng;
+  return rng;
 }
 
 // ----- steps ------------------------------------------------------------------------------------------------------
@@ -322,7 +331,7 @@ async function addPerson(tx: Tx, sys: Ctx, orgId: string, p: { email: string; na
 async function stepPeople(a: StepArgs, sys: Ctx): Promise<boolean> {
   const { orgId, memo } = a;
   const size = DEMO_SIZES[memo.size];
-  const rng = stepRng(memo, "people", memo.seed + 7);
+  const rng = batchRng(memo, memo.seed + 7);
   const tag = orgId.replace(/-/g, "").slice(0, 6);
   const mail = (local: string) => `${local}.${tag}@${BANK_DOMAIN}`;
   if (memo.cursor === 0) {
@@ -347,14 +356,13 @@ async function stepPeople(a: StepArgs, sys: Ctx): Promise<boolean> {
       await join(memo.groups.assets, P.assets, true);
       await join(memo.groups.soc, P.soc);
       await join(memo.groups.hr, P.hr);
-      // the rest of the bank: customer service, field dispatch, monitoring on-call, releases, the finance committee
+      // the rest of the bank: customer service, field dispatch, monitoring on-call, releases — the pack's own groups only:
+      // never a real group the modules seeded (the finance committee is the only approver of the organisation's budgets)
       await join(memo.groups.csm, P.csm, true);
       await join(memo.regionGroups[REGIONS[0]], P.field, true);
       await join(memo.groups.card, P.ops);
       await join(memo.groups.apps, P.release, true);
-      const committee = await tx.one<{ id: string }>(`select id from sm_groups where org_id = $1 and name = 'کمیتهٔ مالی فناوری اطلاعات' and deleted_at is null limit 1`, [orgId]);
-      await join(committee?.id, P.finance);
-      for (const g of [memo.groups.desk, memo.groups.cab, memo.groups.assets, memo.groups.soc, memo.groups.hr, memo.groups.csm, memo.regionGroups[REGIONS[0]], memo.groups.card, memo.groups.apps, committee?.id]) if (g) bump(memo, "group_member");
+      for (const g of [memo.groups.desk, memo.groups.cab, memo.groups.assets, memo.groups.soc, memo.groups.hr, memo.groups.csm, memo.regionGroups[REGIONS[0]], memo.groups.card, memo.groups.apps]) if (g) bump(memo, "group_member");
       await tx.query(`update sm_groups set manager_id = $2 where id = $1`, [memo.groups.desk, P.manager]);
     });
     bump(memo, "person", Object.keys(KNOWN_NAMES).length);
@@ -395,11 +403,11 @@ async function stepPeople(a: StepArgs, sys: Ctx): Promise<boolean> {
     });
     i += batch.length;
     memo.cursor = i + 1;
-    keepRng(memo, "people", rng);
+    memo.rng = rng.state;
   }
   if (i < plan.length) return false;
   memo.cursor = 0;
-  keepRng(memo, "people", null);
+  delete memo.rng;
   return true;
 }
 
@@ -628,7 +636,7 @@ function attributesOf(key: string, rng: Rng, n: number): Record<string, unknown>
 async function seedItamFleet(a: StepArgs, sys: Ctx): Promise<boolean> {
   const { memo } = a;
   const size = DEMO_SIZES[memo.size];
-  const rng = stepRng(memo, "fleet", memo.seed + 13);
+  const rng = batchRng(memo, memo.seed + 13);
   const now = Date.now();
   // models, rules, the SLA and stockrooms first (cursor 0), then the fleet in batches
   if (memo.cursor === 0) {
@@ -741,17 +749,17 @@ async function seedItamFleet(a: StepArgs, sys: Ctx): Promise<boolean> {
     });
     i += n;
     memo.cursor = i + 1;
-    keepRng(memo, "fleet", rng);
+    memo.rng = rng.state;
     bump(memo, "asset", n);
   }
   if (i < size.assets) return false;
+  delete memo.rng;
   // a quarterly count of the central stockroom (planned)
   await sys.write(async (tx) => {
     await put(tx, sys, "inventory_audit", { name: "شمارش فصلی انبار مرکزی", scope_kind: choose("inventory_audit", "scope_kind", ["stockroom"]), stockroom_id: memo.units.stockroom, group_id: memo.groups.assets, planned_date: dateOnly(now + 7 * DAY), notes: "شمارش دستگاه‌های رزرو خودپرداز و پایانهٔ فروش" });
   });
   bump(memo, "inventory_audit");
   memo.cursor = 0;
-  keepRng(memo, "fleet", null);
   return true;
 }
 
@@ -953,7 +961,7 @@ export function personOf(memo: LoadMemo, group: string, rng: Rng): string | unde
 async function stepIncidents(a: StepArgs, sys: Ctx): Promise<boolean> {
   const { memo } = a;
   const size = DEMO_SIZES[memo.size];
-  const rng = stepRng(memo, "incidents", memo.seed + 17);
+  const rng = resumeRng(memo, memo.seed + 17);
   const now = Date.now();
   const weighted = INCIDENTS.map((x) => [x, x.weight] as const);
   const closeCode = choose("incident", "close_code", ["solved", "resolved", "fixed"]);
@@ -1000,14 +1008,14 @@ async function stepIncidents(a: StepArgs, sys: Ctx): Promise<boolean> {
     });
     i += n;
     memo.cursor = i;
-    keepRng(memo, "incidents", rng);
+    memo.rng = rng.state;
     bump(memo, "incident", n);
   }
   if (i < size.incidents) return false;
   // keep only a sample of ids for later links
   memo.incidents = memo.incidents.slice(-200);
   memo.cursor = 0;
-  keepRng(memo, "incidents", null);
+  delete memo.rng;
   return true;
 }
 
@@ -1133,7 +1141,7 @@ async function stepChanges({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
 }
 
 /** Answers to an item's questions as a requester would give them (required ones; defaults where the item has them). */
-async function answersFor(tx: Tx, orgId: string, itemId: string, who: string): Promise<Record<string, unknown>> {
+export async function answersFor(tx: Tx, orgId: string, itemId: string, who: string): Promise<Record<string, unknown>> {
   const vars = await tx.query<{ name: string; type: string; required: boolean; default_value: string | null; choices: unknown; ref_table: string | null }>(
     `select v.name, v.type, v.required, v.default_value, v.choices, v.ref_table from sm_catalog_variables v
       where v.org_id = $1 and v.deleted_at is null and coalesce(v.active, true)

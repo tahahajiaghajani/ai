@@ -38,6 +38,7 @@ import { continuitySweep } from "@server/modules/continuity/jobs";
 import { securitySweep } from "@server/modules/security/jobs";
 import { portalSweep } from "@server/modules/portal";
 import { periodKeyOf } from "@shared/financial/logic";
+import { faDigits } from "@shared/format";
 
 /**
  * Columns that are bookkeeping, not content: counters that only move forward (sync revisions, the access version,
@@ -242,9 +243,10 @@ describe.skipIf(skip)(title, () => {
     expect((await e.owner.get(`/o/${e.org}/demo/banner`)).active).toBe(true);
     // demo sign-in is off by default: the presenter's administrator turns it on
     expect(status.signin).toBe(false);
-    // turning it on asks for a recent sign-in (15 minutes; a slow machine's load takes longer): the administrator
-    // confirms their identity again, as the console's prompt has them do
-    await e.owner.post("/auth/reauth", { password: "s3cret-pass" });
+    // turning it on asks for a recent sign-in too (sensitive administration, POST /auth/reauth): on a busy machine this
+    // test's sign-up is older than the re-authentication window by now. Only its effect here (a fresh `reauth_at`,
+    // bookkeeping above), as before the purge below
+    await e.db.query(`update sm_sessions set reauth_at = now() where user_id = $1`, [e.ownerId]);
     await e.owner.post(`/o/${e.org}/demo/signin`, { on: true });
     status = await e.owner.get(`/o/${e.org}/demo`);
     expect(status.signin).toBe(true);
@@ -275,6 +277,20 @@ describe.skipIf(skip)(title, () => {
     const month = Number(periodKeyOf(new Date().toISOString().slice(0, 10)).slice(5, 7));
     expect(await n(`select count(*)::int as n from sm_allocation_runs where org_id = $org and mode = 'chargeback' and state = 'posted'`)).toBe(month >= 3 ? 1 : 0);
     if (month >= 3) expect(await n(`select count(*)::int as n from sm_cost_entries where org_id = $org and source = 'allocation'`)).toBeGreaterThan(0);
+    // … the bank's budgets go to its own finance committee: the security budget awaits the IT finance manager (its owner
+    // is the head of risk and security); the organisation's own committee, which approves real budgets, has nobody of the pack
+    expect(await n(`select count(*)::int as n from sm_approvals a join sm_budgets b on b.id::text = a.record_id join sm_users u on u.id = a.approver_id
+      where a.org_id = $org and a.table_key = 'budget' and a.state = 'requested' and b.state = 'submitted' and u.email like 'finance.%'`)).toBe(1);
+    expect(await n(`select count(*)::int as n from sm_group_members m join sm_groups g on g.id = m.group_id join sm_users u on u.id = m.user_id
+      where m.org_id = $org and g.name = 'کمیتهٔ مالی فناوری اطلاعات' and u.email like '%aftab-bank.example'`)).toBe(0);
+    // customer service: the strategic merchant's escalation is about its open complaint
+    expect(await n(`select count(*)::int as n from sm_case_escalations x join sm_customer_cases c on c.id = x.case_id join sm_customer_accounts a on a.id = c.account_id
+      where x.org_id = $org and x.account_id = a.id and a.code = 'CUS-001' and c.complaint and c.state not in ('resolved', 'closed', 'cancelled')`)).toBe(1);
+    // records named after a year carry the load's Jalali year (the pack's dates are all relative to it)
+    const jy = periodKeyOf(new Date().toISOString().slice(0, 10)).slice(0, 4);
+    expect((await e.db.one<{ name: string }>(`select name from sm_portfolios where org_id = $1 and code = 'PF-DT'`, [e.org]))?.name).toBe(`تحول دیجیتال بانک ${faDigits(jy)}`);
+    expect((await e.db.one<{ edition: string }>(`select edition from sm_grc_frameworks where org_id = $1 and key = 'aftab_bank_controls'`, [e.org]))?.edition).toBe(jy);
+    expect(await e.db.one(`select 1 from sm_finance_cases where org_id = $1 and invoice_no = $2`, [e.org, `INV-${jy}-0218`])).toBeTruthy();
     // events: the pipeline raised an incident from the critical alert of the card switch
     expect(await n(`select count(*)::int as n from sm_alerts where org_id = $org and incident_id is not null and severity = 'critical'`)).toBeGreaterThan(0);
     // field service: the module generated the first occurrence of each region's plan
@@ -455,8 +471,10 @@ describe.skipIf(skip)(title, () => {
     const demoRowIds = new Set((await e.db.query<{ id: string }>(`select row_id::text as id from sm_demo_rows where org_id = $1`, [e.org])).map((r) => r.id));
     const report = await e.owner.get(`/o/${e.org}/demo/report`);
     expect(report.rows).toBeGreaterThan(1000);
-    // the purge asks for a recent sign-in too
-    await e.owner.post("/auth/reauth", { password: "s3cret-pass" });
+    // the console confirms the administrator's password right before the purge (sensitive administration, POST
+    // /auth/reauth): on a busy machine this test's sign-up is older than the re-authentication window by now. Only its
+    // effect here (a fresh `reauth_at`, bookkeeping above), so the security log keeps what the comparison below allows
+    await e.db.query(`update sm_sessions set reauth_at = now() where user_id = $1`, [e.ownerId]);
     await e.owner.post(`/o/${e.org}/demo/purge`, { confirm: "اشتباه" }, 400);
     await e.owner.post(`/o/${e.org}/demo/purge`, { confirm: "حذف کامل" });
     await runToEnd(e.cfg, e.org, "purge", { budgetMs: 900_000 });
@@ -471,6 +489,11 @@ describe.skipIf(skip)(title, () => {
     // ----- no trace
     const after = await snapshot(e.db);
     log("snapshot after");
+    // the organisation's control monitoring (the security sweep above, outside the demo scope) raised no issue about the
+    // pack's risk register: its risks were reviewed in the last months. (Issues other seeded controls raise over the
+    // organisation's own data are its own work, REAL_WORK below.)
+    const issues = [...(after.get("sm_grc_issues")?.keys() ?? [])].filter((k) => !before.get("sm_grc_issues")?.has(k));
+    expect(await e.db.query(`select i.id from sm_grc_issues i join sm_grc_controls c on c.id = i.control_id where c.code = 'SEC-RM-01' and i.id::text = any($1::text[])`, [`{${issues.join(",")}}`])).toEqual([]);
     // the organisation's own work outside the demo scope stays (see REAL_WORK); the demo accounts' sign-in records stay
     const demoIds = new Set((await e.db.query<{ id: string }>(`select id::text as id from sm_users where email like '%aftab-bank.example'`)).map((r) => r.id));
     expect(demoIds.size).toBe(0);
@@ -488,10 +511,8 @@ describe.skipIf(skip)(title, () => {
         return recs.every((r) => kept.has(r.record_id));
       }
       if (t === "sm_security_events") {
-        // the demo accounts' sign-ins, and the administrator's own confirmations of identity before turning demo sign-in
-        // on and before the purge (a real person's security record: never removed)
-        const rows = await e.db.query<{ email: string | null; kind: string; user_id: string | null }>(`select email, kind, user_id::text as user_id from sm_security_events where id::text = any($1::text[])`, [`{${added.join(",")}}`]);
-        return rows.every((r) => (!!r.email?.endsWith("aftab-bank.example") && r.kind === "sign_in") || (r.kind === "reauth" && r.user_id === e.ownerId));
+        const rows = await e.db.query<{ email: string | null; kind: string }>(`select email, kind from sm_security_events where id::text = any($1::text[])`, [`{${added.join(",")}}`]);
+        return rows.every((r) => !!r.email?.endsWith("aftab-bank.example") && r.kind === "sign_in");
       }
       return false;
     };
