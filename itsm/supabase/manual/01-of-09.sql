@@ -1,4 +1,4 @@
--- «کاریز» — پایگاه داده برای Supabase SQL Editor: بخش ۱ از ۸ (0001_core … 0006_engine_tables:3/30)
+-- «کاریز» — پایگاه داده برای Supabase SQL Editor: بخش ۱ از ۹ (0001_core … 0006_engine_tables:3/28)
 -- بخش‌ها را به‌ترتیب، هر کدام یک بار، در یک snippet تازه بچسبانید و Run بزنید (docs/SETUP_FA.md بخش ۱-۵).
 -- اجرای دوباره بی‌خطر است. خودکار ساخته می‌شود: npm run schema
 create table if not exists sm_migrations (id text primary key, applied_at timestamptz not null default now());
@@ -729,9 +729,9 @@ $do$;
 insert into sm_migrations (id) values ('0005_engine') on conflict (id) do nothing;
 
 -- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱ از ۳۰
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱ از ۲۸
 -- ---------------------------------------------------------------------------
--- engine DDL 1/30 (a0c3bc7de847)
+-- engine DDL 1/28 (e746bd22eb04)
 create or replace function sm_demo_capture() returns trigger language plpgsql as $demo$
 begin
   insert into sm_demo_rows (org_id, row_id, tbl) values (new.org_id, new.id, tg_table_name) on conflict do nothing;
@@ -981,17 +981,11 @@ create table if not exists sm_account_reviews (
   search_cae18f1d text generated always as (translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_account_reviews' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_cae18f1d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_account_reviews', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_account_reviews', 'search_cae18f1d', $x$translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_account_reviews' and indexname like 'sm\_account\_reviews\_search\_%' and indexname not in ('sm_account_reviews_search_cae18f1d_trgm', 'sm_account_reviews_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_account_reviews_search_cae18f1d_trgm', 'sm_account_reviews', 'search_cae18f1d', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_account_reviews_search_custom_trgm', 'sm_account_reviews', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -1939,17 +1933,11 @@ create table if not exists sm_alerts (
   search_3e573310 text generated always as (translate(coalesce(short_description, '') || ' ' || coalesce(node, '') || ' ' || coalesce(resource, '') || ' ' || coalesce(metric, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_alerts' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_3e573310' loop
-    execute format('alter table %I drop column if exists %I', 'sm_alerts', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_alerts', 'search_3e573310', $x$translate(coalesce(short_description, '') || ' ' || coalesce(node, '') || ' ' || coalesce(resource, '') || ' ' || coalesce(metric, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_alerts' and indexname like 'sm\_alerts\_search\_%' and indexname not in ('sm_alerts_search_3e573310_trgm', 'sm_alerts_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_alerts_search_3e573310_trgm', 'sm_alerts', 'search_3e573310', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_alerts_search_custom_trgm', 'sm_alerts', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -2070,17 +2058,11 @@ create table if not exists sm_alert_groups (
   search_cae18f1d text generated always as (translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_alert_groups' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_cae18f1d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_alert_groups', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_alert_groups', 'search_cae18f1d', $x$translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_alert_groups' and indexname like 'sm\_alert\_groups\_search\_%' and indexname not in ('sm_alert_groups_search_cae18f1d_trgm', 'sm_alert_groups_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_alert_groups_search_cae18f1d_trgm', 'sm_alert_groups', 'search_cae18f1d', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_alert_groups_search_custom_trgm', 'sm_alert_groups', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -2355,12 +2337,12 @@ create trigger sm_allocation_rules_sync before insert or update on sm_allocation
 create or replace trigger sm_allocation_rules_demo after insert on sm_allocation_rules for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_allocation_rules_demo_t after update or delete on sm_allocation_rules for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_allocation_rules enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340:0', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:0', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
 do $engine$
 begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340:%') >= 30 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340', 'done', now()) on conflict (key) do nothing;
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
     delete from sm_meta where key like 'engine.ddl.part:%';
     insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
   end if;
@@ -2368,9 +2350,9 @@ end
 $engine$;
 
 -- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲ از ۳۰
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲ از ۲۸
 -- ---------------------------------------------------------------------------
--- engine DDL 2/30 (a0c3bc7de847)
+-- engine DDL 2/28 (e746bd22eb04)
 -- allocation_run: اجراهای تسهیم
 do $cols$
 begin
@@ -2436,17 +2418,11 @@ create table if not exists sm_allocation_runs (
   search_56291d9d text generated always as (translate(coalesce(name, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_allocation_runs' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_56291d9d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_allocation_runs', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_allocation_runs', 'search_56291d9d', $x$translate(coalesce(name, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_allocation_runs' and indexname like 'sm\_allocation\_runs\_search\_%' and indexname not in ('sm_allocation_runs_search_56291d9d_trgm', 'sm_allocation_runs_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_allocation_runs_search_56291d9d_trgm', 'sm_allocation_runs', 'search_56291d9d', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_allocation_runs_search_custom_trgm', 'sm_allocation_runs', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -2667,17 +2643,11 @@ create table if not exists sm_analytics_dashboards (
   search_e402ec00 text generated always as (translate(coalesce(name, '') || ' ' || coalesce(description, '') || ' ' || coalesce(folder, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_analytics_dashboards' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_e402ec00' loop
-    execute format('alter table %I drop column if exists %I', 'sm_analytics_dashboards', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_analytics_dashboards', 'search_e402ec00', $x$translate(coalesce(name, '') || ' ' || coalesce(description, '') || ' ' || coalesce(folder, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_analytics_dashboards' and indexname like 'sm\_analytics\_dashboards\_search\_%' and indexname not in ('sm_analytics_dashboards_search_e402ec00_trgm', 'sm_analytics_dashboards_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_analytics_dashboards_search_e402ec00_trgm', 'sm_analytics_dashboards', 'search_e402ec00', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_analytics_dashboards_search_custom_trgm', 'sm_analytics_dashboards', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -2860,17 +2830,11 @@ create table if not exists sm_analytics_indicators (
   search_efd326e7 text generated always as (translate(coalesce(name, '') || ' ' || coalesce(key, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_analytics_indicators' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_efd326e7' loop
-    execute format('alter table %I drop column if exists %I', 'sm_analytics_indicators', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_analytics_indicators', 'search_efd326e7', $x$translate(coalesce(name, '') || ' ' || coalesce(key, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_analytics_indicators' and indexname like 'sm\_analytics\_indicators\_search\_%' and indexname not in ('sm_analytics_indicators_search_efd326e7_trgm', 'sm_analytics_indicators_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_analytics_indicators_search_efd326e7_trgm', 'sm_analytics_indicators', 'search_efd326e7', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_analytics_indicators_search_custom_trgm', 'sm_analytics_indicators', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -2974,17 +2938,11 @@ create table if not exists sm_analytics_reports (
   search_e402ec00 text generated always as (translate(coalesce(name, '') || ' ' || coalesce(description, '') || ' ' || coalesce(folder, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_analytics_reports' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_e402ec00' loop
-    execute format('alter table %I drop column if exists %I', 'sm_analytics_reports', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_analytics_reports', 'search_e402ec00', $x$translate(coalesce(name, '') || ' ' || coalesce(description, '') || ' ' || coalesce(folder, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_analytics_reports' and indexname like 'sm\_analytics\_reports\_search\_%' and indexname not in ('sm_analytics_reports_search_e402ec00_trgm', 'sm_analytics_reports_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_analytics_reports_search_e402ec00_trgm', 'sm_analytics_reports', 'search_e402ec00', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_analytics_reports_search_custom_trgm', 'sm_analytics_reports', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -3077,17 +3035,11 @@ create table if not exists sm_analytics_schedules (
   search_56291d9d text generated always as (translate(coalesce(name, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_analytics_schedules' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_56291d9d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_analytics_schedules', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_analytics_schedules', 'search_56291d9d', $x$translate(coalesce(name, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_analytics_schedules' and indexname like 'sm\_analytics\_schedules\_search\_%' and indexname not in ('sm_analytics_schedules_search_56291d9d_trgm', 'sm_analytics_schedules_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_analytics_schedules_search_56291d9d_trgm', 'sm_analytics_schedules', 'search_56291d9d', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_analytics_schedules_search_custom_trgm', 'sm_analytics_schedules', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -3272,17 +3224,11 @@ create table if not exists sm_announcements (
   search_dcf60e35 text generated always as (translate(coalesce(title, '') || ' ' || coalesce(body, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_announcements' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_dcf60e35' loop
-    execute format('alter table %I drop column if exists %I', 'sm_announcements', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_announcements', 'search_dcf60e35', $x$translate(coalesce(title, '') || ' ' || coalesce(body, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_announcements' and indexname like 'sm\_announcements\_search\_%' and indexname not in ('sm_announcements_search_dcf60e35_trgm', 'sm_announcements_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_announcements_search_dcf60e35_trgm', 'sm_announcements', 'search_dcf60e35', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_announcements_search_custom_trgm', 'sm_announcements', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -3369,17 +3315,11 @@ create table if not exists sm_app_assessments (
   search_cae18f1d text generated always as (translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_app_assessments' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_cae18f1d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_app_assessments', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_app_assessments', 'search_cae18f1d', $x$translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_app_assessments' and indexname like 'sm\_app\_assessments\_search\_%' and indexname not in ('sm_app_assessments_search_cae18f1d_trgm', 'sm_app_assessments_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_app_assessments_search_cae18f1d_trgm', 'sm_app_assessments', 'search_cae18f1d', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_app_assessments_search_custom_trgm', 'sm_app_assessments', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -3636,17 +3576,11 @@ create table if not exists sm_artifacts (
   search_3f2095eb text generated always as (translate(coalesce(name, '') || ' ' || coalesce(artifact_version, '') || ' ' || coalesce(digest, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_artifacts' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_3f2095eb' loop
-    execute format('alter table %I drop column if exists %I', 'sm_artifacts', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_artifacts', 'search_3f2095eb', $x$translate(coalesce(name, '') || ' ' || coalesce(artifact_version, '') || ' ' || coalesce(digest, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_artifacts' and indexname like 'sm\_artifacts\_search\_%' and indexname not in ('sm_artifacts_search_3f2095eb_trgm', 'sm_artifacts_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_artifacts_search_3f2095eb_trgm', 'sm_artifacts', 'search_3f2095eb', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_artifacts_search_custom_trgm', 'sm_artifacts', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -3662,22 +3596,7 @@ create trigger sm_artifacts_sync before insert or update on sm_artifacts for eac
 create or replace trigger sm_artifacts_demo after insert on sm_artifacts for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_artifacts_demo_t after update or delete on sm_artifacts for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_artifacts enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340:1', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-do $engine$
-begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340:%') >= 30 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340', 'done', now()) on conflict (key) do nothing;
-    delete from sm_meta where key like 'engine.ddl.part:%';
-    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
-  end if;
-end
-$engine$;
 
--- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۳ از ۳۰
--- ---------------------------------------------------------------------------
--- engine DDL 3/30 (a0c3bc7de847)
 -- asset: دارایی‌ها
 do $cols$
 begin
@@ -3867,17 +3786,11 @@ create table if not exists sm_assets (
   search_e45f7a02 text generated always as (translate(coalesce(name, '') || ' ' || coalesce(asset_tag, '') || ' ' || coalesce(serial_number, '') || ' ' || coalesce(terminal_id, '') || ' ' || coalesce(merchant_id, '') || ' ' || coalesce(certificate_no, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_assets' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_e45f7a02' loop
-    execute format('alter table %I drop column if exists %I', 'sm_assets', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_assets', 'search_e45f7a02', $x$translate(coalesce(name, '') || ' ' || coalesce(asset_tag, '') || ' ' || coalesce(serial_number, '') || ' ' || coalesce(terminal_id, '') || ' ' || coalesce(merchant_id, '') || ' ' || coalesce(certificate_no, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_assets' and indexname like 'sm\_assets\_search\_%' and indexname not in ('sm_assets_search_e45f7a02_trgm', 'sm_assets_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_assets_search_e45f7a02_trgm', 'sm_assets', 'search_e45f7a02', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_assets_search_custom_trgm', 'sm_assets', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -3908,7 +3821,22 @@ create trigger sm_assets_sync before insert or update on sm_assets for each row 
 create or replace trigger sm_assets_demo after insert on sm_assets for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_assets_demo_t after update or delete on sm_assets for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_assets enable row level security;
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:1', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+do $engine$
+begin
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
+    delete from sm_meta where key like 'engine.ddl.part:%';
+    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
+  end if;
+end
+$engine$;
 
+-- ---------------------------------------------------------------------------
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۳ از ۲۸
+-- ---------------------------------------------------------------------------
+-- engine DDL 3/28 (e746bd22eb04)
 -- asset_acknowledgement: تعهدنامه‌های دارایی
 do $cols$
 begin
@@ -3972,17 +3900,11 @@ create table if not exists sm_asset_acks (
   search_9e3cdfc8 text generated always as (translate(coalesce(label, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_asset_acks' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_9e3cdfc8' loop
-    execute format('alter table %I drop column if exists %I', 'sm_asset_acks', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_asset_acks', 'search_9e3cdfc8', $x$translate(coalesce(label, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_asset_acks' and indexname like 'sm\_asset\_acks\_search\_%' and indexname not in ('sm_asset_acks_search_9e3cdfc8_trgm', 'sm_asset_acks_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_asset_acks_search_9e3cdfc8_trgm', 'sm_asset_acks', 'search_9e3cdfc8', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_asset_acks_search_custom_trgm', 'sm_asset_acks', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -4242,17 +4164,11 @@ create table if not exists sm_asset_models (
   search_2a1e757d text generated always as (translate(coalesce(name, '') || ' ' || coalesce(model_number, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_asset_models' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_2a1e757d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_asset_models', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_asset_models', 'search_2a1e757d', $x$translate(coalesce(name, '') || ' ' || coalesce(model_number, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_asset_models' and indexname like 'sm\_asset\_models\_search\_%' and indexname not in ('sm_asset_models_search_2a1e757d_trgm', 'sm_asset_models_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_asset_models_search_2a1e757d_trgm', 'sm_asset_models', 'search_2a1e757d', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_asset_models_search_custom_trgm', 'sm_asset_models', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -4325,17 +4241,11 @@ create table if not exists sm_asset_reservations (
   search_062cb4a6 text generated always as (translate(coalesce(purpose, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_asset_reservations' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_062cb4a6' loop
-    execute format('alter table %I drop column if exists %I', 'sm_asset_reservations', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_asset_reservations', 'search_062cb4a6', $x$translate(coalesce(purpose, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_asset_reservations' and indexname like 'sm\_asset\_reservations\_search\_%' and indexname not in ('sm_asset_reservations_search_062cb4a6_trgm', 'sm_asset_reservations_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_asset_reservations_search_062cb4a6_trgm', 'sm_asset_reservations', 'search_062cb4a6', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_asset_reservations_search_custom_trgm', 'sm_asset_reservations', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -4437,17 +4347,11 @@ create table if not exists sm_asset_transfers (
   search_4d12f1bb text generated always as (translate(coalesce(title, '') || ' ' || coalesce(waybill_no, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_asset_transfers' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_4d12f1bb' loop
-    execute format('alter table %I drop column if exists %I', 'sm_asset_transfers', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_asset_transfers', 'search_4d12f1bb', $x$translate(coalesce(title, '') || ' ' || coalesce(waybill_no, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_asset_transfers' and indexname like 'sm\_asset\_transfers\_search\_%' and indexname not in ('sm_asset_transfers_search_4d12f1bb_trgm', 'sm_asset_transfers_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_asset_transfers_search_4d12f1bb_trgm', 'sm_asset_transfers', 'search_4d12f1bb', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_asset_transfers_search_custom_trgm', 'sm_asset_transfers', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -4698,17 +4602,11 @@ create table if not exists sm_bias (
   search_ad195841 text generated always as (translate(coalesce(title, '') || ' ' || coalesce(activity, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_bias' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_ad195841' loop
-    execute format('alter table %I drop column if exists %I', 'sm_bias', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_bias', 'search_ad195841', $x$translate(coalesce(title, '') || ' ' || coalesce(activity, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_bias' and indexname like 'sm\_bias\_search\_%' and indexname not in ('sm_bias_search_ad195841_trgm', 'sm_bias_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_bias_search_ad195841_trgm', 'sm_bias', 'search_ad195841', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_bias_search_custom_trgm', 'sm_bias', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -4800,17 +4698,11 @@ create table if not exists sm_branch_attestations (
   search_cae18f1d text generated always as (translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_branch_attestations' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_cae18f1d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_branch_attestations', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_branch_attestations', 'search_cae18f1d', $x$translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_branch_attestations' and indexname like 'sm\_branch\_attestations\_search\_%' and indexname not in ('sm_branch_attestations_search_cae18f1d_trgm', 'sm_branch_attestations_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_branch_attestations_search_cae18f1d_trgm', 'sm_branch_attestations', 'search_cae18f1d', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_branch_attestations_search_custom_trgm', 'sm_branch_attestations', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -4893,17 +4785,11 @@ create table if not exists sm_budgets (
   search_56291d9d text generated always as (translate(coalesce(name, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_budgets' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_56291d9d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_budgets', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_budgets', 'search_56291d9d', $x$translate(coalesce(name, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_budgets' and indexname like 'sm\_budgets\_search\_%' and indexname not in ('sm_budgets_search_56291d9d_trgm', 'sm_budgets_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_budgets_search_56291d9d_trgm', 'sm_budgets', 'search_56291d9d', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_budgets_search_custom_trgm', 'sm_budgets', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -5186,12 +5072,326 @@ create trigger sm_cabs_sync before insert or update on sm_cabs for each row exec
 create or replace trigger sm_cabs_demo after insert on sm_cabs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_cabs_demo_t after update or delete on sm_cabs for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_cabs enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340:2', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+
+-- cab_agenda_item: موردهای دستور جلسه
+do $cols$
+begin
+  if to_regclass('sm_cab_agenda_items') is not null then
+    alter table sm_cab_agenda_items add column if not exists workspace_id uuid;
+    alter table sm_cab_agenda_items add column if not exists domain_id uuid;
+    alter table sm_cab_agenda_items add column if not exists unit_id uuid;
+    alter table sm_cab_agenda_items add column if not exists created_at timestamptz not null default now();
+    alter table sm_cab_agenda_items add column if not exists created_by uuid;
+    alter table sm_cab_agenda_items add column if not exists updated_at timestamptz not null default now();
+    alter table sm_cab_agenda_items add column if not exists updated_by uuid;
+    alter table sm_cab_agenda_items add column if not exists rev bigint not null default 0;
+    alter table sm_cab_agenda_items add column if not exists version integer not null default 1;
+    alter table sm_cab_agenda_items add column if not exists deleted_at timestamptz;
+    alter table sm_cab_agenda_items add column if not exists origin text;
+    alter table sm_cab_agenda_items add column if not exists custom jsonb not null default '{}'::jsonb;
+    alter table sm_cab_agenda_items add column if not exists title text;
+    alter table sm_cab_agenda_items add column if not exists meeting_id uuid;
+    alter table sm_cab_agenda_items add column if not exists change_id uuid;
+    alter table sm_cab_agenda_items add column if not exists kind text;
+    alter table sm_cab_agenda_items add column if not exists sort_order integer;
+    alter table sm_cab_agenda_items add column if not exists presenter_id uuid;
+    alter table sm_cab_agenda_items add column if not exists decision text;
+    alter table sm_cab_agenda_items add column if not exists decided_by uuid;
+    alter table sm_cab_agenda_items add column if not exists decided_at timestamptz;
+    alter table sm_cab_agenda_items add column if not exists decision_notes text;
+    alter table sm_cab_agenda_items add column if not exists votes jsonb;
+  end if;
+end
+$cols$;
+create table if not exists sm_cab_agenda_items (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb,
+  title text,
+  meeting_id uuid,
+  change_id uuid,
+  kind text,
+  sort_order integer,
+  presenter_id uuid,
+  decision text,
+  decided_by uuid,
+  decided_at timestamptz,
+  decision_notes text,
+  votes jsonb
+);
+create index if not exists sm_cab_agenda_items_rev_idx on sm_cab_agenda_items (org_id, rev);
+create index if not exists sm_cab_agenda_items_upd_idx on sm_cab_agenda_items (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_cab_agenda_items_crt_idx on sm_cab_agenda_items (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_cab_agenda_items_meeting_id_idx on sm_cab_agenda_items (org_id, meeting_id) where deleted_at is null;
+create index if not exists sm_cab_agenda_items_change_id_idx on sm_cab_agenda_items (org_id, change_id) where deleted_at is null;
+create unique index if not exists sm_cab_agenda_items_meeting_id_change_id_kind_uk on sm_cab_agenda_items (org_id, meeting_id, change_id, kind) where deleted_at is null;
+drop trigger if exists sm_cab_agenda_items_sync on sm_cab_agenda_items;
+create trigger sm_cab_agenda_items_sync before insert or update on sm_cab_agenda_items for each row execute function sm_sync_touch('cab_agenda_item');
+create or replace trigger sm_cab_agenda_items_demo after insert on sm_cab_agenda_items for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_cab_agenda_items_demo_t after update or delete on sm_cab_agenda_items for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_cab_agenda_items enable row level security;
+
+-- cab_meeting: جلسه‌های CAB
+do $cols$
+begin
+  if to_regclass('sm_cab_meetings') is not null then
+    alter table sm_cab_meetings add column if not exists workspace_id uuid;
+    alter table sm_cab_meetings add column if not exists domain_id uuid;
+    alter table sm_cab_meetings add column if not exists unit_id uuid;
+    alter table sm_cab_meetings add column if not exists created_at timestamptz not null default now();
+    alter table sm_cab_meetings add column if not exists created_by uuid;
+    alter table sm_cab_meetings add column if not exists updated_at timestamptz not null default now();
+    alter table sm_cab_meetings add column if not exists updated_by uuid;
+    alter table sm_cab_meetings add column if not exists rev bigint not null default 0;
+    alter table sm_cab_meetings add column if not exists version integer not null default 1;
+    alter table sm_cab_meetings add column if not exists deleted_at timestamptz;
+    alter table sm_cab_meetings add column if not exists origin text;
+    alter table sm_cab_meetings add column if not exists custom jsonb not null default '{}'::jsonb;
+    alter table sm_cab_meetings add column if not exists no integer;
+    alter table sm_cab_meetings add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 5 then 'CABM' || no::text else 'CABM' || lpad(no::text, 5, '0') end) stored;
+    alter table sm_cab_meetings add column if not exists title text;
+    alter table sm_cab_meetings add column if not exists cab_id uuid;
+    alter table sm_cab_meetings add column if not exists starts_at timestamptz;
+    alter table sm_cab_meetings add column if not exists ends_at timestamptz;
+    alter table sm_cab_meetings add column if not exists chair_id uuid;
+    alter table sm_cab_meetings add column if not exists attendees jsonb;
+    alter table sm_cab_meetings add column if not exists present jsonb;
+    alter table sm_cab_meetings add column if not exists location text;
+    alter table sm_cab_meetings add column if not exists conference_url text;
+    alter table sm_cab_meetings add column if not exists notes text;
+    alter table sm_cab_meetings add column if not exists minutes text;
+    alter table sm_cab_meetings add column if not exists action_items text;
+    alter table sm_cab_meetings add column if not exists minutes_sent_at timestamptz;
+    alter table sm_cab_meetings add column if not exists state text;
+  end if;
+end
+$cols$;
+create table if not exists sm_cab_meetings (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb,
+  no integer,
+  number text generated always as (case when no is null then null when length(no::text) >= 5 then 'CABM' || no::text else 'CABM' || lpad(no::text, 5, '0') end) stored,
+  title text,
+  cab_id uuid,
+  starts_at timestamptz,
+  ends_at timestamptz,
+  chair_id uuid,
+  attendees jsonb,
+  present jsonb,
+  location text,
+  conference_url text,
+  notes text,
+  minutes text,
+  action_items text,
+  minutes_sent_at timestamptz,
+  state text,
+  search_cae18f1d text generated always as (translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
+);
+do $search$
+declare s text;
+begin
+  execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_cab_meetings', 'search_cae18f1d', $x$translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
+  if s is not null then
+    execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_cab_meetings_search_cae18f1d_trgm', 'sm_cab_meetings', 'search_cae18f1d', s);
+    execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_cab_meetings_search_custom_trgm', 'sm_cab_meetings', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
+  end if;
+end
+$search$;
+create unique index if not exists sm_cab_meetings_no_uk on sm_cab_meetings (org_id, no);
+create index if not exists sm_cab_meetings_rev_idx on sm_cab_meetings (org_id, rev);
+create index if not exists sm_cab_meetings_upd_idx on sm_cab_meetings (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_cab_meetings_crt_idx on sm_cab_meetings (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_cab_meetings_cab_id_idx on sm_cab_meetings (org_id, cab_id) where deleted_at is null;
+create index if not exists sm_cab_meetings_starts_at_idx on sm_cab_meetings (org_id, starts_at) where deleted_at is null;
+create index if not exists sm_cab_meetings_state_idx on sm_cab_meetings (org_id, state) where deleted_at is null;
+create index if not exists sm_cab_meetings_workspace_acc_idx on sm_cab_meetings (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_cab_meetings_unit_acc_idx on sm_cab_meetings (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_cab_meetings_domain_acc_idx on sm_cab_meetings (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_cab_meetings_chair_id_idx on sm_cab_meetings (org_id, chair_id) where deleted_at is null;
+drop trigger if exists sm_cab_meetings_sync on sm_cab_meetings;
+create trigger sm_cab_meetings_sync before insert or update on sm_cab_meetings for each row execute function sm_sync_touch('cab_meeting');
+create or replace trigger sm_cab_meetings_demo after insert on sm_cab_meetings for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_cab_meetings_demo_t after update or delete on sm_cab_meetings for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_cab_meetings enable row level security;
+
+-- calendar: تقویم‌های کاری
+do $cols$
+begin
+  if to_regclass('sm_calendars') is not null then
+    alter table sm_calendars add column if not exists workspace_id uuid;
+    alter table sm_calendars add column if not exists domain_id uuid;
+    alter table sm_calendars add column if not exists unit_id uuid;
+    alter table sm_calendars add column if not exists created_at timestamptz not null default now();
+    alter table sm_calendars add column if not exists created_by uuid;
+    alter table sm_calendars add column if not exists updated_at timestamptz not null default now();
+    alter table sm_calendars add column if not exists updated_by uuid;
+    alter table sm_calendars add column if not exists rev bigint not null default 0;
+    alter table sm_calendars add column if not exists version integer not null default 1;
+    alter table sm_calendars add column if not exists deleted_at timestamptz;
+    alter table sm_calendars add column if not exists origin text;
+    alter table sm_calendars add column if not exists custom jsonb not null default '{}'::jsonb;
+    alter table sm_calendars add column if not exists name text;
+    alter table sm_calendars add column if not exists timezone text;
+    alter table sm_calendars add column if not exists hours jsonb;
+    alter table sm_calendars add column if not exists holiday_sets jsonb;
+    alter table sm_calendars add column if not exists is_default boolean not null default false;
+    alter table sm_calendars add column if not exists active boolean not null default true;
+    alter table sm_calendars add column if not exists description text;
+  end if;
+end
+$cols$;
+create table if not exists sm_calendars (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb,
+  name text,
+  timezone text,
+  hours jsonb,
+  holiday_sets jsonb,
+  is_default boolean not null default false,
+  active boolean not null default true,
+  description text
+);
+create index if not exists sm_calendars_rev_idx on sm_calendars (org_id, rev);
+create index if not exists sm_calendars_upd_idx on sm_calendars (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_calendars_crt_idx on sm_calendars (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_calendars_name_uk on sm_calendars (org_id, name) where deleted_at is null;
+drop trigger if exists sm_calendars_sync on sm_calendars;
+create trigger sm_calendars_sync before insert or update on sm_calendars for each row execute function sm_sync_touch('calendar');
+create or replace trigger sm_calendars_demo after insert on sm_calendars for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_calendars_demo_t after update or delete on sm_calendars for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_calendars enable row level security;
+
+-- capacity_record: رکوردهای ظرفیت
+do $cols$
+begin
+  if to_regclass('sm_capacity_records') is not null then
+    alter table sm_capacity_records add column if not exists workspace_id uuid;
+    alter table sm_capacity_records add column if not exists domain_id uuid;
+    alter table sm_capacity_records add column if not exists unit_id uuid;
+    alter table sm_capacity_records add column if not exists created_at timestamptz not null default now();
+    alter table sm_capacity_records add column if not exists created_by uuid;
+    alter table sm_capacity_records add column if not exists updated_at timestamptz not null default now();
+    alter table sm_capacity_records add column if not exists updated_by uuid;
+    alter table sm_capacity_records add column if not exists rev bigint not null default 0;
+    alter table sm_capacity_records add column if not exists version integer not null default 1;
+    alter table sm_capacity_records add column if not exists deleted_at timestamptz;
+    alter table sm_capacity_records add column if not exists origin text;
+    alter table sm_capacity_records add column if not exists custom jsonb not null default '{}'::jsonb;
+    alter table sm_capacity_records add column if not exists name text;
+    alter table sm_capacity_records add column if not exists kind text;
+    alter table sm_capacity_records add column if not exists status text;
+    alter table sm_capacity_records add column if not exists ci_id uuid;
+    alter table sm_capacity_records add column if not exists service_id uuid;
+    alter table sm_capacity_records add column if not exists metric text;
+    alter table sm_capacity_records add column if not exists unit text;
+    alter table sm_capacity_records add column if not exists capacity numeric;
+    alter table sm_capacity_records add column if not exists utilisation numeric;
+    alter table sm_capacity_records add column if not exists utilisation_pct numeric;
+    alter table sm_capacity_records add column if not exists warning_pct numeric;
+    alter table sm_capacity_records add column if not exists critical_pct numeric;
+    alter table sm_capacity_records add column if not exists measured_at timestamptz;
+    alter table sm_capacity_records add column if not exists event_match text;
+    alter table sm_capacity_records add column if not exists samples jsonb;
+    alter table sm_capacity_records add column if not exists exhaustion_at timestamptz;
+    alter table sm_capacity_records add column if not exists lead_time_days integer;
+    alter table sm_capacity_records add column if not exists owner_id uuid;
+    alter table sm_capacity_records add column if not exists assignment_group_id uuid;
+    alter table sm_capacity_records add column if not exists notified_status text;
+    alter table sm_capacity_records add column if not exists notes text;
+  end if;
+end
+$cols$;
+create table if not exists sm_capacity_records (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb,
+  name text,
+  kind text,
+  status text,
+  ci_id uuid,
+  service_id uuid,
+  metric text,
+  unit text,
+  capacity numeric,
+  utilisation numeric,
+  utilisation_pct numeric,
+  warning_pct numeric,
+  critical_pct numeric,
+  measured_at timestamptz,
+  event_match text,
+  samples jsonb,
+  exhaustion_at timestamptz,
+  lead_time_days integer,
+  owner_id uuid,
+  assignment_group_id uuid,
+  notified_status text,
+  notes text
+);
+create index if not exists sm_capacity_records_rev_idx on sm_capacity_records (org_id, rev);
+create index if not exists sm_capacity_records_upd_idx on sm_capacity_records (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_capacity_records_crt_idx on sm_capacity_records (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_capacity_records_workspace_acc_idx on sm_capacity_records (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_capacity_records_unit_acc_idx on sm_capacity_records (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_capacity_records_domain_acc_idx on sm_capacity_records (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_capacity_records_owner_id_idx on sm_capacity_records (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_capacity_records_sync on sm_capacity_records;
+create trigger sm_capacity_records_sync before insert or update on sm_capacity_records for each row execute function sm_sync_touch('capacity_record');
+create or replace trigger sm_capacity_records_demo after insert on sm_capacity_records for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_capacity_records_demo_t after update or delete on sm_capacity_records for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_capacity_records enable row level security;
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:2', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
 do $engine$
 begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340:%') >= 30 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340', 'done', now()) on conflict (key) do nothing;
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
     delete from sm_meta where key like 'engine.ddl.part:%';
     insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
   end if;

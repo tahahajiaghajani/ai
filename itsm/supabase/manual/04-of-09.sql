@@ -1,12 +1,574 @@
--- «کاریز» — پایگاه داده برای Supabase SQL Editor: بخش ۴ از ۸ (0006_engine_tables:12/30 … 0006_engine_tables:15/30)
+-- «کاریز» — پایگاه داده برای Supabase SQL Editor: بخش ۴ از ۹ (0006_engine_tables:11/28 … 0006_engine_tables:13/28)
 -- بخش‌ها را به‌ترتیب، هر کدام یک بار، در یک snippet تازه بچسبانید و Run بزنید (docs/SETUP_FA.md بخش ۱-۵).
 -- اجرای دوباره بی‌خطر است. خودکار ساخته می‌شود: npm run schema
 create table if not exists sm_migrations (id text primary key, applied_at timestamptz not null default now());
 
 -- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۲ از ۳۰
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۱ از ۲۸
 -- ---------------------------------------------------------------------------
--- engine DDL 12/30 (a0c3bc7de847)
+-- engine DDL 11/28 (e746bd22eb04)
+-- facility_request: درخواست‌های پشتیبانی و تأسیسات
+do $cols$
+begin
+  if to_regclass('sm_facility_requests') is not null then
+    alter table sm_facility_requests add column if not exists workspace_id uuid;
+    alter table sm_facility_requests add column if not exists domain_id uuid;
+    alter table sm_facility_requests add column if not exists unit_id uuid;
+    alter table sm_facility_requests add column if not exists created_at timestamptz not null default now();
+    alter table sm_facility_requests add column if not exists created_by uuid;
+    alter table sm_facility_requests add column if not exists updated_at timestamptz not null default now();
+    alter table sm_facility_requests add column if not exists updated_by uuid;
+    alter table sm_facility_requests add column if not exists rev bigint not null default 0;
+    alter table sm_facility_requests add column if not exists version integer not null default 1;
+    alter table sm_facility_requests add column if not exists deleted_at timestamptz;
+    alter table sm_facility_requests add column if not exists origin text;
+    alter table sm_facility_requests add column if not exists custom jsonb not null default '{}'::jsonb;
+    alter table sm_facility_requests add column if not exists no integer;
+    alter table sm_facility_requests add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 7 then 'FAC' || no::text else 'FAC' || lpad(no::text, 7, '0') end) stored;
+    alter table sm_facility_requests add column if not exists short_description text;
+    alter table sm_facility_requests add column if not exists description text;
+    alter table sm_facility_requests add column if not exists state text;
+    alter table sm_facility_requests add column if not exists priority text;
+    alter table sm_facility_requests add column if not exists impact text;
+    alter table sm_facility_requests add column if not exists urgency text;
+    alter table sm_facility_requests add column if not exists category text;
+    alter table sm_facility_requests add column if not exists subcategory text;
+    alter table sm_facility_requests add column if not exists channel text;
+    alter table sm_facility_requests add column if not exists caller_id uuid;
+    alter table sm_facility_requests add column if not exists requested_for uuid;
+    alter table sm_facility_requests add column if not exists opened_by uuid;
+    alter table sm_facility_requests add column if not exists opened_at timestamptz;
+    alter table sm_facility_requests add column if not exists assignment_group_id uuid;
+    alter table sm_facility_requests add column if not exists assigned_to uuid;
+    alter table sm_facility_requests add column if not exists service_id uuid;
+    alter table sm_facility_requests add column if not exists offering_id uuid;
+    alter table sm_facility_requests add column if not exists ci_id uuid;
+    alter table sm_facility_requests add column if not exists location_id uuid;
+    alter table sm_facility_requests add column if not exists due_at timestamptz;
+    alter table sm_facility_requests add column if not exists resolved_at timestamptz;
+    alter table sm_facility_requests add column if not exists resolved_by uuid;
+    alter table sm_facility_requests add column if not exists closed_at timestamptz;
+    alter table sm_facility_requests add column if not exists closed_by uuid;
+    alter table sm_facility_requests add column if not exists close_code text;
+    alter table sm_facility_requests add column if not exists close_notes text;
+    alter table sm_facility_requests add column if not exists parent_id uuid;
+    alter table sm_facility_requests add column if not exists watch_list jsonb;
+    alter table sm_facility_requests add column if not exists approval text;
+    alter table sm_facility_requests add column if not exists escalation integer;
+    alter table sm_facility_requests add column if not exists reassignment_count integer;
+    alter table sm_facility_requests add column if not exists reopen_count integer;
+    alter table sm_facility_requests add column if not exists time_worked bigint;
+    alter table sm_facility_requests add column if not exists first_response_at timestamptz;
+    alter table sm_facility_requests add column if not exists active boolean not null default true;
+    alter table sm_facility_requests add column if not exists sla_due timestamptz;
+    alter table sm_facility_requests add column if not exists knowledge boolean not null default false;
+    alter table sm_facility_requests add column if not exists title text;
+    alter table sm_facility_requests add column if not exists department_id uuid;
+    alter table sm_facility_requests add column if not exists dept_service_id uuid;
+    alter table sm_facility_requests add column if not exists sensitive boolean not null default false;
+    alter table sm_facility_requests add column if not exists journey_id uuid;
+    alter table sm_facility_requests add column if not exists child_total integer;
+    alter table sm_facility_requests add column if not exists child_open integer;
+    alter table sm_facility_requests add column if not exists satisfaction integer;
+    alter table sm_facility_requests add column if not exists request_type text;
+    alter table sm_facility_requests add column if not exists space_id uuid;
+    alter table sm_facility_requests add column if not exists preferred_at timestamptz;
+    alter table sm_facility_requests add column if not exists reservation_id uuid;
+    alter table sm_facility_requests add column if not exists contractor text;
+  end if;
+end
+$cols$;
+create table if not exists sm_facility_requests (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb,
+  no integer,
+  number text generated always as (case when no is null then null when length(no::text) >= 7 then 'FAC' || no::text else 'FAC' || lpad(no::text, 7, '0') end) stored,
+  short_description text,
+  description text,
+  state text,
+  priority text,
+  impact text,
+  urgency text,
+  category text,
+  subcategory text,
+  channel text,
+  caller_id uuid,
+  requested_for uuid,
+  opened_by uuid,
+  opened_at timestamptz,
+  assignment_group_id uuid,
+  assigned_to uuid,
+  service_id uuid,
+  offering_id uuid,
+  ci_id uuid,
+  location_id uuid,
+  due_at timestamptz,
+  resolved_at timestamptz,
+  resolved_by uuid,
+  closed_at timestamptz,
+  closed_by uuid,
+  close_code text,
+  close_notes text,
+  parent_id uuid,
+  watch_list jsonb,
+  approval text,
+  escalation integer,
+  reassignment_count integer,
+  reopen_count integer,
+  time_worked bigint,
+  first_response_at timestamptz,
+  active boolean not null default true,
+  sla_due timestamptz,
+  knowledge boolean not null default false,
+  title text,
+  department_id uuid,
+  dept_service_id uuid,
+  sensitive boolean not null default false,
+  journey_id uuid,
+  child_total integer,
+  child_open integer,
+  satisfaction integer,
+  request_type text,
+  space_id uuid,
+  preferred_at timestamptz,
+  reservation_id uuid,
+  contractor text,
+  search_f3bce210 text generated always as (translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
+);
+do $search$
+declare s text;
+begin
+  execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_facility_requests', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
+  if s is not null then
+    execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_facility_requests_search_f3bce210_trgm', 'sm_facility_requests', 'search_f3bce210', s);
+    execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_facility_requests_search_custom_trgm', 'sm_facility_requests', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
+  end if;
+end
+$search$;
+create unique index if not exists sm_facility_requests_no_uk on sm_facility_requests (org_id, no);
+create index if not exists sm_facility_requests_rev_idx on sm_facility_requests (org_id, rev);
+create index if not exists sm_facility_requests_upd_idx on sm_facility_requests (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_facility_requests_crt_idx on sm_facility_requests (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_facility_requests_state_idx on sm_facility_requests (org_id, state) where deleted_at is null;
+create index if not exists sm_facility_requests_assignment_group_id_idx on sm_facility_requests (org_id, assignment_group_id) where deleted_at is null;
+create index if not exists sm_facility_requests_assigned_to_idx on sm_facility_requests (org_id, assigned_to) where deleted_at is null;
+create index if not exists sm_facility_requests_department_id_idx on sm_facility_requests (org_id, department_id) where deleted_at is null;
+create index if not exists sm_facility_requests_dept_service_id_idx on sm_facility_requests (org_id, dept_service_id) where deleted_at is null;
+create index if not exists sm_facility_requests_workspace_acc_idx on sm_facility_requests (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_facility_requests_unit_acc_idx on sm_facility_requests (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_facility_requests_domain_acc_idx on sm_facility_requests (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_facility_requests_caller_id_idx on sm_facility_requests (org_id, caller_id) where deleted_at is null;
+create index if not exists sm_facility_requests_requested_for_idx on sm_facility_requests (org_id, requested_for) where deleted_at is null;
+create index if not exists sm_facility_requests_opened_by_idx on sm_facility_requests (org_id, opened_by) where deleted_at is null;
+create index if not exists sm_facility_requests_watch_list_gin on sm_facility_requests using gin (watch_list);
+create index if not exists sm_facility_requests_open_grp_idx on sm_facility_requests (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_facility_requests_opened_brin on sm_facility_requests using brin (opened_at);
+drop trigger if exists sm_facility_requests_sync on sm_facility_requests;
+create trigger sm_facility_requests_sync before insert or update on sm_facility_requests for each row execute function sm_sync_touch('facility_request');
+create or replace trigger sm_facility_requests_demo after insert on sm_facility_requests for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_facility_requests_demo_t after update or delete on sm_facility_requests for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_facility_requests enable row level security;
+
+-- feature_flag: پرچم‌های ویژگی
+do $cols$
+begin
+  if to_regclass('sm_feature_flags') is not null then
+    alter table sm_feature_flags add column if not exists workspace_id uuid;
+    alter table sm_feature_flags add column if not exists domain_id uuid;
+    alter table sm_feature_flags add column if not exists unit_id uuid;
+    alter table sm_feature_flags add column if not exists created_at timestamptz not null default now();
+    alter table sm_feature_flags add column if not exists created_by uuid;
+    alter table sm_feature_flags add column if not exists updated_at timestamptz not null default now();
+    alter table sm_feature_flags add column if not exists updated_by uuid;
+    alter table sm_feature_flags add column if not exists rev bigint not null default 0;
+    alter table sm_feature_flags add column if not exists version integer not null default 1;
+    alter table sm_feature_flags add column if not exists deleted_at timestamptz;
+    alter table sm_feature_flags add column if not exists origin text;
+    alter table sm_feature_flags add column if not exists custom jsonb not null default '{}'::jsonb;
+    alter table sm_feature_flags add column if not exists key text;
+    alter table sm_feature_flags add column if not exists name text;
+    alter table sm_feature_flags add column if not exists service_id uuid;
+    alter table sm_feature_flags add column if not exists release_id uuid;
+    alter table sm_feature_flags add column if not exists owner_id uuid;
+    alter table sm_feature_flags add column if not exists state text;
+    alter table sm_feature_flags add column if not exists rollout_pct numeric;
+    alter table sm_feature_flags add column if not exists environments jsonb;
+    alter table sm_feature_flags add column if not exists segments jsonb;
+    alter table sm_feature_flags add column if not exists description text;
+  end if;
+end
+$cols$;
+create table if not exists sm_feature_flags (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb,
+  key text,
+  name text,
+  service_id uuid,
+  release_id uuid,
+  owner_id uuid,
+  state text,
+  rollout_pct numeric,
+  environments jsonb,
+  segments jsonb,
+  description text
+);
+create index if not exists sm_feature_flags_rev_idx on sm_feature_flags (org_id, rev);
+create index if not exists sm_feature_flags_upd_idx on sm_feature_flags (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_feature_flags_crt_idx on sm_feature_flags (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_feature_flags_key_uk on sm_feature_flags (org_id, key) where deleted_at is null;
+create index if not exists sm_feature_flags_release_id_idx on sm_feature_flags (org_id, release_id) where deleted_at is null;
+create index if not exists sm_feature_flags_workspace_acc_idx on sm_feature_flags (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_feature_flags_unit_acc_idx on sm_feature_flags (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_feature_flags_domain_acc_idx on sm_feature_flags (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_feature_flags_owner_id_idx on sm_feature_flags (org_id, owner_id) where deleted_at is null;
+drop trigger if exists sm_feature_flags_sync on sm_feature_flags;
+create trigger sm_feature_flags_sync before insert or update on sm_feature_flags for each row execute function sm_sync_touch('feature_flag');
+create or replace trigger sm_feature_flags_demo after insert on sm_feature_flags for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_feature_flags_demo_t after update or delete on sm_feature_flags for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_feature_flags enable row level security;
+
+-- field_time_entry: زمان و هزینهٔ میدانی
+do $cols$
+begin
+  if to_regclass('sm_field_time_entries') is not null then
+    alter table sm_field_time_entries add column if not exists workspace_id uuid;
+    alter table sm_field_time_entries add column if not exists domain_id uuid;
+    alter table sm_field_time_entries add column if not exists unit_id uuid;
+    alter table sm_field_time_entries add column if not exists created_at timestamptz not null default now();
+    alter table sm_field_time_entries add column if not exists created_by uuid;
+    alter table sm_field_time_entries add column if not exists updated_at timestamptz not null default now();
+    alter table sm_field_time_entries add column if not exists updated_by uuid;
+    alter table sm_field_time_entries add column if not exists rev bigint not null default 0;
+    alter table sm_field_time_entries add column if not exists version integer not null default 1;
+    alter table sm_field_time_entries add column if not exists deleted_at timestamptz;
+    alter table sm_field_time_entries add column if not exists origin text;
+    alter table sm_field_time_entries add column if not exists custom jsonb not null default '{}'::jsonb;
+    alter table sm_field_time_entries add column if not exists wo_task_id uuid;
+    alter table sm_field_time_entries add column if not exists kind text;
+    alter table sm_field_time_entries add column if not exists user_id uuid;
+    alter table sm_field_time_entries add column if not exists started_at timestamptz;
+    alter table sm_field_time_entries add column if not exists ended_at timestamptz;
+    alter table sm_field_time_entries add column if not exists minutes integer;
+    alter table sm_field_time_entries add column if not exists amount numeric;
+    alter table sm_field_time_entries add column if not exists description text;
+    alter table sm_field_time_entries add column if not exists work_order_id uuid;
+    alter table sm_field_time_entries add column if not exists assignment_group_id uuid;
+  end if;
+end
+$cols$;
+create table if not exists sm_field_time_entries (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb,
+  wo_task_id uuid,
+  kind text,
+  user_id uuid,
+  started_at timestamptz,
+  ended_at timestamptz,
+  minutes integer,
+  amount numeric,
+  description text,
+  work_order_id uuid,
+  assignment_group_id uuid
+);
+create index if not exists sm_field_time_entries_rev_idx on sm_field_time_entries (org_id, rev);
+create index if not exists sm_field_time_entries_upd_idx on sm_field_time_entries (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_field_time_entries_crt_idx on sm_field_time_entries (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_field_time_entries_wo_task_id_idx on sm_field_time_entries (org_id, wo_task_id) where deleted_at is null;
+create index if not exists sm_field_time_entries_user_id_idx on sm_field_time_entries (org_id, user_id) where deleted_at is null;
+create index if not exists sm_field_time_entries_work_order_id_idx on sm_field_time_entries (org_id, work_order_id) where deleted_at is null;
+create index if not exists sm_field_time_entries_assignment_group_id_idx on sm_field_time_entries (org_id, assignment_group_id) where deleted_at is null;
+create index if not exists sm_field_time_entries_workspace_acc_idx on sm_field_time_entries (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_field_time_entries_unit_acc_idx on sm_field_time_entries (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_field_time_entries_domain_acc_idx on sm_field_time_entries (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_field_time_entries_sync on sm_field_time_entries;
+create trigger sm_field_time_entries_sync before insert or update on sm_field_time_entries for each row execute function sm_sync_touch('field_time_entry');
+create or replace trigger sm_field_time_entries_demo after insert on sm_field_time_entries for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_field_time_entries_demo_t after update or delete on sm_field_time_entries for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_field_time_entries enable row level security;
+
+-- finance_case: پرونده‌های مالی
+do $cols$
+begin
+  if to_regclass('sm_finance_cases') is not null then
+    alter table sm_finance_cases add column if not exists workspace_id uuid;
+    alter table sm_finance_cases add column if not exists domain_id uuid;
+    alter table sm_finance_cases add column if not exists unit_id uuid;
+    alter table sm_finance_cases add column if not exists created_at timestamptz not null default now();
+    alter table sm_finance_cases add column if not exists created_by uuid;
+    alter table sm_finance_cases add column if not exists updated_at timestamptz not null default now();
+    alter table sm_finance_cases add column if not exists updated_by uuid;
+    alter table sm_finance_cases add column if not exists rev bigint not null default 0;
+    alter table sm_finance_cases add column if not exists version integer not null default 1;
+    alter table sm_finance_cases add column if not exists deleted_at timestamptz;
+    alter table sm_finance_cases add column if not exists origin text;
+    alter table sm_finance_cases add column if not exists custom jsonb not null default '{}'::jsonb;
+    alter table sm_finance_cases add column if not exists no integer;
+    alter table sm_finance_cases add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 7 then 'FNC' || no::text else 'FNC' || lpad(no::text, 7, '0') end) stored;
+    alter table sm_finance_cases add column if not exists short_description text;
+    alter table sm_finance_cases add column if not exists description text;
+    alter table sm_finance_cases add column if not exists state text;
+    alter table sm_finance_cases add column if not exists priority text;
+    alter table sm_finance_cases add column if not exists impact text;
+    alter table sm_finance_cases add column if not exists urgency text;
+    alter table sm_finance_cases add column if not exists category text;
+    alter table sm_finance_cases add column if not exists subcategory text;
+    alter table sm_finance_cases add column if not exists channel text;
+    alter table sm_finance_cases add column if not exists caller_id uuid;
+    alter table sm_finance_cases add column if not exists requested_for uuid;
+    alter table sm_finance_cases add column if not exists opened_by uuid;
+    alter table sm_finance_cases add column if not exists opened_at timestamptz;
+    alter table sm_finance_cases add column if not exists assignment_group_id uuid;
+    alter table sm_finance_cases add column if not exists assigned_to uuid;
+    alter table sm_finance_cases add column if not exists service_id uuid;
+    alter table sm_finance_cases add column if not exists offering_id uuid;
+    alter table sm_finance_cases add column if not exists ci_id uuid;
+    alter table sm_finance_cases add column if not exists location_id uuid;
+    alter table sm_finance_cases add column if not exists due_at timestamptz;
+    alter table sm_finance_cases add column if not exists resolved_at timestamptz;
+    alter table sm_finance_cases add column if not exists resolved_by uuid;
+    alter table sm_finance_cases add column if not exists closed_at timestamptz;
+    alter table sm_finance_cases add column if not exists closed_by uuid;
+    alter table sm_finance_cases add column if not exists close_code text;
+    alter table sm_finance_cases add column if not exists close_notes text;
+    alter table sm_finance_cases add column if not exists parent_id uuid;
+    alter table sm_finance_cases add column if not exists watch_list jsonb;
+    alter table sm_finance_cases add column if not exists approval text;
+    alter table sm_finance_cases add column if not exists escalation integer;
+    alter table sm_finance_cases add column if not exists reassignment_count integer;
+    alter table sm_finance_cases add column if not exists reopen_count integer;
+    alter table sm_finance_cases add column if not exists time_worked bigint;
+    alter table sm_finance_cases add column if not exists first_response_at timestamptz;
+    alter table sm_finance_cases add column if not exists active boolean not null default true;
+    alter table sm_finance_cases add column if not exists sla_due timestamptz;
+    alter table sm_finance_cases add column if not exists knowledge boolean not null default false;
+    alter table sm_finance_cases add column if not exists title text;
+    alter table sm_finance_cases add column if not exists department_id uuid;
+    alter table sm_finance_cases add column if not exists dept_service_id uuid;
+    alter table sm_finance_cases add column if not exists sensitive boolean not null default false;
+    alter table sm_finance_cases add column if not exists journey_id uuid;
+    alter table sm_finance_cases add column if not exists child_total integer;
+    alter table sm_finance_cases add column if not exists child_open integer;
+    alter table sm_finance_cases add column if not exists satisfaction integer;
+    alter table sm_finance_cases add column if not exists case_kind text;
+    alter table sm_finance_cases add column if not exists amount numeric;
+    alter table sm_finance_cases add column if not exists currency text;
+    alter table sm_finance_cases add column if not exists invoice_no text;
+    alter table sm_finance_cases add column if not exists vendor_name text;
+    alter table sm_finance_cases add column if not exists cost_center_id uuid;
+    alter table sm_finance_cases add column if not exists payment_due date;
+    alter table sm_finance_cases add column if not exists iban text;
+    alter table sm_finance_cases add column if not exists payment_ref text;
+    alter table sm_finance_cases add column if not exists paid_on date;
+  end if;
+end
+$cols$;
+create table if not exists sm_finance_cases (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb,
+  no integer,
+  number text generated always as (case when no is null then null when length(no::text) >= 7 then 'FNC' || no::text else 'FNC' || lpad(no::text, 7, '0') end) stored,
+  short_description text,
+  description text,
+  state text,
+  priority text,
+  impact text,
+  urgency text,
+  category text,
+  subcategory text,
+  channel text,
+  caller_id uuid,
+  requested_for uuid,
+  opened_by uuid,
+  opened_at timestamptz,
+  assignment_group_id uuid,
+  assigned_to uuid,
+  service_id uuid,
+  offering_id uuid,
+  ci_id uuid,
+  location_id uuid,
+  due_at timestamptz,
+  resolved_at timestamptz,
+  resolved_by uuid,
+  closed_at timestamptz,
+  closed_by uuid,
+  close_code text,
+  close_notes text,
+  parent_id uuid,
+  watch_list jsonb,
+  approval text,
+  escalation integer,
+  reassignment_count integer,
+  reopen_count integer,
+  time_worked bigint,
+  first_response_at timestamptz,
+  active boolean not null default true,
+  sla_due timestamptz,
+  knowledge boolean not null default false,
+  title text,
+  department_id uuid,
+  dept_service_id uuid,
+  sensitive boolean not null default false,
+  journey_id uuid,
+  child_total integer,
+  child_open integer,
+  satisfaction integer,
+  case_kind text,
+  amount numeric,
+  currency text,
+  invoice_no text,
+  vendor_name text,
+  cost_center_id uuid,
+  payment_due date,
+  iban text,
+  payment_ref text,
+  paid_on date,
+  search_7a2f1724 text generated always as (translate(coalesce(short_description, '') || ' ' || coalesce(description, '') || ' ' || coalesce(invoice_no, '') || ' ' || coalesce(vendor_name, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
+);
+do $search$
+declare s text;
+begin
+  execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_finance_cases', 'search_7a2f1724', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, '') || ' ' || coalesce(invoice_no, '') || ' ' || coalesce(vendor_name, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
+  if s is not null then
+    execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_finance_cases_search_7a2f1724_trgm', 'sm_finance_cases', 'search_7a2f1724', s);
+    execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_finance_cases_search_custom_trgm', 'sm_finance_cases', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
+  end if;
+end
+$search$;
+create unique index if not exists sm_finance_cases_no_uk on sm_finance_cases (org_id, no);
+create index if not exists sm_finance_cases_rev_idx on sm_finance_cases (org_id, rev);
+create index if not exists sm_finance_cases_upd_idx on sm_finance_cases (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_finance_cases_crt_idx on sm_finance_cases (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_finance_cases_state_idx on sm_finance_cases (org_id, state) where deleted_at is null;
+create index if not exists sm_finance_cases_assignment_group_id_idx on sm_finance_cases (org_id, assignment_group_id) where deleted_at is null;
+create index if not exists sm_finance_cases_assigned_to_idx on sm_finance_cases (org_id, assigned_to) where deleted_at is null;
+create index if not exists sm_finance_cases_department_id_idx on sm_finance_cases (org_id, department_id) where deleted_at is null;
+create index if not exists sm_finance_cases_dept_service_id_idx on sm_finance_cases (org_id, dept_service_id) where deleted_at is null;
+create index if not exists sm_finance_cases_workspace_acc_idx on sm_finance_cases (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_finance_cases_unit_acc_idx on sm_finance_cases (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_finance_cases_domain_acc_idx on sm_finance_cases (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_finance_cases_caller_id_idx on sm_finance_cases (org_id, caller_id) where deleted_at is null;
+create index if not exists sm_finance_cases_requested_for_idx on sm_finance_cases (org_id, requested_for) where deleted_at is null;
+create index if not exists sm_finance_cases_opened_by_idx on sm_finance_cases (org_id, opened_by) where deleted_at is null;
+create index if not exists sm_finance_cases_watch_list_gin on sm_finance_cases using gin (watch_list);
+create index if not exists sm_finance_cases_open_grp_idx on sm_finance_cases (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
+create index if not exists sm_finance_cases_opened_brin on sm_finance_cases using brin (opened_at);
+drop trigger if exists sm_finance_cases_sync on sm_finance_cases;
+create trigger sm_finance_cases_sync before insert or update on sm_finance_cases for each row execute function sm_sync_touch('finance_case');
+create or replace trigger sm_finance_cases_demo after insert on sm_finance_cases for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_finance_cases_demo_t after update or delete on sm_finance_cases for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_finance_cases enable row level security;
+
+-- financial_config: تنظیمات مالی
+do $cols$
+begin
+  if to_regclass('sm_financial_configs') is not null then
+    alter table sm_financial_configs add column if not exists workspace_id uuid;
+    alter table sm_financial_configs add column if not exists domain_id uuid;
+    alter table sm_financial_configs add column if not exists unit_id uuid;
+    alter table sm_financial_configs add column if not exists created_at timestamptz not null default now();
+    alter table sm_financial_configs add column if not exists created_by uuid;
+    alter table sm_financial_configs add column if not exists updated_at timestamptz not null default now();
+    alter table sm_financial_configs add column if not exists updated_by uuid;
+    alter table sm_financial_configs add column if not exists rev bigint not null default 0;
+    alter table sm_financial_configs add column if not exists version integer not null default 1;
+    alter table sm_financial_configs add column if not exists deleted_at timestamptz;
+    alter table sm_financial_configs add column if not exists origin text;
+    alter table sm_financial_configs add column if not exists custom jsonb not null default '{}'::jsonb;
+    alter table sm_financial_configs add column if not exists name text;
+    alter table sm_financial_configs add column if not exists config_key text;
+    alter table sm_financial_configs add column if not exists currency_display text;
+    alter table sm_financial_configs add column if not exists variance_threshold integer;
+    alter table sm_financial_configs add column if not exists budget_alert_percent integer;
+    alter table sm_financial_configs add column if not exists auto_capture boolean not null default true;
+    alter table sm_financial_configs add column if not exists default_cost_center_id uuid;
+    alter table sm_financial_configs add column if not exists seeded integer;
+  end if;
+end
+$cols$;
+create table if not exists sm_financial_configs (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb,
+  name text,
+  config_key text,
+  currency_display text,
+  variance_threshold integer,
+  budget_alert_percent integer,
+  auto_capture boolean not null default true,
+  default_cost_center_id uuid,
+  seeded integer
+);
+create index if not exists sm_financial_configs_rev_idx on sm_financial_configs (org_id, rev);
+create index if not exists sm_financial_configs_upd_idx on sm_financial_configs (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_financial_configs_crt_idx on sm_financial_configs (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_financial_configs_config_key_uk on sm_financial_configs (org_id, config_key) where deleted_at is null;
+drop trigger if exists sm_financial_configs_sync on sm_financial_configs;
+create trigger sm_financial_configs_sync before insert or update on sm_financial_configs for each row execute function sm_sync_touch('financial_config');
+create or replace trigger sm_financial_configs_demo after insert on sm_financial_configs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_financial_configs_demo_t after update or delete on sm_financial_configs for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_financial_configs enable row level security;
+
 -- fiscal_period: دوره‌های مالی
 do $cols$
 begin
@@ -448,14 +1010,6 @@ create table if not exists sm_goods_receipts (
   note text,
   state text
 );
-do $search$
-declare old record;
-begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_goods_receipts' and column_name ~ '^search_[0-9a-f]{8}$' loop
-    execute format('alter table %I drop column if exists %I', 'sm_goods_receipts', old.column_name);
-  end loop;
-end
-$search$;
 create unique index if not exists sm_goods_receipts_no_uk on sm_goods_receipts (org_id, no);
 create index if not exists sm_goods_receipts_rev_idx on sm_goods_receipts (org_id, rev);
 create index if not exists sm_goods_receipts_upd_idx on sm_goods_receipts (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -598,17 +1152,11 @@ create table if not exists sm_grc_audits (
   search_cae18f1d text generated always as (translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_grc_audits' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_cae18f1d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_grc_audits', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_grc_audits', 'search_cae18f1d', $x$translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_grc_audits' and indexname like 'sm\_grc\_audits\_search\_%' and indexname not in ('sm_grc_audits_search_cae18f1d_trgm', 'sm_grc_audits_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_grc_audits_search_cae18f1d_trgm', 'sm_grc_audits', 'search_cae18f1d', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_grc_audits_search_custom_trgm', 'sm_grc_audits', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -715,17 +1263,11 @@ create table if not exists sm_grc_controls (
   search_cbe8b512 text generated always as (translate(coalesce(name, '') || ' ' || coalesce(code, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_grc_controls' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_cbe8b512' loop
-    execute format('alter table %I drop column if exists %I', 'sm_grc_controls', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_grc_controls', 'search_cbe8b512', $x$translate(coalesce(name, '') || ' ' || coalesce(code, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_grc_controls' and indexname like 'sm\_grc\_controls\_search\_%' and indexname not in ('sm_grc_controls_search_cbe8b512_trgm', 'sm_grc_controls_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_grc_controls_search_cbe8b512_trgm', 'sm_grc_controls', 'search_cbe8b512', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_grc_controls_search_custom_trgm', 'sm_grc_controls', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -821,14 +1363,6 @@ create table if not exists sm_grc_control_tests (
   issue_id uuid,
   state text
 );
-do $search$
-declare old record;
-begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_grc_control_tests' and column_name ~ '^search_[0-9a-f]{8}$' loop
-    execute format('alter table %I drop column if exists %I', 'sm_grc_control_tests', old.column_name);
-  end loop;
-end
-$search$;
 create unique index if not exists sm_grc_control_tests_no_uk on sm_grc_control_tests (org_id, no);
 create index if not exists sm_grc_control_tests_rev_idx on sm_grc_control_tests (org_id, rev);
 create index if not exists sm_grc_control_tests_upd_idx on sm_grc_control_tests (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -908,17 +1442,11 @@ create table if not exists sm_grc_csf_profiles (
   search_56291d9d text generated always as (translate(coalesce(name, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_grc_csf_profiles' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_56291d9d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_grc_csf_profiles', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_grc_csf_profiles', 'search_56291d9d', $x$translate(coalesce(name, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_grc_csf_profiles' and indexname like 'sm\_grc\_csf\_profiles\_search\_%' and indexname not in ('sm_grc_csf_profiles_search_56291d9d_trgm', 'sm_grc_csf_profiles_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_grc_csf_profiles_search_56291d9d_trgm', 'sm_grc_csf_profiles', 'search_56291d9d', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_grc_csf_profiles_search_custom_trgm', 'sm_grc_csf_profiles', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -1001,14 +1529,6 @@ create table if not exists sm_grc_dsrs (
   overdue boolean not null default false,
   state text
 );
-do $search$
-declare old record;
-begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_grc_dsrs' and column_name ~ '^search_[0-9a-f]{8}$' loop
-    execute format('alter table %I drop column if exists %I', 'sm_grc_dsrs', old.column_name);
-  end loop;
-end
-$search$;
 create unique index if not exists sm_grc_dsrs_no_uk on sm_grc_dsrs (org_id, no);
 create index if not exists sm_grc_dsrs_rev_idx on sm_grc_dsrs (org_id, rev);
 create index if not exists sm_grc_dsrs_upd_idx on sm_grc_dsrs (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -1023,7 +1543,22 @@ create trigger sm_grc_dsrs_sync before insert or update on sm_grc_dsrs for each 
 create or replace trigger sm_grc_dsrs_demo after insert on sm_grc_dsrs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_grc_dsrs_demo_t after update or delete on sm_grc_dsrs for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_grc_dsrs enable row level security;
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:10', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+do $engine$
+begin
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
+    delete from sm_meta where key like 'engine.ddl.part:%';
+    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
+  end if;
+end
+$engine$;
 
+-- ---------------------------------------------------------------------------
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۲ از ۲۸
+-- ---------------------------------------------------------------------------
+-- engine DDL 12/28 (e746bd22eb04)
 -- grc_evidence: شواهد انطباق
 do $cols$
 begin
@@ -1099,17 +1634,11 @@ create table if not exists sm_grc_evidence (
   search_cae18f1d text generated always as (translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_grc_evidence' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_cae18f1d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_grc_evidence', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_grc_evidence', 'search_cae18f1d', $x$translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_grc_evidence' and indexname like 'sm\_grc\_evidence\_search\_%' and indexname not in ('sm_grc_evidence_search_cae18f1d_trgm', 'sm_grc_evidence_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_grc_evidence_search_cae18f1d_trgm', 'sm_grc_evidence', 'search_cae18f1d', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_grc_evidence_search_custom_trgm', 'sm_grc_evidence', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -1200,17 +1729,11 @@ create table if not exists sm_grc_findings (
   search_cae18f1d text generated always as (translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_grc_findings' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_cae18f1d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_grc_findings', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_grc_findings', 'search_cae18f1d', $x$translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_grc_findings' and indexname like 'sm\_grc\_findings\_search\_%' and indexname not in ('sm_grc_findings_search_cae18f1d_trgm', 'sm_grc_findings_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_grc_findings_search_cae18f1d_trgm', 'sm_grc_findings', 'search_cae18f1d', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_grc_findings_search_custom_trgm', 'sm_grc_findings', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -1368,17 +1891,11 @@ create table if not exists sm_grc_issues (
   search_cae18f1d text generated always as (translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_grc_issues' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_cae18f1d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_grc_issues', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_grc_issues', 'search_cae18f1d', $x$translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_grc_issues' and indexname like 'sm\_grc\_issues\_search\_%' and indexname not in ('sm_grc_issues_search_cae18f1d_trgm', 'sm_grc_issues_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_grc_issues_search_cae18f1d_trgm', 'sm_grc_issues', 'search_cae18f1d', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_grc_issues_search_custom_trgm', 'sm_grc_issues', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -1471,22 +1988,7 @@ create trigger sm_grc_kris_sync before insert or update on sm_grc_kris for each 
 create or replace trigger sm_grc_kris_demo after insert on sm_grc_kris for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_grc_kris_demo_t after update or delete on sm_grc_kris for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_grc_kris enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340:11', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-do $engine$
-begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340:%') >= 30 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340', 'done', now()) on conflict (key) do nothing;
-    delete from sm_meta where key like 'engine.ddl.part:%';
-    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
-  end if;
-end
-$engine$;
 
--- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۳ از ۳۰
--- ---------------------------------------------------------------------------
--- engine DDL 13/30 (a0c3bc7de847)
 -- grc_policy: خط‌مشی‌ها و استانداردها
 do $cols$
 begin
@@ -1564,17 +2066,11 @@ create table if not exists sm_grc_policies (
   search_cae18f1d text generated always as (translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_grc_policies' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_cae18f1d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_grc_policies', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_grc_policies', 'search_cae18f1d', $x$translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_grc_policies' and indexname like 'sm\_grc\_policies\_search\_%' and indexname not in ('sm_grc_policies_search_cae18f1d_trgm', 'sm_grc_policies_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_grc_policies_search_cae18f1d_trgm', 'sm_grc_policies', 'search_cae18f1d', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_grc_policies_search_custom_trgm', 'sm_grc_policies', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -1728,17 +2224,11 @@ create table if not exists sm_grc_policy_campaigns (
   search_cae18f1d text generated always as (translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_grc_policy_campaigns' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_cae18f1d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_grc_policy_campaigns', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_grc_policy_campaigns', 'search_cae18f1d', $x$translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_grc_policy_campaigns' and indexname like 'sm\_grc\_policy\_campaigns\_search\_%' and indexname not in ('sm_grc_policy_campaigns_search_cae18f1d_trgm', 'sm_grc_policy_campaigns_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_grc_policy_campaigns_search_cae18f1d_trgm', 'sm_grc_policy_campaigns', 'search_cae18f1d', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_grc_policy_campaigns_search_custom_trgm', 'sm_grc_policy_campaigns', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -1829,17 +2319,11 @@ create table if not exists sm_grc_policy_exceptions (
   search_cae18f1d text generated always as (translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_grc_policy_exceptions' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_cae18f1d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_grc_policy_exceptions', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_grc_policy_exceptions', 'search_cae18f1d', $x$translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_grc_policy_exceptions' and indexname like 'sm\_grc\_policy\_exceptions\_search\_%' and indexname not in ('sm_grc_policy_exceptions_search_cae18f1d_trgm', 'sm_grc_policy_exceptions_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_grc_policy_exceptions_search_cae18f1d_trgm', 'sm_grc_policy_exceptions', 'search_cae18f1d', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_grc_policy_exceptions_search_custom_trgm', 'sm_grc_policy_exceptions', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -1931,17 +2415,11 @@ create table if not exists sm_grc_reg_alerts (
   search_cae18f1d text generated always as (translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_grc_reg_alerts' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_cae18f1d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_grc_reg_alerts', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_grc_reg_alerts', 'search_cae18f1d', $x$translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_grc_reg_alerts' and indexname like 'sm\_grc\_reg\_alerts\_search\_%' and indexname not in ('sm_grc_reg_alerts_search_cae18f1d_trgm', 'sm_grc_reg_alerts_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_grc_reg_alerts_search_cae18f1d_trgm', 'sm_grc_reg_alerts', 'search_cae18f1d', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_grc_reg_alerts_search_custom_trgm', 'sm_grc_reg_alerts', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -2160,17 +2638,11 @@ create table if not exists sm_grc_risks (
   search_cae18f1d text generated always as (translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_grc_risks' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_cae18f1d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_grc_risks', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_grc_risks', 'search_cae18f1d', $x$translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_grc_risks' and indexname like 'sm\_grc\_risks\_search\_%' and indexname not in ('sm_grc_risks_search_cae18f1d_trgm', 'sm_grc_risks_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_grc_risks_search_cae18f1d_trgm', 'sm_grc_risks', 'search_cae18f1d', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_grc_risks_search_custom_trgm', 'sm_grc_risks', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -2256,14 +2728,6 @@ create table if not exists sm_grc_risk_acceptances (
   notes text,
   state text
 );
-do $search$
-declare old record;
-begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_grc_risk_acceptances' and column_name ~ '^search_[0-9a-f]{8}$' loop
-    execute format('alter table %I drop column if exists %I', 'sm_grc_risk_acceptances', old.column_name);
-  end loop;
-end
-$search$;
 create unique index if not exists sm_grc_risk_acceptances_no_uk on sm_grc_risk_acceptances (org_id, no);
 create index if not exists sm_grc_risk_acceptances_rev_idx on sm_grc_risk_acceptances (org_id, rev);
 create index if not exists sm_grc_risk_acceptances_upd_idx on sm_grc_risk_acceptances (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -2340,17 +2804,11 @@ create table if not exists sm_grc_risk_actions (
   search_cae18f1d text generated always as (translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_grc_risk_actions' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_cae18f1d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_grc_risk_actions', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_grc_risk_actions', 'search_cae18f1d', $x$translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_grc_risk_actions' and indexname like 'sm\_grc\_risk\_actions\_search\_%' and indexname not in ('sm_grc_risk_actions_search_cae18f1d_trgm', 'sm_grc_risk_actions_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_grc_risk_actions_search_cae18f1d_trgm', 'sm_grc_risk_actions', 'search_cae18f1d', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_grc_risk_actions_search_custom_trgm', 'sm_grc_risk_actions', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -2486,17 +2944,11 @@ create table if not exists sm_grc_risk_events (
   search_cae18f1d text generated always as (translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_grc_risk_events' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_cae18f1d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_grc_risk_events', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_grc_risk_events', 'search_cae18f1d', $x$translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_grc_risk_events' and indexname like 'sm\_grc\_risk\_events\_search\_%' and indexname not in ('sm_grc_risk_events_search_cae18f1d_trgm', 'sm_grc_risk_events_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_grc_risk_events_search_cae18f1d_trgm', 'sm_grc_risk_events', 'search_cae18f1d', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_grc_risk_events_search_custom_trgm', 'sm_grc_risk_events', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -2575,7 +3027,22 @@ create trigger sm_grc_risk_matrices_sync before insert or update on sm_grc_risk_
 create or replace trigger sm_grc_risk_matrices_demo after insert on sm_grc_risk_matrices for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_grc_risk_matrices_demo_t after update or delete on sm_grc_risk_matrices for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_grc_risk_matrices enable row level security;
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:11', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+do $engine$
+begin
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
+    delete from sm_meta where key like 'engine.ddl.part:%';
+    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
+  end if;
+end
+$engine$;
 
+-- ---------------------------------------------------------------------------
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۳ از ۲۸
+-- ---------------------------------------------------------------------------
+-- engine DDL 13/28 (e746bd22eb04)
 -- grc_ropa: ثبت فعالیت‌های پردازش
 do $cols$
 begin
@@ -2649,17 +3116,11 @@ create table if not exists sm_grc_ropa (
   search_56291d9d text generated always as (translate(coalesce(name, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_grc_ropa' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_56291d9d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_grc_ropa', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_grc_ropa', 'search_56291d9d', $x$translate(coalesce(name, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_grc_ropa' and indexname like 'sm\_grc\_ropa\_search\_%' and indexname not in ('sm_grc_ropa_search_56291d9d_trgm', 'sm_grc_ropa_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_grc_ropa_search_56291d9d_trgm', 'sm_grc_ropa', 'search_56291d9d', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_grc_ropa_search_custom_trgm', 'sm_grc_ropa', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -2935,22 +3396,7 @@ create trigger sm_holidays_sync before insert or update on sm_holidays for each 
 create or replace trigger sm_holidays_demo after insert on sm_holidays for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_holidays_demo_t after update or delete on sm_holidays for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_holidays enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340:12', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-do $engine$
-begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340:%') >= 30 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340', 'done', now()) on conflict (key) do nothing;
-    delete from sm_meta where key like 'engine.ddl.part:%';
-    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
-  end if;
-end
-$engine$;
 
--- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۴ از ۳۰
--- ---------------------------------------------------------------------------
--- engine DDL 14/30 (a0c3bc7de847)
 -- hr_case: پرونده‌های منابع انسانی
 do $cols$
 begin
@@ -3108,17 +3554,11 @@ create table if not exists sm_hr_cases (
   search_f3bce210 text generated always as (translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_hr_cases' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
-    execute format('alter table %I drop column if exists %I', 'sm_hr_cases', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_hr_cases', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_hr_cases' and indexname like 'sm\_hr\_cases\_search\_%' and indexname not in ('sm_hr_cases_search_f3bce210_trgm', 'sm_hr_cases_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_hr_cases_search_f3bce210_trgm', 'sm_hr_cases', 'search_f3bce210', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_hr_cases_search_custom_trgm', 'sm_hr_cases', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -3377,17 +3817,11 @@ create table if not exists sm_hr_tasks (
   search_9c3826f0 text generated always as (translate(coalesce(short_description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_hr_tasks' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_9c3826f0' loop
-    execute format('alter table %I drop column if exists %I', 'sm_hr_tasks', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_hr_tasks', 'search_9c3826f0', $x$translate(coalesce(short_description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_hr_tasks' and indexname like 'sm\_hr\_tasks\_search\_%' and indexname not in ('sm_hr_tasks_search_9c3826f0_trgm', 'sm_hr_tasks_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_hr_tasks_search_9c3826f0_trgm', 'sm_hr_tasks', 'search_9c3826f0', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_hr_tasks_search_custom_trgm', 'sm_hr_tasks', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -3569,17 +4003,11 @@ create table if not exists sm_hse_events (
   search_f3bce210 text generated always as (translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_hse_events' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
-    execute format('alter table %I drop column if exists %I', 'sm_hse_events', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_hse_events', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_hse_events' and indexname like 'sm\_hse\_events\_search\_%' and indexname not in ('sm_hse_events_search_f3bce210_trgm', 'sm_hse_events_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_hse_events_search_f3bce210_trgm', 'sm_hse_events', 'search_f3bce210', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_hse_events_search_custom_trgm', 'sm_hse_events', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -3678,17 +4106,11 @@ create table if not exists sm_import_sets (
   search_56291d9d text generated always as (translate(coalesce(name, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_import_sets' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_56291d9d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_import_sets', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_import_sets', 'search_56291d9d', $x$translate(coalesce(name, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_import_sets' and indexname like 'sm\_import\_sets\_search\_%' and indexname not in ('sm_import_sets_search_56291d9d_trgm', 'sm_import_sets_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_import_sets_search_56291d9d_trgm', 'sm_import_sets', 'search_56291d9d', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_import_sets_search_custom_trgm', 'sm_import_sets', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -3976,17 +4398,11 @@ create table if not exists sm_incidents (
   search_2a22db8c text generated always as (translate(coalesce(short_description, '') || ' ' || coalesce(description, '') || ' ' || coalesce(external_ref, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_incidents' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_2a22db8c' loop
-    execute format('alter table %I drop column if exists %I', 'sm_incidents', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_incidents', 'search_2a22db8c', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, '') || ' ' || coalesce(external_ref, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_incidents' and indexname like 'sm\_incidents\_search\_%' and indexname not in ('sm_incidents_search_2a22db8c_trgm', 'sm_incidents_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_incidents_search_2a22db8c_trgm', 'sm_incidents', 'search_2a22db8c', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_incidents_search_custom_trgm', 'sm_incidents', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -4170,17 +4586,11 @@ create table if not exists sm_incident_period_reviews (
   search_cae18f1d text generated always as (translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
 );
 do $search$
-declare s text; old record;
+declare s text;
 begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_incident_period_reviews' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_cae18f1d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_incident_period_reviews', old.column_name);
-  end loop;
   execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_incident_period_reviews', 'search_cae18f1d', $x$translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
   select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
   if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_incident_period_reviews' and indexname like 'sm\_incident\_period\_reviews\_search\_%' and indexname not in ('sm_incident_period_reviews_search_cae18f1d_trgm', 'sm_incident_period_reviews_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
     execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_incident_period_reviews_search_cae18f1d_trgm', 'sm_incident_period_reviews', 'search_cae18f1d', s);
     execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_incident_period_reviews_search_custom_trgm', 'sm_incident_period_reviews', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
   end if;
@@ -4202,1547 +4612,12 @@ create trigger sm_incident_period_reviews_sync before insert or update on sm_inc
 create or replace trigger sm_incident_period_reviews_demo after insert on sm_incident_period_reviews for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_incident_period_reviews_demo_t after update or delete on sm_incident_period_reviews for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_incident_period_reviews enable row level security;
-
--- incident_response: پاسخ‌های آماده
-do $cols$
-begin
-  if to_regclass('sm_incident_responses') is not null then
-    alter table sm_incident_responses add column if not exists workspace_id uuid;
-    alter table sm_incident_responses add column if not exists domain_id uuid;
-    alter table sm_incident_responses add column if not exists unit_id uuid;
-    alter table sm_incident_responses add column if not exists created_at timestamptz not null default now();
-    alter table sm_incident_responses add column if not exists created_by uuid;
-    alter table sm_incident_responses add column if not exists updated_at timestamptz not null default now();
-    alter table sm_incident_responses add column if not exists updated_by uuid;
-    alter table sm_incident_responses add column if not exists rev bigint not null default 0;
-    alter table sm_incident_responses add column if not exists version integer not null default 1;
-    alter table sm_incident_responses add column if not exists deleted_at timestamptz;
-    alter table sm_incident_responses add column if not exists origin text;
-    alter table sm_incident_responses add column if not exists custom jsonb not null default '{}'::jsonb;
-    alter table sm_incident_responses add column if not exists name text;
-    alter table sm_incident_responses add column if not exists kind text;
-    alter table sm_incident_responses add column if not exists active boolean not null default true;
-    alter table sm_incident_responses add column if not exists category text;
-    alter table sm_incident_responses add column if not exists group_id uuid;
-    alter table sm_incident_responses add column if not exists sort_order integer;
-    alter table sm_incident_responses add column if not exists body text;
-  end if;
-end
-$cols$;
-create table if not exists sm_incident_responses (
-  id uuid primary key,
-  org_id uuid not null references sm_orgs(id) on delete cascade,
-  workspace_id uuid,
-  domain_id uuid,
-  unit_id uuid,
-  created_at timestamptz not null default now(),
-  created_by uuid,
-  updated_at timestamptz not null default now(),
-  updated_by uuid,
-  rev bigint not null default 0,
-  version integer not null default 1,
-  deleted_at timestamptz,
-  origin text,
-  custom jsonb not null default '{}'::jsonb,
-  name text,
-  kind text,
-  active boolean not null default true,
-  category text,
-  group_id uuid,
-  sort_order integer,
-  body text
-);
-create index if not exists sm_incident_responses_rev_idx on sm_incident_responses (org_id, rev);
-create index if not exists sm_incident_responses_upd_idx on sm_incident_responses (org_id, updated_at desc, id desc) where deleted_at is null;
-create index if not exists sm_incident_responses_crt_idx on sm_incident_responses (org_id, created_at desc, id desc) where deleted_at is null;
-create unique index if not exists sm_incident_responses_name_uk on sm_incident_responses (org_id, name) where deleted_at is null;
-create index if not exists sm_incident_responses_workspace_acc_idx on sm_incident_responses (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
-create index if not exists sm_incident_responses_unit_acc_idx on sm_incident_responses (org_id, unit_id) where deleted_at is null and unit_id is not null;
-create index if not exists sm_incident_responses_domain_acc_idx on sm_incident_responses (org_id, domain_id) where deleted_at is null and domain_id is not null;
-create index if not exists sm_incident_responses_open_grp_idx on sm_incident_responses (org_id, group_id, updated_at desc) where deleted_at is null and active;
-drop trigger if exists sm_incident_responses_sync on sm_incident_responses;
-create trigger sm_incident_responses_sync before insert or update on sm_incident_responses for each row execute function sm_sync_touch('incident_response');
-create or replace trigger sm_incident_responses_demo after insert on sm_incident_responses for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
-create or replace trigger sm_incident_responses_demo_t after update or delete on sm_incident_responses for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
-alter table sm_incident_responses enable row level security;
-
--- incident_review: بازبینی‌های پس از رخداد
-do $cols$
-begin
-  if to_regclass('sm_incident_reviews') is not null then
-    alter table sm_incident_reviews add column if not exists workspace_id uuid;
-    alter table sm_incident_reviews add column if not exists domain_id uuid;
-    alter table sm_incident_reviews add column if not exists unit_id uuid;
-    alter table sm_incident_reviews add column if not exists created_at timestamptz not null default now();
-    alter table sm_incident_reviews add column if not exists created_by uuid;
-    alter table sm_incident_reviews add column if not exists updated_at timestamptz not null default now();
-    alter table sm_incident_reviews add column if not exists updated_by uuid;
-    alter table sm_incident_reviews add column if not exists rev bigint not null default 0;
-    alter table sm_incident_reviews add column if not exists version integer not null default 1;
-    alter table sm_incident_reviews add column if not exists deleted_at timestamptz;
-    alter table sm_incident_reviews add column if not exists origin text;
-    alter table sm_incident_reviews add column if not exists custom jsonb not null default '{}'::jsonb;
-    alter table sm_incident_reviews add column if not exists no integer;
-    alter table sm_incident_reviews add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 5 then 'PIR' || no::text else 'PIR' || lpad(no::text, 5, '0') end) stored;
-    alter table sm_incident_reviews add column if not exists title text;
-    alter table sm_incident_reviews add column if not exists incident_id uuid;
-    alter table sm_incident_reviews add column if not exists review_trigger text;
-    alter table sm_incident_reviews add column if not exists owner_id uuid;
-    alter table sm_incident_reviews add column if not exists authors jsonb;
-    alter table sm_incident_reviews add column if not exists assignment_group_id uuid;
-    alter table sm_incident_reviews add column if not exists due_at timestamptz;
-    alter table sm_incident_reviews add column if not exists published_at timestamptz;
-    alter table sm_incident_reviews add column if not exists published_by uuid;
-    alter table sm_incident_reviews add column if not exists summary text;
-    alter table sm_incident_reviews add column if not exists impact text;
-    alter table sm_incident_reviews add column if not exists timeline_md text;
-    alter table sm_incident_reviews add column if not exists root_cause text;
-    alter table sm_incident_reviews add column if not exists detection text;
-    alter table sm_incident_reviews add column if not exists resolution text;
-    alter table sm_incident_reviews add column if not exists went_well text;
-    alter table sm_incident_reviews add column if not exists went_wrong text;
-    alter table sm_incident_reviews add column if not exists lucky text;
-    alter table sm_incident_reviews add column if not exists lessons text;
-    alter table sm_incident_reviews add column if not exists watch_list jsonb;
-    alter table sm_incident_reviews add column if not exists state text;
-  end if;
-end
-$cols$;
-create table if not exists sm_incident_reviews (
-  id uuid primary key,
-  org_id uuid not null references sm_orgs(id) on delete cascade,
-  workspace_id uuid,
-  domain_id uuid,
-  unit_id uuid,
-  created_at timestamptz not null default now(),
-  created_by uuid,
-  updated_at timestamptz not null default now(),
-  updated_by uuid,
-  rev bigint not null default 0,
-  version integer not null default 1,
-  deleted_at timestamptz,
-  origin text,
-  custom jsonb not null default '{}'::jsonb,
-  no integer,
-  number text generated always as (case when no is null then null when length(no::text) >= 5 then 'PIR' || no::text else 'PIR' || lpad(no::text, 5, '0') end) stored,
-  title text,
-  incident_id uuid,
-  review_trigger text,
-  owner_id uuid,
-  authors jsonb,
-  assignment_group_id uuid,
-  due_at timestamptz,
-  published_at timestamptz,
-  published_by uuid,
-  summary text,
-  impact text,
-  timeline_md text,
-  root_cause text,
-  detection text,
-  resolution text,
-  went_well text,
-  went_wrong text,
-  lucky text,
-  lessons text,
-  watch_list jsonb,
-  state text,
-  search_cae18f1d text generated always as (translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
-);
-do $search$
-declare s text; old record;
-begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_incident_reviews' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_cae18f1d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_incident_reviews', old.column_name);
-  end loop;
-  execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_incident_reviews', 'search_cae18f1d', $x$translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
-  select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
-  if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_incident_reviews' and indexname like 'sm\_incident\_reviews\_search\_%' and indexname not in ('sm_incident_reviews_search_cae18f1d_trgm', 'sm_incident_reviews_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
-    execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_incident_reviews_search_cae18f1d_trgm', 'sm_incident_reviews', 'search_cae18f1d', s);
-    execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_incident_reviews_search_custom_trgm', 'sm_incident_reviews', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
-  end if;
-end
-$search$;
-create unique index if not exists sm_incident_reviews_no_uk on sm_incident_reviews (org_id, no);
-create index if not exists sm_incident_reviews_rev_idx on sm_incident_reviews (org_id, rev);
-create index if not exists sm_incident_reviews_upd_idx on sm_incident_reviews (org_id, updated_at desc, id desc) where deleted_at is null;
-create index if not exists sm_incident_reviews_crt_idx on sm_incident_reviews (org_id, created_at desc, id desc) where deleted_at is null;
-create index if not exists sm_incident_reviews_incident_id_idx on sm_incident_reviews (org_id, incident_id) where deleted_at is null;
-create index if not exists sm_incident_reviews_owner_id_idx on sm_incident_reviews (org_id, owner_id) where deleted_at is null;
-create index if not exists sm_incident_reviews_assignment_group_id_idx on sm_incident_reviews (org_id, assignment_group_id) where deleted_at is null;
-create index if not exists sm_incident_reviews_state_idx on sm_incident_reviews (org_id, state) where deleted_at is null;
-create index if not exists sm_incident_reviews_workspace_acc_idx on sm_incident_reviews (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
-create index if not exists sm_incident_reviews_unit_acc_idx on sm_incident_reviews (org_id, unit_id) where deleted_at is null and unit_id is not null;
-create index if not exists sm_incident_reviews_domain_acc_idx on sm_incident_reviews (org_id, domain_id) where deleted_at is null and domain_id is not null;
-create index if not exists sm_incident_reviews_authors_gin on sm_incident_reviews using gin (authors);
-create index if not exists sm_incident_reviews_watch_list_gin on sm_incident_reviews using gin (watch_list);
-drop trigger if exists sm_incident_reviews_sync on sm_incident_reviews;
-create trigger sm_incident_reviews_sync before insert or update on sm_incident_reviews for each row execute function sm_sync_touch('incident_review');
-create or replace trigger sm_incident_reviews_demo after insert on sm_incident_reviews for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
-create or replace trigger sm_incident_reviews_demo_t after update or delete on sm_incident_reviews for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
-alter table sm_incident_reviews enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340:13', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:12', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
 do $engine$
 begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340:%') >= 30 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340', 'done', now()) on conflict (key) do nothing;
-    delete from sm_meta where key like 'engine.ddl.part:%';
-    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
-  end if;
-end
-$engine$;
-
--- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۵ از ۳۰
--- ---------------------------------------------------------------------------
--- engine DDL 15/30 (a0c3bc7de847)
--- incident_task: کارهای رخداد
-do $cols$
-begin
-  if to_regclass('sm_incident_tasks') is not null then
-    alter table sm_incident_tasks add column if not exists workspace_id uuid;
-    alter table sm_incident_tasks add column if not exists domain_id uuid;
-    alter table sm_incident_tasks add column if not exists unit_id uuid;
-    alter table sm_incident_tasks add column if not exists created_at timestamptz not null default now();
-    alter table sm_incident_tasks add column if not exists created_by uuid;
-    alter table sm_incident_tasks add column if not exists updated_at timestamptz not null default now();
-    alter table sm_incident_tasks add column if not exists updated_by uuid;
-    alter table sm_incident_tasks add column if not exists rev bigint not null default 0;
-    alter table sm_incident_tasks add column if not exists version integer not null default 1;
-    alter table sm_incident_tasks add column if not exists deleted_at timestamptz;
-    alter table sm_incident_tasks add column if not exists origin text;
-    alter table sm_incident_tasks add column if not exists custom jsonb not null default '{}'::jsonb;
-    alter table sm_incident_tasks add column if not exists no integer;
-    alter table sm_incident_tasks add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 7 then 'ITASK' || no::text else 'ITASK' || lpad(no::text, 7, '0') end) stored;
-    alter table sm_incident_tasks add column if not exists short_description text;
-    alter table sm_incident_tasks add column if not exists description text;
-    alter table sm_incident_tasks add column if not exists state text;
-    alter table sm_incident_tasks add column if not exists priority text;
-    alter table sm_incident_tasks add column if not exists impact text;
-    alter table sm_incident_tasks add column if not exists urgency text;
-    alter table sm_incident_tasks add column if not exists category text;
-    alter table sm_incident_tasks add column if not exists subcategory text;
-    alter table sm_incident_tasks add column if not exists channel text;
-    alter table sm_incident_tasks add column if not exists caller_id uuid;
-    alter table sm_incident_tasks add column if not exists requested_for uuid;
-    alter table sm_incident_tasks add column if not exists opened_by uuid;
-    alter table sm_incident_tasks add column if not exists opened_at timestamptz;
-    alter table sm_incident_tasks add column if not exists assignment_group_id uuid;
-    alter table sm_incident_tasks add column if not exists assigned_to uuid;
-    alter table sm_incident_tasks add column if not exists service_id uuid;
-    alter table sm_incident_tasks add column if not exists offering_id uuid;
-    alter table sm_incident_tasks add column if not exists ci_id uuid;
-    alter table sm_incident_tasks add column if not exists location_id uuid;
-    alter table sm_incident_tasks add column if not exists due_at timestamptz;
-    alter table sm_incident_tasks add column if not exists resolved_at timestamptz;
-    alter table sm_incident_tasks add column if not exists resolved_by uuid;
-    alter table sm_incident_tasks add column if not exists closed_at timestamptz;
-    alter table sm_incident_tasks add column if not exists closed_by uuid;
-    alter table sm_incident_tasks add column if not exists close_code text;
-    alter table sm_incident_tasks add column if not exists close_notes text;
-    alter table sm_incident_tasks add column if not exists parent_id uuid;
-    alter table sm_incident_tasks add column if not exists watch_list jsonb;
-    alter table sm_incident_tasks add column if not exists approval text;
-    alter table sm_incident_tasks add column if not exists escalation integer;
-    alter table sm_incident_tasks add column if not exists reassignment_count integer;
-    alter table sm_incident_tasks add column if not exists reopen_count integer;
-    alter table sm_incident_tasks add column if not exists time_worked bigint;
-    alter table sm_incident_tasks add column if not exists first_response_at timestamptz;
-    alter table sm_incident_tasks add column if not exists active boolean not null default true;
-    alter table sm_incident_tasks add column if not exists sla_due timestamptz;
-    alter table sm_incident_tasks add column if not exists knowledge boolean not null default false;
-    alter table sm_incident_tasks add column if not exists incident_id uuid;
-    alter table sm_incident_tasks add column if not exists mandatory boolean not null default true;
-    alter table sm_incident_tasks add column if not exists sort_order integer;
-  end if;
-end
-$cols$;
-create table if not exists sm_incident_tasks (
-  id uuid primary key,
-  org_id uuid not null references sm_orgs(id) on delete cascade,
-  workspace_id uuid,
-  domain_id uuid,
-  unit_id uuid,
-  created_at timestamptz not null default now(),
-  created_by uuid,
-  updated_at timestamptz not null default now(),
-  updated_by uuid,
-  rev bigint not null default 0,
-  version integer not null default 1,
-  deleted_at timestamptz,
-  origin text,
-  custom jsonb not null default '{}'::jsonb,
-  no integer,
-  number text generated always as (case when no is null then null when length(no::text) >= 7 then 'ITASK' || no::text else 'ITASK' || lpad(no::text, 7, '0') end) stored,
-  short_description text,
-  description text,
-  state text,
-  priority text,
-  impact text,
-  urgency text,
-  category text,
-  subcategory text,
-  channel text,
-  caller_id uuid,
-  requested_for uuid,
-  opened_by uuid,
-  opened_at timestamptz,
-  assignment_group_id uuid,
-  assigned_to uuid,
-  service_id uuid,
-  offering_id uuid,
-  ci_id uuid,
-  location_id uuid,
-  due_at timestamptz,
-  resolved_at timestamptz,
-  resolved_by uuid,
-  closed_at timestamptz,
-  closed_by uuid,
-  close_code text,
-  close_notes text,
-  parent_id uuid,
-  watch_list jsonb,
-  approval text,
-  escalation integer,
-  reassignment_count integer,
-  reopen_count integer,
-  time_worked bigint,
-  first_response_at timestamptz,
-  active boolean not null default true,
-  sla_due timestamptz,
-  knowledge boolean not null default false,
-  incident_id uuid,
-  mandatory boolean not null default true,
-  sort_order integer,
-  search_f3bce210 text generated always as (translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
-);
-do $search$
-declare s text; old record;
-begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_incident_tasks' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_f3bce210' loop
-    execute format('alter table %I drop column if exists %I', 'sm_incident_tasks', old.column_name);
-  end loop;
-  execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_incident_tasks', 'search_f3bce210', $x$translate(coalesce(short_description, '') || ' ' || coalesce(description, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
-  select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
-  if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_incident_tasks' and indexname like 'sm\_incident\_tasks\_search\_%' and indexname not in ('sm_incident_tasks_search_f3bce210_trgm', 'sm_incident_tasks_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
-    execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_incident_tasks_search_f3bce210_trgm', 'sm_incident_tasks', 'search_f3bce210', s);
-    execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_incident_tasks_search_custom_trgm', 'sm_incident_tasks', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
-  end if;
-end
-$search$;
-create unique index if not exists sm_incident_tasks_no_uk on sm_incident_tasks (org_id, no);
-create index if not exists sm_incident_tasks_rev_idx on sm_incident_tasks (org_id, rev);
-create index if not exists sm_incident_tasks_upd_idx on sm_incident_tasks (org_id, updated_at desc, id desc) where deleted_at is null;
-create index if not exists sm_incident_tasks_crt_idx on sm_incident_tasks (org_id, created_at desc, id desc) where deleted_at is null;
-create index if not exists sm_incident_tasks_state_idx on sm_incident_tasks (org_id, state) where deleted_at is null;
-create index if not exists sm_incident_tasks_assignment_group_id_idx on sm_incident_tasks (org_id, assignment_group_id) where deleted_at is null;
-create index if not exists sm_incident_tasks_assigned_to_idx on sm_incident_tasks (org_id, assigned_to) where deleted_at is null;
-create index if not exists sm_incident_tasks_incident_id_idx on sm_incident_tasks (org_id, incident_id) where deleted_at is null;
-create index if not exists sm_incident_tasks_workspace_acc_idx on sm_incident_tasks (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
-create index if not exists sm_incident_tasks_unit_acc_idx on sm_incident_tasks (org_id, unit_id) where deleted_at is null and unit_id is not null;
-create index if not exists sm_incident_tasks_domain_acc_idx on sm_incident_tasks (org_id, domain_id) where deleted_at is null and domain_id is not null;
-create index if not exists sm_incident_tasks_caller_id_idx on sm_incident_tasks (org_id, caller_id) where deleted_at is null;
-create index if not exists sm_incident_tasks_requested_for_idx on sm_incident_tasks (org_id, requested_for) where deleted_at is null;
-create index if not exists sm_incident_tasks_opened_by_idx on sm_incident_tasks (org_id, opened_by) where deleted_at is null;
-create index if not exists sm_incident_tasks_watch_list_gin on sm_incident_tasks using gin (watch_list);
-create index if not exists sm_incident_tasks_open_grp_idx on sm_incident_tasks (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
-create index if not exists sm_incident_tasks_opened_brin on sm_incident_tasks using brin (opened_at);
-drop trigger if exists sm_incident_tasks_sync on sm_incident_tasks;
-create trigger sm_incident_tasks_sync before insert or update on sm_incident_tasks for each row execute function sm_sync_touch('incident_task');
-create or replace trigger sm_incident_tasks_demo after insert on sm_incident_tasks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
-create or replace trigger sm_incident_tasks_demo_t after update or delete on sm_incident_tasks for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
-alter table sm_incident_tasks enable row level security;
-
--- incident_template: الگوهای رخداد
-do $cols$
-begin
-  if to_regclass('sm_incident_templates') is not null then
-    alter table sm_incident_templates add column if not exists workspace_id uuid;
-    alter table sm_incident_templates add column if not exists domain_id uuid;
-    alter table sm_incident_templates add column if not exists unit_id uuid;
-    alter table sm_incident_templates add column if not exists created_at timestamptz not null default now();
-    alter table sm_incident_templates add column if not exists created_by uuid;
-    alter table sm_incident_templates add column if not exists updated_at timestamptz not null default now();
-    alter table sm_incident_templates add column if not exists updated_by uuid;
-    alter table sm_incident_templates add column if not exists rev bigint not null default 0;
-    alter table sm_incident_templates add column if not exists version integer not null default 1;
-    alter table sm_incident_templates add column if not exists deleted_at timestamptz;
-    alter table sm_incident_templates add column if not exists origin text;
-    alter table sm_incident_templates add column if not exists custom jsonb not null default '{}'::jsonb;
-    alter table sm_incident_templates add column if not exists name text;
-    alter table sm_incident_templates add column if not exists active boolean not null default true;
-    alter table sm_incident_templates add column if not exists sort_order integer;
-    alter table sm_incident_templates add column if not exists short_description text;
-    alter table sm_incident_templates add column if not exists description text;
-    alter table sm_incident_templates add column if not exists category text;
-    alter table sm_incident_templates add column if not exists subcategory text;
-    alter table sm_incident_templates add column if not exists channel text;
-    alter table sm_incident_templates add column if not exists impact text;
-    alter table sm_incident_templates add column if not exists urgency text;
-    alter table sm_incident_templates add column if not exists assignment_group_id uuid;
-    alter table sm_incident_templates add column if not exists service_id uuid;
-    alter table sm_incident_templates add column if not exists ci_id uuid;
-    alter table sm_incident_templates add column if not exists tasks jsonb;
-    alter table sm_incident_templates add column if not exists groups jsonb;
-    alter table sm_incident_templates add column if not exists description_note text;
-  end if;
-end
-$cols$;
-create table if not exists sm_incident_templates (
-  id uuid primary key,
-  org_id uuid not null references sm_orgs(id) on delete cascade,
-  workspace_id uuid,
-  domain_id uuid,
-  unit_id uuid,
-  created_at timestamptz not null default now(),
-  created_by uuid,
-  updated_at timestamptz not null default now(),
-  updated_by uuid,
-  rev bigint not null default 0,
-  version integer not null default 1,
-  deleted_at timestamptz,
-  origin text,
-  custom jsonb not null default '{}'::jsonb,
-  name text,
-  active boolean not null default true,
-  sort_order integer,
-  short_description text,
-  description text,
-  category text,
-  subcategory text,
-  channel text,
-  impact text,
-  urgency text,
-  assignment_group_id uuid,
-  service_id uuid,
-  ci_id uuid,
-  tasks jsonb,
-  groups jsonb,
-  description_note text
-);
-create index if not exists sm_incident_templates_rev_idx on sm_incident_templates (org_id, rev);
-create index if not exists sm_incident_templates_upd_idx on sm_incident_templates (org_id, updated_at desc, id desc) where deleted_at is null;
-create index if not exists sm_incident_templates_crt_idx on sm_incident_templates (org_id, created_at desc, id desc) where deleted_at is null;
-create unique index if not exists sm_incident_templates_name_uk on sm_incident_templates (org_id, name) where deleted_at is null;
-create index if not exists sm_incident_templates_workspace_acc_idx on sm_incident_templates (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
-create index if not exists sm_incident_templates_unit_acc_idx on sm_incident_templates (org_id, unit_id) where deleted_at is null and unit_id is not null;
-create index if not exists sm_incident_templates_domain_acc_idx on sm_incident_templates (org_id, domain_id) where deleted_at is null and domain_id is not null;
-create index if not exists sm_incident_templates_open_grp_idx on sm_incident_templates (org_id, assignment_group_id, updated_at desc) where deleted_at is null and active;
-drop trigger if exists sm_incident_templates_sync on sm_incident_templates;
-create trigger sm_incident_templates_sync before insert or update on sm_incident_templates for each row execute function sm_sync_touch('incident_template');
-create or replace trigger sm_incident_templates_demo after insert on sm_incident_templates for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
-create or replace trigger sm_incident_templates_demo_t after update or delete on sm_incident_templates for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
-alter table sm_incident_templates enable row level security;
-
--- install_base_item: پایگاه نصب
-do $cols$
-begin
-  if to_regclass('sm_install_base_items') is not null then
-    alter table sm_install_base_items add column if not exists workspace_id uuid;
-    alter table sm_install_base_items add column if not exists domain_id uuid;
-    alter table sm_install_base_items add column if not exists unit_id uuid;
-    alter table sm_install_base_items add column if not exists created_at timestamptz not null default now();
-    alter table sm_install_base_items add column if not exists created_by uuid;
-    alter table sm_install_base_items add column if not exists updated_at timestamptz not null default now();
-    alter table sm_install_base_items add column if not exists updated_by uuid;
-    alter table sm_install_base_items add column if not exists rev bigint not null default 0;
-    alter table sm_install_base_items add column if not exists version integer not null default 1;
-    alter table sm_install_base_items add column if not exists deleted_at timestamptz;
-    alter table sm_install_base_items add column if not exists origin text;
-    alter table sm_install_base_items add column if not exists custom jsonb not null default '{}'::jsonb;
-    alter table sm_install_base_items add column if not exists no integer;
-    alter table sm_install_base_items add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 7 then 'IBI' || no::text else 'IBI' || lpad(no::text, 7, '0') end) stored;
-    alter table sm_install_base_items add column if not exists name text;
-    alter table sm_install_base_items add column if not exists account_id uuid;
-    alter table sm_install_base_items add column if not exists product_id uuid;
-    alter table sm_install_base_items add column if not exists serial_no text;
-    alter table sm_install_base_items add column if not exists quantity integer;
-    alter table sm_install_base_items add column if not exists status text;
-    alter table sm_install_base_items add column if not exists parent_id uuid;
-    alter table sm_install_base_items add column if not exists ci_id uuid;
-    alter table sm_install_base_items add column if not exists asset_ref text;
-    alter table sm_install_base_items add column if not exists location_id uuid;
-    alter table sm_install_base_items add column if not exists contact_id uuid;
-    alter table sm_install_base_items add column if not exists installed_on date;
-    alter table sm_install_base_items add column if not exists warranty_end date;
-    alter table sm_install_base_items add column if not exists support_group_id uuid;
-  end if;
-end
-$cols$;
-create table if not exists sm_install_base_items (
-  id uuid primary key,
-  org_id uuid not null references sm_orgs(id) on delete cascade,
-  workspace_id uuid,
-  domain_id uuid,
-  unit_id uuid,
-  created_at timestamptz not null default now(),
-  created_by uuid,
-  updated_at timestamptz not null default now(),
-  updated_by uuid,
-  rev bigint not null default 0,
-  version integer not null default 1,
-  deleted_at timestamptz,
-  origin text,
-  custom jsonb not null default '{}'::jsonb,
-  no integer,
-  number text generated always as (case when no is null then null when length(no::text) >= 7 then 'IBI' || no::text else 'IBI' || lpad(no::text, 7, '0') end) stored,
-  name text,
-  account_id uuid,
-  product_id uuid,
-  serial_no text,
-  quantity integer,
-  status text,
-  parent_id uuid,
-  ci_id uuid,
-  asset_ref text,
-  location_id uuid,
-  contact_id uuid,
-  installed_on date,
-  warranty_end date,
-  support_group_id uuid,
-  search_da0ea237 text generated always as (translate(coalesce(name, '') || ' ' || coalesce(serial_no, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
-);
-do $search$
-declare s text; old record;
-begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_install_base_items' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_da0ea237' loop
-    execute format('alter table %I drop column if exists %I', 'sm_install_base_items', old.column_name);
-  end loop;
-  execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_install_base_items', 'search_da0ea237', $x$translate(coalesce(name, '') || ' ' || coalesce(serial_no, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
-  select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
-  if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_install_base_items' and indexname like 'sm\_install\_base\_items\_search\_%' and indexname not in ('sm_install_base_items_search_da0ea237_trgm', 'sm_install_base_items_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
-    execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_install_base_items_search_da0ea237_trgm', 'sm_install_base_items', 'search_da0ea237', s);
-    execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_install_base_items_search_custom_trgm', 'sm_install_base_items', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
-  end if;
-end
-$search$;
-create unique index if not exists sm_install_base_items_no_uk on sm_install_base_items (org_id, no);
-create index if not exists sm_install_base_items_rev_idx on sm_install_base_items (org_id, rev);
-create index if not exists sm_install_base_items_upd_idx on sm_install_base_items (org_id, updated_at desc, id desc) where deleted_at is null;
-create index if not exists sm_install_base_items_crt_idx on sm_install_base_items (org_id, created_at desc, id desc) where deleted_at is null;
-create index if not exists sm_install_base_items_account_id_idx on sm_install_base_items (org_id, account_id) where deleted_at is null;
-create index if not exists sm_install_base_items_product_id_idx on sm_install_base_items (org_id, product_id) where deleted_at is null;
-create index if not exists sm_install_base_items_ci_id_idx on sm_install_base_items (org_id, ci_id) where deleted_at is null;
-create index if not exists sm_install_base_items_support_group_id_idx on sm_install_base_items (org_id, support_group_id) where deleted_at is null;
-create index if not exists sm_install_base_items_workspace_acc_idx on sm_install_base_items (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
-create index if not exists sm_install_base_items_unit_acc_idx on sm_install_base_items (org_id, unit_id) where deleted_at is null and unit_id is not null;
-create index if not exists sm_install_base_items_domain_acc_idx on sm_install_base_items (org_id, domain_id) where deleted_at is null and domain_id is not null;
-drop trigger if exists sm_install_base_items_sync on sm_install_base_items;
-create trigger sm_install_base_items_sync before insert or update on sm_install_base_items for each row execute function sm_sync_touch('install_base_item');
-create or replace trigger sm_install_base_items_demo after insert on sm_install_base_items for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
-create or replace trigger sm_install_base_items_demo_t after update or delete on sm_install_base_items for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
-alter table sm_install_base_items enable row level security;
-
--- integration_user: کاربران یکپارچه‌سازی
-do $cols$
-begin
-  if to_regclass('sm_integration_users') is not null then
-    alter table sm_integration_users add column if not exists workspace_id uuid;
-    alter table sm_integration_users add column if not exists domain_id uuid;
-    alter table sm_integration_users add column if not exists unit_id uuid;
-    alter table sm_integration_users add column if not exists created_at timestamptz not null default now();
-    alter table sm_integration_users add column if not exists created_by uuid;
-    alter table sm_integration_users add column if not exists updated_at timestamptz not null default now();
-    alter table sm_integration_users add column if not exists updated_by uuid;
-    alter table sm_integration_users add column if not exists rev bigint not null default 0;
-    alter table sm_integration_users add column if not exists version integer not null default 1;
-    alter table sm_integration_users add column if not exists deleted_at timestamptz;
-    alter table sm_integration_users add column if not exists origin text;
-    alter table sm_integration_users add column if not exists custom jsonb not null default '{}'::jsonb;
-    alter table sm_integration_users add column if not exists name text;
-    alter table sm_integration_users add column if not exists active boolean not null default true;
-    alter table sm_integration_users add column if not exists rate_limit integer;
-    alter table sm_integration_users add column if not exists owner_id uuid;
-    alter table sm_integration_users add column if not exists ip_allowlist text;
-    alter table sm_integration_users add column if not exists description text;
-    alter table sm_integration_users add column if not exists user_id uuid;
-    alter table sm_integration_users add column if not exists last_used_at timestamptz;
-  end if;
-end
-$cols$;
-create table if not exists sm_integration_users (
-  id uuid primary key,
-  org_id uuid not null references sm_orgs(id) on delete cascade,
-  workspace_id uuid,
-  domain_id uuid,
-  unit_id uuid,
-  created_at timestamptz not null default now(),
-  created_by uuid,
-  updated_at timestamptz not null default now(),
-  updated_by uuid,
-  rev bigint not null default 0,
-  version integer not null default 1,
-  deleted_at timestamptz,
-  origin text,
-  custom jsonb not null default '{}'::jsonb,
-  name text,
-  active boolean not null default true,
-  rate_limit integer,
-  owner_id uuid,
-  ip_allowlist text,
-  description text,
-  user_id uuid,
-  last_used_at timestamptz
-);
-create index if not exists sm_integration_users_rev_idx on sm_integration_users (org_id, rev);
-create index if not exists sm_integration_users_upd_idx on sm_integration_users (org_id, updated_at desc, id desc) where deleted_at is null;
-create index if not exists sm_integration_users_crt_idx on sm_integration_users (org_id, created_at desc, id desc) where deleted_at is null;
-create index if not exists sm_integration_users_workspace_acc_idx on sm_integration_users (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
-create index if not exists sm_integration_users_unit_acc_idx on sm_integration_users (org_id, unit_id) where deleted_at is null and unit_id is not null;
-create index if not exists sm_integration_users_domain_acc_idx on sm_integration_users (org_id, domain_id) where deleted_at is null and domain_id is not null;
-create index if not exists sm_integration_users_owner_id_idx on sm_integration_users (org_id, owner_id) where deleted_at is null;
-drop trigger if exists sm_integration_users_sync on sm_integration_users;
-create trigger sm_integration_users_sync before insert or update on sm_integration_users for each row execute function sm_sync_touch('integration_user');
-create or replace trigger sm_integration_users_demo after insert on sm_integration_users for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
-create or replace trigger sm_integration_users_demo_t after update or delete on sm_integration_users for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
-alter table sm_integration_users enable row level security;
-
--- interaction: تعامل‌ها
-do $cols$
-begin
-  if to_regclass('sm_interactions') is not null then
-    alter table sm_interactions add column if not exists workspace_id uuid;
-    alter table sm_interactions add column if not exists domain_id uuid;
-    alter table sm_interactions add column if not exists unit_id uuid;
-    alter table sm_interactions add column if not exists created_at timestamptz not null default now();
-    alter table sm_interactions add column if not exists created_by uuid;
-    alter table sm_interactions add column if not exists updated_at timestamptz not null default now();
-    alter table sm_interactions add column if not exists updated_by uuid;
-    alter table sm_interactions add column if not exists rev bigint not null default 0;
-    alter table sm_interactions add column if not exists version integer not null default 1;
-    alter table sm_interactions add column if not exists deleted_at timestamptz;
-    alter table sm_interactions add column if not exists origin text;
-    alter table sm_interactions add column if not exists custom jsonb not null default '{}'::jsonb;
-    alter table sm_interactions add column if not exists no integer;
-    alter table sm_interactions add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 7 then 'INT' || no::text else 'INT' || lpad(no::text, 7, '0') end) stored;
-    alter table sm_interactions add column if not exists short_description text;
-    alter table sm_interactions add column if not exists channel text;
-    alter table sm_interactions add column if not exists caller_id uuid;
-    alter table sm_interactions add column if not exists agent_id uuid;
-    alter table sm_interactions add column if not exists assignment_group_id uuid;
-    alter table sm_interactions add column if not exists started_at timestamptz;
-    alter table sm_interactions add column if not exists ended_at timestamptz;
-    alter table sm_interactions add column if not exists duration bigint;
-    alter table sm_interactions add column if not exists transcript text;
-    alter table sm_interactions add column if not exists wrap_up text;
-    alter table sm_interactions add column if not exists incident_id uuid;
-    alter table sm_interactions add column if not exists wrap_up_notes text;
-    alter table sm_interactions add column if not exists state text;
-  end if;
-end
-$cols$;
-create table if not exists sm_interactions (
-  id uuid primary key,
-  org_id uuid not null references sm_orgs(id) on delete cascade,
-  workspace_id uuid,
-  domain_id uuid,
-  unit_id uuid,
-  created_at timestamptz not null default now(),
-  created_by uuid,
-  updated_at timestamptz not null default now(),
-  updated_by uuid,
-  rev bigint not null default 0,
-  version integer not null default 1,
-  deleted_at timestamptz,
-  origin text,
-  custom jsonb not null default '{}'::jsonb,
-  no integer,
-  number text generated always as (case when no is null then null when length(no::text) >= 7 then 'INT' || no::text else 'INT' || lpad(no::text, 7, '0') end) stored,
-  short_description text,
-  channel text,
-  caller_id uuid,
-  agent_id uuid,
-  assignment_group_id uuid,
-  started_at timestamptz,
-  ended_at timestamptz,
-  duration bigint,
-  transcript text,
-  wrap_up text,
-  incident_id uuid,
-  wrap_up_notes text,
-  state text,
-  search_2b0ba683 text generated always as (translate(coalesce(short_description, '') || ' ' || coalesce(transcript, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
-);
-do $search$
-declare s text; old record;
-begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_interactions' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_2b0ba683' loop
-    execute format('alter table %I drop column if exists %I', 'sm_interactions', old.column_name);
-  end loop;
-  execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_interactions', 'search_2b0ba683', $x$translate(coalesce(short_description, '') || ' ' || coalesce(transcript, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
-  select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
-  if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_interactions' and indexname like 'sm\_interactions\_search\_%' and indexname not in ('sm_interactions_search_2b0ba683_trgm', 'sm_interactions_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
-    execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_interactions_search_2b0ba683_trgm', 'sm_interactions', 'search_2b0ba683', s);
-    execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_interactions_search_custom_trgm', 'sm_interactions', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
-  end if;
-end
-$search$;
-create unique index if not exists sm_interactions_no_uk on sm_interactions (org_id, no);
-create index if not exists sm_interactions_rev_idx on sm_interactions (org_id, rev);
-create index if not exists sm_interactions_upd_idx on sm_interactions (org_id, updated_at desc, id desc) where deleted_at is null;
-create index if not exists sm_interactions_crt_idx on sm_interactions (org_id, created_at desc, id desc) where deleted_at is null;
-create index if not exists sm_interactions_caller_id_idx on sm_interactions (org_id, caller_id) where deleted_at is null;
-create index if not exists sm_interactions_agent_id_idx on sm_interactions (org_id, agent_id) where deleted_at is null;
-create index if not exists sm_interactions_assignment_group_id_idx on sm_interactions (org_id, assignment_group_id) where deleted_at is null;
-create index if not exists sm_interactions_incident_id_idx on sm_interactions (org_id, incident_id) where deleted_at is null;
-create index if not exists sm_interactions_state_idx on sm_interactions (org_id, state) where deleted_at is null;
-create index if not exists sm_interactions_workspace_acc_idx on sm_interactions (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
-create index if not exists sm_interactions_unit_acc_idx on sm_interactions (org_id, unit_id) where deleted_at is null and unit_id is not null;
-create index if not exists sm_interactions_domain_acc_idx on sm_interactions (org_id, domain_id) where deleted_at is null and domain_id is not null;
-drop trigger if exists sm_interactions_sync on sm_interactions;
-create trigger sm_interactions_sync before insert or update on sm_interactions for each row execute function sm_sync_touch('interaction');
-create or replace trigger sm_interactions_demo after insert on sm_interactions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
-create or replace trigger sm_interactions_demo_t after update or delete on sm_interactions for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
-alter table sm_interactions enable row level security;
-
--- inventory_audit: شمارش‌های دارایی
-do $cols$
-begin
-  if to_regclass('sm_inventory_audits') is not null then
-    alter table sm_inventory_audits add column if not exists workspace_id uuid;
-    alter table sm_inventory_audits add column if not exists domain_id uuid;
-    alter table sm_inventory_audits add column if not exists unit_id uuid;
-    alter table sm_inventory_audits add column if not exists created_at timestamptz not null default now();
-    alter table sm_inventory_audits add column if not exists created_by uuid;
-    alter table sm_inventory_audits add column if not exists updated_at timestamptz not null default now();
-    alter table sm_inventory_audits add column if not exists updated_by uuid;
-    alter table sm_inventory_audits add column if not exists rev bigint not null default 0;
-    alter table sm_inventory_audits add column if not exists version integer not null default 1;
-    alter table sm_inventory_audits add column if not exists deleted_at timestamptz;
-    alter table sm_inventory_audits add column if not exists origin text;
-    alter table sm_inventory_audits add column if not exists custom jsonb not null default '{}'::jsonb;
-    alter table sm_inventory_audits add column if not exists no integer;
-    alter table sm_inventory_audits add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 5 then 'AUD' || no::text else 'AUD' || lpad(no::text, 5, '0') end) stored;
-    alter table sm_inventory_audits add column if not exists name text;
-    alter table sm_inventory_audits add column if not exists scope_kind text;
-    alter table sm_inventory_audits add column if not exists branch_id uuid;
-    alter table sm_inventory_audits add column if not exists stockroom_id uuid;
-    alter table sm_inventory_audits add column if not exists location_id uuid;
-    alter table sm_inventory_audits add column if not exists owner_id uuid;
-    alter table sm_inventory_audits add column if not exists group_id uuid;
-    alter table sm_inventory_audits add column if not exists planned_date date;
-    alter table sm_inventory_audits add column if not exists mark_missing boolean not null default false;
-    alter table sm_inventory_audits add column if not exists expected_count integer;
-    alter table sm_inventory_audits add column if not exists found_count integer;
-    alter table sm_inventory_audits add column if not exists missing_count integer;
-    alter table sm_inventory_audits add column if not exists unexpected_count integer;
-    alter table sm_inventory_audits add column if not exists discrepancy_open integer;
-    alter table sm_inventory_audits add column if not exists started_at timestamptz;
-    alter table sm_inventory_audits add column if not exists completed_at timestamptz;
-    alter table sm_inventory_audits add column if not exists notes text;
-    alter table sm_inventory_audits add column if not exists state text;
-  end if;
-end
-$cols$;
-create table if not exists sm_inventory_audits (
-  id uuid primary key,
-  org_id uuid not null references sm_orgs(id) on delete cascade,
-  workspace_id uuid,
-  domain_id uuid,
-  unit_id uuid,
-  created_at timestamptz not null default now(),
-  created_by uuid,
-  updated_at timestamptz not null default now(),
-  updated_by uuid,
-  rev bigint not null default 0,
-  version integer not null default 1,
-  deleted_at timestamptz,
-  origin text,
-  custom jsonb not null default '{}'::jsonb,
-  no integer,
-  number text generated always as (case when no is null then null when length(no::text) >= 5 then 'AUD' || no::text else 'AUD' || lpad(no::text, 5, '0') end) stored,
-  name text,
-  scope_kind text,
-  branch_id uuid,
-  stockroom_id uuid,
-  location_id uuid,
-  owner_id uuid,
-  group_id uuid,
-  planned_date date,
-  mark_missing boolean not null default false,
-  expected_count integer,
-  found_count integer,
-  missing_count integer,
-  unexpected_count integer,
-  discrepancy_open integer,
-  started_at timestamptz,
-  completed_at timestamptz,
-  notes text,
-  state text,
-  search_56291d9d text generated always as (translate(coalesce(name, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
-);
-do $search$
-declare s text; old record;
-begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_inventory_audits' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_56291d9d' loop
-    execute format('alter table %I drop column if exists %I', 'sm_inventory_audits', old.column_name);
-  end loop;
-  execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_inventory_audits', 'search_56291d9d', $x$translate(coalesce(name, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
-  select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
-  if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_inventory_audits' and indexname like 'sm\_inventory\_audits\_search\_%' and indexname not in ('sm_inventory_audits_search_56291d9d_trgm', 'sm_inventory_audits_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
-    execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_inventory_audits_search_56291d9d_trgm', 'sm_inventory_audits', 'search_56291d9d', s);
-    execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_inventory_audits_search_custom_trgm', 'sm_inventory_audits', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
-  end if;
-end
-$search$;
-create unique index if not exists sm_inventory_audits_no_uk on sm_inventory_audits (org_id, no);
-create index if not exists sm_inventory_audits_rev_idx on sm_inventory_audits (org_id, rev);
-create index if not exists sm_inventory_audits_upd_idx on sm_inventory_audits (org_id, updated_at desc, id desc) where deleted_at is null;
-create index if not exists sm_inventory_audits_crt_idx on sm_inventory_audits (org_id, created_at desc, id desc) where deleted_at is null;
-create index if not exists sm_inventory_audits_branch_id_idx on sm_inventory_audits (org_id, branch_id) where deleted_at is null;
-create index if not exists sm_inventory_audits_state_idx on sm_inventory_audits (org_id, state) where deleted_at is null;
-create index if not exists sm_inventory_audits_workspace_acc_idx on sm_inventory_audits (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
-create index if not exists sm_inventory_audits_unit_acc_idx on sm_inventory_audits (org_id, unit_id) where deleted_at is null and unit_id is not null;
-create index if not exists sm_inventory_audits_domain_acc_idx on sm_inventory_audits (org_id, domain_id) where deleted_at is null and domain_id is not null;
-create index if not exists sm_inventory_audits_owner_id_idx on sm_inventory_audits (org_id, owner_id) where deleted_at is null;
-drop trigger if exists sm_inventory_audits_sync on sm_inventory_audits;
-create trigger sm_inventory_audits_sync before insert or update on sm_inventory_audits for each row execute function sm_sync_touch('inventory_audit');
-create or replace trigger sm_inventory_audits_demo after insert on sm_inventory_audits for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
-create or replace trigger sm_inventory_audits_demo_t after update or delete on sm_inventory_audits for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
-alter table sm_inventory_audits enable row level security;
-
--- inventory_audit_item: اقلام شمارش
-do $cols$
-begin
-  if to_regclass('sm_inventory_audit_items') is not null then
-    alter table sm_inventory_audit_items add column if not exists workspace_id uuid;
-    alter table sm_inventory_audit_items add column if not exists domain_id uuid;
-    alter table sm_inventory_audit_items add column if not exists unit_id uuid;
-    alter table sm_inventory_audit_items add column if not exists created_at timestamptz not null default now();
-    alter table sm_inventory_audit_items add column if not exists created_by uuid;
-    alter table sm_inventory_audit_items add column if not exists updated_at timestamptz not null default now();
-    alter table sm_inventory_audit_items add column if not exists updated_by uuid;
-    alter table sm_inventory_audit_items add column if not exists rev bigint not null default 0;
-    alter table sm_inventory_audit_items add column if not exists version integer not null default 1;
-    alter table sm_inventory_audit_items add column if not exists deleted_at timestamptz;
-    alter table sm_inventory_audit_items add column if not exists origin text;
-    alter table sm_inventory_audit_items add column if not exists custom jsonb not null default '{}'::jsonb;
-    alter table sm_inventory_audit_items add column if not exists audit_id uuid;
-    alter table sm_inventory_audit_items add column if not exists asset_id uuid;
-    alter table sm_inventory_audit_items add column if not exists expected boolean not null default false;
-    alter table sm_inventory_audit_items add column if not exists result text;
-    alter table sm_inventory_audit_items add column if not exists scanned_code text;
-    alter table sm_inventory_audit_items add column if not exists scanned_at timestamptz;
-    alter table sm_inventory_audit_items add column if not exists scanned_by uuid;
-    alter table sm_inventory_audit_items add column if not exists note text;
-    alter table sm_inventory_audit_items add column if not exists branch_id uuid;
-    alter table sm_inventory_audit_items add column if not exists expected_branch_id uuid;
-    alter table sm_inventory_audit_items add column if not exists resolution text;
-    alter table sm_inventory_audit_items add column if not exists resolved_by uuid;
-    alter table sm_inventory_audit_items add column if not exists resolved_at timestamptz;
-    alter table sm_inventory_audit_items add column if not exists transfer_id uuid;
-    alter table sm_inventory_audit_items add column if not exists label text;
-  end if;
-end
-$cols$;
-create table if not exists sm_inventory_audit_items (
-  id uuid primary key,
-  org_id uuid not null references sm_orgs(id) on delete cascade,
-  workspace_id uuid,
-  domain_id uuid,
-  unit_id uuid,
-  created_at timestamptz not null default now(),
-  created_by uuid,
-  updated_at timestamptz not null default now(),
-  updated_by uuid,
-  rev bigint not null default 0,
-  version integer not null default 1,
-  deleted_at timestamptz,
-  origin text,
-  custom jsonb not null default '{}'::jsonb,
-  audit_id uuid,
-  asset_id uuid,
-  expected boolean not null default false,
-  result text,
-  scanned_code text,
-  scanned_at timestamptz,
-  scanned_by uuid,
-  note text,
-  branch_id uuid,
-  expected_branch_id uuid,
-  resolution text,
-  resolved_by uuid,
-  resolved_at timestamptz,
-  transfer_id uuid,
-  label text
-);
-create index if not exists sm_inventory_audit_items_rev_idx on sm_inventory_audit_items (org_id, rev);
-create index if not exists sm_inventory_audit_items_upd_idx on sm_inventory_audit_items (org_id, updated_at desc, id desc) where deleted_at is null;
-create index if not exists sm_inventory_audit_items_crt_idx on sm_inventory_audit_items (org_id, created_at desc, id desc) where deleted_at is null;
-create index if not exists sm_inventory_audit_items_audit_id_idx on sm_inventory_audit_items (org_id, audit_id) where deleted_at is null;
-create index if not exists sm_inventory_audit_items_asset_id_idx on sm_inventory_audit_items (org_id, asset_id) where deleted_at is null;
-create index if not exists sm_inventory_audit_items_branch_id_idx on sm_inventory_audit_items (org_id, branch_id) where deleted_at is null;
-drop trigger if exists sm_inventory_audit_items_sync on sm_inventory_audit_items;
-create trigger sm_inventory_audit_items_sync before insert or update on sm_inventory_audit_items for each row execute function sm_sync_touch('inventory_audit_item');
-create or replace trigger sm_inventory_audit_items_demo after insert on sm_inventory_audit_items for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
-create or replace trigger sm_inventory_audit_items_demo_t after update or delete on sm_inventory_audit_items for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
-alter table sm_inventory_audit_items enable row level security;
-
--- issue_connection: اتصال‌های Jira و GitHub
-do $cols$
-begin
-  if to_regclass('sm_issue_connections') is not null then
-    alter table sm_issue_connections add column if not exists workspace_id uuid;
-    alter table sm_issue_connections add column if not exists domain_id uuid;
-    alter table sm_issue_connections add column if not exists unit_id uuid;
-    alter table sm_issue_connections add column if not exists created_at timestamptz not null default now();
-    alter table sm_issue_connections add column if not exists created_by uuid;
-    alter table sm_issue_connections add column if not exists updated_at timestamptz not null default now();
-    alter table sm_issue_connections add column if not exists updated_by uuid;
-    alter table sm_issue_connections add column if not exists rev bigint not null default 0;
-    alter table sm_issue_connections add column if not exists version integer not null default 1;
-    alter table sm_issue_connections add column if not exists deleted_at timestamptz;
-    alter table sm_issue_connections add column if not exists origin text;
-    alter table sm_issue_connections add column if not exists custom jsonb not null default '{}'::jsonb;
-    alter table sm_issue_connections add column if not exists name text;
-    alter table sm_issue_connections add column if not exists kind text;
-    alter table sm_issue_connections add column if not exists active boolean not null default true;
-    alter table sm_issue_connections add column if not exists base_url text;
-    alter table sm_issue_connections add column if not exists repo text;
-    alter table sm_issue_connections add column if not exists project_key text;
-    alter table sm_issue_connections add column if not exists issue_type text;
-    alter table sm_issue_connections add column if not exists auth_user text;
-    alter table sm_issue_connections add column if not exists token text;
-    alter table sm_issue_connections add column if not exists webhook_secret text;
-    alter table sm_issue_connections add column if not exists principal_id uuid;
-    alter table sm_issue_connections add column if not exists tables jsonb;
-    alter table sm_issue_connections add column if not exists sync_comments text;
-    alter table sm_issue_connections add column if not exists state_on_close text;
-    alter table sm_issue_connections add column if not exists health text;
-    alter table sm_issue_connections add column if not exists last_event_at timestamptz;
-    alter table sm_issue_connections add column if not exists last_error text;
-  end if;
-end
-$cols$;
-create table if not exists sm_issue_connections (
-  id uuid primary key,
-  org_id uuid not null references sm_orgs(id) on delete cascade,
-  workspace_id uuid,
-  domain_id uuid,
-  unit_id uuid,
-  created_at timestamptz not null default now(),
-  created_by uuid,
-  updated_at timestamptz not null default now(),
-  updated_by uuid,
-  rev bigint not null default 0,
-  version integer not null default 1,
-  deleted_at timestamptz,
-  origin text,
-  custom jsonb not null default '{}'::jsonb,
-  name text,
-  kind text,
-  active boolean not null default true,
-  base_url text,
-  repo text,
-  project_key text,
-  issue_type text,
-  auth_user text,
-  token text,
-  webhook_secret text,
-  principal_id uuid,
-  tables jsonb,
-  sync_comments text,
-  state_on_close text,
-  health text,
-  last_event_at timestamptz,
-  last_error text
-);
-create index if not exists sm_issue_connections_rev_idx on sm_issue_connections (org_id, rev);
-create index if not exists sm_issue_connections_upd_idx on sm_issue_connections (org_id, updated_at desc, id desc) where deleted_at is null;
-create index if not exists sm_issue_connections_crt_idx on sm_issue_connections (org_id, created_at desc, id desc) where deleted_at is null;
-create index if not exists sm_issue_connections_workspace_acc_idx on sm_issue_connections (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
-create index if not exists sm_issue_connections_unit_acc_idx on sm_issue_connections (org_id, unit_id) where deleted_at is null and unit_id is not null;
-create index if not exists sm_issue_connections_domain_acc_idx on sm_issue_connections (org_id, domain_id) where deleted_at is null and domain_id is not null;
-drop trigger if exists sm_issue_connections_sync on sm_issue_connections;
-create trigger sm_issue_connections_sync before insert or update on sm_issue_connections for each row execute function sm_sync_touch('issue_connection');
-create or replace trigger sm_issue_connections_demo after insert on sm_issue_connections for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
-create or replace trigger sm_issue_connections_demo_t after update or delete on sm_issue_connections for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
-alter table sm_issue_connections enable row level security;
-
--- itam_config: تنظیمات دارایی‌ها
-do $cols$
-begin
-  if to_regclass('sm_itam_configs') is not null then
-    alter table sm_itam_configs add column if not exists workspace_id uuid;
-    alter table sm_itam_configs add column if not exists domain_id uuid;
-    alter table sm_itam_configs add column if not exists unit_id uuid;
-    alter table sm_itam_configs add column if not exists created_at timestamptz not null default now();
-    alter table sm_itam_configs add column if not exists created_by uuid;
-    alter table sm_itam_configs add column if not exists updated_at timestamptz not null default now();
-    alter table sm_itam_configs add column if not exists updated_by uuid;
-    alter table sm_itam_configs add column if not exists rev bigint not null default 0;
-    alter table sm_itam_configs add column if not exists version integer not null default 1;
-    alter table sm_itam_configs add column if not exists deleted_at timestamptz;
-    alter table sm_itam_configs add column if not exists origin text;
-    alter table sm_itam_configs add column if not exists custom jsonb not null default '{}'::jsonb;
-    alter table sm_itam_configs add column if not exists name text;
-    alter table sm_itam_configs add column if not exists config_key text;
-    alter table sm_itam_configs add column if not exists tag_prefix text;
-    alter table sm_itam_configs add column if not exists auto_ci boolean not null default true;
-    alter table sm_itam_configs add column if not exists auto_assets boolean not null default true;
-    alter table sm_itam_configs add column if not exists auto_assets_confirmed_at timestamptz;
-    alter table sm_itam_configs add column if not exists auto_assets_pending integer;
-    alter table sm_itam_configs add column if not exists ack_expire_days integer;
-    alter table sm_itam_configs add column if not exists ack_remind_days integer;
-    alter table sm_itam_configs add column if not exists warranty_reminders jsonb;
-    alter table sm_itam_configs add column if not exists unused_days integer;
-    alter table sm_itam_configs add column if not exists qr_base_url text;
-    alter table sm_itam_configs add column if not exists tag_pattern text;
-    alter table sm_itam_configs add column if not exists attestation_months integer;
-    alter table sm_itam_configs add column if not exists attestation_due_days integer;
-    alter table sm_itam_configs add column if not exists last_reconcile_at timestamptz;
-    alter table sm_itam_configs add column if not exists seeded integer;
-  end if;
-end
-$cols$;
-create table if not exists sm_itam_configs (
-  id uuid primary key,
-  org_id uuid not null references sm_orgs(id) on delete cascade,
-  workspace_id uuid,
-  domain_id uuid,
-  unit_id uuid,
-  created_at timestamptz not null default now(),
-  created_by uuid,
-  updated_at timestamptz not null default now(),
-  updated_by uuid,
-  rev bigint not null default 0,
-  version integer not null default 1,
-  deleted_at timestamptz,
-  origin text,
-  custom jsonb not null default '{}'::jsonb,
-  name text,
-  config_key text,
-  tag_prefix text,
-  auto_ci boolean not null default true,
-  auto_assets boolean not null default true,
-  auto_assets_confirmed_at timestamptz,
-  auto_assets_pending integer,
-  ack_expire_days integer,
-  ack_remind_days integer,
-  warranty_reminders jsonb,
-  unused_days integer,
-  qr_base_url text,
-  tag_pattern text,
-  attestation_months integer,
-  attestation_due_days integer,
-  last_reconcile_at timestamptz,
-  seeded integer
-);
-create index if not exists sm_itam_configs_rev_idx on sm_itam_configs (org_id, rev);
-create index if not exists sm_itam_configs_upd_idx on sm_itam_configs (org_id, updated_at desc, id desc) where deleted_at is null;
-create index if not exists sm_itam_configs_crt_idx on sm_itam_configs (org_id, created_at desc, id desc) where deleted_at is null;
-create unique index if not exists sm_itam_configs_config_key_uk on sm_itam_configs (org_id, config_key) where deleted_at is null;
-drop trigger if exists sm_itam_configs_sync on sm_itam_configs;
-create trigger sm_itam_configs_sync before insert or update on sm_itam_configs for each row execute function sm_sync_touch('itam_config');
-create or replace trigger sm_itam_configs_demo after insert on sm_itam_configs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
-create or replace trigger sm_itam_configs_demo_t after update or delete on sm_itam_configs for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
-alter table sm_itam_configs enable row level security;
-
--- journey: سفرهای کارکنان
-do $cols$
-begin
-  if to_regclass('sm_journeys') is not null then
-    alter table sm_journeys add column if not exists workspace_id uuid;
-    alter table sm_journeys add column if not exists domain_id uuid;
-    alter table sm_journeys add column if not exists unit_id uuid;
-    alter table sm_journeys add column if not exists created_at timestamptz not null default now();
-    alter table sm_journeys add column if not exists created_by uuid;
-    alter table sm_journeys add column if not exists updated_at timestamptz not null default now();
-    alter table sm_journeys add column if not exists updated_by uuid;
-    alter table sm_journeys add column if not exists rev bigint not null default 0;
-    alter table sm_journeys add column if not exists version integer not null default 1;
-    alter table sm_journeys add column if not exists deleted_at timestamptz;
-    alter table sm_journeys add column if not exists origin text;
-    alter table sm_journeys add column if not exists custom jsonb not null default '{}'::jsonb;
-    alter table sm_journeys add column if not exists no integer;
-    alter table sm_journeys add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 6 then 'JRN' || no::text else 'JRN' || lpad(no::text, 6, '0') end) stored;
-    alter table sm_journeys add column if not exists name text;
-    alter table sm_journeys add column if not exists type text;
-    alter table sm_journeys add column if not exists template_id uuid;
-    alter table sm_journeys add column if not exists template_version integer;
-    alter table sm_journeys add column if not exists anchor_date date;
-    alter table sm_journeys add column if not exists subject_person_id uuid;
-    alter table sm_journeys add column if not exists subject_name text;
-    alter table sm_journeys add column if not exists manager_id uuid;
-    alter table sm_journeys add column if not exists hr_owner_id uuid;
-    alter table sm_journeys add column if not exists assignment_group_id uuid;
-    alter table sm_journeys add column if not exists employment_type text;
-    alter table sm_journeys add column if not exists location_id uuid;
-    alter table sm_journeys add column if not exists org_unit_id uuid;
-    alter table sm_journeys add column if not exists calendar_id uuid;
-    alter table sm_journeys add column if not exists hr_case_id uuid;
-    alter table sm_journeys add column if not exists notes text;
-    alter table sm_journeys add column if not exists progress numeric;
-    alter table sm_journeys add column if not exists activities_total integer;
-    alter table sm_journeys add column if not exists activities_done integer;
-    alter table sm_journeys add column if not exists activities_overdue integer;
-    alter table sm_journeys add column if not exists day_one_total integer;
-    alter table sm_journeys add column if not exists day_one_done integer;
-    alter table sm_journeys add column if not exists day_one_ready boolean not null default false;
-    alter table sm_journeys add column if not exists next_due date;
-    alter table sm_journeys add column if not exists started_at timestamptz;
-    alter table sm_journeys add column if not exists completed_at timestamptz;
-    alter table sm_journeys add column if not exists cycle_time bigint;
-    alter table sm_journeys add column if not exists opened_by uuid;
-    alter table sm_journeys add column if not exists watch_list jsonb;
-    alter table sm_journeys add column if not exists state text;
-  end if;
-end
-$cols$;
-create table if not exists sm_journeys (
-  id uuid primary key,
-  org_id uuid not null references sm_orgs(id) on delete cascade,
-  workspace_id uuid,
-  domain_id uuid,
-  unit_id uuid,
-  created_at timestamptz not null default now(),
-  created_by uuid,
-  updated_at timestamptz not null default now(),
-  updated_by uuid,
-  rev bigint not null default 0,
-  version integer not null default 1,
-  deleted_at timestamptz,
-  origin text,
-  custom jsonb not null default '{}'::jsonb,
-  no integer,
-  number text generated always as (case when no is null then null when length(no::text) >= 6 then 'JRN' || no::text else 'JRN' || lpad(no::text, 6, '0') end) stored,
-  name text,
-  type text,
-  template_id uuid,
-  template_version integer,
-  anchor_date date,
-  subject_person_id uuid,
-  subject_name text,
-  manager_id uuid,
-  hr_owner_id uuid,
-  assignment_group_id uuid,
-  employment_type text,
-  location_id uuid,
-  org_unit_id uuid,
-  calendar_id uuid,
-  hr_case_id uuid,
-  notes text,
-  progress numeric,
-  activities_total integer,
-  activities_done integer,
-  activities_overdue integer,
-  day_one_total integer,
-  day_one_done integer,
-  day_one_ready boolean not null default false,
-  next_due date,
-  started_at timestamptz,
-  completed_at timestamptz,
-  cycle_time bigint,
-  opened_by uuid,
-  watch_list jsonb,
-  state text,
-  search_ee4d45e2 text generated always as (translate(coalesce(name, '') || ' ' || coalesce(subject_name, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
-);
-do $search$
-declare s text; old record;
-begin
-  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_journeys' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_ee4d45e2' loop
-    execute format('alter table %I drop column if exists %I', 'sm_journeys', old.column_name);
-  end loop;
-  execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_journeys', 'search_ee4d45e2', $x$translate(coalesce(name, '') || ' ' || coalesce(subject_name, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
-  select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
-  if s is not null then
-    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_journeys' and indexname like 'sm\_journeys\_search\_%' and indexname not in ('sm_journeys_search_ee4d45e2_trgm', 'sm_journeys_search_custom_trgm') loop
-      execute format('drop index if exists %I', old.indexname);
-    end loop;
-    execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_journeys_search_ee4d45e2_trgm', 'sm_journeys', 'search_ee4d45e2', s);
-    execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_journeys_search_custom_trgm', 'sm_journeys', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
-  end if;
-end
-$search$;
-create unique index if not exists sm_journeys_no_uk on sm_journeys (org_id, no);
-create index if not exists sm_journeys_rev_idx on sm_journeys (org_id, rev);
-create index if not exists sm_journeys_upd_idx on sm_journeys (org_id, updated_at desc, id desc) where deleted_at is null;
-create index if not exists sm_journeys_crt_idx on sm_journeys (org_id, created_at desc, id desc) where deleted_at is null;
-create index if not exists sm_journeys_subject_person_id_idx on sm_journeys (org_id, subject_person_id) where deleted_at is null;
-create index if not exists sm_journeys_manager_id_idx on sm_journeys (org_id, manager_id) where deleted_at is null;
-create index if not exists sm_journeys_hr_owner_id_idx on sm_journeys (org_id, hr_owner_id) where deleted_at is null;
-create index if not exists sm_journeys_assignment_group_id_idx on sm_journeys (org_id, assignment_group_id) where deleted_at is null;
-create index if not exists sm_journeys_state_idx on sm_journeys (org_id, state) where deleted_at is null;
-create index if not exists sm_journeys_workspace_acc_idx on sm_journeys (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
-create index if not exists sm_journeys_unit_acc_idx on sm_journeys (org_id, unit_id) where deleted_at is null and unit_id is not null;
-create index if not exists sm_journeys_domain_acc_idx on sm_journeys (org_id, domain_id) where deleted_at is null and domain_id is not null;
-create index if not exists sm_journeys_opened_by_idx on sm_journeys (org_id, opened_by) where deleted_at is null;
-create index if not exists sm_journeys_watch_list_gin on sm_journeys using gin (watch_list);
-drop trigger if exists sm_journeys_sync on sm_journeys;
-create trigger sm_journeys_sync before insert or update on sm_journeys for each row execute function sm_sync_touch('journey');
-create or replace trigger sm_journeys_demo after insert on sm_journeys for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
-create or replace trigger sm_journeys_demo_t after update or delete on sm_journeys for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
-alter table sm_journeys enable row level security;
-
--- journey_activity: فعالیت‌های سفر
-do $cols$
-begin
-  if to_regclass('sm_journey_activities') is not null then
-    alter table sm_journey_activities add column if not exists workspace_id uuid;
-    alter table sm_journey_activities add column if not exists domain_id uuid;
-    alter table sm_journey_activities add column if not exists unit_id uuid;
-    alter table sm_journey_activities add column if not exists created_at timestamptz not null default now();
-    alter table sm_journey_activities add column if not exists created_by uuid;
-    alter table sm_journey_activities add column if not exists updated_at timestamptz not null default now();
-    alter table sm_journey_activities add column if not exists updated_by uuid;
-    alter table sm_journey_activities add column if not exists rev bigint not null default 0;
-    alter table sm_journey_activities add column if not exists version integer not null default 1;
-    alter table sm_journey_activities add column if not exists deleted_at timestamptz;
-    alter table sm_journey_activities add column if not exists origin text;
-    alter table sm_journey_activities add column if not exists custom jsonb not null default '{}'::jsonb;
-    alter table sm_journey_activities add column if not exists journey_id uuid;
-    alter table sm_journey_activities add column if not exists name text;
-    alter table sm_journey_activities add column if not exists code text;
-    alter table sm_journey_activities add column if not exists phase text;
-    alter table sm_journey_activities add column if not exists kind text;
-    alter table sm_journey_activities add column if not exists assignee_kind text;
-    alter table sm_journey_activities add column if not exists assignee_id uuid;
-    alter table sm_journey_activities add column if not exists group_id uuid;
-    alter table sm_journey_activities add column if not exists start_date date;
-    alter table sm_journey_activities add column if not exists due_date date;
-    alter table sm_journey_activities add column if not exists start_offset integer;
-    alter table sm_journey_activities add column if not exists duration_days integer;
-    alter table sm_journey_activities add column if not exists after jsonb;
-    alter table sm_journey_activities add column if not exists day_one boolean not null default false;
-    alter table sm_journey_activities add column if not exists overdue boolean not null default false;
-    alter table sm_journey_activities add column if not exists condition jsonb;
-    alter table sm_journey_activities add column if not exists catalog_item_code text;
-    alter table sm_journey_activities add column if not exists order_answers jsonb;
-    alter table sm_journey_activities add column if not exists approval text;
-    alter table sm_journey_activities add column if not exists case_table text;
-    alter table sm_journey_activities add column if not exists case_department_id uuid;
-    alter table sm_journey_activities add column if not exists record_table text;
-    alter table sm_journey_activities add column if not exists record_id text;
-    alter table sm_journey_activities add column if not exists record_number text;
-    alter table sm_journey_activities add column if not exists started_at timestamptz;
-    alter table sm_journey_activities add column if not exists done_at timestamptz;
-    alter table sm_journey_activities add column if not exists document_url text;
-    alter table sm_journey_activities add column if not exists instructions text;
-    alter table sm_journey_activities add column if not exists outcome text;
-    alter table sm_journey_activities add column if not exists sort_order integer;
-    alter table sm_journey_activities add column if not exists journey_readers jsonb;
-    alter table sm_journey_activities add column if not exists hr_group_id uuid;
-    alter table sm_journey_activities add column if not exists state text;
-  end if;
-end
-$cols$;
-create table if not exists sm_journey_activities (
-  id uuid primary key,
-  org_id uuid not null references sm_orgs(id) on delete cascade,
-  workspace_id uuid,
-  domain_id uuid,
-  unit_id uuid,
-  created_at timestamptz not null default now(),
-  created_by uuid,
-  updated_at timestamptz not null default now(),
-  updated_by uuid,
-  rev bigint not null default 0,
-  version integer not null default 1,
-  deleted_at timestamptz,
-  origin text,
-  custom jsonb not null default '{}'::jsonb,
-  journey_id uuid,
-  name text,
-  code text,
-  phase text,
-  kind text,
-  assignee_kind text,
-  assignee_id uuid,
-  group_id uuid,
-  start_date date,
-  due_date date,
-  start_offset integer,
-  duration_days integer,
-  after jsonb,
-  day_one boolean not null default false,
-  overdue boolean not null default false,
-  condition jsonb,
-  catalog_item_code text,
-  order_answers jsonb,
-  approval text,
-  case_table text,
-  case_department_id uuid,
-  record_table text,
-  record_id text,
-  record_number text,
-  started_at timestamptz,
-  done_at timestamptz,
-  document_url text,
-  instructions text,
-  outcome text,
-  sort_order integer,
-  journey_readers jsonb,
-  hr_group_id uuid,
-  state text
-);
-create index if not exists sm_journey_activities_rev_idx on sm_journey_activities (org_id, rev);
-create index if not exists sm_journey_activities_upd_idx on sm_journey_activities (org_id, updated_at desc, id desc) where deleted_at is null;
-create index if not exists sm_journey_activities_crt_idx on sm_journey_activities (org_id, created_at desc, id desc) where deleted_at is null;
-create index if not exists sm_journey_activities_journey_id_idx on sm_journey_activities (org_id, journey_id) where deleted_at is null;
-create index if not exists sm_journey_activities_assignee_id_idx on sm_journey_activities (org_id, assignee_id) where deleted_at is null;
-create index if not exists sm_journey_activities_state_idx on sm_journey_activities (org_id, state) where deleted_at is null;
-create index if not exists sm_journey_activities_workspace_acc_idx on sm_journey_activities (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
-create index if not exists sm_journey_activities_unit_acc_idx on sm_journey_activities (org_id, unit_id) where deleted_at is null and unit_id is not null;
-create index if not exists sm_journey_activities_domain_acc_idx on sm_journey_activities (org_id, domain_id) where deleted_at is null and domain_id is not null;
-create index if not exists sm_journey_activities_journey_readers_gin on sm_journey_activities using gin (journey_readers);
-drop trigger if exists sm_journey_activities_sync on sm_journey_activities;
-create trigger sm_journey_activities_sync before insert or update on sm_journey_activities for each row execute function sm_sync_touch('journey_activity');
-create or replace trigger sm_journey_activities_demo after insert on sm_journey_activities for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
-create or replace trigger sm_journey_activities_demo_t after update or delete on sm_journey_activities for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
-alter table sm_journey_activities enable row level security;
-
--- journey_template: الگوهای سفر کارمند
-do $cols$
-begin
-  if to_regclass('sm_journey_templates') is not null then
-    alter table sm_journey_templates add column if not exists workspace_id uuid;
-    alter table sm_journey_templates add column if not exists domain_id uuid;
-    alter table sm_journey_templates add column if not exists unit_id uuid;
-    alter table sm_journey_templates add column if not exists created_at timestamptz not null default now();
-    alter table sm_journey_templates add column if not exists created_by uuid;
-    alter table sm_journey_templates add column if not exists updated_at timestamptz not null default now();
-    alter table sm_journey_templates add column if not exists updated_by uuid;
-    alter table sm_journey_templates add column if not exists rev bigint not null default 0;
-    alter table sm_journey_templates add column if not exists version integer not null default 1;
-    alter table sm_journey_templates add column if not exists deleted_at timestamptz;
-    alter table sm_journey_templates add column if not exists origin text;
-    alter table sm_journey_templates add column if not exists custom jsonb not null default '{}'::jsonb;
-    alter table sm_journey_templates add column if not exists name text;
-    alter table sm_journey_templates add column if not exists type text;
-    alter table sm_journey_templates add column if not exists code text;
-    alter table sm_journey_templates add column if not exists department_id uuid;
-    alter table sm_journey_templates add column if not exists template_version integer;
-    alter table sm_journey_templates add column if not exists anchor_label text;
-    alter table sm_journey_templates add column if not exists owner_group_id uuid;
-    alter table sm_journey_templates add column if not exists calendar_id uuid;
-    alter table sm_journey_templates add column if not exists active boolean not null default true;
-    alter table sm_journey_templates add column if not exists description text;
-    alter table sm_journey_templates add column if not exists dept_admins jsonb;
-  end if;
-end
-$cols$;
-create table if not exists sm_journey_templates (
-  id uuid primary key,
-  org_id uuid not null references sm_orgs(id) on delete cascade,
-  workspace_id uuid,
-  domain_id uuid,
-  unit_id uuid,
-  created_at timestamptz not null default now(),
-  created_by uuid,
-  updated_at timestamptz not null default now(),
-  updated_by uuid,
-  rev bigint not null default 0,
-  version integer not null default 1,
-  deleted_at timestamptz,
-  origin text,
-  custom jsonb not null default '{}'::jsonb,
-  name text,
-  type text,
-  code text,
-  department_id uuid,
-  template_version integer,
-  anchor_label text,
-  owner_group_id uuid,
-  calendar_id uuid,
-  active boolean not null default true,
-  description text,
-  dept_admins jsonb
-);
-create index if not exists sm_journey_templates_rev_idx on sm_journey_templates (org_id, rev);
-create index if not exists sm_journey_templates_upd_idx on sm_journey_templates (org_id, updated_at desc, id desc) where deleted_at is null;
-create index if not exists sm_journey_templates_crt_idx on sm_journey_templates (org_id, created_at desc, id desc) where deleted_at is null;
-create unique index if not exists sm_journey_templates_code_uk on sm_journey_templates (org_id, code) where deleted_at is null;
-create index if not exists sm_journey_templates_workspace_acc_idx on sm_journey_templates (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
-create index if not exists sm_journey_templates_unit_acc_idx on sm_journey_templates (org_id, unit_id) where deleted_at is null and unit_id is not null;
-create index if not exists sm_journey_templates_domain_acc_idx on sm_journey_templates (org_id, domain_id) where deleted_at is null and domain_id is not null;
-create index if not exists sm_journey_templates_dept_admins_gin on sm_journey_templates using gin (dept_admins);
-create index if not exists sm_journey_templates_open_grp_idx on sm_journey_templates (org_id, owner_group_id, updated_at desc) where deleted_at is null and active;
-drop trigger if exists sm_journey_templates_sync on sm_journey_templates;
-create trigger sm_journey_templates_sync before insert or update on sm_journey_templates for each row execute function sm_sync_touch('journey_template');
-create or replace trigger sm_journey_templates_demo after insert on sm_journey_templates for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
-create or replace trigger sm_journey_templates_demo_t after update or delete on sm_journey_templates for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
-alter table sm_journey_templates enable row level security;
-
--- journey_template_activity: فعالیت‌های الگوهای سفر
-do $cols$
-begin
-  if to_regclass('sm_journey_template_activities') is not null then
-    alter table sm_journey_template_activities add column if not exists workspace_id uuid;
-    alter table sm_journey_template_activities add column if not exists domain_id uuid;
-    alter table sm_journey_template_activities add column if not exists unit_id uuid;
-    alter table sm_journey_template_activities add column if not exists created_at timestamptz not null default now();
-    alter table sm_journey_template_activities add column if not exists created_by uuid;
-    alter table sm_journey_template_activities add column if not exists updated_at timestamptz not null default now();
-    alter table sm_journey_template_activities add column if not exists updated_by uuid;
-    alter table sm_journey_template_activities add column if not exists rev bigint not null default 0;
-    alter table sm_journey_template_activities add column if not exists version integer not null default 1;
-    alter table sm_journey_template_activities add column if not exists deleted_at timestamptz;
-    alter table sm_journey_template_activities add column if not exists origin text;
-    alter table sm_journey_template_activities add column if not exists custom jsonb not null default '{}'::jsonb;
-    alter table sm_journey_template_activities add column if not exists template_id uuid;
-    alter table sm_journey_template_activities add column if not exists code text;
-    alter table sm_journey_template_activities add column if not exists sort_order integer;
-    alter table sm_journey_template_activities add column if not exists name text;
-    alter table sm_journey_template_activities add column if not exists phase text;
-    alter table sm_journey_template_activities add column if not exists kind text;
-    alter table sm_journey_template_activities add column if not exists assignee text;
-    alter table sm_journey_template_activities add column if not exists group_id uuid;
-    alter table sm_journey_template_activities add column if not exists start_offset integer;
-    alter table sm_journey_template_activities add column if not exists duration_days integer;
-    alter table sm_journey_template_activities add column if not exists after jsonb;
-    alter table sm_journey_template_activities add column if not exists condition jsonb;
-    alter table sm_journey_template_activities add column if not exists catalog_item_code text;
-    alter table sm_journey_template_activities add column if not exists order_answers jsonb;
-    alter table sm_journey_template_activities add column if not exists case_table text;
-    alter table sm_journey_template_activities add column if not exists case_department_id uuid;
-    alter table sm_journey_template_activities add column if not exists day_one boolean not null default false;
-    alter table sm_journey_template_activities add column if not exists active boolean not null default true;
-    alter table sm_journey_template_activities add column if not exists document_url text;
-    alter table sm_journey_template_activities add column if not exists instructions text;
-    alter table sm_journey_template_activities add column if not exists dept_admins jsonb;
-  end if;
-end
-$cols$;
-create table if not exists sm_journey_template_activities (
-  id uuid primary key,
-  org_id uuid not null references sm_orgs(id) on delete cascade,
-  workspace_id uuid,
-  domain_id uuid,
-  unit_id uuid,
-  created_at timestamptz not null default now(),
-  created_by uuid,
-  updated_at timestamptz not null default now(),
-  updated_by uuid,
-  rev bigint not null default 0,
-  version integer not null default 1,
-  deleted_at timestamptz,
-  origin text,
-  custom jsonb not null default '{}'::jsonb,
-  template_id uuid,
-  code text,
-  sort_order integer,
-  name text,
-  phase text,
-  kind text,
-  assignee text,
-  group_id uuid,
-  start_offset integer,
-  duration_days integer,
-  after jsonb,
-  condition jsonb,
-  catalog_item_code text,
-  order_answers jsonb,
-  case_table text,
-  case_department_id uuid,
-  day_one boolean not null default false,
-  active boolean not null default true,
-  document_url text,
-  instructions text,
-  dept_admins jsonb
-);
-create index if not exists sm_journey_template_activities_rev_idx on sm_journey_template_activities (org_id, rev);
-create index if not exists sm_journey_template_activities_upd_idx on sm_journey_template_activities (org_id, updated_at desc, id desc) where deleted_at is null;
-create index if not exists sm_journey_template_activities_crt_idx on sm_journey_template_activities (org_id, created_at desc, id desc) where deleted_at is null;
-create index if not exists sm_journey_template_activities_template_id_idx on sm_journey_template_activities (org_id, template_id) where deleted_at is null;
-create unique index if not exists sm_journey_template_activities_template_id_code_uk on sm_journey_template_activities (org_id, template_id, code) where deleted_at is null;
-create index if not exists sm_journey_template_activities_workspace_acc_idx on sm_journey_template_activities (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
-create index if not exists sm_journey_template_activities_unit_acc_idx on sm_journey_template_activities (org_id, unit_id) where deleted_at is null and unit_id is not null;
-create index if not exists sm_journey_template_activities_domain_acc_idx on sm_journey_template_activities (org_id, domain_id) where deleted_at is null and domain_id is not null;
-create index if not exists sm_journey_template_activities_dept_admins_gin on sm_journey_template_activities using gin (dept_admins);
-drop trigger if exists sm_journey_template_activities_sync on sm_journey_template_activities;
-create trigger sm_journey_template_activities_sync before insert or update on sm_journey_template_activities for each row execute function sm_sync_touch('journey_template_activity');
-create or replace trigger sm_journey_template_activities_demo after insert on sm_journey_template_activities for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
-create or replace trigger sm_journey_template_activities_demo_t after update or delete on sm_journey_template_activities for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
-alter table sm_journey_template_activities enable row level security;
-
--- kb_ack: تأییدهای مطالعه
-do $cols$
-begin
-  if to_regclass('sm_kb_acks') is not null then
-    alter table sm_kb_acks add column if not exists workspace_id uuid;
-    alter table sm_kb_acks add column if not exists domain_id uuid;
-    alter table sm_kb_acks add column if not exists unit_id uuid;
-    alter table sm_kb_acks add column if not exists created_at timestamptz not null default now();
-    alter table sm_kb_acks add column if not exists created_by uuid;
-    alter table sm_kb_acks add column if not exists updated_at timestamptz not null default now();
-    alter table sm_kb_acks add column if not exists updated_by uuid;
-    alter table sm_kb_acks add column if not exists rev bigint not null default 0;
-    alter table sm_kb_acks add column if not exists version integer not null default 1;
-    alter table sm_kb_acks add column if not exists deleted_at timestamptz;
-    alter table sm_kb_acks add column if not exists origin text;
-    alter table sm_kb_acks add column if not exists custom jsonb not null default '{}'::jsonb;
-    alter table sm_kb_acks add column if not exists attestation_id uuid;
-    alter table sm_kb_acks add column if not exists article_id uuid;
-    alter table sm_kb_acks add column if not exists user_id uuid;
-    alter table sm_kb_acks add column if not exists version_label text;
-    alter table sm_kb_acks add column if not exists acked_at timestamptz;
-    alter table sm_kb_acks add column if not exists k_users jsonb;
-    alter table sm_kb_acks add column if not exists k_groups jsonb;
-  end if;
-end
-$cols$;
-create table if not exists sm_kb_acks (
-  id uuid primary key,
-  org_id uuid not null references sm_orgs(id) on delete cascade,
-  workspace_id uuid,
-  domain_id uuid,
-  unit_id uuid,
-  created_at timestamptz not null default now(),
-  created_by uuid,
-  updated_at timestamptz not null default now(),
-  updated_by uuid,
-  rev bigint not null default 0,
-  version integer not null default 1,
-  deleted_at timestamptz,
-  origin text,
-  custom jsonb not null default '{}'::jsonb,
-  attestation_id uuid,
-  article_id uuid,
-  user_id uuid,
-  version_label text,
-  acked_at timestamptz,
-  k_users jsonb,
-  k_groups jsonb
-);
-create index if not exists sm_kb_acks_rev_idx on sm_kb_acks (org_id, rev);
-create index if not exists sm_kb_acks_upd_idx on sm_kb_acks (org_id, updated_at desc, id desc) where deleted_at is null;
-create index if not exists sm_kb_acks_crt_idx on sm_kb_acks (org_id, created_at desc, id desc) where deleted_at is null;
-create index if not exists sm_kb_acks_attestation_id_idx on sm_kb_acks (org_id, attestation_id) where deleted_at is null;
-create index if not exists sm_kb_acks_article_id_idx on sm_kb_acks (org_id, article_id) where deleted_at is null;
-create index if not exists sm_kb_acks_user_id_idx on sm_kb_acks (org_id, user_id) where deleted_at is null;
-create index if not exists sm_kb_acks_k_users_gin on sm_kb_acks using gin (k_users);
-create index if not exists sm_kb_acks_k_groups_gin on sm_kb_acks using gin (k_groups);
-create unique index if not exists sm_kb_acks_attestation_id_user_id_uk on sm_kb_acks (org_id, attestation_id, user_id) where deleted_at is null;
-create index if not exists sm_kb_acks_workspace_acc_idx on sm_kb_acks (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
-create index if not exists sm_kb_acks_unit_acc_idx on sm_kb_acks (org_id, unit_id) where deleted_at is null and unit_id is not null;
-create index if not exists sm_kb_acks_domain_acc_idx on sm_kb_acks (org_id, domain_id) where deleted_at is null and domain_id is not null;
-drop trigger if exists sm_kb_acks_sync on sm_kb_acks;
-create trigger sm_kb_acks_sync before insert or update on sm_kb_acks for each row execute function sm_sync_touch('kb_ack');
-create or replace trigger sm_kb_acks_demo after insert on sm_kb_acks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
-create or replace trigger sm_kb_acks_demo_t after update or delete on sm_kb_acks for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
-alter table sm_kb_acks enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340:14', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-do $engine$
-begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340:%') >= 30 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a0c3bc7de847efc726356c17d0426be580b356b9d4a79a0ea8f9bd8f23625340', 'done', now()) on conflict (key) do nothing;
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
     delete from sm_meta where key like 'engine.ddl.part:%';
     insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
   end if;

@@ -6,7 +6,8 @@
 // - `reconcileSchema(db)` runs right after the migrations on both runtimes (src/server/db/migrate.ts) and re-applies
 //   the generated DDL whenever its hash (sm_meta 'engine.ddl') differs: a new table or field reaches every existing
 //   database without a hand-written migration. Changes are additive only — a removed field keeps its column, a
-//   changed type keeps the old column type (write a migration for those).
+//   changed type keeps the old column type, changed search fields add a stored search document beside the old one
+//   (write a migration for those): two builds share the database for a while (`engine.ddl.seen` below).
 import { createHash } from "node:crypto";
 import type { FieldDef, TableDef } from "@shared/model/types";
 import { FIELD_TYPES } from "@shared/model/types";
@@ -172,41 +173,27 @@ export function ddlFor(def: TableDef): string {
  * of its built-in search fields — on every runtime (PGlite included: searches read it instead of normalising rows) —
  * and, where pg_trgm is installed (PostgreSQL, Supabase; migration 0095 creates it when available), a trigram index on
  * it plus a small partial one on the normalised custom values, so `like '%word%'` from the search box and the global
- * search is an index lookup. A column of an earlier list of search fields (another hash) is dropped with its indexes;
- * the operator class is taken from the extension's own schema.
+ * search is an index lookup; the operator class is taken from the extension's own schema.
+ *
+ * Additive, like everything here: a column of another list of search fields (another hash) stays, with its indexes.
+ * The build that made it may still be serving and reads it (sql.ts `searchSql`) — the previous deployment while
+ * Vercel builds the next one against the same database (`migrate:build`), or one brought back by Instant Rollback —
+ * and that build counts its DDL as applied (`engine.ddl.seen`), so it would never add the column back. A stale
+ * column and its indexes are removed only by a numbered migration, once no deployable version reads them.
  */
 export function searchIndex(def: TableDef): string {
   const col = searchColumn(def);
+  // no stored document: nothing to add (a column of an earlier list of search fields stays, see above)
+  if (!col) return "";
   const t = def.table;
-  if (!col) {
-    // no stored document (any more): a column of an earlier list of search fields goes, with its indexes
-    if (def.virtual || !def.numbered) return "";
-    return [
-      "do $search$",
-      "declare old record;",
-      "begin",
-      `  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = '${t}' and column_name ~ '^search_[0-9a-f]{8}$' loop`,
-      `    execute format('alter table %I drop column if exists %I', '${t}', old.column_name);`,
-      "  end loop;",
-      "end",
-      "$search$;",
-    ].join("\n");
-  }
-  const like =`${t.replace(/_/g, "\\_")}\\_search\\_%`;
   const custom = normSql("custom::text");
   return [
     "do $search$",
-    "declare s text; old record;",
+    "declare s text;",
     "begin",
-    `  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = '${t}' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> '${col.name}' loop`,
-    `    execute format('alter table %I drop column if exists %I', '${t}', old.column_name);`,
-    "  end loop;",
     `  execute format('alter table %I add column if not exists %I text generated always as (%s) stored', '${t}', '${col.name}', $x$${col.expr}$x$);`,
     "  select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';",
     "  if s is not null then",
-    `    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = '${t}' and indexname like '${like}' and indexname not in ('${shortName(`${t}_${col.name}_trgm`)}', '${shortName(`${t}_search_custom_trgm`)}') loop`,
-    "      execute format('drop index if exists %I', old.indexname);",
-    "    end loop;",
     `    execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', '${shortName(`${t}_${col.name}_trgm`)}', '${t}', '${col.name}', s);`,
     `    execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', '${shortName(`${t}_search_custom_trgm`)}', '${t}', $x$${custom}$x$, s);`,
     "  end if;",
@@ -281,28 +268,23 @@ export function archiveDdl(def: TableDef): string {
     out.push(`alter table ${a} add column if not exists ${f.name} ${columnType(f)};`);
   }
   const search = searchColumn(def);
-  // the archive's copy of the stored search document (archival copies it): a column of an earlier list of search fields
-  // is dropped (with its index), and a new one is filled once from the archived rows' own fields
-  out.push(
-    [
-      "do $arcs$",
-      "declare old record;",
-      "begin",
-      `  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = '${a}' and column_name ~ '^search_[0-9a-f]{8}$'${search ? ` and column_name <> '${search.name}'` : ""} loop`,
-      `    execute format('alter table %I drop column if exists %I', '${a}', old.column_name);`,
-      "  end loop;",
-      ...(search
-        ? [
-            `  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = '${a}' and column_name = '${search.name}') then`,
-            `    execute format('alter table %I add column %I text', '${a}', '${search.name}');`,
-            `    execute format('update %I set %I = (%s)', '${a}', '${search.name}', $x$${search.expr}$x$);`,
-            "  end if;",
-          ]
-        : []),
-      "end",
-      "$arcs$;",
-    ].join("\n"),
-  );
+  // the archive's copy of the stored search document (archival copies the columns both tables have): a new one is
+  // filled once from the archived rows' own fields; one of another list of search fields stays (additive, as
+  // `searchIndex` explains: the build that reads it may still be serving)
+  if (search) {
+    out.push(
+      [
+        "do $arcs$",
+        "begin",
+        `  if not exists (select 1 from information_schema.columns where table_schema = current_schema() and table_name = '${a}' and column_name = '${search.name}') then`,
+        `    execute format('alter table %I add column %I text', '${a}', '${search.name}');`,
+        `    execute format('update %I set %I = (%s)', '${a}', '${search.name}', $x$${search.expr}$x$);`,
+        "  end if;",
+        "end",
+        "$arcs$;",
+      ].join("\n"),
+    );
+  }
   const idx =(suffix: string, body: string) => out.push(`create index if not exists ${shortName(`${a}_${suffix}`)} on ${a} ${body};`);
   idx("no_idx", "(org_id, no)");
   idx("arch_idx", "(org_id, archived_at)");
@@ -365,9 +347,14 @@ const META_KEY = "engine.ddl";
 /** sm_meta keys of the chunks of one DDL version already applied: `engine.ddl.part:<hash>:<index>`. */
 const PART_KEY = "engine.ddl.part:";
 /**
- * sm_meta keys of every DDL version ever completed here: `engine.ddl.seen:<hash>`. The DDL is additive (a removed field
- * keeps its column), so a version once applied stays applied: an older deployment still serving while a newer build
- * migrated the database (Vercel builds before it switches) finds its own version seen and does not apply it again.
+ * sm_meta keys of every DDL version ever completed here: `engine.ddl.seen:<hash>`. The DDL only adds — a removed field
+ * keeps its column, a stored search document of another list of search fields keeps its column and indexes
+ * (`searchIndex`, `archiveDdl`) — so a version once applied stays applied: an older deployment still serving while a
+ * newer build migrated the database (Vercel builds before it switches), or one brought back by Instant Rollback, finds
+ * its own version seen, does not apply it again and still finds everything it reads (tests/engine-ddl-additive.test.ts).
+ * What a later version wants gone goes in a numbered migration, once no deployable version reads it. (The one removal
+ * left here: switching a table's sync off drops its sync trigger in `ddlFor`, which an older version still syncing that
+ * table would miss — plan such a switch with that in mind.)
  */
 const SEEN_KEY = "engine.ddl.seen:";
 

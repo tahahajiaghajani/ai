@@ -126,12 +126,12 @@
    در PowerShell ویندوز: `$env:DATABASE_URL='نشانی قدم ۱-۴'; npx tsx scripts/migrate-db.mts`. خروجی پیشرفت هر مرحله را نشان می‌دهد و با `done: 84/84 steps` تمام می‌شود. اجرای دوباره بی‌خطر است؛ `--status` فقط می‌گوید پایگاه داده کجاست.
 3. **خود برنامه:** اگر پایگاه داده هنوز کامل نیست، اولین بازدیدکننده صفحهٔ «آماده‌سازی پایگاه داده» را با درصد پیشرفت می‌بیند. صفحه هر چند ثانیه خودش می‌پرسد و هر پرسش، چند مرحله را در حداکثر ۲۵ ثانیه پیش می‌برد (تا مهلت ۶۰ ثانیه‌ای Vercel نرسد). روی پلن رایگان Supabase کل کار حدود یک تا دو دقیقه است. پس از آن صفحهٔ ورود باز می‌شود.
 
-**اجرای دستی در SQL Editor (فقط اگر بخواهید):** SQL Editor در Supabase کوئری بزرگ‌تر از حدود ۱ مگابایت را نمی‌پذیرد (`Query is too large to be run via the SQL Editor`)، پس فایل یک‌جای [`supabase/schema.sql`](../supabase/schema.sql) (حدود ۲٫۶ مگابایت) آن‌جا اجرا نمی‌شود. به‌جایش همان مرحله‌ها در **۸ بخش** حدود ۴۰۰ کیلوبایتی آمده‌اند: [`supabase/manual`](../supabase/manual) ← `01-of-08.sql` تا `08-of-08.sql`.
+**اجرای دستی در SQL Editor (فقط اگر بخواهید):** SQL Editor در Supabase کوئری بزرگ‌تر از حدود ۱ مگابایت را نمی‌پذیرد (`Query is too large to be run via the SQL Editor`)، پس فایل یک‌جای [`supabase/schema.sql`](../supabase/schema.sql) (حدود ۲٫۷ مگابایت) آن‌جا اجرا نمی‌شود. به‌جایش همان مرحله‌ها در **۹ بخش** حداکثر ۴۰۰ کیلوبایتی آمده‌اند: [`supabase/manual`](../supabase/manual) ← `01-of-09.sql` تا `09-of-09.sql`.
 
-1. در GitHub به `itsm/supabase/manual/01-of-08.sql` در شاخهٔ `main` بروید و `Copy raw file` (نماد دو مربع) را بزنید.
-2. Supabase ← `SQL Editor` ← `+` ← `Create a new snippet`، متن را بچسبانید و `Run` (یا `Ctrl+Enter`). خط اولش باید بگوید «بخش ۱ از ۸».
+1. در GitHub به `itsm/supabase/manual/01-of-09.sql` در شاخهٔ `main` بروید و `Copy raw file` (نماد دو مربع) را بزنید.
+2. Supabase ← `SQL Editor` ← `+` ← `Create a new snippet`، متن را بچسبانید و `Run` (یا `Ctrl+Enter`). خط اولش باید بگوید «بخش ۱ از ۹».
 3. اگر پنجرهٔ `Potential issues detected` باز شد و از `destructive operations` یا `tables without enabling Row Level Security` گفت: **هر دو هشدار نادرست است.** «حذف» فقط `drop trigger if exists` پیش از ساخت دوباره است، و RLS در انتهای هر مرحله برای همهٔ جدول‌ها روشن می‌شود. `Run and enable RLS` را بزنید (`Run without RLS` هم درست است).
-4. `Success. No rows returned` را ببینید و همین کار را با `02-of-08.sql` تا `08-of-08.sql` **به‌ترتیب** تکرار کنید (برای هر بخش یک snippet تازه، یا متن قبلی را پاک کنید).
+4. `Success. No rows returned` را ببینید و همین کار را با `02-of-09.sql` تا `09-of-09.sql` **به‌ترتیب** تکرار کنید (برای هر بخش یک snippet تازه، یا متن قبلی را پاک کنید).
 
 هر بخش در تراکنش خودش اجرا می‌شود؛ اگر بخشی خطا بدهد، همان بخش ثبت نمی‌شود و بخش‌های قبلی سر جایشان می‌مانند. متن خطا را نگه دارید و بقیه را به برنامه بسپارید (راه ۳).
 
@@ -240,7 +240,7 @@ select
 
 **باید ببینید:** در گزارش ساخت (`Deployments` ← انتشار ← `Building`) سطرهای `[migrate-db]` و آخرش `done: 84/84 steps` (یا `up to date`). پس از انتشار، نشانی `https://itsm-xyz.vercel.app/api/health` این را نشان می‌دهد:
 ```json
-{"ok":true,"db":"ok","mode":"cloud","version":"1.1.0","schema":{"complete":true,"done":84,"total":84,"percent":100,"next":null},"pooler":"transaction"}
+{"ok":true,"db":"ok","mode":"cloud","version":"1.1.0","schema":{"complete":true,"done":80,"total":80,"percent":100,"next":null},"pooler":"transaction"}
 ```
 - `db`: `ok` یعنی پایگاه داده پاسخ می‌دهد؛ وگرنه متن خطای اتصال (جدول بخش ۹).
 - `schema`: مرحلهٔ `done` از `total`. تا کامل نشده، پاسخ ۵۰۳ با `"code":"migrating"` و درصد پیشرفت است و سایت صفحهٔ «آماده‌سازی پایگاه داده» را نشان می‌دهد.

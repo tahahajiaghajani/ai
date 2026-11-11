@@ -33,6 +33,11 @@ describe("database scripts for running by hand", () => {
     for (const [rel, content] of Object.entries(out.files)) expect(readFileSync(join(ROOT, rel), "utf8"), `${rel} is stale: npm run schema`).toBe(content);
     const expected = Object.keys(out.files).filter((f) => f.startsWith("supabase/manual/")).map((f) => f.slice("supabase/manual/".length)).sort();
     expect(partFiles()).toEqual(expected);
+    // the setup guide names the parts the owner pastes, first to last, and no other count (docs/SETUP_FA.md §۱)
+    const guide = readFileSync(join(ROOT, "docs", "SETUP_FA.md"), "utf8");
+    for (const f of [expected[0], expected[1], expected[expected.length - 1]]) expect(guide, `docs/SETUP_FA.md names ${f}`).toContain(`\`${f}\``);
+    const totals = [...guide.matchAll(/\b\d\d-of-(\d\d)\.sql\b/g)].map((m) => m[1]);
+    expect(totals.filter((n) => n !== String(expected.length).padStart(2, "0"))).toEqual([]);
     expect(SCHEMA_FINGERPRINT.engine).toBe(engineChunks().hash);
     expect(SCHEMA_FINGERPRINT.engineChunks).toBe(engineChunks().chunks.length);
   });
