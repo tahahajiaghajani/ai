@@ -202,7 +202,7 @@ export function ShopGridFallback({ lang, products, collections, editorial }: { l
 
 /**
  * The listing grid with filters kept in the URL (?metal=gold&stone=paraiba&collection=nour&sort=new).
- * Filtering runs in the browser over the static product list; price sorting only exists for Pro members.
+ * Filtering runs in the browser over the static product list; price sorting only exists for members.
  */
 export function ShopGrid({ lang, products, collections, editorial }: { lang: Lang; products: Product[]; collections: { slug: string; name: string }[]; editorial?: ReactNode }) {
   const tr = T[lang];
@@ -366,7 +366,8 @@ export function ShopGrid({ lang, products, collections, editorial }: { lang: Lan
               [
                 ["metal", tr.tone, facet("metal", TONES.map((v) => ({ v, label: c.tones[v] })))],
                 ["stone", tr.stone, facet("stone", STONES.map((v) => ({ v, label: c.stones[v] })))],
-                ["collection", tr.collection, facet("collection", collections.map((k) => ({ v: k.slug, label: k.name })))],
+                // one collection only (every piece in «سلین»): nothing to choose, so no group
+                ["collection", tr.collection, collections.length > 1 ? facet("collection", collections.map((k) => ({ v: k.slug, label: k.name }))) : []],
               ] as const
             ).map(([key, label, options]) =>
               options.length ? (

@@ -38,7 +38,7 @@ export interface SlotDef {
 
 const cta = (fa: string, en: string, href: string): SlotText[] => [
   { key: "cta", label: "متن دکمه", fa, en },
-  { key: "href", label: "پیوند دکمه (مثلاً /collections/yas)", fa: href, en: href },
+  { key: "href", label: "پیوند دکمه (مثلاً /collections/celin)", fa: href, en: href },
 ];
 
 export const SLOTS: SlotDef[] = [
@@ -103,16 +103,16 @@ export const SLOTS: SlotDef[] = [
   {
     key: "home.interlude",
     page: "صفحه‌ی اصلی",
-    section: "بخش تیره — تراش اتمی",
+    section: "بخش تیره — تراش مشابه برلیان",
     ratio: "3:4",
     mobileRatio: "4:5",
     video: true,
     hint: "عکس استودیویی نگین روی زمینه‌ی تیره",
     image: "ring-paraiba-oval",
     texts: [
-      { key: "eyebrow", label: "برچسب", fa: "تراش اتمی", en: "Atomic cut" },
+      { key: "eyebrow", label: "برچسب", fa: "تراش مشابه برلیان", en: "Diamond-like cut" },
       { key: "title", label: "عنوان", fa: "نور، با تراشی دقیق", en: "Light, precisely cut" },
-      { key: "body", label: "متن کوتاه", multiline: true, fa: "در سلین، هر قطعه با الهام از ساختار و ظرافت طلا و جواهر طراحی و ساخته می‌شود؛ با نگین‌های درخشان، مخراج‌کاری دقیق و آبکاری‌های باکیفیت رودیوم و طلا.", en: "At CELIN, every piece is designed and made in the spirit of gold and jewels, with their structure and finesse: brilliant stones, precise stone setting and quality rhodium and gold plating." },
+      { key: "body", label: "متن کوتاه", multiline: true, fa: "در سلین، هر قطعه با الهام از ساختار و ظرافت طلا و جواهر طراحی و ساخته می‌شود؛ با نگین‌های درخشان، مخراج‌کاری دقیق و آبکاری‌های باکیفیت رودیوم، طلا و شامپاین گلد.", en: "At CELIN, every piece is designed and made in the spirit of the structure and finesse of gold and jewels: brilliant stones, precise stone setting and quality rhodium, gold and champagne-gold plating." },
       ...cta("هنر ساخت", "The craft", "/craft"),
     ],
   },
@@ -137,7 +137,7 @@ export const SLOTS: SlotDef[] = [
     image: "ring-paraiba-cushion",
     texts: [
       { key: "title", label: "عنوان", fa: "نگین‌های درخشان", en: "Brilliant stones" },
-      { key: "body", label: "متن کوتاه", multiline: true, fa: "نگین‌های درخشان با تراش اتمی؛ وجه‌هایی متقارن که نور را مثل جواهر برمی‌گردانند.", en: "Brilliant stones with an atomic cut: symmetrical facets that return light like a fine jewel." },
+      { key: "body", label: "متن کوتاه", multiline: true, fa: "نگین‌های درخشان با تراش مشابه برلیان، رنگ‌های خاص همچون زمرد، یاقوت سرخ، یاقوت کبود، سیترین و برلیان.", en: "Brilliant stones with a diamond-like cut, in special colors such as emerald, ruby, sapphire, citrine and diamond white." },
     ],
   },
   {
@@ -161,7 +161,7 @@ export const SLOTS: SlotDef[] = [
     image: "bangles-sapphire",
     texts: [
       { key: "title", label: "عنوان", fa: "آبکاری رودیوم و طلا", en: "Rhodium & gold plating" },
-      { key: "body", label: "متن کوتاه", multiline: true, fa: "آبکاری‌های باکیفیت رودیوم و طلا، برای درخششی ماندگار در رنگ‌های نقره‌ای و طلایی.", en: "Quality rhodium and gold plating, for a lasting shine in silver and gold tones." },
+      { key: "body", label: "متن کوتاه", multiline: true, fa: "آبکاری‌های با کیفیت بالای رودیوم، طلا و شامپاین گلد، به همراه لایه‌ی حفاظ نانو برای تثبیت بهتر کیفیت آبکاری.", en: "High-quality rhodium, gold and champagne-gold plating, with a nano protective layer that keeps the plating at its best." },
     ],
   },
   {
@@ -193,22 +193,22 @@ export const SLOTS: SlotDef[] = [
     texts: [
       { key: "eyebrow", label: "برچسب", fa: "درباره‌ی سلین", en: "About CELIN" },
       { key: "title", label: "عنوان", fa: "زیبایی، ظرافت و کیفیت، در کنار یکدیگر", en: "Beauty, finesse and quality, together" },
-      { key: "body", label: "متن کوتاه", multiline: true, fa: "سلین در سال ۱۳۸۵ متولد شد؛ با نگاهی متفاوت به دنیای زیورآلات و رؤیای خلق آثاری که زیبایی، ظرافت و کیفیت را در کنار یکدیگر معنا کنند.", en: "CELIN was born in 2006, with a different eye on the world of jewelry and a dream of creating pieces in which beauty, finesse and quality find their meaning together." },
+      { key: "body", label: "متن کوتاه", multiline: true, fa: "سلین در سال ۱۳۸۵ بعد از یک دهه تجربه در صنعت بدلیجات و زیورآلات متولد شد.", en: "CELIN was born in 2006, after a decade of experience in the costume jewelry and jewelry industry." },
       ...cta("داستان سلین", "Our story", "/maison"),
     ],
   },
   {
     key: "home.pro",
     page: "صفحه‌ی اصلی",
-    section: "اشتراک Pro",
+    section: "عضویت و Pro",
     ratio: "4:5",
     hint: "عکس روی دست یا جزئیات محصول",
     image: "rings-heart-signet",
     texts: [
-      { key: "eyebrow", label: "برچسب", fa: "اعضای Pro", en: "Pro members" },
-      { key: "title", label: "عنوان", fa: "قیمت، موجودی و سفارش برای همکاران", en: "Prices, stock and ordering for partners" },
-      { key: "body", label: "متن کوتاه", multiline: true, fa: "با اشتراک Pro، قیمت و موجودی همه‌ی آثار را می‌بینید و سفارش خود را مستقیم ثبت می‌کنید.", en: "With Pro membership you see the price and stock of every piece and place your orders directly." },
-      ...cta("درخواست اشتراک Pro", "Request Pro membership", "/pro"),
+      { key: "eyebrow", label: "برچسب", fa: "اعضای سلین", en: "CELIN members" },
+      { key: "title", label: "عنوان", fa: "موجودی، قیمت و سفارش برای اعضا", en: "Stock, prices and ordering for members" },
+      { key: "body", label: "متن کوتاه", multiline: true, fa: "با عضویت سلین، موجودی و قیمت همه‌ی آثار را می‌بینید و سفارش خود را مستقیم ثبت می‌کنید؛ با خرید بیشتر، حساب شما خودبه‌خود Pro می‌شود.", en: "As a CELIN member you see the stock and price of every piece and place your orders directly; buy more and your account becomes Pro on its own." },
+      ...cta("درخواست عضویت", "Request membership", "/pro"),
     ],
   },
   // ------------------------------------------------------------ menu & listings
@@ -234,8 +234,8 @@ export const SLOTS: SlotDef[] = [
     hint: "عکس روی مدل؛ در دو ستون فهرست نمایش داده می‌شود",
     image: "ring-emerald-fan",
     texts: [
-      { key: "title", label: "عنوان", fa: "گلبرگ، روی دست", en: "Golbarg, worn" },
-      ...cta("مشاهده‌ی مجموعه", "Discover the collection", "/collections/golbarg"),
+      { key: "title", label: "عنوان", fa: "سلین، روی دست", en: "CELIN, worn" },
+      ...cta("مشاهده‌ی مجموعه", "Discover the collection", "/collections/celin"),
     ],
   },
   // ------------------------------------------------------------ house pages
@@ -329,42 +329,42 @@ export const SLOTS: SlotDef[] = [
   },
   {
     key: "care.hero",
-    page: "نگهداری و ضمانت",
+    page: "نگهداری",
     section: "تصویر سرآغاز",
     ratio: "3:4",
     hint: "عکس روی دست با پس‌زمینه‌ی روشن",
     image: "ring-gold-pave-rows",
     texts: [
-      { key: "eyebrow", label: "برچسب کوچک بالای عنوان", fa: "نگهداری و ضمانت", en: "Care & warranty" },
+      { key: "eyebrow", label: "برچسب کوچک بالای عنوان", fa: "نگهداری", en: "Care" },
       { key: "title", label: "عنوان", fa: "برای درخششی ماندگار", en: "For a lasting shine" },
       { key: "subtitle", label: "یک جمله", multiline: true, fa: "نگهداری، بسته‌بندی و ارسال، و پشتیبانی آثار سلین.", en: "Caring for your CELIN pieces, packaging and delivery, and our support." },
     ],
   },
   {
     key: "care.packaging",
-    page: "نگهداری و ضمانت",
+    page: "نگهداری",
     section: "تصویر بسته‌بندی و ارسال",
     ratio: "3:4",
-    hint: "عکس جعبه و بسته‌بندی سلین، یا یک قطعه کنار جعبه",
+    hint: "عکس بسته‌بندی سلین، یا یک قطعه کنار بسته‌بندی",
     image: "set-baguette-drops",
     texts: [],
   },
   // ------------------------------------------------------------ account & Pro
   {
     key: "pro.hero",
-    page: "اشتراک Pro و ورود",
-    section: "تصویر صفحه‌ی اشتراک Pro",
+    page: "عضویت، Pro و ورود",
+    section: "تصویر صفحه‌ی عضویت و Pro",
     ratio: "3:4",
     hint: "عکس روی مدل",
     image: "set-bow-sapphire",
     texts: [
-      { key: "title", label: "عنوان", fa: "اشتراک Pro سلین", en: "CELIN Pro membership" },
+      { key: "title", label: "عنوان", fa: "عضویت و Pro سلین", en: "CELIN membership & Pro" },
       { key: "subtitle", label: "یک جمله", multiline: true, fa: "برای فروشگاه‌ها و همکارانی که سلین را به مشتریان خود می‌رسانند.", en: "For shops and partners who bring CELIN to their clients." },
     ],
   },
   {
     key: "auth.side",
-    page: "اشتراک Pro و ورود",
+    page: "عضویت، Pro و ورود",
     section: "تصویر کنار فرم ورود و ثبت‌نام",
     ratio: "3:4",
     hint: "عکس روی مدل؛ روی موبایل نمایش داده نمی‌شود",
@@ -381,7 +381,7 @@ export const SLOTS: SlotDef[] = [
     texts: [
       { key: "eyebrow", label: "برچسب کوچک بالای عنوان", fa: "تماس با سلین", en: "Contact CELIN" },
       { key: "title", label: "عنوان", fa: "با ما در تماس باشید", en: "Get in touch" },
-      { key: "subtitle", label: "یک جمله", multiline: true, fa: "برای پرسش درباره‌ی آثار، سفارش‌ها و اشتراک Pro، از هر راهی که برایتان آسان‌تر است با ما گفتگو کنید.", en: "For questions about a piece, an order or Pro membership, reach us whichever way suits you best." },
+      { key: "subtitle", label: "یک جمله", multiline: true, fa: "برای پرسش درباره‌ی آثار، سفارش‌ها و عضویت، از هر راهی که برایتان آسان‌تر است با ما گفتگو کنید.", en: "For questions about a piece, an order or membership, reach us whichever way suits you best." },
     ],
   },
 ];

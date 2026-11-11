@@ -4,8 +4,8 @@ import { useSyncExternalStore } from "react";
 import { MAX_LINES, MAX_QTY, type CartLine } from "@/lib/order-meta";
 
 /**
- * The order basket of a Pro member, kept in this browser (localStorage) and synced across tabs. It holds
- * only ids and quantities; names and pictures come from the catalogue, prices from the Pro price layer,
+ * The order basket of a member, kept in this browser (localStorage) and synced across tabs. It holds
+ * only ids and quantities; names and pictures come from the catalogue, prices from the members' price layer,
  * and the server reads every price again when the order is placed.
  */
 

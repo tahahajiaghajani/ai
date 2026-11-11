@@ -17,7 +17,7 @@ const diamond = (className: string) => (
   </svg>
 );
 
-/** The house's three promises before the night band: each under a small copper arch with its numeral. */
+/** The house's three promises before the night band: each under a small copper arch with a diamond (no numbers). */
 export function ServicesStrip({ lang }: { lang: Lang }) {
   const c = commonCopy(lang);
   return (
@@ -31,7 +31,9 @@ export function ServicesStrip({ lang }: { lang: Lang }) {
               <svg viewBox="0 0 10 10" className="absolute left-1/2 top-0 size-1.5 -translate-x-1/2 -translate-y-1/2 text-gold">
                 <path d="M5 0 10 5 5 10 0 5Z" fill="currentColor" />
               </svg>
-              <span className="display mt-3 text-2xl font-bold text-metal">{num(String(i + 1).padStart(2, "0"), lang)}</span>
+              <svg viewBox="0 0 10 10" className="mt-3 size-2.5 text-gold">
+                <path d="M5 0 10 5 5 10 0 5Z" fill="currentColor" />
+              </svg>
             </span>
             <span>
               <span className="display block text-xl font-bold text-ink">{s.title}</span>

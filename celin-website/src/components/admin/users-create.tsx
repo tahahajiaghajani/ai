@@ -56,7 +56,7 @@ export function CreateMemberButton({ defaultDays }: { defaultDays: number }) {
             <Field label="شهر">
               <Input value={f.city} onChange={set("city")} maxLength={80} />
             </Field>
-            <Field label="رمز عبور (اختیاری)" hint="بدون رمز، عضو با کد Pro وارد می‌شود.">
+            <Field label="رمز عبور (اختیاری)" hint="بدون رمز، عضو با کد عضویت وارد می‌شود.">
               <div className="relative">
                 <Input
                   value={f.password}
@@ -83,7 +83,7 @@ export function CreateMemberButton({ defaultDays }: { defaultDays: number }) {
           <div className="border border-line bg-white p-4">
             <label className="flex min-h-10 cursor-pointer items-center gap-3 text-sm font-medium">
               <input type="checkbox" checked={issue} onChange={(e) => setIssue(e.target.checked)} className="size-4 accent-ink" />
-              صدور کد Pro برای این حساب
+              صدور کد عضویت برای این حساب
             </label>
             {issue && (
               <div className="mt-3">

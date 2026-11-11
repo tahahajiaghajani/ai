@@ -40,7 +40,7 @@ export async function GET() {
         city: me.city,
         address: me.address,
         postal_code: me.postal_code,
-        pro: { active: pro.active, issued: pro.issued, expiresAt: pro.expiresAt, ended: pro.ended, request: request?.status ?? "none", reply: request?.status === "rejected" ? request.reply : "" },
+        pro: { active: pro.active, level: pro.level, proSince: pro.proSince, issued: pro.issued, expiresAt: pro.expiresAt, ended: pro.ended, request: request?.status ?? "none", reply: request?.status === "rejected" ? request.reply : "" },
         unread,
         // opaque and stable per account: the basket in the browser is bound to it (never the id itself)
         key: sign(`cart-owner:${me.id}`).slice(0, 22),

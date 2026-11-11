@@ -12,7 +12,7 @@ import { ProSteps } from "@/components/pro/steps";
 import { StoreContact, contactLinks, type StoreContactInfo } from "@/components/account/contact";
 
 /**
- * Entering the Pro code as a small ceremony: the night doorway with the PRO hallmark in its crown, the
+ * Entering the membership (or Pro) code as a small ceremony: the night doorway with the hallmark in its crown, the
  * 12 digits in three groups of four, the four steps (the last one lit), and who to call when no code came.
  * The hallmark turns and glows when the code is accepted. `steps={false}` where no code has been issued yet
  * (the doorway beside a request form): there the steps would claim the request and the approval are done.

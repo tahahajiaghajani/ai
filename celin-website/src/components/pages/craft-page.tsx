@@ -49,7 +49,7 @@ export async function CraftPage({ lang }: { lang: Lang }) {
         flip
         sparkle={16}
         d={{ eyebrow: txt("craft.hero", "eyebrow"), title: txt("craft.hero", "title"), subtitle: txt("craft.hero", "subtitle"), media: s("craft.hero").media, mobile: s("craft.hero").mobile, video: s("craft.hero").video }}
-        latin={["ATOMIC CUT", "RHODIUM & GOLD"]}
+        latin={["BRILLIANT CUT", "RHODIUM & GOLD"]}
       />
 
       {/* the brand's craft chapter */}

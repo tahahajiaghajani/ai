@@ -34,7 +34,8 @@ export async function ShopPage({ lang, category }: { lang: Lang; category?: stri
   const cat = category ? catalog.categories.find((k) => k.slug === category) : null;
   if (category && !cat) notFound();
   const products = cat ? catalog.products.filter((p) => p.category === cat.slug) : catalog.products;
-  const collections = catalog.collections.map((k) => ({ slug: k.slug, name: t(k, "name", lang) }));
+  // a collection with no pieces yet («به‌زودی») is no filter
+  const collections = catalog.collections.filter((k) => !k.soon).map((k) => ({ slug: k.slug, name: t(k, "name", lang) }));
   const title = cat ? t(cat, "name", lang) : c.nav.all;
   const intro = (cat && t(cat, "description", lang)) || s.intro;
 

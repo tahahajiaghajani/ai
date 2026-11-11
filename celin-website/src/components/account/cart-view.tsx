@@ -10,6 +10,7 @@ import { formatPrice, latinDigits, normalizePhone, num, type Lang } from "@/lib/
 import { href, t } from "@/lib/i18n";
 import type { Media } from "@/lib/media";
 import { MAX_QTY, type CartLine } from "@/lib/order-meta";
+import { invoice, listPrice, nextStep } from "@/lib/pricing";
 import { Icon } from "@/components/ui/icons";
 import { Picture } from "@/components/ui/picture";
 import { cart, useCart } from "@/components/cart/cart-store";
@@ -161,9 +162,14 @@ export function CartView({
   }
 
   const rows = view(lines, products, book);
-  const subtotal = rows.reduce((s, r) => s + (r.problem === "gone" || r.price === null ? 0 : r.price * r.line.qty), 0);
+  // the invoice exactly as the order will be placed (src/lib/pricing.ts): lines at the list price, then the step
+  const bill = invoice(
+    rows.filter((r) => r.problem !== "gone").map((r) => ({ price: r.price, qty: r.line.qty })),
+    book.pricing,
+  );
   const pieces = lines.reduce((n, l) => n + l.qty, 0);
-  const belowMin = book.minOrder > 0 && subtotal < book.minOrder;
+  const next = nextStep(bill.pieces, book.pricing);
+  const belowMin = book.minOrder > 0 && bill.total < book.minOrder;
   const blocked = rows.some((r) => r.problem) || belowMin;
 
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) => {
@@ -197,7 +203,7 @@ export function CartView({
         customer: { name: form.name, phone: form.phone, business: form.business, city: form.city, address: form.address, postal_code: latinDigits(form.postal_code).replace(/[\s-]/g, "") },
         note: form.note,
         saveAddress: save,
-        seen: subtotal,
+        seen: bill.total,
         lang,
       });
       if (r.ok) {
@@ -236,15 +242,30 @@ export function CartView({
             <Line key={key(r.line)} r={r} lang={lang} book={book} flagged={Boolean(badItem && (r.line.productId === badItem || r.line.variantId === badItem))} />
           ))}
         </ul>
-        <div className="mt-6 flex items-baseline justify-between gap-6">
-          <span className="text-sm text-ink-2">{c.subtotal}</span>
-          <span className="text-lg text-ink tabular-nums">{formatPrice(subtotal, lang)}</span>
-        </div>
+        <dl className="mt-6 space-y-2">
+          {bill.stepDiscount > 0 && (
+            <>
+              <div className="flex items-baseline justify-between gap-6">
+                <dt className="text-sm text-ink-2">{c.listTotal}</dt>
+                <dd className="text-sm text-ink-2 tabular-nums">{formatPrice(bill.list, lang)}</dd>
+              </div>
+              <div className="flex items-baseline justify-between gap-6">
+                <dt className="text-sm text-success">{c.stepDiscount(num(bill.pieces, lang))}</dt>
+                <dd className="text-sm text-success tabular-nums">− {formatPrice(bill.stepDiscount, lang)}</dd>
+              </div>
+            </>
+          )}
+          <div className="flex items-baseline justify-between gap-6">
+            <dt className="text-sm text-ink-2">{c.subtotal}</dt>
+            <dd className="text-lg text-ink tabular-nums">{formatPrice(bill.total, lang)}</dd>
+          </div>
+        </dl>
         <p className="mt-1 text-xs leading-6 text-muted">{c.subtotalNote}</p>
+        {next && <p className="mt-3 text-sm leading-7 text-gold-text">{c.nextStep(num(next.more, lang))}</p>}
         {belowMin && (
           <div className="mt-5">
             <FormNote tone="info">
-              {c.minOrder(formatPrice(book.minOrder, lang))} {c.minLeft(formatPrice(book.minOrder - subtotal, lang))}
+              {c.minOrder(formatPrice(book.minOrder, lang))} {c.minLeft(formatPrice(book.minOrder - bill.total, lang))}
             </FormNote>
           </div>
         )}
@@ -347,7 +368,7 @@ function Line({ r, lang, book, flagged }: { r: LineView; lang: Lang; book: Price
           {r.problem !== "gone" && (
             <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
               <span>
-                {c.unit}: <span className="text-ink-2 tabular-nums">{r.price === null ? c.noPrice : formatPrice(r.price, lang)}</span>
+                {c.unit}: <span className="text-ink-2 tabular-nums">{r.price === null ? c.noPrice : formatPrice(listPrice(r.price, book.pricing), lang)}</span>
               </span>
               {band && r.problem !== "variant" && (
                 <span className="inline-flex items-center gap-1.5">
@@ -405,7 +426,7 @@ function Line({ r, lang, book, flagged }: { r: LineView; lang: Lang; book: Price
                 <Icon name="plus" className="size-4" />
               </button>
             </span>
-            <span className="text-sm text-ink tabular-nums">{r.price === null ? "" : formatPrice(r.price * line.qty, lang)}</span>
+            <span className="text-sm text-ink tabular-nums">{r.price === null ? "" : formatPrice(listPrice(r.price, book.pricing) * line.qty, lang)}</span>
           </div>
         )}
       </div>

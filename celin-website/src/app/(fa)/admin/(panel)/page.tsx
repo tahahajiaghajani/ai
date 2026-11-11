@@ -40,7 +40,7 @@ function setupSteps(items: HealthItem[], contactEmpty: boolean): Step[] {
     out.push({
       key: "notify",
       title: "اعلان سفارش به تلگرام یا بله",
-      detail: "تا سفارش و درخواست تازه را فوراً روی گوشی ببینید (اختیاری).",
+      detail: "تا سفارش و درخواست عضویت تازه را فوراً روی گوشی ببینید (اختیاری).",
       href: "/admin/settings#notify",
       action: "تنظیمات",
       state: "warn",
@@ -118,8 +118,8 @@ export default async function AdminHome() {
               hint="بسته‌بندی و آماده‌ی ارسال"
               href={counts.orders.packing || !counts.orders.ready ? "/admin/orders?status=packing" : "/admin/orders?status=ready"}
             />
-            <Stat label="درخواست‌های Pro" value={num(counts.requests_pending, "fa")} hint="در انتظار بررسی" tone={counts.requests_pending ? "gold" : "neutral"} href="/admin/pro" />
-            <Stat label="اعضای فعال Pro" value={num(counts.pro_active, "fa")} hint={`از ${num(counts.users, "fa")} حساب`} href="/admin/users?f=pro" />
+            <Stat label="درخواست‌های عضویت" value={num(counts.requests_pending, "fa")} hint="در انتظار بررسی" tone={counts.requests_pending ? "gold" : "neutral"} href="/admin/pro" />
+            <Stat label="اعضای فعال" value={num(counts.pro_active, "fa")} hint={`از ${num(counts.users, "fa")} حساب`} href="/admin/users?f=member" />
             <Stat
               label="محصولات رو به اتمام"
               value={num(low, "fa")}
@@ -143,7 +143,7 @@ export default async function AdminHome() {
             </Card>
 
             <Card
-              title="درخواست‌های Pro"
+              title="درخواست‌های عضویت"
               actions={
                 pending.length ? (
                   <LinkButton href="/admin/pro" size="sm" variant="ghost">

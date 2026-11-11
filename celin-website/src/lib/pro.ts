@@ -1,15 +1,18 @@
 import "server-only";
 import { randomInt } from "node:crypto";
 import { decrypt, encrypt, signAll } from "@/lib/crypto";
-import { db, isMissingTable } from "@/lib/db";
+import { db, isMissingColumn, isMissingTable } from "@/lib/db";
 import { latinDigits } from "@/lib/format";
 
 /**
- * Pro membership: an approved account gets a code of 12 digits (shown as 4827 1930 5561, ≈ 40 bits). Digits
- * only, because members type it on a Persian phone keyboard (its digit row gives ۰–۹, normalised here);
+ * Membership and Pro. An approved account gets a membership code of 12 digits (shown as 4827 1930 5561, ≈ 40 bits).
+ * Digits only, because members type it on a Persian phone keyboard (its digit row gives ۰–۹, normalised here);
  * attempts are rate-limited per IP and globally. Entering the code — signed in, or on its own as a sign-in —
- * unlocks prices, stock and ordering for that account while the code is active (not revoked, not expired).
- * Only an HMAC of the code is stored for the lookup, plus an encrypted copy so the admin can show or resend it.
+ * unlocks stock, the members' prices and ordering for that account while the code is active (not revoked, not
+ * expired). An account whose accepted orders reach the threshold becomes Pro (celin_users.pro_at, members.ts
+ * checkPro): it pays the admin's prices from then on and gets a separate Pro code (kind 'pro', no expiry) that
+ * replaces its membership code. Only an HMAC of a code is stored for the lookup, plus an encrypted copy so the
+ * admin can show or resend it. The table names keep their first names (celin_pro_codes, celin_pro_requests).
  */
 
 export const CODES = "celin_pro_codes";
@@ -62,8 +65,15 @@ export function codeState(c: Pick<CodeRow, "expires_at" | "redeemed_at" | "revok
   return c.redeemed_at ? "active" : "issued";
 }
 
+export type ProLevel = "member" | "pro";
+
 export interface ProStatus {
+  /** sees stock and prices and may order: a member with an active code, or a Pro account */
   active: boolean;
+  /** which prices: the members' list price with steps, or the admin's price (src/lib/pricing.ts) */
+  level: ProLevel | null;
+  /** Pro from this moment (null unless Pro) */
+  proSince: string | null;
   /** a code was issued and waits to be entered */
   issued: boolean;
   expiresAt: string | null;
@@ -72,20 +82,38 @@ export interface ProStatus {
   ended: { reason: "expired" | "revoked"; at: string } | null;
 }
 
-export const NO_PRO: ProStatus = { active: false, issued: false, expiresAt: null, since: null, ended: null };
+export const NO_PRO: ProStatus = { active: false, level: null, proSince: null, issued: false, expiresAt: null, since: null, ended: null };
 
-/** Pro state of an account; a database problem reads as "not Pro" (logged). */
+/** When the account became Pro (null: not Pro, or the database file of round five has not run yet). */
+export async function proSince(userId: string): Promise<string | null> {
+  const c = db();
+  if (!c) return null;
+  const { data, error } = await c.from("celin_users").select("pro_at").eq("id", userId).maybeSingle();
+  if (error) {
+    if (!isMissingColumn(error) && !isMissingTable(error)) console.error("[pro] level", error.message);
+    return null;
+  }
+  return ((data as { pro_at: string | null } | null)?.pro_at as string | null) ?? null;
+}
+
+/** Membership state of an account and its price level; a database problem reads as "no membership" (logged). */
 export async function proStatus(userId: string): Promise<ProStatus> {
   const c = db();
   if (!c) return NO_PRO;
-  const { data, error } = await c.from(CODES).select(CODE_COLUMNS).eq("user_id", userId).order("created_at", { ascending: false }).limit(5);
+  const [{ data, error }, pro] = await Promise.all([c.from(CODES).select(CODE_COLUMNS).eq("user_id", userId).order("created_at", { ascending: false }).limit(5), proSince(userId)]);
   if (error) {
     if (!isMissingTable(error)) console.error("[pro] status", error.message);
     return NO_PRO;
   }
   const rows = (data ?? []) as CodeRow[];
+  const member = codeStatus(rows);
+  // Pro needs no code: it lasts until the admin takes it back
+  return pro ? { ...member, ended: null, active: true, level: "pro", proSince: pro } : member;
+}
+
+function codeStatus(rows: CodeRow[]): ProStatus {
   const active = rows.find((r) => codeState(r) === "active");
-  if (active) return { active: true, issued: false, expiresAt: active.expires_at, since: active.redeemed_at, ended: null };
+  if (active) return { ...NO_PRO, active: true, level: "member", expiresAt: active.expires_at, since: active.redeemed_at };
   if (rows.some((r) => codeState(r) === "issued")) return { ...NO_PRO, issued: true };
   const last = rows[0];
   // a code that was never entered and then replaced or revoked is not a membership that ended
@@ -100,7 +128,7 @@ export async function proStatus(userId: string): Promise<ProStatus> {
  */
 export async function issueCode(
   userId: string,
-  opts: { days?: number | null; requestId?: string | null; activate?: boolean } = {},
+  opts: { days?: number | null; requestId?: string | null; activate?: boolean; kind?: "member" | "pro" } = {},
 ): Promise<{ code: string; id: string; expiresAt: string | null; replacedLive: boolean }> {
   const c = db();
   if (!c) throw new Error("db_missing");
@@ -122,6 +150,8 @@ export async function issueCode(
       request_id: opts.requestId ?? null,
       expires_at: expiresAt,
       redeemed_at: opts.activate ? now.toISOString() : null,
+      // only Pro codes name their kind (the column comes with round five's database file; a membership code is the default)
+      ...(opts.kind === "pro" ? { kind: "pro" } : {}),
     };
     const { data, error } = await c.from(CODES).insert(row).select("id").single();
     if (!error && data) return { code, id: (data as { id: string }).id, expiresAt, replacedLive };
@@ -173,7 +203,7 @@ export function revealCode(row: Pick<CodeRow, "code_enc">): string {
   return decrypt(row.code_enc);
 }
 
-/** The member's most recent Pro request (for the "pending" / "declined" states), or null. */
+/** The account's most recent membership request (for the "pending" / "declined" states), or null. */
 export async function latestRequest(userId: string): Promise<{ status: "pending" | "approved" | "rejected"; reply: string; created_at: string } | null> {
   const c = db();
   if (!c) return null;

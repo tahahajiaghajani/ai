@@ -1,5 +1,6 @@
-import { accountCopy } from "@/content/copy/account";
-import { num, type Lang } from "@/lib/format";
+import { accountCopy, type LevelsInfo } from "@/content/copy/account";
+import { formatPrice, num, type Lang } from "@/lib/format";
+import { pricingFor, type PricingSettings } from "@/lib/pricing";
 import { getSettings } from "@/lib/settings";
 import { getSlots, slotText } from "@/lib/slots";
 import type { CSSProperties, ReactNode } from "react";
@@ -30,14 +31,35 @@ function Head({ id, eyebrow, title, center = false }: { id: string; eyebrow: str
   );
 }
 
-const BENEFIT_ICONS: IconName[] = ["tag", "box", "users"];
+/**
+ * The settings behind the page's words (src/lib/pricing.ts): the members' price as a multiple of the wholesale
+ * price, whether invoices step down by pieces, and the Pro window and threshold. Never prices themselves.
+ */
+function levelsInfo(pro: PricingSettings & { proThreshold: number; proDays: number }, lang: Lang): LevelsInfo {
+  const member = pricingFor("member", pro);
+  const times = member.listPct > 100 ? new Intl.NumberFormat(lang === "fa" ? "fa-IR" : "en-US", { maximumFractionDigits: 2 }).format(member.listPct / 100) : null;
+  return {
+    times,
+    steps: member.steps.length > 0,
+    days: num(pro.proDays, lang),
+    threshold: pro.proThreshold > 0 && pro.proDays > 0 ? formatPrice(pro.proThreshold, lang) : null,
+  };
+}
 
-/** /pro — static and identical for everyone; only the request block (#request) reads the visitor's session. */
+/**
+ * /pro «عضویت و Pro» — static and identical for everyone; only the request block (#request) reads the visitor's
+ * session. It explains the two levels: membership (request → approval → membership code → stock and members'
+ * prices, lower invoices with more pieces) and Pro (automatic past the threshold → the wholesale price).
+ */
 export async function ProPage({ lang }: { lang: Lang }) {
   const c = accountCopy(lang).proPage;
   const [slots, settings] = await Promise.all([getSlots(), getSettings()]);
   const hero = slots["pro.hero"];
-  const faq = [...c.faq, { q: c.minQ, a: settings.shop.minOrder > 0 ? c.minYes : c.minNo }];
+  const levels = levelsInfo(settings.pro, lang);
+  const benefits = c.benefits(levels);
+  // membership, the quantity discount (when there are steps), Pro
+  const icons: IconName[] = levels.steps ? ["users", "box", "diamond"] : ["users", "diamond"];
+  const faq = [...c.faq(levels), { q: c.minQ, a: settings.shop.minOrder > 0 ? c.minYes : c.minNo }];
   return (
     <main>
       <section data-header="dark" data-tone="light" className="under-header relative isolate overflow-clip bg-night text-on-night">
@@ -47,7 +69,7 @@ export async function ProPage({ lang }: { lang: Lang }) {
           <div className="text-center lg:col-span-6 lg:text-start xl:col-span-5 xl:col-start-2">
             <p className="fx-in flex items-center justify-center gap-3 font-label text-xs tracking-[0.36em] text-gold-on-dark lg:justify-start" style={{ "--in": 0 } as CSSProperties}>
               <span aria-hidden className="h-px w-8 bg-[image:var(--metal-champagne)]" />
-              <span className="ltr">CELIN PRO</span>
+              <span className="ltr">MEMBERSHIP &amp; PRO</span>
             </p>
             <SplitWords as="h1" text={slotText(hero, "title", lang)} immediate delay={150} className="title-page mt-5" wordClassName="text-metal-light metal-live" />
             <p className="fx-in lede mx-auto mt-5 max-w-md text-on-night-muted lg:mx-0" style={{ "--in": 3 } as CSSProperties}>
@@ -76,16 +98,16 @@ export async function ProPage({ lang }: { lang: Lang }) {
         </div>
       </section>
 
-      {/* the FAQ sits on a copper sill */}
+      {/* the two levels at a glance: membership, the quantity discount, Pro */}
       <section aria-labelledby="pro-benefits" className="relative isolate bg-mesh-porcelain">
         <div className="container-lux pt-20 pb-20 lg:py-28">
           <Head id="pro-benefits" eyebrow={c.eyebrow} title={c.benefitsTitle} />
-          <ul className="mt-12 grid gap-6 sm:grid-cols-3">
-            {c.benefits.map((b, i) => (
+          <ul className={`mt-12 grid gap-6 ${benefits.length === 3 ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
+            {benefits.map((b, i) => (
               <li key={b.title} data-reveal style={{ "--d": i } as CSSProperties}>
                 <LuxFrame className="h-full bg-porcelain/80 px-7 pt-8 pb-9 sm:px-8">
                   <span className="arch grid h-14 w-11 place-items-center border border-b-0 border-gold/45 text-gold" aria-hidden>
-                    <Icon name={BENEFIT_ICONS[i] ?? "diamond"} className="mt-2 size-5" />
+                    <Icon name={icons[i] ?? "diamond"} className="mt-2 size-5" />
                   </span>
                   <p className="title-card mt-6 text-ink">{b.title}</p>
                   <p className="mt-2 font-ui text-sm leading-7 text-muted">{b.text}</p>
@@ -100,7 +122,7 @@ export async function ProPage({ lang }: { lang: Lang }) {
         {/* the arcade fades in below the band's top edge (at 1/6 of the svg less 2.5rem) instead of being cut by it */}
         <ArchLines count={4} className="pointer-events-none absolute inset-x-0 -bottom-10 mx-auto h-[120%] w-[min(1100px,140vw)] opacity-50 [mask-image:linear-gradient(to_bottom,transparent_calc(100%/6_-_2.5rem),black_calc(100%/6_+_5rem),black_32%,transparent_50%)]" />
         <div className="container-lux relative py-20 lg:py-28">
-          <Head id="pro-steps" eyebrow="PRO" title={c.stepsTitle} center />
+          <Head id="pro-steps" eyebrow={c.stepsEyebrow} title={c.stepsTitle} center />
           <ol className="mx-auto mt-14 grid max-w-5xl gap-12 sm:grid-cols-2 sm:gap-8 lg:grid-cols-4">
             {c.steps.map((st, i) => (
               <li key={st.title} className="text-center" data-reveal style={{ "--d": i } as CSSProperties}>
@@ -134,7 +156,7 @@ export async function ProPage({ lang }: { lang: Lang }) {
       <section aria-labelledby="pro-faq" className="border-t border-gold/20 bg-bone">
         <div className="container-lux grid gap-8 py-20 lg:grid-cols-12 lg:gap-16 lg:py-28">
           <div className="lg:col-span-4">
-            <Head id="pro-faq" eyebrow="PRO" title={c.faqTitle} />
+            <Head id="pro-faq" eyebrow={c.faqEyebrow} title={c.faqTitle} />
           </div>
           <div className="divide-y divide-gold/20 border-y border-gold/20 lg:col-span-8 xl:col-span-7">
             {faq.map((f) => (

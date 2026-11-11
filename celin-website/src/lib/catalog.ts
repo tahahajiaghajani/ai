@@ -42,9 +42,10 @@ function seedCatalog(): Catalog {
     tagline_en: c.tagline_en,
     story_fa: c.story_fa,
     story_en: c.story_en,
-    media: SEED_MEDIA[c.image],
+    media: c.image ? SEED_MEDIA[c.image] : null,
     sort: i,
     visible: true,
+    soon: !SEED_PRODUCTS.some((p) => p.collection === c.slug),
   }));
   const products: Product[] = SEED_PRODUCTS.map((p, i) => ({
     id: seedId(p.slug),
@@ -215,6 +216,7 @@ async function dbCatalog(): Promise<Catalog | null> {
       media: t.media_id ? media.get(t.media_id) ?? null : null,
       sort: t.sort,
       visible: t.visible,
+      soon: !products.some((p) => p.collection_id === t.id),
     })),
     products: products
       .map((p) => ({
@@ -298,7 +300,7 @@ export function related(catalog: Catalog, p: Product, n = 4): Product[] {
 }
 
 /**
- * Prices and stock of every published product, for a Pro member only (the caller checks). Not cached:
+ * Prices and stock of every published product, for members only (the caller checks). Not cached:
  * stock changes with every order.
  */
 export async function proPrices(): Promise<ProPrices> {

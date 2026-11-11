@@ -1,3 +1,5 @@
+import { DEFAULT_MEMBER_PCT, DEFAULT_PRO_DAYS, DEFAULT_PRO_THRESHOLD, DEFAULT_STEPS, type PriceStep } from "@/lib/pricing";
+
 /** Client-safe settings shapes and defaults (stored per key in celin_settings, merged over these). */
 
 export interface ContactSettings {
@@ -23,7 +25,7 @@ export interface AnnouncementSettings {
 export interface ShopSettings {
   /** smallest order total in Toman (0 = none) */
   minOrder: number;
-  /** how Pro members see stock: the exact number, or «موجود / رو به اتمام / ناموجود» */
+  /** how members see stock: the exact number, or «موجود / رو به اتمام / ناموجود» */
   stockDisplay: "exact" | "level";
   /** at or below this the level reads «رو به اتمام» */
   lowStock: number;
@@ -35,8 +37,15 @@ export interface ShopSettings {
 export interface ProSettings {
   /** put the code into the member's inbox on the site when it is issued */
   codeInInbox: boolean;
-  /** default validity of a new code in days (0 = no expiry) */
+  /** default validity of a new membership code in days (0 = no expiry) */
   defaultDays: number;
+  /** members' list price, in percent of the admin's price (src/lib/pricing.ts) */
+  memberPct: number;
+  /** members' invoice steps by pieces in one order */
+  steps: PriceStep[];
+  /** accepted orders worth at least this (Toman) within `proDays` days make an account Pro (0 = never) */
+  proThreshold: number;
+  proDays: number;
 }
 
 export type NotifyChannel = "none" | "telegram" | "bale";
@@ -113,7 +122,7 @@ export const DEFAULT_SETTINGS: Settings = {
     orderNote_fa: "سفارش شما پس از بررسی موجودی، توسط فروشگاه تأیید می‌شود و برای هماهنگی ارسال با شما تماس می‌گیریم.",
     orderNote_en: "The store confirms your order after checking stock, then contacts you to arrange delivery.",
   },
-  pro: { codeInInbox: true, defaultDays: 365 },
+  pro: { codeInInbox: true, defaultDays: 365, memberPct: DEFAULT_MEMBER_PCT, steps: DEFAULT_STEPS, proThreshold: DEFAULT_PRO_THRESHOLD, proDays: DEFAULT_PRO_DAYS },
   notify: { channel: "none", botTokenEnc: "", chatId: "", onOrder: true, onRequest: true },
   sms: { provider: "none", apiKeyEnc: "", sender: "", codeTemplate: "", statusTemplate: "", onCode: true, onStatus: true },
   email: { resendKeyEnc: "", mailFrom: "" },

@@ -319,7 +319,7 @@ describe("revoking or replacing a used code", async () => {
     const m = user({ phone: "09121110040", session_version: 5, password_hash: "scrypt$made-with-code", password_from_code: true });
     const { row } = await issue(m.id, true);
     const r = await revokeMemberCode(row.id);
-    expect(r).toEqual({ ended: true, passwordCleared: true });
+    expect(r).toEqual({ ended: true, passwordCleared: true, pro: false });
     expect(m.session_version).toBe(6);
     expect(m.password_hash).toBeNull();
     expect(fake.table("celin_messages").some((x) => x.user_id === m.id && x.kind === "pro")).toBe(true);
@@ -329,7 +329,7 @@ describe("revoking or replacing a used code", async () => {
     await asAdmin();
     const m = user({ phone: "09121110041", session_version: 1, password_hash: "scrypt$own" });
     const { row } = await issue(m.id, true);
-    expect(await revokeMemberCode(row.id)).toEqual({ ended: true, passwordCleared: false });
+    expect(await revokeMemberCode(row.id)).toEqual({ ended: true, passwordCleared: false, pro: false });
     expect(m.session_version).toBe(2);
     expect(m.password_hash).toBe("scrypt$own");
   });
@@ -338,7 +338,7 @@ describe("revoking or replacing a used code", async () => {
     await asAdmin();
     const m = user({ phone: "09121110042", session_version: 1 });
     const { row } = await issue(m.id, false);
-    expect(await revokeMemberCode(row.id)).toEqual({ ended: false, passwordCleared: false });
+    expect(await revokeMemberCode(row.id)).toEqual({ ended: false, passwordCleared: false, pro: false });
     expect(m.session_version).toBe(1);
   });
 

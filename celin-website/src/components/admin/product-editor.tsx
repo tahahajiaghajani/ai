@@ -478,9 +478,9 @@ function InfoCard({
 
 function PriceCard({ f, set, hasVariants }: { f: Form; set: <K extends keyof Form>(key: K, value: Form[K]) => void; hasVariants: boolean }) {
   return (
-    <Card title="قیمت و موجودی" sub="قیمت و موجودی فقط به اعضای Pro نشان داده می‌شود.">
+    <Card title="قیمت و موجودی" sub="قیمت و موجودی فقط به اعضا نشان داده می‌شود.">
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="قیمت (تومان)" hint={f.price === null ? "خالی است؛ اعضا «استعلام قیمت» می‌بینند." : hasVariants ? "قیمت گزینه‌هایی که قیمت جدا ندارند." : undefined}>
+        <Field label="قیمت عمده (تومان)" hint={f.price === null ? "خالی است؛ اعضا «استعلام قیمت» می‌بینند." : hasVariants ? "قیمت گزینه‌هایی که قیمت جدا ندارند." : undefined}>
           <MoneyInput value={f.price} onChange={(v) => set("price", v)} name="price" />
         </Field>
         {hasVariants ? (

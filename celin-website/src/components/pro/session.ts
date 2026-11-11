@@ -3,12 +3,13 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { ProPrices } from "@/lib/catalog-types";
 import type { ProEnded } from "@/lib/pro-copy";
+import type { PriceLevel, Pricing } from "@/lib/pricing";
 import { cart } from "@/components/cart/cart-store";
 
 /**
- * The visitor's account and (for Pro members) prices, loaded once per page view from /api/me and
+ * The visitor's account and (for members and Pro accounts) prices, loaded once per page view from /api/me and
  * /api/pro/prices. Visitors cost nothing: both are asked only when the readable hint cookies say someone is
- * signed in here (celin_ui, or the admin hint celin_admin_ui) / has Pro (celin_pro_ui). Public pages stay
+ * signed in here (celin_ui, or the admin hint celin_admin_ui) / is a member or Pro (celin_pro_ui). Public pages stay
  * static and identical for everyone.
  */
 
@@ -21,14 +22,17 @@ export interface Me {
   city: string;
   address: string;
   postal_code: string;
-  pro: { active: boolean; issued: boolean; expiresAt: string | null; ended?: ProEnded; request: "none" | "pending" | "approved" | "rejected"; reply: string };
+  /** active: a member or Pro (stock, prices, ordering); level: which prices (members' list price, or Pro) */
+  pro: { active: boolean; level: PriceLevel | null; proSince: string | null; issued: boolean; expiresAt: string | null; ended?: ProEnded; request: "none" | "pending" | "approved" | "rejected"; reply: string };
   unread: number;
   /** opaque per-account key: the basket in this browser belongs to one account */
   key?: string;
 }
 
 export interface PriceBook {
+  /** the admin's prices; what this account sees and pays follows `pricing` */
   prices: ProPrices;
+  pricing: Pricing;
   stockDisplay: "exact" | "level";
   lowStock: number;
   minOrder: number;
@@ -122,7 +126,7 @@ export function useAdmin(): boolean | undefined {
   return useSession().admin;
 }
 
-/** Prices for Pro members; `undefined` while loading, `null` when this visitor has no Pro. */
+/** Prices for members and Pro accounts; `undefined` while loading, `null` when this visitor has no membership. */
 export function usePriceBook(): PriceBook | null | undefined {
   return useSession().book;
 }

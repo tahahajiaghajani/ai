@@ -8,8 +8,6 @@ export const maisonCopy = {
   fa: {
     meta: { title: "داستان سلین", description: story.fa.born },
     prologue: { eyebrow: "آغاز", year: 1385 },
-    chapter: (n: string) => `فصل ${n}`,
-    chapters: { eyebrow: "فصل‌ها", title: "چهار فصل از یک مسیر" },
     timeline: {
       eyebrow: "۲۰ سال درخشش",
       from: 1385,
@@ -26,8 +24,6 @@ export const maisonCopy = {
   en: {
     meta: { title: "Our story", description: story.en.born },
     prologue: { eyebrow: "The beginning", year: 2006 },
-    chapter: (n: string) => `Chapter ${n}`,
-    chapters: { eyebrow: "Chapters", title: "Four chapters of one path" },
     timeline: {
       eyebrow: "Twenty years of brilliance",
       from: 2006,

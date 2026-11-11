@@ -12,7 +12,7 @@ type SP = Record<string, string | string[] | undefined>;
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? "";
 
 /**
- * /account/login: sign in · create account · sign in with a Pro code. Signed-in visitors go straight on.
+ * /account/login: sign in · create account · sign in with a code (membership or Pro). Signed-in visitors go straight on.
  * Two arches side by side on one sill: the doorway with the forms, and the house's picture (desktop).
  */
 export async function LoginPage({ lang, searchParams }: { lang: Lang; searchParams: Promise<SP> }) {

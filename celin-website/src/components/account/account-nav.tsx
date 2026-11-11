@@ -14,7 +14,10 @@ import { ProChip } from "@/components/account/ui";
 
 export interface NavInitial {
   name: string;
+  /** a member or Pro (sees stock and prices) */
   pro: boolean;
+  /** which: «عضو سلین» or «حساب PRO» on the chip */
+  level?: "member" | "pro" | null;
   unread: number;
 }
 
@@ -35,6 +38,7 @@ function useNav(lang: Lang, initial: NavInitial) {
   const path = usePathname();
   const name = me?.name ?? initial.name;
   const pro = me ? me.pro.active : initial.pro;
+  const level = me ? me.pro.level : initial.level ?? null;
   const unread = me ? me.unread : initial.unread;
   const counts: Partial<Record<Key, { n: number; label: string }>> = {
     ...(cart > 0 ? { cart: { n: cart, label: accountCopy(lang).nav.inCart(num(cart, lang)) } } : {}),
@@ -44,7 +48,7 @@ function useNav(lang: Lang, initial: NavInitial) {
     const full = href(lang, p);
     return path === full || (p !== "/account" && path.startsWith(`${full}/`));
   };
-  return { name, pro, counts, isActive };
+  return { name, pro, level, counts, isActive };
 }
 
 function Count({ n, label, lang }: { n: number; label: string; lang: Lang }) {
@@ -94,14 +98,14 @@ function AdminNavLink({ lang, className, iconClass }: { lang: Lang; className: s
   );
 }
 
-/** Desktop sidebar: the member, a Pro chip when active, the sections with counts, «خروج». */
+/** Desktop sidebar: the account, a chip when it is a member or Pro, the sections with counts, «خروج». */
 export function AccountSidebar({ lang, initial }: { lang: Lang; initial: NavInitial }) {
   const c = accountCopy(lang).nav;
-  const { name, pro, counts, isActive } = useNav(lang, initial);
+  const { name, pro, level, counts, isActive } = useNav(lang, initial);
   return (
     <div>
       <p className="title-card break-words">{name}</p>
-      {pro && <ProChip lang={lang} className="mt-3" />}
+      {pro && <ProChip lang={lang} pro={level === "pro"} className="mt-3" />}
       <nav aria-label={c.label} className="mt-8 border-t border-line">
         <ul>
           {ITEMS.map((it) => {

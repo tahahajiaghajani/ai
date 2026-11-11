@@ -10,7 +10,7 @@ const NAV = [
   ["contact", "تماس"],
   ["announcement", "اطلاعیه"],
   ["shop", "سفارش"],
-  ["pro", "اشتراک Pro"],
+  ["pro", "عضویت و Pro"],
   ["notify", "اعلان مدیر"],
   ["sms", "پیامک"],
   ["email", "ایمیل"],

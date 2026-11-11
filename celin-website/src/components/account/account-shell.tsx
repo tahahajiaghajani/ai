@@ -13,7 +13,7 @@ async function Sidebar({ lang }: { lang: Lang }) {
   // the page's own check usually answers first (it knows the exact path to come back to)
   if (!me) redirect(loginPath(lang, href(lang, "/account")));
   const [pro, unread] = await Promise.all([proStatus(me.id), unreadCount(me.id)]);
-  return <AccountSidebar lang={lang} initial={{ name: me.name, pro: pro.active, unread }} />;
+  return <AccountSidebar lang={lang} initial={{ name: me.name, pro: pro.active, level: pro.level, unread }} />;
 }
 
 /**

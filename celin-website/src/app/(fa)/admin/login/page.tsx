@@ -57,7 +57,7 @@ export default async function AdminLogin() {
       </>
     );
   } else if (me && canActivateAdmin(me) && !viaPassword) {
-    // an account that may be made admin, signed in with its Pro code: the activation needs a password session
+    // an account that may be made admin, signed in with its membership or Pro code: the activation needs a password session
     body = (await hasPassword(me.id)) ? (
       <>
         <p className="mt-4 text-sm leading-7 text-ink-2">برای فعال کردن پنل روی این حساب، اول با شماره و رمز عبور همین حساب وارد شوید.</p>
@@ -71,7 +71,7 @@ export default async function AdminLogin() {
         <p className="border border-danger/30 bg-danger-soft px-3 py-2.5 text-sm leading-7 text-danger">این حساب دسترسی مدیریت ندارد.</p>
         {who}
         <p className="text-start text-xs leading-6 text-muted">
-          اگر مدیر سایت هستید: این حساب با کد Pro وارد شده و رمز عبور ندارد. اول در «حساب من ← مشخصات و نشانی» برایش رمز بگذارید، سپس با شماره و رمز وارد شوید و به همین صفحه برگردید.
+          اگر مدیر سایت هستید: این حساب با کد وارد شده و رمز عبور ندارد. اول در «حساب من ← مشخصات و نشانی» برایش رمز بگذارید، سپس با شماره و رمز وارد شوید و به همین صفحه برگردید.
         </p>
         <SignOut />
       </div>

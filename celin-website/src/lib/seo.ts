@@ -102,7 +102,7 @@ export function productDescription(
   if (lang === "fa") {
     // a compound category («دستبند و النگو») takes no indefinite ی: «دستبند و النگویی» would read "bracelet and a bangle"
     const what = cat && !cat.includes(" و ") ? faIndefinite(cat) : "اثری";
-    const from = col ? `از مجموعه‌ی ${col} سلین` : "از سلین";
+    const from = !col ? "از سلین" : col === "سلین" ? "از مجموعه‌ی سلین" : `از مجموعه‌ی ${col} سلین`;
     lead = `${name}، ${what} ${from}${parts.length ? `؛ ${parts.join("، ")}` : ""}.`;
   } else {
     const material = parts.map((x, i) => (i === 0 ? x : x.replace(/\b(?!Firouzeh\b)[A-Z][a-z]+/g, (w) => w.toLowerCase())));

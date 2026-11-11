@@ -48,8 +48,8 @@ const MSG = {
   emailTaken: { fa: "این ایمیل برای حساب دیگری ثبت شده است.", en: "This e-mail is already used by another account." },
   // the same answer for an unknown number, a wrong password and an account without a password (no hint that it exists)
   wrong: {
-    fa: "شماره (یا ایمیل) یا رمز عبور درست نیست. اگر حساب شما را فروشگاه ساخته و رمزی ندارید، با کد Pro وارد شوید.",
-    en: "The number (or e-mail) or password is not correct. If the store created your account and you have no password, sign in with your Pro code.",
+    fa: "شماره (یا ایمیل) یا رمز عبور درست نیست. اگر حساب شما را فروشگاه ساخته و رمزی ندارید، با کد خود وارد شوید.",
+    en: "The number (or e-mail) or password is not correct. If the store created your account and you have no password, sign in with your code.",
   },
   disabled: { fa: "این حساب غیرفعال شده است؛ با فروشگاه تماس بگیرید.", en: "This account has been disabled — please contact the store." },
   signedOut: { fa: "نشست شما پایان یافته است؛ دوباره وارد شوید.", en: "Your session has ended — please sign in again." },
@@ -60,10 +60,12 @@ const MSG = {
   codeRevoked: { fa: "این کد دیگر فعال نیست؛ برای کد تازه با فروشگاه تماس بگیرید.", en: "This code is no longer active — contact the store for a new one." },
   codeExpired: { fa: "اعتبار این کد به پایان رسیده است؛ برای تمدید با فروشگاه تماس بگیرید.", en: "This code has expired — contact the store to renew it." },
   codeOther: { fa: "این کد متعلق به حساب دیگری است. اگر حساب دیگری دارید، از این حساب خارج شوید و با کد وارد شوید.", en: "This code belongs to another account. Sign out first and sign in with the code." },
-  proOn: { fa: "اشتراک Pro فعال شد؛ قیمت‌ها و موجودی اکنون برای شما نمایش داده می‌شود.", en: "Pro is active — prices and stock are now shown to you." },
-  alreadyPro: { fa: "اشتراک Pro شما فعال است.", en: "Your Pro membership is already active." },
-  pending: { fa: "درخواست قبلی شما در حال بررسی است.", en: "Your earlier request is still being reviewed." },
-  requested: { fa: "درخواست شما ثبت شد. پس از بررسی، کد اشتراک برایتان ارسال می‌شود.", en: "Your request has been received. Once it is reviewed, your code will be sent to you." },
+  // a membership code or a Pro code: the words fit both
+  proOn: { fa: "کد پذیرفته شد؛ موجودی و قیمت‌ها اکنون برای شما نمایش داده می‌شود.", en: "Code accepted — stock and prices are now shown to you." },
+  alreadyPro: { fa: "عضویت شما فعال است.", en: "Your membership is already active." },
+  alreadyProAccount: { fa: "حساب شما Pro است و همه‌ی قیمت‌ها را با قیمت عمده می‌بینید.", en: "Your account is Pro — you already see every price at the wholesale price." },
+  pending: { fa: "درخواست عضویت قبلی شما در حال بررسی است.", en: "Your earlier membership request is still being reviewed." },
+  requested: { fa: "درخواست عضویت شما ثبت شد. پس از بررسی، کد عضویت برایتان ارسال می‌شود.", en: "Your membership request has been received. Once it is reviewed, your membership code will be sent to you." },
   business: { fa: "نام فروشگاه یا کسب‌وکار را بنویسید (اگر خرید شخصی است، «شخصی» بنویسید).", en: "Please enter your shop or business name (or “personal”)." },
   failed: { fa: "مشکلی پیش آمد؛ دوباره امتحان کنید.", en: "Something went wrong — please try again." },
 };
@@ -185,8 +187,8 @@ export async function signIn(input: Record<string, unknown>): Promise<Result<{ n
 }
 
 /**
- * Enters a Pro code. Signed in: unlocks Pro on this account (the code must be its own). Signed out: the code
- * also signs its account in — the way in for accounts the admin created without a password.
+ * Enters a membership or Pro code. Signed in: unlocks stock and prices on this account (the code must be its own).
+ * Signed out: the code also signs its account in — the way in for accounts the admin created without a password.
  */
 export async function enterCode(input: Record<string, unknown>): Promise<Result<{ next: string; signedIn: boolean }>> {
   const lang = langOf(input.lang);
@@ -285,7 +287,7 @@ export async function updateProfile(input: Record<string, unknown>): Promise<Res
 }
 
 /**
- * Sets a new password. Accounts without one (created by the admin, signed in with their Pro code) set it
+ * Sets a new password. Accounts without one (created by the admin, signed in with their code) set it
  * without the current password; such a password stays tied to the code: when the admin revokes or replaces
  * the code, it is removed again (members.ts), so a leaked code cannot be turned into a lasting password.
  */
@@ -330,7 +332,7 @@ export async function requestPro(input: Record<string, unknown>): Promise<Result
   const me = await signedIn(lang);
   if ("ok" in me) return me;
   const status = await proStatus(me.id);
-  if (status.active) return { ok: false, error: MSG.alreadyPro[lang] };
+  if (status.active) return { ok: false, error: (status.level === "pro" ? MSG.alreadyProAccount : MSG.alreadyPro)[lang] };
   const c = db()!;
   const { data: open } = await c.from(REQUESTS).select("id").eq("user_id", me.id).eq("status", "pending").limit(1).maybeSingle();
   if (open) return { ok: false, error: MSG.pending[lang] };
@@ -355,7 +357,7 @@ export async function requestPro(input: Record<string, unknown>): Promise<Result
   if (!me.business || !me.city) await c.from(USERS).update({ business: me.business || business, city: me.city || row.city }).eq("id", me.id);
   after(async () => {
     const s = await getSettings();
-    if (s.notify.onRequest) await notifyTeam(`درخواست تازه‌ی اشتراک Pro\n${me.name} — ${me.phone}\n${business}${row.city ? ` (${row.city})` : ""}${row.instagram ? `\nاینستاگرام: ${row.instagram}` : ""}${row.note ? `\n${row.note}` : ""}`, s.notify);
+    if (s.notify.onRequest) await notifyTeam(`درخواست تازه‌ی عضویت\n${me.name} — ${me.phone}\n${business}${row.city ? ` (${row.city})` : ""}${row.instagram ? `\nاینستاگرام: ${row.instagram}` : ""}${row.note ? `\n${row.note}` : ""}`, s.notify);
   });
   return { ok: true, message: MSG.requested[lang] };
 }

@@ -8,7 +8,7 @@ import { env } from "@/lib/env";
 import { formatDate, formatPhone, formatPrice, num } from "@/lib/format";
 import { Badge, Card, DbMissing, PageHeader } from "@/components/admin/ui";
 import { ProCodeProvider } from "@/components/admin/pro-code-dialog";
-import { ExtendCodeButton, IssueCodeButton, RevealCodeButton, RevokeCodeButton } from "@/components/admin/pro-actions";
+import { ExtendCodeButton, IssueCodeButton, RevealCodeButton, RevokeCodeButton, SetProButton } from "@/components/admin/pro-actions";
 import { DangerCard, ProfileForm, SecurityCard } from "@/components/admin/users-detail";
 import { OrdersList } from "@/components/admin/orders-list";
 import { ProBadge, Row, whatsappUrl } from "@/components/admin/sales-ui";
@@ -41,7 +41,7 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
         sub={
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span className="ltr">{formatPhone(m.phone, "fa")}</span>
-            <span>عضویت {formatDate(m.created_at, "fa")}</span>
+            <span>ثبت‌نام {formatDate(m.created_at, "fa")}</span>
             {m.last_sign_in_at && <span>آخرین ورود {formatDate(m.last_sign_in_at, "fa", true)}</span>}
           </span>
         }
@@ -50,12 +50,12 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
             {m.role === "admin" && <Badge tone="ink">مدیر</Badge>}
             {m.disabled && <Badge tone="danger">غیرفعال</Badge>}
             {m.created_by_admin && <Badge>ساخته‌شده در پنل</Badge>}
-            <ProBadge state={m.pro.state} />
+            {m.level === "pro" ? <Badge tone="gold">Pro</Badge> : <ProBadge state={m.pro.state} />}
           </div>
         }
       />
 
-      {/* phone: Pro and contact first, then the profile, orders and security */}
+      {/* phone: price level, membership and contact first, then the profile, orders and security */}
       <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="contents min-w-0 lg:block lg:space-y-6">
           <div className="order-3 lg:order-none">
@@ -63,14 +63,33 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
           </div>
           <div className="order-4 lg:order-none">
             <Card title="سفارش‌ها" sub={m.orders ? `${num(m.orders, "fa")} سفارش · جمع خرید ${formatPrice(m.spent, "fa")}` : undefined} padded={!orders.length}>
-              {orders.length ? <OrdersList orders={orders} variant="member" bare /> : <p className="text-sm text-muted">این عضو هنوز سفارشی ثبت نکرده است.</p>}
+              {orders.length ? <OrdersList orders={orders} variant="member" bare /> : <p className="text-sm text-muted">این حساب هنوز سفارشی ثبت نکرده است.</p>}
             </Card>
           </div>
         </div>
 
         <div className="contents min-w-0 lg:block lg:space-y-6">
           <div className="order-1 lg:order-none">
-            <Card title="اشتراک Pro">
+            <Card title="سطح قیمت">
+              <div className="flex items-center justify-between gap-3">
+                {m.level === "pro" ? <Badge tone="gold">Pro — قیمت عمده</Badge> : m.level === "member" ? <Badge tone="success">عضو — قیمت اعضا</Badge> : <Badge>بدون قیمت</Badge>}
+              </div>
+              <div className="mt-3 divide-y divide-line border-t border-line">
+                {m.pro_at && <Row label="Pro از">{`${formatDate(m.pro_at, "fa")}${m.pro_by === "admin" ? " · دستی" : " · با خرید"}`}</Row>}
+                <Row label={`خرید ${num(settings.pro.proDays, "fa")} روز گذشته`}>
+                  {formatPrice(m.recent, "fa")}
+                  {m.level !== "pro" && settings.pro.proThreshold > 0 && <span className="text-muted"> از {formatPrice(settings.pro.proThreshold, "fa")}</span>}
+                </Row>
+              </div>
+              <p className="mt-3 text-xs leading-5 text-muted">مبلغ کالاهای سفارش‌های تأییدشده (در حال آماده‌سازی، آماده‌ی ارسال یا ارسال‌شده؛ بدون هزینه‌ی ارسال) حساب می‌شود؛ با رسیدن به این مبلغ، حساب خودبه‌خود Pro می‌شود و کد Pro می‌گیرد. پس از «برداشتن Pro»، شمارش از نو شروع می‌شود.</p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <SetProButton userId={m.id} on={m.level !== "pro"} />
+              </div>
+            </Card>
+          </div>
+
+          <div className="order-1 lg:order-none">
+            <Card title="عضویت">
               <div className="flex items-center justify-between gap-3">
                 <ProBadge state={m.pro.state} />
                 {m.pro.hint && (
@@ -85,7 +104,7 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
               </div>
               {m.pending_request && (
                 <Link href="/admin/pro" className="mt-3 flex items-center justify-between gap-3 border border-warning/30 bg-warning-soft px-3 py-2.5 text-xs text-warning">
-                  درخواست Pro در انتظار بررسی است
+                  درخواست عضویت در انتظار بررسی است
                   <Icon name="chevron" className="size-3.5 rotate-180" />
                 </Link>
               )}
@@ -100,7 +119,7 @@ export default async function UserPage({ params }: { params: Promise<{ id: strin
                   defaultDays={defaultDays}
                   replaces={Boolean(open)}
                   variant={open ? "secondary" : "gold"}
-                  label={open ? "کد تازه" : "صدور کد Pro"}
+                  label={open ? "کد تازه" : "صدور کد عضویت"}
                 />
               </div>
             </Card>

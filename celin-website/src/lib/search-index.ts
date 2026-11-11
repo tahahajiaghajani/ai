@@ -4,9 +4,9 @@ import { common } from "@/content/copy/common";
 import type { SearchItem } from "@/lib/search";
 
 const PAGES: SearchItem[] = [
-  { kind: "page", slug: "care", path: "/care", name_fa: "نگهداری و ضمانت", name_en: "Care & warranty", sub_fa: "راهنمای نگهداری از آبکاری و نگین‌ها", sub_en: "Caring for the plating and stones", terms: "ضمانت گارانتی نگهداری تمیز کردن آب عطر care warranty clean guarantee" },
-  { kind: "page", slug: "craft", path: "/craft", name_fa: "هنر ساخت", name_en: "The craft", sub_fa: "تراش اتمی، مخراج‌کاری دقیق و آبکاری رودیوم و طلا", sub_en: "Atomic cut, precise setting, rhodium and gold plating", terms: "هنر ساخت تراش اتمی مخراج کاری رودیوم رادیوم آبکاری طلا نگین craft cut setting rhodium gold plating stone" },
-  { kind: "page", slug: "pro", path: "/pro", name_fa: "اشتراک Pro", name_en: "Pro membership", sub_fa: "قیمت، موجودی و سفارش برای همکاران", sub_en: "Prices, stock and ordering for partners", terms: "پرو pro همکار عمده قیمت موجودی سفارش wholesale price stock order" },
+  { kind: "page", slug: "care", path: "/care", name_fa: "نگهداری", name_en: "Care", sub_fa: "راهنمای نگهداری از آبکاری و نگین‌ها", sub_en: "Caring for the plating and stones", terms: "نگهداری مراقبت تمیز کردن آب عطر خدمات پس از فروش ارسال بسته‌بندی care clean after-sales delivery packaging" },
+  { kind: "page", slug: "craft", path: "/craft", name_fa: "هنر ساخت", name_en: "The craft", sub_fa: "تراش مشابه برلیان، مخراج‌کاری دقیق و آبکاری رودیوم، طلا و شامپاین گلد", sub_en: "Diamond-like cut, precise setting, rhodium, gold and champagne-gold plating", terms: "هنر ساخت تراش برلیان اتمی مخراج کاری رودیوم رادیوم آبکاری طلا شامپاین گلد نگین craft cut setting rhodium gold champagne plating stone" },
+  { kind: "page", slug: "pro", path: "/pro", name_fa: "عضویت و Pro", name_en: "Membership & Pro", sub_fa: "موجودی، قیمت و سفارش برای اعضا", sub_en: "Stock, prices and ordering for members", terms: "عضویت عضو اعضا کد پرو pro همکار عمده قیمت موجودی سفارش membership member code wholesale price stock order" },
   { kind: "page", slug: "contact", path: "/contact", name_fa: "تماس با سلین", name_en: "Contact CELIN", sub_fa: "تلفن، واتس‌اپ، نشانی", sub_en: "Phone, WhatsApp, address", terms: "تماس تلفن واتساپ آدرس ارسال پست contact phone whatsapp address shipping delivery" },
   { kind: "page", slug: "maison", path: "/maison", name_fa: "داستان سلین", name_en: "Our story", sub_fa: "گالری اعتماد، از ۱۳۸۵", sub_en: "Etemad Gallery, since 2006", terms: "درباره داستان گالری اعتماد about story etemad gallery" },
 ];

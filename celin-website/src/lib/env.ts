@@ -34,7 +34,7 @@ export const env = {
   get trustedProxySecret() {
     return (process.env.TRUSTED_PROXY_SECRET || "").trim();
   },
-  /** signs sessions, hashes Pro codes and encrypts stored secrets; falls back to the service-role key */
+  /** signs sessions, hashes membership and Pro codes and encrypts stored secrets; falls back to the service-role key */
   get appSecret() {
     return process.env.APP_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
   },

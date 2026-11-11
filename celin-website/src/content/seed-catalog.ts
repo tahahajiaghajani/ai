@@ -1,6 +1,7 @@
 import "server-only";
 import type { Badge, Metal, Spec, Stone } from "@/lib/catalog-types";
 import { SEED_MEDIA, type SeedKey } from "@/content/seed-media";
+import { story } from "@/content/copy/story";
 
 /**
  * The starter catalogue, built from the brand's own photos. The site shows it until the catalogue lives in the
@@ -26,7 +27,8 @@ export interface SeedCollection {
   tagline_en: string;
   story_fa: string;
   story_en: string;
-  image: SeedKey;
+  /** none: the collection shows without a picture (Mira, «به زودی») */
+  image?: SeedKey;
 }
 
 export interface SeedVariant {
@@ -70,95 +72,36 @@ export const SEED_CATEGORIES: SeedCategory[] = [
   { slug: "sets", name_fa: "ست", name_en: "Sets", description_fa: "ست‌های هماهنگ برای شب‌هایی که می‌مانند.", description_en: "Matching sets for the evenings that stay with you.", image: "set-cascade" },
 ];
 
+// The owner's two collections (fifth round of notes): CELIN holds every piece; Mira is announced «به زودی»,
+// without a picture, until its pieces arrive.
 export const SEED_COLLECTIONS: SeedCollection[] = [
   {
-    slug: "yas",
-    name_fa: "یاس",
-    name_en: "Yas",
-    tagline_fa: "نورِ سفید، از نزدیک",
-    tagline_en: "White light, up close",
-    story_fa: "یاس، گلی سفید که بویش پیش از خودش می‌رسد. ردیف‌های پیوسته‌ی نگین‌های سفید با تراش اتمی، که هر کدام جدا نشانده شده‌اند تا از هر زاویه نور را برگردانند؛ گاهی در مرکز به یک گل می‌رسند.",
-    story_en: "Yas is jasmine, the white flower you notice before you see it. Unbroken rows of white atomic-cut stones, each set on its own to return the light from every angle — sometimes meeting in a single flower.",
+    slug: "celin",
+    name_fa: "سلین",
+    name_en: "CELIN",
+    tagline_fa: story.fa.mottoShort,
+    tagline_en: story.en.mottoShort,
+    story_fa: story.fa.forWhom,
+    story_en: story.en.forWhom,
     image: "choker-rose",
   },
   {
-    slug: "firouzeh",
-    name_fa: "فیروزه",
-    name_en: "Firouzeh",
-    tagline_fa: "آبیِ فیروزه‌ای، در قابی از نور",
-    tagline_en: "Firouzeh blue, framed in light",
-    story_fa: "رنگی که ایرانی‌ها قرن‌ها با آن آسمان و کاشی را نوشته‌اند. نگین‌های آبی فیروزه‌ای در هاله‌ای از نگین‌های سفید و گلبرگ‌های مارکیز؛ روشن در نور روز، عمیق در شب.",
-    story_en: "The color Persians have used for centuries to write the sky and the tile. Firouzeh-blue center stones in halos of white and marquise petals — bright by day, deep at night.",
-    image: "ring-paraiba-cushion",
+    slug: "mira",
+    name_fa: "میرا",
+    name_en: "Mira",
+    tagline_fa: "",
+    tagline_en: "",
+    story_fa: "",
+    story_en: "",
   },
-  {
-    slug: "aftab",
-    name_fa: "آفتاب",
-    name_en: "Aftab",
-    tagline_fa: "پرتوهایی که از یک نقطه باز می‌شوند",
-    tagline_en: "Rays opening from a single point",
-    story_fa: "آفتاب یعنی نورِ خورشید. ده‌ها پرتو نگین‌کاری‌شده که از یک هلال باز می‌شوند؛ برای شب‌هایی که می‌خواهید دیده شوید.",
-    story_en: "Aftab is sunlight. Dozens of pavé rays opening from a single crescent — for the nights you mean to be seen.",
-    image: "earrings-sunburst",
-  },
-  {
-    slug: "golbarg",
-    name_fa: "گلبرگ",
-    name_en: "Golbarg",
-    tagline_fa: "مارکیزها، مثل گلبرگ باز می‌شوند",
-    tagline_en: "Marquise stones, opening like petals",
-    story_fa: "گلبرگ: نگین‌های مارکیز که مثل گلبرگ‌های یک گل روی انگشت باز می‌شوند، روی پرتوهای نگین‌کاری‌شده‌ی رزگلد.",
-    story_en: "Golbarg is a petal: marquise stones that open across the finger like the petals of a flower, on pavé rose-gold-tone rays.",
-    image: "ring-emerald-fan",
-  },
-  {
-    slug: "kashi",
-    name_fa: "کاشی",
-    name_en: "Kashi",
-    tagline_fa: "هندسه‌ی کاشی، به زبان نگین",
-    tagline_en: "The geometry of Persian tile, in stones",
-    story_fa: "کاشی یعنی هندسه‌ای که ایران را با آن می‌شناسند. قاب‌های مربع و ردیف‌های منظم نگین، با آبکاری طلایی؛ دقتی که می‌شود پوشید.",
-    story_en: "Kashi is the tilework Iran is known for. Square frames and ordered rows of stones in a gold-tone finish — precision you can wear.",
-    image: "ring-gold-pave-rows",
-  },
-  {
-    slug: "del",
-    name_fa: "دل",
-    name_en: "Del",
-    tagline_fa: "برای آنچه دل می‌گوید",
-    tagline_en: "For what the heart says",
-    story_fa: "قلب‌هایی در قاب‌های شیاردار طلایی و نقره‌ای؛ هدیه‌ای که هر روز به دست می‌شود، تنها یا دوتایی.",
-    story_en: "Hearts set in ribbed gold-tone and silver-tone frames — a gift worn every day, alone or as a pair.",
-    image: "rings-heart-signet",
-  },
-  {
-    slug: "negar",
-    name_fa: "نگار",
-    name_en: "Negar",
-    tagline_fa: "نقش، در خط‌های ظریف",
-    tagline_en: "Patterns in fine engraved lines",
-    story_fa: "نگار یعنی نقش و هم‌چنین محبوب. سطح‌های حکاکی‌شده‌ی خطی با یک نگین مارکیز رنگی، در دو رنگ طلایی و نقره‌ای؛ کنار هم بهتر دیده می‌شوند.",
-    story_en: "Negar means both an engraved image and the beloved. Finely lined, engraved surfaces with a single colored marquise, in gold and silver tones — better worn together.",
-    image: "bangles-sapphire",
-  },
-  {
-    slug: "gereh",
-    name_fa: "گره",
-    name_en: "Gereh",
-    tagline_fa: "گرهی از نور که می‌ماند",
-    tagline_en: "A knot of light that stays",
-    story_fa: "گره هم پاپیون است و هم نقش‌های هندسی گره‌چینی در هنر ایرانی. پاپیون‌های نگین‌کاری‌شده با آویزهای رنگی و مرواریدی؛ برای پیوندهایی که می‌مانند.",
-    story_en: "Gereh is both a bow and the interlaced geometry of Persian art. Pavé bows with colored and pearl-look drops — for the bonds that last.",
-    image: "set-bow-ruby",
-  },
-];
+]
 
 const RH: Spec = { label_fa: "پوشش", label_en: "Finish", value_fa: "نقره‌ای (آبکاری رودیوم)", value_en: "Silver-tone, rhodium plated" };
 const GT: Spec = { label_fa: "پوشش", label_en: "Finish", value_fa: "طلایی (آبکاری طلا)", value_en: "Gold-tone" };
 const RS: Spec = { label_fa: "پوشش", label_en: "Finish", value_fa: "رزگلد (آبکاری رزگلد)", value_en: "Rose-gold-tone" };
 const TT: Spec = { label_fa: "پوشش", label_en: "Finish", value_fa: "طلایی یا نقره‌ای (رودیوم)", value_en: "Gold-tone or silver-tone (rhodium plated)" };
 const stones = (fa: string, en: string): Spec => ({ label_fa: "نگین", label_en: "Stones", value_fa: fa, value_en: en });
-const WHITE = stones("سفید با تراش اتمی", "White, atomic cut");
+const WHITE = stones("سفید با تراش مشابه برلیان", "White, diamond-like cut");
 // the brand's own wording (story.ts): «مخراج‌کاری دقیق»; how the stones are set is not claimed beyond it
 const HAND: Spec = { label_fa: "نشاندن نگین", label_en: "Setting", value_fa: "مخراج‌کاری دقیق", value_en: "Precise stone setting" };
 const includes = (fa: string, en: string): Spec => ({ label_fa: "شامل", label_en: "Includes", value_fa: fa, value_en: en });
@@ -175,7 +118,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     description_fa: "ردیفی از نگین‌های سفید با تراش گرد که در مرکز به یک گل می‌رسد. سبک است و روی گردن آرام می‌نشیند؛ یقه‌ی ساده را خاص می‌کند.",
     description_en: "A line of round white stones that meets in a single flower. Light on the neck, it turns a plain neckline into an occasion.",
     category: "necklaces",
-    collection: "yas",
+    collection: "celin",
     metal: "silver",
     stone: "white",
     specs: [RH, WHITE, HAND],
@@ -196,7 +139,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     description_fa: "سه ردیف نگین با فاصله‌ای حساب‌شده که با یک قفل باگت به هم می‌رسند. شکوهی آرام، برای شب.",
     description_en: "Three rows of stones at measured intervals, joined by a baguette clasp. Quiet grandeur for the evening.",
     category: "necklaces",
-    collection: "yas",
+    collection: "celin",
     metal: "silver",
     stone: "white",
     specs: [RH, WHITE, HAND],
@@ -214,10 +157,10 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     name_en: "Yas tennis set",
     subtitle_fa: "تراش گرد · سفید · نقره‌ای (رودیوم)",
     subtitle_en: "Round cut, White, Rhodium plated",
-    description_fa: "گردنبند، دستبند و گوشواره‌ی آویز تنیسی از نگین‌های تراش اتمی؛ پایه‌ی هر جعبه‌ی جواهر.",
-    description_en: "The tennis necklace, bracelet and drop earrings in atomic-cut stones — the foundation of any jewelry box.",
+    description_fa: "گردنبند، دستبند و گوشواره‌ی آویز تنیسی از نگین‌هایی با تراش مشابه برلیان؛ پایه‌ی هر جعبه‌ی جواهر.",
+    description_en: "The tennis necklace, bracelet and drop earrings in stones with a diamond-like cut — the foundation of any jewelry box.",
     category: "sets",
-    collection: "yas",
+    collection: "celin",
     metal: "silver",
     stone: "white",
     specs: [RH, WHITE, includes("گردنبند، دستبند و یک جفت گوشواره", "Necklace, bracelet and a pair of earrings")],
@@ -238,7 +181,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     description_fa: "نگین‌های باگت که مثل قطره‌های باران از یک ردیف ظریف آویخته‌اند؛ گردنبند، دستبند و گوشواره‌ی هماهنگ.",
     description_en: "Baguette stones hanging from a fine row like falling rain — a matching necklace, bracelet and earrings.",
     category: "sets",
-    collection: "yas",
+    collection: "celin",
     metal: "silver",
     stone: "white",
     specs: [RH, stones("سفید، تراش باگت و گرد", "White, baguette and round cut"), includes("گردنبند، دستبند و یک جفت گوشواره", "Necklace, bracelet and a pair of earrings")],
@@ -259,7 +202,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     description_fa: "گردنبندی که در مرکز به آبشاری از ردیف‌های نگین می‌رسد، با دستبند و گوشواره‌ی بلند هم‌خانواده. چشمگیرترین ست سلین.",
     description_en: "A necklace that falls into a cascade of stone rows, with a matching bracelet and long earrings. The most striking CELIN set.",
     category: "sets",
-    collection: "yas",
+    collection: "celin",
     metal: "silver",
     stone: "white",
     specs: [RH, WHITE, includes("گردنبند، دستبند و یک جفت گوشواره", "Necklace, bracelet and a pair of earrings")],
@@ -281,7 +224,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     description_fa: "نگین کوشن آبی فیروزه‌ای در هاله‌ای از نگین‌های سفید. روی شانه‌های انگشتر، برگ‌های مارکیز نور را از هر سو به نگین می‌رسانند.",
     description_en: "A Firouzeh-blue cushion stone in a halo of white. Marquise leaves along the shoulders bring light to the center from every side.",
     category: "rings",
-    collection: "firouzeh",
+    collection: "celin",
     metal: "silver",
     stone: "blue",
     specs: [RH, stones("آبی فیروزه‌ای و سفید، تراش کوشن، گرد و مارکیز", "Firouzeh-blue and white; cushion, round and marquise cut"), HAND],
@@ -302,7 +245,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     description_fa: "نگین بیضی آبی که دو ردیف هاله و گلبرگ‌های مارکیز آن را مثل گلی باز در بر گرفته‌اند؛ انگشتری که از دور دیده می‌شود و از نزدیک بهتر.",
     description_en: "An oval blue stone held by a double halo and marquise petals like an open flower — seen from across the room, better up close.",
     category: "rings",
-    collection: "firouzeh",
+    collection: "celin",
     metal: "silver",
     stone: "blue",
     specs: [RH, stones("آبی فیروزه‌ای و سفید، تراش بیضی و مارکیز", "Firouzeh-blue and white; oval and marquise cut"), HAND],
@@ -323,7 +266,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     description_fa: "حلقه‌ای که دور انگشت می‌پیچد و نگین اشکی آبی را میان دو خط نگین‌کاری‌شده نگه می‌دارد؛ مدرن، سبک و روشن.",
     description_en: "A band that wraps the finger and holds a pear blue stone between two pavé lines — modern, light and bright.",
     category: "rings",
-    collection: "firouzeh",
+    collection: "celin",
     metal: "silver",
     stone: "blue",
     specs: [RH, stones("آبی فیروزه‌ای و سفید، تراش اشکی و گرد", "Firouzeh-blue and white; pear and round cut"), HAND],
@@ -345,7 +288,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     description_fa: "ده‌ها پرتو نگین‌کاری‌شده که از یک هلال باز می‌شوند. سبک‌تر از آن‌اند که به نظر می‌رسند.",
     description_en: "Dozens of pavé rays opening from a single crescent. Lighter than they look.",
     category: "earrings",
-    collection: "aftab",
+    collection: "celin",
     metal: "silver",
     stone: "white",
     specs: [RH, WHITE, HAND],
@@ -366,7 +309,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     description_fa: "پرتوهای نگین‌کاری‌شده‌ی رزگلد که مثل بادبزن روی انگشت باز می‌شوند و در انتهای هر کدام، یک نگین مارکیز سبز جنگلی.",
     description_en: "Pavé rose-gold-tone rays that open across the finger like a fan, each tipped with a forest-green marquise.",
     category: "rings",
-    collection: "golbarg",
+    collection: "celin",
     metal: "rose",
     stone: "green",
     specs: [RS, stones("سبز جنگلی و سفید، تراش مارکیز و گرد", "Forest-green and white; marquise and round cut"), HAND],
@@ -387,7 +330,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     description_fa: "آویزی مربع با قابی حکاکی‌شده و مرکزی نگین‌کاری‌شده، بر زنجیری ظریف. نشانی آرام برای هر روز.",
     description_en: "A square pendant with an engraved frame and a pavé center on a fine chain. A quiet signature for every day.",
     category: "necklaces",
-    collection: "kashi",
+    collection: "celin",
     metal: "gold",
     stone: "white",
     specs: [GT, WHITE, HAND],
@@ -408,7 +351,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     description_fa: "سه ردیف نگین درخشان میان پرتوهای شیاردار طلایی؛ انگشتری پهن که نور را منظم پخش می‌کند.",
     description_en: "Three rows of brilliant stones between ribbed gold-tone rays — a wide ring that spreads light in order.",
     category: "rings",
-    collection: "kashi",
+    collection: "celin",
     metal: "gold",
     stone: "white",
     specs: [GT, WHITE, HAND],
@@ -430,7 +373,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     description_fa: "قلبی کوچک با قاب نگین‌کاری‌شده بر سطح شیاردار یک انگشتر پهن؛ تنها یا دوتایی، طلایی و نقره‌ای کنار هم.",
     description_en: "A small heart outlined in pavé on the ribbed face of a wide band — alone or as a pair, gold-tone beside silver-tone.",
     category: "rings",
-    collection: "del",
+    collection: "celin",
     metal: "two-tone",
     stone: "white",
     specs: [TT, WHITE, HAND],
@@ -454,7 +397,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     description_fa: "سه برگ شیاردار که در مرکز به هم می‌رسند و هر کدام نگینی قلبی را در بر دارند.",
     description_en: "Three ribbed leaves meeting at the center, each holding a heart-cut stone.",
     category: "rings",
-    collection: "del",
+    collection: "celin",
     metal: "two-tone",
     stone: "white",
     specs: [TT, stones("سفید، تراش قلب و گرد", "White; heart and round cut"), HAND],
@@ -479,7 +422,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     description_fa: "النگویی با سطح حکاکی‌شده‌ی خطی و نگین‌های مارکیز رنگی. طلایی و نقره‌ای را کنار هم ببندید؛ همان‌طور که ما دوست داریم.",
     description_en: "A bangle with a finely lined, engraved surface and colored marquise stones. Wear the gold-tone and the silver-tone together, as we like to.",
     category: "bracelets",
-    collection: "negar",
+    collection: "celin",
     metal: "two-tone",
     stone: "mixed",
     specs: [TT, stones("رنگی و سفید، تراش مارکیز و گرد", "Colored and white; marquise and round cut"), HAND],
@@ -508,7 +451,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     description_fa: "پاپیونی از خطوط نگین‌کاری‌شده که یک آویز اشکی مرواریدی از آن آویخته است؛ کلاسیک و ماندگار.",
     description_en: "A bow drawn in pavé lines with a pearl-look drop beneath — classic and lasting.",
     category: "earrings",
-    collection: "gereh",
+    collection: "celin",
     metal: "silver",
     stone: "pearl",
     specs: [RH, stones("سفید با تراش گرد و آویز مرواریدی", "White, round cut, with a pearl-look drop"), HAND],
@@ -529,7 +472,7 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     description_fa: "گوشواره‌های پاپیونی با آویز رنگی و انگشتر مربع هم‌خانواده؛ در دو رنگ سرمه‌ای و قرمز اناری.",
     description_en: "Bow earrings with a colored drop and a matching square ring, in night blue or pomegranate red.",
     category: "sets",
-    collection: "gereh",
+    collection: "celin",
     metal: "silver",
     stone: "navy",
     specs: [RH, stones("رنگی و سفید، تراش اشکی، مستطیلی و گرد", "Colored and white; pear, emerald and round cut"), includes("یک جفت گوشواره و یک انگشتر", "A pair of earrings and a ring")],

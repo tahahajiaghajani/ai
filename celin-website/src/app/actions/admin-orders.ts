@@ -5,8 +5,9 @@ import { after } from "next/server";
 import { guard } from "@/lib/admin-action";
 import { requireDb, UserError } from "@/lib/db";
 import { formatPrice } from "@/lib/format";
+import { checkPro, proStillEarned } from "@/lib/members";
 import { postMessage } from "@/lib/messages";
-import { canMove, isOrderStatus, STATUS_LABEL } from "@/lib/order-meta";
+import { ACCEPTED_STATUSES, canMove, isOrderStatus, STATUS_LABEL } from "@/lib/order-meta";
 import { getOrder, setOrderStatus } from "@/lib/orders";
 import { getSettings } from "@/lib/settings";
 import { sendSms } from "@/lib/sms";
@@ -38,6 +39,10 @@ export async function adminSetOrderStatus(input: Record<string, unknown>): Promi
     revalidatePath("/admin/orders");
     // nothing changed (e.g. the member cancelled it a moment earlier): nobody is told about a change
     if (!r.changed) return { ok: true, message: `وضعیت از قبل «${STATUS_LABEL[status].fa}» بود.` };
+    // an accepted order counts towards Pro (src/lib/pricing.ts): the account may have just reached the threshold
+    const pro = order.user_id && ACCEPTED_STATUSES.includes(status) ? await checkPro(order.user_id) : null;
+    // an accepted order of an automatically Pro account is cancelled: Pro stays, but the admin is told if it no longer adds up
+    const lapsed = status === "cancelled" && order.user_id && ACCEPTED_STATUSES.includes(order.status) ? !(await proStillEarned(order.user_id)) : false;
     if (order.user_id) {
       const uid = order.user_id;
       after(async () => {
@@ -58,7 +63,14 @@ export async function adminSetOrderStatus(input: Record<string, unknown>): Promi
         }
       });
     }
-    return { ok: true, message: `وضعیت: ${STATUS_LABEL[status].fa}` };
+    const proNote = pro?.promoted
+      ? " · حساب این مشتری با این خرید Pro شد و کد Pro برایش فرستاده شد."
+      : pro?.error
+        ? ` · ${pro.error}`
+        : lapsed
+          ? " · این حساب با خریدهایش خودکار Pro شده بود و بدون این سفارش دیگر به حد Pro نمی‌رسد؛ در صورت نیاز از صفحه‌ی کاربر «برداشتن Pro» را بزنید."
+          : "";
+    return { ok: true, message: `وضعیت: ${STATUS_LABEL[status].fa}${proNote}` };
   });
 }
 
@@ -94,6 +106,9 @@ export async function adminUpdateOrder(input: Record<string, unknown>): Promise<
         }),
       );
     }
-    return { ok: true, message: "ذخیره شد.", total: formatPrice(total, "fa") };
+    // a larger amount on an accepted order may take the account over the Pro threshold
+    // a smaller discount raises the goods of an accepted order (shipping never counts towards Pro)
+    const pro = discount < order.discount && order.user_id && ACCEPTED_STATUSES.includes(order.status) ? await checkPro(order.user_id) : null;
+    return { ok: true, message: pro?.promoted ? "ذخیره شد · حساب این مشتری Pro شد و کد Pro برایش فرستاده شد." : pro?.error ? `ذخیره شد · ${pro.error}` : "ذخیره شد.", total: formatPrice(total, "fa") };
   });
 }
