@@ -1,6 +1,7 @@
 // Server configuration and the per-request context handed to services.
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { Db, Tx } from "./db";
+import { retryTransient } from "./db";
 import type { Area, Level, Role } from "@shared/permissions";
 import { can as canDo, AREAS, LEVEL_ORDER } from "@shared/permissions";
 import type { ModuleKey } from "@shared/constants";
@@ -197,6 +198,13 @@ export interface WriteOptions {
    * `internal` bookkeeping, off otherwise. Without serialisation it changes nothing.
    */
   late?: boolean;
+  /**
+   * Run the transaction again (up to three times in all) when the database aborts it for a deadlock or a serialization
+   * failure (40P01/40001, `retryTransient`): only for work whose every effect is inside the transaction (record
+   * writes, recounts) — never for work that calls out or collects results in memory. Without it the error reaches
+   * the caller (an HTTP request answers 503 «سیستم مشغول است؛ دوباره امتحان کنید»).
+   */
+  retry?: boolean;
 }
 
 export interface Ctx {
@@ -392,7 +400,7 @@ export function makeCtx(cfg: ServerConfig, user: AuthUser, org: OrgRow, member: 
     write: async (fn, wopts) => {
       if (outsider && !support) throw forbidden(NOT_MEMBER_MESSAGE);
       if (support?.level === "view" && !wopts?.internal) throw forbidden(SUPPORT_VIEW_ONLY_MESSAGE);
-      const result = await admitWrite(org.id, () => cfg.db.tx(async (tx) => {
+      const result = await admitWrite(org.id, () => retryTransient(() => cfg.db.tx(async (tx) => {
         // organisation-wide serialisation only when switched on (bookkeeping then takes it only if it writes synced rows)
         if (serialiseWrites && !(wopts?.late ?? wopts?.internal)) await lockOrg(tx, org.id);
         if (!wopts?.internal) await assertWritable(tx, org.id);
@@ -407,7 +415,7 @@ export function makeCtx(cfg: ServerConfig, user: AuthUser, org: OrgRow, member: 
         const out = await fn(tx);
         if (support && !wopts?.internal) await recordSupportWrite(tx, cfg, org.id, user.id, support.id, opts.request ?? null);
         return out;
-      }), wopts);
+      }), wopts?.retry ? 3 : 1), wopts);
       cfg.desktop?.notifyLocalWrite();
       if (cfg.mode !== "cloud") bumpLocal(org.id);
       return result;

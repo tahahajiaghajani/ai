@@ -6,6 +6,7 @@ import { DEFAULT_TIMEZONE } from "@shared/constants";
 import type { AuthUser, Ctx, MemberRow, OrgRow, ServerConfig } from "../context";
 import { admitWrite, lockOrg, writesSerialised } from "../context";
 import type { Tx } from "../db";
+import { retryTransient } from "../db";
 import { access } from "../access/provider";
 import { assertWritable } from "../modules/platform/org-admin";
 import { notFound } from "../http/errors";
@@ -84,12 +85,12 @@ export async function systemCtx(cfg: Pick<ServerConfig, "db"> & Partial<ServerCo
     status: null,
     can: () => true,
     need: () => undefined,
-    write: async <T,>(fn: (tx: Tx) => Promise<T>, wopts?: { internal?: boolean; late?: boolean }) => {
-      const out = await admitWrite(orgId, () => cfg.db.tx(async (tx) => {
+    write: async <T,>(fn: (tx: Tx) => Promise<T>, wopts?: { internal?: boolean; late?: boolean; retry?: boolean }) => {
+      const out = await admitWrite(orgId, () => retryTransient(() => cfg.db.tx(async (tx) => {
         if (writesSerialised() && !(wopts?.late ?? wopts?.internal)) await lockOrg(tx, orgId);
         if (!wopts?.internal) await assertWritable(tx, orgId);
         return fn(tx);
-      }), wopts);
+      }), wopts?.retry ? 3 : 1), wopts);
       if (full.mode !== "cloud") bumpLocal(orgId);
       full.desktop?.notifyLocalWrite();
       return out;

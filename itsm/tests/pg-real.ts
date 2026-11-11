@@ -5,6 +5,7 @@
 //   (default 55434), stopped and deleted afterwards. As root the server runs as ITSM_PG_RUNAS (default nobody).
 // Neither set: the suite is skipped.
 import { execFileSync } from "node:child_process";
+import { createServer } from "node:net";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -16,6 +17,31 @@ export interface RealPg {
 }
 
 export const realPgAvailable = (): boolean => !!(process.env.ITSM_PG_URL || process.env.ITSM_PG_BIN);
+
+/** A TCP port nobody listens on now (several real-PostgreSQL suites may run side by side). */
+async function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = createServer();
+    srv.once("error", reject);
+    srv.listen(0, "127.0.0.1", () => {
+      const port = (srv.address() as { port: number }).port;
+      srv.close(() => resolve(port));
+    });
+  });
+}
+
+/** A further database on the same server (a test's own organisation world), dropped with the server. */
+export async function extraDatabase(pg: RealPg, name: string): Promise<string> {
+  const admin = postgres(pg.url, { max: 1, onnotice: () => {} });
+  try {
+    await admin.unsafe(`create database ${name}`);
+  } finally {
+    await admin.end({ timeout: 5 });
+  }
+  const u = new URL(pg.url);
+  u.pathname = `/${name}`;
+  return u.toString();
+}
 
 export async function realPg(name: string): Promise<RealPg> {
   const tag = `${name}_${randomBytes(3).toString("hex")}`;
@@ -53,7 +79,7 @@ export async function realPg(name: string): Promise<RealPg> {
   if (runAs) execFileSync("chown", ["-R", runAs, dir]);
   const data = join(dir, "data");
   exec("initdb", ["-D", data, "-U", "postgres", "--auth=trust", "-E", "UTF8", "--no-locale"]);
-  const port = Number(process.env.ITSM_PG_TEST_PORT ?? 55434);
+  const port = process.env.ITSM_PG_TEST_PORT ? Number(process.env.ITSM_PG_TEST_PORT) : await freePort();
   const opts = `-p ${port} -c listen_addresses=127.0.0.1 -c unix_socket_directories=${dir} -c max_connections=80 -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c shared_buffers=64MB -c deadlock_timeout=200ms`;
   exec("pg_ctl", ["-D", data, "-o", opts, "-l", join(dir, "server.log"), "-w", "-t", "60", "start"]);
   return {

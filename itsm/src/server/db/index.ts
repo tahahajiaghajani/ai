@@ -67,6 +67,46 @@ export async function runBeforeCommit(tx: Tx): Promise<void> {
   }
 }
 
+/**
+ * Lock `key` (a narrow, decided value: `request.cart:<user>`, `devops.gate_chain:<org>`…) until the end of the
+ * transaction — a transaction-level advisory lock on the key's hash. Two transactions deciding a write from rows that
+ * do not exist yet (create-if-absent, a chain's next link) take turns on it, and the second one's statements see what
+ * the first committed. Keys of before-commit work (`onBeforeCommit`) are in their own namespace; a key without the
+ * organisation's id is shared by every organisation, so keys name it or a record id.
+ */
+export async function lockKey(tx: Queryable, key: string): Promise<void> {
+  await tx.query(`select pg_advisory_xact_lock(hashtextextended($1, 0))`, [`itsm.key:${key}`]);
+}
+
+// ----- deadlocks and serialization failures -----------------------------------------------------------------------
+
+/**
+ * A deadlock (40P01) or a serialization failure (40001): the database rolled the transaction back to let another one
+ * finish. Nothing of it was kept, so running the same work again may succeed (writes of one organisation run side by
+ * side and lock rows in the order their work needs them). An HTTP request that meets one answers 503 «سیستم مشغول
+ * است؛ دوباره امتحان کنید» (http/errors.ts), never a 500.
+ */
+export function isTransientDbError(e: unknown): boolean {
+  const code = !!e && typeof e === "object" ? (e as { code?: unknown }).code : undefined;
+  return code === "40P01" || code === "40001";
+}
+
+/**
+ * Run `attempt` again (at most `tries` times in all, after a short random pause) while the database aborts it for a
+ * deadlock or a serialization failure. Only for work whose every effect is inside the transaction it opens (a retry
+ * must not repeat something done outside the database or in memory).
+ */
+export async function retryTransient<T>(attempt: () => Promise<T>, tries = 3): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await attempt();
+    } catch (e) {
+      if (!isTransientDbError(e) || i >= tries) throw e;
+      await new Promise((r) => setTimeout(r, 20 + Math.floor(Math.random() * 80) * i));
+    }
+  }
+}
+
 /** Values are sent as text; the server decides their types from the statement. */
 export function serializeParam(v: unknown): unknown {
   if (v === undefined) return null;
