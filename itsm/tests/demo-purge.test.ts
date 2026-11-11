@@ -411,6 +411,8 @@ describe.skipIf(skip)(title, () => {
     // (ids of rows that exist now: the organisation's own work left in place has its own record events)
     const known = new Set([...before.values(), ...after.values()].flatMap((m) => [...m.keys()]));
     const strays = newJobs.filter((j) => !jobsBefore.has(j.id)).filter((j) => (JSON.stringify(j.payload).match(uuid) ?? []).some((id) => !known.has(id) && id !== e.org && id !== e.ownerId));
+    // what they are about, for the one who fixes it (a computed record made while the purge ran: tests/demo-computed.test.ts)
+    for (const j of strays.slice(0, 5)) log(`stray job ${j.kind}: ${JSON.stringify(j.payload).slice(0, 300)}`);
     expect(strays.map((j) => j.kind)).toEqual([]);
     expect(newJobs.filter((j) => j.kind === "demo.load").length).toBe(0);
     // nothing names the pack any more
