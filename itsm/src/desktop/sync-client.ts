@@ -68,8 +68,11 @@ export async function resetSyncCursor(q: Pick<Db, "query">): Promise<void> {
 /**
  * The end of a pull session from nothing: engine rows of the organisation it did not bring — and that wait for no
  * upload — leave this computer (with the attachment contents nothing refers to any more): tombstones the server removed
- * for good, what a restore of the server took back, anything the session's tombstones did not name. The platform's own roots (organisation, members) are always sent whole and only ever soft-deleted,
- * and a membership kept here for an account the web version does not know stays. Returns how many went.
+ * for good, what a restore of the server took back, anything the session's tombstones did not name. The platform's own
+ * roots (organisation, members) are always sent whole and only ever soft-deleted, and a membership kept here for an
+ * account the web version does not know stays — except a membership of the demo pack's people (an account the server
+ * marked with this organisation's pack), which the demo purge removes for good: when the session did not bring it, it
+ * leaves too, so that nobody of the pack keeps a place in the organisation here (docs/DEMO_FA.md). Returns how many went.
  */
 async function sweepUnseen(tx: Pick<Db, "query">, orgId: string): Promise<number> {
   let n = 0;
@@ -96,6 +99,18 @@ async function sweepUnseen(tx: Pick<Db, "query">, orgId: string): Promise<number
     );
     n += gone.length;
   }
+  // the demo pack's people: the purge deletes their memberships for good while this app is away (or removes their
+  // tombstones before it pulled them) and raises the purge watermark, which brought this session; their accounts stay
+  // here like every account this app received, and never sign in here (no demo pack on a Windows app)
+  const personas = await tx.query(
+    `delete from sm_org_members m where m.org_id = $1
+       and not exists (select 1 from sm_sync_seen s where s.entity = 'member' and s.id = m.id)
+       and not exists (select 1 from sm_outbox o where o.entity = 'member' and o.id = m.id)
+       and exists (select 1 from sm_users u where u.id = m.user_id and u.prefs ->> 'demo_org' = $1::text)
+     returning m.id`,
+    [orgId],
+  );
+  n += personas.length;
   await tx.query(`delete from sm_sync_seen`);
   if (n) await tx.query(`delete from sm_blobs b where b.org_id = $1 and not exists (select 1 from sm_attachments a where a.org_id = b.org_id and a.sha256 = b.sha256)`, [orgId]);
   return n;

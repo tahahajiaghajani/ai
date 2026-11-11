@@ -56,6 +56,25 @@ describe("demo purge and Windows apps", () => {
     );
   }
 
+  /** One of the pack's people (as the loader adds them): an account marked with the pack, and its membership. */
+  async function newPersona(): Promise<string> {
+    const id = uuidv7();
+    await inDemoScope(org, () =>
+      cloudDb.tx(async (tx) => {
+        await tx.query(`insert into sm_users (id, email, full_name, prefs) values ($1, $2, 'کارمند نمایشی', $3::jsonb)`, [id, `persona.${id.slice(-8)}@aftab-bank.example`, JSON.stringify({ demo_org: org })]);
+        await tx.query(`insert into sm_demo_rows (org_id, row_id, tbl) values ($1, $2, 'sm_users') on conflict do nothing`, [org, id]);
+        await tx.query(`insert into sm_org_members (id, org_id, user_id, role) values ($1, $2, $3, 'member')`, [uuidv7(), org, id]);
+      }),
+    );
+    return id;
+  }
+
+  /** A persona's membership as the Windows app holds it: live, an empty deleted marker, or none at all. */
+  const membershipOnApp = async (user: string) => {
+    const m = await deskDb.one<{ deleted_at: string | null }>(`select deleted_at from sm_org_members where org_id = $1 and user_id = $2`, [org, user]);
+    return !m ? "none" : m.deleted_at ? "deleted" : "live";
+  };
+
   /** A pack as the load leaves it; `computed`: the computed tables were saved (the knowledge gaps among them). */
   async function newPack(opts: { computed?: boolean } = {}): Promise<void> {
     await cloudDb.query(`insert into sm_demo_packs (org_id, state, size, progress, counters) values ($1, 'loaded', 'small', '{}'::jsonb, '{}'::jsonb)`, [org]);
@@ -115,14 +134,7 @@ describe("demo purge and Windows apps", () => {
     await newPack();
     demoTodo = await demoRecord("کار نمایشی بانک آفتاب");
     // one of the pack's people (as the loader adds them): an account marked with the pack, and its membership
-    persona = uuidv7();
-    await inDemoScope(org, () =>
-      cloudDb.tx(async (tx) => {
-        await tx.query(`insert into sm_users (id, email, full_name, prefs) values ($1, $2, 'کارمند نمایشی', $3::jsonb)`, [persona, `persona.${persona.slice(-6)}@aftab-bank.example`, JSON.stringify({ demo_org: org })]);
-        await tx.query(`insert into sm_demo_rows (org_id, row_id, tbl) values ($1, $2, 'sm_users') on conflict do nothing`, [org, persona]);
-        await tx.query(`insert into sm_org_members (id, org_id, user_id, role) values ($1, $2, $3, 'member')`, [uuidv7(), org, persona]);
-      }),
-    );
+    persona = await newPersona();
     // the owner attaches a file to the demo record (a side row of demo data, removed with it)
     const up = await upload(cloudSrv.app, web, `/o/${org}/r/todo/${demoTodo}/attachments`, "demo.png", PNG, "image/png");
     expect(up.status).toBeLessThan(300);
@@ -228,8 +240,10 @@ describe("demo purge and Windows apps", () => {
   it("a purge while no app was active deletes at once: the app that comes back reads everything again and drops it", async () => {
     await newPack({ computed: true });
     const demo = await demoRecord("کار نمایشی سوم");
+    const who = await newPersona();
     await sync();
     expect(await deskDb.one(`select 1 from sm_journal where record_id = $1`, [demo])).toBeTruthy();
+    expect(await membershipOnApp(who)).toBe("live");
     await web.post(`/o/${org}/demo/purge`, { confirm: "حذف کامل" });
     await purgeUntil("clear");
     // computed after the expand phase, and pulled by the app
@@ -258,6 +272,10 @@ describe("demo purge and Windows apps", () => {
     expect(await deskDb.one(`select 1 from sm_journal where record_id = $1`, [demo])).toBeNull();
     expect(await deskDb.one(`select 1 from sm_kb_gaps where id = $1`, [gap])).toBeNull();
     expect(await deskDb.one<{ short_description: string }>(`select short_description from sm_todos where id = $1 and deleted_at is null`, [realTodo])).toEqual({ short_description: "کار واقعی" });
+    // the persona's membership went for good with the pack (no tombstone told the app): the full read drops it too, and
+    // the owner's stays
+    expect(await membershipOnApp(who)).toBe("none");
+    expect(await deskDb.one(`select 1 from sm_org_members m join sm_users u on u.id = m.user_id where m.org_id = $1 and u.email = $2 and m.deleted_at is null`, [org, EMAIL])).toBeTruthy();
     // once read again, the app reads on as before
     expect((await sync()).some((p) => p.reset || p.full)).toBe(false);
   }, 300_000);
@@ -265,8 +283,10 @@ describe("demo purge and Windows apps", () => {
   it("an administrator's forced finalisation: the app that never pulled the tombstones reads everything again", async () => {
     await newPack();
     const demo = await demoRecord("کار نمایشی چهارم");
+    const who = await newPersona();
     await sync();
     expect(await deskDb.one(`select 1 from sm_todos where id = $1 and deleted_at is null`, [demo])).toBeTruthy();
+    expect(await membershipOnApp(who)).toBe("live");
     await web.post(`/o/${org}/demo/purge`, { confirm: "حذف کامل" });
     await purgeUntil(null);
     expect((await demoStatus(cloudDb, org)).waiting_devices).toBe(1);
@@ -281,5 +301,7 @@ describe("demo purge and Windows apps", () => {
     expect(await deskDb.one(`select 1 from sm_todos where id = $1`, [demo])).toBeNull();
     expect(await deskDb.one(`select 1 from sm_journal where record_id = $1`, [demo])).toBeNull();
     expect(await deskDb.one(`select 1 from sm_todos where id = $1 and deleted_at is null`, [realTodo])).toBeTruthy();
+    // the persona's membership tombstone went before the app pulled it: the full read drops its live copy
+    expect(await membershipOnApp(who)).toBe("none");
   }, 300_000);
 });
