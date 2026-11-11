@@ -18,6 +18,7 @@ import { bad, conflict, forbidden, notFound } from "../../http/errors";
 import { condEnv, createIn, invalidateSchema, readable, removeIn, updateIn } from "../../engine";
 import { audit } from "../data/crud";
 import { limitAtCommit, liveRows, needFeature, needWithinLimit, sysOf, type Row } from "./common";
+import { lockedRow } from "../incident/common";
 
 const MAX_FIELDS = 120;
 
@@ -212,7 +213,10 @@ export async function deleteCustomTable(ctx: Ctx, slot: string): Promise<void> {
   ctx.need("settings", "full");
   const def = TABLES.get(slot);
   await ctx.write(async (tx) => {
-    const t = await tableBySlot(tx, ctx, slot);
+    const found = await tableBySlot(tx, ctx, slot);
+    // the table's row locked before its records are counted: a record being created in it (which holds the row
+    // `for share`, admin/hooks.ts) finishes first and is counted, and one created later finds the table gone
+    const t = (await lockedRow(tx, sysOf(ctx), "custom_table", found.id)) ?? found;
     const n = await tx.one<{ n: number }>(`select count(*)::int as n from ${def!.table} where org_id = $1 and deleted_at is null`, [ctx.org.id]);
     if (n?.n) throw conflict(`این جدول ${n.n.toLocaleString("fa-IR")} رکورد دارد؛ نخست رکوردها را حذف یا جابه‌جا کنید`);
     for (const f of await fieldsOf(tx, ctx, slot)) await removeIn(tx, ctx, "custom_field", f.id);
