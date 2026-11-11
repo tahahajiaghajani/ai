@@ -103,9 +103,21 @@ export function custodyDigest(prev: string, r: Row, key: Buffer | null = null): 
   return CUSTODY_KEYED + createHmac("sha256", key).update(canon).digest("hex");
 }
 
+/**
+ * Hold an asset's row until commit before its last custody link is read. Writes of an organisation run side by side
+ * (docs/spec/ENGINE.md §13): two custody events of one asset that both read the same last link would write two links of
+ * one `seq` after it — a fork that `verifyCustody` reports as broken for good. A write of the asset itself already holds
+ * this lock (the engine's update, transition or delete), so an asset's events take turns and each reads the link the
+ * one before it committed; events of different assets still run side by side.
+ */
+async function lockAsset(tx: Queryable, orgId: string, assetId: unknown): Promise<void> {
+  if (isUuid(assetId)) await tx.query(`select 1 from sm_assets where id = $1 and org_id = $2 for update`, [assetId, orgId]);
+}
+
 /** Append a custody row for an asset (inside the write's transaction, as the system). */
 export async function addCustody(tx: Tx, ctx: Ctx, asset: Row, e: CustodyInput): Promise<void> {
   const sys = sysOf(ctx);
+  await lockAsset(tx, ctx.org.id, asset.id);
   const [last] = await liveRows(tx, sys, "asset_custody", { f: "asset_id", op: "eq", v: asset.id }, { order: "t.seq desc", limit: 1 });
   const row: Row = {
     asset_id: asset.id, seq: Number(last?.seq ?? 0) + 1, at: e.at ?? nowIso(), event: e.event,
@@ -189,6 +201,8 @@ const custodyPush: Pick<TableHooks, "derivePush" | "validatePush" | "validatePus
   validatePushDelete: (p) => (isSys(p.ctx) ? null : "زنجیرهٔ نگهداری حذف نمی‌شود"),
   async derivePush(p) {
     if (p.prev || isSys(p.ctx)) return null;
+    // the next link of the stored chain, read under the asset's lock like every other custody event (`lockAsset`)
+    await lockAsset(p.tx, p.ctx.org.id, p.next.asset_id);
     const [last] = await liveRows(p.tx, sysOf(p.ctx), "asset_custody", { f: "asset_id", op: "eq", v: p.next.asset_id }, { order: "t.seq desc", limit: 1 });
     const seq = Number(last?.seq ?? 0) + 1;
     if (Number(p.next.seq) !== seq) refuseLater(p, "این رویداد دنبالهٔ زنجیرهٔ نگهداری ثبت‌شده نیست؛ پس از همگام‌سازی دوباره فرستاده می‌شود");

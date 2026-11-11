@@ -14,13 +14,15 @@ import { createPostgresDb } from "@server/db/postgres";
 import { migrate } from "@server/db/migrate";
 import { createApp } from "@server/app";
 import { onBeforeCommit, pgArray, type Db } from "@server/db";
-import { create, systemCtx, update } from "@server/engine";
+import { create, createIn, systemCtx, update } from "@server/engine";
+import { seedItamDefaults } from "@server/modules/itam";
+import { addCustody, verifyCustody } from "@server/modules/itam/bank";
 import { configureWriteSerialisation, type ServerConfig } from "@server/context";
 import { checkXidRegression, currentSnap, notePurged, snapText } from "@server/sync/snapshot";
 import { SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
 import { startLocal, type LocalServer } from "@local/server";
-import { registerTable } from "@shared/tables";
+import { registerTable, tableDef } from "@shared/tables";
 import { BY_ENTITY } from "@server/sync/registry";
 import { Client, quietLog } from "./helpers";
 import { realPg, realPgAvailable, type RealPg } from "./pg-real";
@@ -367,6 +369,35 @@ describe.skipIf(!realPgAvailable())("sync revisions are transaction ids (real Po
     await Promise.all([t1, t2]);
     expect(Number((await db.one<{ done: number }>(`select done from xid_rollup where id = 1`))!.done)).toBe(2);
   });
+
+  it("custody events of one asset take turns: the bank ITAM chain never forks", async () => {
+    await seedItamDefaults(cfg, org);
+    const sys = await systemCtx(cfg, org);
+    const idBy = async (table: string, field: string, v: string) =>
+      String((await db.one<{ id: string }>(`select id from ${tableDef(table)!.table} where org_id = $1 and ${field} = $2 and deleted_at is null`, [org, v]))!.id);
+    const model = await idBy("asset_model", "name", "لنوو ThinkPad E14 Gen 5");
+    const stockroom = await idBy("stockroom", "code", "WH-01");
+    const asset = await sys.write((tx) => createIn(tx, sys, "asset", { model_id: model, state: "in_stock", stockroom_id: stockroom }, { trusted: true }));
+    const chain = async () => (await db.query<{ seq: number }>(`select seq from sm_asset_custody where asset_id = $1 order by seq`, [asset.id])).map((r) => Number(r.seq));
+    expect(await chain()).toEqual([1]);
+    // a count's «seen» stamp has written its link and holds its transaction open; an attestation of the same asset
+    // meanwhile must not follow the same last link (two links of one seq: the chain broken for good)
+    const inside = deferred();
+    const gate = deferred();
+    const first = sys.write(async (tx) => {
+      await addCustody(tx, sys, asset, { event: "audited", reference: "شمارش" });
+      inside.resolve();
+      await gate.promise;
+    });
+    await inside.promise;
+    const second = sys.write((tx) => addCustody(tx, sys, asset, { event: "attested", reference: "تأیید" }));
+    // the asset's row lock makes it wait; it reads the first one's link once that one committed
+    expect(await Promise.race([second.then(() => "done"), sleep(800).then(() => "waiting")])).toBe("waiting");
+    gate.resolve();
+    await Promise.all([first, second]);
+    expect(await chain()).toEqual([1, 2, 3]);
+    expect(await verifyCustody(db, sys, String(asset.id))).toMatchObject({ ok: true, rows: 3, broken_at: null });
+  }, 120_000);
 
   it("a cursor ahead of the database resets that app; a database that went back resets every app once", async () => {
     const r = new Replica(owner, org);
