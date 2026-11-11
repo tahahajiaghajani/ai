@@ -216,6 +216,16 @@ export function derivedConds(t: TableInfo): string[] {
   // a row that is not a record of its own (no number) and cannot exist without the row it names: a line, a
   // relationship, a membership, an assignment, an answer
   if (!t.def.numbered) for (const f of t.def.fields) if (!f.base && f.required && (f.type === "ref" || f.type === "user" || f.type === "group")) add(names(t, f.name));
+  // a record the platform raised by itself (no person made it, no real person changed it) that cannot exist without the
+  // demo row it names — e.g. a CMDB finding a scheduled check opened about a demo CI while the pack was loaded: it is
+  // about demo data. A record a real person made or changed stays (its reference is reported, never deleted).
+  if (t.def.numbered && t.cols.has("created_by") && t.cols.has("updated_by")) {
+    for (const f of t.def.fields) {
+      if (f.base || !f.required || f.type !== "ref") continue;
+      const c = names(t, f.name);
+      if (c) add(`(${c} and x.created_by is null and (x.updated_by is null or ${isDemo("x.updated_by")}))`);
+    }
+  }
   return [...new Set(out)];
 }
 

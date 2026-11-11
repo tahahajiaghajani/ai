@@ -25,6 +25,7 @@ import { collectAll } from "@server/modules/analytics/indicators";
 import { itamSweep } from "@server/modules/itam/jobs";
 import { fleet, openAttestations, verifyCustody } from "@server/modules/itam/bank";
 import { financialSweep } from "@server/modules/financial";
+import { applyPolicies } from "@server/modules/cmdb/jobs";
 
 /**
  * Columns that are bookkeeping, not content: counters that only move forward (sync revisions, the access version,
@@ -322,6 +323,11 @@ describe.skipIf(skip)(title, () => {
     await openAttestations(sys);
     await financialSweep(sys);
     await fleet(sys, { days: 30 });
+    // the CMDB's own scheduled health check over every CI, outside the demo scope (on a fast machine it also runs by
+    // itself while the pack is loaded): the findings it raises about demo CIs, the predictions and history about those
+    // findings, are about demo data and go with it
+    await enqueue(e.db, { kind: "cmdb.health_all", orgId: e.org, payload: {}, dedupeKey: "cmdb.health_all:demo-proof" });
+    await applyPolicies(sys);
     const models = await e.db.query<{ key: string }>(`select key from sm_ai_models where org_id = $1 and table_key = 'incident' order by key limit 2`, [e.org]);
     for (const m of models) await enqueue(e.db, { kind: "ai.ml.train", orgId: e.org, payload: { key: m.key }, dedupeKey: `ai.ml.train:${m.key}` });
     await archiveBatch(sys, TABLES.get("incident")!, 0, 20);
@@ -329,6 +335,12 @@ describe.skipIf(skip)(title, () => {
     log("exercised");
     const rows = await e.db.one<{ n: number }>(`select count(*)::int as n from sm_demo_rows where org_id = $1`, [e.org]);
     expect(rows!.n).toBeGreaterThan(1000);
+    // the platform raised findings about demo CIs by itself (outside the demo scope): the purge must take them too
+    const raised = await e.db.one<{ n: number }>(
+      `select count(*)::int as n from sm_cmdb_findings f where f.org_id = $1 and f.created_by is null
+         and exists (select 1 from sm_demo_rows d where d.org_id = $1 and d.row_id = f.ci_id)
+         and not exists (select 1 from sm_demo_rows d where d.org_id = $1 and d.row_id = f.id)`, [e.org]);
+    log(`findings the platform raised about demo CIs outside the demo scope: ${raised!.n}`);
 
     // ----- purge
     const demoRowIds = new Set((await e.db.query<{ id: string }>(`select row_id::text as id from sm_demo_rows where org_id = $1`, [e.org])).map((r) => r.id));
