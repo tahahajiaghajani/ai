@@ -502,13 +502,19 @@ export async function restoreComputed(q: Queryable, orgId: string, info: TableIn
   for (const table of saved) {
     const t = byName.get(table);
     if (!t || !hasIdOrg(t)) continue;
-    // computed while demo data was there: recomputed from real data by the next run (its trail goes with it)
+    // computed while demo data was there (the job queue runs on during the purge too): recomputed from real data by the
+    // next run. Its trail goes with it now; it joins the registry so that everything else that names it — the record
+    // events queued about it, its entries in the search and AI index — goes in the finish phase like what names a demo row
     const gone = await q.query<{ id: string }>(
       `delete from ${ident(table)} x where x.org_id = $1 and not exists (select 1 from sm_demo_saved s where s.org_id = $1 and s.tbl = ${lit(table)} and s.row_id = x.id)
          and not ${isDemo("x.id")} returning x.id`,
       [orgId],
     );
-    if (gone.length) await dropTrail(q, orgId, gone.map((r) => r.id));
+    if (gone.length) {
+      const ids = gone.map((r) => r.id);
+      await dropTrail(q, orgId, ids);
+      await q.query(`insert into sm_demo_rows (org_id, row_id, tbl) select $1, unnest($2::uuid[]), ${lit(table)} on conflict do nothing`, [orgId, pgArray(ids)]);
+    }
     // only the columns the saved copy has (all of a table's rows were saved at once, with one shape) and the table
     // still has: a column an upgrade added keeps its default or its value, one it dropped is ignored
     const sample = await q.one<{ data: Record<string, unknown> }>(`select data from sm_demo_saved where org_id = $1 and tbl = ${lit(table)} limit 1`, [orgId]);

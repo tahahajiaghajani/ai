@@ -401,6 +401,11 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
     }
     // finish: anything a demo job wrote while the purge ran goes too; then the audit line and the end of the pack
     await db.tx(async (tx) => {
+      // the job queue ran on after the restore phase: what a computation made or changed since is put back once more
+      // (and its numbers freed); what it made joins the registry and goes below with what names it
+      const again = await restoreComputed(tx, orgId, info, pack.progress.computed ?? []);
+      for (const [k, v] of Object.entries(again)) report.restored[k] = (report.restored[k] ?? 0) + v;
+      await restoreCounters(tx, orgId, pack.counters ?? {});
       const late = await expandDerived(tx, orgId, info);
       if (late) report.kept_trail = (report.kept_trail ?? 0) + (await keepRealTrail(tx, orgId, info, null));
       const left = await tx.one<{ n: number }>(`select count(*)::int as n from sm_demo_rows where org_id = $1 and tbl <> 'sm_users'`, [orgId]);
