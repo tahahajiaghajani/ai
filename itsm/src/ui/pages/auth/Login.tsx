@@ -1,6 +1,6 @@
 import { Form, Input, Button, Segmented } from "antd";
 import { Mail, Lock, Eye, EyeOff, UserRound, MonitorCheck } from "lucide-react";
-import { Link, useNavigate, useSearchParams, Navigate } from "react-router";
+import { Link, useSearchParams, Navigate } from "react-router";
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, errorText, ApiError } from "../../lib/api";
@@ -51,7 +51,6 @@ async function windowsSignIn(sourceId: string | null): Promise<{ ok: boolean; me
 
 export default function Login() {
   const { refresh, meta, me } = useSession();
-  const nav = useNavigate();
   const [sp] = useSearchParams();
   const dir = sp.get("dir");
   const next = sp.get("next") || "/";
@@ -69,9 +68,12 @@ export default function Login() {
   const [windows, setWindows] = useState<"idle" | "trying">("idle");
   const auto = useRef(false);
 
+  // signed in: the session's `me` makes this page render <Navigate to={next}> below — one navigation only. A second,
+  // imperative nav(next) right after it replaced the location again while «/» was already sending the person on to
+  // their organisation (whose chunk loads lazily, src/ui/OrgArea.tsx): the app stayed on an empty «/» (desktop-e2e: a
+  // member signing in after «خروج»)
   const finish = async () => {
     await refresh();
-    nav(next, { replace: true });
   };
   const tryWindows = async (silent: boolean) => {
     setWindows("trying");
