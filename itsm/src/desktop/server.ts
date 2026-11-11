@@ -66,7 +66,10 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
       db = await createPgliteDb({ dataDir: dbDir, desktop: true, log });
     }
   } else db = await createPgliteDb({ dataDir: opts.memory ? undefined : dbDir, desktop: true, log });
-  await migrate(db, (m) => log.info(m));
+  const applied = await migrate(db, (m) => log.info(m));
+  // a first start (or an update) wrote its migrations to the log: checkpoint while the splash is still up, not at the
+  // person's first click (the first start's 54 MB of log took a 609 ms checkpoint on the setup page, desktop-e2e)
+  if (applied.length) await db.checkpoint("migrations").catch((e) => log.warn("database checkpoint after migrations failed", String((e as Error)?.message ?? e)));
 
   const staticDir = resolve(opts.staticDir);
   const indexFile = join(staticDir, "index.html");
