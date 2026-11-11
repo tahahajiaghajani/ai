@@ -19,6 +19,7 @@ import { tableDef } from "@shared/tables";
 import { Client, useServerDb } from "./helpers";
 import { engineOrg, type EngineOrg } from "./engine-helpers";
 import { secWorld, type SecWorld } from "./security-helpers";
+import { adWorld, AGENTS, type AdWorld } from "./auth-ad-helpers";
 import { extraDatabase, realPg, realPgAvailable, type RealPg } from "./pg-real";
 
 // a task-like table of this suite with two SLA timers per record (breach actions escalate)
@@ -324,6 +325,33 @@ describe.skipIf(!realPgAvailable())("writes side by side (real PostgreSQL)", () 
       const c = (await w.e.db.one<{ deadlines: { stage: string; submitted_at?: string | null; warned?: string | null }[] }>(`select deadlines from sm_sec_reg_clocks where id = $1`, [clock.id]))!;
       expect(c.deadlines.find((d) => d.stage === "early_warning")?.submitted_at).toBeTruthy();
       expect(c.deadlines.find((d) => d.stage === "notification")?.warned).toBeTruthy();
+    });
+  });
+
+  // ---------------------------------------------------------------------------------------------------- directory
+
+  describe("directory sign-in", () => {
+    let w: AdWorld;
+    beforeAll(async () => {
+      w = await adWorld();
+    }, 180_000);
+    afterAll(() => w?.close());
+
+    it("A1-8: a role an administrator takes back while the sign-in maps a new one stays taken back", async () => {
+      const first = await w.signIn("ali", "Passw0rd!");
+      const uid = first.r.user_id as string;
+      await w.owner.put(`${w.P}/access/members/${uid}`, { roles: ["agent", "requester", "auditor"] });
+      // the mapping now also grants «team_lead» to the agents' group (approved)
+      await w.owner.patch(`${w.P}/r/directory_source/${w.source.id}`, { group_map: [{ source: AGENTS, role: "agent", group_id: w.team }, { source: AGENTS, role: "team_lead" }] });
+      await w.owner.post(`${w.P}/integration/directory/${w.source.id}/approve`);
+      // the administrator's removal of «auditor» is in flight when ali signs in
+      const revoke = hold(w.db, (tx) =>
+        tx.query(`update sm_member_profiles set roles = '["agent","requester"]'::jsonb, version = version + 1 where org_id = $1 and user_id = $2 and deleted_at is null`, [w.org, uid]),
+      );
+      const signed = await whileHeld(revoke, () => w.signIn("ali", "Passw0rd!"));
+      expect(signed.status, message(signed)).toBe("fulfilled");
+      const p = await w.db.one<{ roles: string[] }>(`select roles from sm_member_profiles where org_id = $1 and user_id = $2 and deleted_at is null`, [w.org, uid]);
+      expect([...p!.roles].sort()).toEqual(["agent", "requester", "team_lead"]);
     });
   });
 });

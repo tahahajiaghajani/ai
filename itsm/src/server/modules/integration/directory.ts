@@ -18,7 +18,7 @@ import { enqueue, registerJobHandler } from "../../jobs";
 import { addGroupMembers, memberCtx, saveMemberAccess } from "../../access";
 import { aiNet, internalAddress } from "../ai/net";
 import { audit } from "../data/crud";
-import { needFeature, needWithinLimit } from "../admin/common";
+import { limitAtCommit, needFeature, needWithinLimit } from "../admin/common";
 import { ensurePerson, setDirectoryName, setMemberActive, type MembershipRole } from "../admin/members";
 import { LdapError } from "./ldap";
 import { mappingFingerprint, openSourceConnection, nestedMemberships, rolesApproved, setAsideLink } from "./directory-login";
@@ -242,6 +242,8 @@ export async function applyPlan(ctx: Ctx, src: Row, plan: DirPlan, roles: boolea
   for (const m of members) ids.set(m.email, m.user_id);
   const deactivated: string[] = [];
   await ctx.write(async (tx) => {
+    // the seat ceiling again at commit (members added since the count above by another sync, import or sign-in)
+    if (plan.create.length) limitAtCommit(tx, ctx.cfg, ctx.org.id, "members");
     for (const name of plan.units) {
       if (unitIds.has(name.toLowerCase())) continue;
       const u = await createIn(tx, ctx, "org_unit", { name: name.slice(0, 150), kind: "department" });
@@ -285,12 +287,11 @@ export async function applyPlan(ctx: Ctx, src: Row, plan: DirPlan, roles: boolea
   // profiles through the access service (roles only as planned: the default role of new members, mapped roles when confirmed)
   const grants = new Map<string, string[]>();
   for (const g of roles ? plan.role_grants : []) grants.set(g.email, [...(grants.get(g.email) ?? []), g.role]);
-  const current = new Map(members.map((m) => [m.email, m]));
-  const profile = async (email: string, data: Record<string, unknown>) => {
+  const profile = async (email: string, data: Record<string, unknown>, opts: { addRoles?: string[] } = {}) => {
     const userId = ids.get(email);
-    if (!userId || !Object.keys(data).length) return;
+    if (!userId || (!Object.keys(data).length && !opts.addRoles?.length)) return;
     try {
-      await saveMemberAccess(ctx, userId, data);
+      await saveMemberAccess(ctx, userId, data, opts);
     } catch (e) {
       out.problems.push(`${email}: ${String((e as Error).message ?? e).slice(0, 200)}`);
     }
@@ -320,8 +321,8 @@ export async function applyPlan(ctx: Ctx, src: Row, plan: DirPlan, roles: boolea
     out.updated++;
   }
   for (const [email, extra] of grants) {
-    const cur = current.get(email);
-    await profile(email, { roles: [...new Set([...(cur?.roles ?? []), ...extra])] });
+    // added to the stored roles inside the save (the plan's copy of them may be older than an administrator's change)
+    await profile(email, {}, { addRoles: [...new Set(extra)] });
     out.roles_granted += extra.length;
   }
   // group memberships of mapped groups

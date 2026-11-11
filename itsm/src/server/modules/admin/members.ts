@@ -15,7 +15,7 @@ import { securityEvent } from "../platform/security";
 import { addGroupMembers, saveMemberAccess } from "../../access";
 import { createIn, updateIn } from "../../engine";
 import { RESETTABLE_SQL } from "../platform/members";
-import { liveRows, needWithinLimit, sysOf } from "./common";
+import { limitAtCommit, liveRows, needWithinLimit, sysOf } from "./common";
 
 export type MembershipRole = "member" | "viewer";
 
@@ -198,6 +198,8 @@ export async function importMembers(ctx: Ctx, input: PersonInput[], opts: Import
   const ids = new Map<string, string>();
   const joinedNow: string[] = [];
   await ctx.write(async (tx) => {
+    // the seat ceiling again at commit (another import or invitation may have added members since the count above)
+    if (result.created) limitAtCommit(tx, ctx.cfg, ctx.org.id, "members");
     for (const name of result.units) {
       const u = await createIn(tx, ctx, "org_unit", { name: name.slice(0, 120), kind: "department" });
       unitByName.set(lower(name), String(u.id));

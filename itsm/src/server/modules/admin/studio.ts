@@ -17,7 +17,7 @@ import { TABLES } from "@shared/tables";
 import { bad, conflict, forbidden, notFound } from "../../http/errors";
 import { condEnv, createIn, invalidateSchema, readable, removeIn, updateIn } from "../../engine";
 import { audit } from "../data/crud";
-import { liveRows, needFeature, needWithinLimit, sysOf, type Row } from "./common";
+import { limitAtCommit, liveRows, needFeature, needWithinLimit, sysOf, type Row } from "./common";
 
 const MAX_FIELDS = 120;
 
@@ -157,6 +157,8 @@ export async function createCustomTable(ctx: Ctx, input: CreateTableInput): Prom
   await needWithinLimit(ctx.db, ctx.cfg, ctx.org.id, "custom_tables", 1);
   if (fields.length) await needWithinLimit(ctx.db, ctx.cfg, ctx.org.id, "custom_fields", fields.length);
   const result = await ctx.write(async (tx) => {
+    // the ceiling of custom tables again at commit (fields are checked by their own writes)
+    limitAtCommit(tx, ctx.cfg, ctx.org.id, "custom_tables");
     const tables = await tableRows(tx, ctx);
     const slot = CUSTOM_SLOTS.find((s) => !tables.some((t) => t.slot === s));
     if (!slot) throw conflict(`همهٔ ${CUSTOM_SLOTS.length.toLocaleString("fa-IR")} جایگاه جدول سفارشی پر است`);
@@ -371,6 +373,7 @@ export async function importPackage(ctx: Ctx, raw: unknown, opts: { dryRun: bool
   if (newTables) await needWithinLimit(ctx.db, ctx.cfg, ctx.org.id, "custom_tables", newTables);
   if (adding) await needWithinLimit(ctx.db, ctx.cfg, ctx.org.id, "custom_fields", adding);
   await ctx.write(async (tx) => {
+    if (newTables) limitAtCommit(tx, ctx.cfg, ctx.org.id, "custom_tables");
     for (const t of pkg.tables) {
       const slot = slotOf.get(t.code)!;
       const cur = (await tableRows(tx, ctx)).find((x) => x.code === t.code);
