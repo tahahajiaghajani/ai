@@ -25,6 +25,7 @@ import { D } from "@shared/money";
 import { AI_AGENT_RUN } from "@shared/tables/ai-agents";
 import { createIn, get, list, orgSchema, systemCtx, updateIn } from "../../../engine";
 import { enqueue, registerJobHandler } from "../../../jobs";
+import { lockKey } from "../../../db";
 import { AppError } from "../../../http/errors";
 import { liveRows } from "../../incident/common";
 import { notifyPeople } from "../../notify";
@@ -158,19 +159,23 @@ export interface QueueInput {
  */
 export async function queueAgentRun(cfg: ServerConfig, orgId: string, a: AgentConfig, input: QueueInput): Promise<AgentStartResult> {
   const sys = await systemCtx(cfg, orgId);
-  if (!input.dry) {
-    if (input.id) {
-      const twin = await cfg.db.one<{ id: string }>(
-        `select id from sm_ai_agent_runs where org_id = $1 and agent_key = $2 and record_id = $3 and status = 'queued' and deleted_at is null limit 1`,
-        [orgId, a.key, input.id],
-      );
-      if (twin) return { run_id: twin.id, status: "queued", message_fa: "اجرای این عامل روی این رکورد در صف است" };
+  const decided = await sys.write(async (tx): Promise<AgentStartResult | string> => {
+    if (!input.dry) {
+      // one agent's runs are queued one at a time: the twin of a record and the daily caps are checked against every
+      // run committed before this one (two events of one record delivered at once queue one run; starts at once do not
+      // pass the cap together). The counts read committed rows: the earlier queuer has committed once this holds the key
+      await lockKey(tx, `ai.agent:${orgId}:${a.key}`);
+      if (input.id) {
+        const twin = await tx.one<{ id: string }>(
+          `select id from sm_ai_agent_runs where org_id = $1 and agent_key = $2 and record_id = $3 and status = 'queued' and deleted_at is null limit 1`,
+          [orgId, a.key, input.id],
+        );
+        if (twin) return { run_id: twin.id, status: "queued", message_fa: "اجرای این عامل روی این رکورد در صف است" };
+      }
+      if (STARTED.includes(input.trigger)) {
+        if (input.startedBy && (await startsToday(sys, a.key, input.startedBy)) >= MEMBER_DAILY_STARTS) return { run_id: null, status: "budget", message_fa: `سقف آغاز روزانهٔ عامل «${a.name}» برای شما پر شده است` };
+      } else if ((await runsToday(sys, a.key)) >= a.daily_runs) return { run_id: null, status: "budget", message_fa: `سقف اجرای روزانهٔ عامل «${a.name}» پر شده است` };
     }
-    if (STARTED.includes(input.trigger)) {
-      if (input.startedBy && (await startsToday(sys, a.key, input.startedBy)) >= MEMBER_DAILY_STARTS) return { run_id: null, status: "budget", message_fa: `سقف آغاز روزانهٔ عامل «${a.name}» برای شما پر شده است` };
-    } else if ((await runsToday(sys, a.key)) >= a.daily_runs) return { run_id: null, status: "budget", message_fa: `سقف اجرای روزانهٔ عامل «${a.name}» پر شده است` };
-  }
-  const id = await sys.write(async (tx) => {
     const row = await createIn(
       tx,
       sys,
@@ -196,7 +201,8 @@ export async function queueAgentRun(cfg: ServerConfig, orgId: string, a: AgentCo
     if (!input.inline) await enqueue(tx, { kind: JOB, orgId, payload: { run: runId }, dedupeKey: `agent.run:${runId}`, maxAttempts: 3 });
     return runId;
   }, { internal: true });
-  return { run_id: id, status: "queued", message_fa: input.inline ? "اجرای آزمایشی آغاز شد" : `عامل «${a.name}» در صف اجراست` };
+  if (typeof decided !== "string") return decided;
+  return { run_id: decided, status: "queued", message_fa: input.inline ? "اجرای آزمایشی آغاز شد" : `عامل «${a.name}» در صف اجراست` };
 }
 
 // ---------------------------------------------------------------- one run

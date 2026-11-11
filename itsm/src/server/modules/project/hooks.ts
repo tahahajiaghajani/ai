@@ -13,6 +13,8 @@ import { PROJECT_TASK_DONE } from "@shared/tables/project";
 import { demandScores, wouldCycle } from "@shared/project/logic";
 import { emitEvent, isSystemCtx, pushGuard, registerHooks, updateIn, type PushArgs, type WriteArgs } from "../../engine";
 import { enqueue } from "../../jobs";
+import { lockKey } from "../../db";
+import { lockedRow } from "../incident/common";
 import { bad, conflict, forbidden } from "../../http/errors";
 import { PROJECT_CHILDREN, dateOf, ids, liveRow, liveRows, managesProjects, mayWriteRecord, projectConfig, projectCopy, sysOf, type Row } from "./common";
 import { initialStateOnly } from "../release/common";
@@ -29,7 +31,9 @@ export const recalcLater = (w: WriteArgs, projectId: unknown) =>
  * person may change it — a member who only reads a project adds nothing to its plan, risks or reports.
  */
 async function parentProject(w: WriteArgs): Promise<Row> {
-  const p = await liveRow(w.tx, sysOf(w.ctx), "project", w.next.project_id);
+  // shared lock until commit: the project's «closed» gate in flight finishes first (and nothing is added to a closed
+  // project); a closing that comes later waits for this row and counts it
+  const p = await lockedRow(w.tx, sysOf(w.ctx), "project", w.next.project_id, "share");
   if (!p) throw bad("پروژه پیدا نشد");
   if (["closed", "canceled"].includes(String(p.state)) && w.op === "create") throw conflict("به پروژهٔ بسته یا لغوشده نمی‌توان چیزی افزود");
   if (!w.trusted && !isSystemCtx(w.ctx) && !(await mayWriteRecord(w.tx, w.ctx, "project", p.id))) throw forbidden(`به پروژهٔ «${p.name ?? p.number ?? ""}» فقط کسانی چیزی می‌افزایند که پروژه را تغییر می‌دهند`);
@@ -117,6 +121,9 @@ async function taskBefore(w: WriteArgs): Promise<void> {
   const deps = ids(n.depends_on);
   if (deps.length && (w.op === "create" || w.changed.has("depends_on"))) {
     if (n.id && deps.includes(String(n.id))) throw bad("کار نمی‌تواند به خودش وابسته باشد");
+    // dependency edits of one project take turns (A after B while B goes after A): the later check sees the earlier
+    // edge committed and refuses the cycle
+    await lockKey(w.tx, `project.deps:${n.project_id}`);
     const siblings = await liveRows(w.tx, sysOf(w.ctx), "project_task", { f: "project_id", op: "eq", v: n.project_id });
     const foreign = deps.filter((d) => !siblings.some((t) => t.id === d));
     if (foreign.length) throw bad("پیش‌نیازها باید کارهای همین پروژه باشند");
