@@ -368,6 +368,10 @@ export async function calculateRun(ctx: Ctx, runId: string): Promise<{ total_poo
     }
   }
   await ctx.write(async (tx) => {
+    // the run locked and still open to calculation: two calculations at once take turns, and the second replaces the
+    // first's results (read after the lock) instead of adding a second set beside them
+    const live = await lockedRow(tx, sys, "allocation_run", runId);
+    if (!live || !["draft", "calculated"].includes(String(live.state))) throw conflict("اجرای تأییدشده یا ثبت‌شده دوباره محاسبه نمی‌شود");
     for (const old of await liveRows(tx, sys, "allocation_result", { f: "run_id", op: "eq", v: runId } as Cond, { limit: 100000 })) {
       await removeIn(tx, sys, "allocation_result", old.id);
     }
@@ -375,7 +379,7 @@ export async function calculateRun(ctx: Ctx, runId: string): Promise<{ total_poo
     // the drivers were computed before this transaction (PGlite has one connection: no reads around it in here)
     for (const d of drivers) await updateIn(tx, sys, "allocation_target", d.key, { driver_value: String(d.driver) }, { trusted: true, keepVersion: true });
     await updateIn(tx, sys, "allocation_run", runId, { total_pool: pool.toString(), total_allocated: allocated.toString(), unallocated: pool.minus(allocated).toString(), calculated_at: new Date().toISOString(), input_hash: inputHash(hashInput) }, { trusted: true });
-    if (run.state === "draft") await transitionIn(tx, sys, "allocation_run", runId, "calculated", {});
+    if (live.state === "draft") await transitionIn(tx, sys, "allocation_run", runId, "calculated", {});
   });
   return { total_pool: pool.toString(), total_allocated: allocated.toString(), results: results.length };
 }

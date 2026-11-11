@@ -12,6 +12,7 @@ import { SUPPLIER_CONFIG_DEFAULTS } from "@shared/tables/supplier";
 import { addDays, fromJalali, monthLength, toJalali } from "@shared/jalali";
 import { D } from "@shared/money";
 import type { Ctx } from "../../context";
+import { lockKey } from "../../db";
 import { bad, conflict, forbidden } from "../../http/errors";
 import { access } from "../../access/provider";
 import { createIn, defFor, emitEvent, get, list, listAttachments, readAttachment, transitionIn, updateIn } from "../../engine";
@@ -95,6 +96,10 @@ export async function renewContract(ctx: Ctx, id: string, input: { start_date?: 
     if (row[f] !== undefined && row[f] !== null) copy[f] = row[f];
   }
   const created = await ctx.write(async (tx) => {
+    // the contract's renewal key, then its renewal looked for again: two clicks at once make one draft renewal
+    await lockKey(tx, `supplier.renewal:${id}`);
+    const [made] = await liveRows(tx, sysOf(ctx), "contract", { and: [{ f: "previous_contract_id", op: "eq", v: id }, { f: "state", op: "nin", v: ["canceled"] }] } as Cond, { limit: 1 });
+    if (made) throw conflict(`تمدید این قرارداد پیش‌تر ثبت شده است (${made.number ?? ""})`);
     const c = await createIn(tx, ctx, "contract", { ...copy, name: `${String(row.name ?? "")} — تمدید`.slice(0, 200), state: "draft", start_date: start, end_date: end, value: input.value ?? row.value ?? null, previous_contract_id: id });
     const sys = sysOf(ctx, ctx.user.id);
     for (const l of await liveRows(tx, sys, "contract_line", { f: "contract_id", op: "eq", v: id } as Cond, { limit: 2000 })) {

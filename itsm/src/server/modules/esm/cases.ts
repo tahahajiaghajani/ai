@@ -18,7 +18,7 @@ import { tableDef } from "@shared/tables";
 import { CASE_TABLE_OPTIONS, isEsmCaseTable } from "@shared/tables/esm";
 import type { Ctx } from "../../context";
 import type { Queryable, Tx } from "../../db";
-import { addJournalIn, addLinkIn, aggregate, condEnv, createIn, get, list, orgSchema, transitionIn, updateIn, validationError } from "../../engine";
+import { addJournalIn, addLinkIn, aggregate, condEnv, createIn, get, list, onBeforeCommit, orgSchema, transitionIn, updateIn, validationError } from "../../engine";
 import { bad, forbidden, notFound } from "../../http/errors";
 import { DEPT_TABLES } from "./hooks";
 import { administersDepartment, departmentById, departments, esmConfig, isSecureWorkspace, isUuid, liveRow, liveRows, mayWorkRecord, myDepartments, sysOf, type Row } from "./common";
@@ -167,9 +167,18 @@ export async function childCase(ctx: Ctx, table: string, id: string, input: { de
       caller_id: ctx.user.id, requested_for: ctx.user.id, department_id: dept.id, dept_service_id: service?.id ?? null, priority: parent.priority ?? null, ...protect,
     }, { trusted: true });
     await addLinkIn(tx, actor, target, String(child.id), { kind: "esm_child", table, id });
-    await rollupChildrenIn(tx, ctx, table, id);
+    rollupChildrenAtCommit(tx, ctx, table, id);
     return { table: target, id: String(child.id), number: child.number ?? null };
   });
+}
+
+/**
+ * Count a case's children at commit, under the parent's key: a roll-up of a child closing (the subscriber) and one of
+ * a child made by hand take turns, each counting after the other committed — the parent never keeps an open child
+ * that is done.
+ */
+export function rollupChildrenAtCommit(tx: Tx, ctx: Ctx, table: string, id: string): void {
+  onBeforeCommit(tx, `esm.children:${table}:${id}`, async () => void (await rollupChildrenIn(tx, ctx, table, id)));
 }
 
 /** Count a case's open children in other departments; when the last one is done, the parent carries on. */

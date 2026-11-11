@@ -739,6 +739,8 @@ const modelBefore = (w: WriteArgs) => {
 };
 async function stockroomBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete" || !w.changed.has("parent_id") || !w.next.parent_id) return;
+  // re-parenting takes the tree's key: two crossing moves at once never make a loop
+  if (w.op !== "create") await lockKey(w.tx, `stockroom.tree:${w.ctx.org.id}`);
   let cur: unknown = w.next.parent_id;
   for (let i = 0; i < 30 && isUuid(cur); i++) {
     if (cur === w.next.id) throw bad("انبار نمی‌تواند زیرمجموعهٔ خودش باشد");
