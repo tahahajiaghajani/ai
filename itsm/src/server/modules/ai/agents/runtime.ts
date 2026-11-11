@@ -25,7 +25,7 @@ import { D } from "@shared/money";
 import { AI_AGENT_RUN } from "@shared/tables/ai-agents";
 import { createIn, get, list, orgSchema, systemCtx, updateIn } from "../../../engine";
 import { enqueue, registerJobHandler } from "../../../jobs";
-import { lockKey } from "../../../db";
+import { lockKey, type Queryable } from "../../../db";
 import { AppError } from "../../../http/errors";
 import { liveRows } from "../../incident/common";
 import { notifyPeople } from "../../notify";
@@ -120,9 +120,9 @@ export const MEMBER_DAILY_STARTS = 10;
  * runs members started (their own cap), and runs that ended «skipped» (their condition did not hold, or the principal
  * could not read the record — they did no work).
  */
-export async function runsToday(ctx: Pick<Ctx, "db" | "org" | "cfg">, key: string): Promise<number> {
+export async function runsToday(ctx: Pick<Ctx, "db" | "org" | "cfg">, key: string, q: Queryable = ctx.db): Promise<number> {
   const tz = orgTimeZone(ctx as Ctx);
-  const r = await ctx.db.one<{ n: number }>(
+  const r = await q.one<{ n: number }>(
     `select count(*)::int as n from sm_ai_agent_runs where org_id = $1 and agent_key = $2 and deleted_at is null and dry_run = false and status <> 'skipped'
        and trigger <> all($5::text[]) and created_at >= ($3::date)::timestamp at time zone $4`,
     [ctx.org.id, key, todayISO(tz), tz, `{${STARTED.join(",")}}`],
@@ -131,9 +131,9 @@ export async function runsToday(ctx: Pick<Ctx, "db" | "org" | "cfg">, key: strin
 }
 
 /** Runs of an agent one member started today (by hand or from conversations). */
-export async function startsToday(ctx: Pick<Ctx, "db" | "org" | "cfg">, key: string, userId: string): Promise<number> {
+export async function startsToday(ctx: Pick<Ctx, "db" | "org" | "cfg">, key: string, userId: string, q: Queryable = ctx.db): Promise<number> {
   const tz = orgTimeZone(ctx as Ctx);
-  const r = await ctx.db.one<{ n: number }>(
+  const r = await q.one<{ n: number }>(
     `select count(*)::int as n from sm_ai_agent_runs where org_id = $1 and agent_key = $2 and deleted_at is null and dry_run = false and started_by = $5
        and trigger = any($6::text[]) and created_at >= ($3::date)::timestamp at time zone $4`,
     [ctx.org.id, key, todayISO(tz), tz, userId, `{${STARTED.join(",")}}`],
@@ -163,7 +163,8 @@ export async function queueAgentRun(cfg: ServerConfig, orgId: string, a: AgentCo
     if (!input.dry) {
       // one agent's runs are queued one at a time: the twin of a record and the daily caps are checked against every
       // run committed before this one (two events of one record delivered at once queue one run; starts at once do not
-      // pass the cap together). The counts read committed rows: the earlier queuer has committed once this holds the key
+      // pass the cap together). The counts are read in this transaction (no second connection while the key is held):
+      // the earlier queuer has committed once this holds the key, and the next statement sees its run
       await lockKey(tx, `ai.agent:${orgId}:${a.key}`);
       if (input.id) {
         const twin = await tx.one<{ id: string }>(
@@ -173,8 +174,8 @@ export async function queueAgentRun(cfg: ServerConfig, orgId: string, a: AgentCo
         if (twin) return { run_id: twin.id, status: "queued", message_fa: "اجرای این عامل روی این رکورد در صف است" };
       }
       if (STARTED.includes(input.trigger)) {
-        if (input.startedBy && (await startsToday(sys, a.key, input.startedBy)) >= MEMBER_DAILY_STARTS) return { run_id: null, status: "budget", message_fa: `سقف آغاز روزانهٔ عامل «${a.name}» برای شما پر شده است` };
-      } else if ((await runsToday(sys, a.key)) >= a.daily_runs) return { run_id: null, status: "budget", message_fa: `سقف اجرای روزانهٔ عامل «${a.name}» پر شده است` };
+        if (input.startedBy && (await startsToday(sys, a.key, input.startedBy, tx)) >= MEMBER_DAILY_STARTS) return { run_id: null, status: "budget", message_fa: `سقف آغاز روزانهٔ عامل «${a.name}» برای شما پر شده است` };
+      } else if ((await runsToday(sys, a.key, tx)) >= a.daily_runs) return { run_id: null, status: "budget", message_fa: `سقف اجرای روزانهٔ عامل «${a.name}» پر شده است` };
     }
     const row = await createIn(
       tx,

@@ -113,16 +113,20 @@ export async function recountKnownError(tx: Tx, ctx: Ctx, keId: string | null | 
 /**
  * The recounts of the writes of a transaction run just before commit, once per problem or known error, under its key:
  * two incidents linked to one problem at the same moment take turns there, and the later count sees both (each
- * counting in its own write saw only its own link, and the later write kept one too few).
+ * counting in its own write saw only its own link, and the later write kept one too few). The recount takes the key,
+ * then the row; a write that locks the row in its body first takes the key too (services.ts `lockProblem`,
+ * incident/actions.ts `applyKnownError`), so the two orders never meet.
  */
+export const problemRecountKey = (id: unknown) => `problem.recount:${id}`;
 function recountProblemAtCommit(w: WriteArgs, id: unknown): void {
   if (!id) return;
   const { tx, ctx } = w;
-  onBeforeCommit(tx, `problem.recount:${id}`, () => recountProblem(tx, ctx, String(id)));
+  onBeforeCommit(tx, problemRecountKey(id), () => recountProblem(tx, ctx, String(id)));
 }
 function recountKnownErrorAtCommit(w: WriteArgs, id: unknown): void {
   if (!id) return;
   const { tx, ctx } = w;
+  // the same key incident/actions.ts `applyKnownError` takes before it writes the known error's row
   onBeforeCommit(tx, `known_error.recount:${id}`, () => recountKnownError(tx, ctx, String(id)));
 }
 

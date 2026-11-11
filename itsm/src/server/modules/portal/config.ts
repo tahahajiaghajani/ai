@@ -9,7 +9,7 @@ import { createIn, readAttachment, updateIn } from "../../engine";
 import { bad, forbidden, notFound } from "../../http/errors";
 import { grantOf, isUuid, liveRow, liveRows, managesPortal, subjectFor, sysOf, type Row } from "./common";
 import { lockedRow } from "../incident/common";
-import { lockKey } from "../../db";
+import { lockKey, type Tx } from "../../db";
 
 const DEFAULTS = {
   name: "درگاه خدمات",
@@ -94,10 +94,17 @@ export async function choosePortal(ctx: Ctx, portalId: string): Promise<void> {
   await savePref(ctx, { portal_id: portalId });
 }
 
+/**
+ * The writes of one person's preference row take turns (their key until commit): the first two at once make one row
+ * (not a refused duplicate), and two favourite toggles at once keep both.
+ */
+const lockPref = (tx: Tx, ctx: Ctx) => lockKey(tx, `portal.pref:${ctx.org.id}:${ctx.user.id}`);
+
 /** Create or update the caller's preference row (as the system: the row is theirs only). */
 export async function savePref(ctx: Ctx, values: { favorites?: string[]; portal_id?: string | null }): Promise<Row> {
   const sys = sysOf(ctx);
   return ctx.write(async (tx) => {
+    await lockPref(tx, ctx);
     const [row] = await liveRows(tx, sys, "portal_pref", { f: "user_id", op: "eq", v: ctx.user.id }, { limit: 1 });
     if (row) return updateIn(tx, sys, "portal_pref", String(row.id), values, { trusted: true });
     return createIn(tx, sys, "portal_pref", { user_id: ctx.user.id, favorites: [], ...values }, { trusted: true });
@@ -117,7 +124,7 @@ export async function toggleFavorite(ctx: Ctx, itemId: string, on: boolean): Pro
   const sys = sysOf(ctx);
   // decided from the person's preferences as stored, under their key: two toggles at once keep both
   return ctx.write(async (tx) => {
-    await lockKey(tx, `portal.pref:${ctx.org.id}:${ctx.user.id}`);
+    await lockPref(tx, ctx);
     const [row] = await liveRows(tx, sys, "portal_pref", { f: "user_id", op: "eq", v: ctx.user.id }, { limit: 1 });
     const current = Array.isArray(row?.favorites) ? (row!.favorites as string[]) : [];
     const next = on ? [...new Set([itemId, ...current])].slice(0, 50) : current.filter((x) => x !== itemId);

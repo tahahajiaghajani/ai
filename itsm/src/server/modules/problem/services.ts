@@ -8,7 +8,8 @@ import { stateCategory } from "@shared/model/task";
 import { candidateGroups, type CandidateGroup, type CandidateIncident } from "@shared/problem/logic";
 import { createHash } from "node:crypto";
 import type { Ctx } from "../../context";
-import { lockKey, type Tx } from "../../db";
+import { lockBeforeCommitKey, lockKey, type Tx } from "../../db";
+import { problemRecountKey } from "./hooks";
 import { lockedRow } from "../incident/common";
 import { addJournalIn, createIn, defFor, get, list, savepoint, transitionIn, updateIn } from "../../engine";
 import { AppError, bad, conflict, forbidden, notFound } from "../../http/errors";
@@ -25,11 +26,14 @@ export interface Outcome {
 /**
  * The problem locked for this transaction (404 when the caller may not read it): a merge, a link, a shared solution
  * of one problem at the same moment take turns, and each decides from the stored row (a link never lands on a problem
- * a merge is closing; a solution is shared once).
+ * a merge is closing; a solution is shared once). The problem's recount key comes first, the order the recount before
+ * commit takes them (key, then row): a link from the problem's side and an incident linked from its own form at the
+ * same moment wait for each other instead of deadlocking.
  */
 async function lockProblem(tx: Tx, ctx: Ctx, id: string): Promise<{ def: Awaited<ReturnType<typeof defFor>>["def"]; row: Row }> {
   if (!isUuid(id)) throw notFound("مشکل پیدا نشد");
   const { def } = await defFor(ctx, "problem", tx);
+  await lockBeforeCommitKey(tx, problemRecountKey(id));
   const row = await lockedRow(tx, ctx, "problem", id);
   if (!row) throw notFound("مشکل پیدا نشد");
   return { def, row };
