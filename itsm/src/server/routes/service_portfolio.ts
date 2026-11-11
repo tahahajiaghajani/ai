@@ -11,6 +11,7 @@ import { router, body, query } from "../http/hono";
 import { AppError, forbidden, notFound } from "../http/errors";
 import { access } from "../access/provider";
 import { createIn, defFor, removeIn, systemCtx, updateIn } from "../engine";
+import { lockKey } from "../db";
 import { todayISO } from "@shared/jalali";
 import type { ServiceMeta, ServicePickerHit } from "@shared/service_portfolio/api";
 import { publicApiRoutes } from "./integrations";
@@ -101,10 +102,15 @@ servicePortfolioRoutes.post("/services/:id/subscribe", async (c) => {
   const readable = !!(await liveRow(ctx.db, ctx, "service", serviceId));
   const mine = readable || s.on_status_page || (await myServices(ctx, ctx.user.id)).some((m) => m.id === serviceId);
   if (!mine) throw notFound("خدمت پیدا نشد یا مشترک تازه نمی‌پذیرد");
-  const [existing] = await liveRows(ctx.db, sys, "service_subscription", { and: [{ f: "service_id", op: "eq", v: serviceId }, { f: "user_id", op: "eq", v: ctx.user.id }, { f: "subscriber_kind", op: "eq", v: "user" }] }, { limit: 1 });
-  if (existing) return c.json({ id: existing.id, created: false });
-  const row = await ctx.write((tx) => createIn(tx, sys, "service_subscription", { service_id: serviceId, subscriber_kind: "user", user_id: ctx.user.id, origin_kind: "self", notify: true, valid_from: todayISO(String(ctx.org.settings?.timezone ?? "Asia/Tehran")) }, { trusted: true }));
-  return c.json({ id: row.id, created: true });
+  // the person's subscription key, then their subscription looked for: two clicks at once make one subscription
+  const out = await ctx.write(async (tx) => {
+    await lockKey(tx, `service.subscribe:${serviceId}:${ctx.user.id}`);
+    const [existing] = await liveRows(tx, sys, "service_subscription", { and: [{ f: "service_id", op: "eq", v: serviceId }, { f: "user_id", op: "eq", v: ctx.user.id }, { f: "subscriber_kind", op: "eq", v: "user" }] }, { limit: 1 });
+    if (existing) return { id: existing.id, created: false };
+    const row = await createIn(tx, sys, "service_subscription", { service_id: serviceId, subscriber_kind: "user", user_id: ctx.user.id, origin_kind: "self", notify: true, valid_from: todayISO(String(ctx.org.settings?.timezone ?? "Asia/Tehran")) }, { trusted: true });
+    return { id: row.id, created: true };
+  });
+  return c.json(out);
 });
 
 servicePortfolioRoutes.post("/services/:id/unsubscribe", async (c) => {
