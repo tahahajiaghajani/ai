@@ -548,30 +548,30 @@ export async function stepCsm(a: StepArgs, sys: Ctx): Promise<boolean> {
           return false;
         }
         await sys.write(async (tx) => {
-        for (let i = at; i < Math.min(size.cases, at + 20); i++) {
-          const [title, detail, type, product, severity] = CASES[i % CASES.length];
-          // a case of the product's customers
-          const fits = ACCOUNTS.map((acc, k) => ({ acc, k })).filter((x) => x.acc.products.includes(product));
-          const pick = fits.length ? fits[i % fits.length] : { acc: ACCOUNTS[0], k: 0 };
-          const account = accounts[pick.k];
-          if (!account) continue;
-          const opened = pastMoment(rng, now, 120);
-          const age = (now - opened) / DAY;
-          const state = age > 30 ? (rng.chance(0.85) ? "closed" : "resolved") : age > 7 ? rng.pick(["resolved", "open", "awaiting_customer"]) : rng.pick(["new", "open", "open", "awaiting_internal"]);
-          const done = state === "resolved" || state === "closed";
-          const resolved = done ? Math.min(now - 60_000, opened + rng.int(2, 72) * 3600_000) : null;
-          const ibi = product === "pos" ? (await tx.one<{ id: string }>(`select id from sm_install_base_items where org_id = $1 and account_id = $2 and deleted_at is null order by created_at limit 1`, [orgId, account]))?.id : undefined;
-          const row = await putOpen(tx, sys, "customer_case", {
-            short_description: i < CASES.length ? title : `${title} (${i + 1})`, description: detail, case_type: type, complaint: !!severity, complaint_severity: severity ?? undefined,
-            account_id: account, contact_id: contacts[pick.k], product_id: products[product], ibi_id: ibi, channel: choose("customer_case", "channel", [rng.pick(["phone", "email", "portal"])]),
-            priority: severity === "high" ? "2" : type === "problem" ? "3" : "4", impact: severity === "high" ? "2" : "3", urgency: severity === "high" ? "1" : "3",
-            assignment_group_id: group, assigned_to: state === "new" ? undefined : rng.pick(agents), opened_at: iso(opened), state,
-            resolved_at: resolved ? iso(resolved) : undefined, closed_at: state === "closed" && resolved ? iso(Math.min(now - 30_000, resolved + 3 * DAY)) : undefined,
-            close_code: done ? closeCode : undefined, close_notes: done ? rng.pick(["پایانه با پیکربندی دوباره به میزبان وصل شد.", "مبلغ پس از تطبیق تراکنش‌ها به حساب مشتری برگشت.", "تسویه با تأیید ادارهٔ کارت و پرداخت انجام شد.", "راهنمایی لازم به مشتری داده شد."]) : undefined,
-            root_cause: done && type !== "question" ? "پیکربندی نادرست پایانه پس از به‌روزرسانی نرم‌افزار" : undefined, satisfaction: done ? rng.pick([3, 4, 5, 5]) : undefined,
-          }, { state: "open" });
-          if (row) bump(memo, "customer_case");
-        }
+          for (let i = at; i < Math.min(size.cases, at + 20); i++) {
+            const [title, detail, type, product, severity] = CASES[i % CASES.length];
+            // a case of the product's customers
+            const fits = ACCOUNTS.map((acc, k) => ({ acc, k })).filter((x) => x.acc.products.includes(product));
+            const pick = fits.length ? fits[i % fits.length] : { acc: ACCOUNTS[0], k: 0 };
+            const account = accounts[pick.k];
+            if (!account) continue;
+            const opened = pastMoment(rng, now, 120);
+            const age = (now - opened) / DAY;
+            const state = age > 30 ? (rng.chance(0.85) ? "closed" : "resolved") : age > 7 ? rng.pick(["resolved", "open", "awaiting_customer"]) : rng.pick(["new", "open", "open", "awaiting_internal"]);
+            const done = state === "resolved" || state === "closed";
+            const resolved = done ? Math.min(now - 60_000, opened + rng.int(2, 72) * 3600_000) : null;
+            const ibi = product === "pos" ? (await tx.one<{ id: string }>(`select id from sm_install_base_items where org_id = $1 and account_id = $2 and deleted_at is null order by created_at limit 1`, [orgId, account]))?.id : undefined;
+            const row = await putOpen(tx, sys, "customer_case", {
+              short_description: i < CASES.length ? title : `${title} (${i + 1})`, description: detail, case_type: type, complaint: !!severity, complaint_severity: severity ?? undefined,
+              account_id: account, contact_id: contacts[pick.k], product_id: products[product], ibi_id: ibi, channel: choose("customer_case", "channel", [rng.pick(["phone", "email", "portal"])]),
+              priority: severity === "high" ? "2" : type === "problem" ? "3" : "4", impact: severity === "high" ? "2" : "3", urgency: severity === "high" ? "1" : "3",
+              assignment_group_id: group, assigned_to: state === "new" ? undefined : rng.pick(agents), opened_at: iso(opened), state,
+              resolved_at: resolved ? iso(resolved) : undefined, closed_at: state === "closed" && resolved ? iso(Math.min(now - 30_000, resolved + 3 * DAY)) : undefined,
+              close_code: done ? closeCode : undefined, close_notes: done ? rng.pick(["پایانه با پیکربندی دوباره به میزبان وصل شد.", "مبلغ پس از تطبیق تراکنش‌ها به حساب مشتری برگشت.", "تسویه با تأیید ادارهٔ کارت و پرداخت انجام شد.", "راهنمایی لازم به مشتری داده شد."]) : undefined,
+              root_cause: done && type !== "question" ? "پیکربندی نادرست پایانه پس از به‌روزرسانی نرم‌افزار" : undefined, satisfaction: done ? rng.pick([3, 4, 5, 5]) : undefined,
+            }, { state: "open" });
+            if (row) bump(memo, "customer_case");
+          }
         });
         keepRng(memo, "csm", rng);
       }
@@ -1115,7 +1115,7 @@ export async function stepDelivery(a: StepArgs, sys: Ctx): Promise<boolean> {
         await sys.write(async (tx) => {
           const done = ["els", "closed", "deploying"].includes(r.state);
           // (a closed release takes no new tasks: its history is its deployments and notes)
-          for (const [k, [title, ph]] of (r.state === "closed" ? [] :  ([["ساخت نسخه و امضای بسته", "build"], ["آزمون یکپارچه و پذیرش کاربر", "test"], ["یادداشت انتشار و آموزش میز خدمت", "communication"], ["آماده‌سازی استقرار و برنامهٔ بازگشت", "deploy"]] as const)).entries()) {
+          for (const [k, [title, ph]] of (r.state === "closed" ? [] : ([["ساخت نسخه و امضای بسته", "build"], ["آزمون یکپارچه و پذیرش کاربر", "test"], ["یادداشت انتشار و آموزش میز خدمت", "communication"], ["آماده‌سازی استقرار و برنامهٔ بازگشت", "deploy"]] as const)).entries()) {
             const st = done || (r.state === "readiness" && k < 2) ? "done" : k === 2 ? "in_progress" : "open";
             if (await tryPut(tx, sys, "release_task", { short_description: title, release_id: row.id, phase: ph, mandatory: true, sort_order: (k + 1) * 10, assignment_group_id: memo.groups[r.group], assigned_to: personOf(memo, r.group, rng), planned_hours: String(rng.int(4, 24)), state: st })) bump(memo, "release_task");
           }

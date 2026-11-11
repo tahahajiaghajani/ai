@@ -67,7 +67,7 @@ const COUNT_LABELS: [string, string][] = [
   ["supplier", "تأمین‌کننده"],
   ["sec_incident", "رخداد امنیتی"],
   ["hr_case", "پروندهٔ منابع انسانی"],
-  ["work_order", "بازدید میدانی"],
+  ["work_order", "دستور کار میدانی"],
   ["budget", "بودجه"],
   ["customer_case", "پروندهٔ پذیرنده"],
   ["alert", "هشدار پایش"],
