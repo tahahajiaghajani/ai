@@ -409,6 +409,11 @@ const transferGuards = {
     const items = await itemsOf(w.tx, w.ctx, w.next.id);
     const p = transferProblem(w.next, items);
     if (p) return p;
+    // the note's assets locked (in id order; the note is held by this transition) before they are judged: a change of
+    // an asset's branch or state in flight commits first and is seen here, and one that starts later waits until the
+    // dispatch has put the asset in transit — never a dispatch of an asset that another branch now holds
+    const assetIds = [...new Set(items.map((it) => String(it.asset_id ?? "").toLowerCase()).filter(isUuid))].sort();
+    if (assetIds.length) await w.tx.query(`select id from ${tableDef("asset")!.table} where org_id = $1 and id = any($2::uuid[]) order by id for update`, [w.ctx.org.id, pgArray(assetIds)]);
     for (const it of items) {
       const a = await liveRow(w.tx, sysOf(w.ctx), "asset", it.asset_id);
       if (!a) return `دارایی «${it.label ?? ""}» پیدا نشد`;

@@ -11,7 +11,7 @@ import type { Ctx } from "../../context";
 import { bad, conflict, forbidden, notFound } from "../../http/errors";
 import { access } from "../../access/provider";
 import { aggregate, createIn, defFor, emitEvent, get, list, transitionIn, updateIn } from "../../engine";
-import { holds, isUuid, liveRow, liveRows, sysOf, type Row } from "./common";
+import { holds, isUuid, liveRow, liveRows, lockedRow, sysOf, type Row } from "./common";
 
 interface Level {
   available: number;
@@ -251,6 +251,11 @@ export async function scan(ctx: Ctx, auditId: string, code: string): Promise<Sca
   // resolved with the counter's own access: an asset they may not read is «unknown» (nothing of it is told)
   const [asset] = await liveRows(ctx.db, ctx, "asset", where, { limit: 1 });
   return ctx.write(async (tx) => {
+    // the audit read shared until commit and still counting: scans of one audit run side by side, its completion
+    // (which locks it for update) waits for the scans in flight, and a scan that comes after it is refused — a counted
+    // asset is never left «missing» by a completion that did not see its scan
+    const live = await lockedRow(tx, sys, "inventory_audit", auditId, "share");
+    if (live?.state !== "in_progress") throw conflict("شمارش آغاز نشده یا پایان یافته است");
     const at = new Date().toISOString();
     const info = (a: Row | undefined) => (a ? { id: String(a.id), number: (a.number as string) ?? null, name: String(a.name ?? ""), asset_tag: (a.asset_tag as string) ?? null } : null);
     if (!asset) {

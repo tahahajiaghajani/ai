@@ -476,6 +476,10 @@ async function dataBearing(w: WriteArgs, asset: Row): Promise<boolean> {
 const disposalGuards = {
   disposal_can_complete: async (w: WriteArgs) => {
     const sys = sysOf(w.ctx);
+    // the order's items locked first (in id order; the order is held by this transition): a wipe record being
+    // corrected commits before the evidence is read below, and a correction that starts later waits and then finds
+    // the order completed — never an order completed on evidence that is no longer what is stored
+    await w.tx.query(`select id from ${tableDef("disposal_item")!.table} where org_id = $1 and order_id = $2 and deleted_at is null order by id for update`, [w.ctx.org.id, w.next.id]);
     const items = await liveRows(w.tx, sys, "disposal_item", { f: "order_id", op: "eq", v: w.next.id }, { limit: 2000 });
     if (!items.length) return "دارایی‌ای در این دستور اسقاط نیست";
     const missing: string[] = [];

@@ -18,6 +18,7 @@ import type { Tx } from "../../db";
 import { addJournalIn, createIn, emitEvent, isSystemCtx, onBeforeCommit, pushGuard, registerHooks, updateIn, validationError, type PushArgs, type WriteArgs } from "../../engine";
 import { tableDef } from "@shared/tables";
 import { forbidden } from "../../http/errors";
+import { lockedRow } from "../incident/common";
 import { contactsOfUser, countRows, csmConfig, ids, isUuid, liveRow, liveRows, sysOf, todayUtc, worksCsm, type Row } from "./common";
 
 // ----- who defines customers ------------------------------------------------------------------------------------------
@@ -210,11 +211,15 @@ async function caseAccountGuard(w: WriteArgs): Promise<void> {
   if (!mine.has(String(next.account_id).toLowerCase())) throw forbidden("پرونده را فقط برای حساب خودتان ثبت می‌کنید");
 }
 
-/** Consume the case's units once, when it closes; warn the relationship manager when the threshold is crossed. */
+/**
+ * Consume the case's units once, when it closes; warn the relationship manager when the threshold is crossed. The
+ * entitlement is locked before its units are read: two cases of one entitlement closing at once take turns, and the
+ * second adds its units to what the first left (its ledger balance follows), never to the same old total.
+ */
 async function consumeUnits(tx: Tx, ctx: Ctx, row: Row): Promise<void> {
   if (row.units_charged !== null && row.units_charged !== undefined) return;
   const sys = sysOf(ctx);
-  const ent = isUuid(row.entitlement_id) ? await liveRow(tx, sys, "entitlement", row.entitlement_id) : null;
+  const ent = isUuid(row.entitlement_id) ? await lockedRow(tx, sys, "entitlement", row.entitlement_id) : null;
   if (!ent || !ent.unit_type || ent.unit_type === "none") return;
   const units = unitsFor(String(ent.unit_type), Number(row.time_worked ?? 0));
   const usedBefore = new Decimal(String(ent.units_used ?? 0) || 0);
