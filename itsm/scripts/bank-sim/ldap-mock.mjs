@@ -6,6 +6,7 @@
 //
 //   node ldap-mock.mjs --host 10.1.0.5 --port 636 --pfx dc1.pfx --passphrase … --log ldap.json
 import { build } from "esbuild";
+import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -20,9 +21,18 @@ const fake = await import(pathToFileURL(outfile).href);
 const { BASE, SVC, fakeLdap, group, person, serviceAccount } = fake;
 
 const GROUPS = `OU=Groups,${BASE}`;
-const ali = person("ali", { name: "Ali Rezaei", mail: "ali@corp.test", extra: { title: ["کارشناس شبکه"], department: ["فناوری اطلاعات"] } });
-const maryam = person("maryam", { name: "Maryam Karimi", mail: "maryam@corp.test", extra: { department: ["فناوری اطلاعات"] } });
-const sara = person("sara", { name: "Sara Ahmadi", mail: "sara@corp.test", extra: { department: ["شعبهٔ مرکزی"] } });
+// A domain controller keeps its objects' identity: the CI runs the simulation in steps and this server is started again
+// when a step ends it, so every person keeps the same objectGUID and creation time across restarts (the test suite's
+// fake gives each run new ones; Kariz then rightly sees «a new person under a former employee's name» and refuses the
+// link to the account the first sign-in made).
+const guid = (sam) => {
+  const h = createHash("sha256").update(`bank-sim:${sam}`).digest("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20, 32)}`;
+};
+const stable = (sam, extra) => ({ ...extra, objectGUID: [guid(sam)], whenCreated: ["20240321063000.0Z"] });
+const ali = person("ali", { name: "Ali Rezaei", mail: "ali@corp.test", extra: stable("ali", { title: ["کارشناس شبکه"], department: ["فناوری اطلاعات"] }) });
+const maryam = person("maryam", { name: "Maryam Karimi", mail: "maryam@corp.test", extra: stable("maryam", { department: ["فناوری اطلاعات"] }) });
+const sara = person("sara", { name: "Sara Ahmadi", mail: "sara@corp.test", extra: stable("sara", { department: ["شعبهٔ مرکزی"] }) });
 const entries = [
   serviceAccount(),
   ali,

@@ -88,6 +88,13 @@ describe("the simulation's scripts", () => {
     expect(report).toContain("if: always()");
   });
 
+  it("the mock domain controller keeps its people's identity when a CI step starts it again", () => {
+    const m = readFileSync(join(SIM_JS, "ldap-mock.mjs"), "utf8");
+    expect(m).toMatch(/objectGUID: \[guid\(sam\)\]/);
+    expect(m).toMatch(/whenCreated: \["\d{14}\.0Z"\]/);
+    for (const sam of ["ali", "maryam", "sara"]) expect(m).toContain(`extra: stable("${sam}"`);
+  });
+
   it("keeps the CI machine's own agents online but never the test's tools, and keeps the PFX password out of the artifact", () => {
     const net = readFileSync(join(SIM_PS, "bank-net.ps1"), "utf8");
     expect(net).toMatch(/\$tools = .*node\|powershell\|pwsh\|chrome/);
