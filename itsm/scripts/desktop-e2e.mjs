@@ -65,8 +65,12 @@ const ADMIN = { full_name: "مدیر فناوری اطلاعات", email: "it.ad
 const MEMBER = { full_name: "کارمند شعبهٔ مرکزی", email: "member@kariz-e2e.example", password: "Kariz-Member-Pass-1405!" };
 const ORG_NAME = "بانک آزمایشی برنامهٔ ویندوز";
 const LOADERS = "#root > .boot, .sh-boot, .sh-wait, .ds-loader, .ant-skeleton, .ant-spin-spinning, .sh-loader";
-/** The page's content area: the app shell's, the portal's, the sign-in pages'. */
-const MAIN = "#main, #portal-main, main";
+/**
+ * The page's content area, in order: the portal's (inside the app it sits next to an empty #main of the shell), the app
+ * shell's, any <main> (the sign-in pages). Each is looked up on its own: a selector list would return the first in the
+ * document.
+ */
+const MAIN = ["#portal-main", "#main", "main"];
 const ERROR_SCREEN = /این صفحه پیدا نشد|خطای غیرمنتظره|این صفحه با خطا روبه‌رو شد/;
 
 const T0 = Date.now();
@@ -278,7 +282,7 @@ async function go(persona, name, path, { click } = {}) {
   const errorsBefore = consoleErrors.length;
   const apiBefore = apiLog.length;
   const from = new URL(page.url()).pathname;
-  const before = await page.evaluate((sel) => (document.querySelector(sel)?.innerText ?? "").slice(0, 4000), MAIN).catch(() => "");
+  const before = await page.evaluate((sels) => (sels.map((x) => document.querySelector(x)).find(Boolean)?.innerText ?? "").slice(0, 4000), MAIN).catch(() => "");
   const t = Date.now();
   let how = "link";
   if (click) await click();
@@ -312,7 +316,7 @@ async function go(persona, name, path, { click } = {}) {
         if (path && location.pathname === from && from !== path.split("?")[0]) return false;
         // the router keeps the old page on screen while the new route's code and data load (a transition): the
         // content area must have changed
-        const text = ((document.querySelector(main) ?? root).innerText || "").slice(0, 4000);
+        const text = ((main.map((x) => document.querySelector(x)).find(Boolean) ?? root).innerText || "").slice(0, 4000);
         if (location.pathname !== from && text === before) return false;
         return text.trim().length > 20;
       },
@@ -321,7 +325,21 @@ async function go(persona, name, path, { click } = {}) {
     );
     visible = Date.now() - t;
   } catch (e) {
-    note = `content not visible within 30 s: ${String(e.message).split("\n")[0]}`;
+    // what held it back: the loaders on the page (with their place) and whether the content area changed at all
+    const why = await page
+      .evaluate(
+        ({ loaders, main, before }) => ({
+          loaders: [...document.querySelectorAll(loaders)].slice(0, 6).map((el) => {
+            const r = el.getBoundingClientRect();
+            return `${String(el.className).slice(0, 60)} @${Math.round(r.top)},${Math.round(r.left)} ${Math.round(r.width)}x${Math.round(r.height)}`;
+          }),
+          changed: ((main.map((x) => document.querySelector(x)).find(Boolean) ?? document.body).innerText || "").slice(0, 4000) !== before,
+          path: location.pathname,
+        }),
+        { loaders: LOADERS, main: MAIN, before },
+      )
+      .catch(() => null);
+    note = `content not visible within 30 s (${String(e.message).split("\n")[0].slice(0, 80)}); ${JSON.stringify(why)}`;
   }
   const quiet = await settled();
   const settledMs = Date.now() - t;
