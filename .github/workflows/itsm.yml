@@ -328,11 +328,101 @@ jobs:
         with:
           name: itsm-server-msi
           path: itsm/bank-sim/msi-this-run
-      - name: Bank simulation (no Internet from here on)
+      # The simulation runs in steps (no Internet from the first on): the context carries over in bank-sim\context.json,
+      # a critical failure stops the later steps, and the evidence so far is uploaded after every step, so a step that
+      # fails (or a runner that is lost) leaves its logs behind. The report step writes report.md and the job summary.
+      - name: The MSIs of the simulation
         run: |
           $old = Get-ChildItem bank-sim/msi-1.0.0/*.msi | Select-Object -First 1
           $new = Get-ChildItem bank-sim/msi-this-run/*.msi | Select-Object -First 1
-          ./packaging/server/scripts/bank-sim/bank-sim.ps1 -Msi10 $old.FullName -Msi11 $new.FullName -Out "$env:RUNNER_TEMP\bank-sim"
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "BANK_SIM_MSI10=$($old.FullName)", "BANK_SIM_MSI11=$($new.FullName)", "BANK_SIM_OUT=$env:RUNNER_TEMP\bank-sim" -Encoding UTF8
+      - name: "Bank simulation 1-3: the Internet cut, the bank PKI, 1.0.0 installed and set up as the bank's admin would"
+        run: ./packaging/server/scripts/bank-sim/bank-sim.ps1 -Msi10 $env:BANK_SIM_MSI10 -Msi11 $env:BANK_SIM_MSI11 -Out $env:BANK_SIM_OUT -Only 1,2,3
+      - name: The evidence so far
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: itsm-bank-sim
+          path: ${{ runner.temp }}/bank-sim
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 30
+      - name: "Bank simulation 4-6: backup, upgrade in place to this build, a LAN client in Chromium"
+        run: ./packaging/server/scripts/bank-sim/bank-sim.ps1 -Msi10 $env:BANK_SIM_MSI10 -Msi11 $env:BANK_SIM_MSI11 -Out $env:BANK_SIM_OUT -Only 4,5,6
+      - name: The evidence so far
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: itsm-bank-sim
+          path: ${{ runner.temp }}/bank-sim
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 30
+      - name: "Bank simulation 7: demo data loaded, browsed and purged"
+        run: ./packaging/server/scripts/bank-sim/bank-sim.ps1 -Msi10 $env:BANK_SIM_MSI10 -Msi11 $env:BANK_SIM_MSI11 -Out $env:BANK_SIM_OUT -Only 7
+      - name: The evidence so far
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: itsm-bank-sim
+          path: ${{ runner.temp }}/bank-sim
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 30
+      - name: "Bank simulation 8-9: security posture and resilience"
+        run: ./packaging/server/scripts/bank-sim/bank-sim.ps1 -Msi10 $env:BANK_SIM_MSI10 -Msi11 $env:BANK_SIM_MSI11 -Out $env:BANK_SIM_OUT -Only 8,9
+      - name: The evidence so far
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: itsm-bank-sim
+          path: ${{ runner.temp }}/bank-sim
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 30
+      - name: "Bank simulation 10: load"
+        run: ./packaging/server/scripts/bank-sim/bank-sim.ps1 -Msi10 $env:BANK_SIM_MSI10 -Msi11 $env:BANK_SIM_MSI11 -Out $env:BANK_SIM_OUT -Only 10
+      - name: The evidence so far
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: itsm-bank-sim
+          path: ${{ runner.temp }}/bank-sim
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 30
+      - name: "Bank simulation 11-12: DR drill and the Windows app's sync client"
+        run: ./packaging/server/scripts/bank-sim/bank-sim.ps1 -Msi10 $env:BANK_SIM_MSI10 -Msi11 $env:BANK_SIM_MSI11 -Out $env:BANK_SIM_OUT -Only 11,12
+      - name: The evidence so far
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: itsm-bank-sim
+          path: ${{ runner.temp }}/bank-sim
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 30
+      - name: "Bank simulation 13-14: uninstall and re-install, and no outbound attempt"
+        run: ./packaging/server/scripts/bank-sim/bank-sim.ps1 -Msi10 $env:BANK_SIM_MSI10 -Msi11 $env:BANK_SIM_MSI11 -Out $env:BANK_SIM_OUT -Only 13,14
+      - name: The evidence so far
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: itsm-bank-sim
+          path: ${{ runner.temp }}/bank-sim
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 30
+      - name: Bank simulation report (stops the mock servers and restores the network)
+        if: always()
+        run: ./packaging/server/scripts/bank-sim/bank-sim.ps1 -Msi10 $env:BANK_SIM_MSI10 -Msi11 $env:BANK_SIM_MSI11 -Out $env:BANK_SIM_OUT -Report
       - name: Restore outbound traffic
         if: always()
         run: |
@@ -344,4 +434,5 @@ jobs:
           name: itsm-bank-sim
           path: ${{ runner.temp }}/bank-sim
           if-no-files-found: ignore
+          overwrite: true
           retention-days: 30

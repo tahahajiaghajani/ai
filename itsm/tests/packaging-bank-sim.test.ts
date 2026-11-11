@@ -69,6 +69,33 @@ describe("the simulation's scripts", () => {
     expect(job).toMatch(/upload-artifact@v4\n\s+if: always\(\)/);
     expect(job).toContain("Restore outbound traffic");
   });
+
+  it("runs in steps that each leave their evidence behind (a lost runner left no log at all: run 42953772211)", () => {
+    const y = workflow();
+    const job = y.slice(y.indexOf("\n  bank-sim:") + 1).split(/\n  [a-z][a-z-]*:\n/)[0];
+    const steps = job.split(/\n      - /).slice(1);
+    const sims = steps.map((s, i) => [s, i] as const).filter(([s]) => /bank-sim\.ps1 .*-Only [\d,]+/.test(s));
+    // every scenario once, in order
+    const only = sims.flatMap(([s]) => /-Only ([\d,]+)/.exec(s)![1].split(",").map(Number));
+    expect(only).toEqual(Array.from({ length: 14 }, (_, i) => i + 1));
+    for (const [, i] of sims) {
+      const next = steps[i + 1];
+      expect(next).toContain("upload-artifact@v4");
+      expect(next).toContain("if: always()");
+      expect(next).toContain("overwrite: true");
+    }
+    const report = steps.find((s) => s.includes("bank-sim.ps1") && s.includes("-Report"))!;
+    expect(report).toContain("if: always()");
+  });
+
+  it("keeps the CI machine's own agents online but never the test's tools, and keeps the PFX password out of the artifact", () => {
+    const net = readFileSync(join(SIM_PS, "bank-net.ps1"), "utf8");
+    expect(net).toMatch(/\$tools = .*node\|powershell\|pwsh\|chrome/);
+    expect(net).toContain("ci-machine-at-cut.txt");
+    const sim = readFileSync(join(SIM_PS, "bank-sim.ps1"), "utf8");
+    expect(sim).not.toMatch(/pfx_password\s*=/);
+    expect(sim).toMatch(/\$PfxPasswordFile = Join-Path \(Split-Path -Parent \$Out\)/);
+  });
 });
 
 describe("DR on a rebuilt server: the backup says which application key sealed its secrets (finding of the runbook)", () => {

@@ -54,14 +54,49 @@ function Test-TcpOpen([string]$HostName, [int]$Port, [int]$TimeoutMs = 5000) {
 # Cut the Internet. Returns the firewall profiles as they were (Restore-BankNetwork puts them back).
 function Enable-BankNetwork([object]$Lan, [string]$LogDir) {
     $saved = Get-NetFirewallProfile | Select-Object Name, Enabled, DefaultOutboundAction, DefaultInboundAction, LogBlocked, LogAllowed, LogFileName, LogMaxSizeKilobytes
-    # the runner's agent stays online (as smoke-test.ps1 does): its programs only
-    $runner = Get-Process | Where-Object { $_.ProcessName -match '^Runner\.(Listener|Worker)$' -and $_.Path } | ForEach-Object { Split-Path -Parent (Split-Path -Parent $_.Path) } | Sort-Object -Unique
-    foreach ($root in $runner) {
-        Get-ChildItem $root -Recurse -Filter '*.exe' -ErrorAction SilentlyContinue | ForEach-Object {
-            New-NetFirewallRule -Group $script:FwGroup -DisplayName 'bank-sim: CI runner agent' -Direction Outbound -Program $_.FullName -Action Allow | Out-Null
-        }
+    # The CI machine's own programs stay online; they are not the bank's server (installed after this, its programs are
+    # judged by the connection audit at the end, which records attempts whether a rule allowed them or not).
+    # - the runner's agent, as smoke-test.ps1 does, and everything else in its folder (C:\actions-runner: every cached
+    #   version, the Node.js the actions run with, the artifact upload);
+    # - the hosted machine's provisioning / health agents: every running program outside the Windows folder, and every
+    #   program holding a connection outside loopback and the LAN right now. Blocking them for longer than a few
+    #   minutes made GitHub declare the runner lost (run 42953772211: the job died after an hour with no log).
+    # The test's own tools (Node.js, PowerShell, Chromium, msiexec) are never allowed: they are the bank's PCs.
+    $snapshot = Join-Path $LogDir 'ci-machine-at-cut.txt'
+    $procs = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+    $conns = @(Get-NetTCPConnection -ErrorAction SilentlyContinue | Where-Object { $_.State -ne 'Listen' })
+    $lines = @('# processes', '') + @($procs | Sort-Object Name | ForEach-Object { "{0,-32} {1,7} {2}" -f $_.Name, $_.ProcessId, $_.ExecutablePath })
+    $lines += @('', '# TCP connections (not listening)', '') + @($conns | ForEach-Object { $c = $_; $p = $procs | Where-Object { $_.ProcessId -eq $c.OwningProcess } | Select-Object -First 1; "{0}:{1} -> {2}:{3} {4} {5}" -f $c.LocalAddress, $c.LocalPort, $c.RemoteAddress, $c.RemotePort, $c.State, $(if ($p) { $p.ExecutablePath } else { "pid $($c.OwningProcess)" }) })
+    Write-Utf8 $snapshot ($lines -join "`r`n")
+    $allow = New-Object System.Collections.Generic.HashSet[string] ([StringComparer]::OrdinalIgnoreCase)
+    $roots = @(Get-Process | Where-Object { $_.ProcessName -match '^Runner\.(Listener|Worker)$' -and $_.Path } | ForEach-Object {
+        $d = Split-Path -Parent (Split-Path -Parent $_.Path)
+        # C:\actions-runner\cached\2.338.2\bin\Runner.Listener.exe -> C:\actions-runner
+        $up = $d; while ($up -and (Split-Path -Leaf $up) -ne 'actions-runner') { $up = Split-Path -Parent $up }
+        if ($up) { $up } else { $d }
+    } | Sort-Object -Unique)
+    foreach ($root in $roots) {
+        Get-ChildItem $root -Recurse -Filter '*.exe' -ErrorAction SilentlyContinue | ForEach-Object { [void]$allow.Add($_.FullName) }
         Write-Log "the CI runner's agent stays online: $root"
     }
+    $tools = '\\(node|powershell|pwsh|chrome|chrome_crashpad_handler|headless_shell|msiexec|cmd|conhost)\.exe$'
+    $win = [IO.Path]::GetFullPath($env:SystemRoot).TrimEnd('\') + '\'
+    $outside = @($conns | Where-Object { $_.State -eq 'Established' -and -not (Test-InsideBank ([string]$_.RemoteAddress) $Lan) } | ForEach-Object { [int]$_.OwningProcess })
+    foreach ($p in $procs) {
+        $exe = [string]$p.ExecutablePath
+        if (-not $exe -or $allow.Contains($exe)) { continue }
+        $isTool = $exe -match $tools -and -not ($roots | Where-Object { $exe.StartsWith("$_\", [StringComparison]::OrdinalIgnoreCase) })
+        if ($isTool) { continue }
+        $system = $exe.StartsWith($win, [StringComparison]::OrdinalIgnoreCase)
+        if (-not $system -or $outside -contains [int]$p.ProcessId) {
+            [void]$allow.Add($exe)
+            Write-Log "CI machine program kept online: $exe"
+        }
+    }
+    foreach ($exe in $allow) { New-NetFirewallRule -Group $script:FwGroup -DisplayName 'bank-sim: CI machine' -Direction Outbound -Program $exe -Action Allow | Out-Null }
+    Write-Log "$($allow.Count) program(s) of the CI machine kept online (snapshot: $snapshot)"
+    # the runner's agent first in line for the processor (the server, a load test and a browser share four cores)
+    Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.ProcessName -match '^Runner\.(Listener|Worker)$' } | ForEach-Object { try { $_.PriorityClass = 'High'; Write-Log "priority High: $($_.ProcessName) ($($_.Id))" } catch { } }
     # the bank's LAN (the machine's own subnet: domain controller, mail relay, PCs) and the platform's DNS / metadata
     New-NetFirewallRule -Group $script:FwGroup -DisplayName 'bank-sim: bank LAN' -Direction Outbound -RemoteAddress LocalSubnet -Action Allow | Out-Null
     New-NetFirewallRule -Group $script:FwGroup -DisplayName 'bank-sim: bank DNS and platform' -Direction Outbound -RemoteAddress 168.63.129.16, 169.254.169.254 -Action Allow | Out-Null
@@ -69,7 +104,7 @@ function Enable-BankNetwork([object]$Lan, [string]$LogDir) {
     New-NetFirewallRule -Group $script:FwGroup -DisplayName 'bank-sim: mock DC and relay' -Direction Inbound -Protocol TCP -LocalPort 25, 587, 636 -Action Allow | Out-Null
     $fwLog = "$env:SystemRoot\System32\LogFiles\Firewall\pfirewall.log"
     Set-NetFirewallProfile -All -Enabled True -DefaultOutboundAction Block -LogBlocked True -LogAllowed False -LogFileName $fwLog -LogMaxSizeKilobytes 32767
-    Write-Log "outbound blocked by default; allowed: the runner's agent, the LAN $($Lan.Cidr), 168.63.129.16 (DNS) and 169.254.169.254; dropped packets logged to $fwLog"
+    Write-Log "outbound blocked by default; allowed: the CI machine's programs above, the LAN $($Lan.Cidr), 168.63.129.16 (DNS) and 169.254.169.254; dropped packets logged to $fwLog"
     # every connection attempt with its program (5156 allowed, 5157 blocked), in a Security log large enough for the run
     Invoke-Native -File 'wevtutil.exe' -Arguments @('sl', 'Security', '/ms:1073741824') -Quiet | Out-Null
     Invoke-Native -File 'auditpol.exe' -Arguments @('/set', "/subcategory:$($script:AuditConnection)", '/success:enable', '/failure:enable') | Out-Null

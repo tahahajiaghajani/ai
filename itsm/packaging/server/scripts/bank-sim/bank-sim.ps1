@@ -20,7 +20,12 @@ param(
     [int]$LoadUsers = 40,
     [int]$LoadSeconds = 180,
     # scenarios to skip (numbers), for a quick re-run while developing
-    [int[]]$Skip = @()
+    [int[]]$Skip = @(),
+    # run only these scenarios (CI runs the simulation in several steps, so the step that fails is visible even if the
+    # machine is lost); the context (addresses, PKI, ports, backup, results) carries over in <Out>\context.json
+    [int[]]$Only = @(),
+    # write the report, stop the mock servers and restore the network (the last step; runs whatever happened before)
+    [switch]$Report
 )
 . (Join-Path $PSScriptRoot '..\common.ps1')
 . (Join-Path $PSScriptRoot 'bank-net.ps1')
@@ -52,6 +57,44 @@ $script:Results = New-Object System.Collections.ArrayList
 $script:Notes = New-Object System.Collections.ArrayList
 $script:Findings = New-Object System.Collections.ArrayList
 $script:Backup = $null
+$script:BackupAt = $null
+$script:CutAt = $null
+$script:Ports = $null
+$script:Aborted = $false
+$ContextFile = Join-Path $Out 'context.json'
+# the PFX password carries over beside the output folder, never in it (the folder is the CI artifact)
+$PfxPasswordFile = Join-Path (Split-Path -Parent $Out) 'bank-sim-pfx-password.txt'
+
+function Save-Context {
+    $ctx = [pscustomobject]@{
+        started = $Started.ToString('o'); lan = $script:Lan; cut_at = $(if ($script:CutAt) { ([datetime]$script:CutAt).ToString('o') } else { $null })
+        pki = $script:Pki; saved_fw = $script:SavedFw; ports = $script:Ports; backup = $script:Backup
+        backup_at = $(if ($script:BackupAt) { ([datetime]$script:BackupAt).ToString('o') } else { $null })
+        mocks = @($script:Mocks | ForEach-Object { $_.Id }); results = @($script:Results); findings = @($script:Findings); aborted = $script:Aborted
+    }
+    Write-Utf8 $ContextFile ($ctx | ConvertTo-Json -Depth 8)
+    if (-not (Test-Path -LiteralPath $PfxPasswordFile)) { Write-Utf8 $PfxPasswordFile $PfxPassword }
+}
+
+# a run of every scenario at once starts afresh; a CI step (-Only) or the report (-Report) carries on from the earlier steps
+if (-not $Only.Count -and -not $Report) { Remove-Item -LiteralPath $ContextFile, $PfxPasswordFile -Force -ErrorAction SilentlyContinue }
+elseif (-not (Test-Path -LiteralPath $ContextFile)) { Remove-Item -LiteralPath $PfxPasswordFile -Force -ErrorAction SilentlyContinue }
+if (Test-Path -LiteralPath $ContextFile) {
+    $ctx = Get-Content -LiteralPath $ContextFile -Raw -Encoding UTF8 | ConvertFrom-Json
+    $Started = [datetime]$ctx.started
+    $script:Lan = $ctx.lan
+    if ($ctx.cut_at) { $script:CutAt = [datetime]$ctx.cut_at }
+    $script:Pki = $ctx.pki
+    $script:SavedFw = $ctx.saved_fw
+    $script:Ports = $ctx.ports
+    $script:Backup = $ctx.backup
+    if ($ctx.backup_at) { $script:BackupAt = [datetime]$ctx.backup_at }
+    if (Test-Path -LiteralPath $PfxPasswordFile) { $PfxPassword = (Get-Content -LiteralPath $PfxPasswordFile -Raw -Encoding UTF8).Trim() }
+    foreach ($id in @($ctx.mocks)) { if ($id) { $mp = Get-Process -Id $id -ErrorAction SilentlyContinue; if ($mp) { $script:Mocks += $mp } } }
+    foreach ($r in @($ctx.results)) { if ($r) { [void]$script:Results.Add($r) } }
+    foreach ($f in @($ctx.findings)) { if ($f) { [void]$script:Findings.Add([string]$f) } }
+    $script:Aborted = [bool]$ctx.aborted
+}
 
 # A property of a parsed JSON object, or $null when it is absent (Set-StrictMode 2 throws on a missing property).
 function Get-Prop($o, [string]$Name) {
@@ -64,6 +107,7 @@ function Finding([string]$m) { Write-Log "FINDING: $m" 'WARN'; [void]$script:Fin
 
 # One scenario: timed, its result recorded; a critical one stops the run when it fails.
 function Invoke-Scenario([int]$Id, [string]$Title, [scriptblock]$Body, [switch]$Critical, [switch]$Stretch) {
+    if ($Report -or ($Only.Count -and $Only -notcontains $Id)) { return }
     if ($Skip -contains $Id) { [void]$script:Results.Add([pscustomobject]@{ id = $Id; title = $Title; status = 'skipped'; seconds = 0; detail = ''; notes = @() }); return }
     Write-Step "[$Id] $Title"
     $script:Notes.Clear()
@@ -80,6 +124,7 @@ function Invoke-Scenario([int]$Id, [string]$Title, [scriptblock]$Body, [switch]$
     $sw.Stop()
     [void]$script:Results.Add([pscustomobject]@{ id = $Id; title = $Title; status = $status; seconds = [math]::Round($sw.Elapsed.TotalSeconds, 1); detail = $detail; notes = @($script:Notes) })
     Write-Log ("[{0}] {1}: {2} in {3:N1} s" -f $Id, $Title, $status.ToUpperInvariant(), $sw.Elapsed.TotalSeconds)
+    Save-Context
     if ($status -eq 'fail' -and $Critical) { throw "critical scenario $Id failed: $detail" }
 }
 
@@ -200,7 +245,19 @@ function Get-WideAces([string]$Path, [switch]$WriteOnly) {
 
 # ======================================================================================================================
 try {
-    $script:Lan = Get-LanInfo
+    if ($script:Aborted -and -not $Report) { Fail 'an earlier step stopped the simulation (critical scenario failed)' }
+    if (-not $script:Lan) { $script:Lan = Get-LanInfo }
+    # the mock domain controller and mail relay keep running between the CI steps; started again if they are gone
+    if ($script:Pki -and -not $Report) {
+        if ((Test-TcpOpen 'smtp.bank.local' 587 3000) -ne 'open') {
+            Write-Log 'the mock mail relay is not running: starting it again'
+            Start-Mock 'smtp-sink' @('--host', $script:Lan.Ip, '--ports', '25,587', '--pfx', $script:Pki.smtp, '--passphrase', $PfxPassword, '--out', $MailFile)
+        }
+        if ((Test-TcpOpen 'dc1.bank.local' 636 3000) -ne 'open') {
+            Write-Log 'the mock domain controller is not running: starting it again'
+            Start-Mock 'ldap-mock' @('--host', $script:Lan.Ip, '--port', '636', '--pfx', $script:Pki.dc1, '--passphrase', $PfxPassword, '--info', (Join-Path $Out 'logs\ldap-info.json'), '--log', (Join-Path $Out 'logs\ldap-activity.json'))
+        }
+    }
     Write-Log ("machine: {0}, {1} logical processors, {2} GB memory; LAN {3} ({4}); data folder {5}" -f (Get-CimInstance Win32_OperatingSystem).Caption, (Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors, [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 1), $script:Lan.Ip, $script:Lan.Cidr, $DataDir)
 
     Invoke-Scenario 1 'Prepare, then cut the internet' -Critical {
@@ -503,9 +560,16 @@ try {
     }
 } catch {
     Write-Log "stopped: $($_.Exception.Message)" 'ERROR'
+    $script:Aborted = $true
 } finally {
-    foreach ($p in $script:Mocks) { try { if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force } } catch { } }
+    Save-Context
     Copy-ServerLogs
+}
+# a step of the CI run: its scenarios are recorded; only a critical failure stops the next steps
+if ($Only.Count -and -not $Report) { if ($script:Aborted) { exit 1 }; exit 0 }
+# the report (the last step, or a run of every scenario at once)
+& {
+    foreach ($p in $script:Mocks) { try { if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force } } catch { } }
     if ($script:SavedFw) { Restore-BankNetwork $script:SavedFw }
     $failed = @($script:Results | Where-Object { $_.status -eq 'fail' })
     $report = [pscustomobject]@{
