@@ -88,6 +88,14 @@ describe("the simulation's scripts", () => {
     expect(report).toContain("if: always()");
   });
 
+  it("no development shortcut is left in the workflow: every push runs the test shards and the smoke test", () => {
+    const y = workflow();
+    expect(y).not.toMatch(/bank-sim-fast|TEMPORARY/);
+    const server = y.slice(y.indexOf("\n  server:"), y.indexOf("\n  server-publish:"));
+    expect(server).toContain("needs: [check, test]");
+    expect(server).not.toMatch(/\n    if:/);
+  });
+
   it("the mock domain controller keeps its people's identity when a CI step starts it again", () => {
     const m = readFileSync(join(SIM_JS, "ldap-mock.mjs"), "utf8");
     expect(m).toMatch(/objectGUID: \[guid\(sam\)\]/);

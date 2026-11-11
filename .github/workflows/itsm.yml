@@ -51,7 +51,7 @@ jobs:
 
   # the whole suite (every test, nothing skipped) in four parallel shards: one runner needs more than 25 minutes
   test:
-    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) && !contains(github.event.head_commit.message, '[bank-sim-fast]')
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 40
     strategy:
@@ -77,7 +77,7 @@ jobs:
   # About 7 minutes; the full crawl (every route, «… تازه», records and their tabs, phone width) is `npm run qa:crawl`
   # (about 35 minutes).
   clickthrough:
-    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) && !contains(github.event.head_commit.message, '[bank-sim-fast]')
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -180,8 +180,6 @@ jobs:
     # ports, uninstall keeping data, a given busy port refused with its reason in install-error.txt and the event log).
     # Guide: itsm/docs/SERVER_FA.md; design: itsm/docs/spec/SERVER.md
     needs: [check, test]
-    # TEMPORARY (bank simulation work): a commit marked [bank-sim-fast] skips the test shards; removed before merging
-    if: ${{ !cancelled() && needs.check.result == 'success' && (needs.test.result == 'success' || needs.test.result == 'skipped') }}
     runs-on: windows-latest
     timeout-minutes: 90
     defaults:
@@ -232,7 +230,6 @@ jobs:
           ./packaging/server/scripts/build-msi.ps1 -Dist server-dist -Cache packaging/server/.cache -Out server-release
           ./packaging/server/scripts/build-msi.ps1 -Dist server-dist -Cache packaging/server/.cache -Out server-upgrade-test -Suffix '-upgrade-test'
       - name: Air-gapped smoke test (443/80 held, default ports, setup, sign-in, incident, backup, re-install with dialog properties, upgrade, uninstall, busy given port)
-        if: ${{ !contains(github.event.head_commit.message, '[bank-sim-fast]') }}
         run: |
           $msi = Get-ChildItem server-release/*.msi | Select-Object -First 1
           $upgrade = Get-ChildItem server-upgrade-test/*.msi | Select-Object -First 1

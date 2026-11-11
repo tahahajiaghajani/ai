@@ -186,7 +186,10 @@ internal identifiers stay neutral (`sm_*`, `itsm.*`, `ITSM_*`).
   (RTO/RPO), the Windows app's sync client headless, uninstall/re-install/REMOVEDATA=1 leftovers, and no outbound
   attempt by the installation's programs. The scenarios run in seven steps (`-Only 1,2,3` ...), the context carried
   over in `context.json`, the evidence uploaded after every step (`overwrite: true`, so a lost runner still leaves its
-  logs) and a `-Report` step that always runs (report.md, job summary, network restored).
+  logs) and a `-Report` step that always runs (report.md, job summary, network restored). Product fixes it drove:
+  `--use-system-ca` for KarizApp, the CSP hash over normalised newlines, the setup pulling seed jobs forward, the
+  backup's key fingerprint, and the demo load's long steps chunked (`inChunks`: 40 rows a transaction up to the
+  deadline; one transaction of 900 requests had held the job queue for half an hour). Results: docs/qa/BANK_SIM_FA.md.
 
 ## Testing
 
