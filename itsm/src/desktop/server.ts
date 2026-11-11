@@ -12,7 +12,7 @@ import { migrate } from "@server/db/migrate";
 import { createApp } from "@server/app";
 import { registerCloudLink } from "@server/modules/ai/relay";
 import { consoleLogger, type Logger, type ServerConfig } from "@server/context";
-import { tick } from "@server/jobs";
+import { stopTicks, tick } from "@server/jobs";
 import { loadConfig, saveConfig, type LocalConfig } from "./config";
 import { createBridge } from "./bridge";
 import { takePendingRestore, undoRestore, restorePending } from "./backup";
@@ -154,6 +154,8 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
     config,
     async close() {
       clearInterval(jobTimer);
+      // the job runner finishes the jobs it holds and claims no more (not the rest of its 8-second budget)
+      await stopTicks(db);
       await bridge.stop();
       await new Promise<void>((r) => (server ? server.close(() => r()) : r()));
       // a checkpoint, then PGlite's own close (src/server/db/pglite.ts): the next start replays no log
