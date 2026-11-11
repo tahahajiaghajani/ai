@@ -31,6 +31,7 @@ Read `docs/ARCHITECTURE_FA.md` (architecture), `docs/INSTALL_FA.md` (owner setup
 - Database changes: add a **new** file `supabase/migrations/<timestamp>_<name>.sql` that is idempotent (`if not exists`, `create or replace`, `drop policy if exists`). Never edit an existing migration. Add RLS for new tables (reads only; writes via service role).
 - Realtime: tables in the `supabase_realtime` publication are `tasks, task_events, jobs, notifications, upgrades, connection_state`. Keep heavy data out of realtime tables (use `job_data`).
 - Secrets only in env vars (`src/lib/env.ts`), encrypted in `user_connections`, or GitHub Secrets. Never commit keys and never put the owner's personal data in the repo.
+- `vercel.json` holds this project's Ignored Build Step (`ignoreCommand`, it overrides the dashboard): a deployment is skipped when only the separate projects' folders (`siraf`, `itsm`, `pars-website`, `celin-website`, `portfolio` — each with the same command in its own `vercel.json`) changed since the last deployed commit. A new sub-project's folder goes into the `':!folder'` list (`:!` = `:(exclude)`, because Vercel caps the command at 256 characters). Keep the `git cat-file -e` guard: Vercel's clone is shallow, and when the last deployed commit is missing `git diff` exits 128, which Vercel counts as a failed deployment, not a build.
 
 ## Commands
 - `npm run typecheck` · `npm run build` · `npm test` (vitest, `tests/`; live provider tests: `LIVE=1 GEMINI_API_KEY=… npx vitest run tests/live`)

@@ -254,21 +254,23 @@ select
 
 ### ۲-۸. چند پروژهٔ Vercel روی یک مخزن (Ignored Build Step)
 
-هر پروژهٔ Vercel که به این مخزن وصل است با هر push ساخته می‌شود و پلن Hobby هم‌زمان فقط یک ساخت انجام می‌دهد. برای این‌که سیراف فقط با تغییر پوشهٔ خودش ساخته شود:
-
-1. پروژهٔ سیراف ← `Settings` ← `Build and Deployment` (در راهنماهای قدیمی‌تر: `Git`) ← `Ignored Build Step`.
-2. `Behavior`: `Custom`.
-3. `Command`:
-   ```bash
-   git diff --quiet "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}" HEAD -- .
-   ```
-4. `Save`.
-
-این دستور تغییرات از آخرین انتشار موفق تا الان را در پوشهٔ `siraf` بررسی می‌کند (نه فقط آخرین commit). در پروژهٔ Task Flow (ریشهٔ مخزن) هم همین کار را بکنید، با کنار گذاشتن پوشهٔ سیراف و سایت‌های دیگر:
+هر پروژهٔ Vercel که به این مخزن وصل است با هر push ساخته می‌شود و پلن Hobby هم‌زمان فقط یک ساخت انجام می‌دهد. برای این‌که سیراف فقط با تغییر پوشهٔ خودش ساخته شود، فایل `siraf/vercel.json` دستور `Ignored Build Step` را خودش دارد (کلید `"ignoreCommand"`) و بر تنظیم داشبورد مقدم است؛ پس در `Settings` ← `Build and Deployment` ← `Ignored Build Step` کاری لازم نیست. دستور این است:
 
 ```bash
-git diff --quiet "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}" HEAD -- . ':(exclude)siraf' ':(exclude)pars-website' ':(exclude)celin-website' ':(exclude)portfolio'
+git cat-file -e "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}^{commit}" 2>/dev/null && git diff --quiet "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}" HEAD -- . || exit 1
 ```
+
+این دستور داخل `Root Directory` (پوشهٔ `siraf`) اجرا می‌شود و تغییرات از آخرین انتشار موفق تا الان را بررسی می‌کند (نه فقط آخرین commit): اگر در این پوشه چیزی عوض نشده باشد ساخت لغو می‌شود (خروجی ۰) و در غیر این صورت ساخته می‌شود (خروجی ۱).
+
+**بخش اول (`git cat-file -e`) را حذف نکنید.** Vercel فقط چند commit آخر را clone می‌کند و `VERCEL_GIT_PREVIOUS_SHA` کامیتِ آخرین ساخت موفق است. اگر پروژه مدتی ساخته نشده باشد، آن کامیت در clone نیست و `git diff` به‌تنهایی با خطای `fatal: bad object` (خروجی ۱۲۸) تمام می‌شود؛ Vercel هر خروجی غیر از ۰ و ۱ را خطا می‌داند و کل انتشار پیش از ساخت شکست می‌خورد. با بخش اول، در این حالت سیراف ساخته می‌شود.
+
+پروژهٔ Task Flow (ریشهٔ مخزن) همین دستور را در `vercel.json` ریشه دارد، با کنار گذاشتن پوشهٔ همهٔ پروژه‌های جدا. `':!siraf'` شکل کوتاه `':(exclude)siraf'` است؛ Vercel این دستور را به ۲۵۶ نویسه محدود می‌کند:
+
+```bash
+git cat-file -e "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}^{commit}" 2>/dev/null && git diff --quiet "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}" HEAD -- . ':!siraf' ':!itsm' ':!pars-website' ':!celin-website' ':!portfolio' || exit 1
+```
+
+اگر قبلاً در داشبورد یکی از این پروژه‌ها دستوری گذاشته‌اید، آن را با همین دستور عوض یا پاک کنید: فقط برای شاخه‌هایی به کار می‌رود که این `vercel.json` را هنوز ندارند.
 
 **باید ببینید:** در push بعدی که فقط پوشهٔ دیگری را تغییر داده، انتشار سیراف در `Deployments` با وضعیت `Canceled` (ساخت لازم نبود) دیده می‌شود.
 
