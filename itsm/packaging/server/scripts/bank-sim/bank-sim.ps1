@@ -53,6 +53,12 @@ $script:Notes = New-Object System.Collections.ArrayList
 $script:Findings = New-Object System.Collections.ArrayList
 $script:Backup = $null
 
+# A property of a parsed JSON object, or $null when it is absent (Set-StrictMode 2 throws on a missing property).
+function Get-Prop($o, [string]$Name) {
+    if ($null -ne $o -and $o.PSObject.Properties[$Name]) { return $o.PSObject.Properties[$Name].Value }
+    return $null
+}
+
 function Note([string]$m) { Write-Log $m; [void]$script:Notes.Add($m) }
 function Finding([string]$m) { Write-Log "FINDING: $m" 'WARN'; [void]$script:Findings.Add($m) }
 
@@ -111,7 +117,7 @@ function Invoke-Ctl([string[]]$Arguments, [switch]$Timed) {
     return $sw.Elapsed.TotalSeconds
 }
 
-function Invoke-Msi([string[]]$Arguments, [string]$Log, [string[]]$Mask = @()) {
+function Invoke-Msi([string[]]$Arguments, [string]$Log, [string[]]$Mask = @(), [switch]$AllowFail) {
     $all = ($Arguments + @('/qn', '/norestart', '/l*v', $Log)) | ForEach-Object {
         if ($_ -match '\s' -and $_ -notmatch '"') { if ($_ -match '^([A-Z]+)=(.*)$') { "$($Matches[1])=`"$($Matches[2])`"" } else { "`"$_`"" } } else { $_ }
     }
@@ -122,6 +128,7 @@ function Invoke-Msi([string[]]$Arguments, [string]$Log, [string[]]$Mask = @()) {
     $p = Start-Process -FilePath 'msiexec.exe' -ArgumentList $all -Wait -PassThru
     $sw.Stop()
     Note ("msiexec {0}: exit {1} in {2:N0} s" -f $Arguments[0], $p.ExitCode, $sw.Elapsed.TotalSeconds)
+    if ($AllowFail) { return [int]$p.ExitCode }
     if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) {
         Get-Content $Log -Encoding Unicode -ErrorAction SilentlyContinue | Select-String -Pattern 'Return value 3|error|ERROR|STEP|WARN' | Select-Object -Last 80 | ForEach-Object { Write-Log "   $_" }
         Copy-ServerLogs
@@ -230,22 +237,42 @@ try {
     }
 
     Invoke-Scenario 3 'Install 1.0.0 the way the bank admin would' -Critical {
-        $t = Invoke-Msi @('/i', $Msi10, "HOSTNAME=$HostName", "DATADIR=$DataDir", "CERTPATH=$($script:Pki.kariz)", "CERTPASSWORD=$PfxPassword") (Join-Path $Out 'logs\msi-install-1.0.0.log') -Mask @($PfxPassword)
-        Note ("install 1.0.0 took {0:N0} s" -f $t)
-        $msiLog = [IO.File]::ReadAllText((Join-Path $Out 'logs\msi-install-1.0.0.log'))
+        foreach ($port in @(443, 80)) {
+            $held = Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($held) { Note ("before the install, port {0} is held by {1} (pid {2})" -f $port, (Get-Process -Id $held.OwningProcess -ErrorAction SilentlyContinue).ProcessName, $held.OwningProcess) }
+        }
+        $props = @('/i', $Msi10, "HOSTNAME=$HostName", "DATADIR=$DataDir", "CERTPATH=$($script:Pki.kariz)", "CERTPASSWORD=$PfxPassword")
+        $log = Join-Path $Out 'logs\msi-install-1.0.0.log'
+        $code = Invoke-Msi $props $log -Mask @($PfxPassword) -AllowFail
+        if ($code -ne 0 -and $code -ne 3010) {
+            # 1.0.0 cannot move off a busy default port by itself (1.1.0 does); the guide's remedy: give another port
+            $why = ''
+            $ef = Join-Path $DataDir 'logs\install-error.txt'
+            if (Test-Path $ef) { $why = (Get-Content -LiteralPath $ef -Raw -Encoding UTF8) }
+            else { $il = Get-ChildItem (Join-Path $DataDir 'logs') -Filter 'install-*.log' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if ($il) { $why = (Get-Content -LiteralPath $il.FullName -Raw -Encoding UTF8) } }
+            if ($why -notmatch 'port 80 is already used') { Copy-ServerLogs; Fail "the 1.0.0 install failed (exit $code): $($why.Trim())" }
+            $sys = ''
+            try { $sys = (& netsh.exe http show servicestate view=requestq | Select-String -Pattern 'Process IDs|Controller process|Registered URLs|HTTP://\*:80|HTTP://\+:80' | Select-Object -First 8 | ForEach-Object { "$_".Trim() }) -join '; ' } catch { $sys = $_.Exception.Message }
+            Finding "1.0.0: port 80 is held by Windows (HTTP.sys, System pid 4) on this Windows Server 2025 machine, so a silent install with the default ports fails ('port 80 is already used by System'); 1.1.0 moves to the next free port by itself. HTTP.sys: $sys"
+            Note 'the admin follows the guide and installs 1.0.0 again with HTTPPORT=8080'
+            $code = Invoke-Msi ($props + @('HTTPPORT=8080')) (Join-Path $Out 'logs\msi-install-1.0.0-retry.log') -Mask @($PfxPassword) -AllowFail
+            if ($code -ne 0 -and $code -ne 3010) { Copy-ServerLogs; Fail "the 1.0.0 install with HTTPPORT=8080 failed too (exit $code)" }
+        }
+        $msiLog = (Get-ChildItem (Join-Path $Out 'logs') -Filter 'msi-install-1.0.0*.log' | ForEach-Object { [IO.File]::ReadAllText($_.FullName) }) -join "`n"
         if ($msiLog.Contains($PfxPassword)) { Fail 'the MSI log holds the certificate password' }
         Assert-Services 'running'
         $c = Read-Config
         Note "ports: HTTPS $($c.listen.https_port), HTTP $($c.listen.http_port), PostgreSQL $($c.db.port); public URL $($c.public_url); TLS $($c.tls.pfx)"
-        if ([int]$c.listen.https_port -ne 443 -or [int]$c.listen.http_port -ne 80) { Fail "default ports expected 443/80, got $($c.listen.https_port)/$($c.listen.http_port)" }
+        if ([int]$c.listen.https_port -ne 443) { Fail "HTTPS on 443 expected, got $($c.listen.https_port)" }
         if ($c.public_url -ne $Base) { Fail "public URL $($c.public_url), expected $Base" }
         $script:Ports = [pscustomobject]@{ https = [int]$c.listen.https_port; http = [int]$c.listen.http_port; pg = [int]$c.db.port; pfx = [string]$c.tls.pfx }
         Invoke-Js 'api.mjs' 'api-fresh' @('--setup-file', (Join-Path $DataDir 'setup-url.txt')) | Out-Null
         Invoke-Js 'browser.mjs' 'browser-setup' @('--shots', (Join-Path $Out 'shots')) | Out-Null
-        Invoke-Js 'api.mjs' 'api-populate' @('--mail-file', $MailFile, '--ldap-info', (Join-Path $Out 'logs\ldap-info.json'), '--ca-pem', $script:Pki.rootPem) | Out-Null
+        $pop = Invoke-Js 'api.mjs' 'api-populate' @('--mail-file', $MailFile, '--ldap-info', (Join-Path $Out 'logs\ldap-info.json'), '--ca-pem', $script:Pki.rootPem)
+        if (Get-Prop $pop.metrics 'seeds_on_demand') { Finding '1.0.0: the modules'' defaults (IT catalogue, knowledge bases, SLA calendars) arrive 10-12 minutes after the first-run setup; fixed in 1.1.0 (the setup runs them at once)' }
         # the e-mail channel of the setup: STARTTLS on 587 with the relay's bank-CA certificate
         $n = Invoke-Js 'api.mjs' 'api-notify-1' @('--mail-file', $MailFile, '--smtp-port', '587', '--smtp-security', 'starttls', '--who', 'agent1', '--may-fail', '--mail-timeout', '90')
-        if (-not $n.metrics.delivered) {
+        if (-not (Get-Prop $n.metrics 'delivered')) {
             Finding '1.0.0: a notification over STARTTLS to the relay with a bank-CA certificate is not delivered (the server does not trust the Windows certificate store); fixed in 1.1.0 (KarizApp runs Node.js with --use-system-ca)'
             Get-Content (Join-Path $Out 'logs\smtp-sink.out.log') -Tail 20 -ErrorAction SilentlyContinue | ForEach-Object { Write-Log "   relay: $_" }
             Invoke-Js 'api.mjs' 'api-notify-2' @('--mail-file', $MailFile, '--smtp-port', '25', '--smtp-security', 'none', '--who', 'agent1') | Out-Null

@@ -118,7 +118,7 @@ function Get-KarizOutbound([datetime]$Since, [string]$InstallDir, [object]$Lan, 
     foreach ($e in $events) {
         $x = [xml]$e.ToXml()
         $d = @{}
-        foreach ($n in $x.Event.EventData.Data) { $d[$n.Name] = [string]$n.'#text' }
+        foreach ($n in @($x.Event.EventData.Data)) { $d[[string]$n.GetAttribute('Name')] = [string]$n.InnerText }
         $app = ([string]$d['Application']).ToLowerInvariant()
         $prog = Split-Path -Leaf $app
         if (-not $byProgram.ContainsKey($prog)) { $byProgram[$prog] = 0 }

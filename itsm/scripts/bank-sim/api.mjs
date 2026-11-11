@@ -131,35 +131,6 @@ async function populate() {
   const chg = (await api.post(`${P}/r/change_request`, { short_description: "به‌روزرسانی سیستم‌عامل خودپردازهای استان تهران", type: "normal" })).row;
   state.set("change", { id: chg.id, number: chg.number });
   C.check(!!chg.number, "a change request is created", chg.number);
-  const base = (await api.post(`${P}/r/kb_base/query`, { size: 1, total: false })).rows?.[0]?.id;
-  const kb = (await api.post(`${P}/r/kb_article`, { title: "راهنمای بازگرداندن کارت گیرکرده در خودپرداز", base_id: base })).row;
-  state.set("kb", { id: kb.id, number: kb.number });
-  C.check(!!kb.id, "a knowledge article is created", kb.number);
-
-  // a catalogue order by the branch employee (the first orderable item that needs no answer)
-  const staff = new Api(BASE);
-  await staff.signIn(PEOPLE[3].email, PASSWORD, state);
-  const cat = await staff.get(`${P}/request/catalog`);
-  let ordered = null;
-  for (const it of (cat.items ?? []).filter((x) => x.orderable)) {
-    const chk = await staff.raw("POST", `${P}/request/catalog/items/${it.id}/check`, { body: { answers: {} } });
-    if (chk.status !== 200 || chk.json?.ok === false || (chk.json?.errors && Object.keys(chk.json.errors).length)) continue;
-    const r = await staff.raw("POST", `${P}/request/order`, { body: { lines: [{ item_id: it.id, answers: {} }] } });
-    if (r.status === 200) {
-      ordered = { item: it.name, json: r.json };
-      break;
-    }
-  }
-  const reqId = ordered?.json?.request?.id ?? ordered?.json?.id ?? ordered?.json?.requests?.[0]?.id ?? null;
-  C.check(!!ordered, "the branch employee orders a catalogue item", ordered ? `${ordered.item}: ${JSON.stringify(ordered.json).slice(0, 300)}` : `${(cat.items ?? []).length} items`);
-  if (ordered) {
-    const mine = (await staff.post(`${P}/r/request/query`, { size: 5, total: false })).rows ?? [];
-    state.set("request", { id: reqId ?? mine[0]?.id, number: mine[0]?.number, item: ordered.item });
-  }
-
-  // a notification e-mail: the incident assigned to an agent (built-in rule «ارجاع به کارشناس»)
-  await notify(api, "agent1");
-
   // Active Directory: LDAPS to dc1.bank.local with the bank's root CA pasted as the guide says (docs/AD_FA.md §2-3)
   const info = JSON.parse(readFileSync(String(a["ldap-info"]), "utf8"));
   const ca = readFileSync(String(a["ca-pem"]), "utf8");
@@ -190,6 +161,55 @@ async function populate() {
   C.check(approved.status === 200, "the administrator approves the source (re-authenticated)", `${approved.status} ${JSON.stringify(approved.json).slice(0, 300)}`);
   await adSignIn("ali", "agent");
   await adSignIn("sara", null);
+
+  // the modules' defaults (knowledge bases, the IT catalogue) come from background jobs: 1.1.0 runs them right after
+  // the setup; 1.0.0 queued them 10-12 minutes later (finding). Waited for two minutes, then the on-demand seeds an
+  // administrator finds on those pages («افزودن پیش‌فرض‌ها») are used.
+  const seededNow = async () => ((await api.post(`${P}/r/kb_base/query`, { size: 1, total: false })).rows ?? []).length > 0 && ((await api.get(`${P}/request/catalog`)).items ?? []).length > 0;
+  const t0 = Date.now();
+  let seeded = false;
+  while (Date.now() - t0 < Number(a["seed-wait"] ?? 120) * 1000 && !(seeded = await seededNow())) await sleep(10_000);
+  const waited = Math.round((Date.now() - t0) / 1000);
+  if (!seeded) {
+    C.note(`the modules' defaults were not there ${waited} s after the setup: seeded on demand (knowledge, catalogue)`);
+    C.metric("seeds_on_demand", true);
+    await api.post(`${P}/knowledge/seed`, {});
+    await api.post(`${P}/request/seed`, {});
+    seeded = await seededNow();
+  } else C.metric("seeds_after_s", waited);
+  C.check(seeded, "the modules' defaults (knowledge bases, IT catalogue) are there");
+  const base = (await api.post(`${P}/r/kb_base/query`, { size: 1, total: false })).rows?.[0]?.id;
+  // the knowledge editor's «مقالهٔ تازه» (an article with its first draft version)
+  const kb = (await api.post(`${P}/knowledge/articles`, { base_id: base, title: "راهنمای بازگرداندن کارت گیرکرده در خودپرداز", summary: "گام‌های کارشناس شعبه", body: "۱. دستگاه را در حالت نگهداری بگذارید.\n۲. کارت را از مسیر کارت‌خوان بردارید." })).article;
+  state.set("kb", { id: kb.id, number: kb.number });
+  C.check(!!kb.id, "a knowledge article is created", kb.number);
+
+  // a catalogue order by the branch employee (the first orderable item that needs no answer)
+  const staff = new Api(BASE);
+  await staff.signIn(PEOPLE[3].email, PASSWORD, state);
+  const cat = await staff.get(`${P}/request/catalog`);
+  let ordered = null;
+  // the first item whose questions are all free text («درخواست دیگر»: subject and details), answered as a person would
+  const items = (cat.items ?? []).filter((x) => x.orderable && x.type !== "order_guide");
+  items.sort((x, y) => (y.name === "درخواست دیگر") - (x.name === "درخواست دیگر"));
+  for (const it of items) {
+    const answers = {};
+    let chk = await staff.raw("POST", `${P}/request/catalog/items/${it.id}/check`, { body: { answers } });
+    for (const k of Object.keys(chk.json?.errors ?? {})) answers[k] = "کارت‌خوان خودپرداز شعبهٔ مرکزی تعویض شود";
+    if (Object.keys(answers).length) chk = await staff.raw("POST", `${P}/request/catalog/items/${it.id}/check`, { body: { answers } });
+    if (chk.status !== 200 || (chk.json?.errors && Object.keys(chk.json.errors).length)) continue;
+    const r = await staff.raw("POST", `${P}/request/order`, { body: { lines: [{ item_id: it.id, answers }] } });
+    if (r.status === 200) {
+      ordered = { item: it.name, json: r.json };
+      break;
+    }
+  }
+  const reqId = ordered?.json?.request?.id ?? ordered?.json?.id ?? ordered?.json?.requests?.[0]?.id ?? null;
+  C.check(!!ordered, "the branch employee orders a catalogue item", ordered ? `${ordered.item}: ${JSON.stringify(ordered.json).slice(0, 300)}` : `${(cat.items ?? []).length} items`);
+  if (ordered) {
+    const mine = (await staff.post(`${P}/r/request/query`, { size: 5, total: false })).rows ?? [];
+    state.set("request", { id: reqId ?? mine[0]?.id, number: mine[0]?.number, item: ordered.item });
+  }
 }
 
 /** Sign in as CORP\<sam> through Active Directory; `role` the role the mapping must give (agent). */
@@ -203,8 +223,8 @@ async function adSignIn(sam, role) {
   if (role) {
     const org = orgOf();
     const acc = await ad.raw("GET", `/o/${org}/access/me`);
-    const text = JSON.stringify(acc.json ?? {});
-    C.check(acc.status === 200 && text.includes(role), `CORP\\${sam} got the role «${role}» from the Kariz-Agents group (nested)`, text.slice(0, 300));
+    const roles = acc.json?.roles ?? [];
+    C.check(acc.status === 200 && roles.includes(role), `CORP\\${sam} got the role «${role}» from the Kariz-Agents group (nested)`, JSON.stringify(roles));
   }
   const bad = await new Api(BASE).raw("POST", "/auth/directory", { body: { login: `CORP\\${sam}`, password: "wrong-password" } });
   C.check(bad.status >= 400, `a wrong AD password is refused for CORP\\${sam}`, `${bad.status}`);
@@ -222,7 +242,13 @@ async function notify(api, who, { mayFail = false } = {}) {
   const t0 = Date.now();
   const got = await mailFor(email, since, Number(a["mail-timeout"] ?? 120) * 1000);
   const ok = got.length > 0;
-  const where = ok ? `port ${got[0].port}${got[0].tls ? " with STARTTLS" : " without TLS"}, subject ${got[0].subject}` : "nothing reached the relay";
+  let where = ok ? `port ${got[0].port}${got[0].tls ? " with STARTTLS" : " without TLS"}, subject ${got[0].subject}` : "nothing reached the relay";
+  if (!ok) {
+    // the server's own delivery log says why («گزارش ارسال»)
+    const lg = (await api.raw("GET", `${P}/notify/log?size=30`)).json?.entries ?? [];
+    const last = lg.find((e) => e.channel === "email" && e.record_id === inc.id) ?? lg.find((e) => e.channel === "email");
+    if (last) where += `; delivery log: ${last.status} ${last.error ?? last.reason ?? ""}`;
+  }
   if (mayFail && !ok) C.note(`notification e-mail to ${email} did not arrive (${where})`);
   else C.check(ok, `a notification e-mail reaches the bank's relay for ${email} (${Math.round((Date.now() - t0) / 1000)} s)`, where);
   if (ok) C.metric(`mail_${who}`, { port: got[0].port, tls: got[0].tls, seconds: Math.round((got[0] && Date.parse(got[0].at) - t0) / 1000) });

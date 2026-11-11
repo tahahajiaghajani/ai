@@ -155,7 +155,7 @@ async function setup() {
   await page.locator("#backup_dir").waitFor({ state: "visible", timeout: 20_000 });
   C.metric("backup_dir", await page.locator("#backup_dir").inputValue());
   await page.getByRole("button", { name: "پایان راه‌اندازی" }).click();
-  await page.getByText("سرور آماده است").waitFor({ timeout: 120_000 });
+  await page.getByText("سرور آماده است").first().waitFor({ timeout: 120_000 });
   const body = await page.locator("body").innerText();
   C.check(true, "the setup finishes: «سرور آماده است» with the recovery code");
   C.check(!/کانال ایمیل ساخته نشد|ثبت نشد/.test(body), "the setup reports no warning", body.slice(0, 500));

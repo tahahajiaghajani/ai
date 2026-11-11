@@ -182,7 +182,9 @@ export async function waitReady(base, ms = 300_000) {
   let last = "";
   while (Date.now() - start < ms) {
     try {
-      const r = await api.raw("GET", "/ready");
+      let r = await api.raw("GET", "/ready");
+      // the desktop flavour (a local dry run of these scripts) has no /ready: its /health then
+      if (r.status === 404) r = await api.raw("GET", "/health");
       if (r.status === 200 && r.json?.ok) return Date.now() - start;
       last = `${r.status} ${JSON.stringify(r.json)}`;
     } catch (e) {
