@@ -69,7 +69,12 @@ export async function itamSweep(sys: Ctx, today = orgToday(sys)): Promise<ItamSw
   const due = assets.filter((a) => !a.book_value_at || periodKeyOf(String(a.book_value_at).slice(0, 10)) !== month);
   for (let i = 0; i < due.length; i += 200) {
     await sys.write(async (tx) => {
-      for (const a of due.slice(i, i + 200)) {
+      for (const listed of due.slice(i, i + 200)) {
+        // locked and read again: a cost or rule changed meanwhile is what the month's book value follows (it is
+        // stamped done for the month, so a value from the old copy would stay until next month)
+        const a = await lockedRow(tx, sys, "asset", listed.id);
+        if (!a || a.purchase_cost === null || a.purchase_cost === undefined || !a.depreciation_rule_id || ["disposed", "canceled", "on_order"].includes(String(a.state))) continue;
+        if (a.book_value_at && periodKeyOf(String(a.book_value_at).slice(0, 10)) === month) continue;
         const b = bookValueOf(rules.get(String(a.depreciation_rule_id)), a, today);
         if (!b) continue;
         await updateIn(tx, sys, "asset", a.id, b, { trusted: true, keepVersion: true });

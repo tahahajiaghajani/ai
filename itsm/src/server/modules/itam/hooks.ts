@@ -36,8 +36,8 @@ import { access } from "../../access/provider";
 import { bad, conflict, forbidden } from "../../http/errors";
 import { enqueue } from "../../jobs";
 import type { Ctx } from "../../context";
-import type { Tx } from "../../db";
-import { eqAll, isUuid, itamConfig, liveRow, liveRows, localDate, orgToday, sysOf, type Row } from "./common";
+import { lockKey, type Tx } from "../../db";
+import { eqAll, isUuid, itamConfig, liveRow, liveRows, localDate, lockedRow, orgToday, sysOf, type Row } from "./common";
 
 const entering = (w: WriteArgs, state: string) => w.next.state === state && (w.op === "create" || w.prev?.state !== state);
 const leaving = (w: WriteArgs, state: string) => w.op !== "create" && w.prev?.state === state && w.next.state !== state;
@@ -554,6 +554,8 @@ async function poLineBefore(w: WriteArgs): Promise<void> {
   }
   if (!n.description) throw bad("شرح یا مدل کالا را وارد کنید");
   if (w.op === "create" && !n.line_no) {
+    // the order's line key: two lines added at once number one after the other
+    await lockKey(w.tx, `itam.po_lines:${String(n.po_id)}`);
     const lines = await liveRows(w.tx, sysOf(w.ctx), "purchase_order_line", { f: "po_id", op: "eq", v: n.po_id }, { limit: 5000 });
     n.line_no = lines.reduce((m, l) => Math.max(m, Number(l.line_no ?? 0)), 0) + 1;
   }
@@ -574,7 +576,9 @@ const procurementGuards = {
   po_has_lines: async (w: WriteArgs) => ((await liveRows(w.tx, sysOf(w.ctx), "purchase_order_line", { f: "po_id", op: "eq", v: w.next.id }, { limit: 1 })).length ? null : "سفارش خرید سطری ندارد"),
   receipt_can_post: async (w: WriteArgs) => {
     const sys = sysOf(w.ctx);
-    const po = await liveRow(w.tx, sys, "purchase_order", w.next.po_id);
+    // the order locked first (then its lines): two receipts of one order post one after the other, so the second's
+    // roll-up of the order's state sees the lines the first received (the order ends «received», not half-way)
+    const po = await lockedRow(w.tx, sys, "purchase_order", w.next.po_id);
     if (!po || !["ordered", "partially_received"].includes(String(po.state))) return "فقط کالای سفارش‌های ثبت‌شده دریافت می‌شود";
     const lines = await liveRows(w.tx, sys, "goods_receipt_line", { f: "receipt_id", op: "eq", v: w.next.id }, { limit: 2000 });
     if (!lines.length) return "رسید سطری ندارد";

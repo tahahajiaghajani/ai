@@ -26,13 +26,13 @@ import type { DepMethod } from "@shared/itam/logic";
 import { addDays, jalaliYearRange } from "@shared/jalali";
 import { D } from "@shared/money";
 import type { Ctx } from "../../context";
-import { pgArray, type Tx, type Queryable } from "../../db";
-import { aggregate, createIn, emitEvent, get, registerHooks, transitionIn, updateIn, pushGuard, pushFromBefore, type PushArgs, type TableHooks, type WriteArgs } from "../../engine";
+import { lockKey, pgArray, type Tx, type Queryable } from "../../db";
+import { aggregate, createIn, emitEvent, get, onBeforeCommit, registerHooks, transitionIn, updateIn, pushGuard, pushFromBefore, type PushArgs, type TableHooks, type WriteArgs } from "../../engine";
 import { access } from "../../access/provider";
 import { registerParticipantSource, subjectOf } from "../../access";
 import { bad, conflict, forbidden } from "../../http/errors";
 import { onApprovalSettled, settledVerdict } from "../sla";
-import { holds, hasGroup, isUuid, itamConfig, liveRow, liveRows, localDate, orgToday, sysOf, type Row } from "./common";
+import { holds, hasGroup, isUuid, itamConfig, liveRow, liveRows, localDate, lockedRow, orgToday, sysOf, type Row } from "./common";
 import { ledgerOnPush, needParentWrite, systemOnly } from "./hooks";
 
 const NIL = "00000000-0000-0000-0000-000000000000";
@@ -230,6 +230,9 @@ const statusPush: Pick<TableHooks, "derivePush" | "validatePush" | "validatePush
   validatePushDelete: (p) => (isSys(p.ctx) ? null : "تاریخچهٔ وضعیت دستگاه حذف نمی‌شود"),
   async derivePush(p) {
     if (isSys(p.ctx)) return null;
+    // the device locked first, like its own status change (`statusPeriod` runs under the asset's write): a period the
+    // web version is closing or opening for it commits before the device's last period is read here
+    await lockAsset(p.tx, p.ctx.org.id, p.next.asset_id ?? p.prev?.asset_id);
     const soon = Date.now() + 5 * 60_000;
     if (p.prev) {
       if ([...p.changed].some((f) => !STATUS_CLOSE.has(f)) || p.prev.to_at || !p.next.to_at) {
@@ -460,6 +463,9 @@ async function transferItemBefore(w: WriteArgs): Promise<void> {
     if (!isSys(w.ctx) && !access().canWrite(w.ctx, tableDef("asset")!, a)) throw forbidden("فقط دارایی‌ای را می‌توانید در حواله بگذارید که تغییر آن با شماست");
     if (String(a.state) === "in_repair") throw conflict(`دارایی «${assetLabel(a)}» در تعمیر است؛ پس از بازگشت از تعمیر منتقل می‌شود`);
     if (!DISPATCHABLE.includes(String(a.state))) throw conflict(`دارایی «${assetLabel(a)}» قابل انتقال نیست`);
+    // the asset locked before its open notes are read: two notes taking it at once take turns, and the second sees
+    // the first's item (an asset rides on one open note)
+    await lockAsset(w.tx, w.ctx.org.id, a.id);
     const busy = await liveRows(w.tx, sysOf(w.ctx), "asset_transfer_item", { and: [{ f: "asset_id", op: "eq", v: a.id }, { f: "transfer_id", op: "ne", v: parent.id }] }, { limit: 20 });
     for (const b of busy) {
       const other = await liveRow(w.tx, sysOf(w.ctx), "asset_transfer", b.transfer_id);
@@ -470,10 +476,17 @@ async function transferItemBefore(w: WriteArgs): Promise<void> {
 }
 
 async function transferItemAfter(w: WriteArgs): Promise<void> {
-  const id = w.next?.transfer_id ?? w.prev?.transfer_id;
-  if (!isUuid(id)) return;
-  const count = (await itemsOf(w.tx, w.ctx, id)).length;
-  await updateIn(w.tx, sysOf(w.ctx), "asset_transfer", String(id), { item_count: count }, { trusted: true, keepVersion: true });
+  // the note's count at commit, under its key: items added to one note at once are counted after each other's commit
+  // (a count taken in the write would miss the other's item and could be written last)
+  const sys = sysOf(w.ctx);
+  for (const id of new Set([w.next?.transfer_id, w.prev?.transfer_id].filter(isUuid).map((x) => String(x)))) {
+    onBeforeCommit(w.tx, `itam.transfer_items:${id}`, async () => {
+      const t = await liveRow(w.tx, sys, "asset_transfer", id);
+      if (!t) return;
+      const count = (await itemsOf(w.tx, w.ctx, id)).length;
+      if (Number(t.item_count ?? -1) !== count) await updateIn(w.tx, sys, "asset_transfer", id, { item_count: count }, { trusted: true, keepVersion: true });
+    });
+  }
 }
 
 export interface ReceiveInput {
@@ -596,6 +609,10 @@ export async function resolveAuditItem(ctx: Ctx, itemId: string, input: ResolveI
   const sys = sysOf(ctx, ctx.user.id);
   const everywhere = await holds(ctx, "asset", "write", "all");
   return ctx.write(async (tx) => {
+    // the audit locked and still between completion and closing: settlements of one audit take turns (each recount
+    // sees the other's item), and one that meets a closing in flight is refused instead of moving assets afterwards
+    const live = await lockedRow(tx, sys, "inventory_audit", String(audit.id));
+    if (live?.state !== "completed") throw conflict("تعیین تکلیف پس از پایان شمارش و پیش از بستن آن است");
     let assetId: string | null = isUuid(item.asset_id) ? String(item.asset_id) : null;
     let transferId: string | null = null;
     const a = assetId ? await liveRow(tx, sys, "asset", assetId) : null;
@@ -692,8 +709,15 @@ export async function attest(ctx: Ctx, id: string, input: AttestInput): Promise<
       return { asset_id: String(a.id), label: assetLabel(a), issue: e.issue, issue_label: ISSUES[e.issue] ?? e.issue, note: e.note ? String(e.note).slice(0, 300) : null };
     });
     const bad = new Set(list.map((e) => e.asset_id));
-    for (const a of assets) {
-      if (bad.has(String(a.id))) continue;
+    // the attested assets locked (in id order, as a dispatch locks a note's) and each read again: one received at
+    // another branch (or handed to someone else) meanwhile is attested as it is now, or not at all once it left the
+    // branch — never a custody link written from the old copy
+    const attested = assets.filter((a) => !bad.has(String(a.id))).map((a) => String(a.id).toLowerCase()).sort();
+    if (attested.length) await tx.query(`select id from ${tableDef("asset")!.table} where org_id = $1 and id = any($2::uuid[]) order by id for update`, [ctx.org.id, pgArray(attested)]);
+    for (const listed of assets) {
+      if (bad.has(String(listed.id))) continue;
+      const a = await liveRow(tx, sys, "asset", listed.id);
+      if (!a || String(a.branch_id ?? "") !== String(att.branch_id ?? "") || ["disposed", "canceled", "on_order"].includes(String(a.state))) continue;
       markHandled(tx, String(a.id));
       await updateIn(tx, sys, "asset", String(a.id), { last_attested_at: at }, { trusted: true, keepVersion: true });
       await addCustody(tx, ctx, a, { event: "attested", branch_id: a.branch_id, holder_id: a.assigned_to, reference: att.number ? String(att.number) : null, note: `امضا: ${name}` });
@@ -730,7 +754,12 @@ export async function openAttestations(sys: Ctx, today = orgToday(sys)): Promise
   const todo = rows.filter((r) => !existing.has(String(r.branch_id)));
   for (let i = 0; i < todo.length; i += 100) {
     await sys.write(async (tx) => {
+      // the period's key, then its attestations read again: the sweep and «باز کردن» by hand at once open each branch's
+      // attestation once (the other's batch committed before this one reads)
+      await lockKey(tx, `itam.attestations:${sys.org.id}:${p.label}`);
+      const have = new Set((await liveRows(tx, sys, "branch_attestation", { f: "period_label", op: "eq", v: p.label }, { limit: 20000 })).map((a) => String(a.branch_id)));
       for (const r of todo.slice(i, i + 100)) {
+        if (have.has(String(r.branch_id))) continue;
         const unit = await liveRow(tx, sys, "org_unit", r.branch_id);
         if (!unit) continue;
         await createIn(tx, sys, "branch_attestation", {
@@ -1009,7 +1038,14 @@ export async function createPmPlans(ctx: Ctx, input: { every_n?: number; interva
   let created = 0;
   for (let i = 0; i < todo.length; i += 100) {
     await ctx.write(async (tx) => {
-      for (const d of todo.slice(i, i + 100)) {
+      // the organisation's plan key, then the batch's devices read again: two «ساخت برنامه» at once give each device
+      // one active plan (the other's batch committed before this one reads)
+      const batch = todo.slice(i, i + 100);
+      await lockKey(tx, `itam.pm_plans:${ctx.org.id}`);
+      const planned = new Set((await liveRows(tx, sys, "maintenance_plan", { and: [{ f: "status", op: "eq", v: "active" }, { f: "ci_id", op: "in", v: batch.map((d) => String(d.ci_id)) }] } as Cond, { limit: 1000 })).map((x) => String(x.ci_id ?? "")));
+      for (const d of batch) {
+        if (planned.has(String(d.ci_id))) continue;
+        planned.add(String(d.ci_id));
         await createIn(tx, sys, "maintenance_plan", {
           name: `نگهداری پیشگیرانهٔ ${d.name ?? d.number ?? ""}`.slice(0, 160), status: "active", generates: "work_order", ci_id: d.ci_id, location_id: d.location_id ?? null,
           group_id: isUuid(input.group_id) ? input.group_id : null, every_n: every, interval_unit: unit, lead_days: Math.max(0, Math.min(30, input.lead_days ?? 7)), horizon: 1,

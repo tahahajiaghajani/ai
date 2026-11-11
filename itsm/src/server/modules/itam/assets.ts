@@ -10,6 +10,7 @@ import { ASSET_STATES, MOVEMENT_KINDS } from "@shared/tables/itam";
 import { diffDays } from "@shared/jalali";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
+import { lockKey } from "../../db";
 import { bad, conflict, forbidden, notFound } from "../../http/errors";
 import { access } from "../../access/provider";
 import { create, createIn, defFor, get, list, listHistory, transitionIn, updateIn, addJournalIn, fromDb } from "../../engine";
@@ -35,10 +36,12 @@ export async function checkout(ctx: Ctx, id: string, input: CheckoutInput): Prom
     substate: input.usage_type === "loaner" ? "loaner" : "assigned",
   };
   if (input.request_item_id) data.request_item_id = input.request_item_id;
+  // against the version read above: an asset dispatched, received or handed over meanwhile answers «changed by
+  // someone else» instead of being assigned on top of what it is now (an update is not a transition)
   await ctx.write(async (tx) => {
     setHandOver(tx, id, { condition: input.condition ?? null, note: input.note ?? null, request_item_id: input.request_item_id ?? null });
-    if (row.state === "in_use") await updateIn(tx, ctx, ASSET, id, data, {});
-    else await transitionIn(tx, ctx, ASSET, id, "in_use", data);
+    if (row.state === "in_use") await updateIn(tx, ctx, ASSET, id, data, { version: row.version });
+    else await transitionIn(tx, ctx, ASSET, id, "in_use", data, { version: row.version });
   });
   return (await get(ctx, ASSET, id)).row;
 }
@@ -51,7 +54,7 @@ export async function checkin(ctx: Ctx, id: string, input: CheckinInput): Promis
   const substate = input.substate ?? (input.condition === "damaged" || input.condition === "poor" ? "defective" : "available");
   await ctx.write(async (tx) => {
     setHandOver(tx, id, { condition_in: input.condition ?? null, note: input.note ?? null });
-    await transitionIn(tx, ctx, ASSET, id, "in_stock", { stockroom_id: input.stockroom_id, substate });
+    await transitionIn(tx, ctx, ASSET, id, "in_stock", { stockroom_id: input.stockroom_id, substate }, { version: row.version });
     if (input.note) await addJournalIn(tx, ctx, (await defFor(ctx, ASSET, tx)).def, { ...row, id }, { kind: "work_note", body: `بازگشت به انبار: ${input.note}` }).catch(() => undefined);
   });
   return (await get(ctx, ASSET, id)).row;
@@ -349,6 +352,10 @@ export async function assetsForDiscovered(sys: Ctx, limit = 200, open?: Row[]): 
   for (const ci of cis) {
     if (created >= limit) break;
     await sys.write(async (tx) => {
+      // the organisation's key for discovered hardware: the daily step and «ساخت دارایی» by hand at once make one
+      // asset per CI and one model per name (each reads what the other committed)
+      await lockKey(tx, `itam.discovered:${sys.org.id}`);
+      if ((await liveRows(tx, sys, ASSET, { f: "ci_id", op: "eq", v: ci.id } as Cond, { limit: 1 })).length) return;
       const name = String(ci.model_name || `${ci.class} نامشخص`).slice(0, 200);
       let [model] = await liveRows(tx, sys, "asset_model", { f: "name", op: "eq", v: name } as Cond, { limit: 1 });
       if (!model) {

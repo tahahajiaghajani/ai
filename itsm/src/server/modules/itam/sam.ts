@@ -15,7 +15,8 @@ import type { Ctx } from "../../context";
 import { forbidden } from "../../http/errors";
 import { access } from "../../access/provider";
 import { aggregate, createIn, defFor, emitEvent, list, updateIn } from "../../engine";
-import { hasGroup, holds, isUuid, itamConfig, liveRow, liveRows, orgToday, sysOf, type Row } from "./common";
+import { lockKey } from "../../db";
+import { hasGroup, holds, isUuid, itamConfig, liveRow, liveRows, lockedRow, orgToday, sysOf, type Row } from "./common";
 
 const COMPUTERS = new Set(builtinDescendants("computer").concat(["mobile_device"]));
 const SOFTWARE = new Set(builtinDescendants("software"));
@@ -54,14 +55,21 @@ export async function syncInstalls(sys: Ctx): Promise<{ seen: number; created: n
   let matched = 0;
   for (let i = 0; i < pairs.length; i += BATCH) {
     await sys.write(async (tx) => {
-      for (const { device, app } of pairs.slice(i, i + BATCH)) {
+      // the organisation's sync key, then this batch's installs read again: two syncs at once (the daily sweep and
+      // «همگام‌سازی» by hand) take turns per batch, and an install the other made is updated here, not made twice
+      await lockKey(tx, `itam.sw_sync:${sys.org.id}`);
+      const batch = pairs.slice(i, i + BATCH);
+      const devices = [...new Set(batch.map((x) => String(x.device.id)))];
+      for (const x of await liveRows(tx, sys, "software_install", { and: [{ f: "source", op: "eq", v: "discovery" }, { f: "ci_id", op: "in", v: devices }] } as Cond, { limit: 200000 })) byKey.set(`${x.ci_id}|${x.source_ci_id}`, x);
+      for (const { device, app } of batch) {
         const key = `${device.id}|${app.id}`;
         seenKeys.add(key);
         const publisher = String((app.attrs as Row | null)?.vendor ?? app.manufacturer ?? "") || null;
         const raw = { raw_name: String(app.name ?? "").slice(0, 300), raw_version: (app.sw_version as string) ?? null, raw_publisher: publisher };
         const hit = matchSoftware({ name: raw.raw_name, publisher }, models as never);
         if (hit) matched++;
-        const found = byKey.get(key);
+        // an existing install locked and judged as stored (a person mapping it by hand meanwhile keeps the mapping)
+        const found = byKey.has(key) ? await lockedRow(tx, sys, "software_install", byKey.get(key)!.id) : null;
         if (!found) {
           await createIn(tx, sys, "software_install", { ci_id: device.id, source_ci_id: app.id, source: "discovery", ...raw, software_model_id: hit?.id ?? null, normalized_by: hit ? "rule" : "none", user_id: device.used_by ?? null, first_seen_at: now, last_seen_at: now, active: true }, { trusted: true });
           created++;
@@ -98,7 +106,12 @@ export async function renormalize(sys: Ctx): Promise<{ changed: number }> {
   }
   for (let i = 0; i < changes.length; i += BATCH) {
     await sys.write(async (tx) => {
-      for (const c of changes.slice(i, i + BATCH)) await updateIn(tx, sys, "software_install", c.id, { software_model_id: c.model, normalized_by: c.model ? "rule" : "none" }, { trusted: true });
+      for (const c of changes.slice(i, i + BATCH)) {
+        // locked and read again: an install mapped by hand since the list was read keeps its manual mapping
+        const cur = await lockedRow(tx, sys, "software_install", c.id);
+        if (!cur || cur.normalized_by === "manual") continue;
+        await updateIn(tx, sys, "software_install", c.id, { software_model_id: c.model, normalized_by: c.model ? "rule" : "none" }, { trusted: true });
+      }
     });
   }
   return { changed: changes.length };
