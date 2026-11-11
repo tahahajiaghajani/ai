@@ -268,6 +268,20 @@ export interface TickResult {
 }
 
 const running = new WeakMap<Db, boolean>();
+/** Databases whose server is closing (the Windows app's local server): their runner claims no more jobs. */
+const closing = new WeakSet<Db>();
+/** The tick in progress on a database: a closing server waits for the jobs it already holds. */
+const inProgress = new WeakMap<Db, Promise<void>>();
+
+/**
+ * The job runner of this process claims no more jobs on `db` — its server is closing — and this resolves once the tick
+ * in progress, if any, has finished the jobs it already holds (src/desktop/server.ts: the database then closes cleanly
+ * at once instead of after the rest of the tick's budget, or killed by the app that is quitting).
+ */
+export async function stopTicks(db: Db): Promise<void> {
+  closing.add(db);
+  await inProgress.get(db);
+}
 
 /**
  * Run due jobs until `budgetMs` is spent (default 8 s) or `max` jobs ran. `concurrency` (default 1: one job after the
@@ -282,7 +296,10 @@ export async function tick(cfg: JobConfig, opts: { budgetMs?: number; max?: numb
 async function tickOutsideScope(cfg: JobConfig, opts: { budgetMs?: number; max?: number; worker?: string; concurrency?: number }): Promise<TickResult> {
   const db = cfg.db;
   if (running.get(db)) return { ran: 0, failed: 0, busy: true, more: false };
+  if (closing.has(db)) return { ran: 0, failed: 0, more: false };
   running.set(db, true);
+  let ended = () => {};
+  inProgress.set(db, new Promise<void>((r) => (ended = r)));
   const deadline = Date.now() + (opts.budgetMs ?? 8000);
   const worker = opts.worker ?? `w${process.pid}-${uuidv7().slice(-8)}`;
   const width = Math.max(1, Math.min(32, Math.trunc(opts.concurrency ?? 1)));
@@ -291,7 +308,7 @@ async function tickOutsideScope(cfg: JobConfig, opts: { budgetMs?: number; max?:
   let failed = 0;
   try {
     await cleanup(db, deadline).catch((e) => cfg.log.warn("job cleanup failed", String((e as Error)?.message ?? e)));
-    while (Date.now() < deadline && ran + failed < max) {
+    while (Date.now() < deadline && ran + failed < max && !closing.has(db)) {
       const jobs = await claim(db, worker, Math.min(width, max - ran - failed));
       if (!jobs.length) return { ran, failed, more: false };
       // jobs of one record (its events) keep their order: they run one after the other, other groups alongside
@@ -319,10 +336,13 @@ async function tickOutsideScope(cfg: JobConfig, opts: { budgetMs?: number; max?:
         else failed++;
       }
     }
+    if (closing.has(db)) return { ran, failed, more: false };
     const left = await db.one(`select 1 from sm_jobs where status = 'queued' and run_at <= now() limit 1`);
     return { ran, failed, more: !!left };
   } finally {
     running.delete(db);
+    inProgress.delete(db);
+    ended();
   }
 }
 
@@ -333,7 +353,10 @@ async function runOne(cfg: JobConfig, job: Job, deadline: number): Promise<boole
     cfg,
     db,
     log: cfg.log,
-    deadline,
+    // a closing server (stopTicks): a job that looks at its deadline as it goes ends at its next look, and is queued again
+    get deadline() {
+      return closing.has(db) ? Math.min(deadline, Date.now()) : deadline;
+    },
     save: async (payload) => {
       job.payload = payload as Record<string, any>;
       await db.query(`update sm_jobs set payload = $2::jsonb, updated_at = now() where id = $1`, [job.id, JSON.stringify(payload)]);

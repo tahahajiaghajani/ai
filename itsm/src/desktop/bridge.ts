@@ -7,7 +7,7 @@ import { backupDir, backupNow, listBackups, pruneBackups, scheduleRestore } from
 import { APP_VERSION } from "@shared/constants";
 import { hashPassword } from "@server/auth/password";
 import { networkInterfaces, hostname } from "node:os";
-import type { PGlite } from "@electric-sql/pglite";
+import type { PgliteDb } from "@server/db/pglite";
 
 export interface Bridge extends DesktopBridge {
   start(url: string): void;
@@ -23,16 +23,16 @@ function lanAddresses(): string[] {
   return out;
 }
 
-export function createBridge(o: { dataDir: string; db: Db & { pg?: PGlite }; config: LocalConfig; log: Logger; save: () => void }): Bridge {
+export function createBridge(o: { dataDir: string; db: Db & Partial<Pick<PgliteDb, "pg" | "checkpoint">>; config: LocalConfig; log: Logger; save: () => void }): Bridge {
   const sync = new SyncClient({ db: o.db, config: o.config, save: o.save, log: o.log });
   let backupTimer: NodeJS.Timeout | null = null;
   let firstBackup: NodeJS.Timeout | null = null;
   let localUrl = "";
 
   const doBackup = async (label = "auto") => {
-    if (!o.db.pg) throw new Error("پشتیبان‌گیری فقط برای پایگاه داده‌ی محلی ممکن است");
+    if (!o.db.pg || !o.db.checkpoint) throw new Error("پشتیبان‌گیری فقط برای پایگاه داده‌ی محلی ممکن است");
     const dir = backupDir(o.dataDir, o.config.backups.dir);
-    const r = await backupNow(o.db.pg, dir, label);
+    const r = await backupNow(o.db as Pick<PgliteDb, "pg" | "checkpoint">, dir, label);
     pruneBackups(dir, o.config.backups.keep);
     await o.db.query(`insert into sm_kv (key, value) values ('backup.last', $1::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`, [JSON.stringify({ at: new Date().toISOString(), file: r.file, size: r.size })]);
     return r;

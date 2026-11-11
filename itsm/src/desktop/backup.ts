@@ -1,8 +1,11 @@
 // Backups of the local database: a compressed copy of the PostgreSQL data folder.
 // Automatic every few hours (and before restores/updates), kept for N copies.
-import { mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync, existsSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { createWriteStream, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync, existsSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { join, basename } from "node:path";
-import type { PGlite } from "@electric-sql/pglite";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { createGzip } from "node:zlib";
+import type { PgliteDb } from "@server/db/pglite";
 
 export function backupDir(dataDir: string, configured: string | null) {
   const dir = configured || join(dataDir, "backups");
@@ -15,13 +18,24 @@ function stamp(d = new Date()) {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
-export async function backupNow(pg: PGlite, dir: string, label = "auto"): Promise<{ file: string; size: number }> {
-  const blob = await pg.dumpDataDir("gzip");
-  const buf = Buffer.from(await blob.arrayBuffer());
+/**
+ * A copy of the data folder: a checkpoint first (the copy then carries a few segments of write-ahead log, not the
+ * backlog of the day, and a restore replays little), then PGlite's tarball of the folder, compressed into the file as a
+ * stream (no second copy of it in memory). The same gzip'd tar as PGlite's own `dumpDataDir("gzip")`; a restore loads
+ * it with `loadDataDir`.
+ */
+export async function backupNow(db: Pick<PgliteDb, "pg" | "checkpoint">, dir: string, label = "auto"): Promise<{ file: string; size: number }> {
+  await db.checkpoint("backup");
+  const tar = await db.pg.dumpDataDir("none");
   const file = join(dir, `itsm-${label}-${stamp()}.tar.gz`);
-  writeFileSync(`${file}.part`, buf);
+  try {
+    await pipeline(Readable.fromWeb(tar.stream() as Parameters<typeof Readable.fromWeb>[0]), createGzip(), createWriteStream(`${file}.part`));
+  } catch (e) {
+    rmSync(`${file}.part`, { force: true });
+    throw e;
+  }
   renameSync(`${file}.part`, file);
-  return { file, size: buf.length };
+  return { file, size: statSync(file).size };
 }
 
 /** Backups are named `itsm-<label>-<stamp>.tar.gz` (label: auto, manual, before-restore). */

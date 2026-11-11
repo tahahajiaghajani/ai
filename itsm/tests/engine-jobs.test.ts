@@ -2,7 +2,7 @@
 // rescheduling, stale locks, record-event delivery that retries only the subscribers that failed, the cloud's cron
 // route and the tick after write requests.
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
-import { enqueue, registerJobHandler, tick, listJobs, backoffMs, PermanentJobError, type Job } from "@server/jobs";
+import { enqueue, registerJobHandler, tick, listJobs, backoffMs, PermanentJobError, stopTicks, type Job } from "@server/jobs";
 import { onRecordEvent } from "@server/engine/events";
 import type { Db } from "@server/db";
 import { makeServer, Client, signupWithOrg, quietLog } from "./helpers";
@@ -281,6 +281,73 @@ describe("job ticks on both runtimes", () => {
       expect(pending.length).toBe(1); // reads do not tick
     } finally {
       off();
+    }
+  });
+});
+
+// The Windows app's local server closing (src/desktop/server.ts): the runner stops claiming jobs, finishes the one it
+// holds and the database can close at once — not after the rest of the tick's budget.
+describe("a closing server's job runner", () => {
+  it("finishes the job it holds, claims no more, and runs no later tick", async () => {
+    const s = await makeServer();
+    const org = await signupWithOrg(new Client(s.app));
+    const cfg: ServerConfig = { mode: "cloud", db: s.db, secret: "t", allowSignup: true, platformAdmins: [], origin: "cloud", log: quietLog, fetch };
+    const ran: number[] = [];
+    let started!: () => void;
+    const first = new Promise<void>((r) => (started = r));
+    const off = registerJobHandler("test.closing", async (job) => {
+      started();
+      await new Promise((r) => setTimeout(r, 150));
+      ran.push(Number(job.payload.n));
+    });
+    try {
+      for (let n = 0; n < 5; n++) await enqueue(s.db, { kind: "test.closing", orgId: org, payload: { n } });
+      const t = tick(cfg, { budgetMs: 20_000 });
+      await first;
+      const t0 = Date.now();
+      await stopTicks(s.db);
+      expect(Date.now() - t0).toBeLessThan(2_000);
+      expect(ran).toHaveLength(1);
+      expect(await t).toMatchObject({ ran: 1, failed: 0, more: false });
+      expect(await tick(cfg)).toMatchObject({ ran: 0, more: false });
+      const left = await s.db.one<{ n: number }>(`select count(*)::int as n from sm_jobs where kind = 'test.closing' and status = 'queued'`);
+      expect(left!.n).toBe(4);
+    } finally {
+      off();
+      await s.db.close();
+    }
+  });
+
+  it("a job that works until its deadline stops at its next look and is queued again", async () => {
+    const s = await makeServer();
+    const org = await signupWithOrg(new Client(s.app));
+    const cfg: ServerConfig = { mode: "cloud", db: s.db, secret: "t", allowSignup: true, platformAdmins: [], origin: "cloud", log: quietLog, fetch };
+    let started!: () => void;
+    const first = new Promise<void>((r) => (started = r));
+    let rounds = 0;
+    const off = registerJobHandler("test.long", async (_job, jctx) => {
+      started();
+      // an indexer's loop: a batch, then a look at the deadline
+      while (Date.now() < jctx.deadline - 100) {
+        rounds++;
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      return { again: 0 };
+    });
+    try {
+      await enqueue(s.db, { kind: "test.long", orgId: org });
+      const t = tick(cfg, { budgetMs: 30_000 });
+      await first;
+      const t0 = Date.now();
+      await stopTicks(s.db);
+      expect(Date.now() - t0).toBeLessThan(2_000);
+      await t;
+      const job = await s.db.one<{ status: string }>(`select status from sm_jobs where kind = 'test.long'`);
+      expect(job!.status).toBe("queued");
+      expect(rounds).toBeGreaterThan(0);
+    } finally {
+      off();
+      await s.db.close();
     }
   });
 });

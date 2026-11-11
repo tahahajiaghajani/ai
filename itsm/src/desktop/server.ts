@@ -12,7 +12,7 @@ import { migrate } from "@server/db/migrate";
 import { createApp } from "@server/app";
 import { registerCloudLink } from "@server/modules/ai/relay";
 import { consoleLogger, type Logger, type ServerConfig } from "@server/context";
-import { tick } from "@server/jobs";
+import { stopTicks, tick } from "@server/jobs";
 import { loadConfig, saveConfig, type LocalConfig } from "./config";
 import { createBridge } from "./bridge";
 import { takePendingRestore, undoRestore, restorePending } from "./backup";
@@ -58,14 +58,14 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   if (restore) {
     log.info("restoring database from backup");
     try {
-      db = await createPgliteDb({ dataDir: dbDir, desktop: true, loadDataDir: new Blob([new Uint8Array(restore.data)]) });
+      db = await createPgliteDb({ dataDir: dbDir, desktop: true, log, loadDataDir: new Blob([new Uint8Array(restore.data)]) });
     } catch (e) {
       // a broken backup must not leave an empty database behind: keep working on the current one
       log.error("restore failed; the current database is kept", String((e as Error)?.message ?? e));
       undoRestore(opts.dataDir, restore.aside);
-      db = await createPgliteDb({ dataDir: dbDir, desktop: true });
+      db = await createPgliteDb({ dataDir: dbDir, desktop: true, log });
     }
-  } else db = await createPgliteDb({ dataDir: opts.memory ? undefined : dbDir, desktop: true });
+  } else db = await createPgliteDb({ dataDir: opts.memory ? undefined : dbDir, desktop: true, log });
   await migrate(db, (m) => log.info(m));
 
   const staticDir = resolve(opts.staticDir);
@@ -154,8 +154,11 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
     config,
     async close() {
       clearInterval(jobTimer);
+      // the job runner finishes the jobs it holds and claims no more (not the rest of its 8-second budget)
+      await stopTicks(db);
       await bridge.stop();
       await new Promise<void>((r) => (server ? server.close(() => r()) : r()));
+      // a checkpoint, then PGlite's own close (src/server/db/pglite.ts): the next start replays no log
       await db.close();
     },
   };

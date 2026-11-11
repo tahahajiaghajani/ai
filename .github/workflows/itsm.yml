@@ -51,7 +51,8 @@ jobs:
 
   # the whole suite (every test, nothing skipped) in four parallel shards: one runner needs more than 25 minutes
   test:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    # FAST-PATH (desktop-e2e iteration; removed before the work ends): a commit marked [desktop-e2e-fast] skips this job
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) && !contains(github.event.head_commit.message, '[desktop-e2e-fast]')
     runs-on: ubuntu-latest
     timeout-minutes: 40
     strategy:
@@ -77,7 +78,8 @@ jobs:
   # About 7 minutes; the full crawl (every route, «… تازه», records and their tabs, phone width) is `npm run qa:crawl`
   # (about 35 minutes).
   clickthrough:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    # FAST-PATH (desktop-e2e iteration; removed before the work ends)
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) && !contains(github.event.head_commit.message, '[desktop-e2e-fast]')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -106,6 +108,8 @@ jobs:
 
   windows:
     needs: [check, test]
+    # FAST-PATH (desktop-e2e iteration; removed before the work ends): runs when the test shards were skipped
+    if: ${{ !cancelled() && needs.check.result == 'success' && (needs.test.result == 'success' || needs.test.result == 'skipped') }}
     runs-on: windows-latest
     timeout-minutes: 45
     defaults:
@@ -172,6 +176,67 @@ jobs:
           elif [ "${GITHUB_REF_NAME}" = "main" ]; then TAG="itsm-v${VERSION}"; TITLE="کاریز (Kariz) ${VERSION} — نسخهٔ ویندوز"; PRE=""; else TAG="itsm-preview-${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}"; TITLE="کاریز (Kariz) ${VERSION} — پیش‌نمایش (${GITHUB_REF_NAME})"; PRE="--prerelease"; fi
           gh release delete "$TAG" --cleanup-tag -y 2>/dev/null || true
           gh release create "$TAG" desktop/release/Kariz-Setup-*.exe --target "$GITHUB_SHA" --title "$TITLE" $PRE --notes "$NOTES"
+
+  desktop-e2e:
+    # the Windows app as people use it, on a Windows runner (itsm/docs/qa/PERFORMANCE_E2E_FA.md): this run's Kariz-Setup
+    # installed silently (/S), the installed Kariz.exe driven through Playwright's Electron support
+    # (itsm/scripts/desktop-e2e.mjs; the app's own flags and security settings untouched) — the first-run setup as a
+    # person fills it, the bank demo pack «کوچک», a member added, the main pages as the administrator and, after «خروج»
+    # and a sign-in, as the member, the window closed, a second start —, timed (starts, every route change, the API as
+    # the renderer sees it, memory and CPU of the main, renderer and local server processes every second, the database
+    # folder and its write-ahead log at the end) and gated on console errors and budgets. Screenshots, report.json and
+    # report.md (also the job summary) and the app's log as the artifact.
+    needs: [windows]
+    # its own condition: with the default one a job skipped anywhere before `windows` would skip this one too
+    if: ${{ !cancelled() && needs.windows.result == 'success' }}
+    runs-on: windows-latest
+    timeout-minutes: 75
+    defaults:
+      run:
+        working-directory: itsm
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Playwright (a tool of the test, not a dependency of the app; the Electron it drives is the installed app)
+        run: |
+          npm install --prefix "$env:RUNNER_TEMP/e2e-tools" --no-save --no-audit --no-fund playwright@1.63.0
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - uses: actions/download-artifact@v4
+        with:
+          name: itsm-windows-installer
+          path: itsm/desktop-e2e-installer
+      - name: Install this run's Kariz-Setup silently, as a software deployment would
+        run: |
+          $setup = Get-ChildItem desktop-e2e-installer/Kariz-Setup-*.exe | Select-Object -First 1
+          Write-Host "installer: $($setup.Name) $([math]::Round($setup.Length/1MB,1)) MB"
+          $t = [Diagnostics.Stopwatch]::StartNew()
+          Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\Kariz\Kariz.exe'
+          if (!(Test-Path $exe)) { throw "Kariz.exe was not installed" }
+          Write-Host "installed in $([math]::Round($t.Elapsed.TotalSeconds, 1)) s"
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP/desktop-e2e" | Out-Null
+          Set-Content -LiteralPath "$env:RUNNER_TEMP/desktop-e2e/install.json" -Value (@{ installer = $setup.Name; installer_mb = [math]::Round($setup.Length/1MB,1); install_s = [math]::Round($t.Elapsed.TotalSeconds,1) } | ConvertTo-Json) -Encoding UTF8
+          # a silent install starts nothing; anything named Kariz now would hold the single-instance lock
+          Get-Process Kariz -ErrorAction SilentlyContinue | Stop-Process -Force
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "KARIZ_EXE=$exe" -Encoding UTF8
+      - name: The installed app as the administrator and as a member (setup, demo pack «کوچک», main pages, two starts)
+        run: node scripts/desktop-e2e.mjs --exe "$env:KARIZ_EXE" --out "$env:RUNNER_TEMP/desktop-e2e" --playwright "$env:RUNNER_TEMP/e2e-tools"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: itsm-desktop-e2e
+          path: ${{ runner.temp }}/desktop-e2e
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Uninstall
+        if: always()
+        run: |
+          Get-Process Kariz -ErrorAction SilentlyContinue | Stop-Process -Force
+          $uninst = Join-Path $env:LOCALAPPDATA 'Programs\Kariz\Uninstall Kariz.exe'
+          if (Test-Path $uninst) { Start-Process -FilePath $uninst -ArgumentList '/S' -Wait }
 
   server:
     # the server edition: bundle, pinned Node.js / PostgreSQL 17 / WinSW / WiX (SHA-256 checked, cached), pgvector
