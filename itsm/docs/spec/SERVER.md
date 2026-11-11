@@ -168,6 +168,21 @@ internal identifiers stay neutral (`sm_*`, `itsm.*`, `ITSM_*`).
   `PORT=443` while held: the install must fail with the reason in install-error.txt, the event log and the MSI log;
   firewall restored in `finally` and in an `always()` step. Job
   `server-publish` (after `windows` and `server`) uploads the MSI to the release the desktop job created.
+- CI job `bank-sim` (after `server`; `packaging/server/scripts/bank-sim/*.ps1` + `scripts/bank-sim/*.mjs`; report
+  `docs/qa/BANK_SIM_FA.md`, runbook `docs/BANK_INSTALL_FA.md`): the bank's installation end to end with no Internet —
+  everything fetched first (Playwright + Chromium, the 1.0.0 MSI of release `itsm-v1.0.0`, this run's MSI), then
+  Windows Firewall default outbound Block with only the runner's agent, `LocalSubnet` and the platform's DNS allowed,
+  dropped packets logged and every connection audited with its program (Security 5156/5157); a PKI made with
+  `New-SelfSignedCertificate` (root in LocalMachine\Root, PFX per server), a mock LDAPS domain controller
+  (`tests/ldap-fake.ts` bundled with esbuild, `tlsOptions`/`listen`) and a STARTTLS mail relay on the LAN address;
+  1.0.0 installed silently with CERTPATH/CERTPASSWORD, set up in Chromium through setup-url.txt, populated (members,
+  team, incident + attachment, change, catalogue order, knowledge article, AD source over LDAPS, notification e-mail),
+  backed up, upgraded in place to this build (ports, certificate, allow-list kept; version and sync protocol checked),
+  browsed as admin and agent (any request to another origin and any console error fail), demo load/purge, security
+  posture (redirect, HSTS, TLS 1.0/1.1 refused, PostgreSQL loopback only, listening ports, ACLs, virtual accounts,
+  diagnostics without secrets), resilience (worker kill, service restarts, postmaster kill), load, a DR drill
+  (RTO/RPO), the Windows app's sync client headless, uninstall/re-install/REMOVEDATA=1 leftovers, and no outbound
+  attempt by the installation's programs. Report, logs and screenshots are uploaded on success and failure.
 
 ## Testing
 
@@ -202,7 +217,14 @@ and restore. The PowerShell scripts run only on Windows CI.
   and scans files outside the write transaction and downloads stream. A streaming multipart parser would remove the
   buffer.
 - The Windows app starts its backend with `--use-system-ca` (`backendExecArgv`, Electron 45 = Node 24), so a bank
-  CA installed in Windows' store by GPO is trusted; `NODE_EXTRA_CA_CERTS` remains for older builds.
+  CA installed in Windows' store by GPO is trusted; `NODE_EXTRA_CA_CERTS` remains for older builds. Since 1.1 the
+  server edition's `KarizApp` does the same (`app-service.xml.template`: `--use-system-ca`, inherited by the cluster's
+  workers): the bank's mail relay over STARTTLS, LDAPS without a pasted root, webhooks and AI servers on internal
+  HTTPS are trusted through the Windows store (the bank simulation found 1.0.0 failing STARTTLS with «self-signed
+  certificate in certificate chain»). A directory source's own `ca_cert` still narrows LDAPS to that root.
+- The first-run setup pulls the new organisation's seed jobs (`SEED_JOB_KINDS`) to now: the web version delays them
+  10–12 minutes so a sign-up stays fast, which left a bank's freshly set-up server without its catalogue, knowledge
+  bases and SLA calendars for that long.
 - Orphaned blob files (attachments deleted for good) are not garbage-collected yet; the blob mirror of backups keeps
   every content ever stored.
 - The sizing table and tuner numbers are estimates until `docs/PERFORMANCE_FA.md` (S3) has load-test results.

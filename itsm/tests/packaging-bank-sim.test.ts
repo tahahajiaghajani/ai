@@ -70,3 +70,32 @@ describe("the simulation's scripts", () => {
     expect(job).toContain("Restore outbound traffic");
   });
 });
+
+describe("DR on a rebuilt server: the backup says which application key sealed its secrets (finding of the runbook)", () => {
+  it("fingerprints the key without revealing it and flags a restore under another key", async () => {
+    const { secretId, keyMismatch } = await import("../src/server-edition/backup");
+    const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const key = "k".repeat(48);
+    expect(secretId(key)).toMatch(/^[0-9a-f]{16}$/);
+    expect(secretId(key)).toBe(secretId(key));
+    expect(secretId(key)).not.toBe(secretId(`${key}x`));
+    expect(secretId(key)).not.toContain("kkkk");
+    const dir = mkdtempSync(join(tmpdir(), "kariz-dr-"));
+    try {
+      // a backup older than the fingerprint: nothing to compare
+      writeFileSync(join(dir, "manifest.json"), JSON.stringify({ format: "itsm-server-backup", version: 1 }));
+      expect(keyMismatch(dir, key)).toBe(false);
+      writeFileSync(join(dir, "manifest.json"), JSON.stringify({ format: "itsm-server-backup", version: 1, secret_id: secretId(key) }));
+      expect(keyMismatch(dir, key)).toBe(false);
+      expect(keyMismatch(join(dir, "db.dump"), key)).toBe(false);
+      expect(keyMismatch(dir, "another-key-of-a-rebuilt-server-0123456789")).toBe(true);
+      expect(keyMismatch(join(dir, "db.dump"), "another-key-of-a-rebuilt-server-0123456789")).toBe(true);
+      expect(keyMismatch(join(dir, "missing"), key)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    const ctl = readFileSync(join(__dirname, "../src/server-edition/ctl.ts"), "utf8");
+    expect(ctl).toMatch(/r\.key_mismatch[\s\S]{0,200}warn\(/);
+  });
+});

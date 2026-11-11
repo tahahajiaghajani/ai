@@ -35,7 +35,13 @@ export interface BackupManifest {
   verified: boolean;
   verify_detail: string;
   ms: number;
+  /** which application key sealed the stored secrets (SMTP and directory passwords, AI keys…): a fingerprint, never
+   * the key — a restore onto a server with another kariz.json `secret` says so (docs/BANK_INSTALL_FA.md §7) */
+  secret_id?: string;
 }
+
+/** A fingerprint of the application key (kariz.json `secret`), safe to keep next to the data it sealed. */
+export const secretId = (secret: string): string => createHash("sha256").update(`kariz-secret-id:${secret}`).digest("hex").slice(0, 16);
 
 export interface BackupStatus {
   ok: boolean;
@@ -210,6 +216,7 @@ export async function backupNow(o: BackupOptions): Promise<BackupManifest & { fo
       verified,
       verify_detail: detail,
       ms: Date.now() - t0,
+      secret_id: secretId(c.secret),
     };
     await writeFile(join(folder, "manifest.json"), JSON.stringify(manifest, null, 2));
     await status({ ok: true, size, verified, error: c.backup.verify && !verified ? `verification failed: ${detail}` : null, orphaned, failures: 0 });
@@ -315,11 +322,25 @@ export interface RestoreOptions {
   bin?: string;
 }
 
+/** Were the secrets of the backup at `from` (a folder or its .dump) sealed with another key than `secret`? */
+export function keyMismatch(from: string, secret: string): boolean {
+  try {
+    const manifest = JSON.parse(readFileSync(join(from.endsWith(".dump") ? join(from, "..") : from, "manifest.json"), "utf8")) as Partial<BackupManifest>;
+    return !!manifest.secret_id && manifest.secret_id !== secretId(secret);
+  } catch {
+    // a bare .dump, or a backup older than the fingerprint: nothing to compare
+    return false;
+  }
+}
+
 export interface RestoreResult {
   database: string;
   previous: string | null;
   blobs_copied: number;
   ms: number;
+  /** the backup's stored secrets were sealed with another application key (a rebuilt server with a new kariz.json):
+   * they do not open until that key is back in kariz.json or the passwords are entered again */
+  key_mismatch: boolean;
 }
 
 /**
@@ -362,5 +383,7 @@ export async function restoreBackup(o: RestoreOptions): Promise<RestoreResult> {
   const mirror = join(o.from.endsWith(".dump") ? join(o.from, "..", "..") : join(o.from, ".."), "blobs");
   const copied = existsSync(mirror) ? (await mirrorBlobs(mirror, c.dirs.blobs)).copied : 0;
   o.log?.info("restore: done", { database: c.db.database, previous, blobs_copied: copied });
-  return { database: c.db.database, previous, blobs_copied: copied, ms: Date.now() - t0 };
+  const key_mismatch = keyMismatch(o.from, c.secret);
+  if (key_mismatch) o.log?.warn("restore: the backup's secrets were sealed with another application key (kariz.json secret)");
+  return { database: c.db.database, previous, blobs_copied: copied, ms: Date.now() - t0, key_mismatch };
 }
