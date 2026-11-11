@@ -108,6 +108,8 @@ export interface ServerConfig {
   blobs?: BlobStore;
   /** The server edition's operations (absent elsewhere). */
   server?: ServerEditionBridge;
+  /** What the web version knows about its database connection (/api/health: Supabase's transaction pooler is the one to use). */
+  database?: { pooler: "transaction" | "session" | "direct" | "other" };
 }
 
 export interface AuthUser {

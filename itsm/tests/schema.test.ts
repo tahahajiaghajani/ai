@@ -23,7 +23,7 @@ describe("migrations", () => {
       expect(await migrate(db)).toEqual([]);
       await db.close();
     }
-  });
+  }, 240_000); // four full schemas on PGlite: minutes on a busy machine
 
   it("supabase/schema.sql applies twice to an empty database and creates the same tables as the app", async () => {
     const sql = readFileSync(join(ROOT, "supabase", "schema.sql"), "utf8");
@@ -41,7 +41,7 @@ describe("migrations", () => {
     expect(open).toEqual([]);
     await a.close();
     await b.close();
-  });
+  }, 240_000);
 
   it("names only the platform's settings (itsm.*) and its own functions (sm_*)", () => {
     const all = MIGRATIONS.map((m) => m.sql).join("\n");

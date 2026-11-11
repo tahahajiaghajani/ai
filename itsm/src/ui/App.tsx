@@ -1,14 +1,13 @@
-import { Fragment, Suspense, lazy, useEffect, useState, type ReactNode } from "react";
-import { Routes, Route, Navigate, useParams, useLocation, useNavigate } from "react-router";
-import { Result, Button } from "antd";
-import { Compass } from "lucide-react";
+import { Suspense, lazy, useEffect, useState, type ReactNode } from "react";
+import { Routes, Route, Navigate, useLocation } from "react-router";
 import { useSession } from "./lib/session";
-import { OrgProvider, useOrgQuery } from "./lib/org";
-import { AppShell } from "./components/layout";
 import { BrandMark } from "./components/brand";
 import { PageBoundary } from "./components/crash";
-import { ROUTES } from "./modules/registry";
-import { errorText } from "./lib/api";
+import { loadOrgArea, preloadApp } from "./lib/preload";
+
+// The signed-in app — the shell, every module's menu, routes and table definitions — is its own chunk: the sign-in
+// page and the boot screen never wait for it, and it starts loading as soon as someone is signed in (or about to be)
+const OrgArea = lazy(loadOrgArea);
 
 const Login = lazy(() => import("./pages/auth/Login"));
 const Signup = lazy(() => import("./pages/auth/Signup"));
@@ -19,6 +18,8 @@ const Orgs = lazy(() => import("./pages/orgs/Orgs"));
 const OrgWizard = lazy(() => import("./pages/orgs/OrgWizard"));
 const Admin = lazy(() => import("./pages/admin/Admin"));
 const PublicArea = lazy(() => import("./pages/published/PublicArea"));
+// «آماده‌سازی پایگاه داده»: the web version prepares its database (or cannot reach it) — never a raw server error
+const Preparing = lazy(() => import("./pages/auth/Preparing").then((m) => ({ default: m.Preparing })));
 // «تأیید دوبارهٔ هویت» before sensitive administration (src/ui/lib/api.ts retries the request once it is confirmed)
 const ReauthGate = lazy(() => import("./pages/auth/Reauth").then((m) => ({ default: m.ReauthGate })));
 
@@ -69,6 +70,10 @@ function SetupRoute() {
 function RequireAuth({ children }: { children: ReactNode }) {
   const { me, meta, loading } = useSession();
   const loc = useLocation();
+  // signed in: the app's chunk loads alongside the session's own requests, not after them
+  useEffect(() => {
+    if (me) preloadApp();
+  }, [me]);
   if (loading) return <Loading full />;
   if (meta?.first_run) return <Navigate to="/setup" replace />;
   if (!me) return <Navigate to={`/login?next=${encodeURIComponent(loc.pathname)}`} replace />;
@@ -89,72 +94,16 @@ function Home() {
   return <Navigate to={me.orgs.length ? "/orgs" : "/orgs/new"} replace />;
 }
 
-/**
- * A page of the signed-in app, mounted afresh for every path. Routes such as <module>/<records>/:id
- * and <module>/<records>/new render the same component at the same place, so React would otherwise
- * keep the open record's state (record #12's fields in the «تازه» form). Only the path counts: a
- * page changing its own query string keeps its state.
- */
-function Page({ org, children }: { org: string; children: ReactNode }) {
-  const { pathname } = useLocation();
-  // the page enters with the shared motion (opacity + an 8 px rise; opacity only under reduced motion); a page that
-  // throws while rendering shows its own error state inside the shell instead of blanking the app
-  return (
-    <Fragment key={pathname}>
-      <div className="ds-enter">
-        <PageBoundary home={`/${org}`}>{children}</PageBoundary>
-      </div>
-    </Fragment>
-  );
-}
-
-/** A route of the organisation that does not exist: the empty state of components.md §7. */
-function NotFound({ org }: { org: string }) {
-  const nav = useNavigate();
-  return (
-    <div className="sh-empty ds-enter" role="status">
-      <span className="sh-empty-tile" aria-hidden>
-        <Compass size={28} strokeWidth={1.4} absoluteStrokeWidth />
-      </span>
-      <h1 className="sh-empty-t">این صفحه پیدا نشد</h1>
-      <p className="sh-empty-d">نشانی را بررسی کنید، یا از منو و جست‌وجو به صفحهٔ دیگری بروید.</p>
-      <Button type="primary" className="sh-empty-a" onClick={() => nav(`/${org}`)}>
-        بازگشت به پیشخوان
-      </Button>
-    </div>
-  );
-}
-
-function OrgArea() {
-  const { org } = useParams();
-  const q = useOrgQuery(org ?? "");
-  if (q.isLoading) return <Loading full />;
-  if (q.error || !q.data)
-    return (
-      <Result
-        status="warning"
-        title="دسترسی به این سازمان ممکن نیست"
-        subTitle={q.error ? errorText(q.error) : undefined}
-        extra={<Button href="/orgs">فهرست سازمان‌ها</Button>}
-      />
-    );
-  return (
-    <OrgProvider orgId={org!} info={q.data}>
-      <AppShell>
-        <Suspense fallback={<Loading />}>
-          <Routes>
-            {ROUTES.map((r) => (
-              <Route key={r.path} path={r.path} element={<Page org={org!}>{r.element}</Page>} />
-            ))}
-            <Route path="*" element={<NotFound org={org!} />} />
-          </Routes>
-        </Suspense>
-      </AppShell>
-    </OrgProvider>
-  );
-}
-
 export function App() {
+  const { serverError } = useSession();
+  if (serverError)
+    return (
+      <PageBoundary>
+        <Suspense fallback={<Loading full />}>
+          <Preparing error={serverError} />
+        </Suspense>
+      </PageBoundary>
+    );
   return (
     <PageBoundary>
       <Suspense fallback={<Loading full />}>

@@ -329,8 +329,9 @@ export function searchDoc(fields: FieldDef[], alias: string | null): string {
  * search fields, normalised once when a row is written — PostgreSQL computes it on every write path (the engine, a
  * Windows app's push, imports) — so a search reads a plain column instead of normalising every candidate row
  * (`translate` costs ~25 µs a row; a `like` on the stored text ~1 µs) and a trigram index answers it. Its name
- * carries a hash of the expression: changed search fields make a new column (and index), the old one is dropped.
- * Null for tables without one (not numbered, or no text search field).
+ * carries a hash of the expression: changed search fields make a new column (and index) beside the old one, which
+ * stays for the build that still reads it (ddl.ts `searchIndex`). Null for tables without one (not numbered, or no
+ * text search field).
  */
 export function searchColumn(def: TableDef): { name: string; expr: string } | null {
   if (def.virtual || !def.numbered) return null;

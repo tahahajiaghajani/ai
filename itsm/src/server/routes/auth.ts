@@ -29,36 +29,43 @@ const newEmail = email.refine((e) => !isReservedEmail(e), "این نشانی ب�
 
 export const authRoutes = router();
 
-const hasActiveAdmin = async (db: import("../db").Db) =>
+const hasActiveAdmin = async (db: import("../db").Queryable) =>
   !!(await db.one(`select 1 from sm_users where is_platform_admin and not disabled limit 1`));
 
 authRoutes.post("/signup", async (c) => {
   const cfg = c.get("cfg");
   limitByIp(c, "signup", 10, 3600000);
   const input = await body(c, z.object({ email: newEmail, password: z.string(), full_name: z.string().trim().min(2, "نام را کامل وارد کنید").max(120), mobile: z.string().trim().max(20).optional() }));
-  const count = await cfg.db.one<{ n: number }>(`select count(*)::int as n from sm_users`);
-  const first = (count?.n ?? 0) === 0;
-  // An address in PLATFORM_ADMIN_EMAILS is no proof of owning it (nothing is e-mailed): it opens a
-  // closed sign-up and becomes administrator only while the platform has no active administrator
-  // (the owner's first account). Later addresses are granted from «مدیریت سامانه».
-  const bootstrap = cfg.platformAdmins.includes(input.email) && !(await hasActiveAdmin(cfg.db));
-  if (!first && !cfg.allowSignup && !bootstrap) throw forbidden(cfg.mode === "desktop" ? "کاربر جدید را مدیر از «تنظیمات ← کاربران» اضافه می‌کند" : "ثبت‌نام در این سامانه بسته است");
-  const problem = passwordProblem(input.password);
-  if (problem) throw bad(problem);
-  const exists = await cfg.db.one(`select 1 from sm_users where lower(email) = $1`, [input.email]);
-  if (exists) throw bad("با این ایمیل قبلاً حساب ساخته شده است؛ وارد شوید");
   const recovery = readableCode(4, 4);
-  // the first account administers the platform only while no owner email is configured;
-  // otherwise whoever reached a fresh deployment first would see every organisation
-  const isAdmin = bootstrap || (first && !cfg.platformAdmins.length);
-  const user = await cfg.db.one<{ id: string }>(
-    `insert into sm_users (id, email, full_name, mobile, password_hash, recovery_hash, is_platform_admin)
-     values ($1, $2, $3, $4, $5, $6, $7) returning id`,
-    [uuidv7(), input.email, input.full_name, input.mobile || null, await hashPassword(input.password), sha256(recovery.replace(/-/g, "")), isAdmin],
-  );
-  const { token, maxAge } = await issueSession(cfg.db, user!.id, "web", { ip: clientIp(c), userAgent: c.req.header("user-agent"), method: "signup" });
+  // one transaction: the account, its first session and the security event exist together or not at all (an interrupted
+  // sign-up never leaves an account its owner cannot use and the same address cannot sign up again)
+  const { token, maxAge } = await cfg.db.tx(async (tx) => {
+    // sign-ups wait for each other here: «the first account» and «no active administrator» are decided once
+    await tx.query(`select pg_advisory_xact_lock(724101)`);
+    const count = await tx.one<{ n: number }>(`select count(*)::int as n from sm_users`);
+    const first = (count?.n ?? 0) === 0;
+    // An address in PLATFORM_ADMIN_EMAILS is no proof of owning it (nothing is e-mailed): it opens a
+    // closed sign-up and becomes administrator only while the platform has no active administrator
+    // (the owner's first account). Later addresses are granted from «مدیریت سامانه».
+    const bootstrap = cfg.platformAdmins.includes(input.email) && !(await hasActiveAdmin(tx));
+    if (!first && !cfg.allowSignup && !bootstrap) throw forbidden(cfg.mode === "desktop" ? "کاربر جدید را مدیر از «تنظیمات ← کاربران» اضافه می‌کند" : "ثبت‌نام در این سامانه بسته است");
+    const problem = passwordProblem(input.password);
+    if (problem) throw bad(problem);
+    const exists = await tx.one(`select 1 from sm_users where lower(email) = $1`, [input.email]);
+    if (exists) throw bad("با این ایمیل قبلاً حساب ساخته شده است؛ وارد شوید؛ اگر رمز را به یاد ندارید، در صفحهٔ ورود «فراموش کرده‌اید؟» را بزنید");
+    // the first account administers the platform only while no owner email is configured;
+    // otherwise whoever reached a fresh deployment first would see every organisation
+    const isAdmin = bootstrap || (first && !cfg.platformAdmins.length);
+    const user = await tx.one<{ id: string }>(
+      `insert into sm_users (id, email, full_name, mobile, password_hash, recovery_hash, is_platform_admin)
+       values ($1, $2, $3, $4, $5, $6, $7) returning id`,
+      [uuidv7(), input.email, input.full_name, input.mobile || null, await hashPassword(input.password), sha256(recovery.replace(/-/g, "")), isAdmin],
+    );
+    const s = await issueSession(tx, user!.id, "web", { ip: clientIp(c), userAgent: c.req.header("user-agent"), method: "signup" });
+    await securityEvent(tx, { kind: "sign_up", user_id: user!.id, email: input.email, ...requestMeta(c), data: isAdmin ? { platform_admin: true } : null });
+    return s;
+  });
   setSessionCookie(c, token, maxAge);
-  await securityEvent(cfg.db, { kind: "sign_up", user_id: user!.id, email: input.email, ...requestMeta(c), data: isAdmin ? { platform_admin: true } : null });
   return c.json({ ok: true, recovery_code: recovery });
 });
 

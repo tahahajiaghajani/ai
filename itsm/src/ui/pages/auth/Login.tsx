@@ -8,6 +8,7 @@ import { useSession } from "../../lib/session";
 import { AuthLayout } from "./AuthLayout";
 import { FormAlert, ICON, useBlurValidation, LTR } from "../kit";
 import { APP_NAME } from "@shared/constants";
+import { preloadApp } from "../../lib/preload";
 
 // antd wraps this in its own focusable span.ant-input-password-icon (role=button, aria-label), styled in pages.css
 export const passwordIcon = (visible: boolean) => (visible ? <EyeOff {...ICON} aria-hidden /> : <Eye {...ICON} aria-hidden />);
@@ -54,6 +55,11 @@ export default function Login() {
   const [sp] = useSearchParams();
   const dir = sp.get("dir");
   const next = sp.get("next") || "/";
+  // the signed-in app's chunk loads while the form is filled in, so the first screen after sign-in does not wait for it
+  useEffect(() => {
+    const t = window.setTimeout(preloadApp, 300);
+    return () => window.clearTimeout(t);
+  }, []);
   const options = useQuery({ queryKey: ["auth-options", dir], queryFn: () => api.get<AuthOptions>("/auth/options", { dir }), retry: false, staleTime: 60_000 });
   const directory = options.data?.directory ?? null;
   const sso = options.data?.sso ?? null;

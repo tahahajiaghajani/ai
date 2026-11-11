@@ -4,7 +4,7 @@
 // with zod; errors come back as { error: { code, message (Persian), details } }.
 import { z } from "zod";
 import { bodyLimit } from "hono/body-limit";
-import { router, body, type C } from "../http/hono";
+import { router, body, errorResponse, type C } from "../http/hono";
 import { AppError, bad } from "../http/errors";
 import type { Cond } from "@shared/model/conditions";
 import * as records from "../engine/records";
@@ -119,6 +119,36 @@ recordRoutes.post("/archive/run", async (c) => {
 
 // lists count up to COUNT_LIMIT matching rows («بیش از ۱۰٬۰۰۰» beyond it): an exact count of millions reads them all
 recordRoutes.get("/r/:table", async (c) => c.json(await records.list(c.get("ctx"), c.req.param("table"), { ...listQuery(c), countLimit: records.COUNT_LIMIT })));
+
+/**
+ * Several list queries in one request (the UI's records client batches the ones a screen starts together — the shell's
+ * badge counts, a dashboard's lists): on the web version every request is a function call that signs the person in and
+ * loads the organisation and the access model again, so 15 counts cost 15 times that. Each query is exactly the one
+ * `POST /r/:table/query` would run, with the caller's access; each answers on its own (`ok` and the result, or the
+ * Persian error a single request would have answered).
+ */
+export const BATCH_QUERIES_MAX = 25;
+recordRoutes.post("/batch/query", async (c) => {
+  const p = await body(c, z.object({ queries: z.array(z.object({ table: z.string().max(80), query: listBody })).min(1).max(BATCH_QUERIES_MAX) }));
+  const ctx = c.get("ctx");
+  const results: ({ ok: true; result: unknown } | { ok: false; status: number; error: unknown })[] = new Array(p.queries.length);
+  // a few at a time: the cloud's pool is small and the desktop's database answers one statement at a time anyway
+  let next = 0;
+  const worker = async () => {
+    for (let i = next++; i < p.queries.length; i = next++) {
+      const { table, query } = p.queries[i];
+      try {
+        results[i] = { ok: true, result: await records.list(ctx, table, { ...query, countLimit: records.COUNT_LIMIT }) };
+      } catch (e) {
+        // the same answer (and the same logging, error id included) as the single request
+        const res = errorResponse(e, c);
+        results[i] = { ok: false, status: res.status, error: ((await res.json()) as { error: unknown }).error };
+      }
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  return c.json({ results });
+});
 
 recordRoutes.post("/r/:table/query", async (c) => {
   const p = await body(c, listBody);
