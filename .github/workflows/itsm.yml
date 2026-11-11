@@ -187,6 +187,8 @@ jobs:
     # folder and its write-ahead log at the end) and gated on console errors and budgets. Screenshots, report.json and
     # report.md (also the job summary) and the app's log as the artifact.
     needs: [windows]
+    # its own condition: with the default one a job skipped anywhere before `windows` would skip this one too
+    if: ${{ !cancelled() && needs.windows.result == 'success' }}
     runs-on: windows-latest
     timeout-minutes: 75
     defaults:
