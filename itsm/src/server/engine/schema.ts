@@ -4,6 +4,12 @@
 // @shared/model/arrangement) and tenant choice lists (`choice` rows extend or edit the default options of a list
 // by value; an inactive row hides an option for new values). Every engine path works on these effective
 // definitions, so a custom field is filterable, sortable, validated, audited and synced like a built-in one.
+// Design F (package F1) adds: a `custom_field` row with `library_id` builds its field from the field library
+// (`field_def` and its `field_type`, @shared/forms/fieldtypes), so a change there reaches every table that uses it;
+// override rows carry a placeholder, `form_hidden` (→ FieldDef.formHidden: hidden on forms only) and a requirement
+// (`required` + `required_for` → FieldDef.formRequired, people's writes only — never FieldDef.required, which binds
+// every write); the row named "_states" holds the lifecycle overlay (@shared/model/lifecycle), merged into
+// `def.states`; choice options a module marks `locked` stay active whatever a row says.
 //
 // Cached per process and organisation; each request re-validates the cache with one small query (the stamp of
 // both tables), so a change made on another cloud instance is seen by the next request.
@@ -13,8 +19,13 @@ import { FORM_ROW, cleanArrangement } from "@shared/model/arrangement";
 import type { Lookup } from "@shared/model/conditions";
 import { CHOICE_LISTS, TABLES, tableDef } from "@shared/tables";
 import { CUSTOM_FIELD_TYPES } from "@shared/tables/core";
+import { LABELS_ONLY_LIFECYCLES, STATES_ROW, cleanLifecycle, mergeLifecycle } from "@shared/model/lifecycle";
+import { lockedFields } from "@shared/forms/locked";
+import { isRequiredFor, type RequiredFor } from "@shared/forms/paths";
+import { libraryFieldDef, resolveFieldType, type FieldTypeRow, type LibraryFieldRow, type SettingsEnv } from "@shared/forms/fieldtypes";
 import type { Ctx } from "../context";
 import type { Queryable } from "../db";
+import { pgArray } from "../db";
 import { notFound } from "../http/errors";
 import { access } from "../access/provider";
 
@@ -48,6 +59,19 @@ interface CustomFieldRow {
   field_group?: string | null;
   max_length: number | null;
   sort_order: number | null;
+  /** design F: the library field behind the row, the placeholder, hidden on forms only, whom a requirement binds */
+  library_id?: string | null;
+  placeholder?: string | null;
+  form_hidden?: boolean | null;
+  required_for?: string | null;
+}
+
+/** The field library rows the overlay reads (only when some row names a library field). */
+export interface LibraryRows {
+  /** live library fields by id */
+  fields: Map<string, LibraryFieldRow>;
+  /** the organisation's field types by key */
+  types: Map<string, FieldTypeRow>;
 }
 
 interface ChoiceRow {
@@ -72,12 +96,14 @@ export function invalidateSchema(orgId?: string): void {
 }
 
 async function stampOf(q: Queryable, orgId: string): Promise<string> {
-  const r = await q.one<{ a: string | null; b: string | null }>(
+  const r = await q.one<{ a: string | null; b: string | null; c: string | null; d: string | null }>(
     `select (select count(*)::text || '/' || coalesce(max(updated_at)::text, '') from sm_custom_fields where org_id = $1) as a,
-            (select count(*)::text || '/' || coalesce(max(updated_at)::text, '') from sm_choices where org_id = $1) as b`,
+            (select count(*)::text || '/' || coalesce(max(updated_at)::text, '') from sm_choices where org_id = $1) as b,
+            (select count(*)::text || '/' || coalesce(max(updated_at)::text, '') from sm_field_defs where org_id = $1) as c,
+            (select count(*)::text || '/' || coalesce(max(updated_at)::text, '') from sm_field_types where org_id = $1) as d`,
     [orgId],
   );
-  return `${r?.a ?? ""}|${r?.b ?? ""}`;
+  return `${r?.a ?? ""}|${r?.b ?? ""}|${r?.c ?? ""}|${r?.d ?? ""}`;
 }
 
 /**
@@ -101,7 +127,8 @@ export async function loadSchema(q: Queryable, orgId: string): Promise<OrgSchema
   if (hit && hit.stamp === stamp) return hit;
   const [fields, choices] = await Promise.all([
     q.query<CustomFieldRow>(
-      `select table_key, name, label, type, choices, options, ref, required, list, search, filter, help, section, field_group, max_length, sort_order
+      `select table_key, name, label, type, choices, options, ref, required, list, search, filter, help, section, field_group, max_length, sort_order,
+              library_id, placeholder, form_hidden, required_for
        from sm_custom_fields where org_id = $1 and deleted_at is null and active order by table_key, sort_order, name`,
       [orgId],
     ),
@@ -110,21 +137,53 @@ export async function loadSchema(q: Queryable, orgId: string): Promise<OrgSchema
       [orgId],
     ),
   ]);
-  const schema = buildSchema(fields, choices, stamp);
+  const schema = buildSchema(fields, choices, stamp, await libraryRows(q, orgId, fields));
   cache.set(orgId, schema);
   if (cache.size > 2000) cache.delete(cache.keys().next().value!);
   return schema;
 }
 
+/** The library fields the organisation's rows name, with its field types (null when no row names one). */
+async function libraryRows(q: Queryable, orgId: string, rows: CustomFieldRow[]): Promise<LibraryRows | null> {
+  const ids = [...new Set(rows.map((r) => r.library_id).filter((x): x is string => !!x))];
+  if (!ids.length) return null;
+  const [fields, types] = await Promise.all([
+    q.query<LibraryFieldRow & { id: string }>(
+      `select id, name, label, type, help, placeholder, default_value, options, choices, depends_on, validation, field_group, list, search, filter, status
+       from sm_field_defs where org_id = $1 and id = any($2::uuid[]) and deleted_at is null`,
+      [orgId, pgArray(ids)],
+    ),
+    q.query<FieldTypeRow>(`select key, name, base, widget, validation, display, options, choices, status from sm_field_types where org_id = $1 and deleted_at is null`, [orgId]),
+  ]);
+  return { fields: new Map(fields.map((f) => [String(f.id), f])), types: new Map(types.map((t) => [t.key, t])) };
+}
+
+/** What the shared cleaners cannot know inside the engine: which tables exist (the registry's physical ones). */
+const LIBRARY_ENV: SettingsEnv = {
+  tableExists: (key) => {
+    const def = tableDef(key);
+    return !!def && !def.virtual;
+  },
+};
+
+/** Tables whose values are not fields of their own: a process case keeps its values in one json field (design F §3.6). */
+const NO_LIBRARY_FIELDS = new Set(["process_case"]);
+
+/** Whom an organisation's requirement binds: `required_for` («همه» unless it says «فقط کارشناسان»). */
+const requiredFor = (r: Pick<CustomFieldRow, "required_for">): RequiredFor => (isRequiredFor(r.required_for) ? r.required_for : "all");
+
 const CUSTOM_NAME = /^u_[a-z0-9_]{1,40}$/;
 
 /** A custom field row as a FieldDef (null when the row is not usable: unknown type, bad name). */
-export function customFieldDef(r: Pick<CustomFieldRow, "name" | "label" | "type" | "choices" | "options" | "ref" | "required" | "list" | "search" | "filter" | "help" | "section" | "field_group" | "max_length">): FieldDef | null {
+export function customFieldDef(r: Pick<CustomFieldRow, "name" | "label" | "type" | "choices" | "options" | "ref" | "required" | "list" | "search" | "filter" | "help" | "section" | "field_group" | "max_length"> & Partial<Pick<CustomFieldRow, "placeholder" | "form_hidden" | "required_for">>): FieldDef | null {
   if (!CUSTOM_NAME.test(r.name)) return null;
   const type = r.type as FieldType;
   if (!type || !(CUSTOM_FIELD_TYPES as string[]).includes(type)) return null;
   const f: FieldDef = { name: r.name, label: r.label || r.name, type, custom: true };
-  if (r.required) f.required = true;
+  // an organisation's requirement binds people's writes only (design F §3.3)
+  if (r.required) f.formRequired = requiredFor(r);
+  if (r.placeholder) f.placeholder = r.placeholder;
+  if (r.form_hidden) f.formHidden = true;
   if (r.list) f.list = true;
   if (r.search && FIELD_TYPES[type].sql === "text") f.search = true;
   if (r.filter) f.filter = true;
@@ -145,6 +204,27 @@ export function customFieldDef(r: Pick<CustomFieldRow, "name" | "label" | "type"
   return f;
 }
 
+/**
+ * A table's field from the library (a `custom_field` row naming a `field_def`): type, validation, options, label, help
+ * and placeholder from the library and its type — so a change there reaches every table — and, from the row, its
+ * section, hiding on forms and the requirement. Null when the library field is gone or cannot be a field.
+ */
+function libraryField(table: string, r: CustomFieldRow, library: LibraryRows | null): FieldDef | null {
+  if (NO_LIBRARY_FIELDS.has(table) || !CUSTOM_NAME.test(r.name)) return null;
+  const lib = library?.fields.get(String(r.library_id));
+  if (!lib) return null;
+  const type = resolveFieldType(lib.type, library!.types, LIBRARY_ENV);
+  if (!type) return null;
+  const f = libraryFieldDef(lib, type, LIBRARY_ENV);
+  if (!f) return null;
+  // values live in `custom` under the row's name (the library keeps it while the field is used)
+  f.name = r.name;
+  if (r.section) f.section = r.section;
+  if (r.required) f.formRequired = requiredFor(r);
+  if (r.form_hidden) f.formHidden = true;
+  return f;
+}
+
 function cleanOptions(raw: unknown[]): Option[] {
   const out: Option[] = [];
   for (const o of raw) {
@@ -160,7 +240,7 @@ function cleanOptions(raw: unknown[]): Option[] {
   return out;
 }
 
-export function buildSchema(fieldRows: CustomFieldRow[], choiceRows: ChoiceRow[], stamp = ""): OrgSchema {
+export function buildSchema(fieldRows: CustomFieldRow[], choiceRows: ChoiceRow[], stamp = "", library: LibraryRows | null = null): OrgSchema {
   const byTable = new Map<string, CustomFieldRow[]>();
   for (const r of fieldRows) byTable.set(r.table_key, [...(byTable.get(r.table_key) ?? []), r]);
   const defs = new Map<string, TableDef>();
@@ -173,26 +253,40 @@ export function buildSchema(fieldRows: CustomFieldRow[], choiceRows: ChoiceRow[]
     if (hit) return hit;
     const fields = base.fields.map((f) => ({ ...f }));
     let arrangement: FormArrangement | null = null;
+    let lifecycle: ReturnType<typeof cleanLifecycle> = null;
+    let locks: ReturnType<typeof lockedFields> | null = null;
     for (const r of rows) {
       // the form layout designer's row: the arrangement of the form, never a field
       if (r.name === FORM_ROW) {
         arrangement = cleanArrangement(r.options);
         continue;
       }
+      // the lifecycle editor's row: the organisation's safe changes to the state model, never a field
+      if (r.name === STATES_ROW) {
+        lifecycle = cleanLifecycle(r.options);
+        continue;
+      }
       const at = fields.findIndex((f) => f.name === r.name);
       if (at >= 0) {
-        // an override of an existing field: label, help, list column, "required" for an optional field
+        // an override of an existing field: label, help, placeholder, list column, hidden on forms only, and a
+        // requirement on people's writes for an optional field (a module's requirement stays FieldDef.required)
         const f = fields[at];
         if (r.label) f.label = r.label;
         if (r.help) f.help = r.help;
+        if (r.placeholder) f.placeholder = r.placeholder;
         if (r.list) f.list = true;
-        if (r.required && !f.system && !f.readonly && !f.base) f.required = true;
+        if (r.required && !f.required && !f.system && !f.readonly && !f.base) f.formRequired = requiredFor(r);
+        // a locked field is never hidden (the server refuses the row; an older row is ignored)
+        if (r.form_hidden && !f.custom && !(locks ??= lockedFields(base))[f.name]) f.formHidden = true;
         continue;
       }
-      const f = customFieldDef(r);
+      const f = r.library_id ? libraryField(key, r, library) : customFieldDef(r);
       if (f) fields.push(f);
     }
-    const def: TableDef = arrangement ? { ...base, fields, form: { ...base.form, arrangement } } : { ...base, fields };
+    // a library field depends on another one only where both are attached
+    for (const f of fields) if (f.library && f.dependsOn && !fields.some((x) => x.name === f.dependsOn)) delete f.dependsOn;
+    let def: TableDef = arrangement ? { ...base, fields, form: { ...base.form, arrangement } } : { ...base, fields };
+    if (lifecycle && base.states) def = { ...def, states: mergeLifecycle(base.states, lifecycle, { labelsOnly: LABELS_ONLY_LIFECYCLES.has(key) }) };
     defs.set(key, def);
     return def;
   };
@@ -210,7 +304,10 @@ export function buildSchema(fieldRows: CustomFieldRow[], choiceRows: ChoiceRow[]
       if (r.sort_order !== null && r.sort_order !== undefined) o.order = r.sort_order;
       else if (map.get(r.value)?.order !== undefined) o.order = map.get(r.value)!.order;
       if (r.parent) o.parent = r.parent;
-      if (!r.active) o.active = false;
+      // an option module code tests (`locked`) stays active: relabelled, recoloured or reordered, never switched off
+      const dflt = map.get(r.value);
+      if (dflt?.locked) o.locked = true;
+      if (!r.active && !dflt?.locked) o.active = false;
       map.set(r.value, o);
     }
     const out = [...map.values()].sort((a, b) => (a.order ?? 1e9) - (b.order ?? 1e9));
@@ -228,6 +325,28 @@ export function buildSchema(fieldRows: CustomFieldRow[], choiceRows: ChoiceRow[]
     stamp,
   };
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Whom an organisation's requirement binds (FieldDef.formRequired, design F §3.3): people's writes only — «همه»
+// binds every person, «فقط کارشناسان» the writers whose roles have the agent or admin persona. The system and
+// trusted server code are never bound. The access model's persona lookup is plugged in by the field library module
+// (`setRequirementAudience`); without it every person counts as an agent.
+
+export type RequirementAudience = (ctx: Ctx, q: Queryable) => Promise<"agent" | "requester">;
+let audience: RequirementAudience = async () => "agent";
+
+export function setRequirementAudience(fn: RequirementAudience): void {
+  audience = fn;
+}
+
+/** The kinds of organisation requirement that bind the caller's writes (none for the system). */
+export async function requirementScope(ctx: Ctx, q: Queryable = ctx.db): Promise<RequiredFor[]> {
+  if (ctx.actor === "system") return [];
+  return (await audience(ctx, q)) === "agent" ? ["all", "agents"] : ["all"];
+}
+
+/** Does the organisation's requirement on `f` bind a writer of this scope? */
+export const bindsRequirement = (f: Pick<FieldDef, "formRequired">, scope: readonly RequiredFor[]): boolean => !!f.formRequired && scope.includes(f.formRequired);
 
 /** The effective definition of `key` for the caller's organisation, or 404. */
 export async function defFor(ctx: Ctx, key: string, q?: Queryable): Promise<{ def: TableDef; schema: OrgSchema }> {
