@@ -17,6 +17,7 @@ import type { Tx } from "../../db";
 import { bad, conflict } from "../../http/errors";
 import { isSystemCtx, registerHooks, updateIn, validationError, type WriteArgs } from "../../engine";
 import { eqAll, isUuid, liveRow, liveRows, sysOf, type Row } from "./common";
+import { lockedRow } from "../incident/common";
 import { versionSchema } from "./definition";
 
 const CODE_RE = /^[a-z0-9][a-z0-9_.-]{0,59}$/;
@@ -31,7 +32,8 @@ const NOT_DEFINITION = new Set([
 export async function markDirty(tx: Tx, ctx: Ctx, ids: readonly unknown[]): Promise<void> {
   const sys = sysOf(ctx);
   for (const id of [...new Set(ids.filter(isUuid))]) {
-    const item = await liveRow(tx, sys, "catalog_item", id);
+    // the item locked: a publication in flight finishes first, and its «nothing unpublished» is not left over this change
+    const item = await lockedRow(tx, sys, "catalog_item", id);
     if (item && item.version_id && !item.dirty) await updateIn(tx, sys, "catalog_item", id, { dirty: true }, { trusted: true, keepVersion: true, allowLocked: true });
   }
 }
@@ -92,6 +94,8 @@ function variableBeforeWrite(w: WriteArgs): Promise<void> | void {
   if (n.min !== null && n.min !== undefined && n.max !== null && n.max !== undefined && Number(n.min) > Number(n.max)) throw validationError({ min: "کمینه از بیشینه بزرگ‌تر است" });
   return (async () => {
     const sys = sysOf(w.ctx);
+    // the form (item or question set) locked: two questions of one name added at once take turns, the second is refused
+    await lockedRow(w.tx, sys, n.item_id ? "catalog_item" : "variable_set", n.item_id ?? n.set_id);
     const where = n.item_id ? { item_id: n.item_id, name } : { set_id: n.set_id, name };
     const same = (await liveRows(w.tx, sys, "catalog_variable", eqAll(where), { limit: 2 })).filter((r) => r.id !== n.id);
     if (same.length) throw validationError({ name: `پرسشی با نام فنی «${name}» در همین فرم هست` });
@@ -141,7 +145,8 @@ async function categoryBeforeWrite(w: WriteArgs): Promise<void> {
   for (let i = 0; i < 50 && isUuid(id); i++) {
     if (seen.has(String(id))) throw validationError({ parent_id: "دسته نمی‌تواند زیرمجموعهٔ خودش باشد" });
     seen.add(String(id));
-    const p = await liveRow(w.tx, sys, "catalog_category", id);
+    // the parent read shared (the first one): a deletion of it in flight finishes first and this is refused
+    const p = i === 0 ? await lockedRow(w.tx, sys, "catalog_category", id, "share") : await liveRow(w.tx, sys, "catalog_category", id);
     if (!p) throw validationError({ parent_id: "دستهٔ بالاتر پیدا نشد" });
     if (i === 0 && p.catalog_id !== n.catalog_id) throw validationError({ parent_id: "دستهٔ بالاتر از کاتالوگ دیگری است" });
     id = p.parent_id;

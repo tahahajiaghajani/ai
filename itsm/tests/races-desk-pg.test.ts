@@ -11,6 +11,8 @@ import type { Ctx } from "@server/context";
 import type { Tx } from "@server/db";
 import { createIn, systemCtx, transitionIn, updateIn } from "@server/engine";
 import { openConnection, openGateIn, verifyChain } from "@server/modules/devops";
+import { sweep } from "@server/modules/request";
+import { createFromAlert, draftReview } from "@server/modules/incident";
 import { resetRateLimits } from "@server/http/ratelimit";
 import { resetRateBuckets } from "@server/http/hono";
 import { realPgAvailable } from "./pg-real";
@@ -19,6 +21,7 @@ import { world as changeWorld, at, type World as ChangeWorld } from "./change-he
 import { requestKit, type RequestKit, type Who } from "./request-helpers";
 import { kbWorld, type KbWorld } from "./knowledge-helpers";
 import { world as releaseWorld, type World as ReleaseWorld } from "./release-helpers";
+import { world as incidentWorld, type World as IncidentWorld } from "./incident-helpers";
 
 const pid = process.pid;
 
@@ -144,6 +147,40 @@ describe.skipIf(!realPgAvailable())("service desk and delivery: writes side by s
       expect(made.status).toBe("rejected");
       expect(message(made)).toContain("منتشر نشده");
     });
+
+    it("A2-10: two changes created at once on one CI and window both record their conflict", async () => {
+      const ci = await w.ci(`سرور تداخل ${pid}`);
+      // made straight into assessment (an import, a pipeline): drafts do not conflict, assessed changes do
+      const make = (tx: Tx, title: string) =>
+        createIn(tx, w.sys, "change_request", { short_description: title, type: "normal", state: "assess", assignment_group_id: w.g.network, ci_id: ci, planned_start: at(40, 9), planned_end: at(40, 11) }, { trusted: true });
+      // the first creation planned its conflicts (none) and holds the change counter: the second plans before it commits
+      const first = hold(w.e.db, (tx) => make(tx, "تغییر نخست روی سرور"));
+      const second = await whileHeld(first, () => w.sys.write((tx) => make(tx, "تغییر دوم روی سرور")));
+      expect(second.status, message(second)).toBe("fulfilled");
+      await w.drain();
+      const ids = (await w.e.db.query<{ id: string }>(`select id from sm_change_requests where org_id = $1 and ci_id = $2 and deleted_at is null`, [w.e.org, ci])).map((r) => r.id);
+      expect(ids.length).toBe(2);
+      for (const [mine, other] of [ids, [...ids].reverse()]) {
+        const rows = await w.e.db.query(`select id from sm_change_conflicts where change_id = $1 and other_change_id = $2 and active and deleted_at is null`, [mine, other]);
+        expect(rows.length, `conflict of ${mine} with ${other}`).toBeGreaterThanOrEqual(1);
+      }
+    });
+
+    it("A2-11: a task waiting for two tasks finished at once becomes ready", async () => {
+      const c = await w.change({ short_description: "تغییر با کارهای وابسته" });
+      await move(c.id, ["assess", "authorize", "scheduled", "implement"]);
+      const task = (data: Record<string, unknown>) => w.sys.write((tx) => createIn(tx, w.sys, "change_task", { change_id: c.id, short_description: "کار آزمون", task_type: "implementation", ...data }, { trusted: true }));
+      const a = await task({ short_description: "کار الف" });
+      const b = await task({ short_description: "کار ب" });
+      const after = await task({ short_description: "کار پس از هر دو", depends_on: [a.id, b.id] });
+      const state = async (id: string) => (await w.e.db.one<{ state: string }>(`select state from sm_change_tasks where id = $1`, [id]))!.state;
+      expect(await state(after.id)).toBe("pending");
+      const done = (id: string) => (tx: Tx) => transitionIn(tx, w.sys, "change_task", id, "closed_complete", {}, { trusted: true });
+      const first = hold(w.e.db, done(a.id));
+      const second = await whileHeld(first, () => w.sys.write(done(b.id)));
+      expect(second.status, message(second)).toBe("fulfilled");
+      expect(await state(after.id)).toBe("open");
+    });
   });
 
   // ----------------------------------------------------------------------------------------------------- request
@@ -226,6 +263,16 @@ describe.skipIf(!realPgAvailable())("service desk and delivery: writes side by s
       expect(item.state).toBe("in_fulfilment");
       expect(item.answers.subject).toBe("موضوع تأییدشده");
     });
+
+    it("A2-19: the sweep does not cancel an item whose requester answered while it ran", async () => {
+      const id = await itemInWork();
+      await k.o.db.query(`update sm_request_items set state = 'awaiting_info', info_since = now() - interval '90 days' where id = $1`, [id]);
+      // the requester's answer moves the item back to work (locked, not committed) while the sweep runs
+      const answering = hold(k.o.db, (tx) => transitionIn(tx, sys, "request_item", id, "in_fulfilment", {}, { trusted: true }));
+      const swept = await whileHeld(answering, () => sweep(sys, Date.now()));
+      expect(swept.status, message(swept)).toBe("fulfilled");
+      expect((await k.ritm(id)).state).toBe("in_fulfilment");
+    });
   });
 
   // --------------------------------------------------------------------------------------------------- knowledge
@@ -269,6 +316,51 @@ describe.skipIf(!realPgAvailable())("service desk and delivery: writes side by s
       expect(String(article.body).trim()).not.toBe(C2.trim());
       expect(article.state).toBe("published");
       expect(String(article.body).trim()).toBe(C1.trim());
+    });
+
+    /** Hold the record counter of `table` (every create of the table waits there, after its checks decided). */
+    const holdNumbers = async (table: string) => {
+      await w.e.db.query(`insert into sm_numbers (org_id, table_key, last) values ($1, $2, 0) on conflict do nothing`, [w.e.org, table]);
+      return hold(w.e.db, (tx) => tx.query(`select 1 from sm_numbers where org_id = $1 and table_key = $2 for update`, [w.e.org, table]));
+    };
+    const published = async (title: string) => w.published({ base_id: w.bases.guide, title: `${title} ${pid}`, body: "## گام‌ها\n\n1. یک کار\n2. کار دیگر\n" });
+
+    it("A2-20: two editors starting a draft of one article at once make one draft", async () => {
+      const a = await published("مقالهٔ دو پیش‌نویس");
+      const numbers = await holdNumbers("kb_version");
+      const both = await whileHeld(numbers, () => Promise.all([0, 1].map(() => call(w.p.km.client, "POST", `${w.P}/knowledge/articles/${a.id}/draft`, {}))), 2);
+      expect(both.status, message(both)).toBe("fulfilled");
+      const statuses = (both as PromiseFulfilledResult<{ status: number }[]>).value.map((r) => r.status).sort();
+      expect(statuses).toEqual([200, 409]);
+      const open = await w.e.db.query(`select id from sm_kb_versions where article_id = $1 and state in ('draft', 'in_review', 'scheduled') and deleted_at is null`, [a.id]);
+      expect(open.length).toBe(1);
+    });
+
+    it("A2-21/A2-22: votes at once are all counted, and one member's double vote is one vote", async () => {
+      const a = await published("مقالهٔ رأی هم‌زمان");
+      const vote = (c: typeof w.p.req.client) => call(c, "POST", `${w.P}/knowledge/articles/${a.id}/vote`, { helpful: true });
+      // the article is held by a write of its own while two readers vote, then while one reader votes twice
+      let holder = hold(w.e.db, (tx) => tx.query(`select 1 from sm_kb_articles where id = $1 for update`, [a.id]));
+      let both = await whileHeld(holder, () => Promise.all([vote(w.p.req.client), vote(w.p.agent.client)]), 2);
+      expect(both.status, message(both)).toBe("fulfilled");
+      expect(Number((await w.e.db.one<{ n: number }>(`select helpful_yes as n from sm_kb_articles where id = $1`, [a.id]))!.n)).toBe(2);
+      holder = hold(w.e.db, (tx) => tx.query(`select 1 from sm_kb_articles where id = $1 for update`, [a.id]));
+      both = await whileHeld(holder, () => Promise.all([vote(w.p.req2.client), vote(w.p.req2.client)]), 2);
+      expect(both.status, message(both)).toBe("fulfilled");
+      const mine = await w.e.db.query(`select id from sm_kb_feedback where article_id = $1 and user_id = $2 and deleted_at is null`, [a.id, w.p.req2.userId]);
+      expect(mine.length).toBe(1);
+      expect(Number((await w.e.db.one<{ n: number }>(`select helpful_yes as n from sm_kb_articles where id = $1`, [a.id]))!.n)).toBe(3);
+    });
+
+    it("A2-23: two readers flagging one article at once make one flag task", async () => {
+      const a = await published("مقالهٔ گزارش هم‌زمان");
+      const numbers = await holdNumbers("kb_task");
+      const flag = (c: typeof w.p.req.client) => call(c, "POST", `${w.P}/knowledge/articles/${a.id}/flag`, { reason: "outdated" });
+      const both = await whileHeld(numbers, () => Promise.all([flag(w.p.req.client), flag(w.p.agent.client)]), 2);
+      expect(both.status, message(both)).toBe("fulfilled");
+      const tasks = await w.e.db.query<{ feedback_count: number }>(`select feedback_count from sm_kb_tasks where article_id = $1 and kind = 'flag' and active and deleted_at is null`, [a.id]);
+      expect(tasks.length).toBe(1);
+      expect(Number(tasks[0].feedback_count)).toBe(2);
     });
   });
 
@@ -331,6 +423,66 @@ describe.skipIf(!realPgAvailable())("service desk and delivery: writes side by s
       const changes = await w.e.db.query(`select id from sm_change_requests where org_id = $1 and external_ref = $2 and deleted_at is null`, [w.e.org, `deploy:${ext}`]);
       expect(changes.length).toBe(1);
       await sleep(10);
+    });
+
+    it("A2-25: two overlapping bookings of one environment approved at once: the second is refused", async () => {
+      const env = w.env.staging ?? w.env.test;
+      expect(env).toBeTruthy();
+      const book = async (from: number, to: number) =>
+        w.sys.write((tx) => createIn(tx, w.sys, "environment_booking", { environment_id: env, purpose: "آزمون هم‌زمانی", start_at: at(50, from), end_at: at(50, to) }, { trusted: true }));
+      const [b1, b2] = [await book(10, 12), await book(11, 13)];
+      const approve = (id: string) => (tx: Tx) => transitionIn(tx, w.sys, "environment_booking", id, "approved", {}, { trusted: true });
+      const first = hold(w.e.db, approve(b1.id));
+      const second = await whileHeld(first, () => w.sys.write(approve(b2.id)));
+      expect(second.status).toBe("rejected");
+      expect(message(second)).toContain("رزرو شده است");
+      const approved = await w.e.db.query(`select id from sm_environment_bookings where environment_id = $1 and state = 'approved' and deleted_at is null and id = any($2::uuid[])`, [env, `{${b1.id},${b2.id}}`]);
+      expect(approved.length).toBe(1);
+    });
+  });
+
+  // ---------------------------------------------------------------------------------------------- incident, problem
+
+  describe("incident and problem", () => {
+    let w: IncidentWorld;
+    beforeAll(async () => {
+      resetRateLimits();
+      resetRateBuckets();
+      w = await incidentWorld();
+    }, 180_000);
+
+    it("A2-14: two incidents linked to one problem at once are both counted", async () => {
+      const problem = (await w.o.post(`${w.P}/r/problem`, { short_description: `مشکل شمارش ${pid}` })).row as Record<string, any>;
+      const [i1, i2] = [await w.incident({ short_description: "رخداد نخست" }), await w.incident({ short_description: "رخداد دوم" })];
+      const link = (id: string) => (tx: Tx) => updateIn(tx, w.sys, "incident", id, { problem_id: problem.id }, { trusted: true });
+      // the problem is held by a write of its own while both links are counted
+      const holder = hold(w.e.db, (tx) => tx.query(`select 1 from sm_problems where id = $1 for update`, [problem.id]));
+      const both = await whileHeld(holder, () => Promise.all([w.sys.write(link(i1.id)), w.sys.write(link(i2.id))]), 2);
+      expect(both.status, message(both)).toBe("fulfilled");
+      expect(Number((await w.e.db.one<{ n: number }>(`select incident_count as n from sm_problems where id = $1`, [problem.id]))!.n)).toBe(2);
+    });
+
+    it("A2-17: the automatic review draft and a manager's request at once make one review", async () => {
+      const inc = await w.incident({ short_description: `رخداد عمدهٔ بازبینی ${pid}` });
+      await w.e.db.query(`insert into sm_numbers (org_id, table_key, last) values ($1, 'incident_review', 0) on conflict do nothing`, [w.e.org]);
+      const numbers = hold(w.e.db, (tx) => tx.query(`select 1 from sm_numbers where org_id = $1 and table_key = 'incident_review' for update`, [w.e.org]));
+      const both = await whileHeld(numbers, () => Promise.all([draftReview(w.sys, inc.id), call(w.o, "POST", `${w.P}/incident/${inc.id}/review`, {})]), 2);
+      expect(both.status, message(both)).toBe("fulfilled");
+      const reviews = await w.e.db.query(`select id from sm_incident_reviews where incident_id = $1 and state <> 'canceled' and deleted_at is null`, [inc.id]);
+      expect(reviews.length).toBe(1);
+    });
+
+    it("A2-26: one situation raised twice at once becomes one incident", async () => {
+      const key = `SIT:race-${pid}`;
+      await w.e.db.query(`insert into sm_numbers (org_id, table_key, last) values ($1, 'incident', 0) on conflict do nothing`, [w.e.org]);
+      const numbers = hold(w.e.db, (tx) => tx.query(`select 1 from sm_numbers where org_id = $1 and table_key = 'incident' for update`, [w.e.org]));
+      const raise = (source: string) => w.sys.write((tx) => createFromAlert(tx, w.sys, { key, title: "سرویس پرداخت در دسترس نیست", source, severity: "major" }));
+      const both = await whileHeld(numbers, () => Promise.all([raise("پایش نخست"), raise("پایش دوم")]), 2);
+      expect(both.status, message(both)).toBe("fulfilled");
+      const made = (both as PromiseFulfilledResult<{ created: boolean }[]>).value.map((r) => r.created).sort();
+      expect(made).toEqual([false, true]);
+      const rows = await w.e.db.query(`select id from sm_incidents where org_id = $1 and external_ref = $2 and deleted_at is null`, [w.e.org, key]);
+      expect(rows.length).toBe(1);
     });
   });
 });

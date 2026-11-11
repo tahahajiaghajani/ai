@@ -507,7 +507,10 @@ async function taskBefore(w: W): Promise<void> {
   const n = w.next;
   const sys = sysOf(w.ctx);
   const fields: Record<string, string> = {};
-  const change = n.change_id ? await liveRow(w.tx, sys, "change_request", n.change_id) : null;
+  // a new (or moved) task reads its change shared until commit: a closing or cancellation in flight finishes first and
+  // the task is refused; one that comes later waits for this task
+  const attach = w.op === "create" || w.changed.has("change_id");
+  const change = n.change_id ? await (attach ? lockedRow(w.tx, sys, "change_request", n.change_id, "share") : liveRow(w.tx, sys, "change_request", n.change_id)) : null;
   if (change && (w.op === "create" || w.changed.has("change_id") || SECRECY.some((f) => w.changed.has(f)))) Object.assign(n, secrecyOf(change, n));
   if (w.op === "create") {
     if (change && ["closed", "canceled"].includes(String(change.state))) throw validationError({ change_id: "به تغییر بسته یا لغوشده کار افزوده نمی‌شود" });
