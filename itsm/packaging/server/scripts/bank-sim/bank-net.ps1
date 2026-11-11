@@ -165,6 +165,7 @@ function Get-KarizOutbound([datetime]$Since, [string]$InstallDir, [object]$Lan, 
     try { $events = @(Get-WinEvent -LogName Security -FilterXPath $xpath -ErrorAction Stop) } catch { Write-Log "no audited outbound connection found: $($_.Exception.Message)" }
     $total = $events.Count
     $rows = New-Object System.Collections.ArrayList
+    $dnsAsked = 0
     $byProgram = @{}
     foreach ($e in $events) {
         $x = [xml]$e.ToXml()
@@ -177,9 +178,12 @@ function Get-KarizOutbound([datetime]$Since, [string]$InstallDir, [object]$Lan, 
         if (-not $app.Contains($leaf)) { continue }
         $dest = [string]$d['DestAddress']
         if (Test-InsideBank $dest $Lan) { continue }
+        # a name looked up at the machine's DNS server (the bank's DNS: the air-gap guard and the mail client resolve
+        # dc1 / smtp.bank.local themselves): counted, not an escape
+        if ([string]$d['DestPort'] -eq '53' -and @($Lan.Dns) -contains $dest) { $dnsAsked++; continue }
         [void]$rows.Add([pscustomobject]@{ time = $e.TimeCreated.ToString('o'); event = $e.Id; app = $app; pid = $d['ProcessID']; dest = $dest; port = $d['DestPort']; protocol = $d['Protocol'] })
     }
-    $summary = [pscustomobject]@{ audited_outbound = $total; by_program = $byProgram; kariz_outside_bank = @($rows) }
+    $summary = [pscustomobject]@{ audited_outbound = $total; by_program = $byProgram; kariz_dns_queries = $dnsAsked; dns_servers = @($Lan.Dns); kariz_outside_bank = @($rows) }
     Write-Utf8 $OutFile ($summary | ConvertTo-Json -Depth 5)
     return $summary
 }

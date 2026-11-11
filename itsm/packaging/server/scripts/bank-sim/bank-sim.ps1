@@ -445,7 +445,7 @@ try {
         # ACLs: nothing in the data folder for Users / Everyone / Authenticated Users; the program folder not writable by them
         $wide = @()
         foreach ($f in @(Get-Item -LiteralPath $DataDir) + @(Get-ChildItem -LiteralPath $DataDir -Recurse -Force -ErrorAction SilentlyContinue)) {
-            $b = Get-WideAces $f.FullName
+            $b = @(Get-WideAces $f.FullName)
             if ($b.Count) { $wide += "$($f.FullName): $($b -join '; ')" }
         }
         if ($wide.Count) { Fail "data folder entries open to users: $(($wide | Select-Object -First 10) -join ' | ')" }
@@ -459,7 +459,7 @@ try {
         }
         $wInst = @()
         foreach ($f in @(Get-Item -LiteralPath $InstallDir) + @(Get-ChildItem -LiteralPath $InstallDir -Recurse -Directory -ErrorAction SilentlyContinue) + @(Get-ChildItem -LiteralPath (Join-Path $InstallDir 'services') -File -ErrorAction SilentlyContinue)) {
-            $b = Get-WideAces $f.FullName -WriteOnly
+            $b = @(Get-WideAces $f.FullName -WriteOnly)
             if ($b.Count) { $wInst += "$($f.FullName): $($b -join '; ')" }
         }
         if ($wInst.Count) { Fail "program folder entries writable by users: $(($wInst | Select-Object -First 10) -join ' | ')" }
@@ -583,6 +583,7 @@ try {
         $sum = Get-KarizOutbound $script:CutAt $InstallDir $script:Lan (Join-Path $Out 'logs\outbound-audit.json')
         $top = ($sum.by_program.GetEnumerator() | Sort-Object Value -Descending | Select-Object -First 8 | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ', '
         Note "audited outbound connection events since the cut: $($sum.audited_outbound) ($top)"
+        Note "the server's DNS queries to the machine's DNS server ($(@($sum.dns_servers) -join ', '), the bank's DNS): $($sum.kariz_dns_queries)"
         $fw = "$env:SystemRoot\System32\LogFiles\Firewall\pfirewall.log"
         if (Test-Path $fw) {
             Copy-Item $fw (Join-Path $Out 'logs\pfirewall.log') -Force

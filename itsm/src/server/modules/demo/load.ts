@@ -150,6 +150,27 @@ function bump(memo: LoadMemo, key: string, n = 1) {
   memo.counts[key] = (memo.counts[key] ?? 0) + n;
 }
 
+/**
+ * Items `memo.cursor`…`total - 1` of a step, written `per` to a transaction until the deadline; the job carries on at
+ * the cursor. Returns whether the step is done. (A medium pack's 900 requests in one transaction ran for more than half
+ * an hour on the bank simulation's Windows server and held the job queue meanwhile: every write bumps the
+ * organisation's sync revision row, and one transaction that updates a row thousands of times slows down with each
+ * update — docs/qa/BANK_SIM_FA.md.)
+ */
+export async function inChunks(a: StepArgs, sys: Ctx, total: number, per: number, body: (tx: Tx, i: number) => Promise<void>): Promise<boolean> {
+  let i = a.memo.cursor;
+  while (i < total && Date.now() < a.deadline) {
+    const from = i;
+    const to = Math.min(total, from + per);
+    await sys.write(async (tx) => {
+      for (let k = from; k < to; k++) await body(tx, k);
+    });
+    i = to;
+    a.memo.cursor = i;
+  }
+  return i >= total;
+}
+
 // ----- steps ------------------------------------------------------------------------------------------------------
 
 export interface StepArgs {
@@ -968,12 +989,13 @@ async function stepMajor({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
   return true;
 }
 
-async function stepProblems({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
+async function stepProblems(a: StepArgs, sys: Ctx): Promise<boolean> {
+  const { memo } = a;
   const size = DEMO_SIZES[memo.size];
-  const rng = new Rng(memo.seed + 19);
+  const rng = new Rng(memo.seed + 19 + memo.cursor);
   const now = Date.now();
-  await sys.write(async (tx) => {
-    for (let i = 0; i < size.problems; i++) {
+  const done = await inChunks(a, sys, size.problems, 40, async (tx, i) => {
+    {
       const p = PROBLEMS[i % PROBLEMS.length];
       const opened = pastMoment(rng, now, 300);
       const state = rng.weighted([["rca", 3], ["fix_in_progress", 2], ["resolved", 2], ["closed", 3], ["assess", 2]]);
@@ -998,19 +1020,20 @@ async function stepProblems({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
         await put(tx, sys, "known_error", { short_description: `خطای شناخته‌شده: ${p.text}`, problem_id: row.id, symptoms: p.text, root_cause: p.cause, workaround: p.workaround, assignment_group_id: memo.groups[p.group], service_id: memo.services[p.service], state: choose("known_error", "state", ["published"]) });
         bump(memo, "known_error");
       }
+      bump(memo, "problem");
     }
   });
-  bump(memo, "problem", size.problems);
-  return true;
+  return done;
 }
 
-async function stepChanges({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
+async function stepChanges(a: StepArgs, sys: Ctx): Promise<boolean> {
+  const { memo } = a;
   const size = DEMO_SIZES[memo.size];
-  const rng = new Rng(memo.seed + 23);
+  const rng = new Rng(memo.seed + 23 + memo.cursor);
   const now = Date.now();
   const types = optionValues("change_request", "type");
-  await sys.write(async (tx) => {
-    for (let i = 0; i < size.changes; i++) {
+  const done = await inChunks(a, sys, size.changes, 40, async (tx, i) => {
+    {
       const c = CHANGES[i % CHANGES.length];
       // past changes are closed; upcoming ones scheduled on weekend nights (Thursday/Friday)
       const future = i % 4 === 0;
@@ -1049,10 +1072,10 @@ async function stepChanges({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
         close_code: state === "closed" ? choose("change_request", "close_code", ["successful"]) : undefined,
         close_notes: state === "closed" ? "تغییر طبق برنامه اجرا و آزمون شد." : undefined,
       }, { state: choose("change_request", "state", ["scheduled", "new"]) });
+      bump(memo, "change_request");
     }
   });
-  bump(memo, "change_request", size.changes);
-  return true;
+  return done;
 }
 
 /** Answers to an item's questions as a requester would give them (required ones; defaults where the item has them). */
@@ -1083,18 +1106,21 @@ async function answersFor(tx: Tx, orgId: string, itemId: string, who: string): P
   return out;
 }
 
-async function stepRequests({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
+async function stepRequests(a: StepArgs, sys: Ctx): Promise<boolean> {
+  const { memo } = a;
   const size = DEMO_SIZES[memo.size];
-  const rng = new Rng(memo.seed + 29);
+  const rng = new Rng(memo.seed + 29 + memo.cursor);
   const now = Date.now();
-  let made = 0;
-  await sys.write(async (tx) => {
-    const items = await tx.query<{ id: string; name: string; category_id: string | null }>(`select id, name, category_id from sm_catalog_items where org_id = $1 and deleted_at is null and state = 'published'`, [sys.org.id]);
-    const byName = new Map(items.map((x) => [x.name, x]));
-    for (let i = 0; i < size.requests; i++) {
+  let byName: Map<string, { id: string; name: string; category_id: string | null }> | null = null;
+  return inChunks(a, sys, size.requests, 40, async (tx, i) => {
+    if (!byName) {
+      const items = await tx.query<{ id: string; name: string; category_id: string | null }>(`select id, name, category_id from sm_catalog_items where org_id = $1 and deleted_at is null and state = 'published'`, [sys.org.id]);
+      byName = new Map(items.map((x) => [x.name, x]));
+    }
+    {
       const r = REQUESTS[i % REQUESTS.length];
       const item = byName.get(r.item);
-      if (!item) continue;
+      if (!item) return;
       const who = rng.chance(0.8) ? rng.pick(memo.people.employees) : memo.people.personas.requester!;
       const opened = pastMoment(rng, now, 360);
       const age = (now - opened) / DAY;
@@ -1117,12 +1143,10 @@ async function stepRequests({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
           assignment_group_id: r.item === "درخواست دسترسی" ? memo.groups.core : memo.groups.desk,
           state: choose("request_item", "state", [state === "submitted" ? "pending" : state]),
         });
-        made++;
+        bump(memo, "request");
       }).catch(() => undefined);
     }
   });
-  bump(memo, "request", made);
-  return true;
 }
 
 async function stepSlm({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
@@ -1256,13 +1280,13 @@ async function stepExtras({ orgId, memo }: StepArgs, sys: Ctx): Promise<boolean>
   return true;
 }
 
-async function stepField({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
+async function stepField(a: StepArgs, sys: Ctx): Promise<boolean> {
+  const { memo } = a;
   const size = DEMO_SIZES[memo.size];
-  const rng = new Rng(memo.seed + 41);
+  const rng = new Rng(memo.seed + 41 + memo.cursor);
   const now = Date.now();
-  let made = 0;
-  await sys.write(async (tx) => {
-    for (let i = 0; i < size.visits; i++) {
+  return inChunks(a, sys, size.visits, 40, async (tx) => {
+    {
       const b = rng.pick(memo.branches);
       const opened = pastMoment(rng, now, 240);
       const done = (now - opened) / DAY > 7;
@@ -1279,11 +1303,9 @@ async function stepField({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
         close_code: done ? choose("work_order", "close_code", ["completed", "resolved", "fixed"]) : undefined,
         close_notes: done ? "دستگاه آزمایش و به سرویس برگشت." : undefined,
       }, { state: choose("work_order", "state", ["scheduled", "draft"]) });
-      if (row) made++;
+      if (row) bump(memo, "work_order");
     }
   });
-  bump(memo, "work_order", made);
-  return true;
 }
 
 /** Records created now but opened in the past carry their opening moment as their creation time (reports by month). */

@@ -20,9 +20,10 @@ const data = String(a.data ?? join(ROOT, ".bank-sim-desktop"));
 mkdirSync(data, { recursive: true });
 
 await C.run(async () => {
-  const tsx = join(ROOT, "node_modules", "tsx", "dist", "cli.mjs");
   const port = Number(a.port ?? 3949);
-  const child = spawn(process.execPath, ["--use-system-ca", tsx, "scripts/serve-local.mts", data, String(port)], { cwd: ROOT, env: { ...process.env, NODE_OPTIONS: "" }, stdio: ["ignore", "pipe", "pipe"] });
+  // tsx as a loader in this one process: its command line forks a child Node.js without --use-system-ca, which then
+  // cannot trust the bank's CA (the Windows app's own backend gets the flag from src/shared/desktop/node-flags.ts)
+  const child = spawn(process.execPath, ["--use-system-ca", "--import", "tsx", "scripts/serve-local.mts", data, String(port)], { cwd: ROOT, env: { ...process.env, NODE_OPTIONS: "" }, stdio: ["ignore", "pipe", "pipe"] });
   let url = null;
   child.stdout.on("data", (d) => {
     const s = d.toString();
