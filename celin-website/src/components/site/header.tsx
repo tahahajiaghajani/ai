@@ -29,30 +29,31 @@ function useHydrated(): boolean {
   return useSyncExternalStore(noop, () => true, () => false);
 }
 
-function Wordmark({ lang, className, light }: { lang: Lang; className: string; light: boolean }) {
+/** The official logo as it is drawn: CELIN with «گالری اعتماد» under it (public/brand, never redrawn). */
+function Logo({ lang, className, light }: { lang: Lang; className: string; light: boolean }) {
   return (
-    <Link href={href(lang, "/")} className={`relative block ${className}`} aria-label={lang === "fa" ? "سلین — صفحه‌ی اصلی" : "CELIN — home"}>
+    <Link href={href(lang, "/")} className={`relative block ${className}`} aria-label={lang === "fa" ? "سلین، گالری اعتماد — صفحه‌ی اصلی" : "CELIN, Etemad Gallery — home"}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/brand/celin-wordmark.svg" alt="CELIN" className={`h-full w-auto transition-opacity duration-500 ${light ? "opacity-0" : "opacity-100"}`} width={582} height={260} />
+      <img src="/brand/celin-logo.svg" alt="CELIN — گالری اعتماد" className={`h-full w-auto transition-opacity duration-500 ${light ? "opacity-0" : "opacity-100"}`} width={794} height={379} />
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/brand/celin-wordmark-reverse.svg" alt="" aria-hidden className={`absolute inset-0 h-full w-auto transition-opacity duration-500 ${light ? "opacity-100" : "opacity-0"}`} width={582} height={260} />
+      <img src="/brand/celin-logo-reverse.svg" alt="" aria-hidden className={`absolute inset-0 h-full w-auto transition-opacity duration-500 ${light ? "opacity-100" : "opacity-0"}`} width={794} height={379} />
     </Link>
   );
 }
 
-/** Account entry: «ورود» for visitors, the account for members (with an unread dot), quiet while checking. */
-function AccountLink({ lang, compact }: { lang: Lang; compact?: boolean }) {
+/** Account entry: «ورود اعضا» in words for visitors, the account for members (with an unread dot), quiet while checking. */
+function AccountLink({ lang }: { lang: Lang }) {
   const c = commonCopy(lang).nav;
   const me = useMe();
   const path = usePathname();
-  const signIn = "grid h-11 min-w-11 place-items-center px-1 text-sm opacity-80 transition-opacity hover:opacity-100";
+  const signIn = "grid h-11 place-items-center whitespace-nowrap px-1 text-[13px] font-semibold opacity-85 transition-opacity hover:opacity-100 sm:px-1.5 sm:text-sm";
   if (me === undefined) {
     // still checking (or no JS at all: then the sign-in link stands here)
     return (
-      <span className={compact ? "size-11" : "h-11 w-14"}>
+      <span className="h-11 w-11 sm:w-[4.5rem]">
         <noscript>
-          <a href={href(lang, "/account/login")} className={signIn} aria-label={c.signIn}>
-            {compact ? <Icon name="user" className="size-[22px]" /> : c.signIn}
+          <a href={href(lang, "/account/login")} className={signIn}>
+            {c.membersSignIn}
           </a>
         </noscript>
       </span>
@@ -60,8 +61,8 @@ function AccountLink({ lang, compact }: { lang: Lang; compact?: boolean }) {
   }
   if (!me) {
     return (
-      <OverlayLink href={`${href(lang, "/account/login")}?next=${encodeURIComponent(path)}`} className={signIn} aria-label={c.signIn}>
-        {compact ? <Icon name="user" className="size-[22px]" /> : c.signIn}
+      <OverlayLink href={`${href(lang, "/account/login")}?next=${encodeURIComponent(path)}`} className={signIn}>
+        {c.membersSignIn}
       </OverlayLink>
     );
   }
@@ -104,30 +105,24 @@ function AdminLink({ lang, row }: { lang: Lang; row?: boolean }) {
   );
 }
 
-/** «Pro» opens the Pro sheet; for members it is a quiet gold chip. */
+/**
+ * «PRO» at the top on every screen: the Pro page (membership and Pro). A Pro account sees a quiet gold chip that
+ * opens its Pro page in the account; on phones a signed-in member keeps the room for the account and the basket.
+ */
 function ProButton({ lang }: { lang: Lang }) {
   const me = useMe();
-  const hydrated = useHydrated();
   const c = commonCopy(lang);
-  if (me?.pro.active) {
+  if (me?.pro.level === "pro") {
     return (
       <Link href={href(lang, "/account/pro")} className="hidden h-7 items-center border border-gold/60 px-2.5 font-label text-[11px] tracking-[0.16em] text-gold-text group-data-light/header:border-gold-on-dark/60 group-data-light/header:text-gold-on-dark sm:inline-flex ltr" title={c.proBar.active}>
         PRO
       </Link>
     );
   }
-  const cls = "hidden h-11 items-center px-2 font-label text-xs tracking-[0.14em] opacity-80 transition-opacity hover:opacity-100 sm:inline-flex ltr";
-  if (!hydrated) {
-    return (
-      <a href={href(lang, "/pro")} className={cls} aria-label={c.proSheet.title}>
-        PRO
-      </a>
-    );
-  }
   return (
-    <button type="button" onClick={() => openProSheet("code")} className={cls} aria-label={c.proSheet.title}>
+    <Link href={href(lang, "/pro")} className={`${me ? "hidden sm:inline-flex" : "inline-flex"} h-11 items-center px-1.5 font-label text-xs font-semibold tracking-[0.14em] opacity-85 transition-opacity hover:opacity-100 sm:px-2 ltr`} aria-label={c.proSheet.title}>
       PRO
-    </button>
+    </Link>
   );
 }
 
@@ -140,6 +135,20 @@ function CartLink({ lang }: { lang: Lang }) {
       <Icon name="bag" className="size-[22px]" />
       {count > 0 && <span className="absolute top-1.5 end-1 grid min-w-4 place-items-center rounded-full bg-ink px-1 text-[10px] leading-4 text-bone group-data-light/header:bg-bone group-data-light/header:text-ink">{num(count, lang)}</span>}
     </Link>
+  );
+}
+
+function SearchButton({ lang, hydrated }: { lang: Lang; hydrated: boolean }) {
+  const label = commonCopy(lang).nav.search;
+  const cls = "grid size-11 place-items-center opacity-80 transition-opacity hover:opacity-100";
+  return hydrated ? (
+    <button type="button" onClick={openSearch} className={cls} aria-label={label}>
+      <Icon name="search" className="size-[22px]" />
+    </button>
+  ) : (
+    <a href={href(lang, "/search")} className={cls} aria-label={label}>
+      <Icon name="search" className="size-[22px]" />
+    </a>
   );
 }
 
@@ -439,6 +448,10 @@ export function Header({ lang, menu }: { lang: Lang; menu: MenuData }) {
                 <Icon name="menu" className="size-6" />
               </a>
             )}
+            {/* phones: search sits beside the menu, so «ورود اعضا» and «PRO» fit at the other end */}
+            <span className="-ms-5 sm:hidden">
+              <SearchButton lang={lang} hydrated={hydrated} />
+            </span>
             <nav className="hidden items-center gap-7 lg:flex" aria-label={c.nav.jewellery}>
               <Link href={href(lang, "/")} aria-current={path === href(lang, "/") ? "page" : undefined} className={`text-[15px] font-semibold transition-opacity ${path === href(lang, "/") ? "opacity-100" : "opacity-75 hover:opacity-100"}`}>
                 {c.nav.home}
@@ -453,24 +466,18 @@ export function Header({ lang, menu }: { lang: Lang; menu: MenuData }) {
               </Link>
             </nav>
           </div>
-          <Wordmark lang={lang} className="h-8 lg:h-10" light={light} />
+          <Logo lang={lang} className="h-12 lg:h-14" light={light} />
           {/* end: utilities */}
           <div className="-me-2.5 flex items-center justify-end gap-0.5 sm:gap-1">
-            {hydrated ? (
-              <button type="button" onClick={openSearch} className="grid size-11 place-items-center opacity-80 transition-opacity hover:opacity-100" aria-label={c.nav.search}>
-                <Icon name="search" className="size-[22px]" />
-              </button>
-            ) : (
-              <a href={href(lang, "/search")} className="grid size-11 place-items-center opacity-80 transition-opacity hover:opacity-100" aria-label={c.nav.search}>
-                <Icon name="search" className="size-[22px]" />
-              </a>
-            )}
+            <span className="hidden sm:block">
+              <SearchButton lang={lang} hydrated={hydrated} />
+            </span>
             <span className="hidden sm:block">
               <LangLink lang={lang} />
             </span>
             <ProButton lang={lang} />
             <AdminLink lang={lang} />
-            <AccountLink lang={lang} compact />
+            <AccountLink lang={lang} />
             <CartLink lang={lang} />
           </div>
         </div>

@@ -536,7 +536,7 @@ export async function importStarter(): Promise<{ products: number; categories: n
   const c = requireDb();
   const keys = new Set<SeedKey>();
   SEED_CATEGORIES.forEach((x) => keys.add(x.image));
-  SEED_COLLECTIONS.forEach((x) => keys.add(x.image));
+  SEED_COLLECTIONS.forEach((x) => x.image && keys.add(x.image));
   SEED_PRODUCTS.forEach((p) => {
     p.images.forEach((k) => keys.add(k));
     p.variants.forEach((v) => v.image && keys.add(v.image));
@@ -562,7 +562,7 @@ export async function importStarter(): Promise<{ products: number; categories: n
   );
   const cols = await upsertTaxa(
     "collections",
-    SEED_COLLECTIONS.map((x, i) => ({ slug: x.slug, name_fa: x.name_fa, name_en: x.name_en, tagline_fa: x.tagline_fa, tagline_en: x.tagline_en, story_fa: x.story_fa, story_en: x.story_en, media_id: media.get(x.image) ?? null, sort: i })),
+    SEED_COLLECTIONS.map((x, i) => ({ slug: x.slug, name_fa: x.name_fa, name_en: x.name_en, tagline_fa: x.tagline_fa, tagline_en: x.tagline_en, story_fa: x.story_fa, story_en: x.story_en, media_id: x.image ? media.get(x.image) ?? null : null, sort: i })),
   );
 
   const { data: haveP, error: pe } = await c.from("celin_products").select("slug");

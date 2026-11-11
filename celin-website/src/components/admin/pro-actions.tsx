@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { adminApproveRequest, adminExtendCode, adminIssueCode, adminRejectRequest, adminRevealCode, adminRevokeCode } from "@/app/actions/admin-members";
+import { adminApproveRequest, adminExtendCode, adminIssueCode, adminRejectRequest, adminRevealCode, adminRevokeCode, adminSetPro } from "@/app/actions/admin-members";
 import { DaysDialog, useProCode } from "@/components/admin/pro-code-dialog";
 import { Button, ConfirmButton, Dialog, Field, Textarea } from "@/components/admin/ui";
 import { useAction } from "@/components/admin/toast";
@@ -183,6 +183,23 @@ export function ExtendCodeButton({ codeId, name, defaultDays, size = "sm" }: { c
         </p>
       </DaysDialog>
     </>
+  );
+}
+
+/** Pro by hand (with its own code, as when the threshold is reached), or back to the members' prices. */
+export function SetProButton({ userId, on, size = "sm" }: { userId: string; on: boolean; size?: Size }) {
+  const { pending, run } = useAction();
+  return (
+    <ConfirmButton
+      size={size}
+      variant={on ? "secondary" : "danger"}
+      icon={on ? "diamond" : "close"}
+      pending={pending}
+      confirmLabel={on ? "Pro شود؟ دوباره بزنید" : "برداشتن Pro؟ دوباره بزنید"}
+      onConfirm={() => run(() => adminSetPro({ id: userId, on }))}
+    >
+      {on ? "Pro کردن" : "برداشتن Pro"}
+    </ConfirmButton>
   );
 }
 

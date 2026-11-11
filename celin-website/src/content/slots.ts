@@ -38,7 +38,7 @@ export interface SlotDef {
 
 const cta = (fa: string, en: string, href: string): SlotText[] => [
   { key: "cta", label: "متن دکمه", fa, en },
-  { key: "href", label: "پیوند دکمه (مثلاً /collections/yas)", fa: href, en: href },
+  { key: "href", label: "پیوند دکمه (مثلاً /collections/celin)", fa: href, en: href },
 ];
 
 export const SLOTS: SlotDef[] = [
@@ -234,8 +234,8 @@ export const SLOTS: SlotDef[] = [
     hint: "عکس روی مدل؛ در دو ستون فهرست نمایش داده می‌شود",
     image: "ring-emerald-fan",
     texts: [
-      { key: "title", label: "عنوان", fa: "گلبرگ، روی دست", en: "Golbarg, worn" },
-      ...cta("مشاهده‌ی مجموعه", "Discover the collection", "/collections/golbarg"),
+      { key: "title", label: "عنوان", fa: "سلین، روی دست", en: "CELIN, worn" },
+      ...cta("مشاهده‌ی مجموعه", "Discover the collection", "/collections/celin"),
     ],
   },
   // ------------------------------------------------------------ house pages
@@ -329,20 +329,20 @@ export const SLOTS: SlotDef[] = [
   },
   {
     key: "care.hero",
-    page: "نگهداری و ضمانت",
+    page: "نگهداری",
     section: "تصویر سرآغاز",
     ratio: "3:4",
     hint: "عکس روی دست با پس‌زمینه‌ی روشن",
     image: "ring-gold-pave-rows",
     texts: [
-      { key: "eyebrow", label: "برچسب کوچک بالای عنوان", fa: "نگهداری و ضمانت", en: "Care & warranty" },
+      { key: "eyebrow", label: "برچسب کوچک بالای عنوان", fa: "نگهداری", en: "Care" },
       { key: "title", label: "عنوان", fa: "برای درخششی ماندگار", en: "For a lasting shine" },
       { key: "subtitle", label: "یک جمله", multiline: true, fa: "نگهداری، بسته‌بندی و ارسال، و پشتیبانی آثار سلین.", en: "Caring for your CELIN pieces, packaging and delivery, and our support." },
     ],
   },
   {
     key: "care.packaging",
-    page: "نگهداری و ضمانت",
+    page: "نگهداری",
     section: "تصویر بسته‌بندی و ارسال",
     ratio: "3:4",
     hint: "عکس جعبه و بسته‌بندی سلین، یا یک قطعه کنار جعبه",

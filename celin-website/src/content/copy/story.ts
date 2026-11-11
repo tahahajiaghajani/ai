@@ -1,5 +1,6 @@
 /**
- * The brand's own story, as written by CELIN (Persian is the source; only spacing was tidied).
+ * The brand's own story, as written by CELIN (Persian is the source; only spacing was tidied). The owner revised the
+ * year of birth line and the craft chapter (stones and plating) in their fifth round of notes.
  * Used by the about page (/maison), the home page and short lines elsewhere. English is a faithful translation.
  */
 export const story = {
@@ -7,17 +8,17 @@ export const story = {
     motto: "سلین؛ فراتر از یک زیور، امضایی از ظرافت، کیفیت و اصالت",
     mottoShort: "فراتر از یک زیور",
     signature: "امضایی از ظرافت، کیفیت و اصالت",
-    born: "سلین در سال ۱۳۸۵ متولد شد؛ با نگاهی متفاوت به دنیای زیورآلات و رؤیای خلق آثاری که زیبایی، ظرافت و کیفیت را در کنار یکدیگر معنا کنند.",
+    born: "سلین در سال ۱۳۸۵ بعد از یک دهه تجربه در صنعت بدلیجات و زیورآلات متولد شد.",
     chapters: [
       {
         key: "craft",
         title: "با الهام از طلا و جواهر",
-        text: "در سلین، هر قطعه با الهام از ساختار و ظرافت طلا و جواهر طراحی و ساخته می‌شود؛ با بهره‌گیری از نگین‌های درخشان با تراش اتمی، مخراج‌کاری دقیق و آبکاری‌های باکیفیت رودیوم و طلا. توجه به جزئیات، از انتخاب نگین تا ظرافت نشاندن هر سنگ، بخشی جدایی‌ناپذیر از هویت ماست.",
+        text: "در سلین، هر قطعه با الهام از ساختار و ظرافت طلا و جواهر طراحی و ساخته می‌شود؛ با بهره‌گیری از نگین‌های درخشان کیوبیک زیرکونیا، مخراج‌کاری دقیق و آبکاری‌های باکیفیت رودیوم و طلا و شامپاین گلد. توجه به جزئیات، از انتخاب نگین تا ظرافت نشاندن هر سنگ، بخشی جدایی‌ناپذیر از هویت ماست.",
       },
       {
         key: "design",
         title: "طرح‌هایی متمایز",
-        text: "ما همواره کوشیده‌ایم با انتخاب به‌روزترین و جذاب‌ترین طرح‌های روز دنیا و خلق مدل‌های اختصاصی با همراهی دیزاینرهای بین‌المللی، مجموعه‌ای متمایز از زیورآلات را ارائه دهیم؛ آثاری که تنها یک اکسسوری نیستند، بلکه بازتابی از سلیقه، شخصیت و سبک منحصربه‌فرد هستند.",
+        text: "ما همواره کوشیده‌ایم با انتخاب به‌روزترین و جذاب‌ترین طرح‌های روز دنیا و خلق مدل‌های اختصاصی با همراهی دیزاینرهای بین‌المللی، مجموعه‌ای متمایز از زیورآلات را ارائه دهیم؛ آثاری که تنها یک اکسسوری نیستند، بلکه بازتابی از سلیقه، شخصیت و سبکی منحصربه‌فرد هستند.",
       },
       {
         key: "trust",
@@ -47,12 +48,12 @@ export const story = {
     motto: "CELIN — more than an ornament: a signature of finesse, quality and authenticity",
     mottoShort: "More than an ornament",
     signature: "A signature of finesse, quality and authenticity",
-    born: "CELIN was born in 2006, with a different eye on the world of jewelry and a dream of creating pieces in which beauty, finesse and quality find their meaning together.",
+    born: "CELIN was born in 2006, after a decade of experience in the costume jewelry and jewelry trade.",
     chapters: [
       {
         key: "craft",
         title: "In the spirit of gold and jewels",
-        text: "At CELIN, every piece is designed and made in the spirit of gold and jewels, with their structure and finesse — brilliant atomic-cut stones, precise setting and quality rhodium and gold plating. Attention to detail, from choosing a stone to the finesse of setting it, is an inseparable part of who we are.",
+        text: "At CELIN, every piece is designed and made in the spirit of gold and jewels, with their structure and finesse — brilliant cubic zirconia stones, precise setting and quality rhodium, gold and champagne-gold plating. Attention to detail, from choosing a stone to the finesse of setting it, is an inseparable part of who we are.",
       },
       {
         key: "design",

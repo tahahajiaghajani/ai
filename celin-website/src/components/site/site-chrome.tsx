@@ -13,6 +13,7 @@ import { searchSuggestions } from "@/components/site/search-suggestions";
 import { ProSheet } from "@/components/pro/pro-sheet";
 import { SmoothScroll } from "@/components/fx/smooth-scroll";
 import { Cursor } from "@/components/fx/cursor";
+import { collectionsCopy } from "@/content/copy/collections";
 
 /** Header, menus, Pro sheet, search and footer around every public page (static: no per-user data here). */
 export async function SiteChrome({ lang, children }: { lang: Lang; children: ReactNode }) {
@@ -20,7 +21,7 @@ export async function SiteChrome({ lang, children }: { lang: Lang; children: Rea
   const promo = slots["menu.promo"];
   const menu: MenuData = {
     categories: catalog.categories.map((c) => ({ slug: c.slug, name: t(c, "name", lang), media: c.media })),
-    collections: catalog.collections.map((c) => ({ slug: c.slug, name: t(c, "name", lang), tagline: t(c, "tagline", lang) })),
+    collections: catalog.collections.map((c) => ({ slug: c.slug, name: t(c, "name", lang), tagline: c.soon ? collectionsCopy[lang].soon : t(c, "tagline", lang) })),
     promo: promo ? { media: promo.media, title: slotText(promo, "title", lang), cta: slotText(promo, "cta", lang), href: slotText(promo, "href", lang) || "/shop" } : null,
   };
   const suggestions = searchSuggestions(catalog, lang);

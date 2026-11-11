@@ -5,10 +5,11 @@ import { EMAIL_RE, hashPassword, PASSWORD_MAX, PASSWORD_MIN, PROFILE_COLUMNS, US
 import { allRows, db, isMissingColumn, isMissingTable, requireDb, UserError } from "@/lib/db";
 import { mailHtml, sendEmail } from "@/lib/email";
 import { env } from "@/lib/env";
-import { normalizePhone } from "@/lib/format";
+import { formatPrice, normalizePhone } from "@/lib/format";
 import { codeMark, postMessage, untilMark } from "@/lib/messages";
-import { CODE_COLUMNS, CODES, codeState, issueCode, REQUESTS, revealCode, wasUsed, type CodeRow, type CodeState } from "@/lib/pro";
+import { CODE_COLUMNS, CODES, codeState, issueCode, proSince, REQUESTS, revealCode, wasUsed, type CodeRow, type CodeState } from "@/lib/pro";
 import { notifyTeam } from "@/lib/notify";
+import { ACCEPTED_STATUSES } from "@/lib/order-meta";
 import { getSettings, getSettingsFresh } from "@/lib/settings";
 import { sendSms } from "@/lib/sms";
 
@@ -22,9 +23,17 @@ export interface MemberRow extends Account {
   has_password: boolean;
   /** "" when Users → «مدیر کردن» may make this account admin, otherwise why not (promotionBlock) */
   promote_block: string;
+  /** the membership code */
   pro: { state: CodeState | "none"; expires_at: string | null; code_id: string | null; hint: string };
+  /** which prices: members' (an active code) or Pro (pro_at) — src/lib/pricing.ts */
+  level: "member" | "pro" | null;
+  pro_at: string | null;
+  /** "auto" (reached the threshold) or "admin" */
+  pro_by: string;
   orders: number;
   spent: number;
+  /** accepted orders within the Pro window (settings.pro.proDays) */
+  recent: number;
   pending_request: boolean;
 }
 
@@ -54,43 +63,55 @@ export async function listMembers(): Promise<MemberRow[] | null> {
   await assertAdmin();
   const c = db();
   if (!c) return null;
-  let users: (Account & { created_at: string; last_sign_in_at: string | null; created_by_admin: boolean; admin_note: string; password_hash: string | null; password_from_code?: boolean })[];
+  let users: (Account & { created_at: string; last_sign_in_at: string | null; created_by_admin: boolean; admin_note: string; password_hash: string | null; password_from_code?: boolean; pro_at?: string | null; pro_by?: string })[];
   const read = (extra: string) => allRows<(typeof users)[number]>((a, b) => c.from(USERS).select(`${PROFILE_COLUMNS}, created_at, last_sign_in_at, created_by_admin, admin_note, password_hash${extra}`).order("created_at", { ascending: false }).range(a, b));
   try {
-    try {
-      users = await read(", password_from_code");
-    } catch (e) {
-      if (!isMissingColumn(e as { code?: string })) throw e;
-      users = await read(""); // before the hardening migration
-    }
+    // each step back is a database from before a later SQL file (round five: pro_at; hardening: password_from_code)
+    const tryRead = async (extra: string) => {
+      try {
+        return await read(extra);
+      } catch (e) {
+        if (isMissingColumn(e as { code?: string })) return null;
+        throw e;
+      }
+    };
+    users = (await tryRead(", password_from_code, pro_at, pro_by")) ?? (await tryRead(", password_from_code")) ?? (await read(""));
   } catch (e) {
     if (isMissingTable(e as { code?: string })) return null;
     throw e;
   }
+  const settings = await getSettings();
+  const windowStart = Date.now() - settings.pro.proDays * 86400_000;
   const [codes, orders, requests] = await Promise.all([
     allRows<CodeRow>((a, b) => c.from(CODES).select(CODE_COLUMNS).is("revoked_at", null).order("created_at", { ascending: false }).range(a, b)),
-    allRows<{ user_id: string; total: number; status: string }>((a, b) => c.from("celin_orders").select("user_id, total, status").order("created_at").range(a, b)),
+    allRows<{ user_id: string; total: number; status: string; created_at: string }>((a, b) => c.from("celin_orders").select("user_id, total, status, created_at").order("created_at").range(a, b)),
     allRows<{ user_id: string }>((a, b) => c.from(REQUESTS).select("user_id").eq("status", "pending").range(a, b)),
   ]);
   const codeOf = new Map<string, CodeRow>();
   for (const k of codes) if (!codeOf.has(k.user_id)) codeOf.set(k.user_id, k);
-  const stats = new Map<string, { n: number; spent: number }>();
+  const stats = new Map<string, { n: number; spent: number; recent: number }>();
   for (const o of orders) {
-    const s = stats.get(o.user_id) ?? { n: 0, spent: 0 };
+    const s = stats.get(o.user_id) ?? { n: 0, spent: 0, recent: 0 };
     s.n++;
     if (o.status !== "cancelled") s.spent += Number(o.total);
+    if (ACCEPTED_STATUSES.includes(o.status as never) && Date.parse(o.created_at) >= windowStart) s.recent += Number(o.total);
     stats.set(o.user_id, s);
   }
   const pending = new Set(requests.map((r) => r.user_id));
-  return users.map(({ password_hash, password_from_code, ...u }) => {
+  return users.map(({ password_hash, password_from_code, pro_at, pro_by, ...u }) => {
     const k = codeOf.get(u.id);
+    const memberActive = k ? codeState(k) === "active" : false;
     return {
       ...u,
+      level: pro_at ? "pro" : memberActive ? "member" : null,
+      pro_at: pro_at ?? null,
+      pro_by: pro_by ?? "",
       has_password: Boolean(password_hash),
       promote_block: u.role === "admin" ? "" : promotionBlock({ ...u, password_hash, password_from_code }),
       pro: k ? { state: codeState(k), expires_at: k.expires_at, code_id: k.id, hint: k.hint } : { state: "none", expires_at: null, code_id: null, hint: "" },
       orders: stats.get(u.id)?.n ?? 0,
       spent: stats.get(u.id)?.spent ?? 0,
+      recent: stats.get(u.id)?.recent ?? 0,
       pending_request: pending.has(u.id),
     };
   });
@@ -111,46 +132,154 @@ export interface Delivered {
  * only as a placeholder naming this code, see messages.ts), SMS, e-mail. Module-private: callers check the
  * admin session.
  */
-async function deliverCode(user: Pick<Account, "id" | "name" | "phone" | "email">, issued: { code: string; id: string; expiresAt: string | null }, reason: "request" | "admin"): Promise<Delivered> {
+async function deliverCode(user: Pick<Account, "id" | "name" | "phone" | "email">, issued: { code: string; id: string; expiresAt: string | null }, reason: "request" | "admin" | "pro"): Promise<Delivered> {
   await assertAdmin();
   const { code } = issued;
   const mark = codeMark(issued.id);
-  // «اعتبار تا …» is drawn from the code row when the message is read (renewals, revokes and new expiries change it)
-  const until = untilMark(issued.id);
   const s = await getSettings();
   const site = env.siteUrl.replace(/^https?:\/\//, "");
   // inside Persian text the digit groups of "1234 5678 9012" would be laid out right-to-left; a leading LRM keeps their order
   const faCode = `\u200e${code}`;
+  if (reason === "pro") return deliverProCode(user, issued, s, faCode, mark, site);
+  // «اعتبار تا …» is drawn from the code row when the message is read (renewals, revokes and new expiries change it)
+  const until = untilMark(issued.id);
   await postMessage(user.id, {
     kind: "pro",
-    title_fa: "کد اشتراک Pro شما صادر شد",
-    title_en: "Your Pro code has been issued",
+    title_fa: "کد عضویت شما صادر شد",
+    title_en: "Your membership code has been issued",
     body_fa: s.pro.codeInInbox
-      ? `کد اختصاصی شما: ${mark}\nاین کد را در بخش «اشتراک Pro» یا هنگام ورود وارد کنید تا قیمت‌ها و موجودی محصولات نمایش داده شود و بتوانید سفارش ثبت کنید.${until}`
-      : "کد اختصاصی شما از طریق پیامک یا تماس فروشگاه برایتان ارسال می‌شود. پس از دریافت، آن را در بخش «اشتراک Pro» وارد کنید.",
+      ? `کد اختصاصی شما: ${mark}\nاین کد را در بخش «عضویت و Pro» یا هنگام ورود وارد کنید تا قیمت‌ها و موجودی محصولات نمایش داده شود و بتوانید سفارش ثبت کنید.${until}`
+      : "کد اختصاصی شما از طریق پیامک یا تماس فروشگاه برایتان ارسال می‌شود. پس از دریافت، آن را در بخش «عضویت و Pro» وارد کنید.",
     body_en: s.pro.codeInInbox
-      ? `Your personal code: ${mark}\nEnter it under “Pro membership” or when signing in to see prices and stock and to place orders.${until}`
-      : "Your personal code will reach you by text message or a call from the store. Enter it under “Pro membership” once you have it.",
+      ? `Your personal code: ${mark}\nEnter it under “Membership & Pro” or when signing in to see prices and stock and to place orders.${until}`
+      : "Your personal code will reach you by text message or a call from the store. Enter it under “Membership & Pro” once you have it.",
     link: "/account/pro",
   });
   let sms = false;
   let smsError = "";
   if (s.sms.onCode && s.sms.provider !== "none") {
-    const r = await sendSms(user.phone, { kind: "code", code, text: `سلین | کد اشتراک Pro شما: ${faCode}\nورود: ${site}/pro` }, s.sms);
+    const r = await sendSms(user.phone, { kind: "code", code, text: `سلین | کد عضویت شما: ${faCode}\nورود: ${site}/pro` }, s.sms);
     sms = r.ok;
     smsError = r.ok ? "" : String((r as { error?: string }).error ?? "failed");
   }
   let email = false;
   if (user.email) {
-    const lead = reason === "request" ? "درخواست اشتراک Pro شما تأیید شد." : "اشتراک Pro سلین برای شما فعال شد.";
+    const lead = reason === "request" ? "درخواست عضویت شما تأیید شد." : "عضویت شما در سلین فعال شد.";
     const html = mailHtml(
       "fa",
-      [`${user.name ? `${user.name} عزیز، ` : ""}${lead}`, `کد اختصاصی شما: ${faCode}`, "این کد را در سایت، بخش «اشتراک Pro» یا هنگام ورود وارد کنید تا قیمت‌ها و موجودی را ببینید و سفارش ثبت کنید."],
+      [`${user.name ? `${user.name} عزیز، ` : ""}${lead}`, `کد اختصاصی شما: ${faCode}`, "این کد را در سایت، بخش «عضویت و Pro» یا هنگام ورود وارد کنید تا قیمت‌ها و موجودی را ببینید و سفارش ثبت کنید."],
       { href: `${env.siteUrl}/pro`, label: "ورود کد در سایت" },
     );
-    email = (await sendEmail(user.email, "کد اشتراک Pro سلین", html)).ok;
+    email = (await sendEmail(user.email, "کد عضویت سلین", html)).ok;
   }
   return { inbox: s.pro.codeInInbox, sms, smsError, email };
+}
+
+/** The message, SMS and e-mail of a Pro code: the account pays the admin's prices from now on. */
+async function deliverProCode(
+  user: Pick<Account, "id" | "name" | "phone" | "email">,
+  issued: { code: string; id: string },
+  s: Awaited<ReturnType<typeof getSettings>>,
+  faCode: string,
+  mark: string,
+  site: string,
+): Promise<Delivered> {
+  await postMessage(user.id, {
+    kind: "pro",
+    title_fa: "حساب شما Pro شد",
+    title_en: "Your account is now Pro",
+    body_fa: s.pro.codeInInbox
+      ? `از این پس همه‌ی قیمت‌ها را با قیمت عمده می‌بینید و سفارش‌هایتان با همین قیمت ثبت می‌شود.\nکد Pro شما: ${mark}\nبرای ورود با کد، این کد را به کار ببرید؛ کد عضویت قبلی دیگر کار نمی‌کند.`
+      : "از این پس همه‌ی قیمت‌ها را با قیمت عمده می‌بینید و سفارش‌هایتان با همین قیمت ثبت می‌شود. کد Pro شما از طریق پیامک یا تماس فروشگاه برایتان ارسال می‌شود.",
+    body_en: s.pro.codeInInbox
+      ? `From now on you see every price at the wholesale price, and your orders are placed at it.\nYour Pro code: ${mark}\nUse this code to sign in with a code; your previous membership code no longer works.`
+      : "From now on you see every price at the wholesale price, and your orders are placed at it. Your Pro code will reach you by text message or a call from the store.",
+    link: "/account/pro",
+  });
+  let sms = false;
+  let smsError = "";
+  if (s.sms.onCode && s.sms.provider !== "none") {
+    const r = await sendSms(user.phone, { kind: "code", code: issued.code, text: `سلین | حساب شما Pro شد. کد Pro شما: ${faCode}\n${site}/account/pro` }, s.sms);
+    sms = r.ok;
+    smsError = r.ok ? "" : String((r as { error?: string }).error ?? "failed");
+  }
+  let email = false;
+  if (user.email) {
+    const html = mailHtml(
+      "fa",
+      [`${user.name ? `${user.name} عزیز، ` : ""}حساب شما در سلین Pro شد.`, "از این پس همه‌ی قیمت‌ها را با قیمت عمده می‌بینید و سفارش‌هایتان با همین قیمت ثبت می‌شود.", `کد Pro شما: ${faCode}`, "برای ورود با کد، این کد را به کار ببرید؛ کد عضویت قبلی دیگر کار نمی‌کند."],
+      { href: `${env.siteUrl}/account/pro`, label: "حساب من" },
+    );
+    email = (await sendEmail(user.email, "حساب Pro سلین", html)).ok;
+  }
+  return { inbox: s.pro.codeInInbox, sms, smsError, email };
+}
+
+/** Toman of an account's accepted orders placed within the last `days` days. */
+export async function acceptedTotal(userId: string, days: number): Promise<number> {
+  await assertAdmin();
+  const since = new Date(Date.now() - days * 86400_000).toISOString();
+  const rows = await allRows<{ total: number }>((a, b) => requireDb().from("celin_orders").select("total").eq("user_id", userId).in("status", [...ACCEPTED_STATUSES]).gte("created_at", since).range(a, b));
+  return rows.reduce((sum, r) => sum + Number(r.total ?? 0), 0);
+}
+
+/**
+ * Makes an account Pro now (only if it is not already): it pays the admin's prices from then on and gets its own
+ * Pro code, which replaces the membership code — nobody is signed out (the account itself is unchanged). False when
+ * it was Pro already (another change got there first).
+ */
+async function makePro(userId: string, by: "auto" | "admin"): Promise<boolean> {
+  await assertAdmin();
+  const c = requireDb();
+  const now = new Date().toISOString();
+  const { data, error } = await c.from(USERS).update({ pro_at: now, pro_by: by, updated_at: now }).eq("id", userId).is("pro_at", null).select("id, name, phone, email");
+  if (error) {
+    if (isMissingColumn(error)) throw new UserError("فایل SQL تازه (۲۰۲۶۱۱۱۱) هنوز در Supabase اجرا نشده است؛ «اتصالات» را ببینید.");
+    throw new Error(error.message);
+  }
+  const user = ((data ?? []) as Pick<Account, "id" | "name" | "phone" | "email">[])[0];
+  if (!user) return false;
+  const issued = await issueCode(user.id, { kind: "pro", activate: true, days: null });
+  await deliverCode(user, issued, "pro");
+  return true;
+}
+
+/**
+ * Pro, automatically: once an account's accepted orders of the last `proDays` days reach `proThreshold` Toman, it
+ * becomes Pro (makePro). Called after the admin accepts an order or changes its amounts; never throws (the order
+ * change itself has already happened), a failure is logged.
+ */
+export async function checkPro(userId: string): Promise<{ promoted: boolean; total: number }> {
+  await assertAdmin();
+  try {
+    const s = (await getSettings()).pro;
+    if (s.proThreshold <= 0 || (await proSince(userId))) return { promoted: false, total: 0 };
+    const total = await acceptedTotal(userId, s.proDays);
+    if (total < s.proThreshold) return { promoted: false, total };
+    const promoted = await makePro(userId, "auto");
+    if (promoted) {
+      const { data } = await requireDb().from(USERS).select("name, phone").eq("id", userId).maybeSingle();
+      const who = data as Pick<Account, "name" | "phone"> | null;
+      await notifyTeam(`حساب ${who?.name || "بی‌نام"} — ${who?.phone ?? ""} با ${formatPrice(total, "fa")} خرید تأییدشده در ${s.proDays} روز گذشته Pro شد.\n${env.siteUrl}/admin/users/${userId}`);
+    }
+    return { promoted, total };
+  } catch (e) {
+    console.error("[pro] check", e);
+    return { promoted: false, total: 0 };
+  }
+}
+
+/** Admin: makes an account Pro by hand, or takes Pro back (its code then works as a membership code). */
+export async function setMemberPro(userId: string, on: boolean): Promise<{ changed: boolean }> {
+  await assertAdmin();
+  if (on) return { changed: await makePro(userId, "admin") };
+  const now = new Date().toISOString();
+  const { data, error } = await requireDb().from(USERS).update({ pro_at: null, pro_by: "", updated_at: now }).eq("id", userId).not("pro_at", "is", null).select("id");
+  if (error) {
+    if (isMissingColumn(error)) throw new UserError("فایل SQL تازه (۲۰۲۶۱۱۱۱) هنوز در Supabase اجرا نشده است؛ «اتصالات» را ببینید.");
+    throw new Error(error.message);
+  }
+  return { changed: Boolean((data as unknown[] | null)?.length) };
 }
 
 /**

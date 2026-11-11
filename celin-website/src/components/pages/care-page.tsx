@@ -17,9 +17,9 @@ import { ScrollLine } from "@/components/house/scroll-line";
 import { slotReader } from "@/components/house/slot-reader";
 
 /**
- * /care — «نگهداری و ضمانت»: cocoa hero; the four care habits as a row of arches (the product page's own
- * texts); packaging & delivery on espresso light beside the packaging picture; and the warranty, which for
- * now only invites the visitor to contact the store (owner-editable text in src/content/copy/care.ts).
+ * /care — «نگهداری»: cocoa hero; the four care habits as a row of arches (the product page's own texts, no
+ * numbers); packaging & delivery on espresso light beside the packaging picture; and after-sales care, which
+ * invites the visitor to contact the store (src/content/copy/care.ts). No warranty is stated anywhere.
  */
 export async function CarePage({ lang }: { lang: Lang }) {
   const [slots, settings] = await Promise.all([getSlots(), getSettings()]);
@@ -35,7 +35,7 @@ export async function CarePage({ lang }: { lang: Lang }) {
         palette="cocoa"
         sparkle={12}
         d={{ eyebrow: txt("care.hero", "eyebrow"), title: txt("care.hero", "title"), subtitle: txt("care.hero", "subtitle"), media: s("care.hero").media, mobile: s("care.hero").mobile }}
-        latin={["CARE", "WARRANTY"]}
+        latin={["CARE", "AFTER-SALES"]}
       />
 
       {/* the habits, as an arcade */}
@@ -50,8 +50,7 @@ export async function CarePage({ lang }: { lang: Lang }) {
                   <svg aria-hidden viewBox="0 0 10 10" className="absolute left-1/2 top-0 size-2.5 -translate-x-1/2 -translate-y-1/2 text-gold-bright">
                     <path d="M5 0 10 5 5 10 0 5Z" fill="currentColor" />
                   </svg>
-                  <span className="numeral relative text-metal">{ordinal(i + 1, lang)}</span>
-                  <span aria-hidden className="relative mt-4 block h-px w-10 bg-gold/50" />
+                  <span aria-hidden className="relative mt-6 block h-px w-10 bg-gold/50" />
                   <p className="lede relative mt-5 text-ink-2">{r}</p>
                 </div>
               </li>
@@ -90,23 +89,23 @@ export async function CarePage({ lang }: { lang: Lang }) {
         </div>
       </section>
 
-      {/* warranty — owner-editable placeholder (src/content/copy/care.ts) */}
-      <section id="warranty" className="relative isolate scroll-mt-[var(--header-h)] overflow-clip bg-mesh-bone pt-20 pb-20 sm:pt-28 sm:pb-28">
+      {/* after-sales care (src/content/copy/care.ts) */}
+      <section id="after-sales" className="relative isolate scroll-mt-[var(--header-h)] overflow-clip bg-mesh-bone pt-20 pb-20 sm:pt-28 sm:pb-28">
         <div className="container-lux">
           <div className="frame-metal relative mx-auto max-w-4xl overflow-hidden bg-porcelain/80 px-6 py-12 text-center [--frame:var(--metal-copper)] sm:px-14 sm:py-16">
             <ArchLines count={3} className="pointer-events-none absolute inset-x-0 -bottom-4 mx-auto h-[120%] w-[min(560px,120%)] opacity-50" />
             <div className="relative">
               <p className="label flex items-center justify-center gap-2.5 text-gold-text!">
                 {diamond("size-1.5 text-gold")}
-                {c.warranty.eyebrow}
+                {c.afterSales.eyebrow}
               </p>
-              <SplitWords text={c.warranty.title} className="title-section mt-4 text-ink" />
+              <SplitWords text={c.afterSales.title} className="title-section mt-4 text-ink" />
               <p className="lede mx-auto mt-5 max-w-2xl text-ink-2" data-reveal>
-                {c.warranty.body}
+                {c.afterSales.body}
               </p>
-              {c.warranty.points.length > 0 && (
+              {c.afterSales.points.length > 0 && (
                 <ul className="mx-auto mt-8 max-w-xl space-y-3 text-start">
-                  {c.warranty.points.map((p) => (
+                  {c.afterSales.points.map((p) => (
                     <li key={p} className="lede flex items-start gap-3 text-ink-2">
                       {diamond("mt-3 size-1.5 shrink-0 text-gold")}
                       {p}
@@ -116,18 +115,18 @@ export async function CarePage({ lang }: { lang: Lang }) {
               )}
               <div className="mt-10 flex flex-wrap items-center justify-center gap-3" data-reveal style={{ "--d": 1 } as CSSProperties}>
                 <Link href={href(lang, "/contact")} className="btn btn-ink h-12">
-                  {c.warranty.contact}
+                  {c.afterSales.contact}
                 </Link>
                 {ch.wa && (
                   <a href={ch.wa} target="_blank" rel="noreferrer" className="btn btn-line h-12 text-ink">
                     <Icon name="whatsapp" className="size-4" />
-                    {c.warranty.whatsapp}
+                    {c.afterSales.whatsapp}
                   </a>
                 )}
                 {ch.tel && (
                   <a href={ch.tel} className="btn btn-line h-12 text-ink">
                     <Icon name="phone" className="size-4" />
-                    {c.warranty.call}
+                    {c.afterSales.call}
                   </a>
                 )}
               </div>

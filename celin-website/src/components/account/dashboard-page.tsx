@@ -22,6 +22,8 @@ export async function DashboardPage({ lang }: { lang: Lang }) {
   const open = orders.filter((o) => isOpen(o.status));
   const snapshot: MembershipSnapshot = {
     active: pro.active,
+    level: pro.level,
+    proSince: pro.proSince,
     issued: pro.issued,
     expiresAt: pro.expiresAt,
     since: pro.since,

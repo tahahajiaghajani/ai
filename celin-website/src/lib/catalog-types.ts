@@ -37,6 +37,8 @@ export interface Collection {
   media: Media | null;
   sort: number;
   visible: boolean;
+  /** no published pieces yet: shown as «به زودی» (without a picture when it has none) */
+  soon: boolean;
 }
 
 export interface Spec {

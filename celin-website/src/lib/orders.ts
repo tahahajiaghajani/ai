@@ -1,12 +1,16 @@
 import "server-only";
-import { db, isMissingTable } from "@/lib/db";
+import { db, isMissingColumn, isMissingTable } from "@/lib/db";
 import { storageBase } from "@/lib/catalog";
 import { folderUrl } from "@/lib/media";
-import { MAX_LINES, MAX_QTY, isOrderStatus, type CartLine, type Customer, type Order, type OrderDetail, type OrderEvent, type OrderItem, type OrderStatus } from "@/lib/order-meta";
+import { pricingArg, type Pricing } from "@/lib/pricing";
+import { ACCEPTED_STATUSES, MAX_LINES, MAX_QTY, isOrderStatus, type CartLine, type Customer, type Order, type OrderDetail, type OrderEvent, type OrderItem, type OrderStatus } from "@/lib/order-meta";
 
 export const ORDER_COLUMNS =
   "id, code, user_id, status, subtotal, shipping_fee, discount, total, items_count, customer, note, carrier, tracking_code, cancel_reason, status_changed_at, created_at, updated_at";
 const ITEM_COLUMNS = "id, order_id, product_id, variant_id, name_fa, name_en, variant_fa, variant_en, sku, slug, image, unit_price, qty, line_total";
+// round five's database file adds what the member saw (list prices, the price rules); older databases lack them
+const ITEM_LIST_COLUMNS = `${ITEM_COLUMNS}, list_price`;
+const ORDER_LIST_COLUMNS = "list_subtotal, pricing";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -46,12 +50,17 @@ export function parsePlaceError(message: string): PlaceError {
   return { reason: "failed" };
 }
 
-export async function placeOrder(userId: string, lines: CartLine[], customer: Customer, note: string): Promise<{ ok: true; id: string; code: string } | { ok: false; error: PlaceError }> {
+/**
+ * Places the order with the account's price rules (celin_place_order with p_pricing). Until round five's database
+ * file has run that function does not exist and ordering reads as «not set up yet» — never the older function,
+ * which would charge members the admin's price.
+ */
+export async function placeOrder(userId: string, lines: CartLine[], customer: Customer, note: string, pricing: Pricing): Promise<{ ok: true; id: string; code: string } | { ok: false; error: PlaceError }> {
   const c = db();
   if (!c) return { ok: false, error: { reason: "unavailable" } };
   if (!lines.length) return { ok: false, error: { reason: "empty" } };
   const items = lines.map((l) => ({ product_id: l.productId, variant_id: l.variantId ?? "", qty: l.qty }));
-  const call = () => c.rpc("celin_place_order", { p_user: userId, p_items: items, p_customer: customer, p_note: note });
+  const call = () => c.rpc("celin_place_order", { p_user: userId, p_items: items, p_customer: customer, p_note: note, p_pricing: pricingArg(pricing) });
   let { data, error } = await call();
   // a deadlock (40P01) rolls the whole order back: one more try is safe
   if (error && (error.code === "40P01" || /deadlock detected/i.test(error.message))) ({ data, error } = await call());
@@ -96,6 +105,7 @@ function toItem(r: Record<string, unknown>): OrderItem {
       ? { src: folderUrl(img.path, storageBase()), ext: img.ext || "webp", widths: img.widths ?? [], width: img.width ?? 0, height: img.height ?? 0, placeholder: img.placeholder ?? "", fx: img.focal_x ?? 50, fy: img.focal_y ?? 50 }
       : null,
     unit_price: Number(r.unit_price ?? 0),
+    list_price: r.list_price === null || r.list_price === undefined ? null : Number(r.list_price),
     qty: Number(r.qty ?? 0),
     line_total: Number(r.line_total ?? 0),
   };
@@ -104,6 +114,19 @@ function toItem(r: Record<string, unknown>): OrderItem {
 export interface OrderSummary extends Order {
   /** first few lines for thumbnails in lists */
   preview: Pick<OrderItem, "name_fa" | "name_en" | "image" | "qty">[];
+}
+
+/** Toman of a member's own accepted orders placed within the last `days` days (progress towards Pro). */
+export async function recentPurchases(userId: string, days: number): Promise<number> {
+  const c = db();
+  if (!c) return 0;
+  const since = new Date(Date.now() - days * 86400_000).toISOString();
+  const { data, error } = await c.from("celin_orders").select("total").eq("user_id", userId).in("status", [...ACCEPTED_STATUSES]).gte("created_at", since).limit(2000);
+  if (error) {
+    if (!isMissingTable(error)) console.error("[orders] recent", error.message);
+    return 0;
+  }
+  return ((data ?? []) as { total: number }[]).reduce((sum, r) => sum + Number(r.total ?? 0), 0);
 }
 
 /** A member's orders, newest first, with a small preview of their lines. */
@@ -141,22 +164,31 @@ export async function withPreview(orders: Order[]): Promise<OrderSummary[]> {
 export async function getOrder(code: string, userId?: string): Promise<OrderDetail | null> {
   const c = db();
   if (!c || !/^CL-\d{6}$/.test(code)) return null;
-  let q = c.from("celin_orders").select(`${ORDER_COLUMNS}, admin_note`).eq("code", code);
-  if (userId) q = q.eq("user_id", userId);
-  const { data, error } = await q.maybeSingle();
+  const read = (extra: string) => {
+    const columns: string = `${ORDER_COLUMNS}, admin_note${extra}`;
+    let q = c.from("celin_orders").select(columns).eq("code", code);
+    if (userId) q = q.eq("user_id", userId);
+    return q.maybeSingle();
+  };
+  let { data, error } = (await read(`, ${ORDER_LIST_COLUMNS}`)) as { data: Record<string, unknown> | null; error: { code?: string; message: string } | null };
+  if (error && isMissingColumn(error)) ({ data, error } = (await read("")) as { data: Record<string, unknown> | null; error: { code?: string; message: string } | null });
   if (error || !data) {
     if (error && !isMissingTable(error)) console.error("[orders] get", error.message);
     return null;
   }
   const order = toOrder(data as Record<string, unknown>);
-  const [items, events] = await Promise.all([
-    c.from("celin_order_items").select(ITEM_COLUMNS).eq("order_id", order.id),
-    c.from("celin_order_events").select("status, note, actor, created_at").eq("order_id", order.id).order("created_at"),
-  ]);
+  const lines = async () => {
+    const r = await c.from("celin_order_items").select(ITEM_LIST_COLUMNS).eq("order_id", order.id);
+    return r.error && isMissingColumn(r.error) ? c.from("celin_order_items").select(ITEM_COLUMNS).eq("order_id", order.id) : r;
+  };
+  const [items, events] = await Promise.all([lines(), c.from("celin_order_events").select("status, note, actor, created_at").eq("order_id", order.id).order("created_at")]);
+  const raw = data as Record<string, unknown>;
   const detail: OrderDetail = {
     ...order,
     items: ((items.data ?? []) as Record<string, unknown>[]).map(toItem),
     events: ((events.data ?? []) as OrderEvent[]).filter((e) => isOrderStatus(e.status)),
+    list_subtotal: Number(raw.list_subtotal ?? 0),
+    pricing: raw.pricing && typeof raw.pricing === "object" ? (raw.pricing as OrderDetail["pricing"]) : {},
   };
   if (userId) {
     // members never see the store's internal note

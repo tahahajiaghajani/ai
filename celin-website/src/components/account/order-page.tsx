@@ -140,6 +140,8 @@ export async function OrderPage({ lang, params, searchParams }: { lang: Lang; pa
               {order.items.map((i) => {
                 const name = t(i, "name", lang);
                 const option = t(i, "variant", lang);
+                // the invoice lists each piece at the price the member saw; the step is one line below
+                const unit = i.list_price ?? i.unit_price;
                 return (
                   <tr key={i.id} className="grid grid-cols-[4rem_minmax(0,1fr)_auto] gap-x-4 gap-y-1 border-b border-line py-5 sm:table-row sm:py-0">
                     <td className="row-span-2 sm:py-5">
@@ -155,19 +157,25 @@ export async function OrderPage({ lang, params, searchParams }: { lang: Lang; pa
                     </td>
                     <td className="self-end text-xs text-muted tabular-nums sm:table-cell sm:py-5 sm:align-top sm:text-sm sm:text-ink-2">
                       <span className="sm:hidden">
-                        {num(i.qty, lang)} × {formatPrice(i.unit_price, lang)}
+                        {num(i.qty, lang)} × {formatPrice(unit, lang)}
                       </span>
-                      <span className="hidden sm:inline">{formatPrice(i.unit_price, lang)}</span>
+                      <span className="hidden sm:inline">{formatPrice(unit, lang)}</span>
                     </td>
                     <td className="hidden py-5 text-center align-top tabular-nums sm:table-cell">{num(i.qty, lang)}</td>
-                    <td className="self-end text-end text-ink tabular-nums sm:table-cell sm:py-5 sm:align-top">{formatPrice(i.line_total, lang)}</td>
+                    <td className="self-end text-end text-ink tabular-nums sm:table-cell sm:py-5 sm:align-top">{formatPrice(unit * i.qty, lang)}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
           <dl className="ms-auto mt-6 max-w-sm space-y-2.5 text-sm">
-            <Row label={c.subtotal} value={formatPrice(order.subtotal, lang)} />
+            {order.list_subtotal > order.subtotal && (
+              <>
+                <Row label={c.subtotal} value={formatPrice(order.list_subtotal, lang)} />
+                <Row label={c.stepDiscount(num(order.pricing.pieces ?? order.items_count, lang))} value={`− ${formatPrice(order.list_subtotal - order.subtotal, lang)}`} />
+              </>
+            )}
+            <Row label={order.list_subtotal > order.subtotal ? c.afterStep : c.subtotal} value={formatPrice(order.subtotal, lang)} />
             <Row label={c.shipping} value={order.shipping_fee > 0 ? formatPrice(order.shipping_fee, lang) : c.shippingNone} />
             {order.discount > 0 && <Row label={c.discount} value={`− ${formatPrice(order.discount, lang)}`} />}
             <div className="flex items-baseline justify-between gap-6 border-t border-line pt-3.5">

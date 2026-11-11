@@ -3,6 +3,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { ProPrices } from "@/lib/catalog-types";
 import type { ProEnded } from "@/lib/pro-copy";
+import type { PriceLevel, Pricing } from "@/lib/pricing";
 import { cart } from "@/components/cart/cart-store";
 
 /**
@@ -21,14 +22,17 @@ export interface Me {
   city: string;
   address: string;
   postal_code: string;
-  pro: { active: boolean; issued: boolean; expiresAt: string | null; ended?: ProEnded; request: "none" | "pending" | "approved" | "rejected"; reply: string };
+  /** active: a member or Pro (stock, prices, ordering); level: which prices (members' list price, or Pro) */
+  pro: { active: boolean; level: PriceLevel | null; proSince: string | null; issued: boolean; expiresAt: string | null; ended?: ProEnded; request: "none" | "pending" | "approved" | "rejected"; reply: string };
   unread: number;
   /** opaque per-account key: the basket in this browser belongs to one account */
   key?: string;
 }
 
 export interface PriceBook {
+  /** the admin's prices; what this account sees and pays follows `pricing` */
   prices: ProPrices;
+  pricing: Pricing;
   stockDisplay: "exact" | "level";
   lowStock: number;
   minOrder: number;

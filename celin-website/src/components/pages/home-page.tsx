@@ -17,7 +17,7 @@ export async function HomePage({ lang }: { lang: Lang }) {
   const s = (key: string) => slots[key] as ResolvedSlot;
   const txt = (key: string, field: string) => slotText(slots[key], field, lang);
 
-  const collections = catalog.collections.filter((k) => k.visible !== false && k.media);
+  const collections = catalog.collections.filter((k) => k.visible !== false && (k.media || k.soon));
   const collectionNames = Object.fromEntries(catalog.collections.map((k) => [k.slug, t(k, "name", lang)]));
   const featured = [...catalog.products.filter((p) => p.featured), ...catalog.products.filter((p) => !p.featured)].slice(0, 8);
 

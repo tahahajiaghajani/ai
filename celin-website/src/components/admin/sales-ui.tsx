@@ -112,11 +112,11 @@ export function Row({ label, children }: { label: string; children: React.ReactN
 export type ProState = "active" | "issued" | "expired" | "revoked" | "none";
 
 export const PRO_STATE: Record<ProState, { label: string; tone: "success" | "gold" | "warning" | "danger" | "neutral" }> = {
-  active: { label: "Pro فعال", tone: "success" },
+  active: { label: "عضو فعال", tone: "success" },
   issued: { label: "کد صادر شده، وارد نشده", tone: "gold" },
   expired: { label: "منقضی", tone: "warning" },
   revoked: { label: "باطل‌شده", tone: "danger" },
-  none: { label: "بدون Pro", tone: "neutral" },
+  none: { label: "بدون عضویت", tone: "neutral" },
 };
 
 export function ProBadge({ state }: { state: ProState }) {

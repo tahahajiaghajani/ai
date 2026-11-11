@@ -5,8 +5,9 @@ import { after } from "next/server";
 import { guard } from "@/lib/admin-action";
 import { requireDb, UserError } from "@/lib/db";
 import { formatPrice } from "@/lib/format";
+import { checkPro } from "@/lib/members";
 import { postMessage } from "@/lib/messages";
-import { canMove, isOrderStatus, STATUS_LABEL } from "@/lib/order-meta";
+import { ACCEPTED_STATUSES, canMove, isOrderStatus, STATUS_LABEL } from "@/lib/order-meta";
 import { getOrder, setOrderStatus } from "@/lib/orders";
 import { getSettings } from "@/lib/settings";
 import { sendSms } from "@/lib/sms";
@@ -38,6 +39,8 @@ export async function adminSetOrderStatus(input: Record<string, unknown>): Promi
     revalidatePath("/admin/orders");
     // nothing changed (e.g. the member cancelled it a moment earlier): nobody is told about a change
     if (!r.changed) return { ok: true, message: `وضعیت از قبل «${STATUS_LABEL[status].fa}» بود.` };
+    // an accepted order counts towards Pro (src/lib/pricing.ts): the account may have just reached the threshold
+    const pro = order.user_id && ACCEPTED_STATUSES.includes(status) ? await checkPro(order.user_id) : null;
     if (order.user_id) {
       const uid = order.user_id;
       after(async () => {
@@ -58,7 +61,7 @@ export async function adminSetOrderStatus(input: Record<string, unknown>): Promi
         }
       });
     }
-    return { ok: true, message: `وضعیت: ${STATUS_LABEL[status].fa}` };
+    return { ok: true, message: `وضعیت: ${STATUS_LABEL[status].fa}${pro?.promoted ? " · حساب این مشتری با این خرید Pro شد و کد Pro برایش فرستاده شد." : ""}` };
   });
 }
 
@@ -94,6 +97,8 @@ export async function adminUpdateOrder(input: Record<string, unknown>): Promise<
         }),
       );
     }
-    return { ok: true, message: "ذخیره شد.", total: formatPrice(total, "fa") };
+    // a larger amount on an accepted order may take the account over the Pro threshold
+    const pro = moneyChanged && total > order.total && order.user_id && ACCEPTED_STATUSES.includes(order.status) ? await checkPro(order.user_id) : null;
+    return { ok: true, message: pro?.promoted ? "ذخیره شد · حساب این مشتری Pro شد و کد Pro برایش فرستاده شد." : "ذخیره شد.", total: formatPrice(total, "fa") };
   });
 }

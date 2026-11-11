@@ -251,7 +251,7 @@ export function ProForm({ initial }: { initial: ProSettings }) {
   return (
     <Section
       id="pro"
-      title="اشتراک Pro"
+      title="عضویت و Pro"
       footer={
         <>
           <ResetButton group="pro" />
@@ -261,10 +261,57 @@ export function ProForm({ initial }: { initial: ProSettings }) {
     >
       <Toggle checked={f.codeInInbox} onChange={set("codeInInbox")} label="نمایش کد در پیام‌های حساب عضو" hint="خاموش باشد، کد فقط با پیامک، ایمیل یا دکمه‌های اشتراک‌گذاری به عضو می‌رسد و در پیام‌های قبلی هم نمایش داده نمی‌شود." />
       <div>
-        <div className="mb-2 text-xs font-medium text-ink-2">اعتبار پیش‌فرض کد تازه</div>
+        <div className="mb-2 text-xs font-medium text-ink-2">اعتبار پیش‌فرض کد عضویت تازه</div>
         <DaysPicker value={f.defaultDays} onChange={set("defaultDays")} defaultDays={initial.defaultDays} />
       </div>
+      <PriceLadder f={f} set={set} />
     </Section>
+  );
+}
+
+/**
+ * The members' prices in percent of the admin's (wholesale) price: the list price of one piece, then the steps by
+ * pieces in one order (the invoice shows the difference as «تخفیف تعداد»); and when an account becomes Pro.
+ */
+function PriceLadder({ f, set }: { f: ProSettings; set: <K extends keyof ProSettings>(k: K) => (v: ProSettings[K]) => void }) {
+  const pct = (v: string) => Math.max(0, Math.min(1000, Math.round(Number(v.replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0)).replace(/[^\d]/g, "")) || 0)));
+  const step = (i: number, k: "min" | "pct", v: string) => set("steps")(f.steps.map((s, j) => (j === i ? { ...s, [k]: pct(v) } : s)));
+  return (
+    <div className="space-y-4 border-t border-line pt-4">
+      <div className="text-sm font-medium text-ink">قیمت اعضا (درصدی از قیمتی که در محصولات ثبت می‌کنید)</div>
+      <Field label="قیمت هر قطعه برای اعضا" hint="۲۰۰ یعنی دو برابر قیمت ثبت‌شده. اعضای Pro همیشه همان قیمت ثبت‌شده را می‌بینند.">
+        <Input value={String(f.memberPct)} onChange={(e) => set("memberPct")(pct(e.target.value))} inputMode="numeric" dir="ltr" className="max-w-32" aria-label="درصد قیمت اعضا" />
+      </Field>
+      <div>
+        <div className="mb-2 text-xs font-medium text-ink-2">پله‌های فاکتور بر اساس تعداد قطعه‌های یک سفارش</div>
+        <div className="space-y-2">
+          {f.steps.map((s, i) => (
+            <div key={i} className="flex flex-wrap items-center gap-2 text-sm text-ink-2">
+              <span>از</span>
+              <Input value={String(s.min)} onChange={(e) => step(i, "min", e.target.value)} inputMode="numeric" dir="ltr" className="w-20" aria-label={`پله‌ی ${i + 1}: از چند قطعه`} />
+              <span>قطعه:</span>
+              <Input value={String(s.pct)} onChange={(e) => step(i, "pct", e.target.value)} inputMode="numeric" dir="ltr" className="w-20" aria-label={`پله‌ی ${i + 1}: درصد`} />
+              <span>درصد</span>
+              <Button variant="ghost" size="sm" icon="trash" onClick={() => set("steps")(f.steps.filter((_, j) => j !== i))} aria-label={`حذف پله‌ی ${i + 1}`} />
+            </div>
+          ))}
+        </div>
+        {f.steps.length < 8 && (
+          <Button variant="secondary" size="sm" icon="plus" className="mt-2" onClick={() => set("steps")([...f.steps, { min: (f.steps[f.steps.length - 1]?.min ?? 1) + 5, pct: 100 }])}>
+            پله‌ی تازه
+          </Button>
+        )}
+        <p className="mt-2 text-xs leading-5 text-muted">هر پله درصد کمتری از پله‌ی قبل دارد و ۱۰۰ یعنی همان قیمت ثبت‌شده (قیمت عمده).</p>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Pro شدن خودکار با خرید (تومان)" hint="جمع سفارش‌های تأییدشده‌ی یک حساب در بازه‌ی روبه‌رو؛ ۰ یعنی خاموش.">
+          <MoneyInput value={f.proThreshold} onChange={(v) => set("proThreshold")(v ?? 0)} aria-label="مبلغ Pro شدن" />
+        </Field>
+        <Field label="در چند روز" hint="مثلاً ۳۰ یعنی خریدهای ۳۰ روز گذشته.">
+          <Input value={String(f.proDays)} onChange={(e) => set("proDays")(pct(e.target.value) || 30)} inputMode="numeric" dir="ltr" className="max-w-32" aria-label="بازه‌ی روزها" />
+        </Field>
+      </div>
+    </div>
   );
 }
 

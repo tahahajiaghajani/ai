@@ -44,7 +44,7 @@ export async function CollectionPage({ lang, slug }: { lang: Lang; slug: string 
   const tagline = t(col, "tagline", lang);
   const storyText = t(col, "story", lang);
   const products = catalog.products.filter((p) => p.collection === col.slug);
-  const others = catalog.collections.filter((k) => k.slug !== col.slug && k.visible !== false && k.media);
+  const others = catalog.collections.filter((k) => k.slug !== col.slug && k.visible !== false && (k.media || k.soon));
   // the story's picture: a worn (second) photo of a piece, else a cover — never the hero's own picture
   const pictures = [...products.flatMap((p) => p.images.slice(1)), ...products.map((p) => p.images[0])].filter(Boolean);
   const worn = pictures.find((m) => m.src !== col.media?.src) ?? null;
@@ -60,7 +60,7 @@ export async function CollectionPage({ lang, slug }: { lang: Lang; slug: string 
         palette={palette}
         sparkle={14}
         crumbs={[{ label: nav.home, path: "/" }, { label: nav.collections, path: "/collections" }, { label: name }]}
-        d={{ eyebrow: c.collection, title: name, subtitle: tagline, media: col.media }}
+        d={{ eyebrow: c.collection, title: name, subtitle: tagline || (products.length === 0 ? c.soon : ""), media: col.media }}
         latin={["CELIN", (col.name_en || col.slug).toUpperCase()]}
         actions={
           <>

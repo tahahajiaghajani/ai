@@ -7,7 +7,7 @@ import { requestPro } from "@/app/actions/account";
 import { myProRequest } from "@/app/actions/member";
 import { accountCopy } from "@/content/copy/account";
 import { commonCopy } from "@/content/copy/common";
-import { formatDate, type Lang } from "@/lib/format";
+import { formatDate, formatPrice, num, type Lang } from "@/lib/format";
 import { proEndedText } from "@/lib/pro-copy";
 import { href } from "@/lib/i18n";
 import { LuxFrame } from "@/components/ui/lux-frame";
@@ -21,9 +21,14 @@ import { ProSteps } from "@/components/pro/steps";
 import type { StoreContactInfo } from "@/components/account/contact";
 import { BusyLabel, FormNote, SelectField, TextArea, TextField, btn } from "@/components/account/ui";
 
-/** Pro state of the member as the server saw it (account pages pass it so nothing flashes while /api/me loads). */
+/** Membership state of the account as the server saw it (account pages pass it so nothing flashes while /api/me loads). */
 export interface MembershipSnapshot {
   active: boolean;
+  /** members' prices, or Pro (the admin's prices) */
+  level: "member" | "pro" | null;
+  proSince: string | null;
+  /** how far a member is from Pro: accepted orders in the last `days` days, against `threshold` (0 = off) */
+  progress?: { recent: number; threshold: number; days: number };
   issued: boolean;
   expiresAt: string | null;
   since: string | null;
@@ -58,14 +63,14 @@ function Panel({ title, seal = true, children, compact = false }: { title?: Reac
   );
 }
 
-/** The member's card: espresso, champagne rules, the hallmark — Pro is active. */
-function MemberCard({ children, compact = false }: { children: ReactNode; compact?: boolean }) {
+/** The member's card: espresso, champagne rules, the hallmark (CELIN for members, PRO for Pro accounts). */
+function MemberCard({ children, compact = false, pro = false }: { children: ReactNode; compact?: boolean; pro?: boolean }) {
   return (
     <LuxFrame tone="dark" keystone={!compact} data-tone="light" className={`bg-night-2 text-on-night ${compact ? "px-5 py-6 sm:px-7" : "px-6 py-9 sm:px-10 sm:py-11"}`}>
       <span aria-hidden className="absolute inset-0 -z-10 bg-mesh-cocoa" />
       <Grain />
       <div className={`relative grid items-center ${compact ? "gap-5 sm:grid-cols-[auto_minmax(0,1fr)]" : "gap-8 sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-10"}`}>
-        <ProHallmark className={compact ? "size-16" : "mx-auto size-28 sm:size-36"} />
+        <ProHallmark word={pro ? "PRO" : "CELIN"} className={compact ? "size-16" : "mx-auto size-28 sm:size-36"} />
         <div className="min-w-0">{children}</div>
       </div>
     </LuxFrame>
@@ -128,11 +133,15 @@ export function Membership({ lang, variant, initial, contact }: { lang: Lang; va
   }
 
   if (state === "active" && pro) {
-    const until = pro.expiresAt ? c.activeUntil(formatDate(pro.expiresAt, lang)) : c.activeNoEnd;
+    // Pro: the admin's prices, no end; a member: the list price with steps, until the code's date
+    const isPro = pro.level === "pro";
+    const proSince = me ? me.pro.proSince : initial?.proSince ?? null;
+    const until = isPro ? (proSince ? c.proSince(formatDate(proSince, lang)) : c.proLead) : pro.expiresAt ? c.activeUntil(formatDate(pro.expiresAt, lang)) : c.activeNoEnd;
+    const progress = !isPro ? initial?.progress : undefined;
     if (variant === "compact") {
       return (
-        <MemberCard compact>
-          <p className="title-card text-metal-light">{c.activeTitle}</p>
+        <MemberCard compact pro={isPro}>
+          <p className="title-card text-metal-light">{isPro ? c.proTitle : c.activeTitle}</p>
           <p className="mt-1 font-ui text-sm leading-7 text-on-night-muted">{until}</p>
           <p className="mt-3 flex flex-wrap gap-x-7 gap-y-1">
             <Link href={href(lang, "/account/cart")} className="btn-link btn-link-light">
@@ -146,13 +155,30 @@ export function Membership({ lang, variant, initial, contact }: { lang: Lang; va
       );
     }
     return (
-      <MemberCard>
+      <MemberCard pro={isPro}>
         <p className="font-label text-[11px] tracking-[0.32em] text-gold-on-dark">
-          <span className="ltr">CELIN PRO</span>
+          <span className="ltr">{isPro ? "CELIN PRO" : "CELIN MEMBER"}</span>
         </p>
-        <p className="title-section mt-2 text-metal-light">{c.activeTitle}</p>
-        <p className="mt-1 font-ui text-sm leading-7 text-on-night-muted">{until}</p>
-        {variant === "account" && (
+        <p className="title-section mt-2 text-metal-light">{isPro ? c.proTitle : c.activeTitle}</p>
+        <p className="mt-1 font-ui text-sm leading-7 text-on-night-muted">{isPro ? c.proLead : until}</p>
+        {variant === "account" && !isPro && (
+          <p className="mt-3 max-w-lg font-ui text-sm leading-7 text-on-night-muted">{c.memberPrices}</p>
+        )}
+        {variant === "account" && progress && (
+          <div className="mt-5 max-w-md font-ui text-sm">
+            <p className="flex items-baseline justify-between gap-4 text-on-night-muted">
+              <span>{c.progressLabel(num(progress.days, lang))}</span>
+              <span className="tabular-nums text-on-night">
+                {formatPrice(progress.recent, lang)} / {formatPrice(progress.threshold, lang)}
+              </span>
+            </p>
+            <span aria-hidden className="mt-2 block h-1 bg-night-line">
+              <span className="block h-full bg-[image:var(--metal-champagne)]" style={{ width: `${Math.min(100, Math.round((progress.recent / progress.threshold) * 100))}%` }} />
+            </span>
+            <p className="mt-2 text-xs leading-6 text-on-night-muted">{c.progressText(formatPrice(progress.threshold, lang), num(progress.days, lang))}</p>
+          </div>
+        )}
+        {variant === "account" && !isPro && (
           <dl className="mt-6 grid max-w-md grid-cols-2 border-y border-night-line font-ui text-sm">
             <div className="py-3 pe-4">
               <dt className="text-xs text-on-night-muted">{c.since}</dt>

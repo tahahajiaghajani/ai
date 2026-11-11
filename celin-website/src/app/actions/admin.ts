@@ -13,6 +13,7 @@ import { sendEmail, mailHtml } from "@/lib/email";
 import { latinDigits, normalizePhone } from "@/lib/format";
 import { notifyTeam } from "@/lib/notify";
 import { proStatus } from "@/lib/pro";
+import { cleanSteps, DEFAULT_MEMBER_PCT, DEFAULT_PRO_DAYS, DEFAULT_PRO_THRESHOLD, MAX_PCT, type PriceStep } from "@/lib/pricing";
 import { allow, limited } from "@/lib/rate-limit";
 import { clientIp } from "@/lib/request";
 import { getSettingsFresh, saveSettings } from "@/lib/settings";
@@ -202,9 +203,20 @@ export async function saveShop(input: Record<string, unknown>): Promise<Result> 
 
 export async function savePro(input: Record<string, unknown>): Promise<Result> {
   return guard(async () => {
-    await saveSettings("pro", { codeInInbox: bool(input.codeInInbox), defaultDays: int(input.defaultDays, 0, 3650, 365) });
+    const memberPct = int(input.memberPct, 100, MAX_PCT, DEFAULT_MEMBER_PCT);
+    const steps = cleanSteps(input.steps, memberPct);
+    const asked = Array.isArray(input.steps) ? input.steps.filter((r) => r && Number((r as PriceStep).min) > 0).length : 0;
+    if (asked !== steps.length) throw new UserError("پله‌های قیمت معتبر نیستند: تعداد از ۲ قطعه به بالا و صعودی، و درصد هر پله کمتر از پله‌ی قبل و دست‌کم ۱۰۰ باشد.");
+    await saveSettings("pro", {
+      codeInInbox: bool(input.codeInInbox),
+      defaultDays: int(input.defaultDays, 0, 3650, 365),
+      memberPct,
+      steps,
+      proThreshold: int(input.proThreshold, 0, 1e13, DEFAULT_PRO_THRESHOLD),
+      proDays: int(input.proDays, 1, 366, DEFAULT_PRO_DAYS),
+    });
     refresh();
-    return { ok: true, message: "تنظیمات اشتراک Pro ذخیره شد." };
+    return { ok: true, message: "تنظیمات عضویت و Pro ذخیره شد." };
   });
 }
 

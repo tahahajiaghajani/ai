@@ -9,6 +9,7 @@ import { postMessage } from "@/lib/messages";
 import { notifyTeam } from "@/lib/notify";
 import { cleanLines, getOrder, placeOrder as place, setOrderStatus } from "@/lib/orders";
 import { proStatus } from "@/lib/pro";
+import { invoice, pricingFor } from "@/lib/pricing";
 import { allow } from "@/lib/rate-limit";
 import { getSettings } from "@/lib/settings";
 import { langOf, text, type Result } from "@/lib/action";
@@ -16,7 +17,7 @@ import { env } from "@/lib/env";
 
 const MSG = {
   signedOut: { fa: "برای ثبت سفارش وارد حساب خود شوید.", en: "Please sign in to place an order." },
-  notPro: { fa: "ثبت سفارش ویژه‌ی اعضای Pro است.", en: "Ordering is for Pro members." },
+  notPro: { fa: "ثبت سفارش ویژه‌ی اعضای سلین است.", en: "Ordering is for CELIN members." },
   empty: { fa: "سفارش شما خالی است.", en: "Your order is empty." },
   unavailable: { fa: "ثبت سفارش هنوز راه‌اندازی نشده است؛ لطفاً با فروشگاه تماس بگیرید.", en: "Online ordering is not set up yet — please contact the store." },
   name: { fa: "نام گیرنده را بنویسید.", en: "Please enter the recipient's name." },
@@ -39,7 +40,8 @@ export async function placeOrder(input: Record<string, unknown>): Promise<Result
   const lang = langOf(input.lang);
   const me = await currentUser();
   if (!me) return { ok: false, error: MSG.signedOut[lang] };
-  if (!(await proStatus(me.id)).active) {
+  const status = await proStatus(me.id);
+  if (!status.active || !status.level) {
     await setProHint(false);
     return { ok: false, error: MSG.notPro[lang] };
   }
@@ -60,23 +62,27 @@ export async function placeOrder(input: Record<string, unknown>): Promise<Result
   if (!(await allow(`order:${me.id}`, 3600, 15))) return { ok: false, error: MSG.rate[lang] };
 
   const s = await getSettings();
+  // members: the list price stepped by pieces; Pro: the admin's price (src/lib/pricing.ts, applied again in SQL)
+  const pricing = pricingFor(status.level, s.pro);
   // the total the basket showed: an order is never placed at other prices than the member saw
   const seen = typeof input.seen === "number" && Number.isFinite(input.seen) ? Math.round(input.seen) : null;
   if (s.shop.minOrder > 0 || seen !== null) {
     const prices = await proPrices();
-    // the same sum as the basket shows (lines that are gone or have no price count 0)
-    const subtotal = lines.reduce((sum, l) => {
-      const p = prices[l.productId];
-      const v = l.variantId ? p?.variants[l.variantId] : undefined;
-      if (!p || (l.variantId && !v)) return sum;
-      const unit = v ? v.price ?? p.price : p.price;
-      return sum + (unit ?? 0) * l.qty;
-    }, 0);
-    if (seen !== null && seen !== subtotal) return { ok: false, error: MSG.priceChanged[lang], reason: "price_changed" };
-    if (subtotal < s.shop.minOrder) return { ok: false, error: `${MSG.min[lang]} ${formatPrice(s.shop.minOrder, lang)}${lang === "fa" ? " است." : "."}` };
+    // the same invoice as the basket shows (lines that are gone are left out; no price counts 0)
+    const bill = invoice(
+      lines.flatMap((l) => {
+        const p = prices[l.productId];
+        const v = l.variantId ? p?.variants[l.variantId] : undefined;
+        if (!p || (l.variantId && !v)) return [];
+        return [{ price: v ? v.price ?? p.price : p.price, qty: l.qty }];
+      }),
+      pricing,
+    );
+    if (seen !== null && seen !== bill.total) return { ok: false, error: MSG.priceChanged[lang], reason: "price_changed" };
+    if (bill.total < s.shop.minOrder) return { ok: false, error: `${MSG.min[lang]} ${formatPrice(s.shop.minOrder, lang)}${lang === "fa" ? " است." : "."}` };
   }
 
-  const r = await place(me.id, lines, customer, text(input.note, 1500));
+  const r = await place(me.id, lines, customer, text(input.note, 1500), pricing);
   if (!r.ok) {
     const e = r.error;
     const itemId = "id" in e ? e.id : undefined;

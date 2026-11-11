@@ -13,6 +13,7 @@ import {
   revokeMemberCode,
   setMemberDisabled,
   setMemberPassword,
+  setMemberPro,
   setMemberRole,
   updateMember,
   type Delivered,
@@ -132,6 +133,17 @@ export async function adminRevokeCode(input: Record<string, unknown>): Promise<R
     refresh();
     const extra = r.ended ? ` عضو از همه‌ی دستگاه‌ها خارج شد${r.passwordCleared ? " و رمزی که با این کد ساخته بود پاک شد" : ""}.` : "";
     return { ok: true, message: `کد باطل شد؛ قیمت‌ها برای این حساب دیگر نمایش داده نمی‌شود.${extra}` };
+  });
+}
+
+/** Pro by hand: on → Pro now with its own code (as when the threshold is reached); off → back to the members' prices. */
+export async function adminSetPro(input: Record<string, unknown>): Promise<Result> {
+  return guard(async () => {
+    const on = input.on === true;
+    const r = await setMemberPro(text(input.id, 40), on);
+    refresh();
+    if (!r.changed) return { ok: true, message: on ? "این حساب از قبل Pro بود." : "این حساب Pro نبود." };
+    return { ok: true, message: on ? "حساب Pro شد؛ کد Pro برای عضو فرستاده شد." : "Pro برداشته شد؛ این حساب از این پس قیمت اعضا را می‌بیند (کدش کار می‌کند)." };
   });
 }
 

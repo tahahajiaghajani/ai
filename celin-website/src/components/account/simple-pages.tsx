@@ -6,6 +6,8 @@ import { formatDate, type Lang } from "@/lib/format";
 import { href, t } from "@/lib/i18n";
 import { lightProduct, requireMember, storeContact } from "@/lib/member";
 import { listMessages } from "@/lib/messages";
+import { recentPurchases } from "@/lib/orders";
+import { getSettings } from "@/lib/settings";
 import { latestRequest, proStatus } from "@/lib/pro";
 import { MarkMessagesRead } from "@/components/account/mark-read";
 import { Membership, type MembershipSnapshot } from "@/components/account/membership";
@@ -21,15 +23,20 @@ import { WishlistGrid } from "@/components/account/wishlist-view";
 export async function AccountProPage({ lang }: { lang: Lang }) {
   const me = await requireMember(lang, "/account/pro");
   const c = accountCopy(lang);
-  const [pro, request, contact] = await Promise.all([proStatus(me.id), latestRequest(me.id), storeContact()]);
+  const [pro, request, contact, settings] = await Promise.all([proStatus(me.id), latestRequest(me.id), storeContact(), getSettings()]);
+  // a member sees how far Pro is (accepted orders of the window, src/lib/pricing.ts)
+  const progress = pro.level === "member" && settings.pro.proThreshold > 0 ? { recent: await recentPurchases(me.id, settings.pro.proDays), threshold: settings.pro.proThreshold, days: settings.pro.proDays } : undefined;
   const snapshot: MembershipSnapshot = {
     active: pro.active,
+    level: pro.level,
+    proSince: pro.proSince,
     issued: pro.issued,
     expiresAt: pro.expiresAt,
     since: pro.since,
     request: request?.status ?? "none",
     reply: request?.status === "rejected" ? request.reply : "",
     requestedAt: request?.created_at ?? null,
+    progress,
   };
   const withCode = !pro.active && !pro.issued;
   return (
