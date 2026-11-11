@@ -16,7 +16,7 @@ import {
 } from "@shared/forms/fieldtypes";
 import type { Queryable } from "../../db";
 import { bad } from "../../http/errors";
-import { registerHooks, webOnly, type WriteArgs } from "../../engine";
+import { invalidateSchema, registerHooks, webOnly, type WriteArgs } from "../../engine";
 import { fieldUsage, fieldsOfType, inUse, type FieldUsage } from "./usage";
 
 /** What the shared cleaners cannot know: which tables exist and whether a condition fits a table. */
@@ -137,6 +137,8 @@ let installed = false;
 export function installFieldHooks(): void {
   if (installed) return;
   installed = true;
-  registerHooks("field_type", { beforeWrite: fieldTypeBefore, ...webOnly("نوع فیلد") });
-  registerHooks("field_def", { beforeWrite: fieldDefBefore, ...webOnly("فیلد") });
+  // the schema cache follows both tables through its stamp; the request that changed them sees the change at once
+  const fresh = ({ ctx }: WriteArgs) => invalidateSchema(ctx.org.id);
+  registerHooks("field_type", { beforeWrite: fieldTypeBefore, afterWrite: fresh, ...webOnly("نوع فیلد") });
+  registerHooks("field_def", { beforeWrite: fieldDefBefore, afterWrite: fresh, ...webOnly("فیلد") });
 }
