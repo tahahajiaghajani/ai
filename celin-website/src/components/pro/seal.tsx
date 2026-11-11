@@ -1,29 +1,30 @@
 import { useId } from "react";
 
 /**
- * The PRO seal: a small espresso arch in a champagne–copper rim, PRO engraved in champagne, a keystone at the
- * crown. Decorative (the text beside it says what it means). `sm` sits beside a line of text (bars, the product
- * box), `md` heads a panel, `lg` a sheet.
+ * The members' seal: a small espresso arch in a champagne–copper rim with a keystone at the crown — the house's
+ * arch for membership, with PRO engraved in champagne only for Pro accounts (`word="PRO"`). Decorative (the text
+ * beside it says what it means). `sm` sits beside a line of text (bars, the product box), `md` heads a panel,
+ * `lg` a sheet.
  */
-export function ProSeal({ className = "", large = false, size }: { className?: string; large?: boolean; size?: "sm" | "md" | "lg" }) {
+export function ProSeal({ className = "", large = false, size, word = null }: { className?: string; large?: boolean; size?: "sm" | "md" | "lg"; word?: "PRO" | null }) {
   const s = size ?? (large ? "lg" : "sm");
   return (
     <span aria-hidden data-size={s} className={`pro-seal ltr ${className}`}>
-      <span className="pro-seal-word">PRO</span>
+      {word && <span className="pro-seal-word">{word}</span>}
     </span>
   );
 }
 
 /** Text engraved around the hallmark's rim (Latin, like a hallmark; the house's own names only). */
-const RIM = "CELIN · ETEMAD GALLERY · PRO MEMBERS · ";
+const RIM = { CELIN: "CELIN · ETEMAD GALLERY · MEMBERS · ", PRO: "CELIN · ETEMAD GALLERY · PRO MEMBERS · " };
 
 /**
- * The PRO hallmark: a round engraved seal — double rim, the house's names around it, a small arch with its
- * keystone and PRO in the Didone of the wordmark. `night` sits on an espresso disc (dark grounds and the
- * ceremony), `light` is lines only (copper, light grounds). Inside a `[data-pro-state="ok"]` box it turns and
- * glows once (the code was accepted). Decorative.
+ * The members' hallmark: a round engraved seal — double rim, the house's names around it, a small arch with its
+ * keystone and CELIN (members) or PRO (Pro accounts) in the Didone of the wordmark. `night` sits on an espresso
+ * disc (dark grounds and the ceremony), `light` is lines only (copper, light grounds). Inside a
+ * `[data-pro-state="ok"]` box it turns and glows once (the code was accepted). Decorative.
  */
-export function ProHallmark({ className = "", tone = "night" }: { className?: string; tone?: "night" | "light" }) {
+export function ProHallmark({ className = "", tone = "night", word = "CELIN" }: { className?: string; tone?: "night" | "light"; word?: "CELIN" | "PRO" }) {
   const id = `h${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   const metal = `url(#${id}m)`;
   return (
@@ -47,7 +48,7 @@ export function ProHallmark({ className = "", tone = "night" }: { className?: st
       <g className="pro-hallmark-rim">
         <text fill={metal} fontSize="7.6" style={{ fontFamily: "var(--font-latin-ui), sans-serif", fontWeight: 500 }}>
           <textPath href={`#${id}r`} textLength="398" lengthAdjust="spacing">
-            {RIM}
+            {RIM[word]}
           </textPath>
         </text>
       </g>
@@ -56,8 +57,8 @@ export function ProHallmark({ className = "", tone = "night" }: { className?: st
       {/* the arch and its keystone */}
       <path d="M68 70V60.5a12 12 0 0 1 24 0V70" fill="none" stroke={metal} strokeWidth="0.8" />
       <path d="M80 44.2 82.6 46.8 80 49.4 77.4 46.8Z" fill={metal} />
-      <text x="81.6" y="93" textAnchor="middle" fill={metal} fontSize="23" letterSpacing="3.2" className="pro-hallmark-word" style={{ fontFamily: "var(--font-latin-display), serif", fontWeight: 500 }}>
-        PRO
+      <text x={word === "PRO" ? 81.6 : 81} y={word === "PRO" ? 93 : 91.5} textAnchor="middle" fill={metal} fontSize={word === "PRO" ? 23 : 16.5} letterSpacing={word === "PRO" ? 3.2 : 2} className="pro-hallmark-word" style={{ fontFamily: "var(--font-latin-display), serif", fontWeight: 500 }}>
+        {word}
       </text>
       <path d="M62 102.5h14.6M83.4 102.5H98" stroke={metal} strokeWidth="0.6" />
       <path d="M80 100.3 82.2 102.5 80 104.7 77.8 102.5Z" fill={metal} />

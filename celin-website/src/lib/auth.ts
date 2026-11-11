@@ -9,7 +9,7 @@ import { db } from "@/lib/db";
  * Accounts live in their own table (celin_users), not in Supabase Auth: the Supabase project may be shared
  * with another app. The sign-in name is the mobile number (or the e-mail, when one is saved); passwords are
  * scrypt hashes. The browser holds a signed, httpOnly cookie with the user id and a session version, so public
- * pages stay static: only the header and the Pro price layer ask /api/me, and only when the readable hint
+ * pages stay static: only the header and the members' price layer ask /api/me, and only when the readable hint
  * cookie says someone is signed in here.
  */
 
@@ -77,9 +77,9 @@ export async function checkPassword(password: string, stored: string | null | un
 // ------------------------------------------------------------------ sessions
 
 /**
- * How a session was opened: "pw" = phone/e-mail + password (or sign-up), "code" = the Pro code on its own,
+ * How a session was opened: "pw" = phone/e-mail + password (or sign-up), "code" = a membership or Pro code on its own,
  * "legacy" = a cookie from before this was recorded. Only "pw" sessions may open the admin panel, so a
- * leaked Pro code (sent by SMS, WhatsApp…) never unlocks it.
+ * leaked membership or Pro code (sent by SMS, WhatsApp…) never unlocks it.
  */
 export type SessionVia = "pw" | "code" | "legacy";
 
@@ -210,7 +210,7 @@ export async function isAdminAccount(): Promise<boolean> {
 
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-/** Whether the account has a password (accounts made by the admin may sign in with their Pro code only). */
+/** Whether the account has a password (accounts made by the admin may sign in with their membership or Pro code only). */
 export async function hasPassword(id: string): Promise<boolean> {
   const c = db();
   if (!c) return false;

@@ -47,7 +47,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
             </Empty>
           ) : (
             <Empty title={status ? `سفارشی در «${STATUS_SHORT[status]}» نیست` : "هنوز سفارشی ثبت نشده است"}>
-              {status ? "سفارش‌های این مرحله این‌جا نمایش داده می‌شوند." : "سفارش‌های اعضای Pro پس از ثبت، این‌جا نمایش داده می‌شوند."}
+              {status ? "سفارش‌های این مرحله این‌جا نمایش داده می‌شوند." : "سفارش‌های اعضا پس از ثبت، این‌جا نمایش داده می‌شوند."}
             </Empty>
           )}
         </>

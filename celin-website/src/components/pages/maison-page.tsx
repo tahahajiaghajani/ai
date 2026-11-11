@@ -11,7 +11,7 @@ import { Grain } from "@/components/fx/grain";
 import { Magnetic } from "@/components/fx/magnetic";
 import { SplitWords } from "@/components/fx/split-words";
 import { Icon } from "@/components/ui/icons";
-import { Eyebrow, ordinal } from "@/components/house/bits";
+import { Eyebrow } from "@/components/house/bits";
 import { HouseHero } from "@/components/house/hero";
 import { ScrollLine } from "@/components/house/scroll-line";
 import { slotReader } from "@/components/house/slot-reader";
@@ -19,7 +19,7 @@ import { Timeline } from "@/components/house/timeline";
 
 /**
  * /maison — «داستان سلین»: the brand's own story (story.ts, verbatim) as an editorial sequence — the motto
- * over living espresso light, the year of birth, four chapters along a copper thread, «سلین؛ برای کسانی که…»,
+ * over living espresso light, the year of birth, the four chapters along a copper thread (no numbers), «سلین؛ برای کسانی که…»,
  * twenty years from ۱۳۸۵ to ۱۴۰۵, the anniversary letter in an arch, and the closing line in living metal.
  */
 export async function MaisonPage({ lang }: { lang: Lang }) {
@@ -57,15 +57,11 @@ export async function MaisonPage({ lang }: { lang: Lang }) {
         </div>
       </section>
 
-      {/* four chapters on one copper thread */}
+      {/* the four chapters on one copper thread: each its title and text, no numbers or heading */}
       <section className="relative isolate overflow-clip pt-20 pb-20 sm:pt-28 sm:pb-28" style={{ background: "radial-gradient(60% 40% at 100% 10%, rgb(230 208 171 / 0.45), transparent 70%), radial-gradient(55% 35% at 0% 60%, rgb(239 220 205 / 0.6), transparent 70%), radial-gradient(50% 30% at 100% 95%, rgb(200 136 90 / 0.14), transparent 70%), var(--color-bone)" }}>
         {/* the bone gives way to the cocoa night below */}
         <div className="container-lux relative">
-          <div className="text-center">
-            <Eyebrow center>{c.chapters.eyebrow}</Eyebrow>
-            <SplitWords text={c.chapters.title} className="title-section mt-3 text-ink" />
-          </div>
-          <div className="relative mt-14 sm:mt-20">
+          <div className="relative">
             <ScrollLine className="start-[7px] lg:start-1/2" />
             {st.chapters.map((ch, i) => {
               const even = i % 2 === 0;
@@ -82,12 +78,8 @@ export async function MaisonPage({ lang }: { lang: Lang }) {
                     <Arch media={slot.media} mobile={slot.mobile} lang={lang} sizes="(min-width: 1024px) 28vw, 72vw" ring="copper" keystone={i === 0} unveil parallax={6} sparkle={8} />
                   </div>
                   <div className={`relative lg:col-span-4 ${even ? "lg:col-start-8" : "lg:order-1 lg:col-start-2"}`}>
-                    <p className="flex items-center gap-4">
-                      <span className="numeral text-metal">{ordinal(i + 1, lang)}</span>
-                      <span aria-hidden className="hairline w-12" />
-                      <span className="label text-gold-text!">{c.chapter(num(i + 1, lang))}</span>
-                    </p>
-                    <SplitWords as="h2" text={ch.title} className="title-section mt-4 text-ink" />
+                    <span aria-hidden className="hairline block w-12" />
+                    <SplitWords as="h2" text={ch.title} className="title-section mt-5 text-ink" />
                     <p className="lede mt-4 max-w-xl text-ink-2" data-reveal style={{ "--d": 1 } as CSSProperties}>
                       {ch.text}
                     </p>

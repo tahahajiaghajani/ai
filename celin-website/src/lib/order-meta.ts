@@ -44,8 +44,12 @@ export interface OrderItem {
   sku: string;
   slug: string;
   image: { src: string; ext: string; widths: number[]; width: number; height: number; placeholder: string; fx: number; fy: number } | null;
+  /** what is charged for one piece (the invoice's step) */
   unit_price: number;
+  /** one piece at the price the member saw (null: orders from before round five, same as unit_price) */
+  list_price: number | null;
   qty: number;
+  /** unit_price × qty */
   line_total: number;
 }
 
@@ -85,9 +89,22 @@ export interface Order {
   updated_at: string;
 }
 
+/** The price rules the order was placed with (celin_place_order's p_pricing). */
+export interface OrderPricing {
+  level?: "member" | "pro";
+  /** list percentage of the admin's price */
+  list?: number;
+  /** the step the pieces reached */
+  pct?: number;
+  pieces?: number;
+}
+
 export interface OrderDetail extends Order {
   items: OrderItem[];
   events: OrderEvent[];
+  /** the lines at the list price (0: same as subtotal — older orders and Pro) */
+  list_subtotal: number;
+  pricing: OrderPricing;
   /** admin only */
   admin_note?: string;
 }
@@ -98,6 +115,9 @@ export interface CartLine {
   variantId: string | null;
   qty: number;
 }
+
+/** Statuses in which the store has accepted an order: it counts as a purchase towards Pro (members.ts checkPro). */
+export const ACCEPTED_STATUSES: readonly OrderStatus[] = ["packing", "ready", "shipped"];
 
 export const MAX_QTY = 99;
 export const MAX_LINES = 60;

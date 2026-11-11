@@ -4,7 +4,7 @@ import { getSettings } from "@/lib/settings";
 import type { SmsSettings } from "@/lib/settings-types";
 
 /**
- * Optional text messages to members (the Pro code, order status changes) through an Iranian SMS provider.
+ * Optional text messages to members (the membership or Pro code, order status changes) through an Iranian SMS provider.
  * SMS.ir answers requests from servers abroad (Vercel); most others (Kavenegar included) reset them.
  * - SMS.ir with an approved template (recommended; works on the shared line):
  *   POST https://api.sms.ir/v1/send/verify, header X-API-KEY, { mobile, templateId, parameters: [{ name, value }] } → { status: 1 }

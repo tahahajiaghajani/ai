@@ -57,8 +57,8 @@ function OrRule({ lang }: { lang: Lang }) {
 }
 
 /**
- * «ورود» · «ثبت‌نام» · «ورود با کد Pro» on one page, inside the CELIN doorway; the tab lives in the URL (?tab=)
- * without a server round trip. Sign-in and sign-up stand on porcelain under the CELIN mark; the Pro code tab
+ * «ورود» · «ثبت‌نام» · «ورود با کد» on one page, inside the CELIN doorway; the tab lives in the URL (?tab=)
+ * without a server round trip. Sign-in and sign-up stand on porcelain under the CELIN mark; the code tab
  * turns the doorway into the night salon with the PRO hallmark, the 12-digit cells and the four steps.
  */
 export function AuthForms({ lang, tab: initial, next, contact }: { lang: Lang; tab: AuthTab; next: string; contact: StoreContactInfo }) {
@@ -303,7 +303,7 @@ function SignInForm({ lang, next, onDone, onCode, onSignup, contact }: { lang: L
       <OrRule lang={lang} />
       <TabLink lang={lang} tab="code" next={next} onSwitch={onCode} className={`${btn.outline} btn-lg w-full`}>
         <ProSeal className="-my-1 scale-[0.8]" />
-        {c.auth.tabs.code}
+        {c.auth.titles.code}
       </TabLink>
       <div className="space-y-3 border-t border-line pt-6 text-center font-ui text-sm leading-7">
         <div className="text-muted">

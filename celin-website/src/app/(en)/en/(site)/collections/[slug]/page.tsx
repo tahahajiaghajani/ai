@@ -4,6 +4,7 @@ import { getCatalog } from "@/lib/catalog";
 import { t } from "@/lib/i18n";
 import { mediaUrl } from "@/lib/media";
 import { collectionDescription, pageMetadata } from "@/lib/seo";
+import { collectionsCopy } from "@/content/copy/collections";
 
 export const revalidate = 600;
 
@@ -18,7 +19,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   return pageMetadata("en", {
     path: `/collections/${col.slug}`,
     title: `The ${t(col, "name", "en")} collection`,
-    description: collectionDescription(col, "en"),
+    description: collectionDescription(col, "en") || collectionsCopy.en.empty,
     image: col.media ? mediaUrl(col.media, 1280) : undefined,
   });
 }

@@ -28,8 +28,9 @@ function SealWindow({ size = "md" }: { size?: "sm" | "md" }) {
 /**
  * The bar above every product grid — the "Pro button above the products" of the brief. A jewel-box panel of
  * warm glass: the seal in its arch window, two calm lines that say where the visitor stands, the next step.
- * Guest → enter a code / request; member → request / have a code; pending → the steps and the status;
- * code issued → enter it; Pro → a quiet line that prices are shown, with the validity.
+ * Guest → sign in with a code / request membership; signed in → request / have a code; pending → the steps and
+ * the status; code issued → enter it; member → a quiet line that stock and prices are shown, with the validity;
+ * Pro → the same line, at the wholesale price.
  */
 export function ProBar({ lang, className = "" }: { lang: Lang; className?: string }) {
   const c = commonCopy(lang);
@@ -38,13 +39,15 @@ export function ProBar({ lang, className = "" }: { lang: Lang; className?: strin
   if (me === undefined) return <div className={`min-h-[11rem] sm:min-h-[6.5rem] ${className}`} aria-hidden />;
 
   if (me?.pro.active) {
+    // Pro lasts until the store takes it back: no validity date beside it
+    const pro = me.pro.level === "pro";
     return (
       <div className={`relative flex min-h-14 animate-fade-in flex-wrap items-center gap-x-4 gap-y-1 border-y border-gold/25 py-2.5 font-ui text-sm ${className}`}>
-        <ProSeal />
-        <span className="text-gold-text">{b.active}</span>
+        <ProSeal word={pro ? "PRO" : null} />
+        <span className="text-gold-text">{pro ? b.activePro : b.active}</span>
         <span aria-hidden className="size-1 rotate-45 bg-gold/50" />
-        <span className="text-ink-2">{b.activeText}</span>
-        {me.pro.expiresAt && <span className="ms-auto text-xs text-muted">{c.proSheet.until(formatDate(me.pro.expiresAt, lang))}</span>}
+        <span className="text-ink-2">{pro ? b.activeProText : b.activeText}</span>
+        {!pro && me.pro.expiresAt && <span className="ms-auto text-xs text-muted">{c.proSheet.until(formatDate(me.pro.expiresAt, lang))}</span>}
       </div>
     );
   }

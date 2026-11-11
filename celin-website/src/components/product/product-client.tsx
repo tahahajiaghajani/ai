@@ -211,7 +211,7 @@ function Stepper({ value, max, onChange, lang }: { value: number; max: number; o
   );
 }
 
-/** What the visitor can do next: members order, everyone else is guided to Pro (never a dead end). */
+/** What the visitor can do next: members order, everyone else is guided to membership (never a dead end). */
 function Actions({ lang, product, variantId, needsVariant, onAdded }: { lang: Lang; product: Product; variantId: string | null; needsVariant: boolean; onAdded: () => void }) {
   const tr = productCopy[lang];
   const c = commonCopy(lang);

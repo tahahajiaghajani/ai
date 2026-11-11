@@ -201,13 +201,21 @@ export default async function OrderPage({ params }: { params: Promise<{ code: st
   );
 }
 
+/** Lines at the price the member saw, then the quantity step («تخفیف تعداد»), then shipping and the admin's discount. */
 function Totals({ order: o }: { order: OrderDetail }) {
+  const step = o.list_subtotal > o.subtotal ? o.list_subtotal - o.subtotal : 0;
   return (
     <dl className="space-y-1.5 text-sm">
       <div className="flex justify-between gap-4">
         <dt className="text-muted">جمع کالاها</dt>
-        <dd>{formatPrice(o.subtotal, "fa")}</dd>
+        <dd>{formatPrice(step ? o.list_subtotal : o.subtotal, "fa")}</dd>
       </div>
+      {step > 0 && (
+        <div className="flex justify-between gap-4">
+          <dt className="text-muted">تخفیف تعداد ({num(o.pricing.pieces ?? o.items_count, "fa")} قطعه)</dt>
+          <dd className="text-success">− {formatPrice(step, "fa")}</dd>
+        </div>
+      )}
       <div className="flex justify-between gap-4">
         <dt className="text-muted">هزینه‌ی ارسال</dt>
         <dd>{o.shipping_fee ? formatPrice(o.shipping_fee, "fa") : "—"}</dd>
@@ -253,13 +261,13 @@ function Items({ order: o }: { order: OrderDetail }) {
             {/* phone: one line under the name */}
             <div className="flex items-center justify-between gap-3 text-xs text-ink-2 sm:hidden">
               <span>
-                {num(it.qty, "fa")} × {formatPrice(it.unit_price, "fa")}
+                {num(it.qty, "fa")} × {formatPrice(it.list_price ?? it.unit_price, "fa")}
               </span>
-              <span className="text-sm font-medium text-ink">{formatPrice(it.line_total, "fa")}</span>
+              <span className="text-sm font-medium text-ink">{formatPrice((it.list_price ?? it.unit_price) * it.qty, "fa")}</span>
             </div>
-            <span className="hidden text-sm text-ink-2 sm:block">{formatPrice(it.unit_price, "fa")}</span>
+            <span className="hidden text-sm text-ink-2 sm:block">{formatPrice(it.list_price ?? it.unit_price, "fa")}</span>
             <span className="hidden text-sm sm:block">{num(it.qty, "fa")}</span>
-            <span className="hidden text-end text-sm font-medium sm:block">{formatPrice(it.line_total, "fa")}</span>
+            <span className="hidden text-end text-sm font-medium sm:block">{formatPrice((it.list_price ?? it.unit_price) * it.qty, "fa")}</span>
           </li>
         ))}
       </ul>
@@ -345,9 +353,9 @@ function Invoice({ order: o, phone, address }: { order: OrderDetail; phone: stri
               <td className="py-2">
                 <span className="ltr font-mono text-xs">{it.sku}</span>
               </td>
-              <td className="py-2">{formatNumber(it.unit_price, "fa")}</td>
+              <td className="py-2">{formatNumber(it.list_price ?? it.unit_price, "fa")}</td>
               <td className="py-2">{num(it.qty, "fa")}</td>
-              <td className="py-2 text-end">{formatNumber(it.line_total, "fa")}</td>
+              <td className="py-2 text-end">{formatNumber((it.list_price ?? it.unit_price) * it.qty, "fa")}</td>
             </tr>
           ))}
         </tbody>

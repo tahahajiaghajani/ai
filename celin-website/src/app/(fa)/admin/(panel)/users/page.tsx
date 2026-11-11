@@ -11,8 +11,9 @@ import { ProBadge, SearchBox } from "@/components/admin/sales-ui";
 
 const FILTERS: { key: string; label: string; test: (m: MemberRow) => boolean }[] = [
   { key: "", label: "همه", test: () => true },
-  { key: "pro", label: "Pro فعال", test: (m: MemberRow) => m.pro.state === "active" },
-  { key: "nopro", label: "بدون Pro", test: (m: MemberRow) => m.pro.state !== "active" && m.pro.state !== "issued" },
+  { key: "pro", label: "Pro", test: (m: MemberRow) => m.level === "pro" },
+  { key: "member", label: "عضو فعال", test: (m: MemberRow) => m.level === "member" },
+  { key: "nopro", label: "بدون عضویت", test: (m: MemberRow) => !m.level && m.pro.state !== "issued" },
   { key: "request", label: "درخواست در انتظار", test: (m: MemberRow) => m.pending_request },
   { key: "admin", label: "مدیر", test: (m: MemberRow) => m.role === "admin" },
   { key: "disabled", label: "غیرفعال", test: (m: MemberRow) => m.disabled },
@@ -68,7 +69,7 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
         </Empty>
       ) : (
         <Empty title={members.length ? "در این فهرست کسی نیست" : "هنوز کاربری ثبت نشده است"}>
-          {members.length ? "فیلتر دیگری را انتخاب کنید." : "اعضا با ثبت‌نام در سایت یا با «کاربر جدید» این‌جا اضافه می‌شوند."}
+          {members.length ? "فیلتر دیگری را انتخاب کنید." : "حساب‌ها با ثبت‌نام در سایت یا با «کاربر جدید» این‌جا اضافه می‌شوند."}
         </Empty>
       )}
     </ProCodeProvider>
@@ -82,10 +83,10 @@ function MembersList({ rows }: { rows: MemberRow[] }) {
       <div className={`hidden gap-4 border-b border-line bg-bone/60 px-4 py-2.5 text-xs text-muted lg:grid ${cols}`}>
         <span>نام</span>
         <span>کسب‌وکار / شهر</span>
-        <span>اشتراک</span>
+        <span>عضویت</span>
         <span>سفارش</span>
         <span>جمع خرید</span>
-        <span>عضویت</span>
+        <span>ثبت‌نام</span>
       </div>
       <ul className="divide-y divide-line">
         {rows.map((m) => (
@@ -102,16 +103,14 @@ function MembersList({ rows }: { rows: MemberRow[] }) {
                     <span className="ltr">{formatPhone(m.phone, "fa")}</span>
                   </div>
                 </div>
-                <span className="lg:hidden">
-                  <ProBadge state={m.pro.state} />
-                </span>
+                <span className="lg:hidden">{m.level === "pro" ? <Badge tone="gold">Pro</Badge> : <ProBadge state={m.pro.state} />}</span>
               </div>
               <div className="min-w-0 text-xs text-ink-2 lg:text-sm">
                 <span className="truncate">{[m.business, m.city].filter(Boolean).join(" · ") || <span className="text-faint">—</span>}</span>
               </div>
               <div className="hidden lg:block">
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <ProBadge state={m.pro.state} />
+                  {m.level === "pro" ? <Badge tone="gold">Pro</Badge> : <ProBadge state={m.pro.state} />}
                   {m.pending_request && <Badge tone="warning">درخواست</Badge>}
                 </div>
                 {m.pro.expires_at && (m.pro.state === "active" || m.pro.state === "issued") && <div className="mt-1 text-[11px] text-muted">تا {formatDate(m.pro.expires_at, "fa")}</div>}
@@ -121,7 +120,7 @@ function MembersList({ rows }: { rows: MemberRow[] }) {
                 {m.pending_request && <Badge tone="warning">درخواست در انتظار</Badge>}
                 <span>{num(m.orders, "fa")} سفارش</span>
                 {m.spent > 0 && <span>{formatPrice(m.spent, "fa")}</span>}
-                <span>عضویت {formatDate(m.created_at, "fa")}</span>
+                <span>ثبت‌نام {formatDate(m.created_at, "fa")}</span>
               </div>
               <span className="hidden text-sm lg:block">{num(m.orders, "fa")}</span>
               <span className="hidden text-sm lg:block">{m.spent ? formatPrice(m.spent, "fa") : "—"}</span>

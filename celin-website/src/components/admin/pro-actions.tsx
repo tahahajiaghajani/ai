@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { adminApproveRequest, adminExtendCode, adminIssueCode, adminRejectRequest, adminRevealCode, adminRevokeCode } from "@/app/actions/admin-members";
+import { adminApproveRequest, adminExtendCode, adminIssueCode, adminRejectRequest, adminRevealCode, adminRevokeCode, adminSetPro } from "@/app/actions/admin-members";
 import { DaysDialog, useProCode } from "@/components/admin/pro-code-dialog";
 import { Button, ConfirmButton, Dialog, Field, Textarea } from "@/components/admin/ui";
 import { useAction } from "@/components/admin/toast";
 
-/** Buttons for Pro requests and codes; each opens its own small dialog and hands codes to the page's CodeDialog. */
+/** Buttons for membership requests and codes (and Pro by hand); each opens its own small dialog and hands codes to the page's CodeDialog. */
 
 type Size = "sm" | "md";
 
@@ -38,7 +38,7 @@ export function ApproveRequestButton({
       <DaysDialog
         open={open}
         onClose={() => setOpen(false)}
-        title="تأیید درخواست Pro"
+        title="تأیید درخواست عضویت"
         confirmLabel="تأیید و صدور کد"
         defaultDays={defaultDays}
         pending={pending}
@@ -53,7 +53,7 @@ export function ApproveRequestButton({
         }
       >
         <p className="text-sm leading-7 text-ink-2">
-          برای <span className="font-medium">{name || "این عضو"}</span> یک کد اختصاصی صادر می‌شود. پس از صدور می‌بینید کد از چه راهی به عضو رسید و می‌توانید آن را با واتس‌اپ، پیامک یا تلگرام هم بفرستید.
+          برای <span className="font-medium">{name || "این حساب"}</span> کد عضویت صادر می‌شود. پس از صدور می‌بینید کد از چه راهی به عضو رسید و می‌توانید آن را با واتس‌اپ، پیامک یا تلگرام هم بفرستید.
         </p>
       </DaysDialog>
     </>
@@ -69,12 +69,12 @@ export function RejectRequestButton({ id, name, size = "sm" }: { id: string; nam
       <Button variant="secondary" size={size} onClick={() => setOpen(true)}>
         رد درخواست
       </Button>
-      <Dialog open={open} onClose={() => setOpen(false)} title="رد درخواست Pro">
+      <Dialog open={open} onClose={() => setOpen(false)} title="رد درخواست عضویت">
         <div className="space-y-4">
           <p className="text-sm leading-7 text-ink-2">
-            درخواست <span className="font-medium">{name || "این عضو"}</span> رد می‌شود و پیامی در حسابش قرار می‌گیرد.
+            درخواست عضویت <span className="font-medium">{name || "این حساب"}</span> رد می‌شود و پیامی در حسابش قرار می‌گیرد.
           </p>
-          <Field label="پاسخ به عضو (اختیاری)" hint="اگر خالی بماند، یک متن کوتاه و مؤدبانه فرستاده می‌شود.">
+          <Field label="پاسخ (اختیاری)" hint="اگر خالی بماند، یک متن کوتاه و مؤدبانه فرستاده می‌شود.">
             <Textarea rows={3} value={reply} maxLength={800} onChange={(e) => setReply(e.target.value)} placeholder="مثلاً: برای فعال‌سازی، لطفاً نشانی فروشگاه یا صفحه‌ی اینستاگرام را بفرستید." />
           </Field>
           <div className="flex justify-end gap-2 border-t border-line pt-4">
@@ -122,7 +122,7 @@ export function IssueCodeButton({
       <DaysDialog
         open={open}
         onClose={() => setOpen(false)}
-        title="صدور کد Pro"
+        title="صدور کد عضویت"
         confirmLabel="صدور کد"
         defaultDays={defaultDays}
         pending={pending}
@@ -137,7 +137,7 @@ export function IssueCodeButton({
         }
       >
         <p className="text-sm leading-7 text-ink-2">
-          کد تازه برای <span className="font-medium">{name || "این عضو"}</span> صادر می‌شود.
+          کد عضویت تازه برای <span className="font-medium">{name || "این حساب"}</span> صادر می‌شود.
           {replaces && <span className="mt-1 block text-warning">کد فعلی این حساب باطل می‌شود.</span>}
         </p>
       </DaysDialog>
@@ -183,6 +183,23 @@ export function ExtendCodeButton({ codeId, name, defaultDays, size = "sm" }: { c
         </p>
       </DaysDialog>
     </>
+  );
+}
+
+/** Pro by hand (with its own code, as when the threshold is reached), or back to the members' prices. */
+export function SetProButton({ userId, on, size = "sm" }: { userId: string; on: boolean; size?: Size }) {
+  const { pending, run } = useAction();
+  return (
+    <ConfirmButton
+      size={size}
+      variant={on ? "secondary" : "danger"}
+      icon={on ? "diamond" : "close"}
+      pending={pending}
+      confirmLabel={on ? "Pro شود؟ دوباره بزنید" : "برداشتن Pro؟ دوباره بزنید"}
+      onConfirm={() => run(() => adminSetPro({ id: userId, on }))}
+    >
+      {on ? "Pro کردن" : "برداشتن Pro"}
+    </ConfirmButton>
   );
 }
 

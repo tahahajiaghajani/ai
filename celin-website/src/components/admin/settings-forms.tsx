@@ -6,6 +6,7 @@ import { DaysPicker } from "@/components/admin/pro-code-dialog";
 import { Badge, Button, ConfirmButton, Field, Input, MoneyInput, Select, Textarea, Toggle } from "@/components/admin/ui";
 import { useAction } from "@/components/admin/toast";
 import type { Result } from "@/lib/action";
+import { num } from "@/lib/format";
 import type { AnnouncementSettings, ContactSettings, NotifyChannel, ProSettings, SeoSettings, ShopSettings, SmsProvider } from "@/lib/settings-types";
 
 /** Client-safe view of the secret groups: never the encrypted values, only whether one is stored. */
@@ -221,7 +222,7 @@ export function ShopForm({ initial }: { initial: ShopSettings }) {
         <Field label="حداقل مبلغ سفارش" hint="خالی یا صفر یعنی بدون حداقل.">
           <MoneyInput value={f.minOrder || null} onChange={(v) => set("minOrder")(v ?? 0)} placeholder="بدون حداقل" />
         </Field>
-        <Field label="نمایش موجودی به اعضای Pro" hint={f.stockDisplay === "level" ? "عدد دقیق فقط زیر آستانه‌ی «رو به اتمام» دیده می‌شود." : undefined}>
+        <Field label="نمایش موجودی به اعضا" hint={f.stockDisplay === "level" ? "عدد دقیق فقط زیر آستانه‌ی «رو به اتمام» دیده می‌شود." : undefined}>
           <Select value={f.stockDisplay} onChange={(e) => set("stockDisplay")(e.target.value === "level" ? "level" : "exact")}>
             <option value="exact">عدد دقیق (مثلاً ۴ عدد)</option>
             <option value="level">سطح (موجود / رو به اتمام / ناموجود)</option>
@@ -243,7 +244,7 @@ export function ShopForm({ initial }: { initial: ShopSettings }) {
   );
 }
 
-// ------------------------------------------------------------------ pro
+// ------------------------------------------------------------------ membership and Pro
 
 export function ProForm({ initial }: { initial: ProSettings }) {
   const { f, set } = useForm(initial);
@@ -251,7 +252,7 @@ export function ProForm({ initial }: { initial: ProSettings }) {
   return (
     <Section
       id="pro"
-      title="اشتراک Pro"
+      title="عضویت و Pro"
       footer={
         <>
           <ResetButton group="pro" />
@@ -261,10 +262,57 @@ export function ProForm({ initial }: { initial: ProSettings }) {
     >
       <Toggle checked={f.codeInInbox} onChange={set("codeInInbox")} label="نمایش کد در پیام‌های حساب عضو" hint="خاموش باشد، کد فقط با پیامک، ایمیل یا دکمه‌های اشتراک‌گذاری به عضو می‌رسد و در پیام‌های قبلی هم نمایش داده نمی‌شود." />
       <div>
-        <div className="mb-2 text-xs font-medium text-ink-2">اعتبار پیش‌فرض کد تازه</div>
+        <div className="mb-2 text-xs font-medium text-ink-2">اعتبار پیش‌فرض کد عضویت تازه</div>
         <DaysPicker value={f.defaultDays} onChange={set("defaultDays")} defaultDays={initial.defaultDays} />
       </div>
+      <PriceLadder f={f} set={set} />
     </Section>
+  );
+}
+
+/**
+ * The members' prices in percent of the admin's (wholesale) price: the list price of one piece, then the steps by
+ * pieces in one order (the invoice shows the difference as «تخفیف تعداد»); and when an account becomes Pro.
+ */
+function PriceLadder({ f, set }: { f: ProSettings; set: <K extends keyof ProSettings>(k: K) => (v: ProSettings[K]) => void }) {
+  const pct = (v: string) => Math.max(0, Math.min(1000, Math.round(Number(v.replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0)).replace(/[^\d]/g, "")) || 0)));
+  const step = (i: number, k: "min" | "pct", v: string) => set("steps")(f.steps.map((s, j) => (j === i ? { ...s, [k]: pct(v) } : s)));
+  return (
+    <div className="space-y-4 border-t border-line pt-4">
+      <div className="text-sm font-medium text-ink">قیمت اعضا (درصدی از قیمتی که در محصولات ثبت می‌کنید)</div>
+      <Field label="قیمت هر قطعه برای اعضا" hint="۲۰۰ یعنی دو برابر قیمت ثبت‌شده. اعضای Pro همیشه همان قیمت ثبت‌شده را می‌بینند.">
+        <Input value={String(f.memberPct)} onChange={(e) => set("memberPct")(pct(e.target.value))} inputMode="numeric" dir="ltr" className="max-w-32" aria-label="درصد قیمت اعضا" />
+      </Field>
+      <div>
+        <div className="mb-2 text-xs font-medium text-ink-2">پله‌های فاکتور بر اساس تعداد قطعه‌های یک سفارش</div>
+        <div className="space-y-2">
+          {f.steps.map((s, i) => (
+            <div key={i} className="flex flex-wrap items-center gap-2 text-sm text-ink-2">
+              <span>از</span>
+              <Input value={String(s.min)} onChange={(e) => step(i, "min", e.target.value)} inputMode="numeric" dir="ltr" className="w-20" aria-label={`پله‌ی ${num(i + 1, "fa")}: از چند قطعه`} />
+              <span>قطعه:</span>
+              <Input value={String(s.pct)} onChange={(e) => step(i, "pct", e.target.value)} inputMode="numeric" dir="ltr" className="w-20" aria-label={`پله‌ی ${num(i + 1, "fa")}: درصد`} />
+              <span>درصد</span>
+              <Button variant="ghost" size="sm" icon="trash" onClick={() => set("steps")(f.steps.filter((_, j) => j !== i))} aria-label={`حذف پله‌ی ${num(i + 1, "fa")}`} />
+            </div>
+          ))}
+        </div>
+        {f.steps.length < 8 && (
+          <Button variant="secondary" size="sm" icon="plus" className="mt-2" onClick={() => set("steps")([...f.steps, { min: (f.steps[f.steps.length - 1]?.min ?? 1) + 5, pct: 100 }])}>
+            پله‌ی تازه
+          </Button>
+        )}
+        <p className="mt-2 text-xs leading-5 text-muted">هر پله درصد کمتری از پله‌ی قبل دارد و ۱۰۰ یعنی همان قیمت ثبت‌شده (قیمت عمده).</p>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Pro شدن خودکار با خرید (تومان)" hint="جمع سفارش‌های تأییدشده‌ی یک حساب در بازه‌ی روبه‌رو؛ ۰ یعنی خاموش.">
+          <MoneyInput value={f.proThreshold} onChange={(v) => set("proThreshold")(v ?? 0)} aria-label="مبلغ Pro شدن" />
+        </Field>
+        <Field label="در چند روز" hint="مثلاً ۳۰ یعنی خریدهای ۳۰ روز گذشته.">
+          <Input value={String(f.proDays)} onChange={(e) => set("proDays")(pct(e.target.value) || 30)} inputMode="numeric" dir="ltr" className="max-w-32" aria-label="بازه‌ی روزها" />
+        </Field>
+      </div>
+    </div>
   );
 }
 
@@ -301,7 +349,7 @@ export function NotifyForm({ initial }: { initial: NotifyView }) {
         </>
       }
     >
-      <Field label="کانال" hint="سفارش و درخواست Pro تازه به این گفتگو فرستاده می‌شود.">
+      <Field label="کانال" hint="سفارش و درخواست عضویت تازه به این گفتگو فرستاده می‌شود.">
         <Select value={f.channel} onChange={(e) => setF((x) => ({ ...x, channel: e.target.value as NotifyChannel }))}>
           <option value="none">خاموش</option>
           <option value="telegram">تلگرام</option>
@@ -344,7 +392,7 @@ export function NotifyForm({ initial }: { initial: NotifyView }) {
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
             <Toggle checked={f.onOrder} onChange={(v) => setF((x) => ({ ...x, onOrder: v }))} label="سفارش تازه" />
-            <Toggle checked={f.onRequest} onChange={(v) => setF((x) => ({ ...x, onRequest: v }))} label="درخواست Pro تازه" />
+            <Toggle checked={f.onRequest} onChange={(v) => setF((x) => ({ ...x, onRequest: v }))} label="درخواست عضویت تازه" />
           </div>
         </>
       )}
@@ -402,10 +450,10 @@ export function SmsForm({ initial }: { initial: SmsView }) {
           {smsir && (
             <div className="grid gap-4 sm:grid-cols-2">
               <Field
-                label="شناسه‌ی قالب کد Pro"
+                label="شناسه‌ی قالب کد عضویت و Pro"
                 hint={
                   <>
-                    متن قالب باید <span className="ltr">#CODE#</span> داشته باشد؛ مثلاً «سلین | کد اشتراک Pro شما: <span className="ltr">#CODE#</span>».
+                    متن قالب باید <span className="ltr">#CODE#</span> داشته باشد؛ مثلاً «سلین | کد اختصاصی شما: <span className="ltr">#CODE#</span>».
                   </>
                 }
               >
@@ -440,7 +488,7 @@ export function SmsForm({ initial }: { initial: SmsView }) {
             </div>
           )}
           <div className="grid gap-2 sm:grid-cols-2">
-            <Toggle checked={f.onCode} onChange={(v) => setF((x) => ({ ...x, onCode: v }))} label="ارسال کد Pro" />
+            <Toggle checked={f.onCode} onChange={(v) => setF((x) => ({ ...x, onCode: v }))} label="ارسال کد عضویت و Pro" />
             <Toggle checked={f.onStatus} onChange={(v) => setF((x) => ({ ...x, onStatus: v }))} label="ارسال تغییر وضعیت سفارش" />
           </div>
           <div className="border-t border-line pt-4">

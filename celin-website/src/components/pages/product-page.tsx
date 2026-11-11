@@ -110,7 +110,7 @@ export async function ProductPage({ lang, slug }: { lang: Lang; slug: string }) 
     </div>
   );
 
-  // public structured data: no offers (no price, no availability) — prices are for Pro members only
+  // public structured data: no offers (no price, no availability) — prices are for members only
   const ld = {
     "@context": "https://schema.org",
     "@type": "Product",

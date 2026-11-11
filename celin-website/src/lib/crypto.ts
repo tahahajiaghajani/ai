@@ -56,7 +56,7 @@ export function sign(payload: string): string {
 
 /**
  * HMACs of a payload under every known secret (current first). Used for values that are looked up by their
- * hash, such as Pro codes, so they keep working after APP_SECRET is rotated (APP_SECRET_PREVIOUS).
+ * hash, such as membership and Pro codes, so they keep working after APP_SECRET is rotated (APP_SECRET_PREVIOUS).
  */
 export function signAll(payload: string): string[] {
   const secrets = [...new Set([env.appSecret, env.appSecretPrevious, env.supabaseKey].filter(Boolean))];

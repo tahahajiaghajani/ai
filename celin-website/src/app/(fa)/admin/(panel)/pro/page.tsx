@@ -19,7 +19,7 @@ export default async function ProPage({ searchParams }: { searchParams: Promise<
   if (!requests || !codes) {
     return (
       <>
-        <PageHeader title="اشتراک Pro" />
+        <PageHeader title="عضویت" />
         <DbMissing />
       </>
     );
@@ -30,7 +30,7 @@ export default async function ProPage({ searchParams }: { searchParams: Promise<
 
   return (
     <ProCodeProvider siteUrl={env.siteUrl}>
-      <PageHeader title="اشتراک Pro" sub={`${num(codes.filter((c) => c.state === "active").length, "fa")} عضو فعال`} />
+      <PageHeader title="عضویت" sub={`${num(codes.filter((c) => c.state === "active").length, "fa")} عضو فعال`} />
       <Tabs
         active={tab}
         items={[
@@ -53,7 +53,7 @@ function Requests({ pending, decided, defaultDays }: { pending: RequestRow[]; de
           ))}
         </ul>
       ) : (
-        <Empty title="درخواست تازه‌ای نیست">درخواست‌های اشتراک Pro که اعضا از سایت می‌فرستند، این‌جا برای تأیید نمایش داده می‌شوند.</Empty>
+        <Empty title="درخواست تازه‌ای نیست">درخواست‌های عضویت که از سایت فرستاده می‌شوند، این‌جا برای تأیید نمایش داده می‌شوند.</Empty>
       )}
       {decided.length > 0 && (
         <details className="group border border-line bg-white">
@@ -148,7 +148,7 @@ function RequestCard({ r, defaultDays }: { r: RequestRow; defaultDays: number })
 }
 
 function Codes({ codes, defaultDays }: { codes: CodeListRow[]; defaultDays: number }) {
-  if (!codes.length) return <Empty title="هنوز کدی صادر نشده است">با تأیید یک درخواست یا از صفحه‌ی هر کاربر، کد اشتراک Pro صادر می‌شود.</Empty>;
+  if (!codes.length) return <Empty title="هنوز کدی صادر نشده است">با تأیید یک درخواست یا از صفحه‌ی هر کاربر، کد عضویت صادر می‌شود.</Empty>;
   // the newest code of each member (only there a fresh code is offered)
   const latest = new Set<string>();
   const seen = new Set<string>();

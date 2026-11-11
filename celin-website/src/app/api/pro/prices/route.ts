@@ -3,6 +3,7 @@ import { proPrices } from "@/lib/catalog";
 import { proStatus } from "@/lib/pro";
 import { getSettings } from "@/lib/settings";
 import { MAX_QTY } from "@/lib/order-meta";
+import { pricingFor } from "@/lib/pricing";
 import type { ProPrices } from "@/lib/catalog-types";
 
 /**
@@ -21,22 +22,24 @@ function levelled(prices: ProPrices, low: number): ProPrices {
 export const dynamic = "force-dynamic";
 
 /**
- * Prices and stock for Pro members only. Public pages never contain them: the price layer asks here after
- * the readable hint says this browser has Pro, and the session is checked again on every call.
+ * Prices and stock for members and Pro accounts only. Public pages never contain them: the price layer asks here
+ * after the readable hint says this browser has a membership, and the session is checked again on every call.
+ * `prices` are the admin's prices; `pricing` says what this account sees and pays (src/lib/pricing.ts): members
+ * the list price with steps by pieces, Pro the admin's price.
  */
 export async function GET() {
   const headers = { "cache-control": "private, no-store" };
   const me = await currentUser();
   if (!me) return Response.json({ error: "signed_out" }, { status: 401, headers });
   const pro = await proStatus(me.id);
-  if (!pro.active) {
+  if (!pro.active || !pro.level) {
     await setProHint(false);
     return Response.json({ error: "not_pro" }, { status: 403, headers });
   }
   try {
     const [prices, s] = await Promise.all([proPrices(), getSettings()]);
     const shown = s.shop.stockDisplay === "level" ? levelled(prices, s.shop.lowStock) : prices;
-    return Response.json({ prices: shown, stockDisplay: s.shop.stockDisplay, lowStock: s.shop.lowStock, minOrder: s.shop.minOrder }, { headers });
+    return Response.json({ prices: shown, pricing: pricingFor(pro.level, s.pro), stockDisplay: s.shop.stockDisplay, lowStock: s.shop.lowStock, minOrder: s.shop.minOrder }, { headers });
   } catch (e) {
     console.error("[pro prices]", e);
     return Response.json({ error: "failed" }, { status: 503, headers });

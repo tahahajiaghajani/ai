@@ -13,6 +13,7 @@ import { sendEmail, mailHtml } from "@/lib/email";
 import { latinDigits, normalizePhone } from "@/lib/format";
 import { notifyTeam } from "@/lib/notify";
 import { proStatus } from "@/lib/pro";
+import { cleanSteps, DEFAULT_MEMBER_PCT, DEFAULT_PRO_DAYS, DEFAULT_PRO_THRESHOLD, MAX_PCT, type PriceStep } from "@/lib/pricing";
 import { allow, limited } from "@/lib/rate-limit";
 import { clientIp } from "@/lib/request";
 import { getSettingsFresh, saveSettings } from "@/lib/settings";
@@ -98,7 +99,7 @@ export async function activateAdmin(_prev: { error: string } | null, form: FormD
   if (!c) return { error: "پایگاه داده تنظیم نشده است." };
   const ver = me.session_version + 1;
   // compare-and-set on the session version: every other session of this account ends. The password is the
-  // admin's own from now on (a later revoked Pro code must not remove it and lock the admin out).
+  // admin's own from now on (a later revoked membership or Pro code must not remove it and lock the admin out).
   const write = (extra: Record<string, unknown>) =>
     c.from(USERS).update({ role: "admin", session_version: ver, updated_at: new Date().toISOString(), ...extra }).eq("id", me.id).eq("session_version", me.session_version).select("id");
   let { data, error } = await write({ password_from_code: false });
@@ -202,9 +203,20 @@ export async function saveShop(input: Record<string, unknown>): Promise<Result> 
 
 export async function savePro(input: Record<string, unknown>): Promise<Result> {
   return guard(async () => {
-    await saveSettings("pro", { codeInInbox: bool(input.codeInInbox), defaultDays: int(input.defaultDays, 0, 3650, 365) });
+    const memberPct = int(input.memberPct, 100, MAX_PCT, DEFAULT_MEMBER_PCT);
+    const steps = cleanSteps(input.steps, memberPct);
+    const asked = Array.isArray(input.steps) ? input.steps.filter((r) => r && Number((r as PriceStep).min) > 0).length : 0;
+    if (asked !== steps.length) throw new UserError("پله‌های قیمت معتبر نیستند: تعداد از ۲ قطعه به بالا و صعودی، و درصد هر پله کمتر از پله‌ی قبل و دست‌کم ۱۰۰ باشد.");
+    await saveSettings("pro", {
+      codeInInbox: bool(input.codeInInbox),
+      defaultDays: int(input.defaultDays, 0, 3650, 365),
+      memberPct,
+      steps,
+      proThreshold: int(input.proThreshold, 0, 1e13, DEFAULT_PRO_THRESHOLD),
+      proDays: int(input.proDays, 1, 366, DEFAULT_PRO_DAYS),
+    });
     refresh();
-    return { ok: true, message: "تنظیمات اشتراک Pro ذخیره شد." };
+    return { ok: true, message: "تنظیمات عضویت و Pro ذخیره شد." };
   });
 }
 
@@ -236,7 +248,7 @@ export async function saveNotify(input: Record<string, unknown>): Promise<Result
 
 export async function testNotify(): Promise<Result> {
   return guard(async () => {
-    const r = await notifyTeam("پیام آزمایشی سایت سلین ✓ اعلان سفارش‌ها و درخواست‌های Pro به این گفتگو می‌رسد.");
+    const r = await notifyTeam("پیام آزمایشی سایت سلین ✓ اعلان سفارش‌ها و درخواست‌های عضویت به این گفتگو می‌رسد.");
     if (!r.ok) throw new UserError(r.error === "not configured" ? "کانال، توکن و شناسه‌ی گفتگو را کامل کنید." : `ارسال نشد: ${r.error}`);
     return { ok: true, message: "پیام آزمایشی فرستاده شد." };
   });
@@ -286,7 +298,7 @@ export async function testEmail(input: Record<string, unknown>): Promise<Result>
   return guard(async () => {
     const to = text(input.to, 160);
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(to)) throw new UserError("ایمیل معتبر نیست.");
-    const r = await sendEmail(to, "ایمیل آزمایشی سلین", mailHtml("fa", ["این ایمیل آزمایشی از سایت سلین فرستاده شده است. ایمیل کد اشتراک Pro به همین شکل به اعضا می‌رسد."]));
+    const r = await sendEmail(to, "ایمیل آزمایشی سلین", mailHtml("fa", ["این ایمیل آزمایشی از سایت سلین فرستاده شده است. ایمیل کد عضویت به همین شکل به اعضا می‌رسد."]));
     if (!r.ok) throw new UserError(r.error === "not configured" ? "کلید Resend و فرستنده را ذخیره کنید." : `ارسال نشد: ${r.error}`);
     return { ok: true, message: "ایمیل آزمایشی فرستاده شد." };
   });

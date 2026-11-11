@@ -1,6 +1,6 @@
 /**
  * Client-safe catalogue shapes. Public objects never carry price or stock: public pages are static and
- * shared by everyone, so those travel only in the Pro price layer (/api/pro/prices) after a session check.
+ * shared by everyone, so those travel only in the members' price layer (/api/pro/prices) after a session check.
  */
 import type { Media } from "@/lib/media";
 
@@ -37,6 +37,8 @@ export interface Collection {
   media: Media | null;
   sort: number;
   visible: boolean;
+  /** no published pieces yet: shown as «به زودی» (without a picture when it has none) */
+  soon: boolean;
 }
 
 export interface Spec {
@@ -89,7 +91,7 @@ export interface Catalog {
   source: "db" | "seed";
 }
 
-/** What a Pro member sees for one product: price in Toman (null = on request) and stock. */
+/** The admin's price of one product in Toman (null = on request) and its stock, as members receive them (src/lib/pricing.ts sets what they see). */
 export interface ProPrice {
   price: number | null;
   stock: number;

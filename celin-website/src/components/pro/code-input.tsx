@@ -15,7 +15,7 @@ const digitsOf = (raw: string) => latinDigits(raw).replace(/\D/g, "").slice(0, L
 export type CodeState = "idle" | "pending" | "ok" | "error";
 
 /**
- * The single most important field of the site: the 12-digit Pro code in three groups of four, one cell per
+ * The single most important field of the site: the 12-digit code (membership or Pro) in three groups of four, one cell per
  * digit (Persian digits on Persian pages). Under the cells is ONE real input (numeric keyboard, one-time-code
  * autofill, paste of a whole SMS, native Backspace), so screen readers meet a single labelled field. It submits
  * by itself at 12 digits; an error shakes the cells, a success fills them with light and the prices appear.

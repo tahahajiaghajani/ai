@@ -56,13 +56,13 @@ export function canActivateAdmin(a: { role?: string | null; phone?: string | nul
 /**
  * Why this account cannot be made admin from Users → «مدیر کردن» ("" = it can): the ADMIN_PHONES allow-list
  * applies here exactly as on /admin/login, and an admin always signs in with its own password (never with a
- * Pro code), so an account without a password — or with one set from a Pro-code session, which may belong to
+ * membership or Pro code), so an account without a password — or with one set from a code session, which may belong to
  * whoever had the code — would be locked out or handed to someone else.
  */
 export function promotionBlock(a: { phone?: string | null; disabled?: boolean | null; password_hash?: string | null; password_from_code?: boolean | null }): string {
   if (adminPhones().length > 0 && !isAdminPhone(a.phone)) return "این شماره در فهرست مجاز مدیران (ADMIN_PHONES) نیست؛ فقط شماره‌های آن فهرست می‌توانند مدیر شوند.";
-  if (!a.password_hash) return "این حساب رمز عبور ندارد و با کد Pro وارد می‌شود، و حساب مدیر هرگز با کد وارد نمی‌شود؛ اول در همین بخش برایش رمز بگذارید.";
-  if (a.password_from_code) return "رمز این حساب در نشستی ساخته شده که فقط با کد Pro باز شده بود؛ اول در همین بخش رمز تازه‌ای برایش بگذارید.";
+  if (!a.password_hash) return "این حساب رمز عبور ندارد و با کد عضویت یا کد Pro وارد می‌شود، و حساب مدیر هرگز با کد وارد نمی‌شود؛ اول در همین بخش برایش رمز بگذارید.";
+  if (a.password_from_code) return "رمز این حساب در نشستی ساخته شده که فقط با کد عضویت یا کد Pro باز شده بود؛ اول در همین بخش رمز تازه‌ای برایش بگذارید.";
   if (a.disabled) return "این حساب غیرفعال است؛ اول آن را فعال کنید.";
   return "";
 }

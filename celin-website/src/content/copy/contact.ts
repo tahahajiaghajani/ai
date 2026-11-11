@@ -16,8 +16,8 @@ export const contactCopy = {
       title: "شاید این‌ها را بخواهید",
       items: [
         { path: "/account/orders", title: "سفارش و پیگیری", text: "وضعیت سفارش‌ها در حساب شما" },
-        { path: "/pro", title: "اشتراک Pro", text: "قیمت و موجودی برای همکاران" },
-        { path: "/care", title: "نگهداری و ضمانت", text: "راهنمای نگهداری آثار سلین" },
+        { path: "/pro", title: "عضویت و Pro", text: "موجودی و قیمت برای اعضا" },
+        { path: "/care", title: "نگهداری", text: "راهنمای نگهداری آثار سلین" },
       ],
     },
   },
@@ -37,8 +37,8 @@ export const contactCopy = {
       title: "You may be looking for",
       items: [
         { path: "/account/orders", title: "Orders & tracking", text: "Follow your orders in your account" },
-        { path: "/pro", title: "Pro membership", text: "Prices and stock for partners" },
-        { path: "/care", title: "Care & warranty", text: "Caring for your CELIN pieces" },
+        { path: "/pro", title: "Membership & Pro", text: "Stock and prices for members" },
+        { path: "/care", title: "Care", text: "Caring for your CELIN pieces" },
       ],
     },
   },

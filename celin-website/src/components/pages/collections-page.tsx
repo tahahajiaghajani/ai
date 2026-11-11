@@ -47,15 +47,18 @@ export async function CollectionsPage({ lang }: { lang: Lang }) {
             </div>
           </div>
 
-          <ul className="mt-20 grid grid-cols-2 gap-x-4 gap-y-14 sm:mt-24 sm:gap-x-8 sm:gap-y-20 lg:grid-cols-4 lg:gap-x-10">
+          <ul className={`mt-20 grid grid-cols-2 gap-x-4 gap-y-14 sm:mt-24 sm:gap-x-8 sm:gap-y-20 lg:gap-x-10 ${collections.length <= 2 ? "mx-auto max-w-3xl lg:gap-x-16" : collections.length === 3 ? "lg:grid-cols-3" : "lg:grid-cols-4"}`}>
             {collections.map((k, i) => {
               const list = pieces(k.slug);
               const hover = list[0]?.images[0];
+              // «به زودی»: no pieces yet — the arch stays empty (no picture) and the line under the name says so
+              const soon = k.soon || list.length === 0;
               return (
                 <li key={k.slug} className={i % 2 === 1 ? "translate-y-10 lg:translate-y-24" : ""}>
                   <Link href={href(lang, `/collections/${k.slug}`)} className="group block text-center" data-cursor="view" data-cursor-label={c.index.discover}>
                     <div className="relative px-2 pt-2 sm:px-3 sm:pt-3">
-                      <Arch media={k.media} lang={lang} sizes="(min-width: 1024px) 22vw, 46vw" ring="champagne" unveil delay={(i % 4) * 120} sparkle={8} frameClassName="fx-sheen" className="[--ring-gap:8px] sm:[--ring-gap:10px]" priority={i < 2}>
+                      <Arch media={soon ? null : k.media} lang={lang} sizes="(min-width: 1024px) 22vw, 46vw" ring="champagne" unveil delay={(i % 4) * 120} sparkle={8} frameClassName="fx-sheen" className="[--ring-gap:8px] sm:[--ring-gap:10px]" priority={i < 2}>
+                        {soon && <span aria-hidden className="absolute inset-0 bg-mesh-cocoa" />}
                         {hover && (
                           <div aria-hidden className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-700 ease-[var(--ease-lux)] [@media(hover:hover)_and_(pointer:fine)]:group-hover:opacity-100">
                             <Picture media={hover} lang={lang} alt="" sizes="(min-width: 1024px) 22vw, 1px" className="absolute! inset-0 h-full" imgClassName="scale-105 transition-transform duration-[1.4s] ease-[var(--ease-out-expo)] group-hover:scale-100" />
@@ -67,8 +70,8 @@ export async function CollectionsPage({ lang }: { lang: Lang }) {
                     </div>
                     <span aria-hidden className="mx-auto block h-px w-[112%] -translate-x-[5.4%] bg-[image:var(--metal-champagne)] opacity-50 rtl:translate-x-[5.4%]" />
                     <h2 className="title-section mt-6 text-on-night transition-colors duration-500 group-hover:text-gold-glow">{t(k, "name", lang)}</h2>
-                    <p className="mx-auto mt-2 max-w-[17rem] text-sm leading-7 text-on-night-muted">{t(k, "tagline", lang)}</p>
-                    {list.length > 0 && <p className="label mt-3 text-gold-on-dark!">{c.pieces(num(list.length, lang))}</p>}
+                    {t(k, "tagline", lang) && <p className="mx-auto mt-2 max-w-[17rem] text-sm leading-7 text-on-night-muted">{t(k, "tagline", lang)}</p>}
+                    <p className="label mt-3 text-gold-on-dark!">{soon ? c.soon : c.pieces(num(list.length, lang))}</p>
                   </Link>
                 </li>
               );

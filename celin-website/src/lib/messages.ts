@@ -4,10 +4,10 @@ import { formatDate, type Lang } from "@/lib/format";
 import { CODE_COLUMNS, CODES, codeState, revealCode, type CodeRow } from "@/lib/pro";
 import { getSettings } from "@/lib/settings";
 
-/** The member's inbox on the site («پیام‌ها»): Pro decisions, codes, order updates. */
+/** The member's inbox on the site («پیام‌ها»): membership decisions, membership and Pro codes, order updates. */
 
 /**
- * Stands for one Pro code in a stored message: `{{pro-code:<id of that code>}}`. The code itself is never
+ * Stands for one code (membership or Pro) in a stored message: `{{pro-code:<id of that code>}}`. The code itself is never
  * written into the inbox (it also signs in): it is filled in when the member reads the message — only that
  * very code, only while it works (entered or waiting to be entered), and only while «نمایش کد در پیام‌های
  * حساب عضو» is on. A newer code never appears in an older message.

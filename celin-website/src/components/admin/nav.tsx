@@ -8,7 +8,7 @@ import { Icon, type IconName } from "@/components/ui/icons";
 export const ADMIN_NAV: { href: string; label: string; icon: IconName; group: string }[] = [
   { href: "/admin", label: "پیشخوان", icon: "dashboard", group: "" },
   { href: "/admin/orders", label: "سفارش‌ها", icon: "box", group: "فروش" },
-  { href: "/admin/pro", label: "اشتراک Pro", icon: "diamond", group: "فروش" },
+  { href: "/admin/pro", label: "عضویت", icon: "diamond", group: "فروش" },
   { href: "/admin/users", label: "کاربران", icon: "users", group: "فروش" },
   { href: "/admin/products", label: "محصولات", icon: "tag", group: "کاتالوگ" },
   { href: "/admin/catalog", label: "دسته‌ها و مجموعه‌ها", icon: "filter", group: "کاتالوگ" },

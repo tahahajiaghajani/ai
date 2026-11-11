@@ -13,13 +13,14 @@ import {
   revokeMemberCode,
   setMemberDisabled,
   setMemberPassword,
+  setMemberPro,
   setMemberRole,
   updateMember,
   type Delivered,
 } from "@/lib/members";
 import { text, type Result } from "@/lib/action";
 
-/** Admin: accounts, Pro requests and codes. Every action runs through guard() (session check first). */
+/** Admin: accounts, membership requests and codes, Pro. Every action runs through guard() (session check first). */
 
 function refresh() {
   revalidatePath("/admin", "layout");
@@ -38,7 +39,7 @@ export async function adminCreateMember(input: Record<string, unknown>): Promise
   return guard(async () => {
     const r = await createMember({ ...input, name: input.name, phone: input.phone });
     refresh();
-    return { ok: true, message: r.code ? "حساب ساخته شد و کد Pro صادر شد." : "حساب ساخته شد.", id: r.id, code: r.code, ...deliveredNote(r.delivered) };
+    return { ok: true, message: r.code ? "حساب ساخته شد و کد عضویت صادر شد." : "حساب ساخته شد.", id: r.id, code: r.code, ...deliveredNote(r.delivered) };
   });
 }
 
@@ -100,7 +101,7 @@ export async function adminApproveRequest(input: Record<string, unknown>): Promi
   return guard(async () => {
     const r = await approveRequest(text(input.id, 40), input.days);
     refresh();
-    return { ok: true, message: "درخواست تأیید و کد صادر شد.", code: r.code, ...deliveredNote(r.delivered), name: r.user.name, phone: r.user.phone };
+    return { ok: true, message: "درخواست عضویت تأیید شد و کد عضویت صادر شد.", code: r.code, ...deliveredNote(r.delivered), name: r.user.name, phone: r.user.phone };
   });
 }
 
@@ -118,7 +119,7 @@ export async function adminIssueCode(input: Record<string, unknown>): Promise<Re
     refresh();
     const d = deliveredNote(r.delivered);
     const ended = r.ended ? ` کد قبلی (که استفاده شده بود) باطل شد و عضو از همه‌ی دستگاه‌ها خارج شد${r.passwordCleared ? "؛ رمزی هم که با آن کد ساخته شده بود پاک شد" : ""}.` : "";
-    return { ok: true, message: "کد تازه صادر شد (کدهای قبلی این حساب باطل شدند).", code: r.code, note: `${d.note}${ended}`, warn: d.warn };
+    return { ok: true, message: r.pro ? "کد Pro تازه صادر شد (کدهای قبلی این حساب باطل شدند)." : "کد عضویت تازه صادر شد (کدهای قبلی این حساب باطل شدند).", code: r.code, note: `${d.note}${ended}`, warn: d.warn };
   });
 }
 
@@ -131,7 +132,18 @@ export async function adminRevokeCode(input: Record<string, unknown>): Promise<R
     const r = await revokeMemberCode(text(input.id, 40));
     refresh();
     const extra = r.ended ? ` عضو از همه‌ی دستگاه‌ها خارج شد${r.passwordCleared ? " و رمزی که با این کد ساخته بود پاک شد" : ""}.` : "";
-    return { ok: true, message: `کد باطل شد؛ قیمت‌ها برای این حساب دیگر نمایش داده نمی‌شود.${extra}` };
+    return { ok: true, message: r.pro ? `کد باطل شد؛ این حساب Pro است و قیمت عمده را همچنان می‌بیند (برای پایان Pro، «برداشتن Pro»).${extra}` : `کد باطل شد؛ قیمت‌ها برای این حساب دیگر نمایش داده نمی‌شود.${extra}` };
+  });
+}
+
+/** Pro by hand: on → Pro now with its own code (as when the threshold is reached); off → back to the members' prices. */
+export async function adminSetPro(input: Record<string, unknown>): Promise<Result> {
+  return guard(async () => {
+    const on = input.on === true;
+    const r = await setMemberPro(text(input.id, 40), on);
+    refresh();
+    if (!r.changed) return { ok: true, message: on ? "این حساب از قبل Pro بود." : "این حساب Pro نبود." };
+    return { ok: true, message: on ? "حساب Pro شد؛ کد Pro برای عضو فرستاده شد." : "Pro برداشته شد؛ این حساب از این پس قیمت اعضا را می‌بیند (کدش کار می‌کند)." };
   });
 }
 

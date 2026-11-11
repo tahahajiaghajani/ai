@@ -112,7 +112,7 @@ export function Statement({ lang, lines, a, b, copy }: { lang: Lang; lines: [str
 
 // ------------------------------------------------------------------ the arcade of collections
 
-export function Arcade({ lang, collections, copy, display = false }: { lang: Lang; collections: Collection[]; copy: { eyebrow: string; title: string; all: string; discover: string }; display?: boolean }) {
+export function Arcade({ lang, collections, copy, display = false }: { lang: Lang; collections: Collection[]; copy: { eyebrow: string; title: string; all: string; discover: string; soon: string }; display?: boolean }) {
   return (
     <section data-tone="light" className="relative isolate bg-mesh-cocoa text-on-night">
       <Grain />
@@ -134,13 +134,16 @@ export function Arcade({ lang, collections, copy, display = false }: { lang: Lan
             data-cursor-label={copy.discover}
           >
             <div className="relative px-3 pt-3">
-              <Arch media={c.media} lang={lang} sizes="(min-width: 1024px) 23vw, (min-width: 640px) 42vw, 68vw" ring="champagne" sparkle={8} frameClassName="fx-sheen" className="[--ring-gap:10px]" />
+              {/* a collection without pieces yet («به زودی») keeps an empty arch, no picture */}
+              <Arch media={c.soon ? null : c.media} lang={lang} sizes="(min-width: 1024px) 23vw, (min-width: 640px) 42vw, 68vw" ring="champagne" sparkle={8} frameClassName="fx-sheen" className="[--ring-gap:10px]">
+                {c.soon && <span aria-hidden className="absolute inset-0 bg-mesh-cocoa" />}
+              </Arch>
               <span className="pointer-events-none absolute inset-x-3 bottom-0 top-3 rounded-t-full bg-gradient-to-t from-night/70 via-transparent to-transparent opacity-80 transition-opacity duration-700 group-hover:opacity-40" aria-hidden />
               <span className={`absolute bottom-5 left-1/2 -translate-x-1/2 text-on-night/80 ${lang === "en" ? "font-label text-xs tracking-[0.3em] ltr" : "text-sm"}`}>{num(String(i + 1).padStart(2, "0"), lang)}</span>
             </div>
             <div className="mt-6 text-center">
               <h3 className={`${display ? "display text-3xl" : "title-section"} text-on-night transition-colors duration-500 group-hover:text-gold-glow`}>{t(c, "name", lang)}</h3>
-              <p className="mx-auto mt-2 max-w-[16rem] text-sm leading-7 text-on-night-muted">{t(c, "tagline", lang)}</p>
+              {c.soon ? <p className="label mt-3 text-gold-on-dark!">{copy.soon}</p> : <p className="mx-auto mt-2 max-w-[16rem] text-sm leading-7 text-on-night-muted">{t(c, "tagline", lang)}</p>}
             </div>
           </Link>
         ))}
