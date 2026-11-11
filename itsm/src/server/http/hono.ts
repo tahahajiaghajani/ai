@@ -3,7 +3,7 @@ import { Hono, type Context, type MiddlewareHandler } from "hono";
 import type { ZodType } from "zod";
 import { ZodError } from "zod";
 import { randomUUID } from "node:crypto";
-import type { AuthSession, AuthUser, Ctx, MemberRow, OrgRow, ServerConfig } from "../context";
+import type { AuthSession, AuthUser, Ctx, MemberRow, OrgPlatformStatus, OrgRow, ServerConfig } from "../context";
 import { makeCtx } from "../context";
 import { AppError, bad, dbErrorMessage, forbidden, notFound, tooMany, unauthorized, zodToAppError } from "./errors";
 import { BACKGROUND_HEADER, resolveToken, tokenFromRequest, clientIp } from "../auth/session";
@@ -17,6 +17,8 @@ export type Vars = {
   user: AuthUser;
   session: AuthSession;
   ctx: Ctx;
+  /** the organisation's platform status, read with the organisation by loadOrg (modules/platform/access.ts uses it) */
+  orgStatus: OrgPlatformStatus;
 };
 export type Env = { Variables: Vars };
 export type C = Context<Env>;
@@ -62,14 +64,20 @@ export const loadOrg: MiddlewareHandler<Env> = async (c, next) => {
   const orgId = c.req.param("org") ?? "";
   if (!/^[0-9a-f-]{36}$/i.test(orgId)) throw notFound("سازمان پیدا نشد");
   // the organisation and the caller's membership in one round trip (every organisation request starts here)
-  const row = await cfg.db.one<OrgRow & { m__id: string | null; m__role: MemberRow["role"]; m__overrides: MemberRow["overrides"]; m__is_active: boolean }>(
-    `select o.*, m.id as m__id, m.role as m__role, m.overrides as m__overrides, m.is_active as m__is_active
-       from sm_orgs o left join sm_org_members m on m.org_id = o.id and m.user_id = $2 and m.deleted_at is null
+  // the organisation, the caller's membership and the platform status in one round trip (every organisation request
+  // starts here)
+  const row = await cfg.db.one<OrgRow & { m__id: string | null; m__role: MemberRow["role"]; m__overrides: MemberRow["overrides"]; m__is_active: boolean; a__status: OrgPlatformStatus["status"] | null; a__reason: string | null }>(
+    `select o.*, m.id as m__id, m.role as m__role, m.overrides as m__overrides, m.is_active as m__is_active,
+            a.status as a__status, a.status_reason as a__reason
+       from sm_orgs o
+       left join sm_org_members m on m.org_id = o.id and m.user_id = $2 and m.deleted_at is null
+       left join sm_org_admin a on a.org_id = o.id
       where o.id = $1 and o.deleted_at is null`,
     [orgId, user.id],
   );
   if (!row) throw notFound("سازمان پیدا نشد");
-  const { m__id, m__role, m__overrides, m__is_active, ...org } = row;
+  const { m__id, m__role, m__overrides, m__is_active, a__status, a__reason, ...org } = row;
+  c.set("orgStatus", { status: a__status ?? "active", reason: a__reason ?? null });
   let member: MemberRow | null = m__id ? { id: m__id, org_id: orgId, user_id: user.id, role: m__role, overrides: m__overrides, is_active: m__is_active } : null;
   if (!member || !member.is_active) {
     if (!user.is_platform_admin) throw forbidden("شما عضو این سازمان نیستید");

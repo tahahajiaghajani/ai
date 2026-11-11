@@ -248,21 +248,54 @@ async function uiMode() {
   await page.fill("input[type=email], input#email, input[name=email]", email).catch(() => {});
   await page.fill("input[type=password]", password);
   await page.keyboard.press("Enter");
-  await page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 60_000 });
+  const submitted = Date.now();
+  // the first screen: the organisation's home (or the organisation wizard for an account without one)
+  await page.waitForURL((u) => /^\/([0-9a-f-]{36}|orgs)/.test(u.pathname), { timeout: 60_000 });
   await page.waitForLoadState("networkidle");
+  if (new URL(page.url()).pathname.startsWith("/login")) throw new Error("sign-in did not go through (wrong password, or rate limited: restart the server)");
   const firstScreen = Date.now() - t0;
+  const afterSubmit = Date.now() - submitted;
+  if (process.env.PERF_DEBUG) console.log("after sign-in at", page.url());
   const sum = (xs, t) => xs.filter((x) => t.includes(x.type)).reduce((s, x) => s + x.bytes, 0);
   const login = seen.slice(0, loginLoad);
   const after = seen.slice(loginLoad);
   const kb = (n) => `${Math.round(n / 1024)} KB`;
   console.log(`sign-in form visible after ${formAt} ms: ${beforeForm.length} requests before it, JS ${kb(sum(beforeForm, ["script"]))}, CSS ${kb(sum(beforeForm, ["stylesheet"]))}, fonts ${kb(sum(beforeForm, ["font"]))}`);
   console.log(`sign-in page until idle (with what it preloads): ${login.length} requests, JS ${kb(sum(login, ["script"]))}, CSS ${kb(sum(login, ["stylesheet"]))}, fonts ${kb(sum(login, ["font"]))} (uncompressed bytes)`);
-  console.log(`after sign-in until idle (${firstScreen} ms from the start): ${after.length} requests, JS ${kb(sum(after, ["script"]))}, CSS ${kb(sum(after, ["stylesheet"]))}, API ${after.filter((x) => x.path.startsWith("/api/")).length}`);
+  console.log(`after sign-in until idle: ${afterSubmit} ms from the click (${firstScreen} ms from the start): ${after.length} requests, JS ${kb(sum(after, ["script"]))}, CSS ${kb(sum(after, ["stylesheet"]))}, API ${after.filter((x) => x.path.startsWith("/api/")).length}`);
   console.log("API calls in order (ms since start):");
   for (const x of seen.filter((x) => x.path.startsWith("/api/"))) console.log(`  ${String(x.at).padStart(6)}  ${x.status}  ${x.path}`);
   const assets = seen.filter((x) => /^\/(assets|fonts)\//.test(x.path));
   const notImmutable = assets.filter((x) => !/immutable/.test(x.cache));
   console.log(`static assets: ${assets.length}, without an immutable cache header: ${notImmutable.length}${notImmutable.length ? ` (${notImmutable.slice(0, 3).map((x) => x.path).join(", ")})` : ""}`);
+  // the brief's screens, each opened directly (a link or a reload: the whole first-screen fan-out every time)
+  const org = new URL(page.url()).pathname.split("/")[1];
+  if (/^[0-9a-f-]{36}$/.test(org)) {
+    const api = await page.evaluate(async (o) => {
+      const r = await fetch(`/api/o/${o}/r/incident/query`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ size: 1, fields: ["number", "short_description"] }) });
+      return r.json();
+    }, org);
+    const inc = api?.rows?.[0];
+    const word = String(inc?.short_description ?? "").split(/\s+/)[0] || "سرور";
+    const screens = [
+      ["home", `/${org}`],
+      ["incident list", `/${org}/incidents`],
+      ["incident record", inc ? `/${org}/incidents/${inc.id}` : null],
+      ["catalogue (portal)", `/${org}/portal`],
+      ["search (list with a word)", `/${org}/incidents?q=${encodeURIComponent(word)}`],
+    ];
+    console.log("screens opened directly (until the network is idle):");
+    for (const [name, path] of screens) {
+      if (!path) continue;
+      const from = seen.length;
+      const t = Date.now();
+      await page.goto(`${base}${path}`, { waitUntil: "commit" });
+      await page.waitForLoadState("networkidle");
+      const part = seen.slice(from);
+      const apiCalls = part.filter((x) => x.path.startsWith("/api/"));
+      console.log(`  ${name.padEnd(28)} ${String(Date.now() - t).padStart(6)} ms, ${String(apiCalls.length).padStart(3)} API calls, ${part.length} requests`);
+    }
+  }
   console.log(`load average: ${load()}`);
   await browser.close();
 }
