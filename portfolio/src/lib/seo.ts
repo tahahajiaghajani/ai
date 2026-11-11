@@ -70,24 +70,20 @@ export function pageMetadata(
   path: string,
   title: string,
   description: string,
-  opts: { image?: { url: string; alt: string }; publishedTime?: string } = {},
+  opts: { image?: { url: string; alt: string }; publishedTime?: string; type?: "article" | "website" } = {},
 ): Metadata {
   const share = `${title} | ${NAME[lang]}`;
   const image = opts.image ? { url: opts.image.url, width: 1200, height: 630, alt: opts.image.alt } : ogImage(lang);
+  const base = { siteName: NAME[lang], locale: LOCALE[lang], url: href(lang, path), title: share, description, images: [image] };
   return {
     title,
     description,
     alternates: pageAlternates(lang, path),
-    openGraph: {
-      type: "article",
-      siteName: NAME[lang],
-      locale: LOCALE[lang],
-      url: href(lang, path),
-      title: share,
-      description,
-      images: [image],
-      ...(opts.publishedTime ? { publishedTime: opts.publishedTime, authors: [NAME[lang]] } : {}),
-    },
+    // a listing (the blog) is a website; a case study or a post is an article
+    openGraph:
+      opts.type === "website"
+        ? { ...base, type: "website" }
+        : { ...base, type: "article", ...(opts.publishedTime ? { publishedTime: opts.publishedTime, authors: [NAME[lang]] } : {}) },
     twitter: { card: "summary_large_image", title: share, description, images: [image.url] },
   };
 }

@@ -12,7 +12,7 @@ export const PRODUCTS: Product[] = [
     category: { fa: "محصول · حسابداری و مدیریت کسب‌وکار", en: "Product · Accounting & business management" },
     tagline: { fa: "هر داد و ستد، به حساب می‌نشیند.", en: "Where trade settles." },
     summary: {
-      fa: "سیراف یک دفتر کل است برای کسب‌وکارهایی که کالا، طلا و ارز را با هم داد و ستد می‌کنند: هر ردیف سند، مبلغ ریالی، مبلغ ارزی با نرخش و وزن طلا را با هم نگه می‌دارد. حسابداری ایرانی از پایه، با کنترل‌هایی در تراز سازمان‌ها: چند کسب‌وکار زیر یک حساب، نقش‌ها و دسترسی بخش‌به‌بخش، گزارش ممیزی و سال مالیِ بسته‌ای که دیگر تغییر نمی‌کند. نامش از بندر سیراف می‌آید؛ بندری در خلیج فارس که روزگاری ابریشم، مروارید، طلا و سکه‌ی سرزمین‌های دور در آن دست‌به‌دست می‌شد.",
+      fa: "سیراف یک دفتر کل است برای کسب‌وکارهایی که کالا، طلا و ارز را با هم داد و ستد می‌کنند: هر ردیف سند، مبلغ ریالی، مبلغ ارزی با نرخش و وزن طلا را با هم نگه می‌دارد. حسابداری ایرانی از پایه، با کنترل‌هایی هم‌سطح سامانه‌های سازمانی: چند کسب‌وکار زیر یک حساب، نقش‌ها و دسترسی بخش‌به‌بخش، گزارش ممیزی و سال مالیِ بسته‌ای که دیگر تغییر نمی‌کند. نامش از بندر سیراف می‌آید؛ بندری در خلیج فارس که روزگاری ابریشم، مروارید، طلا و سکه‌ی سرزمین‌های دور در آن دست‌به‌دست می‌شد.",
       en: "Siraf is one general ledger for businesses that trade goods, gold and currency together: every voucher line carries a rial amount, a currency amount with its rate, and a gold weight. Iranian accounting from the ground up, with enterprise-grade controls: several businesses under one account, roles with per-area access, an audit log, and closed fiscal years that can no longer change. It is named after Siraf, the Persian Gulf port where silk, pearls, gold and coin from distant lands once changed hands.",
     },
     features: {

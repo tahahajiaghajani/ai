@@ -32,6 +32,8 @@ export function LightboxProvider({ images, lang, children }: { images: LightboxI
   const closeBtn = useRef<HTMLButtonElement>(null);
   const opener = useRef<HTMLElement | null>(null);
   const swipe = useRef<{ x: number; y: number } | null>(null);
+  // pinch-zoomed in: drags pan the picture (the browser's), so they never page
+  const [zoomed, setZoomed] = useState(false);
   const open = index !== null;
   const n = images.length;
   const fa = lang === "fa";
@@ -80,6 +82,15 @@ export function LightboxProvider({ images, lang, children }: { images: LightboxI
     };
   }, [open, lenis, close, step, fa]);
 
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!open || !vv) return;
+    const on = () => setZoomed(vv.scale > 1.01);
+    on();
+    vv.addEventListener("resize", on);
+    return () => vv.removeEventListener("resize", on);
+  }, [open]);
+
   // each new picture settles in softly
   useEffect(() => {
     if (index === null || !frame.current || prefersReducedMotion()) return;
@@ -98,9 +109,13 @@ export function LightboxProvider({ images, lang, children }: { images: LightboxI
           role="dialog"
           aria-modal="true"
           aria-label={ui.blog.photos[lang]}
-          className="fixed inset-0 z-[85] flex flex-col bg-bg text-fg"
+          // pan-y: a sideways finger drag stays ours (with the default the browser takes it as a pan and cancels the
+          // pointer, so a swipe never arrives); vertical drags and pinch-zoom remain the browser's. Zoomed in, every drag
+          // is the browser's again, so the visitor can look across the picture
+          className={`fixed inset-0 z-[85] flex flex-col bg-bg text-fg ${zoomed ? "touch-manipulation" : "touch-pan-y touch-pinch-zoom"}`}
           data-lenis-prevent
-          onPointerDown={(e) => (swipe.current = { x: e.clientX, y: e.clientY })}
+          onPointerDown={(e) => (swipe.current = e.isPrimary && !zoomed ? { x: e.clientX, y: e.clientY } : null)}
+          onPointerCancel={() => (swipe.current = null)}
           onPointerUp={(e) => {
             const s = swipe.current;
             swipe.current = null;
@@ -112,8 +127,10 @@ export function LightboxProvider({ images, lang, children }: { images: LightboxI
           }}
         >
           <div className="flex h-20 shrink-0 items-center justify-between px-5 md:px-10">
-            <p className="font-mono text-[0.7rem] tracking-[0.2em] text-muted" aria-live="polite">
+            {/* each new picture is announced whole: its place and what it shows */}
+            <p className="font-mono text-[0.7rem] tracking-[0.2em] text-muted" aria-live="polite" aria-atomic="true">
               <span className="text-fg">{pad(index! + 1)}</span> / {pad(n)}
+              <span className="sr-only">: {cur.alt}</span>
             </p>
             <button ref={closeBtn} type="button" onClick={close} className="grid size-11 place-items-center rounded-full border border-line-strong transition-colors hover:bg-fg hover:text-bg" aria-label={ui.blog.close[lang]}>
               <CrossIcon className="size-4" strokeWidth={1.3} />
@@ -123,7 +140,7 @@ export function LightboxProvider({ images, lang, children }: { images: LightboxI
             <Image key={cur.src} src={cur.src} alt={cur.alt} fill sizes="100vw" quality={90} loading="eager" className="select-none object-contain" draggable={false} />
           </div>
           <div className="flex shrink-0 items-center justify-between gap-6 px-5 py-5 md:px-10 md:py-6">
-            <p className={`min-w-0 text-fg-2 ${fa ? "text-[0.9rem]" : "text-[0.85rem]"}`}>{cur.caption ?? cur.alt}</p>
+            <p aria-hidden={cur.caption ? undefined : true} className={`min-w-0 text-fg-2 ${fa ? "text-[0.9rem]" : "text-[0.85rem]"}`}>{cur.caption ?? cur.alt}</p>
             {n > 1 ? (
               <div className="flex shrink-0 gap-2">
                 <button type="button" onClick={() => step(-1)} className="grid size-11 place-items-center rounded-full border border-line-strong transition-colors hover:bg-fg hover:text-bg" aria-label={ui.blog.prev[lang]}>

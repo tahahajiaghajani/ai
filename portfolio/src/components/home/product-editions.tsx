@@ -1,6 +1,7 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
 import type { Edition, EditionKind } from "@/content/types";
 import type { Lang } from "@/lib/i18n";
 import { ui } from "@/content/ui";
@@ -24,6 +25,26 @@ export function ProductEditions({ product, editions, lang }: { product: string; 
   const lenis = useLenis();
   const id = useId();
   const [asked, setAsked] = useState<EditionKind | null>(null);
+  const note = useRef<HTMLDivElement>(null);
+
+  // the note changes the page's height above the pinned sections (work rail, method) when it opens, closes or switches
+  // to another edition: once its height settles, the pins measure again, or they would start where the page used to be
+  useEffect(() => {
+    const el = note.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let first = true;
+    let timer = 0;
+    const ro = new ResizeObserver(() => {
+      if (first) return void (first = false); // the observer reports once on start; nothing has moved yet
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => ScrollTrigger.refresh(), 150);
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      window.clearTimeout(timer);
+    };
+  }, []);
   const fa = lang === "fa";
   const c = PROFILE.contact;
   const locked = editions.filter((e) => !e.href);
@@ -37,13 +58,17 @@ export function ProductEditions({ product, editions, lang }: { product: string; 
       <ul className="grid gap-2.5">
         {editions.map((e) => {
           const Icon = ICON[e.kind];
-          const body = (
+          // the lock sits beside the name (wrapping under it when narrow), so the note keeps the card's whole width
+          const body = (badge?: React.ReactNode) => (
             <>
               <span className={`grid size-11 shrink-0 place-items-center rounded-full border ${e.href ? "border-current/25" : "border-line-strong"}`}>
                 <Icon className="size-[1.15rem]" strokeWidth={1.3} />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block font-semibold leading-snug">{name(e.kind)}</span>
+                <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                  <span className="font-semibold leading-snug">{name(e.kind)}</span>
+                  {badge}
+                </span>
                 <span className={`mt-1 block text-[0.8rem] leading-relaxed ${e.href ? "opacity-70" : "text-muted"}`}>{e.note[lang]}</span>
               </span>
             </>
@@ -58,15 +83,14 @@ export function ProductEditions({ product, editions, lang }: { product: string; 
                   data-cursor-label={ui.product.open[lang]}
                   className="group flex items-center gap-4 rounded-[12px] bg-fg px-4 py-4 text-bg transition-transform duration-500 ease-[var(--ease-out-expo)] hover:scale-[1.015] md:px-5"
                 >
-                  {body}
-                  <span className="flex shrink-0 items-center gap-2">
-                    <span className={`hidden items-center gap-1.5 sm:flex ${fa ? "text-[0.75rem]" : "font-mono text-[0.62rem] uppercase tracking-[0.16em]"}`}>
+                  {body(
+                    <span className={`flex shrink-0 items-center gap-1.5 rounded-full border border-current/25 px-2 py-0.5 ${fa ? "text-[0.72rem]" : "font-mono text-[0.6rem] uppercase tracking-[0.16em]"}`}>
                       <span className="size-1.5 animate-pulse rounded-full bg-current" aria-hidden />
                       {ui.product.live[lang]}
-                    </span>
-                    <span className="grid size-9 place-items-center rounded-full bg-bg text-fg transition-transform duration-500 ease-[var(--ease-out-expo)] group-hover:-translate-y-0.5 group-hover:translate-x-0.5">
-                      <ArrowUpRightIcon className="size-3.5" />
-                    </span>
+                    </span>,
+                  )}
+                  <span className="grid size-9 shrink-0 place-items-center rounded-full bg-bg text-fg transition-transform duration-500 ease-[var(--ease-out-expo)] group-hover:-translate-y-0.5 group-hover:translate-x-0.5">
+                    <ArrowUpRightIcon className="size-3.5" />
                   </span>
                 </a>
               ) : (
@@ -77,11 +101,12 @@ export function ProductEditions({ product, editions, lang }: { product: string; 
                   aria-controls={`${id}-locked`}
                   className={`flex w-full items-center gap-4 rounded-[12px] border border-dashed px-4 py-4 text-start transition-colors md:px-5 ${asked === e.kind ? "border-fg" : "border-line-strong hover:border-fg"}`}
                 >
-                  {body}
-                  <span className={`flex shrink-0 items-center gap-1.5 rounded-full border border-line-strong px-2.5 py-1 text-muted ${fa ? "text-[0.75rem]" : "font-mono text-[0.62rem] uppercase tracking-[0.16em]"}`}>
-                    <LockIcon className="size-3" strokeWidth={1.5} />
-                    {ui.product.locked[lang]}
-                  </span>
+                  {body(
+                    <span className={`flex shrink-0 items-center gap-1.5 rounded-full border border-line-strong px-2 py-0.5 text-muted ${fa ? "text-[0.72rem]" : "font-mono text-[0.6rem] uppercase tracking-[0.16em]"}`}>
+                      <LockIcon className="size-3" strokeWidth={1.5} />
+                      {ui.product.locked[lang]}
+                    </span>,
+                  )}
                 </button>
               )}
             </li>
@@ -97,7 +122,11 @@ export function ProductEditions({ product, editions, lang }: { product: string; 
       ) : null}
 
       {/* the note opens with the grid-rows trick, so its height animates without measuring */}
-      <div id={`${id}-locked`} className={`grid transition-[grid-template-rows] duration-500 ease-[var(--ease-out-expo)] ${asked ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
+      <div
+        ref={note}
+        id={`${id}-locked`}
+        className={`grid transition-[grid-template-rows] duration-500 ease-[var(--ease-out-expo)] ${asked ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
+      >
         <div className="min-h-0 overflow-hidden" inert={!asked}>
           <div className="mt-4 rounded-[12px] border border-line-strong p-5" role="region" aria-label={ui.product.lockedTitle[lang]}>
             <p className="font-semibold">

@@ -59,7 +59,16 @@ function bindScrollMotion(root: HTMLElement): () => void {
         continue;
       }
       const inner = el.querySelector<HTMLElement>("[data-reveal-inner]");
-      const tl = gsap.timeline({ scrollTrigger: { trigger: el, start: "top 90%", once: true }, onComplete: done });
+      // not `once`: a once-trigger that has already been passed kills itself in the middle of ScrollTrigger's refresh
+      // (a page opened at a #section below it), which breaks the refresh for every later trigger, the pins included.
+      // The default toggle actions play it once anyway; the trigger is let go after the picture has opened
+      const tl = gsap.timeline({
+        scrollTrigger: { trigger: el, start: "top 90%" },
+        onComplete: () => {
+          done();
+          tl.scrollTrigger?.kill();
+        },
+      });
       tl.fromTo(el, { clipPath: "inset(100% 0% 0% 0%)" }, { clipPath: "inset(0% 0% 0% 0%)", duration: 1.35, ease: "expo.inOut" });
       if (inner) tl.fromTo(inner, { scale: 1.16 }, { scale: 1, duration: 1.9, ease: "expo.out", clearProps: "transform" }, 0.1);
     }

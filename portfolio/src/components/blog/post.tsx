@@ -25,7 +25,7 @@ const SPAN: Record<Span, string> = {
 const ALONE: Partial<Record<Span, string>> = { 3: "md:col-start-10", 4: "md:col-start-9", 5: "md:col-start-8", 6: "md:col-start-7", 7: "md:col-start-6", 8: "md:col-start-5" };
 
 function Label({ children }: { children: React.ReactNode }) {
-  return <p className="eyebrow eyebrow-fa mb-6 md:sticky md:top-28">{children}</p>;
+  return <h2 className="eyebrow eyebrow-fa mb-6 md:sticky md:top-28">{children}</h2>;
 }
 
 /** A picture of the post: revealed from a mask as it enters, opening the viewer at its place when pressed. */
@@ -125,7 +125,7 @@ export function Post({ p, lang }: { p: PostData; lang: Lang }) {
         <section className="mx-auto grid max-w-[1800px] grid-cols-12 gap-x-4 gap-y-10 border-t border-line px-5 py-20 md:px-10">
           {p.sources?.length ? (
             <>
-              <div className="col-span-12 md:col-span-3"><p className="eyebrow eyebrow-fa">{ui.blog.sources[lang]}</p></div>
+              <div className="col-span-12 md:col-span-3"><h2 className="eyebrow eyebrow-fa">{ui.blog.sources[lang]}</h2></div>
               <ol className="col-span-12 grid gap-3 md:col-span-9">
                 {p.sources.map((s, i) => (
                   <li key={s.href} className="flex items-baseline gap-4">
@@ -140,7 +140,7 @@ export function Post({ p, lang }: { p: PostData; lang: Lang }) {
           ) : null}
           {related.length ? (
             <>
-              <div className="col-span-12 md:col-span-3"><p className="eyebrow eyebrow-fa">{ui.blog.related[lang]}</p></div>
+              <div className="col-span-12 md:col-span-3"><h2 className="eyebrow eyebrow-fa">{ui.blog.related[lang]}</h2></div>
               <ul className="col-span-12 grid gap-px border border-line bg-line sm:grid-cols-2 md:col-span-9">
                 {related.map((r) => (
                   <li key={r.slug} className="bg-bg">

@@ -56,7 +56,7 @@ export function ProductSection({ p, lang, index, invert = false, flip = false }:
                   </div>
                 </div>
                 {second ? (
-                  <div className={`group absolute bottom-0 w-[54%] shadow-[0_40px_90px_-30px_rgb(0_0_0/0.55)] ${flip ? "start-[-2%] lg:start-[-6%]" : "end-[-2%] lg:end-[-6%]"}`}>
+                  <div className={`group absolute bottom-0 w-[54%] shadow-[0_40px_90px_-30px_rgb(0_0_0/0.55)] ${flip ? "start-[-2%] xl:start-[-6%]" : "end-[-2%] xl:end-[-6%]"}`}>
                     <div data-reveal>
                       <div data-reveal-inner>
                         <Media m={second} lang={lang} sizes="(min-width: 1024px) 30vw, 54vw" />
@@ -69,7 +69,8 @@ export function ProductSection({ p, lang, index, invert = false, flip = false }:
             </figure>
           ) : null}
 
-          <div className={`col-span-12 flex flex-col gap-12 lg:col-span-4 lg:row-start-1 ${flip ? "lg:col-start-1" : "lg:col-start-9"}`}>
+          {/* five columns beside the screens up to 1279 px, four (with a column of air) from there */}
+          <div className={`col-span-12 flex flex-col gap-12 lg:col-span-5 lg:row-start-1 xl:col-span-4 ${flip ? "lg:col-start-1" : "lg:col-start-8 xl:col-start-9"}`}>
             <p data-fade className="text-[clamp(1.02rem,1.3vw,1.18rem)] leading-[1.85] text-fg-2">{p.summary[lang]}</p>
             <div data-fade>
               <ProductEditions product={p.name[lang]} editions={p.editions} lang={lang} />
