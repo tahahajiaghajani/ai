@@ -11,10 +11,11 @@ import { tableDef } from "@shared/tables";
 import type { MyReport, SocWorkspace } from "@shared/security/api";
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
-import { addJournalIn, addLinkIn, createIn, defFor, get, list, resolveDisplay, RefSet, condEnv, orgSchema, transitionIn, updateIn } from "../../engine";
+import { addJournalIn, addLinkIn, createIn, defFor, get, list, resolveDisplay, RefSet, condEnv, orgSchema, savepoint, transitionIn, updateIn } from "../../engine";
+import { lockKey } from "../../db";
 import { access } from "../../access/provider";
 import { bad, forbidden, notFound } from "../../http/errors";
-import { countRows, eqAll, ids, isUuid, liveRow, liveRows, readsTable, secureWorkspace, securityConfig, sysOf, type Row } from "./common";
+import { countRows, eqAll, ids, isUuid, liveRow, liveRows, lockedRow, readsTable, secureWorkspace, securityConfig, sysOf, type Row } from "./common";
 
 const OPEN_STATES = SIR_STATES.states.filter((s) => ["new", "active", "waiting"].includes(s.category)).map((s) => s.value);
 const stateLabel = (v: unknown) => SIR_STATES.states.find((s) => s.value === v)?.label ?? String(v ?? "");
@@ -51,7 +52,9 @@ export async function applyPlaybook(ctx: Ctx, sirId: string, playbookId: string)
   if (!r.meta.canWrite) throw forbidden("اجازهٔ تغییر این رخداد امنیتی را ندارید");
   const sys = sysOf(ctx, ctx.user.id);
   return ctx.write(async (tx) => {
-    const sir = r.row as Row;
+    // the incident locked first and decided from its stored row: two «افزودن دستورالعمل» at once take turns, and the
+    // second finds the first one's tasks (no step twice)
+    const sir = (await lockedRow(tx, sysOf(ctx), "sec_incident", sirId)) ?? (r.row as Row);
     if (sir.playbook_id !== playbookId) await updateIn(tx, ctx, "sec_incident", sirId, { playbook_id: playbookId });
     else return { tasks: await applyPlaybookIn(tx, sys, sir, playbookId) };
     return { tasks: (await liveRows(tx, sys, "sec_task", eqAll({ sec_incident_id: sirId }), { limit: 500 })).length };
@@ -98,6 +101,11 @@ export async function promoteIncident(ctx: Ctx, incidentId: string): Promise<{ i
   const prior = await promotedFrom(ctx.db, ctx, incidentId);
   if (prior) return { id: prior.id, number: prior.number ?? null, created: false };
   return ctx.write(async (tx) => {
+    // the IT incident locked and the promotion looked for again: an automatic promotion (or another analyst) at the
+    // same moment takes turns with this one, so one IT incident gets one security incident
+    await lockedRow(tx, sysOf(ctx), "incident", incidentId);
+    const again = await promotedFrom(tx, ctx, incidentId);
+    if (again) return { id: again.id, number: again.number ?? null, created: false };
     const sir = await createIn(tx, ctx, "sec_incident", fromIncident(inc));
     await linkPromotion(tx, ctx, incidentId, sir);
     return { id: sir.id, number: (sir.number as string) ?? null, created: true };
@@ -119,6 +127,9 @@ export async function autoPromote(sys: Ctx, incidentId: string): Promise<Row | n
   if (!inc || inc.security_incident !== true) return null;
   if (await promotedFrom(sys.db, sys, incidentId)) return null;
   return sys.write(async (tx) => {
+    // the IT incident locked before looking again (its created and updated events are two jobs, and an analyst may
+    // promote it by hand at the same moment): one security incident per IT incident
+    await lockedRow(tx, sys, "incident", incidentId);
     if (await promotedFrom(tx, sys, incidentId)) return null;
     await secureWorkspace(tx, sys);
     const sir = await createIn(tx, sys, "sec_incident", fromIncident(inc), { trusted: true });
@@ -166,6 +177,9 @@ export async function reportPhishing(ctx: Ctx, input: PhishingReport): Promise<{
   const sys = sysOf(ctx, ctx.user.id);
   return sys.write(async (tx) => {
     await secureWorkspace(tx, sys);
+    // reports of one campaign at the same moment take turns on their grouping keys (sorted: no two wait for each other
+    // in opposite orders), so the second one finds the first one's incident instead of opening another
+    for (const key of [...keys].sort().slice(0, 100)) await lockKey(tx, `security.phish:${sys.org.id}:${key}`);
     // grouping: an open phishing incident of the last week sharing the sender's address or a link
     let target: Row | null = null;
     if (keys.size) {
@@ -217,14 +231,28 @@ export async function upsertObservable(tx: Tx, ctx: Ctx, sirId: string | null, t
   const sys = sysOf(ctx);
   const t = type || detectObservableType(value);
   const normalized = normalizeObservable(t, value);
-  const [have] = await liveRows(tx, sys, "sec_observable", eqAll({ type: t, normalized }), { limit: 1 });
   const now = new Date().toISOString();
-  if (have) {
+  // the stored observable locked and read again before its incidents are added to: two incidents adding the same
+  // indicator at once both stay on it (each appends to what the other committed)
+  const append = async (found: Row): Promise<Row> => {
+    const have = (await lockedRow(tx, sys, "sec_observable", found.id)) ?? found;
     const incidents = sirId ? [...new Set([...ids(have.incidents), sirId])] : ids(have.incidents);
     if (incidents.length === ids(have.incidents).length && !extra.verdict && !extra.is_ioc) return have;
     return updateIn(tx, sys, "sec_observable", have.id, { incidents, last_seen: now, ...(extra.verdict ? { verdict: extra.verdict } : {}), ...(extra.is_ioc ? { is_ioc: true } : {}) }, { trusted: true });
+  };
+  const [have] = await liveRows(tx, sys, "sec_observable", eqAll({ type: t, normalized }), { limit: 1 });
+  if (have) return append(have);
+  try {
+    // a new indicator: another transaction may make the same one at the same moment (the unique key per type and
+    // value refuses the second insert) — then this one appends to that one instead of failing the whole report
+    return await savepoint(tx, () => createIn(tx, sys, "sec_observable", { type: t, value, incidents: sirId ? [sirId] : [], first_seen: now, last_seen: now, ...extra }, { trusted: true }));
+  } catch (e) {
+    const code = (e as { code?: string; status?: number })?.code;
+    if (code !== "23505" && code !== "duplicate") throw e;
+    const [other] = await liveRows(tx, sys, "sec_observable", eqAll({ type: t, normalized }), { limit: 1 });
+    if (!other) throw e;
+    return append(other);
   }
-  return createIn(tx, sys, "sec_observable", { type: t, value, incidents: sirId ? [sirId] : [], first_seen: now, last_seen: now, ...extra }, { trusted: true });
 }
 
 /** «افزودن نشانگرها» on an incident: values pasted by an analyst (refanged, typed, de-duplicated). */
@@ -303,16 +331,19 @@ export async function startClock(ctx: Ctx, sirId: string, regimeId: string, awar
 export async function submitStage(ctx: Ctx, clockId: string, stage: string, reference?: string | null): Promise<Row> {
   const r = await get(ctx, "sec_reg_clock", clockId);
   if (!r.meta.canWrite) throw forbidden("اجازهٔ تغییر این ساعت الزامی را ندارید");
-  const clock = r.row as Row;
-  if (clock.state !== "running") throw bad("این ساعت در جریان نیست");
-  const deadlines = ((clock.deadlines as Deadline[]) ?? []).map((d) => ({ ...d }));
-  const d = deadlines.find((x) => x.stage === stage);
-  if (!d) throw bad("این مرحله در مقررات نیست");
-  if (d.submitted_at) throw bad("این مرحله پیش‌تر فرستاده شده است");
-  const now = new Date().toISOString();
-  d.submitted_at = now;
+  if ((r.row as Row).state !== "running") throw bad("این ساعت در جریان نیست");
   const sys = sysOf(ctx, ctx.user.id);
   return ctx.write(async (tx) => {
+    // decided from the clock locked and read again: another stage's submission (or the sweep's warning marks) recorded
+    // since this request read it stays — only this stage's submission is added to the stored deadlines
+    const clock = await lockedRow(tx, sysOf(ctx), "sec_reg_clock", clockId);
+    if (!clock || clock.state !== "running") throw bad("این ساعت در جریان نیست");
+    const deadlines = ((clock.deadlines as Deadline[]) ?? []).map((d) => ({ ...d }));
+    const d = deadlines.find((x) => x.stage === stage);
+    if (!d) throw bad("این مرحله در مقررات نیست");
+    if (d.submitted_at) throw bad("این مرحله پیش‌تر فرستاده شده است");
+    const now = new Date().toISOString();
+    d.submitted_at = now;
     let row = await updateIn(tx, sys, "sec_reg_clock", clockId, { deadlines, submitted_at: now, ...(reference ? { reference: String(reference).slice(0, 120) } : {}) }, { trusted: true });
     await addJournalIn(tx, sys, tableDef("sec_reg_clock")!, row, { kind: "work_note", body: `«${d.label}» ${Date.parse(now) <= Date.parse(d.due_at) ? "در موعد" : "پس از موعد"} فرستاده شد${reference ? ` (شمارهٔ پیگیری ${reference})` : ""}.` }, { trusted: true, author: ctx.user.id });
     if (deadlines.every((x) => x.submitted_at)) row = await transitionIn(tx, ctx, "sec_reg_clock", clockId, "submitted");

@@ -23,7 +23,7 @@ import { addJournalIn, addLinkIn, createIn, emitEvent, onRecordEvent, systemCtx,
 import { enqueue, registerJobHandler, type JobContext } from "../../jobs";
 import { actsHere, notifyPeople } from "../notify";
 import { onApprovalSettled } from "../sla";
-import { addDays, eqAll, isUuid, liveRow, liveRows, securityConfig, sysOf, todayOf, type Row } from "./common";
+import { addDays, eqAll, isUuid, liveRow, liveRows, lockedRow, securityConfig, sysOf, todayOf, type Row } from "./common";
 import { autoPromote } from "./ops";
 import { rescoreVulnerability } from "./vuln";
 import { measureIndicators, planControlTests, remindCampaigns } from "./grc";
@@ -65,6 +65,11 @@ async function onChange(e: RecordEvent, jctx: JobContext): Promise<void> {
   const [have] = await liveRows(jctx.db, sys, "sec_review", eqAll({ change_id: e.id }), { limit: 1 });
   if (have) return;
   await sys.write(async (tx) => {
+    // the change locked and its review looked for again: two event jobs of one change (created, then updated) never
+    // both make a review
+    if (!(await lockedRow(tx, sys, "change_request", e.id))) return;
+    const [again] = await liveRows(tx, sys, "sec_review", eqAll({ change_id: e.id }), { limit: 1 });
+    if (again) return;
     const rv = await createIn(tx, sys, "sec_review", {
       title: `بازبینی امنیتی ${chg.number ?? ""}: ${String(chg.short_description ?? "").slice(0, 150)}`, kind: "change", change_id: e.id, flags: flags.map((f) => f.label),
       assignment_group_id: cfg.soc_group_id ?? cfg.vuln_group_id ?? null, due_at: chg.planned_start ?? new Date(Date.now() + 3 * 86_400_000).toISOString(),
@@ -144,30 +149,39 @@ export async function securitySweep(sys: Ctx): Promise<SweepResult> {
   const today = todayOf(sys);
   const now = Date.now();
 
-  // regulatory clocks: overdue flags and a warning six hours before a deadline (once per stage)
+  // regulatory clocks: overdue flags and a warning six hours before a deadline (once per stage). The list only names
+  // candidates: each clock is decided inside its own write from its row locked and read again there — a submission
+  // recorded meanwhile (or another sweep's marks) is kept, and a clock no longer running is left alone
+  const marks = (list: Deadline[]) => (list ?? []).map((d) => ({ ...d })) as (Deadline & { warned?: string | null })[];
+  const dueWarning = (list: (Deadline & { warned?: string | null })[], at: number) => list.some((d) => !d.submitted_at && !d.warned && Date.parse(d.due_at) - at <= 6 * 3_600_000);
   for (const c of await liveRows(q, sys, "sec_reg_clock", { f: "state", op: "eq", v: "running" }, { limit: 1000 })) {
-    const deadlines = ((c.deadlines as Deadline[]) ?? []).map((d) => ({ ...d })) as (Deadline & { warned?: string | null })[];
-    const nd = nextDeadline(deadlines, now);
-    let changed = false;
-    for (const d of deadlines) {
-      if (d.submitted_at || d.warned) continue;
-      if (Date.parse(d.due_at) - now <= 6 * 3_600_000) {
-        d.warned = new Date().toISOString();
-        changed = true;
-        out.warned++;
-      }
-    }
-    if (changed || !!c.overdue !== nd.overdue) {
-      await sys.write(async (tx) => {
-        const row = await updateIn(tx, sys, "sec_reg_clock", c.id, { deadlines, overdue: nd.overdue }, { trusted: true, keepVersion: true });
-        if (changed) {
-          const users = [c.owner_id].filter(isUuid);
-          if (users.length) await notifyPeople(tx, sys.org.id, { table: "sec_reg_clock", id: c.id, users, event: "custom", label: "موعد اطلاع‌رسانی الزامی", subject: `موعد «${nd.next?.label ?? ""}» ${c.number ?? ""} نزدیک است`, body: `موعد: ${nd.next?.due_at ?? ""}. گزارش را به ${row.authority ?? "نهاد ناظر"} بفرستید و ارسال را ثبت کنید.`, channels: ["in_app", "email"], mandatory: true, source: "امنیت" });
+    const seen = marks(c.deadlines as Deadline[]);
+    if (!dueWarning(seen, now) && !!c.overdue === nextDeadline(seen, now).overdue) continue;
+    const done = await sys.write(async (tx) => {
+      const cur = await lockedRow(tx, sys, "sec_reg_clock", c.id);
+      if (!cur || cur.state !== "running") return false;
+      const deadlines = marks(cur.deadlines as Deadline[]);
+      const at = Date.now();
+      const nd = nextDeadline(deadlines, at);
+      let changed = false;
+      for (const d of deadlines) {
+        if (d.submitted_at || d.warned) continue;
+        if (Date.parse(d.due_at) - at <= 6 * 3_600_000) {
+          d.warned = new Date().toISOString();
+          changed = true;
+          out.warned++;
         }
-        await syncIncidentFlags(tx, sys, String(c.sec_incident_id));
-      });
-      out.clocks++;
-    }
+      }
+      if (!changed && !!cur.overdue === nd.overdue) return false;
+      const row = await updateIn(tx, sys, "sec_reg_clock", cur.id, { deadlines, overdue: nd.overdue }, { trusted: true, keepVersion: true });
+      if (changed) {
+        const users = [cur.owner_id].filter(isUuid);
+        if (users.length) await notifyPeople(tx, sys.org.id, { table: "sec_reg_clock", id: cur.id, users, event: "custom", label: "موعد اطلاع‌رسانی الزامی", subject: `موعد «${nd.next?.label ?? ""}» ${cur.number ?? ""} نزدیک است`, body: `موعد: ${nd.next?.due_at ?? ""}. گزارش را به ${row.authority ?? "نهاد ناظر"} بفرستید و ارسال را ثبت کنید.`, channels: ["in_app", "email"], mandatory: true, source: "امنیت" });
+      }
+      await syncIncidentFlags(tx, sys, String(cur.sec_incident_id));
+      return true;
+    });
+    if (done) out.clocks++;
   }
 
   // overdue flags of open items (in batches; their writes keep the version)

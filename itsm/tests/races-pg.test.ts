@@ -14,9 +14,11 @@ import { createPostgresDb } from "@server/db/postgres";
 import type { Db, Tx } from "@server/db";
 import { archiveBatch, archiveTableOf, createIn, purgeArchived, systemCtx, transitionIn, updateIn } from "@server/engine";
 import { fireTimer } from "@server/modules/sla";
+import { securitySweep } from "@server/modules/security/jobs";
 import { tableDef } from "@shared/tables";
 import { Client, useServerDb } from "./helpers";
 import { engineOrg, type EngineOrg } from "./engine-helpers";
+import { secWorld, type SecWorld } from "./security-helpers";
 import { extraDatabase, realPg, realPgAvailable, type RealPg } from "./pg-real";
 
 // a task-like table of this suite with two SLA timers per record (breach actions escalate)
@@ -239,6 +241,89 @@ describe.skipIf(!realPgAvailable())("writes side by side (real PostgreSQL)", () 
       expect(fired.status, message(fired)).toBe("fulfilled");
       const after = await e.db.one<{ escalation: number }>(`select escalation from sm_race_cases where id = $1`, [row.id]);
       expect(Number(after!.escalation)).toBe(2);
+    });
+  });
+
+  // ---------------------------------------------------------------------------------------------------- security
+
+  describe("security", () => {
+    let w: SecWorld;
+    beforeAll(async () => {
+      w = await secWorld();
+    }, 180_000);
+
+    it("A1-3: a mandatory task is not added to an incident being moved to review, nor a clock to one being canceled", async () => {
+      const r = await w.sir({ category: "other", severity: "3" });
+      await w.p.soc.client.post(`${w.P}/r/sec_incident/${r.id}/transition`, { to: "analysis", version: r.version });
+      // the review is in flight (its guard found no open analysis task) when a mandatory analysis task is added
+      const review = hold(w.e.db, (tx) => transitionIn(tx, w.sys, "sec_incident", r.id, "review", { close_code: "false_positive" }));
+      const task = await whileHeld(review, () => w.sys.write((tx) => createIn(tx, w.sys, "sec_task", { sec_incident_id: r.id, short_description: "کار دیرآمده", phase: "analysis", mandatory: true }, { trusted: true })));
+      expect(task.status).toBe("rejected");
+      expect(message(task)).toContain("به رخداد امنیتی بسته کار تازه افزوده نمی‌شود");
+      const tasks = await w.e.db.query(`select id from sm_sec_tasks where sec_incident_id = $1 and deleted_at is null and short_description = 'کار دیرآمده'`, [r.id]);
+      expect(tasks).toEqual([]);
+
+      // a regulatory clock started while the incident is being canceled
+      const c = await w.sir({ category: "other", severity: "3" });
+      const regime = (await w.e.db.one<{ id: string }>(`select id from sm_sec_reg_regimes where org_id = $1 and deleted_at is null and active order by name limit 1`, [w.e.org]))!.id;
+      const cancel = hold(w.e.db, (tx) => transitionIn(tx, w.sys, "sec_incident", c.id, "canceled", { close_code: "false_positive", close_notes: "مثبت کاذب" }));
+      const clock = await whileHeld(cancel, () => w.sys.write((tx) => createIn(tx, w.sys, "sec_reg_clock", { sec_incident_id: c.id, regime_id: regime, aware_at: new Date().toISOString() })));
+      expect(clock.status).toBe("rejected");
+      const clocks = await w.e.db.query(`select id from sm_sec_reg_clocks where sec_incident_id = $1 and deleted_at is null`, [c.id]);
+      expect(clocks).toEqual([]);
+
+      // two starts of one regime at once give one clock
+      const d = await w.sir({ category: "other", severity: "3" });
+      const holder = hold(w.e.db, (tx) => tx.query(`select 1 from sm_sec_incidents where id = $1 for update`, [d.id]));
+      const two = await whileHeld(holder, () =>
+        Promise.allSettled([0, 1].map(() => w.sys.write((tx) => createIn(tx, w.sys, "sec_reg_clock", { sec_incident_id: d.id, regime_id: regime, aware_at: new Date().toISOString() })))),
+      );
+      expect(two.status).toBe("fulfilled");
+      const made = await w.e.db.query(`select id from sm_sec_reg_clocks where sec_incident_id = $1 and deleted_at is null`, [d.id]);
+      expect(made.length).toBe(1);
+    });
+
+    it("A1-4: an item deferred under an exception that is being revoked goes back to the queue", async () => {
+      const vul = await w.sys.write((tx) => createIn(tx, w.sys, "sec_vulnerability", { cve_id: `CVE-2099-${process.pid % 10000}`, title: "آسیب‌پذیری آزمون", cvss_score: "7.5" }, { trusted: true }));
+      const exp = new Date(Date.now() + 10 * 86_400_000).toISOString().slice(0, 10);
+      const exc = await w.sys.write((tx) =>
+        createIn(tx, w.sys, "sec_vuln_exception", { title: "تعویق آزمون", kind: "deferral", vulnerability_id: vul.id, justification: "پنجرهٔ نگهداری", expires_at: exp, state: "approved" }, { trusted: true }),
+      );
+      const item = await w.sys.write((tx) => createIn(tx, w.sys, "sec_vuln_item", { title: "مورد آزمون", vulnerability_id: vul.id, host: "srv-race-01" }, { trusted: true }));
+      // the deferral passed its guard (the exception approved) and has not committed when the exception is revoked (the
+      // item is deferred as an approval defers it: the exception named by the system, then the transition)
+      const defer = hold(w.e.db, async (tx) => {
+        await updateIn(tx, w.sys, "sec_vuln_item", item.id, { exception_id: exc.id }, { trusted: true, keepVersion: true });
+        await transitionIn(tx, w.sys, "sec_vuln_item", item.id, "deferred");
+      });
+      await defer.ready;
+      const revoke = w.sys.write((tx) => transitionIn(tx, w.sys, "sec_vuln_exception", exc.id, "revoked", { notes: "ابطال" }));
+      revoke.catch(() => undefined);
+      await sleep(SETTLE);
+      defer.release();
+      await defer.done;
+      await revoke;
+      const after = await w.e.db.one<{ state: string }>(`select state from sm_sec_vuln_items where id = $1`, [item.id]);
+      expect(after!.state).toBe("open");
+    });
+
+    it("A1-7: a stage's submission and the sweep's warning marks are both kept", async () => {
+      const r = await w.sir({ category: "data_breach", personal_data_breach: true, affected_data: "فهرست", records_affected: 10 });
+      const regimes = (await w.p.soc.client.get(`${w.P}/security/incidents/${r.id}/regimes`)).regimes as any[];
+      const nis2 = regimes.find((x) => x.name === "NIS2");
+      // aware 70 hours ago: the 24-hour stage is overdue and the 72-hour one due within 6 hours (both get a warning)
+      const aware = new Date(Date.now() - 70 * 3600_000).toISOString();
+      const clock = (await w.p.soc.client.post(`${w.P}/security/incidents/${r.id}/clocks`, { regime_id: nis2.id, aware_at: aware })).row;
+      const holder = hold(w.e.db, (tx) => tx.query(`select 1 from sm_sec_reg_clocks where id = $1 for update`, [clock.id]));
+      const both = await whileHeld(holder, () =>
+        Promise.allSettled([securitySweep(w.sys), w.p.soc.client.post(`${w.P}/security/clocks/${clock.id}/submit`, { stage: "early_warning", reference: "CERT-9" })]),
+      );
+      expect(both.status).toBe("fulfilled");
+      const outcomes = (both as PromiseFulfilledResult<PromiseSettledResult<unknown>[]>).value;
+      expect(outcomes.map((o) => o.status)).toEqual(["fulfilled", "fulfilled"]);
+      const c = (await w.e.db.one<{ deadlines: { stage: string; submitted_at?: string | null; warned?: string | null }[] }>(`select deadlines from sm_sec_reg_clocks where id = $1`, [clock.id]))!;
+      expect(c.deadlines.find((d) => d.stage === "early_warning")?.submitted_at).toBeTruthy();
+      expect(c.deadlines.find((d) => d.stage === "notification")?.warned).toBeTruthy();
     });
   });
 });
