@@ -75,6 +75,7 @@ import { installFieldServiceModule } from "../modules/field_service";
 import { fieldServiceRoutes } from "./field_service";
 import { installAdminModule } from "../modules/admin";
 import { installFieldsModule } from "../modules/fields";
+import { fieldsRoutes } from "./fields";
 import { adminTenantRoutes } from "./admin-tenant";
 import { demoRoutes } from "./demo";
 import { installDemoModule } from "../modules/demo";
@@ -207,6 +208,8 @@ moduleRoutes.route("/field_service", fieldServiceRoutes);
 moduleRoutes.route("/slm", slmRoutes);
 moduleRoutes.route("/workforce", workforceRoutes);
 moduleRoutes.route("/admin", adminTenantRoutes);
+// the field library and the table overlays (design F, F1): /fields/*, /forms/system/:table/overrides, /lifecycles/:table
+moduleRoutes.route("/", fieldsRoutes);
 moduleRoutes.route("/demo", demoRoutes);
 moduleRoutes.route("/integration", integrationHubRoutes);
 // «امنیت ورود و نشست‌ها»: the organisation's session policy, sessions, sign-in audit and lockouts
