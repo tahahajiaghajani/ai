@@ -34,6 +34,11 @@ export type PgliteDb = Db & {
   wal: WalGuard | null;
 };
 
+/** setImmediate as it was when this module loaded (a test's fake timers never hold the database up) */
+const nextTurn: (fn: () => void) => void = (globalThis.setImmediate ?? ((fn: () => void) => setTimeout(fn, 0))).bind(globalThis);
+/** The longest run of database work before the event loop gets a turn (see `turn` below). */
+const TURN_MS = 50;
+
 let vectorExt: Promise<unknown | null> | null = null;
 /** The pgvector build for PGlite when it is installed (the Windows app ships it); null otherwise. */
 function pgliteVector(): Promise<unknown | null> {
@@ -75,7 +80,21 @@ export async function createPgliteDb(opts: PgliteOptions = {}): Promise<PgliteDb
       wal.start();
     }
   }
-  const track = <T>(fn: () => Promise<T>): Promise<T> => (wal ? wal.track(fn) : fn());
+  // PGlite answers through promises alone, so a run of database work (a job tick, the demo pack's load) kept Node's
+  // event loop from reading the next request, serving a file of the page or firing a timer until it paused: in the
+  // Windows app up to the 8-second budget of a job tick for every page (desktop-e2e, run 43088978809: API p95 8.5 s).
+  // A data folder's database lets the event loop turn before an app call once 50 ms of work have gone by without one.
+  let turned = performance.now();
+  const turn = async () => {
+    if (performance.now() - turned < TURN_MS) return;
+    await new Promise<void>((r) => nextTurn(r));
+    turned = performance.now();
+  };
+  const track = async <T>(fn: () => Promise<T>): Promise<T> => {
+    if (!opts.dataDir) return fn();
+    await turn();
+    return wal ? wal.track(fn) : fn();
+  };
 
   const make = (q: Pick<PGlite, "query" | "exec">) => ({
     async query<T = Row>(text: string, params: unknown[] = []): Promise<T[]> {

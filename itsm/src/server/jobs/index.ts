@@ -353,7 +353,10 @@ async function runOne(cfg: JobConfig, job: Job, deadline: number): Promise<boole
     cfg,
     db,
     log: cfg.log,
-    deadline,
+    // a closing server (stopTicks): a job that looks at its deadline as it goes ends at its next look, and is queued again
+    get deadline() {
+      return closing.has(db) ? Math.min(deadline, Date.now()) : deadline;
+    },
     save: async (payload) => {
       job.payload = payload as Record<string, any>;
       await db.query(`update sm_jobs set payload = $2::jsonb, updated_at = now() where id = $1`, [job.id, JSON.stringify(payload)]);

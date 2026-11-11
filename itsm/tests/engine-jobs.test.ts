@@ -317,4 +317,37 @@ describe("a closing server's job runner", () => {
       await s.db.close();
     }
   });
+
+  it("a job that works until its deadline stops at its next look and is queued again", async () => {
+    const s = await makeServer();
+    const org = await signupWithOrg(new Client(s.app));
+    const cfg: ServerConfig = { mode: "cloud", db: s.db, secret: "t", allowSignup: true, platformAdmins: [], origin: "cloud", log: quietLog, fetch };
+    let started!: () => void;
+    const first = new Promise<void>((r) => (started = r));
+    let rounds = 0;
+    const off = registerJobHandler("test.long", async (_job, jctx) => {
+      started();
+      // an indexer's loop: a batch, then a look at the deadline
+      while (Date.now() < jctx.deadline - 100) {
+        rounds++;
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      return { again: 0 };
+    });
+    try {
+      await enqueue(s.db, { kind: "test.long", orgId: org });
+      const t = tick(cfg, { budgetMs: 30_000 });
+      await first;
+      const t0 = Date.now();
+      await stopTicks(s.db);
+      expect(Date.now() - t0).toBeLessThan(2_000);
+      await t;
+      const job = await s.db.one<{ status: string }>(`select status from sm_jobs where kind = 'test.long'`);
+      expect(job!.status).toBe("queued");
+      expect(rounds).toBeGreaterThan(0);
+    } finally {
+      off();
+      await s.db.close();
+    }
+  });
 });
