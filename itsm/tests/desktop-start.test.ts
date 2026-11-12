@@ -7,8 +7,13 @@ import { brotliDecompressSync } from "node:zlib";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { serve } from "@hono/node-server";
+import type { AddressInfo } from "node:net";
+import "./fixtures/module";
+import { makeServer, Client } from "./helpers";
 import { startLocal, desktopCacheControl, type LocalServer } from "@local/server";
 import { buildDbTemplate, DB_TEMPLATE_FILE } from "@local/db-template";
+import { MIGRATIONS } from "@server/db/migrations";
 import type { Logger } from "@server/context";
 
 const root = mkdtempSync(join(tmpdir(), "itsm-start-"));
@@ -147,6 +152,86 @@ describe("the first start's database made at build time", () => {
       await s.close();
     }
   });
+});
+
+describe("a first start from the template links to the web version like any first start", () => {
+  const EMAIL = "template-owner@example.com";
+  const PASSWORD = "template-pass-1405";
+  const http = (base: string) => new Client({ fetch: (r: Request) => fetch(r) }, base);
+  /** What a closed local database holds (PGlite opened on its folder, as the next start opens it). */
+  async function inside<T>(dir: string, read: (q: <R>(sql: string, params?: unknown[]) => Promise<R[]>) => Promise<T>): Promise<T> {
+    const { createPgliteDb } = await import("@server/db/pglite");
+    const db = await createPgliteDb({ dataDir: join(dir, "db"), wal: false });
+    try {
+      return await read((sql, params) => db.query(sql, params));
+    } finally {
+      await db.close();
+    }
+  }
+
+  it("holds every migration (0100 in desktop mode) and no cursor or upload; its first pull reads everything, then follows the server's snapshot", async () => {
+    // the web version, with an organisation and a record from before this computer was set up
+    const web = await makeServer({ mode: "cloud" });
+    let url = "";
+    let srv: ReturnType<typeof serve> | null = null;
+    await new Promise<void>((ok) => {
+      srv = serve({ fetch: web.app.fetch, port: 0, hostname: "127.0.0.1" }, (info: AddressInfo) => {
+        url = `http://127.0.0.1:${info.port}`;
+        ok();
+      });
+    });
+    const dir = join(root, "data-linked");
+    let s: LocalServer | null = null;
+    try {
+      const cloud = http(url);
+      await cloud.post("/auth/signup", { email: EMAIL, password: PASSWORD, full_name: "مالک ابری" });
+      const org = (await cloud.post<{ id: string }>("/orgs", { name: "سازمان قالب", timezone: "Asia/Tehran" })).id;
+      await cloud.post(`/o/${org}/data/test_item`, { name: "قلم پیش از نصب" });
+      // the first start: from the database made at build time
+      const log = capture();
+      s = await startLocal({ dataDir: dir, staticDir, port: 0, log, template: templateFile });
+      expect(log.lines.find((l) => l.startsWith("local server on"))).toMatch(/from the template/);
+      await s.close();
+      s = null;
+      // every migration of this build, 0100_xid_revisions in desktop mode (its trigger records local writes in the
+      // outbox, nothing was restamped), and nothing of a sync: no cursor, nothing to upload, no pull session under way
+      await inside(dir, async (q) => {
+        expect((await q<{ id: string }>(`select id from sm_migrations`)).map((r) => r.id)).toEqual(expect.arrayContaining(MIGRATIONS.map((m) => m.id)));
+        expect(await q(`select key from sm_kv where key like 'sync.%'`)).toEqual([]);
+        expect(await q(`select 1 from sm_outbox`)).toEqual([]);
+        expect(await q(`select 1 from sm_sync_seen`)).toEqual([]);
+        expect(await q(`select 1 from sm_org_sync`)).toEqual([]);
+      });
+      // linked: the first pull is a session from nothing and brings the organisation
+      s = await startLocal({ dataDir: dir, staticDir, port: 0, log: capture(), template: templateFile });
+      const desk = http(s.url);
+      expect((await desk.post("/local/cloud/link", { url, email: EMAIL, password: PASSWORD, org_id: org, direction: "download" })).ok).toBe(true);
+      await desk.post("/auth/login", { email: EMAIL, password: PASSWORD });
+      expect((await desk.get(`/o/${org}/data/test_item?q=پیش از نصب`)).total).toBe(1);
+      // then both ways from the cursor: a write here goes up through the outbox, a change on the web comes down
+      await desk.post(`/o/${org}/data/test_item`, { name: "قلم ویندوز از قالب" });
+      await desk.post("/local/sync");
+      expect((await cloud.get(`/o/${org}/data/test_item?q=ویندوز از قالب`)).total).toBe(1);
+      await cloud.post(`/o/${org}/data/test_item`, { name: "قلم وب پس از پیوند" });
+      await desk.post("/local/sync");
+      expect((await desk.get(`/o/${org}/data/test_item?q=پس از پیوند`)).total).toBe(1);
+      await s.close();
+      s = null;
+      // the cursor kept is the server's snapshot of the last complete pull (protocol 16), the outbox is empty, and the
+      // server's record of this computer follows it
+      await inside(dir, async (q) => {
+        const [since] = await q<{ value: unknown }>(`select value from sm_kv where key = 'sync.since'`);
+        expect(String(since?.value)).toMatch(/^\d+:\d+:[\d,]*$/);
+        expect(await q(`select 1 from sm_outbox`)).toEqual([]);
+      });
+      const device = await web.db.one<{ cursor: string }>(`select cursor::text as cursor from sm_devices where org_id = $1`, [org]);
+      expect(Number(device?.cursor)).toBeGreaterThan(0);
+    } finally {
+      await s?.close();
+      await new Promise<void>((r) => (srv ? srv.close(() => r()) : r()));
+      await web.db.close();
+    }
+  }, 600_000);
 });
 
 describe("the app's files in the window's cache", () => {
