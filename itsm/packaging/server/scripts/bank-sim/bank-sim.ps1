@@ -658,7 +658,9 @@ if ($Only.Count -and -not $Report) { if ($script:Aborted) { exit 1 }; exit 0 }
         msi = @((Split-Path -Leaf $Msi10), (Split-Path -Leaf $Msi11)); scenarios = @($script:Results); findings = @($script:Findings); failed = $failed.Count
     }
     Write-Utf8 (Join-Path $Out 'report.json') ($report | ConvertTo-Json -Depth 8)
-    $md = @("# Bank simulation report", '', "Started $($report.started), $($report.minutes) minutes; $($report.machine.os), $($report.machine.cpus) CPUs, $($report.machine.memory_gb) GB; LAN $($script:Lan.Cidr)", '', '| # | Scenario | Result | Seconds |', '|---|---|---|---|')
+    # (no LAN when the first step stopped before finding it)
+    $lanCidr = if ($script:Lan) { $script:Lan.Cidr } else { 'unknown' }
+    $md = @("# Bank simulation report", '', "Started $($report.started), $($report.minutes) minutes; $($report.machine.os), $($report.machine.cpus) CPUs, $($report.machine.memory_gb) GB; LAN $lanCidr", '', '| # | Scenario | Result | Seconds |', '|---|---|---|---|')
     foreach ($r in $script:Results) { $md += "| $($r.id) | $($r.title) | $($r.status) | $($r.seconds) |" }
     foreach ($r in $script:Results) {
         $md += ''; $md += "## $($r.id). $($r.title) - $($r.status)"

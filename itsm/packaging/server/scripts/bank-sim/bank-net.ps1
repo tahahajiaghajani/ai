@@ -13,20 +13,30 @@ $script:AuditConnection = '{0CCE9226-69AE-11D9-BED3-505054503030}'
 $script:AuditPacketDrop = '{0CCE9225-69AE-11D9-BED3-505054503030}'
 
 function Get-LanInfo {
-    $cfg = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter -and $_.NetAdapter.Status -eq 'Up' } | Select-Object -First 1
-    if (-not $cfg) { Fail 'no network adapter with an IPv4 default gateway' }
-    $addr = @($cfg.IPv4Address)[0]
-    $ip = [string]$addr.IPAddress
-    $prefix = [int]$addr.PrefixLength
-    $bytes = [Net.IPAddress]::Parse($ip).GetAddressBytes()
-    [Array]::Reverse($bytes)
-    $n = [int64][BitConverter]::ToUInt32($bytes, 0)
-    $mask = ([int64]0xFFFFFFFF -shl (32 - $prefix)) -band [int64]0xFFFFFFFF
-    $net = $n -band $mask
-    $nb = [BitConverter]::GetBytes([uint32]$net)
-    [Array]::Reverse($nb)
-    $netIp = (New-Object Net.IPAddress (, $nb)).ToString()
-    return [pscustomobject]@{ Ip = $ip; Prefix = $prefix; Cidr = "$netIp/$prefix"; Adapter = $cfg.InterfaceAlias; Gateway = [string]@($cfg.IPv4DefaultGateway)[0].NextHop; Dns = @($cfg.DNSServer | Where-Object { $_.AddressFamily -eq 2 } | ForEach-Object { $_.ServerAddresses }) }
+    # The adapter of the IPv4 default route, from the route, address and DNS tables. (Not Get-NetIPConfiguration: on
+    # some runners it throws 'Exception setting "NetAdapter": Cannot convert the "System.Object[]" value ...' when
+    # more than one adapter answers for an interface.)
+    $routes = @(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | Sort-Object -Property RouteMetric)
+    foreach ($route in $routes) {
+        $index = [int]$route.InterfaceIndex
+        $up = @(Get-NetAdapter -InterfaceIndex $index -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'Up' })
+        if ($up.Count -eq 0) { continue }
+        $addr = @(Get-NetIPAddress -AddressFamily IPv4 -InterfaceIndex $index -ErrorAction SilentlyContinue | Where-Object { [string]$_.IPAddress -notlike '169.254.*' }) | Select-Object -First 1
+        if (-not $addr) { continue }
+        $ip = [string]$addr.IPAddress
+        $prefix = [int]$addr.PrefixLength
+        $bytes = [Net.IPAddress]::Parse($ip).GetAddressBytes()
+        [Array]::Reverse($bytes)
+        $n = [int64][BitConverter]::ToUInt32($bytes, 0)
+        $mask = ([int64]0xFFFFFFFF -shl (32 - $prefix)) -band [int64]0xFFFFFFFF
+        $net = $n -band $mask
+        $nb = [BitConverter]::GetBytes([uint32]$net)
+        [Array]::Reverse($nb)
+        $netIp = (New-Object Net.IPAddress (, $nb)).ToString()
+        $dns = @(Get-DnsClientServerAddress -InterfaceIndex $index -AddressFamily IPv4 -ErrorAction SilentlyContinue | ForEach-Object { $_.ServerAddresses })
+        return [pscustomobject]@{ Ip = $ip; Prefix = $prefix; Cidr = "$netIp/$prefix"; Adapter = [string]$route.InterfaceAlias; Gateway = [string]$route.NextHop; Dns = $dns }
+    }
+    Fail 'no network adapter with an IPv4 default gateway'
 }
 
 function Add-HostsEntries([string]$Ip, [string[]]$Names) {
