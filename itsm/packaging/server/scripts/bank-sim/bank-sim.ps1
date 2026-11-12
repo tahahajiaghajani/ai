@@ -39,6 +39,9 @@ $Msi10 = (Resolve-Path $Msi10).Path
 $Msi11 = (Resolve-Path $Msi11).Path
 $Itsm = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')).Path
 $Js = Join-Path $Itsm 'scripts\bank-sim'
+# the sync protocol of this build (src/shared/constants.ts): what the upgraded and the re-installed server must report
+$SyncProtocol = [regex]::Match((Get-Content -Raw -LiteralPath (Join-Path $Itsm 'src\shared\constants.ts')), 'export const SYNC_PROTOCOL = (\d+);').Groups[1].Value
+if (-not $SyncProtocol) { throw 'SYNC_PROTOCOL not found in src\shared\constants.ts' }
 $NodeExe = (Get-Command node -ErrorAction Stop).Source
 $edition = Read-Edition (Join-Path $PSScriptRoot '..\..')
 $InstallDir = $edition.installDir
@@ -432,7 +435,7 @@ try {
             $mig = @(Select-String -LiteralPath $inst.FullName -Pattern 'migration' -ErrorAction SilentlyContinue)
             Note "install log $($inst.Name): $($mig.Count) migration lines"
         }
-        Invoke-Js 'api.mjs' 'api-verify-upgrade' @('--expect-version', '1.1.0', '--expect-protocol', '15') | Out-Null
+        Invoke-Js 'api.mjs' 'api-verify-upgrade' @('--expect-version', '1.1.0', '--expect-protocol', $SyncProtocol) | Out-Null
         Invoke-Js 'api.mjs' 'api-notify-3' @('--mail-file', $MailFile, '--smtp-port', '587', '--smtp-security', 'starttls', '--who', 'agent2', '--mail-timeout', '120') | Out-Null
         Note '1.1.0 delivers over STARTTLS to the relay whose certificate the bank CA issued'
         Invoke-Js 'api.mjs' 'api-ad-store' | Out-Null
@@ -605,7 +608,7 @@ try {
         $c = Read-Config
         if ([int]$c.listen.https_port -ne $script:Ports.https -or [string]$c.tls.pfx -ne $script:Ports.pfx) { Fail 're-install did not keep the port or the certificate' }
         if (Test-Path (Join-Path $DataDir 'setup-url.txt')) { Fail 'the re-install issued a new setup address although accounts exist' }
-        Invoke-Js 'api.mjs' 'api-verify-reinstall' @('--expect-version', '1.1.0', '--expect-protocol', '15') | Out-Null
+        Invoke-Js 'api.mjs' 'api-verify-reinstall' @('--expect-version', '1.1.0', '--expect-protocol', $SyncProtocol) | Out-Null
         Note 're-installed on the kept data: everything back'
         Copy-ServerLogs
         Invoke-Msi @('/x', $Msi11, 'REMOVEDATA=1') (Join-Path $Out 'logs\msi-uninstall-removedata.log') | Out-Null
