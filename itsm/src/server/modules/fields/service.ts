@@ -7,7 +7,6 @@
 //     read or `settings` edit (lifecycles: `settings` view). `settings` is the membership level or the access model's
 //     grant in the area, whichever the person holds.
 import type { FieldDef, TableDef } from "@shared/model/types";
-import { grantIn } from "@shared/access";
 import { FORM_ROW, cleanArrangement } from "@shared/model/arrangement";
 import { LABELS_ONLY_LIFECYCLES, STATES_ROW, cleanLifecycle, transitionKey, type EffectiveTransition, type LifecycleOverlay } from "@shared/model/lifecycle";
 import { lockedFields } from "@shared/forms/locked";
@@ -15,38 +14,20 @@ import { isRequiredFor, pathsOf, requirementBlockers, requirementEffects, type R
 import {
   BUILTIN_FIELD_TYPES, FIELD_TYPE_GROUPS, availableBuiltinTypes, builtinFieldType, resolveFieldType, type FieldTypeRow,
 } from "@shared/forms/fieldtypes";
-import { PROCESS_DESIGN_AREA } from "@shared/tables/fields";
 import { CUSTOM_FIELD_TYPES } from "@shared/tables/core";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
 import { bad, conflict, forbidden, notFound } from "../../http/errors";
-import { prepareSubject } from "../../access/subject";
 import { createIn, orgSchema, removeIn, systemCtx, updateIn } from "../../engine";
 import type { Row } from "../../engine/hooks";
 import { SETTINGS_ENV, orgFieldTypes } from "./hooks";
 import { libraryUsage, type FieldUsage } from "./usage";
 import { NO_LIBRARY_TABLES, portalReportsThroughCatalogue } from "./combinations";
+import { LIFECYCLE_REFUSAL, designGrant, holdsSettings, type SettingsLevel } from "./grants";
 
 // ---------------------------------------------------------------------------------------------------------------
 // Who may
-
-type SettingsLevel = "view" | "edit" | "full";
-
-/** The person holds `settings` at `level`: their membership level, or the access model's grant in the area. */
-async function holdsSettings(ctx: Ctx, level: SettingsLevel): Promise<boolean> {
-  if (ctx.can("settings", level)) return true;
-  if (ctx.actor !== "user") return false;
-  const g = grantIn((await prepareSubject(ctx)).subject.eff, "settings");
-  if (level === "view") return g.read !== "none";
-  if (level === "edit") return g.write !== "none" || g.create;
-  return g.admin;
-}
-
-async function designGrant(ctx: Ctx) {
-  if (ctx.actor !== "user") return null;
-  return grantIn((await prepareSubject(ctx)).subject.eff, PROCESS_DESIGN_AREA);
-}
 
 /** Reads the library, the types, locks and paths: `process_design` read or `settings` edit. */
 export async function needDesignRead(ctx: Ctx): Promise<void> {
@@ -64,7 +45,7 @@ export async function needDesignWrite(ctx: Ctx): Promise<void> {
 
 export async function needSettings(ctx: Ctx, level: SettingsLevel): Promise<void> {
   if (await holdsSettings(ctx, level)) return;
-  throw forbidden(level === "full" ? "چرخهٔ عمر رکوردها را مدیر سازمان تغییر می‌دهد" : "این تنظیم دسترسی «تنظیمات سازمان» می‌خواهد");
+  throw forbidden(level === "full" ? LIFECYCLE_REFUSAL : "این تنظیم دسترسی «تنظیمات سازمان» می‌خواهد");
 }
 
 /** The system, acting for the person: hooks hold, the person is the actor of history and events. */

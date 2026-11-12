@@ -18,10 +18,11 @@ import { lockRefusal } from "@shared/forms/locked";
 import { isRequiredFor, requirementBlockers } from "@shared/forms/paths";
 import { libraryFieldDef, resolveFieldType, type LibraryFieldRow } from "@shared/forms/fieldtypes";
 import type { Queryable } from "../../db";
-import { bad } from "../../http/errors";
+import { bad, forbidden } from "../../http/errors";
 import { snapshotFor, catalogOf, accessSettings } from "../../access/subject";
-import { orgSchema, pushGuard, registerHooks, validationError, type WriteArgs } from "../../engine";
+import { isSystemCtx, orgSchema, pushGuard, registerHooks, validationError, type WriteArgs } from "../../engine";
 import { SETTINGS_ENV, orgFieldTypes } from "./hooks";
+import { LIFECYCLE_REFUSAL, holdsSettings } from "./grants";
 
 /** Tables that take no library field: a process case keeps its values in one json field (design F §3.6). */
 export const NO_LIBRARY_TABLES = new Set(["process_case"]);
@@ -138,6 +139,11 @@ export async function librarySnapshot(q: Queryable, orgId: string, libraryId: st
 
 async function customFieldRules(w: WriteArgs): Promise<void> {
   if (w.op !== "create" && w.op !== "update") return;
+  // the lifecycle overlay is the administrator's (`settings` full, design F §6.1) on every path — creating, changing or
+  // switching it off through the generic record API as on F1's route (which checks the person, then writes as the system)
+  if ((w.next.name === STATES_ROW || w.prev?.name === STATES_ROW) && !w.trusted && !isSystemCtx(w.ctx) && !(await holdsSettings(w.ctx, "full", w.tx))) {
+    throw forbidden(LIFECYCLE_REFUSAL);
+  }
   if (w.next.active === false) return;
   const base = tableDef(String(w.next.table_key ?? ""));
   if (!base || base.virtual) return;

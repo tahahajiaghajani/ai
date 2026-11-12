@@ -358,4 +358,31 @@ describe("F1's routes", () => {
     expect(paths.effects.find((x: { path: { key: string } }) => x.path.key === "portal_report")).toMatchObject({ checked: false, text: "درخواست‌دهندگان: بررسی نمی‌شود" });
     expect((await e.owner.get(`${P}/fields/paths/incident?required_for=all`)).blockers.length).toBe(1);
   });
+
+  it("keep the lifecycle overlay to administrators on every path: a settings editor changes overrides, never `_states` (F1-2, F1-13)", async () => {
+    const editor = await e.member("member");
+    const mid = (await e.db.one<{ id: string }>(`select id from sm_org_members where org_id = $1 and user_id = $2`, [e.org, editor.userId]))!.id;
+    await e.owner.patch(`${P}/members/${mid}`, { overrides: { settings: "edit" } });
+    const refusal = "چرخهٔ عمر رکوردها را مدیر سازمان تغییر می‌دهد";
+    // the overrides of the default form are theirs
+    const saved = await editor.client.put(`${P}/forms/system/todo/overrides`, { fields: { description: { help: "شرح کار را کامل بنویسید" } } });
+    expect(saved.fields.find((f: { name: string }) => f.name === "description").help).toBe("شرح کار را کامل بنویسید");
+    await editor.client.put(`${P}/forms/system/todo/overrides`, { fields: { description: { help: null } } });
+    // the lifecycle is not: on F1's route…
+    const key = "new,on_hold>in_progress";
+    expect(msg(await editor.client.put(`${P}/lifecycles/todo`, { transitions: [{ key, also: ["tenant_admin"] }] }, 403))).toBe(refusal);
+    // …nor through the generic record API: creating the row,
+    expect(msg(await editor.client.post(`${R}/custom_field`, { table_key: "todo", name: "_states", label: "چرخهٔ عمر", options: { transitions: [{ key, also: ["tenant_admin"] }] } }, 403))).toBe(refusal);
+    expect((await meta(e.owner)).states!.transitions.find((t) => t.to === "in_progress")!.also).toBeUndefined();
+    // changing the administrator's overlay, or switching it off (which would widen who may take the transition)
+    await e.owner.put(`${P}/lifecycles/todo`, { transitions: [{ key, also: ["tenant_admin"] }] });
+    const row = (await e.db.one<{ id: string }>(`select id from sm_custom_fields where org_id = $1 and table_key = 'todo' and name = '_states' and deleted_at is null`, [e.org]))!;
+    expect(msg(await editor.client.patch(`${R}/custom_field/${row.id}`, { options: { transitions: [{ key, also: ["tenant_admin"], when: { and: [{ f: "priority", op: "eq", v: "1" }] } }] } }, 403))).toBe(refusal);
+    expect(msg(await editor.client.patch(`${R}/custom_field/${row.id}`, { active: false }, 403))).toBe(refusal);
+    expect((await meta(e.owner)).states!.transitions.find((t) => t.to === "in_progress")!.also).toEqual(["tenant_admin"]);
+    // the administrator may, on either path
+    await e.owner.patch(`${R}/custom_field/${row.id}`, { active: false });
+    expect((await meta(e.owner)).states!.transitions.find((t) => t.to === "in_progress")!.also).toBeUndefined();
+    await e.owner.put(`${P}/lifecycles/todo`, null);
+  });
 });
