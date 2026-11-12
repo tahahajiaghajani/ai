@@ -6,7 +6,7 @@ import type { FieldDef } from "@shared/model/types";
 import {
   FIELD_CHECKS, acceptedExtensions, attachmentIds, attachmentsProblem, checkMessage, dateLimitProblem, dateRangeProblem,
   decimalPlaces, decimalsProblem, fieldValueProblem, groupChecked, matchesPattern, normalizeChecked, normalizeFieldValue,
-  patternProblem, resolveDateLimit, validChecked,
+  PATTERN_VALUE_MAX, patternProblem, resolveDateLimit, validChecked,
 } from "@shared/forms/validators";
 
 const fa = (s: string) => s.replace(/\d/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[Number(d)]);
@@ -111,6 +111,55 @@ describe("patterns", () => {
     expect(patternProblem("")).toBe("الگو خالی است");
     // an unusable pattern never matches (the write is refused, not let through)
     expect(matchesPattern("(a+)+$", "aaa")).toBe(false);
+  });
+  it("refuse every pattern that backtracks without bound (F1-1)", () => {
+    // each of these took seconds to hours on a value of a few dozen characters before the guard
+    const slow = [
+      // alternatives that share characters under a repeat
+      "^(\\d|\\d)+$", "^(a|aa)+$", "^(\\w|\\d)+$", "^([0-9]|[0-9])*$", "^(\\d|\\d){1,}$", "^(?:\\d|\\d)+$", "^(\\d|\\d){0,500}$",
+      // a part that repeats inside a repeat, also a fixed number of times
+      "^(.*a){12}$", "^(.*a){12,}$", "^(.*,){6}x$", "^(\\w+\\s?)*$", "^(\\d+)+$",
+      // open repeats in a row, and long runs of alternatives or bounded repeats
+      "^.*a.*a.*a.*a.*b$", `^${"(a|aa)".repeat(20)}$`, "^\\d{1,20}\\d{1,20}\\d{1,20}\\d{1,20}\\d{1,20}x$",
+      // without «^» every position of the value is a new start
+      ".*a.*b", "\\d*\\d*$", "\\d{1,20}\\d{1,20}\\d{1,20}x",
+    ];
+    for (const p of slow) {
+      expect(patternProblem(p), p).toContain("کند");
+      expect(matchesPattern(p, "1".repeat(40) + "x")).toBe(false);
+    }
+    expect(patternProblem("^(a|aa)+$")).toContain("[ab]+");
+    expect(patternProblem(".*a.*b")).toContain("با ^ آغاز کنید");
+    // a back-reference by name, and an escaped backslash before a digit (which is no back-reference)
+    expect(patternProblem("(?<x>a)\\k<x>")).toContain("ارجاع");
+    expect(patternProblem("^\\\\1$")).toBeNull();
+    // what organisations write stays usable
+    for (const p of [
+      "^\\d{6}$", "^IR\\d{24}$", "^(\\+98|0)?9\\d{9}$", "^[A-Z]{2}-\\d{4}$", "^[^@]+@[^@]+$", "^.*a.*b$", "^(\\d{3}-)*\\d{4}$", "^\\p{L}+$",
+      "^[^@]{1,64}@[^@]{1,100}\\.[a-z]{2,10}$", "^(?<code>\\d{4})-\\d{2}$", "^(a|b){3}$", "\\d+$", "^[آ-ی ]+$",
+    ]) expect(patternProblem(p), p).toBeNull();
+  });
+  it("judge any accepted pattern quickly on a value of the longest length (F1-1)", () => {
+    // the costliest patterns the guard accepts, each with a value that makes it backtrack the most it can
+    const worst: [string, string][] = [
+      ["^.*a.*b$", "a".repeat(PATTERN_VALUE_MAX)],
+      ["\\d+$", "1".repeat(PATTERN_VALUE_MAX - 1) + "x"],
+      ["^\\d*\\d*$", "1".repeat(PATTERN_VALUE_MAX - 1) + "x"],
+      [".{0,500}x", "1".repeat(PATTERN_VALUE_MAX)],
+      ["\\d{1,20}\\d{1,25}x", "۱".repeat(PATTERN_VALUE_MAX)],
+      ["^\\d{1,20}\\d{1,20}\\d{1,20}\\d{1,20}x$", "1".repeat(PATTERN_VALUE_MAX)],
+      [`^${"(?:a|aa)".repeat(17)}$`, "a".repeat(25) + "b"],
+    ];
+    for (const [p, v] of worst) {
+      expect(patternProblem(p), p).toBeNull();
+      const t0 = performance.now();
+      expect(matchesPattern(p, v)).toBe(false);
+      // about 2–40 ms on a developer machine (first run, before the engine compiles the pattern); the bound leaves
+      // room for a busy test runner — a refused pattern above takes seconds to hours on such a value
+      expect(performance.now() - t0, p).toBeLessThan(150);
+    }
+    // a value longer than any field that takes a pattern stores is never judged
+    expect(matchesPattern("^a+$", "a".repeat(PATTERN_VALUE_MAX + 1))).toBe(false);
   });
   it("speak with the field's own message when it has one", () => {
     const f: FieldDef = { name: "u_code", label: "کد پرسنلی", type: "string", pattern: "^\\d{6}$" };

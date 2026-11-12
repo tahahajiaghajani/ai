@@ -104,38 +104,160 @@ export function groupChecked(check: FieldCheck, value: unknown): string {
 
 /** Longest pattern an organisation may give a field type. */
 export const PATTERN_MAX = 300;
-const compiled = new Map<string, RegExp | null>();
+/** Longest value a pattern judges: a «متن کوتاه» value (its storage limit); a longer value never matches. */
+export const PATTERN_VALUE_MAX = 500;
 
-function regexOf(pattern: string): RegExp | null {
-  if (compiled.has(pattern)) return compiled.get(pattern)!;
+// Speed. JavaScript tries a pattern by backtracking, so a pattern whose parts can share the same characters in many
+// ways — «(a|aa)+», «(\d|\d)+», «(.*a){12}», «.*a.*a.*a.*b», a long run of «(a|aa)» — can take seconds to hours on a
+// value of a few dozen characters, and the server runs it inside the write. A pattern is refused unless the ways it can
+// match a value of PATTERN_VALUE_MAX characters stay within PATTERN_BUDGET (`patternWays`). Parts in a row multiply,
+// alternatives add, a repeat of a part that matches one way counts its possible repeat counts, a repeat of a part with
+// more ways than one multiplies them for every count (an open repeat of one is refused outright), and a pattern that
+// does not start with «^» is tried from every position of the value.
+
+/** Repeat counts an open repeat («*», «+», «{n,}») can choose on a value, and the positions an unanchored pattern starts from. */
+const OPEN_WAYS = PATTERN_VALUE_MAX + 1;
+/** Ways a pattern may match: just above 501², so «^…» allows two open repeats in a row, a pattern without «^» one. */
+const PATTERN_BUDGET = 260_000;
+
+export interface PatternWays {
+  /** an upper bound of the ways the pattern matches a value, from every position it may start at */
+  ways: number;
+  /** a repeat of a part with more than one way to match (nested repeats, alternatives under a repeat) */
+  nested: boolean;
+  /** every top-level alternative starts with «^» */
+  anchored: boolean;
+  /** the pattern names an earlier group (\1, \k<name>) */
+  backref: boolean;
+}
+
+/** Ways a valid ("u") pattern can match (see above). Escapes and character classes are single characters. */
+export function patternWays(src: string): PatternWays {
+  let i = 0;
+  let nested = false;
+  let backref = false;
+  let anchored = true;
+  const escape = () => {
+    const c = src[i + 1];
+    if ((c === "p" || c === "P" || c === "u") && src[i + 2] === "{") i = src.indexOf("}", i) + 1;
+    else if (c === "k" && src[i + 2] === "<") {
+      backref = true;
+      i = src.indexOf(">", i) + 1;
+    } else if (c === "u") i += 6;
+    else if (c === "x") i += 4;
+    else if (c === "c") i += 3;
+    else {
+      if (c >= "1" && c <= "9") backref = true;
+      i += 2;
+    }
+  };
+  const klass = () => {
+    i++;
+    while (i < src.length && src[i] !== "]") {
+      if (src[i] === "\\") escape();
+      else i++;
+    }
+    i++;
+  };
+  const repeat = (part: number): number => {
+    let min: number;
+    let max: number;
+    const c = src[i];
+    if (c === "*" || c === "+" || c === "?") {
+      [min, max] = c === "*" ? [0, Infinity] : c === "+" ? [1, Infinity] : [0, 1];
+      i++;
+    } else if (c === "{") {
+      const m = /^\{(\d+)(?:(,)(\d*))?\}/.exec(src.slice(i));
+      if (!m) return part;
+      min = Number(m[1]);
+      max = m[2] === undefined ? min : m[3] === "" ? Infinity : Number(m[3]);
+      i += m[0].length;
+    } else return part;
+    if (src[i] === "?") i++; // lazy: the same ways in another order
+    if (part <= 1) return Math.max(1, Math.min(max, PATTERN_VALUE_MAX) - Math.min(min, PATTERN_VALUE_MAX) + 1);
+    if (max > 1) nested = true;
+    if (max === Infinity) return Infinity;
+    let ways = 0;
+    for (let k = min; k <= max && ways < 1e15; k++) ways += part ** k;
+    return ways;
+  };
+  const sequence = (): number => {
+    let ways = 1;
+    while (i < src.length && src[i] !== "|" && src[i] !== ")") {
+      let part = 1;
+      const c = src[i];
+      if (c === "(") {
+        i++;
+        // (?: (?= (?! (?<= (?<! (?<name>
+        if (src[i] === "?") i = src[i + 1] === "<" && src[i + 2] !== "=" && src[i + 2] !== "!" ? src.indexOf(">", i) + 1 : i + (src[i + 1] === "<" ? 3 : 2);
+        part = alternatives(false);
+        i++;
+      } else if (c === "[") klass();
+      else if (c === "\\") escape();
+      else i++;
+      ways *= repeat(part);
+    }
+    return ways;
+  };
+  const alternatives = (top: boolean): number => {
+    let ways = 0;
+    for (;;) {
+      const fromStart = src[i] === "^";
+      const branch = sequence();
+      if (top && !fromStart) anchored = false;
+      ways += top && !fromStart ? branch * OPEN_WAYS : branch;
+      if (src[i] !== "|") return ways;
+      i++;
+    }
+  };
+  const ways = alternatives(true);
+  return { ways, nested, anchored, backref };
+}
+
+const checked = new Map<string, { re: RegExp | null; problem: string | null }>();
+
+/** The compiled pattern, or why it cannot be used (cached). */
+function usable(pattern: string): { re: RegExp | null; problem: string | null } {
+  const hit = checked.get(pattern);
+  if (hit) return hit;
   let re: RegExp | null = null;
+  let problem: string | null = null;
   try {
     re = new RegExp(pattern, "u");
   } catch {
-    re = null;
+    problem = "الگو عبارت باقاعدهٔ درستی نیست";
   }
-  if (compiled.size > 500) compiled.clear();
-  compiled.set(pattern, re);
-  return re;
+  if (re) {
+    const w = patternWays(pattern);
+    if (w.backref) problem = "الگو نباید به گروه‌های پیشین ارجاع دهد";
+    else if (!(w.ways <= PATTERN_BUDGET)) {
+      problem = w.nested
+        ? "الگو تکرارِ درونِ تکرار یا گروهِ گزینه‌دارِ تکرارشونده دارد و ممکن است بسیار کند شود؛ آن را ساده کنید، مثلاً [ab]+ به‌جای (a|b)+"
+        : !w.anchored && w.ways / OPEN_WAYS <= PATTERN_BUDGET
+          ? "الگو در هر جای متن از نو آزموده می‌شود و با این تکرارها ممکن است بسیار کند شود؛ آن را با ^ آغاز کنید یا ساده‌تر کنید"
+          : "الگو تکرارهای باز یا گزینه‌های پشت‌سرهمِ زیادی دارد و ممکن است بسیار کند شود؛ آن را ساده کنید";
+    }
+  }
+  if (checked.size > 500) checked.clear();
+  const out = { re: problem ? null : re, problem };
+  checked.set(pattern, out);
+  return out;
 }
 
-// a group that repeats and is itself repeated — «(a+)+», «(\d*)*», «(x{2,})+» — can take very long on a long value
-const NESTED_REPEAT = /\((?:[^()\\]|\\.)*(?:[+*]|\{\d+,\d*\})(?:[^()\\]|\\.)*\)(?:[+*]|\{\d+,\d*\})/;
-
-/** Why a pattern cannot be used (null when it can): too long, not a valid expression, or nested repetition. */
+/** Why a pattern cannot be used (null when it can): empty, too long, not a valid expression, a back-reference, or slow. */
 export function patternProblem(pattern: unknown): string | null {
   if (typeof pattern !== "string" || !pattern.trim()) return "الگو خالی است";
   if (pattern.length > PATTERN_MAX) return `الگو حداکثر ${faDigits(PATTERN_MAX)} نویسه است`;
-  if (!regexOf(pattern)) return "الگو عبارت باقاعدهٔ درستی نیست";
-  if (NESTED_REPEAT.test(pattern)) return "الگو تکرارِ درونِ تکرار دارد و ممکن است بسیار کند شود؛ آن را ساده کنید";
-  if (/\\[1-9]/.test(pattern)) return "الگو نباید به گروه‌های پیشین ارجاع دهد";
-  return null;
+  return usable(pattern).problem;
 }
 
-/** Does the value match the pattern (as typed, or with Latin digits)? A pattern that cannot be used matches nothing. */
+/**
+ * Does the value match the pattern (as typed, or with Latin digits)? A pattern that cannot be used matches nothing,
+ * and neither does a value longer than PATTERN_VALUE_MAX (no field that takes a pattern stores one).
+ */
 export function matchesPattern(pattern: string, value: string): boolean {
-  const re = regexOf(pattern);
-  if (!re || patternProblem(pattern)) return false;
+  if (patternProblem(pattern) || value.length > PATTERN_VALUE_MAX) return false;
+  const re = usable(pattern).re!;
   const latin = normalizeDigits(value);
   return re.test(value) || (latin !== value && re.test(latin));
 }
