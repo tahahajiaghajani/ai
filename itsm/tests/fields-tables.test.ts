@@ -108,6 +108,28 @@ describe("the field library on the server", () => {
     await e.owner.del(`${P}/field_def/${spare.id}`);
   });
 
+  it("leaves the group of sensitivity of a field attached to tables to settings managers (F1-12)", async () => {
+    const O = `/o/${e.org}`;
+    // a designer: «طراحی فرم و گردش‌کار» write through a role of the organisation, and no `settings` edit
+    await e.owner.put(`${O}/access/roles/f1_designer`, { name: "طراح فرم", persona: "agent", grants: { process_design: { read: "all", create: true, write: "all" } }, field_groups: [], contains: [], workspaces: "member", domains: "own" });
+    const designer = await e.member("member");
+    await e.owner.put(`${O}/access/members/${designer.userId}`, { roles: ["f1_designer"] });
+    const nid = (await designer.client.post(`${O}/fields/library`, { name: "u_nid", label: "کد ملی", type: "national_id", field_group: "personal" }, 201)).row;
+    // not attached to a table yet: the group is the designer's to change
+    await designer.client.patch(`${O}/fields/library/${nid.id}`, { field_group: "financial" });
+    await designer.client.patch(`${P}/field_def/${nid.id}`, { field_group: "personal" });
+    await e.owner.post(`${O}/fields/attach`, { table: "incident", field: nid.id }, 201);
+    // attached to «رخدادها»: the group decides who reads the values there — on F1's route and on the generic API
+    const refusal = "گروه فیلد «کد ملی» تغییر نکرد: این فیلد در جدول‌های «رخدادها» به کار رفته است و تغییر گروهش دسترسی «تنظیمات سازمان» می‌خواهد";
+    expect(((await designer.client.patch(`${O}/fields/library/${nid.id}`, { field_group: null }, 403)) as Msg).error.message).toBe(refusal);
+    expect(((await designer.client.patch(`${P}/field_def/${nid.id}`, { field_group: "" }, 403)) as Msg).error.message).toBe(refusal);
+    // the rest of the field stays theirs, the group sent back unchanged included
+    await designer.client.patch(`${O}/fields/library/${nid.id}`, { help: "ده رقم", field_group: "personal" });
+    expect((await e.owner.get(`${P}/field_def/${nid.id}`)).row).toMatchObject({ field_group: "personal", help: "ده رقم" });
+    // a settings manager may
+    expect((await e.owner.patch(`${O}/fields/library/${nid.id}`, { field_group: "financial" })).row.field_group).toBe("financial");
+  });
+
   it("keeps a used type's storage and row, and offers a retired type for no new field", async () => {
     const t = (await e.owner.post(`${P}/field_type`, { key: "u_leave", name: "نوع مرخصی", base: "select", options: [{ value: "a", label: "الف" }] })).row;
     const f = (await e.owner.post(`${P}/field_def`, { name: "u_leave2", label: "مرخصی", type: "u_leave" })).row;

@@ -5,7 +5,8 @@
 //     unused (retire it instead)
 //   · field_def: a name u_* that never changes once the field is used; a known, active type (a retired type is not
 //     offered for new fields); settings its built-in type allows, a target table for references, a known default token;
-//     its storage type kept while it is used; deleted only when unused
+//     its storage type kept while it is used; deleted only when unused; its group of sensitivity (`field_group`)
+//     changed only by holders of `settings` edit once it is attached to tables (`groupChangeRefusal`)
 //   · both are changed on the web version or the server edition: a Windows app's push is refused, as for custom fields
 import type { FieldType } from "@shared/model/types";
 import { validateCond } from "@shared/model/conditions";
@@ -14,12 +15,14 @@ import {
   LIBRARY_NAME, TYPE_KEY, builtinFieldType, libraryFieldDef, libraryFieldSettings, resolveFieldType, sameStorage, typeRowSettings,
   type FieldTypeRow, type SettingsEnv,
 } from "@shared/forms/fieldtypes";
+import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
-import { bad } from "../../http/errors";
-import { actorId, invalidateSchema, registerHooks, updateIn, webOnly, type WriteArgs } from "../../engine";
+import { bad, forbidden } from "../../http/errors";
+import { actorId, invalidateSchema, isSystemCtx, registerHooks, updateIn, webOnly, type WriteArgs } from "../../engine";
 import { pgArray } from "../../db";
 import { sysOf } from "../admin/common";
 import { fieldUsage, fieldsOfType, inUse, type FieldUsage } from "./usage";
+import { holdsSettings } from "./grants";
 
 /** What the shared cleaners cannot know: which tables exist and whether a condition fits a table. */
 export const SETTINGS_ENV: SettingsEnv = {
@@ -79,6 +82,22 @@ async function fieldTypeBefore({ tx, ctx, op, next, prev }: WriteArgs): Promise<
   if (problems.length) throw bad(problems[0]);
 }
 
+const groupOf = (v: unknown): string | null => (v === undefined || v === null || v === "" ? null : String(v));
+
+/** Does a write change a library field's group of sensitivity (`field_group`)? */
+export const groupChanges = (prev: { field_group?: unknown }, next: { field_group?: unknown }): boolean => groupOf(prev.field_group) !== groupOf(next.field_group);
+
+/**
+ * A library field's group of sensitivity decides who reads its values on every table it is attached to, so changing
+ * it there changes those tables (overrides of tables are `settings` edit, design F §6.1) whatever the person's rights in
+ * «طراحی فرم و گردش‌کار». The refusal for a person without `settings` edit, or null.
+ */
+export async function groupChangeRefusal(q: Queryable, ctx: Ctx, field: { id: string; name: string; label: string }): Promise<string | null> {
+  const u = await fieldUsage(q, ctx.org.id, field);
+  if (!u.tables.length || (await holdsSettings(ctx, "edit", q))) return null;
+  return `گروه فیلد «${field.label}» تغییر نکرد: این فیلد ${whereUsed({ tables: u.tables, forms: [], versions: [] })} به کار رفته است و تغییر گروهش دسترسی «تنظیمات سازمان» می‌خواهد`;
+}
+
 /** Default tokens and the storage types they fill. */
 const TOKEN_TYPES: Record<string, FieldType[]> = {
   $now: ["datetime"],
@@ -88,7 +107,7 @@ const TOKEN_TYPES: Record<string, FieldType[]> = {
   $my_domain: ["ref"],
 };
 
-async function fieldDefBefore({ tx, ctx, op, next, prev }: WriteArgs): Promise<void> {
+async function fieldDefBefore({ tx, ctx, op, next, prev, trusted }: WriteArgs): Promise<void> {
   if (op === "delete") {
     const u = await fieldUsage(tx, ctx.org.id, { id: String(prev?.id ?? next.id), name: String(prev?.name ?? next.name ?? "") });
     if (inUse(u)) throw bad(`فیلد «${String(prev?.label ?? next.label ?? "")}» ${whereUsed(u)} به کار رفته است؛ به‌جای حذف، آن را بازنشسته کنید`);
@@ -114,6 +133,11 @@ async function fieldDefBefore({ tx, ctx, op, next, prev }: WriteArgs): Promise<v
       const u = await fieldUsage(tx, ctx.org.id, { id: String(prev.id), name: String(prev.name) });
       if (inUse(u) && renamed) throw bad(`نام فنی «${String(prev.name)}» عوض نمی‌شود: این فیلد ${whereUsed(u)} به کار رفته است`);
       if (inUse(u)) throw bad(`نوع ذخیرهٔ «${label}» عوض نمی‌شود: این فیلد ${whereUsed(u)} به کار رفته است؛ فقط نوعی با همان نوع ذخیره پذیرفته می‌شود (مثلاً فهرست کشویی ↔ گزینه‌های تکی)`);
+    }
+    // a person's write (the generic API, imports); F1's route asks the same of the person before it writes as the system
+    if (!trusted && !isSystemCtx(ctx) && groupChanges(prev, next)) {
+      const refusal = await groupChangeRefusal(tx, ctx, { id: String(prev.id), name: String(prev.name), label: String(prev.label ?? label) });
+      if (refusal) throw forbidden(refusal);
     }
   }
   const { problems } = libraryFieldSettings(next, type, SETTINGS_ENV);

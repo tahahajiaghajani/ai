@@ -23,7 +23,7 @@ import { bad, conflict, forbidden, notFound } from "../../http/errors";
 import { createIn, orgSchema, removeIn, updateIn } from "../../engine";
 import { sysOf } from "../admin/common";
 import type { Row } from "../../engine/hooks";
-import { SETTINGS_ENV, orgFieldTypes } from "./hooks";
+import { SETTINGS_ENV, groupChangeRefusal, groupChanges, orgFieldTypes } from "./hooks";
 import { libraryUsage, type FieldUsage } from "./usage";
 import { NO_LIBRARY_TABLES, portalReportsThroughCatalogue } from "./combinations";
 import { LIFECYCLE_REFUSAL, designGrant, holdsSettings, type SettingsLevel } from "./grants";
@@ -138,7 +138,19 @@ export async function typeList(ctx: Ctx) {
 export async function writeLibrary(ctx: Ctx, table: "field_def" | "field_type", id: string | null, data: Record<string, unknown>): Promise<Row> {
   await needDesignWrite(ctx);
   const sys = actingFor(ctx);
-  return sys.write((tx) => (id ? updateIn(tx, sys, table, id, data) : createIn(tx, sys, table, data)));
+  return sys.write(async (tx) => {
+    // the group of sensitivity of a field attached to tables is the tables' (`settings` edit): asked of the person here,
+    // since the hook sees the system acting for them
+    if (table === "field_def" && id && data.field_group !== undefined) {
+      const prev = await tx.one<{ id: string; name: string; label: string; field_group: string | null }>(
+        `select id, name, label, field_group from sm_field_defs where org_id = $1 and id = $2 and deleted_at is null`,
+        [ctx.org.id, id],
+      );
+      const refusal = prev && groupChanges(prev, data) ? await groupChangeRefusal(tx, ctx, prev) : null;
+      if (refusal) throw forbidden(refusal);
+    }
+    return id ? updateIn(tx, sys, table, id, data) : createIn(tx, sys, table, data);
+  });
 }
 
 // ---------------------------------------------------------------------------------------------------------------
