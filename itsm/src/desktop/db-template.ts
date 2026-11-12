@@ -159,7 +159,12 @@ export async function buildDbTemplate(file: string, log?: Pick<Logger, "info" | 
     writeFileSync(file, tar);
     return { file, bytes: tar.length, migrate_ms: migrateMs, steps, segments_dropped: drop.size };
   } finally {
-    rmSync(work, { recursive: true, force: true });
+    // a temporary folder (Windows may hold a file a moment longer after PGlite closes): never a failed build for it
+    try {
+      rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    } catch {
+      /* left in the temporary folder */
+    }
   }
 }
 
