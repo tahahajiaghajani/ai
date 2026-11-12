@@ -11,7 +11,8 @@ import { periodKeyOf } from "@shared/financial/logic";
 import { todayISO } from "@shared/jalali";
 import type { Row, Tx } from "@server/db";
 import { createIn, registerHooks, transitionIn, updateIn, type RecordEvent } from "@server/engine";
-import { consumePartIn, onRequestItem } from "@server/modules/itam/jobs";
+import { consumePartIn, itamSweep, onRequestItem } from "@server/modules/itam/jobs";
+import { bookValueOf } from "@server/modules/itam/hooks";
 import { checkStockRules, scan } from "@server/modules/itam/stock";
 import { openAttestations, resolveAuditItem } from "@server/modules/itam/bank";
 import { checkout } from "@server/modules/itam/assets";
@@ -384,6 +385,54 @@ describe.skipIf(!realPgAvailable())("assets, services and operations: writes sid
       const outcomes = (two as PromiseFulfilledResult<PromiseSettledResult<unknown>[]>).value;
       expect(outcomes.map((o) => o.status).sort()).toEqual(["fulfilled", "rejected"]);
       expect(message(outcomes.find((o) => o.status === "rejected")!)).toContain("در حوالهٔ باز");
+    });
+
+    it("A3-14: two certification tasks of one campaign done at once are both counted", async () => {
+      const campaign = await made("ci_cert_campaign", { name: `دورهٔ تأیید ${pid}`, due_at: new Date(Date.now() + 7 * 86_400_000).toISOString(), state: "active" });
+      const task = (n: number) => made("ci_cert_task", { short_description: `تأیید ${n}`, campaign_id: campaign.id });
+      const [t1, t2] = [await task(1), await task(2)];
+      // the campaign is held by a write of its own while two owners confirm their tasks
+      const holder = holdRow("sm_ci_cert_campaigns", campaign.id);
+      const done = (id: string) => w.sys.write((tx) => transitionIn(tx, w.sys, "ci_cert_task", id, "done", {}, { trusted: true }));
+      const both = await whileHeld(holder, () => Promise.all([done(t1.id), done(t2.id)]), 2);
+      expect(both.status, message(both)).toBe("fulfilled");
+      expect(Number((await rowOf("sm_ci_cert_campaigns", campaign.id)).done_count)).toBe(2);
+    });
+
+    it("A3-17: two receipts of an order's last lines posted at once leave the order received", async () => {
+      const po = await made("purchase_order", { title: `سفارش دو سطری ${pid}`, state: "partially_received" });
+      const line = (n: number) => made("purchase_order_line", { po_id: po.id, description: `کالای ${n}`, quantity: 1 });
+      const [l1, l2] = [await line(1), await line(2)];
+      const receipt = async (l: Row) => {
+        const g = await made("goods_receipt", { po_id: po.id, stockroom_id: central });
+        await made("goods_receipt_line", { receipt_id: g.id, po_line_id: l.id, quantity: 1 });
+        return g;
+      };
+      const [g1, g2] = [await receipt(l1), await receipt(l2)];
+      // the order is held by a write of its own while both receipts are posted
+      const holder = holdRow("sm_purchase_orders", po.id);
+      const post = (id: string) => w.sys.write((tx) => transitionIn(tx, w.sys, "goods_receipt", id, "posted", {}, { trusted: true }));
+      const both = await whileHeld(holder, () => Promise.all([post(g1.id), post(g2.id)]), 2);
+      expect(both.status, message(both)).toBe("fulfilled");
+      const after = await rowOf("sm_purchase_orders", po.id);
+      expect(after.state).toBe("received");
+      expect(after.received_at).toBeTruthy();
+    });
+
+    it("A3-41: the sweep's book value follows a cost changed while it ran", async () => {
+      const a = await made("asset", { model_id: laptop, state: "in_use", purchase_cost: "600000000", purchase_date: "2025-03-21", serial_number: `BV-${pid}` });
+      expect(a.depreciation_rule_id).toBeTruthy();
+      // last valued in an earlier month: the sweep lists it as due
+      await w.e.db.query(`update sm_assets set book_value_at = '2025-01-01' where id = $1`, [a.id]);
+      // the cost correction is in flight when the sweep's batch reaches the asset
+      const correcting = hold(w.e.db, (tx) => updateIn(tx, w.sys, "asset", a.id, { purchase_cost: "300000000" }, { trusted: true }));
+      const swept = await whileHeld(correcting, () => itamSweep(w.sys));
+      expect(swept.status, message(swept)).toBe("fulfilled");
+      const after = await rowOf("sm_assets", a.id);
+      const rule = await rowOf("sm_depreciation_rules", String(after.depreciation_rule_id));
+      const want = bookValueOf({ ...rule, life_months: Number(rule.life_months), salvage_percent: rule.salvage_percent }, { ...after, purchase_cost: String(after.purchase_cost) }, String(after.book_value_at).slice(0, 10));
+      expect(String(after.purchase_cost)).toBe("300000000");
+      expect(String(after.book_value)).toBe(String(want?.book_value));
     });
 
     it("A3-18: two stock checks at once raise one requisition and one alert per shortage", async () => {
