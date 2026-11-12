@@ -505,11 +505,28 @@ DDL indexes the anchor columns and the own user fields of every table with own f
 
 Both are ordinary engine tables (lists, forms, history, sync for free; area `settings`):
 
-- `custom_field` rows `{ table_key, name, label, type, choices | options, ref, required, list, search, filter, help,
-  section, max_length, sort_order, active }`. A name `u_*` adds a field stored in the row's `custom` jsonb —
-  validated, filterable, sortable, searchable, audited and synced like a built-in one (types: every type except
-  `secret`, `json`, `conditions`). The name of an existing field overrides its `label`, `help`, `list` and can make an
-  optional field `required`.
+- `custom_field` rows `{ table_key, name, label, type, choices | options, ref, required, required_for, list, search,
+  filter, help, placeholder, form_hidden, library_id, section, max_length, sort_order, active }`. A name `u_*` adds a
+  field stored in the row's `custom` jsonb — validated, filterable, sortable, searchable, audited and synced like a
+  built-in one (types: every type except `secret`, `json`, `conditions`). The name of an existing field overrides its
+  `label`, `help`, `placeholder`, `list`, hides it from forms only (`form_hidden` → `FieldDef.formHidden`: lists,
+  filters, boards and exports keep it) and can make an optional field required. An organisation's requirement
+  (`required` + `required_for` «همه» | «فقط کارشناسان» → `FieldDef.formRequired`) binds people's writes only — the API,
+  imports and Windows pushes, checked by the field library's `*` hook — never the system or trusted code (e-mail,
+  event rules, jobs); `GET /meta/tables` shows it as `required` to the people it binds. A module's requirement stays
+  `FieldDef.required` and binds every write. Locked fields (`@shared/forms/locked`) are never hidden or required, and
+  the refused combinations (hidden and required, a UI policy's mandatory on a hidden field…) are refused on every path
+  (design F §3.3, `src/server/modules/fields`).
+- A row with `library_id` attaches a field of the library (`field_def` and its `field_type`, design F §3.1): its type,
+  validation (named checks, patterns, decimals, date limits, «پیوست»), options, label and help come from the library,
+  so a change there reaches every table; the row keeps a copy in `options.field` for runtimes that do not receive the
+  library's rows. The schema stamp covers `sm_field_defs` and `sm_field_types` too.
+- The row named `"_states"` (`STATES_ROW`, `@shared/model/lifecycle`) is the lifecycle overlay: state and transition
+  labels and colours, one primary transition, `off` for transitions a module marks `optional` (never the only way out
+  of a state), `also` (one of these roles as well — `canTransitionRow`), and `requires`/`when` for people's writes
+  only (`*` validateTransition hooks, on the API and the push path). Values, categories, `from`/`to` and guards stay
+  the module's.
+- Choice options a module marks `locked` are relabelled, recoloured or reordered by `choice` rows, never deactivated.
 - `choice` rows `{ list, value, label, color, sort_order, parent, active }` extend or edit the default options of a
   list by value; `active: false` hides an option for new values; an empty `sort_order` keeps the default's position.
 - The `custom_field` row named `"_form"` (`FORM_ROW`, `@shared/model/arrangement`) is the form layout designer's
