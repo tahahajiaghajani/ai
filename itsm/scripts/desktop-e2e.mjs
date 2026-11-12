@@ -619,7 +619,13 @@ function finish() {
       process_ms: Number(m[5]),
     }));
     if (starts.length && report.starts.cold) report.starts.cold.server = starts[0];
+    // desktop/src/main.ts: «[cache] N/M files of the build in the window's cache (N ms)», once per version
+    const warm = /\[cache\] (\d+)\/(\d+) files of the build in the window's cache \((\d+) ms\)/.exec(text);
+    if (warm) report.cache_warmup = { read: Number(warm[1]), files: Number(warm[2]), ms: Number(warm[3]) };
     if (starts.length > 1 && report.starts.warm) report.starts.warm.server = starts.at(-1);
+    // the installer's database made at build time (src/desktop/db-template.ts): a first start that fell back to initdb
+    // and every migration still works, slowly — this says so
+    if (report.starts.cold) C.check(report.starts.cold.server?.template === true, "the first start opens the database made at build time (app.log)", JSON.stringify(report.starts.cold.server ?? null));
     report.database.log_prepared = (text.match(/database log prepared.*/g) ?? []).slice(-2);
   }
   // budgets
