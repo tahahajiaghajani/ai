@@ -16,7 +16,9 @@ import {
 } from "@shared/forms/fieldtypes";
 import type { Queryable } from "../../db";
 import { bad } from "../../http/errors";
-import { invalidateSchema, registerHooks, webOnly, type WriteArgs } from "../../engine";
+import { actorId, invalidateSchema, registerHooks, updateIn, webOnly, type WriteArgs } from "../../engine";
+import { pgArray } from "../../db";
+import { sysOf } from "../admin/common";
 import { fieldUsage, fieldsOfType, inUse, type FieldUsage } from "./usage";
 
 /** What the shared cleaners cannot know: which tables exist and whether a condition fits a table. */
@@ -132,13 +134,43 @@ async function fieldDefBefore({ tx, ctx, op, next, prev }: WriteArgs): Promise<v
   }
 }
 
+/**
+ * The `custom_field` rows that attach these library fields are written again (as the system, for the person who
+ * changed the library): their hook stores the field's new definition on them, and Windows apps receive it.
+ */
+async function refreshAttached(w: WriteArgs, libraryIds: string[]): Promise<void> {
+  if (!libraryIds.length) return;
+  const rows = await w.tx.query<{ id: string; library_id: string }>(
+    `select id, library_id from sm_custom_fields where org_id = $1 and library_id = any($2::uuid[]) and deleted_at is null`,
+    [w.ctx.org.id, pgArray(libraryIds)],
+  );
+  const sys = sysOf(w.ctx, actorId(w.ctx));
+  for (const r of rows) await updateIn(w.tx, sys, "custom_field", r.id, { library_id: r.library_id }, { trusted: true });
+}
+
 let installed = false;
 
 export function installFieldHooks(): void {
   if (installed) return;
   installed = true;
-  // the schema cache follows both tables through its stamp; the request that changed them sees the change at once
-  const fresh = ({ ctx }: WriteArgs) => invalidateSchema(ctx.org.id);
-  registerHooks("field_type", { beforeWrite: fieldTypeBefore, afterWrite: fresh, ...webOnly("نوع فیلد") });
-  registerHooks("field_def", { beforeWrite: fieldDefBefore, afterWrite: fresh, ...webOnly("فیلد") });
+  // the schema cache follows both tables through its stamp; the request that changed them sees the change at once, and
+  // the tables a changed field (or a field of a changed type) is attached to get its new definition on their rows
+  registerHooks("field_type", {
+    beforeWrite: fieldTypeBefore,
+    async afterWrite(w) {
+      invalidateSchema(w.ctx.org.id);
+      if (w.op !== "update") return;
+      const fields = await w.tx.query<{ id: string }>(`select id from sm_field_defs where org_id = $1 and type = $2 and deleted_at is null`, [w.ctx.org.id, String(w.row.key ?? "")]);
+      await refreshAttached(w, fields.map((f) => f.id));
+    },
+    ...webOnly("نوع فیلد"),
+  });
+  registerHooks("field_def", {
+    beforeWrite: fieldDefBefore,
+    async afterWrite(w) {
+      invalidateSchema(w.ctx.org.id);
+      if (w.op === "update") await refreshAttached(w, [String(w.row.id)]);
+    },
+    ...webOnly("فیلد"),
+  });
 }

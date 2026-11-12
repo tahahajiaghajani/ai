@@ -212,16 +212,44 @@ export function customFieldDef(r: Pick<CustomFieldRow, "name" | "label" | "type"
 function libraryField(table: string, r: CustomFieldRow, library: LibraryRows | null): FieldDef | null {
   if (NO_LIBRARY_FIELDS.has(table) || !CUSTOM_NAME.test(r.name)) return null;
   const lib = library?.fields.get(String(r.library_id));
-  if (!lib) return null;
-  const type = resolveFieldType(lib.type, library!.types, LIBRARY_ENV);
-  if (!type) return null;
-  const f = libraryFieldDef(lib, type, LIBRARY_ENV);
+  let f: FieldDef | null = null;
+  if (lib) {
+    const type = resolveFieldType(lib.type, library!.types, LIBRARY_ENV);
+    f = type ? libraryFieldDef(lib, type, LIBRARY_ENV) : null;
+  } else f = snapshotField(r.options);
   if (!f) return null;
   // values live in `custom` under the row's name (the library keeps it while the field is used)
   f.name = r.name;
+  f.library ??= r.name;
   if (r.section) f.section = r.section;
   if (r.required) f.formRequired = requiredFor(r);
   if (r.form_hidden) f.formHidden = true;
+  return f;
+}
+
+/** Keys of a library field's definition that the snapshot on its `custom_field` row may carry. */
+const SNAPSHOT_KEYS: (keyof FieldDef)[] = [
+  "label", "type", "help", "placeholder", "default", "choices", "dependsOn", "ref", "refFilter", "min", "max", "maxLength", "list", "search", "filter",
+  "group", "ltr", "widget", "pattern", "patternMessage", "check", "decimals", "unit", "minDate", "maxDate", "accept",
+];
+
+/**
+ * A library field from the definition its `custom_field` row carries (`options.field`, kept by the field library's
+ * hook): a Windows app that does not receive the library's rows still builds the field. Null when it is not usable.
+ */
+function snapshotField(raw: unknown): FieldDef | null {
+  const s = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as { field?: unknown }).field : null;
+  if (!s || typeof s !== "object" || Array.isArray(s)) return null;
+  const x = s as Record<string, unknown>;
+  const type = x.type as FieldType;
+  if (typeof type !== "string" || !(type in FIELD_TYPES) || type === "secret" || type === "conditions") return null;
+  const f = { name: "", label: "", type } as FieldDef;
+  for (const k of SNAPSHOT_KEYS) if (x[k] !== undefined && x[k] !== null) (f as unknown as Record<string, unknown>)[k] = x[k];
+  if (typeof f.label !== "string" || !f.label) return null;
+  if ((type === "ref" || type === "refs") && (typeof f.ref !== "string" || !TABLES.has(f.ref))) return null;
+  if (f.group && !(f.group in FIELD_GROUPS)) delete f.group;
+  if (Array.isArray(f.choices)) f.choices = cleanOptions(f.choices);
+  f.custom = true;
   return f;
 }
 

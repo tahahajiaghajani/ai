@@ -16,7 +16,7 @@ import { FORM_ROW } from "@shared/model/arrangement";
 import { LABELS_ONLY_LIFECYCLES, STATES_ROW, cleanLifecycle, lifecycleProblems, type EffectiveTransition } from "@shared/model/lifecycle";
 import { lockRefusal } from "@shared/forms/locked";
 import { isRequiredFor, requirementBlockers } from "@shared/forms/paths";
-import { resolveFieldType } from "@shared/forms/fieldtypes";
+import { libraryFieldDef, resolveFieldType, type LibraryFieldRow } from "@shared/forms/fieldtypes";
 import type { Queryable } from "../../db";
 import { bad } from "../../http/errors";
 import { snapshotFor, catalogOf, accessSettings } from "../../access/subject";
@@ -120,6 +120,22 @@ async function fieldRules(w: WriteArgs, base: TableDef): Promise<void> {
   }
 }
 
+/**
+ * The field a library row stands for, as its table needs it (`libraryFieldDef` of the field and its type), kept on the
+ * row in `options.field`: a Windows app whose account does not read «طراحی فرم و گردش‌کار» still has it (it receives the
+ * `custom_field` row, not the library's), so a library field behaves there like any custom field.
+ */
+export async function librarySnapshot(q: Queryable, orgId: string, libraryId: string): Promise<FieldDef | null> {
+  const lib = await q.one<LibraryFieldRow>(
+    `select name, label, type, help, placeholder, default_value, options, choices, depends_on, validation, field_group, list, search, filter, status
+     from sm_field_defs where org_id = $1 and id = $2 and deleted_at is null`,
+    [orgId, libraryId],
+  );
+  if (!lib) return null;
+  const type = resolveFieldType(lib.type, await orgFieldTypes(q, orgId), SETTINGS_ENV);
+  return type ? libraryFieldDef(lib, type, SETTINGS_ENV) : null;
+}
+
 async function customFieldRules(w: WriteArgs): Promise<void> {
   if (w.op !== "create" && w.op !== "update") return;
   if (w.next.active === false) return;
@@ -131,7 +147,12 @@ async function customFieldRules(w: WriteArgs): Promise<void> {
     if (w.op === "create" || w.prev?.active === false || ["options", "table_key", "name"].some((c) => w.changed.has(c))) await statesRules(w, base);
     return;
   }
-  if (w.next.library_id) await libraryRules(w, base);
+  if (w.next.library_id) {
+    await libraryRules(w, base);
+    // whatever the write says, the row carries the library's current definition
+    const field = await librarySnapshot(w.tx, w.ctx.org.id, String(w.next.library_id));
+    w.next.options = field ? { field } : null;
+  }
   await fieldRules(w, base);
 }
 

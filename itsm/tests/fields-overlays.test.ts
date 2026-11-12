@@ -94,6 +94,25 @@ describe("library fields on tables", () => {
     expect((await e.owner.patch(`${R}/todo/${a.id}`, { u_files: [mine.toUpperCase()] })).row.u_files).toEqual([mine]);
   });
 
+  it("keep their definition on the table's row, for Windows apps that do not receive the library", async () => {
+    const lib = (await e.owner.post(`${P}/fields/library`, { name: "u_contract_no", label: "شمارهٔ قرارداد", type: "string", validation: { maxLength: 20 } }, 201)).row;
+    await e.owner.post(`${P}/fields/attach`, { table: "todo", field: lib.id }, 201);
+    const stored = async () => (await e.db.one<{ options: { field: Record<string, unknown> } }>(`select options from sm_custom_fields where org_id = $1 and table_key = 'todo' and name = 'u_contract_no' and deleted_at is null`, [e.org]))!.options;
+    expect((await stored()).field).toMatchObject({ label: "شمارهٔ قرارداد", type: "string", maxLength: 20, library: "u_contract_no" });
+    await e.owner.patch(`${P}/fields/library/${lib.id}`, { label: "شمارهٔ پیمان" });
+    expect((await stored()).field.label).toBe("شمارهٔ پیمان");
+    // a change of the field's type reaches the rows too
+    const type = (await e.owner.post(`${P}/fields/types`, { key: "u_contract_code", name: "کد قرارداد", base: "string", validation: { maxLength: 30 } }, 201)).row;
+    await e.owner.patch(`${P}/fields/library/${lib.id}`, { type: "u_contract_code", validation: null });
+    expect((await stored()).field.maxLength).toBe(30);
+    await e.owner.patch(`${P}/fields/types/${type.id}`, { validation: { maxLength: 20 } });
+    expect((await stored()).field.maxLength).toBe(20);
+    // a runtime without the library's rows (an account that does not read «طراحی فرم و گردش‌کار») builds it from the row
+    await e.db.query(`update sm_field_defs set deleted_at = now(), updated_at = now() + interval '2 seconds' where id = $1`, [lib.id]);
+    expect(fieldOf(await meta(e.owner), "u_contract_no")).toMatchObject({ label: "شمارهٔ پیمان", type: "string", maxLength: 20, library: "u_contract_no", custom: true });
+    await e.owner.post(R + "/todo", { short_description: "قرارداد", u_contract_no: "x".repeat(21) }, 400);
+  });
+
   it("are refused when retired, already attached, or under another name", async () => {
     const lib = (await e.owner.post(`${P}/fields/library`, { name: "u_old", label: "قدیمی", type: "string" }, 201)).row;
     await e.owner.patch(`${P}/fields/library/${lib.id}`, { status: "retired" });
