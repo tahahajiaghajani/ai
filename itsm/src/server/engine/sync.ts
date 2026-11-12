@@ -40,6 +40,7 @@ import { emitLinkEvents } from "./links";
 import { filterSide, filtersSide, guardFor, hooksFor, redactRows, redacts } from "./hooks";
 import { transitionsFrom } from "@shared/model/task";
 import { localDate } from "@shared/model/jalali-buckets";
+import { attachmentsProblem } from "@shared/forms/validators";
 
 /**
  * Base columns a module's `derivePush` may set: the access anchors it copies (an alert's unit and domain from its CI)
@@ -207,6 +208,8 @@ async function checkRecord(tx: Tx, ctx: Ctx, def: TableDef, schema: OrgSchema, e
     } else row[f.name] = value;
   }
   if ("custom" in row || prev) row.custom = custom;
+  const files = await pushedAttachmentsProblem(tx, ctx, def, wire.id, prev, row, custom);
+  if (files) return files;
   if (prev && !isSystemCtx(ctx)) {
     const refusal = await checkPushedChange(tx, ctx, def, env, prev, row);
     if (refusal) return refusal;
@@ -244,6 +247,40 @@ async function checkRecord(tx: Tx, ctx: Ctx, def: TableDef, schema: OrgSchema, e
 }
 
 const isEmptyValue = (v: unknown) => v === null || v === undefined || v === "" || (Array.isArray(v) && !v.length);
+
+/**
+ * «پیوست» fields (`check: "attachments"`) of a pushed row, as on the API (`checkRefs`): an id stored as an attachment
+ * of another record is refused, and the record's own attachments must be of an accepted kind. An id not stored yet
+ * passes — an upload the same Windows app pushes later — so records made offline keep their files. One query for all
+ * such fields; values the push leaves as they were are not judged again.
+ */
+async function pushedAttachmentsProblem(tx: Tx, ctx: Ctx, def: TableDef, id: string, prev: Row | null, row: Row, custom: Row): Promise<string | null> {
+  const valueOf = (f: FieldDef): unknown => (f.custom ? custom[f.name] : row[f.name]);
+  const named = def.fields.filter((f) => {
+    if (f.check !== "attachments") return false;
+    const v = valueOf(f);
+    return Array.isArray(v) && v.length > 0 && !(prev && sameValue(f, prev[f.name], v));
+  });
+  if (!named.length) return null;
+  const ids = [...new Set(named.flatMap((f) => (valueOf(f) as unknown[]).map((x) => String(x).toLowerCase())))];
+  const rows = await tx.query<{ id: string; table_key: string; record_id: string; name: string; deleted_at: unknown }>(
+    `select id, table_key, record_id, name, deleted_at from sm_attachments where org_id = $1 and id = any($2::uuid[])`,
+    [ctx.org.id, pgArray(ids)],
+  );
+  const stored = new Map(rows.map((r) => [String(r.id).toLowerCase(), r]));
+  for (const f of named) {
+    const own = new Map<string, { name: string }>();
+    for (const x of (valueOf(f) as unknown[]).map((v) => String(v).toLowerCase())) {
+      const a = stored.get(x);
+      if (!a) continue;
+      if (a.table_key !== def.key || String(a.record_id).toLowerCase() !== id.toLowerCase()) return attachmentsProblem(f, [x], new Map());
+      if (!a.deleted_at) own.set(x, { name: String(a.name) });
+    }
+    const p = attachmentsProblem(f, [...own.keys()], own);
+    if (p) return p;
+  }
+  return null;
+}
 
 /**
  * A pushed change of an existing record by a member (not the system), held to what the API lets that member do:

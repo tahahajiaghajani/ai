@@ -124,6 +124,28 @@ describe("library fields on tables", () => {
     expect(((await member.client.post(`${R}/todo`, { short_description: "دیروز از API", u_start: day(-1) }, 400)) as Msg).error.details?.fields?.u_start).toMatch(/نباید پیش از/);
   });
 
+  it("hold a Windows app's «پیوست» value to the record's own files, as the API does (F1-11)", async () => {
+    const c = (await e.owner.post(R + "/todo", { short_description: "پیوست پ" })).row;
+    const d = (await e.owner.post(R + "/todo", { short_description: "پیوست ت" })).row;
+    const pdf = new TextEncoder().encode("%PDF-1.4\n%demo\n");
+    const up = async (id: string, name: string, data: Uint8Array, type: string) => (await (await upload(e.app, e.owner, `${R}/todo/${id}/attachments`, name, data, type)).json()).attachment.id as string;
+    const ofC = await up(c.id, "c.pdf", pdf, "application/pdf");
+    const ofD = await up(d.id, "d.pdf", pdf, "application/pdf");
+    const shot = await up(d.id, "d.png", PNG, "image/png");
+    // another record's file is refused, and the stored value stays
+    expect(await push(e.owner, "todo", d.id, { custom: { u_files: [ofC] } })).toMatchObject({ status: "error", message: "پیوست‌های «مدارک» باید از پرونده‌های همین رکورد باشند" });
+    expect(await push(e.owner, "todo", d.id, { custom: { u_files: [ofD, ofC.toUpperCase()] } })).toMatchObject({ status: "error", message: "پیوست‌های «مدارک» باید از پرونده‌های همین رکورد باشند" });
+    expect((await e.owner.get(`${R}/todo/${d.id}`)).row.u_files).toBeNull();
+    // the record's own files of an accepted kind pass; a kind the field does not take does not
+    expect(await push(e.owner, "todo", d.id, { custom: { u_files: [shot] } })).toMatchObject({ status: "error", message: expect.stringContaining("فقط این نوع پرونده‌ها") });
+    expect((await push(e.owner, "todo", d.id, { custom: { u_files: [ofD] } })).status).toBe("ok");
+    expect((await e.owner.get(`${R}/todo/${d.id}`)).row.u_files).toEqual([ofD]);
+    // a file not stored yet (an upload the same device pushes later) passes, so records made offline keep their files
+    const later = uuidv7();
+    expect((await push(e.owner, "todo", c.id, { custom: { u_files: [ofC, later] } })).status).toBe("ok");
+    expect((await e.owner.get(`${R}/todo/${c.id}`)).row.u_files).toEqual([ofC, later]);
+  });
+
   it("keep their definition on the table's row, for Windows apps that do not receive the library", async () => {
     const lib = (await e.owner.post(`${P}/fields/library`, { name: "u_contract_no", label: "شمارهٔ قرارداد", type: "string", validation: { maxLength: 20 } }, 201)).row;
     await e.owner.post(`${P}/fields/attach`, { table: "todo", field: lib.id }, 201);
