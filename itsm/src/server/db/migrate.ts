@@ -7,9 +7,12 @@
 // for engine chunks), so a step cut short (a function killed at its time limit, a dropped connection) is rolled back and
 // simply runs again: nothing is ever half-applied, and nothing done is done twice.
 //
-// - `migrate(db)` runs the whole plan (the Windows app, the server edition, tests, scripts/migrate-db.mts, the build).
-// - `migrateSteps(db, { budgetMs, wait: false })` runs steps until the budget is spent and never queues behind another
-//   instance's step (the web version, inside requests while the schema is incomplete: src/server/cloud.ts).
+// - `migrate(db)` runs the whole plan, then the start-up's transaction-id regression check (sync/snapshot.ts
+//   `checkXidRegression` with restamp: a database restored into another cluster) — the Windows app, the server
+//   edition, tests.
+// - `migrateSteps(db, { budgetMs, wait })` runs the plan's steps alone: `scripts/migrate-db.mts` and the build all of them,
+//   the web version within a budget per request without queueing behind another instance's step (`wait: false`, while
+//   the schema is incomplete: src/server/cloud.ts, which runs the regression check when an instance loads its app).
 import type { Db, Queryable } from "./index";
 import { MIGRATIONS, SCHEMA_VERSION } from "./migrations";
 import { engineChunks, engineProgress, readEngineProgress, type EngineChunk } from "../engine/ddl";
