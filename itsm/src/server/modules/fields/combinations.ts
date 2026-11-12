@@ -5,7 +5,8 @@
 //     policy makes it mandatory or a transition of the organisation's lifecycle requires it; «همه» is refused where
 //     people create through a fixed form that cannot carry the field (`requirementBlockers`: the portal's built-in
 //     «گزارش مشکل»);
-//   · library rows (`library_id`): a live, active library field, under its own name, never on a process case;
+//   · library rows (`library_id`): a live, active library field, under its own name, never on a process case, never
+//     over values an earlier field of that name (deactivated or deleted) left with another meaning;
 //   · the `_states` row: a valid lifecycle overlay (`lifecycleProblems`), stored clean;
 //   · `ui_policy`: no mandatory field that is hidden from the form;
 //   · `choice`: an option a module marks `locked` is never deactivated (relabelled, recoloured, reordered: yes).
@@ -16,11 +17,12 @@ import { FORM_ROW } from "@shared/model/arrangement";
 import { LABELS_ONLY_LIFECYCLES, STATES_ROW, cleanLifecycle, lifecycleProblems, type EffectiveTransition } from "@shared/model/lifecycle";
 import { lockRefusal } from "@shared/forms/locked";
 import { isRequiredFor, requirementBlockers } from "@shared/forms/paths";
-import { libraryFieldDef, resolveFieldType, type LibraryFieldRow } from "@shared/forms/fieldtypes";
+import { libraryFieldDef, resolveFieldType, storageChange, type LibraryFieldRow } from "@shared/forms/fieldtypes";
 import type { Queryable } from "../../db";
 import { bad, forbidden } from "../../http/errors";
 import { snapshotFor, catalogOf, accessSettings } from "../../access/subject";
 import { isSystemCtx, orgSchema, pushGuard, registerHooks, validationError, type WriteArgs } from "../../engine";
+import { customFieldDef, snapshotField } from "../../engine/schema";
 import { SETTINGS_ENV, orgFieldTypes } from "./hooks";
 import { LIFECYCLE_REFUSAL, holdsSettings } from "./grants";
 
@@ -69,10 +71,52 @@ async function statesRules(w: WriteArgs, base: TableDef): Promise<void> {
   w.next.options = cleanLifecycle(w.next.options);
 }
 
-/** A library row: an active library field of the organisation, under its own name, on a table that takes one. */
-async function libraryRules(w: WriteArgs, base: TableDef): Promise<void> {
-  const { tx, ctx, op, next, changed } = w;
-  if (!(op === "create" || changed.has("library_id") || changed.has("name") || changed.has("table_key"))) return;
+/** Columns of an earlier row of a field on a table: its values stay in `custom`, a deleted row's too. */
+interface EarlierRow {
+  library_id: string | null;
+  deleted_at: string | null;
+  name: string;
+  label: string;
+  type: string | null;
+  choices: string | null;
+  options: unknown;
+  ref: string | null;
+  required: boolean;
+  list: boolean;
+  search: boolean;
+  filter: boolean;
+  help: string | null;
+  section: string | null;
+  field_group: string | null;
+  max_length: number | null;
+}
+
+/**
+ * Why the library field `lib` (whose definition is `field`) cannot take its name on `base`: an earlier row of that name
+ * on the table — deactivated or deleted, its values still in `custom` — stood for another library field, or for a
+ * field whose stored values mean something else (`storageChange`: another storage type, target table or list). Null
+ * when it can; a row of the same library field is its own (its storage holds while the row lives).
+ */
+function earlierRowProblem(base: TableDef, lib: { id: string; name: string }, field: FieldDef, rows: EarlierRow[]): string | null {
+  for (const r of rows) {
+    const was = r.library_id ? (String(r.library_id) === lib.id ? snapshotField(r.options) : null) : customFieldDef(r);
+    const same = r.library_id && String(r.library_id) === lib.id ? !was || !storageChange(was, field) : !!was && !storageChange(was, field);
+    if (same) continue;
+    return r.deleted_at
+      ? `«${base.plural}» پیش‌تر فیلد دیگری به نام «${lib.name}» داشته است و مقدارهایش در رکوردها مانده است؛ فیلدی با نام فنی دیگر به کار ببرید`
+      : `«${base.plural}» فیلدی به نام «${lib.name}» دارد`;
+  }
+  return null;
+}
+
+/**
+ * A library row: an active library field of the organisation, under its own name, on a table that takes one, and
+ * never over values an earlier field of that name left behind with another meaning (`earlierRowProblem`).
+ */
+async function libraryRules(w: WriteArgs, base: TableDef, field: FieldDef | null): Promise<void> {
+  const { tx, ctx, op, next, prev, changed } = w;
+  const reactivated = prev?.active === false && next.active !== false;
+  if (!(op === "create" || reactivated || changed.has("library_id") || changed.has("name") || changed.has("table_key"))) return;
   if (NO_LIBRARY_TABLES.has(base.key)) throw bad("پرونده‌های گردش‌کار فیلد کتابخانه نمی‌گیرند؛ فیلدهای پرونده در فرم‌های گردش‌کار تعریف می‌شوند");
   const lib = await tx.one<{ id: string; name: string; label: string; type: string; status: string | null }>(
     `select id, name, label, type, status from sm_field_defs where org_id = $1 and id = $2 and deleted_at is null`,
@@ -83,6 +127,16 @@ async function libraryRules(w: WriteArgs, base: TableDef): Promise<void> {
   if (String(next.name ?? "") !== lib.name) throw bad(`نام فیلد در جدول همان نام فنی فیلد کتابخانه است: «${lib.name}»`);
   if (base.fields.some((f) => f.name === lib.name)) throw bad(`«${base.plural}» فیلدی به نام «${lib.name}» دارد`);
   if (!resolveFieldType(lib.type, await orgFieldTypes(tx, ctx.org.id), SETTINGS_ENV)) throw bad(`نوع فیلد «${lib.label}» دیگر وجود ندارد`);
+  if (!field) return;
+  const rows = await tx.query<EarlierRow>(
+    `select library_id, deleted_at, name, label, type, choices, options, ref, required, list, search, filter, help, section, field_group, max_length
+     from sm_custom_fields where org_id = $1 and table_key = $2 and name = $3 and id <> $4`,
+    [ctx.org.id, base.key, lib.name, String(next.id)],
+  );
+  // the row itself as it was, when it already held values under this name (a plain field given a library field)
+  if (prev && prev.table_key === next.table_key && prev.name === next.name) rows.push(prev as EarlierRow);
+  const problem = earlierRowProblem(base, lib, field, rows);
+  if (problem) throw bad(problem);
 }
 
 /**
@@ -144,21 +198,22 @@ async function customFieldRules(w: WriteArgs): Promise<void> {
   if ((w.next.name === STATES_ROW || w.prev?.name === STATES_ROW) && !w.trusted && !isSystemCtx(w.ctx) && !(await holdsSettings(w.ctx, "full", w.tx))) {
     throw forbidden(LIFECYCLE_REFUSAL);
   }
-  if (w.next.active === false) return;
   const base = tableDef(String(w.next.table_key ?? ""));
   if (!base || base.virtual) return;
   const name = String(w.next.name ?? "");
   if (name === FORM_ROW) return;
   if (name === STATES_ROW) {
-    if (w.op === "create" || w.prev?.active === false || ["options", "table_key", "name"].some((c) => w.changed.has(c))) await statesRules(w, base);
+    if (w.next.active !== false && (w.op === "create" || w.prev?.active === false || ["options", "table_key", "name"].some((c) => w.changed.has(c)))) await statesRules(w, base);
     return;
   }
+  // a library row is held whether or not it is active: a row given a library field while off would come back with it
   if (w.next.library_id) {
-    await libraryRules(w, base);
-    // whatever the write says, the row carries the library's current definition
     const field = await librarySnapshot(w.tx, w.ctx.org.id, String(w.next.library_id));
+    await libraryRules(w, base, field);
+    // whatever the write says, the row carries the library's current definition
     w.next.options = field ? { field } : null;
   }
+  if (w.next.active === false) return;
   await fieldRules(w, base);
 }
 

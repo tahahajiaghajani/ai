@@ -237,7 +237,7 @@ const SNAPSHOT_KEYS: (keyof FieldDef)[] = [
  * A library field from the definition its `custom_field` row carries (`options.field`, kept by the field library's
  * hook): a Windows app that does not receive the library's rows still builds the field. Null when it is not usable.
  */
-function snapshotField(raw: unknown): FieldDef | null {
+export function snapshotField(raw: unknown): FieldDef | null {
   const s = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as { field?: unknown }).field : null;
   if (!s || typeof s !== "object" || Array.isArray(s)) return null;
   const x = s as Record<string, unknown>;

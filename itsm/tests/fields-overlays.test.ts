@@ -122,6 +122,33 @@ describe("library fields on tables", () => {
     expect(msg(await e.owner.post(`${R}/custom_field`, { table_key: "incident", name: "u_other", label: "x", library_id: other.id }, 400))).toBe("نام فیلد در جدول همان نام فنی فیلد کتابخانه است: «u_amount»");
     await e.owner.post(`${P}/fields/attach`, { table: "nowhere", field: "u_amount" }, 404);
   });
+
+  it("never take over values an earlier field of the same name left with another meaning (F1-8)", async () => {
+    // a plain «کار» field u_code (whole number) holds 42 and is taken off the form
+    const plain = (await e.owner.post(`${R}/custom_field`, { table_key: "todo", name: "u_code", label: "کد", type: "int" })).row;
+    const rec = (await e.owner.post(`${R}/todo`, { short_description: "کد", u_code: 42 })).row;
+    await e.owner.patch(`${R}/custom_field/${plain.id}`, { active: false });
+    // a library field of that name stores dates: the 42 would be read as a date (and sorting by it would fail)
+    const date = (await e.owner.post(`${P}/fields/library`, { name: "u_code", label: "تاریخ کد", type: "date" }, 201)).row;
+    expect(msg(await e.owner.post(`${P}/fields/attach`, { table: "todo", field: date.id }, 400))).toBe("«کارها» فیلدی به نام «u_code» دارد");
+    expect(msg(await e.owner.patch(`${R}/custom_field/${plain.id}`, { library_id: date.id }, 400))).toBe("«کارها» فیلدی به نام «u_code» دارد");
+    // a deleted row's values stay in the records too
+    const gone = (await e.owner.post(`${R}/custom_field`, { table_key: "todo", name: "u_gone", label: "رفته", type: "int" })).row;
+    await e.owner.post(`${R}/todo`, { short_description: "رفته", u_gone: 7 });
+    await e.owner.del(`${R}/custom_field/${gone.id}`);
+    await e.owner.post(`${P}/fields/library`, { name: "u_gone", label: "رفته", type: "string" }, 201);
+    expect(msg(await e.owner.post(`${P}/fields/attach`, { table: "todo", field: "u_gone" }, 400))).toBe(
+      "«کارها» پیش‌تر فیلد دیگری به نام «u_gone» داشته است و مقدارهایش در رکوردها مانده است؛ فیلدی با نام فنی دیگر به کار ببرید",
+    );
+    // the same storage reads the values as they were: a plain whole-number field becomes the library's
+    const count = (await e.owner.post(`${R}/custom_field`, { table_key: "todo", name: "u_count", label: "شمار", type: "int" })).row;
+    const counted = (await e.owner.post(`${R}/todo`, { short_description: "شمار", u_count: 3 })).row;
+    await e.owner.patch(`${R}/custom_field/${count.id}`, { active: false });
+    await e.owner.post(`${P}/fields/library`, { name: "u_count", label: "شمار", type: "int" }, 201);
+    expect((await e.owner.post(`${P}/fields/attach`, { table: "todo", field: "u_count" }, 201)).row.id).toBe(count.id);
+    expect((await e.owner.get(`${R}/todo/${counted.id}`)).row.u_count).toBe(3);
+    expect((await e.owner.get(`${R}/todo/${rec.id}`)).row).not.toHaveProperty("u_code");
+  });
 });
 
 describe("overrides of a table's default form", () => {
