@@ -10,15 +10,21 @@ import { uuidv7 } from "@shared/id";
 import { periodKeyOf } from "@shared/financial/logic";
 import { todayISO } from "@shared/jalali";
 import type { Row, Tx } from "@server/db";
-import { createIn, transitionIn, updateIn, type RecordEvent } from "@server/engine";
+import { createIn, registerHooks, transitionIn, updateIn, type RecordEvent } from "@server/engine";
 import { consumePartIn, onRequestItem } from "@server/modules/itam/jobs";
-import { scan } from "@server/modules/itam/stock";
+import { checkStockRules, scan } from "@server/modules/itam/stock";
+import { openAttestations, resolveAuditItem } from "@server/modules/itam/bank";
+import { checkout } from "@server/modules/itam/assets";
 import { capture } from "@server/modules/financial";
 import { absenceTick } from "@server/modules/workforce/jobs";
+import { setPresenceIn } from "@server/modules/workforce/presence";
+import { generateMaintenanceIn } from "@server/modules/field_service/service";
+import { createOrUpdate } from "@server/modules/cmdb/ire";
+import { computeHealth } from "@server/modules/cmdb/health";
 import { seedRequestDefaults } from "@server/modules/request";
 import { seedItamDefaults } from "@server/modules/itam";
 import { realPgAvailable } from "./pg-real";
-import { call, hold, message, queued, raceDatabases, whileHeld } from "./race-helpers";
+import { call, hold, meeting, message, queued, raceDatabases, whileHeld } from "./race-helpers";
 import { itamWorld, type ItamWorld } from "./itam-helpers";
 
 const pid = process.pid;
@@ -274,6 +280,192 @@ describe.skipIf(!realPgAvailable())("assets, services and operations: writes sid
       const a = await rowOf("sm_wfm_absences", x.id);
       expect(a.state).toBe("canceled");
       expect(a.applied).toBe(false);
+    });
+  });
+
+  // ---------------------------------------------------------------------------------------------- medium findings
+
+  describe("medium findings", () => {
+    /** Hold the record counter of `table` (every create of the table waits there, after its hooks decided). */
+    const holdNumbers = async (table: string) => {
+      expect(await w.e.db.one(`select 1 from sm_numbers where org_id = $1 and table_key = $2`, [w.e.org, table]), `a ${table} exists`).toBeTruthy();
+      return hold(w.e.db, (tx) => tx.query(`select 1 from sm_numbers where org_id = $1 and table_key = $2 for update`, [w.e.org, table]));
+    };
+    const holdRow = (table: string, id: string) => hold(w.e.db, (tx) => tx.query(`select 1 from ${table} where id = $1 for update`, [id]));
+    const branch = (name: string) => made("org_unit", { name: `${name} ${pid}`, kind: "branch" });
+
+    it("A3-10: an import matching a CI a person is correcting keeps the person's value", async () => {
+      const host = `srv-ire-${pid}`;
+      const ci = await made("ci", { name: host, hostname: host, class: "server", attrs: { cpu_model: "Xeon 4210", antivirus: "قدیمی" } });
+      const owner = await w.e.ctxOf(w.e.ownerId);
+      // the person's correction of the processor is in flight when a source reports the server with its antivirus
+      const editing = hold(w.e.db, (tx) => updateIn(tx, owner, "ci", ci.id, { attrs: { cpu_model: "Xeon 6338", antivirus: "قدیمی" } }));
+      const imported = await whileHeld(editing, () => createOrUpdate(w.sys, { items: [{ class: "server", values: { name: host, hostname: host }, attrs: { antivirus: "نسخهٔ تازه" } }] }));
+      expect(imported.status, message(imported)).toBe("fulfilled");
+      const attrs = (await rowOf("sm_cis", ci.id)).attrs as Record<string, unknown>;
+      expect(attrs.cpu_model).toBe("Xeon 6338");
+      expect(attrs.antivirus).toBe("نسخهٔ تازه");
+    });
+
+    it("A3-11: two sources reporting the same new device at once make one CI", async () => {
+      await made("ci", { name: `counter-${pid}`, class: "server" });
+      const host = `new-host-${pid}`;
+      const numbers = await holdNumbers("ci");
+      const both = await whileHeld(numbers, () => Promise.all([0, 1].map(() => createOrUpdate(w.sys, { items: [{ class: "server", values: { name: host, hostname: host } }] }))), 2);
+      expect(both.status, message(both)).toBe("fulfilled");
+      const cis = await w.e.db.query(`select id from sm_cis where org_id = $1 and hostname = $2 and deleted_at is null`, [w.e.org, host]);
+      expect(cis.length).toBe(1);
+    });
+
+    it("A3-12: one relationship made twice at once is made once", async () => {
+      const a = await made("ci", { name: `app-host-a-${pid}`, class: "server" });
+      const b = await made("ci", { name: `app-host-b-${pid}`, class: "server" });
+      // both writers checked for the relationship and meet before they commit
+      const meet = meeting(2);
+      const unhook = registerHooks("ci_rel", { afterWrite: async (x) => void (x.op === "create" && x.row.parent_id === a.id && (await meet())) });
+      try {
+        const make = () => w.sys.write((tx) => createIn(tx, w.sys, "ci_rel", { parent_id: a.id, child_id: b.id, type: "depends_on" }, { trusted: true }));
+        const both = await Promise.allSettled([make(), make()]);
+        expect(both.map((x) => x.status).sort()).toEqual(["fulfilled", "rejected"]);
+        expect(message(both.find((x) => x.status === "rejected")!)).toContain("از پیش برقرار است");
+      } finally {
+        unhook();
+      }
+      const rels = await w.e.db.query(`select id from sm_ci_rels where parent_id = $1 and child_id = $2 and type = 'depends_on' and deleted_at is null and valid_to is null`, [a.id, b.id]);
+      expect(rels.length).toBe(1);
+    });
+
+    it("A3-13: two health passes over one CI at once open one finding", async () => {
+      // a finding of another CI first (the counter of findings exists)
+      const other = await made("ci", { name: `srv-noowner-0-${pid}`, class: "server" });
+      await w.sys.write((tx) => computeHealth(tx, w.sys, { ids: [other.id] }));
+      const ci = await made("ci", { name: `srv-noowner-${pid}`, class: "server" });
+      const numbers = await holdNumbers("cmdb_finding");
+      const both = await whileHeld(numbers, () => Promise.all([0, 1].map(() => w.sys.write((tx) => computeHealth(tx, w.sys, { ids: [ci.id] })))), 2);
+      expect(both.status, message(both)).toBe("fulfilled");
+      const open = await w.e.db.query(`select id from sm_cmdb_findings where org_id = $1 and dedupe_key = $2 and active and deleted_at is null`, [w.e.org, `missing_owner:${ci.id}`]);
+      expect(open.length).toBe(1);
+    });
+
+    it("A3-15: two discrepancies of one audit settled at once leave none open", async () => {
+      const room = await made("stockroom", { name: `انبار تسویه ${pid}`, code: `SET-${pid}` });
+      const a1 = await made("asset", { model_id: laptop, state: "in_stock", stockroom_id: room.id, serial_number: `SET-1-${pid}` });
+      const a2 = await made("asset", { model_id: laptop, state: "in_stock", stockroom_id: room.id, serial_number: `SET-2-${pid}` });
+      const audit = await made("inventory_audit", { name: "شمارش تسویه", scope_kind: "stockroom", stockroom_id: room.id, mark_missing: false });
+      await w.sys.write((tx) => transitionIn(tx, w.sys, "inventory_audit", audit.id, "in_progress", {}));
+      await w.sys.write((tx) => transitionIn(tx, w.sys, "inventory_audit", audit.id, "completed", {}));
+      expect(Number((await rowOf("sm_inventory_audits", audit.id)).discrepancy_open)).toBe(2);
+      const items = await w.e.db.query<{ id: string; asset_id: string }>(`select id, asset_id from sm_inventory_audit_items where audit_id = $1 and deleted_at is null`, [audit.id]);
+      const am = await w.e.ctxOf(w.p.am.userId);
+      // the audit is held by a write of its own while two officers settle one item each
+      const holder = holdRow("sm_inventory_audits", audit.id);
+      const both = await whileHeld(holder, () => Promise.all([a1, a2].map((a) => resolveAuditItem(am, items.find((i) => i.asset_id === a.id)!.id, { resolution: "found" }))), 2);
+      expect(both.status, message(both)).toBe("fulfilled");
+      expect(Number((await rowOf("sm_inventory_audits", audit.id)).discrepancy_open)).toBe(0);
+    });
+
+    it("A3-16 and A3-19: items added to one note at once are both counted; one asset never rides two open notes", async () => {
+      const [s1, x1] = [await branch("شعبهٔ اقلام"), await branch("شعبهٔ گیرندهٔ اقلام")];
+      const asset = (n: number) => made("asset", { model_id: laptop, state: "in_use", branch_id: s1.id, department_id: s1.id, serial_number: `ITM-${n}-${pid}` });
+      const [a1, a2, a3] = [await asset(1), await asset(2), await asset(3)];
+      const note = (title: string) => made("asset_transfer", { title, from_branch_id: s1.id, to_branch_id: x1.id, reason: "relocation" });
+      const t = await note("حوالهٔ دو قلمی");
+      const item = (transfer: string, a: string) => w.sys.write((tx) => createIn(tx, w.sys, "asset_transfer_item", { transfer_id: transfer, asset_id: a, condition_out: "good" }, { trusted: true }));
+      // the note is held by a write of its own while two items are added to it
+      const holder = holdRow("sm_asset_transfers", t.id);
+      const both = await whileHeld(holder, () => Promise.all([item(t.id, a1.id), item(t.id, a2.id)]), 2);
+      expect(both.status, message(both)).toBe("fulfilled");
+      expect(Number((await rowOf("sm_asset_transfers", t.id)).item_count)).toBe(2);
+      // the same asset put on two draft notes at once: one of them is refused
+      const [n1, n2] = [await note("حوالهٔ نخست"), await note("حوالهٔ دوم")];
+      const busy = holdRow("sm_assets", a3.id);
+      const two = await whileHeld(busy, () => Promise.allSettled([item(n1.id, a3.id), item(n2.id, a3.id)]), 2);
+      expect(two.status).toBe("fulfilled");
+      const outcomes = (two as PromiseFulfilledResult<PromiseSettledResult<unknown>[]>).value;
+      expect(outcomes.map((o) => o.status).sort()).toEqual(["fulfilled", "rejected"]);
+      expect(message(outcomes.find((o) => o.status === "rejected")!)).toContain("در حوالهٔ باز");
+    });
+
+    it("A3-18: two stock checks at once raise one requisition and one alert per shortage", async () => {
+      const room = await made("stockroom", { name: `انبار قاعده ${pid}`, code: `RUL-${pid}` });
+      const model = await made("asset_model", { name: `کارتریج قاعده ${pid}`, category: "consumable", asset_class: "consumable", tracking: "quantity" });
+      const rule = await made("stock_rule", { model_id: model.id, stockroom_id: room.id, min_qty: 5, max_qty: 10, auto_requisition: true, active: true, status: "ok", available: 10 });
+      // the rule is held by a write of its own while the job and «بررسی» by hand check it
+      const holder = holdRow("sm_stock_rules", rule.id);
+      const both = await whileHeld(holder, () => Promise.all([checkStockRules(w.sys), checkStockRules(w.sys)]), 2);
+      expect(both.status, message(both)).toBe("fulfilled");
+      const prqs = await w.e.db.query(`select id from sm_purchase_requisitions where stock_rule_id = $1 and deleted_at is null`, [rule.id]);
+      expect(prqs.length).toBe(1);
+    });
+
+    it("A3-21: the sweep and «باز کردن» at once open one attestation per branch and period", async () => {
+      const b = await branch("شعبهٔ تأیید");
+      await made("asset", { model_id: laptop, state: "in_use", branch_id: b.id, department_id: b.id, serial_number: `ATT-${pid}` });
+      await w.e.db.query(`update sm_itam_configs set attestation_months = 3 where org_id = $1`, [w.e.org]);
+      await made("branch_attestation", { title: "تأیید پیشین", branch_id: b.id, period_label: `پیشین ${pid}`, due_date: today() });
+      const numbers = await holdNumbers("branch_attestation");
+      const both = await whileHeld(numbers, () => Promise.all([openAttestations(w.sys), openAttestations(w.sys)]), 2);
+      expect(both.status, message(both)).toBe("fulfilled");
+      const twice = await w.e.db.query(`select branch_id, period_label from sm_branch_attestations where org_id = $1 and deleted_at is null group by branch_id, period_label having count(*) > 1`, [w.e.org]);
+      expect(twice).toEqual([]);
+      expect((await w.e.db.query(`select id from sm_branch_attestations where branch_id = $1 and deleted_at is null`, [b.id])).length).toBe(2);
+    });
+
+    it("A3-25: a check-out of an asset someone else is handing over answers «changed» instead of overwriting", async () => {
+      const a = await made("asset", { model_id: laptop, state: "in_use", assigned_to: w.p.req.userId, serial_number: `CHK-${pid}` });
+      const am = await w.e.ctxOf(w.p.am.userId);
+      const handing = hold(w.e.db, (tx) => updateIn(tx, w.sys, "asset", a.id, { assigned_to: w.p.req2.userId }, { trusted: true }));
+      const out = await whileHeld(handing, () => checkout(am, a.id, { assigned_to: w.p.agent.userId }));
+      expect(out.status).toBe("rejected");
+      expect(message(out)).toMatch(/تغییر|نسخه/);
+      expect((await rowOf("sm_assets", a.id)).assigned_to).toBe(w.p.req2.userId);
+    });
+
+    it("A3-29: two bookings of one room for one hour at once: one confirmed, the other waits", async () => {
+      const loc = await made("location", { name: `ساختمان آزمون ${pid}` });
+      const room = await made("space", { name: `اتاق جلسه ${pid}`, location_id: loc.id, bookable: true, requires_approval: false });
+      const at = (h: number) => new Date(Date.UTC(2031, 0, 5, h, 0, 0)).toISOString();
+      const book = (title: string, from: number, to: number) => w.sys.write((tx) => createIn(tx, w.sys, "reservation", { title, space_id: room.id, start_at: at(from), end_at: at(to), booked_for: w.p.req.userId }, { trusted: true }));
+      await book("رزرو پیشین", 6, 7);
+      const numbers = await holdNumbers("reservation");
+      const both = await whileHeld(numbers, () => Promise.all([book("جلسهٔ نخست", 9, 10), book("جلسهٔ دوم", 9, 10)]), 2);
+      expect(both.status, message(both)).toBe("fulfilled");
+      const states = (await w.e.db.query<{ state: string }>(`select state from sm_reservations where space_id = $1 and start_at = $2 and deleted_at is null`, [room.id, at(9)])).map((r) => r.state).sort();
+      expect(states).toEqual(["confirmed", "requested"]);
+    });
+
+    it("A3-33: two overlapping time-off requests for one person at once: one is refused", async () => {
+      const user = w.p.req2.userId;
+      const day = (d: number, h: number) => new Date(Date.UTC(2031, 1, d, h, 0, 0)).toISOString();
+      const absence = (from: string, to: string) => w.sys.write((tx) => createIn(tx, w.sys, "wfm_absence", { user_id: user, type: "annual", start_at: from, end_at: to }, { trusted: true }));
+      await absence(day(1, 6), day(1, 12));
+      const numbers = await holdNumbers("wfm_absence");
+      const both = await whileHeld(numbers, () => Promise.allSettled([absence(day(10, 6), day(12, 12)), absence(day(11, 6), day(13, 12))]), 2);
+      expect(both.status).toBe("fulfilled");
+      const outcomes = (both as PromiseFulfilledResult<PromiseSettledResult<unknown>[]>).value;
+      expect(outcomes.map((o) => o.status).sort()).toEqual(["fulfilled", "rejected"]);
+      const made2 = await w.e.db.query(`select id from sm_wfm_absences where user_id = $1 and start_at >= $2 and deleted_at is null`, [user, day(10, 0)]);
+      expect(made2.length).toBe(1);
+    });
+
+    it("A3-34: two first heartbeats of one person at once open one presence interval", async () => {
+      const user = w.p.auditor.userId;
+      await w.sys.write((tx) => setPresenceIn(tx, w.sys, user, "offline"));
+      const agent = (await w.e.db.one<{ id: string }>(`select id from sm_wfm_agents where org_id = $1 and user_id = $2 and deleted_at is null`, [w.e.org, user]))!.id;
+      const holder = holdRow("sm_wfm_agents", agent);
+      const both = await whileHeld(holder, () => Promise.all([0, 1].map(() => w.sys.write((tx) => setPresenceIn(tx, w.sys, user, "available")))), 2);
+      expect(both.status, message(both)).toBe("fulfilled");
+      const open = await w.e.db.query(`select id from sm_wfm_presence_log where org_id = $1 and user_id = $2 and to_at is null and deleted_at is null`, [w.e.org, user]);
+      expect(open.length).toBe(1);
+    });
+
+    it("A3-35: the sweep and «اجرای برنامه‌ها» at once generate one work order per plan and due date", async () => {
+      const plan = await made("maintenance_plan", { name: `نگهداری آزمون ${pid}`, status: "active", generates: "work_order", every_n: 1, interval_unit: "month", lead_days: 7, horizon: 1, next_due: today(), priority: "4" });
+      const holder = holdRow("sm_maintenance_plans", plan.id);
+      const both = await whileHeld(holder, () => Promise.all([0, 1].map(() => w.sys.write((tx) => generateMaintenanceIn(tx, w.sys)))), 2);
+      expect(both.status, message(both)).toBe("fulfilled");
+      const orders = await w.e.db.query(`select id from sm_work_orders where maintenance_plan_id = $1 and deleted_at is null`, [plan.id]);
+      expect(orders.length).toBe(1);
     });
   });
 });

@@ -313,7 +313,12 @@ await ctx.write(async (tx) => {
     `lockedRow(q, ctx, table, id, "update" | "share")` in modules: a parent's state, a list stored on a row);
   - **create-if-absent and choices from other records** (one open issue per control, the next assignee of a group, a
     link and its reverse) take a transaction lock on a narrow key first (`lockKey(tx, key)` — a key naming the
-    organisation or a record, never a bare kind), or rely on a unique index with `on conflict`;
+    organisation or a record, never a bare kind), or rely on a unique index with `on conflict` — only for rows a
+    Windows app cannot hold a local duplicate of (a pull stops on a unique clash `sync/apply.ts` cannot resolve; it
+    resolves record numbers and codes). Work that may create thousands of such rows in one transaction (an import, a
+    rule's first run) locks the rows the duplicates hang off (`for update`, in id order: a CMDB relationship locks its
+    two CIs) or takes one key for the whole run (`cmdb.ire:<org>`), never a key per row (each held key is an entry of
+    the shared lock table until commit);
   - a deadlock or a serialization failure (`40P01`/`40001`) rolls one transaction back: the engine's single-record
     `create`/`update`/`transition`/`remove` run again (`ctx.write(fn, { retry: true })` — only for work whose every
     effect is inside the transaction), a job's handler runs again from its stored payload before the attempt counts,
