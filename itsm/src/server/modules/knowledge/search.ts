@@ -149,7 +149,10 @@ export async function searchKnowledge(ctx: Ctx, p: KbSearchParams): Promise<KbSe
   const all = [...groupSql, ...phraseSql];
   const scoreExpr = all.length ? all.map((x) => x.score).join(" + ") : "0";
   const matchedExpr = all.length ? all.map((x) => `(case when ${x.any} then 1 else 0 end)`).join(" + ") : "0";
-  const base = `with c as (select t.id, t.base_id, t.category_id, t.article_type, t.language, t.published_at, t.updated_at, t.view_count, t.reuse_count, t.helpful_yes, t.helpful_no,
+  // MATERIALIZED: PostgreSQL inlines a CTE referenced once, and then evaluated every normalised column (regexp over the
+  // whole body) at each of its references — once per term per column in the filter, the score and the match count:
+  // 545 ms for 61 articles and a record's 58 terms. Materialised, each article's text is normalised once.
+  const base = `with c as materialized (select t.id, t.base_id, t.category_id, t.article_type, t.language, t.published_at, t.updated_at, t.view_count, t.reuse_count, t.helpful_yes, t.helpful_no,
                      ${F.t} as t, ${F.s} as s, ${F.k} as k, ${F.b} as b, ${F.i} as i
                 from sm_kb_articles t where ${where.join(" and ")})
      select c.id, c.base_id, c.category_id, c.article_type, c.language, c.published_at, c.updated_at, c.view_count, c.reuse_count, c.helpful_yes, c.helpful_no,
