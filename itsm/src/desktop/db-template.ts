@@ -7,9 +7,9 @@
 // the app (a tar, Brotli-compressed: 5 MB) — without the log's recycled segments, only the one that holds the shutdown
 // checkpoint (48 MB less to write on the first start). The local server's first start (./server.ts) checks it, writes its
 // files (several at a time, PG_VERSION last), opens the folder and runs `migrate` as every start does: nothing left to
-// do when the template is this build's, the missing steps when it is older. The template carries no secret and nothing of an installation: the device id, the
-// session secret and the configuration live in config.json, made at the first start. A template that does not load is
-// set aside and the start falls back to initdb and the migrations.
+// do when the template is this build's, the missing steps when it is older. The template carries no secret and nothing
+// of an installation: the device id, the session secret and the configuration live in config.json, made at the first
+// start. A template that does not load is set aside and the start falls back to initdb and the migrations.
 import { brotliCompressSync, brotliDecompressSync, constants } from "node:zlib";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { writeFile as writeFileAsync } from "node:fs/promises";
