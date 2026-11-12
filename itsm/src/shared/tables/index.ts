@@ -42,6 +42,7 @@ import { SLM_CHOICE_LISTS, SLM_TABLES } from "./slm";
 import { WORKFORCE_CHOICE_LISTS, WORKFORCE_TABLES } from "./workforce";
 import { ADMIN_TABLES } from "./admin";
 import { INTEGRATION_TABLES } from "./integration";
+import { DISCOVERY_TABLES } from "./discovery";
 
 export { CUSTOM_FIELD_TYPES, VIEW_KINDS } from "./core";
 
@@ -81,6 +82,7 @@ const MODULE_TABLES: TableDef[][] = [
   WORKFORCE_TABLES,
   ADMIN_TABLES,
   INTEGRATION_TABLES,
+  DISCOVERY_TABLES,
 ];
 
 /** Every table by key (resolved definitions). */
