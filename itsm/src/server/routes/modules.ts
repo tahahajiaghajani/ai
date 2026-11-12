@@ -76,6 +76,8 @@ import { fieldServiceRoutes } from "./field_service";
 import { installAdminModule } from "../modules/admin";
 import { installFieldsModule } from "../modules/fields";
 import { fieldsRoutes } from "./fields";
+import { installPositionsModule } from "../modules/positions";
+import { positionsRoutes } from "./positions";
 import { adminTenantRoutes } from "./admin-tenant";
 import { demoRoutes } from "./demo";
 import { installDemoModule } from "../modules/demo";
@@ -147,6 +149,8 @@ installWorkforceModule();
 installAdminModule();
 // the field library (design F, F1): integrity of field types and library fields
 installFieldsModule();
+// organisational roles (design F, F3): integrity of positions and their holders
+installPositionsModule();
 // the integration hub (docs/modules/integration_FA.md) — integration users and keys, webhooks, LDAP/AD, SCIM, Jira/GitHub, exports
 installIntegrationModule();
 
@@ -210,6 +214,8 @@ moduleRoutes.route("/workforce", workforceRoutes);
 moduleRoutes.route("/admin", adminTenantRoutes);
 // the field library and the table overlays (design F, F1): /fields/*, /forms/system/:table/overrides, /lifecycles/:table
 moduleRoutes.route("/", fieldsRoutes);
+// organisational roles (design F, F3): /positions/resolve, /positions/estimate, /positions/overview, /positions/holders/import
+moduleRoutes.route("/positions", positionsRoutes);
 moduleRoutes.route("/demo", demoRoutes);
 moduleRoutes.route("/integration", integrationHubRoutes);
 // «امنیت ورود و نشست‌ها»: the organisation's session policy, sessions, sign-in audit and lockouts
