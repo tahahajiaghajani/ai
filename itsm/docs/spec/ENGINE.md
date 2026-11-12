@@ -638,5 +638,6 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
 - Never call a model or external service inside a transaction or a hook — enqueue a job, subscribe to events.
 - Filter with conditions through the engine (`toSql` + `readable`), never by concatenating values into SQL.
 - Every new read path of your own must start from `readable(ctx, def, alias, params, env)` and strip fields with
-  `visibleFields` (or reuse `list`/`get`).
+  `visibleFields` (or reuse `list`/`get`). A context whose reads leave the system (`ctx.withoutDemo`: the record API,
+  a schedule's e-mail, a messenger's answers) gets no row of the demo pack from it (docs/DEMO_FA.md).
 - Use `version` for concurrency, `number` for people, `id` for machines.

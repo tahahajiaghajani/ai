@@ -220,6 +220,13 @@ export interface Ctx {
   status?: OrgPlatformStatus | null;
   /** the request's session (loaded for /o/:org requests): re-authentication of sensitive administration (src/server/auth/policy.ts) */
   session?: AuthSession | null;
+  /**
+   * What this context reads leaves the system — the record API of other programs, a scheduled report's e-mail, the
+   * assistant's answers in a messenger: the demo pack's rows are never read (docs/DEMO_FA.md). The engine's read
+   * predicate (`readable`) leaves out every row recorded in sm_demo_rows, so lists, counts, single reads and writes
+   * all miss them (a write starts from a readable row: 404).
+   */
+  withoutDemo?: boolean;
   can(area: Area, level: Level): boolean;
   need(area: Area, level: Level): void;
   /**

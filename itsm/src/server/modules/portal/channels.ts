@@ -398,6 +398,9 @@ export async function processChannelMessage(job: Job, jctx: JobContext): Promise
     await reply(cfg, sys, channel, msg.chat, null, "حساب شما در این سازمان دیگر فعال نیست؛ اتصال برداشته شد.");
     return;
   }
+  // the assistant's answers go out to the messenger: it finds, cites and lists nothing of the demo pack (a real
+  // member's question would otherwise carry the pack's articles out of the system)
+  ctx.withoutDemo = true;
 
   const saveIdentity = (values: Row) => sys.write((tx) => updateIn(tx, sys, "portal_channel_identity", String(identity.id), values, { trusted: true, keepVersion: true }), { internal: true });
   const cmd = commandOf(text);

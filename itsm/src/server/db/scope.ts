@@ -41,6 +41,11 @@ export async function isDemoRow(q: Queryable, orgId: string, id: string | null |
   return !!(await q.one(`select 1 from sm_demo_rows where org_id = $1 and row_id = $2::uuid`, [orgId, id]));
 }
 
+/** Does the organisation hold rows of a demo pack (loaded, loading, or not yet purged)? */
+export async function hasDemoRows(q: Queryable, orgId: string): Promise<boolean> {
+  return !!(await q.one(`select 1 from sm_demo_rows where org_id = $1 limit 1`, [orgId]));
+}
+
 /**
  * Must nothing about this leave the system (docs/DEMO_FA.md)? True inside `orgId`'s demo scope (demo work, a demo
  * person's request, a demo job) and for a record of the demo pack: no email, SMS, webhook, messenger or other outbound

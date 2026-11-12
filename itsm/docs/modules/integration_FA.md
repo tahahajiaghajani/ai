@@ -46,6 +46,6 @@
 
 **API بیرونی** (`/api/v1`): `GET|POST /r/:table…` (API رکوردها)، `GET /meta/tables`، `GET /openapi.json`، `POST /in/:id`، `POST /issues/:id/hook`، و SCIM ۲٫۰ در `/scim/:source/{ServiceProviderConfig,Users,Groups}` با پاسخ خطای قالب SCIM.
 
-**دادهٔ نمایشی:** هیچ فراخوان بیرونی هاب در کار نمایشی چیزی نمی‌فرستد (`callOut`)؛ رکورد نمایشی به وب‌هوک، Jira و GitHub و خروجی زمان‌بندی‌شده نمی‌رود و «ارسال آزمایشی» رکورد نمایشی را نمی‌پذیرد و خودکار تازه‌ترین رکورد واقعی را برمی‌دارد (`tests/demo-outbound.test.ts`، `tests/integration-issues-demo.test.ts`).
+**دادهٔ نمایشی:** هیچ فراخوان بیرونی هاب در کار نمایشی چیزی نمی‌فرستد (`callOut`)؛ رکورد نمایشی به وب‌هوک، Jira و GitHub و خروجی زمان‌بندی‌شده نمی‌رود و «ارسال آزمایشی» رکورد نمایشی را نمی‌پذیرد و خودکار تازه‌ترین رکورد واقعی را برمی‌دارد؛ API رکوردها هم ردیف نمایشی را فهرست نمی‌کند، نمی‌شمارد، نمی‌خواند و تغییر نمی‌دهد («پیدا نشد») (`tests/demo-outbound.test.ts`، `tests/integration-issues-demo.test.ts`، `tests/demo-outside.test.ts`).
 
 **آزمون‌ها:** `tests/integration-hub-api.test.ts` (عضو خدمت و نقش‌ها، دامنهٔ کلید، OpenAPI، سقف درخواست، IP، باطل کردن، کلیدهای پیشین)، `integration-hub-webhooks.test.ts` (امضا، دسترسی پیام، تلاش دوباره و توقف، نقطهٔ دریافت، Jira و GitHub)، `integration-hub-directory.test.ts` (سرور LDAP درون آزمون، پیش‌نمایش و اعمال، نقش‌های در انتظار، SCIM)، `admin-access.test.ts` (درخواست‌دهنده، کارشناس گروه دیگر و ممیز).
