@@ -7,6 +7,7 @@
 // The load is a list of steps; a step does a bounded amount of work and saves where it stopped (`progress`), so one
 // job invocation never outlives the worker's budget and a load resumes after a restart.
 import { CHOICE_LISTS, TABLES } from "@shared/tables";
+import { isNever } from "@shared/model/conditions";
 import { uuidv7 } from "@shared/id";
 import type { Ctx, ServerConfig } from "../../context";
 import type { Row, Tx } from "../../db";
@@ -118,7 +119,15 @@ function clean(table: string, values: Record<string, unknown>): Record<string, u
   return out;
 }
 
+/**
+ * One of the pack's records, written as the system. Never a row of a table only the platform writes (`rowAccess.write`
+ * NEVER: computed scores and facts, deliveries, run logs, ledgers a module books): what a module computes or derives is
+ * made by its own services or jobs inside the demo scope (docs/DEMO_FA.md) — the system context would let the pack
+ * insert it, so this refuses it first (a step's `tryPut` records the refusal with the pack's status).
+ */
 export async function put(tx: Tx, sys: Ctx, table: string, values: Record<string, unknown>): Promise<Row> {
+  const def = TABLES.get(table);
+  if (def && isNever(def.rowAccess?.write)) throw new Error(`«${def.plural}» را فقط خود سامانه می‌نویسد؛ بستهٔ نمایشی ردیفی در آن نمی‌سازد`);
   return createIn(tx, sys, table, clean(table, values), { trusted: true });
 }
 

@@ -18,6 +18,11 @@ import { TABLES } from "@shared/tables";
 import { draftable } from "@server/modules/ai/tools/records";
 import { SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { systemCtx } from "@server/engine";
+import { inDemoScope } from "@server/db/scope";
+import { put, tryPut, loadRefusals } from "@server/modules/demo/load";
 
 /** Written only by their module (the jobs that compute them, the services that book them). */
 const SYSTEM_ONLY = [
@@ -130,4 +135,32 @@ describe("tables only the platform writes", () => {
     expect(step.error).toContain("فقط سامانه");
     expect(await scorecards()).toBe(before);
   }, 600_000);
+
+  it("are written by no step of the demo pack: its writer refuses them, and no step names one", async () => {
+    // the pack writes as the system inside the demo scope, which the engine lets write anything: its own writer (`put`,
+    // under `tryPut` and `putOpen`) refuses a table only the platform writes, so what a module computes — allocation
+    // results, experience scores, licence positions — comes from the module's own services and jobs (docs/DEMO_FA.md)
+    const sys = await systemCtx(e.cfg, e.org);
+    const count = async (key: string) => (await e.db.one<{ n: number }>(`select count(*)::int as n from ${tableDef(key)!.table} where org_id = $1`, [e.org]))!.n;
+    for (const key of ["supplier_scorecard", "slm_xla_score", "allocation_result"]) {
+      const before = await count(key);
+      await expect(inDemoScope(e.org, () => sys.write((tx) => put(tx, sys, key, {})))).rejects.toThrow(/فقط خود سامانه/);
+      // a step's tryPut records the refusal with the pack's status and the load goes on
+      expect(await inDemoScope(e.org, () => sys.write((tx) => tryPut(tx, sys, key, {})))).toBeNull();
+      expect(loadRefusals(e.org)[key]).toMatch(/فقط خود سامانه/);
+      expect(await count(key)).toBe(before);
+    }
+    // …and no step of the pack names one: every table load.ts and modules.ts write by name (the chargeback's results
+    // are the finance module's calculateRun; the pack makes the run)
+    const src = ["load.ts", "modules.ts"].map((f) => readFileSync(join(__dirname, "../src/server/modules/demo", f), "utf8")).join("\n");
+    const named = new Set(
+      [...src.matchAll(/\b(?:put|tryPut|putOpen|createIn|updateIn)\(\w+, \w+, "([a-z_]+)"/g), ...src.matchAll(/\b(?:createRecord|transition|create|update)\(\w+, "([a-z_]+)"/g)].map((m) => m[1]),
+    );
+    expect(named.size).toBeGreaterThan(80);
+    expect(named.has("allocation_run")).toBe(true);
+    for (const key of named) {
+      expect(tableDef(key), key).toBeTruthy();
+      expect(isNever(tableDef(key)?.rowAccess?.write), key).toBe(false);
+    }
+  }, 300_000);
 });
