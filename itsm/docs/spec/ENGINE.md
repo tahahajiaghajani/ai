@@ -284,7 +284,9 @@ await ctx.write(async (tx) => {
   provider's `writableFields` → 403 `forbidden_field` *only if its value would change* (a whole row can be sent back).
 - **WriteOptions**: `version`, `via` (`"api" | "import" | "sync"`, recorded on events), `trusted` (server code: may
   set system and readonly fields, field permissions not asked), `keepVersion` (engine stamps that must not invalidate open
-  forms), `allowLocked`, `skipAccess` (the caller checked access itself).
+  forms), `allowLocked`, `skipAccess` (the caller checked access itself), `orgRules: false` (module code that builds a
+  record from fixed inputs nobody can add to: the organisation's requirements and lifecycle rules for people, §11, are
+  not asked — the person's access, field permissions and the module's own rules still are).
 - **Lists**: `filter` (validated; fields the caller may not see refused), `q` (every word must appear in a
   `search` field, Persian-normalised; or the record number `۱۲` / an id; a full number with its prefix such as
   `INC0000012` or `inc-12` is looked up by number alone), `sort` (up to 4 fields; static
@@ -513,19 +515,28 @@ Both are ordinary engine tables (lists, forms, history, sync for free; area `set
   filters, boards and exports keep it) and can make an optional field required. An organisation's requirement
   (`required` + `required_for` «همه» | «فقط کارشناسان» → `FieldDef.formRequired`) binds people's writes only — the API,
   imports and Windows pushes, checked by the field library's `*` hook — never the system or trusted code (e-mail,
-  event rules, jobs); `GET /meta/tables` shows it as `required` to the people it binds. A module's requirement stays
+  event rules, jobs), nor module code that builds a record from fixed inputs (`orgRules: false`: the virtual agent's
+  report, «ثبت رخداد» of an interaction, a request item turned into an incident, a child or a copy, a problem made from
+  incidents — `@shared/forms/paths` marks these paths `built`); `GET /meta/tables` shows it as `required` to the
+  people it binds. «همه» on incident needs every active portal to report through a catalogue form, and while it
+  stands a portal write that would bring the built-in «گزارش مشکل» back is refused. A module's requirement stays
   `FieldDef.required` and binds every write. Locked fields (`@shared/forms/locked`) are never hidden or required, and
   the refused combinations (hidden and required, a UI policy's mandatory on a hidden field…) are refused on every path
   (design F §3.3, `src/server/modules/fields`).
 - A row with `library_id` attaches a field of the library (`field_def` and its `field_type`, design F §3.1): its type,
   validation (named checks, patterns, decimals, date limits, «پیوست»), options, label and help come from the library,
   so a change there reaches every table; the row keeps a copy in `options.field` for runtimes that do not receive the
-  library's rows. The schema stamp covers `sm_field_defs` and `sm_field_types` too.
+  library's rows (an account that reads «تنظیمات» but not «طراحی فرم و گردش‌کار»; one that reads neither receives
+  no `custom_field` rows). The schema stamp covers `sm_field_defs` and `sm_field_types` too. A Windows app's push meets
+  the field's rules on the day the change was made (`$today` limits), and its «پیوست» ids may not name another
+  record's files (ids not uploaded yet pass).
 - The row named `"_states"` (`STATES_ROW`, `@shared/model/lifecycle`) is the lifecycle overlay: state and transition
   labels and colours, one primary transition, `off` for transitions a module marks `optional` (never the only way out
   of a state), `also` (one of these roles as well — `canTransitionRow`), and `requires`/`when` for people's writes
   only (`*` validateTransition hooks, on the API and the push path). Values, categories, `from`/`to` and guards stay
-  the module's.
+  the module's. An organisation field the overlay names stays on its table while it is named (switching it off,
+  deleting, renaming or moving it is refused), the schema leaves out names that are gone anyway (`pruneLifecycle`),
+  and a studio table's overlay goes with the table.
 - Choice options a module marks `locked` are relabelled, recoloured or reordered by `choice` rows, never deactivated.
 - `choice` rows `{ list, value, label, color, sort_order, parent, active }` extend or edit the default options of a
   list by value; `active: false` hides an option for new values; an empty `sort_order` keeps the default's position.
