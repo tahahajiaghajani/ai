@@ -367,11 +367,12 @@ await C.run(async () => {
       C.note(`known console error(s) of this version: ${known[0]}`);
     }
     if (measured.length) {
-      // the pages' speed per persona against the budgets of perf.mjs; the rows for the report
+      // the rows for the report; the pages' speed per persona against the budgets of perf.mjs in the two measuring
+      // phases (`demo` and `purged` look at the banner while the demo pack's background work still runs)
       const dir = a.out ? PERF_DIR(String(a.out)) : join(SHOTS, "..", "perf");
       mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, `pages-${a.phase}.json`), JSON.stringify(measured, null, 2));
-      C.metric("pages", checkPages(C, measured, String(a.phase)));
+      if (a.phase === "pages" || a.phase === "perf") C.metric("pages", checkPages(C, measured, String(a.phase)));
     }
     writeFileSync(join(SHOTS, `requests-${a.phase}.json`), JSON.stringify({ foreign, consoleErrors, serverErrors, visited }, null, 2));
     log(`${visited.length} pages, ${foreign.length} foreign requests, ${consoleErrors.length} console errors`);
