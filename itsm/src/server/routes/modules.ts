@@ -80,6 +80,7 @@ import { installDemoModule } from "../modules/demo";
 import { installIntegrationModule } from "../modules/integration";
 import { integrationHubRoutes } from "./integration";
 import { authAdminRoutes } from "./auth-admin";
+import { installDiscoveryModule } from "../modules/discovery";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
 installAccessModel();
@@ -124,6 +125,9 @@ installProjectModule();
 installEventModule();
 // availability, capacity and continuity (docs/modules/continuity_FA.md) — after the event module (capacity sink)
 installContinuityModule();
+// discovery: assets and their status from monitoring, discovery and endpoint tools (design A) — after the CMDB, ITAM and
+// event management it feeds
+installDiscoveryModule();
 // security operations, vulnerability response and GRC (docs/modules/security_FA.md) — after the SLA service, the RAG
 // index and the modules whose records it links (incidents, CIs, changes); before analytics, which reports on its tables
 installSecurityModule();
