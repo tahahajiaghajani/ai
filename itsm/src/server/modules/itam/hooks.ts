@@ -38,6 +38,7 @@ import { enqueue } from "../../jobs";
 import type { Ctx } from "../../context";
 import { lockKey, type Tx } from "../../db";
 import { eqAll, isUuid, itamConfig, liveRow, liveRows, localDate, lockedRow, orgToday, sysOf, type Row } from "./common";
+import { cmdbConfig } from "../cmdb/common";
 
 const entering = (w: WriteArgs, state: string) => w.next.state === state && (w.op === "create" || w.prev?.state !== state);
 const leaving = (w: WriteArgs, state: string) => w.op !== "create" && w.prev?.state === state && w.next.state !== state;
@@ -216,7 +217,12 @@ async function stockMovements(w: WriteArgs, row: Row, prev: Row | null): Promise
   }
 }
 
-/** Keep the linked CI in step (ITAM-002): ITAM masters assignment, place, cost centre, tag and the lifecycle. */
+/**
+ * Keep the linked CI in step (ITAM-002): ITAM masters assignment, place, cost centre, tag and the lifecycle. The values
+ * the asset decides carry ITAM's provenance on the CI (design A §8.3 b): `attr_meta[field]` says «set by hand» at the
+ * settings' manual priority, so no import, collector or connector overwrites them — a tool's different value stays an
+ * observation, and discovery shows it to the asset manager as a mismatch.
+ */
 async function syncCi(w: WriteArgs, row: Row): Promise<void> {
   if (!isUuid(row.ci_id)) return;
   const sys = sysOf(w.ctx);
@@ -234,9 +240,19 @@ async function syncCi(w: WriteArgs, row: Row): Promise<void> {
   if (status.install_status) want.install_status = status.install_status;
   if (status.operational_status) want.operational_status = status.operational_status;
   for (const [k, v] of Object.entries(want)) if ((ci[k] ?? null) !== (v ?? null)) patch[k] = v;
+  // ITAM's provenance on the fields whose value the asset itself decides (not those it only keeps from the CI)
+  const mastered = Object.keys(want).filter((k) => (k === "location_id" ? !!row.location_id : k === "serial_number" ? !!row.serial_number : k === "asset_tag" ? !!row.asset_tag : true));
+  const meta: Record<string, Row> = { ...((ci.attr_meta ?? {}) as Record<string, Row>) };
+  const stamp = mastered.filter((k) => k in patch || meta[k]?.src !== "manual");
+  if (stamp.length) {
+    const at = new Date().toISOString();
+    const p = (await cmdbConfig(w.tx, w.ctx)).manual_priority;
+    for (const k of stamp) meta[k] = { ...(meta[k] ?? {}), src: "manual", by: null, at, p };
+    patch.attr_meta = meta;
+  }
   try {
     await savepoint(w.tx, async () => {
-      if (Object.keys(patch).length) await updateIn(w.tx, sys, "ci", ci.id, patch, { trusted: true });
+      if (Object.keys(patch).length) await updateIn(w.tx, sys, "ci", ci.id, patch, { trusted: true, keepVersion: Object.keys(patch).every((k) => k === "attr_meta") });
       const target = status.ci_state;
       if (target === "retired" && !["retired", "disposed"].includes(String(ci.state))) await transitionIn(w.tx, sys, "ci", ci.id, "retired", {});
       if (target === "disposed" && ci.state !== "disposed") {
