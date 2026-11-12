@@ -11,20 +11,22 @@
 //     `settings` full; an organisation field it names stays on the table (`keepNamedFields`), and a studio table's
 //     overlay goes with the table;
 //   · `ui_policy`: no mandatory field that is hidden from the form;
-//   · `choice`: an option a module marks `locked` is never deactivated (relabelled, recoloured, reordered: yes).
-// A Windows app's push of UI policies and choice rows meets the same rules (custom_field rows are web-only).
+//   · `choice`: an option a module marks `locked` is never deactivated (relabelled, recoloured, reordered: yes);
+//   · `portal`: while incident carries a requirement «همه», the portal's «گزارش مشکل» keeps a catalogue form
+//     (`portalRules`: the other side of `requirementBlockers`; trusted code excepted).
+// A Windows app's push of UI policies, choice rows and portals meets the same rules (custom_field rows are web-only).
 import { CHOICE_LISTS, tableDef } from "@shared/tables";
 import type { FieldDef, TableDef } from "@shared/model/types";
 import { FORM_ROW } from "@shared/model/arrangement";
 import { LABELS_ONLY_LIFECYCLES, STATES_ROW, cleanLifecycle, lifecycleProblems, type EffectiveTransition } from "@shared/model/lifecycle";
 import { lockRefusal } from "@shared/forms/locked";
-import { isRequiredFor, requirementBlockers } from "@shared/forms/paths";
+import { isRequiredFor, requirementBlockers, tablesBehind } from "@shared/forms/paths";
 import { libraryFieldDef, resolveFieldType, storageChange, type LibraryFieldRow } from "@shared/forms/fieldtypes";
 import type { Ctx } from "../../context";
 import type { Queryable, Tx } from "../../db";
 import { bad, forbidden } from "../../http/errors";
 import { snapshotFor, catalogOf, accessSettings } from "../../access/subject";
-import { actorId, isSystemCtx, orgSchema, pushGuard, registerHooks, removeIn, validationError, type WriteArgs } from "../../engine";
+import { actorId, isSystemCtx, orgSchema, pushGuard, registerHooks, removeIn, validationError, type PushArgs, type WriteArgs } from "../../engine";
 import { condPaths } from "@shared/model/conditions";
 import { sysOf } from "../admin/common";
 import { customFieldDef, snapshotField } from "../../engine/schema";
@@ -268,6 +270,61 @@ async function uiPolicyRules(w: WriteArgs): Promise<void> {
   }
 }
 
+/** The tables people report through the portal's «گزارش مشکل», whose built-in form cannot carry a field (incident). */
+const PORTAL_REPORT_TABLES = tablesBehind("portal_report_item");
+
+/** A requirement «همه» on a table people report through the portal's built-in form (the first one), or null. */
+async function requirementForAll(w: Pick<WriteArgs, "ctx" | "tx">): Promise<{ field: FieldDef; def: TableDef } | null> {
+  const schema = await orgSchema(w.ctx, w.tx);
+  for (const t of PORTAL_REPORT_TABLES) {
+    const def = schema.def(t);
+    const field = def?.fields.find((f) => f.formRequired === "all");
+    if (def && field) return { field, def };
+  }
+  return null;
+}
+
+/**
+ * The portal's side of a requirement «همه» (design F §3.3): it is saved only while every active portal reports problems
+ * through a catalogue form (`requirementBlockers`), since the built-in form cannot carry the field and requesters could
+ * then not report at all. While it stands, a portal write that brings the built-in form back is refused: an active
+ * portal without a catalogue form (created, switched on, or its form cleared), and taking away — switching off or
+ * deleting — the last active portal that has one (with no portal at all, the portal's defaults use the built-in form).
+ * Trusted code (the portal's own seed) is not asked.
+ */
+async function portalRules(w: WriteArgs): Promise<void> {
+  if (w.trusted || (w.op !== "create" && w.op !== "update" && w.op !== "delete")) return;
+  const before = !!w.prev && w.prev.active !== false && !w.prev.deleted_at;
+  const after = w.op !== "delete" && w.next.active !== false;
+  const had = before && !!w.prev!.report_item_id;
+  const has = after && !!w.next.report_item_id;
+  // an active portal on the built-in form that was not one, or the catalogue form of an active portal taken away
+  const opens = after && !has && !(before && !had);
+  const closes = had && !has;
+  if (!opens && !closes) return;
+  const req = await requirementForAll(w);
+  if (!req) return;
+  const why = `«${req.field.label}» در «${req.def.plural}» برای «همه» الزامی است و فرم پیش‌فرض «گزارش مشکل» درگاه آن را ندارد`;
+  if (opens) throw bad(`«گزارش مشکل» این درگاه فرم کاتالوگ می‌خواهد: ${why}. قلمی از کاتالوگ برای «گزارش مشکل» برگزینید، یا نخست الزام را «فقط کارشناسان» کنید`);
+  const other = await w.tx.one(
+    `select 1 from sm_portals where org_id = $1 and id <> $2 and active and deleted_at is null and report_item_id is not null limit 1`,
+    [w.ctx.org.id, String(w.prev!.id)],
+  );
+  if (!other) throw bad(`این آخرین درگاهی است که «گزارش مشکل» را با فرم کاتالوگ می‌گیرد: ${why}. نخست درگاه دیگری با فرم کاتالوگ فعال کنید، یا الزام را «فقط کارشناسان» کنید`);
+}
+
+/** A Windows app's pushed deletion of a portal, judged like the API's (`validatePushDelete`: `next` is the stored row). */
+async function portalPushDelete(p: PushArgs): Promise<string | null> {
+  try {
+    await portalRules({ tx: p.tx, ctx: p.ctx, def: p.def, op: "delete", next: { ...p.next }, prev: p.prev ?? p.next, changed: new Set(["deleted_at"]), env: p.env, via: "sync", trusted: false });
+    return null;
+  } catch (e) {
+    const status = (e as { status?: unknown })?.status;
+    if (typeof status === "number" && status >= 400 && status < 500) return String((e as Error).message);
+    throw e;
+  }
+}
+
 /** An option module code tests is never deactivated by the organisation's row. */
 function choiceRules(w: WriteArgs): void {
   if ((w.op !== "create" && w.op !== "update") || w.next.active !== false) return;
@@ -289,4 +346,5 @@ export function installCombinationHooks(): void {
   });
   registerHooks("ui_policy", { beforeWrite: uiPolicyRules, validatePush: pushGuard(uiPolicyRules) });
   registerHooks("choice", { beforeWrite: choiceRules, validatePush: pushGuard(choiceRules) });
+  registerHooks("portal", { beforeWrite: portalRules, validatePush: pushGuard(portalRules), validatePushDelete: portalPushDelete });
 }

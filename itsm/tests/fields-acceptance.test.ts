@@ -176,4 +176,47 @@ describe("F1 acceptance: an administrator tailors incident with rows only", () =
     expect(isBoardable(impact)).toBe(true);
     expect(filterPaths(meta, () => undefined).map((p) => p.path)).toContain("impact");
   });
+
+  it("keeps the portal's «گزارش مشکل» on a catalogue form while a requirement «همه» stands (F1-3)", async () => {
+    const o = w.o;
+    const R = `${P}/r`;
+    const cat = (await o.post(`${R}/catalog`, { name: "خدمات فناوری" })).row;
+    const item = (await o.post(`${R}/catalog_item`, { name: "گزارش مشکل", catalog_id: cat.id })).row;
+    const first = (await w.e.db.query<{ id: string }>(`select id from sm_portals where org_id = $1 and active and deleted_at is null`, [w.e.org]))[0]?.id
+      ?? (await o.post(`${R}/portal`, { name: "درگاه خدمات" })).row.id;
+    await o.patch(`${R}/portal/${first}`, { report_item_id: item.id });
+    // «همه» is saved once every active portal reports through a catalogue form
+    const lib = (await o.post(`${P}/fields/library`, { name: "u_where", label: "محل رخداد", type: "string" }, 201)).row;
+    await o.post(`${P}/fields/attach`, { table: "incident", field: lib.id, required: true, required_for: "all" }, 201);
+    const form = "«گزارش مشکل» این درگاه فرم کاتالوگ می‌خواهد: «محل رخداد» در «رخدادها» برای «همه» الزامی است و فرم پیش‌فرض «گزارش مشکل» درگاه آن را ندارد. قلمی از کاتالوگ برای «گزارش مشکل» برگزینید، یا نخست الزام را «فقط کارشناسان» کنید";
+    const last = "این آخرین درگاهی است که «گزارش مشکل» را با فرم کاتالوگ می‌گیرد: «محل رخداد» در «رخدادها» برای «همه» الزامی است و فرم پیش‌فرض «گزارش مشکل» درگاه آن را ندارد. نخست درگاه دیگری با فرم کاتالوگ فعال کنید، یا الزام را «فقط کارشناسان» کنید";
+    // while it stands, nothing brings the built-in form back: clearing the form, a new or reactivated portal without one…
+    expect(((await o.patch(`${R}/portal/${first}`, { report_item_id: null }, 400)) as Msg).error.message).toBe(form);
+    expect(((await o.post(`${R}/portal`, { name: "درگاه دوم" }, 400)) as Msg).error.message).toBe(form);
+    const second = (await o.post(`${R}/portal`, { name: "درگاه دوم", active: false })).row;
+    expect(((await o.patch(`${R}/portal/${second.id}`, { active: true }, 400)) as Msg).error.message).toBe(form);
+    await o.patch(`${R}/portal/${second.id}`, { active: true, report_item_id: item.id });
+    // …or taking away the last portal that has one (with no portal at all, the defaults use the built-in form)
+    await o.patch(`${R}/portal/${first}`, { active: false });
+    expect(((await o.patch(`${R}/portal/${second.id}`, { active: false }, 400)) as Msg).error.message).toBe(last);
+    expect(((await o.del(`${R}/portal/${second.id}`, 400)) as Msg).error.message).toBe(last);
+    // a Windows app's push meets the same rule
+    const stored = (await w.e.db.one<Record<string, unknown>>(`select * from sm_portals where id = $1`, [second.id]))!;
+    const pushed = await o.post(`/sync/push`, {
+      org_id: w.e.org, device_id: uuidv7(), protocol: SYNC_PROTOCOL,
+      aggregates: [{ entity: "portal", id: second.id, base_rev: Number(stored.rev), row: { ...JSON.parse(JSON.stringify(stored)), report_item_id: null, updated_at: new Date(Date.now() + 5_000).toISOString() } }],
+    });
+    expect(pushed.results[0]).toMatchObject({ status: "error", message: form });
+    expect((await o.get(`${R}/portal/${second.id}`)).row.report_item_id).toBe(item.id);
+    // the requester's report through the catalogue form is what the requirement relies on; trusted code (the portal's own
+    // seed) is not asked
+    const seeded = await w.sys.write((tx) => createIn(tx, w.sys, "portal", { name: "درگاه سامانه" }, { trusted: true }));
+    expect(seeded.active).toBe(true);
+    // once the requirement goes, the portals are free again
+    await o.put(`${P}/forms/system/incident/overrides`, { fields: { u_where: { required: false } } });
+    await o.del(`${R}/portal/${seeded.id}`);
+    await o.patch(`${R}/portal/${second.id}`, { report_item_id: null });
+    await o.del(`${R}/portal/${second.id}`);
+    await o.patch(`${R}/portal/${first}`, { active: true, report_item_id: null });
+  });
 });

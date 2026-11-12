@@ -58,6 +58,11 @@ const TABLE_PATHS: Record<string, CreationPath[]> = {
   todo: [EMAIL],
 };
 
+/** The tables people create through a fixed form that `setting` replaces (the portal's «گزارش مشکل»: incident). */
+export function tablesBehind(setting: NonNullable<CreationPath["formSetting"]>): string[] {
+  return Object.keys(TABLE_PATHS).filter((t) => TABLE_PATHS[t].some((p) => p.fixedForm && p.formSetting === setting && p.writer !== "system"));
+}
+
 /**
  * The creation paths of a table: its own first, then the common ones. `emailTarget`: a mailbox of the organisation
  * creates records of this table (an inbound e-mail channel names it).
