@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { DiscoveredRecord } from "@shared/discovery/types";
 import { createIn, updateIn } from "@server/engine";
+import { registerHooks } from "@server/engine/hooks";
 import { inDemoScope } from "@server/db/scope";
 import { seedItamDefaults } from "@server/modules/itam";
 import { applyPolicies } from "@server/modules/cmdb";
@@ -214,6 +215,27 @@ describe("the contact ladder (design A §10)", () => {
     mock.token = "rotated";
     for (let i = 0; i < 4; i++) await w.pass(c.id);
     expect(await notices("پیاپی ناموفق بود")).toHaveLength(1);
+  }, 300_000);
+
+  it("one target's failed transition never stops the others: it is left as it was and taken again at the next run", async () => {
+    const { c } = await rest(makeDevices(3, { from: 975_000, seenDaysAgo: 30 }));
+    await w.pass(c.id);
+    const cis = (await w.q(`select ci_id from sm_discovery_items where connector_id = $1 order by external_id`, [c.id])).map((r) => r.ci_id as string);
+    const off = registerHooks("ci", {
+      beforeWrite(x) {
+        if (x.prev?.id === cis[0] && x.changed.has("is_stale")) throw new Error("refused for the test");
+      },
+    });
+    try {
+      expect(await runLadder(w.sys, c.id)).toMatchObject({ failed: 1, stale: 2 });
+    } finally {
+      off();
+    }
+    expect((await ciOf(cis[0])).is_stale).toBe(false);
+    expect((await state("ci", cis[0])).stale_since).toBeNull();
+    expect((await ciOf(cis[1])).is_stale).toBe(true);
+    expect(await runLadder(w.sys, c.id)).toMatchObject({ failed: 0, stale: 1 });
+    expect((await ciOf(cis[0])).is_stale).toBe(true);
   }, 300_000);
 
   it("the sweep queues every active connector's ladder once a day — a demo connector's as demo work", async () => {

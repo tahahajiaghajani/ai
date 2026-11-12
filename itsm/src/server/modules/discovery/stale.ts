@@ -23,7 +23,7 @@ import { dateISOIn, formatJalali } from "@shared/jalali";
 import { ladder, type DeletePolicy } from "@shared/discovery/stale";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
-import type { Queryable } from "../../db";
+import { isTransientDbError, type Queryable } from "../../db";
 import { addJournalIn, createIn, transitionIn, updateIn } from "../../engine";
 import type { Job, JobContext, JobResult } from "../../jobs";
 import { assertWritable } from "../platform/org-admin";
@@ -155,6 +155,8 @@ export interface LadderResult {
   tasks: number;
   missing: number;
   retired: number;
+  /** targets whose transition failed (logged; tried again at the next run) */
+  failed: number;
   /** the connector's last complete pass is held by the mass-drop guard: nothing was judged */
   held?: boolean;
   /** the slice ended with transitions left (the job comes back) */
@@ -168,7 +170,7 @@ export interface LadderResult {
 export async function runLadder(sys: Ctx, connectorId: string, opts: { deadline?: number; runId?: string | null } = {}): Promise<LadderResult> {
   const db = sys.db;
   const org = sys.org.id;
-  const out: LadderResult = { targets: 0, stale: 0, fresh: 0, tasks: 0, missing: 0, retired: 0 };
+  const out: LadderResult = { targets: 0, stale: 0, fresh: 0, tasks: 0, missing: 0, retired: 0, failed: 0 };
   const end = sliceEnd(Date.now(), opts.deadline ?? Date.now() + 20_000);
   const conn = await loadConnector(db, org, connectorId);
   if (!conn) return out;
@@ -216,38 +218,49 @@ export async function runLadder(sys: Ctx, connectorId: string, opts: { deadline?
       break;
     }
     worked = true;
-    await sys.write(async (tx) => {
-      if (retire) {
-        await transitionIn(tx, sys, "ci", r.ci_id, "retired", {}, { trusted: true });
-        out.retired++;
-      } else if (flag || unflag) {
-        await updateIn(tx, sys, "ci", r.ci_id, { is_stale: flag }, { trusted: true, keepVersion: true, allowLocked: true });
-        if (flag) out.stale++;
-        else out.fresh++;
-      }
-      if (task || markMissing) {
-        const asset = await liveRow(tx, sys, "asset", r.asset_id);
-        const { lines, names } = await sourcesOf(tx, sys, r);
-        const title = `دارایی ${asset?.number ?? r.asset_number ?? ""} از ${faNum(d.days!)} روز پیش با هیچ ابزاری تماس نداشته است`;
-        if (task && asset) {
-          const todo = await createIn(tx, sys, "todo", {
-            short_description: title.slice(0, 200),
-            description: ["آخرین تماس هر منبع با این دستگاه:", ...lines.map((l) => `- ${l}`), "", "اگر دستگاه گم، جابه‌جا یا از کار افتاده است، وضعیت دارایی را به‌روز کنید؛ اگر روشن و در استفاده است، عامل ابزارها را روی آن بررسی کنید."].join("\n"),
-            category: "followup", priority: "3",
-            assigned_to: asset.managed_by ?? (asset.managed_by_group_id ? null : conn.owner_id ?? null), assignment_group_id: asset.managed_by_group_id ?? null,
-            ci_id: r.ci_id ?? null, location_id: asset.location_id ?? null,
-          }, { trusted: true });
-          v.missing_todo_id = todo.id;
-          out.tasks++;
-        } else if (markMissing && asset?.state === "in_use") {
-          const reason = `${title} (منبع‌ها: ${names.map((n) => `«${n}»`).join("، ") || "—"})`;
-          await transitionIn(tx, sys, "asset", asset.id, "missing", { retire_reason: reason.slice(0, 2000) }, { trusted: true });
-          await addJournalIn(tx, sys, tableDef("asset")!, asset, { kind: "system", body: `منبع دادهٔ «${conn.name}» دارایی را «مفقود» کرد: ${title}.\n${lines.join("\n")}` }, { trusted: true });
-          out.missing++;
+    // one target's failure (a transition its record refuses) never stops the others: it is logged and tried again at
+    // the next run
+    // what this target's transaction did, counted once it commits
+    const did = { retired: 0, stale: 0, fresh: 0, tasks: 0, missing: 0 };
+    try {
+      await sys.write(async (tx) => {
+        if (retire) {
+          await transitionIn(tx, sys, "ci", r.ci_id, "retired", {}, { trusted: true });
+          did.retired = 1;
+        } else if (flag || unflag) {
+          await updateIn(tx, sys, "ci", r.ci_id, { is_stale: flag }, { trusted: true, keepVersion: true, allowLocked: true });
+          if (flag) did.stale = 1;
+          else did.fresh = 1;
         }
-      }
-      await storeLadder(tx, org, r, v);
-    });
+        if (task || markMissing) {
+          const asset = await liveRow(tx, sys, "asset", r.asset_id);
+          const { lines, names } = await sourcesOf(tx, sys, r);
+          const title = `دارایی ${asset?.number ?? r.asset_number ?? ""} از ${faNum(d.days!)} روز پیش با هیچ ابزاری تماس نداشته است`;
+          if (task && asset) {
+            const todo = await createIn(tx, sys, "todo", {
+              short_description: title.slice(0, 200),
+              description: ["آخرین تماس هر منبع با این دستگاه:", ...lines.map((l) => `- ${l}`), "", "اگر دستگاه گم، جابه‌جا یا از کار افتاده است، وضعیت دارایی را به‌روز کنید؛ اگر روشن و در استفاده است، عامل ابزارها را روی آن بررسی کنید."].join("\n"),
+              category: "followup", priority: "3",
+              assigned_to: asset.managed_by ?? (asset.managed_by_group_id ? null : conn.owner_id ?? null), assignment_group_id: asset.managed_by_group_id ?? null,
+              ci_id: r.ci_id ?? null, location_id: asset.location_id ?? null,
+            }, { trusted: true });
+            v.missing_todo_id = todo.id;
+            did.tasks = 1;
+          } else if (markMissing && asset?.state === "in_use") {
+            const reason = `${title} (منبع‌ها: ${names.map((n) => `«${n}»`).join("، ") || "—"})`;
+            await transitionIn(tx, sys, "asset", asset.id, "missing", { retire_reason: reason.slice(0, 2000) }, { trusted: true });
+            await addJournalIn(tx, sys, tableDef("asset")!, asset, { kind: "system", body: `منبع دادهٔ «${conn.name}» دارایی را «مفقود» کرد: ${title}.\n${lines.join("\n")}` }, { trusted: true });
+            did.missing = 1;
+          }
+        }
+        await storeLadder(tx, org, r, v);
+      });
+      for (const k of Object.keys(did) as (keyof typeof did)[]) out[k] += did[k];
+    } catch (e) {
+      if (isTransientDbError(e)) throw e;
+      out.failed++;
+      sys.cfg.log?.warn?.("discovery ladder: a target was left as it was", { connector: connectorId, ci: r.ci_id ?? null, asset: r.asset_id ?? null, error: String((e as Error)?.message ?? e).slice(0, 300) });
+    }
   }
   if (bookkeeping.length) {
     await sys.write(async (tx) => {
