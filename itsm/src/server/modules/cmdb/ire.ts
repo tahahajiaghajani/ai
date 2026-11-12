@@ -127,6 +127,20 @@ export interface NormItem {
   hint?: string | null;
 }
 
+/** Identifiers compared without case, spaces or the digits' script (rows typed with Persian or Arabic digits). */
+const IDENT_UPPER = new Set(["serial_number", "asset_tag", "bios_uuid", "cert_serial", "imei"]);
+
+/**
+ * The CI side of identification's comparison of attribute `bare` held in `col`. The identity indexes (migration
+ * 0104_ci_identity_indexes) hold exactly these expressions over the CI's columns: a change here needs new indexes.
+ */
+export function identExpr(bare: string, col: string): string {
+  if (IDENT_UPPER.has(bare)) return `upper(replace(translate(${col}, '${PERSIAN_DIGITS}', '${LATIN_DIGITS}'), ' ', ''))`;
+  if (bare === "name") return `lower(${normSql(col)})`;
+  if (bare === "cloud_resource_id") return col;
+  return `lower(${col})`;
+}
+
 /** CIs matching one identification entry (system rights; retired ones count, merged and disposed ones do not). */
 async function matchEntry(q: Queryable, ctx: Ctx, tree: ClassTree, item: NormItem, entry: IdentEntry & { scope: string }, parents: Map<string, string>): Promise<Row[] | null> {
   const sys = sysOf(ctx);
@@ -150,11 +164,10 @@ async function matchEntry(q: Queryable, ctx: Ctx, tree: ClassTree, item: NormIte
     const bare = attr.replace(/^attrs\./, "");
     const col = ciColumnSql("t", attr, params);
     params.push(v);
-    // case, spaces and the digits' script (rows typed with Persian or Arabic digits before they were stored Latin) aside
-    if (bare === "serial_number" || bare === "asset_tag" || bare === "bios_uuid" || bare === "cert_serial" || bare === "imei") parts.push(`upper(replace(translate(${col}, '${PERSIAN_DIGITS}', '${LATIN_DIGITS}'), ' ', '')) = $${params.length}`);
-    else if (bare === "name") parts.push(`lower(${normSql(col)}) = lower(${normSql(`$${params.length}`)})`);
-    else if (bare === "cloud_resource_id") parts.push(`${col} = $${params.length}`);
-    else parts.push(`lower(${col}) = lower($${params.length})`);
+    const lhs = identExpr(bare, col);
+    if (IDENT_UPPER.has(bare) || bare === "cloud_resource_id") parts.push(`${lhs} = $${params.length}`);
+    else if (bare === "name") parts.push(`${lhs} = lower(${normSql(`$${params.length}`)})`);
+    else parts.push(`${lhs} = lower($${params.length})`);
   }
   return q.query<Row>(`select t.* from ${def.table} t where ${parts.join(" and ")} order by t.updated_at desc limit 6`, params);
 }

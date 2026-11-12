@@ -11,6 +11,9 @@ import { KIND_DESCRIPTORS, KIND_OPTIONS, kindDescriptor, offeredKinds } from "@s
 import type { DiscoveredRecord } from "@shared/discovery/types";
 import { callSize, FIRST_CALL, lockBudgetMs, mayForce, observe, planCall, predictMs, sliceEnd } from "@server/modules/discovery/budget";
 import { configureWriteSerialisation } from "@server/context";
+import { identExpr } from "@server/modules/cmdb/ire";
+import { IDENTITY_INDEX_EXPRESSIONS } from "@server/db/migrations/0104_ci_identity_indexes";
+import ciIdentityIndexes from "@server/db/migrations/0104_ci_identity_indexes";
 
 const NOW = new Date("2026-11-11T10:00:00Z");
 const norm = (raw: unknown) => normaliseRecord(raw, { now: NOW });
@@ -199,5 +202,19 @@ describe("budgets of a pull (§7.1)", () => {
       configureWriteSerialisation(false);
     }
     expect(lockBudgetMs()).toBe(3000);
+  });
+});
+
+describe("the identification indexes (§8.5)", () => {
+  it("hold exactly the reconciliation engine's expressions, over live CIs that are not merged", () => {
+    // the planner matches an index by its expression, constants included: a drift here silently scans every CI again
+    for (const [col, expr] of Object.entries(IDENTITY_INDEX_EXPRESSIONS)) expect(identExpr(col, col), col).toBe(expr);
+    expect(Object.keys(IDENTITY_INDEX_EXPRESSIONS).sort()).toEqual(["asset_tag", "bios_uuid", "fqdn", "hostname", "mac_address", "name", "serial_number"]);
+    const statements = ciIdentityIndexes.trim().split("\n");
+    expect(statements).toHaveLength(7);
+    for (const st of statements) {
+      expect(st).toMatch(/^create index if not exists sm_cis_ident_[a-z]+_idx on sm_cis \(org_id, \(/);
+      expect(st.endsWith("where deleted_at is null and merged_into is null;")).toBe(true);
+    }
   });
 });
