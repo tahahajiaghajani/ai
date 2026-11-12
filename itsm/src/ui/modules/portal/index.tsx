@@ -10,7 +10,8 @@
 //                  and feedback; survey invitations open in the portal
 //   public pages   /p/kb/:token (knowledge without sign-in) and /p/survey/:token (a survey by its signed link)
 // Only light modules are imported here; every page loads with its route.
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import { BarChart3, Code2, Globe, KeyRound, LayoutTemplate, LifeBuoy, Link2, ListTree, MessageSquareHeart, MessageSquareText, MessagesSquare, PieChart, Settings2, Workflow, Inbox } from "lucide-react";
 import type { AccessGate } from "@shared/access/evaluate";
 import type { ModuleUi, NavItem } from "../registry";

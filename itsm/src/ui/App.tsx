@@ -1,4 +1,5 @@
-import { Suspense, lazy, useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import { Routes, Route, Navigate, useLocation } from "react-router";
 import { useSession } from "./lib/session";
 import { BrandMark } from "./components/brand";

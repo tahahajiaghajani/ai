@@ -6,7 +6,8 @@
 //   record pages  roles and keys; secrets shown once; test sends, deliveries and dead letters; inbound deliveries;
 //                 directory test / preview / approve / apply; run an export now
 //   elsewhere     the side panel «Jira و GitHub» on task records (their issues, «ساخت issue»)
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import { Bot, Send, Inbox, FolderSync, GitPullRequestArrow, ExternalLink, CalendarClock, LayoutGrid, FileJson } from "lucide-react";
 import type { ModuleUi } from "../registry";
 import { recordModule } from "../../records/module";

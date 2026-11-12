@@ -1,6 +1,6 @@
 // Record extensions of the channel tables, kept light for the module's index: the widgets themselves load with the
 // record page (ChannelWidgets.tsx). New SMS gateways can start from a preset: `…/new?kind=sms&preset=kavenegar`.
-import { lazy, Suspense } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import { SMS_PRESETS } from "@shared/notify";
 import type { RecordExtensions } from "../../records/extensions";
 import type { UiPolicy } from "../../records/model/policies";

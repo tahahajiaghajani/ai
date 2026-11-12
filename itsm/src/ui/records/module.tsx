@@ -3,7 +3,8 @@
 // registry assembles (nav items, list / new / record routes, palette searches and «… تازه» actions) and registers
 // the extensions (with the table's path, so every link to its records lands on the module's pages). The generic
 // routes `r/:table`, `r/:table/new` and `r/:table/:id` serve every other table.
-import { lazy, type ReactNode } from "react";
+import { type ReactNode } from "react";
+import { lazy } from "@ui/lib/lazy";
 import type { LucideIcon } from "lucide-react";
 import type { Area, Level } from "@shared/permissions";
 import type { AccessGate } from "@shared/access";

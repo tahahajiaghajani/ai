@@ -8,7 +8,8 @@
 //                 starts with that service (…/new?service=<id>)
 //   lists         HR cases, tasks, journeys, profiles; facility requests, safety events, spaces, reservations, visits;
 //                 finance, legal, purchase and other department cases; departments, services, journey templates
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import {
   Building2, UserRoundCog, ClipboardCheck, Route, IdCard, Wrench, HardHat, DoorOpen, CalendarCheck, BadgeCheck, Landmark, Scale, ShoppingCart, Briefcase, ConciergeBell, ListChecks, Settings, ListTodo, CalendarRange, User, Inbox, UserCheck,
 } from "lucide-react";

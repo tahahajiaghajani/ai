@@ -17,7 +17,7 @@ import { errorText } from "../../lib/api";
 import { EmptyState } from "../../components/display";
 import { Note } from "../../components/blocks";
 import { PageHeader } from "../../components/layout";
-import { useMe, useRecord, useRecordActions, useTableDef } from "../data/hooks";
+import { useActivity, useAttachments, useLinks, useMe, useRecord, useRecordActions, useTableDef } from "../data/hooks";
 import { extensionsFor, extensionsVersion, forParticipants, getPolicySource, recordPath, tablePath, type RecordContext, type RecordExtensions } from "../extensions";
 import { formLayout } from "../model/layout";
 import { enterableOnCreate, formState, missingRequired, type UiPolicy } from "../model/policies";
@@ -46,6 +46,8 @@ export interface RecordPageProps {
 export function RecordPage({ table, id, extensions, backTo }: RecordPageProps) {
   const { def, schema, error, missing } = useTableDef(table);
   const { orgId } = useOrg();
+  // the record's own request starts with the table definitions, not after them (the same query as ViewRecord's)
+  useRecord(id === "new" ? null : table, id === "new" ? null : id);
   if (missing)
     return (
       <>
@@ -285,6 +287,11 @@ function ViewRecord({ def, schema, id, extensions, back }: { def: TableMeta; sch
   const { ext: allExt, policies } = useExtensions(def.key, extensions);
   const actions = useRecordActions(def.key);
   const rec = useRecord(def.key, id);
+  // the activity stream and the side panel's attachments and links load with the record (the same queries their cards
+  // use, which mount only once the record is there): one round trip on the page's critical path instead of two
+  useActivity(def, id);
+  useAttachments(def.key, id, !!def.features?.attachments);
+  useLinks(def.key, id, !!def.features?.links);
   const [mode, setMode] = useState<"view" | "edit">("view");
   const [draft, setDraft] = useState<Record<string, unknown>>({});
   const [base, setBase] = useState<RecordRow | null>(null);

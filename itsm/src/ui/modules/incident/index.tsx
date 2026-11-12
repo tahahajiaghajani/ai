@@ -10,7 +10,8 @@
 //                 queues), periodic reviews
 //                 («محاسبهٔ آمار» and the «آمار دوره» tab, under «گزارش‌ها»); definitions: templates, canned responses
 // Only light modules are imported here; every component loads with its page.
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import { Siren, ListChecks, ClipboardCheck, LayoutTemplate, MessageSquareText, Settings2, ChartColumn, User, Users, Flame, Timer, Hourglass, CheckCheck, OctagonAlert, Inbox, Megaphone, CalendarCheck, PhoneCall } from "lucide-react";
 import type { ModuleUi, NavItem } from "../registry";
 import { recordModule, RecordListRoute } from "../../records/module";

@@ -8,7 +8,8 @@
 //   record pages      «پیشنهاد کارشناس» on incidents, requested items, problems and changes (skills routing)
 // Agents reach their own rows and their teams' views through the module's routes; the generic lists need the area's
 // grants (the module's roles «مدیر نیروی کار» and «سرپرست تیم (نیروی کار)»).
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import { Award, CalendarClock, CalendarRange, Gauge, GraduationCap, HeartHandshake, House, LayoutGrid, Plane, Settings2, ShieldCheck, Trophy, UserRoundCheck, Users } from "lucide-react";
 import type { AccessGate } from "@shared/access";
 import type { ModuleUi } from "../registry";

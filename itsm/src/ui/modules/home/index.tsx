@@ -1,5 +1,5 @@
 // «خانه»: the page every member lands on in an organisation. It sits at the top of every space of the sidebar.
-import { lazy } from "react";
+import { lazy } from "@ui/lib/lazy";
 import { House } from "lucide-react";
 import type { ModuleUi } from "../registry";
 

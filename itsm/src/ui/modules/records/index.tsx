@@ -2,7 +2,7 @@
 // the moment it is registered), «کارها» (the engine's demo table `todo`) built with `recordModule` the way ITSM
 // modules build theirs, and the designers of Settings › «سفارشی‌سازی»: custom fields, choice lists, form layouts
 // and saved views. See docs/spec/UI_RECORDS.md.
-import { lazy } from "react";
+import { lazy } from "@ui/lib/lazy";
 import { useNavigate } from "react-router";
 import { Button } from "antd";
 import { Bookmark, LayoutTemplate, List, ListChecks, ListPlus, ExternalLink } from "lucide-react";

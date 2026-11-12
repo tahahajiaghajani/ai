@@ -1,6 +1,7 @@
 // The signed-in app inside an organisation (its own chunk, loaded by App.tsx when someone is signed in): the shell,
 // every module's routes (src/ui/modules/registry.tsx) and, through them, the table definitions.
-import { Fragment, Suspense, type ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
+import { Suspense } from "@ui/lib/lazy";
 import { Routes, Route, useParams, useLocation, useNavigate } from "react-router";
 import { Result, Button } from "antd";
 import { Compass } from "lucide-react";

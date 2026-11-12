@@ -1,6 +1,7 @@
 // The bell in the top bar: the caller's unread count (refreshed by «زنده» when anything changes) and the notification
 // center, a drawer loaded on first open. Kept light: it is part of the first bundle.
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import { Tooltip } from "antd";
 import { Bell } from "lucide-react";
 import { faDigits } from "@shared/format";

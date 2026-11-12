@@ -10,7 +10,8 @@
 //                 relationship rules, sources, collectors, policies, certification campaigns, settings
 // Every other module's record that names a CI gets the «پیکربندی و اثر» side panel (CiContextPanel). `CiPicker` is the
 // CI field of other modules' custom screens. Only light modules are imported here; every component loads with its page.
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import {
   Boxes, GitFork, Zap, Activity, FileUp, Network, Shapes, Link2, ListTree, SearchCheck, Copy, GitCompareArrows, Camera, Lightbulb, Map as MapIcon,
   Workflow, Database, Radar, ScrollText, ShieldCheck, ClipboardCheck, Settings2, Search, MonitorSmartphone, User, OctagonAlert, Hourglass, UserX, Fingerprint, Scale, FlaskConical,
