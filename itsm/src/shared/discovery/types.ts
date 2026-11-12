@@ -182,6 +182,8 @@ export interface Page {
   total?: number;
   /** records the kind could not read (one bad record never stops a pass): their messages */
   rejected?: { external_id?: string; message: string }[];
+  /** the tool's own elements behind `records`, index for index (the preview's raw JSON, tenant administrators only) */
+  raw?: unknown[];
 }
 
 /** One status observation (a status pass, §9; DA2). */

@@ -9,6 +9,8 @@ import { ALLOWED_CI_FIELDS, applyRenames, checkMapping, ciValues, isAllowedTarge
 import { hasContact, massDrop } from "@shared/discovery/stale";
 import { KIND_DESCRIPTORS, KIND_OPTIONS, kindDescriptor, offeredKinds } from "@shared/discovery/kinds";
 import type { DiscoveredRecord } from "@shared/discovery/types";
+import { callSize, FIRST_CALL, lockBudgetMs, mayForce, observe, planCall, predictMs, sliceEnd } from "@server/modules/discovery/budget";
+import { configureWriteSerialisation } from "@server/context";
 
 const NOW = new Date("2026-11-11T10:00:00Z");
 const norm = (raw: unknown) => normaliseRecord(raw, { now: NOW });
@@ -145,5 +147,57 @@ describe("the kind registry (§6.1)", () => {
     expect(kindDescriptor("ad_computers")).toMatchObject({ contact: { lag_days: 14 }, create_policy: "review", priority: 80 });
     expect(kindDescriptor("ksc")?.create_policy).toBe("review");
     expect(kindDescriptor("mecm")?.editions).not.toContain("cloud");
+  });
+});
+
+describe("budgets of a pull (§7.1)", () => {
+  it("ends a slice after 5 s or a second before the tick's deadline, whichever comes first", () => {
+    expect(sliceEnd(0, 20_000)).toBe(5000);
+    expect(sliceEnd(0, 4000)).toBe(3000);
+    expect(sliceEnd(1000, 1500)).toBe(500);
+  });
+
+  it("sizes IRE calls by lock time: 25 first, then the budget over the per-item EWMA within [5, 100]", () => {
+    expect(callSize({}, "new", 1000)).toBe(FIRST_CALL);
+    expect(callSize({ new: 40 }, "new", 1000)).toBe(25);
+    expect(callSize({ new: 5 }, "new", 1000)).toBe(100);
+    expect(callSize({ new: 400 }, "new", 1000)).toBe(5);
+    // refreshes are measured apart from new items
+    expect(callSize({ new: 400, refresh: 10 }, "refresh", 1000)).toBe(100);
+    let e = observe({}, "new", 25, 1000);
+    expect(e.new).toBe(40);
+    e = observe(e, "new", 10, 100);
+    expect(e.new).toBeCloseTo(40 + 0.3 * (10 - 40));
+    expect(observe(e, "new", 0, 100)).toBe(e);
+    expect(predictMs({}, "new", 25)).toBe(1000);
+  });
+
+  it("starts a call only when the rest of the slice covers 1.5 × its predicted time, made smaller to fit", () => {
+    expect(planCall({ new: 40 }, "new", 0, 5000, 1000)).toBe(25);
+    // 1.5 × 25 × 40 = 1500 > 1000 left: halved to 12 (720 ms)
+    expect(planCall({ new: 40 }, "new", 0, 1000, 1000)).toBe(12);
+    // not even 5 items fit: the slice ends
+    expect(planCall({ new: 40 }, "new", 0, 250, 1000)).toBe(0);
+    // halving 6 gives 3, which steps over 5 items that still fit (1.5 × 5 × 166 = 1 245 ms ≤ 1 300)
+    expect(planCall({ new: 166 }, "new", 0, 1300, 1000)).toBe(5);
+  });
+
+  it("starts a slice's first piece of work whatever the estimates say, while the tick's deadline is a second away", () => {
+    // 10 s an item: by the estimate no call fits any slice…
+    expect(planCall({ new: 10_000 }, "new", 0, 5000, 3000)).toBe(0);
+    // … yet the slice's first call starts, so the pass moves; not a second one, and not within a second of the deadline
+    expect(mayForce(false, 0, 2200)).toBe(true);
+    expect(mayForce(true, 0, 2200)).toBe(false);
+    expect(mayForce(false, 1500, 2200)).toBe(false);
+  });
+
+  it("holds the organisation's lock about one second while writes are serialised, three since writes are lock-free", () => {
+    configureWriteSerialisation(true);
+    try {
+      expect(lockBudgetMs()).toBe(1000);
+    } finally {
+      configureWriteSerialisation(false);
+    }
+    expect(lockBudgetMs()).toBe(3000);
   });
 });

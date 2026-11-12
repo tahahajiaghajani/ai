@@ -6,7 +6,8 @@
 //     first call of a pass takes 25 items; later ones ⌊budget ÷ per-item time⌋ within [5, 100], from an EWMA of the
 //     measured time per item kept apart for new items and refreshes.
 //   · Slices: a job invocation works until min(start + 5 s, deadline − 1 s) and comes back for more; an IRE call
-//     starts only when the rest of the slice covers 1.5 × its predicted time (it is made smaller to fit, down to 5).
+//     starts only when the rest of the slice covers 1.5 × its predicted time (it is made smaller to fit, down to 5) —
+//     except a slice's first piece of work, which always starts while the deadline is more than a second away.
 //   · At most 2 discovery jobs of an organisation work at once: a third comes back in 30 s.
 import { writesSerialised } from "../../context";
 
@@ -61,7 +62,18 @@ export function planCall(ewma: Ewma, mode: CallMode, now: number, end: number, b
   const left = end - now;
   let n = callSize(ewma, mode, budgetMs);
   while (n >= MIN_CALL && START_FACTOR * predictMs(ewma, mode, n) > left) n = Math.floor(n / 2);
-  return n >= MIN_CALL ? n : 0;
+  if (n >= MIN_CALL) return n;
+  // halving may step over the smallest call that still fits
+  return START_FACTOR * predictMs(ewma, mode, MIN_CALL) <= left ? MIN_CALL : 0;
+}
+
+/**
+ * The progress guarantee: a slice's first piece of work (a page, or a call of at least 5 items) starts whatever the
+ * estimates say while the tick's deadline is more than a second away — else a pass whose items are slow, in short
+ * ticks, would come back for ever without moving.
+ */
+export function mayForce(workedThisSlice: boolean, now: number, deadline: number): boolean {
+  return !workedThisSlice && deadline - now > SLICE_MARGIN_MS;
 }
 
 /** The EWMA after a call of `n` items of a mode took `ms`. */

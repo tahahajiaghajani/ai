@@ -18,23 +18,24 @@
 //   is one item in error and the pass goes on.
 // · Finalise: a complete pass marks the unlisted items «gone» unless the mass-drop guard trips (§10.4), and writes a
 //   cmdb_import_run only when the pass changed something — all in one transaction with the run's completion.
-import type { IreItem, IreRelation, IreResult } from "@shared/cmdb/api";
-import { applyRenames } from "@shared/discovery/mapping";
+import type { IreAction, IreItem, IreRelation, IreResult } from "@shared/cmdb/api";
+import { applyRenames, checkMapping, ciValues } from "@shared/discovery/mapping";
 import { normaliseRecord } from "@shared/discovery/normalise";
 import { MASS_DROP_WARNING, massDrop } from "@shared/discovery/stale";
 import type { Cursor, DiscoveredRecord, RunTrigger } from "@shared/discovery/types";
-import { scrubSecrets } from "@shared/event/logic";
+import { redact, scrubSecrets } from "@shared/event/logic";
 import { tableDef } from "@shared/tables";
 import { uuidv7 } from "@shared/id";
 import type { Ctx } from "../../context";
 import { isTransientDbError, pgArray, type Queryable, type Tx } from "../../db";
+import { isDemoRow } from "../../db/scope";
 import { createIn, readSecret, transitionIn } from "../../engine";
 import { enqueue, type JobContext, type JobResult } from "../../jobs";
 import { assertWritable } from "../platform/org-admin";
 import { createOrUpdate } from "../cmdb/ire";
-import { observe, planCall, sliceEnd, type CallMode, type Ewma } from "./budget";
+import { MIN_CALL, mayForce, observe, planCall, sliceEnd, type CallMode, type Ewma } from "./budget";
 import { ConnectorError, CONNECTOR_MESSAGES, type ConnCtx, type ConnectorKind, type ConnectorView } from "./kind";
-import { cisWithAssets, ireItem, mayCreate, PARENT_REL } from "./mapping";
+import { cisWithAssets, ireItem, mayCreate, PARENT_REL, recordClass } from "./mapping";
 import { connectorFetcher, editionOf } from "./net";
 import { serverKind } from "./registry";
 import { pendingCount, stagePage } from "./stage";
@@ -91,6 +92,17 @@ type Counters = Partial<Record<"pages" | "fetched" | "staged" | "skipped_unchang
 const COUNTERS = ["pages", "fetched", "staged", "skipped_unchanged", "refreshed", "retried", "created", "updated", "unmatched", "duplicates", "failed"] as const;
 
 type Row = Record<string, any>;
+
+/**
+ * Test seam (tests/discovery-runner.test.ts): a simulated crash at a named point of a pass — inside the transaction of
+ * that step, so nothing of the step is kept, like a worker that died there. Armed for one hit; null in production.
+ */
+export const runnerFaults: { at: string | null } = { at: null };
+function crashPoint(name: string): void {
+  if (runnerFaults.at !== name) return;
+  runnerFaults.at = null;
+  throw Object.assign(new Error(`simulated crash at ${name}`), { code: "40001" });
+}
 
 // ---------------------------------------------------------------------------------------------------------------
 // The run row (raw SQL: bookkeeping of a non-synced table, lock-free)
@@ -324,6 +336,9 @@ export async function runPull(sys: Ctx, connectorId: string, jctx: Pick<JobConte
   const wrapped = ireCtx(sys);
   const retryHours = Math.max(1, Number(conn.retry_hours ?? 24));
   const listingIsContact = options.listing_is_contact === true;
+  /** Did this slice fetch a page or make an engine call yet (the progress guarantee, budget.ts mayForce)? */
+  let worked = false;
+  const force = () => mayForce(worked, Date.now(), jctx.deadline);
 
   /** Reconcile these items: one engine call per create policy among them (an ATM never creates). */
   const reconcile = async (items: Candidate[], why: Why, mode: CallMode): Promise<void> => {
@@ -386,6 +401,7 @@ export async function runPull(sys: Ctx, connectorId: string, jctx: Pick<JobConte
            where t.org_id = $1 and t.connector_id = $2 and t.id = x.id`,
           [org, connectorId, JSON.stringify(updates)],
         );
+        crashPoint(`ire:${why}`);
         const changed = (delta.created ?? 0) + (delta.updated ?? 0) + (delta.duplicates ?? 0) + (why === "refresh" || why === "parents" ? 0 : (delta.failed ?? 0));
         done.next = { ...cursor, changed: cursor.changed + changed, rows: [...cursor.rows, ...rows].slice(0, MAX_IMPORT_ROWS) };
         await saveRun(tx, org, run.id, done.next, delta);
@@ -409,6 +425,7 @@ export async function runPull(sys: Ctx, connectorId: string, jctx: Pick<JobConte
       } finally {
         wrapped.set(null);
       }
+      worked = true;
       cursor = { ...cursor, ewma: observe(cursor.ewma, mode, group.length, performance.now() - t0) };
     }
   };
@@ -447,8 +464,12 @@ export async function runPull(sys: Ctx, connectorId: string, jctx: Pick<JobConte
 
   /** One call of a phase's items, sized to the budget and the slice: "slice" when none fits, "empty" when none is due. */
   const step = async (why: Why, mode: CallMode, cap?: number): Promise<"did" | "slice" | "empty"> => {
-    const n = Math.min(planCall(cursor.ewma, mode, Date.now(), end), cap ?? Infinity);
-    if (n <= 0) return "slice";
+    let n = Math.min(planCall(cursor.ewma, mode, Date.now(), end), cap ?? Infinity);
+    if (n <= 0) {
+      // the slice's first call starts at the smallest size even when the estimate says it will not fit
+      if (!force()) return "slice";
+      n = Math.min(MIN_CALL, cap ?? MIN_CALL);
+    }
     const items = await candidates(why, n);
     if (!items.length) return "empty";
     await reconcile(items, why, mode);
@@ -488,6 +509,7 @@ export async function runPull(sys: Ctx, connectorId: string, jctx: Pick<JobConte
       if (!(e instanceof ConnectorError)) sys.cfg.log?.warn?.("discovery pull failed", { connector: connectorId, error: scrubSecrets(String((e as Error)?.message ?? e)) });
       return;
     }
+    crashPoint("fetch");
     const now = new Date();
     const warnings: RunWarning[] = [];
     const byId = new Map<string, DiscoveredRecord>();
@@ -527,9 +549,11 @@ export async function runPull(sys: Ctx, connectorId: string, jctx: Pick<JobConte
         orgId: org, connectorId, generation: cursor.generation, configVersion: Number(conn.config_version ?? 1), kindVersion: kind.version,
         records: [...byId.values()], link: kind.link ? (rec) => kind.link!(rec, cctx) : undefined, origin: sys.cfg.origin ?? "cloud",
       });
+      crashPoint("stage");
       await saveRun(tx, org, run.id, next, { pages: 1, fetched: (page.records?.length ?? 0) + (page.rejected?.length ?? 0), staged: r.staged, skipped_unchanged: r.unchanged, failed: rejected }, warnings);
     }, { internal: true });
     cursor = next;
+    worked = true;
     return "next";
   };
 
@@ -572,6 +596,7 @@ export async function runPull(sys: Ctx, connectorId: string, jctx: Pick<JobConte
         importRunId = made.id;
       }
       if (gone) warnings.push({ code: "gone", message: `${gone} مورد دیگر گزارش نمی‌شود` });
+      crashPoint("finalise");
       await finishRunSql(tx, org, run.id, "completed", { cursor: { ...cursor, phase: "finalise" }, complete, itemsTotal: listed, importRunId, warnings });
       // the contact ladder judges the connector's targets after a complete pass the guard let through (§10)
       if (stale) await enqueue(tx, { kind: "discovery.stale", orgId: org, payload: { connector: connectorId, run: run.id, ...(opts.demo ? { __demo: true } : {}) }, dedupeKey: `discovery.stale:${connectorId}`, maxAttempts: 5 });
@@ -583,7 +608,7 @@ export async function runPull(sys: Ctx, connectorId: string, jctx: Pick<JobConte
       // a person canceled the pass: stop at once
       const live = await db.one<{ state: string }>(`select state from sm_discovery_runs where org_id = $1 and id = $2`, [org, run.id]);
       if (live?.state !== "running") return;
-      if (Date.now() >= end) {
+      if (Date.now() >= end && !force()) {
         await saveRun(db, org, run.id, cursor);
         return { again: 0 };
       }
@@ -598,7 +623,7 @@ export async function runPull(sys: Ctx, connectorId: string, jctx: Pick<JobConte
       }
       switch (cursor.phase) {
         case "fetch": {
-          if (end - Date.now() < FETCH_MIN_MS) {
+          if (end - Date.now() < FETCH_MIN_MS && !force()) {
             await saveRun(db, org, run.id, cursor);
             return { again: 0 };
           }
@@ -671,8 +696,125 @@ export async function acceptNewSize(sys: Ctx, runId: string): Promise<{ gone: nu
     )).length;
     const warnings = (run.warnings as RunWarning[]).map((w) => (w.code === "mass_drop" ? { ...w, accepted: true } : w));
     await tx.query(`update sm_discovery_runs set warnings = $3::jsonb, updated_at = now() where org_id = $1 and id = $2`, [sys.org.id, runId, JSON.stringify(warnings)]);
-    await enqueue(tx, { kind: "discovery.stale", orgId: sys.org.id, payload: { connector: run.connector_id, run: run.id }, dedupeKey: `discovery.stale:${run.connector_id}`, maxAttempts: 5 });
+    // a demo connector's ladder is demo work (§14.4; the caller runs this inside the connector's scope)
+    const demo = await isDemoRow(tx, sys.org.id, String(run.connector_id));
+    await enqueue(tx, { kind: "discovery.stale", orgId: sys.org.id, payload: { connector: run.connector_id, run: run.id, ...(demo ? { __demo: true } : {}) }, dedupeKey: `discovery.stale:${run.connector_id}`, maxAttempts: 5 });
     return { gone };
   }, { internal: true });
 }
 
+
+// ---------------------------------------------------------------------------------------------------------------
+// Preview (§7.5)
+
+export interface PreviewRow {
+  external_id: string;
+  name: string;
+  class: string;
+  /** the mapped CI fields and class attributes (what the engine would be sent) */
+  values: Record<string, unknown>;
+  attrs: Record<string, unknown>;
+  /** what the engine would do: «ساخته می‌شود / به‌روز می‌شود / تکراری / بی‌همتا» */
+  action: IreAction | "rejected";
+  matched_by?: string | null;
+  message?: string | null;
+  warnings: string[];
+  /** the tool's own element, secrets masked — for tenant administrators only (the route strips it for others) */
+  raw?: unknown;
+}
+
+export interface PreviewDraft {
+  mapping?: Record<string, string>;
+  options?: Record<string, unknown>;
+  default_class?: string | null;
+  create_policy?: string | null;
+}
+
+/** A preview older than this is a dead one (a preview's own calls end within 30 s). */
+const PREVIEW_STUCK_MINUTES = 2;
+/** Rows a preview shows at most. */
+export const MAX_PREVIEW_ROWS = 100;
+export const PREVIEW_BUSY = "پیش‌نمایش دیگری از این منبع در جریان است؛ چند ثانیهٔ دیگر دوباره بزنید";
+
+/**
+ * «پیش‌نمایش» (§7.5): the first page only, mapped with the connector's settings or a draft of them (the mapping editor's
+ * live preview), run through the engine as a dry run — which rolls everything back — and nothing staged. The pass is
+ * recorded as a run of lane `preview`. The caller has checked the person's rights before (a preview sends the stored
+ * credentials, §14.5).
+ */
+export async function previewConnector(sys: Ctx, connectorId: string, draft: PreviewDraft = {}, limit = 20): Promise<{ run_id: string; rows: PreviewRow[]; total?: number; complete?: boolean }> {
+  const db = sys.db;
+  const org = sys.org.id;
+  const conn = await loadConnector(db, org, connectorId);
+  if (!conn) throw new ConnectorError("config", "منبع داده پیدا نشد");
+  const kind = serverKind(conn.kind);
+  if (!kind?.ready) throw new ConnectorError("not_built", CONNECTOR_MESSAGES.notBuilt(kind?.label ?? String(conn.kind)));
+  if (!kind.editions.includes(editionOf(sys.cfg) as "cloud" | "server")) throw new ConnectorError("config", `منبع «${kind.label}» در این نسخهٔ کاریز اجرا نمی‌شود`);
+  if (draft.mapping) {
+    // a draft is held to the connector's own rules (the allow-list, §6.3) before it is tried
+    const problems = checkMapping(draft.mapping, { rest: kind.kind === "rest" });
+    if (problems.length) throw new ConnectorError("config", problems[0].key ? `نگاشت «${problems[0].key}»: ${problems[0].message}` : problems[0].message);
+  }
+  const row = { ...conn, ...(draft.mapping ? { mapping: draft.mapping } : {}), ...(draft.default_class !== undefined ? { default_class: draft.default_class } : {}), ...(draft.create_policy ? { create_policy: draft.create_policy } : {}) };
+  const parsed = kindOptions(kind, draft.options ?? conn.options);
+  if ("error" in parsed) throw new ConnectorError("config", parsed.error);
+  const runId = uuidv7();
+  // a preview whose process stopped leaves its row running: it is let go once it is older than any preview can be
+  await db.query(
+    `update sm_discovery_runs set state = 'abandoned', finished_at = now(), updated_at = now()
+     where org_id = $1 and connector_id = $2 and lane = 'preview' and state = 'running' and started_at < now() - interval '${PREVIEW_STUCK_MINUTES} minutes'`,
+    [org, connectorId],
+  );
+  try {
+    await db.query(
+      `insert into sm_discovery_runs (id, org_id, connector_id, lane, trigger, state, started_at, cursor, generation, pages, fetched, staged, skipped_unchanged, refreshed,
+         retried, created, updated, unmatched, duplicates, failed, stale_marked, problems_opened, problems_cleared, complete, warnings, origin)
+       values ($1, $2, $3, 'preview', 'preview', 'running', now(), '{}'::jsonb, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, '[]'::jsonb, $4)`,
+      [runId, org, connectorId, sys.cfg.origin ?? "cloud"],
+    );
+  } catch (e) {
+    // one preview of a connector at a time (the running-run index)
+    if (isUniqueViolation(e)) throw new ConnectorError("config", PREVIEW_BUSY);
+    throw e;
+  }
+  try {
+    const cctx = await connCtx(sys, row, kind, parsed.options, Date.now() + 30_000);
+    const page = await kind.pages(cctx, null);
+    const now = new Date();
+    const rows: PreviewRow[] = [];
+    const ready: { at: number; record: DiscoveredRecord }[] = [];
+    const shown = Math.max(1, Math.min(MAX_PREVIEW_ROWS, Math.floor(limit) || 20));
+    (page.records ?? []).slice(0, shown).forEach((raw, i) => {
+      let n = normaliseRecord(raw, { now });
+      if (n.record && kind.kind !== "rest" && Object.keys(cctx.connector.mapping).length) n = normaliseRecord(applyRenames(n.record, cctx.connector.mapping), { now });
+      const element = page.raw?.[i] !== undefined ? redact(page.raw[i]) : undefined;
+      if (!n.record) {
+        rows.push({ external_id: "", name: "", class: "", values: {}, attrs: {}, action: "rejected", message: n.error ?? null, warnings: n.warnings, raw: element });
+        return;
+      }
+      const { values, attrs } = ciValues(n.record);
+      rows.push({ external_id: n.record.external_id, name: n.record.name, class: recordClass(n.record, row.default_class ?? null), values, attrs, action: "unchanged", warnings: n.warnings, raw: element });
+      ready.push({ at: rows.length - 1, record: n.record });
+    });
+    // what the engine would do (linked items through their CI, as a pass would send them)
+    const linked = ready.length
+      ? await db.query<{ external_id: string; ci_id: string }>(`select external_id, ci_id from sm_discovery_items where org_id = $1 and connector_id = $2 and deleted_at is null and ci_id is not null and external_id = any($3::text[])`, [org, connectorId, pgArray(ready.map((x) => x.record.external_id))])
+      : [];
+    const hint = new Map(linked.map((x) => [x.external_id, x.ci_id]));
+    for (const create of [true, false]) {
+      const group = ready.filter((x) => mayCreate(x.record, row.create_policy) === create);
+      if (!group.length) continue;
+      const out = await createOrUpdate(sys, {
+        source_id: conn.source_id, dry_run: true, create,
+        items: group.map((x) => ireItem({ record: x.record, defaultClass: row.default_class ?? null, hint: hint.get(x.record.external_id) ?? null })),
+      });
+      for (const r of out.results) Object.assign(rows[group[r.index].at], { action: r.action, matched_by: r.matched_by ?? null, message: r.message ? scrubSecrets(String(r.message)) : null });
+    }
+    await db.query(`update sm_discovery_runs set state = 'completed', finished_at = now(), pages = 1, fetched = $3, complete = $4, items_total = $5, updated_at = now() where org_id = $1 and id = $2`, [org, runId, (page.records ?? []).length, page.next === null && page.complete !== false, page.total ?? null]);
+    return { run_id: runId, rows, ...(page.total !== undefined ? { total: page.total } : {}), complete: page.next === null && page.complete !== false };
+  } catch (e) {
+    const message = e instanceof ConnectorError ? e.message : scrubSecrets(String((e as Error)?.message ?? e)).slice(0, 2000);
+    await finishRunSql(db, org, runId, "failed", { error: message, complete: false });
+    throw e;
+  }
+}

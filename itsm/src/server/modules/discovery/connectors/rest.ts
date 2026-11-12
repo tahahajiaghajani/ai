@@ -101,7 +101,7 @@ async function page(c: ConnCtx, cursor: Cursor | null, size?: number): Promise<P
     const v = sourceValue(res.body, o.next_path);
     next = typeof v === "string" && v.trim() && v !== cur.url ? { url: v.trim() } : null;
   }
-  return { records, next: items.length ? next : null, complete: true, ...(total !== undefined ? { total } : {}) };
+  return { records, raw: items, next: items.length ? next : null, complete: true, ...(total !== undefined ? { total } : {}) };
 }
 
 export const connector: ConnectorKind = {
