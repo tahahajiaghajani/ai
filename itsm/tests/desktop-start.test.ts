@@ -131,6 +131,17 @@ describe("the first start's database made at build time", () => {
     }
   });
 
+  it("refuses a template that would write outside its folder or leave PG_VERSION before the rest", async () => {
+    const { packEntries, templateEntries } = await import("@local/db-template");
+    const v = { name: "PG_VERSION", data: Buffer.from("17\n") };
+    expect(templateEntries(packEntries([{ name: "base", dir: true }, { name: "base/1", data: Buffer.from("x") }, v])).map((e) => e.name)).toEqual(["base", "base/1", "PG_VERSION"]);
+    for (const name of ["../escape", "base/../../escape", "/etc/escape", "C:/escape", "base\\escape", "./x"]) {
+      expect(() => templateEntries(packEntries([{ name, data: Buffer.from("x") }, v])), name).toThrow(/unexpected path/);
+    }
+    expect(() => templateEntries(packEntries([v, { name: "base/1", data: Buffer.from("x") }]))).toThrow(/incomplete/);
+    expect(() => templateEntries(Buffer.from("not brotli"))).toThrow();
+  });
+
   it("a template that does not load leaves the old way: initdb and every migration", async () => {
     const broken = join(root, "broken.tar.br");
     writeFileSync(broken, Buffer.from("not a tarball at all"));

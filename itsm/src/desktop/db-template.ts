@@ -5,13 +5,14 @@
 // scripts/desktop-db-template.mts) does it once: a data folder migrated exactly as a first start migrates one (desktop
 // mode, the write-ahead log's limits of ../server/db/wal.ts), closed cleanly, and packed as db-template.tar.br next to
 // the app (a tar, Brotli-compressed: 5 MB) — without the log's recycled segments, only the one that holds the shutdown
-// checkpoint (48 MB less to write on the first start). The local server's first start (./server.ts) loads it through PGlite's
-// `loadDataDir` and then runs `migrate` as every start does: nothing left to do when the template is this build's, the
-// missing steps when it is older. The template carries no secret and nothing of an installation: the device id, the
+// checkpoint (48 MB less to write on the first start). The local server's first start (./server.ts) checks it, writes its
+// files (several at a time, PG_VERSION last), opens the folder and runs `migrate` as every start does: nothing left to
+// do when the template is this build's, the missing steps when it is older. The template carries no secret and nothing of an installation: the device id, the
 // session secret and the configuration live in config.json, made at the first start. A template that does not load is
 // set aside and the start falls back to initdb and the migrations.
 import { brotliCompressSync, brotliDecompressSync, constants } from "node:zlib";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { writeFile as writeFileAsync } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { createPgliteDb, type PgliteDb } from "@server/db/pglite";
@@ -45,31 +46,38 @@ function tarHeader(name: string, size: number, mode: number, mtimeMs: number, ty
 }
 
 /**
- * A closed data folder as a Brotli-compressed tar that PGlite's `loadDataDir` reads once decompressed (paths relative to the folder, a directory
- * before what it holds). PG_VERSION comes last: PGlite unpacks in this order, and a folder without it is no database to
- * PGlite — a first start cut short while unpacking leaves a folder the next start unpacks again, never a half database
- * it would try to open. `skip` leaves files out (the recycled log segments).
+ * A closed data folder as a Brotli-compressed tar (paths relative to the folder, a directory before what it holds; the
+ * format PGlite's `loadDataDir` reads too). PG_VERSION comes last and is written last: a folder without it is no
+ * database to PGlite, so a first start cut short while unpacking leaves a folder the next start unpacks again, never a
+ * half database it would try to open. `skip` leaves files out (the recycled log segments).
  */
 export function packDataDir(dir: string, skip: (rel: string) => boolean = () => false): Buffer {
-  const parts: Buffer[] = [];
-  const file = (r: string) => {
-    const st = statSync(join(dir, r));
-    const data = readFileSync(join(dir, r));
-    parts.push(tarHeader(r, data.length, st.mode, st.mtimeMs, "0"), data);
-    if (data.length % 512) parts.push(Buffer.alloc(512 - (data.length % 512), 0));
-  };
+  const entries: { name: string; dir?: boolean; data?: Buffer; mode: number; mtimeMs: number }[] = [];
   const walk = (rel: string) => {
     for (const name of readdirSync(join(dir, rel)).sort()) {
       const r = rel ? `${rel}/${name}` : name;
       const st = statSync(join(dir, r));
       if (st.isDirectory()) {
-        parts.push(tarHeader(r, 0, st.mode, st.mtimeMs, "5"));
+        entries.push({ name: r, dir: true, mode: st.mode, mtimeMs: st.mtimeMs });
         walk(r);
-      } else if (st.isFile() && r !== "PG_VERSION" && !skip(r)) file(r);
+      } else if (st.isFile() && r !== "PG_VERSION" && !skip(r)) entries.push({ name: r, data: readFileSync(join(dir, r)), mode: st.mode, mtimeMs: st.mtimeMs });
     }
   };
   walk("");
-  file("PG_VERSION");
+  const v = statSync(join(dir, "PG_VERSION"));
+  entries.push({ name: "PG_VERSION", data: readFileSync(join(dir, "PG_VERSION")), mode: v.mode, mtimeMs: v.mtimeMs });
+  return packEntries(entries);
+}
+
+/** Entries as a Brotli-compressed ustar archive, in the order given. */
+export function packEntries(entries: { name: string; dir?: boolean; data?: Buffer; mode?: number; mtimeMs?: number }[]): Buffer {
+  const parts: Buffer[] = [];
+  for (const e of entries) {
+    const data = e.dir ? Buffer.alloc(0) : (e.data ?? Buffer.alloc(0));
+    parts.push(tarHeader(e.name, data.length, e.mode ?? (e.dir ? 0o755 : 0o600), e.mtimeMs ?? 0, e.dir ? "5" : "0"));
+    if (data.length) parts.push(data);
+    if (data.length % 512) parts.push(Buffer.alloc(512 - (data.length % 512), 0));
+  }
   parts.push(Buffer.alloc(1024, 0));
   const tar = Buffer.concat(parts);
   // quality 9 with a 16 MB window: 104 MB of tar in 5.2 MB, decompressed in about 0.2 s (gzip: 8.5 MB; quality 11: 4.5 MB
@@ -91,16 +99,22 @@ export function spareSegments(dataDir: string): string[] {
   return segs.slice(1).map((s) => `pg_wal/${s.f}`);
 }
 
+/** One entry of the template's tar: a folder, or a file with its bytes (a view into the tar). */
+export interface TemplateEntry {
+  name: string;
+  dir: boolean;
+  data: Buffer;
+}
+
 /**
- * The template's tar, checked before PGlite sees it: decompressed here (and handed to PGlite as a plain tar: its own
- * web-stream gunzip leaves an unhandled rejection behind on a damaged file, which would end the local server's process)
- * and walked header by header: checksums, sizes within the file, PG_VERSION the last file. Throws on anything else.
+ * The template's entries, checked before anything is written: decompressed, walked header by header — checksums, sizes
+ * within the tar, plain relative paths (no `..`, no absolute or drive paths) — and PG_VERSION the last file. Throws on
+ * anything else.
  */
-export function templateTar(template: Buffer): Buffer {
+export function templateEntries(template: Buffer): TemplateEntry[] {
   const tar = brotliDecompressSync(template);
-  let last = "";
-  let off = 0;
-  for (; off + 512 <= tar.length; ) {
+  const out: TemplateEntry[] = [];
+  for (let off = 0; off + 512 <= tar.length; ) {
     const h = tar.subarray(off, off + 512);
     if (h.every((b) => b === 0)) break;
     const field = (a: number, b: number) => h.subarray(a, b).toString("ascii").replace(/\0.*$/s, "").trim();
@@ -109,18 +123,39 @@ export function templateTar(template: Buffer): Buffer {
     if (parseInt(field(148, 156), 8) !== sum) throw new Error("database template: a damaged entry");
     const size = parseInt(field(124, 136) || "0", 8);
     if (!Number.isFinite(size) || size < 0 || off + 512 + size > tar.length) throw new Error("database template: a truncated entry");
-    if (field(156, 157) !== "5") last = field(0, 100);
+    const name = field(0, 100);
+    if (!/^[A-Za-z0-9_.-]+(\/[A-Za-z0-9_.-]+)*$/.test(name) || name.split("/").some((part) => part === "." || part === "..")) throw new Error(`database template: an unexpected path ${name}`);
+    out.push({ name, dir: field(156, 157) === "5", data: tar.subarray(off + 512, off + 512 + size) });
     off += 512 + Math.ceil(size / 512) * 512;
   }
-  if (last !== "PG_VERSION") throw new Error("database template: incomplete");
-  return tar;
+  if (out.filter((e) => !e.dir).at(-1)?.name !== "PG_VERSION") throw new Error("database template: incomplete");
+  return out;
 }
 
-/** Opens a data folder from a template (PGlite unpacks the checked tar, then starts on it). */
-export function openFromTemplate(dataDir: string, template: Buffer, log?: Pick<Logger, "info" | "warn">): Promise<PgliteDb> {
-  const tar = templateTar(template);
-  // (zlib's output is a Buffer over an ArrayBuffer of its own)
-  return createPgliteDb({ dataDir, desktop: true, log, loadDataDir: new Blob([tar as Uint8Array<ArrayBuffer>]) });
+/**
+ * Writes the template's folders, then its files, several at a time (plain writes: PGlite's own loadDataDir opened every
+ * file three times through its virtual file system — 2.9 to 4.3 s against 1.0 to 1.5 s on the development machine), and
+ * PG_VERSION last, once everything else is on disk: a folder without it is never taken for a database.
+ */
+export async function unpackTemplate(entries: TemplateEntry[], dir: string, parallel = 8): Promise<void> {
+  mkdirSync(dir, { recursive: true });
+  for (const e of entries) if (e.dir) mkdirSync(join(dir, e.name), { recursive: true });
+  const files = entries.filter((e) => !e.dir && e.name !== "PG_VERSION");
+  let next = 0;
+  const one = async () => {
+    while (next < files.length) {
+      const e = files[next++];
+      await writeFileAsync(join(dir, e.name), e.data);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, parallel) }, one));
+  writeFileSync(join(dir, "PG_VERSION"), entries.find((e) => e.name === "PG_VERSION")!.data);
+}
+
+/** Opens a data folder from a template: checked, unpacked, then opened by PGlite like any data folder. */
+export async function openFromTemplate(dataDir: string, template: Buffer, log?: Pick<Logger, "info" | "warn">): Promise<PgliteDb> {
+  await unpackTemplate(templateEntries(template), dataDir);
+  return createPgliteDb({ dataDir, desktop: true, log });
 }
 
 export interface TemplateInfo {
