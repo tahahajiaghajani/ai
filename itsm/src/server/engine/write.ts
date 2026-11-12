@@ -43,6 +43,12 @@ export interface WriteOptions {
   via?: "api" | "import" | "sync";
   /** trusted server code (hooks, services, jobs): may set system and readonly fields; field permissions are not asked */
   trusted?: boolean;
+  /**
+   * false: module code builds the record from fixed inputs nobody can add to (the virtual agent's report, «ثبت رخداد»
+   * of an interaction): the organisation's requirements and lifecycle rules for people (design F §3.3, §4.2) are not
+   * asked — everything else is (the person's access, field permissions, the module's own rules)
+   */
+  orgRules?: boolean;
   /** an engine stamp that must not invalidate forms people have open: `version` does not move */
   keepVersion?: boolean;
   /** may change a record in a locked state (watchers, engine stamps) */
@@ -325,7 +331,7 @@ async function pipeline(p: PipelineInput): Promise<Row> {
 
   // module hooks (values they set are coerced like a caller's)
   const hooks = hooksFor(def.key);
-  const w: WriteArgs = { tx, ctx, def, op, next, prev, changed, transition, env, input: new Set(Object.keys(values)), via: opts.via, trusted: !!opts.trusted };
+  const w: WriteArgs = { tx, ctx, def, op, next, prev, changed, transition, env, input: new Set(Object.keys(values)), via: opts.via, trusted: !!opts.trusted, orgRules: opts.orgRules };
   await beforeWriteHooks(hooks, w, vc, problems);
 
   if (!creating && !changed.size) return prev!;
