@@ -50,8 +50,8 @@ export async function migrate(db: Db, log: (msg: string) => void = () => {}): Pr
   }
   // the record engine's tables follow the table registry (new tables and fields of this version)
   await reconcileSchema(db, log);
-  // a database restored into another cluster may hand out transaction ids below its stored revisions: one full
-  // re-read for every Windows app (src/server/sync/snapshot.ts)
-  await checkXidRegression(db, { force: true, log }).catch((e) => log(`xid check skipped: ${String((e as Error)?.message ?? e)}`));
+  // a database restored into another cluster may hand out transaction ids below its stored revisions: rows, cursors and
+  // purge watermarks ahead of them start again and every Windows app reads everything once (src/server/sync/snapshot.ts)
+  await checkXidRegression(db, { force: true, restamp: true, log }).catch((e) => log(`xid check skipped: ${String((e as Error)?.message ?? e)}`));
   return done;
 }

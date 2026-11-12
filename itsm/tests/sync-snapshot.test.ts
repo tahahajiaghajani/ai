@@ -109,6 +109,90 @@ describe("the move to transaction-id revisions (migration 0100)", () => {
   }, 120_000);
 });
 
+describe("a database restored into another cluster (RESTAMP_SQL: karizctl restore, the startup's transaction-id check)", () => {
+  it("stamps rows ahead of the ids and starts cursors, demo marks, the purge watermark and the mark again — not on a Windows app's database nor before 0100", async () => {
+    const { makeServer, Client, signupWithOrg } = await import("./helpers");
+    await import("./fixtures/module");
+    const { BUMP_ALL_EPOCHS_SQL, RESTAMP_SQL } = await import("@server/sync/snapshot");
+    const { SYNC_PROTOCOL } = await import("@shared/constants");
+    const s = await makeServer({ mode: "cloud" });
+    const c = new Client(s.app);
+    const org = await signupWithOrg(c);
+    const item = (await c.post(`/o/${org}/data/test_item`, { name: "پیش از بازگردانی" })).row;
+    const owner = (await s.db.one<{ user_id: string }>(`select user_id from sm_org_members where org_id = $1`, [org]))!.user_id;
+    const device = (await s.db.one<{ id: string }>(`insert into sm_devices (org_id, user_id, name, last_pull_at) values ($1, $2, 'بازگردانی', now()) returning id`, [org, owner]))!.id;
+    await s.db.query(`insert into sm_demo_packs (org_id, state) values ($1, 'tombstoned')`, [org]);
+    // as pg_restore leaves a dump of a cluster whose ids were far ahead (data before triggers)
+    await s.db.tx(async (tx) => {
+      await tx.query(`set local session_replication_role = replica`);
+      await tx.query(`update sm_test_items set rev = 999999999 where id = $1`, [item.id]);
+      await tx.query(`update sm_devices set cursor = 999999990 where id = $1`, [device]);
+      await tx.query(`update sm_demo_packs set purge_mark = 999999991 where org_id = $1`, [org]);
+      await tx.query(`insert into sm_org_sync (org_id, rev, purged) values ($1, 0, 999999992) on conflict (org_id) do update set purged = excluded.purged`, [org]);
+      await tx.query(`insert into sm_meta (key, value) values ('sync.xid_high', '999999993') on conflict (key) do update set value = excluded.value`);
+    });
+    const state = async () => {
+      const n = async (sql: string, params: unknown[] = []) => Number(Object.values((await s.db.one<Record<string, unknown>>(sql, params)) ?? { v: 0 })[0]);
+      return {
+        rev: await n(`select rev from sm_test_items where id = $1`, [item.id]),
+        cursor: await n(`select cursor from sm_devices where id = $1`, [device]),
+        purge_mark: await n(`select purge_mark from sm_demo_packs where org_id = $1`, [org]),
+        purged: await n(`select purged from sm_org_sync where org_id = $1`, [org]),
+        mark: await n(`select value from sm_meta where key = 'sync.xid_high'`),
+      };
+    };
+    const ahead = { rev: 999999999, cursor: 999999990, purge_mark: 999999991, purged: 999999992, mark: 999999993 };
+    expect(await state()).toEqual(ahead);
+    // a Windows app's database: its revisions are the server's, opaque to it
+    await s.db.exec(`set itsm.mode = 'desktop'`);
+    try {
+      await s.db.exec(RESTAMP_SQL);
+    } finally {
+      await s.db.exec(`reset itsm.mode`);
+    }
+    expect(await state()).toEqual(ahead);
+    // a backup from before transaction-id revisions (1.0, 1.1.0-beta — 1.0 has no demo tables): its migration 0100 does it
+    await s.db.query(`delete from sm_migrations where id = '0100_xid_revisions'`);
+    await s.db.exec(BUMP_ALL_EPOCHS_SQL);
+    expect(await state()).toEqual(ahead);
+    await s.db.query(`insert into sm_migrations (id) values ('0100_xid_revisions')`);
+    // a database of this version: everything ahead takes the restoring transaction's id (the row's timestamps stay)
+    const before = (await s.db.one<{ epoch: number }>(`select epoch from sm_org_sync where org_id = $1`, [org]))!.epoch;
+    const at = (await s.db.one<{ t: string }>(`select updated_at::text as t from sm_test_items where id = $1`, [item.id]))!.t;
+    await s.db.exec(BUMP_ALL_EPOCHS_SQL);
+    const now = await state();
+    expect(now.rev).toBeLessThan(999999999);
+    expect(now).toEqual({ rev: now.rev, cursor: 0, purge_mark: now.rev + 1, purged: now.rev, mark: now.rev });
+    expect(Number((await s.db.one<{ epoch: number }>(`select epoch from sm_org_sync where org_id = $1`, [org]))!.epoch)).toBeGreaterThan(Number(before));
+    expect((await s.db.one<{ t: string }>(`select updated_at::text as t from sm_test_items where id = $1`, [item.id]))!.t).toBe(at);
+    // a full pull brings the row again (its revision is visible), and a pull from that cursor keeps it (the watermark is seen)
+    const session = async (since = "", epoch = "") => {
+      const rows = new Map<string, Record<string, unknown>>();
+      let snap = "";
+      let after = "";
+      for (;;) {
+        const qs = new URLSearchParams({ org_id: org, protocol: String(SYNC_PROTOCOL) });
+        if (since) qs.set("since", since);
+        if (snap) qs.set("snap", snap);
+        if (after) qs.set("after", after);
+        if (epoch) qs.set("epoch", epoch);
+        const page = await c.get(`/sync/pull?${qs.toString()}`);
+        if (page.reset) return { reset: true, rows, cursor: "", epoch: String(page.epoch) };
+        for (const a of page.aggregates as { id: string; row: Record<string, unknown> }[]) rows.set(a.id, a.row);
+        epoch = String(page.epoch);
+        if (!page.has_more) return { reset: false, rows, cursor: String(page.cursor), epoch };
+        snap = String(page.snap);
+        after = String(page.after);
+      }
+    };
+    const full = await session();
+    expect(full.rows.get(item.id)?.name).toBe("پیش از بازگردانی");
+    const next = await session(full.cursor, full.epoch);
+    expect(next.reset).toBe(false);
+    await s.db.close();
+  }, 120_000);
+});
+
 describe("Windows apps of an older sync protocol (SYNC_PROTOCOL 16)", () => {
   it("are told to update — on pull and on push, with any cursor — and are never served a page", async () => {
     const { makeServer, Client, signupWithOrg } = await import("./helpers");

@@ -346,7 +346,10 @@ export async function restoreBackup(o: RestoreOptions): Promise<RestoreResult> {
     try {
       await run(pgExe(bin, "pg_restore"), [...conn(c, true), "-d", temp, "--exit-on-error", "-j", "4", dump], { env: dbEnv(c.db.admin_password), timeoutMs: 12 * 3600_000 });
       // Windows apps linked to this server hold newer data than the backup: every organisation's sync epoch moves, so
-      // each one reads everything again and drops what the restored database no longer has (docs/spec/ENGINE.md §13)
+      // each one reads everything again and drops what the restored database no longer has (docs/spec/ENGINE.md §13).
+      // On a newly installed server (another cluster: its transaction ids may be far below the backup's revisions) the
+      // rows, cursors and purge watermarks ahead of them start again first, so that the apps' full read brings them all
+      // (sync/snapshot.ts RESTAMP_SQL)
       const restored = postgres({ host: c.db.host, port: c.db.port, database: temp, username: c.db.admin_user, password: c.db.admin_password, max: 1, ssl: c.db.ssl ? "require" : false, onnotice: () => {} });
       try {
         await restored.unsafe(BUMP_ALL_EPOCHS_SQL);

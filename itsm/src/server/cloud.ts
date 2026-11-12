@@ -5,6 +5,7 @@ import { after } from "next/server";
 import { createApp } from "./app";
 import { createPostgresDb } from "./db/postgres";
 import { migrate } from "./db/migrate";
+import { checkXidRegression } from "./sync/snapshot";
 import { consoleLogger } from "./context";
 import { createHash } from "node:crypto";
 
@@ -31,6 +32,12 @@ async function build(): Promise<FetchApp> {
     } catch (e) {
       consoleLogger.error("migration failed", String((e as Error)?.message ?? e));
     }
+  } else {
+    // migrations are run by hand; the startup's check that migrate() runs still does (a database moved by dump into
+    // another cluster: what is ahead of its transaction ids starts again before the first pull — sync/snapshot.ts)
+    await checkXidRegression(db, { force: true, restamp: true, log: (m) => consoleLogger.warn(m) }).catch((e) =>
+      consoleLogger.warn("xid check skipped", String((e as Error)?.message ?? e)),
+    );
   }
   const secret = process.env.APP_SECRET || createHash("sha256").update(`itsm:${url}`).digest("hex");
   return createApp({

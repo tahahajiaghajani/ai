@@ -630,6 +630,18 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
   database went back — restored into another cluster — and every organisation's epoch moves once). A pull whose cursor
   is ahead of the database's next transaction id is told to `reset` (that app alone) and runs the check at once. A
   restored Windows app database starts its next pull from nothing (`resetSyncCursor`).
+- **Restored into another cluster** (`RESTAMP_SQL`; a restore on a newly installed server, a web database moved by
+  dump): pg_restore loads the data before the triggers exist, so rows keep the old cluster's revisions — possibly far
+  above the new cluster's ids, where a full read's window (`rev < snap.xmax`) leaves them out and the app's sweep then
+  drops its copies — and so do the cursors, demo marks and the purge watermark (an old cluster's watermark is never
+  visible in a snapshot here: every pull with a cursor would read everything again). In the transaction that bumps the
+  epochs, `karizctl restore` (`BUMP_ALL_EPOCHS_SQL`) and the startup's check (`migrate()`, and the web version's start
+  with `AUTO_MIGRATE=false`; `checkXidRegression({ restamp })`) give every synced row at or above that transaction's id
+  this id (`RESTAMP_ROWS`, shared with 0100; `itsm.applying` keeps timestamps), set `sm_devices.cursor` to 0, a
+  tombstoned demo pack's `purge_mark` to the id + 1, a non-zero `sm_org_sync.purged` to the id (`notePurgedHere`: the
+  apps' first full read sees it) and the mark to the id. Not on a Windows app's database nor before 0100 (the
+  migration does it). Instances that start together take turns on the migrations' lock; the next finds the mark lowered
+  (`tests/sync-xid-pg.test.ts`).
 - **Tombstone purge**: `purgeArchived` removes archived records' tombstones after 30 days and raises
   `sm_org_sync.purged` to the newest revision removed (`notePurged`); a cursor that does not see it never received those
   tombstones and is reset (full read, which drops them). Any other hard delete of rows a Windows app may hold must leave

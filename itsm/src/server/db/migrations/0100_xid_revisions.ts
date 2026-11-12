@@ -18,13 +18,16 @@
 // · Revisions written before this migration were counter values. A counter can be ahead of the transaction ids (one
 //   transaction importing 10 000 rows took 10 000 revisions and one id): such rows would look written by transactions
 //   that have not happened yet. They are stamped with this migration's own transaction id (`itsm.applying` keeps their
-//   timestamps). Windows apps read everything again anyway (SYNC_PROTOCOL 16). Not on a Windows app's own database
+//   timestamps; RESTAMP_ROWS, which a database restored into another cluster runs again: snapshot.ts RESTAMP_SQL).
+//   Windows apps read everything again anyway (SYNC_PROTOCOL 16). Not on a Windows app's own database
 //   (`itsm.mode = 'desktop'`): its revisions are the server's, opaque to it.
 // · Counter values kept elsewhere: the Windows apps' cursors (`sm_devices.cursor`, now the oldest transaction id a
 //   device's last complete pull had not seen) start again at 0 — every app reads everything again after the update —
 //   and a demo pack waiting for the apps to pull its tombstones (`sm_demo_packs.purge_mark`) waits for that read.
 // · sm_sync_seen (Windows app): what a pull session from nothing received; at its end the rest of the organisation's
 //   rows (waiting for no upload) leave the computer.
+import { RESTAMP_ROWS } from "../../sync/snapshot";
+
 export default /* sql */ `
 alter table sm_org_sync add column if not exists epoch bigint not null default 0;
 alter table sm_org_sync add column if not exists purged bigint not null default 0;
@@ -79,16 +82,7 @@ begin
   end if;
   v_xid := pg_current_xact_id()::text::bigint;
   perform set_config('itsm.applying', 'on', true);
-  for t in
-    select distinct c.relname as tbl
-    from pg_trigger g
-    join pg_class c on c.oid = g.tgrelid
-    join pg_namespace n on n.oid = c.relnamespace
-    join pg_proc p on p.oid = g.tgfoid
-    where n.nspname = current_schema() and p.proname in ('sm_sync_touch', 'sm_user_touch') and not g.tgisinternal
-  loop
-    execute format('update %I set rev = %s where rev >= %s', t.tbl, v_xid, v_xid);
-  end loop;
+${RESTAMP_ROWS}
   -- once (supabase/schema.sql may run again on a live database): counter values kept outside the synced rows
   if not exists (select 1 from sm_migrations where id = '0100_xid_revisions') then
     -- the Windows apps' counter cursors: each app reads everything again after the update (its cursor then follows)

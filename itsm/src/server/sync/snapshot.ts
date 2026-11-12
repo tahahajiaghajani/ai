@@ -8,7 +8,7 @@
 // Visibility of a row's revision in a snapshot is plain arithmetic: every row a query sees was written by a committed
 // transaction (or is older than all of them), so "visible in S" is `rev < S.xmin or (rev < S.xmax and rev not in
 // S.xip)`. The predicates below are comparisons on the `rev` column, so the `(org_id, rev)` indexes answer them.
-import type { Queryable } from "../db";
+import type { Db, Queryable } from "../db";
 import { pgArray } from "../db";
 
 export interface Snap {
@@ -131,15 +131,80 @@ export async function bumpSyncEpoch(q: Queryable, orgId: string): Promise<void> 
   );
 }
 
+/** sm_meta key of the high-water mark of the transaction ids the database handed out (checkXidRegression). */
+const MARK = "sync.xid_high";
+
 /**
- * Bump every organisation's sync epoch (a whole database was restored or went back in transaction ids). Plain SQL, so
- * that a restore tool can run it on a database it just restored (an older backup may predate the epoch column).
+ * PL/pgSQL statements, inside a block that declared `v_xid bigint` (the writing transaction's id) and `t record`, with
+ * `itsm.applying` on (timestamps stay): every synced row — the tables of the sync trigger functions — whose revision is
+ * at or above `v_xid` takes `v_xid`. Such a row would look written by a transaction that has not happened yet: a pull's
+ * window (`rev < snap.xmax`) leaves it out — a full read misses it and the Windows app drops its copy (sweepUnseen) —
+ * until the database's transaction ids pass it. Migration 0100 (counter revisions that ran ahead of the ids) and
+ * RESTAMP_SQL (a database restored into another cluster) share it.
+ */
+export const RESTAMP_ROWS = `  for t in
+    select distinct c.relname as tbl
+    from pg_trigger g
+    join pg_class c on c.oid = g.tgrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    join pg_proc p on p.oid = g.tgfoid
+    where n.nspname = current_schema() and p.proname in ('sm_sync_touch', 'sm_user_touch') and not g.tgisinternal
+  loop
+    execute format('update %I set rev = %s where rev >= %s', t.tbl, v_xid, v_xid);
+  end loop;`;
+
+/**
+ * A database restored into another cluster starts again from this transaction. pg_dump/pg_restore loads the data before
+ * its triggers exist, so every row keeps the revision the old cluster gave it, while the new cluster hands out
+ * transaction ids that may be far below — and so do the other values that hold the old cluster's ids:
+ * · synced rows at or above this transaction's id take it (RESTAMP_ROWS): the Windows apps' full read after the epoch
+ *   bump brings them, instead of leaving them out and dropping each app's copies at its end;
+ * · the Windows apps' cursors (`sm_devices.cursor`) go back to 0 — each app reads everything again and its cursor
+ *   follows — and a demo pack whose tombstones wait for the apps (`purge_mark`) waits for that read;
+ * · the purge watermark of an organisation that has one becomes this transaction's id (notePurgedHere): an old
+ *   cluster's value would never be visible in a snapshot taken here, so every pull with a cursor would read everything
+ *   again; this one is visible to the apps' first full read;
+ * · the high-water mark of transaction ids starts here (the startup's check finds nothing more to do).
+ * A database restored into its own cluster has no row at or above this id: only the cursors, the demo pack's mark and
+ * the watermarks start again (harmless: every app reads everything again after a restore anyway). Not on a Windows
+ * app's database (its revisions are the server's, opaque to it) nor on a database from before transaction-id revisions
+ * (migration 0100 does this when it runs). Plain SQL; `karizctl restore` runs it on the restored database
+ * (BUMP_ALL_EPOCHS_SQL), the startup's check on a regression.
+ */
+export const RESTAMP_SQL = `
+do $restamp$
+declare
+  v_xid bigint;
+  t record;
+begin
+  if coalesce(current_setting('itsm.mode', true), '') = 'desktop' or to_regclass('sm_migrations') is null then
+    return;
+  end if;
+  if not exists (select 1 from sm_migrations where id = '0100_xid_revisions') then
+    return;
+  end if;
+  v_xid := pg_current_xact_id()::text::bigint;
+  perform set_config('itsm.applying', 'on', true);
+${RESTAMP_ROWS}
+  update sm_devices set cursor = 0 where cursor <> 0;
+  update sm_demo_packs set purge_mark = v_xid + 1 where state = 'tombstoned';
+  update sm_org_sync set purged = v_xid where purged <> 0;
+  update sm_meta set value = v_xid::text, updated_at = now() where key = '${MARK}';
+  perform set_config('itsm.applying', '', true);
+end
+$restamp$;`;
+
+/**
+ * Bump every organisation's sync epoch (a whole database was restored or went back in transaction ids) and start again
+ * what holds another cluster's transaction ids (RESTAMP_SQL). Plain SQL, so that a restore tool can run it on a database
+ * it just restored (an older backup may predate the epoch column), in one transaction.
  */
 export const BUMP_ALL_EPOCHS_SQL = `
 alter table sm_org_sync add column if not exists epoch bigint not null default 0;
 alter table sm_org_sync add column if not exists purged bigint not null default 0;
 insert into sm_org_sync (org_id, rev, epoch) select id, 0, (extract(epoch from clock_timestamp()) * 1000)::bigint from sm_orgs
-on conflict (org_id) do update set epoch = ${NEXT_EPOCH};`;
+on conflict (org_id) do update set epoch = ${NEXT_EPOCH};
+${RESTAMP_SQL}`;
 
 export async function bumpAllSyncEpochs(q: Queryable): Promise<number> {
   const rows = await q.query<{ org_id: string }>(
@@ -189,9 +254,21 @@ export async function notePurgedHere(q: Queryable, orgId: string): Promise<void>
 
 // ----- transaction-id regression -------------------------------------------------------------------------------
 
-const MARK = "sync.xid_high";
 const MARK_EVERY_MS = 60_000;
 let markedAt = 0;
+/**
+ * The snapshot and the mark in ONE statement (one snapshot): a mark this statement sees was written by a transaction
+ * that committed before it, whose own snapshot's xmax is below this one's — two statements would let another process
+ * raise the mark in between, and an older xmax read first would look like a regression (every Windows app of every
+ * organisation reading everything again for nothing).
+ */
+const SNAP_AND_MARK = `select pg_current_snapshot()::text as s, (select value from sm_meta where key = $1) as mark`;
+
+/** `fn` in one transaction: a new one on a database, the caller's own on a transaction (or a bare connection). */
+function inOneTx<T>(q: Queryable, fn: (tx: Queryable) => Promise<T>): Promise<T> {
+  const d = q as Partial<Db> & { inTx?: boolean };
+  return !d.inTx && typeof d.tx === "function" ? d.tx(fn) : fn(q);
+}
 
 /**
  * Transaction ids only grow in a database — unless it was restored into another cluster (pg_dump/pg_restore, a
@@ -199,23 +276,34 @@ let markedAt = 0;
  * writes get, and a Windows app's cursor would take those writes for seen. The database keeps a high-water mark of
  * the ids it handed out (sm_meta `sync.xid_high`, raised at most once a minute per process); when the next id is below
  * it, every organisation's sync epoch is bumped (one full re-read for every Windows app) and the mark starts again.
- * Returns whether a regression was found. `force` skips the once-a-minute pacing (startup, restores).
+ * Returns whether a regression was found (and handled by this call). `force` skips the once-a-minute pacing (startup,
+ * restores). `restamp` — the startup's check, before the server answers any pull — also starts again what holds the
+ * other cluster's ids (RESTAMP_SQL: rows ahead of the ids, the apps' cursors, the purge watermark), in the transaction
+ * that bumps the epochs: the apps' full read then brings every row, and the next pull keeps its cursor.
  */
-export async function checkXidRegression(q: Queryable, opts: { force?: boolean; log?: (msg: string) => void } = {}): Promise<boolean> {
+export async function checkXidRegression(q: Queryable, opts: { force?: boolean; restamp?: boolean; log?: (msg: string) => void } = {}): Promise<boolean> {
   const now = Date.now();
   if (!opts.force && now - markedAt < MARK_EVERY_MS) return false;
   markedAt = now;
-  // the snapshot and the mark in ONE statement (one snapshot): a mark this statement sees was written by a transaction
-  // that committed before it, whose own snapshot's xmax is below this one's — two statements would let another
-  // process raise the mark in between, and an older xmax read first would look like a regression (every Windows app of
-  // every organisation reading everything again for nothing)
-  const both = await q.one<{ s: string; mark: unknown }>(`select pg_current_snapshot()::text as s, (select value from sm_meta where key = $1) as mark`, [MARK]).catch(() => null);
+  const both = await q.one<{ s: string; mark: unknown }>(SNAP_AND_MARK, [MARK]).catch(() => null);
   const cur = parseSnap(both?.s) ?? (await currentSnap(q));
   const mark = Number(both?.mark ?? 0);
   if (Number.isFinite(mark) && mark > cur.xmax) {
-    const n = await bumpAllSyncEpochs(q);
-    await q.query(`insert into sm_meta (key, value, updated_at) values ($1, $2, now()) on conflict (key) do update set value = excluded.value, updated_at = now()`, [MARK, String(cur.xmax)]);
-    opts.log?.(`transaction ids went back (next ${cur.xmax}, seen ${mark}): sync epochs of ${n} organisations bumped`);
+    const done = await inOneTx(q, async (tx) => {
+      // one process at a time, and never beside the migrations or the engine's DDL (their lock): instances starting
+      // together find the regression together — the next one finds the mark lowered and leaves the epochs alone
+      await tx.query(`select pg_advisory_xact_lock(724100)`);
+      const again = await tx.one<{ s: string; mark: unknown }>(SNAP_AND_MARK, [MARK]);
+      const at = parseSnap(again?.s);
+      const seen = Number(again?.mark ?? 0);
+      if (!at || !(seen > at.xmax)) return null;
+      if (opts.restamp) await tx.exec(RESTAMP_SQL);
+      const n = await bumpAllSyncEpochs(tx);
+      await tx.query(`insert into sm_meta (key, value, updated_at) values ($1, $2, now()) on conflict (key) do update set value = excluded.value, updated_at = now()`, [MARK, String(at.xmax)]);
+      return { n, next: at.xmax, seen };
+    });
+    if (!done) return false;
+    opts.log?.(`transaction ids went back (next ${done.next}, seen ${done.seen}): sync epochs of ${done.n} organisations bumped${opts.restamp ? "; rows, cursors and purge watermarks ahead of the ids started again" : ""}`);
     return true;
   }
   if (Number.isFinite(mark) && mark >= cur.xmax) return false;
