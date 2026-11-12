@@ -4,14 +4,16 @@
 // `installDiscoveryModule()` (once per process, src/server/routes/modules.ts, after the CMDB, ITAM and event modules):
 //   · the connector's configuration hook (config.ts): kind once, its data source, config_version, mapping, options and
 //     schedules, the sweep queued when a connector may run
-//   · the jobs (jobs.ts): the sweep, pulls (runner.ts), status passes (DA2), the contact ladder (DA1 part 2)
+//   · the jobs (jobs.ts): the sweep, pulls (runner.ts), status passes (DA2), the contact ladder (stale.ts)
 //   · a de-duplication task that closes re-queues the items naming it (§7.4)
-// DA1 parts 2 and 3 add the connector guard and re-authentication, the data-source guard, access, the routes and the
-// desktop refusal of routes; the Windows app runs none of the jobs (§14.7).
+//   · the guard on connector-owned CMDB data sources (precedence.ts, §8.1)
+// Mismatches with the asset register (§8.3) are kept by mismatch.ts. DA1 part 3 adds the connector guard and
+// re-authentication, access, the routes and the desktop refusal of routes; the Windows app runs none of the jobs (§14.7).
 import { onRecordEvent } from "../../engine";
 import { inDemoScope, isDemoRow } from "../../db/scope";
 import { installConnectorConfig } from "./config";
 import { installDiscoveryJobs, queuePull } from "./jobs";
+import { installSourceGuard } from "./precedence";
 import { editionOf } from "./net";
 
 let installed = false;
@@ -41,6 +43,7 @@ export function installDiscoveryModule(): void {
   if (installed) return;
   installed = true;
   installConnectorConfig();
+  installSourceGuard();
   installDiscoveryJobs();
   installDedupListener();
 }
@@ -49,3 +52,5 @@ export { runPull, acceptNewSize, cancelRun, consecutiveFailures, runningRun, loa
 export { queuePull, discoverySweep, ensureDiscoverySweep, dailyUpkeep, JOB_KINDS, resetDiscoveryThrottles } from "./jobs";
 export { serverKind, serverKinds } from "./registry";
 export { stagePage, itemHash, pendingCount } from "./stage";
+export { applyMismatch, dismissMismatch, mismatchDigest, refreshMismatches, MISMATCH_LABELS, type MismatchEntry, type MismatchData } from "./mismatch";
+export { sourceOwner, ownedSourceMessage } from "./precedence";

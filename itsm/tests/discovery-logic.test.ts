@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { normaliseIp, normaliseMac, normaliseRecord, normaliseSerial, normaliseTime, normaliseUuid, OWNED_FIELD_DROPPED, OWNED_FIELD_WARNING } from "@shared/discovery/normalise";
 import { canonical, hashMaterial, softwareMaterial } from "@shared/discovery/hash";
 import { ALLOWED_CI_FIELDS, applyRenames, checkMapping, ciValues, isAllowedTarget, recordFromElement, REFUSED_FIELD_MESSAGE } from "@shared/discovery/mapping";
-import { hasContact, massDrop } from "@shared/discovery/stale";
+import { effectiveContact, hasContact, ladder, massDrop } from "@shared/discovery/stale";
 import { KIND_DESCRIPTORS, KIND_OPTIONS, kindDescriptor, offeredKinds } from "@shared/discovery/kinds";
 import type { DiscoveredRecord } from "@shared/discovery/types";
 import { callSize, FIRST_CALL, lockBudgetMs, mayForce, observe, planCall, predictMs, sliceEnd } from "@server/modules/discovery/budget";
@@ -216,5 +216,30 @@ describe("the identification indexes (§8.5)", () => {
       expect(st).toMatch(/^create index if not exists sm_cis_ident_[a-z]+_idx on sm_cis \(org_id, \(/);
       expect(st.endsWith("where deleted_at is null and merged_into is null;")).toBe(true);
     }
+  });
+});
+
+describe("the contact ladder's decisions (§10)", () => {
+  const now = Date.parse("2026-11-11T10:00:00Z");
+  const day = 86_400_000;
+  const base = { now, staleDays: 14, missingDays: 45, retireDays: 0, deletePolicy: "flag" as const, hasCi: true, assetInUse: true };
+  it("judges the tool's contact with the kind's lag; an unknown contact decides nothing", () => {
+    // AD: lastLogonTimestamp 200 days old + 14 days of lag = 186 days of silence
+    const ad = effectiveContact(new Date(now - 200 * day).toISOString(), 14, now)!;
+    expect(ladder({ ...base, contactAt: ad })).toMatchObject({ stale: true, overdue: true, missing: true, flagCi: true, retire: false, days: 186 });
+    // seen by AD three weeks ago: still fresh thanks to the lag
+    expect(ladder({ ...base, contactAt: effectiveContact(new Date(now - 20 * day).toISOString(), 14, now) })).toMatchObject({ stale: false, missing: false, days: 6 });
+    expect(ladder({ ...base, contactAt: null })).toEqual({ stale: false, flagCi: false, overdue: false, missing: false, retire: false, days: null });
+  });
+  it("asks for an asset in use before a missing step, never flags with delete_policy none, retires only CIs without an asset in use", () => {
+    const silent = now - 100 * day;
+    expect(ladder({ ...base, contactAt: silent, assetInUse: false })).toMatchObject({ overdue: true, missing: false });
+    expect(ladder({ ...base, contactAt: silent, deletePolicy: "none" })).toMatchObject({ stale: true, flagCi: false });
+    expect(ladder({ ...base, contactAt: silent, deletePolicy: "retire", retireDays: 90, assetInUse: false })).toMatchObject({ retire: true });
+    expect(ladder({ ...base, contactAt: silent, deletePolicy: "retire", retireDays: 90, assetInUse: true })).toMatchObject({ retire: false });
+    expect(ladder({ ...base, contactAt: silent, deletePolicy: "retire", retireDays: 0, assetInUse: false })).toMatchObject({ retire: false });
+    expect(ladder({ ...base, contactAt: silent, deletePolicy: "flag", retireDays: 90, assetInUse: false })).toMatchObject({ retire: false });
+    // an ATM's asset without a CI: missing, never flagged or retired
+    expect(ladder({ ...base, contactAt: silent, hasCi: false, deletePolicy: "retire", retireDays: 30 })).toMatchObject({ missing: true, flagCi: false, retire: false });
   });
 });

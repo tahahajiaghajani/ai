@@ -16,8 +16,10 @@
 // · Errors (§7.5): a network or 5xx failure is retried three times (Retry-After honoured — the job comes back, it never
 //   sleeps), then the pass fails «… پاسخ نداد»; 401/403 fail at once «نام کاربری یا کلید پذیرفته نشد»; one bad record
 //   is one item in error and the pass goes on.
-// · Finalise: a complete pass marks the unlisted items «gone» unless the mass-drop guard trips (§10.4), and writes a
-//   cmdb_import_run only when the pass changed something — all in one transaction with the run's completion.
+// · Finalise: a complete pass marks the unlisted items «gone» unless the mass-drop guard trips (§10.4: the owner is told
+//   and the ladder waits), and writes a cmdb_import_run only when the pass changed something — all in one transaction
+//   with the run's completion. The owner is also told when a third pass in a row fails (§7.5).
+// · After every engine call the items' differences with the asset register become mismatches (mismatch.ts, §8.3).
 import type { IreAction, IreItem, IreRelation, IreResult } from "@shared/cmdb/api";
 import { applyRenames, checkMapping, ciValues } from "@shared/discovery/mapping";
 import { normaliseRecord } from "@shared/discovery/normalise";
@@ -29,13 +31,15 @@ import { uuidv7 } from "@shared/id";
 import type { Ctx } from "../../context";
 import { isTransientDbError, pgArray, type Queryable, type Tx } from "../../db";
 import { isDemoRow } from "../../db/scope";
-import { createIn, readSecret, transitionIn } from "../../engine";
+import { createIn, readSecret, savepoint, transitionIn } from "../../engine";
 import { enqueue, type JobContext, type JobResult } from "../../jobs";
 import { assertWritable } from "../platform/org-admin";
 import { createOrUpdate } from "../cmdb/ire";
 import { MIN_CALL, mayForce, observe, planCall, sliceEnd, type CallMode, type Ewma } from "./budget";
 import { ConnectorError, CONNECTOR_MESSAGES, type ConnCtx, type ConnectorKind, type ConnectorView } from "./kind";
-import { cisWithAssets, ireItem, mayCreate, PARENT_REL, recordClass } from "./mapping";
+import { ireItem, mayCreate, PARENT_REL, recordClass } from "./mapping";
+import { recordMismatches } from "./mismatch";
+import { FAILURES_NOTICE, noticeFailures, noticeMassDrop } from "./notices";
 import { connectorFetcher, editionOf } from "./net";
 import { serverKind } from "./registry";
 import { pendingCount, stagePage } from "./stage";
@@ -307,6 +311,8 @@ export async function runPull(sys: Ctx, connectorId: string, jctx: Pick<JobConte
 
   const fail = async (message: string) => {
     await finishRunSql(db, org, run.id, "failed", { cursor, error: message, complete: false });
+    // the owner hears of a tool that keeps failing, once, when the third pass in a row fails (§7.5)
+    if ((await consecutiveFailures(db, org, connectorId)) === FAILURES_NOTICE) await noticeFailures(db, org, connectorId, message).catch(() => false);
   };
   const kind = serverKind(conn.kind);
   if (!kind) {
@@ -354,7 +360,6 @@ export async function runPull(sys: Ctx, connectorId: string, jctx: Pick<JobConte
         : [];
       const parentCi = new Map(parents.map((p) => [p.external_id, p.ci_id]));
       const indexOf = new Map(group.map((c, i) => [c.external_id, i]));
-      const withAssets = await cisWithAssets(db, org, group.map((c) => c.ci_id).filter((x): x is string => !!x));
       const ireItems: IreItem[] = group.map((c, i) => {
         const relations: IreRelation[] = [];
         const pid = c.data.parent_external_id;
@@ -363,7 +368,7 @@ export async function runPull(sys: Ctx, connectorId: string, jctx: Pick<JobConte
           if (j !== undefined && j !== i) relations.push({ type: PARENT_REL, direction: "out", item: j });
           else if (parentCi.get(pid)) relations.push({ type: PARENT_REL, direction: "out", ci_id: parentCi.get(pid) });
         }
-        return ireItem({ record: c.data, defaultClass: conn.default_class ?? null, hint: c.ci_id, relations, dropSerial: !!c.ci_id && withAssets.has(c.ci_id) });
+        return ireItem({ record: c.data, defaultClass: conn.default_class ?? null, hint: c.ci_id, relations });
       });
       const done: { next: RunCursor | null } = { next: null };
       wrapped.set(async (tx, out) => {
@@ -401,6 +406,17 @@ export async function runPull(sys: Ctx, connectorId: string, jctx: Pick<JobConte
            where t.org_id = $1 and t.connector_id = $2 and t.id = x.id`,
           [org, connectorId, JSON.stringify(updates)],
         );
+        // what the tool says and the asset register holds differently (§8.3): the queue's «ناهمخوانی», with the CI — in
+        // its own savepoint: a failure here is logged and never fails the reconciliation
+        await savepoint(tx, () =>
+          recordMismatches(tx, org, out.results.map((r) => {
+            const linked = r.action === "created" || r.action === "updated" || r.action === "unchanged";
+            return { itemId: group[r.index].id, ciId: linked ? r.ci_id : null, record: group[r.index].data, skipped: r.skipped, sent: ireItems[r.index] };
+          })),
+        ).catch((e) => {
+          if (isTransientDbError(e)) throw e;
+          sys.cfg.log?.warn?.("discovery mismatches not recorded", { connector: connectorId, error: scrubSecrets(String((e as Error)?.message ?? e)) });
+        });
         crashPoint(`ire:${why}`);
         const changed = (delta.created ?? 0) + (delta.updated ?? 0) + (delta.duplicates ?? 0) + (why === "refresh" || why === "parents" ? 0 : (delta.failed ?? 0));
         done.next = { ...cursor, changed: cursor.changed + changed, rows: [...cursor.rows, ...rows].slice(0, MAX_IMPORT_ROWS) };
@@ -573,8 +589,11 @@ export async function runPull(sys: Ctx, connectorId: string, jctx: Pick<JobConte
            order by r.started_at desc limit 1`,
           [org, connectorId, run.id],
         );
-        if (massDrop(listed, last?.n ?? null)) warnings.push({ code: "mass_drop", message: `${MASS_DROP_WARNING}: ${listed} مورد در برابر ${last?.n} مورد گذر کامل پیشین` });
-        else {
+        if (massDrop(listed, last?.n ?? null)) {
+          warnings.push({ code: "mass_drop", message: `${MASS_DROP_WARNING}: ${listed} مورد در برابر ${last?.n} مورد گذر کامل پیشین` });
+          // nothing is set aside and the ladder waits: the owner decides whether the new size is right (§10.4)
+          await noticeMassDrop(tx, org, connectorId, listed, Number(last?.n ?? 0));
+        } else {
           gone = (await tx.query(
             `update sm_discovery_items set state = 'gone', updated_at = now()
              where org_id = $1 and connector_id = $2 and deleted_at is null and seen_generation < $3 and (state is null or state not in ('gone', 'ignored')) returning id`,

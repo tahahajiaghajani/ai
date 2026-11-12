@@ -4,11 +4,12 @@
 //   discovery.sweep        per organisation, every 5 minutes on the server edition and 15 on the web version, while it
 //                          has an active connector: queues due pulls and status passes (a demo connector's inside the
 //                          demo scope, §14.4), resumes a pass whose worker vanished, and once a day queues retries of
-//                          connectors run by hand, and keeps runs 90 days (the last 20 per lane and the last complete
-//                          inventory pass always) and batches 30 days
+//                          connectors run by hand and every active connector's contact ladder, tells the asset managers
+//                          of new mismatches, and keeps runs 90 days (the last 20 per lane and the last complete inventory
+//                          pass always) and batches 30 days
 //   discovery.pull         one slice of a connector's inventory pass (runner.ts)
 //   discovery.status       a status pass (DA2's status.ts)
-//   discovery.stale        the contact ladder after a complete pass (DA1 part 2's stale.ts)
+//   discovery.stale        the contact ladder (stale.ts): after a complete pass, after «پذیرش اندازهٔ تازه», and daily
 // DA2 adds discovery.push_batch and discovery.device_apply, DA7 discovery.itam. At most two discovery jobs of an
 // organisation work at once (§7.1): the others come back in 30 seconds.
 import type { RunTrigger } from "@shared/discovery/types";
@@ -21,6 +22,7 @@ import { isUuid } from "../incident/common";
 import { BUSY_AGAIN_MS, MAX_DISCOVERY_JOBS } from "./budget";
 import { editionOf } from "./net";
 import { serverKind } from "./registry";
+import { mismatchDigest } from "./mismatch";
 import { runPull } from "./runner";
 import { staleJob } from "./stale";
 import { statusPass } from "./status";
@@ -196,10 +198,18 @@ export async function discoverySweep(cfg: Cfg, orgId: string): Promise<{ queued:
       );
       queued++;
     }
+    if (daily) {
+      // the contact ladder ages on the calendar, not only on passes (§10): a silent machine goes stale and missing even
+      // when nothing is listed any more
+      await scoped(() => enqueue(db, { kind: JOB_KINDS.stale, orgId, payload: { connector: c.id, ...(c.demo ? { __demo: true } : {}) }, dedupeKey: `${JOB_KINDS.stale}:${c.id}`, maxAttempts: 5 }));
+      queued++;
+    }
   }
   if (daily) {
     lastDaily.set(orgId, now);
     await dailyUpkeep(db, orgId);
+    // «… ناهمخوانی تازه میان ابزارها و دفتر اموال» once a day (each difference told once, §8.3)
+    await mismatchDigest(db, orgId).catch((e) => cfg.log?.warn?.("discovery mismatch digest failed", String((e as Error)?.message ?? e)));
   }
   return { queued, again: active ? sweepEveryMs(cfg) : null };
 }
