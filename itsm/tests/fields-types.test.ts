@@ -8,7 +8,7 @@ import { FIELD_TYPES } from "@shared/model/types";
 import {
   BUILTIN_FIELD_TYPES, BUILTIN_TYPE_OPTIONS, FIELD_TYPE_GROUPS, LIBRARY_NAME, TYPE_KEY, availableBuiltinTypes, builtinFieldType, cleanSettings,
   dateBounds, formatFieldMoney, libraryFieldDef, libraryFieldSettings, moneyUnitOf, resolveFieldType, rialFromInput, sameStorage,
-  typeRowSettings, widgetsFor, type FieldTypeRow,
+  storageChange, typeRowSettings, widgetsFor, type FieldTypeRow,
 } from "@shared/forms/fieldtypes";
 
 const fa = (s: string) => s.replace(/\d/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[Number(d)]);
@@ -67,6 +67,18 @@ describe("built-in field types", () => {
     expect(sameStorage(resolveFieldType("select")!, resolveFieldType("radio")!)).toBe(true);
     expect(sameStorage(resolveFieldType("select")!, resolveFieldType("multiselect")!)).toBe(false);
     expect(sameStorage(resolveFieldType("string")!, resolveFieldType("national_id")!)).toBe(true);
+  });
+
+  it("count what stored values point to as storage: a reference's table, a choice's list (F1-7)", () => {
+    const def = (type: string, extra: Record<string, unknown> = {}) => libraryFieldDef({ name: "u_x", label: "x", type, ...extra }, resolveFieldType(type)!, { tableExists: () => true })!;
+    expect(storageChange(def("unit"), def("location"))).toBe("ref");
+    expect(storageChange(def("record", { validation: { ref: "org_unit" } }), def("record", { validation: { ref: "location" } }))).toBe("ref");
+    expect(storageChange(def("unit"), def("record", { validation: { ref: "org_unit" } }))).toBeNull();
+    const own = def("select", { options: [{ value: "a", label: "الف" }] });
+    expect(storageChange(own, def("radio", { options: [{ value: "a", label: "الف" }, { value: "b", label: "ب" }] }))).toBeNull();
+    expect(storageChange(own, def("select", { choices: "todo.category" }))).toBe("list");
+    expect(storageChange(def("select", { choices: "todo.category" }), def("select", { choices: "incident.category" }))).toBe("list");
+    expect(storageChange(own, def("multiselect", { options: [{ value: "a", label: "الف" }] }))).toBe("type");
   });
 });
 

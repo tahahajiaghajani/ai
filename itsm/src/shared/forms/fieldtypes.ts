@@ -453,6 +453,20 @@ export function resolveFieldType(key: unknown, rows?: Iterable<FieldTypeRow> | R
 /** Does changing a field from one type to another keep its storage (and so every stored value)? */
 export const sameStorage = (a: Pick<ResolvedFieldType, "base">, b: Pick<ResolvedFieldType, "base">): boolean => a.base === b.base;
 
+/**
+ * What a change of a field makes of its stored values, beyond the storage type: a reference's ids belong to its target
+ * table, and a choice's values to its list (a shared list by key, or its own options). "type", "ref" or "list" when a
+ * used field may not change that way (its values would be read as something else), null when the values keep their
+ * meaning.
+ */
+export function storageChange(a: Pick<FieldDef, "type" | "ref" | "choices">, b: Pick<FieldDef, "type" | "ref" | "choices">): "type" | "ref" | "list" | null {
+  if (a.type !== b.type) return "type";
+  if ((a.type === "ref" || a.type === "refs") && (a.ref ?? null) !== (b.ref ?? null)) return "ref";
+  const list = (f: Pick<FieldDef, "choices">) => (typeof f.choices === "string" ? f.choices : null);
+  if ((a.type === "choice" || a.type === "multichoice") && list(a) !== list(b)) return "list";
+  return null;
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Library fields
 

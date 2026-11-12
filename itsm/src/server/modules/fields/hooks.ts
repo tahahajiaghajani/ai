@@ -1,19 +1,19 @@
 // Integrity of the field library (design F §3.1, package F1) on every path — F1's routes, the generic record API and
 // imports — for the system as for people:
 //   · field_type: a key u_* that never changes; a built-in base type; a widget of the same storage type; settings the
-//     built-in type allows (`typeRowSettings`); its storage type kept while library fields use it; deleted only when
+//     built-in type allows (`typeRowSettings`); its storage kept while library fields use it; deleted only when
 //     unused (retire it instead)
 //   · field_def: a name u_* that never changes once the field is used; a known, active type (a retired type is not
 //     offered for new fields); settings its built-in type allows, a target table for references, a known default token;
-//     its storage type kept while it is used; deleted only when unused; its group of sensitivity (`field_group`)
+//     its storage kept while it is used; deleted only when unused; its group of sensitivity (`field_group`)
 //     changed only by holders of `settings` edit once it is attached to tables (`groupChangeRefusal`)
 //   · both are changed on the web version or the server edition: a Windows app's push is refused, as for custom fields
-import type { FieldType } from "@shared/model/types";
+import type { FieldDef, FieldType } from "@shared/model/types";
 import { validateCond } from "@shared/model/conditions";
 import { tableDef } from "@shared/tables";
 import {
-  LIBRARY_NAME, TYPE_KEY, builtinFieldType, libraryFieldDef, libraryFieldSettings, resolveFieldType, sameStorage, typeRowSettings,
-  type FieldTypeRow, type SettingsEnv,
+  LIBRARY_NAME, TYPE_KEY, builtinFieldType, libraryFieldDef, libraryFieldSettings, resolveFieldType, sameStorage, storageChange, typeRowSettings,
+  type FieldTypeRow, type LibraryFieldRow, type SettingsEnv,
 } from "@shared/forms/fieldtypes";
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
@@ -56,6 +56,27 @@ export function whereUsed(u: FieldUsage): string {
   return parts.join(" و ");
 }
 
+// Storage (design F §3.1: kept while used): the storage type, and what the stored values point to — a reference's
+// target table (from the built-in type, the type row or the field's own settings) and a choice's list (a shared list's
+// key, or the field's own options). Changing either would make the stored values read as something else.
+
+/** Why a used field (or the fields of a type, `ofType`) may not change their storage this way. */
+function storageRefusal(change: "type" | "ref" | "list", label: string, where: string, was: FieldDef | null, ofType = false): string {
+  const subject = ofType ? `نوع «${label}»` : `«${label}»`;
+  const used = ofType ? `فیلدهای ${where} از آن استفاده می‌کنند` : `این فیلد ${where} به کار رفته است`;
+  if (change === "ref") return `جدول مقصد ${subject} عوض نمی‌شود: ${used} و مقدارهای ذخیره‌شده به «${tableDef(String(was?.ref ?? ""))?.plural ?? String(was?.ref ?? "")}» اشاره می‌کنند`;
+  if (change === "list") return `فهرست گزینه‌های ${subject} عوض نمی‌شود: ${used} و مقدارهای ذخیره‌شده از فهرست کنونی‌اند؛ گزینه‌های همین فهرست را ویرایش کنید`;
+  return ofType
+    ? `نوع ذخیرهٔ «${label}» عوض نمی‌شود: ${used}؛ فقط نوع پایه‌ای با همان نوع ذخیره پذیرفته می‌شود`
+    : `نوع ذخیرهٔ «${label}» عوض نمی‌شود: ${used}؛ فقط نوعی با همان نوع ذخیره پذیرفته می‌شود (مثلاً فهرست کشویی ↔ گزینه‌های تکی)`;
+}
+
+/** What a field's definition makes of its stored values when its type or settings change (null: nothing). */
+function changeOf(was: FieldDef | null, now: FieldDef | null): "type" | "ref" | "list" | null {
+  if (was && now) return storageChange(was, now);
+  return !was !== !now ? "ref" : null;
+}
+
 async function fieldTypeBefore({ tx, ctx, op, next, prev }: WriteArgs): Promise<void> {
   if (op === "delete") {
     const used = await fieldsOfType(tx, ctx.org.id, String(prev?.key ?? next.key ?? ""));
@@ -69,13 +90,23 @@ async function fieldTypeBefore({ tx, ctx, op, next, prev }: WriteArgs): Promise<
   const base = builtinFieldType(next.base);
   if (!base) throw bad(`نوع پایهٔ «${String(next.base ?? "")}» وجود ندارد`);
   if (base.settings.ref && !SETTINGS_ENV.tableExists!(base.settings.ref)) throw bad(`نوع «${base.label}» هنوز در این سامانه به کار نمی‌رود`);
-  if (op === "update" && prev && prev.base !== next.base) {
-    const before = builtinFieldType(prev.base);
-    if (before && before.base !== base.base) {
-      const used = await fieldsOfType(tx, ctx.org.id, key);
-      if (used.length) {
-        throw bad(`نوع ذخیرهٔ «${String(next.name ?? key)}» عوض نمی‌شود: فیلدهای ${names(used.map((f) => `«${f.label}»`))} از آن استفاده می‌کنند؛ فقط نوع پایه‌ای با همان نوع ذخیره پذیرفته می‌شود`);
-      }
+  if (op === "update" && prev) {
+    // the storage of every field of the type, under the type as it was and as it will be (a field's own reference or
+    // list wins over the type's, so only the fields that follow the type's are held)
+    const was = resolveFieldType(key, new Map([[key, prev as FieldTypeRow]]), SETTINGS_ENV);
+    const now = resolveFieldType(key, new Map([[key, next as FieldTypeRow]]), SETTINGS_ENV);
+    if (was && now) {
+      const fields = await tx.query<LibraryFieldRow & { id: string }>(
+        `select id, name, label, type, validation, options, choices from sm_field_defs where org_id = $1 and type = $2 and deleted_at is null order by label`,
+        [ctx.org.id, key],
+      );
+      const moved = fields
+        .map((f) => {
+          const before = libraryFieldDef(f, was, SETTINGS_ENV);
+          return { f, before, change: sameStorage(was, now) ? changeOf(before, libraryFieldDef(f, now, SETTINGS_ENV)) : ("type" as const) };
+        })
+        .filter((m) => m.change);
+      if (moved.length) throw bad(storageRefusal(moved[0].change!, String(next.name ?? key), names(moved.map((m) => `«${m.f.label}»`)), moved[0].before, true));
     }
   }
   const { problems } = typeRowSettings(base, next, SETTINGS_ENV);
@@ -128,11 +159,15 @@ async function fieldDefBefore({ tx, ctx, op, next, prev, trusted }: WriteArgs): 
   if (op === "update" && prev) {
     const renamed = prev.name !== next.name;
     const before = typeChanged ? resolveFieldType(prev.type, types, SETTINGS_ENV) : type;
-    const storageChanged = !!before && !sameStorage(before, type);
-    if (renamed || storageChanged) {
+    // its storage: the storage type, and the target table or list its values point to — whatever changed, the type or
+    // the field's own settings
+    const was = before ? libraryFieldDef({ name: String(prev.name ?? ""), label, type: String(prev.type), validation: prev.validation, options: prev.options, choices: prev.choices }, before, SETTINGS_ENV) : null;
+    const now = libraryFieldDef({ name, label, type: String(next.type), validation: next.validation, options: next.options, choices: next.choices }, type, SETTINGS_ENV);
+    const change = !before ? null : !sameStorage(before, type) ? "type" : changeOf(was, now);
+    if (renamed || change) {
       const u = await fieldUsage(tx, ctx.org.id, { id: String(prev.id), name: String(prev.name) });
       if (inUse(u) && renamed) throw bad(`نام فنی «${String(prev.name)}» عوض نمی‌شود: این فیلد ${whereUsed(u)} به کار رفته است`);
-      if (inUse(u)) throw bad(`نوع ذخیرهٔ «${label}» عوض نمی‌شود: این فیلد ${whereUsed(u)} به کار رفته است؛ فقط نوعی با همان نوع ذخیره پذیرفته می‌شود (مثلاً فهرست کشویی ↔ گزینه‌های تکی)`);
+      if (inUse(u) && change) throw bad(storageRefusal(change, label, whereUsed(u), was));
     }
     // a person's write (the generic API, imports); F1's route asks the same of the person before it writes as the system
     if (!trusted && !isSystemCtx(ctx) && groupChanges(prev, next)) {

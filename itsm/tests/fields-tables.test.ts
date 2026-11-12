@@ -108,6 +108,41 @@ describe("the field library on the server", () => {
     await e.owner.del(`${P}/field_def/${spare.id}`);
   });
 
+  it("keeps what a used field's values point to: a reference's table and a choice's list (F1-7)", async () => {
+    const O = `/o/${e.org}`;
+    // a «واحد سازمانی» field holding a unit's id on a record
+    const place = (await e.owner.post(`${O}/fields/library`, { name: "u_place", label: "محل", type: "unit" }, 201)).row;
+    await e.owner.post(`${O}/fields/attach`, { table: "todo", field: place.id }, 201);
+    const unit = (await e.owner.post(`${P}/org_unit`, { name: "شعبهٔ مرکزی" })).row;
+    const rec = (await e.owner.post(`${P}/todo`, { short_description: "محل کار", u_place: unit.id })).row;
+    // «مکان» stores a reference too, but to another table: the stored unit ids would be read as locations
+    expect(((await e.owner.patch(`${O}/fields/library/${place.id}`, { type: "location" }, 400)) as Msg).error.message).toBe(
+      "جدول مقصد «محل» عوض نمی‌شود: این فیلد در جدول‌های «کارها» به کار رفته است و مقدارهای ذخیره‌شده به «واحدهای سازمانی» اشاره می‌کنند",
+    );
+    expect((await e.owner.get(`${P}/todo/${rec.id}`)).row.u_place).toBe(unit.id);
+    // a «رکورد» field's own target table
+    const record = (await e.owner.post(`${O}/fields/library`, { name: "u_rec", label: "رکورد مرتبط", type: "record", validation: { ref: "org_unit" } }, 201)).row;
+    await e.owner.patch(`${O}/fields/library/${record.id}`, { validation: { ref: "location" } }); // unused: free
+    await e.owner.patch(`${O}/fields/library/${record.id}`, { validation: { ref: "org_unit" } });
+    await e.owner.post(`${O}/fields/attach`, { table: "todo", field: record.id }, 201);
+    expect(((await e.owner.patch(`${P}/field_def/${record.id}`, { validation: { ref: "location" } }, 400)) as Msg).error.message).toContain("جدول مقصد «رکورد مرتبط» عوض نمی‌شود");
+    // an organisation's type moved from «واحد سازمانی» to «مکان», while a field of it exists
+    const branch = (await e.owner.post(`${P}/field_type`, { key: "u_branch_kind", name: "شعبه", base: "unit" })).row;
+    await e.owner.patch(`${P}/field_type/${branch.id}`, { base: "location" }); // no field of the type yet
+    await e.owner.patch(`${P}/field_type/${branch.id}`, { base: "unit" });
+    await e.owner.post(`${O}/fields/library`, { name: "u_branch_of", label: "شعبهٔ صادرکننده", type: "u_branch_kind" }, 201);
+    expect(((await e.owner.patch(`${P}/field_type/${branch.id}`, { base: "location" }, 400)) as Msg).error.message).toBe(
+      "جدول مقصد نوع «شعبه» عوض نمی‌شود: فیلدهای «شعبهٔ صادرکننده» از آن استفاده می‌کنند و مقدارهای ذخیره‌شده به «واحدهای سازمانی» اشاره می‌کنند",
+    );
+    // a choice field: its own options or a shared list, never one for the other once used; its options stay editable
+    const kind = (await e.owner.post(`${O}/fields/library`, { name: "u_kind", label: "گونه", type: "select", options: [{ value: "a", label: "الف" }] }, 201)).row;
+    await e.owner.post(`${O}/fields/attach`, { table: "todo", field: kind.id }, 201);
+    await e.owner.patch(`${O}/fields/library/${kind.id}`, { options: [{ value: "a", label: "الف" }, { value: "b", label: "ب" }] });
+    expect(((await e.owner.patch(`${O}/fields/library/${kind.id}`, { options: null, choices: "todo.category" }, 400)) as Msg).error.message).toContain("فهرست گزینه‌های «گونه» عوض نمی‌شود");
+    // what keeps the storage still changes freely: the widget within the storage type
+    expect((await e.owner.patch(`${O}/fields/library/${kind.id}`, { type: "radio" })).row.type).toBe("radio");
+  });
+
   it("leaves the group of sensitivity of a field attached to tables to settings managers (F1-12)", async () => {
     const O = `/o/${e.org}`;
     // a designer: «طراحی فرم و گردش‌کار» write through a role of the organisation, and no `settings` edit
