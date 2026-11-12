@@ -12,7 +12,7 @@ import { installCombinationHooks } from "./combinations";
 export { fieldUsage, inUse, registerFieldUsage, type FieldUsage, type FieldUsageSource } from "./usage";
 export { SETTINGS_ENV, orgFieldTypes, whereUsed } from "./hooks";
 export { personaOf, unmetRequirements } from "./requirements";
-export { mandatoryPolicy, portalReportsThroughCatalogue, NO_LIBRARY_TABLES } from "./combinations";
+export { mandatoryPolicy, portalReportsThroughCatalogue, removeLifecycleOverlay, NO_LIBRARY_TABLES } from "./combinations";
 
 let installed = false;
 

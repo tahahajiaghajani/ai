@@ -19,7 +19,7 @@ import { FORM_ROW, cleanArrangement } from "@shared/model/arrangement";
 import type { Lookup } from "@shared/model/conditions";
 import { CHOICE_LISTS, TABLES, tableDef } from "@shared/tables";
 import { CUSTOM_FIELD_TYPES } from "@shared/tables/core";
-import { LABELS_ONLY_LIFECYCLES, STATES_ROW, cleanLifecycle, mergeLifecycle } from "@shared/model/lifecycle";
+import { LABELS_ONLY_LIFECYCLES, STATES_ROW, cleanLifecycle, mergeLifecycle, pruneLifecycle } from "@shared/model/lifecycle";
 import { lockedFields } from "@shared/forms/locked";
 import { isRequiredFor, type RequiredFor } from "@shared/forms/paths";
 import { libraryFieldDef, resolveFieldType, type FieldTypeRow, type LibraryFieldRow, type SettingsEnv } from "@shared/forms/fieldtypes";
@@ -314,7 +314,9 @@ export function buildSchema(fieldRows: CustomFieldRow[], choiceRows: ChoiceRow[]
     // a library field depends on another one only where both are attached
     for (const f of fields) if (f.library && f.dependsOn && !fields.some((x) => x.name === f.dependsOn)) delete f.dependsOn;
     let def: TableDef = arrangement ? { ...base, fields, form: { ...base.form, arrangement } } : { ...base, fields };
-    if (lifecycle && base.states) def = { ...def, states: mergeLifecycle(base.states, lifecycle, { labelsOnly: LABELS_ONLY_LIFECYCLES.has(key) }) };
+    // the organisation's fields and conditions of transitions name only what is on the table now (a field taken off it
+    // is not asked, a condition naming one is dropped): nobody is held to a field that cannot be filled
+    if (lifecycle && base.states) def = { ...def, states: pruneLifecycle(mergeLifecycle(base.states, lifecycle, { labelsOnly: LABELS_ONLY_LIFECYCLES.has(key) }), def) };
     defs.set(key, def);
     return def;
   };

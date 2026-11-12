@@ -323,6 +323,53 @@ describe("the lifecycle overlay `_states`", () => {
     expect((await meta(e.owner)).states!.transitions.some((t) => t.to === "on_hold")).toBe(true);
   });
 
+  it("keeps a field the overlay names on its table, and never holds people to one that is gone (F1-5)", async () => {
+    const need = (await e.owner.post(`${P}/fields/library`, { name: "u_quote", label: "مبلغ برآورد", type: "decimal" }, 201)).row;
+    const needRow = (await e.owner.post(`${P}/fields/attach`, { table: "todo", field: need.id }, 201)).row;
+    const flag = (await e.owner.post(`${R}/custom_field`, { table_key: "todo", name: "u_ready", label: "آماده", type: "bool" })).row;
+    await e.owner.put(`${P}/lifecycles/todo`, {
+      transitions: [{ key: key("in_progress", "new"), requires: ["u_quote"], when: { f: "u_ready", op: "eq", v: true }, message: "نخست «آماده» را بزنید" }],
+    });
+    // switched off, deleted or renamed away, people could never take «شروع کار» again
+    const named = (label: string) => `«${label}» برای «شروع کار» در چرخهٔ عمر «کارها» به کار رفته است و از جدول برداشته نمی‌شود؛ نخست آن را از چرخهٔ عمر بردارید`;
+    expect(msg(await e.owner.patch(`${R}/custom_field/${needRow.id}`, { active: false }, 400))).toBe(named("مبلغ برآورد"));
+    expect(msg(await e.owner.del(`${R}/custom_field/${needRow.id}`, 400))).toBe(named("مبلغ برآورد"));
+    expect(msg(await e.owner.patch(`${R}/custom_field/${flag.id}`, { active: false }, 400))).toBe(named("آماده"));
+    expect(msg(await e.owner.patch(`${R}/custom_field/${flag.id}`, { name: "u_ready_old" }, 400))).toBe(named("آماده"));
+    // a stored overlay naming a field that is gone anyway (changed behind the engine's back) holds nobody to it
+    await e.db.query(`update sm_custom_fields set active = false, updated_at = now() + interval '1 second' where id = any($1::uuid[])`, [`{${needRow.id},${flag.id}}`]);
+    const start = (await meta(e.owner)).states!.transitions.find((t) => t.to === "in_progress") as Transition & { needs?: string[]; when?: unknown };
+    expect(start.needs).toBeUndefined();
+    expect(start.when).toBeUndefined();
+    const t = (await member.client.post(`${R}/todo`, { short_description: "بی برآورد", assigned_to: member.userId })).row;
+    await member.client.post(`${R}/todo/${t.id}/transition`, { to: "in_progress" });
+    // once the overlay no longer names them, the fields come and go freely
+    await e.db.query(`update sm_custom_fields set active = true, updated_at = now() + interval '2 second' where id = any($1::uuid[])`, [`{${needRow.id},${flag.id}}`]);
+    await e.owner.put(`${P}/lifecycles/todo`, {});
+    await e.owner.patch(`${R}/custom_field/${needRow.id}`, { active: false });
+    await e.owner.del(`${R}/custom_field/${flag.id}`);
+  });
+
+  it("goes with a studio table: a table made later in the slot starts from the module's lifecycle (F1-5)", async () => {
+    const made = await e.owner.post(`${P}/admin/studio/tables`, { label: "بازدیدها", code: "visits_f1" });
+    const slot = made.slot as string;
+    const first = tableDef(slot)!.states!.transitions[0];
+    await e.owner.put(`${P}/lifecycles/${slot}`, { states: { open: { label: "تازه" } }, transitions: [{ key: transitionKey(first), label: "پذیرش", also: ["tenant_admin"] }] });
+    expect((await meta(e.owner, slot)).states!.states.find((s) => s.value === "open")!.label).toBe("تازه");
+    // the table's row deleted (here on the generic record API) takes the overlay with it
+    const row = (await e.db.one<{ id: string }>(`select id from sm_custom_tables where org_id = $1 and slot = $2 and deleted_at is null`, [e.org, slot]))!;
+    await e.owner.del(`${R}/custom_table/${row.id}`);
+    expect(await e.db.query(`select 1 from sm_custom_fields where org_id = $1 and table_key = $2 and name = '_states' and deleted_at is null`, [e.org, slot])).toEqual([]);
+    const again = await e.owner.post(`${P}/admin/studio/tables`, { label: "انبار", code: "store_f1" });
+    expect(again.slot).toBe(slot);
+    const m = await meta(e.owner, slot);
+    expect(m.states!.states.find((s) => s.value === "open")!.label).toBe("باز");
+    const t = m.states!.transitions.find((x) => transitionKey(x) === transitionKey(first))!;
+    expect(t.label).toBe(first.label);
+    expect(t.also).toBeUndefined();
+    await e.owner.del(`${P}/admin/studio/tables/${slot}`);
+  });
+
   it("offers a lifecycle a module configures elsewhere its labels, colours and primary only", async () => {
     const cr = tableDef("change_request")!;
     const first = cr.states!.transitions[0];

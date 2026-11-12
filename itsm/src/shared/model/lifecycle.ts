@@ -187,6 +187,38 @@ export function mergeLifecycle(model: StateModel, overlay: LifecycleOverlay | nu
   return { ...model, states, transitions: off.size ? transitions.filter((t) => !off.has(transitionKey(t))) : transitions };
 }
 
+/**
+ * The organisation's fields and conditions of a merged model that no longer fit the table `def` (its effective
+ * definition): a needed field that is not on it any more is not asked, and a condition that does not validate against
+ * it is dropped — nobody is held to a field that cannot be filled. The server refuses taking such a field off a table
+ * while the overlay names it; this keeps a stored overlay harmless whatever happened since (a model without either
+ * comes back as it is).
+ */
+export function pruneLifecycle(model: StateModel, def: TableDef): StateModel {
+  let changed = false;
+  const has = (n: string) => def.fields.some((f) => f.name === n);
+  const transitions = model.transitions.map((t) => {
+    const x = t as EffectiveTransition;
+    if (!x.needs && !x.when) return t;
+    const m: EffectiveTransition = { ...x };
+    if (m.needs) {
+      const kept = m.needs.filter(has);
+      if (kept.length !== m.needs.length) {
+        changed = true;
+        if (kept.length) m.needs = kept;
+        else delete m.needs;
+      }
+    }
+    if (m.when && validateCond(m.when, def)) {
+      changed = true;
+      delete m.when;
+      delete m.whenMessage;
+    }
+    return m;
+  });
+  return changed ? { ...model, transitions } : model;
+}
+
 /** What the lifecycle editor and the server need to judge an overlay. */
 export interface LifecycleEnv {
   /** a field of the table as the organisation sees it (custom fields included), or undefined */

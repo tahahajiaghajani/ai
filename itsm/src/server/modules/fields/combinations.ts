@@ -7,7 +7,9 @@
 //     «گزارش مشکل»);
 //   · library rows (`library_id`): a live, active library field, under its own name, never on a process case, never
 //     over values an earlier field of that name (deactivated or deleted) left with another meaning;
-//   · the `_states` row: a valid lifecycle overlay (`lifecycleProblems`), stored clean;
+//   · the `_states` row: a valid lifecycle overlay (`lifecycleProblems`), stored clean, written by holders of
+//     `settings` full; an organisation field it names stays on the table (`keepNamedFields`), and a studio table's
+//     overlay goes with the table;
 //   · `ui_policy`: no mandatory field that is hidden from the form;
 //   · `choice`: an option a module marks `locked` is never deactivated (relabelled, recoloured, reordered: yes).
 // A Windows app's push of UI policies and choice rows meets the same rules (custom_field rows are web-only).
@@ -18,10 +20,13 @@ import { LABELS_ONLY_LIFECYCLES, STATES_ROW, cleanLifecycle, lifecycleProblems, 
 import { lockRefusal } from "@shared/forms/locked";
 import { isRequiredFor, requirementBlockers } from "@shared/forms/paths";
 import { libraryFieldDef, resolveFieldType, storageChange, type LibraryFieldRow } from "@shared/forms/fieldtypes";
-import type { Queryable } from "../../db";
+import type { Ctx } from "../../context";
+import type { Queryable, Tx } from "../../db";
 import { bad, forbidden } from "../../http/errors";
 import { snapshotFor, catalogOf, accessSettings } from "../../access/subject";
-import { isSystemCtx, orgSchema, pushGuard, registerHooks, validationError, type WriteArgs } from "../../engine";
+import { actorId, isSystemCtx, orgSchema, pushGuard, registerHooks, removeIn, validationError, type WriteArgs } from "../../engine";
+import { condPaths } from "@shared/model/conditions";
+import { sysOf } from "../admin/common";
 import { customFieldDef, snapshotField } from "../../engine/schema";
 import { SETTINGS_ENV, orgFieldTypes } from "./hooks";
 import { LIFECYCLE_REFUSAL, holdsSettings } from "./grants";
@@ -191,7 +196,38 @@ export async function librarySnapshot(q: Queryable, orgId: string, libraryId: st
   return type ? libraryFieldDef(lib, type, SETTINGS_ENV) : null;
 }
 
+const ORG_FIELD = /^u_[a-z0-9_]{1,40}$/;
+
+/**
+ * An organisation field the lifecycle overlay names — in a transition's organisation fields (`requires`) or its
+ * condition (`when`) — stays on its table while the overlay names it: switched off, deleted, renamed or moved away,
+ * people could never take that transition again (design F §4.2). The overlay is changed first. Held for every writer:
+ * nothing may leave the overlay naming a missing field (the schema leaves such names out as well, `pruneLifecycle`).
+ */
+async function keepNamedFields(w: WriteArgs): Promise<void> {
+  const prev = w.prev;
+  if (!prev || prev.active === false || !ORG_FIELD.test(String(prev.name ?? ""))) return;
+  const away = w.op === "delete" || w.next.active === false || w.next.name !== prev.name || w.next.table_key !== prev.table_key;
+  if (!away) return;
+  const name = String(prev.name);
+  const eff = (await orgSchema(w.ctx, w.tx)).def(String(prev.table_key ?? ""));
+  const t = eff?.states?.transitions.find((x) => {
+    const e = x as EffectiveTransition;
+    return !!e.needs?.includes(name) || (!!e.when && condPaths(e.when).has(name));
+  });
+  if (t) throw bad(`«${String(prev.label ?? name)}» برای «${t.label}» در چرخهٔ عمر «${eff!.plural}» به کار رفته است و از جدول برداشته نمی‌شود؛ نخست آن را از چرخهٔ عمر بردارید`);
+}
+
+/** Remove a table's lifecycle overlay (as the system, for the person): a studio table's goes with the table. */
+export async function removeLifecycleOverlay(tx: Tx, ctx: Ctx, table: string): Promise<void> {
+  const rows = await tx.query<{ id: string }>(`select id from sm_custom_fields where org_id = $1 and table_key = $2 and name = $3 and deleted_at is null`, [ctx.org.id, table, STATES_ROW]);
+  if (!rows.length) return;
+  const sys = sysOf(ctx, actorId(ctx));
+  for (const r of rows) await removeIn(tx, sys, "custom_field", String(r.id), { trusted: true });
+}
+
 async function customFieldRules(w: WriteArgs): Promise<void> {
+  if (w.op === "delete") return keepNamedFields(w);
   if (w.op !== "create" && w.op !== "update") return;
   // the lifecycle overlay is the administrator's (`settings` full, design F §6.1) on every path — creating, changing or
   // switching it off through the generic record API as on F1's route (which checks the person, then writes as the system)
@@ -206,6 +242,7 @@ async function customFieldRules(w: WriteArgs): Promise<void> {
     if (w.next.active !== false && (w.op === "create" || w.prev?.active === false || ["options", "table_key", "name"].some((c) => w.changed.has(c)))) await statesRules(w, base);
     return;
   }
+  await keepNamedFields(w);
   // a library row is held whether or not it is active: a row given a library field while off would come back with it
   if (w.next.library_id) {
     const field = await librarySnapshot(w.tx, w.ctx.org.id, String(w.next.library_id));
@@ -244,6 +281,12 @@ export function installCombinationHooks(): void {
   if (installed) return;
   installed = true;
   registerHooks("custom_field", { beforeWrite: customFieldRules });
+  // a studio table's lifecycle overlay goes with the table: a table made later in the slot starts from the module's
+  registerHooks("custom_table", {
+    async afterWrite(w) {
+      if (w.op === "delete" && w.row.slot) await removeLifecycleOverlay(w.tx, w.ctx, String(w.row.slot));
+    },
+  });
   registerHooks("ui_policy", { beforeWrite: uiPolicyRules, validatePush: pushGuard(uiPolicyRules) });
   registerHooks("choice", { beforeWrite: choiceRules, validatePush: pushGuard(choiceRules) });
 }
