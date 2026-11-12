@@ -48,6 +48,13 @@ describe("speed fixes stay in place", () => {
     const Page = lazy(async () => ({ default: ({ title }: { title: string }) => createElement("h1", null, title) }));
     expect(renderToStaticMarkup(createElement(Suspense, { fallback: createElement("i", null, "loading") }, createElement(Page, { title: "سلام" })))).toBe("<i>loading</i>");
     expect(renderToStaticMarkup(createElement(Page, { title: "سلام" }))).toBe("");
+    // the load's state is read with useSyncExternalStore, which compares it again when React subscribes (a passive
+    // effect, a task after the commit): code that arrives in between still replaces the fallback. With a useEffect
+    // that only waited for a load still pending, the fallback stayed on screen (a page whose code arrived during the
+    // commit, in Chromium: 0 of 20 loads showed it; 20 of 20 now)
+    const l = src("src/ui/lib/lazy.tsx");
+    expect(l).toMatch(/const now = useSyncExternalStore\(subscribe, snapshot, snapshot\)/);
+    expect(l).not.toMatch(/\buseEffect\b|\buseState\b/);
     // once loaded: the component itself, with its props
     await Page.preload();
     expect(renderToStaticMarkup(createElement(Page, { title: "سلام" }))).toBe("<h1>سلام</h1>");
