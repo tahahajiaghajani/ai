@@ -68,16 +68,20 @@ function named(header: string, tag: string): boolean {
  * of the app. The tag is computed from what the answer is made of — the code's definitions, the organisation's
  * custom fields and choice lists (the schema's stamp), what the caller's access makes of them (the provider's
  * `accessStamp`) and the tables the caller takes part in — so an unchanged answer is confirmed (304) without being
- * built, compressed or sent. No tag (the answer is built every time) when the provider cannot give a stamp.
+ * built, compressed or sent. The tag also names the person, the session and a support session: a browser one person
+ * filled (the Windows app's window after «خروج» and another sign-in, a shared computer) is never told that its
+ * definitions still apply to someone else or to a later session, even where both would read the same answer.
+ * No tag (the answer is built every time) when the provider cannot give a stamp.
  */
 export async function tablesMetaAnswer(ctx: Ctx, ifNoneMatch?: string | null): Promise<{ tag: string | null; notModified: boolean; body?: TablesPayload }> {
   const schema = await orgSchema(ctx);
   const participations = access().participations ? await access().participations!(ctx, ctx.db) : new Set<string>();
   const stamp = access().accessStamp?.(ctx) ?? null;
+  const who = [ctx.user.id, ctx.session?.id ?? "", ctx.support?.id ?? ""].join(",");
   const tag =
     stamp === null || isSystemCtx(ctx)
       ? null
-      : `W/"m-${createHash("sha256").update([registryStamp(), ctx.org.id, schema.stamp, stamp, [...participations].sort().join(",")].join("\n")).digest("base64url").slice(0, 32)}"`;
+      : `W/"m-${createHash("sha256").update([registryStamp(), ctx.org.id, schema.stamp, stamp, [...participations].sort().join(","), who].join("\n")).digest("base64url").slice(0, 32)}"`;
   if (tag && ifNoneMatch && named(ifNoneMatch, tag)) return { tag, notModified: true };
   return { tag, notModified: false, body: buildTablesMeta(ctx, schema, participations) };
 }

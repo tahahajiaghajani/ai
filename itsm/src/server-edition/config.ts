@@ -64,7 +64,7 @@ export interface ServerEditionConfig {
   writers_per_org: number;
   /**
    * Serialise every write of an organisation on its lock again (the behaviour before transaction-id sync revisions,
-   * context.ts `configureWriteSerialisation`; off by default — PERFORMANCE_FA.md §۱۶): an operational fallback when
+   * context.ts `configureWriteSerialisation`; off by default — PERFORMANCE_FA.md §۱۸): an operational fallback when
    * concurrent writes misbehave, at the cost of write throughput. The environment variable ITSM_SERIALIZE_WRITES wins.
    */
   serialize_writes: boolean;

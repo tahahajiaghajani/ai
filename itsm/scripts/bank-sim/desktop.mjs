@@ -42,8 +42,24 @@ await C.run(async () => {
     const orgs = await desk.post("/local/cloud/orgs", { url: BASE, email: ADMIN.email, password: ADMIN.password });
     C.check((orgs.orgs ?? []).some((o) => o.id === org), "the app reaches https://kariz.bank.local and lists the bank's organisation (TLS via the Windows store)", JSON.stringify(orgs).slice(0, 300));
     const t0 = Date.now();
+    // the app's own API while the first sync downloads the organisation (docs/qa/PERFORMANCE_E2E_FA.md): a request the
+    // window makes every 250 ms (/api/health reads the database), timed — how long a click would wait behind the sync
+    const probe = { on: true, ms: [] };
+    const probing = (async () => {
+      while (probe.on) {
+        const t = Date.now();
+        await desk.raw("GET", "/health").catch(() => null);
+        probe.ms.push(Date.now() - t);
+        await sleep(250);
+      }
+    })();
     const linked = await desk.post("/local/cloud/link", { url: BASE, email: ADMIN.email, password: ADMIN.password, org_id: org, direction: "download" });
-    C.check(linked.ok === true, `the app links to the server and downloads the organisation (${Math.round((Date.now() - t0) / 1000)} s)`, JSON.stringify(linked).slice(0, 300));
+    probe.on = false;
+    await probing;
+    const sorted = [...probe.ms].sort((x, y) => x - y);
+    const during = { samples: sorted.length, p50_ms: sorted[Math.floor(sorted.length / 2)] ?? null, p95_ms: sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1)] ?? null, max_ms: sorted.at(-1) ?? null };
+    C.metric("api_during_first_sync", during);
+    C.check(linked.ok === true, `the app links to the server and downloads the organisation (${Math.round((Date.now() - t0) / 1000)} s; the app's API meanwhile p50 ${during.p50_ms} ms, p95 ${during.p95_ms} ms, max ${during.max_ms} ms)`, JSON.stringify(linked).slice(0, 300));
     await desk.post("/auth/login", { email: ADMIN.email, password: ADMIN.password });
     const inc = state.get("incident");
     const local = await desk.get(`/o/${org}/r/incident/${inc.id}`, null);

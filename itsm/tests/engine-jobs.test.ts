@@ -2,7 +2,7 @@
 // rescheduling, stale locks, record-event delivery that retries only the subscribers that failed, the cloud's cron
 // route and the tick after write requests.
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
-import { enqueue, registerJobHandler, tick, listJobs, backoffMs, PermanentJobError, stopTicks, type Job } from "@server/jobs";
+import { enqueue, registerJobHandler, tick, listJobs, backoffMs, PermanentJobError, stopTicks, YIELD_MS, type Job } from "@server/jobs";
 import { onRecordEvent } from "@server/engine/events";
 import type { Db } from "@server/db";
 import { makeServer, Client, signupWithOrg, quietLog } from "./helpers";
@@ -345,6 +345,49 @@ describe("a closing server's job runner", () => {
       const job = await s.db.one<{ status: string }>(`select status from sm_jobs where kind = 'test.long'`);
       expect(job!.status).toBe("queued");
       expect(rounds).toBeGreaterThan(0);
+    } finally {
+      off();
+      await s.db.close();
+    }
+  });
+});
+
+// The Windows app's local server (src/desktop/server.ts): the window's requests in flight make the runner wait before
+// its next job — at most YIELD_MS each time —, so a page's burst of API calls is answered without job statements between
+// them on PGlite's one connection; a window in constant use slows the queue down and never stops it.
+describe("a job runner that yields to foreground work", () => {
+  it("waits for the window's requests before each job, and never starves", async () => {
+    const s = await makeServer();
+    const org = await signupWithOrg(new Client(s.app));
+    const cfg: ServerConfig = { mode: "cloud", db: s.db, secret: "t", allowSignup: true, platformAdmins: [], origin: "cloud", log: quietLog, fetch };
+    const starts: number[] = [];
+    const off = registerJobHandler("test.yield", async () => {
+      starts.push(Date.now());
+    });
+    try {
+      // requests in flight for 120 ms after the tick begins: no job starts before they are done
+      for (let n = 0; n < 3; n++) await enqueue(s.db, { kind: "test.yield", orgId: org, payload: { n } });
+      const t0 = Date.now();
+      let busyUntil = t0 + 120;
+      const r = await tick(cfg, { budgetMs: 20_000, busy: () => Date.now() < busyUntil });
+      expect(r.ran).toBe(3);
+      expect(starts[0] - t0).toBeGreaterThanOrEqual(110);
+      // a window that is never idle: every job still runs, each after at most YIELD_MS of waiting
+      starts.length = 0;
+      for (let n = 0; n < 3; n++) await enqueue(s.db, { kind: "test.yield", orgId: org, payload: { n: 10 + n } });
+      const t1 = Date.now();
+      busyUntil = Infinity;
+      const r2 = await tick(cfg, { budgetMs: 20_000, busy: () => Date.now() < busyUntil });
+      expect(r2.ran).toBe(3);
+      expect(starts).toHaveLength(3);
+      expect(starts[0] - t1).toBeGreaterThanOrEqual(YIELD_MS - 20);
+      expect(starts[2] - t1).toBeLessThan(3 * YIELD_MS + 2_000);
+      // nothing in flight: no waiting at all
+      starts.length = 0;
+      for (let n = 0; n < 3; n++) await enqueue(s.db, { kind: "test.yield", orgId: org, payload: { n: 20 + n } });
+      const t2 = Date.now();
+      expect((await tick(cfg, { budgetMs: 20_000, busy: () => false })).ran).toBe(3);
+      expect(starts[2] - t2).toBeLessThan(YIELD_MS);
     } finally {
       off();
       await s.db.close();
