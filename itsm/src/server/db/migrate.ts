@@ -150,6 +150,8 @@ export async function migrateSteps(db: Db, opts: { budgetMs?: number; wait?: boo
   const log = opts.log ?? (() => {});
   const steps = plan();
   const ran: string[] = [];
+  /** migrations recorded by this call's own steps (not by another instance's meanwhile) */
+  const recorded = new Set<string>();
   const before = await readState(db, false);
   let state = before;
   let busy = false;
@@ -163,8 +165,13 @@ export async function migrateSteps(db: Db, opts: { budgetMs?: number; wait?: boo
       if (wait) await tx.query(`select pg_advisory_xact_lock(${MIGRATION_LOCK})`);
       else if (!(await tx.one<{ ok: boolean }>(`select pg_try_advisory_xact_lock(${MIGRATION_LOCK}) as ok`))?.ok) return "busy";
       // under the lock: a step another instance finished meanwhile is not run again
-      if (step.done(await readState(tx, true))) return "skipped";
+      const locked = await readState(tx, true);
+      if (step.done(locked)) return "skipped";
       await step.run(tx);
+      // what this step recorded (steps take turns on the lock, so nobody else records anything in between): a migration
+      // step its own id, the engine chunk that completes the set 0006 with it
+      if (!step.id.includes(":") && step.id !== "init") recorded.add(step.id);
+      else if (step.id.startsWith("engine:") && !locked.applied.has(ENGINE_MIGRATION) && (await tx.one(`select 1 as x from sm_migrations where id = $1`, [ENGINE_MIGRATION]))) recorded.add(ENGINE_MIGRATION);
       return "ran";
     });
     if (r === "busy") {
@@ -177,7 +184,8 @@ export async function migrateSteps(db: Db, opts: { budgetMs?: number; wait?: boo
     }
     state = await readState(db, false);
   }
-  const migrations = MIGRATIONS.map((m) => m.id).filter((id) => state.applied.has(id) && !before.applied.has(id));
+  // only what this call recorded: instances starting together each report their own share, never another's
+  const migrations = MIGRATIONS.map((m) => m.id).filter((id) => recorded.has(id));
   return { ...summary(steps, state), busy, ran, migrations };
 }
 

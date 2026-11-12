@@ -13,6 +13,7 @@ import type { Db } from "@server/db";
 import "./fixtures/module";
 import { Client, quietLog } from "./helpers";
 import { SYNC_PROTOCOL } from "@shared/constants";
+import { currentSnap, deltaSql, type Snap } from "@server/sync/snapshot";
 
 describe("cloud runtime over the PostgreSQL protocol (postgres.js)", () => {
   let pg: PGlite;
@@ -228,7 +229,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("migrations and revisions on a r
     expect(applied.length).toBe(new Set(applied).size);
   });
 
-  it("user revisions follow commit order, so a pull never moves its cursor past an uncommitted change", async () => {
+  // Revisions are the writing transactions' ids (SYNC_PROTOCOL 16): they no longer follow commit order, and a pull's
+  // cursor is its snapshot (src/server/sync/snapshot.ts), never the highest revision it saw.
+  it("user revisions are transaction ids: a pull's snapshot never moves its cursor past an uncommitted change, in any commit order", async () => {
     const [db] = dbs;
     await migrate(db);
     const [a, b] = await db.query<{ id: string }>(`insert into sm_users (email) values ('a@example.com'), ('b@example.com') returning id`);
@@ -243,13 +246,23 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("migrations and revisions on a r
       await gate;
     });
     await started;
-    // … while B logs in and commits; a desktop pulling now takes B's revision as its cursor
-    const fast = dbs[1].query(`update sm_users set last_login_at = now() where id = $1`, [b.id]);
-    await new Promise((r) => setTimeout(r, 150));
-    const pull = async (cursor: number) => dbs[2].query<{ id: string; rev: number }>(`select id, rev from sm_users where rev > $1 order by rev`, [cursor]);
-    const cursor = Math.max(...(await pull(0)).map((u) => u.rev));
+    // … while B logs in and commits first (no lock between them: B's revision is the newer transaction id)
+    await dbs[1].query(`update sm_users set last_login_at = now() where id = $1`, [b.id]);
+    const pull = async (since: Snap | null) => {
+      const upto = await currentSnap(dbs[2]);
+      const params: unknown[] = [];
+      const rows = await dbs[2].query<{ id: string; last_login_at: string | null }>(`select id, last_login_at from sm_users u where ${deltaSql("u", since, upto, params)}`, params);
+      return { rows, upto };
+    };
+    // a Windows app pulls now: B's committed change, and A as it was before the open transaction
+    const first = await pull(null);
+    expect(first.rows.find((u) => u.id === b.id)?.last_login_at).toBeTruthy();
+    expect(first.upto.xip.length).toBeGreaterThan(0);
     release();
-    await Promise.all([slow, fast]);
-    expect((await pull(cursor)).map((u) => u.id)).toContain(a.id);
+    await slow;
+    // the next pull from that snapshot brings A's change, committed last by the older transaction, and not B again
+    const next = (await pull(first.upto)).rows.map((u) => u.id);
+    expect(next).toContain(a.id);
+    expect(next).not.toContain(b.id);
   });
 });
