@@ -102,4 +102,32 @@ describe("tables only the platform writes", () => {
     expect((await e.owner.get(`${P}/meta/tables/incident`)).table.can.create).toBe(true);
     expect((await e.owner.get(`${P}/meta/tables/analytics_indicator`)).table.can.create).toBe(true);
   }, 600_000);
+
+  it("are written by no flow, whoever it runs as: refused when a version is published and when a step runs", async () => {
+    const node = (id: string, type: string, config: Record<string, unknown> = {}) => ({ id, type, config });
+    const line = (...nodes: ReturnType<typeof node>[]) => ({ nodes: [node("trigger", "trigger"), ...nodes], edges: nodes.map((n, i) => ({ id: `e${i}`, source: i ? nodes[i - 1].id : "trigger", target: n.id })) });
+    const scorecards = async () => (await e.db.one<{ n: number }>(`select count(*)::int as n from ${tableDef("supplier_scorecard")!.table} where org_id = $1`, [e.org]))!.n;
+    const before = await scorecards();
+    // what a person could set on such a row (its scores are read-only anyway): a scorecard of a real supplier
+    const supplier = (await e.owner.post(`${P}/r/supplier`, { name: "شرکت نمونهٔ پشتیبانی" })).row;
+    const fake = { supplier_id: supplier.id, period: "1405-01", period_label: "فروردین ۱۴۰۵" };
+    // the owner may run a flow as the system: a step creating a supplier's scorecard is refused when published
+    const create = (await e.owner.post(`${P}/r/flow`, { name: "امتیاز ساختگی", trigger: "manual", trigger_table: "todo", run_as: "system", graph: line(node("c", "create_record", { table: "supplier_scorecard", values: fake })) })).row;
+    const refused = await e.owner.post(`${P}/flows/${create.id}/publish`, {}, 400);
+    expect(refused.error.details.problems).toEqual([expect.objectContaining({ node: "c", field: "table", message: expect.stringContaining("فقط سامانه") })]);
+    // …and so is a step changing the trigger's own record when the trigger's table is a computed score
+    const change = (await e.owner.post(`${P}/r/flow`, { name: "امتیاز دستکاری‌شده", trigger: "manual", trigger_table: "analytics_score", run_as: "system", graph: line(node("u", "update_record", { values: { value: 100 } })) })).row;
+    expect((await e.owner.post(`${P}/flows/${change.id}/publish`, {}, 400)).error.details.problems).toEqual([expect.objectContaining({ node: "u", field: "table", message: expect.stringContaining("فقط سامانه") })]);
+    // a version published before this rule (its graph changed in the database here): the step refuses as it runs
+    const old = (await e.owner.post(`${P}/r/flow`, { name: "کار ساده", trigger: "manual", trigger_table: "todo", run_as: "system", graph: line(node("c", "create_record", { table: "todo", values: { short_description: "کار" } })) })).row;
+    const pub = await e.owner.post(`${P}/flows/${old.id}/publish`, {});
+    await e.db.query(`update sm_flow_versions set graph = jsonb_set(graph, '{nodes,1,config}', $2::jsonb) where id = $1`, [pub.version.id, JSON.stringify({ table: "supplier_scorecard", values: fake })]);
+    const cur = (await e.owner.get(`${P}/r/flow/${old.id}`)).row;
+    await e.owner.patch(`${P}/r/flow/${old.id}`, { active: true, version: cur.version });
+    const run = await e.owner.post(`${P}/flows/${old.id}/run`, {});
+    const step = run.steps.find((x: { node_id: string }) => x.node_id === "c");
+    expect(step.status).toBe("failed");
+    expect(step.error).toContain("فقط سامانه");
+    expect(await scorecards()).toBe(before);
+  }, 600_000);
 });
