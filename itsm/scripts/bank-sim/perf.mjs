@@ -17,28 +17,30 @@ import { fileURLToPath } from "node:url";
  * API times as the browser saw them; the load test's per endpoint as its client saw them.
  */
 export const SERVER_BUDGETS = {
-  // the HTML document's first byte (the app shell is a static file: no database work)
-  page_ttfb_p95_ms: 1_000,
-  // DOMContentLoaded: the shell parsed and its scripts run (a first visit downloads the code, later ones use the cache)
-  page_dcl_p95_ms: 4_000,
-  // the page's own content on screen with no loader left, per persona: 95th percentile and the slowest page
-  page_content_p95_ms: 6_000,
-  page_content_max_ms: 12_000,
-  // every API call the pages made, as the browser saw it (95th percentile per persona)
-  api_p95_ms: 2_500,
-  // API calls one page makes on its own (a regression budget: a page that starts asking per row shows up here)
-  api_calls_per_page_max: 120,
-  // «ورود» on the sign-in form to the first screen's content, in a browser that had nothing of the app cached
-  signin_ms: 10_000,
-  // the load test (40 virtual users): per endpoint, 95th and 99th percentile
-  load_endpoint_p95_ms: 600,
-  load_endpoint_p99_ms: 2_000,
+  // the HTML document's first byte (the app shell is a static file: no database work): 14-22 ms p95 (run 43122558365)
+  page_ttfb_p95_ms: 300,
+  // DOMContentLoaded: the shell parsed and its scripts run: 121-179 ms p95
+  page_dcl_p95_ms: 1_000,
+  // the page's own content on screen with no loader left, per persona: 95th percentile and the slowest page — 1.07-1.32 s
+  // on the small data, 1.17 s (requester) and 1.74 s (administrator: the incident record) with the demo pack «متوسط»
+  page_content_p95_ms: 4_000,
+  page_content_max_ms: 5_000,
+  // every API call the pages made, as the browser saw it (95th percentile per persona): 115-223 ms
+  api_p95_ms: 1_000,
+  // API calls one page makes on its own (a regression budget: a page that starts asking per row shows up here): 40 at
+  // most (the incident record)
+  api_calls_per_page_max: 60,
+  // «ورود» on the sign-in form to the first screen's content, in a browser that had nothing of the app cached: 0.49-0.59 s
+  signin_ms: 2_500,
+  // the load test (40 virtual users, 31 operations/s): per endpoint, 95th and 99th percentile — 10-45 ms and 16-65 ms
+  load_endpoint_p95_ms: 150,
+  load_endpoint_p99_ms: 300,
   // KarizApp (the supervisor and its workers) and KarizDB (PostgreSQL: the postmaster and every backend), private
-  // memory summed over their processes, the peak of idle and load
-  app_private_peak_mb: 3_000,
-  db_private_peak_mb: 3_000,
-  // both services together while nobody uses the server (the scheduler and background jobs), % of one core
-  idle_cpu_pct: 60,
+  // memory summed over their processes, the peak of idle and load: 437 MB and 413 MB under the load
+  app_private_peak_mb: 1_200,
+  db_private_peak_mb: 1_200,
+  // both services together while nobody uses the server (the scheduler and background jobs), % of one core: 1%
+  idle_cpu_pct: 30,
 };
 
 export const pct = (xs, p) => {
