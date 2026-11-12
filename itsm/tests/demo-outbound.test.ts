@@ -24,7 +24,7 @@ import { confirmSns } from "@server/modules/event/ingest";
 import { runUrlSource } from "@server/modules/cmdb/jobs";
 import { LdapClient, LdapError } from "@server/modules/integration/ldap";
 import { newLinkCode } from "@server/modules/portal/channels";
-import { pollChannel, setMailboxOpener, type MailboxSession } from "@server/modules/notify";
+import { notifyPeople, pollChannel, setMailboxOpener, type MailboxSession } from "@server/modules/notify";
 import { runSchedule } from "@server/modules/integration/exports";
 import { createIn, systemCtx } from "@server/engine";
 import { inDemoScope, DemoOutboundError } from "@server/db/scope";
@@ -167,6 +167,44 @@ describe("nothing of demo work leaves the system, at the source", () => {
     const res = await inDemoScope(org, () => adapterEnv(cfg).fetch("https://api.anthropic.com/v1/messages", { method: "POST", body: "{}" }));
     expect(res.ok).toBe(true);
     expect(calls.map((c) => c.url)).toEqual(["https://api.anthropic.com/v1/messages"]);
+  });
+
+  it("what the AI tells people about a demo record (an agent's proposal, an insight) leaves the system by no channel", async () => {
+    // besides its model's calls (above), the AI reaches people only through notifyPeople — an agent's proposal notice
+    // (ai/agents/runtime.ts), an insight's digest (ai/insights) —, and its delivery judges the record, whoever queued it
+    // and in or outside demo work (notify/deliver.ts `demoQuiet`): no e-mail or SMS about a demo record, and no real
+    // person hears of it; the same notice about a real record is delivered
+    const me = String((await owner.get("/auth/me")).user.id);
+    const sys = await systemCtx(cfg, org);
+    const demoId = await inDemoScope(org, () => sys.write(async (tx) => String((await createIn(tx, sys, "todo", { short_description: "کار نمایشی برای عامل هوش مصنوعی" }, { trusted: true })).id)));
+    const realId = await sys.write(async (tx) => String((await createIn(tx, sys, "todo", { short_description: "کار واقعی برای عامل هوش مصنوعی" }, { trusted: true })).id));
+    const notice = (id: string) => ({
+      table: "todo", id, users: [me], channels: ["in_app" as const, "email" as const, "sms" as const], label: "پیشنهاد عامل هوش مصنوعی",
+      subject: "پیشنهاد «عامل آزمون»: بستن کار", body: "برای بررسی و تأیید به «پیشنهادهای هوش مصنوعی» بروید.", source: "عامل هوش مصنوعی «عامل آزمون»",
+    });
+    const run = async () => {
+      for (let i = 0; i < 20; i++) {
+        await db.query(`update sm_jobs set run_at = now() where status = 'queued' and kind like 'notify.%'`);
+        const r = await tick(cfg, { budgetMs: 30_000 });
+        if (!r.ran && !r.more) break;
+      }
+    };
+    calls.length = 0;
+    await sys.write((tx) => notifyPeople(tx, org, notice(demoId)), { internal: true });
+    await run();
+    expect(calls).toEqual([]);
+    await sys.write((tx) => notifyPeople(tx, org, notice(realId)), { internal: true });
+    await run();
+    const logOf = (id: string) => db.query<{ channel: string; status: string; reason: string | null }>(`select channel, status, reason from sm_notification_log where org_id = $1 and record_id = $2 and rule_key like 'direct:%' order by channel`, [org, id]);
+    const demoLog = await logOf(demoId);
+    expect(demoLog.map((l) => l.channel)).toEqual(["email", "in_app", "sms"]);
+    for (const l of demoLog) expect(l, l.channel).toMatchObject({ status: "skipped", reason: "demo" });
+    expect(await db.one(`select 1 from sm_notifications where org_id = $1 and record_id = $2`, [org, demoId])).toBeNull();
+    // the real record's notice: the bell is there, and nothing of it was held back as demo
+    const realLog = await logOf(realId);
+    expect(realLog.find((l) => l.channel === "in_app")?.status).not.toBe("skipped");
+    expect(realLog.filter((l) => l.reason === "demo")).toEqual([]);
+    expect(await db.one(`select 1 from sm_notifications where org_id = $1 and record_id = $2 and user_id = $3`, [org, realId, me])).toBeTruthy();
   });
 
   it("a demo record's webhook delivery is skipped and the test send never takes a demo record", async () => {
