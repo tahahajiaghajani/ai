@@ -16,7 +16,7 @@ import type { Ctx } from "../../context";
 import { onRecordEvent, orgTz, removeIn, systemCtx, transitionIn, updateIn, createIn, type RecordEvent } from "../../engine";
 import { enqueue, registerJobHandler, PermanentJobError, type JobContext } from "../../jobs";
 import { actsHere } from "../notify";
-import { eventConfig, isUuid, liveRow, liveRows, msOf, sysOf, type Row } from "./common";
+import { eventConfig, isUuid, liveRow, liveRows, lockGroup, msOf, sysOf, type Row } from "./common";
 import { ESCALATE_JOB, escalateStep, expirePages, startEscalation, alertNote } from "./escalation";
 import { INCIDENT_RULE_JOB, delayedIncident, incidentDone, maybeResolveIncident } from "./incidents";
 import { PROCESS_JOB, SNS_JOB, confirmSns } from "./ingest";
@@ -133,7 +133,10 @@ export async function sweep(sys: Ctx, deadline = Number.POSITIVE_INFINITY, now =
     if (late()) break;
     const live = await liveRows(sys.db, sys, "alert", { and: [{ f: "group_id", op: "eq", v: g.id }, { f: "state", op: "nin", v: ["closed", "suppressed"] }] }, { limit: 1 });
     if (live.length) continue;
-    await sys.write((tx) => transitionIn(tx, sys, "alert_group", String(g.id), "closed", {}, { trusted: true }));
+    await sys.write(async (tx) => {
+      await lockGroup(tx, String(g.id));
+      await transitionIn(tx, sys, "alert_group", String(g.id), "closed", {}, { trusted: true });
+    });
     out.groups_closed++;
   }
   // retention of raw events (batched; the rest next time)

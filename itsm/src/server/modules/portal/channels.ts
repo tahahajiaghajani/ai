@@ -29,6 +29,7 @@ import { fetchText } from "../../net";
 import { channelFetch } from "../notify/channels";
 import { vaHandoff, vaSend, vaStart } from "../ai/va";
 import { isUuid, liveRow, liveRows, managesChannels, sysOf, type Row } from "./common";
+import { lockedRow } from "../incident/common";
 
 export const JOB_MESSAGE = "portal.channel.message";
 const TIMEOUT = 15_000;
@@ -266,7 +267,9 @@ export async function receiveHook(cfg: ServerConfig, key: string, h: HeaderFn, r
   const logId = await logRow(sys.db, sys.org.id, { channel: channelId, direction: "in", status: "received", key: msg.key || `nokey:${uuidv7()}`, external: msg.fromId, text: msg.text });
   if (!logId) return { ok: true, status: "duplicate" };
   await sys.write(async (tx) => {
-    await updateIn(tx, sys, "portal_channel", channelId, { last_in_at: nowIso(), received_count: Number(channel.received_count ?? 0) + 1 }, { trusted: true, keepVersion: true });
+    // counted on the channel locked: messages arrive side by side
+    const c = (await lockedRow(tx, sys, "portal_channel", channelId)) ?? channel;
+    await updateIn(tx, sys, "portal_channel", channelId, { last_in_at: nowIso(), received_count: Number(c.received_count ?? 0) + 1 }, { trusted: true, keepVersion: true });
     await enqueue(tx, { kind: JOB_MESSAGE, orgId: sys.org.id, payload: { channel: channelId, log: logId, chat: msg.chatId, from: msg.fromId, name: msg.fromName }, maxAttempts: 3, dedupeKey: `portal.msg:${logId}` });
   }, { internal: true });
   return { ok: true, status: "queued" };
@@ -309,7 +312,11 @@ async function reply(cfg: ServerConfig, sys: Ctx, channel: Row, chatId: string, 
   } catch (e) {
     const message = String((e as Error)?.message ?? e).slice(0, 500);
     await logRow(sys.db, sys.org.id, { channel: String(channel.id), direction: "out", status: "failed", external: chatId, user, error: message, conversation });
-    await sys.write((tx) => updateIn(tx, sys, "portal_channel", String(channel.id), { failed_count: Number(channel.failed_count ?? 0) + 1, last_error: message }, { trusted: true, keepVersion: true }), { internal: true }).catch(() => undefined);
+    // counted on the channel locked (messages of a channel are answered side by side)
+    await sys.write(async (tx) => {
+      const c = (await lockedRow(tx, sys, "portal_channel", channel.id)) ?? channel;
+      await updateIn(tx, sys, "portal_channel", String(channel.id), { failed_count: Number(c.failed_count ?? 0) + 1, last_error: message }, { trusted: true, keepVersion: true });
+    }, { internal: true }).catch(() => undefined);
   }
 }
 
@@ -329,14 +336,23 @@ async function linkWith(sys: Ctx, channel: Row, msg: { chat: string; from: strin
   const user = String(row.user_id);
   const ctx = await memberCtx(sys.cfg as ServerConfig, sys.org.id, user).catch(() => null);
   if (!ctx) return { ok: false, text: "حساب شما در این سازمان فعال نیست.", user: null };
-  await sys.write(async (tx) => {
+  const linked = await sys.write(async (tx) => {
+    // the code locked and checked again: the same code sent from two chats at once links one of them — the other
+    // finds it used once the first committed (a one-time code)
+    const fresh = await lockedRow(tx, sys, "portal_link_code", row.id);
+    if (!fresh || fresh.used_at || !(Date.parse(String(fresh.expires_at ?? "")) > Date.now())) return false;
     await updateIn(tx, sys, "portal_link_code", String(row.id), { used_at: nowIso() }, { trusted: true });
     // one member per chat and channel: an earlier link of this chat (to anyone) ends
     for (const old of await liveRows(tx, sys, "portal_channel_identity", { and: [{ f: "channel_id", op: "eq", v: channel.id }, { f: "external_id", op: "eq", v: msg.from }, { f: "active", op: "eq", v: true }] }, { limit: 10 })) {
       await updateIn(tx, sys, "portal_channel_identity", String(old.id), { active: false, conversation_id: null, options: null }, { trusted: true });
     }
     await createIn(tx, sys, "portal_channel_identity", { channel_id: channel.id, user_id: user, external_id: msg.from, external_name: msg.name || null, linked_at: nowIso(), active: true }, { trusted: true });
+    return true;
   }, { internal: true });
+  if (!linked) {
+    await logRow(sys.db, sys.org.id, { channel: String(channel.id), direction: "in", status: "ignored", external: msg.from, error: "bad_code" });
+    return { ok: false, text: "این کد درست نیست یا مهلتش گذشته است. از درگاه کد تازه بگیرید.", user: null };
+  }
   const name = ctx.user.full_name?.split(" ")[0] ?? "";
   return { ok: true, text: `${name ? `${name} عزیز، ` : ""}حساب شما وصل شد. پرسش یا درخواستتان را بنویسید؛ «/new» گفتگوی تازه و «/unlink» قطع اتصال است.`, user };
 }

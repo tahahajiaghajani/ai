@@ -56,12 +56,15 @@ const namedCache = new Map<string, { gen: string; users: Promise<Set<string>> }>
 export const audienceCountStats = { computed: 0, served: 0 };
 
 /**
- * The organisation's knowledge generation: the newest sync revision of articles, bases and categories. Publishing,
- * retiring, moving an article or changing any audience moves it, so every process recounts at once (TTL otherwise).
+ * The organisation's knowledge generation: the count and the sum of the sync revisions of articles, bases and
+ * categories. Publishing, retiring, moving an article or changing any audience gives a row another revision, so every
+ * process recounts at once (TTL otherwise). Revisions are transaction ids, not in commit order: the newest one alone
+ * would miss a change committed later by an older transaction; a sum moves whenever any row's revision changes.
  */
 async function knowledgeGen(ctx: Ctx): Promise<string> {
+  const part = (t: string) => `(select count(*)::text || '.' || coalesce(sum(rev), 0)::text from ${t} where org_id = $1)`;
   const r = await ctx.db.one<{ g: string | null }>(
-    `select greatest((select max(rev) from sm_kb_articles where org_id = $1), (select max(rev) from sm_kb_bases where org_id = $1), (select max(rev) from sm_kb_categories where org_id = $1))::text as g`,
+    `select concat_ws(':', ${part("sm_kb_articles")}, ${part("sm_kb_bases")}, ${part("sm_kb_categories")}) as g`,
     [ctx.org.id],
   );
   return r?.g ?? "0";

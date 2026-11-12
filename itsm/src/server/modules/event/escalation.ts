@@ -24,6 +24,7 @@ import { appUrl } from "../notify/common";
 import { calendarFor } from "../sla";
 import { holds, withWalks } from "../sla/common";
 import { officeCalendar } from "../incident/major";
+import { lockedRow } from "../incident/common";
 import { isWorking } from "@shared/sla/calendar";
 import { eventConfig, idList, isUuid, liveRow, liveRows, msOf, nowIso, sysOf, type Row } from "./common";
 import { onCallOfSchedule } from "./oncall";
@@ -231,7 +232,9 @@ export interface StepResult {
  */
 export async function escalateStep(sys: Ctx, alertId: string, round: number, rep: number, index: number, now = Date.now()): Promise<StepResult> {
   return sys.write(async (tx) => {
-    const alert = await liveRow(tx, sys, "alert", alertId);
+    // the alert locked first: an acknowledgement in flight (it stops the escalation) finishes before this step reads
+    // the alert, so nobody is paged after the alert was acknowledged
+    const alert = await lockedRow(tx, sys, "alert", alertId);
     if (!alert || Number(alert.escalation_round ?? 0) !== round || alert.state !== "open" || alert.escalation_state !== "running") return { done: true };
     const due = msOf(alert.next_escalation_at);
     if (due !== null && due > now + 1000) return { again: due - now, index, rep };

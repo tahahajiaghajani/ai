@@ -1,5 +1,5 @@
 // One worker process of the server edition (or the whole server in a standalone run: development, tests). It builds
-// the shared API in its PostgreSQL ("cloud") mode — same accounts and sessions, same live pulse through sm_org_sync,
+// the shared API in its PostgreSQL ("cloud") mode — same accounts and sessions, same live pulse (database snapshots),
 // same modules — with the server edition's own parts: the air-gap policy around every outbound call, attachments on
 // disk, the scheduler candidate, metrics, the first-run setup and «سلامت سرور»; then serves it over HTTPS with the
 // bank's certificate (and redirects HTTP to HTTPS).
@@ -15,7 +15,7 @@ import { migrate, migrationStatus } from "@server/db/migrate";
 import { tick } from "@server/jobs";
 import { installBlobStore } from "@server/blobs";
 import { networkFetch, type NetworkPolicy } from "@server/net";
-import { configureWriteAdmission, type ServerConfig } from "@server/context";
+import { configureWriteAdmission, configureWriteSerialisation, type ServerConfig } from "@server/context";
 import { proxyTrusted } from "@server/auth/session";
 import { APP_NAME } from "@shared/constants";
 import { changeAllowlist, databaseUrl, loadServerConfig, poolFor, workerCount, type ServerEditionConfig } from "./config";
@@ -152,8 +152,10 @@ export async function startServerEdition(o: StartOptions): Promise<RunningServer
 
   const pool = poolFor(current);
   if (pool.reduced) log.warn("config: pool_per_worker reduced to fit max_connections", { per_worker: pool.perWorker, workers: workerCount(current) });
-  // write admission: kariz.json writers_per_org (ITSM_WRITERS_PER_ORG wins)
+  // write admission: kariz.json writers_per_org (ITSM_WRITERS_PER_ORG wins); organisation-wide write serialisation
+  // only when kariz.json serialize_writes (or ITSM_SERIALIZE_WRITES, which wins) switches the fallback on
   configureWriteAdmission(current.writers_per_org);
+  if (configureWriteSerialisation(current.serialize_writes)) log.warn("config: serialize_writes is on — every write of an organisation waits for its lock (fallback; write throughput is lower)");
   const metrics = new WorkerMetrics(workerId, pool.perWorker, current.log.slow_ms);
 
   // outbound policy: every fetch, plus a socket-level guard under it

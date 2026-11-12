@@ -13,6 +13,7 @@
 import type { Db, Queryable } from "./index";
 import { MIGRATIONS, SCHEMA_VERSION } from "./migrations";
 import { engineChunks, engineProgress, readEngineProgress, type EngineChunk } from "../engine/ddl";
+import { checkXidRegression } from "../sync/snapshot";
 
 export const MIGRATION_LOCK = 724100;
 const ENGINE_MIGRATION = "0006_engine_tables";
@@ -187,6 +188,10 @@ export async function migrateSteps(db: Db, opts: { budgetMs?: number; wait?: boo
 export async function migrate(db: Db, log: (msg: string) => void = () => {}): Promise<string[]> {
   const r = await migrateSteps(db, { log });
   if (r.ran.some((id) => id.startsWith("reconcile:"))) log("engine schema reconciled");
+  // a database restored into another cluster may hand out transaction ids below its stored revisions: rows, cursors and
+  // purge watermarks ahead of them start again and every Windows app reads everything once (src/server/sync/snapshot.ts;
+  // the web version runs the same check when an instance builds its app: src/server/cloud.ts)
+  await checkXidRegression(db, { force: true, restamp: true, log }).catch((e) => log(`xid check skipped: ${String((e as Error)?.message ?? e)}`));
   return r.migrations;
 }
 

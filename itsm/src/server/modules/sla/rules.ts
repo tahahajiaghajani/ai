@@ -17,12 +17,13 @@ import { actionsProblem, fillTemplate, ITIL_MATRIX, matrixProblem, priorityFrom,
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
 import type { Queryable, Tx } from "../../db";
-import { pgArray } from "../../db";
+import { lockKey, pgArray } from "../../db";
 import { AppError } from "../../http/errors";
 import {
   addJournalIn, createIn, isSystemCtx, orgSchema, orgTz, registerHooks, updateIn, validationError, type WriteArgs,
 } from "../../engine";
 import { activeDelegations, delegateOf } from "./approvals";
+import { lockedRow } from "../incident/common";
 import { config, eqAll, holds, liveRow, liveRows, ownTable, rulesFor, systemFrom, withWalks, type Row, type ServiceConfig } from "./common";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -158,7 +159,9 @@ async function checkCategory(w: WriteArgs): Promise<void> {
   if (w.next.parent_id) {
     if (w.next.parent_id === w.next.id) fields.parent_id = "دسته نمی‌تواند زیرمجموعهٔ خودش باشد";
     else {
-      const p = await liveRow(w.tx, sys, "category", w.next.parent_id);
+      // the parent locked: its deletion or move in flight finishes first (and this sees it gone or moved); one that
+      // comes later waits for this write and its own check of children counts this one
+      const p = await lockedRow(w.tx, sys, "category", w.next.parent_id);
       if (!p || p.table_key !== w.next.table_key) fields.parent_id = "دستهٔ بالادستی از همین جدول نیست";
       else if (p.parent_id) fields.parent_id = "دسته‌ها حداکثر دو سطح دارند (دسته و زیردسته)";
       else if (w.prev) {
@@ -395,6 +398,9 @@ async function assignmentRules(cfg: ServiceConfig, w: WriteArgs): Promise<void> 
     if (r.ai_group && !groupId) continue;
     if (groupId) w.next[group] = groupId;
     if (assignee) {
+      // round robin and least loaded decide from other records (the group's history and open load): concurrent creates
+      // for one group take turns here, so the next one's reads see the assignment the previous one committed
+      if (groupId && (r.method === "round_robin" || r.method === "least_loaded")) await lockKey(w.tx, `sla.assign:${groupId}`);
       let user = await pickUser(w.tx, w.ctx, w.def, { ...r, group_id: groupId });
       if (user) {
         // someone away hands their new work to their delegate

@@ -14,6 +14,7 @@ import { activeDelegations, decide, delegatorsOf } from "../sla";
 import { changeAi } from "./ai";
 import { cabPeople, cycleApprovals, myOpenApproval, tally } from "./authorize";
 import { changeConfig, eqAll, iso, isUuid, liveRow, liveRows, msOf, sysOf, type Row } from "./common";
+import { lockedRow } from "../incident/common";
 
 const LIVE_MEETING = ["planned", "in_progress"];
 const decisionLabel = (v: unknown) => AGENDA_DECISIONS.find((o) => o.value === v)?.label ?? String(v ?? "");
@@ -23,6 +24,8 @@ export async function ensureNextMeeting(tx: Tx, ctx: Ctx, cab: Row): Promise<Row
   if (cab.active === false || cab.meeting_weekday === null || cab.meeting_weekday === undefined || cab.meeting_weekday === "" || !cab.meeting_time) return null;
   const sys = sysOf(ctx);
   const now = Date.now();
+  // the CAB locked: the sweep and a manager's «جلسهٔ بعد» at the same moment make one meeting (the second finds it)
+  if (!(await lockedRow(tx, sys, "cab", cab.id))) return null;
   const [upcoming] = await liveRows(tx, sys, "cab_meeting", { and: [{ f: "cab_id", op: "eq", v: cab.id }, { f: "state", op: "in", v: LIVE_MEETING }, { f: "ends_at", op: "gt", v: iso(now) }] }, { order: "t.starts_at", limit: 1 });
   if (upcoming) return upcoming;
   const tz = orgTz(ctx);
@@ -105,11 +108,14 @@ export async function decideItem(ctx: Ctx, meetingId: string, itemId: string, in
     const mine = await myOpenApproval(ctx.db, ctx, String(change.id), delegators);
     if (!mine) throw forbidden("شما در تأیید این تغییر رأی ندارید؛ تصمیم را تأییدکنندگانِ آن ثبت می‌کنند");
     await decide(ctx, String(mine.id), { decision: input.decision, comment: comment || null });
-    const after = (await liveRow(ctx.db, sys, "change_request", String(change.id)))!;
-    const votes = tally(await cycleApprovals(ctx.db, sys, after));
-    const outcome = after.state === "authorize" ? "voting" : after.state === "new" ? "rejected" : "approved";
     return ctx.write(async (tx) => {
-      const stored = await updateIn(tx, sys, "cab_agenda_item", itemId, { decision: outcome, decided_by: me, decided_at: iso(Date.now()), decision_notes: comment || item.decision_notes || null, votes }, { trusted: true });
+      // the item locked first, then the change and its votes read in this transaction: another member's decision
+      // recorded meanwhile is counted here, and a later one counts this — never an older tally over a newer one
+      const cur = (await lockedRow(tx, sys, "cab_agenda_item", itemId)) ?? item;
+      const after = (await liveRow(tx, sys, "change_request", String(change.id)))!;
+      const votes = tally(await cycleApprovals(tx, sys, after));
+      const outcome = after.state === "authorize" ? "voting" : after.state === "new" ? "rejected" : "approved";
+      const stored = await updateIn(tx, sys, "cab_agenda_item", itemId, { decision: outcome, decided_by: me, decided_at: iso(Date.now()), decision_notes: comment || cur.decision_notes || null, votes }, { trusted: true });
       if (outcome !== "voting") await updateIn(tx, sys, "change_request", String(change.id), { cab_recommendation: outcome }, { trusted: true, keepVersion: true });
       return stored;
     });

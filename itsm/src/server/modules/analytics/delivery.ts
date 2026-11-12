@@ -214,14 +214,15 @@ export async function deliverTo(cfg: ServerConfig, sys: Ctx, s: Row, userId: str
  * got (sent, empty under their access, no access) stays on their own delivery row: the owner — who chose the report,
  * its filter and the recipients — learns nothing about records only a recipient may read.
  */
-export async function finishRun(sys: Ctx, s: Row, outcomes: DeliveryOutcome[], opts: { now?: number; manual?: boolean } = {}): Promise<void> {
+export async function finishRun(sys: Ctx, s: Row, outcomes: DeliveryOutcome[], opts: { now?: number; manual?: boolean; claimed?: boolean } = {}): Promise<void> {
   const now = opts.now ?? Date.now();
   const failed = outcomes.filter((o) => o.status === "failed").length;
   const result = `${faDigits(outcomes.length - failed)} گیرنده پردازش شد، ${faDigits(failed)} ناموفق`;
   const patch: Row = { last_run_at: new Date(now).toISOString(), last_result: result };
   if (!opts.manual) {
     const next = s.active ? nextOccurrence(s.schedule as ScheduleSpec, now + 1000, orgTz(sys)) : null;
-    patch.next_run_at = next ? new Date(next).toISOString() : null;
+    // a run that claimed its occurrence already moved the schedule on (analytics.deliver): not moved twice
+    if (!opts.claimed) patch.next_run_at = next ? new Date(next).toISOString() : null;
     if (!next && (s.schedule as ScheduleSpec)?.kind === "once") patch.active = false;
   }
   await sys.write((tx) => updateIn(tx, sys, "analytics_schedule", s.id, patch, { trusted: true, keepVersion: true }));

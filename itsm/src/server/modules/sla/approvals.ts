@@ -511,17 +511,22 @@ export async function decide(ctx: Ctx, id: string, input: DecideInput): Promise<
     const sys = systemFrom(ctx);
     const { def: adef } = await defFor(sys, "approval", tx);
     const env = await condEnv(sys);
+    // the record first, then the approval — the order the record's own writes, the approval timer and settling take
+    // (record, then its approvals): two approvers of one level, or a decision and a write of the record, wait for
+    // each other instead of deadlocking; the approval is read again once locked
+    const peek = await loadReadable(tx, sys, adef, id, env);
+    if (!peek) throw notFound("این تأیید پیدا نشد");
+    const schema = await orgSchema(sys, tx);
+    const def = schema.def(String(peek.table_key));
+    if (!def || def.virtual) throw notFound("رکورد این تأیید پیدا نشد");
+    const record = await loadReadable(tx, sys, def, String(peek.record_id), env, { lock: true });
+    if (!record) throw notFound("رکورد این تأیید پیدا نشد");
     const a = await loadReadable(tx, sys, adef, id, env, { lock: true });
-    if (!a) throw notFound("این تأیید پیدا نشد");
+    if (!a || a.record_id !== peek.record_id || a.table_key !== peek.table_key) throw notFound("این تأیید پیدا نشد");
     const delegations = await activeDelegations(tx, ctx, "approvals");
     const who = actingFor(a, me, delegations);
     if (!who.ok) throw notFound("این تأیید پیدا نشد");
     if (a.state !== "requested") throw new AppError(409, "conflict", a.state === "waiting" ? "نوبت این تأیید هنوز نرسیده است" : "این تأیید پیش‌تر بسته شده است");
-    const schema = await orgSchema(sys, tx);
-    const def = schema.def(String(a.table_key));
-    if (!def || def.virtual) throw notFound("رکورد این تأیید پیدا نشد");
-    const record = await loadReadable(tx, sys, def, String(a.record_id), env, { lock: true });
-    if (!record) throw notFound("رکورد این تأیید پیدا نشد");
     const cfg = await config(tx, sys);
     const rule = a.rule_id ? cfg.rows.approval_rule.find((r) => r.id === a.rule_id) : null;
     if (!rule?.allow_self_approval && sodUsers(def, record).has(me)) {

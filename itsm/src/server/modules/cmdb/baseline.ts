@@ -7,7 +7,7 @@ import { diffSnapshots, type SnapItem, type SnapRel } from "@shared/cmdb/logic";
 import type { CompareResult } from "@shared/cmdb/api";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
-import type { Queryable, Tx } from "../../db";
+import { lockKey, type Queryable, type Tx } from "../../db";
 import { conflict, forbidden, notFound } from "../../http/errors";
 import { createIn, orgSchema, updateIn } from "../../engine";
 import { access } from "../../access/provider";
@@ -162,6 +162,8 @@ export async function driftFromBaseline(ctx: Ctx, id: string): Promise<{ created
       const ci = await liveRow(tx, sysOf(ctx), "ci", m.id);
       for (const f of m.fields) {
         const key = `baseline:${id}:${m.id}:${f.field}`;
+        // the drift's key first: two «ثبت انحراف» at once record each drift once
+        await lockKey(tx, `cmdb.drift:${ctx.org.id}:${key}`);
         const [open] = await liveRows(tx, sysOf(ctx), "ci_drift", { and: [{ f: "dedupe_key", op: "eq", v: key }, { f: "active", op: "eq", v: true }] }, { limit: 1 });
         if (open) {
           existing++;
@@ -189,6 +191,8 @@ export async function recordDrift(tx: Tx, ctx: Ctx, ciId: string, changes: { att
   let n = 0;
   for (const c of changes) {
     const key = `control:${ciId}:${c.attribute}`;
+    // the drift's key first: two quick changes of one CI (two drift jobs at once) keep one open drift per attribute
+    await lockKey(tx, `cmdb.drift:${ctx.org.id}:${key}`);
     const [open] = await liveRows(tx, sys, "ci_drift", { and: [{ f: "dedupe_key", op: "eq", v: key }, { f: "active", op: "eq", v: true }] }, { limit: 1 });
     const label = c.attribute.startsWith("attrs.") ? cls?.allAttrs.find((a) => a.name === c.attribute.slice(6))?.label ?? c.attribute : tableDef("ci")?.fields.find((f) => f.name === c.attribute)?.label ?? c.attribute;
     if (open) {

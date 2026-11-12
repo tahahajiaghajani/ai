@@ -13,7 +13,7 @@ import { createFromAlert, type AlertInput } from "../incident/alerts";
 import { holds, withWalks } from "../sla/common";
 import { severityRank } from "@shared/event/logic";
 import { ALERT_OPEN_STATES } from "@shared/tables/event";
-import { isUuid, liveRow, liveRows, type Row } from "./common";
+import { isUuid, liveRow, liveRows, lockGroup, type Row } from "./common";
 import { alertNote } from "./escalation";
 import { acknowledgeIn } from "./actions";
 
@@ -56,7 +56,10 @@ export async function raiseIncident(tx: Tx, sys: Ctx, alert: Row, o: { rule?: Ro
     await addLinkIn(tx, sys, "alert", String(a.id), { kind: "raised", table: "incident", id: String(incident.id) }).catch(() => undefined);
     if (a.id === alert.id || !group) await alertNote(tx, sys, a, created ? `رخداد ${incident.number} از این هشدار ساخته شد.` : `این هشدار به رخداد باز ${incident.number} افزوده شد.`, { incident: incident.id }, o.by ?? null);
   }
-  if (group && group.incident_id !== incident.id) await updateIn(tx, sys, "alert_group", String(group.id), { incident_id: incident.id }, { trusted: true, keepVersion: true });
+  if (group && group.incident_id !== incident.id) {
+    await lockGroup(tx, String(group.id));
+    await updateIn(tx, sys, "alert_group", String(group.id), { incident_id: incident.id }, { trusted: true, keepVersion: true });
+  }
   return { incident, created };
 }
 

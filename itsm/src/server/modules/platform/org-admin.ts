@@ -75,21 +75,29 @@ export async function updateOrgAdmin(
   const db = cfg.db;
   const org = await db.one<{ id: string; name: string }>(`select id, name from sm_orgs where id = $1 and deleted_at is null`, [orgId]);
   if (!org) throw notFound("سازمان پیدا نشد");
-  const before = await orgAdminState(db, orgId);
-  const status = patch.status ?? before.status;
-  const reason = patch.status !== undefined || patch.status_reason !== undefined ? (patch.status_reason ?? "").trim() || null : before.status_reason;
-  if (status !== "active" && !reason) throw bad("دلیل را بنویسید؛ اعضای سازمان آن را می‌بینند");
-  const next: OrgAdminState = {
-    ...before,
-    status,
-    status_reason: status === "active" ? null : reason,
-    notes: patch.notes !== undefined ? (patch.notes ?? "").trim() || null : before.notes,
-    ai_disabled: patch.ai_disabled ?? before.ai_disabled,
-  };
-  const statusChanged = next.status !== before.status || next.status_reason !== before.status_reason;
-  const aiChanged = next.ai_disabled !== before.ai_disabled;
-  const notesChanged = next.notes !== before.notes;
+  // decided from the stored state, locked until commit (a row made first when there is none): another platform
+  // administrator's edit in flight finishes first and only what this patch names changes — never a stale copy of the
+  // rest (an «AI off» switch, a status) written back over it
+  let before: OrgAdminState = await orgAdminState(db, orgId);
+  let next: OrgAdminState = before;
+  let statusChanged = false;
   const saved = await db.tx(async (tx) => {
+    await tx.query(`insert into sm_org_admin (org_id) values ($1) on conflict (org_id) do nothing`, [orgId]);
+    const locked = await tx.one<OrgAdminState>(`select org_id, status, status_reason, notes, ai_disabled, limits, updated_by, updated_at from sm_org_admin where org_id = $1 for update`, [orgId]);
+    if (locked) before = locked;
+    const status = patch.status ?? before.status;
+    const reason = patch.status !== undefined || patch.status_reason !== undefined ? (patch.status_reason ?? "").trim() || null : before.status_reason;
+    if (status !== "active" && !reason) throw bad("دلیل را بنویسید؛ اعضای سازمان آن را می‌بینند");
+    next = {
+      ...before,
+      status,
+      status_reason: status === "active" ? null : reason,
+      notes: patch.notes !== undefined ? (patch.notes ?? "").trim() || null : before.notes,
+      ai_disabled: patch.ai_disabled ?? before.ai_disabled,
+    };
+    statusChanged = next.status !== before.status || next.status_reason !== before.status_reason;
+    const aiChanged = next.ai_disabled !== before.ai_disabled;
+    const notesChanged = next.notes !== before.notes;
     const row = await tx.one<OrgAdminState>(
       `insert into sm_org_admin (org_id, status, status_reason, notes, ai_disabled, updated_by, updated_at)
        values ($1, $2, $3, $4, $5, $6, now())

@@ -9,7 +9,7 @@ import { LINK_KINDS } from "@shared/model/links";
 import type { TableDef } from "@shared/model/types";
 import { uuidv7 } from "@shared/id";
 import type { Ctx } from "../context";
-import { pgArray, type Queryable, type Tx } from "../db";
+import { lockKey, pgArray, type Queryable, type Tx } from "../db";
 import { bad, conflict, forbidden, notFound } from "../http/errors";
 import { access } from "../access/provider";
 import { actorId, condEnv, isSystemCtx } from "./env";
@@ -95,6 +95,9 @@ export async function addLinkIn(tx: Tx, ctx: Ctx, table: string, id: string, inp
   if (!isSystemCtx(ctx) && (!access().canWrite(ctx, def, from) || from.$writable === false)) throw forbidden(`اجازهٔ تغییر این ${def.label} را ندارید`);
   await requireReadable(ctx, other, input.id, env, tx);
   const params = [ctx.org.id, input.kind, id, input.id];
+  // a symmetric kind is one relation whichever side links it: two links of A and B from both sides at once take turns
+  // on the pair's key, so the second one finds the first (the unique index covers one direction only)
+  if (symmetric(input.kind)) await lockKey(tx, `link:${ctx.org.id}:${input.kind}:${[id, input.id].sort().join(":")}`);
   const dup = await tx.one(
     `select 1 from sm_links where org_id = $1 and kind = $2 and deleted_at is null and ((from_id = $3 and to_id = $4)${symmetric(input.kind) ? " or (from_id = $4 and to_id = $3)" : ""})`,
     params,

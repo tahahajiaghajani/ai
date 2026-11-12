@@ -337,19 +337,25 @@ export async function refreshed(ctx: Ctx): Promise<Ctx> {
 
 export async function saveAccessSettings(ctx: Ctx, input: { domain_separation?: boolean; preset?: DeskPreset }): Promise<AccessSettings> {
   await needAccessAdmin(ctx);
-  const prev = accessSettings(ctx.org);
-  const next = {
-    domain_separation: input.domain_separation ?? prev.domainSeparation,
-    preset: input.preset ?? prev.preset,
-  };
-  await ctx.write(async (tx) => {
-    const settings = { ...(ctx.org.settings ?? {}), access: { ...((ctx.org.settings?.access as object) ?? {}), ...next } };
-    await updateRow(tx, "sm_orgs", { id: ctx.org.id }, { settings, origin: ctx.cfg.origin });
+  // only the keys given change, merged into the stored settings in one statement: another settings group (the sign-in
+  // policy, archive settings…) saved after this request loaded the organisation is kept, and so is the other key
+  const given: Record<string, unknown> = {};
+  if (input.domain_separation !== undefined) given.domain_separation = input.domain_separation;
+  if (input.preset !== undefined) given.preset = input.preset;
+  const saved = await ctx.write(async (tx) => {
+    const row = await tx.one<{ settings: OrgRow["settings"] }>(
+      `update sm_orgs set settings = coalesce(settings, '{}'::jsonb) || jsonb_build_object('access', coalesce(settings->'access', '{}'::jsonb) || $2::jsonb),
+              origin = $3
+       where id = $1 returning settings`,
+      [ctx.org.id, JSON.stringify(given), ctx.cfg.origin],
+    );
+    const next = accessSettings({ settings: row?.settings ?? {} });
     // every member's readable set may move: their Windows apps re-read
     await tx.query(`select sm_access_bump_everyone($1)`, [ctx.org.id]);
-    await audit(tx, ctx, "update", "access_settings", null, `تنظیمات دسترسی: ${next.domain_separation ? "جداسازی دامنه‌ها روشن" : "جداسازی دامنه‌ها خاموش"}، «${DESK_PRESETS[next.preset].label}»`, next);
+    await audit(tx, ctx, "update", "access_settings", null, `تنظیمات دسترسی: ${next.domainSeparation ? "جداسازی دامنه‌ها روشن" : "جداسازی دامنه‌ها خاموش"}، «${DESK_PRESETS[next.preset].label}»`, { domain_separation: next.domainSeparation, preset: next.preset });
+    return next;
   });
-  return { domainSeparation: next.domain_separation, preset: next.preset };
+  return saved;
 }
 
 // ----- member access ------------------------------------------------------------------------------------------
@@ -451,7 +457,7 @@ export async function memberAccess(ctx: Ctx, userId: string): Promise<MemberAcce
 const PROFILE_INPUT = new Set(PROFILE_FIELDS.filter((f) => !["id", "version", "user_id", "name"].includes(f)));
 
 /** Create or change a member's profile (roles, unit, manager, delegate…) through the engine (history, sync, checks). */
-export async function saveMemberAccess(ctx: Ctx, userId: string, input: Record<string, unknown>): Promise<MemberAccessDetail> {
+export async function saveMemberAccess(ctx: Ctx, userId: string, input: Record<string, unknown>, opts: { addRoles?: string[] } = {}): Promise<MemberAccessDetail> {
   await prepareSubject(ctx);
   const data: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(input)) {
@@ -462,7 +468,13 @@ export async function saveMemberAccess(ctx: Ctx, userId: string, input: Record<s
   const member = await ctx.db.one(`select 1 from sm_org_members where org_id = $1 and user_id = $2 and deleted_at is null`, [ctx.org.id, userId]);
   if (!member) throw notFound("عضو پیدا نشد");
   await ctx.write(async (tx) => {
-    const row = await tx.one<{ id: string }>(`select id from sm_member_profiles where org_id = $1 and user_id = $2 and deleted_at is null`, [ctx.org.id, userId]);
+    // the stored profile locked: `addRoles` (a directory sync's confirmed grants) adds to the roles as they are now —
+    // a role an administrator took back meanwhile is not written back from an older list
+    const row = await tx.one<{ id: string; roles: unknown }>(`select id, roles from sm_member_profiles where org_id = $1 and user_id = $2 and deleted_at is null for update`, [ctx.org.id, userId]);
+    if (opts.addRoles?.length) {
+      const base = Array.isArray(data.roles) ? data.roles : Array.isArray(row?.roles) ? (row!.roles as unknown[]) : [];
+      data.roles = [...new Set([...base.filter((r): r is string => typeof r === "string"), ...opts.addRoles])];
+    }
     if (row) await updateIn(tx, ctx, "member_profile", row.id, data, { version: (input.version as number | undefined) ?? undefined });
     else await createIn(tx, ctx, "member_profile", { ...data, user_id: userId });
   });

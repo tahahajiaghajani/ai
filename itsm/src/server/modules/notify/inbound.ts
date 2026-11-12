@@ -290,18 +290,25 @@ async function memberByEmail(q: Queryable, org: string, address: string): Promis
   return r?.id ?? null;
 }
 
-async function logInbound(q: Queryable, org: string, ch: EmailChannelRow, p: ParsedMail | null, x: { messageId: string; uid?: number | null; size?: number; status: string; reason?: string | null; table?: string | null; record?: string | null; data?: Record<string, unknown> }): Promise<void> {
+/**
+ * Log an inbound message (once per Message-ID: the unique index refuses a second row). Returns the new row's id, or
+ * null when the message was logged already — inside a write it claims the message first: a second process ingesting
+ * the same e-mail waits for the first one's commit here and then gets null (a duplicate), never a second record.
+ */
+async function logInbound(q: Queryable, org: string, ch: EmailChannelRow, p: ParsedMail | null, x: { messageId: string; uid?: number | null; size?: number; status: string; reason?: string | null; table?: string | null; record?: string | null; data?: Record<string, unknown> }): Promise<string | null> {
   const refs = p ? [...(Array.isArray(p.references) ? p.references : p.references ? [p.references] : [])].slice(0, 50) : [];
-  await q.query(
+  const row = await q.one<{ id: string }>(
     `insert into sm_email_messages (id, org_id, channel_id, direction, message_id, in_reply_to, refs, from_addr, to_addrs, subject, table_key, record_id, status, reason, uid, size, data)
      values ($1, $2, $3, 'in', $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb)
-     on conflict (org_id, message_id, direction) do nothing`,
+     on conflict (org_id, message_id, direction) do nothing
+     returning id`,
     [
       uuidv7(), org, ch.id, x.messageId, p?.inReplyTo ?? null, JSON.stringify(refs), p?.from?.value?.[0]?.address?.toLowerCase() ?? null,
       p ? [p.to].flat().filter(Boolean).map((a) => a!.text).join(", ").slice(0, 500) : null, (p?.subject ?? "").slice(0, 500), x.table ?? null, x.record ?? null,
       x.status, x.reason ?? null, x.uid ?? null, x.size ?? null, x.data ? JSON.stringify(x.data) : null,
     ],
   );
+  return row?.id ?? null;
 }
 
 const MAX_ATTACHMENTS = 20;
@@ -353,13 +360,16 @@ export async function ingestMessage(cfg: ServerConfig, sys: Ctx, ch: EmailChanne
     const text = stripQuoted(p.text ?? "").slice(0, BODY_MAX);
     if (!text && !files.length) return reject("empty");
     const out = await actx.write(async (tx) => {
+      // the message claimed first (its log row, unique per Message-ID): the IMAP job and «بررسی صندوق اکنون» on two
+      // processes fetching the same reply — the second waits here for the first's commit and adds nothing
+      if (!(await logInbound(tx, org, ch, p, { messageId, uid: opts.uid, size: buf.byteLength, status: "processed", table: thread.def.key, record: thread.id, data: meta }))) return null;
       const [row] = await systemRows<Record<string, any>>(sys, thread.def.key, "t.id = $1", [thread.id], "for update of t", tx);
       const ids: string[] = [];
       if (thread.def.features?.attachments) for (const f of files) ids.push((await addAttachmentIn(tx, actx, thread.def, thread.id, f)).id);
       await addJournalIn(tx, actx, thread.def, row, { kind: "email_in", visibility: "public", body: text || "(پیوست)", data: { ...meta, message_id: messageId }, attachments: ids }, { trusted: true, author: member });
-      await logInbound(tx, org, ch, p, { messageId, uid: opts.uid, size: buf.byteLength, status: "processed", table: thread.def.key, record: thread.id, data: meta });
       return { number: (row.number as string | null) ?? null };
     });
+    if (!out) return { status: "duplicate", message_id: messageId };
     return { status: "replied", table: thread.def.key, id: thread.id, number: out.number, message_id: messageId };
   }
 
@@ -383,11 +393,15 @@ export async function ingestMessage(cfg: ServerConfig, sys: Ctx, ch: EmailChanne
   }
   if (ch.workspace_id) data.workspace_id = ch.workspace_id;
   const created = await actx.write(async (tx) => {
+    // the message claimed first (see the reply above): one e-mail, one record, however many processes fetch it
+    const logId = await logInbound(tx, org, ch, p, { messageId, uid: opts.uid, size: buf.byteLength, status: "processed", table: def.key, record: null, data: meta });
+    if (!logId) return null;
     const row = await createIn(tx, actx, def.key, data, { trusted: true });
     if (def.features?.attachments) for (const f of files) await addAttachmentIn(tx, actx, def, String(row.id), f);
-    await logInbound(tx, org, ch, p, { messageId, uid: opts.uid, size: buf.byteLength, status: "processed", table: def.key, record: String(row.id), data: meta });
+    await tx.query(`update sm_email_messages set record_id = $2 where id = $1`, [logId, String(row.id)]);
     return row;
   });
+  if (!created) return { status: "duplicate", message_id: messageId };
   return { status: "created", table: def.key, id: String(created.id), number: (created.number as string | null) ?? null, message_id: messageId };
 }
 

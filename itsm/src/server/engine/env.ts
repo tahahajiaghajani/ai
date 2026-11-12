@@ -4,8 +4,9 @@
 import type { CondEnv } from "@shared/model/conditions";
 import { DEFAULT_TIMEZONE } from "@shared/constants";
 import type { AuthUser, Ctx, MemberRow, OrgRow, ServerConfig } from "../context";
-import { admitWrite, lockOrg } from "../context";
+import { admitWrite, lockOrg, writesSerialised } from "../context";
 import type { Tx } from "../db";
+import { retryTransient } from "../db";
 import { access } from "../access/provider";
 import { assertWritable } from "../modules/platform/org-admin";
 import { notFound } from "../http/errors";
@@ -58,8 +59,9 @@ export const SYSTEM_USER: AuthUser = {
 
 /**
  * A context in which the platform itself acts in an organisation — job handlers, flows, rules, SLA timers. The
- * access provider allows it everything within the organisation (`ctx.actor === "system"`); its writes hold the
- * organisation's write lock like any other and are refused while the platform made the organisation read-only.
+ * access provider allows it everything within the organisation (`ctx.actor === "system"`); its writes are like any
+ * other (no organisation-wide lock unless `ITSM_SERIALIZE_WRITES`) and are refused while the platform made the
+ * organisation read-only.
  * `onBehalfOf` records a member as the actor instead (a flow that runs as the user who triggered it).
  */
 export async function systemCtx(cfg: Pick<ServerConfig, "db"> & Partial<ServerConfig>, orgId: string, opts: { onBehalfOf?: string | null } = {}): Promise<Ctx> {
@@ -83,12 +85,12 @@ export async function systemCtx(cfg: Pick<ServerConfig, "db"> & Partial<ServerCo
     status: null,
     can: () => true,
     need: () => undefined,
-    write: async <T,>(fn: (tx: Tx) => Promise<T>, wopts?: { internal?: boolean; late?: boolean }) => {
-      const out = await admitWrite(orgId, () => cfg.db.tx(async (tx) => {
-        if (!(wopts?.late ?? wopts?.internal)) await lockOrg(tx, orgId);
+    write: async <T,>(fn: (tx: Tx) => Promise<T>, wopts?: { internal?: boolean; late?: boolean; retry?: boolean }) => {
+      const out = await admitWrite(orgId, () => retryTransient(() => cfg.db.tx(async (tx) => {
+        if (writesSerialised() && !(wopts?.late ?? wopts?.internal)) await lockOrg(tx, orgId);
         if (!wopts?.internal) await assertWritable(tx, orgId);
         return fn(tx);
-      }), wopts);
+      }), wopts?.retry ? 3 : 1), wopts);
       if (full.mode !== "cloud") bumpLocal(orgId);
       full.desktop?.notifyLocalWrite();
       return out;

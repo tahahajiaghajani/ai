@@ -16,6 +16,7 @@ import { stopTicks, tick } from "@server/jobs";
 import { loadConfig, saveConfig, type LocalConfig } from "./config";
 import { createBridge } from "./bridge";
 import { takePendingRestore, undoRestore, restorePending } from "./backup";
+import { resetSyncCursor } from "./sync-client";
 import { APP_NAME } from "@shared/constants";
 
 export interface LocalOptions {
@@ -67,6 +68,9 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
     }
   } else db = await createPgliteDb({ dataDir: opts.memory ? undefined : dbDir, desktop: true, log });
   const applied = await migrate(db, (m) => log.info(m));
+  // a restored local database: its sync cursor is the backup's — the next pull reads everything again from the web
+  // version (and drops what it no longer has); changes waiting for upload stay queued
+  if (restore) await resetSyncCursor(db).catch((e) => log.warn("sync cursor reset failed", String((e as Error)?.message ?? e)));
   // a first start (or an update) wrote its migrations to the log: checkpoint while the splash is still up, not at the
   // person's first click (the first start's 54 MB of log took a 609 ms checkpoint on the setup page, desktop-e2e)
   if (applied.length) await db.checkpoint("migrations").catch((e) => log.warn("database checkpoint after migrations failed", String((e as Error)?.message ?? e)));

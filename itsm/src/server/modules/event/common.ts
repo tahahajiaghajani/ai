@@ -9,7 +9,7 @@
 import type { TableDef } from "@shared/model/types";
 import { EVENT_CONFIG_DEFAULTS, type EventConfig } from "@shared/tables/event";
 import type { Ctx } from "../../context";
-import type { Queryable } from "../../db";
+import { lockBeforeCommitKey, type Queryable, type Tx } from "../../db";
 import { access } from "../../access/provider";
 import { subjectOf } from "../../access";
 import { condEnv, orgSchema, orgTz, resolveDisplay, RefSet } from "../../engine";
@@ -80,3 +80,13 @@ export async function displayOf(ctx: Ctx, refs: RefSet, q: Queryable = ctx.db): 
 }
 
 export { RefSet };
+
+/**
+ * Take a group's roll-up key before writing the group's row in a transaction's body. The roll-up runs just before
+ * commit under the key and then writes the row: every writer takes the key first, then the row, so a person's group
+ * action and an event's roll-up of the same group wait for each other instead of deadlocking (the key is re-entrant:
+ * the commit's own roll-up takes it again for free).
+ */
+export async function lockGroup(tx: Tx, groupId: string): Promise<void> {
+  if (isUuid(groupId)) await lockBeforeCommitKey(tx, `event.group:${groupId}`);
+}

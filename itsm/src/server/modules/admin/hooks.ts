@@ -3,7 +3,7 @@
 // claimed custom-table slots, stable table codes, the targets of import sets, transform maps and exports, and who may
 // write notices (the settings area; a platform notice is the platform's — an organisation may only switch it off).
 import { tableDef } from "@shared/tables";
-import { TABLE_CODE, isCustomSlot } from "@shared/admin/studio";
+import { CUSTOM_SLOTS, TABLE_CODE, isCustomSlot } from "@shared/admin/studio";
 import { specProblem, type MapRule } from "@shared/admin/mapping";
 import { bad, forbidden } from "../../http/errors";
 import { webOnly, registerHooks, type WriteArgs } from "../../engine";
@@ -29,6 +29,17 @@ async function customField({ tx, ctx, op, next, prev }: WriteArgs): Promise<void
     const [claimed] = await liveRows(tx, sysOf(ctx), "custom_table", { f: "slot", op: "eq", v: table }, { limit: 1 });
     if (!claimed) throw bad("این جایگاه جدول سفارشی هنوز تعریف نشده است؛ جدول را در «استودیو» بسازید");
   }
+}
+
+/**
+ * A record of a custom-table slot is created only while the organisation's table claims the slot: the claim is read
+ * `for share` until commit, so a deletion of the table in flight finishes first (and this create is refused), and one
+ * that comes later waits for this record and counts it (studio.ts deleteCustomTable).
+ */
+async function slotRecord({ tx, ctx, op, def }: WriteArgs): Promise<void> {
+  if (op !== "create") return;
+  const claimed = await tx.one(`select 1 from ${tableDef("custom_table")!.table} where org_id = $1 and slot = $2 and deleted_at is null for share`, [ctx.org.id, def.key]);
+  if (!claimed) throw bad("این جدول سفارشی دیگر وجود ندارد");
 }
 
 function customTable({ ctx, op, next, prev, trusted }: WriteArgs): void {
@@ -82,6 +93,7 @@ export function installAdminHooks(): void {
   installed = true;
   registerHooks("custom_field", { beforeWrite: customField, ...webOnly("فیلد سفارشی") });
   registerHooks("custom_table", { beforeWrite: customTable, ...webOnly("جدول سفارشی") });
+  for (const slot of CUSTOM_SLOTS) registerHooks(slot, { beforeWrite: slotRecord });
   registerHooks("import_set", {
     beforeWrite: (w) => targetTable(w, "target_table"),
     ...webOnly("ورود داده"),

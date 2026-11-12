@@ -5,6 +5,7 @@
 // as the system on their behalf after checking that they may read the article.
 import { queryTerms, searchForm, stem } from "@shared/ai/text";
 import type { Ctx } from "../../context";
+import { lockKey, type Queryable, type Tx } from "../../db";
 import { addJournalIn, createIn, defFor, get, updateIn } from "../../engine";
 import { bad, forbidden } from "../../http/errors";
 import { baseOf, isUuid, kbConfig, liveRow, liveRows, sysOf, type Row } from "./common";
@@ -20,9 +21,19 @@ async function readableArticle(ctx: Ctx, id: string) {
   return { a, base };
 }
 
-async function mine(ctx: Ctx, articleId: string, kinds: string[]): Promise<Row | null> {
-  const [r] = await liveRows(ctx.db, sysOf(ctx), "kb_feedback", { and: [{ f: "article_id", op: "eq", v: articleId }, { f: "user_id", op: "eq", v: ctx.user.id }, { f: "kind", op: "in", v: kinds }] }, { order: "t.created_at desc", limit: 1 });
+async function mine(q: Queryable, ctx: Ctx, articleId: string, kinds: string[]): Promise<Row | null> {
+  const [r] = await liveRows(q, sysOf(ctx), "kb_feedback", { and: [{ f: "article_id", op: "eq", v: articleId }, { f: "user_id", op: "eq", v: ctx.user.id }, { f: "kind", op: "in", v: kinds }] }, { order: "t.created_at desc", limit: 1 });
   return r ?? null;
+}
+
+/**
+ * One vote and one rating per member and article: the member's earlier one is looked for inside the write, under the
+ * member's key on the article — a double click or two tabs submitting at once change one row instead of adding two.
+ */
+async function ownFeedbackIn(tx: Tx, ctx: Ctx, articleId: string, kinds: string[]): Promise<Row | null> {
+  if (ctx.actor === "system") return null;
+  await lockKey(tx, `kb.feedback:${articleId}:${ctx.user.id}`);
+  return mine(tx, ctx, articleId, kinds);
 }
 
 export async function vote(ctx: Ctx, articleId: string, input: { helpful: boolean; reason?: string | null; comment?: string | null; session_id?: string | null; channel?: string | null }) {
@@ -31,9 +42,11 @@ export async function vote(ctx: Ctx, articleId: string, input: { helpful: boolea
   if (base && base.allow_comments === false && String(input.comment ?? "").trim()) throw forbidden("نظر خوانندگان در این پایگاه بسته است");
   const kind = input.helpful ? "helpful" : "not_helpful";
   const sys = asMember(ctx);
-  const prev = ctx.actor === "system" ? null : await mine(ctx, articleId, ["helpful", "not_helpful"]);
   const data = { kind, reason: input.helpful ? null : input.reason ?? null, comment: input.comment ? String(input.comment).slice(0, 4000) : null, channel: input.channel ?? "portal", version_label: a.version_label ?? null };
-  await sys.write((tx) => (prev ? updateIn(tx, sys, "kb_feedback", prev.id, data, { trusted: true }) : createIn(tx, sys, "kb_feedback", { ...data, article_id: articleId, user_id: ctx.user.id }, { trusted: true })));
+  await sys.write(async (tx) => {
+    const prev = await ownFeedbackIn(tx, ctx, articleId, ["helpful", "not_helpful"]);
+    return prev ? updateIn(tx, sys, "kb_feedback", prev.id, data, { trusted: true }) : createIn(tx, sys, "kb_feedback", { ...data, article_id: articleId, user_id: ctx.user.id }, { trusted: true });
+  });
   await logEvent(ctx.db, ctx, { kind: "vote", article_id: articleId, value: input.helpful ? 1 : -1, session_id: input.session_id ?? null, channel: input.channel ?? "portal" });
   const fresh = await liveRow(ctx.db, sysOf(ctx), "kb_article", articleId);
   return { vote: kind, helpful_yes: Number(fresh?.helpful_yes ?? 0), helpful_no: Number(fresh?.helpful_no ?? 0) };
@@ -45,8 +58,10 @@ export async function rate(ctx: Ctx, articleId: string, rating: number) {
   const r = Math.round(Number(rating));
   if (!(r >= 1 && r <= 5)) throw bad("امتیازی از ۱ تا ۵ بدهید");
   const sys = asMember(ctx);
-  const prev = ctx.actor === "system" ? null : await mine(ctx, articleId, ["rating"]);
-  await sys.write((tx) => (prev ? updateIn(tx, sys, "kb_feedback", prev.id, { rating: r }, { trusted: true }) : createIn(tx, sys, "kb_feedback", { article_id: articleId, user_id: ctx.user.id, kind: "rating", rating: r, version_label: a.version_label ?? null }, { trusted: true })));
+  await sys.write(async (tx) => {
+    const prev = await ownFeedbackIn(tx, ctx, articleId, ["rating"]);
+    return prev ? updateIn(tx, sys, "kb_feedback", prev.id, { rating: r }, { trusted: true }) : createIn(tx, sys, "kb_feedback", { article_id: articleId, user_id: ctx.user.id, kind: "rating", rating: r, version_label: a.version_label ?? null }, { trusted: true });
+  });
   await logEvent(ctx.db, ctx, { kind: "rating", article_id: articleId, value: r });
   const fresh = await liveRow(ctx.db, sysOf(ctx), "kb_article", articleId);
   return { rating: r, rating_avg: fresh?.rating_avg ?? null, rating_count: Number(fresh?.rating_count ?? 0) };
@@ -61,6 +76,9 @@ export async function flagArticle(ctx: Ctx, articleId: string, input: { reason: 
   const sys = asMember(ctx);
   const comment = input.comment ? String(input.comment).slice(0, 4000) : null;
   const out = await sys.write(async (tx) => {
+    // the article's flag key first: reports of one article at the same moment take turns, so the second finds the
+    // first one's open task (one task, its count from the stored row) instead of opening another
+    await lockKey(tx, `kb.flag_task:${articleId}`);
     const [open] = await liveRows(tx, sys, "kb_task", { and: [{ f: "article_id", op: "eq", v: articleId }, { f: "kind", op: "eq", v: "flag" }, { f: "active", op: "eq", v: true }] }, { order: "t.created_at", limit: 1 });
     const line = `- ${REASON_LABEL[input.reason]}${comment ? `: ${comment}` : ""}${input.record?.number ? ` (از ${input.record.number})` : ""}`;
     let task: Row;
@@ -97,6 +115,8 @@ export async function reportGap(ctx: Ctx, input: { text: string; kind?: "reporte
   const cfg = await kbConfig(ctx.db, sysOf(ctx));
   const now = new Date().toISOString();
   const gap = await sys.write(async (tx) => {
+    // one gap per topic: reports of one topic at the same moment take turns on its key (the second adds its demand)
+    await lockKey(tx, `kb.gap:${ctx.org.id}:${signature}`);
     const [g] = await liveRows(tx, sys, "kb_gap", { and: [{ f: "signature", op: "eq", v: signature }, { f: "state", op: "in", v: ["open", "in_progress"] }] }, { limit: 1 });
     const sample = input.record ? { table: input.record.table, id: input.record.id, number: input.record.number ?? null, at: now } : { text, at: now };
     if (g) {

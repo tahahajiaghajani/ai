@@ -17,6 +17,7 @@ import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
 import { addJournalIn, addLinkIn, createIn, get, isSystemCtx, list, orgTz, transitionIn, updateIn, validationError } from "../../engine";
 import { bad, conflict, forbidden, notFound } from "../../http/errors";
+import { lockedRow } from "../incident/common";
 import { BOOKED, calendarFor, dispatches, fsmConfig, ids, isUuid, liveRow, liveRows, mayWriteRecord, msOf, sysOf, todayOf, TASK_OPEN, type Row } from "./common";
 
 const DAY = 86_400_000;
@@ -326,8 +327,14 @@ export async function generateMaintenanceIn(tx: Tx, ctx: Ctx, today = todayOf(ct
   const sys = sysOf(ctx);
   const plans = await liveRows(tx, sys, "maintenance_plan", { f: "status", op: "eq", v: "active" }, { limit: 2000 });
   let made = 0;
-  for (const p of plans) {
-    const dues = dueOccurrences({ next_due: String(p.next_due), every_n: Number(p.every_n ?? 1), interval_unit: String(p.interval_unit ?? "month"), lead_days: Number(p.lead_days ?? 7), horizon: Number(p.horizon ?? 1) }, today);
+  const duesOf = (p: Row) => dueOccurrences({ next_due: String(p.next_due), every_n: Number(p.every_n ?? 1), interval_unit: String(p.interval_unit ?? "month"), lead_days: Number(p.lead_days ?? 7), horizon: Number(p.horizon ?? 1) }, today);
+  for (const listed of plans) {
+    if (!duesOf(listed).length) continue;
+    // a plan with work due is locked and read again (in id order, as listed): the sweep and «اجرای برنامه‌ها» by hand at
+    // once take turns per plan, and the second sees what the first generated — one work order per plan and due date
+    const p = await lockedRow(tx, sys, "maintenance_plan", listed.id);
+    if (!p || p.status !== "active") continue;
+    const dues = duesOf(p);
     if (!dues.length) continue;
     for (const due of dues) {
       if (p.last_generated_due && String(p.last_generated_due) >= due) continue;

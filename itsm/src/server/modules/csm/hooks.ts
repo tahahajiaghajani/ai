@@ -14,10 +14,11 @@ import { customerStatusOf, crossedWarning, resolveEntitlement, sentimentOf, unit
 import { ACCOUNT_CHILD_TABLES, ENTITLEMENT_STATES, NOTICE_STATES } from "@shared/tables/csm";
 import Decimal from "decimal.js";
 import type { Ctx } from "../../context";
-import type { Tx } from "../../db";
+import { lockKey, type Tx } from "../../db";
 import { addJournalIn, createIn, emitEvent, isSystemCtx, onBeforeCommit, pushGuard, registerHooks, updateIn, validationError, type PushArgs, type WriteArgs } from "../../engine";
 import { tableDef } from "@shared/tables";
 import { forbidden } from "../../http/errors";
+import { lockedRow } from "../incident/common";
 import { contactsOfUser, countRows, csmConfig, ids, isUuid, liveRow, liveRows, sysOf, todayUtc, worksCsm, type Row } from "./common";
 
 // ----- who defines customers ------------------------------------------------------------------------------------------
@@ -55,6 +56,8 @@ async function accountBefore(w: WriteArgs): Promise<void> {
   const { tx, ctx, next, op } = w;
   if (op === "delete" || !isUuid(next.parent_id)) return;
   const sys = sysOf(ctx);
+  // re-parenting takes the accounts' tree key: two crossing moves at once never make a loop
+  if (op !== "create" && w.changed.has("parent_id")) await lockKey(tx, `customer_account.tree:${ctx.org.id}`);
   let cur: unknown = next.parent_id;
   for (let i = 0; i < 50 && isUuid(cur); i++) {
     if (String(cur) === String(next.id)) throw validationError({ parent_id: "حساب نمی‌تواند زیرمجموعهٔ خودش باشد" });
@@ -79,30 +82,72 @@ async function accountAfter(w: WriteArgs & { row: Row }): Promise<void> {
     const unit = await liveRow(tx, sys, "org_unit", row.org_unit_id);
     if (unit && unit.kind === "company") await updateIn(tx, sys, "org_unit", String(unit.id), { name: String(row.name).slice(0, 120) }, { trusted: true });
   }
-  if (op === "update" && w.changed.has("support_group_id")) {
-    for (const t of ACCOUNT_CHILD_TABLES) {
-      const field = t === "entitlement_ledger" ? null : "account_id";
-      if (!field) continue;
-      for (const r of await liveRows(tx, sys, t, { f: field, op: "eq", v: row.id }, { limit: 5000 })) {
-        await updateIn(tx, sys, t, String(r.id), { support_group_id: row.support_group_id ?? null }, { trusted: true, keepVersion: true });
-      }
-    }
-  }
+  if (op === "update" && w.changed.has("support_group_id")) groupsAtCommit(tx, ctx, String(row.id), { all: true });
 }
 
-/** The support group a row of an account copies (through its entitlement for ledger rows). */
-async function supportGroupOf(tx: Tx, ctx: Ctx, table: string, next: Row): Promise<string | null> {
+/** Rows of accounts whose support group copy is put in step at commit, per account (see `groupsAtCommit`). */
+const groupWork = new WeakMap<Tx, Map<string, { all: boolean; rows: { table: string; id: string }[] }>>();
+
+/**
+ * Put the support group copies of an account's rows in step at commit, under the account's key: queued by a change of
+ * the account's group (every row of the account) and by a new or moved row (that row). Whichever of two such writes
+ * commits second re-reads the account and the rows after the other, so a row made while the account's group changes
+ * never keeps the old group (the team that no longer supports the customer).
+ */
+function groupsAtCommit(tx: Tx, ctx: Ctx, accountId: string, add: { all?: boolean; table?: string; id?: string }): void {
+  if (!isUuid(accountId)) return;
+  let byAccount = groupWork.get(tx);
+  if (!byAccount) groupWork.set(tx, (byAccount = new Map()));
+  let work = byAccount.get(accountId);
+  if (!work) byAccount.set(accountId, (work = { all: false, rows: [] }));
+  if (add.all) work.all = true;
+  if (add.table && isUuid(add.id)) work.rows.push({ table: add.table, id: String(add.id) });
+  onBeforeCommit(tx, `csm.account_group:${accountId}`, async () => {
+    const todo = groupWork.get(tx)?.get(accountId);
+    groupWork.get(tx)?.delete(accountId);
+    if (!todo) return;
+    const sys = sysOf(ctx);
+    const acc = await liveRow(tx, sys, "customer_account", accountId);
+    if (!acc) return;
+    const group = (acc.support_group_id as string) ?? null;
+    const fix = async (t: string, r: Row | null) => {
+      if (r && ((r.support_group_id as string) ?? null) !== group) await updateIn(tx, sys, t, String(r.id), { support_group_id: group }, { trusted: true, keepVersion: true });
+    };
+    if (todo.all) {
+      for (const t of ACCOUNT_CHILD_TABLES) {
+        if (t === "entitlement_ledger") continue;
+        for (const r of await liveRows(tx, sys, t, { f: "account_id", op: "eq", v: accountId }, { limit: 5000 })) await fix(t, r);
+      }
+    } else {
+      for (const x of todo.rows) await fix(x.table, await liveRow(tx, sys, x.table, x.id));
+    }
+  });
+}
+
+/** The account a row belongs to (through its entitlement for ledger rows, its case for an escalation without one). */
+async function accountOf(tx: Tx, ctx: Ctx, table: string, next: Row): Promise<string | null> {
   const sys = sysOf(ctx);
   let accountId: unknown = next.account_id;
   if (table === "entitlement_ledger") accountId = (await liveRow(tx, sys, "entitlement", next.entitlement_id))?.account_id;
   if (table === "case_escalation" && !isUuid(accountId) && isUuid(next.case_id)) accountId = (await liveRow(tx, sys, "customer_case", next.case_id))?.account_id;
-  const acc = isUuid(accountId) ? await liveRow(tx, sys, "customer_account", accountId) : null;
+  return isUuid(accountId) ? String(accountId) : null;
+}
+
+/** The support group a row of an account copies (through its entitlement for ledger rows). */
+async function supportGroupOf(tx: Tx, ctx: Ctx, table: string, next: Row): Promise<string | null> {
+  const accountId = await accountOf(tx, ctx, table, next);
+  const acc = accountId ? await liveRow(tx, sysOf(ctx), "customer_account", accountId) : null;
   return (acc?.support_group_id as string) ?? null;
 }
 
 async function childBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete") return;
   w.next.support_group_id = await supportGroupOf(w.tx, w.ctx, w.def.key, w.next);
+  // a new row (or one moved to another account) is checked again at commit, after a change of the account's group
+  if (w.op === "create" || w.changed.has("account_id") || w.changed.has("entitlement_id") || w.changed.has("case_id")) {
+    const accountId = await accountOf(w.tx, w.ctx, w.def.key, w.next);
+    if (accountId) groupsAtCommit(w.tx, w.ctx, accountId, { table: w.def.key, id: String(w.next.id) });
+  }
 }
 
 // ----- contacts ------------------------------------------------------------------------------------------------------
@@ -118,6 +163,7 @@ async function contactBefore(w: WriteArgs): Promise<void> {
   }
   if (!isUuid(next.account_id)) throw validationError({ account_id: "حساب مخاطب را مشخص کنید (یا دامنهٔ رایانامهٔ او را برای حسابی ثبت کنید)" });
   next.support_group_id = await supportGroupOf(tx, ctx, "customer_contact", next);
+  if (op === "create" || w.changed.has("account_id")) groupsAtCommit(tx, ctx, String(next.account_id), { table: "customer_contact", id: String(next.id) });
 }
 
 async function contactAfter(w: WriteArgs & { row: Row }): Promise<void> {
@@ -210,11 +256,15 @@ async function caseAccountGuard(w: WriteArgs): Promise<void> {
   if (!mine.has(String(next.account_id).toLowerCase())) throw forbidden("پرونده را فقط برای حساب خودتان ثبت می‌کنید");
 }
 
-/** Consume the case's units once, when it closes; warn the relationship manager when the threshold is crossed. */
+/**
+ * Consume the case's units once, when it closes; warn the relationship manager when the threshold is crossed. The
+ * entitlement is locked before its units are read: two cases of one entitlement closing at once take turns, and the
+ * second adds its units to what the first left (its ledger balance follows), never to the same old total.
+ */
 async function consumeUnits(tx: Tx, ctx: Ctx, row: Row): Promise<void> {
   if (row.units_charged !== null && row.units_charged !== undefined) return;
   const sys = sysOf(ctx);
-  const ent = isUuid(row.entitlement_id) ? await liveRow(tx, sys, "entitlement", row.entitlement_id) : null;
+  const ent = isUuid(row.entitlement_id) ? await lockedRow(tx, sys, "entitlement", row.entitlement_id) : null;
   if (!ent || !ent.unit_type || ent.unit_type === "none") return;
   const units = unitsFor(String(ent.unit_type), Number(row.time_worked ?? 0));
   const usedBefore = new Decimal(String(ent.units_used ?? 0) || 0);

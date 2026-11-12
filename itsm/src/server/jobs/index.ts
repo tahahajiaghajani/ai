@@ -13,6 +13,7 @@
 // Vercel cron) and daily by Vercel cron as a last resort.
 // Handlers never run inside a transaction: they open their own (`db.tx`) and may call external services.
 import type { Db, Queryable } from "../db";
+import { retryTransient } from "../db";
 import type { Logger, ServerConfig } from "../context";
 import { uuidv7 } from "@shared/id";
 import { withLockLabel } from "../db/lockprobe";
@@ -368,8 +369,19 @@ async function runOne(cfg: JobConfig, job: Job, deadline: number): Promise<boole
   try {
     if (!handler) throw new Error(`no handler for job kind "${job.kind}"`);
     // the write-lock probe of measurement runs labels the locks a job takes with its kind (a no-op otherwise); a demo
-    // job's writes are demo data (src/server/db/scope.ts), any other job's are not
-    const r = await inDemoScope(job.demo && job.org_id ? job.org_id : null, () => withLockLabel(`job ${job.kind}`, () => handler(job, jctx)));
+    // job's writes are demo data (src/server/db/scope.ts), any other job's are not.
+    // A deadlock or a serialization failure rolled the handler's transaction back (writes of one organisation run side
+    // by side): it runs again at once, a few times, before it counts as a failed attempt (handlers are retried anyway).
+    // A run again starts from the progress the job committed — the payload as stored (`saveIn` writes it inside the
+    // handler's own transactions), exactly what a later attempt would read
+    let runs = 0;
+    const r = await retryTransient(async () => {
+      if (runs++ > 0) {
+        const stored = await db.one<{ payload: Record<string, any> }>(`select payload from sm_jobs where id = $1`, [job.id]);
+        if (stored) job.payload = stored.payload;
+      }
+      return inDemoScope(job.demo && job.org_id ? job.org_id : null, () => withLockLabel(`job ${job.kind}`, () => handler!(job, jctx)));
+    }, 4);
     if (r && typeof r.again === "number") await finish(db, job, "queued", { runInMs: r.again, keepAttempt: true });
     else await finish(db, job, "done");
     return true;

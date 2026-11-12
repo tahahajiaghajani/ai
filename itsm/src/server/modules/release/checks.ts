@@ -16,6 +16,7 @@ import { condEnv, createIn, orgSchema, orgTz, updateIn } from "../../engine";
 import { occurrencesBetween } from "../change";
 import { DAY_MS } from "@shared/release/logic";
 import { eqAll, faList, ids, isUuid, liveRow, liveRows, msOf, sysOf, type Row } from "./common";
+import { lockedRow } from "../incident/common";
 
 const AUTHORIZED = ["scheduled", "implement", "review", "closed"];
 const NON_PROD = ["test", "uat", "staging"];
@@ -176,9 +177,15 @@ export async function evaluateChecksIn(tx: Tx, ctx: Ctx, releaseId: string): Pro
   const library = new Map((await liveRows(tx, sys, "release_check", null)).map((c) => [String(c.id), c]));
   const now = new Date().toISOString();
   const out: Row[] = [];
-  for (const r of results) {
-    const rule = String(r.rule ?? library.get(String(r.check_id))?.rule ?? "manual");
-    if (r.status === "waived" || rule === "manual" || !CHECK_RULES.some((o) => o.value === rule)) {
+  for (const listed of results) {
+    const rule = String(listed.rule ?? library.get(String(listed.check_id))?.rule ?? "manual");
+    if (listed.status === "waived" || rule === "manual" || !CHECK_RULES.some((o) => o.value === rule)) {
+      out.push(listed);
+      continue;
+    }
+    // the result locked and read again before it is evaluated: a waiver recorded at this moment stays
+    const r = (await lockedRow(tx, sys, "release_check_result", listed.id)) ?? listed;
+    if (r.status === "waived") {
       out.push(r);
       continue;
     }

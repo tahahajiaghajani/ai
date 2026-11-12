@@ -178,3 +178,8 @@ export function rateLimit(key: string, limit: number, windowMs: number) {
 export function limitByIp(c: C, name: string, limit: number, windowMs: number) {
   rateLimit(`${name}:${clientIp(c)}`, limit, windowMs);
 }
+
+/** Forget every window of the limiter (tests that build several organisations in one process). */
+export function resetRateBuckets(): void {
+  buckets.clear();
+}

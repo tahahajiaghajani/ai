@@ -1,10 +1,11 @@
 // /api/sync — the cloud side of desktop synchronisation.
 //
 // push: the desktop sends aggregates it changed (with the revision it last saw). Each one is
-//       applied in the organisation's write lock; when the cloud copy changed since and is newer,
-//       the cloud wins ("conflict") and the desktop receives it with the next pull.
-// pull: everything of the organisation with a revision above the desktop's cursor, a window at
-//       a time. Revisions are handed out in commit order, so a cursor never skips a row.
+//       applied in one write transaction; when the cloud copy changed since (another revision) and
+//       is newer, the cloud wins ("conflict") and the desktop receives it with the next pull.
+// pull: everything of the organisation written after the desktop's cursor — a snapshot, not a
+//       number: revisions are transaction ids, in no particular order (src/server/sync/snapshot.ts) —
+//       a page at a time in (revision, id) order.
 // Record engine rows are checked and filtered by the engine (src/server/engine/sync.ts): pushes by the access
 // provider and the engine's values, pulls by what the linked account may read — rows it may no longer read go out
 // as tombstones, and a member whose scope epoch moved is told to read everything again (`reset`).
@@ -13,19 +14,24 @@ import { router, body, requireUser, type C } from "../http/hono";
 import { guardOrgSession } from "../auth/policy";
 import { bad, forbidden, notFound } from "../http/errors";
 import { makeCtx, lockOrg, type MemberRow, type OrgRow, type Ctx } from "../context";
-import type { Tx } from "../db";
-import { AGGREGATES, BY_ENTITY, type WireAggregate } from "../sync/registry";
+import { isTransientDbError, pgArray, type Tx } from "../db";
+import { AGGREGATES, BY_ENTITY, type AggregateDef, type WireAggregate } from "../sync/registry";
 import { readAggregates, writeAggregate } from "../sync/apply";
 import { ident } from "../db/sql";
 import { orgStatus, statusError } from "../modules/platform/org-admin";
-import { CREATED_HERE_SQL, memberChangeProblem, OWNER_ONLY_MESSAGE, sameGrant, type MemberGrant } from "../modules/platform/members";
+import { CREATED_HERE_SQL, lockActiveOwners, memberChangeProblem, OWNER_ONLY_MESSAGE, sameGrant, type MemberGrant } from "../modules/platform/members";
 import { requestMeta, securityEvent, type SecurityEventInput } from "../modules/platform/security";
 import type { Area, Level, Role } from "@shared/permissions";
 import { SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
 import { inDemoScope } from "../db/scope";
 import { demoSignInRefusal } from "../modules/demo/signin";
-import { afterEnginePush, checkEnginePush, pullEngine, replicaRows, scopeEpoch } from "../engine/sync";
+import { afterEnginePush, checkEnginePush, replicaRows, scopeEpoch } from "../engine/sync";
+import { condEnv, orgSchema } from "../engine";
+import {
+  afterSql, afterText, checkXidRegression, compareKey, currentSnap, deltaSql, orgSyncState, parseAfter, parseSnap, snapText, visibleIn,
+  type After,
+} from "../sync/snapshot";
 
 type StoredMember = MemberGrant & { is_active: boolean; deleted_at: string | null };
 
@@ -51,7 +57,10 @@ export const pushRules = new Map<string, (tx: Tx, ctx: Ctx, agg: WireAggregate, 
 export const syncRoutes = router();
 syncRoutes.use("*", requireUser);
 
-const WINDOW = 1000;
+/** Rows per pull page (all synced tables and accounts together). */
+export const PULL_PAGE = 1000;
+/** Tables read by one statement of a pull page (each holds its tables' locks only while it runs). */
+const SOURCES_PER_STATEMENT = 24;
 
 async function orgCtx(c: C, orgId: string): Promise<Ctx> {
   const cfg = c.get("cfg");
@@ -75,8 +84,7 @@ async function orgCtx(c: C, orgId: string): Promise<Ctx> {
 
 syncRoutes.get("/status", async (c) => {
   const ctx = await orgCtx(c, c.req.query("org_id") ?? "");
-  const head = await ctx.db.one<{ rev: number }>(`select rev from sm_org_sync where org_id = $1`, [ctx.org.id]);
-  return c.json({ protocol: SYNC_PROTOCOL, head: head?.rev ?? 0, server_time: new Date().toISOString() });
+  return c.json({ protocol: SYNC_PROTOCOL, head: snapText(await currentSnap(ctx.db)), server_time: new Date().toISOString() });
 });
 
 syncRoutes.post("/register", async (c) => {
@@ -132,9 +140,16 @@ const pushSchema = z.object({
   })).max(500),
 });
 
+/**
+ * A Windows app of another sync protocol is told to update — on push and on pull alike, before anything is read or
+ * written. Protocol 16 changed the pull's wire format (snapshot cursors): a 1.1.0-beta app (protocol 15, which sends no
+ * protocol with its pulls and numeric cursors) would misread its pages, so it gets this answer instead of any page.
+ */
+const OUTDATED = "نسخه‌ی برنامه‌ی ویندوز با سرور هم‌خوان نیست؛ برنامه را به‌روز کنید";
+
 syncRoutes.post("/push", async (c) => {
   const input = await body(c, pushSchema);
-  if (input.protocol !== SYNC_PROTOCOL) throw bad("نسخه‌ی برنامه‌ی ویندوز با سرور هم‌خوان نیست؛ برنامه را به‌روز کنید");
+  if (input.protocol !== SYNC_PROTOCOL) throw bad(OUTDATED);
   const ctx = await orgCtx(c, input.org_id);
   // a demo person's push is demo work (docs/DEMO_FA.md): recorded with the pack and removed with it
   if (ctx.user.prefs?.demo_org === ctx.org.id) return inDemoScope(ctx.org.id, () => pushAs(c, input, ctx));
@@ -179,12 +194,17 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
           continue;
         }
       }
-      const existing = await tx.one<{ org_id: string; rev: number; updated_at: string }>(`select org_id, rev, updated_at from ${ident(def.table)} where id = $1`, [agg.id]);
+      // locked until the push commits (the upsert below locks it anyway, this only takes the lock earlier): a web write of
+      // the same row in flight finishes first, so the stale check, the module's rules and the write all judge the
+      // version this push replaces — never a copy that a concurrent write is about to change (lost as «ok»)
+      const existing = await tx.one<{ org_id: string; rev: number; updated_at: string }>(`select org_id, rev, updated_at from ${ident(def.table)} where id = $1 for update`, [agg.id]);
       if (existing && existing.org_id !== ctx.org.id) {
         results.push({ entity: agg.entity, id: agg.id, status: "error", message: "شناسه متعلق به سازمان دیگری است" });
         continue;
       }
-      if (existing && existing.rev > agg.base_rev && new Date(existing.updated_at).getTime() > new Date(String(agg.row.updated_at ?? 0)).getTime()) {
+      // changed since the Windows app read it: another revision (transaction ids are not in commit order, so a
+      // newer copy may carry a smaller one — only equality says "unchanged")
+      if (existing && Number(existing.rev) !== Number(agg.base_rev) && new Date(existing.updated_at).getTime() > new Date(String(agg.row.updated_at ?? 0)).getTime()) {
         // the cloud copy wins; hand it back, since the desktop may already have pulled past it.
         // Checked before the members' rules: an outdated row is not written, so it is not judged
         // either (refusing it would leave the desktop with its outdated copy for good). An engine
@@ -240,11 +260,10 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
           continue;
         }
         if (wasLive && was!.role === "owner" && (!next.live || next.role !== "owner")) {
-          const others = await tx.one<{ n: number }>(
-            `select count(*)::int as n from sm_org_members where org_id = $1 and id <> $2 and role = 'owner' and is_active and deleted_at is null`,
-            [ctx.org.id, agg.id],
-          );
-          if (!others?.n) {
+          // the active owners locked (id order, as the members page does): a demotion of another owner in flight
+          // finishes first and is not counted, so two of them never leave the organisation without an owner
+          const owners = await lockActiveOwners(tx, ctx.org.id);
+          if (!owners.some((id) => id !== agg.id)) {
             results.push({ entity: agg.entity, id: agg.id, status: "error", message: "سازمان باید دست‌کم یک مالک فعال داشته باشد" });
             continue;
           }
@@ -258,6 +277,8 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
         results.push({ entity: agg.entity, id: agg.id, status: "ok", rev: now?.rev, renumbered: r.renumbered });
         if (memberChange) memberEvents.push(memberEvent(memberChange.was, memberChange.next));
       } catch (e) {
+        // a deadlock or serialization failure aborted the whole push: it is answered 503 and the app pushes again
+        if (isTransientDbError(e)) throw e;
         results.push({ entity: agg.entity, id: agg.id, status: "error", message: String((e as Error).message ?? e).slice(0, 300) });
       }
     }
@@ -268,81 +289,187 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
     await securityEvent(ctx.db, event);
   }
   await ctx.db.query(`update sm_devices set last_push_at = now() where id = $1 and org_id = $2 and user_id = $3`, [input.device_id, ctx.org.id, ctx.user.id]);
-  const head = await ctx.db.one<{ rev: number }>(`select rev from sm_org_sync where org_id = $1`, [ctx.org.id]);
-  return c.json({ results, head: head?.rev ?? 0 });
+  return c.json({ results, head: snapText(await currentSnap(ctx.db)) });
 }
 
+const BAD_CURSOR = "نشانگر همگام‌سازی معتبر نیست؛ همگام‌سازی از آغاز انجام می‌شود";
+
+/** What one pull page reads: the synced aggregates, then the members' accounts (index of the last source). */
+type Source = { def: AggregateDef } | { users: true };
+
+/**
+ * One page of a pull (docs/spec/ENGINE.md §13). A pull session reads the delta between the snapshot of the Windows
+ * app's last complete pull (`since`; none: everything) and the session's own snapshot (`snap`, taken by its first page),
+ * in (revision, id) order a page at a time (`after`). Every statement keeps to that window, so a row written again
+ * after `snap` is left to the next session (its new revision is not visible in `snap`), never sent twice or half-changed.
+ */
 syncRoutes.get("/pull", async (c) => {
-  const q = c.req.query();
-  const ctx = await orgCtx(c, q.org_id ?? "");
-  const cursor = Math.max(0, Number(q.cursor ?? 0) || 0);
-  const userCursor = Math.max(0, Number(q.user_cursor ?? 0) || 0);
-  const head = (await ctx.db.one<{ rev: number }>(`select rev from sm_org_sync where org_id = $1`, [ctx.org.id]))?.rev ?? 0;
-  // what this member may read changed since their Windows app last pulled: everything again from the start
-  const epoch = await scopeEpoch(ctx.db, ctx.org.id, ctx.user.id);
-  if (q.epoch !== undefined && Number(q.epoch) !== epoch && cursor > 0) {
-    return c.json({ aggregates: [], tombstones: [], users: [], cursor: 0, user_cursor: userCursor, head, has_more: true, reset: true, epoch });
+  const query = c.req.query();
+  // every pull names its protocol (apps before 16 send none): anything else is told to update, never served a page
+  if (Number(query.protocol) !== SYNC_PROTOCOL) throw bad(OUTDATED);
+  const ctx = await orgCtx(c, query.org_id ?? "");
+  const since = parseSnap(query.since);
+  const snapIn = parseSnap(query.snap);
+  const after = parseAfter(query.after);
+  const clientEpoch = query.epoch;
+  if ((query.since && !since) || (query.snap && !snapIn) || (query.after && !after)) throw bad(BAD_CURSOR);
+  const log = ctx.cfg.log;
+  // the database went back in transaction ids (restored into another cluster): every Windows app reads everything again
+  await checkXidRegression(ctx.db, { log: (m) => log.warn(m) }).catch(() => undefined);
+  const before = await currentSnap(ctx.db);
+  const regressed = [since, snapIn].some((s) => !!s && s.xmax > before.xmax);
+  if (regressed) {
+    // this app reads everything again; the database's high-water mark decides whether every organisation's epoch moves
+    // (once per regression — a bump per app would make every other app read everything again for each of them)
+    log.warn("sync cursor ahead of the database: reading everything again", { org: ctx.org.id, cursor: snapText((snapIn ?? since)!), next: before.xmax });
+    await checkXidRegression(ctx.db, { force: true, log: (m) => log.warn(m) }).catch(() => undefined);
   }
-  const upto = Math.min(cursor + WINDOW, head);
-  const aggregates: WireAggregate[] = [];
-  const tombstones: { entity: string; id: string }[] = [];
-  if (upto > cursor) {
-    for (const def of AGGREGATES) {
-      if (def.engine) {
-        const part = await pullEngine(ctx, def, cursor, upto);
-        aggregates.push(...part.aggregates);
-        tombstones.push(...part.tombstones);
+  // the access environment and the schema are read once for the page (cached on the context)
+  await condEnv(ctx);
+  await orgSchema(ctx);
+  const share = [ctx.org.id, ctx.user.id, ctx.can("users", "view"), false, ctx.can("users", "full"), ctx.member.role === "owner"];
+  const page = await (async () => {
+    const q = ctx.db;
+    const cur = await currentSnap(q);
+    const state = await orgSyncState(q, ctx.org.id);
+    const epoch = `${state.epoch}.${await scopeEpoch(q, ctx.org.id, ctx.user.id)}`;
+    const started = !!(since || snapIn || after);
+    // what this member may read changed, the database was restored, or tombstones this app never saw were removed
+    // for good: everything again from the start
+    // (purged tombstones are sequential archive batches: the newest one visible in the cursor means all of them were)
+    const missedPurge = !!since && state.purged > 0 && !visibleIn(state.purged, since);
+    if (started && (clientEpoch !== epoch || regressed || missedPurge)) {
+      return { reset: true as const, epoch, head: snapText(cur) };
+    }
+    const snap = snapIn ?? cur;
+    const sources: Source[] = [...AGGREGATES.map((def) => ({ def })), { users: true as const }];
+    // The page's candidates: the first PULL_PAGE rows of each source in the window after the position, in (rev, id)
+    // order. Short statements of SOURCES_PER_STATEMENT sources each (an index probe per table): every statement sees a
+    // newer snapshot than `snap`, and the window keeps only versions written by transactions visible in `snap` — a row
+    // written again since is left to the next session. No long transaction holding locks on every table.
+    const cands: (After & { src: number })[] = [];
+    for (let from = 0; from < sources.length; from += SOURCES_PER_STATEMENT) {
+      const params: unknown[] = [ctx.org.id];
+      const delta = deltaSql("t", since, snap, params);
+      const past = afterSql("t", after, params);
+      const branches = sources.slice(from, from + SOURCES_PER_STATEMENT).map((s, k) => {
+        const table = "users" in s ? "sm_users" : ident(s.def.table);
+        const owner = "users" in s ? `t.id in (select user_id from sm_org_members where org_id = $1)` : `${s.def.table === "sm_orgs" ? "t.id" : "t.org_id"} = $1`;
+        return `(select ${from + k}::int as src, t.rev, t.id from ${table} t where ${owner} and ${delta} and ${past} order by t.rev, t.id limit ${PULL_PAGE})`;
+      });
+      const found = await q.query<{ src: number; rev: number; id: string }>(branches.join("\nunion all\n"), params);
+      for (const r of found) cands.push({ src: Number(r.src), rev: Number(r.rev), id: String(r.id).toLowerCase() });
+    }
+    // a source that filled its PULL_PAGE may have more: the page never goes past its last row
+    let bound: After | null = null;
+    const perSource = new Map<number, (After & { src: number })[]>();
+    for (const c of cands) {
+      const list = perSource.get(c.src);
+      if (list) list.push(c);
+      else perSource.set(c.src, [c]);
+    }
+    for (const list of perSource.values()) {
+      if (list.length < PULL_PAGE) continue;
+      const last = list.reduce((m, x) => (compareKey(x, m) > 0 ? x : m));
+      if (!bound || compareKey(last, bound) < 0) bound = last;
+    }
+    // the page: the first PULL_PAGE rows in (rev, id) order, never past the last row of a source that had more
+    cands.sort(compareKey);
+    const within = bound ? cands.filter((x) => compareKey(x, bound!) <= 0) : cands;
+    const rows = within.slice(0, PULL_PAGE);
+    const more = within.length > rows.length || !!bound;
+    const aggregates: WireAggregate[] = [];
+    const tombstones: { entity: string; id: string }[] = [];
+    const bySource = new Map<number, string[]>();
+    for (const r of rows) {
+      const list = bySource.get(r.src);
+      if (list) list.push(r.id);
+      else bySource.set(r.src, [r.id]);
+    }
+    // the rows themselves, still inside the window (a version written since the candidates were read is not sent)
+    const windowOf = (alias: string, first: number) => {
+      const params: unknown[] = Array.from({ length: first - 1 });
+      const where = deltaSql(alias, since, snap, params);
+      return { where, params: params.slice(first - 1) };
+    };
+    let userIds: string[] = [];
+    for (const [i, ids] of bySource) {
+      const s = sources[i];
+      if ("users" in s) {
+        userIds = ids;
         continue;
       }
-      const ids = (await ctx.db.query<{ id: string }>(
-        `select id from ${ident(def.table)} where ${def.table === "sm_orgs" ? "id" : "org_id"} = $1 and rev > $2 and rev <= $3 order by rev`,
-        [ctx.org.id, cursor, upto],
-      )).map((r) => r.id);
-      if (ids.length) aggregates.push(...(await readAggregates(ctx.db, def, ids)));
+      if (s.def.engine) {
+        const w = windowOf("r", 3);
+        const stored = await q.query<Record<string, unknown>>(
+          `select * from ${ident(s.def.table)} r where r.id = any($1::uuid[]) and r.org_id = $2 and ${w.where}`,
+          [pgArray(ids), ctx.org.id, ...w.params],
+        );
+        const part = await replicaRows(q, ctx, s.def, stored);
+        aggregates.push(...part.aggregates);
+        tombstones.push(...part.tombstones);
+      } else aggregates.push(...(await readAggregates(q, s.def, ids, windowOf("r", 2))));
     }
+    // The members' accounts come along so that they can sign in on the desktop. A password hash
+    // only goes where the caller could set that password anyway — the rule of «reset password» on
+    // the members page: their own account; for a member who manages users, the accounts this
+    // organisation made that work for it alone (an owner's only to an owner; never a platform admin's).
+    // Anyone else signs in on that desktop through the cloud (`password_withheld`), and contact
+    // details of other members need the right to see users. Members in this page bring their account
+    // along even when the account itself did not change (an existing account added to the organisation later).
+    const joined = aggregates.filter((a) => a.entity === "member").map((a) => String(a.row.user_id ?? "")).filter((id) => /^[0-9a-f-]{36}$/i.test(id));
+    const wanted = [...new Set([...userIds, ...joined])];
+    const users = wanted.length
+      ? await q.query<Record<string, unknown>>(
+        `select ${USER_COLS} from sm_users u ${SHARE_JOIN}
+         where u.id = any($7::uuid[]) and u.id in (select user_id from sm_org_members where org_id = $1)`,
+        [...share, pgArray(wanted)],
+      )
+      : [];
+    const last = rows[rows.length - 1];
+    return {
+      reset: false as const,
+      epoch,
+      head: snapText(cur),
+      snap,
+      aggregates,
+      tombstones,
+      users,
+      more,
+      after: more && last ? { rev: last.rev, id: last.id } : null,
+    };
+  })();
+  if (page.reset) {
+    return c.json({ aggregates: [], tombstones: [], users: [], cursor: "", snap: null, after: null, head: page.head, has_more: true, reset: true, epoch: page.epoch });
   }
-  // The members' accounts come along so that they can sign in on the desktop. A password hash
-  // only goes where the caller could set that password anyway — the rule of «reset password» on
-  // the members page: their own account; for a member who manages users, the accounts this
-  // organisation made that work for it alone (an owner's only to an owner; never a platform admin's).
-  // Anyone else signs in on that desktop through the cloud (`password_withheld`), and contact
-  // details of other members need the right to see users.
-  const share = [ctx.org.id, ctx.user.id, ctx.can("users", "view"), false, ctx.can("users", "full"), ctx.member.role === "owner"];
-  const userCols = `u.id, u.email, u.full_name, case when u.id = $2 or $3::boolean then u.mobile end as mobile,
+  if (query.device_id && /^[0-9a-f-]{36}$/i.test(query.device_id)) {
+    await ctx.db.query(`update sm_devices set last_pull_at = now(), cursor = $2 where id = $1 and org_id = $3 and user_id = $4`, [
+      query.device_id,
+      page.more ? (since?.xmin ?? 0) : page.snap.xmin,
+      ctx.org.id,
+      ctx.user.id,
+    ]);
+  }
+  return c.json({
+    aggregates: page.aggregates,
+    tombstones: page.tombstones,
+    users: page.users,
+    // the cursor to keep: the session's snapshot once it is complete, the previous one until then
+    cursor: page.more ? (since ? snapText(since) : "") : snapText(page.snap),
+    snap: snapText(page.snap),
+    after: page.after ? afterText(page.after) : null,
+    // a session that started from nothing reads everything there is (the Windows app drops what it did not receive)
+    full: !since,
+    head: page.head,
+    has_more: page.more,
+    epoch: page.epoch,
+  });
+});
+
+const USER_COLS = `u.id, u.email, u.full_name, case when u.id = $2 or $3::boolean then u.mobile end as mobile,
     case when s.ok then u.password_hash end as password_hash, not s.ok as password_withheld,
     u.disabled, u.prefs, u.rev, u.created_at, u.updated_at`;
-  const shareJoin = `cross join lateral (select (u.id = $2 or $4::boolean or ($5::boolean and not u.is_platform_admin
+const SHARE_JOIN = `cross join lateral (select (u.id = $2 or $4::boolean or ($5::boolean and not u.is_platform_admin
       and ${CREATED_HERE_SQL("$1", "u.id")}
       and not exists (select 1 from sm_org_members o where o.user_id = u.id and o.org_id <> $1 and o.deleted_at is null)
       and ($6::boolean or not exists (select 1 from sm_org_members m where m.user_id = u.id and m.org_id = $1 and m.role = 'owner' and m.deleted_at is null)))) as ok) s`;
-  const users = await ctx.db.query<{ id: string; rev: number }>(
-    `select ${userCols} from sm_users u ${shareJoin}
-     where u.rev > $7 and u.id in (select user_id from sm_org_members where org_id = $1) order by u.rev limit 500`,
-    [...share, userCursor],
-  );
-  // members in this window bring their account along even when its revision is below the user
-  // cursor (an existing account added to the organisation later)
-  const joined = upto > cursor
-    ? await ctx.db.query<{ id: string; rev: number }>(
-      `select ${userCols} from sm_users u ${shareJoin}
-       where u.id in (select user_id from sm_org_members where org_id = $1 and rev > $7 and rev <= $8)`,
-      [...share, cursor, upto],
-    )
-    : [];
-  const userCursorNext = users.length ? Math.max(...users.map((u) => Number(u.rev))) : userCursor;
-  const seen = new Set(users.map((u) => u.id));
-  for (const u of joined) if (!seen.has(u.id)) users.push(u);
-  if (q.device_id && /^[0-9a-f-]{36}$/i.test(q.device_id)) {
-    await ctx.db.query(`update sm_devices set last_pull_at = now(), cursor = $2 where id = $1 and org_id = $3 and user_id = $4`, [q.device_id, upto, ctx.org.id, ctx.user.id]);
-  }
-  return c.json({
-    aggregates,
-    tombstones,
-    users,
-    cursor: upto,
-    user_cursor: userCursorNext,
-    head,
-    has_more: upto < head,
-    epoch,
-  });
-});

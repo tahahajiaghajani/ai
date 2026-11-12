@@ -1,12 +1,14 @@
-// The organisation's write lock (PERFORMANCE_FA.md «دور دوم»): a write takes it when it starts; a `late` write — and
-// `internal` bookkeeping — only right before its first write of a synced row (the engine's `ensureOrgLock`), so its
-// reads and preparation run without it, and bookkeeping in tables that are not synced takes no lock at all. Revisions
-// stay in commit order. The probe of measurement runs reports wait and hold per labelled transaction.
-import { describe, it, expect, beforeAll, afterEach } from "vitest";
+// Writes and the organisation's lock (PERFORMANCE_FA.md «دور دوم» and «دور سوم»). Since round 3 no write takes it:
+// sync revisions are the writing transaction's id. With `ITSM_SERIALIZE_WRITES` (the fallback, configureWriteSerialisation)
+// the round-2 behaviour holds: a write takes it when it starts; a `late` write — and `internal` bookkeeping — only right
+// before its first write of a synced row (the engine's `ensureOrgLock`), so its reads and preparation run without it,
+// and bookkeeping in tables that are not synced takes no lock at all. The probe of measurement runs reports wait and
+// hold per labelled transaction.
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { engineOrg, type EngineOrg } from "./engine-helpers";
 import { createIn, removeIn, systemCtx, transitionIn, updateIn } from "@server/engine";
 import { setLockProbe, withLockLabel, type LockSample } from "@server/db/lockprobe";
-import { admitWrite, type Ctx } from "@server/context";
+import { admitWrite, configureWriteSerialisation, type Ctx } from "@server/context";
 import type { Tx } from "@server/db";
 
 let e: EngineOrg;
@@ -35,7 +37,6 @@ async function transactions(fn: () => Promise<void>): Promise<string[][]> {
   return out;
 }
 const isLock = (q: string) => /^insert into sm_org_sync\b/i.test(q);
-const head = async () => Number((await e.db.one<{ rev: string }>(`select rev from sm_org_sync where org_id = $1`, [e.org]))!.rev);
 
 beforeAll(async () => {
   e = await engineOrg();
@@ -44,14 +45,42 @@ beforeAll(async () => {
 
 afterEach(() => setLockProbe(null));
 
-describe("the organisation's write lock", () => {
+describe("writes without the organisation's lock (the default)", () => {
+  it("take no lock — ordinary, late, internal updates, transitions and deletes alike", async () => {
+    const make = (d: string) => sys.write((t) => createIn(t, sys, "todo", { short_description: d, assigned_to: e.ownerId }));
+    const txs = await transactions(async () => {
+      const a = await make("بی قفل ۱");
+      await sys.write(async (t) => void (await updateIn(t, sys, "todo", String(a.id), { short_description: "بی قفل — تازه" })));
+      await sys.write(async (t) => void (await transitionIn(t, sys, "todo", String(a.id), "in_progress")), { internal: true });
+      await sys.write(async (t) => void (await createIn(t, sys, "todo", { short_description: "دیرهنگام" })), { late: true });
+      await sys.write(async (t) => void (await removeIn(t, sys, "todo", String(a.id))));
+    });
+    expect(txs.length).toBeGreaterThanOrEqual(5);
+    for (const tx of txs) expect(tx.filter(isLock)).toEqual([]);
+  });
+
+  it("stamps each row with the writing transaction's id", async () => {
+    const out = await sys.write(async (t) => {
+      const a = await createIn(t, sys, "todo", { short_description: "شناسهٔ تراکنش ۱" });
+      const b = await createIn(t, sys, "todo", { short_description: "شناسهٔ تراکنش ۲" });
+      const x = await t.one<{ x: string }>(`select pg_current_xact_id()::text as x`);
+      return { ids: [a.id, b.id], xid: Number(x!.x) };
+    });
+    const revs = (await e.db.query<{ rev: string }>(`select rev from sm_todos where id = any($1::uuid[])`, [`{${out.ids.join(",")}}`])).map((r) => Number(r.rev));
+    expect(revs).toEqual([out.xid, out.xid]);
+  });
+});
+
+describe("the organisation's write lock (ITSM_SERIALIZE_WRITES fallback)", () => {
+  beforeAll(() => void configureWriteSerialisation(true));
+  afterAll(() => void configureWriteSerialisation(false));
+
   it("is taken first by an ordinary write", async () => {
     const [tx] = await transactions(() => sys.write(async (t) => void (await createIn(t, sys, "todo", { short_description: "قفل از آغاز" }))));
     expect(isLock(tx[0])).toBe(true);
   });
 
   it("is taken by a late write only before its first synced row, after its reads", async () => {
-    const before = await head();
     const [tx] = await transactions(() =>
       sys.write(async (t) => {
         await t.query(`select count(*) from sm_todos where org_id = $1`, [e.org]);
@@ -65,9 +94,9 @@ describe("the organisation's write lock", () => {
     // the record's own insert follows the lock: the row and its revision are written under it
     expect(tx.slice(lock + 1).some((q) => /^insert into sm_todos\b/i.test(q))).toBe(true);
     expect(tx.slice(0, lock).some((q) => /^insert into sm_todos\b/i.test(q))).toBe(false);
-    // revisions continue the organisation's sequence
+    // both rows carry the transaction's id
     const revs = (await e.db.query<{ rev: string }>(`select rev from sm_todos where org_id = $1 and short_description in ('قفل دیرهنگام', 'دومی') order by rev`, [e.org])).map((r) => Number(r.rev));
-    expect(revs.every((r) => r > before)).toBe(true);
+    expect(new Set(revs).size).toBe(1);
   });
 
   // one order for every writer — the organisation's lock, then the record's row (`for update`): bookkeeping that

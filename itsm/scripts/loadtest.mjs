@@ -21,7 +21,7 @@
 //
 //   node scripts/loadtest.mjs --vus 200 --ramp 60 --duration 120 [--think 4000] [--label before] [--url http://127.0.0.1:3940/api]
 //        [--mix agents=0.7,requesters=0.25,heads=0.05] [--db postgres://postgres@127.0.0.1:55432/itsm] [--no-pulse] [--lock-stats]
-//        [--assign-weight 2] [--legacy-pulse]
+//        [--assign-weight 2] [--agent-weights note=40,state=20,assign=20] [--legacy-pulse]
 import postgres from "postgres";
 import { execFileSync } from "node:child_process";
 import { readFileSync, mkdirSync, writeFileSync, existsSync, readdirSync, rmSync } from "node:fs";
@@ -55,6 +55,13 @@ const LOCK_STATS = !!opts["lock-stats"];
 // --legacy-pulse: ask the pulse without a scope (the token only), as the shell did before scoped answers
 const LEGACY_PULSE = !!opts["legacy-pulse"];
 const ASSIGN_WEIGHT = Number(opts["assign-weight"] ?? 2);
+// what agents do, by weight; --agent-weights note=40,state=20,assign=20,open=10,queue=10 overrides any of them (a
+// write-heavy run measures one organisation's write throughput: PERFORMANCE_FA.md «دور سوم»)
+const AGENT_WEIGHTS = { queue: 30, open: 25, note: 10, state: 5, assign: ASSIGN_WEIGHT, search: 15, dashboard: 10, page_deep: 5 };
+for (const part of String(opts["agent-weights"] ?? "").split(",").filter(Boolean)) {
+  const [k, v] = part.split("=");
+  if (k in AGENT_WEIGHTS && Number.isFinite(Number(v))) AGENT_WEIGHTS[k] = Number(v);
+}
 const DB_URL = opts.db ?? "postgres://postgres@127.0.0.1:55432/itsm";
 const MIX = Object.fromEntries(String(opts.mix ?? "agents=0.7,requesters=0.25,heads=0.05").split(",").map((p) => p.split("=")).map(([k, v]) => [k, Number(v)]));
 const bank = JSON.parse(readFileSync(join(ROOT, ".perf", "bank.json"), "utf8"));
@@ -148,7 +155,7 @@ const BIG_GROUPS = [bank.groups.find((g) => g.kind === "l1")?.id, bank.groups.fi
 let assigned = 0;
 
 async function agentAct(vu) {
-  const kind = pickW({ queue: 30, open: 25, note: 10, state: 5, assign: ASSIGN_WEIGHT, search: 15, dashboard: 10, page_deep: 5 });
+  const kind = pickW(AGENT_WEIGHTS);
   if (kind === "queue" || (kind !== "search" && kind !== "dashboard" && !vu.rows?.length)) {
     const qd = pick(QUEUES.filter((x) => vu.kinds.some((k) => ["l1", "prov", "spec", "cab"].includes(k)) || !x.table.startsWith("incident") || x.filter === null || true));
     const url = `${O}/r/${qd.table}?size=50&sort=${encodeURIComponent(qd.sort)}${qd.filter ? `&filter=${enc(qd.filter)}` : ""}`;

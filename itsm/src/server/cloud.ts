@@ -116,8 +116,24 @@ function notConfigured(): Response {
   return json(503, { ok: false, error: { code: "not_configured", message: "پایگاه داده تنظیم نشده است: متغیر DATABASE_URL را در Vercel بگذارید (راهنما: docs/SETUP_FA.md)", details: null } });
 }
 
+/**
+ * A database moved by dump into another cluster (a Supabase project restored elsewhere) may hand out transaction ids
+ * below its stored revisions: what is ahead of them starts again — rows, the Windows apps' cursors, purge watermarks —
+ * before this instance answers its first pull (./sync/snapshot.ts; `migrate()` runs the same check where it runs). Every
+ * instance, whether or not it ran migration steps (AUTO_MIGRATE=false included); never fails the start.
+ */
+async function checkXids(d: Db): Promise<void> {
+  try {
+    const { checkXidRegression } = await import("./sync/snapshot");
+    await checkXidRegression(d, { force: true, restamp: true, log: (m) => consoleLogger.warn(m) });
+  } catch (e) {
+    consoleLogger.warn("xid check skipped", String((e as Error)?.message ?? e));
+  }
+}
+
 async function buildApp(d: Db, url: string): Promise<FetchApp> {
-  const { createApp } = await import("./app");
+  // the check runs while the app's modules load: no request of this instance reaches the app before it is done
+  const [{ createApp }] = await Promise.all([import("./app"), checkXids(d)]);
   const secret = process.env.APP_SECRET || createHash("sha256").update(`itsm:${url}`).digest("hex");
   return createApp({
     mode: "cloud",

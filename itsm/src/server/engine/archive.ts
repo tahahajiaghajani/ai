@@ -4,10 +4,12 @@
 // provider — lists and aggregates with `archived`, the record, its journal and history read-only — and searchable
 // (the stored search document moves with them).
 //
-// The job `engine.archive` (per organisation, nightly, small batches under the write lock) copies a batch into the
-// archive and leaves a tombstone in the hot table (`deleted_at`, a new sync revision), so Windows apps drop their copies;
-// tombstones of archived records are removed for good after 30 days. Display labels of archived records read
-// « (بایگانی)». Journal, history, links and attachments stay where they are (keyed by the record id).
+// The job `engine.archive` (per organisation, nightly, small batches, each one short transaction) copies a batch into
+// the archive and leaves a tombstone in the hot table (`deleted_at`, a new sync revision), so Windows apps drop their
+// copies; tombstones of archived records are removed for good after 30 days, and the organisation's purge watermark
+// (sm_org_sync.purged) remembers the newest revision removed: a Windows app whose cursor is older than it never saw
+// those tombstones and reads everything again (dropping what the server no longer has). Display labels of archived
+// records read « (بایگانی)». Journal, history, links and attachments stay where they are (keyed by the record id).
 import type { TableDef } from "@shared/model/types";
 import { physicalTables } from "@shared/tables";
 import type { Ctx, OrgRow } from "../context";
@@ -15,6 +17,7 @@ import { pgArray, type Queryable } from "../db";
 import { enqueue, registerJobHandler, type JobContext } from "../jobs";
 import { archivable, archiveTableOf } from "./ddl";
 import { systemCtx } from "./env";
+import { notePurged } from "../sync/snapshot";
 
 export interface ArchiveSettings {
   enabled: boolean;
@@ -23,7 +26,7 @@ export interface ArchiveSettings {
 }
 
 export const ARCHIVE_DEFAULT_YEARS = 3;
-/** Records moved per transaction (each batch holds the organisation's write lock briefly). */
+/** Records moved per transaction (each batch is one short write transaction). */
 export const ARCHIVE_BATCH = 500;
 /** Days a tombstone of an archived record stays in the hot table (Windows apps learn of it). */
 export const ARCHIVE_TOMBSTONE_DAYS = 30;
@@ -86,18 +89,29 @@ export async function archiveBatch(sys: Ctx, def: TableDef, years: number, limit
   });
 }
 
-/** Remove for good the tombstones of records archived more than ARCHIVE_TOMBSTONE_DAYS ago. Returns how many. */
+/**
+ * Remove for good the tombstones of records archived more than ARCHIVE_TOMBSTONE_DAYS ago, and raise the organisation's
+ * purge watermark to the newest revision removed (in the same transaction). Returns how many.
+ */
 export async function purgeArchived(sys: Ctx, def: TableDef, limit = 2000): Promise<number> {
   if (!archivable(def)) return 0;
-  const rows = await sys.db.query<{ id: string }>(
-    `delete from ${def.table} t where t.id in (
-       select a.id from ${archiveTableOf(def)} a join ${def.table} h on h.id = a.id
-       where a.org_id = $1 and a.archived_at < now() - make_interval(days => ${ARCHIVE_TOMBSTONE_DAYS}) and h.deleted_at is not null
-       limit ${Math.max(1, Math.trunc(limit))})
-     returning t.id`,
-    [sys.org.id],
-  );
-  return rows.length;
+  return sys.db.tx(async (tx) => {
+    // `t.deleted_at is not null` on the deleted row itself: a Windows app's push that restores a tombstone (live again,
+    // its archive copy removed) while this runs makes the delete wait for its row; PostgreSQL then re-checks only the
+    // conditions on `t` against the restored version — a condition only inside the subquery would not be re-checked
+    // and the live record would be removed for good. Rows another writer holds are skipped (purged next night).
+    const rows = await tx.query<{ id: string; rev: number }>(
+      `delete from ${def.table} t where t.deleted_at is not null and t.org_id = $1 and t.id in (
+         select a.id from ${archiveTableOf(def)} a join ${def.table} h on h.id = a.id
+         where a.org_id = $1 and a.archived_at < now() - make_interval(days => ${ARCHIVE_TOMBSTONE_DAYS}) and h.deleted_at is not null
+         limit ${Math.max(1, Math.trunc(limit))}
+         for update of h skip locked)
+       returning t.id, t.rev`,
+      [sys.org.id],
+    );
+    if (rows.length) await notePurged(tx, sys.org.id, Math.max(...rows.map((r) => Number(r.rev) || 0)));
+    return rows.length;
+  });
 }
 
 /** Milliseconds until the next 02:00 in the organisation's time zone (the nightly run). */

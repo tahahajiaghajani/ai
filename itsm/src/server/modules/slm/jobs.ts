@@ -13,6 +13,7 @@ import { zonedMidnight } from "@shared/model/jalali-buckets";
 import { createIn, emitEvent, onRecordEvent, orgTz, systemCtx, transitionIn, updateIn } from "../../engine";
 import { enqueue, registerJobHandler } from "../../jobs";
 import { actsHere } from "../notify";
+import { lockedRow } from "../incident/common";
 import { isUuid, liveRows, slmConfig, sysOf, todayOf, type Row } from "./common";
 import { agreementPeriod, storeMeasures } from "./measure";
 
@@ -78,9 +79,13 @@ export async function slmSweep(sys: Ctx, opts: { now?: number; deadline?: number
       out.more = true;
       break;
     }
-    const period = agreementPeriod(a, today);
-    const prev = agreementPeriod(a, addDays(period.start, -1));
+    const listed = a;
     await sys.write(async (tx) => {
+      // the agreement locked and read again (storeMeasures locks it first): two sweeps at once remind once and open
+      // one interval review per due date
+      const a = (await lockedRow(tx, sys, "service_agreement", String(listed.id))) ?? listed;
+      const period = agreementPeriod(a, today);
+      const prev = agreementPeriod(a, addDays(period.start, -1));
       await storeMeasures(tx, sys, String(a.id), { period, now });
       out.measured++;
       // close the previous period once (its rows become final, missed targets with tiers become credits), and any
