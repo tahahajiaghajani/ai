@@ -8,7 +8,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { request as httpRequest } from "node:http";
 import net from "node:net";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { brotliDecompressSync, gunzipSync } from "node:zlib";
@@ -37,7 +37,17 @@ import { backendExecArgv, supportsSystemCa } from "@shared/desktop/node-flags";
 import { adWorld, type AdWorld } from "./auth-ad-helpers";
 import { Client, quietLog, signupWithOrg } from "./helpers";
 
-const temp = () => mkdtempSync(join(tmpdir(), "itsm-srv-ad-"));
+/** Every folder this file makes (static sites, kariz.json folders), removed when the file ends: the temporary folder is shared. */
+const temps: string[] = [];
+const temp = () => {
+  const dir = mkdtempSync(join(tmpdir(), "itsm-srv-ad-"));
+  temps.push(dir);
+  return dir;
+};
+// after every suite's own afterAll (servers and databases closed first)
+afterAll(() => {
+  for (const dir of temps.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
 const log = { ...quietLog, debug() {} };
 
 /** The server edition's front over an API, served by Node like the worker does (nodeHandler). */
