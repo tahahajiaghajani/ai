@@ -139,6 +139,10 @@ async function signIn(email, password, persona = null) {
   if (persona) personaOf.set(ctx, persona);
   const page = await ctx.newPage();
   watch(page, email);
+  // the sign-in page shows the e-mail form until GET /api/auth/options answers, and the organisation's account once that
+  // answer says Active Directory sign-in is on: the form is chosen only after it (run 43180784825: a server busy right
+  // after the demo purge answered it after the address was typed, and the address went into «حساب سازمانی»)
+  const options = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/auth/options", { timeout: 60_000 }).catch(() => null);
   // measured: the sign-in page in a browser that has nothing cached yet, then the form to the first screen
   const t = Date.now();
   let status = 0;
@@ -167,6 +171,8 @@ async function signIn(email, password, persona = null) {
   // break-glass account, a member made by hand) picks «ایمیل و رمز عبور», as people do
   const local = page.getByText("ایمیل و رمز عبور", { exact: true });
   await page.locator('input[autocomplete="username"]').waitFor({ timeout: 30_000 });
+  const answer = await options;
+  if (answer && (await answer.json().catch(() => null))?.directory) await local.waitFor({ timeout: 30_000 });
   if (await local.count()) {
     if (!signIn.sawDirectory) {
       const first = await page.locator('input[autocomplete="username"]').getAttribute("placeholder");
