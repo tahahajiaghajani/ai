@@ -7,10 +7,15 @@
 // · Two workers ticking one connector on their own connections: one pass, one copy of every item and CI.
 // · Staging takes no organisation lock: a steady stamp of 25 000 items finishes while another transaction holds the
 //   lock, within the steady pass's target (§7.6: 25 000 unchanged items in ≤ 3 min).
-// DA1 part 2 adds the race (one CI per serial from two connectors) and the expression-index explain test.
+// · The race (§8.5, the D4 requirement): two connectors' first loads at once, reporting the same new serials, make one
+//   CI per serial — with writes lock-free (the identity locks of createOrUpdate) and with the organisation's lock.
+// · The identification indexes (§8.5, migration 0104): the reconciliation engine's own identification queries use them.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { configureWriteSerialisation, lockOrg } from "@server/context";
+import type { Queryable } from "@server/db";
 import { createIn, updateIn } from "@server/engine";
+import { identifyItem } from "@server/modules/cmdb/ire";
+import { classTree } from "@server/modules/cmdb/common";
 import { runPull } from "@server/modules/discovery/runner";
 import { stagePage } from "@server/modules/discovery/stage";
 import type { DiscoveredRecord } from "@shared/discovery/types";
@@ -141,4 +146,85 @@ describe.skipIf(!realPgAvailable())("discovery on a real PostgreSQL (design A §
       configureWriteSerialisation(false);
     }
   }, 900_000);
+
+  for (const serialised of [false, true]) {
+    it(`two connectors' first loads at once with the same serials make one CI per serial (${serialised ? "the organisation's lock" : "writes lock-free"})`, async () => {
+      configureWriteSerialisation(serialised);
+      try {
+        const from = serialised ? 2_300_000 : 2_200_000;
+        const a = await rest(240, from, { page_size: 40 });
+        const b = await rest(240, from, { page_size: 40 });
+        const load = async (c: Record<string, any>, worker: string) => {
+          for (let i = 0; i < 2000; i++) {
+            const r = await runPull(w.sys, String(c.id), { deadline: Date.now() + 2500 }, { worker, trigger: "manual" });
+            if (!r) return;
+            if ((r as { again: number }).again) await new Promise((res) => setTimeout(res, 10));
+          }
+        };
+        await Promise.all([load(a.c, `race-a-${from}`), load(b.c, `race-b-${from}`)]);
+        for (const c of [a.c, b.c]) expect(await w.one(`select state, failed from sm_discovery_runs where connector_id = $1 and lane = 'inventory'`, [c.id])).toEqual({ state: "completed", failed: 0 });
+        const serials = await w.one<{ n: number; d: number }>(
+          `select count(*)::int as n, count(distinct serial_number)::int as d from sm_cis where org_id = $1 and deleted_at is null and serial_number = any($2::text[])`,
+          [w.e.org, `{${makeDevices(240, { from }).map((d) => d.serial).join(",")}}`],
+        );
+        expect(serials).toEqual({ n: 240, d: 240 });
+        // both connectors' items link to the same CIs
+        const linked = await w.one<{ n: number; d: number }>(`select count(*)::int as n, count(distinct ci_id)::int as d from sm_discovery_items where connector_id = any($1::uuid[]) and state = 'linked'`, [`{${a.c.id},${b.c.id}}`]);
+        expect(linked).toEqual({ n: 480, d: 240 });
+      } finally {
+        configureWriteSerialisation(false);
+      }
+    }, 900_000);
+  }
+
+  it("the reconciliation engine's identification queries use the expression indexes (migration 0104)", async () => {
+    await w.q(
+      `insert into sm_cis (id, org_id, name, class, state, serial_number, asset_tag, bios_uuid, hostname, fqdn, mac_address)
+       select gen_random_uuid(), $1, 'IDX-' || g, 'server', 'operational', 'IDXSN' || g, 'IDXTAG' || g, 'IDX-UUID-' || g, 'idx-host-' || g, 'idx-host-' || g || '.bank.local',
+              '00:60:' || lpad(to_hex(g / 65536 % 256), 2, '0') || ':' || lpad(to_hex(g / 256 % 256), 2, '0') || ':' || lpad(to_hex(g % 256), 2, '0') || ':AA'
+       from generate_series(1, 4000) g`,
+      [w.e.org],
+    );
+    await w.q(`analyze sm_cis`);
+    const seen: { sql: string; params: unknown[] }[] = [];
+    const db = w.e.db;
+    const recording: Queryable = {
+      query: (sql, params) => (seen.push({ sql, params: params ?? [] }), db.query(sql, params)),
+      one: (sql, params) => (seen.push({ sql, params: params ?? [] }), db.one(sql, params)),
+      exec: (sql) => db.exec(sql),
+    };
+    const tree = await classTree(db, w.sys);
+    const indexes = (plan: unknown): string[] => {
+      const out: string[] = [];
+      const walk = (n: unknown) => {
+        if (Array.isArray(n)) n.forEach(walk);
+        else if (n && typeof n === "object") {
+          for (const [k, v] of Object.entries(n)) {
+            if (k === "Index Name" && typeof v === "string") out.push(v);
+            else walk(v);
+          }
+        }
+      };
+      walk(plan);
+      return out;
+    };
+    const cases: [string, Record<string, unknown>, string, string][] = [
+      ["server", { serial_number: "idxsn 1234" }, "sm_cis_ident_serial_idx", "idx-host-1234"],
+      ["server", { bios_uuid: "idx-uuid-77" }, "sm_cis_ident_bios_idx", "idx-host-77"],
+      ["server", { fqdn: "IDX-HOST-12.bank.local" }, "sm_cis_ident_fqdn_idx", "idx-host-12"],
+      ["server", { hostname: "IDX-HOST-99" }, "sm_cis_ident_host_idx", "idx-host-99"],
+      ["server", { mac_address: "00-60-00-00-2A-AA" }, "sm_cis_ident_mac_idx", "idx-host-42"],
+      ["hardware", { asset_tag: "idxtag5" }, "sm_cis_ident_tag_idx", "idx-host-5"],
+      ["ci", { name: "idx-3999" }, "sm_cis_ident_name_idx", "idx-host-3999"],
+    ];
+    for (const [cls, values, index, host] of cases) {
+      seen.length = 0;
+      const idf = await identifyItem(recording, w.sys, tree, { class: cls, values, attrs: {}, relations: [] });
+      expect(idf.match?.hostname, index).toBe(host);
+      const q = seen.filter((x) => /from sm_cis t where/.test(x.sql)).pop()!;
+      const [{ "QUERY PLAN": plan }] = await db.query<{ "QUERY PLAN": unknown }>(`explain (format json) ${q.sql}`, q.params);
+      expect(indexes(plan), index).toContain(index);
+    }
+  }, 600_000);
 });
+
