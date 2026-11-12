@@ -1,7 +1,8 @@
 // The API of the field library and the table overlays (design F §3.1, §3.3, §4.2, §6.1, package F1), behind
-// src/server/routes/fields.ts. Every write goes through the engine as the system with the person recorded as the actor
-// (`systemCtx(…, { onBehalfOf })`): the integrity hooks (hooks.ts, combinations.ts) hold on this path as on every
-// other, and history, events and sync see an ordinary write.
+// src/server/routes/fields.ts. Every write goes through the engine as the system acting for the person (`sysOf(ctx,
+// ctx.user.id)`: the person's own write, so a support session's change is audited as on every other path, with the
+// person recorded as the actor): the integrity hooks (hooks.ts, combinations.ts) hold on this path as on every other,
+// and history, events and sync see an ordinary write.
 //   · who: library fields and field types — `process_design` write or `settings` edit; overrides of built-in tables
 //     and attaching library fields — `settings` edit; lifecycle overlays — `settings` full; reading — `process_design`
 //     read or `settings` edit (lifecycles: `settings` view). `settings` is the membership level or the access model's
@@ -19,7 +20,8 @@ import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
 import { bad, conflict, forbidden, notFound } from "../../http/errors";
-import { createIn, orgSchema, removeIn, systemCtx, updateIn } from "../../engine";
+import { createIn, orgSchema, removeIn, updateIn } from "../../engine";
+import { sysOf } from "../admin/common";
 import type { Row } from "../../engine/hooks";
 import { SETTINGS_ENV, orgFieldTypes } from "./hooks";
 import { libraryUsage, type FieldUsage } from "./usage";
@@ -48,8 +50,11 @@ export async function needSettings(ctx: Ctx, level: SettingsLevel): Promise<void
   throw forbidden(level === "full" ? LIFECYCLE_REFUSAL : "این تنظیم دسترسی «تنظیمات سازمان» می‌خواهد");
 }
 
-/** The system, acting for the person: hooks hold, the person is the actor of history and events. */
-const actingFor = (ctx: Ctx) => systemCtx(ctx.cfg, ctx.org.id, { onBehalfOf: ctx.user.id });
+/**
+ * The system, acting for the person: hooks hold, the person is the actor of history and events, and the write is the
+ * person's own (`ctx.write`): a support session's change leaves its audit row, and a session that ended writes nothing.
+ */
+const actingFor = (ctx: Ctx) => sysOf(ctx, ctx.user.id);
 
 /** A built-in or studio table the organisation may tailor (404 otherwise). */
 function physical(key: string): TableDef {
@@ -132,7 +137,7 @@ export async function typeList(ctx: Ctx) {
 /** POST/PATCH of a library field or a field type (as the system, for the person). */
 export async function writeLibrary(ctx: Ctx, table: "field_def" | "field_type", id: string | null, data: Record<string, unknown>): Promise<Row> {
   await needDesignWrite(ctx);
-  const sys = await actingFor(ctx);
+  const sys = actingFor(ctx);
   return sys.write((tx) => (id ? updateIn(tx, sys, table, id, data) : createIn(tx, sys, table, data)));
 }
 
@@ -195,7 +200,7 @@ export async function attachField(ctx: Ctx, input: AttachInput): Promise<{ row: 
     section: input.section ?? null, required: input.required === true, required_for: input.required ? (input.required_for ?? "all") : null,
     form_hidden: input.form_hidden === true,
   };
-  const sys = await actingFor(ctx);
+  const sys = actingFor(ctx);
   const row = await sys.write(async (tx) => {
     const prior = await tx.one<{ id: string; active: boolean; library_id: string | null }>(
       `select id, active, library_id from sm_custom_fields where org_id = $1 and table_key = $2 and name = $3 and deleted_at is null`,
@@ -266,7 +271,7 @@ const blank = (v: unknown) => v === null || v === undefined || (typeof v === "st
 export async function saveSystemOverrides(ctx: Ctx, table: string, input: { fields?: Record<string, OverrideInput>; arrangement?: unknown }) {
   await needSettings(ctx, "edit");
   const base = physical(table);
-  const sys = await actingFor(ctx);
+  const sys = actingFor(ctx);
   const eff = (await orgSchema(sys)).def(base.key)!;
   await sys.write(async (tx) => {
     const rows = await overrideRows(tx, ctx.org.id, base.key);
@@ -366,7 +371,7 @@ export async function saveLifecycle(ctx: Ctx, table: string, overlay: LifecycleO
   await needSettings(ctx, "full");
   const base = physical(table);
   if (!base.states) throw bad(`«${base.plural}» چرخهٔ وضعیت ندارد`);
-  const sys = await actingFor(ctx);
+  const sys = actingFor(ctx);
   const empty = !overlay || ((!overlay.states || !Object.keys(overlay.states).length) && !overlay.transitions?.length);
   await sys.write(async (tx) => {
     const r = (await overrideRows(tx, ctx.org.id, base.key)).find((x) => x.name === STATES_ROW);

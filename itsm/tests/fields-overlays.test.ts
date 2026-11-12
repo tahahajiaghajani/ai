@@ -7,7 +7,7 @@
 // trusted code), locked options, and the access of F1's routes.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { engineOrg, upload, PNG, type EngineOrg } from "./engine-helpers";
-import type { Client } from "./helpers";
+import { Client, signupWithOrg } from "./helpers";
 import { CHOICE_LISTS, tableDef } from "@shared/tables";
 import { SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
@@ -384,5 +384,26 @@ describe("F1's routes", () => {
     await e.owner.patch(`${R}/custom_field/${row.id}`, { active: false });
     expect((await meta(e.owner)).states!.transitions.find((t) => t.to === "in_progress")!.also).toBeUndefined();
     await e.owner.put(`${P}/lifecycles/todo`, null);
+  });
+
+  it("write as the person: a support session's change is audited as support, and a view-only session changes nothing (F1-10)", async () => {
+    // another organisation, where the platform administrator (the first account) is not a member
+    const lead = new Client(e.app);
+    const org2 = await signupWithOrg(lead, { email: "lead-f1@example.com", name: "سازمان پشتیبانی‌شونده" });
+    const { session } = await e.owner.post(`/admin/orgs/${org2}/support`, { level: "edit", reason: "تنظیم چرخهٔ عمر به درخواست مالک", hours: 1 });
+    await e.owner.put(`/o/${org2}/lifecycles/todo`, { transitions: [{ key: "new,on_hold>in_progress", label: "آغاز کار" }] });
+    await e.owner.put(`/o/${org2}/forms/system/todo/overrides`, { fields: { description: { help: "شرح را کامل بنویسید" } } });
+    const audit = await e.db.query<{ action: string; actor_kind: string; summary: string }>(
+      `select action, actor_kind, summary from sm_audit where org_id = $1 and support_session_id = $2 and action <> 'support_start' order by at`,
+      [org2, session.id],
+    );
+    expect(audit.length).toBe(2);
+    expect(audit.every((r) => r.action === "support_write" && r.actor_kind === "support")).toBe(true);
+    // the change is the session's: once it ends, nothing more is written in its name
+    await e.owner.post(`/admin/support/${session.id}/end`);
+    const view = (await e.owner.post(`/admin/orgs/${org2}/support`, { level: "view", reason: "بررسی چرخهٔ عمر", hours: 1 })).session;
+    await e.owner.put(`/o/${org2}/lifecycles/todo`, null, 403);
+    expect((await lead.get(`/o/${org2}/lifecycles/todo`)).transitions.find((t: { to: string }) => t.to === "in_progress").label).toBe("آغاز کار");
+    await e.owner.post(`/admin/support/${view.id}/end`);
   });
 });
