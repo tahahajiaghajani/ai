@@ -90,9 +90,10 @@ let phase = "launch";
 
 let app = null;
 let page = null;
-/** Requests of the main window in flight; API requests finished (with the time the renderer saw). */
+/** Requests of the main window in flight; API requests finished (with the time the renderer saw); the page's own files. */
 const inflight = new Set();
 const apiLog = [];
+const staticLog = [];
 
 function watchPage(p, label) {
   p.on("console", (m) => {
@@ -110,10 +111,13 @@ function watchPage(p, label) {
     if (/^https?:/.test(r.url())) inflight.add(r);
   });
   const done = (r, failed) => {
-    if (!inflight.delete(r) || !r.url().includes("/api/")) return;
+    if (!inflight.delete(r)) return;
     const t = r.timing();
     const u = new URL(r.url());
-    apiLog.push({ phase, method: r.method(), path: u.pathname, ms: Math.max(0, Math.round(t.responseEnd > 0 ? t.responseEnd : -1)), failed });
+    const ms = Math.max(0, Math.round(t.responseEnd > 0 ? t.responseEnd : -1));
+    // the app's code, styles and fonts: from the window's cache or from the local server (which may be busy with jobs)
+    if (!u.pathname.startsWith("/api/")) staticLog.push({ phase, path: u.pathname, ms, failed });
+    else apiLog.push({ phase, method: r.method(), path: u.pathname, ms, failed });
   };
   p.on("requestfinished", (r) => done(r, false));
   p.on("requestfailed", (r) => done(r, true));
@@ -146,6 +150,20 @@ async function launch(label) {
   if (!page) throw new Error(`${label}: the main window did not open within 240 s`);
   const windowAt = Date.now() - t;
   return { t, launched, splashAt, windowAt };
+}
+
+/**
+ * When the main window is first on screen (ms from the launch): the splash hands over to it once the app has painted
+ * and its own «آماده است» has played, so this is what a person waits for — `interactive` is the page ready behind it.
+ */
+async function shownAt(t, ms = 240_000) {
+  const until = Date.now() + ms;
+  while (Date.now() < until && app) {
+    const on = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().some((w) => w.isVisible() && /^http:\/\/127\.0\.0\.1:\d+/.test(w.webContents.getURL()))).catch(() => false);
+    if (on) return Date.now() - t;
+    await sleep(50);
+  }
+  return null;
 }
 
 /** Waits until the window shows the app (no boot screen, no loader, text) — `expect` names what must be on screen. */
@@ -288,6 +306,7 @@ async function go(persona, name, path, { click } = {}) {
   phase = `${persona}:${name}`;
   const errorsBefore = consoleErrors.length;
   const apiBefore = apiLog.length;
+  const staticBefore = staticLog.length;
   const from = new URL(page.url()).pathname;
   const before = await page.evaluate((sels) => (sels.map((x) => document.querySelector(x)).find(Boolean)?.innerText ?? "").slice(0, 4000), MAIN).catch(() => "");
   const t = Date.now();
@@ -354,6 +373,7 @@ async function go(persona, name, path, { click } = {}) {
   const file = join(SHOTS, `${String(++shot).padStart(2, "0")}-${persona}-${name}.png`);
   await page.screenshot({ path: file }).catch(() => {});
   const calls = apiLog.slice(apiBefore).filter((r) => r.phase === phase);
+  const files = staticLog.slice(staticBefore).filter((r) => r.phase === phase);
   const entry = {
     persona,
     name,
@@ -365,6 +385,8 @@ async function go(persona, name, path, { click } = {}) {
     api_ms_total: calls.reduce((n, r) => n + r.ms, 0),
     api_ms_max: calls.reduce((n, r) => Math.max(n, r.ms), 0),
     api_4xx: known4xx.filter((x) => x.startsWith(phase)).length,
+    files: files.length,
+    files_ms_max: files.reduce((n, r) => Math.max(n, r.ms), 0),
     shot: file.slice(OUT.length + 1),
   };
   report.pages.push(entry);
@@ -529,8 +551,9 @@ function markdown() {
   const L = [];
   L.push(`# برنامهٔ ویندوز «کاریز» — آزمون نصب‌شده (desktop-e2e)`, "");
   L.push(`- اجرا: ${report.started} · ${report.failures ? `**${report.failures} بررسی ناموفق**` : "همهٔ بررسی‌ها موفق"}`);
-  L.push(`- شروع سرد (نخستین اجرا پس از نصب تا صفحهٔ راه‌اندازی): **${report.starts.cold?.interactive_ms ?? "—"} ms** (پنجرهٔ اصلی ${report.starts.cold?.window_ms ?? "—"} ms)`);
-  L.push(`- شروع دوم (تا نخستین صفحه): **${report.starts.warm?.interactive_ms ?? "—"} ms**`);
+  const srv = (x) => (x ? ` · سرور محلی: پایگاه داده ${x.database_ms} ms${x.template ? " (از پایگاه دادهٔ آماده)" : ""}، مهاجرت‌ها ${x.migrations_ms} ms، آماده ${x.ready_ms} ms، فرایند ${x.process_ms} ms` : "");
+  L.push(`- شروع سرد (نخستین اجرا پس از نصب تا صفحهٔ راه‌اندازی): **${report.starts.cold?.interactive_ms ?? "—"} ms** (پنجرهٔ اصلی ${report.starts.cold?.window_ms ?? "—"} ms، روی صفحه ${report.starts.cold?.shown_ms ?? "—"} ms)${srv(report.starts.cold?.server)}`);
+  L.push(`- شروع دوم (تا نخستین صفحه): **${report.starts.warm?.interactive_ms ?? "—"} ms** (روی صفحه ${report.starts.warm?.shown_ms ?? "—"} ms)${srv(report.starts.warm?.server)}`);
   L.push(`- بستهٔ نمایشی «کوچک»: ${report.demo.state ?? "—"} در ${report.demo.seconds ?? "—"} s`);
   L.push(`- پایگاه داده پس از اجرا: پوشه ${report.database.folder_mb ?? "—"} MB، pg_wal ${report.database.pg_wal_mb ?? "—"} MB (${report.database.pg_wal_segments ?? "—"} قطعه)`);
   L.push(`- حافظه (اوج working set): سرور محلی و PGlite ${p.peak_mb?.server} MB، رندرر ${p.peak_mb?.renderer} MB، اصلی ${p.peak_mb?.main} MB، GPU ${p.peak_mb?.gpu} MB، جمع ${p.total_peak_mb} MB`);
@@ -540,8 +563,8 @@ function markdown() {
     if (!rows.length) continue;
     const s = report.api[persona] ?? {};
     L.push(`## ${persona === "admin" ? "مدیر" : "عضو"}`, "", `ناوبری: p50 ${s.nav_p50_ms} ms · p95 ${s.nav_p95_ms} ms · بیشینه ${s.nav_max_ms} ms — API: ${s.calls} فراخوانی، p50 ${s.api_p50_ms} ms · p95 ${s.api_p95_ms} ms`, "");
-    L.push(`| صفحه | مسیر | محتوا (ms) | آرام (ms) | API | زمان API (ms) |`, `|---|---|---:|---:|---:|---:|`);
-    for (const r of rows) L.push(`| ${r.name} | \`${r.path}\` | ${r.visible_ms ?? "—"} | ${r.settled_ms ?? "—"} | ${r.api_calls} | ${r.api_ms_total} |`);
+    L.push(`| صفحه | مسیر | محتوا (ms) | آرام (ms) | API | زمان API (ms) | فایل‌ها (بیشینه ms) |`, `|---|---|---:|---:|---:|---:|---:|`);
+    for (const r of rows) L.push(`| ${r.name} | \`${r.path}\` | ${r.visible_ms ?? "—"} | ${r.settled_ms ?? "—"} | ${r.api_calls} | ${r.api_ms_total} | ${r.files} (${r.files_ms_max}) |`);
     L.push("");
   }
   L.push(`## بودجه‌ها`, "", "| معیار | بودجه | اندازه |", "|---|---:|---:|");
@@ -587,6 +610,16 @@ function finish() {
     copyFileSync(logFile, join(OUT, "app.log"));
     const text = readFileSync(logFile, "utf8");
     report.database.checkpoints_logged = (text.match(/database checkpoint\b/g) ?? []).length;
+    // src/desktop/server.ts: «local server on … (database N ms[ from the template], migrations N ms, ready N ms, process N ms)»
+    const starts = [...text.matchAll(/local server on \S+ \(database (\d+) ms( from the template)?, migrations (\d+) ms, ready (\d+) ms, process (\d+) ms\)/g)].map((m) => ({
+      database_ms: Number(m[1]),
+      template: !!m[2],
+      migrations_ms: Number(m[3]),
+      ready_ms: Number(m[4]),
+      process_ms: Number(m[5]),
+    }));
+    if (starts.length && report.starts.cold) report.starts.cold.server = starts[0];
+    if (starts.length > 1 && report.starts.warm) report.starts.warm.server = starts.at(-1);
     report.database.log_prepared = (text.match(/database log prepared.*/g) ?? []).slice(-2);
   }
   // budgets
@@ -616,7 +649,7 @@ function finish() {
   report.seconds = Math.round((Date.now() - T0) / 1000);
   report.failures = C.failures;
   report.checks = C.items;
-  writeFileSync(join(OUT, "report.json"), JSON.stringify({ ...report, api_log: apiLog, samples }, null, 2));
+  writeFileSync(join(OUT, "report.json"), JSON.stringify({ ...report, api_log: apiLog, static_log: staticLog, samples }, null, 2));
   const md = markdown();
   writeFileSync(join(OUT, "report.md"), md);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${md}\n`);
@@ -646,8 +679,10 @@ async function scenario() {
   // 1. the first start after the installation
   phase = "cold-start";
   const cold = await launch("cold");
+  const coldShown = shownAt(cold.t);
   await interactive(page.getByRole("button", { name: "ادامه", exact: true }));
   report.starts.cold = { launch_ms: cold.launched, splash_ms: cold.splashAt, window_ms: cold.windowAt, interactive_ms: Date.now() - cold.t, url: new URL(page.url()).pathname };
+  report.starts.cold.shown_ms = await coldShown;
   await page.screenshot({ path: join(SHOTS, "00-first-start.png") }).catch(() => {});
   C.check(report.starts.cold.url === "/setup", "the first start opens the setup wizard", report.starts.cold.url);
   C.check(report.starts.cold.interactive_ms <= BUDGETS.cold_start_ms, `cold start to the first interactive screen ${report.starts.cold.interactive_ms} ms (budget ${BUDGETS.cold_start_ms})`);
@@ -674,8 +709,10 @@ async function scenario() {
   report.database.after_first = walOf(join(DATA, "db"));
   phase = "warm-start";
   const warm = await launch("warm");
+  const warmShown = shownAt(warm.t);
   await interactive(null);
   report.starts.warm = { launch_ms: warm.launched, splash_ms: warm.splashAt, window_ms: warm.windowAt, interactive_ms: Date.now() - warm.t, url: new URL(page.url()).pathname };
+  report.starts.warm.shown_ms = await warmShown;
   await page.screenshot({ path: join(SHOTS, "99-second-start.png") }).catch(() => {});
   C.check(report.starts.warm.interactive_ms <= BUDGETS.warm_start_ms, `a second start to the first screen ${report.starts.warm.interactive_ms} ms (budget ${BUDGETS.warm_start_ms})`, report.starts.warm.url);
   await closeApp("second");
