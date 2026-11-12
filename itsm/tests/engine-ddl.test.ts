@@ -83,6 +83,36 @@ describe("generated DDL", () => {
     await db.close();
   });
 
+  it("generates the extra indexes a definition declares (composite, partial, unique) and refuses bad ones", async () => {
+    const def = buildTable({
+      ...probe(),
+      indexes: [
+        { name: "flag_name_idx", cols: ["flag", "name desc"], where: "flag" },
+        { name: "one_open_uk", cols: ["labels"], where: "flag = true", unique: true },
+      ],
+    });
+    const sql = ddlFor(def);
+    expect(sql).toContain("create index if not exists sm_ddl_probes_flag_name_idx on sm_ddl_probes (org_id, flag, name desc) where deleted_at is null and (flag);");
+    expect(sql).toContain("create unique index if not exists sm_ddl_probes_one_open_uk on sm_ddl_probes (org_id, labels) where deleted_at is null and (flag = true);");
+    // the script is valid SQL and the partial unique index holds only where its predicate does
+    const db = await createPgliteDb({});
+    await migrate(db);
+    await db.exec(sql);
+    const org = (await db.one<{ id: string }>(`insert into sm_orgs (id, name) values (gen_random_uuid(), 'o') returning id`))!.id;
+    const add = (flag: boolean) => db.query(`insert into sm_ddl_probes (id, org_id, labels, flag) values (gen_random_uuid(), $1, '["a"]'::jsonb, $2)`, [org, flag]);
+    await add(true);
+    await add(false);
+    await add(false);
+    await expect(add(true)).rejects.toThrow();
+    await db.close();
+    const t = (indexes: TableDef["indexes"]) => () => buildTable({ ...probe(), indexes });
+    expect(t([{ name: "Bad", cols: ["name"] }])).toThrow(/index/);
+    expect(t([{ name: "x_idx", cols: [] }])).toThrow(/columns/);
+    expect(t([{ name: "x_idx", cols: ["missing"] }])).toThrow(/missing/);
+    expect(t([{ name: "x_idx", cols: ["name"], where: "flag; drop table sm_orgs" }])).toThrow(/predicate/);
+    expect(t([{ name: "x_idx", cols: ["id", "created_at desc"] }])).not.toThrow();
+  });
+
   it("refuses definitions that would generate bad SQL or confuse the engine", () => {
     const t = (patch: Partial<TableDef>) => () => buildTable({ ...probe(), ...patch });
     expect(t({ key: "Bad-Key" })).toThrow(/key/);

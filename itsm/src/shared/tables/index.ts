@@ -199,6 +199,11 @@ export function buildTable(input: TableDef): TableDef {
   for (const c of input.list?.columns ?? []) if (!has(c)) fail(input, `list column "${c}" does not exist`);
   for (const c of (input.list?.order ?? "").split(",").map((s) => s.trim().replace(/^-/, "")).filter(Boolean)) if (!has(c)) fail(input, `list order "${c}" does not exist`);
   for (const u of input.unique ?? []) for (const c of u) if (!has(c)) fail(input, `unique field "${c}" does not exist`);
+  for (const x of input.indexes ?? []) {
+    if (!IDENT.test(x.name) || !x.cols.length) fail(input, `index "${x.name}" needs a name and columns`);
+    for (const c of x.cols.map((s) => s.replace(/\s+(asc|desc)$/i, ""))) if (!has(c) && c !== "id") fail(input, `index "${x.name}": column "${c}" does not exist`);
+    if (x.where !== undefined && (!x.where.trim() || /;|--|\/\*/.test(x.where))) fail(input, `index "${x.name}": invalid predicate`);
+  }
   if (features.kanban && !has(features.kanban)) fail(input, `kanban field "${features.kanban}" does not exist`);
   if (features.calendar && (!has(features.calendar.start) || (features.calendar.end && !has(features.calendar.end)))) fail(input, "calendar fields do not exist");
   if (states) {
