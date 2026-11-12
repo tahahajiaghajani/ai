@@ -370,6 +370,17 @@ describe("the lifecycle overlay `_states`", () => {
     await e.owner.del(`${P}/admin/studio/tables/${slot}`);
   });
 
+  it("goes with a studio table deleted in the studio, its fields included even where the overlay names them (F1-5)", async () => {
+    const made = await e.owner.post(`${P}/admin/studio/tables`, { label: "بازدیدها", code: "visits_f1b", fields: [{ name: "u_guest", label: "مهمان", type: "string" }] });
+    const slot = made.slot as string;
+    const first = tableDef(slot)!.states!.transitions[0];
+    await e.owner.put(`${P}/lifecycles/${slot}`, { transitions: [{ key: transitionKey(first), requires: ["u_guest"] }] });
+    expect((await meta(e.owner, slot)).states!.transitions.some((x) => (x as Transition & { needs?: string[] }).needs?.includes("u_guest"))).toBe(true);
+    // the overlay goes first, then the fields it named
+    await e.owner.del(`${P}/admin/studio/tables/${slot}`);
+    expect(await e.db.query(`select name from sm_custom_fields where org_id = $1 and table_key = $2 and deleted_at is null`, [e.org, slot])).toEqual([]);
+  });
+
   it("offers a lifecycle a module configures elsewhere its labels, colours and primary only", async () => {
     const cr = tableDef("change_request")!;
     const first = cr.states!.transitions[0];
