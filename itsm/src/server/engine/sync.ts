@@ -39,6 +39,7 @@ import { emitEvent } from "./events";
 import { emitLinkEvents } from "./links";
 import { filterSide, filtersSide, guardFor, hooksFor, redactRows, redacts } from "./hooks";
 import { transitionsFrom } from "@shared/model/task";
+import { localDate } from "@shared/model/jalali-buckets";
 
 /**
  * Base columns a module's `derivePush` may set: the access anchors it copies (an alert's unit and domain from its CI)
@@ -97,9 +98,9 @@ async function canWriteRow(q: Queryable, ctx: Ctx, def: TableDef, row: Row, env:
   return !!(await q.one(`select 1 from ${def.table} t where t.id = $1 and ${rule}`, params));
 }
 
-function coerceProblem(f: FieldDef, v: unknown, prev: unknown, schema: OrgSchema, env: CondEnv): { value?: unknown; error?: string } {
+function coerceProblem(f: FieldDef, v: unknown, prev: unknown, schema: OrgSchema, env: CondEnv, today?: string): { value?: unknown; error?: string } {
   try {
-    const out = coerceValue(f, v, { schema, tz: env.tz || "Asia/Tehran" }, prev);
+    const out = coerceValue(f, v, { schema, tz: env.tz || "Asia/Tehran", today }, prev);
     return { value: out === KEEP ? prev : out };
   } catch (e) {
     if (e instanceof FieldError) return { error: e.message };
@@ -123,11 +124,27 @@ export async function checkEnginePush(tx: Tx, ctx: Ctx, agg: AggregateDef, wire:
   return checkSide(tx, ctx, agg, schema, env, wire, state);
 }
 
+const instant = (v: unknown): number => (v instanceof Date ? v.getTime() : typeof v === "string" ? Date.parse(v) : NaN);
+
+/**
+ * The day a pushed change was made, in the organisation's zone: the row's `updated_at` from the Windows app, never
+ * later than now and, for a change of a stored record, never earlier than the stored one. Relative date limits
+ * (`$today`) count from it, so an entry made offline yesterday (or at 23:50, pushed at 00:10) is judged on its day.
+ */
+export function pushedDay(updatedAt: unknown, storedAt: unknown, tz: string, now = Date.now()): string {
+  let t = instant(updatedAt);
+  if (!Number.isFinite(t) || t > now) t = now;
+  const floor = instant(storedAt);
+  if (Number.isFinite(floor) && t < floor) t = Math.min(floor, now);
+  return localDate(t, tz);
+}
+
 async function checkRecord(tx: Tx, ctx: Ctx, def: TableDef, schema: OrgSchema, env: CondEnv, wire: WireAggregate, state: { prev?: Row | null }): Promise<string | null> {
   const row = wire.row;
   stripSecrets(def, row);
   const stored = await tx.one<Row>(`select * from ${def.table} where id = $1`, [wire.id]);
   const prev = stored ? fromDb(def, stored) : null;
+  const today = pushedDay(row.updated_at, prev?.updated_at, env.tz || "Asia/Tehran");
   state.prev = prev;
   if (!access().canReadTable(ctx, def)) return `به «${def.plural}» دسترسی ندارید`;
   if (prev) {
@@ -180,7 +197,7 @@ async function checkRecord(tx: Tx, ctx: Ctx, def: TableDef, schema: OrgSchema, e
       continue;
     }
     const before = prev ? prev[f.name] : undefined;
-    const r = coerceProblem(f, raw, before, schema, env);
+    const r = coerceProblem(f, raw, before, schema, env, today);
     if (r.error) return r.error;
     let value = f.type === "bool" ? !!r.value : r.value;
     if (prev && !sameValue(f, before, value) && !f.system && !f.readonly && f.name !== def.states?.field && writable && !writable.has(f.name)) value = before ?? null;

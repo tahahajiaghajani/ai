@@ -81,6 +81,11 @@ export class Problems {
 export interface ValueContext {
   schema: Pick<OrgSchema, "choices">;
   tz: string;
+  /**
+   * the day relative date limits (`$today`) count from (YYYY-MM-DD in `tz`); default today. A Windows app's push
+   * passes the day the change was made, so an entry made offline is judged on its own day.
+   */
+  today?: string;
   /** seal a secret field's plain value (bound to the record); absent = secrets are refused */
   seal?: (field: FieldDef, plain: string) => string;
 }
@@ -245,7 +250,7 @@ export function coerceValue(f: FieldDef, raw: unknown, vc: ValueContext, prev?: 
     return r.ids!.length ? r.ids : null;
   }
   if (!hasValueRules(f) || (prev !== undefined && prev !== null && sameStored(f, v, prev))) return v;
-  const problem = fieldValueProblem(f, v, { today: todayISO(vc.tz), dayOf: (iso) => localDate(Date.parse(iso), vc.tz) });
+  const problem = fieldValueProblem(f, v, { today: vc.today ?? todayISO(vc.tz), dayOf: (iso) => localDate(Date.parse(iso), vc.tz) });
   if (problem) fail(f, problem);
   return v;
 }

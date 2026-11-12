@@ -13,6 +13,7 @@ import { SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
 import { todayISO } from "@shared/jalali";
 import { systemCtx, transitionIn, updateIn } from "@server/engine";
+import { pushedDay } from "@server/engine/sync";
 import { transitionBlocked, transitionKey, mergeLifecycle, strandedStates, cleanLifecycle } from "@shared/model/lifecycle";
 import type { FieldDef, TableDef, Transition } from "@shared/model/types";
 
@@ -92,6 +93,35 @@ describe("library fields on tables", () => {
     expect(((await e.owner.patch(`${R}/todo/${a.id}`, { u_files: [png] }, 400)) as Msg).error.details?.fields?.u_files).toContain("فقط این نوع پرونده‌ها");
     expect(((await e.owner.patch(`${R}/todo/${a.id}`, { u_files: [mine, png, theirs] }, 400)) as Msg).error.details?.fields?.u_files).toBe("«مدارک» حداکثر ۲ پرونده می‌پذیرد");
     expect((await e.owner.patch(`${R}/todo/${a.id}`, { u_files: [mine.toUpperCase()] })).row.u_files).toEqual([mine]);
+  });
+
+  it("judge a Windows app's relative date limits on the day the change was made (F1-6)", async () => {
+    // the day of a pushed change, in the organisation's zone: an entry at 23:30 is that day's, one at 00:10 the next
+    const now = Date.parse("2026-11-12T08:00:00Z");
+    expect(pushedDay("2026-11-10T20:00:00Z", null, "Asia/Tehran", now)).toBe("2026-11-10");
+    expect(pushedDay("2026-11-10T20:40:00Z", null, "Asia/Tehran", now)).toBe("2026-11-11");
+    // never later than now, never earlier than the stored record's own last change; unreadable means now
+    expect(pushedDay("2026-11-20T08:00:00Z", null, "Asia/Tehran", now)).toBe("2026-11-12");
+    expect(pushedDay("2026-11-01T08:00:00Z", new Date("2026-11-11T08:00:00Z"), "Asia/Tehran", now)).toBe("2026-11-11");
+    expect(pushedDay("دیروز", null, "Asia/Tehran", now)).toBe("2026-11-12");
+    // «تاریخ شروع» is from today on (above): a todo made offline yesterday with yesterday's date is right on its day
+    const today = todayISO("Asia/Tehran");
+    const day = (n: number) => new Date(Date.parse(`${today}T12:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+    const at = (n: number) => `${day(n)}T08:00:00.000Z`;
+    const pushRow = async (row: Record<string, unknown>, baseRev = 0) =>
+      (await member.client.post(`/sync/push`, { org_id: e.org, device_id: uuidv7(), protocol: SYNC_PROTOCOL, aggregates: [{ entity: "todo", id: row.id, base_rev: baseRev, row }] })).results[0] as Result;
+    const offline = uuidv7();
+    expect(await pushRow({ id: offline, org_id: e.org, short_description: "کار آفلاین دیروز", assigned_to: member.userId, custom: { u_start: day(-1) }, created_at: at(-1), updated_at: at(-1) })).toMatchObject({ status: "ok" });
+    expect((await e.owner.get(`${R}/todo/${offline}`)).row.u_start).toBe(day(-1));
+    // a device clock ahead of the server's counts from now: yesterday is still refused
+    const ahead = new Date(Date.now() + 3 * 86_400_000).toISOString();
+    expect(await pushRow({ id: uuidv7(), org_id: e.org, short_description: "ساعت جلو", assigned_to: member.userId, custom: { u_start: day(-1) }, created_at: ahead, updated_at: ahead })).toMatchObject({ status: "error", message: expect.stringMatching(/نباید پیش از/) });
+    // a change of a record stored today counts from no earlier than today, whatever the device says
+    const t = (await member.client.post(`${R}/todo`, { short_description: "ثبت امروز", assigned_to: member.userId })).row;
+    const stored = (await e.db.one<Record<string, unknown>>(`select * from ${tableDef("todo")!.table} where id = $1`, [t.id]))!;
+    expect(await pushRow({ ...JSON.parse(JSON.stringify(stored)), custom: { u_start: day(-1) }, updated_at: at(-1) }, Number(stored.rev))).toMatchObject({ status: "error", message: expect.stringMatching(/نباید پیش از/) });
+    // the API judges today, as before
+    expect(((await member.client.post(`${R}/todo`, { short_description: "دیروز از API", u_start: day(-1) }, 400)) as Msg).error.details?.fields?.u_start).toMatch(/نباید پیش از/);
   });
 
   it("keep their definition on the table's row, for Windows apps that do not receive the library", async () => {
