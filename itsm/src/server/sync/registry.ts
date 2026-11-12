@@ -92,3 +92,45 @@ export interface WireAggregate {
   row: Record<string, unknown>;
   children: Record<string, Record<string, unknown>[]>;
 }
+
+// ----- the order of a push (src/server/routes/sync.ts) -----
+
+type PushKey = (row: Record<string, unknown>) => (string | number)[];
+const pushKeys = new Map<string, PushKey>();
+
+/**
+ * A module's order for its rows within one apply order of a push (docs/spec/ENGINE.md «ترتیب ارسال»): a Windows app
+ * sends its outbox in whatever order it reads it, so a ledger's rows come after the record they trace and in their own
+ * sequence only when the module says so. Rows without a key sort first and keep the order they came in.
+ */
+export function registerPushOrder(entity: string, key: PushKey): void {
+  pushKeys.set(entity, key);
+}
+
+/** The order a push applies its rows in: the aggregates' apply order, then the modules' keys (a stable sort). */
+export function comparePush(a: WireAggregate, b: WireAggregate): number {
+  const d = (BY_ENTITY.get(a.entity)?.order ?? 99) - (BY_ENTITY.get(b.entity)?.order ?? 99);
+  if (d) return d;
+  const x = pushKeys.get(a.entity)?.(a.row) ?? [0];
+  const y = pushKeys.get(b.entity)?.(b.row) ?? [0];
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const p = x[i] ?? "";
+    const q = y[i] ?? "";
+    if (p === q) continue;
+    if (typeof p === "number" && typeof q === "number") return p - q;
+    return String(p) < String(q) ? -1 : 1;
+  }
+  return 0;
+}
+
+const batches = new WeakMap<object, WireAggregate[]>();
+
+/** The rows of the push being applied for `key` (the pushing member's context), in apply order. */
+export function setPushBatch(key: object, rows: WireAggregate[]): void {
+  batches.set(key, rows);
+}
+
+/** The other rows of the push a row came with (a ledger judged as a segment): empty outside a push. */
+export function pushBatchOf(key: object): WireAggregate[] {
+  return batches.get(key) ?? [];
+}

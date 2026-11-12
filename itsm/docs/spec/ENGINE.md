@@ -69,7 +69,7 @@ export const INCIDENT: TableDef = {
 | `features` | `journal`, `attachments`, `watchers`, `links`, `history` (default true), `sync` (default true), `sla`, `approvals`, `rag`, `tags`, `survey`, `confidential`, `kanban` (group-by field), `calendar: { start, end? }`. `watchers` adds a `watch_list` users field if missing. |
 | `form`, `list` | UI layout: sections, tabs, related lists; default list columns and order (`"-priority,number"`). |
 | `unique` | combinations of fields unique per organisation among live rows (`[["table_key","name"]]`). |
-| `rowAccess` | `{ read?: Cond, write?: Cond }` row rules every caller is held to on top of the provider (personal saved views). `NEVER` (`@shared/model/conditions`, an empty `or`) is the constant-false rule: a runtime-only table (`ai_agent_run`) is read by no member through the generic API, only by its module's routes. |
+| `rowAccess` | `{ read?: Cond, write?: Cond }` row rules every caller is held to on top of the provider (personal saved views). `NEVER` (`@shared/model/conditions`, an empty `or`) is the constant-false rule: a runtime-only table (`ai_agent_run`) is read by no member through the generic API, only by its module's routes; `write: NEVER` marks a table only the platform writes (computed scores and facts, deliveries, logs, the ledgers a module books, the runtime's own records: `slm_xla_score`, `service_score_fact`, `analytics_score`, `allocation_result`, `ai_skill_run`, `va_message`…) — `/meta/tables` offers nobody «… تازه» or import (`can.create` false whatever the roles), a person's create is refused (403) before its values are read, the generated AI tools draft none, and no flow creates or changes its rows whoever it runs as (refused when published and when the step runs). A ledger a Windows app pushes as the trace of its own changes (ITAM custody, device status and assignments, SLA timers, survey answers) is not marked: its module's push rules judge those rows and its `beforeWrite` refuses people online (`tests/system-tables.test.ts`). |
 | `levels` | levels of `area` the default provider asks for: `{ read: "view", create: "edit", write: "edit", delete: "full" }` by default. |
 | `ai` | `{ title, text[] }` fields that make up the RAG document. |
 | `virtual` | a reference target without a physical table (only the built-in `user`). |
@@ -586,7 +586,12 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
   module's `validatePushDelete` (the delete rules its `beforeWrite` holds a web delete to: held evidence is not
   deleted); a new journal entry or history row is in the account's own name
   or has no author (the system's note of something module code did while they acted) — never someone else's — and
-  anything but their own comment or work note needs write access to its record. A push that lost to a newer cloud copy (`conflict`) gets that copy back through the pull's projection
+  anything but their own comment or work note needs write access to its record. The push applies its rows in the
+  aggregates' order, then the modules' own (`registerPushOrder` in `src/server/sync/registry.ts`: a ledger after the
+  record it traces, in its own sequence — a Windows app sends its outbox in whatever order it reads it), and a module
+  judging a row may look at the push's other rows (`pushBatchOf(ctx)`): ITAM takes a device's custody rows and status
+  periods as one segment and decides their links and times within the push's bounds (docs/modules/itam_FA.md
+  «تغییرهای برنامهٔ ویندوز»). A push that lost to a newer cloud copy (`conflict`) gets that copy back through the pull's projection
   (`replicaRows`: readability, replica-only fields, hidden fields, redaction, side filters) — a row the account may not
   read is answered `skipped`, with nothing of it.
 - **Numbers**: both sides allocate from their own counter; on a clash the cloud gives the pushed record the next free
@@ -713,5 +718,6 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
 - Never call a model or external service inside a transaction or a hook — enqueue a job, subscribe to events.
 - Filter with conditions through the engine (`toSql` + `readable`), never by concatenating values into SQL.
 - Every new read path of your own must start from `readable(ctx, def, alias, params, env)` and strip fields with
-  `visibleFields` (or reuse `list`/`get`).
+  `visibleFields` (or reuse `list`/`get`). A context whose reads leave the system (`ctx.withoutDemo`: the record API,
+  a schedule's e-mail, a messenger's answers) gets no row of the demo pack from it (docs/DEMO_FA.md).
 - Use `version` for concurrency, `number` for people, `id` for machines.

@@ -30,6 +30,7 @@ import { channelFetch } from "../notify/channels";
 import { vaHandoff, vaSend, vaStart } from "../ai/va";
 import { isUuid, liveRow, liveRows, managesChannels, sysOf, type Row } from "./common";
 import { lockedRow } from "../incident/common";
+import { demoPeople, demoScopeOrg } from "../../db/scope";
 
 export const JOB_MESSAGE = "portal.channel.message";
 const TIMEOUT = 15_000;
@@ -164,9 +165,14 @@ function randomCode(): string {
   return out;
 }
 
+/** The demo pack's accounts are never linked to a messenger: whatever the assistant tells them would leave the system. */
+const DEMO_UNLINKED = "حساب‌های نمایشی به پیام‌رسان وصل نمی‌شوند.";
+
 /** A fresh one-time code for the caller (their earlier unused codes stop working). */
 export async function newLinkCode(ctx: Ctx): Promise<LinkCodeView> {
   if (ctx.actor === "system") throw forbidden();
+  // nothing of the demo pack leaves the system (docs/DEMO_FA.md): a demo account gets no messenger
+  if (demoScopeOrg() === ctx.org.id || ctx.user.prefs?.demo_org === ctx.org.id) throw forbidden(DEMO_UNLINKED);
   const sys = sysOf(ctx);
   const code = randomCode();
   const expires = new Date(Date.now() + CODE_MINUTES * 60_000).toISOString();
@@ -334,6 +340,10 @@ async function linkWith(sys: Ctx, channel: Row, msg: { chat: string; from: strin
     return { ok: false, text: "این کد درست نیست یا مهلتش گذشته است. از درگاه کد تازه بگیرید.", user: null };
   }
   const user = String(row.user_id);
+  if ((await demoPeople(sys.db, sys.org.id, [user])).size) {
+    await logRow(sys.db, sys.org.id, { channel: String(channel.id), direction: "in", status: "ignored", external: msg.from, error: "demo" });
+    return { ok: false, text: DEMO_UNLINKED, user: null };
+  }
   const ctx = await memberCtx(sys.cfg as ServerConfig, sys.org.id, user).catch(() => null);
   if (!ctx) return { ok: false, text: "حساب شما در این سازمان فعال نیست.", user: null };
   const linked = await sys.write(async (tx) => {
@@ -389,6 +399,14 @@ export async function processChannelMessage(job: Job, jctx: JobContext): Promise
   }
 
   const user = String(identity.user_id);
+  // a demo account linked before the pack's rules: the link ends and the assistant answers nothing (its answers would
+  // carry the demo records out of the system)
+  if ((await demoPeople(sys.db, sys.org.id, [user])).size) {
+    await sys.write((tx) => updateIn(tx, sys, "portal_channel_identity", String(identity.id), { active: false, conversation_id: null, options: null }, { trusted: true }), { internal: true });
+    await setLog(sys.db, sys.org.id, p.log, { status: "unlinked", user, error: "demo" });
+    await reply(cfg, sys, channel, msg.chat, null, `${DEMO_UNLINKED} اتصال این گفتگو برداشته شد.`);
+    return;
+  }
   const ctx = await memberCtx(cfg, sys.org.id, user).catch(() => null);
   if (!ctx) {
     await sys.write((tx) => updateIn(tx, sys, "portal_channel_identity", String(identity.id), { active: false, conversation_id: null, options: null }, { trusted: true }), { internal: true });
@@ -396,6 +414,9 @@ export async function processChannelMessage(job: Job, jctx: JobContext): Promise
     await reply(cfg, sys, channel, msg.chat, null, "حساب شما در این سازمان دیگر فعال نیست؛ اتصال برداشته شد.");
     return;
   }
+  // the assistant's answers go out to the messenger: it finds, cites and lists nothing of the demo pack (a real
+  // member's question would otherwise carry the pack's articles out of the system)
+  ctx.withoutDemo = true;
 
   const saveIdentity = (values: Row) => sys.write((tx) => updateIn(tx, sys, "portal_channel_identity", String(identity.id), values, { trusted: true, keepVersion: true }), { internal: true });
   const cmd = commandOf(text);

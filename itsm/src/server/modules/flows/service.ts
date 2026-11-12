@@ -9,7 +9,7 @@ import { readableIds } from "../../access";
 import { AppError, bad, conflict, forbidden, notFound, unauthorized } from "../../http/errors";
 import { pgArray } from "../../db";
 import {
-  FLOW_LIMITS, cleanGraph, hasErrors, triggerProblems, validateGraph,
+  FLOW_LIMITS, cleanGraph, hasErrors, nodeTable, triggerProblems, validateGraph,
   type FlowGraph, type FlowProblem, type FlowRunDetail, type FlowRunView, type FlowWaitView, type RunState, type TriggerConfig,
 } from "@shared/flows";
 import { scheduleProblem } from "@shared/flows";
@@ -17,6 +17,7 @@ import { cancelRun, executeRun, resumeFlowWait, startRun } from "./executor";
 import { flowsGrant, publishing } from "./hooks";
 import { flowSkills, serviceInstalled } from "./registry";
 import { loadRun, loadVersion, runView, stepView, stepsOf, waitsOf, type RunRow } from "./store";
+import { systemOnlyRefusal } from "./records";
 import { resolveRunAs } from "./triggers";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -70,6 +71,11 @@ export async function flowProblems(ctx: Ctx, row: Record<string, unknown>, graph
   }
   for (const n of g.nodes) {
     if (n.type === "subflow" && String(n.config.flow ?? "") === String(row.id ?? "")) problems.push({ level: "error", node: n.id, field: "flow", message: "گردش‌کار نمی‌تواند خودش را اجرا کند" });
+    // a step that would create or change rows of a table only the platform writes (its own table, or the trigger's)
+    if (n.type === "create_record" || n.type === "update_record") {
+      const refused = systemOnlyRefusal(nodeTable(n.config, trigger));
+      if (refused) problems.push({ level: "error", node: n.id, field: "table", message: refused });
+    }
   }
   return problems;
 }
