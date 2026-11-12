@@ -79,6 +79,8 @@ export interface NormItem {
   values: Record<string, unknown>;
   attrs: Record<string, unknown>;
   relations: IreRelation[];
+  /** the CI a source already linked the item to (`IreItem.ci_hint`) */
+  hint?: string | null;
 }
 
 /** CIs matching one identification entry (system rights; retired ones count, merged and disposed ones do not). */
@@ -117,6 +119,27 @@ export interface Identified {
   match: Row | null;
   candidates: Row[];
   entry: string | null;
+}
+
+/** What a match through an identity hint reports as the entry that decided. */
+export const HINT_ENTRY = "پیوند پیشین منبع داده";
+
+/**
+ * The CI an identity hint names, while it is live: a merged CI is followed to the one it was merged into (a few hops);
+ * a deleted, disposed or canceled one is no hint (the item is then identified as usual). System rights, as matchEntry.
+ */
+async function hintedCi(q: Queryable, ctx: Ctx, table: string, id: string | null | undefined): Promise<Row | null> {
+  let cur = id ?? null;
+  for (let hop = 0; hop < 5 && isUuid(cur); hop++) {
+    const row = await q.one<Row>(`select t.* from ${table} t where t.org_id = $1 and t.id = $2::uuid and t.deleted_at is null`, [ctx.org.id, cur!.toLowerCase()]);
+    if (!row) return null;
+    if (row.merged_into) {
+      cur = row.merged_into;
+      continue;
+    }
+    return row.state === "disposed" || row.state === "canceled" ? null : row;
+  }
+  return null;
 }
 
 /** Identify one item: the first entry that has all its attributes decides (several matches = duplicates). */
@@ -332,7 +355,7 @@ function normalizeItems(input: IreInput, src: Source | null): { items: NormItem[
     }
     const cls = String(it.class ?? (it.values as Record<string, unknown>)?.class ?? input.default_class ?? src?.default_class ?? "").trim();
     if (!cls) problems.set(i, "کلاس پیکربندی مشخص نیست");
-    return { class: cls, values, attrs, relations: Array.isArray(it.relations) ? it.relations.slice(0, 50) : [] };
+    return { class: cls, values, attrs, relations: Array.isArray(it.relations) ? it.relations.slice(0, 50) : [], hint: isUuid(it.ci_hint) ? it.ci_hint : null };
   });
   return { items, problems };
 }
@@ -365,7 +388,7 @@ export async function createOrUpdate(ctx: Ctx, input: IreInput): Promise<IreResu
     }));
     const { items, problems } = normalizeItems(input, src);
     const ref = await refResolver(tx, ctx, items);
-    const out: IreResult = { results: [], created: 0, updated: 0, unchanged: 0, duplicates: 0, failed: 0, relations: { created: 0, refreshed: 0, failed: 0 }, dry_run: !!input.dry_run, run_id: input.run_id ?? null };
+    const out: IreResult = { results: [], created: 0, updated: 0, unchanged: 0, duplicates: 0, failed: 0, unmatched: 0, relations: { created: 0, refreshed: 0, failed: 0 }, dry_run: !!input.dry_run, run_id: input.run_id ?? null };
     const ciOf = new Map<number, string>();
     const results = new Map<number, IreItemResult>();
     const now = Date.now();
@@ -399,7 +422,10 @@ export async function createOrUpdate(ctx: Ctx, input: IreInput): Promise<IreResu
             const target = typeof rel.item === "number" ? ciOf.get(rel.item) : isUuid(rel.ci_id) ? rel.ci_id : null;
             if (target) parents.set(rel.type, target);
           }
-          const idf = await identifyItem(tx, ctx, tree, normalized, parents);
+          // a live CI the source already linked the item to is used without identification (one update for a refresh);
+          // only the system's calls carry hints (discovery's identity map) — a person's import is identified as usual
+          const hinted = item.hint && !people ? await hintedCi(tx, ctx, ciDef.table, item.hint) : null;
+          const idf: Identified = hinted ? { match: hinted, candidates: [hinted], entry: HINT_ENTRY } : await identifyItem(tx, ctx, tree, normalized, parents);
           if (idf.match && people) {
             // identification sees every CI; the update is the caller's: a CI they may not read or change is not theirs to
             // reconcile (nor to name in the result)
@@ -410,6 +436,10 @@ export async function createOrUpdate(ctx: Ctx, input: IreInput): Promise<IreResu
           if (!idf.match && idf.candidates.length > 1) {
             const task = await ensureDedupTask(tx, ctx, idf.candidates.map((c) => c.id), `منبع «${src?.name ?? "ورود داده"}» قلمی گزارش کرد که با «${idf.entry}» به ${idf.candidates.length} پیکربندی می‌خورد`, { source: src?.id ?? null });
             return { ...base, action: "duplicate" as const, matched_by: idf.entry, dedup_task_id: task.id, message: `${idf.candidates.length} پیکربندی هم‌شناسه؛ برای بررسی «${task.number}» ساخته شد` };
+          }
+          if (!idf.match && input.create === false) {
+            // a source that may not create (match only, review first): nothing is written, its relations are skipped
+            return { ...base, action: "unmatched" as const, matched_by: null, message: "با هیچ پیکربندی موجودی یکی نشد؛ این منبع پیکربندی تازه نمی‌سازد" };
           }
           if (!idf.match) {
             const meta: Record<string, Provenance> = {};
@@ -532,6 +562,7 @@ export async function createOrUpdate(ctx: Ctx, input: IreInput): Promise<IreResu
       else if (r.action === "updated") out.updated++;
       else if (r.action === "unchanged") out.unchanged++;
       else if (r.action === "duplicate") out.duplicates++;
+      else if (r.action === "unmatched") out.unmatched = (out.unmatched ?? 0) + 1;
       else if (r.action === "error") out.failed++;
     }
     if (src?.id && !input.dry_run) await updateIn(tx, sysOf(ctx), "cmdb_data_source", src.id, { last_run_at: at, last_status: `${out.created} ساخته، ${out.updated} به‌روز، ${out.duplicates} تکراری، ${out.failed} ناموفق`.slice(0, 300) }, { trusted: true, keepVersion: true });

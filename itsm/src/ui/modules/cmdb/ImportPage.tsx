@@ -38,6 +38,7 @@ const ACTION: Record<IreItemResult["action"], [string, "in" | "neutral" | "warni
   updated: ["به‌روز می‌شود", "neutral"],
   unchanged: ["بی‌تغییر", "neutral"],
   duplicate: ["تکراری محتمل", "warning"],
+  unmatched: ["بی‌همتا", "warning"],
   skipped: ["رد شد", "warning"],
   error: ["خطا", "danger"],
 };
