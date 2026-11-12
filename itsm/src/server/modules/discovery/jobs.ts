@@ -230,8 +230,14 @@ export function installDiscoveryJobs(): void {
   installed = true;
   registerJobHandler(JOB_KINDS.sweep, async (job, jctx) => {
     if (!job.org_id || editionOf({ mode: jctx.cfg.mode ?? "cloud", server: jctx.cfg.server }) === "desktop") return;
-    const r = await discoverySweep(jctx.cfg, job.org_id);
-    return r.again ? { again: r.again } : undefined;
+    try {
+      const r = await discoverySweep(jctx.cfg, job.org_id);
+      return r.again ? { again: r.again } : undefined;
+    } catch (e) {
+      // the sweep is the connectors' only clock: an error never ends it (the next round tries again)
+      jctx.log.warn("discovery sweep failed", String((e as Error)?.message ?? e));
+      return { again: sweepEveryMs(jctx.cfg) };
+    }
   });
   registerJobHandler(JOB_KINDS.pull, async (job, jctx) => {
     const a = await admitted(job, jctx);

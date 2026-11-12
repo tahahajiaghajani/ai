@@ -8,7 +8,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { transitionIn } from "@server/engine";
 import { inDemoScope } from "@server/db/scope";
-import { acceptNewSize, previewConnector, runPull } from "@server/modules/discovery/runner";
+import { acceptNewSize, previewConnector, runnerFaults, runPull } from "@server/modules/discovery/runner";
 import { HINT_ENTRY } from "@server/modules/cmdb/ire";
 import { dailyUpkeep, discoverySweep, resetDiscoveryThrottles } from "@server/modules/discovery/jobs";
 import { REFUSED_FIELD_MESSAGE } from "@shared/discovery/mapping";
@@ -223,9 +223,12 @@ describe("discovery pull runner (design A §7)", () => {
 
   it("moves a pass whose items look slow in short ticks: a slice's first engine call always starts", async () => {
     const { c } = await rest(makeDevices(20, { from: 950_000 }), { options: { page_size: 20 } });
-    // the first slice reads the page; then the estimate says 10 s an item, so no call would fit any slice
-    await runPull(w.sys, c.id, { deadline: Date.now() + 2500 }, { worker: "test-worker", trigger: "manual" });
-    await w.q(`update sm_discovery_runs set cursor = jsonb_set(cursor, '{ewma}', '{"new": 10000}'::jsonb) where connector_id = $1 and state = 'running'`, [c.id]);
+    // the first slice stages the page and dies in its first engine call; then the estimate says 10 s an item, so by
+    // the 1.5× rule no call would ever fit a slice
+    runnerFaults.at = "ire:new";
+    await expect(runPull(w.sys, c.id, { deadline: Date.now() + 60_000 }, { worker: "test-worker", trigger: "manual" })).rejects.toMatchObject({ code: "40001" });
+    const staged = await w.q(`update sm_discovery_runs set cursor = jsonb_set(cursor, '{ewma}', '{"new": 10000}'::jsonb) where connector_id = $1 and state = 'running' returning staged`, [c.id]);
+    expect(staged).toEqual([{ staged: 20 }]);
     const { run, slices } = await w.pass(c.id, { tickMs: 2500 });
     expect(run).toMatchObject({ state: "completed", created: 20, failed: 0 });
     expect(slices).toBeGreaterThan(1);
