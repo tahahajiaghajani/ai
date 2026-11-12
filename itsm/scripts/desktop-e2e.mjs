@@ -625,6 +625,13 @@ function finish() {
 await C.run(async () => {
   try {
     await scenario();
+  } catch (e) {
+    // what the window showed when a step failed, and where it was
+    if (page) {
+      log(`failed in ${phase} at ${page.url()}`);
+      await page.screenshot({ path: join(SHOTS, `zz-failed-${String(phase).replace(/[^A-Za-z0-9.-]+/g, "-")}.png`) }).catch(() => {});
+    }
+    throw e;
   } finally {
     if (app) {
       const proc = app.process();
