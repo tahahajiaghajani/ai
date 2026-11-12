@@ -177,6 +177,36 @@ describe("F1 acceptance: an administrator tailors incident with rows only", () =
     expect(filterPaths(meta, () => undefined).map((p) => p.path)).toContain("impact");
   });
 
+  it("leaves an incident module code builds from fixed inputs to the module: from an interaction, a child, a copy (F1-4)", async () => {
+    const agent = w.p.agent.client;
+    // the agent's own create is held to «شعبه» (above); «ثبت رخداد» of an interaction has no input for it
+    const call = (await agent.post(`${P}/r/interaction`, { short_description: "تماس دربارهٔ چاپگر", channel: "phone", caller_id: w.p.req.userId, assignment_group_id: w.g.desk })).row;
+    const fromCall = (await agent.post(`${P}/incident/interactions/${call.id}/incident`, {})).row;
+    expect([fromCall.short_description, fromCall.u_branch]).toEqual(["تماس دربارهٔ چاپگر", null]);
+    // a child and a copy carry the source's organisation fields…
+    const parent = (await agent.post(`${P}/r/incident`, { short_description: "قطعی شبکهٔ شعبه", assignment_group_id: w.g.desk, u_branch: branchA, u_national_code: NATIONAL })).row;
+    const child = (await agent.post(`${P}/incident/${parent.id}/related`, { mode: "child" })).row;
+    expect(child).toMatchObject({ parent_id: parent.id, u_branch: branchA, u_national_code: NATIONAL });
+    const copy = (await agent.post(`${P}/incident/${parent.id}/related`, { mode: "copy", short_description: "قطعی شبکهٔ شعبهٔ دوم" })).row;
+    expect(copy).toMatchObject({ short_description: "قطعی شبکهٔ شعبهٔ دوم", u_branch: branchA, u_national_code: NATIONAL });
+    // …and a source filed by the system without them still gets its child
+    const filed = await w.sys.write((tx) => createIn(tx, w.sys, "incident", { short_description: "هشدار پایش: کندی سرور", caller_id: w.p.req.userId, assignment_group_id: w.g.desk }));
+    const orphan = (await agent.post(`${P}/incident/${filed.id}/related`, { mode: "child" })).row;
+    expect([orphan.parent_id, orphan.u_branch]).toEqual([filed.id, null]);
+    // a problem made from incidents asks for a title and an assignment at most
+    await w.o.post(`${P}/fields/attach`, { table: "problem", field: "u_branch", required: true, required_for: "agents" }, 201);
+    expect(((await w.p.pm.client.post(`${P}/r/problem`, { short_description: "قطعی‌های تکراری شبکه" }, 400)) as Msg).error.details?.fields).toEqual({ u_branch: "«شعبه» را وارد کنید" });
+    const made = await w.p.pm.client.post(`${P}/problem/from-incidents`, { incident_ids: [parent.id, filed.id] });
+    expect(made.problem.u_branch ?? null).toBeNull();
+    await w.o.put(`${P}/forms/system/problem/overrides`, { fields: { u_branch: { required: false } } });
+    // the requirement editor says so
+    const paths = await w.o.get(`${P}/fields/paths/incident?required_for=all`);
+    for (const k of ["virtual_agent", "interaction", "request", "related"]) {
+      expect(paths.effects.find((x: { path: { key: string } }) => x.path.key === k)).toMatchObject({ checked: false, text: "این مسیر فیلد دیگری نمی‌پرسد: بررسی نمی‌شود" });
+    }
+    expect((await w.o.get(`${P}/fields/paths/problem?required_for=agents`)).effects.find((x: { path: { key: string } }) => x.path.key === "incident")).toMatchObject({ checked: false });
+  });
+
   it("keeps the portal's «گزارش مشکل» on a catalogue form while a requirement «همه» stands (F1-3)", async () => {
     const o = w.o;
     const R = `${P}/r`;

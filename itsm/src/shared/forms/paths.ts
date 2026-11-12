@@ -2,7 +2,9 @@
 // or either, as their roles allow) or the system. An organisation's requirement on a built-in table (`custom_field`
 // `required` + `required_for`) binds people's writes only, so the requirement editor shows which paths it affects and
 // which it does not («ثبت خودکار سامانه: بررسی نمی‌شود»), and «همه» is refused where people create through a form
-// that cannot carry the field (`requirementBlockers`: the portal's built-in «گزارش مشکل»).
+// that cannot carry the field (`requirementBlockers`: the portal's built-in «گزارش مشکل»). A path where module code
+// builds the record from what it already has (`built`: the virtual agent's report, «ثبت رخداد» of an interaction) is
+// not checked either: the write says `orgRules: false`, so a requirement never breaks the module's action.
 // Agents are writers whose roles have the agent or admin persona; everyone else is a requester.
 // Imported by the UI: keep it free of server imports.
 
@@ -24,6 +26,8 @@ export interface CreationPath {
   fixedForm?: boolean;
   /** the setting that replaces the fixed form with a catalogue form */
   formSetting?: "portal_report_item";
+  /** module code builds the record from what it already has, asking for nothing more (`orgRules: false`): not checked */
+  built?: boolean;
   /** said beside the path in the editor */
   note?: string;
 }
@@ -42,13 +46,14 @@ export const COMMON_PATHS: readonly CreationPath[] = [RECORD, IMPORT, API, WINDO
 const TABLE_PATHS: Record<string, CreationPath[]> = {
   incident: [
     { key: "portal_report", label: "درگاه: «گزارش مشکل»", writer: "requester", fixedForm: true, formSetting: "portal_report_item", note: "با فرم پیش‌فرض درگاه، یا فرمی از کاتالوگ که در تنظیمات درگاه برگزیده شود" },
-    { key: "virtual_agent", label: "دستیار مجازی", writer: "requester", note: "فقط عنوان و شرح را از درخواست‌دهنده می‌پرسد" },
-    { key: "interaction", label: "ثبت از تعامل (تماس یا گفتگو)", writer: "agent" },
-    { key: "request", label: "تبدیل قلم درخواست‌شده به رخداد", writer: "agent" },
+    { key: "virtual_agent", label: "دستیار مجازی", writer: "requester", built: true, note: "فقط عنوان و شرح را از درخواست‌دهنده می‌پرسد" },
+    { key: "interaction", label: "ثبت از تعامل (تماس یا گفتگو)", writer: "agent", built: true },
+    { key: "request", label: "تبدیل قلم درخواست‌شده به رخداد", writer: "agent", built: true },
+    { key: "related", label: "رخداد فرزند و رونوشت", writer: "agent", built: true, note: "فیلدهای سازمان در رخداد مبدأ هم رونوشت می‌شوند" },
     EMAIL,
     { key: "event", label: "قاعده‌های رویداد و هشدارهای پایش", writer: "system" },
   ],
-  problem: [{ key: "incident", label: "ساخت مشکل از رخداد", writer: "agent" }],
+  problem: [{ key: "incident", label: "ساخت مشکل از رخداد", writer: "agent", built: true }],
   change_request: [
     { key: "related", label: "ساخت تغییر از رخداد یا مشکل", writer: "agent" },
     { key: "devops", label: "استقرارهای ابزار دواپس", writer: "system" },
@@ -86,6 +91,7 @@ export interface PathEffect {
 export function requirementEffects(table: string, requiredFor: RequiredFor, opts: { emailTarget?: boolean } = {}): PathEffect[] {
   return pathsOf(table, opts).map((path) => {
     if (path.writer === "system") return { path, checked: false, text: "ثبت خودکار سامانه: بررسی نمی‌شود" };
+    if (path.built) return { path, checked: false, text: "این مسیر فیلد دیگری نمی‌پرسد: بررسی نمی‌شود" };
     if (path.writer === "requester" && requiredFor === "agents") return { path, checked: false, text: "درخواست‌دهندگان: بررسی نمی‌شود" };
     if (path.writer === "person" && requiredFor === "agents") return { path, checked: true, text: "فقط ثبت کارشناسان بررسی می‌شود" };
     return { path, checked: true, text: "بررسی می‌شود" };
@@ -106,7 +112,7 @@ export function requirementBlockers(table: string, requiredFor: RequiredFor, env
   if (requiredFor !== "all") return [];
   const out: string[] = [];
   for (const p of pathsOf(table)) {
-    if (!p.fixedForm || p.writer === "system" || p.writer === "agent") continue;
+    if (!p.fixedForm || p.built || p.writer === "system" || p.writer === "agent") continue;
     if (p.formSetting === "portal_report_item" && env.portalReportItem) continue;
     out.push(
       `الزام برای «همه» ثبت نمی‌شود: ${p.label} با فرم پیش‌فرض درگاه ثبت می‌شود و این فیلد در آن نیست. ` +

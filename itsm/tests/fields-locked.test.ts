@@ -100,18 +100,23 @@ describe("creation paths", () => {
     expect(pathsOf("request_item").find((p) => p.key === "catalog")?.writer).toBe("system");
   });
 
-  it("say which paths a requirement binds: never the system's, requesters' only for «همه»", () => {
+  it("say which paths a requirement binds: never the system's or what module code builds, requesters' only for «همه»", () => {
     const all = Object.fromEntries(requirementEffects("incident", "all").map((e) => [e.path.key, e]));
     expect(all.email).toMatchObject({ checked: false, text: "ثبت خودکار سامانه: بررسی نمی‌شود" });
     expect(all.event.checked).toBe(false);
     expect(all.portal_report.checked).toBe(true);
     expect(all.record.checked).toBe(true);
+    // module code builds the record from what it has: the virtual agent, an interaction, a child or a copy (F1-4)
+    const built = { checked: false, text: "این مسیر فیلد دیگری نمی‌پرسد: بررسی نمی‌شود" };
+    for (const k of ["virtual_agent", "interaction", "request", "related"]) expect(all[k], k).toMatchObject(built);
     const agents = Object.fromEntries(requirementEffects("incident", "agents").map((e) => [e.path.key, e]));
     expect(agents.portal_report).toMatchObject({ checked: false, text: "درخواست‌دهندگان: بررسی نمی‌شود" });
     expect(agents.virtual_agent.checked).toBe(false);
     expect(agents.record).toMatchObject({ checked: true, text: "فقط ثبت کارشناسان بررسی می‌شود" });
-    expect(agents.interaction).toMatchObject({ checked: true, text: "بررسی می‌شود" });
+    expect(agents.interaction).toMatchObject(built);
     expect(agents.email.checked).toBe(false);
+    expect(requirementEffects("problem", "agents").find((e) => e.path.key === "incident")).toMatchObject(built);
+    expect(requirementEffects("change_request", "agents").find((e) => e.path.key === "related")).toMatchObject({ checked: true });
   });
 
   it("refuse «همه» on incident while the portal reports through its built-in form, naming both ways out", () => {

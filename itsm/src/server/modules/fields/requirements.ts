@@ -2,11 +2,13 @@
 //   · a field requirement (`custom_field.required` + `required_for` → FieldDef.formRequired): «همه» binds every
 //     person, «فقط کارشناسان» the writers whose roles have the agent or admin persona. A `*` beforeWrite asks it of
 //     the API and imports; the same check answers a Windows app's push (`validatePush`). The system (e-mail, event
-//     rules, flows run as the system, jobs) and trusted server code are never asked. A create needs the value; an
-//     update is refused only when it empties the field; a field the person cannot fill (hidden by a field group, not
-//     writable for them) is not asked, as for UI policies; a yes/no field must be ticked.
+//     rules, flows run as the system, jobs), trusted server code and module code that builds a record from fixed
+//     inputs (`orgRules: false`: the virtual agent's report, «ثبت رخداد» of an interaction) are never asked. A create
+//     needs the value; an update is refused only when it empties the field; a field the person cannot fill (hidden by
+//     a field group, not writable for them) is not asked, as for UI policies; a yes/no field must be ticked.
 //   · a transition's organisation fields (`needs`) and condition (`when`, `_states`): a `*` validateTransition hook,
-//     which the engine's writes and the push path (`checkPushedChange`) both run; never for the system or trusted code.
+//     which the engine's writes and the push path (`checkPushedChange`) both run; never for the system, trusted code or
+//     `orgRules: false`.
 // Module requirements stay FieldDef.required and `Transition.requires`, which bind every write.
 import type { FieldDef, TableDef } from "@shared/model/types";
 import { missingNeeds, transitionBlocked, type EffectiveTransition } from "@shared/model/lifecycle";
@@ -70,7 +72,7 @@ export async function unmetRequirements(q: Queryable, ctx: Ctx, def: TableDef, p
 const unfilled = (f: FieldDef, v: unknown): boolean => (f.type === "bool" ? v !== true : isEmpty(v));
 
 async function requirementsBefore(w: WriteArgs): Promise<void> {
-  if ((w.op !== "create" && w.op !== "update" && w.op !== "transition") || w.trusted || isSystemCtx(w.ctx)) return;
+  if ((w.op !== "create" && w.op !== "update" && w.op !== "transition") || w.trusted || w.orgRules === false || isSystemCtx(w.ctx)) return;
   const out = await unmetRequirements(w.tx, w.ctx, w.def, w.prev, w.next, w.changed);
   if (Object.keys(out).length) throw validationError(out);
 }
@@ -78,7 +80,7 @@ async function requirementsBefore(w: WriteArgs): Promise<void> {
 /** The organisation's fields and condition of the transition being taken (people's writes only). */
 async function transitionRules(w: WriteArgs & { transition: NonNullable<WriteArgs["transition"]> }): Promise<string | null> {
   const t = w.transition as EffectiveTransition;
-  if (w.trusted || isSystemCtx(w.ctx) || (!t.needs?.length && !t.when)) return null;
+  if (w.trusted || w.orgRules === false || isSystemCtx(w.ctx) || (!t.needs?.length && !t.when)) return null;
   // a pushed row carries the organisation's fields in `custom`: judge the values the push brings
   const row: Row = { ...w.next };
   if (w.via === "sync" && row.custom && typeof row.custom === "object") for (const f of w.def.fields) if (f.custom) row[f.name] = (row.custom as Row)[f.name] ?? null;
