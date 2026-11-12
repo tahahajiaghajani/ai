@@ -2,10 +2,12 @@
 // definitions again (about 2 MB for an administrator); the browser keeps the answer and sends If-None-Match, and the
 // server confirms an unchanged answer (304) without building, compressing or sending it. The tag follows everything
 // the answer is made of — the organisation's custom fields and choices, what the caller's roles and field groups make
-// of them, the tables the caller takes part in — so nobody ever keeps definitions that no longer apply to them.
+// of them, the tables the caller takes part in — so nobody ever keeps definitions that no longer apply to them. It also
+// names the person and the session: a browser one person filled (the Windows app's window after «خروج» and another
+// sign-in) is never told that its definitions apply to someone else or to a later session.
 import { describe, it, expect, beforeAll } from "vitest";
 import { world, type World } from "./incident-helpers";
-import type { Client } from "./helpers";
+import { Client } from "./helpers";
 
 let w: World;
 
@@ -40,7 +42,7 @@ describe("GET /meta/tables is revalidated, never rebuilt while unchanged", () =>
     expect((await meta(w.o, `W/"m-unknown"`)).status).toBe(200);
   });
 
-  it("gives callers whose access differs different tags, and the same answer the same tag", async () => {
+  it("gives every caller a tag of their own: access that differs, and another person with the same access", async () => {
     const owner = await meta(w.o);
     const agent = await meta(w.p.agent.client);
     const other = await meta(w.p.other.client);
@@ -48,11 +50,40 @@ describe("GET /meta/tables is revalidated, never rebuilt while unchanged", () =>
     expect(agent.tag).not.toBe(owner.tag);
     expect(req.tag).not.toBe(agent.tag);
     expect(req.tables).toBeLessThan(agent.tables);
-    // two agents with the same role read the same definitions: one tag for both
-    expect(other.tag).toBe(agent.tag);
+    // two agents with the same role read the same definitions, under tags of their own
     expect(other.body).toBe(agent.body);
+    expect(other.tag).not.toBe(agent.tag);
+    expect((await meta(w.p.other.client, agent.tag)).status).toBe(200);
     // a requester's browser holding an agent's definitions is never told they still apply
     expect((await meta(w.p.req.client, agent.tag)).status).toBe(200);
+  });
+
+  it("never confirms one session's definitions to the next: «خروج» and a sign-in in the same window", async () => {
+    // one window (one cookie jar, one HTTP cache), the way the Windows app switches accounts
+    const added = await w.o.post(`${w.P}/members`, { email: "meta-switch@example.com", full_name: "همکار دوم", role: "member" });
+    const browser = new Client(w.e.app);
+    await browser.post("/auth/login", { email: "owner@example.com", password: "s3cret-pass" });
+    const first = await meta(browser);
+    expect(first.status).toBe(200);
+    expect((await meta(browser, first.tag)).status).toBe(304);
+    await browser.post("/auth/logout");
+    // signed out: nothing at all, not even a confirmation
+    expect((await meta(browser, first.tag)).status).toBe(401);
+    // the same person again: a new session, a new tag — the cached answer is replaced, not confirmed
+    await browser.post("/auth/login", { email: "owner@example.com", password: "s3cret-pass" });
+    const again = await meta(browser, first.tag);
+    expect(again.status).toBe(200);
+    expect(again.tag).not.toBe(first.tag);
+    expect(again.body).toBe(first.body);
+    expect(again.cache).toBe("private, no-cache");
+    // another person in the same window gets their own definitions, never a 304 for what the browser keeps
+    await browser.post("/auth/logout");
+    await browser.post("/auth/login", { email: "meta-switch@example.com", password: added.temp_password });
+    const member = await meta(browser, again.tag);
+    expect(member.status).toBe(200);
+    expect(member.tag).not.toBe(again.tag);
+    expect(member.tables).toBeLessThan(again.tables);
+    expect((await meta(browser, member.tag)).status).toBe(304);
   });
 
   it("changes the tag when the organisation's definitions change (a custom field, a choice list)", async () => {
