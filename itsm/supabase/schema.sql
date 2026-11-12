@@ -44113,3 +44113,10 @@ end
 $fn$;
 
 insert into sm_migrations (id) values ('0099_demo_touch') on conflict (id) do nothing;
+
+-- ---------------------------------------------------------------------------
+-- 0103_jobs_failed_idx — سرعت: نمایهٔ کارهای ناموفق پس‌زمینه برای خلاصهٔ کارهای کنسول‌ها
+-- ---------------------------------------------------------------------------
+create index if not exists sm_jobs_failed_idx on sm_jobs (org_id, done_at) where status = 'failed';
+
+insert into sm_migrations (id) values ('0103_jobs_failed_idx') on conflict (id) do nothing;

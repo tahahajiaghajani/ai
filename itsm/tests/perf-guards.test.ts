@@ -57,4 +57,14 @@ describe("speed fixes stay in place", () => {
     expect(() => renderToStaticMarkup(createElement(Broken))).toThrow("chunk failed");
     expect(() => renderToStaticMarkup(createElement(Broken))).toThrow("chunk failed");
   });
+
+  it("the consoles count an organisation's failed jobs from a partial index, not by scanning every job the queue keeps", async () => {
+    // done jobs stay three days: 150,000 rows after the bank demo pack «متوسط», a 55 ms parallel scan; with the index
+    // an index-only scan of the failed ones (0.02 ms)
+    const { MIGRATIONS } = await import("@server/db/migrations");
+    const m = MIGRATIONS.find((x) => x.id === "0103_jobs_failed_idx");
+    expect(m?.sql).toMatch(/create index if not exists sm_jobs_failed_idx on sm_jobs \(org_id, done_at\) where status = 'failed'/);
+    expect(src("src/server/modules/admin/platform.ts")).toMatch(/from sm_jobs where status = 'failed' and done_at > now\(\) - interval '24 hours' \$\{orgId \? "and org_id = \$1" : ""\}/);
+  });
 });
+

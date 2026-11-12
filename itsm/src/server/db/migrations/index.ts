@@ -23,6 +23,7 @@ import directoryIdentity from "./0091_directory_identity";
 import scale from "./0095_scale";
 import demo from "./0098_demo";
 import demoTouch from "./0099_demo_touch";
+import jobsFailedIdx from "./0103_jobs_failed_idx";
 import { ddlForAll } from "../../engine/ddl";
 
 export interface Migration {
@@ -64,6 +65,7 @@ export const MIGRATIONS: Migration[] = [
   { id: "0095_scale", title: "مقیاس بانکی: جست‌وجوی سه‌حرفی (pg_trgm) و نمایه‌های BRIN جریان‌های افزایشی", sql: scale },
   { id: "0098_demo", title: "داده‌های نمایشی: بستهٔ نمایشی سازمان و فهرست همهٔ ردیف‌هایی که ساخته است (برای حذف بی‌ردپا)", sql: demo },
   { id: "0099_demo_touch", title: "داده‌های نمایشی: ثبت تغییرهای کار نمایشی در ردیف‌های واقعی (تا حذف فقط همان‌ها را برگرداند) و نفرستادن کار نمایشی از برنامهٔ ویندوز", sql: demoTouch },
+  { id: "0103_jobs_failed_idx", title: "سرعت: نمایهٔ کارهای ناموفق پس‌زمینه برای خلاصهٔ کارهای کنسول‌ها", sql: jobsFailedIdx },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].id;
