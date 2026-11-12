@@ -283,17 +283,40 @@ export async function stopTicks(db: Db): Promise<void> {
   await inProgress.get(db);
 }
 
+export interface TickOptions {
+  budgetMs?: number;
+  max?: number;
+  worker?: string;
+  concurrency?: number;
+  /**
+   * Is foreground work waiting? (The Windows app's local server: requests of its window in flight, src/desktop/server.ts.)
+   * Before it claims the next job the runner waits until there is none — at most `YIELD_MS` each time —, so a page's
+   * burst of requests is answered without the next job's statements between them on PGlite's one connection, and a
+   * window in constant use slows the queue down without ever stopping it.
+   */
+  busy?: () => boolean;
+}
+
+/** The longest the runner waits for foreground work before each job (`TickOptions.busy`). */
+export const YIELD_MS = 250;
+
+/** Waits while `busy()`, at most `ms`. */
+async function quietFor(busy: () => boolean, ms: number): Promise<void> {
+  const until = Date.now() + ms;
+  while (busy() && Date.now() < until) await new Promise((r) => setTimeout(r, 10));
+}
+
 /**
  * Run due jobs until `budgetMs` is spent (default 8 s) or `max` jobs ran. `concurrency` (default 1: one job after the
  * other, as PGlite's single connection needs) runs up to that many jobs at once — the server edition's job runner
  * uses it for notification fan-out and SLA timers at scale: each round claims that many due jobs in one statement.
  */
-export async function tick(cfg: JobConfig, opts: { budgetMs?: number; max?: number; worker?: string; concurrency?: number } = {}): Promise<TickResult> {
+export async function tick(cfg: JobConfig, opts: TickOptions = {}): Promise<TickResult> {
   // a tick started from inside demo work (a demo person's request) lends that scope to no job: each job sets its own
   return inDemoScope(null, () => tickOutsideScope(cfg, opts));
 }
 
-async function tickOutsideScope(cfg: JobConfig, opts: { budgetMs?: number; max?: number; worker?: string; concurrency?: number }): Promise<TickResult> {
+async function tickOutsideScope(cfg: JobConfig, opts: TickOptions): Promise<TickResult> {
   const db = cfg.db;
   if (running.get(db)) return { ran: 0, failed: 0, busy: true, more: false };
   if (closing.has(db)) return { ran: 0, failed: 0, more: false };
@@ -309,6 +332,10 @@ async function tickOutsideScope(cfg: JobConfig, opts: { budgetMs?: number; max?:
   try {
     await cleanup(db, deadline).catch((e) => cfg.log.warn("job cleanup failed", String((e as Error)?.message ?? e)));
     while (Date.now() < deadline && ran + failed < max && !closing.has(db)) {
+      if (opts.busy?.()) {
+        await quietFor(opts.busy, Math.min(YIELD_MS, deadline - Date.now()));
+        if (Date.now() >= deadline || closing.has(db)) break;
+      }
       const jobs = await claim(db, worker, Math.min(width, max - ran - failed));
       if (!jobs.length) return { ran, failed, more: false };
       // jobs of one record (its events) keep their order: they run one after the other, other groups alongside

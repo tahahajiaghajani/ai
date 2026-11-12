@@ -11,6 +11,7 @@ import { migrate } from "@server/db/migrate";
 import { createApp } from "@server/app";
 import { registerCloudLink } from "@server/modules/ai/relay";
 import { consoleLogger, type Logger, type ServerConfig } from "@server/context";
+import { isBackgroundRequest } from "@server/http/hono";
 import { stopTicks, tick } from "@server/jobs";
 import { loadConfig, saveConfig, type LocalConfig } from "./config";
 import { createBridge } from "./bridge";
@@ -124,13 +125,26 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
     fetch: globalThis.fetch.bind(globalThis),
   };
   const api = createApp(cfg);
+  // requests of the window (and of the office network's browsers) in flight, its background polling aside: the job
+  // queue waits for them before each job, so a page's burst of requests is not interleaved with job statements on the
+  // database's one connection
+  let foreground = 0;
   // the job queue (record events, notifications, SLA timers…) runs every 10 s on this computer
   const jobTimer = setInterval(() => {
-    void tick(cfg, { budgetMs: 8000 }).catch((e) => log.warn("job tick failed", String((e as Error)?.message ?? e)));
+    void tick(cfg, { budgetMs: 8000, busy: () => foreground > 0 }).catch((e) => log.warn("job tick failed", String((e as Error)?.message ?? e)));
   }, 10_000);
   jobTimer.unref?.();
 
   const app = new Hono();
+  app.use("/api/*", async (c, next) => {
+    if (isBackgroundRequest(c)) return next();
+    foreground++;
+    try {
+      await next();
+    } finally {
+      foreground--;
+    }
+  });
   // Who may reach the API. Before the first account exists every request is trusted as the
   // installation's administrator (setup, cloud link, LAN and backup settings), so only this
   // computer may make them: not the office network, and not a web page that points a host
