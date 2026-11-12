@@ -20717,6 +20717,101 @@ create or replace trigger sm_portfolio_nodes_demo after insert on sm_portfolio_n
 create or replace trigger sm_portfolio_nodes_demo_t after update or delete on sm_portfolio_nodes for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_portfolio_nodes enable row level security;
 
+-- position: نقش‌های سازمانی
+create table if not exists sm_positions (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_positions add column if not exists workspace_id uuid;
+alter table sm_positions add column if not exists domain_id uuid;
+alter table sm_positions add column if not exists unit_id uuid;
+alter table sm_positions add column if not exists created_at timestamptz not null default now();
+alter table sm_positions add column if not exists created_by uuid;
+alter table sm_positions add column if not exists updated_at timestamptz not null default now();
+alter table sm_positions add column if not exists updated_by uuid;
+alter table sm_positions add column if not exists rev bigint not null default 0;
+alter table sm_positions add column if not exists version integer not null default 1;
+alter table sm_positions add column if not exists deleted_at timestamptz;
+alter table sm_positions add column if not exists origin text;
+alter table sm_positions add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_positions add column if not exists name text;
+alter table sm_positions add column if not exists key text;
+alter table sm_positions add column if not exists unit_kind text;
+alter table sm_positions add column if not exists reports_to uuid;
+alter table sm_positions add column if not exists active boolean not null default true;
+alter table sm_positions add column if not exists description text;
+create index if not exists sm_positions_rev_idx on sm_positions (org_id, rev);
+create index if not exists sm_positions_upd_idx on sm_positions (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_positions_crt_idx on sm_positions (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_positions_key_uk on sm_positions (org_id, key) where deleted_at is null;
+drop trigger if exists sm_positions_sync on sm_positions;
+create trigger sm_positions_sync before insert or update on sm_positions for each row execute function sm_sync_touch('position');
+create or replace trigger sm_positions_demo after insert on sm_positions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_positions_demo_t after update or delete on sm_positions for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_positions enable row level security;
+
+-- position_holder: دارندگان نقش‌های سازمانی
+create table if not exists sm_position_holders (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_position_holders add column if not exists workspace_id uuid;
+alter table sm_position_holders add column if not exists domain_id uuid;
+alter table sm_position_holders add column if not exists unit_id uuid;
+alter table sm_position_holders add column if not exists created_at timestamptz not null default now();
+alter table sm_position_holders add column if not exists created_by uuid;
+alter table sm_position_holders add column if not exists updated_at timestamptz not null default now();
+alter table sm_position_holders add column if not exists updated_by uuid;
+alter table sm_position_holders add column if not exists rev bigint not null default 0;
+alter table sm_position_holders add column if not exists version integer not null default 1;
+alter table sm_position_holders add column if not exists deleted_at timestamptz;
+alter table sm_position_holders add column if not exists origin text;
+alter table sm_position_holders add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_position_holders add column if not exists position_id uuid;
+alter table sm_position_holders add column if not exists user_id uuid;
+alter table sm_position_holders add column if not exists org_unit_id uuid;
+alter table sm_position_holders add column if not exists kind text;
+alter table sm_position_holders add column if not exists valid_from date;
+alter table sm_position_holders add column if not exists valid_to date;
+alter table sm_position_holders add column if not exists source text;
+alter table sm_position_holders add column if not exists source_ref text;
+create index if not exists sm_position_holders_rev_idx on sm_position_holders (org_id, rev);
+create index if not exists sm_position_holders_upd_idx on sm_position_holders (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_position_holders_crt_idx on sm_position_holders (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_position_holders_position_id_idx on sm_position_holders (org_id, position_id) where deleted_at is null;
+create index if not exists sm_position_holders_user_id_idx on sm_position_holders (org_id, user_id) where deleted_at is null;
+create index if not exists sm_position_holders_org_unit_id_idx on sm_position_holders (org_id, org_unit_id) where deleted_at is null;
+create unique index if not exists sm_position_holders_position_id_user_id_org_unit_id_uk on sm_position_holders (org_id, position_id, user_id, org_unit_id) where deleted_at is null;
+drop trigger if exists sm_position_holders_sync on sm_position_holders;
+create trigger sm_position_holders_sync before insert or update on sm_position_holders for each row execute function sm_sync_touch('position_holder');
+create or replace trigger sm_position_holders_demo after insert on sm_position_holders for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_position_holders_demo_t after update or delete on sm_position_holders for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_position_holders enable row level security;
+
 -- priority_matrix: ماتریس‌های اولویت
 create table if not exists sm_priority_matrices (
   id uuid primary key,
