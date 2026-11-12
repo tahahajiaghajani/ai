@@ -402,7 +402,8 @@ async function handoff(ctx: Ctx, conv: Row, note: string | null): Promise<Out> {
   const inc = schema.def("incident");
   let link: VaLink | null = null;
   if (inc && access().canCreate(ctx, inc, null)) {
-    const { row } = await create(ctx, "incident", { short_description: title, description: body.slice(0, 30_000), caller_id: ctx.user.id, channel: "chat" });
+    // the assistant asks for a title and a description only: the organisation's requirements for people are not asked
+    const { row } = await create(ctx, "incident", { short_description: title, description: body.slice(0, 30_000), caller_id: ctx.user.id, channel: "chat" }, { orgRules: false });
     link = linkOf("incident", String(row.id), typeof row.number === "string" ? row.number : null, title);
   } else if (schema.def("interaction")) {
     // the requester may not file an incident: the service desk picks the conversation up as an interaction
@@ -476,7 +477,7 @@ async function continuePending(ctx: Ctx, conv: Row, p: Pending, input: VaInput, 
       return text ? incidentDraft(topics.find((t) => t.kind === "report_issue") ?? null, text) : null;
     case "confirm_incident": {
       if (!confirm) return null;
-      const { row } = await create(ctx, "incident", { short_description: p.short_description, description: p.description, caller_id: ctx.user.id, channel: "chat" });
+      const { row } = await create(ctx, "incident", { short_description: p.short_description, description: p.description, caller_id: ctx.user.id, channel: "chat" }, { orgRules: false });
       const link = linkOf("incident", String(row.id), typeof row.number === "string" ? row.number : null, p.short_description);
       return { text: `مشکل ثبت شد${link.number ? ` (${link.number})` : ""}؛ میز خدمت پیگیری می‌کند.`, cards: [{ kind: "created", link, label: "گزارش مشکل ثبت شد" }], topic: "report_issue", route: "action", pending: null };
     }

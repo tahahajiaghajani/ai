@@ -265,12 +265,13 @@ export async function convertToIncident(ctx: Ctx, id: string, input: { note?: st
   // the item's channel when incidents know it (not «دستیار هوشمند», «زمان‌بندی» or «گردش‌کار»), else the incident's default
   const channel = await offeredChoice(ctx.db, ctx, "incident", "channel", ritm.channel);
   return ctx.write(async (tx) => {
+    // built from the item alone: the organisation's requirements for people are not asked (design F §3.3)
     const inc = await createIn(tx, ctx, "incident", {
       short_description: ritm.short_description,
       description: [`از ${ritm.number ?? "قلم درخواست‌شده"} تبدیل شد.`, input.note?.trim() || "", summaryOf(schema, obj(ritm.answers), display)].filter(Boolean).join("\n\n"),
       caller_id: ritm.requested_for ?? ritm.caller_id ?? null,
       ...(channel ? { channel } : {}),
-    });
+    }, { orgRules: false });
     await transitionIn(tx, sysOf(ctx, ctx.user.id), "request_item", id, "cancelled", { close_code: "converted", close_notes: `به رخداد ${inc.number ?? ""} تبدیل شد`.trim() }, { trusted: true });
     await enqueue(tx, { kind: JOB_LINK, orgId: ctx.org.id, payload: { from_table: "request_item", from_id: id, kind: "related", to_table: "incident", to_id: inc.id }, maxAttempts: 5 });
     return { table: "incident", id: String(inc.id), number: (inc.number as string) ?? null };

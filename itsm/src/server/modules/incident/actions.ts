@@ -8,6 +8,7 @@ import { knownErrorMatch, similarity, SIMILAR_MIN, words } from "@shared/inciden
 import type { KnownErrorHit, Readiness, SimilarHit } from "@shared/incident/api";
 import { ACTIVE_KE_STATES } from "@shared/problem/logic";
 import type { Ctx } from "../../context";
+import { access } from "../../access/provider";
 import { createIn, defFor, get, list, savepoint, transitionIn, updateIn } from "../../engine";
 import { AppError } from "../../http/errors";
 import { bad, conflict, forbidden, notFound } from "../../http/errors";
@@ -142,12 +143,24 @@ export async function createRelated(ctx: Ctx, id: string, mode: RelatedMode, inp
     for (const f of COPIED) if (row[f] !== null && row[f] !== undefined && !(Array.isArray(row[f]) && !row[f].length)) data[f] = row[f];
     if (input.short_description?.trim()) data.short_description = input.short_description.trim();
     if (mode === "child") data.parent_id = row.id;
+    // a child or a copy carries the organisation's own fields too (those the person may set; a «پیوست» field's files
+    // belong to the source)
+    if (mode !== "follow_up") {
+      const visible = access().visibleFields(ctx, def);
+      const writable = access().writableFields(ctx, def, null);
+      for (const f of def.fields) {
+        if (!f.custom || f.system || f.readonly || f.check === "attachments" || (visible && !visible.has(f.name)) || (writable && !writable.has(f.name))) continue;
+        const v = row[f.name];
+        if (v !== null && v !== undefined && !(Array.isArray(v) && !v.length)) data[f.name] = v;
+      }
+    }
     if (mode === "follow_up") {
       data.follow_up_of = row.id;
       data.short_description = input.short_description?.trim() || `پیگیری ${row.number}: ${row.short_description}`.slice(0, 200);
       delete data.assignment_group_id;
     }
-    const created = await createIn(tx, ctx, "incident", data, { trusted: mode === "follow_up" });
+    // built from the source alone: the organisation's requirements for people are not asked (design F §3.3)
+    const created = await createIn(tx, ctx, "incident", data, { trusted: mode === "follow_up", orgRules: false });
     const label = mode === "child" ? "رخداد فرزند" : mode === "copy" ? "رونوشت" : "رخداد پیگیری";
     await workNote(tx, ctx, def, row, `${label} ${created.number} ساخته شد.`, { related: created.id, mode });
     await workNote(tx, ctx, def, created, `${label}ِ ${row.number}.`, { source: row.id, mode });
