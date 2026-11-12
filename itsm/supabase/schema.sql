@@ -13060,6 +13060,53 @@ create or replace trigger sm_flow_versions_demo after insert on sm_flow_versions
 create or replace trigger sm_flow_versions_demo_t after update or delete on sm_flow_versions for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_flow_versions enable row level security;
 
+-- form: فرم‌ها
+create table if not exists sm_forms (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_forms add column if not exists workspace_id uuid;
+alter table sm_forms add column if not exists domain_id uuid;
+alter table sm_forms add column if not exists unit_id uuid;
+alter table sm_forms add column if not exists created_at timestamptz not null default now();
+alter table sm_forms add column if not exists created_by uuid;
+alter table sm_forms add column if not exists updated_at timestamptz not null default now();
+alter table sm_forms add column if not exists updated_by uuid;
+alter table sm_forms add column if not exists rev bigint not null default 0;
+alter table sm_forms add column if not exists version integer not null default 1;
+alter table sm_forms add column if not exists deleted_at timestamptz;
+alter table sm_forms add column if not exists origin text;
+alter table sm_forms add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_forms add column if not exists name text;
+alter table sm_forms add column if not exists status text;
+alter table sm_forms add column if not exists version_no integer;
+alter table sm_forms add column if not exists description text;
+alter table sm_forms add column if not exists layout jsonb;
+alter table sm_forms add column if not exists fields jsonb;
+alter table sm_forms add column if not exists published_at timestamptz;
+alter table sm_forms add column if not exists published_hash text;
+create index if not exists sm_forms_rev_idx on sm_forms (org_id, rev);
+create index if not exists sm_forms_upd_idx on sm_forms (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_forms_crt_idx on sm_forms (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_forms_name_uk on sm_forms (org_id, name) where deleted_at is null;
+drop trigger if exists sm_forms_sync on sm_forms;
+create trigger sm_forms_sync before insert or update on sm_forms for each row execute function sm_sync_touch('form');
+create or replace trigger sm_forms_demo after insert on sm_forms for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_forms_demo_t after update or delete on sm_forms for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_forms enable row level security;
+
 -- fsm_config: تنظیمات خدمات میدانی
 create table if not exists sm_fsm_config (
   id uuid primary key,
