@@ -3,9 +3,8 @@
 // `npm run start:local` for development and by the end-to-end tests.
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
-import { serveStatic } from "@hono/node-server/serve-static";
-import { existsSync, readFileSync, mkdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { createPgliteDb } from "@server/db/pglite";
 import { migrate } from "@server/db/migrate";
@@ -16,6 +15,8 @@ import { stopTicks, tick } from "@server/jobs";
 import { loadConfig, saveConfig, type LocalConfig } from "./config";
 import { createBridge } from "./bridge";
 import { takePendingRestore, undoRestore, restorePending } from "./backup";
+import { openFromTemplate, templateFor } from "./db-template";
+import { createStaticSite } from "../server-edition/static";
 import { APP_NAME } from "@shared/constants";
 
 export interface LocalOptions {
@@ -26,6 +27,11 @@ export interface LocalOptions {
   log?: Logger;
   /** in-memory database (tests) */
   memory?: boolean;
+  /**
+   * The database made at build time (desktop/app/db-template.tar.br, ./db-template.ts): a first start — no database
+   * folder yet — loads it instead of running initdb and every migration. Absent in development and in the tests.
+   */
+  template?: string;
 }
 
 export interface LocalServer {
@@ -48,14 +54,42 @@ function isLoopbackHost(host: string | undefined) {
   return h === "localhost" || h === "::1" || /^127\./.test(h);
 }
 
+/**
+ * The site's cache policy inside the app: the build's hashed files (/assets/) are kept for good — a later start, and a
+ * route opened again, takes them and their compiled code from the window's cache without asking this server, which may
+ * be busy with the job queue —, everything else is revalidated (its ETag: an update of the app replaces the fonts and
+ * index.html under the same names).
+ */
+export const desktopCacheControl = (urlPath: string): string => (urlPath.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache");
+
 export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   const log = opts.log ?? consoleLogger;
+  const t0 = performance.now();
   mkdirSync(opts.dataDir, { recursive: true });
   const config = loadConfig(opts.dataDir);
   const dbDir = join(opts.dataDir, "db");
   const restore = opts.memory ? null : takePendingRestore(opts.dataDir);
+  // a first start: the database made at build time, when the app carries one
+  const template = !opts.memory && !restore && !existsSync(join(dbDir, "PG_VERSION")) ? templateFor(opts.template) : null;
+  let fromTemplate = false;
   let db: Awaited<ReturnType<typeof createPgliteDb>>;
-  if (restore) {
+  if (template) {
+    try {
+      // what an earlier first start cut short left behind (no PG_VERSION: never a database)
+      rmSync(dbDir, { recursive: true, force: true });
+      db = await openFromTemplate(dbDir, template, log);
+      fromTemplate = true;
+    } catch (e) {
+      // never a first start that fails for its head start: initdb and the migrations, as without a template
+      log.warn("the database template did not load; preparing the database from scratch", String((e as Error)?.message ?? e));
+      try {
+        rmSync(dbDir, { recursive: true, force: true });
+      } catch {
+        renameSync(dbDir, `${dbDir}.template-failed-${Date.now()}`);
+      }
+      db = await createPgliteDb({ dataDir: dbDir, desktop: true, log });
+    }
+  } else if (restore) {
     log.info("restoring database from backup");
     try {
       db = await createPgliteDb({ dataDir: dbDir, desktop: true, log, loadDataDir: new Blob([new Uint8Array(restore.data)]) });
@@ -66,14 +100,15 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
       db = await createPgliteDb({ dataDir: dbDir, desktop: true, log });
     }
   } else db = await createPgliteDb({ dataDir: opts.memory ? undefined : dbDir, desktop: true, log });
+  const opened = performance.now();
   const applied = await migrate(db, (m) => log.info(m));
   // a first start (or an update) wrote its migrations to the log: checkpoint while the splash is still up, not at the
   // person's first click (the first start's 54 MB of log took a 609 ms checkpoint on the setup page, desktop-e2e)
   if (applied.length) await db.checkpoint("migrations").catch((e) => log.warn("database checkpoint after migrations failed", String((e as Error)?.message ?? e)));
+  const migrated = performance.now();
 
-  const staticDir = resolve(opts.staticDir);
-  const indexFile = join(staticDir, "index.html");
-  const indexHtml = () => (existsSync(indexFile) ? readFileSync(indexFile, "utf8") : `<!doctype html><meta charset=utf-8><title>${APP_NAME}</title><p>رابط کاربری ساخته نشده است (npm run build:ui)</p>`);
+  // the single-page app's files (src/server-edition/static.ts: ETags, the SPA fallback, never outside the folder)
+  const site = createStaticSite(opts.staticDir, () => `<!doctype html><meta charset=utf-8><title>${APP_NAME}</title><p>رابط کاربری ساخته نشده است (npm run build:ui)</p>`, { cacheControl: desktopCacheControl });
 
   let server: ReturnType<typeof serve> | null = null;
   const bridge = createBridge({ dataDir: opts.dataDir, db, config, log, save: () => saveConfig(opts.dataDir, config) });
@@ -125,10 +160,9 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   // AI model calls of a linked installation may go through the web version's connections
   registerCloudLink(db, () => config.cloud);
   app.route("/", api);
-  app.use("/*", serveStatic({ root: staticDir }));
   app.get("*", (c) => {
     if (c.req.path.startsWith("/api/")) return c.json({ error: { code: "not_found", message: "این مسیر وجود ندارد" } }, 404);
-    return c.html(indexHtml());
+    return site.serve(c.req.raw) ?? c.notFound();
   });
 
   const host = opts.host ?? (config.lan.enabled ? "0.0.0.0" : "127.0.0.1");
@@ -147,7 +181,10 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
     tryPort(wanted, 0);
   });
   const url = `http://127.0.0.1:${port}`;
-  log.info(`local server on ${host}:${port}`);
+  // one line with the start's parts (desktop-e2e reads it from app.log): the database opened (from the template on a
+  // first start), its migrations, this server ready; and the process since its own start (the bundle's code included)
+  const ms = (x: number) => Math.round(x);
+  log.info(`local server on ${host}:${port} (database ${ms(opened - t0)} ms${fromTemplate ? " from the template" : ""}, migrations ${ms(migrated - opened)} ms, ready ${ms(performance.now() - t0)} ms, process ${ms(process.uptime() * 1000)} ms)`);
   bridge.start(url);
 
   return {

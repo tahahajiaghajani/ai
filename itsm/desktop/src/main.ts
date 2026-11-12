@@ -94,6 +94,12 @@ function startBackend(): Promise<{ url: string; host: string }> {
         ...process.env,
         ITSM_DATA_DIR: dataDir,
         ITSM_STATIC_DIR: join(__dirname, "renderer"),
+        // a first start loads the database made at build time instead of running initdb and every migration
+        // (src/desktop/db-template.ts)
+        ITSM_DB_TEMPLATE: join(__dirname, "db-template.tar.br"),
+        // V8's compiled code of the local server's 12 MB bundle, kept between starts (Node's compile cache; checked
+        // against the file's content, so an update compiles once again): about 0.5 s less at every start
+        NODE_COMPILE_CACHE: join(appDir, "code-cache"),
         NODE_ENV: "production",
       },
     });

@@ -70,7 +70,13 @@ function accepts(req: Request, enc: string): boolean {
   });
 }
 
-export function createStaticSite(dir: string, fallbackHtml: () => string): StaticSite {
+export interface StaticSiteOptions {
+  /** the Cache-Control of a path (default `cacheControl` above; the Windows app's local server has its own) */
+  cacheControl?: (urlPath: string) => string;
+}
+
+export function createStaticSite(dir: string, fallbackHtml: () => string, opts: StaticSiteOptions = {}): StaticSite {
+  const cachePolicy = opts.cacheControl ?? cacheControl;
   const root = resolve(dir);
   const indexPath = join(root, "index.html");
   const indexHtml = existsSync(indexPath) ? readFileSync(indexPath, "utf8") : fallbackHtml();
@@ -115,7 +121,7 @@ export function createStaticSite(dir: string, fallbackHtml: () => string): Stati
     const etag = `W/"${st.size.toString(16)}-${Math.floor(st.mtimeMs).toString(16)}${encoding ? `-${encoding}` : ""}"`;
     const headers: Record<string, string> = {
       "content-type": typeOf(path),
-      "cache-control": cacheControl(urlPath),
+      "cache-control": cachePolicy(urlPath),
       etag,
       vary: "Accept-Encoding",
       "x-content-type-options": "nosniff",
