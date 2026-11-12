@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { createPostgresDb } from "@server/db/postgres";
 import { createPgliteDb } from "@server/db/pglite";
 import { MIGRATIONS } from "@server/db/migrations";
+import { migrate } from "@server/db/migrate";
 import { hashPassword } from "@server/auth/password";
 import { makeServer, Client } from "./helpers";
 import { startLocal } from "@local/server";
@@ -127,6 +128,68 @@ describe("web version start-up", () => {
     expect(me.json.orgs).toEqual([]); // the organisation wizard comes next
     const org = await call("POST", "/orgs", { name: "سازمان مالک" });
     expect(org.status).toBe(200);
+  }, 600_000);
+
+  // The web version no longer runs migrate() on a warm start (the schema check is one query), yet a database moved by
+  // dump into another cluster (pg_restore loads the data before the triggers exist) keeps the old cluster's
+  // transaction ids: every instance runs the check that starts again what is ahead of them before its app answers —
+  // also when migrations are run by hand (AUTO_MIGRATE=false), as migrate() does elsewhere (src/server/sync/snapshot.ts).
+  it("a database moved into another cluster: a new instance starts again what is ahead of its transaction ids before it answers, with AUTO_MIGRATE=false too", async () => {
+    const w = await wire();
+    cleanup.push(() => w.server.stop(), () => w.pg.close());
+    // the socket serves one connection at a time: each step closes its own before the next one connects
+    const direct = () => createPostgresDb({ url: w.url, ssl: false, max: 1 });
+    const xmax = async (d: ReturnType<typeof direct>) => Number((await d.one<{ x: string }>(`select pg_snapshot_xmax(pg_current_snapshot())::text as x`))!.x);
+    let d = direct();
+    await migrate(d);
+    await d.close();
+    const call = await webVersion(w.url);
+    expect((await call("POST", "/auth/signup", OWNER)).status).toBe(200);
+    const made = await call("POST", "/orgs", { name: "سازمان مالک" });
+    expect(made.status).toBe(200);
+    const org = String(made.json.id);
+    await closers.pop()!();
+
+    // what pg_restore into a cluster with far lower ids leaves: the organisation's row, its purge watermark and the
+    // high-water mark of transaction ids keep the old cluster's values
+    d = direct();
+    const far = (await xmax(d)) + 40_000_000;
+    await d.tx(async (tx) => {
+      await tx.query(`set local session_replication_role = replica`);
+      await tx.query(`update sm_orgs set rev = $2 where id = $1`, [org, far]);
+      await tx.query(`insert into sm_org_sync (org_id, rev, purged) values ($1, 0, $2) on conflict (org_id) do update set purged = excluded.purged`, [org, far - 1]);
+      await tx.query(`insert into sm_meta (key, value) values ('sync.xid_high', $1) on conflict (key) do update set value = excluded.value`, [String(far + 4)]);
+    });
+    const epochBefore = Number((await d.one<{ epoch: string }>(`select epoch::text as epoch from sm_org_sync where org_id = $1`, [org]))!.epoch);
+    await d.close();
+
+    const auto = process.env.AUTO_MIGRATE;
+    process.env.AUTO_MIGRATE = "false";
+    try {
+      const again = await webVersion(w.url);
+      const health = await again("GET", "/health");
+      expect(health.status).toBe(200);
+      expect(health.json).toMatchObject({ ok: true, schema: { complete: true } });
+      await closers.pop()!();
+    } finally {
+      if (auto === undefined) delete process.env.AUTO_MIGRATE;
+      else process.env.AUTO_MIGRATE = auto;
+    }
+
+    d = direct();
+    try {
+      const next = await xmax(d);
+      const sync = (await d.one<{ purged: string; epoch: string }>(`select purged::text as purged, epoch::text as epoch from sm_org_sync where org_id = $1`, [org]))!;
+      const stamped = Number(sync.purged);
+      // the watermark, the row ahead and the mark took the checking transaction's id; every Windows app reads everything once
+      expect(stamped).toBeGreaterThan(0);
+      expect(stamped).toBeLessThan(next);
+      expect(Number((await d.one<{ rev: string }>(`select rev::text as rev from sm_orgs where id = $1`, [org]))!.rev)).toBe(stamped);
+      expect(Number((await d.one<{ value: string }>(`select value from sm_meta where key = 'sync.xid_high'`))!.value)).toBeLessThanOrEqual(next);
+      expect(Number(sync.epoch)).toBeGreaterThan(epochBefore);
+    } finally {
+      await d.close();
+    }
   }, 600_000);
 });
 

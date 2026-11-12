@@ -635,13 +635,14 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
   above the new cluster's ids, where a full read's window (`rev < snap.xmax`) leaves them out and the app's sweep then
   drops its copies — and so do the cursors, demo marks and the purge watermark (an old cluster's watermark is never
   visible in a snapshot here: every pull with a cursor would read everything again). In the transaction that bumps the
-  epochs, `karizctl restore` (`BUMP_ALL_EPOCHS_SQL`) and the startup's check (`migrate()`, and the web version's start
-  with `AUTO_MIGRATE=false`; `checkXidRegression({ restamp })`) give every synced row at or above that transaction's id
-  this id (`RESTAMP_ROWS`, shared with 0100; `itsm.applying` keeps timestamps), set `sm_devices.cursor` to 0, a
-  tombstoned demo pack's `purge_mark` to the id + 1, a non-zero `sm_org_sync.purged` to the id (`notePurgedHere`: the
-  apps' first full read sees it) and the mark to the id. Not on a Windows app's database nor before 0100 (the
-  migration does it). Instances that start together take turns on the migrations' lock; the next finds the mark lowered
-  (`tests/sync-xid-pg.test.ts`).
+  epochs, `karizctl restore` (`BUMP_ALL_EPOCHS_SQL`) and the startup's check (`migrate()`, and every web instance while
+  it loads its app, whether or not it ran migration steps — `src/server/cloud.ts`; `checkXidRegression({ restamp })`)
+  give every synced row at or above that transaction's id this id (`RESTAMP_ROWS`, shared with 0100; `itsm.applying`
+  keeps timestamps), set `sm_devices.cursor` to 0, a tombstoned demo pack's `purge_mark` to the id + 1, a non-zero
+  `sm_org_sync.purged` to the id (`notePurgedHere`: the apps' first full read sees it) and the mark to the id. Not on a
+  Windows app's database nor before 0100 (the migration does it). Instances that start together take turns on the
+  migrations' lock; the next finds the mark lowered (`tests/sync-xid-pg.test.ts`; the web start:
+  `tests/web-startup.test.ts`).
 - **Tombstone purge**: `purgeArchived` removes archived records' tombstones after 30 days and raises
   `sm_org_sync.purged` to the newest revision removed (`notePurged`); a cursor that does not see it never received those
   tombstones and is reset (full read, which drops them). Any other hard delete of rows a Windows app may hold must leave
