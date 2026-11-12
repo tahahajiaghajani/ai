@@ -108,4 +108,50 @@ describe("custody and device status recorded on a Windows app", () => {
     expect(at).toBeLessThanOrEqual(Date.now());
     expect(Math.abs(at - appAt)).toBeLessThan(1000);
   });
+
+  // review R-a-1: the outbox is pushed in pages of 200 rows by the time each row changed; an ATM's change and back
+  // shares that time with its asset row, so a full page can cut them apart — the asset row first, or the periods first
+  for (const order of ["the asset row", "the periods"] as const) {
+    it(`keeps an outage recorded offline when a full outbox page sends ${order} a request ahead`, async () => {
+      const iso = (ms: number) => new Date(ms).toISOString();
+      const tag = order === "the asset row" ? "1" : "2";
+      const atm = (await web.post(`${P}/r/asset`, { model_id: atmModel, state: "in_use", branch_id: unit.a, department_id: unit.a, serial_number: `DESK-PAGE-${tag}`, terminal_id: `3001000${tag}0` })).row;
+      // registered long ago, in service for two hours
+      const T0 = Date.now() - 2 * 3_600_000;
+      await cloudDb.query(`update sm_device_status_events set from_at = $2 where asset_id = $1`, [atm.id, iso(T0)]);
+      await cloudDb.query(`update sm_assets set device_status_at = $2, created_at = $3 where id = $1`, [atm.id, iso(T0), iso(T0 - 86_400_000)]);
+      await client.syncNow();
+      // the app's last contact an hour ago; offline since, it recorded «بدون وجه نقد» 30 minutes ago and «در سرویس»
+      // again 10 minutes ago
+      await cloudDb.query(`update sm_devices set last_pull_at = $2 where org_id = $1`, [org, iso(Date.now() - 3_600_000)]);
+      await local.post(`${P}/itam/fleet/${atm.id}/status`, { status: "out_of_cash" });
+      await local.post(`${P}/itam/fleet/${atm.id}/status`, { status: "in_service" });
+      const out = Date.now() - 30 * 60_000;
+      const back = Date.now() - 10 * 60_000;
+      const [O, P1, P2] = await deskDb.query<{ id: string }>(`select id from sm_device_status_events where asset_id = $1 order by from_at, created_at`, [atm.id]);
+      await deskDb.query(`update sm_device_status_events set to_at = $2, minutes = 90 where id = $1`, [O.id, iso(out)]);
+      await deskDb.query(`update sm_device_status_events set from_at = $2, to_at = $3, minutes = 20 where id = $1`, [P1.id, iso(out), iso(back)]);
+      await deskDb.query(`update sm_device_status_events set from_at = $2 where id = $1`, [P2.id, iso(back)]);
+      await deskDb.query(`update sm_assets set device_status_at = $2 where id = $1`, [atm.id, iso(back)]);
+      // the page: whatever else waits goes first, then rows of rows already gone (counted, never sent) up to the cut
+      const ids = (xs: string[]) => `{${xs.join(",")}}`;
+      const mine = [O.id, P1.id, P2.id, atm.id];
+      const first = order === "the asset row" ? [O.id, atm.id] : [O.id, P1.id, P2.id];
+      await deskDb.query(`update sm_outbox set changed_at = now() - interval '2 days' where not (id = any($1::uuid[]))`, [ids(mine)]);
+      await deskDb.query(`update sm_outbox set changed_at = now() - interval '2 minutes' where id = any($1::uuid[])`, [ids(first)]);
+      await deskDb.query(`update sm_outbox set changed_at = now() - interval '1 minute' where id = any($1::uuid[]) and not (id = any($2::uuid[]))`, [ids(mine), ids(first)]);
+      const others = (await deskDb.one<{ n: number }>(`select count(*)::int as n from sm_outbox where not (id = any($1::uuid[]))`, [ids(mine)]))!.n;
+      await deskDb.query(`insert into sm_outbox (entity, id, changed_at) select 'asset', gen_random_uuid(), now() - interval '1 day' from generate_series(1, $1::int)`, [200 - others - first.length]);
+      await client.syncNow();
+      await client.refreshPending();
+      expect(client.state.failed).toEqual([]);
+      expect(client.state.pending).toBe(0);
+      // the server's history: in service until the outage began, 20 minutes without cash, in service again since
+      expect(Date.parse((await web.get(`${P}/r/asset/${atm.id}`)).row.device_status_at)).toBe(back);
+      const periods = (await web.post(`${P}/r/device_status_event/query`, { filter: { f: "asset_id", op: "eq", v: atm.id }, sort: "from_at", size: 10 })).rows;
+      expect(periods.map((x: any) => [x.id, x.status, Date.parse(x.from_at), x.to_at ? Date.parse(x.to_at) : null, x.minutes ?? null])).toEqual([
+        [O.id, "in_service", T0, out, 90], [P1.id, "out_of_cash", out, back, 20], [P2.id, "in_service", back, null, null],
+      ]);
+    });
+  }
 });

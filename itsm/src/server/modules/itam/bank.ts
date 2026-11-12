@@ -165,36 +165,66 @@ const refusedEarlier = (p: PushArgs) => ledgerRefusals.get(p.tx)?.get(`${p.def.k
 /** How long before its app's last contact with the server a pushed change may still be dated (the sync under way, clock skew). */
 export const CONTACT_SLACK_MS = 5 * 60_000;
 
-const floors = new WeakMap<object, number>();
+interface Contact {
+  /** the earliest time a change pushed now may carry */
+  floor: number;
+  /** the member's registered apps have never pulled: an organisation uploaded from a standalone app */
+  upload: boolean;
+}
+const contacts = new WeakMap<object, Contact>();
 
 /**
  * The earliest time a change a member's Windows app pushes now may carry. Each sync pushes, then pulls: a change made
  * before an app's last pull came with that sync. So the floor is the latest contact of the member's apps with the
  * server (their last pull, or their registration), less a few minutes for the sync under way and clock skew; a member
- * without a registered app (a push made by hand) gets now — the server stamps.
+ * without a registered app (a push made by hand) gets now — the server stamps. Whether the member's apps ever pulled
+ * comes along: until then their push is an organisation's upload from a standalone app, whose own history predates it.
  */
-async function contactFloor(p: PushArgs): Promise<number> {
-  const hit = floors.get(p.tx);
-  if (hit !== undefined) return hit;
-  const r = await p.tx.one<{ at: string | Date | null }>(
-    `select max(coalesce(last_pull_at, created_at)) as at from sm_devices where org_id = $1 and user_id = $2 and revoked_at is null`,
+async function contactOf(p: PushArgs): Promise<Contact> {
+  const hit = contacts.get(p.tx);
+  if (hit) return hit;
+  const r = await p.tx.one<{ at: string | Date | null; apps: number; pulled: number }>(
+    `select max(coalesce(last_pull_at, created_at)) as at, count(*)::int as apps, count(last_pull_at)::int as pulled
+       from sm_devices where org_id = $1 and user_id = $2 and revoked_at is null`,
     [p.ctx.org.id, p.ctx.user.id],
   );
-  const at = r?.at ? new Date(r.at).getTime() : NaN;
+  const at = msOf(r?.at);
   const now = Date.now();
-  const floor = Number.isFinite(at) ? Math.min(now, at - CONTACT_SLACK_MS) : now;
-  floors.set(p.tx, floor);
-  return floor;
+  const c = { floor: Number.isFinite(at) ? Math.min(now, at - CONTACT_SLACK_MS) : now, upload: Number(r?.apps ?? 0) > 0 && Number(r?.pulled ?? 0) === 0 };
+  contacts.set(p.tx, c);
+  return c;
 }
+
+const contactFloor = async (p: PushArgs): Promise<number> => (await contactOf(p)).floor;
 
 /** A time a Windows app pushed, as the server takes it: between `floor` and `ceil` (outside them: the nearer bound). */
 export function boundTime(raw: unknown, floor: number, ceil = Date.now()): number {
-  const t = Date.parse(String(raw ?? ""));
+  const t = msOf(raw);
   return Math.min(ceil, Math.max(floor, Number.isFinite(t) ? t : ceil));
 }
 
 const iso = (ms: number) => new Date(ms).toISOString();
-const msOf = (v: unknown) => (v ? Date.parse(String(v)) : NaN);
+function msOf(v: unknown): number {
+  if (v instanceof Date) return v.getTime();
+  return v ? Date.parse(String(v)) : NaN;
+}
+
+/** Assets this push registers (none was stored before it): filled where the push's asset rows are derived. */
+const registeredHere = new WeakMap<object, Set<string>>();
+const isRegisteredHere = (p: PushArgs, assetId: string) => !!registeredHere.get(p.tx)?.has(assetId);
+
+/**
+ * Where a ledger segment of an asset the server already holds may begin, when it has no stored row to go on from (no
+ * custody chain, no status period): after the app's last contact and the asset's own registration here (and the
+ * device's last known change). The open floor (the app's own history) is only for an asset this push registers, and
+ * only in an organisation's upload from a standalone app (`contactOf().upload`); any other new asset begins after the
+ * app's last contact as well.
+ */
+async function firstFloor(p: PushArgs, assetId: string, asset: Row, ...also: number[]): Promise<number> {
+  const c = await contactOf(p);
+  if (isRegisteredHere(p, assetId)) return c.upload ? -Infinity : c.floor;
+  return Math.max(c.floor, msOf(asset.created_at) || -Infinity, ...also.map((t) => t || -Infinity));
+}
 
 /** This push's rows of `entity` for one asset that are new here (rows stored earlier are changes, judged on their own). */
 async function freshRows(p: PushArgs, entity: string, table: string, assetId: string): Promise<{ wire: Row[]; fresh: Row[] }> {
@@ -215,21 +245,136 @@ const CUSTODY_WEB = "رویداد نگهداری فقط همراه همان تغ
 
 /** Does the chain's newest row agree with the asset as stored (its branch, holder and state)? */
 function custodyHead(r: Row, a: Row): boolean {
-  if (idOrNull(r.branch_id) !== idOrNull(a.branch_id)) return false;
+  // every event of an app's change names the holder it leaves the asset with (assetAfter there: its `assigned_to`)
+  if (idOrNull(r.branch_id) !== idOrNull(a.branch_id) || idOrNull(r.holder_id) !== idOrNull(a.assigned_to)) return false;
   switch (String(r.event)) {
-    case "assigned": return !!idOrNull(r.holder_id) && idOrNull(r.holder_id) === idOrNull(a.assigned_to);
-    case "returned": return !a.assigned_to;
     case "missing": return a.state === "missing";
     case "repair_out": return a.state === "in_repair";
     case "repair_in": return a.state !== "in_repair";
-    default: return true; // registered, branch_changed: the branch says it
+    default: return true; // registered, branch_changed, assigned, returned: the branch and the holder say it
   }
+}
+
+/**
+ * Where a custody chain leaves an asset: its branch, its holder, and whether it is in repair (null: the chain has not
+ * said since the asset was registered — an asset may be registered in repair).
+ */
+interface Custodian {
+  branch: string | null;
+  holder: string | null;
+  repair: boolean | null;
+}
+
+/**
+ * Where a stored row (the web version's events included) leaves the asset: each names the branch and the holder the
+ * asset has after it — a wipe names no holder and changes none; going into repair writes «repair_out», and every way out
+ * of it a row of its own (back from repair, lost, sent, received, disposed).
+ */
+function custodianAfter(c: Custodian, r: Row): Custodian {
+  const ev = String(r.event ?? "");
+  const repair = ev === "repair_out" ? true : ev === "registered" ? null : ["repair_in", "missing", "transfer_missing", "dispatched", "received", "disposed"].includes(ev) ? false : c.repair;
+  return { branch: idOrNull(r.branch_id), holder: ev === "wiped" ? c.holder : idOrNull(r.holder_id), repair };
+}
+
+/** How much of a stored chain is read to replay where it leaves the asset (a longer one starts unknown in repair). */
+const CHAIN_TAIL = 1000;
+
+/** The stored chain's last row and where the chain leaves the asset (null: no chain yet). */
+async function chainEnd(p: PushArgs, assetId: string, segment: Row[]): Promise<{ base: Row | undefined; end: Custodian | null }> {
+  const rows = await liveRows(p.tx, sysOf(p.ctx), "asset_custody", { f: "asset_id", op: "eq", v: assetId }, { order: "t.seq desc", limit: CHAIN_TAIL });
+  if (!rows.length) return { base: undefined, end: null };
+  let end: Custodian = { branch: null, holder: null, repair: null };
+  for (const r of [...rows].reverse()) end = custodianAfter(end, r);
+  // a chain read whole that has not said whether the asset is in repair since its registration: the state it was
+  // registered in (its first recorded state), asked only when the segment brings it back from repair
+  if (end.repair === null && rows.length < CHAIN_TAIL && segment.some((r) => r.event === "repair_in")) {
+    const first = await p.tx.one<{ state: string | null }>(
+      `select coalesce(old #>> '{}', new #>> '{}') as state from sm_history
+        where org_id = $1 and table_key = 'asset' and record_id = $2 and field = 'state' and deleted_at is null order by at, id limit 1`,
+      [p.ctx.org.id, assetId],
+    );
+    if (first?.state) end = { ...end, repair: first.state === "in_repair" };
+  }
+  return { base: rows[0], end };
+}
+
+/**
+ * A segment replayed from where the stored chain left the asset (`start`), each row the way the app's assetAfter writes
+ * the rows of a change: a registration only to begin a chain; a branch move from the branch the asset is in to another,
+ * naming the holder it has (written with an assignment, the holder the assignment that follows gives); an assignment from
+ * the holder it has to someone else, a return from a holder to none; a loss or a repair trip in the branch it is in,
+ * naming the holder it has — and back from repair only an asset in repair (where the chain has not said since its
+ * registration, nor its first recorded state, the app's word stands). Returns the people and units the segment brings
+ * in (a push does not re-check references: they are checked against the organisation's members and units), or null
+ * when a row does not follow.
+ */
+function replayCustody(start: Custodian | null, segment: Row[]): { people: Set<string>; units: Set<string> } | null {
+  const people = new Set<string>();
+  const units = new Set<string>();
+  let c = start;
+  for (let i = 0; i < segment.length; i++) {
+    const r = segment[i];
+    const ev = String(r.event ?? "");
+    const branch = idOrNull(r.branch_id);
+    const holder = idOrNull(r.holder_id);
+    const fromBranch = idOrNull(r.from_branch_id);
+    const fromHolder = idOrNull(r.from_holder_id);
+    if (!APP_EVENTS.has(ev) || (ev === "registered") !== !c) return null;
+    if (!c) {
+      if (fromBranch || fromHolder) return null;
+      if (branch) units.add(branch);
+      if (holder) people.add(holder);
+      c = { branch, holder, repair: null };
+      continue;
+    }
+    if (ev === "branch_changed") {
+      if (!branch || branch === c.branch || fromBranch !== c.branch || fromHolder) return null;
+      if (holder !== c.holder) {
+        // a move written in the same change as an assignment names the new holder: the assignment row follows
+        const n = segment[i + 1];
+        if (!n || !["assigned", "returned"].includes(String(n.event)) || idOrNull(n.holder_id) !== holder) return null;
+      }
+      units.add(branch);
+      c = { ...c, branch };
+      continue;
+    }
+    if (branch !== c.branch || fromBranch) return null;
+    if (ev === "assigned") {
+      if (fromHolder !== c.holder || !holder || holder === c.holder) return null;
+      people.add(holder);
+      c = { ...c, holder };
+    } else if (ev === "returned") {
+      if (!c.holder || fromHolder !== c.holder || holder) return null;
+      c = { ...c, holder: null };
+    } else {
+      // missing, repair_out, repair_in
+      if (holder !== c.holder || fromHolder) return null;
+      if ((ev === "repair_out" && c.repair === true) || (ev === "repair_in" && c.repair === false)) return null;
+      c = { ...c, repair: ev === "repair_out" };
+    }
+  }
+  return { people, units };
+}
+
+/** Are these people members of the organisation and these units its own (what a segment brings in)? */
+async function knownHere(p: PushArgs, named: { people: Set<string>; units: Set<string> }): Promise<boolean> {
+  if (named.people.size) {
+    const rows = await p.tx.query<{ id: string }>(`select user_id::text as id from sm_org_members where org_id = $1 and user_id = any($2::uuid[]) and deleted_at is null`, [p.ctx.org.id, pgArray([...named.people])]);
+    if (new Set(rows.map((r) => r.id.toLowerCase())).size !== named.people.size) return false;
+  }
+  if (named.units.size) {
+    const rows = await p.tx.query<{ id: string }>(`select id::text as id from ${tableDef("org_unit")!.table} where org_id = $1 and id = any($2::uuid[]) and deleted_at is null`, [p.ctx.org.id, pgArray([...named.units])]);
+    if (new Set(rows.map((r) => r.id.toLowerCase())).size !== named.units.size) return false;
+  }
+  return true;
 }
 
 interface Decided {
   problem: string | null;
   /** per row id: the values the server decides */
   rows: Map<string, Row>;
+  /** the stored open period a status segment judged (the device's current one), when it got that far */
+  current?: string;
 }
 const custodySegments = new WeakMap<object, Map<string, Promise<Decided>>>();
 
@@ -239,12 +384,12 @@ const custodySegments = new WeakMap<object, Map<string, Promise<Decided>>>();
  *   · they follow each other (the app's `seq` without a gap), and the app had the stored chain when it began them (the
  *     segment starts no later than right after the stored last row; rows of an app behind the server's chain are
  *     numbered after it, never before);
- *   · only the events of an asset change, each starting where the one before left the asset: a branch move from the
- *     branch the chain is in (by someone who moves assets between branches, as for the asset itself), any other event
- *     in that branch;
+ *   · only the events of an asset change, replayed from where the stored chain left the asset (`replayCustody`): each
+ *     starts where the one before left the asset's branch, holder and repair (a branch move only by someone who moves
+ *     assets between branches, as for the asset itself), and names only the organisation's own people and units;
  *   · the newest agrees with the asset as stored now (a push applies the asset before its ledgers);
  *   · each is dated by the app within the push's bounds: after the row before it and the app's last contact with the
- *     server (`contactFloor`), never in the future; recorded as the member's.
+ *     server (`contactOf`), never in the future; recorded as the member's.
  * Each row is then chained to the stored row before it and signed with the server's key when it is written (in order).
  */
 function custodySegment(p: PushArgs, assetId: string): Promise<Decided> {
@@ -263,27 +408,20 @@ async function judgeCustody(p: PushArgs, assetId: string): Promise<Decided> {
   // outside a push's batch (a single row checked on its own): the row itself
   if (!fresh.some((r) => r.id === String(p.next.id).toLowerCase())) fresh = [{ ...p.next, id: String(p.next.id).toLowerCase() }];
   fresh.sort((x, y) => Number(x.seq) - Number(y.seq));
-  const [base] = await liveRows(p.tx, sys, "asset_custody", { f: "asset_id", op: "eq", v: assetId }, { order: "t.seq desc", limit: 1 });
+  const { base, end } = await chainEnd(p, assetId, fresh);
   const asset = await liveRow(p.tx, sys, "asset", assetId);
   if (!asset) return fail(CUSTODY_WEB);
   const first = Number(fresh[0].seq);
   const baseSeq = Number(base?.seq ?? 0);
   if (!Number.isInteger(first) || first > baseSeq + 1 || fresh.some((r, i) => Number(r.seq) !== first + i)) return fail(CUSTODY_WAIT);
   if (fresh.some((r) => r.event === "branch_changed") && !(await holds(p.ctx, "asset", "write", "all", p.tx))) return fail("جابه‌جایی دارایی میان شعبه‌ها با حوالهٔ انتقال است");
-  let prev: Row | undefined = base;
-  for (const r of fresh) {
-    const ev = String(r.event ?? "");
-    if (!APP_EVENTS.has(ev) || (ev === "registered") !== !prev) return fail(CUSTODY_WEB);
-    if (ev === "branch_changed") {
-      if (!idOrNull(r.branch_id) || idOrNull(r.from_branch_id) !== idOrNull(prev?.branch_id) || idOrNull(r.branch_id) === idOrNull(r.from_branch_id)) return fail(CUSTODY_WEB);
-    } else if (prev && idOrNull(r.branch_id) !== idOrNull(prev.branch_id)) return fail(CUSTODY_WEB);
-    prev = r;
-  }
-  if (!custodyHead(fresh[fresh.length - 1], asset)) return fail(CUSTODY_WEB);
-  // a chain the server holds goes on after its last row and the app's last contact; a chain the push begins (an asset
-  // registered on the app, an organisation uploaded from a standalone app) is the app's own history
+  const named = replayCustody(end, fresh);
+  if (!named || !custodyHead(fresh[fresh.length - 1], asset) || !(await knownHere(p, named))) return fail(CUSTODY_WEB);
+  // a chain the server holds goes on after its last row and the app's last contact; a chain the push begins goes on
+  // after the app's last contact and the asset's registration here — or, for an asset an organisation's upload from a
+  // standalone app registers, is the app's own history (`firstFloor`)
   const actor = actorOf(p.ctx);
-  let after = base ? Math.max(await contactFloor(p), msOf(base.at) || -Infinity) : -Infinity;
+  let after = base ? Math.max(await contactFloor(p), msOf(base.at) || -Infinity) : await firstFloor(p, assetId, asset);
   fresh.forEach((r, i) => {
     const at = boundTime(r.at, after);
     out.rows.set(String(r.id), { seq: baseSeq + 1 + i, at: iso(at), actor_id: actor });
@@ -339,22 +477,61 @@ async function lastPeriod(p: PushArgs, assetId: string, open = false): Promise<R
 }
 
 /**
+ * The device change times this push's asset rows decided (`deviceStatusAt`), per asset: `at` the time, `rev` the stored
+ * revision it was decided on (null: an asset the push registers), `before` the device's stored change time before it.
+ * A status segment trusts a change time only once the asset row that carried it was written (`setHere`).
+ */
+interface StatusMark {
+  at: number;
+  rev: number | null;
+  before: number;
+}
+const statusMarks = new WeakMap<object, Map<string, StatusMark>>();
+function markStatus(p: PushArgs, assetId: string, m: StatusMark): void {
+  let marks = statusMarks.get(p.tx);
+  if (!marks) statusMarks.set(p.tx, (marks = new Map()));
+  marks.set(assetId, m);
+}
+
+/**
  * When a device's status changed, as the server takes a Windows app's word for it (`device_status_at`): a change the
  * push makes (another status, or new periods of the device in the same push — a change and back) is dated by the app
- * within the push's bounds — after the device's last known change (the stored time, its latest stored period) and the
- * app's last contact with the server, never in the future; otherwise the stored time stays. A status cleared is such a
- * change too (it ends the device's open period). A device the push registers is dated by the app, never in the future
- * (without a status it has no such time).
+ * within the push's bounds — after the device's last known change (the stored time, its latest stored period), the
+ * asset's registration here and the app's last contact with the server, never in the future; the time decided is
+ * marked for the device's status periods (`judgeStatus`). A status cleared is such a change too (it ends the device's
+ * open period). An asset row without such a change keeps the stored time — unless the app moved it within those bounds
+ * (never by clamping: a stale copy keeps the stored time): a change and back whose periods travel in another request of
+ * the same sync (its outbox page cut between them), which then find the device's change time set. A device the push
+ * registers is dated by the app within the push's bounds (`firstFloor`; without a status it has no such time).
  */
 async function deviceStatusAt(p: PushArgs): Promise<Row | null> {
   if (isSys(p.ctx)) return null;
-  if (!p.prev) return { device_status_at: p.next.device_status ? iso(boundTime(p.next.device_status_at, -Infinity)) : null };
+  if (!p.prev) {
+    const id = String(p.next.id).toLowerCase();
+    let set = registeredHere.get(p.tx);
+    if (!set) registeredHere.set(p.tx, (set = new Set()));
+    set.add(id);
+    if (!p.next.device_status) return { device_status_at: null };
+    const c = await contactOf(p);
+    const at = boundTime(p.next.device_status_at, c.upload ? -Infinity : c.floor);
+    markStatus(p, id, { at, rev: null, before: -Infinity });
+    return { device_status_at: iso(at) };
+  }
   const assetId = String(p.prev.id).toLowerCase();
   const { fresh } = await freshRows(p, "device_status_event", "sm_device_status_events", assetId);
-  if ((p.prev.device_status ?? null) === (p.next.device_status ?? null) && !fresh.length) return { device_status_at: p.prev.device_status_at ?? null };
+  const same = (p.prev.device_status ?? null) === (p.next.device_status ?? null);
+  if (same && !fresh.length && !p.next.device_status) return { device_status_at: p.prev.device_status_at ?? null };
   const last = await lastPeriod(p, assetId);
-  const floor = Math.max(await contactFloor(p), msOf(p.prev.device_status_at) || -Infinity, msOf(last?.from_at) || -Infinity);
-  return { device_status_at: iso(boundTime(p.next.device_status_at, floor)) };
+  const before = msOf(p.prev.device_status_at);
+  // after the device's stored history (its latest period; without one, the asset's registration here)
+  const floor = Math.max(await contactFloor(p), before || -Infinity, msOf(last ? last.from_at : p.prev.created_at) || -Infinity);
+  if (same && !fresh.length) {
+    const moved = msOf(p.next.device_status_at);
+    return { device_status_at: Number.isFinite(moved) && moved > floor && moved <= Date.now() ? iso(moved) : (p.prev.device_status_at ?? null) };
+  }
+  const at = boundTime(p.next.device_status_at, floor);
+  markStatus(p, assetId, { at, rev: Number(p.prev.rev), before });
+  return { device_status_at: iso(at) };
 }
 
 /**
@@ -362,9 +539,13 @@ async function deviceStatusAt(p: PushArgs): Promise<Row | null> {
  * since the push began are new periods, the newest one open, in the device's stored status (the asset applies first)
  * and from the device's stored change time (`deviceStatusAt`); the earlier ones closed, each at the start of the next
  * one, dated by the app within the push's bounds (after the device's latest stored period and the app's last contact,
- * never after the newest); and the stored open period closes when the first of them begins. A device whose status was
- * cleared has no open period: every new one is closed, the last at the device's change time. A close without new
- * periods: only once the device itself left that status, and at the device's own change time.
+ * never after the newest); and the stored open period closes when the first of them begins. Earlier periods need the
+ * device's change time set for them — by this push's asset row (its mark, once written), or by an earlier request of
+ * the same sync (later than the stored history, and not before the app's last contact): a change time that is no
+ * change of theirs would fold them onto one instant, so they wait (and an asset row that lost to the web version's
+ * copy leaves them refused, in sight). A device whose status was cleared has no open period: every new one is closed,
+ * the last at the device's change time. A close without new periods: only once the device itself left that status,
+ * and at the device's own change time.
  */
 function statusSegment(p: PushArgs, assetId: string): Promise<Decided> {
   let cache = statusSegments.get(p.tx);
@@ -386,6 +567,7 @@ async function judgeStatus(p: PushArgs, assetId: string): Promise<Decided> {
   if (!asset) return fail(STATUS_WAIT);
   const last = await lastPeriod(p, assetId);
   const open = await lastPeriod(p, assetId, true);
+  if (open) out.current = String(open.id).toLowerCase();
   const closesOpen = !!open && wire.some((r) => r.id === String(open.id).toLowerCase() && r.to_at);
   const changedAt = msOf(asset.device_status_at);
   if (!fresh.length) {
@@ -402,11 +584,17 @@ async function judgeStatus(p: PushArgs, assetId: string): Promise<Decided> {
   const shaped = cleared ? fresh.every((r) => r.to_at) : fresh.slice(0, -1).every((r) => r.to_at) && !newest.to_at && newest.status === asset.device_status;
   if ((open && !closesOpen) || !shaped || !Number.isFinite(changedAt)) return fail(STATUS_WAIT);
   if (last && changedAt < msOf(last.from_at)) return fail("زمان تغییر وضعیت دستگاه پیش از آخرین دورهٔ ثبت‌شدهٔ آن است");
+  // the device's change time, set for these periods: by this push's asset row (marked, and written: the stored row
+  // moved on from the revision it was decided on) or by an earlier request of the same sync
+  const mark = statusMarks.get(p.tx)?.get(assetId);
+  const setHere = !!mark && mark.at === changedAt && (mark.rev === null || Number(asset.rev) !== mark.rev);
+  const setBefore = changedAt > (last ? msOf(last.from_at) : msOf(asset.created_at)) && changedAt >= (await contactFloor(p));
+  if ((cleared ? fresh.length : fresh.length > 1) && !setHere && !setBefore) return fail(STATUS_WAIT);
   // the boundaries: each new period's start — the newest's the device's own change time (a cleared status: when the
-  // last one ends), the earlier ones dated by the app between the floor and it (after the stored history and the app's
-  // last contact; a device without stored periods — registered on the app, or uploaded with its organisation — keeps
-  // the app's own history)
-  const floor = Math.min(changedAt, last ? Math.max(await contactFloor(p), msOf(last.from_at) || -Infinity) : -Infinity);
+  // last one ends), the earlier ones dated by the app between the floor and it: after the stored history and the app's
+  // last contact; a device without stored periods after the asset's registration here and its change before this one
+  // (one an organisation's upload registers keeps the app's own history: `firstFloor`)
+  const floor = Math.min(changedAt, last ? Math.max(await contactFloor(p), msOf(last.from_at) || -Infinity) : await firstFloor(p, assetId, asset, setHere ? mark!.before : NaN));
   const starts: number[] = [];
   let after = floor;
   for (const r of cleared ? fresh : fresh.slice(0, -1)) {
@@ -436,21 +624,24 @@ const statusPush: Pick<TableHooks, "derivePush" | "validatePush" | "validatePush
         if (p.changed.size) refuseLater(p, "تاریخچهٔ وضعیت دستگاه تغییر نمی‌کند؛ فقط دورهٔ باز بسته می‌شود");
         return { minutes: p.prev.minutes ?? null };
       }
-      // an open period with a later open one stored (an earlier anomaly, or a period this push wrote before it) ends
-      // where that one begins; the device's current period closes as its segment decides
+      // the device's current period closes as its segment decides (where the first new period begins), whatever the
+      // order the push wrote them in; refused with the segment
       const assetId = String(p.prev.asset_id).toLowerCase();
-      const [later] = await liveRows(p.tx, sysOf(p.ctx), "device_status_event", { and: [{ f: "asset_id", op: "eq", v: assetId }, { f: "from_at", op: "gt", v: p.prev.from_at }, { f: "to_at", op: "empty" }] } as Cond, { order: "t.from_at", limit: 1 });
-      if (later) {
-        const to = Math.max(msOf(later.from_at), msOf(p.prev.from_at));
-        return { to_at: iso(to), minutes: Math.max(0, Math.round((to - msOf(p.prev.from_at)) / 60_000)) };
-      }
+      const own = String(p.prev.id).toLowerCase();
       const seg = await statusSegment(p, assetId);
-      const d = seg.rows.get(String(p.prev.id).toLowerCase());
-      if (seg.problem || !d) {
-        refuseLater(p, seg.problem ?? STATUS_WAIT);
-        return { minutes: p.prev.minutes ?? null };
+      const d = seg.rows.get(own);
+      if (!seg.problem && d) return d;
+      // an open period the segment does not judge (an older one beside the device's current period, an earlier
+      // anomaly) ends where the next open one begins
+      if (seg.current && seg.current !== own) {
+        const [later] = await liveRows(p.tx, sysOf(p.ctx), "device_status_event", { and: [{ f: "asset_id", op: "eq", v: assetId }, { f: "from_at", op: "gt", v: p.prev.from_at }, { f: "to_at", op: "empty" }] } as Cond, { order: "t.from_at", limit: 1 });
+        if (later) {
+          const to = Math.max(msOf(later.from_at), msOf(p.prev.from_at));
+          return { to_at: iso(to), minutes: Math.max(0, Math.round((to - msOf(p.prev.from_at)) / 60_000)) };
+        }
       }
-      return d;
+      refuseLater(p, seg.problem ?? STATUS_WAIT);
+      return { minutes: p.prev.minutes ?? null };
     }
     const assetId = idOrNull(p.next.asset_id);
     const seg = assetId ? await statusSegment(p, assetId) : null;
