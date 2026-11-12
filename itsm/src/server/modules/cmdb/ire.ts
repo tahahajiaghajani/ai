@@ -19,7 +19,7 @@ import type { IreInput, IreItem, IreItemResult, IreRelation, IreResult } from "@
 import { FIELD_TYPES, type FieldDef } from "@shared/model/types";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
-import { lockKey, pgArray } from "../../db";
+import { pgArray } from "../../db";
 import type { Queryable, Tx } from "../../db";
 import { demoScopeOrg } from "../../db/scope";
 import { AppError, bad, forbidden, notFound } from "../../http/errors";
@@ -449,11 +449,11 @@ async function identityBuckets(q: Queryable, ctx: Ctx, tree: ClassTree, items: N
  */
 async function lockIdentities(tx: Tx, ctx: Ctx, tree: ClassTree, items: NormItem[], cache: IdentCache, held: Set<number>): Promise<void> {
   const buckets = [...(await identityBuckets(tx, ctx, tree, items, cache))].filter((b) => !held.has(b)).sort((a, b) => a - b);
-  for (const b of buckets) {
-    await lockKey(tx, `ire.identity:${ctx.org.id}:${b}`);
-    held.add(b);
-    ireCounters.identityLocks++;
-  }
+  if (!buckets.length) return;
+  // one statement, in the array's order (a function scan feeds the aggregate row by row): the keys of `lockKey`
+  await tx.query(`select count(pg_advisory_xact_lock(hashtextextended(k, 0))) from unnest($1::text[]) as u(k)`, [pgArray(buckets.map((b) => `itsm.key:ire.identity:${ctx.org.id}:${b}`))]);
+  for (const b of buckets) held.add(b);
+  ireCounters.identityLocks += buckets.length;
 }
 
 /** Order items so that the ones others depend on (hosts) are reconciled first. */
