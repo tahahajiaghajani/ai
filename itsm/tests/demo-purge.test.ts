@@ -109,11 +109,18 @@ function diff(a: Snapshot, b: Snapshot): string[] {
   return out;
 }
 
-/** Run due jobs until none is left (or the time is up: periodic jobs may keep coming). */
-async function settle(e: EngineOrg, budgetMs = 90_000) {
+/**
+ * Run due jobs until none is left (or the time is up: periodic jobs may keep coming). `soonMs`: jobs due within that
+ * much time run now too.
+ */
+async function settle(e: EngineOrg, budgetMs = 90_000, soonMs = 0) {
   const until = Date.now() + budgetMs;
   while (Date.now() < until) {
-    await e.db.query(`update sm_jobs set run_at = now() where status = 'queued' and run_at > now() and (kind like '%seed%' or kind like '%install%')`);
+    await e.db.query(
+      `update sm_jobs set run_at = now() where status = 'queued' and run_at > now()
+         and (kind like '%seed%' or kind like '%install%' or run_at <= now() + $1::int * interval '1 millisecond')`,
+      [soonMs],
+    );
     const r = await tick(e.cfg, { budgetMs: 10_000 });
     if (!r.ran && !r.more) break;
   }
@@ -174,7 +181,11 @@ describe.skipIf(skip)(title, () => {
 
   beforeAll(async () => {
     ({ e, close } = await make());
-    await settle(e, 240_000);
+    // the snapshot is the organisation at rest: what its seeding queued to run a moment later runs first (the licence
+    // reconcile 60 s after the seeded licences, the first CAB, knowledge and retrieval sweeps). A snapshot taken just
+    // before that reconcile ran left its run and positions out, while the load's copy of the computed tables had them
+    // and the purge rightly put them back: a difference no purge can avoid.
+    await settle(e, 240_000, 120_000);
     log("seeded");
     before = await snapshot(e.db);
     for (const t of RAG_INDEX) for (const r of await e.db.query<{ id: string; record_id: string }>(`select id::text as id, record_id::text as record_id from ${t}`)) ragBefore.set(r.id, r.record_id);
