@@ -16,7 +16,7 @@ import { watch } from "../engine/watchers";
 import { addAttachment, contentDisposition, listAttachments, missingBlobs, openAttachment, putBlob, removeAttachment } from "../engine/attachments";
 import { exportRows, importRows } from "../engine/transfer";
 import { archiveSettings, archiveSummary, scheduleArchive } from "../engine/archive";
-import { tableMeta, tablesMeta } from "../engine/meta";
+import { tableMeta, tablesMetaAnswer } from "../engine/meta";
 
 export const recordRoutes = router();
 
@@ -81,7 +81,16 @@ const record = z.record(z.string(), z.unknown());
 
 // --- meta ---------------------------------------------------------------------------------------------------------
 
-recordRoutes.get("/meta/tables", async (c) => c.json(await tablesMeta(c.get("ctx"))));
+recordRoutes.get("/meta/tables", async (c) => {
+  // the browser keeps the answer and asks again on every page load (If-None-Match): 304 while nothing it is made of
+  // changed (src/server/engine/meta.ts)
+  const r = await tablesMetaAnswer(c.get("ctx"), c.req.header("if-none-match"));
+  if (r.tag) {
+    c.header("etag", r.tag);
+    c.header("cache-control", "private, no-cache");
+  }
+  return r.notModified ? c.body(null, 304) : c.json(r.body!);
+});
 recordRoutes.get("/meta/tables/:key", async (c) => c.json(await tableMeta(c.get("ctx"), c.req.param("key"))));
 
 // --- collection ---------------------------------------------------------------------------------------------------
