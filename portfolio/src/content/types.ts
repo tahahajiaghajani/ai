@@ -98,6 +98,10 @@ export interface Org {
   logo?: string;
   url?: string;
   relation: L;
+  /** a bank Taha has worked for or with (counted on the home page) */
+  bank?: boolean;
+  /** work that is running now; the assistant tells it apart from earlier, finished engagements */
+  current?: boolean;
 }
 
 export interface Role {

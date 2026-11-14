@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { PROJECTS } from "@/content/projects";
@@ -130,9 +130,44 @@ describe("posts", () => {
   }
 });
 
+describe("credit", () => {
+  // the owner's rule: the site never names these, in content, components, the assistant's knowledge or metadata
+  const BANNED = /claude|anthropic|کلود|كلود|نتروپیک/i;
+  const files = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? files(path.join(dir, e.name)) : /\.(ts|tsx|css|json|md|txt|svg|webmanifest)$/.test(e.name) ? [path.join(dir, e.name)] : []));
+  it("never names Claude, Claude Code or Anthropic anywhere in the site's source or public text", () => {
+    const root = path.join(__dirname, "..");
+    const hits = [...files(path.join(root, "src")), ...files(path.join(root, "public"))].filter((f) => BANNED.test(readFileSync(f, "utf8")));
+    expect(hits.map((f) => path.relative(root, f))).toEqual([]);
+  });
+  it("does not link the GitHub profile or the repository while its history is public", () => {
+    const root = path.join(__dirname, "..");
+    const hits = [...files(path.join(root, "src")), ...files(path.join(root, "public"))].filter((f) => /github\.com\/tahahajiaghajani/i.test(readFileSync(f, "utf8")));
+    expect(hits.map((f) => path.relative(root, f))).toEqual([]);
+  });
+});
+
 describe("organisations and journey", () => {
   it("logos exist", () => {
     for (const o of ORGS) if (o.logo) expect(existsSync(pub(o.logo)), o.logo).toBe(true);
+  });
+  it("every bank has a logo and is backed by a journey row or a case study", () => {
+    const banks = ORGS.filter((o) => o.bank);
+    expect(banks.length).toBeGreaterThan(0);
+    for (const o of banks) {
+      expect(Boolean(o.logo) && existsSync(pub(o.logo!)), o.key).toBe(true);
+      expect(JOURNEY.some((r) => r.org === o.key) || PROJECTS.some((p) => p.orgs?.includes(o.key)), o.key).toBe(true);
+    }
+  });
+  it("undated engagements are marked as earlier work, never as running", () => {
+    const earlier = JOURNEY.filter((r) => ["mellat", "refah", "postbank"].includes(r.org));
+    expect(earlier).toHaveLength(3);
+    for (const r of earlier) {
+      expect(r.current, r.org).toBeFalsy();
+      expect(r.period, r.org).toEqual({ fa: "پیش‌تر", en: "Earlier" });
+      expect(ORGS.find((o) => o.key === r.org)?.current, r.org).toBeFalsy();
+    }
+    for (const key of ["pars", "tejarat", "bim"]) expect(ORGS.find((o) => o.key === key)?.current, key).toBe(true);
   });
   it("journey is bilingual", () => {
     for (const r of JOURNEY) expect(filled(r.title.fa) && filled(r.title.en) && filled(r.body.fa) && filled(r.body.en)).toBe(true);

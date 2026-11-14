@@ -13,8 +13,8 @@ export const celin: Project = {
   year: "2026",
   period: { fa: "آبان ۱۴۰۵", en: "October 2026" },
   role: {
-    fa: "رهبر پروژه و کارگردان خلاق: دامنه و قواعد کسب‌وکار، جهت طراحی، آزمون روی دستگاه‌ها و زیرساخت؛ پیاده‌سازی با Claude Code",
-    en: "Project lead & creative director: scope and business rules, design direction, device testing and infrastructure; implemented with Claude Code",
+    fa: "رهبر پروژه و کارگردان خلاق: دامنه و قواعد کسب‌وکار، طراحی، پیاده‌سازی، آزمون روی دستگاه‌ها و زیرساخت",
+    en: "Project lead & creative director: scope and business rules, design, implementation, device testing and infrastructure",
   },
   context: { fa: "سلین · گالری اعتماد، از ۱۳۸۵", en: "CELIN · Etemad Gallery, since 2006" },
   status: { fa: "مستقر روی Vercel؛ ۱۲۴ آزمون سبز و build بدون متغیر محیطی", en: "Deployed on Vercel; 124 passing tests and a build with no env vars" },
@@ -91,7 +91,7 @@ export const celin: Project = {
   ],
   orgs: ["celin"],
   note: {
-    fa: "لوگو، عکس‌های محصول و مدل و متن داستان برند متعلق به سلین است؛ طراحی سایت، سیستم طراحی، افکت‌ها و سامانه زیر هدایت طاها با Claude Code ساخته شد.",
-    en: "The logo, product and model photographs and the brand story belong to CELIN; the site design, design system, effects and platform were built under Taha's direction with Claude Code.",
+    fa: "لوگو، عکس‌های محصول و مدل و متن داستان برند متعلق به سلین است؛ طراحی سایت، سیستم طراحی، افکت‌ها و سامانه کار طاهاست.",
+    en: "The logo, product and model photographs and the brand story belong to CELIN; the site design, design system, effects and platform are Taha's work.",
   },
 };

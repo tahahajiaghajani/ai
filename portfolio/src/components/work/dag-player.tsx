@@ -18,10 +18,10 @@ type Decision = "yes" | "no";
 const NODES: { id: string; kind: Kind; x: number; y: number; label: { fa: string; en: string }; sub: string }[] = [
   { id: "analyze", kind: "llm", x: 0, y: 1, label: { fa: "تحلیل‌گر", en: "Analyzer" }, sub: "gemini-flash" },
   { id: "brief", kind: "llm", x: 1, y: 1, label: { fa: "دستور کار", en: "Work order" }, sub: "BRIEF.md" },
-  { id: "helpers", kind: "llm", x: 2, y: 0, label: { fa: "فایل‌های کمکی", en: "Helper files" }, sub: "claude" },
+  { id: "helpers", kind: "llm", x: 2, y: 0, label: { fa: "فایل‌های کمکی", en: "Helper files" }, sub: "gemini-pro" },
   { id: "summary", kind: "llm", x: 2, y: 2, label: { fa: "گزارش کوتاه", en: "Short report" }, sub: "reply" },
   { id: "reviewer", kind: "router", x: 3, y: 1, label: { fa: "بازبین", en: "Reviewer" }, sub: "router" },
-  { id: "coder", kind: "coder", x: 4, y: 0, label: { fa: "مجری", en: "Executor" }, sub: "claude-code" },
+  { id: "coder", kind: "coder", x: 4, y: 0, label: { fa: "مجری", en: "Executor" }, sub: "coder-agent" },
   { id: "revise", kind: "human", x: 4, y: 2, label: { fa: "درخواست اصلاح", en: "Ask for a fix" }, sub: "human" },
 ];
 

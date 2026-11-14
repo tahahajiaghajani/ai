@@ -2,7 +2,7 @@ import { after } from "next/server";
 import { clientIp, hashIp } from "@/lib/crypto";
 import { allow, allowAi } from "@/lib/rate-limit";
 import { getKnowledge } from "@/lib/knowledge";
-import { selectKnowledge } from "@/lib/retrieval";
+import { CHAT_KNOWLEDGE_BUDGET, selectKnowledge } from "@/lib/retrieval";
 import { chatSystemPrompt } from "@/lib/assistant";
 import { getRuntime, openStream, TRANSIENT } from "@/lib/ai/runtime";
 import { ProviderError, type ChatMessage } from "@/lib/ai/gemini";
@@ -58,7 +58,7 @@ export async function POST(req: Request) {
 
   const entries = await getKnowledge();
   const query = messages.filter((m) => m.role === "user").slice(-2).map((m) => m.content).join("\n");
-  const system = chatSystemPrompt(selectKnowledge(entries, query, 30_000));
+  const system = chatSystemPrompt(selectKnowledge(entries, query, CHAT_KNOWLEDGE_BUDGET));
 
   let opened: Awaited<ReturnType<typeof openStream>>;
   try {
