@@ -100,6 +100,8 @@ const LOCAL_ONLY: Record<string, string> = {
   // sign-in (the organisation a directory sign-in reaches; each runtime signs its own people in)
   sm_sessions: "sessions of this runtime (a directory sign-in names the organisation it reaches)",
   sm_auth_throttle: "failed sign-ins and local lockouts of this runtime",
+  // workflows (design F §3.6.2): a draft stays on the runtime where it was saved
+  sm_process_drafts: "a person's unsent values of a workflow step or start",
 };
 
 describe("sync registry covers every organisation table", () => {
