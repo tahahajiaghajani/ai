@@ -1,5 +1,4 @@
 import {
-  siAnthropic,
   siDotnet,
   siGithubactions,
   siGooglegemini,
@@ -33,8 +32,8 @@ const GROUPS: { title: { fa: string; en: string }; tools: Tool[] }[] = [
     title: { fa: "هوش مصنوعی و مدل‌ها", en: "AI & models" },
     tools: [
       { name: "Gemini", path: siGooglegemini.path },
-      { name: "Claude", path: siAnthropic.path },
       { name: "OpenAI-compatible", mono: "OA" },
+      { name: "Local LLMs", mono: "LM" },
       { name: "PyTorch", path: siPytorch.path },
       { name: "Segment Anything", mono: "SAM" },
       { name: "OpenCV", path: siOpencv.path },
@@ -46,7 +45,7 @@ const GROUPS: { title: { fa: string; en: string }; tools: Tool[] }[] = [
       { name: "n8n", path: siN8n.path },
       { name: "ComfyUI", mono: "CU" },
       { name: "GitHub Actions", path: siGithubactions.path },
-      { name: "Claude Code", mono: "CC" },
+      { name: "DAG engines", mono: "DAG" },
     ],
   },
   {

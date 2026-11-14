@@ -3,6 +3,7 @@ import { EXPERTISE, PROFILE } from "@/content/profile";
 import { ui } from "@/content/ui";
 import { PROJECTS } from "@/content/projects";
 import { PRODUCTS } from "@/content/products";
+import { ORGS } from "@/content/orgs";
 import { Hero } from "@/components/hero/hero";
 import { Marquee } from "@/components/fx/marquee";
 import { Manifesto, type Fact } from "@/components/home/manifesto";
@@ -23,7 +24,7 @@ import { BlogTeaser } from "@/components/home/blog-teaser";
 const FACTS: Fact[] = [
   { value: PROJECTS.filter((p) => p.tier !== "lab").length + PRODUCTS.length, label: { fa: "سیستم و محصول تحویل‌شده در این پورتفولیو", en: "shipped systems & products in this portfolio" } },
   { value: EXPERTISE.length, label: { fa: "حوزه‌ی تخصصی، از RAG تا برند", en: "disciplines, from RAG to brand" } },
-  { value: 2, label: { fa: "زبان، یک استاندارد", en: "languages, one standard" } },
+  { value: ORGS.filter((o) => o.bank).length, label: { fa: "بانک، از مشاوره‌ی هوش مصنوعی تا ساخت سامانه‌هایشان", en: "banks, from AI advisory to building their systems" } },
   { value: 1, label: { fa: "نفر، از تحلیل تا استقرار", en: "person, from analysis to deployment" } },
 ];
 

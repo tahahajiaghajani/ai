@@ -13,13 +13,13 @@ export const sendo: Project = {
   year: "2026",
   period: { fa: "۱۱ تا ۲۱ مهر ۱۴۰۵ · ۱۸ نسخه", en: "Oct 3 – 13, 2026 · 18 releases" },
   role: {
-    fa: "مفهوم محصول، شخصیت و برند، تجربه‌ی کاربری، معماری و مشخصات سیستم هوش مصنوعی، و بهره‌بردار؛ پیاده‌سازی با Claude Code",
-    en: "Product concept, character & brand, UX, AI-system architecture and specification, and operator; implemented with Claude Code",
+    fa: "مفهوم محصول، شخصیت و برند، تجربه‌ی کاربری، معماری و مشخصات سیستم هوش مصنوعی، پیاده‌سازی و بهره‌برداری",
+    en: "Product concept, character & brand, UX, AI-system architecture and specification, implementation and operation",
   },
   context: { fa: "محصول شخصی با امضای «By Taha Aghajani»", en: "Own product, signed «By Taha Aghajani»" },
   status: { fa: "زنده روی Vercel و Supabase؛ در استفاده‌ی روزانه", en: "Live on Vercel + Supabase; in daily use" },
   disciplines: ["agents", "rag", "3d", "design", "fullstack"],
-  stack: ["Next.js 16", "React 19", "TypeScript", "three.js · WebGL2", "GLSL", "postprocessing", "Web Audio", "Gemini", "Claude", "OpenAI-compatible", "Supabase · pg_cron · pg_net", "GitHub Git Data API", "Web Push", "PWA"],
+  stack: ["Next.js 16", "React 19", "TypeScript", "three.js · WebGL2", "GLSL", "postprocessing", "Web Audio", "Gemini", "OpenAI-compatible", "Supabase · pg_cron · pg_net", "GitHub Git Data API", "Web Push", "PWA"],
   cover: { kind: "image", src: "/media/work/sendo/golden-hour.webp", w: 1280, h: 720, tone: "mono", alt: { fa: "قایق و قایقران روی رودخانه در ساعت طلایی", en: "The boat and the boatman on the river at golden hour" } },
   challenge: {
     fa: "آدم‌های پرمشغله بین فکرها می‌پرند، قول‌ها و تاریخ‌ها را فراموش می‌کنند و استرس روزانه را با خود می‌کشند. چت‌بات‌ها فراموش می‌کنند، اپ‌های کارها گوش نمی‌دهند و اپ‌های درمانی بالینی‌اند.\n\nو یک فراخوان مدل زبانی نمی‌تواند هم‌زمان مشاور، برنامه‌ریز و نگه‌دارنده‌ی حافظه باشد؛ مگر اینکه یا همه‌ی گفتگو را ذخیره کند (حریم خصوصی) یا آنچه مهم است را فراموش کند.",
@@ -113,7 +113,7 @@ export const sendo: Project = {
     },
   ],
   note: {
-    fa: "مفهوم، معماری و هدایت از طاهاست و پیاده‌سازی با Claude Code زیر گردش کار PR و CI انجام شد. حافظه‌ی کاربران شخصی است و هیچ چیز از آن اینجا نیامده؛ مخزن‌ها خصوصی‌اند.",
-    en: "Concept, architecture and direction are Taha's; the implementation was done with Claude Code under a PR and CI-gated workflow. Users' memories are personal and nothing from them appears here; the repositories are private.",
+    fa: "ساخت زیر گردش کار PR و CI انجام شد. حافظه‌ی کاربران شخصی است و هیچ چیز از آن اینجا نیامده؛ مخزن‌ها خصوصی‌اند.",
+    en: "Built under a PR and CI-gated workflow. Users' memories are personal and nothing from them appears here; the repositories are private.",
   },
 };

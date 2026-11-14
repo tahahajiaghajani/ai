@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { PROJECTS } from "@/content/projects";
@@ -128,6 +128,18 @@ describe("posts", () => {
       });
     });
   }
+});
+
+describe("credit", () => {
+  // the owner's rule: the site never names these, in content, components, the assistant's knowledge or metadata
+  const BANNED = /claude|anthropic|کلود/i;
+  const files = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? files(path.join(dir, e.name)) : /\.(ts|tsx|css|json|md|txt|svg|webmanifest)$/.test(e.name) ? [path.join(dir, e.name)] : []));
+  it("never names Claude, Claude Code or Anthropic anywhere in the site's source or public text", () => {
+    const root = path.join(__dirname, "..");
+    const hits = [...files(path.join(root, "src")), ...files(path.join(root, "public"))].filter((f) => BANNED.test(readFileSync(f, "utf8")));
+    expect(hits.map((f) => path.relative(root, f))).toEqual([]);
+  });
 });
 
 describe("organisations and journey", () => {

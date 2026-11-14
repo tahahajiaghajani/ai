@@ -137,11 +137,24 @@ export function siteKnowledge(): KnowledgeEntry[] {
     id: "journey",
     pinned: true,
     title: "Career and education / سوابق و تحصیلات",
-    tags: ["career", "experience", "education", "سابقه", "تحصیلات", "دانشگاه", "university", "Pars", "پارس", "Tejarat", "تجارت"],
+    tags: ["career", "experience", "education", "سابقه", "تحصیلات", "دانشگاه", "university", "bank", "banks", "بانک", "FDE", "ITSM", ...ORGS.flatMap((o) => [o.name.en, o.name.fa])],
     body: JOURNEY.map((r) => {
       const org = ORGS.find((o) => o.key === r.org);
       return `- ${r.period.en}: ${r.title.en} (${r.title.fa})${org ? ` — ${org.name.en} / ${org.name.fa}` : ""}. ${r.body.en}`;
     }).join("\n"),
+  });
+
+  const banks = ORGS.filter((o) => o.bank);
+  add({
+    id: "banks",
+    pinned: false,
+    title: "Banks Taha has worked with / بانک‌هایی که طاها با آن‌ها کار کرده",
+    tags: ["bank", "banks", "banking", "بانک", "بانک‌ها", "بانکی", "client", "clients", "مشتری", "کارفرما", ...banks.flatMap((o) => [o.name.en, o.name.fa])],
+    body: [
+      `Taha has worked for or with ${banks.length} banks:`,
+      ...banks.map((o) => `- ${o.name.en} (${o.name.fa}): ${o.relation.en} / ${o.relation.fa}`),
+      "Details of each engagement are in the career entry. Bank systems' internal details stay confidential.",
+    ].join("\n"),
   });
 
   for (const f of FACTS) add({ id: f.id, pinned: f.pinned ?? false, title: f.title, tags: f.tags, body: f.body });

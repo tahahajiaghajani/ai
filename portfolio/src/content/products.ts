@@ -64,7 +64,7 @@ export const PRODUCTS: Product[] = [
     stack: ["React 19", "Ant Design 6", "Tailwind 4", "Vite", "Hono", "Next.js 16", "PostgreSQL · Supabase", "PGlite (WASM)", "Electron", "decimal.js", "Vitest", "GitHub Actions"],
     status: { fa: "نسخه‌ی ۱٫۰؛ نسخه‌ی وب زنده است و نسخه‌ی ویندوز منتشر شده", en: "v1.0; the web version is live and the Windows app is released" },
     period: { fa: "۱۰ تا ۱۹ آبان ۱۴۰۵", en: "Nov 1 – 10, 2026" },
-    role: { fa: "مفهوم محصول، پژوهش بازار، برند و مشخصات؛ پیاده‌سازی با Claude Code", en: "Product concept, market research, brand and specification; implemented with Claude Code" },
+    role: { fa: "مفهوم محصول، پژوهش بازار، برند، مشخصات، معماری و پیاده‌سازی", en: "Product concept, market research, brand, specification, architecture and implementation" },
     tags: ["سیراف", "Siraf", "حسابداری", "accounting", "دفتر کل", "ledger", "طلا", "gold", "طلافروشی", "ارز", "currency", "صرافی", "exchange", "کالا", "انبار", "inventory", "مؤدیان", "e-invoice", "ارزش افزوده", "VAT", "چک", "ERP", "ویندوز", "Windows", "آفلاین", "offline"],
   },
   {
@@ -126,7 +126,7 @@ export const PRODUCTS: Product[] = [
     stack: ["React 19", "Ant Design 6", "Tailwind 4", "Vite", "Hono", "Next.js 16", "PostgreSQL 17 · pgvector", "Supabase", "PGlite (WASM)", "Electron", "WiX MSI", "Node cluster", "Vitest"],
     status: { fa: "نسخه‌ی ۱٫۱ بتا (۱۹ آبان ۱۴۰۵)؛ نسخه‌ی پایدار ۱٫۰", en: "1.1 beta (Nov 10, 2026); 1.0 stable" },
     period: { fa: "۱۶ تا ۲۰ آبان ۱۴۰۵", en: "Nov 7 – 11, 2026" },
-    role: { fa: "مالک محصول و معمار؛ پیاده‌سازی با Claude Code", en: "Product owner & architect; built with Claude Code" },
+    role: { fa: "مالک محصول و معمار؛ طراحی و پیاده‌سازی", en: "Product owner & architect; design and implementation" },
     note: {
       fa: "هسته‌ی سکو (وب و هم‌گام‌سازی ویندوز، ورود، سازمان‌ها و موتور هوش مصنوعی) از سیراف آمده است. طراحی‌شده بر پایه‌ی ITIL 4؛ گواهی‌شده نیست.",
       en: "Its platform core (web and Windows sync, sign-in, organisations and the AI engine) comes from Siraf. Built around ITIL 4; not certified.",

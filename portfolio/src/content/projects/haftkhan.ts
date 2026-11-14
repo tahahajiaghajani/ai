@@ -11,7 +11,7 @@ export const haftkhan: Project = {
   },
   year: "2026",
   period: { fa: "مرداد تا شهریور ۱۴۰۵", en: "Jul – Aug 2026" },
-  role: { fa: "مالک و رهبر خلاق؛ هدف، قیدها و انتخاب مسیر؛ نقشه‌ی راه با Claude نوشته شد", en: "Owner & creative lead: goal, constraints and the choice of path; roadmap written with Claude" },
+  role: { fa: "مالک و رهبر خلاق؛ هدف، قیدها، انتخاب مسیر و نقشه‌ی راه", en: "Owner & creative lead: goal, constraints, the choice of path and the roadmap" },
   context: { fa: "پروژه‌ی شخصی یک‌نفره", en: "Solo personal project" },
   status: { fa: "پیش‌تولید و طراحی پایپ‌لاین", en: "Pre-production & pipeline design" },
   disciplines: ["3d", "design"],

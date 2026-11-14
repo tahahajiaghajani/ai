@@ -16,8 +16,8 @@ export const PROFILE = {
     en: "I design, build and deploy complex AI systems inside real organisations.",
   } as L,
   intro: {
-    fa: "متخصص هوش مصنوعی با تسلط بر RAG، مدل‌های زبانی بزرگ، بینایی ماشین و VLM؛ مدیر پروژه و سرپرست تیم هوش مصنوعی شرکت مدیریت پروژه پارس. از تحلیل یک سیستم پیچیده تا معماری، پیاده‌سازی و استقرار، کار را خودم تا آخر می‌برم.",
-    en: "AI specialist across RAG, large language models, computer vision and VLMs; project manager and head of the AI team at Pars Project Management. From untangling a complex system to its architecture, implementation and deployment, I carry the work end to end myself.",
+    fa: "متخصص هوش مصنوعی با تسلط بر RAG، مدل‌های زبانی بزرگ، بینایی ماشین و VLM؛ مدیر پروژه و سرپرست تیم هوش مصنوعی شرکت مدیریت پروژه پارس، و سرپرست تیم توسعه و هوش مصنوعی و مدیر محصول سامانه‌ی ITSM بانک صنعت و معدن؛ با سابقه‌ی کار برای بانک‌های تجارت، ملت، رفاه و پست بانک. از تحلیل یک سیستم پیچیده تا معماری، پیاده‌سازی و استقرار، کار را خودم تا آخر می‌برم.",
+    en: "AI specialist across RAG, large language models, computer vision and VLMs; project manager and head of the AI team at Pars Project Management, and head of development & AI and product manager of the Bank of Industry and Mine's ITSM system, with work for Bank Tejarat, Bank Mellat, Refah Bank and Post Bank of Iran. From untangling a complex system to its architecture, implementation and deployment, I carry the work end to end myself.",
   } as L,
   manifesto: {
     fa: "بزرگ‌ترین توان من دیدن کل سیستم است: داده، آدم‌ها، فرایندها و مدل‌ها، کنار هم. سیستم‌های سازمانی را از تحلیل تا استقرار طراحی می‌کنم، ورکفلوها و پایپ‌لاین‌های هوشمند می‌سازم، و چون طراح هم هستم، نتیجه نه‌فقط کار می‌کند، بلکه درست دیده می‌شود.",
@@ -59,7 +59,7 @@ export const EXPERTISE: { key: string; title: L; body: L; tags: string[] }[] = [
       fa: "پاسخ مستند از دانش سازمان: بازیابی ترکیبی، گراف دانش، زنجیره‌ی مدل‌ها با جایگزین خودکار، و پرامپت‌هایی که فارسی را درست می‌فهمند.",
       en: "Grounded answers from organisational knowledge: hybrid retrieval, knowledge graphs, model chains with automatic fallback, and prompts that handle Persian properly.",
     },
-    tags: ["Retrieval", "BM25 + vectors", "Knowledge graphs", "Gemini · Claude · GPT"],
+    tags: ["Retrieval", "BM25 + vectors", "Knowledge graphs", "Gemini · GPT · local models"],
   },
   {
     key: "vision",
@@ -111,7 +111,7 @@ export const METHOD: { title: L; body: L }[] = [
   },
   {
     title: { fa: "ساخت", en: "Build" },
-    body: { fa: "با مهندسی هوش‌مصنوعی‌محور می‌سازم: مشخصات را می‌نویسم و ساخت را با Claude Code هدایت می‌کنم؛ بک‌اند، ایجنت‌ها، پایپ‌لاین داده و رابط کاربری، با تست و بازبینی سخت‌گیرانه.", en: "I build with AI-native engineering: I write the specification and direct the build with Claude Code — backend, agents, data pipelines and interface — with tests and adversarial review." },
+    body: { fa: "مشخصات را می‌نویسم و سامانه را می‌سازم: بک‌اند، ایجنت‌ها، پایپ‌لاین داده و رابط کاربری؛ با تست، CI و بازبینی سخت‌گیرانه.", en: "I write the specification and build the system: backend, agents, data pipelines and interface, with tests, CI and adversarial review." },
   },
   {
     title: { fa: "استقرار", en: "Deploy" },

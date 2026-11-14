@@ -13,8 +13,8 @@ export const pars: Project = {
   year: "2026",
   period: { fa: "۳۰ مهر تا ۲ آبان ۱۴۰۵", en: "Oct 22 – 24, 2026" },
   role: {
-    fa: "رهبر برند و محصول: بریف، پژوهش، تصمیم‌ها، دورهای بازبینی و انتشار؛ پیاده‌سازی با Claude Code",
-    en: "Brand & product lead: brief, research, decisions, review rounds and launch; implemented with Claude Code",
+    fa: "رهبر برند و محصول: بریف، پژوهش، تصمیم‌ها، طراحی، پیاده‌سازی، دورهای بازبینی و انتشار",
+    en: "Brand & product lead: brief, research, decisions, design, implementation, review rounds and launch",
   },
   context: { fa: "مدیریت پروژه پارس، جایی که طاها مدیر پروژه و سرپرست تیم هوش مصنوعی است", en: "Pars Project Management, where Taha is project manager and head of AI" },
   status: { fa: "زنده روی parspmi.vercel.app؛ تیزر و بروشور برای نمایشگاه تحویل شد", en: "Live at parspmi.vercel.app; teaser and brochure delivered for the exhibition" },
@@ -57,7 +57,7 @@ export const pars: Project = {
   features: {
     fa: [
       "کتاب برند پژوهش‌محور با سه گزارش بازار و طراحی، جایگاه‌یابی و برنامه‌ی شش‌ماهه‌ی ده‌اقدامی با KPI",
-      "شیدر WebGL دست‌نویس: یازده نوار ابریشمی که از یک نقطه می‌گذرند؛ تطبیقی، آینه‌شده برای راست‌به‌چپ و آگاه از کاهش حرکت",
+      "شیدر WebGL اختصاصی: یازده نوار ابریشمی که از یک نقطه می‌گذرند؛ تطبیقی، آینه‌شده برای راست‌به‌چپ و آگاه از کاهش حرکت",
       "دستیاری که فقط از دانش پاسخ می‌دهد و به‌جای حدس زدن، «نمی‌دانم» می‌گوید و تیکت پیشنهاد می‌کند",
       "زنجیره‌ی مدل با نگهبان اولین توکن، تکرار هوشمند و استراحت هر مدل برای هر کلید؛ آزمون اتصال هر مدل در پنل",
       "تیکتینگ با پیشنهاد پاسخ پیش از ثبت، تریاژ JSON، SLA، لینک جادویی، امتیازدهی و اعلان تلگرام و بله",
@@ -67,7 +67,7 @@ export const pars: Project = {
     ],
     en: [
       "A researched brand book with three market and design reports, positioning and a ten-action, KPI-driven six-month plan",
-      "A hand-written WebGL shader: eleven silk ribbons crossing through one point — adaptive, mirrored for RTL, reduced-motion aware",
+      "A custom WebGL shader: eleven silk ribbons crossing through one point — adaptive, mirrored for RTL, reduced-motion aware",
       "An assistant that answers only from knowledge, and says «I don't know» and offers a ticket instead of guessing",
       "A model chain with a first-token watchdog, smart retries and per-key model holds; a per-model connection test in the admin",
       "Ticketing with answers suggested before submit, JSON triage, SLAs, magic links, ratings and Telegram/Bale alerts",
@@ -123,11 +123,10 @@ export const pars: Project = {
   ],
   links: [
     { label: { fa: "سایت زنده", en: "Live site" }, href: "https://parspmi.vercel.app" },
-    { label: { fa: "کد منبع در GitHub", en: "Source on GitHub" }, href: "https://github.com/tahahajiaghajani/ai/tree/main/pars-website" },
   ],
   orgs: ["pars"],
   note: {
-    fa: "جهت، تصمیم‌ها و بازبینی از طاهاست و پیاده‌سازی با Claude Code انجام شد. لوگوی پارس بدون تغییر و یک‌به‌یک برداری شده است؛ عددهای شرکت در سایت و تیزر از خود پارس است.",
-    en: "Direction, decisions and review are Taha's; the implementation was done with Claude Code. The Pars logo was kept as is and vectorised 1:1; the company figures on the site and in the teaser are Pars's own.",
+    fa: "لوگوی پارس بدون تغییر و یک‌به‌یک برداری شده است؛ عددهای شرکت در سایت و تیزر از خود پارس است.",
+    en: "The Pars logo was kept as is and vectorised 1:1; the company figures on the site and in the teaser are Pars's own.",
   },
 };

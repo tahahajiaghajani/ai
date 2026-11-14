@@ -173,7 +173,7 @@ const UI = {
     unavailable: { fa: "الان به صندوق درخواست‌ها دسترسی نیست؛ چند دقیقه بعد دوباره همین پیوند را باز کنید.", en: "The request desk can't be reached right now — please open this link again in a few minutes." },
   },
   footer: {
-    rights: { fa: "طراحی و هدایت: طاها آقاجانی", en: "Designed & directed by Taha Aghajani" },
+    rights: { fa: "طراحی و ساخت: طاها آقاجانی", en: "Designed & built by Taha Aghajani" },
     top: { fa: "بازگشت به بالا", en: "Back to top" },
     say: { fa: "سلام کنید", en: "Say hello" },
   },

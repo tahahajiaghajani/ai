@@ -98,6 +98,8 @@ export interface Org {
   logo?: string;
   url?: string;
   relation: L;
+  /** a bank Taha has worked for or with (counted on the home page) */
+  bank?: boolean;
 }
 
 export interface Role {
