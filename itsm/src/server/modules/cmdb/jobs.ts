@@ -114,8 +114,15 @@ export async function expiryWarnings(sys: Ctx): Promise<number> {
 export async function applyPolicies(sys: Ctx): Promise<{ affected: number; skipped: number }> {
   const policies = await liveRows(sys.db, sys, "cmdb_policy", { f: "active", op: "eq", v: true });
   // CIs a connector found are judged by discovery's contact ladder (design A §10.3), which weighs every source's own
-  // contact and the mass-drop guard — their last discovery time alone would retire what a broken tool stopped listing
-  const connectorSources = policies.length ? (await liveRows(sys.db, sys, "cmdb_data_source", { f: "kind", op: "eq", v: "connector" }, { limit: 5000 })).map((r) => r.id) : [];
+  // contact and the mass-drop guard — their last discovery time alone would retire what a broken tool stopped listing.
+  // A deleted connector's ladder never runs again: its source is an ordinary one, judged here
+  const connectorSources = policies.length
+    ? (await sys.db.query<{ id: string }>(
+        `select s.id from sm_cmdb_sources s where s.org_id = $1 and s.deleted_at is null and s.kind = 'connector'
+           and exists (select 1 from sm_discovery_connectors k where k.org_id = s.org_id and k.source_id = s.id and k.deleted_at is null) limit 5000`,
+        [sys.org.id],
+      )).map((r) => r.id)
+    : [];
   let affected = 0;
   let skipped = 0;
   for (const p of policies) {

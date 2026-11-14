@@ -100,11 +100,14 @@ export async function computeHealth(q: Tx, ctx: Ctx, opts: { ids?: string[]; aft
   // excluded from health: retired, disposed, canceled and merged CIs
   const live = cis.filter((c) => !["retired", "disposed", "canceled"].includes(c.state) && !c.merged_into);
   // the staleness of a CI that discovery's contact ladder judges (design A §10: it knows the CI's last contact from the
-  // tools) is the ladder's — it stays as the ladder set it; any other CI's follows its last discovery, as before
+  // tools) is the ladder's — it stays as the ladder set it while an item of a live connector reports the CI (a deleted
+  // connector's ladder never runs again); any other CI's follows its last discovery, as before
   const ladderJudged = new Set(
     live.length
       ? (await q.query<{ ci_id: string }>(
-          `select ci_id from sm_discovery_states where org_id = $1 and deleted_at is null and target_table = 'ci' and ci_id = any($2::uuid[]) and last_contact_at is not null`,
+          `select s.ci_id from sm_discovery_states s where s.org_id = $1 and s.deleted_at is null and s.target_table = 'ci' and s.ci_id = any($2::uuid[]) and s.last_contact_at is not null
+             and exists (select 1 from sm_discovery_items i join sm_discovery_connectors k on k.org_id = i.org_id and k.id = i.connector_id and k.deleted_at is null
+                         where i.org_id = s.org_id and i.ci_id = s.ci_id and i.deleted_at is null)`,
           [ctx.org.id, `{${live.map((c) => c.id).join(",")}}`],
         )).map((r) => r.ci_id)
       : [],
