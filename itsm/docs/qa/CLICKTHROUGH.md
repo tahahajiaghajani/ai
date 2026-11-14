@@ -38,14 +38,46 @@ People who already exist (the demo pack's personas): `--org <id>` (the organisat
 `--requester <email>` with `--people-password <password>` sign in as them instead of creating the crawler's own agent
 and requester; their access is left as it is. With `--base` and `--out <dir>` several crawls can share one server.
 
-Not reached: the server edition's own pages (`/admin/server`, the server `/setup`) need the server edition; cloud
-mode needs PostgreSQL (`scripts/pg-local.mjs`) and was not crawled in this round.
+Not reached: the server edition's own pages (`/admin/server`, the server `/setup`) need the server edition. The data
+sources' screens are cloud-only (the Windows app neither runs nor shows connectors): round 3 crawled them on a
+cloud-mode server of its own (below).
+
+## Round 3 — «کاریز» 1.1 final (14 November 2026, `itsm-int`)
+
+The release candidate of 1.1 — the PR branch with tracks F (fields, forms, organisational roles, the process engine)
+and A (data sources) merged with their screens, the three open items and the release candidate (`itsm-int` at
+`bbbdd60`) — was crawled as the administrator, an IT agent and a requester. The tables below this section («Last
+run», «Every page») are those of the final desktop run.
+
+| Run | What was crawled | Checks | Passed | Problems |
+|---|---|---|---|---|
+| desktop, first | full crawl of every role on the desktop-mode local server (PGlite): every route, «… تازه», first records and their tabs and side panels, header actions, 390 px | 2,237 | 2,235 | 2 — both the crawler's (fixed, below) |
+| desktop, final | the same with the fixed crawler (25 minutes) | 2,241 | 2,241 | 0 |
+| cloud, data sources | a cloud-mode server (PGlite, the REST mock tool of `tests/mocks/discovery` behind a connector with one pass of six items; `--base`, `--only '^(discovery\|cis$\|assets$\|cmdb/(sources\|collectors)$)'`): `discovery`, `discovery/new` (the wizard's form), `discovery/reconcile`, `discovery/status`, the connector's page and its tabs, CIs with «منبع‌ها و وضعیت پایش», assets, `cmdb/sources`, `cmdb/collectors`, at 390 px too | 89 | 89 | 0 |
+
+The new routes of track F, all passed for every role whose sidebar shows them (52 checks): `settings/fields`,
+`settings/choices`, `settings/forms` with both designers (`settings/forms/t/incident`, `settings/forms/:id`),
+`settings/workflows` with the designer (`settings/workflows/p/:id`) and the lifecycle editor
+(`settings/workflows/states/incident`), «نقش‌های سازمانی» at both addresses (`settings/positions`,
+`access/positions`), and the person's «گردش‌کارها»: `workflows`, the diagram (`workflows/p/:key`), the start form
+(`workflows/start/:key`), a case (`workflows/c/:id`) with its step form and print view, `r/process_case/:id` and
+`portal/workflows` (the crawler publishes a sample workflow and starts a case waiting for the administrator). The
+data sources' screens were crawled as the administrator and the agent; the requester, who reads no CMDB, is not
+offered them.
+
+### Findings of round 3
+
+| Route | Role | Problem | Status |
+|---|---|---|---|
+| `kb/articles` → «مقالهٔ دانش تازه» | admin | the form did not render: in an organisation's first minutes its knowledge bases do not exist yet (a delayed seed job makes them) and the page rightly offers «پایگاه دانش تازه» | the crawler's (fixed, `bbbdd60`): it makes a knowledge base of its own and its article through the knowledge API (an article's title is its version's, read-only on `/r/kb_article`, so that seed was always refused); the administrator and the requester now open the article too |
+| `slm/agreements/at-risk` | requester | 400 `POST r/service_agreement/query`: the page is not in the requester's sidebar — «توافق‌های در خطر» asks for the «internal» field group, as its list filters on compliance — but the crawler filtered the sidebar without the person's field groups | the crawler's (fixed, `bbbdd60`): it filters with the shell's own gate, field groups included |
 
 ## Round 2 — the merged 1.1-beta build with the bank demo pack (10 November 2026, `itsm-crawl`)
 
 The merged build (`0d8aa8a`: the crawler, the bank demo pack and the bank ITAM) was crawled in three phases on the
-desktop-mode local server (PGlite). `clickthrough.json` holds every check of the three phases, each row with its
-`phase`; `phases` sums them up. The tables below this section («Last run», «Every page») are those of phase 1.
+desktop-mode local server (PGlite). That round's `clickthrough.json` (in git at `a64e560`) holds every check of the
+three phases, each row with its `phase`; `phases` sums them up. The tables «Last run» and «Every page» are now those
+of round 3.
 
 | Phase | What was crawled | Checks | Passed | Problems |
 |---|---|---|---|---|
@@ -135,18 +167,16 @@ each (`tests/ui-clickthrough.test.ts` unless named).
 
 ## Last run
 
-- Started 2026-11-10T21:34:32.682Z, 1728 s; version 1.1.0, desktop mode (desktop edition) on PGlite.
-- 1397 registered routes; 2228 checks, 2227 passed, 1 with a problem.
-- مدیر سامانه (`admin`): 1452/1453 checks passed.
+- Started 2026-11-14T21:58:33.153Z, 1505 s; version 1.1.0, desktop mode (desktop edition) on PGlite.
+- 1417 registered routes; 2241 checks, 2241 passed, 0 with a problem.
+- مدیر سامانه (`admin`): 1465/1465 checks passed.
 - کارشناس فناوری اطلاعات (`agent`): 548/548 checks passed.
-- درخواست‌دهنده (`requester`): 222/222 checks passed.
+- درخواست‌دهنده (`requester`): 223/223 checks passed.
 - بی‌ورود (`anonymous`): 5/5 checks passed.
 
 ## Problems
 
-| Route | Role | Step | Issue |
-|---|---|---|---|
-| `/{org}/kb/articles → «مقالهٔ دانش تازه»` | admin | new | the new-record form did not render |
+None.
 
 ## Not reached
 
@@ -166,9 +196,6 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/r/todo` | admin | visit, new, record, tab | ok |
 | `/{org}/r/todo/new` | admin | visit | ok |
 | `/{org}/r/todo/:id` | admin | visit, link | ok |
-| `/{org}/settings/fields` | admin | visit, action | ok |
-| `/{org}/settings/choices` | admin | visit | ok |
-| `/{org}/settings/forms` | admin | visit | ok |
 | `/{org}/settings/views` | admin | visit, action | ok |
 | `/{org}/settings/org` | admin | visit | ok |
 | `/{org}/settings/users` | admin | visit, action | ok |
@@ -191,7 +218,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/notify/channels` | admin | visit, new | ok |
 | `/{org}/notify/rules` | admin | visit, new | ok |
 | `/{org}/notify/templates` | admin | visit, new | ok |
-| `/{org}/notify/log` | admin | visit | ok |
+| `/{org}/notify/log` | admin | visit, link | ok |
 | `/{org}/notify/prefs` | admin | visit | ok |
 | `/{org}/approvals/delegations` | admin | visit, new | ok |
 | `/{org}/approvals/records` | admin | visit | ok |
@@ -213,6 +240,24 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/flow-connections` | admin | visit, new | ok |
 | `/{org}/flow-versions` | admin | visit | ok |
 | `/{org}/flows/runs` | admin | visit | ok |
+| `/{org}/settings/fields` | admin | visit, action | ok |
+| `/{org}/settings/choices` | admin | visit | ok |
+| `/{org}/settings/forms` | admin | visit, action, link | ok |
+| `/{org}/settings/forms/t/incident` | admin | visit | ok |
+| `/{org}/settings/forms/:id` | admin | visit, action | ok |
+| `/{org}/settings/workflows` | admin | visit, action, link | ok |
+| `/{org}/settings/workflows/p/:id` | admin | visit, action | ok |
+| `/{org}/settings/positions` | admin | visit, action | ok |
+| `/{org}/access/positions` | admin | visit, action | ok |
+| `/{org}/settings/workflows/states/incident` | admin | visit | ok |
+| `/{org}/workflows` | admin | visit, action, link | ok |
+| `/{org}/workflows/p/crawl_request` | admin | visit, action | ok |
+| `/{org}/workflows/start/crawl_request` | admin | visit | ok |
+| `/{org}/workflows/c/:id` | admin | visit, action | ok |
+| `/{org}/workflows/c/:id/s/:id` | admin | visit, link | ok |
+| `/{org}/workflows/c/:id/print` | admin | visit, action | ok |
+| `/{org}/r/process_case/:id` | admin | visit, link | ok |
+| `/{org}/settings/workflows-kit` | admin | visit | ok |
 | `/{org}/incidents` | admin | visit, new, record, tab ×5 | ok |
 | `/{org}/interactions` | admin | visit, new | ok |
 | `/{org}/incident-tasks` | admin | visit, new | ok |
@@ -254,7 +299,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/changes/windows` | admin | visit, new | ok |
 | `/{org}/changes/cabs` | admin | visit, new | ok |
 | `/{org}/changes/risk-questions` | admin | visit, new | ok |
-| `/{org}/changes/scores` | admin | visit, new | ok |
+| `/{org}/changes/scores` | admin | visit | ok |
 | `/{org}/changes/agenda-items` | admin | visit, new | ok |
 | `/{org}/changes/settings/record` | admin | visit, new | ok |
 | `/{org}/changes/mine` | admin | visit, action | ok |
@@ -331,7 +376,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/cmdb/rules` | admin | visit, new | ok |
 | `/{org}/cmdb/rel-rules` | admin | visit, new | ok |
 | `/{org}/cmdb/policies` | admin | visit, new | ok |
-| `/{org}/cmdb/health-facts` | admin | visit, new, record | ok |
+| `/{org}/cmdb/health-facts` | admin | visit, record | ok |
 | `/{org}/cmdb/settings` | admin | visit, new | ok |
 | `/{org}/cmdb/mine` | admin | visit, action | ok |
 | `/{org}/cmdb/down` | admin | visit, action | ok |
@@ -348,7 +393,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/service-offerings` | admin | visit, new | ok |
 | `/{org}/portfolio/proposals` | admin | visit, new | ok |
 | `/{org}/portfolio/design-packages` | admin | visit, new | ok |
-| `/{org}/portfolio/scores` | admin | visit, new | ok |
+| `/{org}/portfolio/scores` | admin | visit | ok |
 | `/{org}/portfolio/customers` | admin | visit, new | ok |
 | `/{org}/portfolio/customer-reviews` | admin | visit, new | ok |
 | `/{org}/portfolio/agreements` | admin | visit, new | ok |
@@ -365,8 +410,8 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/my-services` | admin | visit | ok |
 | `/{org}/portfolio/rationalization` | admin | visit | ok |
 | `/{org}/portfolio/capability-map` | admin | visit | ok |
-| `/{org}/kb/articles` | admin | visit, new | **new: the new-record form did not render** |
-| `/{org}/kb/versions` | admin | visit, new | ok |
+| `/{org}/kb/articles` | admin | visit, new, record | ok |
+| `/{org}/kb/versions` | admin | visit, new, record | ok |
 | `/{org}/kb/tasks` | admin | visit, new | ok |
 | `/{org}/kb/snippets` | admin | visit, new | ok |
 | `/{org}/kb/blocks` | admin | visit, new | ok |
@@ -378,7 +423,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/kb/gaps` | admin | visit, new | ok |
 | `/{org}/kb/duplicates` | admin | visit, new | ok |
 | `/{org}/kb/quality-reviews` | admin | visit, new | ok |
-| `/{org}/kb/bases` | admin | visit, new | ok |
+| `/{org}/kb/bases` | admin | visit, new, record | ok |
 | `/{org}/kb/categories` | admin | visit, new | ok |
 | `/{org}/kb/templates` | admin | visit, new | ok |
 | `/{org}/kb/glossary` | admin | visit, new | ok |
@@ -386,10 +431,10 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/kb/licences` | admin | visit, new | ok |
 | `/{org}/kb/domains` | admin | visit, new | ok |
 | `/{org}/kb/settings` | admin | visit, new | ok |
-| `/{org}/kb` | admin | visit, action | ok |
+| `/{org}/kb` | admin | visit, action, link | ok |
 | `/{org}/kb/search` | admin | visit | ok |
 | `/{org}/kb/new` | admin | visit | ok |
-| `/{org}/kb/a` | admin | visit, action | ok |
+| `/{org}/kb/a` | admin | visit, action, link | ok |
 | `/{org}/kb/diff` | admin | visit | ok |
 | `/{org}/kb/workspace` | admin | visit | ok |
 | `/{org}/kb/dashboard` | admin | visit | ok |
@@ -453,8 +498,8 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/projects/resources` | admin | visit | ok |
 | `/{org}/analytics/kpis` | admin | visit, new | ok |
 | `/{org}/analytics/schedules` | admin | visit, new | ok |
-| `/{org}/analytics/received` | admin | visit, new | ok |
-| `/{org}/analytics/scores` | admin | visit, new | ok |
+| `/{org}/analytics/received` | admin | visit | ok |
+| `/{org}/analytics/scores` | admin | visit | ok |
 | `/{org}/analytics/settings/record` | admin | visit, new | ok |
 | `/{org}/analytics` | admin | visit | ok |
 | `/{org}/analytics/dashboards` | admin | visit, action | ok |
@@ -518,7 +563,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/itam/entitlements` | admin | visit, new | ok |
 | `/{org}/itam/allocations` | admin | visit, new | ok |
 | `/{org}/itam/reconcile-runs` | admin | visit | ok |
-| `/{org}/itam/positions` | admin | visit, new | ok |
+| `/{org}/itam/positions` | admin | visit | ok |
 | `/{org}/itam/saas` | admin | visit, new | ok |
 | `/{org}/itam/saas-accounts` | admin | visit, new | ok |
 | `/{org}/itam/models` | admin | visit, new | ok |
@@ -540,7 +585,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/supplier/suppliers` | admin | visit, new | ok |
 | `/{org}/supplier/contacts` | admin | visit, new | ok |
 | `/{org}/supplier/reviews` | admin | visit, new | ok |
-| `/{org}/supplier/scorecards` | admin | visit, new | ok |
+| `/{org}/supplier/scorecards` | admin | visit | ok |
 | `/{org}/supplier/obligations` | admin | visit, new | ok |
 | `/{org}/supplier/guarantees` | admin | visit, new | ok |
 | `/{org}/supplier/coverage` | admin | visit, new | ok |
@@ -553,7 +598,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/financial/allocation-rules` | admin | visit, new | ok |
 | `/{org}/financial/allocation-targets` | admin | visit, new | ok |
 | `/{org}/financial/allocation-runs` | admin | visit, new | ok |
-| `/{org}/financial/allocation-results` | admin | visit, new | ok |
+| `/{org}/financial/allocation-results` | admin | visit | ok |
 | `/{org}/financial/years` | admin | visit, new | ok |
 | `/{org}/financial/periods` | admin | visit, new | ok |
 | `/{org}/financial/cost-types` | admin | visit, new | ok |
@@ -612,15 +657,15 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/grc/acceptances` | admin | visit, new | ok |
 | `/{org}/grc/kris` | admin | visit, new | ok |
 | `/{org}/grc/losses` | admin | visit, new | ok |
-| `/{org}/grc/matrices` | admin | visit, new, record | ok |
-| `/{org}/grc/appetite` | admin | visit, new, record | ok |
+| `/{org}/grc/matrices` | admin | visit, new | ok |
+| `/{org}/grc/appetite` | admin | visit, new | ok |
 | `/{org}/portal-admin/feedback` | admin | visit, new | ok |
-| `/{org}/portal-admin/portals` | admin | visit, new, record | ok |
+| `/{org}/portal-admin/portals` | admin | visit, new | ok |
 | `/{org}/portal-admin/links` | admin | visit, new | ok |
 | `/{org}/portal-admin/topics` | admin | visit, new | ok |
-| `/{org}/portal-admin/surveys` | admin | visit, new, record, tab ×2 | ok |
-| `/{org}/portal-admin/questions` | admin | visit, new, record | ok |
-| `/{org}/portal-admin/triggers` | admin | visit, new, record | ok |
+| `/{org}/portal-admin/surveys` | admin | visit, new | ok |
+| `/{org}/portal-admin/questions` | admin | visit, new | ok |
+| `/{org}/portal-admin/triggers` | admin | visit, new | ok |
 | `/{org}/portal-admin/responses` | admin | visit | ok |
 | `/{org}/portal-admin/invitations` | admin | visit | ok |
 | `/{org}/portal-admin/channels` | admin | visit, new | ok |
@@ -646,11 +691,11 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/legal/requests` | admin | visit, new | ok |
 | `/{org}/procurement/requests` | admin | visit, new | ok |
 | `/{org}/departments/cases` | admin | visit, new | ok |
-| `/{org}/esm/departments` | admin | visit, new, record | ok |
-| `/{org}/esm/services` | admin | visit, new, record | ok |
-| `/{org}/esm/journey-templates` | admin | visit, new, record, tab | ok |
-| `/{org}/esm/journey-template-activities` | admin | visit, new, record | ok |
-| `/{org}/esm/settings` | admin | visit, new, record | ok |
+| `/{org}/esm/departments` | admin | visit, new | ok |
+| `/{org}/esm/services` | admin | visit, new | ok |
+| `/{org}/esm/journey-templates` | admin | visit, new | ok |
+| `/{org}/esm/journey-template-activities` | admin | visit, new | ok |
+| `/{org}/esm/settings` | admin | visit, new | ok |
 | `/{org}/hr/my-cases` | admin | visit, action | ok |
 | `/{org}/hr/unassigned` | admin | visit, action | ok |
 | `/{org}/facilities/my-group` | admin | visit, action | ok |
@@ -671,11 +716,11 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/customers/reviews` | admin | visit, new | ok |
 | `/{org}/customers/plans` | admin | visit, new | ok |
 | `/{org}/customers/stakeholders` | admin | visit, new | ok |
-| `/{org}/customers/ledger` | admin | visit, new | ok |
+| `/{org}/customers/ledger` | admin | visit | ok |
 | `/{org}/customers/products` | admin | visit, new | ok |
 | `/{org}/customers/experiences` | admin | visit, new | ok |
 | `/{org}/customers/settings` | admin | visit, new, record | ok |
-| `/{org}/customers/health` | admin | visit, new | ok |
+| `/{org}/customers/health` | admin | visit | ok |
 | `/{org}/customers/my-cases` | admin | visit, action | ok |
 | `/{org}/customers/unassigned` | admin | visit, action | ok |
 | `/{org}/customers/unhappy` | admin | visit, action | ok |
@@ -702,8 +747,8 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/slm/improvements` | admin | visit, new, record | ok |
 | `/{org}/slm/plans` | admin | visit, new, record, tab | ok |
 | `/{org}/slm/credits` | admin | visit, new | ok |
-| `/{org}/slm/compliance` | admin | visit, new | ok |
-| `/{org}/slm/xla-scores` | admin | visit, new | ok |
+| `/{org}/slm/compliance` | admin | visit | ok |
+| `/{org}/slm/xla-scores` | admin | visit | ok |
 | `/{org}/slm/targets` | admin | visit, new | ok |
 | `/{org}/slm/templates` | admin | visit, new, record, tab ×2 | ok |
 | `/{org}/slm/template-targets` | admin | visit, new, record | ok |
@@ -724,9 +769,9 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/workforce/skills-catalogue` | admin | visit, new, record, tab | ok |
 | `/{org}/workforce/coverage` | admin | visit, new, record | ok |
 | `/{org}/workforce/shift-patterns` | admin | visit, new, record | ok |
-| `/{org}/workforce/points` | admin | visit, new | ok |
-| `/{org}/workforce/agents` | admin | visit, new | ok |
-| `/{org}/workforce/presence-log` | admin | visit, new | ok |
+| `/{org}/workforce/points` | admin | visit | ok |
+| `/{org}/workforce/agents` | admin | visit | ok |
+| `/{org}/workforce/presence-log` | admin | visit | ok |
 | `/{org}/workforce/settings` | admin | visit, new, record | ok |
 | `/{org}/workforce` | admin | visit, link | ok |
 | `/{org}/workforce/team` | admin | visit, action | ok |
@@ -762,12 +807,13 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/portal/catalog` | admin | visit, link | ok |
 | `/{org}/portal/report` | admin | visit, link | ok |
 | `/{org}/portal/requests` | admin | visit, action, link | ok |
-| `/{org}/portal/todo` | admin | visit | ok |
+| `/{org}/portal/todo` | admin | visit, link | ok |
 | `/{org}/portal/kb` | admin | visit, link | ok |
 | `/{org}/portal/profile` | admin | visit | ok |
 | `/{org}/portal/chat` | admin | visit | ok |
 | `/{org}/portal/status` | admin | visit | ok |
 | `/{org}/portal/feedback` | admin | visit, link | ok |
+| `/{org}/portal/workflows` | admin | visit, action, link | ok |
 | `/admin` | admin | visit, link | ok |
 | `/admin/orgs` | admin | visit | ok |
 | `/admin/users` | admin | visit | ok |
@@ -794,6 +840,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `390px /{org}/settings/style-guide` | admin | 390px | ok |
 | `390px /{org}/approvals` | admin | 390px | ok |
 | `390px /{org}/approvals/delegations` | admin | 390px | ok |
+| `390px /{org}/workflows` | admin | 390px | ok |
 | `390px /{org}/incidents/mine` | admin | 390px | ok |
 | `390px /{org}/incidents/unassigned` | admin | 390px | ok |
 | `390px /{org}/incidents/high` | admin | 390px | ok |
@@ -1022,9 +1069,6 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/incidents/:id/war-room` | admin | visit, action | ok |
 | `/{org}` | agent | visit ×2, link ×2 | ok (403: GET /api/local/backups, GET /api/local/settings) |
 | `/{org}/todo` | agent | visit, new, record, tab | ok |
-| `/{org}/settings/fields` | agent | visit | ok (403: POST /api/o/{org}/r/custom_field/query) |
-| `/{org}/settings/choices` | agent | visit | ok (403: POST /api/o/{org}/r/choice/query) |
-| `/{org}/settings/forms` | agent | visit | ok (403: POST /api/o/{org}/r/custom_field/query) |
 | `/{org}/settings/views` | agent | visit, action | ok |
 | `/{org}/settings/org` | agent | visit | ok |
 | `/{org}/settings/users` | agent | visit | ok |
@@ -1047,6 +1091,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/sla/holidays` | agent | visit | ok |
 | `/{org}/sla/definitions` | agent | visit, record, tab | ok |
 | `/{org}/sla/timers` | agent | visit | ok |
+| `/{org}/workflows` | agent | visit, action, link | ok |
 | `/{org}/incidents/mine` | agent | visit, action | ok |
 | `/{org}/incidents/unassigned` | agent | visit, action | ok |
 | `/{org}/incidents/high` | agent | visit, action | ok |
@@ -1063,7 +1108,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/incidents/templates` | agent | visit, new, record | ok |
 | `/{org}/incidents/responses` | agent | visit, new, record | ok |
 | `/{org}/incidents/dashboard` | agent | visit | ok |
-| `/{org}/incidents/settings` | agent | visit | ok (403: POST /api/o/{org}/r/incident_config/query, POST /api/o/{org}/r/problem_config/query) |
+| `/{org}/incidents/settings` | agent | visit | ok |
 | `/{org}/problems/mine` | agent | visit, action | ok |
 | `/{org}/problems/triage` | agent | visit, action | ok |
 | `/{org}/problems/monitoring` | agent | visit, action | ok |
@@ -1088,7 +1133,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/changes/conflicts` | agent | visit, new | ok |
 | `/{org}/changes/outages` | agent | visit, new | ok |
 | `/{org}/changes/lockdowns` | agent | visit, new | ok |
-| `/{org}/changes/scores` | agent | visit, new | ok |
+| `/{org}/changes/scores` | agent | visit | ok |
 | `/{org}/changes/calendar` | agent | visit, action | ok |
 | `/{org}/changes/cab` | agent | visit, link | ok |
 | `/{org}/changes/catalog` | agent | visit | ok |
@@ -1296,7 +1341,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/customers/reviews` | agent | visit, new | ok |
 | `/{org}/customers/plans` | agent | visit, new | ok |
 | `/{org}/customers/stakeholders` | agent | visit, new | ok |
-| `/{org}/customers/ledger` | agent | visit, new | ok |
+| `/{org}/customers/ledger` | agent | visit | ok |
 | `/{org}/customers/products` | agent | visit, new | ok |
 | `/{org}/customers/dashboard` | agent | visit | ok |
 | `/{org}/slm` | agent | visit | ok |
@@ -1309,7 +1354,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/slm/plans` | agent | visit, record, tab | ok |
 | `/{org}/slm/credits` | agent | visit | ok |
 | `/{org}/slm/compliance` | agent | visit | ok |
-| `/{org}/slm/xla-scores` | agent | visit, new | ok |
+| `/{org}/slm/xla-scores` | agent | visit | ok |
 | `/{org}/slm/targets` | agent | visit | ok |
 | `/{org}/workforce` | agent | visit | ok |
 | `/{org}/workforce/team` | agent | visit | ok |
@@ -1329,6 +1374,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/portal/chat` | agent | visit | ok |
 | `/{org}/portal/status` | agent | visit | ok |
 | `/{org}/portal/feedback` | agent | visit, link | ok |
+| `/{org}/portal/workflows` | agent | visit, action, link | ok |
 | `390px /{org}` | agent | 390px ×2 | ok |
 | `390px /{org}/portal` | agent | 390px | ok |
 | `390px /{org}/todo` | agent | 390px | ok |
@@ -1339,14 +1385,11 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `390px /{org}/settings/audit` | agent | 390px | ok |
 | `390px /{org}/approvals` | agent | 390px | ok |
 | `390px /{org}/approvals/delegations` | agent | 390px | ok |
+| `390px /{org}/workflows` | agent | 390px | ok |
 | `390px /{org}/incidents/mine` | agent | 390px | ok |
 | `390px /{org}/incidents/unassigned` | agent | 390px | ok |
-| `390px /{org}/incidents/high` | agent | 390px | ok |
 | `/{org}` | requester | visit ×2, link ×2 | ok (403: GET /api/local/backups, GET /api/local/settings) |
 | `/{org}/todo` | requester | visit, new | ok |
-| `/{org}/settings/fields` | requester | visit | ok (403: POST /api/o/{org}/r/custom_field/query) |
-| `/{org}/settings/choices` | requester | visit | ok (403: POST /api/o/{org}/r/choice/query) |
-| `/{org}/settings/forms` | requester | visit | ok (403: POST /api/o/{org}/r/custom_field/query) |
 | `/{org}/settings/views` | requester | visit, action | ok |
 | `/{org}/settings/org` | requester | visit | ok |
 | `/{org}/settings/users` | requester | visit | ok |
@@ -1365,6 +1408,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/notify/prefs` | requester | visit | ok |
 | `/{org}/approvals` | requester | visit | ok |
 | `/{org}/approvals/delegations` | requester | visit, new | ok |
+| `/{org}/workflows` | requester | visit, action, link | ok |
 | `/{org}/incidents/mine` | requester | visit, action | ok |
 | `/{org}/incidents/unassigned` | requester | visit, action | ok |
 | `/{org}/incidents/high` | requester | visit, action | ok |
@@ -1381,7 +1425,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/incidents/templates` | requester | visit, new, record | ok |
 | `/{org}/incidents/responses` | requester | visit, new, record | ok |
 | `/{org}/incidents/dashboard` | requester | visit | ok |
-| `/{org}/incidents/settings` | requester | visit | ok (403: POST /api/o/{org}/r/incident_config/query, POST /api/o/{org}/r/problem_config/query) |
+| `/{org}/incidents/settings` | requester | visit | ok |
 | `/{org}/problems/dashboard` | requester | visit | ok (403: GET /api/o/{org}/problem/dashboard?days=90) |
 | `/{org}/catalog` | requester | visit | ok |
 | `/{org}/catalog/cart` | requester | visit | ok |
@@ -1456,12 +1500,12 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/customers/reviews` | requester | visit, new | ok |
 | `/{org}/customers/plans` | requester | visit, new | ok |
 | `/{org}/customers/stakeholders` | requester | visit, new | ok |
-| `/{org}/customers/ledger` | requester | visit, new | ok |
+| `/{org}/customers/ledger` | requester | visit | ok |
 | `/{org}/customers/products` | requester | visit, new | ok |
 | `/{org}/customers/dashboard` | requester | visit | ok |
 | `/{org}/slm/agreements` | requester | visit | ok |
 | `/{org}/slm/agreements/pipeline` | requester | visit | ok |
-| `/{org}/slm/xla-scores` | requester | visit, new | ok |
+| `/{org}/slm/xla-scores` | requester | visit | ok |
 | `/{org}/settings/notices` | requester | visit | ok |
 | `/{org}/access/matrix` | requester | visit, link | ok (403: GET /api/o/{org}/access/roles) |
 | `/{org}/portal/search` | requester | visit | ok |
@@ -1474,6 +1518,7 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `/{org}/portal/chat` | requester | visit | ok |
 | `/{org}/portal/status` | requester | visit | ok |
 | `/{org}/portal/feedback` | requester | visit, link | ok |
+| `/{org}/portal/workflows` | requester | visit, action, link | ok |
 | `390px /{org}` | requester | 390px ×2 | ok |
 | `390px /{org}/portal` | requester | 390px | ok |
 | `390px /{org}/todo` | requester | 390px | ok |
@@ -1484,9 +1529,9 @@ One row per page and role: the steps checked on it (visit, «تازه», record,
 | `390px /{org}/settings/audit` | requester | 390px | ok |
 | `390px /{org}/approvals` | requester | 390px | ok |
 | `390px /{org}/approvals/delegations` | requester | 390px | ok |
+| `390px /{org}/workflows` | requester | 390px | ok |
 | `390px /{org}/incidents/mine` | requester | 390px | ok |
 | `390px /{org}/incidents/unassigned` | requester | 390px | ok |
-| `390px /{org}/incidents/high` | requester | 390px | ok |
 | `/login` | anonymous | visit | ok |
 | `/signup` | anonymous | visit | ok |
 | `/recover` | anonymous | visit | ok |
