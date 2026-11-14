@@ -231,7 +231,15 @@ const SEED = [
   ["todo", { short_description: "تمدید گواهی SSL درگاه", priority: "2" }],
   ["kb_article", { title: "راهنمای اتصال به VPN", base_id: "{kb_base}" }],
   ["ci", { name: "SRV-CORE-01", class: "server" }],
+  // a process form, for its designer (settings/forms/:id)
+  ["form", { name: "فرم نمونهٔ بازدید شعبه" }],
 ];
+
+/** Parameterised pages no record list leads to: the crawler fills them in (a table every organisation has, a seeded row). */
+const PARAM_PAGES = {
+  "settings/forms/t/:table": () => "settings/forms/t/incident",
+  "settings/forms/:id": (seeded) => (/^[0-9a-f-]{36}$/.test(seeded.form ?? "") ? `settings/forms/${seeded.form}` : null),
+};
 
 async function seed(call, orgId, me) {
   const made = {};
@@ -701,6 +709,7 @@ async function main() {
         if (r.kind === "list" || r.kind === "page") targets.push({ href: orgHref(r.path), kind: r.kind });
         else if (r.kind === "nested") targets.push({ href: orgHref(r.path.slice(0, -2)), kind: "page" });
         else if (r.kind === "param" && r.path.startsWith("r/:table")) targets.push({ href: orgHref(r.path.replace(":table", "todo").replace("/:id", `/${seeded.todo}`)), kind: r.path === "r/:table" ? "list" : "page" });
+        else if (r.kind === "param" && PARAM_PAGES[r.path]?.(seeded)) targets.push({ href: orgHref(PARAM_PAGES[r.path](seeded)), kind: "page" });
       }
       for (const p of reg.portal) if (p && !p.includes(":") && pick(`portal/${p}`)) targets.push({ href: orgHref(`portal/${p}`), kind: "page" });
       for (const s of reg.admin) if (!s.edition || s.edition === meta.edition) if (pick(`/admin/${s.key}`)) targets.push({ href: s.key ? `/admin/${s.key}` : "/admin", kind: "page", full: true });
@@ -714,7 +723,7 @@ async function main() {
       const mobile = MOBILE === "none" ? [] : reg.nav.filter((i) => (MOBILE === "all" || !i.section) && (!i.action || i.workspace) && !i.path.includes(":") && allowedHere(i.path) && pick(i.path)).map((i) => ({ href: orgHref(i.path) }));
       await crawlRole(url, orgId, "admin", state, targets, { mobile: [{ href: "/login" }, ...mobile] });
       // parameterised pages under a record list (`incidents/:id/war-room`, `flows/:id/design`): the list's first record
-      const params = classified.filter((r) => r.kind === "param" && !r.path.startsWith("r/:table") && !/\/:id$/.test(r.path) && pick(r.path));
+      const params = classified.filter((r) => r.kind === "param" && !r.path.startsWith("r/:table") && !PARAM_PAGES[r.path] && !/\/:id$/.test(r.path) && pick(r.path));
       const deep = [];
       report.unreached = [];
       for (const r of params) {
