@@ -40,18 +40,20 @@ describe("who is offered what", () => {
   });
 
   it("two rows reach the page: the workflows group's for designers, «سازمان و دسترسی»'s for keepers of the structure", () => {
-    const rows = NAV.flatMap((g) => g.items.map((i) => ({ ...i, group: g.label }))).filter((i) => i.path === "settings/positions");
-    expect(rows.map((r) => [r.key, r.group])).toEqual([
-      ["access:positions", "سازمان و دسترسی"],
-      ["workflows:positions", "فرم‌ها و گردش‌کارها"],
+    const rows = NAV.flatMap((g) => g.items.map((i) => ({ ...i, group: g.label }))).filter((i) => i.key === "workflows:positions" || i.key === "access:positions");
+    expect(rows.map((r) => [r.key, r.group, r.path])).toEqual([
+      ["access:positions", "سازمان و دسترسی", "access/positions"],
+      ["workflows:positions", "فرم‌ها و گردش‌کارها", "settings/positions"],
     ].sort((a, b) => rows.findIndex((r) => r.key === a[0]) - rows.findIndex((r) => r.key === b[0])));
     const workflows = rows.find((r) => r.key === "workflows:positions")!;
     expect(passes(DESIGNER, workflows.access)).toBe(true);
     expect(passes(DESIGNER, POSITIONS_ACCESS_ROW.access)).toBe(false);
     expect(passes(grantsOf("service_desk_manager"), POSITIONS_ACCESS_ROW.access)).toBe(true);
     for (const r of ["agent", "requester", "team_lead"]) for (const row of rows) expect(passes(grantsOf(r), row.access)).toBe(false);
-    expect(ROUTES.filter((r) => r.path === "settings/positions")).toHaveLength(1);
-    expect(positionsPart.routes.map((r) => r.path)).toEqual(["settings/positions"]);
+    // each row its own address, both the one page
+    for (const path of ["settings/positions", "access/positions"]) expect(ROUTES.filter((r) => r.path === path)).toHaveLength(1);
+    expect(positionsPart.routes.map((r) => r.path)).toEqual(["settings/positions", "access/positions"]);
+    expect(new Set(positionsPart.routes.map((r) => (r.element as { type?: unknown }).type)).size).toBe(1);
   });
 });
 
