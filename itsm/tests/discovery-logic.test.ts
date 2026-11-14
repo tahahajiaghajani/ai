@@ -145,8 +145,8 @@ describe("the mass-drop guard and contact (§10)", () => {
 describe("the kind registry (§6.1)", () => {
   it("lists every wave-1 kind; only built ones are offered, in the editions they run in", () => {
     expect(KIND_OPTIONS.map((o) => o.value).sort()).toEqual(["ad_computers", "demo", "endpoint_central", "feed", "glpi", "ksc", "mecm", "prtg", "push", "rest", "sql_view", "vcenter", "zabbix"]);
-    expect(KIND_DESCRIPTORS.filter((d) => d.ready).map((d) => d.kind).sort()).toEqual(["demo", "rest"]);
-    expect(offeredKinds("cloud").map((x) => x.kind.kind)).toEqual(["rest"]);
+    expect(KIND_DESCRIPTORS.filter((d) => d.ready).map((d) => d.kind).sort()).toEqual(["demo", "prtg", "rest", "vcenter", "zabbix"]);
+    expect(offeredKinds("cloud").map((x) => x.kind.kind)).toEqual(["zabbix", "prtg", "vcenter", "rest"]);
     expect(kindDescriptor("ad_computers")).toMatchObject({ contact: { lag_days: 14 }, create_policy: "review", priority: 80 });
     expect(kindDescriptor("ksc")?.create_policy).toBe("review");
     expect(kindDescriptor("mecm")?.editions).not.toContain("cloud");
