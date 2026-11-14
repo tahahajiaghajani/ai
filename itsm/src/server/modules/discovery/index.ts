@@ -21,6 +21,7 @@ import { installSourceGuard } from "./precedence";
 import { editionOf } from "./net";
 import { installDiscoveryStatus } from "./status";
 import { installDiscoveryPush } from "./push";
+import { installPanelMeta } from "./panel";
 
 let installed = false;
 
@@ -56,6 +57,7 @@ export function installDiscoveryModule(): void {
   installDedupListener();
   installDiscoveryStatus();
   installDiscoveryPush();
+  installPanelMeta();
 }
 
 export { runPull, acceptNewSize, cancelRun, consecutiveFailures, runningRun, loadConnector } from "./runner";

@@ -683,7 +683,7 @@ export function installDiscoveryStatus(): void {
 // ---------------------------------------------------------------------------------------------------------------
 // Readers: the board «وضعیت پایش» and the side panel «منبع‌ها و وضعیت پایش» (§15)
 
-interface StatusReader {
+export interface StatusReader {
   /** reads the CMDB: CI rows, tool names, messages and links */
   cmdb: boolean;
   /** reads assets beyond their own (a branch officer: own-branch assets) */
@@ -691,7 +691,7 @@ interface StatusReader {
 }
 
 /** Who sees status: CMDB readers, and asset readers beyond their own assets (requesters see nothing, §14.5). */
-async function readerOf(ctx: Ctx): Promise<StatusReader> {
+export async function readerOf(ctx: Ctx): Promise<StatusReader> {
   if (editionOf(ctx.cfg) === "desktop") throw new AppError(403, "desktop", CONNECTOR_MESSAGES.desktop);
   if (isSystemCtx(ctx)) return { cmdb: true, assets: true };
   const r = await rightsOf(ctx);
