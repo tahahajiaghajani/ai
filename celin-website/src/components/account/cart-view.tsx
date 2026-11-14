@@ -10,7 +10,7 @@ import { formatPrice, latinDigits, normalizePhone, num, type Lang } from "@/lib/
 import { href, t } from "@/lib/i18n";
 import type { Media } from "@/lib/media";
 import { MAX_QTY, type CartLine } from "@/lib/order-meta";
-import { invoice, listPrice, nextStep } from "@/lib/pricing";
+import { atPct, invoice, listPrice, nextStep } from "@/lib/pricing";
 import { Icon } from "@/components/ui/icons";
 import { Picture } from "@/components/ui/picture";
 import { cart, useCart } from "@/components/cart/cart-store";
@@ -239,7 +239,7 @@ export function CartView({
         <p className="mb-3 text-sm text-muted">{c.lines(num(pieces, lang))}</p>
         <ul className="border-t border-line">
           {rows.map((r) => (
-            <Line key={key(r.line)} r={r} lang={lang} book={book} flagged={Boolean(badItem && (r.line.productId === badItem || r.line.variantId === badItem))} />
+            <Line key={key(r.line)} r={r} lang={lang} book={book} pct={bill.pct} flagged={Boolean(badItem && (r.line.productId === badItem || r.line.variantId === badItem))} />
           ))}
         </ul>
         <dl className="mt-6 space-y-2">
@@ -323,7 +323,12 @@ export function CartView({
   );
 }
 
-function Line({ r, lang, book, flagged }: { r: LineView; lang: Lang; book: PriceBook; flagged: boolean }) {
+/** One line: the original price struck through and the price at the order's quantity step under it (members), the line at that price. */
+function Line({ r, lang, book, pct, flagged }: { r: LineView; lang: Lang; book: PriceBook; pct: number; flagged: boolean }) {
+  const list = r.price === null ? null : listPrice(r.price, book.pricing);
+  const now = r.price === null ? null : atPct(r.price, pct);
+  const stepped = list !== null && now !== null && now < list;
+  const was = commonCopy(lang).price;
   const c = accountCopy(lang).cart;
   const { line, product, variant } = r;
   const name = product ? t(product, "name", lang) : c.gone;
@@ -368,7 +373,17 @@ function Line({ r, lang, book, flagged }: { r: LineView; lang: Lang; book: Price
           {r.problem !== "gone" && (
             <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
               <span>
-                {c.unit}: <span className="text-ink-2 tabular-nums">{r.price === null ? c.noPrice : formatPrice(listPrice(r.price, book.pricing), lang)}</span>
+                {c.unit}:{" "}
+                {stepped && (
+                  <span className="text-faint line-through decoration-gold/70 tabular-nums">
+                    <span className="sr-only">{was.was} </span>
+                    {formatPrice(list, lang)}
+                  </span>
+                )}{" "}
+                <span className="text-ink-2 tabular-nums">
+                  {stepped && <span className="sr-only">{was.now} </span>}
+                  {now === null ? c.noPrice : formatPrice(now, lang)}
+                </span>
               </span>
               {band && r.problem !== "variant" && (
                 <span className="inline-flex items-center gap-1.5">
@@ -426,7 +441,10 @@ function Line({ r, lang, book, flagged }: { r: LineView; lang: Lang; book: Price
                 <Icon name="plus" className="size-4" />
               </button>
             </span>
-            <span className="text-sm text-ink tabular-nums">{r.price === null ? "" : formatPrice(listPrice(r.price, book.pricing) * line.qty, lang)}</span>
+            <span className="text-end text-sm tabular-nums">
+              {stepped && list !== null && <span className="block text-xs text-faint line-through decoration-gold/70">{formatPrice(list * line.qty, lang)}</span>}
+              <span className="text-ink">{now === null ? "" : formatPrice(now * line.qty, lang)}</span>
+            </span>
           </div>
         )}
       </div>

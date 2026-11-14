@@ -212,16 +212,31 @@ function Stepper({ value, max, onChange, lang }: { value: number; max: number; o
 }
 
 /** What the visitor can do next: members order, everyone else is guided to membership (never a dead end). */
-function Actions({ lang, product, variantId, needsVariant, onAdded }: { lang: Lang; product: Product; variantId: string | null; needsVariant: boolean; onAdded: () => void }) {
+function Actions({
+  lang,
+  product,
+  variantId,
+  needsVariant,
+  qty,
+  setQty,
+  onAdded,
+}: {
+  lang: Lang;
+  product: Product;
+  variantId: string | null;
+  needsVariant: boolean;
+  /** the quantity being chosen (the price above follows it) */
+  qty: number;
+  setQty: (n: number) => void;
+  onAdded: () => void;
+}) {
   const tr = productCopy[lang];
   const c = commonCopy(lang);
   const me = useMe();
   const book = usePriceBook();
   const lines = useCart();
-  const [qty, setQty] = useState(1);
   const [added, setAdded] = useState(false);
   useEffect(() => {
-    setQty(1);
     setAdded(false);
   }, [variantId]);
 
@@ -323,6 +338,9 @@ export function ProductClient({
   const variants = product.variants;
   const [variantId, setVariantId] = useState<string | null>(variants.length === 1 ? variants[0].id : null);
   const variant = variants.find((v) => v.id === variantId) ?? null;
+  // the pieces being chosen: the members' price shows what one piece costs once they are in the order
+  const [qty, setQty] = useState(1);
+  useEffect(() => setQty(1), [variantId]);
 
   // the gallery: product pictures, with the chosen option's picture shown when it has one
   const images = useMemo(() => {
@@ -378,7 +396,7 @@ export function ProductClient({
           <span aria-hidden className="absolute inset-0 -z-10 bg-[radial-gradient(70%_60%_at_100%_0%,var(--color-gold-mist),transparent_70%),radial-gradient(60%_60%_at_0%_100%,var(--color-champagne-2),transparent_70%)]" />
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <PriceSlot productId={product.id} variantId={variantId} lang={lang} size="pdp" className="font-ui text-xl!" />
+              <PriceSlot productId={product.id} variantId={variantId} lang={lang} size="pdp" qty={qty} className="font-ui text-xl!" />
               {locked && <p className="mt-1 font-ui text-xs leading-6 text-muted">{tr.lockedNote}</p>}
             </div>
             {locked && <ProSeal className="mt-0.5" />}
@@ -410,7 +428,7 @@ export function ProductClient({
           )}
 
           <div ref={actionsRef} className="mt-5">
-            <Actions lang={lang} product={product} variantId={variantId} needsVariant={variants.length > 0 && !variantId} onAdded={() => undefined} />
+            <Actions lang={lang} product={product} variantId={variantId} needsVariant={variants.length > 0 && !variantId} qty={qty} setQty={setQty} onAdded={() => setQty(1)} />
           </div>
         </div>
 
@@ -452,7 +470,7 @@ export function ProductClient({
         <div className="flex items-center gap-3">
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-ink">{name}</p>
-            <PriceSlot productId={product.id} variantId={variantId} lang={lang} showStock={false} className="font-ui" />
+            <PriceSlot productId={product.id} variantId={variantId} lang={lang} showStock={false} qty={qty} className="font-ui" />
           </div>
           <button type="button" tabIndex={sticky ? 0 : -1} onClick={() => actionsRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })} className="btn btn-metal min-h-11 px-5">
             {me?.pro.active ? tr.add : c.proBar.guestCta}

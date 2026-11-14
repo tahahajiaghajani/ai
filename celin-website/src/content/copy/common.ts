@@ -50,6 +50,9 @@ export const common = {
       onRequest: "استعلام قیمت",
       from: "از",
       currency: "تومان",
+      was: "قیمت اصلی:",
+      now: "قیمت با تعداد این سفارش:",
+      atPieces: (n: string) => `قیمت هر قطعه با ${n} قطعه در سفارش`,
     },
     stock: {
       in: "موجود",
@@ -186,6 +189,9 @@ export const common = {
       onRequest: "Price on request",
       from: "From",
       currency: "Toman",
+      was: "Original price:",
+      now: "Price at this order's quantity:",
+      atPieces: (n: string) => (n === "1" ? "Per piece with 1 piece in your order" : `Per piece with ${n} pieces in your order`),
     },
     stock: {
       in: "In stock",

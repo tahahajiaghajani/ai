@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { accountCopy } from "@/content/copy/account";
+import { commonCopy } from "@/content/copy/common";
 import { getCatalog } from "@/lib/catalog";
 import { formatDate, formatPhone, formatPrice, num, type Lang } from "@/lib/format";
 import { href, t } from "@/lib/i18n";
@@ -140,8 +141,17 @@ export async function OrderPage({ lang, params, searchParams }: { lang: Lang; pa
               {order.items.map((i) => {
                 const name = t(i, "name", lang);
                 const option = t(i, "variant", lang);
-                // the invoice lists each piece at the price the member saw; the step is one line below
-                const unit = i.list_price ?? i.unit_price;
+                // the original price (struck through) over what each piece was charged at the order's quantity step
+                const list = i.list_price ?? i.unit_price;
+                const stepped = list > i.unit_price;
+                const p = commonCopy(lang).price;
+                const was = (v: number) =>
+                  stepped && (
+                    <span className="block text-faint line-through decoration-gold/70">
+                      <span className="sr-only">{p.was} </span>
+                      {formatPrice(v, lang)}
+                    </span>
+                  );
                 return (
                   <tr key={i.id} className="grid grid-cols-[4rem_minmax(0,1fr)_auto] gap-x-4 gap-y-1 border-b border-line py-5 sm:table-row sm:py-0">
                     <td className="row-span-2 sm:py-5">
@@ -157,12 +167,18 @@ export async function OrderPage({ lang, params, searchParams }: { lang: Lang; pa
                     </td>
                     <td className="self-end text-xs text-muted tabular-nums sm:table-cell sm:py-5 sm:align-top sm:text-sm sm:text-ink-2">
                       <span className="sm:hidden">
-                        {num(i.qty, lang)} × {formatPrice(unit, lang)}
+                        {num(i.qty, lang)} × {stepped && <span className="text-faint line-through decoration-gold/70">{formatPrice(list, lang)}</span>} {formatPrice(i.unit_price, lang)}
                       </span>
-                      <span className="hidden sm:inline">{formatPrice(unit, lang)}</span>
+                      <span className="hidden sm:inline">
+                        {was(list)}
+                        {formatPrice(i.unit_price, lang)}
+                      </span>
                     </td>
                     <td className="hidden py-5 text-center align-top tabular-nums sm:table-cell">{num(i.qty, lang)}</td>
-                    <td className="self-end text-end text-ink tabular-nums sm:table-cell sm:py-5 sm:align-top">{formatPrice(unit * i.qty, lang)}</td>
+                    <td className="self-end text-end text-ink tabular-nums sm:table-cell sm:py-5 sm:align-top">
+                      {was(list * i.qty)}
+                      {formatPrice(i.line_total, lang)}
+                    </td>
                   </tr>
                 );
               })}
