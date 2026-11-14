@@ -712,7 +712,7 @@ async function keepPositions(actx: Ctx, conf: LoginSourceConfig, uid: string, ma
   const facts = await directoryFacts(actx.db, conf.orgId, conf.id, mapped.map((m) => m.position_id), [uid]);
   if (!mapped.length && !facts.holders.some((h) => h.ours)) return { added: 0, removed: 0, given: [], taken: [] };
   const units = mapped.length
-    ? (await liveRows(actx.db, sysOf(actx), "org_unit", null)).map((u) => ({ id: String(u.id), name: String(u.name), code: typeof u.code === "string" ? u.code : null, kind: typeof u.kind === "string" ? u.kind : null }))
+    ? (await liveRows(actx.db, sysOf(actx), "org_unit", null)).map((u) => ({ id: String(u.id), name: String(u.name), code: typeof u.code === "string" ? u.code : null, kind: typeof u.kind === "string" ? u.kind : null, active: u.active !== false }))
     : [];
   const profile = await actx.db.one<{ org_unit_id: string | null }>(`select org_unit_id from sm_member_profiles where org_id = $1 and user_id = $2 and deleted_at is null`, [conf.orgId, uid]);
   const personUnit = unitId ?? profile?.org_unit_id ?? null;

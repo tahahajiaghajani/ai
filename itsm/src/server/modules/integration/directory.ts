@@ -181,7 +181,7 @@ export async function planFor(ctx: Ctx, src: Row, entries: DirEntry[]): Promise<
     links: await linksOf(ctx, String(src.id)),
     linkObjects: await linkObjectsOf(ctx, String(src.id)),
     mappings,
-    units: units.map((u) => ({ id: String(u.id), name: String(u.name), code: typeof u.code === "string" ? u.code : null, kind: typeof u.kind === "string" ? u.kind : null })),
+    units: units.map((u) => ({ id: String(u.id), name: String(u.name), code: typeof u.code === "string" ? u.code : null, kind: typeof u.kind === "string" ? u.kind : null, active: u.active !== false })),
     options: optionsOf(src),
     // platform administrators' addresses: their accounts are the platform's, never a directory's to make or change
     reserved: ctx.cfg.platformAdmins ?? [],
