@@ -2,7 +2,7 @@
 // `process` (runs.ts). `installProcessEngine()` (once per process, src/server/routes/modules.ts) registers that kind.
 import { registerProcessRuns } from "./runs";
 
-export { PROCESS_RUN_KIND, processHandlers, processVersionGraph } from "./runs";
+export { PROCESS_RUN_KIND, processHandlers, processVersionGraph, caseContext } from "./runs";
 
 let installed = false;
 

@@ -28,11 +28,11 @@ describe("the executor for workflow runs", () => {
   const orgId = () => sys.org.id;
   let seq = 0;
   /** a process, its published version with `graph`, and a case of it */
-  async function published(graph: FlowGraph) {
+  async function published(graph: FlowGraph, data: Record<string, unknown> = {}) {
     const n = ++seq;
     const proc = await create(sys, "process", { name: `گردش‌کار ${n}`, key: `proc_${n}`, status: "published" }, { trusted: true });
     const version = await create(sys, "process_version", { process_id: proc.row.id, name: `گردش‌کار ${n}`, version_no: 1, graph }, { trusted: true });
-    const kase = await create(sys, "process_case", { title: `پرونده ${n}`, process_id: proc.row.id, version_id: version.row.id, version_no: 1, state: "active", requested_by: o.ownerId, data: {} }, { trusted: true });
+    const kase = await create(sys, "process_case", { title: `پرونده ${n}`, process_id: proc.row.id, version_id: version.row.id, version_no: 1, state: "active", requested_by: o.ownerId, data }, { trusted: true });
     return { proc: proc.row.id as string, version: version.row.id as string, kase: kase.row.id as string, name: `گردش‌کار ${n}` };
   }
   const input = (p: { proc: string; version: string; kase: string; name: string }, extra: Partial<StartInput> = {}): StartInput => ({
@@ -52,12 +52,27 @@ describe("the executor for workflow runs", () => {
   it("runs the graph of the case's process_version, and ends with the «پایان» it reached on record.flow_ended", async () => {
     const ended: any[] = [];
     offs.push(onRecordEvent("test-process-ended", async (e) => void ended.push(e), { tables: ["process_case"], kinds: ["record.flow_ended"] }));
-    const p = await published({ nodes: [N("t", "trigger"), N("v", "set_vars", { vars: [{ name: "seen", value: "{{trigger.record.number}}" }] }), N("no", "end", { outcome: "rejected" })], edges: [E("t", "v"), E("v", "no")] });
+    const p = await published(
+      {
+        nodes: [
+          N("t", "trigger"),
+          N("v", "set_vars", { vars: [{ name: "seen", value: "{{trigger.record.number}}" }, { name: "amount", value: "{{case.u_amount}}" }] }),
+          // a condition on the case's values (they are not engine fields: the run reads them under `case`)
+          N("big", "branch", { mode: "data", rules: [{ left: "{{case.u_amount}}", op: "gt", right: "500000000" }] }),
+          N("no", "end", { outcome: "rejected" }),
+          N("ok", "end"),
+        ],
+        edges: [E("t", "v"), E("v", "big"), E("big", "no", "yes"), E("big", "ok", "no")],
+      },
+      { u_amount: 750000000 },
+    );
     const id = await startRun(o.db, input(p));
     await k.drain();
     expect(await run(id)).toMatchObject({ state: "completed", trigger_kind: "process" });
-    expect(await steps(id)).toEqual(["t:completed:out", "v:completed:out", "no:completed"]);
-    expect((await run(id))!.context.vars.seen).toMatch(/^PRC\d{7}$/);
+    expect(await steps(id)).toEqual(["t:completed:out", "v:completed:out", "big:completed:yes", "no:completed"]);
+    const vars = (await run(id))!.context.vars;
+    expect(vars.seen).toMatch(/^PRC\d{7}$/);
+    expect(vars.amount).toBe(750000000);
     const e = ended.find((x) => x.id === p.kase);
     expect(e?.data).toMatchObject({ run_id: id, kind: "process", state: "completed", end: { node: "no", outcome: "rejected" } });
   });

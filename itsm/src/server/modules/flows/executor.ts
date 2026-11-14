@@ -87,6 +87,11 @@ export interface RunKind {
   graph(q: Queryable, run: Pick<RunRow, "org_id" | "flow_id" | "version_id">): Promise<FlowGraph | null>;
   /** handlers of node types for this kind's runs, before the flows' own (registry.ts) */
   handlers?: Record<string, FlowStepHandler>;
+  /**
+   * fresh data merged into the run's data before each step (a workflow's case values under `case`, which its
+   * conditions read: `{{case.u_amount}}`) — read outside any transaction
+   */
+  context?(q: Queryable, run: Pick<RunRow, "org_id" | "flow_id" | "version_id" | "trigger_table" | "trigger_record_id">): Promise<Record<string, unknown> | null>;
 }
 
 const runKinds = new Map<string, RunKind>();
@@ -105,6 +110,14 @@ export function registerRunKind(kind: string, def: RunKind): () => void {
 /** The handler of a node type for a run of `kind`: the kind's own, else the flows' one. */
 function handlerOf(kind: string | null | undefined, type: string): FlowStepHandler | undefined {
   return (kind ? runKinds.get(kind)?.handlers?.[type] : undefined) ?? stepHandler(type);
+}
+
+/** Merge the run kind's fresh data into the run's data (before a step). */
+async function refreshContext(x: Exec): Promise<void> {
+  const kind = runKinds.get(x.run.trigger_kind);
+  if (!kind?.context) return;
+  const add = await kind.context(x.cfg.db, x.run);
+  if (add) Object.assign(x.data, add);
 }
 
 /** The graph a run executes: a test run's draft, its kind's (a process version), else its flow version's. */
@@ -773,6 +786,7 @@ async function stepToken(x: Exec, token: Token) {
   x.rt.steps++;
   const key = `s${++x.rt.seq}`;
   const started = Date.now();
+  await refreshContext(x);
   switch (node.type) {
     case "trigger":
       return triggerStep(x, token, node, key, started);
@@ -805,6 +819,7 @@ async function resumeStep(x: Exec, waitId: string, reason: WaitInfo["reason"]) {
   const node = x.nodes.get(w.node_id);
   if (!node) return endRun(x, "failed", `گام «${w.node_id}» در طرح پیدا نشد`);
   token.wait = null;
+  await refreshContext(x);
   await handlerStep(x, token, node, w.step_key, Date.now(), { wait: w, info: waitInfo(w, reason) });
 }
 
