@@ -246,6 +246,15 @@ describe("the vCenter kind against its mock (design A §17)", () => {
     expect(await outcome(vcenterKind.test(ctx()))).toBe(CONNECTOR_MESSAGES.redirect);
     m.redirectTo = null;
     expect(await outcome(vcenterKind.test(kindCtx(vcenterKind, { view: { base_url: VCENTER_URL, username: VCENTER_USER } })))).toBe(CONNECTOR_MESSAGES.reenterKey);
+    m.badSession = true;
+    resetVcenterSessions();
+    expect(await outcome(vcenterKind.test(ctx()))).toBe(VCENTER_MESSAGES.noSession);
+    m.badSession = false;
+    // a vCenter where the user sees no host: a warning of «آزمودن اتصال», not a failure
+    const hosts = m.hosts;
+    m.hosts = [];
+    expect((await vcenterKind.test(ctx({ options: { instance_uuid: UUID } }))).warnings).toEqual([VCENTER_MESSAGES.noHosts]);
+    m.hosts = hosts;
     // a slow list still answers (the runner's slice, not the kind, bounds the time)
     m.slowMs = 50;
     expect((await pass()).length).toBe(10);

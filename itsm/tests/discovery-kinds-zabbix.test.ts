@@ -269,6 +269,11 @@ describe("the Zabbix kind against its mock (design A §17)", () => {
     m.redirectTo = null;
     // no key stored (a restored backup)
     expect(await outcome(zabbixKind.test(kindCtx(zabbixKind, { view: { base_url: ZABBIX_URL } })))).toBe(CONNECTOR_MESSAGES.reenterKey);
+    // a scope with no host is a warning of «آزمودن اتصال», not a failure
+    expect((await zabbixKind.test(ctx({ options: { tags: ["env=none"] } }))).warnings).toEqual([ZABBIX_MESSAGES.noHosts]);
+    // a slow chunk still answers (the runner's slice, not the kind, bounds the time)
+    m.slowMs = 50;
+    expect((await zabbixKind.pages(ctx(), null)).records).toHaveLength(1);
   });
 
   it("plain http only on the server edition with the tick, never on the web version", async () => {

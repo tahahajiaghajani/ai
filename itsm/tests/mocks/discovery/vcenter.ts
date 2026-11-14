@@ -85,6 +85,8 @@ export class VcenterMock {
   failOnce = new Map<string, number>();
   slowMs = 0;
   redirectTo: string | null = null;
+  /** answer a login with something that is not a session id */
+  badSession = false;
 
   constructor(data: { clusters: VcCluster[]; hosts: VcHost[]; vms: VcVm[] }) {
     this.clusters = data.clusters;
@@ -121,6 +123,7 @@ export class VcenterMock {
       const m = /^Basic (.+)$/.exec(req.headers.get("authorization") ?? "");
       const [user, password] = m ? Buffer.from(m[1], "base64").toString("utf8").split(/:(.*)/s) : ["", ""];
       if (user !== this.user || password !== this.password) return this.error(401, "UNAUTHENTICATED", "Authentication required.");
+      if (this.badSession) return json({ value: null }, 201);
       const token = `sess-${++this.logins}-${Math.random().toString(16).slice(2)}`;
       this.sessions.add(token);
       return json(token, 201);
