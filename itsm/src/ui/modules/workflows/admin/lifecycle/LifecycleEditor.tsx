@@ -104,7 +104,11 @@ function Editor({ view, base, editable, canWrite, phone }: EditorProps) {
   }, [view, hist.reset]);
 
   const roles = useQuery({ queryKey: LIFECYCLE_KEYS.roles(orgId), queryFn: () => lifecycleApi.roles(api), enabled: !view.labels_only, retry: false, staleTime: 60_000 });
-  const roleList: RoleOption[] = roles.data ?? (roles.isError ? builtinRoles().map((r) => ({ key: r.key, name: r.name, active: r.active !== false })) : []);
+  // the roles' names: the organisation's (`users` read), else the built-in ones
+  const roleList = useMemo<RoleOption[]>(
+    () => roles.data ?? (roles.isError ? builtinRoles().map((r) => ({ key: r.key, name: r.name, active: r.active !== false })) : []),
+    [roles.data, roles.isError],
+  );
   const roleNames = useMemo(() => new Map(roleList.map((r) => [r.key, r.name])), [roleList]);
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState<DiffLine[] | null>(null);

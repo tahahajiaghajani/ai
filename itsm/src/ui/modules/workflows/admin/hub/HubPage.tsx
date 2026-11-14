@@ -86,6 +86,21 @@ export default function HubPage() {
   // the folded lifecycles are one cell across the table
   const cell = (first: boolean) => (r: ListRow) => (more(r) ? { colSpan: first ? columns : 0 } : {});
   const firstUse = data.empty && (!kind || kind === "process");
+  // first use: what the page is for, above the list (or in place of the empty list of the organisation's processes)
+  const firstUsePanel = (
+    <EmptyState
+      art="welcome"
+      title="نخستین گردش‌کار سازمان را بسازید"
+      description="گردش‌کارهای سازمان را این‌جا بسازید و همهٔ گردش‌کارهای سامانه را یک‌جا ببینید."
+      action={
+        canCreate ? (
+          <Button type="primary" icon={<Plus {...I16} />} onClick={() => setCreating(true)}>
+            گردش‌کار تازه
+          </Button>
+        ) : undefined
+      }
+    />
+  );
 
   const grantWork = async (role: { key: string; name: string }) => {
     if (!(await n.confirm(`افزودن حق ثبت در «کارها» به «${role.name}»؟`, "اعضای این نقش مرحله‌های گردش‌کار را از نسخهٔ ویندوز هم انجام می‌دهند؛ این تغییر در گزارش رویدادها ثبت می‌شود.", false, "افزودن حق"))) return;
@@ -120,39 +135,28 @@ export default function HubPage() {
           onPublish={canPublish && authority && x.process ? () => setPublishing({ id: x.process!.id, name: x.process!.name }) : undefined}
         />
       ))}
-      {firstUse ? (
-        <EmptyState
-          art="welcome"
-          title="نخستین گردش‌کار سازمان را بسازید"
-          description="گردش‌کارهای سازمان را این‌جا بسازید و همهٔ گردش‌کارهای سامانه را یک‌جا ببینید."
-          action={
-            canCreate ? (
-              <Button type="primary" icon={<Plus {...I16} />} onClick={() => setCreating(true)}>
-                گردش‌کار تازه
-              </Button>
-            ) : undefined
-          }
-        />
-      ) : null}
-      {kind === "process" && firstUse ? null : (
-        <div className="wfh-list">
-          <div className="wfh-bar" role="search">
-            <Input allowClear prefix={<Search {...I14} aria-hidden />} placeholder="جست‌وجوی گردش‌کار، جدول یا دسته…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="جست‌وجوی گردش‌کارها" className="wfh-search" />
-            <span className="wfh-chips" aria-label="نوع گردش‌کار">
-              <ToggleChip on={!kind} onChange={() => setKind(null)}>
-                همه {faDigits(data.rows.length)}
-              </ToggleChip>
-              {data.kinds.map((k) => (
-                <Tooltip key={k.key} title={`${k.module}؛ ${k.editable}`}>
-                  <span>
-                    <ToggleChip on={kind === k.key} onChange={(on) => setKind(on ? k.key : null)}>
-                      {k.label} {faDigits(k.count)}
-                    </ToggleChip>
-                  </span>
-                </Tooltip>
-              ))}
-            </span>
-          </div>
+      {firstUse && !kind ? firstUsePanel : null}
+      <div className="wfh-list">
+        <div className="wfh-bar" role="search">
+          <Input allowClear prefix={<Search {...I14} aria-hidden />} placeholder="جست‌وجوی گردش‌کار، جدول یا دسته…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="جست‌وجوی گردش‌کارها" className="wfh-search" />
+          <span className="wfh-chips" aria-label="نوع گردش‌کار">
+            <ToggleChip on={!kind} onChange={() => setKind(null)}>
+              همه {faDigits(data.rows.length)}
+            </ToggleChip>
+            {data.kinds.map((k) => (
+              <Tooltip key={k.key} title={`${k.module}؛ ${k.editable}`}>
+                <span>
+                  <ToggleChip on={kind === k.key} onChange={(on) => setKind(on ? k.key : null)}>
+                    {k.label} {faDigits(k.count)}
+                  </ToggleChip>
+                </span>
+              </Tooltip>
+            ))}
+          </span>
+        </div>
+        {kind === "process" && firstUse ? (
+          firstUsePanel
+        ) : (
           <Table<ListRow>
             size="small"
             className="ds-table wfh-table"
@@ -249,8 +253,8 @@ export default function HubPage() {
                 : []),
             ]}
           />
-        </div>
-      )}
+        )}
+      </div>
       {rules.length ? (
         <p className="wfh-rules">
           <span className="text-ink-3">قاعده‌ها، جدا از گردش‌کارها: </span>
