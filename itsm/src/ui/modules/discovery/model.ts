@@ -162,10 +162,16 @@ export function settingsFields(d: KindDescriptor, v: Values, edition: Edition, r
   return out;
 }
 
-/** The fields among `fields` a person may change (the connector guard's rules, §14.5). */
-export function editableFields(fields: readonly string[], r: Rights): Set<string> {
+/**
+ * The fields among `fields` a person may change: the connector guard's rules (§14.5) within what the engine lets them
+ * write on the record (`meta`: an owner without write rights in the CMDB changes nothing).
+ */
+export function editableFields(fields: readonly string[], r: Rights, meta?: { canWrite?: boolean; readonly?: readonly string[] }): Set<string> {
   const may = new Set<string>();
+  if (meta?.canWrite === false) return may;
+  const fixed = new Set(meta?.readonly ?? []);
   for (const f of fields) {
+    if (fixed.has(f)) continue;
     if ((ASSET_FIELDS as string[]).includes(f)) {
       if (r.assetManager) may.add(f);
     } else if (r.admin || (r.owner && OWNER_FIELDS.includes(f))) may.add(f);
@@ -230,12 +236,16 @@ export function newValues(d: KindDescriptor): Values {
 const stable = (v: unknown): string => JSON.stringify(v, (_k, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => a.localeCompare(b))) : x));
 const same = (a: unknown, b: unknown) => (isEmpty(a) && isEmpty(b)) || stable(a ?? null) === stable(b ?? null);
 
-/** The kind's options from the form: its option fields over what is stored (other keys are kept), empty ones left out. */
+/**
+ * The kind's options from the form: its option fields over what is stored (other keys are kept), empty ones left out,
+ * and a default nobody set left to the kind (the form shows it; the stored options stay what people chose).
+ */
 export function optionsOf(d: KindDescriptor, v: Values, stored: unknown = {}): Values {
-  const out: Values = stored && typeof stored === "object" && !Array.isArray(stored) ? { ...(stored as Values) } : {};
+  const base: Values = stored && typeof stored === "object" && !Array.isArray(stored) ? (stored as Values) : {};
+  const out: Values = { ...base };
   for (const o of d.options) {
     const x = v[optName(o.key)];
-    if (isEmpty(x)) delete out[o.key];
+    if (isEmpty(x) || (!(o.key in base) && o.default !== undefined && same(x, o.default))) delete out[o.key];
     else out[o.key] = x;
   }
   return out;
@@ -390,6 +400,9 @@ export function durationText(ms: number): string {
   return m % 60 ? `${faNum(Math.floor(m / 60))} ساعت و ${faNum(m % 60)} دقیقه` : `${faNum(m / 60)} ساعت`;
 }
 
+/** The items a tool still reports: every item but those no longer reported («دیگر گزارش نمی‌شود»). */
+export const currentItems = (items: Record<string, number>) => Math.max(0, Number(items.total ?? 0) - Number(items.gone ?? 0));
+
 /** «هر ۶۰ دقیقه» / «فقط دستی». */
 export function scheduleText(every: number): string {
   if (!every || every <= 0) return "فقط دستی";
@@ -409,7 +422,7 @@ export function statusLine(c: Pick<ConnectorCard, "running" | "held" | "needs_ke
   const last = c.last_run;
   if (!last) return { text: "هنوز اجرا نشده است", tone: null };
   if (last.state === "failed") return { text: `اجرای آخر ناموفق: ${last.error || "علت ثبت نشده است"}`, tone: "danger" };
-  const total = Number(c.items.total ?? 0);
+  const total = currentItems(c.items);
   const linked = Number(c.items.linked ?? 0);
   const parts = [`${faNum(total)} مورد`];
   if (total > 0) parts.push(`${pct(linked / total, 0)} پیوسته`);

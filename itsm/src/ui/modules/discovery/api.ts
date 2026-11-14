@@ -35,6 +35,8 @@ export interface DiscoveryMeta {
 export interface ConnectorPage {
   row: Record<string, unknown> & { id: string; name: string; kind: string; version?: number };
   display: DisplayMap;
+  /** the engine's word on the record: whether the caller may write or delete it, and the fields it may not change */
+  meta?: { canWrite?: boolean; canDelete?: boolean; readonly?: string[] };
   card: ConnectorCard | null;
   can: { edit: boolean; operate: boolean; preview: boolean; raw: boolean; approve_directory: boolean };
 }

@@ -19,7 +19,7 @@ import { Chip, EmptyState, Skeleton, StatCard } from "../../components/display";
 import { Note } from "../../components/blocks";
 import { useMe, useSchema } from "../../records/data/hooks";
 import { dkeys, useConnectorPage, useDiscoveryMeta, type ConnectorPage, type DiscoveryMeta, type PreviewResult, type TestResult } from "./api";
-import { PHASES, changes, durationText, editableFields, errorField, formValues, labelOf, missingFields, requiredFields, settingsFields, type Rights, type RunInfo, type Values } from "./model";
+import { PHASES, changes, currentItems, durationText, editableFields, errorField, formValues, labelOf, missingFields, requiredFields, settingsFields, type Rights, type RunInfo, type Values } from "./model";
 import { Refused } from "./Console";
 import { Ago, ConnectorForm, ConnectorStateChip, I16, KindIcon, KindName, PreviewTable, RunsTable, TestResultNote } from "./parts";
 
@@ -114,8 +114,9 @@ export default function Connector() {
     ...(can.operate && d?.kind !== "push" ? [{ key: "test", label: "آزمودن اتصال", icon: <PlugZap {...I16} /> }] : []),
     ...(can.preview && d?.kind !== "push" ? [{ key: "preview", label: "پیش‌نمایش", icon: <Eye {...I16} /> }] : []),
     ...(can.preview ? [{ key: "reapply", label: "اعمال دوباره روی همه", icon: <RefreshCcw {...I16} /> }] : []),
-    ...(can.operate ? [{ key: "active", label: row.active === false ? "روشن کردن" : "خاموش کردن", icon: <Power {...I16} /> }] : []),
-    ...(can.edit ? [{ type: "divider" as const }, { key: "delete", label: "حذف", danger: true, icon: <Trash2 {...I16} /> }] : []),
+    // switching on and off and deleting are record writes: the engine's word on the record counts too
+    ...(can.operate && page.data.meta?.canWrite !== false ? [{ key: "active", label: row.active === false ? "روشن کردن" : "خاموش کردن", icon: <Power {...I16} /> }] : []),
+    ...(can.edit && page.data.meta?.canDelete !== false ? [{ type: "divider" as const }, { key: "delete", label: "حذف", danger: true, icon: <Trash2 {...I16} /> }] : []),
   ];
   const actions = (
     <>
@@ -200,7 +201,7 @@ function SummaryTab({ page, tz, busy, onAccept, onSettings }: { page: ConnectorP
         </Note>
       ) : null}
       <section className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5" aria-label="شمار موارد">
-        <StatCard title="موارد" value={<span className="ds-num">{fa(Number(items.total ?? 0))}</span>} />
+        <StatCard title="موارد" value={<span className="ds-num">{fa(currentItems(items))}</span>} />
         <StatCard title="پیوسته" value={<span className="ds-num">{fa(Number(items.linked ?? 0))}</span>} />
         <StatCard title="بی‌همتا" value={<span className="ds-num">{fa(Number(items.unmatched ?? 0))}</span>} />
         <StatCard title="بی‌تماس ≥ ۱۴ روز" value={<span className="ds-num">{fa(Number(items.silent ?? 0))}</span>} />
@@ -324,7 +325,7 @@ function SettingsTab({ page, d, meta, onSaved }: { page: ConnectorPage; d: KindD
   const [problem, setProblem] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const fields = settingsFields(d, values, meta.edition, rights);
-  const editable = editableFields(fields, rights);
+  const editable = editableFields(fields, rights, page.meta);
   const dirty = Object.keys(changes(d, before, values, [...editable])).length > 0;
   // what the server says now, unless the person is in the middle of a change
   useEffect(() => {
