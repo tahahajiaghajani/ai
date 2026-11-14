@@ -335,7 +335,8 @@ function Line({ r, lang, book, pct, flagged }: { r: LineView; lang: Lang; book: 
   const option = variant ? t(variant, "name", lang) : "";
   const media = variant?.image ?? product?.image ?? null;
   const max = Math.max(1, Math.min(MAX_QTY, r.stock));
-  const band = r.problem === "gone" ? null : stockBand({ stock: r.stock }, book, lang);
+  // stock is shown to Pro accounts only
+  const band = r.problem === "gone" || !book.showStock ? null : stockBand({ stock: r.stock }, book, lang);
   const productHref = product ? href(lang, `/product/${product.slug}`) : null;
   const marked = flagged || Boolean(r.problem);
   const message =

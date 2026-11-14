@@ -10,7 +10,7 @@ import { useCartCount } from "@/components/cart/cart-store";
 
 /**
  * The price slot of a product. Everyone sees words in the price's own style («قیمت برای اعضا»); members see the
- * price of one piece at their level (src/lib/pricing.ts) and a stock band. A member whose order would reach a
+ * price of one piece at their level (src/lib/pricing.ts); Pro accounts also a stock band (members see no stock). A member whose order would reach a
  * quantity step — the pieces already in the basket plus `qty` (the pieces being chosen on the product page; one
  * on a card) — sees the original price (twice the admin's) struck through and the price at that quantity under
  * it; a Pro account always sees the admin's price alone. The box keeps its height while loading (no layout
@@ -95,7 +95,7 @@ export function PriceSlot({
         {discounted && <span className="sr-only">{c.price.now} </span>}
         {value === null ? c.price.onRequest : `${varies ? `${c.price.from} ` : ""}${formatPrice(discounted ? stepped : value, lang)}`}
       </span>
-      {showStock && (
+      {showStock && book.showStock && (
         <span className={`ms-3 inline-flex items-center gap-1.5 align-middle ${size === "pdp" ? "text-sm" : "text-xs"} text-muted`}>
           <span className={`size-1.5 rounded-full ${DOT[band.tone]}`} aria-hidden />
           {band.text}

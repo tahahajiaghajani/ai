@@ -269,7 +269,7 @@ function Actions({
             {tr.add}
           </button>
         </div>
-        {room < stock && room >= 0 && <p className="font-ui text-xs text-muted">{tr.maxStock(num(stock, lang))}</p>}
+        {book.showStock && room < stock && room >= 0 && <p className="font-ui text-xs text-muted">{tr.maxStock(num(stock, lang))}</p>}
         {added && (
           <p className="flex animate-fade-in items-center justify-between gap-3 border border-gold/40 bg-gold-mist px-4 py-2.5 font-ui text-sm text-gold-text" role="status">
             <span className="flex items-center gap-2">

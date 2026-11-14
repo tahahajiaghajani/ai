@@ -23,7 +23,7 @@ const MSG = {
   name: { fa: "نام گیرنده را بنویسید.", en: "Please enter the recipient's name." },
   phone: { fa: "شماره‌ی موبایل گیرنده معتبر نیست.", en: "The recipient's mobile number is not valid." },
   address: { fa: "نشانی و شهر را برای ارسال بنویسید.", en: "Please enter the city and delivery address." },
-  outOfStock: { fa: "موجودی یکی از اقلام کافی نیست؛ سفارش به‌روز شد، لطفاً تعداد را بررسی کنید.", en: "One item does not have enough stock — please check the quantities." },
+  outOfStock: { fa: "یکی از اقلام به این تعداد موجود نیست؛ تعداد آن را کمتر کنید یا با فروشگاه تماس بگیرید.", en: "One item is not available in this quantity — please order fewer or contact the store." },
   gone: { fa: "یکی از اقلام دیگر در دسترس نیست و از سفارش حذف شد.", en: "One item is no longer available and has been removed." },
   variant: { fa: "برای یکی از اقلام، رنگ یا گزینه را انتخاب کنید.", en: "Please choose an option for one of the items." },
   noPrice: { fa: "قیمت یکی از اقلام هنوز اعلام نشده است؛ برای آن با فروشگاه تماس بگیرید.", en: "One item has no price yet — please contact the store for it." },
