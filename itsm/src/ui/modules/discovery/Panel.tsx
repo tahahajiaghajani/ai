@@ -21,15 +21,15 @@ const I14 = { size: 14, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
 const word = (state: string | null | undefined, label?: string | null) => <ChoiceTag option={STATUS_WORDS.find((o) => o.value === state)} value={label ?? state ?? "نامعلوم"} />;
 
 export default function DiscoveryPanel({ ctx }: { ctx: RecordContext }) {
+  const { orgId, timezone } = useOrg();
   const table = ctx.table === "ci" ? "ci" : "asset";
   const p = usePanel(table, String(ctx.row.id));
   if (p.isLoading) return <Skeleton rows={2} />;
   if (p.error || !p.data) return <p className="dsc-meta">وضعیت پایش بارگذاری نشد.</p>;
-  return <PanelBody data={p.data} />;
+  return <PanelBody data={p.data} orgId={orgId} timezone={timezone} />;
 }
 
-export function PanelBody({ data }: { data: PanelData }) {
-  const { orgId, timezone } = useOrg();
+export function PanelBody({ data, orgId, timezone }: { data: PanelData; orgId: string; timezone: string }) {
   const s = data.status;
   return (
     <div className="dsc-panel">

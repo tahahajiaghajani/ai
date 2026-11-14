@@ -3,6 +3,7 @@
 // rules, mirrored so the screens hide what the server would refuse — the server stays the authority), what a save
 // sends (only what changed; a secret only when one was typed, never a stored one), and the words of the console's
 // cards, the passes and the preview. Free of React and of server imports (tests/discovery-ui.test.ts).
+import type { AccessGate } from "@shared/access";
 import type { ColorKey, FieldDef, Option } from "@shared/model/types";
 import { checkMapping } from "@shared/discovery/mapping";
 import { COLLECT_OPTIONS, KIND_CATEGORIES, type Edition, type KindCategory, type KindDescriptor, type OptionField, type TestResult } from "@shared/discovery/types";
@@ -575,6 +576,9 @@ export const ITEM_FILTERS: { value: string; label: string }[] = [
 // The board «وضعیت پایش» and the side panel «منبع‌ها و وضعیت پایش» (§15, §9)
 
 export type BoardChip = "down" | "unreachable" | "warning" | "maintenance" | "off" | "silent" | "atm";
+
+/** Who opens the board: asset readers beyond their own assets (status.ts readerOf; every built-in CMDB reader is one). */
+export const STATUS_READS: AccessGate = { area: "asset", scope: "group" };
 
 /** The board's chips, in the design's order (status.ts BOARD_CHIPS). */
 export const BOARD_CHIPS: { key: BoardChip; label: string }[] = [

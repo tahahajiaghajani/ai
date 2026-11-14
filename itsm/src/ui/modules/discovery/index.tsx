@@ -15,7 +15,7 @@ import type { AccessGate } from "@shared/access";
 import type { ModuleUi } from "../registry";
 import { Loader } from "../../components/display";
 import { registerRecordExtensions, type RecordContext } from "../../records/extensions";
-import { showsPanel } from "./model";
+import { showsPanel, STATUS_READS } from "./model";
 
 const Console = lazy(() => import("./Console"));
 const Wizard = lazy(() => import("./Wizard"));
@@ -29,8 +29,6 @@ const page = (node: ReactNode) => <Suspense fallback={<Loader />}>{node}</Suspen
 /** Connectors are read by CMDB readers (service.ts needReader) and made by CMDB administrators (guard.ts). */
 export const DISCOVERY_READS: AccessGate = { area: "cmdb" };
 export const DISCOVERY_ADMIN: AccessGate = { area: "cmdb", op: "admin" };
-/** The board: asset readers beyond their own assets (status.ts readerOf; every built-in CMDB reader is one). */
-export const STATUS_READS: AccessGate = { area: "asset", scope: "group" };
 /** The section of the space the module's pages sit in. */
 export const DISCOVERY_SECTION = "منبع‌های داده";
 
