@@ -8,7 +8,9 @@ import { kitPart } from "./kit/routes";
 import { fieldsPart } from "./admin/fields/routes";
 import { formsPart } from "./admin/forms/routes";
 import { positionsPart } from "./admin/positions/routes";
+import { hubPart } from "./admin/hub/routes";
 // the position picker and the «پیوست» widget in every record form
 import "./kit/register";
 
-export const workflowsUi: ModuleUi = assemble([fieldsPart, formsPart, positionsPart, kitPart]);
+// settings: «فیلدها», «فرم‌ها», «گردش‌کارها», «نقش‌های سازمانی» (design F §8)
+export const workflowsUi: ModuleUi = assemble([fieldsPart, formsPart, hubPart, positionsPart, kitPart]);
