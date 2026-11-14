@@ -258,6 +258,15 @@ export async function connCtx(sys: Ctx, row: Row, kind: ConnectorKind, options: 
     connector: view, options, secret, secret2, edition, deadline, now: () => new Date(),
     fetchJson: fetcher.fetchJson, fetchText: fetcher.fetchText,
     log: (message, data) => sys.cfg.log?.info?.(`discovery «${view.name}»: ${message}`, data),
+    known: async (ids) => {
+      const want = [...new Set(ids)].slice(0, 5000);
+      if (!want.length) return new Map();
+      const rows = await sys.db.query<{ external_id: string; data: unknown; listed_at: string | Date | null }>(
+        `select external_id, data, listed_at from sm_discovery_items where org_id = $1 and connector_id = $2 and deleted_at is null and external_id = any($3::text[])`,
+        [sys.org.id, row.id, pgArray(want)],
+      );
+      return new Map(rows.map((r) => [r.external_id, { record: asRecord(r.data), listed_at: r.listed_at ? new Date(r.listed_at).toISOString() : null }]));
+    },
   };
 }
 
