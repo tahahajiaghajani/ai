@@ -138,8 +138,9 @@ const module = recordModule({
     { table: "cmdb_map", path: "cmdb/maps", label: "نقشه‌های ذخیره‌شده", noun: "نقشه", icon: MapIcon, area: "work", keywords: "نقشه ذخیره نمای کسب‌وکار", newAction: false, extensions: { headerActions: action("map-open", OpenSavedMap) } },
     { table: "cmdb_query", path: "cmdb/queries", label: "پرس‌وجوهای ذخیره‌شده", noun: "پرس‌وجو", icon: Search, area: "work", search: false, keywords: "پرس‌وجو جست‌وجو", newAction: false },
     { table: "cmdb_import_run", path: "cmdb/import-runs", label: "اجراهای ورود داده", noun: "اجرای ورود", icon: Database, section: DATA, area: "work", newAction: false, keywords: "ورود داده اجرا نتیجه" },
-    { table: "cmdb_data_source", path: "cmdb/sources", label: "منبع‌های داده", noun: "منبع داده", icon: Radar, section: DATA, area: "settings", keywords: "منبع داده اولویت کشف" },
-    { table: "discovery_collector", path: "cmdb/collectors", label: "جمع‌آورنده‌های کشف", noun: "جمع‌آورنده", icon: Radar, section: DATA, area: "settings", keywords: "کشف جمع‌آورنده زمان‌بندی" },
+    // secondary rows (design A §15): «منبع‌های داده» is where connectors live; these two sit with the definitions
+    { table: "cmdb_data_source", path: "cmdb/sources", label: "اولویت منبع‌ها", noun: "منبع داده", icon: Radar, section: DEF, area: "settings", keywords: "منبع داده اولویت کشف" },
+    { table: "discovery_collector", path: "cmdb/collectors", label: "جمع‌آورنده‌های کشف", noun: "جمع‌آورنده", icon: Radar, section: DEF, area: "settings", keywords: "کشف جمع‌آورنده زمان‌بندی" },
     {
       table: "ci_class", path: "cmdb/classes", label: "کلاس‌ها", noun: "کلاس", icon: ListTree, section: DEF, area: "settings", keywords: "کلاس نوع پیکربندی ویژگی CSDM",
       extensions: { defaults: (sp) => Object.fromEntries([["parent_key", sp.get("parent_key")], ["family", sp.get("family")]].filter(([, v]) => v)) },
