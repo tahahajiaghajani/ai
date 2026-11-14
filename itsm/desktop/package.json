@@ -1,7 +1,6 @@
 {
   "name": "itsm-desktop",
   "version": "1.1.0",
-  "releaseChannel": "beta",
   "private": true,
   "description": "کاریز (Kariz) — نسخهٔ ویندوز (Electron)",
   "author": "Kariz",

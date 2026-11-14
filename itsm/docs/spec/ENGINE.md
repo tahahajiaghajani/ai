@@ -660,8 +660,9 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
   every table): a row written again after `snap` is left to the next session (its new revision is not visible in
   `snap`), never sent twice or half-changed. The answer
   carries `cursor` (the session's `snap` once it is complete), `snap`, `after`, `has_more`, `full` (a session from no
-  cursor) and `epoch`. Every pull names its protocol: anything but `protocol=16` — a 1.0 or 1.1.0-beta app sends none,
-  with numeric cursors, 0 included — is refused with «update the app» (400) before any page is read, like a push of
+  cursor) and `epoch`. Every pull names its protocol: anything but this build's `SYNC_PROTOCOL` (16 brought these snapshot
+  cursors; 17 design F's synced kinds) — a 1.0 or early 1.1.0-beta app sends none, with numeric cursors, 0 included; a
+  later 1.1.0-beta app sends 16 — is refused with «update the app» (400) before any page is read, like a push of
   another protocol; such an app is never served a page it would misread. `sm_devices.cursor` keeps the `xmin` of a
   device's last complete session (the oldest transaction id it had not seen), and `sm_devices.sync_protocol` the protocol
   its last register, push or pull named — refused ones included, before anything else is read (0: a pull that named

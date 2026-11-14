@@ -380,8 +380,12 @@ void createPgliteDb;
 describe("«تازه‌ها» of this release", () => {
   it("tells people the web version no longer shows a server error while it prepares its database and sign-up is atomic", async () => {
     const { ADMIN_CHANGELOG } = await import("@server/modules/admin/changelog");
+    const { APP_VERSION } = await import("@shared/constants");
     const { readFileSync } = await import("node:fs");
-    const line = ADMIN_CHANGELOG[0].items.find((x) => x.startsWith("نسخهٔ وب"));
+    // this release's entries: the version itself and its beta (1.1.0 lists what came after 1.1.0-beta)
+    const release = ADMIN_CHANGELOG.filter((e) => e.version === APP_VERSION || e.version.startsWith(`${APP_VERSION}-`));
+    expect(release[0]?.version).toBe(APP_VERSION);
+    const line = release.flatMap((e) => e.items).find((x) => x.startsWith("نسخهٔ وب"));
     expect(line).toMatch(/آماده‌سازی پایگاه داده/);
     expect(line).toMatch(/ثبت‌نام/);
     const notes = readFileSync(join(__dirname, "..", "docs", "RELEASE_FA.md"), "utf8");
