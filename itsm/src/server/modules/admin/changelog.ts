@@ -9,6 +9,13 @@ export interface ChangelogEntry {
 
 export const ADMIN_CHANGELOG: ChangelogEntry[] = [
   {
+    version: "1.1.0",
+    date: "2026-11-14",
+    items: [
+      "منبع‌های داده: دارایی‌ها و پیکربندی‌ها از ابزارهای پایش و کشف می‌رسند — اتصال REST عمومی، پیش‌نمایش پیش از ذخیره، صف آشتی، و کار پیگیری برای دستگاهی که دیگر با هیچ ابزاری تماس ندارد",
+    ],
+  },
+  {
     version: "1.1.0-beta",
     date: "2026-11-10",
     items: [
