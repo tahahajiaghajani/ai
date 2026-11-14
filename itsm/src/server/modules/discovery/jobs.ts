@@ -284,7 +284,10 @@ export function installDiscoveryJobs(): void {
   registerJobHandler(JOB_KINDS.status, async (job, jctx) => {
     const a = await admitted(job, jctx);
     if (!a || !("orgId" in a)) return a ?? undefined;
-    return inConnectorScope(jctx.db, a.orgId, a.connector, async () => statusPass(await systemCtx(jctx.cfg, a.orgId), a.connector, jctx));
+    // the upkeep's place among a big connector's targets lives in the payload: any process goes on from it
+    const after = typeof job.payload?.agg_after === "string" ? job.payload.agg_after : null;
+    const save = (next: string | null) => jctx.save({ ...(job.payload ?? {}), agg_after: next });
+    return inConnectorScope(jctx.db, a.orgId, a.connector, async () => statusPass(await systemCtx(jctx.cfg, a.orgId), a.connector, { deadline: jctx.deadline, after, save }));
   });
   registerJobHandler(JOB_KINDS.stale, async (job, jctx) => {
     const a = await admitted(job, jctx);

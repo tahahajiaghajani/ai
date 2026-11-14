@@ -19,6 +19,8 @@ import { installConnectorGuard } from "./guard";
 import { installDiscoveryJobs, queuePull } from "./jobs";
 import { installSourceGuard } from "./precedence";
 import { editionOf } from "./net";
+import { installDiscoveryStatus } from "./status";
+import { installDiscoveryPush } from "./push";
 
 let installed = false;
 
@@ -52,6 +54,8 @@ export function installDiscoveryModule(): void {
   installSourceGuard();
   installDiscoveryJobs();
   installDedupListener();
+  installDiscoveryStatus();
+  installDiscoveryPush();
 }
 
 export { runPull, acceptNewSize, cancelRun, consecutiveFailures, runningRun, loadConnector } from "./runner";
