@@ -6,6 +6,11 @@
 // (`<run>:<step key>`). Waits resume through the job queue: a timer job, `resumeFlowWait` (approvals, subflows,
 // services), or a record event re-checking a condition. A lease keeps one worker per run.
 //
+// Runs of other kinds (design F D4: a workflow's case runs its published `process_version`) register a `RunKind`: where
+// their graph comes from and, optionally, handlers of node types for their runs only. A run may also start at a chosen
+// node (`startAt`: recovery of a failed case), and a join in mode «any» with `cancel_rest` withdraws the other
+// branches of its parallel part (their waits are cancelled through their handlers).
+//
 // Guards: at most FLOW_LIMITS.steps steps per run (a probable endless loop is stopped), at most
 // FLOW_LIMITS.depth nested runs (records written by a run carry its depth into the events they cause, and subflows
 // add one), at most FLOW_LIMITS.items items per loop.
@@ -18,7 +23,7 @@ import { uuidv7 } from "@shared/id";
 import { faDigits } from "@shared/format";
 import { FLOW_LIMITS, RUN_STATES, edgesFrom, nodeLabel, renderTemplate, renderText, type FlowData, type FlowGraph, type FlowNode, type RunState } from "@shared/flows";
 import { capJson, loadRun, loadVersion, loadWait, waitsOf, writeStep, type ForkFrame, type LoopFrame, type RunRow, type Runtime, type StepLog, type Token, type WaitRow } from "./store";
-import { stepHandler, type StepContext, type StepOutcome, type WaitInfo, type WaitRequest } from "./registry";
+import { stepHandler, type FlowStepHandler, type StepContext, type StepOutcome, type WaitInfo, type WaitRequest } from "./registry";
 import { forEachItems, readRecord } from "./records";
 import { DEFAULT_TIMEZONE } from "@shared/constants";
 
@@ -68,6 +73,47 @@ export interface StartInput {
   test?: boolean;
   /** the flow's configured table: record steps without a table of their own use it when the run has no record */
   table?: string | null;
+  /** start at this node instead of the trigger (outside parallel parts and loops: «ادامه از مرحلهٔ …») */
+  startAt?: string | null;
+}
+
+/**
+ * What the executor asks of runs whose `trigger_kind` is not an automation flow's — a workflow case runs its
+ * published `process_version` (design F D4). Register with `registerRunKind` (a later registration replaces the
+ * earlier one).
+ */
+export interface RunKind {
+  /** the graph a run of this kind executes (null: its version is gone — the run fails) */
+  graph(q: Queryable, run: Pick<RunRow, "org_id" | "flow_id" | "version_id">): Promise<FlowGraph | null>;
+  /** handlers of node types for this kind's runs, before the flows' own (registry.ts) */
+  handlers?: Record<string, FlowStepHandler>;
+}
+
+const runKinds = new Map<string, RunKind>();
+
+/** Register a run kind (e.g. "process"). Returns an unregister function. */
+export function registerRunKind(kind: string, def: RunKind): () => void {
+  const before = runKinds.get(kind);
+  runKinds.set(kind, def);
+  return () => {
+    if (runKinds.get(kind) !== def) return;
+    if (before) runKinds.set(kind, before);
+    else runKinds.delete(kind);
+  };
+}
+
+/** The handler of a node type for a run of `kind`: the kind's own, else the flows' one. */
+function handlerOf(kind: string | null | undefined, type: string): FlowStepHandler | undefined {
+  return (kind ? runKinds.get(kind)?.handlers?.[type] : undefined) ?? stepHandler(type);
+}
+
+/** The graph a run executes: a test run's draft, its kind's (a process version), else its flow version's. */
+async function resolveGraph(q: Queryable, run: Pick<RunRow, "org_id" | "flow_id" | "version_id" | "graph" | "trigger_kind">): Promise<FlowGraph | null> {
+  if (run.graph) return run.graph;
+  const kind = runKinds.get(run.trigger_kind);
+  if (kind) return kind.graph(q, run);
+  if (!run.version_id) return null;
+  return (await loadVersion(q, run.org_id, run.version_id))?.graph ?? null;
 }
 
 const START = "@start";
@@ -76,7 +122,7 @@ const LEASE = "interval '3 minutes'";
 /** Create a run and queue its first execution (inside the caller's transaction when there is one). */
 export async function startRun(q: Queryable, input: StartInput): Promise<string> {
   const id = uuidv7();
-  const runtime: Runtime = { tokens: [{ id: "t1", node: START, frames: [] }], frames: {}, steps: 0, seq: 0, ids: 1 };
+  const runtime: Runtime = { tokens: [{ id: "t1", node: input.startAt || START, frames: [] }], frames: {}, steps: 0, seq: 0, ids: 1 };
   const trigger = { ...input.trigger };
   if (!trigger.table && input.table) trigger.table = input.table;
   const context = {
@@ -376,7 +422,7 @@ async function persist(q: Queryable, x: Exec, p: Pending, end?: { state: RunStat
       await enqueue(q, { kind: "flows.timer", orgId: x.run.org_id, payload: { run: x.run.id, wait: w.id }, runAt: new Date(due), dedupeKey: `flows.timer:${w.id}`, maxAttempts: 20 });
     }
   }
-  if (end) await runEnded(q, x.run, end.state, end.error ?? null, x.data.outputs ?? {});
+  if (end) await runEnded(q, x.run, end.state, end.error ?? null, x.data.outputs ?? {}, x.data.end ?? null);
   if (end && x.run.parent_run_id) {
     await resumeFlowWait(q, x.run.org_id, `run:${x.run.id}`, {
       state: end.state,
@@ -417,13 +463,15 @@ function restore(x: Exec, s: ReturnType<typeof snapshot>) {
 
 /**
  * `record.flow_ended` on the record a run was started on (in the transaction that ended it): its state (completed,
- * failed, canceled), error and outputs — modules waiting for their flows react to it instead of polling the run.
+ * failed, canceled), error and outputs, and the «پایان» it reached with that node's outcome (null when it ended
+ * otherwise) — modules waiting for their flows react to it instead of polling the run (a workflow's case takes its
+ * outcome from `end`).
  */
-async function runEnded(q: Queryable, run: RunRow, state: RunState, error: string | null, outputs: Record<string, unknown>): Promise<void> {
+async function runEnded(q: Queryable, run: RunRow, state: RunState, error: string | null, outputs: Record<string, unknown>, end: { node: string; outcome: string } | null = null): Promise<void> {
   if (!run.trigger_table || !run.trigger_record_id) return;
   await emitOrgEvent(q, run.org_id, {
     kind: "record.flow_ended", table: run.trigger_table, id: run.trigger_record_id, actor: null,
-    data: { run_id: run.id, flow_id: run.flow_id, flow_name: run.flow_name, state, error, outputs: capJson(outputs), test: !!run.test, depth: run.depth },
+    data: { run_id: run.id, flow_id: run.flow_id, flow_name: run.flow_name, kind: run.trigger_kind, state, error, outputs: capJson(outputs), end, test: !!run.test, depth: run.depth },
   });
 }
 
@@ -432,10 +480,10 @@ function waitInfo(w: WaitRow, reason: WaitInfo["reason"]): WaitInfo {
 }
 
 /** Let the waiting steps of a run withdraw what they asked for (approvals…). Never throws. */
-async function cancelWaits(cfg: ServerConfig, orgId: string, runId: string, graph: FlowGraph | null, waits: WaitRow[]) {
+async function cancelWaits(cfg: ServerConfig, orgId: string, runId: string, graph: FlowGraph | null, waits: WaitRow[], kind?: string | null) {
   for (const w of waits) {
     const node = graph?.nodes.find((n) => n.id === w.node_id);
-    const h = node ? stepHandler(node.type) : undefined;
+    const h = node ? handlerOf(kind, node.type) : undefined;
     if (!node || !h?.cancel) continue;
     try {
       await h.cancel({ cfg, orgId, runId, node: { id: node.id, type: node.type, label: nodeLabel(node), config: node.config ?? {} }, wait: waitInfo(w, "result") });
@@ -453,7 +501,7 @@ async function endRun(x: Exec, state: RunState, error: string | null, p: Pending
   await x.cfg.db.tx(async (tx) => {
     await persist(tx, x, { ...p, deleteWaits: [...new Set([...p.deleteWaits, ...waits.map((w) => w.id)])] }, { state, error });
   });
-  await cancelWaits(x.cfg, x.run.org_id, x.run.id, x.graph, waits);
+  await cancelWaits(x.cfg, x.run.org_id, x.run.id, x.graph, waits, x.run.trigger_kind);
   await cancelChildren(x.cfg, x.run.id);
 }
 
@@ -479,8 +527,8 @@ export async function cancelRun(cfg: ServerConfig, runId: string, reason = "اج
   const waits = await waitsOf(cfg.db, runId);
   await cfg.db.query(`delete from sm_flow_waits where run_id = $1`, [runId]);
   await cfg.db.query(`delete from sm_flow_loop_items where run_id = $1`, [runId]);
-  const graph = run.graph ?? (run.version_id ? (await loadVersion(cfg.db, run.org_id, run.version_id))?.graph ?? null : null);
-  await cancelWaits(cfg, run.org_id, runId, graph, waits);
+  const graph = await resolveGraph(cfg.db, run);
+  await cancelWaits(cfg, run.org_id, runId, graph, waits, run.trigger_kind);
   await cancelChildren(cfg, runId);
   return true;
 }
@@ -525,7 +573,7 @@ function applyOutcome(x: Exec, token: Token, node: FlowNode, key: string, starte
 
 /** Run a node through its handler (or resume it) and persist the result. */
 async function handlerStep(x: Exec, token: Token, node: FlowNode, key: string, started: number, resume?: { wait: WaitRow; info: WaitInfo }) {
-  const h = stepHandler(node.type);
+  const h = handlerOf(x.run.trigger_kind, node.type);
   const logs: string[] = [];
   let input: unknown = undefined;
   try {
@@ -616,14 +664,49 @@ async function joinStep(x: Exec, token: Token, node: FlowNode, key: string, star
   removeToken(x, token);
   const outer = token.frames.slice(0, -1);
   const all = (node.config?.mode ?? "all") !== "any";
-  const p = controlStep(x, node, key, started, { arrived: f.arrived, expected: f.expected }, null);
+  // «any» with cancel_rest: the first arrival continues and the other branches are withdrawn
+  const rest = !all && !f.fired && node.config?.cancel_rest === true ? withdrawRest(x, f) : null;
+  const p = controlStep(x, node, key, started, { arrived: f.arrived, expected: f.expected, ...(rest ? { canceled: rest.tokens } : {}) }, null);
+  let withdrawn: WaitRow[] = [];
+  if (rest?.waits.length) {
+    p.deleteWaits.push(...rest.waits);
+    withdrawn = (await waitsOf(x.cfg.db, x.run.id)).filter((w) => rest.waits.includes(w.id));
+  }
   if (!all && !f.fired) {
     f.fired = true;
     p.step!.port = "out";
     continueFrom(x, node, "out", outer);
   } else if (all && f.arrived + f.dead >= f.expected) p.step!.port = "out";
-  settleFork(x, f, outer);
+  if (rest) delete x.rt.frames[f.id];
+  else settleFork(x, f, outer);
   await x.cfg.db.tx((tx) => persist(tx, x, p));
+  if (withdrawn.length) {
+    // after the commit, as when a run ends: each waiting step withdraws what it asked for (a workflow's open tasks
+    // close as «دیگر لازم نیست»), and subflows of the withdrawn branches are canceled
+    await cancelWaits(x.cfg, x.run.org_id, x.run.id, x.graph, withdrawn, x.run.trigger_kind);
+    for (const w of withdrawn) if (w.key?.startsWith("run:")) await cancelRun(x.cfg, w.key.slice(4), "شاخهٔ موازیِ آن لغو شد");
+  }
+}
+
+/** Take out every other token of the parallel part `f` and the frames inside it (`cancel_rest`); returns their waits. */
+function withdrawRest(x: Exec, f: ForkFrame): { tokens: number; waits: string[] } {
+  const rest = x.rt.tokens.filter((t) => t.frames.includes(f.id));
+  const waits: string[] = [];
+  for (const t of rest) {
+    removeToken(x, t);
+    if (t.wait) waits.push(t.wait);
+    for (const fid of t.frames.slice(t.frames.indexOf(f.id) + 1)) {
+      const inner = x.rt.frames[fid];
+      if (!inner) continue;
+      delete x.rt.frames[fid];
+      if (inner.kind === "loop") {
+        x.items.delete(fid);
+        x.itemsAdd.delete(fid);
+        x.itemsDrop.add(fid);
+      }
+    }
+  }
+  return { tokens: rest.length, waits };
 }
 
 /** «اجرای موازی»: one token per outgoing edge. */
@@ -672,6 +755,7 @@ async function endStep(x: Exec, token: Token, node: FlowNode, key: string, start
     if (a?.name) outputs[String(a.name)] = capJson(render(x, token, a.value));
   }
   x.data.outputs = outputs;
+  x.data.end = { node: node.id, outcome: typeof node.config?.outcome === "string" && node.config.outcome ? node.config.outcome : "completed" };
   const p = controlStep(x, node, key, started, { outcome: failed ? "failed" : "completed", message, outputs }, null);
   await endRun(x, failed ? "failed" : "completed", failed ? message || "گردش‌کار با نتیجهٔ «ناموفق» پایان یافت" : null, p);
 }
@@ -724,11 +808,6 @@ async function resumeStep(x: Exec, waitId: string, reason: WaitInfo["reason"]) {
   await handlerStep(x, token, node, w.step_key, Date.now(), { wait: w, info: waitInfo(w, reason) });
 }
 
-async function graphOf(cfg: ServerConfig, run: RunRow): Promise<FlowGraph | null> {
-  if (run.graph) return run.graph;
-  if (!run.version_id) return null;
-  return (await loadVersion(cfg.db, run.org_id, run.version_id))?.graph ?? null;
-}
 
 export interface ExecuteOptions {
   /** stop starting new steps after this instant (epoch ms; default: 8 s from now) */
@@ -749,7 +828,7 @@ export async function executeRun(cfg: ServerConfig, runId: string, opts: Execute
     const r = await loadRun(cfg.db, runId);
     return r && isOpen(r.state) ? { busy: true } : { state: r?.state };
   }
-  const graph = await graphOf(cfg, run);
+  const graph = await resolveGraph(cfg.db, run);
   const x: Exec = {
     cfg,
     run,
