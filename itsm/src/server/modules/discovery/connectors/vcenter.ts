@@ -3,7 +3,9 @@
 // process for 20 idle minutes (vCenter limits sessions; an expired one is replaced once). Lists have no paging and are
 // capped, so a pass is split: the clusters (those named in `clusters`, else all), the hosts of each cluster (and, without
 // a cluster filter, the standalone hosts) on the first page, then the VMs of one host after another — which gives each
-// VM its `runs_on` host. A page stops at about 500 VMs or at the slice's end and resumes inside the host. VM lists
+// VM its `runs_on` host. A page stops at about 500 VMs or at the slice's end and resumes inside the host, after the
+// last VM id done (a VM that joins or leaves the host meanwhile shifts nothing). A status page stops at the slice's end
+// too, between hosts. VM lists
 // carry no change time: details (`/vm/{id}`, and the guest identity of a powered-on VM) are read for new VMs, for VMs
 // whose list fields changed (name, power, CPU, memory), and for each VM once per `detail_days` (§7.6); the rest keep
 // what the connector stored (ConnCtx.known). The rules are pure, in @shared/discovery/kinds/vcenter.
@@ -141,8 +143,8 @@ interface VcenterCursor {
   units: Unit[];
   /** the host being read */
   i: number;
-  /** VMs of that host already on earlier pages (in VM-id order) */
-  done: number;
+  /** the last VM of that host done on an earlier page (VMs go in id order); absent at the host's start */
+  after?: string;
 }
 
 /** The hosts in scope, each with its cluster's name: split by cluster (lists are capped, §2.1). */
@@ -224,7 +226,10 @@ async function vmDetails(c: ConnCtx, vm: VmRow): Promise<Partial<DiscoveredRecor
     try {
       guest = await get<GuestIdentity>(c, `api/vcenter/vm/${encodeURIComponent(vm.vm)}/guest/identity`);
     } catch (e) {
-      if (!(e instanceof ConnectorError) || e.code === "auth" || e.code === "refused" || e.code === "config") throw e;
+      // only «Tools not running» (503) and a VM gone since the list (404) leave the guest out; a rate limit, a timeout
+      // or another error fails the page, so the runner retries it (honouring Retry-After) instead of staging the VM
+      // without its name and address for detail_days
+      if (!(e instanceof ConnectorError) || (e.status !== 503 && e.status !== 404)) throw e;
     }
     if (guest?.full_name?.default_message) out.os = guest.full_name.default_message;
     const host = normaliseHost(guest?.host_name);
@@ -269,7 +274,9 @@ function vmRecord(vm: VmRow, unit: Unit, details: Partial<DiscoveredRecord>, now
 const cursorOf = (cursor: Cursor | null): VcenterCursor | null =>
   cursor && typeof cursor === "object" && !Array.isArray(cursor) && Array.isArray((cursor as { units?: unknown }).units) ? (cursor as unknown as VcenterCursor) : null;
 
-const vmsOf = async (c: ConnCtx, hostId: string) => list<VmRow>(await get(c, "api/vcenter/vm", { hosts: hostId })).sort((a, b) => byId({ id: a.vm }, { id: b.vm }));
+/** A VM row's id; "" for a malformed row (sorted first, so a host's first page reports it). */
+const vmId = (v: VmRow | undefined): string => (typeof v?.vm === "string" ? v.vm : "");
+const vmsOf = async (c: ConnCtx, hostId: string) => list<VmRow>(await get(c, "api/vcenter/vm", { hosts: hostId })).sort((a, b) => byId({ id: vmId(a) }, { id: vmId(b) }));
 
 async function page(c: ConnCtx, cursor: Cursor | null): Promise<Page> {
   const now = c.now();
@@ -279,26 +286,29 @@ async function page(c: ConnCtx, cursor: Cursor | null): Promise<Page> {
     const hosts = await hostsInScope(c);
     const records = hosts.map((h) => hostRecord(h.host, h.cluster, now));
     const units = hosts.map((h) => ({ id: h.host.host, on: connected(h.host) }));
-    return { records, raw: hosts.map((h) => h.host), next: units.length ? ({ units, i: 0, done: 0 } as unknown as Cursor) : null, complete: true };
+    return { records, raw: hosts.map((h) => h.host), next: units.length ? ({ units, i: 0 } as unknown as Cursor) : null, complete: true };
   }
   const records: DiscoveredRecord[] = [];
   const raw: unknown[] = [];
   const rejected: { message: string }[] = [];
-  let { i, done } = cur;
+  let i = cur.i;
+  let after = typeof cur.after === "string" && cur.after ? cur.after : undefined;
   // a page always makes progress; at about 500 VMs or past the slice's end it stops between VMs (inside a host too)
   const full = () => records.length >= VMS_PER_PAGE || (records.length > 0 && Date.now() >= c.deadline - DETAIL_MARGIN_MS);
   hosts: while (i < cur.units.length) {
     const unit = cur.units[i];
-    const vms = (await vmsOf(c, unit.id)).slice(done);
-    const ids = vms.map((v) => v?.vm).filter((x): x is string => typeof x === "string" && !!x);
+    const all = await vmsOf(c, unit.id);
+    // inside a host, resume after the last VM done by its id, not by a count the host's changes would shift
+    const vms = after ? all.filter((v) => vmId(v) && byId({ id: vmId(v) }, { id: after! }) > 0) : all;
+    const ids = vms.map(vmId).filter(Boolean);
     const known = c.known && ids.length ? await c.known(ids) : new Map<string, KnownItem>();
     for (const vm of vms) {
-      if (full()) break hosts;
-      done++;
-      if (typeof vm?.vm !== "string" || !vm.vm) {
+      if (!vmId(vm)) {
         rejected.push({ message: VCENTER_MESSAGES.noVmId });
         continue;
       }
+      if (full()) break hosts;
+      after = vm.vm;
       const prev = known.get(vm.vm);
       let details: Partial<DiscoveredRecord> | null = {};
       if (reusable(prev, vm, unit.on, c, now)) {
@@ -310,10 +320,10 @@ async function page(c: ConnCtx, cursor: Cursor | null): Promise<Page> {
       raw.push(vm);
     }
     i++;
-    done = 0;
+    after = undefined;
     if (full()) break;
   }
-  const next: Cursor = i < cur.units.length ? ({ units: cur.units, i, done } as unknown as Cursor) : null;
+  const next: Cursor = i < cur.units.length ? ({ units: cur.units, i, ...(after ? { after } : {}) } as unknown as Cursor) : null;
   return { records, raw, next, complete: true, ...(rejected.length ? { rejected } : {}) };
 }
 
@@ -324,12 +334,13 @@ async function statusPage(c: ConnCtx, cursor: Cursor | null): Promise<StatusPage
     const hosts = await hostsInScope(c);
     const items = hosts.map((h) => ({ external_id: h.host.host, status: vcenterHostStatus(h.host.connection_state, h.host.power_state), ...(connected(h.host) ? { last_contact_at: now } : {}) }));
     const units = hosts.map((h) => ({ id: h.host.host, on: connected(h.host) }));
-    return { items, next: units.length ? ({ units, i: 0, done: 0 } as unknown as Cursor) : null };
+    return { items, next: units.length ? ({ units, i: 0 } as unknown as Cursor) : null };
   }
   const items: StatusPage["items"] = [];
   let i = cur.i;
-  // status needs no details: whole hosts, a few at a time
+  // status needs no details: whole hosts, a few at a time, one at least, and none past the slice's end
   while (i < cur.units.length && items.length < VMS_PER_PAGE * 4) {
+    if (i > cur.i && Date.now() >= c.deadline - DETAIL_MARGIN_MS) break;
     const unit = cur.units[i];
     for (const vm of await vmsOf(c, unit.id)) {
       if (typeof vm?.vm !== "string" || !vm.vm) continue;
@@ -338,7 +349,7 @@ async function statusPage(c: ConnCtx, cursor: Cursor | null): Promise<StatusPage
     }
     i++;
   }
-  return { items, next: i < cur.units.length ? ({ units: cur.units, i, done: 0 } as unknown as Cursor) : null };
+  return { items, next: i < cur.units.length ? ({ units: cur.units, i } as unknown as Cursor) : null };
 }
 
 /** vSphere Client's object pages need the vCenter's own instance UUID (`instance_uuid`). */

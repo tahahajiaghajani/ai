@@ -92,7 +92,8 @@ describe("the vCenter kind against its mock (design A §17)", () => {
     m.cap = 4;
     const { pages, cursors } = await allPages((cur) => vcenterKind.pages(ctx(), cur));
     expect(pages[0].records.map((r) => [r.external_id, r.kind])).toEqual([["host-11", "host"], ["host-12", "host"], ["host-21", "host"], ["host-22", "host"], ["host-31", "host"]]);
-    expect(cursors[0]).toMatchObject({ i: 0, done: 0 });
+    expect(cursors[0]).toMatchObject({ i: 0 });
+    expect(cursors[0]).not.toHaveProperty("after");
     const hostLists = m.gets.filter((g) => g.startsWith("/api/vcenter/host"));
     expect(hostLists).toEqual(["/api/vcenter/host?clusters=domain-c8", "/api/vcenter/host?clusters=domain-c9", "/api/vcenter/host?standalone=true"]);
     const vmLists = m.gets.filter((g) => g.startsWith("/api/vcenter/vm?"));
@@ -180,7 +181,7 @@ describe("the vCenter kind against its mock (design A §17)", () => {
     const known = new Map<string, KnownItem>(data.vms.map((v) => [v.vm, { record: { external_id: v.vm, kind: "vm", name: v.name, cpu_count: 2, ram_mb: 4096, status: { state: "off" } }, listed_at: new Date().toISOString() }]));
     const { pages, cursors } = await allPages((cur) => vcenterKind.pages(ctx({ known }), cur));
     expect(pages.map((p) => p.records.length)).toEqual([5, 500, 5]);
-    expect(cursors.slice(1)).toEqual([expect.objectContaining({ i: 4, done: 96 })]);
+    expect(cursors.slice(1)).toEqual([expect.objectContaining({ i: 4, after: "vm-600" })]);
     expect(m.detailReads()).toHaveLength(0);
     // the slice's end: a page always makes progress, one VM at least, and the next resumes after it
     const small = mount(new VcenterMock(makeVcenter(3)));
@@ -188,10 +189,50 @@ describe("the vCenter kind against its mock (design A §17)", () => {
     const late = ctx({ deadline: Date.now() });
     const p1: Page = await vcenterKind.pages(late, hostsPage.next);
     expect(p1.records.map((r) => r.external_id)).toEqual(["vm-101"]);
-    expect(p1.next).toMatchObject({ i: 0, done: 1 });
+    expect(p1.next).toMatchObject({ i: 0, after: "vm-101" });
     const p2 = await vcenterKind.pages(late, p1.next);
     expect(p2.records.map((r) => r.external_id)).toEqual(["vm-102"]);
     expect(small.detailReads()).toEqual(["/api/vcenter/vm/vm-101", "/api/vcenter/vm/vm-102"]);
+    // the status pass stops between hosts at the slice's end too, one host at least a page
+    const statusHosts = await vcenterKind.status!(late, null);
+    const lists = () => small.gets.filter((g) => g.startsWith("/api/vcenter/vm?")).length;
+    const before = lists();
+    const s1 = await vcenterKind.status!(late, statusHosts.next);
+    expect(s1.items.map((x) => x.external_id)).toEqual(["vm-101", "vm-102", "vm-103"]);
+    expect(s1.next).toMatchObject({ i: 1 });
+    expect(lists() - before).toBe(1);
+    const all = (await allPages((cur) => vcenterKind.status!(late, cur))).pages.flatMap((p) => p.items);
+    expect(all).toHaveLength(5 + 15);
+  });
+
+  it("inside a host a page resumes after the last VM id done: a VM leaving the host between pages skips none", async () => {
+    const data = makeVcenter(120);
+    for (const v of data.vms) v.power_state = "POWERED_OFF";
+    const m = mount(new VcenterMock(data));
+    const known = new Map<string, KnownItem>(data.vms.map((v) => [v.vm, { record: { external_id: v.vm, kind: "vm", name: v.name, cpu_count: 2, ram_mb: 4096, status: { state: "off" } }, listed_at: new Date().toISOString() }]));
+    const c = ctx({ known });
+    const hostsPage = await vcenterKind.pages(c, null);
+    const a = await vcenterKind.pages(c, hostsPage.next);
+    expect(a.records).toHaveLength(500);
+    expect(a.next).toMatchObject({ i: 4, after: "vm-600" });
+    // DRS moves a VM page A already listed off host-31 (or it is deleted) before page B
+    m.vms = m.vms.filter((v) => v.vm !== "vm-590");
+    const b = await vcenterKind.pages(c, a.next);
+    expect(b.records.map((r) => r.external_id)).toEqual(Array.from({ length: 100 }, (_, k) => `vm-${601 + k}`));
+    expect(b.next).toBeNull();
+  });
+
+  it("a rate limit or a server error on a VM's guest identity fails the page for the runner to retry; only Tools not running leaves the guest out", async () => {
+    const m = mount(new VcenterMock(makeVcenter(1)));
+    const c = ctx();
+    const first = await vcenterKind.pages(c, null);
+    m.failOnce.set("/api/vcenter/vm/vm-101/guest", 429);
+    const limited = await vcenterKind.pages(c, first.next).catch((e) => e);
+    expect([limited.code, limited.retryAfterMs]).toEqual(["rate_limited", 5000]);
+    m.failOnce.set("/api/vcenter/vm/vm-101/guest", 500);
+    expect((await vcenterKind.pages(c, first.next).catch((e) => e)).code).toBe("network");
+    const retried = await vcenterKind.pages(c, first.next);
+    expect(retried.records.find((r) => r.external_id === "vm-101")).toMatchObject({ hostname: "app-101", fqdn: "app-101.bank.local", ips: ["10.41.0.101"] });
   });
 
   it("clusters narrow the pass (no standalone hosts); a cluster that is not there stops it instead of making machines look gone", async () => {

@@ -7,7 +7,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { connector as zabbixKind, frontEnd, ZABBIX_MESSAGES } from "@server/modules/discovery/connectors/zabbix";
 import { CONNECTOR_MESSAGES, ConnectorError } from "@server/modules/discovery/kind";
-import { availabilityItem, isAvailabilityProblem, zabbixAvailability, zabbixContact, zabbixSeverity, type ZabbixAvailabilityInput } from "@shared/discovery/kinds/zabbix";
+import { agentTrigger, availabilityItem, isAvailabilityProblem, zabbixAvailability, zabbixContact, zabbixSeverity, type ZabbixAvailabilityInput } from "@shared/discovery/kinds/zabbix";
 import { kindDescriptor, offeredKinds } from "@shared/discovery/kinds";
 import { normaliseRecord } from "@shared/discovery/normalise";
 import type { DiscoveredRecord, Page, ProblemPage, StatusPage } from "@shared/discovery/types";
@@ -33,8 +33,21 @@ describe("the Zabbix availability rule (design A §9.2)", () => {
   it("a disk-space trigger is a warning, an availability trigger is down, Information and Not classified change nothing", () => {
     const disk = { severity: 3, availability: false, name: "/: Disk space is critically low (used > 90%)", since: t - 600 };
     expect(zabbixAvailability({ ...base, icmp: [{ value: "1", clock: t }], problems: [disk] })).toMatchObject({ state: "warning", message: disk.name });
-    const unavailable = { severity: 3, availability: true, name: "Zabbix agent is not available (for 3m)", since: t - 300 };
+    const unavailable = { severity: 3, availability: true, name: "HTTP service is down on {HOST.NAME}", since: t - 300 };
     expect(zabbixAvailability({ ...base, icmp: [{ value: "1", clock: t }], problems: [disk, unavailable] })).toMatchObject({ state: "down", availability: true, message: unavailable.name, since: new Date((t - 300) * 1000).toISOString() });
+    // the templates' own agent trigger is tagged `scope: availability` too, but it is the agent rule: with ICMP up a
+    // warning (an active agent's agent.ping keeps its last «1»: the trigger is the only sign), without ICMP unreachable
+    const agentAway = { severity: 3, availability: true, agent: true, name: "Zabbix agent is not available (for 3m)", since: t - 300 };
+    const icmpUp = zabbixAvailability({ ...base, icmp: [{ value: "1", clock: t }], agent: [{ value: "1", clock: t - 900 }], interfaces: [{ type: 1, available: 2 }], problems: [disk, agentAway] });
+    expect(icmpUp).toMatchObject({ state: "warning" });
+    expect(icmpUp.availability).toBeUndefined();
+    expect(zabbixAvailability({ ...base, icmp: [{ value: "1", clock: t }], agent: [{ value: "1", clock: t - 900 }], problems: [agentAway] }).state).toBe("warning");
+    expect(zabbixAvailability({ ...base, agent: [{ value: "1", clock: t - 900 }], problems: [agentAway] })).toMatchObject({ state: "unreachable", availability: true });
+    // any other availability problem stays an outage, the agent down or not
+    expect(zabbixAvailability({ ...base, icmp: [{ value: "1", clock: t }], interfaces: [{ type: 1, available: 2 }], problems: [agentAway, unavailable] })).toMatchObject({ state: "down", message: unavailable.name });
+    expect([["agent.ping"], ["zabbix[host,agent,available]"], ["zabbix[host,active_agent,available]"], ["zabbix[host,snmp,available]"], ["icmpping"], ["agent.ping", "icmpping"], []].map(agentTrigger)).toEqual([
+      true, true, true, true, false, false, false,
+    ]);
     expect(zabbixAvailability({ ...base, icmp: [{ value: "1", clock: t }], problems: [{ severity: 1, availability: false, name: "info" }, { severity: 0, availability: false, name: "nc" }] })).toEqual({ state: "up" });
     expect(isAvailabilityProblem([{ tag: "scope", value: "availability" }])).toBe(true);
     expect(isAvailabilityProblem([{ tag: "scope", value: "capacity" }, { tag: "component", value: "storage" }])).toBe(false);
@@ -177,6 +190,19 @@ describe("the Zabbix kind against its mock (design A §17)", () => {
     expect(m.of("trigger.get").length).toBe(before);
   });
 
+  it("the template's own agent trigger (scope: availability) reads its item keys: a warning with ICMP up, unreachable without ICMP", async () => {
+    const m = new ZabbixMock(makeZabbixHosts(2));
+    // active agents: agent.ping keeps its last «1» and the interface says nothing; only the trigger tells
+    m.items = m.items.filter((it) => !(it.hostid === "10101" && it.key_ === "icmpping"));
+    for (const hostid of ["10100", "10101"]) {
+      m.triggers.push({ triggerid: `3${hostid}`, hostid, description: "Zabbix agent is not available (for 3m)", priority: "3", lastchange: String(t - 300), value: "1", tags: [{ tag: "scope", value: "availability" }], keys: ["agent.ping"] });
+    }
+    mount(m);
+    const s = await zabbixKind.status!(ctx(), null);
+    expect(Object.fromEntries(s.items.map((x) => [x.external_id, x.status.state]))).toEqual({ 10100: "warning", 10101: "unreachable" });
+    expect(m.of("trigger.get").every((x) => x.params.selectItems)).toBe(true);
+  });
+
   it("problems: the complete open set in event-id order (eventid_from), each with its host, severity and availability", async () => {
     const m = new ZabbixMock(makeZabbixHosts(2));
     m.triggers.push(
@@ -221,6 +247,20 @@ describe("the Zabbix kind against its mock (design A §17)", () => {
     mount(new ZabbixMock(data));
     expect((await zabbixKind.pages(ctx({ options: { host_groups: ["Branch ATMs"] } }), null)).records.map((r) => r.external_id)).toEqual(["10100"]);
     expect((await zabbixKind.pages(ctx({ options: { tags: ["env=prod"] } }), null)).records.map((r) => r.external_id)).toEqual(["10101"]);
+    // problems stay on the hosts in scope: by the hosts' ids when tags narrow it (a problem keeps the tags it opened with)
+    mock.triggers.push(
+      { triggerid: "30001", hostid: "10100", description: "Disk space is low", priority: "2", lastchange: String(t - 60), value: "1" },
+      { triggerid: "30002", hostid: "10101", description: "Disk space is low", priority: "2", lastchange: String(t - 60), value: "1" },
+    );
+    mock.problems.push({ eventid: "900", objectid: "30001", name: "Disk space is low", severity: "2", clock: String(t - 60) }, { eventid: "901", objectid: "30002", name: "Disk space is low", severity: "2", clock: String(t - 60) });
+    const tagged = await zabbixKind.problems!(ctx({ options: { tags: ["env=prod"] } }), null);
+    expect(tagged.problems.map((p) => [p.key, p.external_id])).toEqual([["901", "10101"]]);
+    expect(mock.of("problem.get").at(-1)!.params.hostids).toEqual(["10101"]);
+    expect((await zabbixKind.problems!(ctx({ options: { host_groups: ["Branch ATMs"] } }), null)).problems.map((p) => p.key)).toEqual(["900"]);
+    const calls = mock.of("problem.get").length;
+    expect(await zabbixKind.problems!(ctx({ options: { tags: ["env=test"] } }), null)).toEqual({ problems: [], next: null, complete: true });
+    expect(mock.of("problem.get")).toHaveLength(calls);
+    expect((await zabbixKind.problems!(ctx(), null)).problems.map((p) => p.key)).toEqual(["900", "901"]);
     expect(await outcome(zabbixKind.pages(ctx({ options: { host_groups: ["Branch ATMs", "Renamed group"] } }), null))).toBe(ZABBIX_MESSAGES.noGroup(["Renamed group"]));
   });
 

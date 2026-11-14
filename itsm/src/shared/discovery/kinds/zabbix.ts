@@ -46,6 +46,15 @@ export function availabilityItem(key: unknown): "icmp" | "agent" | null {
   return null;
 }
 
+/**
+ * Is a trigger on the agent's (or SNMP's) own availability checks only, like the templates' «Zabbix agent is not
+ * available» (agent.ping, zabbix[host,agent|active_agent|snmp,available])? It says the agent is away, not the machine.
+ */
+export function agentTrigger(keys: unknown[] | null | undefined): boolean {
+  const k = (keys ?? []).map((x) => String(x ?? "").trim());
+  return k.length > 0 && k.every((x) => availabilityItem(x) === "agent" || x === "zabbix[host,active_agent,available]");
+}
+
 /** Does a problem's tag set mark an availability trigger (`scope: availability`, as Zabbix 6.0+ templates tag them)? */
 export function isAvailabilityProblem(tags: { tag?: unknown; value?: unknown }[] | null | undefined): boolean {
   return (tags ?? []).some((t) => String(t?.tag ?? "").trim().toLowerCase() === "scope" && String(t?.value ?? "").trim().toLowerCase() === "availability");
@@ -67,8 +76,8 @@ export interface ZabbixAvailabilityInput {
   agent: ZabbixCheck[];
   /** monitoring interfaces: type 1 agent, 2 SNMP, 3 IPMI, 4 JMX; available 0 unknown, 1 available, 2 unavailable */
   interfaces: { type: number; available: number }[];
-  /** open problems of the host (severity 0–5) */
-  problems: { severity: number; availability: boolean; name: string; since?: number }[];
+  /** open problems of the host (severity 0–5); `agent`: the trigger is on the agent's own checks (agentTrigger) */
+  problems: { severity: number; availability: boolean; name: string; since?: number; agent?: boolean }[];
 }
 
 const iso = (clock: number | undefined): string | undefined => (clock && clock > 0 ? new Date(clock * 1000).toISOString() : undefined);
@@ -76,16 +85,19 @@ const iso = (clock: number | undefined): string | undefined => (clock && clock >
 /**
  * A host's monitor status by the Zabbix rule (§9.2): ICMP ping 0 → down; an open availability problem → down; the agent
  * (or SNMP) unavailable → unreachable when no ICMP check answered, else a warning; any other open problem from
- * «Warning» up → warning (Information and Not classified are not); maintenance → in maintenance.
+ * «Warning» up → warning (Information and Not classified are not); maintenance → in maintenance. The agent's own
+ * trigger is the agent rule, not an outage, though the stock templates tag it `scope: availability`: an active agent's
+ * agent.ping keeps its last «1», so the trigger is then the only sign.
  */
 export function zabbixAvailability(x: ZabbixAvailabilityInput): DiscoveredStatus {
   if (x.status === 1) return { state: "unknown", message: "پایش این میزبان در Zabbix خاموش است" };
   if (x.maintenance) return { state: "maintenance", message: "در دورهٔ نگهداری Zabbix" };
   if (x.icmp.some((c) => c.value === "0")) return { state: "down", availability: true, message: "به پینگ ICMP پاسخ نمی‌دهد" };
-  const outage = x.problems.filter((p) => p.availability).sort((a, b) => b.severity - a.severity)[0];
+  const outage = x.problems.filter((p) => p.availability && !p.agent).sort((a, b) => b.severity - a.severity)[0];
   if (outage) return { state: "down", availability: true, message: outage.name, ...(iso(outage.since) ? { since: iso(outage.since) } : {}) };
   const icmpUp = x.icmp.some((c) => c.value === "1");
-  const agentDown = x.agent.some((c) => c.value === "0") || x.interfaces.some((i) => (i.type === 1 || i.type === 2) && i.available === 2);
+  const agentDown =
+    x.agent.some((c) => c.value === "0") || x.interfaces.some((i) => (i.type === 1 || i.type === 2) && i.available === 2) || x.problems.some((p) => p.agent);
   if (agentDown && !icmpUp) return { state: "unreachable", availability: true, message: "عامل Zabbix یا SNMP میزبان پاسخ نمی‌دهد" };
   if (agentDown) return { state: "warning", message: "میزبان به پینگ پاسخ می‌دهد ولی عامل Zabbix پاسخ نمی‌دهد" };
   const worst = x.problems.filter((p) => p.severity >= 2).sort((a, b) => b.severity - a.severity)[0];

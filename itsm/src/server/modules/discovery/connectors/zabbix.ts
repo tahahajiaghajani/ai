@@ -4,10 +4,12 @@
 // (light, sorted) and reads the next ≤ 500 after the cursor's last id with their interfaces, inventory, groups,
 // templates and tags; the availability items (ICMP ping, agent ping, agent and SNMP availability) give the status and
 // the last contact; triggers in problem state give availability outages and warnings. Problems are read from
-// `problem.get` in event-id order (`eventid_from`). The rules are pure, in @shared/discovery/kinds/zabbix.
+// `problem.get` in event-id order (`eventid_from`), for the hosts in scope. The rules are pure, in
+// @shared/discovery/kinds/zabbix.
 import { z } from "zod";
 import {
-  availabilityItem, isAvailabilityProblem, zabbix as descriptor, zabbixAvailability, zabbixContact, zabbixSeverity, type ZabbixCheck,
+  agentTrigger, availabilityItem, isAvailabilityProblem, zabbix as descriptor, zabbixAvailability, zabbixContact, zabbixSeverity, type ZabbixAvailabilityInput,
+  type ZabbixCheck,
 } from "@shared/discovery/kinds/zabbix";
 import { normaliseHost, normaliseIp } from "@shared/discovery/normalise";
 import type { Cursor, DiscoveredProblem, DiscoveredRecord, DiscoveredStatus, Page, ProblemPage, StatusPage, TestResult } from "@shared/discovery/types";
@@ -140,6 +142,8 @@ interface TriggerRow {
   lastchange?: string;
   hosts?: { hostid: string }[];
   tags?: { tag?: string; value?: string }[];
+  /** the items of its expression */
+  items?: { key_?: string }[];
 }
 
 const idOrder = (a: string, b: string) => (a.length !== b.length ? a.length - b.length : a < b ? -1 : a > b ? 1 : 0);
@@ -167,8 +171,8 @@ async function scope(c: ConnCtx, s: Session): Promise<Record<string, unknown>> {
 }
 
 /** The sorted ids of every host in scope (one light call). */
-async function hostIds(c: ConnCtx, s: Session): Promise<string[]> {
-  const rows = await rpc<{ hostid: string }[]>(c, s, "host.get", { output: ["hostid"], sortfield: "hostid", sortorder: "ASC", ...(await scope(c, s)) });
+async function hostIds(c: ConnCtx, s: Session, sc?: Record<string, unknown>): Promise<string[]> {
+  const rows = await rpc<{ hostid: string }[]>(c, s, "host.get", { output: ["hostid"], sortfield: "hostid", sortorder: "ASC", ...(sc ?? (await scope(c, s))) });
   return rows.map((r) => String(r.hostid)).sort(idOrder);
 }
 
@@ -215,6 +219,7 @@ async function readChunk(c: ConnCtx, s: Session, ids: string[], withHosts: boole
         expandDescription: true,
         selectHosts: ["hostid"],
         selectTags: ["tag", "value"],
+        selectItems: ["key_"],
       })
     : [];
   return { hosts, items, triggers };
@@ -238,10 +243,16 @@ function checksOf(items: ItemRow[]): Map<string, { icmp: ZabbixCheck[]; agent: Z
   return out;
 }
 
-function problemsOf(triggers: TriggerRow[]): Map<string, { severity: number; availability: boolean; name: string; since?: number }[]> {
-  const out = new Map<string, { severity: number; availability: boolean; name: string; since?: number }[]>();
+function problemsOf(triggers: TriggerRow[]): Map<string, ZabbixAvailabilityInput["problems"]> {
+  const out = new Map<string, ZabbixAvailabilityInput["problems"]>();
   for (const t of triggers) {
-    const p = { severity: Number(t.priority ?? 0) || 0, availability: isAvailabilityProblem(t.tags), name: String(t.description ?? "").slice(0, 300), since: Number(t.lastchange ?? 0) || undefined };
+    const p = {
+      severity: Number(t.priority ?? 0) || 0,
+      availability: isAvailabilityProblem(t.tags),
+      agent: agentTrigger((t.items ?? []).map((i) => i.key_)),
+      name: String(t.description ?? "").slice(0, 300),
+      since: Number(t.lastchange ?? 0) || undefined,
+    };
     for (const h of t.hosts ?? []) out.set(h.hostid, [...(out.get(h.hostid) ?? []), p]);
   }
   return out;
@@ -357,12 +368,18 @@ interface ProblemRow {
   tags?: { tag?: string; value?: string }[];
 }
 
-/** The complete open set, in event-id order from the cursor's next id (problem.get has no offset either). */
+/**
+ * The complete open set of the hosts in scope, in event-id order from the cursor's next id (problem.get has no offset
+ * either). Host groups narrow it by id; with tags, by the ids of the hosts in scope — a problem keeps the tags it opened
+ * with, so a host tagged since would be missed by the problems' own tags.
+ */
 async function problemsPage(c: ConnCtx, cursor: Cursor | null): Promise<ProblemPage> {
   const o = c.options as ZabbixOptions;
   const s = await session(c);
   const from = cursor && typeof cursor === "object" && !Array.isArray(cursor) ? String((cursor as { from?: string }).from ?? "") : "";
   const sc = await scope(c, s);
+  const hostids = sc.tags ? await hostIds(c, s, sc) : null;
+  if (hostids && !hostids.length) return { problems: [], next: null, complete: true };
   const rows = await rpc<ProblemRow[]>(c, s, "problem.get", {
     output: ["eventid", "objectid", "name", "severity", "clock"],
     source: 0,
@@ -373,7 +390,7 @@ async function problemsPage(c: ConnCtx, cursor: Cursor | null): Promise<ProblemP
     sortorder: "ASC",
     limit: o.chunk_size,
     ...(from ? { eventid_from: from } : {}),
-    ...(sc.groupids ? { groupids: sc.groupids } : {}),
+    ...(hostids ? { hostids } : sc.groupids ? { groupids: sc.groupids } : {}),
   });
   const triggerIds = [...new Set(rows.map((r) => String(r.objectid ?? "")).filter(Boolean))];
   const triggers = triggerIds.length ? await rpc<TriggerRow[]>(c, s, "trigger.get", { triggerids: triggerIds, output: ["triggerid"], selectHosts: ["hostid"] }) : [];

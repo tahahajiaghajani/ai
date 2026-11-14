@@ -3,8 +3,8 @@
 // header (6.4+) or the request's `auth` member (5.4–6.2), a wrong one answered as Zabbix does (HTTP 200, error
 // "Not authorized."); `host.get` without offset paging (all ids sorted, or the hosts of `hostids`) with interfaces,
 // inventory (`[]` when inventory is off), host groups (`selectHostGroups` from 6.2, `selectGroups` refused from 7.0),
-// templates and tags; `item.get` by key prefix; `trigger.get` in problem state; `problem.get` in event-id order with
-// `eventid_from` and `limit`; `hostgroup.get` by name. Faults: an HTTP status once per method (503, 429 with
+// templates and tags; `item.get` by key prefix; `trigger.get` in problem state (`selectItems`: its items' keys);
+// `problem.get` in event-id order with `eventid_from`, `limit`, `groupids` and `hostids`; `hostgroup.get` by name. Faults: an HTTP status once per method (503, 429 with
 // Retry-After), a slow chunk, a malformed host, a redirect to another host.
 import { json } from "./harness";
 
@@ -53,6 +53,8 @@ export interface ZbxTrigger {
   /** "1" in problem state */
   value: string;
   tags?: { tag: string; value: string }[];
+  /** the item keys of its expression (selectItems) */
+  keys?: string[];
 }
 
 export interface ZbxProblem {
@@ -183,15 +185,19 @@ export class ZabbixMock {
         if (Array.isArray(p.triggerids)) ts = ts.filter((t) => p.triggerids.includes(t.triggerid));
         if (Array.isArray(p.hostids)) ts = ts.filter((t) => p.hostids.includes(t.hostid));
         if (p.filter?.value !== undefined) ts = ts.filter((t) => t.value === String(p.filter.value));
-        return ts.map((t) => ({ triggerid: t.triggerid, description: t.description, priority: t.priority, lastchange: t.lastchange, hosts: [{ hostid: t.hostid }], tags: t.tags ?? [] }));
+        return ts.map((t) => ({
+          triggerid: t.triggerid, description: t.description, priority: t.priority, lastchange: t.lastchange, hosts: [{ hostid: t.hostid }], tags: t.tags ?? [],
+          ...(p.selectItems ? { items: (t.keys ?? []).map((key_, i) => ({ itemid: `${t.triggerid}${i}`, key_ })) } : {}),
+        }));
       }
       case "problem.get": {
         let ps = [...this.problems].sort((a, b) => Number(a.eventid) - Number(b.eventid));
         if (p.eventid_from !== undefined) ps = ps.filter((x) => BigInt(x.eventid) >= BigInt(p.eventid_from));
+        const hostOf = new Map(this.triggers.map((t) => [t.triggerid, t.hostid]));
         if (Array.isArray(p.groupids)) {
-          const hostOf = new Map(this.triggers.map((t) => [t.triggerid, t.hostid]));
           ps = ps.filter((x) => this.hosts.some((h) => h.hostid === hostOf.get(x.objectid) && (h.groups ?? []).some((g) => p.groupids.includes(this.groupId(g)))));
         }
+        if (Array.isArray(p.hostids)) ps = ps.filter((x) => p.hostids.map(String).includes(hostOf.get(x.objectid) ?? ""));
         if (p.limit) ps = ps.slice(0, Number(p.limit));
         return ps.map((x) => ({ eventid: x.eventid, objectid: x.objectid, name: x.name, severity: x.severity, clock: x.clock, tags: x.tags ?? [] }));
       }

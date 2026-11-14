@@ -118,7 +118,7 @@ describe("the PRTG kind against its mock (design A §17)", () => {
     expect(https.items.find((x) => x.external_id === "2001")!.status.state).toBe("unknown");
   });
 
-  it("problems: sensors in warning, unusual or down states, paged by start and count, keyed by sensor and state", async () => {
+  it("problems: sensors in warning, unusual or down states, paged by start and count, one per sensor whatever its state", async () => {
     const data = makePrtg(4);
     const m = mount(new PrtgMock(data));
     const down = Date.now() - 120_000;
@@ -129,11 +129,31 @@ describe("the PRTG kind against its mock (design A §17)", () => {
     const { pages } = await allPages((cur) => prtgKind.problems!(ctx({ options: { page_size: 3 } }), cur) as Promise<ProblemPage>);
     expect(pages.map((p) => p.problems.length)).toEqual([3, 1]);
     const all = pages.flatMap((p) => p.problems);
-    expect(all.map((p) => p.key)).toEqual(["5001:5", "7002:4", "7003:13", "7004:10"]);
+    expect(all.map((p) => p.key)).toEqual(["5001", "7002", "7003", "7004"]);
     expect(all[0]).toMatchObject({ external_id: "2001", severity: "critical", availability: true, message: "Ping: Timeout", since: new Date(down).toISOString() });
     expect(all[1]).toMatchObject({ external_id: "2002", severity: "warning", availability: false });
     expect(all[2]).toMatchObject({ severity: "minor", availability: false });
     expect(m.of("sensors").every((r) => r.params.getAll("filter_status").sort().join() === "10,13,14,4,5")).toBe(true);
+    // a state change keeps the problem and changes its severity (§9.6): acknowledged in PRTG, a warning turned down
+    m.sensors.find((s) => s.objid === 5001)!.status_raw = 13;
+    m.sensors.find((s) => s.objid === 7002)!.status_raw = 5;
+    const after = (await prtgKind.problems!(ctx(), null)).problems;
+    expect(after.map((p) => [p.key, p.severity])).toEqual([["5001", "minor"], ["7002", "major"], ["7003", "minor"], ["7004", "warning"]]);
+  });
+
+  it("problems stay on the devices the connector lists: its tags narrow them as they narrow the devices", async () => {
+    const data = makePrtg(4);
+    data.devices[2].tags = "atm";
+    const m = mount(new PrtgMock(data));
+    for (const id of [5001, 5003, 7003, 7004]) m.sensors.find((s) => s.objid === id)!.status_raw = 5;
+    const scoped = ctx({ options: { tags: ["atm"] } });
+    expect((await prtgKind.pages(scoped, null)).records.map((r) => r.external_id)).toEqual(["2003"]);
+    const { pages } = await allPages((cur) => prtgKind.problems!(scoped, cur) as Promise<ProblemPage>);
+    expect(pages.flatMap((p) => p.problems.map((x) => [x.key, x.external_id]))).toEqual([["5003", "2003"], ["7003", "2003"]]);
+    // the parents' own rows, a hundred a call
+    expect(m.of("devices").at(-1)!.params.getAll("filter_objid")).toEqual(["2001", "2003", "2004"]);
+    // without tags every problem the API user sees is the connector's
+    expect((await prtgKind.problems!(ctx(), null)).problems.map((x) => x.key)).toEqual(["5001", "5003", "7003", "7004"]);
   });
 
   it("a group or tags narrow the devices; a malformed row is rejected without stopping the page", async () => {

@@ -4,7 +4,8 @@
 // for availability, so the page also reads each device's primary sensor (Ping by default) — by its parent id, a hundred
 // devices a call — whose status gives availability and whose `lastup` is the last contact. Other sensors down or in
 // warning come from the device row's sensor counts. Problems are the sensors in warning, unusual or down states,
-// paged the same way. The rules are pure, in @shared/discovery/kinds/prtg.
+// paged the same way, one per sensor whatever its state, and only on the devices the connector lists. The rules are
+// pure, in @shared/discovery/kinds/prtg.
 import { z } from "zod";
 import { oleDateIso, prtg as descriptor, prtgAvailability, prtgSeverity, PRTG_PROBLEM_STATES } from "@shared/discovery/kinds/prtg";
 import { normaliseHost, normaliseIp } from "@shared/discovery/normalise";
@@ -74,17 +75,35 @@ const startOf = (cursor: Cursor | null): number => {
   return Number.isFinite(s) && s > 0 ? Math.floor(s) : 0;
 };
 
+/** Does a device row carry one of the connector's tags (any device when it names none)? */
+const tagged = (r: Row, o: PrtgOptions): boolean => {
+  if (!o.tags.length) return true;
+  const wanted = o.tags.map((x) => x.toLowerCase());
+  return text(r, "tags").toLowerCase().split(/[\s,]+/).some((x) => wanted.includes(x));
+};
+
 /** A page of devices in object-id order, filtered by the connector's tags. */
 async function devices(c: ConnCtx, cursor: Cursor | null): Promise<{ rows: Row[]; listed: number; next: Cursor; total: number | undefined }> {
   const o = c.options as PrtgOptions;
   const start = startOf(cursor);
   const t = await table(c, "devices", { columns: DEVICE_COLUMNS, start, count: o.page_size, sortby: "objid", ...(o.group_id ? { id: o.group_id } : {}) });
-  const wanted = o.tags.map((x) => x.toLowerCase());
-  const rows = wanted.length ? t.rows.filter((r) => text(r, "tags").toLowerCase().split(/[\s,]+/).some((x) => wanted.includes(x))) : t.rows;
+  const rows = t.rows.filter((r) => tagged(r, o));
   const at = start + t.rows.length;
   // a page shorter than the tool's count of devices is not the last; an empty one always is
   const next = t.rows.length && at < t.total ? { start: at } : null;
-  return { rows, listed: t.rows.length, next, total: wanted.length ? undefined : t.total };
+  return { rows, listed: t.rows.length, next, total: o.tags.length ? undefined : t.total };
+}
+
+/** Which of these devices the connector lists (its tags), read a hundred a call: problems stay in the connector's scope. */
+async function listedDevices(c: ConnCtx, ids: string[]): Promise<Set<string>> {
+  const o = c.options as PrtgOptions;
+  const out = new Set<string>();
+  for (let i = 0; i < ids.length; i += PARENTS_PER_CALL) {
+    const part = ids.slice(i, i + PARENTS_PER_CALL);
+    const t = await table(c, "devices", { columns: "objid,tags", count: part.length }, part.map((id) => ["filter_objid", id]));
+    for (const d of t.rows) if (tagged(d, o)) out.add(String(raw(d, "objid") ?? ""));
+  }
+  return out;
 }
 
 /** The primary sensor of each device (its first of the primary type, by object id). */
@@ -163,7 +182,11 @@ async function statusPage(c: ConnCtx, cursor: Cursor | null): Promise<StatusPage
   return { items, next: d.next };
 }
 
-/** The complete open set: sensors in warning, unusual or down states, in object-id order by start/count. */
+/**
+ * The complete open set: sensors in warning, unusual or down states, in object-id order by start/count, on the devices
+ * the connector lists (its group by `id`, its tags by the devices' own rows). A problem is its sensor: a state change
+ * (down → acknowledged, warning → down) keeps the problem and changes its severity (§9.6).
+ */
 async function problemsPage(c: ConnCtx, cursor: Cursor | null): Promise<ProblemPage> {
   const o = c.options as PrtgOptions;
   const start = startOf(cursor);
@@ -171,13 +194,19 @@ async function problemsPage(c: ConnCtx, cursor: Cursor | null): Promise<ProblemP
     c, "sensors", { columns: SENSOR_COLUMNS, start, count: o.page_size, sortby: "objid", ...(o.group_id ? { id: o.group_id } : {}) },
     PRTG_PROBLEM_STATES.map((s) => ["filter_status", s]),
   );
-  const problems: DiscoveredProblem[] = t.rows.filter((s) => objid(s)).map((s) => {
+  const parentOf = (s: Row) => String(raw(s, "parentid") ?? "");
+  let rows = t.rows.filter((s) => objid(s));
+  if (o.tags.length) {
+    const listed = await listedDevices(c, [...new Set(rows.map(parentOf).filter(Boolean))]);
+    rows = rows.filter((s) => listed.has(parentOf(s)));
+  }
+  const problems: DiscoveredProblem[] = rows.map((s) => {
     const status = num(s, "status");
     const availability = String(raw(s, "type") ?? "").toLowerCase() === o.primary_sensor && (status === 5 || status === 13);
     const since = status === 5 || status === 13 || status === 14 ? oleDateIso(raw(s, "lastdown")) : undefined;
-    const parent = String(raw(s, "parentid") ?? "");
+    const parent = parentOf(s);
     return {
-      key: `${objid(s)}:${status}`,
+      key: objid(s),
       ...(parent ? { external_id: parent } : {}),
       severity: prtgSeverity(status, availability),
       availability,

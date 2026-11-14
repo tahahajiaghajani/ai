@@ -125,7 +125,7 @@ export class PrtgMock {
     let rows: Record<string, unknown>[];
     if (content === "devices") {
       if (this.slowMs) await new Promise((r) => setTimeout(r, this.slowMs));
-      rows = this.devices.filter((d) => group === null || d.groupid === group).sort((a, b) => a.objid - b.objid).map((d) => this.deviceRow(d));
+      rows = this.devices.filter((d) => (group === null || d.groupid === group) && any("objid", d.objid)).sort((a, b) => a.objid - b.objid).map((d) => this.deviceRow(d));
     } else if (content === "sensors") {
       rows = this.sensors
         .filter((s) => group === null || this.devices.find((d) => d.objid === s.parentid)?.groupid === group)
