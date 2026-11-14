@@ -20,10 +20,9 @@ import { Chip, EmptyState, Skeleton } from "../../components/display";
 import { DataTable } from "../../components/data";
 import { FilterChip } from "../../components/inputs";
 import { displayOf } from "../../records/model/schema";
-import { useRecordList } from "../../records/data/hooks";
 import type { DisplayMap } from "../../records/model/types";
 import { CiPicker } from "../cmdb/CiPicker";
-import { dkeys, QUEUE_PAGE, useConnectorCards, useDiscoveryMeta, useQueue } from "./api";
+import { dkeys, QUEUE_PAGE, useConnectorCards, useDiscoveryMeta, useNames, useQueue } from "./api";
 import {
   applicable, bulkActions, bulkOutcome, createdText, isQueueTab, labelOf, QUEUE_TABS, queueActions, tabLabel, type ItemRow, type MismatchEntry, type QueueAction, type QueueRights, type QueueTab,
 } from "./model";
@@ -61,6 +60,16 @@ export default function Queue() {
   const res = useQueue({ tab, connector, q, page });
   const rows = useMemo(() => res.data?.rows ?? [], [res.data]);
   const display = res.data?.display ?? {};
+  // the holders and places the differences name: one request each for the page
+  const idsOf = (field: string) => rows.flatMap((r) => (r.mismatch?.entries ?? []).filter((e) => e.field === field).flatMap((e) => [e.held, e.resolved])).filter((x): x is string => typeof x === "string");
+  const people = useNames("user", tab === "mismatch" ? idsOf("assigned_to") : []);
+  const places = useNames("location", tab === "mismatch" ? idsOf("location_id") : []);
+  const nameOf = (e: MismatchEntry, v: unknown): string => {
+    if (v === null || v === undefined || v === "") return "خالی";
+    if (e.field === "assigned_to") return people.get(String(v)) ?? "—";
+    if (e.field === "location_id") return places.get(String(v)) ?? "—";
+    return String(v);
+  };
   const rights: QueueRights = useMemo(
     () => ({ admin: !!meta.data?.can.admin, assetManager: !!meta.data?.can.assetManager, operates: new Set((cards.data ?? []).filter((c) => c.can.operate).map((c) => c.id)) }),
     [meta.data, cards.data],
@@ -193,7 +202,7 @@ export default function Queue() {
             <DataTable<ItemRow>
               rowKey="id"
               dataSource={rows}
-              columns={columns(tab, orgId, timezone, display, rights, busy, onAction, apply)}
+              columns={columns(tab, orgId, timezone, display, rights, busy, onAction, apply, nameOf)}
               rowSelection={
                 selectable
                   ? {
@@ -245,6 +254,7 @@ function columns(
   busy: string | null,
   onAction: (a: QueueAction, items: ItemRow[]) => void,
   apply: (it: ItemRow, e: MismatchEntry) => void,
+  nameOf: (e: MismatchEntry, v: unknown) => string,
 ): ColumnsType<ItemRow> {
   const cols: ColumnsType<ItemRow> = [
     {
@@ -293,7 +303,7 @@ function columns(
       {
         title: "ناهمخوانی‌ها",
         key: "mismatch",
-        render: (_, r) => <Differences row={r} canApply={rights.admin || rights.assetManager} busy={busy} onApply={(e) => apply(r, e)} />,
+        render: (_, r) => <Differences row={r} canApply={rights.admin || rights.assetManager} busy={busy} onApply={(e) => apply(r, e)} nameOf={nameOf} />,
       },
     );
   } else {
@@ -337,18 +347,8 @@ function columns(
 }
 
 /** An item's differences with the asset register: the field, the tool's value and what the asset holds. */
-function Differences({ row, canApply, busy, onApply }: { row: ItemRow; canApply: boolean; busy: string | null; onApply: (e: MismatchEntry) => void }) {
+function Differences({ row, canApply, busy, onApply, nameOf }: { row: ItemRow; canApply: boolean; busy: string | null; onApply: (e: MismatchEntry) => void; nameOf: (e: MismatchEntry, v: unknown) => string }) {
   const entries = row.mismatch?.entries ?? [];
-  const people = entries.filter((e) => e.field === "assigned_to").flatMap((e) => [e.held, e.resolved]).filter((x): x is string => typeof x === "string" && !!x);
-  const places = entries.filter((e) => e.field === "location_id").flatMap((e) => [e.held, e.resolved]).filter((x): x is string => typeof x === "string" && !!x);
-  const users = useRecordList("user", { ids: people, size: Math.max(1, people.length), total: false }, { enabled: people.length > 0 });
-  const locations = useRecordList("location", { ids: places, size: Math.max(1, places.length), total: false }, { enabled: places.length > 0 });
-  const nameOf = (e: MismatchEntry, v: unknown): string => {
-    if (v === null || v === undefined || v === "") return "خالی";
-    if (e.field === "assigned_to") return displayOf(users.data?.display, v) ?? String(users.data?.rows.find((u) => u.id === v)?.name ?? "—");
-    if (e.field === "location_id") return displayOf(locations.data?.display, v) ?? String(locations.data?.rows.find((l) => l.id === v)?.name ?? "—");
-    return String(v);
-  };
   if (!entries.length) return <span className="ds-zero">—</span>;
   return (
     <ul className="dsc-diffs">

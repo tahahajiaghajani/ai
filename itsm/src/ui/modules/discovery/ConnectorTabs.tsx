@@ -5,12 +5,12 @@
 // and receive address are made on that source's page). No key is ever shown here.
 import { useState } from "react";
 import { Link } from "react-router";
-import { Button, Input, Tooltip } from "antd";
+import { Input, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { Copy, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { ITEM_KINDS, ITEM_STATES, STATUS_WORDS, type KindDescriptor } from "@shared/discovery/types";
 import { useOrg } from "../../lib/org";
-import { useDebounced, useNotify } from "../../lib/hooks";
+import { useDebounced } from "../../lib/hooks";
 import { EmptyState } from "../../components/display";
 import { ServerTable } from "../../components/data";
 import { FilterChip } from "../../components/inputs";
@@ -104,21 +104,13 @@ export function ReceiveTab({ page, d }: { page: ConnectorPage; d: KindDescriptor
   const { orgId } = useOrg();
   const row = page.row as ConnectorPage["row"] & { push_user_id?: string | null; event_source_id?: string | null };
   const origin = typeof window === "undefined" ? "" : window.location.origin;
-  const n = useNotify();
+  // the address in Latin digits, and the kit's copy button (it copies where the clipboard API is missing too)
   const copy = (text: string) => (
     <span className="dsc-copy">
       <bdi dir="ltr" className="ds-mono dsc-url">
         {text}
       </bdi>
-      <Tooltip title="رونوشت">
-        <Button
-          type="text"
-          size="small"
-          icon={<Copy {...I16} />}
-          aria-label="رونوشت نشانی"
-          onClick={() => void navigator.clipboard?.writeText(text).then(() => n.note("رونوشت شد."), () => n.warn("رونوشت انجام نشد"))}
-        />
-      </Tooltip>
+      <Typography.Text copyable={{ text, tooltips: ["رونوشت", "رونوشت شد"] }} />
     </span>
   );
   const source = row.event_source_id ? displayOf(page.display, row.event_source_id) : undefined;

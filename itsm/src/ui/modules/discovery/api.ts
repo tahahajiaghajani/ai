@@ -1,11 +1,13 @@
 // The discovery module's API as the screens use it (src/server/routes/discovery.ts, design A §4): the module's words
 // and the caller's rights, the console's cards, one connector's page, and the actions on it. The server checks every
 // right again; these hooks only read. A pass in progress is polled until it ends.
+import { useMemo } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { Option } from "@shared/model/types";
 import type { DiscoveredRecord, TestResult } from "@shared/discovery/types";
 import { useOrg } from "../../lib/org";
 import type { DisplayMap } from "../../records/model/types";
+import { useRecordList } from "../../records/data/hooks";
 import type { BoardChip, BoardRow, ConnectorCard, ItemRow, OfferedKind, PanelData, QueueTab, RunInfo } from "./model";
 
 export type { TestResult };
@@ -160,4 +162,11 @@ export function useBoard(p: { chip?: BoardChip; q?: string; page: number }) {
 export function usePanel(table: "ci" | "asset", id: string) {
   const { api, orgId } = useOrg();
   return useQuery({ queryKey: dkeys.panel(orgId, table, id), queryFn: () => api.get<PanelData>(`/discovery/panel/${table}/${id}`), staleTime: 30_000, retry });
+}
+
+/** Names of members, places or units by id (one request for the ids of a page; empty ids ask nothing). */
+export function useNames(table: "user" | "location" | "org_unit", ids: readonly (string | null | undefined)[]): Map<string, string> {
+  const want = [...new Set(ids.filter((x): x is string => !!x))].sort();
+  const list = useRecordList(table, { ids: want, size: Math.max(1, want.length), fields: ["name"], total: false }, { enabled: want.length > 0 });
+  return useMemo(() => new Map((list.data?.rows ?? []).map((r) => [String(r.id), String(r.name ?? "")])), [list.data]);
 }

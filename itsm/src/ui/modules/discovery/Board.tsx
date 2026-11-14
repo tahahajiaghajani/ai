@@ -17,8 +17,8 @@ import { EmptyState, Skeleton } from "../../components/display";
 import { DataTable } from "../../components/data";
 import { ToggleChip } from "../../components/inputs";
 import { ChoiceTag } from "../../records/fields/display";
-import { useRecordList, useSchema } from "../../records/data/hooks";
-import { BOARD_PAGE, useBoard } from "./api";
+import { useSchema } from "../../records/data/hooks";
+import { BOARD_PAGE, useBoard, useNames } from "./api";
 import { BOARD_CHIPS, boardPath, isBoardChip, labelOf, sourcesText, tabLabel, type BoardChip, type BoardRow } from "./model";
 import { Refused } from "./Console";
 import { Ago, I16 } from "./parts";
@@ -135,11 +135,4 @@ export default function Board() {
       )}
     </div>
   );
-}
-
-/** Names of the board's branches or places, one request per page of the board. */
-function useNames(table: "location" | "org_unit", ids: (string | null)[]): Map<string, string> {
-  const want = [...new Set(ids.filter((x): x is string => !!x))].sort();
-  const list = useRecordList(table, { ids: want, size: Math.max(1, want.length), fields: ["name"], total: false }, { enabled: want.length > 0 });
-  return useMemo(() => new Map((list.data?.rows ?? []).map((r) => [String(r.id), String(r.name ?? "")])), [list.data]);
 }
