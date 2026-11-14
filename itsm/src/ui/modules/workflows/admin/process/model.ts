@@ -31,6 +31,7 @@ import type { ChipTone } from "../../../../components/display";
 import { ESTIMATE_GATES } from "../../kit/api";
 import {
   NODE_H, NODE_W, connect, connectProblem, connectTargets, defaultProcessConfig, disconnect, edgeId, isPlaced, layoutProcess, newNodeId, nodeTitle, readingOrder, removeSteps,
+  ruleInScope, type RuleScope,
 } from "../../kit/model";
 import type { AccessProbe } from "../fields/model";
 import type { DraftInput, ProcessDetail, ProcessDraft, ProcessOut, ResolveBody, ResolveResult, VersionRow } from "./api";
@@ -928,6 +929,25 @@ export function tabProblems(problems: readonly FlowProblem[]): Partial<Record<In
     if (t) out[t] = (out[t] ?? 0) + 1;
   }
   return out;
+}
+
+/**
+ * The rules «چه کسانی آغاز می‌کنند» offers: the person's own positions — held anywhere, or in a fixed unit — their
+ * groups, their access roles, or named people. That is what F4c checks to offer «شروع» (`mayInclude` on the person's
+ * positions, groups and roles); a rule that depends on a case (a manager, a unit head, the requester, a field, an
+ * earlier step, a unit of the requester) has no case to read before the start, so nobody could start the process.
+ */
+export const STARTER_SCOPE: RuleScope = { kinds: ["position", "group", "role", "users"], wheres: ["anywhere", "unit"] };
+
+/**
+ * What «چه کسانی آغاز می‌کنند» warns about: «فقط این نقش‌ها و افراد» chosen with no rule yet (the draft keeps no
+ * starters, which means every member), or only rules no person can match before a case exists (each of them also
+ * says so in the list).
+ */
+export function startersNote(starters: readonly AssigneeRule[], some: boolean): string | null {
+  if (some && !starters.length) return "هنوز قاعده‌ای نیفزوده‌اید؛ تا قاعده‌ای نباشد، همهٔ اعضای سازمان این گردش‌کار را آغاز می‌کنند.";
+  if (starters.length && starters.every((r) => !ruleInScope(r, STARTER_SCOPE))) return "با این قاعده‌ها کسی این گردش‌کار را آغاز نمی‌کند.";
+  return null;
 }
 
 /** Who may start the process, in words. */

@@ -1,8 +1,10 @@
 // «تنظیمات گردش‌کار» (design F §3.5, §8.4 «Process settings», package F6): the process's name, key, category and
 // description; its managers, manager groups and confidentiality — who reads and manages its cases, which take effect
-// on the next publish and reach every case of the process («با انتشار بعدی اعمال می‌شود»); who may start it, the title
-// of its cases (pills of the start form's fields and the requester) and «درخواست‌دهنده چه می‌بیند». Every change is
-// part of the draft (undo, autosave).
+// on the next publish and reach every case of the process («با انتشار بعدی اعمال می‌شود»); who may start it (the
+// person's own positions — anywhere or in a fixed unit — groups, access roles or named people: what «شروع» is offered
+// by; «فقط این نقش‌ها و افراد» without a rule says it still means every member), the title of its cases (pills of the
+// start form's fields and the requester) and «درخواست‌دهنده چه می‌بیند». Every change is part of the draft (undo,
+// autosave).
 import { useEffect, useId, useRef, useState } from "react";
 import { Button, Checkbox, Drawer, Input, Radio, Select, type InputRef } from "antd";
 import type { AssigneeRule } from "@shared/process";
@@ -12,7 +14,7 @@ import { RecordSelect, UserSelect } from "../../../../records/fields/RecordSelec
 import { useSheetSize } from "../fields/parts";
 import { AssigneeRules } from "../../kit";
 import type { ProcessDraft, ProcessOut } from "./api";
-import { insertText, nameProblem, requesterViewOptions, titleSample, type CaseField, type DesignerDraft } from "./model";
+import { STARTER_SCOPE, insertText, nameProblem, requesterViewOptions, startersNote, titleSample, type CaseField, type DesignerDraft } from "./model";
 import { F, PillMenu } from "./parts";
 
 export interface SettingsProps {
@@ -129,8 +131,15 @@ export function ProcessSettings({ value, onChange, editable, process, fields, ti
             />
           </F>
           {some ? (
-            <AssigneeRules value={draft.starters} onChange={off ? undefined : (starters: AssigneeRule[]) => set({ starters })} plain addLabel={draft.starters.length ? "قاعدهٔ دیگر" : "افزودن قاعده"} />
+            <AssigneeRules
+              value={draft.starters}
+              onChange={off ? undefined : (starters: AssigneeRule[]) => set({ starters })}
+              plain
+              scope={STARTER_SCOPE}
+              addLabel={draft.starters.length ? "قاعدهٔ دیگر" : "افزودن قاعده"}
+            />
           ) : null}
+          {startersNote(draft.starters, some) ? <Note tone="warning">{startersNote(draft.starters, some)}</Note> : null}
           <span id={`${uid}-title_template`} />
           <F
             label="عنوان پرونده‌ها"

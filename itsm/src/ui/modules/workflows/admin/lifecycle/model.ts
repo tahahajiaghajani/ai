@@ -1,9 +1,10 @@
 // The pure logic of the lifecycle editor (design F §4.2–§4.4, §8.5, package F6): who reads and who changes a
 // lifecycle, the draft (each state's label and colour; each transition's label, «اصلی», extra required fields, «فقط با
 // نقش», condition and «خاموش») built from F1's GET /lifecycles/:table, the overlay a draft saves (only what differs from
-// the module), what changed since the last save and what differs from the module's default («تفاوت با پیش‌فرض»), the
-// problems F1's own validator finds (the same `lifecycleProblems` the server runs), the fields a transition may require
-// and the preview: the states as the record page draws them and the buttons a record in one state offers.
+// the module), what changed since the last save and what differs from the module's default («تفاوت با پیش‌فرض»), my
+// changes put onto a lifecycle another administrator saved meanwhile, the problems F1's own validator finds (the same
+// `lifecycleProblems` the server runs), the fields a transition may require and the preview: the states as the record
+// page draws them and the buttons a record in one state offers.
 // No React, no requests: tested in tests/workflows-hub-ui.test.ts.
 import type { Cond } from "@shared/model/conditions";
 import type { ColorKey, FieldDef, Option, TableDef } from "@shared/model/types";
@@ -149,6 +150,52 @@ export const isDirty = (v: LifecycleView, d: LifecycleDraft): boolean => !sameVa
 
 /** Is the draft the module's own lifecycle (nothing for the organisation to keep)? */
 export const isDefault = (v: LifecycleView, d: LifecycleDraft): boolean => overlayOf(v, d) === null;
+
+/** Has the stored lifecycle changed since the page read it (another administrator saved)? */
+export const overlayMoved = (seen: LifecycleView, now: LifecycleView): boolean => !sameValue(seen.overlay ?? null, now.overlay ?? null);
+
+/**
+ * My changes put onto the lifecycle as it is stored now. `seen` is what the page read, `mine` its draft, `now` what
+ * another administrator has saved since: what I changed — line by line, as «ذخیرهٔ تغییرها» lists it: a state's label
+ * or colour; a transition's label, required fields, roles, condition with its message, «خاموش»; the one «اصلی» — goes
+ * onto `now`'s draft; what I left alone keeps their newer value. Saving the whole overlay from `mine` instead would
+ * write back what they changed.
+ */
+export function rebaseDraft(seen: LifecycleView, mine: LifecycleDraft, now: LifecycleView): LifecycleDraft {
+  const base = draftOf(seen);
+  const out = draftOf(now);
+  const differs = (a: unknown, b: unknown) => !sameValue(a, b);
+  const sorted = (xs: readonly string[]) => [...xs].sort();
+  for (const [value, s] of Object.entries(out.states)) {
+    const was = base.states[value];
+    const me = mine.states[value];
+    if (!was || !me) continue;
+    out.states[value] = {
+      label: clean(me.label) !== clean(was.label) ? me.label : s.label,
+      color: (me.color ?? null) !== (was.color ?? null) ? me.color : s.color,
+    };
+  }
+  for (const [key, t] of Object.entries(out.transitions)) {
+    const was = base.transitions[key];
+    const me = mine.transitions[key];
+    if (!was || !me) continue;
+    const cond = differs(me.when, was.when) || clean(me.message) !== clean(was.message);
+    out.transitions[key] = {
+      ...t,
+      label: clean(me.label) !== clean(was.label) ? me.label : t.label,
+      needs: differs(sorted(me.needs), sorted(was.needs)) ? [...me.needs] : t.needs,
+      also: differs(sorted(me.also), sorted(was.also)) ? [...me.also] : t.also,
+      when: cond ? me.when : t.when,
+      message: cond ? me.message : t.message,
+      off: me.off !== was.off ? me.off : t.off,
+    };
+  }
+  // «اصلی» is one per table: mine when I chose another (or none), else theirs
+  const primaryOf = (d: LifecycleDraft) => Object.entries(d.transitions).find(([, t]) => t.primary)?.[0] ?? null;
+  const chosen = primaryOf(mine);
+  if (chosen !== primaryOf(base)) for (const [key, t] of Object.entries(out.transitions)) out.transitions[key] = { ...t, primary: key === chosen };
+  return out;
+}
 
 // ---------------------------------------------------------------------------------------------------------------
 // Problems (the server's own validator, on the effective definition)

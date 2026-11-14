@@ -6,6 +6,9 @@
 // from the server's static estimate (POST /positions/estimate, from 30 people), who is kept out (the requester on
 // approve steps), what happens when nobody is found, and the fallback rules.
 // The value is the step's `StepAssignees` (@shared/process); the server checks it again on save and publish.
+// `AssigneeRules` alone may be narrowed to some kinds and position scopes (`RuleScope`): a process's starters name
+// people before any case exists, so a rule that depends on a case is not offered there, and one already in a draft
+// says it finds nobody.
 import { useId, useMemo, useState } from "react";
 import { Button, Checkbox, Dropdown, Radio, Segmented, Select } from "antd";
 import { CircleAlert, Plus, Trash2 } from "lucide-react";
@@ -25,7 +28,7 @@ import { Loader } from "../../../components/display";
 import { RecordSelect } from "../../../records/fields/RecordSelect";
 import { displayOf } from "../../../records/model/schema";
 import { ESTIMATE_GATES, kitApi } from "./api";
-import { newRule, ruleFields, validHolder, withMembers } from "./model";
+import { newRule, ruleFields, ruleInScope, scopedRule, validHolder, withMembers, type RuleScope } from "./model";
 import { PositionPicker } from "./PositionPicker";
 import "./kit.css";
 
@@ -60,6 +63,14 @@ interface RuleProps extends AssigneeContext {
   onRemove?: () => void;
   /** fallback rules: no members filter */
   plain?: boolean;
+  /** the kinds and position scopes offered (absent: all) */
+  scope?: RuleScope;
+}
+
+/** The options of a choice narrowed to `allowed`, keeping the current value (shown, not offered again). */
+function narrowed<T extends string>(all: readonly T[], allowed: readonly T[] | undefined, current: T, label: (x: T) => string) {
+  const keep = allowed ?? all;
+  return all.filter((x) => keep.includes(x) || x === current).map((x) => ({ value: x, label: label(x), disabled: !keep.includes(x) }));
 }
 
 function Holders({ rule, onChange }: { rule: Extract<AssigneeRule, { kind: "position" }>; onChange?: (r: AssigneeRule) => void }) {
@@ -133,7 +144,7 @@ function Holders({ rule, onChange }: { rule: Extract<AssigneeRule, { kind: "posi
   );
 }
 
-function RuleEditor({ rule, index, onChange, onRemove, fields = [], steps = [], plain }: RuleProps) {
+function RuleEditor({ rule, index, onChange, onRemove, fields = [], steps = [], plain, scope }: RuleProps) {
   const uid = useId();
   const off = !onChange;
   const set = (patch: Partial<AssigneeRule>) => onChange?.({ ...rule, ...patch } as AssigneeRule);
@@ -158,7 +169,7 @@ function RuleEditor({ rule, index, onChange, onRemove, fields = [], steps = [], 
                 value={rule.where}
                 disabled={off}
                 onChange={(where) => onChange?.({ kind: "position", position: rule.position, where, ...(rule.members ? { members: rule.members } : {}) })}
-                options={POSITION_WHERE.map((w) => ({ value: w, label: POSITION_WHERE_LABELS[w] }))}
+                options={narrowed(POSITION_WHERE, scope?.wheres, rule.where, (w) => POSITION_WHERE_LABELS[w])}
               />
             </div>
             {rule.where === "unit" ? (
@@ -316,17 +327,24 @@ function RuleEditor({ rule, index, onChange, onRemove, fields = [], steps = [], 
           aria-label="نوع انجام‌دهنده"
           value={rule.kind}
           disabled={off}
-          onChange={(k: AssigneeKind) => onChange?.(newRule(k))}
-          options={ASSIGNEE_KINDS.map((k) => ({ value: k, label: ASSIGNEE_KIND_LABELS[k] }))}
+          onChange={(k: AssigneeKind) => onChange?.(scope ? scopedRule(k, scope) : newRule(k))}
+          options={narrowed(ASSIGNEE_KINDS, scope?.kinds, rule.kind, (k) => ASSIGNEE_KIND_LABELS[k])}
         />
         {onRemove ? <Button type="text" icon={<Trash2 {...I14} />} aria-label={`حذف قاعدهٔ ${faDigits(index + 1)}`} onClick={onRemove} /> : null}
       </div>
       {body}
+      {scope && !ruleInScope(rule, scope) ? (
+        <p className="wfk-warn" role="alert">
+          <CircleAlert {...I14} aria-hidden />
+          <span>این قاعده این‌جا کسی را نمی‌یابد؛ آن را بردارید یا نوع و محدودهٔ دیگری برگزینید.</span>
+        </p>
+      ) : null}
     </div>
   );
 }
 
-function RuleList({ rules, onChange, ctx, plain, addLabel }: { rules: AssigneeRule[]; onChange?: (r: AssigneeRule[]) => void; ctx: AssigneeContext; plain?: boolean; addLabel: string }) {
+function RuleList({ rules, onChange, ctx, plain, addLabel, scope }: { rules: AssigneeRule[]; onChange?: (r: AssigneeRule[]) => void; ctx: AssigneeContext; plain?: boolean; addLabel: string; scope?: RuleScope }) {
+  const kinds = scope?.kinds ?? ASSIGNEE_KINDS;
   return (
     <>
       {rules.map((r, i) => (
@@ -335,13 +353,14 @@ function RuleList({ rules, onChange, ctx, plain, addLabel }: { rules: AssigneeRu
           index={i}
           rule={r}
           plain={plain}
+          scope={scope}
           {...ctx}
           onChange={onChange ? (x) => onChange(rules.map((y, j) => (j === i ? x : y))) : undefined}
           onRemove={onChange ? () => onChange(rules.filter((_, j) => j !== i)) : undefined}
         />
       ))}
       {onChange && rules.length < MAX_RULES ? (
-        <Dropdown menu={{ items: ASSIGNEE_KINDS.map((k) => ({ key: k, label: ASSIGNEE_KIND_LABELS[k] })), onClick: ({ key }) => onChange([...rules, newRule(key as AssigneeKind)]) }} trigger={["click"]}>
+        <Dropdown menu={{ items: kinds.map((k) => ({ key: k, label: ASSIGNEE_KIND_LABELS[k] })), onClick: ({ key }) => onChange([...rules, scopedRule(key as AssigneeKind, scope)]) }} trigger={["click"]}>
           <Button icon={<Plus {...I14} />} className="self-start">
             {addLabel}
           </Button>
@@ -413,12 +432,15 @@ function Estimate({ value, action, quorum }: { value: StepAssignees; action: Ste
 
 /**
  * The rules alone — no exclusions, «اگر کسی پیدا نشد» or fallbacks: a process's starters, the recipients of «اعلان», the
- * people a reassign escalation hands a step to. `plain` leaves out the holders' checkboxes.
+ * people a reassign escalation hands a step to. `plain` leaves out the holders' checkboxes; `scope` narrows the kinds
+ * and position scopes offered (a rule already outside it says it finds nobody).
  */
-export function AssigneeRules({ value, onChange, fields, steps, addLabel = "افزودن قاعده", plain, className }: AssigneeContext & { value: AssigneeRule[]; onChange?: (r: AssigneeRule[]) => void; addLabel?: string; plain?: boolean; className?: string }) {
+export function AssigneeRules({
+  value, onChange, fields, steps, addLabel = "افزودن قاعده", plain, scope, className,
+}: AssigneeContext & { value: AssigneeRule[]; onChange?: (r: AssigneeRule[]) => void; addLabel?: string; plain?: boolean; scope?: RuleScope; className?: string }) {
   return (
     <div className={["wfk-who", className].filter(Boolean).join(" ")}>
-      <RuleList rules={value} onChange={onChange} ctx={{ fields, steps }} plain={plain} addLabel={addLabel} />
+      <RuleList rules={value} onChange={onChange} ctx={{ fields, steps }} plain={plain} addLabel={addLabel} scope={scope} />
     </div>
   );
 }

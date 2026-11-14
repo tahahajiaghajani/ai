@@ -11,11 +11,12 @@ import { composeEffective, gateAllows, roleCatalog, type AccessGate, type FullGr
 import { LEVEL_ORDER, type Level } from "@shared/permissions";
 import { PROCESS_DESIGN_AREA } from "@shared/tables/fields";
 import { rialFromInput } from "@shared/forms/fieldtypes";
-import { setFieldRight } from "../src/ui/modules/workflows/kit/model";
+import { newRule, ruleInScope, scopedRule, setFieldRight } from "../src/ui/modules/workflows/kit/model";
 import type { FieldDef } from "@shared/model/types";
 import type { FlowProblem } from "@shared/flows/types";
 import {
-  formStepOf, outEdges, processNodeLabel, startOf, validateProcess, type ProcessGraph, type ProcessNode,
+  ASSIGNEE_KINDS, assigneeProblems, formStepOf, mayInclude, outEdges, processNodeLabel, startOf, validateProcess, type AssigneeRule, type PersonFacts, type ProcessGraph,
+  type ProcessNode,
 } from "@shared/process";
 import { cleanDraft as serverCleanDraft, defaultDraft as serverDefaultDraft } from "@server/modules/process/publish";
 import { ROUTES } from "../src/ui/modules/registry";
@@ -24,11 +25,11 @@ import { designerPath, publishVerdict, routeMatches } from "../src/ui/modules/wo
 import { hubApi } from "../src/ui/modules/workflows/admin/hub/api";
 import { designerApi, type ProcessDetail, type ProcessDraft, type ResolveResult } from "../src/ui/modules/workflows/admin/process/api";
 import {
-  DESIGNER_PATH, END_PRESETS, GAP_Y, NEW_STEP_OPTIONS, PALETTE_GROUPS, PALETTE_ITEMS, addFromPort, assigneesPatch, bridgeRemoved, caseFields, casePill, caseRules,
+  DESIGNER_PATH, END_PRESETS, GAP_Y, NEW_STEP_OPTIONS, PALETTE_GROUPS, PALETTE_ITEMS, STARTER_SCOPE, addFromPort, assigneesPatch, bridgeRemoved, caseFields, casePill, caseRules,
   cleanDraft, countProblems, defaultGraph, designerAccess, designerDraft, designerOffers, earlierSteps, formInfoOf, formPatch, graphForms, insertAfter, insertText, itemConfig,
   joinPatch, liveProblems, mainPort, moveKey, nameProblem, newCaseKey, newEscalation, newStepOf, paletteItem, patchConfig, phoneNotes, pillField, portRows, previewBlocked, previewNote,
   previewSteps, problemGroups, problemTarget, problemsText, processForms, rawCases, removeNode, requesterViewOptions, resolveBody, resolvedPeople, savePatch, setAction,
-  setCases, setLabel, setPortTarget, stableJson, startFields, startingDraft, startersText, statusChip, stepNotices, stepTitles, structureKey, tabProblems, titleFields,
+  setCases, setLabel, setPortTarget, stableJson, startFields, startingDraft, startersNote, startersText, statusChip, stepNotices, stepTitles, structureKey, tabProblems, titleFields,
   titleSample, unitFromRial, versionMeta, versionTitle, wireRejection, type FormInfo,
 } from "../src/ui/modules/workflows/admin/process/model";
 import type { OrgApi } from "../src/ui/lib/api";
@@ -450,6 +451,47 @@ describe("notices, problems, versions, the preview", () => {
     expect(formPatch({ form: "x", rights: { default: "edit", fields: { u_a: "required" } } }, "y")).toEqual({ form: "y", rights: { default: "edit", fields: {} } });
     const info = formInfoOf({ form: { id: "f", name: "فرم", layout: REQ.layout }, fields: { u_amount: { label: "مبلغ", def: FIELDS.u_amount }, u_gone: { label: "رفته", def: null } } });
     expect(Object.keys(info.fields)).toEqual(["u_amount"]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// «چه کسانی آغاز می‌کنند»
+
+describe("who may start a process", () => {
+  // a head of the Vanak branch: a position held in a unit, a group, an access role
+  const me: PersonFacts = { user: "u-head", positions: [{ position: "branch_head", unit: "unit-vanak" }], groups: ["g-heads"], roles: ["agent"] };
+  const starts = (rule: AssigneeRule) => mayInclude({ assignees: [rule] }, "fill", me);
+
+  it("offers only rules «شروع» can answer before any case exists: my positions (anywhere or in a fixed unit), groups, roles, named people", () => {
+    expect(starts({ kind: "position", position: "branch_head", where: "anywhere" })).toBe(true);
+    expect(starts({ kind: "position", position: "branch_head", where: "unit", unit: "unit-vanak" })).toBe(true);
+    expect(starts({ kind: "group", group: "g-heads" })).toBe(true);
+    expect(starts({ kind: "role", role: "agent" })).toBe(true);
+    expect(starts({ kind: "users", users: ["u-head"] })).toBe(true);
+    expect(STARTER_SCOPE.kinds).toEqual(["position", "group", "role", "users"]);
+    // a new position rule starts at «همه‌جا», not at the requester's unit there is none of yet
+    expect(scopedRule("position", STARTER_SCOPE)).toMatchObject({ kind: "position", where: "anywhere" });
+  });
+
+  it("leaves out every rule that depends on a case: the draft check passes it, and nobody could ever start (the review's case)", () => {
+    const filled: Partial<Record<string, Partial<AssigneeRule>>> = { field: { field: "u_who" }, step_actor: { step: "s" } };
+    const left = ASSIGNEE_KINDS.filter((k) => !STARTER_SCOPE.kinds!.includes(k));
+    expect(left).toEqual(["manager", "unit_head", "field", "step_actor", "requester"]);
+    for (const k of left) {
+      const rule = { ...newRule(k), ...filled[k] } as AssigneeRule;
+      expect(assigneeProblems({ assignees: [rule] }), k).toEqual([]);
+      expect(starts(rule), k).toBe(false);
+      expect(ruleInScope(rule, STARTER_SCOPE), k).toBe(false);
+    }
+    expect(ruleInScope({ kind: "position", position: "branch_head", where: "requester_unit" }, STARTER_SCOPE)).toBe(false);
+  });
+
+  it("«فقط این نقش‌ها و افراد» with no rule says it still means every member; rules that find nobody say so", () => {
+    expect(startersNote([], true)).toMatch(/همهٔ اعضای سازمان/);
+    expect(startersNote([], false)).toBeNull();
+    expect(startersNote([{ kind: "users", users: ["u-head"] }], true)).toBeNull();
+    expect(startersNote([{ kind: "manager", of: "requester" }], true)).toMatch(/کسی این گردش‌کار را آغاز نمی‌کند/);
+    expect(startersNote([{ kind: "manager", of: "requester" }, { kind: "users", users: ["u-head"] }], true)).toBeNull();
   });
 });
 

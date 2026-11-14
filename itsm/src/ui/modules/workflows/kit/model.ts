@@ -32,6 +32,7 @@ import {
   structureOf,
   type AssigneeKind,
   type AssigneeRule,
+  type PositionWhere,
   type CaseProgress,
   type NodeStatus,
   type NodeStatusView,
@@ -506,6 +507,29 @@ export function newRule(kind: AssigneeKind): AssigneeRule {
     default:
       return { kind: "requester" };
   }
+}
+
+/**
+ * What a list of rules may hold where not every kind applies (a process's starters: rules that name people before any
+ * case exists): the kinds offered, and for a position the scopes («کجا») offered. Absent: everything.
+ */
+export interface RuleScope {
+  kinds?: readonly AssigneeKind[];
+  wheres?: readonly PositionWhere[];
+}
+
+/** A new rule of a kind within a scope: a position starts at the first scope offered when its usual one is not. */
+export function scopedRule(kind: AssigneeKind, scope: RuleScope = {}): AssigneeRule {
+  const r = newRule(kind);
+  if (r.kind === "position" && scope.wheres?.length && !scope.wheres.includes(r.where)) return { ...r, where: scope.wheres[0] };
+  return r;
+}
+
+/** Does a rule stay within the scope (its kind, and a position's «کجا»)? */
+export function ruleInScope(rule: AssigneeRule, scope: RuleScope = {}): boolean {
+  if (scope.kinds && !scope.kinds.includes(rule.kind)) return false;
+  if (rule.kind === "position" && scope.wheres && !scope.wheres.includes(rule.where)) return false;
+  return true;
 }
 
 /** The rule with its members filter set: none (every holder), or only the ticked people. */

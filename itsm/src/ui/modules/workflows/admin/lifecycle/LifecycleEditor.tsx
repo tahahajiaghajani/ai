@@ -8,6 +8,9 @@
 // a link. A preview draws the states as the record page does and the buttons a record in one state offers; «تفاوت با
 // پیش‌فرض» lists what differs from the module. Changes are a draft with undo and redo; «ذخیرهٔ تغییرها» shows what
 // changes and sends it (PUT /lifecycles/:table, `settings` full); «بازگشت به پیش‌فرض» drafts the module's lifecycle.
+// The PUT replaces the whole overlay, so before the confirmation and again before the PUT the page reads the stored
+// lifecycle: when another administrator saved since it was read, my changes go onto theirs and the confirmation says
+// so and lists what saving now sends — their change is never written back unseen.
 // `settings` view reads it; phones read it.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
@@ -36,7 +39,8 @@ import { HUB_PATH } from "../hub/model";
 import { LIFECYCLE_KEYS, lifecycleApi, type LifecycleState, type LifecycleTransition, type LifecycleView, type RoleOption } from "./api";
 import {
   LIFECYCLE_REFUSAL, VISIBLE_BUTTONS, categoryLabel, channel, condText, defaultDraft, draftDiff, draftOf, draftProblems, isDefault, isDirty, lifecycleAccess, overlayOf,
-  previewButtons, requirableFields, scopeChip, setPrimary, setState, setTransition, summaryText, transitionLabel, transitionPath, type DiffLine, type DiffNames, type LifecycleDraft,
+  previewButtons, requirableFields, scopeChip, setPrimary, setState, setTransition, summaryText, transitionLabel, transitionPath, type DiffLine, type DiffNames,
+  type LifecycleDraft,
 } from "./model";
 import "../../../../records/records.css";
 import "../forms/forms.css";
@@ -111,7 +115,8 @@ function Editor({ view, base, editable, canWrite, phone }: EditorProps) {
   );
   const roleNames = useMemo(() => new Map(roleList.map((r) => [r.key, r.name])), [roleList]);
   const [busy, setBusy] = useState(false);
-  const [confirm, setConfirm] = useState<DiffLine[] | null>(null);
+  /** the confirmation: what saving sends, and whether my changes were just put onto another administrator's save */
+  const [confirm, setConfirm] = useState<{ lines: DiffLine[]; moved: boolean } | null>(null);
   const [condFor, setCondFor] = useState<string | null>(null);
   const [at, setAt] = useState<string>(base.states?.initial ?? view.states[0]?.value ?? "");
 
@@ -131,9 +136,41 @@ function Editor({ view, base, editable, canWrite, phone }: EditorProps) {
   const fromDefault = draftDiff(view, defaultDraft(view), draft, names);
   const set = (next: LifecycleDraft, key?: string) => hist.set(next, key);
 
+  /**
+   * The stored lifecycle, read again: when another administrator saved since this page read it, my changes go onto
+   * theirs (the page's baseline and draft move, undo starts again) and the confirmation shows what saving now sends.
+   * True when that happened (the caller stops: the person confirms again).
+   */
+  const moved = async (): Promise<boolean> => {
+    const r = await lifecycleApi.recheck(api, view, draft);
+    if (!r) return false;
+    const { now, draft: rebased } = r;
+    // the baseline moves with the rebased draft (the effect above would otherwise judge it by the old view)
+    seen.current = qc.setQueryData<LifecycleView>(LIFECYCLE_KEYS.one(orgId, view.table), now) ?? now;
+    hist.reset(rebased);
+    const lines = draftDiff(now, draftOf(now), rebased, names);
+    if (lines.length) setConfirm({ lines, moved: true });
+    else {
+      setConfirm(null);
+      n.info("همکار دیگری همین تغییرها را پیش‌تر ذخیره کرده بود؛ چیزی برای ذخیره نماند.");
+    }
+    return true;
+  };
+  const review = async () => {
+    setBusy(true);
+    try {
+      if (await moved()) return;
+      setConfirm({ lines: draftDiff(view, draftOf(view), draft, names), moved: false });
+    } catch (e) {
+      n.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
   const save = async () => {
     setBusy(true);
     try {
+      if (await moved()) return;
       const saved = await lifecycleApi.save(api, view.table, overlayOf(view, draft));
       ownSave.current = true;
       qc.setQueryData(LIFECYCLE_KEYS.one(orgId, view.table), saved);
@@ -174,7 +211,7 @@ function Editor({ view, base, editable, canWrite, phone }: EditorProps) {
             <Button icon={<RotateCcw {...I16} />} onClick={toDefault} disabled={isDefault(view, draft)}>
               بازگشت به پیش‌فرض
             </Button>
-            <Button type="primary" icon={<Save {...I16} />} disabled={!dirty || problems.length > 0} onClick={() => setConfirm(draftDiff(view, draftOf(view), draft, names))}>
+            <Button type="primary" icon={<Save {...I16} />} loading={busy && !confirm} disabled={!dirty || problems.length > 0} onClick={review}>
               ذخیرهٔ تغییرها
             </Button>
           </>
@@ -231,8 +268,9 @@ function Editor({ view, base, editable, canWrite, phone }: EditorProps) {
       {confirm ? (
         <Modal open title={`ذخیرهٔ چرخهٔ عمر «${base.plural}»؟`} onCancel={() => setConfirm(null)} okText="ذخیره" cancelText="انصراف" onOk={save} okButtonProps={{ loading: busy }} width={600}>
           <div className="wfh-stack">
+            {confirm.moved ? <Note tone="warning">همکار دیگری پس از باز شدن این صفحه این چرخهٔ عمر را تغییر داد؛ تغییرهای شما روی نسخهٔ تازه گذاشته شد. آنچه اکنون ذخیره می‌شود:</Note> : null}
             <p className="rk-hint">این تغییرها به همهٔ «{base.plural}» می‌رسد: صفحهٔ رکوردها، فهرست‌ها، نسخهٔ ویندوز و گزارش‌ها.</p>
-            <DiffList lines={confirm} />
+            <DiffList lines={confirm.lines} />
           </div>
         </Modal>
       ) : null}

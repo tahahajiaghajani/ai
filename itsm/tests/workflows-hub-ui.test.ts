@@ -28,8 +28,8 @@ import {
 } from "../src/ui/modules/workflows/admin/hub/model";
 import { lifecycleApi, type LifecycleView } from "../src/ui/modules/workflows/admin/lifecycle/api";
 import {
-  LIFECYCLE_REFUSAL, channel, defaultDraft, draftDiff, draftOf, draftProblems, isDefault, isDirty, lifecycleAccess, overlayOf, previewButtons, requirableFields, scopeChip,
-  setPrimary, setState, setTransition, summaryText, transitionPath, type DiffNames,
+  LIFECYCLE_REFUSAL, channel, defaultDraft, draftDiff, draftOf, draftProblems, isDefault, isDirty, lifecycleAccess, overlayMoved, overlayOf, previewButtons, rebaseDraft,
+  requirableFields, scopeChip, setPrimary, setState, setTransition, summaryText, transitionPath, type DiffNames,
 } from "../src/ui/modules/workflows/admin/lifecycle/model";
 import type { OrgApi } from "../src/ui/lib/api";
 import type { TableMeta } from "../src/ui/records/model/types";
@@ -332,6 +332,32 @@ describe("the lifecycle editor's draft", () => {
     expect(transitionPath(v, d, v.transitions[2])).toBe("هر وضعیت ← تازه");
   });
 
+  it("a save after another administrator's goes onto theirs: my lines win, theirs stay, «اصلی» moves only when I moved it", () => {
+    const seen = view();
+    // they renamed «در جریان», made «شروع» the primary and gave «بازگشایی» a condition, and saved
+    const when = { f: "priority", op: "eq" as const, v: "1" };
+    let theirs = setState(draftOf(seen), "in_progress", { label: "در دست اقدام" });
+    theirs = setTransition(setPrimary(theirs, "new>in_progress"), "*>new", { when, message: "فقط بحرانی‌ها" });
+    const now = view({
+      states: seen.states.map((s) => (s.value === "in_progress" ? { ...s, label: "در دست اقدام" } : s)),
+      transitions: seen.transitions.map((t) => (t.key === "new>in_progress" ? { ...t, primary: true } : t.key === "*>new" ? { ...t, when, message: "فقط بحرانی‌ها" } : t)),
+      overlay: overlayOf(seen, theirs),
+    });
+    expect([overlayMoved(seen, now), overlayMoved(now, view({ ...now }))]).toEqual([true, false]);
+    // I changed «جدید»'s colour on what I had read: saving my whole overlay would write theirs back
+    const mine = setState(draftOf(seen), "new", { color: "red" });
+    expect(overlayOf(seen, mine)).toEqual({ states: { new: { color: "red" } } });
+    const rebased = rebaseDraft(seen, mine, now);
+    expect(overlayOf(now, rebased)).toEqual({ ...overlayOf(seen, theirs), states: { new: { color: "red" }, in_progress: { label: "در دست اقدام" } } });
+    // the confirmation lists only my line, against what is stored now
+    expect(draftDiff(now, draftOf(now), rebased, names)).toEqual([{ what: "رنگ «جدید»", from: "نیلی", to: "قرمز" }]);
+    // my change to the same line wins; choosing another «اصلی» moves it
+    const both = rebaseDraft(seen, setPrimary(setState(draftOf(seen), "in_progress", { label: "در کار" }), "in_progress>done"), now);
+    expect(both.states.in_progress.label).toBe("در کار");
+    expect(Object.entries(both.transitions).filter(([, t]) => t.primary).map(([k]) => k)).toEqual(["in_progress>done"]);
+    expect(both.transitions["*>new"]).toMatchObject({ when, message: "فقط بحرانی‌ها" });
+  });
+
   it("F1's own validator: fields that are not there or hidden from the form, unknown roles, a condition on another table", () => {
     const base = tableDef("todo")!;
     const v = view({ states: base.states!.states.map((s) => ({ value: s.value, category: s.category, default_label: s.label, default_color: s.color ?? null, label: s.label, color: s.color ?? null })), transitions: [] });
@@ -548,6 +574,32 @@ describe("the screens' calls on a real organisation", () => {
     expect(reset.overlay).toBeNull();
     expect(isDefault(reset, draftOf(reset))).toBe(true);
     expect((await hub()).rows.find((r) => r.kind === "lifecycle" && r.table === "incident")!.status).toBe(DEFAULT_LIFECYCLE);
+  });
+
+  it("another administrator's save while the editor is open is never written back: the save reads it again and goes onto it", async () => {
+    // B opens the editor of «رخداد»
+    const seen = await lifecycleApi.get(api, "incident");
+    const [first, second] = seen.states;
+    expect(await lifecycleApi.recheck(api, seen, draftOf(seen))).toBeNull();
+    // A renames the first state and saves
+    const renamed = `${first.default_label} (الف)`;
+    const theirs = await lifecycleApi.save(api, "incident", overlayOf(seen, setState(draftOf(seen), first.value, { label: renamed })));
+    // B, still on the page, changes the second state's colour; the whole overlay of B's page would rename it back
+    const color = second.default_color === "red" ? "magenta" : "red";
+    const mine = setState(draftOf(seen), second.value, { color });
+    expect(overlayOf(seen, mine)?.states?.[first.value]).toBeUndefined();
+    const again = (await lifecycleApi.recheck(api, seen, mine))!;
+    expect(again.now.overlay).toEqual(theirs.overlay);
+    // the confirmation lists B's line only, against what is stored now
+    const lines = draftDiff(again.now, draftOf(again.now), again.draft, names);
+    expect(lines).toHaveLength(1);
+    expect(lines[0].what).toContain("رنگ");
+    const saved = await lifecycleApi.save(api, "incident", overlayOf(again.now, again.draft));
+    expect(saved.states.find((s) => s.value === first.value)).toMatchObject({ label: renamed });
+    expect(saved.states.find((s) => s.value === second.value)).toMatchObject({ color });
+    // nothing moved since: the next save goes straight through
+    expect(await lifecycleApi.recheck(api, saved, draftOf(saved))).toBeNull();
+    expect((await lifecycleApi.save(api, "incident", null)).overlay).toBeNull();
   });
 
   it("the server refuses for the reasons the editor shows: a field hidden from the form, a role that does not exist", async () => {
