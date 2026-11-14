@@ -9,6 +9,8 @@
 // it, or a new run started at it) drops the entries forward of it — they run again. What the log cannot hold yet (the
 // step being opened or settled in this very transaction) comes as `extra`; a round an apply settled stays settled
 // while its log row still waits for the executor's resume.
+// It also ends the claims («برداشتن کار») whose taker no longer holds an open task of the round — their task closed or
+// moved (a decision, a manager's «ارجاع», a delegation, an escalation) — so the others of the pool may act again.
 import type { Queryable, Tx } from "../../../db";
 import type { Ctx } from "../../../context";
 import { updateIn } from "../../../engine";
@@ -127,11 +129,24 @@ export interface RefreshOptions {
   tasks?: TaskRow[];
 }
 
+/** End the claims of a case whose taker holds no open task of the round any more (see the header). */
+async function endStaleClaims(tx: Tx, sys: Ctx, caseId: string): Promise<void> {
+  const stale = await tx.query<{ id: string }>(
+    `select t.id from sm_process_tasks t
+     where t.org_id = $1 and t.case_id = $2 and t.status = 'open' and t.claimed_by is not null and t.deleted_at is null
+       and not exists (select 1 from sm_process_tasks o where o.org_id = t.org_id and o.case_id = t.case_id and o.step_key = t.step_key and o.round = t.round
+                         and o.status = 'open' and o.deleted_at is null and (o.assigned_to = t.claimed_by or o.delegated_from = t.claimed_by))`,
+    [sys.org.id, caseId],
+  );
+  for (const r of stale) await updateIn(tx, sys, "process_task", String(r.id), { claimed_by: null }, { trusted: true });
+}
+
 /**
  * Recompute and write a case's progress, current steps, open rounds, participants and open state (inside the
  * transaction that holds its lock). Returns the stored row.
  */
 export async function refreshCase(tx: Tx, sys: Ctx, kase: CaseRow, graph: ProcessGraph, opts: RefreshOptions = {}): Promise<Record<string, unknown>> {
+  await endStaleClaims(tx, sys, kase.id);
   const tasks = opts.tasks ?? (await caseTasks(tx, sys.org.id, kase.id));
   const progress = replayProgress(graph, kase.progress, await runLog(tx, (opts.set?.run_ref as string | undefined) ?? kase.run_ref), opts.extra);
   const current: { key: string; label: string }[] = [];

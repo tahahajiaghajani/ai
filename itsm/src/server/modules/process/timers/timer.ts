@@ -1,8 +1,8 @@
 // `process.timer` (design F §3.5 «Step SLA and escalation», §3.6.3, package F4b): one job per organisation, on the
 // authority only, that looks after the open rounds of form steps with a time:
 //   · «یادآوری مرحله» every `remind_every` to each person still waiting (calendar time, from the opening or the last);
-//   · escalations, in the order of their time (`after`, counted from the round's opening, business time unless the
-//     step says otherwise), each once — `notify` the person's manager, the holder of the position's «گزارش به» or the
+//   · escalations, in the order of their time (`after`, counted from the round's opening — moved on by the time the
+//     case was paused, `timers_from` — business time unless the step says otherwise), each once — `notify` the person's manager, the holder of the position's «گزارش به» or the
 //     process managers; `reassign` the round to the people of other rules; `auto` decide it with an outcome;
 //   · the step's «پایان مهلت» port, when it is wired: at the due time the round settles on it.
 // Each round is handled in its own transaction under the case's lock, with its wait still there and its round open —
@@ -78,11 +78,18 @@ interface RoundTask {
   due_at: unknown;
   reminded_at: unknown;
   escalated_at: unknown;
+  timers_from: unknown;
 }
+
+/** Where a task's timers count from: its opening, or later when the case was paused meanwhile. */
+const fromOf = (t: { opened_at: unknown; timers_from: unknown }) => {
+  const f = msOf(t.timers_from);
+  return Number.isFinite(f) ? f : msOf(t.opened_at);
+};
 
 const roundTasks = (tx: Tx, orgId: string, caseId: string, node: string, round: number) =>
   tx.query<RoundTask>(
-    `select id, assigned_to, delegated_from, status, opened_at, due_at, reminded_at, escalated_at from sm_process_tasks
+    `select id, assigned_to, delegated_from, status, opened_at, due_at, reminded_at, escalated_at, timers_from from sm_process_tasks
      where org_id = $1 and case_id = $2 and step_key = $3 and round = $4 and deleted_at is null order by opened_at, id`,
     [orgId, caseId, node, round],
   );
@@ -169,7 +176,7 @@ export async function roundTimersIn(tx: Tx, sys: Ctx, clock: Clock, caseId: stri
   const later = (t: number) => {
     if (Number.isFinite(t) && t > now && (next === null || t < next)) next = t;
   };
-  const opened = Math.min(...rows.map((t) => msOf(t.opened_at)).filter(Number.isFinite));
+  const opened = Math.min(...rows.map(fromOf).filter(Number.isFinite));
   const mark = Math.max(opened, ...rows.map((t) => msOf(t.escalated_at)).filter(Number.isFinite));
   const acts: Act[] = [];
   for (const esc of step.escalate ?? []) {
@@ -259,8 +266,8 @@ export async function roundTimersIn(tx: Tx, sys: Ctx, clock: Clock, caseId: stri
   }
   if (step.remind_every) {
     const every = durationMs(step.remind_every);
-    const due = open.filter((t) => (msOf(t.reminded_at) || msOf(t.opened_at)) + every <= now);
-    for (const t of open) if (!due.includes(t)) later((msOf(t.reminded_at) || msOf(t.opened_at)) + every);
+    const due = open.filter((t) => (msOf(t.reminded_at) || fromOf(t)) + every <= now);
+    for (const t of open) if (!due.includes(t)) later((msOf(t.reminded_at) || fromOf(t)) + every);
     if (due.length) {
       await notifyPeople(tx, orgId, {
         table: "process_case", id: kase.id, users: due.map((t) => t.assigned_to).filter(isId), event: "custom", label: "یادآوری مرحله", channels: ["in_app", "email"], actor: null, source: "گردش‌کارها",
@@ -363,8 +370,8 @@ export async function timerPass(cfg: ServerConfig, orgId: string, apply: (id: st
     const wired = outEdges(v.graph, n.id, "timeout").length > 0;
     // the open rounds of this step, each with its times — one query, no lock
     const rounds = await cfg.db.query<{ case_id: string; round: number; opened: unknown; escalated: unknown; due: unknown; remind: unknown }>(
-      `select t.case_id, t.round, min(t.opened_at) as opened, max(t.escalated_at) as escalated,
-         min(t.due_at) filter (where t.status = 'open') as due, min(coalesce(t.reminded_at, t.opened_at)) filter (where t.status = 'open') as remind
+      `select t.case_id, t.round, min(coalesce(t.timers_from, t.opened_at)) as opened, max(t.escalated_at) as escalated,
+         min(t.due_at) filter (where t.status = 'open') as due, min(coalesce(t.reminded_at, t.timers_from, t.opened_at)) filter (where t.status = 'open') as remind
        from sm_process_tasks t join sm_process_cases c on c.id = t.case_id and c.deleted_at is null and c.state in ('active', 'waiting') and c.paused_at is null
        where t.org_id = $1 and c.version_id = $2 and t.step_key = $3 and t.deleted_at is null and c.open_rounds ->> t.step_key = t.round::text
        group by t.case_id, t.round

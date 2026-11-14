@@ -251,6 +251,8 @@ const processTask: TableDef = {
     { name: "closed_at", label: "زمان پایان", type: "datetime", system: true, sort: true, filter: true, span: 8 },
     { name: "reminded_at", label: "آخرین یادآوری", type: "datetime", system: true, audit: false, span: 8 },
     { name: "escalated_at", label: "زمان تشدید", type: "datetime", system: true, audit: false, span: 8 },
+    // where the round's timers count from (escalations, the first reminder): the opening, moved on by a pause (F4c)
+    { name: "timers_from", label: "آغاز شمارش زمان", type: "datetime", system: true, hidden: true, audit: false },
   ],
   // nobody reads another's task as its "requester" (the requester side stays empty)
   scope: { own: ["assigned_to", "delegated_from", "acted_by"], requester: [] },

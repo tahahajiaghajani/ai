@@ -20924,6 +20924,7 @@ alter table sm_process_tasks add column if not exists due_at timestamptz;
 alter table sm_process_tasks add column if not exists closed_at timestamptz;
 alter table sm_process_tasks add column if not exists reminded_at timestamptz;
 alter table sm_process_tasks add column if not exists escalated_at timestamptz;
+alter table sm_process_tasks add column if not exists timers_from timestamptz;
 create index if not exists sm_process_tasks_rev_idx on sm_process_tasks (org_id, rev);
 create index if not exists sm_process_tasks_upd_idx on sm_process_tasks (org_id, updated_at desc, id desc) where deleted_at is null;
 create index if not exists sm_process_tasks_crt_idx on sm_process_tasks (org_id, created_at desc, id desc) where deleted_at is null;
