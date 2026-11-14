@@ -12,7 +12,9 @@ import { adWorld, AGENTS, GROUPS, type AdWorld } from "./auth-ad-helpers";
 import { group, person, serviceAccount } from "./ldap-fake";
 import { quietLog } from "./helpers";
 import { enqueue, tick } from "@server/jobs";
+import { mappingFingerprint } from "@server/modules/integration/directory-login";
 import type { ServerConfig } from "@server/context";
+import { createHash } from "node:crypto";
 
 const HEADS = `CN=Kariz-Branch-Heads,${GROUPS}`;
 const CREDIT = `CN=Kariz-Credit,${GROUPS}`;
@@ -80,6 +82,22 @@ beforeAll(async () => {
   await w.owner.patch(`${R}/directory_source/${w.source.id}`, { group_map: mappings() });
 }, 600_000);
 afterAll(() => w.close());
+
+describe("what an approval covers", () => {
+  it("a source without organisational roles keeps its fingerprint; naming or moving one needs a new approval", () => {
+    const src = { group_map: [{ source: AGENTS, role: "agent", group_id: "g1" }], default_role: "requester", auto_roles: true, membership_role: "viewer" };
+    // the fingerprint as sources approved before organisational roles existed have it
+    const before = createHash("sha256")
+      .update(JSON.stringify({ m: [{ s: AGENTS.toLowerCase(), g: "g1", r: "agent", u: null, w: null }], d: "requester", a: true, ms: "viewer" }))
+      .digest("hex")
+      .slice(0, 32);
+    expect(mappingFingerprint(src)).toBe(before);
+    const withRole = { ...src, group_map: [...src.group_map, { source: HEADS, position_id: "P1", unit_from: "department" }] };
+    expect(mappingFingerprint(withRole)).not.toBe(before);
+    const moved = { ...src, group_map: [...src.group_map, { source: HEADS, position_id: "P1", unit_from: "u-2" }] };
+    expect(mappingFingerprint(moved)).not.toBe(mappingFingerprint(withRole));
+  });
+});
 
 describe("directory sign-in", () => {
   it("gives no holder while the mappings are not the approved ones — it lists them as pending", async () => {
