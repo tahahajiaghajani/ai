@@ -255,7 +255,61 @@ const PARAM_PAGES = {
   "settings/forms/:id": (seeded) => (/^[0-9a-f-]{36}$/.test(seeded.form ?? "") ? `settings/forms/${seeded.form}` : null),
   "settings/workflows/states/:table": () => "settings/workflows/states/incident",
   "settings/workflows/p/:id": (seeded) => (/^[0-9a-f-]{36}$/.test(seeded.process ?? "") ? `settings/workflows/p/${seeded.process}` : null),
+  // the person's «گردش‌کارها» (F7): a published workflow and a case waiting for the administrator (seedWorkflow)
+  "workflows/p/:key": (seeded) => (seeded.workflow_key ? `workflows/p/${seeded.workflow_key}` : null),
+  "workflows/start/:key": (seeded) => (seeded.workflow_key ? `workflows/start/${seeded.workflow_key}` : null),
+  "workflows/c/:id": (seeded) => (UUID.test(seeded.workflow_case ?? "") ? `workflows/c/${seeded.workflow_case}` : null),
+  "workflows/c/:id/s/:task": (seeded) => (UUID.test(seeded.workflow_case ?? "") && UUID.test(seeded.workflow_task ?? "") ? `workflows/c/${seeded.workflow_case}/s/${seeded.workflow_task}` : null),
+  "workflows/c/:id/print": (seeded) => (UUID.test(seeded.workflow_case ?? "") ? `workflows/c/${seeded.workflow_case}/print` : null),
+  "r/process_case/:id": (seeded) => (UUID.test(seeded.workflow_case ?? "") ? `r/process_case/${seeded.workflow_case}` : null),
 };
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * A published workflow — «ثبت درخواست» on the seeded form, then «بررسی درخواست» by the administrator — and one of its
+ * cases waiting for the administrator at that step: the pages of the person's «گردش‌کارها» have a diagram, a start
+ * form, a case and a step form to show (best effort; a second run reuses them).
+ */
+async function seedWorkflow(call, orgId, me, form) {
+  const P = `/o/${orgId}`;
+  const key = "crawl_request";
+  try {
+    if (!UUID.test(form ?? "")) return {};
+    let proc = await call("GET", `${P}/process/defs/${key}`).then((d) => d.process).catch(() => null);
+    if (!proc) proc = (await call("POST", `${P}/process/defs`, { name: "گردش‌کار نمونهٔ درخواست", key, category: "نمونه" })).process;
+    if (proc.status !== "published") {
+      const step = (id, label, config) => ({ id, type: "form_step", label, config: { form, ...config } });
+      const graph = {
+        nodes: [
+          { id: "start", type: "trigger", config: {} },
+          step("request", "ثبت درخواست", { action: "fill", start: true, rights: { default: "edit", fields: {} }, assignees: [{ kind: "requester" }] }),
+          step("review", "بررسی درخواست", { action: "review", rights: { default: "read", fields: {} }, assignees: [{ kind: "users", users: [me] }] }),
+          { id: "done", type: "end", label: "پایان", config: { outcome: "completed" } },
+        ],
+        edges: [
+          { id: "start.out.request", source: "start", target: "request" },
+          { id: "request.out.review", source: "request", target: "review" },
+          { id: "review.out.done", source: "review", target: "done" },
+          { id: "review.returned.request", source: "review", target: "request", port: "returned" },
+        ],
+      };
+      await call("PUT", `${P}/process/defs/${proc.id}/draft`, { draft: { graph, starters: [], title_template: null, requester_view: [], managers: [], manager_groups: [], confidential: false } });
+      await call("POST", `${P}/process/defs/${proc.id}/publish`, { note: "نسخهٔ نمونهٔ خزنده" });
+    }
+    const waiting = async () => (await call("GET", `${P}/process/inbox`)).rows.find((r) => r.kind === "process_step" && r.process_id === proc.id);
+    let row = await waiting();
+    if (!row) {
+      await call("POST", `${P}/process/start`, { process: key, values: {} });
+      for (let i = 0; i < 40 && !row; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        row = await waiting();
+      }
+    }
+    return { workflow_key: key, ...(row ? { workflow_case: row.case_id, workflow_task: row.id } : {}) };
+  } catch (e) {
+    return { workflow_error: String(e.message).slice(0, 200) };
+  }
+}
 
 async function seed(call, orgId, me) {
   const made = {};
@@ -697,6 +751,7 @@ async function main() {
   const ids = {};
   for (const role of ["agent", "requester"]) if (ROLES.includes(role)) ids[role] = await ensureMember(call, orgId, USERS[role]);
   const seeded = await seed(call, orgId, me);
+  Object.assign(seeded, await seedWorkflow(call, orgId, me, seeded.form));
   log(`${meta.mode} mode (${meta.edition}); organisation ${orgId}; seeded ${JSON.stringify(seeded)}`);
 
   const desktop = meta.mode === "desktop";
