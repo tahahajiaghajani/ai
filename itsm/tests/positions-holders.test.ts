@@ -298,3 +298,22 @@ describe("the «نقش سازمانی» field type (design F §3.1)", () => {
     await e.owner.post(`${R}/todo`, { short_description: "واحد به جای سمت", u_approver_post: U.vanak }, 400);
   });
 });
+
+describe("the positions overview", () => {
+  it("counts each position's holders today, their units and sources, vacancies and periods ending soon", async () => {
+    const teller = (await e.owner.post(`${R}/position`, { key: "teller", name: "تحویلدار", unit_kind: "branch" })).row;
+    const soon = new Date(Date.now() + 10 * 86_400_000).toISOString().slice(0, 10);
+    await e.owner.post(`${R}/position_holder`, { position_id: teller.id, user_id: agent.userId, org_unit_id: U.vanak, valid_to: soon });
+    await e.owner.post(`${R}/position_holder`, { position_id: teller.id, user_id: staff.userId, org_unit_id: U.vanak });
+    // a holder whose period is over counts for nothing
+    await e.owner.post(`${R}/position_holder`, { position_id: teller.id, user_id: keeper.userId, org_unit_id: U.tajrish, valid_from: "2025-01-01", valid_to: "2025-12-31" });
+    const overview = await requester.client.get(`${P}/positions/overview`);
+    expect(overview.today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(overview.positions.find((p: { key: string }) => p.key === "teller")).toEqual({
+      id: teller.id, key: "teller", name: "تحویلدار", unit_kind: "branch", active: true, reports_to: null,
+      holders: 2, units: 1, sources: { manual: 2, directory: 0, import: 0 }, vacancies: 1, ending: 1,
+    });
+    // a position held without a kind of unit has no vacancies to count
+    expect(overview.positions.find((p: { key: string }) => p.key === "credit_officer").vacancies).toBeNull();
+  });
+});
