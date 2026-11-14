@@ -106,6 +106,20 @@ describe("«نمایش وقتی…» (showIf) on the values being entered", () =
     expect(applyShowIf(form, rights, {}, fields)).toMatchObject({ u_amount: "hidden", u_note: "hidden" });
   });
 
+  it("hides a chain of any length all the way down, in whatever order the form lists it", () => {
+    const names = Array.from({ length: 14 }, (_, k) => `u_f${k}`);
+    const chainFields = new Map(names.map((n, k) => [n, F(n, `گام ${k}`, "string")]));
+    const items = names.map((field, k) => (k ? { field, showIf: { f: names[k - 1], op: "nempty" } } : { field }));
+    const filled = Object.fromEntries(names.map((n) => [n, "x"]));
+    const { u_f0: _, ...headless } = filled;
+    for (const listed of [items, [...items].reverse()]) {
+      const chain = cleanFormLayout(one(listed));
+      const r = effectiveRights(chain, { default: "edit", fields: {} }, chainFields, ALL);
+      expect(names.map((n) => applyShowIf(chain, r, filled, chainFields)[n])).toEqual(names.map(() => "edit"));
+      expect(names.map((n) => applyShowIf(chain, r, headless, chainFields)[n])).toEqual(names.map((_n, k) => (k ? "hidden" : "edit")));
+    }
+  });
+
   it("reads only what the person may read, and leaves a field with a condition that is not valid shown", () => {
     // the step hides «نوع پرداخت» from this person: its value cannot show them the amount
     const blind = effectiveRights(form, { default: "edit", fields: { u_kind: "hidden" } }, fields, ALL);

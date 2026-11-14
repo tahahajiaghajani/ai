@@ -434,30 +434,40 @@ const empty = (v: unknown) => v === null || v === undefined || v === "" || (Arra
 /**
  * The rights while values are entered: a field whose «نمایش وقتی…» does not hold is hidden — not shown, not asked for,
  * not taken. Conditions read only what the person may read (the values the form shows them), so every runtime answers
- * alike; a field that a condition hides counts as empty for the conditions of others. A condition that is not valid on
- * the form (it never is once saved) leaves its field shown.
+ * alike; a field that a condition hides counts as empty for the conditions of others. Each condition is decided after
+ * those of the fields it reads (circles are refused at save), so a chain of any length hides all the way down. A
+ * condition that is not valid on the form (it never is once saved) leaves its field shown.
  */
 export function applyShowIf(form: FormLayoutV2, rights: Record<string, Right>, values: Record<string, unknown>, fields: FieldSource, env: CondEnv = {}): Record<string, Right> {
   const items = fieldItems(form).filter((i) => i.showIf && canRead(rights[i.field]));
   if (!items.length) return rights;
   const def = formValuesDef(form, fields);
-  const valid = new Map(items.map((i) => [i.field, !validateCond(i.showIf, def)]));
   const out = { ...rights };
-  for (let round = 0; round < 10; round++) {
-    const seen: Record<string, unknown> = {};
-    for (const [k, r] of Object.entries(out)) if (canRead(r) && !empty(values[k])) seen[k] = values[k];
-    let changed = false;
-    for (const i of items) {
-      const shown = !valid.get(i.field) || evaluate(i.showIf, seen, env, def);
-      const next: Right = shown ? rights[i.field] : "hidden";
-      if (out[i.field] !== next) {
-        out[i.field] = next;
-        changed = true;
-      }
-    }
-    if (!changed) break;
+  const seen: Record<string, unknown> = {};
+  for (const [k, r] of Object.entries(out)) if (canRead(r) && !empty(values[k])) seen[k] = values[k];
+  for (const i of showIfOrder(items)) {
+    if (validateCond(i.showIf, def) || evaluate(i.showIf, seen, env, def)) continue;
+    out[i.field] = "hidden";
+    delete seen[i.field];
   }
   return out;
+}
+
+/** The items, each after the items whose fields its condition reads (a circle, refused at save, is cut where it closes). */
+function showIfOrder(items: readonly FieldItem[]): FieldItem[] {
+  const byField = new Map(items.map((i) => [i.field, i]));
+  const entered = new Set<string>();
+  const order: FieldItem[] = [];
+  const visit = (i: FieldItem) => {
+    entered.add(i.field);
+    for (const p of condPaths(i.showIf)) {
+      const dep = byField.get(p);
+      if (dep && !entered.has(p)) visit(dep);
+    }
+    order.push(i);
+  };
+  for (const i of byField.values()) if (!entered.has(i.field)) visit(i);
+  return order;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
