@@ -127,7 +127,13 @@ export const submissionHooks: Pick<TableHooks, "beforeWrite" | "derivePush" | "v
     // an unchanged copy is no change — its outbox row clears, and the next pull brings the result
     if (p.prev) return Object.fromEntries(AUTHORITY_FIELDS.map((k) => [k, p.prev![k] ?? null]));
     if (await uploaded(p)) return null;
-    return { result: "pending", result_note: null, applied_at: null, on_behalf_of: null, submitted_at: await pushedSubmittedAt(p) };
+    const out: Record<string, unknown> = { result: "pending", result_note: null, applied_at: null, on_behalf_of: null, submitted_at: await pushedSubmittedAt(p) };
+    // a start from a Windows app that holds only the published versions names its version: the process is the version's
+    if (!p.next.process_id && typeof p.next.version_id === "string" && /^[0-9a-f-]{36}$/i.test(p.next.version_id)) {
+      const v = await p.tx.one<{ process_id: string }>(`select process_id from sm_process_versions where org_id = $1 and id = $2`, [p.ctx.org.id, p.next.version_id]);
+      if (v) out.process_id = v.process_id;
+    }
+    return out;
   },
   async validatePush(p) {
     if (p.ctx.actor === "system" || (await uploaded(p))) return null;

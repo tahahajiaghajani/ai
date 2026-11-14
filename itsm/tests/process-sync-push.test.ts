@@ -13,7 +13,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
 import { faDigits } from "@shared/format";
-import { CASE_WRITE, TASK_WRITE, VERSION_WRITE } from "@server/modules/process/access";
+import { CASE_WRITE, propagateAccess, TASK_WRITE, VERSION_WRITE } from "@server/modules/process/access";
 import { LATE_NOTE } from "@server/modules/process/engine";
 import { openCasesRefusal, WEB_ONLY } from "@server/modules/process/sync";
 import type { Client } from "./helpers";
@@ -252,6 +252,22 @@ describe("upload and linking", () => {
     expect(await push(p.d.client, [{ entity: "process_version", row: { ...v, id: uuidv7() } }])).toMatchObject([{ status: "error" }]);
     const vRev = (await w.o.db.one<{ rev: number }>(`select rev from sm_process_versions where id = $1`, [v.id]))!;
     expect(await push(own, [{ entity: "process_version", row: { ...v, note: "تغییر", updated_at: iso(Date.now() + 5_000) }, base: Number(vRev.rev) }])).toMatchObject([{ status: "error", message: VERSION_WRITE }]);
+  }, 120_000);
+
+  it("access settings reach every case of the process, open or closed, and the rows re-sync", async () => {
+    const open = (await start(w, p.r.userId, PU, { values: { u_amount: "11" } })).case!;
+    await w.k.drain();
+    const ids = (await w.o.db.query<{ id: string; rev: string }>(`select id, rev from sm_process_cases where process_id = $1 order by id`, [PU.process]));
+    expect(ids.length).toBeGreaterThan(1);
+    await p.sd.client.get(`${w.P}/r/process_case/${open}`, 404);
+    const n = await w.o.db.tx((tx) => propagateAccess(tx, w.o.org, PU.process, { managers: [p.sd.userId], manager_groups: [], confidential: true }));
+    expect(n).toBe(ids.length);
+    const after = await w.o.db.query<{ id: string; rev: string; managers: string[]; confidential: boolean }>(`select id, rev, managers, confidential from sm_process_cases where process_id = $1 order by id`, [PU.process]);
+    expect(after.every((c) => c.confidential && c.managers.join() === p.sd.userId)).toBe(true);
+    expect(after.every((c, i) => c.rev !== ids[i].rev)).toBe(true);
+    // the new manager reads them now; nothing changes when nothing differs
+    await p.sd.client.get(`${w.P}/r/process_case/${open}`, 200);
+    expect(await w.o.db.tx((tx) => propagateAccess(tx, w.o.org, PU.process, { managers: [p.sd.userId], manager_groups: [], confidential: true }))).toBe(0);
   }, 120_000);
 
   it("linking is refused while the organisation has open cases", async () => {

@@ -325,7 +325,10 @@ describe("people", () => {
     await act(w, P.a2, await openTask(w, id, "a", P.a2), { outcome: "approved" });
     await w.k.drain();
     expect((await kase(w, id)).progress.a).toMatchObject({ status: "active", waiting: 1 });
-    const r = await act(w, P.d, await openTask(w, id, "a", P.a3), { outcome: "approved" });
+    // the delegation started after the step opened: its task moved to the delegate (F4b's process.delegation)
+    const moved = (await tasks(w, id)).find((t) => t.step_key === "a" && t.status === "open")!;
+    expect([moved.assigned_to, moved.delegated_from]).toEqual([P.d, P.a3]);
+    const r = await act(w, P.d, moved.id, { outcome: "approved" });
     expect((await submission(w, r.submission))?.on_behalf_of).toBe(P.a3);
     await w.k.drain();
     const c = await kase(w, id);

@@ -2,8 +2,8 @@
 // row by the owner, after the link flow checked it has no open case (./link.ts). The push guards of the workflow tables
 // (../access/guards.ts) refuse members' writes to cases, tasks, versions, publish fields and others' submissions; this
 // rule lets the upload through as a second guard: CREATES of finished data — closed cases, their closed tasks and
-// settled submissions, published versions and processes — by an account holding `process_design` approve. Never an
-// update, never a deletion, never an open case or anything of one.
+// settled submissions, published versions and processes — by the organisation's owner holding `process_design`
+// approve. Never an update, never a deletion, never an open case or anything of one, never another member's push.
 import { grantIn } from "@shared/access";
 import type { Queryable } from "../../../db";
 import { subjectOf } from "../../../access";
@@ -31,9 +31,9 @@ function approves(p: PushArgs): boolean {
   }
 }
 
-/** The upload rule (registered with `setUploadRule`): a member's push of finished workflow data it may create. */
+/** The upload rule (registered with `setUploadRule`): the owner's push of finished workflow data they may create. */
 export async function uploadAllowed(p: PushArgs): Promise<boolean> {
-  if (p.prev || isSystemCtx(p.ctx) || !approves(p)) return false;
+  if (p.prev || isSystemCtx(p.ctx) || p.ctx.member?.role !== "owner" || !approves(p)) return false;
   const n = p.next;
   switch (p.def.key) {
     case "process_case":
