@@ -12,6 +12,7 @@ import { normalizeFa } from "../../lib/fa";
 import { Ic, Keys, AiIcon } from "./icons";
 import { readJSON, recentKey, spaceOf, useRelPath, useShellItems, type Recent } from "./model";
 import { SEARCHES } from "../../modules/registry";
+import { confirmLeave } from "../../modules/workflows/admin/forms/leave";
 import { openAssistant } from "../../ai/assistant/bus";
 import { pageContext } from "../../ai/assistant/context";
 import { looksLikeQuestion, suggestionsFor } from "../../ai/assistant/prompts";
@@ -154,7 +155,8 @@ function Palette({ onClose, commands }: { onClose: () => void; commands: Palette
 
   const go = (path: string) => {
     onClose();
-    nav(`/${orgId}${path ? `/${path}` : ""}`);
+    // a page holding unsaved changes asks first (a form designer's draft, a choice list's edits)
+    void confirmLeave().then((ok) => ok && nav(`/${orgId}${path ? `/${path}` : ""}`));
   };
 
   // records: every search a module registered that this member may use (members by name or e-mail today)

@@ -14,6 +14,7 @@ import { toggleAssistant, useAssistantOpen } from "../../ai/assistant/bus";
 import { switchedOff, useAiStatus, useCanAsk } from "../../ai/assistant/useAi";
 import { Ic, Keys, AiIcon } from "./icons";
 import { NotificationBell } from "../../modules/notify/Bell";
+import { confirmLeave } from "../../modules/workflows/admin/forms/leave";
 
 export interface Crumb {
   label: string;
@@ -137,7 +138,9 @@ export function initials(name: string | undefined | null): string {
 function Account() {
   const { me, logout } = useSession();
   const { orgId } = useOrg();
-  const nav = useNavigate();
+  const navigate = useNavigate();
+  // a page holding unsaved changes asks first (a form designer's draft, a choice list's edits)
+  const nav = (to: string) => void confirmLeave().then((ok) => ok && navigate(to));
   const items: MenuProps["items"] = [
     {
       key: "me",

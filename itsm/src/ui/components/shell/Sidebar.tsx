@@ -16,6 +16,7 @@ import { Ic, Keys } from "./icons";
 import { sectionsOf, spaceOf, useStored, type ShellItem } from "./model";
 import { SyncLine, SyncNuqta, useSyncState } from "./sync";
 import { registerLiveTables } from "../../lib/live";
+import { confirmLeave } from "../../modules/workflows/admin/forms/leave";
 
 export const SIDEBAR_W = 244;
 export const SIDEBAR_MIN = 200;
@@ -72,7 +73,9 @@ function initial(name: string) {
 function BizSwitcher({ rail, onNavigate }: { rail?: boolean; onNavigate?: () => void }) {
   const { org, info } = useOrg();
   const { me } = useSession();
-  const nav = useNavigate();
+  const navigate = useNavigate();
+  // a page holding unsaved changes asks first (a form designer's draft, a choice list's edits)
+  const nav = (to: string) => void confirmLeave().then((ok) => ok && navigate(to));
   const role = info.member.title || ROLES[info.member.role as Role]?.title || "";
   const sub = [org.city || org.settings?.city, role].filter(Boolean).join("، ");
   const items: MenuProps["items"] = [
@@ -261,7 +264,9 @@ function Footer({ rail, onSettings, onNavigate, settingsActive }: { rail?: boole
   const sync = useSyncState();
   const { orgId } = useOrg();
   const { meta } = useSession();
-  const nav = useNavigate();
+  const navigate = useNavigate();
+  // a page holding unsaved changes asks first (a form designer's draft, a choice list's edits)
+  const nav = (to: string) => void confirmLeave().then((ok) => ok && navigate(to));
   // on Windows the state opens «نسخهٔ ویندوز» (backup, network and sync)
   const desktop = meta?.mode === "desktop";
   const openDesktop = desktop
