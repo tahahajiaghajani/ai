@@ -6,7 +6,7 @@
 //     required ones marked, «نمایش وقتی…» applied as values change, amounts typed in the organisation's unit, the
 //     files of a «پیوست» field kept here until they are sent with the submission;
 //   · the values of a case by its forms' sections (read-only).
-import { createContext, useContext, useMemo, useRef, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { Tabs } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { applyShowIf, fieldGetter, formValuesDef, formView, isFieldItem, type FieldSource, type FormLayoutV2, type Right } from "@shared/forms/layout";
@@ -111,11 +111,20 @@ export function useMoneyUnit(): MoneyUnit {
 export interface LocalFiles {
   files: Map<string, File>;
   add: (file: File) => FileItem;
+  /** a link that opens a picked file in this window's memory */
+  url: (id: string) => string;
 }
 
-/** A per-form store of the files picked and not yet sent. */
+/** A per-form store of the files picked and not yet sent (their links are let go with the form). */
 export function useLocalFiles(): LocalFiles {
-  const ref = useRef<{ files: Map<string, File>; seq: number }>({ files: new Map(), seq: 0 });
+  const ref = useRef<{ files: Map<string, File>; urls: Map<string, string>; seq: number }>({ files: new Map(), urls: new Map(), seq: 0 });
+  useEffect(() => {
+    const urls = ref.current.urls;
+    return () => {
+      for (const u of urls.values()) URL.revokeObjectURL(u);
+      urls.clear();
+    };
+  }, []);
   return useMemo(
     () => ({
       files: ref.current.files,
@@ -123,6 +132,15 @@ export function useLocalFiles(): LocalFiles {
         const id = `local-${++ref.current.seq}`;
         ref.current.files.set(id, file);
         return { id, name: file.name, size: file.size };
+      },
+      url: (id: string) => {
+        const have = ref.current.urls.get(id);
+        if (have) return have;
+        const file = ref.current.files.get(id);
+        if (!file) return "";
+        const made = URL.createObjectURL(file);
+        ref.current.urls.set(id, made);
+        return made;
       },
     }),
     [],
@@ -191,7 +209,7 @@ export function ProcessForm(p: ProcessFormProps) {
                     files={files}
                     upload={p.local ? async (file) => p.local!.add(file) : undefined}
                     unavailable="پیوست در این صفحه افزوده نمی‌شود"
-                    hrefOf={(fid) => (fid.startsWith("local-") ? "" : attachmentUrl(orgId, fid))}
+                    hrefOf={(fid) => (fid.startsWith("local-") ? (p.local?.url(fid) ?? "") : attachmentUrl(orgId, fid))}
                     status={problem ? "error" : undefined}
                     aria-label={item.label}
                   />
