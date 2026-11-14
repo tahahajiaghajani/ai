@@ -48,6 +48,7 @@ import { slmUi } from "./slm";
 import { workforceUi } from "./workforce";
 import { adminUi } from "./admin";
 import { integrationUi } from "./integration";
+import { discoveryUi } from "./discovery";
 
 /** A sidebar space: «خانه», «تنظیمات», or one a module adds (its key, e.g. "service-desk"). */
 export type SpaceKey = string;
@@ -198,6 +199,7 @@ const UIS: ModuleUi[] = [
   workforceUi,
   adminUi,
   integrationUi,
+  discoveryUi,
 ];
 
 /** In the order of the segmented control. «تنظیمات» is not a segment: the footer's gear opens it. */
