@@ -57,4 +57,17 @@ describe("the desktop-e2e job", () => {
     expect(s).toContain("getAppMetrics()");
     expect(s).toMatch(/report\.json[\s\S]*report\.md[\s\S]*GITHUB_STEP_SUMMARY/);
   });
+
+  it("measures the start the way a person waits for it and proves the first start used the database made at build time", () => {
+    const s = script();
+    // when the main window is first on screen, next to the page being ready behind the splash
+    expect(s).toMatch(/report\.starts\.cold\.shown_ms = await coldShown/);
+    expect(s).toMatch(/report\.starts\.warm\.shown_ms = await warmShown/);
+    // the local server's own start line (src/desktop/server.ts), and a check that the first one came from the template
+    expect(s).toContain("local server on \\S+ \\(database (\\d+) ms( from the template)?, migrations (\\d+) ms, ready (\\d+) ms, process (\\d+) ms\\)");
+    expect(s).toContain('"the first start opens the database made at build time (app.log)"');
+    expect(readFileSync(join(__dirname, "../src/desktop/server.ts"), "utf8")).toContain("from the template");
+    // every file a route needed (code, styles, fonts), apart from the API calls
+    expect(s).toMatch(/staticLog\.push\(\{ phase, path: u\.pathname, ms, failed \}\)/);
+  });
 });

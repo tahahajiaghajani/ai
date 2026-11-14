@@ -7,8 +7,10 @@ import { api, errorText, ApiError } from "../../lib/api";
 import { useSession } from "../../lib/session";
 import { AuthLayout } from "./AuthLayout";
 import { FormAlert, ICON, useBlurValidation, LTR } from "../kit";
+import { Skeleton } from "../../components/display";
 import { APP_NAME } from "@shared/constants";
 import { preloadApp } from "../../lib/preload";
+import { firstSignInWay, signInForm, type SignInWay } from "./signInForm";
 
 // antd wraps this in its own focusable span.ant-input-password-icon (role=button, aria-label), styled in pages.css
 export const passwordIcon = (visible: boolean) => (visible ? <EyeOff {...ICON} aria-hidden /> : <Eye {...ICON} aria-hidden />);
@@ -62,8 +64,12 @@ export default function Login() {
   const options = useQuery({ queryKey: ["auth-options", dir], queryFn: () => api.get<AuthOptions>("/auth/options", { dir }), retry: false, staleTime: 60_000 });
   const directory = options.data?.directory ?? null;
   const sso = options.data?.sso ?? null;
-  const [way, setWay] = useState<"directory" | "local" | null>(null);
-  const current = way ?? (directory ? "directory" : "local");
+  // no form until the server says which ways in are open; then the first answer fixes the form (src/ui/pages/auth/signInForm.ts)
+  const known = !options.isPending;
+  const first = useRef<SignInWay | null>(null);
+  if (known && first.current === null) first.current = firstSignInWay(!!directory);
+  const [way, setWay] = useState<SignInWay | null>(null);
+  const current = signInForm(known, !!directory, way, first.current);
   const [err, setErr] = useState<string | null>(null);
   const [windows, setWindows] = useState<"idle" | "trying">("idle");
   const auto = useRef(false);
@@ -93,9 +99,16 @@ export default function Login() {
 
   if (meta?.first_run) return <Navigate to="/setup" replace />;
   if (me) return <Navigate to={next} replace />;
-  const canSignup = !!meta?.allow_signup && meta.mode === "cloud" && !directory;
+  const canSignup = known && !!meta?.allow_signup && meta.mode === "cloud" && !directory;
   const sources = directory?.sources ?? [];
   const example = sources[0]?.domains.find((d) => !d.includes(".")) ?? "CORP";
+  if (current === null) {
+    return (
+      <AuthLayout title={`ورود به ${APP_NAME}`}>
+        <Skeleton rows={4} />
+      </AuthLayout>
+    );
+  }
   return (
     <AuthLayout title={`ورود به ${APP_NAME}`} subtitle={directory ? "با حساب سازمانی خود وارد شوید." : "با ایمیل و رمز عبورتان وارد شوید."}>
       {err ? <FormAlert>{err}</FormAlert> : null}
@@ -110,7 +123,7 @@ export default function Login() {
           className="mb-4"
           value={current}
           onChange={(v) => {
-            setWay(v as "directory" | "local");
+            setWay(v as SignInWay);
             setErr(null);
           }}
           options={[

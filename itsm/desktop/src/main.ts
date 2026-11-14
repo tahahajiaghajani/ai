@@ -4,9 +4,11 @@
 import { app, BrowserWindow, utilityProcess, ipcMain, shell, dialog, Menu, Tray, nativeImage, nativeTheme, type UtilityProcess } from "electron";
 import { join, isAbsolute } from "node:path";
 import http from "node:http";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, statSync, renameSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, appendFileSync, statSync, renameSync } from "node:fs";
 import { APP_NAME, APP_NAME_EN, APP_TAGLINE } from "../../src/shared/constants";
 import { backendExecArgv } from "../../src/shared/desktop/node-flags";
+import { warmable, warmScript } from "./warm";
 
 const APP_TITLE = APP_NAME;
 /** electron-builder.yml `appId` (taskbar grouping, notifications): an internal identifier, kept when the product is renamed. */
@@ -52,11 +54,18 @@ function writeClientServer(url: string | null) {
 
 /** Window preferences of the main process (kept apart from config.json, which the local server owns). */
 const uiFile = join(dataDir, "window.json");
-function readUi(): { theme?: ThemePref } {
+function readUi(): { theme?: ThemePref; warmed?: string } {
   try {
     return JSON.parse(readFileSync(uiFile, "utf8"));
   } catch {
     return {};
+  }
+}
+function writeUi(patch: { theme?: ThemePref; warmed?: string }) {
+  try {
+    writeFileSync(uiFile, JSON.stringify({ ...readUi(), ...patch }, null, 2));
+  } catch {
+    /* ignore */
   }
 }
 function themePref(): ThemePref {
@@ -384,13 +393,7 @@ function registerIpc() {
     const mode: ThemeMode = t?.mode === "dark" ? "dark" : "light";
     if (nativeTheme.themeSource !== pref) nativeTheme.themeSource = pref;
     BrowserWindow.fromWebContents(e.sender)?.setBackgroundColor(CANVAS[mode]);
-    if (readUi().theme !== pref) {
-      try {
-        writeFileSync(uiFile, JSON.stringify({ ...readUi(), theme: pref }, null, 2));
-      } catch {
-        /* ignore */
-      }
-    }
+    if (readUi().theme !== pref) writeUi({ theme: pref });
   });
   // pageSize: a named paper («A5») or a custom one in microns ({ width, height }: an 80 mm roll, labels)
   ipcMain.handle("itsm:print", async (e, opts: { silent?: boolean; printer?: string; landscape?: boolean; pageSize?: string | { width: number; height: number } } = {}) => {
@@ -452,6 +455,33 @@ function registerIpc() {
     app.relaunch();
     await quit();
   });
+}
+
+/**
+ * Once per build, a while after the window is on screen: the page fills the window's cache with the build's hashed
+ * files (./warm.ts), so a route opened for the first time takes its code from there instead of queueing behind its own
+ * API calls. Not in client mode (another computer's server, maybe another version). The build is told by its file list
+ * (an update with the same version number still has new files).
+ */
+async function warmCache() {
+  const w = win;
+  if (!w || w.isDestroyed()) return;
+  let files: string[] = [];
+  try {
+    files = warmable(readdirSync(join(__dirname, "renderer", "assets")));
+  } catch {
+    return;
+  }
+  const build = createHash("sha256").update(files.join("\n")).digest("hex").slice(0, 16);
+  if (!files.length || readUi().warmed === build) return;
+  try {
+    const t = Date.now();
+    const read = Number(await w.webContents.executeJavaScript(warmScript(files), true));
+    log(`[cache] ${read}/${files.length} files of the build in the window's cache (${Date.now() - t} ms)`);
+    if (read === files.length) writeUi({ warmed: build });
+  } catch {
+    /* the window closed or reloaded: the next start tries again */
+  }
 }
 
 /** GET a local URL with Node's http module (retries while the server warms up). */
@@ -538,6 +568,7 @@ if (!app.requestSingleInstanceLock() && !isSmoke) {
       serverReady = true;
       splashStep(0.7, 0.88, "آماده‌سازی میز کار…", 1.6);
       createWindow(url);
+      win?.once("show", () => setTimeout(() => void warmCache(), 15_000).unref?.());
       if (readConfig().lan?.enabled) createTray();
     } catch (e) {
       splash?.destroy();

@@ -136,6 +136,17 @@ describe("the first start's database made at build time", () => {
     }
   });
 
+  it("refuses a template that would write outside its folder or leave PG_VERSION before the rest", async () => {
+    const { packEntries, templateEntries } = await import("@local/db-template");
+    const v = { name: "PG_VERSION", data: Buffer.from("17\n") };
+    expect(templateEntries(packEntries([{ name: "base", dir: true }, { name: "base/1", data: Buffer.from("x") }, v])).map((e) => e.name)).toEqual(["base", "base/1", "PG_VERSION"]);
+    for (const name of ["../escape", "base/../../escape", "/etc/escape", "C:/escape", "base\\escape", "./x"]) {
+      expect(() => templateEntries(packEntries([{ name, data: Buffer.from("x") }, v])), name).toThrow(/unexpected path/);
+    }
+    expect(() => templateEntries(packEntries([v, { name: "base/1", data: Buffer.from("x") }]))).toThrow(/incomplete/);
+    expect(() => templateEntries(Buffer.from("not brotli"))).toThrow();
+  });
+
   it("a template that does not load leaves the old way: initdb and every migration", async () => {
     const broken = join(root, "broken.tar.br");
     writeFileSync(broken, Buffer.from("not a tarball at all"));
@@ -269,5 +280,34 @@ describe("the app's files in the window's cache", () => {
     } finally {
       await s.close();
     }
+  });
+});
+
+describe("the window's cache filled once per version (desktop/src/main.ts)", () => {
+  it("asks for every hashed file of the build once, two at a time, at low priority, reading each to the end", async () => {
+    const { warmable, warmScript } = await import("../desktop/src/warm");
+    expect(warmable(["index-abc.js", "style-1.css", "font.woff2", "x.js.map", "../evil.js", "a/b.js"])).toEqual(["index-abc.js", "style-1.css"]);
+    const files = Array.from({ length: 9 }, (_, i) => `chunk-${i}.js`);
+    const asked: { url: string; priority: string | undefined }[] = [];
+    let inFlight = 0;
+    let most = 0;
+    let bodies = 0;
+    const fetch = async (url: string, init: { priority?: string }) => {
+      asked.push({ url, priority: init?.priority });
+      inFlight++;
+      most = Math.max(most, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight--;
+      const ok = url !== "/assets/chunk-4.js";
+      return { ok, arrayBuffer: async () => (bodies++, new ArrayBuffer(1)) };
+    };
+    const { runInNewContext } = await import("node:vm");
+    const read = await runInNewContext(warmScript(files), { fetch, Promise, Array, JSON });
+    expect(asked.map((a) => a.url).sort()).toEqual(files.map((f) => `/assets/${f}`).sort());
+    expect(asked.every((a) => a.priority === "low")).toBe(true);
+    expect(most).toBe(2);
+    // a file that is not there is not counted: the version is remembered only when every file was read
+    expect(read).toBe(8);
+    expect(bodies).toBe(8);
   });
 });

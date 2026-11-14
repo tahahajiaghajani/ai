@@ -42,17 +42,19 @@ const C = new Checks("desktop-e2e", join(OUT, "checks.json"));
  * loader; API times as the renderer saw them.
  */
 const BUDGETS = {
-  // first launch after the installation: PGlite's initdb and every migration (19.2 s on the runner, run 43104019774;
-  // 24.6 s in run 43088978809)
-  cold_start_ms: 60_000,
-  // a later launch to the first screen (2.7 s)
-  warm_start_ms: 8_000,
+  // first launch after the installation: the database made at build time (12.6 s on the runner, run 43166238863, most of
+  // it writing its files into %APPDATA%; 19.2–24.6 s with initdb and every migration, runs 43104019774 and 43088978809)
+  cold_start_ms: 30_000,
+  // a later launch to the first screen (2.25 s in run 43166238863; 2.45–2.8 s before)
+  warm_start_ms: 6_000,
   // a route change to content and the API as the renderer saw them, 95th percentile: 1.36 / 1.63 s (administrator) and
   // 1.48 / 0.82 s (member) in run 43104019774 — 10.0 / 8.5 s before the database let the event loop turn during
   // background work (run 43088978809)
   nav_visible_p95_ms: 4_000,
   nav_visible_max_ms: 8_000,
-  api_p95_ms: 3_000,
+  // 0.55 / 0.57 s (administrator / member) in run 43166238863, once the job queue waits for the window's requests;
+  // 1.4 s before
+  api_p95_ms: 2_000,
   // «ثبت درخواست» to the request's page (0.93 / 0.98 s)
   order_ms: 5_000,
   // the bank demo pack «کوچک» (292 s; 236 s before)
@@ -619,7 +621,13 @@ function finish() {
       process_ms: Number(m[5]),
     }));
     if (starts.length && report.starts.cold) report.starts.cold.server = starts[0];
+    // desktop/src/main.ts: «[cache] N/M files of the build in the window's cache (N ms)», once per version
+    const warm = /\[cache\] (\d+)\/(\d+) files of the build in the window's cache \((\d+) ms\)/.exec(text);
+    if (warm) report.cache_warmup = { read: Number(warm[1]), files: Number(warm[2]), ms: Number(warm[3]) };
     if (starts.length > 1 && report.starts.warm) report.starts.warm.server = starts.at(-1);
+    // the installer's database made at build time (src/desktop/db-template.ts): a first start that fell back to initdb
+    // and every migration still works, slowly — this says so
+    if (report.starts.cold) C.check(report.starts.cold.server?.template === true, "the first start opens the database made at build time (app.log)", JSON.stringify(report.starts.cold.server ?? null));
     report.database.log_prepared = (text.match(/database log prepared.*/g) ?? []).slice(-2);
   }
   // budgets
