@@ -43,6 +43,7 @@ export const FEED_MESSAGES = {
   fileFailed: (name: string, why: string) => `فایل «${name}» خوانده نشد: ${why}`,
   refused: (name: string, why: string) => `فایل «${name}» پذیرفته نشد: ${why}`,
   vanished: (name: string) => `فایل «${name}» در میانهٔ خواندن از پوشه برداشته شد؛ این گذر تصویر کامل نیست`,
+  busy: (name: string) => `فایل «${name}» اکنون باز نمی‌شود (برنامهٔ دیگری آن را در دست دارد)؛ کاریز دوباره تلاش می‌کند`,
   urlTooLarge: "فایل بزرگ‌تر از ۲۰ مگابایت است؛ آن را در چند فایل کوچک‌تر بدهید یا پوشهٔ ورودی سرور را به کار ببرید",
   summary: (format: string, rows: number) => `فایل ${format.toUpperCase()} با ${faDigits(rows)} ردیف`,
 } as const;
@@ -226,6 +227,8 @@ interface FeedCursor {
   n: number;
   /** the content changed or went away under the pass: not the whole picture */
   partial?: boolean;
+  /** the file was paged to its end: the next call moves it to processed/ (after the runner kept its last page) */
+  read?: boolean;
 }
 
 function cursorOf(c: Cursor | null): FeedCursor | null {
@@ -239,6 +242,7 @@ function cursorOf(c: Cursor | null): FeedCursor | null {
     ...(x.t0 !== undefined && x.t0 !== null && Number.isFinite(t0) ? { t0 } : {}),
     n: Math.max(0, Math.floor(Number(x.n) || 0)),
     ...(x.partial === true ? { partial: true } : {}),
+    ...(x.read === true ? { read: true } : {}),
   };
 }
 
@@ -347,6 +351,8 @@ async function loadClaimed(c: ConnCtx, o: FeedOptions, dir: string, name: string
     return entry;
   } catch (e) {
     if (e instanceof FeedError || e instanceof ConnectorError) return e.message;
+    // there but not to be opened now (on Windows an antivirus or the writer may hold it): the page is tried again
+    if ((e as NodeJS.ErrnoException)?.code) throw new ConnectorError("network", FEED_MESSAGES.busy(ownName(name)));
     throw e;
   }
 }
@@ -377,6 +383,13 @@ async function folderPage(c: ConnCtx, o: FeedOptions, cur: FeedCursor | null): P
   }
   const file = state.file!;
   const afterFile = (): Cursor => (delta && state.n < MAX_FEED_FILES ? toCursor({ t0: state.t0, n: state.n }) : null);
+  // the runner kept the file's last page with this cursor: only now does the file leave working/ (a pass killed before
+  // that finds it there again)
+  if (state.read) {
+    await finishClaimed(dir, file);
+    cache.delete(keyOf(c, o, file));
+    return { records: [], next: afterFile(), complete: !delta && !state.partial, rejected: notes };
+  }
   const loaded = await loadClaimed(c, o, dir, file);
   if (loaded === null) {
     notes.push({ message: FEED_MESSAGES.vanished(ownName(file)) });
@@ -393,13 +406,10 @@ async function folderPage(c: ConnCtx, o: FeedOptions, cur: FeedCursor | null): P
   for (const f of older) await supersedeDrop(dir, f);
   const partial = !!state.partial || (state.sha !== undefined && state.sha !== loaded.sha);
   const page = slice(loaded, o, state.at);
-  const complete = !delta && !partial;
-  if (page.end < loaded.rows.length) {
-    return { records: page.records, raw: page.raw, total: loaded.rows.length, rejected: notes, complete, next: toCursor({ ...state, sha: loaded.sha, at: page.end, partial }) };
-  }
-  await finishClaimed(dir, file);
-  cache.delete(keyOf(c, o, file));
-  return { records: page.records, raw: page.raw, total: loaded.rows.length, rejected: notes, complete, next: afterFile() };
+  return {
+    records: page.records, raw: page.raw, total: loaded.rows.length, rejected: notes, complete: !delta && !partial,
+    next: toCursor({ ...state, sha: loaded.sha, at: page.end, partial, read: page.end >= loaded.rows.length }),
+  };
 }
 
 // ---------------------------------------------------------------------------------------------------------------

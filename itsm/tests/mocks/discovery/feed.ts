@@ -64,7 +64,7 @@ export class FeedMock {
     this.requests.push(url.pathname);
     if (this.token && req.headers.get("x-api-key") !== this.token) return new Response("unauthorized", { status: 401 });
     const f = this.files[url.pathname];
-    return f ? new Response(f.body, { status: 200, headers: { "content-type": f.type } }) : new Response("not found", { status: 404 });
+    return f ? new Response(typeof f.body === "string" ? f.body : Buffer.from(f.body), { status: 200, headers: { "content-type": f.type } }) : new Response("not found", { status: 404 });
   };
 }
 
