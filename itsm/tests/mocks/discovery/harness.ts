@@ -2,14 +2,13 @@
 // Response`, served two ways: in process behind a connector's address (`mountMocks`: requests to https://<host>/…
 // reach the host's handler through the connector transport, so every check the connector makes above the transport
 // still applies — names resolve to a documentation address the web version counts as public), or on a real socket on
-// 127.0.0.1 (`serve`, plain http; `serveTls`, https with a certificate of the fixture CA in tests/fixtures/discovery-ca)
+// 127.0.0.1 (`serve`, plain http; `serveTls`, https with a certificate of the fixture CA, tests/fixtures/discovery-ca)
 // for clients that need one: the TLS tests, the relay, the bank simulation.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
-import { readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
-import { join } from "node:path";
 import { discoveryNet, resetDiscoveryNet, setDiscoveryTransport } from "@server/modules/discovery/net";
+import { fixtureCa } from "../../fixtures/discovery-ca";
 
 export type Handler = (req: Request) => Response | Promise<Response>;
 
@@ -18,13 +17,6 @@ export const json = (body: unknown, status = 200, headers: Record<string, string
 
 /** The address a mock tool's name resolves to while mounted (TEST-NET-3: public under the web version's rules). */
 export const MOCK_ADDRESS = "203.0.113.10";
-
-/** The fixture CA (tests/fixtures/discovery-ca, made by its make.sh): a private root, a tool certificate, an unrelated root. */
-export const FIXTURE_CA = (() => {
-  const dir = join(__dirname, "..", "..", "fixtures", "discovery-ca");
-  const read = (f: string) => readFileSync(join(dir, f), "utf8");
-  return { ca: read("ca.pem"), cert: read("tool.pem"), key: read("tool.key"), otherCa: read("other-ca.pem"), host: "tool.bank.test" };
-})();
 
 export interface MountOptions {
   /** what a name resolves to (default: MOCK_ADDRESS for every name) */
@@ -77,11 +69,11 @@ export async function serve(handler: Handler): Promise<{ url: string; port: numb
   return { url: `http://127.0.0.1:${port}`, port, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
 }
 
-/** Serve a handler over TLS on 127.0.0.1 (a free port) with the fixture CA's certificate for tool.bank.test. */
+/** Serve a handler over TLS on 127.0.0.1 (a free port) with a certificate of the fixture CA (default: tool.bank.test). */
 export async function serveTls(handler: Handler, tlsOpts: { cert?: string; key?: string } = {}): Promise<{ port: number; requests: { host: string | undefined; authorization: string | undefined }[]; close(): Promise<void> }> {
   const requests: { host: string | undefined; authorization: string | undefined }[] = [];
   const inner = nodeHandler(handler, "https");
-  const server = createHttpsServer({ cert: tlsOpts.cert ?? FIXTURE_CA.cert, key: tlsOpts.key ?? FIXTURE_CA.key }, (req, res) => {
+  const server = createHttpsServer({ cert: tlsOpts.cert ?? fixtureCa().tool.pem, key: tlsOpts.key ?? fixtureCa().tool.key }, (req, res) => {
     requests.push({ host: req.headers.host, authorization: req.headers.authorization });
     void inner(req, res);
   });

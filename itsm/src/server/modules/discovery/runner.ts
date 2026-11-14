@@ -282,6 +282,22 @@ function ireCtx(sys: Ctx) {
   return { ctx, set: (fn: typeof after) => void (after = fn) };
 }
 
+/**
+ * Every occurrence of the connector's own secrets in a value, masked «***» (§14.3, defence in depth: a tool that
+ * echoes a key in a record, an error or a raw element never gets it stored or shown).
+ */
+export function maskSecrets<T>(v: T, secrets: readonly (string | null | undefined)[]): T {
+  const known = secrets.filter((s): s is string => typeof s === "string" && s.length >= 4);
+  if (!known.length) return v;
+  const walk = (x: unknown, depth: number): unknown => {
+    if (typeof x === "string") return known.reduce((s, k) => (s.includes(k) ? s.split(k).join("***") : s), x);
+    if (depth > 20 || x === null || typeof x !== "object") return x;
+    if (Array.isArray(x)) return x.map((y) => walk(y, depth + 1));
+    return Object.fromEntries(Object.entries(x as Record<string, unknown>).map(([k, y]) => [k, walk(y, depth + 1)]));
+  };
+  return walk(v, 0) as T;
+}
+
 const asRecord = (v: unknown): DiscoveredRecord => (v && typeof v === "object" ? (v as DiscoveredRecord) : ({ external_id: "", kind: "other", name: "" } as DiscoveredRecord));
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -320,7 +336,10 @@ export async function runPull(sys: Ctx, connectorId: string, jctx: Pick<JobConte
   let cursor = run.cursor as RunCursor;
   if (opts.reapply && !cursor.reapply) cursor = { ...cursor, reapply: true };
 
-  const fail = async (message: string) => {
+  /** The connector's own secrets once read: masked wherever a tool might echo them (§14.3). */
+  let known: (string | null)[] = [];
+  const fail = async (raw: string) => {
+    const message = maskSecrets(raw, known);
     await finishRunSql(db, org, run.id, "failed", { cursor, error: message, complete: false });
     // the owner hears of a tool that keeps failing, once, when the third pass in a row fails (§7.5)
     if ((await consecutiveFailures(db, org, connectorId)) === FAILURES_NOTICE) await noticeFailures(db, org, connectorId, message).catch(() => false);
@@ -358,6 +377,7 @@ export async function runPull(sys: Ctx, connectorId: string, jctx: Pick<JobConte
     await fail(e.message);
     return;
   }
+  known = [cctx.secret, cctx.secret2];
   const wrapped = ireCtx(sys);
   const retryHours = Math.max(1, Number(conn.retry_hours ?? 24));
   const listingIsContact = options.listing_is_contact === true;
@@ -549,8 +569,9 @@ export async function runPull(sys: Ctx, connectorId: string, jctx: Pick<JobConte
     const warnings: RunWarning[] = [];
     const byId = new Map<string, DiscoveredRecord>();
     let rejected = 0;
-    for (const raw of page.records ?? []) {
-      let n = normaliseRecord(raw, { now });
+    for (const element of page.records ?? []) {
+      // a tool that echoes the connector's own key never gets it stored (secret-shaped keys go in normalising)
+      let n = normaliseRecord(maskSecrets(element, known), { now });
       if (n.record && kind.kind !== "rest" && Object.keys(cctx.connector.mapping).length) n = normaliseRecord(applyRenames(n.record, cctx.connector.mapping), { now });
       if (!n.record) {
         rejected++;
@@ -564,7 +585,7 @@ export async function runPull(sys: Ctx, connectorId: string, jctx: Pick<JobConte
     }
     for (const x of page.rejected ?? []) {
       rejected++;
-      if (warnings.length < 20) warnings.push({ code: "record", external_id: x.external_id, message: x.message });
+      if (warnings.length < 20) warnings.push({ code: "record", external_id: x.external_id, message: maskSecrets(x.message, known) });
     }
     const same = JSON.stringify(page.next ?? null) === JSON.stringify(cursor.kind_cursor ?? null) && page.next !== null;
     const overflow = cursor.page + 1 >= MAX_PAGES;
@@ -822,10 +843,12 @@ export async function previewConnector(sys: Ctx, connectorId: string, draft: Pre
     const rows: PreviewRow[] = [];
     const ready: { at: number; record: DiscoveredRecord }[] = [];
     const shown = Math.max(1, Math.min(MAX_PREVIEW_ROWS, Math.floor(limit) || 20));
+    const known = [cctx.secret, cctx.secret2];
     (page.records ?? []).slice(0, shown).forEach((raw, i) => {
-      let n = normaliseRecord(raw, { now });
+      let n = normaliseRecord(maskSecrets(raw, known), { now });
       if (n.record && kind.kind !== "rest" && Object.keys(cctx.connector.mapping).length) n = normaliseRecord(applyRenames(n.record, cctx.connector.mapping), { now });
-      const element = page.raw?.[i] !== undefined ? redact(page.raw[i]) : undefined;
+      // the tool's own element: secret-shaped keys masked, and the connector's own keys wherever they appear
+      const element = page.raw?.[i] !== undefined ? maskSecrets(redact(page.raw[i]), known) : undefined;
       if (!n.record) {
         rows.push({ external_id: "", name: "", class: "", values: {}, attrs: {}, action: "rejected", message: n.error ?? null, warnings: n.warnings, raw: element });
         return;
