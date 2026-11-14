@@ -19,12 +19,6 @@
   color: var(--ds-text-2);
   max-inline-size: 72ch;
 }
-.wfu-no {
-  font-family: var(--ds-font-mono);
-  font-size: 12px;
-  color: var(--ds-text-2);
-  white-space: nowrap;
-}
 .wfu-open {
   color: var(--ds-text);
   font-weight: var(--ds-weight-medium);
@@ -369,6 +363,14 @@ a.wfu-card:focus-visible {
   background: var(--ds-accent);
   box-shadow: 0 0 0 3px var(--ds-accent-tint);
 }
+.wfu-ch-me {
+  padding-inline: 6px;
+  border: 1px solid var(--ds-accent-border);
+  border-radius: var(--ds-radius-pill);
+  background: var(--ds-accent-tint);
+  color: var(--ds-accent-text);
+  font-size: 11px;
+}
 .wfu-dl {
   display: grid;
   gap: 10px;
@@ -619,9 +621,10 @@ a.wfu-card:focus-visible {
     position: sticky;
     inset-block-end: 0;
     margin: 0;
-    padding: 6px 0;
+    padding: 8px 0;
+    border: 0;
+    border-block-start: 1px solid var(--ds-line);
     border-radius: 0;
-    box-shadow: var(--ds-shadow-e2);
   }
   .wfu-actionbar .ant-btn {
     min-block-size: 44px;

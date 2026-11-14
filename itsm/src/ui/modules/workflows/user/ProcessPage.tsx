@@ -13,6 +13,7 @@ import { useOrg } from "../../../lib/org";
 import { useIsPhone } from "../../../lib/hooks";
 import { Chip, EmptyState, Loader } from "../../../components/display";
 import { relTime } from "../../../records/model/activity";
+import { RecordNo } from "../../../records/fields/display";
 import { ProcessCanvas, StepLegend, StepList } from "../kit";
 import { USER_KEYS, userApi, type ProcessView, type StepView } from "./api";
 import { actionLabel, processMarks } from "./model";
@@ -46,7 +47,7 @@ function StepQueue({ view, step, onStart }: { view: ProcessView; step: StepView;
             <li key={t.task_id}>
               <Link to={wf.to(wf.paths.step(t.case_id, t.task_id))} className="wfu-queue-i">
                 <span className="wfu-queue-t">
-                  {t.number ? <bdi className="ltr wfu-no">{t.number}</bdi> : null}
+                  {t.number ? <RecordNo no={t.number} /> : null}
                   <span>{t.title || t.number}</span>
                 </span>
                 <span className="wfu-queue-m">

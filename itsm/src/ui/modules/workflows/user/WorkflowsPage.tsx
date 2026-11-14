@@ -21,6 +21,7 @@ import { useIsPhone } from "../../../lib/hooks";
 import { Chip, EmptyState, Loader } from "../../../components/display";
 import { DateRangeChip, FilterChip, ToggleChip } from "../../../components/inputs";
 import { relTime } from "../../../records/model/activity";
+import { RecordNo } from "../../../records/fields/display";
 import { USER_KEYS, userApi, type CaseListRow, type DoneRow, type Inbox, type MyProcess } from "./api";
 import {
   TABS, actionLabel, caseFiltersOf, currentText, filtered, inboxRowView, nameOf, outcomeWord, startable, tabOf, waitingText, withCaseFilter, type InboxRowView, type Tab,
@@ -61,7 +62,7 @@ function InboxCard({ v }: { v: InboxRowView }) {
     <li>
       <Link to={wf.to(v.link)} className="wfu-card wfu-inbox-card">
         <span className="wfu-card-h">
-          {v.number ? <bdi className="ltr wfu-no">{v.number}</bdi> : null}
+          {v.number ? <RecordNo no={v.number} /> : null}
           {v.kind ? <Chip tone="info">{v.kind}</Chip> : null}
           {v.due ? <Chip tone={v.due.tone === "neutral" ? "neutral" : v.due.tone === "warning" ? "warning" : "danger"}>{v.due.text}</Chip> : null}
         </span>
@@ -123,7 +124,7 @@ function InboxTab({ inbox }: { inbox: Inbox }) {
           dataSource={rows}
           className="wfu-table"
           columns={[
-            { key: "no", title: "شماره", width: 130, render: (_, v) => (v.number ? <bdi className="ltr wfu-no">{v.number}</bdi> : "—") },
+            { key: "no", title: "شماره", width: 130, render: (_, v) => (v.number ? <RecordNo no={v.number} /> : "—") },
             {
               key: "title",
               title: "عنوان",
@@ -279,7 +280,7 @@ function CasesTab({ processes }: { processes: MyProcess[] }) {
             <li key={r.id}>
               <Link to={wf.to(wf.paths.kase(r.id))} className="wfu-card">
                 <span className="wfu-card-h">
-                  {r.number ? <bdi className="ltr wfu-no">{r.number}</bdi> : null}
+                  {r.number ? <RecordNo no={r.number} /> : null}
                   <CaseState state={r.state} paused={r.paused_at} />
                 </span>
                 <span className="wfu-card-t">{r.title || r.number}</span>
@@ -300,7 +301,7 @@ function CasesTab({ processes }: { processes: MyProcess[] }) {
           dataSource={rows}
           className="wfu-table"
           columns={[
-            { key: "no", title: "شماره", width: 130, render: (_, r) => (r.number ? <bdi className="ltr wfu-no">{r.number}</bdi> : "—") },
+            { key: "no", title: "شماره", width: 130, render: (_, r) => (r.number ? <RecordNo no={r.number} /> : "—") },
             {
               key: "title",
               title: "عنوان",
@@ -346,7 +347,7 @@ function DoneTab() {
           <li key={r.id}>
             <Link to={wf.to(wf.paths.kase(r.case_id))} className="wfu-card">
               <span className="wfu-card-h">
-                {r.number ? <bdi className="ltr wfu-no">{r.number}</bdi> : null}
+                {r.number ? <RecordNo no={r.number} /> : null}
                 <Chip tone={r.outcome === "rejected" ? "danger" : r.outcome === "returned" ? "warning" : "in"}>{outcomeWord(r.outcome) || actionLabel(r.action)}</Chip>
               </span>
               <span className="wfu-card-t">{r.title || r.number}</span>
@@ -369,7 +370,7 @@ function DoneTab() {
       dataSource={rows}
       className="wfu-table"
       columns={[
-        { key: "no", title: "شماره", width: 130, render: (_, r) => (r.number ? <bdi className="ltr wfu-no">{r.number}</bdi> : "—") },
+        { key: "no", title: "شماره", width: 130, render: (_, r) => (r.number ? <RecordNo no={r.number} /> : "—") },
         {
           key: "title",
           title: "عنوان",

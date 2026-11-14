@@ -22,6 +22,7 @@ import { useMediaQuery, useNotify } from "../../../lib/hooks";
 import { cx, Note } from "../../../components/blocks";
 import { Chip, EmptyState, Loader } from "../../../components/display";
 import { relTime } from "../../../records/model/activity";
+import { RecordNo } from "../../../records/fields/display";
 import { RecordMarkdown } from "../../../records";
 import { useMe, useSchema } from "../../../records/data/hooks";
 import { authorityHere } from "../admin/hub/model";
@@ -44,7 +45,7 @@ function Channel({ detail }: { detail: CaseDetail }) {
         <li key={s.key} className={cx("wfu-ch", `is-${s.state}`)} aria-current={s.state === "current" || s.state === "mine" ? "step" : undefined}>
           <span className="wfu-ch-dot" aria-hidden />
           <span className="wfu-ch-t">{s.label}</span>
-          <span className="sr-only">{s.state === "done" ? "انجام‌شده" : s.state === "mine" ? "نوبت شما" : s.state === "current" ? "در جریان" : "بعدی"}</span>
+          {s.state === "mine" ? <span className="wfu-ch-me">نوبت شما</span> : <span className="sr-only">{s.state === "done" ? "انجام‌شده" : s.state === "current" ? "در جریان" : "بعدی"}</span>}
         </li>
       ))}
     </ol>
@@ -284,15 +285,25 @@ export default function CasePage() {
   if (stepOpen && !wide) {
     return (
       <div className="wfu-page wfu-steppage">
-        <Head title={c.title ?? c.number ?? "پرونده"} sub={[c.number, stepOfText(counter.at, counter.of)].filter(Boolean).join(" · ")} back={{ to: caseHref, label: "پرونده" }} />
+        <Head
+          title={c.title ?? c.number ?? "پرونده"}
+          sub={
+            <span className="wfu-sub">
+              <RecordNo no={c.number} />
+              {counter.of ? <span>{stepOfText(counter.at, counter.of)}</span> : null}
+            </span>
+          }
+          back={{ to: caseHref, label: "پرونده" }}
+        />
         {step ? <StepPanel detail={detail} step={step} authority={authority} onDone={closeStep} /> : <EmptyState title="این مرحله دیگر با شما نیست" description="شاید پیش‌تر انجام شده یا به کس دیگری سپرده شده باشد." />}
       </div>
     );
   }
   const sub = (
     <span className="wfu-sub">
-      {c.number ? <bdi className="ltr">{c.number}</bdi> : null}
+      {c.number ? <RecordNo no={c.number} /> : null}
       {c.started_at ? <span>{`آغاز ${relTime(c.started_at)}`}</span> : null}
+      {!wide && open && counter.of ? <span>{stepOfText(counter.at, counter.of)}</span> : null}
       <CaseState state={c.state} paused={c.paused_at} />
     </span>
   );

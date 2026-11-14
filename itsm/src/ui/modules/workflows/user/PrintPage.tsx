@@ -10,6 +10,7 @@ import { formatJalaliDateTime } from "@shared/jalali";
 import { useOrg } from "../../../lib/org";
 import { PrintFoot, PrintHead } from "../../../components/blocks";
 import { EmptyState, Loader } from "../../../components/display";
+import { RecordNo } from "../../../records/fields/display";
 import { USER_KEYS, userApi } from "./api";
 import { Head, useWf } from "./parts";
 
@@ -45,7 +46,7 @@ export default function PrintPage() {
           <div>
             <dt>شماره</dt>
             <dd>
-              <bdi className="ltr">{c.number ?? "—"}</bdi>
+              {c.number ? <RecordNo no={c.number} /> : "—"}
             </dd>
           </div>
           <div>
