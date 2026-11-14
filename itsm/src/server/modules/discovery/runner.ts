@@ -260,7 +260,7 @@ export async function connCtx(sys: Ctx, row: Row, kind: ConnectorKind, options: 
 // ---------------------------------------------------------------------------------------------------------------
 // One reconciliation call, atomic with its bookkeeping
 
-interface Candidate {
+export interface Candidate {
   id: string;
   external_id: string;
   data: DiscoveredRecord;
@@ -268,7 +268,7 @@ interface Candidate {
 }
 
 /** A system context whose write runs `after` in the same transaction as the engine's writes (one per slice). */
-function ireCtx(sys: Ctx) {
+export function ireCtx(sys: Ctx) {
   let after: ((tx: Tx, out: IreResult) => Promise<void>) | null = null;
   const ctx: Ctx = {
     ...sys,
@@ -299,6 +299,47 @@ export function maskSecrets<T>(v: T, secrets: readonly (string | null | undefine
 }
 
 const asRecord = (v: unknown): DiscoveredRecord => (v && typeof v === "object" ? (v as DiscoveredRecord) : ({ external_id: "", kind: "other", name: "" } as DiscoveredRecord));
+
+/**
+ * The engine's answer for items, written to them in the engine's own transaction (§7.4): state, CI, asset, how they
+ * matched, the message, the de-duplication task, when they were reconciled and when an unlinked one is tried again —
+ * then their differences with the asset register (§8.3), in a savepoint whose failure is logged and never fails the
+ * call. Shared by the pass and the queue's «ساخت پیکربندی».
+ */
+export async function writeItemResults(tx: Tx, sys: Ctx, connectorId: string, group: Pick<Candidate, "id" | "data">[], out: IreResult, sent: IreItem[], retryHours: number): Promise<void> {
+  const org = sys.org.id;
+  const retryAt = new Date(Date.now() + retryHours * 3600_000).toISOString();
+  const updates = out.results.map((r) => {
+    const c = group[r.index];
+    const base = { id: c.id, matched_by: r.matched_by ?? null, message: r.message ? scrubSecrets(String(r.message)).slice(0, 500) : null };
+    if (r.action === "created" || r.action === "updated" || r.action === "unchanged") return { ...base, state: "linked", ci_id: r.ci_id, keep_ci: false, dedup_task_id: null, retry_at: null };
+    if (r.action === "duplicate") return { ...base, state: "duplicate", ci_id: null, keep_ci: false, dedup_task_id: r.dedup_task_id ?? null, retry_at: retryAt };
+    if (r.action === "unmatched") return { ...base, state: "unmatched", ci_id: null, keep_ci: false, dedup_task_id: null, retry_at: retryAt };
+    return { ...base, state: "error", ci_id: null, keep_ci: true, dedup_task_id: null, retry_at: retryAt };
+  });
+  await tx.query(
+    `update sm_discovery_items t set
+       state = x.state,
+       ci_id = case when x.keep_ci then t.ci_id else x.ci_id end,
+       asset_id = case when x.state = 'linked' then (select a.id from sm_assets a where a.org_id = t.org_id and a.ci_id = x.ci_id and a.deleted_at is null limit 1) else t.asset_id end,
+       matched_by = x.matched_by, message = x.message, dedup_task_id = x.dedup_task_id,
+       reconciled_at = now(), retry_at = x.retry_at, updated_at = now()
+     from jsonb_to_recordset($3::jsonb) as x(id uuid, state text, ci_id uuid, keep_ci boolean, matched_by text, message text, dedup_task_id uuid, retry_at timestamptz)
+     where t.org_id = $1 and t.connector_id = $2 and t.id = x.id`,
+    [org, connectorId, JSON.stringify(updates)],
+  );
+  // what the tool says and the asset register holds differently (§8.3): the queue's «ناهمخوانی», with the CI — in its
+  // own savepoint: a failure here is logged and never fails the reconciliation
+  await savepoint(tx, () =>
+    recordMismatches(tx, org, out.results.map((r) => {
+      const linked = r.action === "created" || r.action === "updated" || r.action === "unchanged";
+      return { itemId: group[r.index].id, ciId: linked ? r.ci_id : null, record: group[r.index].data, skipped: r.skipped, sent: sent[r.index] };
+    })),
+  ).catch((e) => {
+    if (isTransientDbError(e)) throw e;
+    sys.cfg.log?.warn?.("discovery mismatches not recorded", { connector: connectorId, error: scrubSecrets(String((e as Error)?.message ?? e)) });
+  });
+}
 
 // ---------------------------------------------------------------------------------------------------------------
 // The pass
@@ -411,51 +452,23 @@ export async function runPull(sys: Ctx, connectorId: string, jctx: Pick<JobConte
       });
       const done: { next: RunCursor | null } = { next: null };
       wrapped.set(async (tx, out) => {
-        const retryAt = new Date(Date.now() + retryHours * 3600_000).toISOString();
         const delta: Counters = {};
         const add = (k: keyof Counters, n = 1) => (delta[k] = (delta[k] ?? 0) + n);
         const rows: RunCursor["rows"] = [];
-        const updates = out.results.map((r) => {
+        for (const r of out.results) {
           const c = group[r.index];
-          const message = r.message ? scrubSecrets(String(r.message)).slice(0, 500) : null;
           if (why === "new" || why === "retry" || why === "reapply") {
             if (r.action === "created") add("created");
             else if (r.action === "updated") add("updated");
             else if (r.action === "unmatched") add("unmatched");
             else if (r.action === "duplicate") add("duplicates");
             else if (r.action !== "unchanged") add("failed");
-            if (r.action !== "unchanged") rows.push({ external_id: c.external_id, action: r.action, ci_id: r.ci_id ?? null, number: r.number ?? null, message });
+            if (r.action !== "unchanged") rows.push({ external_id: c.external_id, action: r.action, ci_id: r.ci_id ?? null, number: r.number ?? null, message: r.message ? scrubSecrets(String(r.message)).slice(0, 500) : null });
           } else if (r.action === "error" || r.action === "skipped") add("failed");
-          const base = { id: c.id, matched_by: r.matched_by ?? null, message };
-          if (r.action === "created" || r.action === "updated" || r.action === "unchanged") return { ...base, state: "linked", ci_id: r.ci_id, keep_ci: false, dedup_task_id: null, retry_at: null };
-          if (r.action === "duplicate") return { ...base, state: "duplicate", ci_id: null, keep_ci: false, dedup_task_id: r.dedup_task_id ?? null, retry_at: retryAt };
-          if (r.action === "unmatched") return { ...base, state: "unmatched", ci_id: null, keep_ci: false, dedup_task_id: null, retry_at: retryAt };
-          return { ...base, state: "error", ci_id: null, keep_ci: true, dedup_task_id: null, retry_at: retryAt };
-        });
+        }
         if (why === "refresh") add("refreshed", group.length);
         if (why === "retry") add("retried", group.length);
-        await tx.query(
-          `update sm_discovery_items t set
-             state = x.state,
-             ci_id = case when x.keep_ci then t.ci_id else x.ci_id end,
-             asset_id = case when x.state = 'linked' then (select a.id from sm_assets a where a.org_id = t.org_id and a.ci_id = x.ci_id and a.deleted_at is null limit 1) else t.asset_id end,
-             matched_by = x.matched_by, message = x.message, dedup_task_id = x.dedup_task_id,
-             reconciled_at = now(), retry_at = x.retry_at, updated_at = now()
-           from jsonb_to_recordset($3::jsonb) as x(id uuid, state text, ci_id uuid, keep_ci boolean, matched_by text, message text, dedup_task_id uuid, retry_at timestamptz)
-           where t.org_id = $1 and t.connector_id = $2 and t.id = x.id`,
-          [org, connectorId, JSON.stringify(updates)],
-        );
-        // what the tool says and the asset register holds differently (§8.3): the queue's «ناهمخوانی», with the CI — in
-        // its own savepoint: a failure here is logged and never fails the reconciliation
-        await savepoint(tx, () =>
-          recordMismatches(tx, org, out.results.map((r) => {
-            const linked = r.action === "created" || r.action === "updated" || r.action === "unchanged";
-            return { itemId: group[r.index].id, ciId: linked ? r.ci_id : null, record: group[r.index].data, skipped: r.skipped, sent: ireItems[r.index] };
-          })),
-        ).catch((e) => {
-          if (isTransientDbError(e)) throw e;
-          sys.cfg.log?.warn?.("discovery mismatches not recorded", { connector: connectorId, error: scrubSecrets(String((e as Error)?.message ?? e)) });
-        });
+        await writeItemResults(tx, sys, connectorId, group, out, ireItems, retryHours);
         crashPoint(`ire:${why}`);
         const changed = (delta.created ?? 0) + (delta.updated ?? 0) + (delta.duplicates ?? 0) + (why === "refresh" || why === "parents" ? 0 : (delta.failed ?? 0));
         done.next = { ...cursor, changed: cursor.changed + changed, rows: [...cursor.rows, ...rows].slice(0, MAX_IMPORT_ROWS) };
