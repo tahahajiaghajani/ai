@@ -11,9 +11,9 @@
 //   discovery.status       a status pass (DA2's status.ts)
 //   discovery.stale        the contact ladder (stale.ts): after a complete pass, after «پذیرش اندازهٔ تازه», and daily
 //   discovery.itam         assets for new devices (itamfeed.ts, §11.1): after every completed pass and daily, while on
-// DA2 adds discovery.push_batch and discovery.device_apply. At most two discovery jobs of an
-// organisation work at once (§7.1): the others come back in about 30 seconds. Every connector job ensures the sweep
-// (§7.2: a sweep lost with a backup restore comes back with the next job).
+// discovery.push_batch and the pushed status (push.ts) and discovery.device_apply (status.ts) register with their
+// modules. At most two discovery jobs of an organisation work at once (§7.1): the others come back in about 30
+// seconds. Every connector job ensures the sweep (§7.2: a sweep lost with a backup restore comes back with the next job).
 import type { RunTrigger } from "@shared/discovery/types";
 import type { ServerConfig } from "../../context";
 import type { Queryable } from "../../db";

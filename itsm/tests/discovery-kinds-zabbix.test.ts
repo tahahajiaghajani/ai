@@ -350,5 +350,13 @@ describe("a Zabbix pass through the runner (design A §7)", () => {
     expect(items[1].status).toBe("warning");
     const ci = await w.one(`select class, serial_number, ip_address, hostname from sm_cis where org_id = $1 and id = $2`, [w.e.org, items[0].ci_id]);
     expect(ci).toMatchObject({ class: "server", serial_number: "SN-10100", ip_address: "10.20.0.1", hostname: "srv10100" });
+
+    // the status job the pass queued reads this kind's status call (design A §9): ICMP on the first host stops
+    // answering, so its CI is «قطع»; the disk trigger's host stays «هشدار»
+    m.items.find((it) => it.hostid === "10100" && it.key_ === "icmpping")!.lastvalue = "0";
+    await w.drain();
+    expect(await w.one(`select state from sm_discovery_runs where connector_id = $1 and lane = 'status'`, [c.id])).toMatchObject({ state: "completed" });
+    const monitor = async (ciId: string) => (await w.one(`select monitor_status from sm_discovery_states where target_table = 'ci' and target_id = $1 and deleted_at is null`, [ciId]))?.monitor_status;
+    expect([await monitor(items[0].ci_id), await monitor(items[1].ci_id), await monitor(items[2].ci_id)]).toEqual(["down", "warning", "up"]);
   });
 });
