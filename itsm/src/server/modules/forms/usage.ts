@@ -42,11 +42,27 @@ export async function formUsage(q: Queryable, orgId: string, form: { id: string;
   return (await formsUsage(q, orgId, [form])).get(form.id)!;
 }
 
-/** F1's usage source: the forms that use a library field (their names). */
-export const formsUsingField: FieldUsageSource = async (q, orgId, field) => {
-  const rows = await q.query<{ name: string }>(
-    `select name from sm_forms where org_id = $1 and deleted_at is null and fields @> jsonb_build_array($2::text) order by name`,
-    [orgId, field.name],
-  );
-  return { forms: rows.map((r) => String(r.name)) };
-};
+/** F1's usage source: the forms that use a library field (their names); for the library's list, one query for all. */
+export const formsUsingField: FieldUsageSource = Object.assign(
+  async (q: Queryable, orgId: string, field: { id: string; name: string }) => {
+    const rows = await q.query<{ name: string }>(
+      `select name from sm_forms where org_id = $1 and deleted_at is null and fields @> jsonb_build_array($2::text) order by name`,
+      [orgId, field.name],
+    );
+    return { forms: rows.map((r) => String(r.name)) };
+  },
+  {
+    many: async (q: Queryable, orgId: string, fields: readonly { id: string; name: string }[]) => {
+      const rows = await q.query<{ name: string; fields: unknown }>(`select name, fields from sm_forms where org_id = $1 and deleted_at is null order by name`, [orgId]);
+      const forms = new Map<string, string[]>();
+      for (const r of rows) {
+        for (const name of new Set(Array.isArray(r.fields) ? r.fields.filter((n): n is string => typeof n === "string") : [])) {
+          const list = forms.get(name);
+          if (list) list.push(String(r.name));
+          else forms.set(name, [String(r.name)]);
+        }
+      }
+      return new Map(fields.map((f) => [f.id, { forms: forms.get(f.name) ?? [] }]));
+    },
+  },
+);

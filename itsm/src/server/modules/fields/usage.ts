@@ -13,7 +13,10 @@ export interface FieldUsage {
   versions: string[];
 }
 
-export type FieldUsageSource = (q: Queryable, orgId: string, field: { id: string; name: string }) => Promise<Partial<FieldUsage>>;
+export type FieldUsageSource = ((q: Queryable, orgId: string, field: { id: string; name: string }) => Promise<Partial<FieldUsage>>) & {
+  /** the same for many fields in one round trip (field id → usage): the library's list asks this when a source has it */
+  many?: (q: Queryable, orgId: string, fields: readonly { id: string; name: string }[]) => Promise<ReadonlyMap<string, Partial<FieldUsage>>>;
+};
 
 const sources: FieldUsageSource[] = [];
 
@@ -39,7 +42,8 @@ export async function fieldUsage(q: Queryable, orgId: string, field: { id: strin
 
 export const inUse = (u: FieldUsage): boolean => u.tables.length + u.forms.length + u.versions.length > 0;
 
-/** Where each of many library fields is used (the library's list): one query for the tables, then the sources. */
+/** Where each of many library fields is used (the library's list): one query for the tables, then each source — in one
+ * round trip when it has `many`, else field by field. */
 export async function libraryUsage(q: Queryable, orgId: string, fields: { id: string; name: string }[]): Promise<Map<string, FieldUsage>> {
   const out = new Map<string, FieldUsage>(fields.map((f) => [f.id, { tables: [], forms: [], versions: [] }]));
   if (!fields.length) return out;
@@ -49,8 +53,9 @@ export async function libraryUsage(q: Queryable, orgId: string, fields: { id: st
   );
   for (const r of rows) out.get(String(r.library_id))?.tables.push(r.table_key);
   for (const source of sources) {
+    const many = source.many ? await source.many(q, orgId, fields) : null;
     for (const f of fields) {
-      const u = await source(q, orgId, f);
+      const u = many ? (many.get(f.id) ?? {}) : await source(q, orgId, f);
       const mine = out.get(f.id)!;
       mine.tables.push(...(u.tables ?? []));
       mine.forms.push(...(u.forms ?? []));

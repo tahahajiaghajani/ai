@@ -20,6 +20,8 @@ import { seedRequestDefaults } from "@server/modules/request";
 import { seedPortalDefaults } from "@server/modules/portal";
 import { seedChangeDefaults } from "@server/modules/change";
 import { loadFormsSnapshot, registerFormUsage, registerStepRights } from "@server/modules/forms";
+import { fieldUsage, libraryUsage } from "@server/modules/fields/usage";
+import type { Queryable } from "@server/db";
 
 type Msg = { error: { message: string; details?: { problems?: string[] } | null } };
 type Entry = { key: string; kind: string; name: string; table: string | null; group: string; id: string | null; fields: number; overrides?: number; arranged?: boolean; status?: string; version?: number; used_in: string[]; note?: string; updated_at: string | null; link: string; editable: boolean };
@@ -252,6 +254,29 @@ describe("process forms: writes and their hooks", () => {
     // a deleted form no longer counts
     await e.owner.del(`${P}/forms/${used.id}`);
     expect((await e.owner.get(`${P}/fields/library`)).fields.find((f: { name: string }) => f.name === "u_agree").usage.forms).toEqual([]);
+  });
+
+  it("answers the library's list with one query of the forms, whatever the number of fields", async () => {
+    await e.owner.post(`${P}/forms`, { name: "فرم پرداخت", layout: one([{ field: "u_pay" }, { field: "u_amount" }]) }, 201);
+    await e.owner.post(`${P}/forms`, { name: "فرم بازپرداخت", layout: one([{ field: "u_pay" }]) }, 201);
+    const lib = ((await e.owner.get(`${P}/fields/library`)).fields as { id: string; name: string }[]).map((f) => ({ id: f.id, name: f.name }));
+    expect(lib.length).toBeGreaterThan(3);
+    let reads = 0;
+    const counted: Queryable = {
+      query<T>(text: string, params?: unknown[]) {
+        if (/\bsm_forms\b/.test(text)) reads++;
+        return e.db.query<T>(text, params);
+      },
+      one<T>(text: string, params?: unknown[]) {
+        return e.db.one<T>(text, params);
+      },
+      exec: (text) => e.db.exec(text),
+    };
+    const usage = await libraryUsage(counted, e.org, lib);
+    expect(reads).toBe(1);
+    // the same answer as field by field
+    for (const f of lib) expect(usage.get(f.id)!.forms).toEqual((await fieldUsage(e.db, e.org, f)).forms);
+    expect(usage.get(lib.find((f) => f.name === "u_pay")!.id)!.forms).toEqual(expect.arrayContaining(["فرم بازپرداخت", "فرم پرداخت"]));
   });
 
   it("never deletes a form a process uses, and refuses a Windows app's push", async () => {
