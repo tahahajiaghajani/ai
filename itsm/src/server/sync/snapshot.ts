@@ -9,7 +9,8 @@
 // transaction (or is older than all of them), so "visible in S" is `rev < S.xmin or (rev < S.xmax and rev not in
 // S.xip)`. The predicates below are comparisons on the `rev` column, so the `(org_id, rev)` indexes answer them.
 import type { Db, Queryable } from "../db";
-import { pgArray } from "../db";
+import { pgArray, retryTransient } from "../db";
+import { ident } from "../db/sql";
 
 export interface Snap {
   xmin: number;
@@ -131,8 +132,12 @@ export async function bumpSyncEpoch(q: Queryable, orgId: string): Promise<void> 
   );
 }
 
-/** sm_meta key of the high-water mark of the transaction ids the database handed out (checkXidRegression). */
-const MARK = "sync.xid_high";
+/** sm_meta key of the high-water mark of the transaction ids the database handed out (xidRegressionWaiting). */
+export const XID_MARK_KEY = "sync.xid_high";
+/** sm_meta key of a restamp under way (restampSteps): the synced table it is in (JSON). */
+export const RESTAMP_KEY = "sync.restamp";
+const MARK = XID_MARK_KEY;
+const RESTAMP = RESTAMP_KEY;
 
 /**
  * PL/pgSQL statements, inside a block that declared `v_xid bigint` (the writing transaction's id) and `t record`, with
@@ -140,7 +145,8 @@ const MARK = "sync.xid_high";
  * at or above `v_xid` takes `v_xid`. Such a row would look written by a transaction that has not happened yet: a pull's
  * window (`rev < snap.xmax`) leaves it out — a full read misses it and the Windows app drops its copy (sweepUnseen) —
  * until the database's transaction ids pass it. Migration 0100 (counter revisions that ran ahead of the ids) and
- * RESTAMP_SQL (a database restored into another cluster) share it.
+ * RESTAMP_SQL (a database restored into another cluster) share it; a running database does the same in steps
+ * (restampSteps).
  */
 export const RESTAMP_ROWS = `  for t in
     select distinct c.relname as tbl
@@ -164,12 +170,14 @@ export const RESTAMP_ROWS = `  for t in
  * · the purge watermark of an organisation that has one becomes this transaction's id (notePurgedHere): an old
  *   cluster's value would never be visible in a snapshot taken here, so every pull with a cursor would read everything
  *   again; this one is visible to the apps' first full read;
- * · the high-water mark of transaction ids starts here (the startup's check finds nothing more to do).
+ * · the high-water mark of transaction ids starts here, and a restamp the backup caught under way is over (the
+ *   startup's check finds nothing more to do).
  * A database restored into its own cluster has no row at or above this id: only the cursors, the demo pack's mark and
  * the watermarks start again (harmless: every app reads everything again after a restore anyway). Not on a Windows
  * app's database (its revisions are the server's, opaque to it) nor on a database from before transaction-id revisions
- * (migration 0100 does this when it runs). Plain SQL; `karizctl restore` runs it on the restored database
- * (BUMP_ALL_EPOCHS_SQL), the startup's check on a regression.
+ * (migration 0100 does this when it runs). Plain SQL in one transaction: `karizctl restore` runs it on the restored
+ * database (BUMP_ALL_EPOCHS_SQL) before any server opens it; a database found to have gone back while servers use it
+ * does the same in short steps (restampSteps).
  */
 export const RESTAMP_SQL = `
 do $restamp$
@@ -190,6 +198,7 @@ ${RESTAMP_ROWS}
   update sm_demo_packs set purge_mark = v_xid + 1 where state = 'tombstoned';
   update sm_org_sync set purged = v_xid where purged <> 0;
   update sm_meta set value = v_xid::text, updated_at = now() where key = '${MARK}';
+  delete from sm_meta where key = '${RESTAMP}';
   perform set_config('itsm.applying', '', true);
 end
 $restamp$;`;
@@ -256,13 +265,42 @@ export async function notePurgedHere(q: Queryable, orgId: string): Promise<void>
 
 const MARK_EVERY_MS = 60_000;
 let markedAt = 0;
+/** This process saw a regression waiting: every check reads the database again (no pacing) until it is handled. */
+let seenWaiting = false;
+
+/** The lock of the migrations and the engine's DDL (db/migrate.ts MIGRATION_LOCK): restamp steps take turns with them. */
+const XID_LOCK = 724100;
+/** Rows of one synced table restamped by one step (one short transaction). */
+export const RESTAMP_BATCH = 2000;
+
 /**
- * The snapshot and the mark in ONE statement (one snapshot): a mark this statement sees was written by a transaction
- * that committed before it, whose own snapshot's xmax is below this one's — two statements would let another process
- * raise the mark in between, and an older xmax read first would look like a regression (every Windows app of every
- * organisation reading everything again for nothing).
+ * The snapshot, the mark and a restamp under way in ONE statement (one snapshot): a mark this statement sees was
+ * written by a transaction that committed before it, whose own snapshot's xmax is below this one's — two statements
+ * would let another process raise the mark in between, and an older xmax read first would look like a regression
+ * (every Windows app of every organisation reading everything again for nothing).
  */
-const SNAP_AND_MARK = `select pg_current_snapshot()::text as s, (select value from sm_meta where key = $1) as mark`;
+const SNAP_AND_MARK = `select pg_current_snapshot()::text as s, (select value from sm_meta where key = $1) as mark, (select value from sm_meta where key = $2) as restamp`;
+
+interface MarkRead {
+  s: string;
+  mark: unknown;
+  restamp: unknown;
+}
+
+/**
+ * Does a transaction-id regression wait: a restamp under way (`sync.restamp`), or the high-water mark (`sync.xid_high`)
+ * ahead of the next id? Read in one statement with the snapshot (SNAP_AND_MARK; the web version's cold start:
+ * db/schema-check.ts coldStart).
+ */
+export function regressionWaiting(xmax: number, mark: unknown, restamp: unknown): boolean {
+  if (restamp != null && restamp !== false) return true;
+  const m = Number(mark ?? 0);
+  return Number.isFinite(m) && m > xmax;
+}
+
+function waiting(r: MarkRead | null, cur: Snap): boolean {
+  return regressionWaiting(cur.xmax, r?.mark, r?.restamp);
+}
 
 /** `fn` in one transaction: a new one on a database, the caller's own on a transaction (or a bare connection). */
 function inOneTx<T>(q: Queryable, fn: (tx: Queryable) => Promise<T>): Promise<T> {
@@ -273,39 +311,26 @@ function inOneTx<T>(q: Queryable, fn: (tx: Queryable) => Promise<T>): Promise<T>
 /**
  * Transaction ids only grow in a database — unless it was restored into another cluster (pg_dump/pg_restore, a
  * point-in-time recovery, a copied data folder that restarted lower): stored revisions may then exceed the ids new
- * writes get, and a Windows app's cursor would take those writes for seen. The database keeps a high-water mark of
- * the ids it handed out (sm_meta `sync.xid_high`, raised at most once a minute per process); when the next id is below
- * it, every organisation's sync epoch is bumped (one full re-read for every Windows app) and the mark starts again.
- * Returns whether a regression was found (and handled by this call). `force` skips the once-a-minute pacing (startup,
- * restores). `restamp` — the startup's check, before the server answers any pull — also starts again what holds the
- * other cluster's ids (RESTAMP_SQL: rows ahead of the ids, the apps' cursors, the purge watermark), in the transaction
- * that bumps the epochs: the apps' full read then brings every row, and the next pull keeps its cursor.
+ * writes get. A pull's window (`rev < snap.xmax`) leaves such rows out — a Windows app's full read misses them and the
+ * app drops its copies (sweepUnseen) — and a cursor would take later writes for seen. The database keeps a high-water
+ * mark of the ids it handed out (sm_meta `sync.xid_high`, raised here at most once a minute per process); a next id
+ * below it, or a restamp under way, is a regression waiting: this answers true and leaves it to restampSteps, the only
+ * place that lowers the mark — in the step that finishes the restamp of every row ahead of the ids. `force` skips the
+ * pacing; once this process saw a regression waiting, every call reads the database again until it is handled.
  */
-export async function checkXidRegression(q: Queryable, opts: { force?: boolean; restamp?: boolean; log?: (msg: string) => void } = {}): Promise<boolean> {
+export async function xidRegressionWaiting(q: Queryable, opts: { force?: boolean; log?: (msg: string) => void } = {}): Promise<boolean> {
   const now = Date.now();
-  if (!opts.force && now - markedAt < MARK_EVERY_MS) return false;
+  if (!opts.force && !seenWaiting && now - markedAt < MARK_EVERY_MS) return false;
   markedAt = now;
-  const both = await q.one<{ s: string; mark: unknown }>(SNAP_AND_MARK, [MARK]).catch(() => null);
+  const both = await q.one<MarkRead>(SNAP_AND_MARK, [MARK, RESTAMP]).catch(() => null);
   const cur = parseSnap(both?.s) ?? (await currentSnap(q));
-  const mark = Number(both?.mark ?? 0);
-  if (Number.isFinite(mark) && mark > cur.xmax) {
-    const done = await inOneTx(q, async (tx) => {
-      // one process at a time, and never beside the migrations or the engine's DDL (their lock): instances starting
-      // together find the regression together — the next one finds the mark lowered and leaves the epochs alone
-      await tx.query(`select pg_advisory_xact_lock(724100)`);
-      const again = await tx.one<{ s: string; mark: unknown }>(SNAP_AND_MARK, [MARK]);
-      const at = parseSnap(again?.s);
-      const seen = Number(again?.mark ?? 0);
-      if (!at || !(seen > at.xmax)) return null;
-      if (opts.restamp) await tx.exec(RESTAMP_SQL);
-      const n = await bumpAllSyncEpochs(tx);
-      await tx.query(`insert into sm_meta (key, value, updated_at) values ($1, $2, now()) on conflict (key) do update set value = excluded.value, updated_at = now()`, [MARK, String(at.xmax)]);
-      return { n, next: at.xmax, seen };
-    });
-    if (!done) return false;
-    opts.log?.(`transaction ids went back (next ${done.next}, seen ${done.seen}): sync epochs of ${done.n} organisations bumped${opts.restamp ? "; rows, cursors and purge watermarks ahead of the ids started again" : ""}`);
+  if (waiting(both, cur)) {
+    if (!seenWaiting) opts.log?.(`transaction ids went back (next ${cur.xmax}, seen ${String(both?.mark ?? "")}): the synced rows ahead of them are restamped before any pull is answered`);
+    seenWaiting = true;
     return true;
   }
+  seenWaiting = false;
+  const mark = Number(both?.mark ?? 0);
   if (Number.isFinite(mark) && mark >= cur.xmax) return false;
   await q.query(
     `insert into sm_meta (key, value, updated_at) values ($1, $2, now())
@@ -314,4 +339,182 @@ export async function checkXidRegression(q: Queryable, opts: { force?: boolean; 
     [MARK, String(cur.xmax)],
   );
   return false;
+}
+
+/** The synced tables (those of the sync trigger functions, as RESTAMP_ROWS walks them) and whether each has org_id. */
+const SYNCED_TABLES = `select distinct c.relname::text as tbl,
+    exists (select 1 from pg_attribute a where a.attrelid = c.oid and a.attname = 'org_id' and not a.attisdropped) as by_org
+  from pg_trigger g
+  join pg_class c on c.oid = g.tgrelid
+  join pg_namespace n on n.oid = c.relnamespace
+  join pg_proc p on p.oid = g.tgfoid
+  where n.nspname = current_schema() and p.proname in ('sm_sync_touch', 'sm_user_touch') and not g.tgisinternal`;
+
+/** What a restamp under way keeps between its steps (sm_meta `sync.restamp`). */
+interface RestampState {
+  /** the synced table it is in (null: none yet); the tables before it, in name order, are done */
+  table: string | null;
+  /** the regression as it was found: the next id and the mark */
+  next: number;
+  seen: number;
+}
+
+function parseState(v: unknown): RestampState | null {
+  if (v == null) return null;
+  let o: unknown = v;
+  if (typeof v === "string") {
+    try {
+      o = JSON.parse(v);
+    } catch {
+      o = null;
+    }
+  }
+  // an unreadable state starts again from the first table (a step only restamps rows still ahead of its own id)
+  const r = (o && typeof o === "object" ? o : {}) as Partial<RestampState>;
+  return { table: typeof r.table === "string" ? r.table : null, next: Number(r.next) || 0, seen: Number(r.seen) || 0 };
+}
+
+export interface RestampResult {
+  /** a regression still waits: more steps are needed, or another process holds the lock */
+  waiting: boolean;
+  /** this call ran the step that finished it: every organisation's epoch moved and the mark started again */
+  finished: boolean;
+  /** another process held the lock (`wait: false` only) */
+  busy: boolean;
+  /** steps this call ran */
+  steps: number;
+  /** progress: the synced tables done, of all, and the one under way */
+  done: number;
+  total: number;
+  table: string | null;
+}
+
+type StepOutcome = { kind: "busy" | "none" | "ran" | "finished"; done: number; total: number; table: string | null };
+
+/**
+ * One step of a restamp, in the caller's transaction, under the migrations' lock: the rows of one synced table above
+ * this transaction's id — found through its `(org_id, rev)` index, at most RESTAMP_BATCH — take this id (the trigger
+ * stamps it; `itsm.applying` keeps their timestamps); a table with none left hands over to the next one. The
+ * step that finds no table left finishes: the Windows apps' cursors go back to 0, a tombstoned demo pack's `purge_mark`
+ * becomes this id + 1 and a non-zero purge watermark this id (notePurgedHere: visible to the apps' first full read),
+ * every organisation's epoch moves (every app reads everything again — and finds every row) and the mark starts again.
+ * Not on a Windows app's database nor before 0100 (revisions there are not this database's ids): only the epochs and
+ * the mark.
+ */
+async function restampStep(tx: Queryable, wait: boolean, log?: (msg: string) => void): Promise<StepOutcome> {
+  const idle = { done: 0, total: 0, table: null };
+  if (wait) await tx.query(`select pg_advisory_xact_lock(${XID_LOCK})`);
+  else if (!(await tx.one<{ ok: boolean }>(`select pg_try_advisory_xact_lock(${XID_LOCK}) as ok`))?.ok) return { kind: "busy", ...idle };
+  // under the lock: what another process did meanwhile is seen (instances starting together take turns)
+  const read = await tx.one<MarkRead>(SNAP_AND_MARK, [MARK, RESTAMP]);
+  const at = parseSnap(read?.s);
+  if (!at) throw new Error(`unexpected snapshot ${read?.s}`);
+  let state = parseState(read?.restamp);
+  if (!state) {
+    if (!waiting(read, at)) return { kind: "none", ...idle };
+    state = { table: null, next: at.xmax, seen: Number(read?.mark ?? 0) };
+    log?.(`transaction ids went back (next ${state.next}, seen ${state.seen}): restamping the synced rows ahead of them`);
+  }
+  const xid = Number((await tx.one<{ x: string }>(`select pg_current_xact_id()::text as x`))!.x);
+  const env = await tx.one<{ desktop: boolean; xids: boolean }>(
+    `select coalesce(current_setting('itsm.mode', true), '') = 'desktop' as desktop,
+            exists (select 1 from sm_migrations where id = '0100_xid_revisions') as xids`,
+  );
+  const rows = !!env?.xids && !env.desktop;
+  const tables = rows ? (await tx.query<{ tbl: string; by_org: boolean }>(SYNCED_TABLES)).sort((a, b) => (a.tbl < b.tbl ? -1 : a.tbl > b.tbl ? 1 : 0)) : [];
+  // the table under way, or the first one after it (a table dropped meanwhile)
+  let i = state.table === null ? 0 : tables.findIndex((t) => t.tbl >= state!.table!);
+  if (i < 0) i = tables.length;
+  await tx.query(`select set_config('itsm.applying', 'on', true)`);
+  for (; i < tables.length; i++) {
+    const t = ident(tables[i].tbl);
+    // the rows still ahead of this step's id: an earlier step's rows carry a lower id, and this step's own (one
+    // transaction for every step: a caller's) carry this one — a row at exactly this id reads as written by this step
+    const ahead = tables[i].by_org
+      ? await tx.query<{ id: string }>(
+        `select x.id::text as id from sm_orgs o cross join lateral (select t.id from ${t} t where t.org_id = o.id and t.rev > $1 limit ${RESTAMP_BATCH}) x limit ${RESTAMP_BATCH}`,
+        [xid],
+      )
+      : await tx.query<{ id: string }>(`select id::text as id from ${t} where rev > $1 limit ${RESTAMP_BATCH}`, [xid]);
+    if (!ahead.length) continue;
+    await tx.query(`update ${t} set rev = $1 where id = any($2::uuid[]) and rev > $1`, [xid, pgArray(ahead.map((r) => r.id))]);
+    await tx.query(
+      `insert into sm_meta (key, value, updated_at) values ($1, $2, now()) on conflict (key) do update set value = excluded.value, updated_at = now()`,
+      [RESTAMP, JSON.stringify({ ...state, table: tables[i].tbl })],
+    );
+    await tx.query(`select set_config('itsm.applying', '', true)`);
+    return { kind: "ran", done: i, total: tables.length, table: tables[i].tbl };
+  }
+  if (rows) {
+    await tx.query(`update sm_devices set cursor = 0 where cursor <> 0`);
+    await tx.query(`update sm_demo_packs set purge_mark = $1::bigint + 1 where state = 'tombstoned'`, [xid]);
+    await tx.query(`update sm_org_sync set purged = $1 where purged <> 0`, [xid]);
+  }
+  const n = await bumpAllSyncEpochs(tx);
+  await tx.query(`insert into sm_meta (key, value, updated_at) values ($1, $2, now()) on conflict (key) do update set value = excluded.value, updated_at = now()`, [MARK, String(at.xmax)]);
+  await tx.query(`delete from sm_meta where key = $1`, [RESTAMP]);
+  await tx.query(`select set_config('itsm.applying', '', true)`);
+  log?.(`transaction ids went back (next ${state.next}, seen ${state.seen}): ${rows ? "synced rows, cursors and purge watermarks ahead of the ids started again; " : ""}sync epochs of ${n} organisations bumped`);
+  return { kind: "finished", done: tables.length, total: tables.length, table: null };
+}
+
+/**
+ * Handle a transaction-id regression (xidRegressionWaiting) in steps, each its own short transaction (restampStep),
+ * until it is finished or `budgetMs` is spent (a step starts only while budget remains; every call runs at least one).
+ * Resumable: a step cut short is rolled back, the next one finds the rows still ahead of its id. The epochs move and
+ * the mark is lowered only by the step that finishes, so a regression stays seen (and no pull is answered, routes/sync.ts)
+ * until every row is back below the ids. `wait: false` gives up at once while another process holds the lock (the web
+ * version's requests: src/server/cloud.ts). Nothing waiting: one cheap step that finds nothing.
+ */
+export async function restampSteps(q: Queryable, opts: { budgetMs?: number; wait?: boolean; log?: (msg: string) => void } = {}): Promise<RestampResult> {
+  const started = Date.now();
+  const budget = opts.budgetMs ?? Infinity;
+  const wait = opts.wait ?? true;
+  let steps = 0;
+  let last: StepOutcome = { kind: "none", done: 0, total: 0, table: null };
+  for (;;) {
+    if (steps > 0 && Date.now() - started >= budget) return { waiting: true, finished: false, busy: false, steps, done: last.done, total: last.total, table: last.table };
+    // a deadlock with a write on the same rows (a server whose database moved under it) aborts only that step: again
+    const r = await retryTransient(() => inOneTx(q, (tx) => restampStep(tx, wait, opts.log)), 5);
+    if (r.kind === "busy") return { waiting: true, finished: false, busy: true, steps, done: last.done, total: last.total, table: last.table };
+    if (r.kind === "none") return { waiting: false, finished: false, busy: false, steps, done: r.done, total: r.total, table: null };
+    steps++;
+    if (r.kind === "ran" && r.table !== last.table) opts.log?.(`restamping ${r.table} (table ${r.done + 1} of ${r.total})`);
+    last = r;
+    if (r.kind === "finished") {
+      seenWaiting = false;
+      return { waiting: false, finished: true, busy: false, steps, done: r.done, total: r.total, table: null };
+    }
+  }
+}
+
+/**
+ * The start-up's check (`migrate()`, scripts/migrate-db.mts; tests): a regression waiting is handled whole, in steps.
+ * Returns whether this call finished one (instances starting together: exactly one does).
+ */
+export async function checkXidRegression(q: Queryable, opts: { force?: boolean; log?: (msg: string) => void } = {}): Promise<boolean> {
+  if (!(await xidRegressionWaiting(q, opts))) return false;
+  return (await restampSteps(q, { log: opts.log })).finished;
+}
+
+const restamping = new WeakMap<object, Promise<void>>();
+let restampFailedAt = 0;
+
+/**
+ * A request found a regression waiting (routes/sync.ts) in a process that runs its own background work (the server
+ * edition, tests): its steps run here, outside the request, one run per database at a time — a run that failed is not
+ * tried again for 10 seconds. The web version hands it to its 503 «migrating» answers instead (ServerConfig.xidRegression).
+ */
+export function restampInBackground(db: Db, log?: (msg: string) => void): void {
+  if (restamping.has(db) || Date.now() - restampFailedAt < 10_000) return;
+  const run = restampSteps(db, { log })
+    .then(
+      () => undefined,
+      (e) => {
+        restampFailedAt = Date.now();
+        log?.(`restamp after a transaction-id regression failed: ${String((e as Error)?.message ?? e)}`);
+      },
+    )
+    .finally(() => restamping.delete(db));
+  restamping.set(db, run);
 }

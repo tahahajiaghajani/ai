@@ -18,7 +18,7 @@ import { create, createIn, systemCtx, update } from "@server/engine";
 import { seedItamDefaults } from "@server/modules/itam";
 import { addCustody, verifyCustody } from "@server/modules/itam/bank";
 import { configureWriteSerialisation, type ServerConfig } from "@server/context";
-import { BUMP_ALL_EPOCHS_SQL, checkXidRegression, currentSnap, notePurged, snapText } from "@server/sync/snapshot";
+import { BUMP_ALL_EPOCHS_SQL, checkXidRegression, currentSnap, notePurged, RESTAMP_BATCH, restampSteps, snapText, xidRegressionWaiting } from "@server/sync/snapshot";
 import { SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
 import { startLocal, type LocalServer } from "@local/server";
@@ -447,10 +447,12 @@ describe.skipIf(!realPgAvailable())("sync revisions are transaction ids (real Po
    * The organisation as pg_restore leaves it when the dump came from a cluster whose transaction ids were far ahead of
    * this one's (a restore on a newly installed server, a web database moved by dump): the data is loaded before the
    * triggers exist, so the rows keep that cluster's revisions — and the purge watermark (archive tombstones were purged
-   * there), a device's cursor, a demo pack's mark and the high-water mark keep its ids too.
+   * there), a device's cursor, a demo pack's mark and the high-water mark keep its ids too. Returns the database's own
+   * next id (`from`: every id a restamp hands out is at least this) and the other cluster's (`far`).
    */
-  async function restoredFromAhead(w: { notes: string[]; items: string[]; device: string }): Promise<void> {
-    const far = (await currentSnap(db)).xmax + 40_000_000;
+  async function restoredFromAhead(w: { notes: string[]; items: string[]; device: string }): Promise<{ from: number; far: number }> {
+    const from = (await currentSnap(db)).xmax;
+    const far = from + 40_000_000;
     await db.tx(async (tx) => {
       await tx.query(`set local session_replication_role = replica`);
       await tx.query(`update sm_xid_notes set rev = $2 where id = any($1::uuid[])`, [pgArray(w.notes), far]);
@@ -464,20 +466,30 @@ describe.skipIf(!realPgAvailable())("sync revisions are transaction ids (real Po
       );
       await tx.query(`insert into sm_meta (key, value) values ('sync.xid_high', $1) on conflict (key) do update set value = excluded.value`, [String(far + 4)]);
     });
+    return { from, far };
   }
 
-  /** Everything ahead of the transaction ids took the restamping transaction's id; the app reads everything once, all of it. */
-  async function expectStartedAgain(w: Awaited<ReturnType<typeof beforeRestore>>): Promise<void> {
+  /**
+   * Everything ahead of the transaction ids took the id of a transaction of the restamp — after the regression (`from`),
+   * no later than the one that finished it, whose id the purge watermark and the demo pack's mark took (RESTAMP_SQL does it
+   * all in one transaction, restampSteps in steps); the app reads everything once, all of it.
+   */
+  async function expectStartedAgain(w: Awaited<ReturnType<typeof beforeRestore>>, from: number): Promise<void> {
     try {
       const stamped = Number((await db.one<{ purged: number }>(`select purged from sm_org_sync where org_id = $1`, [org]))!.purged);
       const next = (await currentSnap(db)).xmax;
-      expect(stamped).toBeGreaterThan(0);
+      expect(stamped).toBeGreaterThanOrEqual(from);
       expect(stamped).toBeLessThan(next);
-      for (const id of w.notes) expect(Number((await db.one<{ rev: number }>(`select rev from sm_xid_notes where id = $1`, [id]))!.rev)).toBe(stamped);
-      expect(await rev(w.items[0])).toBe(stamped);
+      const restamped = (v: number) => {
+        expect(v).toBeGreaterThanOrEqual(from);
+        expect(v).toBeLessThanOrEqual(stamped);
+      };
+      for (const id of w.notes) restamped(Number((await db.one<{ rev: number }>(`select rev from sm_xid_notes where id = $1`, [id]))!.rev));
+      restamped(await rev(w.items[0]));
       expect(Number((await db.one<{ cursor: number }>(`select cursor from sm_devices where id = $1`, [w.device]))!.cursor)).toBe(0);
       expect(Number((await db.one<{ purge_mark: number }>(`select purge_mark from sm_demo_packs where org_id = $1`, [org]))!.purge_mark)).toBe(stamped + 1);
       expect(Number((await db.one<{ value: string }>(`select value from sm_meta where key = 'sync.xid_high'`))!.value)).toBeLessThanOrEqual(next);
+      expect(await db.one(`select 1 from sm_meta where key = 'sync.restamp'`)).toBeNull();
       // the epoch moved: the app reads everything again — and the read brings every row, so the sweep at its end keeps them
       const resets = w.r.resets;
       await w.r.pullAll();
@@ -497,26 +509,104 @@ describe.skipIf(!realPgAvailable())("sync revisions are transaction ids (real Po
 
   it("a database restored into another cluster: the startup's check starts again what is ahead of its ids, the apps' full read brings every row and the next pull keeps its cursor", async () => {
     const w = await beforeRestore();
-    await restoredFromAhead(w);
+    const { from } = await restoredFromAhead(w);
     // the server starts on the restored database: migrate() runs the check before any pull is answered
     await migrate(db);
-    await expectStartedAgain(w);
+    await expectStartedAgain(w, from);
   }, 120_000);
 
   it("karizctl restore does the same on the restored database (BUMP_ALL_EPOCHS_SQL); the startup then finds nothing left to do", async () => {
     const w = await beforeRestore();
-    await restoredFromAhead(w);
+    const { from } = await restoredFromAhead(w);
     await db.exec(BUMP_ALL_EPOCHS_SQL);
-    expect(await checkXidRegression(db, { force: true, restamp: true })).toBe(false);
-    await expectStartedAgain(w);
+    expect(await checkXidRegression(db, { force: true })).toBe(false);
+    await expectStartedAgain(w, from);
+  }, 120_000);
+
+  // IR-2: a pull used to bump the epochs and lower the mark without restamping: every app's full read left the rows
+  // ahead of the ids out (and dropped its copies of them), and no later check saw the regression again
+  it("a regression first seen by a pull (the database moved under a running server): no page until every row ahead of the ids is restamped, then the app's full read brings them all", async () => {
+    const w = await beforeRestore();
+    const { from, far } = await restoredFromAhead(w);
+    // the app's cursor is the other cluster's, ahead of the database's next id: its pull is the first to see it went back
+    w.r.since = snapText({ xmin: far, xmax: far, xip: [] });
+    const refused = await w.r.pullAll().then(() => "served", (e: Error) => e.message);
+    expect(refused).toMatch(/→ 503: .*"code":"migrating"/);
+    // this server restamps in the background (no runtime hook): the app's pull goes through once that is done
+    for (let i = 0; i < 1200 && (await xidRegressionWaiting(db, { force: true })); i++) await sleep(50);
+    expect(await xidRegressionWaiting(db, { force: true })).toBe(false);
+    await expectStartedAgain(w, from);
+  }, 120_000);
+
+  // IR-3: what a request may do is bounded: the restamp goes in short steps, resumable, and nothing tells the apps to read
+  // everything again before every row is back below the ids
+  it("the restamp runs in short resumable steps: the epochs move and the mark is lowered only by the step that finishes, and no pull is answered before", async () => {
+    // more notes ahead in one table than one step restamps
+    const many = RESTAMP_BATCH + 300;
+    await db.query(`insert into sm_xid_notes (id, org_id, title) select gen_random_uuid(), $1, 'دسته ' || g from generate_series(1, ${many}) g`, [org]);
+    const hooked: number[] = [];
+    try {
+      const w = await beforeRestore();
+      const { from, far } = await restoredFromAhead(w);
+      await db.tx(async (tx) => {
+        await tx.query(`set local session_replication_role = replica`);
+        await tx.query(`update sm_xid_notes set rev = $2 where org_id = $1`, [org, far]);
+      });
+      const epoch = async () => (await db.one<{ epoch: string }>(`select epoch::text as epoch from sm_org_sync where org_id = $1`, [org]))!.epoch;
+      const mark = async () => Number((await db.one<{ value: string }>(`select value from sm_meta where key = 'sync.xid_high'`))!.value);
+      // rows of the other cluster still ahead: the notes and the test item
+      const ahead = async () =>
+        Number((await db.one<{ n: number }>(`select ((select count(*) from sm_xid_notes where org_id = $1 and rev >= $2) + (select count(*) from sm_test_items where org_id = $1 and rev >= $2))::int as n`, [org, far]))!.n);
+      // every note of the organisation (the batch, the replica's two and earlier tests') and the test item
+      const notes = Number((await db.one<{ n: number }>(`select count(*)::int as n from sm_xid_notes where org_id = $1`, [org]))!.n);
+      expect(notes).toBeGreaterThan(RESTAMP_BATCH);
+      expect(await ahead()).toBe(notes + w.items.length);
+      const before = await epoch();
+      const seen = await mark();
+      // a runtime that handles it outside the request (the web version's hook): the pull is refused and the hook called
+      cfg.xidRegression = () => void hooked.push(Date.now());
+      const first = await restampSteps(db, { budgetMs: 0 });
+      expect(first).toMatchObject({ waiting: true, finished: false, busy: false, steps: 1 });
+      const left = await ahead();
+      expect(left).toBeGreaterThan(0);
+      expect(left).toBeLessThan(notes + w.items.length);
+      expect(await epoch()).toBe(before);
+      expect(await mark()).toBe(seen);
+      expect(await xidRegressionWaiting(db, { force: true })).toBe(true);
+      expect(await w.r.pullAll().then(() => "served", (e: Error) => e.message)).toMatch(/→ 503: .*"code":"migrating"/);
+      expect(hooked).toHaveLength(1);
+      // a step at a time, as requests' budgets allow: the epochs and the mark wait for the last one
+      let steps = 1;
+      for (;;) {
+        const r = await restampSteps(db, { budgetMs: 0 });
+        steps += r.steps;
+        if (r.finished) break;
+        expect(r.waiting).toBe(true);
+        expect(await epoch()).toBe(before);
+        expect(await mark()).toBe(seen);
+        expect(steps).toBeLessThan(20);
+      }
+      // one step for the test item, two for the notes (more than one step's batch), and the one that finished
+      expect(steps).toBeGreaterThanOrEqual(4);
+      expect(await ahead()).toBe(0);
+      expect(BigInt(await epoch())).toBeGreaterThan(BigInt(before));
+      expect(await mark()).toBeLessThan(seen);
+      expect((await restampSteps(db, { budgetMs: 0 })).finished).toBe(false);
+      delete cfg.xidRegression;
+      await expectStartedAgain(w, from);
+      expect(hooked).toHaveLength(1);
+    } finally {
+      delete cfg.xidRegression;
+      await db.query(`delete from sm_xid_notes where org_id = $1 and title like 'دسته %'`, [org]);
+    }
   }, 120_000);
 
   it("instances starting together on a database that went back: exactly one bumps the epochs and starts again what is ahead", async () => {
     const cur = await currentSnap(db);
     await db.query(`insert into sm_meta (key, value) values ('sync.xid_high', $1) on conflict (key) do update set value = excluded.value`, [String(cur.xmax + 5_000_000)]);
-    const found = await Promise.all([1, 2, 3].map(() => checkXidRegression(db, { force: true, restamp: true })));
+    const found = await Promise.all([1, 2, 3].map(() => checkXidRegression(db, { force: true })));
     expect(found.filter(Boolean)).toHaveLength(1);
-    expect(await checkXidRegression(db, { force: true, restamp: true })).toBe(false);
+    expect(await checkXidRegression(db, { force: true })).toBe(false);
   });
 
   it("tombstones removed for good: an app that never saw them reads everything again and drops them", async () => {

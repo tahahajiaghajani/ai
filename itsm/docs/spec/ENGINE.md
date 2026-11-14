@@ -630,24 +630,36 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
 - **Sync epoch** (`sm_org_sync.epoch`; the pull's `epoch` is `<organisation>.<member scope>`): a Windows app whose epoch
   differs is told to `reset` and reads everything again. Bumped (`bumpSyncEpoch`, a timestamp-based value so a database
   restored from an older backup still moves past every epoch handed out before) by `karizctl restore` (the restored
-  database, before it takes the live name), a tenant backup restore and `checkXidRegression` (the high-water mark
-  `sm_meta sync.xid_high`, raised once a minute per process and checked at every startup: ids below it mean the
-  database went back — restored into another cluster — and every organisation's epoch moves once). A pull whose cursor
-  is ahead of the database's next transaction id is told to `reset` (that app alone) and runs the check at once. A
-  restored Windows app database starts its next pull from nothing (`resetSyncCursor`).
-- **Restored into another cluster** (`RESTAMP_SQL`; a restore on a newly installed server, a web database moved by
-  dump): pg_restore loads the data before the triggers exist, so rows keep the old cluster's revisions — possibly far
-  above the new cluster's ids, where a full read's window (`rev < snap.xmax`) leaves them out and the app's sweep then
-  drops its copies — and so do the cursors, demo marks and the purge watermark (an old cluster's watermark is never
-  visible in a snapshot here: every pull with a cursor would read everything again). In the transaction that bumps the
-  epochs, `karizctl restore` (`BUMP_ALL_EPOCHS_SQL`) and the startup's check (`migrate()`, and every web instance while
-  it loads its app, whether or not it ran migration steps — `src/server/cloud.ts`; `checkXidRegression({ restamp })`)
-  give every synced row at or above that transaction's id this id (`RESTAMP_ROWS`, shared with 0100; `itsm.applying`
-  keeps timestamps), set `sm_devices.cursor` to 0, a tombstoned demo pack's `purge_mark` to the id + 1, a non-zero
-  `sm_org_sync.purged` to the id (`notePurgedHere`: the apps' first full read sees it) and the mark to the id. Not on a
-  Windows app's database nor before 0100 (the migration does it). Instances that start together take turns on the
-  migrations' lock; the next finds the mark lowered (`tests/sync-xid-pg.test.ts`; the web start:
-  `tests/web-startup.test.ts`).
+  database, before it takes the live name), a tenant backup restore and a transaction-id regression (the high-water
+  mark `sm_meta sync.xid_high`, raised by `xidRegressionWaiting` once a minute per process and checked at every
+  startup: ids below it mean the database went back — restored into another cluster — and every organisation's epoch
+  moves once, when its rows are restamped: below). A pull whose cursor is ahead of the database's next transaction id
+  runs the check at once; the database not gone back, that app alone is told to `reset`. A restored Windows app
+  database starts its next pull from nothing (`resetSyncCursor`; it empties only a cursor that is there — a standalone
+  app gains no `sync.*` key, which is what `refuseLinkedDesktop` takes for a link).
+- **Restored into another cluster** (a restore on a newly installed server, a web database moved by dump): pg_restore
+  loads the data before the triggers exist, so rows keep the old cluster's revisions — possibly far above the new
+  cluster's ids, where a full read's window (`rev < snap.xmax`) leaves them out and the app's sweep then drops its
+  copies — and so do the cursors, demo marks and the purge watermark (an old cluster's watermark is never visible in a
+  snapshot here: every pull with a cursor would read everything again). Every synced row above the restamping
+  transaction's id takes that id (`itsm.applying` keeps timestamps), `sm_devices.cursor` goes to 0, a tombstoned demo
+  pack's `purge_mark` to the finishing transaction's id + 1, a non-zero `sm_org_sync.purged` to that id
+  (`notePurgedHere`: the apps' first full read sees it), every organisation's epoch moves and the mark starts again —
+  the epochs and the mark only once every row is back below the ids, so the mark is never lowered without the restamp.
+  `karizctl restore` does it in one transaction on the restored database before any server opens it
+  (`BUMP_ALL_EPOCHS_SQL` → `RESTAMP_SQL`, `RESTAMP_ROWS` shared with 0100). A database in use does it in short
+  resumable steps under the migrations' lock (`restampSteps`: per synced table at most `RESTAMP_BATCH` rows found
+  through its `(org_id, rev)` index, progress in `sm_meta sync.restamp`; the last step bumps the epochs and lowers the
+  mark): `migrate()` runs them all at start-up (`checkXidRegression`; a failure leaves the regression seen and does not
+  stop the start), `scripts/migrate-db.mts` after the schema's steps (the operator's offline path), and the web
+  version treats a regression like a schema that is not current — `/api` answers 503 `migrating` (one-query cold
+  start, `db/schema-check.ts` `coldStart`) while the steps run within each answer's budget after it (`src/server/cloud.ts`;
+  not with `AUTO_MIGRATE=false`: migrate-db then). Until the last step no pull is answered: one that finds the
+  regression (`xidRegressionWaiting`, every pull until it is handled once a process saw it) answers 503 `migrating` and
+  hands it to the runtime (`ServerConfig.xidRegression`: the web instance answers every request so until its steps are
+  done; otherwise `restampInBackground` in the process). Not on a Windows app's database nor before 0100 (only the
+  epochs and the mark). Instances that start together take turns on the lock; exactly one finishes
+  (`tests/sync-xid-pg.test.ts`; the web: `tests/web-startup.test.ts`).
 - **Tombstone purge**: `purgeArchived` removes archived records' tombstones after 30 days and raises
   `sm_org_sync.purged` to the newest revision removed (`notePurged`); a cursor that does not see it never received those
   tombstones and is reset (full read, which drops them). Any other hard delete of rows a Windows app may hold must leave

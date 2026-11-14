@@ -12,7 +12,7 @@
 import { z } from "zod";
 import { router, body, requireUser, type C } from "../http/hono";
 import { guardOrgSession } from "../auth/policy";
-import { bad, forbidden, notFound } from "../http/errors";
+import { AppError, bad, forbidden, notFound } from "../http/errors";
 import { makeCtx, lockOrg, type MemberRow, type OrgRow, type Ctx } from "../context";
 import { isTransientDbError, pgArray, type Tx } from "../db";
 import { AGGREGATES, BY_ENTITY, comparePush, setPushBatch, type AggregateDef, type WireAggregate } from "../sync/registry";
@@ -29,8 +29,8 @@ import { demoSignInRefusal } from "../modules/demo/signin";
 import { afterEnginePush, checkEnginePush, replicaRows, scopeEpoch } from "../engine/sync";
 import { condEnv, orgSchema } from "../engine";
 import {
-  afterSql, afterText, checkXidRegression, compareKey, currentSnap, deltaSql, orgSyncState, parseAfter, parseSnap, snapText, visibleIn,
-  type After,
+  afterSql, afterText, compareKey, currentSnap, deltaSql, orgSyncState, parseAfter, parseSnap, restampInBackground, snapText, visibleIn,
+  xidRegressionWaiting, type After,
 } from "../sync/snapshot";
 
 type StoredMember = MemberGrant & { is_active: boolean; deleted_at: string | null };
@@ -296,6 +296,8 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
 }
 
 const BAD_CURSOR = "نشانگر همگام‌سازی معتبر نیست؛ همگام‌سازی از آغاز انجام می‌شود";
+/** A pull while the rows of a database that went back in transaction ids are restamped (sync/snapshot.ts restampSteps). */
+const RESTAMPING = "سرور داده‌های همگام‌سازی را پس از جابه‌جایی پایگاه داده آماده می‌کند؛ همگام‌سازی چند لحظه بعد خودکار ادامه می‌یابد";
 
 /** What one pull page reads: the synced aggregates, then the members' accounts (index of the last source). */
 type Source = { def: AggregateDef } | { users: true };
@@ -317,15 +319,24 @@ syncRoutes.get("/pull", async (c) => {
   const clientEpoch = query.epoch;
   if ((query.since && !since) || (query.snap && !snapIn) || (query.after && !after)) throw bad(BAD_CURSOR);
   const log = ctx.cfg.log;
-  // the database went back in transaction ids (restored into another cluster): every Windows app reads everything again
-  await checkXidRegression(ctx.db, { log: (m) => log.warn(m) }).catch(() => undefined);
+  const warn = (m: string) => log.warn(m);
+  // the database went back in transaction ids (moved into another cluster): no page is served until every synced row
+  // ahead of its ids has been restamped — a full read would leave those rows out, and the app would drop its copies
+  let behind = await xidRegressionWaiting(ctx.db, { log: warn }).catch(() => false);
   const before = await currentSnap(ctx.db);
   const regressed = [since, snapIn].some((s) => !!s && s.xmax > before.xmax);
-  if (regressed) {
-    // this app reads everything again; the database's high-water mark decides whether every organisation's epoch moves
-    // (once per regression — a bump per app would make every other app read everything again for each of them)
+  if (regressed && !behind) {
+    // a cursor from ahead of the database: the database's high-water mark decides whether it went back (then every
+    // organisation's epoch moves once the rows are restamped) or only this app reads everything again
     log.warn("sync cursor ahead of the database: reading everything again", { org: ctx.org.id, cursor: snapText((snapIn ?? since)!), next: before.xmax });
-    await checkXidRegression(ctx.db, { force: true, log: (m) => log.warn(m) }).catch(() => undefined);
+    behind = await xidRegressionWaiting(ctx.db, { force: true, log: warn }).catch(() => false);
+  }
+  if (behind) {
+    // handled outside this request: the web version answers 503 «migrating» and restamps in budgeted steps after its
+    // answers (src/server/cloud.ts); a server process restamps in the background
+    if (ctx.cfg.xidRegression) ctx.cfg.xidRegression();
+    else restampInBackground(ctx.db, warn);
+    throw new AppError(503, "migrating", RESTAMPING);
   }
   // the access environment and the schema are read once for the page (cached on the context)
   await condEnv(ctx);

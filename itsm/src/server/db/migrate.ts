@@ -8,11 +8,12 @@
 // simply runs again: nothing is ever half-applied, and nothing done is done twice.
 //
 // - `migrate(db)` runs the whole plan, then the start-up's transaction-id regression check (sync/snapshot.ts
-//   `checkXidRegression` with restamp: a database restored into another cluster) — the Windows app, the server
-//   edition, tests.
-// - `migrateSteps(db, { budgetMs, wait })` runs the plan's steps alone: `scripts/migrate-db.mts` and the build all of them,
-//   the web version within a budget per request without queueing behind another instance's step (`wait: false`, while
-//   the schema is incomplete: src/server/cloud.ts, which runs the regression check when an instance loads its app).
+//   `checkXidRegression`: a database restored into another cluster has the synced rows ahead of its ids restamped, in
+//   short steps of their own) — the Windows app, the server edition, tests.
+// - `migrateSteps(db, { budgetMs, wait })` runs the plan's steps alone: `scripts/migrate-db.mts` and the build all of them
+//   (then the same regression check), the web version within a budget per request without queueing behind another
+//   instance's step (`wait: false`, while the schema is incomplete or a restamp waits: src/server/cloud.ts, which runs
+//   the restamp's steps — sync/snapshot.ts `restampSteps` — the same way once the schema is current).
 import type { Db, Queryable } from "./index";
 import { MIGRATIONS, SCHEMA_VERSION } from "./migrations";
 import { engineChunks, engineProgress, readEngineProgress, type EngineChunk } from "../engine/ddl";
@@ -200,9 +201,11 @@ export async function migrate(db: Db, log: (msg: string) => void = () => {}): Pr
   const r = await migrateSteps(db, { log });
   if (r.ran.some((id) => id.startsWith("reconcile:"))) log("engine schema reconciled");
   // a database restored into another cluster may hand out transaction ids below its stored revisions: rows, cursors and
-  // purge watermarks ahead of them start again and every Windows app reads everything once (src/server/sync/snapshot.ts;
-  // the web version runs the same check when an instance builds its app: src/server/cloud.ts)
-  await checkXidRegression(db, { force: true, restamp: true, log }).catch((e) => log(`xid check skipped: ${String((e as Error)?.message ?? e)}`));
+  // purge watermarks ahead of them start again and every Windows app reads everything once (src/server/sync/snapshot.ts:
+  // in short steps; the mark is lowered only by the one that finishes). A failure leaves the regression seen — no pull is
+  // answered until a later run finishes it (routes/sync.ts) — and does not stop the start. The web version runs the same
+  // steps after its 503 «migrating» answers (src/server/cloud.ts).
+  await checkXidRegression(db, { force: true, log }).catch((e) => log(`xid check skipped: ${String((e as Error)?.message ?? e)}`));
   return r.migrations;
 }
 

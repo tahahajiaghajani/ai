@@ -93,6 +93,13 @@ export interface ServerConfig {
    */
   waitUntil?: (work: () => Promise<unknown>) => void;
   /**
+   * A request found the database gone back in transaction ids (sync/snapshot.ts xidRegressionWaiting: moved into another
+   * cluster while this process ran) and answered 503 «migrating». The web version then answers every request so until
+   * its budgeted restamp steps are done (src/server/cloud.ts); absent, the process restamps in the background
+   * (restampInBackground).
+   */
+  xidRegression?: () => void;
+  /**
    * Cookies and proxies of the installation (src/server/auth/session.ts; environment fallbacks ITSM_COOKIE_SECURE,
    * ITSM_COOKIE_SAMESITE, ITSM_TRUSTED_PROXIES): `cookieSecure` "auto" sets Secure on HTTPS requests (X-Forwarded-Proto
    * counts only from a trusted proxy), `trustedProxies` are the addresses whose X-Forwarded-For / -Proto are believed

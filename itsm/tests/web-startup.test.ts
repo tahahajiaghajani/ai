@@ -11,6 +11,7 @@ import type { AddressInfo } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
 import { createPostgresDb } from "@server/db/postgres";
 import { createPgliteDb } from "@server/db/pglite";
 import { MIGRATIONS } from "@server/db/migrations";
@@ -18,6 +19,7 @@ import { migrate } from "@server/db/migrate";
 import { hashPassword } from "@server/auth/password";
 import { makeServer, Client } from "./helpers";
 import { startLocal } from "@local/server";
+import { SYNC_PROTOCOL } from "@shared/constants";
 
 type Answer = { status: number; json: any };
 const closers: (() => Promise<void>)[] = [];
@@ -132,14 +134,14 @@ describe("web version start-up", () => {
 
   // The web version no longer runs migrate() on a warm start (the schema check is one query), yet a database moved by
   // dump into another cluster (pg_restore loads the data before the triggers exist) keeps the old cluster's
-  // transaction ids: every instance runs the check that starts again what is ahead of them before its app answers —
-  // also when migrations are run by hand (AUTO_MIGRATE=false), as migrate() does elsewhere (src/server/sync/snapshot.ts).
-  it("a database moved into another cluster: a new instance starts again what is ahead of its transaction ids before it answers, with AUTO_MIGRATE=false too", async () => {
-    const w = await wire();
-    cleanup.push(() => w.server.stop(), () => w.pg.close());
+  // transaction ids. Its synced rows ahead of the new ids are restamped like a schema that is not current: 503
+  // «migrating» while short resumable steps run after those answers (src/server/sync/snapshot.ts restampSteps) — or, with
+  // AUTO_MIGRATE=false, by scripts/migrate-db.mts — and only then are the apps told to read everything again.
+
+  /** A database with an organisation, the web version's owner signed in; the instance is closed again. */
+  async function moved(w: Awaited<ReturnType<typeof wire>>) {
     // the socket serves one connection at a time: each step closes its own before the next one connects
     const direct = () => createPostgresDb({ url: w.url, ssl: false, max: 1 });
-    const xmax = async (d: ReturnType<typeof direct>) => Number((await d.one<{ x: string }>(`select pg_snapshot_xmax(pg_current_snapshot())::text as x`))!.x);
     let d = direct();
     await migrate(d);
     await d.close();
@@ -149,49 +151,165 @@ describe("web version start-up", () => {
     expect(made.status).toBe(200);
     const org = String(made.json.id);
     await closers.pop()!();
-
-    // what pg_restore into a cluster with far lower ids leaves: the organisation's row, its purge watermark and the
-    // high-water mark of transaction ids keep the old cluster's values
     d = direct();
-    const far = (await xmax(d)) + 40_000_000;
-    await d.tx(async (tx) => {
-      await tx.query(`set local session_replication_role = replica`);
-      await tx.query(`update sm_orgs set rev = $2 where id = $1`, [org, far]);
-      await tx.query(`insert into sm_org_sync (org_id, rev, purged) values ($1, 0, $2) on conflict (org_id) do update set purged = excluded.purged`, [org, far - 1]);
-      await tx.query(`insert into sm_meta (key, value) values ('sync.xid_high', $1) on conflict (key) do update set value = excluded.value`, [String(far + 4)]);
-    });
-    const epochBefore = Number((await d.one<{ epoch: string }>(`select epoch::text as epoch from sm_org_sync where org_id = $1`, [org]))!.epoch);
+    const before = await state(d, org);
+    await d.close();
+    return { direct, org, before };
+  }
+
+  const xmaxOf = async (d: { one: <T>(sql: string) => Promise<T | null> }) => Number((await d.one<{ x: string }>(`select pg_snapshot_xmax(pg_current_snapshot())::text as x`))!.x);
+  async function state(d: ReturnType<typeof createPostgresDb>, org: string) {
+    const sync = await d.one<{ purged: string; epoch: string }>(`select purged::text as purged, epoch::text as epoch from sm_org_sync where org_id = $1`, [org]);
+    return {
+      next: await xmaxOf(d),
+      rev: Number((await d.one<{ rev: string }>(`select rev::text as rev from sm_orgs where id = $1`, [org]))!.rev),
+      purged: Number(sync?.purged ?? 0),
+      epoch: BigInt(sync?.epoch ?? 0),
+      mark: Number((await d.one<{ value: string }>(`select value from sm_meta where key = 'sync.xid_high'`))?.value ?? 0),
+      restamp: !!(await d.one(`select 1 from sm_meta where key = 'sync.restamp'`)),
+    };
+  }
+
+  /** What pg_restore into a cluster with far lower ids leaves: the organisation's row, its purge watermark and the mark keep the old cluster's values. */
+  async function moveAhead(q: { exec: (sql: string) => Promise<unknown> }, org: string, from: number): Promise<number> {
+    const far = from + 40_000_000;
+    await q.exec(`begin;
+      set local session_replication_role = replica;
+      update sm_orgs set rev = ${far} where id = '${org}';
+      insert into sm_org_sync (org_id, rev, purged) values ('${org}', 0, ${far - 1}) on conflict (org_id) do update set purged = excluded.purged;
+      insert into sm_meta (key, value) values ('sync.xid_high', '${far + 4}') on conflict (key) do update set value = excluded.value;
+      commit;`);
+    return far;
+  }
+
+  /** The organisation's row ahead was restamped by the restamp (after `from`, no later than the step that finished), the watermark and the mark started again, every app reads everything once. */
+  function expectRestamped(after: Awaited<ReturnType<typeof state>>, from: number, epochBefore: bigint) {
+    expect(after.purged).toBeGreaterThanOrEqual(from);
+    expect(after.purged).toBeLessThan(after.next);
+    expect(after.rev).toBeGreaterThanOrEqual(from);
+    expect(after.rev).toBeLessThanOrEqual(after.purged);
+    expect(after.mark).toBeLessThanOrEqual(after.next);
+    expect(after.restamp).toBe(false);
+    expect(after.epoch).toBeGreaterThan(epochBefore);
+  }
+
+  it("a database moved into another cluster: a new instance answers 503 «migrating» until the synced rows ahead of its transaction ids are restamped, then serves", async () => {
+    const w = await wire();
+    cleanup.push(() => w.server.stop(), () => w.pg.close());
+    const { direct, org, before } = await moved(w);
+    let d = direct();
+    await moveAhead(d, org, before.next);
+    const epochBefore = (await state(d, org)).epoch;
+    await d.close();
+
+    const again = await webVersion(w.url);
+    const first = await again("POST", "/auth/login", { email: OWNER.email, password: OWNER.password });
+    expect(first.status).toBe(503);
+    expect(first.json.error.code).toBe("migrating");
+    // each 503 lets the steps continue after it (never a request of its own doing the work)
+    await untilReady(again);
+    expect((await again("POST", "/auth/login", { email: OWNER.email, password: OWNER.password })).status).toBe(200);
+    await closers.pop()!();
+
+    d = direct();
+    try {
+      expectRestamped(await state(d, org), before.next, epochBefore);
+    } finally {
+      await d.close();
+    }
+  }, 600_000);
+
+  it("AUTO_MIGRATE=false: the restamp waits for scripts/migrate-db.mts, which does it outside any request", async () => {
+    const w = await wire();
+    cleanup.push(() => w.server.stop(), () => w.pg.close());
+    const { direct, org, before } = await moved(w);
+    let d = direct();
+    const far = await moveAhead(d, org, before.next);
+    const epochBefore = (await state(d, org)).epoch;
     await d.close();
 
     const auto = process.env.AUTO_MIGRATE;
     process.env.AUTO_MIGRATE = "false";
     try {
       const again = await webVersion(w.url);
-      const health = await again("GET", "/health");
-      expect(health.status).toBe(200);
-      expect(health.json).toMatchObject({ ok: true, schema: { complete: true } });
+      for (let i = 0; i < 3; i++) {
+        const health = await again("GET", "/health");
+        expect(health.status).toBe(503);
+        expect(health.json).toMatchObject({ schema: { auto: false }, error: { code: "migrating" } });
+        expect(health.json.error.message).toMatch(/migrate-db\.mts/);
+      }
+      await closers.pop()!();
+      d = direct();
+      expect((await state(d, org)).rev).toBe(far);
+      await d.close();
+
+      // the operator's run (a process of its own, as from any computer)
+      const run = await script("scripts/migrate-db.mts", { DATABASE_URL: w.url, DATABASE_SSL: "disable" });
+      expect(run.code, run.out).toBe(0);
+      expect(run.out).toMatch(/synced rows restamped/);
+      d = direct();
+      try {
+        expectRestamped(await state(d, org), before.next, epochBefore);
+      } finally {
+        await d.close();
+      }
+      const third = await webVersion(w.url);
+      expect((await third("GET", "/health")).status).toBe(200);
       await closers.pop()!();
     } finally {
       if (auto === undefined) delete process.env.AUTO_MIGRATE;
       else process.env.AUTO_MIGRATE = auto;
     }
+  }, 600_000);
 
-    d = direct();
+  // IR-2/IR-3: a database moved under a running instance is first seen by a Windows app's pull (its cursor is the old
+  // cluster's): no page is served, and the instance answers every request 503 «migrating» until its steps are done
+  it("a pull finds the database gone back under a running instance: no page, 503 «migrating» for every request until the restamp's steps are done", async () => {
+    const w = await wire();
+    cleanup.push(() => w.server.stop(), () => w.pg.close());
+    const { org, before } = await moved(w);
+    const call = await webVersion(w.url);
+    expect((await call("POST", "/auth/login", { email: OWNER.email, password: OWNER.password })).status).toBe(200);
+    expect((await call("GET", "/health")).status).toBe(200);
+    const epochBefore = before.epoch;
+    // moved while the instance is up and idle (the socket's one connection is the instance's: the change goes to the
+    // database itself)
+    const far = await moveAhead(w.pg, org, before.next);
+    const pull = (since: string) => call("GET", `/sync/pull?${new URLSearchParams({ org_id: org, protocol: String(SYNC_PROTOCOL), since }).toString()}`);
+    const refused = await pull(`${far}:${far}:`);
+    expect(refused.status).toBe(503);
+    expect(refused.json.error.code).toBe("migrating");
+    // from now on, every request of the instance — the steps run after those answers
+    const me = await call("GET", "/auth/me");
+    expect(me.status).toBe(503);
+    expect(me.json.error.code).toBe("migrating");
+    await untilReady(call);
+    // the app's cursor from the other cluster: read everything again, every row there
+    const reset = await pull(`${far}:${far}:`);
+    expect(reset.status).toBe(200);
+    expect(reset.json.reset).toBe(true);
+    await closers.pop()!();
+    const d = createPostgresDb({ url: w.url, ssl: false, max: 1 });
     try {
-      const next = await xmax(d);
-      const sync = (await d.one<{ purged: string; epoch: string }>(`select purged::text as purged, epoch::text as epoch from sm_org_sync where org_id = $1`, [org]))!;
-      const stamped = Number(sync.purged);
-      // the watermark, the row ahead and the mark took the checking transaction's id; every Windows app reads everything once
-      expect(stamped).toBeGreaterThan(0);
-      expect(stamped).toBeLessThan(next);
-      expect(Number((await d.one<{ rev: string }>(`select rev::text as rev from sm_orgs where id = $1`, [org]))!.rev)).toBe(stamped);
-      expect(Number((await d.one<{ value: string }>(`select value from sm_meta where key = 'sync.xid_high'`))!.value)).toBeLessThanOrEqual(next);
-      expect(Number(sync.epoch)).toBeGreaterThan(epochBefore);
+      expectRestamped(await state(d, org), before.next, epochBefore);
     } finally {
       await d.close();
     }
   }, 600_000);
 });
+
+/** Run a script of this project with tsx in a process of its own (the socket server of this process keeps answering). */
+function script(file: string, env: Record<string, string>): Promise<{ code: number | null; out: string }> {
+  const root = join(__dirname, "..");
+  return new Promise((ok, fail) => {
+    const p = spawn(process.execPath, [join(root, "node_modules", "tsx", "dist", "cli.mjs"), file], { cwd: root, env: { ...process.env, ...env } });
+    let out = "";
+    p.stdout.on("data", (b) => (out += String(b)));
+    p.stderr.on("data", (b) => (out += String(b)));
+    p.on("error", fail);
+    p.on("close", (code) => ok({ code, out }));
+  });
+}
 
 describe("web version without its database", () => {
   it("answers 503 with a Persian message and an error id, never a bare 500", async () => {
