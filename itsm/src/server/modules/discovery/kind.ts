@@ -51,6 +51,8 @@ export interface ConnCtx {
   secret: string | null;
   secret2: string | null;
   edition: Edition | "desktop";
+  /** a preview (§7.5): the kind changes nothing at its source (the feed leaves its drop folder as it is) */
+  preview?: boolean;
   /** when the slice ends (ms since the epoch): a kind stops before it */
   deadline: number;
   now(): Date;
@@ -73,6 +75,8 @@ export interface ConnectorKind extends KindDescriptor {
   problems?(c: ConnCtx, cursor: Cursor | null): Promise<ProblemPage>;
   /** a deep link into the tool for a record */
   link?(record: DiscoveredRecord, c: ConnCtx): string | null;
+  /** these options read no network (the feed's drop folder): «آزمودن اتصال» skips the address checks */
+  local?(options: Record<string, unknown>): boolean;
 }
 
 export type ConnectorErrorCode = "auth" | "network" | "rate_limited" | "refused" | "bad_response" | "not_built" | "config";

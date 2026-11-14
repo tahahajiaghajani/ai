@@ -264,7 +264,7 @@ export async function testConnection(ctx: Ctx, id: string): Promise<TestResult> 
     if (!kind.editions.includes(edition as "cloud" | "server")) return { ok: false, warnings: [], message: `منبع «${kind.label}» در این نسخهٔ کاریز اجرا نمی‌شود` };
     const parsed = kindOptions(kind, conn.options);
     if ("error" in parsed) return { ok: false, warnings: [], message: parsed.error };
-    if (kind.kind !== "demo") {
+    if (kind.kind !== "demo" && !kind.local?.(parsed.options)) {
       const credentialed = conn.secret !== null || conn.secret2 !== null || WINDOWS_AUTH.has(String(conn.auth ?? ""));
       const problem = await reachProblem(ctx.cfg, connectorView(conn, parsed.options), { credentialed });
       if (problem) return { ok: false, warnings: [], message: problem };

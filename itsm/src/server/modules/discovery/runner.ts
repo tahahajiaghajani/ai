@@ -862,7 +862,7 @@ export async function previewConnector(sys: Ctx, connectorId: string, draft: Pre
     throw e;
   }
   try {
-    const cctx = await connCtx(sys, row, kind, parsed.options, Date.now() + 30_000);
+    const cctx: ConnCtx = { ...(await connCtx(sys, row, kind, parsed.options, Date.now() + 30_000)), preview: true };
     const page = await kind.pages(cctx, null);
     const now = new Date();
     const rows: PreviewRow[] = [];
