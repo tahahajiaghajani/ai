@@ -682,6 +682,8 @@ export async function runPull(sys: Ctx, connectorId: string, jctx: Pick<JobConte
       if (gone) warnings.push({ code: "gone", message: `${gone} مورد دیگر گزارش نمی‌شود` });
       crashPoint("finalise");
       await finishRunSql(tx, org, run.id, "completed", { cursor: { ...cursor, phase: "finalise" }, complete, itemsTotal: listed, importRunId, warnings });
+      // assets for new devices follow every completed pass while the connector's feed is on (§11.1, itamfeed.ts)
+      if (conn.make_assets === true) await enqueue(tx, { kind: "discovery.itam", orgId: org, payload: { connector: connectorId, ...(opts.demo ? { __demo: true } : {}) }, dedupeKey: `discovery.itam:${connectorId}`, maxAttempts: 5 });
       // the contact ladder judges the connector's targets after a complete pass the guard let through (§10)
       if (stale) await enqueue(tx, { kind: "discovery.stale", orgId: org, payload: { connector: connectorId, run: run.id, ...(opts.demo ? { __demo: true } : {}) }, dedupeKey: `discovery.stale:${connectorId}`, maxAttempts: 5 });
     });

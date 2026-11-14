@@ -17,6 +17,7 @@ import { inDemoScope, isDemoRow } from "../../db/scope";
 import { installConnectorConfig } from "./config";
 import { installConnectorGuard } from "./guard";
 import { installDiscoveryJobs, queuePull } from "./jobs";
+import { installItamFeed } from "./itamfeed";
 import { installSourceGuard } from "./precedence";
 import { editionOf } from "./net";
 
@@ -48,6 +49,7 @@ export function installDiscoveryModule(): void {
   installed = true;
   // the guard first: a refused write makes no data source
   installConnectorGuard();
+  installItamFeed();
   installConnectorConfig();
   installSourceGuard();
   installDiscoveryJobs();

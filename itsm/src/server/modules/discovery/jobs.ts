@@ -10,7 +10,8 @@
 //   discovery.pull         one slice of a connector's inventory pass (runner.ts)
 //   discovery.status       a status pass (DA2's status.ts)
 //   discovery.stale        the contact ladder (stale.ts): after a complete pass, after «پذیرش اندازهٔ تازه», and daily
-// DA2 adds discovery.push_batch and discovery.device_apply, DA7 discovery.itam. At most two discovery jobs of an
+//   discovery.itam         assets for new devices (itamfeed.ts, §11.1): after every completed pass and daily, while on
+// DA2 adds discovery.push_batch and discovery.device_apply. At most two discovery jobs of an
 // organisation work at once (§7.1): the others come back in about 30 seconds. Every connector job ensures the sweep
 // (§7.2: a sweep lost with a backup restore comes back with the next job).
 import type { RunTrigger } from "@shared/discovery/types";
@@ -24,6 +25,7 @@ import { busyAgainMs, MAX_DISCOVERY_JOBS } from "./budget";
 import { editionOf } from "./net";
 import { serverKind } from "./registry";
 import { mismatchDigest } from "./mismatch";
+import { itamFeed } from "./itamfeed";
 import { NOT_HELD_SQL, runPull } from "./runner";
 import { staleJob } from "./stale";
 import { statusPass } from "./status";
@@ -161,13 +163,14 @@ interface SweepRow {
   running_updated: string | null;
   retries_due: boolean;
   demo: boolean;
+  make_assets: boolean | null;
 }
 
 /** One sweep of an organisation: what it queued, and when it should run again (null: no active connector left). */
 export async function discoverySweep(cfg: Cfg, orgId: string): Promise<{ queued: number; again: number | null }> {
   const db = cfg.db;
   const rows = await db.query<SweepRow>(
-    `select c.id, c.kind, c.active, c.every_minutes, c.status_every_minutes, c.collect,
+    `select c.id, c.kind, c.active, c.every_minutes, c.status_every_minutes, c.collect, c.make_assets,
        (select max(r.started_at) from sm_discovery_runs r where r.org_id = c.org_id and r.connector_id = c.id and r.lane = 'inventory' and r.deleted_at is null) as last_inventory,
        (select max(r.started_at) from sm_discovery_runs r where r.org_id = c.org_id and r.connector_id = c.id and r.lane = 'status' and r.deleted_at is null) as last_status,
        (select max(r.updated_at) from sm_discovery_runs r where r.org_id = c.org_id and r.connector_id = c.id and r.lane = 'inventory' and r.state = 'running') as running_updated,
@@ -214,6 +217,8 @@ export async function discoverySweep(cfg: Cfg, orgId: string): Promise<{ queued:
       // when nothing is listed any more
       await scoped(() => enqueue(db, { kind: JOB_KINDS.stale, orgId, payload: { connector: c.id, ...(c.demo ? { __demo: true } : {}) }, dedupeKey: `${JOB_KINDS.stale}:${c.id}`, maxAttempts: 5 }));
       queued++;
+      // assets for new devices (§11.1): daily, besides after every completed pass
+      if (c.make_assets) await scoped(() => enqueue(db, { kind: JOB_KINDS.itam, orgId, payload: { connector: c.id, ...(c.demo ? { __demo: true } : {}) }, dedupeKey: `${JOB_KINDS.itam}:${c.id}`, maxAttempts: 5 }));
     }
   }
   if (daily) {
@@ -290,5 +295,10 @@ export function installDiscoveryJobs(): void {
     const a = await admitted(job, jctx);
     if (!a || !("orgId" in a)) return a ?? undefined;
     return inConnectorScope(jctx.db, a.orgId, a.connector, async () => staleJob(await systemCtx(jctx.cfg, a.orgId), a.connector, job, jctx));
+  });
+  registerJobHandler(JOB_KINDS.itam, async (job, jctx) => {
+    const a = await admitted(job, jctx);
+    if (!a || !("orgId" in a)) return a ?? undefined;
+    return inConnectorScope(jctx.db, a.orgId, a.connector, async (demo) => itamFeed(await systemCtx(jctx.cfg, a.orgId), a.connector, jctx, { worker: job.id, demo }));
   });
 }

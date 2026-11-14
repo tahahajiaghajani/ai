@@ -19,7 +19,7 @@
 //   GET    /connectors/:id/runs                   passes, newest first
 //   GET    /connectors/:id/items                  items (state, search)
 //   POST   /runs/:id/accept                       «پذیرش اندازهٔ تازه»
-//   GET    /queue?tab=unmatched|duplicate|error|mismatch     «صف آشتی»
+//   GET    /queue?tab=unmatched|duplicate|error|mismatch|no_asset     «صف آشتی» («بی‌دارایی» with its roll-up per connector)
 //   POST   /items/:id/create                      «ساخت پیکربندی»
 //   POST   /items/:id/link        { ci_id }       «پیوند به…»
 //   POST   /items/:id/ignore                      «نادیده گرفتن»
