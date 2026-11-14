@@ -125,12 +125,19 @@ export function delegationScope(action: StepAction): "approvals" | "assignments"
   return action === "approve" ? "approvals" : "assignments";
 }
 
-/** The exclusions a step applies: its own, else the requester on approve steps (separation of duties). */
+/**
+ * The exclusions a step applies: its own, else the requester on approve steps (separation of duties). An entry the
+ * rules do not know (a draft not checked yet) may have meant the requester, so an approve step keeps them out then.
+ */
 export function exclusionsOf(step: Pick<StepAssignees, "exclude">, action: StepAction): Exclusion[] {
-  return step.exclude ?? (action === "approve" ? ["requester"] : []);
+  if (!step.exclude) return action === "approve" ? ["requester"] : [];
+  const known = step.exclude.filter((x) => cleanExclusion(x) !== null);
+  if (known.length < step.exclude.length && action === "approve" && !known.includes("requester")) known.push("requester");
+  return known;
 }
 
-export const ifNobodyOf = (step: Pick<StepAssignees, "ifNobody">): IfNobody => step.ifNobody ?? "wait";
+/** What happens when nobody is found: the step's choice; «wait» when it has none or one the rules do not know. */
+export const ifNobodyOf = (step: Pick<StepAssignees, "ifNobody">): IfNobody => ((IF_NOBODY as readonly string[]).includes(step.ifNobody ?? "") ? step.ifNobody! : "wait");
 
 /** «بیش از ۱۰۰ نفر پیدا شد؛ مسئولان گردش‌کار انتخاب می‌کنند» (or 50 approvers). */
 export function tooManyMessage(limit: number): string {
@@ -147,7 +154,10 @@ export function nobodyMessage(stepLabel: string | null | undefined, ifNobody: If
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Cleaning what a draft stored (unknown keys dropped, lists deduplicated and capped)
+// Cleaning what a draft stored (unknown kinds and keys dropped, lists deduplicated and capped). A wrong value of a
+// known key is kept, bounded, for `assigneeProblems` to report: cleaning never turns it into another rule — an
+// unknown «where» is not «همه‌جا», a members filter never vanishes, an unknown exclusion never lifts separation of
+// duties — and the resolver finds nobody for it.
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const isUuid = (v: unknown): v is string => typeof v === "string" && UUID.test(v);
@@ -156,15 +166,23 @@ const text = (v: unknown, max = 120): string | undefined => (typeof v === "strin
 const ids = (v: unknown, max = MAX_PEOPLE): string[] | undefined =>
   Array.isArray(v) ? [...new Set(v.filter(isUuid).map((x) => x.toLowerCase()))].slice(0, max) : undefined;
 const one = <T extends string>(v: unknown, list: readonly T[]): T | undefined => (typeof v === "string" && (list as readonly string[]).includes(v) ? (v as T) : undefined);
+const unset = (v: unknown) => v === undefined || v === null || (typeof v === "string" && !v.trim());
+/** A value as written, bounded: kept for the validator to name. */
+const kept = (v: unknown, max = 40) => String(v ?? "").trim().slice(0, max) || "?";
+/** One of `list`; `fallback` when unset; a value the rules do not know is kept for the validator. */
+const choice = <T extends string>(v: unknown, list: readonly T[], fallback: T): T => (unset(v) ? fallback : (one(v, list) ?? (kept(v) as T)));
+/** A members filter: ids lower-cased and deduplicated, anything else kept for the validator (the filter then finds nobody). */
+const memberList = (v: unknown): string[] | undefined =>
+  unset(v) ? undefined : [...new Set((Array.isArray(v) ? v : [v]).map((x) => (isUuid(x) ? x.toLowerCase() : kept(x, 64))))].slice(0, MAX_PEOPLE);
 
 /** A rule as stored, or null when its kind is unknown. Members and people lists are deduplicated and capped. */
 export function cleanRule(raw: unknown): AssigneeRule | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
-  const members = ids(r.members);
+  const members = memberList(r.members);
   switch (r.kind) {
     case "position": {
-      const where = one(r.where, POSITION_WHERE) ?? "anywhere";
+      const where = choice(r.where, POSITION_WHERE, "anywhere");
       return {
         kind: "position",
         position: text(r.position, 64) ?? "",
@@ -175,18 +193,22 @@ export function cleanRule(raw: unknown): AssigneeRule | null {
         ...(members?.length ? { members } : {}),
       };
     }
-    case "group":
-      return { kind: "group", group: (text(r.group, 64) ?? "").toLowerCase(), ...(r.leadsOnly === true ? { leadsOnly: true } : {}), ...(members?.length ? { members } : {}) };
+    case "group": {
+      // leads only: yes or no; anything else is kept for the validator (and read as «leads only», the narrower)
+      const leads = unset(r.leadsOnly) || r.leadsOnly === false ? {} : { leadsOnly: (r.leadsOnly === true ? true : kept(r.leadsOnly, 20)) as boolean };
+      return { kind: "group", group: (text(r.group, 64) ?? "").toLowerCase(), ...leads, ...(members?.length ? { members } : {}) };
+    }
     case "role":
       return { kind: "role", role: text(r.role, 41) ?? "", ...(members?.length ? { members } : {}) };
     case "users":
       return { kind: "users", users: ids(r.users) ?? [] };
     case "manager": {
-      const depth = Number(r.depth);
-      return { kind: "manager", of: one(r.of, ["requester", "previous_actor"] as const) ?? "requester", ...(depth === 2 || depth === 3 ? { depth } : {}) };
+      // depth 1 is the default; 2 and 3 are kept, and so is a wrong one (for the validator)
+      const depth = unset(r.depth) ? 1 : Number(r.depth);
+      return { kind: "manager", of: choice(r.of, ["requester", "previous_actor"] as const, "requester"), ...(depth === 1 ? {} : { depth: (Number.isFinite(depth) ? depth : 0) as 2 | 3 }) };
     }
     case "unit_head": {
-      const of = one(r.of, ["requester", "unit_field"] as const) ?? "requester";
+      const of = choice(r.of, ["requester", "unit_field"] as const, "requester");
       return {
         kind: "unit_head",
         of,
@@ -211,16 +233,19 @@ function cleanExclusion(v: unknown): Exclusion | null {
   return null;
 }
 
-/** A step's people settings as stored: rules cleaned, unknown kinds dropped, lists capped. */
+/**
+ * A step's people settings as stored: rules cleaned, unknown kinds dropped, lists capped; an exclusion or an «if
+ * nobody» the rules do not know is kept for the validator (`exclusionsOf` and `ifNobodyOf` stay on the safe side).
+ */
 export function cleanStepAssignees(raw: unknown): StepAssignees {
   const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const rules = (v: unknown) => (Array.isArray(v) ? v.map(cleanRule).filter((x): x is AssigneeRule => !!x).slice(0, MAX_RULES) : []);
   const out: StepAssignees = { assignees: rules(r.assignees) };
-  if (Array.isArray(r.exclude)) out.exclude = [...new Set(r.exclude.map(cleanExclusion).filter((x): x is Exclusion => !!x))];
+  if (!unset(r.exclude)) out.exclude = [...new Set((Array.isArray(r.exclude) ? r.exclude : [r.exclude]).map((x) => cleanExclusion(x) ?? (kept(x, 80) as Exclusion)))].slice(0, 30);
   const fallback = rules(r.fallback);
   if (fallback.length) out.fallback = fallback;
-  const ifNobody = one(r.ifNobody ?? r.if_nobody, IF_NOBODY);
-  if (ifNobody) out.ifNobody = ifNobody;
+  const ifNobody = r.ifNobody ?? r.if_nobody;
+  if (!unset(ifNobody)) out.ifNobody = choice(ifNobody, IF_NOBODY, "wait");
   return out;
 }
 
@@ -256,7 +281,8 @@ function ruleProblems(rule: AssigneeRule, facts: AssigneeFacts, path: string): A
   const add = (message: string) => out.push({ path, message });
   const membersOk = (m: string[] | undefined) => {
     if (m && m.length > MAX_PEOPLE) add(`حداکثر ${faDigits(MAX_PEOPLE)} نفر را می‌توان برگزید`);
-    if (m && facts.member) for (const u of m) if (!facts.member(u)) add("یکی از افراد برگزیده دیگر عضو فعال سازمان نیست");
+    if (m?.some((u) => !isUuid(u))) add("یکی از افراد برگزیده شناخته نیست");
+    if (m && facts.member) for (const u of m) if (isUuid(u) && !facts.member(u)) add("یکی از افراد برگزیده دیگر عضو فعال سازمان نیست");
   };
   const unitFieldOk = (name: string | undefined) => {
     if (!name) return add("فیلد واحد را انتخاب کنید");
@@ -301,6 +327,7 @@ function ruleProblems(rule: AssigneeRule, facts: AssigneeFacts, path: string): A
       const g = facts.group?.(rule.group);
       if (facts.group && !g) add("گروه برگزیده پیدا نشد");
       else if (g && !g.active) add(`گروه «${g.name}» غیرفعال است`);
+      if (rule.leadsOnly !== undefined && typeof rule.leadsOnly !== "boolean") add("«فقط سرپرستان گروه» بله یا خیر است");
       membersOk(rule.members);
       break;
     }

@@ -18,24 +18,27 @@ describe("assignee rules as a draft stores them", () => {
   it("drop unknown kinds and keys, lower-case ids, keep only what the rule's «where» uses", () => {
     expect(cleanRule({ kind: "nobody" })).toBeNull();
     expect(cleanRule(null)).toBeNull();
-    expect(cleanRule({ kind: "position", position: " branch_head ", where: "somewhere", unit: U.a, extra: 1 })).toEqual({ kind: "position", position: "branch_head", where: "anywhere" });
+    // an unset «where» is «همه‌جا»
+    expect(cleanRule({ kind: "position", position: " branch_head ", unit: U.a, extra: 1 })).toEqual({ kind: "position", position: "branch_head", where: "anywhere" });
     expect(cleanRule({ kind: "position", position: "branch_head", where: "unit", unit: U.a.toUpperCase() })).toEqual({ kind: "position", position: "branch_head", where: "unit", unit: U.a });
     expect(cleanRule({ kind: "position", position: "branch_head", where: "requester_unit_up", unitKind: "branch", unitField: "u_branch" })).toEqual({ kind: "position", position: "branch_head", where: "requester_unit_up", unitKind: "branch" });
     expect(cleanRule({ kind: "position", position: "branch_head", where: "unit_field", unitField: "u_branch" })).toMatchObject({ where: "unit_field", unitField: "u_branch" });
-    // members: only ids, deduplicated, lower case
-    expect(cleanRule({ kind: "group", group: U.a.toUpperCase(), members: [U.b, U.b.toUpperCase(), "not-an-id"], leadsOnly: "yes" })).toEqual({ kind: "group", group: U.a, members: [U.b] });
+    // members: ids deduplicated, lower case; an empty list is no filter; «leads only» off is left out
+    expect(cleanRule({ kind: "group", group: U.a.toUpperCase(), members: [U.b, U.b.toUpperCase()], leadsOnly: false })).toEqual({ kind: "group", group: U.a, members: [U.b] });
+    expect(cleanRule({ kind: "group", group: U.a, members: [], leadsOnly: true })).toEqual({ kind: "group", group: U.a, leadsOnly: true });
     expect(cleanRule({ kind: "manager", of: "previous_actor", depth: 3 })).toEqual({ kind: "manager", of: "previous_actor", depth: 3 });
-    expect(cleanRule({ kind: "manager", of: "someone", depth: 9 })).toEqual({ kind: "manager", of: "requester" });
+    // the requester's manager, one level up, unless the rule says otherwise
+    expect(cleanRule({ kind: "manager", depth: 1 })).toEqual({ kind: "manager", of: "requester" });
     expect(cleanRule({ kind: "unit_head", of: "requester", unitField: "u_branch", unitKind: "branch" })).toEqual({ kind: "unit_head", of: "requester", unitKind: "branch" });
     // at most 100 named people
     const many = Array.from({ length: 140 }, (_, i) => id(100 + i));
     expect((cleanRule({ kind: "users", users: many }) as { users: string[] }).users).toHaveLength(100);
   });
 
-  it("keep at most ten rules, known exclusions and «if nobody» (either spelling)", () => {
+  it("keep at most ten rules, each exclusion once and «if nobody» (either spelling)", () => {
     const step = cleanStepAssignees({
       assignees: [...Array.from({ length: 14 }, () => ({ kind: "requester" })), { kind: "bogus" }],
-      exclude: ["requester", "requester", "step:fill_1", "step:bad key!", "everyone"],
+      exclude: ["requester", "requester", "step:fill_1"],
       fallback: [{ kind: "users", users: [U.a] }],
       if_nobody: "managers",
     });
@@ -44,6 +47,55 @@ describe("assignee rules as a draft stores them", () => {
     expect(step.fallback).toEqual([{ kind: "users", users: [U.a] }]);
     expect(step.ifNobody).toBe("managers");
     expect(ifNobodyOf(cleanStepAssignees({ assignees: [] }))).toBe("wait");
+  });
+
+  it("keep a wrong value for the validator to name — never another, wider rule", () => {
+    // an unknown «where» is not «همه‌جا»; a members filter never vanishes; «leads only», the manager's «of» and depth,
+    // the unit head's «of», an exclusion and «if nobody» stay as written
+    const raw = {
+      assignees: [
+        { kind: "position", position: "branch_head", where: "somewhere", unit: U.a },
+        { kind: "position", position: "branch_head", where: "anywhere", members: ["not-an-id"] },
+        { kind: "group", group: U.a, members: [U.b, "not-an-id"], leadsOnly: "yes" },
+        { kind: "manager", of: "someone", depth: 9 },
+        { kind: "unit_head", of: "branch" },
+      ],
+      exclude: ["Requester"],
+      ifNobody: "panic",
+    };
+    const step = cleanStepAssignees(raw);
+    expect(step).toEqual({
+      assignees: [
+        { kind: "position", position: "branch_head", where: "somewhere" },
+        { kind: "position", position: "branch_head", where: "anywhere", members: ["not-an-id"] },
+        { kind: "group", group: U.a, members: [U.b, "not-an-id"], leadsOnly: "yes" },
+        { kind: "manager", of: "someone", depth: 9 },
+        { kind: "unit_head", of: "branch" },
+      ],
+      exclude: ["Requester"],
+      ifNobody: "panic",
+    });
+    // a single id given as a string is a one-person filter, not none
+    expect(cleanRule({ kind: "group", group: U.a, members: U.b.toUpperCase() })).toEqual({ kind: "group", group: U.a, members: [U.b] });
+    // the validator names each one, with or without what the designer knows
+    expect(assigneeProblems(step).map((p) => `${p.path}: ${p.message}`)).toEqual([
+      "assignees.0: محدودهٔ نقش سازمانی معتبر نیست",
+      "assignees.1: یکی از افراد برگزیده شناخته نیست",
+      "assignees.2: «فقط سرپرستان گروه» بله یا خیر است",
+      "assignees.2: یکی از افراد برگزیده شناخته نیست",
+      "assignees.3: مدیر چه کسی؟ درخواست‌دهنده یا انجام‌دهندهٔ قبلی را برگزینید",
+      "assignees.3: سطح مدیر از ۱ تا ۳ است",
+      "assignees.4: رئیس کدام واحد؟ واحد درخواست‌دهنده یا فیلد فرم را برگزینید",
+      "exclude: یکی از کنارگذاشته‌ها شناخته نیست",
+      "ifNobody: «اگر کسی نبود» معتبر نیست",
+    ]);
+    // until it is fixed, the safe side holds: separation of duties on approve steps, and «wait»
+    expect(exclusionsOf(step, "approve")).toEqual(["requester"]);
+    expect(exclusionsOf({ exclude: ["earlier_actors", "everyone" as never] }, "approve")).toEqual(["earlier_actors", "requester"]);
+    expect(exclusionsOf({ exclude: ["everyone" as never] }, "fill")).toEqual([]);
+    expect(ifNobodyOf(step)).toBe("wait");
+    // an empty list is the step's own choice: nobody is left out
+    expect(exclusionsOf(cleanStepAssignees({ assignees: [], exclude: [] }), "approve")).toEqual([]);
   });
 });
 

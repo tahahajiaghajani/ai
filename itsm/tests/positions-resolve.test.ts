@@ -230,6 +230,28 @@ describe("separation of duties", () => {
   });
 });
 
+describe("a rule with a wrong value (a draft not checked yet)", () => {
+  it("finds nobody — never a wider pool — and an approve step keeps separation of duties", async () => {
+    const somewhere = await resolve({ step: { assignees: [{ kind: "position", position: "branch_head", where: "somewhere" as never }] } });
+    expect([somewhere.status, somewhere.notes]).toEqual(["nobody", ["محدودهٔ نقش سازمانی معتبر نیست"]]);
+    // a members filter of no one known is nobody, not every holder
+    const junk = await resolve({ step: { assignees: [{ kind: "position", position: "branch_head", where: "anywhere", members: ["not-an-id"] }] } });
+    expect([junk.status, junk.notes]).toEqual(["nobody", ["افراد برگزیده در میان دارندگان «رئیس شعبه» نیستند"]]);
+    expect(users(await resolve({ step: { assignees: [{ kind: "group", group: credit, leadsOnly: "yes" as never }] } }))).toEqual([M.lead]);
+    const of = await resolve({ step: { assignees: [{ kind: "manager", of: "someone" as never }] } });
+    expect([of.status, of.notes]).toEqual(["nobody", ["قاعدهٔ «مدیر مستقیم» معتبر نیست"]]);
+    expect((await resolve({ step: { assignees: [{ kind: "manager", of: "requester", depth: 9 as never }] } })).status).toBe("nobody");
+    const head = await resolve({ step: { assignees: [{ kind: "unit_head", of: "branch" as never, unitKind: "branch" }] } });
+    expect([head.status, head.notes]).toEqual(["nobody", ["قاعدهٔ «رئیس واحد» معتبر نیست"]]);
+    // an exclusion the rules do not know never lifts separation of duties
+    const sod = await resolve({ action: "approve", requestedBy: M.headV, step: { assignees: [{ kind: "position", position: "branch_head", where: "anywhere" }], exclude: ["Requester" as never] } });
+    expect(users(sod)).toEqual([M.headT]);
+    // the preview refuses such a step with the validator's reason
+    const refused = await e.owner.post(`${P}/positions/resolve`, { step: { assignees: [{ kind: "position", position: "branch_head", where: "somewhere" }] }, action: "fill", requester: M.r1 }, 400);
+    expect(refused.error.details.problems).toEqual([{ path: "assignees.0", message: "محدودهٔ نقش سازمانی معتبر نیست" }]);
+  });
+});
+
 describe("delegation by action", () => {
   let d1: string;
   let d2: string;

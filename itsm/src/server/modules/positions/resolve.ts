@@ -330,6 +330,11 @@ export class Resolution {
       case "users":
         return people(rule.users);
       case "manager": {
+        // a draft's wrong value (the publish check refuses it) finds nobody, never somebody else's manager
+        if ((rule.of !== "requester" && rule.of !== "previous_actor") || (rule.depth !== undefined && ![1, 2, 3].includes(rule.depth))) {
+          this.note("قاعدهٔ «مدیر مستقیم» معتبر نیست");
+          return [];
+        }
         const who = rule.of === "previous_actor" ? lower(this.input.previousActor) : this.subject;
         if (!who) {
           this.note(rule.of === "previous_actor" ? "هنوز کسی مرحله‌ای را انجام نداده است" : "درخواست‌دهنده معلوم نیست");
@@ -340,6 +345,10 @@ export class Resolution {
         return people([m]);
       }
       case "unit_head": {
+        if (rule.of !== "requester" && rule.of !== "unit_field") {
+          this.note("قاعدهٔ «رئیس واحد» معتبر نیست");
+          return [];
+        }
         const start = rule.of === "unit_field" ? lower(rule.unitField ? values[rule.unitField] : null) : await this.requesterUnit();
         if (!start) {
           this.note(rule.of === "unit_field" ? "فیلد واحد خالی است" : "درخواست‌دهنده واحد سازمانی ندارد");
@@ -424,6 +433,10 @@ export class Resolution {
         if (!holders.length) this.note(`«${pos.name}» در «${(await this.unit(unit))?.name ?? ""}» دارنده‌ای ندارد`);
         break;
       }
+      default:
+        // a «where» the rules do not know (a draft's, refused at publish) is nobody — never «همه‌جا»
+        this.note("محدودهٔ نقش سازمانی معتبر نیست");
+        return [];
     }
     if (rule.members?.length) {
       const before = holders.length;

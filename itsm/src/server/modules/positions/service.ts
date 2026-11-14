@@ -62,7 +62,8 @@ export async function assigneeFactsFor(ctx: Ctx, step: StepAssignees, fields?: R
   const groups = groupIds.length ? await ctx.db.query<{ id: string; name: string; active: boolean | null }>(`select id, name, active from sm_groups where org_id = $1 and id = any($2::uuid[]) and deleted_at is null`, [org, pgArray(groupIds)]) : [];
   const unitIds = rules.flatMap((r) => (r.kind === "position" && r.where === "unit" && isUuid(r.unit) ? [r.unit] : []));
   const units = unitIds.length ? await ctx.db.query<{ id: string; name: string; kind: string | null; active: boolean | null }>(`select id, name, kind, active from sm_org_units where org_id = $1 and id = any($2::uuid[]) and deleted_at is null`, [org, pgArray(unitIds)]) : [];
-  const people = rules.flatMap((r) => (r.kind === "users" ? r.users : "members" in r && r.members ? r.members : []));
+  // (a members entry that is no id stays in a draft for the validator; it never reaches the database)
+  const people = rules.flatMap((r) => (r.kind === "users" ? r.users : "members" in r && r.members ? r.members : [])).filter((u) => isUuid(u));
   const active = people.length ? new Set((await ctx.db.query<{ user_id: string }>(`select user_id from sm_org_members where org_id = $1 and user_id = any($2::uuid[]) and is_active and deleted_at is null`, [org, pgArray(people)])).map((r) => r.user_id.toLowerCase())) : new Set<string>();
   const roleKeys = new Set([...BUILTIN_KEYS, ...(await ctx.db.query<{ key: string }>(`select key from sm_roles where org_id = $1 and deleted_at is null`, [org])).map((r) => r.key)]);
   const byRef = (ref: string) => positions.find((p) => p.key === ref || p.id.toLowerCase() === ref.toLowerCase());
