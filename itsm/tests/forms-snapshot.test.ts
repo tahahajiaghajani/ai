@@ -132,6 +132,7 @@ describe("the snapshot alone renders and validates every field kind", () => {
   let problem: string;
   let location: string;
   let group: string;
+  let position: string;
 
   beforeAll(async () => {
     types = availableBuiltinTypes(SETTINGS_ENV.tableExists!).map((b) => b.key);
@@ -163,6 +164,8 @@ describe("the snapshot alone renders and validates every field kind", () => {
     department = (await e.owner.post(`${R}/org_unit`, { name: "ادارهٔ مالی", kind: "department" })).row.id;
     location = (await e.owner.post(`${R}/location`, { name: "ساختمان مرکزی" })).row.id;
     group = (await e.owner.post(`${R}/group`, { name: "پشتیبانی شعبه‌ها" })).row.id;
+    // «نقش سازمانی» is among the types once the positions package (F3) has its table
+    position = (await e.owner.post(`${R}/position`, { name: "رئیس شعبه", key: "branch_head", unit_kind: "branch" })).row.id;
     incident = (await e.owner.post(`${R}/incident`, { short_description: "چاپگر شعبه کار نمی‌کند" })).row.id;
     problem = (await e.owner.post(`${R}/problem`, { short_description: "خرابی پیاپی چاپگرها" })).row.id;
     // a shared list changed after the publish: the hub can name the processes it affects
@@ -244,7 +247,7 @@ describe("the snapshot alone renders and validates every field kind", () => {
       int: 5, decimal: "12.34", percent: 50, rating: 4, duration: "2:30", money: "15000000", checkbox: true, switch: false,
       select: "annual", radio: "in_person", multiselect: ["id_card", "deed"], checklist: ["letter"], tags: ["فوری", "شعبه"],
       date: today, datetime: "2026-11-14T10:00:00Z", user: e.ownerId, users: [e.ownerId], group,
-      unit: branch, location, record: incident, records: [problem], attachment: [pdf], color: "blue",
+      unit: branch, location, position, record: incident, records: [problem], attachment: [pdf], color: "blue",
     };
     const input = Object.fromEntries(types.filter((t) => t in good).map((t) => [nameOf(t), good[t]]));
     expect(Object.keys(input).length).toBe(types.length);
