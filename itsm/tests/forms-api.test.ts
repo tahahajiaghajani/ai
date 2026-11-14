@@ -97,7 +97,7 @@ describe("GET /forms: every form of the system", () => {
     const expected = managerOffers.filter((t) => !isNever(t.rowAccess?.read ?? null) && t.key !== "process_case" && (!isCustomSlot(t.key) || t.key === studioSlot));
     expect([...system.keys()].sort()).toEqual(expected.map((t) => t.key).sort());
     expect(system.size).toBeGreaterThan(400);
-    expect(managerOffers.filter((t) => !system.has(t.key) && !isCustomSlot(t.key)).map((t) => t.key).sort()).toEqual(["ai_agent_run", "portal_link_code"]);
+    expect(managerOffers.filter((t) => !system.has(t.key) && !isCustomSlot(t.key)).map((t) => t.key).sort()).toEqual(["ai_agent_run", "portal_link_code", "process_case"]);
     for (const [key, f] of system) {
       expect(f).toMatchObject({ key: `system:${key}`, link: `settings/forms/t/${key}`, editable: true, id: null });
       expect(f.fields).toBe(tableFormFields(physicalTables().find((t) => t.key === key)!).length);
