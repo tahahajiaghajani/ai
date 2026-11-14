@@ -12,7 +12,9 @@
 //     approval maths for an approve quorum, any «بازگشت» at once: the round's other tasks become «دیگر لازم نیست»,
 //     the case is recomputed and the step's wait resumes with the decision's port in the same transaction.
 //   · start: the starters are checked; the case is created with the submission's `case_id` (once: a second start of
-//     the same id is late), its values checked with the start step's rights, its title from the version's template,
+//     the same id is late), on the submission's version (graph, forms, title) but with the starters and the access
+//     settings (managers, manager groups, confidential) of the process's current version, which a publish pushes to
+//     every case, its values checked with the start step's rights, its title from the version's template,
 //     the round-1 start task recorded as done, and the run started (trigger kind `process`, the case as its record).
 //   · cancel: the requester, while no step after the start has been done; the open tasks close as «لغو» and the run
 //     is canceled after the commit.
@@ -66,6 +68,8 @@ export interface ApplyResult {
 
 /** «دیرهنگام»: the step was settled or withdrawn before this submission arrived. */
 export const LATE_NOTE = "این مرحله را همکارتان پیش‌تر انجام داده بود؛ آنچه نوشتید نگه داشته شد ولی در پرونده ثبت نشد";
+/** A case a process manager paused takes no decision until it is resumed (F4c). */
+export const PAUSED_NOTE = "این پرونده را مسئولان گردش‌کار موقتاً متوقف کرده‌اند؛ پس از ادامهٔ آن، مرحله را دوباره بفرستید";
 /** A comment binds reject and return. */
 export const COMMENT_NEEDED = "برای رد یا بازگشت، توضیح بنویسید";
 
@@ -288,10 +292,13 @@ async function applyStart(tx: Tx, sys: Ctx, sub: SubmissionRow, who: Submitter):
   let version = sub.version_id ? await loadVersionInfo(tx, orgId, sub.version_id) : null;
   if (!version || version.process_id !== String(proc.id)) version = await loadVersionInfo(tx, orgId, proc.current_version_id);
   if (!version) return refused("نسخهٔ منتشرشدهٔ این گردش‌کار پیدا نشد");
+  // who may start and who may see: the current version's (a start filled on an older one must not bring them back)
+  const current = version.id === proc.current_version_id ? version : await loadVersionInfo(tx, orgId, proc.current_version_id);
+  if (!current || current.process_id !== String(proc.id)) return refused("نسخهٔ منتشرشدهٔ این گردش‌کار پیدا نشد");
   const { trigger, start } = startOf(version.graph);
   if (!trigger || !start) return refused("طرح این گردش‌کار «ثبت درخواست» ندارد");
   const step = formStepOf(start.config);
-  if (version.starters.length && !(await isStarter(tx, sys, version.starters, who.user))) return refused("شما اجازهٔ آغاز این گردش‌کار را ندارید");
+  if (current.starters.length && !(await isStarter(tx, sys, current.starters, who.user))) return refused("شما اجازهٔ آغاز این گردش‌کار را ندارید");
   let requestedFor = who.user;
   if (isId(sub.requested_for) && sub.requested_for.toLowerCase() !== who.user) {
     const other = await submitterOf(tx, sys, sub.requested_for);
@@ -321,8 +328,8 @@ async function applyStart(tx: Tx, sys: Ctx, sub: SubmissionRow, who: Submitter):
     "process_case",
     {
       title, process_id: proc.id, process_name: version.name || proc.name, version_id: version.id, version_no: version.version_no, state: "active",
-      requested_by: who.user, requested_for: requestedFor, managers: version.managers, manager_groups: version.manager_groups,
-      confidential: version.confidential, started_at: iso(now), run_ref: runId, data: taken.values, participants: [who.user],
+      requested_by: who.user, requested_for: requestedFor, managers: current.managers, manager_groups: current.manager_groups,
+      confidential: current.confidential, started_at: iso(now), run_ref: runId, data: taken.values, participants: [who.user],
       progress: {
         [trigger.id]: { status: "done", port: "out", round: 1, at: iso(now) },
         [start.id]: { status: "done", outcome: "submitted", port: "out", round: 1, at: iso(now), actors: [...names.values()] },
@@ -381,6 +388,8 @@ async function applyStep(tx: Tx, sys: Ctx, sub: SubmissionRow, who: Submitter): 
   const key = stepWaitKey(kase.id, task.step_key, Number(task.round));
   const wait = await tx.one<{ id: string }>(`select id from sm_flow_waits where org_id = $1 and key = $2 for update`, [orgId, key]);
   if (!wait) return lateResult();
+  // paused by a process manager (F4c): nothing is decided until it is resumed; the task stays open
+  if (kase.paused_at) return { ...refused(PAUSED_NOTE, {}, kase.id), patch };
 
   // the person: the task's, the one it stands in for, or a delegate of either now
   const me = who.user;

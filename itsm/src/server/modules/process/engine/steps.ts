@@ -1,9 +1,11 @@
 // The steps only workflows have (design F §3.5, §3.6.3, F4a), for runs of kind `process` (`processHandlers`):
 //   · «مرحلهٔ فرم» (`form_step`): on the authority, in the step's transaction under the case's lock — the round (one
 //     more than the step's last; «ثبت درخواست» passes through on its first arrival, which its start submission
-//     already was), the people (a returned step goes back to its earlier actor unless it says «بر پایهٔ قاعده»,
-//     otherwise F3's `resolveAssignees`), one task per person, the case's progress, current steps, open rounds,
-//     participants and state, the event `record.process_step_opened`, then a wait on `pstep:<case>:<node>:<round>`.
+//     already was), the people (the step a «بازگشت» sends the case back to goes to its earlier actors — the people
+//     they acted for, through today's delegations — unless it says «بر پایهٔ قاعده»; every other opening, the
+//     returning step's own next round included, goes by F3's `resolveAssignees`), one task per person, the case's
+//     progress, current steps, open rounds, participants and state, the event `record.process_step_opened`, then a
+//     wait on `pstep:<case>:<node>:<round>`.
 //     Nobody: the step is skipped (`ifNobody: skip`) or the case waits («در انتظار») for its managers — as it does
 //     when more people are found than a step takes. `applySubmission` settles the round and resumes the wait with the
 //     decision's port; `cancel` (the wait withdrawn by a join's cancel_rest, the run ended or canceled) closes the
@@ -16,23 +18,23 @@ import type { FieldDef } from "@shared/model/types";
 import { compareData } from "@shared/flows";
 import { snapshotFields } from "@shared/forms/snapshot";
 import { addBusiness } from "@shared/sla/calendar";
-import { choiceCases, durationMs, formStepOf, OUTCOME_PORT, processNodeLabel, quorumOf, type FormStep } from "@shared/process/graph";
+import { choiceCases, durationMs, formStepOf, OUTCOME_PORT, outEdges, processNodeLabel, quorumOf, type CaseProgress, type FormStep, type ProcessGraph } from "@shared/process/graph";
 import { cleanRule, ifNobodyOf, nobodyMessage, type AssigneeRule } from "@shared/process/assignees";
 import type { Ctx } from "../../../context";
 import type { Tx } from "../../../db";
 import { pgArray } from "../../../db";
 import { coerceValue, createIn, emitEvent, orgTz, systemCtx, updateIn } from "../../../engine";
 import type { FlowStepHandler, StepContext, StepOutcome, WaitCancel } from "../../flows/registry";
-import { resolveAssignees, type ResolveInput } from "../../positions";
+import { Resolution, resolveAssignees, type ResolveInput } from "../../positions";
 import { notifyPeople } from "../../notify/deliver";
 import { config as slaConfig } from "../../sla/common";
 import { calendarsOf } from "../../sla/calendars";
 import { caseJournal } from "./journal";
-import { OPEN_STATES, participantsOf, refreshCase } from "./progress";
+import { OPEN_STATES, participantsOf, refreshCase, replayProgress, runLog } from "./progress";
 import { caseTasks, isId, loadVersionInfo, lockCase, peopleNames, stepWaitKey, type CaseRow, type TaskRow, type VersionInfo } from "./store";
 import { processHandlers } from "./runs";
 
-/** The event a step's opening emits on its case (`data`: node, label, round, action, people, status, due_at). */
+/** The event a step's opening emits on its case (`data`: node, label, round, action, people, status, due_at, message, returned). */
 export const STEP_OPENED = "record.process_step_opened";
 /** The kind of a form step's wait. */
 export const STEP_WAIT = "process_step";
@@ -56,6 +58,15 @@ export function actorsOf(tasks: readonly TaskRow[]): { byStep: Record<string, st
     if (!last || String(t.closed_at ?? "") >= String(last.closed_at ?? "")) last = t;
   }
   return { byStep, last: last?.acted_by ?? null };
+}
+
+/**
+ * Is an opening of `node` the target of a «بازگشت»? Some step's round settled «returned» with a «بازگشت» edge to
+ * `node`, and the case's progress still holds it: an opening of the target (or of a step before it) drops it, so a
+ * return is taken up once, and a step met again on the way forward after it is not a target.
+ */
+export function returnedTo(graph: ProcessGraph, progress: CaseProgress, node: string): boolean {
+  return Object.entries(progress).some(([id, p]) => p?.status === "done" && p.outcome === "returned" && outEdges(graph, id, "returned").some((e) => e.target === node));
 }
 
 /** Storage types of the snapshot's fields (person and unit rules read them). */
@@ -126,7 +137,8 @@ async function openStep(s: StepContext): Promise<StepOutcome> {
   if (!version) return { error: "نسخهٔ گردش‌کار پیدا نشد" };
   const nodeId = s.node.id;
   const step = formStepOf(s.node.config);
-  const label = processNodeLabel({ type: "form_step", label: s.node.label, config: s.node.config });
+  // the version's own node: the executor's label is the flows catalogue's, which names a form step by its type key
+  const label = processNodeLabel(version.graph.nodes.find((n) => n.id === nodeId) ?? { type: "form_step", config: s.node.config });
   const tasks = await caseTasks(tx, s.orgId, caseId);
   const own = tasks.filter((t) => t.step_key === nodeId);
   const trigger = (s.data.trigger ?? {}) as Record<string, unknown>;
@@ -143,15 +155,22 @@ async function openStep(s: StepContext): Promise<StepOutcome> {
   const round = last + 1;
   const now = Date.now();
 
-  // the people: a returned step's earlier actor, else the rules
+  // the people: the earlier actors of the step a «بازگشت» sends the case back to, else the rules
   let people: { user: string; delegatedFrom: string | null }[] = [];
   let status: "ok" | "managers" | "nobody" | "too_many" = "ok";
   let message: string | null = null;
   let candidates: string[] | undefined;
-  if (last > 0 && (step.returnTo ?? "actor") === "actor") {
-    const earlier = own.filter((t) => Number(t.round) === last && t.status === "done" && t.acted_by).map((t) => String(t.acted_by));
+  const back = last > 0 && returnedTo(version.graph, replayProgress(version.graph, kase.progress, await runLog(tx, kase.run_ref)), nodeId);
+  if (back && (step.returnTo ?? "actor") === "actor") {
+    // the people the last round's decisions were made for (a delegate acted for someone), each through the
+    // delegations of today: the delegate now in force, or the person themself
+    const earlier = [...new Set(own.filter((t) => Number(t.round) === last && t.status === "done" && (t.acted_for || t.acted_by)).map((t) => String(t.acted_for ?? t.acted_by)))];
     const live = await activeMembers(tx, s.orgId, earlier);
-    people = [...new Set(earlier.filter((u) => live.has(u)))].map((user) => ({ user, delegatedFrom: null }));
+    const found = earlier.filter((u) => live.has(u)).map((user) => ({ user, via: { rule: 0, kind: "users" as const } }));
+    if (found.length) {
+      const settled = await new Resolution(tx, sys, { step: { assignees: [] }, action: step.action, requestedBy: kase.requested_by }).settle(found, new Set());
+      people = settled.map((p) => ({ user: p.user, delegatedFrom: p.delegatedFrom }));
+    }
   }
   if (!people.length && step.start) {
     const live = await activeMembers(tx, s.orgId, kase.requested_by ? [kase.requested_by] : []);
@@ -196,7 +215,7 @@ async function openStep(s: StepContext): Promise<StepOutcome> {
     table: "process_case",
     id: caseId,
     number: kase.number,
-    data: { node: nodeId, label, round, action: step.action, people: people.map((p) => p.user), status: people.length ? status : status === "ok" ? "nobody" : status, due_at: due, message },
+    data: { node: nodeId, label, round, action: step.action, people: people.map((p) => p.user), status: people.length ? status : status === "ok" ? "nobody" : status, due_at: due, message, returned: back },
   });
   return {
     wait: { kind: STEP_WAIT, key: stepWaitKey(caseId, nodeId, round), data: { case: caseId, round, step: s.stepKey, ...(candidates ? { candidates } : {}) } },
@@ -311,10 +330,11 @@ const notify: FlowStepHandler = {
     const kase = await tx.one<CaseRow>(`select * from sm_process_cases where org_id = $1 and id = $2 and deleted_at is null`, [s.orgId, caseId]);
     const version = kase ? await loadVersionInfo(tx, s.orgId, kase.version_id) : null;
     if (!kase || !version) return { error: "پرونده پیدا نشد" };
+    const label = processNodeLabel(version.graph.nodes.find((n) => n.id === s.node.id) ?? { type: "notify" });
     const rules = (Array.isArray(s.node.config.to) ? s.node.config.to : []).map(cleanRule).filter((x): x is AssigneeRule => !!x);
     const tasks = await caseTasks(tx, s.orgId, caseId);
     const r = rules.length
-      ? await resolveAssignees(tx, s.ctx, resolveInput(kase, version, tasks, { assignees: rules, exclude: [], ifNobody: "skip", action: "fill" }, s.node.label))
+      ? await resolveAssignees(tx, s.ctx, resolveInput(kase, version, tasks, { assignees: rules, exclude: [], ifNobody: "skip", action: "fill" }, label))
       : null;
     const users = [...new Set([...(r?.people.map((p) => p.user) ?? []), ...(r?.status === "too_many" ? r.candidates ?? [] : [])])];
     const subject = s.text(s.node.config.subject).trim().slice(0, 300) || s.run.flowName;

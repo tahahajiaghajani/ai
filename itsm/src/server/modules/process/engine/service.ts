@@ -83,9 +83,15 @@ export async function startCase(ctx: Ctx, input: StartCaseInput): Promise<Submit
     `select id from sm_processes where org_id = $1 and deleted_at is null and ${isId(ref) ? "id = $2::uuid" : "key = $2"}`,
     [ctx.org.id, isId(ref) ? ref.toLowerCase() : ref],
   );
-  if (!proc) throw notFound("گردش‌کار پیدا نشد");
+  // a Windows app of someone who does not read the designs holds the published versions only: the start names the
+  // latest one, and the authority takes the process from it (F4b)
+  const version = !proc && isId(ref)
+    ? await ctx.db.one<{ id: string }>(`select id from sm_process_versions where org_id = $1 and process_id = $2::uuid and deleted_at is null order by version_no desc limit 1`, [ctx.org.id, ref.toLowerCase()])
+    : null;
+  if (!proc && !version) throw notFound("گردش‌کار پیدا نشد");
   const caseId = isId(input.case_id) ? input.case_id.toLowerCase() : uuidv7();
-  return submit(ctx, { kind: "start", process_id: proc.id, case_id: caseId, values: input.values ?? {}, requested_for: input.requested_for ?? null }, input.files);
+  const which = proc ? { process_id: proc.id } : { version_id: version!.id };
+  return submit(ctx, { kind: "start", ...which, case_id: caseId, values: input.values ?? {}, requested_for: input.requested_for ?? null }, input.files);
 }
 
 /** «انجام مرحله»: decide or fill an open task of mine. */
@@ -100,7 +106,8 @@ export async function submitTask(ctx: Ctx, taskId: string, input: SubmitTaskInpu
   return submit(
     ctx,
     {
-      kind: "step", task_id: task.id, case_id: task.case_id, step_key: task.step_key, round: task.round, process_id: task.process_id, version_id: task.version_id,
+      // the process is filled in by the apply: a Windows app that holds only the published versions has no process row
+      kind: "step", task_id: task.id, case_id: task.case_id, step_key: task.step_key, round: task.round, version_id: task.version_id,
       outcome: input.outcome ?? null, comment: input.comment ?? null, values: input.values ?? {}, return_to: input.return_to ?? null,
     },
     input.files,

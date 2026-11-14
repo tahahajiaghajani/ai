@@ -8,10 +8,13 @@
 //   · merge: legal ∥ finance in both orders keeps both values;
 //   · a retired field: a case on an old version still shows and accepts it;
 //   · quorum (any, all, count, percent, first) through the shared approval maths;
-//   · the guards: comments, decisions a step does not offer, the person, starters, a start applied once, cancel.
+//   · the guards: comments, decisions a step does not offer, the person, starters, a start applied once, cancel;
+//   · review F4a: a «بازگشت» reopens its target only for the earlier actors (the people a delegate acted for, through
+//     today's delegations) and the returning step by its rules; rounds settled before the executor ran stay settled;
+//     a start on an older version takes the current one's starters and access; unlabeled steps' tasks are named.
 import { describe, it, expect, beforeAll } from "vitest";
 import { applySubmission, processesRunHere, roundSettles, startCase, LATE_NOTE, STEP_OPENED } from "@server/modules/process/engine";
-import { createIn, onRecordEvent } from "@server/engine";
+import { createIn, onRecordEvent, updateIn } from "@server/engine";
 import { stepStatuses, type ProcessGraph } from "@shared/process";
 import { uuidv7 } from "@shared/id";
 import { PNG } from "./engine-helpers";
@@ -148,6 +151,18 @@ describe("a case from start to end", () => {
     expect(c.progress.a).toMatchObject({ status: "done", outcome: "approved", round: 3 });
   });
 
+  it("an unlabeled step's tasks carry its Persian name in every round, not the node's type key", async () => {
+    const g = basic(P.h, P.f);
+    for (const n of g.nodes) delete n.label;
+    const p = await publish(w, g);
+    const id = (await start(w, P.r, p, { values: { u_amount: "100" } })).case!;
+    await w.k.drain();
+    await act(w, P.h, await openTask(w, id, "a", P.h), { outcome: "returned", comment: "اصلاح" });
+    await w.k.drain();
+    const rows = await w.o.db.query<{ step_key: string; round: number; step_label: string }>(`select step_key, round, step_label from sm_process_tasks where case_id = $1 order by opened_at, round`, [id]);
+    expect(rows.map((t) => `${t.step_key}:${t.round}:${t.step_label}`)).toEqual(["s:1:ثبت درخواست", "a:1:تأیید", "s:2:ثبت درخواست"]);
+  });
+
   it("refuses a «بازگشت» the step does not offer, and a task that is not the person's", async () => {
     const g = basic(P.h, P.f);
     g.edges = g.edges.filter((e) => e.port !== "returned");
@@ -215,6 +230,21 @@ describe("parallel branches", () => {
     const c = await kase(w, id);
     expect(c.open_rounds).toEqual({ fa: 1 });
     expect(c.data).toMatchObject({ u_amount: "500", u_legal: "بی‌اشکال", u_fin: "بودجه هست" });
+  });
+
+  it("join all: both branches settled before the executor runs leave the case active with no open step", async () => {
+    const p = await publish(w, parallel(P.l, P.m, P.h));
+    const id = (await start(w, P.r, p, { values: { u_amount: "500" } })).case!;
+    await w.k.drain();
+    await act(w, P.l, await openTask(w, id, "l", P.l), { values: { u_legal: "بی‌اشکال" } });
+    await act(w, P.m, await openTask(w, id, "m", P.m), { values: { u_fin: "بودجه هست" } });
+    const c = await kase(w, id);
+    expect(c).toMatchObject({ state: "active", open_rounds: {} });
+    expect(c.current_steps ?? []).toEqual([]);
+    expect(c.progress.l).toMatchObject({ status: "done", round: 1 });
+    expect(c.progress.m).toMatchObject({ status: "done", round: 1 });
+    await w.k.drain();
+    expect(await kase(w, id)).toMatchObject({ state: "active", open_rounds: { fa: 1 } });
   });
 
   it("join any with cancel_rest: the other branch's task is «دیگر لازم نیست» and its later submission is late", async () => {
@@ -295,13 +325,73 @@ describe("people", () => {
     await act(w, P.a2, await openTask(w, id, "a", P.a2), { outcome: "approved" });
     await w.k.drain();
     expect((await kase(w, id)).progress.a).toMatchObject({ status: "active", waiting: 1 });
-    const r = await act(w, P.d, await openTask(w, id, "a", P.a3), { outcome: "approved" });
+    // the delegation started after the step opened: its task moved to the delegate (F4b's process.delegation)
+    const moved = (await tasks(w, id)).find((t) => t.step_key === "a" && t.status === "open")!;
+    expect([moved.assigned_to, moved.delegated_from]).toEqual([P.d, P.a3]);
+    const r = await act(w, P.d, moved.id, { outcome: "approved" });
     expect((await submission(w, r.submission))?.on_behalf_of).toBe(P.a3);
     await w.k.drain();
     const c = await kase(w, id);
     expect(c.state).toBe("completed");
     expect((await tasks(w, id)).filter((t) => t.step_key === "a").map((t) => `${t.acted_by === P.d ? "d" : "a2"}:${t.acted_for === P.a3 ? "for-a3" : "-"}`).sort()).toEqual(["a2:-", "d:for-a3"]);
     expect(await journal(w, id)).toContain("داوود جانشین «تأیید رئیس شعبه» را تأیید کرد (به جانشینی از اکبر تأییدکننده)");
+  });
+
+  it("quorum all after a «بازگشت»: the returning step opens again by its rules, so both approvers must approve", async () => {
+    const h = await person(w, "هادی تأییدکننده");
+    const a2 = await person(w, "امید تأییدکننده");
+    const g = basic(h, P.f);
+    Object.assign(g.nodes.find((n) => n.id === "a")!.config, { ...users(h, a2), quorum: "all" });
+    const p = await publish(w, g);
+    const id = (await start(w, P.r, p, { values: { u_amount: "100" } })).case!;
+    await w.k.drain();
+    await act(w, h, await openTask(w, id, "a", h), { outcome: "returned", comment: "مبلغ را اصلاح کنید" });
+    await w.k.drain();
+    expect((await tasks(w, id)).filter((t) => t.step_key === "s" && t.round === 2).map((t) => t.assigned_to)).toEqual([P.r]);
+    await act(w, P.r, await openTask(w, id, "s", P.r), { values: { u_amount: "200" } });
+    await w.k.drain();
+    expect((await tasks(w, id)).filter((t) => t.step_key === "a" && t.round === 2).map((t) => t.assigned_to).sort()).toEqual([h, a2].sort());
+    await act(w, h, await openTask(w, id, "a", h), { outcome: "approved" });
+    await w.k.drain();
+    expect((await kase(w, id)).progress.a).toMatchObject({ status: "active", round: 2, waiting: 1 });
+    await act(w, a2, await openTask(w, id, "a", a2), { outcome: "approved" });
+    await w.k.drain();
+    expect((await kase(w, id)).state).toBe("completed");
+  });
+
+  it("a step a «بازگشت» reopens goes to the person a delegate acted for, through today's delegations", async () => {
+    const x = await person(w, "ثریا کارشناس");
+    const d = await person(w, "دلارام جانشین");
+    const d2 = await person(w, "دانیال جانشین");
+    const g: ProcessGraph = {
+      nodes: [
+        node("t", "trigger"),
+        startStep(),
+        node("f", "form_step", { action: "fill", form: F.legal, rights: rights("read", { u_legal: "required" }), ...users(x) }, "نظر کارشناس"),
+        node("a", "form_step", { action: "approve", form: F.review, rights: rights("read"), ...users(P.h) }, "تأیید"),
+        node("ok", "end"),
+        node("no", "end", { outcome: "rejected" }),
+      ],
+      edges: [edge("t", "s"), edge("s", "f"), edge("f", "a"), edge("a", "ok", "approved"), edge("a", "no", "rejected"), edge("a", "f", "returned")],
+    };
+    const p = await publish(w, g);
+    const since = new Date(Date.now() - 60_000).toISOString();
+    const old = await w.sys.write((tx) => createIn(tx, w.sys, "delegation", { from_user: x, to_user: d, scopes: ["assignments"], starts_at: since }, { trusted: true }));
+    const id = (await start(w, P.r, p, { values: { u_amount: "100" } })).case!;
+    await w.k.drain();
+    await act(w, d, await openTask(w, id, "f", d), { values: { u_legal: "بی‌اشکال" } });
+    await w.k.drain();
+    expect((await tasks(w, id)).find((t) => t.step_key === "f")).toMatchObject({ acted_by: d, acted_for: x });
+    // d's delegation ends and x hands over to d2
+    await w.sys.write(async (tx) => {
+      await updateIn(tx, w.sys, "delegation", String(old.id), { ends_at: new Date(Date.now() - 1000).toISOString() }, { trusted: true });
+      await createIn(tx, w.sys, "delegation", { from_user: x, to_user: d2, scopes: ["assignments"], starts_at: since }, { trusted: true });
+    });
+    await act(w, P.h, await openTask(w, id, "a", P.h), { outcome: "returned", comment: "نظر را کامل کنید" });
+    await w.k.drain();
+    const round2 = (await tasks(w, id)).filter((t) => t.step_key === "f" && t.round === 2);
+    expect(round2.map((t) => [t.assigned_to, t.delegated_from])).toEqual([[d2, x]]);
+    expect((await kase(w, id)).participants).toEqual(expect.arrayContaining([x, d2]));
   });
 
   it("starters: someone the version does not name cannot start a case", async () => {
@@ -325,6 +415,21 @@ describe("submissions", () => {
     expect(await w.sys.write((tx) => applySubmission(tx, w.sys, String(other.id)))).toMatchObject({ result: "late", note: "این پرونده پیش‌تر ثبت شده است" });
     expect(await w.o.db.query(`select id from sm_process_cases where id = $1`, [caseId])).toHaveLength(1);
     expect(await w.o.db.query(`select id from sm_flow_runs where trigger_record_id = $1`, [caseId])).toHaveLength(1);
+  });
+
+  it("a start filled on an older version runs that version but takes the current version's starters and access settings", async () => {
+    const v1 = await publish(w, basic(P.h, P.f));
+    await publish(w, basic(P.h, P.f), { process: v1.process, starters: [{ kind: "users", users: [P.a2] }], managers: [P.h], confidential: true });
+    const startOn = async (user: string) => {
+      const row = { kind: "start", process_id: v1.process, version_id: v1.version, case_id: uuidv7(), values: { u_amount: "10" }, submitted_by: user, submitted_at: new Date().toISOString() };
+      const sub = await w.sys.write((tx) => createIn(tx, w.sys, "process_submission", row, { trusted: true }));
+      return w.sys.write((tx) => applySubmission(tx, w.sys, String(sub.id)));
+    };
+    expect(await startOn(P.r)).toMatchObject({ result: "refused", note: "شما اجازهٔ آغاز این گردش‌کار را ندارید" });
+    const ok = await startOn(P.a2);
+    expect(ok).toMatchObject({ result: "applied" });
+    const c = await w.o.db.one<{ version_id: string; managers: string[]; confidential: boolean }>(`select version_id, managers, confidential from sm_process_cases where id = $1`, [ok.caseId]);
+    expect(c).toMatchObject({ version_id: v1.version, managers: [P.h], confidential: true });
   });
 
   it("files: the submission's files are copied to the case and the value names the copies", async () => {

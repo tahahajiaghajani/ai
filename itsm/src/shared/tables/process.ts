@@ -180,9 +180,9 @@ const processCase: TableDef = {
     { name: "requested_by", label: "ثبت‌کننده", type: "user", system: true, list: true, filter: true, span: 8, section: "افراد" },
     { name: "requested_for", label: "درخواست برای", type: "user", system: true, filter: true, span: 8, section: "افراد" },
     // the people of open tasks (assignee, delegated from) and of done ones (actor, acted for) — kept by the authority
-    { name: "participants", label: "مشارکت‌کنندگان", type: "users", system: true, hidden: true, audit: false, section: "افراد" },
-    { name: "managers", label: "مسئولان", type: "users", system: true, hidden: true, audit: false, section: "افراد" },
-    { name: "manager_groups", label: "گروه‌های مسئول", type: "refs", ref: "group", system: true, hidden: true, audit: false, section: "افراد" },
+    { name: "participants", label: "مشارکت‌کنندگان", type: "users", system: true, hidden: true, audit: false, index: true, section: "افراد" },
+    { name: "managers", label: "مسئولان", type: "users", system: true, hidden: true, audit: false, index: true, section: "افراد" },
+    { name: "manager_groups", label: "گروه‌های مسئول", type: "refs", ref: "group", system: true, hidden: true, audit: false, index: true, section: "افراد" },
     // [{ key, label }] of the steps open now; open_rounds: { [step key]: round }; progress: `CaseProgress`
     { name: "current_steps", label: "مرحله‌های جاری", type: "json", system: true, hidden: true, audit: false, section: "پیشرفت" },
     { name: "open_rounds", label: "دورهای باز", type: "json", system: true, hidden: true, audit: false, section: "پیشرفت" },
@@ -190,6 +190,8 @@ const processCase: TableDef = {
     { name: "outcome", label: "نتیجه", type: "choice", choices: CASE_OUTCOMES, system: true, list: true, filter: true, span: 8, section: "پیشرفت" },
     { name: "started_at", label: "آغاز", type: "datetime", system: true, list: true, sort: true, filter: true, span: 8, section: "پیشرفت" },
     { name: "ended_at", label: "پایان", type: "datetime", system: true, sort: true, filter: true, span: 8, section: "پیشرفت" },
+    // «توقف موقت» by a process manager (F4c): nobody acts on the case and its timers wait until it is resumed
+    { name: "paused_at", label: "توقف موقت", type: "datetime", system: true, filter: true, span: 8, section: "پیشرفت" },
     { name: "run_ref", label: "اجرا", type: "string", maxLength: 36, system: true, hidden: true, ltr: true, audit: false },
     { name: "confidential", label: "محرمانه", type: "bool", default: false, system: true, filter: true, span: 6 },
     // the values, keyed by library field name, read through the pinned version's snapshot (never generic fields)
@@ -293,7 +295,9 @@ const processSubmission: TableDef = {
   scope: { own: ["submitted_by"], requester: [] },
   rowAccess: {
     read: { or: [{ f: "submitted_by", op: "is_me" }, { f: "on_behalf_of", op: "is_me" }] },
-    write: { f: "submitted_by", op: "is_me" },
+    // people create their own (a pushed one starts pending); the upload of a standalone organisation (§7.2, F4b's
+    // upload rule) brings settled ones in their submitters' names
+    write: { or: [{ f: "submitted_by", op: "is_me" }, { f: "result", op: "in", v: ["applied", "late", "refused"] }] },
   },
   features: { attachments: true },
   list: { columns: ["kind", "step_key", "outcome", "submitted_by", "submitted_at", "result"], order: "-submitted_at" },

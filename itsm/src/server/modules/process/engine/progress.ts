@@ -7,7 +7,8 @@
 // passed, with the port a «شرط» or «انتخاب» took; form steps with their round, decision and actors (the handler writes
 // them into its step's output); a «پایان» with the case's outcome. A form step that runs again (a «بازگشت» reopened
 // it, or a new run started at it) drops the entries forward of it — they run again. What the log cannot hold yet (the
-// step being opened or settled in this very transaction) comes as `extra`.
+// step being opened or settled in this very transaction) comes as `extra`; a round an apply settled stays settled
+// while its log row still waits for the executor's resume.
 import type { Queryable, Tx } from "../../../db";
 import type { Ctx } from "../../../context";
 import { updateIn } from "../../../engine";
@@ -73,10 +74,13 @@ function entryOf(graph: ProcessGraph, s: LogStep): StepProgress | null {
 
 /**
  * Replay `steps` on top of `base`, then apply `extra` (entries of this transaction). A form step met again drops the
- * entries downstream of it before it is recorded.
+ * entries downstream of it before it is recorded. A form step whose log row still waits (or runs) for the round
+ * `base` records as done or skipped keeps that entry: an apply settled the round, and the executor has not yet run
+ * the resume that completes the row.
  */
 export function replayProgress(graph: ProcessGraph, base: CaseProgress | null | undefined, steps: readonly LogStep[], extra: Record<string, StepProgress> = {}): CaseProgress {
-  const out: CaseProgress = { ...(base && typeof base === "object" ? base : {}) };
+  const stored: CaseProgress = { ...(base && typeof base === "object" ? base : {}) };
+  const out: CaseProgress = { ...stored };
   const isForm = (id: string) => graph.nodes.some((n) => n.id === id && n.type === "form_step");
   const reopen = (id: string) => {
     if (!out[id] || !isForm(id)) return;
@@ -86,7 +90,9 @@ export function replayProgress(graph: ProcessGraph, base: CaseProgress | null | 
     const e = entryOf(graph, s);
     if (!e) continue;
     reopen(s.node_id);
-    out[s.node_id] = e;
+    const kept = stored[s.node_id];
+    const settled = e.status === "active" && isForm(s.node_id) && (kept?.status === "done" || kept?.status === "skipped") && kept.round === e.round;
+    out[s.node_id] = settled ? kept : e;
   }
   for (const [id, e] of Object.entries(extra)) {
     const prev = out[id];
@@ -144,8 +150,9 @@ export async function refreshCase(tx: Tx, sys: Ctx, kase: CaseRow, graph: Proces
     set.current_steps = [];
     set.open_rounds = {};
   } else if (set.state === undefined && (state === "active" || state === "waiting")) {
-    // an open case waits while one of its open steps has nobody to do it
-    set.state = current.some((c) => !progress[c.key]?.waiting) ? "waiting" : "active";
+    // an open case waits while one of its open steps has nobody to do it, and while a manager has paused it (F4c)
+    const paused = set.paused_at !== undefined ? !!set.paused_at : !!kase.paused_at;
+    set.state = paused || current.some((c) => !progress[c.key]?.waiting) ? "waiting" : "active";
   }
   return updateIn(tx, sys, "process_case", kase.id, set, { trusted: true });
 }

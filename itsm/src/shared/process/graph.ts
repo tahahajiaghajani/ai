@@ -351,7 +351,8 @@ export function structureOf(graph: ProcessGraph): ProcessStructure {
   const reach = trigger ? reachable(forward, [trigger.id]) : new Set<string>();
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const preds = new Map<string, string[]>();
-  for (const e of forward) if (reach.has(e.source) && reach.has(e.target)) preds.set(e.target, [...(preds.get(e.target) ?? []), e.source]);
+  // (an edge to or from a node that is not there — a draft being edited — is the validator's to report, not a predecessor)
+  for (const e of forward) if (byId.has(e.source) && byId.has(e.target) && reach.has(e.source) && reach.has(e.target)) preds.set(e.target, [...(preds.get(e.target) ?? []), e.source]);
   const dom = new Map<string, Set<string>>();
   const blocks = new Map<string, string[]>();
   const mixed = new Set<string>();
