@@ -20623,6 +20623,377 @@ create or replace trigger sm_problem_templates_demo after insert on sm_problem_t
 create or replace trigger sm_problem_templates_demo_t after update or delete on sm_problem_templates for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_problem_templates enable row level security;
 
+-- process: گردش‌کارها
+create table if not exists sm_processes (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_processes add column if not exists workspace_id uuid;
+alter table sm_processes add column if not exists domain_id uuid;
+alter table sm_processes add column if not exists unit_id uuid;
+alter table sm_processes add column if not exists created_at timestamptz not null default now();
+alter table sm_processes add column if not exists created_by uuid;
+alter table sm_processes add column if not exists updated_at timestamptz not null default now();
+alter table sm_processes add column if not exists updated_by uuid;
+alter table sm_processes add column if not exists rev bigint not null default 0;
+alter table sm_processes add column if not exists version integer not null default 1;
+alter table sm_processes add column if not exists deleted_at timestamptz;
+alter table sm_processes add column if not exists origin text;
+alter table sm_processes add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_processes add column if not exists name text;
+alter table sm_processes add column if not exists key text;
+alter table sm_processes add column if not exists icon text;
+alter table sm_processes add column if not exists category text;
+alter table sm_processes add column if not exists description text;
+alter table sm_processes add column if not exists draft jsonb;
+alter table sm_processes add column if not exists status text;
+alter table sm_processes add column if not exists version_no integer;
+alter table sm_processes add column if not exists current_version_id uuid;
+alter table sm_processes add column if not exists published_at timestamptz;
+alter table sm_processes add column if not exists published_by uuid;
+create index if not exists sm_processes_rev_idx on sm_processes (org_id, rev);
+create index if not exists sm_processes_upd_idx on sm_processes (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_processes_crt_idx on sm_processes (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_processes_key_uk on sm_processes (org_id, key) where deleted_at is null;
+create unique index if not exists sm_processes_name_uk on sm_processes (org_id, name) where deleted_at is null;
+drop trigger if exists sm_processes_sync on sm_processes;
+create trigger sm_processes_sync before insert or update on sm_processes for each row execute function sm_sync_touch('process');
+create or replace trigger sm_processes_demo after insert on sm_processes for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_processes_demo_t after update or delete on sm_processes for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_processes enable row level security;
+
+-- process_case: پرونده‌ها
+create table if not exists sm_process_cases (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_process_cases add column if not exists workspace_id uuid;
+alter table sm_process_cases add column if not exists domain_id uuid;
+alter table sm_process_cases add column if not exists unit_id uuid;
+alter table sm_process_cases add column if not exists created_at timestamptz not null default now();
+alter table sm_process_cases add column if not exists created_by uuid;
+alter table sm_process_cases add column if not exists updated_at timestamptz not null default now();
+alter table sm_process_cases add column if not exists updated_by uuid;
+alter table sm_process_cases add column if not exists rev bigint not null default 0;
+alter table sm_process_cases add column if not exists version integer not null default 1;
+alter table sm_process_cases add column if not exists deleted_at timestamptz;
+alter table sm_process_cases add column if not exists origin text;
+alter table sm_process_cases add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_process_cases add column if not exists no integer;
+alter table sm_process_cases add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 7 then 'PRC' || no::text else 'PRC' || lpad(no::text, 7, '0') end) stored;
+alter table sm_process_cases add column if not exists title text;
+alter table sm_process_cases add column if not exists process_id uuid;
+alter table sm_process_cases add column if not exists process_name text;
+alter table sm_process_cases add column if not exists version_id uuid;
+alter table sm_process_cases add column if not exists version_no integer;
+alter table sm_process_cases add column if not exists state text;
+alter table sm_process_cases add column if not exists requested_by uuid;
+alter table sm_process_cases add column if not exists requested_for uuid;
+alter table sm_process_cases add column if not exists participants jsonb;
+alter table sm_process_cases add column if not exists managers jsonb;
+alter table sm_process_cases add column if not exists manager_groups jsonb;
+alter table sm_process_cases add column if not exists current_steps jsonb;
+alter table sm_process_cases add column if not exists open_rounds jsonb;
+alter table sm_process_cases add column if not exists progress jsonb;
+alter table sm_process_cases add column if not exists outcome text;
+alter table sm_process_cases add column if not exists started_at timestamptz;
+alter table sm_process_cases add column if not exists ended_at timestamptz;
+alter table sm_process_cases add column if not exists run_ref text;
+alter table sm_process_cases add column if not exists confidential boolean not null default false;
+alter table sm_process_cases add column if not exists data jsonb;
+create unique index if not exists sm_process_cases_no_uk on sm_process_cases (org_id, no);
+create index if not exists sm_process_cases_rev_idx on sm_process_cases (org_id, rev);
+create index if not exists sm_process_cases_upd_idx on sm_process_cases (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_process_cases_crt_idx on sm_process_cases (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_process_cases_process_id_idx on sm_process_cases (org_id, process_id) where deleted_at is null;
+create index if not exists sm_process_cases_state_idx on sm_process_cases (org_id, state) where deleted_at is null;
+create index if not exists sm_process_cases_workspace_acc_idx on sm_process_cases (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_process_cases_unit_acc_idx on sm_process_cases (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_process_cases_domain_acc_idx on sm_process_cases (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_process_cases_requested_by_idx on sm_process_cases (org_id, requested_by) where deleted_at is null;
+create index if not exists sm_process_cases_requested_for_idx on sm_process_cases (org_id, requested_for) where deleted_at is null;
+do $search$
+declare s text; old record;
+begin
+  for old in select column_name from information_schema.columns where table_schema = current_schema() and table_name = 'sm_process_cases' and column_name ~ '^search_[0-9a-f]{8}$' and column_name <> 'search_cae18f1d' loop
+    execute format('alter table %I drop column if exists %I', 'sm_process_cases', old.column_name);
+  end loop;
+  execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_process_cases', 'search_cae18f1d', $x$translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
+  if s is not null then
+    for old in select indexname from pg_indexes where schemaname = current_schema() and tablename = 'sm_process_cases' and indexname like 'sm\_process\_cases\_search\_%' and indexname not in ('sm_process_cases_search_cae18f1d_trgm', 'sm_process_cases_search_custom_trgm') loop
+      execute format('drop index if exists %I', old.indexname);
+    end loop;
+    execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_process_cases_search_cae18f1d_trgm', 'sm_process_cases', 'search_cae18f1d', s);
+    execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_process_cases_search_custom_trgm', 'sm_process_cases', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
+  end if;
+end
+$search$;
+drop trigger if exists sm_process_cases_sync on sm_process_cases;
+create trigger sm_process_cases_sync before insert or update on sm_process_cases for each row execute function sm_sync_touch('process_case');
+create or replace trigger sm_process_cases_demo after insert on sm_process_cases for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_process_cases_demo_t after update or delete on sm_process_cases for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_process_cases enable row level security;
+
+-- process_draft: پیش‌نویس‌های مرحله
+create table if not exists sm_process_drafts (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_process_drafts add column if not exists workspace_id uuid;
+alter table sm_process_drafts add column if not exists domain_id uuid;
+alter table sm_process_drafts add column if not exists unit_id uuid;
+alter table sm_process_drafts add column if not exists created_at timestamptz not null default now();
+alter table sm_process_drafts add column if not exists created_by uuid;
+alter table sm_process_drafts add column if not exists updated_at timestamptz not null default now();
+alter table sm_process_drafts add column if not exists updated_by uuid;
+alter table sm_process_drafts add column if not exists rev bigint not null default 0;
+alter table sm_process_drafts add column if not exists version integer not null default 1;
+alter table sm_process_drafts add column if not exists deleted_at timestamptz;
+alter table sm_process_drafts add column if not exists origin text;
+alter table sm_process_drafts add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_process_drafts add column if not exists user_id uuid;
+alter table sm_process_drafts add column if not exists task_id uuid;
+alter table sm_process_drafts add column if not exists process_id uuid;
+alter table sm_process_drafts add column if not exists values jsonb;
+create index if not exists sm_process_drafts_rev_idx on sm_process_drafts (org_id, rev);
+create index if not exists sm_process_drafts_upd_idx on sm_process_drafts (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_process_drafts_crt_idx on sm_process_drafts (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_process_drafts_user_id_idx on sm_process_drafts (org_id, user_id) where deleted_at is null;
+create index if not exists sm_process_drafts_task_id_idx on sm_process_drafts (org_id, task_id) where deleted_at is null;
+create index if not exists sm_process_drafts_workspace_acc_idx on sm_process_drafts (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_process_drafts_unit_acc_idx on sm_process_drafts (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_process_drafts_domain_acc_idx on sm_process_drafts (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_process_drafts_sync on sm_process_drafts;
+create or replace trigger sm_process_drafts_demo after insert on sm_process_drafts for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_process_drafts_demo_t after update or delete on sm_process_drafts for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_process_drafts enable row level security;
+
+-- process_submission: ثبت‌های مرحله
+create table if not exists sm_process_submissions (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_process_submissions add column if not exists workspace_id uuid;
+alter table sm_process_submissions add column if not exists domain_id uuid;
+alter table sm_process_submissions add column if not exists unit_id uuid;
+alter table sm_process_submissions add column if not exists created_at timestamptz not null default now();
+alter table sm_process_submissions add column if not exists created_by uuid;
+alter table sm_process_submissions add column if not exists updated_at timestamptz not null default now();
+alter table sm_process_submissions add column if not exists updated_by uuid;
+alter table sm_process_submissions add column if not exists rev bigint not null default 0;
+alter table sm_process_submissions add column if not exists version integer not null default 1;
+alter table sm_process_submissions add column if not exists deleted_at timestamptz;
+alter table sm_process_submissions add column if not exists origin text;
+alter table sm_process_submissions add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_process_submissions add column if not exists kind text;
+alter table sm_process_submissions add column if not exists process_id uuid;
+alter table sm_process_submissions add column if not exists version_id uuid;
+alter table sm_process_submissions add column if not exists case_id text;
+alter table sm_process_submissions add column if not exists task_id uuid;
+alter table sm_process_submissions add column if not exists step_key text;
+alter table sm_process_submissions add column if not exists round integer;
+alter table sm_process_submissions add column if not exists outcome text;
+alter table sm_process_submissions add column if not exists return_to text;
+alter table sm_process_submissions add column if not exists comment text;
+alter table sm_process_submissions add column if not exists values jsonb;
+alter table sm_process_submissions add column if not exists requested_for uuid;
+alter table sm_process_submissions add column if not exists submitted_by uuid;
+alter table sm_process_submissions add column if not exists on_behalf_of uuid;
+alter table sm_process_submissions add column if not exists submitted_at timestamptz;
+alter table sm_process_submissions add column if not exists result text;
+alter table sm_process_submissions add column if not exists result_note text;
+alter table sm_process_submissions add column if not exists applied_at timestamptz;
+create index if not exists sm_process_submissions_rev_idx on sm_process_submissions (org_id, rev);
+create index if not exists sm_process_submissions_upd_idx on sm_process_submissions (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_process_submissions_crt_idx on sm_process_submissions (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_process_submissions_case_id_idx on sm_process_submissions (org_id, case_id) where deleted_at is null;
+create index if not exists sm_process_submissions_task_id_idx on sm_process_submissions (org_id, task_id) where deleted_at is null;
+create index if not exists sm_process_submissions_result_idx on sm_process_submissions (org_id, result) where deleted_at is null;
+create index if not exists sm_process_submissions_workspace_acc_idx on sm_process_submissions (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_process_submissions_unit_acc_idx on sm_process_submissions (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_process_submissions_domain_acc_idx on sm_process_submissions (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_process_submissions_submitted_by_idx on sm_process_submissions (org_id, submitted_by) where deleted_at is null;
+drop trigger if exists sm_process_submissions_sync on sm_process_submissions;
+create trigger sm_process_submissions_sync before insert or update on sm_process_submissions for each row execute function sm_sync_touch('process_submission');
+create or replace trigger sm_process_submissions_demo after insert on sm_process_submissions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_process_submissions_demo_t after update or delete on sm_process_submissions for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_process_submissions enable row level security;
+
+-- process_task: مرحله‌های گردش‌کار
+create table if not exists sm_process_tasks (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_process_tasks add column if not exists workspace_id uuid;
+alter table sm_process_tasks add column if not exists domain_id uuid;
+alter table sm_process_tasks add column if not exists unit_id uuid;
+alter table sm_process_tasks add column if not exists created_at timestamptz not null default now();
+alter table sm_process_tasks add column if not exists created_by uuid;
+alter table sm_process_tasks add column if not exists updated_at timestamptz not null default now();
+alter table sm_process_tasks add column if not exists updated_by uuid;
+alter table sm_process_tasks add column if not exists rev bigint not null default 0;
+alter table sm_process_tasks add column if not exists version integer not null default 1;
+alter table sm_process_tasks add column if not exists deleted_at timestamptz;
+alter table sm_process_tasks add column if not exists origin text;
+alter table sm_process_tasks add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_process_tasks add column if not exists case_id uuid;
+alter table sm_process_tasks add column if not exists case_number text;
+alter table sm_process_tasks add column if not exists case_title text;
+alter table sm_process_tasks add column if not exists process_id uuid;
+alter table sm_process_tasks add column if not exists version_id uuid;
+alter table sm_process_tasks add column if not exists step_key text;
+alter table sm_process_tasks add column if not exists step_label text;
+alter table sm_process_tasks add column if not exists action text;
+alter table sm_process_tasks add column if not exists round integer;
+alter table sm_process_tasks add column if not exists assigned_to uuid;
+alter table sm_process_tasks add column if not exists delegated_from uuid;
+alter table sm_process_tasks add column if not exists claimed_by uuid;
+alter table sm_process_tasks add column if not exists status text;
+alter table sm_process_tasks add column if not exists outcome text;
+alter table sm_process_tasks add column if not exists comment text;
+alter table sm_process_tasks add column if not exists acted_by uuid;
+alter table sm_process_tasks add column if not exists acted_for uuid;
+alter table sm_process_tasks add column if not exists submission_id uuid;
+alter table sm_process_tasks add column if not exists opened_at timestamptz;
+alter table sm_process_tasks add column if not exists due_at timestamptz;
+alter table sm_process_tasks add column if not exists closed_at timestamptz;
+alter table sm_process_tasks add column if not exists reminded_at timestamptz;
+alter table sm_process_tasks add column if not exists escalated_at timestamptz;
+create index if not exists sm_process_tasks_rev_idx on sm_process_tasks (org_id, rev);
+create index if not exists sm_process_tasks_upd_idx on sm_process_tasks (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_process_tasks_crt_idx on sm_process_tasks (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_process_tasks_case_id_idx on sm_process_tasks (org_id, case_id) where deleted_at is null;
+create index if not exists sm_process_tasks_status_idx on sm_process_tasks (org_id, status) where deleted_at is null;
+create index if not exists sm_process_tasks_workspace_acc_idx on sm_process_tasks (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_process_tasks_unit_acc_idx on sm_process_tasks (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_process_tasks_domain_acc_idx on sm_process_tasks (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_process_tasks_assigned_to_idx on sm_process_tasks (org_id, assigned_to) where deleted_at is null;
+create index if not exists sm_process_tasks_delegated_from_idx on sm_process_tasks (org_id, delegated_from) where deleted_at is null;
+create index if not exists sm_process_tasks_acted_by_idx on sm_process_tasks (org_id, acted_by) where deleted_at is null;
+create index if not exists sm_process_tasks_opened_brin on sm_process_tasks using brin (opened_at);
+drop trigger if exists sm_process_tasks_sync on sm_process_tasks;
+create trigger sm_process_tasks_sync before insert or update on sm_process_tasks for each row execute function sm_sync_touch('process_task');
+create or replace trigger sm_process_tasks_demo after insert on sm_process_tasks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_process_tasks_demo_t after update or delete on sm_process_tasks for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_process_tasks enable row level security;
+
+-- process_version: نسخه‌های گردش‌کار
+create table if not exists sm_process_versions (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb
+);
+alter table sm_process_versions add column if not exists workspace_id uuid;
+alter table sm_process_versions add column if not exists domain_id uuid;
+alter table sm_process_versions add column if not exists unit_id uuid;
+alter table sm_process_versions add column if not exists created_at timestamptz not null default now();
+alter table sm_process_versions add column if not exists created_by uuid;
+alter table sm_process_versions add column if not exists updated_at timestamptz not null default now();
+alter table sm_process_versions add column if not exists updated_by uuid;
+alter table sm_process_versions add column if not exists rev bigint not null default 0;
+alter table sm_process_versions add column if not exists version integer not null default 1;
+alter table sm_process_versions add column if not exists deleted_at timestamptz;
+alter table sm_process_versions add column if not exists origin text;
+alter table sm_process_versions add column if not exists custom jsonb not null default '{}'::jsonb;
+alter table sm_process_versions add column if not exists process_id uuid;
+alter table sm_process_versions add column if not exists name text;
+alter table sm_process_versions add column if not exists version_no integer;
+alter table sm_process_versions add column if not exists graph jsonb;
+alter table sm_process_versions add column if not exists steps jsonb;
+alter table sm_process_versions add column if not exists forms jsonb;
+alter table sm_process_versions add column if not exists starters jsonb;
+alter table sm_process_versions add column if not exists title_template text;
+alter table sm_process_versions add column if not exists requester_view jsonb;
+alter table sm_process_versions add column if not exists managers jsonb;
+alter table sm_process_versions add column if not exists manager_groups jsonb;
+alter table sm_process_versions add column if not exists confidential boolean not null default false;
+alter table sm_process_versions add column if not exists published_by uuid;
+alter table sm_process_versions add column if not exists published_at timestamptz;
+alter table sm_process_versions add column if not exists note text;
+alter table sm_process_versions add column if not exists diff jsonb;
+create index if not exists sm_process_versions_rev_idx on sm_process_versions (org_id, rev);
+create index if not exists sm_process_versions_upd_idx on sm_process_versions (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_process_versions_crt_idx on sm_process_versions (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_process_versions_process_id_idx on sm_process_versions (org_id, process_id) where deleted_at is null;
+create unique index if not exists sm_process_versions_process_id_version_no_uk on sm_process_versions (org_id, process_id, version_no) where deleted_at is null;
+drop trigger if exists sm_process_versions_sync on sm_process_versions;
+create trigger sm_process_versions_sync before insert or update on sm_process_versions for each row execute function sm_sync_touch('process_version');
+create or replace trigger sm_process_versions_demo after insert on sm_process_versions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_process_versions_demo_t after update or delete on sm_process_versions for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_process_versions enable row level security;
+
 -- project: پروژه‌ها
 create table if not exists sm_projects (
   id uuid primary key,

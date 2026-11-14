@@ -13,6 +13,7 @@ import { FIELDS_TABLES } from "./fields";
 import { FORMS_TABLES } from "./forms";
 import { ACCESS_TABLES } from "./access";
 import { POSITION_TABLES } from "./positions";
+import { PROCESS_TABLES } from "./process";
 import { NOTIFY_TABLES } from "./notify";
 import { SLA_CHOICE_LISTS, SLA_SERVICE_TABLES } from "./sla";
 import { FLOW_TABLES } from "./flows";
@@ -55,6 +56,7 @@ const MODULE_TABLES: TableDef[][] = [
   FORMS_TABLES,
   ACCESS_TABLES,
   POSITION_TABLES,
+  PROCESS_TABLES,
   NOTIFY_TABLES,
   SLA_SERVICE_TABLES,
   FLOW_TABLES,
