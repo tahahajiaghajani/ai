@@ -82,6 +82,8 @@ import { integrationHubRoutes } from "./integration";
 import { authAdminRoutes } from "./auth-admin";
 import { installDiscoveryModule } from "../modules/discovery";
 import { discoveryRoutes } from "./discovery";
+import { discoveryApiRoutes, discoveryStatusRoutes } from "./discovery-api";
+import { publicApiRoutes } from "./integrations";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
 installAccessModel();
@@ -213,5 +215,7 @@ moduleRoutes.route("/demo", demoRoutes);
 moduleRoutes.route("/integration", integrationHubRoutes);
 // «منبع‌های داده»: connectors, their passes and items, the reconciliation queue (design A §4)
 moduleRoutes.route("/discovery", discoveryRoutes);
+moduleRoutes.route("/discovery", discoveryStatusRoutes);
+publicApiRoutes.route("/discovery", discoveryApiRoutes);
 // «امنیت ورود و نشست‌ها»: the organisation's session policy, sessions, sign-in audit and lockouts
 moduleRoutes.route("/auth", authAdminRoutes);
