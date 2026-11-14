@@ -316,7 +316,9 @@ describe("the reconciliation queue's rules (design A §8.4, §14.5)", () => {
   const assets: m.QueueRights = { admin: false, assetManager: true, operates: new Set() };
   const item = (x: Partial<m.ItemRow> = {}) => ({ connector_id: "c1", kind: "device", state: "unmatched", mismatch_state: "none", ...x });
   it("the tabs and the asset fields are the server's", () => {
-    expect(m.QUEUE_TABS.map((t) => t.key)).toEqual([...SERVER_QUEUE_TABS]);
+    // the four of 1.1's design list, all of them the server's («بی‌دارایی» joins when the asset feed's tab is built)
+    expect(m.QUEUE_TABS.map((t) => t.key)).toEqual(["unmatched", "duplicate", "error", "mismatch"]);
+    expect([...SERVER_QUEUE_TABS]).toEqual(expect.arrayContaining(m.QUEUE_TABS.map((t) => t.key)));
     expect([...m.APPLICABLE_FIELDS].sort()).toEqual([...SERVER_APPLICABLE].sort());
     expect(m.tabLabel("بی‌همتا", 12)).toBe("بی‌همتا ۱۲");
     expect(m.tabLabel("خطا", 0)).toBe("خطا");
