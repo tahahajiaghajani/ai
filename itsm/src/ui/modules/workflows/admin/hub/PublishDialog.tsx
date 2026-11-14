@@ -90,7 +90,7 @@ export function PublishDialog({ process, canPublish, authority, onClose, onDone 
         <div className="wfh-stack">
           {verdict.unchanged ? (
             process.retired ? <p className="wfh-p">پیش‌نویس همان نسخهٔ پیشین است؛ با انتشار، گردش‌کار دوباره پروندهٔ تازه می‌پذیرد.</p> : null
-          ) : (
+          ) : !d.diff.changes.length ? null : (
             <section aria-label="تغییرها">
               {d.diff.first ? null : <h3 className="wfh-sub">تغییرها نسبت به نسخهٔ منتشرشده</h3>}
               <ul className="wfh-diff">

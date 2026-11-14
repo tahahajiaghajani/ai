@@ -140,6 +140,7 @@ export function CaseRulesEditor({ value, onChange, fields, unit, disabled }: { v
         const n = faDigits(i + 1);
         return (
           <div key={i} className="wfp-rule" role="group" aria-label={`مقایسهٔ ${n}`}>
+            <div className="wfp-rule-l">
             {known || !r.left ? (
               <Select
                 value={r.left || undefined}
@@ -154,9 +155,12 @@ export function CaseRulesEditor({ value, onChange, fields, unit, disabled }: { v
             ) : (
               <Input dir="ltr" className="ds-mono" value={r.left} disabled={off} aria-label={`مقایسهٔ ${n}: داده`} onChange={(e) => set(i, { left: e.target.value })} />
             )}
-            <Select value={r.op} disabled={off} aria-label={`مقایسهٔ ${n}: نوع`} popupMatchSelectWidth={false} onChange={(op) => set(i, { op, ...(NO_RIGHT.has(op) ? { right: "" } : {}) })} options={OPS} />
-            {NO_RIGHT.has(r.op) ? <span /> : <RuleValue key={r.left} field={name ? byName.get(name) : undefined} value={r.right} onChange={(right) => set(i, { right })} unit={unit} disabled={off} label={`مقایسهٔ ${n}: مقدار`} />}
             {off ? null : <Button type="text" size="small" icon={<Trash2 {...I14} />} aria-label={`حذف مقایسهٔ ${n}`} onClick={() => onChange?.(value.filter((_, j) => j !== i))} />}
+            </div>
+            <div className="wfp-rule-r">
+              <Select value={r.op} disabled={off} aria-label={`مقایسهٔ ${n}: نوع`} popupMatchSelectWidth={false} onChange={(op) => set(i, { op, ...(NO_RIGHT.has(op) ? { right: "" } : {}) })} options={OPS} />
+              {NO_RIGHT.has(r.op) ? null : <RuleValue key={r.left} field={name ? byName.get(name) : undefined} value={r.right} onChange={(right) => set(i, { right })} unit={unit} disabled={off} label={`مقایسهٔ ${n}: مقدار`} />}
+            </div>
           </div>
         );
       })}

@@ -301,7 +301,7 @@ function FormStepBody(p: NodeInspectorProps) {
           placeholder="فرمی برگزینید"
           showSearch={{ optionFilterProp: "label" }}
           onChange={(v) => patch(formPatch(node.config, (v as string | undefined) ?? null))}
-          options={[...choice, ...p.formChoices.map((f) => ({ value: f.id, label: f.status === "published" ? f.name : `${f.name} (پیش‌نویس)` }))]}
+          options={[...choice, ...p.formChoices.map((f) => ({ value: f.id, label: f.name }))]}
         />
       </F>
       <span className="wfp-acts">
@@ -377,6 +377,7 @@ function FormStepBody(p: NodeInspectorProps) {
       <Tabs
         size="small"
         className="wfp-tabs"
+        tabBarGutter={14}
         activeKey={p.tab}
         onChange={(k) => p.onTab(k as InspectorTab)}
         items={[

@@ -228,6 +228,19 @@ export function makeRoom(g: ProcessGraph, y: number): ProcessGraph {
  * below the rest, unconnected. A drop gives its own position (nothing moves).
  */
 export function insertAfter(g: ProcessGraph, after: string | null, item: Pick<PaletteItem, "key" | "type">, opts: { position?: { x: number; y: number }; label?: string; config?: Record<string, unknown> } = {}): { graph: ProcessGraph; id: string } {
+  const r = placeAfter(g, after, item, opts);
+  return { graph: wireRejection(r.graph, r.id), id: r.id };
+}
+
+/** A new approval's «رد شد» leads to the process's «پایان (ردشده)» when it has one (the usual way a rejection ends). */
+export function wireRejection(g: ProcessGraph, id: string): ProcessGraph {
+  const n = nodeOf(g, id);
+  if (!n || n.type !== "form_step" || formStepOf(n.config).action !== "approve" || outEdges(g, id, "rejected").length) return g;
+  const end = g.nodes.find((x) => x.type === "end" && endOutcomeOf(x.config) === "rejected");
+  return end && !connectProblem(g, id, "rejected", end.id) ? connect(g, id, "rejected", end.id) : g;
+}
+
+function placeAfter(g: ProcessGraph, after: string | null, item: Pick<PaletteItem, "key" | "type">, opts: { position?: { x: number; y: number }; label?: string; config?: Record<string, unknown> }): { graph: ProcessGraph; id: string } {
   const id = newNodeId(g, item.type);
   const from = nodeOf(g, after);
   const port = from ? mainPort(from) : null;
@@ -261,9 +274,9 @@ export function addFromPort(g: ProcessGraph, source: string, port: string, item:
   const ports = from ? processPorts(from) : [];
   const at = Math.max(0, ports.findIndex((p) => p.key === port));
   const position = from?.position ? { x: from.position.x + (at - (ports.length - 1) / 2) * GAP_X, y: from.position.y + GAP_Y } : undefined;
-  const r = insertAfter(g, null, item, { ...opts, position });
+  const r = placeAfter(g, null, item, { ...opts, position });
   const graph = connectProblem(r.graph, source, port, r.id) ? r.graph : connect(r.graph, source, port, r.id);
-  return { graph, id: r.id };
+  return { graph: wireRejection(graph, r.id), id: r.id };
 }
 
 /** «پایان»s a way out may lead to at once. */
@@ -404,7 +417,7 @@ export function setAction(g: ProcessGraph, id: string, action: StepAction): Proc
     if (!mapped || !ports.has(mapped)) return [];
     return [{ id: edgeId(id, mapped, e.target), source: id, target: e.target, ...(mapped !== "out" ? { port: mapped } : {}) }];
   });
-  return { ...g, nodes: g.nodes.map((x) => (x.id === id ? next : x)), edges };
+  return wireRejection({ ...g, nodes: g.nodes.map((x) => (x.id === id ? next : x)), edges }, id);
 }
 
 /** The people side of a form step's settings, as the role-then-people picker edits it. */
