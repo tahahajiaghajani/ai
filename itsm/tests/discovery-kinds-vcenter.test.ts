@@ -94,7 +94,7 @@ describe("the vCenter kind against its mock (design A §17)", () => {
     expect(pages[0].records.map((r) => [r.external_id, r.kind])).toEqual([["host-11", "host"], ["host-12", "host"], ["host-21", "host"], ["host-22", "host"], ["host-31", "host"]]);
     expect(cursors[0]).toMatchObject({ i: 0, done: 0 });
     const hostLists = m.gets.filter((g) => g.startsWith("/api/vcenter/host"));
-    expect(hostLists).toEqual(["/api/vcenter/host?clusters=domain-c8", "/api/vcenter/host?clusters=domain-c9", "/api/vcenter/host"]);
+    expect(hostLists).toEqual(["/api/vcenter/host?clusters=domain-c8", "/api/vcenter/host?clusters=domain-c9", "/api/vcenter/host?standalone=true"]);
     const vmLists = m.gets.filter((g) => g.startsWith("/api/vcenter/vm?"));
     expect(vmLists).toEqual(["host-11", "host-12", "host-21", "host-22", "host-31"].map((h) => `/api/vcenter/vm?hosts=${h}`));
     const vms = pages.flatMap((p) => p.records).filter((r) => r.kind === "vm");
@@ -198,7 +198,7 @@ describe("the vCenter kind against its mock (design A §17)", () => {
     const m = mount(new VcenterMock(makeVcenter(1)));
     const records = await pass(ctx({ options: { clusters: ["prod"] } }));
     expect(records.map((r) => r.external_id)).toEqual(["host-11", "host-12", "vm-101", "vm-102"]);
-    expect(m.gets.filter((g) => g === "/api/vcenter/host")).toHaveLength(0);
+    expect(m.gets.filter((g) => g.startsWith("/api/vcenter/host?standalone"))).toHaveLength(0);
     expect(await outcome(vcenterKind.pages(ctx({ options: { clusters: ["Prod", "DR"] } }), null))).toBe(VCENTER_MESSAGES.noCluster(["DR"]));
   });
 

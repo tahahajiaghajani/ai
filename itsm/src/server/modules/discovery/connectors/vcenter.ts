@@ -168,8 +168,8 @@ async function hostsInScope(c: ConnCtx): Promise<{ host: HostRow; cluster?: stri
     }
   }
   if (!o.clusters.length) {
-    // standalone hosts (in no cluster)
-    for (const h of list<HostRow>(await get(c, "api/vcenter/host"))) {
+    // the standalone hosts (in no cluster)
+    for (const h of list<HostRow>(await get(c, "api/vcenter/host", { standalone: "true" }))) {
       if (seen.has(h.host)) continue;
       seen.add(h.host);
       out.push({ host: h });

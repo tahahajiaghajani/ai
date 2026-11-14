@@ -1,6 +1,6 @@
 // A vCenter for the discovery tests (design A §17), shaped after the vSphere Automation REST API of 7.0 U2 and 8.0:
 // `POST /api/session` with basic credentials → a JSON string, then the `vmware-api-session-id` header (unknown or
-// expired → 401); `GET /api/session`; `/api/vcenter/cluster`; `/api/vcenter/host` (filter `clusters`); `/api/vcenter/vm`
+// expired → 401); `GET /api/session`; `/api/vcenter/cluster`; `/api/vcenter/host` (filters `clusters`, `standalone`); `/api/vcenter/vm`
 // (filters `hosts`, `clusters`; more than `cap` VMs → the API's "too many" error, so a client must split);
 // `/api/vcenter/vm/{vm}` (8.0 `identity` with the BIOS UUID); `/vm/{vm}/guest/identity` (503 without running Tools);
 // `/api/appliance/system/version`. Faults: a vCenter without `/api` (6.x), an HTTP status once per path (503, 429 with
@@ -134,7 +134,8 @@ export class VcenterMock {
     if (path === "/api/vcenter/cluster") return json(this.clusters.map((k) => ({ cluster: k.cluster, name: k.name, ha_enabled: true, drs_enabled: true })));
     if (path === "/api/vcenter/host") {
       const want = q.getAll("clusters");
-      const rows = this.hosts.filter((h) => !want.length || (h.cluster && want.includes(h.cluster)));
+      const standalone = q.get("standalone") === "true";
+      const rows = this.hosts.filter((h) => (!want.length || (h.cluster && want.includes(h.cluster))) && (!standalone || !h.cluster));
       return json(rows.map((h) => ({ host: h.host, name: h.name, connection_state: h.connection_state, ...(h.connection_state === "CONNECTED" ? { power_state: h.power_state ?? "POWERED_ON" } : {}) })));
     }
     if (path === "/api/vcenter/vm") {
