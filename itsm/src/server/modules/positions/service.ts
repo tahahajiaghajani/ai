@@ -44,8 +44,11 @@ async function needPreview(ctx: Ctx): Promise<void> {
 const kindLabel = (k: unknown) => UNIT_KINDS.find((o) => o.value === k)?.label ?? "واحد";
 const rulesOf = (step: StepAssignees): AssigneeRule[] => [...step.assignees, ...(step.fallback ?? [])];
 
-/** What the database knows about the rules' references (positions, groups, units, roles, people, fields). */
-async function factsFor(ctx: Ctx, step: StepAssignees, fields?: Record<string, { type: string; ref?: string | null; label?: string | null }>): Promise<AssigneeFacts> {
+/**
+ * What the database knows about the rules' references (positions, groups, units, roles, people; the forms' fields when
+ * given): `assigneeProblems(step, facts)` checks a step with it — the preview, the estimate and a version's publish.
+ */
+export async function assigneeFactsFor(ctx: Ctx, step: StepAssignees, fields?: Record<string, { type: string; ref?: string | null; label?: string | null }>): Promise<AssigneeFacts> {
   const org = ctx.org.id;
   const rules = rulesOf(step);
   const refs = rules.flatMap((r) => (r.kind === "position" ? [r.position] : []));
@@ -158,7 +161,7 @@ function linesOf(result: ResolveResult, d: PreviewResult["display"]): string[] {
 export async function previewResolve(ctx: Ctx, input: PreviewInput): Promise<PreviewResult> {
   await needPreview(ctx);
   const step = cleanStepAssignees(input.step);
-  needValid(step, await factsFor(ctx, step, input.fields));
+  needValid(step, await assigneeFactsFor(ctx, step, input.fields));
   const requester = String(input.requester ?? "").toLowerCase();
   const member = isUuid(requester) && (await ctx.db.one(`select 1 from sm_org_members where org_id = $1 and user_id = $2 and deleted_at is null`, [ctx.org.id, requester]));
   if (!member) throw notFound("درخواست‌دهندهٔ نمونه عضو این سازمان نیست");
@@ -203,7 +206,7 @@ export interface EstimateResult {
 export async function estimateStep(ctx: Ctx, input: EstimateInput): Promise<EstimateResult> {
   await needPreview(ctx);
   const step = cleanStepAssignees(input.step);
-  needValid(step, await factsFor(ctx, step));
+  needValid(step, await assigneeFactsFor(ctx, step));
   const reader = new Resolution(ctx.db, ctx, { step, action: input.action, requestedBy: null });
   const holderCounts = new Map<string, { people: number; units: number; name: string; kind: string | null }>();
   const groupCounts = new Map<string, number>();

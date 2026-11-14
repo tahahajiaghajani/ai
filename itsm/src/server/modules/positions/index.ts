@@ -7,7 +7,7 @@
 import { installPositionHooks } from "./hooks";
 
 export { resolveAssignees, heldPositions, Resolution, type ResolveInput, type ResolveResult, type Resolved, type Via } from "./resolve";
-export { previewResolve, estimateStep, positionsOverview, canPreview, PREVIEW_REFUSAL } from "./service";
+export { previewResolve, estimateStep, positionsOverview, canPreview, assigneeFactsFor, PREVIEW_REFUSAL } from "./service";
 export { importHolders, MAX_HOLDER_ROWS, type HolderImportInput, type HolderImportResult } from "./import";
 export { applyDirectoryHoldings, directoryFacts, type DirectoryHolding, type HoldingsResult } from "./directory";
 
