@@ -85,7 +85,8 @@ export async function managesCase(q: Queryable, ctx: Ctx, kase: Pick<CaseRow, "m
   if (!hasManagers(kase)) {
     if (ctx.member?.role === "owner" || ctx.member?.role === "admin") return true;
     try {
-      await prepareSubject(ctx);
+      // inside the caller's transaction when it is one (PGlite has one connection)
+      await prepareSubject(ctx, q);
       return grantIn(subjectOf(ctx).eff, "process_design").approve === true;
     } catch {
       return false;

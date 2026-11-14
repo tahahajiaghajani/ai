@@ -20,7 +20,7 @@ import type { Ctx } from "../../../context";
 import { pgArray } from "../../../db";
 import { notFound } from "../../../http/errors";
 import { access } from "../../../access/provider";
-import { condEnv } from "../../../engine";
+import { canOpenRecords, condEnv, defFor, get } from "../../../engine";
 import { myApprovals } from "../../sla";
 import { isId, loadVersionInfo } from "../engine/store";
 import { groupNameMap, myStepKeys, nameMap, nextStepLabel, partOf, personFacts } from "./common";
@@ -233,12 +233,22 @@ const asRules = (raw: unknown): AssigneeRule[] => (Array.isArray(raw) ? (raw as 
 /** «گردش‌کارهای من» (see the header). */
 export async function myProcesses(ctx: Ctx): Promise<{ processes: MyProcess[] }> {
   const me = ctx.user.id;
-  const procs = await ctx.db.query<PublishedRow>(
-    `select p.id, p.key, p.name, p.icon, p.category, p.description, p.status, v.id as version_id, v.graph, v.starters
-     from sm_processes p join sm_process_versions v on v.id = p.current_version_id and v.org_id = p.org_id
-     where p.org_id = $1 and p.deleted_at is null and p.status = 'published' order by p.name`,
-    [ctx.org.id],
-  );
+  // published versions are read by those who read the organisation structure (§6.1)
+  if (!(await canOpenRecords(ctx, (await defFor(ctx, "process_version")).def))) return { processes: [] };
+  // the latest version of each process; a Windows app of someone who does not read the designs has no process rows,
+  // only the versions: their process is named by its id there
+  const procs = (
+    await ctx.db.query<PublishedRow & { has_row: boolean }>(
+      `select distinct on (v.process_id) v.process_id as id, coalesce(p.key, v.process_id::text) as key, coalesce(p.name, v.name) as name, p.icon, p.category, p.description,
+         coalesce(p.status, 'published') as status, v.id as version_id, v.graph, v.starters, p.id is not null as has_row, p.current_version_id
+       from sm_process_versions v left join sm_processes p on p.id = v.process_id and p.org_id = v.org_id and p.deleted_at is null
+       where v.org_id = $1 and v.deleted_at is null
+       order by v.process_id, v.version_no desc`,
+      [ctx.org.id],
+    )
+  )
+    .filter((p) => p.status === "published")
+    .sort((a, b) => String(a.name).localeCompare(String(b.name), "fa"));
   const facts = await personFacts(ctx);
   const cases = new Map(
     (await ctx.db.query<{ process_id: string; n: number }>(
@@ -335,13 +345,21 @@ function ruleWords(r: AssigneeRule, names: Record<string, string>, positions: Re
 /** The published diagram of a process for me, its queues and its start form (see the header). */
 export async function processView(ctx: Ctx, ref: string): Promise<ProcessView> {
   const r = String(ref ?? "").trim();
-  const p = await ctx.db.one<{ id: string; key: string; name: string; icon: string | null; category: string | null; description: string | null; status: string; current_version_id: string | null }>(
+  type Proc = { id: string; key: string; name: string; icon: string | null; category: string | null; description: string | null; status: string; current_version_id: string | null };
+  let p = await ctx.db.one<Proc>(
     `select id, key, name, icon, category, description, status, current_version_id from sm_processes
      where org_id = $1 and deleted_at is null and status in ('published', 'retired') and ${isId(r) ? "id = $2::uuid" : "key = $2"}`,
     [ctx.org.id, isId(r) ? r.toLowerCase() : r],
   );
+  // a Windows app without process rows: the process's latest version, by the process's id
+  if (!p && isId(r) && !(await ctx.db.one(`select 1 as x from sm_processes where org_id = $1 and id = $2`, [ctx.org.id, r.toLowerCase()]))) {
+    const v = await ctx.db.one<{ id: string; name: string }>(`select id, name from sm_process_versions where org_id = $1 and process_id = $2 and deleted_at is null order by version_no desc limit 1`, [ctx.org.id, r.toLowerCase()]);
+    if (v) p = { id: r.toLowerCase(), key: r.toLowerCase(), name: v.name, icon: null, category: null, description: null, status: "published", current_version_id: v.id };
+  }
   const version = p ? await loadVersionInfo(ctx.db, ctx.org.id, p.current_version_id) : null;
   if (!p || !version) throw notFound("گردش‌کار پیدا نشد");
+  // published versions are read by those who read the organisation structure (§6.1)
+  await get(ctx, "process_version", version.id);
   const me = ctx.user.id;
   const facts = await personFacts(ctx);
   const graph = version.graph;

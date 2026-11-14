@@ -8,10 +8,10 @@
 //     audited, and nobody else may;
 //   · delegated items show «به جانشینی از …» in the delegate's «کارتابل», for process steps and record approvals.
 import { describe, it, expect, beforeAll } from "vitest";
-import { create } from "@server/engine";
+import { create, createIn } from "@server/engine";
 import { claimStep, seedNotices, submitStep } from "@server/modules/process/api";
 import { PAUSED_NOTE } from "@server/modules/process/engine";
-import { act, journal, kase, openTask, tasks } from "./process-engine-helpers";
+import { act, edge, journal, kase, node, openTask, tasks } from "./process-engine-helpers";
 import { bank, pettyDraft, type Bank } from "./process-api-helpers";
 
 let b: Bank;
@@ -25,15 +25,20 @@ beforeAll(async () => {
   b = await bank();
   P = b.w.P;
   await seedNotices(b.w.o.cfg, b.w.o.org);
-  // acceptance 1: the administrator (the organisation's owner) publishes the §3.7 process through the API
-  const own = b.w.o.owner;
-  const made = await own.post(`${P}/process/defs`, { name: "درخواست تنخواهِ شعبه", key: "petty_cash", category: "مالی" }, 201);
-  await own.put(`${P}/process/defs/${made.process.id}/draft`, { draft: pettyDraft(b, { managers: [b.M.mgr.userId] }) });
-  const pub = await own.post(`${P}/process/defs/${made.process.id}/publish`, { note: "نسخهٔ نخست" });
-  expect(pub.version.version_no).toBe(1);
 }, 600_000);
 
 describe("«کارتابل» (design F §5)", () => {
+  it("acceptance: an administrator publishes the §3.7 process through the API", async () => {
+    const own = b.w.o.owner;
+    const made = await own.post(`${P}/process/defs`, { name: "درخواست تنخواهِ شعبه", key: "petty_cash", category: "مالی" }, 201);
+    expect(made.can).toMatchObject({ write: true, publish: true });
+    const saved = await own.put(`${P}/process/defs/${made.process.id}/draft`, { draft: pettyDraft(b, { managers: [b.M.mgr.userId] }) });
+    expect(saved.problems.filter((p: { level: string }) => p.level === "error")).toEqual([]);
+    const pub = await own.post(`${P}/process/defs/${made.process.id}/publish`, { note: "نسخهٔ نخست" });
+    expect(pub).toMatchObject({ version: { version_no: 1 }, message: "نسخهٔ ۱ منتشر شد؛ پرونده‌های تازه با آن آغاز می‌شوند" });
+    expect((await b.M.clerk.client.get(`${P}/process/mine`)).processes.map((x: { key: string }) => x.key)).toEqual(["petty_cash"]);
+  });
+
   it("acceptance: a branch head's inbox shows a process step and a record approval together", async () => {
     const r = await b.M.clerk.client.post(`${P}/process/start`, { process: "petty_cash", values: { u_amount: "750000000", u_need: "دستگاه شمارش اسکناس", u_branch: b.U.vanak } }, 201);
     expect(r).toMatchObject({ result: "applied" });
@@ -117,6 +122,10 @@ describe("«کارتابل» (design F §5)", () => {
     await b.w.k.drain();
     await b.M.head.client.post(`${P}/process/tasks/${await openTask(b.w, c1, "a1", b.M.head.userId)}/submit`, { outcome: "approved" });
     await b.w.k.drain();
+    // «انجام‌شده‌ها»: the head's two decisions, newest first
+    expect((await b.M.head.client.get(`${P}/process/done`)).rows.map((x: { step: string; outcome: string; case_id: string }) => [x.step, x.outcome, x.case_id])).toEqual([
+      ["تأیید رئیس شعبه", "approved", c1], ["تأیید رئیس شعبه", "returned", c1],
+    ]);
     await act(b.w, b.X.fd1, await openTask(b.w, c1, "a2", b.X.fd1), { outcome: "approved" });
     await b.w.k.drain();
     expect((await tasks(b.w, c1)).filter((t) => t.step_key === "pay" && t.status === "open").map((t) => t.assigned_to).sort()).toEqual([b.X.pay1, b.X.pay2].sort());
@@ -162,6 +171,37 @@ describe("pool steps and the managers' actions (design F §5, §6.1)", () => {
     const c = await kase(b.w, c1);
     expect(c).toMatchObject({ state: "completed" });
     expect(await notices(b.M.clerk.userId)).toContain(`پروندهٔ ${c.number} به پایان رسید`);
+  });
+
+  it("a step that finds nobody tells the managers («مرحلهٔ بی‌انجام‌دهنده»), and their «ارجاع» gives it people", async () => {
+    const own = b.w.o.owner;
+    await b.w.sys.write((tx) => createIn(tx, b.w.sys, "position", { key: "audit_head", name: "رئیس ممیزی" }, { trusted: true }));
+    const F = b.w.forms;
+    const draft = {
+      graph: {
+        nodes: [
+          node("t", "trigger"),
+          node("s", "form_step", { action: "fill", start: true, form: F.req, rights: { default: "edit", fields: {} } }, "ثبت درخواست"),
+          node("n1", "form_step", { action: "approve", form: F.review, rights: { default: "read", fields: {} }, assignees: [{ kind: "position", position: "audit_head", where: "anywhere" }] }, "تأیید ممیزی"),
+          node("ok", "end", { outcome: "completed" }), node("no", "end", { outcome: "rejected" }),
+        ],
+        edges: [edge("t", "s"), edge("s", "n1"), edge("n1", "ok", "approved"), edge("n1", "no", "rejected")],
+      },
+      starters: [], title_template: null, requester_view: [], managers: [b.M.mgr.userId], manager_groups: [], confidential: false,
+    };
+    const made = await own.post(`${P}/process/defs`, { name: "تأیید ممیزی", key: "audit_check" }, 201);
+    await own.put(`${P}/process/defs/${made.process.id}/draft`, { draft });
+    await own.post(`${P}/process/defs/${made.process.id}/publish`, {});
+    const id = (await b.M.clerk.client.post(`${P}/process/start`, { process: "audit_check", values: { u_amount: "5000" } }, 201)).case as string;
+    await b.w.k.drain();
+    expect(await kase(b.w, id)).toMatchObject({ state: "waiting" });
+    expect(await notices(b.M.mgr.userId)).toContain("برای «تأیید ممیزی» کسی پیدا نشد");
+    await b.M.mgr.client.post(`${P}/process/cases/${id}/reassign`, { step: "n1", to: [b.M.head.userId] });
+    expect(await kase(b.w, id)).toMatchObject({ state: "active" });
+    expect(await journal(b.w, id)).toContain("مینا مسئول تنخواه (مسئول گردش‌کار) «تأیید ممیزی» را به حسین رئیس شعبه سپرد");
+    await b.M.head.client.post(`${P}/process/tasks/${await openTask(b.w, id, "n1", b.M.head.userId)}/submit`, { outcome: "approved" });
+    await b.w.k.drain();
+    expect(await kase(b.w, id)).toMatchObject({ state: "completed" });
   });
 
   it("the printable view lists the decisions with names and dates, and the readable values as people read them", async () => {

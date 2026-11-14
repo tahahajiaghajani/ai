@@ -156,7 +156,8 @@ export async function checkDraft(ctx: Ctx, d: ProcessDraft): Promise<DraftCheck>
     flow: (id) => flows.get(id.toLowerCase()) ?? null,
   });
   for (const m of formProblems) problems.push({ level: "error", message: m });
-  for (const p of assigneeProblems({ assignees: d.starters }, facts)) problems.push({ level: "error", message: `آغازکنندگان: ${p.message}`, field: "starters" });
+  // no starters: every member may start
+  if (d.starters.length) for (const p of assigneeProblems({ assignees: d.starters }, facts)) problems.push({ level: "error", message: `آغازکنندگان: ${p.message}`, field: "starters" });
   for (const k of d.requester_view) if (!fields.has(k)) problems.push({ level: "error", message: `فیلد «${k}» در فرم‌های این گردش‌کار نیست`, field: "requester_view" });
   if (d.managers.length) {
     const live = new Set(
