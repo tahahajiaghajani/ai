@@ -109,6 +109,7 @@ function Holders({ rule, onChange }: { rule: Extract<AssigneeRule, { kind: "posi
           {people.map((h) => (
             <label key={h.user_id}>
               <Checkbox
+                aria-label={name(h.user_id)}
                 checked={!only || members.includes(h.user_id)}
                 disabled={!onChange || !only}
                 onChange={(e) => onChange?.(withMembers(rule, e.target.checked ? [...members, h.user_id] : members.filter((m) => m !== h.user_id)))}
