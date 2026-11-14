@@ -89,11 +89,20 @@ export const DEFAULT_LIFECYCLE = "پیش‌فرض";
 
 const searchText = (r: HubRow) => `${r.name} ${r.table_label ?? ""} ${r.table ?? ""} ${r.category ?? ""} ${r.module} ${r.status}`;
 
-/** The rows of a kind (all without one) that match the search, in the kinds' order (the server's order within each). */
+/** A lifecycle still on its module's default sorts after the ones the organisation changed. */
+const defaulted = (r: HubRow) => (r.kind === "lifecycle" && r.status === DEFAULT_LIFECYCLE ? 1 : 0);
+
+/**
+ * The rows of a kind (all without one) that match the search, in the kinds' order — the lifecycles the organisation
+ * changed before the others — and the server's order within each.
+ */
 export function filterRows(rows: readonly HubRow[], f: { kind: HubKind | null; q: string }): HubRow[] {
   const q = f.q.trim();
   const out = rows.filter((r) => (!f.kind || r.kind === f.kind) && (!q || matchesFa(searchText(r), q)));
-  return out.map((r, i) => ({ r, i })).sort((a, b) => KIND_ORDER.indexOf(a.r.kind) - KIND_ORDER.indexOf(b.r.kind) || a.i - b.i).map((x) => x.r);
+  return out
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => KIND_ORDER.indexOf(a.r.kind) - KIND_ORDER.indexOf(b.r.kind) || defaulted(a.r) - defaulted(b.r) || a.i - b.i)
+    .map((x) => x.r);
 }
 
 export type ListRow = { type: "row"; key: string; row: HubRow } | { type: "more"; key: string; count: number };

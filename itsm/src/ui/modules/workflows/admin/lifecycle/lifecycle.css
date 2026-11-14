@@ -97,6 +97,18 @@
   flex-wrap: wrap;
   gap: 4px;
 }
+.wfl-req {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-inline: 6px;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-pill);
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--ds-text-2);
+  white-space: nowrap;
+}
 .wfl-multi,
 .wfl-color {
   inline-size: 100%;

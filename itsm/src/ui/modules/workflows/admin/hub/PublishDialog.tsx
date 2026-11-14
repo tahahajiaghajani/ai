@@ -88,14 +88,18 @@ export function PublishDialog({ process, canPublish, authority, onClose, onDone 
         <Alert type="error" showIcon title="آنچه منتشر می‌شود خوانده نشد" description={preview.error instanceof Error ? preview.error.message : undefined} />
       ) : (
         <div className="wfh-stack">
-          <section aria-label="تغییرها">
-            <h3 className="wfh-sub">{d.diff.first ? "نخستین نسخه" : "تغییرها نسبت به نسخهٔ منتشرشده"}</h3>
-            <ul className="wfh-diff">
-              {d.diff.changes.map((c) => (
-                <li key={c}>{c}</li>
-              ))}
-            </ul>
-          </section>
+          {verdict.unchanged ? (
+            process.retired ? <p className="wfh-p">پیش‌نویس همان نسخهٔ پیشین است؛ با انتشار، گردش‌کار دوباره پروندهٔ تازه می‌پذیرد.</p> : null
+          ) : (
+            <section aria-label="تغییرها">
+              {d.diff.first ? null : <h3 className="wfh-sub">تغییرها نسبت به نسخهٔ منتشرشده</h3>}
+              <ul className="wfh-diff">
+                {d.diff.changes.map((c) => (
+                  <li key={c}>{c}</li>
+                ))}
+              </ul>
+            </section>
+          )}
           {d.diff.access.length ? (
             <section aria-label="دسترسی به پرونده‌ها">
               <h3 className="wfh-sub">دسترسی به پرونده‌ها</h3>

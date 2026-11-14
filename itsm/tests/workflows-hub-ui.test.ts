@@ -119,6 +119,8 @@ describe("the hub's list", () => {
     expect(kindOf(new URLSearchParams("kind=nope"))).toBeNull();
     expect(filterRows(rows, { kind: null, q: "" }).map((r) => r.id)).toEqual(["p1", "p2", "incident", "todo", "change_request", "m1", "f1"]);
     expect(filterRows(rows, { kind: "process", q: "" }).map((r) => r.id)).toEqual(["p1", "p2"]);
+    // the lifecycles the organisation changed come before the ones on their module's default
+    expect(filterRows([...rows].reverse(), { kind: "lifecycle", q: "" }).map((r) => r.id)).toEqual(["incident", "change_request", "todo"]);
     expect(filterRows(rows, { kind: null, q: "مالي" }).map((r) => r.id)).toEqual(["p1"]);
     expect(filterRows(rows, { kind: null, q: "رخداد" }).map((r) => r.id)).toEqual(["incident"]);
     expect(filterRows(rows, { kind: null, q: "جریان‌های خودکار" }).map((r) => r.id)).toEqual(["f1"]);
@@ -574,7 +576,9 @@ describe("the screens' calls on a real organisation", () => {
     const v = await lifecycleApi.get(api, "change_request");
     expect(v.labels_only).toBe(true);
     expect(v.notes.map((n) => n.link)).toContain("changes/models");
-    for (const n of v.notes) expect(routed(n.link)).toBe(true);
+    // each note's link opens a page of the menu (the editor names the link after it)
+    const menuPage = (link: string) => NAV.some((g) => g.items.some((i) => link === i.path || link.startsWith(`${i.path}/`)));
+    for (const n of v.notes) expect([routed(n.link), menuPage(n.link)]).toEqual([true, true]);
     const t = v.transitions[0];
     const d = setPrimary(setTransition(draftOf(v), t.key, { label: "بررسی", needs: ["short_description"] }), t.key);
     expect(overlayOf(v, d)).toEqual({ transitions: [{ key: t.key, label: "بررسی", primary: true }] });
@@ -589,7 +593,7 @@ describe("the screens' calls on a real organisation", () => {
       const x = await lifecycleApi.get(api, table);
       expect(x.labels_only).toBe(false);
       expect(x.notes.length).toBeGreaterThan(0);
-      for (const n of x.notes) expect(routed(n.link)).toBe(true);
+      for (const n of x.notes) expect([routed(n.link), menuPage(n.link)]).toEqual([true, true]);
     }
   });
 

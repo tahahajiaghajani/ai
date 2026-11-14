@@ -92,6 +92,9 @@
 }
 
 /* the dialogs */
+.wfh-ltr {
+  display: block;
+}
 .wfh-p {
   margin: 0;
   color: var(--ds-text-2);

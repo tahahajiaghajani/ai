@@ -24,6 +24,7 @@ import { useIsPhone, useNotify } from "../../../../lib/hooks";
 import { PageHeader, Section } from "../../../../components/layout";
 import { Chip, EmptyState, Loader } from "../../../../components/display";
 import { Note } from "../../../../components/blocks";
+import { matchItem, useShellItems } from "../../../../components/shell/model";
 import { ChoiceTag } from "../../../../records/fields/display";
 import { FilterBuilder } from "../../../../records/filter/FilterBuilder";
 import { COLOR_LABELS } from "../../../../records/model/colors";
@@ -82,17 +83,24 @@ function Editor({ view, base, editable, canWrite, phone }: EditorProps) {
   const qc = useQueryClient();
   const refresh = useRefreshSchema();
   const { schema } = useSchema();
+  const items = useShellItems();
   const def: TableDef = schema?.def(view.table) ?? base;
   const choices = schema?.choices ?? {};
   const stored = useMemo(() => draftOf(view), [view]);
   const hist = useHistory<LifecycleDraft>(stored);
   const draft = hist.value;
-  // a saved lifecycle comes back as the new baseline
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  // the stored lifecycle changed (our own save, or another administrator's): it is the new baseline, and a draft with
+  // no unsaved edits follows it — unsaved edits stay (saving them replaces the whole overlay)
   const seen = useRef(view);
+  const ownSave = useRef(false);
   useEffect(() => {
-    if (seen.current === view) return;
+    const prev = seen.current;
+    if (prev === view) return;
     seen.current = view;
-    hist.reset(draftOf(view));
+    if (ownSave.current || !isDirty(prev, draftRef.current)) hist.reset(draftOf(view));
+    ownSave.current = false;
   }, [view, hist.reset]);
 
   const roles = useQuery({ queryKey: LIFECYCLE_KEYS.roles(orgId), queryFn: () => lifecycleApi.roles(api), enabled: !view.labels_only, retry: false, staleTime: 60_000 });
@@ -123,6 +131,7 @@ function Editor({ view, base, editable, canWrite, phone }: EditorProps) {
     setBusy(true);
     try {
       const saved = await lifecycleApi.save(api, view.table, overlayOf(view, draft));
+      ownSave.current = true;
       qc.setQueryData(LIFECYCLE_KEYS.one(orgId, view.table), saved);
       await Promise.all([refresh(), qc.invalidateQueries({ queryKey: HUB_KEYS.all(orgId) })]);
       setConfirm(null);
@@ -174,11 +183,23 @@ function Editor({ view, base, editable, canWrite, phone }: EditorProps) {
   return (
     <div className="rk-admin wfl-page">
       {header}
-      {view.notes.map((x) => (
-        <Note key={x.link} action={<Link className="ds-link" to={`/${orgId}/${x.link}`}>رفتن به آن‌جا</Link>}>
-          {x.text}
-        </Note>
-      ))}
+      {view.notes.map((x) => {
+        const page = matchItem(items, x.link);
+        return (
+          <Note
+            key={x.link}
+            action={
+              page ? (
+                <Link className="ds-link" to={`/${orgId}/${x.link}`}>
+                  {page.label}
+                </Link>
+              ) : undefined
+            }
+          >
+            {x.text}
+          </Note>
+        );
+      })}
       {!canWrite ? <Note>{LIFECYCLE_REFUSAL}.</Note> : phone ? <Note>ویرایش چرخهٔ عمر روی رایانه ممکن است.</Note> : null}
       {problems.map((p) => (
         <Alert key={p} type="warning" showIcon title={p} />
@@ -390,12 +411,12 @@ function TransitionsTable({ view, draft, def, editable, roles, names, onChange, 
       rowKey="key"
       dataSource={view.transitions}
       pagination={false}
-      scroll={{ x: labelsOnly ? 720 : 1280 }}
+      scroll={{ x: labelsOnly ? 640 : 1080 }}
       columns={[
         {
           key: "path",
           title: "از ← به",
-          width: 230,
+          width: 200,
           render: (_: unknown, t) => (
             <span className="wfl-path">
               <span className="wfl-locked">
@@ -410,7 +431,7 @@ function TransitionsTable({ view, draft, def, editable, roles, names, onChange, 
         {
           key: "label",
           title: "برچسب",
-          width: 200,
+          width: 170,
           render: (_: unknown, t) =>
             editable ? (
               <Input
@@ -428,7 +449,7 @@ function TransitionsTable({ view, draft, def, editable, roles, names, onChange, 
         {
           key: "primary",
           title: "اصلی",
-          width: 64,
+          width: 56,
           align: "center" as const,
           render: (_: unknown, t) => (
             <Radio
@@ -445,7 +466,7 @@ function TransitionsTable({ view, draft, def, editable, roles, names, onChange, 
               {
                 key: "needs",
                 title: "فیلدهای لازم",
-                width: 260,
+                width: 200,
                 render: (_: unknown, t: LifecycleTransition) => {
                   const own = draft.transitions[t.key]?.needs ?? [];
                   return (
@@ -454,7 +475,7 @@ function TransitionsTable({ view, draft, def, editable, roles, names, onChange, 
                         <span className="wfl-module-tags">
                           {t.requires.map((r) => (
                             <Tooltip key={r} title="ماژول این فیلد را برای این انتقال لازم دارد">
-                              <span className="wff-lock">
+                              <span className="wfl-req">
                                 <Lock {...I14} aria-hidden />
                                 {names.field(r)}
                               </span>
@@ -487,7 +508,7 @@ function TransitionsTable({ view, draft, def, editable, roles, names, onChange, 
               {
                 key: "also",
                 title: "فقط با نقش",
-                width: 220,
+                width: 180,
                 render: (_: unknown, t: LifecycleTransition) => {
                   const own = draft.transitions[t.key]?.also ?? [];
                   const extra = own.filter((k) => !roleOptions.some((o) => o.value === k)).map((k) => ({ value: k, label: k, disabled: false }));
@@ -500,7 +521,7 @@ function TransitionsTable({ view, draft, def, editable, roles, names, onChange, 
                       onChange={(v: string[]) => onChange(t.key, { also: v })}
                       options={[...roleOptions, ...extra]}
                       showSearch={{ filterOption: filterFa }}
-                      placeholder="همهٔ کسانی که ماژول اجازه می‌دهد"
+                      placeholder="بدون شرط نقش"
                       maxTagCount="responsive"
                       aria-label={`فقط با نقش «${transitionLabel(view, draft, t.key)}»`}
                     />
@@ -514,7 +535,7 @@ function TransitionsTable({ view, draft, def, editable, roles, names, onChange, 
               {
                 key: "when",
                 title: "شرط",
-                width: 220,
+                width: 200,
                 render: (_: unknown, t: LifecycleTransition) => {
                   const x = draft.transitions[t.key];
                   const text = x?.when ? names.cond(x.when) : "";
@@ -534,7 +555,7 @@ function TransitionsTable({ view, draft, def, editable, roles, names, onChange, 
               {
                 key: "off",
                 title: "خاموش",
-                width: 80,
+                width: 64,
                 align: "center" as const,
                 render: (_: unknown, t: LifecycleTransition) =>
                   t.optional ? (
@@ -580,7 +601,7 @@ function CondDialog({
       <div className="wfh-stack">
         <p className="rk-hint">افراد این انتقال را فقط وقتی می‌توانند انجام دهند که شرط برقرار باشد؛ کارهای خود سامانه از آن نمی‌گذرند.</p>
         <FilterBuilder def={def} schema={schema} value={cond} onChange={setCond} walk={false} />
-        <F label="پیام وقتی شرط برقرار نیست" htmlFor="wfl-cond-msg" hint="روی دکمهٔ خاکستری‌شدهٔ این انتقال دیده می‌شود.">
+        <F label="پیام وقتی شرط برقرار نیست" htmlFor="wfl-cond-msg" hint="کسی که این انتقال را بخواهد و شرط برقرار نباشد، همین پیام را می‌بیند.">
           <Input id="wfl-cond-msg" value={msg} onChange={(e) => setMsg(e.target.value)} maxLength={200} disabled={!cond} placeholder={`«${title}» اکنون ممکن نیست`} />
         </F>
       </div>

@@ -80,7 +80,8 @@ export default function HubPage() {
   const rules = visibleRules(data.rules, (path) => !!matchItem(items, path));
   const names = people.data ?? {};
   const choices = schema?.choices ?? {};
-  const columns = 6;
+  const acting = canPublish && authority;
+  const columns = acting ? 7 : 6;
   const more = (r: ListRow) => r.type === "more";
   // the folded lifecycles are one cell across the table
   const cell = (first: boolean) => (r: ListRow) => (more(r) ? { colSpan: first ? columns : 0 } : {});
@@ -216,7 +217,7 @@ export default function HubPage() {
                   );
                 },
               },
-              ...(canPublish && authority
+              ...(acting
                 ? [
                     {
                       key: "act",
@@ -379,20 +380,22 @@ function NewProcess({ rows, onClose }: { rows: HubRow[]; onClose: () => void }) 
           />
         </F>
         <F label="کلید" htmlFor="wfh-new-key" error={err("key")} hint="با حرف لاتین کوچک؛ در پیوندها و گزارش‌ها به کار می‌رود و پس از ساخت تغییر نمی‌کند.">
-          <Input
-            id="wfh-new-key"
-            dir="ltr"
-            className="ds-mono"
-            value={form.key}
-            onChange={(e) => {
-              setKeyTyped(true);
-              set({ key: e.target.value.toLowerCase().replace(/\s+/g, "_") });
-            }}
-            maxLength={40}
-            onPressEnter={create}
-            placeholder="petty_cash"
-            status={err("key") ? "error" : undefined}
-          />
+          <span dir="ltr" className="wfh-ltr">
+            <Input
+              id="wfh-new-key"
+              className="ds-mono"
+              style={{ direction: "ltr" }}
+              value={form.key}
+              onChange={(e) => {
+                setKeyTyped(true);
+                set({ key: e.target.value.toLowerCase().replace(/\s+/g, "_") });
+              }}
+              maxLength={40}
+              onPressEnter={create}
+              placeholder="petty_cash"
+              status={err("key") ? "error" : undefined}
+            />
+          </span>
         </F>
         <F label="دسته" htmlFor="wfh-new-cat" hint="گردش‌کارهای یک دسته در فهرست کاربران کنار هم می‌آیند.">
           <AutoComplete
