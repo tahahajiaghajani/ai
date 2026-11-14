@@ -10,8 +10,8 @@
 //   · quorum (any, all, count, percent, first) through the shared approval maths;
 //   · the guards: comments, decisions a step does not offer, the person, starters, a start applied once, cancel.
 import { describe, it, expect, beforeAll } from "vitest";
-import { applySubmission, roundSettles, LATE_NOTE } from "@server/modules/process/engine";
-import { createIn } from "@server/engine";
+import { applySubmission, processesRunHere, roundSettles, startCase, LATE_NOTE, STEP_OPENED } from "@server/modules/process/engine";
+import { createIn, onRecordEvent } from "@server/engine";
 import { stepStatuses, type ProcessGraph } from "@shared/process";
 import { uuidv7 } from "@shared/id";
 import { PNG } from "./engine-helpers";
@@ -161,6 +161,46 @@ describe("a case from start to end", () => {
   });
 });
 
+describe("the workflow's own steps", () => {
+  it("«انتخاب» takes the first matching case, «تعیین مقدار» writes case values, «اعلان» reaches people by rule; each opening emits its event", async () => {
+    const opened: unknown[] = [];
+    const off = onRecordEvent("test-step-opened", async (e) => void opened.push(e.data), { tables: ["process_case"], kinds: [STEP_OPENED] });
+    try {
+      const g: ProcessGraph = {
+        nodes: [
+          node("t", "trigger"),
+          startStep(),
+          node("c", "choice", { cases: [{ key: "small", label: "کم", rules: [{ left: "{{case.u_amount}}", op: "lt", right: "1000" }] }, { key: "mid", label: "میانه", rules: [{ left: "{{case.u_amount}}", op: "lt", right: "100000" }] }] }),
+          node("v", "set_values", { values: { u_finance_note: "خودکار برای {{case.u_amount}}" } }),
+          node("n", "notify", { to: [{ kind: "users", users: [P.f] }], subject: "پرونده {{case.number}}", body: "مبلغ {{case.u_amount}}" }),
+          node("e", "form_step", { action: "review", form: F.review, rights: rights("read"), ...users(P.h) }, "بررسی"),
+          node("ok", "end"),
+          node("else", "end", { outcome: "canceled" }),
+        ],
+        edges: [edge("t", "s"), edge("s", "c"), edge("c", "v", "small"), edge("c", "e", "mid"), edge("c", "else", "else"), edge("v", "n"), edge("n", "e"), edge("e", "ok")],
+      };
+      const p = await publish(w, g);
+      const small = (await start(w, P.r, p, { values: { u_amount: "500" } })).case!;
+      const mid = (await start(w, P.r, p, { values: { u_amount: "5000" } })).case!;
+      const big = (await start(w, P.r, p, { values: { u_amount: "500000" } })).case!;
+      await w.k.drain();
+      const c = await kase(w, small);
+      expect(c.data.u_finance_note).toBe("خودکار برای 500");
+      expect(c.progress.c).toMatchObject({ status: "done", port: "small" });
+      const sent = await w.o.db.one<{ output: { recipients: string[]; count: number } }>(`select output from sm_flow_run_steps where run_id = $1 and node_id = 'n'`, [c.run_ref]);
+      expect(sent?.output.recipients).toEqual([P.f]);
+      expect((await kase(w, mid)).progress.c).toMatchObject({ port: "mid" });
+      expect((await kase(w, mid)).data.u_finance_note).toBeUndefined();
+      expect(await kase(w, big)).toMatchObject({ state: "canceled", outcome: "canceled" });
+      expect(opened).toEqual(
+        expect.arrayContaining([expect.objectContaining({ node: "e", round: 1, action: "review", people: [P.h], status: "ok" })]),
+      );
+    } finally {
+      off();
+    }
+  });
+});
+
 describe("parallel branches", () => {
   it("join all: both branches' values are merged, then the final approval opens", async () => {
     const p = await publish(w, parallel(P.l, P.m, P.h));
@@ -192,6 +232,17 @@ describe("parallel branches", () => {
     const late = await act(w, P.m, slow, { values: { u_fin: "دیر رسید" } });
     expect(late).toMatchObject({ result: "late", note: LATE_NOTE });
     expect((await submission(w, late.submission))?.values).toEqual({ u_fin: "دیر رسید" });
+    expect((await kase(w, id)).data.u_fin).toBeUndefined();
+  });
+
+  it("a submission whose wait was withdrawn (the join committed, its cancel not run yet) is late and closes nothing", async () => {
+    const p = await publish(w, parallel(P.l, P.m, P.h, "any"));
+    const id = (await start(w, P.r, p, { values: { u_amount: "500" } })).case!;
+    await w.k.drain();
+    const t = await openTask(w, id, "m", P.m);
+    await w.o.db.query(`delete from sm_flow_waits where key = $1`, [`pstep:${id}:m:1`]);
+    expect(await act(w, P.m, t, { values: { u_fin: "دیر" } })).toMatchObject({ result: "late", note: LATE_NOTE });
+    expect((await tasks(w, id)).find((x) => x.id === t)).toMatchObject({ status: "open", acted_by: null });
     expect((await kase(w, id)).data.u_fin).toBeUndefined();
   });
 
@@ -333,6 +384,20 @@ describe("submissions", () => {
     await act(w, P.f, await openTask(w, id, "e", P.f), { values: { u_old: "پس از بازنشستگی" } });
     await w.k.drain();
     expect(await kase(w, id)).toMatchObject({ state: "completed", data: { u_old: "پس از بازنشستگی" } });
+  });
+});
+
+describe("where cases run", () => {
+  it("a Windows app linked to the web version only records the submission («در صف ارسال»)", async () => {
+    expect(await processesRunHere(w.o.cfg, w.o.org)).toBe(true);
+    const linked = { ...w.o.cfg, mode: "desktop", desktop: { info: async () => ({ cloud: { linked: true, org_id: w.o.org } }), notifyLocalWrite: () => undefined } } as unknown as typeof w.o.cfg;
+    expect(await processesRunHere(linked, w.o.org)).toBe(false);
+    const p = await publish(w, basic(P.h, P.f));
+    const ctx = { ...(await w.o.ctxOf(P.r)), cfg: linked };
+    const r = await startCase(ctx, { process: p.process, values: { u_amount: "10" } });
+    expect(r).toMatchObject({ result: "pending" });
+    expect(await w.o.db.query(`select id from sm_process_cases where id = $1`, [r.case])).toEqual([]);
+    expect(await submission(w, r.submission)).toMatchObject({ result: "pending", case_id: r.case });
   });
 });
 

@@ -86,7 +86,8 @@ export async function publish(
   const key = `proc_${n}_${uuidv7().slice(-6)}`;
   const procId = opts.process ?? String((await create(w.sys, "process", { name, key, status: "published" }, { trusted: true })).row.id);
   const prior = await w.o.db.one<{ n: number }>(`select coalesce(max(version_no), 0)::int as n from sm_process_versions where process_id = $1`, [procId]);
-  const formIds = opts.forms ?? Object.values(w.forms);
+  // every form but «فرم قدیمی» (a suite retires its field)
+  const formIds = opts.forms ?? Object.entries(w.forms).filter(([k]) => k !== "old").map(([, id]) => id);
   const { snapshot, problems } = await loadFormsSnapshot(w.o.db, w.sys, formIds);
   if (problems.length) throw new Error(problems.join("; "));
   const version = (
