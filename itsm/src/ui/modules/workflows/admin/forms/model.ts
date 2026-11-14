@@ -10,6 +10,7 @@ import {
   type Span, type StepRights,
 } from "@shared/forms/layout";
 import { lockedFields, type FieldLock } from "@shared/forms/locked";
+import { tableDef } from "@shared/tables";
 import type { RequiredFor } from "@shared/forms/paths";
 import { formStepOf, type ProcessGraph, type ProcessNode, type StepAction } from "@shared/process";
 import { faDigits } from "@shared/format";
@@ -391,6 +392,9 @@ export interface SysField {
   kind: SysKind;
   /** the module's own label (module fields) */
   defaultLabel: string | null;
+  /** the module's own help and sample text (module fields; "" when it has none): what a cleared override goes back to */
+  defaultHelp: string;
+  defaultPlaceholder: string;
   help: string;
   placeholder: string;
   formHidden: boolean;
@@ -418,6 +422,8 @@ export function systemFields(def: TableDef, base: TableDef | undefined): SysFiel
       type: f.type,
       kind: f.library ? "library" : f.custom || !module ? "table" : "module",
       defaultLabel: module?.label ?? null,
+      defaultHelp: module?.help ?? "",
+      defaultPlaceholder: module?.placeholder ?? "",
       help: f.help ?? "",
       placeholder: f.placeholder ?? "",
       formHidden: !!f.formHidden,
@@ -516,6 +522,32 @@ export function requireBlocker(f: SysField, o: SysOverride): string | null {
 /** Library fields take their label, help and sample text from «فیلدها». */
 export const ownTexts = (f: SysField): boolean => f.kind !== "library";
 
+/**
+ * The label, help and sample text a field shows for a draft's values, as the server keeps them: a module field's
+ * cleared text is its module's own again (the overlay ignores an empty override), an organisation field's is empty.
+ */
+export function keptTexts(f: SysField, o: Pick<SysOverride, "label" | "help" | "placeholder">): { label: string; help: string; placeholder: string } {
+  const m = f.kind === "module";
+  return {
+    label: o.label.trim() || (m ? (f.defaultLabel ?? f.label) : ""),
+    help: o.help.trim() || (m ? f.defaultHelp : ""),
+    placeholder: o.placeholder.trim() || (m ? f.defaultPlaceholder : ""),
+  };
+}
+
+/**
+ * What keeps a draft from being saved, by field: an organisation field («فیلد همین جدول») needs its label — the
+ * server would refuse the whole save for it.
+ */
+export function systemProblems(fields: readonly SysField[], draft: SystemDraft): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const f of fields) {
+    const o = draft.fields[f.name];
+    if (o && f.kind === "table" && !o.label.trim()) out[f.name] = "برچسب را بنویسید";
+  }
+  return out;
+}
+
 /** The field's state in words for its chip on the canvas. */
 export function sysMarks(f: SysField, o: SysOverride): string[] {
   const out: string[] = [];
@@ -531,12 +563,15 @@ export interface SystemChanges {
   count: number;
 }
 
-const blank = (s: string) => !s.trim();
+/** How a changed help or sample text is said: gone, back to the module's own, or changed. */
+const textLine = (what: string, name: string, kept: string, moduleText: string | null) =>
+  `${what} «${name}» ${!kept ? "برداشته شد" : moduleText !== null && kept === moduleText ? "به متن ماژول برمی‌گردد" : "تغییر کرد"}`;
 
 /**
- * What saving sends (only what changed) and the lines the confirmation shows. Library fields never send texts; a
- * requirement sends its audience; the arrangement is sent when it changed, null when the organisation goes back to
- * the module's layout.
+ * What saving sends (only what changed, compared as the server keeps it: `keptTexts`) and the lines the confirmation
+ * shows. Library fields never send texts; a module field's text back at the module's own sends null (the override
+ * goes); an organisation field's empty label is never sent (`systemProblems` holds the save); a requirement sends its
+ * audience; the arrangement is sent when it changed, null when the organisation goes back to the module's layout.
  */
 export function systemChanges(fields: readonly SysField[], baseline: SystemDraft, draft: SystemDraft): SystemChanges {
   const out: Record<string, OverrideInput> = {};
@@ -548,17 +583,20 @@ export function systemChanges(fields: readonly SysField[], baseline: SystemDraft
     const o: OverrideInput = {};
     const name = a.label || f.name;
     if (ownTexts(f)) {
-      if (b.label.trim() !== a.label.trim()) {
-        o.label = blank(b.label) ? null : b.label.trim();
-        lines.push(`برچسب «${name}» ← «${blank(b.label) ? (f.defaultLabel ?? f.name) : b.label.trim()}»`);
+      const was = keptTexts(f, a);
+      const now = keptTexts(f, b);
+      const module = f.kind === "module";
+      if (now.label !== was.label && now.label) {
+        o.label = module && now.label === f.defaultLabel ? null : now.label;
+        lines.push(`برچسب «${name}» ← «${now.label}»`);
       }
-      if (b.help.trim() !== a.help.trim()) {
-        o.help = blank(b.help) ? null : b.help.trim();
-        lines.push(`راهنمای «${name}» ${blank(b.help) ? "برداشته شد" : "تغییر کرد"}`);
+      if (now.help !== was.help) {
+        o.help = !now.help || (module && now.help === f.defaultHelp) ? null : now.help;
+        lines.push(textLine("راهنمای", name, now.help, module ? f.defaultHelp : null));
       }
-      if (b.placeholder.trim() !== a.placeholder.trim()) {
-        o.placeholder = blank(b.placeholder) ? null : b.placeholder.trim();
-        lines.push(`متن نمونهٔ «${name}» ${blank(b.placeholder) ? "برداشته شد" : "تغییر کرد"}`);
+      if (now.placeholder !== was.placeholder) {
+        o.placeholder = !now.placeholder || (module && now.placeholder === f.defaultPlaceholder) ? null : now.placeholder;
+        lines.push(textLine("متن نمونهٔ", name, now.placeholder, module ? f.defaultPlaceholder : null));
       }
     }
     if (b.hidden !== a.hidden) {
@@ -642,14 +680,18 @@ export function systemRights(def: TableDef, fields: readonly SysField[], draft: 
  * The table as the draft would make it, for the preview's layout: the draft's arrangement, labels, help and sample
  * texts (`required` left as the module's: the rights say who must fill what).
  */
-export function previewTable(def: TableMeta, draft: SystemDraft): TableMeta {
+export function previewTable(def: TableMeta, draft: SystemDraft, fields: readonly SysField[] = systemFields(def, tableDef(def.key))): TableMeta {
+  // a module field's cleared text shows its module's own, as the server keeps it (`keptTexts`)
+  const sys = new Map(fields.map((f) => [f.name, f]));
   return {
     ...def,
     form: { ...(def.form ?? {}), arrangement: arrangementFromLayout(draft.layout) },
     fields: def.fields.map((f) => {
       const o = draft.fields[f.name];
       if (!o) return f;
-      return { ...f, label: o.label.trim() || f.label, help: o.help.trim() || undefined, placeholder: o.placeholder.trim() || undefined, formHidden: o.hidden };
+      const sf = sys.get(f.name);
+      const t = sf ? keptTexts(sf, o) : { label: o.label.trim(), help: o.help.trim(), placeholder: o.placeholder.trim() };
+      return { ...f, label: t.label || f.label, help: t.help || undefined, placeholder: t.placeholder || undefined, formHidden: o.hidden };
     }),
   };
 }

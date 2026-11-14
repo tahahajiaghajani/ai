@@ -16,6 +16,7 @@ import { FIELD_TYPES } from "@shared/model/types";
 import { isFieldItem, type FormItem } from "@shared/forms/layout";
 import { faDigits } from "@shared/format";
 import { tableDef } from "@shared/tables";
+import { tailoredTable } from "@shared/tables/fields";
 import { matchesFa } from "../../../../lib/fa";
 import { useOrg } from "../../../../lib/org";
 import { useIsPhone, useNotify } from "../../../../lib/hooks";
@@ -31,8 +32,8 @@ import { FieldSheet } from "../fields/FieldSheet";
 import { attachable, fieldsAccess } from "../fields/model";
 import { FORM_KEYS, formsApi } from "./api";
 import {
-  PERSONAS, addSection, addTab, clampSel, defaultLayout, insertItem, moveItem, reconcileDraft, removeSection, removeTab, renameTab, rightsSummary, shiftItem, shiftSection,
-  shiftTab, sysMarks, systemChanges, systemDraft, systemFields, systemRights, targetSection, typingKey, unplaced, updateSection, previewTable, findField,
+  PERSONAS, addSection, addTab, clampSel, defaultLayout, insertItem, keptTexts, moveItem, reconcileDraft, removeSection, removeTab, renameTab, rightsSummary, shiftItem, shiftSection,
+  shiftTab, sysMarks, systemChanges, systemDraft, systemFields, systemProblems, systemRights, targetSection, typingKey, unplaced, updateSection, previewTable, findField,
   type Persona, type Sel, type SystemChanges, type SystemDraft,
 } from "./model";
 import { MoveControls, SectionInspector, SysFieldInspector, TabInspector } from "./Inspectors";
@@ -41,8 +42,6 @@ import "../../../../records/records.css";
 import "../fields/fields.css";
 import "./forms.css";
 
-const NOT_DESIGNED = new Set(["custom_field", "choice", "view"]);
-
 export default function SystemDesigner() {
   const { table = "" } = useParams<{ table: string }>();
   const org = useOrg();
@@ -50,7 +49,9 @@ export default function SystemDesigner() {
   const access = fieldsAccess(org);
   const phone = useIsPhone();
   const { schema, isLoading } = useSchema();
-  const def = NOT_DESIGNED.has(table) ? undefined : schema?.def(table);
+  // the tables «فرم‌ها» lists: not the customisation rows, not a process case (its forms are process forms)
+  const found = schema?.def(table);
+  const def = found && tailoredTable(found) ? found : undefined;
   const base = tableDef(table);
   const fields = useMemo(() => (def ? systemFields(def, base) : []), [def, base]);
   const stored = useMemo(() => (def ? systemDraft(def, fields) : null), [def, fields]);
@@ -111,7 +112,9 @@ function Designer({ table, def, fields, stored, editable, access, phone, orgId, 
   const [busy, setBusy] = useState(false);
 
   const changes = useMemo(() => systemChanges(fields, baseline, draft), [fields, baseline, draft]);
-  const dirty = changes.count > 0;
+  // an organisation field's empty label is never sent: it holds the save («برچسب را بنویسید»)
+  const textProblems = useMemo(() => systemProblems(fields, draft), [fields, draft]);
+  const dirty = changes.count > 0 || Object.keys(textProblems).length > 0;
   useLeaveGuard(dirty, `/${orgId}/settings/forms`);
   useUndoKeys(editable, hist.undo, hist.redo);
 
@@ -136,7 +139,8 @@ function Designer({ table, def, fields, stored, editable, access, phone, orgId, 
   // a requirement for «همه» the server would refuse (the portal's built-in report cannot carry the field)
   const problems = Object.entries(draft.fields)
     .filter(([name, o]) => o.requiredFor === "all" && baseline.fields[name]?.requiredFor !== "all")
-    .flatMap(([name]) => (blockersAll.data?.blockers.length ? [`«${draft.fields[name].label || name}»: ${blockersAll.data.blockers[0]}`] : []));
+    .flatMap(([name]) => (blockersAll.data?.blockers.length ? [`«${draft.fields[name].label || name}»: ${blockersAll.data.blockers[0]}`] : []))
+    .concat(Object.entries(textProblems).map(([name, p]) => `«${byName.get(name)?.label ?? name}»: ${p}`));
 
   // a change of the layout: the draft's next value, and where the selection goes (`key`: typing on in one box)
   const layoutEdit = useCallback(
@@ -204,7 +208,7 @@ function Designer({ table, def, fields, stored, editable, access, phone, orgId, 
     const d = defs.get(item.field);
     if (!f || !o) return { label: item.field, span: 8 };
     return {
-      label: o.label || f.label,
+      label: keptTexts(f, o).label || f.label,
       meta: [FIELD_TYPES[f.type]?.label ?? f.type, ...sysMarks(f, o)].join(" · "),
       span: d ? spanOf(d) : 8,
       required: f.moduleRequired || !!o.requiredFor,
@@ -216,7 +220,7 @@ function Designer({ table, def, fields, stored, editable, access, phone, orgId, 
   // ------------------------------------------------------------------ the preview
   const vpData = vp.data?.as;
   const rights = useMemo(() => (vpData ? systemRights(def, fields, draft, vpData) : null), [def, fields, draft, vpData]);
-  const shownDef = useMemo(() => previewTable(def, draft), [def, draft]);
+  const shownDef = useMemo(() => previewTable(def, draft, fields), [def, draft, fields]);
   const previewTabs = useMemo<PreviewTab[]>(() => {
     if (!rights) return [];
     return formLayout(shownDef, { mode: "create" }).map((t) => ({
@@ -401,6 +405,7 @@ function Designer({ table, def, fields, stored, editable, access, phone, orgId, 
         tablePlural={def.plural}
         field={f}
         value={draft.fields[f.name]}
+        labelError={textProblems[f.name]}
         editable={editable}
         libraryId={libId(f.name)}
         policies={access.settingsRead ? (policies.data ?? []) : null}

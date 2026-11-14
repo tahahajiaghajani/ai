@@ -26,8 +26,9 @@ import {
   HISTORY_LIMIT, KIND_SHORT, PROCESS_GROUP, addSection, addTab, autoSpan, behaviourOf, changeText, clampSel, draftProblems, filterForms, findField, groupRows,
   hideBlocker, historyOf, historyPush, historyRedo, historyReplace, historyUndo, insertItem, kindOf, libraryDef, moveItem, oldLayoutTarget, paletteFields, previewTable,
   processDraft, processPatch, reconcileDraft, removeSection, requireBlocker, rightsSummary, saveStateText, sectionList, shiftItem, statusText, stepsUsing,
-  systemChanges, systemDraft, systemFields, systemRights, typingKey, unplaced, updateSection, usedText, withBehaviour, type SystemDraft,
+  systemChanges, systemDraft, systemFields, systemProblems, systemRights, typingKey, unplaced, updateSection, usedText, withBehaviour, type SystemDraft,
 } from "../src/ui/modules/workflows/admin/forms/model";
+import { confirmLeave, historyGuard, holdLeave, type HistoryHost } from "../src/ui/modules/workflows/admin/forms/leave";
 import type { TableMeta } from "../src/ui/records/model/types";
 import { engineOrg, type EngineOrg } from "./engine-helpers";
 import type { Client } from "./helpers";
@@ -301,6 +302,42 @@ describe("a table's default form", () => {
     expect(systemChanges(fields, edited, { ...edited, fields: { ...edited.fields, estimate: { ...edited.fields.estimate, label: "" } } }).body.fields).toEqual({ estimate: { label: null } });
   });
 
+  it("a cleared text: a module field's own comes back, and the line says so; an organisation field keeps a label (F5-6)", () => {
+    const inc = tableDef("incident")!;
+    const moduleHelp = inc.fields.find((f) => f.name === "external_ref")!.help!;
+    // the organisation's definition: its own help on «شناسهٔ بیرونی», and a field of its own
+    const eff: TableDef = {
+      ...inc,
+      fields: [...inc.fields.map((f) => (f.name === "external_ref" ? { ...f, help: "شمارهٔ تیکت شرکت پشتیبان" } : f)), { name: "u_branch", label: "شعبه", type: "string", custom: true } as FieldDef],
+    };
+    const fs = systemFields(eff, inc);
+    const d = systemDraft(eff, fs);
+    const edit = (name: string, p: Partial<SystemDraft["fields"][string]>, from: SystemDraft = d): SystemDraft => ({ ...from, fields: { ...from.fields, [name]: { ...from.fields[name], ...p } } });
+    expect(fs.find((f) => f.name === "external_ref")).toMatchObject({ kind: "module", help: "شمارهٔ تیکت شرکت پشتیبان", defaultHelp: moduleHelp });
+    // the organisation's help cleared: the module's comes back (F1's overlay keeps no empty override) — null is sent, and said so
+    const back = systemChanges(fs, d, edit("external_ref", { help: "" }));
+    expect(back.body).toEqual({ fields: { external_ref: { help: null } } });
+    expect(back.lines).toEqual(["راهنمای «شناسهٔ بیرونی» به متن ماژول برمی‌گردد"]);
+    expect(previewTable({ ...eff, can: { read: true, create: true } } as TableMeta, edit("external_ref", { help: "" })).fields.find((f) => f.name === "external_ref")?.help).toBe(moduleHelp);
+    // typing the module's own text again is the same
+    expect(systemChanges(fs, d, edit("external_ref", { help: ` ${moduleHelp} ` })).body).toEqual({ fields: { external_ref: { help: null } } });
+    // the module's own text cannot be cleared: emptying the box changes nothing, so nothing is sent or said
+    const plain = systemFields(inc, inc);
+    const atModule = systemDraft(inc, plain);
+    expect(systemChanges(plain, atModule, edit("external_ref", { help: "" }, atModule))).toEqual({ body: {}, lines: [], count: 0 });
+    // a help where the module has none is removed
+    const told = edit("impact", { help: "اثر بر کار" });
+    expect(systemChanges(fs, told, edit("impact", { help: "" }, told))).toMatchObject({ body: { fields: { impact: { help: null } } }, lines: ["راهنمای «اثر» برداشته شد"] });
+    // an organisation field («فیلد همین جدول») keeps a label: an empty one holds the save and is never sent
+    const unlabelled = edit("u_branch", { label: "  " });
+    expect(systemProblems(fs, unlabelled)).toEqual({ u_branch: "برچسب را بنویسید" });
+    expect(systemChanges(fs, d, unlabelled).body).toEqual({});
+    expect(systemProblems(fs, d)).toEqual({});
+    // its help cleared is removed: it has no module text to go back to
+    const helped = edit("u_branch", { help: "نام شعبه" });
+    expect(systemChanges(fs, helped, edit("u_branch", { help: "" }, helped))).toMatchObject({ body: { fields: { u_branch: { help: null } } }, lines: ["راهنمای «شعبه» برداشته شد"] });
+  });
+
   it("the preview's rights for a viewpoint: hidden on the form, the module's and the binding requirements, field groups, engine fields", () => {
     const d = systemDraft(withCustom, fields);
     const draft: SystemDraft = { ...d, fields: { ...d.fields, tags: { ...d.fields.tags, hidden: true }, estimate: { ...d.fields.estimate, requiredFor: "agents" } } };
@@ -317,6 +354,101 @@ describe("a table's default form", () => {
     const shown = previewTable({ ...withCustom, can: { read: true, create: true } } as TableMeta, { ...d, fields: { ...d.fields, estimate: { ...d.fields.estimate, label: "زمان", help: "به ساعت" } } });
     expect(shown.form?.arrangement?.tabs[0].sections[0].fields).toEqual(fields.map((f) => f.name));
     expect(shown.fields.find((f) => f.name === "estimate")).toMatchObject({ label: "زمان", help: "به ساعت" });
+  });
+});
+
+describe("leaving a page with unsaved changes (F5-3)", () => {
+  /**
+   * A stand-in window at history entry `at`, whose popstate listeners run in the order they were added (as Chromium
+   * runs a window's own listeners): the guard, installed when the app loads, then the router.
+   */
+  const browser = (at: number) => {
+    let state: { idx: number } = { idx: at };
+    const listeners: ((e: Event) => void)[] = [];
+    const moves: number[] = [];
+    const host: HistoryHost = {
+      history: { get state() { return state; }, go: (d: number) => void moves.push(d) },
+      addEventListener: (_t, fn) => void listeners.push(fn),
+    };
+    const guard = historyGuard(host);
+    const routed: number[] = [];
+    host.addEventListener("popstate", () => routed.push(state.idx));
+    /** the browser arrives at entry `to` */
+    const pop = (to: number) => {
+      state = { idx: to };
+      let stopped = false;
+      const e = { stopImmediatePropagation: () => void (stopped = true) } as unknown as Event;
+      for (const l of [...listeners]) if (!stopped) l(e);
+    };
+    return { guard, pop, moves, routed };
+  };
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+  const asker = () => {
+    const a = { asked: 0, answer: (_: boolean) => {} };
+    const ask = () => {
+      a.asked++;
+      return new Promise<boolean>((r) => (a.answer = r));
+    };
+    return { a, ask };
+  };
+
+  it("Back is taken back before the router sees it; «stay» keeps the page, «leave» makes the move again for the router", async () => {
+    const b = browser(5);
+    const { a, ask } = asker();
+    b.guard.hold(ask);
+    b.pop(4);
+    expect([b.routed, b.moves, a.asked]).toEqual([[], [1], 1]);
+    b.pop(5); // the way back arrives: nobody else hears of it
+    // Back again while the question is open: taken back, not asked twice
+    b.pop(4);
+    b.pop(5);
+    expect([b.routed, b.moves, a.asked]).toEqual([[], [1, 1], 1]);
+    a.answer(false);
+    await settle();
+    expect([b.routed, b.moves]).toEqual([[], [1, 1]]);
+    // Forward is held the same way; «leave» lets it go
+    b.pop(6);
+    expect(a.asked).toBe(2);
+    b.pop(5);
+    a.answer(true);
+    await settle();
+    expect(b.moves).toEqual([1, 1, -1, 1]);
+    b.pop(6);
+    expect(b.routed).toEqual([6]);
+  });
+
+  it("«leave» given before the way back arrives waits for it; a released hold, or none, lets every move through", async () => {
+    const b = browser(3);
+    const { a, ask } = asker();
+    const release = b.guard.hold(ask);
+    b.pop(2);
+    a.answer(true);
+    await settle();
+    expect(b.moves).toEqual([1]);
+    b.pop(3);
+    expect(b.moves).toEqual([1, -1]);
+    b.pop(2);
+    expect(b.routed).toEqual([2]);
+    release();
+    const c = browser(7);
+    c.pop(6);
+    c.guard.hold(ask)();
+    c.pop(5);
+    expect(c.routed).toEqual([6, 5]);
+    expect(c.moves).toEqual([]);
+  });
+
+  it("the shell's menus and command palette ask the page that holds changes; without one they go at once", async () => {
+    expect(await confirmLeave()).toBe(true);
+    const { a, ask } = asker();
+    const release = holdLeave(ask);
+    const asked = confirmLeave();
+    a.answer(false);
+    expect(await asked).toBe(false);
+    expect(a.asked).toBe(1);
+    release();
+    expect(await confirmLeave()).toBe(true);
+    expect(a.asked).toBe(1);
   });
 });
 
@@ -440,6 +572,30 @@ describe("the screens' calls on a real organisation", () => {
     const back = systemChanges(after.fields, after.draft, { ...after.draft, arranged: false });
     await e.owner.put(`${P}/forms/system/todo/overrides`, back.body);
     expect((await meta("todo")).form?.arrangement).toBeFalsy();
+  });
+
+  it("a module field's help the organisation set, then cleared, is the module's again — as the line said; an organisation field's empty label is refused (F5-6)", async () => {
+    const set = await draftOf("incident");
+    const own: SystemDraft = { ...set.draft, fields: { ...set.draft.fields, external_ref: { ...set.draft.fields.external_ref, help: "شمارهٔ تیکت شرکت پشتیبان" } } };
+    await e.owner.put(`${P}/forms/system/incident/overrides`, systemChanges(set.fields, set.draft, own).body);
+    const saved = await draftOf("incident");
+    expect(saved.draft.fields.external_ref.help).toBe("شمارهٔ تیکت شرکت پشتیبان");
+    const cleared: SystemDraft = { ...saved.draft, fields: { ...saved.draft.fields, external_ref: { ...saved.draft.fields.external_ref, help: "" } } };
+    const c = systemChanges(saved.fields, saved.draft, cleared);
+    expect(c.lines).toEqual(["راهنمای «شناسهٔ بیرونی» به متن ماژول برمی‌گردد"]);
+    await e.owner.put(`${P}/forms/system/incident/overrides`, c.body);
+    const after = await draftOf("incident");
+    expect(after.draft.fields.external_ref.help).toBe(tableDef("incident")!.fields.find((f) => f.name === "external_ref")!.help);
+    // what the server keeps is what the draft showed: nothing left to save
+    expect(systemChanges(after.fields, after.draft, cleared).count).toBe(0);
+    // the server refuses an organisation field's empty label — with the whole save — so the designer holds it instead
+    await e.owner.post(`${P}/r/custom_field`, { table_key: "todo", name: "u_room", label: "اتاق", type: "string", active: true });
+    const todo = await draftOf("todo");
+    await e.owner.put(`${P}/forms/system/todo/overrides`, { fields: { u_room: { label: null }, estimate: { help: "به ساعت" } } }, 400);
+    expect((await draftOf("todo")).draft.fields.estimate.help).toBe("");
+    const unlabelled: SystemDraft = { ...todo.draft, fields: { ...todo.draft.fields, u_room: { ...todo.draft.fields.u_room, label: "" } } };
+    expect(systemProblems(todo.fields, unlabelled)).toEqual({ u_room: "برچسب را بنویسید" });
+    expect(systemChanges(todo.fields, todo.draft, unlabelled).body).toEqual({});
   });
 
   it("a requirement the server refuses is refused for the reason the designer shows; a locked field cannot be hidden", async () => {

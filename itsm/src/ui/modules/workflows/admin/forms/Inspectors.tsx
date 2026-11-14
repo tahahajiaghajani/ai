@@ -22,10 +22,13 @@ import { F } from "../fields/parts";
 import { FIELD_KEYS, fieldsApi } from "../fields/api";
 import type { PolicyRow } from "./api";
 import {
-  BEHAVIOURS, SPAN_OPTIONS, SYS_KIND_LABELS, autoSpan, behaviourOf, groupLabel, hideBlocker, ownTexts, requireBlocker, sectionList, withBehaviour,
+  BEHAVIOURS, SPAN_OPTIONS, SYS_KIND_LABELS, autoSpan, behaviourOf, groupLabel, hideBlocker, keptTexts, ownTexts, requireBlocker, sectionList, withBehaviour,
   type Behaviour, type SysField, type SysOverride,
 } from "./model";
 import { Block, I14, LockChips } from "./parts";
+
+/** A box's placeholder: the module's own text, when it has one. */
+const moduleText = (text: string): string | undefined => text || undefined;
 
 // ---------------------------------------------------------------------------------------------------------------
 // Tabs, sections, moves
@@ -153,6 +156,8 @@ export interface SysFieldInspectorProps {
   tablePlural: string;
   field: SysField;
   value: SysOverride;
+  /** why the label cannot stay as it is («برچسب را بنویسید» for an organisation field) */
+  labelError?: string;
   editable: boolean;
   /** the library field's id (its sheet in «فیلدها») */
   libraryId: string | null;
@@ -163,7 +168,7 @@ export interface SysFieldInspectorProps {
   moves: React.ReactNode;
 }
 
-export function SysFieldInspector({ table, tablePlural, field: f, value: o, editable, libraryId, policies, onChange, onRemove, moves }: SysFieldInspectorProps) {
+export function SysFieldInspector({ table, tablePlural, field: f, value: o, labelError, editable, libraryId, policies, onChange, onRemove, moves }: SysFieldInspectorProps) {
   const { orgId } = useOrg();
   const texts = editable && ownTexts(f);
   const hb = hideBlocker(f, o);
@@ -171,7 +176,7 @@ export function SysFieldInspector({ table, tablePlural, field: f, value: o, edit
   const choice: RequiredFor | "none" = o.requiredFor ?? "none";
   const acting = (policies ?? []).filter((p) => p.actions.some((a) => a.field === f.name));
   return (
-    <Block title={o.label || f.label}>
+    <Block title={keptTexts(f, o).label || f.label}>
       <span className="wfm-facts">
         <span>{SYS_KIND_LABELS[f.kind]}</span>
         <span>· {FIELD_TYPES[f.type]?.label ?? f.type}</span>
@@ -181,14 +186,15 @@ export function SysFieldInspector({ table, tablePlural, field: f, value: o, edit
         {f.group ? <Chip tone="info">{groupLabel(f.group)}</Chip> : null}
       </span>
       <LockChips locks={f.locks} />
-      <F label="برچسب" htmlFor="wfm-f-label" hint={f.defaultLabel && f.defaultLabel !== o.label ? `برچسب ماژول: ${f.defaultLabel}` : undefined}>
-        <Input id="wfm-f-label" value={o.label} placeholder={f.defaultLabel ?? undefined} onChange={(e) => onChange({ label: e.target.value })} maxLength={80} disabled={!texts} />
+      <F label="برچسب" htmlFor="wfm-f-label" error={labelError} hint={f.defaultLabel && f.defaultLabel !== o.label ? `برچسب ماژول: ${f.defaultLabel}` : undefined}>
+        <Input id="wfm-f-label" value={o.label} placeholder={f.defaultLabel ?? undefined} onChange={(e) => onChange({ label: e.target.value })} maxLength={80} disabled={!texts} status={labelError ? "error" : undefined} />
       </F>
+      {/* a module field's empty box shows the module's own text: what it goes back to */}
       <F label="راهنما" htmlFor="wfm-f-help">
-        <Input.TextArea id="wfm-f-help" value={o.help} onChange={(e) => onChange({ help: e.target.value })} maxLength={300} autoSize={{ minRows: 1, maxRows: 4 }} disabled={!texts} />
+        <Input.TextArea id="wfm-f-help" value={o.help} placeholder={moduleText(f.defaultHelp)} onChange={(e) => onChange({ help: e.target.value })} maxLength={300} autoSize={{ minRows: 1, maxRows: 4 }} disabled={!texts} />
       </F>
       <F label="متن نمونه" htmlFor="wfm-f-ph">
-        <Input id="wfm-f-ph" value={o.placeholder} onChange={(e) => onChange({ placeholder: e.target.value })} maxLength={120} disabled={!texts} />
+        <Input id="wfm-f-ph" value={o.placeholder} placeholder={moduleText(f.defaultPlaceholder)} onChange={(e) => onChange({ placeholder: e.target.value })} maxLength={120} disabled={!texts} />
       </F>
       {f.kind === "library" ? (
         <p className="rk-hint">

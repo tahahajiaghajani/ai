@@ -3,7 +3,7 @@
 // Delete takes it off), the save state, the lock chips, and the preview — the record page's own form classes with
 // the kit's inputs, money typed in the organisation's unit.
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { Button, Tabs, Tooltip } from "antd";
 import { CircleAlert, Info, Lock, LoaderCircle, Check, FolderPlus, PanelTop } from "lucide-react";
 import type { FieldDef } from "@shared/model/types";
@@ -20,6 +20,7 @@ import type { Schema } from "../../../../records/model/schema";
 import type { TableMeta } from "../../../../records/model/types";
 import { I14, I16 } from "../fields/parts";
 import { historyOf, historyPush, historyRedo, historyReplace, historyUndo, saveStateText, type At, type History, type SaveState, type Sel } from "./model";
+import { holdBrowserHistory, holdLeave } from "./leave";
 
 export { I14, I16 };
 
@@ -61,16 +62,20 @@ export function useHistory<T>(initial: T) {
 }
 
 /**
- * Leaving a page with unsaved changes asks first: the browser before it closes or reloads, the page before an in-app
- * link or the header's «بازگشت» (`back`) takes the person elsewhere.
+ * Leaving a page with unsaved changes asks first: the browser before it closes or reloads; the page before an in-app
+ * link or the header's «بازگشت» (`back`) takes the person elsewhere, before the browser's Back and Forward
+ * (`holdBrowserHistory`), and before the shell's menus and command palette navigate (`confirmLeave`, leave.ts).
  */
 export function useLeaveGuard(dirty: boolean, back?: string) {
   const nav = useNavigate();
   const n = useNotify();
   const notify = useRef(n);
   notify.current = n;
+  // the page's own moves (its search parameters) give the history hold a new entry to keep
+  const { key } = useLocation();
   useEffect(() => {
     if (!dirty) return;
+    const ask = () => notify.current.confirm("تغییرها ذخیره نشده‌اند؛ از این صفحه برویم؟", "آنچه تغییر داده‌اید از دست می‌رود.", true, "رفتن بدون ذخیره");
     const warn = (e: BeforeUnloadEvent) => e.preventDefault();
     const click = (e: MouseEvent) => {
       if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -81,15 +86,19 @@ export function useLeaveGuard(dirty: boolean, back?: string) {
       if (!to) return;
       e.preventDefault();
       e.stopPropagation();
-      void notify.current.confirm("تغییرها ذخیره نشده‌اند؛ از این صفحه برویم؟", "آنچه تغییر داده‌اید از دست می‌رود.", true, "رفتن بدون ذخیره").then((ok) => ok && nav(to));
+      void ask().then((ok) => ok && nav(to));
     };
     window.addEventListener("beforeunload", warn);
     document.addEventListener("click", click, true);
+    const releaseLeave = holdLeave(ask);
+    const releaseHistory = holdBrowserHistory(ask);
     return () => {
       window.removeEventListener("beforeunload", warn);
       document.removeEventListener("click", click, true);
+      releaseLeave();
+      releaseHistory();
     };
-  }, [dirty, back, nav]);
+  }, [dirty, back, nav, key]);
 }
 
 /** Ctrl+Z and Ctrl+Shift+Z / Ctrl+Y while the focus is not in a text box (a text box keeps its own undo). */
