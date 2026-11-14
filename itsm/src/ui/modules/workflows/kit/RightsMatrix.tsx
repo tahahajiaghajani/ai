@@ -4,6 +4,7 @@
 // states the field's right. Locked, read-only and system fields cannot be made editable; field groups and the form's
 // own flags show as chips. Native radios: Tab reaches a row, the arrow keys choose within it. Read-only without
 // `onChange` (a published version, a phone).
+import { useId } from "react";
 import { Button, Select } from "antd";
 import { Lock } from "lucide-react";
 import { RIGHTS, RIGHT_LABELS, type FieldSource, type FormLayoutV2, type Right, type StepRights } from "@shared/forms/layout";
@@ -43,6 +44,7 @@ function Chips({ row }: { row: RightsRow }) {
 }
 
 export function RightsMatrix({ form, fields, value, onChange, locked, stepLabel, className }: RightsMatrixProps) {
+  const uid = useId();
   const rows = rightsRows(form, fields, value, locked);
   const readOnly = !onChange;
   const dflt: Right = value?.default ?? "read";
@@ -58,13 +60,13 @@ export function RightsMatrix({ form, fields, value, onChange, locked, stepLabel,
   return (
     <div className={cx("wfk-rights", className)}>
       <div className="wfk-rights-bar">
-        <label className="wfk-grow" htmlFor={readOnly ? undefined : "wfk-rights-default"}>
+        <label className="wfk-grow" htmlFor={readOnly ? undefined : `${uid}-default`}>
           فیلدهایی که تعیین نشده‌اند:{" "}
           {readOnly ? (
             <strong>{RIGHT_LABELS[dflt]}</strong>
           ) : (
             <Select
-              id="wfk-rights-default"
+              id={`${uid}-default`}
               size="small"
               value={dflt}
               style={{ width: 110 }}
@@ -119,7 +121,7 @@ export function RightsMatrix({ form, fields, value, onChange, locked, stepLabel,
                         <label className={cx("wfk-radio", off && "is-off", checked && !row.stated && "is-default")} title={row.disabled.includes(r) ? "این فیلد در این مرحله ویرایش نمی‌شود" : undefined}>
                           <input
                             type="radio"
-                            name={`wfk-right-${row.field}`}
+                            name={`wfk-right-${uid}-${row.field}`}
                             value={r}
                             checked={checked}
                             disabled={off && !checked}

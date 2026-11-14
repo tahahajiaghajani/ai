@@ -6,7 +6,7 @@
 // from the server's static estimate (POST /positions/estimate, from 30 people), who is kept out (the requester on
 // approve steps), what happens when nobody is found, and the fallback rules.
 // The value is the step's `StepAssignees` (@shared/process); the server checks it again on save and publish.
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { Button, Checkbox, Dropdown, Radio, Segmented, Select } from "antd";
 import { CircleAlert, Plus, Trash2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -64,6 +64,7 @@ interface RuleProps extends AssigneeContext {
 
 function Holders({ rule, onChange }: { rule: Extract<AssigneeRule, { kind: "position" }>; onChange?: (r: AssigneeRule) => void }) {
   const { api, orgId, timezone } = useOrg();
+  const labelId = useId();
   const pos = useQuery({
     queryKey: ["wfk-positions-of", orgId, "key", [rule.position]],
     queryFn: () => kitApi.positions(api, { keys: [rule.position] }),
@@ -88,11 +89,11 @@ function Holders({ rule, onChange }: { rule: Extract<AssigneeRule, { kind: "posi
   if (!rule.position) return null;
   return (
     <div>
-      <span className="wfk-lbl" id={`wfk-who-${rule.position}`}>
+      <span className="wfk-lbl" id={labelId}>
         افراد
       </span>
       <Radio.Group
-        aria-labelledby={`wfk-who-${rule.position}`}
+        aria-labelledby={labelId}
         value={only ? "only" : "all"}
         disabled={!onChange}
         onChange={(e) => onChange?.(withMembers(rule, e.target.value === "all" ? null : people.slice(0, 1).map((h) => h.user_id)))}
@@ -132,9 +133,10 @@ function Holders({ rule, onChange }: { rule: Extract<AssigneeRule, { kind: "posi
 }
 
 function RuleEditor({ rule, index, onChange, onRemove, fields = [], steps = [], plain }: RuleProps) {
+  const uid = useId();
   const off = !onChange;
   const set = (patch: Partial<AssigneeRule>) => onChange?.({ ...rule, ...patch } as AssigneeRule);
-  const id = (k: string) => `wfk-rule-${index}-${k}`;
+  const id = (k: string) => `${uid}-${k}`;
   const body = (() => {
     switch (rule.kind) {
       case "position":
@@ -412,6 +414,7 @@ function Estimate({ value, action, quorum }: { value: StepAssignees; action: Ste
 // The step's people
 
 export function AssigneePicker({ value, onChange, action, quorum, fields, steps, className }: AssigneePickerProps) {
+  const uid = useId();
   const ctx: AssigneeContext = { fields, steps };
   const [fallbackOpen, setFallbackOpen] = useState(!!value.fallback?.length);
   const excluded = exclusionsOf(value, action);
@@ -431,10 +434,10 @@ export function AssigneePicker({ value, onChange, action, quorum, fields, steps,
         </Checkbox>
       </div>
       <div>
-        <label className="wfk-lbl" htmlFor="wfk-if-nobody">
+        <label className="wfk-lbl" htmlFor={`${uid}-if-nobody`}>
           اگر کسی پیدا نشد
         </label>
-        <Select id="wfk-if-nobody" value={ifNobodyOf(value)} disabled={off} onChange={(ifNobody) => set({ ifNobody })} options={IF_NOBODY.map((k) => ({ value: k, label: IF_NOBODY_LABELS[k] }))} />
+        <Select id={`${uid}-if-nobody`} value={ifNobodyOf(value)} disabled={off} onChange={(ifNobody) => set({ ifNobody })} options={IF_NOBODY.map((k) => ({ value: k, label: IF_NOBODY_LABELS[k] }))} />
       </div>
       {fallbackOpen || value.fallback?.length ? (
         <div className="wfk-who" role="group" aria-label="قاعده‌های جایگزین">

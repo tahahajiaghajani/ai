@@ -232,17 +232,19 @@ describe("the rights matrix", () => {
     expect(strayRights(SAMPLE_FORM, { default: "read", fields: { u_gone: "edit", u_note: "read" } })).toEqual(["u_gone"]);
   });
 
-  it("renders a table with a caption, a radio group per field and Persian labels", () => {
+  it("renders a table with a caption, a radio group per field (named per matrix) and Persian labels", () => {
     const html = renderToStaticMarkup(createElement(RightsMatrix, { form: SAMPLE_FORM, fields: SAMPLE_FIELDS, value: { default: "read", fields: {} }, onChange: () => undefined, stepLabel: "تأیید رئیس شعبه" }));
     expect(html).toContain("<caption");
     expect(html).toContain("تأیید رئیس شعبه");
-    expect(html).toContain('name="wfk-right-u_amount"');
+    expect(html).toMatch(/name="wfk-right-[^"]*-u_amount"/);
     expect(html).toContain('aria-label="مبلغ درخواستی: خواندنی (پیش‌فرض)"');
     expect(html).toContain("همه خواندنی");
     // the system field's «ویرایش» and «الزامی» are disabled
-    const ref = html.split('name="wfk-right-u_ref_no"').length - 1;
-    expect(ref).toBe(4);
+    expect((html.match(/name="wfk-right-[^"]*-u_ref_no"/g) ?? []).length).toBe(4);
     expect((html.match(/disabled=""[^>]*aria-label="شمارهٔ سند پرداخت: (ویرایش|الزامی)"/g) ?? []).length).toBe(2);
+    // two matrices on one page never share a radio group
+    const two = renderToStaticMarkup(createElement("div", null, createElement(RightsMatrix, { form: SAMPLE_FORM, fields: SAMPLE_FIELDS, value: null }), createElement(RightsMatrix, { form: SAMPLE_FORM, fields: SAMPLE_FIELDS, value: null })));
+    expect(new Set([...two.matchAll(/name="(wfk-right-[^"]*-u_amount)"/g)].map((m) => m[1])).size).toBe(2);
   });
 });
 
