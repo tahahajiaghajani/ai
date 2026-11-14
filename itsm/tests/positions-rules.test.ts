@@ -9,7 +9,7 @@ import {
   APPROVER_LIMIT, MAX_RULES, POOL_LIMIT, POOL_WARNING, assigneeProblems, assigneeWarnings, cleanRule, cleanStepAssignees, delegationScope, exclusionsOf, ifNobodyOf,
   mayInclude, nobodyMessage, poolLimit, poolWarnings, ruleEstimate, tooManyMessage, type AssigneeFacts, type StepAssignees,
 } from "@shared/process/assignees";
-import { holderUnit, mappedAccess, planDirectorySync, planStats, unitOfDepartment, withoutRoleGrants, type DirEntry, type GroupMapping } from "@shared/integration/directory";
+import { holderUnit, mappedAccess, planDirectorySync, planStats, unitFinder, unitOfDepartment, withoutRoleGrants, type DirEntry, type GroupMapping } from "@shared/integration/directory";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const U = { a: id(1), b: id(2), c: id(3), d: id(4) };
@@ -246,6 +246,32 @@ describe("Active Directory group mappings to organisational roles (the planner)"
     expect(holderUnit({ position_id: P.any, unit_from: null, source: HEADS }, { department: null, personUnit: null, units, position: positions[3] })).toEqual({ unit_id: null, problem: null });
     expect(holderUnit({ position_id: P.old, unit_from: null, source: HEADS }, { department: null, personUnit: null, units, position: positions[2] }).problem).toBe("نقش سازمانی «سمت قدیمی» غیرفعال است");
     expect(holderUnit({ position_id: id(99), unit_from: null, source: HEADS }, { department: null, personUnit: null, units, position: undefined }).problem).toBe("نقش سازمانی نگاشت پیدا نشد");
+  });
+
+  it("a department names a unit by its code, else by a name only one active unit carries — a shared name is a problem, never a guess", () => {
+    // two open «شعبهٔ مرکزی» (Tehran and Tabriz), and a closed «شعبهٔ قدیم» beside the open one of that name
+    const twins = [
+      ...units,
+      { id: id(20), name: "شعبهٔ مرکزی", code: "2001", kind: "branch", active: true },
+      { id: id(21), name: "شعبهٔ مرکزی", code: "2002", kind: "branch", active: true },
+      { id: id(22), name: "شعبهٔ قدیم", code: "2003", kind: "branch", active: false },
+      { id: id(23), name: "شعبهٔ قدیم", code: "2004", kind: "branch", active: true },
+      // a unit named like another one's code: the code wins
+      { id: id(24), name: "2001", code: null, kind: "branch", active: true },
+    ];
+    expect(unitOfDepartment(twins, "شعبهٔ مرکزی")).toBeNull();
+    expect(unitOfDepartment(twins, "2002")?.id).toBe(id(21));
+    expect(unitOfDepartment(twins, "2001")?.id).toBe(id(20));
+    expect(unitOfDepartment(twins, "شعبهٔ قدیم")?.id).toBe(id(23));
+    // a closed unit is found by its code only
+    expect(unitOfDepartment(twins, "2003")?.id).toBe(id(22));
+    expect(unitFinder(twins)("  شعبهٔ   مرکزی ")).toEqual({ unit: null, ambiguous: true });
+    const head = { position_id: P.head, unit_from: "department", source: HEADS };
+    expect(holderUnit(head, { department: "شعبهٔ مرکزی", personUnit: null, units: twins, position: positions[0] })).toEqual({
+      unit_id: null,
+      problem: "چند واحد فعال به نام «شعبهٔ مرکزی» هست؛ کد واحد را در بخش (department) فهرست کاربران بنویسید",
+    });
+    expect(holderUnit(head, { department: "2002", personUnit: null, units: twins, position: positions[0] })).toEqual({ unit_id: id(21), problem: null });
   });
 
   it("plans holdings for new and existing members; an apply without confirmed roles gives none", () => {

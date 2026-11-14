@@ -107,12 +107,13 @@ export function mappedAccess(mappings: GroupMapping[], groups: string[]): Mapped
   return out;
 }
 
-/** A unit the planner and the sign-in know: its name, code and kind. */
+/** A unit the planner and the sign-in know: its name, code, kind and whether it is active. */
 export interface DirUnit {
   id: string;
   name: string;
   code?: string | null;
   kind?: string | null;
+  active?: boolean | null;
 }
 
 /** A position the planner and the sign-in know. */
@@ -125,11 +126,32 @@ export interface DirPosition {
 
 const spaced = (s: string | null | undefined) => lower(s).replace(/\s+/g, " ");
 
-/** The unit a department names: a unit of that name, else of that code (case and spacing aside), or null. */
+/**
+ * How a text names a unit (the directory's department, a spreadsheet's unit column): the unit of that code (codes are
+ * unique), else the one active unit of that name — `key` reads both (default: case and spacing aside). Unit names are
+ * not unique: when several active units carry the name, `ambiguous` is set and no unit is guessed (the code must be
+ * written). A closed unit is found by its code only.
+ */
+export function unitFinder<U extends DirUnit>(units: readonly U[], key: (s: string) => string = spaced): (text: string | null | undefined) => { unit: U | null; ambiguous: boolean } {
+  const byCode = new Map<string, U>();
+  const byName = new Map<string, U[]>();
+  for (const u of units) {
+    const code = u.code ? key(u.code) : "";
+    if (code && !byCode.has(code)) byCode.set(code, u);
+    const name = u.active === false ? "" : key(u.name);
+    if (name) byName.set(name, [...(byName.get(name) ?? []), u]);
+  }
+  return (text) => {
+    const t = key(String(text ?? ""));
+    const named = t ? (byName.get(t) ?? []) : [];
+    const unit = (t ? byCode.get(t) : undefined) ?? (named.length === 1 ? named[0] : null);
+    return { unit, ambiguous: !unit && named.length > 1 };
+  };
+}
+
+/** The unit a department names (by code, else by a name only one active unit carries), or null. */
 export function unitOfDepartment(units: readonly DirUnit[], department: string | null | undefined): DirUnit | null {
-  const d = spaced(department);
-  if (!d) return null;
-  return units.find((u) => spaced(u.name) === d) ?? units.find((u) => !!u.code && spaced(u.code) === d) ?? null;
+  return unitFinder(units)(department).unit;
 }
 
 /**
@@ -153,7 +175,9 @@ export function holderUnit(
   if (p.unit_from === "department") {
     const dept = input.department?.trim() ?? "";
     if (!dept) return { unit_id: null, problem: "بخش (department) این شخص در فهرست کاربران خالی است" };
-    unit = unitOfDepartment(input.units, dept);
+    const found = unitFinder(input.units)(dept);
+    if (found.ambiguous) return { unit_id: null, problem: `چند واحد فعال به نام «${dept}» هست؛ کد واحد را در بخش (department) فهرست کاربران بنویسید` };
+    unit = found.unit;
     if (!unit) return input.pendingUnit && spaced(input.pendingUnit) === spaced(dept) ? later(dept) : { unit_id: null, problem: `واحدی به نام یا کد «${dept}» نیست` };
   } else if (p.unit_from) {
     unit = byId(p.unit_from);

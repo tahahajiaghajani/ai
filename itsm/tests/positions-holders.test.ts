@@ -15,6 +15,8 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { engineOrg, upload, type EngineOrg } from "./engine-helpers";
 import type { Client } from "./helpers";
 import { createIn, systemCtx } from "@server/engine";
+import { MAX_HOLDER_ROWS } from "@server/modules/positions";
+import { faDigits } from "@shared/format";
 import { SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
 import type { Ctx } from "@server/context";
@@ -284,6 +286,71 @@ describe("holders from a spreadsheet", () => {
     expect(((await e.owner.post(`${P}/positions/holders/import`, { rows: [], mode: "replace" }, 400)) as Err).error.message).toBe(
       "جایگزینی فقط با یک مجموعهٔ ورود ممکن است: دارندگانی که همان مجموعه وارد کرده بود و در فایل نیستند برداشته می‌شوند",
     );
+  });
+
+  it("a replace removes nothing while a row has an error, and a file longer than the limit is refused whole, never cut", async () => {
+    const set = (await e.owner.post(`${R}/import_set`, { name: "پست‌های شعب (جایگزینی)", target_table: "position_holder" })).row;
+    const a = await e.member("member");
+    const b = await e.member("member");
+    const [aMail, bMail] = [await emailOf(a.userId), await emailOf(b.userId)];
+    const attach = async (lines: string[]) => {
+      const file = new TextEncoder().encode(["نقش سازمانی,ایمیل,کد شعبه,نوع,از تاریخ", ...lines].join("\n"));
+      expect((await upload(e.app, e.owner, `${R}/import_set/${set.id}/attachments`, "holders.csv", file, "text/csv")).status).toBeLessThan(300);
+      // the newest file wins
+      await new Promise((r) => setTimeout(r, 15));
+    };
+    const replace = (status = 200) => e.owner.post(`${P}/positions/holders/import`, { import_set_id: set.id, mode: "replace", dry_run: false }, status);
+    const ofSet = async () => Number((await e.db.one<{ n: number }>(`select count(*)::int as n from sm_position_holders where org_id = $1 and source = 'import' and source_ref = $2 and deleted_at is null`, [e.org, set.id]))!.n);
+    await attach([`branch_head,${aMail},1002,اصلی,`, `credit_officer,${bMail},FIN,موقت,`]);
+    expect(await replace()).toMatchObject({ created: 2, removed: 0, errors: [] });
+    // a typo in one row's date: that row is an error, and its holder is not taken for «gone»
+    await attach([`branch_head,${aMail},1002,اصلی,`, `credit_officer,${bMail},FIN,موقت,۱۴۰۵/۱۳/۴۰`]);
+    const typo = await replace();
+    expect(typo).toMatchObject({ unchanged: 1, removed: 0 });
+    expect(typo.errors).toEqual([
+      { row: 2, message: "تاریخ «۱۴۰۵/۱۳/۴۰» خوانده نشد" },
+      { row: 0, message: "چون ردیف‌هایی خطا دارند، دارندگانی که در فایل نیستند برداشته نشدند؛ خطاها را درست کنید و دوباره جایگزین کنید" },
+    ]);
+    expect(await ofSet()).toBe(2);
+    // one row past the limit: the file is refused whole, not cut at the limit (whose «missing» rows a replace would remove)
+    await attach([`branch_head,${aMail},1002,اصلی,`, ...Array.from({ length: MAX_HOLDER_ROWS }, (_, i) => `credit_officer,nobody${i}@example.com,FIN,اصلی,`)]);
+    expect(((await replace(400)) as Err).error.message).toBe(`در هر بار حداکثر ${faDigits(MAX_HOLDER_ROWS)} ردیف؛ فایل را چند بخش کنید`);
+    expect(await ofSet()).toBe(2);
+  });
+
+  it("matches people by e-mail and units by code whatever the columns' order; a unit or position name several carry is a row error", async () => {
+    // two open «ادارهٔ مرکزی» (Tehran and Tabriz), a closed «ادارهٔ قدیم» beside an open one, two positions the file cannot tell apart
+    const tehran = (await e.owner.post(`${R}/org_unit`, { name: "ادارهٔ مرکزی", code: "2001", kind: "department" })).row.id;
+    const tabriz = (await e.owner.post(`${R}/org_unit`, { name: "ادارهٔ مرکزی", code: "2002", kind: "department" })).row.id;
+    const closed = (await e.owner.post(`${R}/org_unit`, { name: "ادارهٔ قدیم", code: "2003", kind: "department", active: false })).row.id;
+    const open = (await e.owner.post(`${R}/org_unit`, { name: "ادارهٔ قدیم", code: "2004", kind: "department" })).row.id;
+    await e.owner.post(`${R}/position`, { key: "advisor_a", name: "مشاور ارشد" });
+    await e.owner.post(`${R}/position`, { key: "advisor_b", name: "مشاور-ارشد" });
+    const c = await e.member("member");
+    const cMail = await emailOf(c.userId);
+    const holderUnits = async () => (await e.db.query<{ org_unit_id: string }>(`select org_unit_id from sm_position_holders where org_id = $1 and user_id = $2 and deleted_at is null order by org_unit_id`, [e.org, c.userId])).map((r) => r.org_unit_id);
+    // «نام، ایمیل، سمت، واحد، کد واحد»: the name is not the person's and the unit's name is shared — the e-mail and the code decide
+    const byKeys = await e.owner.post(`${P}/positions/holders/import`, { rows: [{ نام: "نامی دیگر", ایمیل: cMail, سمت: "کارشناس اعتبارات", واحد: "ادارهٔ مرکزی", "کد واحد": "2002" }], dry_run: false });
+    expect(byKeys).toMatchObject({ created: 1, errors: [] });
+    expect(await holderUnits()).toEqual([tabriz]);
+    // names only: a shared unit name or position name is an error; a name one open unit carries (a closed twin aside) is found
+    const byNames = await e.owner.post(`${P}/positions/holders/import`, {
+      rows: [
+        { ایمیل: cMail, سمت: "کارشناس اعتبارات", واحد: "ادارهٔ مرکزی" },
+        { ایمیل: cMail, سمت: "مشاور ارشد", واحد: "" },
+        { ایمیل: cMail, سمت: "کارشناس اعتبارات", واحد: "ادارهٔ قدیم" },
+      ],
+      dry_run: false,
+    });
+    expect(byNames).toMatchObject({ created: 1 });
+    expect(byNames.errors).toEqual([
+      { row: 1, message: "نام واحد «ادارهٔ مرکزی» یکتا نیست؛ کد واحد را بنویسید" },
+      { row: 2, message: "نام نقش سازمانی «مشاور ارشد» یکتا نیست؛ کلید نقش را بنویسید" },
+    ]);
+    const placed = await holderUnits();
+    expect(placed).toEqual([tabriz, open].sort());
+    expect(placed).not.toContain(tehran);
+    expect(placed).not.toContain(closed);
   });
 });
 

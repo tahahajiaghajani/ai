@@ -2,13 +2,15 @@
 // Active Directory, all three). The file is an import set's («مجموعهٔ ورود داده», `import_set` with target table
 // `position_holder`): its newest attached CSV/XLSX, its columns through the set's transform map when it has one
 // (targets: position_id, user_id, org_unit_id, kind, valid_from, valid_to), else by their usual Persian or English
-// headers. The UI may also send rows it has already read. Each row names a position (key or name), a person (e-mail or
-// a unique name), a unit (code or name), a kind and dates (ISO or Jalali).
+// headers (a column of unique keys first: an e-mail before a name, a unit's code before its name). The UI may also send
+// rows it has already read. Each row names a position (key, or a name only one position carries), a person (e-mail or a
+// unique name), a unit (code, or a name only one active unit carries: a shared name is a row error, never a guess), a
+// kind and dates (ISO or Jalali). A file longer than the limit is refused whole, never cut.
 //   · merge (default): a new position-person-unit becomes a holder kept by the import (`source` import, `source_ref` =
 //     the import set); one the import keeps gets the file's kind and dates; rows a person keeps by hand or the directory
 //     keeps are left alone (and listed);
 //   · replace (an import set only): the holders this import set keeps that the file no longer lists are removed — never
-//     a manual or a directory holder.
+//     a manual or a directory holder, and nothing at all while a row has an error (its holder would look «gone»).
 // Writes go through the engine as the person who imports, so their `org` write decides (field and row access, the
 // holder hooks); a dry run checks everything and rolls back. Audited as «position_import».
 import type { Ctx } from "../../context";
@@ -19,6 +21,7 @@ import { normalizeSearch } from "@shared/model/conditions";
 import { HOLDER_KINDS } from "@shared/tables/positions";
 import { grantIn } from "@shared/access";
 import { faDigits } from "@shared/format";
+import { unitFinder } from "@shared/integration/directory";
 import { bad, forbidden, notFound } from "../../http/errors";
 import { createIn, listAttachments, orgTz, parseDate, readAttachment, removeIn, savepoint, updateIn } from "../../engine";
 import { prepareSubject } from "../../access/subject";
@@ -55,25 +58,29 @@ const norm = (s: unknown) =>
     .replace(/[\s_\-.:/\\()[\]{}«»"'،,؛;]+/g, "")
     .trim();
 
-/** Usual headers of an HR file, per target field. */
+/** Usual headers of an HR file, per target field, in order of preference: unique keys first (a position's key, an
+ * e-mail, a unit's code), then names. */
 const HEADERS: Record<Target, string[]> = {
-  position_id: ["نقش سازمانی", "نقش", "سمت", "پست", "position", "position_key", "post", "role"],
-  user_id: ["ایمیل", "پست الکترونیک", "رایانامه", "کاربر", "دارنده", "شخص", "نام", "email", "user", "holder", "name"],
-  org_unit_id: ["واحد", "واحد سازمانی", "کد واحد", "شعبه", "کد شعبه", "unit", "unit_code", "branch", "branch_code"],
+  position_id: ["کلید نقش", "position_key", "نقش سازمانی", "نقش", "سمت", "پست", "position", "post", "role"],
+  user_id: ["ایمیل", "پست الکترونیک", "رایانامه", "email", "کاربر", "دارنده", "شخص", "نام", "user", "holder", "name"],
+  org_unit_id: ["کد واحد", "کد شعبه", "unit_code", "branch_code", "واحد", "واحد سازمانی", "شعبه", "unit", "branch"],
   kind: ["نوع", "نوع تصدی", "kind", "type"],
   valid_from: ["از تاریخ", "از", "تاریخ شروع", "شروع", "valid_from", "from", "start"],
   valid_to: ["تا تاریخ", "تا", "تاریخ پایان", "پایان", "valid_to", "to", "end"],
 };
 
-/** The default mapping: each target field from the first header that reads like it. */
+/** The default mapping: each target field from the file's column of its most preferred usual header (whatever the
+ * columns' order: «نام» before «ایمیل» still matches people by e-mail). */
 function guessSpec(headers: string[]): TransformSpec {
   const rules: MapRule[] = [];
   for (const t of TARGETS) {
-    const h = headers.find((x) => HEADERS[t].some((a) => norm(a) === norm(x)));
+    const h = HEADERS[t].map((a) => headers.find((x) => norm(x) === norm(a))).find((x) => x !== undefined);
     if (h) rules.push({ source: h, target: t });
   }
   return { rules };
 }
+
+const tooLong = () => bad(`در هر بار حداکثر ${faDigits(MAX_HOLDER_ROWS)} ردیف؛ فایل را چند بخش کنید`);
 
 class DryRun extends Error {}
 
@@ -97,7 +104,9 @@ async function setRows(ctx: Ctx, setId: string): Promise<{ rows: Record<string, 
   const file = [...attachments].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
   if (!file) throw bad("نخست فایل CSV یا اکسل دارندگان را به این مجموعه پیوست کنید");
   const { data } = await readAttachment(ctx, file.id);
-  const sheet = await readSpreadsheet(file.name, data, { maxRows: MAX_HOLDER_ROWS + 1 });
+  // one row past the limit is read so that a longer file is refused, not cut (the header is a row too)
+  const sheet = await readSpreadsheet(file.name, data, { maxRows: MAX_HOLDER_ROWS + 2 });
+  if (sheet.rows.length > MAX_HOLDER_ROWS + 1) throw tooLong();
   const [head = [], ...rest] = sheet.rows;
   const headers = head.map((h, i) => String(h ?? "").trim() || `ستون ${i + 1}`);
   const rows = rest.filter((r) => r.some((c) => String(c ?? "").trim() !== "")).map((r) => Object.fromEntries(headers.map((h, i) => [h, String(r[i] ?? "")])));
@@ -132,7 +141,7 @@ export async function importHolders(ctx: Ctx, input: HolderImportInput): Promise
     raw = Array.isArray(input.rows) ? input.rows : [];
     spec = guessSpec([...new Set(raw.flatMap((r) => Object.keys(r ?? {})))]);
   }
-  if (raw.length > MAX_HOLDER_ROWS) throw bad(`در هر بار حداکثر ${faDigits(MAX_HOLDER_ROWS)} ردیف`);
+  if (raw.length > MAX_HOLDER_ROWS) throw tooLong();
   const targets = new Set(spec.rules.map((r) => r.target));
   for (const t of ["position_id", "user_id"] as const) if (!targets.has(t)) throw bad(t === "position_id" ? "ستون نقش سازمانی در فایل پیدا نشد" : "ستون ایمیل یا نام دارنده در فایل پیدا نشد");
 
@@ -146,21 +155,21 @@ export async function importHolders(ctx: Ctx, input: HolderImportInput): Promise
      where m.org_id = $1 and m.deleted_at is null`,
     [orgId],
   );
-  const units = await ctx.db.query<{ id: string; name: string; code: string | null }>(`select id, name, code from sm_org_units where org_id = $1 and deleted_at is null`, [orgId]);
-  const byPosition = new Map<string, string>();
-  for (const p of positions) {
-    byPosition.set(p.key.toLowerCase(), p.id);
-    byPosition.set(norm(p.name), p.id);
-  }
+  const units = await ctx.db.query<{ id: string; name: string; code: string | null; active: boolean | null }>(`select id, name, code, active from sm_org_units where org_id = $1 and deleted_at is null`, [orgId]);
+  // a position by its key, else by a name only one position carries as this file reads names (punctuation aside)
+  const byKey = new Map(positions.map((p) => [p.key.toLowerCase(), p.id]));
+  const byPositionName = new Map<string, string[]>();
+  for (const p of positions) if (norm(p.name)) byPositionName.set(norm(p.name), [...(byPositionName.get(norm(p.name)) ?? []), p.id]);
+  const positionOf = (text: string): { id: string | null; ambiguous: boolean } => {
+    const named = byPositionName.get(norm(text)) ?? [];
+    const id = byKey.get(text.toLowerCase()) ?? (named.length === 1 ? named[0] : null);
+    return { id, ambiguous: !id && named.length > 1 };
+  };
   const byEmail = new Map(members.map((m) => [m.email, m.user_id]));
   const nameCount = new Map<string, number>();
   for (const m of members) if (m.name) nameCount.set(norm(m.name), (nameCount.get(norm(m.name)) ?? 0) + 1);
   const byName = new Map(members.filter((m) => m.name && nameCount.get(norm(m.name)) === 1).map((m) => [norm(m.name), m.user_id]));
-  const byUnit = new Map<string, string>();
-  for (const u of units) {
-    byUnit.set(norm(u.name), u.id);
-    if (u.code) byUnit.set(norm(u.code), u.id);
-  }
+  const unitOf = unitFinder(units, norm);
 
   const result: HolderImportResult = { dry_run: input.dry_run !== false, total: raw.length, created: 0, updated: 0, unchanged: 0, removed: 0, skipped: [], errors: [] };
   const planned: Planned[] = [];
@@ -170,13 +179,17 @@ export async function importHolders(ctx: Ctx, input: HolderImportInput): Promise
     const cells = applySpec((r ?? {}) as Record<string, unknown>, spec);
     const error = (message: string) => result.errors.push({ row, message });
     const posText = String(cells.position_id ?? "").trim();
-    const position = byPosition.get(posText.toLowerCase()) ?? byPosition.get(norm(posText));
+    const found = posText ? positionOf(posText) : { id: null, ambiguous: false };
+    if (found.ambiguous) return error(`نام نقش سازمانی «${posText}» یکتا نیست؛ کلید نقش را بنویسید`);
+    const position = found.id;
     if (!position) return error(posText ? `نقش سازمانی «${posText}» پیدا نشد` : "نقش سازمانی خالی است");
     const who = String(cells.user_id ?? "").trim();
     const user = byEmail.get(who.toLowerCase()) ?? byName.get(norm(who));
     if (!user) return error(who ? `«${who}» عضو این سازمان نیست (یا نامش یکتا نیست؛ ایمیل را بنویسید)` : "دارنده خالی است");
     const unitText = String(cells.org_unit_id ?? "").trim();
-    const unit = unitText ? (byUnit.get(norm(unitText)) ?? null) : null;
+    const placed = unitText ? unitOf(unitText) : { unit: null, ambiguous: false };
+    if (placed.ambiguous) return error(`نام واحد «${unitText}» یکتا نیست؛ کد واحد را بنویسید`);
+    const unit = placed.unit?.id ?? null;
     if (unitText && !unit) return error(`واحد «${unitText}» پیدا نشد`);
     const kindText = String(cells.kind ?? "").trim();
     const kind = kindText ? HOLDER_KINDS.find((k) => norm(k.value) === norm(kindText) || norm(k.label) === norm(kindText))?.value : "primary";
@@ -241,7 +254,9 @@ export async function importHolders(ctx: Ctx, input: HolderImportInput): Promise
           result.errors.push({ row: p.row, message });
         }
       }
-      if (mode === "replace") {
+      // a row with an error says nothing about its holder: replacing then would remove it (and any after a cut)
+      if (mode === "replace" && result.errors.length) result.errors.push({ row: 0, message: "چون ردیف‌هایی خطا دارند، دارندگانی که در فایل نیستند برداشته نشدند؛ خطاها را درست کنید و دوباره جایگزین کنید" });
+      else if (mode === "replace") {
         for (const h of stored) {
           if (h.source !== "import" || h.source_ref !== setId || kept.has(h.id)) continue;
           try {
