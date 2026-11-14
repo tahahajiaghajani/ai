@@ -21,7 +21,7 @@ import { Chip, EmptyState, Skeleton, StatCard } from "../../components/display";
 import { Note } from "../../components/blocks";
 import { useMe, useSchema } from "../../records/data/hooks";
 import { dkeys, useConnectorPage, useDiscoveryMeta, type ConnectorPage, type DiscoveryMeta, type PreviewResult, type TestResult } from "./api";
-import { PHASES, changes, currentItems, durationText, editableFields, errorField, formValues, labelOf, missingFields, requiredFields, settingsFields, type Rights, type RunInfo, type Values } from "./model";
+import { PHASES, changes, currentItems, draftValues, durationText, editableFields, errorField, formValues, labelOf, missingFields, requiredFields, settingsFields, type Rights, type RunInfo, type Values } from "./model";
 import { Refused } from "./Console";
 import { Ago, ConnectorForm, ConnectorStateChip, I16, KindIcon, KindName, PreviewTable, RunsTable, TestResultNote } from "./parts";
 import { ItemsTab, ReceiveTab, receivesAlerts } from "./ConnectorTabs";
@@ -337,9 +337,10 @@ function SettingsTab({ page, d, meta, onSaved }: { page: ConnectorPage; d: KindD
   const row = page.row as Values;
   const rights: Rights = { admin: page.can.edit, owner: !!row.owner_id && row.owner_id === userId, assetManager: meta.can.assetManager, softwareManager: meta.can.softwareManager };
   const before = useMemo(() => formValues(row, d), [row, d]);
-  // the person's change over what the server says now (a refresh never resets it; a save or «انصراف» drops it)
+  // only the fields the person changed, over what the server says now: an untouched field follows a refresh, a switch
+  // off or another administrator's save, so «ذخیره» never sends an old value back (a save or «انصراف» drops the draft)
   const [draft, setDraft] = useState<Values | null>(null);
-  const values = draft ?? before;
+  const values = useMemo(() => draftValues(before, draft), [before, draft]);
   const [formKey, setFormKey] = useState(0);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [problem, setProblem] = useState<string | null>(null);
@@ -391,7 +392,7 @@ function SettingsTab({ page, d, meta, onSaved }: { page: ConnectorPage; d: KindD
         sectioned
         view={view}
         onChange={(f, v) => {
-          setDraft((x) => ({ ...(x ?? before), [f]: v }));
+          setDraft((x) => ({ ...(x ?? {}), [f]: v }));
           if (errors[f]) setErrors((e) => Object.fromEntries(Object.entries(e).filter(([k]) => k !== f)));
         }}
         idPrefix="dsc-s"

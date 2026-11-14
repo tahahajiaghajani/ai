@@ -3,9 +3,11 @@
 // the server sends it), the kind's record of the latest item for the others. What the sample gives
 // with this map shows as it is typed, and «پیش‌نمایش با این نگاشت» asks the engine what it would do with the tool's
 // first page (a dry run, nothing saved). Fields people or ITAM own are refused with the reason. The map is a draft
-// until «ذخیره»; leaving the tab or the page with it unsaved asks first. CMDB administrators edit; others read.
+// until «ذخیره»; leaving the tab or the page with it unsaved asks first. «ذخیره» sends the version the lines were
+// loaded from, so a map another person saved in between is never overwritten (409); without a draft the lines follow
+// the stored map. CMDB administrators edit; others read. The wizard's «پیش‌نمایش» opens it in a side sheet.
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AutoComplete, Button, Input, Tooltip } from "antd";
 import { Eye, Plus, Trash2 } from "lucide-react";
 import { applyRenames, ciValues, recordFromElement } from "@shared/discovery/mapping";
@@ -17,8 +19,8 @@ import { useNotify } from "../../lib/hooks";
 import { EmptyState, Skeleton } from "../../components/display";
 import { Note } from "../../components/blocks";
 import { useSchema } from "../../records/data/hooks";
-import type { ConnectorPage, PreviewResult } from "./api";
-import { labelOf, mappingDraft, mappingProblems, mappingRows, rowsMapping, TARGET_LABELS, type ItemRow, type MapRow } from "./model";
+import { dkeys, type ConnectorPage, type PreviewResult } from "./api";
+import { labelOf, MAP_CONFLICT, mappingDraft, mappingProblems, mappingRows, rebaseMapping, rowsMapping, TARGET_LABELS, type ItemRow, type MapBase, type MapRow } from "./model";
 import { I16, PreviewTable } from "./parts";
 
 let seq = 0;
@@ -36,20 +38,33 @@ export function liveRecord(kind: string, sample: unknown, mapping: Record<string
   }
 }
 
-export function MappingTab({ page, d, onDirty, onSaved }: { page: ConnectorPage; d: KindDescriptor; onDirty: (dirty: boolean) => void; onSaved: () => Promise<unknown> }) {
-  const { api } = useOrg();
+export function MappingTab({ page, d, onDirty, onSaved }: { page: ConnectorPage; d: KindDescriptor; onDirty: (dirty: boolean) => void; onSaved: (row: ConnectorPage["row"]) => Promise<unknown> | void }) {
+  const { api, orgId } = useOrg();
+  const qc = useQueryClient();
   const n = useNotify();
   const { schema } = useSchema();
   const stored = (page.row as { mapping?: unknown }).mapping;
+  const version = page.row.version;
   const id = page.row.id;
   const rest = d.kind === "rest";
   const editable = page.can.edit && page.meta?.canWrite !== false && !(page.meta?.readonly ?? []).includes("mapping");
   // an editor keeps one empty line waiting at the end; a reader sees the map only
-  const start = () => [...mappingRows(stored), ...(editable ? [blank()] : [])];
-  const [rows, setRows] = useState<MapRow[]>(start);
+  const linesOf = (map: unknown) => [...mappingRows(map), ...(editable ? [blank()] : [])];
+  // the stored map the lines were loaded from, and the version «ذخیره» sends: a map another person saved meanwhile
+  // answers 409 instead of being overwritten
+  const [base, setBase] = useState<MapBase>(() => ({ mapping: stored, version }));
+  const [rows, setRows] = useState<MapRow[]>(() => linesOf(stored));
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const dirty = mappingDraft(stored, rows);
+  const dirty = mappingDraft(base.mapping, rows);
+  // the page read the record again (a poll, a save elsewhere): lines without a draft follow it (rebaseMapping)
+  const [seen, setSeen] = useState(version);
+  if (seen !== version) {
+    setSeen(version);
+    const next = rebaseMapping(base, { mapping: stored, version }, dirty);
+    if (next.base !== base) setBase(next.base);
+    if (next.reseed) setRows(linesOf(next.base.mapping));
+  }
   const problems = mappingProblems(rows, rest);
   const blocked = Object.keys(problems.byRow).length > 0 || problems.general.length > 0;
   useEffect(() => onDirty(dirty), [dirty, onDirty]);
@@ -95,16 +110,28 @@ export function MappingTab({ page, d, onDirty, onSaved }: { page: ConnectorPage;
     }
   };
 
+  /** «انصراف»: the map stored now, at its version. */
+  const reset = () => {
+    setBase({ mapping: stored, version });
+    setRows(linesOf(stored));
+    setProblem(null);
+  };
+
   const save = async () => {
     setSaving(true);
     setProblem(null);
     try {
-      await api.patch(`/discovery/connectors/${id}`, { mapping, version: page.row.version });
+      const saved = (await api.patch<{ row: ConnectorPage["row"] }>(`/discovery/connectors/${id}`, { mapping, version: base.version })).row;
+      // the lines are the stored map now, at the version this save made
+      setBase({ mapping: (saved as { mapping?: unknown }).mapping, version: saved.version });
       n.ok("نگاشت ذخیره شد؛ گذر بعدی موارد را با آن دوباره می‌سنجد");
-      // the page reads the stored map again: the draft equals it, so nothing is left unsaved
-      await onSaved();
+      await onSaved(saved);
     } catch (e) {
-      setProblem(e instanceof ApiError ? e.message : errorText(e));
+      if (e instanceof ApiError && e.status === 409) {
+        setProblem(MAP_CONFLICT);
+        // read the record again, so «انصراف» brings the map stored now
+        void qc.invalidateQueries({ queryKey: dkeys.page(orgId, id) });
+      } else setProblem(e instanceof ApiError ? e.message : errorText(e));
     } finally {
       setSaving(false);
     }
@@ -257,7 +284,7 @@ export function MappingTab({ page, d, onDirty, onSaved }: { page: ConnectorPage;
             <Button icon={<Plus {...I16} />} onClick={() => setRows((xs) => [...xs, blank()])}>
               ردیف تازه
             </Button>
-            <Button onClick={() => setRows(start())} disabled={!dirty || saving}>
+            <Button onClick={reset} disabled={!dirty || saving}>
               انصراف
             </Button>
             <Button type="primary" loading={saving} disabled={!dirty || blocked} onClick={() => void save()}>

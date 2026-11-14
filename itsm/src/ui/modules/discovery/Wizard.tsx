@@ -1,27 +1,30 @@
 // «منبع داده تازه» (design A §15): ابزار → اتصال → چه بیاید → پیش‌نمایش → خلاصه. Only the kinds kept for 1.1 are
 // offered; a kind this edition cannot run shows disabled with one line why. «اتصال» saves the source switched off
 // (a test and a preview send the stored key, so the server needs it saved) and tests it; «ذخیره و اجرای نخست»
-// switches it on and queues its first pass. Keys are typed into write-only boxes and never shown again. Desktop-first:
-// a phone gets one line. CMDB administrators only (the server refuses others).
+// switches it on and queues its first pass. «پیش‌نمایش» opens «نگاشت» in a side sheet for the map's overrides (the
+// REST kind is all map); its «ذخیره» runs the preview again. Moving between steps never loses another step's unsaved
+// edits. Keys are typed into write-only boxes and never shown again. Desktop-first: a phone gets one line. CMDB
+// administrators only (the server refuses others).
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { Button, Steps } from "antd";
-import { Lock, Monitor, PlugZap, RotateCw } from "lucide-react";
+import { Button, Drawer, Steps } from "antd";
+import { Lock, Monitor, PlugZap, RotateCw, Waypoints } from "lucide-react";
 import { AUTH_OPTIONS, COLLECT_OPTIONS, type KindDescriptor } from "@shared/discovery/types";
 import { useOrg } from "../../lib/org";
 import { ApiError, errorText } from "../../lib/api";
-import { useIsPhone } from "../../lib/hooks";
+import { useIsPhone, useNotify } from "../../lib/hooks";
 import { PageHeader } from "../../components/layout";
 import { EmptyState, Skeleton } from "../../components/display";
 import { Note } from "../../components/blocks";
 import { useSchema } from "../../records/data/hooks";
 import { dkeys, useConnectorPage, useDiscoveryMeta, type PreviewResult, type TestResult } from "./api";
 import {
-  ASSET_FIELDS, authOf, changes, collectFields, connectionFields, createBody, errorField, formValues, isStoredSecret, labelOf, missingFields, newValues, requiredFields, scheduleFields,
-  scheduleText, wizardGroups, type OfferedKind, type Values,
+  ASSET_FIELDS, afterSave, authOf, changes, collectFields, connectionFields, createBody, errorField, formValues, isStoredSecret, labelOf, missingFields, newValues, requiredFields,
+  scheduleFields, scheduleText, wizardGroups, type OfferedKind, type Values,
 } from "./model";
 import { Refused } from "./Console";
+import { MappingTab } from "./Mapping";
 import { ConnectorForm, I16, KindIcon, KindName, PreviewTable, TestResultNote, cx } from "./parts";
 
 const STEPS = ["ابزار", "اتصال", "چه بیاید", "پیش‌نمایش", "خلاصه"];
@@ -48,6 +51,10 @@ export default function Wizard() {
   const [test, setTest] = useState<TestResult | null>(null);
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  // the side sheet «نگاشت» at «پیش‌نمایش», and whether it holds an unsaved map
+  const [mapping, setMapping] = useState(false);
+  const [mapDirty, setMapDirty] = useState(false);
+  const n = useNotify();
   const heading = useRef<HTMLHeadingElement>(null);
 
   // continue a saved source after a reload
@@ -104,6 +111,20 @@ export default function Wizard() {
     else setProblem(errorText(e));
   };
 
+  /**
+   * A saved row: what is stored now, and the form's values — the whole row after a create, only `fields` (with the id,
+   * the version and the key boxes) after a change, so another step's unsaved edits stay for that step's save.
+   */
+  const take = (row: Values, fields: readonly string[] | null): Values => {
+    const next = formValues(row, d ?? undefined);
+    setStored(next);
+    setValues((v) => afterSave(v, next, fields));
+    void qc.invalidateQueries({ queryKey: dkeys.cards(orgId) });
+    // the side sheet «نگاشت» reads the source as it is now
+    void qc.invalidateQueries({ queryKey: dkeys.page(orgId, String(row.id)) });
+    return next;
+  };
+
   /** Saves the step's fields: makes the source (switched off) the first time, then changes it. The saved row, or null. */
   const save = async (fields: string[]): Promise<Values | null> => {
     if (!d) return null;
@@ -123,13 +144,10 @@ export default function Wizard() {
         if (!Object.keys(body).length) return stored;
         row = (await api.patch<{ row: Values }>(`/discovery/connectors/${id}`, { ...body, version: stored?.version })).row;
       }
-      const next = formValues(row, d);
-      setStored(next);
-      setValues((v) => ({ ...v, ...next }));
+      const next = take(row, id ? fields : null);
       // the key boxes start empty again over the stored key
       setFormKey((k) => k + 1);
       setErrors({});
-      void qc.invalidateQueries({ queryKey: dkeys.cards(orgId) });
       return next;
     } catch (e) {
       fail(e);
@@ -161,6 +179,18 @@ export default function Wizard() {
     } finally {
       setBusy(null);
     }
+  };
+
+  /** «ذخیره» in the side sheet «نگاشت»: the wizard takes the new version, and the preview runs again with the map. */
+  const mapSaved = (row: Values) => {
+    take(row, ["mapping"]);
+    setMapping(false);
+    if (id) void runPreview(id);
+  };
+  /** Closing the side sheet with an unsaved map asks first. */
+  const closeMapping = async () => {
+    if (mapDirty && !(await n.confirm("نگاشت ذخیره نشده است؛ کنار گذاشته شود؟", "تغییرهای نگاشت از دست می‌روند.", true, "کنار گذاشتن"))) return;
+    setMapping(false);
   };
 
   const go = async (to: number) => {
@@ -266,22 +296,34 @@ export default function Wizard() {
         {step === 3 && d ? (
           d.kind === "push" ? (
             <Note>این منبع داده را خودِ ابزار می‌فرستد؛ پیش از نخستین ارسال پیش‌نمایشی ندارد.</Note>
-          ) : busy === "preview" ? (
-            <Skeleton rows={6} />
-          ) : previewError ? (
-            <Note tone="danger" action={<Button icon={<RotateCw {...I16} />} onClick={() => id && void runPreview(id)}>دوباره</Button>}>
-              {previewError}
-            </Note>
-          ) : preview ? (
+          ) : (
             <>
-              <PreviewTable result={preview} label={ciLabel} classLabel={classLabel} />
-              <div>
-                <Button icon={<RotateCw {...I16} />} onClick={() => id && void runPreview(id)}>
-                  پیش‌نمایش دوباره
-                </Button>
-              </div>
+              {busy === "preview" ? (
+                <Skeleton rows={6} />
+              ) : previewError ? (
+                <Note tone="danger" action={<Button icon={<RotateCw {...I16} />} onClick={() => id && void runPreview(id)}>دوباره</Button>}>
+                  {previewError}
+                </Note>
+              ) : preview ? (
+                <PreviewTable result={preview} label={ciLabel} classLabel={classLabel} />
+              ) : null}
+              {(preview && busy !== "preview") || saved.data ? (
+                <div className="flex flex-wrap gap-2">
+                  {preview && busy !== "preview" ? (
+                    <Button icon={<RotateCw {...I16} />} onClick={() => id && void runPreview(id)}>
+                      پیش‌نمایش دوباره
+                    </Button>
+                  ) : null}
+                  {/* the map's overrides in a side sheet (REST is all map): «ذخیره» there runs the preview again */}
+                  {saved.data ? (
+                    <Button icon={<Waypoints {...I16} />} disabled={!!busy} onClick={() => setMapping(true)}>
+                      نگاشت
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
             </>
-          ) : null
+          )
         ) : null}
 
         {step === 4 && d && stored ? <Summary d={d} v={stored} /> : null}
@@ -303,6 +345,11 @@ export default function Wizard() {
           )}
         </div>
       </form>
+      {d && saved.data ? (
+        <Drawer open={mapping} onClose={() => void closeMapping()} title="نگاشت" size="large" destroyOnHidden>
+          {mapping ? <MappingTab page={saved.data} d={d} onDirty={setMapDirty} onSaved={mapSaved} /> : null}
+        </Drawer>
+      ) : null}
     </div>
   );
 }

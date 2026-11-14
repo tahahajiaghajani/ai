@@ -276,6 +276,27 @@ export function changes(d: KindDescriptor, before: Values, after: Values, fields
   return out;
 }
 
+/**
+ * The settings form's values: what the server says now with the person's own changes over it. A field they did not
+ * touch follows the server (a refresh, «خاموش کردن», another administrator's save), so a save sends only their changes.
+ */
+export const draftValues = (stored: Values, draft: Values | null): Values => (draft ? { ...stored, ...draft } : stored);
+
+/** What a save gives back to the wizard's form besides the step's own fields: the record's id and version, the key boxes. */
+const SAVED_ALWAYS = ["id", "version", "secret", "secret2"];
+
+/**
+ * The wizard's values after a save. A create takes the whole saved row (the server's defaults, the id); a change takes
+ * back only `fields` (the step's own), the id, the version and the key boxes — what another step holds unsaved stays
+ * as the person left it, for that step's save to send.
+ */
+export function afterSave(values: Values, saved: Values, fields: readonly string[] | null): Values {
+  if (!fields) return { ...values, ...saved };
+  const out: Values = { ...values };
+  for (const f of [...fields, ...SAVED_ALWAYS]) if (f in saved) out[f] = saved[f];
+  return out;
+}
+
 /** The body that creates a connector from the wizard's «اتصال» (switched off until «ذخیره و اجرای نخست»). */
 export function createBody(d: KindDescriptor, v: Values, fields: readonly string[]): Values {
   const out: Values = { kind: d.kind, active: false, auth: authOf(d, v) };
@@ -530,13 +551,21 @@ const QUEUE_STATES = new Set(["unmatched", "duplicate", "error"]);
 /**
  * The actions an item offers on its tab: «ساخت پیکربندی», «پیوند به…» and «نادیده گرفتن» for CMDB administrators and
  * the connector's owner — never «ساخت پیکربندی» for an ATM, whose asset comes from the register (§9.5); on
- * «ناهمخوانی», «نادیده گرفتن» for CMDB administrators and asset managers (the per-field apply is offered per entry).
+ * «ناهمخوانی», «نادیده گرفتن» for CMDB administrators and asset managers (the per-field apply is offered per entry, to
+ * asset managers only: `offersApply`).
  */
 export function queueActions(tab: QueueTab, row: Pick<ItemRow, "connector_id" | "kind" | "state" | "mismatch_state">, r: QueueRights): QueueAction[] {
   if (tab === "mismatch") return row.mismatch_state === "open" && (r.admin || r.assetManager) ? ["dismiss"] : [];
   if (!QUEUE_STATES.has(String(row.state)) || !(r.admin || r.operates.has(row.connector_id))) return [];
   return [...(row.kind === "atm" ? [] : (["create"] as const)), "link", "ignore"];
 }
+
+/**
+ * Who is offered «به‌روزرسانی دارایی با مقدار ابزار»: asset managers. It writes the asset as the person, and
+ * mismatch.ts applyMismatch refuses anyone who may not change it — a CMDB administrator without asset rights too, who
+ * settles with «نادیده گرفتن» instead.
+ */
+export const offersApply = (r: Pick<QueueRights, "assetManager">): boolean => r.assetManager;
 
 /** The actions every selected item offers (the bulk bar); «پیوند به…» links one item at a time. */
 export function bulkActions(tab: QueueTab, rows: Pick<ItemRow, "connector_id" | "kind" | "state" | "mismatch_state">[], r: QueueRights): QueueAction[] {
@@ -721,6 +750,31 @@ export const mappingChanged = (stored: unknown, rows: readonly MapRow[]): boolea
 
 /** Is there a draft to lose — a changed map, or a line typed on one side only (the unsaved guard asks for either)? */
 export const mappingDraft = (stored: unknown, rows: readonly MapRow[]): boolean => mappingChanged(stored, rows) || rows.some((r) => !!r.target.trim() !== !!r.source.trim());
+
+/** The stored map the editor's lines were loaded from, and the record's version then (what «ذخیره» sends). */
+export interface MapBase {
+  mapping: unknown;
+  version: number | undefined;
+}
+
+/** Do two stored maps say the same? */
+export const sameMapping = (a: unknown, b: unknown): boolean => same(rowsMapping(mappingRows(a)), rowsMapping(mappingRows(b)));
+
+/**
+ * The editor's base when the page reads the record again. Without a draft the lines follow the stored map (`reseed`).
+ * With one, a newer version that kept the map moves the base on (a save then overwrites nothing of the map); one that
+ * changed the map keeps the version the lines were loaded from, so «ذخیره» answers 409 instead of overwriting another
+ * person's map. An older read than the base (a save's own answer came first) changes nothing.
+ */
+export function rebaseMapping(base: MapBase, server: MapBase, draft: boolean): { base: MapBase; reseed: boolean } {
+  const older = base.version !== undefined && server.version !== undefined && server.version < base.version;
+  if (server.version === base.version || older) return { base, reseed: false };
+  if (!draft) return { base: server, reseed: true };
+  return sameMapping(base.mapping, server.mapping) ? { base: { mapping: base.mapping, version: server.version }, reseed: false } : { base, reseed: false };
+}
+
+/** «ذخیره» answered 409: the map changed since the lines were loaded. */
+export const MAP_CONFLICT = "نگاشت را کس دیگری در این فاصله تغییر داده است؛ «انصراف» نگاشت ذخیره‌شده را می‌آورد تا تغییرهای خود را دوباره اعمال کنید.";
 
 /**
  * What stops a save, per line and for the whole map: a line without its field or path, a field mapped twice, a field

@@ -8,6 +8,9 @@
 // Part b: «صف آشتی» (who acts on what, the bulk bar, the actions against the routes), «وضعیت پایش» and the side panel
 // (a branch officer reads status without tool names, requesters get no panel, the record's meta folds it), the mapping
 // editor (refused fields, the draft, what a sample gives), and the places of the CMDB's two secondary rows.
+// Review DA4: a save sends only what the person changed (settings over a newer row, the wizard's other steps), the map
+// is saved with the version its lines were loaded from (409, never an overwrite), the wizard maps a REST tool in its
+// side sheet before the first pass, and the asset's update is offered only to whom the server lets write the asset.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -162,6 +165,43 @@ describe("keys are write-only", () => {
   });
 });
 
+describe("a save sends only what the person changed (review DA4-1, DA4-2)", () => {
+  const row = {
+    id: "c1", version: 5, kind: "rest", name: "R1", active: true, auth: "token", base_url: "https://a.example/", secret: { secret: true, hint: "…" },
+    every_minutes: 60, create_policy: "create", collect: ["inventory"], options: { path: "/x/", items_path: "results" },
+  };
+  const v5 = m.formValues(row, rest);
+  const fields = m.settingsFields(rest, v5, "cloud", { assetManager: false });
+  it("«تنظیمات»: a field the person did not touch follows the server — a switch off in between stays off", () => {
+    const draft = { every_minutes: 30 };
+    // «کارهای دیگر ← خاموش کردن» while the draft is open: the page reads version 6 with the source off
+    const v6 = m.formValues({ ...row, active: false, version: 6 }, rest);
+    expect(m.changes(rest, v6, m.draftValues(v6, draft), fields)).toEqual({ every_minutes: 30 });
+    // (a draft that copied the whole row of version 5 would have switched it back on with version 6)
+    expect(m.changes(rest, v6, { ...v5, ...draft }, fields)).toMatchObject({ active: true });
+    // another administrator's option in between is kept: the options go as one object over what is stored now
+    const v7 = m.formValues({ ...row, version: 7, options: { path: "/x/", items_path: "data" } }, rest);
+    expect(m.changes(rest, v7, m.draftValues(v7, { "opt.total_path": "count" }), fields)).toEqual({ options: { path: "/x/", items_path: "data", total_path: "count" } });
+    expect(m.changes(rest, v6, m.draftValues(v6, null), fields)).toEqual({});
+  });
+  it("the wizard: a step's save takes back only its own fields — «چه بیاید» left unsaved survives «اتصال» saved again", () => {
+    // at «چه بیاید»: «فقط به‌روزرسانی موجودها» and «فقط دستی»; then «قبلی», «نام» corrected, «بعدی» saves «اتصال»
+    const typed = { ...v5, create_policy: "match_only", every_minutes: 0, name: "R2" };
+    const conn = m.connectionFields(rest, typed, "cloud");
+    expect(m.changes(rest, v5, typed, conn)).toEqual({ name: "R2" });
+    const saved = m.formValues({ ...row, name: "R2", version: 6 }, rest);
+    const after = m.afterSave(typed, saved, conn);
+    expect(after).toMatchObject({ name: "R2", version: 6, create_policy: "match_only", every_minutes: 0, secret: { secret: true } });
+    // «بعدی» at «چه بیاید» then sends them, over the new version
+    const what = [...m.collectFields(rest, after), ...m.scheduleFields(rest, after)];
+    expect(m.changes(rest, saved, after, what)).toEqual({ create_policy: "match_only", every_minutes: 0 });
+    // (merging the whole saved row would have put the stored policy and schedule back, and nothing would be sent)
+    expect(m.changes(rest, saved, { ...typed, ...saved }, what)).toEqual({});
+    // a create takes the whole saved row: the server's defaults and the id
+    expect(m.afterSave(m.newValues(rest), saved, null)).toMatchObject({ id: "c1", version: 6, create_policy: "create", every_minutes: 60 });
+  });
+});
+
 describe("the words of the console and the connector page", () => {
   const ago = () => "۱۰ دقیقه پیش";
   // percentages carry an Arabic letter mark before the digits (lib/fa pct)
@@ -267,6 +307,39 @@ describe("the screens' requests against the routes", () => {
     expect(page.card.items.unmatched).toBe(6);
     // nothing the screens read carries the key
     for (const path of [`/discovery/connectors/${made.id}`, "/discovery/connectors", `/discovery/connectors/${made.id}/runs`]) expect(JSON.stringify(await w.e.owner.get(`${P}${path}`))).not.toContain(REST_TOKEN);
+  }, 180_000);
+
+  it("the wizard's «نگاشت» side sheet: a tool the kind's default map cannot read is mapped before the first pass, and the wizard keeps the new version (review DA4-3)", async () => {
+    const P = w.P;
+    // a tool whose elements have no `id` or `name`
+    hosts["sheet-ui.mock.test"] = new RestMock([1, 2, 3].map((i) => ({ hostId: `h-${i}`, hostName: `edge-${i}`, serial: `ES${i}` })) as never).handler;
+    const meta = await w.e.owner.get(`${P}/discovery/meta`);
+    const d = meta.kinds.find((k: Row) => k.kind === "rest") as m.OfferedKind;
+    let values: m.Values = { ...m.newValues(d), name: "منبع بی‌شناسه", base_url: "https://sheet-ui.mock.test/", auth: "token", secret: REST_TOKEN, api_key_header: "X-API-Key", "opt.path": "/api/devices/", "opt.items_path": "results" };
+    const conn = m.connectionFields(d, values, meta.edition);
+    const made = (await w.e.owner.post(`${P}/discovery/connectors`, m.createBody(d, values, conn), 201)).row;
+    values = m.afterSave(values, m.formValues(made, d), null);
+    // «پیش‌نمایش» with the kind's default map: nothing reads
+    const first = await w.e.owner.post(`${P}/discovery/connectors/${made.id}/preview`, { limit: 20 });
+    expect(first.rows.map((r: Row) => r.action)).toEqual(["rejected", "rejected", "rejected"]);
+    // the side sheet: the source as it is now, the map saved with that version
+    const page = await w.e.owner.get(`${P}/discovery/connectors/${made.id}`);
+    const lines = [
+      { key: "a", target: "external_id", source: "$.hostId" },
+      { key: "b", target: "name", source: "$.hostName" },
+      { key: "c", target: "serial_number", source: "$.serial" },
+    ];
+    expect(m.mappingProblems(lines, true)).toEqual({ byRow: {}, general: [] });
+    const saved = (await w.e.owner.patch(`${P}/discovery/connectors/${made.id}`, { mapping: m.rowsMapping(lines), version: page.row.version })).row;
+    values = m.afterSave(values, m.formValues(saved, d), ["mapping"]);
+    expect(values).toMatchObject({ version: saved.version, mapping: m.rowsMapping(lines), name: "منبع بی‌شناسه" });
+    // the preview again: every element reads, with its serial
+    const again = await w.e.owner.post(`${P}/discovery/connectors/${made.id}/preview`, { limit: 20 });
+    expect(again.rows.map((r: Row) => r.external_id)).toEqual(["h-1", "h-2", "h-3"]);
+    expect(again.rows[0].values.serial_number).toBe("ES1");
+    // «ذخیره و اجرای نخست» with the version the wizard holds; the one before the map's save would be refused
+    await w.e.owner.patch(`${P}/discovery/connectors/${made.id}`, { active: true, version: made.version }, 409);
+    expect((await w.e.owner.patch(`${P}/discovery/connectors/${made.id}`, { active: true, version: values.version })).row.active).toBe(true);
   }, 180_000);
 
   it("settings: a moved address needs the key again (the server clears it); «پذیرش اندازهٔ تازه» after a held drop", async () => {
@@ -417,6 +490,19 @@ describe("the mapping editor (design A §6.3)", () => {
     expect(m.mappingProblems([r("name")], true).general).toEqual(["برای منبع REST، مسیر شناسهٔ مورد (external_id) لازم است"]);
     expect(m.mappingProblems([r("name")], false).general).toEqual([]);
   });
+  it("the editor stands on the map it loaded: without a draft it follows the server; with one, only a changed map keeps the old version (review DA4-1)", () => {
+    const base = { mapping: { external_id: "$.id", name: "$.name" }, version: 4 };
+    const theirs = { mapping: { external_id: "$.id", name: "$.hostname" }, version: 5 };
+    // no draft: the lines follow the stored map
+    expect(m.rebaseMapping(base, theirs, false)).toEqual({ base: theirs, reseed: true });
+    // a draft over a map another person changed: «ذخیره» still sends version 4, which the server refuses (409)
+    expect(m.rebaseMapping(base, theirs, true)).toEqual({ base, reseed: false });
+    // a draft while only another field moved (a switch off): the map is the same, the base moves on
+    expect(m.rebaseMapping(base, { mapping: { name: "$.name", external_id: "$.id" }, version: 5 }, true)).toEqual({ base: { mapping: base.mapping, version: 5 }, reseed: false });
+    // the save's own answer (version 6) came before the page's read of version 5: nothing moves back
+    expect(m.rebaseMapping({ ...base, version: 6 }, theirs, false)).toEqual({ base: { ...base, version: 6 }, reseed: false });
+    expect(m.sameMapping({ name: "$.n", serial_number: "$.s" }, { serial_number: " $.s ", name: "$.n" })).toBe(true);
+  });
   it("what a sample gives with a map, as it is typed: a REST element by paths, a kind's record by renames", () => {
     const el = { id: 7, name: "srv-7", serial: "SN7", ip: "10.0.0.7" };
     expect(liveRecord("rest", el, { external_id: "$.id", name: "$.name", serial_number: "$.serial", ip_address: "$.ip" })).toMatchObject({ external_id: "7", values: { name: "srv-7", serial_number: "SN7", ip_address: "10.0.0.7" }, error: null });
@@ -503,6 +589,35 @@ describe("part b's screens against the routes", () => {
     await req.client.get(`${P}/discovery/queue`, 403);
   }, 240_000);
 
+  it("«ناهمخوانی»: the asset's update is offered to asset managers only — the built-in «مدیر پیکربندی» settles with «نادیده گرفتن», as the server allows (review DA4-4)", async () => {
+    const P = w.P;
+    const push = await w.connector({ name: "منبع ناهمخوانی", kind: "push" });
+    const ci = await w.sys.write((tx) => createIn(tx, w.sys, "ci", { class: "server", name: "srv-diff-1", hostname: "srv-diff-1", state: "operational" }, { trusted: true }));
+    const model = await w.sys.write((tx) => createIn(tx, w.sys, "asset_model", { name: "سرور ناهمخوانی", category: "server" }, { trusted: true }));
+    const asset = await w.sys.write((tx) => createIn(tx, w.sys, "asset", { model_id: model.id, ci_id: ci.id, state: "in_use", asset_tag: "TAG-HELD" }, { trusted: true }));
+    const entry: m.MismatchEntry = { field: "asset_tag", target: "asset", label: "برچسب اموال", reported: "TAG-TOOL", held: "TAG-HELD" };
+    const [item] = await w.q<{ id: string }>(
+      `insert into sm_discovery_items (id, org_id, connector_id, external_id, kind, name, state, ci_id, asset_id, listed_at, first_seen_at, reconciled_at, mismatch_state, mismatch, data, origin)
+       values (gen_random_uuid(), $1, $2, 'd-1', 'host', 'srv-diff-1', 'linked', $3, $4, now(), now(), now(), 'open', $5::jsonb, jsonb_build_object('external_id', 'd-1'), 'cloud') returning id`,
+      [w.e.org, push.id, ci.id, asset.id, JSON.stringify({ entries: [entry], at: new Date().toISOString() })],
+    );
+    // CMDB administrator, asset reader: «نادیده گرفتن» yes, the asset's update no — and the server refuses that write
+    const cm = await persona(["configuration_manager"], "agent");
+    const cmMeta = await cm.client.get(`${P}/discovery/meta`);
+    const rights: m.QueueRights = { admin: cmMeta.can.admin, assetManager: cmMeta.can.assetManager, operates: new Set() };
+    expect(rights).toMatchObject({ admin: true, assetManager: false });
+    const row = ((await cm.client.get(`${P}/discovery/queue?tab=mismatch&connector=${push.id}`)).rows as m.ItemRow[]).find((r) => r.id === item.id)!;
+    expect(row).toMatchObject({ mismatch_state: "open", asset_id: asset.id });
+    expect(m.applicable(entry)).toBe(true);
+    expect(m.offersApply(rights)).toBe(false);
+    expect(m.queueActions("mismatch", row, rights)).toEqual(["dismiss"]);
+    await cm.client.post(`${P}/discovery/items/${item.id}/mismatch/apply`, { field: "asset_tag" }, 403);
+    expect(await cm.client.post(`${P}/discovery/items/${item.id}/mismatch/dismiss`)).toEqual({ state: "dismissed" });
+    // the tenant's administrator manages assets: offered both
+    const om = await w.e.owner.get(`${P}/discovery/meta`);
+    expect(m.offersApply({ assetManager: om.can.assetManager })).toBe(true);
+  }, 240_000);
+
   it("«وضعیت پایش» and the panel: the meta says when the panel shows; a branch officer reads status without tool names; requesters get nothing", async () => {
     const P = w.P;
     const push = await w.connector({ name: "پایش شعب", kind: "push" });
@@ -563,6 +678,17 @@ describe("part b's screens against the routes", () => {
     const saved = (await w.e.owner.patch(`${P}/discovery/connectors/${c.id}`, { mapping: m.rowsMapping(rows), version: page.row.version })).row;
     expect(saved.mapping).toEqual(m.rowsMapping(rows));
     expect(m.mappingChanged(saved.mapping, rows)).toBe(false);
+    // the editor sends the version its lines were loaded from: another person's map saved in between is not
+    // overwritten — the server answers 409 and the editor keeps that version while its draft differs from the new map
+    const other = (await w.e.owner.patch(`${P}/discovery/connectors/${c.id}`, { mapping: { ...saved.mapping, "attrs.room": "$.rack" }, version: saved.version })).row;
+    expect(other.version).toBeGreaterThan(saved.version);
+    const base = { mapping: saved.mapping, version: saved.version };
+    const draft = rows.filter((r) => r.target !== "os");
+    const next = m.rebaseMapping(base, { mapping: other.mapping, version: other.version }, m.mappingDraft(base.mapping, draft));
+    expect(next.base.version).toBe(saved.version);
+    const stale = await w.e.owner.patch(`${P}/discovery/connectors/${c.id}`, { mapping: m.rowsMapping(draft), version: next.base.version }, 409);
+    expect(stale.error.code).toBe("version_conflict");
+    expect((await w.e.owner.get(`${P}/discovery/connectors/${c.id}`)).row.mapping).toEqual(other.mapping);
     // an agent reads the map but may not change it
     const agent = await persona(["agent"], "agent");
     const theirs = await agent.client.get(`${P}/discovery/connectors/${c.id}`);

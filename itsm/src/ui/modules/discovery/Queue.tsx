@@ -2,8 +2,9 @@
 // across the connectors the person reads — tabs «بی‌همتا»، «تکراری»، «خطا» and «ناهمخوانی», a chip by connector and a
 // search. On an item: «ساخت پیکربندی» (never for an ATM), «پیوند به…» (a CI picker) and «نادیده گرفتن» for CMDB
 // administrators and the connector's owner; on a difference with the asset register, «به‌روزرسانی دارایی با مقدار
-// ابزار» per field and «نادیده گرفتن» for the asset's managers. Several items at once from the bulk bar. Duplicates
-// open their review in «بررسی تکراری‌ها». The server checks every action again.
+// ابزار» per field for asset managers (it writes the asset as the person) and «نادیده گرفتن» for them and CMDB
+// administrators. Several items at once from the bulk bar. Duplicates open their review in «بررسی تکراری‌ها». The
+// server checks every action again.
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
@@ -24,7 +25,7 @@ import type { DisplayMap } from "../../records/model/types";
 import { CiPicker } from "../cmdb/CiPicker";
 import { dkeys, QUEUE_PAGE, useConnectorCards, useDiscoveryMeta, useNames, useQueue } from "./api";
 import {
-  applicable, bulkActions, bulkOutcome, createdText, isQueueTab, labelOf, QUEUE_TABS, queueActions, tabLabel, type ItemRow, type MismatchEntry, type QueueAction, type QueueRights, type QueueTab,
+  applicable, bulkActions, bulkOutcome, createdText, isQueueTab, labelOf, offersApply, QUEUE_TABS, queueActions, tabLabel, type ItemRow, type MismatchEntry, type QueueAction, type QueueRights, type QueueTab,
 } from "./model";
 import { Refused } from "./Console";
 import { Ago, I16 } from "./parts";
@@ -303,7 +304,7 @@ function columns(
       {
         title: "ناهمخوانی‌ها",
         key: "mismatch",
-        render: (_, r) => <Differences row={r} canApply={rights.admin || rights.assetManager} busy={busy} onApply={(e) => apply(r, e)} nameOf={nameOf} />,
+        render: (_, r) => <Differences row={r} canApply={offersApply(rights)} busy={busy} onApply={(e) => apply(r, e)} nameOf={nameOf} />,
       },
     );
   } else {
