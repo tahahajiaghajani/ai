@@ -55,6 +55,8 @@ export interface WriteOptions {
   allowLocked?: boolean;
   /** the caller already checked the row's access (watchers: whoever may read a record may watch it) */
   skipAccess?: boolean;
+  /** a create's id chosen up front by trusted server code (a workflow case takes the id its start submission chose) */
+  id?: string;
 }
 
 /** Base columns a caller may never set (silently ignored in input). */
@@ -245,7 +247,7 @@ interface PipelineInput {
 
 async function pipeline(p: PipelineInput): Promise<Row> {
   const { tx, ctx, def, schema, env, op, prev, opts } = p;
-  const id = prev ? String(prev.id) : uuidv7();
+  const id = prev ? String(prev.id) : opts.trusted && typeof opts.id === "string" && UUID.test(opts.id) ? opts.id.toLowerCase() : uuidv7();
   const vc = valueContext(ctx, def, schema, env, id);
   const problems = new Problems();
   const actor = actorId(ctx);
