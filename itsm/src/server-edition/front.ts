@@ -9,6 +9,7 @@ import { constants as zc, createBrotliCompress, createGzip } from "node:zlib";
 import { timingSafeEqual } from "node:crypto";
 import type { Logger } from "@server/context";
 import { AppError } from "@server/http/errors";
+import { isBackgroundRequest } from "@server/http/hono";
 import type { WorkerMetrics, ClusterMetrics } from "./metrics";
 import { prometheus } from "./metrics";
 import type { StaticSite } from "./static";
@@ -31,6 +32,11 @@ export interface FrontDeps {
   setupRequired(): Promise<boolean>;
   /** this server speaks HTTPS (HSTS, secure cookies) */
   https: boolean;
+  /**
+   * The API requests a person is waiting for (the background polling aside) start and end here: the scheduler leader's
+   * job runner gives way to them across the cluster (foreground.ts)
+   */
+  foreground?: { started(): void; ended(): void };
 }
 
 /** API paths that take uploads (attachments, the Windows app's contents, documents, imports, certificates). */
@@ -198,6 +204,17 @@ export function createFront(d: FrontDeps) {
       return json(c, 503, "setup_required", "راه‌اندازی نخست سرور هنوز انجام نشده است؛ نشانی راه‌اندازی را از پایان نصب (پوشهٔ داده، فایل setup-url.txt) یا با «karizctl setup-token» بردارید");
     }
     await next();
+  });
+
+  // requests a person waits for, counted for the job runner (foreground.ts); the screens' polling is not one of them
+  app.use("/api/*", async (c, next) => {
+    if (!d.foreground || isBackgroundRequest(c)) return next();
+    d.foreground.started();
+    try {
+      await next();
+    } finally {
+      d.foreground.ended();
+    }
   });
 
   app.all("/api/*", async (c) => compressResponse(c.req.raw, await d.api.fetch(c.req.raw, c.env)));

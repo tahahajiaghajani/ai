@@ -290,10 +290,12 @@ export interface TickOptions {
   worker?: string;
   concurrency?: number;
   /**
-   * Is foreground work waiting? (The Windows app's local server: requests of its window in flight, src/desktop/server.ts.)
-   * Before it claims the next job the runner waits until there is none — at most `YIELD_MS` each time —, so a page's
-   * burst of requests is answered without the next job's statements between them on PGlite's one connection, and a
-   * window in constant use slows the queue down without ever stopping it.
+   * Is foreground work waiting? (The Windows app's local server: requests of its window in flight, src/desktop/server.ts;
+   * the server edition's scheduler leader: requests a person waits for on any worker of the cluster,
+   * src/server-edition/foreground.ts.) Before it claims the next job (round of jobs) the runner waits until there is
+   * none — at most `YIELD_MS` each time —, so a page's burst of requests is answered without the next jobs' statements
+   * between them (on PGlite's one connection; for PostgreSQL's CPU and the leader's pool), and a server in constant use
+   * slows the queue down without ever stopping it.
    */
   busy?: () => boolean;
 }

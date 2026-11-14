@@ -14,6 +14,7 @@ import { createLogger, echo, RotatingFile, type Level } from "./log";
 import { loadCredentials } from "./tls";
 import { waitForDb } from "./pg";
 import type { ClusterMetrics, WorkerSnapshot } from "./metrics";
+import { ForegroundBoard } from "./foreground";
 
 export const RESTART_REQUEST = "restart.request";
 /** `karizctl allow …` changed the allowlist: the workers re-read the configuration (no restart). */
@@ -83,12 +84,28 @@ export async function runPrimary(file: string): Promise<void> {
     started_at: startedAt,
   });
 
+  // which workers have requests a person waits for; every worker hears when the cluster's state changes, and the
+  // scheduler leader's job runner gives way while any has (foreground.ts)
+  const foreground = new ForegroundBoard();
+  const tell = (w: Worker, m: object) => {
+    try {
+      if (w.isConnected()) w.send(m);
+    } catch {
+      /* the worker is going */
+    }
+  };
+  const foregroundChanged = (busy: boolean | null) => {
+    if (busy === null) return;
+    for (const s of slots) if (s.worker) tell(s.worker, { t: "fg", busy });
+  };
+
   const fork = (slot: Slot): Worker => {
     const w = cluster.fork({ ITSM_WORKER_ID: String(slot.id), ITSM_SERVER_CONFIG: file });
     slot.worker = w;
-    w.on("message", (m: { t?: string; line?: string; level?: Level; snap?: WorkerSnapshot; id?: number; reason?: string; worker?: number }) => {
+    w.on("message", (m: { t?: string; line?: string; level?: Level; snap?: WorkerSnapshot; id?: number; reason?: string; worker?: number; on?: boolean }) => {
       if (!m || typeof m !== "object") return;
-      if (m.t === "log" && m.line) write(m.line, m.level ?? "info");
+      if (m.t === "fg") foregroundChanged(foreground.set(w.id, m.on === true));
+      else if (m.t === "log" && m.line) write(m.line, m.level ?? "info");
       else if (m.t === "metrics" && m.snap) slot.snapshot = m.snap;
       else if (m.t === "ask" && typeof m.id === "number") w.send({ t: "answer", id: m.id, data: metrics() });
       else if (m.t === "reload") {
@@ -98,9 +115,14 @@ export async function runPrimary(file: string): Promise<void> {
       } else if (m.t === "restart") {
         log.info("rolling restart requested", { by: slot.id, reason: m.reason });
         setTimeout(() => void rollingRestart(), 1500);
-      } else if (m.t === "ready") readyWaiters.get(w.id)?.();
+      } else if (m.t === "ready") {
+        readyWaiters.get(w.id)?.();
+        // a new worker learns whether others are busy now (it hears every later change)
+        if (foreground.any) tell(w, { t: "fg", busy: true });
+      }
     });
     w.on("exit", (code, signal) => {
+      foregroundChanged(foreground.gone(w.id));
       if (slot.worker !== w) return; // replaced during a rolling restart
       slot.worker = null;
       slot.snapshot = null;
