@@ -1,7 +1,22 @@
-// Stub of the «push» kind (design A §6.1): listed by the server registry, never run — it refuses with
-// «هنوز ساخته نشده». Package DA2 owns this file and replaces it with the kind's code; the registry stays as it is.
+// The «ارسال از ابزار (API)» kind (design A §12): nothing is pulled — the tool sends batches, statuses and problem sets
+// to /api/v1/discovery/<connector>/… (push.ts, routes/discovery-api.ts). A pull of a push connector lists nothing and
+// is never complete (no item goes «gone» on a pull: only a complete snapshot says what is gone); it still runs the
+// pass's refresh and retry phases over what was pushed.
 import { z } from "zod";
 import { push as descriptor } from "@shared/discovery/kinds/push";
-import { notBuilt } from "../kind";
+import type { Page, TestResult } from "@shared/discovery/types";
+import type { ConnectorKind } from "../kind";
 
-export const connector = notBuilt(descriptor, z.record(z.string(), z.unknown()));
+const options = z.object({ availability_match: z.string().trim().max(300).optional() }).passthrough();
+
+export const connector: ConnectorKind = {
+  ...descriptor,
+  headers: [],
+  optionsSchema: options,
+  async test(): Promise<TestResult> {
+    return { ok: true, identity: "ارسال از ابزار", warnings: [] };
+  },
+  async pages(): Promise<Page> {
+    return { records: [], next: null, complete: false };
+  },
+};
