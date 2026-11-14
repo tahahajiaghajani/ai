@@ -66,8 +66,8 @@ export const API_KEY_HEADERS = ["X-API-Key", "X-Auth-Token", "Api-Key", "PRIVATE
 export const API_KEY_HEADER_OPTIONS: Option[] = ordered(API_KEY_HEADERS.map((h) => opt(h, h)));
 
 /** A pass of a connector (§5.5). */
-export type RunLane = "inventory" | "status" | "push" | "preview";
-export const RUN_LANES: Option[] = ordered([opt("inventory", "فهرست"), opt("status", "وضعیت"), opt("push", "ارسال"), opt("preview", "پیش‌نمایش")]);
+export type RunLane = "inventory" | "status" | "push" | "preview" | "itam";
+export const RUN_LANES: Option[] = ordered([opt("inventory", "فهرست"), opt("status", "وضعیت"), opt("push", "ارسال"), opt("preview", "پیش‌نمایش"), opt("itam", "ساخت دارایی")]);
 export type RunTrigger = "schedule" | "manual" | "push" | "preview";
 export const RUN_TRIGGERS: Option[] = ordered([opt("schedule", "زمان‌بندی"), opt("manual", "دستی"), opt("push", "ارسال ابزار"), opt("preview", "پیش‌نمایش")]);
 export type RunState = "running" | "completed" | "failed" | "canceled" | "abandoned";

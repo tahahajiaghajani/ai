@@ -137,7 +137,10 @@ describe("who may do what with connectors (design A §14.5)", () => {
     await expect(amCtx.write((tx) => updateIn(tx, amCtx, "discovery_connector", c.id, { secret: "stolen", base_url: "https://other.mock.test/" }))).rejects.toThrow(OWNER_ONLY_MESSAGE);
     const owned = (await p.am.client.patch(`${P}/r/discovery_connector/${c.id}`, { active: false, every_minutes: 120, status_every_minutes: 0, description: "مسئول: تیم دارایی" })).row;
     expect(owned).toMatchObject({ active: false, every_minutes: 120, description: "مسئول: تیم دارایی", base_url: data.base_url });
-    // «ساخت دارایی برای دستگاه‌های تازه» is the asset manager's; software collection the software manager's
+    // «ساخت دارایی برای دستگاه‌های تازه» is the asset manager's (once ITAM has confirmed its discovered-hardware step,
+    // DA7); software collection the software manager's
+    if (!(await w.one(`select id from sm_itam_configs where org_id = $1 and deleted_at is null limit 1`, [w.e.org]))) await w.sys.write((tx) => createIn(tx, w.sys, "itam_config", {}, { trusted: true }));
+    await w.q(`update sm_itam_configs set auto_assets_confirmed_at = now() where org_id = $1`, [w.e.org]);
     expect((await p.am.client.patch(`${P}/r/discovery_connector/${c.id}`, { make_assets: true })).row.make_assets).toBe(true);
     expect(errorOf(await p.cm.client.patch(`${P}/r/discovery_connector/${c.id}`, { make_assets: false }, 403))).toBe(ASSET_ONLY_MESSAGE);
     expect(errorOf(await p.cm.client.patch(`${P}/r/discovery_connector/${c.id}`, { collect: ["inventory", "software"] }, 403))).toBe(SOFTWARE_ONLY_MESSAGE);

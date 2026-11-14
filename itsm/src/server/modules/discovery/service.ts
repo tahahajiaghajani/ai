@@ -28,6 +28,7 @@ import { sysOf } from "../incident/common";
 import { intLog } from "../integration/common";
 import { rightsOf, ADMIN_ONLY_MESSAGE, DEMO_PEOPLE_MESSAGE, type DiscoveryRights } from "./guard";
 import { inConnectorScope, MIN_EVERY_MINUTES, MIN_STATUS_EVERY_MINUTES, queuePull } from "./jobs";
+import { waitingCount, waitingPage } from "./itamfeed";
 import { ConnectorError, CONNECTOR_MESSAGES } from "./kind";
 import { ireItem, mayCreate } from "./mapping";
 import { applyMismatch, dismissMismatch } from "./mismatch";
@@ -221,8 +222,8 @@ export async function connectorItems(ctx: Ctx, id: string, p: { state?: string; 
   return list(ctx, "discovery_item", { filter: { and } as never, q: p.q || undefined, sort: "name", page: p.page, size: p.size ?? 50 });
 }
 
-/** The reconciliation queue's tabs (§8.4; «بی‌دارایی» and «نرم‌افزار یکسان‌نشده» come with DA7). */
-export const QUEUE_TABS = ["unmatched", "duplicate", "error", "mismatch"] as const;
+/** The reconciliation queue's tabs (§8.4): «بی‌دارایی» is the asset feed's (itamfeed.ts); «نرم‌افزار یکسان‌نشده» comes with 1.2. */
+export const QUEUE_TABS = ["unmatched", "duplicate", "error", "mismatch", "no_asset"] as const;
 export type QueueTab = (typeof QUEUE_TABS)[number];
 
 /** «صف آشتی»: the items of one tab across the connectors the caller reads. */
@@ -241,8 +242,10 @@ export async function reconcileQueue(ctx: Ctx, p: { tab: QueueTab; connector?: s
         [ctx.org.id, pgArray(p.connector ? readable.filter((id) => id === p.connector) : readable)],
       )
     : [];
-  const res = await list(ctx, "discovery_item", { filter: { and } as never, q: p.q || undefined, sort: "-updated_at", page: p.page, size: p.size ?? 50 });
-  return { ...res, counts: Object.fromEntries(QUEUE_TABS.map((t) => [t, counts.find((c) => c.tab === t)?.n ?? 0])) };
+  // «بی‌دارایی»: linked hardware without an asset, with the feed's roll-up per connector (§11.1)
+  const scope = p.connector ? readable.filter((id) => id === p.connector) : readable;
+  const res = p.tab === "no_asset" ? await waitingPage(ctx, scope, p) : await list(ctx, "discovery_item", { filter: { and } as never, q: p.q || undefined, sort: "-updated_at", page: p.page, size: p.size ?? 50 });
+  return { ...res, counts: { ...Object.fromEntries(QUEUE_TABS.map((t) => [t, counts.find((c) => c.tab === t)?.n ?? 0])), no_asset: await waitingCount(ctx.db, ctx.org.id, scope) } };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
