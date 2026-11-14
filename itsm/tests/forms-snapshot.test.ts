@@ -83,6 +83,23 @@ describe("publishForms", () => {
     expect(checkFormValues(s, form.id, { u_old_code: "abc" }, { rights, requireAll: true, tz: TZ }).problems).toEqual({ u_old_code: "«کد قدیمی»: سه حرف بزرگ لاتین" });
     expect(checkFormValues(s, form.id, { u_old_code: "ABC" }, { rights, requireAll: true, tz: TZ })).toMatchObject({ values: { u_old_code: "ABC" }, problems: {} });
   });
+
+  it("reads «نمایش وقتی…» on the values as they will be kept, and neither takes nor judges a field it hides", async () => {
+    await lib({ name: "u_mail", label: "ایمیل", type: "email" });
+    await lib({ name: "u_mail_note", label: "یادداشت ایمیل", type: "text" });
+    const form = (await e.owner.post(`${P}/forms`, { name: "فرم ایمیل", layout: one([{ field: "u_mail" }, { field: "u_mail_note", showIf: { f: "u_mail", op: "eq", v: "ali@example.com" } }]) }, 201)).form;
+    const { snapshot } = await publish([form.id]);
+    const rights = effectiveRights(snapshot.forms[form.id].layout, { default: "edit", fields: {} }, snapshotFields(snapshot), { groups: "all" });
+    // typed in another case: stored in lower case, so the condition holds
+    const r = checkFormValues(snapshot, form.id, { u_mail: "Ali@Example.COM", u_mail_note: "یادداشت" }, { rights, tz: TZ });
+    expect(r).toMatchObject({ values: { u_mail: "ali@example.com", u_mail_note: "یادداشت" }, dropped: [], problems: {} });
+    expect(r.rights.u_mail_note).toBe("edit");
+    // another address: the note is hidden, so neither kept nor judged (it is far too long)
+    const other = checkFormValues(snapshot, form.id, { u_mail: "Reza@Example.com", u_mail_note: "ی".repeat(30_000) }, { rights, tz: TZ });
+    expect(other).toMatchObject({ values: { u_mail: "reza@example.com" }, dropped: ["u_mail_note"], problems: {} });
+    // a value that cannot be stored shows nothing it would have shown
+    expect(checkFormValues(snapshot, form.id, { u_mail: "نه ایمیل", u_mail_note: "x" }, { rights, tz: TZ })).toMatchObject({ dropped: ["u_mail_note"], problems: { u_mail: "«ایمیل» ایمیل معتبر نیست" } });
+  });
 });
 
 // one library field per built-in type the organisation can use, with the settings a replica must carry

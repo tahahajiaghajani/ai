@@ -22,7 +22,7 @@ import { seedChangeDefaults } from "@server/modules/change";
 import { loadFormsSnapshot, registerFormUsage, registerStepRights } from "@server/modules/forms";
 
 type Msg = { error: { message: string; details?: { problems?: string[] } | null } };
-type Entry = { key: string; kind: string; name: string; table: string | null; group: string; id: string | null; fields: number; overrides?: number; arranged?: boolean; status?: string; version?: number; used_in: string[]; note?: string; link: string; editable: boolean };
+type Entry = { key: string; kind: string; name: string; table: string | null; group: string; id: string | null; fields: number; overrides?: number; arranged?: boolean; status?: string; version?: number; used_in: string[]; note?: string; updated_at: string | null; link: string; editable: boolean };
 type List = { kinds: { key: string; label: string; count: number; available: boolean }[]; forms: Entry[] };
 
 let e: EngineOrg;

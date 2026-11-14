@@ -4,7 +4,8 @@
 // answers on the authority and on a Windows app's local server, which never need `field_def`, `field_type`,
 // `custom_field` or `choice` rows.
 //   · keys the person may not change at the step (`effectiveRights`) are dropped and counted;
-//   · a field that a «نمایش وقتی…» condition hides is neither asked for nor taken (`applyShowIf`);
+//   · a field that a «نمایش وقتی…» condition hides is neither asked for, taken nor judged (`applyShowIf`, on the values
+//     as they will be stored);
 //   · required fields bind the outcomes that carry the form forward (submit, approve: `requireAll`), never reject or
 //     return; a required yes/no field must be ticked;
 //   · a value sent back unchanged is not judged again (a field type tightened later binds new values only);
@@ -70,20 +71,34 @@ export function checkFormValues(snapshot: FormsSnapshot, formId: string, input: 
     if (f) fields.set(item.field, item.label ? { ...f, label: item.label } : f);
   }
   const stored = opts.stored ?? {};
-  const rights = applyShowIf(form.layout, opts.rights, { ...stored, ...input }, fields, opts.env);
   const vc: ValueContext = { schema: NO_LISTS, tz: opts.tz, today: opts.today };
-  const values: Record<string, unknown> = {};
   const dropped: string[] = [];
   const problems = new Problems();
+  // each value in its stored shape first, so «نمایش وقتی…» reads it as it will be kept (an e-mail in lower case, a
+  // national code in Latin digits) — the same answer on every runtime, whatever the person typed
+  const coerced: Record<string, unknown> = {};
   for (const [key, raw] of Object.entries(input ?? {})) {
     const f = fields.get(key);
-    if (!f || !canEdit(rights[key])) {
+    if (!f || !canEdit(opts.rights[key])) {
       dropped.push(key);
       continue;
     }
     const v = problems.try(() => coerceValue(f, raw, vc, stored[key]));
-    if (v === undefined) continue;
-    values[key] = v;
+    if (v !== undefined) coerced[key] = v;
+  }
+  const rights = applyShowIf(form.layout, opts.rights, { ...stored, ...coerced }, fields, opts.env);
+  // a field its condition hides is neither taken nor judged
+  const values: Record<string, unknown> = {};
+  for (const key of Object.keys(input ?? {})) {
+    if (dropped.includes(key)) continue;
+    if (!canEdit(rights[key])) {
+      dropped.push(key);
+      delete problems.fields[key];
+      continue;
+    }
+    if (!(key in coerced)) continue;
+    const v = (values[key] = coerced[key]);
+    const f = fields.get(key)!;
     if (f.check === "attachments" && opts.attachments && Array.isArray(v) && v.length) {
       const p = attachmentsProblem(f, v.map(String), opts.attachments);
       if (p) problems.add(key, p);

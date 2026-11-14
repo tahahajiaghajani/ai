@@ -11,8 +11,7 @@
 import type { FieldDef } from "@shared/model/types";
 import { tableDef } from "@shared/tables";
 import {
-  applyShowIf, cleanStepRights, effectiveRights, formView, layoutFields, tableFormFields, type FieldItem, type FormLayoutV2, type FormView, type Right,
-  type StepRights,
+  cleanStepRights, effectiveRights, formView, layoutFields, tableFormFields, type FieldItem, type FormLayoutV2, type FormView, type Right, type StepRights,
 } from "@shared/forms/layout";
 import { snapshotFields } from "@shared/forms/snapshot";
 import type { Ctx } from "../../context";
@@ -113,12 +112,13 @@ export async function formPreview(ctx: Ctx, id: string, input: PreviewInput): Pr
   const layout: FormLayoutV2 = snapshot.forms[form.id]?.layout ?? form.layout;
   const rights = effectiveRights(layout, step?.rights ?? null, fields, { groups: as.groups });
   const values = input.values && typeof input.values === "object" && !Array.isArray(input.values) ? input.values : null;
-  const env = await condEnv(ctx);
-  const shown = values ? applyShowIf(layout, rights, values, fields, env) : rights;
+  // sample values: checked as a submission (submit or approve) would be, «نمایش وقتی…» on them as they will be kept
+  let shown = rights;
   let check: FormPreview["check"] = null;
   if (values && snapshot.forms[form.id]) {
-    const r = checkFormValues(snapshot, form.id, values, { rights, requireAll: true, tz: orgTz(ctx), env });
+    const r = checkFormValues(snapshot, form.id, values, { rights, requireAll: true, tz: orgTz(ctx), env: await condEnv(ctx) });
     check = { values: r.values, dropped: r.dropped, problems: r.problems };
+    shown = r.rights;
   }
   const used = new Set(layoutFields(layout));
   return {
