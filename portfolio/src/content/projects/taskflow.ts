@@ -38,7 +38,7 @@ export const taskflow: Project = {
       { id: "cron", col: 2, row: 0, kind: "source", label: { fa: "pg_cron", en: "pg_cron" }, sub: { fa: "هر ۳۰ ثانیه", en: "every 30 s" } },
       { id: "queue", col: 2, row: 1, kind: "store", label: { fa: "صف Postgres", en: "Postgres queue" }, sub: { fa: "claim_job · مسیرهای منصفانه", en: "claim_job · fair lanes" } },
       { id: "engine", col: 3, row: 1, kind: "agent", label: { fa: "موتور DAG", en: "DAG engine" }, sub: { fa: "تا ۳ گره موازی", en: "≤3 parallel nodes" } },
-      { id: "llm", col: 4, row: 0, kind: "model", label: { fa: "ایجنت‌های LLM", en: "LLM agents" }, sub: { fa: "Gemini · OpenAI · سازگار", en: "Gemini · OpenAI · compatible" } },
+      { id: "llm", col: 4, row: 0, kind: "model", label: { fa: "ایجنت‌های LLM", en: "LLM agents" }, sub: { fa: "Gemini · سازگار با OpenAI", en: "Gemini · OpenAI-compatible" } },
       { id: "coder", col: 4, row: 2, kind: "agent", label: { fa: "ایجنت کدنویس", en: "Coder agent" }, sub: { fa: "GitHub Actions کاربر", en: "user's GitHub Actions" } },
       { id: "repo", col: 5, row: 1, kind: "output", label: { fa: "مخزن کاربر", en: "User's repo" }, sub: { fa: "فایل کامل · KNOWLEDGE.md", en: "whole files · KNOWLEDGE.md" } },
     ],

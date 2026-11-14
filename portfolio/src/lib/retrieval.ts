@@ -95,6 +95,13 @@ export function rank(entries: KnowledgeEntry[], query: string): { entry: Knowled
  * Picks the knowledge to send: everything when it fits in `budget` characters, otherwise pinned
  * entries plus the best-ranked ones for the conversation.
  */
+/**
+ * Knowledge budgets in characters. Pinned entries always go in; the triage budget must still leave room for the
+ * largest case study beside them, or that case study could never be cited to a request (a test checks it).
+ */
+export const CHAT_KNOWLEDGE_BUDGET = 30_000;
+export const TRIAGE_KNOWLEDGE_BUDGET = 20_000;
+
 export function selectKnowledge(all: KnowledgeEntry[], query: string, budget = 28000): KnowledgeEntry[] {
   const entries = all.filter((e) => e.enabled).sort((a, b) => a.sort - b.sort);
   const total = entries.reduce((s, e) => s + entryText(e).length + 2, 0);

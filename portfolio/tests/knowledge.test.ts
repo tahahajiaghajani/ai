@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { siteKnowledge } from "@/lib/knowledge";
-import { selectKnowledge } from "@/lib/retrieval";
+import { CHAT_KNOWLEDGE_BUDGET, TRIAGE_KNOWLEDGE_BUDGET, entryText, selectKnowledge } from "@/lib/retrieval";
 import { PROJECTS } from "@/content/projects";
 import { PRODUCTS } from "@/content/products";
 import { POSTS } from "@/content/blog";
@@ -31,6 +31,28 @@ describe("assistant knowledge", () => {
     for (const q of ["بانک رفاه مدل‌های محلی", "بانک ملت سایمپ", "پست بانک ناظر", "بانک صنعت و معدن ITSM", "Which banks has Taha worked with?"]) {
       expect(selectKnowledge(k, q, 12000).some((e) => e.id === "banks"), q).toBe(true);
     }
+  });
+  it("tells current banks from earlier ones and leaves the bank's ITSM product unstated", () => {
+    const banks = k.find((e) => e.id === "banks")!.body;
+    expect(banks).toMatch(/Bank of Industry and Mine[^\n]*, current:/);
+    expect(banks).toMatch(/Bank Tejarat[^\n]*, current:/);
+    for (const name of ["Bank Mellat", "Refah Bank", "Post Bank of Iran"]) expect(banks, name).toMatch(new RegExp(`${name}[^\\n]*, earlier, finished:`));
+    const journey = k.find((e) => e.id === "journey")!;
+    expect(journey.pinned).toBe(true);
+    for (const body of [banks, journey.body]) {
+      expect(body).toContain("Never say or imply that it is Kariz");
+      expect(body).toContain("never say they are ongoing");
+    }
+    // the system's Latin spelling is unconfirmed: only the owner's own Persian word is used
+    expect(journey.body).toContain("سایمپ");
+    expect(k.map((e) => e.body).join("\n")).not.toMatch(/saymp|saimp/i);
+  });
+  it("leaves room for the largest entry beside the pinned ones in request triage", () => {
+    const size = (e: (typeof k)[number]) => entryText(e).length + 2;
+    const pinned = k.filter((e) => e.pinned).reduce((s, e) => s + size(e), 0);
+    const largest = Math.max(...k.filter((e) => !e.pinned).map(size));
+    expect(pinned + largest).toBeLessThanOrEqual(TRIAGE_KNOWLEDGE_BUDGET);
+    expect(TRIAGE_KNOWLEDGE_BUDGET).toBeLessThanOrEqual(CHAT_KNOWLEDGE_BUDGET);
   });
   it("keeps pinned entries when the budget is tight", () => {
     const picked = selectKnowledge(k, "turbine SAM vision", 12000);

@@ -7,7 +7,7 @@ import { allow } from "@/lib/rate-limit";
 import { addComment, assertPrivateRepo, createIssue, getIssue, listComments, listIssues, PublicRepoError, updateIssue, type GhIssue } from "@/lib/github";
 import { getRuntime, complete, parseJsonObject } from "@/lib/ai/runtime";
 import { getKnowledge } from "@/lib/knowledge";
-import { selectKnowledge, entryText } from "@/lib/retrieval";
+import { TRIAGE_KNOWLEDGE_BUDGET, selectKnowledge, entryText } from "@/lib/retrieval";
 import { notifyOwner } from "@/lib/notify";
 import { isKind, isPriority, requestCode, type RequestKind, type RequestStatus, type VisitorTriage } from "@/lib/request-meta";
 import {
@@ -217,7 +217,7 @@ export async function triageRequest(number: number, opts: { signal?: AbortSignal
   if (!rt) return null;
   const r = await getRequest(number);
   if (!r) return null;
-  const knowledge = selectKnowledge(await getKnowledge(), `${r.subject}\n${r.body}`, 14_000).map(entryText).join("\n\n");
+  const knowledge = selectKnowledge(await getKnowledge(), `${r.subject}\n${r.body}`, TRIAGE_KNOWLEDGE_BUDGET).map(entryText).join("\n\n");
   const visitorLang = r.lang === "en" ? "English" : "fluent Persian (with Persian digits and correct half-spaces)";
   const system = `You triage collaboration requests sent to Taha Aghajani — enterprise AI systems architect, forward-deployed engineer, full-stack engineer and designer — through his portfolio website.
 Return ONLY a JSON object:

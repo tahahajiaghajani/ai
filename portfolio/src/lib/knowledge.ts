@@ -14,6 +14,12 @@ import { POSTS } from "@/content/blog";
 
 const strip = (s: string) => s.replace(/\*\*/g, "").replace(/`/g, "");
 
+/** Two things the content deliberately leaves unsaid; the assistant must not fill them in. */
+const UNDATED =
+  "Engagements marked Earlier are finished, and their dates are not published: never say they are ongoing, and never state or guess their dates, length or order.";
+const ITSM_UNSTATED =
+  "Nothing here says which product, vendor or technology the Bank of Industry and Mine's ITSM system is built on, or whether it is related to Kariz. Never say or imply that it is Kariz or any other product on this site, never describe it with Kariz's features, dates, stack or links, and never deny a relation either: if asked, say you do not have that information. Do not raise the comparison yourself.";
+
 /**
  * The assistant's knowledge is the site itself: profile, expertise, every case study, the journey and a set of
  * extra facts — so what the chat says never drifts from what the pages say. Owner-added facts from knowledge.md in
@@ -47,7 +53,6 @@ export function siteKnowledge(): KnowledgeEntry[] {
       `- Email: ${PROFILE.contact.email}`,
       `- Phone / تلفن: ${PROFILE.contact.phoneDisplay.en} (${PROFILE.contact.phoneDisplay.fa})`,
       `- Telegram / تلگرام: the same number (${PROFILE.contact.telegram})`,
-      `- GitHub: ${PROFILE.contact.github}`,
       "- The fastest way to start a project or ask for a demo is the request form on this site («شروع همکاری» / Start a project): it is triaged by AI and gives a tracking code.",
     ].join("\n"),
   });
@@ -138,10 +143,14 @@ export function siteKnowledge(): KnowledgeEntry[] {
     pinned: true,
     title: "Career and education / سوابق و تحصیلات",
     tags: ["career", "experience", "education", "سابقه", "تحصیلات", "دانشگاه", "university", "bank", "banks", "بانک", "FDE", "ITSM", ...ORGS.flatMap((o) => [o.name.en, o.name.fa])],
-    body: JOURNEY.map((r) => {
-      const org = ORGS.find((o) => o.key === r.org);
-      return `- ${r.period.en}: ${r.title.en} (${r.title.fa})${org ? ` — ${org.name.en} / ${org.name.fa}` : ""}. ${r.body.en}`;
-    }).join("\n"),
+    body: [
+      ...JOURNEY.map((r) => {
+        const org = ORGS.find((o) => o.key === r.org);
+        return `- ${r.period.en}${r.current ? " (current)" : ""}: ${r.title.en} (${r.title.fa})${org ? ` — ${org.name.en} / ${org.name.fa}` : ""}. ${r.body.en}`;
+      }),
+      UNDATED,
+      ITSM_UNSTATED,
+    ].join("\n"),
   });
 
   const banks = ORGS.filter((o) => o.bank);
@@ -151,8 +160,10 @@ export function siteKnowledge(): KnowledgeEntry[] {
     title: "Banks Taha has worked with / بانک‌هایی که طاها با آن‌ها کار کرده",
     tags: ["bank", "banks", "banking", "بانک", "بانک‌ها", "بانکی", "client", "clients", "مشتری", "کارفرما", ...banks.flatMap((o) => [o.name.en, o.name.fa])],
     body: [
-      `Taha has worked for or with ${banks.length} banks:`,
-      ...banks.map((o) => `- ${o.name.en} (${o.name.fa}): ${o.relation.en} / ${o.relation.fa}`),
+      `Taha has worked for or with ${banks.length} banks: ${banks.filter((o) => o.current).length} now, the others earlier.`,
+      ...banks.map((o) => `- ${o.name.en} (${o.name.fa}), ${o.current ? "current" : "earlier, finished"}: ${o.relation.en} / ${o.relation.fa}`),
+      UNDATED,
+      ITSM_UNSTATED,
       "Details of each engagement are in the career entry. Bank systems' internal details stay confidential.",
     ].join("\n"),
   });

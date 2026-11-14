@@ -9,10 +9,9 @@ import { LocalClock } from "@/components/site/local-clock";
 export function Footer({ lang }: { lang: Lang }) {
   const c = PROFILE.contact;
   const rows = [
-    { k: "Email", v: c.email, href: `mailto:${c.email}`, ltr: true },
+    { k: "Email", v: c.email, href: `mailto:${c.email}`, ltr: true, wide: true },
     { k: lang === "fa" ? "تلفن" : "Phone", v: PROFILE.contact.phoneDisplay[lang], href: `tel:${c.phone}`, ltr: true }, // digit groups read left to right in both languages
     { k: "Telegram", v: lang === "fa" ? "پیام در تلگرام" : "Message on Telegram", href: c.telegram },
-    { k: "GitHub", v: "tahahajiaghajani", href: c.github, ltr: true },
   ];
   return (
     <footer className="relative overflow-hidden border-t border-line">
@@ -31,7 +30,7 @@ export function Footer({ lang }: { lang: Lang }) {
           </div>
           <dl className="grid content-end gap-px self-end sm:grid-cols-2 lg:col-span-5">
             {rows.map((r) => (
-              <div key={r.k} className="border-t border-line py-5">
+              <div key={r.k} className={`border-t border-line py-5 ${r.wide ? "sm:col-span-2" : ""}`}>
                 <dt className="eyebrow mb-2">{r.k}</dt>
                 <dd>
                   <a href={r.href} className="link-draw text-lg" dir={r.ltr ? "ltr" : undefined} target={r.href.startsWith("http") ? "_blank" : undefined} rel={r.href.startsWith("http") ? "noopener noreferrer" : undefined}>

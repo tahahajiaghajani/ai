@@ -1,9 +1,10 @@
 import type { Role } from "@/content/types";
 
 /**
- * Career and education: what is running now first, then the bank engagements, own products, research and study
- * (facts confirmed from Taha's own words, his thesis and his repositories). Engagements whose dates Taha has not
- * given carry their kind (advisory, on site, oversight) in place of a date.
+ * Career and education: what is running now first, then the earlier bank engagements, own products, research and
+ * study (facts confirmed from Taha's own words, his thesis and his repositories). Engagements whose dates Taha has
+ * not given are marked «پیش‌تر» / Earlier in place of a date and told in the past tense; among themselves they
+ * follow the reverse of his own telling. Never put a year on them until he gives one.
  */
 export const JOURNEY: Role[] = [
   {
@@ -19,11 +20,11 @@ export const JOURNEY: Role[] = [
   {
     org: "bim",
     current: true,
-    title: { fa: "سرپرست تیم توسعه و هوش مصنوعی و مدیر محصول", en: "Head of Development & AI, Product Manager" },
+    title: { fa: "سرپرست تیم توسعه و هوش مصنوعی و مدیر محصول ITSM", en: "Head of the Development & AI Team, ITSM Product Manager" },
     period: { fa: "اکنون", en: "Now" },
     body: {
-      fa: "پروژه‌ی ساخت سامانه‌ی مدیریت خدمات فناوری اطلاعات (ITSM) بانک صنعت و معدن: سرپرستی تیم توسعه و هوش مصنوعی و مدیریت محصول.",
-      en: "Building the Bank of Industry and Mine's IT service management (ITSM) system: leading the development and AI team, and managing the product.",
+      fa: "در پروژه‌ی ساخت سامانه‌ی مدیریت خدمات فناوری اطلاعات (ITSM) بانک صنعت و معدن: سرپرستی تیم توسعه و هوش مصنوعی پروژه و مدیریت محصول.",
+      en: "On the project building the Bank of Industry and Mine's IT service management (ITSM) system: leading the project's development and AI team, and managing the product.",
     },
   },
   {
@@ -34,30 +35,30 @@ export const JOURNEY: Role[] = [
     body: { fa: "گرایش طراحی سیستم و تحلیل داده.", en: "System design & data analysis track." },
   },
   {
+    org: "postbank",
+    title: { fa: "ناظر پروژه", en: "Project Supervisor" },
+    period: { fa: "پیش‌تر", en: "Earlier" },
+    body: {
+      fa: "حضور به‌عنوان یکی از ناظران در پروژه‌ی ساخت نرم‌افزار مدیریت پروژه‌ی پست بانک ایران.",
+      en: "Served as one of the supervisors of the project building Post Bank of Iran's project-management software.",
+    },
+  },
+  {
     org: "mellat",
     title: { fa: "مهندس استقرار پیشرو (FDE)", en: "Forward Deployed Engineer" },
-    period: { fa: "استقرار در محل", en: "On site" },
+    period: { fa: "پیش‌تر", en: "Earlier" },
     body: {
-      fa: "مدیریت و رفع مشکلات «سایمپ»، سامانه‌ی مدیریت پروژه‌ی بانک ملت.",
-      en: "Managing and resolving the issues of Saymp (سایمپ), Bank Mellat's project-management system.",
+      fa: "مدتی به‌عنوان FDE در بانک ملت: مدیریت و رفع مشکلات «سایمپ»، سامانه‌ی مدیریت پروژه‌ی بانک.",
+      en: "For a period, as a forward-deployed engineer at Bank Mellat, managed and resolved the issues of the bank's project-management system (known in Persian as «سایمپ»).",
     },
   },
   {
     org: "refah",
     title: { fa: "مشاور هوش مصنوعی", en: "AI Consultant" },
-    period: { fa: "مشاوره", en: "Advisory" },
+    period: { fa: "پیش‌تر", en: "Earlier" },
     body: {
-      fa: "مشاوره‌ی هوش مصنوعی به بانک رفاه: مدیریت سخت‌افزارهای هوش مصنوعی، مدیریت درخواست‌ها و کاربران، و مدیریت و بهبود عملکرد مدل‌های محلی.",
-      en: "AI advisory at Refah Bank: managing the AI hardware, handling requests and users, and running and improving the performance of local models.",
-    },
-  },
-  {
-    org: "postbank",
-    title: { fa: "ناظر پروژه", en: "Project Supervisor" },
-    period: { fa: "نظارت", en: "Oversight" },
-    body: {
-      fa: "یکی از ناظران پروژه‌ی ساخت نرم‌افزار مدیریت پروژه‌ی پست بانک ایران.",
-      en: "One of the supervisors of the project building Post Bank of Iran's project-management software.",
+      fa: "مدتی مشاور هوش مصنوعی بانک رفاه: مدیریت سخت‌افزارهای هوش مصنوعی، مدیریت درخواست‌ها و کاربران، و مدیریت و بهبود عملکرد مدل‌های محلی.",
+      en: "For a period, AI consultant to Refah Bank: managed the AI hardware, handled requests and users, and ran and improved the performance of local models.",
     },
   },
   {

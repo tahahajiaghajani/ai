@@ -16,8 +16,8 @@ export const PROFILE = {
     en: "I design, build and deploy complex AI systems inside real organisations.",
   } as L,
   intro: {
-    fa: "متخصص هوش مصنوعی با تسلط بر RAG، مدل‌های زبانی بزرگ، بینایی ماشین و VLM؛ مدیر پروژه و سرپرست تیم هوش مصنوعی شرکت مدیریت پروژه پارس، و سرپرست تیم توسعه و هوش مصنوعی و مدیر محصول سامانه‌ی ITSM بانک صنعت و معدن؛ با سابقه‌ی کار برای بانک‌های تجارت، ملت، رفاه و پست بانک. از تحلیل یک سیستم پیچیده تا معماری، پیاده‌سازی و استقرار، کار را خودم تا آخر می‌برم.",
-    en: "AI specialist across RAG, large language models, computer vision and VLMs; project manager and head of the AI team at Pars Project Management, and head of development & AI and product manager of the Bank of Industry and Mine's ITSM system, with work for Bank Tejarat, Bank Mellat, Refah Bank and Post Bank of Iran. From untangling a complex system to its architecture, implementation and deployment, I carry the work end to end myself.",
+    fa: "متخصص هوش مصنوعی با تسلط بر RAG، مدل‌های زبانی بزرگ، بینایی ماشین و VLM؛ مدیر پروژه و سرپرست تیم هوش مصنوعی شرکت مدیریت پروژه پارس، و سرپرست تیم توسعه و هوش مصنوعی و مدیر محصول در پروژه‌ی ساخت ITSM بانک صنعت و معدن؛ با سابقه‌ی کار برای بانک‌های تجارت، ملت، رفاه و پست بانک. از تحلیل یک سیستم پیچیده تا معماری، پیاده‌سازی و استقرار، کار را خودم تا آخر می‌برم.",
+    en: "AI specialist across RAG, large language models, computer vision and VLMs; project manager and head of the AI team at Pars Project Management, and head of the development & AI team and product manager on the project building the Bank of Industry and Mine's ITSM system, with work for Bank Tejarat, Bank Mellat, Refah Bank and Post Bank of Iran. From untangling a complex system to its architecture, implementation and deployment, I carry the work end to end myself.",
   } as L,
   manifesto: {
     fa: "بزرگ‌ترین توان من دیدن کل سیستم است: داده، آدم‌ها، فرایندها و مدل‌ها، کنار هم. سیستم‌های سازمانی را از تحلیل تا استقرار طراحی می‌کنم، ورکفلوها و پایپ‌لاین‌های هوشمند می‌سازم، و چون طراح هم هستم، نتیجه نه‌فقط کار می‌کند، بلکه درست دیده می‌شود.",
@@ -28,7 +28,6 @@ export const PROFILE = {
     phone: "+989336627597",
     phoneDisplay: { fa: "۰۹۳۳ ۶۶۲ ۷۵۹۷", en: "+98 933 662 7597" } as L,
     telegram: "https://t.me/+989336627597",
-    github: "https://github.com/tahahajiaghajani",
   },
 };
 
