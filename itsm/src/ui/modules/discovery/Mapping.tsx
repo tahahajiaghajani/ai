@@ -1,6 +1,6 @@
-// «نگاشت» (design A §6.3, §15): which field of the record each path of the tool fills. On the left a sample — the
-// tool's own element for the REST kind (from a preview; tenant administrators only, as the server sends it), the
-// kind's record of the latest item for the others; on the right the map, one line per field. What the sample gives
+// «نگاشت» (design A §6.3, §15): which field of the record each path of the tool fills. The map first, one line per
+// field; beside it a sample — the tool's own element for the REST kind (from a preview; tenant administrators only, as
+// the server sends it), the kind's record of the latest item for the others. What the sample gives
 // with this map shows as it is typed, and «پیش‌نمایش با این نگاشت» asks the engine what it would do with the tool's
 // first page (a dry run, nothing saved). Fields people or ITAM own are refused with the reason. The map is a draft
 // until «ذخیره»; leaving the tab or the page with it unsaved asks first. CMDB administrators edit; others read.
@@ -18,7 +18,7 @@ import { EmptyState, Skeleton } from "../../components/display";
 import { Note } from "../../components/blocks";
 import { useSchema } from "../../records/data/hooks";
 import type { ConnectorPage, PreviewResult } from "./api";
-import { labelOf, mappingChanged, mappingProblems, mappingRows, rowsMapping, TARGET_LABELS, type ItemRow, type MapRow } from "./model";
+import { labelOf, mappingDraft, mappingProblems, mappingRows, rowsMapping, TARGET_LABELS, type ItemRow, type MapRow } from "./model";
 import { I16, PreviewTable } from "./parts";
 
 let seq = 0;
@@ -47,7 +47,7 @@ export function MappingTab({ page, d, onDirty, onSaved }: { page: ConnectorPage;
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const editable = page.can.edit && page.meta?.canWrite !== false && !(page.meta?.readonly ?? []).includes("mapping");
-  const dirty = mappingChanged(stored, rows);
+  const dirty = mappingDraft(stored, rows);
   const problems = mappingProblems(rows, rest);
   const blocked = Object.keys(problems.byRow).length > 0 || problems.general.length > 0;
   useEffect(() => onDirty(dirty), [dirty, onDirty]);
@@ -128,28 +128,6 @@ export function MappingTab({ page, d, onDirty, onSaved }: { page: ConnectorPage;
         </Note>
       ))}
       <div className="dsc-map">
-        <section className="ds-card dsc-pane" aria-label="نمونه">
-          <h3 className="dsc-pane-t">{rest ? "نمونه از ابزار" : "نمونهٔ آخرین مورد"}</h3>
-          {sample !== undefined ? (
-            <pre dir="ltr" className="dsc-raw" aria-label="دادهٔ نمونه">
-              {JSON.stringify(sample, null, 2)}
-            </pre>
-          ) : rest && page.can.raw ? (
-            <EmptyState
-              compact
-              title="نمونه‌ای خوانده نشده است"
-              action={
-                <Button loading={previewing} onClick={() => void runPreview(1)}>
-                  خواندن یک نمونه از ابزار
-                </Button>
-              }
-            />
-          ) : !rest && item.isLoading ? (
-            <Skeleton rows={4} />
-          ) : (
-            <EmptyState compact title={rest ? "دادهٔ خام ابزار را مدیر سازمان می‌بیند" : "هنوز موردی گزارش نشده است"} description={rest ? "«پیش‌نمایش با این نگاشت» نتیجه را نشان می‌دهد." : undefined} />
-          )}
-        </section>
         <section className="ds-card dsc-pane" aria-label="نگاشت">
           <h3 className="dsc-pane-t">نگاشت</h3>
           <div className="dsc-map-rows" role="table" aria-label="نگاشت">
@@ -169,7 +147,7 @@ export function MappingTab({ page, d, onDirty, onSaved }: { page: ConnectorPage;
                     disabled={!editable}
                     onChange={(v) => edit(r.key, { target: String(v ?? "") })}
                     filterOption={(text, o) => !text || String(o?.label ?? "").includes(text) || String(o?.value ?? "").includes(text)}
-                    placeholder="فیلد یا attrs.…"
+                    placeholder="name · attrs.rack"
                     aria-label={`فیلد ردیف ${i + 1}`}
                     status={problems.byRow[r.key] ? "error" : undefined}
                     className="dsc-ltr-input"
@@ -184,7 +162,7 @@ export function MappingTab({ page, d, onDirty, onSaved }: { page: ConnectorPage;
                     aria-label={`مسیر ردیف ${i + 1}`}
                     status={problems.byRow[r.key] ? "error" : undefined}
                     dir="ltr"
-                    className="ds-mono"
+                    className="ds-mono dsc-path"
                   />
                 </span>
                 <span role="cell">
@@ -242,6 +220,28 @@ export function MappingTab({ page, d, onDirty, onSaved }: { page: ConnectorPage;
               ) : null}
             </div>
           ) : null}
+        </section>
+        <section className="ds-card dsc-pane" aria-label="نمونه">
+          <h3 className="dsc-pane-t">{rest ? "نمونه از ابزار" : "نمونهٔ آخرین مورد"}</h3>
+          {sample !== undefined ? (
+            <pre dir="ltr" className="dsc-raw" aria-label="دادهٔ نمونه">
+              {JSON.stringify(sample, null, 2)}
+            </pre>
+          ) : rest && page.can.raw ? (
+            <EmptyState
+              compact
+              title="نمونه‌ای خوانده نشده است"
+              action={
+                <Button loading={previewing} onClick={() => void runPreview(1)}>
+                  خواندن یک نمونه از ابزار
+                </Button>
+              }
+            />
+          ) : !rest && item.isLoading ? (
+            <Skeleton rows={4} />
+          ) : (
+            <EmptyState compact title={rest ? "دادهٔ خام ابزار را مدیر سازمان می‌بیند" : "هنوز موردی گزارش نشده است"} description={rest ? "«پیش‌نمایش با این نگاشت» نتیجه را نشان می‌دهد." : undefined} />
+          )}
         </section>
       </div>
       <div className="dsc-step-f">

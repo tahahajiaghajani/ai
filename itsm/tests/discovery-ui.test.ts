@@ -397,6 +397,11 @@ describe("the mapping editor (design A §6.3)", () => {
     expect(m.rowsMapping([...rows, { key: "x", target: "", source: "" }, { key: "y", target: " serial_number ", source: " $.serial " }])).toEqual({ external_id: "$.id", name: "$.name", "attrs.rack": "$.rack", serial_number: "$.serial" });
     expect(m.mappingChanged({ name: "$.name", external_id: "$.id", "attrs.rack": "$.rack" }, rows)).toBe(false);
     expect(m.mappingChanged({ name: "$.name" }, rows)).toBe(true);
+    // a line typed on one side is a draft the unsaved guard keeps, though a save would send nothing new
+    const half = [...rows, { key: "h", target: "attrs.rack", source: "" }];
+    expect(m.mappingChanged({ name: "$.name", external_id: "$.id", "attrs.rack": "$.rack" }, half)).toBe(false);
+    expect(m.mappingDraft({ name: "$.name", external_id: "$.id", "attrs.rack": "$.rack" }, half)).toBe(true);
+    expect(m.mappingDraft({ name: "$.name", external_id: "$.id", "attrs.rack": "$.rack" }, rows)).toBe(false);
   });
   it("refuses what people or ITAM own with the reason, a field twice, a half line; REST needs the item's id", () => {
     const r = (target: string, source = "$.x") => ({ key: target, target, source });

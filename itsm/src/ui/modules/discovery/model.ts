@@ -681,6 +681,10 @@ export const TARGET_LABELS: Record<string, string> = {
   "reported.site": "سایت گزارش‌شده",
   "reported.location": "مکان گزارش‌شده",
   "reported.asset_tag": "برچسب اموال گزارش‌شده",
+  // the CI's names the mapping also takes (@shared/discovery/mapping CI_ALIASES)
+  ip_address: "نشانی IP",
+  mac_address: "نشانی MAC",
+  model_name: "مدل",
 };
 
 /** One line of the editor: a record field ← a path in the tool's element (REST) or in the kind's record (a rename). */
@@ -714,6 +718,9 @@ export function rowsMapping(rows: readonly MapRow[]): Record<string, string> {
 
 /** Has the editor moved from the stored mapping? */
 export const mappingChanged = (stored: unknown, rows: readonly MapRow[]): boolean => !same(rowsMapping(mappingRows(stored)), rowsMapping(rows));
+
+/** Is there a draft to lose — a changed map, or a line typed on one side only (the unsaved guard asks for either)? */
+export const mappingDraft = (stored: unknown, rows: readonly MapRow[]): boolean => mappingChanged(stored, rows) || rows.some((r) => !!r.target.trim() !== !!r.source.trim());
 
 /**
  * What stops a save, per line and for the whole map: a line without its field or path, a field mapped twice, a field

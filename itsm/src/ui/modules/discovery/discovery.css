@@ -89,16 +89,17 @@
 .dsc-sources { display: flex; flex-direction: column; gap: var(--ds-space-2); margin: 0; padding: 0; list-style: none; }
 .dsc-sources > li { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding-block-start: var(--ds-space-2); border-block-start: 1px solid var(--ds-line); min-inline-size: 0; }
 .dsc-url { overflow-wrap: anywhere; font-size: 12px; }
+.dsc-copy { display: inline-flex; align-items: center; gap: var(--ds-space-1); min-inline-size: 0; max-inline-size: 100%; }
 
 /* ---------------------------------------------------------------- the mapping editor */
-.dsc-map { display: grid; gap: var(--ds-space-3); grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); align-items: start; }
+.dsc-map { display: grid; gap: var(--ds-space-3); grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); align-items: start; }
 .dsc-map-rows { display: flex; flex-direction: column; gap: var(--ds-space-1-5); min-inline-size: 0; }
 .dsc-map-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 32px; gap: var(--ds-space-1-5); align-items: center; }
 .dsc-map-row > [role="cell"] > * { inline-size: 100%; }
 .dsc-map-head { font-size: 12px; line-height: 18px; color: var(--ds-text-3); }
 .dsc-map-err { grid-column: 1 / -1; font-size: 12px; line-height: 18px; color: var(--ds-danger); overflow-wrap: anywhere; }
 .dsc-map-err.dsc-sub { color: var(--ds-text-3); }
-.dsc-ltr-input input { direction: ltr; text-align: start; }
+.dsc-ltr-input input, .dsc-map-row .dsc-path { direction: ltr; text-align: start; }
 .dsc-live { display: flex; flex-direction: column; gap: var(--ds-space-2); padding-block-start: var(--ds-space-2); border-block-start: 1px solid var(--ds-line); }
 
 @media (max-width: 640px) {
