@@ -20,6 +20,7 @@ import type { Ctx } from "../../context";
 import { pgArray } from "../../db";
 import { demoScopeOrg, isDemoRow } from "../../db/scope";
 import { needRecentAuth } from "../../auth/policy";
+import { access } from "../../access/provider";
 import { addJournalIn, get, list, loadReadable, condEnv, orgSchema, updateIn } from "../../engine";
 import { AppError, bad, conflict, forbidden, notFound } from "../../http/errors";
 import { createOrUpdate } from "../cmdb/ire";
@@ -42,6 +43,7 @@ type Row = Record<string, any>;
 export const READ_MESSAGE = "منبع‌های داده را خوانندگان پایگاه پیکربندی می‌بینند";
 export const OPERATOR_MESSAGE = "این کار با مدیر پیکربندی یا مسئول همین منبع است";
 export const DIRECTORY_MESSAGE = "استفاده از این منبع فهرست کاربران با تأیید مدیر یکپارچه‌سازی است";
+export const LINK_WRITE_MESSAGE = "مورد را فقط به پیکربندی‌ای پیوند می‌زنید که اجازهٔ تغییرش را دارید";
 const WINDOWS_AUTH = new Set(["ntlm", "windows_identity"]);
 
 /** A connector failure as an HTTP answer with its Persian message (never a 500). */
@@ -394,8 +396,9 @@ export async function createCiFor(ctx: Ctx, itemId: string) {
 }
 
 /**
- * «پیوند به…»: the item is linked to a CI the caller reads; the next pass reconciles it through that CI (the identity
- * hint) and stamps the source's provenance. A demo CI and a real item (or the reverse) are never linked.
+ * «پیوند به…»: the item is linked to a CI the caller may change (a CMDB administrator: any CI they read) — the next
+ * pass reconciles it through that CI (the identity hint) as the system, as the IRE lets people reconcile only CIs they
+ * may change, and stamps the source's provenance. A demo CI and a real item (or the reverse) are never linked.
  */
 export async function linkItem(ctx: Ctx, itemId: string, ciId: string) {
   const x = await itemAs(ctx, itemId);
@@ -404,6 +407,7 @@ export async function linkItem(ctx: Ctx, itemId: string, ciId: string) {
   const def = (await orgSchema(ctx)).def("ci")!;
   const ci = await loadReadable(ctx.db, ctx, def, ciId, await condEnv(ctx));
   if (!ci) throw notFound("پیکربندی پیدا نشد");
+  if (!x.rights.admin && !(access().canWrite(ctx, def, ci) && ci.$writable !== false)) throw forbidden(LINK_WRITE_MESSAGE);
   // the identity hint ignores such CIs (ire.ts hintedCi); a merged one is followed to the CI it was merged into
   if (["disposed", "canceled"].includes(String(ci.state ?? ""))) throw bad("این پیکربندی کنار گذاشته یا لغو شده است؛ پیکربندی زندهٔ دیگری را برگزینید");
   if ((await isDemoRow(ctx.db, ctx.org.id, ciId)) !== (await isDemoRow(ctx.db, ctx.org.id, x.row.id))) throw bad("داده‌های نمایشی و واقعی به هم پیوند نمی‌خورند");

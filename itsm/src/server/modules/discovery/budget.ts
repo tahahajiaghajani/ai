@@ -8,7 +8,8 @@
 //   · Slices: a job invocation works until min(start + 5 s, deadline − 1 s) and comes back for more; an IRE call
 //     starts only when the rest of the slice covers 1.5 × its predicted time (it is made smaller to fit, down to 5) —
 //     except a slice's first piece of work, which always starts while the deadline is more than a second away.
-//   · At most 2 discovery jobs of an organisation work at once: a third comes back in 30 s.
+//   · At most 2 discovery jobs of an organisation work at once: a third comes back in 30 s (plus up to 20% jitter, so
+//     jobs turned away together come back apart).
 import { writesSerialised } from "../../context";
 
 export const LOCK_BUDGET_SERIALISED_MS = 1000;
@@ -24,6 +25,11 @@ export const EWMA_WEIGHT = 0.3;
 export const DEFAULT_ITEM_MS = 40;
 export const MAX_DISCOVERY_JOBS = 2;
 export const BUSY_AGAIN_MS = 30_000;
+
+/** When a job the limit turned away comes back: BUSY_AGAIN_MS plus up to 20% jitter. */
+export function busyAgainMs(): number {
+  return Math.round(BUSY_AGAIN_MS * (1 + Math.random() * 0.2));
+}
 
 export type CallMode = "new" | "refresh";
 /** Measured milliseconds per item of an IRE call, per mode (kept in the run's cursor across slices). */

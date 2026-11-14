@@ -12,6 +12,8 @@
 //   · the address, the root certificate and the unencrypted tick are checked when they are saved (§14.1, §14.2);
 //   · delete is soft: the connector's data source is set inactive, its items stay and are marked gone, its running
 //     passes stop, and nothing is retired;
+//   · `over_manual` goes off only while the connector's data source ranks below hand edits (its priority above the
+//     manual priority, §8.1) — otherwise the source would go on overriding what people set;
 //   · the unencrypted tick, `over_manual`, the automatic missing mark and cleared secrets are journaled on the
 //     connector (its history records every change; a secret shows only that it changed);
 //   · the Windows app neither runs nor configures connectors: «منبع‌های داده و وضعیت پایش روی سرور اجرا و دیده می‌شوند».
@@ -24,6 +26,7 @@ import { subjectOf } from "../../access";
 import { addJournalIn, isSystemCtx, orgSchema, updateIn } from "../../engine";
 import { registerHooks, type WriteArgs } from "../../engine/hooks";
 import { AppError, bad, forbidden } from "../../http/errors";
+import { cmdbConfig } from "../cmdb/common";
 import { caProblem } from "../integration/ldap";
 import { sysOf } from "../incident/common";
 import { CONNECTOR_MESSAGES } from "./kind";
@@ -86,6 +89,10 @@ export const ASSET_ONLY_MESSAGE = "«ساخت دارایی برای دستگاه
 export const SOFTWARE_ONLY_MESSAGE = "گردآوری نرم‌افزارهای نصب‌شده را مدیر دارایی نرم‌افزار روشن می‌کند";
 export const SECRETS_CLEARED = "کلید به سبب تغییر نشانی پاک شد";
 export const DEMO_PEOPLE_MESSAGE = "کاربران داده‌های نمایشی با منبع‌های داده واقعی کار نمی‌کنند";
+const faNum = (n: number) => String(n).replace(/\d/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[Number(d)]);
+/** The refusal of turning `over_manual` off while the source still outranks hand edits. */
+export const overManualOffMessage = (priority: number, manual: number) =>
+  `پیش از خاموش کردن «معتبرتر از ویرایش دستی»، اولویت منبع دادهٔ این اتصال (اکنون ${faNum(priority)}) را بیشتر از ${faNum(manual)} (اولویت ویرایش دستی) کنید`;
 
 const hostOf = (url: unknown): string => {
   try {
@@ -160,6 +167,11 @@ async function beforeWrite(w: WriteArgs): Promise<void> {
   if (ASSET_FIELDS.some((f) => w.changed.has(f)) && !rights.assetManager) throw forbidden(ASSET_ONLY_MESSAGE);
   if (w.changed.has("collect") && softwareOn(w.next.collect) && !softwareOn(w.prev.collect) && !rights.softwareManager) throw forbidden(SOFTWARE_ONLY_MESSAGE);
   checkSettings(w);
+  if (w.changed.has("over_manual") && w.prev.over_manual === true && w.next.over_manual !== true && w.prev.source_id) {
+    const src = await w.tx.one<{ priority: number }>(`select priority from sm_cmdb_sources where org_id = $1 and id = $2::uuid and deleted_at is null`, [ctx.org.id, w.prev.source_id]);
+    const manual = Number((await cmdbConfig(w.tx, ctx)).manual_priority);
+    if (src && Number(src.priority) <= manual) throw bad(overManualOffMessage(Number(src.priority), manual), { field: "over_manual" });
+  }
   const moved = hostMoved(w);
   const toAuto = w.changed.has("missing_action") && w.next.missing_action === "auto";
   if (!system && !w.trusted && (moved || toAuto || REAUTH_FIELDS.some((f) => w.changed.has(f)))) needRecentAuth(ctx);

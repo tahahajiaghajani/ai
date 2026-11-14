@@ -49,6 +49,8 @@ export function restAuth(c: ConnCtx): Record<string, string> {
 interface RestCursor {
   offset?: number;
   page?: number;
+  /** items listed on the earlier pages (page paging against the tool's total) */
+  seen?: number;
   cursor?: string;
   url?: string;
 }
@@ -89,11 +91,15 @@ async function page(c: ConnCtx, cursor: Cursor | null, size?: number): Promise<P
   const totalRaw = o.total_path ? Number(sourceValue(res.body, o.total_path)) : NaN;
   const total = Number.isFinite(totalRaw) && totalRaw >= 0 ? totalRaw : undefined;
   let next: Cursor = null;
+  // a known total decides when offset and page paging end (a tool may cap its page below the size asked); without one, a
+  // short page is the last
+  const more = (at: number) => (total !== undefined ? at < total : items.length >= limit);
   if (o.paging === "offset") {
     const at = Number(cur.offset ?? 0) + items.length;
-    next = items.length >= limit && (total === undefined || at < total) ? { offset: at } : null;
+    next = more(at) ? { offset: at } : null;
   } else if (o.paging === "page") {
-    next = items.length >= limit ? { page: Number(cur.page ?? o.first_page) + 1 } : null;
+    const at = Number(cur.seen ?? 0) + items.length;
+    next = more(at) ? { page: Number(cur.page ?? o.first_page) + 1, seen: at } : null;
   } else if (o.paging === "cursor") {
     const v = o.cursor_path ? sourceValue(res.body, o.cursor_path) : undefined;
     next = typeof v === "string" || typeof v === "number" ? (String(v) && String(v) !== cur.cursor ? { cursor: String(v) } : null) : null;

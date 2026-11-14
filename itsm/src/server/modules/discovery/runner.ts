@@ -191,7 +191,11 @@ async function finishRunSql(q: Queryable, orgId: string, runId: string, state: "
   );
 }
 
-/** Stop a running pass (a person's «لغو»): its worker stops at its next step. */
+/** A pass the mass-drop guard did not hold, or whose new size a person accepted: the guard's baseline is the latest complete one (§10.4). */
+export const NOT_HELD_SQL = (r: string) =>
+  `not exists (select 1 from jsonb_array_elements(coalesce(${r}.warnings, '[]'::jsonb)) w where w->>'code' = 'mass_drop' and coalesce((w->>'accepted')::boolean, false) = false)`;
+
+/** Stop a running pass (a person's «لغو»): its worker stops at its next step, and its job ends. */
 export async function cancelRun(q: Queryable, orgId: string, runId: string): Promise<boolean> {
   const r = await q.query(`update sm_discovery_runs set state = 'canceled', finished_at = now(), lease_by = null, lease_until = null, updated_at = now() where org_id = $1 and id = $2 and state = 'running' returning id`, [orgId, runId]);
   return r.length > 0;
@@ -352,6 +356,10 @@ export interface PullOptions {
   retryOnly?: boolean;
   /** the job runs demo work (its connector is a demo row): what it queues is demo work too */
   demo?: boolean;
+  /** the pass the job worked on in an earlier slice: the job continues only that one */
+  run?: string;
+  /** remember the pass the job works on (in its payload) */
+  onRun?: (runId: string) => Promise<void>;
 }
 
 /** One slice of a connector's inventory pass. Returns when the slice is spent ({again: 0}) or the pass ended. */
@@ -372,8 +380,13 @@ export async function runPull(sys: Ctx, connectorId: string, jctx: Pick<JobConte
   } catch {
     return { again: WRITABLE_AGAIN_MS };
   }
-  let run = await ensureRun(db, org, connectorId, sys.cfg.origin ?? "cloud", { trigger: opts.trigger ?? "schedule", reapply: opts.reapply, retryOnly: opts.retryOnly });
+  // a job continues only the pass it worked on: once that pass ended (a person's «لغو», abandoned), the job ends with it
+  // instead of starting a new pass — a new one is the sweep's or a person's to ask for
+  const live = opts.run ? await runningRun(db, org, connectorId) : null;
+  if (opts.run && live?.id !== opts.run) return;
+  let run = live ?? (await ensureRun(db, org, connectorId, sys.cfg.origin ?? "cloud", { trigger: opts.trigger ?? "schedule", reapply: opts.reapply, retryOnly: opts.retryOnly }));
   if (!(await claim(db, org, run.id, opts.worker))) return { again: 15_000 };
+  if (run.id !== opts.run) await opts.onRun?.(run.id);
   let cursor = run.cursor as RunCursor;
   if (opts.reapply && !cursor.reapply) cursor = { ...cursor, reapply: true };
 
@@ -637,8 +650,7 @@ export async function runPull(sys: Ctx, connectorId: string, jctx: Pick<JobConte
       if (complete) {
         const last = await tx.one<{ n: number }>(
           `select items_total as n from sm_discovery_runs r where r.org_id = $1 and r.connector_id = $2 and r.lane = 'inventory' and r.state = 'completed' and r.complete
-             and r.id <> $3 and r.deleted_at is null
-             and not exists (select 1 from jsonb_array_elements(coalesce(r.warnings, '[]'::jsonb)) w where w->>'code' = 'mass_drop' and coalesce((w->>'accepted')::boolean, false) = false)
+             and r.id <> $3 and r.deleted_at is null and ${NOT_HELD_SQL("r")}
            order by r.started_at desc limit 1`,
           [org, connectorId, run.id],
         );

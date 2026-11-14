@@ -1,6 +1,7 @@
 // A REST/JSON inventory tool for the discovery tests (design A §17): offset paging (`offset`/`limit`, NetBox-like
-// `{ count, results, next }`), an API key in X-API-Key (a wrong one → 401), and the faults every mock offers — a 503 or
-// a 429 with Retry-After on a chosen page, a slow page, a malformed record and a redirect to another host.
+// `{ count, results, next }`) or page paging (`page`/`page_size`, from 1), a page size the tool caps (`maxLimit`), an
+// API key in X-API-Key (a wrong one → 401), and the faults every mock offers — a 503 or a 429 with Retry-After on a
+// chosen page, a slow page, a malformed record and a redirect to another host.
 import { json } from "./harness";
 
 export const REST_HOST = "rest.mock.test";
@@ -60,6 +61,8 @@ export class RestMock {
   malformed = new Set<number>();
   /** answer every request with a redirect to this URL */
   redirectTo: string | null = null;
+  /** the most items the tool answers in one page, whatever was asked */
+  maxLimit = 1000;
 
   constructor(devices: RestDevice[]) {
     this.devices = devices;
@@ -70,8 +73,9 @@ export class RestMock {
     if (this.redirectTo) return new Response(null, { status: 302, headers: { location: this.redirectTo } });
     if (req.headers.get("x-api-key") !== this.token) return json({ detail: "Invalid token" }, 401);
     if (u.pathname !== "/api/devices/") return json({ detail: "Not found" }, 404);
-    const offset = Number(u.searchParams.get("offset") ?? 0);
-    const limit = Math.min(1000, Number(u.searchParams.get("limit") ?? 50));
+    const limit = Math.min(this.maxLimit, Number(u.searchParams.get("limit") ?? u.searchParams.get("page_size") ?? 50));
+    const page = u.searchParams.get("page");
+    const offset = page !== null ? (Number(page) - 1) * limit : Number(u.searchParams.get("offset") ?? 0);
     this.requests.push({ offset, limit });
     if (this.slowMs) await new Promise((r) => setTimeout(r, this.slowMs));
     const once = this.failOnce.get(offset);

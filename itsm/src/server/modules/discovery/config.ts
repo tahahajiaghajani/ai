@@ -7,7 +7,8 @@
 //     of every item hash, so every item is reconciled again (the kind's version is in the hash on its own)
 //   · the mapping keeps to the field allow-list and the options to the kind's schema; schedules keep to the edition's
 //     minimum
-//   · the organisation's sweep is queued when a connector may run
+//   · the organisation's sweep is queued with every save of an active connector (§7.2: it is the connectors' clock, and
+//     a save — re-entering a key a backup restore dropped, say — brings back a sweep that was lost)
 // Who may change which field, and re-authentication, are the connector guard's (§14.5, DA1 part 2).
 import { kindDescriptor } from "@shared/discovery/kinds";
 import { checkMapping } from "@shared/discovery/mapping";
@@ -101,8 +102,7 @@ export function installConnectorConfig(): void {
   registerHooks("discovery_connector", {
     beforeWrite,
     async afterWrite(w) {
-      const runs = w.op === "create" || w.op === "restore" || w.changed.has("active") || w.changed.has("every_minutes") || w.changed.has("status_every_minutes");
-      if (runs && w.row.active !== false) await ensureSweepIn(w.tx, w.ctx.org.id);
+      if ((w.op === "create" || w.op === "update" || w.op === "restore") && w.row.active !== false) await ensureSweepIn(w.tx, w.ctx.org.id);
     },
   });
 }

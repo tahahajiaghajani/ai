@@ -5,13 +5,14 @@
 //                          has an active connector: queues due pulls and status passes (a demo connector's inside the
 //                          demo scope, §14.4), resumes a pass whose worker vanished, and once a day queues retries of
 //                          connectors run by hand and every active connector's contact ladder, tells the asset managers
-//                          of new mismatches, and keeps runs 90 days (the last 20 per lane and the last complete inventory
-//                          pass always) and batches 30 days
+//                          of new mismatches, and keeps runs 90 days (the last 20 per lane, the last complete inventory
+//                          pass and the mass-drop guard's baseline always) and batches 30 days
 //   discovery.pull         one slice of a connector's inventory pass (runner.ts)
 //   discovery.status       a status pass (DA2's status.ts)
 //   discovery.stale        the contact ladder (stale.ts): after a complete pass, after «پذیرش اندازهٔ تازه», and daily
 // DA2 adds discovery.push_batch and discovery.device_apply, DA7 discovery.itam. At most two discovery jobs of an
-// organisation work at once (§7.1): the others come back in 30 seconds.
+// organisation work at once (§7.1): the others come back in about 30 seconds. Every connector job ensures the sweep
+// (§7.2: a sweep lost with a backup restore comes back with the next job).
 import type { RunTrigger } from "@shared/discovery/types";
 import type { ServerConfig } from "../../context";
 import type { Queryable } from "../../db";
@@ -19,11 +20,11 @@ import { demoScopeOrg, inDemoScope, isDemoRow } from "../../db/scope";
 import { systemCtx } from "../../engine";
 import { enqueue, registerJobHandler, type Job, type JobContext, type JobResult } from "../../jobs";
 import { isUuid } from "../incident/common";
-import { BUSY_AGAIN_MS, MAX_DISCOVERY_JOBS } from "./budget";
+import { busyAgainMs, MAX_DISCOVERY_JOBS } from "./budget";
 import { editionOf } from "./net";
 import { serverKind } from "./registry";
 import { mismatchDigest } from "./mismatch";
-import { runPull } from "./runner";
+import { NOT_HELD_SQL, runPull } from "./runner";
 import { staleJob } from "./stale";
 import { statusPass } from "./status";
 
@@ -99,21 +100,27 @@ export async function queuePull(q: Queryable, orgId: string, connectorId: string
     dedupeKey: `${JOB_KINDS.pull}:${connectorId}`,
     maxAttempts: 8,
   });
-  // the queued twin: a reapply joins it, and a pull with listing outranks a retry-only one
-  if (opts.reapply || !opts.retryOnly) {
-    await q.query(
-      `update sm_jobs set payload = (payload - 'retry_only') || $3::jsonb, updated_at = now()
-       where id = $1 and org_id = $2 and status = 'queued'`,
-      [id, orgId, JSON.stringify(opts.reapply ? { reapply: true } : {})],
-    );
-  }
+  // the queued twin: a new ask starts a pass or joins the running one, never only the pass the twin was continuing (a
+  // person may have canceled it); a reapply joins it, and a pull with listing outranks a retry-only one
+  const drop = opts.reapply || !opts.retryOnly ? `payload - 'run' - 'retry_only'` : `payload - 'run'`;
+  await q.query(`update sm_jobs set payload = (${drop}) || $3::jsonb, updated_at = now() where id = $1 and org_id = $2 and status = 'queued'`, [
+    id,
+    orgId,
+    JSON.stringify(opts.reapply ? { reapply: true } : {}),
+  ]);
   return id;
 }
 
-/** Discovery jobs of an organisation working now, other than `jobId` (the sweep never counts). */
+/**
+ * Discovery jobs of an organisation working now that were claimed before `jobId` (the sweep never counts), in the
+ * order (locked_until, id): the jobs one tick claims in one statement share their lock's end, so the first two of such
+ * a batch work and the rest wait — each counting all the others would send every one of them back, again and again.
+ */
 export async function busyDiscoveryJobs(q: Queryable, orgId: string, jobId: string): Promise<number> {
   const r = await q.one<{ n: number }>(
-    `select count(*)::int as n from sm_jobs where org_id = $1 and status = 'running' and id <> $2 and kind like 'discovery.%' and kind <> $3 and locked_until > now()`,
+    `select count(*)::int as n from sm_jobs j left join sm_jobs me on me.id = $2
+     where j.org_id = $1 and j.status = 'running' and j.id <> $2 and j.kind like 'discovery.%' and j.kind <> $3 and j.locked_until > now()
+       and (me.locked_until is null or (j.locked_until, j.id) < (me.locked_until, me.id))`,
     [orgId, jobId, JOB_KINDS.sweep],
   );
   return r?.n ?? 0;
@@ -134,8 +141,12 @@ async function admitted(job: Job, jctx: JobContext): Promise<{ orgId: string; co
   if (!job.org_id || editionOf({ mode: jctx.cfg.mode ?? "cloud", server: jctx.cfg.server }) === "desktop") return null;
   const connector = String(job.payload?.connector ?? "");
   if (!isUuid(connector)) return null;
-  if ((await busyDiscoveryJobs(jctx.db, job.org_id, job.id)) >= MAX_DISCOVERY_JOBS) return { again: BUSY_AGAIN_MS };
-  return { orgId: job.org_id, connector };
+  // the sweep is the connectors' clock (§7.2): a job of the organisation queues it again when it was lost — outside the
+  // demo scope, so a demo job never makes it demo work
+  const orgId = job.org_id;
+  await inDemoScope(null, () => ensureDiscoverySweep(jctx.db, orgId));
+  if ((await busyDiscoveryJobs(jctx.db, orgId, job.id)) >= MAX_DISCOVERY_JOBS) return { again: busyAgainMs() };
+  return { orgId, connector };
 }
 
 interface SweepRow {
@@ -214,7 +225,10 @@ export async function discoverySweep(cfg: Cfg, orgId: string): Promise<{ queued:
   return { queued, again: active ? sweepEveryMs(cfg) : null };
 }
 
-/** Runs kept 90 days (always the last 20 of each lane and the last complete inventory pass), batches 30, and passes whose worker is long gone abandoned. */
+/**
+ * Runs kept 90 days (always the last 20 of each lane, the last complete inventory pass, and the mass-drop guard's
+ * baseline — the last complete pass it did not hold), batches 30, and passes whose worker is long gone abandoned.
+ */
 export async function dailyUpkeep(q: Queryable, orgId: string): Promise<{ runs: number; batches: number; abandoned: number }> {
   const abandoned = await q.query(
     `update sm_discovery_runs set state = 'abandoned', finished_at = now(), lease_by = null, lease_until = null, updated_at = now()
@@ -225,6 +239,8 @@ export async function dailyUpkeep(q: Queryable, orgId: string): Promise<{ runs: 
     `delete from sm_discovery_runs r where r.org_id = $1 and r.state <> 'running' and r.started_at < now() - interval '${RUN_KEEP_DAYS} days'
        and r.id not in (select id from (select id, row_number() over (partition by connector_id, lane order by started_at desc) as n from sm_discovery_runs where org_id = $1) k where k.n <= ${RUN_KEEP_LAST})
        and r.id not in (select distinct on (connector_id) id from sm_discovery_runs where org_id = $1 and lane = 'inventory' and state = 'completed' and complete order by connector_id, started_at desc)
+       and r.id not in (select distinct on (connector_id) b.id from sm_discovery_runs b where b.org_id = $1 and b.lane = 'inventory' and b.state = 'completed' and b.complete
+                          and b.deleted_at is null and ${NOT_HELD_SQL("b")} order by b.connector_id, b.started_at desc)
      returning r.id`,
     [orgId],
   );
@@ -257,7 +273,12 @@ export function installDiscoveryJobs(): void {
       const p = job.payload ?? {};
       // a preview is never a pass (runner.ts previewConnector)
       const trigger: RunTrigger = p.trigger === "manual" || p.trigger === "push" ? p.trigger : "schedule";
-      return runPull(sys, a.connector, jctx, { worker: job.id, trigger, reapply: p.reapply === true, retryOnly: p.retry_only === true, demo });
+      // the job remembers the pass it works on: once that pass ended (a person's «لغو»), the job ends with it
+      const run = typeof p.run === "string" && isUuid(p.run) ? p.run : undefined;
+      return runPull(sys, a.connector, jctx, {
+        worker: job.id, trigger, reapply: p.reapply === true, retryOnly: p.retry_only === true, demo, run,
+        onRun: (id) => jctx.save({ ...(job.payload ?? {}), run: id }),
+      });
     });
   });
   registerJobHandler(JOB_KINDS.status, async (job, jctx) => {
