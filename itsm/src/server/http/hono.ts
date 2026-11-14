@@ -36,6 +36,23 @@ export function isBackgroundRequest(c: Pick<C, "req">): boolean {
   return c.req.header(BACKGROUND_HEADER) === "1" || (c.req.method === "GET" && PULSE_PATH.test(c.req.path));
 }
 
+/**
+ * The rest of a request whose session is now known, counted in `cfg.foreground` while it runs when a person waits for
+ * it: a signed-in browser session's (kind "web", the session cookie), the screen's own polling aside. A Windows app's
+ * sync (kind "device", a bearer token), a monitoring probe and anyone not signed in never count — machine traffic must
+ * not hold the job runner back (src/server-edition/foreground.ts, src/desktop/server.ts).
+ */
+async function asForeground(c: C, session: AuthSession, next: () => Promise<void>): Promise<void> {
+  const fg = c.get("cfg").foreground;
+  if (!fg || session.kind !== "web" || isBackgroundRequest(c)) return next();
+  fg.started();
+  try {
+    await next();
+  } finally {
+    fg.ended();
+  }
+}
+
 /** Loads the signed-in user (cookie or bearer token); 401 when missing. */
 export const requireUser: MiddlewareHandler<Env> = async (c, next) => {
   const cfg = c.get("cfg");
@@ -43,18 +60,17 @@ export const requireUser: MiddlewareHandler<Env> = async (c, next) => {
   if (!resolved) throw unauthorized();
   c.set("user", resolved.user);
   c.set("session", resolved.session);
-  await next();
+  await asForeground(c, resolved.session, next);
 };
 
 /** Same as requireUser but continues anonymously. */
 export const optionalUser: MiddlewareHandler<Env> = async (c, next) => {
   const cfg = c.get("cfg");
   const resolved = await resolveToken(cfg.db, tokenFromRequest(c), { background: isBackgroundRequest(c) });
-  if (resolved) {
-    c.set("user", resolved.user);
-    c.set("session", resolved.session);
-  }
-  await next();
+  if (!resolved) return next();
+  c.set("user", resolved.user);
+  c.set("session", resolved.session);
+  await asForeground(c, resolved.session, next);
 };
 
 /** For /o/:org/* — loads the organisation and the caller's membership. */

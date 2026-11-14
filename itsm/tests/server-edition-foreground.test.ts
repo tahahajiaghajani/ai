@@ -1,26 +1,24 @@
 // The server edition's job runner gives way to the requests people wait for, across the cluster (src/server-edition/
-// foreground.ts): each worker counts its foreground API requests (the screens' polling aside) and tells the supervisor
-// when it starts and stops having any; the supervisor tells every worker whether any worker has; the scheduler leader's
-// runner waits for them before each round of jobs (TickOptions.busy) — at most YIELD_MS each time, so it never starves.
+// foreground.ts): the API counts a signed-in browser session's requests (the screens' polling aside) in each worker's
+// gate once their session is known — never machine traffic: the Windows apps' sync, token clients, monitoring probes or
+// anyone not signed in —; each worker tells the supervisor when it starts and stops having any; the supervisor tells
+// every worker whether any worker has; the scheduler leader's runner waits for them before each round of jobs
+// (TickOptions.busy) — at most YIELD_MS each time, so it never starves. The Windows app's local server counts its own
+// window's requests from the first byte and the office network's once signed in (src/desktop/server.ts).
 // Background: the administrator's demo incident record in bank-sim while the demo pack's backlog drained (PERFORMANCE_FA §18).
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { Hono } from "hono";
+import { randomUUID } from "node:crypto";
 import { ForegroundBoard, ForegroundGate, FOREGROUND_LINGER_MS } from "../src/server-edition/foreground";
-import { createFront } from "../src/server-edition/front";
-import { createStaticSite } from "../src/server-edition/static";
-import { WorkerMetrics } from "../src/server-edition/metrics";
-import { defaultConfig } from "../src/server-edition/config";
+import { windowRequest } from "../src/desktop/server";
 import { enqueue, registerJobHandler, tick, YIELD_MS } from "@server/jobs";
+import { router, requireUser } from "@server/http/hono";
 import type { ServerConfig } from "@server/context";
 import { makeServer, Client, signupWithOrg, quietLog } from "./helpers";
 
-const temps: string[] = [];
 afterEach(() => {
   vi.useRealTimers();
-  while (temps.length) rmSync(temps.pop()!, { recursive: true, force: true });
 });
 
 describe("ForegroundGate: one worker's requests a person waits for", () => {
@@ -88,66 +86,128 @@ describe("ForegroundBoard: the supervisor's view of the workers", () => {
   });
 });
 
-describe("the front counts the API requests a person waits for", () => {
-  const makeFront = (foreground: { started(): void; ended(): void }) => {
-    const site = mkdtempSync(join(tmpdir(), "itsm-srv-fg-"));
-    temps.push(site);
-    writeFileSync(join(site, "index.html"), "<!doctype html><title>Kariz</title>");
-    const api = new Hono().basePath("/api");
+describe("the API counts the requests a person waits for: signed-in browser sessions, never machine traffic", () => {
+  /** cfg.foreground for a test: how many started and ended, and the most at once. */
+  const counting = () => {
+    const n = { started: 0, ended: 0, now: 0, most: 0 };
+    const fg = {
+      started: () => {
+        n.started++;
+        n.most = Math.max(n.most, ++n.now);
+      },
+      ended: () => {
+        n.ended++;
+        n.now--;
+      },
+    };
+    return { n, fg };
+  };
+  /** A request as any client may send it; the status is returned, never asserted. */
+  const send = async (app: { fetch(r: Request): Response | Promise<Response> }, path: string, headers: Record<string, string> = {}) => {
+    const res = await app.fetch(new Request(`http://local.test/api${path}`, { headers }));
+    await res.text();
+    return res.status;
+  };
+
+  it("counts a person's pages, not a Windows app's sync, a token client, a probe, the screen's polling or anyone not signed in", async () => {
+    const { n, fg } = counting();
+    const s = await makeServer({ config: { foreground: fg } });
+    try {
+      const person = new Client(s.app);
+      const org = await signupWithOrg(person);
+      // a Windows app linked to the organisation signs in the way SyncClient does: a device session, a bearer token
+      const login = await new Client(s.app).post<{ token: string }>("/auth/login", { email: "owner@example.com", password: "s3cret-pass", device: { name: "رایانهٔ شعبه", platform: "windows" } });
+      expect(login.token).toBeTruthy();
+      const bearer = { authorization: `Bearer ${login.token}` };
+
+      // the person's requests count, each from its start to its answer
+      let before = n.started;
+      expect(await send(s.app, `/o/${org}`, { cookie: person.cookie })).toBe(200);
+      expect(await send(s.app, "/meta", { cookie: person.cookie })).toBe(200);
+      expect(await send(s.app, "/auth/me", { cookie: person.cookie })).toBe(200);
+      expect(n.started - before).toBe(3);
+      expect(n.ended).toBe(n.started);
+      expect(n.now).toBe(0);
+
+      before = n.started;
+      // the Windows app's sync, every 30 s and after each local change (src/desktop/sync-client.ts)
+      expect(await send(s.app, `/sync/status?org_id=${org}`, bearer)).toBe(200);
+      await send(s.app, `/sync/pull?org_id=${org}&cursor=0&user_cursor=0&device_id=${randomUUID()}`, bearer);
+      // the same token on the organisation's own routes
+      await send(s.app, `/o/${org}`, bearer);
+      // a token that also carries a browser's cookie is the token's session
+      await send(s.app, `/o/${org}`, { ...bearer, cookie: person.cookie });
+      // the screen's own polling: the live pulse and a refresh timer
+      await send(s.app, `/o/${org}/pulse`, { cookie: person.cookie });
+      await send(s.app, `/o/${org}`, { cookie: person.cookie, "x-itsm-background": "1" });
+      // a monitoring probe, and anyone not signed in, with or without a made-up session
+      expect(await send(s.app, "/health")).toBe(200);
+      expect(await send(s.app, "/meta")).toBe(200);
+      expect(await send(s.app, `/o/${org}`)).toBe(401);
+      expect(await send(s.app, `/o/${org}`, { cookie: `itsm_session=${randomUUID()}.forged` })).toBe(401);
+      expect(await send(s.app, `/o/${org}`, { authorization: `Bearer ${randomUUID()}.forged` })).toBe(401);
+      expect(n.started).toBe(before);
+    } finally {
+      await s.db.close();
+    }
+  });
+
+  it("holds the gate while the person's request runs and releases it when the answer is out; a token's never holds it", async () => {
+    const s = await makeServer();
+    const person = new Client(s.app);
+    await signupWithOrg(person);
+    const login = await new Client(s.app).post<{ token: string }>("/auth/login", { email: "owner@example.com", password: "s3cret-pass", device: { name: "رایانهٔ شعبه", platform: "windows" } });
+    const gate = new ForegroundGate(() => {}, 30);
+    const cfg: ServerConfig = { mode: "cloud", db: s.db, secret: "t", allowSignup: false, platformAdmins: [], origin: "cloud", log: quietLog, fetch, foreground: gate };
     let release = () => {};
-    const held = new Promise<void>((r) => (release = r));
-    api.get("/o/:org/r/incident", (c) => c.json({ rows: [] }));
-    api.get("/o/:org/pulse", (c) => c.json({ rev: 1 }));
-    api.get("/o/:org/slow", async (c) => {
+    let held = new Promise<void>((r) => (release = r));
+    let entered = 0;
+    const api = router();
+    api.use("*", async (c, next) => {
+      c.set("cfg", cfg);
+      await next();
+    });
+    api.get("/slow", requireUser, async (c) => {
+      entered++;
       await held;
       return c.json({ ok: true });
     });
-    const c = defaultConfig(mkdtempSync(join(tmpdir(), "itsm-srv-fg-data-")));
-    temps.push(c.dirs.data);
-    const metrics = new WorkerMetrics(1, 10, 1500);
-    const front = createFront({
-      api,
-      config: () => c,
-      site: createStaticSite(site, () => ""),
-      metrics,
-      log: quietLog,
-      ready: async () => ({ ok: true, checks: { database: true } }),
-      cluster: async () => ({ workers: [metrics.snapshot()], expected_workers: 1, restarts: 0, started_at: "" }),
-      queue: async () => ({ due: 0, running: 0, failed_24h: 0 }),
-      setup: new Hono().get("/state", (cc) => cc.json({ required: false })),
-      setupRequired: async () => false,
-      https: true,
-      foreground,
-    });
-    return { front, release };
-  };
-  const org = "01a1d89c-0565-7025-ac20-8d3b6efa4b85";
+    try {
+      const pending = api.request("/slow", { headers: { cookie: person.cookie } });
+      await vi.waitFor(() => expect(gate.inFlight).toBe(1));
+      expect(gate.busy()).toBe(true);
+      release();
+      expect((await pending).status).toBe(200);
+      expect(gate.inFlight).toBe(0);
+      await vi.waitFor(() => expect(gate.busy()).toBe(false));
 
-  it("counts a record list, not the live pulse, a background timer, readiness or a static file", async () => {
-    let started = 0;
-    let ended = 0;
-    const { front } = makeFront({ started: () => started++, ended: () => ended++ });
-    await front.request(`https://k.local/api/o/${org}/r/incident`);
-    expect([started, ended]).toEqual([1, 1]);
-    await front.request(`https://k.local/api/o/${org}/pulse`);
-    await front.request(`https://k.local/api/o/${org}/r/incident`, { headers: { "x-itsm-background": "1" } });
-    await front.request("https://k.local/api/ready");
-    await front.request("https://k.local/o/x/incidents");
-    expect([started, ended]).toEqual([1, 1]);
+      // the Windows app's token: the request runs, the gate stays open
+      held = new Promise<void>((r) => (release = r));
+      const sync = api.request("/slow", { headers: { authorization: `Bearer ${login.token}` } });
+      await vi.waitFor(() => expect(entered).toBe(2));
+      expect(gate.inFlight).toBe(0);
+      expect(gate.busy()).toBe(false);
+      release();
+      expect((await sync).status).toBe(200);
+    } finally {
+      release();
+      gate.close();
+      await s.db.close();
+    }
   });
+});
 
-  it("holds the gate while a request is in flight and releases it when the answer is out", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const gate = new ForegroundGate();
-    const { front, release } = makeFront(gate);
-    const pending = front.request(`https://k.local/api/o/${org}/slow`);
-    await vi.waitFor(() => expect(gate.inFlight).toBe(1));
-    expect(gate.busy()).toBe(true);
-    release();
-    expect((await pending).status).toBe(200);
-    expect(gate.inFlight).toBe(0);
-    vi.advanceTimersByTime(FOREGROUND_LINGER_MS + 1);
-    expect(gate.busy()).toBe(false);
+describe("the Windows app's local server: its window counts from the first byte, the office network once signed in", () => {
+  it("takes a request of this computer without a token for the window's", () => {
+    expect(windowRequest("127.0.0.1", undefined)).toBe(true);
+    expect(windowRequest("::1", undefined)).toBe(true);
+    expect(windowRequest("::ffff:127.0.0.1", undefined)).toBe(true);
+    // a token is never the window's: the Windows apps' sync and API clients send one
+    expect(windowRequest("127.0.0.1", "Bearer 0193a0b2-0000-7000-8000-000000000000.x")).toBe(false);
+    // the office network in LAN mode (counted once its browser session is known), and a request made inside the process
+    expect(windowRequest("192.168.10.24", undefined)).toBe(false);
+    expect(windowRequest("::ffff:10.0.0.5", undefined)).toBe(false);
+    expect(windowRequest(undefined, undefined)).toBe(false);
   });
 });
 
@@ -188,17 +248,24 @@ describe("the scheduler leader's job runner gives way to a person's requests any
     }
   });
 
-  it("is wired in the server edition: the front counts, the worker reports and passes busy, the supervisor relays", () => {
-    const src = (f: string) => readFileSync(join(__dirname, "..", "src", "server-edition", f), "utf8");
-    const worker = src("worker.ts");
+  it("is wired: the API counts for the worker's gate, the worker reports and passes busy, the supervisor relays; the desktop counts its window", () => {
+    const src = (f: string) => readFileSync(join(__dirname, "..", "src", f), "utf8");
+    const worker = src("server-edition/worker.ts");
     expect(worker).toMatch(/new ForegroundGate\(o\.ipc \? \(on\) => send\(\{ t: "fg", on \}\)/);
     expect(worker).toMatch(/tick\(cfg, \{ budgetMs: 20_000, concurrency: JOB_CONCURRENCY, .*, busy: foreground\.busy \}\)/);
     expect(worker).toMatch(/m\?\.t === "fg"\) foreground\.setCluster\(m\.busy === true\)/);
-    expect(worker).toMatch(/foreground,\n\s+\}\);/);
-    const front = src("front.ts");
-    expect(front).toMatch(/if \(!d\.foreground \|\| isBackgroundRequest\(c\)\) return next\(\);/);
-    const cluster = src("cluster.ts");
+    // the gate is the API's cfg.foreground (requireUser and optionalUser count once the session is known) …
+    expect(worker).toMatch(/auth: authConfig\(current\),\n\s+foreground,\n/);
+    expect(src("server/http/hono.ts")).toMatch(/if \(!fg \|\| session\.kind !== "web" \|\| isBackgroundRequest\(c\)\) return next\(\);/);
+    // … not the front, where every probe, sync call and client not signed in would count
+    expect(src("server-edition/front.ts")).not.toMatch(/foreground\.started|isBackgroundRequest|foreground\?:/);
+    const cluster = src("server-edition/cluster.ts");
     expect(cluster).toMatch(/m\.t === "fg"\) foregroundChanged\(foreground\.set\(w\.id, m\.on === true\)\)/);
     expect(cluster).toMatch(/foregroundChanged\(foreground\.gone\(w\.id\)\)/);
+    // the Windows app: its window's requests (windowRequest) and signed-in browsers of the office network (cfg.foreground)
+    const desktop = src("desktop/server.ts");
+    expect(desktop).toMatch(/foreground: \{ started: \(\) => void signedIn\+\+, ended: \(\) => void signedIn-- \}/);
+    expect(desktop).toMatch(/busy: \(\) => fromWindow > 0 \|\| signedIn > 0/);
+    expect(desktop).toMatch(/if \(isBackgroundRequest\(c\) \|\| !windowRequest\(peerOf\(c\), c\.req\.header\("authorization"\)\)\) return next\(\);\n\s+fromWindow\+\+;/);
   });
 });

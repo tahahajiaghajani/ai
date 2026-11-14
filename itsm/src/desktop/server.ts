@@ -55,6 +55,18 @@ function isLoopbackHost(host: string | undefined) {
   return h === "localhost" || h === "::1" || /^127\./.test(h);
 }
 
+/** The TCP peer of a request (undefined where the platform hides it: a request made inside the process, the tests). */
+const peerOf = (c: { env: unknown }): string | undefined => (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming?.socket?.remoteAddress;
+
+/**
+ * Is this API request one of the app's own window — from this computer and without a token? The job queue waits for
+ * these whether or not anyone is signed in yet. A token is never the window's: the Windows apps' sync and other API
+ * clients send one; and a browser of the office network (LAN mode) counts only once its session is known.
+ */
+export function windowRequest(peer: string | undefined, authorization: string | undefined): boolean {
+  return !authorization && peer !== undefined && isLoopback(peer);
+}
+
 /**
  * The site's cache policy inside the app: the build's hashed files (/assets/) are kept for good — a later start, and a
  * route opened again, takes them and their compiled code from the window's cache without asking this server, which may
@@ -113,6 +125,13 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
 
   let server: ReturnType<typeof serve> | null = null;
   const bridge = createBridge({ dataDir: opts.dataDir, db, config, log, save: () => saveConfig(opts.dataDir, config) });
+  // requests a person waits for, in flight, the screens' background polling aside: the job queue waits for them before
+  // each job, so a page's burst of requests is not interleaved with job statements on the database's one connection.
+  // The window's own (windowRequest) count from their first byte, signed in or not (the setup, the sign-in); those of
+  // the office network (LAN mode) once their browser session is known (cfg.foreground) — never a token client, a probe
+  // or anyone not signed in there (PERFORMANCE_FA §18)
+  let fromWindow = 0;
+  let signedIn = 0;
   const cfg: ServerConfig = {
     mode: "desktop",
     db,
@@ -123,26 +142,23 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
     desktop: bridge,
     log,
     fetch: globalThis.fetch.bind(globalThis),
+    foreground: { started: () => void signedIn++, ended: () => void signedIn-- },
   };
   const api = createApp(cfg);
-  // requests of the window (and of the office network's browsers) in flight, its background polling aside: the job
-  // queue waits for them before each job, so a page's burst of requests is not interleaved with job statements on the
-  // database's one connection
-  let foreground = 0;
   // the job queue (record events, notifications, SLA timers…) runs every 10 s on this computer
   const jobTimer = setInterval(() => {
-    void tick(cfg, { budgetMs: 8000, busy: () => foreground > 0 }).catch((e) => log.warn("job tick failed", String((e as Error)?.message ?? e)));
+    void tick(cfg, { budgetMs: 8000, busy: () => fromWindow > 0 || signedIn > 0 }).catch((e) => log.warn("job tick failed", String((e as Error)?.message ?? e)));
   }, 10_000);
   jobTimer.unref?.();
 
   const app = new Hono();
   app.use("/api/*", async (c, next) => {
-    if (isBackgroundRequest(c)) return next();
-    foreground++;
+    if (isBackgroundRequest(c) || !windowRequest(peerOf(c), c.req.header("authorization"))) return next();
+    fromWindow++;
     try {
       await next();
     } finally {
-      foreground--;
+      fromWindow--;
     }
   });
   // Who may reach the API. Before the first account exists every request is trusted as the
@@ -159,7 +175,7 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   app.use("/api/*", async (c, next) => {
     const path = c.req.path;
     if (path === "/api/health" || path === "/api/meta") return next();
-    const remote = (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming?.socket?.remoteAddress;
+    const remote = peerOf(c);
     const foreign = (remote !== undefined && !isLoopback(remote)) || !isLoopbackHost(c.req.header("host"));
     if (foreign && (await firstRun())) {
       return c.json({ error: { code: "forbidden", message: "راه‌اندازی نخست فقط روی خود این رایانه انجام می‌شود" } }, 403);

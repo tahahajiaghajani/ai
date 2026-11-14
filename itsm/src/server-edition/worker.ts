@@ -157,8 +157,9 @@ export async function startServerEdition(o: StartOptions): Promise<RunningServer
   // write admission: kariz.json writers_per_org (ITSM_WRITERS_PER_ORG wins)
   configureWriteAdmission(current.writers_per_org);
   const metrics = new WorkerMetrics(workerId, pool.perWorker, current.log.slow_ms);
-  // requests a person waits for, on this worker and (through the supervisor) on the others: the job runner of the
-  // scheduler leader gives way to them before each round of jobs (foreground.ts)
+  // requests a person waits for (signed-in browser sessions, counted by the API: cfg.foreground), on this worker and
+  // (through the supervisor) on the others: the job runner of the scheduler leader gives way to them before each round
+  // of jobs (foreground.ts)
   const foreground = new ForegroundGate(o.ipc ? (on) => send({ t: "fg", on }) : undefined);
 
   // outbound policy: every fetch, plus a socket-level guard under it
@@ -237,6 +238,7 @@ export async function startServerEdition(o: StartOptions): Promise<RunningServer
     network,
     blobs,
     auth: authConfig(current),
+    foreground,
     server: {
       health: () => serverHealth({ db, config: current, cluster, cert: () => certInfo }),
       info: () => ({ air_gapped: current.network.air_gapped, public_url: current.public_url, directory_path: DIRECTORY_SETTINGS_PATH }),
@@ -342,7 +344,6 @@ export async function startServerEdition(o: StartOptions): Promise<RunningServer
     ),
     setupRequired: async () => !(await hasUsers()),
     https: current.tls.enabled,
-    foreground,
   });
 
   const handle = nodeHandler(front.fetch, () => current.trusted_proxies);

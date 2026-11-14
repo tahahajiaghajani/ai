@@ -6,12 +6,18 @@
 // and its event loop: the administrator's demo incident record took 1.7–3.6 s in bank-sim, its «رخدادهای مشابه» panel
 // alone 1.2–2.3 s while its full-text ranking statement ran 1.5–1.8 s in the database (PERFORMANCE_FA §18).
 //
-// Each worker counts the requests in flight that a person is waiting for (`ForegroundGate`: the API, its background
-// polling aside — isBackgroundRequest) and tells the supervisor when it starts and stops having any; the supervisor
+// Each worker counts the requests in flight that a person is waiting for (`ForegroundGate`, the worker's
+// `cfg.foreground`: the API counts a request once its session is known — a signed-in browser session's, its background
+// polling aside; src/server/http/hono.ts) and tells the supervisor when it starts and stops having any; the supervisor
 // (`ForegroundBoard`) tells every worker whether any worker has. The leader's job runner asks `busy()` before each round
 // of jobs (TickOptions.busy, src/server/jobs/index.ts) and waits while it is true — at most YIELD_MS each time, so a
 // server in constant use still runs every job, only more slowly. Nothing else changes: the same jobs run, in the same
 // order.
+//
+// Machine traffic never counts: the Windows apps' sync (a device token; every 30 s and after each local change, so
+// 5 to 15 requests a second from 150 linked apps), monitoring probes and anyone not signed in. Counted, each of those
+// requests kept its worker «busy» for the linger after it, which held the queue at its constant-use pace day and night,
+// and any client could hold the runner back with a request every 300 ms.
 
 /** How long a worker stays «busy» after its last foreground request ended: the gaps between a page's waves of requests. */
 export const FOREGROUND_LINGER_MS = 300;
