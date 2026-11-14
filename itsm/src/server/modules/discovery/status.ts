@@ -30,10 +30,10 @@ import { FLEET_CATEGORIES } from "@shared/tables/itam";
 import { tableDef } from "@shared/tables";
 import { uuidv7 } from "@shared/id";
 import type { Ctx } from "../../context";
-import { pgArray, type Queryable, type Tx } from "../../db";
+import { isTransientDbError, pgArray, type Queryable, type Tx } from "../../db";
 import { demoScopeOrg, inDemoScope, isDemoRow } from "../../db/scope";
 import { subjectOf } from "../../access";
-import { condEnv, get, isSystemCtx, orgTz, readable, systemCtx } from "../../engine";
+import { condEnv, get, isSystemCtx, orgTz, readable, savepoint, systemCtx } from "../../engine";
 import { AppError, forbidden } from "../../http/errors";
 import { registerJobHandler, type Job, type JobContext, type JobResult } from "../../jobs";
 import { assertWritable } from "../platform/org-admin";
@@ -487,9 +487,19 @@ export async function statusPass(sys: Ctx, connectorId: string, jctx: Pick<JobCo
 // ---------------------------------------------------------------------------------------------------------------
 // The event sink (§9.7)
 
-/** Every processed event: an alert bound to a CI sets, changes or removes its event source's signal on the CI. */
+/**
+ * Every processed event: an alert bound to a CI sets, changes or removes its event source's signal on the CI. In its
+ * own savepoint: status never fails the event's processing.
+ */
 export async function statusSink(tx: Tx, sys: Ctx, event: Row, alert: Row | null): Promise<void> {
   if (editionOf(sys.cfg) === "desktop") return;
+  await savepoint(tx, () => signalOf(tx, sys, event, alert)).catch((e) => {
+    if (isTransientDbError(e)) throw e;
+    sys.cfg.log?.warn?.("discovery status sink failed", { event: event.id, error: String((e as Error)?.message ?? e) });
+  });
+}
+
+async function signalOf(tx: Tx, sys: Ctx, event: Row, alert: Row | null): Promise<void> {
   const ciId = isUuid(event.ci_id) ? String(event.ci_id) : isUuid(alert?.ci_id) ? String(alert!.ci_id) : null;
   const sourceId = isUuid(event.source_id) ? String(event.source_id) : null;
   if (!ciId || !sourceId) return;
@@ -515,9 +525,9 @@ export async function statusSink(tx: Tx, sys: Ctx, event: Row, alert: Row | null
   if (!row && !signal) return;
   await tx.query(
     `insert into sm_discovery_states as s (id, org_id, target_table, target_id, ci_id, asset_id, signals, origin)
-     values ($1, $2, 'ci', $3, $3::uuid, (select a.id from sm_assets a where a.org_id = $2 and a.ci_id = $3::uuid and a.deleted_at is null order by a.created_at limit 1), $4::jsonb, $5)
+     values ($1, $2, 'ci', $3::text, $4::uuid, (select a.id from sm_assets a where a.org_id = $2 and a.ci_id = $4::uuid and a.deleted_at is null order by a.created_at limit 1), $5::jsonb, $6)
      on conflict (org_id, target_table, target_id) where deleted_at is null do update set signals = excluded.signals, updated_at = now()`,
-    [uuidv7(), org, ciId, JSON.stringify(signals), sys.cfg.origin ?? "cloud"],
+    [uuidv7(), org, ciId, ciId, JSON.stringify(signals), sys.cfg.origin ?? "cloud"],
   );
   await aggregateTargets(tx, sys, [{ table: "ci", id: ciId }]);
 }
@@ -675,9 +685,9 @@ export async function statusPanel(ctx: Ctx, table: "ci" | "asset", id: string): 
   const assetId = table === "asset" ? id : null;
   const state = await ctx.db.one<Row>(
     `select * from sm_discovery_states where org_id = $1 and deleted_at is null
-       and ((target_table = 'ci' and target_id = $2) or (target_table = 'asset' and target_id = $3) or ($3::text is not null and asset_id = $3::uuid))
+       and ((target_table = 'ci' and target_id = $2) or (target_table = 'asset' and target_id = $3) or ($4::uuid is not null and asset_id = $4::uuid))
      order by (target_table = 'ci') desc limit 1`,
-    [org, ciId ?? "", assetId],
+    [org, ciId ?? "", assetId ?? "", assetId],
   );
   const status = state
     ? {
