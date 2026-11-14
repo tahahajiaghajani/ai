@@ -6,7 +6,10 @@
 // the panel follow the read rules.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { alertSignal, prtgStatus, recordState, vcenterStatus, zabbixStatus } from "@shared/discovery/availability";
+import { alertSignal, recordState } from "@shared/discovery/availability";
+import { prtgAvailability } from "@shared/discovery/kinds/prtg";
+import { vcenterHostStatus, vcenterVmStatus } from "@shared/discovery/kinds/vcenter";
+import { isAvailabilityProblem, zabbixAvailability, type ZabbixAvailabilityInput } from "@shared/discovery/kinds/zabbix";
 import { aggregateStatus, freshForMs } from "@shared/discovery/status";
 import { normalize } from "@shared/event/logic";
 import { parseBody } from "@server/modules/event/ingest";
@@ -23,31 +26,41 @@ import { discoveryWorld, type DiscoveryWorld, type Row } from "./discovery-helpe
 
 const NOW = Date.parse("2026-11-14T10:00:00Z");
 const ago = (min: number) => new Date(NOW - min * 60_000).toISOString();
+/** A monitored Zabbix host with nothing polled yet, and an ICMP check's last value now (the kind's input). */
+const HOST: ZabbixAvailabilityInput = { status: 0, maintenance: false, icmp: [], agent: [], interfaces: [], problems: [] };
+const icmpCheck = (value: "0" | "1") => [{ value, clock: Math.floor(NOW / 1000) }];
 
-describe("availability per kind (design A §9.2)", () => {
+describe("availability per kind (design A §9.2: each kind's own rule)", () => {
   it("Zabbix: ICMP decides down, the agent alone unreachable, a disk trigger warns, information never", () => {
-    expect(zabbixStatus({ icmp: 0, agent: 1 })).toMatchObject({ state: "down", availability: true });
-    expect(zabbixStatus({ agent: 2 })).toMatchObject({ state: "unreachable", availability: true });
-    expect(zabbixStatus({ icmp: 1, agent: 2 }).state).toBe("warning");
-    expect(zabbixStatus({ icmp: 1, problems: [{ severity: 3, name: "/: Disk space is low" }] })).toMatchObject({ state: "warning", message: "/: Disk space is low" });
-    expect(zabbixStatus({ icmp: 1, problems: [{ severity: 1 }, { severity: "Not classified" }] }).state).toBe("up");
-    expect(zabbixStatus({ icmp: 1, problems: [{ severity: 4, tags: [{ tag: "scope", value: "availability" }] }] }).state).toBe("down");
-    expect(zabbixStatus({ maintenance: true, icmp: 0 }).state).toBe("maintenance");
+    expect(zabbixAvailability({ ...HOST, icmp: icmpCheck("0"), interfaces: [{ type: 1, available: 1 }] })).toMatchObject({ state: "down", availability: true });
+    expect(zabbixAvailability({ ...HOST, interfaces: [{ type: 1, available: 2 }] })).toMatchObject({ state: "unreachable", availability: true });
+    expect(zabbixAvailability({ ...HOST, icmp: icmpCheck("1"), interfaces: [{ type: 1, available: 2 }] }).state).toBe("warning");
+    expect(zabbixAvailability({ ...HOST, icmp: icmpCheck("1"), problems: [{ severity: 3, availability: false, name: "/: Disk space is low" }] })).toMatchObject({ state: "warning", message: "/: Disk space is low" });
+    expect(zabbixAvailability({ ...HOST, icmp: icmpCheck("1"), problems: [{ severity: 1, availability: false, name: "Information" }, { severity: 0, availability: false, name: "Not classified" }] }).state).toBe("up");
+    const tagged = isAvailabilityProblem([{ tag: "scope", value: "availability" }]);
+    expect(zabbixAvailability({ ...HOST, icmp: icmpCheck("1"), problems: [{ severity: 4, availability: tagged, name: "Unavailable by ICMP ping" }] })).toMatchObject({ state: "down", availability: true });
+    expect(zabbixAvailability({ ...HOST, maintenance: true, icmp: icmpCheck("0") }).state).toBe("maintenance");
   });
   it("PRTG: the Ping (or primary) sensor decides; other sensors and «down partial» warn; paused is maintenance", () => {
-    expect(prtgStatus([{ name: "Ping", type: "ping", status_raw: 5 }, { name: "CPU", status_raw: 3 }])).toMatchObject({ state: "down", availability: true });
-    expect(prtgStatus([{ name: "Ping", type: "ping", status_raw: 8 }]).state).toBe("unreachable");
-    expect(prtgStatus([{ name: "Ping", type: "ping", status_raw: 3 }, { name: "Disk", status_raw: 5 }]).state).toBe("warning");
-    expect(prtgStatus([{ name: "Ping", type: "ping", status_raw: 3 }, { name: "Disk", status_raw: 14 }]).state).toBe("warning");
-    expect(prtgStatus([{ name: "Ping", type: "ping", status_raw: 7 }]).state).toBe("maintenance");
-    expect(prtgStatus([{ id: 42, name: "HTTP", status_raw: 13 }, { name: "Ping", type: "ping", status_raw: 3 }], { primary_sensor: 42 }).state).toBe("down");
-    expect(prtgStatus([{ name: "Ping", type: "ping", status_raw: 3 }]).state).toBe("up");
+    const ping = (status: number) => ({ status, name: "Ping" });
+    // a device PRTG itself shows «Up» (3) whose Ping sensor is down is down
+    expect(prtgAvailability({ device: 3, primary: ping(5), down: 1, warning: 0 })).toMatchObject({ state: "down", availability: true });
+    expect(prtgAvailability({ device: 3, primary: ping(13), down: 1, warning: 0 })).toMatchObject({ state: "down", availability: true });
+    expect(prtgAvailability({ device: 3, primary: ping(8), down: 0, warning: 0 })).toMatchObject({ state: "unreachable", availability: true });
+    expect(prtgAvailability({ device: 3, primary: ping(3), down: 1, warning: 0 }).state).toBe("warning");
+    expect(prtgAvailability({ device: 3, primary: ping(14), down: 1, warning: 0 }).state).toBe("warning");
+    expect(prtgAvailability({ device: 3, primary: ping(7), down: 0, warning: 0 }).state).toBe("maintenance");
+    expect(prtgAvailability({ device: 3, primary: ping(3), down: 0, warning: 0 }).state).toBe("up");
   });
   it("vCenter: a powered-off VM is «خاموش», a host vCenter lost is unreachable; records and alerts", () => {
-    expect(vcenterStatus({ type: "vm", power_state: "POWERED_OFF" }).state).toBe("off");
-    expect(vcenterStatus({ type: "vm", power_state: "SUSPENDED" }).state).toBe("off");
-    expect(vcenterStatus({ type: "host", connection_state: "NOT_RESPONDING" }).state).toBe("unreachable");
-    expect(vcenterStatus({ type: "host", maintenance: true, connection_state: "CONNECTED" }).state).toBe("maintenance");
+    expect(vcenterVmStatus("POWERED_OFF", true).state).toBe("off");
+    expect(vcenterVmStatus("SUSPENDED", true).state).toBe("off");
+    // never down: a VM whose host vCenter lost is unknown
+    expect(vcenterVmStatus("POWERED_ON", false).state).toBe("unknown");
+    expect(vcenterHostStatus("NOT_RESPONDING")).toMatchObject({ state: "unreachable", availability: true });
+    expect(vcenterHostStatus("DISCONNECTED")).toMatchObject({ state: "unreachable", availability: true });
+    expect(vcenterHostStatus("CONNECTED", "STANDBY").state).toBe("off");
+    expect(vcenterHostStatus("CONNECTED", "POWERED_ON").state).toBe("up");
     expect(recordState({ state: "down" })).toBe("warning");
     expect(recordState({ state: "down", availability: true })).toBe("down");
     expect(recordState({ state: "off" })).toBe("off");
@@ -186,7 +199,7 @@ describe("status in the database (design A §9.1, §9.7)", () => {
         return { records: [rec("srv-10"), rec("srv-11")] as never, next: null, complete: true, total: 2 };
       },
       async status() {
-        return { items: [{ external_id: "srv-10", status: zabbixStatus({ icmp: 0 }) }, { external_id: "srv-11", status: zabbixStatus({ icmp: 1 }) }], next: null };
+        return { items: [{ external_id: "srv-10", status: zabbixAvailability({ ...HOST, icmp: icmpCheck("0") }) }, { external_id: "srv-11", status: zabbixAvailability({ ...HOST, icmp: icmpCheck("1") }) }], next: null };
       },
       async problems() {
         return { problems: [{ key: "p-1", external_id: "srv-11", severity: "major", message: "/var: Disk space is low" }], next: null, complete: true };
