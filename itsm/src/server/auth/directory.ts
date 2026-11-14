@@ -107,6 +107,7 @@ async function audit(cfg: ServerConfig, a: Attempt, ok: boolean, extra: { reason
       ...(extra.dc ? { dc: extra.dc } : {}),
       ...(extra.result?.created ? { created: true } : {}),
       ...(extra.result?.pending_roles?.length ? { pending_roles: extra.result.pending_roles.slice(0, 20) } : {}),
+      ...(extra.result?.positions_given?.length || extra.result?.positions_taken?.length ? { positions: { given: (extra.result.positions_given ?? []).slice(0, 20), taken: (extra.result.positions_taken ?? []).slice(0, 20) } } : {}),
       ...(extra.result?.problems?.length ? { problems: extra.result.problems.slice(0, 5) } : {}),
     },
   });
