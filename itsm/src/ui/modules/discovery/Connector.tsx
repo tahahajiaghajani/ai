@@ -4,7 +4,7 @@
 // steps, the last pass), «اجراها» (every pass) and «تنظیمات» (the connection by kind; keys write-only, a change of
 // key or address asks for the password again when the server says so).
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button, Drawer, Dropdown, Steps, Tabs, Tooltip, type MenuProps } from "antd";
 import { CircleStop, Ellipsis, Eye, Play, PlugZap, Power, RefreshCcw, RotateCw, SearchX, Trash2 } from "lucide-react";
@@ -32,7 +32,16 @@ export default function Connector() {
   const qc = useQueryClient();
   const n = useNotify();
   const meta = useDiscoveryMeta();
-  const page = useConnectorPage(id);
+  const location = useLocation();
+  // a pass just queued (here, or by the wizard's «ذخیره و اجرای نخست»): poll until it shows, at most 90 s
+  const [queuedAt, setQueuedAt] = useState<number | null>(() => (location.state as { queued?: number } | null)?.queued ?? null);
+  const page = useConnectorPage(id, { watch: queuedAt !== null && Date.now() - queuedAt < 90_000 });
+  useEffect(() => {
+    const c = page.data?.card;
+    if (queuedAt === null || !c) return;
+    const started = c.last_run?.started_at ? Date.parse(c.last_run.started_at) : 0;
+    if (c.running || started >= queuedAt - 5000 || Date.now() - queuedAt >= 90_000) setQueuedAt(null);
+  }, [page.data, queuedAt]);
   const [sp, setSp] = useSearchParams();
   const tab = (TABS as readonly string[]).includes(sp.get("tab") ?? "") ? (sp.get("tab") as string) : "summary";
   const [test, setTest] = useState<TestResult | null>(null);
@@ -71,7 +80,9 @@ export default function Connector() {
   };
   const base = `/discovery/connectors/${id}`;
 
-  const runNow = () => act("run", () => api.post(`${base}/run`), "گذر تازه در صف اجرا قرار گرفت");
+  const runNow = async () => {
+    if ((await act("run", () => api.post(`${base}/run`), "گذر تازه در صف اجرا قرار گرفت")) !== undefined) setQueuedAt(Date.now());
+  };
   const cancel = async () => {
     if (await n.confirm("گذر در جریان لغو شود؟", "گذر در گام بعدی خود می‌ایستد؛ آنچه تا اکنون ثبت شده می‌ماند.", true, "لغو گذر")) await act("cancel", () => api.post(`${base}/cancel`), "گذر لغو شد");
   };
@@ -86,7 +97,7 @@ export default function Connector() {
     } else if (key === "preview") setPreviewing(true);
     else if (key === "reapply") {
       if (await n.confirm("همهٔ موارد دوباره اعمال شوند؟", "در پایان گذر بعدی، همهٔ موارد این منبع یک بار دیگر به پایگاه پیکربندی فرستاده می‌شوند.", false, "اعمال دوباره"))
-        await act("reapply", () => api.post(`${base}/reapply`), "اعمال دوباره در صف قرار گرفت");
+        if ((await act("reapply", () => api.post(`${base}/reapply`), "اعمال دوباره در صف قرار گرفت")) !== undefined) setQueuedAt(Date.now());
     } else if (key === "active") {
       await act("active", () => api.patch(base, { active: row.active === false, version: row.version }), row.active === false ? "منبع روشن شد" : "منبع خاموش شد");
     } else if (key === "delete") {
@@ -221,6 +232,8 @@ function Progress({ run, tz }: { run: RunInfo; tz: string }) {
 function LastRun({ run, failures, tz }: { run: (RunInfo & { duration_ms?: number | null }) | null; failures: number; tz: string }) {
   if (!run) return <EmptyState compact title="هنوز گذری اجرا نشده است" />;
   const failed = run.state === "failed";
+  // a held drop has its own banner above
+  const notes = (run.warnings ?? []).filter((w) => w.code !== "mass_drop");
   const figures: [string, unknown][] = [
     ["خوانده‌شده", run.fetched],
     ["ساخته‌شده", run.created],
@@ -249,9 +262,9 @@ function LastRun({ run, failures, tz }: { run: (RunInfo & { duration_ms?: number
           </div>
         ))}
       </dl>
-      {run.warnings?.length ? (
+      {notes.length ? (
         <ul className="dsc-list">
-          {run.warnings.slice(0, 5).map((w, i) => (
+          {notes.slice(0, 5).map((w, i) => (
             <li key={i}>{w.message}</li>
           ))}
         </ul>

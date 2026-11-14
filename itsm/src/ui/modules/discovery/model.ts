@@ -65,6 +65,16 @@ export function optionField(o: OptionField): FieldDef {
 }
 
 /**
+ * Options without which the tool cannot be read, asked with the connection so «آزمودن اتصال» can read a page: REST's
+ * listing and the array in its answer, a file's path at its address (not in the drop folder).
+ */
+const CONNECTION_OPTIONS: Record<string, string[]> = { rest: ["path", "items_path"], feed: ["source", "path"] };
+export function connectionOption(d: Pick<KindDescriptor, "kind">, key: string, v: Values): boolean {
+  if (!(CONNECTION_OPTIONS[d.kind] ?? []).includes(key)) return false;
+  return !(d.kind === "feed" && key === "path" && fromFolder(d, v));
+}
+
+/**
  * «اتصال»: what reaching the tool takes — the address and the way in by kind (a push connector has neither: the
  * tool sends, as an integration user), the key, the kind's required options (REST: the listing's path), the root
  * certificate and other hosts; the unencrypted tick only in the server edition (§14.1, §14.2).
@@ -83,7 +93,7 @@ export function connectionFields(d: KindDescriptor, v: Values, edition: Edition)
     if (KEYED.has(auth)) out.push("secret");
     if (auth === "token" && HEADER_KINDS.has(d.kind)) out.push("api_key_header");
   }
-  for (const o of d.options) if (o.required && !out.includes(optName(o.key))) out.push(optName(o.key));
+  for (const o of d.options) if ((o.required || connectionOption(d, o.key, v)) && !out.includes(optName(o.key))) out.push(optName(o.key));
   if (!folder) {
     out.push("ca_cert", "hosts");
     if (edition === "server") out.push("plain_http");
@@ -91,11 +101,28 @@ export function connectionFields(d: KindDescriptor, v: Values, edition: Edition)
   return out;
 }
 
-/** «چه بیاید»: what to bring in, the kind's other options, the create policy and the default class. */
-export function collectFields(d: KindDescriptor): string[] {
+/** The REST kind's paging parameters each paging style reads (connectors/rest.ts); `total_path` serves every style. */
+const REST_PAGING: Record<string, string[]> = {
+  none: [],
+  offset: ["page_size", "offset_param", "limit_param"],
+  page: ["page_size", "page_param", "size_param", "first_page"],
+  cursor: ["page_size", "limit_param", "cursor_param", "cursor_path"],
+  next_link: ["page_size", "limit_param", "next_path"],
+};
+const REST_PAGING_KEYS = new Set(Object.values(REST_PAGING).flat());
+
+/** Whether an option applies with the other choices made (REST: only the chosen paging style's parameters). */
+export function optionShown(d: Pick<KindDescriptor, "kind">, key: string, v: Values): boolean {
+  if (d.kind !== "rest" || !REST_PAGING_KEYS.has(key)) return true;
+  const paging = String(v[optName("paging")] ?? "offset");
+  return (REST_PAGING[paging] ?? [...REST_PAGING_KEYS]).includes(key);
+}
+
+/** «چه بیاید»: what to bring in, the kind's other options (those that apply), the create policy and the default class. */
+export function collectFields(d: KindDescriptor, v: Values = {}): string[] {
   const out: string[] = [];
   if (d.collects.length > 1) out.push("collect");
-  for (const o of d.options) if (!o.required && !(d.kind === "feed" && o.key === "source")) out.push(optName(o.key));
+  for (const o of d.options) if (!o.required && !(CONNECTION_OPTIONS[d.kind] ?? []).includes(o.key) && optionShown(d, o.key, v)) out.push(optName(o.key));
   out.push("create_policy", "default_class");
   return out;
 }
@@ -127,7 +154,7 @@ export interface Rights {
  */
 export function settingsFields(d: KindDescriptor, v: Values, edition: Edition, r: Pick<Rights, "assetManager">): string[] {
   const conn = connectionFields(d, v, edition);
-  const out = [conn[0], "active", "owner_id", ...conn.slice(1), "description", ...collectFields(d), ...scheduleFields(d, v)];
+  const out = [conn[0], "active", "owner_id", ...conn.slice(1), "description", ...collectFields(d, v), ...scheduleFields(d, v)];
   if (d.kind !== "push" && d.kind !== "demo") out.push("rate_per_second");
   out.push("refresh_days", "retry_hours", "over_manual", "stale_days", "missing_days", "missing_action", "retire_days");
   if (d.kind === "feed" || d.kind === "push") out.push("device_status_map", "device_hold_minutes", "manual_hold_hours");

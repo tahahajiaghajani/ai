@@ -91,13 +91,14 @@ export function useConnectorCards() {
   });
 }
 
-export function useConnectorPage(id: string | undefined) {
+/** One connector's page; polled while a pass runs, and while `watch` (a pass was just queued and has not started). */
+export function useConnectorPage(id: string | undefined, opts: { watch?: boolean } = {}) {
   const { api, orgId } = useOrg();
   return useQuery({
     queryKey: dkeys.page(orgId, id ?? ""),
     queryFn: () => api.get<ConnectorPage>(`/discovery/connectors/${id}`),
     enabled: !!id,
     retry,
-    refetchInterval: (q) => (q.state.data?.card?.running ? 3000 : false),
+    refetchInterval: (q) => (q.state.data?.card?.running || opts.watch ? 2500 : false),
   });
 }

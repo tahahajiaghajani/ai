@@ -33,8 +33,12 @@ export function KindIcon({ icon, size = 16 }: { icon: string | null | undefined;
   return <Icon size={size} strokeWidth={1.4} absoluteStrokeWidth aria-hidden />;
 }
 
-/** A kind's name: product names stay Latin, isolated from the Persian around them. */
-export const KindName = ({ label }: { label: string }) => <bdi className="dsc-kind">{label}</bdi>;
+/** A kind's name, isolated from the text around it: a Persian label that starts with a product name («REST/JSON عمومی») still reads right to left. */
+export const KindName = ({ label }: { label: string }) => (
+  <bdi dir="rtl" className="dsc-kind">
+    {label}
+  </bdi>
+);
 
 /** The connector's state: a chip when it needs attention, plain text when all is well. */
 export function ConnectorStateChip({ card, active }: { card: ConnectorCard | null; active?: boolean }) {
@@ -233,10 +237,12 @@ export function PreviewTable({ result, label, classLabel }: { result: PreviewRes
   const rows = result.rows.map((r, i) => ({ ...r, key: `${i}:${r.external_id}` }));
   return (
     <div className="dsc-preview">
-      <p className="dsc-meta">
-        {result.total !== undefined ? `${fa(rows.length)} ردیف نخست از ${fa(result.total)}` : `${fa(rows.length)} ردیف نخست`}
-        {[...counts.entries()].map(([k, n]) => ` · ${fa(n)} ${PREVIEW_ACTIONS[k]?.label ?? k}`).join("")}
-      </p>
+      <div className="dsc-counts">
+        <span className="dsc-meta">{result.total !== undefined ? `${fa(rows.length)} ردیف نخست از ${fa(result.total)}` : `${fa(rows.length)} ردیف نخست`}</span>
+        {[...counts.entries()].map(([k, n]) => (
+          <Chip key={k} tone={PREVIEW_ACTIONS[k]?.tone ?? "neutral"}>{`${fa(n)} ${PREVIEW_ACTIONS[k]?.label ?? k}`}</Chip>
+        ))}
+      </div>
       <DataTable
         rowKey="key"
         size="small"

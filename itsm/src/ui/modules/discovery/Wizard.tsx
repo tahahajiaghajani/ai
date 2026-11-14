@@ -77,7 +77,8 @@ export default function Wizard() {
       </div>
     );
   if (meta.error) return <Refused error={meta.error} />;
-  if (!meta.data || (savedId && !saved.data && !saved.error)) return <Skeleton rows={8} />;
+  // a reload waits for the saved source; the source this wizard just saved is already here
+  if (!meta.data || (savedId && !stored && !saved.data && !saved.error)) return <Skeleton rows={8} />;
   if (!meta.data.can.admin)
     return (
       <div className="flex flex-col gap-4">
@@ -90,7 +91,7 @@ export default function Wizard() {
   const d: KindDescriptor | null = kind ?? null;
   const rights = { admin: true, owner: false, assetManager: m.can.assetManager, softwareManager: m.can.softwareManager };
   const conn = d ? connectionFields(d, values, m.edition) : [];
-  const what = d ? [...collectFields(d), ...scheduleFields(d, values), ...(m.can.assetManager ? ASSET_FIELDS : [])] : [];
+  const what = d ? [...collectFields(d, values), ...scheduleFields(d, values), ...(m.can.assetManager ? ASSET_FIELDS : [])] : [];
   const id = (stored?.id as string | undefined) ?? null;
   const set = (field: string, v: unknown) => {
     setValues((x) => ({ ...x, [field]: v }));
@@ -183,7 +184,7 @@ export default function Wizard() {
       await api.patch(`/discovery/connectors/${id}`, { active: true, version: stored?.version });
       await api.post(`/discovery/connectors/${id}/run`);
       await qc.invalidateQueries({ queryKey: dkeys.all(orgId) });
-      nav(`/${orgId}/discovery/${id}`);
+      nav(`/${orgId}/discovery/${id}`, { state: { queued: Date.now() } });
     } catch (e) {
       setProblem(errorText(e));
     } finally {

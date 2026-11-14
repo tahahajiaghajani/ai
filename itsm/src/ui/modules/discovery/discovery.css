@@ -59,6 +59,7 @@
 
 /* ---------------------------------------------------------------- preview and summary */
 .dsc-preview { display: flex; flex-direction: column; gap: var(--ds-space-2); min-inline-size: 0; }
+.dsc-counts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-1-5); }
 .dsc-pairs { display: grid; gap: 2px; margin: 0; }
 .dsc-pairs > div { display: flex; gap: var(--ds-space-1-5); align-items: baseline; min-inline-size: 0; }
 .dsc-pairs dt { font-size: 12px; color: var(--ds-text-3); white-space: nowrap; }
