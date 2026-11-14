@@ -154,7 +154,7 @@ export function roundTimers(sys: Ctx, clock: Clock, caseId: string, nodeId: stri
 export async function roundTimersIn(tx: Tx, sys: Ctx, clock: Clock, caseId: string, nodeId: string, round: number, now = Date.now()): Promise<number | null> {
   const orgId = sys.org.id;
   const kase = await lockCase(tx, orgId, caseId);
-  if (!kase || (kase.state !== "active" && kase.state !== "waiting") || Number(kase.open_rounds?.[nodeId]) !== round) return null;
+  if (!kase || kase.paused_at || (kase.state !== "active" && kase.state !== "waiting") || Number(kase.open_rounds?.[nodeId]) !== round) return null;
   const version = await loadVersionInfo(tx, orgId, kase.version_id);
   const node = version?.graph.nodes.find((n) => n.id === nodeId && n.type === "form_step");
   if (!version || !node) return null;
@@ -349,7 +349,7 @@ export async function timerPass(cfg: ServerConfig, orgId: string, apply: (id: st
     if (t !== null && (next === null || t < next)) next = t;
   };
   const pairs = await cfg.db.query<{ version_id: string; step_key: string }>(
-    `select distinct c.version_id, t.step_key from sm_process_tasks t join sm_process_cases c on c.id = t.case_id and c.deleted_at is null and c.state in ('active', 'waiting')
+    `select distinct c.version_id, t.step_key from sm_process_tasks t join sm_process_cases c on c.id = t.case_id and c.deleted_at is null and c.state in ('active', 'waiting') and c.paused_at is null
      where t.org_id = $1 and t.status = 'open' and t.deleted_at is null and c.version_id is not null`,
     [orgId],
   );
@@ -365,7 +365,7 @@ export async function timerPass(cfg: ServerConfig, orgId: string, apply: (id: st
     const rounds = await cfg.db.query<{ case_id: string; round: number; opened: unknown; escalated: unknown; due: unknown; remind: unknown }>(
       `select t.case_id, t.round, min(t.opened_at) as opened, max(t.escalated_at) as escalated,
          min(t.due_at) filter (where t.status = 'open') as due, min(coalesce(t.reminded_at, t.opened_at)) filter (where t.status = 'open') as remind
-       from sm_process_tasks t join sm_process_cases c on c.id = t.case_id and c.deleted_at is null and c.state in ('active', 'waiting')
+       from sm_process_tasks t join sm_process_cases c on c.id = t.case_id and c.deleted_at is null and c.state in ('active', 'waiting') and c.paused_at is null
        where t.org_id = $1 and c.version_id = $2 and t.step_key = $3 and t.deleted_at is null and c.open_rounds ->> t.step_key = t.round::text
        group by t.case_id, t.round
        having bool_or(t.status = 'open')`,

@@ -68,6 +68,8 @@ export interface ApplyResult {
 
 /** «دیرهنگام»: the step was settled or withdrawn before this submission arrived. */
 export const LATE_NOTE = "این مرحله را همکارتان پیش‌تر انجام داده بود؛ آنچه نوشتید نگه داشته شد ولی در پرونده ثبت نشد";
+/** A case a process manager paused takes no decision until it is resumed (F4c). */
+export const PAUSED_NOTE = "این پرونده را مسئولان گردش‌کار موقتاً متوقف کرده‌اند؛ پس از ادامهٔ آن، مرحله را دوباره بفرستید";
 /** A comment binds reject and return. */
 export const COMMENT_NEEDED = "برای رد یا بازگشت، توضیح بنویسید";
 
@@ -386,6 +388,8 @@ async function applyStep(tx: Tx, sys: Ctx, sub: SubmissionRow, who: Submitter): 
   const key = stepWaitKey(kase.id, task.step_key, Number(task.round));
   const wait = await tx.one<{ id: string }>(`select id from sm_flow_waits where org_id = $1 and key = $2 for update`, [orgId, key]);
   if (!wait) return lateResult();
+  // paused by a process manager (F4c): nothing is decided until it is resumed; the task stays open
+  if (kase.paused_at) return { ...refused(PAUSED_NOTE, {}, kase.id), patch };
 
   // the person: the task's, the one it stands in for, or a delegate of either now
   const me = who.user;

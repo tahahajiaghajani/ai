@@ -34,7 +34,7 @@ import { OPEN_STATES, participantsOf, refreshCase, replayProgress, runLog } from
 import { caseTasks, isId, loadVersionInfo, lockCase, peopleNames, stepWaitKey, type CaseRow, type TaskRow, type VersionInfo } from "./store";
 import { processHandlers } from "./runs";
 
-/** The event a step's opening emits on its case (`data`: node, label, round, action, people, status, due_at). */
+/** The event a step's opening emits on its case (`data`: node, label, round, action, people, status, due_at, message, returned). */
 export const STEP_OPENED = "record.process_step_opened";
 /** The kind of a form step's wait. */
 export const STEP_WAIT = "process_step";
@@ -160,7 +160,8 @@ async function openStep(s: StepContext): Promise<StepOutcome> {
   let status: "ok" | "managers" | "nobody" | "too_many" = "ok";
   let message: string | null = null;
   let candidates: string[] | undefined;
-  if (last > 0 && (step.returnTo ?? "actor") === "actor" && returnedTo(version.graph, replayProgress(version.graph, kase.progress, await runLog(tx, kase.run_ref)), nodeId)) {
+  const back = last > 0 && returnedTo(version.graph, replayProgress(version.graph, kase.progress, await runLog(tx, kase.run_ref)), nodeId);
+  if (back && (step.returnTo ?? "actor") === "actor") {
     // the people the last round's decisions were made for (a delegate acted for someone), each through the
     // delegations of today: the delegate now in force, or the person themself
     const earlier = [...new Set(own.filter((t) => Number(t.round) === last && t.status === "done" && (t.acted_for || t.acted_by)).map((t) => String(t.acted_for ?? t.acted_by)))];
@@ -214,7 +215,7 @@ async function openStep(s: StepContext): Promise<StepOutcome> {
     table: "process_case",
     id: caseId,
     number: kase.number,
-    data: { node: nodeId, label, round, action: step.action, people: people.map((p) => p.user), status: people.length ? status : status === "ok" ? "nobody" : status, due_at: due, message },
+    data: { node: nodeId, label, round, action: step.action, people: people.map((p) => p.user), status: people.length ? status : status === "ok" ? "nobody" : status, due_at: due, message, returned: back },
   });
   return {
     wait: { kind: STEP_WAIT, key: stepWaitKey(caseId, nodeId, round), data: { case: caseId, round, step: s.stepKey, ...(candidates ? { candidates } : {}) } },

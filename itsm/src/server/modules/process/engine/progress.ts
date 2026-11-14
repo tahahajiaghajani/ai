@@ -150,8 +150,9 @@ export async function refreshCase(tx: Tx, sys: Ctx, kase: CaseRow, graph: Proces
     set.current_steps = [];
     set.open_rounds = {};
   } else if (set.state === undefined && (state === "active" || state === "waiting")) {
-    // an open case waits while one of its open steps has nobody to do it
-    set.state = current.some((c) => !progress[c.key]?.waiting) ? "waiting" : "active";
+    // an open case waits while one of its open steps has nobody to do it, and while a manager has paused it (F4c)
+    const paused = set.paused_at !== undefined ? !!set.paused_at : !!kase.paused_at;
+    set.state = paused || current.some((c) => !progress[c.key]?.waiting) ? "waiting" : "active";
   }
   return updateIn(tx, sys, "process_case", kase.id, set, { trusted: true });
 }

@@ -29,6 +29,8 @@ export interface CaseRow {
   outcome: string | null;
   started_at: string | null;
   ended_at: string | null;
+  /** «توقف موقت» (F4c): set while a process manager has paused the case */
+  paused_at?: string | null;
   run_ref: string | null;
   confidential: boolean;
   data: Record<string, unknown> | null;

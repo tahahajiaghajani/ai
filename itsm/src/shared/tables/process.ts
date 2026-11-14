@@ -190,6 +190,8 @@ const processCase: TableDef = {
     { name: "outcome", label: "نتیجه", type: "choice", choices: CASE_OUTCOMES, system: true, list: true, filter: true, span: 8, section: "پیشرفت" },
     { name: "started_at", label: "آغاز", type: "datetime", system: true, list: true, sort: true, filter: true, span: 8, section: "پیشرفت" },
     { name: "ended_at", label: "پایان", type: "datetime", system: true, sort: true, filter: true, span: 8, section: "پیشرفت" },
+    // «توقف موقت» by a process manager (F4c): nobody acts on the case and its timers wait until it is resumed
+    { name: "paused_at", label: "توقف موقت", type: "datetime", system: true, filter: true, span: 8, section: "پیشرفت" },
     { name: "run_ref", label: "اجرا", type: "string", maxLength: 36, system: true, hidden: true, ltr: true, audit: false },
     { name: "confidential", label: "محرمانه", type: "bool", default: false, system: true, filter: true, span: 6 },
     // the values, keyed by library field name, read through the pinned version's snapshot (never generic fields)

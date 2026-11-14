@@ -20722,6 +20722,7 @@ alter table sm_process_cases add column if not exists progress jsonb;
 alter table sm_process_cases add column if not exists outcome text;
 alter table sm_process_cases add column if not exists started_at timestamptz;
 alter table sm_process_cases add column if not exists ended_at timestamptz;
+alter table sm_process_cases add column if not exists paused_at timestamptz;
 alter table sm_process_cases add column if not exists run_ref text;
 alter table sm_process_cases add column if not exists confidential boolean not null default false;
 alter table sm_process_cases add column if not exists data jsonb;
