@@ -4,12 +4,14 @@
 // an administrator applies that exact plan. Roles are never granted silently: new members get the source's default role
 // (shown in the plan) and roles mapped from directory groups are applied only when the administrator confirms them in
 // «اعمال» (or opted into automatic roles on the source). Scheduled runs act as the member who approved the source, with
-// their access — never the system — and skip role grants unless automatic roles are on.
+// their access — never the system — and skip role grants unless automatic roles are on. Organisational roles
+// («نقش‌های سازمانی», design F D11: a mapping's `position_id`) are holder rows the source keeps, given like role grants
+// and taken back from its members who left the group (src/server/modules/positions/directory.ts).
 import { isIP } from "node:net";
 import type { Ctx, ServerConfig } from "../../context";
 import { uuidv7 } from "@shared/id";
 import {
-  attrMapOf, entryFromLdap, planDirectorySync, planStats, withoutRoleGrants, type CurrentMember, type DirEntry, type DirOptions, type DirPlan, type GroupMapping,
+  attrMapOf, entryFromLdap, planDirectorySync, planStats, withoutRoleGrants, type CurrentMember, type DirEntry, type DirOptions, type DirPlan, type GroupMapping, type PlanPosition,
 } from "@shared/integration/directory";
 import { bad, conflict, forbidden, notFound } from "../../http/errors";
 import { createIn, emitEvent, removeIn, secretView, systemCtx, updateIn } from "../../engine";
@@ -28,6 +30,7 @@ import { securityEvent } from "../platform/security";
 import { grantingGroups, intLog, liveRow, liveRows, needIntegrations, sysOf, type Row } from "./common";
 import { lanAllowed, checkOutboundHost, OutboundBlockedError } from "../../net";
 import { recordDirectoryTest } from "../platform/signin-health";
+import { applyDirectoryHoldings, directoryFacts } from "../positions/directory";
 
 const HOUR = 3600_000;
 
@@ -55,6 +58,9 @@ export function mappingsOf(src: Row): GroupMapping[] {
       role: typeof m.role === "string" && m.role ? m.role : null,
       unit_id: typeof m.unit_id === "string" && m.unit_id ? m.unit_id : null,
       workspace_id: typeof m.workspace_id === "string" && m.workspace_id ? m.workspace_id : null,
+      // an organisational role its members hold, and where its unit comes from (design F D11)
+      position_id: typeof m.position_id === "string" && m.position_id.trim() ? m.position_id.trim().toLowerCase() : null,
+      unit_from: typeof m.unit_from === "string" && m.unit_from.trim() ? m.unit_from.trim() : null,
     }))
     .filter((m: GroupMapping) => m.source);
 }
@@ -166,16 +172,21 @@ async function linkObjectsOf(ctx: Ctx, sourceId: string): Promise<Record<string,
 
 export async function planFor(ctx: Ctx, src: Row, entries: DirEntry[]): Promise<DirPlan> {
   const units = await liveRows(ctx.db, sysOf(ctx), "org_unit", null);
+  const mappings = mappingsOf(src);
+  // organisational roles: the mapped positions, their holders and the holders this source keeps
+  const held = await directoryFacts(ctx.db, ctx.org.id, String(src.id), mappings.map((m) => m.position_id));
   return planDirectorySync({
     entries,
     members: await currentMembers(ctx),
     links: await linksOf(ctx, String(src.id)),
     linkObjects: await linkObjectsOf(ctx, String(src.id)),
-    mappings: mappingsOf(src),
-    units: units.map((u) => ({ id: String(u.id), name: String(u.name) })),
+    mappings,
+    units: units.map((u) => ({ id: String(u.id), name: String(u.name), code: typeof u.code === "string" ? u.code : null, kind: typeof u.kind === "string" ? u.kind : null })),
     options: optionsOf(src),
     // platform administrators' addresses: their accounts are the platform's, never a directory's to make or change
     reserved: ctx.cfg.platformAdmins ?? [],
+    positions: held.positions,
+    holders: held.holders,
   });
 }
 
@@ -228,12 +239,19 @@ export interface ApplyResult {
   roles_granted: number;
   roles_pending: number;
   units: number;
+  /** organisational roles given and taken back; given ones waiting for a confirmation of roles */
+  positions_added: number;
+  positions_removed: number;
+  positions_pending: number;
   problems: string[];
 }
 
 /** Apply a plan with `ctx`'s access (role grants only when `roles` is true). */
 export async function applyPlan(ctx: Ctx, src: Row, plan: DirPlan, roles: boolean): Promise<ApplyResult> {
-  const out: ApplyResult = { created: 0, updated: 0, deactivated: 0, reactivated: 0, group_adds: 0, group_removes: 0, roles_granted: 0, roles_pending: roles ? 0 : plan.role_grants.length, units: 0, problems: [] };
+  const out: ApplyResult = {
+    created: 0, updated: 0, deactivated: 0, reactivated: 0, group_adds: 0, group_removes: 0, roles_granted: 0, roles_pending: roles ? 0 : plan.role_grants.length, units: 0,
+    positions_added: 0, positions_removed: 0, positions_pending: roles ? 0 : (plan.position_adds?.length ?? 0), problems: [],
+  };
   if (plan.create.length) await needWithinLimit(ctx.db, ctx.cfg, ctx.org.id, "members", plan.create.length);
   const membership: MembershipRole = src.membership_role === "member" ? "member" : "viewer";
   const ids = new Map<string, string>();
@@ -356,6 +374,15 @@ export async function applyPlan(ctx: Ctx, src: Row, plan: DirPlan, roles: boolea
       }
     });
   }
+  // organisational roles: holdings are given like role grants (approved or confirmed) and taken back on every apply
+  const holding = (p: PlanPosition) => {
+    const user_id = p.user.includes("@") ? ids.get(p.email) : p.user;
+    return user_id ? [{ user_id, position_id: p.position_id, unit_id: p.unit_id }] : [];
+  };
+  const held = await applyDirectoryHoldings(ctx, String(src.id), { adds: roles ? (plan.position_adds ?? []).flatMap(holding) : [], removes: (plan.position_removes ?? []).flatMap(holding) });
+  out.positions_added = held.added;
+  out.positions_removed = held.removed;
+  for (const p of held.problems) out.problems.push(`نقش سازمانی: ${p}`);
   return out;
 }
 
@@ -382,7 +409,9 @@ export async function applyDirectory(ctx: Ctx, sourceId: string, runId: string, 
 }
 
 export const summary = (r: ApplyResult) =>
-  `${r.created} عضو تازه، ${r.updated} به‌روز، ${r.deactivated} غیرفعال، ${r.group_adds} عضویت گروه، ${r.roles_granted} نقش${r.roles_pending ? `، ${r.roles_pending} نقش در انتظار تأیید` : ""}${r.problems.length ? `، ${r.problems.length} مشکل` : ""}`;
+  `${r.created} عضو تازه، ${r.updated} به‌روز، ${r.deactivated} غیرفعال، ${r.group_adds} عضویت گروه، ${r.roles_granted} نقش${r.roles_pending ? `، ${r.roles_pending} نقش در انتظار تأیید` : ""}` +
+  `${r.positions_added || r.positions_removed ? `، نقش سازمانی: ${r.positions_added} داده، ${r.positions_removed} پس گرفته` : ""}${r.positions_pending ? `، ${r.positions_pending} نقش سازمانی در انتظار تأیید` : ""}` +
+  `${r.problems.length ? `، ${r.problems.length} مشکل` : ""}`;
 
 /** Test the connection: bind and read up to five people. */
 export async function testDirectory(ctx: Ctx, sourceId: string): Promise<{ ok: boolean; count: number; sample: { name: string; email: string | null }[]; message: string }> {
