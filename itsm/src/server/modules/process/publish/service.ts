@@ -170,7 +170,9 @@ export async function checkDraft(ctx: Ctx, d: ProcessDraft): Promise<DraftCheck>
     if (groups.length !== d.manager_groups.length || groups.some((g) => g.active === false)) problems.push({ level: "error", message: "یکی از گروه‌های مسئول پیدا نشد یا غیرفعال است", field: "manager_groups" });
   }
   if (!d.managers.length && !d.manager_groups.length) {
-    problems.push({ level: "warning", message: "این گردش‌کار مسئولی ندارد؛ پرونده‌های متوقف به مدیران سازمان سپرده می‌شوند", field: "managers" });
+    // the administrators a case without managers falls to do not read a confidential one: its notices would reach nobody
+    if (d.confidential) problems.push({ level: "error", message: "گردش‌کار محرمانه دست‌کم یک مسئول می‌خواهد", field: "managers" });
+    else problems.push({ level: "warning", message: "این گردش‌کار مسئولی ندارد؛ پرونده‌های متوقف به مدیران سازمان سپرده می‌شوند", field: "managers" });
   }
   return { problems, snapshot };
 }

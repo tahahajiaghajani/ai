@@ -1,16 +1,22 @@
 // What people do to cases from «گردش‌کارها» (design F §5, §6.1, §6.7, §7.1, package F4c), each where cases advance
 // («این کار به اتصال نیاز دارد» elsewhere, but a step's submission, which a linked Windows app records and pushes):
 //   · «برداشتن کار» on a pool step: the round's tasks name who took it («در دست علی احمدی»); online, the others then
-//     cannot send it until it is put back (offline anyone in the pool may still submit; the first apply wins);
-//   · managers (named, by group, or — for a case that names none — the organisation's administrators):
-//     – «ارجاع»: a step's open task moves to other people, or a step that found nobody gets people; the round stays;
-//     – «توقف موقت» / «ادامه»: nobody acts and the timers wait while it is paused; open steps' due times move on by
-//       the pause when it resumes;
+//     cannot send it until it is put back (offline anyone in the pool may still submit; the first apply wins). A step
+//     that waits for several decisions (approve with «همه», a count or a percentage) is not taken, and a claim ends
+//     once its taker holds no open task of the round (`refreshCase`);
+//   · managers (named, by group, or — for a case that names none — the organisation's administrators), each only on a
+//     case they read:
+//     – «ارجاع»: a step's open task moves to other people, or a step that found nobody gets people; the round stays,
+//       and the step's exclusions hold (never the requester on an approve step, nor the earlier actors it excludes);
+//     – «توقف موقت» / «ادامه»: nobody acts and the timers wait while it is paused; when it resumes, the open rounds'
+//       due times, the time their escalations and reminders count from, and their last reminder and escalation move
+//       on by the pause;
 //     – «لغو پرونده» and «ادامه از مرحلهٔ …» (F4b's recovery services).
 //   A requester's «لغو» (before any step after the start was done) is a submission (F4a).
 // Each is one transaction under the case's lock, journaled on the case and, for the managers' actions, recorded in
 // «گزارش رویدادها».
-import { durationMs, formStepOf, processNodeLabel } from "@shared/process/graph";
+import { exclusionsOf } from "@shared/process/assignees";
+import { durationMs, formStepOf, processNodeLabel, quorumOf } from "@shared/process/graph";
 import { addBusiness } from "@shared/sla/calendar";
 import type { Ctx } from "../../../context";
 import { pgArray, type Tx } from "../../../db";
@@ -20,7 +26,7 @@ import { audit } from "../../data/crud";
 import { Resolution } from "../../positions";
 import { config as slaConfig } from "../../sla/common";
 import { calendarsOf } from "../../sla/calendars";
-import { OPEN_STATES, processesRunHere, refreshCase, cancelCase, submitTask, startCase, type StartCaseInput, type SubmitTaskInput } from "../engine";
+import { OPEN_STATES, processesRunHere, refreshCase, resolveInput, cancelCase, submitTask, startCase, type StartCaseInput, type SubmitTaskInput } from "../engine";
 import { caseJournal } from "../engine/journal";
 import { caseTasks, isId, loadVersionInfo, lockCase, peopleNames, type CaseRow } from "../engine/store";
 import { cancelAsManager, resumeFromStep } from "../recovery";
@@ -38,6 +44,15 @@ const comment = (v: unknown) => String(v ?? "").trim().slice(0, 1000);
 async function needAuthority(ctx: Ctx): Promise<void> {
   if (!(await processesRunHere(ctx.cfg, ctx.org.id))) throw conflict(CONNECTION_NEEDED);
 }
+
+/** A manager's action reaches only a case the caller reads (a designer or an administrator without it gets a 404). */
+async function needRead(ctx: Ctx, caseId: string): Promise<void> {
+  if (!isId(caseId)) throw notFound("پرونده پیدا نشد");
+  if (!isSystemCtx(ctx)) await get(ctx, "process_case", caseId);
+}
+
+/** Steps that wait for several decisions are not taken by one person. */
+const MANY = new Set(["all", "count", "percent"]);
 
 interface TaskRef {
   id: string;
@@ -101,6 +116,9 @@ export async function claimStep(ctx: Ctx, taskId: string, opts: { release?: bool
       const name = (await peopleNames(tx, [t.claimed_by])).get(t.claimed_by) ?? "همکارتان";
       throw conflict(`این مرحله در دست ${name} است`);
     }
+    const node = (await loadVersionInfo(tx, ctx.org.id, kase.version_id))?.graph.nodes.find((n) => n.id === t.step_key && n.type === "form_step");
+    const step = node ? formStepOf(node.config) : null;
+    if (step?.action === "approve" && MANY.has(quorumOf(step))) throw conflict("این مرحله تصمیم چند نفر را می‌خواهد و برداشتنی نیست");
     for (const x of round) await updateIn(tx, sys, "process_task", x.id, { claimed_by: me }, { trusted: true });
     return { claimed_by: me };
   });
@@ -130,6 +148,7 @@ export async function reassignStep(ctx: Ctx, caseId: string, input: ReassignInpu
   await needAuthority(ctx);
   const to = [...new Set((input.to ?? []).filter(isId).map((x) => x.toLowerCase()))].slice(0, 50);
   if (!to.length) throw bad("کسی را برای ارجاع برگزینید");
+  await needRead(ctx, caseId);
   const note = comment(input.comment);
   const sys = await systemCtx(ctx.cfg, ctx.org.id);
   return sys.write(async (tx) => {
@@ -156,9 +175,16 @@ export async function reassignStep(ctx: Ctx, caseId: string, input: ReassignInpu
       )).map((r) => String(r.user_id)),
     );
     if (to.some((u) => !live.has(u))) throw bad("یکی از کسانی که برگزیده‌اید عضو فعال سازمان نیست");
-    const settled = await new Resolution(tx, sys, { step: { assignees: [] }, action: step.action, requestedBy: kase.requested_by }).settle(
+    // the step's exclusions hold: the requester on an approve step (separation of duties), the earlier actors it names
+    const run = new Resolution(tx, sys, resolveInput(kase, version, tasks, step, label));
+    const excluded = run.excluded(exclusionsOf(step, step.action));
+    if (to.some((u) => excluded.has(u))) {
+      const requester = run.excluded(["requester"]);
+      throw bad(to.some((u) => excluded.has(u) && requester.has(u)) ? "درخواست‌دهنده این مرحله را انجام نمی‌دهد" : "انجام‌دهندهٔ مرحله‌ای پیشین این مرحله را انجام نمی‌دهد");
+    }
+    const settled = await run.settle(
       to.map((user) => ({ user, via: { rule: 0, kind: "users" as const } })),
-      new Set(),
+      excluded,
     );
     const people = settled.filter((p) => !open.some((t) => t.id !== moved?.id && (t.assigned_to === p.user || t.delegated_from === p.user)));
     if (!people.length) throw conflict("کسانی که برگزیده‌اید این مرحله را در دست دارند");
@@ -202,6 +228,7 @@ export async function reassignStep(ctx: Ctx, caseId: string, input: ReassignInpu
 /** «توقف موقت» by a manager. */
 export async function pauseCase(ctx: Ctx, caseId: string, input: { comment?: string | null } = {}): Promise<{ paused_at: string }> {
   await needAuthority(ctx);
+  await needRead(ctx, caseId);
   const sys = await systemCtx(ctx.cfg, ctx.org.id);
   const note = comment(input.comment);
   return sys.write(async (tx) => {
@@ -216,22 +243,46 @@ export async function pauseCase(ctx: Ctx, caseId: string, input: { comment?: str
   });
 }
 
-/** «ادامه» of a paused case: its open steps' due times move on by the pause, and its timers wake. */
+/**
+ * «ادامه» of a paused case: its open rounds' times move on by the pause — the open tasks' due times, and for every task of
+ * those rounds (closed ones too: a round counts from its first task) where its timers count from and its last reminder
+ * and escalation, each by the part of the pause after it — so nothing whose time fell inside the pause fires at once;
+ * then its timers wake.
+ */
 export async function resumeCase(ctx: Ctx, caseId: string, input: { comment?: string | null } = {}): Promise<{ state: string }> {
   await needAuthority(ctx);
+  await needRead(ctx, caseId);
   const sys = await systemCtx(ctx.cfg, ctx.org.id);
   const note = comment(input.comment);
   return sys.write(async (tx) => {
     const kase = await managedCase(tx, ctx, caseId);
     if (!kase.paused_at || !OPEN_STATES.has(kase.state)) throw conflict("این پرونده متوقف نشده است");
     const now = Date.now();
-    const pausedFor = Math.max(0, now - msOf(kase.paused_at));
-    const tasks = await caseTasks(tx, ctx.org.id, kase.id);
-    for (const t of tasks.filter((x) => x.status === "open")) {
-      const due = await tx.one<{ due_at: unknown }>(`select due_at from sm_process_tasks where id = $1`, [t.id]);
-      const d = msOf(due?.due_at);
-      if (Number.isFinite(d) && pausedFor > 0) await updateIn(tx, sys, "process_task", t.id, { due_at: iso(d + pausedFor) }, { trusted: true });
+    const pausedAt = msOf(kase.paused_at);
+    const pausedFor = Math.max(0, now - pausedAt);
+    // a time moves on by the part of the pause after it (a task given during the pause counts from now)
+    const moved = (v: unknown): string | null => {
+      const t = msOf(v);
+      return Number.isFinite(t) && now > Math.max(pausedAt, t) ? iso(t + now - Math.max(pausedAt, t)) : null;
+    };
+    const times = await tx.query<{ id: string; step_key: string; round: number; status: string; opened_at: unknown; due_at: unknown; reminded_at: unknown; escalated_at: unknown; timers_from: unknown }>(
+      `select id, step_key, round, status, opened_at, due_at, reminded_at, escalated_at, timers_from from sm_process_tasks where org_id = $1 and case_id = $2 and deleted_at is null`,
+      [ctx.org.id, kase.id],
+    );
+    for (const t of times) {
+      if (!Number.isFinite(pausedAt) || Number(kase.open_rounds?.[t.step_key]) !== Number(t.round)) continue;
+      const patch: Record<string, unknown> = {};
+      const from = moved(t.timers_from ?? t.opened_at);
+      if (from) patch.timers_from = from;
+      const reminded = moved(t.reminded_at);
+      if (reminded) patch.reminded_at = reminded;
+      const escalated = moved(t.escalated_at);
+      if (escalated) patch.escalated_at = escalated;
+      const due = msOf(t.due_at);
+      if (t.status === "open" && Number.isFinite(due) && pausedFor > 0) patch.due_at = iso(due + pausedFor);
+      if (Object.keys(patch).length) await updateIn(tx, sys, "process_task", t.id, patch, { trusted: true });
     }
+    const tasks = await caseTasks(tx, ctx.org.id, kase.id);
     const version = await loadVersionInfo(tx, ctx.org.id, kase.version_id);
     const set = { paused_at: null };
     const row = version ? await refreshCase(tx, sys, kase, version.graph, { tasks, set }) : await updateIn(tx, sys, "process_case", kase.id, { ...set, state: "active" }, { trusted: true });

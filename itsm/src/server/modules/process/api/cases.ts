@@ -1,13 +1,15 @@
 // Cases for the people who read them (design F §5 «پرونده‌ها», «workflows/c/:id», §3.6.7, §6.3, package F4c):
 //   · `casesList`: the cases the caller reads (the record engine's own read: participant sources, managers, area
 //     grants, the confidential row rule), filtered by process, state, step, requester, unit and dates — never by
-//     values (§10). One page, with names;
+//     values (§10). One page, with names, and my starts a linked Windows app has not sent yet (`queued_starts`, the
+//     «در صف ارسال» cards of §7.2);
 //   · `caseDetail`: one case for its reader, in one call — the diagram (`stepStatuses`, with `mine_expected` from my
 //     positions and a dry run of the resolver for steps that depend on the case), the values I may read (F4b's
 //     `caseViews`, the same function the record API's redaction uses), my open steps with their forms, rights,
-//     decisions, return targets, next step and drafts, what I may do (cancel as the requester; pause, resume,
-//     reassign, cancel, «ادامه از مرحلهٔ …» as a manager), and the history: tasks, submissions (their values cut to what
-//     I may read) and the journal;
+//     decisions, return targets, next step, drafts and my last refused submission (its message and the values I
+//     entered), what I may do (cancel as the requester; pause, resume, reassign, cancel, «ادامه از مرحلهٔ …» as a
+//     manager), and the history: tasks, submissions (their values cut to what I may read; my own refused ones too, and
+//     the message of mine) and the journal;
 //   · `casePrint`: what F7's printable view of a case needs — decisions, names and dates, and the readable values as
 //     people read them.
 import type { Cond } from "@shared/model/conditions";
@@ -62,11 +64,13 @@ const LIST_FIELDS = ["title", "process_id", "process_name", "version_no", "state
 /** The cases the caller reads, filtered (see the header). */
 export async function casesList(ctx: Ctx, f: CaseFilters = {}) {
   const and: Cond[] = [];
+  let processId: string | null = null;
   if (f.process) {
     const ref = String(f.process).trim();
     const p = await ctx.db.one<{ id: string }>(`select id from sm_processes where org_id = $1 and deleted_at is null and ${isId(ref) ? "id = $2::uuid" : "key = $2"}`, [ctx.org.id, isId(ref) ? ref.toLowerCase() : ref]);
     if (!p) throw notFound("گردش‌کار پیدا نشد");
     and.push({ f: "process_id", op: "eq", v: p.id });
+    processId = String(p.id);
   }
   const states = (f.state ?? []).flatMap((s) => (s === "open" ? OPEN_CASE : s === "closed" ? CLOSED_CASE : [s])).filter((s) => CASE_STATES.some((o) => o.value === s));
   if (states.length) and.push({ f: "state", op: "in", v: [...new Set(states)] });
@@ -82,7 +86,8 @@ export async function casesList(ctx: Ctx, f: CaseFilters = {}) {
   if (f.unit && !unit) throw bad("واحد سازمانی معتبر نیست");
   const size = Math.min(Math.max(Number(f.size) || 50, 1), 200);
   // someone who takes part in no case and holds no grant in «پرونده‌های گردش‌کار» has an empty list, not a refusal
-  if (!(await canOpenRecords(ctx, (await defFor(ctx, "process_case")).def))) return { rows: [], total: 0, page: 1, size, display: {} };
+  const queued_starts = await queuedStarts(ctx, processId);
+  if (!(await canOpenRecords(ctx, (await defFor(ctx, "process_case")).def))) return { rows: [], total: 0, page: 1, size, display: {}, queued_starts };
   const res = await list(ctx, "process_case", {
     filter: and.length ? { and } : null,
     q: f.q ?? undefined,
@@ -110,7 +115,22 @@ export async function casesList(ctx: Ctx, f: CaseFilters = {}) {
           }
         : null,
   });
-  return { ...res, display: { ...res.display, ...(await nameMap(ctx.db, res.rows.flatMap((r) => [r.requested_by as string, r.requested_for as string]))) } };
+  return { ...res, display: { ...res.display, ...(await nameMap(ctx.db, res.rows.flatMap((r) => [r.requested_by as string, r.requested_for as string]))) }, queued_starts };
+}
+
+/** My starts a linked Windows app has not sent yet (newest first, at most 20): «در صف ارسال». */
+async function queuedStarts(ctx: Ctx, processId: string | null): Promise<{ id: string; case_id: string | null; process_id: string | null; process_name: string | null; submitted_at: string | null }[]> {
+  const rows = await ctx.db.query<{ id: string; case_id: string | null; process_id: string | null; process_name: string | null; submitted_at: unknown }>(
+    `select s.id, s.case_id, coalesce(s.process_id, v.process_id) as process_id, coalesce(p.name, v.name) as process_name, s.submitted_at
+     from sm_process_submissions s
+     left join sm_process_versions v on v.org_id = s.org_id and v.id = s.version_id
+     left join sm_processes p on p.org_id = s.org_id and p.id = coalesce(s.process_id, v.process_id) and p.deleted_at is null
+     where s.org_id = $1 and s.submitted_by = $2 and s.kind = 'start' and s.result = 'pending' and s.deleted_at is null
+       and ($3::uuid is null or coalesce(s.process_id, v.process_id) = $3::uuid)
+     order by s.submitted_at desc, s.id limit 20`,
+    [ctx.org.id, ctx.user.id, processId],
+  );
+  return rows.map((r) => ({ id: String(r.id), case_id: r.case_id, process_id: r.process_id ? String(r.process_id) : null, process_name: r.process_name, submitted_at: iso(r.submitted_at) }));
 }
 
 // ----- one case ---------------------------------------------------------------------------------------------------
@@ -127,6 +147,8 @@ export interface MyStep {
   claimed_by: string | null;
   /** my submission waits to be sent («در صف ارسال») */
   queued: boolean;
+  /** my last submission of this step the authority refused: its message and the values I entered */
+  refused: { id: string; note: string | null; submitted_at: string | null; values: Record<string, unknown> } | null;
   form: string | null;
   rights: Record<string, Right>;
   outcomes: StepOutcome[];
@@ -189,6 +211,7 @@ export async function caseDetail(ctx: Ctx, id: string): Promise<CaseDetail> {
   );
   const view = (await caseViews(ctx.db, ctx, [kase.id])).get(kase.id);
   const data = visibleData(view, kase.data) ?? {};
+  const readableKeys = view?.keys ?? new Set<string>();
   const facts = await personFacts(ctx);
   const myTasks = tasks.filter((t) => t.assigned_to === me || t.delegated_from === me || t.acted_by === me || t.acted_for === me);
 
@@ -220,6 +243,15 @@ export async function caseDetail(ctx: Ctx, id: string): Promise<CaseDetail> {
   const queued = open.length
     ? new Set((await ctx.db.query<{ task_id: string }>(`select task_id from sm_process_submissions where org_id = $1 and submitted_by = $2 and result = 'pending' and deleted_at is null and task_id = any($3::uuid[])`, [ctx.org.id, me, pgArray(open.map((t) => t.id))])).map((r) => String(r.task_id)))
     : new Set<string>();
+  const refusals = new Map<string, { id: string; result_note: string | null; submitted_at: unknown; values: Record<string, unknown> | null }>();
+  if (open.length) {
+    for (const r of await ctx.db.query<{ id: string; task_id: string; result_note: string | null; submitted_at: unknown; values: Record<string, unknown> | null }>(
+      `select distinct on (task_id) id, task_id, result_note, submitted_at, values from sm_process_submissions
+       where org_id = $1 and submitted_by = $2 and kind = 'step' and result = 'refused' and deleted_at is null and task_id = any($3::uuid[])
+       order by task_id, submitted_at desc, id desc`,
+      [ctx.org.id, me, pgArray(open.map((t) => t.id))],
+    )) refusals.set(String(r.task_id), r);
+  }
   const drafts = open.length
     ? new Map((await ctx.db.query<{ task_id: string; values: Record<string, unknown> | null }>(`select task_id, values from sm_process_drafts where org_id = $1 and user_id = $2 and deleted_at is null and task_id = any($3::uuid[])`, [ctx.org.id, me, pgArray(open.map((t) => t.id))])).map((r) => [String(r.task_id), r.values ?? null]))
     : new Map<string, Record<string, unknown> | null>();
@@ -233,10 +265,15 @@ export async function caseDetail(ctx: Ctx, id: string): Promise<CaseDetail> {
     const outcomes = s.start ? (["submitted"] as StepOutcome[]) : stepOutcomes(s.action).filter((o) => o !== "returned" || back.length > 0);
     const next: Partial<Record<StepOutcome, string | null>> = {};
     for (const o of outcomes) if (o !== "returned") next[o] = nextStepLabel(graph, node.id, OUTCOME_PORT[o]);
+    const rights = form ? effectiveRights(form.layout, s.rights, defs, { groups }) : {};
+    const no = refusals.get(t.id);
+    // the values I entered, cut to what I read in the case or may enter in this step
+    const mayKeep = (k: string) => readableKeys.has(k) || rights[k] === "edit" || rights[k] === "required";
     my_steps.push({
       id: t.id, step_key: t.step_key, label: processNodeLabel(node), action: s.action, round: Number(t.round), opened_at: iso(t.opened_at), due_at: iso(t.due_at),
       delegated_from: t.delegated_from, claimed_by: t.claimed_by, queued: queued.has(t.id), form: s.form,
-      rights: form ? effectiveRights(form.layout, s.rights, defs, { groups }) : {},
+      refused: no ? { id: String(no.id), note: no.result_note, submitted_at: iso(no.submitted_at), values: Object.fromEntries(Object.entries(no.values ?? {}).filter(([k]) => mayKeep(k))) } : null,
+      rights,
       outcomes,
       return_targets: back.map((key, i) => {
         const target = graph.nodes.find((n) => n.id === key);
@@ -263,12 +300,12 @@ export async function caseDetail(ctx: Ctx, id: string): Promise<CaseDetail> {
   const restart = can.resume_from ? restartTargets(graph).map((key) => ({ key, label: processNodeLabel(graph.nodes.find((n) => n.id === key)!) })) : [];
 
   // the history: every task, the applied submissions cut to what I read, the journal
-  const subs = await ctx.db.query<{ id: string; kind: string; step_key: string | null; round: number | null; outcome: string | null; comment: string | null; values: Record<string, unknown> | null; submitted_by: string | null; on_behalf_of: string | null; submitted_at: unknown; result: string; applied_at: unknown }>(
-    `select id, kind, step_key, round, outcome, comment, values, submitted_by, on_behalf_of, submitted_at, result, applied_at from sm_process_submissions
-     where org_id = $1 and case_id = $2::text and deleted_at is null and result in ('applied', 'late') order by submitted_at, id`,
-    [ctx.org.id, kase.id],
+  const subs = await ctx.db.query<{ id: string; kind: string; step_key: string | null; round: number | null; outcome: string | null; comment: string | null; values: Record<string, unknown> | null; submitted_by: string | null; on_behalf_of: string | null; submitted_at: unknown; result: string; result_note: string | null; applied_at: unknown }>(
+    `select id, kind, step_key, round, outcome, comment, values, submitted_by, on_behalf_of, submitted_at, result, result_note, applied_at from sm_process_submissions
+     where org_id = $1 and case_id = $2::text and deleted_at is null and (result in ('applied', 'late') or (result = 'refused' and submitted_by = $3)) order by submitted_at, id`,
+    [ctx.org.id, kase.id, me],
   );
-  const readable = view?.keys ?? new Set<string>();
+  const readable = readableKeys;
   const journal = await listJournal(ctx, "process_case", kase.id, { limit: 200 }).catch(() => ({ entries: [], display: {} as Record<string, string> }));
   const openDue = tasks.filter((t) => t.status === "open" && t.due_at).map((t) => Date.parse(String(iso(t.due_at)))).filter(Number.isFinite);
   const people = [
@@ -298,7 +335,7 @@ export async function caseDetail(ctx: Ctx, id: string): Promise<CaseDetail> {
       })),
       submissions: subs.map((s) => ({
         id: s.id, kind: s.kind, step_key: s.step_key, round: s.round, outcome: s.outcome, comment: s.comment, submitted_by: s.submitted_by, on_behalf_of: s.on_behalf_of,
-        submitted_at: iso(s.submitted_at), result: s.result, applied_at: iso(s.applied_at),
+        submitted_at: iso(s.submitted_at), result: s.result, result_note: s.submitted_by === me ? s.result_note : null, applied_at: iso(s.applied_at),
         values: Object.fromEntries(Object.entries(s.values ?? {}).filter(([k]) => readable.has(k))),
       })),
       journal: journal.entries,
