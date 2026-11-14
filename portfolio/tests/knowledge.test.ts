@@ -27,6 +27,11 @@ describe("assistant knowledge", () => {
     expect(selectKnowledge(k, "کاریز نسخه سروری", 12000).some((e) => e.id === "product-kariz")).toBe(true);
     expect(selectKnowledge(k, "کنگره پروژه پایدار غرفه پارس", 12000).some((e) => e.id === "post-ispc-2026")).toBe(true);
   });
+  it("finds the banks by name in both languages", () => {
+    for (const q of ["بانک رفاه مدل‌های محلی", "بانک ملت سایمپ", "پست بانک ناظر", "بانک صنعت و معدن ITSM", "Which banks has Taha worked with?"]) {
+      expect(selectKnowledge(k, q, 12000).some((e) => e.id === "banks"), q).toBe(true);
+    }
+  });
   it("keeps pinned entries when the budget is tight", () => {
     const picked = selectKnowledge(k, "turbine SAM vision", 12000);
     expect(picked.some((e) => e.id === "contact")).toBe(true);

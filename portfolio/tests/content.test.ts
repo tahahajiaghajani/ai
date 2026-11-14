@@ -146,6 +146,14 @@ describe("organisations and journey", () => {
   it("logos exist", () => {
     for (const o of ORGS) if (o.logo) expect(existsSync(pub(o.logo)), o.logo).toBe(true);
   });
+  it("every bank has a logo and is backed by a journey row or a case study", () => {
+    const banks = ORGS.filter((o) => o.bank);
+    expect(banks.length).toBeGreaterThan(0);
+    for (const o of banks) {
+      expect(Boolean(o.logo) && existsSync(pub(o.logo!)), o.key).toBe(true);
+      expect(JOURNEY.some((r) => r.org === o.key) || PROJECTS.some((p) => p.orgs?.includes(o.key)), o.key).toBe(true);
+    }
+  });
   it("journey is bilingual", () => {
     for (const r of JOURNEY) expect(filled(r.title.fa) && filled(r.title.en) && filled(r.body.fa) && filled(r.body.en)).toBe(true);
   });
