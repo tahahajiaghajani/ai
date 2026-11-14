@@ -684,6 +684,7 @@ export async function runPull(sys: Ctx, connectorId: string, jctx: Pick<JobConte
       await finishRunSql(tx, org, run.id, "completed", { cursor: { ...cursor, phase: "finalise" }, complete, itemsTotal: listed, importRunId, warnings });
       // the contact ladder judges the connector's targets after a complete pass the guard let through (§10)
       if (stale) await enqueue(tx, { kind: "discovery.stale", orgId: org, payload: { connector: connectorId, run: run.id, ...(opts.demo ? { __demo: true } : {}) }, dedupeKey: `discovery.stale:${connectorId}`, maxAttempts: 5 });
+      await enqueue(tx, { kind: "discovery.status", orgId: org, payload: { connector: connectorId, ...(opts.demo ? { __demo: true } : {}) }, dedupeKey: `discovery.status:${connectorId}`, maxAttempts: 5 });
     });
   };
 

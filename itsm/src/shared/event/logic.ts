@@ -487,6 +487,65 @@ function email(p: Record<string, any>, spec: SourceSpec, sevMap: Record<string, 
   ];
 }
 
+// PRTG «Execute HTTP Action» (design A §9.6): a JSON body, JSON text inside one form field, or plain form fields named
+// after PRTG's placeholders (%sitename, %device, %host, %status, %down, %message, %objid, %lastvalue, %name, %datetime).
+// «Up…» clears; down, warning, unusual and down (partial) fire. The sensor's name is the resource and metric, so a Ping
+// sensor reads as an availability check downstream.
+function prtg(p: Record<string, any>, spec: SourceSpec, sevMap: Record<string, unknown> | null): NormalizedEvent[] {
+  let raw: Record<string, any> = p;
+  const values = Object.values(p);
+  if (!["status", "device", "objid", "%status", "%device"].some((k) => k in p)) {
+    for (const v of values) {
+      if (typeof v !== "string" || !/^\s*\{/.test(v)) continue;
+      try {
+        const j = JSON.parse(v);
+        if (isObj(j)) {
+          raw = j;
+          break;
+        }
+      } catch {
+        // not JSON: plain fields
+      }
+    }
+  }
+  const lower = new Map(Object.entries(raw).map(([k, v]) => [k.toLowerCase().replace(/^%/, ""), v]));
+  const pick = (...names: string[]): string | null => {
+    for (const n of names) {
+      const v = str(lower.get(n));
+      if (v) return v;
+    }
+    return null;
+  };
+  const status = pick("status", "laststatus") ?? "";
+  const resolved = /^(up|ok|paused)\b/i.test(status.trim());
+  const sensor = pick("sensor", "name", "sensorname");
+  const device = pick("device", "devicename");
+  const host = pick("host", "ip", "hostname");
+  const objid = pick("objid", "sensorid", "id");
+  const when = pick("datetime", "date", "time");
+  const down = /^down\b/i.test(status) && !/partial/i.test(status);
+  const fallback: Severity = down ? "major" : /warning|unusual|partial/i.test(status) ? "warning" : mapSeverity(spec.default_severity, null);
+  const severity = sevMap && status ? mapSeverity(status.toLowerCase(), sevMap, fallback) : fallback;
+  return [
+    base({
+      message: pick("message", "lastmessage", "subject") || [device, sensor, status].filter(Boolean).join(" — ") || "رویداد PRTG",
+      description: cut([pick("down") ? `مدت قطع: ${pick("down")}` : null, pick("sitename") ? `PRTG: ${pick("sitename")}` : null].filter(Boolean).join("\n") || null, 4000),
+      node: cut(host ?? device, 255),
+      resource: cut(sensor, 255),
+      metric: cut(sensor, 255),
+      severity,
+      status: resolved ? "resolved" : "firing",
+      occurred_at: iso(when),
+      tags: [`prtg_status=${status || "unknown"}`].map((t) => cut(t, 60)!),
+      value: num(pick("lastvalue")?.replace(/[^\d.,-]/g, "").replace(",", ".")),
+      fingerprint_hint: objid ? `prtg:${objid}` : device || sensor ? `prtg:${device ?? ""}:${sensor ?? ""}` : null,
+      dedupe_hint: objid && when ? `${objid}:${resolved ? "resolved" : "firing"}:${when}` : null,
+      ci_hint: pick("ci"),
+      service_hint: pick("service"),
+    }, spec, p),
+  ];
+}
+
 const GENERIC_DEFAULTS: Record<string, string[]> = {
   message: ["message", "title", "summary", "name", "subject", "msg"],
   description: ["description", "details", "detail", "body", "text"],
@@ -559,6 +618,8 @@ export function normalize(spec: SourceSpec, payload: unknown): Normalized {
       return isObj(p) ? cloudwatch(p, spec, sevMap) : { events: [] };
     case "email":
       return { events: isObj(p) ? email(p, spec, sevMap) : [] };
+    case "prtg":
+      return { events: isObj(p) ? prtg(p, spec, sevMap) : [] };
     default:
       return { events: generic(p, spec, sevMap) };
   }

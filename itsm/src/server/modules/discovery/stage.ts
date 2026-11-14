@@ -8,6 +8,7 @@
 // ignored item whose hash changes is offered again. The marker is durable — a killed worker loses nothing — and the
 // runner clears it in the same transaction as the IRE's writes (runner.ts).
 import { createHash } from "node:crypto";
+import { recordState } from "@shared/discovery/availability";
 import { hashMaterial } from "@shared/discovery/hash";
 import type { DiscoveredRecord } from "@shared/discovery/types";
 import { uuidv7 } from "@shared/id";
@@ -57,22 +58,35 @@ export interface StageResult {
   unchanged: number;
 }
 
+/**
+ * When the tool last reported an item's status (alias `i`), which its freshness counts from (§9.3): stamped into
+ * `data.status.reported_at` by status passes, pushes and inventory records that carry a status — never by a listing
+ * without one, which only restamps `listed_at`. Items staged before the stamp existed fall back to `listed_at`.
+ */
+export const REPORTED_AT = `coalesce(case when i.data->'status'->>'reported_at' ~ '^\\d{4}-\\d{2}-\\d{2}T' then (i.data->'status'->>'reported_at')::timestamptz end, i.listed_at)`;
+
 /** Stage one page (set-based, lock-free). Idempotent: the same page again changes nothing but the stamps. */
 export async function stagePage(q: Queryable, input: StageInput): Promise<StageResult> {
   if (!input.records.length) return { staged: 0, inserted: 0, changed: 0, relisted: 0, unchanged: 0 };
-  const rows = input.records.map((r) => ({
-    id: uuidv7(),
-    external_id: r.external_id,
-    kind: r.kind,
-    name: String(r.name ?? r.external_id).slice(0, 200),
-    hash: itemHash(r, input.configVersion, input.kindVersion),
-    data: itemData(r),
-    last_contact_at: r.last_contact_at ?? null,
-    status: r.status?.state ?? null,
-    status_since: r.status?.since ?? null,
-    status_message: r.status?.message?.slice(0, 500) ?? null,
-    link_url: input.link?.(r)?.slice(0, 1000) ?? null,
-  }));
+  const reportedAt = new Date().toISOString();
+  const rows = input.records.map((r) => {
+    const status = recordState(r.status);
+    const data = itemData(r);
+    return {
+      id: uuidv7(),
+      external_id: r.external_id,
+      kind: r.kind,
+      name: String(r.name ?? r.external_id).slice(0, 200),
+      hash: itemHash(r, input.configVersion, input.kindVersion),
+      // a record with a status stamps when it was reported (its freshness, design A §9.3); one without keeps the last
+      data: status ? { ...data, status: { ...(r.status as object), reported_at: reportedAt } } : data,
+      last_contact_at: r.last_contact_at ?? null,
+      status,
+      status_since: r.status?.since ?? null,
+      status_message: r.status?.message?.slice(0, 500) ?? null,
+      link_url: input.link?.(r)?.slice(0, 1000) ?? null,
+    };
+  });
   const r = await q.one<{ staged: number; inserted: number; changed: number; relisted: number }>(
     `with x as (
        select * from jsonb_to_recordset($1::jsonb) as x(id uuid, external_id text, kind text, name text, hash text, data jsonb,
@@ -91,7 +105,7 @@ export async function stagePage(q: Queryable, input: StageInput): Promise<StageR
        on conflict (org_id, connector_id, external_id) where deleted_at is null do update set
          kind = excluded.kind,
          name = excluded.name,
-         data = excluded.data,
+         data = case when excluded.status is null and t.data ? 'status' then jsonb_set(excluded.data, '{status}', t.data->'status') else excluded.data end,
          link_url = excluded.link_url,
          listed_at = excluded.listed_at,
          seen_generation = excluded.seen_generation,
