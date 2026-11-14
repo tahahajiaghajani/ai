@@ -12,6 +12,7 @@ export { caseViews, visibleData, visibleFiles, redactCases, filterCaseSide, type
 export { setUploadRule, systemOnly, type UploadRule, CASE_WRITE, TASK_WRITE, VERSION_WRITE, PROCESS_STATUS_WRITE, PROCESS_DELETE, CASE_FILES, SUBMISSION_KEPT, SUBMISSION_OWN } from "./guards";
 export { rolesWithoutWorkCreate, addWorkCreate, grantsWorkCreate, rolesWithoutWorkMessage, type RoleWithoutWork } from "./roles";
 export { myGroupsSql } from "./sources";
+export { propagateAccess, type AccessSettings } from "./propagate";
 
 let installed = false;
 

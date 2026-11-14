@@ -94,6 +94,27 @@ export const processHooks: Pick<TableHooks, "beforeWrite" | "validatePush" | "va
 
 // ----- submissions --------------------------------------------------------------------------------------------------
 
+/** What the authority fills in on a submission (a Windows app's copy may lack it). */
+const AUTHORITY_FIELDS = ["result", "result_note", "applied_at", "on_behalf_of", "case_id", "step_key", "round", "process_id", "version_id", "submitted_at"] as const;
+
+const instant = (v: unknown): number => (v instanceof Date ? v.getTime() : v === null || v === undefined || v === "" ? NaN : Date.parse(String(v)));
+
+/**
+ * When a pushed submission was made, as the apply reads it (relative date limits count from its day): the Windows
+ * app's time, never later than its arrival and, for a step, never before its task opened.
+ */
+async function pushedSubmittedAt(p: PushArgs): Promise<string> {
+  const now = Date.now();
+  let t = instant(p.next.submitted_at);
+  if (!Number.isFinite(t) || t > now) t = now;
+  const task = typeof p.next.task_id === "string" && /^[0-9a-f-]{36}$/i.test(p.next.task_id)
+    ? await p.tx.one<{ opened_at: unknown }>(`select opened_at from sm_process_tasks where org_id = $1 and id = $2`, [p.ctx.org.id, p.next.task_id])
+    : null;
+  const opened = instant(task?.opened_at);
+  if (Number.isFinite(opened) && t < opened) t = Math.min(opened, now);
+  return new Date(t).toISOString();
+}
+
 export const submissionHooks: Pick<TableHooks, "beforeWrite" | "derivePush" | "validatePush" | "validatePushDelete"> = {
   beforeWrite(w) {
     if (owned(w)) return;
@@ -102,8 +123,11 @@ export const submissionHooks: Pick<TableHooks, "beforeWrite" | "derivePush" | "v
     if (!isSystemCtx(w.ctx)) w.next.on_behalf_of = null;
   },
   async derivePush(p) {
-    if (p.prev || (await uploaded(p))) return null;
-    return { result: "pending", result_note: null, applied_at: null, on_behalf_of: null };
+    // the same submission sent again (the answer to the first push was lost): what the authority filled in stays, so
+    // an unchanged copy is no change — its outbox row clears, and the next pull brings the result
+    if (p.prev) return Object.fromEntries(AUTHORITY_FIELDS.map((k) => [k, p.prev![k] ?? null]));
+    if (await uploaded(p)) return null;
+    return { result: "pending", result_note: null, applied_at: null, on_behalf_of: null, submitted_at: await pushedSubmittedAt(p) };
   },
   async validatePush(p) {
     if (p.ctx.actor === "system" || (await uploaded(p))) return null;

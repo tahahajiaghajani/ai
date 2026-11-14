@@ -79,10 +79,15 @@ async function submit(ctx: Ctx, row: Record<string, unknown>, files: UploadFile[
 /** «آغاز پرونده»: start a case of a published process. */
 export async function startCase(ctx: Ctx, input: StartCaseInput): Promise<SubmitResult> {
   const ref = String(input.process ?? "").trim();
-  const proc = await ctx.db.one<{ id: string }>(
-    `select id from sm_processes where org_id = $1 and deleted_at is null and ${isId(ref) ? "id = $2::uuid" : "key = $2"}`,
-    [ctx.org.id, isId(ref) ? ref.toLowerCase() : ref],
-  );
+  const proc =
+    (await ctx.db.one<{ id: string }>(
+      `select id from sm_processes where org_id = $1 and deleted_at is null and ${isId(ref) ? "id = $2::uuid" : "key = $2"}`,
+      [ctx.org.id, isId(ref) ? ref.toLowerCase() : ref],
+    )) ??
+    // a Windows app of someone who does not read the designs holds the published versions only (F4b)
+    (isId(ref)
+      ? await ctx.db.one<{ id: string }>(`select process_id as id from sm_process_versions where org_id = $1 and process_id = $2::uuid and deleted_at is null limit 1`, [ctx.org.id, ref.toLowerCase()])
+      : null);
   if (!proc) throw notFound("گردش‌کار پیدا نشد");
   const caseId = isId(input.case_id) ? input.case_id.toLowerCase() : uuidv7();
   return submit(ctx, { kind: "start", process_id: proc.id, case_id: caseId, values: input.values ?? {}, requested_for: input.requested_for ?? null }, input.files);

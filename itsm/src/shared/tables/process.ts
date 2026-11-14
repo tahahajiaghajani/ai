@@ -293,7 +293,9 @@ const processSubmission: TableDef = {
   scope: { own: ["submitted_by"], requester: [] },
   rowAccess: {
     read: { or: [{ f: "submitted_by", op: "is_me" }, { f: "on_behalf_of", op: "is_me" }] },
-    write: { f: "submitted_by", op: "is_me" },
+    // people create their own (a pushed one starts pending); the upload of a standalone organisation (§7.2, F4b's
+    // upload rule) brings settled ones in their submitters' names
+    write: { or: [{ f: "submitted_by", op: "is_me" }, { f: "result", op: "in", v: ["applied", "late", "refused"] }] },
   },
   features: { attachments: true },
   list: { columns: ["kind", "step_key", "outcome", "submitted_by", "submitted_at", "result"], order: "-submitted_at" },
