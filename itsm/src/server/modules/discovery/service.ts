@@ -18,14 +18,14 @@ import { CREATE_POLICIES, ITEM_STATES, RUN_LANES, RUN_STATES, STATUS_WORDS } fro
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
 import { pgArray } from "../../db";
-import { isDemoRow } from "../../db/scope";
+import { demoScopeOrg, isDemoRow } from "../../db/scope";
 import { needRecentAuth } from "../../auth/policy";
 import { addJournalIn, get, list, loadReadable, condEnv, orgSchema, updateIn } from "../../engine";
 import { AppError, bad, conflict, forbidden, notFound } from "../../http/errors";
 import { createOrUpdate } from "../cmdb/ire";
 import { sysOf } from "../incident/common";
 import { intLog } from "../integration/common";
-import { rightsOf, ADMIN_ONLY_MESSAGE, type DiscoveryRights } from "./guard";
+import { rightsOf, ADMIN_ONLY_MESSAGE, DEMO_PEOPLE_MESSAGE, type DiscoveryRights } from "./guard";
 import { inConnectorScope, MIN_EVERY_MINUTES, MIN_STATUS_EVERY_MINUTES, queuePull } from "./jobs";
 import { ConnectorError, CONNECTOR_MESSAGES } from "./kind";
 import { ireItem, mayCreate } from "./mapping";
@@ -86,8 +86,16 @@ function needAdmin(x: { rights: DiscoveryRights }): void {
   if (!x.rights.admin) throw forbidden(ADMIN_ONLY_MESSAGE);
 }
 
+export { DEMO_PEOPLE_MESSAGE as DEMO_REAL_MESSAGE } from "./guard";
+
+/** The demo pack's people act only on the pack's connectors (what they do is demo work, removed with the pack). */
+async function notRealFromDemo(ctx: Ctx, connectorId: string): Promise<void> {
+  if (demoScopeOrg() === ctx.org.id && !(await isDemoRow(ctx.db, ctx.org.id, connectorId))) throw forbidden(DEMO_PEOPLE_MESSAGE);
+}
+
 /** Run `fn` in the connector's scope (a demo connector's inside the demo scope), connector failures as HTTP answers. */
 async function scoped<T>(ctx: Ctx, connectorId: string, fn: (demo: boolean) => Promise<T>): Promise<T> {
+  await notRealFromDemo(ctx, connectorId);
   try {
     return await inConnectorScope(ctx.db, ctx.org.id, connectorId, fn);
   } catch (e) {
@@ -220,14 +228,17 @@ export async function reconcileQueue(ctx: Ctx, p: { tab: QueueTab; connector?: s
   await needReader(ctx);
   const and: unknown[] = [p.tab === "mismatch" ? { f: "mismatch_state", op: "eq", v: "open" } : { f: "state", op: "eq", v: p.tab }];
   if (p.connector) and.push({ f: "connector_id", op: "eq", v: p.connector });
-  const counts = await ctx.db.query<{ tab: string; n: number }>(
-    `select t.tab, count(*)::int as n from (
-       select case when i.mismatch_state = 'open' then 'mismatch' end as m, i.state from sm_discovery_items i
-       join sm_discovery_connectors c on c.id = i.connector_id and c.org_id = i.org_id and c.deleted_at is null
-       where i.org_id = $1 and i.deleted_at is null and (i.state in ('unmatched', 'duplicate', 'error') or i.mismatch_state = 'open')
-     ) x cross join lateral (values (x.state), (x.m)) t(tab) where t.tab is not null group by t.tab`,
-    [ctx.org.id],
-  );
+  // the tabs' counts over the connectors the caller reads (items are read through their connector)
+  const readable = (await list(ctx, "discovery_connector", { size: 500, total: false, fields: ["name"] })).rows.map((r) => String(r.id));
+  const counts = readable.length
+    ? await ctx.db.query<{ tab: string; n: number }>(
+        `select t.tab, count(*)::int as n from (
+           select case when i.mismatch_state = 'open' then 'mismatch' end as m, i.state from sm_discovery_items i
+           where i.org_id = $1 and i.connector_id = any($2::uuid[]) and i.deleted_at is null and (i.state in ('unmatched', 'duplicate', 'error') or i.mismatch_state = 'open')
+         ) x cross join lateral (values (x.state), (x.m)) t(tab) where t.tab is not null group by t.tab`,
+        [ctx.org.id, pgArray(p.connector ? readable.filter((id) => id === p.connector) : readable)],
+      )
+    : [];
   const res = await list(ctx, "discovery_item", { filter: { and } as never, q: p.q || undefined, sort: "-updated_at", page: p.page, size: p.size ?? 50 });
   return { ...res, counts: Object.fromEntries(QUEUE_TABS.map((t) => [t, counts.find((c) => c.tab === t)?.n ?? 0])) };
 }
@@ -296,6 +307,7 @@ export async function runNow(ctx: Ctx, id: string, opts: { reapply?: boolean } =
 export async function cancelPass(ctx: Ctx, id: string) {
   const x = await connectorAs(ctx, id);
   needOperator(x);
+  await notRealFromDemo(ctx, id);
   const running = await runningRun(ctx.db, ctx.org.id, id);
   if (!running) throw conflict("گذری از این منبع در جریان نیست");
   return { canceled: await cancelRun(ctx.db, ctx.org.id, running.id), run_id: running.id };
@@ -321,6 +333,7 @@ export async function acceptSize(ctx: Ctx, runId: string) {
 export async function approveDirectory(ctx: Ctx, id: string) {
   const x = await connectorAs(ctx, id);
   if (!x.rights.integrationsAdmin) throw forbidden(DIRECTORY_MESSAGE);
+  await notRealFromDemo(ctx, id);
   needRecentAuth(ctx);
   const sourceId = x.row.directory_source_id;
   if (!sourceId) throw bad("این منبع داده منبع فهرست کاربران ندارد");

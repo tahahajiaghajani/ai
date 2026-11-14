@@ -5,9 +5,10 @@
 // touches a real CI); an ATM a real tool reports never reaches a demo asset; real connectors keep running while a pack
 // is loaded.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createIn } from "@server/engine";
+import { createIn, updateIn } from "@server/engine";
 import { inDemoScope, isDemoRow } from "@server/db/scope";
 import { purgeStep } from "@server/modules/demo";
+import { DEMO_REAL_MESSAGE, runNow, testConnection } from "@server/modules/discovery/service";
 import { seedItamDefaults } from "@server/modules/itam";
 import { discoveryWorld, type DiscoveryWorld, type Row } from "./discovery-helpers";
 import { mountMocks, type Handler } from "./mocks/discovery/harness";
@@ -86,6 +87,20 @@ describe("demo data and discovery (design A §14.4)", () => {
     // real connectors keep running while the pack is loaded
     expect((await w.one(`select state, created from sm_discovery_runs where connector_id = $1 and lane = 'inventory'`, [c.id]))).toEqual({ state: "completed", created: 3 });
   }, 240_000);
+
+  it("the pack's people act only on the pack's connectors: their requests run in the demo scope and leave real connectors alone", async () => {
+    // a demo person's request runs inside the demo scope (http/hono.ts loadOrg): emulated with the owner's context
+    const ctx = await w.e.ctxOf(w.e.ownerId);
+    const asDemoPerson = <T,>(fn: () => Promise<T>) => inDemoScope(w.e.org, fn);
+    await expect(asDemoPerson(() => runNow(ctx, real.c.id))).rejects.toThrow(DEMO_REAL_MESSAGE);
+    await expect(asDemoPerson(() => testConnection(ctx, real.c.id))).rejects.toThrow(DEMO_REAL_MESSAGE);
+    await expect(asDemoPerson(() => ctx.write((tx) => updateIn(tx, ctx, "discovery_connector", real.c.id, { description: "از دادهٔ نمایشی" })))).rejects.toThrow(DEMO_REAL_MESSAGE);
+    expect((await w.one(`select description from sm_discovery_connectors where id = $1`, [real.c.id])).description ?? null).toBeNull();
+    // the pack's own connector: allowed, and the job is demo work
+    expect(await asDemoPerson(() => runNow(ctx, demoConnector.id))).toMatchObject({ queued: true });
+    expect(await capturedJob(demoConnector.id)).toMatchObject({ captured: true, payload: { __demo: true } });
+    await w.drain();
+  }, 120_000);
 
   it("every row of the demo connector's work is a demo row the purge removes; the real connector's work stays", async () => {
     const demoItems = await w.q<Row>(`select id, ci_id from sm_discovery_items where connector_id = $1`, [demoConnector.id]);

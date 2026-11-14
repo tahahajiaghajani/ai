@@ -18,6 +18,7 @@
 import { grantIn, scopeRank, type FullGrant } from "@shared/access";
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
+import { demoScopeOrg, isDemoRow } from "../../db/scope";
 import { needRecentAuth } from "../../auth/policy";
 import { subjectOf } from "../../access";
 import { addJournalIn, isSystemCtx, orgSchema, updateIn } from "../../engine";
@@ -84,6 +85,7 @@ export const OWNER_ONLY_MESSAGE = "مسئول منبع فقط «فعال»، ز�
 export const ASSET_ONLY_MESSAGE = "«ساخت دارایی برای دستگاه‌های تازه» را مدیر دارایی روشن و خاموش می‌کند";
 export const SOFTWARE_ONLY_MESSAGE = "گردآوری نرم‌افزارهای نصب‌شده را مدیر دارایی نرم‌افزار روشن می‌کند";
 export const SECRETS_CLEARED = "کلید به سبب تغییر نشانی پاک شد";
+export const DEMO_PEOPLE_MESSAGE = "کاربران داده‌های نمایشی با منبع‌های داده واقعی کار نمی‌کنند";
 
 const hostOf = (url: unknown): string => {
   try {
@@ -131,6 +133,8 @@ async function beforeWrite(w: WriteArgs): Promise<void> {
   const system = isSystemCtx(ctx);
   // the Windows app neither runs nor configures connectors (§14.7)
   if (editionOf(ctx.cfg) === "desktop") throw new AppError(403, "desktop", CONNECTOR_MESSAGES.desktop);
+  // the demo pack's people change only the pack's connectors (their work is demo work, removed with the pack)
+  if (w.prev && !system && demoScopeOrg() === ctx.org.id && !(await isDemoRow(w.tx, ctx.org.id, String(w.prev.id)))) throw forbidden(DEMO_PEOPLE_MESSAGE);
   const rights = await rightsOf(ctx, w.tx);
   if (w.op === "delete" || w.op === "restore") {
     if (!rights.admin) throw forbidden(ADMIN_ONLY_MESSAGE);

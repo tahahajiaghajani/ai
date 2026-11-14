@@ -61,6 +61,12 @@ describe("the discovery API end to end (design A §4, §8.4, §15)", () => {
     const items = await w.e.owner.get(`${P}/discovery/connectors/${made.id}/items?state=linked`);
     expect(items.rows).toHaveLength(4);
     expect(items.rows.every((r: Row) => r.ci_id)).toBe(true);
+    // no secret is readable through any API: the module's routes, the record API, its list, history and journal
+    await w.e.owner.patch(`${P}/r/discovery_connector/${made.id}`, { secret: "rotated-secret-value" });
+    for (const path of [`/discovery/connectors/${made.id}`, "/discovery/connectors", `/r/discovery_connector/${made.id}`, "/r/discovery_connector", `/r/discovery_connector/${made.id}/history`, `/r/discovery_connector/${made.id}/journal`, `/discovery/connectors/${made.id}/runs`, `/discovery/connectors/${made.id}/items`]) {
+      const text = JSON.stringify(await w.e.owner.get(`${P}${path}`));
+      expect([path, text.includes(REST_TOKEN) || text.includes("rotated-secret-value")]).toEqual([path, false]);
+    }
   }, 180_000);
 
   it("the reconciliation queue: «ساخت پیکربندی», «پیوند به…» through the identity hint, «نادیده گرفتن»", async () => {
