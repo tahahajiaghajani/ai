@@ -173,7 +173,8 @@ describe("the words of the console and the connector page", () => {
     expect(m.connectorState(card({ active: false }))).toEqual({ label: "خاموش", tone: "neutral" });
     expect(m.connectorState(card({ held: { run_id: "r", listed: 1, message: "" } })).tone).toBe("warning");
     expect(m.scheduleText(0)).toBe("فقط دستی");
-    expect(m.scheduleText(60)).toBe("هر ۱ ساعت");
+    expect(m.scheduleText(60)).toBe("هر ساعت");
+    expect(m.scheduleText(120)).toBe("هر ۲ ساعت");
     expect(m.scheduleText(15)).toBe("هر ۱۵ دقیقه");
     expect(m.durationText(95_000)).toBe("۲ دقیقه");
   });

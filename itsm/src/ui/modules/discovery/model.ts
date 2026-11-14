@@ -406,8 +406,8 @@ export const currentItems = (items: Record<string, number>) => Math.max(0, Numbe
 /** «هر ۶۰ دقیقه» / «فقط دستی». */
 export function scheduleText(every: number): string {
   if (!every || every <= 0) return "فقط دستی";
-  if (every % 1440 === 0) return `هر ${faNum(every / 1440)} روز`;
-  if (every % 60 === 0) return `هر ${faNum(every / 60)} ساعت`;
+  if (every % 1440 === 0) return every === 1440 ? "هر روز" : `هر ${faNum(every / 1440)} روز`;
+  if (every % 60 === 0) return every === 60 ? "هر ساعت" : `هر ${faNum(every / 60)} ساعت`;
   return `هر ${faNum(every)} دقیقه`;
 }
 
