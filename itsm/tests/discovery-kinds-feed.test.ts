@@ -303,6 +303,20 @@ describe("a feed from the server's drop folder (design A §6.6)", () => {
     expect(await gone(made.id)).toEqual(["S6"]);
   }, 180_000);
 
+  it("a JSON snapshot from the folder (UTF-16 with its mark, records in the push API's shape) makes CIs; the next one without a machine makes it «gone»", async () => {
+    const c = await w.connector({ ...FOLDER, name: "پوشهٔ JSON" });
+    const dir = await ensureDropFolder(c.id);
+    const records = (n: number) => Array.from({ length: n }, (_, i) => ({ external_id: `J${200 + i}`, kind: "host", name: `esx-${200 + i}`, serial_number: `JS${200 + i}`, ips: [`10.30.0.${i + 1}`], status: { state: "up" } }));
+    const utf16 = (v: unknown) => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(JSON.stringify(v), "utf16le")]);
+    await dropFile(dir, "hosts-1.json", utf16(records(4)), 120_000);
+    const first = await w.pass(c.id);
+    expect(first.run).toMatchObject({ state: "completed", complete: true, items_total: 4, created: 4 });
+    expect(await w.one(`select c.serial_number, c.ip_address from sm_cis c join sm_discovery_items i on i.ci_id = c.id where i.connector_id = $1 and i.external_id = 'J201'`, [c.id])).toEqual({ serial_number: "JS201", ip_address: "10.30.0.2" });
+    await dropFile(dir, "hosts-2.json", utf16(records(3)), 60_000);
+    expect((await w.pass(c.id)).run).toMatchObject({ state: "completed", complete: true, items_total: 3 });
+    expect(await gone(c.id)).toEqual(["J203"]);
+  }, 180_000);
+
   it("delta files: read oldest first in one pass and never «gone»; one that cannot be read goes to failed/ with its reason and the pass goes on", async () => {
     const c = await w.connector({ ...FOLDER, name: "پوشهٔ تغییرها", options: { source: "folder", mode: "delta" } });
     const dir = await ensureDropFolder(c.id);
