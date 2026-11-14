@@ -6,12 +6,13 @@
 //       batch from «داشبورد دارایی‌ها»): until then people are refused with what to do, and the feed makes nothing;
 //     · what: ITAM's `assetsForDiscovered` for the connector's linked hardware CIs (ITAM's HW_CLASSES) that have no
 //       asset — never for an ATM, CRS or kiosk (an item of kind `atm`, or a CI whose model is one of the bank fleet's);
-//     · how fast: the job `discovery.itam` (after every completed pass while the feed is on, and daily) works in the
-//       pull's slices (≤ 5 s; an asset starts only while the slice covers 1.5 × its measured time), one short
-//       transaction per asset, at most `make_assets_daily` (5 000) a day — a UTC day; the job then waits for the next.
+//     · how fast: the job `discovery.itam` (after every completed pass while the feed is on, and daily) walks the
+//       connector's linked items in its tool's id order, in the pull's slices (≤ 5 s; an asset starts only while the
+//       slice covers 1.5 × its measured time), one short transaction per asset, at most `make_assets_daily` (5 000) a
+//       day — a UTC day; the job then waits for the next. A device ITAM refuses is passed over until the next walk.
 //     New assets are «تأییدنشده». Their holder and place come only from what people set on the CI: connectors never
-//     write `used_by` or `location_id` (§6.3). Each feed pass is a `discovery_run` of lane `itam`: `created` counts the
-//     day's assets, `failed` the devices ITAM refused (tried again the next day), and its cursor keeps the measured
+//     write `used_by` or `location_id` (§6.3). A walk that makes assets is a `discovery_run` of lane `itam`: `created`
+//     counts the day's assets, `failed` the devices ITAM refused, and its cursor keeps the walk's place and the measured
 //     time per asset.
 //   «بی‌دارایی» (§8.4): the devices still waiting, with the tool's reported holder and place, and a roll-up per
 //     connector — a tab of the reconciliation queue (service.ts).
@@ -21,14 +22,19 @@ import { uuidv7 } from "@shared/id";
 import { FLEET_CATEGORIES } from "@shared/tables/itam";
 import type { Ctx } from "../../context";
 import { pgArray, type Queryable } from "../../db";
-import { isSystemCtx, list } from "../../engine";
+import { demoScopeOrg, isDemoRow } from "../../db/scope";
+import { get, isSystemCtx, list, updateIn } from "../../engine";
 import { registerHooks, type WriteArgs } from "../../engine/hooks";
-import { AppError, bad } from "../../http/errors";
+import { AppError, bad, forbidden } from "../../http/errors";
 import type { JobContext, JobResult } from "../../jobs";
 import { assetsForDiscovered, HW_CLASSES } from "../itam/assets";
 import { liveRows } from "../itam/common";
+import { sysOf } from "../incident/common";
 import { assertWritable } from "../platform/org-admin";
 import { mayForce, observe, predictMs, sliceEnd, START_FACTOR, type Ewma } from "./budget";
+import { ASSET_ONLY_MESSAGE, DEMO_PEOPLE_MESSAGE, rightsOf } from "./guard";
+import { CONNECTOR_MESSAGES } from "./kind";
+import { editionOf } from "./net";
 import { loadConnector } from "./runner";
 
 type Row = Record<string, any>;
@@ -37,10 +43,8 @@ type Row = Record<string, any>;
 export const FEED_LANE = "itam";
 export const MAKE_ASSETS_DAILY = 5000;
 export const DAY_MS = 86_400_000;
-/** Devices read per query (each still gets its own transaction). */
-const BATCH = 25;
-/** Devices ITAM refused that a day's pass remembers; more and the pass waits for the next day. */
-export const SKIP_KEPT = 200;
+/** Items the walk reads per step (each device still gets its own transaction). */
+const WALK_STEP = 200;
 const LEASE_MINUTES = 5;
 const BUSY_AGAIN_MS = 30_000;
 const WRITABLE_AGAIN_MS = 15 * 60_000;
@@ -50,7 +54,6 @@ export const NOT_CONFIRMED_MESSAGE =
   "ساخت دارایی برای دستگاه‌های تازه پس از تأیید مدیریت دارایی روشن می‌شود: نخست در «داشبورد دارایی‌ها» دکمهٔ «دارایی برای سخت‌افزار کشف‌شده» را بزنید";
 const faNum = (n: number) => n.toLocaleString("fa-IR");
 export const capWarning = (cap: number) => `سقف روزانهٔ ساخت دارایی (${faNum(cap)}) پر شد؛ دستگاه‌های دیگر روز بعد دارایی می‌گیرند`;
-export const SKIP_WARNING = "دارایی بسیاری از دستگاه‌ها ساخته نشد؛ بقیه روز بعد دوباره آزموده می‌شوند";
 
 // ---------------------------------------------------------------------------------------------------------------
 // Which devices wait for an asset
@@ -64,17 +67,26 @@ const literals = (xs: readonly string[]) =>
     .join(", ");
 
 /**
- * An item `i` linked to a live hardware CI `c` (ITAM's classes) without an asset — never an ATM, CRS or kiosk (an item
- * of kind `atm` names the CI, or the model ITAM would give it is one of the bank fleet's: `assetsForDiscovered` finds
- * the model by the CI's model name, else «<class> نامشخص»). Shared by the feed and «بی‌دارایی».
+ * The CI `c` waits for an asset: live hardware (ITAM's classes) without one, never an ATM, CRS or kiosk — an item of
+ * kind `atm` names it, or the model ITAM would give it (`assetsForDiscovered` finds it by the CI's model name, else
+ * «<class> نامشخص») is one of `fleet`, the bank fleet's model names. Each check is an index probe per row: `offset 0`
+ * keeps the planner from flattening them into joins it would size without statistics (PGlite, a fresh load).
  */
-export const WAITING_SQL = `i.deleted_at is null and i.state = 'linked' and coalesce(i.kind, '') <> 'atm'
-  and c.deleted_at is null and c.merged_into is null and c.class in (${literals(HW_CLASSES)}) and coalesce(c.state, '') not in ('retired', 'disposed', 'canceled')
-  and not exists (select 1 from sm_assets a where a.org_id = c.org_id and a.ci_id = c.id and a.deleted_at is null)
-  and not exists (select 1 from sm_discovery_items x where x.org_id = c.org_id and x.ci_id = c.id and x.kind = 'atm' and x.deleted_at is null)
-  and not exists (select 1 from sm_asset_models m where m.org_id = c.org_id and m.deleted_at is null and m.category in (${literals(FLEET_CATEGORIES)})
-                    and m.name = left(coalesce(nullif(c.model_name, ''), c.class || ' نامشخص'), 200))`;
-const FROM_SQL = `from sm_discovery_items i join sm_cis c on c.org_id = i.org_id and c.id = i.ci_id`;
+const ciWaits = (fleet: string) => `c.deleted_at is null and c.merged_into is null and c.class in (${literals(HW_CLASSES)})
+  and coalesce(c.state, '') not in ('retired', 'disposed', 'canceled')
+  and left(coalesce(nullif(c.model_name, ''), c.class || ' نامشخص'), 200) <> all(${fleet}::text[])
+  and not exists (select 1 from sm_assets a where a.org_id = c.org_id and a.ci_id = c.id and a.deleted_at is null offset 0)
+  and not exists (select 1 from sm_discovery_items x where x.org_id = c.org_id and x.ci_id = c.id and x.kind = 'atm' and x.deleted_at is null offset 0)`;
+
+/** A linked item `i` (never an ATM's) whose CI waits for an asset — shared by the feed and «بی‌دارایی». */
+export const waitingSql = (fleet: string, more = "") => `i.deleted_at is null and i.state = 'linked' and i.ci_id is not null and coalesce(i.kind, '') <> 'atm'
+  and exists (select 1 from sm_cis c where c.id = i.ci_id and c.org_id = i.org_id and ${ciWaits(fleet)}${more} offset 0)`;
+
+/** Names of the bank fleet's models (ATM, CRS, kiosk): a CI whose model is one of them never gets an asset here. */
+export async function fleetModels(q: Queryable, orgId: string): Promise<string[]> {
+  const rows = await q.query<{ name: string }>(`select distinct name from sm_asset_models where org_id = $1 and deleted_at is null and category = any($2::text[]) and name is not null`, [orgId, pgArray(FLEET_CATEGORIES)]);
+  return rows.map((r) => r.name);
+}
 
 /** Has ITAM confirmed its discovered-hardware step (an asset manager made the first batch)? */
 export async function itamConfirmed(q: Queryable, orgId: string): Promise<boolean> {
@@ -82,16 +94,27 @@ export async function itamConfirmed(q: Queryable, orgId: string): Promise<boolea
   return !!r?.at;
 }
 
-/** The connector's next devices waiting for an asset, oldest CI first (a demo connector's only demo CIs, a real one's only real ones). */
-async function nextDevices(q: Queryable, orgId: string, connectorId: string, demo: boolean, skip: string[], n: number): Promise<string[]> {
-  const rows = await q.query<{ id: string }>(
-    `select distinct c.id, c.created_at ${FROM_SQL}
-     where i.org_id = $1 and i.connector_id = $2 and ${WAITING_SQL} and not (c.id = any($3::uuid[]))
-       and exists (select 1 from sm_demo_rows d where d.org_id = c.org_id and d.row_id = c.id) = $4::boolean
-     order by c.created_at, c.id limit $5`,
-    [orgId, connectorId, pgArray(skip), demo, n],
+interface Step {
+  external_id: string;
+  ci_id: string;
+  waits: boolean;
+}
+
+/**
+ * The walk's next linked items of a connector after `after`, in its tool's id order (the connector's unique index),
+ * each with whether its CI waits — a demo connector's only on demo CIs, a real one's only on real ones (§14.4).
+ */
+async function walkStep(q: Queryable, orgId: string, connectorId: string, demo: boolean, fleet: string[], after: string | null): Promise<Step[]> {
+  return q.query<Step>(
+    `select i.external_id, i.ci_id,
+       exists (select 1 from sm_cis c where c.id = i.ci_id and c.org_id = i.org_id and ${ciWaits("$5")}
+                 and exists (select 1 from sm_demo_rows d where d.org_id = c.org_id and d.row_id = c.id) = $4::boolean offset 0) as waits
+     from sm_discovery_items i
+     where i.org_id = $1 and i.connector_id = $2 and i.deleted_at is null and i.state = 'linked' and i.ci_id is not null and coalesce(i.kind, '') <> 'atm'
+       and ($3::text is null or i.external_id > $3::text)
+     order by i.external_id limit ${WALK_STEP}`,
+    [orgId, connectorId, after, demo, pgArray(fleet)],
   );
-  return rows.map((r) => String(r.id));
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -101,8 +124,8 @@ interface FeedCursor {
   ewma: Ewma;
   /** the longest asset transaction of the pass (ms) */
   max_ms: number;
-  /** devices ITAM refused today */
-  skip: string[];
+  /** the walk's place: the last item passed (its tool's id) */
+  after: string | null;
 }
 
 interface Warning {
@@ -187,9 +210,10 @@ export interface FeedOptions {
 }
 
 /**
- * One slice of a connector's asset feed (the job `discovery.itam`, §11.1): assets for its waiting devices, one
- * transaction each, until the slice ends (again at once), the day's cap is reached (again the next day) or no device
- * waits (done). A feed switched off, a paused or deleted connector, or ITAM not yet confirmed: nothing (done).
+ * One slice of a connector's asset feed (the job `discovery.itam`, §11.1): the walk over its linked items goes on, and
+ * every waiting device gets its asset in its own transaction — until the slice ends (again at once), the day's cap is
+ * reached (again the next day) or the walk ends (done). A feed switched off, a paused or deleted connector, or ITAM not
+ * yet confirmed: nothing (done). A walk that finds nothing to make leaves no run behind.
  */
 export async function itamFeed(sys: Ctx, connectorId: string, jctx: Pick<JobContext, "deadline">, opts: FeedOptions): Promise<JobResult> {
   const start = Date.now();
@@ -207,7 +231,7 @@ export async function itamFeed(sys: Ctx, connectorId: string, jctx: Pick<JobCont
   } catch {
     return { again: WRITABLE_AGAIN_MS };
   }
-  // a pass belongs to one day: yesterday's ends before today's begins
+  // a walk belongs to one day: yesterday's ends before today's begins
   if (run && new Date(run.started_at).getTime() < Date.parse(dayStart())) {
     await finishFeed(db, org, run.id);
     run = null;
@@ -218,64 +242,71 @@ export async function itamFeed(sys: Ctx, connectorId: string, jctx: Pick<JobCont
     if (run) await finishFeed(db, org, run.id, { code: "cap", message: capWarning(cap) });
     return { again: untilTomorrow() };
   }
-  const cursor: FeedCursor = { ewma: {}, max_ms: 0, skip: [], ...((run?.cursor as Partial<FeedCursor> | null) ?? {}) };
-  let ids = await nextDevices(db, org, connectorId, !!opts.demo, cursor.skip, Math.min(BATCH, cap - made));
-  if (!ids.length) {
-    if (run) await finishFeed(db, org, run.id);
-    return;
-  }
-  run ??= await openFeed(db, org, connectorId, sys.cfg.origin ?? "cloud");
-  if (!(await claimFeed(db, org, run.id, opts.worker))) return { again: BUSY_AGAIN_MS };
-  const runId = String(run.id);
+  if (run && !(await claimFeed(db, org, run.id, opts.worker))) return { again: BUSY_AGAIN_MS };
+  const cursor: FeedCursor = { ewma: {}, max_ms: 0, after: null, ...((run?.cursor as Partial<FeedCursor> | null) ?? {}) };
+  const fleet = await fleetModels(db, org);
   const end = sliceEnd(start, jctx.deadline);
-  let worked = false;
+  // the slice's first item always moves the walk on (the progress guarantee, budget.ts mayForce)
+  let moved = false;
+  /** the walk's run, opened when it first has something to keep (an asset, or its place at a slice's end) */
+  const runOf = async (): Promise<string | null> => {
+    if (!run) {
+      run = await openFeed(db, org, connectorId, sys.cfg.origin ?? "cloud");
+      if (!(await claimFeed(db, org, run.id, opts.worker))) return null;
+    }
+    return String(run.id);
+  };
   for (;;) {
-    const cis = new Map((await liveRows(db, sys, "ci", { f: "id", op: "in", v: ids } as Cond, { limit: ids.length })).map((r) => [String(r.id), r]));
-    for (const id of ids) {
+    const steps = await walkStep(db, org, connectorId, !!opts.demo, fleet, cursor.after);
+    if (!steps.length) {
+      // the walk is over: today's devices have their assets, or ITAM refused them (the next walk tries again)
+      if (run) {
+        await saveFeed(db, org, String(run.id), cursor, 0, 0);
+        await finishFeed(db, org, String(run.id));
+      }
+      return;
+    }
+    const waiting = steps.filter((x) => x.waits);
+    const cis = waiting.length ? new Map((await liveRows(db, sys, "ci", { f: "id", op: "in", v: [...new Set(waiting.map((x) => x.ci_id))] } as Cond, { limit: waiting.length })).map((r) => [String(r.id), r])) : new Map<string, Row>();
+    for (const step of steps) {
       const now = Date.now();
-      // an asset starts only while the slice covers 1.5 × its measured time (the slice's first one always)
-      if (!mayForce(worked, now, jctx.deadline) && (now >= end || START_FACTOR * predictMs(cursor.ewma, "new", 1) > end - now)) {
-        await saveFeed(db, org, runId, cursor, 0, 0);
+      const ci = step.waits ? cis.get(String(step.ci_id)) : undefined;
+      // the slice ends on time; an asset starts only while the slice covers 1.5 × its measured time
+      if (!mayForce(moved, now, jctx.deadline) && (now >= end || (ci && START_FACTOR * predictMs(cursor.ewma, "new", 1) > end - now))) {
+        const id = await runOf();
+        if (!id) return { again: BUSY_AGAIN_MS };
+        await saveFeed(db, org, id, cursor, 0, 0);
         return { again: 0 };
       }
-      const ci = cis.get(id);
-      worked = true;
+      moved = true;
+      if (!ci) {
+        cursor.after = step.external_id;
+        continue;
+      }
+      const id = await runOf();
+      if (!id) return { again: BUSY_AGAIN_MS };
       let created = 0;
       let failed = 0;
       let warning: Warning | undefined;
       const t0 = Date.now();
       try {
-        // a CI gone since it was listed is passed over for the day
-        if (ci) created = (await assetsForDiscovered(sys, 1, [ci])).created;
-        else cursor.skip = [...cursor.skip, id];
+        created = (await assetsForDiscovered(sys, 1, [ci])).created;
       } catch (e) {
-        // ITAM refused this device (its rules, a bad value): the others go on; it is tried again the next day
+        // ITAM refused this device (its rules, a bad value): the walk goes on; the next walk tries it again
         if (!(e instanceof AppError)) throw e;
         failed = 1;
-        cursor.skip = [...cursor.skip, id];
-        warning = { code: "refused", message: `${String(ci?.name ?? ci?.number ?? id).slice(0, 120)}: ${e.message}`.slice(0, 300) };
+        warning = { code: "refused", message: `${String(ci.name ?? ci.number ?? step.external_id).slice(0, 120)}: ${e.message}`.slice(0, 300) };
       }
-      if (ci) {
-        const ms = Date.now() - t0;
-        cursor.ewma = observe(cursor.ewma, "new", 1, ms);
-        cursor.max_ms = Math.max(cursor.max_ms, ms);
-      }
+      const ms = Date.now() - t0;
+      cursor.ewma = observe(cursor.ewma, "new", 1, ms);
+      cursor.max_ms = Math.max(cursor.max_ms, ms);
+      cursor.after = step.external_id;
       made += created;
-      await saveFeed(db, org, runId, cursor, created, failed, warning);
+      await saveFeed(db, org, id, cursor, created, failed, warning);
       if (made >= cap) {
-        await finishFeed(db, org, runId, { code: "cap", message: capWarning(cap) });
+        await finishFeed(db, org, id, { code: "cap", message: capWarning(cap) });
         return { again: untilTomorrow() };
       }
-      if (cursor.skip.length >= SKIP_KEPT) {
-        await finishFeed(db, org, runId, { code: "refused_many", message: SKIP_WARNING });
-        return { again: untilTomorrow() };
-      }
-    }
-    ids = await nextDevices(db, org, connectorId, !!opts.demo, cursor.skip, Math.min(BATCH, cap - made));
-    if (!ids.length) {
-      await saveFeed(db, org, runId, cursor, 0, 0);
-      await finishFeed(db, org, runId);
-      return;
     }
   }
 }
@@ -294,37 +325,49 @@ export interface WaitingRollup {
   made_today: number;
 }
 
-/** Devices waiting for an asset among the given connectors. */
+/** Devices waiting for an asset among the given connectors (items: a device two connectors report counts twice). */
 export async function waitingCount(q: Queryable, orgId: string, connectorIds: string[]): Promise<number> {
   if (!connectorIds.length) return 0;
-  const r = await q.one<{ n: number }>(`select count(*)::int as n ${FROM_SQL} where i.org_id = $1 and i.connector_id = any($2::uuid[]) and ${WAITING_SQL}`, [orgId, pgArray(connectorIds)]);
+  const r = await q.one<{ n: number }>(`select count(*)::int as n from sm_discovery_items i where i.org_id = $1 and i.connector_id = any($2::uuid[]) and ${waitingSql("$3")}`, [
+    orgId,
+    pgArray(connectorIds),
+    pgArray(await fleetModels(q, orgId)),
+  ]);
   return Number(r?.n ?? 0);
 }
 
+/** The tab's columns; the reported record (`data`, field group internal) only for those who may read it. */
+const ITEM_FIELDS = ["connector_id", "external_id", "kind", "name", "ci_id", "asset_id", "state", "matched_by", "first_seen_at", "listed_at", "last_contact_at", "status", "link_url", "data"];
 const likeOf = (s: string) => `%${s.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
 const textOf = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 200) : null);
 
 /**
- * The «بی‌دارایی» tab over connectors the caller reads (`connectorIds`), oldest device first — the feed's order. Rows
- * come through the engine's read rules (an item through its connector; the reported record only for callers of field
- * group internal), each with the tool's reported holder and place to help the asset manager; with a roll-up per
- * connector: devices waiting, the feed's switch and cap, and what it made today.
+ * The «بی‌دارایی» tab over connectors the caller reads (`connectorIds`), per connector in its tool's id order — the
+ * feed's order. Rows come through the engine's read rules (an item through its connector; the reported record only for
+ * callers of field group internal), each with the tool's reported holder and place to help the asset manager; with a
+ * roll-up per connector: devices waiting, the feed's switch and cap, and what it made today.
  */
 export async function waitingPage(ctx: Ctx, connectorIds: string[], p: { q?: string; page?: number; size?: number }) {
   const size = Math.min(Math.max(Math.trunc(p.size ?? 50) || 50, 1), 500);
   const page = Math.max(Math.trunc(p.page ?? 1) || 1, 1);
   if (!connectorIds.length) return { rows: [] as Row[], total: 0, page, size, display: {} as Record<string, string>, rollup: [] as WaitingRollup[] };
   const org = ctx.org.id;
-  const params: unknown[] = [org, pgArray(connectorIds)];
+  const fleet = pgArray(await fleetModels(ctx.db, org));
+  // the roll-up per connector the caller reads
+  const per = await ctx.db.query<{ connector_id: string; n: number }>(
+    `select i.connector_id, count(*)::int as n from sm_discovery_items i where i.org_id = $1 and i.connector_id = any($2::uuid[]) and ${waitingSql("$3")} group by i.connector_id`,
+    [org, pgArray(connectorIds), fleet],
+  );
+  const params: unknown[] = [org, pgArray(connectorIds), fleet];
   let search = "";
   if (p.q?.trim()) {
     params.push(likeOf(p.q.trim()));
-    search = ` and (i.name ilike $3 or c.name ilike $3 or i.external_id ilike $3)`;
+    search = ` and (i.name ilike $4 or i.external_id ilike $4)`;
   }
-  const where = `where i.org_id = $1 and i.connector_id = any($2::uuid[]) and ${WAITING_SQL}${search}`;
-  const total = Number((await ctx.db.one<{ n: number }>(`select count(*)::int as n ${FROM_SQL} ${where}`, params))?.n ?? 0);
-  const ids = (await ctx.db.query<{ id: string }>(`select i.id ${FROM_SQL} ${where} order by c.created_at, c.id, i.id limit ${size} offset ${(page - 1) * size}`, params)).map((r) => String(r.id));
-  const res = ids.length ? await list(ctx, "discovery_item", { filter: { f: "id", op: "in", v: ids } as never, size: ids.length, total: false }) : { rows: [] as Row[], display: {} as Record<string, string> };
+  const where = `where i.org_id = $1 and i.connector_id = any($2::uuid[]) and ${waitingSql("$3")}${search}`;
+  const total = search ? Number((await ctx.db.one<{ n: number }>(`select count(*)::int as n from sm_discovery_items i ${where}`, params))?.n ?? 0) : per.reduce((t, x) => t + x.n, 0);
+  const ids = (await ctx.db.query<{ id: string }>(`select i.id from sm_discovery_items i ${where} order by i.connector_id, i.external_id limit ${size} offset ${(page - 1) * size}`, params)).map((r) => String(r.id));
+  const res = ids.length ? await list(ctx, "discovery_item", { filter: { f: "id", op: "in", v: ids } as never, fields: ITEM_FIELDS, size: ids.length, total: false }) : { rows: [] as Row[], display: {} as Record<string, string> };
   const byId = new Map(res.rows.map((r) => [String(r.id), r]));
   const rows = ids
     .map((id) => byId.get(id))
@@ -333,11 +376,6 @@ export async function waitingPage(ctx: Ctx, connectorIds: string[], p: { q?: str
       const reported = (r.data && typeof r.data === "object" ? (r.data as Row).reported : null) as Row | null;
       return { ...r, reported: reported ? { user: textOf(reported.user), site: textOf(reported.site), location: textOf(reported.location) } : null };
     });
-  // the roll-up per connector the caller reads
-  const per = await ctx.db.query<{ connector_id: string; n: number }>(
-    `select i.connector_id, count(*)::int as n ${FROM_SQL} where i.org_id = $1 and i.connector_id = any($2::uuid[]) and ${WAITING_SQL} group by i.connector_id`,
-    [org, pgArray(connectorIds)],
-  );
   const conns = await ctx.db.query<Row>(
     `select c.id, c.name, c.make_assets, c.make_assets_daily,
        (select coalesce(sum(r.created), 0)::int from sm_discovery_runs r where r.org_id = c.org_id and r.connector_id = c.id and r.lane = '${FEED_LANE}' and r.started_at >= $3::timestamptz and r.deleted_at is null) as made_today
@@ -355,7 +393,31 @@ export async function waitingPage(ctx: Ctx, connectorIds: string[], p: { q?: str
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// The switch (§11.1): only once ITAM has confirmed its discovered-hardware step
+// The switch (§11.1): asset managers, only once ITAM has confirmed its discovered-hardware step
+
+/**
+ * «ساخت دارایی برای دستگاه‌های تازه» and its daily cap, switched by an asset manager on a connector they read (§14.5).
+ * The connector's record is the CMDB's to write (its owner or a CMDB administrator), so this switch has its own route;
+ * it changes nothing else, and the connector's history shows the person.
+ */
+export async function switchAssetFeed(ctx: Ctx, id: string, input: { make_assets?: boolean; make_assets_daily?: number }): Promise<{ id: string; make_assets: boolean; make_assets_daily: number }> {
+  if (editionOf(ctx.cfg) === "desktop") throw new AppError(403, "desktop", CONNECTOR_MESSAGES.desktop);
+  const rights = await rightsOf(ctx);
+  await get(ctx, "discovery_connector", id);
+  if (!rights.assetManager) throw forbidden(ASSET_ONLY_MESSAGE);
+  // the demo pack's people act only on the pack's connectors
+  if (demoScopeOrg() === ctx.org.id && !(await isDemoRow(ctx.db, ctx.org.id, id))) throw forbidden(DEMO_PEOPLE_MESSAGE);
+  const patch: Row = {};
+  if (typeof input.make_assets === "boolean") patch.make_assets = input.make_assets;
+  if (input.make_assets_daily !== undefined) patch.make_assets_daily = input.make_assets_daily;
+  if (!Object.keys(patch).length) throw bad("چیزی برای تغییر فرستاده نشد");
+  const row = await loadConnector(ctx.db, ctx.org.id, id);
+  if (patch.make_assets === true && row?.make_assets !== true && !(await itamConfirmed(ctx.db, ctx.org.id))) throw bad(NOT_CONFIRMED_MESSAGE, { field: "make_assets" });
+  const by = sysOf(ctx, ctx.user.id);
+  await by.write((tx) => updateIn(tx, by, "discovery_connector", id, patch, { trusted: true }));
+  const now = await loadConnector(ctx.db, ctx.org.id, id);
+  return { id, make_assets: now?.make_assets === true, make_assets_daily: Number(now?.make_assets_daily ?? MAKE_ASSETS_DAILY) };
+}
 
 async function beforeWrite(w: WriteArgs): Promise<void> {
   if (w.op !== "create" && w.op !== "update") return;
