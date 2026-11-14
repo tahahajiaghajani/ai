@@ -18,7 +18,7 @@ import { bad, forbidden } from "../../http/errors";
 import { isSystemCtx, pushGuard, registerHooks, type PushArgs, type WriteArgs } from "../../engine";
 import { access } from "../../access/provider";
 import { prepareSubject } from "../../access/subject";
-import type { Queryable } from "../../db";
+import { lockKey, type Queryable } from "../../db";
 
 type Row = Record<string, unknown>;
 
@@ -124,6 +124,9 @@ async function holderGuard(w: WriteArgs): Promise<void> {
       if (u && u.kind !== pos.unit_kind) throw bad(`«${u.name}» از نوع «${kindLabel(u.kind)}» است؛ «${pos.name}» در واحدهای نوع «${kindLabel(pos.unit_kind)}» است`);
     }
     const user = idOf(n.user_id);
+    // writers placing the same person in the same position take turns (an empty unit escapes the database's unique
+    // index): the second one's check sees what the first committed
+    await lockKey(tx, `position_holder:${org}:${pos.id}:${user ?? ""}`);
     const twin = await tx.one<{ id: string }>(
       `select id from sm_position_holders where org_id = $1 and position_id = $2 and user_id = $3 and org_unit_id is not distinct from $4 and deleted_at is null and id <> $5 limit 1`,
       [org, pos.id, user, unitId, n.id ?? "00000000-0000-0000-0000-000000000000"],
