@@ -11,7 +11,8 @@
 import type { FieldDef } from "@shared/model/types";
 import { tableDef } from "@shared/tables";
 import {
-  applyShowIf, cleanStepRights, effectiveRights, formView, layoutFields, type FieldItem, type FormLayoutV2, type FormView, type Right, type StepRights,
+  applyShowIf, cleanStepRights, effectiveRights, formView, layoutFields, tableFormFields, type FieldItem, type FormLayoutV2, type FormView, type Right,
+  type StepRights,
 } from "@shared/forms/layout";
 import { snapshotFields } from "@shared/forms/snapshot";
 import type { Ctx } from "../../context";
@@ -19,7 +20,7 @@ import type { Queryable } from "../../db";
 import { bad, notFound } from "../../http/errors";
 import { condEnv, orgSchema, orgTz } from "../../engine";
 import { bindsRequirement } from "../../engine/schema";
-import { needDesignRead, viewpointOf, type Viewpoint } from "./access";
+import { needFormsRead, viewpointOf, type Viewpoint } from "./access";
 import { formOut, formRow } from "./service";
 import { loadFormsSnapshot } from "./snapshot";
 import { checkFormValues } from "./values";
@@ -96,7 +97,7 @@ export function jsonParam(raw: unknown, what: string): unknown {
 
 /** GET|POST /forms/:id/preview */
 export async function formPreview(ctx: Ctx, id: string, input: PreviewInput): Promise<FormPreview> {
-  await needDesignRead(ctx);
+  await needFormsRead(ctx);
   const row = await formRow(ctx, id);
   const form = formOut(row);
   const as = await viewpointOf(ctx, input.as);
@@ -142,18 +143,18 @@ export interface SystemPreview {
 }
 
 /**
- * GET /forms/system/:table/preview — a table's default form for a viewpoint, through `effectiveRights`: the fields as
- * items of one form whose flags are the table's — hidden on forms (the organisation's «پنهان در فرم»), read-only
- * (the module's), required (the module's, or the organisation's where it binds the viewpoint) — and the viewpoint's
- * field groups.
+ * GET /forms/system/:table/preview — a table's default form for a viewpoint, through `effectiveRights`: the fields of
+ * the record page's body (engine-maintained ones read-only) as items of one form whose flags are the table's — hidden
+ * on forms (the organisation's «پنهان در فرم»), read-only (the module's), required (the module's, or the
+ * organisation's where it binds the viewpoint) — and the viewpoint's field groups.
  */
 export async function systemPreview(ctx: Ctx, table: string, as: string | null | undefined): Promise<SystemPreview> {
-  await needDesignRead(ctx);
+  await needFormsRead(ctx);
   const base = tableDef(table);
   if (!base || base.virtual || NO_LIBRARY_TABLES.has(base.key)) throw notFound(`جدول «${table}» وجود ندارد`);
   const def = (await orgSchema(ctx)).def(base.key)!;
   const who = await viewpointOf(ctx, as);
-  const shown = def.fields.filter((f) => !f.base && !f.hidden);
+  const shown = tableFormFields(def, { engine: true });
   const requiredBy = (f: FieldDef): "module" | "organisation" | null => (f.required && !f.system ? "module" : bindsRequirement(f, who.scope) ? "organisation" : null);
   const items: FieldItem[] = shown.map((f) => {
     const item: FieldItem = { field: f.name };

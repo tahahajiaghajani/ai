@@ -1,6 +1,7 @@
 // «فرم‌ها»: every form of the system in one list (design F D15, §8.2, package F2) — GET /forms:
 //   · «فرم‌های سامانه»: each table's default form (every table people open on a form: the custom-field manager's
-//     tables), with its fields, the organisation's changes to it («تغییر نسبت به پیش‌فرض») and where it is used;
+//     tables, the studio's under the organisation's names and only those it uses), with its fields, the
+//     organisation's changes to it («تغییر نسبت به پیش‌فرض») and where it is used;
 //   · «فرم‌های گردش‌کار»: the `form` rows, with their status, version and the processes that use them;
 //   · the linked kinds, each opening its own editor: «فرم‌های کاتالوگ» (catalogue items and record producers),
 //     «فرم‌های درگاه» (each portal's «گزارش مشکل»: its built-in form or the catalogue form chosen for it),
@@ -13,13 +14,15 @@ import { areaLabel } from "@shared/access/areas";
 import { physicalTables, tableDef } from "@shared/tables";
 import { FORM_ROW } from "@shared/model/arrangement";
 import { STATES_ROW } from "@shared/model/lifecycle";
+import { isCustomSlot } from "@shared/admin/studio";
+import { tableFormFields } from "@shared/forms/layout";
 import type { Ctx } from "../../context";
 import { pgArray } from "../../db";
 import { orgSchema } from "../../engine";
 import { access } from "../../access/provider";
-import { liveRows } from "../incident/common";
+import { liveRows, sysOf } from "../incident/common";
 import { NO_LIBRARY_TABLES } from "../fields";
-import { canChangeSystemForms, canDesignForms, needDesignRead } from "./access";
+import { canChangeSystemForms, canDesignForms, needFormsRead } from "./access";
 import { formsUsage } from "./usage";
 
 export type FormKind = "system" | "process" | "catalog" | "portal_report" | "survey" | "risk";
@@ -79,10 +82,19 @@ const NO_SYSTEM_FORM = new Set(["custom_field", "choice", "view"]);
 /**
  * The tables that have a default form: every table people open in the record page — not the customisation tables,
  * not the runtime tables nobody reads through the record API (`rowAccess.read` NEVER), and not tables whose values are
- * not fields of their own (a process case: its forms are process forms).
+ * not fields of their own (a process case: its forms are process forms). `slots`: the studio's slots the organisation
+ * uses (an unused slot is no table of its yet); without it, every slot.
  */
-export function systemFormTables(): TableDef[] {
-  return physicalTables().filter((d) => !NO_SYSTEM_FORM.has(d.key) && !NO_LIBRARY_TABLES.has(d.key) && !isNever(d.rowAccess?.read ?? null));
+export function systemFormTables(slots?: ReadonlySet<string>): TableDef[] {
+  return physicalTables().filter(
+    (d) => !NO_SYSTEM_FORM.has(d.key) && !NO_LIBRARY_TABLES.has(d.key) && !isNever(d.rowAccess?.read ?? null) && (!slots || !isCustomSlot(d.key) || slots.has(d.key)),
+  );
+}
+
+/** The organisation's studio tables by slot: their names (the studio's `custom_table` rows; names are not secret). */
+async function studioNames(ctx: Ctx): Promise<Map<string, string>> {
+  const rows = await liveRows(ctx.db, sysOf(ctx), "custom_table", null, { order: "t.slot" });
+  return new Map(rows.map((r) => [String(r.slot), String(r.plural || r.label)]));
 }
 
 const LIMIT = 1000;
@@ -94,7 +106,7 @@ const PORTAL_REPORT_FIELDS = 3;
 
 /** GET /forms (optionally one kind). */
 export async function formsList(ctx: Ctx, opts: { kind?: FormKind | null } = {}): Promise<FormsList> {
-  await needDesignRead(ctx);
+  await needFormsRead(ctx);
   const want = (k: FormKind) => !opts.kind || opts.kind === k;
   const forms: FormEntry[] = [];
   const available: Record<FormKind, boolean> = { system: true, process: true, catalog: false, portal_report: false, survey: false, risk: false };
@@ -122,17 +134,18 @@ export async function formsList(ctx: Ctx, opts: { kind?: FormKind | null } = {})
     );
     const byTable = new Map(stats.map((s) => [s.table_key, s]));
     const editable = await canChangeSystemForms(ctx);
-    for (const base of systemFormTables()) {
+    const studio = await studioNames(ctx);
+    for (const base of systemFormTables(new Set(studio.keys()))) {
       const def = schema.def(base.key) ?? base;
       const s = byTable.get(def.key);
       forms.push({
         key: `system:${def.key}`,
         kind: "system",
-        name: def.plural,
+        name: studio.get(def.key) ?? def.plural,
         table: def.key,
         group: areaLabel(def.area),
         id: null,
-        fields: def.fields.filter((f) => !f.base && !f.hidden).length,
+        fields: tableFormFields(def).length,
         overrides: Number(s?.n ?? 0),
         arranged: !!s?.arranged,
         used_in: def.key === "incident" ? builtInReport.map(reportUse) : [],

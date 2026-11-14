@@ -318,8 +318,55 @@ export function formLayoutProblems(raw: unknown, env: LayoutEnv): string[] {
         if (p) problems.push(`شرط نمایش «${c.label}»: ${p}`);
       }
     }
+    // nor on each other in a circle: each would hide the other, and no order of entry could show them
+    const reads = new Map<string, string[]>();
+    for (const c of conditions) if (isObj(c.cond)) reads.set(c.name, [...condPaths(c.cond as Cond)].filter((p) => p !== c.name && seen.has(p)));
+    const circle = conditionCircle(reads);
+    if (circle) {
+      const label = new Map(conditions.map((c) => [c.name, c.label]));
+      const names = circle.map((n) => `«${label.get(n) ?? n}»`);
+      problems.push(`شرط‌های نمایش ${names.slice(0, -1).join("، ")} و ${names[names.length - 1]} به یکدیگر بستگی دارند؛ یکی را بی‌شرط بگذارید`);
+    }
   }
   return [...new Set(problems)];
+}
+
+/** A circle among «نمایش وقتی…» conditions (field → the fields its condition reads), in order; null when none. */
+function conditionCircle(reads: ReadonlyMap<string, readonly string[]>): string[] | null {
+  const state = new Map<string, 1 | 2>();
+  const path: string[] = [];
+  const visit = (n: string): string[] | null => {
+    state.set(n, 1);
+    path.push(n);
+    for (const m of reads.get(n) ?? []) {
+      if (!reads.has(m)) continue;
+      if (state.get(m) === 1) return path.slice(path.indexOf(m));
+      if (!state.has(m)) {
+        const found = visit(m);
+        if (found) return found;
+      }
+    }
+    path.pop();
+    state.set(n, 2);
+    return null;
+  };
+  for (const n of reads.keys()) {
+    if (state.has(n)) continue;
+    const found = visit(n);
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
+ * The fields of a table's default form — the record page's body: never a base column, a module's internal field
+ * (`hidden`), or the number, state and watch list the page shows elsewhere. Without `engine`, not the
+ * engine-maintained (system) fields either: the fields the system form designer arranges and a new record's form
+ * shows.
+ */
+export function tableFormFields(def: TableDef, opts: { engine?: boolean } = {}): FieldDef[] {
+  const watchers = def.features?.watchers ? (def.scope?.watchers ?? "watch_list") : null;
+  return def.fields.filter((f) => !f.base && !f.hidden && f.name !== "number" && f.name !== def.states?.field && f.name !== watchers && (opts.engine || !f.system));
 }
 
 // ---------------------------------------------------------------------------------------------------------------

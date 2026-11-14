@@ -11,7 +11,7 @@ import { notFound } from "../../http/errors";
 import { createIn, removeIn, updateIn } from "../../engine";
 import type { Row } from "../../engine/hooks";
 import { sysOf } from "../admin/common";
-import { canDesignForms, needDesignRead, needDesignWrite } from "./access";
+import { canDesignForms, needFormsRead, needFormsWrite } from "./access";
 import { libraryFields } from "./library";
 import { formUsage, type FormUsage } from "./usage";
 
@@ -69,7 +69,7 @@ export interface FormDetail {
 
 /** GET /forms/:id — a process form, the definitions of its fields and where it is used. */
 export async function getForm(ctx: Ctx, id: string): Promise<FormDetail> {
-  await needDesignRead(ctx);
+  await needFormsRead(ctx);
   const row = await formRow(ctx, id);
   const form = formOut(row);
   const lib = await libraryFields(ctx.db, ctx.org.id, form.fields);
@@ -83,7 +83,7 @@ export async function getForm(ctx: Ctx, id: string): Promise<FormDetail> {
 
 /** GET /forms/:id/usage */
 export async function usageOf(ctx: Ctx, id: string): Promise<{ id: string; name: string; usage: FormUsage }> {
-  await needDesignRead(ctx);
+  await needFormsRead(ctx);
   const row = await formRow(ctx, id);
   return { id: String(row.id), name: String(row.name), usage: await formUsage(ctx.db, ctx.org.id, { id: String(row.id), name: String(row.name) }) };
 }
@@ -104,7 +104,7 @@ const values = (input: FormInput): Row => {
 
 /** POST /forms — a process form (a draft until a process publish takes it). */
 export async function createForm(ctx: Ctx, input: FormInput): Promise<FormOut> {
-  await needDesignWrite(ctx);
+  await needFormsWrite(ctx);
   const sys = actingFor(ctx);
   const row = await sys.write((tx) => createIn(tx, sys, "form", { layout: { tabs: [] }, ...values(input) }));
   return formOut(row);
@@ -112,7 +112,7 @@ export async function createForm(ctx: Ctx, input: FormInput): Promise<FormOut> {
 
 /** PATCH /forms/:id — its name, description or layout (running processes keep the snapshot of their version). */
 export async function updateForm(ctx: Ctx, id: string, input: FormInput): Promise<FormOut> {
-  await needDesignWrite(ctx);
+  await needFormsWrite(ctx);
   const prev = await formRow(ctx, id);
   const sys = actingFor(ctx);
   const row = await sys.write((tx) => updateIn(tx, sys, "form", String(prev.id), values(input)));
@@ -121,7 +121,7 @@ export async function updateForm(ctx: Ctx, id: string, input: FormInput): Promis
 
 /** DELETE /forms/:id — refused while a process uses it (the form's hook). */
 export async function deleteForm(ctx: Ctx, id: string): Promise<{ ok: true }> {
-  await needDesignWrite(ctx);
+  await needFormsWrite(ctx);
   const prev = await formRow(ctx, id);
   const sys = actingFor(ctx);
   await sys.write((tx) => removeIn(tx, sys, "form", String(prev.id)));
