@@ -17,7 +17,7 @@ import { useRefreshSchema, useSchema } from "../../../../records/data/hooks";
 import { fieldErrorsOf } from "../../../../records/model/types";
 import { FIELD_KEYS, fieldsApi, type LibraryEntry, type TypesResult } from "./api";
 import {
-  RETIRE_TEXT, fieldDraft, fieldDraftProblems, fieldPayload, isChoiceStorage, isUsed, previewField, resolvedType, typeChoices, typeOptions, usageText,
+  RETIRE_TEXT, fieldDraft, fieldDraftProblems, fieldPayload, isChoiceStorage, isUsed, optionsModeOf, previewField, resolvedType, typeChoices, typeHasOptions, typeOptions, usageText,
   type FieldDraft, type FieldsAccess,
 } from "./model";
 import { FieldPreview } from "./Preview";
@@ -55,8 +55,8 @@ export function FieldSheet({ id, entry, library, types, unit, access, onClose, o
   const retired = entry?.status === "retired";
   const readOnly = !access.designWrite;
   const t = resolvedType(d?.type, types);
-  const inherited = !!t?.custom && !!(t.settings.options?.length || t.settings.choices);
-  const draft = d && d.settings.optionsMode === "inherit" && !inherited ? { ...d, settings: { ...d.settings, optionsMode: "inline" as const } } : d;
+  const inherited = typeHasOptions(t);
+  const draft = d ? { ...d, settings: { ...d.settings, optionsMode: optionsModeOf(d.settings, t) } } : d;
   const dirty = !!d && !!initial && JSON.stringify(d) !== JSON.stringify(initial);
   const close = useCloseGuard(dirty && !readOnly, onClose);
   const preview = useMemo(() => (draft ? previewField(draft, t) : null), [draft, t]);

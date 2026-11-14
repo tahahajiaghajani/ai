@@ -269,6 +269,13 @@ export function cleanOptionList(options: readonly Option[]): Option[] {
 /** Choice storage needs its options: inline, a shared list, or (an organisation's type that has them) the type's own. */
 export const isChoiceStorage = (t: FieldType | null | undefined): boolean => t === "choice" || t === "multichoice";
 
+/** The type carries options of its own (an organisation's choice type): its fields may keep them. */
+export const typeHasOptions = (t: ResolvedFieldType | null | undefined): boolean => !!t && !!(t.settings.options?.length || t.settings.choices);
+
+/** A draft's options mode as its type allows it: «گزینه‌های نوع» only when the type carries options. */
+export const optionsModeOf = (d: SettingsDraft, t: ResolvedFieldType | null | undefined): OptionsMode =>
+  d.optionsMode === "inherit" && !typeHasOptions(t) ? "inline" : d.optionsMode;
+
 // ---------------------------------------------------------------------------------------------------------------
 // A library field's sheet
 
@@ -316,8 +323,9 @@ export function fieldDraftProblems(d: FieldDraft, t: ResolvedFieldType | null): 
   if (!d.label.trim()) out.label = "برچسب را بنویسید";
   if (!t) out.type = "نوع فیلد را برگزینید";
   if (t && isChoiceStorage(t.base)) {
-    const own = d.settings.optionsMode === "inline" ? cleanOptionList(d.settings.options).length > 0 : d.settings.optionsMode === "list" ? !!d.settings.choices : !!(t.settings.options?.length || t.settings.choices);
-    if (!own) out.options = d.settings.optionsMode === "list" ? "فهرست گزینه‌ها را برگزینید" : "دست‌کم یک گزینه بیفزایید";
+    const mode = optionsModeOf(d.settings, t);
+    const own = mode === "inline" ? cleanOptionList(d.settings.options).length > 0 : mode === "list" ? !!d.settings.choices : true;
+    if (!own) out.options = mode === "list" ? "فهرست گزینه‌ها را برگزینید" : "دست‌کم یک گزینه بیفزایید";
   }
   if (t && t.builtin.editable.includes("ref") && !d.settings.ref && !t.settings.ref) out.ref = "جدول مقصد را برگزینید";
   return out;
@@ -328,6 +336,7 @@ export function fieldPayload(d: FieldDraft, t: ResolvedFieldType): Record<string
   const s = d.settings;
   const validation = settingsOut(t.builtin, s);
   const choice = isChoiceStorage(t.base);
+  const mode = optionsModeOf(s, t);
   const text = FIELD_TYPES[t.base]?.sql === "text";
   return {
     name: `u_${d.name}`,
@@ -336,8 +345,8 @@ export function fieldPayload(d: FieldDraft, t: ResolvedFieldType): Record<string
     help: d.help.trim() || null,
     placeholder: d.placeholder.trim() || null,
     default_value: d.default_value.trim() || null,
-    options: choice && s.optionsMode === "inline" ? cleanOptionList(s.options) : null,
-    choices: choice && s.optionsMode === "list" ? (s.choices ?? null) : null,
+    options: choice && mode === "inline" ? cleanOptionList(s.options) : null,
+    choices: choice && mode === "list" ? (s.choices ?? null) : null,
     depends_on: choice ? d.depends_on : null,
     validation: Object.keys(validation).length ? validation : null,
     field_group: d.field_group,
