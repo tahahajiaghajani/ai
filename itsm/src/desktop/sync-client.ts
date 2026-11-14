@@ -56,10 +56,14 @@ interface PullPage {
   epoch?: string;
 }
 
-/** Start the next pull from nothing (a new link, a protocol update, a restored local database). */
+/**
+ * Start the next pull from nothing (a new link, a protocol update, a restored local database). Only a cursor that is
+ * there is emptied — a missing one reads as empty (`kvGet`) — so a database that never synced gains no `sync.*` key:
+ * only a pull writes them, and they are what tells a Windows app that synced with a server or the web version from a
+ * standalone one (demo/index.ts `refuseLinkedDesktop`; a standalone app restoring its own backup stays standalone).
+ */
 export async function resetSyncCursor(q: Pick<Db, "query">): Promise<void> {
-  const kv = `insert into sm_kv (key, value, updated_at) values ($1, $2::jsonb, now()) on conflict (key) do update set value = excluded.value, updated_at = now()`;
-  for (const key of ["sync.since", "sync.snap", "sync.after"]) await q.query(kv, [key, JSON.stringify("")]);
+  await q.query(`update sm_kv set value = '""'::jsonb, updated_at = now() where key in ('sync.since', 'sync.snap', 'sync.after')`);
   // the numeric cursors of protocol 15 (1.1.0-beta) and earlier
   await q.query(`delete from sm_kv where key in ('sync.cursor', 'sync.user_cursor')`);
   await q.query(`delete from sm_sync_seen`);
