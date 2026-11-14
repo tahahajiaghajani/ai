@@ -81,6 +81,9 @@ import { formsRoutes } from "./forms";
 import { installPositionsModule } from "../modules/positions";
 import { installProcessEngine } from "../modules/process/engine";
 import { installProcessAccess } from "../modules/process/access";
+import { installProcessSync } from "../modules/process/sync";
+import { installProcessTimers } from "../modules/process/timers";
+import { installProcessRecovery } from "../modules/process/recovery";
 import { positionsRoutes } from "./positions";
 import { adminTenantRoutes } from "./admin-tenant";
 import { demoRoutes } from "./demo";
@@ -161,6 +164,10 @@ installPositionsModule();
 installProcessEngine();
 // workflow access (design F, F4b): who reads a case and what of it, and who writes the workflow tables
 installProcessAccess();
+// workflow sync, time and recovery (design F, F4b): pushed submissions applied, timers and delegations, failed runs
+installProcessSync();
+installProcessTimers();
+installProcessRecovery();
 // the integration hub (docs/modules/integration_FA.md) — integration users and keys, webhooks, LDAP/AD, SCIM, Jira/GitHub, exports
 installIntegrationModule();
 

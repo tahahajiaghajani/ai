@@ -16,6 +16,7 @@ import { hostname } from "node:os";
 import { bumpLocal } from "@server/live";
 import { tableDef } from "@shared/tables";
 import { localOnlyFields, stripSecrets } from "@server/engine/sync";
+import { openCasesRefusal } from "@server/modules/process/sync/link";
 
 export interface SyncState {
   linked: boolean;
@@ -262,6 +263,8 @@ export class SyncClient {
         [orgId],
       );
       if ((demo?.n ?? 0) > 0) throw new Error("داده‌های نمایشی روی این سازمان است؛ پیش از بارگذاری روی سرور، آن‌ها را از «داده‌های نمایشی» پاک کنید");
+      const openCases = await openCasesRefusal(this.o.db, orgId);
+      if (openCases) throw new Error(openCases);
       await this.api("/sync/adopt", { url, token, body: { org } });
     } else {
       if (!orgId) throw new Error("سازمان ابری را انتخاب کنید");
