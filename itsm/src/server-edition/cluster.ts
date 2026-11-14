@@ -14,6 +14,7 @@ import { createLogger, echo, RotatingFile, type Level } from "./log";
 import { loadCredentials } from "./tls";
 import { waitForDb } from "./pg";
 import type { ClusterMetrics, WorkerSnapshot } from "./metrics";
+import { supportsSystemCa } from "@shared/desktop/node-flags";
 
 export const RESTART_REQUEST = "restart.request";
 /** `karizctl allow …` changed the allowlist: the workers re-read the configuration (no restart). */
@@ -212,6 +213,13 @@ export async function runPrimary(file: string): Promise<void> {
     void rollingRestart();
   }, 2000).unref();
 
+  // the workers trust the Windows certificate store (the bank's root installed by GPO): connectors, LDAP, SMTP (design A §14.2)
+  cluster.setupPrimary({ execArgv: workerExecArgv(process.execArgv, process.version) });
   for (const slot of slots) fork(slot);
   log.info("workers started", { workers: n });
+}
+
+/** The workers' Node flags: the supervisor's own, plus --use-system-ca where this Node reads the system store. */
+export function workerExecArgv(execArgv: readonly string[], nodeVersion: string): string[] {
+  return supportsSystemCa(nodeVersion) && !execArgv.includes("--use-system-ca") ? [...execArgv, "--use-system-ca"] : [...execArgv];
 }

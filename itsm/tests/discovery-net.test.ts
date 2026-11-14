@@ -18,6 +18,7 @@ import {
 import { previewConnector } from "@server/modules/discovery/runner";
 import { SECRETS_CLEARED } from "@server/modules/discovery/guard";
 import { psArgs, PS_MESSAGES, PS_SCRIPTS, psrunSeam, runPs } from "@server/modules/discovery/psrun";
+import { workerExecArgv } from "../src/server-edition/cluster";
 import { fixtureCa, TOOL_HOST } from "./fixtures/discovery-ca";
 import { json, mountMocks, serve, serveTls, type Handler } from "./mocks/discovery/harness";
 import { REST_CONNECTOR, RestMock, makeDevices } from "./mocks/discovery/rest";
@@ -231,6 +232,12 @@ describe("TLS with the connector's own root (design A §14.2)", () => {
     } finally {
       await other.close();
     }
+  });
+
+  it("the server edition's workers start with the system certificate store, so the bank's own root needs no file", () => {
+    expect(workerExecArgv(["--max-old-space-size=4096"], "v22.23.4")).toEqual(["--max-old-space-size=4096", "--use-system-ca"]);
+    expect(workerExecArgv(["--use-system-ca"], "v22.23.4")).toEqual(["--use-system-ca"]);
+    expect(workerExecArgv([], "v20.18.0")).toEqual([]);
   });
 
   it("reaches a plain-http tool on the server edition only with the tick, over a real socket pinned to the checked address", async () => {
