@@ -14,6 +14,7 @@ import { useSession } from "../../lib/session";
 import { usePageTitle, useShell } from "../../components/shell/context";
 import { Loader } from "../../components/display";
 import { RecordMarkdown } from "../../records";
+import { useWaitingSteps } from "../workflows/user/waiting";
 import { usePortalConfig, usePortalTodo, type PortalConfig } from "./api";
 import { accentOf, portalPath } from "./model";
 import "./portal.css";
@@ -166,10 +167,11 @@ export default function PortalApp() {
   const asked = sp.get("portal");
   const q = usePortalConfig(asked, preview);
   const todo = usePortalTodo();
+  const steps = useWaitingSteps(!embed).count;
   useInertShell();
   usePageTitle(q.data?.portal.name ?? "درگاه خدمات");
   const cfg = q.data;
-  const todoCount = useMemo(() => (todo.data ? todo.data.approvals.length + todo.data.surveys.length + todo.data.acknowledgements.length + todo.data.waiting_you.length : 0), [todo.data]);
+  const todoCount = useMemo(() => (todo.data ? todo.data.approvals.length + todo.data.surveys.length + todo.data.acknowledgements.length + todo.data.waiting_you.length : 0) + steps, [todo.data, steps]);
 
   const body = !cfg ? (
     <div className="pt-root" dir="rtl">

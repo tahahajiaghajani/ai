@@ -1,15 +1,20 @@
 // «کارهای من» (PTL-012): what waits for the person — approvals they are asked for (a manager approving their
 // people's requests reads the request through the approver's grant), surveys, policies to read and acknowledge, and
-// their requests where the desk waits for their answer. Each opens its own page in the portal.
+// their requests where the desk waits for their answer — and their open workflow steps (design F §5: a case returned
+// to its requester for correction, a step waiting for an approver). Each opens its own page in the portal.
+import { lazy, Suspense } from "react";
 import { Link } from "react-router";
 import { Skeleton } from "antd";
 import { BookOpenCheck, CheckSquare, MessageSquareHeart } from "lucide-react";
 import { formatJalali } from "@shared/jalali";
 import { useOrg } from "../../lib/org";
 import { Chip } from "../../components/display";
+import { useWaitingSteps } from "../workflows/user/waiting";
 import { usePortalTodo, type PortalConfig } from "./api";
 import { ago, portalPath } from "./model";
 import { Empty, I16, PageHead, Section, TicketRow } from "./parts";
+
+const WorkflowSteps = lazy(() => import("../workflows/user/PortalSteps"));
 
 const dueText = (due: string | null) => {
   if (!due) return null;
@@ -20,8 +25,9 @@ const dueText = (due: string | null) => {
 export default function Todo(_: { cfg: PortalConfig }) {
   const { orgId } = useOrg();
   const q = usePortalTodo();
+  const steps = useWaitingSteps();
   const d = q.data;
-  if (q.isLoading)
+  if (q.isLoading || steps.loading)
     return (
       <>
         <PageHead title="کارهای من" />
@@ -30,11 +36,11 @@ export default function Todo(_: { cfg: PortalConfig }) {
         </div>
       </>
     );
-  const none = d && !d.approvals.length && !d.surveys.length && !d.acknowledgements.length && !d.waiting_you.length;
+  const none = !steps.count && (!d || (!d.approvals.length && !d.surveys.length && !d.acknowledgements.length && !d.waiting_you.length));
   return (
     <>
-      <PageHead title="کارهای من" sub="تأییدها، پاسخ‌ها، نظرسنجی‌ها و خواندنی‌هایی که منتظر شماست" />
-      {none || !d ? <Empty title="کاری منتظر شما نیست" text="هر وقت تأییدی، پرسشی یا نظرسنجی‌ای برسد، این‌جا می‌آید." /> : null}
+      <PageHead title="کارهای من" sub="گردش‌کارها، تأییدها، پاسخ‌ها، نظرسنجی‌ها و خواندنی‌هایی که منتظر شماست" />
+      {none ? <Empty title="کاری منتظر شما نیست" text="هر وقت مرحله‌ای از گردش‌کار، تأییدی، پرسشی یا نظرسنجی‌ای برسد، این‌جا می‌آید." /> : null}
       {d?.waiting_you.length ? (
         <Section title="منتظر پاسخ شما">
           <div className="pt-card is-flush">
@@ -47,6 +53,11 @@ export default function Todo(_: { cfg: PortalConfig }) {
             </ul>
           </div>
         </Section>
+      ) : null}
+      {steps.count ? (
+        <Suspense fallback={null}>
+          <WorkflowSteps />
+        </Suspense>
       ) : null}
       {d?.approvals.length ? (
         <Section title="تأییدهای منتظر شما">
