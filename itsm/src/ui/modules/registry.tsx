@@ -21,6 +21,7 @@ import { accessUi } from "./access";
 import { notifyUi } from "./notify";
 import { slaUi } from "./sla";
 import { flowsUi } from "./flows";
+import { workflowsUi } from "./workflows";
 import { incidentUi } from "./incident";
 import { problemUi } from "./problem";
 import { changeUi } from "./change";
@@ -171,6 +172,7 @@ const UIS: ModuleUi[] = [
   notifyUi,
   slaUi,
   flowsUi,
+  workflowsUi,
   incidentUi,
   problemUi,
   changeUi,
