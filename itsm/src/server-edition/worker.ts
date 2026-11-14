@@ -14,6 +14,7 @@ import { createPostgresDb } from "@server/db/postgres";
 import { migrate, migrationStatus } from "@server/db/migrate";
 import { tick } from "@server/jobs";
 import { installBlobStore } from "@server/blobs";
+import { installDropRoot } from "@server/modules/discovery/drop";
 import { networkFetch, type NetworkPolicy } from "@server/net";
 import { configureWriteAdmission, configureWriteSerialisation, type ServerConfig } from "@server/context";
 import { proxyTrusted } from "@server/auth/session";
@@ -198,6 +199,7 @@ export async function startServerEdition(o: StartOptions): Promise<RunningServer
     },
   });
   installBlobStore(blobs);
+  installDropRoot(join(current.dirs.data, "discovery", "drop"));
 
   const platformAdmins = [...current.platform_admins];
   let scheduler: Scheduler | null = null;

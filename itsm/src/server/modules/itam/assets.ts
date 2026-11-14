@@ -258,7 +258,7 @@ export async function linkCi(sys: Ctx, assetId: string): Promise<{ ci_id: string
   return { ci_id: ciId, message: null };
 }
 
-const HW_CLASSES = ["laptop", "desktop", "server", "computer", "mobile_device", "printer", "network_device", "router", "switch", "firewall", "access_point", "storage", "ups"];
+export const HW_CLASSES = ["laptop", "desktop", "server", "computer", "mobile_device", "printer", "network_device", "router", "switch", "firewall", "access_point", "storage", "ups"];
 const CATEGORY_OF: Record<string, string> = { laptop: "laptop", desktop: "desktop", computer: "desktop", server: "server", mobile_device: "phone", printer: "printer", storage: "storage" };
 
 /**

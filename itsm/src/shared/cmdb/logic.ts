@@ -451,6 +451,8 @@ export interface HealthInput {
   /** the CI must have been certified within this many days (null = no certification requirement) */
   certifyWithinDays?: number | null;
   weights?: HealthWeights;
+  /** staleness decided elsewhere (discovery's contact ladder for the CIs it judges, design A §10); else from last_discovered_at */
+  stale?: boolean;
 }
 
 export interface HealthResult {
@@ -505,7 +507,7 @@ export function ciHealth(h: HealthInput): HealthResult {
   const recFilled = recommended.filter((p) => filled(ciValue(h.ci, p))).length;
   const rec = recommended.length ? Math.round((recFilled / recommended.length) * 100) : 100;
   const violations = cls ? relViolations(cls.allRelRules, h.rels, h.tree) : [];
-  const stale = isStale(h.ci, cls?.staleDays ?? null, h.now);
+  const stale = h.stale ?? isStale(h.ci, cls?.staleDays ?? null, h.now);
   const issues: string[] = [];
   if (missing.length) issues.push("missing_required");
   if (!filled(h.ci.owned_by) && (cls?.ownerRequired || required.includes("owned_by"))) issues.push("missing_owner");

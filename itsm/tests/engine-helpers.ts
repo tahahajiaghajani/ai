@@ -20,8 +20,8 @@ export interface EngineOrg {
 
 let seq = 0;
 
-export async function engineOrg(opts: { mode?: "cloud" | "desktop"; timezone?: string } = {}): Promise<EngineOrg> {
-  const { app, db } = await makeServer({ mode: opts.mode });
+export async function engineOrg(opts: { mode?: "cloud" | "desktop"; timezone?: string; config?: Partial<ServerConfig> } = {}): Promise<EngineOrg> {
+  const { app, db } = await makeServer({ mode: opts.mode, config: opts.config });
   const owner = new Client(app);
   const org = await signupWithOrg(owner, { timezone: opts.timezone ?? "Asia/Tehran" });
   const me = await owner.get("/auth/me");
@@ -34,6 +34,7 @@ export async function engineOrg(opts: { mode?: "cloud" | "desktop"; timezone?: s
     origin: "cloud",
     log: quietLog,
     fetch: globalThis.fetch.bind(globalThis),
+    ...opts.config,
   };
   return {
     app,

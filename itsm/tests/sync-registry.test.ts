@@ -102,6 +102,15 @@ const LOCAL_ONLY: Record<string, string> = {
   sm_auth_throttle: "failed sign-ins and local lockouts of this runtime",
   // workflows (design F §3.6.2): a draft stays on the runtime where it was saved
   sm_process_drafts: "a person's unsent values of a workflow step or start",
+  // discovery (design A §5): the server runs the connectors and keeps their bookkeeping; status and contact live here,
+  // off the synced CIs and assets, so a flapping host costs one local row update (the Windows app runs none of it)
+  sm_discovery_connectors: "configured monitoring and discovery tools of this server (credentials sealed for it)",
+  sm_discovery_items: "what each tool reported, keyed by the tool's id (the identity map onto CIs and assets)",
+  sm_discovery_states: "monitor status and last tool contact per CI or asset",
+  sm_discovery_problems: "open problems each tool reports and what event management has received",
+  sm_discovery_runs: "every pass of a connector (counts, cursor, warnings)",
+  sm_discovery_batches: "pushed batches (idempotency and results)",
+  sm_discovery_software: "software installs staged per device before the SAM feed",
 };
 
 describe("sync registry covers every organisation table", () => {

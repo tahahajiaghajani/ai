@@ -690,16 +690,30 @@ function registerLedgerOrder(): void {
 // ---------------------------------------------------------------------------------------------------------------
 // Device status periods
 
-const statusInfo = new WeakMap<Tx, Map<string, { reason?: string | null; incident_id?: string | null }>>();
-export function setStatusInfo(tx: Tx, assetId: string, info: { reason?: string | null; incident_id?: string | null }): void {
+const statusInfo = new WeakMap<Tx, Map<string, { reason?: string | null; incident_id?: string | null; at?: string | null }>>();
+/** `at`: when the change happened by its reporter's clock (a monitoring tool's, design A §9.5), else now. */
+export function setStatusInfo(tx: Tx, assetId: string, info: { reason?: string | null; incident_id?: string | null; at?: string | null }): void {
   let m = statusInfo.get(tx);
   if (!m) statusInfo.set(tx, (m = new Map()));
   m.set(assetId, info);
 }
 
+/** When a status change takes effect: the reporter's `at` clamped to [the open period's start + 1 s, now], else now. */
+async function statusAt(tx: Tx, ctx: Ctx, assetId: string): Promise<string> {
+  const info = statusInfo.get(tx)?.get(assetId);
+  const want = info?.at ? Date.parse(String(info.at)) : NaN;
+  if (!info || !Number.isFinite(want)) return nowIso();
+  const [open] = await liveRows(tx, sysOf(ctx), "device_status_event", { and: [{ f: "asset_id", op: "eq", v: assetId }, { f: "to_at", op: "empty" }] }, { order: "t.from_at desc", limit: 1 });
+  const floor = open ? Date.parse(String(open.from_at)) + 1000 : -Infinity;
+  // the period after the write starts at the same instant
+  info.at = new Date(Math.min(Date.now(), Math.max(floor, want))).toISOString();
+  return info.at;
+}
+
 async function statusPeriod(tx: Tx, ctx: Ctx, asset: Row): Promise<void> {
   const sys = sysOf(ctx);
-  const at = nowIso();
+  // a reporter's own time was clamped into device_status_at by the write (statusAt)
+  const at = statusInfo.get(tx)?.get(String(asset.id))?.at && asset.device_status_at ? new Date(String(asset.device_status_at)).toISOString() : nowIso();
   const open = await liveRows(tx, sys, "device_status_event", { and: [{ f: "asset_id", op: "eq", v: asset.id }, { f: "to_at", op: "empty" }] }, { limit: 20 });
   for (const e of open) {
     await updateIn(tx, sys, "device_status_event", String(e.id), { to_at: at, minutes: Math.max(0, Math.round((Date.parse(at) - Date.parse(String(e.from_at))) / 60_000)) }, { trusted: true });
@@ -729,7 +743,7 @@ async function assetBefore(w: WriteArgs): Promise<void> {
   if (w.op === "create" && !n.device_status && isFleetCategory(n.category)) n.device_status = "in_service";
   // the published end of support of a known operating system, unless one was entered
   if ((w.op === "create" || w.changed.has("os_name")) && n.os_name && !n.os_eos_date && !w.input?.has("os_eos_date")) n.os_eos_date = osEndOfSupport(n.os_name);
-  if (w.changed.has("device_status") || (w.op === "create" && n.device_status)) n.device_status_at = nowIso();
+  if (w.changed.has("device_status") || (w.op === "create" && n.device_status)) n.device_status_at = w.op === "update" ? await statusAt(w.tx, w.ctx, String(w.prev?.id ?? n.id)) : nowIso();
   if (isSys(w.ctx) || w.via === "sync") return;
   const everywhere = await holds(w.ctx, "asset", "write", "all", w.tx);
   if (w.op === "update" && w.changed.has("branch_id") && !everywhere) throw forbidden("جابه‌جایی دارایی میان شعبه‌ها با حوالهٔ انتقال است");

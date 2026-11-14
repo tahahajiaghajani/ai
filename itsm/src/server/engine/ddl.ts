@@ -138,6 +138,7 @@ export function ddlFor(def: TableDef): string {
     else idx(`${f.name}_idx`, `(org_id, ${f.name}) where deleted_at is null`);
   }
   for (const u of def.unique ?? []) idx(`${u.join("_")}_uk`, `(org_id, ${u.join(", ")}) where deleted_at is null`, true);
+  for (const x of def.indexes ?? []) idx(x.name, `(org_id, ${x.cols.join(", ")}) where deleted_at is null${x.where ? ` and (${x.where})` : ""}`, !!x.unique);
   // the access model's predicate (src/server/access/predicate.ts) on scoped tables: workspace, unit and domain anchors
   // and the "own" (and readers) user fields, so a requester's or a department head's list is an index lookup too
   if (def.scope?.own?.length || def.scope?.group) {

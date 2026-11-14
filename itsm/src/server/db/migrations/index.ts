@@ -26,6 +26,7 @@ import demoTouch from "./0099_demo_touch";
 import xidRevisions from "./0100_xid_revisions";
 import jobsFailedIdx from "./0103_jobs_failed_idx";
 import deviceProtocol from "./0101_device_protocol";
+import ciIdentityIndexes from "./0104_ci_identity_indexes";
 import { ddlForAll } from "../../engine/ddl";
 
 export interface Migration {
@@ -70,6 +71,7 @@ export const MIGRATIONS: Migration[] = [
   { id: "0100_xid_revisions", title: "همگام‌سازی بی قفل: بازبینی‌ها با شناسهٔ تراکنش، نسل همگام‌سازی سازمان و مرز پاک‌سازی", sql: xidRevisions },
   { id: "0103_jobs_failed_idx", title: "سرعت: نمایهٔ کارهای ناموفق پس‌زمینه برای خلاصهٔ کارهای کنسول‌ها", sql: jobsFailedIdx },
   { id: "0101_device_protocol", title: "برنامه‌های ویندوز: پروتکل همگام‌سازی هر دستگاه، تا برنامه‌های قدیمی‌ای که سرور نمی‌پذیرد شمرده شوند", sql: deviceProtocol },
+  { id: "0104_ci_identity_indexes", title: "شناسایی پیکربندی در مقیاس بانکی: نمایه‌های عبارتی شمارهٔ سریال، برچسب اموال، شناسهٔ BIOS، نام میزبان، FQDN، نشانی MAC و نام", sql: ciIdentityIndexes },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].id;

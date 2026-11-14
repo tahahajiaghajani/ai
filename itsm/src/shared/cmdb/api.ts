@@ -179,6 +179,11 @@ export interface IreItem {
   attrs?: Record<string, unknown> | null;
   /** relationships: to another item of the same payload (`item` index), an existing CI id, or identifying values */
   relations?: IreRelation[];
+  /**
+   * The CI a source already linked this item to (discovery's identity map): while that CI is live it is used without
+   * identification, a merged CI followed to the one it was merged into; otherwise the item is identified as usual.
+   */
+  ci_hint?: string | null;
 }
 
 export interface IreRelation {
@@ -190,7 +195,8 @@ export interface IreRelation {
   match?: { class?: string | null; values: Record<string, unknown> };
 }
 
-export type IreAction = "created" | "updated" | "unchanged" | "duplicate" | "skipped" | "error";
+/** `unmatched`: no CI matched and the call asked for no creation (`IreInput.create: false`) — nothing was written. */
+export type IreAction = "created" | "updated" | "unchanged" | "duplicate" | "unmatched" | "skipped" | "error";
 
 export interface IreItemResult {
   index: number;
@@ -214,6 +220,8 @@ export interface IreResult {
   unchanged: number;
   duplicates: number;
   failed: number;
+  /** items no CI matched in a call without creation */
+  unmatched?: number;
   relations: { created: number; refreshed: number; failed: number };
   dry_run: boolean;
   run_id?: string | null;
@@ -226,6 +234,8 @@ export interface IreInput {
   /** an import run to add these results to */
   run_id?: string | null;
   default_class?: string | null;
+  /** false: an item that matches no CI is answered `unmatched`, nothing is written for it and its relations are skipped */
+  create?: boolean;
 }
 
 // ---------------------------------------------------------------------------------------------------------------

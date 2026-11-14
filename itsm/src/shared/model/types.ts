@@ -380,6 +380,12 @@ export interface TableDef {
   /** combinations of fields unique per organisation among live rows */
   unique?: string[][];
   /**
+   * Further indexes the table's own queries need beyond the per-field flags (composite, partial, unique): the columns
+   * after `org_id`, an optional predicate on the table's own columns (ANDed with `deleted_at is null`, server code only —
+   * never from a person), named `<table>_<name>`. Generated with the table's DDL like every other index.
+   */
+  indexes?: TableIndex[];
+  /**
    * Row rules every caller is held to on top of the access provider — e.g. personal saved views:
    * `{ read: { or: [{ f: "owner_id", op: "is_me" }, { f: "shared", op: "eq", v: true }] }, write: { f: "owner_id", op: "is_me" } }`.
    * `managersReadAll`: callers who may create rows of the table (they manage its content — the portal's quick links
@@ -390,6 +396,17 @@ export interface TableDef {
   levels?: { read?: Level; create?: Level; write?: Level; delete?: Level };
   /** a reference target without a physical engine table (the members of the organisation) */
   virtual?: boolean;
+}
+
+/** An extra index of a table (`TableDef.indexes`). */
+export interface TableIndex {
+  /** suffix of the index name ([a-z][a-z0-9_]*) */
+  name: string;
+  /** columns after `org_id`, in order (fields or base columns of the table; `asc`/`desc` may follow a name) */
+  cols: string[];
+  /** a predicate on the table's own columns, e.g. `state = 'running'` */
+  where?: string;
+  unique?: boolean;
 }
 
 /** Names of the base columns every engine table has (never field names of a TableDef). */

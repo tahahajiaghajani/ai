@@ -122,10 +122,21 @@ export async function expiryWarnings(sys: Ctx): Promise<number> {
 /** Apply the active data policies (retire or flag CIs not seen for N days), bounded per policy and run. */
 export async function applyPolicies(sys: Ctx): Promise<{ affected: number; skipped: number }> {
   const policies = await liveRows(sys.db, sys, "cmdb_policy", { f: "active", op: "eq", v: true });
+  // CIs a connector found are judged by discovery's contact ladder (design A §10.3), which weighs every source's own
+  // contact and the mass-drop guard — their last discovery time alone would retire what a broken tool stopped listing.
+  // A deleted connector's ladder never runs again: its source is an ordinary one, judged here
+  const connectorSources = policies.length
+    ? (await sys.db.query<{ id: string }>(
+        `select s.id from sm_cmdb_sources s where s.org_id = $1 and s.deleted_at is null and s.kind = 'connector'
+           and exists (select 1 from sm_discovery_connectors k where k.org_id = s.org_id and k.source_id = s.id and k.deleted_at is null) limit 5000`,
+        [sys.org.id],
+      )).map((r) => r.id)
+    : [];
   let affected = 0;
   let skipped = 0;
   for (const p of policies) {
     const parts: Row[] = [{ f: "state", op: "nin", v: ["retired", "disposed", "canceled"] }];
+    if (connectorSources.length) parts.push({ f: "discovery_source_id", op: "nin", v: connectorSources });
     if (p.condition) parts.push(p.condition);
     if (p.after_days > 0) parts.push({ or: [{ f: "last_discovered_at", op: "lt", v: new Date(Date.now() - p.after_days * 86_400_000).toISOString() }, { and: [{ f: "last_discovered_at", op: "empty" }, { f: "updated_at", op: "lt", v: new Date(Date.now() - p.after_days * 86_400_000).toISOString() }] }] });
     const rows = await liveRows(sys.db, sys, "ci", { and: parts as never }, { limit: Math.min(5000, Number(p.max_per_run ?? 200)) });
