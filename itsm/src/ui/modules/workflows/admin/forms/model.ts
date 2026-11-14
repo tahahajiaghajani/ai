@@ -10,10 +10,10 @@ import {
   type Span, type StepRights,
 } from "@shared/forms/layout";
 import { lockedFields, type FieldLock } from "@shared/forms/locked";
-import { REQUIRED_FOR_LABELS, type RequiredFor } from "@shared/forms/paths";
+import type { RequiredFor } from "@shared/forms/paths";
 import { formStepOf, type ProcessGraph, type ProcessNode, type StepAction } from "@shared/process";
 import { faDigits } from "@shared/format";
-import { matchesFa } from "../../../../lib/fa";
+import { SEP, matchesFa } from "../../../../lib/fa";
 import { relTime } from "../../../../records/model/activity";
 import { arrangementOf } from "../../../../records/model/layout";
 import { sameValue } from "../../../../records/model/values";
@@ -45,21 +45,25 @@ export function filterForms(forms: readonly FormEntry[], f: { kind: FormKind | n
   return forms.filter((e) => (!f.kind || e.kind === f.kind) && (!q || matchesFa(`${e.name} ${e.table ? tableLabel(e.table) : ""} ${e.table ?? ""} ${e.group} ${e.note ?? ""}`, q)));
 }
 
-/** «گردش‌کارها» closes the list: the process forms are the organisation's own. */
-export const PROCESS_GROUP = "گردش‌کارها";
+/**
+ * The process forms close the list, in a group of their own — the automation flows' tables are listed under their area
+ * «گردش‌کارها» until that is renamed (design F §9.4), so the processes' group is named for the kind.
+ */
+export const PROCESS_GROUP = "فرم‌های گردش‌کار";
 
 export type ListRow = { type: "group"; key: string; label: string; count: number } | { type: "form"; key: string; entry: FormEntry };
 
 /**
  * The list grouped by module, in the order the server lists them (each table's module, the linked kinds under their
- * module), «گردش‌کارها» last; within a group, system forms first, then the other kinds, as listed.
+ * module), the process forms last; within a group, system forms first, then the other kinds, as listed.
  */
 export function groupRows(forms: readonly FormEntry[]): ListRow[] {
   const groups = new Map<string, FormEntry[]>();
   for (const e of forms) {
-    const list = groups.get(e.group);
+    const g = e.kind === "process" ? PROCESS_GROUP : e.group;
+    const list = groups.get(g);
     if (list) list.push(e);
-    else groups.set(e.group, [e]);
+    else groups.set(g, [e]);
   }
   const names = [...groups.keys()].sort((a, b) => Number(a === PROCESS_GROUP) - Number(b === PROCESS_GROUP));
   const rows: ListRow[] = [];
@@ -84,13 +88,13 @@ export function changeText(e: Pick<FormEntry, "kind" | "overrides" | "arranged">
   const parts: string[] = [];
   if (e.overrides) parts.push(`${fa(e.overrides)} تغییر`);
   if (e.arranged) parts.push("چیدمان سازمان");
-  return parts.join("، ");
+  return parts.join(SEP);
 }
 
 /** The status chip's words: a process form's state and version, a linked form's own word. */
 export function statusText(e: Pick<FormEntry, "kind" | "status" | "version">): string {
   if (e.kind === "process") {
-    if (e.status === "published") return e.version ? `منتشرشده، نسخهٔ ${fa(e.version)}` : "منتشرشده";
+    if (e.status === "published") return e.version ? `منتشرشده${SEP}نسخهٔ ${fa(e.version)}` : "منتشرشده";
     return "پیش‌نویس";
   }
   return e.status ?? "";
@@ -546,7 +550,7 @@ export function systemChanges(fields: readonly SysField[], baseline: SystemDraft
       if (b.requiredFor) {
         o.required = true;
         o.required_for = b.requiredFor;
-        lines.push(`«${name}» الزامی برای ${REQUIRED_FOR_LABELS[b.requiredFor]}`);
+        lines.push(b.requiredFor === "agents" ? `«${name}» برای کارشناسان الزامی می‌شود` : `«${name}» برای همه الزامی می‌شود`);
       } else {
         o.required = false;
         lines.push(`الزام «${name}» برداشته می‌شود`);
@@ -638,7 +642,7 @@ export function rightsSummary(rights: Record<string, Right>): string {
   if (n("required")) parts.push(`${fa(n("required"))} الزامی`);
   if (n("read")) parts.push(`${fa(n("read"))} فقط‌خواندنی`);
   if (n("hidden")) parts.push(`${fa(n("hidden"))} پنهان`);
-  return parts.join("، ");
+  return parts.join(SEP);
 }
 
 export const groupLabel = (g: FieldGroup | null): string => (g ? (FIELD_GROUPS[g] ?? g) : "");
@@ -700,7 +704,7 @@ export function saveStateText(state: SaveState, at: string | null, now = Date.no
     case "invalid":
       return `${fa(problems)} ایراد؛ ذخیره نمی‌شود`;
     default:
-      return at ? `ذخیره شد، ${relTime(at, now)}` : "ذخیره شد";
+      return at ? `ذخیره شد${SEP}${relTime(at, now)}` : "ذخیره شد";
   }
 }
 

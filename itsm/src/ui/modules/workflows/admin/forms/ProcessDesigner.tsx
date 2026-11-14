@@ -82,9 +82,12 @@ function Designer({ detail }: { detail: FormDetail }) {
   const [newField, setNewField] = useState(false);
 
   // definitions: the form's own (the server's), the preview's, and the library's list for fields just added
+  // (the server's definitions only: a field just added shows the library's line until its next save brings them)
   const [defs, setDefs] = useState<Record<string, FieldDef>>(() => Object.fromEntries(Object.entries(detail.fields).flatMap(([k, v]) => (v.def ? [[k, v.def]] : []))));
+  const defsRef = useRef(defs);
+  defsRef.current = defs;
   const library = useQuery({ queryKey: FIELD_KEYS.library(orgId), queryFn: () => fieldsApi.library(api), staleTime: 30_000 });
-  const types = useQuery({ queryKey: FIELD_KEYS.types(orgId), queryFn: () => fieldsApi.types(api), enabled: newField, staleTime: 60_000 });
+  const types = useQuery({ queryKey: FIELD_KEYS.types(orgId), queryFn: () => fieldsApi.types(api), enabled: editable && access.designWrite, staleTime: 60_000 });
   const unit = useQuery({ queryKey: FIELD_KEYS.unit(orgId), queryFn: () => fieldsApi.moneyUnit(api), staleTime: 300_000 });
   const lib = useMemo(() => library.data?.fields ?? [], [library.data]);
   const libByName = useMemo(() => new Map(lib.map((e) => [e.name, e])), [lib]);
@@ -108,6 +111,10 @@ function Designer({ detail }: { detail: FormDetail }) {
         setSavedAt(r.form.updated_at ?? new Date().toISOString());
         setState(processPatch(r.form, draftRef.current) ? "pending" : "saved");
         void qc.invalidateQueries({ queryKey: FORM_KEYS.list(orgId) });
+        // fields just added: their definitions as the form's snapshot will take them (options, checks)
+        if (r.form.fields.some((name) => !defsRef.current[name])) {
+          void formsApi.get(api, id).then((d) => setDefs((x) => ({ ...x, ...Object.fromEntries(Object.entries(d.fields).flatMap(([k, v]) => (v.def ? [[k, v.def]] : []))) })), () => undefined);
+        }
       } catch (e) {
         setState("error");
         n.error(e, { key: `wfm-save-${id}` });
@@ -137,11 +144,7 @@ function Designer({ detail }: { detail: FormDetail }) {
     },
     [hist.set],
   );
-  const add = (name: string, to?: { t: number; s: number; i?: number }) => {
-    const e = libByName.get(name);
-    if (e && !defs[name]) setDefs((x) => ({ ...x, [name]: libraryDef(e) }));
-    edit((d) => insertItem(d.layout, { field: name }, to ?? targetSection(d.layout, sel)));
-  };
+  const add = (name: string, to?: { t: number; s: number; i?: number }) => edit((d) => insertItem(d.layout, { field: name }, to ?? targetSection(d.layout, sel)));
   const addNote = () => edit((d) => insertItem(d.layout, { text: "یادداشت تازه", tone: "info" }, targetSection(d.layout, sel)));
   const remove = async () => {
     if (detail.usage.processes.length) return;
