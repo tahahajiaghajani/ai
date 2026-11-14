@@ -140,6 +140,14 @@ export function pushedDay(updatedAt: unknown, storedAt: unknown, tz: string, now
   return localDate(t, tz);
 }
 
+const createRefusals = new Map<string, string>();
+
+/** A table's own words for a member's pushed create that their roles do not allow (default «اجازهٔ ایجاد … را ندارید»). */
+export function setPushCreateRefusal(table: string, message: string): () => void {
+  createRefusals.set(table, message);
+  return () => createRefusals.delete(table);
+}
+
 async function checkRecord(tx: Tx, ctx: Ctx, def: TableDef, schema: OrgSchema, env: CondEnv, wire: WireAggregate, state: { prev?: Row | null }): Promise<string | null> {
   const row = wire.row;
   stripSecrets(def, row);
@@ -163,7 +171,7 @@ async function checkRecord(tx: Tx, ctx: Ctx, def: TableDef, schema: OrgSchema, e
     }
     for (const c of PINNED) if (c in row || c === "no") row[c] = prev[c];
   } else if (!isSystemCtx(ctx) && !access().canCreate(ctx, def, row)) {
-    return `اجازهٔ ایجاد ${def.label} را ندارید`;
+    return createRefusals.get(def.key) ?? `اجازهٔ ایجاد ${def.label} را ندارید`;
   }
   // copies the pull sent redacted (redactRows) that come back unchanged keep the stored values
   if (prev && !isSystemCtx(ctx) && redacts(def.key)) {
