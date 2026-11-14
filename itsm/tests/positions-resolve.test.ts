@@ -181,6 +181,29 @@ describe("the other rules", () => {
     expect(union.people.map((p) => [p.user, p.via.rule])).toEqual([[M.lead, 0], [M.r1, 2]]);
   });
 
+  it("an access role is held as the access model reads roles: through a role containing it, and by members without roles through their membership's fallback", async () => {
+    const plain = await person("بی‌نقش");
+    const viewer = await person("بیننده", { role: "viewer" });
+    const asker = await person("فقط درخواست‌دهنده", { roles: ["requester"] });
+    const teamLead = await person("سرپرست گروه", { roles: ["team_lead"] });
+    // a role of the organisation's own that contains agent
+    const custom = { name: "کارمند شعبه", description: "", persona: "agent", grants: {}, field_groups: [], contains: ["agent"], workspaces: "member", domains: "own", active: true };
+    await e.owner.put(`${P}/access/roles/branch_staff`, custom);
+    const staff = await person("کارمند شعبه", { roles: ["branch_staff"] });
+    const all = [plain, viewer, asker, teamLead, staff, M.cm1, M.cm2];
+    const holders = async (role: string) => users(await resolve({ step: { assignees: [{ kind: "role", role, members: all }] } }));
+    // agent: the fallback of a member without roles, and inside team_lead, change_manager (profile or group) and branch_staff
+    expect(await holders("agent")).toEqual(sorted(plain, teamLead, staff, M.cm1, M.cm2));
+    // auditor: the fallback of a viewer without roles
+    expect(await holders("auditor")).toEqual([viewer]);
+    // requester: inside agent, so every agent above holds it too (the closure is transitive)
+    expect(await holders("requester")).toEqual(sorted(plain, asker, teamLead, staff, M.cm1, M.cm2));
+    // a role switched off is held by nobody, and its holders do not fall back to their membership's role
+    await e.owner.put(`${P}/access/roles/branch_staff`, { ...custom, active: false });
+    expect(await holders("branch_staff")).toEqual([]);
+    expect(await holders("agent")).toEqual(sorted(plain, teamLead, M.cm1, M.cm2));
+  });
+
   it("the manager to depth three, of the requester or of the previous actor; the head of a unit", async () => {
     for (const [depth, who] of [[1, M.m1], [2, M.m2], [3, M.m3]] as const) expect(users(await resolve({ step: { assignees: [{ kind: "manager", of: "requester", depth }] } }))).toEqual([who]);
     expect(users(await resolve({ previousActor: M.m1, step: { assignees: [{ kind: "manager", of: "previous_actor" }] } }))).toEqual([M.m2]);
@@ -300,6 +323,22 @@ describe("delegation by action", () => {
     await e.db.query(`update sm_org_members set is_active = false where org_id = $1 and user_id = $2`, [e.org, d1]);
     expect(users(await resolve({ action: "approve", step: tajrish }))).toEqual([M.headT]);
     await e.db.query(`update sm_org_members set is_active = true where org_id = $1 and user_id = $2`, [e.org, d1]);
+  });
+
+  it("each person found keeps their place: a shared deputy stands in once for each, and a candidate who is another's delegate keeps their own", async () => {
+    const [a, b, c, x, y] = [await person("الف"), await person("ب"), await person("جانشین مشترک"), await person("ج"), await person("د")];
+    const away = async (user: string, delegate: string) => {
+      const id = (await e.db.one<{ id: string }>(`select id from sm_member_profiles where org_id = $1 and user_id = $2`, [e.org, user]))!.id;
+      await sys.write((tx) => updateIn(tx, sys, "member_profile", id, { out_of_office: true, ooo_until: new Date(Date.now() + DAY).toISOString(), delegate_id: delegate }, { trusted: true }));
+    };
+    await away(a, c);
+    await away(b, c);
+    const both = await resolve({ action: "approve", quorum: "all", step: { assignees: [{ kind: "users", users: [a, b] }] } });
+    expect(both.people.map((p) => [p.user, p.delegatedFrom])).toEqual([[c, a], [c, b]]);
+    // x hands approvals to y, and both are candidates: y acts for x and for themselves, whatever the order
+    await sys.write((tx) => createIn(tx, sys, "delegation", { from_user: x, to_user: y, starts_at: new Date(Date.now() - DAY).toISOString(), scopes: ["approvals"], active: true }, { trusted: true }));
+    expect((await resolve({ action: "approve", step: { assignees: [{ kind: "users", users: [x, y] }] } })).people.map((p) => [p.user, p.delegatedFrom])).toEqual([[y, x], [y, null]]);
+    expect((await resolve({ action: "approve", step: { assignees: [{ kind: "users", users: [y, x] }] } })).people.map((p) => [p.user, p.delegatedFrom])).toEqual([[y, null], [y, x]]);
   });
 });
 

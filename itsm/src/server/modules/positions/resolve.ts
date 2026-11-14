@@ -4,7 +4,8 @@
 //   1. Each rule finds people: the holders of a position valid on the day (in the organisation's time zone) — anywhere,
 //      in the requester's unit, in the nearest unit (of a kind) up the tree that has a holder, in a fixed unit or in
 //      the unit a form field names, narrowed to `members` when set; the members and leads of a group (valid now); the
-//      holders of an access role (on their profile or through a group); named people; the requester's (or the previous
+//      holders of an access role (as the access model reads a member's roles: any role containing it, on the profile or
+//      through a group, or the membership's fallback role); named people; the requester's (or the previous
 //      actor's) manager to depth 3; the head of a unit; a person field of the case; whoever did an earlier step; the
 //      requester. Rules are united, first rule first.
 //   2. Only active members stay, and the excluded ones go (the requester — filer and beneficiary — on approve steps by
@@ -12,6 +13,8 @@
 //   3. Delegation by action: approve reads a `delegation` row in force with scope «approvals», fill and review one with
 //      scope «assignments»; without one, the out-of-office delegate of the member profile. A delegate who is active and
 //      not excluded replaces the person (`delegatedFrom` keeps who it was for), up to three steps, never in a circle.
+//      Each person found keeps their own place: a delegate of two people stands in twice (once for each), and a
+//      candidate who is another's delegate is there for themselves and for the other.
 //   4. Nobody left: the fallback rules, then `ifNobody` (wait, skip, or the process managers — resolved the same way).
 //   5. Pools are capped: more than 100 people (50 approvers of an approve step whose quorum counts everyone) and the
 //      step waits for the process managers to choose; the first 500 candidates come back for them.
@@ -28,6 +31,8 @@ import {
   type AssigneeKind, type AssigneeRule, type Exclusion, type IfNobody, type Quorum, type StepAction, type StepAssignees,
 } from "@shared/process/assignees";
 import { activeDelegations, managerOf, type Delegation } from "../sla/approvals";
+import { MEMBERSHIP_FALLBACK, roleClosure, type RoleDef } from "@shared/access";
+import { accessSettings, catalogOf, snapshotFor } from "../../access/subject";
 
 export interface ResolveInput {
   step: StepAssignees;
@@ -138,6 +143,7 @@ export class Resolution {
   private units = new Map<string, UnitRow | null>();
   private requesterUnitId: string | null | undefined;
   private delegation: { rows: Delegation[]; away: Map<string, string> } | null = null;
+  private catalog: Map<string, RoleDef> | null = null;
 
   readonly ctx: Ctx;
 
@@ -252,23 +258,48 @@ export class Resolution {
     return rows.map((r) => ({ user: r.user_id, group: r.group_id }));
   }
 
-  /** Holders of an access role: on their profile, through an active group's roles (not as observers), and owners and «مدیر» members for tenant_admin. */
+  /**
+   * Holders of an access role as the access model reads a member's roles (`composeEffective`): whoever holds a role
+   * whose closure contains it — on their profile or through an active group's roles (not as observers); owners and
+   * «مدیر» members when tenant_admin's does; members without roles of their own when their membership's fallback role's
+   * does (member → agent, viewer → auditor). An unknown or inactive role is held by nobody.
+   */
   async rolePeople(role: string): Promise<string[]> {
-    const profiles = await this.q.query<{ user_id: string }>(`select user_id from sm_member_profiles where org_id = $1 and deleted_at is null and roles ? $2 order by user_id`, [this.org, role]);
-    const groups = await this.q.query<{ id: string }>(`select id from sm_groups where org_id = $1 and deleted_at is null and active is not false and roles ? $2`, [this.org, role]);
+    this.catalog ??= catalogOf(await snapshotFor(this.ctx, this.q), accessSettings(this.ctx.org));
+    const catalog = this.catalog;
+    const holding = [...catalog.values()].filter((r) => r.active !== false && roleClosure([r.key], catalog).includes(role)).map((r) => r.key).sort();
+    if (!holding.length) return [];
+    const at = new Date(this.at).toISOString();
+    const profiles = await this.q.query<{ user_id: string }>(`select user_id from sm_member_profiles where org_id = $1 and deleted_at is null and roles ?| $2::text[] order by user_id`, [this.org, pgArray(holding)]);
+    const groups = await this.q.query<{ id: string }>(`select id from sm_groups where org_id = $1 and deleted_at is null and active is not false and roles ?| $2::text[]`, [this.org, pgArray(holding)]);
     const viaGroups = groups.length
       ? await this.q.query<{ user_id: string }>(
           `select user_id from sm_group_members
            where org_id = $1 and group_id = any($2::uuid[]) and deleted_at is null and kind <> 'observer'
              and (valid_from is null or valid_from <= $3::timestamptz) and (valid_to is null or valid_to > $3::timestamptz)`,
-          [this.org, pgArray(groups.map((g) => g.id)), new Date(this.at).toISOString()],
+          [this.org, pgArray(groups.map((g) => g.id)), at],
         )
       : [];
-    const admins =
-      role === "tenant_admin"
-        ? await this.q.query<{ user_id: string }>(`select user_id from sm_org_members where org_id = $1 and deleted_at is null and is_active and role in ('owner', 'admin')`, [this.org])
-        : [];
-    return [...new Set([...profiles, ...viaGroups, ...admins].map((r) => r.user_id.toLowerCase()))].sort();
+    const admins = holding.includes("tenant_admin")
+      ? await this.q.query<{ user_id: string }>(`select user_id from sm_org_members where org_id = $1 and deleted_at is null and is_active and role in ('owner', 'admin')`, [this.org])
+      : [];
+    // members with no role of their own (no profile role nor a role of an active group they are in, as the catalogue
+    // knows roles) work as their membership's fallback role
+    const fallback = (["member", "viewer"] as const).filter((m) => holding.includes(MEMBERSHIP_FALLBACK[m]));
+    const keys = pgArray([...catalog.keys()]);
+    const legacy = fallback.length
+      ? await this.q.query<{ user_id: string }>(
+          `select m.user_id from sm_org_members m
+           left join sm_member_profiles p on p.org_id = m.org_id and p.user_id = m.user_id and p.deleted_at is null
+           where m.org_id = $1 and m.deleted_at is null and m.is_active and m.role = any($2::text[]) and not coalesce(p.roles ?| $3::text[], false)
+             and not exists (
+               select 1 from sm_group_members gm join sm_groups g on g.id = gm.group_id and g.org_id = gm.org_id and g.deleted_at is null and g.active is not false
+               where gm.org_id = m.org_id and gm.user_id = m.user_id and gm.deleted_at is null and gm.kind <> 'observer' and g.roles ?| $3::text[]
+                 and (gm.valid_from is null or gm.valid_from <= $4::timestamptz) and (gm.valid_to is null or gm.valid_to > $4::timestamptz))`,
+          [this.org, pgArray(fallback), keys, at],
+        )
+      : [];
+    return [...new Set([...profiles, ...viaGroups, ...admins, ...legacy].map((r) => r.user_id.toLowerCase()))].sort();
   }
 
   /** Of `ids`, the active members of the organisation. */
@@ -460,14 +491,13 @@ export class Resolution {
     const delegates = new Map<string, string>();
     for (const u of first.keys()) delegates.set(u, await this.delegateOf(u));
     const active = await this.activeOf([...first.keys(), ...delegates.values()]);
+    // one place per person found: a delegate standing in for two people holds both places (each with its
+    // delegatedFrom), and a candidate who is also another's delegate keeps their own place too
     const out: Resolved[] = [];
-    const seen = new Set<string>();
     for (const f of first.values()) {
       if (!active.has(f.user) || excluded.has(f.user)) continue;
       const d = delegates.get(f.user)!;
       const user = d !== f.user && active.has(d) && !excluded.has(d) ? d : f.user;
-      if (seen.has(user)) continue;
-      seen.add(user);
       out.push({ user, delegatedFrom: user !== f.user ? f.user : null, via: f.via });
     }
     return out;
@@ -527,7 +557,7 @@ export async function resolveAssignees(q: Queryable, ctx: Ctx, input: ResolveInp
     return { status: "nobody", people: [], found: 0, limit, fallbackUsed, ifNobody, notes: run.notes, message: nobodyMessage(input.label, ifNobody) };
   }
   if (found > limit) {
-    return { status: "too_many", people: [], found, limit, fallbackUsed, ifNobody, candidates: people.slice(0, CANDIDATES).map((p) => p.user), notes: run.notes, message: tooManyMessage(limit) };
+    return { status: "too_many", people: [], found, limit, fallbackUsed, ifNobody, candidates: [...new Set(people.map((p) => p.user))].slice(0, CANDIDATES), notes: run.notes, message: tooManyMessage(limit) };
   }
   return { status, people, found, limit, fallbackUsed, ifNobody, notes: run.notes, message: null };
 }
