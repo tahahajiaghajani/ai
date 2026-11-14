@@ -5,7 +5,7 @@ import { lazy } from "react";
 import { BriefcaseBusiness } from "lucide-react";
 import { PROCESS_DESIGN_AREA } from "@shared/tables/fields";
 import type { NavItem } from "../../../registry";
-import type { WorkflowsPart } from "../../parts";
+import { SETTINGS_GROUP, type WorkflowsPart } from "../../parts";
 
 const PositionsPage = lazy(() => import("./PositionsPage"));
 
@@ -23,6 +23,6 @@ export const POSITIONS_ACCESS_ROW: NavItem = {
 };
 
 export const positionsPart: WorkflowsPart = {
-  settings: [{ key: "workflows:positions", label: "نقش‌های سازمانی", path: "settings/positions", icon: BriefcaseBusiness, access: { area: PROCESS_DESIGN_AREA }, keywords: KEYWORDS }],
+  settings: [{ key: "workflows:positions", label: "نقش‌های سازمانی", path: "settings/positions", icon: BriefcaseBusiness, section: SETTINGS_GROUP.label, access: { area: PROCESS_DESIGN_AREA }, keywords: KEYWORDS }],
   routes: [{ path: "settings/positions", element: <PositionsPage /> }],
 };

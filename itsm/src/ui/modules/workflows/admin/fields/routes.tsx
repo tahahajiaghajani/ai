@@ -8,7 +8,7 @@ import { Navigate, useLocation } from "react-router";
 import { TextCursorInput } from "lucide-react";
 import { PROCESS_DESIGN_AREA } from "@shared/tables/fields";
 import { useOrg } from "../../../../lib/org";
-import type { WorkflowsPart } from "../../parts";
+import { SETTINGS_GROUP, type WorkflowsPart } from "../../parts";
 
 const FieldsPage = lazy(() => import("./FieldsPage"));
 
@@ -32,6 +32,7 @@ export const fieldsPart: WorkflowsPart = {
       label: "فیلدها",
       path: "settings/fields",
       icon: TextCursorInput,
+      section: SETTINGS_GROUP.label,
       access: { area: PROCESS_DESIGN_AREA },
       keywords: "فیلد کتابخانه نوع فیلد کد ملی شبا مبلغ پیوست فهرست گزینه فیلد سفارشی الزامی پنهان در فرم برچسب",
     },

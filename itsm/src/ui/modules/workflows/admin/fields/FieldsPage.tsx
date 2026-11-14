@@ -5,12 +5,12 @@
 // as the server allows them. A row opens a side sheet (a full page on phones), kept in `?field=` / `?ftype=`.
 import { useCallback, useState } from "react";
 import { useSearchParams } from "react-router";
-import { Button, Tabs } from "antd";
+import { Button, Select, Tabs } from "antd";
 import { Plus, Shapes } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { faDigits } from "@shared/format";
 import { useOrg } from "../../../../lib/org";
-import { useNotify } from "../../../../lib/hooks";
+import { useIsPhone, useNotify } from "../../../../lib/hooks";
 import { PageHeader } from "../../../../components/layout";
 import { EmptyState } from "../../../../components/display";
 import { FIELD_KEYS, fieldsApi } from "./api";
@@ -29,6 +29,7 @@ export default function FieldsPage() {
   const org = useOrg();
   const { api, orgId } = org;
   const n = useNotify();
+  const phone = useIsPhone();
   const access = fieldsAccess(org);
   const visible = visibleTabs(access);
   const [params, setParams] = useSearchParams();
@@ -68,6 +69,7 @@ export default function FieldsPage() {
 
   if (!tab) return <EmptyState title="به «فیلدها» دسترسی ندارید" description="دیدن و تغییر فیلدها با طراحان فرم و گردش‌کار و مدیران تنظیمات سازمان است." />;
   const designTab = tab === "library" || tab === "types";
+  const tabs = FIELDS_TABS.filter((t) => visible.includes(t.key));
   return (
     <div className="rk-admin wff-page">
       <PageHeader
@@ -90,7 +92,12 @@ export default function FieldsPage() {
           )
         }
       />
-      <Tabs activeKey={tab} onChange={switchTab} items={FIELDS_TABS.filter((t) => visible.includes(t.key)).map((t) => ({ key: t.key, label: t.label }))} />
+      {phone ? (
+        // four tabs do not fit a phone's width: a select keeps every part one tap away
+        <Select className="wff-tabsel" value={tab} onChange={switchTab} options={tabs.map((t) => ({ value: t.key, label: t.label }))} aria-label="بخش «فیلدها»" />
+      ) : (
+        <Tabs activeKey={tab} onChange={switchTab} items={tabs.map((t) => ({ key: t.key, label: t.label }))} />
+      )}
       {tab === "library" ? (
         <Library rows={fields} loading={library.isLoading} canWrite={access.designWrite} onOpen={(id) => patch({ field: id })} onNew={() => patch({ field: "new" })} />
       ) : tab === "types" ? (

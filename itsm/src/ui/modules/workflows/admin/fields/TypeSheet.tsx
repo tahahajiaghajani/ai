@@ -234,17 +234,18 @@ function OrgTypeSheet({ id, types, unit, access, onClose, onSaved }: TypeSheetPr
                 <Input id={`${idp}-name`} value={d.name} onChange={(e) => set({ name: e.target.value })} maxLength={80} disabled={readOnly} autoFocus={!id} placeholder="کد پرسنلی" />
               </F>
               <F label="کلید" htmlFor={`${idp}-key`} error={errors.key} hint={id ? "پس از ساخت تغییر نمی‌کند" : undefined}>
-                <Input
-                  id={`${idp}-key`}
-                  dir="ltr"
-                  className="ds-mono"
-                  prefix={<span className="text-ink-3">u_</span>}
-                  value={d.key}
-                  onChange={(e) => set({ key: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") })}
-                  maxLength={40}
-                  disabled={readOnly || !!id}
-                  placeholder="personnel_code"
-                />
+                <span dir="ltr" className="wff-ltr">
+                  <Input
+                    id={`${idp}-key`}
+                    className="ds-mono"
+                    prefix={<span className="text-ink-3">u_</span>}
+                    value={d.key}
+                    onChange={(e) => set({ key: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") })}
+                    maxLength={40}
+                    disabled={readOnly || !!id}
+                    placeholder="personnel_code"
+                  />
+                </span>
               </F>
               <F label="بر پایهٔ" htmlFor={`${idp}-b`} error={errors.base} hint={used ? "فقط نوعی با همان نوع ذخیره" : undefined}>
                 <Select id={`${idp}-b`} value={d.base} onChange={(v) => set({ base: v, widget: null })} options={baseOptions} showSearch={{ optionFilterProp: "label" }} disabled={readOnly} />

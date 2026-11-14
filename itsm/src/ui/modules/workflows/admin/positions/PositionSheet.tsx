@@ -271,6 +271,7 @@ function Holders({ positionId, unitKind, active, access, today, onPreview }: { p
               key: "a",
               title: <span className="sr-only">کارها</span>,
               width: 112,
+              fixed: "end" as const,
               render: (_: unknown, h) =>
                 access.manage ? (
                   <span className="inline-flex">

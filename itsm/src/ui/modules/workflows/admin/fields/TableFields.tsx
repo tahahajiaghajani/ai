@@ -198,7 +198,7 @@ export function TableFields({ access, library, slot }: TableFieldsProps) {
               },
               { key: "name", title: "نام فنی", dataIndex: "name", render: (v: string) => <bdi dir="ltr" className="ds-mono">{v}</bdi> },
               { key: "type", title: "نوع", render: (_: unknown, f) => FIELD_TYPES[f.type]?.label ?? f.type },
-              { key: "kind", title: "از کجا", render: (_: unknown, f) => <span className="text-ink-2">{KIND_LABELS[f.kind]}</span> },
+              { key: "kind", title: "از کجا", render: (_: unknown, f) => <span className={f.kind === "module" ? "text-ink-3" : "text-ink"}>{KIND_LABELS[f.kind]}</span> },
               {
                 key: "marks",
                 title: "وضعیت در فرم",
@@ -231,6 +231,8 @@ export function TableFields({ access, library, slot }: TableFieldsProps) {
                 key: "a",
                 title: <span className="sr-only">کارها</span>,
                 width: 56,
+                // within reach on a phone, where the table scrolls sideways
+                fixed: "end" as const,
                 render: (_: unknown, f) => {
                   const items = menu(f);
                   if (!items.length) return null;
@@ -526,7 +528,9 @@ function FieldDrawer({ def, row, base, nextOrder, onClose, onSaved }: { def: Tab
         {!override ? (
           <>
             <F label="نام فنی" error={errors.name} htmlFor="wff-cf-name" hint={row ? "نام فنی پس از ساخت تغییر نمی‌کند." : "در گزارش‌ها، API و ورود از اکسل به کار می‌رود."}>
-              <Input id="wff-cf-name" dir="ltr" className="ds-mono" prefix={<span className="text-ink-3">u_</span>} value={d.name} disabled={!!row} onChange={(e) => set({ name: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") })} placeholder="cost_center" maxLength={40} />
+              <span dir="ltr" className="wff-ltr">
+                <Input id="wff-cf-name" className="ds-mono" prefix={<span className="text-ink-3">u_</span>} value={d.name} disabled={!!row} onChange={(e) => set({ name: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") })} placeholder="cost_center" maxLength={40} />
+              </span>
             </F>
             <F label="نوع" htmlFor="wff-cf-type">
               <Select id="wff-cf-type" value={d.type} disabled={!!row} onChange={(t) => set({ type: t })} options={CUSTOM_FIELD_TYPES.map((t) => ({ value: t, label: FIELD_TYPES[t].label }))} showSearch={{ optionFilterProp: "label" }} />

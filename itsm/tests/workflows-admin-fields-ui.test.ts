@@ -258,7 +258,9 @@ describe("«فیلدهای جدول‌ها»", () => {
     expect(requireBlocker(row("estimate"))).toBe("در فرم پنهان است؛ نخست آن را در فرم نمایش دهید");
     expect(hideBlocker(row("due_at"))).toBe("الزامی است؛ نخست الزام را بردارید");
     expect(requirementText(row("due_at"))).toBe("الزامی برای کارشناسان");
-    expect(requirementText(row("short_description"))).toBe("الزامی در ماژول");
+    // the module's own requirement is a lock chip, not a second chip
+    expect(requirementText(row("short_description"))).toBeNull();
+    expect(row("short_description").locks.some((l) => l.reason === "required")).toBe(true);
     expect(hideBlocker(row("u_gone"))).toBe("این فیلد خاموش است");
   });
 });

@@ -163,17 +163,18 @@ export function FieldSheet({ id, entry, library, types, unit, access, onClose, o
                 <Input id={`${idp}-label`} value={draft.label} onChange={(e) => set({ label: e.target.value })} maxLength={80} disabled={readOnly} autoFocus={!id} />
               </F>
               <F label="نام فنی" htmlFor={`${idp}-name`} error={errors.name} hint={used ? "پس از نخستین کاربرد تغییر نمی‌کند" : "در API، گزارش‌ها و ورود از اکسل"}>
-                <Input
-                  id={`${idp}-name`}
-                  dir="ltr"
-                  className="ds-mono"
-                  prefix={<span className="text-ink-3">u_</span>}
-                  value={draft.name}
-                  onChange={(e) => set({ name: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") })}
-                  maxLength={40}
-                  disabled={readOnly || used}
-                  placeholder="national_id"
-                />
+                <span dir="ltr" className="wff-ltr">
+                  <Input
+                    id={`${idp}-name`}
+                    className="ds-mono"
+                    prefix={<span className="text-ink-3">u_</span>}
+                    value={draft.name}
+                    onChange={(e) => set({ name: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") })}
+                    maxLength={40}
+                    disabled={readOnly || used}
+                    placeholder="national_id"
+                  />
+                </span>
               </F>
               <F label="نوع فیلد" htmlFor={`${idp}-type`} error={errors.type} hint={used ? "فقط نوعی با همان نوع ذخیره" : undefined}>
                 <Select id={`${idp}-type`} value={draft.type} onChange={(v) => set({ type: v })} options={options} showSearch={{ optionFilterProp: "label" }} disabled={readOnly} />

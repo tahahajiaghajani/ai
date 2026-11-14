@@ -4,6 +4,13 @@
 .wff-slot {
   display: contents;
 }
+/* a Latin identifier with its u_ prefix reads left to right as a whole */
+.wff-ltr {
+  display: block;
+}
+.wff-tabsel {
+  inline-size: 100%;
+}
 .wff-tab {
   display: flex;
   flex-direction: column;

@@ -535,9 +535,8 @@ export function requireBlocker(r: TableFieldRow): string | null {
   return null;
 }
 
-/** «الزامی برای همه» / «الزامی برای کارشناسان» / «الزامی در ماژول». */
+/** The organisation's requirement: «الزامی برای همه» / «الزامی برای کارشناسان» (the module's shows as a lock chip). */
 export function requirementText(r: TableFieldRow): string | null {
-  if (r.moduleRequired) return "الزامی در ماژول";
   if (r.formRequired === "agents") return "الزامی برای کارشناسان";
   if (r.formRequired === "all") return "الزامی برای همه";
   return null;
