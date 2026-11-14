@@ -327,7 +327,7 @@ function columns(
         });
         return (
           <Dropdown menu={{ items, onClick: ({ key }) => onAction(key as QueueAction, [r]) }} trigger={["click"]}>
-            <Button type="text" icon={<Ellipsis {...I16} />} aria-label={`کارهای «${r.name || r.external_id}»`} loading={!!busy && busy !== "link" && !busy.startsWith("apply:")} />
+            <Button type="text" icon={<Ellipsis {...I16} />} aria-label={`کارهای «${r.name || r.external_id}»`} disabled={!!busy} />
           </Dropdown>
         );
       },
