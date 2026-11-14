@@ -403,7 +403,7 @@ describe("the screens' calls on a real organisation", () => {
     await e.owner.post(`${P}/r/flow`, { name: "یادآوری روزانه", trigger: "manual", trigger_table: "todo", run_as: "trigger_user", graph: { nodes: [{ id: "trigger", type: "trigger", config: {} }], edges: [] } });
   }, 900_000);
 
-  it("the hub lists the nine kinds; every row opens a route the UI registers, a process row the designer F4c names", async () => {
+  it("the hub lists the nine kinds; every row opens a route the UI registers, a process row the designer", async () => {
     const made = await hubApi.create(api, newProcessBody({ name: "درخواست تنخواه شعبه", key: suggestKey("درخواست تنخواه شعبه"), category: "مالی", description: "" }));
     procId = made.process.id;
     expect(made.process).toMatchObject({ key: "drkhvast_tnkhvah_shbh", status: "draft" });
@@ -411,15 +411,16 @@ describe("the screens' calls on a real organisation", () => {
     expect(h.kinds.map((k) => k.key)).toEqual(KIND_ORDER);
     for (const k of ["process", "lifecycle", "change_model", "flow", "catalog_flow", "journey", "playbook"] as const) expect(h.kinds.find((x) => x.key === k)!.count).toBeGreaterThan(0);
     expect(h).toMatchObject({ empty: false, can: { create: true, publish: true } });
-    const broken = h.rows.filter((r) => r.kind !== "process" && !routed(rowLink(r, routed))).map((r) => `${r.kind}:${rowLink(r, routed)}`);
+    const broken = h.rows.filter((r) => !routed(rowLink(r, routed))).map((r) => `${r.kind}:${rowLink(r, routed)}`);
     expect(broken).toEqual([]);
     // the record kinds open their own records
     const model = h.rows.find((r) => r.kind === "change_model")!;
     expect(rowLink(model, routed)).toBe(`changes/models/${model.id}`);
-    // the process row opens the designer at the address the UI uses (F6's second part registers its page)
+    // the process row opens the designer at the address the UI registers
     const p = h.rows.find((r) => r.id === procId)!;
     expect(p).toMatchObject({ kind: "process", status: "پیش‌نویس", category: "مالی", open_cases: 0, editable: "all" });
     expect(p.editor).toBe(designerPath(procId));
+    expect(routed(p.editor)).toBe(true);
     expect(statusView(p).chip).toBe("neutral");
     // «همه» folds every lifecycle still on its default
     const lifecycles = h.rows.filter((r) => r.kind === "lifecycle");

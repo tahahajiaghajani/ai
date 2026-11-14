@@ -29,7 +29,9 @@ import { formatJalaliDateTime } from "@shared/jalali";
 import { SEP } from "../../../../lib/fa";
 import type { ChipTone } from "../../../../components/display";
 import { ESTIMATE_GATES } from "../../kit/api";
-import { NODE_H, NODE_W, connect, connectProblem, connectTargets, defaultProcessConfig, disconnect, edgeId, newNodeId, nodeTitle, readingOrder, removeSteps } from "../../kit/model";
+import {
+  NODE_H, NODE_W, connect, connectProblem, connectTargets, defaultProcessConfig, disconnect, edgeId, isPlaced, layoutProcess, newNodeId, nodeTitle, readingOrder, removeSteps,
+} from "../../kit/model";
 import type { AccessProbe } from "../fields/model";
 import type { DraftInput, ProcessDetail, ProcessDraft, ProcessOut, ResolveBody, ResolveResult, VersionRow } from "./api";
 
@@ -240,7 +242,9 @@ export function wireRejection(g: ProcessGraph, id: string): ProcessGraph {
   return end && !connectProblem(g, id, "rejected", end.id) ? connect(g, id, "rejected", end.id) : g;
 }
 
-function placeAfter(g: ProcessGraph, after: string | null, item: Pick<PaletteItem, "key" | "type">, opts: { position?: { x: number; y: number }; label?: string; config?: Record<string, unknown> }): { graph: ProcessGraph; id: string } {
+function placeAfter(g0: ProcessGraph, after: string | null, item: Pick<PaletteItem, "key" | "type">, opts: { position?: { x: number; y: number }; label?: string; config?: Record<string, unknown> }): { graph: ProcessGraph; id: string } {
+  // a draft saved without positions is laid out first (as the canvas draws it), so the new step lands among the others
+  const g = isPlaced(g0) ? g0 : layoutProcess(g0);
   const id = newNodeId(g, item.type);
   const from = nodeOf(g, after);
   const port = from ? mainPort(from) : null;
@@ -269,7 +273,8 @@ function placeAfter(g: ProcessGraph, after: string | null, item: Pick<PaletteIte
 }
 
 /** A new step on one way out of a step («گام تازه» in «مسیرها»): placed under that way out and connected from it. */
-export function addFromPort(g: ProcessGraph, source: string, port: string, item: Pick<PaletteItem, "key" | "type">, opts: { label?: string; config?: Record<string, unknown> } = {}): { graph: ProcessGraph; id: string } {
+export function addFromPort(g0: ProcessGraph, source: string, port: string, item: Pick<PaletteItem, "key" | "type">, opts: { label?: string; config?: Record<string, unknown> } = {}): { graph: ProcessGraph; id: string } {
+  const g = isPlaced(g0) ? g0 : layoutProcess(g0);
   const from = nodeOf(g, source);
   const ports = from ? processPorts(from) : [];
   const at = Math.max(0, ports.findIndex((p) => p.key === port));
