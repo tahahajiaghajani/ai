@@ -16,6 +16,7 @@
 //   POST   /connectors/:id/reapply                «اعمال دوباره روی همه»
 //   POST   /connectors/:id/cancel                 «لغو» the running pass
 //   POST   /connectors/:id/approve-directory      an integrations administrator's approval (§14.8)
+//   POST   /connectors/:id/asset-feed             «ساخت دارایی برای دستگاه‌های تازه» and its daily cap: asset managers (§11.1)
 //   GET    /connectors/:id/runs                   passes, newest first
 //   GET    /connectors/:id/items                  items (state, search)
 //   POST   /runs/:id/accept                       «پذیرش اندازهٔ تازه»
@@ -33,6 +34,7 @@ import {
   dismissMismatchAs, ignoreItem, linkItem, previewAs, QUEUE_TABS, reconcileQueue, refuseDesktop, runNow, testConnection, needReader,
 } from "../modules/discovery/service";
 import { MAX_PREVIEW_ROWS } from "../modules/discovery/runner";
+import { switchAssetFeed } from "../modules/discovery/itamfeed";
 
 const UUID = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "شناسه معتبر نیست");
 const id = (v: string | undefined) => UUID.parse(v ?? "").toLowerCase();
@@ -104,6 +106,11 @@ discoveryRoutes.get("/connectors/:id/runs", async (c) => {
 discoveryRoutes.get("/connectors/:id/items", async (c) => {
   const qp = query(c, z.object({ state: z.enum(["linked", "unmatched", "duplicate", "ignored", "gone", "error", "pending"]).optional(), q: z.string().max(200).optional(), ...paging }));
   return c.json(await connectorItems(c.get("ctx"), id(c.req.param("id")), qp));
+});
+
+discoveryRoutes.post("/connectors/:id/asset-feed", async (c) => {
+  const input = await body(c, z.object({ make_assets: z.boolean().optional(), make_assets_daily: z.number().int().min(0).max(100_000).optional() }));
+  return c.json(await switchAssetFeed(c.get("ctx"), id(c.req.param("id")), input));
 });
 
 discoveryRoutes.post("/runs/:id/accept", async (c) => c.json(await acceptSize(c.get("ctx"), id(c.req.param("id")))));
