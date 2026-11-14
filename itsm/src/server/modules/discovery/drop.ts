@@ -78,7 +78,7 @@ export interface DropFolder {
 
 /** `<base>/<id>`, made when missing: its real path; one that is a link, or not under `base`, is refused. */
 async function ownDir(base: string, id: string): Promise<string> {
-  const dir = join(base, id);
+  const dir = join(/*turbopackIgnore: true*/ base, id);
   await mkdir(dir, { recursive: true });
   const st = await lstat(dir);
   if (st.isSymbolicLink() || !st.isDirectory()) throw new ConnectorError("refused", DROP_MESSAGES.broken(dir));
@@ -95,9 +95,9 @@ export async function ensureDropFolder(connectorId: string): Promise<DropFolder>
   if (!root || !UUID.test(connectorId)) throw new ConnectorError("config", DROP_MESSAGES.noRoot);
   const id = connectorId.toLowerCase();
   const dir = await ownDir(root, id);
-  const kept = await ownDir(join(dirname(root), "kept"), id);
+  const kept = await ownDir(join(/*turbopackIgnore: true*/ dirname(root), "kept"), id);
   for (const sub of SUBDIRS) {
-    const path = join(kept, sub);
+    const path = join(/*turbopackIgnore: true*/ kept, sub);
     await mkdir(path).catch((e) => {
       if (code(e) !== "EEXIST") throw e;
     });
@@ -136,7 +136,7 @@ export async function scanDrop(dir: string, now = Date.now()): Promise<DropScan>
   const out: DropScan = { ready: [], refused: [], settling: [] };
   for (const name of await readdir(dir)) {
     if (!FEED_LIKE.test(name)) continue;
-    const st = await lstat(join(dir, name)).catch(() => null);
+    const st = await lstat(join(/*turbopackIgnore: true*/ dir, name)).catch(() => null);
     if (!st || st.isDirectory()) continue;
     if (st.isSymbolicLink()) out.refused.push({ name, reason: DROP_MESSAGES.symlink });
     else if (!st.isFile()) out.refused.push({ name, reason: DROP_MESSAGES.notAFile });
@@ -153,9 +153,9 @@ export async function scanDrop(dir: string, now = Date.now()): Promise<DropScan>
 /** Files an earlier pass claimed and did not finish (working/), oldest first. */
 export async function workingFiles(d: DropFolder): Promise<DropFile[]> {
   const out: DropFile[] = [];
-  for (const name of await readdir(join(d.kept, "working"))) {
+  for (const name of await readdir(join(/*turbopackIgnore: true*/ d.kept, "working"))) {
     if (!CLAIMED.test(name)) continue;
-    const st = await lstat(join(d.kept, "working", name)).catch(() => null);
+    const st = await lstat(join(/*turbopackIgnore: true*/ d.kept, "working", name)).catch(() => null);
     if (st?.isFile()) out.push({ name, size: st.size, mtimeMs: st.mtimeMs, working: true });
   }
   return out.sort(byAge);
@@ -173,7 +173,7 @@ const stamp = (at: number) => new Date(at).toISOString().replace(/[-:.]/g, "");
 async function freeName(d: DropFolder, sub: string, name: string, now: number): Promise<string> {
   for (let i = 0; ; i++) {
     const candidate = `${stamp(now + i)}-${name}`;
-    const taken = await lstat(join(d.kept, sub, candidate)).then(() => true, () => false);
+    const taken = await lstat(join(/*turbopackIgnore: true*/ d.kept, sub, candidate)).then(() => true, () => false);
     if (!taken) return candidate;
   }
 }
@@ -185,9 +185,9 @@ async function note(path: string, reason: string): Promise<void> {
 
 /** A refused file of the folder goes to failed/ with its reason (a link is moved, never followed). */
 export async function refuseDrop(d: DropFolder, r: Refusal, now = Date.now()): Promise<void> {
-  const target = join(d.kept, "failed", await freeName(d, "failed", r.name, now));
+  const target = join(/*turbopackIgnore: true*/ d.kept, "failed", await freeName(d, "failed", r.name, now));
   try {
-    await rename(join(d.dir, r.name), target);
+    await rename(join(/*turbopackIgnore: true*/ d.dir, r.name), target);
   } catch {
     return;
   }
@@ -201,11 +201,11 @@ export interface ClaimRefused {
 
 /** Claim a file of the folder into working/ for a pass: its claimed name, why it waits, or null when it is gone. */
 export async function claimDrop(d: DropFolder, f: DropFile, now = Date.now()): Promise<string | ClaimRefused | null> {
-  const st = await lstat(join(d.dir, f.name)).catch(() => null);
+  const st = await lstat(join(/*turbopackIgnore: true*/ d.dir, f.name)).catch(() => null);
   if (!st?.isFile() || st.nlink > 1 || st.size > DROP_MAX_BYTES) return null;
   const name = await freeName(d, "working", f.name, now);
   try {
-    await rename(join(d.dir, f.name), join(d.kept, "working", name));
+    await rename(join(/*turbopackIgnore: true*/ d.dir, f.name), join(/*turbopackIgnore: true*/ d.kept, "working", name));
   } catch (e) {
     if (code(e) === "ENOENT") return null;
     if (HELD.has(code(e))) return { refused: "busy" };
@@ -252,7 +252,7 @@ export async function readDrop(path: string): Promise<Buffer | null> {
 export async function readClaimed(d: DropFolder, name: string): Promise<Buffer | null> {
   if (!isClaimedName(name)) return null;
   for (const sub of ["working", "processed"] as const) {
-    const bytes = await readDrop(join(d.kept, sub, name));
+    const bytes = await readDrop(join(/*turbopackIgnore: true*/ d.kept, sub, name));
     if (bytes) return bytes;
   }
   return null;
@@ -261,7 +261,7 @@ export async function readClaimed(d: DropFolder, name: string): Promise<Buffer |
 /** A file read to its end goes to processed/ (already there: nothing to do). */
 export async function finishClaimed(d: DropFolder, name: string): Promise<void> {
   if (!isClaimedName(name)) return;
-  await rename(join(d.kept, "working", name), join(d.kept, "processed", name)).catch((e) => {
+  await rename(join(/*turbopackIgnore: true*/ d.kept, "working", name), join(/*turbopackIgnore: true*/ d.kept, "processed", name)).catch((e) => {
     if (code(e) !== "ENOENT") throw e;
   });
 }
@@ -270,7 +270,7 @@ export async function finishClaimed(d: DropFolder, name: string): Promise<void> 
 export async function supersedeDrop(d: DropFolder, f: DropFile, now = Date.now()): Promise<void> {
   if (f.working) return finishClaimed(d, f.name);
   const name = await freeName(d, "processed", f.name, now);
-  await rename(join(d.dir, f.name), join(d.kept, "processed", name)).catch(() => undefined);
+  await rename(join(/*turbopackIgnore: true*/ d.dir, f.name), join(/*turbopackIgnore: true*/ d.kept, "processed", name)).catch(() => undefined);
 }
 
 /** A claimed file that could not be read goes to failed/ with a .txt reason. */
@@ -278,12 +278,12 @@ export async function failClaimed(d: DropFolder, name: string, reason: string): 
   if (!isClaimedName(name)) return;
   for (const sub of ["working", "processed"] as const) {
     try {
-      await rename(join(d.kept, sub, name), join(d.kept, "failed", name));
+      await rename(join(/*turbopackIgnore: true*/ d.kept, sub, name), join(/*turbopackIgnore: true*/ d.kept, "failed", name));
     } catch (e) {
       if (code(e) === "ENOENT") continue;
       throw e;
     }
-    await note(join(d.kept, "failed", name), reason);
+    await note(join(/*turbopackIgnore: true*/ d.kept, "failed", name), reason);
     return;
   }
 }
@@ -295,12 +295,12 @@ export async function failClaimed(d: DropFolder, name: string, reason: string): 
 export async function sweepDrop(d: DropFolder, now = Date.now()): Promise<number> {
   let removed = 0;
   for (const [sub, days] of [["processed", PROCESSED_KEEP_DAYS], ["failed", FAILED_KEEP_DAYS]] as const) {
-    const folder = join(d.kept, sub);
+    const folder = join(/*turbopackIgnore: true*/ d.kept, sub);
     if (!(await lstat(folder).catch(() => null))?.isDirectory()) continue;
     for (const name of await readdir(folder).catch(() => [] as string[])) {
       const m = KEPT.exec(name);
       if (!m || now - Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6], +m[7]) <= days * DAY) continue;
-      const path = join(folder, name);
+      const path = join(/*turbopackIgnore: true*/ folder, name);
       const st = await lstat(path).catch(() => null);
       if (!st || st.isDirectory()) continue;
       await rm(path, { force: true }).catch(() => undefined);
