@@ -5,16 +5,17 @@
 // organisation in the setup wizard —, loads the bank demo pack «کوچک» from «داده‌های نمایشی», adds a regular member in
 // «کاربران و دسترسی‌ها», then opens the main pages as the administrator and, after «خروج» and a sign-in, as the member:
 // home, the incident list and a record, the catalogue and an order, knowledge, the CMDB, IT assets; the settings for the
-// administrator and the requester portal for the member. It closes the window the way people do and starts the app a
-// second time.
+// administrator — among them «فیلدها», «فرم‌ها» and «گردش‌کارها» with the demo pack's workflow, form and fields — and
+// for the member the requester portal and «گردش‌کارها»: the member starts the demo pack's workflow from its start form
+// and sees the case move to its next step. It closes the window the way people do and starts the app a second time.
 //
 // Measured: the cold start (launch to the first interactive screen) and a second start, every route change (to content
-// visible and to the last API answer), the API calls the page made (count and time), the memory (working set) and CPU
-// of the app's processes — main, renderer, the local server with its database (PGlite) — every second, the database's
-// write-ahead log every second while the app runs (its peak, and the checkpoints the app logged before the first close:
-// ./desktop-e2e-wal.mjs) and the folder at the end. Gate: no console error or uncaught exception, no error screen, a
-// checkpoint of the app's own scheduler while it ran, and the budgets below. Output: report.json, report.md (also the
-// job summary), screenshots, the app's log.
+// visible and to the last API answer), a workflow's start («ارسال» to the case at its next step), the API calls the page
+// made (count and time), the memory (working set) and CPU of the app's processes — main, renderer, the local server with
+// its database (PGlite) — every second, the database's write-ahead log every second while the app runs (its peak, and
+// the checkpoints the app logged before the first close: ./desktop-e2e-wal.mjs) and the folder at the end. Gate: no
+// console error or uncaught exception, no error screen, a checkpoint of the app's own scheduler while it ran, and the
+// budgets below. Output: report.json, report.md (also the job summary), screenshots, the app's log.
 //
 //   node scripts/desktop-e2e.mjs --exe "%LOCALAPPDATA%\Programs\Kariz\Kariz.exe" --out <dir>
 //   (local: --exe node_modules/electron/dist/electron --app <unpacked app folder> --data <data folder> --no-sandbox)
@@ -60,6 +61,12 @@ const BUDGETS = {
   api_p95_ms: 2_000,
   // «ثبت درخواست» to the request's page (0.93 / 0.98 s)
   order_ms: 5_000,
+  // «ارسال برای "…"» on a workflow's start form to its case page with the next step current: the start applied by the
+  // request, the case's run opening that step at the job queue's next turn (every 10 s on this computer), the page
+  // refreshing by itself («زنده», every 5 s). First numbers (docs/qa/PERFORMANCE_E2E_FA.md §1-5): 12.9 and 13.3 s, and
+  // 22.7 s right after the demo pack with its background work queued, in a dry run of these steps against the Windows
+  // flavour's local server (scripts/serve-local.mts) in Chromium; the case's page itself 0.45-1.04 s
+  workflow_start_ms: 45_000,
   // the bank demo pack «کوچک» (292 s; 236 s before)
   demo_load_s: 600,
   // closing the window to the app's exit (0.24 s; 7.2 s before; the app kills its local server after 10 s)
@@ -79,6 +86,19 @@ const BUDGETS = {
 const ADMIN = { full_name: "مدیر فناوری اطلاعات", email: "it.admin@kariz-e2e.example", password: "Kariz-Desk-Pass-1405!" };
 const MEMBER = { full_name: "کارمند شعبهٔ مرکزی", email: "member@kariz-e2e.example", password: "Kariz-Member-Pass-1405!" };
 const ORG_NAME = "بانک آزمایشی برنامهٔ ویندوز";
+/**
+ * The demo pack's workflow (src/server/modules/demo/bank.ts DEMO_WORKFLOW; tests/packaging-desktop-e2e.test.ts keeps
+ * these in step): its name, its form, its first step and the step a started case moves to, the start form's fields
+ * the member fills, and what «فیلدها» shows of it.
+ */
+const WORKFLOW = {
+  name: "درخواست دسترسی به سامانه (نمونه)",
+  form: "فرم درخواست دسترسی به سامانه (نمونه)",
+  start: "ثبت درخواست",
+  next: "تأیید امنیت اطلاعات",
+  field: "u_aftab_system",
+  values: { u_aftab_system: "سامانهٔ اعتبارات", u_aftab_reason: "بررسی پرونده‌های تسهیلات شعبه" },
+};
 const LOADERS = "#root > .boot, .sh-boot, .sh-wait, .ds-loader, .ant-skeleton, .ant-spin-spinning, .sh-loader";
 /**
  * The page's content area, in order: the portal's (inside the app it sits next to an empty #main of the shell), the app
@@ -531,6 +551,89 @@ async function order(persona, org) {
   C.check(/\/portal\/t\//.test(entry.path) && ms !== null && ms <= BUDGETS.order_ms, `${persona}: an order is placed and its request opens (${ms} ms)`, entry.path);
 }
 
+/** The window's content shows `text` (what the demo pack put on the page just opened). */
+async function shows(persona, what, text) {
+  const body = (await page.locator("#root").innerText({ timeout: 5000 }).catch(() => "")) ?? "";
+  C.check(body.includes(text), `${persona}: ${what} shows «${text}»`, body.slice(0, 300));
+}
+
+/**
+ * Watches the window, from now, for `text` in an element of `selector` (polled in the page every 25 ms, so it survives
+ * the router's route changes): `ms(timeout)` waits for it and says how long after the watch began it appeared.
+ */
+async function watch(selector, text) {
+  await page.evaluate(
+    ({ selector, text }) => {
+      const t0 = performance.now();
+      const w = (window.__e2eWatch = { ms: null });
+      const iv = setInterval(() => {
+        if (![...document.querySelectorAll(selector)].some((el) => (el.textContent || "").includes(text))) return;
+        w.ms = Math.round(performance.now() - t0);
+        clearInterval(iv);
+      }, 25);
+    },
+    { selector, text },
+  );
+  return {
+    ms: async (timeout) => {
+      const ok = await page.waitForFunction(() => window.__e2eWatch?.ms != null, null, { timeout, polling: 100 }).then(() => true, () => false);
+      return ok ? page.evaluate(() => window.__e2eWatch.ms) : null;
+    },
+  };
+}
+
+/** The case's state channel on its page: the step the case is at is `aria-current`, a step done is `is-done`. */
+const CHANNEL = 'ol[aria-label="مسیر پرونده"]';
+
+/**
+ * «گردش‌کارها» as the member (design F §5): the page, the demo pack's workflow started from its start form (the fields
+ * a requester fills), «ارسال برای "…"» to the case's page (a route change), and the case moving on to its next step —
+ * the start applied, the case's run opening the step through the job queue, the page refreshing by itself («زنده»):
+ * timed from the click (`workflow_start_ms`).
+ */
+async function workflow(persona, org) {
+  await go(persona, "workflows", `/${org}/workflows`);
+  // «شروع «…»» when it is the only workflow the member may start, else «شروع گردش‌کار» and the workflow in its menu
+  const only = page.getByRole("button", { name: `شروع «${WORKFLOW.name}»` });
+  const menu = page.getByRole("button", { name: "شروع گردش‌کار" });
+  let open = null;
+  if (await only.count()) open = () => only.first().click();
+  else if (await menu.count())
+    open = async () => {
+      await menu.first().click();
+      await page.getByRole("menuitem", { name: WORKFLOW.name }).click();
+    };
+  if (!open) {
+    await shows(persona, "«گردش‌کارها»", `شروع «${WORKFLOW.name}»`);
+    return;
+  }
+  const form = await go(persona, "workflow-start", "", { click: open });
+  if (!/\/workflows\/start\//.test(form.path)) {
+    C.check(false, `${persona}: «شروع» opens the workflow's start form`, form.path);
+    return;
+  }
+  phase = `${persona}:workflow-fill`;
+  for (const [field, value] of Object.entries(WORKFLOW.values)) await page.locator(`#wfu-start-${field}`).fill(value);
+  const send = page.getByRole("button", { name: `ارسال برای «${WORKFLOW.next}»` });
+  let next = null;
+  const kase = await go(persona, "workflow-case", "", {
+    click: async () => {
+      next = await watch(`${CHANNEL} li[aria-current="step"]`, WORKFLOW.next);
+      await send.click();
+    },
+  });
+  // the next step (another person's, open) is the case's current one; the start step is done
+  const ms = next ? await next.ms(120_000) : null;
+  const done = await page.locator(`${CHANNEL} li.is-done`).filter({ hasText: WORKFLOW.start }).count();
+  report.workflow = { persona, case_ms: kase.visible_ms, start_ms: ms, path: kase.path };
+  await page.screenshot({ path: join(SHOTS, `${String(++shot).padStart(2, "0")}-${persona}-workflow-next-step.png`) }).catch(() => {});
+  C.check(
+    /\/workflows\/c\/[0-9a-f-]{36}$/.test(kase.path) && ms !== null && done > 0,
+    `${persona}: «ارسال» starts a case of «${WORKFLOW.name}» and it moves on to «${WORKFLOW.next}» (${ms ?? "—"} ms)`,
+    `${kase.path}; start step done: ${done > 0}`,
+  );
+}
+
 async function pages(persona, org) {
   await go(persona, "home", `/${org}`);
   await go(persona, "incidents", `/${org}/incidents`);
@@ -542,7 +645,17 @@ async function pages(persona, org) {
   if (persona === "admin") {
     await go(persona, "settings", `/${org}/settings/org`);
     await go(persona, "settings-users", `/${org}/settings/users`);
-  } else await go(persona, "portal", `/${org}/portal`);
+    // «فیلدها», «فرم‌ها» and «گردش‌کارها» (design F): the demo pack's library fields, form and published workflow
+    await go(persona, "settings-fields", `/${org}/settings/fields`);
+    await shows(persona, "«فیلدها»", WORKFLOW.field);
+    await go(persona, "settings-forms", `/${org}/settings/forms`);
+    await shows(persona, "«فرم‌ها»", WORKFLOW.form);
+    await go(persona, "settings-workflows", `/${org}/settings/workflows`);
+    await shows(persona, "«گردش‌کارها»", WORKFLOW.name);
+  } else {
+    await workflow(persona, org);
+    await go(persona, "portal", `/${org}/portal`);
+  }
 }
 
 // ------------------------------------------------------------------------------------------------- the run
@@ -567,6 +680,7 @@ function markdown() {
   L.push(`- شروع سرد (نخستین اجرا پس از نصب تا صفحهٔ راه‌اندازی): **${report.starts.cold?.interactive_ms ?? "—"} ms** (پنجرهٔ اصلی ${report.starts.cold?.window_ms ?? "—"} ms، روی صفحه ${report.starts.cold?.shown_ms ?? "—"} ms)${srv(report.starts.cold?.server)}`);
   L.push(`- شروع دوم (تا نخستین صفحه): **${report.starts.warm?.interactive_ms ?? "—"} ms** (روی صفحه ${report.starts.warm?.shown_ms ?? "—"} ms)${srv(report.starts.warm?.server)}`);
   L.push(`- بستهٔ نمایشی «کوچک»: ${report.demo.state ?? "—"} در ${report.demo.seconds ?? "—"} s`);
+  L.push(`- گردش‌کار نمونه به‌عنوان عضو: «ارسال» تا صفحهٔ پرونده ${report.workflow?.case_ms ?? "—"} ms، تا مرحلهٔ بعد **${report.workflow?.start_ms ?? "—"} ms**`);
   const w = report.database.in_run ?? {};
   const ck = report.database.first_run_checkpoints ?? {};
   L.push(`- گزارش پیش‌نویس پایگاه داده (pg_wal) هنگام کار: اوج **${w.peak_mb ?? "—"} MB** (${w.peak_segments ?? "—"} قطعه، مرحلهٔ ${w.peak_phase ?? "—"}، ${w.samples ?? 0} نمونه)؛ پس از بستهٔ نمایشی ${report.database.after_demo?.mb ?? "—"} MB، پیش از بستن ${report.database.before_first_close?.mb ?? "—"} MB؛ checkpointهای زمان‌بند برنامه پیش از بستن: حجم ${ck.volume ?? 0}، زمان ${ck.age ?? 0}`);
@@ -663,6 +777,8 @@ function finish() {
     budget(`${persona}.nav_max_ms`, s.nav_max_ms, BUDGETS.nav_visible_max_ms, `${persona}: slowest route change (ms)`);
     budget(`${persona}.api_p95_ms`, s.api_p95_ms, BUDGETS.api_p95_ms, `${persona}: API as the renderer saw it, 95th percentile (ms)`);
   }
+  // the member's workflow start (measured whenever the member's pages ran: a start that never moved on fails here too)
+  if (report.api.member?.pages) budget("member.workflow_start_ms", report.workflow?.start_ms ?? null, BUDGETS.workflow_start_ms, "member: «ارسال» of a workflow's start form to its case at the next step (ms)");
   const p = report.processes;
   if (p.samples) {
     budget("server_peak_mb", p.peak_mb.server, BUDGETS.backend_peak_mb, "peak working set of the local server and its database (MB)");

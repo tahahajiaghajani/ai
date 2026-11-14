@@ -20,6 +20,9 @@
 //   dr           after `karizctl restore`: what the backup had is back, what came later is gone
 //   ready        wait for /api/ready and report how long it took (--timeout seconds)
 //   load         --users N --seconds S: mixed load (list, search, open, create, update) with p50/p95/p99
+//   push-status  the monitoring push API: a known server in the CMDB, an integration user with its key and a push
+//                connector made through the API; a status batch posted with the key alone; the status board and the CI's
+//                side panel read it back (budgets: perf.mjs)
 import { connect as tlsConnect } from "node:tls";
 import { Socket } from "node:net";
 import { createHash, randomBytes } from "node:crypto";
@@ -612,7 +615,84 @@ async function load() {
   }
 }
 
-const PHASES = { fresh, populate, notify: notifyPhase, "ad-store": adStore, verify, security, "demo-on": demoOn, "demo-off": demoOff, mark, dr, ready, load };
+// ------------------------------------------------------------------------------------------------- monitoring push API
+
+/** What the bank's monitoring system (its data-centre tool) pushes and to which known server (design A §12). */
+const PUSH = {
+  ci: "SRV-COREDB-01",
+  host: "srv-coredb-01",
+  serial: "BANK-DC1-0001",
+  unknown: "srv-not-in-cmdb-99",
+  user: "سامانهٔ پایش مرکز داده",
+  key: "کلید ارسال وضعیت",
+  connector: "ارسال وضعیت از سامانهٔ پایش مرکز داده",
+};
+
+/** The first live row of `table` whose `field` is `value` (null when none). */
+const firstBy = async (api, P, table, field, value) => ((await api.post(`${P}/r/${table}/query`, { filter: { f: field, op: "eq", v: value }, size: 1, total: false })).rows ?? [])[0] ?? null;
+
+/**
+ * The monitoring push API (design A §12, «ارسال از ابزار (API)»), as the bank wires its monitoring system: the CMDB
+ * administrator records a known server, makes an integration user with a key that may only post discovery items and a
+ * push connector for it — all through the API —; the monitoring system posts a status batch for that server with the
+ * key alone (no session: refused without it), the status of an address the CMDB does not know is not matched and makes
+ * nothing; the status board «وضعیت پایش» and the CI's side panel read the status back. The server only answers here
+ * (scenario 13 checks the connection audit around it).
+ */
+async function pushStatus() {
+  const api = await admin();
+  const P = `/o/${orgOf()}`;
+  const B = SERVER_BUDGETS;
+  // the known server, as the CMDB administrator records it
+  let ci = await firstBy(api, P, "ci", "hostname", PUSH.host);
+  if (!ci) ci = (await api.post(`${P}/r/ci`, { name: PUSH.ci, class: "server", hostname: PUSH.host, serial_number: PUSH.serial, description: "پایگاه دادهٔ کربنکینگ (شبیه‌سازی بانک)" })).row;
+  C.check(!!ci?.id, `a known server in the CMDB: ${PUSH.ci} (${PUSH.host})`, JSON.stringify(ci ?? {}).slice(0, 200));
+  // the monitoring system's integration user and its key, which may only post discovery items
+  let user = await firstBy(api, P, "integration_user", "name", PUSH.user);
+  if (!user) user = (await api.post(`${P}/r/integration_user`, { name: PUSH.user, rate_limit: 600, description: "ابزار پایش مرکز داده که وضعیت سرورها را می‌فرستد" })).row;
+  await api.put(`${P}/integration/users/${user.id}/roles`, { roles: ["requester"] });
+  const key = (await api.post(`${P}/integration/users/${user.id}/keys`, { name: PUSH.key, scopes: [{ table: "discovery_item", ops: ["create"] }] })).key;
+  C.check(typeof key === "string" && key.length >= 20, "an integration user with a key scoped to «ثبت موارد منبع داده» only");
+  // the push connector, through the module's API (CMDB administrators)
+  let conn = await firstBy(api, P, "discovery_connector", "name", PUSH.connector);
+  if (!conn) {
+    const made = await api.raw("POST", `${P}/discovery/connectors`, { body: { name: PUSH.connector, kind: "push", push_user_id: user.user_id, description: "وضعیت سرورهای مرکز داده از سامانهٔ پایش" } });
+    C.check(made.status === 201, "a push connector made through the API («ارسال از ابزار (API)»)", `${made.status} ${JSON.stringify(made.json).slice(0, 300)}`);
+    conn = made.json?.row ?? null;
+  }
+  C.check(conn?.kind === "push" && conn?.active === true && conn?.push_user_id === user.user_id, "the connector is active, of kind push, for the monitoring system's user", JSON.stringify({ kind: conn?.kind, active: conn?.active }));
+  if (!conn?.id || !ci?.id) return;
+  // the monitoring system posts with its key alone: without it the push API refuses
+  const tool = new Api(BASE, { timeoutMs: 30_000 });
+  const path = `/v1/discovery/${conn.id}/status`;
+  // the server does not answer ping: down, and the machine itself unavailable (a «down» without it is only a warning,
+  // @shared/discovery/availability recordState)
+  const body = { items: [{ match: { hostname: PUSH.host }, state: "down", availability: true, message: "پاسخ ping نمی‌آید (شبیه‌سازی بانک)" }, { match: { hostname: PUSH.unknown }, state: "up" }] };
+  const anonymous = await tool.raw("POST", path, { body });
+  C.check(anonymous.status === 401, "without its key the push API refuses the batch (401)", `${anonymous.status}`);
+  const t0 = Date.now();
+  const r = await tool.raw("POST", path, { body, headers: { authorization: `Bearer ${key}` } });
+  const pushMs = Date.now() - t0;
+  C.check(r.status === 200 && r.json?.state === "done" && r.json?.updated === 1 && r.json?.unmatched === 1, "the status batch is answered at once: one status taken, one not matched", `${r.status} ${JSON.stringify(r.json).slice(0, 400)}`);
+  const first = r.json?.items?.[0]?.target;
+  C.check(first?.table === "ci" && first?.id === ci.id, `the status is the known server's (matched by its host name ${PUSH.host})`, JSON.stringify(first ?? null));
+  // a status never makes anything: no CI for the address the CMDB does not know
+  C.check(!(await firstBy(api, P, "ci", "hostname", PUSH.unknown)), "a status of an unknown host makes no CI");
+  // read back: the board «وضعیت پایش» and the CI's side panel
+  const t1 = Date.now();
+  const board = await api.get(`${P}/discovery/status?q=${encodeURIComponent(PUSH.ci)}`);
+  const boardMs = Date.now() - t1;
+  const row = (board.rows ?? []).find((x) => x.target_table === "ci" && x.target_id === ci.id);
+  C.check(row?.status === "down" && Number(row?.sources) >= 1 && (board.counts?.down ?? 0) >= 1, `the status board «وضعیت پایش» shows ${PUSH.ci} down, from its source`, JSON.stringify(row ?? board).slice(0, 400));
+  const panel = await api.get(`${P}/discovery/panel/ci/${ci.id}`);
+  C.check(panel?.status?.state === "down", "the CI's side panel «منبع‌ها و وضعیت پایش» shows the status", JSON.stringify(panel?.status ?? panel).slice(0, 300));
+  C.metric("push_status", { push_ms: pushMs, board_ms: boardMs, connector: conn.id, ci: ci.id });
+  C.check(pushMs <= B.push_status_ms, `the status batch answered in ${pushMs} ms ≤ ${B.push_status_ms} ms`);
+  C.check(boardMs <= B.status_board_ms, `the status board answered in ${boardMs} ms ≤ ${B.status_board_ms} ms`);
+  state.set("push", { connector: conn.id, ci: ci.id });
+}
+
+const PHASES = { fresh, populate, notify: notifyPhase, "ad-store": adStore, verify, security, "demo-on": demoOn, "demo-off": demoOff, mark, dr, ready, load, "push-status": pushStatus };
 const fn = PHASES[String(a.phase)];
 if (!fn) {
   log(`unknown phase ${a.phase}`);

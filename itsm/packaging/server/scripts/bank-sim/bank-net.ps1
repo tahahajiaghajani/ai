@@ -1,4 +1,4 @@
-# The bank's network for the simulation (docs/qa/BANK_SIM_FA.md, scenario 1 and 14): the runner becomes a server on an
+# The bank's network for the simulation (docs/qa/BANK_SIM_FA.md, scenarios 1, 13 and 15): the runner becomes a server on an
 # intranet with no Internet. Windows Firewall blocks every outbound connection by default; allowed are only the
 # runner's own agent (or the CI job would die), the machine's own LAN subnet (the bank's network) and the cloud VM's
 # platform addresses (its DNS server and instance metadata - the analogue of the bank's DNS). Loopback is never

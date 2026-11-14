@@ -377,7 +377,8 @@ jobs:
     # (release itsm-v1.0.0) installed as the bank's admin would, set up in the browser, filled with records, backed
     # up, upgraded in place to the MSI of this run, browsed by Playwright's Chromium as a branch PC (the bank CA
     # trusted through the Windows store, no foreign request, no console error), demo data loaded and purged,
-    # security posture, resilience, load, a DR drill, the Windows app's sync client, uninstall and re-install, and the
+    # security posture, resilience, load, a DR drill, the Windows app's sync client, the monitoring push API (a push
+    # connector, a status batch for a known CI with its key, the status board), uninstall and re-install, and the
     # proof that the server's processes never tried to reach outside the bank. Everything it needs is fetched first.
     needs: [server]
     if: ${{ !cancelled() && needs.server.result == 'success' }}
@@ -490,8 +491,20 @@ jobs:
           if-no-files-found: ignore
           overwrite: true
           retention-days: 30
-      - name: "Bank simulation 13-14: uninstall and re-install, and no outbound attempt"
-        run: ./packaging/server/scripts/bank-sim/bank-sim.ps1 -Msi10 $env:BANK_SIM_MSI10 -Msi11 $env:BANK_SIM_MSI11 -Out $env:BANK_SIM_OUT -Only 13,14
+      - name: "Bank simulation 13: the monitoring push API (a push connector, a status batch for a known CI, the status board)"
+        run: ./packaging/server/scripts/bank-sim/bank-sim.ps1 -Msi10 $env:BANK_SIM_MSI10 -Msi11 $env:BANK_SIM_MSI11 -Out $env:BANK_SIM_OUT -Only 13
+      - name: The evidence so far
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: itsm-bank-sim
+          path: ${{ runner.temp }}/bank-sim
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 30
+      - name: "Bank simulation 14-15: uninstall and re-install, and no outbound attempt"
+        run: ./packaging/server/scripts/bank-sim/bank-sim.ps1 -Msi10 $env:BANK_SIM_MSI10 -Msi11 $env:BANK_SIM_MSI11 -Out $env:BANK_SIM_OUT -Only 14,15
       - name: The evidence so far
         if: always()
         continue-on-error: true

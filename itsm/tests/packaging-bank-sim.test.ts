@@ -77,7 +77,7 @@ describe("the simulation's scripts", () => {
     const sims = steps.map((s, i) => [s, i] as const).filter(([s]) => /bank-sim\.ps1 .*-Only [\d,]+/.test(s));
     // every scenario once, in order
     const only = sims.flatMap(([s]) => /-Only ([\d,]+)/.exec(s)![1].split(",").map(Number));
-    expect(only).toEqual(Array.from({ length: 14 }, (_, i) => i + 1));
+    expect(only).toEqual(Array.from({ length: 15 }, (_, i) => i + 1));
     for (const [, i] of sims) {
       const next = steps[i + 1];
       expect(next).toContain("upload-artifact@v4");
@@ -122,6 +122,51 @@ describe("the simulation's scripts", () => {
     expect(pattern).not.toBeNull();
     const constants = readFileSync(join(__dirname, "../src/shared/constants.ts"), "utf8");
     expect(new RegExp(pattern![1]).exec(constants)?.[1]).toBe(String(SYNC_PROTOCOL));
+  });
+});
+
+// The 1.1 monitoring push API on the air-gapped server (design A §12, docs/qa/BANK_SIM_FA.md scenario 13): a push
+// connector made through the API, a status batch for a known CI posted with the tool's key alone, the status read back
+// from the status board — and the connection audit of those minutes showing no outbound attempt by the server.
+describe("the simulation covers the monitoring push API (scenario 13)", () => {
+  const api = () => readFileSync(join(SIM_JS, "api.mjs"), "utf8");
+  const ps = () => readFileSync(join(SIM_PS, "bank-sim.ps1"), "utf8");
+
+  it("makes everything through the API and posts with the key alone", () => {
+    const s = api();
+    expect(s).toMatch(/const PHASES = \{[^}]*"push-status": pushStatus \}/);
+    const body = s.slice(s.indexOf("async function pushStatus()"), s.indexOf("const PHASES"));
+    // the known CI, the integration user and its scoped key, the push connector: the engine's and the module's routes
+    expect(body).toContain('api.post(`${P}/r/ci`, { name: PUSH.ci, class: "server", hostname: PUSH.host');
+    expect(body).toContain("api.post(`${P}/integration/users/${user.id}/keys`, { name: PUSH.key, scopes: [{ table: \"discovery_item\", ops: [\"create\"] }] })");
+    expect(body).toContain('api.raw("POST", `${P}/discovery/connectors`, { body: { name: PUSH.connector, kind: "push", push_user_id: user.user_id');
+    // the tool's own client: no session, refused without the key, answered with it
+    expect(body).toContain("const tool = new Api(BASE, { timeoutMs: 30_000 });");
+    expect(body).toContain("const path = `/v1/discovery/${conn.id}/status`;");
+    expect(body).toMatch(/const anonymous = await tool\.raw\("POST", path, \{ body \}\);\n\s+C\.check\(anonymous\.status === 401/);
+    expect(body).toContain("tool.raw(\"POST\", path, { body, headers: { authorization: `Bearer ${key}` } })");
+    // read back from the status board and the CI's side panel, both timed against their budgets
+    expect(body).toContain("api.get(`${P}/discovery/status?q=${encodeURIComponent(PUSH.ci)}`)");
+    expect(body).toContain("api.get(`${P}/discovery/panel/ci/${ci.id}`)");
+    expect(body).toMatch(/pushMs <= B\.push_status_ms/);
+    expect(body).toMatch(/boardMs <= B\.status_board_ms/);
+    // nothing written behind the API's back
+    expect(body).not.toMatch(/sm_discovery|insert into|update sm_/i);
+  });
+
+  it("checks the connection audit of the push's minutes, before the uninstall and the whole run's proof", () => {
+    const s = ps();
+    const at = (n: number) => s.indexOf(`Invoke-Scenario ${n} '`);
+    expect(at(13)).toBeGreaterThan(at(12));
+    expect(at(14)).toBeGreaterThan(at(13));
+    expect(at(15)).toBeGreaterThan(at(14));
+    const scenario = s.slice(at(13), at(14));
+    expect(scenario).toMatch(/\$since = \(Get-Date\)\.AddSeconds\(-2\)\n\s+Invoke-Js 'api\.mjs' 'api-push-status'/);
+    expect(scenario).toMatch(/Get-KarizOutbound \$since \$InstallDir \$script:Lan \(Join-Path \$Out 'logs\\outbound-audit-push\.json'\)/);
+    expect(scenario).toMatch(/if \(@\(\$sum\.kariz_outside_bank\)\.Count\) \{ Fail /);
+    // the whole run's proof stays last; the run needs all fifteen
+    expect(s.slice(at(15))).toContain("No outbound attempts by the server''s processes");
+    expect(s).toContain("$script:Results.Count -lt 15) { exit 1 }");
   });
 });
 
@@ -191,7 +236,7 @@ describe("the simulation measures the server edition's speed against budgets", (
 
   it("has a budget for every measure, and every budget is checked", async () => {
     const { SERVER_BUDGETS } = await perf();
-    const keys = ["page_ttfb_p95_ms", "page_dcl_p95_ms", "page_content_p95_ms", "page_content_max_ms", "api_p95_ms", "api_calls_per_page_max", "signin_ms", "load_endpoint_p95_ms", "load_endpoint_p99_ms", "app_private_peak_mb", "db_private_peak_mb", "idle_cpu_pct"];
+    const keys = ["page_ttfb_p95_ms", "page_dcl_p95_ms", "page_content_p95_ms", "page_content_max_ms", "api_p95_ms", "api_calls_per_page_max", "signin_ms", "load_endpoint_p95_ms", "load_endpoint_p99_ms", "app_private_peak_mb", "db_private_peak_mb", "idle_cpu_pct", "push_status_ms", "status_board_ms"];
     expect(Object.keys(SERVER_BUDGETS).sort()).toEqual([...keys].sort());
     const code = sim("perf.mjs") + sim("api.mjs");
     for (const k of keys) {

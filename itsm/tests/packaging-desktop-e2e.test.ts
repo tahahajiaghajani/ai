@@ -51,7 +51,7 @@ describe("the desktop-e2e job", () => {
   it("gates on console errors and on budgets for every measure the brief names", () => {
     const s = script();
     expect(s).toContain("no console error or uncaught exception in the app's windows during the whole run");
-    for (const key of ["cold_start_ms", "warm_start_ms", "nav_visible_p95_ms", "nav_visible_max_ms", "api_p95_ms", "order_ms", "demo_load_s", "close_ms", "backend_peak_mb", "total_peak_mb", "idle_backend_cpu_pct", "pg_wal_mb"]) {
+    for (const key of ["cold_start_ms", "warm_start_ms", "nav_visible_p95_ms", "nav_visible_max_ms", "api_p95_ms", "order_ms", "workflow_start_ms", "demo_load_s", "close_ms", "backend_peak_mb", "total_peak_mb", "idle_backend_cpu_pct", "pg_wal_mb"]) {
       expect(s).toMatch(new RegExp(`\\n  ${key}: [0-9_]+,`));
     }
     // memory and CPU come from Electron itself, every second, for the main, renderer and local-server processes
@@ -70,6 +70,57 @@ describe("the desktop-e2e job", () => {
     expect(readFileSync(join(__dirname, "../src/desktop/server.ts"), "utf8")).toContain("from the template");
     // every file a route needed (code, styles, fonts), apart from the API calls
     expect(s).toMatch(/staticLog\.push\(\{ phase, path: u\.pathname, ms, failed \}\)/);
+  });
+});
+
+// The 1.1 features as people use them in the installed app (design F): the administrator opens «فیلدها», «فرم‌ها» and
+// «گردش‌کارها» and finds the demo pack's fields, form and workflow there; the member starts that workflow from
+// «گردش‌کارها», fills its start form, and sees the case move to its next step — timed from «ارسال» and gated.
+describe("desktop-e2e covers fields, forms and workflows", () => {
+  /** The script's WORKFLOW constant (a plain object literal). */
+  const workflowOf = (s: string) => {
+    const m = /\nconst WORKFLOW = (\{[\s\S]*?\n\});\n/.exec(s);
+    expect(m, "the WORKFLOW constant").not.toBeNull();
+    return new Function(`return (${m![1]});`)() as { name: string; form: string; start: string; next: string; field: string; values: Record<string, string> };
+  };
+
+  it("names the demo pack's workflow as the pack makes it (src/server/modules/demo/bank.ts)", async () => {
+    const { DEMO_WORKFLOW: W } = await import("@server/modules/demo/bank");
+    const { STEPS } = await import("@server/modules/demo/load");
+    const w = workflowOf(script());
+    expect(w).toMatchObject({ name: W.name, form: W.form, start: W.steps.start, next: W.steps.approve, field: W.fields.system.name });
+    // the start form's required fields are the ones the member fills
+    expect(Object.keys(w.values).sort()).toEqual([W.fields.system.name, W.fields.reason.name].sort());
+    // the pack makes it (a step of its own)
+    expect(STEPS.map((x) => x.key)).toContain("workflows");
+  });
+
+  it("the administrator opens the three settings pages and finds the pack's items there", () => {
+    const s = script();
+    for (const [route, shown] of [["settings/fields", "WORKFLOW.field"], ["settings/forms", "WORKFLOW.form"], ["settings/workflows", "WORKFLOW.name"]]) {
+      expect(s).toMatch(new RegExp(`await go\\(persona, "[a-z-]+", \`/\\$\\{org\\}/${route.replace("/", "\\/")}\`\\);\\n\\s+await shows\\(persona, "[^"]+", ${shown.replace(".", "\\.")}\\);`));
+    }
+  });
+
+  it("the member starts the workflow and sees its case at the next step, timed from «ارسال» and gated", () => {
+    const s = script();
+    // in the member's pages, through «گردش‌کارها», its start button and the start form's own fields
+    expect(s).toMatch(/\} else \{\n\s+await workflow\(persona, org\);/);
+    expect(s).toContain('await go(persona, "workflows", `/${org}/workflows`);');
+    expect(s).toContain("page.getByRole(\"button\", { name: `شروع «${WORKFLOW.name}»` })");
+    expect(s).toContain("page.locator(`#wfu-start-${field}`).fill(value)");
+    expect(s).toContain("page.getByRole(\"button\", { name: `ارسال برای «${WORKFLOW.next}»` })");
+    // from just before the click to the next step current on the case's state channel, the start step done
+    expect(s).toMatch(/next = await watch\(`\$\{CHANNEL\} li\[aria-current="step"\]`, WORKFLOW\.next\);\n\s+await send\.click\(\);/);
+    expect(s).toContain("const CHANNEL = 'ol[aria-label=\"مسیر پرونده\"]';");
+    expect(s).toMatch(/li\.is-done`\)\.filter\(\{ hasText: WORKFLOW\.start \}\)/);
+    // gated whenever the member's pages ran: a case that never moved on fails the budget too
+    expect(s).toMatch(/if \(report\.api\.member\?\.pages\) budget\("member\.workflow_start_ms", report\.workflow\?\.start_ms \?\? null, BUDGETS\.workflow_start_ms,/);
+    // the case page and the case's state channel the UI renders (src/ui/modules/workflows/user)
+    const ui = readFileSync(join(__dirname, "../src/ui/modules/workflows/user/CasePage.tsx"), "utf8");
+    expect(ui).toContain('<ol className="wfu-channel" aria-label="مسیر پرونده">');
+    expect(ui).toContain('aria-current={s.state === "current" || s.state === "mine" ? "step" : undefined}');
+    expect(readFileSync(join(__dirname, "../src/ui/modules/workflows/user/StartPage.tsx"), "utf8")).toContain('idPrefix="wfu-start"');
   });
 });
 

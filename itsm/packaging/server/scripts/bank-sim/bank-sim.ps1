@@ -5,8 +5,9 @@
 # The scenarios run in the order of the brief: prepare and cut the Internet -> bank PKI -> install 1.0.0 as the admin
 # would (silent msiexec with the bank's certificate, first-run setup in the browser, members, records, e-mail, AD)
 # -> backup -> upgrade in place to this build -> LAN client in a browser (no foreign request, no console error) ->
-# demo data -> security posture -> resilience -> load -> DR drill -> the Windows app (headless) -> uninstall and
-# re-install, then uninstall with REMOVEDATA=1 -> no outbound attempt by the server's processes.
+# demo data -> security posture -> resilience -> load -> DR drill -> the Windows app (headless) -> the monitoring push
+# API (a push connector, a status batch for a known CI with its key, the status board) -> uninstall and re-install, then
+# uninstall with REMOVEDATA=1 -> no outbound attempt by the server's processes.
 # Every scenario is timed and reported (report.md / report.json in -Out, with all logs, screenshots and phase files);
 # a failed scenario is recorded and the run goes on where it can; the exit code is 1 when any scenario failed.
 #
@@ -597,7 +598,18 @@ try {
         Invoke-Js 'desktop.mjs' 'desktop' @('--data', (Join-Path $Out 'desktop-data')) | Out-Null
     }
 
-    Invoke-Scenario 13 'Uninstall keeping data, re-install, then uninstall with REMOVEDATA=1' {
+    Invoke-Scenario 13 'The monitoring push API (a push connector, a status batch for a known CI with its key, the status board)' {
+        # the bank's monitoring system pushes to the server; the server only answers: nothing of the server's may try to
+        # reach outside the bank meanwhile (the connection audit of these minutes, as scenario 15 does for the whole run)
+        $since = (Get-Date).AddSeconds(-2)
+        Invoke-Js 'api.mjs' 'api-push-status' | Out-Null
+        Start-Sleep -Seconds 5
+        $sum = Get-KarizOutbound $since $InstallDir $script:Lan (Join-Path $Out 'logs\outbound-audit-push.json')
+        if (@($sum.kariz_outside_bank).Count) { Fail "the server's processes tried to reach outside the bank during the push: $((@($sum.kariz_outside_bank) | Select-Object -First 10 | ForEach-Object { "$($_.app) -> $($_.dest):$($_.port)" }) -join '; ')" }
+        Note "connection audit during the push: $($sum.audited_outbound) outbound events on the machine, none of the server's processes outside loopback and $($script:Lan.Cidr)"
+    }
+
+    Invoke-Scenario 14 'Uninstall keeping data, re-install, then uninstall with REMOVEDATA=1' {
         Invoke-Msi @('/x', $Msi11) (Join-Path $Out 'logs\msi-uninstall.log') | Out-Null
         Assert-Services 'absent'
         foreach ($p in @($Config, (Join-Path $DataDir 'db\PG_VERSION'), (Join-Path $DataDir 'backups'), (Join-Path $DataDir 'blobs'))) { if (-not (Test-Path $p)) { Fail "uninstall removed $p" } }
@@ -625,7 +637,7 @@ try {
         Note "after REMOVEDATA=1: no service, firewall rule, scheduled task, program or data folder, registry key, shortcut or variable; kept as documented: the event source $($edition.eventSource) (registered: $src, so past events stay readable) and $($tmp.Count) uninstall log(s) in $env:SystemRoot\Temp"
     }
 
-    Invoke-Scenario 14 'No outbound attempts by the server''s processes (firewall log and connection audit)' {
+    Invoke-Scenario 15 'No outbound attempts by the server''s processes (firewall log and connection audit)' {
         $sum = Get-KarizOutbound $script:CutAt $InstallDir $script:Lan (Join-Path $Out 'logs\outbound-audit.json')
         $top = ($sum.by_program.GetEnumerator() | Sort-Object Value -Descending | Select-Object -First 8 | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ', '
         Note "audited outbound connection events since the cut: $($sum.audited_outbound) ($top)"
@@ -677,5 +689,5 @@ if ($Only.Count -and -not $Report) { if ($script:Aborted) { exit 1 }; exit 0 }
     try { Invoke-Js 'perf.mjs' 'perf-report' @('--dir', $Out) -AllowFail | Out-Null } catch { Write-Log "performance report: $($_.Exception.Message)" 'WARN' }
     Write-Log ("{0} scenario(s), {1} failed" -f $script:Results.Count, $failed.Count)
 }
-if (@($script:Results | Where-Object { $_.status -eq 'fail' }).Count -or $script:Results.Count -lt 14) { exit 1 }
+if (@($script:Results | Where-Object { $_.status -eq 'fail' }).Count -or $script:Results.Count -lt 15) { exit 1 }
 exit 0
