@@ -18,6 +18,8 @@ import type { NodeStatusView, ProcessGraph, StepOutcome } from "@shared/process"
 import type { Right } from "@shared/forms/layout";
 import type { FormsSnapshot } from "@shared/forms/snapshot";
 import type { FieldDef } from "@shared/model/types";
+import { addUnits, zonedMidnight } from "@shared/model/jalali-buckets";
+import { DEFAULT_TIMEZONE } from "@shared/constants";
 import { ApiError, type OrgApi } from "../../../lib/api";
 import { recordsApi } from "../../../records/data/api";
 import type { DisplayMap, JournalEntry } from "../../../records/model/types";
@@ -319,6 +321,13 @@ export interface CaseDetail {
   display: Record<string, string>;
 }
 
+/** A file of the case (an attachment a «پیوست» field holds). */
+export interface CaseFile {
+  id: string;
+  name: string;
+  size?: number;
+}
+
 export interface CasePrint {
   org: string;
   case: {
@@ -396,19 +405,31 @@ export const USER_KEYS = {
   view: (org: string, key: string) => ["wf-user", org, "view", key] as const,
   cases: (org: string, q: string) => ["wf-user", org, "cases", q] as const,
   kase: (org: string, id: string) => ["wf-user", org, "case", id] as const,
+  files: (org: string, id: string) => ["wf-user", org, "files", id] as const,
   print: (org: string, id: string) => ["wf-user", org, "print", id] as const,
   talk: (org: string, id: string) => ["wf-user", org, "talk", id] as const,
 };
 
 const enc = encodeURIComponent;
 
-/** The query of «پرونده‌ها» (empty values left out). */
-export function casesQuery(f: CaseFilters): Record<string, string | number> {
+/** The last instant (ISO) of a calendar day in `tz`: the next day's local midnight less a millisecond. */
+export function dayEnd(day: string, tz: string): string | null {
+  const next = zonedMidnight(addUnits(day, "day", 1), tz);
+  return Number.isFinite(next) ? new Date(next - 1).toISOString() : null;
+}
+
+/**
+ * The query of «پرونده‌ها» (empty values left out). The date range covers its last day whole: the server keeps the
+ * cases started at or before `to` and reads a bare date as that day's first instant, so `to` goes as the last instant
+ * of the chosen day in the organisation's zone («امروز» is from = to = today).
+ */
+export function casesQuery(f: CaseFilters, tz: string = DEFAULT_TIMEZONE): Record<string, string | number> {
   const out: Record<string, string | number> = {};
   for (const k of ["process", "state", "step", "requester", "unit", "from", "to", "q"] as const) {
     const v = f[k];
     if (typeof v === "string" && v.trim()) out[k] = v.trim();
   }
+  if (typeof out.to === "string" && /^\d{4}-\d{2}-\d{2}$/.test(out.to)) out.to = dayEnd(out.to, tz) ?? out.to;
   if (f.mine) out.mine = "1";
   if (f.page && f.page > 1) out.page = f.page;
   if (f.size) out.size = f.size;
@@ -462,9 +483,16 @@ export const userApi = {
   done: (api: OrgApi, limit = 100) => api.get<{ rows: DoneRow[]; display: Record<string, string> }>("/process/done", { limit }),
   mine: (api: OrgApi) => api.get<{ processes: MyProcess[] }>("/process/mine"),
   view: (api: OrgApi, key: string) => api.get<ProcessView>(`/process/defs/${enc(key)}/view`),
-  cases: (api: OrgApi, f: CaseFilters) => api.get<CasesPage>("/process/cases", casesQuery(f)),
+  /** «پرونده‌ها»; `tz`: the organisation's zone, where the date range's days begin and end */
+  cases: (api: OrgApi, f: CaseFilters, tz?: string) => api.get<CasesPage>("/process/cases", casesQuery(f, tz)),
   kase: (api: OrgApi, id: string) => api.get<CaseDetail>(`/process/cases/${enc(id)}`),
   print: (api: OrgApi, id: string) => api.get<CasePrint>(`/process/cases/${enc(id)}/print`),
+  /**
+   * The case's files I may open (the record API's attachments of the case: F4b's `filterSide` keeps those a «پیوست»
+   * field I read holds), by name: a value names its files by id.
+   */
+  files: async (api: OrgApi, caseId: string): Promise<CaseFile[]> =>
+    (await recordsApi.attachments(api, "process_case", caseId)).attachments.map((a) => ({ id: String(a.id).toLowerCase(), name: a.name, size: a.size })),
 
   /** «آغاز پرونده»: JSON, or multipart with the files the values name as `{ upload: n }`. */
   start: (api: OrgApi, orgId: string, body: StartBody, files: readonly File[] = []) =>

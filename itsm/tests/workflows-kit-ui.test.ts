@@ -3,21 +3,24 @@
 // re-pointing, the keyboard's moves, node summaries), a case's diagram (statuses as icon + word, the path taken, the
 // phone's numbered list and «مرحلهٔ ۲ از ۴»), the rights matrix, the role-then-people picker's rules and members, the
 // files input's checks, the module's parts and its registration, and the static markup of the legend, the step list
-// and the rights matrix (labels a screen reader reads).
+// and the rights matrix (labels a screen reader reads); a stored files value by name with links, and rules narrowed
+// to a scope (a process's starters) with a rule outside it told apart.
 import { describe, it, expect } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { cleanRule, ASSIGNEE_KINDS, type ProcessGraph, type ProcessNode } from "@shared/process";
+import { cleanRule, ASSIGNEE_KINDS, type AssigneeRule, type ProcessGraph, type ProcessNode } from "@shared/process";
 import { validateProcess } from "@shared/process";
 import {
   ARROWS, LEGEND_ORDER, NODE_H, NODE_W, STEP_STATUS, acceptAttr, acceptText, addStep, allRead, assigneesText, connect, connectProblem, connectTargets,
   defaultProcessConfig, disconnect, fileIds, fileProblem, filesMax, isPlaced, layoutProcess, listSteps, neighbour, newNodeId, newRule, nodeSummary,
-  outcomeLabel, problemsByNode, readingOrder, removeSteps, rightsRows, ruleFields, setDefaultRight, setFieldRight, sizeText, statusLine, stepCounter,
-  strayRights, takenEdges, validHolder, withMembers,
+  outcomeLabel, problemsByNode, readingOrder, removeSteps, rightsRows, ruleFields, ruleInScope, scopedRule, setDefaultRight, setFieldRight, sizeText, statusLine,
+  stepCounter, strayRights, takenEdges, validHolder, withMembers, type RuleScope,
 } from "../src/ui/modules/workflows/kit/model";
 import { SAMPLE_FIELDS, SAMPLE_FORM, SAMPLE_PROGRESS, sampleProcess, sampleStatuses } from "../src/ui/modules/workflows/kit/sample";
 import { StepLegend, StepList } from "../src/ui/modules/workflows/kit/StepLegend";
 import { RightsMatrix } from "../src/ui/modules/workflows/kit/RightsMatrix";
+import { FilesValue } from "../src/ui/modules/workflows/kit/FilesInput";
+import { AssigneeRules } from "../src/ui/modules/workflows/kit/AssigneePicker";
 import { assemble, HOME_GROUP, SETTINGS_GROUP } from "../src/ui/modules/workflows/parts";
 
 const at = (g: ProcessGraph, id: string) => g.nodes.find((n) => n.id === id)!.position!;
@@ -280,6 +283,24 @@ describe("the role-then-people picker", () => {
     expect(ruleFields(fields, "people").map((f) => f.name)).toEqual(["u_who", "u_team"]);
     expect(ruleFields(fields, "unit").map((f) => f.name)).toEqual(["u_branch"]);
   });
+
+  it("narrows the rules to a scope: a new position starts at a «کجا» offered; a rule outside it is told apart", () => {
+    const scope: RuleScope = { kinds: ["position", "role", "users"], wheres: ["anywhere", "unit"] };
+    expect(scopedRule("position", scope)).toEqual({ kind: "position", position: "", where: "anywhere" });
+    expect(scopedRule("users", scope)).toEqual(newRule("users"));
+    expect(scopedRule("position")).toEqual(newRule("position"));
+    expect(ruleInScope({ kind: "users", users: [] }, scope)).toBe(true);
+    expect(ruleInScope({ kind: "position", position: "branch_head", where: "unit", unit: "u1" }, scope)).toBe(true);
+    expect(ruleInScope({ kind: "position", position: "branch_head", where: "requester_unit" }, scope)).toBe(false);
+    expect(ruleInScope({ kind: "manager", of: "requester" }, scope)).toBe(false);
+    expect(ruleInScope({ kind: "manager", of: "requester" })).toBe(true);
+    // in the list, a rule outside the scope says it finds nobody; one inside does not
+    const warn = "این قاعده این‌جا کسی را نمی‌یابد";
+    const list = (value: AssigneeRule[], s?: RuleScope) => renderToStaticMarkup(createElement(AssigneeRules, { value, onChange: () => undefined, plain: true, scope: s }));
+    expect(list([{ kind: "manager", of: "requester" }], scope)).toContain(warn);
+    expect(list([{ kind: "role", role: "agent" }], scope)).not.toContain(warn);
+    expect(list([{ kind: "manager", of: "requester" }])).not.toContain(warn);
+  });
 });
 
 describe("the files input", () => {
@@ -308,6 +329,21 @@ describe("the files input", () => {
     expect(sizeText(900)).toBe("۹۰۰ بایت");
     expect(sizeText(2048)).toBe("۲ کیلوبایت");
     expect(sizeText(2.5 * 1024 * 1024)).toBe("۲٫۵ مگابایت");
+  });
+
+  it("shows a stored value's files by name, each a link when it opens; without their names, how many as «پیوست»", () => {
+    const a = "aaaaaaaa-0000-4000-8000-000000000001";
+    const b = "bbbbbbbb-0000-4000-8000-000000000002";
+    const display = { [a]: "invoice.pdf", [b]: "scan.png" };
+    const linked = renderToStaticMarkup(createElement(FilesValue, { value: [a, b], display, hrefOf: (id: string) => `/files/${id}` }));
+    expect(linked).toMatch(new RegExp(`<a [^>]*href="/files/${a}"[^>]*>invoice\\.pdf</a>`));
+    expect(linked).toMatch(new RegExp(`<a [^>]*href="/files/${b}"[^>]*>scan\\.png</a>`));
+    expect(renderToStaticMarkup(createElement(FilesValue, { value: [a], display }))).not.toContain("<a ");
+    // a file of this window's memory that is gone opens nothing
+    expect(renderToStaticMarkup(createElement(FilesValue, { value: [a], display, hrefOf: () => "" }))).not.toContain("<a ");
+    const counted = renderToStaticMarkup(createElement(FilesValue, { value: [a, b] }));
+    expect(counted).toContain("۲ پیوست");
+    expect(counted).not.toContain("پرونده");
   });
 });
 

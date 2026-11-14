@@ -3,7 +3,8 @@
 //     پایان»), the due pill; my open step's primary action «انجام مرحلهٔ "…"»; «اقدام‌ها» (print; the managers' reassign,
 //     pause, resume, cancel; a requester's cancel before any step after the start);
 //   · tabs «نمودار» (my steps marked, a step of mine opens its form), «داده‌ها» (the values I may read, by form
-//     sections), «تاریخچه» (steps, submissions, the case's notes), «گفت‌وگو» (comments);
+//     sections; a «پیوست» value by its files' names, each opening its file — the case's attachments I may open),
+//     «تاریخچه» (steps, submissions, the case's notes), «گفت‌وگو» (comments);
 //   · side rail: process and version, requester, started, current steps and their people, my part; it gives way to the
 //     step form when one is open (a phone shows the form as a page of its own);
 //   · in «نیاز به بررسی» the managers see «ادامه از مرحلهٔ …» and «لغو پرونده».
@@ -249,6 +250,10 @@ export default function CasePage() {
   const [tab, setTab] = useState<CaseTab>("diagram");
   const [dialog, setDialog] = useState<ManagerAction | null>(null);
   const q = useQuery({ queryKey: USER_KEYS.kase(orgId, id), queryFn: () => userApi.kase(api, id), staleTime: 10_000 });
+  // the case's files I may open: a «پیوست» value names them by id (refreshed with the case after a step is sent)
+  const filesQ = useQuery({ queryKey: USER_KEYS.files(orgId, id), queryFn: () => userApi.files(api, id), enabled: q.isSuccess, staleTime: 10_000, retry: false });
+  const files = filesQ.data;
+  const filesLoading = q.isSuccess && filesQ.isPending;
   const detail = q.data;
   const authority = authorityHere(meta, orgId);
   const taken = useMemo(() => (detail ? takenFromStatuses(detail.graph, detail.statuses) : new Set<string>()), [detail]);
@@ -295,7 +300,7 @@ export default function CasePage() {
           }
           back={{ to: caseHref, label: "پرونده" }}
         />
-        {step ? <StepPanel detail={detail} step={step} authority={authority} onDone={closeStep} /> : <EmptyState title="این مرحله دیگر با شما نیست" description="شاید پیش‌تر انجام شده یا به کس دیگری سپرده شده باشد." />}
+        {step ? <StepPanel detail={detail} step={step} files={files} filesLoading={filesLoading} authority={authority} onDone={closeStep} /> : <EmptyState title="این مرحله دیگر با شما نیست" description="شاید پیش‌تر انجام شده یا به کس دیگری سپرده شده باشد." />}
       </div>
     );
   }
@@ -398,7 +403,7 @@ export default function CasePage() {
               {
                 key: "data",
                 label: "داده‌ها",
-                children: schema ? <CaseValues forms={detail.forms} data={detail.data} schema={schema} tz={tz} unit={unit} display={detail.display} /> : <Loader />,
+                children: schema ? <CaseValues forms={detail.forms} data={detail.data} schema={schema} tz={tz} unit={unit} display={detail.display} files={files} /> : <Loader />,
               },
               { key: "history", label: "تاریخچه", children: <History detail={detail} /> },
               { key: "talk", label: "گفت‌وگو", children: <Talk caseId={id} /> },
@@ -414,7 +419,7 @@ export default function CasePage() {
                   <div className="wfu-aside-close">
                     <Link to={caseHref}>بستن فرم</Link>
                   </div>
-                  <StepPanel detail={detail} step={step} authority={authority} onDone={closeStep} />
+                  <StepPanel detail={detail} step={step} files={files} filesLoading={filesLoading} authority={authority} onDone={closeStep} />
                 </>
               ) : (
                 <EmptyState compact title="این مرحله دیگر با شما نیست" description="شاید پیش‌تر انجام شده یا به کس دیگری سپرده شده باشد." />

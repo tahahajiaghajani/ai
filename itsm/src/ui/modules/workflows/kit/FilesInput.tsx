@@ -213,25 +213,38 @@ export function RecordFilesInput({ table, recordId, ...rest }: Omit<FilesInputPr
   );
 }
 
-/** A stored attachments value read-only: the names when the display map knows them, else the count. */
-export function FilesValue({ value, display, compact }: { value: unknown; display?: DisplayMap; compact?: boolean }) {
+/**
+ * A stored attachments value read-only: the names when the display map knows them — each a link that opens its file
+ * when `hrefOf` is given — else how many there are («۲ پیوست»).
+ */
+export function FilesValue({ value, display, compact, hrefOf }: { value: unknown; display?: DisplayMap; compact?: boolean; hrefOf?: (id: string) => string }) {
   const ids = fileIds(value);
   if (!ids.length) return null;
   const names = ids.map((x) => displayOf(display, x));
   if (!compact && names.every(Boolean))
     return (
       <span className="wfk-files-v">
-        {names.map((n, i) => (
-          <span key={ids[i]}>
-            <Paperclip {...I14} aria-hidden /> <bdi dir="auto">{n}</bdi>
-          </span>
-        ))}
+        {names.map((n, i) => {
+          const href = hrefOf?.(ids[i]);
+          return (
+            <span key={ids[i]}>
+              <Paperclip {...I14} aria-hidden />{" "}
+              {href ? (
+                <a className="ds-link" href={href} target="_blank" rel="noopener noreferrer" dir="auto">
+                  {n}
+                </a>
+              ) : (
+                <bdi dir="auto">{n}</bdi>
+              )}
+            </span>
+          );
+        })}
       </span>
     );
   return (
     <span className="wfk-files-v">
       <Paperclip {...I14} aria-hidden />
-      <span>{faDigits(ids.length)} پرونده</span>
+      <span>{faDigits(ids.length)} پیوست</span>
     </span>
   );
 }

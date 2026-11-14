@@ -1,7 +1,9 @@
 // «پروندهٔ تازه» (design F §5 page 3, §8.6; package F7) at `workflows/start/:key`: the start step's form with my rights
 // in it. The primary action names the step the case goes to («ارسال برای "تأیید رئیس شعبه"»), the secondary keeps a
-// draft («ذخیرهٔ پیش‌نویس», on this runtime only). The case's id is chosen here, so the case opens at once; on a linked
-// Windows app the start waits to be sent («در صف ارسال») and «پرونده‌ها» shows it. A refusal names the fields.
+// draft («ذخیرهٔ پیش‌نویس», on this runtime only). The case's id is chosen here, so the case opens at once, and every
+// retry of the same start sends the same id: a start applied whose answer was lost comes back «late» with its case
+// instead of opening a second one. On a linked Windows app the start waits to be sent («در صف ارسال») and «پرونده‌ها»
+// shows it. A refusal names the fields. Another process's start begins afresh (its values, files and case id).
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { Button } from "antd";
@@ -16,13 +18,17 @@ import { EmptyState, Loader } from "../../../components/display";
 import { useMe, useSchema } from "../../../records/data/hooks";
 import { useLeaveGuard } from "../admin/forms/parts";
 import { USER_KEYS, userApi } from "./api";
-import { draftValues, fieldProblems, missingRequired, newCaseId, packValues, sendLabel, startMessage, startValues } from "./model";
+import { caseIdHolder, draftValues, fieldProblems, missingRequired, packValues, sendLabel, startMessage, startValues } from "./model";
 import { Head, ProcessForm, useLocalFiles, useMoneyUnit, useWf } from "./parts";
 
 const I16 = { size: 16, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
 
 export default function StartPage() {
   const { key = "" } = useParams();
+  return <StartForm key={key} processKey={key} />;
+}
+
+function StartForm({ processKey: key }: { processKey: string }) {
   const { api, orgId } = useOrg();
   const wf = useWf();
   const nav = useNavigate();
@@ -32,6 +38,7 @@ export default function StartPage() {
   const { userId, tz } = useMe();
   const unit = useMoneyUnit();
   const local = useLocalFiles();
+  const [caseIds] = useState(() => caseIdHolder());
   const view = useQuery({ queryKey: USER_KEYS.view(orgId, key), queryFn: () => userApi.view(api, key), staleTime: 30_000 });
   const start = view.data?.start;
   const layout = useMemo(() => cleanFormLayout(start?.form?.layout ?? { tabs: [] }), [start]);
@@ -83,8 +90,10 @@ export default function StartPage() {
     setBusy("send");
     try {
       const packed = packValues(v, start.rights, start.fields, local.files);
-      const caseId = newCaseId();
+      // a retry after an error sends the same id: the server applies a start of one id once
+      const caseId = caseIds.take();
       const r = await userApi.start(api, orgId, { process: data.process.key, values: packed.values, case_id: caseId }, packed.files);
+      caseIds.answered();
       await userApi.dropDraft(api, { process_id: data.process.id });
       setDirty(false);
       await qc.invalidateQueries({ queryKey: USER_KEYS.all(orgId) });
@@ -92,7 +101,8 @@ export default function StartPage() {
       if (msg.tone === "ok") n.ok(msg.text);
       else if (msg.tone === "info") n.info(msg.text);
       else n.warn(msg.text);
-      nav(wf.to(r.result === "applied" ? wf.paths.kase(r.case ?? caseId) : wf.paths.tab("cases")), { replace: true });
+      // applied, or late because an earlier send of this start was applied: the case is there
+      nav(wf.to(r.result === "applied" || (r.result === "late" && r.case) ? wf.paths.kase(r.case ?? caseId) : wf.paths.tab("cases")), { replace: true });
     } catch (e) {
       const fp = e instanceof ApiError && e.status === 400 ? fieldProblems(e.details) : {};
       if (Object.keys(fp).length) {

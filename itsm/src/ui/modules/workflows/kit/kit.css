@@ -695,6 +695,18 @@ button.wfk-list-btn:focus-visible {
   flex-wrap: wrap;
   gap: 4px 10px;
   align-items: center;
+  min-width: 0;
+}
+/* one file: the clip beside its name (the shell's `svg { display: block }` would put it on a line of its own) */
+.wfk-files-v > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.wfk-files-v > span > svg {
+  flex: none;
 }
 .wfk-files-v a {
   display: inline-flex;

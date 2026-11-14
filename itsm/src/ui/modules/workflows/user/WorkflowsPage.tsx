@@ -205,14 +205,14 @@ function MineTab({ processes }: { processes: MyProcess[] }) {
 // «پرونده‌ها»
 
 function CasesTab({ processes }: { processes: MyProcess[] }) {
-  const { api, orgId } = useOrg();
+  const { api, orgId, timezone } = useOrg();
   const wf = useWf();
   const phone = useIsPhone();
   const [params, setParams] = useSearchParams();
   const f = caseFiltersOf(params);
   const [q, setQ] = useState(f.q ?? "");
   const query = { ...f, size: PAGE_SIZE };
-  const cases = useQuery({ queryKey: USER_KEYS.cases(orgId, JSON.stringify(query)), queryFn: () => userApi.cases(api, query), staleTime: 15_000 });
+  const cases = useQuery({ queryKey: USER_KEYS.cases(orgId, JSON.stringify(query)), queryFn: () => userApi.cases(api, query, timezone), staleTime: 15_000 });
   const chosen = f.process ? processes.find((p) => p.id === f.process || p.key === f.process) : undefined;
   const view = useQuery({ queryKey: USER_KEYS.view(orgId, chosen?.key ?? ""), queryFn: () => userApi.view(api, chosen!.key), enabled: !!chosen, staleTime: 60_000 });
   const set = (key: Parameters<typeof withCaseFilter>[1], value: string | boolean | number | null) => setParams((p) => withCaseFilter(p, key, value), { replace: true });

@@ -222,6 +222,12 @@ export function inboxRowView(row: InboxRow, display: Record<string, string>, bas
 /** «۵ مورد منتظر شما» (the page's subtitle; nothing when nothing waits). */
 export const waitingText = (n: number): string => (n > 0 ? `${fa(n)} مورد منتظر شما` : "");
 
+/**
+ * My open process steps of «کارتابل» without the record approvals: what the portal's «کارهای من» adds to its own
+ * lists (it shows the record approvals itself, from the same approvals service).
+ */
+export const waitingSteps = (inbox: Pick<Inbox, "rows"> | null | undefined): InboxRow[] => (inbox?.rows ?? []).filter((r) => r.kind === "process_step");
+
 /** The processes I may start (the start menu), by name. */
 export const startable = (processes: readonly MyProcess[]): MyProcess[] => processes.filter((p) => p.can_start).sort((a, b) => a.name.localeCompare(b.name, "fa"));
 
@@ -521,3 +527,22 @@ export function newCaseId(): string {
   const h = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
+
+/**
+ * The case id of one «پروندهٔ تازه» page: chosen at the first «ارسال» and sent again by every retry, so a start the
+ * server applied but whose answer was lost (a timeout, a proxy's 502, the network gone) is applied once — the retry
+ * comes back «late» with that case instead of opening a second one. Once the server has answered with a result
+ * (applied, late or pending), the next start is a new case.
+ */
+export function caseIdHolder(make: () => string = newCaseId) {
+  let id: string | null = null;
+  return {
+    /** the id this send uses */
+    take: (): string => (id ??= make()),
+    /** the server answered with a result */
+    answered: (): void => {
+      id = null;
+    },
+  };
+}
+export type CaseIdHolder = ReturnType<typeof caseIdHolder>;

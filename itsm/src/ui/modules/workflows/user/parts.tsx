@@ -5,7 +5,9 @@
 //   · the process form: a version's form laid out with my rights — hidden fields left out, read-only ones as values,
 //     required ones marked, «نمایش وقتی…» applied as values change, amounts typed in the organisation's unit, the
 //     files of a «پیوست» field kept here until they are sent with the submission;
-//   · the values of a case by its forms' sections (read-only).
+//   · the values of a case by its forms' sections (read-only);
+//   · a «پیوست» value by its files' names (the case's attachments I may open, F4b's `filterSide`), each a link that
+//     opens the file — on the case's «داده‌ها», in «آنچه پیش‌تر ثبت شده» and in the step form.
 import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { Tabs } from "antd";
 import { useQuery } from "@tanstack/react-query";
@@ -161,8 +163,10 @@ export interface ProcessFormProps {
   unit: MoneyUnit;
   /** the files picked here; without it, files cannot be added */
   local?: LocalFiles;
-  /** names of files the case already holds */
+  /** the files the case already holds (GET of its attachments): a value names them by id */
   known?: readonly FileItem[];
+  /** the case's files are still loading */
+  knownLoading?: boolean;
   idPrefix: string;
   label?: string;
   /** names of the people and records the values name */
@@ -178,6 +182,8 @@ export function ProcessForm(p: ProcessFormProps) {
   const problems = p.problems ?? {};
   const localItems: FileItem[] = p.local ? [...p.local.files].map(([id, f]) => ({ id, name: f.name, size: f.size })) : [];
   const files = [...(p.known ?? []), ...localItems];
+  // a case's file opens through the attachments route; a file picked here, from this window's memory
+  const hrefOf = (fid: string) => (fid.startsWith("local-") ? (p.local?.url(fid) ?? "") : attachmentUrl(orgId, fid));
   if (!view.tabs.length) return <p className="rk-hint">در این مرحله فیلدی برای شما نیست.</p>;
   const body = (tab: (typeof view.tabs)[number]) => (
     <div className="rk-form">
@@ -207,14 +213,15 @@ export function ProcessForm(p: ProcessFormProps) {
                     onChange={(ids) => set(ids)}
                     field={{ label: f.label, max: f.max ?? null, accept: (f.accept as string[] | undefined) ?? null, required: item.right === "required" }}
                     files={files}
+                    loading={p.knownLoading}
                     upload={p.local ? async (file) => p.local!.add(file) : undefined}
                     unavailable="پیوست در این صفحه افزوده نمی‌شود"
-                    hrefOf={(fid) => (fid.startsWith("local-") ? (p.local?.url(fid) ?? "") : attachmentUrl(orgId, fid))}
+                    hrefOf={hrefOf}
                     status={problem ? "error" : undefined}
                     aria-label={item.label}
                   />
                 ) : (
-                  <FilesValue value={value} display={Object.fromEntries(files.map((x) => [x.id, x.name]))} />
+                  <FilesValue value={value} display={fileNames(files)} hrefOf={hrefOf} />
                 );
               } else if (!editable) {
                 control = <ReadValue f={f} value={value} schema={p.schema} tz={p.tz} unit={p.unit} display={p.display} />;
@@ -274,8 +281,25 @@ function ReadValue({ f, value, schema, tz, unit, display }: { f: FieldDef; value
   );
 }
 
+/** A «پیوست» value's names by file id (the ids as a value holds them: lower case). */
+export const fileNames = (files: readonly FileItem[] | undefined): Record<string, string> => Object.fromEntries((files ?? []).map((x) => [x.id.toLowerCase(), x.name]));
+
+export interface CaseValuesProps {
+  forms: FormsSnapshot | null;
+  data: Record<string, unknown>;
+  schema: Schema;
+  tz: string;
+  unit: MoneyUnit;
+  only?: (key: string) => boolean;
+  display?: Record<string, string>;
+  /** the case's files I may open: a «پیوست» value shows their names, each opening its file */
+  files?: readonly FileItem[];
+}
+
 /** The case's values I may read, by the sections of its forms (each field once). */
-export function CaseValues({ forms, data, schema, tz, unit, only, display }: { forms: FormsSnapshot | null; data: Record<string, unknown>; schema: Schema; tz: string; unit: MoneyUnit; only?: (key: string) => boolean; display?: Record<string, string> }) {
+export function CaseValues({ forms, data, schema, tz, unit, only, display, files }: CaseValuesProps) {
+  const { orgId } = useOrg();
+  const names = useMemo(() => fileNames(files), [files]);
   const groups = useMemo(() => {
     const get = fieldGetter((forms?.fields ?? {}) as FieldSource);
     const seen = new Set<string>();
@@ -311,7 +335,11 @@ export function CaseValues({ forms, data, schema, tz, unit, only, display }: { f
               <div key={it.name}>
                 <dt>{it.label}</dt>
                 <dd>
-                  {it.field.check === "attachments" ? <FilesValue value={data[it.name]} /> : <ReadValue f={it.field} value={data[it.name]} schema={schema} tz={tz} unit={unit} display={display} />}
+                  {it.field.check === "attachments" ? (
+                    <FilesValue value={data[it.name]} display={names} hrefOf={(fid) => attachmentUrl(orgId, fid)} />
+                  ) : (
+                    <ReadValue f={it.field} value={data[it.name]} schema={schema} tz={tz} unit={unit} display={display} />
+                  )}
                 </dd>
               </div>
             ))}

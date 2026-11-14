@@ -1,7 +1,8 @@
 // The step form (design F §5 «The step form», §8.6; package F7) at `workflows/c/:id/s/:task`: in the inspector beside
 // the case's diagram on a wide screen, a full page on a phone. Top to bottom: the step's name, «به جانشینی از …», the due
 // pill; a folded «آنچه پیش‌تر ثبت شده»; the form with my rights (my refused values, else my draft, over the case's
-// values); a comment box; a sticky action bar with the step's decisions —
+// values; the case's files by name, each opening its file); a comment box; a sticky action bar with the step's
+// decisions —
 //   fill «ارسال برای "…"» and «ذخیرهٔ پیش‌نویس»; review «ادامهٔ گردش‌کار» and «بازگشت برای اصلاح»; approve «تأیید»، «رد» and
 //   «بازگشت برای اصلاح».
 // «رد» and «بازگشت» ask for a reason, «بازگشت» picks its target (the default chosen) and the confirmation names the
@@ -22,7 +23,7 @@ import { cx, Note } from "../../../components/blocks";
 import { Chip } from "../../../components/display";
 import { useMe, useSchema } from "../../../records/data/hooks";
 import { useLeaveGuard } from "../admin/forms/parts";
-import { USER_KEYS, userApi, type CaseDetail, type MyStep } from "./api";
+import { USER_KEYS, userApi, type CaseDetail, type CaseFile, type MyStep } from "./api";
 import {
   actionLabel, consequence, defaultReturn, draftValues, fieldProblems, initialValues, missingRequired, nameOf, packValues, resultMessage, stepActions, takesValues, type StepActionDef,
 } from "./model";
@@ -35,6 +36,10 @@ const MANY = new Set(["all", "count", "percent"]);
 export interface StepPanelProps {
   detail: CaseDetail;
   step: MyStep;
+  /** the case's files I may open (a «پیوست» value names them by id) */
+  files?: readonly CaseFile[];
+  /** the case's files are still loading */
+  filesLoading?: boolean;
   /** this runtime advances cases (claim is online only; a linked Windows app queues the submission) */
   authority: boolean;
   /** the step was sent or closed: back to the case */
@@ -42,7 +47,7 @@ export interface StepPanelProps {
   className?: string;
 }
 
-export function StepPanel({ detail, step, authority, onDone, className }: StepPanelProps) {
+export function StepPanel({ detail, step, files, filesLoading, authority, onDone, className }: StepPanelProps) {
   const { api, orgId } = useOrg();
   const n = useNotify();
   const qc = useQueryClient();
@@ -189,7 +194,7 @@ export function StepPanel({ detail, step, authority, onDone, className }: StepPa
         <Collapse
           className="wfu-earlier"
           size="small"
-          items={[{ key: "before", label: "آنچه پیش‌تر ثبت شده", children: <CaseValues forms={detail.forms} data={detail.data} schema={schema} tz={tz} unit={unit} only={before} display={display} /> }]}
+          items={[{ key: "before", label: "آنچه پیش‌تر ثبت شده", children: <CaseValues forms={detail.forms} data={detail.data} schema={schema} tz={tz} unit={unit} only={before} display={display} files={files} /> }]}
         />
       ) : null}
       {schema ? (
@@ -205,6 +210,8 @@ export function StepPanel({ detail, step, authority, onDone, className }: StepPa
             tz={tz}
             unit={unit}
             local={local}
+            known={files}
+            knownLoading={filesLoading}
             idPrefix={`wfu-s-${step.id.slice(0, 8)}`}
             label={form.name}
             display={display}

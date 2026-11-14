@@ -6,25 +6,43 @@
 // real organisation, through the pages' own API module: the §3.7 bank process started by a clerk, the head's
 // «کارتابل» and case, a return to the requester with its consequence, a draft kept and refilled, the requester's
 // second round, the approval; a pool step taken by one («در دست …»), the other's late decision kept with its message;
-// a delegate's «به جانشینی از …»; the printable view; a reader of no case gets an empty «پرونده‌ها».
+// a delegate's «به جانشینی از …»; the printable view; a reader of no case gets an empty «پرونده‌ها» — and the review's
+// cases: a case's files open by name from «داده‌ها», «آنچه پیش‌تر ثبت شده» and the step form; «امروز» in «پرونده‌ها»
+// finds today's cases; a start sent again after its answer was lost opens one case; the portal's «کارهای من» counts and
+// lists the steps waiting for the person.
 import { describe, it, expect, beforeAll } from "vitest";
-import { matchRoutes } from "react-router";
+import { createElement, type ReactElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter, matchRoutes } from "react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { create } from "@server/engine";
 import { seedNotices } from "@server/modules/process/api";
+import { startCase } from "@server/modules/process/engine";
 import type { ProcessGraph } from "@shared/process";
 import type { FieldDef } from "@shared/model/types";
 import type { FormLayoutV2, Right } from "@shared/forms/layout";
+import type { FormsSnapshot } from "@shared/forms/snapshot";
+import { DEFAULT_TIMEZONE } from "@shared/constants";
+import { localDate } from "@shared/model/jalali-buckets";
 import { STEP_STATUS } from "../src/ui/modules/workflows/kit/model";
+import { fileIds } from "../src/ui/modules/workflows/kit/files";
 import { ROUTES, NAV } from "../src/ui/modules/registry";
 import { userPart } from "../src/ui/modules/workflows/user/routes";
-import { userApi, casesQuery, type CaseDetail, type InboxRow, type MyStep, type StepView } from "../src/ui/modules/workflows/user/api";
+import { USER_KEYS, userApi, casesQuery, dayEnd, type CaseDetail, type Inbox, type InboxRow, type MyStep, type StepView } from "../src/ui/modules/workflows/user/api";
 import {
-  CASE_PATH, PORTAL_WF_PATH, PRINT_PATH, PROCESS_PATH, RECORD_CASE_PATH, START_PATH, STEP_PATH, WF_PATH, caseFiltersOf, caseStateView, consequence, defaultReturn,
+  CASE_PATH, PORTAL_WF_PATH, PRINT_PATH, PROCESS_PATH, RECORD_CASE_PATH, START_PATH, STEP_PATH, WF_PATH, caseFiltersOf, caseIdHolder, caseStateView, consequence, defaultReturn,
   draftValues, dueView, fieldProblems, filtered, headerStep, inboxRowView, initialValues, mapLink, missingRequired, myPart, newCaseId, openSteps, packValues, processMarks,
-  resultMessage, rowLink, sendLabel, startMessage, startValues, stateChannel, stepActions, stepNotes, tabOf, takenFromStatuses, waitingText, wfPaths, withCaseFilter,
+  resultMessage, rowLink, sendLabel, startMessage, startValues, stateChannel, stepActions, stepNotes, tabOf, takenFromStatuses, waitingSteps, waitingText, wfPaths,
+  withCaseFilter,
 } from "../src/ui/modules/workflows/user/model";
+import { CaseValues, ProcessForm } from "../src/ui/modules/workflows/user/parts";
+import PortalSteps from "../src/ui/modules/workflows/user/PortalSteps";
+import { useWaitingSteps } from "../src/ui/modules/workflows/user/waiting";
+import { OrgProvider, type OrgInfo } from "../src/ui/lib/org";
 import type { OrgApi } from "../src/ui/lib/api";
+import type { Schema } from "../src/ui/records/model/schema";
 import type { Client } from "./helpers";
+import { PNG } from "./engine-helpers";
 import { edge, node } from "./process-engine-helpers";
 import { bank, pettyDraft, type Bank } from "./process-api-helpers";
 
@@ -44,6 +62,21 @@ const orgApiOf = (c: Client, P: string) =>
     patch: (path: string, body?: unknown) => c.patch(`${P}${path}`, body),
     del: (path: string) => c.del(`${P}${path}`),
   }) as unknown as OrgApi;
+
+/** A part of the pages rendered statically in their providers: the organisation, react-query (seeded) and a router. */
+const orgInfo = (id: string): OrgInfo => ({
+  org: { id, name: "بانک آفتاب", legal_name: null, modules: [], phone: null, email: null, website: null, city: null, address: null, logo: null, settings: {} },
+  member: { role: "member", title: "", permissions: {} as OrgInfo["member"]["permissions"] },
+  counts: { members: 1 },
+});
+function render(org: string, el: ReactElement, seed: (qc: QueryClient) => void = () => undefined): string {
+  const qc = new QueryClient();
+  seed(qc);
+  const routed = createElement(MemoryRouter, null, el);
+  return renderToStaticMarkup(createElement(QueryClientProvider, { client: qc }, createElement(OrgProvider, { orgId: org, info: orgInfo(org), children: routed })));
+}
+/** A link that opens `text` at `href`. */
+const linkTo = (href: string, text: string) => new RegExp(`<a [^>]*href="${href.replace(/[.?]/g, "\\$&")}"[^>]*>${text.replace(/[.]/g, "\\.")}</a>`);
 
 const row = (over: Partial<InboxRow> = {}): InboxRow => ({
   kind: "process_step", id: "t1", case_id: "c1", table: "process_case", record_id: "c1", number: "PRC0000123", title: "تنخواه ۱۲۰٬۰۰۰٬۰۰۰ تومان — سمیرا رضایی", source: "درخواست تنخواه شعبه",
@@ -155,6 +188,15 @@ describe("addresses, tabs and the filters of «پرونده‌ها»", () => {
     expect(filtered(caseFiltersOf(new URLSearchParams("tab=cases")))).toBe(false);
     expect(caseFiltersOf(new URLSearchParams("state=everything"))).toEqual({});
   });
+
+  it("the date range covers its last day whole: `to` goes as that day's last instant in the organisation's zone", () => {
+    // «امروز» on 1405/08/22: from = to = 2026-11-13; Tehran's day ends at 20:30 UTC
+    expect(casesQuery({ from: "2026-11-13", to: "2026-11-13" }, "Asia/Tehran")).toEqual({ from: "2026-11-13", to: "2026-11-13T20:29:59.999Z" });
+    expect(dayEnd("2026-11-13", "UTC")).toBe("2026-11-13T23:59:59.999Z");
+    // the address keeps the bare date; an instant goes as it is
+    expect(caseFiltersOf(withCaseFilter(new URLSearchParams(), "to", "2026-11-13")).to).toBe("2026-11-13");
+    expect(casesQuery({ to: "2026-11-13T10:00:00.000Z" }, "Asia/Tehran").to).toBe("2026-11-13T10:00:00.000Z");
+  });
 });
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -168,6 +210,12 @@ describe("the rows of «کارتابل»", () => {
     expect(v).toMatchObject({ number: "PRC0000123", source: "درخواست تنخواه شعبه", action: "تأیید", step: "تأیید رئیس شعبه", from: "سمیرا رضایی", kind: null, notes: [] });
     expect(v.due).toEqual({ text: "۵ ساعت مانده", tone: "neutral", late: false });
     expect(inboxRowView(row({ kind: "record_approval", step: "سطح ۱", source: "رخداد" }), display, WF_PATH, now).kind).toBe("تأیید رکورد");
+  });
+
+  it("the portal's «کارهای من» adds my open steps, not my record approvals (it lists those itself)", () => {
+    const approval = row({ kind: "record_approval", id: "ap1", case_id: null, table: "todo", record_id: "x1", link: "r/todo/x1" });
+    expect(waitingSteps({ rows: [row(), approval, row({ id: "t2" })] }).map((r) => r.id)).toEqual(["t1", "t2"]);
+    expect(waitingSteps(null)).toEqual([]);
   });
 
   it("delegated, taken, queued and paused rows say so in words", () => {
@@ -326,6 +374,38 @@ describe("the step form", () => {
     expect(v.c).toBe("unit-1");
     expect(newCaseId()).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
+
+  it("a start's case id is kept for every retry until the server has answered; the next start gets a new one", () => {
+    let n = 0;
+    const ids = caseIdHolder(() => `case-${++n}`);
+    // «ارسال», no answer (a timeout, a proxy's 502, the network gone), «ارسال» again: the same case
+    expect([ids.take(), ids.take()]).toEqual(["case-1", "case-1"]);
+    ids.answered();
+    expect(ids.take()).toBe("case-2");
+  });
+
+  it("a «پیوست» value names the case's files, each a link that opens it: in an editable field, read-only and in «داده‌ها»", () => {
+    const id = "0b9c0000-0000-4000-8000-000000000001";
+    const known = [{ id, name: "invoice.pdf", size: 2048 }];
+    const href = `/api/o/org-1/attachments/${id}/content`;
+    const values = { u_invoice: [id] };
+    const only = (r: Right) => ({ u_amount: "hidden", u_need: "hidden", u_invoice: r, u_note: "hidden" }) as Record<string, Right>;
+    const form = (r: Right, onChange?: (name: string, v: unknown) => void) =>
+      render("org-1", createElement(ProcessForm, { layout, fields, rights: only(r), values, onChange, schema: {} as Schema, tz: "Asia/Tehran", unit: "rial", known, idPrefix: "t", label: "فرم" }));
+    for (const html of [form("edit", () => undefined), form("read")]) {
+      expect(html).toMatch(linkTo(href, "invoice.pdf"));
+      expect(html).not.toContain("پیوستی که دیگر در این رکورد نیست");
+    }
+    // while the case's files load, an editable field does not call its file gone
+    const loading = render("org-1", createElement(ProcessForm, { layout, fields, rights: only("edit"), values, onChange: () => undefined, schema: {} as Schema, tz: "Asia/Tehran", unit: "rial", knownLoading: true, idPrefix: "t" }));
+    expect(loading).not.toContain("پیوستی که دیگر در این رکورد نیست");
+    const forms = { forms: { f1: { id: "f1", name: "فرم", layout } }, fields } as unknown as FormsSnapshot;
+    const data = (files?: { id: string; name: string }[]) => render("org-1", createElement(CaseValues, { forms, data: values, schema: {} as Schema, tz: "Asia/Tehran", unit: "rial", files }));
+    expect(data(known)).toMatch(linkTo(href, "invoice.pdf"));
+    // before the names are read: how many, as «پیوست» (here «پرونده» is a case)
+    expect(data()).toContain("۱ پیوست");
+    expect(data()).not.toContain("پرونده");
+  });
 });
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -394,6 +474,18 @@ describe("«گردش‌کارها» on a real organisation (§3.7)", () => {
     await b.w.k.drain();
   });
 
+  it("«امروز» in «پرونده‌ها» finds the case started today: the range's last day is whole", async () => {
+    const today = localDate(Date.now(), DEFAULT_TIMEZONE);
+    const ids = async (f: { from?: string; to?: string }) => (await userApi.cases(as("clerk"), f, DEFAULT_TIMEZONE)).rows.map((r) => r.id);
+    // the server reads a bare `to` as that day's first instant: sent as the chip keeps it, today's case is left out
+    const bare = await as("clerk").get<{ rows: { id: string }[] }>("/process/cases", { from: today, to: today });
+    expect(bare.rows.map((r) => r.id)).not.toContain(caseId);
+    expect(await ids({ from: today, to: today })).toContain(caseId);
+    expect(await ids({ to: today })).toContain(caseId);
+    // a range that ends yesterday leaves it out
+    expect(await ids({ to: localDate(Date.now() - 86_400_000, DEFAULT_TIMEZONE) })).not.toContain(caseId);
+  });
+
   it("the head's «کارتابل» row opens the step's form; the case marks his step and offers approve, reject and return", async () => {
     const box = await userApi.inbox(as("head"));
     const r = box.rows.find((x) => x.case_id === caseId)!;
@@ -423,6 +515,15 @@ describe("«گردش‌کارها» on a real organisation (§3.7)", () => {
     const box = await userApi.inbox(as("clerk"));
     const back = box.rows.find((x) => x.case_id === caseId)!;
     expect(back).toMatchObject({ step: "ثبت درخواست", action: "fill" });
+    // in the portal, where she works: «کارهای من» counts the step and lists it, opening its form there
+    expect(waitingSteps(box).map((x) => x.id)).toEqual([back.id]);
+    const seeded = (qc: QueryClient) => qc.setQueryData<Inbox>(USER_KEYS.inbox(b.w.o.org), box);
+    const Badge = () => createElement("output", null, String(useWaitingSteps().count));
+    expect(render(b.w.o.org, createElement(Badge), seeded)).toBe("<output>1</output>");
+    const listed = render(b.w.o.org, createElement(PortalSteps), seeded);
+    expect(listed).toContain("گردش‌کارهای منتظر شما");
+    expect(listed).toContain(`href="/${b.w.o.org}/portal/workflows/c/${caseId}/s/${back.id}"`);
+    expect(listed).toContain("ثبت درخواست");
     await userApi.saveDraft(as("clerk"), { task_id: back.id }, { u_need: "دستگاه شمارش اسکناس برای باجه" });
     const hers = await userApi.kase(as("clerk"), caseId);
     const s2 = hers.my_steps[0];
@@ -454,6 +555,24 @@ describe("«گردش‌کارها» on a real organisation (§3.7)", () => {
     expect(print.values.find((v) => v.field === "u_need")?.text).toBe("دستگاه شمارش اسکناس برای باجه");
     const cases = await userApi.cases(as("clerk"), { mine: true, state: "open" });
     expect(cases.rows.map((x) => x.id)).toContain(caseId);
+  });
+
+  it("the invoice attached at the start opens by name for the head who decides on it, from «داده‌ها» and before his form", async () => {
+    const id = newCaseId();
+    const values = { u_amount: "5000000", u_need: "خرید چاپگر", u_branch: b.U.vanak, u_invoice: [{ upload: 0 }] };
+    const started = await startCase(await b.w.o.ctxOf(b.M.clerk.userId), { process: "petty_cash", case_id: id, values, files: [{ name: "پیش‌فاکتور.png", data: PNG }] });
+    expect(started.result).toBe("applied");
+    await b.w.k.drain();
+    const detail = await userApi.kase(as("head"), id);
+    expect(detail.my_steps[0]).toMatchObject({ label: "تأیید رئیس شعبه" });
+    // the case's files the head may open: the invoice his step shows (F4b's filterSide)
+    const files = await userApi.files(as("head"), id);
+    expect(files.map((f) => f.name)).toEqual(["پیش‌فاکتور.png"]);
+    expect(fileIds(detail.data.u_invoice)).toEqual([files[0].id]);
+    const html = render(b.w.o.org, createElement(CaseValues, { forms: detail.forms, data: detail.data, schema: {} as Schema, tz: DEFAULT_TIMEZONE, unit: "rial", files, only: (k: string) => k === "u_invoice" }));
+    expect(html).toMatch(linkTo(`/api/o/${b.w.o.org}/attachments/${files[0].id}/content`, "پیش‌فاکتور.png"));
+    // the requester reads her own file
+    expect((await userApi.files(as("clerk"), id)).map((f) => f.id)).toEqual([files[0].id]);
   });
 
   it("a pool step taken by one is «در دست …» for the other, whose decision online is refused; after the taker decides, the other's is late and kept", async () => {
@@ -492,5 +611,22 @@ describe("«گردش‌کارها» on a real organisation (§3.7)", () => {
     await userApi.say(as("clerk"), caseId, "سلام؛ فاکتور را فرستادم");
     const talk = await userApi.talk(as("clerk"), caseId);
     expect(talk.entries.map((e) => e.body)).toContain("سلام؛ فاکتور را فرستادم");
+  });
+
+  it("a start applied whose answer was lost, sent again, opens one case: the retry keeps its id and comes back «late» with it", async () => {
+    const ids = caseIdHolder();
+    const body = { process: "petty_cash", values: { u_amount: "3000000", u_need: "پاسخی که نرسید", u_branch: b.U.vanak } };
+    const first = await userApi.start(as("clerk"), b.w.o.org, { ...body, case_id: ids.take() });
+    // the page never heard that answer: the second «ارسال» sends the same id
+    const again = await userApi.start(as("clerk"), b.w.o.org, { ...body, case_id: ids.take() });
+    expect(first.result).toBe("applied");
+    expect(again).toMatchObject({ result: "late", case: first.case });
+    expect(startMessage(again, null).tone).toBe("warning");
+    const made = await b.w.o.db.one<{ n: string }>(`select count(*)::text as n from sm_process_cases where org_id = $1 and data->>'u_need' = $2`, [b.w.o.org, "پاسخی که نرسید"]);
+    expect(made?.n).toBe("1");
+    // answered: the next start is a new case
+    ids.answered();
+    expect(ids.take()).not.toBe(first.case);
+    await b.w.k.drain();
   });
 });
