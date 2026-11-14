@@ -1,7 +1,8 @@
 // The server edition's job runner gives way to the requests people wait for, across the cluster (src/server-edition/
-// foreground.ts): the API counts a signed-in browser session's requests (the screens' polling aside) in each worker's
-// gate once their session is known — never machine traffic: the Windows apps' sync, token clients, monitoring probes or
-// anyone not signed in —; each worker tells the supervisor when it starts and stops having any; the supervisor tells
+// foreground.ts): the API counts a browser's requests (a session cookie, no Authorization header, the screens' polling
+// aside) in each worker's gate from before their session lookup, and keeps the linger only for a signed-in browser
+// session's — never machine traffic: the Windows apps' sync, token clients, monitoring probes or anyone without a session
+// cookie —; each worker tells the supervisor when it starts and stops having any; the supervisor tells
 // every worker whether any worker has; the scheduler leader's runner waits for them before each round of jobs
 // (TickOptions.busy) — at most YIELD_MS each time, so it never starves. The Windows app's local server counts its own
 // window's requests from the first byte and the office network's once signed in (src/desktop/server.ts).
@@ -13,7 +14,7 @@ import { randomUUID } from "node:crypto";
 import { ForegroundBoard, ForegroundGate, FOREGROUND_LINGER_MS } from "../src/server-edition/foreground";
 import { windowRequest } from "../src/desktop/server";
 import { enqueue, registerJobHandler, tick, YIELD_MS } from "@server/jobs";
-import { router, requireUser } from "@server/http/hono";
+import { errorResponse, router, requireUser } from "@server/http/hono";
 import type { ServerConfig } from "@server/context";
 import { makeServer, Client, signupWithOrg, quietLog } from "./helpers";
 
@@ -67,6 +68,37 @@ describe("ForegroundGate: one worker's requests a person waits for", () => {
     vi.advanceTimersByTime(FOREGROUND_LINGER_MS + 1);
     expect(g.busy()).toBe(false);
   });
+
+  it("ends a request that was not a person's at once, and never cuts a person's linger short", () => {
+    vi.useFakeTimers();
+    const said: boolean[] = [];
+    const g = new ForegroundGate((on) => said.push(on));
+    // a made-up session cookie: busy only while its lookup ran
+    g.started();
+    g.ended({ linger: false });
+    expect(said).toEqual([true, false]);
+    expect(g.busy()).toBe(false);
+    // a person's request, then a made-up one inside its linger: the linger runs to its end
+    g.started();
+    g.ended();
+    vi.advanceTimersByTime(100);
+    g.started();
+    g.ended({ linger: false });
+    expect(g.busy()).toBe(true);
+    vi.advanceTimersByTime(FOREGROUND_LINGER_MS - 100 + 1);
+    expect(g.busy()).toBe(false);
+    expect(said).toEqual([true, false, true, false]);
+    // one still in flight when a person's linger ends keeps the worker busy until it ends
+    g.started();
+    g.ended();
+    g.started();
+    vi.advanceTimersByTime(FOREGROUND_LINGER_MS + 1);
+    expect(g.busy()).toBe(true);
+    g.ended({ linger: false });
+    expect(g.busy()).toBe(false);
+    expect(said).toEqual([true, false, true, false, true, false]);
+    g.close();
+  });
 });
 
 describe("ForegroundBoard: the supervisor's view of the workers", () => {
@@ -87,17 +119,18 @@ describe("ForegroundBoard: the supervisor's view of the workers", () => {
 });
 
 describe("the API counts the requests a person waits for: signed-in browser sessions, never machine traffic", () => {
-  /** cfg.foreground for a test: how many started and ended, and the most at once. */
+  /** cfg.foreground for a test: how many started, ended with their linger (a person's) or without (not a person's). */
   const counting = () => {
-    const n = { started: 0, ended: 0, now: 0, most: 0 };
+    const n = { started: 0, lingered: 0, cut: 0, now: 0 };
     const fg = {
       started: () => {
         n.started++;
-        n.most = Math.max(n.most, ++n.now);
+        n.now++;
       },
-      ended: () => {
-        n.ended++;
+      ended: (o?: { linger?: boolean }) => {
         n.now--;
+        if (o?.linger === false) n.cut++;
+        else n.lingered++;
       },
     };
     return { n, fg };
@@ -120,16 +153,14 @@ describe("the API counts the requests a person waits for: signed-in browser sess
       expect(login.token).toBeTruthy();
       const bearer = { authorization: `Bearer ${login.token}` };
 
-      // the person's requests count, each from its start to its answer
-      let before = n.started;
+      // the person's requests count, each from before its session lookup to its answer, and keep their linger
+      let before = { ...n };
       expect(await send(s.app, `/o/${org}`, { cookie: person.cookie })).toBe(200);
       expect(await send(s.app, "/meta", { cookie: person.cookie })).toBe(200);
       expect(await send(s.app, "/auth/me", { cookie: person.cookie })).toBe(200);
-      expect(n.started - before).toBe(3);
-      expect(n.ended).toBe(n.started);
-      expect(n.now).toBe(0);
+      expect([n.started - before.started, n.lingered - before.lingered, n.cut - before.cut, n.now]).toEqual([3, 3, 0, 0]);
 
-      before = n.started;
+      before = { ...n };
       // the Windows app's sync, every 30 s and after each local change (src/desktop/sync-client.ts)
       expect(await send(s.app, `/sync/status?org_id=${org}`, bearer)).toBe(200);
       await send(s.app, `/sync/pull?org_id=${org}&cursor=0&user_cursor=0&device_id=${randomUUID()}`, bearer);
@@ -140,13 +171,20 @@ describe("the API counts the requests a person waits for: signed-in browser sess
       // the screen's own polling: the live pulse and a refresh timer
       await send(s.app, `/o/${org}/pulse`, { cookie: person.cookie });
       await send(s.app, `/o/${org}`, { cookie: person.cookie, "x-itsm-background": "1" });
-      // a monitoring probe, and anyone not signed in, with or without a made-up session
+      // a monitoring probe, anyone without a session cookie, a made-up bearer token
       expect(await send(s.app, "/health")).toBe(200);
       expect(await send(s.app, "/meta")).toBe(200);
       expect(await send(s.app, `/o/${org}`)).toBe(401);
-      expect(await send(s.app, `/o/${org}`, { cookie: `itsm_session=${randomUUID()}.forged` })).toBe(401);
       expect(await send(s.app, `/o/${org}`, { authorization: `Bearer ${randomUUID()}.forged` })).toBe(401);
-      expect(n.started).toBe(before);
+      expect(n.started).toBe(before.started);
+
+      // a made-up or a device's session in the cookie: counted only while its lookup runs, never with a linger
+      before = { ...n };
+      expect(await send(s.app, `/o/${org}`, { cookie: `itsm_session=${randomUUID()}.forged` })).toBe(401);
+      expect(await send(s.app, "/meta", { cookie: `itsm_session=${randomUUID()}.forged` })).toBe(200);
+      expect(await send(s.app, `/o/${org}`, { cookie: "itsm_session=not-a-session" })).toBe(401);
+      expect(await send(s.app, `/o/${org}`, { cookie: `itsm_session=${login.token}` })).toBe(200);
+      expect([n.started - before.started, n.lingered - before.lingered, n.cut - before.cut, n.now]).toEqual([4, 0, 4, 0]);
     } finally {
       await s.db.close();
     }
@@ -195,16 +233,67 @@ describe("the API counts the requests a person waits for: signed-in browser sess
       await s.db.close();
     }
   });
+
+  it("counts a browser's request while its session lookup still waits — under load that is where it waits", async () => {
+    const s = await makeServer();
+    const person = new Client(s.app);
+    await signupWithOrg(person);
+    // the session lookup held back, as a database or a pool busy with the job runner holds it
+    let release = () => {};
+    let lookups = 0;
+    const held = new Promise<void>((r) => (release = r));
+    const db = new Proxy(s.db, {
+      get(target, key, receiver) {
+        const v = Reflect.get(target, key, receiver);
+        if (key !== "one" || typeof v !== "function") return typeof v === "function" ? v.bind(target) : v;
+        return async (sql: string, params?: unknown[]) => {
+          if (/from sm_sessions s/.test(sql)) {
+            lookups++;
+            await held;
+          }
+          return v.call(target, sql, params);
+        };
+      },
+    });
+    const gate = new ForegroundGate(() => {}, 30);
+    const cfg: ServerConfig = { mode: "cloud", db, secret: "t", allowSignup: false, platformAdmins: [], origin: "cloud", log: quietLog, fetch, foreground: gate };
+    const api = router();
+    api.use("*", async (c, next) => {
+      c.set("cfg", cfg);
+      await next();
+    });
+    api.onError((err, c) => errorResponse(err, c));
+    api.get("/page", requireUser, (c) => c.json({ ok: true }));
+    try {
+      const page = api.request("/page", { headers: { cookie: person.cookie } });
+      const forged = api.request("/page", { headers: { cookie: `itsm_session=${randomUUID()}.forged` } });
+      await vi.waitFor(() => expect(lookups).toBe(2));
+      // both are counted while they wait for their sessions: the job runner already gives way
+      expect(gate.inFlight).toBe(2);
+      expect(gate.busy()).toBe(true);
+      release();
+      expect((await page).status).toBe(200);
+      expect((await forged).status).toBe(401);
+      expect(gate.inFlight).toBe(0);
+      // the person's request keeps its linger, then the gate opens
+      expect(gate.busy()).toBe(true);
+      await vi.waitFor(() => expect(gate.busy()).toBe(false));
+    } finally {
+      release();
+      gate.close();
+      await s.db.close();
+    }
+  });
 });
 
-describe("the Windows app's local server: its window counts from the first byte, the office network once signed in", () => {
+describe("the Windows app's local server: its window counts from the first byte, the office network by its session cookie", () => {
   it("takes a request of this computer without a token for the window's", () => {
     expect(windowRequest("127.0.0.1", undefined)).toBe(true);
     expect(windowRequest("::1", undefined)).toBe(true);
     expect(windowRequest("::ffff:127.0.0.1", undefined)).toBe(true);
     // a token is never the window's: the Windows apps' sync and API clients send one
     expect(windowRequest("127.0.0.1", "Bearer 0193a0b2-0000-7000-8000-000000000000.x")).toBe(false);
-    // the office network in LAN mode (counted once its browser session is known), and a request made inside the process
+    // the office network in LAN mode (counted through cfg.foreground, by its session cookie), and a request made inside the process
     expect(windowRequest("192.168.10.24", undefined)).toBe(false);
     expect(windowRequest("::ffff:10.0.0.5", undefined)).toBe(false);
     expect(windowRequest(undefined, undefined)).toBe(false);
@@ -256,7 +345,11 @@ describe("the scheduler leader's job runner gives way to a person's requests any
     expect(worker).toMatch(/m\?\.t === "fg"\) foreground\.setCluster\(m\.busy === true\)/);
     // the gate is the API's cfg.foreground (requireUser and optionalUser count once the session is known) …
     expect(worker).toMatch(/auth: authConfig\(current\),\n\s+foreground,\n/);
-    expect(src("server/http/hono.ts")).toMatch(/if \(!fg \|\| session\.kind !== "web" \|\| isBackgroundRequest\(c\)\) return next\(\);/);
+    const hono = src("server/http/hono.ts");
+    expect(hono).toMatch(/let open = !!fg && !c\.req\.header\("authorization"\) && !isBackgroundRequest\(c\) && !!getCookie\(c, COOKIE\);/);
+    expect(hono).toMatch(/person = session\?\.kind === "web";/);
+    // requireUser and optionalUser open the count before the session lookup
+    expect(hono.match(/const foreground = foregroundOf\(c\);\n\s+try \{\n\s+const resolved = await resolveToken/g)?.length).toBe(2);
     // … not the front, where every probe, sync call and client not signed in would count
     expect(src("server-edition/front.ts")).not.toMatch(/foreground\.started|isBackgroundRequest|foreground\?:/);
     const cluster = src("server-edition/cluster.ts");

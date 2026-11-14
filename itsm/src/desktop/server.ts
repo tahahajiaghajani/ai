@@ -62,7 +62,8 @@ const peerOf = (c: { env: unknown }): string | undefined => (c.env as { incoming
 /**
  * Is this API request one of the app's own window — from this computer and without a token? The job queue waits for
  * these whether or not anyone is signed in yet. A token is never the window's: the Windows apps' sync and other API
- * clients send one; and a browser of the office network (LAN mode) counts only once its session is known.
+ * clients send one; and a browser of the office network (LAN mode) counts through cfg.foreground, with its session cookie
+ * and only as long as that cookie is a signed-in browser session's.
  */
 export function windowRequest(peer: string | undefined, authorization: string | undefined): boolean {
   return !authorization && peer !== undefined && isLoopback(peer);
@@ -133,8 +134,8 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   // requests a person waits for, in flight, the screens' background polling aside: the job queue waits for them before
   // each job, so a page's burst of requests is not interleaved with job statements on the database's one connection.
   // The window's own (windowRequest) count from their first byte, signed in or not (the setup, the sign-in); those of
-  // the office network (LAN mode) once their browser session is known (cfg.foreground) — never a token client, a probe
-  // or anyone not signed in there (PERFORMANCE_FA §19)
+  // the office network (LAN mode) through cfg.foreground — a session cookie, ended at once unless it is a signed-in
+  // browser session's — and never a token client, a probe or anyone without a session there (PERFORMANCE_FA §19)
   let fromWindow = 0;
   let signedIn = 0;
   const cfg: ServerConfig = {

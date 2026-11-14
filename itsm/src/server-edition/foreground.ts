@@ -7,17 +7,19 @@
 // alone 1.2–2.3 s while its full-text ranking statement ran 1.5–1.8 s in the database (PERFORMANCE_FA §19).
 //
 // Each worker counts the requests in flight that a person is waiting for (`ForegroundGate`, the worker's
-// `cfg.foreground`: the API counts a request once its session is known — a signed-in browser session's, its background
-// polling aside; src/server/http/hono.ts) and tells the supervisor when it starts and stops having any; the supervisor
-// (`ForegroundBoard`) tells every worker whether any worker has. The leader's job runner asks `busy()` before each round
-// of jobs (TickOptions.busy, src/server/jobs/index.ts) and waits while it is true — at most YIELD_MS each time, so a
-// server in constant use still runs every job, only more slowly. Nothing else changes: the same jobs run, in the same
-// order.
+// `cfg.foreground`, src/server/http/hono.ts: a browser's request — its session cookie, no Authorization header, the
+// screens' polling aside — from before its session lookup, which under load is where it waits; with the linger after
+// it only when that session is a signed-in browser's) and tells the supervisor when it starts and stops having any;
+// the supervisor (`ForegroundBoard`) tells every worker whether any worker has. The leader's job runner asks `busy()`
+// before each round of jobs (TickOptions.busy, src/server/jobs/index.ts) and waits while it is true — at most YIELD_MS
+// each time, so a server in constant use still runs every job, only more slowly. Nothing else changes: the same jobs
+// run, in the same order.
 //
 // Machine traffic never counts: the Windows apps' sync (a device token; every 30 s and after each local change, so
-// 5 to 15 requests a second from 150 linked apps), monitoring probes and anyone not signed in. Counted, each of those
-// requests kept its worker «busy» for the linger after it, which held the queue at its constant-use pace day and night,
-// and any client could hold the runner back with a request every 300 ms.
+// 5 to 15 requests a second from 150 linked apps), monitoring probes and anyone without a session cookie; a made-up
+// cookie only for the instant of its 401. Counted, each of those requests kept its worker «busy» for the linger after
+// it, which held the queue at its constant-use pace day and night, and any client could hold the runner back with a
+// request every 300 ms.
 
 /** How long a worker stays «busy» after its last foreground request ended: the gaps between a page's waves of requests. */
 export const FOREGROUND_LINGER_MS = 300;
@@ -38,31 +40,39 @@ export class ForegroundGate {
     private readonly lingerMs = FOREGROUND_LINGER_MS,
   ) {}
 
-  /** A foreground request starts. */
+  /** A foreground request starts — from its arrival, before anyone knows whether a person sent it. */
   started(): void {
     this.local++;
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
     if (!this.reported) {
       this.reported = true;
       this.report(true);
     }
   }
 
-  /** A foreground request ended (answered, failed or cut). */
-  ended(): void {
+  /**
+   * A foreground request ended (answered, failed or cut). A signed-in person's keeps the worker «busy» for the linger
+   * after it; one that turned out not to be (`linger: false`: a made-up or ended session) only while it ran, and never
+   * cuts short a person's linger that is still running.
+   */
+  ended(opts: { linger?: boolean } = {}): void {
     this.local = Math.max(0, this.local - 1);
-    if (this.local > 0 || !this.reported || this.timer) return;
-    this.timer = setTimeout(() => {
-      this.timer = null;
-      if (this.local === 0 && this.reported) {
-        this.reported = false;
-        this.report(false);
-      }
-    }, this.lingerMs);
-    this.timer.unref?.();
+    if (opts.linger !== false) {
+      if (this.timer) clearTimeout(this.timer);
+      this.timer = setTimeout(() => {
+        this.timer = null;
+        this.quiet();
+      }, this.lingerMs);
+      this.timer.unref?.();
+      return;
+    }
+    if (!this.timer) this.quiet();
+  }
+
+  /** Nothing in flight and no linger left: tell the supervisor, once. */
+  private quiet(): void {
+    if (this.local > 0 || !this.reported) return;
+    this.reported = false;
+    this.report(false);
   }
 
   /** What the supervisor says: some worker has foreground requests (possibly this one). */

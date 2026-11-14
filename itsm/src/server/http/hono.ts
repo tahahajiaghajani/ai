@@ -1,12 +1,13 @@
 // Hono environment, middlewares and small request helpers shared by all routes.
 import { Hono, type Context, type MiddlewareHandler } from "hono";
+import { getCookie } from "hono/cookie";
 import type { ZodType } from "zod";
 import { ZodError } from "zod";
 import { randomUUID } from "node:crypto";
 import type { AuthSession, AuthUser, Ctx, MemberRow, OrgPlatformStatus, OrgRow, ServerConfig } from "../context";
 import { makeCtx } from "../context";
 import { AppError, bad, dbErrorMessage, forbidden, notFound, tooMany, unauthorized, zodToAppError } from "./errors";
-import { BACKGROUND_HEADER, resolveToken, tokenFromRequest, clientIp } from "../auth/session";
+import { BACKGROUND_HEADER, COOKIE, resolveToken, tokenFromRequest, clientIp } from "../auth/session";
 import { guardOrgSession } from "../auth/policy";
 import { inDemoScope } from "../db/scope";
 import { demoSignInRefusal } from "../modules/demo/signin";
@@ -37,40 +38,68 @@ export function isBackgroundRequest(c: Pick<C, "req">): boolean {
 }
 
 /**
- * The rest of a request whose session is now known, counted in `cfg.foreground` while it runs when a person waits for
- * it: a signed-in browser session's (kind "web", the session cookie), the screen's own polling aside. A Windows app's
- * sync (kind "device", a bearer token), a monitoring probe and anyone not signed in never count — machine traffic must
- * not hold the job runner back (src/server-edition/foreground.ts, src/desktop/server.ts).
+ * One request in `cfg.foreground`, the requests a person waits for (src/server-edition/foreground.ts,
+ * src/desktop/server.ts). A browser's — its session cookie and no Authorization header, the screen's own polling
+ * aside — counts from here, before its session is looked up: under load that lookup is where it waits, and the job
+ * runner must already know. Once the session is known, only a signed-in browser session's (kind "web") stays counted
+ * and keeps the gate busy for its linger after the answer; a made-up or ended cookie ends at once (its 401), with no
+ * linger. A Windows app's sync and any other token client (Authorization), a monitoring probe and anyone without a
+ * session cookie never count: machine traffic must not hold the job runner back.
  */
-async function asForeground(c: C, session: AuthSession, next: () => Promise<void>): Promise<void> {
+function foregroundOf(c: C) {
   const fg = c.get("cfg").foreground;
-  if (!fg || session.kind !== "web" || isBackgroundRequest(c)) return next();
-  fg.started();
-  try {
-    await next();
-  } finally {
-    fg.ended();
-  }
+  let open = !!fg && !c.req.header("authorization") && !isBackgroundRequest(c) && !!getCookie(c, COOKIE);
+  let person = false;
+  if (open) fg!.started();
+  return {
+    /** The session is known (null: none): a browser session's request stays counted, any other ends now. */
+    known(session: AuthSession | null) {
+      person = session?.kind === "web";
+      if (open && !person) {
+        open = false;
+        fg!.ended({ linger: false });
+      }
+    },
+    /** The answer is out (or the request failed). */
+    done() {
+      if (!open) return;
+      open = false;
+      fg!.ended({ linger: person });
+    },
+  };
 }
 
 /** Loads the signed-in user (cookie or bearer token); 401 when missing. */
 export const requireUser: MiddlewareHandler<Env> = async (c, next) => {
   const cfg = c.get("cfg");
-  const resolved = await resolveToken(cfg.db, tokenFromRequest(c), { background: isBackgroundRequest(c) });
-  if (!resolved) throw unauthorized();
-  c.set("user", resolved.user);
-  c.set("session", resolved.session);
-  await asForeground(c, resolved.session, next);
+  const foreground = foregroundOf(c);
+  try {
+    const resolved = await resolveToken(cfg.db, tokenFromRequest(c), { background: isBackgroundRequest(c) });
+    foreground.known(resolved?.session ?? null);
+    if (!resolved) throw unauthorized();
+    c.set("user", resolved.user);
+    c.set("session", resolved.session);
+    await next();
+  } finally {
+    foreground.done();
+  }
 };
 
 /** Same as requireUser but continues anonymously. */
 export const optionalUser: MiddlewareHandler<Env> = async (c, next) => {
   const cfg = c.get("cfg");
-  const resolved = await resolveToken(cfg.db, tokenFromRequest(c), { background: isBackgroundRequest(c) });
-  if (!resolved) return next();
-  c.set("user", resolved.user);
-  c.set("session", resolved.session);
-  await asForeground(c, resolved.session, next);
+  const foreground = foregroundOf(c);
+  try {
+    const resolved = await resolveToken(cfg.db, tokenFromRequest(c), { background: isBackgroundRequest(c) });
+    foreground.known(resolved?.session ?? null);
+    if (resolved) {
+      c.set("user", resolved.user);
+      c.set("session", resolved.session);
+    }
+    await next();
+  } finally {
+    foreground.done();
+  }
 };
 
 /** For /o/:org/* — loads the organisation and the caller's membership. */

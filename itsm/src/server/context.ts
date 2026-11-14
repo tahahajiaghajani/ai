@@ -119,12 +119,15 @@ export interface ServerConfig {
   /** What the web version knows about its database connection (/api/health: Supabase's transaction pooler is the one to use). */
   database?: { pooler: "transaction" | "session" | "direct" | "other" };
   /**
-   * Requests a person waits for start and end here: a signed-in browser session's (requireUser and optionalUser in
-   * src/server/http/hono.ts — never a Windows app's sync, a probe or anyone not signed in), the screen's own polling
-   * aside. The server edition's job runner gives way to them across its cluster (src/server-edition/foreground.ts), the
-   * Windows app's to those of its window and of its office network (src/desktop/server.ts); absent on the web version.
+   * Requests a person waits for start and end here (requireUser and optionalUser in src/server/http/hono.ts): a
+   * browser's — its session cookie, no Authorization header, the screen's own polling aside — from before its session
+   * lookup; `ended({ linger })` says whether it was a signed-in browser session's (the gate stays busy for a moment after
+   * it) or not (a made-up or ended cookie). Never a Windows app's sync, a token client, a probe or anyone without a
+   * session cookie. The server edition's job runner gives way to them across its cluster (src/server-edition/
+   * foreground.ts), the Windows app's to those of its window and of its office network (src/desktop/server.ts); absent
+   * on the web version.
    */
-  foreground?: { started(): void; ended(): void };
+  foreground?: { started(): void; ended(opts?: { linger?: boolean }): void };
 }
 
 export interface AuthUser {
