@@ -200,7 +200,8 @@ export default function Wizard() {
     <div className="flex flex-col gap-4">
       <PageHeader title="منبع داده تازه" back={`/${orgId}/discovery`} />
       <Steps className="dsc-steps" size="small" current={step} items={STEPS.map((title) => ({ title }))} />
-      <section className="ds-card dsc-step" aria-labelledby="dsc-step-t">
+      {/* the steps' buttons move it on; the browser never submits it */}
+      <form className="ds-card dsc-step" aria-labelledby="dsc-step-t" onSubmit={(e) => e.preventDefault()}>
         <h2 id="dsc-step-t" ref={heading} tabIndex={-1} className="dsc-step-t">
           {STEPS[step]}
         </h2>
@@ -301,7 +302,7 @@ export default function Wizard() {
             </Button>
           )}
         </div>
-      </section>
+      </form>
     </div>
   );
 }
