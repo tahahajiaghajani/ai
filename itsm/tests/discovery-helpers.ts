@@ -37,9 +37,9 @@ export interface DiscoveryWorld {
   one<T = Row>(sql: string, params?: unknown[]): Promise<T>;
 }
 
-export async function discoveryWorld(): Promise<DiscoveryWorld> {
+export async function discoveryWorld(opts: Parameters<typeof engineOrg>[0] = {}): Promise<DiscoveryWorld> {
   installDiscoveryModule();
-  const e = await engineOrg();
+  const e = await engineOrg(opts);
   const P = `/o/${e.org}`;
   await e.owner.post(`${P}/cmdb/seed`, {});
   const sys = await systemCtx(e.cfg, e.org);
