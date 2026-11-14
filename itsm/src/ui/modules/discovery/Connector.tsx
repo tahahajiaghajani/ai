@@ -1,8 +1,10 @@
 // One data source (design A §15): its name, kind and state; «اجرای اکنون» and «لغو گذر» for its operators;
 // «آزمودن اتصال»، «پیش‌نمایش»، «اعمال دوباره روی همه»، «خاموش کردن» and «حذف» under «کارهای دیگر», each shown only to
 // whom the server allows it. Tabs: «خلاصه» (figures, a held drop with «پذیرش اندازهٔ تازه», the pass in progress as
-// steps, the last pass), «اجراها» (every pass) and «تنظیمات» (the connection by kind; keys write-only, a change of
-// key or address asks for the password again when the server says so).
+// steps, the last pass), «اجراها» (every pass), «موارد» (what the tool reported), «نگاشت» (which path fills which
+// field; a draft until «ذخیره», and leaving it unsaved asks first), «تنظیمات» (the connection by kind; keys
+// write-only, a change of key or address asks for the password again when the server says so) and «دریافت هشدار»
+// (push addresses, the event source) for the kinds that receive.
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
@@ -22,8 +24,10 @@ import { dkeys, useConnectorPage, useDiscoveryMeta, type ConnectorPage, type Dis
 import { PHASES, changes, currentItems, durationText, editableFields, errorField, formValues, labelOf, missingFields, requiredFields, settingsFields, type Rights, type RunInfo, type Values } from "./model";
 import { Refused } from "./Console";
 import { Ago, ConnectorForm, ConnectorStateChip, I16, KindIcon, KindName, PreviewTable, RunsTable, TestResultNote } from "./parts";
+import { ItemsTab, ReceiveTab, receivesAlerts } from "./ConnectorTabs";
+import { MappingTab } from "./Mapping";
 
-const TABS = ["summary", "runs", "settings"] as const;
+const TABS = ["summary", "runs", "items", "mapping", "settings", "receive"] as const;
 
 export default function Connector() {
   const { id = "" } = useParams();
@@ -44,6 +48,9 @@ export default function Connector() {
   }, [page.data, queuedAt]);
   const [sp, setSp] = useSearchParams();
   const tab = (TABS as readonly string[]).includes(sp.get("tab") ?? "") ? (sp.get("tab") as string) : "summary";
+  // the mapping editor's draft: leaving its tab unsaved asks first
+  const [mappingDirty, setMappingDirty] = useState(false);
+  const [mappingKey, setMappingKey] = useState(0);
   const [test, setTest] = useState<TestResult | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -158,11 +165,22 @@ export default function Connector() {
       <Tabs
         className="rk-tabs"
         activeKey={tab}
-        onChange={(k) => setSp((x) => (k === "summary" ? x.delete("tab") : x.set("tab", k), x), { replace: true })}
+        onChange={async (k) => {
+          if (tab === "mapping" && mappingDirty) {
+            if (!(await n.confirm("نگاشت ذخیره نشده است؛ کنار گذاشته شود؟", "تغییرهای نگاشت از دست می‌روند.", true, "کنار گذاشتن"))) return;
+            // the editor starts again from the stored map
+            setMappingKey((x) => x + 1);
+            setMappingDirty(false);
+          }
+          setSp((x) => (k === "summary" ? x.delete("tab") : x.set("tab", k), x), { replace: true });
+        }}
         items={[
           { key: "summary", label: "خلاصه", children: <SummaryTab page={page.data} tz={timezone} busy={busy} onAccept={(runId, listed) => void accept(runId, listed)} onSettings={() => setSp({ tab: "settings" }, { replace: true })} /> },
           { key: "runs", label: "اجراها", children: <RunsTable connectorId={id} meta={meta.data} tz={timezone} /> },
+          { key: "items", label: "موارد", children: <ItemsTab id={id} tz={timezone} /> },
+          ...(d && d.kind !== "push" ? [{ key: "mapping", label: "نگاشت", children: <MappingTab key={mappingKey} page={page.data} d={d} onDirty={setMappingDirty} onSaved={refresh} /> }] : []),
           { key: "settings", label: "تنظیمات", children: d ? <SettingsTab page={page.data} d={d} meta={meta.data} onSaved={refresh} /> : <EmptyState title="نوع این منبع شناخته نیست" /> },
+          ...(d && receivesAlerts(d) ? [{ key: "receive", label: "دریافت هشدار", children: <ReceiveTab page={page.data} d={d} /> }] : []),
         ]}
       />
       <Drawer open={previewing} onClose={() => setPreviewing(false)} title="پیش‌نمایش" size="large" destroyOnHidden>

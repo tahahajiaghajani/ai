@@ -4,6 +4,7 @@
 // sends (only what changed; a secret only when one was typed, never a stored one), and the words of the console's
 // cards, the passes and the preview. Free of React and of server imports (tests/discovery-ui.test.ts).
 import type { ColorKey, FieldDef, Option } from "@shared/model/types";
+import { checkMapping } from "@shared/discovery/mapping";
 import { COLLECT_OPTIONS, KIND_CATEGORIES, type Edition, type KindCategory, type KindDescriptor, type OptionField, type TestResult } from "@shared/discovery/types";
 import type { ChipTone } from "../../components/display";
 import { fa, pct } from "../../lib/fa";
@@ -441,4 +442,298 @@ export function testSummary(r: TestResult): { ok: boolean; tone: "neutral" | "wa
 export function errorField(details: unknown): string | null {
   const f = details && typeof details === "object" ? (details as { field?: unknown }).field : null;
   return typeof f === "string" ? f : null;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Items and the reconciliation queue «صف آشتی» (§8.4, §8.3)
+
+/** One difference between what a tool reports and what the asset register (or the CI) holds (mismatch.ts). */
+export interface MismatchEntry {
+  /** the asset field (assigned_to, location_id, asset_tag, serial_number) or the CI field the engine skipped */
+  field: string;
+  target: "asset" | "ci";
+  label: string;
+  /** what the tool reported, as it reported it */
+  reported: string | number | boolean | null;
+  /** the member or place the reported holder or place resolves to */
+  resolved?: string | null;
+  /** what the asset (or the CI) holds: an id for the holder and the place */
+  held: string | number | boolean | null;
+}
+
+/** A reported thing as the queue and the items tab list it (sm_discovery_items; `data` only for field group internal). */
+export interface ItemRow {
+  id: string;
+  connector_id: string;
+  external_id: string;
+  kind?: string | null;
+  name?: string | null;
+  ci_id?: string | null;
+  asset_id?: string | null;
+  state?: string | null;
+  matched_by?: string | null;
+  message?: string | null;
+  reconciled_at?: string | null;
+  last_contact_at?: string | null;
+  status?: string | null;
+  status_since?: string | null;
+  status_message?: string | null;
+  link_url?: string | null;
+  data?: Record<string, unknown> | null;
+  mismatch?: { entries?: MismatchEntry[]; at?: string } | null;
+  mismatch_state?: string | null;
+  dedup_task_id?: string | null;
+  updated_at?: string | null;
+}
+
+export type QueueTab = "unmatched" | "duplicate" | "error" | "mismatch";
+
+/** The queue's tabs (§8.4; «بی‌دارایی» comes with the asset feed, «نرم‌افزار یکسان‌نشده» with 1.2). */
+export const QUEUE_TABS: { key: QueueTab; label: string }[] = [
+  { key: "unmatched", label: "بی‌همتا" },
+  { key: "duplicate", label: "تکراری" },
+  { key: "error", label: "خطا" },
+  { key: "mismatch", label: "ناهمخوانی" },
+];
+export const isQueueTab = (v: unknown): v is QueueTab => QUEUE_TABS.some((t) => t.key === v);
+
+/** A tab's label with its count: «بی‌همتا ۱۲». */
+export const tabLabel = (label: string, n: number | undefined) => (n ? `${label} ${faNum(n)}` : label);
+
+/** Asset fields a person may set from the tool's value (mismatch.ts APPLICABLE_FIELDS). */
+export const APPLICABLE_FIELDS: readonly string[] = ["assigned_to", "location_id", "asset_tag", "serial_number"];
+/** The holder and the place apply only once the tool's value resolves to a member or a place. */
+const RESOLVED_FIELDS = new Set(["assigned_to", "location_id"]);
+
+/** Can «به‌روزرسانی دارایی با مقدار ابزار» apply this difference? (the server's rule, mismatch.ts applyMismatch) */
+export function applicable(e: MismatchEntry): boolean {
+  if (e.target !== "asset" || !APPLICABLE_FIELDS.includes(e.field)) return false;
+  const v = RESOLVED_FIELDS.has(e.field) ? e.resolved : e.reported;
+  return v !== null && v !== undefined && v !== "";
+}
+
+export type QueueAction = "create" | "link" | "ignore" | "dismiss";
+
+/** Who acts in the queue (§14.5); the server decides per item, the screen offers. */
+export interface QueueRights {
+  /** CMDB administrator */
+  admin: boolean;
+  /** asset manager: settles differences with the assets they may change */
+  assetManager: boolean;
+  /** connectors whose owner the person is */
+  operates: ReadonlySet<string>;
+}
+
+const QUEUE_STATES = new Set(["unmatched", "duplicate", "error"]);
+
+/**
+ * The actions an item offers on its tab: «ساخت پیکربندی», «پیوند به…» and «نادیده گرفتن» for CMDB administrators and
+ * the connector's owner — never «ساخت پیکربندی» for an ATM, whose asset comes from the register (§9.5); on
+ * «ناهمخوانی», «نادیده گرفتن» for CMDB administrators and asset managers (the per-field apply is offered per entry).
+ */
+export function queueActions(tab: QueueTab, row: Pick<ItemRow, "connector_id" | "kind" | "state" | "mismatch_state">, r: QueueRights): QueueAction[] {
+  if (tab === "mismatch") return row.mismatch_state === "open" && (r.admin || r.assetManager) ? ["dismiss"] : [];
+  if (!QUEUE_STATES.has(String(row.state)) || !(r.admin || r.operates.has(row.connector_id))) return [];
+  return [...(row.kind === "atm" ? [] : (["create"] as const)), "link", "ignore"];
+}
+
+/** The actions every selected item offers (the bulk bar); «پیوند به…» links one item at a time. */
+export function bulkActions(tab: QueueTab, rows: Pick<ItemRow, "connector_id" | "kind" | "state" | "mismatch_state">[], r: QueueRights): QueueAction[] {
+  if (!rows.length) return [];
+  const each = rows.map((x) => new Set(queueActions(tab, x, r)));
+  return (["create", "link", "ignore", "dismiss"] as const).filter((a) => each.every((s) => s.has(a)) && (a !== "link" || rows.length === 1));
+}
+
+/** A bulk action's toast: «۱۲ مورد انجام شد», with the first refusal when some were refused. */
+export function bulkOutcome(done: number, failed: string[]): { ok: boolean; text: string } {
+  if (!failed.length) return { ok: true, text: `${faNum(done)} مورد انجام شد` };
+  const first = failed[0];
+  return { ok: false, text: done ? `${faNum(done)} مورد انجام شد؛ ${faNum(failed.length)} مورد نه: ${first}` : failed.length > 1 ? `${faNum(failed.length)} مورد انجام نشد: ${first}` : first };
+}
+
+/** What «ساخت پیکربندی» did, in words (the engine's action on the item). */
+export function createdText(r: { action: string; number?: string | null; message?: string | null }): { ok: boolean; text: string } {
+  if (r.action === "created") return { ok: true, text: r.number ? `پیکربندی ${r.number} ساخته شد` : "پیکربندی ساخته شد" };
+  if (r.action === "updated" || r.action === "unchanged") return { ok: true, text: "مورد به پیکربندی موجود پیوست" };
+  if (r.action === "duplicate") return { ok: false, text: r.message || "چند پیکربندی با این مورد جور است؛ در «بررسی تکراری‌ها» یکی را برگزینید" };
+  return { ok: false, text: r.message || "پیکربندی ساخته نشد" };
+}
+
+/** Items in the connector page's «موارد»: every reconciliation state, and «در انتظار آشتی» for those not yet through. */
+export const ITEM_FILTERS: { value: string; label: string }[] = [
+  { value: "", label: "همه" },
+  { value: "linked", label: "پیوسته" },
+  { value: "unmatched", label: "بی‌همتا" },
+  { value: "duplicate", label: "تکراری" },
+  { value: "error", label: "خطا" },
+  { value: "pending", label: "در انتظار آشتی" },
+  { value: "ignored", label: "نادیده" },
+  { value: "gone", label: "دیگر گزارش نمی‌شود" },
+];
+
+// ---------------------------------------------------------------------------------------------------------------
+// The board «وضعیت پایش» and the side panel «منبع‌ها و وضعیت پایش» (§15, §9)
+
+export type BoardChip = "down" | "unreachable" | "warning" | "maintenance" | "off" | "silent" | "atm";
+
+/** The board's chips, in the design's order (status.ts BOARD_CHIPS). */
+export const BOARD_CHIPS: { key: BoardChip; label: string }[] = [
+  { key: "down", label: "قطع" },
+  { key: "unreachable", label: "بی‌پاسخ" },
+  { key: "warning", label: "هشدار" },
+  { key: "maintenance", label: "در نگهداری" },
+  { key: "off", label: "خاموش" },
+  { key: "silent", label: "بی‌تماس بیش از ۱۴ روز" },
+  { key: "atm", label: "خودپردازها" },
+];
+export const isBoardChip = (v: unknown): v is BoardChip => BOARD_CHIPS.some((c) => c.key === v);
+
+/** A row of the board (GET /discovery/status). `message` only for CMDB readers. */
+export interface BoardRow {
+  target_table: "ci" | "asset";
+  target_id: string;
+  ci_id: string | null;
+  asset_id: string | null;
+  name: string | null;
+  class: string | null;
+  category: string | null;
+  branch_id: string | null;
+  location_id: string | null;
+  status: string;
+  status_label: string;
+  status_color: string;
+  since: string | null;
+  last_contact_at: string | null;
+  sources: number;
+  device_status: string | null;
+  message?: string | null;
+}
+
+/**
+ * Where a board row opens (org-relative): its target for CMDB readers — the CI, or the asset of an ATM without one;
+ * the asset for everyone else (a branch officer reads no CI), or nothing when there is none.
+ */
+export function boardPath(row: Pick<BoardRow, "target_table" | "ci_id" | "asset_id">, cmdb: boolean): string | null {
+  if (cmdb && row.target_table === "ci" && row.ci_id) return `cis/${row.ci_id}`;
+  return row.asset_id ? `assets/${row.asset_id}` : cmdb && row.ci_id ? `cis/${row.ci_id}` : null;
+}
+
+/** «۳ منبع» — how many fresh sources report the target. */
+export const sourcesText = (n: number) => (n > 0 ? `${faNum(n)} منبع` : "بی‌منبع تازه");
+
+/** The panel of a CI or an asset (GET /discovery/panel/:table/:id): sources and signals only for CMDB readers. */
+export interface PanelData {
+  empty: boolean;
+  status: { state: string; label: string; color: string; since: string | null; sources: number; last_contact_at: string | null; stale_since: string | null; message?: string | null } | null;
+  sources: { connector_id: string; name: string; kind: string; state: string | null; status: string | null; status_label: string | null; status_since: string | null; message: string | null; last_contact_at: string | null; reported_at: string | null; link_url: string | null }[];
+  signals: { key: string; name: string | null; state: string | null; since: string | null; alert_id: string | null }[];
+}
+
+/** Does a record's page show the panel? Its meta says so (panel.ts: a status reader, and something reports it). */
+export const showsPanel = (meta: Record<string, unknown> | undefined | null): boolean => !!(meta?.discovery as { panel?: unknown } | undefined)?.panel;
+
+/** Kinds whose deep link opens a named product («باز کردن در Zabbix»); others open «ابزار». */
+const PRODUCT_NAMES: Record<string, string> = { zabbix: "Zabbix", prtg: "PRTG", vcenter: "vCenter" };
+export const toolName = (kind: string): string | null => PRODUCT_NAMES[kind] ?? null;
+
+/** A tool's deep link, when it is one a browser may open (never `javascript:` or another scheme). */
+export const safeLink = (url: unknown): string | null => (typeof url === "string" && /^https?:\/\/[^\s]+$/i.test(url) ? url : null);
+
+// ---------------------------------------------------------------------------------------------------------------
+// The mapping editor «نگاشت» (§6.3)
+
+/** The record fields a mapping sets, in Persian (@shared/discovery/mapping RECORD_TARGETS); `attrs.<key>` besides. */
+export const TARGET_LABELS: Record<string, string> = {
+  external_id: "شناسه در ابزار",
+  kind: "گونه",
+  class: "کلاس",
+  name: "نام",
+  hostname: "نام میزبان",
+  fqdn: "نام کامل دامنه",
+  domain: "دامنه",
+  ips: "نشانی‌های IP",
+  macs: "نشانی‌های MAC",
+  serial_number: "شمارهٔ سریال",
+  bios_uuid: "شناسهٔ BIOS",
+  terminal_id: "شناسهٔ پایانه",
+  manufacturer: "سازنده",
+  model: "مدل",
+  os: "سیستم‌عامل",
+  os_version: "نسخهٔ سیستم‌عامل",
+  sw_version: "نسخهٔ نرم‌افزار",
+  cpu_count: "شمار پردازنده",
+  ram_mb: "حافظه (مگابایت)",
+  disk_gb: "دیسک (گیگابایت)",
+  cloud_resource_id: "شناسهٔ منبع ابری",
+  url: "نشانی",
+  parent_external_id: "شناسهٔ میزبان در ابزار",
+  last_contact_at: "آخرین تماس",
+  "status.state": "وضعیت",
+  "status.availability": "قطع یعنی خود دستگاه",
+  "status.since": "وضعیت از",
+  "status.message": "پیام وضعیت",
+  "status.device_status": "وضعیت خودپرداز",
+  "reported.user": "کاربر گزارش‌شده",
+  "reported.site": "سایت گزارش‌شده",
+  "reported.location": "مکان گزارش‌شده",
+  "reported.asset_tag": "برچسب اموال گزارش‌شده",
+};
+
+/** One line of the editor: a record field ← a path in the tool's element (REST) or in the kind's record (a rename). */
+export interface MapRow {
+  key: string;
+  target: string;
+  source: string;
+}
+
+/** The editor's lines of a stored mapping, in the record's field order (class attributes last). */
+export function mappingRows(mapping: unknown): MapRow[] {
+  const m = mapping && typeof mapping === "object" && !Array.isArray(mapping) ? (mapping as Record<string, unknown>) : {};
+  const order = Object.keys(TARGET_LABELS);
+  const rank = (t: string) => (order.includes(t) ? order.indexOf(t) : order.length);
+  return Object.entries(m)
+    .filter(([, v]) => typeof v === "string")
+    .sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
+    .map(([target, source], i) => ({ key: `m${i}`, target, source: String(source) }));
+}
+
+/** The mapping a save sends: lines with both sides, trimmed (an empty line is dropped). */
+export function rowsMapping(rows: readonly MapRow[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const r of rows) {
+    const t = r.target.trim();
+    const s = r.source.trim();
+    if (t && s) out[t] = s;
+  }
+  return out;
+}
+
+/** Has the editor moved from the stored mapping? */
+export const mappingChanged = (stored: unknown, rows: readonly MapRow[]): boolean => !same(rowsMapping(mappingRows(stored)), rowsMapping(rows));
+
+/**
+ * What stops a save, per line and for the whole map: a line without its field or path, a field mapped twice, a field
+ * people or ITAM own (@shared checkMapping's message: «… مقدار ابزار در «گزارش‌شده» نگه داشته می‌شود»), an unknown
+ * field; for the REST kind the item's id must be mapped.
+ */
+export function mappingProblems(rows: readonly MapRow[], rest: boolean): { byRow: Record<string, string>; general: string[] } {
+  const byRow: Record<string, string> = {};
+  const seen = new Set<string>();
+  for (const r of rows) {
+    const t = r.target.trim();
+    const s = r.source.trim();
+    if (!t && !s) continue;
+    if (!t) byRow[r.key] = "فیلد را برگزینید";
+    else if (!s) byRow[r.key] = "مسیر را بنویسید";
+    else if (seen.has(t)) byRow[r.key] = `«${t}» یک بار بیشتر نگاشته نمی‌شود`;
+    else {
+      seen.add(t);
+      const p = checkMapping({ [t]: s }).find((x) => x.key === t);
+      if (p) byRow[r.key] = p.message;
+    }
+  }
+  const general = checkMapping(rowsMapping(rows), { rest })
+    .filter((p) => !p.key || (p.key === "external_id" && !seen.has("external_id")))
+    .map((p) => p.message);
+  return { byRow, general };
 }

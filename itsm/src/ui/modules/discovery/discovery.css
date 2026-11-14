@@ -74,7 +74,37 @@
 .dsc-summary dt { font-size: 13px; color: var(--ds-text-3); }
 .dsc-summary dd { margin: 0; min-inline-size: 0; overflow-wrap: anywhere; color: var(--ds-text); }
 
+/* ---------------------------------------------------------------- the queue and the board */
+.dsc-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-2); min-inline-size: 0; }
+.dsc-search { inline-size: min(100%, 280px); }
+.dsc-chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-1-5); min-inline-size: 0; }
+.dsc-bulk { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-2); margin-inline-start: auto; }
+.dsc-diffs { display: flex; flex-direction: column; gap: var(--ds-space-2); margin: 0; padding: 0; list-style: none; min-inline-size: 0; }
+.dsc-diffs > li { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-inline-size: 0; }
+.dsc-row-link { cursor: pointer; }
+
+/* ---------------------------------------------------------------- the side panel and «دریافت هشدار» */
+.dsc-panel { display: flex; flex-direction: column; gap: var(--ds-space-3); min-inline-size: 0; font-size: 13px; line-height: 20px; }
+.dsc-inline { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--ds-space-1-5); min-inline-size: 0; }
+.dsc-sources { display: flex; flex-direction: column; gap: var(--ds-space-2); margin: 0; padding: 0; list-style: none; }
+.dsc-sources > li { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding-block-start: var(--ds-space-2); border-block-start: 1px solid var(--ds-line); min-inline-size: 0; }
+.dsc-url { overflow-wrap: anywhere; font-size: 12px; }
+
+/* ---------------------------------------------------------------- the mapping editor */
+.dsc-map { display: grid; gap: var(--ds-space-3); grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); align-items: start; }
+.dsc-map-rows { display: flex; flex-direction: column; gap: var(--ds-space-1-5); min-inline-size: 0; }
+.dsc-map-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 32px; gap: var(--ds-space-1-5); align-items: center; }
+.dsc-map-row > [role="cell"] > * { inline-size: 100%; }
+.dsc-map-head { font-size: 12px; line-height: 18px; color: var(--ds-text-3); }
+.dsc-map-err { grid-column: 1 / -1; font-size: 12px; line-height: 18px; color: var(--ds-danger); overflow-wrap: anywhere; }
+.dsc-map-err.dsc-sub { color: var(--ds-text-3); }
+.dsc-ltr-input input { direction: ltr; text-align: start; }
+.dsc-live { display: flex; flex-direction: column; gap: var(--ds-space-2); padding-block-start: var(--ds-space-2); border-block-start: 1px solid var(--ds-line); }
+
 @media (max-width: 640px) {
   .dsc-step { padding: var(--ds-space-4); }
+  .dsc-map { grid-template-columns: minmax(0, 1fr); }
+  .dsc-search { inline-size: 100%; }
+  .dsc-bulk { margin-inline-start: 0; }
   .dsc-summary > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 }

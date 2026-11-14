@@ -1,12 +1,12 @@
 // The discovery module's API as the screens use it (src/server/routes/discovery.ts, design A §4): the module's words
 // and the caller's rights, the console's cards, one connector's page, and the actions on it. The server checks every
 // right again; these hooks only read. A pass in progress is polled until it ends.
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { Option } from "@shared/model/types";
 import type { DiscoveredRecord, TestResult } from "@shared/discovery/types";
 import { useOrg } from "../../lib/org";
 import type { DisplayMap } from "../../records/model/types";
-import type { ConnectorCard, OfferedKind, RunInfo } from "./model";
+import type { BoardChip, BoardRow, ConnectorCard, ItemRow, OfferedKind, PanelData, QueueTab, RunInfo } from "./model";
 
 export type { TestResult };
 
@@ -71,6 +71,9 @@ export const dkeys = {
   cards: (org: string) => ["discovery", org, "cards"] as const,
   page: (org: string, id: string) => ["discovery", org, "connector", id] as const,
   runs: (org: string, id: string) => ["discovery", org, "runs", id] as const,
+  queue: (org: string) => ["discovery", org, "queue"] as const,
+  board: (org: string) => ["discovery-board", org] as const,
+  panel: (org: string, table: string, id: string) => ["discovery-panel", org, table, id] as const,
 };
 
 const status = (e: unknown) => (e as { status?: number } | null)?.status ?? 0;
@@ -103,4 +106,58 @@ export function useConnectorPage(id: string | undefined, opts: { watch?: boolean
     retry,
     refetchInterval: (q) => (q.state.data?.card?.running || opts.watch ? 2500 : false),
   });
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The queue, the board and the panel
+
+/** GET /discovery/queue: one tab's items across the connectors the person reads, with every tab's count. */
+export interface QueueResult {
+  rows: ItemRow[];
+  total: number | null;
+  page: number;
+  size: number;
+  display: DisplayMap;
+  counts: Partial<Record<QueueTab, number>>;
+}
+
+export const QUEUE_PAGE = 50;
+
+export function useQueue(p: { tab: QueueTab; connector?: string; q?: string; page: number }) {
+  const { api, orgId } = useOrg();
+  return useQuery({
+    queryKey: [...dkeys.queue(orgId), p],
+    queryFn: () => api.get<QueueResult>("/discovery/queue", { tab: p.tab, connector: p.connector || undefined, q: p.q || undefined, page: p.page, size: QUEUE_PAGE }),
+    placeholderData: keepPreviousData,
+    retry,
+  });
+}
+
+/** GET /discovery/status: the targets the person reads, worst first, with each chip's count. */
+export interface BoardResult {
+  rows: BoardRow[];
+  total: number;
+  counts: Partial<Record<BoardChip, number>>;
+  page: number;
+  size: number;
+}
+
+export const BOARD_PAGE = 50;
+
+/** The board, refreshed every minute while it is open (status moves on its own). */
+export function useBoard(p: { chip?: BoardChip; q?: string; page: number }) {
+  const { api, orgId } = useOrg();
+  return useQuery({
+    queryKey: [...dkeys.board(orgId), p],
+    queryFn: () => api.get<BoardResult>("/discovery/status", { chip: p.chip || undefined, q: p.q || undefined, page: p.page, size: BOARD_PAGE }),
+    placeholderData: keepPreviousData,
+    refetchInterval: 60_000,
+    retry,
+  });
+}
+
+/** GET /discovery/panel/:table/:id: the record's status, and for CMDB readers its sources and signals. */
+export function usePanel(table: "ci" | "asset", id: string) {
+  const { api, orgId } = useOrg();
+  return useQuery({ queryKey: dkeys.panel(orgId, table, id), queryFn: () => api.get<PanelData>(`/discovery/panel/${table}/${id}`), staleTime: 30_000, retry });
 }
