@@ -1,0 +1,715 @@
+/* The workflows kit (design F §8.4, §8.6, package F5k): the process canvas, the step statuses and their legend, the
+   phone's step list, the rights matrix, the role-then-people picker and the files input. ds tokens only; logical
+   properties; the canvas keeps React Flow's coordinates left-to-right while every card reads right-to-left. */
+
+/* ------------------------------------------------------------------ step statuses (icon + word) */
+.wfk-st {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ds-text-2);
+  white-space: nowrap;
+}
+.wfk-st svg {
+  flex: none;
+}
+.wfk-st.is-done svg,
+.wfk-node-st.is-done svg {
+  color: var(--ds-state-resolved);
+}
+.wfk-st.is-active svg,
+.wfk-node-st.is-active svg {
+  color: var(--ds-state-progress);
+}
+.wfk-st.is-mine,
+.wfk-node-st.is-mine {
+  color: var(--ds-accent-text);
+  font-weight: var(--ds-weight-medium);
+}
+.wfk-st.is-expected svg,
+.wfk-node-st.is-expected svg {
+  color: var(--ds-accent-text);
+}
+.wfk-st.is-skipped,
+.wfk-node-st.is-skipped {
+  color: var(--ds-text-3);
+}
+.wfk-st.is-future svg,
+.wfk-node-st.is-future svg {
+  color: var(--ds-text-3);
+}
+
+.wfk-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* ------------------------------------------------------------------ the canvas */
+.wfk-canvas {
+  position: relative;
+  min-height: 320px;
+  height: 100%;
+  background: var(--ds-sunken);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-lg);
+  overflow: hidden;
+}
+.wfk-canvas .react-flow {
+  --xy-edge-stroke-default: var(--ds-line-3);
+  --xy-edge-stroke-selected-default: var(--ds-accent);
+  --xy-connectionline-stroke-default: var(--ds-accent);
+  --xy-handle-background-color-default: var(--ds-surface);
+  --xy-handle-border-color-default: var(--ds-line-3);
+  --xy-background-pattern-dots-color-default: var(--ds-line-2);
+  --xy-minimap-background-color-default: var(--ds-surface);
+  --xy-controls-button-background-color-default: var(--ds-surface);
+  --xy-controls-button-background-color-hover-default: var(--ds-accent-tint);
+  --xy-controls-button-color-default: var(--ds-text-2);
+  --xy-controls-button-color-hover-default: var(--ds-text);
+  --xy-controls-button-border-color-default: var(--ds-line);
+  --xy-edge-label-background-color-default: var(--ds-surface);
+  --xy-edge-label-color-default: var(--ds-text-2);
+  background: transparent;
+}
+.wfk-canvas .react-flow__edge-textbg {
+  fill: var(--ds-surface);
+}
+.wfk-canvas .react-flow__edge-text {
+  font-family: var(--ds-font-sans);
+  font-size: 11px;
+  fill: var(--ds-text-2);
+}
+.wfk-canvas .react-flow__edge.is-back path {
+  stroke-dasharray: 6 4;
+}
+.wfk-canvas .react-flow__edge.is-taken path {
+  stroke: var(--ds-state-resolved);
+  stroke-width: 2;
+}
+.wfk-canvas .react-flow__edge.is-quiet path {
+  opacity: 0.45;
+}
+.wfk-canvas .react-flow__controls button:focus-visible,
+.wfk-canvas .react-flow__minimap:focus-visible {
+  outline: 2px solid var(--ds-focus-color, var(--ds-accent));
+  outline-offset: 1px;
+}
+.wfk-canvas .react-flow__attribution {
+  display: none;
+}
+@media (max-width: 640px) {
+  .wfk-canvas .wfk-minimap {
+    display: none;
+  }
+}
+
+/* connect mode */
+.wfk-linking {
+  position: absolute;
+  inset-block-start: 8px;
+  inset-inline: 8px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: 6px 10px;
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-accent-border);
+  box-shadow: var(--ds-shadow-e2);
+  font-size: 12.5px;
+  color: var(--ds-text);
+}
+.wfk-linking > span {
+  flex: 1;
+  min-width: 0;
+}
+.wfk-linking-x {
+  flex: none;
+  border: 1px solid var(--ds-line-2);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  border-radius: var(--ds-radius-sm);
+  padding: 2px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+.wfk-linking-x:focus-visible {
+  outline: 2px solid var(--ds-accent);
+  outline-offset: 1px;
+}
+
+/* nodes */
+.wfk-node {
+  position: relative;
+  width: 240px;
+  height: 84px;
+  font-family: var(--ds-font-sans);
+  color: var(--ds-text);
+}
+.wfk-node-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  height: 100%;
+  padding: 8px 12px 9px;
+  text-align: start;
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-line-2);
+  border-radius: var(--ds-radius-md);
+  box-shadow: var(--ds-shadow-e1);
+  cursor: pointer;
+  overflow: hidden;
+}
+.wfk-node-main:focus-visible {
+  outline: 2px solid var(--ds-accent);
+  outline-offset: 2px;
+}
+.wfk-node.is-trigger .wfk-node-main,
+.wfk-node.is-end .wfk-node-main {
+  background: var(--ds-surface-2);
+}
+.wfk-node.is-sel .wfk-node-main {
+  border-color: var(--ds-accent);
+  box-shadow: 0 0 0 2px var(--ds-accent-line), var(--ds-shadow-e2);
+}
+.wfk-node.has-error .wfk-node-main {
+  border-color: var(--ds-danger-border);
+}
+/* a case's statuses: the stripe and the outline carry the tone; the icon and the word carry the meaning */
+.wfk-node.is-done .wfk-node-main {
+  border-inline-start: 3px solid var(--ds-state-resolved);
+}
+.wfk-node.is-active .wfk-node-main {
+  border-inline-start: 3px solid var(--ds-state-progress);
+}
+.wfk-node.is-mine .wfk-node-main {
+  border: 2px solid var(--ds-accent);
+  background: var(--ds-accent-tint);
+}
+.wfk-node.is-expected .wfk-node-main {
+  border-style: dashed;
+  border-color: var(--ds-accent-border);
+}
+.wfk-node.is-skipped .wfk-node-main {
+  border-style: dashed;
+  opacity: 0.6;
+}
+/* connect mode */
+.wfk-node.is-target .wfk-node-main {
+  border-color: var(--ds-accent);
+  border-style: dashed;
+}
+.wfk-node.is-source .wfk-node-main {
+  box-shadow: 0 0 0 2px var(--ds-accent-line);
+}
+.wfk-node.is-dim .wfk-node-main {
+  opacity: 0.45;
+}
+.wfk-node-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.wfk-node-ic {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-sunken);
+  color: var(--ds-accent-text);
+  flex: none;
+}
+.wfk-node-t {
+  flex: 1;
+  min-width: 0;
+  font-weight: var(--ds-weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wfk-node-s,
+.wfk-node-st {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--ds-text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wfk-node-s {
+  display: block;
+}
+.wfk-node-st {
+  color: var(--ds-text-2);
+}
+.wfk-node-st > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wfk-badge {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--ds-radius-pill);
+  font-size: 11px;
+  display: inline-grid;
+  place-items: center;
+  background: var(--ds-danger-tint);
+  color: var(--ds-danger);
+}
+.wfk-badge.is-warning {
+  background: var(--ds-warning-tint);
+  color: var(--ds-warning);
+}
+.wfk-node .react-flow__handle {
+  width: 10px;
+  height: 10px;
+  border-width: 1.5px;
+}
+.wfk-node .react-flow__handle.is-back {
+  border-style: dashed;
+}
+
+/* a node's outputs (editable): shown while the node is focused or selected */
+.wfk-ports {
+  position: absolute;
+  inset-block-start: calc(100% + 8px);
+  inset-inline-start: 0;
+  z-index: 4;
+  display: none;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 300px;
+}
+.wfk-node:focus-within .wfk-ports,
+.wfk-node.is-sel .wfk-ports {
+  display: flex;
+}
+.wfk-port {
+  border: 1px solid var(--ds-line-2);
+  background: var(--ds-surface);
+  color: var(--ds-text-2);
+  border-radius: var(--ds-radius-pill);
+  padding: 1px 9px;
+  font: inherit;
+  font-size: 11.5px;
+  line-height: 1.7;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.wfk-port.is-open {
+  border-color: var(--ds-accent-border);
+  color: var(--ds-accent-text);
+}
+.wfk-port.is-wired {
+  background: var(--ds-sunken);
+}
+.wfk-port.is-back {
+  border-style: dashed;
+}
+.wfk-port:hover,
+.wfk-port:focus-visible {
+  background: var(--ds-accent-tint);
+  outline: none;
+  border-color: var(--ds-accent);
+}
+
+/* ------------------------------------------------------------------ the phone's step list */
+.wfk-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wfk-list-btn {
+  display: grid;
+  grid-template-columns: 22px 26px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  width: 100%;
+  padding: 8px 10px;
+  text-align: start;
+  font: inherit;
+  color: var(--ds-text);
+  background: var(--ds-surface);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-md);
+}
+button.wfk-list-btn {
+  cursor: pointer;
+  min-height: 44px;
+}
+button.wfk-list-btn:focus-visible {
+  outline: 2px solid var(--ds-accent);
+  outline-offset: 1px;
+}
+.wfk-list-i.is-mine .wfk-list-btn {
+  border: 2px solid var(--ds-accent);
+  background: var(--ds-accent-tint);
+}
+.wfk-list-i.is-skipped .wfk-list-btn {
+  border-style: dashed;
+  opacity: 0.7;
+}
+.wfk-list-i.is-sel .wfk-list-btn {
+  border-color: var(--ds-accent);
+}
+.wfk-list-n {
+  color: var(--ds-text-3);
+  font-size: 12px;
+  text-align: center;
+  padding-top: 4px;
+}
+.wfk-list-ic {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-sunken);
+  color: var(--ds-accent-text);
+}
+.wfk-list-b {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.wfk-list-t {
+  font-weight: var(--ds-weight-medium);
+}
+.wfk-list-s {
+  color: var(--ds-text-3);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------------ the rights matrix */
+.wfk-rights {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+}
+.wfk-rights-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-2);
+  font-size: 12.5px;
+  color: var(--ds-text-2);
+}
+.wfk-rights-bar .wfk-grow {
+  flex: 1;
+}
+.wfk-rights-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-md);
+}
+.wfk-rights-t {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.wfk-rights-t th,
+.wfk-rights-t td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--ds-line);
+  text-align: start;
+  vertical-align: middle;
+}
+.wfk-rights-t thead th {
+  position: sticky;
+  top: 0;
+  background: var(--ds-surface-2);
+  color: var(--ds-text-2);
+  font-weight: var(--ds-weight-medium);
+  font-size: 12px;
+}
+.wfk-rights-t th.wfk-rc,
+.wfk-rights-t td.wfk-rc {
+  width: 58px;
+  text-align: center;
+  padding-inline: 2px;
+}
+.wfk-rights-t tbody tr:last-child > * {
+  border-bottom: 0;
+}
+.wfk-rights-sec th {
+  background: var(--ds-sunken);
+  color: var(--ds-text-3);
+  font-size: 11.5px;
+  font-weight: var(--ds-weight-regular);
+}
+.wfk-rights-f {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-weight: var(--ds-weight-regular);
+}
+.wfk-rights-f code {
+  font-family: var(--ds-font-mono);
+  font-size: 11px;
+  color: var(--ds-text-3);
+}
+.wfk-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.wfk-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 6px;
+  border-radius: var(--ds-radius-pill);
+  font-size: 11px;
+  line-height: 1.7;
+  background: var(--ds-neutral-tint);
+  color: var(--ds-text-2);
+}
+.wfk-chip.is-lock {
+  background: var(--ds-warning-tint);
+  color: var(--ds-text);
+}
+.wfk-chip.is-group {
+  background: var(--ds-info-tint);
+  color: var(--ds-text);
+}
+.wfk-radio {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--ds-radius-sm);
+  cursor: pointer;
+}
+.wfk-radio input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--ds-accent);
+  cursor: inherit;
+}
+.wfk-radio.is-off {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+.wfk-radio.is-default input:checked {
+  opacity: 0.6;
+}
+.wfk-radio:hover:not(.is-off) {
+  background: var(--ds-accent-tint);
+}
+
+/* ------------------------------------------------------------------ the role-then-people picker */
+.wfk-who {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+}
+.wfk-rule {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-3);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-surface);
+}
+.wfk-rule-h {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+.wfk-rule-h > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.wfk-rule .ant-select,
+.wfk-who .ant-select {
+  width: 100%;
+}
+.wfk-lbl {
+  display: block;
+  color: var(--ds-text-2);
+  font-size: 12.5px;
+  margin-bottom: 4px;
+}
+.wfk-holders {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-surface-2);
+}
+.wfk-holders label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: var(--ds-radius-xs, 4px);
+  cursor: pointer;
+}
+.wfk-holders label:hover {
+  background: var(--ds-hover);
+}
+.wfk-holders small {
+  color: var(--ds-text-3);
+}
+.wfk-line {
+  font-size: 12.5px;
+  color: var(--ds-text-2);
+  line-height: 1.7;
+}
+.wfk-warn {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  font-size: 12.5px;
+  color: var(--ds-text);
+  background: var(--ds-warning-tint);
+  border-radius: var(--ds-radius-sm);
+  padding: 6px 8px;
+}
+.wfk-warn svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--ds-warning);
+}
+
+/* ------------------------------------------------------------------ the files input */
+.wfk-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.wfk-drop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 10px 12px;
+  border: 1px dashed var(--ds-line-3);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-surface-2);
+  color: var(--ds-text-2);
+  font-size: 12.5px;
+}
+.wfk-drop.is-over {
+  border-color: var(--ds-accent);
+  background: var(--ds-accent-tint);
+}
+.wfk-drop.is-off {
+  opacity: 0.75;
+}
+.wfk-drop small {
+  color: var(--ds-text-3);
+}
+.wfk-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-surface);
+  font-size: 12.5px;
+}
+.wfk-file-n {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wfk-file-s {
+  flex: none;
+  color: var(--ds-text-3);
+  font-size: 11.5px;
+}
+.wfk-file.is-error {
+  border-color: var(--ds-danger-border);
+  background: var(--ds-danger-tint);
+}
+.wfk-file button {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--ds-radius-sm);
+  background: none;
+  color: var(--ds-text-2);
+  cursor: pointer;
+}
+.wfk-file button:hover,
+.wfk-file button:focus-visible {
+  background: var(--ds-hover);
+  outline: none;
+}
+.wfk-file button:focus-visible {
+  box-shadow: 0 0 0 2px var(--ds-accent-line);
+}
+.wfk-files-v {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: center;
+}
+.wfk-files-v a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ------------------------------------------------------------------ the gallery page */
+.wfk-gallery {
+  display: grid;
+  gap: var(--ds-space-4);
+}
+.wfk-gallery-canvas {
+  height: 560px;
+}
+@media (max-width: 640px) {
+  .wfk-gallery-canvas {
+    height: 460px;
+  }
+}
+.wfk-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--ds-space-4);
+}
+@media (max-width: 900px) {
+  .wfk-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
