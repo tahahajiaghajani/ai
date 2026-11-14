@@ -8,7 +8,7 @@ import { lazy, Suspense, useEffect, useMemo, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Link, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router";
 import { Dropdown, type MenuProps } from "antd";
-import { Bell, BookOpen, Briefcase, CircleUser, House, LayoutGrid, LogOut, MessageCircle, MessageSquareHeart, Activity, Settings2, ListChecks } from "lucide-react";
+import { Bell, BookOpen, Briefcase, CircleUser, House, LayoutGrid, LogOut, MessageCircle, MessageSquareHeart, Activity, Settings2, ListChecks, Waypoints } from "lucide-react";
 import { useOrg } from "../../lib/org";
 import { useSession } from "../../lib/session";
 import { usePageTitle, useShell } from "../../components/shell/context";
@@ -36,6 +36,7 @@ const Chat = lazy(() => import("./Chat"));
 const Status = lazy(() => import("./Status"));
 const Feedback = lazy(() => import("./Feedback"));
 const Topic = lazy(() => import("./Topic"));
+const Workflows = lazy(() => import("../workflows/user/portal"));
 
 const I = { size: 18, strokeWidth: 1.5, absoluteStrokeWidth: true } as const;
 
@@ -119,6 +120,7 @@ function Header({ cfg, todo }: { cfg: PortalConfig; todo: number }) {
   const navigate = useNavigate();
   const items: MenuProps["items"] = [
     { key: "profile", icon: <CircleUser {...I} />, label: "نمایه و اعلان‌ها", onClick: () => navigate(portalPath(orgId, "profile")) },
+    { key: "workflows", icon: <Waypoints {...I} />, label: "گردش‌کارها", onClick: () => navigate(portalPath(orgId, "workflows")) },
     { key: "status", icon: <Activity {...I} />, label: "وضعیت خدمات", onClick: () => navigate(portalPath(orgId, "status")) },
     ...(cfg.can.feedback ? [{ key: "feedback", icon: <MessageSquareHeart {...I} />, label: "شکایت، قدردانی یا پیشنهاد", onClick: () => navigate(portalPath(orgId, "feedback")) }] : []),
     { type: "divider" as const },
@@ -206,6 +208,7 @@ export default function PortalApp() {
               <Route path="status" element={<Status cfg={cfg} />} />
               <Route path="feedback" element={<Feedback cfg={cfg} />} />
               <Route path="topics/:id" element={<Topic cfg={cfg} />} />
+              <Route path="workflows/*" element={<Workflows />} />
               <Route path="*" element={<Home cfg={cfg} />} />
             </Routes>
           </Suspense>
