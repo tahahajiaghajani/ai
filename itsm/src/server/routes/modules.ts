@@ -84,7 +84,10 @@ import { installProcessAccess } from "../modules/process/access";
 import { installProcessSync } from "../modules/process/sync";
 import { installProcessTimers } from "../modules/process/timers";
 import { installProcessRecovery } from "../modules/process/recovery";
+import { installProcessPublish } from "../modules/process/publish";
+import { installProcessApi } from "../modules/process/api";
 import { positionsRoutes } from "./positions";
+import { processRoutes } from "./process";
 import { adminTenantRoutes } from "./admin-tenant";
 import { demoRoutes } from "./demo";
 import { installDemoModule } from "../modules/demo";
@@ -168,6 +171,9 @@ installProcessAccess();
 installProcessSync();
 installProcessTimers();
 installProcessRecovery();
+// workflow publish, hub and user APIs (design F, F4c): «انتشار», the forms a process uses, the notices and their seeds
+installProcessPublish();
+installProcessApi();
 // the integration hub (docs/modules/integration_FA.md) — integration users and keys, webhooks, LDAP/AD, SCIM, Jira/GitHub, exports
 installIntegrationModule();
 
@@ -235,6 +241,8 @@ moduleRoutes.route("/", fieldsRoutes);
 moduleRoutes.route("/", formsRoutes);
 // organisational roles (design F, F3): /positions/resolve, /positions/estimate, /positions/overview, /positions/holders/import
 moduleRoutes.route("/positions", positionsRoutes);
+// workflows (design F, F4c): /process/hub, /process/defs/*, /process/inbox, /process/mine, /process/cases/*, /process/start, /process/tasks/*
+moduleRoutes.route("/process", processRoutes);
 moduleRoutes.route("/demo", demoRoutes);
 moduleRoutes.route("/integration", integrationHubRoutes);
 // «امنیت ورود و نشست‌ها»: the organisation's session policy, sessions, sign-in audit and lockouts
