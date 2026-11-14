@@ -319,19 +319,22 @@ function SettingsTab({ page, d, meta, onSaved }: { page: ConnectorPage; d: KindD
   const row = page.row as Values;
   const rights: Rights = { admin: page.can.edit, owner: !!row.owner_id && row.owner_id === userId, assetManager: meta.can.assetManager, softwareManager: meta.can.softwareManager };
   const before = useMemo(() => formValues(row, d), [row, d]);
-  const [values, setValues] = useState<Values>(before);
+  // the person's change over what the server says now (a refresh never resets it; a save or «انصراف» drops it)
+  const [draft, setDraft] = useState<Values | null>(null);
+  const values = draft ?? before;
   const [formKey, setFormKey] = useState(0);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [problem, setProblem] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const fields = settingsFields(d, values, meta.edition, rights);
   const editable = editableFields(fields, rights, page.meta);
-  const dirty = Object.keys(changes(d, before, values, [...editable])).length > 0;
-  // what the server says now, unless the person is in the middle of a change
-  useEffect(() => {
-    if (!dirty) setValues(before);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [before]);
+  const dirty = draft !== null && Object.keys(changes(d, before, values, [...editable])).length > 0;
+  const reset = () => {
+    setDraft(null);
+    setErrors({});
+    // the key boxes start empty again over the stored key
+    setFormKey((k) => k + 1);
+  };
 
   const save = async () => {
     setProblem(null);
@@ -341,9 +344,8 @@ function SettingsTab({ page, d, meta, onSaved }: { page: ConnectorPage; d: KindD
     try {
       await api.patch(`/discovery/connectors/${row.id}`, { ...changes(d, before, values, [...editable]), version: row.version });
       n.ok("تنظیمات ذخیره شد");
-      setErrors({});
       await onSaved();
-      setFormKey((k) => k + 1);
+      reset();
     } catch (e) {
       const field = e instanceof ApiError ? errorField(e.details) : null;
       if (field && fields.includes(field)) setErrors({ [field]: errorText(e) });
@@ -371,21 +373,14 @@ function SettingsTab({ page, d, meta, onSaved }: { page: ConnectorPage; d: KindD
         sectioned
         view={view}
         onChange={(f, v) => {
-          setValues((x) => ({ ...x, [f]: v }));
+          setDraft((x) => ({ ...(x ?? before), [f]: v }));
           if (errors[f]) setErrors((e) => Object.fromEntries(Object.entries(e).filter(([k]) => k !== f)));
         }}
         idPrefix="dsc-s"
       />
       {view ? null : (
         <div className="dsc-step-f">
-          <Button
-            onClick={() => {
-              setValues(before);
-              setErrors({});
-              setFormKey((k) => k + 1);
-            }}
-            disabled={!dirty || saving}
-          >
+          <Button onClick={reset} disabled={!dirty || saving}>
             انصراف
           </Button>
           <Button type="primary" loading={saving} disabled={!dirty} onClick={() => void save()}>
