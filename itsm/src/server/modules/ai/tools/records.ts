@@ -53,7 +53,7 @@ export interface ToolEntry {
 // ---------------------------------------------------------------- which tables, which tools
 
 /** Areas whose tables get read tools only (configuration: changing how the system behaves stays on its pages). */
-const READ_ONLY_AREAS = new Set(["settings", "users", "org", "notifications", "flows", "ai", "integrations", "sla"]);
+const READ_ONLY_AREAS = new Set(["settings", "users", "org", "notifications", "flows", "ai", "integrations", "sla", "process_design"]);
 /** Tables changed only through their own screens (decisions, deliveries, saved views, simulations). */
 const READ_ONLY_TABLES = new Set([
   "approval", "delegation", "notification", "notification_pref", "view", "cmdb_map", "cmdb_query", "ci_impact_sim", "custom_field", "choice", "request_answer", "request_cart", "request_cart_line", "catalog_item_version", "kb_version", "task_sla",

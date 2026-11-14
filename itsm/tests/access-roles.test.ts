@@ -11,7 +11,9 @@ import { create, systemCtx } from "@server/engine";
 import type { Ctx } from "@server/context";
 
 const catalog = roleCatalog([]);
-const ROLES = builtinRoles().map((r) => r.key);
+// the workflow roles (design F) add only `process_design`, `org` and `users` to «درخواست‌دهنده», whose row they share
+// here; leaving them out keeps the sign-ins of this file within the login limit (20 a minute from one address)
+const ROLES = builtinRoles().map((r) => r.key).filter((k) => k !== "process_designer" && k !== "process_publisher");
 const grant = (role: string) => grantIn(combineRoles(roleClosure([role], catalog).map((k) => catalog.get(k)!)), "incident");
 const reachesGroup = (s: string) => scopeRank(s as never) >= scopeRank("group");
 

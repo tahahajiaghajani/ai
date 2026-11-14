@@ -192,7 +192,7 @@ export async function listRuns(ctx: Ctx, p: { flow?: string; state?: string; tes
   const flows = [...(await readableFlowIds(ctx, candidates.filter((x) => UUID.test(x))))];
   if (!flows.length) return { runs: [], total: 0, page, size };
   const params: unknown[] = [ctx.org.id, pgArray(flows)];
-  const where = ["org_id = $1", "flow_id = any($2::uuid[])"];
+  const where = ["org_id = $1", "flow_id = any($2::uuid[])", "trigger_kind <> 'process'"];
   if (p.state) {
     params.push(p.state);
     where.push(`state = $${params.length}`);
@@ -213,7 +213,7 @@ export async function listRuns(ctx: Ctx, p: { flow?: string; state?: string; tes
 
 async function runFor(ctx: Ctx, runId: string): Promise<RunRow> {
   const run = await loadRun(ctx.db, runId);
-  if (!run || run.org_id !== ctx.org.id || !(await readableFlowIds(ctx, [run.flow_id])).size) throw notFound("اجرا پیدا نشد");
+  if (!run || run.org_id !== ctx.org.id || run.trigger_kind === "process" || !(await readableFlowIds(ctx, [run.flow_id])).size) throw notFound("اجرا پیدا نشد");
   return run;
 }
 

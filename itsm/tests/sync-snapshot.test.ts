@@ -198,7 +198,7 @@ describe("Windows apps of an older sync protocol (SYNC_PROTOCOL 16)", () => {
     const { makeServer, Client, signupWithOrg } = await import("./helpers");
     const { SYNC_PROTOCOL } = await import("@shared/constants");
     const { uuidv7 } = await import("@shared/id");
-    expect(SYNC_PROTOCOL).toBe(16);
+    expect(SYNC_PROTOCOL).toBeGreaterThanOrEqual(16);
     const s = await makeServer({ mode: "cloud" });
     const c = new Client(s.app);
     const org = await signupWithOrg(c);

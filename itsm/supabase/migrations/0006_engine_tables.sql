@@ -2,9 +2,9 @@
 create table if not exists sm_migrations (id text primary key, applied_at timestamptz not null default now());
 
 -- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱ از ۲۸
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱ از ۲۹
 -- ---------------------------------------------------------------------------
--- engine DDL 1/28 (e746bd22eb04)
+-- engine DDL 1/29 (a8f2597ff72f)
 create or replace function sm_demo_capture() returns trigger language plpgsql as $demo$
 begin
   insert into sm_demo_rows (org_id, row_id, tbl) values (new.org_id, new.id, tg_table_name) on conflict do nothing;
@@ -1610,12 +1610,12 @@ create trigger sm_allocation_rules_sync before insert or update on sm_allocation
 create or replace trigger sm_allocation_rules_demo after insert on sm_allocation_rules for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_allocation_rules_demo_t after update or delete on sm_allocation_rules for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_allocation_rules enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:0', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:0', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
 do $engine$
 begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
     delete from sm_meta where key like 'engine.ddl.part:%';
     insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
   end if;
@@ -1623,9 +1623,9 @@ end
 $engine$;
 
 -- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲ از ۲۸
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲ از ۲۹
 -- ---------------------------------------------------------------------------
--- engine DDL 2/28 (e746bd22eb04)
+-- engine DDL 2/29 (a8f2597ff72f)
 -- allocation_run: اجراهای تسهیم
 do $cols$
 begin
@@ -3094,12 +3094,12 @@ create trigger sm_assets_sync before insert or update on sm_assets for each row 
 create or replace trigger sm_assets_demo after insert on sm_assets for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_assets_demo_t after update or delete on sm_assets for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_assets enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:1', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:1', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
 do $engine$
 begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
     delete from sm_meta where key like 'engine.ddl.part:%';
     insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
   end if;
@@ -3107,9 +3107,9 @@ end
 $engine$;
 
 -- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۳ از ۲۸
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۳ از ۲۹
 -- ---------------------------------------------------------------------------
--- engine DDL 3/28 (e746bd22eb04)
+-- engine DDL 3/29 (a8f2597ff72f)
 -- asset_acknowledgement: تعهدنامه‌های دارایی
 do $cols$
 begin
@@ -4659,12 +4659,12 @@ create trigger sm_capacity_records_sync before insert or update on sm_capacity_r
 create or replace trigger sm_capacity_records_demo after insert on sm_capacity_records for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_capacity_records_demo_t after update or delete on sm_capacity_records for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_capacity_records enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:2', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:2', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
 do $engine$
 begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
     delete from sm_meta where key like 'engine.ddl.part:%';
     insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
   end if;
@@ -4672,9 +4672,9 @@ end
 $engine$;
 
 -- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۴ از ۲۸
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۴ از ۲۹
 -- ---------------------------------------------------------------------------
--- engine DDL 4/28 (e746bd22eb04)
+-- engine DDL 4/29 (a8f2597ff72f)
 -- case_escalation: تشدیدها
 do $cols$
 begin
@@ -6199,12 +6199,12 @@ create trigger sm_change_pirs_sync before insert or update on sm_change_pirs for
 create or replace trigger sm_change_pirs_demo after insert on sm_change_pirs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_change_pirs_demo_t after update or delete on sm_change_pirs for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_change_pirs enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:3', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:3', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
 do $engine$
 begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
     delete from sm_meta where key like 'engine.ddl.part:%';
     insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
   end if;
@@ -6212,9 +6212,9 @@ end
 $engine$;
 
 -- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۵ از ۲۸
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۵ از ۲۹
 -- ---------------------------------------------------------------------------
--- engine DDL 5/28 (e746bd22eb04)
+-- engine DDL 5/29 (a8f2597ff72f)
 -- change_request: تغییرها
 do $cols$
 begin
@@ -7728,12 +7728,12 @@ create trigger sm_ci_classes_sync before insert or update on sm_ci_classes for e
 create or replace trigger sm_ci_classes_demo after insert on sm_ci_classes for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_ci_classes_demo_t after update or delete on sm_ci_classes for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_ci_classes enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:4', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:4', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
 do $engine$
 begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
     delete from sm_meta where key like 'engine.ddl.part:%';
     insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
   end if;
@@ -7741,9 +7741,9 @@ end
 $engine$;
 
 -- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۶ از ۲۸
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۶ از ۲۹
 -- ---------------------------------------------------------------------------
--- engine DDL 6/28 (e746bd22eb04)
+-- engine DDL 6/29 (a8f2597ff72f)
 -- ci_drift: انحراف‌های پیکربندی
 do $cols$
 begin
@@ -9363,12 +9363,12 @@ create trigger sm_cmdb_rules_sync before insert or update on sm_cmdb_rules for e
 create or replace trigger sm_cmdb_rules_demo after insert on sm_cmdb_rules for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_cmdb_rules_demo_t after update or delete on sm_cmdb_rules for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_cmdb_rules enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:5', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:5', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
 do $engine$
 begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
     delete from sm_meta where key like 'engine.ddl.part:%';
     insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
   end if;
@@ -9376,9 +9376,9 @@ end
 $engine$;
 
 -- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۷ از ۲۸
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۷ از ۲۹
 -- ---------------------------------------------------------------------------
--- engine DDL 7/28 (e746bd22eb04)
+-- engine DDL 7/29 (a8f2597ff72f)
 -- continuity_config: تنظیمات تداوم و دسترس‌پذیری
 do $cols$
 begin
@@ -10859,12 +10859,12 @@ create trigger sm_custom_05_sync before insert or update on sm_custom_05 for eac
 create or replace trigger sm_custom_05_demo after insert on sm_custom_05 for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_custom_05_demo_t after update or delete on sm_custom_05 for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_custom_05 enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:6', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:6', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
 do $engine$
 begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
     delete from sm_meta where key like 'engine.ddl.part:%';
     insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
   end if;
@@ -10872,9 +10872,9 @@ end
 $engine$;
 
 -- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۸ از ۲۸
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۸ از ۲۹
 -- ---------------------------------------------------------------------------
--- engine DDL 8/28 (e746bd22eb04)
+-- engine DDL 8/29 (a8f2597ff72f)
 -- custom_06: جدول سفارشی ۶
 do $cols$
 begin
@@ -11298,6 +11298,10 @@ begin
     alter table sm_custom_fields add column if not exists max_length integer;
     alter table sm_custom_fields add column if not exists sort_order integer;
     alter table sm_custom_fields add column if not exists active boolean not null default true;
+    alter table sm_custom_fields add column if not exists library_id uuid;
+    alter table sm_custom_fields add column if not exists placeholder text;
+    alter table sm_custom_fields add column if not exists form_hidden boolean not null default false;
+    alter table sm_custom_fields add column if not exists required_for text;
   end if;
 end
 $cols$;
@@ -11332,7 +11336,11 @@ create table if not exists sm_custom_fields (
   section text,
   max_length integer,
   sort_order integer,
-  active boolean not null default true
+  active boolean not null default true,
+  library_id uuid,
+  placeholder text,
+  form_hidden boolean not null default false,
+  required_for text
 );
 create index if not exists sm_custom_fields_rev_idx on sm_custom_fields (org_id, rev);
 create index if not exists sm_custom_fields_upd_idx on sm_custom_fields (org_id, updated_at desc, id desc) where deleted_at is null;
@@ -12264,12 +12272,12 @@ create trigger sm_customer_reviews_sync before insert or update on sm_customer_r
 create or replace trigger sm_customer_reviews_demo after insert on sm_customer_reviews for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_customer_reviews_demo_t after update or delete on sm_customer_reviews for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_customer_reviews enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:7', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:7', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
 do $engine$
 begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
     delete from sm_meta where key like 'engine.ddl.part:%';
     insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
   end if;
@@ -12277,9 +12285,9 @@ end
 $engine$;
 
 -- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۹ از ۲۸
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۹ از ۲۹
 -- ---------------------------------------------------------------------------
--- engine DDL 9/28 (e746bd22eb04)
+-- engine DDL 9/29 (a8f2597ff72f)
 -- data_export: خروجی‌های داده
 do $cols$
 begin
@@ -13864,12 +13872,12 @@ create trigger sm_disposal_items_sync before insert or update on sm_disposal_ite
 create or replace trigger sm_disposal_items_demo after insert on sm_disposal_items for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_disposal_items_demo_t after update or delete on sm_disposal_items for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_disposal_items enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:8', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:8', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
 do $engine$
 begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
     delete from sm_meta where key like 'engine.ddl.part:%';
     insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
   end if;
@@ -13877,9 +13885,9 @@ end
 $engine$;
 
 -- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۰ از ۲۸
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۰ از ۲۹
 -- ---------------------------------------------------------------------------
--- engine DDL 10/28 (e746bd22eb04)
+-- engine DDL 10/29 (a8f2597ff72f)
 -- disposal_order: دستورهای اسقاط
 do $cols$
 begin
@@ -15473,12 +15481,12 @@ create trigger sm_external_refs_sync before insert or update on sm_external_refs
 create or replace trigger sm_external_refs_demo after insert on sm_external_refs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_external_refs_demo_t after update or delete on sm_external_refs for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_external_refs enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:9', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:9', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
 do $engine$
 begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
     delete from sm_meta where key like 'engine.ddl.part:%';
     insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
   end if;
@@ -15486,9 +15494,9 @@ end
 $engine$;
 
 -- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۱ از ۲۸
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۱ از ۲۹
 -- ---------------------------------------------------------------------------
--- engine DDL 11/28 (e746bd22eb04)
+-- engine DDL 11/29 (a8f2597ff72f)
 -- facility_request: درخواست‌های پشتیبانی و تأسیسات
 do $cols$
 begin
@@ -15734,6 +15742,81 @@ create or replace trigger sm_feature_flags_demo after insert on sm_feature_flags
 create or replace trigger sm_feature_flags_demo_t after update or delete on sm_feature_flags for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_feature_flags enable row level security;
 
+-- field_def: فیلدها
+do $cols$
+begin
+  if to_regclass('sm_field_defs') is not null then
+    alter table sm_field_defs add column if not exists workspace_id uuid;
+    alter table sm_field_defs add column if not exists domain_id uuid;
+    alter table sm_field_defs add column if not exists unit_id uuid;
+    alter table sm_field_defs add column if not exists created_at timestamptz not null default now();
+    alter table sm_field_defs add column if not exists created_by uuid;
+    alter table sm_field_defs add column if not exists updated_at timestamptz not null default now();
+    alter table sm_field_defs add column if not exists updated_by uuid;
+    alter table sm_field_defs add column if not exists rev bigint not null default 0;
+    alter table sm_field_defs add column if not exists version integer not null default 1;
+    alter table sm_field_defs add column if not exists deleted_at timestamptz;
+    alter table sm_field_defs add column if not exists origin text;
+    alter table sm_field_defs add column if not exists custom jsonb not null default '{}'::jsonb;
+    alter table sm_field_defs add column if not exists label text;
+    alter table sm_field_defs add column if not exists name text;
+    alter table sm_field_defs add column if not exists type text;
+    alter table sm_field_defs add column if not exists help text;
+    alter table sm_field_defs add column if not exists placeholder text;
+    alter table sm_field_defs add column if not exists default_value text;
+    alter table sm_field_defs add column if not exists options jsonb;
+    alter table sm_field_defs add column if not exists choices text;
+    alter table sm_field_defs add column if not exists depends_on text;
+    alter table sm_field_defs add column if not exists validation jsonb;
+    alter table sm_field_defs add column if not exists field_group text;
+    alter table sm_field_defs add column if not exists list boolean not null default false;
+    alter table sm_field_defs add column if not exists search boolean not null default false;
+    alter table sm_field_defs add column if not exists filter boolean not null default false;
+    alter table sm_field_defs add column if not exists status text;
+  end if;
+end
+$cols$;
+create table if not exists sm_field_defs (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb,
+  label text,
+  name text,
+  type text,
+  help text,
+  placeholder text,
+  default_value text,
+  options jsonb,
+  choices text,
+  depends_on text,
+  validation jsonb,
+  field_group text,
+  list boolean not null default false,
+  search boolean not null default false,
+  filter boolean not null default false,
+  status text
+);
+create index if not exists sm_field_defs_rev_idx on sm_field_defs (org_id, rev);
+create index if not exists sm_field_defs_upd_idx on sm_field_defs (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_field_defs_crt_idx on sm_field_defs (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_field_defs_name_uk on sm_field_defs (org_id, name) where deleted_at is null;
+drop trigger if exists sm_field_defs_sync on sm_field_defs;
+create trigger sm_field_defs_sync before insert or update on sm_field_defs for each row execute function sm_sync_touch('field_def');
+create or replace trigger sm_field_defs_demo after insert on sm_field_defs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_field_defs_demo_t after update or delete on sm_field_defs for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_field_defs enable row level security;
+
 -- field_time_entry: زمان و هزینهٔ میدانی
 do $cols$
 begin
@@ -15804,6 +15887,71 @@ create trigger sm_field_time_entries_sync before insert or update on sm_field_ti
 create or replace trigger sm_field_time_entries_demo after insert on sm_field_time_entries for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_field_time_entries_demo_t after update or delete on sm_field_time_entries for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_field_time_entries enable row level security;
+
+-- field_type: نوع‌های فیلد
+do $cols$
+begin
+  if to_regclass('sm_field_types') is not null then
+    alter table sm_field_types add column if not exists workspace_id uuid;
+    alter table sm_field_types add column if not exists domain_id uuid;
+    alter table sm_field_types add column if not exists unit_id uuid;
+    alter table sm_field_types add column if not exists created_at timestamptz not null default now();
+    alter table sm_field_types add column if not exists created_by uuid;
+    alter table sm_field_types add column if not exists updated_at timestamptz not null default now();
+    alter table sm_field_types add column if not exists updated_by uuid;
+    alter table sm_field_types add column if not exists rev bigint not null default 0;
+    alter table sm_field_types add column if not exists version integer not null default 1;
+    alter table sm_field_types add column if not exists deleted_at timestamptz;
+    alter table sm_field_types add column if not exists origin text;
+    alter table sm_field_types add column if not exists custom jsonb not null default '{}'::jsonb;
+    alter table sm_field_types add column if not exists name text;
+    alter table sm_field_types add column if not exists key text;
+    alter table sm_field_types add column if not exists base text;
+    alter table sm_field_types add column if not exists widget text;
+    alter table sm_field_types add column if not exists validation jsonb;
+    alter table sm_field_types add column if not exists display jsonb;
+    alter table sm_field_types add column if not exists options jsonb;
+    alter table sm_field_types add column if not exists choices text;
+    alter table sm_field_types add column if not exists status text;
+    alter table sm_field_types add column if not exists description text;
+  end if;
+end
+$cols$;
+create table if not exists sm_field_types (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb,
+  name text,
+  key text,
+  base text,
+  widget text,
+  validation jsonb,
+  display jsonb,
+  options jsonb,
+  choices text,
+  status text,
+  description text
+);
+create index if not exists sm_field_types_rev_idx on sm_field_types (org_id, rev);
+create index if not exists sm_field_types_upd_idx on sm_field_types (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_field_types_crt_idx on sm_field_types (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_field_types_key_uk on sm_field_types (org_id, key) where deleted_at is null;
+drop trigger if exists sm_field_types_sync on sm_field_types;
+create trigger sm_field_types_sync before insert or update on sm_field_types for each row execute function sm_sync_touch('field_type');
+create or replace trigger sm_field_types_demo after insert on sm_field_types for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_field_types_demo_t after update or delete on sm_field_types for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_field_types enable row level security;
 
 -- finance_case: پرونده‌های مالی
 do $cols$
@@ -16376,6 +16524,67 @@ create or replace trigger sm_flow_versions_demo after insert on sm_flow_versions
 create or replace trigger sm_flow_versions_demo_t after update or delete on sm_flow_versions for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_flow_versions enable row level security;
 
+-- form: فرم‌ها
+do $cols$
+begin
+  if to_regclass('sm_forms') is not null then
+    alter table sm_forms add column if not exists workspace_id uuid;
+    alter table sm_forms add column if not exists domain_id uuid;
+    alter table sm_forms add column if not exists unit_id uuid;
+    alter table sm_forms add column if not exists created_at timestamptz not null default now();
+    alter table sm_forms add column if not exists created_by uuid;
+    alter table sm_forms add column if not exists updated_at timestamptz not null default now();
+    alter table sm_forms add column if not exists updated_by uuid;
+    alter table sm_forms add column if not exists rev bigint not null default 0;
+    alter table sm_forms add column if not exists version integer not null default 1;
+    alter table sm_forms add column if not exists deleted_at timestamptz;
+    alter table sm_forms add column if not exists origin text;
+    alter table sm_forms add column if not exists custom jsonb not null default '{}'::jsonb;
+    alter table sm_forms add column if not exists name text;
+    alter table sm_forms add column if not exists status text;
+    alter table sm_forms add column if not exists version_no integer;
+    alter table sm_forms add column if not exists description text;
+    alter table sm_forms add column if not exists layout jsonb;
+    alter table sm_forms add column if not exists fields jsonb;
+    alter table sm_forms add column if not exists published_at timestamptz;
+    alter table sm_forms add column if not exists published_hash text;
+  end if;
+end
+$cols$;
+create table if not exists sm_forms (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb,
+  name text,
+  status text,
+  version_no integer,
+  description text,
+  layout jsonb,
+  fields jsonb,
+  published_at timestamptz,
+  published_hash text
+);
+create index if not exists sm_forms_rev_idx on sm_forms (org_id, rev);
+create index if not exists sm_forms_upd_idx on sm_forms (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_forms_crt_idx on sm_forms (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_forms_name_uk on sm_forms (org_id, name) where deleted_at is null;
+drop trigger if exists sm_forms_sync on sm_forms;
+create trigger sm_forms_sync before insert or update on sm_forms for each row execute function sm_sync_touch('form');
+create or replace trigger sm_forms_demo after insert on sm_forms for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_forms_demo_t after update or delete on sm_forms for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_forms enable row level security;
+
 -- fsm_config: تنظیمات خدمات میدانی
 do $cols$
 begin
@@ -16860,7 +17069,22 @@ create trigger sm_grc_control_tests_sync before insert or update on sm_grc_contr
 create or replace trigger sm_grc_control_tests_demo after insert on sm_grc_control_tests for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_grc_control_tests_demo_t after update or delete on sm_grc_control_tests for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_grc_control_tests enable row level security;
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:10', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+do $engine$
+begin
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
+    delete from sm_meta where key like 'engine.ddl.part:%';
+    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
+  end if;
+end
+$engine$;
 
+-- ---------------------------------------------------------------------------
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۲ از ۲۹
+-- ---------------------------------------------------------------------------
+-- engine DDL 12/29 (a8f2597ff72f)
 -- grc_csf_profile: پروفایل‌های NIST CSF
 do $cols$
 begin
@@ -17025,22 +17249,7 @@ create trigger sm_grc_dsrs_sync before insert or update on sm_grc_dsrs for each 
 create or replace trigger sm_grc_dsrs_demo after insert on sm_grc_dsrs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_grc_dsrs_demo_t after update or delete on sm_grc_dsrs for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_grc_dsrs enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:10', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-do $engine$
-begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
-    delete from sm_meta where key like 'engine.ddl.part:%';
-    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
-  end if;
-end
-$engine$;
 
--- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۲ از ۲۸
--- ---------------------------------------------------------------------------
--- engine DDL 12/28 (e746bd22eb04)
 -- grc_evidence: شواهد انطباق
 do $cols$
 begin
@@ -18311,7 +18520,22 @@ create trigger sm_grc_risk_actions_sync before insert or update on sm_grc_risk_a
 create or replace trigger sm_grc_risk_actions_demo after insert on sm_grc_risk_actions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_grc_risk_actions_demo_t after update or delete on sm_grc_risk_actions for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_grc_risk_actions enable row level security;
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:11', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+do $engine$
+begin
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
+    delete from sm_meta where key like 'engine.ddl.part:%';
+    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
+  end if;
+end
+$engine$;
 
+-- ---------------------------------------------------------------------------
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۳ از ۲۹
+-- ---------------------------------------------------------------------------
+-- engine DDL 13/29 (a8f2597ff72f)
 -- grc_risk_appetite: اشتها و تحمل ریسک
 do $cols$
 begin
@@ -18509,22 +18733,7 @@ create trigger sm_grc_risk_matrices_sync before insert or update on sm_grc_risk_
 create or replace trigger sm_grc_risk_matrices_demo after insert on sm_grc_risk_matrices for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_grc_risk_matrices_demo_t after update or delete on sm_grc_risk_matrices for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_grc_risk_matrices enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:11', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-do $engine$
-begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
-    delete from sm_meta where key like 'engine.ddl.part:%';
-    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
-  end if;
-end
-$engine$;
 
--- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۳ از ۲۸
--- ---------------------------------------------------------------------------
--- engine DDL 13/28 (e746bd22eb04)
 -- grc_ropa: ثبت فعالیت‌های پردازش
 do $cols$
 begin
@@ -19917,7 +20126,22 @@ create trigger sm_incidents_sync before insert or update on sm_incidents for eac
 create or replace trigger sm_incidents_demo after insert on sm_incidents for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_incidents_demo_t after update or delete on sm_incidents for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_incidents enable row level security;
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:12', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+do $engine$
+begin
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
+    delete from sm_meta where key like 'engine.ddl.part:%';
+    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
+  end if;
+end
+$engine$;
 
+-- ---------------------------------------------------------------------------
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۴ از ۲۹
+-- ---------------------------------------------------------------------------
+-- engine DDL 14/29 (a8f2597ff72f)
 -- incident_config: تنظیمات رخداد
 do $cols$
 begin
@@ -20094,22 +20318,7 @@ create trigger sm_incident_period_reviews_sync before insert or update on sm_inc
 create or replace trigger sm_incident_period_reviews_demo after insert on sm_incident_period_reviews for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_incident_period_reviews_demo_t after update or delete on sm_incident_period_reviews for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_incident_period_reviews enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:12', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-do $engine$
-begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
-    delete from sm_meta where key like 'engine.ddl.part:%';
-    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
-  end if;
-end
-$engine$;
 
--- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۴ از ۲۸
--- ---------------------------------------------------------------------------
--- engine DDL 14/28 (e746bd22eb04)
 -- incident_response: پاسخ‌های آماده
 do $cols$
 begin
@@ -21362,7 +21571,22 @@ create trigger sm_journey_activities_sync before insert or update on sm_journey_
 create or replace trigger sm_journey_activities_demo after insert on sm_journey_activities for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_journey_activities_demo_t after update or delete on sm_journey_activities for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_journey_activities enable row level security;
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:13', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+do $engine$
+begin
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
+    delete from sm_meta where key like 'engine.ddl.part:%';
+    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
+  end if;
+end
+$engine$;
 
+-- ---------------------------------------------------------------------------
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۵ از ۲۹
+-- ---------------------------------------------------------------------------
+-- engine DDL 15/29 (a8f2597ff72f)
 -- journey_template: الگوهای سفر کارمند
 do $cols$
 begin
@@ -21593,22 +21817,7 @@ create trigger sm_kb_acks_sync before insert or update on sm_kb_acks for each ro
 create or replace trigger sm_kb_acks_demo after insert on sm_kb_acks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_kb_acks_demo_t after update or delete on sm_kb_acks for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_kb_acks enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:13', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-do $engine$
-begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
-    delete from sm_meta where key like 'engine.ddl.part:%';
-    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
-  end if;
-end
-$engine$;
 
--- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۵ از ۲۸
--- ---------------------------------------------------------------------------
--- engine DDL 15/28 (e746bd22eb04)
 -- kb_article: مقاله‌های دانش
 do $cols$
 begin
@@ -22942,7 +23151,22 @@ create trigger sm_kb_quality_reviews_sync before insert or update on sm_kb_quali
 create or replace trigger sm_kb_quality_reviews_demo after insert on sm_kb_quality_reviews for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_kb_quality_reviews_demo_t after update or delete on sm_kb_quality_reviews for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_kb_quality_reviews enable row level security;
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:14', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+do $engine$
+begin
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
+    delete from sm_meta where key like 'engine.ddl.part:%';
+    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
+  end if;
+end
+$engine$;
 
+-- ---------------------------------------------------------------------------
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۶ از ۲۹
+-- ---------------------------------------------------------------------------
+-- engine DDL 16/29 (a8f2597ff72f)
 -- kb_search_rule: قاعده‌های جست‌وجوی دانش
 do $cols$
 begin
@@ -23155,22 +23379,7 @@ create trigger sm_kb_subscriptions_sync before insert or update on sm_kb_subscri
 create or replace trigger sm_kb_subscriptions_demo after insert on sm_kb_subscriptions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_kb_subscriptions_demo_t after update or delete on sm_kb_subscriptions for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_kb_subscriptions enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:14', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-do $engine$
-begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
-    delete from sm_meta where key like 'engine.ddl.part:%';
-    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
-  end if;
-end
-$engine$;
 
--- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۶ از ۲۸
--- ---------------------------------------------------------------------------
--- engine DDL 16/28 (e746bd22eb04)
 -- kb_task: کارهای دانش
 do $cols$
 begin
@@ -24493,7 +24702,22 @@ create trigger sm_maintenance_slas_sync before insert or update on sm_maintenanc
 create or replace trigger sm_maintenance_slas_demo after insert on sm_maintenance_slas for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_maintenance_slas_demo_t after update or delete on sm_maintenance_slas for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_maintenance_slas enable row level security;
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:15', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+do $engine$
+begin
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
+    delete from sm_meta where key like 'engine.ddl.part:%';
+    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
+  end if;
+end
+$engine$;
 
+-- ---------------------------------------------------------------------------
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۷ از ۲۹
+-- ---------------------------------------------------------------------------
+-- engine DDL 17/29 (a8f2597ff72f)
 -- member_profile: نمایه‌های اعضا
 do $cols$
 begin
@@ -24726,22 +24950,7 @@ create trigger sm_notification_channels_sync before insert or update on sm_notif
 create or replace trigger sm_notification_channels_demo after insert on sm_notification_channels for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_notification_channels_demo_t after update or delete on sm_notification_channels for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_notification_channels enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:15', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-do $engine$
-begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
-    delete from sm_meta where key like 'engine.ddl.part:%';
-    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
-  end if;
-end
-$engine$;
 
--- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۷ از ۲۸
--- ---------------------------------------------------------------------------
--- engine DDL 17/28 (e746bd22eb04)
 -- notification_pref: تنظیمات اعلان
 do $cols$
 begin
@@ -26075,7 +26284,22 @@ create trigger sm_portal_kb_publications_sync before insert or update on sm_port
 create or replace trigger sm_portal_kb_publications_demo after insert on sm_portal_kb_publications for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_portal_kb_publications_demo_t after update or delete on sm_portal_kb_publications for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_portal_kb_publications enable row level security;
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:16', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+do $engine$
+begin
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
+    delete from sm_meta where key like 'engine.ddl.part:%';
+    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
+  end if;
+end
+$engine$;
 
+-- ---------------------------------------------------------------------------
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۸ از ۲۹
+-- ---------------------------------------------------------------------------
+-- engine DDL 18/29 (a8f2597ff72f)
 -- portal_link: پیوندهای سریع
 do $cols$
 begin
@@ -26325,22 +26549,7 @@ create trigger sm_portal_topics_sync before insert or update on sm_portal_topics
 create or replace trigger sm_portal_topics_demo after insert on sm_portal_topics for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_portal_topics_demo_t after update or delete on sm_portal_topics for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_portal_topics enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:16', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-do $engine$
-begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
-    delete from sm_meta where key like 'engine.ddl.part:%';
-    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
-  end if;
-end
-$engine$;
 
--- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۸ از ۲۸
--- ---------------------------------------------------------------------------
--- engine DDL 18/28 (e746bd22eb04)
 -- portal_widget: ابزارک‌های وب‌سایت
 do $cols$
 begin
@@ -26549,6 +26758,127 @@ create trigger sm_portfolio_nodes_sync before insert or update on sm_portfolio_n
 create or replace trigger sm_portfolio_nodes_demo after insert on sm_portfolio_nodes for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_portfolio_nodes_demo_t after update or delete on sm_portfolio_nodes for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_portfolio_nodes enable row level security;
+
+-- position: نقش‌های سازمانی
+do $cols$
+begin
+  if to_regclass('sm_positions') is not null then
+    alter table sm_positions add column if not exists workspace_id uuid;
+    alter table sm_positions add column if not exists domain_id uuid;
+    alter table sm_positions add column if not exists unit_id uuid;
+    alter table sm_positions add column if not exists created_at timestamptz not null default now();
+    alter table sm_positions add column if not exists created_by uuid;
+    alter table sm_positions add column if not exists updated_at timestamptz not null default now();
+    alter table sm_positions add column if not exists updated_by uuid;
+    alter table sm_positions add column if not exists rev bigint not null default 0;
+    alter table sm_positions add column if not exists version integer not null default 1;
+    alter table sm_positions add column if not exists deleted_at timestamptz;
+    alter table sm_positions add column if not exists origin text;
+    alter table sm_positions add column if not exists custom jsonb not null default '{}'::jsonb;
+    alter table sm_positions add column if not exists name text;
+    alter table sm_positions add column if not exists key text;
+    alter table sm_positions add column if not exists unit_kind text;
+    alter table sm_positions add column if not exists reports_to uuid;
+    alter table sm_positions add column if not exists active boolean not null default true;
+    alter table sm_positions add column if not exists description text;
+  end if;
+end
+$cols$;
+create table if not exists sm_positions (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb,
+  name text,
+  key text,
+  unit_kind text,
+  reports_to uuid,
+  active boolean not null default true,
+  description text
+);
+create index if not exists sm_positions_rev_idx on sm_positions (org_id, rev);
+create index if not exists sm_positions_upd_idx on sm_positions (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_positions_crt_idx on sm_positions (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_positions_key_uk on sm_positions (org_id, key) where deleted_at is null;
+drop trigger if exists sm_positions_sync on sm_positions;
+create trigger sm_positions_sync before insert or update on sm_positions for each row execute function sm_sync_touch('position');
+create or replace trigger sm_positions_demo after insert on sm_positions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_positions_demo_t after update or delete on sm_positions for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_positions enable row level security;
+
+-- position_holder: دارندگان نقش‌های سازمانی
+do $cols$
+begin
+  if to_regclass('sm_position_holders') is not null then
+    alter table sm_position_holders add column if not exists workspace_id uuid;
+    alter table sm_position_holders add column if not exists domain_id uuid;
+    alter table sm_position_holders add column if not exists unit_id uuid;
+    alter table sm_position_holders add column if not exists created_at timestamptz not null default now();
+    alter table sm_position_holders add column if not exists created_by uuid;
+    alter table sm_position_holders add column if not exists updated_at timestamptz not null default now();
+    alter table sm_position_holders add column if not exists updated_by uuid;
+    alter table sm_position_holders add column if not exists rev bigint not null default 0;
+    alter table sm_position_holders add column if not exists version integer not null default 1;
+    alter table sm_position_holders add column if not exists deleted_at timestamptz;
+    alter table sm_position_holders add column if not exists origin text;
+    alter table sm_position_holders add column if not exists custom jsonb not null default '{}'::jsonb;
+    alter table sm_position_holders add column if not exists position_id uuid;
+    alter table sm_position_holders add column if not exists user_id uuid;
+    alter table sm_position_holders add column if not exists org_unit_id uuid;
+    alter table sm_position_holders add column if not exists kind text;
+    alter table sm_position_holders add column if not exists valid_from date;
+    alter table sm_position_holders add column if not exists valid_to date;
+    alter table sm_position_holders add column if not exists source text;
+    alter table sm_position_holders add column if not exists source_ref text;
+  end if;
+end
+$cols$;
+create table if not exists sm_position_holders (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb,
+  position_id uuid,
+  user_id uuid,
+  org_unit_id uuid,
+  kind text,
+  valid_from date,
+  valid_to date,
+  source text,
+  source_ref text
+);
+create index if not exists sm_position_holders_rev_idx on sm_position_holders (org_id, rev);
+create index if not exists sm_position_holders_upd_idx on sm_position_holders (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_position_holders_crt_idx on sm_position_holders (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_position_holders_position_id_idx on sm_position_holders (org_id, position_id) where deleted_at is null;
+create index if not exists sm_position_holders_user_id_idx on sm_position_holders (org_id, user_id) where deleted_at is null;
+create index if not exists sm_position_holders_org_unit_id_idx on sm_position_holders (org_id, org_unit_id) where deleted_at is null;
+create unique index if not exists sm_position_holders_position_id_user_id_org_unit_id_uk on sm_position_holders (org_id, position_id, user_id, org_unit_id) where deleted_at is null;
+drop trigger if exists sm_position_holders_sync on sm_position_holders;
+create trigger sm_position_holders_sync before insert or update on sm_position_holders for each row execute function sm_sync_touch('position_holder');
+create or replace trigger sm_position_holders_demo after insert on sm_position_holders for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_position_holders_demo_t after update or delete on sm_position_holders for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_position_holders enable row level security;
 
 -- priority_matrix: ماتریس‌های اولویت
 do $cols$
@@ -27242,6 +27572,524 @@ create or replace trigger sm_problem_templates_demo after insert on sm_problem_t
 create or replace trigger sm_problem_templates_demo_t after update or delete on sm_problem_templates for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_problem_templates enable row level security;
 
+-- process: گردش‌کارها
+do $cols$
+begin
+  if to_regclass('sm_processes') is not null then
+    alter table sm_processes add column if not exists workspace_id uuid;
+    alter table sm_processes add column if not exists domain_id uuid;
+    alter table sm_processes add column if not exists unit_id uuid;
+    alter table sm_processes add column if not exists created_at timestamptz not null default now();
+    alter table sm_processes add column if not exists created_by uuid;
+    alter table sm_processes add column if not exists updated_at timestamptz not null default now();
+    alter table sm_processes add column if not exists updated_by uuid;
+    alter table sm_processes add column if not exists rev bigint not null default 0;
+    alter table sm_processes add column if not exists version integer not null default 1;
+    alter table sm_processes add column if not exists deleted_at timestamptz;
+    alter table sm_processes add column if not exists origin text;
+    alter table sm_processes add column if not exists custom jsonb not null default '{}'::jsonb;
+    alter table sm_processes add column if not exists name text;
+    alter table sm_processes add column if not exists key text;
+    alter table sm_processes add column if not exists icon text;
+    alter table sm_processes add column if not exists category text;
+    alter table sm_processes add column if not exists description text;
+    alter table sm_processes add column if not exists draft jsonb;
+    alter table sm_processes add column if not exists status text;
+    alter table sm_processes add column if not exists version_no integer;
+    alter table sm_processes add column if not exists current_version_id uuid;
+    alter table sm_processes add column if not exists published_at timestamptz;
+    alter table sm_processes add column if not exists published_by uuid;
+  end if;
+end
+$cols$;
+create table if not exists sm_processes (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb,
+  name text,
+  key text,
+  icon text,
+  category text,
+  description text,
+  draft jsonb,
+  status text,
+  version_no integer,
+  current_version_id uuid,
+  published_at timestamptz,
+  published_by uuid
+);
+create index if not exists sm_processes_rev_idx on sm_processes (org_id, rev);
+create index if not exists sm_processes_upd_idx on sm_processes (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_processes_crt_idx on sm_processes (org_id, created_at desc, id desc) where deleted_at is null;
+create unique index if not exists sm_processes_key_uk on sm_processes (org_id, key) where deleted_at is null;
+create unique index if not exists sm_processes_name_uk on sm_processes (org_id, name) where deleted_at is null;
+drop trigger if exists sm_processes_sync on sm_processes;
+create trigger sm_processes_sync before insert or update on sm_processes for each row execute function sm_sync_touch('process');
+create or replace trigger sm_processes_demo after insert on sm_processes for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_processes_demo_t after update or delete on sm_processes for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_processes enable row level security;
+
+-- process_case: پرونده‌ها
+do $cols$
+begin
+  if to_regclass('sm_process_cases') is not null then
+    alter table sm_process_cases add column if not exists workspace_id uuid;
+    alter table sm_process_cases add column if not exists domain_id uuid;
+    alter table sm_process_cases add column if not exists unit_id uuid;
+    alter table sm_process_cases add column if not exists created_at timestamptz not null default now();
+    alter table sm_process_cases add column if not exists created_by uuid;
+    alter table sm_process_cases add column if not exists updated_at timestamptz not null default now();
+    alter table sm_process_cases add column if not exists updated_by uuid;
+    alter table sm_process_cases add column if not exists rev bigint not null default 0;
+    alter table sm_process_cases add column if not exists version integer not null default 1;
+    alter table sm_process_cases add column if not exists deleted_at timestamptz;
+    alter table sm_process_cases add column if not exists origin text;
+    alter table sm_process_cases add column if not exists custom jsonb not null default '{}'::jsonb;
+    alter table sm_process_cases add column if not exists no integer;
+    alter table sm_process_cases add column if not exists number text generated always as (case when no is null then null when length(no::text) >= 7 then 'PRC' || no::text else 'PRC' || lpad(no::text, 7, '0') end) stored;
+    alter table sm_process_cases add column if not exists title text;
+    alter table sm_process_cases add column if not exists process_id uuid;
+    alter table sm_process_cases add column if not exists process_name text;
+    alter table sm_process_cases add column if not exists version_id uuid;
+    alter table sm_process_cases add column if not exists version_no integer;
+    alter table sm_process_cases add column if not exists state text;
+    alter table sm_process_cases add column if not exists requested_by uuid;
+    alter table sm_process_cases add column if not exists requested_for uuid;
+    alter table sm_process_cases add column if not exists participants jsonb;
+    alter table sm_process_cases add column if not exists managers jsonb;
+    alter table sm_process_cases add column if not exists manager_groups jsonb;
+    alter table sm_process_cases add column if not exists current_steps jsonb;
+    alter table sm_process_cases add column if not exists open_rounds jsonb;
+    alter table sm_process_cases add column if not exists progress jsonb;
+    alter table sm_process_cases add column if not exists outcome text;
+    alter table sm_process_cases add column if not exists started_at timestamptz;
+    alter table sm_process_cases add column if not exists ended_at timestamptz;
+    alter table sm_process_cases add column if not exists paused_at timestamptz;
+    alter table sm_process_cases add column if not exists run_ref text;
+    alter table sm_process_cases add column if not exists confidential boolean not null default false;
+    alter table sm_process_cases add column if not exists data jsonb;
+  end if;
+end
+$cols$;
+create table if not exists sm_process_cases (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb,
+  no integer,
+  number text generated always as (case when no is null then null when length(no::text) >= 7 then 'PRC' || no::text else 'PRC' || lpad(no::text, 7, '0') end) stored,
+  title text,
+  process_id uuid,
+  process_name text,
+  version_id uuid,
+  version_no integer,
+  state text,
+  requested_by uuid,
+  requested_for uuid,
+  participants jsonb,
+  managers jsonb,
+  manager_groups jsonb,
+  current_steps jsonb,
+  open_rounds jsonb,
+  progress jsonb,
+  outcome text,
+  started_at timestamptz,
+  ended_at timestamptz,
+  paused_at timestamptz,
+  run_ref text,
+  confidential boolean not null default false,
+  data jsonb,
+  search_cae18f1d text generated always as (translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')) stored
+);
+do $search$
+declare s text;
+begin
+  execute format('alter table %I add column if not exists %I text generated always as (%s) stored', 'sm_process_cases', 'search_cae18f1d', $x$translate(coalesce(title, ''), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$);
+  select n.nspname into s from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pg_trgm';
+  if s is not null then
+    execute format('create index if not exists %I on %I using gin (%I %I.gin_trgm_ops) where deleted_at is null', 'sm_process_cases_search_cae18f1d_trgm', 'sm_process_cases', 'search_cae18f1d', s);
+    execute format('create index if not exists %I on %I using gin ((%s) %I.gin_trgm_ops) where deleted_at is null and custom <> ''{}''::jsonb', 'sm_process_cases_search_custom_trgm', 'sm_process_cases', $x$translate(custom::text, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩يىك‌‍‎‏', 'abcdefghijklmnopqrstuvwxyz01234567890123456789ییک')$x$, s);
+  end if;
+end
+$search$;
+create unique index if not exists sm_process_cases_no_uk on sm_process_cases (org_id, no);
+create index if not exists sm_process_cases_rev_idx on sm_process_cases (org_id, rev);
+create index if not exists sm_process_cases_upd_idx on sm_process_cases (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_process_cases_crt_idx on sm_process_cases (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_process_cases_process_id_idx on sm_process_cases (org_id, process_id) where deleted_at is null;
+create index if not exists sm_process_cases_state_idx on sm_process_cases (org_id, state) where deleted_at is null;
+create index if not exists sm_process_cases_participants_gin on sm_process_cases using gin (participants);
+create index if not exists sm_process_cases_managers_gin on sm_process_cases using gin (managers);
+create index if not exists sm_process_cases_manager_groups_gin on sm_process_cases using gin (manager_groups);
+create index if not exists sm_process_cases_workspace_acc_idx on sm_process_cases (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_process_cases_unit_acc_idx on sm_process_cases (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_process_cases_domain_acc_idx on sm_process_cases (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_process_cases_requested_by_idx on sm_process_cases (org_id, requested_by) where deleted_at is null;
+create index if not exists sm_process_cases_requested_for_idx on sm_process_cases (org_id, requested_for) where deleted_at is null;
+drop trigger if exists sm_process_cases_sync on sm_process_cases;
+create trigger sm_process_cases_sync before insert or update on sm_process_cases for each row execute function sm_sync_touch('process_case');
+create or replace trigger sm_process_cases_demo after insert on sm_process_cases for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_process_cases_demo_t after update or delete on sm_process_cases for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_process_cases enable row level security;
+
+-- process_draft: پیش‌نویس‌های مرحله
+do $cols$
+begin
+  if to_regclass('sm_process_drafts') is not null then
+    alter table sm_process_drafts add column if not exists workspace_id uuid;
+    alter table sm_process_drafts add column if not exists domain_id uuid;
+    alter table sm_process_drafts add column if not exists unit_id uuid;
+    alter table sm_process_drafts add column if not exists created_at timestamptz not null default now();
+    alter table sm_process_drafts add column if not exists created_by uuid;
+    alter table sm_process_drafts add column if not exists updated_at timestamptz not null default now();
+    alter table sm_process_drafts add column if not exists updated_by uuid;
+    alter table sm_process_drafts add column if not exists rev bigint not null default 0;
+    alter table sm_process_drafts add column if not exists version integer not null default 1;
+    alter table sm_process_drafts add column if not exists deleted_at timestamptz;
+    alter table sm_process_drafts add column if not exists origin text;
+    alter table sm_process_drafts add column if not exists custom jsonb not null default '{}'::jsonb;
+    alter table sm_process_drafts add column if not exists user_id uuid;
+    alter table sm_process_drafts add column if not exists task_id uuid;
+    alter table sm_process_drafts add column if not exists process_id uuid;
+    alter table sm_process_drafts add column if not exists values jsonb;
+  end if;
+end
+$cols$;
+create table if not exists sm_process_drafts (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb,
+  user_id uuid,
+  task_id uuid,
+  process_id uuid,
+  values jsonb
+);
+create index if not exists sm_process_drafts_rev_idx on sm_process_drafts (org_id, rev);
+create index if not exists sm_process_drafts_upd_idx on sm_process_drafts (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_process_drafts_crt_idx on sm_process_drafts (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_process_drafts_user_id_idx on sm_process_drafts (org_id, user_id) where deleted_at is null;
+create index if not exists sm_process_drafts_task_id_idx on sm_process_drafts (org_id, task_id) where deleted_at is null;
+create index if not exists sm_process_drafts_workspace_acc_idx on sm_process_drafts (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_process_drafts_unit_acc_idx on sm_process_drafts (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_process_drafts_domain_acc_idx on sm_process_drafts (org_id, domain_id) where deleted_at is null and domain_id is not null;
+drop trigger if exists sm_process_drafts_sync on sm_process_drafts;
+create or replace trigger sm_process_drafts_demo after insert on sm_process_drafts for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_process_drafts_demo_t after update or delete on sm_process_drafts for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_process_drafts enable row level security;
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:17', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+do $engine$
+begin
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
+    delete from sm_meta where key like 'engine.ddl.part:%';
+    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
+  end if;
+end
+$engine$;
+
+-- ---------------------------------------------------------------------------
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۹ از ۲۹
+-- ---------------------------------------------------------------------------
+-- engine DDL 19/29 (a8f2597ff72f)
+-- process_submission: ثبت‌های مرحله
+do $cols$
+begin
+  if to_regclass('sm_process_submissions') is not null then
+    alter table sm_process_submissions add column if not exists workspace_id uuid;
+    alter table sm_process_submissions add column if not exists domain_id uuid;
+    alter table sm_process_submissions add column if not exists unit_id uuid;
+    alter table sm_process_submissions add column if not exists created_at timestamptz not null default now();
+    alter table sm_process_submissions add column if not exists created_by uuid;
+    alter table sm_process_submissions add column if not exists updated_at timestamptz not null default now();
+    alter table sm_process_submissions add column if not exists updated_by uuid;
+    alter table sm_process_submissions add column if not exists rev bigint not null default 0;
+    alter table sm_process_submissions add column if not exists version integer not null default 1;
+    alter table sm_process_submissions add column if not exists deleted_at timestamptz;
+    alter table sm_process_submissions add column if not exists origin text;
+    alter table sm_process_submissions add column if not exists custom jsonb not null default '{}'::jsonb;
+    alter table sm_process_submissions add column if not exists kind text;
+    alter table sm_process_submissions add column if not exists process_id uuid;
+    alter table sm_process_submissions add column if not exists version_id uuid;
+    alter table sm_process_submissions add column if not exists case_id text;
+    alter table sm_process_submissions add column if not exists task_id uuid;
+    alter table sm_process_submissions add column if not exists step_key text;
+    alter table sm_process_submissions add column if not exists round integer;
+    alter table sm_process_submissions add column if not exists outcome text;
+    alter table sm_process_submissions add column if not exists return_to text;
+    alter table sm_process_submissions add column if not exists comment text;
+    alter table sm_process_submissions add column if not exists values jsonb;
+    alter table sm_process_submissions add column if not exists requested_for uuid;
+    alter table sm_process_submissions add column if not exists submitted_by uuid;
+    alter table sm_process_submissions add column if not exists on_behalf_of uuid;
+    alter table sm_process_submissions add column if not exists submitted_at timestamptz;
+    alter table sm_process_submissions add column if not exists result text;
+    alter table sm_process_submissions add column if not exists result_note text;
+    alter table sm_process_submissions add column if not exists applied_at timestamptz;
+  end if;
+end
+$cols$;
+create table if not exists sm_process_submissions (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb,
+  kind text,
+  process_id uuid,
+  version_id uuid,
+  case_id text,
+  task_id uuid,
+  step_key text,
+  round integer,
+  outcome text,
+  return_to text,
+  comment text,
+  values jsonb,
+  requested_for uuid,
+  submitted_by uuid,
+  on_behalf_of uuid,
+  submitted_at timestamptz,
+  result text,
+  result_note text,
+  applied_at timestamptz
+);
+create index if not exists sm_process_submissions_rev_idx on sm_process_submissions (org_id, rev);
+create index if not exists sm_process_submissions_upd_idx on sm_process_submissions (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_process_submissions_crt_idx on sm_process_submissions (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_process_submissions_case_id_idx on sm_process_submissions (org_id, case_id) where deleted_at is null;
+create index if not exists sm_process_submissions_task_id_idx on sm_process_submissions (org_id, task_id) where deleted_at is null;
+create index if not exists sm_process_submissions_result_idx on sm_process_submissions (org_id, result) where deleted_at is null;
+create index if not exists sm_process_submissions_workspace_acc_idx on sm_process_submissions (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_process_submissions_unit_acc_idx on sm_process_submissions (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_process_submissions_domain_acc_idx on sm_process_submissions (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_process_submissions_submitted_by_idx on sm_process_submissions (org_id, submitted_by) where deleted_at is null;
+drop trigger if exists sm_process_submissions_sync on sm_process_submissions;
+create trigger sm_process_submissions_sync before insert or update on sm_process_submissions for each row execute function sm_sync_touch('process_submission');
+create or replace trigger sm_process_submissions_demo after insert on sm_process_submissions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_process_submissions_demo_t after update or delete on sm_process_submissions for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_process_submissions enable row level security;
+
+-- process_task: مرحله‌های گردش‌کار
+do $cols$
+begin
+  if to_regclass('sm_process_tasks') is not null then
+    alter table sm_process_tasks add column if not exists workspace_id uuid;
+    alter table sm_process_tasks add column if not exists domain_id uuid;
+    alter table sm_process_tasks add column if not exists unit_id uuid;
+    alter table sm_process_tasks add column if not exists created_at timestamptz not null default now();
+    alter table sm_process_tasks add column if not exists created_by uuid;
+    alter table sm_process_tasks add column if not exists updated_at timestamptz not null default now();
+    alter table sm_process_tasks add column if not exists updated_by uuid;
+    alter table sm_process_tasks add column if not exists rev bigint not null default 0;
+    alter table sm_process_tasks add column if not exists version integer not null default 1;
+    alter table sm_process_tasks add column if not exists deleted_at timestamptz;
+    alter table sm_process_tasks add column if not exists origin text;
+    alter table sm_process_tasks add column if not exists custom jsonb not null default '{}'::jsonb;
+    alter table sm_process_tasks add column if not exists case_id uuid;
+    alter table sm_process_tasks add column if not exists case_number text;
+    alter table sm_process_tasks add column if not exists case_title text;
+    alter table sm_process_tasks add column if not exists process_id uuid;
+    alter table sm_process_tasks add column if not exists version_id uuid;
+    alter table sm_process_tasks add column if not exists step_key text;
+    alter table sm_process_tasks add column if not exists step_label text;
+    alter table sm_process_tasks add column if not exists action text;
+    alter table sm_process_tasks add column if not exists round integer;
+    alter table sm_process_tasks add column if not exists assigned_to uuid;
+    alter table sm_process_tasks add column if not exists delegated_from uuid;
+    alter table sm_process_tasks add column if not exists claimed_by uuid;
+    alter table sm_process_tasks add column if not exists status text;
+    alter table sm_process_tasks add column if not exists outcome text;
+    alter table sm_process_tasks add column if not exists comment text;
+    alter table sm_process_tasks add column if not exists acted_by uuid;
+    alter table sm_process_tasks add column if not exists acted_for uuid;
+    alter table sm_process_tasks add column if not exists submission_id uuid;
+    alter table sm_process_tasks add column if not exists opened_at timestamptz;
+    alter table sm_process_tasks add column if not exists due_at timestamptz;
+    alter table sm_process_tasks add column if not exists closed_at timestamptz;
+    alter table sm_process_tasks add column if not exists reminded_at timestamptz;
+    alter table sm_process_tasks add column if not exists escalated_at timestamptz;
+    alter table sm_process_tasks add column if not exists timers_from timestamptz;
+  end if;
+end
+$cols$;
+create table if not exists sm_process_tasks (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb,
+  case_id uuid,
+  case_number text,
+  case_title text,
+  process_id uuid,
+  version_id uuid,
+  step_key text,
+  step_label text,
+  action text,
+  round integer,
+  assigned_to uuid,
+  delegated_from uuid,
+  claimed_by uuid,
+  status text,
+  outcome text,
+  comment text,
+  acted_by uuid,
+  acted_for uuid,
+  submission_id uuid,
+  opened_at timestamptz,
+  due_at timestamptz,
+  closed_at timestamptz,
+  reminded_at timestamptz,
+  escalated_at timestamptz,
+  timers_from timestamptz
+);
+create index if not exists sm_process_tasks_rev_idx on sm_process_tasks (org_id, rev);
+create index if not exists sm_process_tasks_upd_idx on sm_process_tasks (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_process_tasks_crt_idx on sm_process_tasks (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_process_tasks_case_id_idx on sm_process_tasks (org_id, case_id) where deleted_at is null;
+create index if not exists sm_process_tasks_status_idx on sm_process_tasks (org_id, status) where deleted_at is null;
+create index if not exists sm_process_tasks_workspace_acc_idx on sm_process_tasks (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
+create index if not exists sm_process_tasks_unit_acc_idx on sm_process_tasks (org_id, unit_id) where deleted_at is null and unit_id is not null;
+create index if not exists sm_process_tasks_domain_acc_idx on sm_process_tasks (org_id, domain_id) where deleted_at is null and domain_id is not null;
+create index if not exists sm_process_tasks_assigned_to_idx on sm_process_tasks (org_id, assigned_to) where deleted_at is null;
+create index if not exists sm_process_tasks_delegated_from_idx on sm_process_tasks (org_id, delegated_from) where deleted_at is null;
+create index if not exists sm_process_tasks_acted_by_idx on sm_process_tasks (org_id, acted_by) where deleted_at is null;
+create index if not exists sm_process_tasks_opened_brin on sm_process_tasks using brin (opened_at);
+drop trigger if exists sm_process_tasks_sync on sm_process_tasks;
+create trigger sm_process_tasks_sync before insert or update on sm_process_tasks for each row execute function sm_sync_touch('process_task');
+create or replace trigger sm_process_tasks_demo after insert on sm_process_tasks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_process_tasks_demo_t after update or delete on sm_process_tasks for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_process_tasks enable row level security;
+
+-- process_version: نسخه‌های گردش‌کار
+do $cols$
+begin
+  if to_regclass('sm_process_versions') is not null then
+    alter table sm_process_versions add column if not exists workspace_id uuid;
+    alter table sm_process_versions add column if not exists domain_id uuid;
+    alter table sm_process_versions add column if not exists unit_id uuid;
+    alter table sm_process_versions add column if not exists created_at timestamptz not null default now();
+    alter table sm_process_versions add column if not exists created_by uuid;
+    alter table sm_process_versions add column if not exists updated_at timestamptz not null default now();
+    alter table sm_process_versions add column if not exists updated_by uuid;
+    alter table sm_process_versions add column if not exists rev bigint not null default 0;
+    alter table sm_process_versions add column if not exists version integer not null default 1;
+    alter table sm_process_versions add column if not exists deleted_at timestamptz;
+    alter table sm_process_versions add column if not exists origin text;
+    alter table sm_process_versions add column if not exists custom jsonb not null default '{}'::jsonb;
+    alter table sm_process_versions add column if not exists process_id uuid;
+    alter table sm_process_versions add column if not exists name text;
+    alter table sm_process_versions add column if not exists version_no integer;
+    alter table sm_process_versions add column if not exists graph jsonb;
+    alter table sm_process_versions add column if not exists steps jsonb;
+    alter table sm_process_versions add column if not exists forms jsonb;
+    alter table sm_process_versions add column if not exists starters jsonb;
+    alter table sm_process_versions add column if not exists title_template text;
+    alter table sm_process_versions add column if not exists requester_view jsonb;
+    alter table sm_process_versions add column if not exists managers jsonb;
+    alter table sm_process_versions add column if not exists manager_groups jsonb;
+    alter table sm_process_versions add column if not exists confidential boolean not null default false;
+    alter table sm_process_versions add column if not exists published_by uuid;
+    alter table sm_process_versions add column if not exists published_at timestamptz;
+    alter table sm_process_versions add column if not exists note text;
+    alter table sm_process_versions add column if not exists diff jsonb;
+  end if;
+end
+$cols$;
+create table if not exists sm_process_versions (
+  id uuid primary key,
+  org_id uuid not null references sm_orgs(id) on delete cascade,
+  workspace_id uuid,
+  domain_id uuid,
+  unit_id uuid,
+  created_at timestamptz not null default now(),
+  created_by uuid,
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  rev bigint not null default 0,
+  version integer not null default 1,
+  deleted_at timestamptz,
+  origin text,
+  custom jsonb not null default '{}'::jsonb,
+  process_id uuid,
+  name text,
+  version_no integer,
+  graph jsonb,
+  steps jsonb,
+  forms jsonb,
+  starters jsonb,
+  title_template text,
+  requester_view jsonb,
+  managers jsonb,
+  manager_groups jsonb,
+  confidential boolean not null default false,
+  published_by uuid,
+  published_at timestamptz,
+  note text,
+  diff jsonb
+);
+create index if not exists sm_process_versions_rev_idx on sm_process_versions (org_id, rev);
+create index if not exists sm_process_versions_upd_idx on sm_process_versions (org_id, updated_at desc, id desc) where deleted_at is null;
+create index if not exists sm_process_versions_crt_idx on sm_process_versions (org_id, created_at desc, id desc) where deleted_at is null;
+create index if not exists sm_process_versions_process_id_idx on sm_process_versions (org_id, process_id) where deleted_at is null;
+create unique index if not exists sm_process_versions_process_id_version_no_uk on sm_process_versions (org_id, process_id, version_no) where deleted_at is null;
+drop trigger if exists sm_process_versions_sync on sm_process_versions;
+create trigger sm_process_versions_sync before insert or update on sm_process_versions for each row execute function sm_sync_touch('process_version');
+create or replace trigger sm_process_versions_demo after insert on sm_process_versions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
+create or replace trigger sm_process_versions_demo_t after update or delete on sm_process_versions for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
+alter table sm_process_versions enable row level security;
+
 -- project: پروژه‌ها
 do $cols$
 begin
@@ -27754,22 +28602,7 @@ create trigger sm_purchase_order_lines_sync before insert or update on sm_purcha
 create or replace trigger sm_purchase_order_lines_demo after insert on sm_purchase_order_lines for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_purchase_order_lines_demo_t after update or delete on sm_purchase_order_lines for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_purchase_order_lines enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:17', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-do $engine$
-begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
-    delete from sm_meta where key like 'engine.ddl.part:%';
-    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
-  end if;
-end
-$engine$;
 
--- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۹ از ۲۸
--- ---------------------------------------------------------------------------
--- engine DDL 19/28 (e746bd22eb04)
 -- purchase_request: درخواست‌های خرید
 do $cols$
 begin
@@ -28516,7 +29349,22 @@ create trigger sm_release_checks_sync before insert or update on sm_release_chec
 create or replace trigger sm_release_checks_demo after insert on sm_release_checks for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_release_checks_demo_t after update or delete on sm_release_checks for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_release_checks enable row level security;
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:18', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+do $engine$
+begin
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
+    delete from sm_meta where key like 'engine.ddl.part:%';
+    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
+  end if;
+end
+$engine$;
 
+-- ---------------------------------------------------------------------------
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲۰ از ۲۹
+-- ---------------------------------------------------------------------------
+-- engine DDL 20/29 (a8f2597ff72f)
 -- release_check_result: نتیجه‌های بررسی آمادگی
 do $cols$
 begin
@@ -29260,22 +30108,7 @@ create trigger sm_release_windows_sync before insert or update on sm_release_win
 create or replace trigger sm_release_windows_demo after insert on sm_release_windows for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_release_windows_demo_t after update or delete on sm_release_windows for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_release_windows enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:18', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-do $engine$
-begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
-    delete from sm_meta where key like 'engine.ddl.part:%';
-    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
-  end if;
-end
-$engine$;
 
--- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲۰ از ۲۸
--- ---------------------------------------------------------------------------
--- engine DDL 20/28 (e746bd22eb04)
 -- repair_order: تعمیرهای دارایی
 do $cols$
 begin
@@ -30037,7 +30870,22 @@ create trigger sm_request_items_sync before insert or update on sm_request_items
 create or replace trigger sm_request_items_demo after insert on sm_request_items for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_request_items_demo_t after update or delete on sm_request_items for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_request_items enable row level security;
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:19', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+do $engine$
+begin
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
+    delete from sm_meta where key like 'engine.ddl.part:%';
+    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
+  end if;
+end
+$engine$;
 
+-- ---------------------------------------------------------------------------
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲۱ از ۲۹
+-- ---------------------------------------------------------------------------
+-- engine DDL 21/29 (a8f2597ff72f)
 -- request_subscription: اشتراک‌های خدمت
 do $cols$
 begin
@@ -30777,22 +31625,7 @@ create trigger sm_schedules_sync before insert or update on sm_schedules for eac
 create or replace trigger sm_schedules_demo after insert on sm_schedules for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_schedules_demo_t after update or delete on sm_schedules for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_schedules enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:19', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-do $engine$
-begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
-    delete from sm_meta where key like 'engine.ddl.part:%';
-    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
-  end if;
-end
-$engine$;
 
--- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲۱ از ۲۸
--- ---------------------------------------------------------------------------
--- engine DDL 21/28 (e746bd22eb04)
 -- sec_config: تنظیمات امنیت
 do $cols$
 begin
@@ -31580,7 +32413,22 @@ create trigger sm_sec_reviews_sync before insert or update on sm_sec_reviews for
 create or replace trigger sm_sec_reviews_demo after insert on sm_sec_reviews for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_sec_reviews_demo_t after update or delete on sm_sec_reviews for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_sec_reviews enable row level security;
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:20', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+do $engine$
+begin
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
+    delete from sm_meta where key like 'engine.ddl.part:%';
+    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
+  end if;
+end
+$engine$;
 
+-- ---------------------------------------------------------------------------
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲۲ از ۲۹
+-- ---------------------------------------------------------------------------
+-- engine DDL 22/29 (a8f2597ff72f)
 -- sec_scan_import: ورودهای پویش
 do $cols$
 begin
@@ -32265,22 +33113,7 @@ create trigger sm_sec_vuln_remediations_sync before insert or update on sm_sec_v
 create or replace trigger sm_sec_vuln_remediations_demo after insert on sm_sec_vuln_remediations for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_sec_vuln_remediations_demo_t after update or delete on sm_sec_vuln_remediations for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_sec_vuln_remediations enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:20', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-do $engine$
-begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
-    delete from sm_meta where key like 'engine.ddl.part:%';
-    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
-  end if;
-end
-$engine$;
 
--- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲۲ از ۲۸
--- ---------------------------------------------------------------------------
--- engine DDL 22/28 (e746bd22eb04)
 -- sec_vulnerability: کتابخانهٔ آسیب‌پذیری‌ها
 do $cols$
 begin
@@ -33010,7 +33843,22 @@ create trigger sm_service_configs_sync before insert or update on sm_service_con
 create or replace trigger sm_service_configs_demo after insert on sm_service_configs for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_service_configs_demo_t after update or delete on sm_service_configs for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_service_configs enable row level security;
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:21', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+do $engine$
+begin
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
+    delete from sm_meta where key like 'engine.ddl.part:%';
+    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
+  end if;
+end
+$engine$;
 
+-- ---------------------------------------------------------------------------
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲۳ از ۲۹
+-- ---------------------------------------------------------------------------
+-- engine DDL 23/29 (a8f2597ff72f)
 -- service_design_package: بسته‌های طراحی و گذار
 do $cols$
 begin
@@ -33760,22 +34608,7 @@ create trigger sm_slm_config_sync before insert or update on sm_slm_config for e
 create or replace trigger sm_slm_config_demo after insert on sm_slm_config for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_slm_config_demo_t after update or delete on sm_slm_config for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_slm_config enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:21', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-do $engine$
-begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
-    delete from sm_meta where key like 'engine.ddl.part:%';
-    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
-  end if;
-end
-$engine$;
 
--- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲۳ از ۲۸
--- ---------------------------------------------------------------------------
--- engine DDL 23/28 (e746bd22eb04)
 -- slm_credit: جریمه‌های خدمت
 do $cols$
 begin
@@ -34470,7 +35303,22 @@ create trigger sm_slm_template_targets_sync before insert or update on sm_slm_te
 create or replace trigger sm_slm_template_targets_demo after insert on sm_slm_template_targets for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_slm_template_targets_demo_t after update or delete on sm_slm_template_targets for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_slm_template_targets enable row level security;
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:22', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+do $engine$
+begin
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
+    delete from sm_meta where key like 'engine.ddl.part:%';
+    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
+  end if;
+end
+$engine$;
 
+-- ---------------------------------------------------------------------------
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲۴ از ۲۹
+-- ---------------------------------------------------------------------------
+-- engine DDL 24/29 (a8f2597ff72f)
 -- slm_xla_policy: سیاست‌های تجربه (XLA)
 do $cols$
 begin
@@ -35278,22 +36126,7 @@ create trigger sm_studio_versions_sync before insert or update on sm_studio_vers
 create or replace trigger sm_studio_versions_demo after insert on sm_studio_versions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_studio_versions_demo_t after update or delete on sm_studio_versions for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_studio_versions enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:22', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-do $engine$
-begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
-    delete from sm_meta where key like 'engine.ddl.part:%';
-    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
-  end if;
-end
-$engine$;
 
--- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲۴ از ۲۸
--- ---------------------------------------------------------------------------
--- engine DDL 24/28 (e746bd22eb04)
 -- supplier: تأمین‌کنندگان
 do $cols$
 begin
@@ -35950,7 +36783,22 @@ create trigger sm_survey_questions_sync before insert or update on sm_survey_que
 create or replace trigger sm_survey_questions_demo after insert on sm_survey_questions for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_survey_questions_demo_t after update or delete on sm_survey_questions for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_survey_questions enable row level security;
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:23', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+do $engine$
+begin
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
+    delete from sm_meta where key like 'engine.ddl.part:%';
+    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
+  end if;
+end
+$engine$;
 
+-- ---------------------------------------------------------------------------
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲۵ از ۲۹
+-- ---------------------------------------------------------------------------
+-- engine DDL 25/29 (a8f2597ff72f)
 -- survey_response: پاسخ‌های نظرسنجی
 do $cols$
 begin
@@ -36815,22 +37663,7 @@ create trigger sm_todos_sync before insert or update on sm_todos for each row ex
 create or replace trigger sm_todos_demo after insert on sm_todos for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_todos_demo_t after update or delete on sm_todos for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_todos enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:23', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-do $engine$
-begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
-    delete from sm_meta where key like 'engine.ddl.part:%';
-    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
-  end if;
-end
-$engine$;
 
--- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲۵ از ۲۸
--- ---------------------------------------------------------------------------
--- engine DDL 25/28 (e746bd22eb04)
 -- transform_map: نقشه‌های تبدیل
 do $cols$
 begin
@@ -37564,7 +38397,22 @@ create trigger sm_wfm_absences_sync before insert or update on sm_wfm_absences f
 create or replace trigger sm_wfm_absences_demo after insert on sm_wfm_absences for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_wfm_absences_demo_t after update or delete on sm_wfm_absences for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_wfm_absences enable row level security;
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:24', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+do $engine$
+begin
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
+    delete from sm_meta where key like 'engine.ddl.part:%';
+    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
+  end if;
+end
+$engine$;
 
+-- ---------------------------------------------------------------------------
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲۶ از ۲۹
+-- ---------------------------------------------------------------------------
+-- engine DDL 26/29 (a8f2597ff72f)
 -- wfm_agent: وضعیت کارشناسان
 do $cols$
 begin
@@ -38369,22 +39217,7 @@ create trigger sm_wfm_skills_sync before insert or update on sm_wfm_skills for e
 create or replace trigger sm_wfm_skills_demo after insert on sm_wfm_skills for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_wfm_skills_demo_t after update or delete on sm_wfm_skills for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_wfm_skills enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:24', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-do $engine$
-begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
-    delete from sm_meta where key like 'engine.ddl.part:%';
-    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
-  end if;
-end
-$engine$;
 
--- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲۶ از ۲۸
--- ---------------------------------------------------------------------------
--- engine DDL 26/28 (e746bd22eb04)
 -- wo_task: وظیفه‌های دستور کار
 do $cols$
 begin
@@ -39036,7 +39869,22 @@ begin
 end
 $arc$;
 alter table sm_alert_groups_arc enable row level security;
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:25', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+do $engine$
+begin
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
+    delete from sm_meta where key like 'engine.ddl.part:%';
+    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
+  end if;
+end
+$engine$;
 
+-- ---------------------------------------------------------------------------
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲۷ از ۲۹
+-- ---------------------------------------------------------------------------
+-- engine DDL 27/29 (a8f2597ff72f)
 -- change_request: archive
 create table if not exists sm_change_requests_arc (
   id uuid primary key,
@@ -39741,22 +40589,7 @@ begin
 end
 $arc$;
 alter table sm_corrective_actions_arc enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:25', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-do $engine$
-begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
-    delete from sm_meta where key like 'engine.ddl.part:%';
-    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
-  end if;
-end
-$engine$;
 
--- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲۷ از ۲۸
--- ---------------------------------------------------------------------------
--- engine DDL 27/28 (e746bd22eb04)
 -- customer_case: archive
 create table if not exists sm_customer_cases_arc (
   id uuid primary key,
@@ -40268,7 +41101,22 @@ begin
 end
 $arc$;
 alter table sm_finance_cases_arc enable row level security;
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:26', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+do $engine$
+begin
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
+    delete from sm_meta where key like 'engine.ddl.part:%';
+    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
+  end if;
+end
+$engine$;
 
+-- ---------------------------------------------------------------------------
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲۸ از ۲۹
+-- ---------------------------------------------------------------------------
+-- engine DDL 28/29 (a8f2597ff72f)
 -- hr_case: archive
 create table if not exists sm_hr_cases_arc (
   id uuid primary key,
@@ -40968,22 +41816,7 @@ begin
 end
 $arc$;
 alter table sm_portal_feedback_arc enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:26', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-do $engine$
-begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
-    delete from sm_meta where key like 'engine.ddl.part:%';
-    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
-  end if;
-end
-$engine$;
 
--- ---------------------------------------------------------------------------
--- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲۸ از ۲۸
--- ---------------------------------------------------------------------------
--- engine DDL 28/28 (e746bd22eb04)
 -- problem: archive
 create table if not exists sm_problems_arc (
   id uuid primary key,
@@ -41517,7 +42350,22 @@ begin
 end
 $arc$;
 alter table sm_release_tasks_arc enable row level security;
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:27', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+do $engine$
+begin
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
+    delete from sm_meta where key like 'engine.ddl.part:%';
+    insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
+  end if;
+end
+$engine$;
 
+-- ---------------------------------------------------------------------------
+-- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲۹ از ۲۹
+-- ---------------------------------------------------------------------------
+-- engine DDL 29/29 (a8f2597ff72f)
 -- request: archive
 create table if not exists sm_requests_arc (
   id uuid primary key,
@@ -42223,12 +43071,12 @@ begin
   end loop;
 end
 $do$;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:27', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:28', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
 do $engine$
 begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290:%') >= 28 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:e746bd22eb04c5c31fd9a2d1db8bf37197416870b04ba559e556114f1cf98290', 'done', now()) on conflict (key) do nothing;
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b:%') >= 29 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', 'a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:a8f2597ff72fec1e1f54b72105878720fb401f5c24782f417966b98bc5351f8b', 'done', now()) on conflict (key) do nothing;
     delete from sm_meta where key like 'engine.ddl.part:%';
     insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
   end if;

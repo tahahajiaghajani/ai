@@ -120,6 +120,8 @@ async function problemFromRowsIn(tx: Tx, ctx: Ctx, rows: Row[], input: FromIncid
   const major = rows.some((r) => ["accepted", "resolved", "pir_done"].includes(String(r.major_state ?? "")));
   const lines = rows.slice(0, 30).map((r) => `- ${r.number}: ${String(r.short_description ?? "").slice(0, 160)}`);
   {
+    // built from the incidents (a title, a description, an assignment at most): the organisation's requirements for
+    // people are not asked (design F §3.3)
     const problem = await createIn(tx, ctx, "problem", {
       short_description: input.short_description?.trim() || String(first.short_description ?? "").slice(0, 200),
       description: input.description?.trim() || `رخدادهای مرتبط:\n${lines.join("\n")}${rows.length > 30 ? "\n- …" : ""}`,
@@ -135,7 +137,7 @@ async function problemFromRowsIn(tx: Tx, ctx: Ctx, rows: Row[], input: FromIncid
       assignment_group_id: input.assignment_group_id ?? first.assignment_group_id ?? null,
       assigned_to: input.assigned_to ?? null,
       ...(first.workspace_id ? { workspace_id: first.workspace_id } : {}),
-    });
+    }, { orgRules: false });
     const linked = await linkIn(tx, ctx, problem, rows.filter((r) => r.problem_id !== problem.id).map((r) => r.id));
     await note(tx, ctx, "problem", problem, `از ${rows.length} رخداد ساخته شد${linked.done.length ? `؛ پیوند: ${faList(linked.done)}` : ""}.`);
     return { problem: (await liveRow(tx, sysOf(ctx), "problem", problem.id)) ?? problem, ...linked };

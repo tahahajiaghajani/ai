@@ -103,10 +103,18 @@ export interface Option {
   active?: boolean;
   /** dependent lists: the value of the parent field this option belongs to (e.g. a subcategory's category) */
   parent?: string;
+  /** module code tests this value: an organisation may relabel, recolour or reorder it, never deactivate it */
+  locked?: boolean;
 }
 
 /** Engine-computed default values. */
 export type DefaultToken = "$now" | "$today" | "$me" | "$my_unit" | "$my_domain";
+
+/**
+ * A named check of a field's value (`@shared/forms/validators`): Iranian identifiers (national code, IBAN, card,
+ * postal code, mobile), or `attachments` — a json field holding ids of the same record's attachments.
+ */
+export type FieldCheck = "national_id" | "iban" | "card" | "postal_code" | "mobile" | "attachments";
 
 export interface FieldDef {
   /** column name: [a-z][a-z0-9_]*; names starting with `u_` are reserved for tenant custom fields */
@@ -173,6 +181,30 @@ export interface FieldDef {
   custom?: boolean;
   /** set by the engine: a base column every table has (number, created_at…) */
   base?: boolean;
+  /** presentation of a field type (`@shared/forms/fieldtypes`: checkbox | switch | select | radio | checklist | files | position | …) */
+  widget?: string;
+  /** text: a regular expression the value must match (digits are also tried in Latin form), and its message */
+  pattern?: string;
+  patternMessage?: string;
+  /** a named check of the value (`@shared/forms/validators`); `attachments` counts files with `max` */
+  check?: FieldCheck;
+  /** decimal / percent / money: at most this many decimal places */
+  decimals?: number;
+  /** money: shown in Rials or Tomans (default: the organisation's `currency_display`); always stored in Rials */
+  unit?: "rial" | "toman";
+  /** date / datetime: limits as ISO dates or tokens ("$today", "$today+30d", "$today-7d") */
+  minDate?: string;
+  maxDate?: string;
+  /** attachments: accepted kinds of file (extensions, or kinds of `@shared/forms/validators` FILE_KINDS) */
+  accept?: string[];
+  /** a module marks the field locked: the organisation may relabel it, never hide it from forms or require it */
+  locked?: boolean;
+  /** set by the engine: the library field (`field_def`) behind a custom field */
+  library?: string;
+  /** tenant: hidden on forms only — lists, filters, kanban, exports and the field manager still show it */
+  formHidden?: boolean;
+  /** tenant: required in people's writes only (everyone's, or agents'); system and trusted writes skip it */
+  formRequired?: "all" | "agents";
 }
 
 /** State categories: the engine's side effects and SLA/reporting semantics hang on them, not on state values. */
@@ -204,6 +236,10 @@ export interface Transition {
   roles?: AreaOp;
   /** name of a guard registered with `registerHooks(table, { guards })` */
   guard?: string;
+  /** an organisation may switch the transition off (the lifecycle overlay `_states`; never the only way out of a state) */
+  optional?: boolean;
+  /** tenant (`_states`): the caller must also hold one of these roles — narrowing only, an AND with `roles` */
+  also?: string[];
 }
 
 export interface StateModel {
