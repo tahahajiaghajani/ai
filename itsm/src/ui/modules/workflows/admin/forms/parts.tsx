@@ -19,19 +19,44 @@ import { FieldInput } from "../../../../records/fields/FieldInput";
 import type { Schema } from "../../../../records/model/schema";
 import type { TableMeta } from "../../../../records/model/types";
 import { I14, I16 } from "../fields/parts";
-import { historyOf, historyPush, historyRedo, historyUndo, saveStateText, type At, type History, type SaveState, type Sel } from "./model";
+import { historyOf, historyPush, historyRedo, historyReplace, historyUndo, saveStateText, type At, type History, type SaveState, type Sel } from "./model";
 
 export { I14, I16 };
 
 // ---------------------------------------------------------------------------------------------------------------
 // Undo and redo; leaving with unsaved changes
 
+/** Typing on in the same box within this long is the same step of undo. */
+const TYPING_MS = 1500;
+
+/**
+ * A value with undo and redo. `set(v, key)`: an edit with the same `key` as the one just before it (a label being
+ * typed) replaces it instead of adding a step.
+ */
 export function useHistory<T>(initial: T) {
   const [h, setH] = useState<History<T>>(() => historyOf(initial));
-  const set = useCallback((v: T | ((p: T) => T)) => setH((x) => historyPush(x, typeof v === "function" ? (v as (p: T) => T)(x.present) : v)), []);
-  const reset = useCallback((v: T) => setH(historyOf(v)), []);
-  const undo = useCallback(() => setH(historyUndo), []);
-  const redo = useCallback(() => setH(historyRedo), []);
+  const last = useRef<{ key: string; at: number } | null>(null);
+  const set = useCallback((v: T | ((p: T) => T), key?: string) => {
+    const now = Date.now();
+    const merge = !!key && last.current?.key === key && now - last.current.at < TYPING_MS;
+    last.current = key ? { key, at: now } : null;
+    setH((x) => {
+      const next = typeof v === "function" ? (v as (p: T) => T)(x.present) : v;
+      return merge ? historyReplace(x, next) : historyPush(x, next);
+    });
+  }, []);
+  const reset = useCallback((v: T) => {
+    last.current = null;
+    setH(historyOf(v));
+  }, []);
+  const undo = useCallback(() => {
+    last.current = null;
+    setH(historyUndo);
+  }, []);
+  const redo = useCallback(() => {
+    last.current = null;
+    setH(historyRedo);
+  }, []);
   return { value: h.present, set, reset, undo, redo, canUndo: h.past.length > 0, canRedo: h.future.length > 0 };
 }
 

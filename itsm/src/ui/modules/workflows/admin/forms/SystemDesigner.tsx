@@ -1,5 +1,6 @@
 // A table's default form («فرم سامانه», design F §3.3, §8.2; package F5 — it takes over «چیدمان فرم‌ها»): the palette
-// (the table's fields, fields no section holds, library fields to add), the canvas of tabs › sections › fields (drag,
+// (the table's fields, fields no section holds, library fields to add, «فیلد تازه» made in the library's own sheet and
+// added here), the canvas of tabs › sections › fields (drag,
 // or Alt+↑/↓; form-hidden fields stay, dimmed, with «پنهان در فرم»), and the inspector: the field's label, help and
 // sample text (overrides shared by every place the form appears; library fields take theirs from «فیلدها»),
 // «پنهان در فرم», «الزامی برای…» with the creation paths it binds, its locks with their reasons, the UI policies that
@@ -9,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { useNavigate, useParams } from "react-router";
 import { Alert, Button, Dropdown, Input, Modal, Segmented, Tooltip } from "antd";
-import { BookPlus, Eye, MoreHorizontal, PencilRuler, Redo2, RotateCcw, Save, Search, Undo2 } from "lucide-react";
+import { BookPlus, Eye, MoreHorizontal, PencilRuler, Plus, Redo2, RotateCcw, Save, Search, Undo2 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FIELD_TYPES } from "@shared/model/types";
 import { isFieldItem, type FormItem } from "@shared/forms/layout";
@@ -25,12 +26,13 @@ import { useMe, useRecordActions, useRecordList, useRefreshSchema, useSchema } f
 import { formLayout, spanOf } from "../../../../records/model/layout";
 import { sameValue } from "../../../../records/model/values";
 import type { TableMeta } from "../../../../records/model/types";
-import { FIELD_KEYS, fieldsApi } from "../fields/api";
+import { FIELD_KEYS, fieldsApi, type LibraryEntry } from "../fields/api";
+import { FieldSheet } from "../fields/FieldSheet";
 import { attachable, fieldsAccess } from "../fields/model";
 import { FORM_KEYS, formsApi } from "./api";
 import {
   PERSONAS, addSection, addTab, clampSel, defaultLayout, insertItem, moveItem, reconcileDraft, removeSection, removeTab, renameTab, rightsSummary, shiftItem, shiftSection,
-  shiftTab, sysMarks, systemChanges, systemDraft, systemFields, systemRights, targetSection, unplaced, updateSection, previewTable, findField,
+  shiftTab, sysMarks, systemChanges, systemDraft, systemFields, systemRights, targetSection, typingKey, unplaced, updateSection, previewTable, findField,
   type Persona, type Sel, type SystemChanges, type SystemDraft,
 } from "./model";
 import { MoveControls, SectionInspector, SysFieldInspector, TabInspector } from "./Inspectors";
@@ -105,6 +107,7 @@ function Designer({ table, def, fields, stored, editable, access, phone, orgId, 
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [q, setQ] = useState("");
   const [confirm, setConfirm] = useState<SystemChanges | null>(null);
+  const [newField, setNewField] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const changes = useMemo(() => systemChanges(fields, baseline, draft), [fields, baseline, draft]);
@@ -114,6 +117,9 @@ function Designer({ table, def, fields, stored, editable, access, phone, orgId, 
 
   const unit = useQuery({ queryKey: FIELD_KEYS.unit(orgId), queryFn: () => fieldsApi.moneyUnit(api), staleTime: 300_000 });
   const library = useQuery({ queryKey: FIELD_KEYS.library(orgId), queryFn: () => fieldsApi.library(api), enabled: editable, staleTime: 30_000 });
+  // «فیلد تازه»: a library field made in its own sheet, then added to this table
+  const canMake = editable && access.designWrite;
+  const types = useQuery({ queryKey: FIELD_KEYS.types(orgId), queryFn: () => fieldsApi.types(api), enabled: canMake, staleTime: 60_000 });
   const policies = useQuery({ queryKey: FORM_KEYS.policies(orgId, table), queryFn: () => formsApi.policies(api, table), enabled: access.settingsRead, staleTime: 60_000 });
   const vp = useQuery({ queryKey: FORM_KEYS.viewpoint(orgId, table, persona), queryFn: () => formsApi.systemPreview(api, table, persona), staleTime: 60_000 });
   const blockersAll = useQuery({ queryKey: FIELD_KEYS.paths(orgId, table, "all"), queryFn: () => fieldsApi.paths(api, table, "all"), enabled: editable, staleTime: 60_000 });
@@ -132,21 +138,25 @@ function Designer({ table, def, fields, stored, editable, access, phone, orgId, 
     .filter(([name, o]) => o.requiredFor === "all" && baseline.fields[name]?.requiredFor !== "all")
     .flatMap(([name]) => (blockersAll.data?.blockers.length ? [`«${draft.fields[name].label || name}»: ${blockersAll.data.blockers[0]}`] : []));
 
-  // a change of the layout: the draft's next value, and where the selection goes
+  // a change of the layout: the draft's next value, and where the selection goes (`key`: typing on in one box)
   const layoutEdit = useCallback(
-    (fn: (d: SystemDraft) => { layout: SystemDraft["layout"]; sel?: Sel | null }) => {
+    (fn: (d: SystemDraft) => { layout: SystemDraft["layout"]; sel?: Sel | null }, key?: string) => {
       const d = draftRef.current;
       const r = fn(d);
-      hist.set({ ...d, layout: r.layout, arranged: true });
+      hist.set({ ...d, layout: r.layout, arranged: true }, key);
       if (r.sel !== undefined) setSel(r.sel);
     },
     [hist.set],
   );
-  const setField = (name: string, patch: Partial<SystemDraft["fields"][string]>) => hist.set((d) => ({ ...d, fields: { ...d.fields, [name]: { ...d.fields[name], ...patch } } }));
+  const setField = (name: string, patch: Partial<SystemDraft["fields"][string]>) => {
+    const d = draftRef.current;
+    const next = { ...d.fields[name], ...patch };
+    hist.set({ ...d, fields: { ...d.fields, [name]: next } }, typingKey(`field:${name}`, d.fields[name], next));
+  };
 
   const place = (name: string) => layoutEdit((d) => insertItem(d.layout, { field: name }, targetSection(d.layout, sel)));
-  const attach = async (id: string, label: string) => {
-    if (!(await n.confirm(`افزودن «${label}» به «${def.plural}»؟`, "فیلد کتابخانه همین حالا به جدول افزوده می‌شود و در بخش برگزیده می‌نشیند.", false, "افزودن"))) return;
+  const attach = async (id: string, label: string, ask = true) => {
+    if (ask && !(await n.confirm(`افزودن «${label}» به «${def.plural}»؟`, "فیلد کتابخانه همین حالا به جدول افزوده می‌شود و در بخش برگزیده می‌نشیند.", false, "افزودن"))) return;
     const target = targetSection(draft.layout, sel);
     const section = draft.layout.tabs[target.t]?.sections[target.s]?.label ?? null;
     try {
@@ -339,6 +349,13 @@ function Designer({ table, def, fields, stored, editable, access, phone, orgId, 
           </ul>
         </Block>
       ) : null}
+      {canMake ? (
+        <span className="wfm-pal-actions">
+          <Button size="small" icon={<Plus {...I14} />} onClick={() => setNewField(true)} disabled={!types.data}>
+            فیلد تازه
+          </Button>
+        </span>
+      ) : null}
       {editable ? (
         <Block title="کتابخانه">
           {library.isLoading ? (
@@ -399,7 +416,7 @@ function Designer({ table, def, fields, stored, editable, access, phone, orgId, 
         t={sel.t}
         s={sel.s}
         editable={editable}
-        onChange={(p) => layoutEdit((d) => ({ layout: updateSection(d.layout, sel.t, sel.s, p as never) }))}
+        onChange={(p) => layoutEdit((d) => ({ layout: updateSection(d.layout, sel.t, sel.s, p as never) }), "label" in p ? `section:${sel.t}:${sel.s}` : undefined)}
         onShift={(d) => layoutEdit((x) => shiftSection(x.layout, sel.t, sel.s, d))}
         onRemove={() => layoutEdit((d) => {
           const layout = removeSection(d.layout, sel.t, sel.s);
@@ -413,7 +430,7 @@ function Designer({ table, def, fields, stored, editable, access, phone, orgId, 
         layout={draft.layout}
         t={sel.t}
         editable={editable}
-        onRename={(label) => layoutEdit((d) => ({ layout: renameTab(d.layout, sel.t, label) }))}
+        onRename={(label) => layoutEdit((d) => ({ layout: renameTab(d.layout, sel.t, label) }), `tab:${sel.t}`)}
         onShift={(d) => layoutEdit((x) => shiftTab(x.layout, sel.t, d))}
         onRemove={() => layoutEdit((d) => {
           const layout = removeTab(d.layout, sel.t);
@@ -456,6 +473,22 @@ function Designer({ table, def, fields, stored, editable, access, phone, orgId, 
         />
         {preview ? previewPanel : <aside className="wfm-panel wfm-inspector" aria-label="تنظیم‌های برگزیده">{inspector}</aside>}
       </div>
+      {newField && types.data ? (
+        <FieldSheet
+          id={null}
+          entry={null}
+          library={library.data?.fields ?? []}
+          types={types.data}
+          unit={unit.data ?? "rial"}
+          access={access}
+          onClose={() => setNewField(false)}
+          onSaved={(id) => {
+            setNewField(false);
+            const made = qc.getQueryData<{ fields: LibraryEntry[] }>(FIELD_KEYS.library(orgId))?.fields.find((f) => f.id === id);
+            if (made) void attach(made.id, made.label, false);
+          }}
+        />
+      ) : null}
       {confirm ? (
         <Modal open title={`ذخیرهٔ فرم «${def.plural}»؟`} onCancel={() => setConfirm(null)} okText="ذخیره" cancelText="انصراف" onOk={save} okButtonProps={{ loading: busy }} width={560}>
           <div className="wfm-stack">

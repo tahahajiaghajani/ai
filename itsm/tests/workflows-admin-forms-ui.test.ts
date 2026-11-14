@@ -24,9 +24,9 @@ import { formsApi, type FormEntry, type FormOut, type FormPreview, type FormsLis
 import type { OrgApi } from "../src/ui/lib/api";
 import {
   HISTORY_LIMIT, KIND_SHORT, PROCESS_GROUP, addSection, addTab, autoSpan, behaviourOf, changeText, clampSel, draftProblems, filterForms, findField, groupRows,
-  hideBlocker, historyOf, historyPush, historyRedo, historyUndo, insertItem, kindOf, libraryDef, moveItem, oldLayoutTarget, paletteFields, previewTable,
+  hideBlocker, historyOf, historyPush, historyRedo, historyReplace, historyUndo, insertItem, kindOf, libraryDef, moveItem, oldLayoutTarget, paletteFields, previewTable,
   processDraft, processPatch, reconcileDraft, removeSection, requireBlocker, rightsSummary, saveStateText, sectionList, shiftItem, statusText, stepsUsing,
-  systemChanges, systemDraft, systemFields, systemRights, unplaced, updateSection, usedText, withBehaviour, type SystemDraft,
+  systemChanges, systemDraft, systemFields, systemRights, typingKey, unplaced, updateSection, usedText, withBehaviour, type SystemDraft,
 } from "../src/ui/modules/workflows/admin/forms/model";
 import type { TableMeta } from "../src/ui/records/model/types";
 import { engineOrg, type EngineOrg } from "./engine-helpers";
@@ -189,6 +189,17 @@ describe("the layout operations both designers share", () => {
     expect(behaviourOf(i)).toBe("required");
     expect(withBehaviour(i, "normal")).toEqual({ field: "u_a", label: "x" });
     expect([autoSpan("string", 2), autoSpan("text", 2), autoSpan("string", 1)]).toEqual([12, 24, 24]);
+  });
+
+  it("typing on in one box is one step of undo: only a typed text, one property at a time", () => {
+    expect(typingKey("item:0:0:1", { field: "u_a", label: "مب" }, { field: "u_a", label: "مبل" })).toBe("item:0:0:1:label");
+    expect(typingKey("item:0:0:1", { field: "u_a" }, { field: "u_a", help: "x" })).toBe("item:0:0:1:help");
+    expect(typingKey("item", { field: "u_a" }, { field: "u_a", required: true })).toBeUndefined();
+    expect(typingKey("field:x", { label: "a", hidden: false }, { label: "b", hidden: true })).toBeUndefined();
+    expect(typingKey("field:x", { requiredFor: null }, { requiredFor: "all" })).toBeUndefined();
+    const h = historyPush(historyOf("a"), "ab");
+    expect(historyReplace(h, "abc")).toEqual({ past: ["a"], present: "abc", future: [] });
+    expect(historyReplace(h, "ab")).toBe(h);
   });
 
   it("undo and redo: the same value changes nothing, a new one drops what was undone, the past is capped", () => {

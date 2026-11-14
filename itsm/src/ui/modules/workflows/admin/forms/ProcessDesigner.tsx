@@ -31,7 +31,7 @@ import { FieldSheet } from "../fields/FieldSheet";
 import { FORM_KEYS, formsApi, type FormDetail, type FormOut } from "./api";
 import {
   VIEWPOINTS, addSection, addTab, autoSpan, clampSel, draftProblems, insertItem, itemMarks, libraryDef, moveItem, paletteFields, processDraft, processPatch,
-  removeItem, removeSection, removeTab, renameTab, shiftItem, shiftSection, shiftTab, stepsUsing, targetSection, updateItem, updateSection, behaviourOf,
+  removeItem, removeSection, removeTab, renameTab, shiftItem, shiftSection, shiftTab, stepsUsing, targetSection, typingKey, updateItem, updateSection, behaviourOf,
   type ProcessDraft, type SaveState, type Sel,
 } from "./model";
 import { MoveControls, ProcessItemInspector, SectionInspector, TabInspector } from "./Inspectors";
@@ -135,11 +135,12 @@ function Designer({ detail }: { detail: FormDetail }) {
   useLeaveGuard(editable && state !== "saved", `/${orgId}/settings/forms`);
   useUndoKeys(editable, hist.undo, hist.redo);
 
+  // a change of the layout, and where the selection goes (`key`: typing on in one box is one step of undo)
   const edit = useCallback(
-    (fn: (d: ProcessDraft) => { layout: ProcessDraft["layout"]; sel?: Sel | null }) => {
+    (fn: (d: ProcessDraft) => { layout: ProcessDraft["layout"]; sel?: Sel | null }, key?: string) => {
       const d = draftRef.current;
       const r = fn(d);
-      hist.set({ ...d, layout: r.layout });
+      hist.set({ ...d, layout: r.layout }, key);
       if (r.sel !== undefined) setSel(r.sel);
     },
     [hist.set],
@@ -355,7 +356,7 @@ function Designer({ detail }: { detail: FormDetail }) {
         editable={editable}
         valuesDef={valuesDef}
         schema={schema}
-        onChange={(x) => edit((d) => ({ layout: updateItem(d.layout, itemAt, x) }))}
+        onChange={(x) => edit((d) => ({ layout: updateItem(d.layout, itemAt, x) }), typingKey(`item:${itemAt.t}:${itemAt.s}:${itemAt.i}`, item, x))}
         onRemove={() => edit((d) => {
           const layout = removeItem(d.layout, itemAt);
           return { layout, sel: clampSel(layout, sel) };
@@ -371,7 +372,7 @@ function Designer({ detail }: { detail: FormDetail }) {
         s={sel.s}
         editable={editable}
         columns
-        onChange={(p) => edit((d) => ({ layout: updateSection(d.layout, sel.t, sel.s, p as never) }))}
+        onChange={(p) => edit((d) => ({ layout: updateSection(d.layout, sel.t, sel.s, p as never) }), "label" in p ? `section:${sel.t}:${sel.s}` : undefined)}
         onShift={(d) => edit((x) => shiftSection(x.layout, sel.t, sel.s, d))}
         onRemove={async () => {
           const count = draft.layout.tabs[sel.t]?.sections[sel.s]?.items.length ?? 0;
@@ -389,7 +390,7 @@ function Designer({ detail }: { detail: FormDetail }) {
         layout={draft.layout}
         t={sel.t}
         editable={editable}
-        onRename={(label) => edit((d) => ({ layout: renameTab(d.layout, sel.t, label) }))}
+        onRename={(label) => edit((d) => ({ layout: renameTab(d.layout, sel.t, label) }), `tab:${sel.t}`)}
         onShift={(d) => edit((x) => shiftTab(x.layout, sel.t, d))}
         onRemove={async () => {
           if (!(await n.confirm("حذف زبانه و همهٔ بخش‌های آن؟", "اجزای این زبانه از فرم برداشته می‌شوند؛ با «واگرد» برمی‌گردند.", true))) return;
@@ -404,10 +405,10 @@ function Designer({ detail }: { detail: FormDetail }) {
     inspector = (
       <Block title="فرم">
         <Field label="نام فرم" htmlFor="wfm-form-name">
-          <Input id="wfm-form-name" value={draft.name} onChange={(e) => hist.set({ ...draftRef.current, name: e.target.value })} maxLength={120} disabled={!editable} />
+          <Input id="wfm-form-name" value={draft.name} onChange={(e) => hist.set({ ...draftRef.current, name: e.target.value }, "form:name")} maxLength={120} disabled={!editable} />
         </Field>
         <Field label="شرح" htmlFor="wfm-form-desc">
-          <Input.TextArea id="wfm-form-desc" value={draft.description} onChange={(e) => hist.set({ ...draftRef.current, description: e.target.value })} maxLength={2000} autoSize={{ minRows: 2, maxRows: 5 }} disabled={!editable} />
+          <Input.TextArea id="wfm-form-desc" value={draft.description} onChange={(e) => hist.set({ ...draftRef.current, description: e.target.value }, "form:description")} maxLength={2000} autoSize={{ minRows: 2, maxRows: 5 }} disabled={!editable} />
         </Field>
         <Field label="به کار رفته در">
           {detail.usage.processes.length ? (

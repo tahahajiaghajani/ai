@@ -347,6 +347,25 @@ export function historyPush<T>(h: History<T>, v: T): History<T> {
   return { past: [...h.past, h.present].slice(-HISTORY_LIMIT), present: v, future: [] };
 }
 
+/** The present replaced in place (typing on in the same box is one step to undo, not one per letter). */
+export function historyReplace<T>(h: History<T>, v: T): History<T> {
+  if (sameValue(h.present, v)) return h;
+  return { past: h.past, present: v, future: [] };
+}
+
+const TYPED = new Set(["label", "help", "placeholder", "text"]);
+
+/**
+ * The key that makes one edit a continuation of the last (`prefix:prop`) when the only change is to a typed text — a
+ * label, help, sample text or note — else undefined.
+ */
+export function typingKey(prefix: string, a: object, b: object): string | undefined {
+  const x = a as Record<string, unknown>;
+  const y = b as Record<string, unknown>;
+  const changed = [...new Set([...Object.keys(x), ...Object.keys(y)])].filter((k) => x[k] !== y[k]);
+  return changed.length === 1 && TYPED.has(changed[0]) ? `${prefix}:${changed[0]}` : undefined;
+}
+
 export function historyUndo<T>(h: History<T>): History<T> {
   if (!h.past.length) return h;
   return { past: h.past.slice(0, -1), present: h.past[h.past.length - 1], future: [h.present, ...h.future] };

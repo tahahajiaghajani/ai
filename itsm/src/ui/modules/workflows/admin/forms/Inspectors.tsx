@@ -201,7 +201,7 @@ export function SysFieldInspector({ table, tablePlural, field: f, value: o, edit
         </p>
       ) : null}
       <F label="پنهان در فرم" hint={hb && !o.hidden ? hb : "فیلد در فهرست‌ها، پالایه‌ها و خروجی می‌ماند"}>
-        <Switch checked={o.hidden} onChange={(v) => onChange({ hidden: v })} disabled={!editable || (!o.hidden && !!hb)} aria-label="پنهان در فرم" />
+        <Switch className="self-start" checked={o.hidden} onChange={(v) => onChange({ hidden: v })} disabled={!editable || (!o.hidden && !!hb)} aria-label="پنهان در فرم" />
       </F>
       <F label="الزامی برای…" hint={f.moduleRequired ? "ماژول آن را الزامی می‌خواهد" : rb && !o.requiredFor ? rb : undefined}>
         <Radio.Group
