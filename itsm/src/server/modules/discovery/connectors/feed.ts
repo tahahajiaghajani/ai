@@ -24,7 +24,7 @@ import { faDigits } from "@shared/format";
 import { ConnectorError, CONNECTOR_MESSAGES, type ConnCtx, type ConnectorKind } from "../kind";
 import {
   byAge, claimDrop, ensureDropFolder, failClaimed, finishClaimed, isClaimedName, ownName, readClaimed, readDrop, refuseDrop, scanDrop, supersedeDrop,
-  sweepDrop, workingFiles, type DropFile, type DropScan,
+  sweepDrop, workingFiles, type DropFile, type DropFolder, type DropScan,
 } from "../drop";
 import { restAuth } from "./rest";
 
@@ -44,6 +44,9 @@ export const FEED_MESSAGES = {
   refused: (name: string, why: string) => `فایل «${name}» پذیرفته نشد: ${why}`,
   vanished: (name: string) => `فایل «${name}» در میانهٔ خواندن از پوشه برداشته شد؛ این گذر تصویر کامل نیست`,
   busy: (name: string) => `فایل «${name}» اکنون باز نمی‌شود (برنامهٔ دیگری آن را در دست دارد)؛ کاریز دوباره تلاش می‌کند`,
+  noRead: "کاریز اجازهٔ خواندن این فایل را ندارد؛ به حساب سرویس کاریز اجازهٔ خواندن بدهید",
+  readError: (code: string) => `فایل از دیسک خوانده نشد (${code})؛ آن را دوباره در پوشه بگذارید`,
+  noMove: (name: string) => `کاریز اجازهٔ برداشتن فایل «${name}» از پوشه را ندارد؛ فایل را در پوشه رونوشت کنید (نه جابه‌جا) یا به حساب سرویس کاریز اجازهٔ تغییر (Modify) روی آن بدهید`,
   urlTooLarge: "فایل بزرگ‌تر از ۲۰ مگابایت است؛ آن را در چند فایل کوچک‌تر بدهید یا پوشهٔ ورودی سرور را به کار ببرید",
   summary: (format: string, rows: number) => `فایل ${format.toUpperCase()} با ${faDigits(rows)} ردیف`,
 } as const;
@@ -83,6 +86,17 @@ interface Entry {
 
 /** A file the kind cannot read: its Persian reason. */
 class FeedError extends Error {}
+
+/** System errors that pass by themselves: another program holds the file (the writer, an antivirus), or no handle is free. */
+const TRANSIENT = new Set(["EBUSY", "EAGAIN", "EMFILE", "ENFILE"]);
+
+/** A system error opening or reading a file of the folder: one that passes is tried again; any other is why it can never be read. */
+function systemError(e: unknown, name: string): unknown {
+  const code = (e as NodeJS.ErrnoException)?.code;
+  if (e instanceof FeedError || e instanceof ConnectorError || typeof code !== "string") return e;
+  if (TRANSIENT.has(code)) return new ConnectorError("network", FEED_MESSAGES.busy(ownName(name)));
+  return new FeedError(code === "EACCES" || code === "EPERM" ? FEED_MESSAGES.noRead : FEED_MESSAGES.readError(code));
+}
 
 /** The text of a file: UTF-16 by its byte-order mark, else UTF-8 (a mark dropped) or the options' Windows-1256. */
 export function decodeFeed(bytes: Uint8Array, encoding: FeedOptions["encoding"] = "utf-8"): string {
@@ -294,25 +308,27 @@ async function urlPage(c: ConnCtx, o: FeedOptions, cur: FeedCursor | null): Prom
 }
 
 /** The file a pass would read next, nothing moved (a preview, «آزمودن اتصال»). */
-async function peek(dir: string, o: FeedOptions): Promise<{ scan: DropScan; file: DropFile | null }> {
-  const scan = await scanDrop(dir);
-  const working = await workingFiles(dir);
+async function peek(d: DropFolder, o: FeedOptions): Promise<{ scan: DropScan; file: DropFile | null }> {
+  const scan = await scanDrop(d.dir);
+  const working = await workingFiles(d);
   const file = o.mode === "delta" ? (working[0] ?? scan.ready[0]) : [...working, ...scan.ready].sort(byAge).pop();
   return { scan, file: file ?? null };
 }
 
-async function readPeeked(dir: string, o: FeedOptions, f: DropFile): Promise<Entry> {
-  const bytes = await readDrop(f.working ? join(dir, "working", f.name) : join(dir, f.name));
+async function readPeeked(d: DropFolder, o: FeedOptions, f: DropFile): Promise<Entry> {
+  const bytes = await readDrop(f.working ? join(d.kept, "working", f.name) : join(d.dir, f.name)).catch((e) => {
+    throw systemError(e, f.name);
+  });
   if (!bytes) throw new FeedError(FEED_MESSAGES.vanished(ownName(f.name)));
   return entryOf(decodeFeed(bytes, o.encoding), o, { name: ownName(f.name) });
 }
 
-async function folderPreview(o: FeedOptions, dir: string): Promise<Page> {
-  const { file } = await peek(dir, o);
-  if (!file) throw new ConnectorError("config", FEED_MESSAGES.noFile(dir));
+async function folderPreview(o: FeedOptions, d: DropFolder): Promise<Page> {
+  const { file } = await peek(d, o);
+  if (!file) throw new ConnectorError("config", FEED_MESSAGES.noFile(d.dir));
   let entry: Entry;
   try {
-    entry = await readPeeked(dir, o, file);
+    entry = await readPeeked(d, o, file);
   } catch (e) {
     if (e instanceof FeedError || e instanceof ConnectorError) throw new ConnectorError("bad_response", FEED_MESSAGES.fileFailed(ownName(file.name), e.message));
     throw e;
@@ -321,46 +337,47 @@ async function folderPreview(o: FeedOptions, dir: string): Promise<Page> {
   return { records: page.records, raw: page.raw, next: null, complete: false, total: entry.rows.length };
 }
 
-/** The file a pass takes next, claimed into working/: a snapshot's newest (the older to supersede), a delta's oldest. */
-async function take(dir: string, o: FeedOptions, ready: DropFile[], t0: number): Promise<{ file: string; older: DropFile[] } | null> {
-  const working = await workingFiles(dir);
-  if (o.mode === "delta") {
-    const next = working[0] ?? ready.find((f) => f.mtimeMs <= t0);
-    if (!next) return null;
-    const file = next.working ? next.name : await claimDrop(dir, next);
-    return file ? { file, older: [] } : null;
-  }
-  const all = [...working, ...ready].sort(byAge);
-  const newest = all.pop();
-  if (!newest) return null;
-  // a newest file its writer still holds (Windows) waits, and so does everything older
-  const file = newest.working ? newest.name : await claimDrop(dir, newest);
-  return file ? { file, older: all } : null;
+/**
+ * The file a pass takes next, claimed into working/: a snapshot's newest (the older to supersede), a delta's oldest;
+ * or why it could not be claimed. Such a file waits (a delta's later files and a snapshot's older ones with it).
+ */
+async function take(d: DropFolder, o: FeedOptions, ready: DropFile[], t0: number): Promise<{ file: string; older: DropFile[] } | { note: string } | null> {
+  const working = await workingFiles(d);
+  const older = o.mode === "delta" ? [] : [...working, ...ready].sort(byAge);
+  const next = o.mode === "delta" ? (working[0] ?? ready.find((f) => f.mtimeMs <= t0)) : older.pop();
+  if (!next) return null;
+  if (next.working) return { file: next.name, older };
+  const got = await claimDrop(d, next);
+  if (typeof got === "string") return { file: got, older };
+  if (!got) return null;
+  return { note: got.refused === "busy" ? FEED_MESSAGES.busy(next.name) : FEED_MESSAGES.noMove(next.name) };
 }
 
 /** A claimed file parsed (from memory once this process read it): the entry, why it cannot be read, or null when gone. */
-async function loadClaimed(c: ConnCtx, o: FeedOptions, dir: string, name: string): Promise<Entry | string | null> {
+async function loadClaimed(c: ConnCtx, o: FeedOptions, d: DropFolder, name: string): Promise<Entry | string | null> {
   const key = keyOf(c, o, name);
   const hit = cache.get(key);
   if (hit) return hit;
   try {
-    const bytes = await readClaimed(dir, name);
+    const bytes = await readClaimed(d, name);
     if (!bytes) return null;
     const entry = entryOf(decodeFeed(bytes, o.encoding), o, { name: ownName(name) });
     remember(key, entry);
     return entry;
   } catch (e) {
     if (e instanceof FeedError || e instanceof ConnectorError) return e.message;
-    // there but not to be opened now (on Windows an antivirus or the writer may hold it): the page is tried again
-    if ((e as NodeJS.ErrnoException)?.code) throw new ConnectorError("network", FEED_MESSAGES.busy(ownName(name)));
-    throw e;
+    // there but not to be opened now (on Windows an antivirus or the writer may hold it): the page is tried again;
+    // a file the service may not read, or a disk error, is a reason like any unreadable file's
+    const err = systemError(e, name);
+    if (err instanceof FeedError) return err.message;
+    throw err;
   }
 }
 
 async function folderPage(c: ConnCtx, o: FeedOptions, cur: FeedCursor | null): Promise<Page> {
   if (c.edition !== "server") throw new ConnectorError("config", FEED_MESSAGES.folderServerOnly);
-  const dir = await ensureDropFolder(c.connector.id);
-  if (c.preview) return folderPreview(o, dir);
+  const d = await ensureDropFolder(c.connector.id);
+  if (c.preview) return folderPreview(o, d);
   const notes: { message: string }[] = [];
   const delta = o.mode === "delta";
   let state: FeedCursor = cur ?? { at: 0, n: 0 };
@@ -368,16 +385,18 @@ async function folderPage(c: ConnCtx, o: FeedOptions, cur: FeedCursor | null): P
   if (!state.file) {
     const now = Date.now();
     // the pass's first call keeps the folder: old files out, refused ones to failed/ with their reasons
-    if (!cur) await sweepDrop(dir, now);
-    const scan = await scanDrop(dir, now);
+    if (!cur) await sweepDrop(d, now);
+    const scan = await scanDrop(d.dir, now);
     for (const r of scan.refused) {
-      await refuseDrop(dir, r, now);
+      await refuseDrop(d, r, now);
       notes.push({ message: FEED_MESSAGES.refused(r.name, r.reason) });
     }
     const t0 = state.t0 ?? now;
-    const taken = await take(dir, o, scan.ready, t0);
-    // nothing (more) to read: the pass lists nothing new and marks nothing gone
-    if (!taken) return { records: [], next: null, complete: false, rejected: notes };
+    const taken = await take(d, o, scan.ready, t0);
+    // nothing (more) to read, or the file to read waits (the pass says why): the pass lists nothing new and marks
+    // nothing gone
+    if (taken && "note" in taken) notes.push({ message: taken.note });
+    if (!taken || "note" in taken) return { records: [], next: null, complete: false, rejected: notes };
     older = taken.older;
     state = { file: taken.file, at: 0, t0, n: state.n + 1 };
   }
@@ -386,24 +405,24 @@ async function folderPage(c: ConnCtx, o: FeedOptions, cur: FeedCursor | null): P
   // the runner kept the file's last page with this cursor: only now does the file leave working/ (a pass killed before
   // that finds it there again)
   if (state.read) {
-    await finishClaimed(dir, file);
+    await finishClaimed(d, file);
     cache.delete(keyOf(c, o, file));
     return { records: [], next: afterFile(), complete: !delta && !state.partial, rejected: notes };
   }
-  const loaded = await loadClaimed(c, o, dir, file);
+  const loaded = await loadClaimed(c, o, d, file);
   if (loaded === null) {
     notes.push({ message: FEED_MESSAGES.vanished(ownName(file)) });
     return { records: [], next: afterFile(), complete: false, rejected: notes };
   }
   if (typeof loaded === "string") {
-    await failClaimed(dir, file, loaded);
+    await failClaimed(d, file, loaded);
     const message = FEED_MESSAGES.fileFailed(ownName(file), loaded);
     if (!delta) throw new ConnectorError("bad_response", message);
     notes.push({ message });
     return { records: [], next: afterFile(), complete: false, rejected: notes };
   }
   // the newest snapshot reads well: the older ones it supersedes go to processed/ unread
-  for (const f of older) await supersedeDrop(dir, f);
+  for (const f of older) await supersedeDrop(d, f);
   const partial = !!state.partial || (state.sha !== undefined && state.sha !== loaded.sha);
   const page = slice(loaded, o, state.at);
   return {
@@ -419,13 +438,14 @@ async function test(c: ConnCtx): Promise<TestResult> {
   const o = c.options as FeedOptions;
   if (o.source === "folder") {
     if (c.edition !== "server") return { ok: false, warnings: [], message: FEED_MESSAGES.folderServerOnly };
-    const dir = await ensureDropFolder(c.connector.id);
-    const { scan, file } = await peek(dir, o);
+    const d = await ensureDropFolder(c.connector.id);
+    const dir = d.dir;
+    const { scan, file } = await peek(d, o);
     const warnings = scan.refused.slice(0, 5).map((r) => FEED_MESSAGES.refused(r.name, r.reason));
     if (scan.settling.length) warnings.push(FEED_MESSAGES.settling(scan.settling.length));
     if (!file) return { ok: true, identity: dir, warnings: [...warnings, FEED_MESSAGES.noFile(dir)] };
     try {
-      const entry = await readPeeked(dir, o, file);
+      const entry = await readPeeked(d, o, file);
       return { ok: true, identity: dir, warnings: entry.rows.length ? warnings : [...warnings, FEED_MESSAGES.empty] };
     } catch (e) {
       if (e instanceof FeedError || e instanceof ConnectorError) return { ok: false, identity: dir, warnings, message: FEED_MESSAGES.fileFailed(ownName(file.name), e.message) };
