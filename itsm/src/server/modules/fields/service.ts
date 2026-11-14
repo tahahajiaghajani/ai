@@ -20,7 +20,7 @@ import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
 import { bad, conflict, forbidden, notFound } from "../../http/errors";
-import { createIn, orgSchema, removeIn, updateIn } from "../../engine";
+import { createIn, get, orgSchema, removeIn, updateIn } from "../../engine";
 import { sysOf } from "../admin/common";
 import type { Row } from "../../engine/hooks";
 import { SETTINGS_ENV, groupChangeRefusal, groupChanges, orgFieldTypes } from "./hooks";
@@ -132,6 +132,17 @@ export async function typeList(ctx: Ctx) {
       };
     }),
   };
+}
+
+/**
+ * GET /fields/library/:id, GET /fields/types/:id — one library field or field type whole (every column its sheet
+ * edits), for the same people as the lists (`process_design` read or `settings` edit): the generic record API admits
+ * `process_design` readers only, so a `settings` editor could make a field and never open it again. Read as the
+ * system for the person; 404 for a removed or unknown row.
+ */
+export async function libraryRow(ctx: Ctx, table: "field_def" | "field_type", id: string): Promise<{ row: Row }> {
+  await needDesignRead(ctx);
+  return { row: (await get(actingFor(ctx), table, id)).row as Row };
 }
 
 /** POST/PATCH of a library field or a field type (as the system, for the person). */
