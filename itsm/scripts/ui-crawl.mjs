@@ -233,6 +233,20 @@ const SEED = [
   ["ci", { name: "SRV-CORE-01", class: "server" }],
   // a process form, for its designer (settings/forms/:id)
   ["form", { name: "فرم نمونهٔ بازدید شعبه" }],
+  // a workflow with a new process's draft (start and «ثبت درخواست»), for its designer (settings/workflows/p/:id)
+  ["process", {
+    name: "گردش‌کار نمونهٔ بازدید شعبه",
+    key: "sample_branch_visit",
+    draft: {
+      graph: {
+        nodes: [
+          { id: "start", type: "trigger", config: {} },
+          { id: "request", type: "form_step", label: "ثبت درخواست", config: { action: "fill", start: true, form: null, rights: { default: "edit", fields: {} }, assignees: [{ kind: "requester" }] } },
+        ],
+        edges: [{ id: "start.out.request", source: "start", target: "request" }],
+      },
+    },
+  }],
 ];
 
 /** Parameterised pages no record list leads to: the crawler fills them in (a table every organisation has, a seeded row). */
@@ -240,6 +254,7 @@ const PARAM_PAGES = {
   "settings/forms/t/:table": () => "settings/forms/t/incident",
   "settings/forms/:id": (seeded) => (/^[0-9a-f-]{36}$/.test(seeded.form ?? "") ? `settings/forms/${seeded.form}` : null),
   "settings/workflows/states/:table": () => "settings/workflows/states/incident",
+  "settings/workflows/p/:id": (seeded) => (/^[0-9a-f-]{36}$/.test(seeded.process ?? "") ? `settings/workflows/p/${seeded.process}` : null),
 };
 
 async function seed(call, orgId, me) {
