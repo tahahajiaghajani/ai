@@ -114,8 +114,9 @@ async function setRows(ctx: Ctx, setId: string): Promise<{ rows: Record<string, 
 /** Import holders (see the header). */
 export async function importHolders(ctx: Ctx, input: HolderImportInput): Promise<HolderImportResult> {
   if (ctx.actor !== "user") throw forbidden("دارندگان نقش‌های سازمانی را عضو سازمان وارد می‌کند");
+  // holders are placed where the person's `org` write reaches (unit, unit tree, domain or all; each row is checked again)
   const org = grantIn((await prepareSubject(ctx)).subject.eff, "org");
-  if (!org.create && org.write === "none") throw forbidden("نگه‌داری دارندگان نقش‌های سازمانی با کسانی است که ساختار سازمانی را تغییر می‌دهند");
+  if (!org.create || !["unit", "unit_tree", "domain", "all"].includes(org.write)) throw forbidden("نگه‌داری دارندگان نقش‌های سازمانی با کسانی است که ساختار سازمانی را تغییر می‌دهند");
   const setId = input.import_set_id ? String(input.import_set_id).toLowerCase() : null;
   const mode = input.mode === "replace" ? "replace" : "merge";
   if (mode === "replace" && !setId) throw bad("جایگزینی فقط با یک مجموعهٔ ورود ممکن است: دارندگانی که همان مجموعه وارد کرده بود و در فایل نیستند برداشته می‌شوند");

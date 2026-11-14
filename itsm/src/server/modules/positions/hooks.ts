@@ -7,13 +7,17 @@
 //     required); «از» never after «تا»; one row per position, person and unit (the database index cannot see an empty
 //     unit, so the hook checks); provenance is the server's: a person's row is «دستی», an import marks its own,
 //     and the directory's (and an import's) rows keep their position, person and unit — they are ended or removed
-//     instead, so the directory or the file keeps what it said.
+//     instead, so the directory or the file keeps what it said. A holder is placed only where the writer's `org` write
+//     reaches its unit (a create is otherwise asked only for the area's «ایجاد»): team leads, whose «group» scope
+//     reaches no holder, place none — nor does server code acting for a person (an import, a directory's approver).
 import { faDigits } from "@shared/format";
 import { POSITION_KEY } from "@shared/tables/positions";
 import { UNIT_KINDS } from "@shared/tables/access";
 import { normalizeSearch } from "@shared/model/conditions";
-import { bad } from "../../http/errors";
+import { bad, forbidden } from "../../http/errors";
 import { isSystemCtx, pushGuard, registerHooks, type PushArgs, type WriteArgs } from "../../engine";
+import { access } from "../../access/provider";
+import { prepareSubject } from "../../access/subject";
 import type { Queryable } from "../../db";
 
 type Row = Record<string, unknown>;
@@ -102,6 +106,13 @@ async function holderGuard(w: WriteArgs): Promise<void> {
     );
   }
   const placed = w.op === "create" || FIXED.some((f) => w.changed.has(f));
+  if (placed && !isSystemCtx(ctx)) {
+    await prepareSubject(ctx, tx);
+    if (!access().canWrite(ctx, w.def, { ...n, org_id: org })) {
+      const unit = idOf(n.org_unit_id) ? await tx.one<{ name: string }>(`select name from sm_org_units where org_id = $1 and id = $2`, [org, idOf(n.org_unit_id)]) : null;
+      throw forbidden(`اجازهٔ تعیین دارندهٔ نقش سازمانی${unit ? ` در «${unit.name}»` : ""} را ندارید؛ تغییر ساختار سازمانی ${unit ? "در این واحد" : "سازمان"} لازم است`);
+    }
+  }
   if (placed) {
     const pos = await positionOf(tx, org, n.position_id);
     if (!pos) throw bad("نقش سازمانی پیدا نشد");
