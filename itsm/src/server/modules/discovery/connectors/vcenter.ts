@@ -290,7 +290,8 @@ async function page(c: ConnCtx, cursor: Cursor | null): Promise<Page> {
   hosts: while (i < cur.units.length) {
     const unit = cur.units[i];
     const vms = (await vmsOf(c, unit.id)).slice(done);
-    const known = c.known ? await c.known(vms.map((v) => v.vm)) : new Map<string, KnownItem>();
+    const ids = vms.map((v) => v?.vm).filter((x): x is string => typeof x === "string" && !!x);
+    const known = c.known && ids.length ? await c.known(ids) : new Map<string, KnownItem>();
     for (const vm of vms) {
       if (full()) break hosts;
       done++;
