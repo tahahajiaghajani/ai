@@ -80,6 +80,7 @@ import { installFormsModule } from "../modules/forms";
 import { formsRoutes } from "./forms";
 import { installPositionsModule } from "../modules/positions";
 import { installProcessEngine } from "../modules/process/engine";
+import { installProcessAccess } from "../modules/process/access";
 import { positionsRoutes } from "./positions";
 import { adminTenantRoutes } from "./admin-tenant";
 import { demoRoutes } from "./demo";
@@ -158,6 +159,8 @@ installFormsModule();
 installPositionsModule();
 // workflows (design F, F4a): cases run on the flows executor as runs of kind «process»
 installProcessEngine();
+// workflow access (design F, F4b): who reads a case and what of it, and who writes the workflow tables
+installProcessAccess();
 // the integration hub (docs/modules/integration_FA.md) — integration users and keys, webhooks, LDAP/AD, SCIM, Jira/GitHub, exports
 installIntegrationModule();
 
