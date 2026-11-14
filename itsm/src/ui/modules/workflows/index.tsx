@@ -5,7 +5,9 @@
 import type { ModuleUi } from "../registry";
 import { assemble } from "./parts";
 import { kitPart } from "./kit/routes";
+import { fieldsPart } from "./admin/fields/routes";
+import { positionsPart } from "./admin/positions/routes";
 // the position picker and the «پیوست» widget in every record form
 import "./kit/register";
 
-export const workflowsUi: ModuleUi = assemble([kitPart]);
+export const workflowsUi: ModuleUi = assemble([fieldsPart, positionsPart, kitPart]);

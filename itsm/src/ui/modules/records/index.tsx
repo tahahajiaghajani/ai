@@ -1,18 +1,16 @@
 // The record engine's generic screens: every table at `r/:table`, `r/:table/new` and `r/:table/:id` (so a table works
 // the moment it is registered), «کارها» (the engine's demo table `todo`) built with `recordModule` the way ITSM
-// modules build theirs, and the designers of Settings › «سفارشی‌سازی»: custom fields, choice lists, form layouts
-// and saved views. See docs/spec/UI_RECORDS.md.
+// modules build theirs, and the designers of Settings › «سفارشی‌سازی»: form layouts and saved views (custom fields
+// and choice lists moved to «فیلدها» of the workflows module, design F D13). See docs/spec/UI_RECORDS.md.
 import { lazy } from "react";
 import { useNavigate } from "react-router";
 import { Button } from "antd";
-import { Bookmark, LayoutTemplate, List, ListChecks, ListPlus, ExternalLink } from "lucide-react";
+import { Bookmark, LayoutTemplate, ListChecks, ExternalLink } from "lucide-react";
 import { useOrg } from "../../lib/org";
 import { recordModule, RecordListRoute, RecordPageRoute } from "../../records/module";
 import { registerRecordExtensions, tablePath, type RecordContext } from "../../records/extensions";
 import type { ModuleUi } from "../registry";
 
-const CustomFields = lazy(() => import("../../records/admin/CustomFields"));
-const ChoiceLists = lazy(() => import("../../records/admin/ChoiceLists"));
 const FormLayoutEditor = lazy(() => import("../../records/admin/FormLayoutEditor"));
 const ViewsManager = lazy(() => import("../../records/admin/ViewsManager"));
 
@@ -60,8 +58,6 @@ export const recordsUi: ModuleUi = {
       label: "سفارشی‌سازی",
       space: "settings",
       items: [
-        { key: "custom-fields", label: "فیلدهای سفارشی", path: "settings/fields", area: "settings", icon: ListPlus, section: "سفارشی‌سازی", keywords: "فیلد سفارشی برچسب الزامی ستون" },
-        { key: "choice-lists", label: "فهرست‌های گزینه", path: "settings/choices", area: "settings", icon: List, section: "سفارشی‌سازی", keywords: "گزینه دسته رنگ ترتیب فهرست" },
         { key: "form-layouts", label: "چیدمان فرم‌ها", path: "settings/forms", area: "settings", icon: LayoutTemplate, section: "سفارشی‌سازی", keywords: "فرم بخش زبانه چیدمان" },
         { key: "saved-views", label: "نماهای ذخیره‌شده", path: "settings/views", icon: Bookmark, section: "سفارشی‌سازی", keywords: "نما فیلتر صف پیش‌فرض اشتراکی" },
       ],
@@ -72,8 +68,6 @@ export const recordsUi: ModuleUi = {
     { path: "r/:table", element: <RecordListRoute /> },
     { path: "r/:table/new", element: <RecordPageRoute id="new" /> },
     { path: "r/:table/:id", element: <RecordPageRoute /> },
-    { path: "settings/fields", element: <CustomFields /> },
-    { path: "settings/choices", element: <ChoiceLists /> },
     { path: "settings/forms", element: <FormLayoutEditor /> },
     { path: "settings/views", element: <ViewsManager /> },
   ],
