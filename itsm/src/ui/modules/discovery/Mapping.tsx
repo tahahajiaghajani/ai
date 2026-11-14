@@ -43,10 +43,12 @@ export function MappingTab({ page, d, onDirty, onSaved }: { page: ConnectorPage;
   const stored = (page.row as { mapping?: unknown }).mapping;
   const id = page.row.id;
   const rest = d.kind === "rest";
-  const [rows, setRows] = useState<MapRow[]>(() => [...mappingRows(stored), blank()]);
+  const editable = page.can.edit && page.meta?.canWrite !== false && !(page.meta?.readonly ?? []).includes("mapping");
+  // an editor keeps one empty line waiting at the end; a reader sees the map only
+  const start = () => [...mappingRows(stored), ...(editable ? [blank()] : [])];
+  const [rows, setRows] = useState<MapRow[]>(start);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const editable = page.can.edit && page.meta?.canWrite !== false && !(page.meta?.readonly ?? []).includes("mapping");
   const dirty = mappingDraft(stored, rows);
   const problems = mappingProblems(rows, rest);
   const blocked = Object.keys(problems.byRow).length > 0 || problems.general.length > 0;
@@ -240,7 +242,7 @@ export function MappingTab({ page, d, onDirty, onSaved }: { page: ConnectorPage;
           ) : !rest && item.isLoading ? (
             <Skeleton rows={4} />
           ) : (
-            <EmptyState compact title={rest ? "دادهٔ خام ابزار را مدیر سازمان می‌بیند" : "هنوز موردی گزارش نشده است"} description={rest ? "«پیش‌نمایش با این نگاشت» نتیجه را نشان می‌دهد." : undefined} />
+            <EmptyState compact title={rest ? "دادهٔ خام ابزار را مدیر سازمان می‌بیند" : "هنوز موردی گزارش نشده است"} description={rest && page.can.preview ? "«پیش‌نمایش با این نگاشت» نتیجه را نشان می‌دهد." : undefined} />
           )}
         </section>
       </div>
@@ -255,7 +257,7 @@ export function MappingTab({ page, d, onDirty, onSaved }: { page: ConnectorPage;
             <Button icon={<Plus {...I16} />} onClick={() => setRows((xs) => [...xs, blank()])}>
               ردیف تازه
             </Button>
-            <Button onClick={() => setRows([...mappingRows(stored), blank()])} disabled={!dirty || saving}>
+            <Button onClick={() => setRows(start())} disabled={!dirty || saving}>
               انصراف
             </Button>
             <Button type="primary" loading={saving} disabled={!dirty || blocked} onClick={() => void save()}>
