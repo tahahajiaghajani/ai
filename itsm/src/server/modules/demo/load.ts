@@ -23,6 +23,7 @@ import { addTimelineEvent, majorAction, sendUpdate } from "../incident";
 import { secureWorkspace } from "../security/common";
 import { ARTICLES, BANK_DOMAIN, BANK_NAME, BRANCH_STREETS, CHANGES, DEMO_SIZES, FIRST_NAMES, GROUPS, HQ_DEPARTMENTS, INCIDENTS, KNOWN_NAMES, LAST_NAMES, PROBLEMS, PROVINCES, REGION_OF, REGIONS, REQUESTS, Rng, SERVICES, type DemoSize, type Persona } from "./bank";
 import { costCentresIn, stepAnalytics, stepContinuityGrc, stepCsm, stepDelivery, stepDocs, stepEsm, stepEvents, stepExperience, stepField, stepFinance, stepPortal, stepWorkforce } from "./modules";
+import { stepWorkflow } from "./workflow";
 
 /** What the steps share (saved with the pack between job invocations). */
 export interface LoadMemo {
@@ -268,6 +269,7 @@ export const STEPS: Step[] = [
   { key: "continuity", label: "تداوم کسب‌وکار، کنترل‌ها و ریسک‌ها", run: stepContinuityGrc },
   { key: "delivery", label: "انتشارها، دواپس و پروژه‌ها", run: stepDelivery },
   { key: "portal", label: "درگاه: پیوندها، موضوع‌ها، نظرسنجی‌ها و پاسخ‌ها", run: stepPortal },
+  { key: "workflows", label: "گردش‌کار نمونه: درخواست دسترسی به سامانه", run: stepWorkflow },
   { key: "analytics", label: "داشبوردها و شاخص‌های بانک", run: stepAnalytics },
 ];
 

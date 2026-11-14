@@ -19,6 +19,7 @@ import type { ServerConfig } from "@server/context";
 import type { Db } from "@server/db";
 import { tick, enqueue } from "@server/jobs";
 import { runToEnd } from "@server/modules/demo";
+import { DEMO_WORKFLOW } from "@server/modules/demo/bank";
 import { systemCtx, archiveBatch } from "@server/engine";
 import { TABLES } from "@shared/tables";
 import { collectAll } from "@server/modules/analytics/indicators";
@@ -285,7 +286,8 @@ describe.skipIf(skip)(title, () => {
     expect(status.refused ?? {}).toEqual({});
     for (const k of ["budget", "allocation_rule", "allocation_run", "slm_xla_policy", "wfm_person_skill", "wfm_roster", "wfm_absence", "customer_account", "customer_case", "case_escalation", "install_base_item",
       "facility_request", "finance_case", "legal_request", "purchase_request", "reservation", "territory", "technician", "work_order", "parts_requirement", "maintenance_plan", "event", "bia", "continuity_plan", "exercise", "outage",
-      "grc_control", "grc_risk", "release", "deployment", "dev_repository", "project", "project_task", "portal_link", "portal_topic", "survey", "survey_response", "doc_document", "analytics_dashboard", "analytics_indicator"]) {
+      "grc_control", "grc_risk", "release", "deployment", "dev_repository", "project", "project_task", "portal_link", "portal_topic", "survey", "survey_response", "doc_document", "analytics_dashboard", "analytics_indicator",
+      "field_def", "form", "process"]) {
       expect(status.counts[k] ?? 0, k).toBeGreaterThan(0);
     }
     const n = async (sql: string) => (await e.db.one<{ n: number }>(sql.replace("$org", "$1"), [e.org]))!.n;
@@ -453,6 +455,20 @@ describe.skipIf(skip)(title, () => {
     await finance.c.post(`/o/${e.org}/financial/entries/${entry!.id}/reverse`, { reason: "ثبت تکراری قرارداد (نمایشی)" });
     // the real owner's note on a demo customer case (a side row of demo data, removed with it)
     await e.owner.post(`/o/${e.org}/r/customer_case/${kase!.id}/journal`, { kind: "work_note", body: "یادداشت مالک روی پروندهٔ نمایشی" });
+    // the pack's workflow (src/server/modules/demo/workflow.ts), as a presentation uses it: the pack's requester starts a
+    // case from its start form and the pack's security analyst approves it — demo work: the case, its runs, steps,
+    // submissions, journal and bells go with the pack. (A real member's case of it is real work, like any real record
+    // naming demo data: the purge keeps it and reports its reference — docs/DEMO_FA.md.)
+    const W = DEMO_WORKFLOW;
+    const requester = await persona("requester");
+    const started = await requester.c.post(`/o/${e.org}/process/start`, { process: W.key, values: { [W.fields.system.name]: "سامانهٔ اعتبارات", [W.fields.reason.name]: "بررسی پرونده‌های تسهیلات شعبه" } }, 201);
+    await drain(e, ["flows.run", "flows.resume"], 120_000);
+    const analyst = await persona("soc");
+    const approval = (await analyst.c.get(`/o/${e.org}/process/inbox`)).rows.find((r: { case_id: string }) => r.case_id === started.case);
+    expect(approval, "the security analyst's step of the demo case").toBeTruthy();
+    await analyst.c.post(`/o/${e.org}/process/tasks/${approval.id}/submit`, { outcome: "approved", values: { [W.fields.note.name]: "دسترسی خواندنی بی‌اشکال است" } });
+    await drain(e, ["flows.run", "flows.resume"], 120_000);
+    expect((await requester.c.get(`/o/${e.org}/process/cases/${started.case}`)).statuses).toMatchObject({ approve: { status: "done" }, grant: { status: "active" } });
     await settle(e, 180_000);
     // the platform's own computations over the pack: every XLA rescore and document ingestion ran
     await drain(e, ["slm.xla", "docs.ingest"]);

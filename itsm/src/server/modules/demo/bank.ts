@@ -251,3 +251,29 @@ export const KNOWN_NAMES = {
 } as const;
 
 export type Persona = keyof typeof KNOWN_NAMES;
+
+/**
+ * The pack's workflow (./workflow.ts, design F): «درخواست دسترسی به سامانه» — the requester's form, the security team's
+ * approval, the service desk's grant. Every member may start it. The Windows app's end-to-end test starts it as a
+ * member (scripts/desktop-e2e.mjs reads these names; tests/packaging-desktop-e2e.test.ts keeps the two in step). The
+ * key, the name and the fields are the pack's own: a real organisation's workflow of the same purpose is never touched.
+ */
+export const DEMO_WORKFLOW = {
+  key: "aftab_access_request",
+  name: "درخواست دسترسی به سامانه (نمونه)",
+  category: "فناوری اطلاعات",
+  description: "گردش‌کار نمونهٔ بانک: کارمند دسترسی به یک سامانه را درخواست می‌کند، مرکز عملیات امنیت تأیید می‌کند و میز خدمت دسترسی را می‌دهد.",
+  form: "فرم درخواست دسترسی به سامانه (نمونه)",
+  steps: { start: "ثبت درخواست", approve: "تأیید امنیت اطلاعات", grant: "اعطای دسترسی" },
+  fields: {
+    system: { name: "u_aftab_system", label: "سامانه", type: "string", help: "نام سامانه‌ای که به آن دسترسی می‌خواهید" },
+    access: { name: "u_aftab_access", label: "سطح دسترسی", type: "select" },
+    reason: { name: "u_aftab_reason", label: "دلیل نیاز", type: "text" },
+    note: { name: "u_aftab_note", label: "شرح اقدام", type: "text", help: "آنچه بررسی یا انجام شد" },
+  },
+  access: [
+    { value: "read", label: "فقط خواندن" },
+    { value: "write", label: "خواندن و نوشتن" },
+    { value: "admin", label: "مدیریت" },
+  ],
+} as const;
