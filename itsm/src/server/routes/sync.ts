@@ -61,6 +61,8 @@ syncRoutes.use("*", requireUser);
 export const PULL_PAGE = 1000;
 /** Tables read by one statement of a pull page (each holds its tables' locks only while it runs). */
 const SOURCES_PER_STATEMENT = 24;
+/** A protocol number worth keeping on a device (sm_devices.sync_protocol is an integer). */
+const MAX_PROTOCOL = 1_000_000;
 
 async function orgCtx(c: C, orgId: string): Promise<Ctx> {
   const cfg = c.get("cfg");
@@ -88,17 +90,21 @@ syncRoutes.get("/status", async (c) => {
 });
 
 syncRoutes.post("/register", async (c) => {
-  const input = await body(c, z.object({ org_id: z.string(), device_id: z.string().uuid().optional(), name: z.string().max(120), platform: z.string().max(40).optional(), app_version: z.string().max(40).optional() }));
+  const input = await body(
+    c,
+    z.object({ org_id: z.string(), device_id: z.string().uuid().optional(), name: z.string().max(120), platform: z.string().max(40).optional(), app_version: z.string().max(40).optional(), protocol: z.number().int().min(0).max(MAX_PROTOCOL).optional() }),
+  );
   const ctx = await orgCtx(c, input.org_id);
   // A device id is no secret (it rides along as the origin of synced rows): an id registered by
   // another account or for another organisation gets a fresh one instead of taking that record over.
   const save = (id: string) =>
     ctx.db.one<{ id: string }>(
-      `insert into sm_devices (id, org_id, user_id, name, platform, app_version) values ($1, $2, $3, $4, $5, $6)
-       on conflict (id) do update set name = excluded.name, platform = excluded.platform, app_version = excluded.app_version, revoked_at = null
+      `insert into sm_devices (id, org_id, user_id, name, platform, app_version, sync_protocol) values ($1, $2, $3, $4, $5, $6, $7)
+       on conflict (id) do update set name = excluded.name, platform = excluded.platform, app_version = excluded.app_version, sync_protocol = excluded.sync_protocol, revoked_at = null
        where sm_devices.org_id = excluded.org_id and sm_devices.user_id = excluded.user_id
        returning id`,
-      [id, ctx.org.id, ctx.user.id, input.name, input.platform ?? null, input.app_version ?? null],
+      // an app from before 16 names no protocol: unknown until its first pull or push (refused) records it
+      [id, ctx.org.id, ctx.user.id, input.name, input.platform ?? null, input.app_version ?? null, input.protocol ?? null],
     );
   const row = (input.device_id ? await save(input.device_id) : null) ?? (await save(uuidv7()));
   return c.json({ device_id: row!.id, protocol: SYNC_PROTOCOL });
@@ -147,9 +153,31 @@ const pushSchema = z.object({
  */
 const OUTDATED = "نسخه‌ی برنامه‌ی ویندوز با سرور هم‌خوان نیست؛ برنامه را به‌روز کنید";
 
+/** The protocol a request named: 0 when it named none or nonsense (an app from before pulls named it). */
+const protocolOf = (raw: unknown): number => {
+  const n = typeof raw === "number" ? raw : typeof raw === "string" && raw.trim() ? Number(raw) : NaN;
+  return Number.isInteger(n) && n >= 0 && n <= MAX_PROTOCOL ? n : 0;
+};
+
+/**
+ * The sync protocol a Windows app spoke, on its own device record (a device id of another account changes nothing) —
+ * also when it is refused for it, before anything else is read: the platform console counts the apps of another
+ * protocol as outdated (versionStatus, `deviceOutdated`), whose version string may be this build's own.
+ */
+async function noteProtocol(c: C, deviceId: unknown, protocol: number): Promise<void> {
+  if (typeof deviceId !== "string" || !/^[0-9a-f-]{36}$/i.test(deviceId)) return;
+  await c
+    .get("cfg")
+    .db.query(`update sm_devices set sync_protocol = $3 where id = $1 and user_id = $2 and sync_protocol is distinct from $3`, [deviceId, c.get("user").id, protocol])
+    .catch(() => undefined);
+}
+
 syncRoutes.post("/push", async (c) => {
   const input = await body(c, pushSchema);
-  if (input.protocol !== SYNC_PROTOCOL) throw bad(OUTDATED);
+  if (input.protocol !== SYNC_PROTOCOL) {
+    await noteProtocol(c, input.device_id, protocolOf(input.protocol));
+    throw bad(OUTDATED);
+  }
   const ctx = await orgCtx(c, input.org_id);
   // a demo person's push is demo work (docs/DEMO_FA.md): recorded with the pack and removed with it
   if (ctx.user.prefs?.demo_org === ctx.org.id) return inDemoScope(ctx.org.id, () => pushAs(c, input, ctx));
@@ -291,7 +319,7 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
     const event: SecurityEventInput = { kind: e.kind, user_id: e.user_id, email, org_id: ctx.org.id, ...requestMeta(c), data: { ...e.data, by: ctx.user.id, by_name: ctx.user.full_name } };
     await securityEvent(ctx.db, event);
   }
-  await ctx.db.query(`update sm_devices set last_push_at = now() where id = $1 and org_id = $2 and user_id = $3`, [input.device_id, ctx.org.id, ctx.user.id]);
+  await ctx.db.query(`update sm_devices set last_push_at = now(), sync_protocol = $4 where id = $1 and org_id = $2 and user_id = $3`, [input.device_id, ctx.org.id, ctx.user.id, SYNC_PROTOCOL]);
   return c.json({ results, head: snapText(await currentSnap(ctx.db)) });
 }
 
@@ -311,7 +339,10 @@ type Source = { def: AggregateDef } | { users: true };
 syncRoutes.get("/pull", async (c) => {
   const query = c.req.query();
   // every pull names its protocol (apps before 16 send none): anything else is told to update, never served a page
-  if (Number(query.protocol) !== SYNC_PROTOCOL) throw bad(OUTDATED);
+  if (Number(query.protocol) !== SYNC_PROTOCOL) {
+    await noteProtocol(c, query.device_id, protocolOf(query.protocol));
+    throw bad(OUTDATED);
+  }
   const ctx = await orgCtx(c, query.org_id ?? "");
   const since = parseSnap(query.since);
   const snapIn = parseSnap(query.snap);
@@ -457,11 +488,12 @@ syncRoutes.get("/pull", async (c) => {
     return c.json({ aggregates: [], tombstones: [], users: [], cursor: "", snap: null, after: null, head: page.head, has_more: true, reset: true, epoch: page.epoch });
   }
   if (query.device_id && /^[0-9a-f-]{36}$/i.test(query.device_id)) {
-    await ctx.db.query(`update sm_devices set last_pull_at = now(), cursor = $2 where id = $1 and org_id = $3 and user_id = $4`, [
+    await ctx.db.query(`update sm_devices set last_pull_at = now(), cursor = $2, sync_protocol = $5 where id = $1 and org_id = $3 and user_id = $4`, [
       query.device_id,
       page.more ? (since?.xmin ?? 0) : page.snap.xmin,
       ctx.org.id,
       ctx.user.id,
+      SYNC_PROTOCOL,
     ]);
   }
   return c.json({

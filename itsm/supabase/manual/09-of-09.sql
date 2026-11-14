@@ -1,4 +1,4 @@
--- «کاریز» — پایگاه داده برای Supabase SQL Editor: بخش ۹ از ۹ (0011_flows … 0103_jobs_failed_idx)
+-- «کاریز» — پایگاه داده برای Supabase SQL Editor: بخش ۹ از ۹ (0011_flows … 0101_device_protocol)
 -- بخش‌ها را به‌ترتیب، هر کدام یک بار، در یک snippet تازه بچسبانید و Run بزنید (docs/SETUP_FA.md بخش ۱-۵).
 -- اجرای دوباره بی‌خطر است. خودکار ساخته می‌شود: npm run schema
 create table if not exists sm_migrations (id text primary key, applied_at timestamptz not null default now());
@@ -1056,3 +1056,10 @@ insert into sm_migrations (id) values ('0100_xid_revisions') on conflict (id) do
 create index if not exists sm_jobs_failed_idx on sm_jobs (org_id, done_at) where status = 'failed';
 
 insert into sm_migrations (id) values ('0103_jobs_failed_idx') on conflict (id) do nothing;
+
+-- ---------------------------------------------------------------------------
+-- 0101_device_protocol — برنامه‌های ویندوز: پروتکل همگام‌سازی هر دستگاه، تا برنامه‌های قدیمی‌ای که سرور نمی‌پذیرد شمرده شوند
+-- ---------------------------------------------------------------------------
+alter table sm_devices add column if not exists sync_protocol integer;
+
+insert into sm_migrations (id) values ('0101_device_protocol') on conflict (id) do nothing;

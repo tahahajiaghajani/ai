@@ -25,6 +25,7 @@ import demo from "./0098_demo";
 import demoTouch from "./0099_demo_touch";
 import xidRevisions from "./0100_xid_revisions";
 import jobsFailedIdx from "./0103_jobs_failed_idx";
+import deviceProtocol from "./0101_device_protocol";
 import { ddlForAll } from "../../engine/ddl";
 
 export interface Migration {
@@ -68,6 +69,7 @@ export const MIGRATIONS: Migration[] = [
   { id: "0099_demo_touch", title: "داده‌های نمایشی: ثبت تغییرهای کار نمایشی در ردیف‌های واقعی (تا حذف فقط همان‌ها را برگرداند) و نفرستادن کار نمایشی از برنامهٔ ویندوز", sql: demoTouch },
   { id: "0100_xid_revisions", title: "همگام‌سازی بی قفل: بازبینی‌ها با شناسهٔ تراکنش، نسل همگام‌سازی سازمان و مرز پاک‌سازی", sql: xidRevisions },
   { id: "0103_jobs_failed_idx", title: "سرعت: نمایهٔ کارهای ناموفق پس‌زمینه برای خلاصهٔ کارهای کنسول‌ها", sql: jobsFailedIdx },
+  { id: "0101_device_protocol", title: "برنامه‌های ویندوز: پروتکل همگام‌سازی هر دستگاه، تا برنامه‌های قدیمی‌ای که سرور نمی‌پذیرد شمرده شوند", sql: deviceProtocol },
 ];
 
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].id;

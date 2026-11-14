@@ -28,6 +28,15 @@ export const APP_VERSION = "1.1.0";
 export const SYNC_PROTOCOL = 16;
 
 /**
+ * Is a Windows app outdated for this build: of another sync protocol (the one it last spoke, recorded on its device —
+ * 0 for an app whose pulls named none, from before 16 — the server refuses it), or of another version? Its version string
+ * alone does not tell: a 1.1.0-beta app (protocol 15) reports this build's 1.1.0 too.
+ */
+export function deviceOutdated(d: { app_version: string | null; sync_protocol: number | null }): boolean {
+  return (!!d.app_version && d.app_version !== APP_VERSION) || (d.sync_protocol != null && Number(d.sync_protocol) !== SYNC_PROTOCOL);
+}
+
+/**
  * Optional modules an organisation switches on («ماژول‌ها»). The platform itself has none; later modules
  * add an entry here (and their nav, routes and API) and `ModuleKey` follows.
  */

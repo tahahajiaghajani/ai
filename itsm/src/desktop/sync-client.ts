@@ -275,7 +275,7 @@ export class SyncClient {
         // allowed: several organisations side by side; nothing to clear
       }
     }
-    const reg = await this.api<{ device_id: string }>("/sync/register", { url, token, body: { org_id: orgId, device_id: this.o.config.device_id, name: hostname(), platform: "windows", app_version: APP_VERSION } });
+    const reg = await this.api<{ device_id: string }>("/sync/register", { url, token, body: { org_id: orgId, device_id: this.o.config.device_id, name: hostname(), platform: "windows", app_version: APP_VERSION, protocol: SYNC_PROTOCOL } });
     this.o.config.cloud = { ...this.o.config.cloud, url, token, org_id: orgId!, email: input.email, linked_at: new Date().toISOString() };
     this.o.config.device_id = reg.device_id;
     this.o.save();
