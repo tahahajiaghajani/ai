@@ -11,9 +11,12 @@ import { positionsPart } from "./admin/positions/routes";
 import { hubPart } from "./admin/hub/routes";
 import { processPart } from "./admin/process/routes";
 import { lifecyclePart } from "./admin/lifecycle/routes";
+import { userPart } from "./user/routes";
 // the position picker and the «پیوست» widget in every record form
 import "./kit/register";
+// the home page's card «موارد منتظر شما»
+import "./user/register";
 
 // settings: «فیلدها», «فرم‌ها», «گردش‌کارها», «نقش‌های سازمانی» (design F §8); the process designer and the lifecycle
 // editor open from the hub
-export const workflowsUi: ModuleUi = assemble([fieldsPart, formsPart, hubPart, processPart, positionsPart, lifecyclePart, kitPart]);
+export const workflowsUi: ModuleUi = assemble([fieldsPart, formsPart, hubPart, processPart, positionsPart, lifecyclePart, userPart, kitPart]);
