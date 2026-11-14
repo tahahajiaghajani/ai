@@ -19,7 +19,7 @@ import { fieldItems, type FormLayoutV2 } from "@shared/forms/layout";
 import { PROCESS_DESIGN_AREA } from "@shared/tables/fields";
 import { CASE_OUTCOMES, TASK_OUTCOMES } from "@shared/tables/process";
 import {
-  CASE_ROOT, MAX_RULES, PROCESS_NODE_TYPES, TITLE_MAX, cleanRule, choiceCases, cleanStepAssignees, endOutcomeOf, formStepOf, ifNobodyOf, isBackEdge, outEdges,
+  CASE_ROOT, MAX_RULES, PROCESS_NODE_TYPES, TITLE_MAX, assigneeProblems, cleanRule, choiceCases, cleanStepAssignees, endOutcomeOf, formStepOf, ifNobodyOf, isBackEdge, outEdges,
   processPorts, renderTitle, startOf, stepOutcomes, structureOf,
   type AssigneeRule, type ChoiceCase, type Duration, type Escalation, type ProcessGraph, type ProcessNode, type ProcessNodeType, type ProcessPort, type StepAction,
   type StepAssignees, type StepOutcome,
@@ -782,6 +782,12 @@ export function resolveBody(
     manager_groups: o.draft.manager_groups,
   };
 }
+
+/**
+ * Why «پیش‌نمایش» need not ask for a step's people: the first problem of its people settings that needs no lookup
+ * («این مرحله انجام‌دهنده ندارد»), the very message resolve would refuse it with.
+ */
+export const previewBlocked = (node: ProcessNode): string | null => assigneeProblems(assigneesOf(node.config))[0]?.message ?? null;
 
 /** The line a step shows in «پیش‌نمایش»: its first person («علی احمدی — رئیس شعبه (شعبهٔ ونک)») and how many more, or why nobody. */
 export function previewNote(r: Pick<ResolveResult, "status" | "lines" | "message">): string {

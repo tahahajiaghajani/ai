@@ -227,6 +227,10 @@
 .wfp-tabs .ant-tabs-nav {
   margin-block-end: 10px;
 }
+/* antd puts its own gutter after every tab in RTL besides tabBarGutter's: one gap of 14px, so the five tabs fit */
+.wfp-tabs .ant-tabs-nav .ant-tabs-tab {
+  margin: 0;
+}
 .wfp-tab {
   display: inline-flex;
   align-items: center;

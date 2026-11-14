@@ -22,7 +22,7 @@ import { FORM_KEYS, formsApi, type FormPreview } from "../forms/api";
 import { PreviewForm, type PreviewTab } from "../forms/parts";
 import { hubApi } from "../hub/api";
 import { DESIGNER_KEYS, designerApi, type ProcessDraft, type ResolveResult } from "./api";
-import { assigneesOf, previewNote, previewSteps, resolveBody, resolvedPeople, stableJson, type CaseField, type FormInfo } from "./model";
+import { assigneesOf, previewBlocked, previewNote, previewSteps, resolveBody, resolvedPeople, stableJson, type CaseField, type FormInfo } from "./model";
 import { F } from "./parts";
 
 export interface PreviewProps {
@@ -40,7 +40,7 @@ export interface PreviewProps {
 type Found = Record<string, { result?: ResolveResult; error?: string }>;
 
 /** A step's form as a person sees it: F2's preview, from a persona when the person's own access is closed to the designer. */
-function StepForm({ form, rights, as, fallback, values, onValues, unit, label }: { form: FormInfo; rights: StepRights | null; as: string; fallback: "requester" | "agent"; values: Record<string, unknown>; onValues: (v: Record<string, unknown>) => void; unit: MoneyUnit; label: string }) {
+function StepForm({ form, rights, as, fallback, values, onValues, unit, label }: { form: FormInfo; rights: StepRights | null; as: string; fallback: "requester" | "agent"; values: Record<string, unknown>; onValues: (v: Record<string, unknown>) => void; unit: MoneyUnit; label?: string }) {
   const { api, orgId } = useOrg();
   const { schema } = useSchema();
   const { tz } = useMe();
@@ -77,7 +77,10 @@ function StepForm({ form, rights, as, fallback, values, onValues, unit, label }:
   if (!pv.data || !schema) return <Loader label="خواندن فرم" />;
   return (
     <div className="wfp-stepform">
-      <p className="rk-hint">{pv.data.persona ? `${label}؛ از دید «${pv.data.as.label}» (دسترسی خود این شخص برای شما باز نیست)` : `${label}؛ از دید «${pv.data.as.label}»`}</p>
+      <p className="rk-hint">
+        {[label, `از دید «${pv.data.as.label}»`].filter(Boolean).join("؛ ")}
+        {pv.data.persona ? " (دسترسی خود این شخص برای شما باز نیست)" : ""}
+      </p>
       <PreviewForm tabs={tabs} def={def} schema={schema} tz={tz} unit={unit} values={values} onChange={(k, v) => onValues({ ...values, [k]: v })} problems={pv.data.check?.problems} idPrefix={`wfp-pv-${form.id.slice(0, 8)}`} />
     </div>
   );
@@ -106,6 +109,11 @@ export function PreviewPanel(p: PreviewProps) {
       const actors: Record<string, string[]> = start && requester ? { [start.id]: [requester] } : {};
       let previous: string | null = requester;
       for (const n of steps) {
+        const blocked = previewBlocked(n);
+        if (blocked) {
+          found[n.id] = { error: blocked };
+          continue;
+        }
         try {
           const r = await designerApi.resolve(api, resolveBody(n, { requester: requester!, values: sampled, fields: p.fields, draft: p.draft, stepActors: actors, previous }));
           found[n.id] = { result: r };
@@ -137,7 +145,6 @@ export function PreviewPanel(p: PreviewProps) {
   const selForm = selStep?.form ? p.forms.get(selStep.form) : undefined;
   const selFound = sel ? run.data?.[sel.id] : undefined;
   const firstPerson = selFound?.result ? resolvedPeople(selFound.result)[0] : undefined;
-  const firstName = firstPerson ? selFound?.result?.display.users[firstPerson] : undefined;
 
   return (
     <section className="wfm-panel wfp-preview" aria-label="پیش‌نمایش">
@@ -186,7 +193,7 @@ export function PreviewPanel(p: PreviewProps) {
         selForm ? (
           <>
             <h3 className="wfp-sub">فرم «{nodeTitle(sel)}»</h3>
-            <StepForm form={selForm} rights={selStep.rights} as={firstPerson ?? "agent"} fallback="agent" values={values} onValues={setValues} unit={p.unit} label={firstName ? `آن‌گونه که ${firstName} می‌بیند` : "آن‌گونه که انجام‌دهنده می‌بیند"} />
+            <StepForm form={selForm} rights={selStep.rights} as={firstPerson ?? "agent"} fallback="agent" values={values} onValues={setValues} unit={p.unit} />
           </>
         ) : (
           <p className="rk-hint">این مرحله هنوز فرم ندارد.</p>

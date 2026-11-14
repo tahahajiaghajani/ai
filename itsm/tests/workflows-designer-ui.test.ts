@@ -26,7 +26,7 @@ import { designerApi, type ProcessDetail, type ProcessDraft, type ResolveResult 
 import {
   DESIGNER_PATH, END_PRESETS, GAP_Y, NEW_STEP_OPTIONS, PALETTE_GROUPS, PALETTE_ITEMS, addFromPort, assigneesPatch, bridgeRemoved, caseFields, casePill, caseRules,
   cleanDraft, countProblems, defaultGraph, designerAccess, designerDraft, designerOffers, earlierSteps, formInfoOf, formPatch, graphForms, insertAfter, insertText, itemConfig,
-  joinPatch, liveProblems, mainPort, moveKey, nameProblem, newCaseKey, newEscalation, newStepOf, paletteItem, patchConfig, phoneNotes, pillField, portRows, previewNote,
+  joinPatch, liveProblems, mainPort, moveKey, nameProblem, newCaseKey, newEscalation, newStepOf, paletteItem, patchConfig, phoneNotes, pillField, portRows, previewBlocked, previewNote,
   previewSteps, problemGroups, problemTarget, problemsText, processForms, rawCases, removeNode, requesterViewOptions, resolveBody, resolvedPeople, savePatch, setAction,
   setCases, setLabel, setPortTarget, stableJson, startFields, startingDraft, startersText, statusChip, stepNotices, stepTitles, structureKey, tabProblems, titleFields,
   titleSample, unitFromRial, versionMeta, versionTitle, wireRejection, type FormInfo,
@@ -428,6 +428,9 @@ describe("notices, problems, versions, the preview", () => {
     const b = insertAfter(a.graph, a.id, paletteItem("fill")!);
     g = patchConfig(b.graph, a.id, assigneesPatch({ assignees: [{ kind: "position", position: "branch_head", where: "requester_unit_up", unitKind: "branch" }] }));
     expect(previewSteps(g).map((n) => n.id)).toEqual([a.id, b.id]);
+    // a step that names nobody is not asked about: the preview says so in resolve's own words
+    expect(previewBlocked(node(g, a.id))).toBeNull();
+    expect(previewBlocked(node(g, b.id))).toBe("این مرحله انجام‌دهنده ندارد");
     const body = resolveBody(node(g, a.id), { requester: "r1", values: { u_amount: "600000000" }, fields: caseFields([REQ]), draft: { managers: ["m1"], manager_groups: [] }, stepActors: { request: ["r1"] }, previous: "r1" });
     expect(body).toMatchObject({ action: "approve", quorum: "any", label: "تأیید", requester: "r1", step: { assignees: [{ kind: "position", position: "branch_head" }] }, managers: ["m1"], step_actors: { request: ["r1"] } });
     expect(body.fields!.u_branch).toEqual({ type: "ref", ref: "org_unit", label: "شعبه" });
@@ -571,6 +574,11 @@ describe("the designer on a real organisation (§3.7)", () => {
     expect(found[names.deputy].people.map((p) => p.user).sort()).toEqual([b.X.fd1, b.X.fd2].sort());
     expect(previewNote(found[names.deputy])).toMatch(/ و ۱ نفر دیگر$/);
     expect(found[names.pay].people.map((p) => p.user).sort()).toEqual([b.X.pay1, b.X.pay2].sort());
+    // the words the preview shows without asking are the very ones resolve refuses a step without people with
+    const pay = node(built.graph, names.pay);
+    const nobody = { ...pay, config: { ...pay.config, assignees: [] } };
+    const refused = await b.w.o.owner.post(`${P}/positions/resolve`, resolveBody(nobody, { requester: b.M.clerk.userId, values: {}, fields, draft: built, stepActors: actors, previous }), 400);
+    expect(refused.error.message).toBe(previewBlocked(nobody));
   });
 
   it("publish shows the diff with the access settings; «نسخه‌ها» lists it; a restore brings it back to the draft", async () => {
