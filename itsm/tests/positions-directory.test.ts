@@ -50,7 +50,9 @@ async function holders(email: string): Promise<{ key: string; unit: string | nul
   );
 }
 
-const lastSignIn = async (email: string) => (await w.owner.get(`${w.P}/auth/signins?${new URLSearchParams({ ok: "true", q: email })}`)).events[0] as { data: { pending_roles?: string[]; problems?: string[] } };
+type Holding = { position_id: string; unit_id: string | null };
+const lastSignIn = async (email: string) =>
+  (await w.owner.get(`${w.P}/auth/signins?${new URLSearchParams({ ok: "true", q: email })}`)).events[0] as { data: { pending_roles?: string[]; problems?: string[]; positions?: { given: Holding[]; taken: Holding[] } } };
 const mappings = () => [
   { source: AGENTS, role: "agent", group_id: w.team },
   { source: HEADS, position_id: POS.head, unit_from: "department" },
@@ -114,15 +116,21 @@ describe("directory sign-in", () => {
     await w.signIn("ali", "Passw0rd!");
     // the department «1001» is Vanak's code
     expect(await holders("ali@corp.test")).toEqual([{ key: "branch_head", unit: U.vanak, source: "directory", ours: true }]);
+    // the sign-in log says which organisational role the directory gave, in which unit (design F §6.7)
+    expect((await lastSignIn("ali@corp.test")).data.positions).toEqual({ given: [{ position_id: POS.head, unit_id: U.vanak }], taken: [] });
     // reza: a fixed unit (Vanak), and the unit his mapped group gives him (Tajrish)
     await w.signIn("reza", "Passw0rd!");
     expect(await holders("reza@corp.test")).toEqual([
       { key: "credit_officer", unit: U.vanak, source: "directory", ours: true },
       { key: "teller", unit: U.tajrish, source: "directory", ours: true },
     ]);
+    // a sign-in that changes no holding adds nothing about them to the log
+    await w.signIn("reza", "Passw0rd!");
+    expect((await lastSignIn("reza@corp.test")).data.positions).toBeUndefined();
     // sara (the department by its name) already holds it by hand: never doubled, still «دستی»
     await w.signIn("sara", "Passw0rd!");
     expect(await holders("sara@corp.test")).toEqual([{ key: "branch_head", unit: U.tajrish, source: "manual", ours: false }]);
+    expect((await lastSignIn("sara@corp.test")).data.positions).toBeUndefined();
     // mina's department is no branch: no holder, the reason in the sign-in log — the sign-in itself goes through
     await w.signIn("mina", "Passw0rd!");
     expect(await holders("mina@corp.test")).toEqual([]);
@@ -143,6 +151,7 @@ describe("directory sign-in", () => {
     leave(HEADS, people.sara);
     await w.signIn("ali", "Passw0rd!");
     expect(await holders("ali@corp.test")).toEqual([{ key: "credit_officer", unit: null, source: "manual", ours: false }]);
+    expect((await lastSignIn("ali@corp.test")).data.positions).toEqual({ given: [], taken: [{ position_id: POS.head, unit_id: U.vanak }] });
     await w.signIn("sara", "Passw0rd!");
     expect(await holders("sara@corp.test")).toEqual([{ key: "branch_head", unit: U.tajrish, source: "manual", ours: false }]);
     join(HEADS, people.ali);
