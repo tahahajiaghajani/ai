@@ -1,0 +1,39 @@
+/* «نقش‌های سازمانی» (design F §3.4, §8, package F5): the holders' section head, the holder form and the preview's lines;
+   the rest comes from ../fields/fields.css. ds tokens only; logical properties. */
+.wfp-sec-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.wfp-sec-h > h3 {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: var(--ds-weight-strong);
+  color: var(--ds-text-2);
+}
+.wfp-sec-x {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.wfp-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--ds-sunken);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-md);
+}
+.wfp-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding-inline-start: 20px;
+  color: var(--ds-text);
+}

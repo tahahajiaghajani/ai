@@ -1,0 +1,250 @@
+/* «فیلدها» (design F §8.1, package F5): the tabs' toolbars, the side sheets (sections, two-column grids, the live
+   preview), the tables' marks and the requirement's creation paths. ds tokens only; logical properties. */
+
+.wff-slot {
+  display: contents;
+}
+.wff-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-inline-size: 0;
+}
+.wff-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.wff-search {
+  inline-size: 280px;
+  max-inline-size: 100%;
+}
+.wff-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.wff-picker {
+  min-inline-size: 220px;
+  max-inline-size: 100%;
+}
+.wff-cell-2 {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wff-cell-2 .rk-hint {
+  font-size: 12px;
+  line-height: 18px;
+}
+.wff-dim > td {
+  color: var(--ds-text-3);
+}
+.wff-marks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+}
+.wff-lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-inline: 6px;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-pill);
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--ds-text-2);
+  white-space: nowrap;
+}
+.wff-mi {
+  display: inline-flex;
+  flex-direction: column;
+}
+.wff-mi small {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--ds-text-3);
+  white-space: normal;
+  max-inline-size: 260px;
+}
+.wff-linkbtn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ds-accent-text);
+  font: inherit;
+  cursor: pointer;
+  text-align: start;
+}
+.wff-linkbtn:hover {
+  text-decoration: underline;
+}
+.wff-linkbtn:focus-visible {
+  outline: 2px solid var(--ds-focus-color);
+  outline-offset: 2px;
+  border-radius: var(--ds-radius-xs);
+}
+
+/* ------------------------------------------------------------------ side sheets */
+.wff-title {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.wff-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.wff-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wff-sec > h3 {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: var(--ds-weight-strong);
+  color: var(--ds-text-2);
+}
+.wff-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+.wff-wide {
+  grid-column: 1 / -1;
+}
+@media (max-width: 639.98px) {
+  .wff-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.wff-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.wff-checks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+}
+.wff-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-block: 4px;
+}
+.wff-foot-gap {
+  flex: 1;
+}
+
+/* the live preview: the input as a form shows it */
+.wff-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  background: var(--ds-sunken);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-md);
+}
+.wff-preview-l {
+  font-size: var(--ds-type-label-size);
+  line-height: var(--ds-type-label-line);
+  font-weight: var(--ds-weight-medium);
+  color: var(--ds-text-2);
+}
+
+/* a choice field's own options */
+.wff-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wff-option {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.wff-option-v {
+  inline-size: 110px;
+}
+.wff-option-l {
+  inline-size: 150px;
+}
+.wff-option-c {
+  inline-size: 110px;
+}
+.wff-option-a {
+  display: inline-flex;
+}
+
+/* where a field is used; a built-in type's facts */
+.wff-usage,
+.wff-facts {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+.wff-usage dt,
+.wff-facts dt {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--ds-text-3);
+}
+.wff-usage dd,
+.wff-facts dd {
+  margin: 0;
+  color: var(--ds-text);
+}
+.wff-usage ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* «الزامی برای…»: the creation paths a requirement binds */
+.wff-paths {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.wff-paths li {
+  display: grid;
+  grid-template-columns: 16px minmax(0, auto) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 4px 8px;
+}
+.wff-paths li.is-on svg {
+  color: var(--ds-state-resolved);
+}
+.wff-paths li.is-off svg {
+  color: var(--ds-text-3);
+}
+.wff-path-l {
+  color: var(--ds-text);
+}
+@media (max-width: 639.98px) {
+  .wff-paths li {
+    grid-template-columns: 16px minmax(0, 1fr);
+  }
+  .wff-paths li .rk-hint {
+    grid-column: 2;
+  }
+}
