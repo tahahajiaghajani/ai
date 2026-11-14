@@ -180,9 +180,9 @@ const processCase: TableDef = {
     { name: "requested_by", label: "ثبت‌کننده", type: "user", system: true, list: true, filter: true, span: 8, section: "افراد" },
     { name: "requested_for", label: "درخواست برای", type: "user", system: true, filter: true, span: 8, section: "افراد" },
     // the people of open tasks (assignee, delegated from) and of done ones (actor, acted for) — kept by the authority
-    { name: "participants", label: "مشارکت‌کنندگان", type: "users", system: true, hidden: true, audit: false, section: "افراد" },
-    { name: "managers", label: "مسئولان", type: "users", system: true, hidden: true, audit: false, section: "افراد" },
-    { name: "manager_groups", label: "گروه‌های مسئول", type: "refs", ref: "group", system: true, hidden: true, audit: false, section: "افراد" },
+    { name: "participants", label: "مشارکت‌کنندگان", type: "users", system: true, hidden: true, audit: false, index: true, section: "افراد" },
+    { name: "managers", label: "مسئولان", type: "users", system: true, hidden: true, audit: false, index: true, section: "افراد" },
+    { name: "manager_groups", label: "گروه‌های مسئول", type: "refs", ref: "group", system: true, hidden: true, audit: false, index: true, section: "افراد" },
     // [{ key, label }] of the steps open now; open_rounds: { [step key]: round }; progress: `CaseProgress`
     { name: "current_steps", label: "مرحله‌های جاری", type: "json", system: true, hidden: true, audit: false, section: "پیشرفت" },
     { name: "open_rounds", label: "دورهای باز", type: "json", system: true, hidden: true, audit: false, section: "پیشرفت" },

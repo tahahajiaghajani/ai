@@ -21463,6 +21463,9 @@ create index if not exists sm_process_cases_upd_idx on sm_process_cases (org_id,
 create index if not exists sm_process_cases_crt_idx on sm_process_cases (org_id, created_at desc, id desc) where deleted_at is null;
 create index if not exists sm_process_cases_process_id_idx on sm_process_cases (org_id, process_id) where deleted_at is null;
 create index if not exists sm_process_cases_state_idx on sm_process_cases (org_id, state) where deleted_at is null;
+create index if not exists sm_process_cases_participants_gin on sm_process_cases using gin (participants);
+create index if not exists sm_process_cases_managers_gin on sm_process_cases using gin (managers);
+create index if not exists sm_process_cases_manager_groups_gin on sm_process_cases using gin (manager_groups);
 create index if not exists sm_process_cases_workspace_acc_idx on sm_process_cases (org_id, workspace_id) where deleted_at is null and workspace_id is not null;
 create index if not exists sm_process_cases_unit_acc_idx on sm_process_cases (org_id, unit_id) where deleted_at is null and unit_id is not null;
 create index if not exists sm_process_cases_domain_acc_idx on sm_process_cases (org_id, domain_id) where deleted_at is null and domain_id is not null;
