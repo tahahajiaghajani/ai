@@ -17,7 +17,7 @@ import { FIELD_KEYS, fieldsApi } from "./api";
 import { FIELDS_TABS, fieldsAccess, tabOf, visibleTabs, type FieldsTab } from "./model";
 import { Library } from "./Library";
 import { Types } from "./Types";
-import { ChoiceLists } from "./ChoiceLists";
+import { ChoiceLists, confirmDiscard } from "./ChoiceLists";
 import { TableFields } from "./TableFields";
 import { FieldSheet } from "./FieldSheet";
 import { TypeSheet, type TypeSheetTarget } from "./TypeSheet";
@@ -57,7 +57,7 @@ export default function FieldsPage() {
     [setParams],
   );
   const switchTab = async (k: string) => {
-    if (tab === "choices" && choicesDirty && !(await n.confirm("تغییرهای گزینه‌ها ذخیره نشده‌اند؛ برویم؟", "آنچه در این فهرست تغییر داده‌اید از دست می‌رود.", true, "رفتن بدون ذخیره"))) return;
+    if (tab === "choices" && choicesDirty && !(await confirmDiscard(n))) return;
     setChoicesDirty(false);
     patch({ tab: k, field: null, ftype: null });
   };

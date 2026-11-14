@@ -12,8 +12,9 @@ import { WIDGET_LABELS, builtinFieldType, libraryFieldDef, resolveFieldType, wid
 import { faDigits } from "@shared/format";
 import { useOrg } from "../../../../lib/org";
 import { useNotify } from "../../../../lib/hooks";
+import { errorText } from "../../../../lib/api";
 import { Note } from "../../../../components/blocks";
-import { Chip, Loader } from "../../../../components/display";
+import { Chip, EmptyState, Loader } from "../../../../components/display";
 import { useRefreshSchema, useSchema } from "../../../../records/data/hooks";
 import { fieldErrorsOf } from "../../../../records/model/types";
 import { FIELD_KEYS, fieldsApi, type OrgTypeEntry, type TypesResult } from "./api";
@@ -120,6 +121,8 @@ function OrgTypeSheet({ id, types, unit, access, onClose, onSaved }: TypeSheetPr
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const readOnly = !access.designWrite;
+  // a type that cannot be read (removed, an old link) says why instead of waiting forever
+  const failed = !!id && row.isError;
   const used = (entry?.fields ?? 0) > 0;
   const retired = entry?.status === "retired";
   const dirty = !!d && !!initial && JSON.stringify(d) !== JSON.stringify(initial);
@@ -189,7 +192,7 @@ function OrgTypeSheet({ id, types, unit, access, onClose, onSaved }: TypeSheetPr
         </span>
       }
       footer={
-        readOnly ? null : (
+        readOnly || failed ? null : (
           <div className="wff-foot">
             {id && entry ? (
               retired ? (
@@ -211,7 +214,9 @@ function OrgTypeSheet({ id, types, unit, access, onClose, onSaved }: TypeSheetPr
         )
       }
     >
-      {!d ? (
+      {failed ? (
+        <EmptyState title="این نوع فیلد باز نشد" description={errorText(row.error)} action={<Button onClick={onClose}>بستن</Button>} />
+      ) : !d ? (
         <div className="grid place-items-center py-10">
           <Loader />
         </div>

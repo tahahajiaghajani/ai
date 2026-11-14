@@ -11,8 +11,9 @@ import type { MoneyUnit } from "@shared/financial/logic";
 import { FIELD_GROUPS, FIELD_TYPES } from "@shared/model/types";
 import { useOrg } from "../../../../lib/org";
 import { useNotify } from "../../../../lib/hooks";
+import { errorText } from "../../../../lib/api";
 import { Note } from "../../../../components/blocks";
-import { Chip, Loader } from "../../../../components/display";
+import { Chip, EmptyState, Loader } from "../../../../components/display";
 import { useRefreshSchema, useSchema } from "../../../../records/data/hooks";
 import { fieldErrorsOf } from "../../../../records/model/types";
 import { FIELD_KEYS, fieldsApi, type LibraryEntry, type TypesResult } from "./api";
@@ -54,6 +55,8 @@ export function FieldSheet({ id, entry, library, types, unit, access, onClose, o
   const used = isUsed(entry?.usage);
   const retired = entry?.status === "retired";
   const readOnly = !access.designWrite;
+  // a row that cannot be read (removed, an old link) says why instead of waiting forever
+  const failed = !!id && row.isError;
   const t = resolvedType(d?.type, types);
   const inherited = typeHasOptions(t);
   const draft = d ? { ...d, settings: { ...d.settings, optionsMode: optionsModeOf(d.settings, t) } } : d;
@@ -118,7 +121,7 @@ export function FieldSheet({ id, entry, library, types, unit, access, onClose, o
       onClose={close}
       destroyOnHidden
       footer={
-        readOnly ? null : (
+        readOnly || failed ? null : (
           <div className="wff-foot">
             {id && entry ? (
               retired ? (
@@ -140,7 +143,9 @@ export function FieldSheet({ id, entry, library, types, unit, access, onClose, o
         )
       }
     >
-      {!draft ? (
+      {failed ? (
+        <EmptyState title="این فیلد باز نشد" description={errorText(row.error)} action={<Button onClick={onClose}>بستن</Button>} />
+      ) : !draft ? (
         <div className="grid place-items-center py-10">
           <Loader />
         </div>

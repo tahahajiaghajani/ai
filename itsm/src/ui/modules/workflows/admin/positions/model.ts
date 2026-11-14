@@ -18,9 +18,12 @@ import type { HolderImportResult, HolderRow, PositionOverview } from "./api";
 export interface PositionsAccess {
   /** positions and holders are readable (`org` read: every built-in role but «کارشناس پیمانکار») */
   read: boolean;
-  /** positions are made and changed, holders placed, ended and removed, holders imported: `org` create and write in a
+  /** positions are made and changed, holders placed, changed and ended, holders imported: `org` create and write in a
    * unit or wider (team leads' «group» scope reaches no holder) */
   manage: boolean;
+  /** holders are removed: `org` delete in a unit or wider — a holder row has no group, so the «group» delete of a
+   * service-desk manager or a team lead reaches none (the server refuses every removal) */
+  remove: boolean;
   /** the preview of a step's people: designers or keepers of the structure */
   preview: boolean;
 }
@@ -29,6 +32,7 @@ export function positionsAccess({ allows, writable }: { allows: (g: AccessGate) 
   return {
     read: allows({ area: "org" }),
     manage: writable && allows({ area: "org", op: "create" }) && allows({ area: "org", op: "write", scope: "unit" }),
+    remove: writable && allows({ area: "org", op: "delete", scope: "unit" }),
     preview: ESTIMATE_GATES.some((g) => allows(g)),
   };
 }

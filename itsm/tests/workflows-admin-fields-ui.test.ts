@@ -17,11 +17,17 @@ import {
   requireBlocker, requirementText, resolvedType, settingsLines, tabOf, tableFieldRows, typeChoices, typeDraft, typeDraftProblems, typeOptions, typePayload,
   usageText, visibleTabs,
 } from "../src/ui/modules/workflows/admin/fields/model";
-import type { LibraryEntry, TypesResult } from "../src/ui/modules/workflows/admin/fields/api";
+import { fieldsApi, type LibraryEntry, type TypesResult } from "../src/ui/modules/workflows/admin/fields/api";
 import { typeRows } from "../src/ui/modules/workflows/admin/fields/Types";
+import { customisableTables } from "../src/ui/modules/workflows/admin/fields/TablePicker";
 import { choicesSearch, fieldsPart } from "../src/ui/modules/workflows/admin/fields/routes";
 import { NAV, ROUTES } from "../src/ui/modules/registry";
+import type { OrgApi } from "../src/ui/lib/api";
+import type { TableMeta } from "../src/ui/records/model/types";
+import { physicalTables } from "@shared/tables";
+import { systemFormTables } from "../src/server/modules/forms";
 import { engineOrg, type EngineOrg } from "./engine-helpers";
+import type { Client } from "./helpers";
 
 // ---------------------------------------------------------------------------------------------------------------
 // helpers
@@ -265,6 +271,15 @@ describe("«فیلدهای جدول‌ها»", () => {
   });
 });
 
+describe("the tables «فیلدهای جدول‌ها» offers", () => {
+  it("are the tables whose default form «فرم‌ها» lists: never a process case or the customisation rows (F5-4)", () => {
+    const offered = customisableTables({ tables: new Map(physicalTables().map((d) => [d.key, d as TableMeta])) }).map((t) => t.key);
+    for (const k of ["process_case", "custom_field", "choice", "view"]) expect(offered).not.toContain(k);
+    expect(offered).toContain("incident");
+    expect([...offered].sort()).toEqual(systemFormTables().map((d) => d.key).sort());
+  });
+});
+
 describe("«افزودن به کتابخانه»", () => {
   const r = (p: Record<string, unknown>) => ({ id: "r", version: 1, name: "u_x", label: "ایکس", ...p });
   it("keeps the storage: a text's length, a unit's or a record's target, a choice's own options or list", () => {
@@ -294,6 +309,31 @@ describe("the screens' calls on a real organisation", () => {
     e = await engineOrg();
     P = `/o/${e.org}`;
   }, 600_000);
+  /** The UI's organisation client over a test client: any 2xx answers, another status throws, as in the browser. */
+  const apiOf = (c: Client) => {
+    const call = async (method: string, path: string, body?: unknown) => {
+      const headers: Record<string, string> = { "content-type": "application/json" };
+      if (c.cookie) headers.cookie = c.cookie;
+      const res = await e.app.fetch(new Request(`http://local.test/api${P}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) }));
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw Object.assign(new Error(data?.error?.message ?? `HTTP ${res.status}`), { status: res.status });
+      return data;
+    };
+    return {
+      get: (path: string) => call("GET", path),
+      post: (path: string, body: unknown = {}) => call("POST", path, body),
+      put: (path: string, body: unknown = {}) => call("PUT", path, body),
+      patch: (path: string, body: unknown = {}) => call("PATCH", path, body),
+      del: (path: string) => call("DELETE", path),
+    } as unknown as OrgApi;
+  };
+  /** A member who holds `settings` edit by their membership alone (no role in «طراحی فرم و گردش‌کار»). */
+  const settingsEditor = async () => {
+    const m = await e.member("member");
+    const mid = (await e.db.one<{ id: string }>(`select id from sm_org_members where org_id = $1 and user_id = $2`, [e.org, m.userId]))!.id;
+    await e.owner.patch(`${P}/members/${mid}`, { overrides: { settings: "edit" } });
+    return m;
+  };
 
   it("a money field and a type made from the sheets' payloads; the library lists them with their usage", async () => {
     const types: TypesResult = await e.owner.get(`${P}/fields/types`);
@@ -344,6 +384,49 @@ describe("the screens' calls on a real organisation", () => {
     await e.owner.put(`${P}/forms/system/todo/overrides`, { fields: { due_at: { required: true, required_for: "agents" } } });
     const meta = await e.owner.get(`${P}/meta/tables/todo`);
     expect(tableFieldRows(meta.table, tableDef("todo"), []).find((r) => r.name === "due_at")?.formRequired).toBe("agents");
+  });
+
+  it("a `settings` editor without «طراحی فرم و گردش‌کار» opens the field and the type they made; a removed one says why (F5-1)", async () => {
+    const editor = await settingsEditor();
+    // F1 admits them to the library…
+    const d = fieldDraft(null);
+    Object.assign(d, { name: "branch_code", label: "کد شعبه", type: "string", help: "چهار رقم" });
+    const made = await editor.client.post(`${P}/fields/library`, fieldPayload(d, resolvedType("string", undefined)!), 201);
+    // …the generic record API does not (its area is `process_design`; it answers as if the row did not exist): the
+    // sheet reads through F1's route, whole
+    await editor.client.get(`${P}/r/field_def/${made.row.id}`, 404);
+    const field = (await editor.client.get(`${P}/fields/library/${made.row.id}`)).row;
+    expect(fieldDraft(field)).toMatchObject({ name: "branch_code", label: "کد شعبه", type: "string", help: "چهار رقم" });
+    const td = typeDraft(null, "string");
+    Object.assign(td, { key: "branch", name: "کد شعبه", description: "کد چهاررقمی شعبه" });
+    const type = await editor.client.post(`${P}/fields/types`, typePayload(td), 201);
+    await editor.client.get(`${P}/r/field_type/${type.row.id}`, 404);
+    expect(typeDraft((await editor.client.get(`${P}/fields/types/${type.row.id}`)).row)).toMatchObject({ key: "branch", name: "کد شعبه", base: "string", description: "کد چهاررقمی شعبه" });
+    // a member with neither grant is refused; a removed or unknown row answers 404, which the sheet shows with «بستن»
+    const plain = await e.member("member");
+    await plain.client.get(`${P}/fields/library/${made.row.id}`, 403);
+    await plain.client.get(`${P}/fields/types/${type.row.id}`, 403);
+    await e.owner.del(`${P}/r/field_def/${made.row.id}`);
+    expect((await editor.client.get(`${P}/fields/library/${made.row.id}`, 404)).error.message).toBeTruthy();
+    await editor.client.get(`${P}/fields/types/00000000-0000-4000-8000-000000000000`, 404);
+  });
+
+  it("a promotion whose link the table refuses takes its new library field back (F5-4)", async () => {
+    // a table-only field on a process case, made through the generic API before the pickers left that table out
+    const cf = (await e.owner.post(`${P}/r/custom_field`, { table_key: "process_case", name: "u_case_ref", label: "شمارهٔ پرونده", type: "string", active: true })).row;
+    const p = promoteBody(cf);
+    if (!("body" in p)) throw new Error(p.problem);
+    const named = async () => (await e.owner.get(`${P}/fields/library`)).fields.filter((f: LibraryEntry) => f.name === "u_case_ref");
+    const owner = apiOf(e.owner);
+    await expect(fieldsApi.promote(owner, p.body, (id) => owner.patch(`/r/custom_field/${cf.id}`, { library_id: id, version: cf.version }))).rejects.toThrow(
+      /پرونده‌های گردش‌کار فیلد کتابخانه نمی‌گیرند/,
+    );
+    // the administrator deletes library rows: the field made for it is gone and its name free again
+    expect(await named()).toEqual([]);
+    // a `settings` editor may make library fields but not delete them: the one made for a refused link is retired
+    const editor = apiOf((await settingsEditor()).client);
+    await expect(fieldsApi.promote(editor, p.body, async () => Promise.reject(new Error("پیوند رد شد")))).rejects.toThrow("پیوند رد شد");
+    expect((await named()).map((f: LibraryEntry) => f.status)).toEqual(["retired"]);
   });
 
   it("a table-only field promoted to the library keeps its values", async () => {

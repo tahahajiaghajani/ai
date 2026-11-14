@@ -3,7 +3,8 @@
 // order, the parent value of dependent lists, and «فعال» (an inactive option stays valid on records that carry it but
 // is not offered for new values); an option a module marks «قفل» is never switched off (the server refuses it too).
 // New values are added here too. One «ذخیره» writes only what changed; the definitions refresh everywhere.
-// `?list=` keeps the list in the address (old links settings/choices?list=… land here).
+// `?list=` keeps the list in the address (old links settings/choices?list=… land here). Unsaved edits are asked about
+// before another list, another tab or another page replaces them.
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router";
@@ -13,6 +14,7 @@ import type { Option } from "@shared/model/types";
 import { COLOR_KEYS } from "@shared/model/types";
 import { faDigits } from "@shared/format";
 import { useNotify } from "../../../../lib/hooks";
+import { useLeaveGuard } from "../forms/parts";
 import { EmptyState } from "../../../../components/display";
 import { Card } from "../../../../components/blocks";
 import { useRecordActions, useRecordList, useRefreshSchema, useSchema } from "../../../../records/data/hooks";
@@ -37,6 +39,10 @@ export function usedBy(schema: Schema | undefined, list: string): string {
 
 const strip = (o: Item) => ({ value: o.value, label: o.label, color: o.color ?? null, parent: o.parent ?? null, active: o.active !== false });
 
+/** Before another list or tab replaces the list's unsaved edits (true: go on without saving). */
+export const confirmDiscard = (n: Pick<ReturnType<typeof useNotify>, "confirm">): Promise<boolean> =>
+  n.confirm("تغییرهای گزینه‌ها ذخیره نشده‌اند؛ برویم؟", "آنچه در این فهرست تغییر داده‌اید از دست می‌رود.", true, "رفتن بدون ذخیره");
+
 export function ChoiceLists({ editable, slot, onDirty }: { editable: boolean; slot: HTMLElement | null; onDirty: (dirty: boolean) => void }) {
   const n = useNotify();
   const { schema } = useSchema();
@@ -55,6 +61,8 @@ export function ChoiceLists({ editable, slot, onDirty }: { editable: boolean; sl
   const dependent = items.some((o) => o.parent);
   const dirty = !sameValue(items.map(strip), effective.map(strip));
   useEffect(() => onDirty(dirty), [dirty, onDirty]);
+  // another page, the browser's Back, the shell's menus: asked first
+  useLeaveGuard(editable && dirty);
 
   const set = (i: number, p: Partial<Item>) => setItems((x) => x.map((o, j) => (j === i ? { ...o, ...p } : o)));
   const move = (i: number, d: number) =>
@@ -115,7 +123,9 @@ export function ChoiceLists({ editable, slot, onDirty }: { editable: boolean; sl
       <div className="wff-bar">
         <Select
           value={list}
-          onChange={(v) =>
+          onChange={async (v) => {
+            // another list replaces this one's unsaved edits: asked first, as another tab is
+            if (editable && dirty && !(await confirmDiscard(n))) return;
             setParams(
               (p) => {
                 const next = new URLSearchParams(p);
@@ -123,8 +133,8 @@ export function ChoiceLists({ editable, slot, onDirty }: { editable: boolean; sl
                 return next;
               },
               { replace: true },
-            )
-          }
+            );
+          }}
           options={lists.map((l) => ({ value: l, label: l }))}
           showSearch
           aria-label="فهرست"

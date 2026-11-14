@@ -3,8 +3,9 @@
 // `settings` edit), the creation paths a requirement binds (/fields/paths/:table), attaching a library field to a table
 // (/fields/attach: `settings` edit), the default form's overrides of a table (PUT /forms/system/:table/overrides:
 // `settings` edit) and the organisation's money unit (/financial/meta, every member). The rows a sheet edits are read
-// whole through the generic record API (/r/field_def/:id, /r/field_type/:id); choice lists and table-only fields keep
-// the generic API of `choice` and `custom_field`, as before.
+// whole through F1's routes (GET /fields/library/:id, /fields/types/:id), which admit the lists' readers — the generic
+// record API reads them for `process_design` readers only; choice lists and table-only fields keep the generic API of
+// `choice` and `custom_field`, as before.
 import type { FieldType, Option } from "@shared/model/types";
 import type { FieldTypeGroup, FieldTypeSettings, SettingKey, Widget } from "@shared/forms/fieldtypes";
 import type { CreationPath, PathEffect, RequiredFor } from "@shared/forms/paths";
@@ -112,9 +113,41 @@ export const fieldsApi = {
   library: (api: OrgApi) => api.get<{ fields: LibraryEntry[] }>("/fields/library"),
   types: (api: OrgApi) => api.get<TypesResult>("/fields/types"),
   /** a whole row of `field_def` or `field_type` (the sheet edits every column) */
-  row: async (api: OrgApi, table: "field_def" | "field_type", id: string): Promise<RecordRow> => (await recordsApi.get(api, table, id)).row,
+  row: async (api: OrgApi, table: "field_def" | "field_type", id: string): Promise<RecordRow> =>
+    (await api.get<{ row: RecordRow }>(`/fields/${table === "field_def" ? "library" : "types"}/${encodeURIComponent(id)}`)).row,
   saveField: (api: OrgApi, id: string | null, data: Record<string, unknown>) =>
     id ? api.patch<{ row: RecordRow }>(`/fields/library/${id}`, data) : api.post<{ row: RecordRow }>("/fields/library", data),
+  /**
+   * Takes back a library field just made for a step that then failed: removed where the person may delete library
+   * rows (`process_design` delete; it is unused), else retired, so it is offered for nothing. What happened, or null
+   * when neither was allowed.
+   */
+  discardField: async (api: OrgApi, row: Pick<RecordRow, "id" | "version">): Promise<"removed" | "retired" | null> => {
+    try {
+      await recordsApi.remove(api, "field_def", String(row.id), Number(row.version) || undefined);
+      return "removed";
+    } catch {
+      return api.patch(`/fields/library/${row.id}`, { status: "retired" }).then(
+        () => "retired" as const,
+        () => null,
+      );
+    }
+  },
+  /**
+   * «افزودن به کتابخانه»: the library field of a table-only field (`promoteBody`), then `link` points the table's row
+   * at it. Two writes: when the link is refused, the new library field is taken back (`discardField`) and the refusal
+   * thrown, so no unused library field is left behind.
+   */
+  promote: async (api: OrgApi, body: Record<string, unknown>, link: (libraryId: string) => Promise<unknown>): Promise<RecordRow> => {
+    const made = (await fieldsApi.saveField(api, null, body)).row;
+    try {
+      await link(String(made.id));
+    } catch (e) {
+      await fieldsApi.discardField(api, made);
+      throw e;
+    }
+    return made;
+  },
   saveType: (api: OrgApi, id: string | null, data: Record<string, unknown>) =>
     id ? api.patch<{ row: RecordRow }>(`/fields/types/${id}`, data) : api.post<{ row: RecordRow }>("/fields/types", data),
   paths: (api: OrgApi, table: string, requiredFor: RequiredFor) => api.get<PathsResult>(`/fields/paths/${table}`, { required_for: requiredFor }),

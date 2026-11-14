@@ -1,24 +1,27 @@
-// The table picker of «فیلدهای جدول‌ها» kept in `?table=`, and the tables a tenant may customise (every engine table but
-// the customisation tables themselves) — moved here from the records module's designers (design F §12.1, package F5).
+// The table picker of «فیلدهای جدول‌ها» kept in `?table=`, and the tables a tenant may customise — the tables whose
+// default form «فرم‌ها» lists (`tailoredTable`: not the customisation rows, not a process case, whose fields belong to
+// its process forms) — moved here from the records module's designers (design F §12.1, package F5).
 import { useMemo } from "react";
 import { useSearchParams } from "react-router";
 import { Select } from "antd";
+import { tailoredTable } from "@shared/tables/fields";
 import type { Schema } from "../../../../records/model/schema";
 import type { TableMeta } from "../../../../records/model/types";
 
-const NOT_CUSTOMISABLE = new Set(["custom_field", "choice", "view"]);
-
-export function customisableTables(schema: Schema | undefined): TableMeta[] {
+export function customisableTables(schema: Pick<Schema, "tables"> | undefined): TableMeta[] {
   if (!schema) return [];
-  return [...schema.tables.values()].filter((t) => !t.virtual && !NOT_CUSTOMISABLE.has(t.key)).sort((a, b) => a.plural.localeCompare(b.plural, "fa"));
+  return [...schema.tables.values()].filter(tailoredTable).sort((a, b) => a.plural.localeCompare(b.plural, "fa"));
 }
 
-/** The designer's table in the URL (`?table=todo`), defaulting to the first customisable table. */
+/**
+ * The designer's table in the URL (`?table=todo`), defaulting to the first customisable table — also for a table it
+ * does not offer (an old link to a process case, or a table the person cannot read).
+ */
 export function useTableParam(schema: Schema | undefined): [TableMeta | undefined, (key: string) => void] {
   const [params, setParams] = useSearchParams();
   const tables = useMemo(() => customisableTables(schema), [schema]);
-  const key = params.get("table") ?? tables[0]?.key;
-  const def = key ? tables.find((t) => t.key === key) : undefined;
+  const key = params.get("table");
+  const def = (key ? tables.find((t) => t.key === key) : undefined) ?? tables[0];
   return [
     def,
     (k: string) =>

@@ -13,7 +13,8 @@ import { localDate } from "@shared/model/jalali-buckets";
 import { faDigits } from "@shared/format";
 import { useOrg } from "../../../../lib/org";
 import { useNotify } from "../../../../lib/hooks";
-import { Chip, JDate, Loader } from "../../../../components/display";
+import { errorText } from "../../../../lib/api";
+import { Chip, EmptyState, JDate, Loader } from "../../../../components/display";
 import { DateInput } from "../../../../components/inputs";
 import { RecordSelect } from "../../../../records/fields/RecordSelect";
 import { displayOf } from "../../../../records/model/schema";
@@ -71,6 +72,8 @@ export function PositionSheet({ id, overview, access, today: serverToday, onClos
   const close = useCloseGuard(dirty && access.manage, onClose);
   const set = (p: Partial<PositionDraft>) => setD((x) => (x ? { ...x, ...p } : x));
   const readOnly = !access.manage;
+  // a position that cannot be read (removed, an old link) says why instead of waiting forever
+  const failed = !!id && row.isError;
 
   const save = async () => {
     if (!d) return;
@@ -111,7 +114,7 @@ export function PositionSheet({ id, overview, access, today: serverToday, onClos
         </span>
       }
       footer={
-        readOnly ? null : (
+        readOnly || failed ? null : (
           <div className="wff-foot">
             <span className="wff-foot-gap" />
             <Button onClick={close}>{id ? "بستن" : "انصراف"}</Button>
@@ -122,7 +125,9 @@ export function PositionSheet({ id, overview, access, today: serverToday, onClos
         )
       }
     >
-      {!d ? (
+      {failed ? (
+        <EmptyState title="این نقش باز نشد" description={errorText(row.error)} action={<Button onClick={onClose}>بستن</Button>} />
+      ) : !d ? (
         <div className="grid place-items-center py-10">
           <Loader />
         </div>
@@ -273,23 +278,27 @@ function Holders({ positionId, unitKind, active, access, today, onPreview }: { p
               width: 112,
               fixed: "end" as const,
               render: (_: unknown, h) =>
-                access.manage ? (
+                access.manage || access.remove ? (
                   <span className="inline-flex">
-                    <Tooltip title="ویرایش">
-                      <Button type="text" size="small" icon={<Pencil {...I14} />} onClick={() => setEditing(h)} aria-label={`ویرایش دارندگی ${name(h.user_id)}`} />
-                    </Tooltip>
-                    {holderState(h, today) !== "ended" ? (
+                    {access.manage ? (
+                      <Tooltip title="ویرایش">
+                        <Button type="text" size="small" icon={<Pencil {...I14} />} onClick={() => setEditing(h)} aria-label={`ویرایش دارندگی ${name(h.user_id)}`} />
+                      </Tooltip>
+                    ) : null}
+                    {access.manage && holderState(h, today) !== "ended" ? (
                       <Popconfirm title={`دورهٔ «${name(h.user_id)}» امروز پایان یابد؟`} okText="پایان امروز" cancelText="انصراف" onConfirm={() => endToday(h)}>
                         <Tooltip title="پایان امروز">
                           <Button type="text" size="small" icon={<CalendarX {...I14} />} aria-label={`پایان دورهٔ ${name(h.user_id)}`} />
                         </Tooltip>
                       </Popconfirm>
                     ) : null}
-                    <Popconfirm title={`«${name(h.user_id)}» از دارندگان برداشته شود؟`} description={h.source === "directory" ? "اگر هنوز در گروه AD باشد، همگام‌سازی بعدی دوباره آن را می‌افزاید." : undefined} okText="برداشتن" okButtonProps={{ danger: true }} cancelText="انصراف" onConfirm={() => remove(h)}>
-                      <Tooltip title="برداشتن">
-                        <Button type="text" size="small" danger icon={<Trash2 {...I14} />} aria-label={`برداشتن ${name(h.user_id)}`} />
-                      </Tooltip>
-                    </Popconfirm>
+                    {access.remove ? (
+                      <Popconfirm title={`«${name(h.user_id)}» از دارندگان برداشته شود؟`} description={h.source === "directory" ? "اگر هنوز در گروه AD باشد، همگام‌سازی بعدی دوباره آن را می‌افزاید." : undefined} okText="برداشتن" okButtonProps={{ danger: true }} cancelText="انصراف" onConfirm={() => remove(h)}>
+                        <Tooltip title="برداشتن">
+                          <Button type="text" size="small" danger icon={<Trash2 {...I14} />} aria-label={`برداشتن ${name(h.user_id)}`} />
+                        </Tooltip>
+                      </Popconfirm>
+                    ) : null}
                   </span>
                 ) : null,
             },

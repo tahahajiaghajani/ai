@@ -29,13 +29,14 @@ const holder = (p: Partial<HolderRow> & { id: string }): HolderRow => ({ version
 
 describe("who is offered what", () => {
   it("keepers of the structure manage; designers preview; requesters and agents only read", () => {
-    expect(positionsAccess(probe(grantsOf("tenant_admin")))).toEqual({ read: true, manage: true, preview: true });
-    expect(positionsAccess(probe(grantsOf("service_desk_manager")))).toEqual({ read: true, manage: true, preview: true });
+    expect(positionsAccess(probe(grantsOf("tenant_admin")))).toEqual({ read: true, manage: true, remove: true, preview: true });
+    // a service-desk manager deletes `org` rows in their groups only: a holder has no group, so removing one is not offered (F5-5)
+    expect(positionsAccess(probe(grantsOf("service_desk_manager")))).toEqual({ read: true, manage: true, remove: false, preview: true });
     // a team lead writes `org` in their groups only: that reaches no holder
-    expect(positionsAccess(probe(grantsOf("team_lead")))).toEqual({ read: true, manage: false, preview: false });
-    for (const r of ["agent", "requester"]) expect(positionsAccess(probe(grantsOf(r)))).toEqual({ read: true, manage: false, preview: false });
-    expect(positionsAccess(probe(DESIGNER))).toEqual({ read: true, manage: false, preview: true });
-    expect(positionsAccess(probe(grantsOf("tenant_admin"), false)).manage).toBe(false);
+    expect(positionsAccess(probe(grantsOf("team_lead")))).toEqual({ read: true, manage: false, remove: false, preview: false });
+    for (const r of ["agent", "requester"]) expect(positionsAccess(probe(grantsOf(r)))).toEqual({ read: true, manage: false, remove: false, preview: false });
+    expect(positionsAccess(probe(DESIGNER))).toEqual({ read: true, manage: false, remove: false, preview: true });
+    expect(positionsAccess(probe(grantsOf("tenant_admin"), false))).toMatchObject({ manage: false, remove: false });
   });
 
   it("two rows reach the page: the workflows group's for designers, «سازمان و دسترسی»'s for keepers of the structure", () => {
@@ -183,6 +184,20 @@ describe("the screens' calls on a real organisation", () => {
     expect(r.status).toBe("ok");
     expect(r.people.map((p) => p.user)).toEqual([head.userId]);
     expect(r.lines[0]).toMatch(/رئیس شعبه \(شعبهٔ ونک\)$/);
+  });
+
+  it("a service-desk manager places, changes and ends a holder; removing it is refused as the sheet does not offer it (F5-5)", async () => {
+    const m = await e.member("member");
+    await e.owner.put(`${P}/access/members/${m.userId}`, { roles: ["service_desk_manager"], persona: "agent" });
+    // what the page offers them, from the grants the shell reads (GET /o/:org)
+    const info = await m.client.get(P);
+    expect(positionsAccess({ allows: (g) => gateAllows(info.access.grants, g), writable: true })).toMatchObject({ manage: true, remove: false });
+    const position = (await m.client.post(`${R}/position`, { name: "معاون شعبه", key: "deputy", unit_kind: "branch", active: true })).row;
+    const h = (await m.client.post(`${R}/position_holder`, { kind: "acting", valid_from: null, valid_to: null, user_id: staff.userId, org_unit_id: U.tajrish, position_id: position.id })).row;
+    const ended = (await m.client.patch(`${R}/position_holder/${h.id}`, { valid_to: "2026-11-14", version: h.version })).row;
+    await m.client.del(`${R}/position_holder/${h.id}?version=${ended.version}`, 403);
+    // the organisation's administrator may
+    await e.owner.del(`${R}/position_holder/${h.id}?version=${ended.version}`);
   });
 
   it("a requester reads the overview but may not preview or import", async () => {

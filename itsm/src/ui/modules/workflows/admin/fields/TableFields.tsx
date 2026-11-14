@@ -100,11 +100,12 @@ export function TableFields({ access, library, slot }: TableFieldsProps) {
     if (!(await n.confirm(`افزودن «${f.label}» به کتابخانه؟`, "فیلدی با همین نام و نوع در کتابخانه ساخته می‌شود و این جدول آن را به کار می‌برد؛ مقدارهای ثبت‌شده می‌مانند.", false, "افزودن به کتابخانه"))) return;
     setBusy(f.name);
     try {
-      const made = await fieldsApi.saveField(api, null, p.body);
-      await actions.update(r.id, { library_id: made.row.id }, r.version);
+      // a link the table refuses takes the new library field back
+      await fieldsApi.promote(api, p.body, (id) => actions.update(r.id, { library_id: id }, r.version));
       await rows.refetch();
       await done(`«${f.label}» به کتابخانه افزوده شد`);
     } catch (e) {
+      await qc.invalidateQueries({ queryKey: FIELD_KEYS.all(orgId) });
       n.error(e);
     } finally {
       setBusy(null);
