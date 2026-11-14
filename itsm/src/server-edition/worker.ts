@@ -19,6 +19,7 @@ import { configureWriteAdmission, type ServerConfig } from "@server/context";
 import { proxyTrusted } from "@server/auth/session";
 import { APP_NAME } from "@shared/constants";
 import { changeAllowlist, databaseUrl, loadServerConfig, poolFor, workerCount, type ServerEditionConfig } from "./config";
+import { ForegroundGate } from "./foreground";
 import { JOB_CONCURRENCY } from "./pgtune";
 import { DIRECTORY_SETTINGS_PATH, EXIT_FATAL_CONFIG } from "./names";
 import { createLogger, echo, RotatingFile, type Level, type ServerLogger } from "./log";
@@ -71,7 +72,8 @@ type ToPrimary =
   | { t: "ask"; id: number }
   | { t: "reload" }
   | { t: "restart"; reason: string }
-  | { t: "ready"; worker: number };
+  | { t: "ready"; worker: number }
+  | { t: "fg"; on: boolean };
 
 const send = (m: ToPrimary) => {
   try {
@@ -155,6 +157,9 @@ export async function startServerEdition(o: StartOptions): Promise<RunningServer
   // write admission: kariz.json writers_per_org (ITSM_WRITERS_PER_ORG wins)
   configureWriteAdmission(current.writers_per_org);
   const metrics = new WorkerMetrics(workerId, pool.perWorker, current.log.slow_ms);
+  // requests a person waits for, on this worker and (through the supervisor) on the others: the job runner of the
+  // scheduler leader gives way to them before each round of jobs (foreground.ts)
+  const foreground = new ForegroundGate(o.ipc ? (on) => send({ t: "fg", on }) : undefined);
 
   // outbound policy: every fetch, plus a socket-level guard under it
   const network: NetworkPolicy = {
@@ -265,7 +270,8 @@ export async function startServerEdition(o: StartOptions): Promise<RunningServer
     scheduler = new Scheduler({
       lock: postgresLock(databaseUrl(current), { ssl: current.db.ssl }),
       // the job runner: only the scheduler leader ticks, four jobs at once (batched SKIP LOCKED claims, per-record order)
-      tick: () => tick(cfg, { budgetMs: 20_000, concurrency: JOB_CONCURRENCY, worker: `srv${workerId}-${process.pid}` }),
+      // and before each round it waits (at most YIELD_MS) while a person waits for an answer anywhere in the cluster
+      tick: () => tick(cfg, { budgetMs: 20_000, concurrency: JOB_CONCURRENCY, worker: `srv${workerId}-${process.pid}`, busy: foreground.busy }),
       log,
       intervalMs: current.scheduler.interval_s * 1000,
       onLeadership: (v) => (metrics.leader = v),
@@ -336,6 +342,7 @@ export async function startServerEdition(o: StartOptions): Promise<RunningServer
     ),
     setupRequired: async () => !(await hasUsers()),
     https: current.tls.enabled,
+    foreground,
   });
 
   const handle = nodeHandler(front.fetch, () => current.trusted_proxies);
@@ -390,9 +397,10 @@ export async function startServerEdition(o: StartOptions): Promise<RunningServer
     if (o.ipc) send({ t: "metrics", snap: metrics.snapshot() });
   }, 5000);
   report.unref?.();
-  const onMessage = (m: { t?: string; id?: number; data?: ClusterMetrics }) => {
+  const onMessage = (m: { t?: string; id?: number; data?: ClusterMetrics; busy?: boolean }) => {
     if (m?.t === "answer" && typeof m.id === "number") pending.get(m.id)?.(m.data as ClusterMetrics);
     else if (m?.t === "reload") reload();
+    else if (m?.t === "fg") foreground.setCluster(m.busy === true);
   };
   if (o.ipc) {
     process.on("message", onMessage);
@@ -412,6 +420,7 @@ export async function startServerEdition(o: StartOptions): Promise<RunningServer
       if (closing) return;
       closing = true;
       clearInterval(report);
+      foreground.close();
       process.off("message", onMessage);
       // stop accepting, let requests in flight finish (at most 20 s), then close what is left
       await Promise.race([
