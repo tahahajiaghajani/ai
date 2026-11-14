@@ -5,7 +5,8 @@
 // forbidden headers are never sent; credentials in the address are refused; the connector's own root CA is trusted
 // and nothing turns verification off; a host change clears the secrets; secrets never reach run errors or item data;
 // a keyed connector without its key (a restored backup) does not run. Nothing reaches the tool before every check
-// passed.
+// passed. The fixed-script PowerShell runner runs only on the server edition on Windows, judges the host first, binds
+// values to declared parameters, keeps passwords off the command line and refuses a redirect.
 import os from "node:os";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { uuidv7 } from "@shared/id";
@@ -16,6 +17,7 @@ import {
 } from "@server/modules/discovery/net";
 import { previewConnector } from "@server/modules/discovery/runner";
 import { SECRETS_CLEARED } from "@server/modules/discovery/guard";
+import { psArgs, PS_MESSAGES, PS_SCRIPTS, psrunSeam, runPs } from "@server/modules/discovery/psrun";
 import { fixtureCa, TOOL_HOST } from "./fixtures/discovery-ca";
 import { json, mountMocks, serve, serveTls, type Handler } from "./mocks/discovery/harness";
 import { REST_CONNECTOR, RestMock, makeDevices } from "./mocks/discovery/rest";
@@ -27,6 +29,7 @@ const view = (over: Partial<ConnectorView> = {}): ConnectorView => ({
 });
 
 const web: NetConfig = { mode: "cloud" };
+const seamLookup = discoveryNet.lookup;
 function server(allow: string[], airGapped = true): { cfg: NetConfig; refused: string[] } {
   const refused: string[] = [];
   const network: NetworkPolicy = { lan: true, airGapped, allow, onRefused: (host, label) => refused.push(`${host}|${label}`) };
@@ -323,4 +326,53 @@ describe("secrets of connectors (design A §14.3, §5.1)", () => {
     // the database host of this runtime is known (PGlite has no network address: nothing to refuse there)
     expect(await databaseHosts(w.e.db)).toMatchObject({ names: expect.any(Set), addresses: expect.any(Set) });
   }, 300_000);
+});
+
+describe("the fixed-script PowerShell runner (design A §6.4, §6.5)", () => {
+  const seam = { ...psrunSeam };
+  afterEach(() => Object.assign(psrunSeam, seam));
+
+  it("runs only on the server edition on Windows, binds values to the script's own parameters and refuses anything else", async () => {
+    const { cfg } = server(["mecm.bank.local"]);
+    const run = { script: "web_request", host: "mecm.bank.local", credentialed: true, args: { Uri: "https://mecm.bank.local/AdminService/v1.0/Device" } };
+    // Linux, or the web version: refused with what to do
+    expect(await outcome(runPs(cfg, run))).toBe(PS_MESSAGES.windowsOnly);
+    psrunSeam.platform = () => "win32";
+    expect(await outcome(runPs(web, run))).toBe(PS_MESSAGES.windowsOnly);
+    // the command line: fixed flags, the fixed script, each value bound to a declared parameter (never parsed as code)
+    expect(psArgs(PS_SCRIPTS.web_request, "C:\\kariz\\web.ps1", { Uri: "https://h/x?a=1&b=2", TimeoutSec: 30 })).toEqual([
+      "-NoProfile", "-NonInteractive", "-File", "C:\\kariz\\web.ps1", "-Uri:https://h/x?a=1&b=2", "-TimeoutSec:30",
+    ]);
+    const refused: Record<string, string>[] = [{ Command: "x" }, { Uri: "https://h/\nGet-Process" }, { Uri: 'https://h/"; Remove-Item' }, { Uri: "x".repeat(4001) }];
+    for (const bad of refused) {
+      expect(() => psArgs(PS_SCRIPTS.web_request, "f.ps1", bad)).toThrow(/پذیرفته نیست/);
+    }
+    // the host is judged before anything starts: off the allowlist, or credentials to a host not named exactly
+    const calls: { file: string; args: string[]; stdin?: string }[] = [];
+    psrunSeam.exec = async (file, args, o) => {
+      calls.push({ file, args, stdin: o.stdin });
+      return { code: 3, stdout: "", stderr: "KARIZ:redirect", timedOut: false };
+    };
+    discoveryNet.lookup = async () => ["10.30.0.4"];
+    try {
+      expect(await outcome(runPs(cfg, { ...run, host: "other.bank.local" }))).toBe(CONNECTOR_MESSAGES.notAllowed("other.bank.local"));
+      expect(await outcome(runPs(server(["*.bank.local"]).cfg, run))).toBe(CONNECTOR_MESSAGES.exactName);
+      expect(await outcome(runPs(cfg, { ...run, script: "Invoke-Expression" }))).toBe(PS_MESSAGES.unknownScript);
+      expect(calls).toEqual([]);
+      // a redirect is refused (credentials never follow one); a password goes on stdin, never on the command line
+      expect(await outcome(runPs(cfg, { ...run, stdin: "p@ss" }))).toBe(CONNECTOR_MESSAGES.redirect);
+      expect(calls).toHaveLength(1);
+      expect(calls[0].file).toMatch(/powershell\.exe$/i);
+      expect(calls[0].args.slice(0, 3)).toEqual(["-NoProfile", "-NonInteractive", "-File"]);
+      expect(calls[0].args.join(" ")).not.toContain("p@ss");
+      expect(calls[0].stdin).toBe("p@ss");
+      psrunSeam.exec = async () => ({ code: 4, stdout: "", stderr: "KARIZ:status:401", timedOut: false });
+      expect(await outcome(runPs(cfg, run))).toBe(CONNECTOR_MESSAGES.auth);
+      psrunSeam.exec = async () => ({ code: 0, stdout: '{"value":[]}', stderr: "", timedOut: false });
+      expect(await runPs(cfg, run)).toBe('{"value":[]}');
+    } finally {
+      discoveryNet.lookup = seamLookup;
+      resetDiscoveryNet();
+    }
+  });
 });
