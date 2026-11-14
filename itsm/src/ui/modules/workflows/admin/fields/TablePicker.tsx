@@ -1,10 +1,10 @@
-// Shared parts of the designers (Settings › سفارشی‌سازی): the table picker kept in `?table=`, and the tables a tenant
-// may customise (every engine table but the customisation tables themselves).
+// The table picker of «فیلدهای جدول‌ها» kept in `?table=`, and the tables a tenant may customise (every engine table but
+// the customisation tables themselves) — moved here from the records module's designers (design F §12.1, package F5).
 import { useMemo } from "react";
 import { useSearchParams } from "react-router";
 import { Select } from "antd";
-import type { Schema } from "../model/schema";
-import type { TableMeta } from "../model/types";
+import type { Schema } from "../../../../records/model/schema";
+import type { TableMeta } from "../../../../records/model/types";
 
 const NOT_CUSTOMISABLE = new Set(["custom_field", "choice", "view"]);
 

@@ -25,7 +25,7 @@ import { Card } from "../../../../components/blocks";
 import { useRecordActions, useRecordList, useRefreshSchema, useSchema } from "../../../../records/data/hooks";
 import { fieldErrorsOf, type RecordRow, type TableMeta } from "../../../../records/model/types";
 import { formLayout } from "../../../../records/model/layout";
-import { TablePicker, customisableTables, useTableParam } from "../../../../records/admin/shared";
+import { TablePicker, customisableTables, useTableParam } from "./TablePicker";
 import { FIELD_KEYS, fieldsApi, type LibraryEntry } from "./api";
 import {
   KIND_LABELS, attachable, hideBlocker, promoteBody, requireBlocker, requirementText, tableFieldRows, type FieldsAccess, type TableFieldRow,
@@ -393,7 +393,7 @@ function AttachDialog({ table, candidates, onClose, onAttached }: { table: Table
                 autoFocus
               />
             </F>
-            <F label="بخش فرم" htmlFor="wff-attach-s" hint="خالی: بخش نخست؛ چیدمان کامل در «چیدمان فرم‌ها»">
+            <F label="بخش فرم" htmlFor="wff-attach-s" hint="خالی: بخش نخست؛ چیدمان کامل در «فرم‌ها»">
               <Select id="wff-attach-s" mode="tags" maxCount={1} value={section ? [section] : []} onChange={(v: string[]) => setSection(v[v.length - 1] ?? "")} options={sections.map((s) => ({ value: s, label: s }))} placeholder="بخش" />
             </F>
           </>
@@ -550,7 +550,7 @@ function FieldDrawer({ def, row, base, nextOrder, onClose, onSaved }: { def: Tab
                 <Select id="wff-cf-ref" value={d.ref || undefined} onChange={(v) => set({ ref: v })} options={targets.map((t) => ({ value: t.key, label: t.plural }))} showSearch={{ optionFilterProp: "label" }} disabled={!!row} />
               </F>
             ) : null}
-            <F label="بخش فرم" htmlFor="wff-cf-sec" hint="خالی: بخش نخست. چیدمان کامل در «چیدمان فرم‌ها».">
+            <F label="بخش فرم" htmlFor="wff-cf-sec" hint="خالی: بخش نخست. چیدمان کامل در «فرم‌ها».">
               <Select id="wff-cf-sec" mode="tags" maxCount={1} value={d.section ? [d.section] : []} onChange={(v: string[]) => set({ section: v[v.length - 1] ?? "" })} options={sections.map((s) => ({ value: s, label: s }))} placeholder="بخش" />
             </F>
           </>
