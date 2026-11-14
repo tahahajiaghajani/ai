@@ -12,13 +12,15 @@
 //     it — so a caller cannot aim the script anywhere else;
 //   · a password goes on stdin, never on the command line;
 //   · 30 s by default, the window hidden, output capped at 20 MB; the script's own markers become Persian answers —
-//     a redirect (`-MaximumRedirection 0`, so Windows credentials never follow one) is «پاسخ به نشانی دیگری هدایت شد…».
+//     a redirect (`-MaximumRedirection 0`, so Windows credentials never follow one) is «پاسخ به نشانی دیگری هدایت شد…»;
+//   · demo work never starts it (§14.4): nothing of the demo pack leaves the system, as for the fetcher (net.ts).
 // Only the server edition on Windows runs it; elsewhere it refuses with a Persian message.
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { assertNotDemoOutbound, DemoOutboundError } from "../../db/scope";
 import { ConnectorError, CONNECTOR_MESSAGES } from "./kind";
 import { addressProblem, checkHost, editionOf, type NetConfig } from "./net";
 
@@ -143,6 +145,13 @@ export interface PsRun {
 
 /** Run a fixed script for a connector (§6.4, §6.5): its standard output, or a ConnectorError with the Persian cause. */
 export async function runPs(cfg: NetConfig, run: PsRun): Promise<string> {
+  // nothing of the demo pack leaves the system (§14.4): demo work never starts a child process that calls out
+  try {
+    assertNotDemoOutbound();
+  } catch (e) {
+    if (e instanceof DemoOutboundError) throw new ConnectorError("refused", CONNECTOR_MESSAGES.demo);
+    throw e;
+  }
   if (psrunSeam.platform() !== "win32" || editionOf(cfg) !== "server") throw new ConnectorError("config", PS_MESSAGES.windowsOnly);
   const script = PS_SCRIPTS[run.script];
   if (!script) throw new ConnectorError("config", PS_MESSAGES.unknownScript);

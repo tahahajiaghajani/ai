@@ -5,12 +5,13 @@
 // forbidden headers are never sent; credentials in the address are refused; the connector's own root CA is trusted
 // and nothing turns verification off; a host change clears the secrets; secrets never reach run errors or item data;
 // a keyed connector without its key (a restored backup) does not run. Nothing reaches the tool before every check
-// passed. The fixed-script PowerShell runner runs only on the server edition on Windows, judges the host first, keeps
-// the script's address on that host, binds values to declared parameters, keeps passwords off the command line and
-// refuses a redirect.
+// passed, and demo work reaches nothing at all. The fixed-script PowerShell runner runs only on the server edition on
+// Windows, never for demo work, judges the host first, keeps the script's address on that host, binds values to
+// declared parameters, keeps passwords off the command line and refuses a redirect.
 import os from "node:os";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { uuidv7 } from "@shared/id";
+import { inDemoScope } from "@server/db/scope";
 import type { NetworkPolicy } from "@server/net";
 import { CONNECTOR_MESSAGES, type ConnectorView } from "@server/modules/discovery/kind";
 import {
@@ -178,6 +179,21 @@ describe("where a connector may connect (design A §14.1)", () => {
     expect(await reachProblem(cfg, { base_url: "https://other.bank.local/", hosts: [], plain_http: false }, { credentialed: false })).toBe(CONNECTOR_MESSAGES.notAllowed("other.bank.local"));
     expect(await reachProblem(cfg, { base_url: "https://zbx.bank.local/", hosts: [], plain_http: false }, { credentialed: true })).toBeNull();
     expect(await reachProblem({ mode: "desktop" }, { base_url: "https://zbx.bank.local/", hosts: [], plain_http: false }, { credentialed: true })).toBe(CONNECTOR_MESSAGES.desktop);
+  });
+
+  it("demo work never reaches the network: inside the demo scope a fetcher refuses before anything is sent (§14.4)", async () => {
+    const { cfg } = server(["zbx.bank.local"]);
+    mount({ "zbx.bank.local": ["10.40.0.2"], "tool.example.com": ["203.0.113.20"] });
+    const demoOrg = uuidv7();
+    for (const [c, base] of [[cfg, "https://zbx.bank.local/"], [web, "https://tool.example.com/"]] as const) {
+      expect(await outcome(inDemoScope(demoOrg, () => connectorFetcher(c, view({ base_url: base }), [], { credentialed: true }).fetchJson("api")))).toBe(CONNECTOR_MESSAGES.demo);
+      expect(await outcome(inDemoScope(demoOrg, () => connectorFetcher(c, view({ base_url: base }), []).fetchText("api")))).toBe(CONNECTOR_MESSAGES.demo);
+    }
+    expect(calls).toEqual([]);
+    // the same calls outside the scope reach the tools
+    expect(await outcome(connectorFetcher(cfg, view({ base_url: "https://zbx.bank.local/" }), []).fetchJson("api"))).toBe("ok");
+    expect(await outcome(connectorFetcher(web, view({ base_url: "https://tool.example.com/" }), []).fetchJson("api"))).toBe("ok");
+    expect(calls).toEqual(["https://zbx.bank.local/api", "https://tool.example.com/api"]);
   });
 });
 
@@ -370,6 +386,8 @@ describe("the fixed-script PowerShell runner (design A §6.4, §6.5)", () => {
       expect(await outcome(runPs(cfg, { ...run, args: { Uri: "https://other.bank.local/AdminService/v1.0/Device" } }))).toBe(CONNECTOR_MESSAGES.otherHost);
       expect(await outcome(runPs(cfg, { ...run, args: { Uri: "http://mecm.bank.local/AdminService/v1.0/Device" } }))).toBe(CONNECTOR_MESSAGES.plainHttp);
       expect(await outcome(runPs(cfg, { ...run, args: { Uri: "https://mecm.bank.local/x?apikey=abc" } }))).toBe(CONNECTOR_MESSAGES.credentialsInUrl);
+      // demo work never starts it (§14.4): nothing of the demo pack leaves the system
+      expect(await outcome(inDemoScope(uuidv7(), () => runPs(cfg, run)))).toBe(CONNECTOR_MESSAGES.demo);
       expect(calls).toEqual([]);
       expect(await outcome(runPs(cfg, { ...run, plainHttp: true, args: { Uri: "http://mecm.bank.local/AdminService/v1.0/Device" } }))).toBe(CONNECTOR_MESSAGES.redirect);
       expect(calls).toHaveLength(1);
