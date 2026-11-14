@@ -190,10 +190,14 @@ function Designer({ initial }: { initial: ProcessDetail }) {
 
   // ------------------------------------------------------------------ autosave
   const queue = useRef<Promise<void>>(Promise.resolve());
-  const flush = useCallback((): Promise<void> => {
-    queue.current = queue.current.then(async () => {
+  /** Save what is not saved yet, after the saves before it; true when the server then holds the draft. */
+  const flush = useCallback((): Promise<boolean> => {
+    const run = queue.current.then(async (): Promise<boolean> => {
       const p = savePatch(savedRef.current, draftRef.current);
-      if (!p) return setState("saved");
+      if (!p) {
+        setState("saved");
+        return true;
+      }
       setState("saving");
       try {
         const r = await designerApi.save(api, id, p);
@@ -201,13 +205,16 @@ function Designer({ initial }: { initial: ProcessDetail }) {
         setSavedAt(r.process.updated_at ?? new Date().toISOString());
         setState(savePatch(r, draftRef.current) ? "pending" : "saved");
         void qc.invalidateQueries({ queryKey: HUB_KEYS.all(orgId) });
+        return true;
       } catch (e) {
         setState("error");
         if (e instanceof ApiError && e.code === "version_conflict") setConflict(true);
         else n.error(e, { key: `wfp-save-${id}` });
+        return false;
       }
     });
-    return queue.current;
+    queue.current = run.then(() => undefined);
+    return run;
   }, [api, id, n, orgId, qc, setSaved]);
   const patch = useMemo(() => savePatch(saved, value), [saved, value]);
   useEffect(() => {
@@ -289,9 +296,9 @@ function Designer({ initial }: { initial: ProcessDetail }) {
       n.error(e);
     }
   };
+  // what is published is the saved draft: a save refused (another designer's meanwhile) stops it, its message shown
   const openPublish = async () => {
-    await flush();
-    setPublishing(true);
+    if (await flush()) setPublishing(true);
   };
   const restore = async (v: VersionRow) => {
     if (!(await n.confirm(`بازگرداندن نسخهٔ ${faDigits(v.version_no)} به پیش‌نویس؟`, "پیش‌نویس کنونی با این نسخه جایگزین می‌شود؛ نسخهٔ منتشرشده تا انتشار بعدی تغییر نمی‌کند.", false, "بازگرداندن"))) return;
@@ -586,7 +593,7 @@ function Designer({ initial }: { initial: ProcessDetail }) {
               description: "فیلدهای آن را در «طراحی این فرم» بچینید.",
               action: {
                 label: "طراحی این فرم",
-                onClick: () => void flush().then(() => nav(`/${orgId}/settings/forms/${f.id}`)),
+                onClick: () => void flush().then((ok) => ok && nav(`/${orgId}/settings/forms/${f.id}`)),
               },
             });
           }}
