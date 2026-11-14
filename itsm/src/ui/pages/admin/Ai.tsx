@@ -1,7 +1,8 @@
 // «هوش مصنوعی» of the platform: the platform policy (kill switch, allowed services, default monthly cap per
 // organisation) and every organisation's AI status and usage this month — never keys or conversations. The
 // per-organisation switch is the organisation's platform state (PATCH /admin/orgs/:id ai_disabled).
-import { lazy, Suspense, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import { Button, Form, Input, Select, Switch, Table } from "antd";
 import { Power } from "lucide-react";
 import { AiIcon } from "../../components/shell/icons";

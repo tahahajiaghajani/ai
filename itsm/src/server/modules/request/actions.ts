@@ -15,6 +15,8 @@ import { access } from "../../access/provider";
 import { securityEvent } from "../platform/security";
 import { rerunApprovalRulesIn } from "../sla";
 import { eqAll, isUuid, liveRow, liveRows, obj, offeredChoice, sysOf, type Row } from "./common";
+import { lockedRow } from "../incident/common";
+import type { Queryable } from "../../db";
 import { versionSchema } from "./definition";
 import { canOrder } from "./entitlement";
 import { displayOf } from "./fulfil";
@@ -31,8 +33,8 @@ async function works(ctx: Ctx, id: string): Promise<boolean> {
 }
 
 /** The sealed secret answers of an item (the caller's access to the item was checked before; `readSecret`). */
-async function secretAnswers(ctx: Ctx, id: string): Promise<Answers> {
-  const plain = await readSecret(ctx.db, ctx, tableDef("request_item")!, id, "secret_answers");
+async function secretAnswers(ctx: Ctx, id: string, q: Queryable = ctx.db): Promise<Answers> {
+  const plain = await readSecret(q, ctx, tableDef("request_item")!, id, "secret_answers");
   try {
     return obj(JSON.parse(plain ?? "{}"));
   } catch {
@@ -103,8 +105,8 @@ export async function answersView(ctx: Ctx, table: string, id: string): Promise<
 }
 
 /** Has an approver of the item's current approval round decided (approved or rejected)? */
-async function decidedThisRound(ctx: Ctx, id: string): Promise<boolean> {
-  const rows = await liveRows(ctx.db, sysOf(ctx), "approval", eqAll({ table_key: "request_item", record_id: id }));
+async function decidedThisRound(ctx: Ctx, id: string, q: Queryable = ctx.db): Promise<boolean> {
+  const rows = await liveRows(q, sysOf(ctx), "approval", eqAll({ table_key: "request_item", record_id: id }));
   const round = Math.max(0, ...rows.map((r) => Number(r.round) || 1));
   return rows.some((r) => (Number(r.round) || 1) === round && (r.state === "approved" || r.state === "rejected"));
 }
@@ -118,39 +120,48 @@ async function writable(ctx: Ctx, ritm: Row): Promise<boolean> {
   }
 }
 
-/** Edit the answers (REQ-044): checked again, facts rewritten, approvers told when the item waits for them. */
+/**
+ * Edit the answers (REQ-044): checked again, facts rewritten, approvers told when the item waits for them. Decided
+ * inside the write, from the item locked: an approval settling at the same moment (decide() locks the item first, then
+ * moves it into fulfilment with the answers it approved) finishes first, and the edit is then refused — answers and a
+ * price nobody approved never replace the approved ones on an item in fulfilment. The version check and whether the
+ * approvers are asked again are decided from the same locked row.
+ */
 export async function editAnswers(ctx: Ctx, id: string, input: { answers?: Answers; version?: number | null }): Promise<AnswersView> {
   const view = await answersView(ctx, "request_item", id);
   if (!view.can_edit) throw forbidden("پاسخ‌های این قلم را اکنون نمی‌توانید تغییر دهید");
-  const q = ctx.db;
-  const ritm = (await liveRow(q, sysOf(ctx), "request_item", id))!;
-  if (input.version !== undefined && input.version !== null && Number(ritm.version) !== Number(input.version)) {
-    throw new AppError(409, "version_conflict", "این قلم در این فاصله تغییر کرده است؛ آن را دوباره باز کنید", { version: ritm.version });
-  }
-  const schema = (await versionSchema(q, ctx, ritm.item_version_id))!;
-  const reqLike = await requesterOn(q, ctx, "request_item", ritm);
   const env = await condEnv(ctx);
-  const secretsKept = new Set(view.secrets);
-  // values not sent for sensitive questions the caller could not see stay as they are
-  const merged: Answers = { ...(view.sensitive ? {} : obj(ritm.private_answers)), ...obj(input.answers) };
-  const checked = checkAnswers(schema, merged, { mode: reqLike ? "order" : "fulfil", env, secretsKept });
-  if (Object.keys(checked.errors).length) throw validationError(Object.fromEntries(Object.entries(checked.errors).map(([k, v]) => [`answers.${k}`, v])));
-  const parts = splitAnswers(schema, checked.answers);
-  for (const k of Object.keys(parts.sensitive)) if (parts.sensitive[k] === MASK) delete parts.sensitive[k];
-  const values: Row = {
-    answers: parts.open,
-    private_answers: Object.keys(parts.sensitive).length ? parts.sensitive : null,
-  };
-  if (Object.keys(parts.secret).length) {
-    values.secret_answers = JSON.stringify({ ...(await secretAnswers(ctx, id)), ...parts.secret });
-  }
-  const price = priceOf(schema, checked.answers, Number(ritm.quantity) || 1);
-  values.price = price.unit;
-  values.total = price.total;
-  const changed = schema.variables.filter((v) => JSON.stringify(obj(ritm.answers)[v.name] ?? obj(ritm.private_answers)[v.name] ?? null) !== JSON.stringify(checked.answers[v.name] ?? null) && v.type !== "secret").map((v) => v.label);
   await ctx.write(async (tx) => {
+    const ritm = await lockedRow(tx, sysOf(ctx), "request_item", id);
+    if (!ritm) throw notFound("قلم درخواست‌شده پیدا نشد");
+    if (input.version !== undefined && input.version !== null && Number(ritm.version) !== Number(input.version)) {
+      throw new AppError(409, "version_conflict", "این قلم در این فاصله تغییر کرده است؛ آن را دوباره باز کنید", { version: ritm.version });
+    }
+    const schema = await versionSchema(tx, ctx, ritm.item_version_id);
+    if (!schema) throw notFound("نسخهٔ قلم پیدا نشد");
+    const reqLike = await requesterOn(tx, ctx, "request_item", ritm);
+    const decided = ritm.state === "awaiting_approval" && (await decidedThisRound(ctx, id, tx));
+    const editable = !decided && (reqLike ? answersEditable(schema.item.requester_edit, String(ritm.state)) : isItemOpen(ritm.state));
+    if (!editable) throw forbidden("پاسخ‌های این قلم را اکنون نمی‌توانید تغییر دهید");
+    const secrets = await secretAnswers(ctx, id, tx);
+    const secretsKept = new Set(Object.keys(secrets));
+    // values not sent for sensitive questions the caller could not see stay as they are
+    const merged: Answers = { ...(view.sensitive ? {} : obj(ritm.private_answers)), ...obj(input.answers) };
+    const checked = checkAnswers(schema, merged, { mode: reqLike ? "order" : "fulfil", env, secretsKept });
+    if (Object.keys(checked.errors).length) throw validationError(Object.fromEntries(Object.entries(checked.errors).map(([k, v]) => [`answers.${k}`, v])));
+    const parts = splitAnswers(schema, checked.answers);
+    for (const k of Object.keys(parts.sensitive)) if (parts.sensitive[k] === MASK) delete parts.sensitive[k];
+    const values: Row = {
+      answers: parts.open,
+      private_answers: Object.keys(parts.sensitive).length ? parts.sensitive : null,
+    };
+    if (Object.keys(parts.secret).length) values.secret_answers = JSON.stringify({ ...secrets, ...parts.secret });
+    const price = priceOf(schema, checked.answers, Number(ritm.quantity) || 1);
+    values.price = price.unit;
+    values.total = price.total;
+    const changed = schema.variables.filter((v) => JSON.stringify(obj(ritm.answers)[v.name] ?? obj(ritm.private_answers)[v.name] ?? null) !== JSON.stringify(checked.answers[v.name] ?? null) && v.type !== "secret").map((v) => v.label);
     const sys = sysOf(ctx, ctx.user.id);
-    const row = await updateIn(tx, sys, "request_item", id, values, { trusted: true });
+    const row = await updateIn(tx, sys, "request_item", id, values, { trusted: true, version: Number(ritm.version) });
     await writeFacts(tx, ctx, { ...ritm, ...row }, schema);
     const note = changed.length ? `پاسخ‌ها ویرایش شد: ${changed.join("، ")}` : "پاسخ‌ها ویرایش شد";
     await addJournalIn(tx, sys, tableDef("request_item")!, ritm, { kind: "system", body: note }, { trusted: true });

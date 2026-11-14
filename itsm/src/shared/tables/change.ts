@@ -11,6 +11,7 @@
 // on the change as `model_states`); the server only allows forward moves to the next state the model uses.
 // Imported by the UI: keep it free of server imports.
 import type { Option, StateModel, TableDef } from "../model/types";
+import { NEVER } from "../model/conditions";
 import { APPROVAL_STATES, TASK_FIELDS, TASK_SCOPE } from "../model/task";
 import { registerLinkKind } from "../model/links";
 
@@ -966,6 +967,7 @@ const successScore: TableDef = {
     { name: "computed_at", label: "زمان محاسبه", type: "datetime", list: true, span: 12 },
   ],
   scope: { public: true },
+  rowAccess: { write: NEVER },
   list: { columns: ["title", "score", "band", "implemented", "failed", "computed_at"], order: "-score" },
 };
 

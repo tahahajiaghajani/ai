@@ -25,12 +25,22 @@
 //    before the load (`sm_demo_saved`): what the platform computed while demo data was there is recomputed from real
 //    data on its next run.
 // Left behind: one content-free audit line per load and purge (counts only), and the trail of real records.
+//
+// Windows apps (sync revisions are transaction ids, docs/spec/ENGINE.md §13): a row an app may hold never simply
+// disappears. While the purge leaves tombstones (`tombstones`: apps were active when it removed the rows), every
+// synchronised row it removes — the pack's rows, what the platform computed meanwhile, memberships — becomes one, and
+// they go for good in `finalizeDemo`. Every hard delete of such rows (no app was active, the tombstones' own removal)
+// raises the organisation's purge watermark in the same transaction (`notePurge`): an app that did not see the delete —
+// one that was away, or one an administrator's forced finalisation left behind — reads everything again and drops
+// what the server no longer has.
 import type { TableDef } from "@shared/model/types";
 import { physicalTables } from "@shared/tables";
 import { pgArray, type Queryable } from "../../db";
 import { archivable, archiveTableOf } from "../../engine/ddl";
 import { blobStore, type BlobStore } from "../../blobs";
 import { hashPassword, readableCode } from "../../auth/password";
+import { BY_TABLE } from "../../sync/registry";
+import { notePurged, notePurgedHere } from "../../sync/snapshot";
 
 export interface ColInfo {
   name: string;
@@ -107,6 +117,19 @@ export const COMPUTED_TABLES = [
   "sm_allocation_results",
 ];
 
+/**
+ * Computed columns of the organisation's own rows: statistics an organisation-wide job writes onto real definitions
+ * from the records — a catalogue item's fulfilment times and orders of the last 90 days (request.stats, from request
+ * items: the pack's too while it is loaded). The job is not demo work, so nothing records what it changed; the columns
+ * are saved with the computed tables before the load (`<table>#columns` in sm_demo_saved) and put back by the purge on
+ * the rows that were there — the next scheduled run recomputes them from real data. Only the platform writes them
+ * (read-only, without history). A computed column of real rows added later belongs here.
+ */
+export const COMPUTED_COLUMNS: Record<string, readonly string[]> = {
+  sm_catalog_items: ["sle_p50", "sle_p85", "sle_p95", "sle_samples", "orders_90d"],
+};
+const COLUMNS = "#columns";
+
 /** Above this many rows a table is not saved (a large organisation's records: see docs/DEMO_FA.md). */
 const SAVE_LIMIT = 20_000;
 /** Columns a tombstone keeps (identity, sync, and what a pull needs to judge a side row). */
@@ -114,6 +137,16 @@ const TOMBSTONE_KEEP = new Set(["id", "org_id", "rev", "deleted_at", "created_at
 
 /** Columns that name who wrote a platform row, not what it is about (a real setting a demo person touched stays). */
 const STAMPS = new Set(["id", "org_id", "created_by", "updated_by"]);
+
+/**
+ * References that name the definition a module's schedule generated a record from (set by the platform only). A demo
+ * definition keeps generating while the pack is loaded — a demo maintenance plan's next visit a quarter later, made by
+ * the field service's sweep outside the demo scope — and what it generates is demo data like the definition. A
+ * generator of records from a definition the pack loads belongs here.
+ */
+const GENERATED_FROM: Record<string, readonly string[]> = {
+  work_order: ["maintenance_plan_id"],
+};
 
 const ident = (s: string) => `"${s.replace(/"/g, '""')}"`;
 const lit = (s: string) => `'${s.replace(/'/g, "''")}'`;
@@ -162,6 +195,42 @@ async function loadInfo(q: Queryable): Promise<TableInfo[]> {
 
 const isUuid = (c: ColInfo | undefined) => !!c && c.type === "uuid";
 const hasIdOrg = (t: TableInfo) => isUuid(t.cols.get("id")) && isUuid(t.cols.get("org_id"));
+
+/**
+ * Does a Windows app hold rows of this table (a sync root: the records with their journal, history, attachments and
+ * links, the organisation's members)? Accounts (`sm_users`) come with the members but are not the organisation's: an
+ * app keeps every account it received (no tombstone or full read takes one back); access in the organisation is the
+ * membership, which is tombstoned or watermarked like any synchronised row.
+ */
+export const heldByApps = (table: string): boolean => BY_TABLE.has(table);
+
+/** What a hard delete of a synchronised table removed: rows, the newest tombstone revision, and whether live rows went. */
+interface Gone {
+  n: number;
+  stones: number | null;
+  live: boolean;
+}
+
+/** `delete … returning rev, deleted_at` wrapped so that the database counts (no row list to this process). */
+async function deleteHeld(q: Queryable, del: string, params: unknown[]): Promise<Gone> {
+  const r = await q.one<{ n: number; stones: string | number | null; live: boolean | null }>(
+    `with d as (${del} returning rev, deleted_at) select count(*)::int as n, max(rev) filter (where deleted_at is not null) as stones, bool_or(deleted_at is null) as live from d`,
+    params,
+  );
+  return { n: r?.n ?? 0, stones: r?.stones == null ? null : Number(r.stones), live: !!r?.live };
+}
+
+/**
+ * Raise the organisation's purge watermark for rows of synchronised tables deleted for good in this transaction
+ * (docs/spec/ENGINE.md §13): a tombstone needs only its revision (an app that pulled it dropped its copy; one whose
+ * cursor is older reads everything again), a live row this transaction's own id (no app saw it go). Called after the
+ * deletes of a transaction, the live rows last (`notePurgedHere` replaces the watermark; `notePurged` keeps it then).
+ */
+export async function notePurge(q: Queryable, orgId: string, gone: Gone[]): Promise<void> {
+  const stones = Math.max(0, ...gone.map((g) => g.stones ?? 0));
+  if (stones > 0) await notePurged(q, orgId, stones);
+  if (gone.some((g) => g.live)) await notePurgedHere(q, orgId);
+}
 
 /** Is the uuid expression `e` a demo id of the organisation ($1)? An index probe of sm_demo_rows' primary key. */
 const isDemo = (e: string) => `exists (select 1 from sm_demo_rows d where d.org_id = $1 and d.row_id = ${e})`;
@@ -218,10 +287,12 @@ export function derivedConds(t: TableInfo): string[] {
   if (!t.def.numbered) for (const f of t.def.fields) if (!f.base && f.required && (f.type === "ref" || f.type === "user" || f.type === "group")) add(names(t, f.name));
   // a record the platform raised by itself (no person made it, no real person changed it) that cannot exist without the
   // demo row it names — e.g. a CMDB finding a scheduled check opened about a demo CI while the pack was loaded: it is
-  // about demo data. A record a real person made or changed stays (its reference is reported, never deleted).
+  // about demo data — or that a module's schedule generated from a demo definition (GENERATED_FROM). A record a real
+  // person made or changed stays (its reference is reported, never deleted).
   if (t.def.numbered && t.cols.has("created_by") && t.cols.has("updated_by")) {
+    const generated = GENERATED_FROM[t.def.key] ?? [];
     for (const f of t.def.fields) {
-      if (f.base || !f.required || f.type !== "ref") continue;
+      if (f.base || !(f.required || generated.includes(f.name)) || f.type !== "ref") continue;
       const c = names(t, f.name);
       if (c) add(`(${c} and x.created_by is null and (x.updated_by is null or ${isDemo("x.updated_by")}))`);
     }
@@ -355,10 +426,15 @@ function tombstoneSet(t: TableInfo): string {
   return sets.join(", ");
 }
 
-/** Remove (or tombstone) the registry's rows of every table. Returns rows removed and tombstones left. */
+/**
+ * Remove (or tombstone) the registry's rows of every table. Returns rows removed and tombstones left. A hard delete of
+ * rows Windows apps hold — without tombstones (no app was active), or the tombstones themselves (`finalizeDemo`) —
+ * raises the purge watermark in the same transaction (`notePurge`).
+ */
 export async function removeRows(q: Queryable, orgId: string, info: TableInfo[], opts: { tombstones: boolean }): Promise<{ removed: number; tombstones: number }> {
   let removed = 0;
   let tombstones = 0;
+  const held: Gone[] = [];
   const byName = new Map(info.map((t) => [t.name, t]));
   const tables = (await q.query<{ tbl: string }>(`select distinct tbl from sm_demo_rows where org_id = $1`, [orgId])).map((r) => r.tbl);
   for (const name of tables) {
@@ -375,8 +451,15 @@ export async function removeRows(q: Queryable, orgId: string, info: TableInfo[],
       tombstones += n.length;
       continue;
     }
+    if (heldByApps(name)) {
+      const gone = await deleteHeld(q, `delete from ${ident(name)} where org_id = $1 and id in ${mine}`, [orgId]);
+      removed += gone.n;
+      held.push(gone);
+      continue;
+    }
     removed += (await q.query(`delete from ${ident(name)} where org_id = $1 and id in ${mine} returning id`, [orgId])).length;
   }
+  await notePurge(q, orgId, held);
   // tables without row ids: what names a demo row goes (extracted pages, flow timers, scope epochs, links of directory
   // accounts, API usage windows…); a Windows app's outbox entries of demo rows
   for (const t of info) {
@@ -394,8 +477,13 @@ export async function removeRows(q: Queryable, orgId: string, info: TableInfo[],
   return { removed, tombstones };
 }
 
-/** The pack's accounts: removed unless they belong to another organisation too (then only the demo mark goes). */
-export async function removeAccounts(q: Queryable, orgId: string): Promise<{ removed: number; kept: number }> {
+/**
+ * The pack's accounts: removed unless they belong to another organisation too (then only the demo mark goes). Their
+ * memberships are synchronised rows: while the purge leaves tombstones (`tombstones`) a membership stays one — the
+ * capture's tombstone from `removeRows`, or one made here for a membership the capture did not see — so that every
+ * Windows app learns of it, and `finalizeDemo` removes it; otherwise it goes now and raises the purge watermark.
+ */
+export async function removeAccounts(q: Queryable, orgId: string, opts: { tombstones?: boolean } = {}): Promise<{ removed: number; kept: number }> {
   const users = await q.query<{ id: string; elsewhere: boolean }>(
     `select d.row_id as id,
             exists (select 1 from sm_org_members m where m.user_id = d.row_id and m.org_id <> $1 and m.deleted_at is null) as elsewhere
@@ -404,9 +492,11 @@ export async function removeAccounts(q: Queryable, orgId: string): Promise<{ rem
   );
   let removed = 0;
   let kept = 0;
+  const held: Gone[] = [];
   for (const u of users) {
     // a membership, a session or a sign-in record the capture did not see (outside any organisation's scope)
-    await q.query(`delete from sm_org_members where org_id = $1 and user_id = $2`, [orgId, u.id]);
+    if (opts.tombstones) await q.query(`update sm_org_members set deleted_at = now(), is_active = false where org_id = $1 and user_id = $2 and deleted_at is null`, [orgId, u.id]);
+    else held.push(await deleteHeld(q, `delete from sm_org_members where org_id = $1 and user_id = $2`, [orgId, u.id]));
     await q.query(`delete from sm_sessions where user_id = $1 and (org_id = $2 or org_id is null or $3::boolean = false)`, [u.id, orgId, u.elsewhere]);
     // sign-in records stay (docs/DEMO_FA.md): who signed in as a demo account, and when, is never erased
     await q.query(`delete from sm_scope_epochs where user_id = $1 and org_id = $2`, [u.id, orgId]);
@@ -422,6 +512,7 @@ export async function removeAccounts(q: Queryable, orgId: string): Promise<{ rem
     await q.query(`delete from sm_users where id = $1`, [u.id]);
     removed++;
   }
+  await notePurge(q, orgId, held);
   return { removed, kept };
 }
 
@@ -453,13 +544,28 @@ export async function removeFiles(q: Queryable, orgId: string, shas: string[], s
  */
 export async function saveComputed(q: Queryable, orgId: string, info: TableInfo[]): Promise<string[]> {
   const saved: string[] = [];
-  const names = new Set(info.map((t) => t.name));
-  for (const table of COMPUTED_TABLES) {
-    if (!names.has(table)) continue;
+  const byName = new Map(info.map((t) => [t.name, t]));
+  const tooMany = async (table: string) => {
     const c = await q.one<{ n: number }>(`select count(*)::int as n from (select 1 from ${ident(table)} where org_id = $1 limit ${SAVE_LIMIT + 1}) x`, [orgId]);
-    if ((c?.n ?? 0) > SAVE_LIMIT) continue;
+    return (c?.n ?? 0) > SAVE_LIMIT;
+  };
+  for (const table of COMPUTED_TABLES) {
+    if (!byName.has(table) || (await tooMany(table))) continue;
     await q.query(`insert into sm_demo_saved (org_id, tbl, row_id, data) select $1, ${lit(table)}, x.id, to_jsonb(x) from ${ident(table)} x where x.org_id = $1 on conflict (org_id, tbl, row_id) do nothing`, [orgId]);
     saved.push(table);
+  }
+  // the computed columns of real rows: only those columns, per row (COMPUTED_COLUMNS)
+  for (const [table, want] of Object.entries(COMPUTED_COLUMNS)) {
+    const t = byName.get(table);
+    const cols = t && hasIdOrg(t) ? want.filter((c) => t.cols.has(c) && !t.cols.get(c)!.generated) : [];
+    if (!cols.length || (await tooMany(table))) continue;
+    await q.query(
+      `insert into sm_demo_saved (org_id, tbl, row_id, data)
+       select $1, ${lit(table + COLUMNS)}, x.id, jsonb_build_object(${cols.map((c) => `${lit(c)}, x.${ident(c)}`).join(", ")}) from ${ident(table)} x where x.org_id = $1
+       on conflict (org_id, tbl, row_id) do nothing`,
+      [orgId],
+    );
+    saved.push(table + COLUMNS);
   }
   return saved;
 }
@@ -472,7 +578,8 @@ export async function computedSince(q: Queryable, orgId: string, info: TableInfo
   let n = 0;
   const byName = new Map(info.map((t) => [t.name, t]));
   for (const table of saved) {
-    const t = byName.get(table);
+    // (computed columns of real rows: a row their saved copy lacks is real data made meanwhile, never demo data)
+    const t = table.endsWith(COLUMNS) ? null : byName.get(table);
     if (!t || !hasIdOrg(t)) continue;
     const rows = await q.query(
       `insert into sm_demo_rows (org_id, row_id, tbl)
@@ -486,29 +593,83 @@ export async function computedSince(q: Queryable, orgId: string, info: TableInfo
   return n;
 }
 
-/** The engine's trail of rows removed outside the registry: their history, journal, links and attachments. */
-async function dropTrail(q: Queryable, orgId: string, ids: string[]): Promise<void> {
+/**
+ * The engine's trail of rows removed outside the registry: their history, journal, links and attachments — rows Windows
+ * apps hold, so the deletes are returned for the purge watermark (`notePurge`).
+ */
+async function dropTrail(q: Queryable, orgId: string, ids: string[]): Promise<Gone[]> {
   const list = pgArray(ids);
-  await q.query(`delete from sm_history where org_id = $1 and record_id = any($2::uuid[])`, [orgId, list]);
-  await q.query(`delete from sm_journal where org_id = $1 and record_id = any($2::uuid[])`, [orgId, list]);
-  await q.query(`delete from sm_attachments where org_id = $1 and record_id = any($2::uuid[])`, [orgId, list]);
-  await q.query(`delete from sm_links where org_id = $1 and (from_id = any($2::uuid[]) or to_id = any($2::uuid[]))`, [orgId, list]);
+  return [
+    await deleteHeld(q, `delete from sm_history where org_id = $1 and record_id = any($2::uuid[])`, [orgId, list]),
+    await deleteHeld(q, `delete from sm_journal where org_id = $1 and record_id = any($2::uuid[])`, [orgId, list]),
+    await deleteHeld(q, `delete from sm_attachments where org_id = $1 and record_id = any($2::uuid[])`, [orgId, list]),
+    await deleteHeld(q, `delete from sm_links where org_id = $1 and (from_id = any($2::uuid[]) or to_id = any($2::uuid[]))`, [orgId, list]),
+  ];
 }
 
-/** Put the computed tables saved before the load back as they were. Returns rows restored per table. */
-export async function restoreComputed(q: Queryable, orgId: string, info: TableInfo[], saved: string[]): Promise<Record<string, number>> {
+/**
+ * Put the computed columns of real rows back (COMPUTED_COLUMNS, saved as `tag`): on the rows that were there before the
+ * load, the saved columns the table still has — only rows whose values differ (no new revision for the rest). A row
+ * made meanwhile keeps its values (real data; the next scheduled run recomputes them). Returns the rows put back.
+ */
+async function restoreColumns(q: Queryable, orgId: string, t: TableInfo | undefined, tag: string): Promise<number> {
+  if (!t || !hasIdOrg(t)) return 0;
+  const sample = await q.one<{ data: Record<string, unknown> }>(`select data from sm_demo_saved where org_id = $1 and tbl = ${lit(tag)} limit 1`, [orgId]);
+  const cols = sample ? Object.keys(sample.data).filter((c) => t.cols.has(c) && !t.cols.get(c)!.generated && c !== "id" && c !== "org_id") : [];
+  if (!cols.length) return 0;
+  const rows = await q.query(
+    `update ${ident(t.name)} x set ${cols.map((c) => `${ident(c)} = r.${ident(c)}`).join(", ")}
+       from sm_demo_saved s, jsonb_populate_record(null::${ident(t.name)}, s.data) r
+      where s.org_id = $1 and s.tbl = ${lit(tag)} and x.id = s.row_id and x.org_id = $1
+        and (${cols.map((c) => `x.${ident(c)} is distinct from r.${ident(c)}`).join(" or ")})
+      returning x.id`,
+    [orgId],
+  );
+  return rows.length;
+}
+
+/**
+ * Put the computed tables saved before the load back as they were. Returns rows restored per table. Rows computed
+ * meanwhile leave: while the purge leaves tombstones (`tombstones`), those of tables Windows apps hold become tombstones
+ * (their trail follows through the registry in the finish phase); otherwise they and their trail are deleted, and the
+ * purge watermark rises if apps held any of them.
+ */
+export async function restoreComputed(q: Queryable, orgId: string, info: TableInfo[], saved: string[], opts: { tombstones?: boolean } = {}): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
   const byName = new Map(info.map((t) => [t.name, t]));
+  const held: Gone[] = [];
   for (const table of saved) {
+    if (table.endsWith(COLUMNS)) {
+      const name = table.slice(0, -COLUMNS.length);
+      const n = await restoreColumns(q, orgId, byName.get(name), table);
+      if (n) out[name] = (out[name] ?? 0) + n;
+      continue;
+    }
     const t = byName.get(table);
     if (!t || !hasIdOrg(t)) continue;
-    // computed while demo data was there: recomputed from real data by the next run (its trail goes with it)
-    const gone = await q.query<{ id: string }>(
-      `delete from ${ident(table)} x where x.org_id = $1 and not exists (select 1 from sm_demo_saved s where s.org_id = $1 and s.tbl = ${lit(table)} and s.row_id = x.id)
-         and not ${isDemo("x.id")} returning x.id`,
-      [orgId],
-    );
-    if (gone.length) await dropTrail(q, orgId, gone.map((r) => r.id));
+    // computed while demo data was there (the job queue runs on during the purge too): recomputed from real data by the
+    // next run. Its trail goes with it now; it joins the registry so that everything else that names it — the record
+    // events queued about it, its entries in the search and AI index — goes in the finish phase like what names a demo row
+    const since = `x.org_id = $1 and not exists (select 1 from sm_demo_saved s where s.org_id = $1 and s.tbl = ${lit(table)} and s.row_id = x.id)
+         and not ${isDemo("x.id")}`;
+    let ids: string[];
+    if (opts.tombstones && t.synced && heldByApps(table)) {
+      // Windows apps hold copies: a tombstone each (removed for good by finalizeDemo); the registry carries it on, and
+      // its journal, history, attachments and links join it by reference in the finish phase (expandDerived)
+      ids = (await q.query<{ id: string }>(`update ${ident(table)} x set ${tombstoneSet(t)} where ${since} returning x.id`, [orgId])).map((r) => String(r.id));
+    } else {
+      const gone = await q.query<{ id: string; rev?: string | number | null; deleted_at?: string | null }>(
+        `delete from ${ident(table)} x where ${since} returning x.id${heldByApps(table) ? ", x.rev, x.deleted_at" : ""}`,
+        [orgId],
+      );
+      ids = gone.map((r) => String(r.id));
+      if (heldByApps(table) && gone.length) {
+        const stones = gone.filter((r) => r.deleted_at != null).map((r) => Number(r.rev) || 0);
+        held.push({ n: gone.length, stones: stones.length ? Math.max(...stones) : null, live: gone.some((r) => r.deleted_at == null) });
+      }
+      if (ids.length) held.push(...(await dropTrail(q, orgId, ids)));
+    }
+    if (ids.length) await q.query(`insert into sm_demo_rows (org_id, row_id, tbl) select $1, unnest($2::uuid[]), ${lit(table)} on conflict do nothing`, [orgId, pgArray(ids)]);
     // only the columns the saved copy has (all of a table's rows were saved at once, with one shape) and the table
     // still has: a column an upgrade added keeps its default or its value, one it dropped is ignored
     const sample = await q.one<{ data: Record<string, unknown> }>(`select data from sm_demo_saved where org_id = $1 and tbl = ${lit(table)} limit 1`, [orgId]);
@@ -529,6 +690,7 @@ export async function restoreComputed(q: Queryable, orgId: string, info: TableIn
     );
     if (rows.length) out[table] = rows.length;
   }
+  await notePurge(q, orgId, held);
   return out;
 }
 

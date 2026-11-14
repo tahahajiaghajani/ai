@@ -11,7 +11,7 @@
 //                 depreciation rules, label templates, catalogue bindings, settings)
 // «دارایی‌های من» sits in the home space for everyone (requesters included: the module's holder grant). Requested
 // items get the «دارایی‌ها» panel (hand over from stock), member profiles «بازپس‌گیری دارایی‌ها».
-import { lazy } from "react";
+import { lazy } from "@ui/lib/lazy";
 import {
   Activity, Boxes, MonitorSmartphone, Package, PackageSearch, ShieldCheck, QrCode, Warehouse, Gauge, ArrowLeftRight, ScanBarcode, Wrench, Recycle, CalendarClock, ShoppingCart, FileText,
   PackageCheck, AppWindow, HardDriveDownload, KeyRound, UserCheck, Scale, Cloud, UserRound, BadgeCheck, TrendingDown, Link2, Settings2, Signature, Hand, ShieldAlert,

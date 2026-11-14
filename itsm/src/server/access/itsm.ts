@@ -93,6 +93,13 @@ export const itsmProvider: AccessProvider = {
     if (s.kind === "system" || def.virtual) return true;
     return grantIn(s.eff, def.area).read !== "none";
   },
+  accessStamp(ctx) {
+    // canReadTable and canCreate read the effective grants, visibleFields the field groups (hiddenFields)
+    const s = subjectOf(ctx);
+    if (s.kind === "system") return null;
+    const grants = Object.keys(s.eff.grants).sort().map((k) => [k, s.eff.grants[k]]);
+    return JSON.stringify([s.kind, grants, [...s.eff.fieldGroups].sort()]);
+  },
   canCreate(ctx, def) {
     const s = subjectOf(ctx);
     if (s.kind === "system") return true;

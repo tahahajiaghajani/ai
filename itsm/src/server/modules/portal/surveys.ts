@@ -30,7 +30,7 @@ import { tableDef } from "@shared/tables";
 import type { TableDef } from "@shared/model/types";
 import { uuidv7 } from "@shared/id";
 import type { Ctx, ServerConfig } from "../../context";
-import { pgArray, type Queryable, type Tx } from "../../db";
+import { lockKey, pgArray, type Queryable, type Tx } from "../../db";
 import { aggregate, createIn, onRecordEvent, orgSchema, systemCtx, updateIn, validationError, type RecordEvent } from "../../engine";
 import type { JobContext } from "../../jobs";
 import { AppError, bad, forbidden, notFound } from "../../http/errors";
@@ -185,6 +185,9 @@ export async function surveyOnStateChange(e: RecordEvent, jctx: JobContext): Pro
     const user = await respondentOf(sys, e.table, row);
     if (!user) continue;
     const done = await sys.write(async (tx) => {
+      // the survey's key for this person first: invitations of one person (two records resolved together, or one
+      // event handled twice) take turns, so the duplicate and cooldown checks see the earlier invitation
+      await lockKey(tx, `portal.survey:${survey.id}:${user}`);
       const [dup] = await liveRows(tx, sys, "survey_invitation", { and: [{ f: "survey_id", op: "eq", v: survey.id }, { f: "table_key", op: "eq", v: e.table }, { f: "record_id", op: "eq", v: e.id }] }, { limit: 1 });
       if (dup) return false;
       const cool = Math.max(0, Number(t.cooldown_days ?? 7));

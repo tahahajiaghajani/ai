@@ -69,7 +69,7 @@ export const INCIDENT: TableDef = {
 | `features` | `journal`, `attachments`, `watchers`, `links`, `history` (default true), `sync` (default true), `sla`, `approvals`, `rag`, `tags`, `survey`, `confidential`, `kanban` (group-by field), `calendar: { start, end? }`. `watchers` adds a `watch_list` users field if missing. |
 | `form`, `list` | UI layout: sections, tabs, related lists; default list columns and order (`"-priority,number"`). |
 | `unique` | combinations of fields unique per organisation among live rows (`[["table_key","name"]]`). |
-| `rowAccess` | `{ read?: Cond, write?: Cond }` row rules every caller is held to on top of the provider (personal saved views). `NEVER` (`@shared/model/conditions`, an empty `or`) is the constant-false rule: a runtime-only table (`ai_agent_run`) is read by no member through the generic API, only by its module's routes. |
+| `rowAccess` | `{ read?: Cond, write?: Cond }` row rules every caller is held to on top of the provider (personal saved views). `NEVER` (`@shared/model/conditions`, an empty `or`) is the constant-false rule: a runtime-only table (`ai_agent_run`) is read by no member through the generic API, only by its module's routes; `write: NEVER` marks a table only the platform writes (computed scores and facts, deliveries, logs, the ledgers a module books, the runtime's own records: `slm_xla_score`, `service_score_fact`, `analytics_score`, `allocation_result`, `ai_skill_run`, `va_message`…) — `/meta/tables` offers nobody «… تازه» or import (`can.create` false whatever the roles), a person's create is refused (403) before its values are read, the generated AI tools draft none, and no flow creates or changes its rows whoever it runs as (refused when published and when the step runs). A ledger a Windows app pushes as the trace of its own changes (ITAM custody, device status and assignments, SLA timers, survey answers) is not marked: its module's push rules judge those rows and its `beforeWrite` refuses people online (`tests/system-tables.test.ts`). |
 | `levels` | levels of `area` the default provider asks for: `{ read: "view", create: "edit", write: "edit", delete: "full" }` by default. |
 | `ai` | `{ title, text[] }` fields that make up the RAG document. |
 | `virtual` | a reference target without a physical table (only the built-in `user`). |
@@ -301,15 +301,37 @@ await ctx.write(async (tx) => {
   `sum`, `avg` (6 decimals), `min`, `max` (also dates), `median`, `p90` on numbers; keys `count`, `sum:estimate`…
   Numeric results are decimal strings. `totals` are computed over records (an array grouping never counts a record
   twice there). Groups are ordered by bucket, otherwise by the first metric descending.
-- **The write lock** (`ctx.write`): an organisation's writes are serialised by its `sm_org_sync` row so sync revisions
-  follow commit order. A write takes it when it starts; `ctx.write(fn, { late: true })` takes it only right before its
-  first statement that writes a synced row (`ensureOrgLock`, called by the engine before every insert, update and
-  delete; the sync trigger at the latest) — for work whose reads decide no other record's write (the notification
-  service's bell rows). `internal` bookkeeping is late by default and takes no lock when it writes no synced table.
-  Per process at most `ITSM_WRITERS_PER_ORG` (3; the server edition reads `writers_per_org` from kariz.json, the variable wins) write transactions of an organisation are in the database at once
-  (`admitWrite`); the rest wait without holding a pool connection, so one long write never starves the reads. Keep
-  model calls, rendering and network out of write transactions; measure holds with the probe
-  (`src/server/db/lockprobe.ts`, `scripts/serve-pg.mjs --lock-stats`, PERFORMANCE_FA.md §۱۳-۵).
+- **Writes run side by side** (`ctx.write`, PERFORMANCE_FA.md «دور سوم»): no organisation-wide lock. Sync revisions are
+  the writing transaction's id (§13), so they need no order. What keeps a write correct under concurrency:
+  - a record's own writes queue on its row: update, transition and delete lock it (`for update` in `startFrom`) and
+    re-read it, the `version` token refuses a stale client copy; numbers come from the row-locked counter (`sm_numbers`);
+  - **values derived from several rows** (an order's totals from its items, a group's roll-up, counts of open cases)
+    are recomputed in before-commit work (`onBeforeCommit(tx, key, fn)`): each key is locked for the rest of the
+    transaction (an advisory lock on its hash) before its work runs, so two transactions recomputing the same value take
+    turns and the second one reads what the first one committed. Module code that decides one record's write from
+    other rows does it there, or locks the row it decides (`loadReadable(…, { lock: true })` as approvals do,
+    `lockedRow(q, ctx, table, id, "update" | "share")` in modules: a parent's state, a list stored on a row);
+  - **create-if-absent and choices from other records** (one open issue per control, the next assignee of a group, a
+    link and its reverse) take a transaction lock on a narrow key first (`lockKey(tx, key)` — a key naming the
+    organisation or a record, never a bare kind), or rely on a unique index with `on conflict` — only for rows a
+    Windows app cannot hold a local duplicate of (a pull stops on a unique clash `sync/apply.ts` cannot resolve; it
+    resolves record numbers and codes). Work that may create thousands of such rows in one transaction (an import, a
+    rule's first run) locks the rows the duplicates hang off (`for update`, in id order: a CMDB relationship locks its
+    two CIs) or takes one key for the whole run (`cmdb.ire:<org>`), never a key per row (each held key is an entry of
+    the shared lock table until commit);
+  - a deadlock or a serialization failure (`40P01`/`40001`) rolls one transaction back: the engine's single-record
+    `create`/`update`/`transition`/`remove` run again (`ctx.write(fn, { retry: true })` — only for work whose every
+    effect is inside the transaction), a job's handler runs again from its stored payload before the attempt counts,
+    a sync push and every other request answer 503 «سیستم مشغول است؛ دوباره امتحان کنید» (never a 500).
+  `ITSM_SERIALIZE_WRITES=1` (the server edition: kariz.json `serialize_writes`, the variable wins) brings back the
+  organisation lock on every write (from its start; `late`/`internal` ones at their first synced statement —
+  `ensureOrgLock`) as an operational fallback; sync does not depend on it. `lockOrg`
+  stays for rare organisation-wide changes (creating or adopting an organisation, restores). Per process at most
+  `ITSM_WRITERS_PER_ORG` (3; the server edition reads `writers_per_org` from kariz.json, the variable wins) write
+  transactions of an organisation are in the database at once (`admitWrite`): a throttle that keeps a burst (an
+  import, a notification storm) from taking every pool connection of the process. Keep model calls, rendering and
+  network out of write transactions; the probe (`src/server/db/lockprobe.ts`, `scripts/serve-pg.mjs --lock-stats`)
+  measures what still takes the organisation lock.
 - **Set-based system rows**: `insertManyIn(tx, systemCtx, table, rows)` creates many rows with ONE insert — the
   platform's own output (a notification's bell rows for every recipient). Each row is coerced, defaulted, passed to the
   beforeWrite hooks (access anchors…) and validated like a create, the stored rows go to the afterWrite hooks, the
@@ -564,15 +586,93 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
   module's `validatePushDelete` (the delete rules its `beforeWrite` holds a web delete to: held evidence is not
   deleted); a new journal entry or history row is in the account's own name
   or has no author (the system's note of something module code did while they acted) — never someone else's — and
-  anything but their own comment or work note needs write access to its record. A push that lost to a newer cloud copy (`conflict`) gets that copy back through the pull's projection
+  anything but their own comment or work note needs write access to its record. The push applies its rows in the
+  aggregates' order, then the modules' own (`registerPushOrder` in `src/server/sync/registry.ts`: a ledger after the
+  record it traces, in its own sequence — a Windows app sends its outbox in whatever order it reads it), and a module
+  judging a row may look at the push's other rows (`pushBatchOf(ctx)`): ITAM takes a device's custody rows and status
+  periods as one segment and decides their links and times within the push's bounds (docs/modules/itam_FA.md
+  «تغییرهای برنامهٔ ویندوز»). A push that lost to a newer cloud copy (`conflict`) gets that copy back through the pull's projection
   (`replicaRows`: readability, replica-only fields, hidden fields, redaction, side filters) — a row the account may not
   read is answered `skipped`, with nothing of it.
 - **Numbers**: both sides allocate from their own counter; on a clash the cloud gives the pushed record the next free
   number (`allocateNumber`) and the desktop takes it over.
-- **Pull**: only rows the linked account may read (provider + row rules; side rows follow their record; internal
-  journal entries need the field group; history of hidden fields is left out); hidden fields are not sent; a row that
-  changed but is no longer readable is sent as a **tombstone** and the desktop deletes it with its journal, history,
-  attachments and links.
+- **Revisions are transaction ids** (SYNC_PROTOCOL 16; `src/server/sync/snapshot.ts`, migration `0100_xid_revisions`):
+  the sync trigger stamps a synced row with `pg_current_xact_id()` of the transaction writing it (bigint, 64-bit, never
+  wraps) — no counter row, no lock, any commit order. A Windows app's own database keeps the server's revisions as
+  they came (`itsm.mode = 'desktop'`: the trigger queues the outbox instead — except a write inside the demo scope of
+  the row's organisation, which never leaves the app). The migration is numbered after the demo pack's `0098`/`0099`
+  (1.1.0-beta servers ran those already; `migrate` applies every id missing from `sm_migrations` in list order), so its
+  `sm_sync_touch()` is the last definition everywhere and must keep 0099's demo rule (`tests/sync-trigger.test.ts`). It
+  also restarts what held counter values: Windows apps' cursors (`sm_devices.cursor`) and a demo pack's `purge_mark`. A push's conflict check is «the stored
+  revision differs from the one the app last saw» (ids are not in commit order) and the newer `updated_at` wins.
+- **Pull cursor = a snapshot** (`pg_current_snapshot()`, `xmin:xmax:xip`). A pull session reads the rows whose writer
+  is visible in the session's snapshot (`snap`, taken by its first page) and was not visible in the cursor of the last
+  complete session (`since`): `rev < snap.xmax and rev ∉ snap.xip and rev >= since.xmin and (rev >= since.xmax or rev ∈
+  since.xip)` — plain comparisons on `rev`, so `(org_id, rev)` answers them. Exact: a transaction still open at the last
+  look is in its xip and comes later (a long transaction only delays its own rows), a row comes again only when it was
+  written again. Pages of `PULL_PAGE` (1000) rows in `(rev, id)` order across every synced table and the members'
+  accounts (`after = rev:id`; the rows of one big transaction share a revision and are split by id, never dropped).
+  Every statement of a page keeps to the window (short statements of 24 tables each — no transaction holding locks on
+  every table): a row written again after `snap` is left to the next session (its new revision is not visible in
+  `snap`), never sent twice or half-changed. The answer
+  carries `cursor` (the session's `snap` once it is complete), `snap`, `after`, `has_more`, `full` (a session from no
+  cursor) and `epoch`. Every pull names its protocol: anything but `protocol=16` — a 1.0 or 1.1.0-beta app sends none,
+  with numeric cursors, 0 included — is refused with «update the app» (400) before any page is read, like a push of
+  another protocol; such an app is never served a page it would misread. `sm_devices.cursor` keeps the `xmin` of a
+  device's last complete session (the oldest transaction id it had not seen), and `sm_devices.sync_protocol` the protocol
+  its last register, push or pull named — refused ones included, before anything else is read (0: a pull that named
+  none), on the account's own device only — so that the platform console counts and marks the apps it cut off
+  (`deviceOutdated`; a 1.1.0-beta app reports this build's version string).
+- **Pull filter**: only rows the linked account may read (provider + row rules; side rows follow their record;
+  internal journal entries need the field group; history of hidden fields is left out); hidden fields are not sent; a
+  row that changed but is no longer readable is sent as a **tombstone** and the desktop deletes it with its journal,
+  history, attachments and links. In a session from nothing (`full`) the Windows app also records what it received
+  (`sm_sync_seen`) and at the session's end drops the organisation's engine rows it did not receive and that wait for
+  no upload — tombstones removed for good, what a restore took back — then runs one more session at once (rows that
+  changed while it ran).
+- **Sync epoch** (`sm_org_sync.epoch`; the pull's `epoch` is `<organisation>.<member scope>`): a Windows app whose epoch
+  differs is told to `reset` and reads everything again. Bumped (`bumpSyncEpoch`, a timestamp-based value so a database
+  restored from an older backup still moves past every epoch handed out before) by `karizctl restore` (the restored
+  database, before it takes the live name), a tenant backup restore and a transaction-id regression (the high-water
+  mark `sm_meta sync.xid_high`, raised by `xidRegressionWaiting` once a minute per process and checked at every
+  startup: ids below it mean the database went back — restored into another cluster — and every organisation's epoch
+  moves once, when its rows are restamped: below). A pull whose cursor is ahead of the database's next transaction id
+  runs the check at once; the database not gone back, that app alone is told to `reset`. A restored Windows app
+  database starts its next pull from nothing (`resetSyncCursor`; it empties only a cursor that is there — a standalone
+  app gains no `sync.*` key, which is what `refuseLinkedDesktop` takes for a link).
+- **Restored into another cluster** (a restore on a newly installed server, a web database moved by dump): pg_restore
+  loads the data before the triggers exist, so rows keep the old cluster's revisions — possibly far above the new
+  cluster's ids, where a full read's window (`rev < snap.xmax`) leaves them out and the app's sweep then drops its
+  copies — and so do the cursors, demo marks and the purge watermark (an old cluster's watermark is never visible in a
+  snapshot here: every pull with a cursor would read everything again). Every synced row above the restamping
+  transaction's id takes that id (`itsm.applying` keeps timestamps), `sm_devices.cursor` goes to 0, a tombstoned demo
+  pack's `purge_mark` to the finishing transaction's id + 1, a non-zero `sm_org_sync.purged` to that id
+  (`notePurgedHere`: the apps' first full read sees it), every organisation's epoch moves and the mark starts again —
+  the epochs and the mark only once every row is back below the ids, so the mark is never lowered without the restamp.
+  `karizctl restore` does it in one transaction on the restored database before any server opens it
+  (`BUMP_ALL_EPOCHS_SQL` → `RESTAMP_SQL`, `RESTAMP_ROWS` shared with 0100). A database in use does it in short
+  resumable steps under the migrations' lock (`restampSteps`: per synced table at most `RESTAMP_BATCH` rows found
+  through its `(org_id, rev)` index, progress in `sm_meta sync.restamp`; the last step bumps the epochs and lowers the
+  mark): `migrate()` runs them all at start-up (`checkXidRegression`; a failure leaves the regression seen and does not
+  stop the start), `scripts/migrate-db.mts` after the schema's steps (the operator's offline path), and the web
+  version treats a regression like a schema that is not current — `/api` answers 503 `migrating` (one-query cold
+  start, `db/schema-check.ts` `coldStart`) while the steps run within each answer's budget after it (`src/server/cloud.ts`;
+  not with `AUTO_MIGRATE=false`: migrate-db then). Until the last step no pull is answered: one that finds the
+  regression (`xidRegressionWaiting`, every pull until it is handled once a process saw it) answers 503 `migrating` and
+  hands it to the runtime (`ServerConfig.xidRegression`: the web instance answers every request so until its steps are
+  done; otherwise `restampInBackground` in the process). Not on a Windows app's database nor before 0100 (only the
+  epochs and the mark). Instances that start together take turns on the lock; exactly one finishes
+  (`tests/sync-xid-pg.test.ts`; the web: `tests/web-startup.test.ts`).
+- **Tombstone purge**: `purgeArchived` removes archived records' tombstones after 30 days and raises
+  `sm_org_sync.purged` to the newest revision removed (`notePurged`); a cursor that does not see it never received those
+  tombstones and is reset (full read, which drops them). Any other hard delete of rows a Windows app may hold must leave
+  a tombstone or raise the watermark in the same transaction: for live rows (no app saw them go) to the transaction's
+  own id (`notePurgedHere`, which replaces the watermark: a cursor that sees this transaction sees every one committed
+  before it). The demo pack's purge does both (`modules/demo/purge.ts`): with apps active it tombstones the pack's rows,
+  what the platform computed meanwhile and the people's memberships, and `finalizeDemo` removes them once every
+  device's cursor passed `purge_mark` (the last tombstoning transaction's id + 1) — raising the watermark to the newest
+  one, so an app left behind by a forced finalisation reads everything again; with no app active it deletes at once and
+  raises the watermark to its own transaction (`tests/demo-sync.test.ts`).
 - **Scope epochs** (`sm_scope_epochs`): bumped per member when what they may read changes — by trigger on their
   membership (role, per-area access, activation), on the access tables (0007), on participant grants (0053: a service's
   owner and product owner, delegations, approvals; a delegation that starts or ends with time through the job
@@ -633,5 +733,6 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
 - Never call a model or external service inside a transaction or a hook — enqueue a job, subscribe to events.
 - Filter with conditions through the engine (`toSql` + `readable`), never by concatenating values into SQL.
 - Every new read path of your own must start from `readable(ctx, def, alias, params, env)` and strip fields with
-  `visibleFields` (or reuse `list`/`get`).
+  `visibleFields` (or reuse `list`/`get`). A context whose reads leave the system (`ctx.withoutDemo`: the record API,
+  a schedule's e-mail, a messenger's answers) gets no row of the demo pack from it (docs/DEMO_FA.md).
 - Use `version` for concurrency, `number` for people, `id` for machines.

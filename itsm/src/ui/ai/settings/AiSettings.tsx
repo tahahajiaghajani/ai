@@ -24,7 +24,7 @@ import { ActivityTab } from "./Activity";
 import { RetrievalTab } from "./Retrieval";
 import { SkillsTab } from "../skills/Admin";
 import { AgentsTab } from "../agents/Studio";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 
 const Governance = lazy(() => import("../governance/Governance"));
 

@@ -23,7 +23,7 @@ import { VA_CONVERSATION, VA_MESSAGE } from "@shared/tables/ai-agents";
 import { condEnv, create, createIn, list, listJournal, orgSchema, updateIn } from "../../../engine";
 import { access } from "../../../access/provider";
 import { bad, notFound } from "../../../http/errors";
-import { liveRows, sysOf } from "../../incident/common";
+import { liveRows, lockedRow, sysOf } from "../../incident/common";
 import { browse, checkItem, itemForm, placeOrder } from "../../request/ordering";
 import { askWithCitations } from "../rag/ask";
 import { retrieve } from "../rag";
@@ -96,6 +96,8 @@ async function persist(ctx: Ctx, conv: Row, user: { text: string } | null, out: 
   const sys = sysOf(ctx, ctx.user.id);
   const id = String(conv.id);
   const replyId = await sys.write(async (tx) => {
+    // counted on the conversation locked: two messages of one conversation answered at once both count
+    const cur = (await lockedRow(tx, sys, VA_CONVERSATION, id)) ?? conv;
     if (user) await createIn(tx, sys, VA_MESSAGE, { conversation_id: id, requester_id: ctx.user.id, role: "user", text: user.text.slice(0, MAX_TEXT), cards: [] }, { trusted: true });
     const m = await createIn(tx, sys, VA_MESSAGE, { conversation_id: id, requester_id: ctx.user.id, role: "agent", text: out.text.slice(0, 20_000), cards: out.cards, topic: out.topic, route: out.route }, { trusted: true });
     await updateIn(
@@ -107,7 +109,7 @@ async function persist(ctx: Ctx, conv: Row, user: { text: string } | null, out: 
         topic: out.topic,
         slots: out.pending === undefined ? (conv.slots ?? null) : out.pending,
         state: out.state ?? conv.state ?? "open",
-        messages_count: Number(conv.messages_count ?? 0) + (user ? 2 : 1),
+        messages_count: Number(cur.messages_count ?? 0) + (user ? 2 : 1),
         last_at: new Date().toISOString(),
         ...(user && !String(conv.title ?? "").trim() ? { title: user.text.replace(/\s+/g, " ").slice(0, 80) } : {}),
         ...(out.handoff ? { handoff_table: out.handoff.table, handoff_id: out.handoff.id } : {}),
@@ -444,6 +446,35 @@ async function runTopic(ctx: Ctx, conv: Row, t: Topic, text: string, route: VaRo
 }
 
 /** The pending question or card the requester answers now (null: none fits; route the message afresh). */
+/** The answer to a confirmation another answer of the same card already acted on. */
+const ALREADY_DONE: Out = { text: "این درخواست همین حالا ثبت شد؛ پیشرفت آن را با «وضعیت درخواست‌های من» بپرسید.", cards: [], topic: null, route: "action", pending: null };
+
+/**
+ * Take the conversation's pending card once, before acting on its confirmation: the conversation locked, its stored
+ * card compared with the one this answer confirms, and cleared. Two answers of one card at the same moment (a double
+ * tap in the portal, «بله» sent twice from a messenger: two jobs) place one order — the second finds nothing pending.
+ * Returns what puts the card back if the confirmed work then fails (the person may answer again), or null when another
+ * answer took the card.
+ */
+async function claimPending(ctx: Ctx, conv: Row, p: Pending): Promise<(() => Promise<void>) | null> {
+  const sys = sysOf(ctx, ctx.user.id);
+  const id = String(conv.id);
+  const card = JSON.stringify(p);
+  const took = await sys.write(async (tx) => {
+    const cur = await lockedRow(tx, sys, VA_CONVERSATION, id);
+    if (!cur || JSON.stringify(cur.slots ?? null) !== card) return false;
+    await updateIn(tx, sys, VA_CONVERSATION, id, { slots: null }, { trusted: true });
+    return true;
+  }, { internal: true });
+  if (!took) return null;
+  return async () => {
+    await sys.write(async (tx) => {
+      const cur = await lockedRow(tx, sys, VA_CONVERSATION, id);
+      if (cur && !cur.slots) await updateIn(tx, sys, VA_CONVERSATION, id, { slots: p }, { trusted: true });
+    }, { internal: true }).catch(() => undefined);
+  };
+}
+
 async function continuePending(ctx: Ctx, conv: Row, p: Pending, input: VaInput, topics: Topic[]): Promise<Out | null> {
   const text = "text" in input ? input.text.trim() : "";
   const choose = "action" in input && input.action === "choose" ? input.value : null;
@@ -467,7 +498,12 @@ async function continuePending(ctx: Ctx, conv: Row, p: Pending, input: VaInput, 
     }
     case "confirm_order": {
       if (!confirm) return null;
-      const r = await placeOrder(ctx, { lines: [{ item_id: p.item_id, answers: p.answers, quantity: 1 }], channel: "chat" });
+      const undo = await claimPending(ctx, conv, p);
+      if (!undo) return ALREADY_DONE;
+      const r = await placeOrder(ctx, { lines: [{ item_id: p.item_id, answers: p.answers, quantity: 1 }], channel: "chat" }).catch(async (e) => {
+        await undo();
+        throw e;
+      });
       const it = r.items[0];
       const link = it ? linkOf("request_item", it.id, it.number, it.title) : r.request ? linkOf("request", r.request.id, r.request.number, p.item_name) : null;
       return { text: `سفارش «${p.item_name}» ثبت شد${link?.number ? ` (${link.number})` : ""}. پیشرفت آن را همین‌جا با «وضعیت درخواست‌های من» بپرسید.`, cards: link ? [{ kind: "created", link, label: "سفارش ثبت شد" }] : [], topic: "order", route: "action", pending: null };
@@ -476,7 +512,12 @@ async function continuePending(ctx: Ctx, conv: Row, p: Pending, input: VaInput, 
       return text ? incidentDraft(topics.find((t) => t.kind === "report_issue") ?? null, text) : null;
     case "confirm_incident": {
       if (!confirm) return null;
-      const { row } = await create(ctx, "incident", { short_description: p.short_description, description: p.description, caller_id: ctx.user.id, channel: "chat" });
+      const undo = await claimPending(ctx, conv, p);
+      if (!undo) return ALREADY_DONE;
+      const { row } = await create(ctx, "incident", { short_description: p.short_description, description: p.description, caller_id: ctx.user.id, channel: "chat" }).catch(async (e) => {
+        await undo();
+        throw e;
+      });
       const link = linkOf("incident", String(row.id), typeof row.number === "string" ? row.number : null, p.short_description);
       return { text: `مشکل ثبت شد${link.number ? ` (${link.number})` : ""}؛ میز خدمت پیگیری می‌کند.`, cards: [{ kind: "created", link, label: "گزارش مشکل ثبت شد" }], topic: "report_issue", route: "action", pending: null };
     }

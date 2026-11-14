@@ -463,6 +463,34 @@ describe("database extensions and connections of the server edition", () => {
     }
   });
 
+  it("takes serialize_writes from kariz.json (off by default), and ITSM_SERIALIZE_WRITES wins", async () => {
+    const { configureWriteSerialisation, writesSerialised } = await import("@server/context");
+    expect(defaultConfig("C:\\data").serialize_writes).toBe(false);
+    expect(normalize({}).serialize_writes).toBe(false);
+    expect(normalize({ serialize_writes: true }).serialize_writes).toBe(true);
+    expect(normalize({ serialize_writes: "on" }).serialize_writes).toBe(true);
+    const warnings: string[] = [];
+    expect(normalize({ serialize_writes: "maybe" }, warnings).serialize_writes).toBe(false);
+    expect(warnings.join(" ")).toMatch(/serialize_writes/);
+    expect(normalize({ ...envOverrides({ ITSM_SERIALIZE_WRITES: "1" }) }).serialize_writes).toBe(true);
+    expect(normalize({ serialize_writes: true, ...envOverrides({ ITSM_SERIALIZE_WRITES: "0" }) }).serialize_writes).toBe(false);
+    const saved = process.env.ITSM_SERIALIZE_WRITES;
+    try {
+      delete process.env.ITSM_SERIALIZE_WRITES;
+      expect(configureWriteSerialisation(true)).toBe(true);
+      expect(writesSerialised()).toBe(true);
+      expect(configureWriteSerialisation(false)).toBe(false);
+      process.env.ITSM_SERIALIZE_WRITES = "1";
+      expect(configureWriteSerialisation(false)).toBe(true);
+      process.env.ITSM_SERIALIZE_WRITES = "off";
+      expect(configureWriteSerialisation(true)).toBe(false);
+    } finally {
+      if (saved === undefined) delete process.env.ITSM_SERIALIZE_WRITES;
+      else process.env.ITSM_SERIALIZE_WRITES = saved;
+      configureWriteSerialisation(false);
+    }
+  });
+
   it("opens its pools with prepared statements; the web runtime keeps them off", () => {
     const src = (f: string) => readFileSync(join(__dirname, "..", f), "utf8");
     expect(src("src/server-edition/worker.ts")).toMatch(/createPostgresDb\(\{[^}]*prepare: true/);

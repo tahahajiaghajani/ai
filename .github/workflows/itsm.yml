@@ -58,6 +58,22 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4]
+    # a real PostgreSQL for the suites that need several connections at once (transaction-id sync revisions under
+    # concurrent writers: tests/sync-xid-pg.test.ts through tests/pg-real.ts — each takes a scratch database of its own)
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      ITSM_PG_URL: postgres://postgres:postgres@localhost:5432/postgres
     defaults:
       run:
         working-directory: itsm
@@ -69,6 +85,13 @@ jobs:
           cache: npm
           cache-dependency-path: itsm/package-lock.json
       - run: npm ci
+      # the server edition's own cluster (tests/server-edition-pg.test.ts: initdb, pg_ctl, pg_dump, pg_restore) uses
+      # the PostgreSQL binaries of the runner image when it has them
+      - name: PostgreSQL binaries for the server edition suite
+        run: |
+          for v in 17 16; do
+            if [ -x "/usr/lib/postgresql/$v/bin/initdb" ]; then echo "ITSM_PG_BIN=/usr/lib/postgresql/$v/bin" >> "$GITHUB_ENV"; break; fi
+          done
       - run: npx vitest run --shard=${{ matrix.shard }}/4
 
   # click-through QA (itsm/docs/qa/CLICKTHROUGH.md): the main page of every space, the requester portal, the platform
@@ -163,14 +186,77 @@ jobs:
           VERSION=$(node -p "require('./desktop/package.json').version")
           CHANNEL=$(node -p "require('./desktop/package.json').releaseChannel || ''")
           NOTES="فایل نصب ویندوز «کاریز» (Kariz؛ سامانهٔ سازمانی مدیریت خدمات فناوری اطلاعات و خدمات سازمانی). فایل Kariz-Setup را دانلود کنید (می‌توانید روی فلش هم کپی کنید) و اجرا کنید؛ همه‌چیز خودکار نصب می‌شود. راهنما: itsm/docs/DESKTOP_FA.md"
-          # a beta (releaseChannel "beta" in desktop/package.json) is its own pre-release itsm-v<version>-beta, so the last
-          # official release stays «Latest»; otherwise main publishes itsm-v<version> and every other branch its own preview
-          # (two branches pushed close together never mix their installers)
-          if [ "$CHANNEL" = "beta" ]; then TAG="itsm-v${VERSION}-beta"; TITLE="کاریز (Kariz) ${VERSION} — بتا"; PRE="--prerelease"
+          # on main, a beta (releaseChannel "beta" in desktop/package.json) is its own pre-release itsm-v<version>-beta, so
+          # the last official release stays «Latest», and a final version publishes itsm-v<version>; every other branch
+          # publishes only its own preview (work in progress never replaces a release people download, and two branches
+          # pushed close together never mix their installers)
+          if [ "$CHANNEL" = "beta" ] && [ "${GITHUB_REF_NAME}" = "main" ]; then TAG="itsm-v${VERSION}-beta"; TITLE="کاریز (Kariz) ${VERSION} — بتا"; PRE="--prerelease"
             NOTES="نسخهٔ آزمایشی (بتا) «کاریز» ${VERSION}. Kariz-Setup: نسخهٔ ویندوز (نصب با یک کلیک). Kariz-Server: نسخهٔ سرور برای شبکهٔ داخلی (MSI). تازه‌ها و راهنمای نصب: itsm/docs/RELEASE_FA.md"
           elif [ "${GITHUB_REF_NAME}" = "main" ]; then TAG="itsm-v${VERSION}"; TITLE="کاریز (Kariz) ${VERSION} — نسخهٔ ویندوز"; PRE=""; else TAG="itsm-preview-${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}"; TITLE="کاریز (Kariz) ${VERSION} — پیش‌نمایش (${GITHUB_REF_NAME})"; PRE="--prerelease"; fi
           gh release delete "$TAG" --cleanup-tag -y 2>/dev/null || true
           gh release create "$TAG" desktop/release/Kariz-Setup-*.exe --target "$GITHUB_SHA" --title "$TITLE" $PRE --notes "$NOTES"
+
+  desktop-e2e:
+    # the Windows app as people use it, on a Windows runner (itsm/docs/qa/PERFORMANCE_E2E_FA.md): this run's Kariz-Setup
+    # installed silently (/S), the installed Kariz.exe driven through Playwright's Electron support
+    # (itsm/scripts/desktop-e2e.mjs; the app's own flags and security settings untouched) — the first-run setup as a
+    # person fills it, the bank demo pack «کوچک», a member added, the main pages as the administrator and, after «خروج»
+    # and a sign-in, as the member, the window closed, a second start —, timed (starts, every route change, the API as
+    # the renderer sees it, memory and CPU of the main, renderer and local server processes every second, the database's
+    # write-ahead log every second while the app runs, its folder at the end) and gated on console errors, budgets (the
+    # log's peak while the app runs among them) and a checkpoint of the app's own scheduler before the first close.
+    # Screenshots, report.json and report.md (also the job summary) and the app's log as the artifact.
+    needs: [windows]
+    # its own condition: with the default one a job skipped anywhere before `windows` would skip this one too
+    if: ${{ !cancelled() && needs.windows.result == 'success' }}
+    runs-on: windows-latest
+    timeout-minutes: 75
+    defaults:
+      run:
+        working-directory: itsm
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Playwright (a tool of the test, not a dependency of the app; the Electron it drives is the installed app)
+        run: |
+          npm install --prefix "$env:RUNNER_TEMP/e2e-tools" --no-save --no-audit --no-fund playwright@1.63.0
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - uses: actions/download-artifact@v4
+        with:
+          name: itsm-windows-installer
+          path: itsm/desktop-e2e-installer
+      - name: Install this run's Kariz-Setup silently, as a software deployment would
+        run: |
+          $setup = Get-ChildItem desktop-e2e-installer/Kariz-Setup-*.exe | Select-Object -First 1
+          Write-Host "installer: $($setup.Name) $([math]::Round($setup.Length/1MB,1)) MB"
+          $t = [Diagnostics.Stopwatch]::StartNew()
+          Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\Kariz\Kariz.exe'
+          if (!(Test-Path $exe)) { throw "Kariz.exe was not installed" }
+          Write-Host "installed in $([math]::Round($t.Elapsed.TotalSeconds, 1)) s"
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP/desktop-e2e" | Out-Null
+          Set-Content -LiteralPath "$env:RUNNER_TEMP/desktop-e2e/install.json" -Value (@{ installer = $setup.Name; installer_mb = [math]::Round($setup.Length/1MB,1); install_s = [math]::Round($t.Elapsed.TotalSeconds,1) } | ConvertTo-Json) -Encoding UTF8
+          # a silent install starts nothing; anything named Kariz now would hold the single-instance lock
+          Get-Process Kariz -ErrorAction SilentlyContinue | Stop-Process -Force
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "KARIZ_EXE=$exe" -Encoding UTF8
+      - name: The installed app as the administrator and as a member (setup, demo pack «کوچک», main pages, two starts)
+        run: node scripts/desktop-e2e.mjs --exe "$env:KARIZ_EXE" --out "$env:RUNNER_TEMP/desktop-e2e" --playwright "$env:RUNNER_TEMP/e2e-tools"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: itsm-desktop-e2e
+          path: ${{ runner.temp }}/desktop-e2e
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Uninstall
+        if: always()
+        run: |
+          Get-Process Kariz -ErrorAction SilentlyContinue | Stop-Process -Force
+          $uninst = Join-Path $env:LOCALAPPDATA 'Programs\Kariz\Uninstall Kariz.exe'
+          if (Test-Path $uninst) { Start-Process -FilePath $uninst -ArgumentList '/S' -Wait }
 
   server:
     # the server edition: bundle, pinned Node.js / PostgreSQL 17 / WinSW / WiX (SHA-256 checked, cached), pgvector
@@ -197,11 +283,11 @@ jobs:
         shell: powershell
         run: |
           $failed = 0
-          foreach ($f in Get-Item packaging/server/scripts/install.ps1, packaging/server/scripts/uninstall.ps1, packaging/server/scripts/common.ps1, packaging/server/scripts/smoke-test.ps1, packaging/server/scripts/build-msi.ps1) {
+          foreach ($f in @(Get-Item packaging/server/scripts/install.ps1, packaging/server/scripts/uninstall.ps1, packaging/server/scripts/common.ps1, packaging/server/scripts/smoke-test.ps1, packaging/server/scripts/build-msi.ps1) + @(Get-ChildItem packaging/server/scripts/bank-sim/*.ps1)) {
             $errors = $null
             # a script without a byte-order mark is read in the ANSI code page, as powershell.exe -File reads it
             [void][System.Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($f.FullName, [Text.Encoding]::Default), [ref]$null, [ref]$errors)
-            foreach ($e in @($errors)) { if ($e) { $failed++; Write-Host "::error file=itsm/packaging/server/scripts/$($f.Name),line=$($e.Extent.StartLineNumber)::$($e.Message)" } }
+            foreach ($e in @($errors)) { if ($e) { $failed++; Write-Host "::error file=$($f.FullName),line=$($e.Extent.StartLineNumber)::$($e.Message)" } }
           }
           if ($failed) { exit 1 }
       - name: Cache pinned binaries (Node.js, PostgreSQL, WinSW, WiX)
@@ -269,7 +355,7 @@ jobs:
           VERSION=$(node -p "require('./itsm/desktop/package.json').version")
           CHANNEL=$(node -p "require('./itsm/desktop/package.json').releaseChannel || ''")
           # the same tag rules as the windows job's «Publish on the Releases page»
-          if [ "$CHANNEL" = "beta" ]; then TAG="itsm-v${VERSION}-beta"; TITLE="کاریز (Kariz) ${VERSION} — بتا"; PRE="--prerelease"
+          if [ "$CHANNEL" = "beta" ] && [ "${GITHUB_REF_NAME}" = "main" ]; then TAG="itsm-v${VERSION}-beta"; TITLE="کاریز (Kariz) ${VERSION} — بتا"; PRE="--prerelease"
           elif [ "${GITHUB_REF_NAME}" = "main" ]; then TAG="itsm-v${VERSION}"; TITLE="کاریز (Kariz) ${VERSION} — نسخهٔ ویندوز"; PRE=""; else TAG="itsm-preview-${GITHUB_REF_NAME//[^A-Za-z0-9._-]/-}"; TITLE="کاریز (Kariz) ${VERSION} — پیش‌نمایش (${GITHUB_REF_NAME})"; PRE="--prerelease"; fi
           # only this commit's release: a newer push of the branch re-created it and publishes its own MSI
           TARGET=$(gh release view "$TAG" --json targetCommitish --jq .targetCommitish 2>/dev/null || true)
@@ -282,3 +368,153 @@ jobs:
             gh release upload "$TAG" server-release/*.msi --clobber
           fi
           gh release view "$TAG" --json assets --jq '.assets[].name'
+
+  bank-sim:
+    # the bank's installation simulated end to end (itsm/docs/qa/BANK_SIM_FA.md, runbook itsm/docs/BANK_INSTALL_FA.md):
+    # this runner becomes the bank's application server on an intranet with no Internet (Windows Firewall blocks all
+    # outbound traffic but the LAN, every dropped packet logged, every connection audited with its program), a bank
+    # PKI made with PowerShell, a mock domain controller (LDAPS) and mail relay (STARTTLS) on the LAN address; 1.0.0
+    # (release itsm-v1.0.0) installed as the bank's admin would, set up in the browser, filled with records, backed
+    # up, upgraded in place to the MSI of this run, browsed by Playwright's Chromium as a branch PC (the bank CA
+    # trusted through the Windows store, no foreign request, no console error), demo data loaded and purged,
+    # security posture, resilience, load, a DR drill, the Windows app's sync client, uninstall and re-install, and the
+    # proof that the server's processes never tried to reach outside the bank. Everything it needs is fetched first.
+    needs: [server]
+    if: ${{ !cancelled() && needs.server.result == 'success' }}
+    runs-on: windows-latest
+    timeout-minutes: 180
+    defaults:
+      run:
+        working-directory: itsm
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: itsm/package-lock.json
+      - run: npm ci
+      - name: Fetch everything before the Internet is cut (Playwright and Chromium, the 1.0.0 MSI, this run's MSI)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1.63.0
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          npx playwright install chromium
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          New-Item -ItemType Directory -Force -Path bank-sim/msi-1.0.0 | Out-Null
+          gh release download itsm-v1.0.0 --repo $env:GITHUB_REPOSITORY --pattern 'Kariz-Server-1.0.0.msi' --dir bank-sim/msi-1.0.0
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - uses: actions/download-artifact@v4
+        with:
+          name: itsm-server-msi
+          path: itsm/bank-sim/msi-this-run
+      # The simulation runs in steps (no Internet from the first on): the context carries over in bank-sim\context.json,
+      # a critical failure stops the later steps, and the evidence so far is uploaded after every step, so a step that
+      # fails (or a runner that is lost) leaves its logs behind. The report step writes report.md and the job summary.
+      - name: The MSIs of the simulation
+        run: |
+          $old = Get-ChildItem bank-sim/msi-1.0.0/*.msi | Select-Object -First 1
+          $new = Get-ChildItem bank-sim/msi-this-run/*.msi | Select-Object -First 1
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "BANK_SIM_MSI10=$($old.FullName)", "BANK_SIM_MSI11=$($new.FullName)", "BANK_SIM_OUT=$env:RUNNER_TEMP\bank-sim" -Encoding UTF8
+      - name: "Bank simulation 1-3: the Internet cut, the bank PKI, 1.0.0 installed and set up as the bank's admin would"
+        run: ./packaging/server/scripts/bank-sim/bank-sim.ps1 -Msi10 $env:BANK_SIM_MSI10 -Msi11 $env:BANK_SIM_MSI11 -Out $env:BANK_SIM_OUT -Only 1,2,3
+      - name: The evidence so far
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: itsm-bank-sim
+          path: ${{ runner.temp }}/bank-sim
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 30
+      - name: "Bank simulation 4-6: backup, upgrade in place to this build, a LAN client in Chromium"
+        run: ./packaging/server/scripts/bank-sim/bank-sim.ps1 -Msi10 $env:BANK_SIM_MSI10 -Msi11 $env:BANK_SIM_MSI11 -Out $env:BANK_SIM_OUT -Only 4,5,6
+      - name: The evidence so far
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: itsm-bank-sim
+          path: ${{ runner.temp }}/bank-sim
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 30
+      - name: "Bank simulation 7: demo data loaded, browsed and purged"
+        run: ./packaging/server/scripts/bank-sim/bank-sim.ps1 -Msi10 $env:BANK_SIM_MSI10 -Msi11 $env:BANK_SIM_MSI11 -Out $env:BANK_SIM_OUT -Only 7
+      - name: The evidence so far
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: itsm-bank-sim
+          path: ${{ runner.temp }}/bank-sim
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 30
+      - name: "Bank simulation 8-9: security posture and resilience"
+        run: ./packaging/server/scripts/bank-sim/bank-sim.ps1 -Msi10 $env:BANK_SIM_MSI10 -Msi11 $env:BANK_SIM_MSI11 -Out $env:BANK_SIM_OUT -Only 8,9
+      - name: The evidence so far
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: itsm-bank-sim
+          path: ${{ runner.temp }}/bank-sim
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 30
+      - name: "Bank simulation 10: load"
+        run: ./packaging/server/scripts/bank-sim/bank-sim.ps1 -Msi10 $env:BANK_SIM_MSI10 -Msi11 $env:BANK_SIM_MSI11 -Out $env:BANK_SIM_OUT -Only 10
+      - name: The evidence so far
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: itsm-bank-sim
+          path: ${{ runner.temp }}/bank-sim
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 30
+      - name: "Bank simulation 11-12: DR drill and the Windows app's sync client"
+        run: ./packaging/server/scripts/bank-sim/bank-sim.ps1 -Msi10 $env:BANK_SIM_MSI10 -Msi11 $env:BANK_SIM_MSI11 -Out $env:BANK_SIM_OUT -Only 11,12
+      - name: The evidence so far
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: itsm-bank-sim
+          path: ${{ runner.temp }}/bank-sim
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 30
+      - name: "Bank simulation 13-14: uninstall and re-install, and no outbound attempt"
+        run: ./packaging/server/scripts/bank-sim/bank-sim.ps1 -Msi10 $env:BANK_SIM_MSI10 -Msi11 $env:BANK_SIM_MSI11 -Out $env:BANK_SIM_OUT -Only 13,14
+      - name: The evidence so far
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: itsm-bank-sim
+          path: ${{ runner.temp }}/bank-sim
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 30
+      - name: Bank simulation report (stops the mock servers and restores the network)
+        if: always()
+        run: ./packaging/server/scripts/bank-sim/bank-sim.ps1 -Msi10 $env:BANK_SIM_MSI10 -Msi11 $env:BANK_SIM_MSI11 -Out $env:BANK_SIM_OUT -Report
+      - name: Restore outbound traffic
+        if: always()
+        run: |
+          Set-NetFirewallProfile -All -DefaultOutboundAction Allow
+          Get-NetFirewallRule -Group 'Kariz bank simulation' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: itsm-bank-sim
+          path: ${{ runner.temp }}/bank-sim
+          if-no-files-found: ignore
+          overwrite: true
+          retention-days: 30

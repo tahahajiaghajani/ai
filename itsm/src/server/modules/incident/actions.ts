@@ -12,7 +12,8 @@ import { createIn, defFor, get, list, savepoint, transitionIn, updateIn } from "
 import { AppError } from "../../http/errors";
 import { bad, conflict, forbidden, notFound } from "../../http/errors";
 import { notifyPeople } from "../notify";
-import { faList, isUuid, liveRow, sysOf, type Row } from "./common";
+import { lockBeforeCommitKey } from "../../db";
+import { faList, isUuid, liveRow, lockedRow, sysOf, type Row } from "./common";
 import { openMandatoryTasks } from "./hooks";
 import { canWork, lockIncident, workNote } from "./major";
 import { incidentAi } from "./ai";
@@ -173,7 +174,11 @@ export async function applyKnownError(ctx: Ctx, incidentId: string, keId: string
     let next = await updateIn(tx, ctx, "incident", incidentId, data, { trusted: false });
     await workNote(tx, ctx, def, next, `راه‌حل موقت خطای شناخته‌شدهٔ ${ke.number} به کار رفت.${ke.workaround ? `\n\n${String(ke.workaround).slice(0, 4000)}` : ""}`, { known_error: ke.id });
     const sys = sysOf(ctx);
-    const fresh = await liveRow(tx, sys, "known_error", ke.id);
+    // the known error's recount key (problem/hooks.ts, taken again just before commit for this link), then its row:
+    // the order the recount takes them, so an incident linked to it from its own form at the same moment waits instead
+    // of deadlocking; the use is counted on the row locked (two uses at once both count)
+    await lockBeforeCommitKey(tx, `known_error.recount:${ke.id}`);
+    const fresh = await lockedRow(tx, sys, "known_error", ke.id);
     if (fresh) await updateIn(tx, sys, "known_error", ke.id, { use_count: Number(fresh.use_count ?? 0) + 1, last_used_at: new Date().toISOString() }, { trusted: true, keepVersion: true, allowLocked: true });
     if (opts.resolve) {
       next = await transitionIn(tx, ctx, "incident", incidentId, "resolved", {

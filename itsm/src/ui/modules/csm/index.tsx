@@ -8,7 +8,8 @@
 //   lists         cases, accounts, contacts, products, installed base, contracts, entitlements and their ledger,
 //                 escalations, plans, stakeholders, reviews, notices, experiences
 //   elsewhere     «پرونده‌های پیش‌دستانه» on incidents
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import {
   Headphones, Building, Contact, Package, Server, FileSignature, BadgePercent, Receipt, TrendingUp, Target, UsersRound, Presentation, Palette, Megaphone, LayoutDashboard, User, Inbox, Frown, Flame, Briefcase, Settings,
 } from "lucide-react";

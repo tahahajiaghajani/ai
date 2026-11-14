@@ -10,7 +10,7 @@ import { defaultConfig } from "@local/config";
 import { afterWrite, writeAggregate } from "@server/sync/apply";
 import { BY_ENTITY } from "@server/sync/registry";
 import { SCHEMA_VERSION } from "@server/db/migrations";
-import { SYNC_PROTOCOL } from "@shared/constants";
+import { APP_VERSION, SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
 import type { Db } from "@server/db";
 
@@ -34,7 +34,7 @@ async function linkedPair(email: string) {
   const org = (await web.post<{ id: string }>("/orgs", { name: "سازمان هم‌گام" })).id;
   await client.link({ url: "http://cloud.test", email, password: PASSWORD, orgId: org, direction: "download" });
   await local.post("/auth/login", { email, password: PASSWORD });
-  return { cloudDb: cloudSrv.db, deskDb: deskSrv.db, web, client, local, org };
+  return { cloudDb: cloudSrv.db, cloudApp: cloudSrv.app, deskDb: deskSrv.db, web, client, local, org };
 }
 
 /** a change made as if it came from a sync or a data migration (no outbox entry, no new updated_at) */
@@ -55,6 +55,48 @@ describe("a Windows app of another version against the cloud", () => {
       const res = await p.web.post(`/sync/push`, { org_id: p.org, device_id: uuidv7(), protocol, aggregates: [] }, 400);
       expect(res.error.message).toContain("به‌روز");
     }
+  });
+
+  // IR-4: a 1.1.0-beta app (protocol 15) reports this build's version string, so the version alone never told the
+  // platform console it was cut off: the protocol its requests carry — refused ones included — is recorded on its device
+  it("an app of another protocol is refused and shown «نیازمند ارتقا» in the console, even with this build's version string", async () => {
+    const p = await linkedPair("beta-proto@example.com");
+    // the linked app of this build registered (and pulls) with its protocol
+    const current = (await p.cloudDb.one<{ id: string; sync_protocol: number | null }>(`select id, sync_protocol from sm_devices where org_id = $1`, [p.org]))!;
+    expect(current.sync_protocol).toBe(SYNC_PROTOCOL);
+    type Status = { app_version: string; devices: { app_version: string | null; sync_protocol: number | null; n: number; outdated: boolean }[]; devices_outdated: number };
+    const status = () => p.web.get<Status>("/admin/version");
+    expect((await status()).devices_outdated).toBe(0);
+    // a beta app of the same account on another computer: it registers with no protocol, and its pull names none
+    const beta = (await p.web.post<{ device_id: string }>("/sync/register", { org_id: p.org, name: "رایانهٔ بتا", platform: "windows", app_version: APP_VERSION })).device_id;
+    const pull = await p.web.get(`/sync/pull?org_id=${p.org}&cursor=0&user_cursor=0&device_id=${beta}`, 400);
+    expect(pull.error.message).toContain("به‌روز");
+    let v = await status();
+    expect(v.app_version).toBe(APP_VERSION);
+    expect(v.devices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ app_version: APP_VERSION, sync_protocol: 0, n: 1, outdated: true }),
+        expect.objectContaining({ app_version: APP_VERSION, sync_protocol: SYNC_PROTOCOL, n: 1, outdated: false }),
+      ]),
+    );
+    expect(v.devices_outdated).toBe(1);
+    // its push names its protocol
+    await p.web.post(`/sync/push`, { org_id: p.org, device_id: beta, protocol: SYNC_PROTOCOL - 1, aggregates: [] }, 400);
+    v = await status();
+    expect(v.devices.find((d) => d.sync_protocol === SYNC_PROTOCOL - 1)).toMatchObject({ app_version: APP_VERSION, n: 1, outdated: true });
+    expect(v.devices_outdated).toBe(1);
+    // another account's request never touches that device's record
+    const other = new Client(p.cloudApp, "http://cloud.test");
+    await other.post("/auth/signup", { email: "beta-other@example.com", password: PASSWORD, full_name: "دیگری" });
+    await other.get(`/sync/pull?org_id=${p.org}&device_id=${beta}&protocol=${SYNC_PROTOCOL + 1}`, 400);
+    expect((await p.cloudDb.one<{ sync_protocol: number }>(`select sync_protocol from sm_devices where id = $1`, [beta]))?.sync_protocol).toBe(SYNC_PROTOCOL - 1);
+    // the organisation's page marks that computer, not the current one
+    const detail = await p.web.get<{ devices: { id: string; outdated: boolean }[] }>(`/admin/orgs/${p.org}`);
+    expect(detail.devices.find((d) => d.id === beta)?.outdated).toBe(true);
+    expect(detail.devices.find((d) => d.id === current.id)?.outdated).toBe(false);
+    // updated, the computer speaks this protocol and is up to date again
+    await p.web.get(`/sync/pull?org_id=${p.org}&protocol=${SYNC_PROTOCOL}&device_id=${beta}`);
+    expect((await status()).devices_outdated).toBe(0);
   });
 
   it("a row without the columns added since keeps their stored values (or takes their defaults)", async () => {

@@ -4,7 +4,8 @@
 // (drawn over it and the shell made inert, so focus, the keyboard and screen readers stay in the portal); «میز کار»
 // leads agents back. `?embed=1` shows the chat alone (the website widget's window), `?preview=1` an administrator's
 // draft home page. The routes below `portal/` are the portal's pages; each loads with its page.
-import { lazy, Suspense, useEffect, useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import { createPortal } from "react-dom";
 import { Link, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router";
 import { Dropdown, type MenuProps } from "antd";

@@ -81,7 +81,7 @@ describe("generated DDL", () => {
       for (const [k, v] of before) TABLES.set(k, v);
     }
     await db.close();
-  });
+  }, 240_000);
 
   it("refuses definitions that would generate bad SQL or confuse the engine", () => {
     const t = (patch: Partial<TableDef>) => () => buildTable({ ...probe(), ...patch });

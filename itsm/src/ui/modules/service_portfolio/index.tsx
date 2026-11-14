@@ -10,7 +10,8 @@
 //   architecture  application assessments (TIME), technology standards, capabilities
 //   definitions   portfolio branches, commitments, deployed instances, settings
 // Only light modules are imported here; every component loads with its page.
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import {
   BriefcaseBusiness, ConciergeBell, Tag, Handshake, ServerCog, BellRing, FileSignature, Gauge, Lightbulb, DraftingCompass, UsersRound, CalendarCheck, ClipboardList, ShieldCheck,
   Network, FolderTree, Settings2, Activity, Star, Scale, LayoutGrid,

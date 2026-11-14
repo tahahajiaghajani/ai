@@ -17,12 +17,12 @@ import type { IreInput, IreItem, IreItemResult, IreRelation, IreResult } from "@
 import { FIELD_TYPES, type FieldDef } from "@shared/model/types";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
-import { pgArray } from "../../db";
+import { lockKey, pgArray } from "../../db";
 import type { Queryable, Tx } from "../../db";
 import { AppError, bad, forbidden, notFound } from "../../http/errors";
 import { condEnv, createIn, loadReadable, normSql, optionsOf, orgSchema, readable, savepoint, transitionIn, updateIn } from "../../engine";
 import { access } from "../../access/provider";
-import { ANCHOR_FIELDS, classTree, cmdbConfig, ciColumnSql, eqAll, isCmdbAdmin, isUuid, liveRow, liveRows, relTypes, SOURCE_FIELDS, sysOf, type Row } from "./common";
+import { ANCHOR_FIELDS, classTree, cmdbConfig, ciColumnSql, eqAll, isCmdbAdmin, isUuid, liveRow, liveRows, lockedRow, relTypes, SOURCE_FIELDS, sysOf, type Row } from "./common";
 import { attrField } from "./hooks";
 
 const DAY = 86_400_000;
@@ -286,6 +286,8 @@ export async function ensureDedupTask(tx: Tx, ctx: Ctx, candidates: string[], re
   const sys = sysOf(ctx);
   const list = [...new Set(candidates)].sort();
   const key = list.join(",").slice(0, 600);
+  // the candidate set's key, then its open task: two writers finding the same duplicates at once make one task
+  await lockKey(tx, `cmdb.dedup:${ctx.org.id}:${key}`);
   const [open] = await liveRows(tx, sys, "cmdb_dedup_task", { and: [{ f: "candidate_key", op: "eq", v: key }, { f: "active", op: "eq", v: true }] }, { limit: 1 });
   if (open) return open;
   const cis = await liveRows(tx, sys, "ci", { f: "id", op: "in", v: list }, { order: "t.number" });
@@ -352,6 +354,11 @@ export async function createOrUpdate(ctx: Ctx, input: IreInput): Promise<IreResu
   if (input.source_id && !src) throw notFound("منبع داده پیدا نشد");
   checkSource(ctx, src, (await cmdbConfig(ctx.db, ctx)).manual_priority, admin);
   const run = async (tx: Tx): Promise<IreResult> => {
+    // imports of one organisation take turns (people's edits and other writes stay side by side): two sources
+    // reporting the same new device at once make one CI, and a batch's identification, relationships, de-duplication
+    // tasks and run counters see what an import before it committed. One key per import, whatever its size (a key per
+    // identifier would hold thousands of locks in one transaction)
+    await lockKey(tx, `cmdb.ire:${ctx.org.id}`);
     const sys = sysOf(ctx, ctx.actor === "system" ? null : ctx.user.id);
     const env = await condEnv(ctx);
     /** the CI as the caller reads it (null: they may not), for matches and relationship targets */
@@ -423,7 +430,9 @@ export async function createOrUpdate(ctx: Ctx, input: IreInput): Promise<IreResu
             }, { trusted: true, via: "import" });
             return { ...base, action: "created" as const, ci_id: row.id, number: row.number ?? null, name: row.name, matched_by: null };
           }
-          const cur = idf.match;
+          // the matched CI locked and read again before the patch is computed: a person's correction (and its «manual»
+          // provenance) committed meanwhile is what the import weighs, never overwritten from the copy identification read
+          const cur = (await lockedRow(tx, sys, "ci", idf.match.id)) ?? idf.match;
           const locked = new Set<string>(Array.isArray(cur.locked_attrs) ? cur.locked_attrs : []);
           const meta: Record<string, Provenance> = { ...((cur.attr_meta ?? {}) as Record<string, Provenance>) };
           const patch: Record<string, unknown> = {};
@@ -549,7 +558,8 @@ export async function createOrUpdate(ctx: Ctx, input: IreInput): Promise<IreResu
 
 /** Add a batch's results to its import run (counts and up to 1000 row results). */
 async function appendToRun(tx: Tx, ctx: Ctx, runId: string, r: IreResult): Promise<void> {
-  const run = await liveRow(tx, sysOf(ctx), "cmdb_import_run", runId);
+  // locked: batches of one run posted at once add up (each adds to what the other committed)
+  const run = await lockedRow(tx, sysOf(ctx), "cmdb_import_run", runId);
   if (!run || run.state !== "running") return;
   const prev = Array.isArray(run.results) ? run.results : [];
   const offset = Number(run.total ?? 0);

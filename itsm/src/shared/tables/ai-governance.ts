@@ -8,6 +8,7 @@
 //     see; read only by its recipient, written only by the runtime.
 // Imported by the UI: keep it free of server imports.
 import type { Option, TableDef } from "../model/types";
+import { NEVER } from "../model/conditions";
 
 export const AI_DATA_POLICY = "ai_data_policy";
 export const AI_DIGEST = "ai_digest";
@@ -73,7 +74,7 @@ const digest: TableDef = {
   ],
   unique: [["recipient_id", "period", "period_key"]],
   scope: { own: ["recipient_id"], requester: [] },
-  rowAccess: { read: { f: "recipient_id", op: "is_me" } },
+  rowAccess: { read: { f: "recipient_id", op: "is_me" }, write: NEVER },
   features: { history: false },
   list: { columns: ["title", "period", "insights", "delivered_at"], order: "-delivered_at" },
 };

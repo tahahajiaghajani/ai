@@ -1,7 +1,11 @@
 import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ModuleKey } from "@shared/constants";
-import { api } from "./api";
+import { api, ApiError } from "./api";
+
+/** The web version's answers that mean «the server is not ready» (src/server/cloud.ts), not «this request failed». */
+export const SERVER_STATES = new Set(["migrating", "not_configured", "db_unreachable"]);
+const serverState = (e: unknown) => e instanceof ApiError && SERVER_STATES.has(e.code);
 
 export interface Meta {
   app: string;
@@ -49,6 +53,8 @@ export interface Me {
 
 interface SessionValue {
   meta: Meta | undefined;
+  /** the server is not ready (its database is being prepared or cannot be reached): the app shows «آماده‌سازی» */
+  serverError: ApiError | null;
   me: Me | null | undefined;
   loading: boolean;
   refresh: () => Promise<void>;
@@ -59,7 +65,9 @@ const Ctx = createContext<SessionValue | null>(null);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
-  const meta = useQuery({ queryKey: ["meta"], queryFn: () => api.get<Meta>("/meta"), staleTime: 30_000 });
+  // a server that is preparing its database answers at once: no retries with back-off (the «آماده‌سازی» screen polls)
+  const retry = (n: number, e: unknown) => !serverState(e) && n < 2;
+  const meta = useQuery({ queryKey: ["meta"], queryFn: () => api.get<Meta>("/meta"), staleTime: 30_000, retry });
   const me = useQuery({
     queryKey: ["me"],
     queryFn: async () => {
@@ -71,7 +79,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
     },
     staleTime: 60_000,
-    retry: 1,
+    retry: (n, e) => !serverState(e) && n < 1,
   });
 
   useEffect(() => {
@@ -80,8 +88,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("itsm:unauthorized", onUnauthorized);
   }, [qc]);
 
+  const serverError = [meta.error, me.error].find(serverState) as ApiError | undefined;
   const value: SessionValue = {
     meta: meta.data,
+    serverError: serverError ?? null,
     me: me.data,
     loading: meta.isLoading || me.isLoading,
     refresh: async () => {

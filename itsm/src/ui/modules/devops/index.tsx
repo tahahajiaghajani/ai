@@ -5,7 +5,8 @@
 //   record page   connection: URLs, «ساخت راز» (shown once), new URL key, test delivery; gate: decisions; event:
 //                 process again
 //   elsewhere     the side panel «توسعه» on changes, releases, incidents, problems and known errors (DEV-004)
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import { Plug, GitBranch, Workflow, ShieldCheck, Inbox, GitCommitHorizontal, GitPullRequest, Hammer, Landmark, Route, Activity } from "lucide-react";
 import type { AccessGate } from "@shared/access";
 import type { ModuleUi } from "../registry";

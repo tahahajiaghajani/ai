@@ -56,6 +56,12 @@ export interface AccessProvider {
    */
   participations?(ctx: Ctx, q: Queryable): Promise<ReadonlySet<string>>;
   /**
+   * Everything canReadTable, canCreate and visibleFields answer for the caller depends on, as a string (two callers
+   * with the same stamp get the same answers for every table); null when the provider cannot say. GET /meta/tables
+   * builds its validator (ETag) from it, so a page load asks the definitions again without building them. Optional.
+   */
+  accessStamp?(ctx: Ctx): string | null;
+  /**
    * Before the engine reads rows of `def` for the caller (lists, aggregates, records: `canOpenRecords`), load what
    * keeps `readWhere` small for this request — never what widens it: a provider may leave out terms it knows select
    * nothing now (participant sources that name none of the table's rows for the caller). Optional; `readWhere` must

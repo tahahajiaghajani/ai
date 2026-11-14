@@ -21,7 +21,7 @@ import { addJournalIn, defFor, emitEvent, listJournal, onRecordEvent, systemCtx,
 import { enqueue, registerJobHandler, type JobContext } from "../../jobs";
 import type { Ctx } from "../../context";
 import { actsHere, notifyPeople } from "../notify";
-import { countRows, eqAll, incidentConfig, isUuid, liveRow, liveRows, sysOf, type Row } from "./common";
+import { countRows, eqAll, incidentConfig, isUuid, liveRow, liveRows, lockedRow, sysOf, type Row } from "./common";
 import { draftReview, officeCalendar } from "./major";
 import { endWithIncident, expireAnnouncements } from "./announce";
 import { ensurePeriodReview } from "./period";
@@ -90,6 +90,9 @@ async function onCommented(sys: Ctx, e: RecordEvent, jctx: JobContext): Promise<
   // the requester answered while the incident waited for them: back to work
   if (entry.author && (entry.author === row.caller_id || entry.author === row.requested_for) && row.state === "on_hold" && row.hold_reason === "awaiting_caller") {
     await sys.write(async (tx) => {
+      // read again locked: an agent's resolution (or the sweep's «بی‌پاسخ») at this moment is never undone by the reply
+      const cur = await lockedRow(tx, sys, "incident", e.id);
+      if (!cur || cur.state !== "on_hold" || cur.hold_reason !== "awaiting_caller") return;
       const { def } = await defFor(sys, "incident", tx);
       const next = await transitionIn(tx, sys, "incident", e.id, "in_progress");
       await addJournalIn(tx, sys, def, next, { kind: "system", visibility: "internal", body: "درخواست‌دهنده پاسخ داد؛ رسیدگی ادامه یافت." }, { trusted: true, author: null });
@@ -212,6 +215,10 @@ export async function sweep(sys: Ctx, deadline = Number.POSITIVE_INFINITY, now =
       if (Number.isNaN(since) || now < addWorkingDays(cal, since, cfg.follow_up_days)) continue;
       const count = Number(r.follow_ups ?? 0);
       await sys.write(async (tx) => {
+        // the list was read once at the start: the incident locked and checked again — a requester's answer (back to
+        // work) or another sweep's reminder since then leaves it alone
+        const cur = await lockedRow(tx, sys, "incident", r.id);
+        if (!cur || cur.state !== "on_hold" || cur.hold_reason !== "awaiting_caller" || Number(cur.follow_ups ?? 0) !== count) return;
         const { def } = await defFor(sys, "incident", tx);
         if (cfg.follow_up_max > 0 && count >= cfg.follow_up_max) {
           await transitionIn(tx, sys, "incident", r.id, "resolved", { close_code: "no_response", close_notes: `درخواست‌دهنده پس از ${count} یادآوری پاسخی نداد.` });

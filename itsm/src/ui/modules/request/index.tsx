@@ -11,7 +11,8 @@
 //                 audiences, versions and a live preview), question sets, audiences, order-guide rules
 //   reports       «داشبورد درخواست‌ها»; settings «تنظیمات درخواست خدمت»
 // Only light modules are imported here; every page loads with its route.
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import {
   ShoppingBag, ShoppingCart, PackageCheck, ListTodo, Repeat, LibraryBig, FolderTree, Package, ListChecks, UsersRound, ListTree, ChartColumn, Settings2, User, Users, Stamp,
   Hourglass, AlarmClock, ClipboardList, Inbox,

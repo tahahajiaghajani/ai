@@ -13,6 +13,7 @@
 // Vercel cron) and daily by Vercel cron as a last resort.
 // Handlers never run inside a transaction: they open their own (`db.tx`) and may call external services.
 import type { Db, Queryable } from "../db";
+import { retryTransient } from "../db";
 import type { Logger, ServerConfig } from "../context";
 import { uuidv7 } from "@shared/id";
 import { withLockLabel } from "../db/lockprobe";
@@ -268,21 +269,64 @@ export interface TickResult {
 }
 
 const running = new WeakMap<Db, boolean>();
+/** Databases whose server is closing (the Windows app's local server): their runner claims no more jobs. */
+const closing = new WeakSet<Db>();
+/** The tick in progress on a database: a closing server waits for the jobs it already holds. */
+const inProgress = new WeakMap<Db, Promise<void>>();
+
+/**
+ * The job runner of this process claims no more jobs on `db` — its server is closing — and this resolves once the tick
+ * in progress, if any, has finished the jobs it already holds (src/desktop/server.ts: the database then closes cleanly
+ * at once instead of after the rest of the tick's budget, or killed by the app that is quitting).
+ */
+export async function stopTicks(db: Db): Promise<void> {
+  closing.add(db);
+  await inProgress.get(db);
+}
+
+export interface TickOptions {
+  budgetMs?: number;
+  max?: number;
+  worker?: string;
+  concurrency?: number;
+  /**
+   * Is foreground work waiting? (The Windows app's local server: requests of its window, and of signed-in browsers of
+   * the office network, in flight, src/desktop/server.ts; the server edition's scheduler leader: signed-in browser
+   * requests on any worker of the cluster, src/server-edition/foreground.ts — never machine traffic such as the Windows
+   * apps' sync or a probe.) Before it claims the next job (round of jobs) the runner waits until there is
+   * none — at most `YIELD_MS` each time —, so a page's burst of requests is answered without the next jobs' statements
+   * between them (on PGlite's one connection; for PostgreSQL's CPU and the leader's pool), and a server in constant use
+   * slows the queue down without ever stopping it.
+   */
+  busy?: () => boolean;
+}
+
+/** The longest the runner waits for foreground work before each job (`TickOptions.busy`). */
+export const YIELD_MS = 250;
+
+/** Waits while `busy()`, at most `ms`. */
+async function quietFor(busy: () => boolean, ms: number): Promise<void> {
+  const until = Date.now() + ms;
+  while (busy() && Date.now() < until) await new Promise((r) => setTimeout(r, 10));
+}
 
 /**
  * Run due jobs until `budgetMs` is spent (default 8 s) or `max` jobs ran. `concurrency` (default 1: one job after the
  * other, as PGlite's single connection needs) runs up to that many jobs at once — the server edition's job runner
  * uses it for notification fan-out and SLA timers at scale: each round claims that many due jobs in one statement.
  */
-export async function tick(cfg: JobConfig, opts: { budgetMs?: number; max?: number; worker?: string; concurrency?: number } = {}): Promise<TickResult> {
+export async function tick(cfg: JobConfig, opts: TickOptions = {}): Promise<TickResult> {
   // a tick started from inside demo work (a demo person's request) lends that scope to no job: each job sets its own
   return inDemoScope(null, () => tickOutsideScope(cfg, opts));
 }
 
-async function tickOutsideScope(cfg: JobConfig, opts: { budgetMs?: number; max?: number; worker?: string; concurrency?: number }): Promise<TickResult> {
+async function tickOutsideScope(cfg: JobConfig, opts: TickOptions): Promise<TickResult> {
   const db = cfg.db;
   if (running.get(db)) return { ran: 0, failed: 0, busy: true, more: false };
+  if (closing.has(db)) return { ran: 0, failed: 0, more: false };
   running.set(db, true);
+  let ended = () => {};
+  inProgress.set(db, new Promise<void>((r) => (ended = r)));
   const deadline = Date.now() + (opts.budgetMs ?? 8000);
   const worker = opts.worker ?? `w${process.pid}-${uuidv7().slice(-8)}`;
   const width = Math.max(1, Math.min(32, Math.trunc(opts.concurrency ?? 1)));
@@ -291,7 +335,11 @@ async function tickOutsideScope(cfg: JobConfig, opts: { budgetMs?: number; max?:
   let failed = 0;
   try {
     await cleanup(db, deadline).catch((e) => cfg.log.warn("job cleanup failed", String((e as Error)?.message ?? e)));
-    while (Date.now() < deadline && ran + failed < max) {
+    while (Date.now() < deadline && ran + failed < max && !closing.has(db)) {
+      if (opts.busy?.()) {
+        await quietFor(opts.busy, Math.min(YIELD_MS, deadline - Date.now()));
+        if (Date.now() >= deadline || closing.has(db)) break;
+      }
       const jobs = await claim(db, worker, Math.min(width, max - ran - failed));
       if (!jobs.length) return { ran, failed, more: false };
       // jobs of one record (its events) keep their order: they run one after the other, other groups alongside
@@ -319,10 +367,13 @@ async function tickOutsideScope(cfg: JobConfig, opts: { budgetMs?: number; max?:
         else failed++;
       }
     }
+    if (closing.has(db)) return { ran, failed, more: false };
     const left = await db.one(`select 1 from sm_jobs where status = 'queued' and run_at <= now() limit 1`);
     return { ran, failed, more: !!left };
   } finally {
     running.delete(db);
+    inProgress.delete(db);
+    ended();
   }
 }
 
@@ -333,7 +384,10 @@ async function runOne(cfg: JobConfig, job: Job, deadline: number): Promise<boole
     cfg,
     db,
     log: cfg.log,
-    deadline,
+    // a closing server (stopTicks): a job that looks at its deadline as it goes ends at its next look, and is queued again
+    get deadline() {
+      return closing.has(db) ? Math.min(deadline, Date.now()) : deadline;
+    },
     save: async (payload) => {
       job.payload = payload as Record<string, any>;
       await db.query(`update sm_jobs set payload = $2::jsonb, updated_at = now() where id = $1`, [job.id, JSON.stringify(payload)]);
@@ -345,8 +399,19 @@ async function runOne(cfg: JobConfig, job: Job, deadline: number): Promise<boole
   try {
     if (!handler) throw new Error(`no handler for job kind "${job.kind}"`);
     // the write-lock probe of measurement runs labels the locks a job takes with its kind (a no-op otherwise); a demo
-    // job's writes are demo data (src/server/db/scope.ts), any other job's are not
-    const r = await inDemoScope(job.demo && job.org_id ? job.org_id : null, () => withLockLabel(`job ${job.kind}`, () => handler(job, jctx)));
+    // job's writes are demo data (src/server/db/scope.ts), any other job's are not.
+    // A deadlock or a serialization failure rolled the handler's transaction back (writes of one organisation run side
+    // by side): it runs again at once, a few times, before it counts as a failed attempt (handlers are retried anyway).
+    // A run again starts from the progress the job committed — the payload as stored (`saveIn` writes it inside the
+    // handler's own transactions), exactly what a later attempt would read
+    let runs = 0;
+    const r = await retryTransient(async () => {
+      if (runs++ > 0) {
+        const stored = await db.one<{ payload: Record<string, any> }>(`select payload from sm_jobs where id = $1`, [job.id]);
+        if (stored) job.payload = stored.payload;
+      }
+      return inDemoScope(job.demo && job.org_id ? job.org_id : null, () => withLockLabel(`job ${job.kind}`, () => handler!(job, jctx)));
+    }, 4);
     if (r && typeof r.again === "number") await finish(db, job, "queued", { runInMs: r.again, keepAttempt: true });
     else await finish(db, job, "done");
     return true;

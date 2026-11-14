@@ -2,6 +2,7 @@
 // takes the `OrgApi` of `useOrg()`; errors are the platform's ApiError with the server's Persian message.
 import type { Cond } from "@shared/model/conditions";
 import { ApiError, type OrgApi } from "../../lib/api";
+import { batchedList } from "./batch";
 import type {
   AggregateResult, AttachmentItem, DisplayMap, HistoryEntry, JournalEntry, LinkItem, ListQuery, ListResult, RecordResult, RecordRow, TablesPayload, TableMeta,
 } from "../model/types";
@@ -16,7 +17,8 @@ export const recordsApi = {
   table: (api: OrgApi, key: string) => api.get<{ table: TableMeta; choices: Record<string, Option[]> }>(`/meta/tables/${enc(key)}`),
 
   /** POST /query: the filter travels as JSON in the body (no URL length limit). */
-  list: (api: OrgApi, table: string, q: ListQuery) => api.post<ListResult>(`${r(table)}/query`, clean(q)),
+  // queries started together go as one request (./batch.ts)
+  list: (api: OrgApi, table: string, q: ListQuery) => batchedList(api, table, clean(q)),
   get: (api: OrgApi, table: string, id: string) => api.get<RecordResult>(rec(table, id)),
   create: (api: OrgApi, table: string, data: Record<string, unknown>) => api.post<RecordResult>(r(table), data),
   update: (api: OrgApi, table: string, id: string, data: Record<string, unknown>, version?: number) =>

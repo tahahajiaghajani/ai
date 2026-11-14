@@ -12,7 +12,7 @@ import { fetchText, lanAllowed } from "../../net";
 import { guardedFetch } from "../ai/net";
 import { channelSecret } from "./mail";
 import { systemRows } from "./common";
-import { assertNotDemoOutbound } from "../../db/scope";
+import { assertNotDemoOutbound, demoSafeFetch } from "../../db/scope";
 
 export interface ChannelRow {
   id: string;
@@ -54,11 +54,12 @@ export const TIMEOUT = 15_000;
 
 /**
  * fetch for outside channels: guarded on the web version, the office network allowed on the Windows app and the server
- * edition (whose fetch enforces its air-gap allowlist).
+ * edition (whose fetch enforces its air-gap allowlist); refused inside the demo pack's work (docs/DEMO_FA.md) — the
+ * portal's bots send through it too.
  */
 export function channelFetch(cfg: Partial<ServerConfig>): typeof fetch {
   const f = cfg.fetch ?? fetch;
-  return lanAllowed(cfg) ? f : guardedFetch(f);
+  return demoSafeFetch(lanAllowed(cfg) ? f : guardedFetch(f));
 }
 
 const json = (body: unknown) => ({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });

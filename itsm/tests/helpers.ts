@@ -3,11 +3,21 @@ import { createPgliteDb } from "@server/db/pglite";
 import { migrate } from "@server/db/migrate";
 import { createApp } from "@server/app";
 import type { ServerConfig } from "@server/context";
+import type { Db } from "@server/db";
 
 export const quietLog = { info() {}, warn() {}, error: (m: string, d?: unknown) => console.error(m, d) };
 
+/**
+ * Where `makeServer` puts a server's database: PGlite in memory, unless a suite chose another (the real-PostgreSQL race
+ * suites give every world its own PostgreSQL database: `useServerDb`).
+ */
+let serverDb: ((mode: "cloud" | "desktop") => Promise<Db>) | null = null;
+export function useServerDb(factory: ((mode: "cloud" | "desktop") => Promise<Db>) | null): void {
+  serverDb = factory;
+}
+
 export async function makeServer(opts: { mode?: "cloud" | "desktop"; config?: Partial<ServerConfig> } = {}) {
-  const db = await createPgliteDb({ desktop: opts.mode === "desktop" });
+  const db = serverDb ? await serverDb(opts.mode ?? "cloud") : await createPgliteDb({ desktop: opts.mode === "desktop" });
   await migrate(db);
   const app = createApp({
     mode: opts.mode ?? "cloud",

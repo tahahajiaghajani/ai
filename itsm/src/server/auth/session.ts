@@ -44,7 +44,7 @@ export interface SessionMeta {
 
 const SESSION_COLUMNS = "id, user_id, kind, expires_at, auth_method, org_id, source_id, reauth_at, created_at";
 
-export async function issueSession(db: Db, userId: string, kind: AuthSession["kind"], meta: SessionMeta = {}): Promise<IssuedSession> {
+export async function issueSession(db: Queryable, userId: string, kind: AuthSession["kind"], meta: SessionMeta = {}): Promise<IssuedSession> {
   const secret = randomToken(32);
   const policy = kind === "web" ? (meta.policy ?? null) : null;
   const hours = kind === "device" ? DEVICE_DAYS * 24 : policy ? policy.absolute_hours : WEB_DAYS * 24;
@@ -97,7 +97,14 @@ export async function resolveToken(db: Db, token: string | undefined | null, opt
   const id = token.slice(0, dot);
   const secret = token.slice(dot + 1);
   if (!/^[0-9a-f-]{36}$/i.test(id) || !secret) return null;
-  const row = await db.one<SessionRow>(`select ${SESSION_COLUMNS}, token_hash, revoked_at, last_seen_at, idle_minutes from sm_sessions where id = $1`, [id]);
+  // the session and its person in one round trip (every authenticated request starts here)
+  const row = await db.one<SessionRow & { u_id: string | null; u_email: string; u_full_name: string; u_mobile: string | null; u_is_platform_admin: boolean; u_disabled: boolean; u_prefs: Record<string, unknown> }>(
+    `select ${SESSION_COLUMNS.split(", ").map((c) => `s.${c}`).join(", ")}, s.token_hash, s.revoked_at, s.last_seen_at, s.idle_minutes,
+            u.id as u_id, u.email as u_email, u.full_name as u_full_name, u.mobile as u_mobile, u.is_platform_admin as u_is_platform_admin,
+            u.disabled as u_disabled, u.prefs as u_prefs
+       from sm_sessions s left join sm_users u on u.id = s.user_id where s.id = $1`,
+    [id],
+  );
   if (!row || row.revoked_at || new Date(row.expires_at).getTime() < Date.now()) return null;
   if (!safeEq(row.token_hash, sha256(secret))) return null;
   const idle = Number(row.idle_minutes ?? 0);
@@ -106,10 +113,9 @@ export async function resolveToken(db: Db, token: string | undefined | null, opt
     await db.query(`update sm_sessions set revoked_at = now(), revoke_reason = 'idle' where id = $1 and revoked_at is null`, [row.id]);
     return null;
   }
-  const user = await db.one<AuthUser>(
-    `select id, email, full_name, mobile, is_platform_admin, disabled, prefs from sm_users where id = $1`,
-    [row.user_id],
-  );
+  const user: AuthUser | null = row.u_id
+    ? { id: row.u_id, email: row.u_email, full_name: row.u_full_name, mobile: row.u_mobile, is_platform_admin: row.u_is_platform_admin, disabled: row.u_disabled, prefs: row.u_prefs }
+    : null;
   if (!user || user.disabled) return null;
   // sliding activity stamp: every 10 minutes, or often enough for the idle timeout to be measured within a tenth —
   // never from a background request while the session has an idle timeout (it would keep an abandoned screen alive)

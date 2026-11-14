@@ -2,7 +2,7 @@
 // their reading status, the document viewer (text by page, the cited passage highlighted), «پرسش از اسناد» over chosen
 // collections, and «پرسش از هوش مصنوعی» over every source the member may read — also a row of the command palette.
 // Collections use the generic record pages (form with sharing rules); documents open in the viewer.
-import { lazy } from "react";
+import { lazy } from "@ui/lib/lazy";
 import { BookOpenText, FileSearch, Library, MessageSquareText, Sparkles } from "lucide-react";
 import { recordModule, RecordPageRoute } from "../../records/module";
 import { registerRecordExtensions } from "../../records/extensions";

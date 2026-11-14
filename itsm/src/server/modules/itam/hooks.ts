@@ -36,8 +36,8 @@ import { access } from "../../access/provider";
 import { bad, conflict, forbidden } from "../../http/errors";
 import { enqueue } from "../../jobs";
 import type { Ctx } from "../../context";
-import type { Tx } from "../../db";
-import { eqAll, isUuid, itamConfig, liveRow, liveRows, localDate, orgToday, sysOf, type Row } from "./common";
+import { lockKey, type Tx } from "../../db";
+import { eqAll, isUuid, itamConfig, liveRow, liveRows, localDate, lockedRow, orgToday, sysOf, type Row } from "./common";
 
 const entering = (w: WriteArgs, state: string) => w.next.state === state && (w.op === "create" || w.prev?.state !== state);
 const leaving = (w: WriteArgs, state: string) => w.op !== "create" && w.prev?.state === state && w.next.state !== state;
@@ -476,6 +476,10 @@ async function dataBearing(w: WriteArgs, asset: Row): Promise<boolean> {
 const disposalGuards = {
   disposal_can_complete: async (w: WriteArgs) => {
     const sys = sysOf(w.ctx);
+    // the order's items locked first (in id order; the order is held by this transition): a wipe record being
+    // corrected commits before the evidence is read below, and a correction that starts later waits and then finds
+    // the order completed — never an order completed on evidence that is no longer what is stored
+    await w.tx.query(`select id from ${tableDef("disposal_item")!.table} where org_id = $1 and order_id = $2 and deleted_at is null order by id for update`, [w.ctx.org.id, w.next.id]);
     const items = await liveRows(w.tx, sys, "disposal_item", { f: "order_id", op: "eq", v: w.next.id }, { limit: 2000 });
     if (!items.length) return "دارایی‌ای در این دستور اسقاط نیست";
     const missing: string[] = [];
@@ -550,6 +554,8 @@ async function poLineBefore(w: WriteArgs): Promise<void> {
   }
   if (!n.description) throw bad("شرح یا مدل کالا را وارد کنید");
   if (w.op === "create" && !n.line_no) {
+    // the order's line key: two lines added at once number one after the other
+    await lockKey(w.tx, `itam.po_lines:${String(n.po_id)}`);
     const lines = await liveRows(w.tx, sysOf(w.ctx), "purchase_order_line", { f: "po_id", op: "eq", v: n.po_id }, { limit: 5000 });
     n.line_no = lines.reduce((m, l) => Math.max(m, Number(l.line_no ?? 0)), 0) + 1;
   }
@@ -570,7 +576,9 @@ const procurementGuards = {
   po_has_lines: async (w: WriteArgs) => ((await liveRows(w.tx, sysOf(w.ctx), "purchase_order_line", { f: "po_id", op: "eq", v: w.next.id }, { limit: 1 })).length ? null : "سفارش خرید سطری ندارد"),
   receipt_can_post: async (w: WriteArgs) => {
     const sys = sysOf(w.ctx);
-    const po = await liveRow(w.tx, sys, "purchase_order", w.next.po_id);
+    // the order locked first (then its lines): two receipts of one order post one after the other, so the second's
+    // roll-up of the order's state sees the lines the first received (the order ends «received», not half-way)
+    const po = await lockedRow(w.tx, sys, "purchase_order", w.next.po_id);
     if (!po || !["ordered", "partially_received"].includes(String(po.state))) return "فقط کالای سفارش‌های ثبت‌شده دریافت می‌شود";
     const lines = await liveRows(w.tx, sys, "goods_receipt_line", { f: "receipt_id", op: "eq", v: w.next.id }, { limit: 2000 });
     if (!lines.length) return "رسید سطری ندارد";
@@ -731,6 +739,8 @@ const modelBefore = (w: WriteArgs) => {
 };
 async function stockroomBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete" || !w.changed.has("parent_id") || !w.next.parent_id) return;
+  // re-parenting takes the tree's key: two crossing moves at once never make a loop
+  if (w.op !== "create") await lockKey(w.tx, `stockroom.tree:${w.ctx.org.id}`);
   let cur: unknown = w.next.parent_id;
   for (let i = 0; i < 30 && isUuid(cur); i++) {
     if (cur === w.next.id) throw bad("انبار نمی‌تواند زیرمجموعهٔ خودش باشد");

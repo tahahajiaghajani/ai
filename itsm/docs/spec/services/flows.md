@@ -117,6 +117,11 @@ node's `out`. Exactly one `trigger` node, no edges into it, **no cycles** (repet
 | `ai_skill` | out, error | `skill`, `inputs` | what the skill returns (`text`, `data`) |
 | `end` | — | `outcome` (`completed` \| `failed`), `message`, `outputs` (a subflow's result) | — |
 
+`update_record` and `create_record` never touch a table only the platform writes (`rowAccess.write: NEVER`: computed
+scores and facts, deliveries, ledgers, the runtime's own records), whoever the flow runs as — the system included: a
+version whose step names such a table (its own, or the trigger's) is not published, and the step refuses as it runs
+(`systemOnlyRefusal`, `tests/system-tables.test.ts`).
+
 Recipients (`to`, `approvers`): `{ users: [ids or pills], fields: [user fields of the record], groups: [ids] }`.
 Record conditions are the engine's `Cond` (docs/spec/ENGINE.md §3), evaluated through the run's identity; data
 comparisons use `eq ne gt gte lt lte contains ncontains empty nempty` (numbers compare as numbers, Persian digits

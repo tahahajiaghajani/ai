@@ -441,27 +441,30 @@ export async function get(ctx: Ctx, table: string, id: string): Promise<RecordRe
   return { row: out, display, meta };
 }
 
-/** Create a record; returns it as `get` does. */
+/**
+ * Create a record; returns it as `get` does. These single-record writes run again when the database aborts them for a
+ * deadlock or a serialization failure (`retry`: a record write's every effect is inside its transaction).
+ */
 export async function create(ctx: Ctx, table: string, data: Record<string, unknown>, opts: WriteOptions = {}): Promise<RecordResult> {
-  const row = await ctx.write((tx) => createIn(tx, ctx, table, data, opts));
+  const row = await ctx.write((tx) => createIn(tx, ctx, table, data, opts), { retry: true });
   return get(ctx, table, row.id);
 }
 
 /** Change a record (`opts.version` for optimistic concurrency; a state change is a transition). */
 export async function update(ctx: Ctx, table: string, id: string, data: Record<string, unknown>, opts: WriteOptions = {}): Promise<RecordResult> {
-  await ctx.write((tx) => updateIn(tx, ctx, table, id, data, opts));
+  await ctx.write((tx) => updateIn(tx, ctx, table, id, data, opts), { retry: true });
   return get(ctx, table, id);
 }
 
 /** Take a transition of the state model (with the values it requires). */
 export async function transition(ctx: Ctx, table: string, id: string, to: string, data: Record<string, unknown> = {}, opts: WriteOptions = {}): Promise<RecordResult> {
-  await ctx.write((tx) => transitionIn(tx, ctx, table, id, to, data, opts));
+  await ctx.write((tx) => transitionIn(tx, ctx, table, id, to, data, opts), { retry: true });
   return get(ctx, table, id);
 }
 
 /** Soft-delete a record. */
 export async function remove(ctx: Ctx, table: string, id: string, opts: WriteOptions = {}): Promise<{ ok: true }> {
-  await ctx.write((tx) => removeIn(tx, ctx, table, id, opts));
+  await ctx.write((tx) => removeIn(tx, ctx, table, id, opts), { retry: true });
   return { ok: true };
 }
 

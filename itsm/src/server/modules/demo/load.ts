@@ -7,6 +7,7 @@
 // The load is a list of steps; a step does a bounded amount of work and saves where it stopped (`progress`), so one
 // job invocation never outlives the worker's budget and a load resumes after a restart.
 import { CHOICE_LISTS, TABLES } from "@shared/tables";
+import { isNever } from "@shared/model/conditions";
 import { uuidv7 } from "@shared/id";
 import type { Ctx, ServerConfig } from "../../context";
 import type { Row, Tx } from "../../db";
@@ -21,6 +22,7 @@ import { hashPassword, readableCode } from "../../auth/password";
 import { addTimelineEvent, majorAction, sendUpdate } from "../incident";
 import { secureWorkspace } from "../security/common";
 import { ARTICLES, BANK_DOMAIN, BANK_NAME, BRANCH_STREETS, CHANGES, DEMO_SIZES, FIRST_NAMES, GROUPS, HQ_DEPARTMENTS, INCIDENTS, KNOWN_NAMES, LAST_NAMES, PROBLEMS, PROVINCES, REGION_OF, REGIONS, REQUESTS, Rng, SERVICES, type DemoSize, type Persona } from "./bank";
+import { costCentresIn, stepAnalytics, stepContinuityGrc, stepCsm, stepDelivery, stepDocs, stepEsm, stepEvents, stepExperience, stepField, stepFinance, stepPortal, stepWorkforce } from "./modules";
 
 /** What the steps share (saved with the pack between job invocations). */
 export interface LoadMemo {
@@ -29,6 +31,11 @@ export interface LoadMemo {
   /** step index and the cursor inside it */
   step: number;
   cursor: number;
+  /**
+   * where the random sequence of a step that works in batches stood after its last batch: the step resumed by the next
+   * job invocation continues the same draws, so the pack is the same however a busy server split the work
+   */
+  rng?: number;
   password?: string;
   hq?: string;
   units: Record<string, string>;
@@ -38,6 +45,8 @@ export interface LoadMemo {
   people: { agents: Record<string, string[]>; employees: string[]; personas: Partial<Record<Persona, string>> };
   services: Record<string, string>;
   cis: Record<string, string[]>;
+  /** ids the later steps of the rest of the bank share (customer accounts, cost centres, surveys…; modules.ts) */
+  lists?: Record<string, string[]>;
   incidents: string[];
   problems: string[];
   suppliers: string[];
@@ -46,6 +55,16 @@ export interface LoadMemo {
   refused?: Record<string, string>;
   /** the bank's asset people: per branch unit its officer and manager, per region its asset manager */
   itam?: { officers: Record<string, string>; managers: Record<string, string>; regional: Record<string, string> };
+}
+
+/**
+ * The random sequence of a step that works in batches: from the step's seed when it starts (`cursor` 0 or 1: its first
+ * batch has not run), from where its last batch left it when another job invocation resumes it (`memo.rng`).
+ */
+export function batchRng(memo: LoadMemo, seed: number): Rng {
+  const rng = new Rng(seed);
+  if (memo.cursor > 1 && typeof memo.rng === "number") rng.state = memo.rng;
+  return rng;
 }
 
 export function newMemo(size: DemoSize, seed = 1405): LoadMemo {
@@ -67,7 +86,7 @@ function optionValues(table: string, field: string): string[] {
 }
 
 /** The first preferred value the field offers (else its first option; undefined when it has none). */
-function choose(table: string, field: string, preferred: string[] = []): string | undefined {
+export function choose(table: string, field: string, preferred: string[] = []): string | undefined {
   const vals = optionValues(table, field);
   if (!vals.length) return undefined;
   for (const p of preferred) if (vals.includes(p)) return p;
@@ -100,7 +119,15 @@ function clean(table: string, values: Record<string, unknown>): Record<string, u
   return out;
 }
 
-async function put(tx: Tx, sys: Ctx, table: string, values: Record<string, unknown>): Promise<Row> {
+/**
+ * One of the pack's records, written as the system. Never a row of a table only the platform writes (`rowAccess.write`
+ * NEVER: computed scores and facts, deliveries, run logs, ledgers a module books): what a module computes or derives is
+ * made by its own services or jobs inside the demo scope (docs/DEMO_FA.md) — the system context would let the pack
+ * insert it, so this refuses it first (a step's `tryPut` records the refusal with the pack's status).
+ */
+export async function put(tx: Tx, sys: Ctx, table: string, values: Record<string, unknown>): Promise<Row> {
+  const def = TABLES.get(table);
+  if (def && isNever(def.rowAccess?.write)) throw new Error(`«${def.plural}» را فقط خود سامانه می‌نویسد؛ بستهٔ نمایشی ردیفی در آن نمی‌سازد`);
   return createIn(tx, sys, table, clean(table, values), { trusted: true });
 }
 
@@ -108,7 +135,7 @@ async function put(tx: Tx, sys: Ctx, table: string, values: Record<string, unkno
 const refusals = new Map<string, string>();
 
 /** Create a record; when a module refuses the closed form of it (its own rules on closing), create it open instead. */
-async function putOpen(tx: Tx, sys: Ctx, table: string, values: Record<string, unknown>, open: Record<string, unknown>): Promise<Row | null> {
+export async function putOpen(tx: Tx, sys: Ctx, table: string, values: Record<string, unknown>, open: Record<string, unknown>): Promise<Row | null> {
   try {
     return await savepoint(tx, () => put(tx, sys, table, values));
   } catch {
@@ -128,12 +155,25 @@ export function loadRefusals(orgId: string): Record<string, string> {
   return out;
 }
 
-const DAY = 86_400_000;
-const iso = (ms: number) => new Date(ms).toISOString();
-const dateOnly = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+/** Record why a module refused part of the pack (shown with the pack's status; the load goes on). */
+export function refuse(orgId: string, key: string, e: unknown): void {
+  refusals.set(`${orgId}:${key}`, e instanceof Error ? e.message : String(e));
+}
+
+/** Create a record in its own savepoint; a module that refuses it is recorded with the pack's status (null). */
+export async function tryPut(tx: Tx, sys: Ctx, table: string, values: Record<string, unknown>): Promise<Row | null> {
+  return savepoint(tx, () => put(tx, sys, table, values)).catch((e: unknown) => {
+    refuse(sys.org.id, table, e);
+    return null;
+  });
+}
+
+export const DAY = 86_400_000;
+export const iso = (ms: number) => new Date(ms).toISOString();
+export const dateOnly = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
 /** A moment in the last year, recent days more likely (a growing backlog of fresh work). */
-function pastMoment(rng: Rng, now: number, maxDays = 365): number {
+export function pastMoment(rng: Rng, now: number, maxDays = 365): number {
   const days = maxDays * Math.pow(rng.next(), 1.7);
   const t = now - days * DAY;
   // office hours of Tehran (UTC+3:30): 08:00–16:00
@@ -146,8 +186,42 @@ function personName(rng: Rng): string {
   return `${rng.pick(FIRST_NAMES)} ${rng.pick(LAST_NAMES)}`;
 }
 
-function bump(memo: LoadMemo, key: string, n = 1) {
+export function bump(memo: LoadMemo, key: string, n = 1) {
   memo.counts[key] = (memo.counts[key] ?? 0) + n;
+}
+
+/**
+ * Items `memo.cursor`…`total - 1` of a step, written `per` to a transaction until the deadline; the job carries on at
+ * the cursor. Returns whether the step is done. (A medium pack's 900 requests in one transaction ran for more than half
+ * an hour on the bank simulation's Windows server and held the job queue meanwhile: every write bumps the
+ * organisation's sync revision row, and one transaction that updates a row thousands of times slows down with each
+ * update — docs/qa/BANK_SIM_FA.md.)
+ */
+export async function inChunks(a: StepArgs, sys: Ctx, total: number, per: number, body: (tx: Tx, i: number) => Promise<void>): Promise<boolean> {
+  let i = a.memo.cursor;
+  while (i < total && Date.now() < a.deadline) {
+    const from = i;
+    const to = Math.min(total, from + per);
+    await sys.write(async (tx) => {
+      for (let k = from; k < to; k++) await body(tx, k);
+    });
+    i = to;
+    a.memo.cursor = i;
+  }
+  return i >= total;
+}
+
+/**
+ * The random sequence of a step that runs in phases or chunks (the incidents; the rest of the bank's steps, modules.ts
+ * `phased`): from the step's seed when it starts, from where its last committed phase or chunk left it (`memo.rng`)
+ * when another job invocation resumes it — at any cursor: unlike a batched step's first part (`batchRng`), a phased
+ * step's first phase draws too, so its second phase resumes at cursor 1. The step deletes `memo.rng` when it ends, so
+ * only the running step's sequence is ever kept.
+ */
+export function resumeRng(memo: LoadMemo, seed: number): Rng {
+  const rng = new Rng(seed);
+  if (typeof memo.rng === "number") rng.state = memo.rng;
+  return rng;
 }
 
 // ----- steps ------------------------------------------------------------------------------------------------------
@@ -172,7 +246,11 @@ export const STEPS: Step[] = [
   { key: "suppliers", label: "تأمین‌کنندگان و قراردادها", run: stepSuppliers },
   { key: "assets", label: "دارایی‌ها و ناوگان خودپرداز", run: seedItamFleet },
   { key: "itam_flows", label: "حواله‌های انتقال، شمارش، تأیید اموال شعب و اسقاط امن", run: stepItamFlows },
+  { key: "finance", label: "بودجه‌ها، قاعده‌های تسهیم، نمایش و بازپرداخت هزینه", run: stepFinance },
   { key: "knowledge", label: "مقاله‌های دانش", run: stepKnowledge },
+  // early: the library reads and indexes the documents while the rest of the bank loads (ready when the load ends)
+  { key: "docs", label: "اسناد هوشمند کتابخانهٔ هوش مصنوعی", run: stepDocs },
+  { key: "experience", label: "سیاست‌های تجربهٔ کاربر (XLA)", run: stepExperience },
   { key: "incidents", label: "رخدادها", run: stepIncidents },
   { key: "major", label: "رخداد عمدهٔ سوئیچ کارت", run: stepMajor },
   { key: "problems", label: "مشکل‌ها و خطاهای شناخته‌شده", run: stepProblems },
@@ -181,8 +259,16 @@ export const STEPS: Step[] = [
   { key: "slm", label: "توافق‌های سطح خدمت", run: stepSlm },
   { key: "security", label: "امنیت", run: stepSecurity },
   { key: "hr", label: "پرونده‌های منابع انسانی", run: stepHr },
-  { key: "field", label: "بازدیدهای میدانی", run: stepField },
+  { key: "field", label: "خدمات میدانی: قلمروها، تکنسین‌ها، دستورهای کار و نگهداری دوره‌ای", run: stepField },
   { key: "extras", label: "اطلاعیهٔ درگاه، کشیک و هشدارهای پایش", run: stepExtras },
+  { key: "workforce", label: "مهارت‌ها، برنامهٔ شیفت، مرخصی و کشیک تیم‌ها", run: stepWorkforce },
+  { key: "csm", label: "پذیرندگان و مشتریان حقوقی: حساب‌ها، قراردادها، پرونده‌ها و شکایت‌ها", run: stepCsm },
+  { key: "esm", label: "خدمات واحدها: تأسیسات، مالی، حقوقی و تدارکات", run: stepEsm },
+  { key: "events", label: "رویدادهای پایش، هشدارها و رخداد برآمده از هشدار", run: stepEvents },
+  { key: "continuity", label: "تداوم کسب‌وکار، کنترل‌ها و ریسک‌ها", run: stepContinuityGrc },
+  { key: "delivery", label: "انتشارها، دواپس و پروژه‌ها", run: stepDelivery },
+  { key: "portal", label: "درگاه: پیوندها، موضوع‌ها، نظرسنجی‌ها و پاسخ‌ها", run: stepPortal },
+  { key: "analytics", label: "داشبوردها و شاخص‌های بانک", run: stepAnalytics },
 ];
 
 async function stepOrg({ orgId, memo }: StepArgs, sys: Ctx): Promise<boolean> {
@@ -275,14 +361,17 @@ async function addPerson(tx: Tx, sys: Ctx, orgId: string, p: { email: string; na
 async function stepPeople(a: StepArgs, sys: Ctx): Promise<boolean> {
   const { orgId, memo } = a;
   const size = DEMO_SIZES[memo.size];
-  const rng = new Rng(memo.seed + 7);
+  const rng = batchRng(memo, memo.seed + 7);
   const tag = orgId.replace(/-/g, "").slice(0, 6);
   const mail = (local: string) => `${local}.${tag}@${BANK_DOMAIN}`;
   if (memo.cursor === 0) {
     memo.password = readableCode(3, 4);
     const hash = await hashPassword(memo.password);
     await sys.write(async (tx) => {
-      const unitOf: Record<Persona, string | undefined> = { agent: memo.units.IT, manager: memo.units.IT, requester: memo.branches[0]?.unit, change: memo.units.IT, assets: memo.units.IT, soc: memo.units.SEC, hr: memo.units.HR, branch: memo.branches[0]?.unit };
+      const unitOf: Record<Persona, string | undefined> = {
+        agent: memo.units.IT, manager: memo.units.IT, requester: memo.branches[0]?.unit, change: memo.units.IT, assets: memo.units.IT, soc: memo.units.SEC, hr: memo.units.HR, branch: memo.branches[0]?.unit,
+        finance: memo.units.FIN, csm: memo.units.CX, field: memo.units[`region:${REGIONS[0]}`], ops: memo.units.CARD, release: memo.units.IT, pm: memo.units.IT, grc: memo.units.SEC, wfm: memo.units.IT,
+      };
       for (const [key, p] of Object.entries(KNOWN_NAMES) as [Persona, (typeof KNOWN_NAMES)[Persona]][]) {
         const id = await addPerson(tx, sys, orgId, { email: mail(p.email.split("@")[0]), name: p.name, title: p.title, unit: unitOf[key], location: key === "requester" || key === "branch" ? memo.branches[0]?.location : memo.units.hq_location, roles: [...p.roles], hash });
         memo.people.personas[key] = id;
@@ -297,7 +386,13 @@ async function stepPeople(a: StepArgs, sys: Ctx): Promise<boolean> {
       await join(memo.groups.assets, P.assets, true);
       await join(memo.groups.soc, P.soc);
       await join(memo.groups.hr, P.hr);
-      for (const g of [memo.groups.desk, memo.groups.cab, memo.groups.assets, memo.groups.soc, memo.groups.hr]) bump(memo, "group_member");
+      // the rest of the bank: customer service, field dispatch, monitoring on-call, releases — the pack's own groups only:
+      // never a real group the modules seeded (the finance committee is the only approver of the organisation's budgets)
+      await join(memo.groups.csm, P.csm, true);
+      await join(memo.regionGroups[REGIONS[0]], P.field, true);
+      await join(memo.groups.card, P.ops);
+      await join(memo.groups.apps, P.release, true);
+      for (const g of [memo.groups.desk, memo.groups.cab, memo.groups.assets, memo.groups.soc, memo.groups.hr, memo.groups.csm, memo.regionGroups[REGIONS[0]], memo.groups.card, memo.groups.apps]) if (g) bump(memo, "group_member");
       await tx.query(`update sm_groups set manager_id = $2 where id = $1`, [memo.groups.desk, P.manager]);
     });
     bump(memo, "person", Object.keys(KNOWN_NAMES).length);
@@ -338,21 +433,31 @@ async function stepPeople(a: StepArgs, sys: Ctx): Promise<boolean> {
     });
     i += batch.length;
     memo.cursor = i + 1;
+    memo.rng = rng.state;
   }
   if (i < plan.length) return false;
   memo.cursor = 0;
+  delete memo.rng;
   return true;
 }
 
 async function stepServices({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
   const size = DEMO_SIZES[memo.size];
   const rng = new Rng(memo.seed + 11);
+  // the departments that consume each service (the cost allocation's second stage charges them; modules.ts)
+  const regions = REGIONS.map((r) => memo.units[`region:${r}`]).filter(Boolean);
+  const consumers: Record<string, string[]> = {
+    core: ["OPS", "CRED", "FIN"], card: ["CARD"], switch: ["CARD"], hsm: ["CARD", "SEC"], swift: ["OPS", "FIN"], rtgs: ["OPS", "FIN"], ach: ["OPS", "FIN"], cheque: ["OPS"],
+    pos: ["CARD", "CX"], ibank: ["EBNK", "CX"], mbank: ["EBNK", "CX"], teller: ["OPS"], mail: ["HR", "LEGAL", "AUDIT"],
+  };
   await sys.write(async (tx) => {
     for (const s of SERVICES) {
       const row = await put(tx, sys, "service", {
         name: s.name,
         service_type: choose("service", "service_type", s.type === "business" ? ["business"] : ["technical"]),
         description: s.desc,
+        provider_unit_id: memo.units[s.group === "card" ? "CARD" : s.group === "ebank" ? "EBNK" : s.group === "soc" ? "SEC" : "IT"] ?? memo.units.IT,
+        consumer_units: s.key === "atm" ? regions : (consumers[s.key] ?? []).map((k) => memo.units[k]).filter(Boolean),
         support_group_id: memo.groups[s.group],
         owner_group_id: memo.groups[s.group],
         criticality: choose("service", "criticality", s.critical ? ["critical", "1", "high"] : ["medium", "3"]),
@@ -437,13 +542,16 @@ async function stepServices({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
 async function stepSuppliers({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
   const now = Date.now();
   const list = [
-    { name: "شرکت نمونهٔ خدمات خودپرداز پارس", kinds: ["vendor", "maintainer", "service_provider"], contract: "نگهداری و تعمیر خودپردازها", value: 18_500_000_000 },
-    { name: "شرکت نمونهٔ ارتباطات داده‌پرداز", kinds: ["service_provider", "telecom"], contract: "خطوط اختصاصی شعب", value: 42_000_000_000 },
-    { name: "شرکت نمونهٔ نرم‌افزار بانکی نوین", kinds: ["vendor", "software"], contract: "پشتیبانی سامانهٔ کربنکینگ", value: 65_000_000_000 },
-    { name: "شرکت نمونهٔ امنیت شبکهٔ سپهر", kinds: ["vendor", "service_provider"], contract: "پایش امنیت و پاسخ به رخداد", value: 12_000_000_000 },
-    { name: "شرکت نمونهٔ تجهیزات پایانهٔ فروش", kinds: ["vendor", "reseller"], contract: "تأمین و نگهداری پایانه‌های فروش", value: 9_800_000_000 },
+    { name: "شرکت نمونهٔ خدمات خودپرداز پارس", kinds: ["vendor", "maintainer", "service_provider"], contract: "نگهداری و تعمیر خودپردازها", value: 18_500_000_000, cc: "itb", service: "atm", type: "MAINT" },
+    { name: "شرکت نمونهٔ ارتباطات داده‌پرداز", kinds: ["service_provider", "telecom"], contract: "خطوط اختصاصی شعب", value: 42_000_000_000, cc: "dc", service: "wan", type: "TEL" },
+    { name: "شرکت نمونهٔ نرم‌افزار بانکی نوین", kinds: ["vendor", "software"], contract: "پشتیبانی سامانهٔ کربنکینگ", value: 65_000_000_000, cc: "dc", service: "core", type: "SVC" },
+    { name: "شرکت نمونهٔ امنیت شبکهٔ سپهر", kinds: ["vendor", "service_provider"], contract: "پایش امنیت و پاسخ به رخداد", value: 12_000_000_000, cc: "sec", service: null, type: "SVC" },
+    { name: "شرکت نمونهٔ تجهیزات پایانهٔ فروش", kinds: ["vendor", "reseller"], contract: "تأمین و نگهداری پایانه‌های فروش", value: 9_800_000_000, cc: "ch", service: "pos", type: "MAINT" },
   ];
   await sys.write(async (tx) => {
+    // the bank's cost centres: each contract's monthly accrual posts to its own (IT finance, modules.ts)
+    await costCentresIn(tx, sys, memo);
+    const types = new Map((await tx.query<{ id: string; code: string }>(`select id, code from sm_cost_types where org_id = $1 and deleted_at is null`, [sys.org.id])).map((t) => [t.code, t.id]));
     for (const [i, s] of list.entries()) {
       const sup = await put(tx, sys, "supplier", { name: s.name, kinds: s.kinds, criticality: choose("supplier", "criticality", ["critical", "high"]), city: "تهران", country: "ایران", state: choose("supplier", "state", ["active"]), notes: "تأمین‌کنندهٔ ساختگی دادهٔ نمایشی" });
       memo.suppliers.push(String(sup.id));
@@ -455,6 +563,10 @@ async function stepSuppliers({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
         start_date: dateOnly(start),
         end_date: dateOnly(start + 365 * DAY),
         value: s.value,
+        annual_value: s.value,
+        cost_center_id: memo.units[`cc:${s.cc}`],
+        cost_type_id: types.get(s.type),
+        service_id: s.service ? memo.services[s.service] : undefined,
         currency: choose("contract", "currency", ["IRR"]),
         renewal_type: choose("contract", "renewal_type", ["manual"]),
         notice_period_days: 60,
@@ -554,17 +666,16 @@ function attributesOf(key: string, rng: Rng, n: number): Record<string, unknown>
 async function seedItamFleet(a: StepArgs, sys: Ctx): Promise<boolean> {
   const { memo } = a;
   const size = DEMO_SIZES[memo.size];
-  const rng = new Rng(memo.seed + 13);
+  const rng = batchRng(memo, memo.seed + 13);
   const now = Date.now();
   // models, rules, the SLA and stockrooms first (cursor 0), then the fleet in batches
   if (memo.cursor === 0) {
     await sys.write(async (tx) => {
       const fleetRule = await put(tx, sys, "depreciation_rule", { name: "خط مستقیم ۷ ساله — خودپرداز و CRS (نمایشی)", method: "straight_line", life_months: 84, salvage_percent: "10", start_basis: "in_service", start_convention: "next_month", device_classes: ["atm", "crs", "kiosk"], active: true });
       const branchRule = await put(tx, sys, "depreciation_rule", { name: "خط مستقیم ۵ ساله — تجهیزات شعبه (نمایشی)", method: "straight_line", life_months: 60, salvage_percent: "5", start_basis: "in_service", start_convention: "next_month", device_classes: ["pos", "desktop", "passbook_printer", "network", "server"], active: true });
-      // the bank's own cost centre: the fleet's purchases and depreciation post there, never to a real budget's
-      const cc = await put(tx, sys, "org_unit", { name: "مرکز هزینهٔ تجهیزات شعب و خودپردازها", code: "AFT-CC-ITB", kind: "cost_center", parent_id: memo.units.IT ?? memo.hq });
-      memo.units.cost_center = String(cc.id);
-      bump(memo, "org_unit");
+      // the bank's own cost centre (made with the suppliers): the fleet's purchases and depreciation post there, never
+      // to a real budget's
+      if (!memo.units.cost_center) await costCentresIn(tx, sys, memo);
       memo.units.dep_fleet = String(fleetRule.id);
       memo.units.dep_branch = String(branchRule.id);
       bump(memo, "depreciation_rule", 2);
@@ -668,9 +779,11 @@ async function seedItamFleet(a: StepArgs, sys: Ctx): Promise<boolean> {
     });
     i += n;
     memo.cursor = i + 1;
+    memo.rng = rng.state;
     bump(memo, "asset", n);
   }
   if (i < size.assets) return false;
+  delete memo.rng;
   // a quarterly count of the central stockroom (planned)
   await sys.write(async (tx) => {
     await put(tx, sys, "inventory_audit", { name: "شمارش فصلی انبار مرکزی", scope_kind: choose("inventory_audit", "scope_kind", ["stockroom"]), stockroom_id: memo.units.stockroom, group_id: memo.groups.assets, planned_date: dateOnly(now + 7 * DAY), notes: "شمارش دستگاه‌های رزرو خودپرداز و پایانهٔ فروش" });
@@ -870,7 +983,7 @@ async function stepKnowledge({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
   return true;
 }
 
-function personOf(memo: LoadMemo, group: string, rng: Rng): string | undefined {
+export function personOf(memo: LoadMemo, group: string, rng: Rng): string | undefined {
   const list = memo.people.agents[group];
   return list?.length ? rng.pick(list) : undefined;
 }
@@ -878,7 +991,7 @@ function personOf(memo: LoadMemo, group: string, rng: Rng): string | undefined {
 async function stepIncidents(a: StepArgs, sys: Ctx): Promise<boolean> {
   const { memo } = a;
   const size = DEMO_SIZES[memo.size];
-  const rng = new Rng(memo.seed + 17 + memo.cursor);
+  const rng = resumeRng(memo, memo.seed + 17);
   const now = Date.now();
   const weighted = INCIDENTS.map((x) => [x, x.weight] as const);
   const closeCode = choose("incident", "close_code", ["solved", "resolved", "fixed"]);
@@ -925,12 +1038,14 @@ async function stepIncidents(a: StepArgs, sys: Ctx): Promise<boolean> {
     });
     i += n;
     memo.cursor = i;
+    memo.rng = rng.state;
     bump(memo, "incident", n);
   }
   if (i < size.incidents) return false;
   // keep only a sample of ids for later links
   memo.incidents = memo.incidents.slice(-200);
   memo.cursor = 0;
+  delete memo.rng;
   return true;
 }
 
@@ -968,12 +1083,13 @@ async function stepMajor({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
   return true;
 }
 
-async function stepProblems({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
+async function stepProblems(a: StepArgs, sys: Ctx): Promise<boolean> {
+  const { memo } = a;
   const size = DEMO_SIZES[memo.size];
-  const rng = new Rng(memo.seed + 19);
+  const rng = new Rng(memo.seed + 19 + memo.cursor);
   const now = Date.now();
-  await sys.write(async (tx) => {
-    for (let i = 0; i < size.problems; i++) {
+  const done = await inChunks(a, sys, size.problems, 40, async (tx, i) => {
+    {
       const p = PROBLEMS[i % PROBLEMS.length];
       const opened = pastMoment(rng, now, 300);
       const state = rng.weighted([["rca", 3], ["fix_in_progress", 2], ["resolved", 2], ["closed", 3], ["assess", 2]]);
@@ -998,19 +1114,20 @@ async function stepProblems({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
         await put(tx, sys, "known_error", { short_description: `خطای شناخته‌شده: ${p.text}`, problem_id: row.id, symptoms: p.text, root_cause: p.cause, workaround: p.workaround, assignment_group_id: memo.groups[p.group], service_id: memo.services[p.service], state: choose("known_error", "state", ["published"]) });
         bump(memo, "known_error");
       }
+      bump(memo, "problem");
     }
   });
-  bump(memo, "problem", size.problems);
-  return true;
+  return done;
 }
 
-async function stepChanges({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
+async function stepChanges(a: StepArgs, sys: Ctx): Promise<boolean> {
+  const { memo } = a;
   const size = DEMO_SIZES[memo.size];
-  const rng = new Rng(memo.seed + 23);
+  const rng = new Rng(memo.seed + 23 + memo.cursor);
   const now = Date.now();
   const types = optionValues("change_request", "type");
-  await sys.write(async (tx) => {
-    for (let i = 0; i < size.changes; i++) {
+  const done = await inChunks(a, sys, size.changes, 40, async (tx, i) => {
+    {
       const c = CHANGES[i % CHANGES.length];
       // past changes are closed; upcoming ones scheduled on weekend nights (Thursday/Friday)
       const future = i % 4 === 0;
@@ -1049,14 +1166,14 @@ async function stepChanges({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
         close_code: state === "closed" ? choose("change_request", "close_code", ["successful"]) : undefined,
         close_notes: state === "closed" ? "تغییر طبق برنامه اجرا و آزمون شد." : undefined,
       }, { state: choose("change_request", "state", ["scheduled", "new"]) });
+      bump(memo, "change_request");
     }
   });
-  bump(memo, "change_request", size.changes);
-  return true;
+  return done;
 }
 
 /** Answers to an item's questions as a requester would give them (required ones; defaults where the item has them). */
-async function answersFor(tx: Tx, orgId: string, itemId: string, who: string): Promise<Record<string, unknown>> {
+export async function answersFor(tx: Tx, orgId: string, itemId: string, who: string): Promise<Record<string, unknown>> {
   const vars = await tx.query<{ name: string; type: string; required: boolean; default_value: string | null; choices: unknown; ref_table: string | null }>(
     `select v.name, v.type, v.required, v.default_value, v.choices, v.ref_table from sm_catalog_variables v
       where v.org_id = $1 and v.deleted_at is null and coalesce(v.active, true)
@@ -1083,18 +1200,21 @@ async function answersFor(tx: Tx, orgId: string, itemId: string, who: string): P
   return out;
 }
 
-async function stepRequests({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
+async function stepRequests(a: StepArgs, sys: Ctx): Promise<boolean> {
+  const { memo } = a;
   const size = DEMO_SIZES[memo.size];
-  const rng = new Rng(memo.seed + 29);
+  const rng = new Rng(memo.seed + 29 + memo.cursor);
   const now = Date.now();
-  let made = 0;
-  await sys.write(async (tx) => {
-    const items = await tx.query<{ id: string; name: string; category_id: string | null }>(`select id, name, category_id from sm_catalog_items where org_id = $1 and deleted_at is null and state = 'published'`, [sys.org.id]);
-    const byName = new Map(items.map((x) => [x.name, x]));
-    for (let i = 0; i < size.requests; i++) {
+  let byName: Map<string, { id: string; name: string; category_id: string | null }> | null = null;
+  return inChunks(a, sys, size.requests, 40, async (tx, i) => {
+    if (!byName) {
+      const items = await tx.query<{ id: string; name: string; category_id: string | null }>(`select id, name, category_id from sm_catalog_items where org_id = $1 and deleted_at is null and state = 'published'`, [sys.org.id]);
+      byName = new Map(items.map((x) => [x.name, x]));
+    }
+    {
       const r = REQUESTS[i % REQUESTS.length];
       const item = byName.get(r.item);
-      if (!item) continue;
+      if (!item) return;
       const who = rng.chance(0.8) ? rng.pick(memo.people.employees) : memo.people.personas.requester!;
       const opened = pastMoment(rng, now, 360);
       const age = (now - opened) / DAY;
@@ -1117,12 +1237,10 @@ async function stepRequests({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
           assignment_group_id: r.item === "درخواست دسترسی" ? memo.groups.core : memo.groups.desk,
           state: choose("request_item", "state", [state === "submitted" ? "pending" : state]),
         });
-        made++;
+        bump(memo, "request");
       }).catch(() => undefined);
     }
   });
-  bump(memo, "request", made);
-  return true;
 }
 
 async function stepSlm({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
@@ -1220,15 +1338,10 @@ async function stepHr({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
  * schedule and rotation, and open monitoring alerts on the ATM network and the card switch. Each goes in its own
  * savepoint: a module that refuses it is recorded with the pack's status.
  */
-async function stepExtras({ orgId, memo }: StepArgs, sys: Ctx): Promise<boolean> {
+async function stepExtras({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
   const now = Date.now();
-  const tryPut = async (tx: Tx, table: string, values: Record<string, unknown>): Promise<Row | null> =>
-    savepoint(tx, () => put(tx, sys, table, values)).catch((e: unknown) => {
-      refusals.set(`${orgId}:${table}`, e instanceof Error ? e.message : String(e));
-      return null;
-    });
   await sys.write(async (tx) => {
-    const a = await tryPut(tx, "announcement", {
+    const a = await tryPut(tx, sys, "announcement", {
       title: "به‌روزرسانی نرم‌افزار خودپردازهای منطقهٔ تهران بزرگ", kind: "maintenance", audience: "everyone", state: "published", published_at: iso(now - DAY),
       starts_at: iso(now + 2 * DAY), ends_at: iso(now + 2 * DAY + 4 * 3600_000), assignment_group_id: memo.groups.card,
       body: "خودپردازهای شعب منطقهٔ تهران بزرگ پنجشنبه‌شب از ساعت ۲۲ تا ۲ بامداد به‌نوبت برای به‌روزرسانی از دسترس خارج می‌شوند (اطلاعیهٔ نمایشی).",
@@ -1236,9 +1349,10 @@ async function stepExtras({ orgId, memo }: StepArgs, sys: Ctx): Promise<boolean>
     if (a) bump(memo, "announcement");
     const members = (memo.people.agents.card ?? []).slice(0, 4);
     if (memo.groups.card && members.length) {
-      const sched = await tryPut(tx, "oncall_schedule", { name: "کشیک کارت و خودپرداز", group_id: memo.groups.card, timezone: "Asia/Tehran", active: true, description: "کشیک هفتگی شبانه‌روزی (نمایشی)" });
+      const sched = await tryPut(tx, sys, "oncall_schedule", { name: "کشیک کارت و خودپرداز", group_id: memo.groups.card, timezone: "Asia/Tehran", active: true, description: "کشیک هفتگی شبانه‌روزی (نمایشی)" });
       if (sched) {
-        const rot = await tryPut(tx, "oncall_rotation", { schedule_id: sched.id, name: "چرخش هفتگی", layer: 1, rotation_type: "weekly", length_hours: 168, active: true, start_at: iso(now - 30 * DAY), members, restriction: "none" });
+        memo.units.oncall_card = String(sched.id);
+        const rot = await tryPut(tx, sys, "oncall_rotation", { schedule_id: sched.id, name: "چرخش هفتگی", layer: 1, rotation_type: "weekly", length_hours: 168, active: true, start_at: iso(now - 30 * DAY), members, restriction: "none" });
         if (rot) bump(memo, "oncall_schedule");
       }
     }
@@ -1249,46 +1363,16 @@ async function stepExtras({ orgId, memo }: StepArgs, sys: Ctx): Promise<boolean>
       ["پر شدن دیسک سرور پایش خودپردازها", "warning", "atm-mon-02"],
     ];
     for (const [i, [text, severity, node]] of alerts.entries()) {
-      const al = await tryPut(tx, "alert", { short_description: text, severity, node, resource: node, service_id: services[i % Math.max(1, services.length)], assignment_group_id: memo.groups.card, first_seen_at: iso(now - (i + 1) * 3600_000), last_seen_at: iso(now - 600_000), opened_at: iso(now - (i + 1) * 3600_000), event_count: 3 + i * 4 });
+      const al = await tryPut(tx, sys, "alert", { short_description: text, severity, node, resource: node, service_id: services[i % Math.max(1, services.length)], assignment_group_id: memo.groups.card, first_seen_at: iso(now - (i + 1) * 3600_000), last_seen_at: iso(now - 600_000), opened_at: iso(now - (i + 1) * 3600_000), event_count: 3 + i * 4 });
       if (al) bump(memo, "alert");
     }
   });
   return true;
 }
 
-async function stepField({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
-  const size = DEMO_SIZES[memo.size];
-  const rng = new Rng(memo.seed + 41);
-  const now = Date.now();
-  let made = 0;
-  await sys.write(async (tx) => {
-    for (let i = 0; i < size.visits; i++) {
-      const b = rng.pick(memo.branches);
-      const opened = pastMoment(rng, now, 240);
-      const done = (now - opened) / DAY > 7;
-      const row = await putOpen(tx, sys, "work_order", {
-        short_description: `بازدید تکنسین خودپرداز — ${b.name}`,
-        description: rng.pick(["تعویض تسمهٔ مخزن اسکناس", "تعمیر کارت‌خوان", "سرویس دوره‌ای و تمیزکاری", "تعویض چاپگر رسید"]),
-        location_id: b.location,
-        assignment_group_id: memo.regionGroups[b.region],
-        assigned_to: personOf(memo, `field:${b.region}`, rng),
-        opened_at: iso(opened),
-        work_type: choose("work_order", "work_type", ["corrective", "repair", "maintenance"]),
-        state: choose("work_order", "state", [done ? "closed_complete" : "scheduled"]),
-        closed_at: done ? iso(Math.min(now - 30_000, opened + 2 * DAY)) : undefined,
-        close_code: done ? choose("work_order", "close_code", ["completed", "resolved", "fixed"]) : undefined,
-        close_notes: done ? "دستگاه آزمایش و به سرویس برگشت." : undefined,
-      }, { state: choose("work_order", "state", ["scheduled", "draft"]) });
-      if (row) made++;
-    }
-  });
-  bump(memo, "work_order", made);
-  return true;
-}
-
 /** Records created now but opened in the past carry their opening moment as their creation time (reports by month). */
 export async function backdate(sys: Ctx): Promise<void> {
-  const tables = ["incident", "problem", "change_request", "request", "request_item", "sec_incident", "hr_case", "work_order"];
+  const tables = ["incident", "problem", "change_request", "request", "request_item", "sec_incident", "hr_case", "work_order", "customer_case", "facility_request", "finance_case", "legal_request", "purchase_request", "release"];
   await sys.write(async (tx) => {
     for (const key of tables) {
       const def = TABLES.get(key);

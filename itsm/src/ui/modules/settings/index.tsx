@@ -1,6 +1,6 @@
 // «تنظیمات»: the organisation, members and roles, AI, integrations, the Windows app, the audit log, the design
 // system's living style guide (admins), the person's own account and help — the settings space of the sidebar (opened from its footer), plus the palette's member search.
-import { lazy } from "react";
+import { lazy } from "@ui/lib/lazy";
 import { Building2, UserCog, Plug, Monitor, ScrollText, CircleUser, CircleHelp, User, ShieldCheck, Palette } from "lucide-react";
 import { normalizeFa } from "../../lib/fa";
 import { AiIcon } from "../../components/shell/icons";

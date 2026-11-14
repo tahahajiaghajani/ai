@@ -6,8 +6,7 @@
 // same transaction as the message's log row, so a message is processed exactly once. Loop protection: our own
 // messages and addresses, auto-replies and bounces, bulk and list mail, and a sender rate limit; plus the channel's
 // allow and deny lists.
-import { ImapFlow } from "imapflow";
-import { simpleParser, type ParsedMail } from "mailparser";
+import type { ParsedMail } from "mailparser";
 import { uuidv7 } from "@shared/id";
 import { physicalTables, tableDef } from "@shared/tables";
 import { NOTIFY_TABLE_KEYS } from "@shared/tables/notify";
@@ -21,6 +20,7 @@ import { addAttachmentIn, addJournalIn, createIn, maxAttachmentBytes, systemCtx 
 import { readersOf } from "../../access";
 import { actsHere, errText, fullCfg, isUuid, sysCtx, systemRows } from "./common";
 import { channelSecret, checkMailHost, emailChannels, type EmailChannelRow } from "./mail";
+import { assertNotDemoOutbound } from "../../db/scope";
 
 // ----- the mailbox (tests replace it) -----------------------------------------------------------------------------------
 
@@ -53,6 +53,10 @@ export interface MailboxSession {
 export type MailboxOpener = (c: ImapConfig) => Promise<MailboxSession>;
 
 const imapflowOpener: MailboxOpener = async (c) => {
+  // no connection leaves inside the demo pack's work (docs/DEMO_FA.md)
+  assertNotDemoOutbound();
+  // loaded when a mailbox is polled (a cold start of the web version does not pay for imapflow)
+  const { ImapFlow } = await import("imapflow");
   const client = new ImapFlow({
     host: c.host,
     port: c.port,
@@ -289,18 +293,25 @@ async function memberByEmail(q: Queryable, org: string, address: string): Promis
   return r?.id ?? null;
 }
 
-async function logInbound(q: Queryable, org: string, ch: EmailChannelRow, p: ParsedMail | null, x: { messageId: string; uid?: number | null; size?: number; status: string; reason?: string | null; table?: string | null; record?: string | null; data?: Record<string, unknown> }): Promise<void> {
+/**
+ * Log an inbound message (once per Message-ID: the unique index refuses a second row). Returns the new row's id, or
+ * null when the message was logged already — inside a write it claims the message first: a second process ingesting
+ * the same e-mail waits for the first one's commit here and then gets null (a duplicate), never a second record.
+ */
+async function logInbound(q: Queryable, org: string, ch: EmailChannelRow, p: ParsedMail | null, x: { messageId: string; uid?: number | null; size?: number; status: string; reason?: string | null; table?: string | null; record?: string | null; data?: Record<string, unknown> }): Promise<string | null> {
   const refs = p ? [...(Array.isArray(p.references) ? p.references : p.references ? [p.references] : [])].slice(0, 50) : [];
-  await q.query(
+  const row = await q.one<{ id: string }>(
     `insert into sm_email_messages (id, org_id, channel_id, direction, message_id, in_reply_to, refs, from_addr, to_addrs, subject, table_key, record_id, status, reason, uid, size, data)
      values ($1, $2, $3, 'in', $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb)
-     on conflict (org_id, message_id, direction) do nothing`,
+     on conflict (org_id, message_id, direction) do nothing
+     returning id`,
     [
       uuidv7(), org, ch.id, x.messageId, p?.inReplyTo ?? null, JSON.stringify(refs), p?.from?.value?.[0]?.address?.toLowerCase() ?? null,
       p ? [p.to].flat().filter(Boolean).map((a) => a!.text).join(", ").slice(0, 500) : null, (p?.subject ?? "").slice(0, 500), x.table ?? null, x.record ?? null,
       x.status, x.reason ?? null, x.uid ?? null, x.size ?? null, x.data ? JSON.stringify(x.data) : null,
     ],
   );
+  return row?.id ?? null;
 }
 
 const MAX_ATTACHMENTS = 20;
@@ -309,6 +320,7 @@ const BODY_MAX = 50_000;
 /** Process one raw message of a channel (the IMAP poll, «بررسی صندوق اکنون», tests with fixture e-mails). */
 export async function ingestMessage(cfg: ServerConfig, sys: Ctx, ch: EmailChannelRow, raw: Buffer | Uint8Array | string, opts: { uid?: number | null } = {}): Promise<IngestResult> {
   const buf = typeof raw === "string" ? Buffer.from(raw, "utf8") : Buffer.from(raw);
+  const { simpleParser } = await import("mailparser");
   const p = await simpleParser(buf, { skipTextLinks: true, maxHtmlLengthToParse: 2_000_000 });
   const messageId = normId(p.messageId ?? "") || `<uid.${opts.uid ?? uuidv7()}.${ch.id}@inbound.local>`;
   const org = sys.org.id;
@@ -351,13 +363,16 @@ export async function ingestMessage(cfg: ServerConfig, sys: Ctx, ch: EmailChanne
     const text = stripQuoted(p.text ?? "").slice(0, BODY_MAX);
     if (!text && !files.length) return reject("empty");
     const out = await actx.write(async (tx) => {
+      // the message claimed first (its log row, unique per Message-ID): the IMAP job and «بررسی صندوق اکنون» on two
+      // processes fetching the same reply — the second waits here for the first's commit and adds nothing
+      if (!(await logInbound(tx, org, ch, p, { messageId, uid: opts.uid, size: buf.byteLength, status: "processed", table: thread.def.key, record: thread.id, data: meta }))) return null;
       const [row] = await systemRows<Record<string, any>>(sys, thread.def.key, "t.id = $1", [thread.id], "for update of t", tx);
       const ids: string[] = [];
       if (thread.def.features?.attachments) for (const f of files) ids.push((await addAttachmentIn(tx, actx, thread.def, thread.id, f)).id);
       await addJournalIn(tx, actx, thread.def, row, { kind: "email_in", visibility: "public", body: text || "(پیوست)", data: { ...meta, message_id: messageId }, attachments: ids }, { trusted: true, author: member });
-      await logInbound(tx, org, ch, p, { messageId, uid: opts.uid, size: buf.byteLength, status: "processed", table: thread.def.key, record: thread.id, data: meta });
       return { number: (row.number as string | null) ?? null };
     });
+    if (!out) return { status: "duplicate", message_id: messageId };
     return { status: "replied", table: thread.def.key, id: thread.id, number: out.number, message_id: messageId };
   }
 
@@ -381,11 +396,15 @@ export async function ingestMessage(cfg: ServerConfig, sys: Ctx, ch: EmailChanne
   }
   if (ch.workspace_id) data.workspace_id = ch.workspace_id;
   const created = await actx.write(async (tx) => {
+    // the message claimed first (see the reply above): one e-mail, one record, however many processes fetch it
+    const logId = await logInbound(tx, org, ch, p, { messageId, uid: opts.uid, size: buf.byteLength, status: "processed", table: def.key, record: null, data: meta });
+    if (!logId) return null;
     const row = await createIn(tx, actx, def.key, data, { trusted: true });
     if (def.features?.attachments) for (const f of files) await addAttachmentIn(tx, actx, def, String(row.id), f);
-    await logInbound(tx, org, ch, p, { messageId, uid: opts.uid, size: buf.byteLength, status: "processed", table: def.key, record: String(row.id), data: meta });
+    await tx.query(`update sm_email_messages set record_id = $2 where id = $1`, [logId, String(row.id)]);
     return row;
   });
+  if (!created) return { status: "duplicate", message_id: messageId };
   return { status: "created", table: def.key, id: String(created.id), number: (created.number as string | null) ?? null, message_id: messageId };
 }
 
@@ -406,6 +425,9 @@ const MAX_MESSAGE_BYTES = 25 * 1024 * 1024;
 
 /** Read a channel's new mail now. */
 export async function pollChannel(cfg: ServerConfig, sys: Ctx, ch: EmailChannelRow): Promise<PollResult> {
+  // never inside the demo pack's work (docs/DEMO_FA.md): no mailbox is opened, whichever opener is set, and nothing
+  // of the channel's state changes (a real message read there would become demo data, deleted by the purge)
+  assertNotDemoOutbound();
   const key = `${sys.org.id}:${ch.id}`;
   if (polling.has(key)) throw new Error("خواندن این صندوق هم‌اکنون در جریان است");
   polling.add(key);

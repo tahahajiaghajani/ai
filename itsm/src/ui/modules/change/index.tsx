@@ -11,7 +11,8 @@
 //                 changes, models, windows, CABs, the risk questionnaire; the teams' success scores
 //   elsewhere     «ثبت تغییر» on incidents, problems, known errors and requested items; «تغییرهای مشکوک» on incidents
 // Only light modules are imported here; every component loads with its page.
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import {
   GitPullRequestArrow, ListChecks, ClipboardCheck, TriangleAlert, PowerOff, Presentation, ShieldBan, LayoutTemplate, Workflow, CalendarRange, UsersRound, ListOrdered, Gauge,
   CalendarDays, Gavel, Zap, ChartColumn, Settings2, User, Stamp, CalendarClock, Hammer, Siren, Eye, Inbox,

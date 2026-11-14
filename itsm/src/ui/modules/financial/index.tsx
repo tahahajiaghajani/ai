@@ -3,7 +3,7 @@
 // فناوری اطلاعات», the cost ledger (entries with «برگشت ثبت»), budgets and their lines, the cost model (allocation
 // rules and targets, runs with «محاسبه»، «ثبت در دفتر» and the «صورت‌حساب» tab), fiscal years and periods, cost types,
 // exchange rates and the settings. Services get the «هزینهٔ خدمت» side panel.
-import { lazy } from "react";
+import { lazy } from "@ui/lib/lazy";
 import { Wallet, ChartColumn, Receipt, ListTree, Split, Target, Calculator, PieChart, CalendarRange, CalendarDays, Tags, ArrowLeftRight, Settings2, List } from "lucide-react";
 import type { AccessGate } from "@shared/access";
 import type { ModuleUi } from "../registry";

@@ -8,6 +8,7 @@
 // (src/ui/modules/service_portfolio).
 // Imported by the UI: keep it free of server imports.
 import type { Option, StateModel, TableDef } from "../model/types";
+import { NEVER } from "../model/conditions";
 import { PRIORITIES } from "../model/task";
 import { CI_CRITICALITY, CI_ENVIRONMENTS } from "../cmdb/classes";
 import { CI_TIERS } from "./cmdb";
@@ -425,6 +426,7 @@ const scoreFact: TableDef = {
     { name: "components", label: "اجزای امتیاز", type: "json", hidden: true, audit: false },
   ],
   scope: {},
+  rowAccess: { write: NEVER },
   features: { history: false },
   unique: [["day", "service_id"]],
   list: { columns: ["day", "service_id", "availability", "incidents", "score"], order: "-day" },

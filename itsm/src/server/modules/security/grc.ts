@@ -9,7 +9,8 @@ import type { FrameworkCompliance, MyPolicy, RiskHeatmap, SoaRow } from "@shared
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
 import type { Queryable, Tx } from "../../db";
-import { condEnv, createIn, get, orgSchema, RefSet, resolveDisplay, updateIn } from "../../engine";
+import { condEnv, createIn, get, onBeforeCommit, orgSchema, RefSet, resolveDisplay, updateIn } from "../../engine";
+import { lockKey, pgArray } from "../../db";
 import { bad, forbidden } from "../../http/errors";
 import { notifyPeople } from "../notify";
 import { activeMembers, expandUnits, groupMembers, unitMembers } from "../knowledge/common";
@@ -192,6 +193,8 @@ export async function measureIndicators(sys: Ctx): Promise<{ measured: number; f
       if (status === "fail") failing++;
       await updateIn(tx, sys, "grc_control", c.id, { indicator_value: v === null ? null : String(v), indicator_status: status, indicator_at: now }, { trusted: true, keepVersion: true });
       if (status === "fail") {
+        // one open indicator issue per control: two overlapping sweeps take turns on the control's key
+        await lockKey(tx, `grc.indicator_issue:${c.id}`);
         const [open] = await liveRows(tx, sys, "grc_issue", { and: [{ f: "control_id", op: "eq", v: c.id }, { f: "source", op: "eq", v: "indicator" }, { f: "state", op: "in", v: ["open", "in_progress", "accepted"] }] }, { limit: 1 });
         if (!open) {
           await createIn(tx, sys, "grc_issue", {
@@ -220,8 +223,15 @@ export async function planControlTests(sys: Ctx): Promise<number> {
   for (const c of due) {
     const [open] = await liveRows(sys.db, sys, "grc_control_test", { and: [{ f: "control_id", op: "eq", v: c.id }, { f: "state", op: "in", v: ["planned", "in_progress"] }] }, { limit: 1 });
     if (open) continue;
-    await sys.write((tx) => createIn(tx, sys, "grc_control_test", { control_id: c.id, kind: c.nature === "automated" ? "operating" : "self_assessment", planned_for: c.next_test_due, tester_id: c.owner_id ?? null }, { trusted: true }));
-    made++;
+    // looked for again inside the write under the control's key (overlapping sweeps): one planned test per control
+    const planned = await sys.write(async (tx) => {
+      await lockKey(tx, `grc.control_test:${c.id}`);
+      const [again] = await liveRows(tx, sys, "grc_control_test", { and: [{ f: "control_id", op: "eq", v: c.id }, { f: "state", op: "in", v: ["planned", "in_progress"] }] }, { limit: 1 });
+      if (again) return false;
+      await createIn(tx, sys, "grc_control_test", { control_id: c.id, kind: c.nature === "automated" ? "operating" : "self_assessment", planned_for: c.next_test_due, tester_id: c.owner_id ?? null }, { trusted: true });
+      return true;
+    });
+    if (planned) made++;
   }
   return made;
 }
@@ -282,7 +292,19 @@ export async function acknowledgePolicy(ctx: Ctx, campaignId: string): Promise<{
   const by = sysOf(ctx, ctx.user.id);
   await by.write(async (tx) => {
     await createIn(tx, by, "grc_policy_ack", { campaign_id: campaignId, policy_id: camp.policy_id, user_id: ctx.user.id, version_label: camp.version_label ?? null, acked_at: at }, { trusted: true });
-    await updateIn(tx, by, "grc_policy_campaign", campaignId, { ack_count: done.size + 1, audience_count: aud.length }, { trusted: true, keepVersion: true });
+    // counted again just before commit under the campaign's key: concurrent acknowledgements of a bank-wide campaign
+    // take turns there, and each count sees the ones committed before it (never the same «n + 1» twice). Counted by
+    // the database (one number, not every acknowledgement of the campaign read back per acknowledgement)
+    onBeforeCommit(tx, `grc.campaign:${campaignId}`, async () => {
+      const params: unknown[] = [ctx.org.id, campaignId, pgArray(aud)];
+      if (camp.version_label) params.push(String(camp.version_label));
+      const acked = await tx.one<{ n: number }>(
+        `select count(distinct user_id)::int as n from ${tableDef("grc_policy_ack")!.table}
+         where org_id = $1 and campaign_id = $2 and deleted_at is null and user_id = any($3::uuid[])${camp.version_label ? " and version_label = $4" : ""}`,
+        params,
+      );
+      await updateIn(tx, by, "grc_policy_campaign", campaignId, { ack_count: Number(acked?.n ?? 0), audience_count: aud.length }, { trusted: true, keepVersion: true });
+    });
   });
   return { ok: true, acked_at: at };
 }

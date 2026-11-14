@@ -12,6 +12,7 @@
 import { checkInWindow, HOLDS_SPACE, noShowAt, overlaps, seriesOf } from "@shared/esm/logic";
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
+import { tableDef } from "@shared/tables";
 import { createIn, emitEvent, isSystemCtx, orgTz, systemCtx, transitionIn, updateIn, validationError, type WriteArgs } from "../../engine";
 import { enqueue, type JobContext } from "../../jobs";
 import { requestApprovalIn } from "../sla/approvals";
@@ -23,6 +24,15 @@ export const JOB_NO_SHOW = "esm.no_show";
 const SERVICE_TYPES: Record<string, string> = { catering: "catering", av: "room_setup", setup: "room_setup", cleaning: "cleaning" };
 const SERVICE_LABELS: Record<string, string> = { catering: "پذیرایی", av: "صوت و تصویر", setup: "چیدمان", cleaning: "نظافت" };
 
+/**
+ * Lock a space until commit before its bookings are read for a clash: two bookings of one room for overlapping times
+ * (two people, a promotion from the line, an approval settled) take turns, and the second sees the first — never two
+ * confirmed bookings of one room at one time, nor two of one place in the line.
+ */
+async function lockSpace(tx: Tx, ctx: Ctx, spaceId: unknown): Promise<void> {
+  if (isUuid(spaceId)) await tx.query(`select 1 from ${tableDef("space")!.table} where id = $1 and org_id = $2 for update`, [spaceId, ctx.org.id]);
+}
+
 /** Bookings of a space that hold an overlapping time (the reservation itself left out). */
 async function clashes(tx: Tx, ctx: Ctx, spaceId: string, start: number, end: number, self: unknown): Promise<Row[]> {
   const rows = await liveRows(tx, sysOf(ctx), "reservation", { and: [{ f: "space_id", op: "eq", v: spaceId }, { f: "state", op: "in", v: HOLDS_SPACE }] }, { limit: 500 });
@@ -33,13 +43,14 @@ async function reservationBefore(w: WriteArgs): Promise<void> {
   const { ctx, tx, next, prev, op } = w;
   if (op === "delete") return;
   const sys = sysOf(ctx);
+  const timeChanged = op === "create" || ["start_at", "end_at", "space_id"].some((f) => w.changed.has(f));
+  if (timeChanged) await lockSpace(tx, ctx, next.space_id);
   const space = await liveRow(tx, sys, "space", next.space_id);
   if (!space) throw validationError({ space_id: "فضا پیدا نشد" });
   const start = msOf(next.start_at);
   const end = msOf(next.end_at);
   if (start === null || end === null) return;
   if (end <= start) throw validationError({ end_at: "پایان باید پس از شروع باشد" });
-  const timeChanged = op === "create" || ["start_at", "end_at", "space_id"].some((f) => w.changed.has(f));
   if (timeChanged && !w.trusted && !isSystemCtx(ctx)) {
     if (!space.bookable || space.active === false) throw validationError({ space_id: `«${space.name}» رزروپذیر نیست` });
     const maxH = Number(space.max_hours ?? 8);
@@ -80,6 +91,7 @@ async function reservationFree(w: WriteArgs): Promise<string | null> {
   const start = msOf(next.start_at);
   const end = msOf(next.end_at);
   if (start === null || end === null) return null;
+  await lockSpace(tx, ctx, next.space_id);
   const busy = await clashes(tx, ctx, String(next.space_id), start, end, next.id);
   return busy.length ? `فضا در این زمان رزرو شده است (${busy.map((b) => b.number ?? "").filter(Boolean).join("، ")})` : null;
 }
@@ -149,6 +161,7 @@ async function scheduleNoShow(tx: Tx, ctx: Ctx, row: Row): Promise<void> {
 /** Promote the first waiting booking (by position) that now fits the freed time. */
 export async function promoteWaiting(tx: Tx, ctx: Ctx, freed: Row): Promise<string | null> {
   const sys = sysOf(ctx);
+  await lockSpace(tx, ctx, freed.space_id);
   const span = { start: msOf(freed.start_at) ?? 0, end: msOf(freed.end_at) ?? 0 };
   const waiting = (await liveRows(tx, sys, "reservation", { and: [{ f: "space_id", op: "eq", v: freed.space_id }, { f: "state", op: "eq", v: "requested" }, { f: "waitlist_position", op: "nempty" }] }, { order: "t.waitlist_position, t.created_at", limit: 200 }))
     .filter((r) => overlaps(span, { start: msOf(r.start_at) ?? 0, end: msOf(r.end_at) ?? 0 }) && (msOf(r.end_at) ?? 0) > Date.now());
@@ -233,6 +246,7 @@ export function installReservationApprovals(): () => void {
       await transitionIn(tx, sys, "reservation", String(record.id), "cancelled", {}, { trusted: true });
       return;
     }
+    await lockSpace(tx, ctx, record.space_id);
     const busy = await clashes(tx, ctx, String(record.space_id), msOf(record.start_at) ?? 0, msOf(record.end_at) ?? 0, record.id);
     if (busy.length) await updateIn(tx, sys, "reservation", String(record.id), { waitlist_position: 1 }, { trusted: true, keepVersion: true });
     else await transitionIn(tx, sys, "reservation", String(record.id), "confirmed", {}, { trusted: true });

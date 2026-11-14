@@ -124,6 +124,9 @@ export const completeSchema = z.object({
 
 export type CompleteInput = z.infer<typeof completeSchema>;
 
+/** The jobs that seed a new organisation's module defaults (the same pattern the demo pack runs first). */
+export const SEED_JOB_KINDS = `(kind like '%.seed' or kind like '%seed%' or kind like '%install%')`;
+
 const fail = (status: number, code: string, message: string) => ({ error: { code, message } }) as const;
 
 /** Certificate information for the setup screen (null while none can be read). */
@@ -300,6 +303,12 @@ export function setupRoutes(d: SetupDeps, hasUsers: () => Promise<boolean>) {
     // the first administrator is the organisation's local break-glass account under the sign-in policy
     // («امنیت ورود و نشست‌ها»): closing local sign-in for the directory later can never lock the bank out
     await markBreakglass(d.db, orgId, input.admin.email).catch((e) => warnings.push(`حساب اضطراری ثبت نشد: ${(e as Error).message}`));
+    // the modules' defaults (IT catalogue, knowledge bases, SLA calendars, categories…) are queued 10–12 minutes after an
+    // organisation is made, so a web sign-up stays fast; on a bank's own server the administrator starts right after
+    // the setup and found an empty catalogue and «پایگاه دانش پیدا نشد» meanwhile (docs/qa/BANK_SIM_FA.md): they run now
+    await d.db
+      .query(`update sm_jobs set run_at = now() where org_id = $1 and status = 'queued' and ${SEED_JOB_KINDS}`, [orgId])
+      .catch((e) => warnings.push(`پیش‌فرض‌های ماژول‌ها زودتر آماده نشدند: ${(e as Error).message}`));
     // a self-hosted installation has no SaaS ceilings: «سازمانی» becomes the default plan (changeable in «طرح‌ها»)
     await d.db
       .query(`update sm_plans set is_default = (key = 'enterprise') where exists (select 1 from sm_plans where key = 'enterprise')`)

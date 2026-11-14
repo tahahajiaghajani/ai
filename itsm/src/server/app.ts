@@ -17,7 +17,7 @@ import { recordRoutes } from "./routes/records";
 import { flowHookRoutes } from "./routes/flows";
 import { jobCounter, tick } from "./jobs";
 import "./engine";
-import { migrationStatus } from "./db/migrate";
+import { migrationStatus, schemaProgress } from "./db/migrate";
 import { APP_NAME, APP_VERSION, SYNC_PROTOCOL } from "@shared/constants";
 
 // validation messages that a schema does not word itself come out in Persian
@@ -34,6 +34,8 @@ export function createApp(cfg: ServerConfig) {
   app.onError((err, c) => errorResponse(err, c));
   app.notFound((c) => c.json({ error: { code: "not_found", message: "این مسیر وجود ندارد" } }, 404));
 
+  // database reachable, migration stage x/y, app version (docs/SETUP_FA.md §۹); the web version answers this itself
+  // with 503 and the progress while its schema is being prepared (src/server/cloud.ts)
   app.get("/health", async (c) => {
     let db = "ok";
     try {
@@ -41,7 +43,19 @@ export function createApp(cfg: ServerConfig) {
     } catch (e) {
       db = String((e as Error).message ?? e);
     }
-    return c.json({ ok: db === "ok", db, mode: cfg.mode, version: APP_VERSION });
+    const schema = db === "ok" ? await schemaProgress(cfg.db).catch(() => null) : null;
+    const ok = db === "ok" && !!schema?.complete;
+    return c.json(
+      {
+        ok,
+        db,
+        mode: cfg.mode,
+        version: APP_VERSION,
+        schema: schema ? { complete: schema.complete, done: schema.done, total: schema.total, percent: schema.total ? Math.floor((schema.done / schema.total) * 100) : 0, next: schema.next } : null,
+        ...(cfg.database ? { pooler: cfg.database.pooler } : {}),
+      },
+      ok ? 200 : 503,
+    );
   });
 
   app.get("/meta", optionalUser, async (c) => {

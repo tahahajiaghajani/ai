@@ -6,6 +6,7 @@ import type { Ctx } from "../../context";
 import { createIn, defFor } from "../../engine";
 import { bad } from "../../http/errors";
 import { eqAll, liveRows, sysOf, type Row } from "./common";
+import { lockKey } from "../../db";
 import { workNote } from "./major";
 
 export interface AlertInput {
@@ -37,6 +38,9 @@ export async function createFromAlert(tx: Parameters<typeof createIn>[0], ctx: C
   const key = String(a.key ?? "").trim().slice(0, 200);
   if (!key || !String(a.title ?? "").trim()) throw bad("کلید و عنوان هشدار لازم است");
   const sys = sysOf(ctx);
+  // one incident per key: callers raising the same situation at the same moment (the event pipeline, a delayed rule,
+  // an escalation, the console, an integration) take turns on the key, and the second finds the first one's incident
+  await lockKey(tx, `incident.alert:${ctx.org.id}:${key}`);
   const [open] = await liveRows(tx, sys, "incident", { and: [eqAll({ external_ref: key }), { f: "active", op: "eq", v: true }] }, { order: "t.created_at desc", limit: 1 });
   const { def } = await defFor(sys, "incident", tx);
   if (open) {

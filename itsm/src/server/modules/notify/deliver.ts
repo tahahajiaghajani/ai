@@ -545,8 +545,8 @@ export async function runBatch(job: Job, jctx: JobContext): Promise<void | { aga
       if (wanted.length) sends.push(send(user, reasons, wanted));
     });
     const done = next + chunk.length;
-    // one transaction; the organisation's write lock only for the bell insert at its end (a `late` write): the log rows,
-    // the deliveries and the progress touch no synced table, the bells' per-row preparation needs no lock
+    // one short transaction, no organisation lock (sync revisions are transaction ids); `late` only matters with
+    // ITSM_SERIALIZE_WRITES: then the lock is taken just for the bell insert at its end
     const ids = bells.map(() => uuidv7());
     await sys.write(async (tx) => {
       await logMany(tx, [...bells.map((b, i) => ({ ...b.log, provider_id: ids[i] })), ...logs]);
@@ -607,17 +607,40 @@ interface HeldRow {
   payload: { rule: SendPayload["rule"]; ev: EventSnap; reasons: string[] } | null;
 }
 
+/** How long a flush holds the rows it claimed before another flush of the person may take them (below a job's lock). */
+const FLUSH_LEASE = "4 minutes";
+
 export async function runFlush(job: Job, jctx: JobContext): Promise<void> {
   const { org, user, channel } = job.payload as { org: string; user: string; channel: "email" | "sms" };
   if (!actsHere(jctx.cfg)) return;
   const cfg = fullCfg(jctx.cfg);
-  const held = await jctx.db.query<HeldRow>(
-    `select id, channel, reason, due_at, payload from sm_notification_log
-     where org_id = $1 and recipient_id = $2 and channel = $3 and status = 'held' and due_at <= now() + interval '1 minute'
-     order by created_at limit 200`,
-    [org, user, channel],
-  );
+  // the person's held rows that are due are claimed before anything is sent: their due time moves on by a lease, so
+  // another flush of the same person and channel (another minute's job, another worker) finds none of them and the
+  // digest goes out once. Each row then leaves «held» (sent, skipped, failed); what was claimed and is still held when
+  // this run fails is due again at once for the retry, and the rows of a worker that died wait out the lease (shorter
+  // than the job's lock: the job, claimed again, finds them)
+  const held = (
+    await jctx.db.query<HeldRow & { created_at: string }>(
+      `update sm_notification_log set due_at = now() + interval '${FLUSH_LEASE}', updated_at = now()
+       where id in (select id from sm_notification_log
+                    where org_id = $1 and recipient_id = $2 and channel = $3 and status = 'held' and due_at <= now() + interval '1 minute'
+                    order by created_at limit 200 for update skip locked)
+       returning id, channel, reason, due_at, payload, created_at`,
+      [org, user, channel],
+    )
+  ).sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.id < b.id ? -1 : 1));
   if (!held.length) return;
+  try {
+    await flushHeld(job, jctx, cfg, org, user, channel, held);
+  } catch (e) {
+    await jctx.db
+      .query(`update sm_notification_log set due_at = now(), updated_at = now() where id = any($1::uuid[]) and status = 'held'`, [pgArray(held.map((h) => h.id))])
+      .catch(() => undefined);
+    throw e;
+  }
+}
+
+async function flushHeld(job: Job, jctx: JobContext, cfg: ReturnType<typeof fullCfg>, org: string, user: string, channel: "email" | "sms", held: HeldRow[]): Promise<void> {
   const sys = await sysCtx(jctx.cfg, org);
   const rctx = await memberCtx(cfg, org, user).catch(() => null);
   if (!rctx) {

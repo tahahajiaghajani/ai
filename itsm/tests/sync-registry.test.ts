@@ -16,7 +16,7 @@ const LOCAL_ONLY: Record<string, string> = {
   sm_integrations: "other systems post their webhooks to the web version",
   sm_integration_events: "raw webhook deliveries (web version)",
   sm_dev_events: "raw DevOps tool deliveries (web version; commits, pull requests, builds and deployments travel)",
-  sm_org_sync: "per-organisation revision counter",
+  sm_org_sync: "per-organisation sync epoch and purge watermark (revisions are transaction ids)",
   // the demo pack (modules/demo): each runtime loads and purges its own pack; the purge's tombstones travel
   sm_demo_packs: "this runtime's demo pack state",
   sm_demo_rows: "registry of the rows this runtime's demo pack inserted",

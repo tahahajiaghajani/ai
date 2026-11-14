@@ -1,6 +1,7 @@
 // Prepares desktop/app (what electron-builder packages) for the Windows app: the built SPA, the bundled local server
-// (backend.cjs), the Electron main/preload, the splash, the icons, PGlite and a minimal package.json whose names come
-// from src/shared/constants.ts.
+// (backend.cjs), the Electron main/preload, the splash, the icons, PGlite, the database made at build time
+// (db-template.tar.br: a first start loads it instead of running initdb and every migration) and a minimal package.json
+// whose names come from src/shared/constants.ts.
 //   node scripts/build-desktop.mjs            → then: cd desktop && npx electron-builder --win
 // The splash (desktop/src/splash.html) loads Arad, DS Num and Geist from renderer/fonts/ds/, so the SPA build must carry
 // the fonts.
@@ -82,6 +83,11 @@ for (const f of ["icon.png", "icon.ico", "tray.png", "tray@1.5x.png", "tray@2x.p
   if (existsSync(join(desktop, "build", f))) cpSync(join(desktop, "build", f), join(app, f));
 }
 cpSync(join(desktop, "src/splash.html"), join(app, "splash.html"));
+
+// the first start's database (src/desktop/db-template.ts): migrated once here, opened again to prove it starts
+console.log("• preparing the first start's database");
+// (a path relative to itsm/: execSync goes through cmd.exe on Windows)
+execSync("npx tsx scripts/desktop-db-template.mts desktop/app/db-template.tar.br", { cwd: root, stdio: "inherit" });
 for (const f of ["AradVF.woff2", "DSNum.woff2", "Geist-Variable.woff2"]) if (!existsSync(join(app, "renderer/fonts/ds", f))) throw new Error(`renderer/fonts/ds/${f} missing: the splash needs it`);
 
 writeFileSync(

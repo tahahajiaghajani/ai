@@ -1,7 +1,7 @@
 // «سازمان و دسترسی»: the organisation structure (units, locations, groups, workspaces) and the access model (roles
 // and the permission matrix, member access, the access checker) — a group of the settings space. The pages read
 // the caller's effective access from /access/me and offer only what the server allows (docs/ACCESS_FA.md).
-import { lazy } from "react";
+import { lazy } from "@ui/lib/lazy";
 import { Network, MapPin, Users, LayoutGrid, ShieldCheck, UserCog, SearchCheck } from "lucide-react";
 import type { ModuleUi } from "../registry";
 

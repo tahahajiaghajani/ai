@@ -3,7 +3,8 @@
 //   «دسترس‌پذیری خدمت‌ها» (the availability dashboard), outages, capacity records, BIAs (with the template and the
 //   impact matrix), continuity and DR plans with their steps, exercises (with the step sheet), «داشبورد تداوم»
 // Elsewhere: «ثبت قطعی» on incident pages, the availability of a service on its page.
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import { Activity, ChartColumn, Flag, Gauge, LifeBuoy, ListOrdered, PowerOff, Scale, Settings2 } from "lucide-react";
 import type { ModuleUi } from "../registry";
 import { recordModule } from "../../records/module";

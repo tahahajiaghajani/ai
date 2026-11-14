@@ -96,15 +96,18 @@ describe("stored search document and field groups", () => {
     expect(searchSql(def(), "t", "printer", [])).toMatch(/t\.search_[0-9a-f]{8} like/);
   });
 
-  it("archives drop a stale stored column and fill the current one once", () => {
+  it("archives fill the current stored column once and keep another one (the build reading it may still serve)", () => {
+    let checked = 0;
     for (const d of TABLES.values()) {
       const col = searchColumn(d);
       const sql = archiveDdl(d);
       if (!sql || !col) continue;
-      expect(sql).toContain(`column_name <> '${col.name}'`);
+      checked++;
       expect(sql).toMatch(new RegExp(`add column %I text', '[a-z0-9_]+', '${col.name}'`));
       expect(sql).toMatch(new RegExp(`update %I set %I = \\(%s\\)', '[a-z0-9_]+', '${col.name}'`));
-      return;
+      // additive (tests/engine-ddl-additive.test.ts): nothing of another list of search fields is dropped
+      expect(sql).not.toMatch(/\bdrop\b/i);
     }
+    expect(checked).toBeGreaterThan(5);
   });
 });

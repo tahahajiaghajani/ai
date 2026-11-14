@@ -8,10 +8,11 @@ import { uuidv7 } from "@shared/id";
 import { tableDef } from "@shared/tables";
 import { cleanInboundRules, jsonPath, mapInbound } from "@shared/integration/webhooks";
 import { bad, forbidden, notFound, unauthorized } from "../../http/errors";
-import { create, list, readSecret, systemCtx, update, updateIn } from "../../engine";
+import { create, createIn, formatNumber, readSecret, systemCtx, updateIn } from "../../engine";
+import { lockKey } from "../../db";
 import { hasFeature } from "../admin/common";
 import { needPrincipalWithin } from "./users";
-import { intLog, liveRow, needIntegrations, principalCtx, isUuid, type Row } from "./common";
+import { intLog, liveRow, liveRows, needIntegrations, principalCtx, isUuid, type Row } from "./common";
 
 export const MAX_INBOUND_BYTES = 1_000_000;
 
@@ -48,13 +49,18 @@ export async function applyInbound(ctx: Ctx, ep: Row, payload: unknown): Promise
   if (ep.action === "upsert" && ep.match_field && ep.match_path) {
     const key = jsonPath(payload, String(ep.match_path));
     if (key === null || key === undefined || key === "") throw bad(`شناسهٔ هم‌بستگی در مسیر «${ep.match_path}» پیام نیست`);
-    const found = await list(ctx, table, { filter: { f: String(ep.match_field), op: "eq", v: String(key) }, size: 1, total: false });
-    if (found.rows.length) {
-      const cur = found.rows[0];
-      const r = await update(ctx, table, String(cur.id), values, { version: Number(cur.version) });
-      return { action: "updated", id: String(r.row.id), number: (r.row.number as string) ?? null };
-    }
-    values[String(ep.match_field)] = String(key);
+    // find-or-create in ONE write under the correlation key: two deliveries about one external object (different event
+    // ids, both kept) take turns — the second finds the first one's record and updates it (no twin record, no
+    // version conflict from a copy read before the first committed)
+    const field = String(ep.match_field);
+    const out = await ctx.write(async (tx) => {
+      await lockKey(tx, `integration.inbound:${ep.id}:${String(key)}`);
+      const [cur] = await liveRows(tx, ctx, table, { f: field, op: "eq", v: String(key) }, { order: "t.created_at, t.id", limit: 1 });
+      if (cur) return { action: "updated" as const, row: await updateIn(tx, ctx, table, String(cur.id), values) };
+      return { action: "created" as const, row: await createIn(tx, ctx, table, { ...values, [field]: String(key) }) };
+    }, { retry: true });
+    const def = tableDef(table)!;
+    return { action: out.action, id: String(out.row.id), number: (out.row.number as string) ?? (def.numbered ? formatNumber(def, out.row.no) : null) };
   }
   const r = await create(ctx, table, values);
   return { action: "created", id: String(r.row.id), number: (r.row.number as string) ?? null };
@@ -106,10 +112,9 @@ async function processStored(cfg: ServerConfig, sys: Ctx, ep: Row, orgId: string
     await cfg.db.query(`update sm_integration_events set status = 'failed', error = $2 where id = $1`, [eventId, message]);
     result = { ok: false, message };
   }
+  // the counters in SQL (+1 on the stored value): concurrent deliveries each count, none overwrites another's
   await sys
-    .write((tx) =>
-      updateIn(tx, sys, "inbound_endpoint", String(ep.id), { received: Number(ep.received ?? 0) + 1, failed: Number(ep.failed ?? 0) + (result.ok ? 0 : 1), last_received_at: new Date().toISOString() }, { trusted: true, keepVersion: true }),
-    )
+    .write((tx) => tx.query(`update sm_inbound_endpoints set received = coalesce(received, 0) + 1, failed = coalesce(failed, 0) + $3, last_received_at = now() where id = $1 and org_id = $2`, [String(ep.id), orgId, result.ok ? 0 : 1]))
     .catch(() => undefined);
   await intLog(cfg.db, { org_id: orgId, kind: "inbound", ref_id: String(ep.id), method: "POST", status: result.ok ? 200 : 422, ok: result.ok, latency_ms: Date.now() - started, summary: result.ok ? `${result.action} ${result.number ?? result.id}` : "پردازش ناموفق", error: result.ok ? null : result.message });
   return result;

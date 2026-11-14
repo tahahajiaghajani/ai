@@ -282,12 +282,15 @@ export function toSql(cond: Cond | null | undefined, def: TableDef, alias: strin
 
 /**
  * Rows of `def` (aliased `alias`) the caller may read: the access provider's predicate, the table's row rule and —
- * unless `deleted: "any"` — only live rows. Every read path of the engine starts here.
+ * unless `deleted: "any"` — only live rows; for a context whose reads leave the system (`Ctx.withoutDemo`), none of the
+ * demo pack's rows. Every read path of the engine starts here.
  */
 export function readable(ctx: Ctx, def: TableDef, alias: string, params: unknown[], env: CondEnv, opts: { deleted?: "live" | "any" } = {}): string {
   const parts = [access().readWhere(ctx, def, alias, params)];
   if (opts.deleted !== "any") parts.push(`${alias}.deleted_at is null`);
   if (def.rowAccess?.read && !isSystem(ctx) && !(def.rowAccess.managersReadAll && access().canCreate(ctx, def, null))) parts.push(toSql(def.rowAccess.read, def, alias, params, env, { ctx, filter: true }));
+  // the registry's primary key (org_id, row_id) answers it
+  if (ctx.withoutDemo) parts.push(`not exists (select 1 from sm_demo_rows d where d.org_id = ${alias}.org_id and d.row_id = ${alias}.id)`);
   return parts.map((x) => `(${x})`).join(" and ");
 }
 
@@ -329,8 +332,9 @@ export function searchDoc(fields: FieldDef[], alias: string | null): string {
  * search fields, normalised once when a row is written — PostgreSQL computes it on every write path (the engine, a
  * Windows app's push, imports) — so a search reads a plain column instead of normalising every candidate row
  * (`translate` costs ~25 µs a row; a `like` on the stored text ~1 µs) and a trigram index answers it. Its name
- * carries a hash of the expression: changed search fields make a new column (and index), the old one is dropped.
- * Null for tables without one (not numbered, or no text search field).
+ * carries a hash of the expression: changed search fields make a new column (and index) beside the old one, which
+ * stays for the build that still reads it (ddl.ts `searchIndex`). Null for tables without one (not numbered, or no
+ * text search field).
  */
 export function searchColumn(def: TableDef): { name: string; expr: string } | null {
   if (def.virtual || !def.numbered) return null;

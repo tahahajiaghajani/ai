@@ -2,9 +2,9 @@
 // rescheduling, stale locks, record-event delivery that retries only the subscribers that failed, the cloud's cron
 // route and the tick after write requests.
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
-import { enqueue, registerJobHandler, tick, listJobs, backoffMs, PermanentJobError, type Job } from "@server/jobs";
+import { enqueue, registerJobHandler, tick, listJobs, backoffMs, PermanentJobError, stopTicks, YIELD_MS, type Job } from "@server/jobs";
 import { onRecordEvent } from "@server/engine/events";
-import type { Db } from "@server/db";
+import { lockKey, type Db } from "@server/db";
 import { makeServer, Client, signupWithOrg, quietLog } from "./helpers";
 import type { ServerConfig } from "@server/context";
 
@@ -281,6 +281,170 @@ describe("job ticks on both runtimes", () => {
       expect(pending.length).toBe(1); // reads do not tick
     } finally {
       off();
+    }
+  });
+});
+
+// The Windows app's local server closing (src/desktop/server.ts): the runner stops claiming jobs, finishes the one it
+// holds and the database can close at once — not after the rest of the tick's budget.
+describe("a closing server's job runner", () => {
+  it("finishes the job it holds, claims no more, and runs no later tick", async () => {
+    const s = await makeServer();
+    const org = await signupWithOrg(new Client(s.app));
+    const cfg: ServerConfig = { mode: "cloud", db: s.db, secret: "t", allowSignup: true, platformAdmins: [], origin: "cloud", log: quietLog, fetch };
+    const ran: number[] = [];
+    let started!: () => void;
+    const first = new Promise<void>((r) => (started = r));
+    const off = registerJobHandler("test.closing", async (job) => {
+      started();
+      await new Promise((r) => setTimeout(r, 150));
+      ran.push(Number(job.payload.n));
+    });
+    try {
+      for (let n = 0; n < 5; n++) await enqueue(s.db, { kind: "test.closing", orgId: org, payload: { n } });
+      const t = tick(cfg, { budgetMs: 20_000 });
+      await first;
+      const t0 = Date.now();
+      await stopTicks(s.db);
+      expect(Date.now() - t0).toBeLessThan(2_000);
+      expect(ran).toHaveLength(1);
+      expect(await t).toMatchObject({ ran: 1, failed: 0, more: false });
+      expect(await tick(cfg)).toMatchObject({ ran: 0, more: false });
+      const left = await s.db.one<{ n: number }>(`select count(*)::int as n from sm_jobs where kind = 'test.closing' and status = 'queued'`);
+      expect(left!.n).toBe(4);
+    } finally {
+      off();
+      await s.db.close();
+    }
+  });
+
+  it("a job that works until its deadline stops at its next look and is queued again", async () => {
+    const s = await makeServer();
+    const org = await signupWithOrg(new Client(s.app));
+    const cfg: ServerConfig = { mode: "cloud", db: s.db, secret: "t", allowSignup: true, platformAdmins: [], origin: "cloud", log: quietLog, fetch };
+    let started!: () => void;
+    const first = new Promise<void>((r) => (started = r));
+    let rounds = 0;
+    const off = registerJobHandler("test.long", async (_job, jctx) => {
+      started();
+      // an indexer's loop: a batch, then a look at the deadline
+      while (Date.now() < jctx.deadline - 100) {
+        rounds++;
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      return { again: 0 };
+    });
+    try {
+      await enqueue(s.db, { kind: "test.long", orgId: org });
+      const t = tick(cfg, { budgetMs: 30_000 });
+      await first;
+      const t0 = Date.now();
+      await stopTicks(s.db);
+      expect(Date.now() - t0).toBeLessThan(2_000);
+      await t;
+      const job = await s.db.one<{ status: string }>(`select status from sm_jobs where kind = 'test.long'`);
+      expect(job!.status).toBe("queued");
+      expect(rounds).toBeGreaterThan(0);
+    } finally {
+      off();
+      await s.db.close();
+    }
+  });
+});
+
+// The Windows app's local server (src/desktop/server.ts): the window's requests in flight make the runner wait before
+// its next job — at most YIELD_MS each time —, so a page's burst of API calls is answered without job statements between
+// them on PGlite's one connection; a window in constant use slows the queue down and never stops it.
+describe("a job runner that yields to foreground work", () => {
+  it("waits for the window's requests before each job, and never starves", async () => {
+    const s = await makeServer();
+    const org = await signupWithOrg(new Client(s.app));
+    const cfg: ServerConfig = { mode: "cloud", db: s.db, secret: "t", allowSignup: true, platformAdmins: [], origin: "cloud", log: quietLog, fetch };
+    const starts: number[] = [];
+    const off = registerJobHandler("test.yield", async () => {
+      starts.push(Date.now());
+    });
+    try {
+      // requests in flight for 120 ms after the tick begins: no job starts before they are done
+      for (let n = 0; n < 3; n++) await enqueue(s.db, { kind: "test.yield", orgId: org, payload: { n } });
+      const t0 = Date.now();
+      let busyUntil = t0 + 120;
+      const r = await tick(cfg, { budgetMs: 20_000, busy: () => Date.now() < busyUntil });
+      expect(r.ran).toBe(3);
+      expect(starts[0] - t0).toBeGreaterThanOrEqual(110);
+      // a window that is never idle: every job still runs, each after at most YIELD_MS of waiting
+      starts.length = 0;
+      for (let n = 0; n < 3; n++) await enqueue(s.db, { kind: "test.yield", orgId: org, payload: { n: 10 + n } });
+      const t1 = Date.now();
+      busyUntil = Infinity;
+      const r2 = await tick(cfg, { budgetMs: 20_000, busy: () => Date.now() < busyUntil });
+      expect(r2.ran).toBe(3);
+      expect(starts).toHaveLength(3);
+      expect(starts[0] - t1).toBeGreaterThanOrEqual(YIELD_MS - 20);
+      expect(starts[2] - t1).toBeLessThan(3 * YIELD_MS + 2_000);
+      // nothing in flight: no waiting at all
+      starts.length = 0;
+      for (let n = 0; n < 3; n++) await enqueue(s.db, { kind: "test.yield", orgId: org, payload: { n: 20 + n } });
+      const t2 = Date.now();
+      expect((await tick(cfg, { budgetMs: 20_000, busy: () => false })).ran).toBe(3);
+      expect(starts[2] - t2).toBeLessThan(YIELD_MS);
+    } finally {
+      off();
+      await s.db.close();
+    }
+  });
+
+  // The wait and the database's turn-taking compose (writes of an organisation run side by side, docs/spec/ENGINE.md
+  // §13): the runner waits before it claims a job, so a waiting job holds no row and no lock; a run the database aborts
+  // for a deadlock runs again at once (`retryTransient`) from the progress the job committed, after the aborted
+  // transaction let go of its narrow key lock (`lockKey`), and counts as one attempt; a lock wait that timed out is no
+  // such abort — the attempt counts and the job waits for its backoff.
+  it("after the wait, a run aborted by a deadlock runs again at once, holding nothing; a lock timeout waits for its retry", async () => {
+    const s = await makeServer();
+    const org = await signupWithOrg(new Client(s.app));
+    const cfg: ServerConfig = { mode: "cloud", db: s.db, secret: "t", allowSignup: true, platformAdmins: [], origin: "cloud", log: quietLog, fetch };
+    const advisory = async () => (await s.db.one<{ n: number }>(`select count(*)::int as n from pg_locks where locktype = 'advisory'`))!.n;
+    const runs: { at: number; payload: Record<string, unknown>; locks: number }[] = [];
+    const off = registerJobHandler("test.yield.abort", async (job, jctx) => {
+      runs.push({ at: Date.now(), payload: { ...job.payload }, locks: await advisory() });
+      if (runs.length > 1) return;
+      await jctx.save({ ...job.payload, step: 1 });
+      await jctx.db.tx(async (tx) => {
+        await lockKey(tx, `test.yield.abort:${job.id}`);
+        expect((await tx.one<{ n: number }>(`select count(*)::int as n from pg_locks where locktype = 'advisory'`))!.n).toBe(1);
+        throw Object.assign(new Error("deadlock detected"), { code: "40P01" });
+      });
+    });
+    const offTimeout = registerJobHandler("test.yield.timeout", async () => {
+      throw Object.assign(new Error("canceling statement due to lock timeout"), { code: "55P03" });
+    });
+    try {
+      const id = await enqueue(s.db, { kind: "test.yield.abort", orgId: org, payload: { n: 1 } });
+      const t0 = Date.now();
+      const busyUntil = t0 + 150;
+      // while the window's requests are in flight the job is not even claimed
+      const during = new Promise<unknown>((ok) => setTimeout(() => void s.db.one(`select status from sm_jobs where id = $1`, [id]).then(ok, ok), 60));
+      const r = await tick(cfg, { budgetMs: 20_000, busy: () => Date.now() < busyUntil });
+      expect(await during).toMatchObject({ status: "queued" });
+      expect(r).toMatchObject({ ran: 1, failed: 0 });
+      expect(runs).toHaveLength(2);
+      expect(runs[0].at - t0).toBeGreaterThanOrEqual(140);
+      expect(runs[0].locks).toBe(0);
+      // the run again: from the progress the job committed, with the aborted transaction's key lock gone
+      expect(runs[1].payload).toMatchObject({ n: 1, step: 1 });
+      expect(runs[1].locks).toBe(0);
+      expect(await s.db.one(`select status, attempts from sm_jobs where id = $1`, [id])).toMatchObject({ status: "done", attempts: 1 });
+      // a lock wait that timed out: not run again in this tick; the attempt counts and the job waits for its backoff
+      const id2 = await enqueue(s.db, { kind: "test.yield.timeout", orgId: org, payload: {} });
+      expect(await tick(cfg, { budgetMs: 20_000, busy: () => false })).toMatchObject({ ran: 0, failed: 1 });
+      const j2 = await s.db.one<{ status: string; attempts: number; last_error: string | null; run_at: string }>(`select status, attempts, last_error, run_at::text as run_at from sm_jobs where id = $1`, [id2]);
+      expect(j2).toMatchObject({ status: "queued", attempts: 1 });
+      expect(j2!.last_error).toContain("lock timeout");
+      expect(Date.parse(j2!.run_at)).toBeGreaterThan(Date.now());
+    } finally {
+      off();
+      offTimeout();
+      await s.db.close();
     }
   });
 });

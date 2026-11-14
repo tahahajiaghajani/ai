@@ -23,7 +23,9 @@ import type { Ctx } from "../../context";
 import { bad, conflict, forbidden, notFound } from "../../http/errors";
 import { access } from "../../access/provider";
 import { aggregate, createIn, defFor, emitEvent, get, list, removeIn, transitionIn, updateIn } from "../../engine";
-import { configRow, hasGroup, isUuid, liveRow, liveRows, localDate, orgToday, sysOf, type Row } from "../itam/common";
+import { lockKey, pgArray } from "../../db";
+import { tableDef } from "@shared/tables";
+import { configRow, hasGroup, isUuid, liveRow, liveRows, localDate, lockedRow, orgToday, sysOf, type Row } from "../itam/common";
 import { bookValueOf } from "../itam/hooks";
 
 export const financialConfig = (q: Ctx["db"], ctx: Ctx) => configRow(q, ctx, "financial_config", FINANCIAL_CONFIG_DEFAULTS);
@@ -139,14 +141,28 @@ export async function capture(sys: Ctx, period: string): Promise<CaptureResult> 
     const book = bookValueOf(rules.get(String(a.depreciation_rule_id ?? "")), a, day)?.book_value ?? String(a.book_value);
     add(`disposal:${a.id}`, "disposal", CODES.disposal, book, { asset_id: a.id, cost_center_id: a.cost_center_id ?? null, entry_date: day, description: `زیان اسقاط ${a.number ?? ""} (ارزش دفتری)`.slice(0, 300) });
   }
+  // Writes of an organisation run side by side, and the keys above were read outside any transaction: the nightly
+  // sweep and a capture asked for by hand may build the same list at once. So each batch takes the organisation's
+  // capture key and reads its own keys again before it inserts — a batch of another capture in flight commits first,
+  // and whatever it posted is not posted twice (the ledger is insert-only)
+  const entries = tableDef("cost_entry")!.table;
   for (let i = 0; i < pending.length; i += 200) {
-    await sys.write(async (tx) => {
-      for (const e of pending.slice(i, i + 200)) {
+    const batch = pending.slice(i, i + 200);
+    const made = await sys.write(async (tx) => {
+      await lockKey(tx, `financial.capture:${sys.org.id}`);
+      const posted = new Set((await tx.query<{ source_key: string }>(`select source_key from ${entries} where org_id = $1 and source_key = any($2::text[]) and deleted_at is null`, [sys.org.id, pgArray(batch.map((e) => String(e.source_key)))])).map((r) => String(r.source_key)));
+      const sources: string[] = [];
+      for (const e of batch) {
+        if (posted.has(String(e.source_key))) continue;
         await createIn(tx, sys, "cost_entry", e, { trusted: true });
-        out.by_source[String(e.source)] = (out.by_source[String(e.source)] ?? 0) + 1;
-        out.created++;
+        sources.push(String(e.source));
       }
+      return sources;
     });
+    for (const source of made) {
+      out.by_source[source] = (out.by_source[source] ?? 0) + 1;
+      out.created++;
+    }
   }
   return out;
 }
@@ -161,6 +177,12 @@ export async function reverseEntry(ctx: Ctx, id: string, reason: string): Promis
   if (!String(reason ?? "").trim()) throw bad("علت برگشت را بنویسید");
   const sys = sysOf(ctx, ctx.user.id);
   const created = await ctx.write(async (tx) => {
+    // the entry locked and judged as stored: two reversals of one entry at once take turns, and the second finds it
+    // reversed (the first's reversal committed) instead of posting it back a second time
+    const cur = await lockedRow(tx, sys, "cost_entry", id);
+    if (!cur) throw notFound("ثبت هزینه پیدا نشد");
+    if (cur.reversed) throw conflict("این ثبت پیش‌تر برگشت خورده است");
+    if (cur.reversal_of) throw conflict("ثبت برگشتی دوباره برگشت نمی‌خورد");
     const r = await createIn(tx, sys, "cost_entry", {
       entry_date: orgToday(ctx), amount: D(row.amount ?? 0).neg().toString(), description: `برگشت ${row.number ?? ""}: ${reason}`.slice(0, 300), cost_center_id: row.cost_center_id, cost_type_id: row.cost_type_id,
       capex_opex: row.capex_opex, source: row.source ?? "manual", source_key: row.source_key ? `${row.source_key}:reversal` : null, source_table: row.source_table ?? null, source_id: row.source_id ?? null,
@@ -346,6 +368,10 @@ export async function calculateRun(ctx: Ctx, runId: string): Promise<{ total_poo
     }
   }
   await ctx.write(async (tx) => {
+    // the run locked and still open to calculation: two calculations at once take turns, and the second replaces the
+    // first's results (read after the lock) instead of adding a second set beside them
+    const live = await lockedRow(tx, sys, "allocation_run", runId);
+    if (!live || !["draft", "calculated"].includes(String(live.state))) throw conflict("اجرای تأییدشده یا ثبت‌شده دوباره محاسبه نمی‌شود");
     for (const old of await liveRows(tx, sys, "allocation_result", { f: "run_id", op: "eq", v: runId } as Cond, { limit: 100000 })) {
       await removeIn(tx, sys, "allocation_result", old.id);
     }
@@ -353,7 +379,7 @@ export async function calculateRun(ctx: Ctx, runId: string): Promise<{ total_poo
     // the drivers were computed before this transaction (PGlite has one connection: no reads around it in here)
     for (const d of drivers) await updateIn(tx, sys, "allocation_target", d.key, { driver_value: String(d.driver) }, { trusted: true, keepVersion: true });
     await updateIn(tx, sys, "allocation_run", runId, { total_pool: pool.toString(), total_allocated: allocated.toString(), unallocated: pool.minus(allocated).toString(), calculated_at: new Date().toISOString(), input_hash: inputHash(hashInput) }, { trusted: true });
-    if (run.state === "draft") await transitionIn(tx, sys, "allocation_run", runId, "calculated", {});
+    if (live.state === "draft") await transitionIn(tx, sys, "allocation_run", runId, "calculated", {});
   });
   return { total_pool: pool.toString(), total_allocated: allocated.toString(), results: results.length };
 }

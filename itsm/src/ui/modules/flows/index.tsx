@@ -2,7 +2,7 @@
 // space (generic lists and forms), plus the visual designer (`flows/:id/design`), the run history (`flows/runs`) and a
 // run's page (`flows/runs/:runId`). Record pages get «طراحی» / «اجرا» and the runs tab on a flow, and the «تکرار»
 // panel on a schedule. Everything heavy is loaded lazily.
-import { lazy, Suspense } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import { CalendarClock, History, Plug, Workflow } from "lucide-react";
 import { recordModule } from "../../records/module";
 import type { RecordContext } from "../../records/extensions";

@@ -9,6 +9,8 @@
 //     budget — what is left continues in the next run of the job — then prunes scores past the retention.
 //   · `analytics.deliver`: one schedule, every recipient with their own access, continuing where the deadline stopped it.
 import { todayISO } from "@shared/jalali";
+import { nextOccurrence, type ScheduleSpec } from "@shared/flows";
+import { tableDef } from "@shared/tables";
 import type { Queryable } from "../../db";
 import type { ServerConfig } from "../../context";
 import { orgTz, systemCtx, updateIn } from "../../engine";
@@ -91,7 +93,11 @@ export function installAnalyticsJobs(): void {
     const cfg = jctx.cfg as ServerConfig;
     const sys = await systemCtx(cfg, orgId);
     for (const s of await dueSchedules(sys)) {
-      await enqueue(jctx.db, { kind: "analytics.deliver", orgId, payload: { id: s.id, at: s.next_run_at }, dedupeKey: `analytics.deliver:${s.id}`, maxAttempts: 3 });
+      // a delivery of this schedule still running (between its slices, or before it claimed its occurrence) gets no
+      // twin: the twin would take the job's place when it stops for its budget and drop its progress
+      const key = `analytics.deliver:${s.id}`;
+      if (await jctx.db.one(`select 1 from sm_jobs where org_id = $1 and dedupe_key = $2 and status = 'running' limit 1`, [orgId, key])) continue;
+      await enqueue(jctx.db, { kind: "analytics.deliver", orgId, payload: { id: s.id, at: s.next_run_at }, dedupeKey: key, maxAttempts: 3 });
     }
     const conf = await analyticsConfig(jctx.db, sys);
     if (snapshotDue(conf, orgTz(sys))) {
@@ -124,12 +130,24 @@ export function installAnalyticsJobs(): void {
     const orgId = job.org_id;
     if (!orgId || !actsHere(jctx.cfg)) return;
     const cfg = jctx.cfg as ServerConfig;
-    const payload = (job.payload ?? {}) as { id?: string; at?: string; manual?: boolean; done?: string[]; outcomes?: DeliveryOutcome[] };
+    const payload = (job.payload ?? {}) as { id?: string; at?: string; manual?: boolean; claimed?: boolean; done?: string[]; outcomes?: DeliveryOutcome[] };
     const sys = await systemCtx(cfg, orgId);
     const s = await liveRow(jctx.db, sys, "analytics_schedule", payload.id);
     if (!s || (!s.active && !payload.manual)) return;
-    // a second job queued while the first was still sending finds the occurrence already delivered
-    if (!payload.manual && !payload.done?.length && payload.at && s.next_run_at && Date.parse(String(s.next_run_at)) > Date.parse(payload.at)) return;
+    if (!payload.manual && !payload.claimed) {
+      // the occurrence is claimed before anything is sent: the schedule moves on to its next occurrence only if it still
+      // stands at this one (compare-and-set) — a twin queued by another tick, or this job's own earlier run that a
+      // fold dropped, finds it taken and sends nothing; the claim is kept with the progress for this job's later runs
+      if (!payload.at || !s.next_run_at || Date.parse(String(s.next_run_at)) !== Date.parse(payload.at)) return;
+      const next = nextOccurrence(s.schedule as ScheduleSpec, Date.now() + 1000, orgTz(sys));
+      const won = await jctx.db.one(
+        `update ${tableDef("analytics_schedule")!.table} set next_run_at = $3 where id = $1 and org_id = $2 and next_run_at = $4::timestamptz returning id`,
+        [s.id, orgId, next ? new Date(next).toISOString() : null, payload.at],
+      );
+      if (!won) return;
+      payload.claimed = true;
+      await jctx.save({ ...payload });
+    }
     const done = new Set(payload.done ?? []);
     const outcomes = [...(payload.outcomes ?? [])];
     const stop = stopAt(jctx.deadline);
@@ -150,6 +168,6 @@ export function installAnalyticsJobs(): void {
       sent++;
       await jctx.save({ ...payload, done: [...done], outcomes });
     }
-    await finishRun(sys, s, outcomes, { manual: !!payload.manual });
+    await finishRun(sys, s, outcomes, { manual: !!payload.manual, claimed: !!payload.claimed });
   });
 }

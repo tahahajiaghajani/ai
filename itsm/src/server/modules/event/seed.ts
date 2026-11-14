@@ -42,10 +42,15 @@ async function ensure(tx: Tx, sys: Ctx, out: SeedCounts, table: string, key: Rec
 }
 
 /** The last Saturday 08:00 (Tehran week) before now, in the organisation's zone. */
-function lastSaturday(tz: string, now = Date.now()): string {
+/** The start of the seeded weekly rotation: the last Saturday 08:00 (local) that has already passed. On a Saturday
+ * before 08:00 this week's hand-over is still ahead, so the rotation starts a week earlier; otherwise a schedule seeded
+ * then (CI on Saturday 06:58 Tehran time) would have nobody on call until 08:00. */
+export function lastSaturday(tz: string, now = Date.now()): string {
   const today = localDate(now, tz);
   const sat = addDays(today, -weekday(today));
-  return new Date(localInstant(sat, 8 * 60, tz)).toISOString();
+  let start = localInstant(sat, 8 * 60, tz);
+  if (start > now) start = localInstant(addDays(sat, -7), 8 * 60, tz);
+  return new Date(start).toISOString();
 }
 
 const grant = (read: string, write = "none", extra: Record<string, unknown> = {}) => ({ read, write, delete: "none", create: write !== "none", approve: false, admin: false, ...extra });
