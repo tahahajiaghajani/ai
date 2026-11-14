@@ -2,16 +2,20 @@
 // discovery_FA.md). Tables in src/shared/tables/discovery.ts, the shared vocabulary and pure rules in
 // src/shared/discovery, the kinds in connectors/ (one file each, registry.ts).
 // `installDiscoveryModule()` (once per process, src/server/routes/modules.ts, after the CMDB, ITAM and event modules):
+//   · the connector guard (guard.ts, §14.5): who may change which field, re-authentication, secrets cleared when the
+//     address moves, the soft delete, journal lines; the Windows app configures no connector (§14.7)
 //   · the connector's configuration hook (config.ts): kind once, its data source, config_version, mapping, options and
 //     schedules, the sweep queued when a connector may run
 //   · the jobs (jobs.ts): the sweep, pulls (runner.ts), status passes (DA2), the contact ladder (stale.ts)
 //   · a de-duplication task that closes re-queues the items naming it (§7.4)
 //   · the guard on connector-owned CMDB data sources (precedence.ts, §8.1)
-// Mismatches with the asset register (§8.3) are kept by mismatch.ts. DA1 part 3 adds the connector guard and
-// re-authentication, access, the routes and the desktop refusal of routes; the Windows app runs none of the jobs (§14.7).
+// Mismatches with the asset register (§8.3) are kept by mismatch.ts; the routes' services (test, preview, run, cancel,
+// the queue's actions…) are in service.ts, mounted by src/server/routes/discovery.ts as /api/o/:org/discovery/*. The
+// Windows app runs none of the jobs and answers none of the routes (§14.7).
 import { onRecordEvent } from "../../engine";
 import { inDemoScope, isDemoRow } from "../../db/scope";
 import { installConnectorConfig } from "./config";
+import { installConnectorGuard } from "./guard";
 import { installDiscoveryJobs, queuePull } from "./jobs";
 import { installSourceGuard } from "./precedence";
 import { editionOf } from "./net";
@@ -42,6 +46,8 @@ function installDedupListener(): void {
 export function installDiscoveryModule(): void {
   if (installed) return;
   installed = true;
+  // the guard first: a refused write makes no data source
+  installConnectorGuard();
   installConnectorConfig();
   installSourceGuard();
   installDiscoveryJobs();
@@ -54,3 +60,4 @@ export { serverKind, serverKinds } from "./registry";
 export { stagePage, itemHash, pendingCount } from "./stage";
 export { applyMismatch, dismissMismatch, mismatchDigest, refreshMismatches, MISMATCH_LABELS, type MismatchEntry, type MismatchData } from "./mismatch";
 export { sourceOwner, ownedSourceMessage } from "./precedence";
+export { rightsOf, type DiscoveryRights } from "./guard";

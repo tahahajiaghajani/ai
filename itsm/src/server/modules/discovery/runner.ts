@@ -232,12 +232,23 @@ export function kindOptions(kind: ConnectorKind, raw: unknown): { options: Recor
   return { error: `تنظیمات ابزار درست نیست: «${first?.path?.join(".") || "options"}» — ${first?.message ?? ""}`.trim() };
 }
 
-/** The ConnCtx of one job slice: options, secrets read once, the pinned fetch. */
-async function connCtx(sys: Ctx, row: Row, kind: ConnectorKind, options: Record<string, unknown>, deadline: number): Promise<ConnCtx> {
+/** Ways in that send a stored key or password: without one the connector does not run (§14.3). */
+export const KEYED_AUTH = new Set(["token", "basic", "session", "oauth_client", "ntlm"]);
+/** Ways in that send the server's own Windows identity (credentials too, though none is stored). */
+const WINDOWS_AUTH = new Set(["ntlm", "windows_identity"]);
+
+/**
+ * The ConnCtx of one job slice: options, secrets read once and kept in memory only, the pinned fetch. A connector
+ * whose way in needs a key that is not there — a backup restore drops every secret, a secret the runtime can no longer
+ * open — refuses «کلید منبع را دوباره وارد کنید» (§14.3). One that sends credentials reaches only hosts the server
+ * edition's allowlist names exactly (§14.1).
+ */
+export async function connCtx(sys: Ctx, row: Row, kind: ConnectorKind, options: Record<string, unknown>, deadline: number): Promise<ConnCtx> {
   const def = tableDef("discovery_connector")!;
   const view = connectorView(row, options);
   const [secret, secret2] = await Promise.all([readSecret(sys.db, sys, def, row.id, "secret"), readSecret(sys.db, sys, def, row.id, "secret2")]);
-  const fetcher = connectorFetcher(sys.cfg, view, kind.headers);
+  if (KEYED_AUTH.has(String(row.auth ?? "")) && !secret) throw new ConnectorError("config", CONNECTOR_MESSAGES.reenterKey);
+  const fetcher = connectorFetcher(sys.cfg, view, kind.headers, { credentialed: !!(secret || secret2) || WINDOWS_AUTH.has(String(row.auth ?? "")) });
   const edition = editionOf(sys.cfg);
   return {
     connector: view, options, secret, secret2, edition, deadline, now: () => new Date(),
@@ -338,7 +349,15 @@ export async function runPull(sys: Ctx, connectorId: string, jctx: Pick<JobConte
     return;
   }
   const options = parsed.options;
-  const cctx = await connCtx(sys, conn, kind, options, end);
+  let cctx: ConnCtx;
+  try {
+    cctx = await connCtx(sys, conn, kind, options, end);
+  } catch (e) {
+    // a key that is not there (a backup restore drops them): the pass fails with what to do, it never runs keyless
+    if (!(e instanceof ConnectorError)) throw e;
+    await fail(e.message);
+    return;
+  }
   const wrapped = ireCtx(sys);
   const retryHours = Math.max(1, Number(conn.retry_hours ?? 24));
   const listingIsContact = options.listing_is_contact === true;

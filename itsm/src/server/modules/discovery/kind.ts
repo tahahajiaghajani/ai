@@ -92,6 +92,13 @@ export const CONNECTOR_MESSAGES = {
   status: (status: number) => `ابزار پاسخ ${status} داد`,
   notBuilt: (label: string) => `منبع «${label}» هنوز ساخته نشده است`,
   header: (name: string) => `سرآیند «${name}» برای این نوع منبع مجاز نیست`,
+  notAllowed: (host: string) => `میزبان ${host} در فهرست مجاز سرور نیست؛ مدیر سرور باید آن را در پیکربندی سرور (network.allow) بیفزاید`,
+  exactName: "برای فرستادن کلید، نام دقیق این میزبان باید در فهرست مجاز سرور باشد",
+  webPrivate: "نسخهٔ وب فقط به ابزارهایی با نشانی عمومی وصل می‌شود؛ برای ابزار درون شبکهٔ سازمان رلهٔ کاریز یا ارسال از ابزار را به کار ببرید",
+  notFound: (host: string) => `نام میزبان ${host} پیدا نشد؛ نشانی ابزار را بررسی کنید`,
+  desktop: "منبع‌های داده و وضعیت پایش روی سرور اجرا و دیده می‌شوند",
+  demo: "منبع نمایشی به شبکه وصل نمی‌شود",
+  reenterKey: "کلید منبع را دوباره وارد کنید",
 } as const;
 
 /** A failure of a connector call: `network` and `rate_limited` are retried, the others end the pass at once. */
