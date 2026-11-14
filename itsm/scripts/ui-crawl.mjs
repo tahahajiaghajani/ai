@@ -239,6 +239,7 @@ const SEED = [
 const PARAM_PAGES = {
   "settings/forms/t/:table": () => "settings/forms/t/incident",
   "settings/forms/:id": (seeded) => (/^[0-9a-f-]{36}$/.test(seeded.form ?? "") ? `settings/forms/${seeded.form}` : null),
+  "settings/workflows/states/:table": () => "settings/workflows/states/incident",
 };
 
 async function seed(call, orgId, me) {
