@@ -79,6 +79,7 @@ import { fieldsRoutes } from "./fields";
 import { installFormsModule } from "../modules/forms";
 import { formsRoutes } from "./forms";
 import { installPositionsModule } from "../modules/positions";
+import { installProcessEngine } from "../modules/process/engine";
 import { positionsRoutes } from "./positions";
 import { adminTenantRoutes } from "./admin-tenant";
 import { demoRoutes } from "./demo";
@@ -155,6 +156,8 @@ installFieldsModule();
 installFormsModule();
 // organisational roles (design F, F3): integrity of positions and their holders
 installPositionsModule();
+// workflows (design F, F4a): cases run on the flows executor as runs of kind «process»
+installProcessEngine();
 // the integration hub (docs/modules/integration_FA.md) — integration users and keys, webhooks, LDAP/AD, SCIM, Jira/GitHub, exports
 installIntegrationModule();
 

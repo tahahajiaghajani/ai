@@ -48,8 +48,14 @@ export type NodeType =
   | "ai_skill"
   | "end";
 
-/** What starts a flow. */
-export type TriggerKind = "record" | "schedule" | "webhook" | "manual" | "catalog";
+/** What starts a flow; `process`: a workflow case (design F), whose runs execute their `process_version`. */
+export type TriggerKind = "record" | "schedule" | "webhook" | "manual" | "catalog" | "process";
+
+/** «پیوستن شاخه‌ها»: after all branches, or after the first (`cancel_rest`: the other branches are withdrawn). */
+export interface JoinConfig {
+  mode?: "all" | "any";
+  cancel_rest?: boolean;
+}
 
 /** Record events a record trigger listens to (the engine's `record.<kind>`). */
 export type TriggerEvent = "created" | "updated" | "state_changed" | "assigned" | "commented" | "deleted";
