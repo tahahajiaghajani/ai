@@ -20,7 +20,9 @@ import {
 import { previewConnector } from "@server/modules/discovery/runner";
 import { SECRETS_CLEARED } from "@server/modules/discovery/guard";
 import { psArgs, PS_MESSAGES, PS_SCRIPTS, psrunSeam, runPs } from "@server/modules/discovery/psrun";
-import { workerExecArgv } from "../src/server-edition/cluster";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { supportsSystemCa } from "@shared/desktop/node-flags";
 import { fixtureCa, TOOL_HOST } from "./fixtures/discovery-ca";
 import { json, mountMocks, serve, serveTls, type Handler } from "./mocks/discovery/harness";
 import { REST_CONNECTOR, RestMock, makeDevices } from "./mocks/discovery/rest";
@@ -252,9 +254,13 @@ describe("TLS with the connector's own root (design A §14.2)", () => {
   });
 
   it("the server edition's workers start with the system certificate store, so the bank's own root needs no file", () => {
-    expect(workerExecArgv(["--max-old-space-size=4096"], "v22.23.4")).toEqual(["--max-old-space-size=4096", "--use-system-ca"]);
-    expect(workerExecArgv(["--use-system-ca"], "v22.23.4")).toEqual(["--use-system-ca"]);
-    expect(workerExecArgv([], "v20.18.0")).toEqual([]);
+    // the service runs the supervisor with --use-system-ca on the bundled Node, which reads the Windows store, and the
+    // cluster forks its workers with the supervisor's own flags (the bank simulation's finding)
+    const pkg = join(__dirname, "../packaging/server");
+    const args = /<arguments>([^<]*)<\/arguments>/.exec(readFileSync(join(pkg, "winsw/app-service.xml.template"), "utf8"))![1];
+    expect(args.split(/\s+/)).toContain("--use-system-ca");
+    expect(supportsSystemCa(JSON.parse(readFileSync(join(pkg, "deps.json"), "utf8")).node.version)).toBe(true);
+    expect(readFileSync(join(__dirname, "../src/server-edition/cluster.ts"), "utf8")).not.toMatch(/execArgv\s*:/);
   });
 
   it("reaches a plain-http tool on the server edition only with the tick, over a real socket pinned to the checked address", async () => {
