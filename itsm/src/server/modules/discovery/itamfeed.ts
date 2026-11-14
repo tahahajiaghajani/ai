@@ -6,7 +6,8 @@
 //       batch from «داشبورد دارایی‌ها»): until then people are refused with what to do, and the feed makes nothing;
 //     · what: ITAM's `assetsForDiscovered` for the connector's linked hardware CIs (ITAM's HW_CLASSES) that have no
 //       asset — never for an ATM, CRS or kiosk: an item of kind `atm`, a CI with a terminal id, or a CI whose model is
-//       one of the bank fleet's by its name, its Latin model or its model number, as tools report them (ciWaits);
+//       one of the bank fleet's by its name, its Latin model or its model number, as tools report them (ITAM's rule,
+//       itam/fleet.ts `ciWaits`, which ITAM's own discovered-hardware step keeps too);
 //     · how fast: the job `discovery.itam` (after every completed pass while the feed is on, and daily) walks the
 //       connector's linked items in its tool's id order, in the pull's slices (≤ 5 s; an asset starts only while the
 //       slice covers 1.5 × its measured time), one short transaction per asset, at most `make_assets_daily` (5 000)
@@ -21,7 +22,6 @@
 //   Software staging and the SAM feed (§11.2) come with release 1.2 (the owner's decision of 14 November).
 import type { Cond } from "@shared/model/conditions";
 import { uuidv7 } from "@shared/id";
-import { FLEET_CATEGORIES } from "@shared/tables/itam";
 import type { Ctx } from "../../context";
 import { pgArray, type Queryable } from "../../db";
 import { demoScopeOrg, isDemoRow } from "../../db/scope";
@@ -29,7 +29,8 @@ import { get, isSystemCtx, list, updateIn } from "../../engine";
 import { registerHooks, type WriteArgs } from "../../engine/hooks";
 import { AppError, bad, forbidden } from "../../http/errors";
 import type { JobContext, JobResult } from "../../jobs";
-import { assetsForDiscovered, HW_CLASSES } from "../itam/assets";
+import { assetsForDiscovered } from "../itam/assets";
+import { ciWaits, fleetKeys } from "../itam/fleet";
 import { liveRows } from "../itam/common";
 import { sysOf } from "../incident/common";
 import { assertWritable } from "../platform/org-admin";
@@ -62,59 +63,9 @@ export const capWarning = (cap: number) => `سقف روزانهٔ ساخت دا�
 // ---------------------------------------------------------------------------------------------------------------
 // Which devices wait for an asset
 
-const literals = (xs: readonly string[]) =>
-  xs
-    .map((x) => {
-      if (!/^[a-z_]+$/.test(x)) throw new Error(`unexpected class key ${x}`);
-      return `'${x}'`;
-    })
-    .join(", ");
-
-/**
- * A model as compared with the bank fleet's: lower case, Latin letters and digits only, Persian and Arabic digits as
- * Latin ones — «ان‌سی‌آر SelfServ 22e (خودپرداز)», "SelfServ 22e" and "SELFSERV-22E" give one key.
- */
-const modelKey = (expr: string) => `regexp_replace(lower(translate(${expr}, '۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩', '01234567890123456789')), '[^a-z0-9]+', '', 'g')`;
-
-/**
- * The CI `c` waits for an asset: live hardware (ITAM's classes) without one, never an ATM, CRS or kiosk. Monitoring
- * tools report those as plain devices (Zabbix and PRTG items are of kind `device`), so any of these names one:
- *   · an item of kind `atm` links it;
- *   · it has a terminal id (an ATM's or a POS terminal's id in the switch, a class attribute): a bank terminal;
- *   · its model is one of `fleet` (fleetKeys): the model ITAM would give it (`assetsForDiscovered` finds it by the CI's
- *     model name, else «<class> نامشخص») by name in any case, or the tool's model by its key (modelKey) — the fleet
- *     model's name, its name without the bracketed kind, or its model number.
- * Each check is an index probe or a test of the row; `offset 0` keeps the planner from flattening the probes into joins
- * it would size without statistics (PGlite, a fresh load).
- */
-const ciWaits = (fleet: string) => `c.deleted_at is null and c.merged_into is null and c.class in (${literals(HW_CLASSES)})
-  and coalesce(c.state, '') not in ('retired', 'disposed', 'canceled')
-  and coalesce(c.attrs->>'terminal_id', '') = ''
-  and lower(left(coalesce(nullif(c.model_name, ''), c.class || ' نامشخص'), 200)) <> all(${fleet}::text[])
-  and ${modelKey("coalesce(c.model_name, '')")} <> all(${fleet}::text[])
-  and not exists (select 1 from sm_assets a where a.org_id = c.org_id and a.ci_id = c.id and a.deleted_at is null offset 0)
-  and not exists (select 1 from sm_discovery_items x where x.org_id = c.org_id and x.ci_id = c.id and x.kind = 'atm' and x.deleted_at is null offset 0)`;
-
 /** A linked item `i` (never an ATM's) whose CI waits for an asset — shared by the feed and «بی‌دارایی». */
 export const waitingSql = (fleet: string, more = "") => `i.deleted_at is null and i.state = 'linked' and i.ci_id is not null and coalesce(i.kind, '') <> 'atm'
   and exists (select 1 from sm_cis c where c.id = i.ci_id and c.org_id = i.org_id and ${ciWaits(fleet)}${more} offset 0)`;
-
-/**
- * The bank fleet's models (ATM, CRS, kiosk) as ciWaits compares them: each name in lower case, and the keys (modelKey)
- * of its name, its name without the bracketed kind and its model number — keys of fewer than 3 characters say too
- * little (the «۲۱» of «کیوسک خدمات بانکی ۲۱ اینچ»). A CI whose model is one of them never gets an asset here.
- */
-export async function fleetKeys(q: Queryable, orgId: string): Promise<string[]> {
-  const rows = await q.query<{ k: string }>(
-    `with m as (select name, model_number from sm_asset_models where org_id = $1 and deleted_at is null and category = any($2::text[]))
-     select lower(name) as k from m where coalesce(name, '') <> ''
-     union
-     select k from (select ${modelKey("v")} as k from m, lateral (values (name), (regexp_replace(name, '\\([^)]*\\)', '', 'g')), (model_number)) x(v) where v is not null) s
-     where length(k) >= 3`,
-    [orgId, pgArray(FLEET_CATEGORIES)],
-  );
-  return rows.map((r) => r.k);
-}
 
 /** Has ITAM confirmed its discovered-hardware step (an asset manager made the first batch)? */
 export async function itamConfirmed(q: Queryable, orgId: string): Promise<boolean> {

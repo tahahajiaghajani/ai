@@ -1,7 +1,8 @@
 // ITAM ↔ CMDB discovery (itam_config.auto_assets, on by default): a CMDB full of discovered hardware is never turned
 // into assets nobody reviewed. Until an asset manager makes the first batch from the dashboard, the daily step only
 // counts the hardware CIs without an asset and tells the asset managers (once per new count); the reviewed batch
-// confirms the step, which then makes capped daily batches with a summary notification.
+// confirms the step, which then makes capped daily batches with a summary notification — never for an ATM, CRS or kiosk
+// a monitoring tool reports as a plain device (the rule a connector's asset feed keeps, itam/fleet.ts).
 import { beforeAll, describe, expect, it } from "vitest";
 import { itamWorld, type ItamWorld } from "./itam-helpers";
 import { discoveredStep } from "@server/modules/itam";
@@ -79,6 +80,26 @@ describe("the reviewed batch and the daily step after it", () => {
     expect(String(items[0].body ?? "")).toMatch(/۱ دستگاه دیگر/);
     expect((await discoveredStep(w.sys, 2)).created).toBe(1);
     expect((await Promise.all(more.map(assetOf))).filter(Boolean)).toHaveLength(3);
+  });
+
+  it("never makes an asset for an ATM, CRS or kiosk a monitoring tool reports as a plain device (the asset feed's rule)", async () => {
+    // Zabbix and PRTG report the bank fleet as plain computers: the seeded fleet's model number or Latin model in any
+    // spelling («ان‌سی‌آر SelfServ 22e (خودپرداز)» 6622e, «هیوسونگ MX8800 (CRS)», «کیوسک خدمات بانکی ۲۱ اینچ» K21), a
+    // terminal id, or a connector's ATM row
+    const as = (name: string, model_name?: string) => w.o.post(`${w.P}/r/ci`, { name, class: "computer", state: "operational", serial_number: `SN-${name}`, ...(model_name ? { model_name } : {}) }).then((r) => r.row.id as string);
+    const fleet = [await as("atm-z1", "6622E"), await as("atm-z2", "SelfServ 22e"), await as("crs-p1", "mx-8800"), await as("kiosk-p1", "K21"), await as("atm-t1"), await as("atm-i1")];
+    await w.e.db.query(`update sm_cis set attrs = coalesce(attrs, '{}'::jsonb) || '{"terminal_id": "10021"}'::jsonb where id = $1`, [fleet[4]]);
+    await w.e.db.query(
+      `insert into sm_discovery_items (id, org_id, connector_id, external_id, kind, name, state, ci_id, origin) values (gen_random_uuid(), $1, gen_random_uuid(), 'ATM-10022', 'atm', 'atm-i1', 'linked', $2, 'cloud')`,
+      [w.e.org, fleet[5]],
+    );
+    const pc = await as("pc-z9", "OptiPlex 7010");
+    expect((await discoveredStep(w.sys, 200)).created).toBe(1);
+    expect(await assetOf(pc)).toMatchObject({ state: "in_use", substate: "unverified" });
+    for (const id of fleet) expect(await assetOf(id)).toBeNull();
+    // nor does an asset manager's batch from the dashboard
+    expect(await w.p.am.client.post(`${w.P}/itam/discovered`, {})).toMatchObject({ created: 0, remaining: 0 });
+    for (const id of fleet) expect(await assetOf(id)).toBeNull();
   });
 
   it("does nothing when switched off", async () => {

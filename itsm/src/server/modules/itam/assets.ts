@@ -20,6 +20,7 @@ import { accessSettings, buildSubject, loadOrgSnapshot } from "../../access";
 import { grantIn } from "@shared/access/model";
 import { hasGroup, holds, isUuid, itamConfig, liveRow, liveRows, orgToday, stateLabel, sysOf, type Row } from "./common";
 import { setHandOver } from "./hooks";
+import { waitingHardware } from "./fleet";
 
 const ASSET = "asset";
 
@@ -258,18 +259,20 @@ export async function linkCi(sys: Ctx, assetId: string): Promise<{ ci_id: string
   return { ci_id: ciId, message: null };
 }
 
-export const HW_CLASSES = ["laptop", "desktop", "server", "computer", "mobile_device", "printer", "network_device", "router", "switch", "firewall", "access_point", "storage", "ups"];
 const CATEGORY_OF: Record<string, string> = { laptop: "laptop", desktop: "desktop", computer: "desktop", server: "server", mobile_device: "phone", printer: "printer", storage: "storage" };
 
 /**
  * Assets for discovered hardware CIs that have none (ITAM-002 «in use, unverified»): the model by maker and model
  * name (a model «در بررسی» is created when unknown), the CI's user as the assignee.
  */
-/** Hardware CIs of the CMDB that have no asset yet (live, not retired), oldest first. */
+/**
+ * Hardware CIs of the CMDB that wait for an asset, oldest first: live, not retired, without one, and never an ATM, CRS
+ * or kiosk — also one a monitoring tool reports as a plain device (fleet.ts `ciWaits`, the rule a connector's asset feed
+ * keeps too).
+ */
 async function unlinkedHardware(sys: Ctx): Promise<Row[]> {
-  const cis = await liveRows(sys.db, sys, "ci", { and: [{ f: "class", op: "in", v: HW_CLASSES }, { f: "state", op: "nin", v: ["retired", "disposed", "canceled"] }] } as Cond, { limit: 5000, order: "t.created_at, t.no" });
-  const linked = new Set((await liveRows(sys.db, sys, ASSET, { f: "ci_id", op: "nempty" } as Cond, { limit: 100000 })).map((a) => String(a.ci_id)));
-  return cis.filter((ci) => !linked.has(String(ci.id)));
+  const ids = await waitingHardware(sys.db, sys.org.id, 5000);
+  return ids.length ? liveRows(sys.db, sys, "ci", { f: "id", op: "in", v: ids } as Cond, { limit: ids.length, order: "t.created_at, t.no" }) : [];
 }
 
 /** Active members whose roles manage assets (write ≥ group in area `asset`) — who reviews discovered hardware. */
