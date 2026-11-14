@@ -10,12 +10,15 @@ import { alertSignal, prtgStatus, recordState, vcenterStatus, zabbixStatus } fro
 import { aggregateStatus, freshForMs } from "@shared/discovery/status";
 import { normalize } from "@shared/event/logic";
 import { parseBody } from "@server/modules/event/ingest";
-import { createIn } from "@server/engine";
+import { createIn, transitionIn, updateIn } from "@server/engine";
+import { sweep } from "@server/modules/event/jobs";
+import { stagePage } from "@server/modules/discovery/stage";
+import { loadConnector } from "@server/modules/discovery/runner";
 import { ingest, type SourceRow } from "@server/modules/event/ingest";
 import { connector as restConnector } from "@server/modules/discovery/connectors/rest";
 import type { ConnectorKind } from "@server/modules/discovery/kind";
 import { overrideKind } from "@server/modules/discovery/registry";
-import { aggregateTargets, applyItemStatuses, resetStatusThrottles, statusPass, STATUS_READ_MESSAGE } from "@server/modules/discovery/status";
+import { aggregateTargets, applyItemStatuses, boardOrder, resetStatusThrottles, statusPass, statusUpkeep, STATUS_READ_MESSAGE } from "@server/modules/discovery/status";
 import { discoveryWorld, type DiscoveryWorld, type Row } from "./discovery-helpers";
 
 const NOW = Date.parse("2026-11-14T10:00:00Z");
@@ -84,6 +87,20 @@ describe("aggregation onto the target (design A §9.3)", () => {
     // a pushed alert's signal never ages
     expect(aggregateStatus([{ state: "warning", since: ago(600) }], { now: NOW })).toMatchObject({ state: "warning", sources: 1 });
     expect(aggregateStatus([{ state: "warning", observed_at: ago(1), fresh_ms: fresh }, { state: "unreachable", observed_at: ago(1), fresh_ms: fresh }], { now: NOW }).state).toBe("unreachable");
+  });
+});
+
+describe("the board's order (design A §15)", () => {
+  it("the merge of the two sides orders as each side's SQL: warning before maintenance, the newest first, then the row id", () => {
+    const rows = [
+      { id: "b", monitor_status: "maintenance", monitor_since: ago(1) },
+      { id: "c", monitor_status: "warning", monitor_since: ago(5) },
+      { id: "d", monitor_status: "warning", monitor_since: null },
+      { id: "a", monitor_status: "warning", monitor_since: ago(5) },
+      { id: "f", monitor_status: "off", monitor_since: ago(1) },
+      { id: "e", monitor_status: "down", monitor_since: ago(60) },
+    ];
+    expect(rows.sort(boardOrder).map((r) => r.id)).toEqual(["e", "a", "c", "d", "b", "f"]);
   });
 });
 
@@ -204,5 +221,102 @@ describe("status in the database (design A §9.1, §9.7)", () => {
     } finally {
       restore();
     }
+  });
+
+  const icmp = (host: string, trigger: string) => ({ host, severity: "High", trigger_id: trigger, trigger_name: "Unavailable by ICMP ping", item_key: "icmpping" });
+
+  it("a source's signal is the worst of its open alerts on the CI: a disk alert, its clear and an information alert never hide an ICMP-down", async () => {
+    const c = await ci("srv-overlap");
+    await item("o-1", c.id, "up");
+    await aggregateTargets(w.e.db, w.sys, [{ table: "ci", id: c.id }]);
+    const disk = { host: "srv-overlap", trigger_id: "721", trigger_name: "/: Disk space is critically low", item_key: "vfs.fs.size[/,pused]", severity: "Average" };
+    await zabbix({ ...icmp("srv-overlap", "720"), event_id: "9201", status: "PROBLEM" });
+    expect((await stateOf(c.id)).monitor_status).toBe("down");
+    await zabbix({ ...disk, event_id: "9202", status: "PROBLEM" });
+    expect((await stateOf(c.id)).monitor_status).toBe("down");
+    await zabbix({ ...disk, event_id: "9203", status: "RESOLVED" });
+    expect((await stateOf(c.id)).monitor_status).toBe("down");
+    await zabbix({ host: "srv-overlap", event_id: "9204", status: "PROBLEM", trigger_id: "722", trigger_name: "Host information was changed", item_key: "system.uname", severity: "Information" });
+    expect(await stateOf(c.id)).toMatchObject({ monitor_status: "down", signals: { [zabbixSource.id]: { state: "down" } } });
+    await zabbix({ ...icmp("srv-overlap", "720"), event_id: "9205", status: "RESOLVED" });
+    expect(await stateOf(c.id)).toMatchObject({ monitor_status: "up", signals: {} });
+  });
+
+  it("alert changes made outside the event pipeline reach the CI: a person closing the alert, a maintenance that ended", async () => {
+    const c = await ci("srv-closed");
+    await item("x-1", c.id, "up");
+    await zabbix({ ...icmp("srv-closed", "730"), event_id: "9301", status: "PROBLEM" });
+    expect((await stateOf(c.id)).monitor_status).toBe("down");
+    const alert = (await w.one<Row>(`select id from sm_alerts where ci_id = $1 and state = 'open'`, [c.id]))!;
+    await w.sys.write((tx) => transitionIn(tx, w.sys, "alert", alert.id, "closed", { close_code: "fixed" }, { trusted: true }));
+    await w.drain();
+    expect(await stateOf(c.id)).toMatchObject({ monitor_status: "up", signals: {} });
+
+    const m = await ci("srv-window");
+    await item("x-2", m.id, "up");
+    const now = Date.now();
+    const win = await w.sys.write((tx) => createIn(tx, w.sys, "change_window", { name: "نگهداری کوتاه", kind: "maintenance", active: true, start_at: new Date(now - 3600_000).toISOString(), end_at: new Date(now + 3600_000).toISOString(), cis: [m.id] }, { trusted: true }));
+    await zabbix({ ...icmp("srv-window", "731"), event_id: "9302", status: "PROBLEM" });
+    expect(await stateOf(m.id)).toMatchObject({ monitor_status: "maintenance", signals: { [zabbixSource.id]: { state: "maintenance" } } });
+    // the window ends with the host still down: event management opens the alert again and the CI is «قطع» at once
+    await w.sys.write((tx) => updateIn(tx, w.sys, "change_window", win.id, { active: false }, { trusted: true }));
+    expect((await sweep(w.sys)).maintenance_ended).toBeGreaterThanOrEqual(1);
+    await w.drain();
+    expect(await stateOf(m.id)).toMatchObject({ monitor_status: "down", signals: { [zabbixSource.id]: { state: "down" } } });
+  });
+
+  it("freshness counts from the status report: an inventory listing without status never makes an old status fresh", async () => {
+    const c = await ci("srv-feed-died");
+    await item("f-1", c.id, "up");
+    await aggregateTargets(w.e.db, w.sys, [{ table: "ci", id: c.id }]);
+    expect((await stateOf(c.id)).monitor_status).toBe("up");
+    // the tool's last status, five hours ago (fresh for three: 3 × the default hour)
+    await applyItemStatuses(w.e.db, w.e.org, push.id, [{ external_id: "f-1", status: { state: "down", availability: true } }], new Date(Date.now() - 5 * 3600_000));
+    // an hourly inventory batch lists the item without a status
+    await stagePage(w.e.db, { orgId: w.e.org, connectorId: push.id, generation: 2, configVersion: 1, kindVersion: 1, origin: "cloud", records: [{ external_id: "f-1", kind: "host", name: "srv-feed-died", hostname: "srv-feed-died" }] as never });
+    const row = await w.one<Row>(`select status, listed_at, data->'status'->>'state' as kept from sm_discovery_items where connector_id = $1 and external_id = 'f-1'`, [push.id]);
+    expect(row).toMatchObject({ status: "down", kept: "down" });
+    expect(Date.now() - new Date(row.listed_at).getTime()).toBeLessThan(60_000);
+    await aggregateTargets(w.e.db, w.sys, [{ table: "ci", id: c.id }]);
+    expect(await stateOf(c.id)).toMatchObject({ monitor_status: "unknown", sources: 0 });
+    // a listing that carries a status is a report: fresh again
+    await stagePage(w.e.db, { orgId: w.e.org, connectorId: push.id, generation: 3, configVersion: 1, kindVersion: 1, origin: "cloud", records: [{ external_id: "f-1", kind: "host", name: "srv-feed-died", hostname: "srv-feed-died", status: { state: "down", availability: true } }] as never });
+    await aggregateTargets(w.e.db, w.sys, [{ table: "ci", id: c.id }]);
+    expect(await stateOf(c.id)).toMatchObject({ monitor_status: "down", sources: 1 });
+  });
+
+  it("the board pages through both sides once each, in one order", async () => {
+    const names: string[] = [];
+    for (const [i, st] of ["warning", "warning", "warning", "maintenance", "maintenance"].entries()) {
+      const c = await ci(`board-row-${i}`);
+      names.push(`board-row-${i}`);
+      await w.q(
+        `insert into sm_discovery_states (id, org_id, target_table, target_id, ci_id, monitor_status, monitor_since, sources, signals, origin)
+         values (gen_random_uuid(), $1, 'ci', $2::text, $2::uuid, $3, now() - make_interval(mins => $4::int), 1, '{}'::jsonb, 'cloud')`,
+        [w.e.org, c.id, st, i + 1],
+      );
+    }
+    const seen: string[] = [];
+    for (const page of [1, 2, 3]) seen.push(...(await w.e.owner.get(`${w.P}/discovery/status?q=board-row-&size=2&page=${page}`)).rows.map((r: Row) => String(r.name)));
+    expect(seen).toEqual(names);
+  });
+
+  it("a big connector's upkeep goes on from the place its job saved, whichever process runs it", async () => {
+    const conn = await w.connector({ name: "پایش بزرگ", kind: "push" });
+    const [c1, c2] = [await ci("srv-place-1"), await ci("srv-place-2")].sort((a, b) => (a.id < b.id ? -1 : 1));
+    for (const [i, c] of [c1, c2].entries()) {
+      await w.q(
+        `insert into sm_discovery_items (id, org_id, connector_id, external_id, kind, name, state, ci_id, status, status_since, listed_at, first_seen_at, reconciled_at, mismatch_state, data, origin)
+         values (gen_random_uuid(), $1, $2, $3, 'host', $3, 'linked', $4, 'down', now(), now(), now(), now(), 'none', jsonb_build_object('external_id', $3::text), 'cloud')`,
+        [w.e.org, conn.id, `place-${i}`, c.id],
+      );
+    }
+    const saved: (string | null)[] = [];
+    const r = await statusUpkeep(w.sys, (await loadConnector(w.e.db, w.e.org, conn.id))!, Date.now() + 60_000, { after: c1.id, save: async (x) => void saved.push(x) });
+    expect(r).toBeUndefined();
+    // the first was done by the slice that saved the place; this one went on after it and then cleared the place
+    expect(await stateOf(c1.id)).toBeUndefined();
+    expect((await stateOf(c2.id)).monitor_status).toBe("down");
+    expect(saved).toEqual([null]);
   });
 });

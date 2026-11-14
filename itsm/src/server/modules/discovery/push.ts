@@ -415,7 +415,7 @@ export async function applyPushStatus(sys: Ctx, conn: Row, entries: StatusEntry[
   const extIds = [...new Set(entries.map((e) => e.external_id).filter((x): x is string => !!x))];
   const items = extIds.length
     ? await db.query<Row>(
-        `select i.id, i.external_id, i.kind, i.state, i.ci_id, i.asset_id, (i.data ? 'terminal_id' or i.data ? 'serial_number') as strong,
+        `select i.id, i.external_id, i.kind, i.state, i.ci_id, i.asset_id, coalesce(i.matched_by in ('terminal_id', 'serial_number'), false) as strong,
                 (select a.category from sm_assets a where a.org_id = i.org_id and a.id = i.asset_id and a.deleted_at is null) as category
          from sm_discovery_items i where i.org_id = $1 and i.connector_id = $2 and i.deleted_at is null and i.external_id = any($3::text[])`,
         [org, conn.id, pgArray(extIds)],
@@ -437,7 +437,8 @@ export async function applyPushStatus(sys: Ctx, conn: Row, entries: StatusEntry[
       const target: Target | null = item.ci_id ? { table: "ci", id: String(item.ci_id) } : item.asset_id ? { table: "asset", id: String(item.asset_id) } : null;
       if (target) touched.push(target);
       if (e.device_status) {
-        // the external id of a linked item counts as strong only when the item itself was identified strongly
+        // the external id of a linked item counts as strong only when the item itself was matched to its asset by terminal
+        // id or serial (matchAtms), not merely when it carries one
         if (item.state === "linked" && item.asset_id && item.strong && fleet.includes(String(item.category))) {
           reports.push({ target_table: target!.table, target_id: target!.id, asset_id: String(item.asset_id), raw: e.device_status, since: e.since ?? null, at });
         } else warnings.push(STRONG_ONLY_MESSAGE);
@@ -528,7 +529,7 @@ export async function applyPushStatus(sys: Ctx, conn: Row, entries: StatusEntry[
       );
     }
   }, { internal: true });
-  if (reports.length) await observeDevices(db, sys, conn, reports);
+  if (reports.length) await observeDevices(sys, conn, reports);
   if (touched.length) await aggregateTargets(db, sys, touched);
   return answers;
 }

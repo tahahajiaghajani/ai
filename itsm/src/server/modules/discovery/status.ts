@@ -1,10 +1,11 @@
 // Status (design A §9): item status → discovery_state per CI or asset, the status pass of a connector, the board and
 // the side panel, and the event sink that turns pushed alerts into status.
 //
-//   · Where status lives (§9.1): per source in discovery_item (status, since, message; `listed_at` is when the tool
-//     last reported it) and per target in discovery_state — never on ci or asset, so a flap is one non-synced row
-//     update, no `rev` bump, no `record.updated`. Written with set-based SQL outside the organisation's lock, only when a
-//     value changes.
+//   · Where status lives (§9.1): per source in discovery_item (status, since, message; `data.status.reported_at` is
+//     when the tool last reported it — a listing without status only restamps `listed_at`) and per target in
+//     discovery_state — never on ci or asset, so a flap is one non-synced row update, no `rev` bump, no
+//     `record.updated`. Written with set-based SQL outside the organisation's lock, only when a value changes, and only
+//     onto the row as it was read (a compare-and-set: a row another writer changed meanwhile is left to the next pass).
 //   · Aggregation (§9.3, @shared/discovery/status): the target's fresh sources — its items of active connectors, the
 //     status a push sent for a target without an item (signal `c:<connector>`), the signals of pushed alerts (keyed by
 //     event source) — and maintenance from an event-management window or a change being implemented on the CI.
@@ -12,16 +13,18 @@
 //     run in lane `status`, resumable from its cursor); then the upkeep — ATMs matched to assets (device.ts), the
 //     connector's targets aggregated (and targets elsewhere whose sources aged), ATM values through the hysteresis, the
 //     problems sent to event management (problems.ts). The runner queues it after every inventory pass; push queues it
-//     after a batch.
-//   · The event sink (§9.7): an alert bound to a CI sets its event source's signal — down for availability alerts
-//     (@shared/discovery/availability), warning for any other firing alert but `info`, maintenance while event
-//     management holds the alert in maintenance; a clear removes it. Installations that only push alerts get live
-//     status without a connector.
+//     after a batch. A big connector's aggregation takes several slices; where it left off is kept in the job's payload.
+//   · Signals of pushed alerts (§9.7): per CI and event source, read from the source's OPEN alerts on the CI — down for
+//     availability alerts (@shared/discovery/availability), warning for any other but `info`, maintenance only while
+//     every alert that says something is held in maintenance by event management. The event sink brings them in line
+//     after each event, a listener on alert changes after work done elsewhere (a maintenance or snooze that ended, a
+//     person closing an alert), and every aggregation reads them live, so a stored signal never outlives its alerts.
+//     Installations that only push alerts get live status without a connector.
 //   · Readers (§9.1, §14.5): the board and the panel go through the engine's read rules of the CI and the asset; tool
 //     names, messages and links only for CMDB readers; requesters and the Windows app get nothing.
 // A demo target's row is written only inside its demo scope, a real one's only outside it (§14.4).
 import { alertSignal, recordState, VIRTUALISATION_KINDS } from "@shared/discovery/availability";
-import { aggregateStatus, freshForMs, stateRank, type SourceStatus } from "@shared/discovery/status";
+import { aggregateStatus, freshForMs, type SourceStatus } from "@shared/discovery/status";
 import { STATUS_WORDS, type DiscoveredProblem, type StatusItem, type StatusState } from "@shared/discovery/types";
 import { occurrences, type WindowLike } from "@shared/change/logic";
 import { grantIn, scopeRank } from "@shared/access";
@@ -33,7 +36,7 @@ import type { Ctx } from "../../context";
 import { isTransientDbError, pgArray, type Queryable, type Tx } from "../../db";
 import { demoScopeOrg, inDemoScope, isDemoRow } from "../../db/scope";
 import { subjectOf } from "../../access";
-import { condEnv, get, isSystemCtx, orgTz, readable, savepoint, systemCtx } from "../../engine";
+import { condEnv, get, isSystemCtx, onRecordEvent, orgTz, readable, savepoint, systemCtx, type RecordEvent } from "../../engine";
 import { AppError, forbidden } from "../../http/errors";
 import { registerJobHandler, type Job, type JobContext, type JobResult } from "../../jobs";
 import { assertWritable } from "../platform/org-admin";
@@ -47,6 +50,7 @@ import { ConnectorError, CONNECTOR_MESSAGES } from "./kind";
 import { editionOf } from "./net";
 import { clearVanished, recordProblems, sendProblems } from "./problems";
 import { serverKind } from "./registry";
+import { REPORTED_AT } from "./stage";
 import { connCtx, kindOptions, loadConnector, maskSecrets } from "./runner";
 
 type Row = Record<string, any>;
@@ -65,7 +69,8 @@ export const STATUS_READ_MESSAGE = "وضعیت پایش را خوانندگان 
 
 /**
  * Statuses a tool reported for the connector's items (by its own id): the kind's verdict (§9.2) with its time, its
- * message and its record (`data.status`, where an ATM's device value is read), stamped as reported now. Items a status
+ * message and its record (`data.status`, where an ATM's device value is read), stamped as reported at `at`
+ * (`data.status.reported_at`, which freshness counts from). Items a status
  * names that the connector does not have are not created (status alone never creates). Set-based, lock-free.
  */
 export async function applyItemStatuses(q: Queryable, orgId: string, connectorId: string, items: StatusItem[], at: Date): Promise<string[]> {
@@ -76,7 +81,7 @@ export async function applyItemStatuses(q: Queryable, orgId: string, connectorId
       const since = x.status.since && Number.isFinite(Date.parse(x.status.since)) && Date.parse(x.status.since) <= at.getTime() ? new Date(x.status.since).toISOString() : null;
       return {
         external_id: x.external_id.slice(0, 200), state, since, message: x.status.message ? String(x.status.message).slice(0, 500) : null,
-        status: { ...x.status, state }, last_contact_at: x.last_contact_at && Number.isFinite(Date.parse(x.last_contact_at)) ? new Date(x.last_contact_at).toISOString() : null,
+        status: { ...x.status, state, reported_at: at.toISOString() }, last_contact_at: x.last_contact_at && Number.isFinite(Date.parse(x.last_contact_at)) ? new Date(x.last_contact_at).toISOString() : null,
       };
     });
   if (!rows.length) return [];
@@ -148,6 +153,98 @@ export async function maintenanceOf(q: Queryable, sys: Ctx, ciIds: string[], now
   return out;
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// Signals of pushed alerts (§9.7): read from the live alerts, never from the last event alone
+
+interface AlertSignal {
+  state: "down" | "warning" | "maintenance";
+  since: string | null;
+  alert_id: string;
+}
+
+const SIGNAL_RANK: Record<AlertSignal["state"], number> = { maintenance: 1, warning: 2, down: 3 };
+
+/**
+ * Per CI and event source, the signal of the source's open alerts on the CI: down over warning (an `info` alert says
+ * nothing), maintenance only while every alert that says something is held in maintenance by event management. The
+ * signal's alert is the earliest of those that give it.
+ */
+export async function alertSignals(q: Queryable, orgId: string, ciIds: string[]): Promise<Map<string, Record<string, AlertSignal>>> {
+  const out = new Map<string, Record<string, AlertSignal>>();
+  const ids = [...new Set(ciIds.filter((x) => UUID.test(x)))];
+  if (!ids.length || !tableDef("alert")) return out;
+  const rows = await q.query<Row>(
+    `select a.id::text as id, a.ci_id::text as ci_id, a.source_id::text as source_id, a.state, a.severity, a.metric, a.resource, a.tags,
+            a.short_description as message, coalesce(a.first_seen_at, a.opened_at, a.created_at) as since,
+            (select k.options->>'availability_match' from sm_discovery_connectors k
+              where k.org_id = a.org_id and k.event_source_id = a.source_id and k.deleted_at is null order by k.created_at limit 1) as match
+     from sm_alerts a
+     where a.org_id = $1 and a.deleted_at is null and a.ci_id = any($2::uuid[]) and a.source_id is not null and a.state = any($3::text[])
+     order by coalesce(a.first_seen_at, a.opened_at, a.created_at), a.id`,
+    [orgId, pgArray(ids), pgArray(ALERT_OPEN_STATES)],
+  );
+  for (const a of rows) {
+    const state = a.state === "maintenance" ? "maintenance"
+      : alertSignal({ status: "firing", severity: a.severity, metric: a.metric, resource: a.resource, tags: a.tags, message: a.message }, a.match);
+    if (!state) continue;
+    let per = out.get(a.ci_id);
+    if (!per) out.set(a.ci_id, (per = {}));
+    const prev = per[a.source_id];
+    if (!prev || SIGNAL_RANK[state] > SIGNAL_RANK[prev.state]) per[a.source_id] = { state, since: iso(a.since), alert_id: a.id };
+  }
+  return out;
+}
+
+/** The event-source part of a row's signals (keys that are not a push's `c:<connector>`). */
+const alertPart = (signals: unknown): Row =>
+  Object.fromEntries(Object.entries(signals && typeof signals === "object" ? (signals as Row) : {}).filter(([k]) => !k.startsWith("c:")));
+const pushPart = (signals: unknown): Row =>
+  Object.fromEntries(Object.entries(signals && typeof signals === "object" ? (signals as Row) : {}).filter(([k]) => k.startsWith("c:")));
+
+/** The signals to store from the live ones: a signal keeps its stored `since` while its state holds. */
+function storedSignals(stored: Row, live: Record<string, AlertSignal> | undefined, now: number): Row {
+  const out: Row = {};
+  for (const [src, s] of Object.entries(live ?? {})) {
+    const prev = stored[src];
+    const since = prev?.state === s.state && prev?.since ? prev.since : s.since && Date.parse(s.since) <= now ? s.since : new Date(now).toISOString();
+    out[src] = { state: s.state, since, alert_id: s.alert_id };
+  }
+  return out;
+}
+
+const sameSignals = (a: Row, b: Row): boolean => {
+  const ka = Object.keys(a).sort();
+  const kb = Object.keys(b).sort();
+  return ka.length === kb.length && ka.every((k, i) => k === kb[i] && a[k]?.state === b[k]?.state && (a[k]?.alert_id ?? null) === (b[k]?.alert_id ?? null));
+};
+
+/**
+ * Bring the alert signals of CIs in line with their live alerts (the event sink, and alert changes made elsewhere: a
+ * maintenance or snooze that ended, a person closing or suppressing an alert). Cheap when nothing changed; otherwise
+ * the CI's row is locked first and aggregated, so concurrent alerts of one CI never leave a partial view behind.
+ */
+export async function refreshAlertSignals(tx: Tx, sys: Ctx, ciIds: string[]): Promise<void> {
+  const org = sys.org.id;
+  const demo = demoScopeOrg() === org;
+  for (const ciId of [...new Set(ciIds.filter((x) => UUID.test(x)))]) {
+    // a demo CI's row only inside the demo scope, a real one's only outside it
+    if ((await isDemoRow(tx, org, ciId)) !== demo) continue;
+    const row = await tx.one<{ signals: Row | null }>(`select signals from sm_discovery_states where org_id = $1 and deleted_at is null and target_table = 'ci' and target_id = $2`, [org, ciId]);
+    const stored = alertPart(row?.signals);
+    const live = storedSignals(stored, (await alertSignals(tx, org, [ciId])).get(ciId), Date.now());
+    if (sameSignals(stored, live)) continue;
+    if (!row) {
+      await tx.query(
+        `insert into sm_discovery_states (id, org_id, target_table, target_id, ci_id, signals, origin) values ($1, $2, 'ci', $3::text, $3::uuid, '{}'::jsonb, $4)
+         on conflict (org_id, target_table, target_id) where deleted_at is null do nothing`,
+        [uuidv7(), org, ciId, sys.cfg.origin ?? "cloud"],
+      );
+    }
+    await tx.query(`select id from sm_discovery_states where org_id = $1 and deleted_at is null and target_table = 'ci' and target_id = $2 for update`, [org, ciId]);
+    await aggregateTargets(tx, sys, [{ table: "ci", id: ciId }]);
+  }
+}
+
 /** Sources of a target (and their freshness) from its row's items and signals. */
 function sourcesOf(row: Row, connectors: Map<string, Row>): SourceStatus[] {
   const out: SourceStatus[] = [];
@@ -212,7 +309,7 @@ const AGG_CHUNK = 500;
  * chunk; a target nothing reports gets no row). Rows on the other side of the demo boundary are left alone. Stops at
  * `deadline` (after at least one chunk) and says how many targets it did.
  */
-export async function aggregateTargets(q: Queryable, sys: Ctx, targets: Target[], opts: { now?: number; deadline?: number } = {}): Promise<{ written: number; done: number }> {
+export async function aggregateTargets(q: Queryable, sys: Ctx, targets: Target[], opts: { now?: number; deadline?: number } = {}): Promise<{ written: number; done: number; last: string | null }> {
   const org = sys.org.id;
   const demo = demoScopeOrg() === org;
   const seen = new Set<string>();
@@ -231,12 +328,13 @@ export async function aggregateTargets(q: Queryable, sys: Ctx, targets: Target[]
     const rows = await q.query<Row>(
       `with t as (select distinct * from jsonb_to_recordset($2::jsonb) as t(target_table text, target_id uuid))
        select t.target_table, t.target_id::text as target_id, s.monitor_status, s.monitor_since, s.monitor_message, s.sources, s.signals, (s.id is not null) as stored,
+              s.id as row_id, s.xmin::text as seen,
               exists (select 1 from sm_demo_rows d where d.org_id = $1 and d.row_id = t.target_id) as demo,
               case when t.target_table = 'ci' then (select a.id from sm_assets a where a.org_id = $1 and a.ci_id = t.target_id and a.deleted_at is null order by a.created_at limit 1)
                    else t.target_id end as asset_id,
               case when t.target_table = 'ci' then exists (select 1 from sm_cis c where c.org_id = $1 and c.id = t.target_id and c.deleted_at is null)
                    else exists (select 1 from sm_assets a where a.org_id = $1 and a.id = t.target_id and a.deleted_at is null) end as live,
-              coalesce((select jsonb_agg(jsonb_build_object('state', i.status, 'since', i.status_since, 'message', i.status_message, 'at', i.listed_at,
+              coalesce((select jsonb_agg(jsonb_build_object('state', i.status, 'since', i.status_since, 'message', i.status_message, 'at', ${REPORTED_AT},
                                  'every', k.every_minutes, 'status_every', k.status_every_minutes, 'kind', k.kind))
                  from sm_discovery_items i join sm_discovery_connectors k on k.org_id = i.org_id and k.id = i.connector_id and k.deleted_at is null and k.active
                 where i.org_id = $1 and i.deleted_at is null and i.status is not null and (i.state is null or i.state not in ('gone', 'ignored'))
@@ -251,11 +349,18 @@ export async function aggregateTargets(q: Queryable, sys: Ctx, targets: Target[]
       const ks = await q.query<Row>(`select id, kind, every_minutes, status_every_minutes from sm_discovery_connectors where org_id = $1 and deleted_at is null and active and id = any($2::uuid[])`, [org, pgArray([...pushers])]);
       for (const k of ks) connectors.set(String(k.id), k);
     }
-    const maint = await maintenanceOf(q, sys, rows.filter((r) => r.target_table === "ci" && r.live).map((r) => String(r.target_id)), now);
+    const live = rows.filter((r) => r.live);
+    const maint = await maintenanceOf(q, sys, live.filter((r) => r.target_table === "ci").map((r) => String(r.target_id)), now);
+    // the signals of pushed alerts as their alerts stand now: one that ended, or a maintenance event management lifted,
+    // no longer counts even when no event came (§9.7)
+    const alerts = await alertSignals(q, org, live.filter((r) => r.target_table === "ci").map((r) => String(r.target_id)));
     const writes: Row[] = [];
     for (const r of rows) {
       if (!r.live || !!r.demo !== demo) continue;
-      const agg = aggregateStatus(sourcesOf(r, connectors), { now, maintenance: r.target_table === "ci" ? maint.get(String(r.target_id)) ?? null : null });
+      const storedAlerts = alertPart(r.signals);
+      const signals = r.target_table === "ci" ? storedSignals(storedAlerts, alerts.get(String(r.target_id)), now) : storedAlerts;
+      const signalsChanged = !sameSignals(storedAlerts, signals);
+      const agg = aggregateStatus(sourcesOf({ ...r, signals: { ...pushPart(r.signals), ...signals } }, connectors), { now, maintenance: r.target_table === "ci" ? maint.get(String(r.target_id)) ?? null : null });
       if (!r.stored && agg.state === "unknown" && !agg.sources) continue;
       const same = r.monitor_status === agg.state;
       const next = {
@@ -263,37 +368,46 @@ export async function aggregateTargets(q: Queryable, sys: Ctx, targets: Target[]
         monitor_status: agg.state, monitor_since: same && r.monitor_since ? iso(r.monitor_since) : agg.since ?? new Date(now).toISOString(),
         monitor_message: agg.message ? String(agg.message).slice(0, 500) : null, sources: agg.sources,
       };
-      if (r.stored && same && iso(r.monitor_since) === next.monitor_since && (r.monitor_message ?? null) === next.monitor_message && Number(r.sources ?? 0) === next.sources) continue;
-      writes.push({ id: uuidv7(), ...next });
+      if (r.stored && !signalsChanged && same && iso(r.monitor_since) === next.monitor_since && (r.monitor_message ?? null) === next.monitor_message && Number(r.sources ?? 0) === next.sources) continue;
+      writes.push({ id: uuidv7(), row_id: r.stored ? String(r.row_id) : null, seen: r.stored ? String(r.seen) : null, ...next, signals });
     }
     if (writes.length) {
-      const res = await q.query(
-        `insert into sm_discovery_states as s (id, org_id, target_table, target_id, ci_id, asset_id, monitor_status, monitor_since, monitor_message, sources, signals, origin)
-         select x.id, $1, x.target_table, x.target_id, x.ci_id, x.asset_id, x.monitor_status, x.monitor_since, x.monitor_message, x.sources, '{}'::jsonb, $3
-         from jsonb_to_recordset($2::jsonb) as x(id uuid, target_table text, target_id text, ci_id uuid, asset_id uuid, monitor_status text, monitor_since timestamptz,
-           monitor_message text, sources int)
-         on conflict (org_id, target_table, target_id) where deleted_at is null do update set
-           monitor_status = excluded.monitor_status, monitor_since = excluded.monitor_since, monitor_message = excluded.monitor_message, sources = excluded.sources,
-           ci_id = coalesce(excluded.ci_id, s.ci_id), asset_id = coalesce(excluded.asset_id, s.asset_id), updated_at = now()
-         where s.monitor_status is distinct from excluded.monitor_status or s.monitor_since is distinct from excluded.monitor_since
-            or s.monitor_message is distinct from excluded.monitor_message or s.sources is distinct from excluded.sources
-         returning s.id`,
+      // compare-and-set: a row another writer changed since it was read here (an event's sink, a push, the ATM
+      // bookkeeping) is left as that writer made it — the next aggregation sees it whole; a push's `c:` signals are kept
+      const res = await q.query<{ n: number }>(
+        `with x as (
+           select * from jsonb_to_recordset($2::jsonb) as x(id uuid, row_id uuid, seen text, target_table text, target_id text, ci_id uuid, asset_id uuid,
+             monitor_status text, monitor_since timestamptz, monitor_message text, sources int, signals jsonb)
+         ),
+         up as (
+           update sm_discovery_states s set monitor_status = x.monitor_status, monitor_since = x.monitor_since, monitor_message = x.monitor_message, sources = x.sources,
+             signals = coalesce((select jsonb_object_agg(e.key, e.value) from jsonb_each(coalesce(s.signals, '{}'::jsonb)) e where e.key like 'c:%'), '{}'::jsonb)
+               || coalesce(x.signals, '{}'::jsonb),
+             ci_id = coalesce(x.ci_id, s.ci_id), asset_id = coalesce(x.asset_id, s.asset_id), updated_at = now()
+           from x where x.row_id is not null and s.org_id = $1 and s.id = x.row_id and s.deleted_at is null and s.xmin::text = x.seen
+           returning s.id
+         ),
+         ins as (
+           insert into sm_discovery_states (id, org_id, target_table, target_id, ci_id, asset_id, monitor_status, monitor_since, monitor_message, sources, signals, origin)
+           select x.id, $1, x.target_table, x.target_id, x.ci_id, x.asset_id, x.monitor_status, x.monitor_since, x.monitor_message, x.sources, coalesce(x.signals, '{}'::jsonb), $3
+           from x where x.row_id is null
+           on conflict (org_id, target_table, target_id) where deleted_at is null do nothing
+           returning id
+         )
+         select (select count(*) from up)::int + (select count(*) from ins)::int as n`,
         [org, JSON.stringify(writes), sys.cfg.origin ?? "cloud"],
       );
-      written += res.length;
+      written += Number(res[0]?.n ?? 0);
     }
     done += chunk.length;
   }
-  return { written, done };
+  return { written, done, last: done ? list[done - 1].id : null };
 }
 
 /** Rows whose value may have aged (a source that stopped reporting): looked at again at most every half hour per organisation. */
 const agedAt = new Map<string, number>();
-/** A slice of a connector's aggregation left off after this many targets (big connectors take several slices). */
-const aggAfter = new Map<string, number>();
 export const resetStatusThrottles = () => {
   agedAt.clear();
-  aggAfter.clear();
 };
 
 async function agedTargets(q: Queryable, orgId: string): Promise<Target[]> {
@@ -443,10 +557,20 @@ async function pullStatus(sys: Ctx, conn: Row, end: number): Promise<"slice" | "
 }
 
 /**
+ * Where an unfinished upkeep of a connector left off — kept in its job's payload, so the next slice goes on there
+ * whichever process or instance claims it (a big connector's targets take several slices).
+ */
+export interface UpkeepPlace {
+  /** the last target (by id) the aggregation did */
+  after?: string | null;
+  save?: (after: string | null) => Promise<void>;
+}
+
+/**
  * The upkeep after a status pass, an inventory pass or a push: ATMs matched to assets, the connector's targets (and
  * aged ones) aggregated, ATM values through the hysteresis, problems sent. Returns when to come back.
  */
-export async function statusUpkeep(sys: Ctx, conn: Row, end: number): Promise<JobResult> {
+export async function statusUpkeep(sys: Ctx, conn: Row, end: number, place: UpkeepPlace = {}): Promise<JobResult> {
   const db = sys.db;
   const org = sys.org.id;
   const demo = demoScopeOrg() === org;
@@ -454,22 +578,23 @@ export async function statusUpkeep(sys: Ctx, conn: Row, end: number): Promise<Jo
   await rekeyAssetRows(db, org);
   const targets = await connectorTargets(db, org, conn.id);
   targets.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  const from = Math.min(aggAfter.get(conn.id) ?? 0, targets.length);
-  const agg = await aggregateTargets(db, sys, targets.slice(from), { deadline: end });
-  if (from + agg.done < targets.length) {
-    aggAfter.set(conn.id, from + agg.done);
+  const after = typeof place.after === "string" && UUID.test(place.after) ? place.after : null;
+  const rest = after ? targets.filter((t) => t.id > after) : targets;
+  const agg = await aggregateTargets(db, sys, rest, { deadline: end });
+  if (agg.done < rest.length && place.save) {
+    await place.save(agg.last ?? after);
     return { again: 0 };
   }
-  aggAfter.delete(conn.id);
+  if (after) await place.save?.(null);
   const aged = await agedTargets(db, org);
   if (aged.length) await aggregateTargets(db, sys, aged, { deadline: end + 2000 });
-  await observeDevices(db, sys, conn, await itemDeviceReports(db, org, conn.id), { demo });
+  await observeDevices(sys, conn, await itemDeviceReports(db, org, conn.id), { demo });
   const sent = await sendProblems(sys, conn, { deadline: end });
   return sent.again ? { again: sent.again } : undefined;
 }
 
 /** The job `discovery.status` of a connector (jobs.ts): its status and problems when due, then the upkeep. */
-export async function statusPass(sys: Ctx, connectorId: string, jctx: Pick<JobContext, "deadline">): Promise<JobResult> {
+export async function statusPass(sys: Ctx, connectorId: string, jctx: Pick<JobContext, "deadline"> & UpkeepPlace): Promise<JobResult> {
   if (editionOf(sys.cfg) === "desktop") return;
   const org = sys.org.id;
   const conn = await loadConnector(sys.db, org, connectorId);
@@ -481,7 +606,7 @@ export async function statusPass(sys: Ctx, connectorId: string, jctx: Pick<JobCo
   }
   const end = sliceEnd(Date.now(), jctx.deadline);
   if ((await pullStatus(sys, conn, end)) === "slice") return { again: 0 };
-  return statusUpkeep(sys, conn, end);
+  return statusUpkeep(sys, conn, end, jctx);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -500,36 +625,28 @@ export async function statusSink(tx: Tx, sys: Ctx, event: Row, alert: Row | null
 }
 
 async function signalOf(tx: Tx, sys: Ctx, event: Row, alert: Row | null): Promise<void> {
-  const ciId = isUuid(event.ci_id) ? String(event.ci_id) : isUuid(alert?.ci_id) ? String(alert!.ci_id) : null;
-  const sourceId = isUuid(event.source_id) ? String(event.source_id) : null;
-  if (!ciId || !sourceId) return;
-  const resolved = String(event.status ?? "") === "resolved";
+  if (!isUuid(event.source_id) && !isUuid(alert?.source_id)) return;
   // an event the rules dropped or suppressed raised no alert and says nothing about status
-  if (!alert && !resolved) return;
-  const org = sys.org.id;
-  // a demo CI's row only inside the demo scope, a real one's only outside it
-  if ((await isDemoRow(tx, org, ciId)) !== (demoScopeOrg() === org)) return;
-  const conn = await tx.one<{ options: Row | null }>(`select options from sm_discovery_connectors where org_id = $1 and event_source_id = $2 and deleted_at is null limit 1`, [org, sourceId]);
-  const match = typeof conn?.options?.availability_match === "string" ? String(conn.options.availability_match) : null;
-  const open = alert ? ALERT_OPEN_STATES.includes(String(alert.state)) : false;
-  const signal = !open || resolved ? null : alert?.state === "maintenance" ? "maintenance"
-    : alertSignal({ status: event.status, severity: alert?.severity ?? event.severity, metric: event.metric, resource: event.resource, tags: event.tags, message: event.message }, match);
-  const row = await tx.one<{ signals: Row | null }>(`select signals from sm_discovery_states where org_id = $1 and deleted_at is null and target_table = 'ci' and target_id = $2 for update`, [org, ciId]);
-  const signals: Row = { ...(row?.signals && typeof row.signals === "object" ? row.signals : {}) };
-  const prev = signals[sourceId] ?? null;
-  if (signal) {
-    const since = prev?.state === signal ? prev.since : iso(event.occurred_at && Date.parse(String(event.occurred_at)) <= Date.now() ? event.occurred_at : null) ?? new Date().toISOString();
-    signals[sourceId] = { state: signal, since, alert_id: alert?.id ?? null };
-  } else delete signals[sourceId];
-  if (JSON.stringify(signals[sourceId] ?? null) === JSON.stringify(prev)) return;
-  if (!row && !signal) return;
-  await tx.query(
-    `insert into sm_discovery_states as s (id, org_id, target_table, target_id, ci_id, asset_id, signals, origin)
-     values ($1, $2, 'ci', $3::text, $4::uuid, (select a.id from sm_assets a where a.org_id = $2 and a.ci_id = $4::uuid and a.deleted_at is null order by a.created_at limit 1), $5::jsonb, $6)
-     on conflict (org_id, target_table, target_id) where deleted_at is null do update set signals = excluded.signals, updated_at = now()`,
-    [uuidv7(), org, ciId, ciId, JSON.stringify(signals), sys.cfg.origin ?? "cloud"],
-  );
-  await aggregateTargets(tx, sys, [{ table: "ci", id: ciId }]);
+  if (!alert && String(event.status ?? "") !== "resolved") return;
+  // the source's signal on the CI is read from all its open alerts there, not from this event alone
+  await refreshAlertSignals(tx, sys, [alert?.ci_id, event.ci_id].filter(isUuid).map(String));
+}
+
+/** Alert facts that can change a CI's signal when an alert is edited outside the event pipeline. */
+const ALERT_SIGNAL_FIELDS = new Set(["ci_id", "source_id", "state", "severity", "metric", "resource", "tags", "short_description"]);
+
+/**
+ * Alert changes made outside the event pipeline (a maintenance or snooze event management ended, a person closing or
+ * suppressing an alert, a CI changed by hand) reach the CI's status: the alert's CI, and its previous one, again.
+ */
+async function alertChanged(e: RecordEvent, jctx: JobContext): Promise<void> {
+  if (!isUuid(e.org_id) || !isUuid(e.id) || editionOf({ mode: jctx.cfg.mode ?? "cloud", server: jctx.cfg.server }) === "desktop") return;
+  if (e.kind === "record.updated" && !(e.changed ?? []).some((c) => ALERT_SIGNAL_FIELDS.has(c))) return;
+  const a = await jctx.db.one<{ ci_id: string | null }>(`select ci_id::text as ci_id from sm_alerts where org_id = $1 and id = $2`, [e.org_id, e.id]);
+  const ids = [a?.ci_id, e.changes?.ci_id?.from].filter(isUuid).map(String);
+  if (!ids.length) return;
+  const sys = await systemCtx(jctx.cfg, e.org_id);
+  await sys.write((tx) => refreshAlertSignals(tx, sys, ids), { internal: true });
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -553,6 +670,7 @@ export function installDiscoveryStatus(): void {
   if (installed) return;
   installed = true;
   registerEventSink(statusSink);
+  onRecordEvent("discovery.alert_status", alertChanged, { tables: ["alert"], kinds: ["record.created", "record.updated", "record.state_changed", "record.deleted"] });
   registerJobHandler(DEVICE_JOB, async (job, jctx) => {
     const a = await admittedJob(job, jctx);
     if (!a || !("orgId" in a)) return a ?? undefined;
@@ -599,6 +717,26 @@ export interface BoardQuery {
 }
 
 const wordOf = (s: string | null | undefined) => STATUS_WORDS.find((w) => w.value === s);
+
+/** The board's order, worst first — one ranking for the SQL of each side and for the merge of the two sides. */
+const BOARD_ORDER = ["down", "unreachable", "warning", "maintenance", "off", "up"] as const;
+const boardRank = (s: unknown): number => {
+  const i = BOARD_ORDER.indexOf(s as (typeof BOARD_ORDER)[number]);
+  return i < 0 ? 0 : BOARD_ORDER.length - i;
+};
+const BOARD_RANK_SQL = `case s.monitor_status ${BOARD_ORDER.map((x, i) => `when '${x}' then ${BOARD_ORDER.length - i}`).join(" ")} else 0 end`;
+const sinceMs = (v: unknown): number => (v === null || v === undefined || v === "" ? -Infinity : new Date(v as string).getTime());
+/** As the SQL orders: rank desc, then monitor_since desc nulls last, then the row's id. */
+export function boardOrder(x: Row, y: Row): number {
+  const r = boardRank(y.monitor_status) - boardRank(x.monitor_status);
+  if (r) return r;
+  const a = sinceMs(x.monitor_since);
+  const b = sinceMs(y.monitor_since);
+  if (a !== b) return b > a ? 1 : -1;
+  const ix = String(x.id ?? "");
+  const iy = String(y.id ?? "");
+  return ix < iy ? -1 : ix > iy ? 1 : 0;
+}
 
 function chipSql(chip: BoardChip | undefined, params: unknown[]): string {
   if (!chip) return "true";
@@ -653,18 +791,16 @@ export async function statusBoard(ctx: Ctx, query: BoardQuery = {}): Promise<{ r
     total += Number(n?.n ?? 0);
     params.push(page * size);
     const got = await ctx.db.query<Row>(
-      `select s.target_table, s.target_id, s.ci_id, s.asset_id, s.monitor_status, s.monitor_since, s.monitor_message, s.sources, s.last_contact_at, s.stale_since,
+      `select s.id, s.target_table, s.target_id, s.ci_id, s.asset_id, s.monitor_status, s.monitor_since, s.monitor_message, s.sources, s.last_contact_at, s.stale_since,
               t.name, ${side.table === "ci" ? "t.class as class, t.location_id, null::text as category" : "null::text as class, t.location_id, t.category"},
               a.branch_id, a.category as asset_category, a.device_status
        ${side.from} and ${chip}
-       order by case s.monitor_status when 'down' then 6 when 'unreachable' then 5 when 'warning' then 4 when 'maintenance' then 3 when 'off' then 2 when 'up' then 1 else 0 end desc,
-                s.monitor_since desc nulls last, s.id limit $${params.length}`,
+       order by ${BOARD_RANK_SQL} desc, s.monitor_since desc nulls last, s.id limit $${params.length}`,
       params,
     );
     rows.push(...got);
   }
-  const order = (s: string | null | undefined) => (s === "maintenance" ? 3.5 : stateRank(s));
-  rows.sort((x, y) => order(y.monitor_status) - order(x.monitor_status) || String(iso(y.monitor_since) ?? "").localeCompare(String(iso(x.monitor_since) ?? "")));
+  rows.sort(boardOrder);
   const slice = rows.slice((page - 1) * size, page * size).map((r) => ({
     target_table: r.target_table, target_id: r.target_id, ci_id: r.ci_id ?? null, asset_id: r.asset_id ?? null, name: r.name ?? null,
     class: r.class ?? null, category: r.category ?? r.asset_category ?? null, branch_id: r.branch_id ?? null, location_id: r.location_id ?? null,
@@ -703,7 +839,7 @@ export async function statusPanel(ctx: Ctx, table: "ci" | "asset", id: string): 
   const params: unknown[] = [org, ciId, assetId];
   const where = readable(ctx, itemDef, "i", params, env);
   const sources = await ctx.db.query<Row>(
-    `select i.id as item_id, i.connector_id, k.name as connector_name, k.kind, i.state, i.status, i.status_since, i.status_message, i.last_contact_at, i.listed_at, i.link_url
+    `select i.id as item_id, i.connector_id, k.name as connector_name, k.kind, i.state, i.status, i.status_since, i.status_message, i.last_contact_at, ${REPORTED_AT} as reported_at, i.link_url
      from sm_discovery_items i join sm_discovery_connectors k on k.org_id = i.org_id and k.id = i.connector_id and k.deleted_at is null
      where i.org_id = $1 and i.deleted_at is null and (i.state is null or i.state not in ('gone', 'ignored'))
        and (($2::uuid is not null and i.ci_id = $2::uuid) or ($3::uuid is not null and i.asset_id = $3::uuid)) and ${where}
@@ -721,7 +857,7 @@ export async function statusPanel(ctx: Ctx, table: "ci" | "asset", id: string): 
     status,
     sources: sources.map((s) => ({
       connector_id: s.connector_id, name: s.connector_name, kind: s.kind, state: s.state ?? null, status: s.status ?? null, status_label: wordOf(s.status)?.label ?? null,
-      status_since: iso(s.status_since), message: s.status_message ?? null, last_contact_at: iso(s.last_contact_at), reported_at: iso(s.listed_at), link_url: s.link_url ?? null,
+      status_since: iso(s.status_since), message: s.status_message ?? null, last_contact_at: iso(s.last_contact_at), reported_at: iso(s.reported_at), link_url: s.link_url ?? null,
     })),
     signals: signalKeys.map(([k, v]) => ({ key: k, name: names.get(k) ?? null, state: v?.state ?? null, since: iso(v?.since), alert_id: v?.alert_id ?? null })),
   };

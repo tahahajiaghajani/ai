@@ -17,9 +17,10 @@ import { uuidv7 } from "@shared/id";
 import type { Ctx } from "../../context";
 import { pgArray, type Queryable } from "../../db";
 import { updateIn } from "../../engine";
-import { enqueue, type JobResult } from "../../jobs";
+import { enqueue, type JobInput, type JobResult } from "../../jobs";
 import { setStatusInfo } from "../itam/bank";
 import { loadConnector } from "./runner";
+import { REPORTED_AT } from "./stage";
 
 type Row = Record<string, any>;
 
@@ -81,13 +82,17 @@ export interface DeviceReport {
   at: string;
 }
 
-/** The connector's ATM items' device values (strongly identified, linked to a fleet asset) as of their last listing. */
+/**
+ * The connector's ATM items' device values as last reported: only items matched to their fleet asset BY terminal id or
+ * serial (`matched_by`, what matchAtms sets) — an item that merely carries one but was linked by hostname or address
+ * (the IRE's match) never reports a device value (§9.5).
+ */
 export async function itemDeviceReports(q: Queryable, orgId: string, connectorId: string): Promise<DeviceReport[]> {
   const rows = await q.query<Row>(
-    `select i.ci_id, i.asset_id, i.data->'status'->>'device_status' as raw, i.data->'status'->>'since' as since, i.listed_at as at
+    `select i.ci_id, i.asset_id, i.data->'status'->>'device_status' as raw, i.data->'status'->>'since' as since, ${REPORTED_AT} as at
      from sm_discovery_items i join sm_assets a on a.org_id = i.org_id and a.id = i.asset_id and a.deleted_at is null and a.category = any($3::text[])
      where i.org_id = $1 and i.connector_id = $2 and i.deleted_at is null and i.kind = 'atm' and i.state = 'linked'
-       and (i.data ? 'terminal_id' or i.data ? 'serial_number') and nullif(i.data->'status'->>'device_status', '') is not null`,
+       and i.matched_by in ('terminal_id', 'serial_number') and nullif(i.data->'status'->>'device_status', '') is not null`,
     [orgId, connectorId, pgArray(FLEET_CATEGORIES)],
   );
   return rows.map((r) => ({
@@ -135,46 +140,54 @@ async function storeDevice(q: Queryable, orgId: string, origin: string, rows: { 
  * Feed reported device values through the hysteresis (`deviceStep`): pending values are kept on the target's row, and
  * a value that may be applied — now, or when its hold ends — gets its `discovery.device_apply` job. Values of assets
  * outside the fleet categories are ignored. Returns how many are pending and how many were queued to apply now.
+ * One transaction, the target rows locked as the job locks them: a job never runs before the value it applies is
+ * stored, and a job that applied meanwhile never has its bookkeeping overwritten by values read before it ran.
  */
-export async function observeDevices(q: Queryable, sys: Ctx, conn: Row, reports: DeviceReport[], opts: { now?: number; demo?: boolean } = {}): Promise<{ pending: number; ready: number }> {
+export async function observeDevices(sys: Ctx, conn: Row, reports: DeviceReport[], opts: { now?: number; demo?: boolean } = {}): Promise<{ pending: number; ready: number }> {
   if (!reports.length) return { pending: 0, ready: 0 };
   const org = sys.org.id;
   const now = opts.now ?? Date.now();
-  const assets = await q.query<Row>(
-    `select id, device_status, device_status_at, category from sm_assets where org_id = $1 and deleted_at is null and id = any($2::uuid[]) and category = any($3::text[])`,
-    [org, pgArray([...new Set(reports.map((r) => r.asset_id))]), pgArray(FLEET_CATEGORIES)],
-  );
-  const assetOf = new Map(assets.map((a) => [String(a.id), a]));
-  const states = await q.query<Row>(
-    `select target_table, target_id, ${DEVICE_COLS.join(", ")} from sm_discovery_states where org_id = $1 and deleted_at is null and asset_id = any($2::uuid[])`,
-    [org, pgArray([...assetOf.keys()])],
-  );
-  const stateOf = new Map(states.map((s) => [`${s.target_table}:${s.target_id}`, s]));
-  const rules = deviceRules(conn);
-  const map = conn.device_status_map && typeof conn.device_status_map === "object" ? (conn.device_status_map as Record<string, unknown>) : {};
-  const writes: { target_table: string; target_id: string; asset_id: string; cols: DeviceColumns }[] = [];
-  let pending = 0;
-  let ready = 0;
-  const seen = new Set<string>();
-  for (const r of reports) {
-    const asset = assetOf.get(r.asset_id);
-    const key = `${r.target_table}:${r.target_id}`;
-    if (!asset || seen.has(key)) continue;
-    seen.add(key);
-    const cur = columnsOf(stateOf.get(key));
-    const step = deviceStep(cur, { device_status: asset.device_status ?? null, device_status_at: iso(asset.device_status_at) }, { value: mapDeviceStatus(r.raw, map), since: r.since ?? null, at: r.at }, rules, now);
-    if (!sameColumns(cur, step.next)) writes.push({ target_table: r.target_table, target_id: r.target_id, asset_id: r.asset_id, cols: step.next });
-    if (step.next.device_pending) pending++;
-    if (step.apply || step.wake_at) {
-      if (step.apply) ready++;
-      await enqueue(q, {
-        kind: DEVICE_JOB, orgId: org, payload: { asset: r.asset_id, connector: conn.id, ...(opts.demo ? { __demo: true } : {}) },
-        dedupeKey: `discovery.device:${r.asset_id}`, runAt: step.apply ? undefined : step.wake_at ?? undefined, maxAttempts: 5,
-      });
+  return sys.write(async (tx) => {
+    const assets = await tx.query<Row>(
+      `select id, device_status, device_status_at, category from sm_assets where org_id = $1 and deleted_at is null and id = any($2::uuid[]) and category = any($3::text[])`,
+      [org, pgArray([...new Set(reports.map((r) => r.asset_id))]), pgArray(FLEET_CATEGORIES)],
+    );
+    const assetOf = new Map(assets.map((a) => [String(a.id), a]));
+    const states = await tx.query<Row>(
+      `select target_table, target_id, ${DEVICE_COLS.join(", ")} from sm_discovery_states where org_id = $1 and deleted_at is null and asset_id = any($2::uuid[])
+       order by id for update`,
+      [org, pgArray([...assetOf.keys()])],
+    );
+    const stateOf = new Map(states.map((s) => [`${s.target_table}:${s.target_id}`, s]));
+    const rules = deviceRules(conn);
+    const map = conn.device_status_map && typeof conn.device_status_map === "object" ? (conn.device_status_map as Record<string, unknown>) : {};
+    const writes: { target_table: string; target_id: string; asset_id: string; cols: DeviceColumns }[] = [];
+    const jobs: JobInput[] = [];
+    let pending = 0;
+    let ready = 0;
+    const seen = new Set<string>();
+    for (const r of reports) {
+      const asset = assetOf.get(r.asset_id);
+      const key = `${r.target_table}:${r.target_id}`;
+      if (!asset || seen.has(key)) continue;
+      seen.add(key);
+      const cur = columnsOf(stateOf.get(key));
+      const step = deviceStep(cur, { device_status: asset.device_status ?? null, device_status_at: iso(asset.device_status_at) }, { value: mapDeviceStatus(r.raw, map), since: r.since ?? null, at: r.at }, rules, now);
+      if (!sameColumns(cur, step.next)) writes.push({ target_table: r.target_table, target_id: r.target_id, asset_id: r.asset_id, cols: step.next });
+      if (step.next.device_pending) pending++;
+      if (step.apply || step.wake_at) {
+        if (step.apply) ready++;
+        jobs.push({
+          kind: DEVICE_JOB, orgId: org, payload: { asset: r.asset_id, connector: conn.id, ...(opts.demo ? { __demo: true } : {}) },
+          dedupeKey: `discovery.device:${r.asset_id}`, runAt: step.apply ? undefined : step.wake_at ?? undefined, maxAttempts: 5,
+        });
+      }
     }
-  }
-  await storeDevice(q, org, sys.cfg.origin ?? "cloud", writes);
-  return { pending, ready };
+    // the values first, then their jobs: both commit together
+    await storeDevice(tx, org, sys.cfg.origin ?? "cloud", writes);
+    for (const j of jobs) await enqueue(tx, j);
+    return { pending, ready };
+  }, { internal: true, retry: true });
 }
 
 /**

@@ -12,7 +12,7 @@
 // (else its first observation) and is applied only after `device_hold_minutes` and, for pulled sources, two passes in a
 // row; a value that reverts earlier never opens a period. A connector never sets nor overwrites «در نگهداری», and a
 // person's change (the asset's value differs from what Kariz last wrote) is respected until the tool reports a
-// transition after it or `manual_hold_hours` pass.
+// transition after it or `manual_hold_hours` pass — then the tool's value starts no earlier than the hold's end.
 // Imported by the UI: keep it free of server imports.
 import type { StatusState } from "./types";
 
@@ -169,11 +169,18 @@ export function deviceStep(cur: DeviceColumns, asset: { device_status: string | 
   // only a person sets and clears maintenance
   if (current === "maintenance") return clear("maintenance");
   // a person's change: the asset's value is not what Kariz last wrote — respected until the tool reports a transition
-  // after it, or until manual_hold_hours pass
+  // after it, or until manual_hold_hours pass. Passed by time, the tool's value counts again only from the hold's end
+  // (never back over the person's period) and only while the tool still reports it after the person's change.
+  let notBefore = -Infinity;
   if (cur.device_applied && current !== cur.device_applied) {
     const personAt = ms(asset.device_status_at);
     const transitionAfter = Number.isFinite(personAt) && ms(next.device_reported_since) > personAt;
-    if (Number.isFinite(personAt) && !transitionAfter && now < personAt + rules.manual_hold_hours * 3600_000) return clear("person");
+    if (Number.isFinite(personAt) && !transitionAfter) {
+      const personEnd = personAt + rules.manual_hold_hours * 3600_000;
+      const lastSeen = obs ? ms(obs.at) : ms(next.device_pending_since);
+      if (now < personEnd || !(lastSeen > personAt)) return clear("person");
+      notBefore = personEnd;
+    }
   }
   if (!value || !(CONNECTOR_DEVICE_STATUSES as readonly string[]).includes(value)) return clear("unmapped");
   if (value === current) return clear("same");
@@ -186,7 +193,7 @@ export function deviceStep(cur: DeviceColumns, asset: { device_status: string | 
   const holdEnd = from + rules.hold_minutes * 60_000;
   const held = now >= holdEnd;
   const polled = !rules.pulled || (next.device_pending_polls ?? 0) >= 2;
-  if (held && polled) return { next, apply: { value, at: new Date(from).toISOString() }, wake_at: null };
+  if (held && polled) return { next, apply: { value, at: new Date(Math.max(from, notBefore)).toISOString() }, wake_at: null };
   return { next, apply: null, wake_at: held ? null : new Date(holdEnd).toISOString(), note: "waiting" };
 }
 

@@ -7,7 +7,7 @@ import { deviceStep, mapDeviceStatus, type DeviceColumns, type DeviceRules } fro
 import { createIn } from "@server/engine";
 import { seedItamDefaults } from "@server/modules/itam";
 import { setDeviceStatus } from "@server/modules/itam/bank";
-import { applyDevice } from "@server/modules/discovery/device";
+import { applyDevice, itemDeviceReports, observeDevices, STRONG_ONLY_MESSAGE } from "@server/modules/discovery/device";
 import { applyPushStatus } from "@server/modules/discovery/push";
 import { loadConnector } from "@server/modules/discovery/runner";
 import { discoveryWorld, type DiscoveryWorld, type Row } from "./discovery-helpers";
@@ -51,8 +51,11 @@ describe("the ATM hysteresis (design A §9.5)", () => {
     // a transition after the person's change: back to the hold
     const t = deviceStep(applied, person, { value: "offline", since: at(-5), at: at(0) }, PUSH, T0);
     expect(t).toMatchObject({ apply: null, note: "waiting", next: { device_pending: "offline" } });
-    // a day later the person's value no longer holds the tool back
-    expect(deviceStep(applied, person, { value: "out_of_cash", since: at(-60), at: at(25 * 60) }, PUSH, T0 + 25 * 3600_000).apply).toEqual({ value: "out_of_cash", at: at(-60) });
+    // a day later the person's value no longer holds the tool back — from the hold's end, never back over the
+    // person's own period
+    expect(deviceStep(applied, person, { value: "out_of_cash", since: at(-60), at: at(25 * 60) }, PUSH, T0 + 25 * 3600_000).apply).toEqual({ value: "out_of_cash", at: at(24 * 60 - 10) });
+    // ... and only while the tool still reports it after the person's change (not a report read again)
+    expect(deviceStep(applied, person, { value: "out_of_cash", since: at(-60), at: at(-20) }, PUSH, T0 + 25 * 3600_000)).toMatchObject({ apply: null, note: "person" });
   });
 });
 
@@ -137,5 +140,60 @@ describe("device_status from a tool, end to end (design A §9.5)", () => {
     await later(120);
     expect((await asset()).device_status).toBe("maintenance");
     expect(await w.one<Row>(`select device_pending from sm_discovery_states where asset_id = $1`, [atm.id])).toEqual({ device_pending: null });
+  });
+
+  describe("a second ATM", () => {
+    let atm2: Row;
+    beforeAll(async () => {
+      const model = (await w.e.owner.post(`${w.P}/r/asset_model/query`, { filter: { f: "category", op: "eq", v: "atm" }, size: 1 })).rows[0].id;
+      atm2 = await w.sys.write((tx) => createIn(tx, w.sys, "asset", { model_id: model, state: "in_use", terminal_id: "1022" }, { trusted: true }));
+    });
+
+    it("a value applied at once is stored before its job is queued, in one transaction", async () => {
+      // what the job would find, read on the connection that queues it at the moment it is queued
+      const found: unknown[] = [];
+      const spy = <T extends object>(q: T): T =>
+        new Proxy(q, {
+          get(t, k, r) {
+            const v = Reflect.get(t, k, r);
+            if ((k !== "one" && k !== "query") || typeof v !== "function") return typeof v === "function" ? v.bind(t) : v;
+            return async (sql: string, params?: unknown[]) => {
+              if (typeof sql === "string" && sql.includes("insert into sm_jobs") && params?.[2] === "discovery.device_apply") {
+                const st = await (t as unknown as { one: (s: string, p: unknown[]) => Promise<Row | null> }).one(`select device_pending from sm_discovery_states where asset_id = $1 and deleted_at is null`, [atm2.id]);
+                found.push(st?.device_pending ?? null);
+              }
+              return v.call(t, sql, params);
+            };
+          },
+        });
+      const sys = { ...w.sys, db: spy(w.sys.db), write: ((fn: (tx: never) => Promise<unknown>, o?: never) => w.sys.write((tx) => fn(spy(tx) as never), o)) as typeof w.sys.write };
+      const conn2 = (await loadConnector(w.e.db, w.e.org, conn.id))!;
+      const since = new Date(Date.now() - 3600_000).toISOString();
+      const r = await observeDevices(sys, conn2, [{ target_table: "asset", target_id: atm2.id, asset_id: atm2.id, raw: "OFFLINE", since, at: new Date().toISOString() }]);
+      expect(r).toEqual({ pending: 1, ready: 1 });
+      expect(found).toEqual(["offline"]);
+      await w.drain();
+      expect((await w.one<Row>(`select device_status from sm_assets where id = $1`, [atm2.id])).device_status).toBe("offline");
+    });
+
+    it("an item linked by its address never reports a device value, though it carries a terminal id", async () => {
+      const ext = "atm-by-ip";
+      await w.q(
+        `insert into sm_discovery_items (id, org_id, connector_id, external_id, kind, name, state, asset_id, matched_by, listed_at, first_seen_at, mismatch_state, data, origin)
+         values (gen_random_uuid(), $1, $2, $3, 'atm', $3, 'linked', $4, 'ip_address', now(), now(), 'none',
+                 jsonb_build_object('external_id', $3::text, 'terminal_id', '1021', 'ip', '10.20.3.15', 'status', jsonb_build_object('state', 'up', 'device_status', 'OUT_OF_SERVICE')), 'cloud')`,
+        [w.e.org, conn.id, ext, atm2.id],
+      );
+      try {
+        expect((await itemDeviceReports(w.e.db, w.e.org, conn.id)).filter((x) => x.asset_id === atm2.id)).toEqual([]);
+        const answers = await applyPushStatus(w.sys, (await loadConnector(w.e.db, w.e.org, conn.id))!, [{ external_id: ext, state: "up", device_status: "CASH_OUT" }], new Date());
+        expect(answers[0]).toMatchObject({ result: "updated", warnings: [STRONG_ONLY_MESSAGE] });
+        // matched to the asset by its terminal id, the same item reports
+        await w.q(`update sm_discovery_items set matched_by = 'terminal_id' where connector_id = $1 and external_id = $2`, [conn.id, ext]);
+        expect((await itemDeviceReports(w.e.db, w.e.org, conn.id)).filter((x) => x.asset_id === atm2.id)).toHaveLength(1);
+      } finally {
+        await w.q(`update sm_discovery_items set deleted_at = now() where connector_id = $1 and external_id = $2`, [conn.id, ext]);
+      }
+    });
   });
 });
