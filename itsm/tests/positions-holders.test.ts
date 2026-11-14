@@ -286,3 +286,15 @@ describe("holders from a spreadsheet", () => {
     );
   });
 });
+
+describe("the «نقش سازمانی» field type (design F §3.1)", () => {
+  it("is offered once positions exist; a field of it names a position", async () => {
+    const types = await e.owner.get(`${P}/fields/types`);
+    expect(types.builtin.find((t: { key: string }) => t.key === "position")).toMatchObject({ available: true, storage: "ref", widget: "position" });
+    const lib = (await e.owner.post(`${P}/fields/library`, { name: "u_approver_post", label: "سمت تأییدکننده", type: "position" }, 201)).row;
+    await e.owner.post(`${P}/fields/attach`, { table: "todo", field: lib.id }, 201);
+    const t = (await e.owner.post(`${R}/todo`, { short_description: "ارجاع به سمت", u_approver_post: POS.head })).row;
+    expect(t.u_approver_post).toBe(POS.head);
+    await e.owner.post(`${R}/todo`, { short_description: "واحد به جای سمت", u_approver_post: U.vanak }, 400);
+  });
+});
