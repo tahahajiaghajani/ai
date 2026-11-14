@@ -68,6 +68,8 @@
   --xy-handle-border-color-default: var(--ds-line-3);
   --xy-background-pattern-dots-color-default: var(--ds-line-2);
   --xy-minimap-background-color-default: var(--ds-surface);
+  --xy-minimap-mask-background-color-default: color-mix(in oklab, var(--ds-sunken) 60%, transparent);
+  --xy-minimap-node-background-color-default: var(--ds-line-3);
   --xy-controls-button-background-color-default: var(--ds-surface);
   --xy-controls-button-background-color-hover-default: var(--ds-accent-tint);
   --xy-controls-button-color-default: var(--ds-text-2);
