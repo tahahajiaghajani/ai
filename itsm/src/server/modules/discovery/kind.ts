@@ -58,6 +58,18 @@ export interface ConnCtx {
   fetchJson<T = unknown>(path: string, init?: FetchInit): Promise<FetchResult<T>>;
   fetchText(path: string, init?: FetchInit): Promise<FetchResult<string>>;
   log(message: string, data?: unknown): void;
+  /**
+   * What the connector keeps of these tool ids: the normalised record and when a pass last listed it. A kind that reads
+   * details only when needed (vCenter, §7.6) asks it; absent where nothing is kept (the relay), and the kind reads all.
+   */
+  known?(externalIds: string[]): Promise<Map<string, KnownItem>>;
+}
+
+/** An item the connector keeps (ConnCtx.known). */
+export interface KnownItem {
+  record: DiscoveredRecord;
+  /** when a pass last listed it (ISO) */
+  listed_at: string | null;
 }
 
 /** A kind's code: its descriptor's facts, the headers it may send, its options' schema and what it reads (§6.1). */

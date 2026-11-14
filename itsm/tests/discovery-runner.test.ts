@@ -391,7 +391,7 @@ describe("the connector's configuration and the sweep (design A §5.1, §7.2)", 
     const P = w.P;
     const refused = await w.e.owner.req("PATCH", `${P}/r/discovery_connector/${c.id}`, { mapping: { ...base.mapping, owned_by: "$.owner" } }, 400);
     expect(refused.error.message).toContain(REFUSED_FIELD_MESSAGE);
-    const stub = await w.e.owner.req("POST", `${P}/r/discovery_connector`, { ...base, name: "زبیکس", kind: "zabbix" }, 400);
+    const stub = await w.e.owner.req("POST", `${P}/r/discovery_connector`, { ...base, name: "جی‌ال‌پی‌آی", kind: "glpi" }, 400);
     expect(stub.error.message).toContain("هنوز ساخته نشده");
     const demo = await w.e.owner.req("POST", `${P}/r/discovery_connector`, { name: "نمایشی", kind: "demo" }, 400);
     expect(demo.error.message).toContain("بستهٔ داده‌های نمایشی");
