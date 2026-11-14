@@ -11,8 +11,10 @@
 // Measured: the cold start (launch to the first interactive screen) and a second start, every route change (to content
 // visible and to the last API answer), the API calls the page made (count and time), the memory (working set) and CPU
 // of the app's processes — main, renderer, the local server with its database (PGlite) — every second, the database's
-// folder and its write-ahead log at the end. Gate: no console error or uncaught exception, no error screen, and the
-// budgets below. Output: report.json, report.md (also the job summary), screenshots, the app's log.
+// write-ahead log every second while the app runs (its peak, and the checkpoints the app logged before the first close:
+// ./desktop-e2e-wal.mjs) and the folder at the end. Gate: no console error or uncaught exception, no error screen, a
+// checkpoint of the app's own scheduler while it ran, and the budgets below. Output: report.json, report.md (also the
+// job summary), screenshots, the app's log.
 //
 //   node scripts/desktop-e2e.mjs --exe "%LOCALAPPDATA%\Programs\Kariz\Kariz.exe" --out <dir>
 //   (local: --exe node_modules/electron/dist/electron --app <unpacked app folder> --data <data folder> --no-sandbox)
@@ -21,6 +23,7 @@ import { appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readF
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Checks, parseArgs, log, sleep } from "./bank-sim/lib.mjs";
+import { WalWatch, checkpointReasons, runtimeCheckpoints } from "./desktop-e2e-wal.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const a = parseArgs();
@@ -66,7 +69,10 @@ const BUDGETS = {
   total_peak_mb: 3_000,
   // the local server while the app sits idle after the demo pack (its indexing and jobs): 21% of a core
   idle_backend_cpu_pct: 30,
-  // the database's write-ahead log after the run (64 MB: src/server/db/wal.ts)
+  // the database's write-ahead log while the app runs, peak of the 1 s samples (src/server/db/wal.ts checkpoints after
+  // 32 MB of log when the database is idle and at once past 64 MB). Measured while it runs: after the app closes, the
+  // close and shutdown checkpoints trim pg_wal to max_wal_size (64 MB) whatever happened before, so that is reported, not
+  // gated. Without the runtime checkpoints the pack «کوچک» alone leaves 300 MB and more (PERFORMANCE_FA §15)
   pg_wal_mb: 160,
 };
 
@@ -211,10 +217,14 @@ async function closeApp(label) {
 let sampler = null;
 let sampling = false;
 const samples = [];
+/** pg_wal of the app's data folder, every second while the app runs (its peak is gated). */
+const wal = new WalWatch(join(DATA, "db"));
 
 function startSampler() {
   stopSampler();
   sampler = setInterval(async () => {
+    // the log on disk first: a plain directory listing, whatever the app's process metrics take
+    if (app) wal.sample(phase);
     if (!app || sampling) return;
     sampling = true;
     try {
@@ -557,7 +567,10 @@ function markdown() {
   L.push(`- شروع سرد (نخستین اجرا پس از نصب تا صفحهٔ راه‌اندازی): **${report.starts.cold?.interactive_ms ?? "—"} ms** (پنجرهٔ اصلی ${report.starts.cold?.window_ms ?? "—"} ms، روی صفحه ${report.starts.cold?.shown_ms ?? "—"} ms)${srv(report.starts.cold?.server)}`);
   L.push(`- شروع دوم (تا نخستین صفحه): **${report.starts.warm?.interactive_ms ?? "—"} ms** (روی صفحه ${report.starts.warm?.shown_ms ?? "—"} ms)${srv(report.starts.warm?.server)}`);
   L.push(`- بستهٔ نمایشی «کوچک»: ${report.demo.state ?? "—"} در ${report.demo.seconds ?? "—"} s`);
-  L.push(`- پایگاه داده پس از اجرا: پوشه ${report.database.folder_mb ?? "—"} MB، pg_wal ${report.database.pg_wal_mb ?? "—"} MB (${report.database.pg_wal_segments ?? "—"} قطعه)`);
+  const w = report.database.in_run ?? {};
+  const ck = report.database.first_run_checkpoints ?? {};
+  L.push(`- گزارش پیش‌نویس پایگاه داده (pg_wal) هنگام کار: اوج **${w.peak_mb ?? "—"} MB** (${w.peak_segments ?? "—"} قطعه، مرحلهٔ ${w.peak_phase ?? "—"}، ${w.samples ?? 0} نمونه)؛ پس از بستهٔ نمایشی ${report.database.after_demo?.mb ?? "—"} MB، پیش از بستن ${report.database.before_first_close?.mb ?? "—"} MB؛ checkpointهای زمان‌بند برنامه پیش از بستن: حجم ${ck.volume ?? 0}، زمان ${ck.age ?? 0}`);
+  L.push(`- پایگاه داده پس از اجرا: پوشه ${report.database.folder_mb ?? "—"} MB، pg_wal ${report.database.pg_wal_mb ?? "—"} MB (${report.database.pg_wal_segments ?? "—"} قطعه؛ checkpointهای بستن و شروع آن را به max_wal_size می‌رسانند)`);
   L.push(`- حافظه (اوج working set): سرور محلی و PGlite ${p.peak_mb?.server} MB، رندرر ${p.peak_mb?.renderer} MB، اصلی ${p.peak_mb?.main} MB، GPU ${p.peak_mb?.gpu} MB، جمع ${p.total_peak_mb} MB`);
   L.push(`- CPU (میانگین / بیشینه، درصد یک هسته): سرور ${p.cpu_avg_pct?.server}/${p.cpu_max_pct?.server}، رندرر ${p.cpu_avg_pct?.renderer}/${p.cpu_max_pct?.renderer}، اصلی ${p.cpu_avg_pct?.main}/${p.cpu_max_pct?.main}; در بیکاری: سرور ${p.by_phase?.idle?.cpu?.server ?? "—"}`, "");
   for (const persona of ["admin", "member"]) {
@@ -575,6 +588,10 @@ function markdown() {
   if (failed.length) L.push("", "## ناموفق", "", ...failed.map((f) => `- ${f.what}${f.detail ? ` — ${f.detail.slice(0, 300)}` : ""}`));
   return L.join("\n");
 }
+
+const LOG_FILE = join(DATA, "logs", "app.log");
+/** The app's log so far (desktop/src/main.ts rotates it into app.log.1 past 5 MB). */
+const appLog = () => [`${LOG_FILE}.1`, LOG_FILE].filter((f) => existsSync(f)).map((f) => readFileSync(f, "utf8")).join("\n");
 
 /** Summaries, the budgets as checks, the report files (the job summary too), the app's log. */
 function finish() {
@@ -603,15 +620,17 @@ function finish() {
       slowest: Object.entries(slow).sort((x, y) => y[1].max - x[1].max).slice(0, 8).map(([k, v]) => ({ endpoint: k, ...v })),
     };
   }
+  // pg_wal while the app ran (gated), and the folder after the run (reported)
+  report.database.in_run = wal.summary();
   report.database = { ...report.database, ...walOf(join(DATA, "db")) };
   report.known_4xx = known4xx.slice(0, 50);
   report.console_errors = consoleErrors.slice(0, 50);
   C.check(consoleErrors.length === 0, "no console error or uncaught exception in the app's windows during the whole run", consoleErrors.slice(0, 20).join(" | "));
-  const logFile = join(DATA, "logs", "app.log");
-  if (existsSync(logFile)) {
-    copyFileSync(logFile, join(OUT, "app.log"));
-    const text = readFileSync(logFile, "utf8");
-    report.database.checkpoints_logged = (text.match(/database checkpoint\b/g) ?? []).length;
+  if (existsSync(LOG_FILE)) {
+    copyFileSync(LOG_FILE, join(OUT, "app.log"));
+    const text = appLog();
+    // every checkpoint of both runs, by reason (open, migrations, volume, age, backup, close)
+    report.database.checkpoints = checkpointReasons(text);
     // src/desktop/server.ts: «local server on … (database N ms[ from the template], migrations N ms, ready N ms, process N ms)»
     const starts = [...text.matchAll(/local server on \S+ \(database (\d+) ms( from the template)?, migrations (\d+) ms, ready (\d+) ms, process (\d+) ms\)/g)].map((m) => ({
       database_ms: Number(m[1]),
@@ -650,7 +669,12 @@ function finish() {
     budget("total_peak_mb", p.total_peak_mb, BUDGETS.total_peak_mb, "peak working set of all the app's processes (MB)");
     if (p.by_phase.idle) budget("idle_server_cpu_pct", p.by_phase.idle.cpu.server, BUDGETS.idle_backend_cpu_pct, "CPU of the local server while the app sits idle (% of a core)");
   }
-  if (report.database.pg_wal_mb !== undefined) budget("pg_wal_mb", report.database.pg_wal_mb, BUDGETS.pg_wal_mb, "the database's write-ahead log after the run (MB)");
+  // the log is bounded while the app runs only by its own scheduler's checkpoints: their peak, and that they happened
+  if (report.org) budget("pg_wal_peak_mb", report.database.in_run.peak_mb, BUDGETS.pg_wal_mb, `the database's write-ahead log while the app runs, peak of ${report.database.in_run.samples} samples (MB)`);
+  if (report.database.first_run_checkpoints) {
+    const n = runtimeCheckpoints(report.database.first_run_checkpoints);
+    C.check(n >= 1, `the app's own scheduler checkpointed the database log while it ran (${n} by volume or age before the first close, app.log)`, JSON.stringify(report.database.first_run_checkpoints));
+  }
   if (report.close.first) budget("close_ms", report.close.first.ms, BUDGETS.close_ms, "closing the window to the app's exit after the run (ms)");
   report.budget_results = results;
   report.finished = new Date().toISOString();
@@ -699,6 +723,7 @@ async function scenario() {
   const org = await setup();
   report.org = org;
   await demoLoad(org);
+  report.database.after_demo = wal.sample("after-demo");
   await addMember(org);
 
   // 3. the administrator's pages, then the member's
@@ -712,7 +737,11 @@ async function scenario() {
   report.switch_ms = await switchAccount(MEMBER);
   await pages("member", org);
 
-  // 4. closed the way people close it, then a second start
+  // 4. the database's log while the app is still open, and the checkpoints its own scheduler logged in this first run
+  // (after the close nothing tells them apart: the close and shutdown checkpoints trim pg_wal whatever happened)
+  report.database.before_first_close = wal.sample("before-close");
+  report.database.first_run_checkpoints = checkpointReasons(appLog());
+  // closed the way people close it, then a second start
   await closeApp("first");
   report.database.after_first = walOf(join(DATA, "db"));
   phase = "warm-start";

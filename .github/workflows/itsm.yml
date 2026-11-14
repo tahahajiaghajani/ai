@@ -179,9 +179,10 @@ jobs:
     # (itsm/scripts/desktop-e2e.mjs; the app's own flags and security settings untouched) — the first-run setup as a
     # person fills it, the bank demo pack «کوچک», a member added, the main pages as the administrator and, after «خروج»
     # and a sign-in, as the member, the window closed, a second start —, timed (starts, every route change, the API as
-    # the renderer sees it, memory and CPU of the main, renderer and local server processes every second, the database
-    # folder and its write-ahead log at the end) and gated on console errors and budgets. Screenshots, report.json and
-    # report.md (also the job summary) and the app's log as the artifact.
+    # the renderer sees it, memory and CPU of the main, renderer and local server processes every second, the database's
+    # write-ahead log every second while the app runs, its folder at the end) and gated on console errors, budgets (the
+    # log's peak while the app runs among them) and a checkpoint of the app's own scheduler before the first close.
+    # Screenshots, report.json and report.md (also the job summary) and the app's log as the artifact.
     needs: [windows]
     # its own condition: with the default one a job skipped anywhere before `windows` would skip this one too
     if: ${{ !cancelled() && needs.windows.result == 'success' }}
