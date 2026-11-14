@@ -55,7 +55,7 @@ export const NODE_H = 84;
 /** Lay the process out top to bottom with dagre (forward edges only: «بازگشت» edges would turn the ranks over). */
 export function layoutProcess(g: ProcessGraph): ProcessGraph {
   const d = new dagre.graphlib.Graph();
-  d.setGraph({ rankdir: "TB", nodesep: 40, ranksep: 56, marginx: 24, marginy: 24 });
+  d.setGraph({ rankdir: "TB", nodesep: 40, ranksep: 48, marginx: 24, marginy: 24 });
   d.setDefaultEdgeLabel(() => ({}));
   const ids = new Set(g.nodes.map((n) => n.id));
   for (const n of g.nodes) d.setNode(n.id, { width: NODE_W, height: NODE_H });

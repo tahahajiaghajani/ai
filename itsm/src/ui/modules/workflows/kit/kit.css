@@ -521,6 +521,16 @@ button.wfk-list-btn:focus-visible {
 .wfk-radio:hover:not(.is-off) {
   background: var(--ds-accent-tint);
 }
+/* phones: narrower choice columns leave the field names room */
+@media (max-width: 640px) {
+  .wfk-rights-t th.wfk-rc,
+  .wfk-rights-t td.wfk-rc {
+    width: 46px;
+  }
+  .wfk-rights-t thead th.wfk-rc {
+    font-size: 11px;
+  }
+}
 
 /* ------------------------------------------------------------------ the role-then-people picker */
 .wfk-who {
@@ -696,7 +706,7 @@ button.wfk-list-btn:focus-visible {
   gap: var(--ds-space-4);
 }
 .wfk-gallery-canvas {
-  height: 560px;
+  height: 640px;
 }
 @media (max-width: 640px) {
   .wfk-gallery-canvas {

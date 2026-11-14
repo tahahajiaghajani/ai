@@ -280,7 +280,8 @@ function Inner(p: ProcessCanvasProps & { announce: (text: string) => void; wrap:
           target: e.target,
           sourceHandle: e.port ?? "out",
           type: "smoothstep",
-          label: ports.length > 1 && port ? port.label : undefined,
+          // a decision's ways are labelled; a step's only way on («بعدی») is not
+          label: port && (port.key !== "out" || ports.filter((x) => !x.optional).length > 1) ? port.label : undefined,
           className: cx(back && "is-back", shown && (p.taken!.has(e.id) ? "is-taken" : "is-quiet")),
           markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
           selected: selEdges.has(e.id),
