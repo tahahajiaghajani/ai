@@ -224,12 +224,22 @@ function Designer({ initial }: { initial: ProcessDetail }) {
   useLeaveGuard(offers.edit && (state !== "saved" || !!nameErr || conflict), `/${orgId}/${HUB_PATH}`);
   useUndoKeys(editable, hist.undo, hist.redo);
 
+  /**
+   * The draft becomes what the server holds, history and all. The ref changes at once: a save queued behind this one
+   * reads it before the page renders again, and must find nothing to send.
+   */
+  const resetTo = (d: ProcessDetail) => {
+    const next = designerDraft(d);
+    draftRef.current = next;
+    hist.reset(next);
+  };
+
   /** Another designer saved meanwhile: see theirs (dropping mine), or keep mine over it. */
   const settle = async (keepMine: boolean) => {
     try {
       const fresh = await designerApi.detail(api, id);
       setSaved(fresh);
-      if (!keepMine) hist.reset(designerDraft(fresh));
+      if (!keepMine) resetTo(fresh);
       setConflict(false);
       setState("saved");
       if (keepMine) void flush();
@@ -289,7 +299,7 @@ function Designer({ initial }: { initial: ProcessDetail }) {
       try {
         const fresh = await designerApi.restore(api, id, v.id);
         setSaved(fresh);
-        hist.reset(designerDraft(fresh));
+        resetTo(fresh);
         setState("saved");
         setVersions(false);
         setSel(null);
