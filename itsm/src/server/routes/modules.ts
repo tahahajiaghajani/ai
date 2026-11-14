@@ -76,6 +76,8 @@ import { fieldServiceRoutes } from "./field_service";
 import { installAdminModule } from "../modules/admin";
 import { installFieldsModule } from "../modules/fields";
 import { fieldsRoutes } from "./fields";
+import { installFormsModule } from "../modules/forms";
+import { formsRoutes } from "./forms";
 import { adminTenantRoutes } from "./admin-tenant";
 import { demoRoutes } from "./demo";
 import { installDemoModule } from "../modules/demo";
@@ -147,6 +149,8 @@ installWorkforceModule();
 installAdminModule();
 // the field library (design F, F1): integrity of field types and library fields
 installFieldsModule();
+// process forms (design F, F2): integrity of forms, and the forms that use each library field
+installFormsModule();
 // the integration hub (docs/modules/integration_FA.md) — integration users and keys, webhooks, LDAP/AD, SCIM, Jira/GitHub, exports
 installIntegrationModule();
 
@@ -210,6 +214,8 @@ moduleRoutes.route("/workforce", workforceRoutes);
 moduleRoutes.route("/admin", adminTenantRoutes);
 // the field library and the table overlays (design F, F1): /fields/*, /forms/system/:table/overrides, /lifecycles/:table
 moduleRoutes.route("/", fieldsRoutes);
+// process forms and the list of every form (design F, F2): /forms, /forms/:id, /forms/:id/preview, /forms/system/:table/preview
+moduleRoutes.route("/", formsRoutes);
 moduleRoutes.route("/demo", demoRoutes);
 moduleRoutes.route("/integration", integrationHubRoutes);
 // «امنیت ورود و نشست‌ها»: the organisation's session policy, sessions, sign-in audit and lockouts
