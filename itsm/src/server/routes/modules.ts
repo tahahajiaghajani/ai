@@ -78,6 +78,8 @@ import { installFieldsModule } from "../modules/fields";
 import { fieldsRoutes } from "./fields";
 import { installFormsModule } from "../modules/forms";
 import { formsRoutes } from "./forms";
+import { installPositionsModule } from "../modules/positions";
+import { positionsRoutes } from "./positions";
 import { adminTenantRoutes } from "./admin-tenant";
 import { demoRoutes } from "./demo";
 import { installDemoModule } from "../modules/demo";
@@ -151,6 +153,8 @@ installAdminModule();
 installFieldsModule();
 // process forms (design F, F2): integrity of forms, and the forms that use each library field
 installFormsModule();
+// organisational roles (design F, F3): integrity of positions and their holders
+installPositionsModule();
 // the integration hub (docs/modules/integration_FA.md) — integration users and keys, webhooks, LDAP/AD, SCIM, Jira/GitHub, exports
 installIntegrationModule();
 
@@ -216,6 +220,8 @@ moduleRoutes.route("/admin", adminTenantRoutes);
 moduleRoutes.route("/", fieldsRoutes);
 // process forms and the list of every form (design F, F2): /forms, /forms/:id, /forms/:id/preview, /forms/system/:table/preview
 moduleRoutes.route("/", formsRoutes);
+// organisational roles (design F, F3): /positions/resolve, /positions/estimate, /positions/overview, /positions/holders/import
+moduleRoutes.route("/positions", positionsRoutes);
 moduleRoutes.route("/demo", demoRoutes);
 moduleRoutes.route("/integration", integrationHubRoutes);
 // «امنیت ورود و نشست‌ها»: the organisation's session policy, sessions, sign-in audit and lockouts

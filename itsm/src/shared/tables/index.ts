@@ -12,6 +12,7 @@ import { CORE_CHOICE_LISTS, CORE_TABLES, USER_TABLE } from "./core";
 import { FIELDS_TABLES } from "./fields";
 import { FORMS_TABLES } from "./forms";
 import { ACCESS_TABLES } from "./access";
+import { POSITION_TABLES } from "./positions";
 import { NOTIFY_TABLES } from "./notify";
 import { SLA_CHOICE_LISTS, SLA_SERVICE_TABLES } from "./sla";
 import { FLOW_TABLES } from "./flows";
@@ -53,6 +54,7 @@ const MODULE_TABLES: TableDef[][] = [
   FIELDS_TABLES,
   FORMS_TABLES,
   ACCESS_TABLES,
+  POSITION_TABLES,
   NOTIFY_TABLES,
   SLA_SERVICE_TABLES,
   FLOW_TABLES,
