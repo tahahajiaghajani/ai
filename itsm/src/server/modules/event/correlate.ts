@@ -17,7 +17,7 @@ import type { Queryable, Tx } from "../../db";
 import { condEnv, createIn, onBeforeCommit, orgSchema, updateIn } from "../../engine";
 import { computeImpact } from "../cmdb/impact";
 import { holds, withWalks } from "../sla/common";
-import { idList, isUuid, liveRow, liveRows, msOf, sysOf, type Row } from "./common";
+import { idList, isUuid, liveRow, liveRows, lockGroup, msOf, sysOf, type Row } from "./common";
 import { attachToIncident } from "./incidents";
 
 const MIN = 60_000;
@@ -76,6 +76,7 @@ export async function correlate(tx: Tx, sys: Ctx, alert: Row, now = Date.now(), 
       if (group && !["resolved", "closed"].includes(String(group.state))) {
         // a dependency explains the group better than a shared CI or service: it becomes a topology group of the root
         if (group.reason !== "topology" || (root && group.ci_id !== root)) {
+          await lockGroup(tx, String(group.id));
           await updateIn(tx, sys, "alert_group", String(group.id), { reason: "topology", rule_id: rule.id, ci_id: root ?? group.ci_id ?? alert.ci_id }, { trusted: true, keepVersion: true });
         }
         await join(tx, sys, group, [alert, ...related.filter((o) => !isUuid(o.group_id))]);
@@ -135,6 +136,7 @@ export async function join(tx: Tx, sys: Ctx, group: Row, alerts: Row[]): Promise
     if (holder) {
       incident = String(holder.incident_id);
       auto = !!holder.incident_auto_resolve;
+      await lockGroup(tx, String(group.id));
       await updateIn(tx, sys, "alert_group", String(group.id), { incident_id: incident }, { trusted: true, keepVersion: true });
       group.incident_id = incident;
     }

@@ -5,7 +5,7 @@
 // every worker whether any worker has; the scheduler leader's runner waits for them before each round of jobs
 // (TickOptions.busy) — at most YIELD_MS each time, so it never starves. The Windows app's local server counts its own
 // window's requests from the first byte and the office network's once signed in (src/desktop/server.ts).
-// Background: the administrator's demo incident record in bank-sim while the demo pack's backlog drained (PERFORMANCE_FA §18).
+// Background: the administrator's demo incident record in bank-sim while the demo pack's backlog drained (PERFORMANCE_FA §19).
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

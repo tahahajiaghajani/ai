@@ -10,6 +10,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
 import type { AuthUser, ServerConfig } from "../../context";
 import type { Queryable, Tx } from "../../db";
 import { lockOrg } from "../../context";
+import { bumpSyncEpoch } from "../../sync/snapshot";
 import { uuidv7 } from "@shared/id";
 import { APP_VERSION } from "@shared/constants";
 import { physicalTables } from "@shared/tables";
@@ -243,6 +244,8 @@ export async function restoreBackup(cfg: ServerConfig, admin: AuthUser, id: stri
   let count = 0;
   await cfg.db.tx(async (tx) => {
     await lockOrg(tx, newOrg);
+    // a restored organisation starts a sync epoch of its own (docs/spec/ENGINE.md §13)
+    await bumpSyncEpoch(tx, newOrg);
     await tx.query(
       `insert into sm_orgs (id, name, legal_name, modules, settings, created_by, origin) values ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7)`,
       [newOrg, name, file.org.legal_name ?? null, JSON.stringify(file.org.modules ?? []), JSON.stringify(file.org.settings ?? {}), admin.id, cfg.origin],

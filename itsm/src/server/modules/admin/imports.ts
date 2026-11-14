@@ -15,6 +15,7 @@ import { audit } from "../data/crud";
 import { liveRow, needFeature, sysOf, type Row } from "./common";
 import { importFields } from "./ai";
 import { outsideFetch } from "../integration/net";
+import { DEMO_OUTBOUND_TEXT, DemoOutboundError } from "../../db/scope";
 import { isAiUnavailable, runSkill } from "../ai/skills/runtime";
 import { dataUsePlan } from "../ai/datause";
 
@@ -86,6 +87,8 @@ async function readSource(ctx: Ctx, set: Row): Promise<Sheet> {
       data = await boundedBody(res, MAX_IMPORT_BYTES, ac);
     } catch (e) {
       if (e instanceof Error && e.name === "AbortError") throw bad("سرور فایل ورود پاسخ نداد (زمان تمام شد)");
+      // inside the demo pack's work no file is fetched from outside (outsideFetch refuses before connecting)
+      if (e instanceof DemoOutboundError) throw bad(`فایل ورود: ${DEMO_OUTBOUND_TEXT}`);
       throw e;
     } finally {
       clearTimeout(timer);

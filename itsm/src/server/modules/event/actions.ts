@@ -14,6 +14,7 @@ import { canRespond, isUuid, liveRow, liveRows, sysOf, type Row } from "./common
 import { alertNote, stopEscalation } from "./escalation";
 import { raiseIncident } from "./incidents";
 import { queueRollup, ungroup } from "./correlate";
+import { lockGroup } from "./common";
 
 export type AlertAction = "ack" | "unack" | "assign" | "take" | "snooze" | "close" | "reopen" | "suppress" | "note" | "ungroup" | "incident";
 export const ALERT_ACTIONS: AlertAction[] = ["ack", "unack", "assign", "take", "snooze", "close", "reopen", "suppress", "note", "ungroup", "incident"];
@@ -147,6 +148,8 @@ export type GroupAction = "ack" | "take" | "close" | "incident";
  */
 export async function groupAction(ctx: Ctx, id: string, action: GroupAction, input: ActionInput = {}): Promise<{ group: Row; done: number; skipped: number; failed: { id: string; message: string }[] }> {
   return ctx.write(async (tx) => {
+    // the group's roll-up key before its row, the order an event's roll-up takes them (common.ts `lockGroup`)
+    await lockGroup(tx, id);
     const { def, row } = await lockRow(tx, ctx, "alert_group", id);
     if (!canRespond(ctx, def, row)) throw forbidden("اجازهٔ کار روی این گروه را ندارید");
     const sys = actor(ctx);

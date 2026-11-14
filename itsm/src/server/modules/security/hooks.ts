@@ -38,7 +38,7 @@ import { grantIn } from "@shared/access/model";
 import { subjectOf } from "../../access";
 import type { Ctx } from "../../context";
 import type { Queryable, Tx } from "../../db";
-import { addDays, addMonths, eqAll, ids, inWorkspace, isUuid, liveRow, liveRows, managesArea, openStates, secureWorkspace, securityConfig, sysOf, todayOf, type Row } from "./common";
+import { addDays, addMonths, eqAll, ids, inWorkspace, isUuid, liveRow, liveRows, lockedRow, managesArea, openStates, secureWorkspace, securityConfig, sysOf, todayOf, type Row } from "./common";
 import { applyPlaybookIn } from "./ops";
 import { recomputeRequirements, recomputeFramework } from "./grc";
 import { scoreItem, recountRemediation, recountVulnerability, applyException, releaseException } from "./vuln";
@@ -149,7 +149,9 @@ async function taskBefore(w: WriteArgs): Promise<void> {
   const n = w.next;
   const sys = sysOf(w.ctx);
   if (w.op === "create" || w.changed.has("sec_incident_id")) {
-    const sir = await liveRow(w.tx, sys, "sec_incident", n.sec_incident_id);
+    // the incident locked until commit: a closing (or canceling) in flight finishes first and this sees it closed; a
+    // closing that comes later waits for this task and its guard counts it
+    const sir = await lockedRow(w.tx, sys, "sec_incident", n.sec_incident_id);
     if (!sir) throw validationError({ sec_incident_id: "رخداد امنیتی پیدا نشد" });
     if (!isOpen(tableDef("sec_incident")?.states, sir.state)) throw validationError({ sec_incident_id: "به رخداد امنیتی بسته کار تازه افزوده نمی‌شود" });
     if (!n.assignment_group_id && sir.assignment_group_id) n.assignment_group_id = sir.assignment_group_id;
@@ -322,8 +324,16 @@ async function clockBefore(w: WriteArgs): Promise<void> {
     if (!n.authority) n.authority = regime.authority ?? null;
   }
   if (w.op === "create") {
-    const sir = await liveRow(w.tx, sys, "sec_incident", n.sec_incident_id);
+    // the incident locked until commit: a closing or canceling in flight finishes first (a running clock of a closed
+    // incident is what its guards refuse), and two starts of one regime take turns — the second sees the first
+    const sir = await lockedRow(w.tx, sys, "sec_incident", n.sec_incident_id);
     if (!sir) throw validationError({ sec_incident_id: "رخداد امنیتی پیدا نشد" });
+    const cat = stateCategory(tableDef("sec_incident")?.states, sir.state);
+    if (cat === "closed" || cat === "canceled") throw validationError({ sec_incident_id: "برای رخداد امنیتی بسته ساعت الزامی شروع نمی‌شود" });
+    if (isUuid(n.regime_id)) {
+      const [dup] = await liveRows(w.tx, sys, "sec_reg_clock", { and: [{ f: "sec_incident_id", op: "eq", v: sir.id }, { f: "regime_id", op: "eq", v: n.regime_id }, { f: "state", op: "ne", v: "not_required" }] }, { limit: 1 });
+      if (dup) throw validationError({ regime_id: `این ساعت پیش‌تر برای این رخداد شروع شده است (${dup.number ?? ""})` });
+    }
     if (!n.assignment_group_id && sir.assignment_group_id) n.assignment_group_id = sir.assignment_group_id;
   }
   const nd = nextDeadline((n.deadlines as Deadline[]) ?? [], Date.now());
@@ -454,7 +464,9 @@ const EXCEPTION_TARGET: Record<string, string> = { deferral: "deferred", risk_ac
 async function exceptionApproved(w: WriteArgs): Promise<string | null> {
   const excId = w.next.exception_id;
   if (!isUuid(excId)) return "تعویق، استثنا یا مثبت کاذب فقط با یک استثنای تأییدشده ممکن است (از «استثناهای آسیب‌پذیری» درخواست کنید)";
-  const exc = await liveRow(w.tx, sysOf(w.ctx), "sec_vuln_exception", excId);
+  // shared lock until commit: a revocation or expiry of the exception in flight finishes first (and this sees it), and
+  // one that starts later waits for this item, so its release finds the item deferred under it and reopens it
+  const exc = await lockedRow(w.tx, sysOf(w.ctx), "sec_vuln_exception", excId, "share");
   if (!exc || exc.state !== "approved") return "استثنای این مورد تأیید نشده است";
   // the exception covers this item (named, or its vulnerability) and is of the kind that leads to this state
   const covers = ids(exc.items).includes(String(w.next.id).toLowerCase()) || (!!exc.vulnerability_id && exc.vulnerability_id === w.next.vulnerability_id);
@@ -887,11 +899,23 @@ function matrixBefore(w: WriteArgs): void {
   if (!ok) throw validationError({ cells: `رده‌ها جدولی ${L} × ${I} از low، medium، high و critical است` });
 }
 
+/** The matrix a transaction made default last (the one its before-commit work keeps). */
+const defaultMatrixOf = new WeakMap<Tx, string>();
+
 async function matrixAfter(w: WriteArgs & { row: Row }): Promise<void> {
   if (w.op === "delete" || w.row.is_default !== true || !(w.op === "create" || w.changed.has("is_default"))) return;
   const sys = sysOf(w.ctx);
-  const others = await liveRows(w.tx, sys, "grc_risk_matrix", { and: [{ f: "is_default", op: "eq", v: true }, { f: "id", op: "ne", v: w.row.id }] }, { limit: 20 });
-  for (const m of others) await updateIn(w.tx, sys, "grc_risk_matrix", m.id, { is_default: false }, { trusted: true });
+  const tx = w.tx;
+  defaultMatrixOf.set(tx, String(w.row.id));
+  // one default matrix: the others are cleared just before commit under the organisation's key, so of two matrices
+  // made default at once the later commit clears the earlier one (each sees what the other committed)
+  onBeforeCommit(tx, `grc.default_matrix:${sys.org.id}`, async () => {
+    const id = defaultMatrixOf.get(tx);
+    const me = id ? await liveRow(tx, sys, "grc_risk_matrix", id) : null;
+    if (me?.is_default !== true) return;
+    const others = await liveRows(tx, sys, "grc_risk_matrix", { and: [{ f: "is_default", op: "eq", v: true }, { f: "id", op: "ne", v: me.id }] }, { limit: 20 });
+    for (const m of others) await updateIn(tx, sys, "grc_risk_matrix", m.id, { is_default: false }, { trusted: true });
+  });
 }
 
 function kriBefore(w: WriteArgs): void {

@@ -32,7 +32,7 @@ import { needRecentAuth } from "../../auth/policy";
 import { negotiateProblem } from "../../auth/sso";
 import type { WriteArgs } from "../../engine";
 import { ensurePerson, setDirectoryName } from "../admin/members";
-import { hasFeature, needWithinLimit } from "../admin/common";
+import { hasFeature, limitAtCommit, needWithinLimit } from "../admin/common";
 import { caProblem, connectAny, escapeFilterValue, IN_CHAIN, LdapClient, LdapError, type LdapEntry, type LdapOptions } from "./ldap";
 import { grantingGroups, liveRow, liveRows, needIntegrations, sysOf, type Row } from "./common";
 import { approverCtx, guardHost, mappingsOf, optionsOf } from "./directory";
@@ -550,7 +550,11 @@ export async function provisionMember(cfg: ServerConfig, conf: LoginSourceConfig
     } catch (e) {
       throw fail("config", String((e as Error).message ?? e), known);
     }
-    const r = await actx.write((tx) => ensurePerson(tx, actx, { email, name: dir.name || email, title: dir.title }, conf.membership));
+    const r = await actx.write(async (tx) => {
+      // the seat ceiling again at commit (members added since the count above)
+      limitAtCommit(tx, cfg, orgId, "members");
+      return ensurePerson(tx, actx, { email, name: dir.name || email, title: dir.title }, conf.membership);
+    });
     userId = r.user_id;
     created = r.created || r.joined;
     known.user_id = userId;
@@ -572,51 +576,61 @@ export async function provisionMember(cfg: ServerConfig, conf: LoginSourceConfig
     });
   }
 
-  // the profile: title, phone, unit, manager, roles, workspaces
-  const profile = await db.one<{ roles: unknown; title: string | null; phone: string | null; org_unit_id: string | null; manager_id: string | null; workspaces: unknown }>(
-    `select roles, title, phone, org_unit_id, manager_id, workspaces from sm_member_profiles where org_id = $1 and user_id = $2 and deleted_at is null`,
-    [orgId, uid],
-  );
-  const data: Record<string, unknown> = {};
-  if (dir.title?.trim() && dir.title.trim().slice(0, 120) !== (profile?.title ?? "")) data.title = dir.title.trim().slice(0, 120);
-  if (dir.phone?.trim() && dir.phone.trim().slice(0, 40) !== (profile?.phone ?? "")) data.phone = dir.phone.trim().slice(0, 40);
-  const unitId = await unitFor(actx, conf, wanted.unit_id, dir.department ?? null, problems);
-  if (unitId && unitId !== (profile?.org_unit_id ?? null)) data.org_unit_id = unitId;
-  if (id.managerEmail) {
-    const mgr = await db.one<{ user_id: string }>(
-      `select m.user_id from sm_org_members m join sm_users u on u.id = m.user_id where m.org_id = $1 and lower(u.email) = $2 and m.deleted_at is null`,
-      [orgId, lower(id.managerEmail)],
-    );
-    if (mgr && mgr.user_id !== uid && mgr.user_id !== (profile?.manager_id ?? null)) data.manager_id = mgr.user_id;
-  }
-  const current = strings(profile?.roles);
+  // the profile: title, phone, unit, manager, roles, workspaces — decided from the stored profile and saved with its
+  // version: an administrator's change of the profile in between (a role taken back on «دسترسی‌ها») makes the save
+  // refuse (version_conflict) and the mapping is worked out once more from the profile as it is now, so a revoked role
+  // never comes back from this sign-in's older copy
   const approvedRoles = conf.rolesApproved ? wanted.roles.map((r) => r.role) : [];
-  const pending = conf.rolesApproved ? [] : wanted.roles.map((r) => r.role).filter((r) => !current.includes(r) && r !== conf.defaultRole);
-  let roles = created ? [...new Set([...(conf.defaultRole ? [conf.defaultRole] : []), ...current])] : [...current];
-  for (const r of approvedRoles) if (!roles.includes(r)) roles.push(r);
-  // a role a mapping granted is taken back when the person left the directory group (never the default role)
-  if (conf.rolesApproved) roles = roles.filter((r) => !(prev.roles.includes(r) && !approvedRoles.includes(r) && r !== conf.defaultRole));
-  if (JSON.stringify([...roles].sort()) !== JSON.stringify([...current].sort())) {
-    data.roles = roles;
-    if (created) data.persona = roles.every((r) => r === "requester") ? "requester" : "agent";
-  }
-  const currentWs = strings(profile?.workspaces);
-  let workspaces = [...currentWs];
-  if (conf.rolesApproved) {
-    for (const w of wanted.workspaces) if (!workspaces.includes(w)) workspaces.push(w);
-    workspaces = workspaces.filter((w) => !(prev.workspaces.includes(w) && !wanted.workspaces.includes(w)));
-  } else for (const w of wanted.workspaces) if (!currentWs.includes(w)) pending.push(`workspace:${w}`);
-  if (JSON.stringify([...workspaces].sort()) !== JSON.stringify([...currentWs].sort())) data.workspaces = workspaces;
-  if (Object.keys(data).length) {
+  const unitId = await unitFor(actx, conf, wanted.unit_id, dir.department ?? null, problems);
+  const mgr = id.managerEmail
+    ? await db.one<{ user_id: string }>(
+        `select m.user_id from sm_org_members m join sm_users u on u.id = m.user_id where m.org_id = $1 and lower(u.email) = $2 and m.deleted_at is null`,
+        [orgId, lower(id.managerEmail)],
+      )
+    : null;
+  let pending: string[] = [];
+  let roles: string[] = [];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const profile = await db.one<{ roles: unknown; title: string | null; phone: string | null; org_unit_id: string | null; manager_id: string | null; workspaces: unknown; version: number }>(
+      `select roles, title, phone, org_unit_id, manager_id, workspaces, version from sm_member_profiles where org_id = $1 and user_id = $2 and deleted_at is null`,
+      [orgId, uid],
+    );
+    const data: Record<string, unknown> = {};
+    if (dir.title?.trim() && dir.title.trim().slice(0, 120) !== (profile?.title ?? "")) data.title = dir.title.trim().slice(0, 120);
+    if (dir.phone?.trim() && dir.phone.trim().slice(0, 40) !== (profile?.phone ?? "")) data.phone = dir.phone.trim().slice(0, 40);
+    if (unitId && unitId !== (profile?.org_unit_id ?? null)) data.org_unit_id = unitId;
+    if (mgr && mgr.user_id !== uid && mgr.user_id !== (profile?.manager_id ?? null)) data.manager_id = mgr.user_id;
+    const current = strings(profile?.roles);
+    pending = conf.rolesApproved ? [] : wanted.roles.map((r) => r.role).filter((r) => !current.includes(r) && r !== conf.defaultRole);
+    roles = created ? [...new Set([...(conf.defaultRole ? [conf.defaultRole] : []), ...current])] : [...current];
+    for (const r of approvedRoles) if (!roles.includes(r)) roles.push(r);
+    // a role a mapping granted is taken back when the person left the directory group (never the default role)
+    if (conf.rolesApproved) roles = roles.filter((r) => !(prev.roles.includes(r) && !approvedRoles.includes(r) && r !== conf.defaultRole));
+    if (JSON.stringify([...roles].sort()) !== JSON.stringify([...current].sort())) {
+      data.roles = roles;
+      if (created) data.persona = roles.every((r) => r === "requester") ? "requester" : "agent";
+    }
+    const currentWs = strings(profile?.workspaces);
+    let workspaces = [...currentWs];
+    if (conf.rolesApproved) {
+      for (const w of wanted.workspaces) if (!workspaces.includes(w)) workspaces.push(w);
+      workspaces = workspaces.filter((w) => !(prev.workspaces.includes(w) && !wanted.workspaces.includes(w)));
+    } else for (const w of wanted.workspaces) if (!currentWs.includes(w)) pending.push(`workspace:${w}`);
+    if (JSON.stringify([...workspaces].sort()) !== JSON.stringify([...currentWs].sort())) data.workspaces = workspaces;
+    if (!Object.keys(data).length) break;
+    const versioned = profile ? { ...data, version: Number(profile.version) } : data;
     try {
-      await saveMemberAccess(actx, uid, data);
+      await saveMemberAccess(actx, uid, versioned);
+      break;
     } catch (e) {
+      if (attempt < 2 && (e as { code?: string })?.code === "version_conflict") continue;
       problems.push(String((e as Error).message ?? e).slice(0, 200));
       if (data.roles || data.workspaces) {
         // keep the attributes even when a grant is refused (the approver lost the right to grant it)
         const rest = Object.fromEntries(Object.entries(data).filter(([k]) => k !== "roles" && k !== "workspaces" && k !== "persona"));
         if (Object.keys(rest).length) await saveMemberAccess(actx, uid, rest).catch(() => undefined);
       }
+      break;
     }
   }
 

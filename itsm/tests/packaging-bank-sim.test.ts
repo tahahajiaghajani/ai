@@ -111,6 +111,18 @@ describe("the simulation's scripts", () => {
     expect(sim).not.toMatch(/pfx_password\s*=/);
     expect(sim).toMatch(/\$PfxPasswordFile = Join-Path \(Split-Path -Parent \$Out\)/);
   });
+
+  it("the upgraded and the re-installed server must report this build's sync protocol, read from the source (not a number that a bump leaves behind)", async () => {
+    const { SYNC_PROTOCOL } = await import("@shared/constants");
+    const sim = readFileSync(join(SIM_PS, "bank-sim.ps1"), "utf8");
+    expect(sim).not.toMatch(/'--expect-protocol', '\d+'/);
+    for (const step of ["api-verify-upgrade", "api-verify-reinstall"]) expect(sim).toMatch(new RegExp(`'${step}' @\\([^)]*'--expect-protocol', \\$SyncProtocol\\)`));
+    // the script's own pattern finds the constant in the file it reads
+    const pattern = /\$SyncProtocol = \[regex\]::Match\(\(Get-Content -Raw -LiteralPath \(Join-Path \$Itsm 'src\\shared\\constants\.ts'\)\), '([^']+)'\)/.exec(sim);
+    expect(pattern).not.toBeNull();
+    const constants = readFileSync(join(__dirname, "../src/shared/constants.ts"), "utf8");
+    expect(new RegExp(pattern![1]).exec(constants)?.[1]).toBe(String(SYNC_PROTOCOL));
+  });
 });
 
 describe("DR on a rebuilt server: the backup says which application key sealed its secrets (finding of the runbook)", () => {

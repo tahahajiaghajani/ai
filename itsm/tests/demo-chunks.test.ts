@@ -41,16 +41,28 @@ describe("the demo load's long steps work in chunks up to their deadline", () =>
   });
 
   it("the steps sized by the pack (problems, changes, requests, field visits, incidents, assets, ITAM flows, people) are chunked", () => {
+    /** The body of `fn` in `text` — a step that moved away fails here instead of being checked as an empty string. */
+    const bodyOf = (text: string, fn: string) => {
+      const at = text.indexOf(`async function ${fn}(`);
+      expect(at, `${fn} is where this test looks`).toBeGreaterThan(-1);
+      return text.slice(at, text.indexOf("\n}\n", at));
+    };
     const src = readFileSync(join(__dirname, "../src/server/modules/demo/load.ts"), "utf8");
-    for (const fn of ["stepProblems", "stepChanges", "stepRequests", "stepField"]) {
-      const body = src.slice(src.indexOf(`async function ${fn}(`), src.indexOf("\n}\n", src.indexOf(`async function ${fn}(`)));
+    for (const fn of ["stepProblems", "stepChanges", "stepRequests"]) {
+      const body = bodyOf(src, fn);
       expect(body, fn).toContain("inChunks(a, sys, size.");
       expect(body, fn).not.toMatch(/for \(let i = 0; i < size\./);
     }
     for (const fn of ["stepIncidents", "stepPeople", "seedItamFleet", "stepItamFlows"]) {
-      const body = src.slice(src.indexOf(`async function ${fn}(`), src.indexOf("\n}\n", src.indexOf(`async function ${fn}(`)));
-      expect(body, fn).toMatch(/Date\.now\(\) < a\.deadline/);
+      expect(bodyOf(src, fn), fn).toMatch(/Date\.now\(\) < a\.deadline/);
     }
+    // the field visits are the «orders» phase of the field service step (modules.ts): a few work orders per transaction,
+    // and at the deadline the position is kept in the memo for the next invocation
+    const field = bodyOf(readFileSync(join(__dirname, "../src/server/modules/demo/modules.ts"), "utf8"), "stepField");
+    expect(field).toMatch(/for \(let i = Number\(memo\.units\["field:at"\] \?\? 0\); i < size\.visits; i \+= 8\)/);
+    expect(field).toMatch(/if \(Date\.now\(\) > a\.deadline\) \{\s+memo\.units\["field:at"\] = String\(i\);/);
+    expect(field).toContain("j < Math.min(size.visits, i + 8)");
+    expect(field).not.toMatch(/for \(let i = 0; i < size\./);
   });
 
   // A step that works in batches (people, the ITAM fleet) and is resumed by the next job invocation continues its random

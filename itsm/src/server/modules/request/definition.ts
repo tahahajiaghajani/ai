@@ -12,6 +12,7 @@ import type { Queryable, Tx } from "../../db";
 import { AppError, bad, forbidden, notFound } from "../../http/errors";
 import { createIn, get, transitionIn, updateIn } from "../../engine";
 import { arr, eqAll, isUuid, liveRow, liveRows, obj, rowsByIds, sysOf, type Row } from "./common";
+import { lockedRow } from "../incident/common";
 
 export interface DefinitionProblem {
   level: "error" | "warning";
@@ -258,6 +259,9 @@ export async function publishItem(ctx: Ctx, id: string, input: { note?: string |
   if (row.state === "retired") throw bad("قلم بازنشسته است؛ نخست آن را برای ویرایش بازگشایی کنید");
   const sys = sysOf(ctx, ctx.user.id);
   return ctx.write(async (tx) => {
+    // the item locked before its draft is read: an edit of a question in flight (it marks the item changed) finishes
+    // first and is published, or waits and marks the item changed again after this version
+    await lockedRow(tx, sysOf(ctx), "catalog_item", id);
     const schema = await draftSchema(tx, ctx, row);
     const guideRules = row.type === "order_guide" ? (await liveRows(tx, sys, "order_guide_rule", eqAll({ guide_id: id, active: true }))).length : undefined;
     const problems = schemaProblems(schema, { guideRules });

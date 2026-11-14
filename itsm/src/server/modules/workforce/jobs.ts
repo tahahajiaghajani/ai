@@ -10,6 +10,7 @@ import type { Queryable } from "../../db";
 import { emitEvent, systemCtx, transitionIn, updateIn } from "../../engine";
 import { enqueue, registerJobHandler } from "../../jobs";
 import { actsHere } from "../notify";
+import { lockedRow } from "../incident/common";
 import { isUuid, liveRow, liveRows, msOf, sysOf, todayOf, type Row } from "./common";
 import { applyAbsenceIn, clearAbsenceIn, syncProfileSkills } from "./hooks";
 
@@ -23,10 +24,14 @@ export async function ensureWorkforceSweep(q: Queryable, orgId: string, delayMs 
 }
 export const resetWorkforceSweepThrottle = () => lastSweep.clear();
 
-/** Apply or end one absence according to the clock. */
+/**
+ * Apply or end one absence according to the clock. The absence is locked before it is read (then the profile, the
+ * order a cancellation or an edit takes them): a cancellation, extension or delegate change in flight commits first
+ * and is what this decides from, and one that starts later waits and then clears or moves what this applied.
+ */
 export async function absenceTick(sys: Ctx, id: string, now = Date.now()): Promise<"applied" | "ended" | "none"> {
   return sys.write(async (tx) => {
-    const a = await liveRow(tx, sys, "wfm_absence", id);
+    const a = await lockedRow(tx, sys, "wfm_absence", id);
     if (!a || a.state !== "approved") return "none";
     const s = msOf(a.start_at) ?? now;
     const e = msOf(a.end_at) ?? now;

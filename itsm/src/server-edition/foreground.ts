@@ -4,7 +4,7 @@
 // every worker's requests. While a backlog drains — the bank demo pack «متوسط» leaves about 7,400 jobs — a page's
 // requests on any worker compete with the jobs' statements for PostgreSQL's CPU, and on the leader also for its pool
 // and its event loop: the administrator's demo incident record took 1.7–3.6 s in bank-sim, its «رخدادهای مشابه» panel
-// alone 1.2–2.3 s while its full-text ranking statement ran 1.5–1.8 s in the database (PERFORMANCE_FA §18).
+// alone 1.2–2.3 s while its full-text ranking statement ran 1.5–1.8 s in the database (PERFORMANCE_FA §19).
 //
 // Each worker counts the requests in flight that a person is waiting for (`ForegroundGate`, the worker's
 // `cfg.foreground`: the API counts a request once its session is known — a signed-in browser session's, its background

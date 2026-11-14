@@ -16,6 +16,7 @@ import { stopTicks, tick } from "@server/jobs";
 import { loadConfig, saveConfig, type LocalConfig } from "./config";
 import { createBridge } from "./bridge";
 import { takePendingRestore, undoRestore, restorePending } from "./backup";
+import { resetSyncCursor } from "./sync-client";
 import { openFromTemplate, templateFor } from "./db-template";
 import { createStaticSite } from "../server-edition/static";
 import { APP_NAME } from "@shared/constants";
@@ -115,6 +116,10 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   } else db = await createPgliteDb({ dataDir: opts.memory ? undefined : dbDir, desktop: true, log });
   const opened = performance.now();
   const applied = await migrate(db, (m) => log.info(m));
+  // a restored local database: its sync cursor is the backup's — the next pull reads everything again from the web
+  // version (and drops what it no longer has); changes waiting for upload stay queued. A standalone app's database has
+  // no cursor and gains none (resetSyncCursor): it is not taken for a linked one afterwards.
+  if (restore) await resetSyncCursor(db).catch((e) => log.warn("sync cursor reset failed", String((e as Error)?.message ?? e)));
   // a first start (or an update) wrote its migrations to the log: checkpoint while the splash is still up, not at the
   // person's first click (the first start's 54 MB of log took a 609 ms checkpoint on the setup page, desktop-e2e)
   if (applied.length) await db.checkpoint("migrations").catch((e) => log.warn("database checkpoint after migrations failed", String((e as Error)?.message ?? e)));
@@ -129,7 +134,7 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   // each job, so a page's burst of requests is not interleaved with job statements on the database's one connection.
   // The window's own (windowRequest) count from their first byte, signed in or not (the setup, the sign-in); those of
   // the office network (LAN mode) once their browser session is known (cfg.foreground) — never a token client, a probe
-  // or anyone not signed in there (PERFORMANCE_FA §18)
+  // or anyone not signed in there (PERFORMANCE_FA §19)
   let fromWindow = 0;
   let signedIn = 0;
   const cfg: ServerConfig = {

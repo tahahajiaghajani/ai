@@ -35,6 +35,8 @@ export async function runSchedule(cfg: ServerConfig, orgId: string, id: string):
       const body = new TextDecoder().decode(built.files[0]?.data ?? new Uint8Array());
       const secret = await readSecret(cfg.db, sys, tableDef("export_schedule")!, id, "secret");
       const r = await callOut(cfg, String(s.url), { method: "POST", headers: { "content-type": "application/json", ...(secret ? { "X-Signature": `sha256=${createHmac("sha256", secret).update(body, "utf8").digest("hex")}` } : {}), "X-Event": "export" }, body }, `نشانی خروجی «${s.name}»`, 30_000);
+      // refused inside demo work: nothing was sent — not a call to log, nor the destination's failure on the schedule
+      if (r.demo) return { ok: false, message: r.text };
       await intLog(cfg.db, { org_id: orgId, kind: "export", ref_id: id, method: "POST", target: redactUrl(String(s.url)), status: r.status || null, ok: r.ok, latency_ms: r.ms, summary: `${tables.length} جدول`, error: r.ok ? null : failText("نشانی", r) });
       if (!r.ok) throw bad(failText("نشانی مقصد", r));
       message = `${Object.values(built.stats).reduce((a, x) => a + x.rows, 0).toLocaleString("fa-IR")} ردیف فرستاده شد`;

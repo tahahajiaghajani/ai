@@ -13,7 +13,7 @@
 import type { FieldDef, StateCategory, TableDef, Transition } from "@shared/model/types";
 import { FIELD_TYPES, OPEN_CATEGORIES } from "@shared/model/types";
 import type { CondEnv } from "@shared/model/conditions";
-import { evaluate } from "@shared/model/conditions";
+import { evaluate, isNever } from "@shared/model/conditions";
 import { stateCategory, transitionsFrom, DONE_CATEGORIES } from "@shared/model/task";
 import { todayISO } from "@shared/jalali";
 import { uuidv7 } from "@shared/id";
@@ -579,6 +579,9 @@ async function startFrom(tx: Tx, ctx: Ctx, def: TableDef, env: CondEnv, id: stri
 /** Create a record inside `tx`; returns the stored row (engine shape). */
 export async function createIn(tx: Tx, ctx: Ctx, table: string, data: Record<string, unknown>, opts: WriteOptions = {}): Promise<Row> {
   const { def, schema, env } = await prepare(tx, ctx, table);
+  // a table only the platform writes (rowAccess.write NEVER: computed scores, deliveries, logs) refuses a person's
+  // create before looking at the values — the same answer whatever was sent (meta offers no «… تازه» or import)
+  if (!isSystemCtx(ctx) && isNever(def.rowAccess?.write)) throw forbidden(`«${def.plural}» را فقط سامانه می‌نویسد`);
   if (!opts.skipAccess && !isSystemCtx(ctx) && !access().canCreate(ctx, def, null)) throw forbidden(`اجازهٔ ایجاد ${def.label} را ندارید`);
   return pipeline({ tx, ctx, def, schema, env, op: "create", prev: null, input: data, opts });
 }

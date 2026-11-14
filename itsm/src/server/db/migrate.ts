@@ -7,12 +7,17 @@
 // for engine chunks), so a step cut short (a function killed at its time limit, a dropped connection) is rolled back and
 // simply runs again: nothing is ever half-applied, and nothing done is done twice.
 //
-// - `migrate(db)` runs the whole plan (the Windows app, the server edition, tests, scripts/migrate-db.mts, the build).
-// - `migrateSteps(db, { budgetMs, wait: false })` runs steps until the budget is spent and never queues behind another
-//   instance's step (the web version, inside requests while the schema is incomplete: src/server/cloud.ts).
+// - `migrate(db)` runs the whole plan, then the start-up's transaction-id regression check (sync/snapshot.ts
+//   `checkXidRegression`: a database restored into another cluster has the synced rows ahead of its ids restamped, in
+//   short steps of their own) — the Windows app, the server edition, tests.
+// - `migrateSteps(db, { budgetMs, wait })` runs the plan's steps alone: `scripts/migrate-db.mts` and the build all of them
+//   (then the same regression check), the web version within a budget per request without queueing behind another
+//   instance's step (`wait: false`, while the schema is incomplete or a restamp waits: src/server/cloud.ts, which runs
+//   the restamp's steps — sync/snapshot.ts `restampSteps` — the same way once the schema is current).
 import type { Db, Queryable } from "./index";
 import { MIGRATIONS, SCHEMA_VERSION } from "./migrations";
 import { engineChunks, engineProgress, readEngineProgress, type EngineChunk } from "../engine/ddl";
+import { checkXidRegression } from "../sync/snapshot";
 
 export const MIGRATION_LOCK = 724100;
 const ENGINE_MIGRATION = "0006_engine_tables";
@@ -149,6 +154,8 @@ export async function migrateSteps(db: Db, opts: { budgetMs?: number; wait?: boo
   const log = opts.log ?? (() => {});
   const steps = plan();
   const ran: string[] = [];
+  /** migrations recorded by this call's own steps (not by another instance's meanwhile) */
+  const recorded = new Set<string>();
   const before = await readState(db, false);
   let state = before;
   let busy = false;
@@ -162,8 +169,13 @@ export async function migrateSteps(db: Db, opts: { budgetMs?: number; wait?: boo
       if (wait) await tx.query(`select pg_advisory_xact_lock(${MIGRATION_LOCK})`);
       else if (!(await tx.one<{ ok: boolean }>(`select pg_try_advisory_xact_lock(${MIGRATION_LOCK}) as ok`))?.ok) return "busy";
       // under the lock: a step another instance finished meanwhile is not run again
-      if (step.done(await readState(tx, true))) return "skipped";
+      const locked = await readState(tx, true);
+      if (step.done(locked)) return "skipped";
       await step.run(tx);
+      // what this step recorded (steps take turns on the lock, so nobody else records anything in between): a migration
+      // step its own id, the engine chunk that completes the set 0006 with it
+      if (!step.id.includes(":") && step.id !== "init") recorded.add(step.id);
+      else if (step.id.startsWith("engine:") && !locked.applied.has(ENGINE_MIGRATION) && (await tx.one(`select 1 as x from sm_migrations where id = $1`, [ENGINE_MIGRATION]))) recorded.add(ENGINE_MIGRATION);
       return "ran";
     });
     if (r === "busy") {
@@ -176,7 +188,8 @@ export async function migrateSteps(db: Db, opts: { budgetMs?: number; wait?: boo
     }
     state = await readState(db, false);
   }
-  const migrations = MIGRATIONS.map((m) => m.id).filter((id) => state.applied.has(id) && !before.applied.has(id));
+  // only what this call recorded: instances starting together each report their own share, never another's
+  const migrations = MIGRATIONS.map((m) => m.id).filter((id) => recorded.has(id));
   return { ...summary(steps, state), busy, ran, migrations };
 }
 
@@ -187,6 +200,12 @@ export async function migrateSteps(db: Db, opts: { budgetMs?: number; wait?: boo
 export async function migrate(db: Db, log: (msg: string) => void = () => {}): Promise<string[]> {
   const r = await migrateSteps(db, { log });
   if (r.ran.some((id) => id.startsWith("reconcile:"))) log("engine schema reconciled");
+  // a database restored into another cluster may hand out transaction ids below its stored revisions: rows, cursors and
+  // purge watermarks ahead of them start again and every Windows app reads everything once (src/server/sync/snapshot.ts:
+  // in short steps; the mark is lowered only by the one that finishes). A failure leaves the regression seen — no pull is
+  // answered until a later run finishes it (routes/sync.ts) — and does not stop the start. The web version runs the same
+  // steps after its 503 «migrating» answers (src/server/cloud.ts).
+  await checkXidRegression(db, { force: true, log }).catch((e) => log(`xid check skipped: ${String((e as Error)?.message ?? e)}`));
   return r.migrations;
 }
 

@@ -8,7 +8,7 @@ import { addJournalIn, condEnv, createIn, defFor, requireReadable, updateIn } fr
 import { FLOW_LIMITS, compareData, nodeTable, type TriggerConfig } from "@shared/flows";
 import { faDigits } from "@shared/format";
 import { businessClock, flowSkill, registerBuiltinStepHandler, type StepContext, type StepOutcome, type WaitInfo } from "./registry";
-import { matchesRecord, parseInstant, readRecord, readRecordIn, recordIdOf, storedOutput } from "./records";
+import { matchesRecord, parseInstant, readRecord, readRecordIn, recordIdOf, storedOutput, systemOnlyRefusal } from "./records";
 import { startRun } from "./executor";
 import { loadVersion } from "./store";
 import { resolveRunAs } from "./triggers";
@@ -113,6 +113,9 @@ registerBuiltinStepHandler("update_record", {
   transactional: true,
   async run(s) {
     const t = target(s);
+    // a table only the platform writes: no flow changes its rows, whoever it runs as (the record may be the trigger's)
+    const refused = systemOnlyRefusal(t.table);
+    if (refused) return { error: refused };
     const stored = await updateIn(s.tx!, s.ctx, t.table, t.id, values(s));
     return { output: { id: t.id, record: await storedOutput(s.tx!, s.ctx, t.table, stored) } };
   },
@@ -123,6 +126,10 @@ registerBuiltinStepHandler("create_record", {
   async run(s) {
     const table = String(s.node.config.table ?? "").trim() || String(s.data.trigger?.table ?? "");
     if (!table) return { error: "جدول را انتخاب کنید" };
+    // a table only the platform writes: no flow creates its rows, whoever it runs as (the system's own createIn lets
+    // the system through, so the step refuses here)
+    const refused = systemOnlyRefusal(table);
+    if (refused) return { error: refused };
     const stored = await createIn(s.tx!, s.ctx, table, values(s));
     const record = await storedOutput(s.tx!, s.ctx, table, stored);
     return { output: { id: String(stored.id), number: record.number ?? null, record } };

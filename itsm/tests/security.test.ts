@@ -6,6 +6,7 @@ import { createHmac } from "node:crypto";
 import "./fixtures/module";
 import { makeServer, Client, signupWithOrg } from "./helpers";
 import type { Db } from "@server/db";
+import { SYNC_PROTOCOL } from "@shared/constants";
 import type { DesktopBridge } from "@server/context";
 
 type App = { fetch: (r: Request) => Response | Promise<Response> };
@@ -196,7 +197,7 @@ describe("what a desktop receives when it synchronises", () => {
   let manager: Client;
   let viewer: Client;
   type U = { email: string; password_hash: string | null; password_withheld: boolean; mobile: string | null };
-  const pull = async (c: Client, extra = "") => (await c.get<{ users: U[] }>(`/sync/pull?org_id=${org}&cursor=0&user_cursor=0${extra}`)).users;
+  const pull = async (c: Client, extra = "") => (await c.get<{ users: U[] }>(`/sync/pull?org_id=${org}&protocol=${SYNC_PROTOCOL}${extra}`)).users;
   const of = (users: U[], email: string) => users.find((u) => u.email === email)!;
   const hashed = /^scrypt\$/;
 

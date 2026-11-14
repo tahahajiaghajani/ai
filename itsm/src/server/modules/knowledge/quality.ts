@@ -13,7 +13,8 @@ import type { KbVersionCheck } from "@shared/knowledge/api";
 import { cleanSections, healthScore, imageRefs, isInternalArticle, linkRefs, missingSections, qualityChecks, shingles, similarity, wordCount } from "@shared/knowledge/logic";
 import type { Ctx } from "../../context";
 import { condEnv, createIn, get, orgSchema, readable, updateIn } from "../../engine";
-import { addDaysISO, baseOf, daysBetween, kbConfig, liveRow, liveRows, sysOf, todayIn, uniq, type Row } from "./common";
+import { addDaysISO, baseOf, daysBetween, kbConfig, liveRow, liveRows, openKbTaskIn, sysOf, todayIn, uniq, type Row } from "./common";
+import { lockKey } from "../../db";
 import { queryStats, viewCounts } from "./events";
 import { memberCtx } from "../../access/service";
 import { coachesOf } from "./kcs";
@@ -143,10 +144,12 @@ export async function integrityChecks(sys: Ctx): Promise<number> {
     if (wordCount(text) > 4000) issues.push("مقاله بسیار بلند است؛ آن را به چند مقاله بشکنید");
     const unique = uniq(issues);
     if (!unique.length) continue;
-    const [open] = await liveRows(sys.db, sys, "kb_task", { and: [{ f: "article_id", op: "eq", v: a.id }, { f: "kind", op: "eq", v: "integrity" }, { f: "active", op: "eq", v: true }] }, { limit: 1 });
-    if (open) continue;
-    await sys.write((tx) => createIn(tx, sys, "kb_task", { kind: "integrity", article_id: a.id, priority: "4", short_description: `بررسی یکپارچگی ${a.number}: ${String(a.title).slice(0, 140)}`, description: unique.map((x) => `- ${x}`).join("\n") }, { trusted: true }));
-    created++;
+    const made = await sys.write(async (tx) => {
+      if (await openKbTaskIn(tx, sys, "integrity", a.id, { f: "article_id", op: "eq", v: a.id })) return false;
+      await createIn(tx, sys, "kb_task", { kind: "integrity", article_id: a.id, priority: "4", short_description: `بررسی یکپارچگی ${a.number}: ${String(a.title).slice(0, 140)}`, description: unique.map((x) => `- ${x}`).join("\n") }, { trusted: true });
+      return true;
+    });
+    if (made) created++;
   }
   return created;
 }
@@ -178,13 +181,18 @@ export async function sampleAqi(sys: Ctx): Promise<number> {
           break;
         }
       }
-      await sys.write(async (tx) => {
+      const made = await sys.write(async (tx) => {
+        // the month's review of the article looked for again under its key: two samples at once make it once
+        await lockKey(tx, `kb.aqi:${a.id}:${period}`);
+        const [again] = await liveRows(tx, sys, "kb_quality_review", { and: [{ f: "article_id", op: "eq", v: a.id }, { f: "period", op: "eq", v: period }] }, { limit: 1 });
+        if (again) return false;
         await createIn(tx, sys, "kb_quality_review", { article_id: a.id, version_label: a.version_label ?? null, period, author_id: author, reviewer_id: reviewer, results: {} }, { trusted: true });
         // the title only for a reviewer who reads it; the managers' group gets the article's number
         const label = reviewer ? String(a.title).slice(0, 140) : String(a.number ?? "");
         await createIn(tx, sys, "kb_task", { kind: "aqi", article_id: a.id, priority: "4", assigned_to: reviewer, assignment_group_id: reviewer ? null : base?.manager_group_id ?? cfg.default_group_id, short_description: `ارزیابی کیفیت (${period}): ${label}` }, { trusted: true });
+        return true;
       });
-      created++;
+      if (made) created++;
     }
   }
   return created;

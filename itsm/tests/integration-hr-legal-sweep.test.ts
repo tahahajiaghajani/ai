@@ -24,6 +24,7 @@ import type { AiStreamEvent } from "@shared/ai/types";
 import { ESM_DATA_USE } from "@shared/tables/esm";
 import { esmWorld, memberAt, type EsmWorld } from "./esm-helpers";
 import { Client } from "./helpers";
+import { SYNC_PROTOCOL } from "@shared/constants";
 
 vi.setConfig({ testTimeout: 240_000 });
 
@@ -298,11 +299,11 @@ describe("HR and legal records outside their workspaces", () => {
 
   it("the Windows app's pull", async () => {
     for (const who of outsiders) {
-      const page = await w.p[who].client.get(`/sync/pull?org_id=${w.e.org}&cursor=0&user_cursor=0`);
+      const page = await w.p[who].client.get(`/sync/pull?org_id=${w.e.org}&protocol=${SYNC_PROTOCOL}`);
       clean(page);
     }
     // the employee's own pull never carries the ER note's text (noSync), nor the legal request's privileged fields to others
-    const mine = await w.p.er.client.get(`/sync/pull?org_id=${w.e.org}&cursor=0&user_cursor=0`);
+    const mine = await w.p.er.client.get(`/sync/pull?org_id=${w.e.org}&protocol=${SYNC_PROTOCOL}`);
     expect(JSON.stringify(mine)).not.toContain(NOTE);
   });
 

@@ -8,6 +8,7 @@
 // everything from these definitions (src/ui/modules/cmdb).
 // Imported by the UI: keep it free of server imports.
 import type { Option, StateModel, TableDef } from "../model/types";
+import { NEVER } from "../model/conditions";
 import { TASK_FIELDS, TASK_SCOPE } from "../model/task";
 import {
   CI_CRITICALITY, CI_ENVIRONMENTS, CLASS_OPTIONS, HEALTH_ISSUES, IMPACT_DIRS, INSTALL_STATUSES, OPERATIONAL_STATUSES, REL_CATEGORIES,
@@ -481,6 +482,7 @@ const healthFact: TableDef = {
     { name: "score", label: "امتیاز میانگین", type: "int", default: 0, list: true, span: 6 },
   ],
   scope: {},
+  rowAccess: { write: NEVER },
   features: { history: false },
   unique: [["day", "class"]],
   list: { columns: ["day", "class", "total", "complete", "correct", "compliant", "score"], order: "-day,class" },

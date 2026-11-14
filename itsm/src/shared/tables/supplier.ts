@@ -6,6 +6,7 @@
 // notice and renewal dates (area «contract»). ITAM and finance reference both. Money is in the financial field group.
 // Imported by the UI: keep it free of server imports.
 import type { AreaOp, FieldDef, Option, StateModel, TableDef } from "../model/types";
+import { NEVER } from "../model/conditions";
 import { APPROVAL_STATES } from "../model/task";
 
 /** A transition only the module itself takes (a renewal supersedes the contract it renews). */
@@ -459,6 +460,7 @@ const scorecard: TableDef = {
     { name: "computed_at", label: "زمان محاسبه", type: "datetime", readonly: true, span: 8 },
   ],
   scope: { public: true },
+  rowAccess: { write: NEVER },
   list: { columns: ["supplier_id", "period_label", "score", "delivery_score", "quality_score", "sla_score"], order: "-period" },
   unique: [["supplier_id", "period"]],
 };

@@ -7,7 +7,9 @@
 // a removal shows) got a new sync revision in the window; a record only when it is readable and it, or what its page
 // shows of it, changed: its journal (internal notes only for the «internal» field group), its history (only fields the
 // member sees), its attachments, its links whose other record the member may read. Ids come only from the request.
-// The token is the organisation's sync revision (what the sync protocol's `head` already tells a Windows app).
+// The token is the database's snapshot (src/server/live.ts): a row changed in the window when the transaction that
+// wrote it (its sync revision) became visible between the screen's token and this one — the same delta a Windows app's
+// pull reads (src/server/sync/snapshot.ts), with no lock and in any commit order.
 // The Windows app keeps its coarse local counter: any change there answers every scope it was asked about.
 import type { Ctx } from "./context";
 import type { TableDef } from "@shared/model/types";
@@ -15,10 +17,11 @@ import { pgArray } from "./db";
 import { condEnv, orgSchema, readable } from "./engine";
 import { access } from "./access/provider";
 import { pulse as token } from "./live";
+import { deltaSql, parseSnap, type Snap } from "./sync/snapshot";
 
 export const MAX_SCOPE_TABLES = 40;
 export const MAX_SCOPE_RECORDS = 50;
-/** A window this wide (a token from long ago) is not scanned: every scope the member may read answers «changed». */
+/** A window this wide in transaction ids (a token from long ago) is not scanned: every scope the member may read answers «changed». */
 const MAX_WINDOW = 200_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const KEY = /^[a-z][a-z0-9_]{0,62}$/;
@@ -83,14 +86,16 @@ export async function scopedPulse(ctx: Ctx, scope: PulseScope): Promise<PulseAns
   if (!askedTables.length && !askedRecords.length) return { pulse: now, changed: [] };
 
   // the Windows app: its own counter moved (any local write or download) — every scope it may read is answered
-  const m = /^w(\d{1,18})$/.exec(since);
-  const head = Number(now.slice(1));
-  if (ctx.cfg.mode !== "cloud" || !now.startsWith("w")) return { pulse: now, changed: [...askedTables, ...(await readableRecords(ctx, defs, askedRecords))] };
-  if (!m) return { pulse: now, changed: [] };
-  const from = Number(m[1]);
-  if (from >= head) return { pulse: now, changed: [] };
-  if (head - from > MAX_WINDOW) return { pulse: now, changed: [...askedTables, ...(await readableRecords(ctx, defs, askedRecords))] };
-  return { pulse: now, changed: await changedIn(ctx, defs, askedTables, askedRecords, from, head) };
+  const everything = async (): Promise<PulseAnswer> => ({ pulse: now, changed: [...askedTables, ...(await readableRecords(ctx, defs, askedRecords))] });
+  if (ctx.cfg.mode !== "cloud" || !now.startsWith("x")) return everything();
+  const upto = parseSnap(now.slice(1));
+  const from = since.startsWith("x") ? parseSnap(since.slice(1)) : null;
+  // a malformed token, or one of another format (a screen from before an update): nothing — its next look carries
+  // this answer's token
+  if (!upto || !from) return { pulse: now, changed: [] };
+  // a token from a database that went back in transaction ids (a restore) or from long ago: everything it may read
+  if (from.xmax > upto.xmax || upto.xmax - from.xmin > MAX_WINDOW) return everything();
+  return { pulse: now, changed: await changedIn(ctx, defs, askedTables, askedRecords, from, upto) };
 }
 
 /** The records of the request the member may read now (deleted ones too: a removal is news). */
@@ -114,18 +119,22 @@ function groupBy(records: { table: string; id: string; ref: string }[]): Map<str
 }
 
 /**
- * One statement answers every table and record: for a table, does a row the member may read have a revision in
- * (from, head]; for a record, is it readable and did it or its journal, history or attachments move in the window.
+ * One statement answers every table and record: for a table, does a row the member may read have a revision written
+ * between the two tokens; for a record, is it readable and did it or its journal, history or attachments move in the window.
  * Links come second (their other record must be readable too), only for records the first answer left out.
  */
-async function changedIn(ctx: Ctx, defs: Map<string, TableDef>, tables: string[], records: { table: string; id: string; ref: string }[], from: number, head: number): Promise<string[]> {
+async function changedIn(ctx: Ctx, defs: Map<string, TableDef>, tables: string[], records: { table: string; id: string; ref: string }[], from: Snap, upto: Snap): Promise<string[]> {
   const env = await condEnv(ctx);
-  const params: unknown[] = [ctx.org.id, from, head];
+  const params: unknown[] = [ctx.org.id];
   const p = (v: unknown) => {
     params.push(v);
     return `$${params.length}`;
   };
-  const window = (a: string) => `${a}.org_id = $1 and ${a}.rev > $2 and ${a}.rev <= $3`;
+  // written after the screen's token and visible in this one (the statement itself may see later writes too: they
+  // are the next token's news)
+  const delta = deltaSql("w__", from, upto, params);
+  const moved = (a: string) => delta.replaceAll("w__.", `${a}.`);
+  const window = (a: string) => `${a}.org_id = $1 and ${moved(a)}`;
   const branches: string[] = [];
   for (const key of tables) {
     const def = defs.get(key)!;
@@ -142,7 +151,7 @@ async function changedIn(ctx: Ctx, defs: Map<string, TableDef>, tables: string[]
     branches.push(
       `select ${tk}::text || ':' || t.id::text as k from ${def.table} t
        where t.org_id = $1 and t.id = any(${p(pgArray(list.map((r) => r.id)))}::uuid[]) and ${pred} and (
-         (t.rev > $2 and t.rev <= $3)
+         (${moved("t")})
          or exists (select 1 from sm_journal j where ${window("j")} and j.table_key = ${tk} and j.record_id = t.id${internal ? "" : ` and j.visibility is distinct from 'internal'`})
          or exists (select 1 from sm_history h where ${window("h")} and h.table_key = ${tk} and h.record_id = t.id${fields})
          or exists (select 1 from sm_attachments a where ${window("a")} and a.table_key = ${tk} and a.record_id = t.id))`,
@@ -151,19 +160,20 @@ async function changedIn(ctx: Ctx, defs: Map<string, TableDef>, tables: string[]
   const out = new Set<string>();
   if (branches.length) for (const r of await ctx.db.query<{ k: string }>(branches.join("\nunion all\n"), params)) out.add(String(r.k).toLowerCase());
   const rest = records.filter((r) => !out.has(r.ref));
-  if (rest.length) for (const ref of await linkChanges(ctx, defs, rest, from, head)) out.add(ref);
+  if (rest.length) for (const ref of await linkChanges(ctx, defs, rest, from, upto)) out.add(ref);
   // in the order asked
   return [...tables.filter((t) => out.has(t)), ...records.filter((r) => out.has(r.ref)).map((r) => r.ref)];
 }
 
 /** Records whose links moved in the window — counted only when the record and the link's other record are readable. */
-async function linkChanges(ctx: Ctx, defs: Map<string, TableDef>, records: { table: string; id: string; ref: string }[], from: number, head: number): Promise<string[]> {
+async function linkChanges(ctx: Ctx, defs: Map<string, TableDef>, records: { table: string; id: string; ref: string }[], from: Snap, upto: Snap): Promise<string[]> {
   const ids = records.map((r) => r.id);
+  const params: unknown[] = [ctx.org.id, pgArray(ids)];
   const links = await ctx.db.query<{ from_table: string; from_id: string; to_table: string; to_id: string }>(
     `select l.from_table, l.from_id, l.to_table, l.to_id from sm_links l
-     where l.org_id = $1 and l.rev > $2 and l.rev <= $3 and (l.from_id = any($4::uuid[]) or l.to_id = any($4::uuid[]))
+     where l.org_id = $1 and ${deltaSql("l", from, upto, params)} and (l.from_id = any($2::uuid[]) or l.to_id = any($2::uuid[]))
      limit 500`,
-    [ctx.org.id, from, head, pgArray(ids)],
+    params,
   );
   if (!links.length) return [];
   const mine = new Set(await readableRecords(ctx, defs, records));

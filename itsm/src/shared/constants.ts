@@ -18,11 +18,23 @@ export const APP_DESCRIPTION = "سامانهٔ سازمانی مدیریت خد�
 /** Bumped with every release; the desktop app compares it with the cloud to offer updates. */
 export const APP_VERSION = "1.1.0";
 /**
- * Sync protocol version — the server refuses pushes from clients with another one. Bump it whenever a
- * synced table gains a column or a new synced kind appears, so a Windows app that does not know them
- * cannot overwrite them.
+ * Sync protocol version — the server refuses pushes and pulls from clients with another one. Bump it whenever a
+ * synced table gains a column or a new synced kind appears, so a Windows app that does not know them cannot
+ * overwrite them, and whenever the wire format changes.
+ * 15: bank ITAM (asset branch and device fields, transfers, custody, device status, maintenance SLAs, attestation);
+ * 16: revisions are transaction ids and pull cursors are database snapshots (no organisation write lock; a 1.1.0-beta
+ * app, protocol 15, is told to update — docs/spec/ENGINE.md §13).
  */
-export const SYNC_PROTOCOL = 15; // 15: bank ITAM (asset branch and device fields, transfers, custody, device status, maintenance SLAs, attestation)
+export const SYNC_PROTOCOL = 16;
+
+/**
+ * Is a Windows app outdated for this build: of another sync protocol (the one it last spoke, recorded on its device —
+ * 0 for an app whose pulls named none, from before 16 — the server refuses it), or of another version? Its version string
+ * alone does not tell: a 1.1.0-beta app (protocol 15) reports this build's 1.1.0 too.
+ */
+export function deviceOutdated(d: { app_version: string | null; sync_protocol: number | null }): boolean {
+  return (!!d.app_version && d.app_version !== APP_VERSION) || (d.sync_protocol != null && Number(d.sync_protocol) !== SYNC_PROTOCOL);
+}
 
 /**
  * Optional modules an organisation switches on («ماژول‌ها»). The platform itself has none; later modules

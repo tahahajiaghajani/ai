@@ -75,6 +75,25 @@ export async function liveRow(q: Queryable, ctx: Ctx, table: string, id: unknown
 }
 
 /**
+ * One live row by id through the access rule, locked until the transaction ends (`for update`, or `for share` where
+ * several deciders may hold it at once), or null. A write that decides from a row it does not change itself (a parent's
+ * state, a counter, a list stored on it) reads it this way: a write of that row in flight finishes first and the read
+ * returns its committed version — two such deciders take turns instead of both deciding from the same old copy.
+ */
+export async function lockedRow(q: Queryable, ctx: Ctx, table: string, id: unknown, mode: "update" | "share" = "update"): Promise<Row | null> {
+  if (!isUuid(id)) return null;
+  const schema = await orgSchema(ctx, q);
+  const def = schema.def(table) ?? tableDef(table);
+  if (!def || def.virtual) return null;
+  const env = await condEnv(ctx);
+  const params: unknown[] = [];
+  const where = readable(ctx, def, "t", params, env);
+  params.push(id.toLowerCase());
+  const row = await q.one<Row>(`select t.* from ${def.table} t where ${where} and t.id = $${params.length}::uuid for ${mode === "share" ? "share" : "update"} of t`, params);
+  return row ? fromDb(def, row) : null;
+}
+
+/**
  * Is the caller only a requester in `area` — a write scope of none or own, the platform's create-on-behalf rule
  * (docs/spec/ACCESS.md §8)? Such a caller files records for themselves; the agent's fields are not theirs to set.
  */

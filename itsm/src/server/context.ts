@@ -1,6 +1,7 @@
 // Server configuration and the per-request context handed to services.
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { Db, Tx } from "./db";
+import { retryTransient } from "./db";
 import type { Area, Level, Role } from "@shared/permissions";
 import { can as canDo, AREAS, LEVEL_ORDER } from "@shared/permissions";
 import type { ModuleKey } from "@shared/constants";
@@ -91,6 +92,13 @@ export interface ServerConfig {
    * on the desktop (its own timer ticks every 10 s) and in tests (they tick explicitly).
    */
   waitUntil?: (work: () => Promise<unknown>) => void;
+  /**
+   * A request found the database gone back in transaction ids (sync/snapshot.ts xidRegressionWaiting: moved into another
+   * cluster while this process ran) and answered 503 «migrating». The web version then answers every request so until
+   * its budgeted restamp steps are done (src/server/cloud.ts); absent, the process restamps in the background
+   * (restampInBackground).
+   */
+  xidRegression?: () => void;
   /**
    * Cookies and proxies of the installation (src/server/auth/session.ts; environment fallbacks ITSM_COOKIE_SECURE,
    * ITSM_COOKIE_SAMESITE, ITSM_TRUSTED_PROXIES): `cookieSecure` "auto" sets Secure on HTTPS requests (X-Forwarded-Proto
@@ -200,16 +208,19 @@ export interface WriteOptions {
    */
   internal?: boolean;
   /**
-   * Take the organisation's write lock as late as possible: not when the transaction starts but right before its first
-   * write of a synced row (the engine calls `ensureOrgLock` before each statement; the sync trigger takes it at the
-   * latest) — and before an update or delete locks the record's row (`for update`): every writer takes the
-   * organisation's lock before a row's, else two writers could wait for each other. Reads, preparation and per-row
-   * work before that run without holding it. Only for work whose reads do not
-   * decide other records' writes (the notification service's bell rows); user writes keep the lock from the start.
-   * Default: on for `internal` bookkeeping (single writes that need no serialisation beyond the revision order — a
-   * write of a table that is not synced then takes no lock at all), off otherwise.
+   * Only with organisation-wide write serialisation switched on (`ITSM_SERIALIZE_WRITES`, off by default — sync
+   * revisions are transaction ids and need no lock): take the organisation's lock as late as possible, right before
+   * the first write of a synced row (`ensureOrgLock`) instead of when the transaction starts. Default: on for
+   * `internal` bookkeeping, off otherwise. Without serialisation it changes nothing.
    */
   late?: boolean;
+  /**
+   * Run the transaction again (up to three times in all) when the database aborts it for a deadlock or a serialization
+   * failure (40P01/40001, `retryTransient`): only for work whose every effect is inside the transaction (record
+   * writes, recounts) — never for work that calls out or collects results in memory. Without it the error reaches
+   * the caller (an HTTP request answers 503 «سیستم مشغول است؛ دوباره امتحان کنید»).
+   */
+  retry?: boolean;
 }
 
 export interface Ctx {
@@ -229,12 +240,19 @@ export interface Ctx {
   status?: OrgPlatformStatus | null;
   /** the request's session (loaded for /o/:org requests): re-authentication of sensitive administration (src/server/auth/policy.ts) */
   session?: AuthSession | null;
+  /**
+   * What this context reads leaves the system — the record API of other programs, a scheduled report's e-mail, the
+   * assistant's answers in a messenger: the demo pack's rows are never read (docs/DEMO_FA.md). The engine's read
+   * predicate (`readable`) leaves out every row recorded in sm_demo_rows, so lists, counts, single reads and writes
+   * all miss them (a write starts from a readable row: 404).
+   */
+  withoutDemo?: boolean;
   can(area: Area, level: Level): boolean;
   need(area: Area, level: Level): void;
   /**
-   * Run `fn` in a write transaction holding the organisation's write lock. Refused while the
-   * organisation is read-only or suspended (unless `internal`); inside a support session every change
-   * is tagged and listed in the organisation's audit log.
+   * Run `fn` in a write transaction (no organisation-wide lock: rows lock themselves, derived values recompute under
+   * their before-commit key — docs/spec/ENGINE.md §5). Refused while the organisation is read-only or suspended
+   * (unless `internal`); inside a support session every change is tagged and listed in the organisation's audit log.
    */
   write<T>(fn: (tx: Tx) => Promise<T>, opts?: WriteOptions): Promise<T>;
   hasModule(m: ModuleKey): boolean;
@@ -244,11 +262,36 @@ export interface Ctx {
 const locked = new WeakSet<Tx>();
 
 /**
+ * Organisation-wide write serialisation (docs/PERFORMANCE_FA.md «دور سوم»). Sync revisions are the ids of the writing
+ * transactions and pulls compare snapshots (src/server/sync/snapshot.ts), so no write needs the organisation's lock any
+ * more: writes of different records run side by side, a record's own writes queue on its row (`for update`), and
+ * values derived from several rows recompute under their before-commit key (`onBeforeCommit`, an advisory lock per
+ * key). Off by default. `ITSM_SERIALIZE_WRITES=1` brings back the previous behaviour — every write holds the
+ * organisation's lock from its start (`late`/`internal` ones from their first synced statement) — as an operational
+ * fallback; sync correctness does not depend on it either way.
+ */
+const envSerialize = (): boolean | null => {
+  const raw = (process.env.ITSM_SERIALIZE_WRITES ?? "").trim().toLowerCase();
+  if (!raw) return null;
+  return raw === "1" || raw === "true" || raw === "on" || raw === "yes";
+};
+let serialiseWrites = envSerialize() ?? false;
+
+/** Switch organisation-wide write serialisation (tests, the server edition's settings); the environment variable wins. */
+export function configureWriteSerialisation(on?: boolean | null): boolean {
+  serialiseWrites = envSerialize() ?? on === true;
+  return serialiseWrites;
+}
+
+/** Whether writes of an organisation are serialised by its lock (off unless switched on). */
+export const writesSerialised = (): boolean => serialiseWrites;
+
+/**
  * Write admission: at most this many write transactions of one organisation are in the database at once per process
- * (default 3; the server edition's kariz.json `writers_per_org`, the environment variable `ITSM_WRITERS_PER_ORG` wins). The organisation's writes are serialised by its write lock anyway; more of them
- * in the database would only hold pool connections while they wait for it — and when one write holds the lock long, a
- * queue of waiting writers empties the pool and every read of the process stalls behind them. The others wait here,
- * holding nothing. Bookkeeping (`internal`) and writes inside another write are not counted.
+ * (default 3; the server edition's kariz.json `writers_per_org`, the environment variable `ITSM_WRITERS_PER_ORG` wins).
+ * Writes no longer wait for one lock, so this is only a throttle: a burst of one organisation's writes (an import, a
+ * notification storm) holds at most this many pool connections per process and reads keep theirs. The others wait
+ * here, holding nothing. Bookkeeping (`internal`) and writes inside another write are not counted.
  */
 const DEFAULT_WRITERS_PER_ORG = 3;
 const envWriters = (): number | null => {
@@ -289,7 +332,10 @@ export async function admitWrite<T>(orgId: string, fn: () => Promise<T>, opts: {
   }
 }
 
-/** Serialises writes of one organisation (and keeps revision numbers in commit order). */
+/**
+ * The organisation's lock (its sm_org_sync row) until commit: for rare organisation-wide changes (creating or adopting
+ * an organisation, restores) and, with `ITSM_SERIALIZE_WRITES`, for every write. Sync revisions do not need it.
+ */
 export async function lockOrg(tx: Tx, orgId: string): Promise<void> {
   const t0 = lockProbeOn() ? performance.now() : 0;
   await tx.query(
@@ -302,11 +348,12 @@ export async function lockOrg(tx: Tx, orgId: string): Promise<void> {
 }
 
 /**
- * The write lock before a statement that writes synced rows: taken now unless this transaction holds it already (a
- * `late` write takes it here, at its first write; any other write took it when it began). Cheap when held.
+ * Before a statement that writes synced rows: with write serialisation switched on, the organisation's lock unless this
+ * transaction holds it already (a `late` write takes it here, at its first write). Off (the default): nothing — the
+ * engine keeps calling it so that the switch keeps its old lock order (organisation before row).
  */
 export async function ensureOrgLock(tx: Tx, orgId: string): Promise<void> {
-  if (!locked.has(tx)) await lockOrg(tx, orgId);
+  if (serialiseWrites && !locked.has(tx)) await lockOrg(tx, orgId);
 }
 
 export const NOT_MEMBER_MESSAGE = "شما عضو این سازمان نیستید؛ برای کار در آن، از «مدیریت سامانه» حالت پشتیبانی را آغاز کنید";
@@ -376,9 +423,9 @@ export function makeCtx(cfg: ServerConfig, user: AuthUser, org: OrgRow, member: 
     write: async (fn, wopts) => {
       if (outsider && !support) throw forbidden(NOT_MEMBER_MESSAGE);
       if (support?.level === "view" && !wopts?.internal) throw forbidden(SUPPORT_VIEW_ONLY_MESSAGE);
-      const result = await admitWrite(org.id, () => cfg.db.tx(async (tx) => {
-        // bookkeeping (`internal`) takes the lock only if it writes synced rows, and only then
-        if (!(wopts?.late ?? wopts?.internal)) await lockOrg(tx, org.id);
+      const result = await admitWrite(org.id, () => retryTransient(() => cfg.db.tx(async (tx) => {
+        // organisation-wide serialisation only when switched on (bookkeeping then takes it only if it writes synced rows)
+        if (serialiseWrites && !(wopts?.late ?? wopts?.internal)) await lockOrg(tx, org.id);
         if (!wopts?.internal) await assertWritable(tx, org.id);
         if (support) {
           const live = await tx.one(
@@ -391,7 +438,7 @@ export function makeCtx(cfg: ServerConfig, user: AuthUser, org: OrgRow, member: 
         const out = await fn(tx);
         if (support && !wopts?.internal) await recordSupportWrite(tx, cfg, org.id, user.id, support.id, opts.request ?? null);
         return out;
-      }), wopts);
+      }), wopts?.retry ? 3 : 1), wopts);
       cfg.desktop?.notifyLocalWrite();
       if (cfg.mode !== "cloud") bumpLocal(org.id);
       return result;

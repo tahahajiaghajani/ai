@@ -10,9 +10,9 @@ import { createIn, orgSchema, orgTz, updateIn } from "../../engine";
 import { subjectOf } from "../../access";
 import { access } from "../../access/provider";
 import { defFor } from "../../engine";
-import { countRows, eqAll, isUuid, liveRow, liveRows, sysOf, type Row } from "../incident/common";
+import { countRows, eqAll, isUuid, liveRow, liveRows, lockedRow, sysOf, type Row } from "../incident/common";
 
-export { countRows, eqAll, isUuid, liveRow, liveRows, sysOf, type Row };
+export { countRows, eqAll, isUuid, liveRow, liveRows, lockedRow, sysOf, type Row };
 
 /** The organisation's security settings (its row, else the defaults), with the row's id and seed marker. */
 export async function securityConfig(q: Queryable, ctx: Ctx): Promise<SecurityConfig & { id: string | null; seeded: number }> {

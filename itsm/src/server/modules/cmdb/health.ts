@@ -9,10 +9,10 @@ import type { Cond } from "@shared/model/conditions";
 import type { ClassHealth, HealthSummary } from "@shared/cmdb/api";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
-import { pgArray } from "../../db";
+import { lockKey, pgArray } from "../../db";
 import type { Queryable, Tx } from "../../db";
 import { aggregate, condEnv, createIn, orgSchema, readable, toSql, transitionIn, updateIn } from "../../engine";
-import { classTree, cmdbConfig, eqAll, isUuid, liveRows, relTypes, sysOf, type Row } from "./common";
+import { classTree, cmdbConfig, eqAll, isUuid, liveRows, lockedRow, relTypes, sysOf, type Row } from "./common";
 import { edgesAround } from "./graph";
 
 const DAY = 86_400_000;
@@ -161,6 +161,9 @@ export async function computeHealth(q: Tx, ctx: Ctx, opts: { ids?: string[]; aft
     const prevIssues = [...(ci.health_issues ?? [])].sort();
     const detail = { completeness: h.completeness, recommended: h.recommended, correctness: h.correctness, compliance: h.compliance, missing: h.missing, violations: h.violations, failed_rules: failed.map((r) => r.name), warned: ci.health?.warned ?? null };
     if (ci.health_score !== h.score || JSON.stringify(issues) !== JSON.stringify(prevIssues) || JSON.stringify(ci.health ?? null) !== JSON.stringify(detail) || isStale(ci, cls?.staleDays ?? null, now) !== !!ci.is_stale) {
+      // the expiry warning mark as stored now (the CI locked: the warnings job writes it under the same lock), so this
+      // write keeps a mark set since the CIs were read
+      detail.warned = (await lockedRow(q, sys, "ci", ci.id))?.health?.warned ?? null;
       await updateIn(q, sys, "ci", ci.id, { health_score: h.score, health_issues: issues, health: detail, health_at: new Date(now).toISOString(), is_stale: h.issues.includes("stale") }, { trusted: true, keepVersion: true, allowLocked: true });
       out.updated++;
     }
@@ -202,6 +205,10 @@ export async function computeHealth(q: Tx, ctx: Ctx, opts: { ids?: string[]; aft
   for (const f of toOpen) {
     if (openByKey.has(f.key)) continue;
     if (out.findings_opened >= MAX_NEW_FINDINGS) break;
+    // the finding's key, then its open finding read again: two passes over one CI at once (its own job, the nightly
+    // pass, a person's «بررسی») open it once — a key per new finding, at most MAX_NEW_FINDINGS in a pass
+    await lockKey(q, `cmdb.finding:${ctx.org.id}:${f.key}`);
+    if ((await liveRows(q, sys, "cmdb_finding", { and: [{ f: "dedupe_key", op: "eq", v: f.key }, { f: "active", op: "eq", v: true }] }, { limit: 1 })).length) continue;
     await createIn(q, sys, "cmdb_finding", {
       short_description: f.title, ci_id: f.ci.id, kind: f.kind, severity: f.severity, rule_id: f.rule ?? null, detail: f.detail, dedupe_key: f.key, auto: true,
       assigned_to: f.ci.owned_by ?? null, assignment_group_id: f.ci.support_group_id ?? null, workspace_id: f.ci.workspace_id ?? null,

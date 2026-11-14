@@ -14,7 +14,8 @@
 // The organisation itself is created through the app (sign-up, organisation, every module's seed jobs, the
 // need-to-know desk preset); people and the org structure are generated here and loaded with COPY; the record tables
 // are generated inside PostgreSQL (INSERT … SELECT over generate_series: nothing crosses the socket) with triggers off
-// (`session_replication_role = replica`; revisions, numbers and the access version are set afterwards). The data
+// (`session_replication_role = replica`; numbers and the access version are set afterwards, revisions are 1 — sync
+// revisions are transaction ids and generated rows are older than every snapshot). The data
 // directory must stay under about 10 GB here: the script stops when less than --min-free GB (default 5) is left.
 // Writes .perf/bank.json (organisation, sample people, session tokens) for scripts/loadtest.mjs.
 import postgres from "postgres";
@@ -483,7 +484,7 @@ async function records(sql, org, meta) {
           x.created + interval '1 hour' * (case x.imp + x.urg - 1 when 1 then 4 when 2 then 8 when 3 then 24 when 4 then 72 else 120 end), false,
           e.unit_id, ${extra.ws ?? "gg.ws"}, x.created, case when x.ro < 0.6 then e.id else ag.agent end,
           least(now(), case when x.closed then x.resolved + interval '3 days' when x.done then x.resolved else x.created + (now() - x.created) * random() end),
-          coalesce(ag.agent, e.id), nextval('perf_rev'), 2 + floor(random() * 6)::int, '{}'::jsonb${extra.vals ? `, ${extra.vals}` : ""}
+          coalesce(ag.agent, e.id), 1, 2 + floor(random() * 6)::int, '{}'::jsonb${extra.vals ? `, ${extra.vals}` : ""}
         from (
           select y.*, y.state in ('${states.resolved}', '${states.closed}', '${states.canceled}') as done, y.state in ('${states.closed}', '${states.canceled}') as closed,
                  least(now() - interval '1 minute', y.created + interval '1 hour' * exp(random() * 4.8)) as resolved
@@ -536,7 +537,7 @@ async function records(sql, org, meta) {
                      when 'awaiting_approval' then 'awaiting_approval' else 'in_fulfilment' end,
         r.priority, r.caller_id, r.requested_for, r.opened_by, r.opened_at, r.assignment_group_id, r.assigned_to, r.location_id, r.closed_at, r.active,
         r.id, ($2::uuid[])[1 + (abs(hashtext(r.id::text || k)) % greatest(cardinality($2::uuid[]), 1))], ($3::uuid[])[1 + (abs(hashtext(r.id::text || k)) % greatest(cardinality($3::uuid[]), 1))],
-        1, '[]'::jsonb, '[]'::jsonb, r.unit_id, r.workspace_id, r.created_at, r.created_by, r.updated_at, r.updated_by, nextval('perf_rev'), r.version, '{}'::jsonb
+        1, '[]'::jsonb, '[]'::jsonb, r.unit_id, r.workspace_id, r.created_at, r.created_by, r.updated_at, r.updated_by, 1, r.version, '{}'::jsonb
       from sm_requests r cross join lateral generate_series(1, case when abs(hashtext(r.id::text)) % 4 = 0 then 2 else 1 end) k
       where r.org_id = $1`, [org, arr(itemIds), arr(itemVersions.filter(Boolean))]);
     const ni = Number((await q(`select count(*)::int as n from sm_request_items where org_id = $1`, [org]))[0].n);
@@ -548,7 +549,7 @@ async function records(sql, org, meta) {
       select pg_temp.uuid7(i.created_at), i.org_id, row_number() over (order by i.no, k), 'انجام: ' || i.short_description,
         case when i.active then (case when k = 1 then 'work_in_progress' else 'open' end) when i.state = 'cancelled' then 'cancelled' else 'closed_complete' end,
         i.priority, i.caller_id, i.requested_for, i.opened_by, i.opened_at, gg.id, pg_temp.pickz(gg.members), i.closed_at, i.active, i.id, i.request_id, k, false, '[]'::jsonb,
-        i.unit_id, i.workspace_id, i.created_at, i.created_by, i.updated_at, i.updated_by, nextval('perf_rev'), i.version, '{}'::jsonb
+        i.unit_id, i.workspace_id, i.created_at, i.created_by, i.updated_at, i.updated_by, 1, i.version, '{}'::jsonb
       from sm_request_items i cross join lateral generate_series(1, case when abs(hashtext(i.id::text)) % 5 = 0 then 2 else 1 end) k
       join perf_grp gg on gg.idx = 33 + (abs(hashtext(i.id::text || k)) % 40)
       where i.org_id = $1`, [org]);
@@ -584,7 +585,7 @@ async function records(sql, org, meta) {
         insert into sm_journal (id, org_id, table_key, record_id, kind, visibility, body, author, attachments, created_at, updated_at, rev)
         select pg_temp.uuid7(ts), r.org_id, '${key}', r.id, case when random() < 0.5 then 'work_note' else 'comment' end,
                case when random() < 0.5 then 'internal' else 'public' end, pg_temp.pick($2::text[]),
-               coalesce(r.assigned_to, r.caller_id), '[]'::jsonb, ts, ts, nextval('perf_rev')
+               coalesce(r.assigned_to, r.caller_id), '[]'::jsonb, ts, ts, 1
         from ${table} r
         cross join lateral generate_series(1, 1 + abs(hashtext(r.id::text)) % ${per}) k
         cross join lateral (select r.created_at + (r.updated_at - r.created_at) * (k::float8 / (2 + abs(hashtext(r.id::text)) % ${per})) as ts) tt
@@ -617,7 +618,7 @@ async function records(sql, org, meta) {
                case k % 3 when 1 then 'state' when 2 then 'assigned_to' else 'priority' end,
                case k % 3 when 1 then to_jsonb('new'::text) when 2 then 'null'::jsonb else to_jsonb('4'::text) end,
                case k % 3 when 1 then to_jsonb(case when k > 3 then r.state else '${work}' end) when 2 then to_jsonb(r.assigned_to) else to_jsonb(r.priority) end,
-               r.updated_by, ts, ts, ts, nextval('perf_rev')
+               r.updated_by, ts, ts, ts, 1
         from ${table} r
         cross join lateral generate_series(1, ${per}) k
         cross join lateral (select r.created_at + (r.updated_at - r.created_at) * (k::float8 / ${per + 1}) as ts) tt
@@ -640,14 +641,14 @@ async function records(sql, org, meta) {
       select pg_temp.uuid7(c), $1, ${ciBase} + g, pg_temp.pick($2::text[]) || '-' || g, pg_temp.pick($2::text[]), case when random() < 0.8 then 'production' else 'test' end,
              case when random() < 0.1 then '1' when random() < 0.4 then '2' else '3' end, 'operational', 'installed', 'operational', '[]'::jsonb,
              (select id from perf_grp where idx = 33 + (g % 40)), e.location_id, 'SN' || g, 'host-' || g, '10.' || (g % 250) || '.' || ((g / 250) % 250) || '.' || (g % 200),
-             50 + floor(random() * 50)::int, false, random() < 0.05, '[]'::jsonb, c, c, nextval('perf_rev'), 1, '{}'::jsonb
+             50 + floor(random() * 50)::int, false, random() < 0.05, '[]'::jsonb, c, c, 1, 1, '{}'::jsonb
       from (select g, ${CREATED(N.cis)} as c from generate_series(1, ${N.cis}) g) x
       join perf_emp e on e.idx = 1 + (g::bigint * 7919) % ${counts.e}`, [org, arr(classes)]);
     await q(`insert into sm_numbers (org_id, table_key, last) values ($1, 'ci', $2) on conflict (org_id, table_key) do update set last = greatest(sm_numbers.last, excluded.last)`, [org, ciBase + N.cis]);
     const types = relTypes.length ? relTypes : ["depends_on", "runs_on", "connects_to", "contains"];
     await q(`
       insert into sm_ci_rels (id, org_id, parent_id, type, child_id, origin_kind, impact_weight, created_at, updated_at, rev, version, custom)
-      select pg_temp.uuid7(now() - interval '1000 days' * random()), $1, p.id, pg_temp.pick($2::text[]), c.id, 'manual', 100, now(), now(), nextval('perf_rev'), 1, '{}'::jsonb
+      select pg_temp.uuid7(now() - interval '1000 days' * random()), $1, p.id, pg_temp.pick($2::text[]), c.id, 'manual', 100, now(), now(), 1, 1, '{}'::jsonb
       from generate_series(1, ${N.rels}) g
       join (select id, row_number() over (order by no) as rn from sm_cis where org_id = $1) p on p.rn = 1 + (g::bigint * 31) % ${N.cis}
       join (select id, row_number() over (order by no) as rn from sm_cis where org_id = $1) c on c.rn = 1 + (g::bigint * 7 + g / ${N.cis} + 1) % ${N.cis}
@@ -663,7 +664,7 @@ async function records(sql, org, meta) {
         purchase_cost, purchase_date, tags, watch_list, unit_id, created_at, updated_at, rev, version, custom)
       select pg_temp.uuid7(c), $1, ${assetBase} + g, pg_temp.pick(array['رایانهٔ رومیزی', 'لپ‌تاپ', 'چاپگر', 'نمایشگر', 'کارت‌خوان', 'اسکنر']) || ' ' || g, 'AT' || g, 'S' || g,
              'hardware', 'hardware', case when random() < 0.75 then 'in_use' when random() < 0.9 then 'in_stock' else 'retired' end, null, 1,
-             e.id, c, e.location_id, (5000000 + floor(random() * 90000000))::numeric, c::date, '[]'::jsonb, '[]'::jsonb, e.unit_id, c, c, nextval('perf_rev'), 1, '{}'::jsonb
+             e.id, c, e.location_id, (5000000 + floor(random() * 90000000))::numeric, c::date, '[]'::jsonb, '[]'::jsonb, e.unit_id, c, c, 1, 1, '{}'::jsonb
       from (select g, ${CREATED(N.assets)} as c from generate_series(1, ${N.assets}) g) x
       join perf_emp e on e.idx = 1 + (g::bigint * 104729) % ${counts.e}`, [org]);
     await q(`insert into sm_numbers (org_id, table_key, last) values ($1, 'asset', $2) on conflict (org_id, table_key) do update set last = greatest(sm_numbers.last, excluded.last)`, [org, assetBase + N.assets]);
@@ -683,7 +684,7 @@ async function records(sql, org, meta) {
       select pg_temp.uuid7(c), $1, 100000 + g, pg_temp.pick($3::text[]) || ' (' || g || ')', pg_temp.pick($4::text[]),
              repeat(pg_temp.pick($4::text[]) || ' ' || pg_temp.pick($5::text[]) || E'\\n', 6), '[]'::jsonb, '[]'::jsonb, 'how_to', 'fa', $2,
              a.id, (select id from perf_grp where idx = 33 + (g % 40)), 'inherit', false, case when random() < 0.85 then 'published' else 'draft' end,
-             c, c, floor(random() * 2000)::int, floor(random() * 50)::int, floor(random() * 10)::int, null, c, c, nextval('perf_rev'), 1, '{}'::jsonb${vals}
+             c, c, floor(random() * 2000)::int, floor(random() * 50)::int, floor(random() * 10)::int, null, c, c, 1, 1, '{}'::jsonb${vals}
       from (select g, ${CREATED(N.kb)} as c from generate_series(1, ${N.kb}) g) x
       join perf_agent a on a.idx = 1 + (g::bigint * 31) % ${counts.a}
       ${keep.length ? `cross join (select * from sm_kb_articles where id = '${sample.id}') s` : ""}`, [org, kbBase, arr(KB_TITLES), arr(DESCRIPTIONS), arr(NOTES)]);
@@ -707,7 +708,7 @@ async function records(sql, org, meta) {
                'sla', case when k = 1 then 'response' else 'resolution' end,
                case when r.active then 'in_progress' when random() < 0.08 then 'breached' else 'achieved' end, r.active, random() < 0.08,
                r.created_at, r.created_at + interval '8 hours', case when not r.active then coalesce(r.resolved_at, r.closed_at, r.updated_at) end, null, 0,
-               3600, 3600, (random() * 100)::numeric(6, 2), 0, 'Asia/Tehran', r.updated_at, r.created_at, r.updated_at, nextval('perf_rev'), 1, '{}'::jsonb
+               3600, 3600, (random() * 100)::numeric(6, 2), 0, 'Asia/Tehran', r.updated_at, r.created_at, r.updated_at, 1, 1, '{}'::jsonb
         from ${table} r cross join lateral generate_series(1, ${per}) k
         where r.org_id = $1`, [org, defs]);
       guardDisk(`slas ${key}`);
@@ -722,7 +723,7 @@ async function records(sql, org, meta) {
       insert into sm_notifications (id, org_id, user_id, title, body, link, table_key, record_id, record_number, event, kind, read_at, created_at, updated_at, rev, version, custom)
       select pg_temp.uuid7(i.updated_at), i.org_id, coalesce(case when k = 1 then i.assigned_to end, i.caller_id), 'به‌روزرسانی ' || i.number, i.short_description,
              '/r/incident/' || i.id, 'incident', i.id::text, i.number, case when k = 1 then 'record.assigned' else 'record.updated' end, 'direct',
-             case when i.active and random() < 0.6 then null else i.updated_at end, i.updated_at, i.updated_at, nextval('perf_rev'), 1, '{}'::jsonb
+             case when i.active and random() < 0.6 then null else i.updated_at end, i.updated_at, i.updated_at, 1, 1, '{}'::jsonb
       from sm_incidents i cross join lateral generate_series(1, ${Math.max(1, Math.round(N.notifications / Math.max(1, N.incidents)))}) k
       where i.org_id = $1`, [org]);
     await q(`
@@ -740,7 +741,7 @@ async function records(sql, org, meta) {
         payload, created_at, updated_at, rev, version, custom)
       select pg_temp.uuid7(c), $1, 'هشدار ' || pg_temp.pick(array['پردازنده', 'حافظه', 'دیسک', 'پینگ', 'سرویس']) || ' روی host-' || (g % 5000), case when random() < 0.5 then 'firing' else 'resolved' end,
              pg_temp.pick(array['critical', 'major', 'minor', 'warning', 'info']), 'host-' || (g % 5000), 'svc', 'cpu', (random() * 100)::numeric(6, 2), '[]'::jsonb,
-             c, c, c, md5((g % 20000)::text), 'deduplicated', '{}'::jsonb, c, c, nextval('perf_rev'), 1, '{}'::jsonb
+             c, c, c, md5((g % 20000)::text), 'deduplicated', '{}'::jsonb, c, c, 1, 1, '{}'::jsonb
       from (select g, now() - interval '365 days' * power(1 - (g::float8 / ${N.events + 1}), 1.2) as c from generate_series(1, ${N.events}) g) x`, [org]);
     log(`events: ${N.events.toLocaleString()}`);
   }
@@ -757,10 +758,10 @@ async function records(sql, org, meta) {
 async function finish(sql, org) {
   const q = (text, params = []) => sql.unsafe(text, params);
   const t = Date.now();
-  await q(`insert into sm_org_sync (org_id, rev) values ($1, (select coalesce(max(last_value), 1) from perf_rev) + 10)
-           on conflict (org_id) do update set rev = greatest(sm_org_sync.rev, excluded.rev)`, [org]).catch(async () => {
-    await q(`update sm_org_sync set rev = rev + 1000000 where org_id = $1`, [org]);
-  });
+  // revisions are transaction ids: the generated rows carry revision 1 (older than every snapshot); a new sync epoch
+  // makes a Windows app that pulled this organisation before the seed read everything again
+  await q(`insert into sm_org_sync (org_id, rev, epoch) values ($1, 0, (extract(epoch from clock_timestamp()) * 1000)::bigint)
+           on conflict (org_id) do update set epoch = greatest(sm_org_sync.epoch + 1, excluded.epoch)`, [org]);
   await q(`insert into sm_access_state (org_id, version) values ($1, 1) on conflict (org_id) do update set version = sm_access_state.version + 1, updated_at = now()`, [org]);
   await q(`update sm_orgs set settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{access}', coalesce(settings -> 'access', '{}'::jsonb) || '{"preset":"need_to_know"}'::jsonb) where id = $1`, [org]);
   log("vacuum analyze (visibility maps for index-only scans)…");

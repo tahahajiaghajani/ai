@@ -3,12 +3,14 @@
 // tables and records they show and are told which of those changed (src/server/live-scope.ts): a write
 // elsewhere in the organisation no longer refetches every open page, and nothing the member may not read
 // is ever signalled.
-// - Web version: the organisation's sync revision (sm_org_sync), which sm_sync_touch moves on every
-//   change of a synced record, whoever made it: a browser or phone, a Windows app's upload, the
-//   platform admin. One indexed row read, no table scan.
+// - Web version and server edition: the database's snapshot (`x` + xmin:xmax:xip, src/server/sync/snapshot.ts) —
+//   sync revisions are the ids of the transactions that wrote the rows, so «what changed since the screen's last
+//   look» is the rows whose writer became visible between its token and this one, whoever wrote them: a browser or
+//   phone, a Windows app's upload, a job, the platform admin. One function call, no table read, no lock.
 // - Windows app: a counter of this process, moved after every local write (any browser on the
 //   shop network included) and after a download from the web version changed something here.
 import type { Ctx } from "./context";
+import { currentSnap, snapText } from "./sync/snapshot";
 
 const local = new Map<string, number>();
 // a restarted Windows app never hands out a token an open screen already saw
@@ -19,9 +21,6 @@ export function bumpLocal(orgId: string): void {
 }
 
 export async function pulse(ctx: Ctx): Promise<string> {
-  if (ctx.cfg.mode === "cloud") {
-    const row = await ctx.db.one<{ rev: string }>(`select rev::text as rev from sm_org_sync where org_id = $1`, [ctx.org.id]);
-    return `w${row?.rev ?? "0"}`;
-  }
+  if (ctx.cfg.mode === "cloud") return `x${snapText(await currentSnap(ctx.db))}`;
   return `d${boot}.${local.get(ctx.org.id) ?? 0}`;
 }

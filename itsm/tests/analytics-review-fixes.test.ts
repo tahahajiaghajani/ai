@@ -6,7 +6,7 @@
 import { describe, expect, it, beforeAll, vi } from "vitest";
 import { analyticsWorld, type AnalyticsWorld } from "./analytics-helpers";
 import { enqueue, tick } from "@server/jobs";
-import { systemCtx } from "@server/engine";
+import { registerHooks, systemCtx } from "@server/engine";
 import { collectIndicator } from "@server/modules/analytics/indicators";
 import { stopAt } from "@server/modules/analytics/jobs";
 import { toolCatalog } from "@server/modules/ai/tools";
@@ -128,6 +128,44 @@ describe("deliveries (analytics-delivery-not-idempotent)", () => {
     const after = (await w.sdm.client.get(`${w.P}/r/analytics_schedule/${s.id}`)).row;
     expect(after.last_result).toContain("۱ ناموفق");
   });
+
+  it("an occurrence is delivered once: a twin of a run in progress sends nothing, and the tick queues none (D4 A1-18)", async () => {
+    const report = (await w.sdm.client.post(`${w.P}/r/analytics_report`, { name: "رخدادها یک‌بار", spec: { v: 1, table: "incident", measures: [{ fn: "count" }], dims: [], viz: "score" }, shares: [{ kind: "group", id: w.g.desk }, { kind: "group", id: w.g.network }] })).row;
+    const s = (await w.sdm.client.post(`${w.P}/r/analytics_schedule`, { name: "تحویل یک‌باره", report_id: report.id, schedule: { kind: "daily", time: "08:00" }, recipients: [w.p.agent.userId, w.p.other.userId], include_owner: true, channels: ["in_app"], formats: ["summary"], skip_if_empty: false })).row;
+    await w.drain();
+    // the occurrence was due a minute ago; its run (A) is queued, and so is a twin (B) that escaped the dedupe key
+    const at = new Date(Date.now() - 60_000).toISOString();
+    await w.e.db.query(`update sm_analytics_schedules set next_run_at = $2 where id = $1`, [s.id, at]);
+    const key = `analytics.deliver:${s.id}`;
+    const a = await enqueue(w.e.db, { kind: "analytics.deliver", orgId: w.e.org, payload: { id: s.id, at }, dedupeKey: key, runAt: new Date(Date.now() - 1_800_000), maxAttempts: 3 });
+    const b = await enqueue(w.e.db, { kind: "analytics.deliver", orgId: w.e.org, payload: { id: s.id, at }, runAt: new Date(Date.now() + 3600_000), maxAttempts: 3 });
+    const deliveries = async () => w.e.db.query<{ recipient_id: string; n: number }>(`select recipient_id, count(*)::int as n from sm_analytics_deliveries where org_id = $1 and schedule_id = $2 group by recipient_id`, [w.e.org, s.id]);
+    // each delivery takes a while: A stops at its budget after the first recipient
+    const slow = registerHooks("analytics_delivery", { afterWrite: () => new Promise((r) => setTimeout(r, 1_100)) });
+    try {
+      await tick(w.e.cfg, { max: 1, budgetMs: 2_000 });
+    } finally {
+      slow();
+    }
+    expect((await deliveries()).length).toBe(1);
+    // while A runs (on another worker), the tick queues no twin of it — even before A moved the schedule on
+    const claimed = await w.e.db.one<{ next_run_at: string }>(`select next_run_at from sm_analytics_schedules where id = $1`, [s.id]);
+    await w.e.db.query(`update sm_jobs set status = 'running', locked_until = now() + interval '5 minutes' where id = $1`, [a]);
+    await w.e.db.query(`update sm_analytics_schedules set next_run_at = $2 where id = $1`, [s.id, at]);
+    await enqueue(w.e.db, { kind: "analytics.tick", orgId: w.e.org, runAt: new Date(Date.now() - 3600_000), maxAttempts: 3 });
+    await tick(w.e.cfg, { max: 1, budgetMs: 10_000 });
+    const twins = await w.e.db.query(`select id from sm_jobs where org_id = $1 and dedupe_key = $2 and status = 'queued'`, [w.e.org, key]);
+    expect(twins).toEqual([]);
+    await w.e.db.query(`update sm_analytics_schedules set next_run_at = $2 where id = $1`, [s.id, claimed?.next_run_at ?? null]);
+    await w.e.db.query(`update sm_jobs set status = 'queued', locked_until = null, run_at = now() where id = $1`, [a]);
+    // the twin runs before A goes on: the occurrence is A's, it sends nobody anything; then A finishes
+    await w.e.db.query(`update sm_jobs set run_at = now() - interval '1 hour' where id = $1`, [b]);
+    await tick(w.e.cfg, { max: 1, budgetMs: 10_000 });
+    await w.drain();
+    const rows = await deliveries();
+    expect(rows.length).toBe(3);
+    expect(rows.every((r) => r.n === 1)).toBe(true);
+  }, 120_000);
 });
 
 describe("models never get kept fields (analytics-ai-tool-bypasses-prompt-field-rules)", () => {

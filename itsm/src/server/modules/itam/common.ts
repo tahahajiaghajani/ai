@@ -13,7 +13,7 @@ import { subjectOf } from "../../access";
 import { orgSchema, orgTz } from "../../engine";
 import { liveRows, sysOf, type Row } from "../incident/common";
 
-export { liveRow, liveRows, countRows, eqAll, isUuid, sysOf, type Row } from "../incident/common";
+export { liveRow, liveRows, lockedRow, countRows, eqAll, isUuid, sysOf, type Row } from "../incident/common";
 
 export type GrantOp = "read" | "create" | "write" | "delete" | "approve" | "admin";
 

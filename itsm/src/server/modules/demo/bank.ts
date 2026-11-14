@@ -115,6 +115,7 @@ export const GROUPS: readonly { key: string; name: string; roles: string[]; type
   { key: "legal", name: "امور حقوقی بانک", roles: ["agent"], types: ["assignment"] },
   { key: "assets", name: "مدیریت دارایی بانک", roles: ["agent", "asset_manager"], types: ["assignment", "approval"] },
   { key: "cab", name: "کمیتهٔ تغییرات بانک", roles: ["cab_member"], types: ["cab", "approval"] },
+  { key: "csm", name: "خدمات پذیرندگان و مشتریان حقوقی", roles: ["csm_agent"], types: ["assignment"] },
 ];
 
 /** Regions of the branch network: a field-support group each. */
@@ -237,6 +238,16 @@ export const KNOWN_NAMES = {
   soc: { email: `soc@${BANK_DOMAIN}`, name: "لادن امن‌زاده", title: "تحلیل‌گر مرکز عملیات امنیت", roles: ["security_analyst"] },
   hr: { email: `hr@${BANK_DOMAIN}`, name: "پروانه منابعی", title: "کارشناس منابع انسانی", roles: ["hr_agent"] },
   branch: { email: `branch@${BANK_DOMAIN}`, name: "یاسر اموالی", title: "مسئول اموال شعبهٔ میدان آزادی", roles: ["branch_asset_officer"] },
+  // the rest of the bank: finance, customer service, field service, operations, release and projects, risk, workforce
+  // (roles the modules seed; none is an administrator's)
+  finance: { email: `finance@${BANK_DOMAIN}`, name: "مهرداد بودجه‌نژاد", title: "مدیر مالی فناوری اطلاعات", roles: ["it_finance"] },
+  csm: { email: `csm@${BANK_DOMAIN}`, name: "شبنم مشتری‌مدار", title: "کارشناس خدمات پذیرندگان و مشتریان حقوقی", roles: ["csm_agent"] },
+  field: { email: `field@${BANK_DOMAIN}`, name: "حمید میدانی", title: "توزیع‌کنندهٔ خدمات میدانی خودپردازها", roles: ["dispatcher"] },
+  ops: { email: `ops@${BANK_DOMAIN}`, name: "آرمان پایش‌گر", title: "مهندس پایش و کشیک کارت و خودپرداز", roles: ["ops_engineer"] },
+  release: { email: `release@${BANK_DOMAIN}`, name: "سپیده انتشاری", title: "مدیر انتشار و دواپس", roles: ["release_manager"] },
+  pm: { email: `pm@${BANK_DOMAIN}`, name: "کامبیز پروژه‌پور", title: "مدیر پروژه‌های فناوری", roles: ["project_manager"] },
+  grc: { email: `grc@${BANK_DOMAIN}`, name: "ژاله ریسک‌شناس", title: "مدیر ریسک، انطباق و تداوم کسب‌وکار", roles: ["grc_manager", "continuity_manager"] },
+  wfm: { email: `wfm@${BANK_DOMAIN}`, name: "مینو نوبت‌نگار", title: "مدیر نیروی کار و نوبت‌کاری", roles: ["workforce_manager"] },
 } as const;
 
 export type Persona = keyof typeof KNOWN_NAMES;

@@ -12,7 +12,7 @@ import { add, cmp, isNumeric, mul } from "@shared/money";
 import { tableDef } from "@shared/tables";
 import type { Cond } from "@shared/model/conditions";
 import type { Ctx } from "../../context";
-import type { Queryable, Tx } from "../../db";
+import { lockKey, type Queryable, type Tx } from "../../db";
 import { AppError, bad, forbidden, notFound } from "../../http/errors";
 import { condEnv, createIn, removeIn, updateIn, validationError } from "../../engine";
 import { allowed, arr, eqAll, isUuid, liveRow, liveRows, obj, offeredChoice, rowsByIds, sysOf, type Row } from "./common";
@@ -480,9 +480,16 @@ export interface CartView {
   display: Record<string, string>;
 }
 
+/**
+ * The writes of one person's cart take turns (their key until commit): two tabs adding the first line make one cart,
+ * and a line changed while the cart is checked out is changed before or after the order — never ordered half changed.
+ */
+const lockCart = (tx: Tx, ctx: Ctx) => lockKey(tx, `request.cart:${ctx.org.id}:${ctx.user.id}`);
+
 /** The caller's current cart (created on first use when `create`). */
 async function currentCart(q: Queryable, ctx: Ctx, create: boolean, tx?: Tx): Promise<Row | null> {
-  const [cart] = await liveRows(q, ctx, "request_cart", { and: [{ f: "user_id", op: "is_me" }, { f: "kind", op: "eq", v: "cart" }, { f: "checked_out_at", op: "empty" }] }, { order: "t.created_at desc", limit: 1 });
+  if (tx) await lockCart(tx, ctx);
+  const [cart] = await liveRows(tx ?? q, ctx, "request_cart", { and: [{ f: "user_id", op: "is_me" }, { f: "kind", op: "eq", v: "cart" }, { f: "checked_out_at", op: "empty" }] }, { order: "t.created_at desc", limit: 1 });
   if (cart || !create || !tx) return cart ?? null;
   return createIn(tx, ctx, "request_cart", { name: "سبد سفارش", kind: "cart", user_id: ctx.user.id });
 }
@@ -540,6 +547,7 @@ export async function addLine(ctx: Ctx, input: LineInput & { saved?: boolean }):
 /** Change a line of the caller's cart (answers, quantity, people, «برای بعد»). */
 export async function updateLine(ctx: Ctx, id: string, patch: Partial<LineInput> & { saved?: boolean }): Promise<Row> {
   return ctx.write(async (tx) => {
+    await lockCart(tx, ctx);
     const line = await liveRow(tx, ctx, "request_cart_line", id);
     if (!line) throw notFound("این قلم در سبد شما نیست");
     const next: LineInput = {
@@ -564,6 +572,7 @@ export async function updateLine(ctx: Ctx, id: string, patch: Partial<LineInput>
 
 export async function removeLine(ctx: Ctx, id: string): Promise<void> {
   await ctx.write(async (tx) => {
+    await lockCart(tx, ctx);
     const line = await liveRow(tx, ctx, "request_cart_line", id);
     if (!line) throw notFound("این قلم در سبد شما نیست");
     // a cart line is the caller's own (read through their access): the module removes it for them
@@ -578,7 +587,7 @@ const CART_CLEAR = { requested_for: null, location_id: null, needed_by: null, co
 export async function checkoutCart(ctx: Ctx, input: Omit<OrderInput, "lines"> = {}): Promise<OrderResult> {
   await needCatalog(ctx);
   return ctx.write(async (tx) => {
-    const cart = await currentCart(tx, ctx, false);
+    const cart = await currentCart(tx, ctx, false, tx);
     if (!cart) throw bad("سبد شما خالی است");
     const lines = (await liveRows(tx, ctx, "request_cart_line", eqAll({ cart_id: cart.id }), { order: "t.sort_order, t.created_at" })).filter((l) => !l.saved);
     if (!lines.length) throw bad("سبد شما قلمی برای سفارش ندارد");

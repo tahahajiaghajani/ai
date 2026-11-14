@@ -2,17 +2,19 @@
 // Environment is read lazily so `next build` passes without any variables.
 //
 // No request is ever served on a half-built database. A cold instance first asks whether the schema is this build's
-// (one query, ./db/schema-check.ts). Until it is, every /api request answers 503 `migrating` with the progress — the
-// web UI shows «آماده‌سازی پایگاه داده» — while the missing steps run after those answers (Next.js `after`, inside the
-// function's time limit), a second or two each, resuming where the last one stopped (./db/migrate.ts). The preferred
-// path runs them before any request: the Vercel build or scripts/migrate-db.mts from any computer. The app itself
-// (every module) is loaded only once the schema is current.
+// and whether anything is left of a move into another cluster (one query, ./db/schema-check.ts). Until both are done,
+// every /api request answers 503 `migrating` with the progress — the web UI shows «آماده‌سازی پایگاه داده» — while the
+// missing steps run after those answers (Next.js `after`, inside the function's time limit), a second or two each,
+// resuming where the last one stopped: the schema's (./db/migrate.ts), then the restamp of the synced rows ahead of the
+// database's transaction ids (./sync/snapshot.ts restampSteps). The preferred path runs them before any request: the
+// Vercel build or scripts/migrate-db.mts from any computer. The app itself (every module) is loaded only once the
+// schema is current.
 import { after } from "next/server";
 import { createHash, randomUUID } from "node:crypto";
 import { createPostgresDb } from "./db/postgres";
 import type { Db } from "./db";
 import { consoleLogger } from "./context";
-import { poolerMode, schemaIsCurrent } from "./db/schema-check";
+import { coldStart, poolerMode } from "./db/schema-check";
 import { APP_VERSION } from "@shared/constants";
 
 type FetchApp = { fetch: (req: Request) => Response | Promise<Response> };
@@ -55,16 +57,32 @@ function database(url: string): Db {
   return db;
 }
 
-/** Is the schema current? Once true it stays true for the instance (a new deployment is a new instance). */
+/** The progress line while the synced rows of a database moved into another cluster are restamped. */
+const RESTAMP_LABEL = "نسخه‌های همگام‌سازی پس از جابه‌جایی پایگاه داده";
+const restampLabel = (table: string | null) => (table ? `${RESTAMP_LABEL} (${table})` : RESTAMP_LABEL);
+
+/**
+ * Is the schema current, with nothing left of a move into another cluster? Once true it stays true for the instance (a
+ * new deployment is a new instance) — until a pull finds the database gone back in transaction ids (`xidRegression`).
+ */
 async function schemaReady(d: Db): Promise<boolean> {
   if (ready) return true;
   readyCheck ??= (async () => {
+    const start = await coldStart(d);
     // the fingerprint `npm run schema` wrote; when it does not match (a stale file, a test registry) the real plan decides
-    if (await schemaIsCurrent(d)) return true;
-    const { schemaProgress } = await import("./db/migrate");
-    const p = await schemaProgress(d);
-    progress = { done: p.done, total: p.total, next: p.next, error: progress?.error ?? null };
-    return p.complete;
+    let complete = start.current;
+    if (!complete) {
+      const { schemaProgress } = await import("./db/migrate");
+      const p = await schemaProgress(d);
+      progress = { done: p.done, total: p.total, next: p.next, error: progress?.error ?? null };
+      complete = p.complete;
+    }
+    if (complete && start.xidWaiting) {
+      // the restamp's steps report their own progress (runSteps); until the first one, its label alone
+      if (!progress?.next?.startsWith(RESTAMP_LABEL)) progress = { done: 0, total: 0, next: RESTAMP_LABEL, error: progress?.error ?? null };
+      return false;
+    }
+    return complete;
   })().finally(() => {
     readyCheck = null;
   });
@@ -72,15 +90,32 @@ async function schemaReady(d: Db): Promise<boolean> {
   return ready;
 }
 
-/** Migration steps for one budget: one run per instance at a time; another instance holding the lock makes it stop. */
+/**
+ * Migration steps for one budget, then — the schema current — the restamp's steps for what is left of it: one run per
+ * instance at a time; another instance holding the lock makes it stop.
+ */
 async function runSteps(d: Db): Promise<void> {
   if (running) return;
   running = true;
   try {
+    const started = Date.now();
     const { migrateSteps } = await import("./db/migrate");
     const r = await migrateSteps(d, { budgetMs: stepBudgetMs(), wait: false, log: (m) => consoleLogger.info(m) });
-    progress = { done: r.done, total: r.total, next: r.next, error: null };
-    if (r.complete) ready = true;
+    const schema = { done: r.done, total: r.total, next: r.next, error: null };
+    if (!r.complete || r.busy) {
+      progress = schema;
+      return;
+    }
+    // a database moved into another cluster: its synced rows ahead of the transaction ids are restamped in short steps;
+    // the epochs move and the mark is lowered only by the one that finishes (./sync/snapshot.ts). Its own progress line
+    // (the synced tables) replaces the schema's only while it runs.
+    const { restampSteps } = await import("./sync/snapshot");
+    const x = await restampSteps(d, { budgetMs: Math.max(0, stepBudgetMs() - (Date.now() - started)), wait: false, log: (m) => consoleLogger.warn(m) });
+    if (x.waiting) progress = { done: x.done, total: x.total, next: restampLabel(x.table), error: null };
+    else {
+      progress = schema;
+      ready = true;
+    }
   } catch (e) {
     const id = randomUUID().slice(0, 8);
     consoleLogger.error(`migration step failed [${id}]`, String((e as Error)?.stack ?? e));
@@ -116,8 +151,24 @@ function notConfigured(): Response {
   return json(503, { ok: false, error: { code: "not_configured", message: "پایگاه داده تنظیم نشده است: متغیر DATABASE_URL را در Vercel بگذارید (راهنما: docs/SETUP_FA.md)", details: null } });
 }
 
+/**
+ * The high-water mark of the transaction ids the database handed out, raised once per instance while its app loads
+ * (./sync/snapshot.ts: what tells a database moved by dump into another cluster — a Supabase project restored elsewhere
+ * — from one that was not). A regression it finds is handled like a schema that is not current: this instance answers
+ * 503 «migrating» while the restamp's steps run (runSteps). Never fails the start.
+ */
+async function raiseXidMark(d: Db): Promise<void> {
+  try {
+    const { xidRegressionWaiting } = await import("./sync/snapshot");
+    if (await xidRegressionWaiting(d, { force: true, log: (m) => consoleLogger.warn(m) })) ready = false;
+  } catch (e) {
+    consoleLogger.warn("xid check skipped", String((e as Error)?.message ?? e));
+  }
+}
+
 async function buildApp(d: Db, url: string): Promise<FetchApp> {
-  const { createApp } = await import("./app");
+  // the mark is raised while the app's modules load (handleCloud asks again whether the instance is ready)
+  const [{ createApp }] = await Promise.all([import("./app"), raiseXidMark(d)]);
   const secret = process.env.APP_SECRET || createHash("sha256").update(`itsm:${url}`).digest("hex");
   return createApp({
     mode: "cloud",
@@ -140,7 +191,18 @@ async function buildApp(d: Db, url: string): Promise<FetchApp> {
         void work().catch(() => undefined);
       }
     },
+    // a pull found the database gone back in transaction ids (moved under this instance): every request answers 503
+    // «migrating» again, and the restamp's steps run after those answers (schemaReady, runSteps)
+    xidRegression: () => {
+      ready = false;
+    },
   });
+}
+
+/** 503 «migrating» with the progress, and the next steps after the answer (unless AUTO_MIGRATE=false). */
+function notReady(d: Db, req: Request): Response {
+  if (process.env.AUTO_MIGRATE !== "false" && !running) inBackground(() => runSteps(d));
+  return migratingResponse(new URL(req.url).pathname);
 }
 
 /** Answer one /api request of the web version. */
@@ -150,10 +212,7 @@ export async function handleCloud(req: Request): Promise<Response> {
   let d: Db;
   try {
     d = database(url);
-    if (!(await schemaReady(d))) {
-      if (process.env.AUTO_MIGRATE !== "false" && !running) inBackground(() => runSteps(d));
-      return migratingResponse(new URL(req.url).pathname);
-    }
+    if (!(await schemaReady(d))) return notReady(d, req);
   } catch (e) {
     return failure("db_unreachable", "پایگاه داده پاسخ نمی‌دهد؛ DATABASE_URL (نشانی Transaction pooler با درگاه 6543) و روشن بودن پروژهٔ Supabase را بررسی کنید", e, 503);
   }
@@ -162,7 +221,10 @@ export async function handleCloud(req: Request): Promise<Response> {
       appPromise = null;
       throw e;
     });
-    return await (await appPromise).fetch(req);
+    const app = await appPromise;
+    // the database found gone back in transaction ids while the app loaded: answered like a schema that is not current
+    if (!ready) return notReady(d, req);
+    return await app.fetch(req);
   } catch (e) {
     return failure("internal", "خطای داخلی سرور؛ دوباره امتحان کنید", e);
   }

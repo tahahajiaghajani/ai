@@ -6,6 +6,7 @@
 // field group; cost centres are units of the shared organisation tree (`org_unit`, kind «مرکز هزینه»).
 // Imported by the UI: keep it free of server imports.
 import type { AreaOp, FieldDef, Option, StateModel, TableDef } from "../model/types";
+import { NEVER } from "../model/conditions";
 import { APPROVAL_STATES } from "../model/task";
 import { CURRENCIES } from "./supplier";
 
@@ -366,6 +367,7 @@ const allocationResult: TableDef = {
     { name: "basis", label: "مبنا", type: "string", maxLength: 200, list: true, span: 24 },
   ],
   scope: {},
+  rowAccess: { write: NEVER },
   list: { columns: ["run_id", "stage", "service_id", "consumer_unit_id", "amount", "basis"], order: "run_id" },
 };
 

@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { enqueue, registerJobHandler, tick, listJobs, backoffMs, PermanentJobError, stopTicks, YIELD_MS, type Job } from "@server/jobs";
 import { onRecordEvent } from "@server/engine/events";
-import type { Db } from "@server/db";
+import { lockKey, type Db } from "@server/db";
 import { makeServer, Client, signupWithOrg, quietLog } from "./helpers";
 import type { ServerConfig } from "@server/context";
 
@@ -390,6 +390,60 @@ describe("a job runner that yields to foreground work", () => {
       expect(starts[2] - t2).toBeLessThan(YIELD_MS);
     } finally {
       off();
+      await s.db.close();
+    }
+  });
+
+  // The wait and the database's turn-taking compose (writes of an organisation run side by side, docs/spec/ENGINE.md
+  // §13): the runner waits before it claims a job, so a waiting job holds no row and no lock; a run the database aborts
+  // for a deadlock runs again at once (`retryTransient`) from the progress the job committed, after the aborted
+  // transaction let go of its narrow key lock (`lockKey`), and counts as one attempt; a lock wait that timed out is no
+  // such abort — the attempt counts and the job waits for its backoff.
+  it("after the wait, a run aborted by a deadlock runs again at once, holding nothing; a lock timeout waits for its retry", async () => {
+    const s = await makeServer();
+    const org = await signupWithOrg(new Client(s.app));
+    const cfg: ServerConfig = { mode: "cloud", db: s.db, secret: "t", allowSignup: true, platformAdmins: [], origin: "cloud", log: quietLog, fetch };
+    const advisory = async () => (await s.db.one<{ n: number }>(`select count(*)::int as n from pg_locks where locktype = 'advisory'`))!.n;
+    const runs: { at: number; payload: Record<string, unknown>; locks: number }[] = [];
+    const off = registerJobHandler("test.yield.abort", async (job, jctx) => {
+      runs.push({ at: Date.now(), payload: { ...job.payload }, locks: await advisory() });
+      if (runs.length > 1) return;
+      await jctx.save({ ...job.payload, step: 1 });
+      await jctx.db.tx(async (tx) => {
+        await lockKey(tx, `test.yield.abort:${job.id}`);
+        expect((await tx.one<{ n: number }>(`select count(*)::int as n from pg_locks where locktype = 'advisory'`))!.n).toBe(1);
+        throw Object.assign(new Error("deadlock detected"), { code: "40P01" });
+      });
+    });
+    const offTimeout = registerJobHandler("test.yield.timeout", async () => {
+      throw Object.assign(new Error("canceling statement due to lock timeout"), { code: "55P03" });
+    });
+    try {
+      const id = await enqueue(s.db, { kind: "test.yield.abort", orgId: org, payload: { n: 1 } });
+      const t0 = Date.now();
+      const busyUntil = t0 + 150;
+      // while the window's requests are in flight the job is not even claimed
+      const during = new Promise<unknown>((ok) => setTimeout(() => void s.db.one(`select status from sm_jobs where id = $1`, [id]).then(ok, ok), 60));
+      const r = await tick(cfg, { budgetMs: 20_000, busy: () => Date.now() < busyUntil });
+      expect(await during).toMatchObject({ status: "queued" });
+      expect(r).toMatchObject({ ran: 1, failed: 0 });
+      expect(runs).toHaveLength(2);
+      expect(runs[0].at - t0).toBeGreaterThanOrEqual(140);
+      expect(runs[0].locks).toBe(0);
+      // the run again: from the progress the job committed, with the aborted transaction's key lock gone
+      expect(runs[1].payload).toMatchObject({ n: 1, step: 1 });
+      expect(runs[1].locks).toBe(0);
+      expect(await s.db.one(`select status, attempts from sm_jobs where id = $1`, [id])).toMatchObject({ status: "done", attempts: 1 });
+      // a lock wait that timed out: not run again in this tick; the attempt counts and the job waits for its backoff
+      const id2 = await enqueue(s.db, { kind: "test.yield.timeout", orgId: org, payload: {} });
+      expect(await tick(cfg, { budgetMs: 20_000, busy: () => false })).toMatchObject({ ran: 0, failed: 1 });
+      const j2 = await s.db.one<{ status: string; attempts: number; last_error: string | null; run_at: string }>(`select status, attempts, last_error, run_at::text as run_at from sm_jobs where id = $1`, [id2]);
+      expect(j2).toMatchObject({ status: "queued", attempts: 1 });
+      expect(j2!.last_error).toContain("lock timeout");
+      expect(Date.parse(j2!.run_at)).toBeGreaterThan(Date.now());
+    } finally {
+      off();
+      offTimeout();
       await s.db.close();
     }
   });
