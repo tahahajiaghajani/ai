@@ -8,6 +8,7 @@
 // ignored item whose hash changes is offered again. The marker is durable — a killed worker loses nothing — and the
 // runner clears it in the same transaction as the IRE's writes (runner.ts).
 import { createHash } from "node:crypto";
+import { recordState } from "@shared/discovery/availability";
 import { hashMaterial } from "@shared/discovery/hash";
 import type { DiscoveredRecord } from "@shared/discovery/types";
 import { uuidv7 } from "@shared/id";
@@ -68,7 +69,7 @@ export async function stagePage(q: Queryable, input: StageInput): Promise<StageR
     hash: itemHash(r, input.configVersion, input.kindVersion),
     data: itemData(r),
     last_contact_at: r.last_contact_at ?? null,
-    status: r.status?.state ?? null,
+    status: recordState(r.status),
     status_since: r.status?.since ?? null,
     status_message: r.status?.message?.slice(0, 500) ?? null,
     link_url: input.link?.(r)?.slice(0, 1000) ?? null,
