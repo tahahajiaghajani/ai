@@ -21,7 +21,7 @@ import { formatDuration, numberText } from "../model/values";
 import { describeFilter } from "../model/filter";
 import { isMentionHref } from "../model/mentions";
 import type { DisplayMap } from "../model/types";
-import { recordPath } from "../extensions";
+import { recordPath, widgetFor } from "../extensions";
 import "../../ai/markdown/markdown.css";
 import "../records.css";
 
@@ -109,6 +109,8 @@ export interface FieldValueProps {
 /** A stored value, read-only, for its field type. */
 export const FieldValue = memo(function FieldValue({ field: f, value: v, table, schema, display, compact, me, tz }: FieldValueProps) {
   if (v === null || v === undefined || v === "" || (Array.isArray(v) && !v.length)) return <Empty />;
+  const widget = widgetFor(f.widget)?.display;
+  if (widget) return <>{widget({ field: f, value: v, display, compact })}</>;
   const t = f.type;
   const choices = schema?.choices ?? {};
   if (t === "bool") return <span className="rk-bool">{v === true || v === "true" ? "بله" : "خیر"}</span>;

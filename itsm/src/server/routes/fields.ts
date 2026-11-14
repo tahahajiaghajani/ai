@@ -1,8 +1,10 @@
 // /api/o/:org — the field library and the table overlays (design F §3.1, §3.3, §4.2, package F1):
 //   GET  /fields/library            library fields with where each is used        process_design read | settings edit
+//   GET  /fields/library/:id        one library field whole (its sheet)            process_design read | settings edit
 //   POST /fields/library            a library field (as the system, for the person) process_design write | settings edit
 //   PATCH /fields/library/:id       change or retire one                           idem
 //   GET  /fields/types              built-in types first, then the organisation's   process_design read | settings edit
+//   GET  /fields/types/:id          one organisation type whole (its sheet)        process_design read | settings edit
 //   POST /fields/types, PATCH /fields/types/:id                                     process_design write | settings edit
 //   GET  /fields/locked/:table      locked fields with their reasons               process_design read | settings edit
 //   GET  /fields/paths/:table       creation paths and what a requirement binds    process_design read | settings edit
@@ -14,7 +16,7 @@
 import { z } from "zod";
 import { router, body } from "../http/hono";
 import {
-  attachField, libraryList, lifecycleOf, lockedOf, pathsFor, saveLifecycle, saveSystemOverrides, systemOverrides, typeList, writeLibrary,
+  attachField, libraryList, libraryRow, lifecycleOf, lockedOf, pathsFor, saveLifecycle, saveSystemOverrides, systemOverrides, typeList, writeLibrary,
 } from "../modules/fields/service";
 import type { LifecycleOverlay } from "@shared/model/lifecycle";
 
@@ -24,6 +26,8 @@ const record = z.record(z.string(), z.unknown());
 const requiredFor = z.enum(["all", "agents"]);
 
 fieldsRoutes.get("/fields/library", async (c) => c.json(await libraryList(c.get("ctx"))));
+
+fieldsRoutes.get("/fields/library/:id", async (c) => c.json(await libraryRow(c.get("ctx"), "field_def", c.req.param("id"))));
 
 fieldsRoutes.post("/fields/library", async (c) => {
   const input = await body(c, record);
@@ -36,6 +40,8 @@ fieldsRoutes.patch("/fields/library/:id", async (c) => {
 });
 
 fieldsRoutes.get("/fields/types", async (c) => c.json(await typeList(c.get("ctx"))));
+
+fieldsRoutes.get("/fields/types/:id", async (c) => c.json(await libraryRow(c.get("ctx"), "field_type", c.req.param("id"))));
 
 fieldsRoutes.post("/fields/types", async (c) => {
   const input = await body(c, record);

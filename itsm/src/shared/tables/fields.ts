@@ -15,12 +15,29 @@
 // Imported by the UI: keep it free of server imports.
 import type { Option, TableDef } from "../model/types";
 import { FIELD_GROUPS } from "../model/types";
+import { isNever } from "../model/conditions";
 import { registerArea } from "../access/areas";
 import { BUILTIN_TYPE_OPTIONS, WIDGET_LABELS, type Widget } from "../forms/fieldtypes";
 
 /** «طراحی فرم و گردش‌کار»: field types, library fields, forms and process definitions (never process cases). */
 export const PROCESS_DESIGN_AREA = "process_design";
 registerArea({ key: PROCESS_DESIGN_AREA, label: "طراحی فرم و گردش‌کار", group: "platform", module: "fields", platform: true });
+
+/** Tables that take no library field: a process case keeps its values in one json field (design F §3.6). */
+export const NO_LIBRARY_TABLES: ReadonlySet<string> = new Set(["process_case"]);
+
+/** The customisation rows themselves (custom fields, choice options, saved views): never tailored. */
+export const CUSTOMISATION_TABLES: ReadonlySet<string> = new Set(["custom_field", "choice", "view"]);
+
+/**
+ * Does the organisation tailor this table — its fields in «فیلدها», its default form in «فرم‌ها»? Every table people
+ * open on a form: not a virtual one, not the customisation rows, not a process case (its fields belong to its process
+ * forms, and F1 refuses library fields there), not a runtime table nobody reads through the record API
+ * (`rowAccess.read` NEVER). The server's list of system forms and the UI's table pickers ask the same.
+ */
+export function tailoredTable(def: Pick<TableDef, "key" | "virtual" | "rowAccess">): boolean {
+  return !def.virtual && !CUSTOMISATION_TABLES.has(def.key) && !NO_LIBRARY_TABLES.has(def.key) && !isNever(def.rowAccess?.read ?? null);
+}
 
 /** Status of a field type or a library field: a retired one is offered for nothing new and keeps working where used. */
 export const FIELD_STATUS: Option[] = [

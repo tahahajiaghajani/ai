@@ -1,0 +1,115 @@
+/* «گردش‌کارها» (design F §8.3, package F6): the hub's notices, its search and kind chips, the list of every workflow
+   (the folded lifecycles in one line), the «قاعده‌ها» line, and the publish and retire dialogs. ds tokens only; logical
+   properties. */
+
+.wfh-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-inline-size: 0;
+}
+.wfh-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.wfh-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-inline-size: 0;
+}
+.wfh-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.wfh-search {
+  inline-size: 280px;
+  max-inline-size: 100%;
+}
+.wfh-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-inline-size: 0;
+}
+.wfh-name,
+.wfh-at {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  min-inline-size: 0;
+}
+.wfh-name .rk-hint,
+.wfh-at .rk-hint {
+  font-size: 12px;
+  line-height: 18px;
+}
+.wfh-more-row > td {
+  background: var(--ds-sunken) !important;
+}
+.wfh-more {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  text-align: start;
+}
+.wfh-rules {
+  margin: 0;
+  font-size: 13px;
+  line-height: 22px;
+  color: var(--ds-text-2);
+}
+
+/* the notices */
+.wfh-notice .wfh-p {
+  margin: 0;
+}
+.wfh-roles {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wfh-roles > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+.wfh-notice-acts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-block-start: 6px;
+}
+
+/* the dialogs */
+.wfh-ltr {
+  display: block;
+}
+.wfh-p {
+  margin: 0;
+  color: var(--ds-text-2);
+}
+.wfh-sub {
+  margin: 0 0 4px;
+  font-size: var(--ds-type-label-size);
+  line-height: var(--ds-type-label-line);
+  font-weight: var(--ds-weight-strong);
+  color: var(--ds-text-2);
+}
+.wfh-diff {
+  margin: 0;
+  padding-inline-start: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}

@@ -9,19 +9,18 @@
 // Who: `process_design` read or `settings` edit (as F1's library). A linked kind lists only what the caller may read in
 // its own table (their own access, row by row); system forms and process forms are definitions those grants read.
 import type { TableDef } from "@shared/model/types";
-import { isNever } from "@shared/model/conditions";
 import { areaLabel } from "@shared/access/areas";
 import { physicalTables, tableDef } from "@shared/tables";
 import { FORM_ROW } from "@shared/model/arrangement";
 import { STATES_ROW } from "@shared/model/lifecycle";
 import { isCustomSlot } from "@shared/admin/studio";
+import { tailoredTable } from "@shared/tables/fields";
 import { tableFormFields } from "@shared/forms/layout";
 import type { Ctx } from "../../context";
 import { pgArray } from "../../db";
 import { orgSchema } from "../../engine";
 import { access } from "../../access/provider";
 import { liveRows, sysOf } from "../incident/common";
-import { NO_LIBRARY_TABLES } from "../fields";
 import { canChangeSystemForms, canDesignForms, needFormsRead } from "./access";
 import { formsUsage } from "./usage";
 
@@ -76,19 +75,15 @@ export interface FormsList {
   forms: FormEntry[];
 }
 
-/** Tables kept off the list: the customisation rows themselves (the field manager never offers them). */
-const NO_SYSTEM_FORM = new Set(["custom_field", "choice", "view"]);
-
 /**
  * The tables that have a default form: every table people open in the record page — not the customisation tables,
  * not the runtime tables nobody reads through the record API (`rowAccess.read` NEVER), and not tables whose values are
- * not fields of their own (a process case: its forms are process forms). `slots`: the studio's slots the organisation
- * uses (an unused slot is no table of its yet); without it, every slot.
+ * not fields of their own (a process case: its forms are process forms); `tailoredTable`, shared with the UI's table
+ * pickers. `slots`: the studio's slots the organisation uses (an unused slot is no table of its yet); without it,
+ * every slot.
  */
 export function systemFormTables(slots?: ReadonlySet<string>): TableDef[] {
-  return physicalTables().filter(
-    (d) => !NO_SYSTEM_FORM.has(d.key) && !NO_LIBRARY_TABLES.has(d.key) && !isNever(d.rowAccess?.read ?? null) && (!slots || !isCustomSlot(d.key) || slots.has(d.key)),
-  );
+  return physicalTables().filter((d) => tailoredTable(d) && (!slots || !isCustomSlot(d.key) || slots.has(d.key)));
 }
 
 /** The organisation's studio tables by slot: their names (the studio's `custom_table` rows; names are not secret). */

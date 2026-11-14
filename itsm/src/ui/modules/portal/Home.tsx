@@ -5,6 +5,7 @@
 // «departments» widget shows the sections the service modules publish for the person (ESM's departments with their
 // services and catalogue, a customer contact's account, a technician's visits): links open in the app (`appPath`),
 // a service opens its catalogue item's order form in the portal.
+import { lazy, Suspense } from "@ui/lib/lazy";
 import { Link, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "antd";
@@ -23,6 +24,9 @@ import { Empty, I16, I20, ItemTile, Section, TicketRow } from "./parts";
 import { usePageTitle } from "../../components/shell/context";
 import { SearchBar } from "./SearchBar";
 import { statusLabel } from "@shared/service_portfolio/logic";
+
+/** «گردش‌کارهای منتظر شما» (F7): only when something waits. */
+const WorkflowsCard = lazy(() => import("../workflows/user/PortalCard"));
 
 const ANN_ICON = { outage: AlertTriangle, degradation: AlertTriangle, maintenance: Wrench, info: Info } as const;
 
@@ -367,6 +371,9 @@ export default function Home({ cfg }: { cfg: PortalConfig }) {
   return (
     <>
       <Hero cfg={cfg} />
+      <Suspense fallback={null}>
+        <WorkflowsCard />
+      </Suspense>
       {q.isLoading ? <Loader /> : null}
       {q.data ? cfg.layout.filter((w) => w.enabled && w.type !== "search").map((w) => <Widget key={w.id} w={w} home={q.data!} cfg={cfg} />) : null}
     </>

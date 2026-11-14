@@ -1,0 +1,142 @@
+/* The lifecycle editor (design F §8.5, package F6): the preview of the states and a state's buttons, the states and
+   transitions tables (locked values with their lock), the cells of the organisation's settings, and «تفاوت با
+   پیش‌فرض». ds tokens only; logical properties. */
+
+.wfl-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-inline-size: 0;
+}
+.wfl-sec {
+  padding: 0;
+  min-inline-size: 0;
+}
+.wfl-sec .ant-table-wrapper {
+  min-inline-size: 0;
+}
+
+/* the preview */
+.wfl-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  min-inline-size: 0;
+}
+.wfl-channel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.wfl-state {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--ds-radius-md);
+  background: none;
+  cursor: pointer;
+  font: inherit;
+}
+.wfl-state:hover {
+  background: var(--ds-hover);
+}
+.wfl-state.is-on {
+  border-color: var(--ds-accent);
+  background: var(--ds-sunken);
+}
+.wfl-state:focus-visible {
+  outline: 2px solid var(--ds-accent);
+  outline-offset: 2px;
+}
+.wfl-cat {
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--ds-text-3);
+}
+.wfl-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-block-size: 28px;
+}
+.wfl-fake {
+  pointer-events: none;
+}
+
+/* the tables */
+.wfl-locked {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ds-text-2);
+}
+.wfl-lock {
+  flex: none;
+  color: var(--ds-text-3);
+}
+.wfl-path,
+.wfl-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-inline-size: 0;
+}
+.wfl-path .rk-hint,
+.wfl-cell .rk-hint {
+  font-size: 12px;
+  line-height: 18px;
+}
+.wfl-module-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.wfl-req {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-inline: 6px;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-pill);
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--ds-text-2);
+  white-space: nowrap;
+}
+.wfl-multi,
+.wfl-color {
+  inline-size: 100%;
+  min-inline-size: 140px;
+}
+.wfl-cond {
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--ds-text);
+}
+.wfl-cond-btn {
+  padding-inline: 0;
+}
+
+/* «تفاوت با پیش‌فرض» */
+.wfl-diff {
+  margin: 0;
+  padding-inline-start: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 20px;
+}
+.wfl-was {
+  color: var(--ds-text-3);
+  text-decoration: line-through;
+}
+.wfl-none {
+  margin: 0;
+}

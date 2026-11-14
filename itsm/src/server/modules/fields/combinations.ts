@@ -16,6 +16,7 @@
 //     (`portalRules`: the other side of `requirementBlockers`; trusted code excepted).
 // A Windows app's push of UI policies, choice rows and portals meets the same rules (custom_field rows are web-only).
 import { CHOICE_LISTS, tableDef } from "@shared/tables";
+import { NO_LIBRARY_TABLES } from "@shared/tables/fields";
 import type { FieldDef, TableDef } from "@shared/model/types";
 import { FORM_ROW } from "@shared/model/arrangement";
 import { LABELS_ONLY_LIFECYCLES, STATES_ROW, cleanLifecycle, lifecycleProblems, type EffectiveTransition } from "@shared/model/lifecycle";
@@ -33,8 +34,9 @@ import { customFieldDef, snapshotField } from "../../engine/schema";
 import { SETTINGS_ENV, orgFieldTypes } from "./hooks";
 import { LIFECYCLE_REFUSAL, holdsSettings } from "./grants";
 
-/** Tables that take no library field: a process case keeps its values in one json field (design F §3.6). */
-export const NO_LIBRARY_TABLES = new Set(["process_case"]);
+/** Tables that take no library field: a process case keeps its values in one json field (design F §3.6). Shared with
+ * the UI, whose table pickers leave them out (`tailoredTable`). */
+export { NO_LIBRARY_TABLES };
 
 /** The name of an active UI policy of `table` that makes `field` mandatory, or null. */
 export async function mandatoryPolicy(q: Queryable, orgId: string, table: string, field: string): Promise<string | null> {

@@ -2,6 +2,8 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router";
+// first: its Back/Forward hold for pages with unsaved changes must listen before the router does
+import "./modules/workflows/admin/forms/leave";
 import "./styles.css";
 import { ThemeProvider } from "./lib/theme";
 import { SessionProvider } from "./lib/session";

@@ -1,0 +1,636 @@
+/* The person's «گردش‌کارها» (design F §5, §8.6, package F7): the four tabs, the process diagram, the start form, the case
+   (state channel, diagram, side rail or step form), the step form's sticky action bar, the printable view, the home
+   card. ds tokens only; logical properties; phones: cards, a numbered list, a 44 px sticky action bar. */
+
+.wfu-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-inline-size: 0;
+}
+.wfu-h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: var(--ds-weight-strong);
+  color: var(--ds-text);
+}
+.wfu-lead {
+  margin: 0;
+  color: var(--ds-text-2);
+  max-inline-size: 72ch;
+}
+.wfu-open {
+  color: var(--ds-text);
+  font-weight: var(--ds-weight-medium);
+}
+.wfu-open:hover,
+.wfu-open:focus-visible {
+  color: var(--ds-accent-text);
+}
+.wfu-notes {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.wfu-title-cell,
+.wfu-step-cell {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.wfu-sub {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.wfu-inline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.wfu-plain {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sr-only {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* «گردش‌کارهای شما» chips */
+.wfu-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-block-end: 12px;
+}
+.wfu-chips-t {
+  color: var(--ds-text-2);
+  font-size: 13px;
+}
+.wfu-pchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-block-size: 30px;
+  padding-inline: 12px;
+  border: 1px solid var(--ds-line-2);
+  border-radius: var(--ds-radius-pill);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  font-size: 13px;
+}
+.wfu-pchip:hover,
+.wfu-pchip:focus-visible {
+  border-color: var(--ds-accent-border);
+  background: var(--ds-accent-tint);
+  color: var(--ds-accent-text);
+}
+.wfu-pchip-n {
+  min-inline-size: 20px;
+  padding-inline: 6px;
+  border-radius: var(--ds-radius-pill);
+  background: var(--ds-accent);
+  color: var(--ds-surface);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* cards (phones, the portal, «گردش‌کارهای من») */
+.wfu-cards,
+.wfu-grid {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+.wfu-grid {
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+.wfu-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  min-inline-size: 0;
+}
+a.wfu-card:hover,
+a.wfu-card:focus-visible {
+  border-color: var(--ds-accent-border);
+}
+.wfu-card-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.wfu-card-t {
+  font-weight: var(--ds-weight-medium);
+  overflow-wrap: anywhere;
+}
+.wfu-card-m {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  color: var(--ds-text-2);
+  font-size: 13px;
+}
+.wfu-card-a {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-block-start: auto;
+  padding-block-start: 6px;
+  border-block-start: 1px solid var(--ds-line);
+}
+.wfu-start-link {
+  font-weight: var(--ds-weight-medium);
+}
+.wfu-parts {
+  margin: 0;
+  padding-inline-start: 18px;
+  color: var(--ds-text-2);
+  font-size: 13px;
+}
+
+/* «پرونده‌ها» */
+.wfu-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-block-end: 12px;
+}
+.wfu-search {
+  inline-size: 240px;
+  max-inline-size: 100%;
+}
+.wfu-queued {
+  margin-block-end: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wfu-pager {
+  margin-block-start: 12px;
+}
+.wfu-table {
+  min-inline-size: 0;
+}
+
+/* the diagram pages: canvas beside a panel */
+.wfu-mode {
+  align-self: flex-start;
+}
+.wfu-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 12px;
+  align-items: start;
+  min-inline-size: 0;
+}
+.wfu-split.has-step {
+  grid-template-columns: minmax(0, 1fr) 460px;
+}
+.wfu-main,
+.wfu-diagram {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-inline-size: 0;
+}
+.wfu-canvas {
+  block-size: calc(100vh - 300px);
+  min-block-size: 420px;
+}
+.wfu-aside {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-inline-size: 0;
+  position: sticky;
+  inset-block-start: 12px;
+}
+.wfu-aside-close {
+  display: flex;
+  justify-content: flex-end;
+  font-size: 13px;
+}
+.wfu-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-surface);
+  min-inline-size: 0;
+}
+.wfu-panel-m {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0;
+  color: var(--ds-text-2);
+  font-size: 13px;
+}
+.wfu-queue {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wfu-queue-i {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  inline-size: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-sm);
+  background: var(--ds-surface);
+  color: var(--ds-text);
+  text-align: start;
+  font: inherit;
+  cursor: pointer;
+}
+.wfu-queue-i:hover,
+.wfu-queue-i:focus-visible {
+  border-color: var(--ds-accent-border);
+  background: var(--ds-accent-tint);
+}
+.wfu-queue-t {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-weight: var(--ds-weight-medium);
+}
+.wfu-queue-m {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--ds-text-2);
+  font-size: 12px;
+}
+
+/* the case: state channel, rail, history */
+.wfu-casebar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+.wfu-channel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  min-inline-size: 0;
+}
+.wfu-ch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ds-text-3);
+}
+.wfu-ch + .wfu-ch::before {
+  content: "";
+  inline-size: 22px;
+  block-size: 2px;
+  margin-inline: 4px;
+  background: var(--ds-line-2);
+}
+.wfu-ch.is-done + .wfu-ch::before {
+  background: var(--ds-state-resolved);
+}
+.wfu-ch-dot {
+  inline-size: 10px;
+  block-size: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--ds-line-3);
+  background: var(--ds-surface);
+  flex: none;
+}
+.wfu-ch.is-done {
+  color: var(--ds-text-2);
+}
+.wfu-ch.is-done .wfu-ch-dot {
+  border-color: var(--ds-state-resolved);
+  background: var(--ds-state-resolved);
+}
+.wfu-ch.is-current {
+  color: var(--ds-text);
+}
+.wfu-ch.is-current .wfu-ch-dot {
+  border-color: var(--ds-state-progress);
+  background: var(--ds-state-progress);
+}
+.wfu-ch.is-mine {
+  color: var(--ds-accent-text);
+  font-weight: var(--ds-weight-medium);
+}
+.wfu-ch.is-mine .wfu-ch-dot {
+  border-color: var(--ds-accent);
+  background: var(--ds-accent);
+  box-shadow: 0 0 0 3px var(--ds-accent-tint);
+}
+.wfu-ch-me {
+  padding-inline: 6px;
+  border: 1px solid var(--ds-accent-border);
+  border-radius: var(--ds-radius-pill);
+  background: var(--ds-accent-tint);
+  color: var(--ds-accent-text);
+  font-size: 11px;
+}
+.wfu-dl {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+.wfu-dl > div {
+  display: grid;
+  gap: 2px;
+  min-inline-size: 0;
+}
+.wfu-dl dt {
+  color: var(--ds-text-3);
+  font-size: 12px;
+}
+.wfu-dl dd {
+  margin: 0;
+  color: var(--ds-text);
+  overflow-wrap: anywhere;
+}
+.wfu-dl-2 {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+.wfu-values {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.wfu-vsec .wfu-dl {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+.wfu-ro {
+  color: var(--ds-text);
+  overflow-wrap: anywhere;
+}
+.wfu-history,
+.wfu-talk {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.wfu-timeline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wfu-timeline > li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-inline-start: 12px;
+  border-inline-start: 2px solid var(--ds-line-2);
+}
+.wfu-tl-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.wfu-tl-m {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--ds-text-2);
+  font-size: 13px;
+}
+.wfu-tl-c {
+  margin: 0;
+  color: var(--ds-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* the step form */
+.wfu-stepform,
+.wfu-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-surface);
+  min-inline-size: 0;
+}
+.wfu-stepform-h {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wfu-earlier {
+  background: var(--ds-sunken);
+}
+.wfu-comment {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--ds-text-2);
+  font-size: 13px;
+}
+.wfu-note-line {
+  grid-column: 1 / -1;
+}
+.wfu-actionbar {
+  position: sticky;
+  inset-block-end: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  margin-inline: -14px;
+  margin-block-end: -14px;
+  border-block-start: 1px solid var(--ds-line);
+  border-end-start-radius: var(--ds-radius-md);
+  border-end-end-radius: var(--ds-radius-md);
+  background: var(--ds-surface);
+}
+.wfu-start > .wfu-actionbar {
+  margin: 0;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-md);
+}
+.wfu-actionbar .ant-btn {
+  min-block-size: 36px;
+}
+.wfu-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.wfu-ask-targets {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wfu-ask-targets legend {
+  margin-block-end: 4px;
+  color: var(--ds-text-2);
+  font-size: 13px;
+}
+.wfu-ask-targets .ant-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* the printable view */
+.wfu-paper {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-md);
+  background: var(--ds-surface);
+}
+.wfu-ptable {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.wfu-ptable th,
+.wfu-ptable td {
+  padding: 6px 8px;
+  border: 1px solid var(--ds-line);
+  text-align: start;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.wfu-ptable th {
+  background: var(--ds-sunken);
+  font-weight: var(--ds-weight-medium);
+}
+@media print {
+  .wfu-paper {
+    border: 0;
+    padding: 0;
+  }
+}
+
+/* the home card */
+.wfu-home-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.wfu-home-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 16px;
+  border-block-start: 1px solid var(--ds-line);
+  color: var(--ds-text);
+}
+.wfu-home-list > li:first-child .wfu-home-row {
+  border-block-start: 0;
+}
+.wfu-home-row:hover,
+.wfu-home-row:focus-visible {
+  background: var(--ds-hover);
+}
+.wfu-home-t {
+  font-weight: var(--ds-weight-medium);
+}
+.wfu-home-m {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  color: var(--ds-text-2);
+  font-size: 13px;
+}
+
+@media (max-width: 1279.98px) {
+  .wfu-split.has-step {
+    grid-template-columns: minmax(0, 1fr) 400px;
+  }
+}
+@media (max-width: 1023.98px) {
+  .wfu-split,
+  .wfu-split.has-step {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .wfu-aside {
+    position: static;
+  }
+}
+@media (max-width: 639.98px) {
+  .wfu-search {
+    inline-size: 100%;
+  }
+  .wfu-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .wfu-steppage .wfu-stepform {
+    border: 0;
+    padding: 0;
+    background: transparent;
+  }
+  .wfu-steppage .wfu-actionbar {
+    position: sticky;
+    inset-block-end: 0;
+    margin: 0;
+    padding: 8px 0;
+    border: 0;
+    border-block-start: 1px solid var(--ds-line);
+    border-radius: 0;
+  }
+  .wfu-actionbar .ant-btn {
+    min-block-size: 44px;
+    flex: 1 1 auto;
+  }
+  .wfu-channel .wfu-ch + .wfu-ch::before {
+    inline-size: 12px;
+  }
+}
