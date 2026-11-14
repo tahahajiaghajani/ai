@@ -411,6 +411,18 @@ function Estimate({ value, action, quorum }: { value: StepAssignees; action: Ste
   );
 }
 
+/**
+ * The rules alone — no exclusions, «اگر کسی پیدا نشد» or fallbacks: a process's starters, the recipients of «اعلان», the
+ * people a reassign escalation hands a step to. `plain` leaves out the holders' checkboxes.
+ */
+export function AssigneeRules({ value, onChange, fields, steps, addLabel = "افزودن قاعده", plain, className }: AssigneeContext & { value: AssigneeRule[]; onChange?: (r: AssigneeRule[]) => void; addLabel?: string; plain?: boolean; className?: string }) {
+  return (
+    <div className={["wfk-who", className].filter(Boolean).join(" ")}>
+      <RuleList rules={value} onChange={onChange} ctx={{ fields, steps }} plain={plain} addLabel={addLabel} />
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // The step's people
 

@@ -5,7 +5,7 @@ export { ProcessCanvas, PROCESS_NODE_MIME, type ProcessCanvasProps } from "./Pro
 export { StepLegend, StepList, StepStatusBadge, usedStatuses, type StepListProps } from "./StepLegend";
 export { RightsMatrix, type RightsMatrixProps } from "./RightsMatrix";
 export { PositionPicker, heldIn, type PositionPickerProps } from "./PositionPicker";
-export { AssigneePicker, type AssigneeContext, type AssigneePickerProps } from "./AssigneePicker";
+export { AssigneePicker, AssigneeRules, type AssigneeContext, type AssigneePickerProps } from "./AssigneePicker";
 export { FilesInput, FilesValue, RecordFilesInput, type FileItem, type FilesFieldLike, type FilesInputProps } from "./FilesInput";
 export { ProcessNodeIcon, StepStatusIcon } from "./icons";
 export { kitApi, ESTIMATE_GATES, type EstimateResult, type HolderRow, type PositionRow } from "./api";
