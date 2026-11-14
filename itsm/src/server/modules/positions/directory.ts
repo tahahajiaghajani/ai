@@ -64,6 +64,9 @@ export async function directoryFacts(
 export interface HoldingsResult {
   added: number;
   removed: number;
+  /** the holdings given and taken back (a sign-in lists them in the sign-in log) */
+  given: DirectoryHolding[];
+  taken: DirectoryHolding[];
   /** why a holding could not be given or taken back (Persian, with the person) */
   problems: string[];
 }
@@ -78,7 +81,7 @@ const failure = (e: unknown): string | null => {
  * holding the person already has is left as it is; only rows this source keeps are removed.
  */
 export async function applyDirectoryHoldings(ctx: Ctx, sourceId: string, change: { adds: DirectoryHolding[]; removes: DirectoryHolding[] }): Promise<HoldingsResult> {
-  const out: HoldingsResult = { added: 0, removed: 0, problems: [] };
+  const out: HoldingsResult = { added: 0, removed: 0, given: [], taken: [], problems: [] };
   const adds = change.adds.filter((h) => UUID.test(h.user_id) && UUID.test(h.position_id));
   const removes = change.removes.filter((h) => UUID.test(h.user_id) && UUID.test(h.position_id));
   if (!adds.length && !removes.length) return out;
@@ -95,6 +98,7 @@ export async function applyDirectoryHoldings(ctx: Ctx, sourceId: string, change:
       try {
         await savepoint(tx, () => removeIn(tx, ctx, "position_holder", row.id, { trusted: true }));
         out.removed++;
+        out.taken.push({ user_id: h.user_id.toLowerCase(), position_id: h.position_id.toLowerCase(), unit_id: unitOf(h) });
       } catch (e) {
         const message = failure(e);
         if (!message) throw e;
@@ -112,6 +116,7 @@ export async function applyDirectoryHoldings(ctx: Ctx, sourceId: string, change:
           createIn(tx, ctx, "position_holder", { position_id: h.position_id.toLowerCase(), user_id: h.user_id.toLowerCase(), org_unit_id: unitOf(h), kind: "primary", source: "directory", source_ref: sourceId }, { trusted: true }),
         );
         out.added++;
+        out.given.push({ user_id: h.user_id.toLowerCase(), position_id: h.position_id.toLowerCase(), unit_id: unitOf(h) });
       } catch (e) {
         const message = failure(e);
         if (!message) throw e;

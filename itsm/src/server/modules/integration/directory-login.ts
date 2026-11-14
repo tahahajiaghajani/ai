@@ -38,7 +38,7 @@ import { hasFeature, limitAtCommit, needWithinLimit } from "../admin/common";
 import { caProblem, connectAny, escapeFilterValue, IN_CHAIN, LdapClient, LdapError, type LdapEntry, type LdapOptions } from "./ldap";
 import { grantingGroups, liveRow, liveRows, needIntegrations, sysOf, type Row } from "./common";
 import { approverCtx, guardHost, mappingsOf, optionsOf } from "./directory";
-import { applyDirectoryHoldings, directoryFacts, type DirectoryHolding } from "../positions/directory";
+import { applyDirectoryHoldings, directoryFacts, type DirectoryHolding, type HoldingsResult } from "../positions/directory";
 
 /** A refused sign-in: the reason (audit), an administrator's detail (never a password), and what is known so far. */
 export class LoginFailure extends Error {
@@ -450,6 +450,9 @@ export interface ProvisionResult {
   /** organisational roles the directory gave and took back at this sign-in */
   positions_added: number;
   positions_removed: number;
+  /** which ones (position and unit): the sign-in log lists them (design F §6.7) */
+  positions_given: { position_id: string; unit_id: string | null }[];
+  positions_taken: { position_id: string; unit_id: string | null }[];
   problems: string[];
 }
 
@@ -692,7 +695,11 @@ export async function provisionMember(cfg: ServerConfig, conf: LoginSourceConfig
        object_id = coalesce(excluded.object_id, sm_directory_links.object_id)`,
     [orgId, conf.id, dir.external_id, uid, email, granted, dir.object_id ?? null],
   );
-  return { user_id: uid, email, created, roles, pending_roles: [...new Set(pending)], groups_added: added, groups_removed: removed, positions_added: held.added, positions_removed: held.removed, problems };
+  const holding = (h: DirectoryHolding) => ({ position_id: h.position_id, unit_id: h.unit_id });
+  return {
+    user_id: uid, email, created, roles, pending_roles: [...new Set(pending)], groups_added: added, groups_removed: removed,
+    positions_added: held.added, positions_removed: held.removed, positions_given: held.given.map(holding), positions_taken: held.taken.map(holding), problems,
+  };
 }
 
 /**
@@ -701,9 +708,9 @@ export async function provisionMember(cfg: ServerConfig, conf: LoginSourceConfig
  * the mappings are the approved ones (else listed as pending «position:<id>»); this source's holdings the groups no
  * longer give are taken back. Holdings that cannot be kept (another kind of unit…) are listed as problems.
  */
-async function keepPositions(actx: Ctx, conf: LoginSourceConfig, uid: string, mapped: MappedPosition[], department: string | null, unitId: string | null, pending: string[], problems: string[]): Promise<{ added: number; removed: number }> {
+async function keepPositions(actx: Ctx, conf: LoginSourceConfig, uid: string, mapped: MappedPosition[], department: string | null, unitId: string | null, pending: string[], problems: string[]): Promise<Omit<HoldingsResult, "problems">> {
   const facts = await directoryFacts(actx.db, conf.orgId, conf.id, mapped.map((m) => m.position_id), [uid]);
-  if (!mapped.length && !facts.holders.some((h) => h.ours)) return { added: 0, removed: 0 };
+  if (!mapped.length && !facts.holders.some((h) => h.ours)) return { added: 0, removed: 0, given: [], taken: [] };
   const units = mapped.length
     ? (await liveRows(actx.db, sysOf(actx), "org_unit", null)).map((u) => ({ id: String(u.id), name: String(u.name), code: typeof u.code === "string" ? u.code : null, kind: typeof u.kind === "string" ? u.kind : null }))
     : [];
@@ -723,7 +730,7 @@ async function keepPositions(actx: Ctx, conf: LoginSourceConfig, uid: string, ma
   if (!conf.rolesApproved) for (const h of adds) pending.push(`position:${h.position_id}`);
   const r = await applyDirectoryHoldings(actx, conf.id, { adds: conf.rolesApproved ? adds : [], removes: facts.holders.filter((h) => h.ours && !keep.has(key(h))) });
   problems.push(...r.problems);
-  return { added: r.added, removed: r.removed };
+  return { added: r.added, removed: r.removed, given: r.given, taken: r.taken };
 }
 
 /** The unit a person belongs to: a mapped group's unit, else (unit_from = department) the department's unit, made when missing. */
