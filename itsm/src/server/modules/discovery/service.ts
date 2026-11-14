@@ -33,8 +33,8 @@ import { applyMismatch, dismissMismatch } from "./mismatch";
 import { editionOf, reachProblem } from "./net";
 import { serverKind } from "./registry";
 import {
-  acceptNewSize, cancelRun, connCtx, connectorView, consecutiveFailures, ireCtx, KEYED_AUTH, kindOptions, loadConnector, PREVIEW_BUSY, previewConnector, runningRun,
-  writeItemResults, type PreviewDraft,
+  acceptNewSize, cancelRun, connCtx, connectorView, consecutiveFailures, ireCtx, KEYED_AUTH, kindOptions, loadConnector, maskSecrets, PREVIEW_BUSY, previewConnector,
+  runningRun, writeItemResults, type PreviewDraft,
 } from "./runner";
 
 type Row = Record<string, any>;
@@ -267,11 +267,13 @@ export async function testConnection(ctx: Ctx, id: string): Promise<TestResult> 
       const problem = await reachProblem(ctx.cfg, connectorView(conn, parsed.options), { credentialed });
       if (problem) return { ok: false, warnings: [], message: problem };
     }
+    let known: (string | null)[] = [];
     try {
       const cctx = await connCtx(sysOf(ctx), conn, kind, parsed.options, Date.now() + 20_000);
-      return await kind.test(cctx);
+      known = [cctx.secret, cctx.secret2];
+      return maskSecrets(await kind.test(cctx), known);
     } catch (e) {
-      if (e instanceof ConnectorError) return { ok: false, warnings: [], message: e.message };
+      if (e instanceof ConnectorError) return { ok: false, warnings: [], message: maskSecrets(e.message, known) };
       ctx.cfg.log?.warn?.("discovery connection test failed", { connector: id, error: String((e as Error)?.message ?? e).slice(0, 300) });
       return { ok: false, warnings: [], message: CONNECTOR_MESSAGES.noAnswer(String(conn.name)) };
     }

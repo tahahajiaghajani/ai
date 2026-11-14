@@ -142,7 +142,7 @@ async function beforeWrite(w: WriteArgs): Promise<void> {
   }
   if (w.op === "create") {
     if (!rights.admin) throw forbidden(ADMIN_ONLY_MESSAGE);
-    if ((w.next.make_assets === true || w.input?.has("make_assets_daily")) && !rights.assetManager) throw forbidden(ASSET_ONLY_MESSAGE);
+    if (w.next.make_assets === true && !rights.assetManager) throw forbidden(ASSET_ONLY_MESSAGE);
     if (softwareOn(w.next.collect) && !rights.softwareManager) throw forbidden(SOFTWARE_ONLY_MESSAGE);
     checkSettings(w);
     // loosening choices made with the connector need a recent proof of identity too
@@ -213,7 +213,7 @@ async function afterWrite(w: WriteArgs & { row: Record<string, any> }): Promise<
 
 let installed = false;
 
-/** The connector guard (once per process, from installDiscoveryModule; after the configuration hook). */
+/** The connector guard (once per process, from installDiscoveryModule; before the configuration hook, so a refused write makes nothing). */
 export function installConnectorGuard(): void {
   if (installed) return;
   installed = true;
