@@ -8,7 +8,6 @@ import { Link, useNavigate, useParams } from "react-router";
 import { Button, Segmented, Table } from "antd";
 import { Play } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import type { NodeStatusView } from "@shared/process";
 import { faDigits } from "@shared/format";
 import { useOrg } from "../../../lib/org";
 import { useIsPhone } from "../../../lib/hooks";
@@ -16,21 +15,10 @@ import { Chip, EmptyState, Loader } from "../../../components/display";
 import { relTime } from "../../../records/model/activity";
 import { ProcessCanvas, StepLegend, StepList } from "../kit";
 import { USER_KEYS, userApi, type ProcessView, type StepView } from "./api";
-import { actionLabel } from "./model";
+import { actionLabel, processMarks } from "./model";
 import { DuePill, Head, useWf } from "./parts";
 
 const I16 = { size: 16, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
-
-/** My steps as the canvas marks them, and the people of the others as their line. */
-function marks(view: ProcessView): { statuses: Record<string, NodeStatusView>; notes: Record<string, string> } {
-  const statuses: Record<string, NodeStatusView> = {};
-  const notes: Record<string, string> = {};
-  for (const s of view.steps) {
-    if (s.mine) statuses[s.key] = { status: s.queue.length ? "mine_open" : "mine_expected" };
-    else if (s.people.length) notes[s.key] = s.people.join("، ");
-  }
-  return { statuses, notes };
-}
 
 function StepQueue({ view, step, onStart }: { view: ProcessView; step: StepView; onStart: () => void }) {
   const wf = useWf();
@@ -86,7 +74,7 @@ export default function ProcessPage() {
   const [sel, setSel] = useState<string | null>(null);
   const view = useQuery({ queryKey: USER_KEYS.view(orgId, key), queryFn: () => userApi.view(api, key), staleTime: 30_000 });
   const data = view.data;
-  const m = useMemo(() => (data ? marks(data) : { statuses: {}, notes: {} }), [data]);
+  const m = useMemo(() => (data ? processMarks(data.steps) : { statuses: {}, notes: {} }), [data]);
   if (view.isLoading) return <Loader />;
   if (view.isError || !data) return <EmptyState title="گردش‌کار پیدا نشد" description={view.error instanceof Error ? view.error.message : undefined} />;
   const start = () => nav(wf.to(wf.paths.start(data.process.key)));

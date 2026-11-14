@@ -496,13 +496,21 @@ export const userApi = {
     const made = await recordsApi.create(api, "process_draft", { ...key, values });
     return String(made.row.id);
   },
-  /** Drop my draft of a step or a start (after it was sent). Never fails the caller. */
+  /**
+   * Drop my draft of a step or a start (after it was sent): removed, or emptied where my access does not remove rows
+   * of «کارها» (a requester's) — an emptied draft reads as none. Never fails the caller.
+   */
   dropDraft: async (api: OrgApi, key: { task_id: string } | { process_id: string }): Promise<void> => {
+    let have: DraftRow | null = null;
     try {
-      const have = await findDraft(api, key);
+      have = await findDraft(api, key);
       if (have) await recordsApi.remove(api, "process_draft", have.id);
     } catch {
-      // a draft left behind is replaced by the next one
+      try {
+        if (have) await recordsApi.update(api, "process_draft", have.id, { values: null });
+      } catch {
+        // a draft left behind is replaced by the next one
+      }
     }
   },
 };

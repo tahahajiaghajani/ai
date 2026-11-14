@@ -26,7 +26,7 @@ import { faDigits } from "@shared/format";
 import { todayISO } from "@shared/jalali";
 import { listSteps } from "../kit/model";
 import { fileIds } from "../kit/files";
-import type { CaseDetail, CaseFilters, CaseListRow, HistoryTask, Inbox, InboxRow, MyProcess, MyStep, SubmitResult } from "./api";
+import type { CaseDetail, CaseFilters, CaseListRow, HistoryTask, Inbox, InboxRow, MyProcess, MyStep, StepView, SubmitResult } from "./api";
 
 const fa = (n: number) => faDigits(n);
 const q = (s: string) => `«${s}»`;
@@ -480,6 +480,20 @@ export function startValues(fields: Record<string, FieldDef>, rights: Record<str
 /** The rights a form step gives as a map (only the fields of the form). */
 export const rightsOf = (raw: Record<string, unknown> | null | undefined): Record<string, Right> =>
   Object.fromEntries(Object.entries(raw ?? {}).filter(([, r]) => isRight(r))) as Record<string, Right>;
+
+/**
+ * A process's diagram for me: my steps marked — «نوبت شما» where cases wait for me, «مرحلهٔ آیندهٔ شما» where my part may
+ * come (an icon and a word each, never colour alone) — and the people of the other steps as their line.
+ */
+export function processMarks(steps: readonly StepView[]): { statuses: Record<string, NodeStatusView>; notes: Record<string, string> } {
+  const statuses: Record<string, NodeStatusView> = {};
+  const notes: Record<string, string> = {};
+  for (const s of steps) {
+    if (s.mine) statuses[s.key] = { status: s.queue.length ? "mine_open" : "mine_expected" };
+    else if (s.people.length) notes[s.key] = s.people.join("، ");
+  }
+  return { statuses, notes };
+}
 
 /** «مرحلهٔ ۲ از ۴»: the phone header's place of the case among its form steps. */
 export function stepOfText(at: number, of: number): string {
