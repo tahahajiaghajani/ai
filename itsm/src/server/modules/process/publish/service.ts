@@ -271,8 +271,8 @@ export async function saveDraft(ctx: Ctx, ref: string, input: DraftInput): Promi
   if (JSON.stringify(draft).length > MAX_DRAFT_BYTES) throw bad("پیش‌نویس این گردش‌کار بیش از اندازه بزرگ است");
   const values: Record<string, unknown> = { draft };
   for (const k of ["name", "icon", "category", "description"] as const) if (input[k] !== undefined) values[k] = input[k];
-  if (input.version !== undefined) values.version = input.version;
-  await update(ctx, "process", row.id, values);
+  // the version the designer edited: a save over someone else's is refused (409 version_conflict), as the record API does
+  await update(ctx, "process", row.id, values, input.version !== undefined ? { version: input.version } : {});
   return processDetail(ctx, row.id);
 }
 
