@@ -221,7 +221,10 @@ function client(url, state = null) {
   };
 }
 
-/** A few records in the main operational tables, so «open the first record» has something to open (best effort). */
+/**
+ * A few records in the main operational tables, so «open the first record» has something to open (best effort):
+ * [table, row, the module's own create route when the table is not written through `/r/<table>`].
+ */
 const SEED = [
   ["incident", { short_description: "قطع اینترنت شعبهٔ مرکزی", impact: "2", urgency: "2" }],
   ["problem", { short_description: "قطعی‌های تکراری سوییچ طبقهٔ دوم" }],
@@ -229,7 +232,12 @@ const SEED = [
   // planned dates inside the roadmap's default range, so its bar can be clicked
   ["release", { short_description: "انتشار نسخهٔ ۲.۴ سامانهٔ بانکداری اینترنتی", version_name: "2.4.0", planned_start: new Date(Date.now() + 2 * 86400000).toISOString(), planned_end: new Date(Date.now() + 9 * 86400000).toISOString() }],
   ["todo", { short_description: "تمدید گواهی SSL درگاه", priority: "2" }],
-  ["kb_article", { title: "راهنمای اتصال به VPN", base_id: "{kb_base}" }],
+  // a new organisation gets its knowledge bases from a delayed seed job (minutes after it is made, SEED_DELAY_MS):
+  // until then «مقالهٔ دانش تازه» rightly offers «پایگاه دانش تازه» instead of a form, so the crawler makes a base of
+  // its own as an administrator would (not one of the seeded names: the seed job then adds those beside it)
+  ["kb_base", { name: "راهنمای فناوری اطلاعات" }],
+  // an article's title is its version's (read-only on the article): «مقالهٔ دانش تازه» writes through the knowledge API
+  ["kb_article", { title: "راهنمای اتصال به VPN", base_id: "{kb_base}", body: "برای اتصال به شبکهٔ سازمان از بیرون، برنامهٔ VPN را باز کنید و با نام کاربری سازمانی وارد شوید." }, "/knowledge/articles"],
   ["ci", { name: "SRV-CORE-01", class: "server" }],
   // a process form, for its designer (settings/forms/:id)
   ["form", { name: "فرم نمونهٔ بازدید شعبه" }],
@@ -313,7 +321,7 @@ async function seedWorkflow(call, orgId, me, form) {
 
 async function seed(call, orgId, me) {
   const made = {};
-  for (const [table, row] of SEED) {
+  for (const [table, row, createPath] of SEED) {
     try {
       const have = await call("POST", `/o/${orgId}/r/${table}/query`, { size: 1, total: false });
       if (have.rows?.length) {
@@ -326,7 +334,8 @@ async function seed(call, orgId, me) {
         const ref = typeof v === "string" && v.match(/^\{(\w+)\}$/);
         filled[k] = ref ? (await call("POST", `/o/${orgId}/r/${ref[1]}/query`, { size: 1, total: false })).rows[0]?.id ?? null : v;
       }
-      made[table] = (await call("POST", `/o/${orgId}/r/${table}`, { ...filled, ...(table === "incident" ? { caller_id: me } : {}) })).row.id;
+      const res = await call("POST", `/o/${orgId}${createPath ?? `/r/${table}`}`, { ...filled, ...(table === "incident" ? { caller_id: me } : {}) });
+      made[table] = (res.row ?? res.article).id;
     } catch (e) {
       made[table] = `(${String(e.message).slice(0, 120)})`;
     }
@@ -818,8 +827,10 @@ async function main() {
       const perms = info.member?.permissions ?? {};
       const can = (area, level = "view") => reg.LEVEL_ORDER.indexOf(perms[area] ?? "none") >= reg.LEVEL_ORDER.indexOf(level);
       const has = (m) => (info.org?.modules ?? []).includes(m);
+      // the shell's own gate (src/ui/lib/org.tsx `allows`): grants and field groups — «توافق‌های در خطر» asks for the
+      // «internal» group, which a requester who reads services lacks (its list filters on compliance: a 400 for them)
       const visible = reg.nav.filter(
-        (i) => (!i.groupModule || has(i.groupModule)) && (!i.module || has(i.module)) && (!i.area || can(i.area, i.level ?? "view")) && (!i.access || [i.access].flat().every((g) => reg.gateAllows(info.access?.grants, g))) && allowedHere(i.path) && !i.path.includes(":"),
+        (i) => (!i.groupModule || has(i.groupModule)) && (!i.module || has(i.module)) && (!i.area || can(i.area, i.level ?? "view")) && (!i.access || [i.access].flat().every((g) => reg.gateAllows(info.access?.grants, g, info.access?.field_groups))) && allowedHere(i.path) && !i.path.includes(":"),
       );
       log(`${role}: persona ${info.access?.persona}, ${visible.length} nav items visible`);
       const lists = new Set(classified.filter((r) => r.kind === "list").map((r) => r.path));
