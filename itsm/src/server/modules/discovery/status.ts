@@ -616,7 +616,8 @@ export async function statusBoard(ctx: Ctx, query: BoardQuery = {}): Promise<{ r
   const who = await readerOf(ctx);
   const env = await condEnv(ctx);
   const size = Math.min(200, Math.max(1, query.size ?? 50));
-  const page = Math.min(1000, Math.max(1, query.page ?? 1));
+  // the two sides are merged in memory: at most 5 000 rows deep
+  const page = Math.min(Math.max(1, Math.floor(5000 / size)), Math.max(1, query.page ?? 1));
   const counts: Record<string, number> = Object.fromEntries(BOARD_CHIPS.map((c) => [c, 0]));
   let total = 0;
   const fleet = pgArray(FLEET_CATEGORIES).replace(/'/g, "''");
