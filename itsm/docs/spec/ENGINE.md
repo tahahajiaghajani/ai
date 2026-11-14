@@ -537,6 +537,22 @@ Both are ordinary engine tables (lists, forms, history, sync for free; area `set
   the module's. An organisation field the overlay names stays on its table while it is named (switching it off,
   deleting, renaming or moving it is refused), the schema leaves out names that are gone anyway (`pruneLifecycle`),
   and a studio table's overlay goes with the table.
+- Process forms (design F §3.2, `src/server/modules/forms`): `form` rows (area «طراحی فرم و گردش‌کار») hold a
+  `FormLayoutV2` over the library — tabs → sections → items, each a library field with this form's width, label,
+  help, «الزامی» / «فقط‌خواندنی» / «پنهان» and «نمایش وقتی…» (a condition on the form's own fields), or a note line —
+  cleaned and capped like `_form` (`@shared/forms/layout`). The form's hook refuses, on every path, unknown or repeated
+  fields, a retired field the form did not hold already (one it holds stays), contradicting flags, widths, and
+  conditions that are not valid or depend on each other in a circle; `fields` follows the layout (the library's usage
+  and its rename and delete guards read it), `status` and `version_no` are the publish's, a form a process uses is
+  never deleted, and Windows pushes are refused. What a person may do with each field at a step is one pure function,
+  `effectiveRights(form, step, fields, viewer)` — the form's flags, then the step's rights, then the viewer's field
+  groups, then locks (never editable) — shared by the preview, the step form, the apply and the redaction. A publish
+  snapshots its forms (`publishForms`, `@shared/forms/snapshot`): each layout and every field's whole definition with
+  shared lists resolved, so a replica shows and checks a step from the version alone (`readSnapshot`,
+  `checkFormValues`), never from `field_def`, `field_type`, `custom_field` or `choice` rows. `GET /forms` lists every
+  form of the system — each table's default form, process forms, catalogue forms, the portals' «گزارش مشکل», surveys
+  and the change risk questionnaire — with its editor's link; `GET|POST /forms/:id/preview?step=&as=` and
+  `GET /forms/system/:table/preview?as=` show a form by step and viewpoint («درخواست‌دهنده», «کارشناس», a member).
 - Choice options a module marks `locked` are relabelled, recoloured or reordered by `choice` rows, never deactivated.
 - `choice` rows `{ list, value, label, color, sort_order, parent, active }` extend or edit the default options of a
   list by value; `active: false` hides an option for new values; an empty `sort_order` keeps the default's position.
