@@ -1,8 +1,9 @@
 // ITAM feeds (design A §11.1, package DA7; software staging and the SAM feed are release 1.2's): «ساخت دارایی برای
 // دستگاه‌های تازه» — switched on only by an asset manager and only after ITAM's own confirmation; assets «تأییدنشده»
-// with no holder or place from the tool (what people set on the CI is kept); never for ATMs, CRSs or kiosks; the daily
-// cap in slices within the lock budget, one transaction per asset, the rest the next day; 5 000 a day; the job after
-// every completed pass and daily; the queue's «بی‌دارایی» tab with the roll-up per connector.
+// with no holder or place from the tool (what people set on the CI is kept); never for ATMs, CRSs or kiosks, also when a
+// monitoring tool reports them as plain devices; the daily cap in slices within the lock budget, one transaction per
+// asset, the rest the next day; ITAM's refusals count against the cap and wait for the next day; 5 000 a day; the job
+// after every completed pass and daily; the queue's «بی‌دارایی» tab with the roll-up per connector.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createIn } from "@server/engine";
 import type { JobResult } from "@server/jobs";
@@ -27,19 +28,19 @@ function feedKit(world: () => DiscoveryWorld) {
   /** ITAM's own confirmation of its discovered-hardware step (an asset manager's first batch), on or off. */
   const confirm = (on: boolean) => world().q(`update sm_itam_configs set auto_assets_confirmed_at = ${on ? "now()" : "null"} where org_id = $1`, [world().e.org]);
   /** n hardware CIs, each linked to an item of the connector (oldest first, in the tool's id order), with the tool's reported holder and site. */
-  async function devices(connectorId: string, n: number, o: { cls?: string; kind?: string; model?: string } = {}): Promise<string[]> {
+  async function devices(connectorId: string, n: number, o: { cls?: string; kind?: string; model?: string; attrs?: Row } = {}): Promise<string[]> {
     const w = world();
     const prefix = `D${Math.random().toString(36).slice(2, 8)}`;
     await w.q(
       `with c as (
-         insert into sm_cis (id, org_id, name, class, state, model_name, created_at)
-         select gen_random_uuid(), $1, $3 || '-' || lpad(g::text, 6, '0'), $4, 'operational', $6, now() - interval '1 day' + g * interval '1 millisecond'
+         insert into sm_cis (id, org_id, name, class, state, model_name, attrs, created_at)
+         select gen_random_uuid(), $1, $3 || '-' || lpad(g::text, 6, '0'), $4, 'operational', $6, $8::jsonb, now() - interval '1 day' + g * interval '1 millisecond'
          from generate_series(1, $5::int) g returning id, name, created_at)
        insert into sm_discovery_items (id, org_id, connector_id, external_id, kind, name, state, ci_id, origin, data)
        select gen_random_uuid(), $1, $2, c.name, $7, c.name, 'linked', c.id, 'cloud',
               jsonb_build_object('external_id', c.name, 'kind', $7::text, 'name', c.name, 'reported', jsonb_build_object('user', 'BANK\\' || c.name, 'site', 'BR-101'))
        from c`,
-      [w.e.org, connectorId, prefix, o.cls ?? "desktop", n, o.model ?? null, o.kind ?? "endpoint"],
+      [w.e.org, connectorId, prefix, o.cls ?? "desktop", n, o.model ?? null, o.kind ?? "endpoint", JSON.stringify(o.attrs ?? {})],
     );
     return (await w.q<{ id: string }>(`select id from sm_cis where org_id = $1 and name like $2 order by created_at`, [w.e.org, `${prefix}-%`])).map((r) => r.id);
   }
@@ -196,7 +197,7 @@ describe("assets for new devices (design A §11.1)", () => {
     expect(tab).toMatchObject({ total: 15, counts: { no_asset: 15 } });
     expect(tab.rows).toHaveLength(10);
     expect(tab.rows[0]).toMatchObject({ ci_id: cis[30], state: "linked", reported: { user: expect.stringMatching(/^BANK\\D/), site: "BR-101", location: null } });
-    expect(tab.rollup).toEqual([{ connector_id: c.id, name: "منبع سقف", waiting: 15, make_assets: true, make_assets_daily: 30, made_today: 30 }]);
+    expect(tab.rollup).toEqual([{ connector_id: c.id, name: "منبع سقف", waiting: 15, make_assets: true, make_assets_daily: 30, made_today: 30, refused_today: 0 }]);
     const all = await p.am.client.get(`${w.P}/discovery/queue?tab=no_asset&size=500`);
     expect(all.rollup.find((r: Row) => r.connector_id === c.id)).toMatchObject({ waiting: 15 });
     expect(all.counts.no_asset).toBe(all.total);
@@ -207,6 +208,61 @@ describe("assets for new devices (design A §11.1)", () => {
     expect(await assetsOf(cis)).toHaveLength(45);
     expect((await feedRuns(c.id)).map((r: Row) => [r.state, r.created])).toEqual([["completed", 30], ["completed", 15]]);
     expect((await p.am.client.get(`${w.P}/discovery/queue?tab=no_asset&connector=${c.id}`)).total).toBe(0);
+  }, 240_000);
+
+  it("none for an ATM, CRS or kiosk a monitoring tool reports as a plain device: by the fleet model's number or Latin model in any spelling, or by its terminal id", async () => {
+    await confirm(true);
+    // Zabbix and PRTG report every host as kind «device»; the seeded fleet has «ان‌سی‌آر SelfServ 22e (خودپرداز)» (6622e),
+    // «هیوسونگ MX8800 (CRS)» (MX8800) and «کیوسک خدمات بانکی ۲۱ اینچ» (K21)
+    const c = await w.connector({ ...REST_CONNECTOR, name: "منبع پایش شعبه‌ها", base_url: "https://fleet.mock.test/", make_assets: true });
+    const as = (model: string | undefined, attrs?: Row) => devices(c.id, 1, { kind: "device", cls: "computer", model, attrs }).then(([id]) => id);
+    const fleet = [await as("6622E"), await as("SelfServ 22e"), await as("mx-8800"), await as("K21"), await as(undefined, { terminal_id: "10021" })];
+    // a PC still gets its asset
+    const pc = await as("OptiPlex 7010");
+    expect((await feed(c.id)).last).toBeUndefined();
+    expect(await assetsOf(fleet)).toHaveLength(0);
+    expect(await assetsOf([pc])).toHaveLength(1);
+    // nor are they «بی‌دارایی»
+    expect((await p.am.client.get(`${w.P}/discovery/queue?tab=no_asset&connector=${c.id}`)).total).toBe(0);
+  }, 240_000);
+
+  it("counts the devices ITAM refuses against the daily cap and passes them over until the next (UTC) day", async () => {
+    await confirm(true);
+    const c = await w.connector({ ...REST_CONNECTOR, name: "منبع برچسب تکراری", base_url: "https://dup.mock.test/", make_assets: true, make_assets_daily: 5 });
+    const cis = await devices(c.id, 7);
+    // the first three carry the tags of live assets of the register (both were imported with the same tags): ITAM refuses them
+    const tags = [0, 1, 2].map((i) => `DUP-${c.id.slice(0, 8)}-${i}`);
+    const held: string[] = [];
+    await w.sys.write(async (tx) => {
+      const model = await createIn(tx, w.sys, "asset_model", { name: `رایانهٔ برچسب تکراری ${c.id.slice(0, 8)}`, category: "desktop" }, { trusted: true });
+      for (const tag of tags) held.push(String((await createIn(tx, w.sys, "asset", { model_id: model.id, name: tag, asset_tag: tag, state: "in_stock" }, { trusted: true })).id));
+    });
+    for (const [i, tag] of tags.entries()) await w.q(`update sm_cis set asset_tag = $2 where id = $1`, [cis[i], tag]);
+    // three refused and two made: the cap of five tries is reached
+    expect(((await feed(c.id)).last as { again: number }).again).toBeGreaterThan(0);
+    expect(await assetsOf(cis)).toHaveLength(2);
+    const [first] = await feedRuns(c.id);
+    expect(first).toMatchObject({ state: "completed", created: 2, failed: 3 });
+    expect(first.warnings.map((x: Row) => x.code)).toEqual(["refused", "refused", "refused", "cap"]);
+    expect(first.cursor.refused).toEqual(cis.slice(0, 3));
+    // a larger cap the same day: the next walk makes the other two and passes the refused three over
+    await w.update(c.id, { make_assets_daily: 100 });
+    expect((await feed(c.id)).last).toBeUndefined();
+    expect((await assetsOf(cis)).map((r: Row) => r.ci_id)).toEqual(cis.slice(3));
+    expect((await feedRuns(c.id)).map((r: Row) => [r.created, r.failed])).toEqual([[2, 3], [2, 0]]);
+    // the day's later walks try nothing and leave no run behind
+    expect((await feed(c.id)).last).toBeUndefined();
+    expect(await feedRuns(c.id)).toHaveLength(2);
+    // they still wait in «بی‌دارایی»; the roll-up tells what ITAM refused today
+    const tab = await p.am.client.get(`${w.P}/discovery/queue?tab=no_asset&connector=${c.id}`);
+    expect(tab.rows.map((r: Row) => r.ci_id)).toEqual(cis.slice(0, 3));
+    expect(tab.rollup).toEqual([{ connector_id: c.id, name: "منبع برچسب تکراری", waiting: 3, make_assets: true, make_assets_daily: 100, made_today: 4, refused_today: 3 }]);
+    // the next day they are tried again, once: the one whose clash a person cleared gets its asset
+    await w.q(`update sm_assets set asset_tag = null where id = $1`, [held[0]]);
+    await w.q(`update sm_discovery_runs set started_at = started_at - interval '1 day' where connector_id = $1 and lane = 'itam'`, [c.id]);
+    expect((await feed(c.id)).last).toBeUndefined();
+    expect((await assetsOf(cis.slice(0, 3))).map((r: Row) => r.ci_id)).toEqual([cis[0]]);
+    expect((await feedRuns(c.id)).map((r: Row) => [r.created, r.failed])).toEqual([[2, 3], [2, 0], [1, 2]]);
   }, 240_000);
 
   it("is queued after every completed pass and daily while it is on; the job makes the assets", async () => {

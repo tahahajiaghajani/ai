@@ -5,15 +5,17 @@
 //       discovered-hardware step (`itam_config.auto_assets_confirmed_at`, stamped when an asset manager makes the first
 //       batch from «داشبورد دارایی‌ها»): until then people are refused with what to do, and the feed makes nothing;
 //     · what: ITAM's `assetsForDiscovered` for the connector's linked hardware CIs (ITAM's HW_CLASSES) that have no
-//       asset — never for an ATM, CRS or kiosk (an item of kind `atm`, or a CI whose model is one of the bank fleet's);
+//       asset — never for an ATM, CRS or kiosk: an item of kind `atm`, a CI with a terminal id, or a CI whose model is
+//       one of the bank fleet's by its name, its Latin model or its model number, as tools report them (ciWaits);
 //     · how fast: the job `discovery.itam` (after every completed pass while the feed is on, and daily) walks the
 //       connector's linked items in its tool's id order, in the pull's slices (≤ 5 s; an asset starts only while the
-//       slice covers 1.5 × its measured time), one short transaction per asset, at most `make_assets_daily` (5 000) a
-//       day — a UTC day; the job then waits for the next. A device ITAM refuses is passed over until the next walk.
+//       slice covers 1.5 × its measured time), one short transaction per asset, at most `make_assets_daily` (5 000)
+//       tries a day — a UTC day, an asset made or a device ITAM refused; the job then waits for the next. A device
+//       ITAM refuses is passed over by the day's later walks and tried again the next day.
 //     New assets are «تأییدنشده». Their holder and place come only from what people set on the CI: connectors never
 //     write `used_by` or `location_id` (§6.3). A walk that makes assets is a `discovery_run` of lane `itam`: `created`
-//     counts the day's assets, `failed` the devices ITAM refused, and its cursor keeps the walk's place and the measured
-//     time per asset.
+//     counts its assets, `failed` the devices ITAM refused, and its cursor keeps the walk's place, the measured time per
+//     asset and the CIs refused today (each walk of the day starts from the day's latest).
 //   «بی‌دارایی» (§8.4): the devices still waiting, with the tool's reported holder and place, and a roll-up per
 //     connector — a tab of the reconciliation queue (service.ts).
 //   Software staging and the SAM feed (§11.2) come with release 1.2 (the owner's decision of 14 November).
@@ -49,6 +51,8 @@ const LEASE_MINUTES = 5;
 const BUSY_AGAIN_MS = 30_000;
 const WRITABLE_AGAIN_MS = 15 * 60_000;
 const MAX_WARNINGS = 20;
+/** CIs refused today that the day's walks remember (beyond them, a refused device is tried again on the next walk). */
+export const MAX_REFUSED = 500;
 
 export const NOT_CONFIRMED_MESSAGE =
   "ساخت دارایی برای دستگاه‌های تازه پس از تأیید مدیریت دارایی روشن می‌شود: نخست در «داشبورد دارایی‌ها» دکمهٔ «دارایی برای سخت‌افزار کشف‌شده» را بزنید";
@@ -67,14 +71,27 @@ const literals = (xs: readonly string[]) =>
     .join(", ");
 
 /**
- * The CI `c` waits for an asset: live hardware (ITAM's classes) without one, never an ATM, CRS or kiosk — an item of
- * kind `atm` names it, or the model ITAM would give it (`assetsForDiscovered` finds it by the CI's model name, else
- * «<class> نامشخص») is one of `fleet`, the bank fleet's model names. Each check is an index probe per row: `offset 0`
- * keeps the planner from flattening them into joins it would size without statistics (PGlite, a fresh load).
+ * A model as compared with the bank fleet's: lower case, Latin letters and digits only, Persian and Arabic digits as
+ * Latin ones — «ان‌سی‌آر SelfServ 22e (خودپرداز)», "SelfServ 22e" and "SELFSERV-22E" give one key.
+ */
+const modelKey = (expr: string) => `regexp_replace(lower(translate(${expr}, '۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩', '01234567890123456789')), '[^a-z0-9]+', '', 'g')`;
+
+/**
+ * The CI `c` waits for an asset: live hardware (ITAM's classes) without one, never an ATM, CRS or kiosk. Monitoring
+ * tools report those as plain devices (Zabbix and PRTG items are of kind `device`), so any of these names one:
+ *   · an item of kind `atm` links it;
+ *   · it has a terminal id (an ATM's or a POS terminal's id in the switch, a class attribute): a bank terminal;
+ *   · its model is one of `fleet` (fleetKeys): the model ITAM would give it (`assetsForDiscovered` finds it by the CI's
+ *     model name, else «<class> نامشخص») by name in any case, or the tool's model by its key (modelKey) — the fleet
+ *     model's name, its name without the bracketed kind, or its model number.
+ * Each check is an index probe or a test of the row; `offset 0` keeps the planner from flattening the probes into joins
+ * it would size without statistics (PGlite, a fresh load).
  */
 const ciWaits = (fleet: string) => `c.deleted_at is null and c.merged_into is null and c.class in (${literals(HW_CLASSES)})
   and coalesce(c.state, '') not in ('retired', 'disposed', 'canceled')
-  and left(coalesce(nullif(c.model_name, ''), c.class || ' نامشخص'), 200) <> all(${fleet}::text[])
+  and coalesce(c.attrs->>'terminal_id', '') = ''
+  and lower(left(coalesce(nullif(c.model_name, ''), c.class || ' نامشخص'), 200)) <> all(${fleet}::text[])
+  and ${modelKey("coalesce(c.model_name, '')")} <> all(${fleet}::text[])
   and not exists (select 1 from sm_assets a where a.org_id = c.org_id and a.ci_id = c.id and a.deleted_at is null offset 0)
   and not exists (select 1 from sm_discovery_items x where x.org_id = c.org_id and x.ci_id = c.id and x.kind = 'atm' and x.deleted_at is null offset 0)`;
 
@@ -82,10 +99,21 @@ const ciWaits = (fleet: string) => `c.deleted_at is null and c.merged_into is nu
 export const waitingSql = (fleet: string, more = "") => `i.deleted_at is null and i.state = 'linked' and i.ci_id is not null and coalesce(i.kind, '') <> 'atm'
   and exists (select 1 from sm_cis c where c.id = i.ci_id and c.org_id = i.org_id and ${ciWaits(fleet)}${more} offset 0)`;
 
-/** Names of the bank fleet's models (ATM, CRS, kiosk): a CI whose model is one of them never gets an asset here. */
-export async function fleetModels(q: Queryable, orgId: string): Promise<string[]> {
-  const rows = await q.query<{ name: string }>(`select distinct name from sm_asset_models where org_id = $1 and deleted_at is null and category = any($2::text[]) and name is not null`, [orgId, pgArray(FLEET_CATEGORIES)]);
-  return rows.map((r) => r.name);
+/**
+ * The bank fleet's models (ATM, CRS, kiosk) as ciWaits compares them: each name in lower case, and the keys (modelKey)
+ * of its name, its name without the bracketed kind and its model number — keys of fewer than 3 characters say too
+ * little (the «۲۱» of «کیوسک خدمات بانکی ۲۱ اینچ»). A CI whose model is one of them never gets an asset here.
+ */
+export async function fleetKeys(q: Queryable, orgId: string): Promise<string[]> {
+  const rows = await q.query<{ k: string }>(
+    `with m as (select name, model_number from sm_asset_models where org_id = $1 and deleted_at is null and category = any($2::text[]))
+     select lower(name) as k from m where coalesce(name, '') <> ''
+     union
+     select k from (select ${modelKey("v")} as k from m, lateral (values (name), (regexp_replace(name, '\\([^)]*\\)', '', 'g')), (model_number)) x(v) where v is not null) s
+     where length(k) >= 3`,
+    [orgId, pgArray(FLEET_CATEGORIES)],
+  );
+  return rows.map((r) => r.k);
 }
 
 /** Has ITAM confirmed its discovered-hardware step (an asset manager made the first batch)? */
@@ -126,6 +154,8 @@ interface FeedCursor {
   max_ms: number;
   /** the walk's place: the last item passed (its tool's id) */
   after: string | null;
+  /** CIs ITAM refused today (≤ MAX_REFUSED): the day's later walks pass them over, the next day tries them again */
+  refused: string[];
 }
 
 interface Warning {
@@ -142,24 +172,39 @@ async function runningFeed(q: Queryable, orgId: string, connectorId: string): Pr
   return q.one<Row>(`select * from sm_discovery_runs where org_id = $1 and connector_id = $2 and lane = '${FEED_LANE}' and state = 'running' and deleted_at is null`, [orgId, connectorId]);
 }
 
-/** Assets the connector's feed made today (UTC), the running pass's included. */
-export async function madeToday(q: Queryable, orgId: string, connectorId: string): Promise<number> {
+/**
+ * Devices the connector's feed tried today (UTC), the running pass's included: the assets it made and the devices ITAM
+ * refused — the daily cap counts both, so refusals never cost more than the cap's transactions a day.
+ */
+export async function triedToday(q: Queryable, orgId: string, connectorId: string): Promise<number> {
   const r = await q.one<{ n: number }>(
-    `select coalesce(sum(created), 0)::int as n from sm_discovery_runs where org_id = $1 and connector_id = $2 and lane = '${FEED_LANE}' and started_at >= $3::timestamptz and deleted_at is null`,
+    `select coalesce(sum(created + failed), 0)::int as n from sm_discovery_runs where org_id = $1 and connector_id = $2 and lane = '${FEED_LANE}' and started_at >= $3::timestamptz and deleted_at is null`,
     [orgId, connectorId, dayStart()],
   );
   return Number(r?.n ?? 0);
 }
 
-async function openFeed(q: Queryable, orgId: string, connectorId: string, origin: string): Promise<Row> {
+const idsOf = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, MAX_REFUSED) : []);
+
+/** The CIs ITAM refused today (UTC), kept by the day's latest walk: a new walk of the day starts from them. */
+async function refusedToday(q: Queryable, orgId: string, connectorId: string): Promise<string[]> {
+  const r = await q.one<{ refused: unknown }>(
+    `select cursor->'refused' as refused from sm_discovery_runs where org_id = $1 and connector_id = $2 and lane = '${FEED_LANE}' and started_at >= $3::timestamptz and deleted_at is null
+     order by started_at desc limit 1`,
+    [orgId, connectorId, dayStart()],
+  );
+  return idsOf(r?.refused);
+}
+
+async function openFeed(q: Queryable, orgId: string, connectorId: string, origin: string, cursor: FeedCursor): Promise<Row> {
   try {
     const row = await q.one<Row>(
       `insert into sm_discovery_runs (id, org_id, connector_id, lane, trigger, state, started_at, cursor, generation, pages, fetched, staged,
          skipped_unchanged, refreshed, retried, created, updated, unmatched, duplicates, failed, stale_marked, problems_opened, problems_cleared,
          complete, warnings, origin)
-       values ($1, $2, $3, '${FEED_LANE}', 'schedule', 'running', now(), '{}'::jsonb, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, '[]'::jsonb, $4)
+       values ($1, $2, $3, '${FEED_LANE}', 'schedule', 'running', now(), $5::jsonb, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, '[]'::jsonb, $4)
        returning *`,
-      [uuidv7(), orgId, connectorId, origin],
+      [uuidv7(), orgId, connectorId, origin, JSON.stringify(cursor)],
     );
     return row!;
   } catch (e) {
@@ -237,21 +282,25 @@ export async function itamFeed(sys: Ctx, connectorId: string, jctx: Pick<JobCont
     run = null;
   }
   const cap = Math.max(0, Math.trunc(Number(conn.make_assets_daily ?? MAKE_ASSETS_DAILY)));
-  let made = await madeToday(db, org, connectorId);
-  if (made >= cap) {
+  // the cap counts tries: assets made and devices ITAM refused
+  let tried = await triedToday(db, org, connectorId);
+  if (tried >= cap) {
     if (run) await finishFeed(db, org, run.id, { code: "cap", message: capWarning(cap) });
     return { again: untilTomorrow() };
   }
   if (run && !(await claimFeed(db, org, run.id, opts.worker))) return { again: BUSY_AGAIN_MS };
-  const cursor: FeedCursor = { ewma: {}, max_ms: 0, after: null, ...((run?.cursor as Partial<FeedCursor> | null) ?? {}) };
-  const fleet = await fleetModels(db, org);
+  const cursor: FeedCursor = { ewma: {}, max_ms: 0, after: null, ...((run?.cursor as Partial<FeedCursor> | null) ?? {}), refused: [] };
+  // devices ITAM refused today wait for the next day: a new walk starts from what the day's latest one kept
+  cursor.refused = run ? idsOf((run.cursor as Row | null)?.refused) : await refusedToday(db, org, connectorId);
+  const refused = new Set(cursor.refused);
+  const fleet = await fleetKeys(db, org);
   const end = sliceEnd(start, jctx.deadline);
   // the slice's first item always moves the walk on (the progress guarantee, budget.ts mayForce)
   let moved = false;
   /** the walk's run, opened when it first has something to keep (an asset, or its place at a slice's end) */
   const runOf = async (): Promise<string | null> => {
     if (!run) {
-      run = await openFeed(db, org, connectorId, sys.cfg.origin ?? "cloud");
+      run = await openFeed(db, org, connectorId, sys.cfg.origin ?? "cloud", cursor);
       if (!(await claimFeed(db, org, run.id, opts.worker))) return null;
     }
     return String(run.id);
@@ -259,18 +308,18 @@ export async function itamFeed(sys: Ctx, connectorId: string, jctx: Pick<JobCont
   for (;;) {
     const steps = await walkStep(db, org, connectorId, !!opts.demo, fleet, cursor.after);
     if (!steps.length) {
-      // the walk is over: today's devices have their assets, or ITAM refused them (the next walk tries again)
+      // the walk is over: today's devices have their assets, or ITAM refused them (the next day tries again)
       if (run) {
         await saveFeed(db, org, String(run.id), cursor, 0, 0);
         await finishFeed(db, org, String(run.id));
       }
       return;
     }
-    const waiting = steps.filter((x) => x.waits);
+    const waiting = steps.filter((x) => x.waits && !refused.has(String(x.ci_id)));
     const cis = waiting.length ? new Map((await liveRows(db, sys, "ci", { f: "id", op: "in", v: [...new Set(waiting.map((x) => x.ci_id))] } as Cond, { limit: waiting.length })).map((r) => [String(r.id), r])) : new Map<string, Row>();
     for (const step of steps) {
       const now = Date.now();
-      const ci = step.waits ? cis.get(String(step.ci_id)) : undefined;
+      const ci = step.waits && !refused.has(String(step.ci_id)) ? cis.get(String(step.ci_id)) : undefined;
       // the slice ends on time; an asset starts only while the slice covers 1.5 × its measured time
       if (!mayForce(moved, now, jctx.deadline) && (now >= end || (ci && START_FACTOR * predictMs(cursor.ewma, "new", 1) > end - now))) {
         const id = await runOf();
@@ -292,18 +341,20 @@ export async function itamFeed(sys: Ctx, connectorId: string, jctx: Pick<JobCont
       try {
         created = (await assetsForDiscovered(sys, 1, [ci])).created;
       } catch (e) {
-        // ITAM refused this device (its rules, a bad value): the walk goes on; the next walk tries it again
+        // ITAM refused this device (its rules, a bad value): the walk goes on; the day's later walks pass it over
         if (!(e instanceof AppError)) throw e;
         failed = 1;
         warning = { code: "refused", message: `${String(ci.name ?? ci.number ?? step.external_id).slice(0, 120)}: ${e.message}`.slice(0, 300) };
+        refused.add(String(step.ci_id));
+        if (cursor.refused.length < MAX_REFUSED) cursor.refused.push(String(step.ci_id));
       }
       const ms = Date.now() - t0;
       cursor.ewma = observe(cursor.ewma, "new", 1, ms);
       cursor.max_ms = Math.max(cursor.max_ms, ms);
       cursor.after = step.external_id;
-      made += created;
+      tried += created + failed;
       await saveFeed(db, org, id, cursor, created, failed, warning);
-      if (made >= cap) {
+      if (tried >= cap) {
         await finishFeed(db, org, id, { code: "cap", message: capWarning(cap) });
         return { again: untilTomorrow() };
       }
@@ -323,6 +374,8 @@ export interface WaitingRollup {
   make_assets_daily: number;
   /** assets the feed made today (UTC) */
   made_today: number;
+  /** devices ITAM refused today (UTC): they count against the cap with the assets, and wait for the next day */
+  refused_today: number;
 }
 
 /** Devices waiting for an asset among the given connectors (items: a device two connectors report counts twice). */
@@ -331,7 +384,7 @@ export async function waitingCount(q: Queryable, orgId: string, connectorIds: st
   const r = await q.one<{ n: number }>(`select count(*)::int as n from sm_discovery_items i where i.org_id = $1 and i.connector_id = any($2::uuid[]) and ${waitingSql("$3")}`, [
     orgId,
     pgArray(connectorIds),
-    pgArray(await fleetModels(q, orgId)),
+    pgArray(await fleetKeys(q, orgId)),
   ]);
   return Number(r?.n ?? 0);
 }
@@ -345,14 +398,14 @@ const textOf = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim().sli
  * The «بی‌دارایی» tab over connectors the caller reads (`connectorIds`), per connector in its tool's id order — the
  * feed's order. Rows come through the engine's read rules (an item through its connector; the reported record only for
  * callers of field group internal), each with the tool's reported holder and place to help the asset manager; with a
- * roll-up per connector: devices waiting, the feed's switch and cap, and what it made today.
+ * roll-up per connector: devices waiting, the feed's switch and cap, and what it made and ITAM refused today.
  */
 export async function waitingPage(ctx: Ctx, connectorIds: string[], p: { q?: string; page?: number; size?: number }) {
   const size = Math.min(Math.max(Math.trunc(p.size ?? 50) || 50, 1), 500);
   const page = Math.max(Math.trunc(p.page ?? 1) || 1, 1);
   if (!connectorIds.length) return { rows: [] as Row[], total: 0, page, size, display: {} as Record<string, string>, rollup: [] as WaitingRollup[] };
   const org = ctx.org.id;
-  const fleet = pgArray(await fleetModels(ctx.db, org));
+  const fleet = pgArray(await fleetKeys(ctx.db, org));
   // the roll-up per connector the caller reads
   const per = await ctx.db.query<{ connector_id: string; n: number }>(
     `select i.connector_id, count(*)::int as n from sm_discovery_items i where i.org_id = $1 and i.connector_id = any($2::uuid[]) and ${waitingSql("$3")} group by i.connector_id`,
@@ -377,15 +430,17 @@ export async function waitingPage(ctx: Ctx, connectorIds: string[], p: { q?: str
       return { ...r, reported: reported ? { user: textOf(reported.user), site: textOf(reported.site), location: textOf(reported.location) } : null };
     });
   const conns = await ctx.db.query<Row>(
-    `select c.id, c.name, c.make_assets, c.make_assets_daily,
-       (select coalesce(sum(r.created), 0)::int from sm_discovery_runs r where r.org_id = c.org_id and r.connector_id = c.id and r.lane = '${FEED_LANE}' and r.started_at >= $3::timestamptz and r.deleted_at is null) as made_today
-     from sm_discovery_connectors c where c.org_id = $1 and c.id = any($2::uuid[]) and c.deleted_at is null`,
+    `select c.id, c.name, c.make_assets, c.make_assets_daily, t.made_today, t.refused_today
+     from sm_discovery_connectors c,
+       lateral (select coalesce(sum(r.created), 0)::int as made_today, coalesce(sum(r.failed), 0)::int as refused_today from sm_discovery_runs r
+                where r.org_id = c.org_id and r.connector_id = c.id and r.lane = '${FEED_LANE}' and r.started_at >= $3::timestamptz and r.deleted_at is null) t
+     where c.org_id = $1 and c.id = any($2::uuid[]) and c.deleted_at is null`,
     [org, pgArray(connectorIds), dayStart()],
   );
   const rollup: WaitingRollup[] = conns
     .map((c) => ({
       connector_id: String(c.id), name: String(c.name ?? ""), waiting: per.find((x) => x.connector_id === c.id)?.n ?? 0, make_assets: c.make_assets === true,
-      make_assets_daily: Number(c.make_assets_daily ?? MAKE_ASSETS_DAILY), made_today: Number(c.made_today ?? 0),
+      make_assets_daily: Number(c.make_assets_daily ?? MAKE_ASSETS_DAILY), made_today: Number(c.made_today ?? 0), refused_today: Number(c.refused_today ?? 0),
     }))
     .filter((r) => r.waiting > 0 || r.make_assets)
     .sort((a, b) => b.waiting - a.waiting || a.name.localeCompare(b.name, "fa"));
