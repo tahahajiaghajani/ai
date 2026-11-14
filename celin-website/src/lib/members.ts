@@ -151,10 +151,10 @@ async function deliverCode(user: Pick<Account, "id" | "name" | "phone" | "email"
     title_fa: "کد عضویت شما صادر شد",
     title_en: "Your membership code has been issued",
     body_fa: s.pro.codeInInbox
-      ? `کد اختصاصی شما: ${mark}\nاین کد را در بخش «عضویت و Pro» یا هنگام ورود وارد کنید تا قیمت‌ها و موجودی محصولات نمایش داده شود و بتوانید سفارش ثبت کنید.${until}`
+      ? `کد اختصاصی شما: ${mark}\nاین کد را در بخش «عضویت و Pro» یا هنگام ورود وارد کنید تا قیمت محصولات نمایش داده شود و بتوانید سفارش ثبت کنید.${until}`
       : "کد اختصاصی شما از طریق پیامک یا تماس فروشگاه برایتان ارسال می‌شود. پس از دریافت، آن را در بخش «عضویت و Pro» وارد کنید.",
     body_en: s.pro.codeInInbox
-      ? `Your personal code: ${mark}\nEnter it under “Membership & Pro” or when signing in to see prices and stock and to place orders.${until}`
+      ? `Your personal code: ${mark}\nEnter it under “Membership & Pro” or when signing in to see prices and to place orders.${until}`
       : "Your personal code will reach you by text message or a call from the store. Enter it under “Membership & Pro” once you have it.",
     link: "/account/pro",
   });
@@ -170,7 +170,7 @@ async function deliverCode(user: Pick<Account, "id" | "name" | "phone" | "email"
     const lead = reason === "request" ? "درخواست عضویت شما تأیید شد." : "عضویت شما در سلین فعال شد.";
     const html = mailHtml(
       "fa",
-      [`${user.name ? `${user.name} عزیز، ` : ""}${lead}`, `کد اختصاصی شما: ${faCode}`, "این کد را در سایت، بخش «عضویت و Pro» یا هنگام ورود وارد کنید تا قیمت‌ها و موجودی را ببینید و سفارش ثبت کنید."],
+      [`${user.name ? `${user.name} عزیز، ` : ""}${lead}`, `کد اختصاصی شما: ${faCode}`, "این کد را در سایت، بخش «عضویت و Pro» یا هنگام ورود وارد کنید تا قیمت‌ها را ببینید و سفارش ثبت کنید."],
       { href: `${env.siteUrl}/pro`, label: "ورود کد در سایت" },
     );
     email = (await sendEmail(user.email, "کد عضویت سلین", html)).ok;
@@ -194,11 +194,11 @@ async function deliverProCode(
     title_fa: "حساب شما Pro شد",
     title_en: "Your account is now Pro",
     body_fa: s.pro.codeInInbox
-      ? `از این پس همه‌ی قیمت‌ها را با قیمت عمده می‌بینید و سفارش‌هایتان با همین قیمت ثبت می‌شود.\nکد Pro شما: ${mark}\nبرای ورود به حساب با کد، همین کد را به کار ببرید؛ کد عضویت قبلی دیگر کار نمی‌کند.`
-      : "از این پس همه‌ی قیمت‌ها را با قیمت عمده می‌بینید و سفارش‌هایتان با همین قیمت ثبت می‌شود. کد Pro شما از طریق پیامک یا تماس فروشگاه برایتان ارسال می‌شود.",
+      ? `از این پس موجودی آثار و همه‌ی قیمت‌ها را با قیمت عمده می‌بینید و سفارش‌هایتان با همین قیمت ثبت می‌شود.\nکد Pro شما: ${mark}\nبرای ورود به حساب با کد، همین کد را به کار ببرید؛ کد عضویت قبلی دیگر کار نمی‌کند.`
+      : "از این پس موجودی آثار و همه‌ی قیمت‌ها را با قیمت عمده می‌بینید و سفارش‌هایتان با همین قیمت ثبت می‌شود. کد Pro شما از طریق پیامک یا تماس فروشگاه برایتان ارسال می‌شود.",
     body_en: s.pro.codeInInbox
-      ? `From now on you see every price at the wholesale price, and your orders are placed at it.\nYour Pro code: ${mark}\nFrom now on, sign in with this code; your previous membership code no longer works.`
-      : "From now on you see every price at the wholesale price, and your orders are placed at it. Your Pro code will reach you by text message or a call from the store.",
+      ? `From now on you see the stock and every price at the wholesale price, and your orders are placed at it.\nYour Pro code: ${mark}\nFrom now on, sign in with this code; your previous membership code no longer works.`
+      : "From now on you see the stock and every price at the wholesale price, and your orders are placed at it. Your Pro code will reach you by text message or a call from the store.",
     link: "/account/pro",
   });
   let sms = false;
@@ -212,7 +212,7 @@ async function deliverProCode(
   if (user.email) {
     const html = mailHtml(
       "fa",
-      [`${user.name ? `${user.name} عزیز، ` : ""}حساب شما در سلین Pro شد.`, "از این پس همه‌ی قیمت‌ها را با قیمت عمده می‌بینید و سفارش‌هایتان با همین قیمت ثبت می‌شود.", `کد Pro شما: ${faCode}`, "برای ورود به حساب با کد، همین کد را به کار ببرید؛ کد عضویت قبلی دیگر کار نمی‌کند."],
+      [`${user.name ? `${user.name} عزیز، ` : ""}حساب شما در سلین Pro شد.`, "از این پس موجودی آثار و همه‌ی قیمت‌ها را با قیمت عمده می‌بینید و سفارش‌هایتان با همین قیمت ثبت می‌شود.", `کد Pro شما: ${faCode}`, "برای ورود به حساب با کد، همین کد را به کار ببرید؛ کد عضویت قبلی دیگر کار نمی‌کند."],
       { href: `${env.siteUrl}/account/pro`, label: "حساب من" },
     );
     email = (await sendEmail(user.email, "حساب Pro سلین", html)).ok;
@@ -694,8 +694,8 @@ export async function revokeMemberCode(codeId: string): Promise<{ ended: boolean
       kind: "pro",
       title_fa: "عضویت شما پایان یافت",
       title_en: "Your membership has ended",
-      body_fa: "کد عضویت شما از سوی فروشگاه باطل شد و قیمت‌ها و موجودی دیگر نمایش داده نمی‌شود. برای تمدید یا کد تازه، از بخش «عضویت و Pro» درخواست دهید یا با فروشگاه تماس بگیرید.",
-      body_en: "Your membership code was revoked by the store, so prices and stock are no longer shown. To renew, send a request under “Membership & Pro” or contact the store.",
+      body_fa: "کد عضویت شما از سوی فروشگاه باطل شد و قیمت‌ها دیگر نمایش داده نمی‌شود. برای تمدید یا کد تازه، از بخش «عضویت و Pro» درخواست دهید یا با فروشگاه تماس بگیرید.",
+      body_en: "Your membership code was revoked by the store, so prices are no longer shown. To renew, send a request under “Membership & Pro” or contact the store.",
       link: "/account/pro",
     });
   }

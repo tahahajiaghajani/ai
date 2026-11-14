@@ -61,7 +61,7 @@ const MSG = {
   codeExpired: { fa: "اعتبار این کد به پایان رسیده است؛ برای تمدید با فروشگاه تماس بگیرید.", en: "This code has expired — contact the store to renew it." },
   codeOther: { fa: "این کد متعلق به حساب دیگری است. اگر حساب دیگری دارید، از این حساب خارج شوید و با کد وارد شوید.", en: "This code belongs to another account. Sign out first and sign in with the code." },
   // a membership code or a Pro code: the words fit both
-  proOn: { fa: "کد پذیرفته شد؛ موجودی و قیمت‌ها اکنون برای شما نمایش داده می‌شود.", en: "Code accepted — stock and prices are now shown to you." },
+  proOn: { fa: "کد پذیرفته شد؛ قیمت‌ها اکنون برای شما نمایش داده می‌شود.", en: "Code accepted — prices are now shown to you." },
   alreadyPro: { fa: "عضویت شما فعال است.", en: "Your membership is already active." },
   alreadyProAccount: { fa: "حساب شما Pro است و همه‌ی قیمت‌ها را با قیمت عمده می‌بینید.", en: "Your account is Pro — you already see every price at the wholesale price." },
   pending: { fa: "درخواست عضویت قبلی شما در حال بررسی است.", en: "Your earlier membership request is still being reviewed." },

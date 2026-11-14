@@ -33,6 +33,8 @@ export interface PriceBook {
   /** the admin's prices; what this account sees and pays follows `pricing` */
   prices: ProPrices;
   pricing: Pricing;
+  /** Pro accounts see stock; members only learn whether a piece can be ordered (src/app/api/pro/prices) */
+  showStock: boolean;
   stockDisplay: "exact" | "level";
   lowStock: number;
   minOrder: number;

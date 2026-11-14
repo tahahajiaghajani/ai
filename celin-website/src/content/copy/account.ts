@@ -21,7 +21,7 @@ export interface LevelsInfo {
 const fa = {
   meta: {
     login: { title: "ورود و ثبت‌نام", description: "ورود به حساب سلین، ساخت حساب تازه یا ورود با کد عضویت." },
-    pro: { title: "عضویت و Pro", description: "عضویت سلین برای فروشگاه‌ها و همکاران: موجودی لحظه‌ای، قیمت اعضا، ثبت سفارش آنلاین و پیگیری وضعیت؛ و حساب Pro با قیمت عمده." },
+    pro: { title: "عضویت و Pro", description: "عضویت سلین برای فروشگاه‌ها و همکاران: قیمت اعضا، ثبت سفارش آنلاین و پیگیری وضعیت؛ و حساب Pro با قیمت عمده و موجودی لحظه‌ای." },
     account: "حساب من",
     dashboard: "پیشخوان",
     cart: "سفارش جدید",
@@ -104,13 +104,13 @@ const fa = {
     benefitsTitle: "عضویت و Pro، در یک نگاه",
     // the two levels and what lies between them: membership, the quantity discount, Pro
     benefits: (l: LevelsInfo) => [
-      { title: "عضویت", text: "پس از تأیید فروشگاه، کد عضویت می‌گیرید؛ موجودی و قیمت اعضا را می‌بینید و سفارش خود را آنلاین ثبت می‌کنید." },
+      { title: "عضویت", text: "پس از تأیید فروشگاه، کد عضویت می‌گیرید؛ قیمت اعضا را می‌بینید و سفارش خود را آنلاین ثبت می‌کنید." },
       ...(l.steps ? [{ title: "تخفیف تعداد", text: "هرچه قطعه‌های یک سفارش بیشتر باشد، مبلغ فاکتور کمتر می‌شود؛ تخفیف در سفارش و فاکتور نمایش داده می‌شود." }] : []),
       {
         title: "Pro",
         text: l.threshold
-          ? `وقتی جمع سفارش‌های تأییدشده‌ی شما در ${l.days} روز گذشته به ${l.threshold} برسد، حساب شما خودبه‌خود Pro می‌شود: کد Pro جداگانه‌ای می‌گیرید و همه‌ی قیمت‌ها را همیشه با قیمت عمده می‌بینید.`
-          : "حساب Pro را فروشگاه برای همکاران خود فعال می‌کند: با کد Pro جداگانه، همه‌ی قیمت‌ها را همیشه با قیمت عمده می‌بینید.",
+          ? `وقتی جمع سفارش‌های تأییدشده‌ی شما در ${l.days} روز گذشته به ${l.threshold} برسد، حساب شما خودبه‌خود Pro می‌شود: کد Pro جداگانه‌ای می‌گیرید و موجودی آثار و همه‌ی قیمت‌ها را همیشه با قیمت عمده می‌بینید.`
+          : "حساب Pro را فروشگاه برای همکاران خود فعال می‌کند: با کد Pro جداگانه، موجودی آثار و همه‌ی قیمت‌ها را همیشه با قیمت عمده می‌بینید.",
       },
     ],
     stepsEyebrow: "عضویت",
@@ -119,16 +119,16 @@ const fa = {
       { title: "درخواست", text: "حساب بسازید و فرم کوتاه درخواست عضویت را پر کنید." },
       { title: "تأیید فروشگاه", text: "فروشگاه درخواست شما را بررسی می‌کند؛ معمولاً تا یک روز کاری." },
       { title: "دریافت کد", text: "پس از تأیید، کد ۱۲ رقمی عضویت برایتان فرستاده می‌شود." },
-      { title: "دیدن قیمت‌ها", text: "کد را یک بار وارد کنید؛ موجودی و قیمت اعضا برایتان نمایش داده می‌شود." },
+      { title: "دیدن قیمت‌ها", text: "کد را یک بار وارد کنید؛ قیمت اعضا برایتان نمایش داده می‌شود." },
     ],
     requestTitle: "درخواست عضویت",
     faqEyebrow: "عضویت و Pro",
     faqTitle: "پرسش‌های رایج",
     faq: (l: LevelsInfo) => [
-      { q: "عضویت چیست؟", a: "دسترسی فروشگاه‌ها و همکاران سلین به موجودی لحظه‌ای، قیمت اعضا و ثبت سفارش آنلاین، از حساب خودتان؛ پس از تأیید فروشگاه، با کد عضویت باز می‌شود." },
+      { q: "عضویت چیست؟", a: "دسترسی فروشگاه‌ها و همکاران سلین به قیمت اعضا و ثبت سفارش آنلاین، از حساب خودتان؛ پس از تأیید فروشگاه، با کد عضویت باز می‌شود." },
       {
         q: "قیمت اعضا و قیمت عمده چه تفاوتی دارند؟",
-        a: `قیمت عمده، قیمت پایه‌ی سلین است؛ ${l.times ? `قیمت اعضا ${l.times} برابر آن است` : "قیمت اعضا همان قیمت عمده است"}${l.steps ? " و با قطعه‌های بیشتر در یک سفارش، مبلغ فاکتور کمتر می‌شود" : ""}. حساب‌های Pro همیشه با قیمت عمده خرید می‌کنند.`,
+        a: `قیمت عمده، قیمت پایه‌ی سلین است؛ ${l.times ? `قیمت اعضا ${l.times} برابر آن است` : "قیمت اعضا همان قیمت عمده است"}${l.steps ? " و با قطعه‌های بیشتر در یک سفارش، مبلغ فاکتور کمتر می‌شود" : ""}. حساب‌های Pro همیشه با قیمت عمده خرید می‌کنند و موجودی آثار را هم می‌بینند.`,
       },
       { q: "چه کسانی می‌توانند درخواست بدهند؟", a: "فروشگاه‌های حضوری و آنلاین، عمده‌فروشان و همکارانی که سلین را به مشتریان خود می‌رسانند. درخواست خرید شخصی هم بررسی می‌شود." },
       { q: "تأیید درخواست چقدر طول می‌کشد؟", a: "معمولاً تا یک روز کاری. کد عضویت در بخش پیام‌های حساب شما قرار می‌گیرد و در صورت امکان با پیامک هم فرستاده می‌شود." },
@@ -165,7 +165,7 @@ const fa = {
     memberPrices: "قیمت هر قطعه با قیمت اعضا نمایش داده می‌شود.",
     memberSteps: "با تعداد بیشتر در یک سفارش، مبلغ فاکتور کمتر می‌شود.",
     proTitle: "حساب شما Pro است",
-    proLead: "همه‌ی قیمت‌ها را با قیمت عمده می‌بینید و سفارش‌هایتان با همین قیمت ثبت می‌شود.",
+    proLead: "موجودی آثار و همه‌ی قیمت‌ها را با قیمت عمده می‌بینید و سفارش‌هایتان با همین قیمت ثبت می‌شود.",
     proSince: (d: string) => `Pro از ${d}`,
     progressLabel: (n: string) => `خرید ${n} روز گذشته`,
     progressText: (p: string, n: string) => `وقتی خرید شما در ${n} روز به ${p} برسد، حساب شما خودبه‌خود Pro می‌شود؛ کد Pro می‌گیرید و همه‌ی قیمت‌ها را با قیمت عمده می‌بینید.`,
@@ -180,7 +180,7 @@ const fa = {
     hello: (name: string) => `سلام، ${name}`,
     helloPlain: "سلام",
     proTitle: "عضویت و Pro",
-    noProText: "با عضویت، موجودی و قیمت اعضا را می‌بینید و سفارش خود را آنلاین ثبت می‌کنید.",
+    noProText: "با عضویت، قیمت اعضا را می‌بینید و سفارش خود را آنلاین ثبت می‌کنید.",
     noProCta: "درخواست عضویت",
     openOrders: "سفارش‌های در جریان",
     noOpenOrders: "سفارش در جریانی ندارید.",
@@ -195,7 +195,7 @@ const fa = {
   cart: {
     title: "سفارش جدید",
     notProTitle: "ثبت سفارش ویژه‌ی اعضاست",
-    notProText: "پس از فعال شدن عضویت، موجودی و قیمت‌ها را می‌بینید و سفارش خود را همین‌جا ثبت می‌کنید.",
+    notProText: "پس از فعال شدن عضویت، قیمت‌ها را می‌بینید و سفارش خود را همین‌جا ثبت می‌کنید.",
     notProCta: "درخواست عضویت",
     haveCode: "ورود با کد",
     empty: "سفارش شما خالی است.",
@@ -321,7 +321,7 @@ type AccountCopy = typeof fa;
 const en: AccountCopy = {
   meta: {
     login: { title: "Sign in", description: "Sign in to your CELIN account, create one, or sign in with your membership code." },
-    pro: { title: "Membership & Pro", description: "CELIN membership for shops and partners: live stock, members' prices, online ordering and order tracking — and the Pro account, at wholesale prices." },
+    pro: { title: "Membership & Pro", description: "CELIN membership for shops and partners: members' prices, online ordering and order tracking — and the Pro account, at wholesale prices with live stock." },
     account: "My account",
     dashboard: "Overview",
     cart: "New order",
@@ -403,13 +403,13 @@ const en: AccountCopy = {
     haveCode: "Sign in with a code",
     benefitsTitle: "Membership & Pro at a glance",
     benefits: (l: LevelsInfo) => [
-      { title: "Membership", text: "Once the store approves you, you get a membership code: you see stock and members' prices, and place your orders online." },
+      { title: "Membership", text: "Once the store approves you, you get a membership code: you see members' prices and place your orders online." },
       ...(l.steps ? [{ title: "Quantity discount", text: "The more pieces in one order, the lower the invoice; the discount is shown in your basket and on the invoice." }] : []),
       {
         title: "Pro",
         text: l.threshold
-          ? `When your accepted orders in the last ${l.days} days reach ${l.threshold}, your account becomes Pro on its own: you get a separate Pro code and always see every price at the wholesale price.`
-          : "The store opens Pro accounts for its partners: with a separate Pro code, you always see every price at the wholesale price.",
+          ? `When your accepted orders in the last ${l.days} days reach ${l.threshold}, your account becomes Pro on its own: you get a separate Pro code and always see the stock and every price at the wholesale price.`
+          : "The store opens Pro accounts for its partners: with a separate Pro code, you always see the stock and every price at the wholesale price.",
       },
     ],
     stepsEyebrow: "Membership",
@@ -418,16 +418,16 @@ const en: AccountCopy = {
       { title: "Request", text: "Create an account and fill in the short membership request." },
       { title: "Store approval", text: "The store reviews your request, usually within one working day." },
       { title: "Your code", text: "Once approved, your 12-digit membership code is sent to you." },
-      { title: "See prices", text: "Enter the code once; stock and members' prices appear for you." },
+      { title: "See prices", text: "Enter the code once; members' prices appear for you." },
     ],
     requestTitle: "Request membership",
     faqEyebrow: "Membership & Pro",
     faqTitle: "Questions",
     faq: (l: LevelsInfo) => [
-      { q: "What is membership?", a: "Live stock, members' prices and online ordering for CELIN's shops and partners, from your own account — opened with your membership code once the store approves you." },
+      { q: "What is membership?", a: "Members' prices and online ordering for CELIN's shops and partners, from your own account — opened with your membership code once the store approves you." },
       {
         q: "How do members' prices differ from wholesale prices?",
-        a: `The wholesale price is CELIN's base price; ${l.times ? `the members' price is ${l.times} times that` : "the members' price is the same"}${l.steps ? ", and the more pieces in one order, the lower the invoice" : ""}. Pro accounts always buy at the wholesale price.`,
+        a: `The wholesale price is CELIN's base price; ${l.times ? `the members' price is ${l.times} times that` : "the members' price is the same"}${l.steps ? ", and the more pieces in one order, the lower the invoice" : ""}. Pro accounts always buy at the wholesale price and also see the stock.`,
       },
       { q: "Who can apply?", a: "Shops in person and online, wholesalers and partners who bring CELIN to their clients. Personal requests are reviewed too." },
       { q: "How long does approval take?", a: "Usually within one working day. Your membership code arrives in your account messages, and by text message where possible." },
@@ -464,7 +464,7 @@ const en: AccountCopy = {
     memberPrices: "Each piece shows the members' price.",
     memberSteps: "The more pieces in one order, the lower the invoice.",
     proTitle: "Your account is Pro",
-    proLead: "You see every price at the wholesale price, and your orders are placed at it.",
+    proLead: "You see stock and every price at the wholesale price, and your orders are placed at it.",
     proSince: (d: string) => `Pro since ${d}`,
     progressLabel: (n: string) => `Bought in the last ${n} days`,
     progressText: (p: string, n: string) => `When your purchases within ${n} days reach ${p}, your account becomes Pro on its own: you get a Pro code and see every price at the wholesale price.`,
@@ -479,7 +479,7 @@ const en: AccountCopy = {
     hello: (name: string) => `Hello, ${name}`,
     helloPlain: "Hello",
     proTitle: "Membership & Pro",
-    noProText: "As a member you see stock and members' prices, and order online.",
+    noProText: "As a member you see members' prices and order online.",
     noProCta: "Request membership",
     openOrders: "Orders in progress",
     noOpenOrders: "No orders in progress.",
@@ -494,7 +494,7 @@ const en: AccountCopy = {
   cart: {
     title: "New order",
     notProTitle: "Ordering is for members",
-    notProText: "Once your membership is active you see stock and prices, and place your order right here.",
+    notProText: "Once your membership is active you see prices and place your order right here.",
     notProCta: "Request membership",
     haveCode: "Sign in with a code",
     empty: "Your order is empty.",

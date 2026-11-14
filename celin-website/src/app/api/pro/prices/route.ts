@@ -19,10 +19,21 @@ function levelled(prices: ProPrices, low: number): ProPrices {
   );
 }
 
+/**
+ * Members (not Pro) see no stock at all: each piece reads only as orderable (enough for any basket) or not — never
+ * a count or a level. The order itself still checks the real stock.
+ */
+function availability(prices: ProPrices): ProPrices {
+  const cap = (n: number) => (n > 0 ? MAX_QTY : 0);
+  return Object.fromEntries(
+    Object.entries(prices).map(([id, p]) => [id, { ...p, stock: cap(p.stock), variants: Object.fromEntries(Object.entries(p.variants).map(([vid, v]) => [vid, { ...v, stock: cap(v.stock) }])) }]),
+  );
+}
+
 export const dynamic = "force-dynamic";
 
 /**
- * Prices and stock for members and Pro accounts only. Public pages never contain them: the price layer asks here
+ * Prices for members and Pro accounts only, and stock for Pro accounts only. Public pages never contain them: the price layer asks here
  * after the readable hint says this browser has a membership, and the session is checked again on every call.
  * `prices` are the admin's prices; `pricing` says what this account sees and pays (src/lib/pricing.ts): members
  * the list price with steps by pieces, Pro the admin's price.
@@ -38,8 +49,10 @@ export async function GET() {
   }
   try {
     const [prices, s] = await Promise.all([proPrices(), getSettings()]);
-    const shown = s.shop.stockDisplay === "level" ? levelled(prices, s.shop.lowStock) : prices;
-    return Response.json({ prices: shown, pricing: pricingFor(pro.level, s.pro), stockDisplay: s.shop.stockDisplay, lowStock: s.shop.lowStock, minOrder: s.shop.minOrder }, { headers });
+    // stock is for Pro accounts only (the owner's rule); members get availability, never numbers
+    const showStock = pro.level === "pro";
+    const shown = !showStock ? availability(prices) : s.shop.stockDisplay === "level" ? levelled(prices, s.shop.lowStock) : prices;
+    return Response.json({ prices: shown, pricing: pricingFor(pro.level, s.pro), showStock, stockDisplay: s.shop.stockDisplay, lowStock: showStock ? s.shop.lowStock : 0, minOrder: s.shop.minOrder }, { headers });
   } catch (e) {
     console.error("[pro prices]", e);
     return Response.json({ error: "failed" }, { status: 503, headers });
