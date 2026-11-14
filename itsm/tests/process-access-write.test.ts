@@ -8,7 +8,7 @@ import { SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
 import { builtinRoles, combineRoles, grantIn, roleCatalog, roleClosure } from "@shared/access";
 import {
-  addWorkCreate, CASE_FILES, CASE_WRITE, PROCESS_DELETE, PROCESS_STATUS_WRITE, rolesWithoutWorkCreate, SUBMISSION_KEPT, TASK_WRITE, VERSION_WRITE,
+  addWorkCreate, CASE_FILES, CASE_WRITE, PROCESS_DELETE, PROCESS_STATUS_WRITE, rolesWithoutWorkCreate, SUBMISSION_KEPT, SUBMISSION_PEOPLE, TASK_WRITE, VERSION_WRITE,
 } from "@server/modules/process/access";
 import { PNG, upload } from "./engine-helpers";
 import type { Client } from "./helpers";
@@ -102,10 +102,15 @@ describe("cases, tasks and versions: only the system", () => {
     // the tenant admin does not even read another person's task (the row rule)
     await ta.patch(`${R}/process_task/${taskId}`, { comment: "x" }, 404);
     expect(await refused(ta.post(`${R}/process_task`, { step_label: "مرحلهٔ ساختگی" }), 403)).toBe(TASK_WRITE);
-    const { updateIn } = await import("@server/engine");
+    const { createIn, updateIn } = await import("@server/engine");
     await expect(w.sys.write((tx) => updateIn(tx, w.sys, "process_case", caseId, { title: "از جریان خودکار" }))).rejects.toThrow(CASE_WRITE);
+    // nor a submission in someone's name: the subscriber would apply it as that person's decision (F4b-1)
+    const forged = { kind: "step", task_id: taskId, outcome: "approved", values: {}, submitted_by: p.h.userId };
+    await expect(w.sys.write((tx) => createIn(tx, w.sys, "process_submission", forged))).rejects.toThrow(SUBMISSION_PEOPLE);
+    await w.k.drain();
     const t = (await w.o.db.one<{ status: string; deleted_at: string | null }>(`select status, deleted_at from sm_process_tasks where id = $1`, [taskId]))!;
     expect(t).toEqual({ status: "open", deleted_at: null });
+    expect(await w.o.db.one(`select 1 as x from sm_process_submissions where task_id = $1`, [taskId])).toBeNull();
   });
 
   it("refuses a member's push of a case or a task — change, create or delete", async () => {
@@ -189,6 +194,21 @@ describe("submissions", () => {
     // on the API too: whom a person acted for is the authority's to say
     const made = (await r.post(`${R}/process_submission`, { kind: "step", task_id: taskId, outcome: "approved", on_behalf_of: p.h.userId })).row;
     expect([made.on_behalf_of, made.result, made.submitted_by]).toEqual([null, "pending", p.r.userId]);
+  });
+
+  it("a create through the record API is made when the authority takes it: an old time does not bring back a past day (F4b-2)", async () => {
+    const before = Date.now() - 1_000;
+    const id = uuidv7();
+    const made = (await p.r.client.post(`${R}/process_submission`, {
+      kind: "start", process_id: proc.process, case_id: id, values: { u_amount: "100", u_date: "2021-01-01" }, submitted_at: "2020-06-01T08:00:00Z",
+    })).row;
+    expect(Date.parse(made.submitted_at)).toBeGreaterThanOrEqual(before);
+    await w.k.drain();
+    // «تاریخ نیاز» may not be before today: refused as online, and no case
+    const got = (await w.o.db.one<{ result: string; result_note: string | null }>(`select result, result_note from sm_process_submissions where id = $1`, [made.id]))!;
+    expect(got.result).toBe("refused");
+    expect(got.result_note).toContain("تاریخ نیاز");
+    expect(await w.o.db.one(`select 1 as x from sm_process_cases where id = $1`, [id])).toBeNull();
   });
 });
 

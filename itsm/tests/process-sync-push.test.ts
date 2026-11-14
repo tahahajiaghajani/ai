@@ -238,10 +238,21 @@ describe("upload and linking", () => {
     const settled = { ...sub(p.r.userId, { kind: "start", process_id: PA.process, case_id: closed.id }), result: "applied", applied_at: iso() };
     expect(await push(own, [{ entity: "process_submission", row: settled }])).toMatchObject([{ status: "ok" }]);
     expect(await submission(w, settled.id)).toMatchObject({ result: "applied" });
-    // a published version: the owner yes, a designer (no approve) no
-    const v = { ...JSON.parse(JSON.stringify(version)), id: uuidv7(), version_no: 7, rev: 0, created_at: iso(), updated_at: iso() };
-    expect(await push(p.d.client, [{ entity: "process_version", row: { ...v, id: uuidv7() } }])).toMatchObject([{ status: "error" }]);
-    expect(await push(own, [{ entity: "process_version", row: v }])).toMatchObject([{ status: "ok" }]);
+    // a published process and its versions: the owner yes, a designer (no approve) no
+    const upId = uuidv7();
+    const up = { id: upId, org_id: w.o.org, name: "گردش‌کار رایانهٔ مستقل", key: `standalone_${Date.now()}`, status: "published", version_no: 2, created_at: iso(), updated_at: iso() };
+    const ver = (n: number, processId = upId) => ({ ...JSON.parse(JSON.stringify(version)), id: uuidv7(), process_id: processId, version_no: n, rev: 0, created_at: iso(), updated_at: iso() });
+    const v = ver(2);
+    expect(await push(p.d.client, [{ entity: "process", row: { ...up, id: uuidv7(), key: `${up.key}_d` } }])).toMatchObject([{ status: "error" }]);
+    expect(await push(own, [{ entity: "process", row: up }])).toMatchObject([{ status: "ok" }]);
+    expect(await push(p.d.client, [{ entity: "process_version", row: ver(1) }])).toMatchObject([{ status: "error" }]);
+    expect(await push(own, [{ entity: "process_version", row: v }, { entity: "process_version", row: ver(1) }])).toMatchObject([{ status: "ok" }, { status: "ok" }]);
+    // never a number the process does not declare, nor one it holds already (F4b-3)
+    expect(await push(own, [{ entity: "process_version", row: ver(3) }])).toMatchObject([{ status: "error", message: VERSION_WRITE }]);
+    expect(await push(own, [{ entity: "process_version", row: ver(2) }])).toMatchObject([{ status: "error", message: VERSION_WRITE }]);
+    // a process published here takes no version but by publishing: no new graph goes live unapproved
+    expect(await push(own, [{ entity: "process_version", row: ver(7, PA.process) }])).toMatchObject([{ status: "error", message: VERSION_WRITE }]);
+    expect(await w.o.db.one<{ n: number }>(`select count(*)::int as n from sm_process_versions where process_id = $1`, [PA.process])).toEqual({ n: 1 });
     // never an update or a deletion of what was uploaded
     const stored = (await w.o.db.one<{ rev: number }>(`select rev from sm_process_cases where id = $1`, [closed.id]))!;
     const later = { ...closed, title: "عنوان دیگر", updated_at: iso(Date.now() + 5_000) };

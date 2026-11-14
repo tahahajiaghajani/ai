@@ -6,8 +6,9 @@
 //   · a case takes no attachment from people (files come with submissions); readers may comment;
 //   · a process's status, version and publish stamps — only the publish service (trusted); a published process is
 //     retired, never deleted;
-//   · submissions — people create their own (the row rule: `submitted_by` is me); nobody but the system changes or
-//     deletes them afterwards. A pushed submission starts `pending`, with no result and no «به نیابت از» of its own —
+//   · submissions — people create their own (the row rule: `submitted_by` is me), made when the authority takes them;
+//     the system creates them only trusted (never a flow's record step); nobody but the system changes or deletes
+//     them afterwards. A pushed submission starts `pending`, with no result and no «به نیابت از» of its own —
 //     the authority decides whom a person acted for — and must be the pushing account's.
 // The one exception is the upload of a standalone organisation (§7.2): F4b's sync part sets `setUploadRule`, and a
 // push it accepts (creates of finished data by a holder of `process_design` approve) passes these guards as it is.
@@ -22,6 +23,7 @@ export const PROCESS_DELETE = "گردش‌کاری که منتشر شده است
 export const CASE_FILES = "پیوست‌های پرونده فقط همراه ثبت مرحله‌ها می‌آیند";
 export const SUBMISSION_KEPT = "ثبت مرحله پس از فرستادن تغییر نمی‌کند و پاک نمی‌شود";
 export const SUBMISSION_OWN = "ثبت مرحله از برنامهٔ ویندوز فقط به نام خودتان پذیرفته می‌شود";
+export const SUBMISSION_PEOPLE = "مرحله را فقط خود افراد ثبت می‌کنند؛ جریان خودکار به نام کسی مرحله ثبت نمی‌کند";
 
 /** Is this push the upload of a standalone organisation's finished data (§7.2)? Set by F4b's sync part. */
 export type UploadRule = (p: PushArgs) => boolean | Promise<boolean>;
@@ -119,8 +121,13 @@ export const submissionHooks: Pick<TableHooks, "beforeWrite" | "derivePush" | "v
   beforeWrite(w) {
     if (owned(w)) return;
     if (w.op !== "create") throw forbidden(SUBMISSION_KEPT);
-    // whom a person acted for is the authority's to say (the apply fills it in)
-    if (!isSystemCtx(w.ctx)) w.next.on_behalf_of = null;
+    // the system writes submissions only trusted (the online services): a flow's record step, which runs as the
+    // system, would otherwise decide a step in anyone's name — the subscriber applies every pending submission
+    if (isSystemCtx(w.ctx)) throw forbidden(SUBMISSION_PEOPLE);
+    // whom a person acted for is the authority's to say (the apply fills it in); a create through the record API is
+    // made now — relative date limits count from the day the authority took it, as online
+    w.next.on_behalf_of = null;
+    w.next.submitted_at = new Date().toISOString();
   },
   async derivePush(p) {
     // the same submission sent again (the answer to the first push was lost): what the authority filled in stays, so

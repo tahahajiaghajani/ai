@@ -7,7 +7,9 @@
 //   · the step's «پایان مهلت» port, when it is wired: at the due time the round settles on it.
 // Each round is handled in its own transaction under the case's lock, with its wait still there and its round open —
 // a person's submit that took the lock first wins, and the timer then finds nothing to do (and the reverse: a submit
-// after the timer settled the round is late). It also re-checks submissions still pending (a missed event, ../sync).
+// after the timer settled the round is late). A pass reads every open round's times in one query per step and locks
+// only the rounds with something due; it stops at its tick's budget, and a round that throws is logged and skipped.
+// It also re-checks submissions still pending (a missed event, ../sync), each on its own.
 // The job sleeps until the next time it knows of (at least a minute, at most an hour while anything is watched); a
 // step that opens with a time, and every pushed submission, wake it (`wakeTimer`).
 import { addBusiness, type BusinessCalendar } from "@shared/sla/calendar";
@@ -214,16 +216,20 @@ export async function roundTimersIn(tx: Tx, sys: Ctx, clock: Clock, caseId: stri
       await caseJournal(tx, sys, kase, users.length ? `مهلت گذشت؛ «${label}» به ${names.join("، ")} اطلاع داده شد` : `مهلت «${label}» گذشت؛ کسی برای اطلاع پیدا نشد`, { data: { step: nodeId, round, to: esc.to } });
       continue;
     }
-    // reassign: the round goes to the people of other rules (the open tasks are no longer needed)
+    // reassign: the round goes to the people of other rules — those it names already keep their task, the other open
+    // tasks are no longer needed, and the newcomers get one
     const tasks = await caseTasks(tx, orgId, caseId);
     const r = await resolveAssignees(tx, sys, resolveInput(kase, version, tasks, { ...step, assignees: esc.rules, fallback: undefined, ifNobody: "skip" }, label));
-    const people = r.people.filter((p) => !open.some((t) => t.assigned_to === p.user && (t.delegated_from ?? null) === (p.delegatedFrom ?? null)));
-    if (!people.length) {
+    if (!r.people.length) {
       await caseJournal(tx, sys, kase, `مهلت «${label}» گذشت؛ برای ارجاع کسی پیدا نشد`, { data: { step: nodeId, round } });
       continue;
     }
+    const holds = (t: RoundTask, p: (typeof r.people)[number]) => t.assigned_to === p.user && (t.delegated_from ?? null) === (p.delegatedFrom ?? null);
+    const people = r.people.filter((p) => !open.some((t) => holds(t, p)));
+    const dropped = open.filter((t) => !r.people.some((p) => holds(t, p)));
+    if (!people.length && !dropped.length) continue;
     const at = iso(Date.now());
-    for (const t of open) await updateIn(tx, sys, "process_task", t.id, { status: "not_needed", closed_at: at }, { trusted: true });
+    for (const t of dropped) await updateIn(tx, sys, "process_task", t.id, { status: "not_needed", closed_at: at }, { trusted: true });
     const dueAt = Number.isFinite(due) ? iso(due) : null;
     for (const p of people) {
       await createIn(
@@ -235,12 +241,14 @@ export async function roundTimersIn(tx: Tx, sys: Ctx, clock: Clock, caseId: stri
         { trusted: true },
       );
     }
-    const names = [...(await peopleNames(tx, people.map((p) => p.user))).values()];
-    await notifyPeople(tx, orgId, {
-      table: "process_case", id: kase.id, users: people.map((p) => p.user), event: "custom", label: "مرحله‌ای منتظر شماست", channels: ["in_app", "email"], actor: null, source: "گردش‌کارها",
-      subject: `مرحله‌ای منتظر شماست: «${label}»`, body: `مرحلهٔ «${label}» از پروندهٔ ${kase.number ?? ""} «${kase.title ?? ""}» به شما ارجاع شد`,
-    });
-    await caseJournal(tx, sys, kase, `مهلت گذشت؛ «${label}» به ${names.join("، ")} ارجاع شد`, { data: { step: nodeId, round, to: people.map((p) => p.user) } });
+    const names = [...(await peopleNames(tx, r.people.map((p) => p.user))).values()];
+    if (people.length) {
+      await notifyPeople(tx, orgId, {
+        table: "process_case", id: kase.id, users: people.map((p) => p.user), event: "custom", label: "مرحله‌ای منتظر شماست", channels: ["in_app", "email"], actor: null, source: "گردش‌کارها",
+        subject: `مرحله‌ای منتظر شماست: «${label}»`, body: `مرحلهٔ «${label}» از پروندهٔ ${kase.number ?? ""} «${kase.title ?? ""}» به شما ارجاع شد`,
+      });
+    }
+    await caseJournal(tx, sys, kase, `مهلت گذشت؛ «${label}» به ${names.join("، ")} ارجاع شد`, { data: { step: nodeId, round, to: r.people.map((p) => p.user) } });
     await refreshCase(tx, sys, kase, version.graph);
     rows = await roundTasks(tx, orgId, caseId, nodeId, round);
     open = rows.filter((t) => t.status === "open");
@@ -265,23 +273,68 @@ export async function roundTimersIn(tx: Tx, sys: Ctx, clock: Clock, caseId: stri
   return next as number | null;
 }
 
-/** Submissions still pending here with no look for their files queued (a missed event): applied now. */
-async function recheckPending(cfg: ServerConfig, orgId: string, apply: (id: string) => Promise<unknown>): Promise<boolean> {
+/** What a round's tasks tell of its times (calendar ms; NaN: none). */
+export interface RoundFacts {
+  /** the round's opening (its first task's) */
+  opened: number;
+  /** until when its escalations were handled (the opening, or the latest `escalated_at`) */
+  mark: number;
+  /** the earliest due time of its open tasks */
+  due: number;
+  /** the earliest last reminder (or opening) of its open tasks */
+  remind: number;
+}
+
+/**
+ * The first time a round needs the timer — an escalation not handled yet, the «پایان مهلت» port (when wired), a
+ * reminder — or null. The same times `roundTimersIn` acts on, read without a lock: a pass locks only rounds due now.
+ */
+export function roundNextAt(clock: Clock, step: FormStep, timeoutWired: boolean, f: RoundFacts): number | null {
+  const at: number[] = [];
+  if (Number.isFinite(f.opened)) {
+    for (const esc of step.escalate ?? []) {
+      const t = plus(clock, step, f.opened, esc.after);
+      if (t > f.mark) at.push(t);
+    }
+  }
+  if (timeoutWired && Number.isFinite(f.due)) at.push(f.due);
+  if (step.remind_every && Number.isFinite(f.remind)) at.push(f.remind + durationMs(step.remind_every));
+  const ok = at.filter(Number.isFinite);
+  return ok.length ? Math.min(...ok) : null;
+}
+
+/** A pass stopped at its tick's budget: run again at once (what it did is committed, round by round). */
+export const MORE = "more" as const;
+/** A round or a submission that failed is looked at again after this long (the others go on meanwhile). */
+const RETRY_MS = 10 * MIN_SLEEP;
+
+const failed = (cfg: ServerConfig, what: string, e: unknown) => cfg.log.warn(`process.timer: ${what}`, String((e as Error)?.message ?? e));
+
+/** Submissions still pending here with no look for their files queued (a missed event): applied now, each on its own. */
+async function recheckPending(cfg: ServerConfig, orgId: string, apply: (id: string) => Promise<unknown>, deadline: number): Promise<boolean | typeof MORE> {
   const rows = await cfg.db.query<{ id: string }>(
     `select s.id from sm_process_submissions s where s.org_id = $1 and s.result = 'pending' and s.deleted_at is null
        and not exists (select 1 from sm_jobs j where j.org_id = s.org_id and j.dedupe_key = 'process.apply:' || s.id::text and j.status in ('queued', 'running'))
      order by s.created_at limit 200`,
     [orgId],
   );
-  for (const r of rows) await apply(String(r.id));
+  for (const r of rows) {
+    if (Date.now() > deadline) return MORE;
+    try {
+      await apply(String(r.id));
+    } catch (e) {
+      failed(cfg, `submission ${r.id} was not applied`, e);
+    }
+  }
   return rows.length > 0;
 }
 
 /**
  * One pass of the organisation's timer. Returns when it needs to run again (null: nothing is watched — a step that
- * opens with a time, or a pushed submission, wakes it).
+ * opens with a time, or a pushed submission, wakes it), or `MORE` when it stopped at `deadline` with work left. Only
+ * rounds with something due now are locked; a round or a submission that throws is logged and skipped.
  */
-export async function timerPass(cfg: ServerConfig, orgId: string, apply: (id: string) => Promise<unknown>, now = Date.now()): Promise<number | null> {
+export async function timerPass(cfg: ServerConfig, orgId: string, apply: (id: string) => Promise<unknown>, now = Date.now(), deadline = Infinity): Promise<number | null | typeof MORE> {
   if (!(await processesRunHere(cfg, orgId))) return null;
   const sys = await systemCtx(cfg, orgId);
   let clock: Clock = { cal: null };
@@ -306,14 +359,38 @@ export async function timerPass(cfg: ServerConfig, orgId: string, apply: (id: st
     const v = versions.get(p.version_id);
     const n = v?.graph.nodes.find((x) => x.id === p.step_key && x.type === "form_step");
     if (!v || !n || !hasTimers(v.graph, n.id, formStepOf(n.config))) continue;
-    const rounds = await cfg.db.query<{ case_id: string; round: number }>(
-      `select distinct t.case_id, t.round from sm_process_tasks t join sm_process_cases c on c.id = t.case_id and c.deleted_at is null and c.state in ('active', 'waiting')
-       where t.org_id = $1 and c.version_id = $2 and t.step_key = $3 and t.status = 'open' and t.deleted_at is null`,
+    const step = formStepOf(n.config);
+    const wired = outEdges(v.graph, n.id, "timeout").length > 0;
+    // the open rounds of this step, each with its times — one query, no lock
+    const rounds = await cfg.db.query<{ case_id: string; round: number; opened: unknown; escalated: unknown; due: unknown; remind: unknown }>(
+      `select t.case_id, t.round, min(t.opened_at) as opened, max(t.escalated_at) as escalated,
+         min(t.due_at) filter (where t.status = 'open') as due, min(coalesce(t.reminded_at, t.opened_at)) filter (where t.status = 'open') as remind
+       from sm_process_tasks t join sm_process_cases c on c.id = t.case_id and c.deleted_at is null and c.state in ('active', 'waiting')
+       where t.org_id = $1 and c.version_id = $2 and t.step_key = $3 and t.deleted_at is null and c.open_rounds ->> t.step_key = t.round::text
+       group by t.case_id, t.round
+       having bool_or(t.status = 'open')`,
       [orgId, p.version_id, p.step_key],
     );
-    for (const r of rounds) later(await roundTimers(sys, clock, String(r.case_id), p.step_key, Number(r.round), now));
+    for (const r of rounds) {
+      const opened = msOf(r.opened);
+      const at = roundNextAt(clock, step, wired, { opened, mark: Math.max(opened, msOf(r.escalated) || -Infinity), due: msOf(r.due), remind: msOf(r.remind) });
+      if (at === null) continue;
+      if (at > now) {
+        later(at);
+        continue;
+      }
+      if (Date.now() > deadline) return MORE;
+      try {
+        later(await roundTimers(sys, clock, String(r.case_id), p.step_key, Number(r.round), now));
+      } catch (e) {
+        failed(cfg, `round ${r.round} of «${p.step_key}» in case ${r.case_id} failed`, e);
+        later(now + RETRY_MS);
+      }
+    }
   }
-  if (await recheckPending(cfg, orgId, apply)) later(now + RECHECK_MS);
+  const rechecked = await recheckPending(cfg, orgId, apply, deadline);
+  if (rechecked === MORE) return MORE;
+  if (rechecked) later(now + RECHECK_MS);
   const pending = await cfg.db.one(`select 1 as x from sm_process_submissions where org_id = $1 and result = 'pending' and deleted_at is null limit 1`, [orgId]);
   if (pending) later(now + RECHECK_MS);
   const at = next as number | null;

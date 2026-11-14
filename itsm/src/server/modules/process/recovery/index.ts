@@ -9,10 +9,14 @@
 //   · «ادامه از مرحلهٔ …» (`resumeFromStep`): a new run on the same version and data, starting at a form step outside
 //     parallel blocks (the executor's `startAt`; `restartTargets` lists them) — the case's run becomes that one;
 //   · «لغو پرونده» (`cancelAsManager`): the case closes «لغوشده», its open tasks «لغو», and its run stops.
-// Both are journaled and recorded in «گزارش رویدادها»; both need the case's managers (named, or through a group).
+// Both are journaled and recorded in «گزارش رویدادها»; both need the case's managers (named, or through a group). A
+// case that names no manager falls to the organisation's administrators (owners, «مدیر» members, holders of «مدیر
+// سامانه», or of `process_design` approve to act): they are told, and they resume or cancel it.
+import { grantIn } from "@shared/access";
 import { processNodeLabel, restartTargets } from "@shared/process/graph";
 import type { Ctx, ServerConfig } from "../../../context";
-import type { Tx } from "../../../db";
+import type { Queryable, Tx } from "../../../db";
+import { subjectOf } from "../../../access";
 import { bad, conflict, forbidden, notFound } from "../../../http/errors";
 import { isSystemCtx, onRecordEvent, systemCtx, updateIn } from "../../../engine";
 import { enqueue } from "../../../jobs";
@@ -26,6 +30,29 @@ import { myGroupsSql } from "../access/sources";
 import { caseManagers } from "../timers/timer";
 
 const iso = (ms: number) => new Date(ms).toISOString();
+
+/** Does the case name a process manager (by name or by group)? */
+const hasManagers = (kase: CaseRow): boolean => (kase.managers ?? []).some(isId) || (kase.manager_groups ?? []).some(isId);
+
+/** The organisation's administrators: its owners and «مدیر» members, and the holders of «مدیر سامانه». */
+async function orgAdmins(q: Queryable, orgId: string): Promise<string[]> {
+  const rows = await q.query<{ user_id: string }>(
+    `select user_id from sm_org_members where org_id = $1 and deleted_at is null and is_active and role in ('owner', 'admin')
+     union select user_id from sm_member_profiles where org_id = $1 and deleted_at is null and roles ? 'tenant_admin'`,
+    [orgId],
+  );
+  return rows.map((r) => String(r.user_id));
+}
+
+/** May the caller act for an organisation's administrators (owner, «مدیر», or `process_design` approve)? */
+function administers(ctx: Ctx): boolean {
+  if (ctx.member?.role === "owner" || ctx.member?.role === "admin") return true;
+  try {
+    return grantIn(subjectOf(ctx).eff, "process_design").approve === true;
+  } catch {
+    return false;
+  }
+}
 
 /** The run of a case failed (or was canceled while the case was open): «نیاز به بررسی». */
 export async function caseRunFailed(cfg: ServerConfig, orgId: string, caseId: string, data: Record<string, unknown>): Promise<void> {
@@ -45,7 +72,8 @@ export async function caseRunFailed(cfg: ServerConfig, orgId: string, caseId: st
     else await updateIn(tx, sys, "process_case", caseId, { state: "attention", participants: participantsOf(tasks), current_steps: [], open_rounds: {} }, { trusted: true });
     const error = String(data.error ?? "").trim().slice(0, 1000) || "خطای ناشناخته";
     await caseJournal(tx, sys, kase, `اجرای پرونده متوقف شد و پرونده نیاز به بررسی دارد: ${error}`, { data: { run: data.run_id, error } });
-    const managers = await caseManagers(tx, kase);
+    // a case that names no manager: the organisation's administrators are told instead
+    const managers = hasManagers(kase) ? await caseManagers(tx, kase) : await orgAdmins(tx, orgId);
     if (managers.length) {
       await notifyPeople(tx, orgId, {
         table: "process_case", id: kase.id, users: managers, event: "custom", label: "پرونده متوقف شد", channels: ["in_app", "email"], actor: null, source: "گردش‌کارها",
@@ -56,9 +84,13 @@ export async function caseRunFailed(cfg: ServerConfig, orgId: string, caseId: st
   });
 }
 
-/** Is the caller one of the case's process managers (named, or a valid member of a manager group)? */
+/**
+ * Is the caller one of the case's process managers (named, or a valid member of a manager group)? A case that names
+ * none is the organisation's administrators' to manage.
+ */
 async function managesCase(tx: Tx, ctx: Ctx, kase: CaseRow): Promise<boolean> {
   if (isSystemCtx(ctx)) return true;
+  if (!hasManagers(kase)) return administers(ctx);
   const me = ctx.user.id;
   if ((kase.managers ?? []).includes(me)) return true;
   if (!(kase.manager_groups ?? []).length) return false;

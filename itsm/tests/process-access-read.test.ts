@@ -57,10 +57,11 @@ async function listed(c: Client, fields = "number,data"): Promise<Record<string,
   }
 }
 
-/** A Windows app's pull as the person (all pages): the case rows sent and the cases tombstoned, and the cursor. */
-async function pull(c: Client, since = ""): Promise<{ rows: Map<string, Record<string, any>>; tombs: Set<string>; cursor: string }> {
+/** A Windows app's pull as the person (all pages): the case rows sent and the cases tombstoned, the side rows of cases sent, and the cursor. */
+async function pull(c: Client, since = "", epoch = ""): Promise<{ rows: Map<string, Record<string, any>>; tombs: Set<string>; sides: Map<string, Record<string, any>>; cursor: string; epoch: string }> {
   const rows = new Map<string, Record<string, any>>();
   const tombs = new Set<string>();
+  const sides = new Map<string, Record<string, any>>();
   let cursor = since;
   let snap = "";
   let after = "";
@@ -69,15 +70,20 @@ async function pull(c: Client, since = ""): Promise<{ rows: Map<string, Record<s
     if (cursor) qs.set("since", cursor);
     if (snap) qs.set("snap", snap);
     if (after) qs.set("after", after);
+    if (epoch) qs.set("epoch", epoch);
     const page = await c.get(`/sync/pull?${qs.toString()}`);
-    for (const a of page.aggregates ?? []) if (a.entity === "process_case") rows.set(a.id, a.row);
+    epoch = page.epoch ?? epoch;
+    for (const a of page.aggregates ?? []) {
+      if (a.entity === "process_case") rows.set(a.id, a.row);
+      if ((a.entity === "attachment" || a.entity === "journal") && a.row?.table_key === "process_case") sides.set(a.id, a.row);
+    }
     for (const t of page.tombstones ?? []) if (t.entity === "process_case") tombs.add(t.id);
     cursor = page.cursor ?? "";
     snap = page.has_more ? page.snap ?? "" : "";
     after = page.has_more ? page.after ?? "" : "";
     if (!page.has_more && !page.reset) break;
   }
-  return { rows, tombs, cursor };
+  return { rows, tombs, sides, cursor, epoch };
 }
 
 const rowData = (row: Record<string, any> | undefined) => (typeof row?.data === "string" ? JSON.parse(row.data) : row?.data ?? {});
@@ -120,6 +126,8 @@ beforeAll(async () => {
 
 describe("who reads a case", () => {
   let candidatePull: { cursor: string; rows: Map<string, Record<string, any>> };
+  let payerPull: { cursor: string; epoch: string; rows: Map<string, Record<string, any>>; sides: Map<string, Record<string, any>> };
+  let sidesBefore: string[] = [];
 
   it("a non-participant gets 404; designers and publishers read no case, by id or in a list", async () => {
     for (const k of ["x", "d", "pb"]) {
@@ -150,6 +158,14 @@ describe("who reads a case", () => {
   });
 
   it("an actor keeps read; the candidate who was not needed loses it and their next pull tombstones the case", async () => {
+    // the payer takes no part yet: their pull holds nothing of the case
+    payerPull = await pull(p.f.client);
+    expect(payerPull.rows.has(c1)).toBe(false);
+    sidesBefore = (await w.o.db.query<{ id: string }>(
+      `select id from sm_attachments where table_key = 'process_case' and record_id = $1 union all select id from sm_journal where table_key = 'process_case' and record_id = $1`, [c1],
+    )).map((r) => String(r.id));
+    expect(sidesBefore.length).toBeGreaterThan(1);
+    expect(sidesBefore.filter((id) => payerPull.sides.has(id))).toEqual([]);
     await act(w, p.h.userId, await openTask(w, c1, "a", p.h.userId), { outcome: "approved", values: { u_need: "تغییر بی‌اجازه" } });
     await w.k.drain();
     await got(p.a2.client, c1, 404);
@@ -159,6 +175,16 @@ describe("who reads a case", () => {
     expect(await dataOf(p.h, c1)).toEqual({ u_amount: "750000000" });
     // the apply took nothing the step does not let them edit
     expect((await kase(w, c1)).data.u_need).toBe("خرید چاپگر");
+  });
+
+  it("a participant who joins later receives the case's earlier files and journal on their next pull (F4b-4)", async () => {
+    // «بررسی و پرداخت» opened for the payer: the invoice is readable at their step
+    expect((await p.f.client.get(`${R}/process_case/${c1}/attachments`)).attachments).toHaveLength(1);
+    // an incremental pull (same scope epoch: nothing tells the app to read everything again)
+    const next = await pull(p.f.client, payerPull.cursor, payerPull.epoch);
+    expect(next.epoch).toBe(payerPull.epoch);
+    expect(next.rows.has(c1)).toBe(true);
+    expect(sidesBefore.filter((id) => !next.sides.has(id))).toEqual([]);
   });
 
   it("a step-hidden field is absent from the record, the list, the export and the pull", async () => {

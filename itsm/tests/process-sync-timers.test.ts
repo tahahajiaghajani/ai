@@ -8,6 +8,8 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { create, systemCtx, updateIn } from "@server/engine";
 import { cancelAsManager, resumeFromStep } from "@server/modules/process/recovery";
+import { MORE, timerPass } from "@server/modules/process/timers";
+import type { ServerConfig } from "@server/context";
 import type { ProcessGraph } from "@shared/process/graph";
 import type { Client } from "./helpers";
 import { act, edge, journal, kase, node, openTask, person, publish, start, tasks, users, world, type Published, type World } from "./process-engine-helpers";
@@ -160,6 +162,57 @@ describe("process.timer", () => {
     await w.k.drain();
     expect((await tasks(w, c)).filter((t) => t.step_key === "pay")).toHaveLength(1);
   }, 120_000);
+
+  it("a reassignment whose rule names the current assignee too keeps their task (F4b-6)", async () => {
+    const proc = await publish(w, approveThenPay({ escalate: [{ after: { amount: 1, unit: "hour" }, action: "reassign", rules: [{ kind: "users", users: [P.p1, P.p3] }] }], business: false }));
+    const c = (await start(w, P.r, proc, { values: { u_amount: "310" } })).case!;
+    await w.k.drain();
+    const kept = await openTask(w, c, "a", P.p1);
+    await passes(c, "a", 1.5 * H);
+    await dueNow("process.timer");
+    const round = (await tasks(w, c)).filter((t) => t.step_key === "a");
+    expect(round.map((t) => [t.assigned_to, t.status]).sort()).toEqual([[P.p1, "open"], [P.p3, "open"]].sort());
+    expect(round.find((t) => t.assigned_to === P.p1)!.id).toBe(kept);
+    expect((await kase(w, c)).participants).toEqual(expect.arrayContaining([P.p1, P.p3]));
+    // once: nothing more on the next pass
+    await dueNow("process.timer");
+    expect((await tasks(w, c)).filter((t) => t.step_key === "a")).toHaveLength(2);
+  }, 120_000);
+
+  it("a pass stops at its budget, and goes on past a round or a submission that fails (F4b-5)", async () => {
+    const proc = await publish(w, approveThenPay({ remind_every: { amount: 1, unit: "hour" }, business: false }));
+    const bad = (await start(w, P.r, proc, { values: { u_amount: "600" } })).case!;
+    const good = (await start(w, P.r, proc, { values: { u_amount: "601" } })).case!;
+    await w.k.drain();
+    for (const c of [bad, good]) await passes(c, "a", 2 * H);
+    const cfg = w.sys.cfg as ServerConfig;
+    const reminded = async (c: string) => (await w.o.db.one<{ at: string | null }>(`select reminded_at as at from sm_process_tasks where case_id = $1 and step_key = 'a'`, [c]))!.at;
+    // at its budget: nothing done, run again at once
+    expect(await timerPass(cfg, w.o.org, async () => undefined, Date.now(), Date.now() - 1)).toBe(MORE);
+    expect([await reminded(bad), await reminded(good)]).toEqual([null, null]);
+    // one round throws (a failing write), and so does the apply of a pending submission: the others go on
+    const badTask = await openTask(w, bad, "a", P.p1);
+    const pending = async () =>
+      String((await create(w.sys, "process_submission", { kind: "step", task_id: badTask, outcome: "approved", values: {}, submitted_by: P.dlg2 }, { trusted: true })).row.id);
+    const subs = [await pending(), await pending()];
+    await w.o.db.query(`create or replace function test_f4b5() returns trigger language plpgsql as $f$ begin if new.case_id = '${bad}' then raise exception 'نمونهٔ خطا'; end if; return new; end $f$`);
+    await w.o.db.query(`create trigger test_f4b5 before update on sm_process_tasks for each row execute function test_f4b5()`);
+    const tried: string[] = [];
+    try {
+      const next = await timerPass(cfg, w.o.org, async (id) => {
+        tried.push(id);
+        if (id === subs[0]) throw new Error("نمونهٔ خطا");
+      });
+      expect(typeof next).toBe("number");
+    } finally {
+      await w.o.db.query(`drop trigger if exists test_f4b5 on sm_process_tasks`);
+      await w.o.db.query(`drop function if exists test_f4b5()`);
+    }
+    expect(tried).toEqual(expect.arrayContaining(subs));
+    expect(await reminded(bad)).toBeNull();
+    expect(await reminded(good)).not.toBeNull();
+    await w.k.drain();
+  }, 120_000);
 });
 
 describe("when a run fails", () => {
@@ -195,6 +248,19 @@ describe("when a run fails", () => {
     expect((await journal(w, c)).some((b) => b.includes("پرونده را از مرحلهٔ «بررسی و پرداخت» ادامه داد"))).toBe(true);
     expect(await w.o.db.one(`select 1 as x from sm_audit where action = 'process.resume_from' and entity_id = $1`, [c])).toBeTruthy();
     await expect(resumeFromStep(await w.o.ctxOf(P.mgr), c, "pay")).rejects.toThrow("فقط پرونده‌ای که متوقف شده است");
+  }, 120_000);
+
+  it("a case that names no manager: the organisation's administrators are told, and they resume or cancel it (F4b-7)", async () => {
+    const proc = await publish(w, failing());
+    const c = (await start(w, P.r, proc, { values: { u_amount: "410", u_need: "نامعتبر" } })).case!;
+    await w.k.drain();
+    const k = await kase(w, c);
+    expect(k.state).toBe("attention");
+    expect((await notices(w.o.ownerId)).map((n) => n.title)).toContain(`پروندهٔ ${k.number} متوقف شد`);
+    await expect(cancelAsManager(await w.o.ctxOf(P.p1), c, { comment: "x" })).rejects.toThrow("این کار با مسئولان این گردش‌کار است");
+    await cancelAsManager(await w.o.ctxOf(w.o.ownerId), c, { comment: "گردش‌کار مسئولی ندارد" });
+    await w.k.drain();
+    expect(await kase(w, c)).toMatchObject({ state: "canceled", outcome: "canceled" });
   }, 120_000);
 
   it("«لغو پرونده» by a manager closes it, its open tasks «لغو»", async () => {

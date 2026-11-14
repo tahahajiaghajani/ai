@@ -10,9 +10,9 @@ import { STEP_OPENED } from "../engine";
 import { loadVersionInfo } from "../engine/store";
 import { applyPending } from "../sync/apply";
 import { delegationChanged, DELEGATION_JOB, reresolveTasks } from "./delegation";
-import { firstTimer, hasTimers, timerPass, TIMER_JOB, wakeTimer } from "./timer";
+import { firstTimer, hasTimers, MORE, timerPass, TIMER_JOB, wakeTimer } from "./timer";
 
-export { timerPass, roundTimers, roundTimersIn, wakeTimer, caseManagers, firstTimer, hasTimers, TIMER_JOB, RECHECK_MS, type Clock } from "./timer";
+export { timerPass, roundTimers, roundTimersIn, roundNextAt, wakeTimer, caseManagers, firstTimer, hasTimers, TIMER_JOB, RECHECK_MS, MORE, type Clock, type RoundFacts } from "./timer";
 export { reresolveTasks, queueDelegation, delegationChanged, DELEGATION_JOB } from "./delegation";
 
 let installed = false;
@@ -24,7 +24,8 @@ export function installProcessTimers(): void {
     if (!job.org_id) return;
     const cfg = jctx.cfg as ServerConfig;
     const org = job.org_id;
-    const next = await timerPass(cfg, org, (id) => applyPending(cfg, org, id, null));
+    const next = await timerPass(cfg, org, (id) => applyPending(cfg, org, id, null), Date.now(), jctx.deadline - 500);
+    if (next === MORE) return { again: 0 };
     if (next !== null) return { again: Math.max(1000, next - Date.now()) };
   });
   registerJobHandler(DELEGATION_JOB, async (job, jctx) => {

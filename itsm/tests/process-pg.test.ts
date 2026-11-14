@@ -13,7 +13,8 @@ import type { Db, Tx } from "@server/db";
 import { createIn } from "@server/engine";
 import { applySubmission, submitTask } from "@server/modules/process/engine";
 import { applyPendingIn } from "@server/modules/process/sync";
-import { roundTimersIn } from "@server/modules/process/timers";
+import { roundTimersIn, timerPass } from "@server/modules/process/timers";
+import type { ServerConfig } from "@server/context";
 import type { ProcessGraph } from "@shared/process";
 import { useServerDb } from "./helpers";
 import { extraDatabase, realPg, realPgAvailable, type RealPg } from "./pg-real";
@@ -127,6 +128,27 @@ describe.skipIf(!realPgAvailable())("workflow races on a real PostgreSQL (F4b)",
     await w.k.drain();
     expect(await kase(w, id)).toMatchObject({ state: "rejected", outcome: "rejected" });
     expect((await tasks(w, id)).filter((t) => t.step_key === "pay")).toHaveLength(0);
+  }, 120_000);
+
+  it("a timer pass locks only the rounds with something due: a busy case whose round waits does not hold it up (F4b-5)", async () => {
+    const proc = await publish(w, graph({ business: false, remind_every: { amount: 1, unit: "day" } }, [P.x1]));
+    const quiet = (await start(w, P.r, proc, { values: { u_amount: "200" } })).case!;
+    const due = (await start(w, P.r, proc, { values: { u_amount: "201" } })).case!;
+    await w.k.drain();
+    await w.o.db.query(`update sm_process_tasks set opened_at = opened_at - interval '25 hours' where case_id = $1 and step_key = 'a'`, [due]);
+    // someone holds the quiet case's row lock (a person's submit in progress)
+    const busy = hold(w.o.db, (tx) => tx.query(`select id from sm_process_cases where id = $1 for update`, [quiet]));
+    await busy.ready;
+    const pass = timerPass(w.sys.cfg as ServerConfig, w.o.org, async () => undefined);
+    pass.catch(() => undefined);
+    const first = await Promise.race([pass.then(() => "done"), sleep(8_000).then(() => "waited")]);
+    busy.release();
+    await busy.done;
+    await pass;
+    expect(first).toBe("done");
+    const reminded = (c: string) => w.o.db.one<{ at: string | null }>(`select reminded_at as at from sm_process_tasks where case_id = $1 and step_key = 'a'`, [c]);
+    expect((await reminded(due))!.at).not.toBeNull();
+    expect((await reminded(quiet))!.at).toBeNull();
   }, 120_000);
 
   it("the push subscriber races an online submit: one of the pool applied, the other late — one resume, no duplicate tasks", async () => {

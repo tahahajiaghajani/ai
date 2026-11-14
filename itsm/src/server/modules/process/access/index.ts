@@ -7,12 +7,13 @@ import { registerHooks } from "../../../engine";
 import { installCaseSources } from "./sources";
 import { installProcessGuards } from "./guards";
 import { filterCaseSide, redactCases } from "./view";
+import { caseReadersHook } from "./propagate";
 
 export { caseViews, visibleData, visibleFiles, redactCases, filterCaseSide, type CaseView } from "./view";
-export { setUploadRule, systemOnly, type UploadRule, CASE_WRITE, TASK_WRITE, VERSION_WRITE, PROCESS_STATUS_WRITE, PROCESS_DELETE, CASE_FILES, SUBMISSION_KEPT, SUBMISSION_OWN } from "./guards";
+export { setUploadRule, systemOnly, type UploadRule, CASE_WRITE, TASK_WRITE, VERSION_WRITE, PROCESS_STATUS_WRITE, PROCESS_DELETE, CASE_FILES, SUBMISSION_KEPT, SUBMISSION_OWN, SUBMISSION_PEOPLE } from "./guards";
 export { rolesWithoutWorkCreate, addWorkCreate, grantsWorkCreate, rolesWithoutWorkMessage, type RoleWithoutWork } from "./roles";
 export { myGroupsSql } from "./sources";
-export { propagateAccess, type AccessSettings } from "./propagate";
+export { propagateAccess, restampCaseSides, readersWidened, type AccessSettings } from "./propagate";
 
 let installed = false;
 
@@ -21,5 +22,5 @@ export function installProcessAccess(): void {
   installed = true;
   installCaseSources();
   installProcessGuards();
-  registerHooks("process_case", { redactRows: redactCases, filterSide: filterCaseSide });
+  registerHooks("process_case", { redactRows: redactCases, filterSide: filterCaseSide, afterWrite: caseReadersHook });
 }
