@@ -7,8 +7,9 @@
 //   · `-NoProfile -NonInteractive -File <fixed>`, with each value bound to a declared parameter of the script — never
 //     parsed as code — and refused when it carries a line break, a quote, a NUL or more than 4 000 characters;
 //   · the pinned host is judged first exactly like a connector's own request (net.ts checkHost: the self and database
-//     refusal, the air-gap allowlist, the exact-name rule when credentials go out); a script then reaches only that
-//     host (its address is an argument the caller built from the connector's pinned address);
+//     refusal, the air-gap allowlist, the exact-name rule when credentials go out); a script's `Uri` must then name
+//     that host and no other — https, or http only with the connector's «اتصال بدون رمزنگاری» tick, no credentials in
+//     it — so a caller cannot aim the script anywhere else;
 //   · a password goes on stdin, never on the command line;
 //   · 30 s by default, the window hidden, output capped at 20 MB; the script's own markers become Persian answers —
 //     a redirect (`-MaximumRedirection 0`, so Windows credentials never follow one) is «پاسخ به نشانی دیگری هدایت شد…».
@@ -19,7 +20,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import os from "node:os";
 import path from "node:path";
 import { ConnectorError, CONNECTOR_MESSAGES } from "./kind";
-import { checkHost, editionOf, type NetConfig } from "./net";
+import { addressProblem, checkHost, editionOf, type NetConfig } from "./net";
 
 /** A script fixed in code: its text and the parameters it declares (the only names an argument may have). */
 export interface PsScript {
@@ -65,6 +66,7 @@ export const PS_TIMEOUT_MS = 30_000;
 export const PS_MAX_OUTPUT = 20 * 1024 * 1024;
 const MAX_ARG = 4000;
 const PARAM = /^[A-Za-z][A-Za-z0-9]{0,40}$/;
+const normHost = (h: string) => h.trim().toLowerCase().replace(/^\[|\]$/g, "").replace(/\.+$/, "");
 
 export const PS_MESSAGES = {
   windowsOnly: "این روش اتصال فقط در نسخهٔ سرور روی ویندوز به کار می‌رود",
@@ -129,6 +131,8 @@ export interface PsRun {
   host: string;
   /** the script sends credentials (the service account's identity, a SQL login): exact allowlist names only */
   credentialed: boolean;
+  /** the connector's «اتصال بدون رمزنگاری» tick: an http:// `Uri` only with it */
+  plainHttp?: boolean;
   args: Record<string, string | number>;
   /** a password or other secret (never on the command line) */
   stdin?: string;
@@ -144,6 +148,13 @@ export async function runPs(cfg: NetConfig, run: PsRun): Promise<string> {
   if (!script) throw new ConnectorError("config", PS_MESSAGES.unknownScript);
   // the same checks as a connector's own request, before the child process exists
   await checkHost(cfg, run.host, { credentialed: run.credentialed });
+  // the script's address names the judged host and no other
+  if (Object.prototype.hasOwnProperty.call(run.args, "Uri")) {
+    const uri = String(run.args.Uri);
+    const problem = addressProblem(uri, { plainHttp: run.plainHttp === true, edition: "server" });
+    if (problem) throw new ConnectorError("refused", problem);
+    if (normHost(new URL(uri).hostname) !== normHost(run.host)) throw new ConnectorError("refused", CONNECTOR_MESSAGES.otherHost);
+  }
   const args = psArgs(script, scriptFile(script), run.args);
   const r = await psrunSeam.exec(psrunSeam.powershell(), args, { timeout: run.timeoutMs ?? PS_TIMEOUT_MS, maxBuffer: PS_MAX_OUTPUT, stdin: run.stdin });
   if (r.code === 0) return r.stdout;

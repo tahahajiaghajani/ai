@@ -5,8 +5,9 @@
 // forbidden headers are never sent; credentials in the address are refused; the connector's own root CA is trusted
 // and nothing turns verification off; a host change clears the secrets; secrets never reach run errors or item data;
 // a keyed connector without its key (a restored backup) does not run. Nothing reaches the tool before every check
-// passed. The fixed-script PowerShell runner runs only on the server edition on Windows, judges the host first, binds
-// values to declared parameters, keeps passwords off the command line and refuses a redirect.
+// passed. The fixed-script PowerShell runner runs only on the server edition on Windows, judges the host first, keeps
+// the script's address on that host, binds values to declared parameters, keeps passwords off the command line and
+// refuses a redirect.
 import os from "node:os";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { uuidv7 } from "@shared/id";
@@ -365,7 +366,14 @@ describe("the fixed-script PowerShell runner (design A §6.4, §6.5)", () => {
       expect(await outcome(runPs(cfg, { ...run, host: "other.bank.local" }))).toBe(CONNECTOR_MESSAGES.notAllowed("other.bank.local"));
       expect(await outcome(runPs(server(["*.bank.local"]).cfg, run))).toBe(CONNECTOR_MESSAGES.exactName);
       expect(await outcome(runPs(cfg, { ...run, script: "Invoke-Expression" }))).toBe(PS_MESSAGES.unknownScript);
+      // the script's address names the judged host and no other: https, or http only with the tick; no key in it
+      expect(await outcome(runPs(cfg, { ...run, args: { Uri: "https://other.bank.local/AdminService/v1.0/Device" } }))).toBe(CONNECTOR_MESSAGES.otherHost);
+      expect(await outcome(runPs(cfg, { ...run, args: { Uri: "http://mecm.bank.local/AdminService/v1.0/Device" } }))).toBe(CONNECTOR_MESSAGES.plainHttp);
+      expect(await outcome(runPs(cfg, { ...run, args: { Uri: "https://mecm.bank.local/x?apikey=abc" } }))).toBe(CONNECTOR_MESSAGES.credentialsInUrl);
       expect(calls).toEqual([]);
+      expect(await outcome(runPs(cfg, { ...run, plainHttp: true, args: { Uri: "http://mecm.bank.local/AdminService/v1.0/Device" } }))).toBe(CONNECTOR_MESSAGES.redirect);
+      expect(calls).toHaveLength(1);
+      calls.length = 0;
       // a redirect is refused (credentials never follow one); a password goes on stdin, never on the command line
       expect(await outcome(runPs(cfg, { ...run, stdin: "p@ss" }))).toBe(CONNECTOR_MESSAGES.redirect);
       expect(calls).toHaveLength(1);
