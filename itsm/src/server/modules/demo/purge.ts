@@ -8,7 +8,8 @@
 //    never by time or authorship alone: side rows of a demo record (journal, history, attachments, links, approvals,
 //    SLA timers, bells, notification log, RAG documents… — any table with a `record_id`/`ref_id` naming one),
 //    parent-scoped children (`TableDef.parent`), rows that cannot exist without one (required references), a demo
-//    person's own rows (`user_id`, `created_by`), and platform rows (jobs, AI threads, sessions…) naming a demo row.
+//    person's own rows (`user_id`, `created_by`), and platform rows (jobs, AI threads, sessions…) naming a demo row —
+//    not the organisation's own passes still to run, whose payload names only where they left off (`ORG_PASS`).
 //    Then the real rows demo work changed go back (`revertTouched`: only rows still as demo work left them), and the
 //    trail of real records (history, journal, audit, sign-ins) leaves the set (`keepRealTrail`).
 // 2. report — counts per table; the real rows that refer to demo rows; real rows demo work changed that were left;
@@ -17,7 +18,8 @@
 //    required ones, access anchors and authorship stamps are only reported (a real row is never deleted).
 // 4. remove — the rows themselves, their archive copies (`_arc`) and their tables without ids (extracted pages, flow
 //    timers, scope epochs…); of the jobs demo work queued, the demo jobs and those that ended (an organisation-wide job
-//    still to run, the organisation's timer among them, stays queued: `removeJobs`). Synchronised rows of an
+//    still to run, the organisation's timer among them, stays queued: `removeJobs`); a pass of the organisation's whose
+//    payload names demo rows starts again over its rows (`restartPasses`). Synchronised rows of an
 //    organisation with Windows apps become content-free tombstones first (the apps drop their copies on their next
 //    pull) and go for good once every app has passed them
 //    (`finalizeDemo`); without apps they go at once. Files no remaining attachment uses leave the blob store.
@@ -251,6 +253,20 @@ function names(t: TableInfo, col: string): string | null {
   return null;
 }
 
+/** Does the job aliased `j` name a demo row of the organisation ($1) anywhere in its payload? */
+const payloadNamesDemo = (j: string) => `exists (select 1 from regexp_matches(${j}.payload::text, ${lit(`(${UUID_RE})`)}, 'g') m where ${isDemo("m[1]::uuid")})`;
+
+/**
+ * The organisation's own passes still to run: an organisation-wide job — its kind is its dedupe key, one per organisation
+ * (the SLA recalculation a calendar edit queues, the nightly CMDB health pass, the SLM sweep…) — queued or running,
+ * not the pack's own (`__demo`). Whoever queued it, it is the organisation's work, and the ids its payload names are
+ * where its pass left off (`after`, `cursor`) or what it has added up so far — never what it is about: a demo row
+ * there says only that demo rows sit among the rows the pass walks (ids are time-ordered). Never NULL (it is negated:
+ * a job without a dedupe key is not one).
+ */
+const ORG_PASS = (j: string) =>
+  `(${j}.dedupe_key is not distinct from ${j}.kind and ${j}.status in ('queued', 'running') and not coalesce(${j}.payload ? '__demo', false))`;
+
 /** Does the organisation have rows in the table at all? (most tables of a young organisation are empty) */
 async function hasRows(q: Queryable, t: TableInfo, orgId: string): Promise<boolean> {
   return !!(await q.one(`select 1 from ${ident(t.name)} where org_id = $1 limit 1`, [orgId]));
@@ -265,8 +281,10 @@ export function derivedConds(t: TableInfo): string[] {
   const out: string[] = [];
   const add = (c: string | null) => c && out.push(c);
   if (t.name === "sm_jobs") {
-    // a job about demo data: its payload names a demo row
-    out.push(`exists (select 1 from regexp_matches(x.payload::text, ${lit(`(${UUID_RE})`)}, 'g') m where ${isDemo("m[1]::uuid")})`);
+    // a job about demo data: its payload names a demo row — not one of the organisation's own passes still to run,
+    // whose payload names where it left off (FL-2): it never joins the set (so the job runner never takes it for demo
+    // work), and the remove step starts its pass again instead (`restartPasses`)
+    out.push(`(${payloadNamesDemo("x")} and not ${ORG_PASS("x")})`);
     return out;
   }
   // the trail of a record (history, journal, audit, sign-ins): derived only from the record it is about, never from who
@@ -430,12 +448,27 @@ function tombstoneSet(t: TableInfo): string {
 }
 
 /**
+ * The organisation's own passes (`ORG_PASS`) whose payload names demo rows start again (FL-2): their payload is emptied,
+ * as when they were queued, and the pass runs over the organisation's rows from the start — the job stays, queued once,
+ * and names no demo row. Never deleted instead: such a pass is queued by the organisation's own work (a holiday edited
+ * by an administrator queues the SLA recalculation, `sla.recalc`, and no schedule queues it again), and the rows after
+ * its cursor would keep what the pass was there to change. Only a payload that names a demo row is emptied: other
+ * passes keep theirs (`notify.cleanup` needs its organisation). Before any job goes (`removeRows`), whether demo work
+ * queued the pass or not.
+ */
+async function restartPasses(q: Queryable, orgId: string): Promise<number> {
+  const r = await q.query(`update sm_jobs x set payload = '{}'::jsonb, updated_at = now() where x.org_id = $1 and ${ORG_PASS("x")} and ${payloadNamesDemo("x")} returning x.id`, [orgId]);
+  return r.length;
+}
+
+/**
  * The jobs demo work queued (`mine`: their registry rows). A demo job goes whatever its state — the pack's own
  * (`__demo`) and every job about demo rows, judged as the job runner judges them (`DEMO_JOB_SQL`) — and so does every
  * job that has ended. An organisation-wide job that demo work only happened to queue, still queued or running, is the
  * organisation's own work (it runs outside the demo scope): it stays as it is and leaves the registry. The
  * organisation's `process.timer` is one (FINAL-5): woken by a demo person's request while the timer ran, its twin
  * queued in that request took over when the timer ended (jobs/index.ts `finish`), and it serves every case, real ones too.
+ * A pass of the organisation's whose payload named demo rows was started again first (`restartPasses`): it names none.
  */
 async function removeJobs(q: Queryable, orgId: string, mine: string): Promise<number> {
   const gone = await q.query(`delete from sm_jobs where org_id = $1 and id in ${mine} and (status in ('done', 'failed') or ${DEMO_JOB_SQL}) returning id`, [orgId]);
@@ -453,6 +486,8 @@ export async function removeRows(q: Queryable, orgId: string, info: TableInfo[],
   let tombstones = 0;
   const held: Gone[] = [];
   const byName = new Map(info.map((t) => [t.name, t]));
+  // before any job goes, and whether or not demo work queued one: the registry still names the demo rows
+  await restartPasses(q, orgId);
   const tables = (await q.query<{ tbl: string }>(`select distinct tbl from sm_demo_rows where org_id = $1`, [orgId])).map((r) => r.tbl);
   for (const name of tables) {
     const t = byName.get(name);

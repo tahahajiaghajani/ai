@@ -4,12 +4,13 @@
 // the process managers' «ارجاع» and the designer's preview offer them. The pack's own cases keep them. And a process
 // of the pack is started by the pack's people only: a real case standing on the pack's process, version and form would
 // lose them all at the purge. The purge leaves the organisation's own timer (`process.timer`) queued — the twin demo
-// work queued while it ran too — and takes the jobs the pack made for its own rows (FINAL-5).
+// work queued while it ran too — and takes the jobs the pack made for its own rows (FINAL-5). An organisation-wide pass
+// whose saved cursor is a row of the pack's (`sla.recalc`) stays and starts again; it is never demo work (FL-2).
 import { describe, it, expect, beforeAll } from "vitest";
 import { createIn } from "@server/engine";
 import { inDemoScope, isDemoRow } from "@server/db/scope";
-import { enqueue, registerJobHandler } from "@server/jobs";
-import { runToEnd } from "@server/modules/demo";
+import { DEMO_JOB_SQL, enqueue, registerJobHandler } from "@server/jobs";
+import { purgeStep, runToEnd } from "@server/modules/demo";
 import { DEMO_PEOPLE_REAL_WORK, previewResolve } from "@server/modules/positions";
 import { pauseCase, reassignStep, resumeCase } from "@server/modules/process/api";
 import { DEMO_PROCESS_START } from "@server/modules/process/engine";
@@ -207,5 +208,65 @@ describe("the demo pack's purge keeps the organisation's timer (FINAL-5)", () =>
     await w.k.drain();
     expect((await tasks(w, real)).filter((t) => t.step_key === "sec").map((t) => t.status)).toEqual(["not_needed"]);
     expect((await journal(w, real)).some((b) => b.startsWith("مهلت «تأیید امنیت اطلاعات» به پایان رسید"))).toBe(true);
+  }, 600_000);
+});
+
+describe("the demo pack's purge starts the organisation's own passes again where their cursor is a demo row (FL-2)", () => {
+  it("a real «sla.recalc» saved at a demo row stays queued, once, never demo work, and walks the real rows from the start; jobs about the pack's rows leave", async () => {
+    const org = w.o.org;
+    const db = w.o.db;
+    const job = (id: string) => db.one<{ status: string; payload: Record<string, unknown> }>(`select status, payload from sm_jobs where id = $1`, [id]);
+    const later = (id: string) => db.query(`update sm_jobs set run_at = now() + interval '1 hour' where id = $1`, [id]);
+    // the pack is loaded (as the loader leaves it, without the bank), with a row of its own among the rows the
+    // organisation's passes walk (ids are time-ordered: the pack's rows sit between real ones)
+    await db.query(
+      `insert into sm_demo_packs (org_id, state, size, progress, counters, started_by) values ($1, 'loaded', 'small', jsonb_build_object('saved_at', now(), 'computed', '[]'::jsonb, 'seeds_done', true, 'saved', true), '{}'::jsonb, $2)`,
+      [org, w.o.ownerId],
+    );
+    const demoRow = String((await inDemoScope(org, () => w.sys.write((tx) => createIn(tx, w.sys, "group", { name: "گروه نمایشی FL-2" }, { trusted: true })))).id);
+    expect(await isDemoRow(db, org, demoRow)).toBe(true);
+    // an administrator edited a holiday: the organisation's SLA recalculation (not demo work) did a slice of a large
+    // organisation and saved where it left off — on the pack's row
+    const recalc = await enqueue(db, { kind: "sla.recalc", orgId: org, dedupeKey: "sla.recalc" });
+    await db.query(`update sm_jobs set payload = jsonb_build_object('after', $2::text) where id = $1`, [recalc, demoRow]);
+    await later(recalc);
+    expect(await isDemoRow(db, org, recalc)).toBe(false);
+    // an organisation-wide pass demo work happened to queue, saved on the same row; a pass with nothing saved; one whose
+    // payload names the organisation (as the notification clean-up's does); one that has ended on the pack's row; and a
+    // job about the pack's row
+    const pass = (kind: string, payload: Record<string, unknown>) => enqueue(db, { kind, orgId: org, dedupeKey: kind, payload, delayMs: 3_600_000 });
+    const demoPass = await inDemoScope(org, () => pass("test.fl2_pass", { after: demoRow }));
+    expect(await isDemoRow(db, org, demoPass)).toBe(true);
+    const plain = await pass("test.fl2_plain", {});
+    const ofOrg = await pass("test.fl2_org", { org });
+    const ended = await pass("test.fl2_ended", { after: demoRow });
+    await db.query(`update sm_jobs set status = 'done', done_at = now() where id = $1`, [ended]);
+    const aboutRow = await enqueue(db, { kind: "test.fl2_row", orgId: org, payload: { id: demoRow }, delayMs: 3_600_000 });
+
+    // ----- the purge: what it finds first is never the organisation's pass (the job runner would run it as demo work)
+    await db.query(`update sm_sessions set reauth_at = now() where user_id = $1`, [w.o.ownerId]);
+    await w.o.owner.post(`${w.P}/demo/purge`, { confirm: "حذف کامل" });
+    const phase = async () => (await db.one<{ phase: string | null }>(`select progress->>'purge' as phase from sm_demo_packs where org_id = $1`, [org]))?.phase ?? "expand";
+    while ((await phase()) === "expand") await purgeStep(w.o.cfg, org);
+    expect(await isDemoRow(db, org, recalc)).toBe(false);
+    expect(await db.one<{ demo: boolean }>(`select ${DEMO_JOB_SQL} as demo from sm_jobs where id = $1`, [recalc])).toEqual({ demo: false });
+    expect(await isDemoRow(db, org, ended)).toBe(true);
+    expect(await isDemoRow(db, org, aboutRow)).toBe(true);
+    await runToEnd(w.o.cfg, org, "purge", { budgetMs: 300_000 });
+    expect(await db.one(`select 1 as x from sm_demo_packs where org_id = $1`, [org])).toBeNull();
+    expect(await db.one(`select 1 as x from sm_groups where id = $1`, [demoRow])).toBeNull();
+    // the organisation's passes stay, queued once each, and start again: they name no demo row
+    expect(await job(recalc)).toEqual({ status: "queued", payload: {} });
+    expect((await db.query<{ id: string }>(`select id from sm_jobs where org_id = $1 and kind = 'sla.recalc' and status = 'queued'`, [org])).map((r) => r.id)).toEqual([recalc]);
+    expect(await job(demoPass)).toEqual({ status: "queued", payload: {} });
+    // the others keep their payloads; the ended pass and the job about the pack's row went
+    expect(await job(plain)).toEqual({ status: "queued", payload: {} });
+    expect(await job(ofOrg)).toEqual({ status: "queued", payload: { org } });
+    expect(await job(ended)).toBeNull();
+    expect(await job(aboutRow)).toBeNull();
+    // and the recalculation walks the organisation's timers from the start
+    await db.query(`update sm_jobs set run_at = now() where id = $1`, [recalc]);
+    await w.k.drain();
+    expect((await job(recalc))?.status).toBe("done");
   }, 600_000);
 });
