@@ -3,7 +3,7 @@
 //     record API) is applied on arrival — once; its missing files are waited for, then it is refused (./apply.ts);
 //   · `process.timer` re-checks pending submissions in case an event was missed (../timers): every push of a new
 //     submission makes sure the timer looks within the hour, in the push's own transaction;
-//   · the upload rule and the open-case check of linking (./upload.ts).
+//   · the upload rule — only within the window «/sync/adopt» opens — and the open-case check of linking (./upload.ts).
 // `installProcessSync()` is mounted once with the modules (src/server/routes/modules.ts).
 import type { ServerConfig } from "../../../context";
 import { onRecordEvent, registerHooks, setPushCreateRefusal } from "../../../engine";
@@ -14,7 +14,7 @@ import { applyPending, APPLY_JOB } from "./apply";
 import { uploadAllowed } from "./upload";
 
 export { applyPending, applyPendingIn, missingFiles, filesMissingNote, APPLY_JOB, FILES_WAIT_MS, type PushedOutcome } from "./apply";
-export { uploadAllowed } from "./upload";
+export { uploadAllowed, openUploadWindow, uploadWindowOpen, uploadWindowKey, UPLOAD_WINDOW_MS } from "./upload";
 export { openCasesRefusal, OPEN_CASE_STATES } from "./link";
 
 /** A member whose roles lack `work` create acts online only (§6.5): what their Windows app's push is told. */

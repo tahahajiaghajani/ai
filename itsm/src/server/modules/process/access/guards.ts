@@ -11,7 +11,8 @@
 //     them afterwards. A pushed submission starts `pending`, with no result and no «به نیابت از» of its own —
 //     the authority decides whom a person acted for — and must be the pushing account's.
 // The one exception is the upload of a standalone organisation (§7.2): F4b's sync part sets `setUploadRule`, and a
-// push it accepts (creates of finished data by a holder of `process_design` approve) passes these guards as it is.
+// push it accepts (creates of finished data by the owner holding `process_design` approve, within the upload window
+// «/sync/adopt» opened for them — ../sync/upload.ts) passes these guards as it is.
 import { isSystemCtx, registerHooks, type PushArgs, type SideArgs, type TableHooks, type WriteArgs } from "../../../engine";
 import { forbidden } from "../../../http/errors";
 

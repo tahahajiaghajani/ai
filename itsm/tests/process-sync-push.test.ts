@@ -7,7 +7,9 @@
 //     and the task stays open (a push whose files all arrive is applied with them);
 //   · an offline start pushed twice (and from a second device) creates one case;
 //   · a member whose roles lack `work` create acts online, and their push is refused with the clear message;
-//   · the upload rule: only creates of finished data, only by holders of `process_design` approve;
+//   · the upload rule: only creates of finished data, only by the owner holding `process_design` approve, and only
+//     within the window «/sync/adopt» opens when it creates the organisation here — never into the history of an
+//     organisation that lives here, nor into a case this authority ran;
 //   · linking is refused while the organisation has open cases.
 import { describe, it, expect, beforeAll } from "vitest";
 import { SYNC_PROTOCOL } from "@shared/constants";
@@ -15,9 +17,10 @@ import { uuidv7 } from "@shared/id";
 import { faDigits } from "@shared/format";
 import { CASE_WRITE, propagateAccess, TASK_WRITE, VERSION_WRITE } from "@server/modules/process/access";
 import { LATE_NOTE } from "@server/modules/process/engine";
-import { openCasesRefusal, WEB_ONLY } from "@server/modules/process/sync";
-import type { Client } from "./helpers";
-import { act, edge, journal, kase, node, openTask, publish, start, submission, tasks, users, world, type Published, type World } from "./process-engine-helpers";
+import { openCasesRefusal, uploadWindowKey, WEB_ONLY } from "@server/modules/process/sync";
+import { createIn, systemCtx } from "@server/engine";
+import { Client } from "./helpers";
+import { act, cancel, edge, journal, kase, node, openTask, publish, start, submission, tasks, users, world, type Published, type World } from "./process-engine-helpers";
 
 let w: World;
 type Who = { client: Client; userId: string };
@@ -29,10 +32,10 @@ let PU: Published;
 const rights = (fields: Record<string, string>, dflt = "read") => ({ default: dflt, fields });
 const iso = (ms = Date.now()) => new Date(ms).toISOString();
 
-/** A Windows app's push of rows (each a create unless it says its base revision). */
-async function push(c: Client, rows: { entity: string; row: Record<string, unknown>; base?: number }[]): Promise<{ status: string; message?: string }[]> {
+/** A Windows app's push of rows (each a create unless it says its base revision), to `org` (default the world's). */
+async function push(c: Client, rows: { entity: string; row: Record<string, unknown>; base?: number }[], org = w.o.org): Promise<{ status: string; message?: string }[]> {
   const out = await c.post(`/sync/push`, {
-    org_id: w.o.org, device_id: uuidv7(), protocol: SYNC_PROTOCOL,
+    org_id: org, device_id: uuidv7(), protocol: SYNC_PROTOCOL,
     aggregates: rows.map((r) => ({ entity: r.entity, id: r.row.id, base_rev: r.base ?? 0, row: r.row })),
   });
   return out.results;
@@ -215,54 +218,84 @@ describe("pushed submissions", () => {
 });
 
 describe("upload and linking", () => {
-  it("the upload rule takes only creates of finished data, and only from holders of `process_design` approve", async () => {
+  it("an organisation that lives here takes no uploaded history: its owner's push never writes its cases, steps or decisions", async () => {
     const own = w.o.owner;
+    // a real case of this authority, closed; then the owner's device forges the CISO's approval into it, and a whole case
+    const real = (await start(w, p.r.userId, PA, { values: { u_amount: "8" } })).case!;
+    await w.k.drain();
+    await cancel(w, p.r.userId, real, "دیگر لازم نیست");
+    await w.k.drain();
+    expect(await kase(w, real)).toMatchObject({ state: "canceled" });
+    const forged = {
+      task: { id: uuidv7(), org_id: w.o.org, case_id: real, step_key: "a", step_label: "تأیید", action: "approve", round: 1, assigned_to: p.a.userId, status: "done", outcome: "approved", acted_by: p.a.userId, opened_at: iso(), closed_at: iso(), created_at: iso(), updated_at: iso() },
+      decision: { ...sub(p.a.userId, { task_id: null, case_id: real, step_key: "a", round: 1, outcome: "approved" }), result: "applied", applied_at: iso() },
+      kase: { id: uuidv7(), org_id: w.o.org, title: "پروندهٔ ساختگی", process_id: PA.process, process_name: PA.name, version_id: PA.version, version_no: 1, state: "completed", outcome: "completed", requested_by: p.r.userId, requested_for: p.r.userId, data: { u_amount: "9" }, created_at: iso(), updated_at: iso() },
+      proc: { id: uuidv7(), org_id: w.o.org, name: "گردش‌کار ساختگی", key: `forged_${Date.now()}`, status: "published", version_no: 1, created_at: iso(), updated_at: iso() },
+    };
+    expect(await push(own, [{ entity: "process_task", row: forged.task }])).toMatchObject([{ status: "error", message: TASK_WRITE }]);
+    expect(await push(own, [{ entity: "process_submission", row: forged.decision }])).toMatchObject([{ status: "error" }]);
+    expect(await push(own, [{ entity: "process_case", row: forged.kase }])).toMatchObject([{ status: "error", message: CASE_WRITE }]);
+    expect(await push(own, [{ entity: "process", row: forged.proc }])).toMatchObject([{ status: "error" }]);
+    expect(await w.o.db.query(`select 1 from sm_process_tasks where id = $1 union all select 1 from sm_process_submissions where id = $2 union all select 1 from sm_process_cases where id = $3 union all select 1 from sm_processes where id = $4`, [forged.task.id, forged.decision.id, forged.kase.id, forged.proc.id])).toEqual([]);
+    expect((await tasks(w, real)).filter((t) => t.status === "done" && t.outcome === "approved")).toEqual([]);
+  }, 120_000);
+
+  it("the upload of a standalone organisation takes creates of finished data from its owner, within the window «/sync/adopt» opened", async () => {
+    // the Windows app's owner adopts its organisation here (the link flow's «/sync/adopt»), then pushes its rows
+    const owner = new Client(w.o.app);
+    await owner.post("/auth/signup", { email: `standalone-${Date.now()}@bank.test`, password: "s3cret-pass", full_name: "مالک رایانهٔ مستقل" });
+    const orgId = uuidv7();
+    const me = String((await owner.get("/auth/me")).user.id);
+    expect(await owner.post("/sync/adopt", { org: { id: orgId, name: "سازمان رایانهٔ مستقل", created_at: iso(), updated_at: iso() } })).toMatchObject({ ok: true, existed: false });
+    const up = (rows: { entity: string; row: Record<string, unknown>; base?: number }[]) => push(owner, rows.map((r) => ({ ...r, row: { ...r.row, org_id: orgId } })), orgId);
     const version = (await w.o.db.one<Record<string, unknown>>(`select * from sm_process_versions where id = $1`, [PA.version]))!;
+    const procId = uuidv7();
+    const proc = { id: procId, name: "گردش‌کار رایانهٔ مستقل", key: `standalone_${Date.now()}`, status: "published", version_no: 2, created_at: iso(), updated_at: iso() };
+    const ver = (n: number) => ({ ...JSON.parse(JSON.stringify(version)), id: uuidv7(), process_id: procId, version_no: n, rev: 0, created_at: iso(), updated_at: iso() });
     const caseRow = (state: string) => ({
-      id: uuidv7(), org_id: w.o.org, title: "پروندهٔ رایانهٔ مستقل", process_id: PA.process, process_name: PA.name, version_id: PA.version, version_no: 1, state,
-      outcome: state === "active" ? null : state, requested_by: w.o.ownerId, requested_for: w.o.ownerId, data: { u_amount: "5" }, created_at: iso(), updated_at: iso(),
+      id: uuidv7(), title: "پروندهٔ رایانهٔ مستقل", process_id: procId, process_name: proc.name, version_no: 1, state,
+      outcome: state === "active" ? null : state, data: { u_amount: "5" }, created_at: iso(), updated_at: iso(),
     });
-    const closed = caseRow("completed");
-    expect(await push(own, [{ entity: "process_case", row: closed }])).toMatchObject([{ status: "ok" }]);
-    expect(await push(own, [{ entity: "process_case", row: caseRow("active") }])).toMatchObject([{ status: "error", message: CASE_WRITE }]);
     const task = (status: string, caseId: string) => ({
-      id: uuidv7(), org_id: w.o.org, case_id: caseId, step_key: "a", step_label: "تأیید", action: "approve", round: 1, assigned_to: w.o.ownerId, status,
-      outcome: status === "done" ? "approved" : null, acted_by: status === "done" ? w.o.ownerId : null, opened_at: iso(), created_at: iso(), updated_at: iso(),
+      id: uuidv7(), case_id: caseId, step_key: "a", step_label: "تأیید", action: "approve", round: 1, status,
+      outcome: status === "done" ? "approved" : null, opened_at: iso(), created_at: iso(), updated_at: iso(),
     });
-    expect(await push(own, [{ entity: "process_task", row: task("done", closed.id) }])).toMatchObject([{ status: "ok" }]);
-    expect(await push(own, [{ entity: "process_task", row: task("open", closed.id) }])).toMatchObject([{ status: "error", message: TASK_WRITE }]);
-    // nothing of an open case on this server
-    const open = (await start(w, p.r.userId, PA, { values: { u_amount: "6" } })).case!;
-    expect(await push(own, [{ entity: "process_task", row: task("done", open) }])).toMatchObject([{ status: "error", message: TASK_WRITE }]);
-    // a settled submission keeps its submitter and result
-    const settled = { ...sub(p.r.userId, { kind: "start", process_id: PA.process, case_id: closed.id }), result: "applied", applied_at: iso() };
-    expect(await push(own, [{ entity: "process_submission", row: settled }])).toMatchObject([{ status: "ok" }]);
-    expect(await submission(w, settled.id)).toMatchObject({ result: "applied" });
-    // a published process and its versions: the owner yes, a designer (no approve) no
-    const upId = uuidv7();
-    const up = { id: upId, org_id: w.o.org, name: "گردش‌کار رایانهٔ مستقل", key: `standalone_${Date.now()}`, status: "published", version_no: 2, created_at: iso(), updated_at: iso() };
-    const ver = (n: number, processId = upId) => ({ ...JSON.parse(JSON.stringify(version)), id: uuidv7(), process_id: processId, version_no: n, rev: 0, created_at: iso(), updated_at: iso() });
-    const v = ver(2);
-    expect(await push(p.d.client, [{ entity: "process", row: { ...up, id: uuidv7(), key: `${up.key}_d` } }])).toMatchObject([{ status: "error" }]);
-    expect(await push(own, [{ entity: "process", row: up }])).toMatchObject([{ status: "ok" }]);
-    expect(await push(p.d.client, [{ entity: "process_version", row: ver(1) }])).toMatchObject([{ status: "error" }]);
-    expect(await push(own, [{ entity: "process_version", row: v }, { entity: "process_version", row: ver(1) }])).toMatchObject([{ status: "ok" }, { status: "ok" }]);
+    const settled = (caseId: string) => ({ id: uuidv7(), kind: "start", values: {}, process_id: procId, case_id: caseId, submitted_by: me, submitted_at: iso(), result: "applied", applied_at: iso(), created_at: iso(), updated_at: iso() });
+    // a published process and its versions
+    expect(await up([{ entity: "process", row: proc }])).toMatchObject([{ status: "ok" }]);
+    expect(await up([{ entity: "process_version", row: ver(2) }, { entity: "process_version", row: ver(1) }])).toMatchObject([{ status: "ok" }, { status: "ok" }]);
     // never a number the process does not declare, nor one it holds already (F4b-3)
-    expect(await push(own, [{ entity: "process_version", row: ver(3) }])).toMatchObject([{ status: "error", message: VERSION_WRITE }]);
-    expect(await push(own, [{ entity: "process_version", row: ver(2) }])).toMatchObject([{ status: "error", message: VERSION_WRITE }]);
-    // a process published here takes no version but by publishing: no new graph goes live unapproved
-    expect(await push(own, [{ entity: "process_version", row: ver(7, PA.process) }])).toMatchObject([{ status: "error", message: VERSION_WRITE }]);
-    expect(await w.o.db.one<{ n: number }>(`select count(*)::int as n from sm_process_versions where process_id = $1`, [PA.process])).toEqual({ n: 1 });
+    expect(await up([{ entity: "process_version", row: ver(3) }])).toMatchObject([{ status: "error", message: VERSION_WRITE }]);
+    expect(await up([{ entity: "process_version", row: ver(2) }])).toMatchObject([{ status: "error", message: VERSION_WRITE }]);
+    // closed cases with their closed steps and settled decisions — the steps in a later page than their case too
+    const closed = caseRow("completed");
+    expect(await up([{ entity: "process_case", row: closed }])).toMatchObject([{ status: "ok" }]);
+    expect(await up([{ entity: "process_task", row: task("done", closed.id) }, { entity: "process_submission", row: settled(closed.id) }])).toMatchObject([{ status: "ok" }, { status: "ok" }]);
+    const later = caseRow("rejected");
+    expect(await up([{ entity: "process_task", row: task("done", later.id) }, { entity: "process_case", row: later }])).toMatchObject([{ status: "ok" }, { status: "ok" }]);
+    // never an open case or anything open
+    expect(await up([{ entity: "process_case", row: caseRow("active") }])).toMatchObject([{ status: "error", message: CASE_WRITE }]);
+    expect(await up([{ entity: "process_task", row: task("open", closed.id) }])).toMatchObject([{ status: "error", message: TASK_WRITE }]);
+    // never a step or a decision into a case this authority ran (written here by its own engine, not by a push)
+    const sys = await systemCtx(w.o.cfg, orgId);
+    const ran = String((await sys.write((tx) => createIn(tx, sys, "process_case", { title: "پروندهٔ همین سرور", process_id: procId, state: "completed", data: {} }, { trusted: true }))).id);
+    expect(await up([{ entity: "process_task", row: task("done", ran) }])).toMatchObject([{ status: "error", message: TASK_WRITE }]);
+    // (the owner's own submission is then only what any person's is: pending, for the authority to judge — never history)
+    const asHistory = settled(ran);
+    expect(await up([{ entity: "process_submission", row: asHistory }])).toMatchObject([{ status: "ok" }]);
+    expect((await submission(w, asHistory.id))?.result).not.toBe("applied");
     // never an update or a deletion of what was uploaded
     const stored = (await w.o.db.one<{ rev: number }>(`select rev from sm_process_cases where id = $1`, [closed.id]))!;
-    const later = { ...closed, title: "عنوان دیگر", updated_at: iso(Date.now() + 5_000) };
-    expect(await push(own, [{ entity: "process_case", row: later, base: Number(stored.rev) }])).toMatchObject([{ status: "error", message: CASE_WRITE }]);
-    expect(await push(own, [{ entity: "process_case", row: { ...later, deleted_at: iso() }, base: Number(stored.rev) }])).toMatchObject([{ status: "error", message: CASE_WRITE }]);
-    // an account that may manage the service desk but not publish workflows uploads nothing
-    expect(await push(p.sd.client, [{ entity: "process_case", row: caseRow("completed") }])).toMatchObject([{ status: "error" }]);
-    expect(await push(p.d.client, [{ entity: "process_version", row: { ...v, id: uuidv7() } }])).toMatchObject([{ status: "error" }]);
-    const vRev = (await w.o.db.one<{ rev: number }>(`select rev from sm_process_versions where id = $1`, [v.id]))!;
-    expect(await push(own, [{ entity: "process_version", row: { ...v, note: "تغییر", updated_at: iso(Date.now() + 5_000) }, base: Number(vRev.rev) }])).toMatchObject([{ status: "error", message: VERSION_WRITE }]);
+    const changed = { ...closed, title: "عنوان دیگر", updated_at: iso(Date.now() + 5_000) };
+    expect(await up([{ entity: "process_case", row: changed, base: Number(stored.rev) }])).toMatchObject([{ status: "error", message: CASE_WRITE }]);
+    expect(await up([{ entity: "process_case", row: { ...changed, deleted_at: iso() }, base: Number(stored.rev) }])).toMatchObject([{ status: "error", message: CASE_WRITE }]);
+    // the window is the adopting account's, and it closes: then the upload takes nothing more, and adopting the
+    // organisation again (it lives here now) does not reopen it
+    await w.o.db.query(`update sm_kv set value = jsonb_set(value, '{until}', to_jsonb($2::text)) where key = $1`, [uploadWindowKey(orgId), iso(Date.now() - 1000)]);
+    expect(await up([{ entity: "process_case", row: caseRow("completed") }])).toMatchObject([{ status: "error", message: CASE_WRITE }]);
+    expect(await owner.post("/sync/adopt", { org: { id: orgId, name: "سازمان رایانهٔ مستقل" } })).toMatchObject({ ok: true, existed: true });
+    expect(await up([{ entity: "process_case", row: caseRow("completed") }])).toMatchObject([{ status: "error", message: CASE_WRITE }]);
+    expect(await w.o.db.one<{ n: number }>(`select count(*)::int as n from sm_process_cases where org_id = $1`, [orgId])).toEqual({ n: 3 });
   }, 120_000);
 
   it("access settings reach every case of the process, open or closed, and the rows re-sync", async () => {

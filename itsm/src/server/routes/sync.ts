@@ -26,6 +26,7 @@ import { SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
 import { inDemoScope } from "../db/scope";
 import { demoSignInRefusal } from "../modules/demo/signin";
+import { openUploadWindow } from "../modules/process/sync/upload";
 import { afterEnginePush, checkEnginePush, replicaRows, scopeEpoch } from "../engine/sync";
 import { condEnv, orgSchema } from "../engine";
 import {
@@ -110,7 +111,11 @@ syncRoutes.post("/register", async (c) => {
   return c.json({ device_id: row!.id, protocol: SYNC_PROTOCOL });
 });
 
-/** Create the organisation in the cloud from a desktop that worked alone so far ("upload"). */
+/**
+ * Create the organisation in the cloud from a desktop that worked alone so far ("upload"). Only a call that creates it
+ * opens the upload window of its finished workflow data (design F §7.2, modules/process/sync/upload.ts): an
+ * organisation already here (`existed`) never opens one again.
+ */
 syncRoutes.post("/adopt", async (c) => {
   const cfg = c.get("cfg");
   const user = c.get("user");
@@ -129,6 +134,7 @@ syncRoutes.post("/adopt", async (c) => {
     const def = BY_ENTITY.get("org")!;
     await writeAggregate(tx, def, { entity: "org", id: orgId, base_rev: 0, row: { ...input.org, created_by: user.id }, children: {} }, orgId, "incoming-yields");
     await tx.query(`insert into sm_org_members (id, org_id, user_id, role, origin) values ($1, $2, $3, 'owner', 'cloud') on conflict (org_id, user_id) do nothing`, [uuidv7(), orgId, user.id]);
+    await openUploadWindow(tx, orgId, user.id);
   });
   return c.json({ ok: true, existed: false });
 });
