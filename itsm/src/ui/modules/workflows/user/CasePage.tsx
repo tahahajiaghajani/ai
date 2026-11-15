@@ -4,7 +4,7 @@
 //     pause, resume, cancel; a requester's cancel before any step after the start);
 //   · tabs «نمودار» (my steps marked, a step of mine opens its form), «داده‌ها» (the values I may read, by form
 //     sections; a «پیوست» value by its files' names, each opening its file — the case's attachments I may open),
-//     «تاریخچه» (steps, submissions, the case's notes), «گفت‌وگو» (comments);
+//     «تاریخچه» (steps, submissions, the case's notes), «گفت‌وگو» (comments; a failed read says so, with «تلاش دوباره»);
 //   · side rail: process and version, requester, started, current steps and their people, my part; it gives way to the
 //     step form when one is open (a phone shows the form as a page of its own);
 //   · in «نیاز به بررسی» the managers see «ادامه از مرحلهٔ …» and «لغو پرونده».
@@ -31,7 +31,7 @@ import { ProcessCanvas, StepLegend, StepList, stepCounter, usedStatuses } from "
 import { USER_KEYS, userApi, type CaseDetail } from "./api";
 import { ManagerDialogs, type ManagerAction } from "./ManagerActions";
 import { headerStep, isOpenCase, myPart, nameOf, openSteps, outcomeWord, stateChannel, stepOfText, takenFromStatuses, actionLabel } from "./model";
-import { CaseState, CaseValues, DuePill, Head, useMoneyUnit, useWf } from "./parts";
+import { CaseState, CaseValues, DuePill, Head, LoadError, useMoneyUnit, useWf } from "./parts";
 import { StepPanel } from "./StepPanel";
 
 const I16 = { size: 16, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
@@ -182,7 +182,8 @@ function History({ detail }: { detail: CaseDetail }) {
   );
 }
 
-function Talk({ caseId }: { caseId: string }) {
+/** «گفت‌وگو»: the case's comments and a box for mine; comments that could not be read are said so, never «none yet». */
+export function Talk({ caseId }: { caseId: string }) {
   const { api, orgId } = useOrg();
   const n = useNotify();
   const qc = useQueryClient();
@@ -206,7 +207,11 @@ function Talk({ caseId }: { caseId: string }) {
   const names = talk.data?.display ?? {};
   return (
     <div className="wfu-talk">
-      {talk.isLoading ? <Loader /> : entries.length ? (
+      {talk.isLoading ? (
+        <Loader />
+      ) : talk.isError && !talk.data ? (
+        <LoadError compact title="گفت‌وگو خوانده نشد" error={talk.error} retry={() => void talk.refetch()} busy={talk.isFetching} />
+      ) : entries.length ? (
         <ul className="wfu-timeline">
           {entries.map((e) => (
             <li key={e.id}>

@@ -3,7 +3,8 @@
 // their notes, the click budget, the due pill, a process's marks, the state channel and the path a case took, the
 // decisions each step kind offers and the reasons they ask for, the consequences and the messages after a decision,
 // what a submission sends (files as `{ upload: n }`; a start or a step sends only the fields «نمایش وقتی…» shows, their
-// files included), where a form starts, the required fields left empty — and on a
+// files included), where a form starts, the required fields left empty; a read that fails («گردش‌کارهای من» and the
+// start menu, «گفت‌وگو») is said so, never shown as an empty list — and on a
 // real organisation, through the pages' own API module: the §3.7 bank process started by a clerk, the head's
 // «کارتابل» and case, a return to the requester with its consequence, a draft kept and refilled, the requester's
 // second round, the approval; a pool step taken by one («در دست …»), the other's late decision kept with its message;
@@ -41,9 +42,11 @@ import {
 } from "../src/ui/modules/workflows/user/model";
 import { CaseValues, ProcessForm } from "../src/ui/modules/workflows/user/parts";
 import PortalSteps from "../src/ui/modules/workflows/user/PortalSteps";
+import WorkflowsPage from "../src/ui/modules/workflows/user/WorkflowsPage";
+import { Talk } from "../src/ui/modules/workflows/user/CasePage";
 import { useWaitingSteps } from "../src/ui/modules/workflows/user/waiting";
 import { OrgProvider, type OrgInfo } from "../src/ui/lib/org";
-import type { OrgApi } from "../src/ui/lib/api";
+import { ApiError, type OrgApi } from "../src/ui/lib/api";
 import type { Schema } from "../src/ui/records/model/schema";
 import type { Client } from "./helpers";
 import { PNG } from "./engine-helpers";
@@ -76,8 +79,20 @@ const orgInfo = (id: string): OrgInfo => ({
 function render(org: string, el: ReactElement, seed: (qc: QueryClient) => void = () => undefined): string {
   const qc = new QueryClient();
   seed(qc);
+  return renderIn(qc, org, el);
+}
+function renderIn(qc: QueryClient, org: string, el: ReactElement): string {
   const routed = createElement(MemoryRouter, null, el);
   return renderToStaticMarkup(createElement(QueryClientProvider, { client: qc }, createElement(OrgProvider, { orgId: org, info: orgInfo(org), children: routed })));
+}
+/**
+ * A query client whose reads have failed as the app's would after its retry: the read's error kept, not fetched again
+ * while the page renders.
+ */
+async function failedReads(keys: readonly (readonly unknown[])[], error: unknown): Promise<QueryClient> {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false, retryOnMount: false } } });
+  for (const queryKey of keys) await qc.prefetchQuery({ queryKey, queryFn: () => Promise.reject(error) });
+  return qc;
 }
 /** A link that opens `text` at `href`. */
 const linkTo = (href: string, text: string) => new RegExp(`<a [^>]*href="${href.replace(/[.?]/g, "\\$&")}"[^>]*>${text.replace(/[.]/g, "\\.")}</a>`);
@@ -447,6 +462,50 @@ describe("the step form", () => {
     // before the names are read: how many, as «پیوست» (here «پرونده» is a case)
     expect(data()).toContain("۱ پیوست");
     expect(data()).not.toContain("پرونده");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// a read that fails
+
+describe("a read that fails is said so, never shown as an empty list", () => {
+  const ORG = "org-1";
+  const down = new ApiError(500, "error", "سامانه پاسخ نداد؛ کمی بعد دوباره تلاش کنید");
+  const inbox = (over: Partial<Inbox> = {}): Inbox => ({ rows: [], chips: [], counts: { waiting: 0, steps: 0, approvals: 0 }, default_tab: "mine", display: {}, ...over });
+
+  it("«گردش‌کارهای من» whose list failed shows the failure, not «هنوز در گردش‌کاری نقش ندارید»; on «کارتابل» the page says «شروع گردش‌کار» was not read", async () => {
+    const mineTab = await failedReads([USER_KEYS.mine(ORG)], down);
+    mineTab.setQueryData(USER_KEYS.inbox(ORG), inbox());
+    const html = renderIn(mineTab, ORG, createElement(WorkflowsPage));
+    expect(html).toContain("گردش‌کارهای شما خوانده نشد");
+    expect(html).toContain("سامانه پاسخ نداد؛ کمی بعد دوباره تلاش کنید");
+    expect(html).toContain("تلاش دوباره");
+    expect(html).not.toContain("هنوز در گردش‌کاری نقش ندارید");
+    // something waits: the page opens on «کارتابل», and the missing start menu is explained there
+    const inboxTab = await failedReads([USER_KEYS.mine(ORG)], down);
+    inboxTab.setQueryData(USER_KEYS.inbox(ORG), inbox({ default_tab: "inbox", counts: { waiting: 1, steps: 1, approvals: 0 }, rows: [row()], display }));
+    const onInbox = renderIn(inboxTab, ORG, createElement(WorkflowsPage));
+    expect(onInbox).toContain("فهرست گردش‌کارهای شما و «شروع گردش‌کار» خوانده نشد: سامانه پاسخ نداد؛ کمی بعد دوباره تلاش کنید");
+    // a list read fine but empty keeps its own words, and no failure is shown
+    const fine = new QueryClient();
+    fine.setQueryData(USER_KEYS.inbox(ORG), inbox());
+    fine.setQueryData(USER_KEYS.mine(ORG), { processes: [] });
+    const empty = renderIn(fine, ORG, createElement(WorkflowsPage));
+    expect(empty).toContain("هنوز در گردش‌کاری نقش ندارید");
+    expect(empty).not.toContain("خوانده نشد");
+  });
+
+  it("«گفت‌وگو» whose comments failed to load shows the failure, not «هنوز گفت‌وگویی نیست»", async () => {
+    const failed = await failedReads([USER_KEYS.talk(ORG, "c1")], down);
+    const html = renderIn(failed, ORG, createElement(Talk, { caseId: "c1" }));
+    expect(html).toContain("گفت‌وگو خوانده نشد");
+    expect(html).toContain("سامانه پاسخ نداد؛ کمی بعد دوباره تلاش کنید");
+    expect(html).not.toContain("هنوز گفت‌وگویی نیست");
+    const fine = new QueryClient();
+    fine.setQueryData(USER_KEYS.talk(ORG, "c1"), { entries: [], display: {} });
+    const none = renderIn(fine, ORG, createElement(Talk, { caseId: "c1" }));
+    expect(none).toContain("هنوز گفت‌وگویی نیست");
+    expect(none).not.toContain("خوانده نشد");
   });
 });
 
