@@ -4,15 +4,15 @@
 // pass also writes one fact row per class and day (trends), each rule's last result (checked, failing, compliance) and
 // the remediation findings for the CIs' owners and support groups — one per CI and issue, closed again by the system
 // when the issue is gone. Everything runs as the system; people read the results through the engine.
-import { ciHealth, isStale, relViolations, type HealthResult } from "@shared/cmdb/logic";
+import { ciHealth, relViolations, type HealthResult } from "@shared/cmdb/logic";
 import type { Cond } from "@shared/model/conditions";
 import type { ClassHealth, HealthSummary } from "@shared/cmdb/api";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
-import { pgArray } from "../../db";
+import { lockKey, pgArray } from "../../db";
 import type { Queryable, Tx } from "../../db";
 import { aggregate, condEnv, createIn, orgSchema, readable, toSql, transitionIn, updateIn } from "../../engine";
-import { classTree, cmdbConfig, eqAll, isUuid, liveRows, relTypes, sysOf, type Row } from "./common";
+import { classTree, cmdbConfig, eqAll, isUuid, liveRows, lockedRow, relTypes, sysOf, type Row } from "./common";
 import { edgesAround } from "./graph";
 
 const DAY = 86_400_000;
@@ -99,6 +99,19 @@ export async function computeHealth(q: Tx, ctx: Ctx, opts: { ids?: string[]; aft
   if (!cis.length) return out;
   // excluded from health: retired, disposed, canceled and merged CIs
   const live = cis.filter((c) => !["retired", "disposed", "canceled"].includes(c.state) && !c.merged_into);
+  // the staleness of a CI that discovery's contact ladder judges (design A §10: it knows the CI's last contact from the
+  // tools) is the ladder's — it stays as the ladder set it while an item of a live connector reports the CI (a deleted
+  // connector's ladder never runs again); any other CI's follows its last discovery, as before
+  const ladderJudged = new Set(
+    live.length
+      ? (await q.query<{ ci_id: string }>(
+          `select s.ci_id from sm_discovery_states s where s.org_id = $1 and s.deleted_at is null and s.target_table = 'ci' and s.ci_id = any($2::uuid[]) and s.last_contact_at is not null
+             and exists (select 1 from sm_discovery_items i join sm_discovery_connectors k on k.org_id = i.org_id and k.id = i.connector_id and k.deleted_at is null
+                         where i.org_id = s.org_id and i.ci_id = s.ci_id and i.deleted_at is null)`,
+          [ctx.org.id, `{${live.map((c) => c.id).join(",")}}`],
+        )).map((r) => r.ci_id)
+      : [],
+  );
   const ids = live.map((c) => c.id);
   // relationships and the classes of their other ends
   const edges = await edgesAround(q, ctx, ids, { includeHidden: true });
@@ -153,6 +166,7 @@ export async function computeHealth(q: Tx, ctx: Ctx, opts: { ids?: string[]; aft
       ci, cls, now, rels: relsOf.get(ci.id) ?? [], tree, duplicate: dup.has(ci.id),
       audit: { applicable: applicable.length, passed: applicable.length - failed.length },
       certifyWithinDays: cfg.certify_days || null, weights,
+      ...(ladderJudged.has(ci.id) ? { stale: !!ci.is_stale } : {}),
     });
     out.results.set(ci.id, h);
     out.processed++;
@@ -160,7 +174,10 @@ export async function computeHealth(q: Tx, ctx: Ctx, opts: { ids?: string[]; aft
     const issues = [...h.issues].sort();
     const prevIssues = [...(ci.health_issues ?? [])].sort();
     const detail = { completeness: h.completeness, recommended: h.recommended, correctness: h.correctness, compliance: h.compliance, missing: h.missing, violations: h.violations, failed_rules: failed.map((r) => r.name), warned: ci.health?.warned ?? null };
-    if (ci.health_score !== h.score || JSON.stringify(issues) !== JSON.stringify(prevIssues) || JSON.stringify(ci.health ?? null) !== JSON.stringify(detail) || isStale(ci, cls?.staleDays ?? null, now) !== !!ci.is_stale) {
+    if (ci.health_score !== h.score || JSON.stringify(issues) !== JSON.stringify(prevIssues) || JSON.stringify(ci.health ?? null) !== JSON.stringify(detail) || h.issues.includes("stale") !== !!ci.is_stale) {
+      // the expiry warning mark as stored now (the CI locked: the warnings job writes it under the same lock), so this
+      // write keeps a mark set since the CIs were read
+      detail.warned = (await lockedRow(q, sys, "ci", ci.id))?.health?.warned ?? null;
       await updateIn(q, sys, "ci", ci.id, { health_score: h.score, health_issues: issues, health: detail, health_at: new Date(now).toISOString(), is_stale: h.issues.includes("stale") }, { trusted: true, keepVersion: true, allowLocked: true });
       out.updated++;
     }
@@ -202,6 +219,10 @@ export async function computeHealth(q: Tx, ctx: Ctx, opts: { ids?: string[]; aft
   for (const f of toOpen) {
     if (openByKey.has(f.key)) continue;
     if (out.findings_opened >= MAX_NEW_FINDINGS) break;
+    // the finding's key, then its open finding read again: two passes over one CI at once (its own job, the nightly
+    // pass, a person's «بررسی») open it once — a key per new finding, at most MAX_NEW_FINDINGS in a pass
+    await lockKey(q, `cmdb.finding:${ctx.org.id}:${f.key}`);
+    if ((await liveRows(q, sys, "cmdb_finding", { and: [{ f: "dedupe_key", op: "eq", v: f.key }, { f: "active", op: "eq", v: true }] }, { limit: 1 })).length) continue;
     await createIn(q, sys, "cmdb_finding", {
       short_description: f.title, ci_id: f.ci.id, kind: f.kind, severity: f.severity, rule_id: f.rule ?? null, detail: f.detail, dedupe_key: f.key, auto: true,
       assigned_to: f.ci.owned_by ?? null, assignment_group_id: f.ci.support_group_id ?? null, workspace_id: f.ci.workspace_id ?? null,

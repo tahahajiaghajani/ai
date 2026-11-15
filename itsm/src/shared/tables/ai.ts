@@ -11,6 +11,7 @@
 // its record and everything it read (`clearance`), otherwise only its metadata.
 // Imported by the UI: keep it free of server imports.
 import type { Option, TableDef } from "../model/types";
+import { NEVER } from "../model/conditions";
 import { SKILL_EVENTS, SKILL_GROUNDINGS, SKILL_OUTPUTS, SKILL_TARGETS, SKILL_TIERS, SKILL_TRIGGERS } from "../ai/skills";
 
 export const AI_SKILL = "ai_skill";
@@ -158,7 +159,7 @@ const run: TableDef = {
   scope: { own: ["invoker_id"], requester: [] },
   // a run is private to the member who started it, whatever the area grant: a summary built from fields its author
   // could see never becomes visible to anyone else through the record API
-  rowAccess: { read: { f: "invoker_id", op: "is_me" } },
+  rowAccess: { read: { f: "invoker_id", op: "is_me" }, write: NEVER },
   features: { sync: false, history: false },
   list: { columns: ["skill_key", "record_number", "status", "model", "feedback", "created_at"], order: "-created_at" },
 };

@@ -10,7 +10,8 @@
 //                «حل شد با این مقاله», sharing with the requester, «نوشتن مقاله از این رکورد»
 //   palette      articles open in the reading view
 // Only light modules are imported here; every page loads with its route.
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import {
   BookOpenText, BookMarked, ChartColumn, ClipboardCheck, FileCheck2, FilePen, FolderTree, Gauge, GitBranch, Layers, LayoutTemplate, Library, ListTodo, MessageSquareQuote, MessagesSquare, Puzzle, Search, Settings2, ShieldCheck,
   Signpost, SpellCheck, Star, TriangleAlert, Copy, BellRing, Award, Network, ListFilter,

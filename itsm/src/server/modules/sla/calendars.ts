@@ -9,7 +9,7 @@ import { toJalali } from "@shared/jalali";
 import { DEFAULT_TIMEZONE, isTimeZone } from "@shared/constants";
 import type { Ctx } from "../../context";
 import type { Queryable, Tx } from "../../db";
-import { createIn, orgTz, registerHooks, systemCtx, updateIn, validationError } from "../../engine";
+import { createIn, onBeforeCommit, orgTz, registerHooks, systemCtx, updateIn, validationError } from "../../engine";
 import { enqueue, registerJobHandler, type JobConfig } from "../../jobs";
 import { config, derived, systemFrom, type Row, type ServiceConfig } from "./common";
 import { IR_HOLIDAYS, IR_HOLIDAY_YEARS } from "./holidays-ir";
@@ -64,6 +64,9 @@ export async function holidaysBetween(q: Queryable, ctx: Ctx, from: string, to: 
 // ---------------------------------------------------------------------------------------------------------------
 // Checks on calendar and holiday rows
 
+/** The calendar a transaction made default last (the one its before-commit work keeps). */
+const defaultCalendarOf = new WeakMap<Tx, string>();
+
 /** The checks on calendar and holiday rows (installed once by `installSlaService`). */
 export function installCalendarHooks(): (() => void)[] {
   return [
@@ -79,11 +82,20 @@ export function installCalendarHooks(): (() => void)[] {
     if (Object.keys(fields).length) throw validationError(fields);
   },
   async afterWrite(w) {
-    // one default calendar per organisation
+    // one default calendar per organisation: the others are cleared just before commit under the organisation's key,
+    // so of two calendars made default at once the later commit clears the earlier one (each sees what the other
+    // committed); within one transaction the calendar made default last stays
     if (w.op === "delete" || !w.row.is_default || !w.changed.has("is_default")) return;
     const sys = systemFrom(w.ctx);
-    const others = await w.tx.query<{ id: string }>(`select id from sm_calendars where org_id = $1 and is_default and id <> $2 and deleted_at is null`, [w.ctx.org.id, w.row.id]);
-    for (const o of others) await updateIn(w.tx, sys, "calendar", o.id, { is_default: false }, { trusted: true });
+    const tx = w.tx;
+    defaultCalendarOf.set(tx, String(w.row.id));
+    onBeforeCommit(tx, `sla.default_calendar:${w.ctx.org.id}`, async () => {
+      const id = defaultCalendarOf.get(tx);
+      const me = id ? await tx.one<{ is_default: boolean }>(`select is_default from sm_calendars where id = $1 and org_id = $2 and deleted_at is null`, [id, sys.org.id]) : null;
+      if (!me?.is_default) return;
+      const others = await tx.query<{ id: string }>(`select id from sm_calendars where org_id = $1 and is_default and id <> $2 and deleted_at is null`, [sys.org.id, id]);
+      for (const o of others) await updateIn(tx, sys, "calendar", o.id, { is_default: false }, { trusted: true });
+    });
   },
     }),
     registerHooks("holiday", {

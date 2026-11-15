@@ -138,8 +138,10 @@ describe("a page that throws keeps the shell (error boundary)", () => {
 
   it("wraps every page of the organisation and the whole app", () => {
     const app = readFileSync(join(ROOT, "src/ui/App.tsx"), "utf8");
-    expect(app).toMatch(/<PageBoundary home=\{`\/\$\{org\}`\}>\{children\}<\/PageBoundary>/);
-    expect(app).toMatch(/element=\{<Page org=\{org!\}>\{r\.element\}<\/Page>\}/);
+    // the signed-in app is its own chunk (src/ui/OrgArea.tsx)
+    const area = readFileSync(join(ROOT, "src/ui/OrgArea.tsx"), "utf8");
+    expect(area).toMatch(/<PageBoundary home=\{`\/\$\{org\}`\}>\{children\}<\/PageBoundary>/);
+    expect(area).toMatch(/element=\{<Page org=\{org!\}>\{r\.element\}<\/Page>\}/);
     expect(app).toMatch(/return \(\s*<PageBoundary>\s*<Suspense/);
   });
 });

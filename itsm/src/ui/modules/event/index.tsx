@@ -8,7 +8,8 @@
 // Record pages: the alert's actions and escalation timeline, the group's actions and causes; on incident pages the
 // monitoring alerts and who is on call for the group, on CI pages the CI's open alerts. The sign-in-free
 // acknowledgement page is /p/ack/:token. Only light modules are imported here; components load with their pages.
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import { Activity, BellPlus, BellRing, CalendarClock, ChartColumn, ChevronsUp, GitMerge, Layers, ListFilter, MonitorDot, RadioTower, Repeat, Route, Siren, UserRoundCog, Settings2 } from "lucide-react";
 import type { ModuleUi } from "../registry";
 import { recordModule } from "../../records/module";

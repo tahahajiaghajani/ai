@@ -16,10 +16,10 @@ import { templateTasks, templateTasksProblem } from "@shared/incident/logic";
 import { ACTIVE_KE_STATES, cleanRca, rcaProblem, riskScore, techDebt } from "@shared/problem/logic";
 import { addDays, todayISO } from "@shared/jalali";
 import type { Ctx } from "../../context";
-import type { Queryable, Tx } from "../../db";
+import { onBeforeCommit, type Queryable, type Tx } from "../../db";
 import { addJournalIn, createIn, defFor, orgTz, registerHooks, updateIn, validationError, type WriteArgs } from "../../engine";
 import { forbidden } from "../../http/errors";
-import { countRows, eqAll, faList, liveRow, liveRows, problemConfig, secondsBetween, sysOf, type Row } from "../incident/common";
+import { countRows, eqAll, faList, liveRow, liveRows, lockedRow, problemConfig, secondsBetween, sysOf, type Row } from "../incident/common";
 import { canWork } from "../incident/major";
 import { assertCanKeep } from "../incident/hooks";
 
@@ -110,19 +110,39 @@ export async function recountKnownError(tx: Tx, ctx: Ctx, keId: string | null | 
   if (Number(ke.incident_count ?? 0) !== n) await updateIn(tx, sys, "known_error", keId, { incident_count: n }, { trusted: true, keepVersion: true, allowLocked: true });
 }
 
+/**
+ * The recounts of the writes of a transaction run just before commit, once per problem or known error, under its key:
+ * two incidents linked to one problem at the same moment take turns there, and the later count sees both (each
+ * counting in its own write saw only its own link, and the later write kept one too few). The recount takes the key,
+ * then the row; a write that locks the row in its body first takes the key too (services.ts `lockProblem`,
+ * incident/actions.ts `applyKnownError`), so the two orders never meet.
+ */
+export const problemRecountKey = (id: unknown) => `problem.recount:${id}`;
+function recountProblemAtCommit(w: WriteArgs, id: unknown): void {
+  if (!id) return;
+  const { tx, ctx } = w;
+  onBeforeCommit(tx, problemRecountKey(id), () => recountProblem(tx, ctx, String(id)));
+}
+function recountKnownErrorAtCommit(w: WriteArgs, id: unknown): void {
+  if (!id) return;
+  const { tx, ctx } = w;
+  // the same key incident/actions.ts `applyKnownError` takes before it writes the known error's row
+  onBeforeCommit(tx, `known_error.recount:${id}`, () => recountKnownError(tx, ctx, String(id)));
+}
+
 async function incidentAfter(w: WriteArgs & { row: Row }): Promise<void> {
   if (w.op === "delete") {
-    await recountProblem(w.tx, w.ctx, w.prev?.problem_id);
-    await recountKnownError(w.tx, w.ctx, w.prev?.known_error_id);
+    recountProblemAtCommit(w, w.prev?.problem_id);
+    recountKnownErrorAtCommit(w, w.prev?.known_error_id);
     return;
   }
   if (w.changed.has("problem_id")) {
-    await recountProblem(w.tx, w.ctx, w.row.problem_id);
-    if (w.prev?.problem_id && w.prev.problem_id !== w.row.problem_id) await recountProblem(w.tx, w.ctx, w.prev.problem_id);
+    recountProblemAtCommit(w, w.row.problem_id);
+    if (w.prev?.problem_id && w.prev.problem_id !== w.row.problem_id) recountProblemAtCommit(w, w.prev.problem_id);
   }
   if (w.changed.has("known_error_id")) {
-    await recountKnownError(w.tx, w.ctx, w.row.known_error_id);
-    if (w.prev?.known_error_id && w.prev.known_error_id !== w.row.known_error_id) await recountKnownError(w.tx, w.ctx, w.prev.known_error_id);
+    recountKnownErrorAtCommit(w, w.row.known_error_id);
+    if (w.prev?.known_error_id && w.prev.known_error_id !== w.row.known_error_id) recountKnownErrorAtCommit(w, w.prev.known_error_id);
   }
 }
 
@@ -130,7 +150,8 @@ async function incidentAfter(w: WriteArgs & { row: Row }): Promise<void> {
 // problem_task, known_error, problem_candidate
 
 async function closedProblem(q: Queryable, ctx: Ctx, id: unknown): Promise<Row | null> {
-  const p = await liveRow(q, sysOf(ctx), "problem", id);
+  // locked until commit (a task's write then stamps the problem): a closing in flight finishes first and is seen
+  const p = await lockedRow(q, sysOf(ctx), "problem", id);
   if (!p) return null;
   const cat = stateCategory((await defFor(sysOf(ctx), "problem", q)).def.states, p.state);
   return cat === "closed" || cat === "canceled" ? p : null;
@@ -179,8 +200,8 @@ async function keBefore(w: WriteArgs): Promise<void> {
 
 async function keAfter(w: WriteArgs & { row: Row }): Promise<void> {
   if (w.op !== "delete" && !w.changed.has("state") && !w.changed.has("problem_id")) return;
-  await recountProblem(w.tx, w.ctx, w.row.problem_id ?? w.prev?.problem_id);
-  if (w.prev?.problem_id && w.prev.problem_id !== w.row.problem_id) await recountProblem(w.tx, w.ctx, w.prev.problem_id);
+  recountProblemAtCommit(w, w.row.problem_id ?? w.prev?.problem_id);
+  if (w.prev?.problem_id && w.prev.problem_id !== w.row.problem_id) recountProblemAtCommit(w, w.prev.problem_id);
 }
 
 function candidateBefore(w: WriteArgs): void {

@@ -10,7 +10,7 @@ import { fromJalali } from "@shared/jalali";
 import { tableDef } from "@shared/tables";
 import { SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
-import { PAGING } from "@server/modules/itam/bank";
+import { CONTACT_SLACK_MS, PAGING } from "@server/modules/itam/bank";
 
 let w: ItamWorld;
 const u: Record<string, string> = {};
@@ -496,10 +496,15 @@ describe("the custody chain is the server's", () => {
     const open = periods[periods.length - 1];
     expect(open.to_at).toBeFalsy();
     const end = new Date(Date.now() - 1000);
-    // ...once the device itself left that status (the app pushes the device's change before its period)
+    // ...once the device itself left that status (the app pushes the device's change before its period), and when it
+    // did as the server decided it (a member without a registered Windows app: the server stamps the change)
     expect((await pushed(m.vanak.client, "asset", a.atm.id, { device_status: "in_service", device_status_at: end.toISOString() })).status).toBe("ok");
     expect((await pushed(m.vanak.client, "device_status_event", open.id, { to_at: end.toISOString(), minutes: 99999 })).status).toBe("ok");
-    expect((await stored("device_status_event", open.id)).minutes).toBe(Math.max(0, Math.round((end.getTime() - Date.parse(open.from_at)) / 60_000)));
+    const changed = Date.parse((await stored("asset", a.atm.id)).device_status_at);
+    expect(changed).toBeGreaterThanOrEqual(end.getTime());
+    const closed2 = await stored("device_status_event", open.id);
+    expect(Date.parse(closed2.to_at)).toBe(changed);
+    expect(closed2.minutes).toBe(Math.max(0, Math.round((changed - Date.parse(open.from_at)) / 60_000)));
   });
 });
 
@@ -647,3 +652,520 @@ describe("re-verified: pushes and separation of duties hold for new rows too", (
   });
 });
 
+// ---------------------------------------------------------------------------------------------------------------
+// 1.1: what a Windows app pushes of its asset changes — the times are the server's to decide (within the push's bounds)
+// and a custody segment is judged and chained as a whole, whatever order its rows come in
+
+type Wire = { entity: string; id: string; base_rev: number; row: Record<string, unknown> };
+const isoAt = (ms: number) => new Date(ms).toISOString();
+/** A stored row as a Windows app pushes it back, with `patch` and a later stamp. */
+async function asWire(table: string, id: string, patch: Record<string, unknown> = {}): Promise<Wire> {
+  const r = (await w.e.db.one<Record<string, unknown>>(`select * from ${tableDef(table)!.table} where id = $1`, [id]))!;
+  return { entity: table, id, base_rev: Number(r.rev), row: { ...JSON.parse(JSON.stringify(r)), ...patch, updated_at: isoAt(Date.now() + 5_000) } };
+}
+/** A row the app made. */
+function made(table: string, row: Record<string, unknown>): Wire {
+  const id = String(row.id ?? uuidv7());
+  const now = isoAt(Date.now());
+  return { entity: table, id, base_rev: 0, row: { org_id: w.e.org, created_at: now, updated_at: now, ...row, id } };
+}
+/** One push of several rows (any order); the results by row id. */
+async function pushAll(c: Client, aggs: Wire[]): Promise<Map<string, { status: string; message?: string }>> {
+  const r = await c.post(`/sync/push`, { org_id: w.e.org, device_id: uuidv7(), protocol: SYNC_PROTOCOL, aggregates: aggs.map((x) => ({ ...x, children: {} })) });
+  return new Map((r.results as { id: string; status: string; message?: string }[]).map((x) => [x.id, x]));
+}
+const statuses = (m: Map<string, { status: string }>) => [...m.values()].map((x) => x.status);
+const periodsOf = async (id: string) => (await w.p.am.client.post(`${w.P}/r/device_status_event/query`, { filter: { f: "asset_id", op: "eq", v: id }, sort: "from_at", size: 50 })).rows as Record<string, any>[];
+
+describe("a Windows app's device status times are the server's", () => {
+  let app: { client: Client; userId: string };
+  let device = "";
+  let seq = 0;
+  const lastPull = (ms: number) => w.e.db.query(`update sm_devices set last_pull_at = $2 where id = $1`, [device, isoAt(ms)]);
+  /** A Vanak ATM whose stored history is `statuses` from `starts` on (the last one open): as if recorded back then. */
+  async function atmWith(statuses: string[], starts: number[]): Promise<{ id: string; periods: Record<string, any>[] }> {
+    const atm = await fresh(u.vanak, { model_id: atmModel, serial_number: `ATM-T${++seq}`, terminal_id: `1001${String(500 + seq)}` });
+    for (const st of statuses.slice(1)) await m.vanak.client.post(`${w.P}/itam/fleet/${atm.id}/status`, { status: st });
+    const periods = await periodsOf(atm.id);
+    expect(periods.map((x) => x.status)).toEqual(statuses);
+    for (let i = 0; i < periods.length; i++) {
+      const to = i + 1 < periods.length ? isoAt(starts[i + 1]) : null;
+      await w.e.db.query(`update sm_device_status_events set from_at = $2, to_at = $3, minutes = $4 where id = $1`, [periods[i].id, isoAt(starts[i]), to, to ? Math.round((starts[i + 1] - starts[i]) / 60_000) : null]);
+    }
+    await w.e.db.query(`update sm_assets set device_status_at = $2 where id = $1`, [atm.id, isoAt(starts[starts.length - 1])]);
+    return { id: atm.id, periods: await periodsOf(atm.id) };
+  }
+
+  beforeAll(async () => {
+    // a Vanak officer whose Windows app is registered (its contact with the server bounds what it may date)
+    app = await w.e.member("member", "vanak-app@bank.example");
+    await w.o.put(`${w.P}/access/members/${app.userId}`, { roles: ["branch_asset_officer"], persona: "agent", org_unit_id: u.vanak });
+    device = (await app.client.post(`/sync/register`, { org_id: w.e.org, name: "رایانهٔ شعبهٔ ونک", platform: "windows" })).device_id;
+  });
+
+  it("dates an online app's backdated change after its last contact: a three-day outage stays three days", async () => {
+    const began = Date.now() - 3 * 86_400_000;
+    const atm = await atmWith(["in_service", "offline"], [began - 86_400_000, began]);
+    const open = atm.periods[1];
+    // the app synced seconds ago, and now says the device came back a minute after the outage began
+    await lastPull(Date.now() - 5_000);
+    const claimed = isoAt(began + 60_000);
+    const next = made("device_status_event", { asset_id: atm.id, status: "in_service", from_at: claimed });
+    const res = await pushAll(app.client, [next, await asWire("device_status_event", open.id, { to_at: claimed, minutes: 1 }), await asWire("asset", atm.id, { device_status: "in_service", device_status_at: claimed })]);
+    expect(statuses(res)).toEqual(["ok", "ok", "ok"]);
+    const at = Date.parse((await stored("asset", atm.id)).device_status_at);
+    expect(at).toBeGreaterThanOrEqual(Date.now() - 5_000 - CONTACT_SLACK_MS - 60_000);
+    const closed = await stored("device_status_event", open.id);
+    expect(Date.parse(closed.to_at)).toBe(at);
+    expect(closed.minutes).toBeGreaterThan(3 * 24 * 60 - 10);
+    expect(Date.parse((await stored("device_status_event", next.id)).from_at)).toBe(at);
+  });
+
+  it("keeps an offline app's times within the push's bounds — a change and back included — and none in the future", async () => {
+    // in service for four hours; the app's last sync two hours ago; offline since, it recorded «بدون وجه نقد» an hour
+    // ago and «در سرویس» again half an hour ago
+    const atm = await atmWith(["in_service"], [Date.now() - 4 * 3_600_000]);
+    const open = atm.periods[0];
+    await lastPull(Date.now() - 2 * 3_600_000);
+    const out = Date.now() - 3_600_000;
+    const back = Date.now() - 1_800_000;
+    const p1 = made("device_status_event", { asset_id: atm.id, status: "out_of_cash", from_at: isoAt(out), to_at: isoAt(back), minutes: 30 });
+    const p2 = made("device_status_event", { asset_id: atm.id, status: "in_service", from_at: isoAt(back) });
+    const res = await pushAll(app.client, [p2, await asWire("asset", atm.id, { device_status: "in_service", device_status_at: isoAt(back) }), p1, await asWire("device_status_event", open.id, { to_at: isoAt(out), minutes: 180 })]);
+    expect(statuses(res)).toEqual(["ok", "ok", "ok", "ok"]);
+    expect(Date.parse((await stored("asset", atm.id)).device_status_at)).toBe(back);
+    expect(Date.parse((await stored("device_status_event", open.id)).to_at)).toBe(out);
+    const cash = await stored("device_status_event", p1.id);
+    expect([Date.parse(cash.from_at), Date.parse(cash.to_at), cash.minutes]).toEqual([out, back, 30]);
+    const now = await stored("device_status_event", p2.id);
+    expect([Date.parse(now.from_at), now.to_at]).toEqual([back, null]);
+    // a time after the push is the push's own
+    const tomorrow = isoAt(Date.now() + 86_400_000);
+    const later = made("device_status_event", { asset_id: atm.id, status: "maintenance", from_at: tomorrow });
+    const before = Date.now();
+    const res2 = await pushAll(app.client, [await asWire("asset", atm.id, { device_status: "maintenance", device_status_at: tomorrow }), later, await asWire("device_status_event", p2.id, { to_at: tomorrow })]);
+    expect(statuses(res2)).toEqual(["ok", "ok", "ok"]);
+    const at = Date.parse((await stored("asset", atm.id)).device_status_at);
+    expect(at).toBeGreaterThanOrEqual(before);
+    expect(at).toBeLessThanOrEqual(Date.now());
+    expect(Date.parse((await stored("device_status_event", later.id)).from_at)).toBe(at);
+    expect(Date.parse((await stored("device_status_event", p2.id)).to_at)).toBe(at);
+  });
+
+  it("stamps the change of a member without a registered app, and takes no period without the device's change", async () => {
+    const atm = await atmWith(["in_service", "out_of_service"], [Date.now() - 3 * 86_400_000, Date.now() - 2 * 86_400_000]);
+    const open = atm.periods[1];
+    // a period of another status while the device stays as it is: refused (it is the trace of no change)
+    const stray = made("device_status_event", { asset_id: atm.id, status: "offline", from_at: isoAt(Date.now() - 86_400_000) });
+    expect(statuses(await pushAll(app.client, [stray, await asWire("device_status_event", open.id, { to_at: isoAt(Date.now() - 86_400_000) })]))).toEqual(["error", "error"]);
+    expect((await stored("device_status_event", open.id)).to_at).toBeNull();
+    // m.vanak has no Windows app registered: whatever time comes, the server's
+    const before = Date.now();
+    expect((await pushed(m.vanak.client, "asset", atm.id, { device_status: "in_service", device_status_at: isoAt(Date.now() - 86_400_000) })).status).toBe("ok");
+    expect(Date.parse((await stored("asset", atm.id)).device_status_at)).toBeGreaterThanOrEqual(before);
+    expect((await pushed(m.vanak.client, "device_status_event", open.id, { to_at: isoAt(Date.now() - 86_400_000) })).status).toBe("ok");
+    expect(Date.parse((await stored("device_status_event", open.id)).to_at)).toBeGreaterThanOrEqual(before);
+  });
+
+  it("decides the time of a status cleared on the app too: an outage is not shortened by clearing it", async () => {
+    const began = Date.now() - 2 * 86_400_000;
+    const atm = await atmWith(["in_service", "offline"], [began - 86_400_000, began]);
+    const open = atm.periods[1];
+    await lastPull(Date.now() - 5_000);
+    // the app clears the status and says it was cleared a minute after the outage began (and the outage ended then)
+    const claimed = isoAt(began + 60_000);
+    const res = await pushAll(app.client, [await asWire("device_status_event", open.id, { to_at: claimed, minutes: 1 }), await asWire("asset", atm.id, { device_status: null, device_status_at: claimed })]);
+    expect(statuses(res)).toEqual(["ok", "ok"]);
+    const a = await stored("asset", atm.id);
+    expect(a.device_status).toBeNull();
+    const at = Date.parse(a.device_status_at);
+    expect(at).toBeGreaterThanOrEqual(Date.now() - 5_000 - CONTACT_SLACK_MS - 60_000);
+    const closed = await stored("device_status_event", open.id);
+    expect(Date.parse(closed.to_at)).toBe(at);
+    expect(closed.minutes).toBeGreaterThan(2 * 24 * 60 - 10);
+    // an offline app's change and clear in one push: every new period closed, the last when the status was cleared
+    const atm2 = await atmWith(["in_service"], [Date.now() - 4 * 3_600_000]);
+    await lastPull(Date.now() - 2 * 3_600_000);
+    const out = Date.now() - 3_600_000;
+    const cleared = Date.now() - 1_800_000;
+    const p1 = made("device_status_event", { asset_id: atm2.id, status: "maintenance", from_at: isoAt(out), to_at: isoAt(cleared), minutes: 30 });
+    const res2 = await pushAll(app.client, [p1, await asWire("device_status_event", atm2.periods[0].id, { to_at: isoAt(out), minutes: 180 }), await asWire("asset", atm2.id, { device_status: null, device_status_at: isoAt(cleared) })]);
+    expect(statuses(res2)).toEqual(["ok", "ok", "ok"]);
+    expect(Date.parse((await stored("asset", atm2.id)).device_status_at)).toBe(cleared);
+    expect(Date.parse((await stored("device_status_event", atm2.periods[0].id)).to_at)).toBe(out);
+    const m1 = await stored("device_status_event", p1.id);
+    expect([Date.parse(m1.from_at), Date.parse(m1.to_at), m1.minutes]).toEqual([out, cleared, 30]);
+    expect(await periodsOf(atm2.id).then((ps) => ps.filter((x) => !x.to_at))).toEqual([]);
+  });
+
+  // ----- a change and back whose asset row does not apply with its periods (review R-a-1)
+
+  /**
+   * In service since T0 = now-6h (the open period O from the device's change time); the app synced at now-5h, went
+   * offline, recorded «بدون وجه نقد» at now-3h and «در سرویس» again at now-2h: its rows as it pushes them.
+   */
+  async function changeAndBack() {
+    const T0 = Date.now() - 6 * 3_600_000;
+    const atm = await atmWith(["in_service"], [T0]);
+    const O = atm.periods[0];
+    await lastPull(Date.now() - 5 * 3_600_000);
+    const out = Date.now() - 3 * 3_600_000;
+    const back = Date.now() - 2 * 3_600_000;
+    const rev = Number((await stored("asset", atm.id)).rev);
+    const p1 = made("device_status_event", { asset_id: atm.id, status: "out_of_cash", from_at: isoAt(out), to_at: isoAt(back), minutes: 60 });
+    const p2 = made("device_status_event", { asset_id: atm.id, status: "in_service", from_at: isoAt(back) });
+    const close = await asWire("device_status_event", O.id, { to_at: isoAt(out), minutes: 180 });
+    // the app's copy of the asset: changed at `back`, on the revision it pulled
+    const asset = async (): Promise<Wire> => {
+      const x = await asWire("asset", atm.id, { device_status: "in_service", device_status_at: isoAt(back) });
+      return { ...x, base_rev: rev, row: { ...x.row, updated_at: isoAt(back) } };
+    };
+    return { T0, atm, O, out, back, p1, p2, close, asset };
+  }
+  /** The outage as the app recorded it: O until it began, an hour without cash, in service again since. */
+  async function outageKept(s: Awaited<ReturnType<typeof changeAndBack>>) {
+    expect(Date.parse((await stored("asset", s.atm.id)).device_status_at)).toBe(s.back);
+    const o = await stored("device_status_event", s.O.id);
+    expect([Date.parse(o.to_at), o.minutes]).toEqual([s.out, 180]);
+    const cash = await stored("device_status_event", s.p1.id);
+    expect([cash.status, Date.parse(cash.from_at), Date.parse(cash.to_at), cash.minutes]).toEqual(["out_of_cash", s.out, s.back, 60]);
+    const now = await stored("device_status_event", s.p2.id);
+    expect([Date.parse(now.from_at), now.to_at]).toEqual([s.back, null]);
+  }
+  const untouched = async (s: Awaited<ReturnType<typeof changeAndBack>>) => {
+    expect(Date.parse((await stored("asset", s.atm.id)).device_status_at)).toBe(s.T0);
+    expect((await periodsOf(s.atm.id)).map((x) => [x.id, x.to_at ?? null])).toEqual([[s.O.id, null]]);
+  };
+
+  it("refuses the periods in sight, never folded onto the old change time, when the app's asset row loses to the web version's copy", async () => {
+    const s = await changeAndBack();
+    const asset = await s.asset();
+    // meanwhile the web version writes the asset (a branch manager's attestation stamp): its copy wins the push
+    await w.e.db.query(`update sm_assets set last_attested_at = now() where id = $1`, [s.atm.id]);
+    const res = await pushAll(app.client, [asset, s.close, s.p1, s.p2]);
+    expect(res.get(s.atm.id)!.status).toBe("conflict");
+    for (const x of [s.close, s.p1, s.p2]) expect(res.get(x.id)!.status).toBe("error");
+    await untouched(s);
+  });
+
+  it("takes a change and back whose outbox page brought the asset row a request before its periods", async () => {
+    const s = await changeAndBack();
+    // the asset row alone: the device's change time moves to the app's (within the push's bounds) …
+    expect(statuses(await pushAll(app.client, [await s.asset()]))).toEqual(["ok"]);
+    expect(Date.parse((await stored("asset", s.atm.id)).device_status_at)).toBe(s.back);
+    // … and the periods of the next request find it set
+    expect(statuses(await pushAll(app.client, [s.close, s.p1, s.p2]))).toEqual(["ok", "ok", "ok"]);
+    await outageKept(s);
+  });
+
+  it("refuses periods that came a request before their asset row, and takes them sent again in the same sync", async () => {
+    const s = await changeAndBack();
+    expect(statuses(await pushAll(app.client, [s.close, s.p1, s.p2]))).toEqual(["error", "error", "error"]);
+    await untouched(s);
+    expect(statuses(await pushAll(app.client, [await s.asset()]))).toEqual(["ok"]);
+    expect(statuses(await pushAll(app.client, [s.close, s.p1, s.p2]))).toEqual(["ok", "ok", "ok"]);
+    await outageKept(s);
+  });
+
+  it("refuses earlier periods whose device change time is older than the app's last contact", async () => {
+    const s = await changeAndBack();
+    expect(statuses(await pushAll(app.client, [await s.asset()]))).toEqual(["ok"]);
+    // the app pulled since, its periods still waiting in the outbox: their bounds are gone, they are not folded
+    await lastPull(Date.now() - 5_000);
+    expect(statuses(await pushAll(app.client, [s.close, s.p1, s.p2]))).toEqual(["error", "error", "error"]);
+    expect((await periodsOf(s.atm.id)).map((x) => [x.id, x.to_at ?? null])).toEqual([[s.O.id, null]]);
+  });
+
+  it("refuses the periods when the app's asset row is refused, even where its time would equal the stored one", async () => {
+    // the module's push rule refuses the asset row (a branch officer moving it to another branch) after its device time
+    // was decided: the app's change and back come dated before the stored period, so that time is the stored one
+    const T0 = Date.now() - 10 * 60_000;
+    const atm = await atmWith(["in_service"], [T0]);
+    const O = atm.periods[0];
+    await lastPull(Date.now() - 8 * 60_000);
+    const out = Date.now() - 12 * 60_000;
+    const back = Date.now() - 11 * 60_000;
+    const rows = () => [
+      made("device_status_event", { asset_id: atm.id, status: "out_of_cash", from_at: isoAt(out), to_at: isoAt(back), minutes: 1 }),
+      made("device_status_event", { asset_id: atm.id, status: "in_service", from_at: isoAt(back) }),
+    ];
+    const moved = await asWire("asset", atm.id, { device_status: "in_service", device_status_at: isoAt(back), branch_id: u.tajrish });
+    const res = await pushAll(app.client, [moved, await asWire("device_status_event", O.id, { to_at: isoAt(out) }), ...rows()]);
+    expect(statuses(res)).toEqual(["error", "error", "error", "error"]);
+    expect(res.get(atm.id)!.message).toContain("حوالهٔ انتقال");
+    // the engine's own push rule refuses it (no such transition of the asset): the same
+    const disposed = await asWire("asset", atm.id, { device_status: "in_service", device_status_at: isoAt(back), state: "disposed" });
+    expect(statuses(await pushAll(app.client, [disposed, await asWire("device_status_event", O.id, { to_at: isoAt(out) }), ...rows()]))).toEqual(["error", "error", "error", "error"]);
+    expect((await periodsOf(atm.id)).map((x) => [x.id, x.to_at ?? null])).toEqual([[O.id, null]]);
+    expect(Date.parse((await stored("asset", atm.id)).device_status_at)).toBe(T0);
+  });
+
+  it("takes a change whose time the server set to the start of the stored history (marked by its own asset row)", async () => {
+    // a period the server began ten minutes ago, after the app's last contact; the app's clock is behind, so its change
+    // and back come dated before it: the device's change time is that period's start, and the periods fold onto it
+    const T0 = Date.now() - 10 * 60_000;
+    const atm = await atmWith(["in_service"], [T0]);
+    const O = atm.periods[0];
+    await lastPull(Date.now() - 8 * 60_000);
+    const out = Date.now() - 12 * 60_000;
+    const back = Date.now() - 11 * 60_000;
+    const p1 = made("device_status_event", { asset_id: atm.id, status: "out_of_cash", from_at: isoAt(out), to_at: isoAt(back), minutes: 1 });
+    const p2 = made("device_status_event", { asset_id: atm.id, status: "in_service", from_at: isoAt(back) });
+    const res = await pushAll(app.client, [await asWire("asset", atm.id, { device_status: "in_service", device_status_at: isoAt(back) }), await asWire("device_status_event", O.id, { to_at: isoAt(out) }), p1, p2]);
+    expect(statuses(res)).toEqual(["ok", "ok", "ok", "ok"]);
+    expect(Date.parse((await stored("asset", atm.id)).device_status_at)).toBe(T0);
+    for (const x of [p1, p2]) expect(Date.parse((await stored("device_status_event", x.id)).from_at)).toBe(T0);
+  });
+
+  // ----- new periods dated before the stored open period's start (review R-a-6)
+
+  it("closes the stored period where its segment says when the new periods come dated before it: no time counted twice", async () => {
+    const T0 = Date.now() - 2 * 3_600_000;
+    const atm = await atmWith(["in_service"], [T0]);
+    const O = atm.periods[0];
+    await lastPull(Date.now() - 3 * 3_600_000);
+    const changed = Date.now() - 60_000;
+    const p1 = made("device_status_event", { asset_id: atm.id, status: "out_of_cash", from_at: isoAt(T0 - 3_600_000), to_at: isoAt(T0 - 1_800_000), minutes: 30 });
+    const p2 = made("device_status_event", { asset_id: atm.id, status: "in_service", from_at: isoAt(T0 - 1_800_000) });
+    const res = await pushAll(app.client, [await asWire("asset", atm.id, { device_status: "in_service", device_status_at: isoAt(changed) }), p1, p2, await asWire("device_status_event", O.id, { to_at: isoAt(T0 - 3_600_000) })]);
+    expect(statuses(res)).toEqual(["ok", "ok", "ok", "ok"]);
+    const [o, a1, a2] = await Promise.all([O.id, p1.id, p2.id].map((id) => stored("device_status_event", id)));
+    // contiguous from T0 on: each period ends where the next begins, the newest open from the device's change time
+    expect([Date.parse(o.from_at), Date.parse(o.to_at)]).toEqual([T0, T0]);
+    expect([Date.parse(a1.from_at), Date.parse(a1.to_at)]).toEqual([T0, changed]);
+    expect([Date.parse(a2.from_at), a2.to_at]).toEqual([changed, null]);
+    expect(o.minutes + a1.minutes).toBe(Math.round((changed - T0) / 60_000));
+  });
+
+  it("ends an older open period beside the device's current one where the next one begins", async () => {
+    const T0 = Date.now() - 3 * 3_600_000;
+    const atm = await atmWith(["in_service", "offline"], [T0, T0 + 3_600_000]);
+    const [O1, O2] = atm.periods;
+    // an earlier anomaly: the first period was never closed
+    await w.e.db.query(`update sm_device_status_events set to_at = null, minutes = null where id = $1`, [O1.id]);
+    await lastPull(Date.now() - 5_000);
+    const back = Date.now() - 60_000;
+    const p = made("device_status_event", { asset_id: atm.id, status: "in_service", from_at: isoAt(back) });
+    const res = await pushAll(app.client, [await asWire("asset", atm.id, { device_status: "in_service", device_status_at: isoAt(back) }), await asWire("device_status_event", O1.id, { to_at: isoAt(back) }), await asWire("device_status_event", O2.id, { to_at: isoAt(back) }), p]);
+    expect(statuses(res)).toEqual(["ok", "ok", "ok", "ok"]);
+    expect([Date.parse((await stored("device_status_event", O1.id)).to_at), (await stored("device_status_event", O1.id)).minutes]).toEqual([T0 + 3_600_000, 60]);
+    expect(Date.parse((await stored("device_status_event", O2.id)).to_at)).toBe(back);
+    expect(Date.parse((await stored("device_status_event", p.id)).from_at)).toBe(back);
+  });
+
+  // ----- a device without stored history (review R-a-2)
+
+  /** A Vanak ATM as a Windows app registers it: a stored ATM's row copied under a new id. */
+  async function newAtm(patch: Record<string, unknown>): Promise<Wire> {
+    const tpl = await fresh(u.vanak, { model_id: atmModel, serial_number: `ATM-TPL-${++seq}`, terminal_id: `1001${String(600 + seq)}` });
+    const r = JSON.parse(JSON.stringify(await stored("asset", tpl.id)));
+    const n = ++seq;
+    return made("asset", { ...r, id: uuidv7(), rev: 0, number: null, asset_tag: null, serial_number: `ATM-NEW-${n}`, terminal_id: `1001${String(600 + n)}`, ...patch });
+  }
+  const backdated = (assetId: string, since: string, until: number) => [
+    made("device_status_event", { asset_id: assetId, status: "offline", from_at: since, to_at: isoAt(until), minutes: 1 }),
+    made("device_status_event", { asset_id: assetId, status: "in_service", from_at: isoAt(until) }),
+  ];
+
+  it("dates the first periods of a device the server held without history after the app's last contact", async () => {
+    // a laptop given an ATM model: a fleet device without a status or a period
+    const x = await fresh(u.vanak, { serial_number: `NOSTAT-${++seq}` });
+    await w.p.am.client.patch(`${w.P}/r/asset/${x.id}`, { model_id: atmModel, terminal_id: `1001${String(800 + seq)}` });
+    expect([(await stored("asset", x.id)).device_status, (await periodsOf(x.id)).length]).toEqual([null, 0]);
+    await lastPull(Date.now() - 5_000);
+    const now = Date.now();
+    const [off, on] = backdated(x.id, "2020-01-01T00:00:00.000Z", now - 60_000);
+    expect(statuses(await pushAll(app.client, [await asWire("asset", x.id, { device_status: "in_service", device_status_at: isoAt(now - 60_000) }), off, on]))).toEqual(["ok", "ok", "ok"]);
+    const p = await stored("device_status_event", off.id);
+    expect(Date.parse(p.from_at)).toBeGreaterThanOrEqual(now - 5_000 - CONTACT_SLACK_MS - 1_000);
+    expect(p.minutes).toBeLessThanOrEqual(6);
+  });
+
+  it("dates a new device's history after the app's last contact, unless an organisation's upload brings it", async () => {
+    await lastPull(Date.now() - 5_000);
+    const now = Date.now();
+    const linked = await newAtm({ device_status: "in_service", device_status_at: isoAt(now - 60_000) });
+    const [off, on] = backdated(linked.id, "2020-01-01T00:00:00.000Z", now - 60_000);
+    expect(statuses(await pushAll(app.client, [linked, off, on]))).toEqual(["ok", "ok", "ok"]);
+    expect(Date.parse((await stored("device_status_event", off.id)).from_at)).toBeGreaterThanOrEqual(now - 5_000 - CONTACT_SLACK_MS - 1_000);
+    // the member's apps never pulled: an organisation uploaded from a standalone app keeps the app's own history
+    await w.e.db.query(`update sm_devices set last_pull_at = null where id = $1`, [device]);
+    try {
+      const upload = await newAtm({ device_status: "in_service", device_status_at: isoAt(now - 60_000) });
+      const [off2, on2] = backdated(upload.id, "2024-01-01T00:00:00.000Z", now - 60_000);
+      expect(statuses(await pushAll(app.client, [upload, off2, on2]))).toEqual(["ok", "ok", "ok"]);
+      expect((await stored("device_status_event", off2.id)).from_at).toBe("2024-01-01T00:00:00.000Z");
+    } finally {
+      await lastPull(Date.now() - 5_000);
+    }
+  });
+
+  it("dates the first custody rows of an asset the server held without a chain after its registration and the app's last contact", async () => {
+    const x = await fresh(u.vanak, { serial_number: `NOCHAIN-${++seq}` });
+    // a legacy asset: no chain at all
+    await w.e.db.query(`delete from sm_asset_custody where asset_id = $1`, [x.id]);
+    await lastPull(Date.now() - 5_000);
+    const before = Date.now();
+    const r = made("asset_custody", { asset_id: x.id, seq: 1, at: "2020-01-01T00:00:00.000Z", event: "registered", branch_id: u.vanak });
+    expect(statuses(await pushAll(app.client, [r]))).toEqual(["ok"]);
+    const row = await stored("asset_custody", r.id);
+    expect(Date.parse(row.at)).toBeGreaterThanOrEqual(Math.max(Date.parse(x.created_at), before - 5_000 - CONTACT_SLACK_MS - 1_000));
+  });
+});
+
+describe("a Windows app's custody segment", () => {
+  const chainOf = async (id: string) => w.p.am.client.get(`${w.P}/itam/assets/${id}/custody`);
+  const move = (asset: string, seq: number, from: string, to: string, at: number) => made("asset_custody", { asset_id: asset, seq, at: isoAt(at), event: "branch_changed", branch_id: to, from_branch_id: from, prev_hash: "x", hash: "0".repeat(64) });
+
+  it("chains A→B→A in event order, signed here, whatever order its rows come in", async () => {
+    const x = await fresh(u.vanak, { serial_number: "ABA-1" });
+    const before = await chainOf(x.id);
+    const last = before.rows[before.rows.length - 1];
+    const n = Number(last.seq);
+    const t = Date.now();
+    const toB = move(x.id, n + 1, u.vanak, u.tajrish, t - 60_000);
+    const backA = move(x.id, n + 2, u.tajrish, u.vanak, t - 30_000);
+    // one push: the move back first, then the move away, then the asset (back where it was; only its version moved)
+    const res = await pushAll(w.p.am.client, [backA, toB, await asWire("asset", x.id)]);
+    expect(statuses(res)).toEqual(["ok", "ok", "ok"]);
+    const after = await chainOf(x.id);
+    expect(after.verified).toEqual({ rows: before.rows.length + 2, ok: true, broken_at: null });
+    const [r1, r2] = after.rows.slice(-2);
+    expect([r1.id, r1.seq, r1.branch_id, r1.from_branch_id]).toEqual([toB.id, n + 1, u.tajrish, u.vanak]);
+    expect([r2.id, r2.seq, r2.branch_id, r2.from_branch_id]).toEqual([backA.id, n + 2, u.vanak, u.tajrish]);
+    expect([r1.prev_hash, r2.prev_hash]).toEqual([last.hash, r1.hash]);
+    for (const r of [r1, r2]) {
+      expect(r.hash).toMatch(/^k1:[0-9a-f]{64}$/);
+      expect(r.actor_id).toBe(w.p.am.userId);
+    }
+    expect(Date.parse(r1.at)).toBeLessThanOrEqual(Date.parse(r2.at));
+    expect((await stored("asset", x.id)).branch_id).toBe(u.vanak);
+  });
+
+  it("waits for a segment that comes split or with a gap, and takes it whole once complete", async () => {
+    const x = await fresh(u.vanak, { serial_number: "ABA-2" });
+    const before = await chainOf(x.id);
+    const n = Number(before.rows[before.rows.length - 1].seq);
+    const t = Date.now();
+    const toB = move(x.id, n + 1, u.vanak, u.tajrish, t - 60_000);
+    const backA = move(x.id, n + 2, u.tajrish, u.vanak, t - 30_000);
+    // the move back alone: a gap before it; the move away alone: the chain would say Tajrish while the asset is in Vanak
+    expect(statuses(await pushAll(w.p.am.client, [backA]))).toEqual(["error"]);
+    expect(statuses(await pushAll(w.p.am.client, [toB]))).toEqual(["error"]);
+    expect((await chainOf(x.id)).rows).toHaveLength(before.rows.length);
+    // the app sends them again together (its outbox keeps them): taken in order
+    expect(statuses(await pushAll(w.p.am.client, [backA, toB]))).toEqual(["ok", "ok"]);
+    const after = await chainOf(x.id);
+    expect(after.verified.ok).toBe(true);
+    expect(after.rows.slice(-2).map((r: any) => r.id)).toEqual([toB.id, backA.id]);
+  });
+
+  it("takes no branch move, even there and back, from someone who does not move assets between branches", async () => {
+    const x = await fresh(u.vanak, { serial_number: "ABA-3" });
+    const before = await chainOf(x.id);
+    const n = Number(before.rows[before.rows.length - 1].seq);
+    const t = Date.now();
+    const res = await pushAll(m.vanak.client, [move(x.id, n + 1, u.vanak, u.tajrish, t - 60_000), move(x.id, n + 2, u.tajrish, u.vanak, t - 30_000)]);
+    expect(statuses(res)).toEqual(["error", "error"]);
+    expect((await chainOf(x.id)).rows).toHaveLength(before.rows.length);
+  });
+
+  it("numbers the segment of an app behind the server's chain after it, and keeps every link verifiable", async () => {
+    const x = await fresh(u.vanak, { serial_number: "ABA-4" });
+    const seen = await chainOf(x.id);
+    const n = Number(seen.rows[seen.rows.length - 1].seq);
+    // meanwhile the web version records an assignment (the app has not pulled it)
+    await w.p.am.client.patch(`${w.P}/r/asset/${x.id}`, { assigned_to: w.p.req.userId });
+    await w.p.am.client.patch(`${w.P}/r/asset/${x.id}`, { assigned_to: null });
+    const t = Date.now();
+    const toB = move(x.id, n + 1, u.vanak, u.tajrish, t - 60_000);
+    const backA = move(x.id, n + 2, u.tajrish, u.vanak, t - 30_000);
+    expect(statuses(await pushAll(w.p.am.client, [toB, backA]))).toEqual(["ok", "ok"]);
+    const after = await chainOf(x.id);
+    expect(after.verified.ok).toBe(true);
+    expect(after.rows.map((r: any) => r.event)).toEqual([...seen.rows.map((r: any) => r.event), "assigned", "returned", "branch_changed", "branch_changed"]);
+    expect(after.rows.slice(-2).map((r: any) => Number(r.seq))).toEqual([n + 3, n + 4]);
+    // the app's own times stay in order after the server's rows
+    const [ret, r1] = after.rows.slice(-3);
+    expect(Date.parse(r1.at)).toBeGreaterThanOrEqual(Date.parse(ret.at));
+  });
+
+  // ----- each row replayed from where the stored chain left the asset (review R-a-3)
+
+  const row = (asset: string, seq: number, event: string, data: Record<string, unknown> = {}) => made("asset_custody", { asset_id: asset, seq, at: isoAt(Date.now() - 60_000 + seq * 1_000), event, branch_id: u.vanak, prev_hash: "x", hash: "0".repeat(64), ...data });
+  const lastSeq = async (id: string) => {
+    const c = await chainOf(id);
+    return Number(c.rows[c.rows.length - 1].seq);
+  };
+
+  it("signs no assignment the asset never had: a stranger, a holder it does not have, a return of nobody", async () => {
+    const x = await fresh(u.vanak, { serial_number: "RA3-1" });
+    const n = await lastSeq(x.id);
+    const stranger = uuidv7();
+    // custody rows only, assigned to someone outside the organisation and returned: the asset never was
+    expect(statuses(await pushAll(m.vanak.client, [row(x.id, n + 1, "assigned", { holder_id: stranger }), row(x.id, n + 2, "returned", { from_holder_id: stranger })]))).toEqual(["error", "error"]);
+    // a hand-over from a holder it does not have, or a return of an asset nobody holds
+    expect(statuses(await pushAll(m.vanak.client, [row(x.id, n + 1, "assigned", { holder_id: m.vanak.userId, from_holder_id: m.tajrish.userId }), row(x.id, n + 2, "returned", { from_holder_id: m.vanak.userId })]))).toEqual(["error", "error"]);
+    expect(statuses(await pushAll(m.vanak.client, [row(x.id, n + 1, "returned", { from_holder_id: m.vanak.userId })]))).toEqual(["error"]);
+    // a holder named on a loss or a repair trip it does not have
+    expect(statuses(await pushAll(m.vanak.client, [row(x.id, n + 1, "repair_out", { holder_id: m.vanak.userId }), row(x.id, n + 2, "repair_in", { holder_id: m.vanak.userId })]))).toEqual(["error", "error"]);
+    const chain = await chainOf(x.id);
+    expect(chain.rows.map((r: any) => r.event)).toEqual(["registered"]);
+    expect(chain.verified.ok).toBe(true);
+  });
+
+  it("names nobody as the last holder of a missing asset who did not hold it", async () => {
+    const x = await fresh(u.vanak, { serial_number: "RA3-2" });
+    await w.e.db.query(`update sm_assets set state = 'missing' where id = $1`, [x.id]);
+    const n = await lastSeq(x.id);
+    const res = await pushAll(m.vanak.client, [row(x.id, n + 1, "assigned", { holder_id: m.vanak.userId }), row(x.id, n + 2, "missing", { holder_id: m.vanak.userId })]);
+    expect(statuses(res)).toEqual(["error", "error"]);
+    expect((await chainOf(x.id)).rows.map((r: any) => r.event)).toEqual(["registered"]);
+    // as the asset was lost (by nobody), the chain takes it
+    expect(statuses(await pushAll(m.vanak.client, [row(x.id, n + 1, "missing")]))).toEqual(["ok"]);
+  });
+
+  it("takes no branch move into a unit the organisation does not have, even there and back", async () => {
+    const x = await fresh(u.vanak, { serial_number: "RA3-3" });
+    const n = await lastSeq(x.id);
+    const elsewhere = uuidv7();
+    const res = await pushAll(w.p.am.client, [row(x.id, n + 1, "branch_changed", { branch_id: elsewhere, from_branch_id: u.vanak }), row(x.id, n + 2, "branch_changed", { branch_id: u.vanak, from_branch_id: elsewhere })]);
+    expect(statuses(res)).toEqual(["error", "error"]);
+    // a shape assetAfter never writes: a branch named where it does not belong
+    expect(statuses(await pushAll(w.p.am.client, [row(x.id, n + 1, "assigned", { holder_id: m.vanak.userId, from_branch_id: u.tajrish })]))).toEqual(["error"]);
+  });
+
+  it("takes a branch move written with an assignment, and a repair trip, as the app's change writes them", async () => {
+    const x = await fresh(u.vanak, { serial_number: "RA3-4" });
+    const n = await lastSeq(x.id);
+    // one change on the app: moved to Tajrish and handed to a Tajrish officer — the move already names the new holder
+    const asset = await asWire("asset", x.id, { branch_id: u.tajrish, department_id: u.tajrish, assigned_to: m.tajrish.userId });
+    const res = await pushAll(w.p.am.client, [
+      row(x.id, n + 2, "assigned", { branch_id: u.tajrish, holder_id: m.tajrish.userId }),
+      row(x.id, n + 1, "branch_changed", { branch_id: u.tajrish, from_branch_id: u.vanak, holder_id: m.tajrish.userId }),
+      asset,
+    ]);
+    expect(statuses(res)).toEqual(["ok", "ok", "ok"]);
+    // out to repair and back (the asset ends where it was): the chain takes the trip
+    const trip = [row(x.id, n + 3, "repair_out", { branch_id: u.tajrish, holder_id: m.tajrish.userId }), row(x.id, n + 4, "repair_in", { branch_id: u.tajrish, holder_id: m.tajrish.userId })];
+    expect(statuses(await pushAll(w.p.am.client, trip))).toEqual(["ok", "ok"]);
+    // back from repair once more: the chain says it is not in repair
+    expect(statuses(await pushAll(w.p.am.client, [row(x.id, n + 5, "repair_in", { branch_id: u.tajrish, holder_id: m.tajrish.userId })]))).toEqual(["error"]);
+    const chain = await chainOf(x.id);
+    expect(chain.rows.map((r: any) => [r.event, r.holder_id ?? null, r.from_holder_id ?? null])).toEqual([
+      ["registered", null, null], ["branch_changed", m.tajrish.userId, null], ["assigned", m.tajrish.userId, null], ["repair_out", m.tajrish.userId, null], ["repair_in", m.tajrish.userId, null],
+    ]);
+    expect(chain.verified).toEqual({ rows: 5, ok: true, broken_at: null });
+  });
+
+  it("brings an asset back from repair whose chain has not said since its registration only if it was registered in repair", async () => {
+    // registered in repair: its first recorded state says so (the asset row went back to service before)
+    const inRepair = await fresh(u.vanak, { serial_number: "RA3-5", state: "in_repair" });
+    expect(inRepair.state).toBe("in_repair");
+    await w.e.db.query(`update sm_assets set state = 'in_use' where id = $1`, [inRepair.id]);
+    expect(statuses(await pushAll(m.vanak.client, [row(inRepair.id, (await lastSeq(inRepair.id)) + 1, "repair_in")]))).toEqual(["ok"]);
+    // registered in use: never in repair
+    const inUse = await fresh(u.vanak, { serial_number: "RA3-6" });
+    expect(statuses(await pushAll(m.vanak.client, [row(inUse.id, (await lastSeq(inUse.id)) + 1, "repair_in")]))).toEqual(["error"]);
+  });
+});

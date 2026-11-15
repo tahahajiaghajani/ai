@@ -1,11 +1,13 @@
 // Hono environment, middlewares and small request helpers shared by all routes.
 import { Hono, type Context, type MiddlewareHandler } from "hono";
+import { getCookie } from "hono/cookie";
 import type { ZodType } from "zod";
 import { ZodError } from "zod";
-import type { AuthSession, AuthUser, Ctx, MemberRow, OrgRow, ServerConfig } from "../context";
+import { randomUUID } from "node:crypto";
+import type { AuthSession, AuthUser, Ctx, MemberRow, OrgPlatformStatus, OrgRow, ServerConfig } from "../context";
 import { makeCtx } from "../context";
 import { AppError, bad, dbErrorMessage, forbidden, notFound, tooMany, unauthorized, zodToAppError } from "./errors";
-import { BACKGROUND_HEADER, resolveToken, tokenFromRequest, clientIp } from "../auth/session";
+import { BACKGROUND_HEADER, COOKIE, resolveToken, tokenFromRequest, clientIp } from "../auth/session";
 import { guardOrgSession } from "../auth/policy";
 import { inDemoScope } from "../db/scope";
 import { demoSignInRefusal } from "../modules/demo/signin";
@@ -16,6 +18,8 @@ export type Vars = {
   user: AuthUser;
   session: AuthSession;
   ctx: Ctx;
+  /** the organisation's platform status, read with the organisation by loadOrg (modules/platform/access.ts uses it) */
+  orgStatus: OrgPlatformStatus;
 };
 export type Env = { Variables: Vars };
 export type C = Context<Env>;
@@ -33,25 +37,69 @@ export function isBackgroundRequest(c: Pick<C, "req">): boolean {
   return c.req.header(BACKGROUND_HEADER) === "1" || (c.req.method === "GET" && PULSE_PATH.test(c.req.path));
 }
 
+/**
+ * One request in `cfg.foreground`, the requests a person waits for (src/server-edition/foreground.ts,
+ * src/desktop/server.ts). A browser's — its session cookie and no Authorization header, the screen's own polling
+ * aside — counts from here, before its session is looked up: under load that lookup is where it waits, and the job
+ * runner must already know. Once the session is known, only a signed-in browser session's (kind "web") stays counted
+ * and keeps the gate busy for its linger after the answer; a made-up or ended cookie ends at once (its 401), with no
+ * linger. A Windows app's sync and any other token client (Authorization), a monitoring probe and anyone without a
+ * session cookie never count: machine traffic must not hold the job runner back.
+ */
+function foregroundOf(c: C) {
+  const fg = c.get("cfg").foreground;
+  let open = !!fg && !c.req.header("authorization") && !isBackgroundRequest(c) && !!getCookie(c, COOKIE);
+  let person = false;
+  if (open) fg!.started();
+  return {
+    /** The session is known (null: none): a browser session's request stays counted, any other ends now. */
+    known(session: AuthSession | null) {
+      person = session?.kind === "web";
+      if (open && !person) {
+        open = false;
+        fg!.ended({ linger: false });
+      }
+    },
+    /** The answer is out (or the request failed). */
+    done() {
+      if (!open) return;
+      open = false;
+      fg!.ended({ linger: person });
+    },
+  };
+}
+
 /** Loads the signed-in user (cookie or bearer token); 401 when missing. */
 export const requireUser: MiddlewareHandler<Env> = async (c, next) => {
   const cfg = c.get("cfg");
-  const resolved = await resolveToken(cfg.db, tokenFromRequest(c), { background: isBackgroundRequest(c) });
-  if (!resolved) throw unauthorized();
-  c.set("user", resolved.user);
-  c.set("session", resolved.session);
-  await next();
+  const foreground = foregroundOf(c);
+  try {
+    const resolved = await resolveToken(cfg.db, tokenFromRequest(c), { background: isBackgroundRequest(c) });
+    foreground.known(resolved?.session ?? null);
+    if (!resolved) throw unauthorized();
+    c.set("user", resolved.user);
+    c.set("session", resolved.session);
+    await next();
+  } finally {
+    foreground.done();
+  }
 };
 
 /** Same as requireUser but continues anonymously. */
 export const optionalUser: MiddlewareHandler<Env> = async (c, next) => {
   const cfg = c.get("cfg");
-  const resolved = await resolveToken(cfg.db, tokenFromRequest(c), { background: isBackgroundRequest(c) });
-  if (resolved) {
-    c.set("user", resolved.user);
-    c.set("session", resolved.session);
+  const foreground = foregroundOf(c);
+  try {
+    const resolved = await resolveToken(cfg.db, tokenFromRequest(c), { background: isBackgroundRequest(c) });
+    foreground.known(resolved?.session ?? null);
+    if (resolved) {
+      c.set("user", resolved.user);
+      c.set("session", resolved.session);
+    }
+    await next();
+  } finally {
+    foreground.done();
   }
-  await next();
 };
 
 /** For /o/:org/* — loads the organisation and the caller's membership. */
@@ -60,13 +108,22 @@ export const loadOrg: MiddlewareHandler<Env> = async (c, next) => {
   const user = c.get("user");
   const orgId = c.req.param("org") ?? "";
   if (!/^[0-9a-f-]{36}$/i.test(orgId)) throw notFound("سازمان پیدا نشد");
-  const org = await cfg.db.one<OrgRow>(`select * from sm_orgs where id = $1 and deleted_at is null`, [orgId]);
-  if (!org) throw notFound("سازمان پیدا نشد");
-  let member = await cfg.db.one<MemberRow>(
-    `select id, org_id, user_id, role, overrides, is_active from sm_org_members
-     where org_id = $1 and user_id = $2 and deleted_at is null`,
+  // the organisation and the caller's membership in one round trip (every organisation request starts here)
+  // the organisation, the caller's membership and the platform status in one round trip (every organisation request
+  // starts here)
+  const row = await cfg.db.one<OrgRow & { m__id: string | null; m__role: MemberRow["role"]; m__overrides: MemberRow["overrides"]; m__is_active: boolean; a__status: OrgPlatformStatus["status"] | null; a__reason: string | null }>(
+    `select o.*, m.id as m__id, m.role as m__role, m.overrides as m__overrides, m.is_active as m__is_active,
+            a.status as a__status, a.status_reason as a__reason
+       from sm_orgs o
+       left join sm_org_members m on m.org_id = o.id and m.user_id = $2 and m.deleted_at is null
+       left join sm_org_admin a on a.org_id = o.id
+      where o.id = $1 and o.deleted_at is null`,
     [orgId, user.id],
   );
+  if (!row) throw notFound("سازمان پیدا نشد");
+  const { m__id, m__role, m__overrides, m__is_active, a__status, a__reason, ...org } = row;
+  c.set("orgStatus", { status: a__status ?? "active", reason: a__reason ?? null });
+  let member: MemberRow | null = m__id ? { id: m__id, org_id: orgId, user_id: user.id, role: m__role, overrides: m__overrides, is_active: m__is_active } : null;
   if (!member || !member.is_active) {
     if (!user.is_platform_admin) throw forbidden("شما عضو این سازمان نیستید");
     member = { id: "", org_id: orgId, user_id: user.id, role: "viewer", overrides: {}, is_active: true };
@@ -139,9 +196,11 @@ export function errorResponse(err: unknown, c: Context) {
     const mapped = dbErrorMessage(err);
     if (mapped) e = mapped;
     else {
+      // an id the person can quote and the operator finds in the log, with the stack
+      const id = randomUUID().slice(0, 8);
       const cfg = (c as C).get?.("cfg");
-      cfg?.log.error("unhandled error", { path: c.req.path, err: String((err as Error)?.stack ?? err) });
-      e = new AppError(500, "internal", "خطای داخلی سرور؛ دوباره امتحان کنید");
+      cfg?.log.error(`unhandled error [${id}]`, { id, method: c.req.method, path: c.req.path, err: String((err as Error)?.stack ?? err) });
+      e = new AppError(500, "internal", `خطای داخلی سرور؛ دوباره امتحان کنید (کد پیگیری: ${id})`, { error_id: id });
     }
   }
   return c.json({ error: { code: e.code, message: e.message, details: e.details ?? null } }, e.status as 400);
@@ -163,4 +222,9 @@ export function rateLimit(key: string, limit: number, windowMs: number) {
 
 export function limitByIp(c: C, name: string, limit: number, windowMs: number) {
   rateLimit(`${name}:${clientIp(c)}`, limit, windowMs);
+}
+
+/** Forget every window of the limiter (tests that build several organisations in one process). */
+export function resetRateBuckets(): void {
+  buckets.clear();
 }

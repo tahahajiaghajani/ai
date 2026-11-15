@@ -272,7 +272,10 @@ export const NODE_TYPES: Record<NodeType, NodeTypeDef> = {
     icon: "merge",
     group: "control",
     ports: [OUT],
-    fields: [{ key: "mode", label: "ادامه پس از", kind: "select", default: "all", options: [{ value: "all", label: "پایان همهٔ شاخه‌ها" }, { value: "any", label: "پایان نخستین شاخه" }] }],
+    fields: [
+      { key: "mode", label: "ادامه پس از", kind: "select", default: "all", options: [{ value: "all", label: "پایان همهٔ شاخه‌ها" }, { value: "any", label: "پایان نخستین شاخه" }] },
+      { key: "cancel_rest", label: "لغو شاخه‌های دیگر", kind: "switch", showIf: { key: "mode", in: ["any"] } },
+    ],
   },
   for_each: {
     type: "for_each",

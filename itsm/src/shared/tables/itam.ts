@@ -11,6 +11,7 @@
 //                               the effective licence position, SaaS subscriptions and their accounts
 // Money is in the financial field group everywhere. Imported by the UI: keep it free of server imports.
 import type { AreaOp, FieldDef, Option, StateModel, TableDef } from "../model/types";
+import { NEVER } from "../model/conditions";
 import { APPROVAL_STATES } from "../model/task";
 import { CURRENCIES } from "./supplier";
 
@@ -1323,6 +1324,7 @@ const reconcileRun: TableDef = {
     { name: "error", label: "خطا", type: "string", maxLength: 500, readonly: true, span: 24 },
   ],
   scope: {},
+  rowAccess: { write: NEVER },
   form: { related: [{ table: "license_position", field: "run_id", label: "وضعیت هر نرم‌افزار", columns: ["software_model_id", "metric", "entitled", "consumed", "delta", "status"] }] },
   list: { columns: ["number", "status", "trigger", "started_at", "products", "compliant", "under_licensed", "exposure", "savings"], order: "-started_at" },
 };
@@ -1356,6 +1358,7 @@ const position: TableDef = {
     { name: "label", label: "شرح", type: "string", system: true, maxLength: 300, search: true, audit: false },
   ],
   scope: {},
+  rowAccess: { write: NEVER },
   list: { columns: ["software_model_id", "metric", "entitled", "consumed", "delta", "status", "exposure"], order: "delta" },
 };
 

@@ -15,7 +15,7 @@ import { enqueue, registerJobHandler, type JobContext } from "../../jobs";
 import type { Ctx } from "../../context";
 import { actsHere, notifyPeople } from "../notify";
 import { countRows, eqAll, incidentConfig, isUuid, liveRow, liveRows, problemConfig, type Row } from "../incident";
-import { createFromIncidents, runCandidates } from "./services";
+import { autoProblemFor, runCandidates } from "./services";
 
 export const PROBLEM_SWEEP_EVERY = 24 * 3600_000;
 const lastSweep = new Map<string, number>();
@@ -37,7 +37,8 @@ async function react(e: RecordEvent, jctx: JobContext): Promise<void> {
     const inc = await liveRow(jctx.db, sys, "incident", e.id);
     if (!cfg.mi_auto_problem || !inc || inc.problem_id) return;
     const author = inc.mi_manager_id ?? inc.assigned_to ?? e.actor ?? null;
-    await createFromIncidents(author ? await systemCtx(jctx.cfg, e.org_id, { onBehalfOf: author }) : sys, [e.id], { source: "major_incident" });
+    // made once, inside the write: the incident locked and read again (a manager's «ثبت مشکل» at the same moment wins)
+    await autoProblemFor(author ? await systemCtx(jctx.cfg, e.org_id, { onBehalfOf: author }) : sys, e.id);
   }
   if (e.table === "problem" && e.kind === "record.state_changed" && e.to === "resolved") {
     const sys = await systemCtx(jctx.cfg, e.org_id);

@@ -332,6 +332,11 @@ async function cmdRestore(a: Args) {
   try {
     const r = await restoreBackup({ config: c, from: resolve(from), log, bin: trustedPgBin(a) });
     say(`بازگردانی شد. پایگاه دادهٔ پیشین: ${r.previous ?? "—"} (پس از اطمینان، با psql حذفش کنید)؛ ${r.blobs_copied} فایل پیوست بازگشت`);
+    if (r.key_mismatch)
+      warn(
+        "هشدار: رمزهای ذخیره‌شدهٔ این پشتیبان (گذرواژهٔ SMTP و حساب خدمت AD، کلیدهای هوش مصنوعی و وب‌هوک‌ها) با کلید سرور دیگری قفل شده‌اند و روی این سرور باز نمی‌شوند. " +
+          "مقدار «secret» در kariz.json سرور پیشین را (از نسخهٔ نگه‌داری‌شده در گاوصندوق) به kariz.json این سرور برگردانید و «karizctl restart» بزنید، یا آن رمزها را در تنظیمات دوباره وارد کنید.",
+      );
   } finally {
     if (isWindows) {
       say(`راه‌اندازی ${app}…`);

@@ -17,7 +17,8 @@ import { matchPattern, mapSeverity, nodeCandidates, thresholdReached, flapState,
 import { occurrences, type WindowLike } from "@shared/change/logic";
 import { ALERT_OPEN_STATES } from "@shared/tables/event";
 import type { Ctx } from "../../context";
-import type { Queryable, Tx } from "../../db";
+import { isTransientDbError, type Queryable, type Tx } from "../../db";
+import { lockedRow } from "../incident/common";
 import { condEnv, createIn, orgSchema, systemCtx, transitionIn, updateIn } from "../../engine";
 import type { JobConfig } from "../../jobs";
 import { servicesImpactedBy } from "../cmdb/impact";
@@ -342,6 +343,9 @@ export async function processPending(cfg: JobConfig, orgId: string, deadline: nu
   const sys = await systemCtx(cfg as never, orgId);
   const cache = newCache();
   const out = { processed: 0, failed: 0, more: false };
+  // events met by a deadlock or a serialization failure (writes side by side): processed again, a few times, before
+  // they count as an error (nothing of the aborted transaction was kept)
+  const transient = new Map<string, number>();
   try {
     for (let round = 0; round < 200; round++) {
       const batch = await liveRows(sys.db, sys, "event", { f: "outcome", op: "eq", v: "pending" }, { order: "t.received_at, t.id", limit: 25 });
@@ -354,6 +358,11 @@ export async function processPending(cfg: JobConfig, orgId: string, deadline: nu
         try {
           if (await sys.write((tx) => processEvent(tx, sys, ev, cache, now()))) out.processed++;
         } catch (e) {
+          const tries = transient.get(String(ev.id)) ?? 0;
+          if (isTransientDbError(e) && tries < 3) {
+            transient.set(String(ev.id), tries + 1);
+            continue;
+          }
           out.failed++;
           const message = String((e as Error).message ?? e).slice(0, 500);
           await sys.write(async (tx) => {
@@ -374,7 +383,8 @@ async function flushHits(sys: Ctx, cache: RunCache): Promise<void> {
   if (!cache.hits.size) return;
   await sys.write(async (tx) => {
     for (const [id, n] of cache.hits) {
-      const r = await liveRow(tx, sys, "event_rule", id);
+      // counted on the rule locked: two runs flushing at once both count
+      const r = await lockedRow(tx, sys, "event_rule", id);
       if (r) await updateIn(tx, sys, "event_rule", id, { hits: Number(r.hits ?? 0) + n, last_hit_at: new Date().toISOString() }, { trusted: true, keepVersion: true });
     }
   });

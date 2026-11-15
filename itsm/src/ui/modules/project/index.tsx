@@ -8,7 +8,8 @@
 //                 «سلامت», tab «برنامهٔ زمانی» (Gantt); demand: side panel «امتیاز» with the conversion
 //   lists         projects, tasks, demands, portfolios, RAID, status reports, allocations, time entries
 //   elsewhere     «ساخت پروژه» on problems, changes and requested items
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import {
   FolderKanban, ListTree, Lightbulb, Briefcase, ShieldAlert, FileChartColumn, UsersRound, Timer, User, TriangleAlert, ListTodo, Clock, Stamp, LayoutDashboard, Kanban, Grid3x3, Inbox,
 } from "lucide-react";

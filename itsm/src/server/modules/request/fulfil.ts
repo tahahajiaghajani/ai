@@ -11,7 +11,8 @@ import { stageFor, tasksOutcome } from "@shared/request/logic";
 import type { BusinessCalendar } from "@shared/sla/calendar";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
-import type { Queryable, Tx } from "../../db";
+import { lockBeforeCommitKey, type Queryable, type Tx } from "../../db";
+import { lockedRow } from "../incident/common";
 import { addJournalIn, condEnv, createIn, orgSchema, orgTz, RefSet, resolveDisplay, systemCtx, transitionIn, updateIn } from "../../engine";
 import { enqueue, type JobConfig } from "../../jobs";
 import { activeFlows, resolveRunAs, startCatalogFlows, startRun } from "../flows";
@@ -232,6 +233,9 @@ export async function flowRunStates(q: Queryable, orgId: string, ids: readonly s
 
 export const runsActive = (runs: readonly { state: string }[]) => runs.some((r) => ACTIVE_RUN.has(r.state));
 
+/** The before-commit key of an item's work from its tasks (lifecycle.ts `itemWorkBeforeCommit`; `checkFlows` takes it too). */
+export const itemWorkKey = (ritmId: string) => `request.item_work:${ritmId}`;
+
 /**
  * The flow check of one item, when one of its runs ended (`record.flow_ended`): while a run is still active, the next
  * end checks again; a failed or canceled run gets a manual fallback task (once); when every run ended and the item
@@ -240,7 +244,10 @@ export const runsActive = (runs: readonly { state: string }[]) => runs.some((r) 
 export async function checkFlows(cfg: JobConfig, orgId: string, id: string): Promise<"wait" | "done"> {
   const sys = await systemCtx(cfg, orgId);
   return sys.write(async (tx) => {
-    const ritm = await liveRow(tx, sys, "request_item", id);
+    // the item's work key first (lifecycle.ts `itemWorkBeforeCommit`): the last task closing at this moment commits
+    // first and is read here — or reads this check's outcome — so the item is delivered once either way
+    await lockBeforeCommitKey(tx, itemWorkKey(id));
+    const ritm = await lockedRow(tx, sys, "request_item", id);
     if (!ritm || !["in_fulfilment", "awaiting_info", "backordered"].includes(String(ritm.state))) return "done";
     const runs = await flowRunStates(tx, orgId, arr<string>(ritm.flow_runs));
     if (runsActive(runs)) return "wait";

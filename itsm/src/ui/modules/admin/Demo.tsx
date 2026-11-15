@@ -67,10 +67,19 @@ const COUNT_LABELS: [string, string][] = [
   ["supplier", "تأمین‌کننده"],
   ["sec_incident", "رخداد امنیتی"],
   ["hr_case", "پروندهٔ منابع انسانی"],
-  ["work_order", "بازدید میدانی"],
+  ["work_order", "دستور کار میدانی"],
+  ["budget", "بودجه"],
+  ["customer_case", "پروندهٔ پذیرنده"],
+  ["alert", "هشدار پایش"],
+  ["release", "انتشار"],
+  ["project", "پروژه"],
+  ["doc_document", "سند هوشمند"],
 ];
 
-const PERSONA: Record<string, string> = { agent: "کارشناس", manager: "مدیر", requester: "درخواست‌دهنده", change: "مدیر تغییر", assets: "مدیر دارایی", soc: "امنیت", hr: "منابع انسانی" };
+const PERSONA: Record<string, string> = {
+  agent: "کارشناس", manager: "مدیر", requester: "درخواست‌دهنده", change: "مدیر تغییر", assets: "مدیر دارایی", soc: "امنیت", hr: "منابع انسانی", branch: "اموال شعبه",
+  finance: "مالی", csm: "خدمات پذیرندگان", field: "خدمات میدانی", ops: "پایش و کشیک", release: "انتشار و دواپس", pm: "پروژه", grc: "ریسک و تداوم", wfm: "نیروی کار",
+};
 
 export default function Demo() {
   const { api } = useOrg();

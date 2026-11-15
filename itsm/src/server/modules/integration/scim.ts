@@ -15,7 +15,7 @@ import { patchGroup, patchUser, SCIM_GROUP, SCIM_USER, scimList, userFromScim, p
 import { groupMatches } from "@shared/integration/directory";
 import { readSecret, systemCtx } from "../../engine";
 import { addGroupMembers, memberCtx, saveMemberAccess } from "../../access";
-import { hasFeature, needWithinLimit } from "../admin/common";
+import { hasFeature, limitAtCommit, needWithinLimit } from "../admin/common";
 import { ensurePerson, setDirectoryName, setMemberActive } from "../admin/members";
 import { removeIn } from "../../engine";
 import { grantingGroups, intLog, liveRow, liveRows, sysOf, isUuid, type Row } from "./common";
@@ -188,7 +188,11 @@ export async function createUser(s: ScimSession, body: Record<string, unknown>) 
   if (existing && existing.external && existing.external !== (u.externalId ?? u.userName)) throw new ScimError(409, "کاربری با این ایمیل هست", "uniqueness");
   if (!existing) await needWithinLimit(s.cfg.db, s.cfg, s.orgId, "members", 1);
   const ctx = s.ctx!;
-  const r = await ctx.write((tx) => ensurePerson(tx, ctx, { email: u.email!, name: u.name ?? u.email!, title: u.title }, s.source.membership_role === "member" ? "member" : "viewer"));
+  const r = await ctx.write(async (tx) => {
+    // the seat ceiling again at commit (members added since the count above)
+    if (!existing) limitAtCommit(tx, s.cfg, s.orgId, "members");
+    return ensurePerson(tx, ctx, { email: u.email!, name: u.name ?? u.email!, title: u.title }, s.source.membership_role === "member" ? "member" : "viewer");
+  });
   await link(s, "user", u.externalId ?? u.userName ?? u.email, r.user_id, u.email);
   if (!u.active) await ctx.write((tx) => setMemberActive(tx, ctx, r.user_id, false));
   await applyProfile(s, r.user_id, u, r.joined && !existing);

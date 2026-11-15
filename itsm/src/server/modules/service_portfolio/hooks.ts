@@ -14,10 +14,10 @@ import { SERVICE_CI_CLASS, COMMITMENT_KINDS } from "@shared/tables/service_portf
 import { proposalScore, readinessPct } from "@shared/service_portfolio/logic";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
-import type { Tx } from "../../db";
+import { lockKey, type Tx } from "../../db";
 import { conflict, forbidden } from "../../http/errors";
-import { createIn, registerHooks, transitionIn, updateIn, validationError, type WriteArgs } from "../../engine";
-import { countRows, liveRow, liveRows, isUuid, sysOf, type Row } from "../cmdb/common";
+import { createIn, onBeforeCommit, registerHooks, transitionIn, updateIn, validationError, type WriteArgs } from "../../engine";
+import { countRows, liveRow, liveRows, lockedRow, isUuid, sysOf, type Row } from "../cmdb/common";
 import { servicesImpactedBy } from "../cmdb/impact";
 import { notifyLifecycle } from "./status";
 import { isPortfolioManager } from "./common";
@@ -91,9 +91,7 @@ async function serviceAfter(w: WriteArgs & { row: Row }): Promise<void> {
     if (w.changed.has("description")) patch.description = r.description ?? null;
     if (w.changed.has("service_type")) patch.class = SERVICE_CI_CLASS[String(r.service_type)] ?? "business_service";
     if (Object.keys(patch).length) await updateIn(w.tx, sys, "ci", r.ci_id, patch, { trusted: true, allowLocked: true });
-    if (w.changed.has("owner_id")) {
-      for (const t of ["service_offering", "service_instance"]) for (const x of await liveRows(w.tx, sys, t, { f: "service_id", op: "eq", v: r.id }, { limit: 1000 })) await updateIn(w.tx, sys, t, x.id, {}, { trusted: true, keepVersion: true });
-    }
+    if (w.changed.has("owner_id")) ownersInStep(w.tx, w.ctx, String(r.id));
   }
   if (w.changed.has("state")) {
     await moveCi(w.tx, sys, r.ci_id, CI_STATE_OF[String(r.state)] ?? "planned");
@@ -126,6 +124,25 @@ async function canRetire(w: WriteArgs): Promise<string | null> {
 // ---------------------------------------------------------------------------------------------------------------
 // Offerings
 
+/**
+ * The owner copies of a service's offerings and instances, put in step at commit under the service's key — queued by
+ * a change of the service's owner and by a new (or moved) offering or instance: whichever commits second re-reads the
+ * service and its rows after the other, so a row made while the owner changes never keeps the old owner.
+ */
+function ownersInStep(tx: Tx, ctx: Ctx, serviceId: string): void {
+  if (!isUuid(serviceId)) return;
+  onBeforeCommit(tx, `service.owner:${serviceId}`, async () => {
+    const sys = sysOf(ctx);
+    const service = await liveRow(tx, sys, "service", serviceId);
+    if (!service) return;
+    for (const t of ["service_offering", "service_instance"]) {
+      for (const x of await liveRows(tx, sys, t, { f: "service_id", op: "eq", v: serviceId }, { limit: 1000 })) {
+        if ((x.owner_id ?? null) !== (service.owner_id ?? null)) await updateIn(tx, sys, t, x.id, {}, { trusted: true, keepVersion: true });
+      }
+    }
+  });
+}
+
 async function offeringBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete") return;
   const n = w.next;
@@ -133,6 +150,7 @@ async function offeringBefore(w: WriteArgs): Promise<void> {
   const service = await liveRow(w.tx, sys, "service", n.service_id);
   if (!service) throw validationError({ service_id: "خدمت پیدا نشد" });
   n.owner_id = service.owner_id ?? null;
+  if (w.op === "create" || w.changed.has("service_id")) ownersInStep(w.tx, w.ctx, String(n.service_id));
   if (!n.ci_id) {
     const ci = await createIn(w.tx, sys, "ci", {
       name: `${service.name} — ${n.name}`.slice(0, 200), class: "offering", owned_by: service.owner_id ?? null, support_group_id: n.support_group_id ?? service.support_group_id ?? null,
@@ -222,6 +240,7 @@ async function ownerCopy(w: WriteArgs): Promise<void> {
   const service = await liveRow(w.tx, sysOf(w.ctx), "service", w.next.service_id);
   if (!service) throw validationError({ service_id: "خدمت پیدا نشد" });
   w.next.owner_id = service.owner_id ?? null;
+  if (w.op === "create" || w.changed.has("service_id")) ownersInStep(w.tx, w.ctx, String(w.next.service_id));
 }
 
 async function nameOf(tx: Tx, ctx: Ctx, table: string, id: unknown): Promise<string> {
@@ -279,6 +298,8 @@ function treeBefore(table: string, maxDepth: number, levelField: string) {
       return;
     }
     const n = w.next;
+    // re-parenting takes the tree's key: two crossing moves (A under B, B under A) at once never make a loop
+    if (w.op !== "create" && w.changed.has("parent_id")) await lockKey(w.tx, `${table}.tree:${w.ctx.org.id}`);
     const chain: string[] = [];
     for (let p = n.parent_id, i = 0; isUuid(p) && i < 20; i++) {
       if (p === n.id) throw validationError({ parent_id: "این والد حلقه می‌سازد" });
@@ -334,7 +355,8 @@ const designReady = (w: WriteArgs) => (readinessPct(w.next.readiness) >= 100 ? n
 async function assessmentAfter(w: WriteArgs & { row: Row }): Promise<void> {
   if (!(w.op === "transition" && w.transition?.to === "completed") || !isUuid(w.row.ci_id)) return;
   const sys = sysOf(w.ctx);
-  const ci = await liveRow(w.tx, sys, "ci", w.row.ci_id);
+  // locked and read again: attributes an import or a person wrote meanwhile are kept, only the disposition is added
+  const ci = await lockedRow(w.tx, sys, "ci", w.row.ci_id);
   if (!ci) return;
   await updateIn(w.tx, sys, "ci", ci.id, { attrs: { ...(ci.attrs ?? {}), time_disposition: w.row.time_disposition } }, { trusted: true, allowLocked: true });
 }

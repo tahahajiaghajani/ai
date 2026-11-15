@@ -9,6 +9,8 @@ import {
 } from "@shared/access";
 import { permissionMap } from "@shared/permissions";
 import { FIELD_GROUPS } from "@shared/model/types";
+// the workflow roles name `process_design`, an area its own table file registers (design F, F1)
+import "@shared/tables/fields";
 
 const catalog = roleCatalog([]);
 const eff = (keys: string[], role: "owner" | "admin" | "member" | "viewer" = "member") =>
@@ -62,7 +64,7 @@ describe("roles", () => {
     expect(keys).toEqual([
       "requester", "agent", "team_lead", "service_desk_manager", "incident_manager", "problem_manager", "change_manager", "cab_member",
       "release_manager", "asset_manager", "configuration_manager", "knowledge_manager", "service_owner", "security_analyst", "hr_agent",
-      "facilities_agent", "vendor_agent", "auditor", "tenant_admin",
+      "facilities_agent", "vendor_agent", "process_designer", "process_publisher", "auditor", "tenant_admin",
     ]);
     for (const preset of ["open", "need_to_know"] as const) {
       const cat = roleCatalog([], preset);

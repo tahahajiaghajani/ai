@@ -1,7 +1,8 @@
 // A queue of the agent workspace: the incident list with the queue's fixed filter (computed when the page opens, so
 // «نزدیک به نقض توافق» compares with the current time), its columns and sort; quick filters, saved views, the board
 // and bulk actions stay available. The announcements on air for the person sit above it.
-import { lazy, Suspense, useMemo } from "react";
+import { useMemo } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import { RecordList } from "../../records";
 import { queueOf, rowTone } from "./model";
 

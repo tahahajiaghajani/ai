@@ -15,7 +15,8 @@ export const orgAccess: MiddlewareHandler<Env> = async (c, next) => {
   // not an organisation route, or already resolved
   if (!ctx || ctx.status) return next();
   const db = ctx.cfg.db;
-  const status = await orgStatus(db, ctx.org.id);
+  // read with the organisation itself when loadOrg ran in this request (one round trip less)
+  const status = c.get("orgStatus") ?? (await orgStatus(db, ctx.org.id));
   let support: SupportSession | null = null;
   if (isOutsider(ctx.member)) {
     if (ctx.user.is_platform_admin) support = await activeSupportSession(db, ctx.org.id, ctx.user.id);

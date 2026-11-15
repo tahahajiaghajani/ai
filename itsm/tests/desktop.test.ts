@@ -102,6 +102,37 @@ describe("restoring a backup", () => {
       rmSync(dataDir, { recursive: true, force: true });
     }
   });
+
+  // A standalone app (never linked: where the «کوچک» demo pack is documented to run) restores its own automatic backup.
+  // The restore starts a sync cursor again only where one exists: a database that never synced gains no `sync.*` key —
+  // what tells an app that synced with a server or the web version apart (demo/index.ts refuseLinkedDesktop).
+  it("a standalone app stays standalone after a restore: the demo can still be loaded and purged there", async () => {
+    const dataDir = tmp();
+    try {
+      let s = await startLocal({ dataDir, staticDir, port: 0, log: quiet });
+      let c = httpClient(s.url);
+      await c.post("/auth/signup", OWNER);
+      const org = (await c.post("/orgs", ORG)).id;
+      const { file } = await c.post<{ file: string }>("/local/backups");
+      await c.post("/local/backups/restore", { file });
+      await s.close();
+
+      s = await startLocal({ dataDir, staticDir, port: 0, log: quiet });
+      try {
+        c = httpClient(s.url);
+        await c.post("/auth/login", { email: OWNER.email, password: OWNER.password });
+        // nothing to purge — not «linked to a server»
+        const none = await c.post(`/o/${org}/demo/purge`, { confirm: "حذف کامل" }, 409);
+        expect(none.error.message).toBe("این سازمان دادهٔ نمایشی ندارد");
+        expect((await c.post(`/o/${org}/demo/load`, { size: "small" })).state).toBe("loading");
+        expect((await c.post(`/o/${org}/demo/purge`, { confirm: "حذف کامل" })).state).toBe("purging");
+      } finally {
+        await s.close();
+      }
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("backups folder", () => {

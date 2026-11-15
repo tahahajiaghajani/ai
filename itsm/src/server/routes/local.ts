@@ -2,7 +2,7 @@
 // Only mounted when the app runs inside the Windows application.
 import { z } from "zod";
 import { router, body, requireUser } from "../http/hono";
-import { bad, forbidden } from "../http/errors";
+import { AppError, bad, forbidden } from "../http/errors";
 import type { C } from "../http/hono";
 
 export const localRoutes = router();
@@ -87,10 +87,28 @@ localRoutes.patch("/settings", async (c) => {
 localRoutes.get("/sync", async (c) => c.json(await bridge(c).syncStatus()));
 localRoutes.post("/sync", async (c) => c.json(await bridge(c).syncNow()));
 
+/**
+ * A call to the cloud from the setup screens: what the cloud or the network answered becomes a Persian 4xx/502 the page
+ * shows as it is — never an unexplained 500. A refused sign-in says what to do: an account made here does not exist on
+ * the server until someone makes it there (the cloud never takes accounts from a Windows app).
+ */
+async function cloudCall<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (e instanceof AppError) throw e;
+    const status = (e as { status?: number }).status;
+    const message = String((e as Error)?.message ?? e);
+    if (status === 401) throw new AppError(400, "cloud_refused", `${message} — این ایمیل و رمز در نسخهٔ وب پذیرفته نشد. حساب این برنامه به‌خودی‌خود روی سرور ساخته نمی‌شود: ابتدا در نسخهٔ وب با همین ایمیل حساب بسازید (یا اگر ساخته‌اید، رمز همان را وارد کنید)`);
+    if (status && status >= 400 && status < 500) throw new AppError(400, "cloud_refused", message);
+    throw new AppError(502, "cloud_unreachable", status ? `${message} (پاسخ ${status} از نسخهٔ وب)` : message);
+  }
+}
+
 localRoutes.post("/cloud/orgs", async (c) => {
   await needAdmin(c);
   const input = await body(c, z.object({ url: z.string().url("نشانی معتبر نیست"), email: z.string().email("ایمیل معتبر نیست"), password: z.string().min(1) }));
-  return c.json(await bridge(c).cloudOrgs(input));
+  return c.json(await cloudCall(() => bridge(c).cloudOrgs(input)));
 });
 localRoutes.post("/cloud/link", async (c) => {
   await needAdmin(c);
@@ -101,7 +119,7 @@ localRoutes.post("/cloud/link", async (c) => {
     org_id: z.string().uuid().optional(),
     direction: z.enum(["download", "upload"]),
   }));
-  return c.json(await bridge(c).link({ url: input.url, email: input.email, password: input.password, orgId: input.org_id, direction: input.direction }));
+  return c.json(await cloudCall(() => bridge(c).link({ url: input.url, email: input.email, password: input.password, orgId: input.org_id, direction: input.direction })));
 });
 localRoutes.post("/cloud/unlink", async (c) => {
   await needAdmin(c);

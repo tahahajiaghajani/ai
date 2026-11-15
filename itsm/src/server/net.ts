@@ -2,6 +2,7 @@
 // call has a timeout and fails with a short Persian message naming the service, so one broken service never
 // breaks a whole request. The fetch function comes from the server config (tests pass a stub). Addresses a
 // person types are checked with `safeExternalUrl` before the cloud server is pointed at them.
+import { DEMO_OUTBOUND_TEXT, DemoOutboundError } from "./db/scope";
 
 export type Fetch = typeof fetch;
 
@@ -30,6 +31,8 @@ export async function fetchText(f: Fetch, url: string, label: string, init: Requ
     return text;
   } catch (e) {
     if (e instanceof NetError) throw e;
+    // refused inside the demo pack's work before any connection (demoSafeFetch): said as such, not as a network failure
+    if (e instanceof DemoOutboundError) throw new NetError(`${label}: ${DEMO_OUTBOUND_TEXT}`);
     if ((e as Error)?.name === "AbortError") throw new NetError(`${label}: پاسخی در ${Math.round(timeoutMs / 1000)} ثانیه نرسید`);
     throw new NetError(`${label}: اتصال برقرار نشد`);
   } finally {

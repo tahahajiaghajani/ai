@@ -439,7 +439,7 @@ describe("access review fixes", () => {
     await new Client(app).post("/auth/login", { email: "rev-victim@example.com", password: "taken-over-1" }, 401);
     await victim.get("/auth/me");
     // nor does the owner's Windows app receive its password hash
-    const { users } = await owner.get(`/sync/pull?org_id=${org}&cursor=0&user_cursor=0`);
+    const { users } = await owner.get(`/sync/pull?org_id=${org}&protocol=${SYNC_PROTOCOL}`);
     const v = users.find((u: { email: string }) => u.email === "rev-victim@example.com");
     expect(v).toMatchObject({ password_hash: null, password_withheld: true });
     // an account this organisation made is still reset here
@@ -470,7 +470,7 @@ describe("access review fixes", () => {
     await login("rev-old-staff@example.com", "old-staff-new-1");
     await owner.post(`/o/${org}/members/${joined.id}/password`, { password: "taken-over-2" }, 403);
     // the owner's Windows app keeps the hash of the account it made (offline sign-in after the update)
-    const { users } = await owner.get(`/sync/pull?org_id=${org}&cursor=0&user_cursor=0`);
+    const { users } = await owner.get(`/sync/pull?org_id=${org}&protocol=${SYNC_PROTOCOL}`);
     expect(users.find((u: { email: string }) => u.email === "rev-old-staff@example.com")).toMatchObject({ password_withheld: false });
     expect(users.find((u: { email: string }) => u.email === "rev-old-staff@example.com").password_hash).toBeTruthy();
     expect(users.find((u: { email: string }) => u.email === "rev-old-joiner@example.com")).toMatchObject({ password_hash: null, password_withheld: true });

@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { access, defaultProvider, setAccessProvider, isSystem, type AccessProvider } from "@server/access/provider";
 import { engineOrg, upload, raw, PNG, type EngineOrg } from "./engine-helpers";
+import { SYNC_PROTOCOL } from "@shared/constants";
 
 const ALL_BUT_ESTIMATE = (names: string[]) => new Set(names.filter((n) => n !== "estimate"));
 
@@ -96,7 +97,7 @@ describe("every read and write path goes through the access provider", () => {
   });
 
   it("sends the sync pull only readable rows and fields, tombstones for the rest", async () => {
-    const pull = await e.owner.get(`/sync/pull?org_id=${e.org}&cursor=0&user_cursor=0`);
+    const pull = await e.owner.get(`/sync/pull?org_id=${e.org}&protocol=${SYNC_PROTOCOL}`);
     const ids = (entity: string) => pull.aggregates.filter((a: { entity: string }) => a.entity === entity).map((a: { id: string }) => a.id);
     expect(ids("todo")).toEqual([visible.id]);
     const sent = pull.aggregates.find((a: { id: string }) => a.id === visible.id);
@@ -110,7 +111,8 @@ describe("every read and write path goes through the access provider", () => {
     // history rows of the hidden field are not sent either
     const fields = pull.aggregates.filter((a: { entity: string }) => a.entity === "history").map((a: { row: { field: string } }) => a.row.field);
     expect(fields).not.toContain("estimate");
-    expect(typeof pull.epoch).toBe("number");
+    // the organisation's sync epoch and the member's scope epoch (SYNC_PROTOCOL 16)
+    expect(pull.epoch).toMatch(/^\d+\.\d+$/);
   });
 
   it("asks it before every write", async () => {

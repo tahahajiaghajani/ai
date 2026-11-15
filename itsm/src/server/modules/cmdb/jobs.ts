@@ -21,9 +21,11 @@ import { createIn, emitEvent, systemCtx, transitionIn, updateIn } from "../../en
 import { enqueue, registerJobHandler, type JobContext } from "../../jobs";
 import { safeExternalUrl, fetchText, lanAllowed } from "../../net";
 import { guardedFetch } from "../ai/net";
+import { demoSafeFetch } from "../../db/scope";
 import { actsHere } from "../notify";
 import { registerTopicHandler } from "../integrations/service";
-import { cmdbConfig, eqAll, isUuid, liveRow, liveRows, sysOf, type Row } from "./common";
+import { lockKey } from "../../db";
+import { cmdbConfig, eqAll, isUuid, liveRow, liveRows, lockedRow, sysOf, type Row } from "./common";
 import { addRules, addSums, computeHealth, storeFacts, type ClassSums } from "./health";
 import { applyRelRules, suggestFromIncidents } from "./suggest";
 import { recordDrift } from "./baseline";
@@ -71,8 +73,8 @@ export async function runUrlSource(sys: Ctx, sourceId: string): Promise<{ rows: 
   try {
     // the web version: public https hosts only, checked again on the addresses the name resolves to and without
     // redirects (guardedFetch); the Windows app and the server edition: their network (the server edition's cfg.fetch
-    // holds to its air-gap allowlist)
-    const f = lanAllowed(sys.cfg) ? sys.cfg.fetch : guardedFetch(sys.cfg.fetch);
+    // holds to its air-gap allowlist); never inside the demo pack's work (a source of the pack calls nothing)
+    const f = demoSafeFetch(lanAllowed(sys.cfg) ? sys.cfg.fetch : guardedFetch(sys.cfg.fetch));
     const text = await fetchText(f, url, `منبع «${src.name}»`, {}, 20_000);
     const rows = src.format === "json" ? jsonArrayAt(JSON.parse(text), src.json_path).map((r) => flatten(r)) : csvObjects(text);
     const mapping = src.mapping && typeof src.mapping === "object" && Object.keys(src.mapping).length ? (src.mapping as Record<string, string>) : Object.fromEntries(Object.keys(rows[0] ?? {}).map((k) => [k, k]));
@@ -100,12 +102,19 @@ export async function expiryWarnings(sys: Ctx): Promise<number> {
     if (threshold === undefined) continue;
     const warned = r.health?.warned as { day: number; for: string } | undefined;
     if (warned && warned.for === r.expires_at && warned.day <= threshold) continue;
-    await sys.write(async (tx) => {
-      const users = [r.owned_by, r.managed_by].filter(isUuid);
-      await emitEvent(tx, sys, { kind: "record.cmdb.expiring", table: "ci", id: r.id, number: r.number ?? null, actor: null, data: { users, days: left, expires_at: r.expires_at } });
-      await updateIn(tx, sys, "ci", r.id, { health: { ...(r.health ?? {}), warned: { day: threshold, for: r.expires_at } } }, { trusted: true, keepVersion: true, allowLocked: true });
+    const sent = await sys.write(async (tx) => {
+      // the CI locked and read again: its health detail as a health pass committed it (kept, the mark added), and a
+      // warning another run sent meanwhile is not sent twice
+      const cur = await lockedRow(tx, sys, "ci", r.id);
+      if (!cur || cur.expires_at !== r.expires_at) return false;
+      const was = cur.health?.warned as { day: number; for: string } | undefined;
+      if (was && was.for === cur.expires_at && was.day <= threshold) return false;
+      const users = [cur.owned_by, cur.managed_by].filter(isUuid);
+      await emitEvent(tx, sys, { kind: "record.cmdb.expiring", table: "ci", id: r.id, number: cur.number ?? null, actor: null, data: { users, days: left, expires_at: cur.expires_at } });
+      await updateIn(tx, sys, "ci", r.id, { health: { ...(cur.health ?? {}), warned: { day: threshold, for: cur.expires_at } } }, { trusted: true, keepVersion: true, allowLocked: true });
+      return true;
     });
-    n++;
+    if (sent) n++;
   }
   return n;
 }
@@ -113,10 +122,21 @@ export async function expiryWarnings(sys: Ctx): Promise<number> {
 /** Apply the active data policies (retire or flag CIs not seen for N days), bounded per policy and run. */
 export async function applyPolicies(sys: Ctx): Promise<{ affected: number; skipped: number }> {
   const policies = await liveRows(sys.db, sys, "cmdb_policy", { f: "active", op: "eq", v: true });
+  // CIs a connector found are judged by discovery's contact ladder (design A §10.3), which weighs every source's own
+  // contact and the mass-drop guard — their last discovery time alone would retire what a broken tool stopped listing.
+  // A deleted connector's ladder never runs again: its source is an ordinary one, judged here
+  const connectorSources = policies.length
+    ? (await sys.db.query<{ id: string }>(
+        `select s.id from sm_cmdb_sources s where s.org_id = $1 and s.deleted_at is null and s.kind = 'connector'
+           and exists (select 1 from sm_discovery_connectors k where k.org_id = s.org_id and k.source_id = s.id and k.deleted_at is null) limit 5000`,
+        [sys.org.id],
+      )).map((r) => r.id)
+    : [];
   let affected = 0;
   let skipped = 0;
   for (const p of policies) {
     const parts: Row[] = [{ f: "state", op: "nin", v: ["retired", "disposed", "canceled"] }];
+    if (connectorSources.length) parts.push({ f: "discovery_source_id", op: "nin", v: connectorSources });
     if (p.condition) parts.push(p.condition);
     if (p.after_days > 0) parts.push({ or: [{ f: "last_discovered_at", op: "lt", v: new Date(Date.now() - p.after_days * 86_400_000).toISOString() }, { and: [{ f: "last_discovered_at", op: "empty" }, { f: "updated_at", op: "lt", v: new Date(Date.now() - p.after_days * 86_400_000).toISOString() }] }] });
     const rows = await liveRows(sys.db, sys, "ci", { and: parts as never }, { limit: Math.min(5000, Number(p.max_per_run ?? 200)) });
@@ -129,6 +149,8 @@ export async function applyPolicies(sys: Ctx): Promise<{ affected: number; skipp
           else if (p.action === "flag_stale") await updateIn(tx, sys, "ci", r.id, { is_stale: true }, { trusted: true, keepVersion: true });
           else {
             const key = `policy:${p.id}:${r.id}`;
+            // the finding's key first: two runs of the policy at once open it once
+            await lockKey(tx, `cmdb.finding:${sys.org.id}:${key}`);
             const [open] = await liveRows(tx, sys, "cmdb_finding", { and: [{ f: "dedupe_key", op: "eq", v: key }, { f: "active", op: "eq", v: true }] }, { limit: 1 });
             if (!open) {
               await createIn(tx, sys, "cmdb_finding", { short_description: `«${r.name}»: ${p.name}`.slice(0, 200), ci_id: r.id, kind: "stale", severity: "low", detail: p.description ?? p.name, dedupe_key: key, auto: true, assigned_to: r.owned_by ?? null, assignment_group_id: r.support_group_id ?? null, workspace_id: r.workspace_id ?? null }, { trusted: true });

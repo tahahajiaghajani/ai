@@ -16,6 +16,7 @@ import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
 import type { Queryable, Tx } from "../../db";
 import { pgArray } from "../../db";
+import { demoPeople, demoQuiet } from "../../db/scope";
 import { AppError, bad, forbidden, notFound } from "../../http/errors";
 import { access } from "../../access/provider";
 import { registerParticipantSource } from "../../access/predicate";
@@ -156,8 +157,11 @@ interface Approver {
   delegatedFrom: string | null;
 }
 
-/** The approvers of one level for `row` (deduplicated, separation of duties and delegation applied). */
-async function resolveLevel(q: Queryable, ctx: Ctx, def: TableDef, row: Row, level: LevelDef, opts: { allowSelf: boolean; delegations: Delegation[] }): Promise<Approver[]> {
+/**
+ * The approvers of one level for `row` (deduplicated, separation of duties and delegation applied). `real`: a record of
+ * the organisation's own, whose approvers and delegates are never the demo pack's people (see `roundRows`).
+ */
+async function resolveLevel(q: Queryable, ctx: Ctx, def: TableDef, row: Row, level: LevelDef, opts: { allowSelf: boolean; delegations: Delegation[]; real: boolean }): Promise<Approver[]> {
   const found: { user: string; group: string | null; source: SourceDef["kind"] }[] = [];
   for (const s of level.sources ?? []) {
     if (s.kind === "users") for (const u of s.users ?? []) found.push({ user: u, group: null, source: "users" });
@@ -183,14 +187,17 @@ async function resolveLevel(q: Queryable, ctx: Ctx, def: TableDef, row: Row, lev
     }
   }
   const sod = opts.allowSelf ? new Set<string>() : sodUsers(def, row);
-  const active = await activeMembers(q, ctx.org.id, [...found.map((x) => x.user), ...opts.delegations.map((d) => d.to)]);
+  const people = [...found.map((x) => x.user), ...opts.delegations.map((d) => d.to)];
+  const active = await activeMembers(q, ctx.org.id, people);
+  const demo = opts.real ? await demoPeople(q, ctx.org.id, people) : new Set<string>();
+  const barred = (u: string) => sod.has(u) || demo.has(u.toLowerCase());
   const out: Approver[] = [];
   const seen = new Set<string>();
   for (const x of found) {
-    if (!active.has(x.user) || sod.has(x.user)) continue;
+    if (!active.has(x.user) || barred(x.user)) continue;
     // an absent approver's delegate is asked instead (unless the delegate may not approve this record)
     const d = delegateOf(opts.delegations, x.user);
-    const user = d !== x.user && active.has(d) && !sod.has(d) ? d : x.user;
+    const user = d !== x.user && active.has(d) && !barred(d) ? d : x.user;
     if (seen.has(user)) continue;
     seen.add(user);
     out.push({ user, group: x.group, source: x.source, delegatedFrom: user !== x.user ? x.user : null });
@@ -300,6 +307,10 @@ async function roundRows(
   opts: { requestedBy: string | null; managerFallback: boolean },
 ): Promise<Row[]> {
   const delegations = await activeDelegations(q, ctx, "approvals", now);
+  // the demo pack's people approve only the pack's work (docs/DEMO_FA.md): a record of the organisation's own — written
+  // outside the demo scope, not a row of the pack — never gets one of them as approver or delegate, whatever names them
+  // (a group they were added to, a role a module's source falls back to, a list, a manager)
+  const real = !(await demoQuiet(q, ctx.org.id, typeof row.id === "string" ? row.id : null));
   const out: Row[] = [];
   for (let i = 0; i < spec.levels.length; i++) {
     const level = spec.levels[i];
@@ -308,12 +319,14 @@ async function roundRows(
       table_key: def.key, record_id: String(row.id), rule_id: spec.id, level: i + 1, level_name: level.name ?? null, round,
       rule: (level.rule ?? "any") as ApprovalRule, threshold: level.threshold ?? null, requested_by: opts.requestedBy,
     };
-    let approvers = await resolveLevel(q, ctx, def, row, level, { allowSelf: spec.allowSelf, delegations });
+    let approvers = await resolveLevel(q, ctx, def, row, level, { allowSelf: spec.allowSelf, delegations, real });
     if (!approvers.length && opts.managerFallback) {
       // nobody left (no members, or only the record's own people): the requester's manager, else the level is skipped
       const who = (def.scope.requester ?? []).map((f) => row[f]).find((v) => typeof v === "string" && v);
       const m = who ? await managerOf(q, ctx, who) : null;
-      if (m && (spec.allowSelf || !sodUsers(def, row).has(m)) && (await activeMembers(q, ctx.org.id, [m])).has(m)) approvers = [{ user: m, group: null, source: "manager", delegatedFrom: null }];
+      if (m && (spec.allowSelf || !sodUsers(def, row).has(m)) && (await activeMembers(q, ctx.org.id, [m])).has(m) && !(real && (await demoPeople(q, ctx.org.id, [m])).size)) {
+        approvers = [{ user: m, group: null, source: "manager", delegatedFrom: null }];
+      }
     }
     if (!approvers.length) {
       out.push({ ...base, state: "skipped", comments: "تأییدکننده‌ای پیدا نشد (یا فقط افراد خود رکورد بودند)" });
@@ -511,17 +524,22 @@ export async function decide(ctx: Ctx, id: string, input: DecideInput): Promise<
     const sys = systemFrom(ctx);
     const { def: adef } = await defFor(sys, "approval", tx);
     const env = await condEnv(sys);
+    // the record first, then the approval — the order the record's own writes, the approval timer and settling take
+    // (record, then its approvals): two approvers of one level, or a decision and a write of the record, wait for
+    // each other instead of deadlocking; the approval is read again once locked
+    const peek = await loadReadable(tx, sys, adef, id, env);
+    if (!peek) throw notFound("این تأیید پیدا نشد");
+    const schema = await orgSchema(sys, tx);
+    const def = schema.def(String(peek.table_key));
+    if (!def || def.virtual) throw notFound("رکورد این تأیید پیدا نشد");
+    const record = await loadReadable(tx, sys, def, String(peek.record_id), env, { lock: true });
+    if (!record) throw notFound("رکورد این تأیید پیدا نشد");
     const a = await loadReadable(tx, sys, adef, id, env, { lock: true });
-    if (!a) throw notFound("این تأیید پیدا نشد");
+    if (!a || a.record_id !== peek.record_id || a.table_key !== peek.table_key) throw notFound("این تأیید پیدا نشد");
     const delegations = await activeDelegations(tx, ctx, "approvals");
     const who = actingFor(a, me, delegations);
     if (!who.ok) throw notFound("این تأیید پیدا نشد");
     if (a.state !== "requested") throw new AppError(409, "conflict", a.state === "waiting" ? "نوبت این تأیید هنوز نرسیده است" : "این تأیید پیش‌تر بسته شده است");
-    const schema = await orgSchema(sys, tx);
-    const def = schema.def(String(a.table_key));
-    if (!def || def.virtual) throw notFound("رکورد این تأیید پیدا نشد");
-    const record = await loadReadable(tx, sys, def, String(a.record_id), env, { lock: true });
-    if (!record) throw notFound("رکورد این تأیید پیدا نشد");
     const cfg = await config(tx, sys);
     const rule = a.rule_id ? cfg.rows.approval_rule.find((r) => r.id === a.rule_id) : null;
     if (!rule?.allow_self_approval && sodUsers(def, record).has(me)) {

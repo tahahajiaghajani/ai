@@ -9,6 +9,7 @@
 import net from "node:net";
 import tls from "node:tls";
 import { X509Certificate } from "node:crypto";
+import { demoScopeOrg } from "../../db/scope";
 
 // ---------------------------------------------------------------- BER
 
@@ -349,6 +350,8 @@ export class LdapClient {
   }
 
   async connect(): Promise<void> {
+    // no connection leaves inside the demo pack's work (docs/DEMO_FA.md; a directory carries none of it anyway)
+    if (demoScopeOrg()) throw new LdapError("داده‌های نمایشی: در کار نمایشی به سرور LDAP وصل نمی‌شود", "input");
     let u: URL;
     try {
       u = new URL(this.o.url);

@@ -1,7 +1,8 @@
 // Small shared pieces of the asset, supplier and financial screens: money in the organisation's unit (Rials or Tomans,
 // Persian digits grouped, tabular), a usage meter, the AI/rule label of a narrative, and lazy-loading wrappers of
 // record-page widgets.
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import { useQuery } from "@tanstack/react-query";
 import { formatRial, type MoneyUnit } from "@shared/financial/logic";
 import { useOrg } from "../../lib/org";

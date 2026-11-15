@@ -57,6 +57,9 @@ export const apiAuth: MiddlewareHandler<Env> = async (c, next) => {
   if (!key.integration_user_id) throw forbidden("این کلید به کاربر یکپارچه‌سازی وابسته نیست؛ برای API رکوردها در «کاربران یکپارچه‌سازی» کلید تازه بسازید");
   if (!(await hasFeature(cfg.db, key.org_id, "public_api", cfg.mode))) throw forbidden("API رکوردها برای این سازمان روشن نیست");
   const { ctx, user } = await principalCtx(cfg, key.org_id, key.integration_user_id);
+  // what the API answers leaves the system: nothing of the demo pack is listed, counted, read or changed through it
+  // (docs/DEMO_FA.md) — a demo row is unknown here (404), as in the hub's scheduled exports
+  ctx.withoutDemo = true;
   // a suspended organisation is closed to its keys as to its members (read-only refuses writes in ctx.write)
   const orgState = await orgStatus(cfg.db, key.org_id);
   if (orgState.status === "suspended") throw statusError(orgState);

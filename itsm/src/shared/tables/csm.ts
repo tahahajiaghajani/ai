@@ -11,6 +11,7 @@
 // notices complete relationship management. Everything is in the access area `csm`.
 // Behaviour: src/server/modules/csm; screens: src/ui/modules/csm. Imported by the UI: keep it free of server imports.
 import type { Option, StateModel, TableDef } from "../model/types";
+import { NEVER } from "../model/conditions";
 import { APPROVAL_STATES } from "../model/task";
 
 const o = (value: string, label: string, order: number, color?: Option["color"]): Option => ({ value, label, order, ...(color ? { color } : {}) });
@@ -321,6 +322,7 @@ const entitlementLedger: TableDef = {
     { ...ACCOUNT_CHILD },
   ],
   scope: { group: "support_group_id" },
+  rowAccess: { write: NEVER },
   features: { journal: false, attachments: false, history: false },
   list: { columns: ["at", "entitlement_id", "case_id", "delta", "balance_after", "reason"], order: "-at" },
 };
@@ -604,6 +606,7 @@ const accountHealth: TableDef = {
     { ...ACCOUNT_CHILD },
   ],
   scope: { group: "support_group_id" },
+  rowAccess: { write: NEVER },
   unique: [["account_id", "day"]],
   features: { journal: false, attachments: false, history: false },
   list: { columns: ["day", "account_id", "score", "status", "csat", "sla_attainment"], order: "-day" },

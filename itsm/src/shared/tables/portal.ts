@@ -597,7 +597,7 @@ const identity: TableDef = {
     { name: "active", label: "فعال", type: "bool", default: true, readonly: true, list: true, filter: true, span: 8 },
   ],
   scope: { own: ["user_id"], requester: ["user_id"], requesterWritable: [], requesterTransitions: [] },
-  rowAccess: { read: { f: "user_id", op: "is_me" } },
+  rowAccess: { read: { f: "user_id", op: "is_me" }, write: NEVER },
   features: { sync: false, history: false },
   list: { columns: ["channel_id", "user_id", "external_name", "linked_at", "active"], order: "-linked_at" },
 };
@@ -619,7 +619,7 @@ const linkCode: TableDef = {
   ],
   scope: { own: ["user_id"], requester: ["user_id"] },
   // never through the record API: the codes are the module's (its routes and webhook handler)
-  rowAccess: { read: NEVER },
+  rowAccess: { read: NEVER, write: NEVER },
   features: { sync: false, history: false },
   list: { columns: ["user_id", "expires_at", "used_at"], order: "-created_at" },
 };

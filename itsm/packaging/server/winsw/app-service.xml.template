@@ -2,13 +2,16 @@
   WinSW 2.12 service: the application server of the server edition (node.exe app\server.cjs: a supervisor and one
   worker per core). Starts after {{DB_NAME}}; runs as the virtual account NT SERVICE\{{APP_NAME}}. Stopping sends
   Ctrl+C: the supervisor lets requests in flight finish and stops its workers.
+  The first argument (use-system-ca): Node.js trusts the Windows certificate store (the bank's root CA that Group Policy installs into
+  LocalMachine\Root), not only its own bundle - the mail relay's STARTTLS, LDAPS without a pasted root, webhooks and
+  AI servers on HTTPS inside the bank (the workers inherit it; docs/qa/BANK_SIM_FA.md).
 -->
 <service>
   <id>{{APP_NAME}}</id>
   <name>{{APP_DISPLAY}}</name>
   <description>{{APP_DESCRIPTION}}</description>
   <executable>{{INSTALL_DIR}}\node\node.exe</executable>
-  <arguments>--max-old-space-size={{NODE_HEAP_MB}} "{{INSTALL_DIR}}\app\server.cjs"</arguments>
+  <arguments>--use-system-ca --max-old-space-size={{NODE_HEAP_MB}} "{{INSTALL_DIR}}\app\server.cjs"</arguments>
   <workingdirectory>{{INSTALL_DIR}}\app</workingdirectory>
   <depend>{{DB_NAME}}</depend>
   <stoptimeout>60 sec</stoptimeout>

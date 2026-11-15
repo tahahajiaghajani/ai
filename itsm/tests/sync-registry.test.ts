@@ -16,7 +16,7 @@ const LOCAL_ONLY: Record<string, string> = {
   sm_integrations: "other systems post their webhooks to the web version",
   sm_integration_events: "raw webhook deliveries (web version)",
   sm_dev_events: "raw DevOps tool deliveries (web version; commits, pull requests, builds and deployments travel)",
-  sm_org_sync: "per-organisation revision counter",
+  sm_org_sync: "per-organisation sync epoch and purge watermark (revisions are transaction ids)",
   // the demo pack (modules/demo): each runtime loads and purges its own pack; the purge's tombstones travel
   sm_demo_packs: "this runtime's demo pack state",
   sm_demo_rows: "registry of the rows this runtime's demo pack inserted",
@@ -100,6 +100,17 @@ const LOCAL_ONLY: Record<string, string> = {
   // sign-in (the organisation a directory sign-in reaches; each runtime signs its own people in)
   sm_sessions: "sessions of this runtime (a directory sign-in names the organisation it reaches)",
   sm_auth_throttle: "failed sign-ins and local lockouts of this runtime",
+  // workflows (design F §3.6.2): a draft stays on the runtime where it was saved
+  sm_process_drafts: "a person's unsent values of a workflow step or start",
+  // discovery (design A §5): the server runs the connectors and keeps their bookkeeping; status and contact live here,
+  // off the synced CIs and assets, so a flapping host costs one local row update (the Windows app runs none of it)
+  sm_discovery_connectors: "configured monitoring and discovery tools of this server (credentials sealed for it)",
+  sm_discovery_items: "what each tool reported, keyed by the tool's id (the identity map onto CIs and assets)",
+  sm_discovery_states: "monitor status and last tool contact per CI or asset",
+  sm_discovery_problems: "open problems each tool reports and what event management has received",
+  sm_discovery_runs: "every pass of a connector (counts, cursor, warnings)",
+  sm_discovery_batches: "pushed batches (idempotency and results)",
+  sm_discovery_software: "software installs staged per device before the SAM feed",
 };
 
 describe("sync registry covers every organisation table", () => {

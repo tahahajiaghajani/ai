@@ -10,6 +10,7 @@ import { ASSET_STATES, MOVEMENT_KINDS } from "@shared/tables/itam";
 import { diffDays } from "@shared/jalali";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
+import { lockKey } from "../../db";
 import { bad, conflict, forbidden, notFound } from "../../http/errors";
 import { access } from "../../access/provider";
 import { create, createIn, defFor, get, list, listHistory, transitionIn, updateIn, addJournalIn, fromDb } from "../../engine";
@@ -19,6 +20,7 @@ import { accessSettings, buildSubject, loadOrgSnapshot } from "../../access";
 import { grantIn } from "@shared/access/model";
 import { hasGroup, holds, isUuid, itamConfig, liveRow, liveRows, orgToday, stateLabel, sysOf, type Row } from "./common";
 import { setHandOver } from "./hooks";
+import { waitingHardware } from "./fleet";
 
 const ASSET = "asset";
 
@@ -35,10 +37,12 @@ export async function checkout(ctx: Ctx, id: string, input: CheckoutInput): Prom
     substate: input.usage_type === "loaner" ? "loaner" : "assigned",
   };
   if (input.request_item_id) data.request_item_id = input.request_item_id;
+  // against the version read above: an asset dispatched, received or handed over meanwhile answers «changed by
+  // someone else» instead of being assigned on top of what it is now (an update is not a transition)
   await ctx.write(async (tx) => {
     setHandOver(tx, id, { condition: input.condition ?? null, note: input.note ?? null, request_item_id: input.request_item_id ?? null });
-    if (row.state === "in_use") await updateIn(tx, ctx, ASSET, id, data, {});
-    else await transitionIn(tx, ctx, ASSET, id, "in_use", data);
+    if (row.state === "in_use") await updateIn(tx, ctx, ASSET, id, data, { version: row.version });
+    else await transitionIn(tx, ctx, ASSET, id, "in_use", data, { version: row.version });
   });
   return (await get(ctx, ASSET, id)).row;
 }
@@ -51,7 +55,7 @@ export async function checkin(ctx: Ctx, id: string, input: CheckinInput): Promis
   const substate = input.substate ?? (input.condition === "damaged" || input.condition === "poor" ? "defective" : "available");
   await ctx.write(async (tx) => {
     setHandOver(tx, id, { condition_in: input.condition ?? null, note: input.note ?? null });
-    await transitionIn(tx, ctx, ASSET, id, "in_stock", { stockroom_id: input.stockroom_id, substate });
+    await transitionIn(tx, ctx, ASSET, id, "in_stock", { stockroom_id: input.stockroom_id, substate }, { version: row.version });
     if (input.note) await addJournalIn(tx, ctx, (await defFor(ctx, ASSET, tx)).def, { ...row, id }, { kind: "work_note", body: `بازگشت به انبار: ${input.note}` }).catch(() => undefined);
   });
   return (await get(ctx, ASSET, id)).row;
@@ -255,18 +259,20 @@ export async function linkCi(sys: Ctx, assetId: string): Promise<{ ci_id: string
   return { ci_id: ciId, message: null };
 }
 
-const HW_CLASSES = ["laptop", "desktop", "server", "computer", "mobile_device", "printer", "network_device", "router", "switch", "firewall", "access_point", "storage", "ups"];
 const CATEGORY_OF: Record<string, string> = { laptop: "laptop", desktop: "desktop", computer: "desktop", server: "server", mobile_device: "phone", printer: "printer", storage: "storage" };
 
 /**
  * Assets for discovered hardware CIs that have none (ITAM-002 «in use, unverified»): the model by maker and model
  * name (a model «در بررسی» is created when unknown), the CI's user as the assignee.
  */
-/** Hardware CIs of the CMDB that have no asset yet (live, not retired), oldest first. */
+/**
+ * Hardware CIs of the CMDB that wait for an asset, oldest first: live, not retired, without one, and never an ATM, CRS
+ * or kiosk — also one a monitoring tool reports as a plain device (fleet.ts `ciWaits`, the rule a connector's asset feed
+ * keeps too).
+ */
 async function unlinkedHardware(sys: Ctx): Promise<Row[]> {
-  const cis = await liveRows(sys.db, sys, "ci", { and: [{ f: "class", op: "in", v: HW_CLASSES }, { f: "state", op: "nin", v: ["retired", "disposed", "canceled"] }] } as Cond, { limit: 5000, order: "t.created_at, t.no" });
-  const linked = new Set((await liveRows(sys.db, sys, ASSET, { f: "ci_id", op: "nempty" } as Cond, { limit: 100000 })).map((a) => String(a.ci_id)));
-  return cis.filter((ci) => !linked.has(String(ci.id)));
+  const ids = await waitingHardware(sys.db, sys.org.id, 5000);
+  return ids.length ? liveRows(sys.db, sys, "ci", { f: "id", op: "in", v: ids } as Cond, { limit: ids.length, order: "t.created_at, t.no" }) : [];
 }
 
 /** Active members whose roles manage assets (write ≥ group in area `asset`) — who reviews discovered hardware. */
@@ -349,6 +355,10 @@ export async function assetsForDiscovered(sys: Ctx, limit = 200, open?: Row[]): 
   for (const ci of cis) {
     if (created >= limit) break;
     await sys.write(async (tx) => {
+      // the organisation's key for discovered hardware: the daily step and «ساخت دارایی» by hand at once make one
+      // asset per CI and one model per name (each reads what the other committed)
+      await lockKey(tx, `itam.discovered:${sys.org.id}`);
+      if ((await liveRows(tx, sys, ASSET, { f: "ci_id", op: "eq", v: ci.id } as Cond, { limit: 1 })).length) return;
       const name = String(ci.model_name || `${ci.class} نامشخص`).slice(0, 200);
       let [model] = await liveRows(tx, sys, "asset_model", { f: "name", op: "eq", v: name } as Cond, { limit: 1 });
       if (!model) {

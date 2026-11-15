@@ -9,7 +9,7 @@ import { readableIds } from "../../access";
 import { AppError, bad, conflict, forbidden, notFound, unauthorized } from "../../http/errors";
 import { pgArray } from "../../db";
 import {
-  FLOW_LIMITS, cleanGraph, hasErrors, triggerProblems, validateGraph,
+  FLOW_LIMITS, cleanGraph, hasErrors, nodeTable, triggerProblems, validateGraph,
   type FlowGraph, type FlowProblem, type FlowRunDetail, type FlowRunView, type FlowWaitView, type RunState, type TriggerConfig,
 } from "@shared/flows";
 import { scheduleProblem } from "@shared/flows";
@@ -17,6 +17,7 @@ import { cancelRun, executeRun, resumeFlowWait, startRun } from "./executor";
 import { flowsGrant, publishing } from "./hooks";
 import { flowSkills, serviceInstalled } from "./registry";
 import { loadRun, loadVersion, runView, stepView, stepsOf, waitsOf, type RunRow } from "./store";
+import { systemOnlyRefusal } from "./records";
 import { resolveRunAs } from "./triggers";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -70,6 +71,11 @@ export async function flowProblems(ctx: Ctx, row: Record<string, unknown>, graph
   }
   for (const n of g.nodes) {
     if (n.type === "subflow" && String(n.config.flow ?? "") === String(row.id ?? "")) problems.push({ level: "error", node: n.id, field: "flow", message: "گردش‌کار نمی‌تواند خودش را اجرا کند" });
+    // a step that would create or change rows of a table only the platform writes (its own table, or the trigger's)
+    if (n.type === "create_record" || n.type === "update_record") {
+      const refused = systemOnlyRefusal(nodeTable(n.config, trigger));
+      if (refused) problems.push({ level: "error", node: n.id, field: "table", message: refused });
+    }
   }
   return problems;
 }
@@ -186,7 +192,7 @@ export async function listRuns(ctx: Ctx, p: { flow?: string; state?: string; tes
   const flows = [...(await readableFlowIds(ctx, candidates.filter((x) => UUID.test(x))))];
   if (!flows.length) return { runs: [], total: 0, page, size };
   const params: unknown[] = [ctx.org.id, pgArray(flows)];
-  const where = ["org_id = $1", "flow_id = any($2::uuid[])"];
+  const where = ["org_id = $1", "flow_id = any($2::uuid[])", "trigger_kind <> 'process'"];
   if (p.state) {
     params.push(p.state);
     where.push(`state = $${params.length}`);
@@ -207,7 +213,7 @@ export async function listRuns(ctx: Ctx, p: { flow?: string; state?: string; tes
 
 async function runFor(ctx: Ctx, runId: string): Promise<RunRow> {
   const run = await loadRun(ctx.db, runId);
-  if (!run || run.org_id !== ctx.org.id || !(await readableFlowIds(ctx, [run.flow_id])).size) throw notFound("اجرا پیدا نشد");
+  if (!run || run.org_id !== ctx.org.id || run.trigger_kind === "process" || !(await readableFlowIds(ctx, [run.flow_id])).size) throw notFound("اجرا پیدا نشد");
   return run;
 }
 

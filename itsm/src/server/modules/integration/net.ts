@@ -1,16 +1,22 @@
 // Outbound HTTP of the administration consoles and the integration hub (webhooks, issue trackers, scheduled imports and
 // exports): on the web version through the SSRF guard (public hosts only, no redirects), on the Windows app the office
-// network is allowed; always with a timeout and a Persian message naming the service.
+// network is allowed; always with a timeout and a Persian message naming the service. Nothing of the demo pack's work
+// leaves through it (docs/DEMO_FA.md): inside a demo scope `callOut` sends nothing and answers a refusal, and
+// `outsideFetch` rejects — whoever the caller is, one added later included.
 import type { ServerConfig } from "../../context";
 import { guardedFetch } from "../ai/net";
 import { lanAllowed } from "../../net";
+import { DEMO_OUTBOUND_TEXT, demoSafeFetch, demoScopeOrg } from "../../db/scope";
 
 export const OUT_TIMEOUT_MS = 15_000;
 
-/** fetch for calls to other systems. */
+/** What a call refused inside demo work answers (nothing was sent). */
+export const DEMO_REFUSED = DEMO_OUTBOUND_TEXT;
+
+/** fetch for calls to other systems (refused inside the demo pack's work). */
 export function outsideFetch(cfg: Partial<ServerConfig>): typeof fetch {
   const f = cfg.fetch ?? fetch;
-  return lanAllowed(cfg) ? f : guardedFetch(f);
+  return demoSafeFetch(lanAllowed(cfg) ? f : guardedFetch(f));
 }
 
 export interface OutResult {
@@ -19,10 +25,16 @@ export interface OutResult {
   text: string;
   ms: number;
   headers: Headers | null;
+  /** refused inside the demo pack's work: nothing left the system (a caller treats it as skipped, not as a failure) */
+  demo?: true;
 }
 
-/** One call; network failures come back as status 0 with a Persian message (never thrown). */
+/**
+ * One call; network failures come back as status 0 with a Persian message (never thrown). Inside demo work (the
+ * loader, a demo job, a demo person's request) no call is made at all: status 0, `demo`, and the refusal as the text.
+ */
 export async function callOut(cfg: Partial<ServerConfig>, url: string, init: RequestInit, label: string, timeoutMs = OUT_TIMEOUT_MS): Promise<OutResult> {
+  if (demoScopeOrg()) return { status: 0, ok: false, text: `${label}: ${DEMO_REFUSED}`, ms: 0, headers: null, demo: true };
   const started = Date.now();
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), timeoutMs);

@@ -62,6 +62,12 @@ export interface ServerEditionConfig {
    * `admitWrite`; default 3 — PERFORMANCE_FA.md §۱۳). The environment variable ITSM_WRITERS_PER_ORG wins.
    */
   writers_per_org: number;
+  /**
+   * Serialise every write of an organisation on its lock again (the behaviour before transaction-id sync revisions,
+   * context.ts `configureWriteSerialisation`; off by default — PERFORMANCE_FA.md §۱۸): an operational fallback when
+   * concurrent writes misbehave, at the cost of write throughput. The environment variable ITSM_SERIALIZE_WRITES wins.
+   */
+  serialize_writes: boolean;
   network: { air_gapped: boolean; allow: string[] };
   uploads: { max_mb: number; request_max_mb: number };
   antivirus: AntivirusConfig;
@@ -136,6 +142,7 @@ export function defaultConfig(data = defaultDataDir()): ServerEditionConfig {
     workers: 0,
     pool_per_worker: 0,
     writers_per_org: 3,
+    serialize_writes: false,
     network: { air_gapped: true, allow: [] },
     uploads: { max_mb: 25, request_max_mb: 10 },
     antivirus: { command: null, args: ["-Scan", "-ScanType", "3", "-File", "{file}", "-DisableRemediation"], timeout_s: 120, infected_codes: [2], on_error: "reject" },
@@ -176,6 +183,15 @@ function numberIn(warn: string[], name: string, v: unknown, min: number, max: nu
 const str = (v: unknown, fallback: string) => (typeof v === "string" && v.trim() ? v.trim() : fallback);
 const strOrNull = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
 const bool = (v: unknown, fallback: boolean) => (typeof v === "boolean" ? v : v === "true" || v === "1" ? true : v === "false" || v === "0" ? false : fallback);
+/** An on/off switch: true/false, or the words the environment uses (1/true/on/yes, 0/false/off/no). */
+function switchOf(warn: string[], name: string, v: unknown, fallback: boolean): boolean {
+  if (typeof v === "boolean") return v;
+  const t = typeof v === "string" ? v.trim().toLowerCase() : typeof v === "number" ? String(v) : "";
+  if (["1", "true", "on", "yes"].includes(t)) return true;
+  if (["0", "false", "off", "no"].includes(t)) return false;
+  if (v !== undefined && v !== null && t !== "") warn.push(`${name}: «${String(v)}» معتبر نیست (true یا false)؛ ${fallback} به کار رفت`);
+  return fallback;
+}
 const list = (v: unknown) =>
   (Array.isArray(v) ? v : typeof v === "string" ? v.split(/[,;\s]+/) : [])
     .map((s) => String(s).trim())
@@ -248,6 +264,7 @@ export function normalize(raw: unknown, warnings: string[] = []): ServerEditionC
     workers: numberIn(w, "workers", c.workers, 0, 64, 0),
     pool_per_worker: numberIn(w, "pool_per_worker", c.pool_per_worker, 0, 200, 0),
     writers_per_org: numberIn(w, "writers_per_org", c.writers_per_org, 1, 64, d.writers_per_org),
+    serialize_writes: switchOf(w, "serialize_writes", c.serialize_writes, d.serialize_writes),
     network: { air_gapped: bool(c.network?.air_gapped, true), allow: [...new Set(list(c.network?.allow).map((h) => h.toLowerCase()))] },
     uploads: {
       max_mb: numberIn(w, "uploads.max_mb", c.uploads?.max_mb, 1, 100, d.uploads.max_mb),
@@ -318,6 +335,7 @@ export function envOverrides(env: Env = process.env): Obj {
   set("workers", env.ITSM_WORKERS);
   set("pool_per_worker", env.ITSM_POOL_PER_WORKER);
   set("writers_per_org", env.ITSM_WRITERS_PER_ORG);
+  set("serialize_writes", env.ITSM_SERIALIZE_WRITES?.trim().toLowerCase());
   if (env.ITSM_AIR_GAPPED !== undefined) set("network.air_gapped", env.ITSM_AIR_GAPPED);
   if (env.ITSM_ALLOW_HOSTS !== undefined) set("network.allow", env.ITSM_ALLOW_HOSTS);
   set("log.level", env.ITSM_LOG_LEVEL);

@@ -29,6 +29,7 @@ import {
 } from "./common";
 import { publishIn } from "./versions";
 import { cancelApprovalsIn } from "../sla";
+import { lockedRow } from "../incident/common";
 import { licenceLevel } from "./kcs";
 
 const entering = (w: WriteArgs, state: string) => w.next.state === state && (w.op === "create" || w.prev?.state !== state);
@@ -111,6 +112,9 @@ async function categoryBefore(w: WriteArgs): Promise<void> {
     if (n.parent_id === n.id) throw validationError({ parent_id: "دسته زیرمجموعهٔ خودش نیست" });
     parent = await categoryOf(w.tx, w.ctx, n.parent_id);
     if (!parent) throw validationError({ parent_id: "دستهٔ بالاتر پیدا نشد" });
+    // a new or moved category compiles from its parent locked (shared) until commit: a change of the parent's audience
+    // in flight finishes first and is compiled in; one that comes later waits and its propagation reaches this one
+    if (w.op === "create" || w.changed.has("parent_id")) parent = (await lockedRow(w.tx, sys, "kb_category", parent.id, "share")) ?? parent;
     if (parent.base_id !== n.base_id) throw validationError({ parent_id: "دستهٔ بالاتر باید از همین پایگاه باشد" });
     if (String(parent.path ?? "").includes(`/${n.id}/`)) throw validationError({ parent_id: "این جابه‌جایی دور می‌سازد" });
   }
@@ -124,10 +128,16 @@ async function categoryBefore(w: WriteArgs): Promise<void> {
 async function categoryAfter(w: WriteArgs & { row: Row }): Promise<void> {
   if (w.op !== "update" && w.op !== "transition") return;
   if (!["path", "c_all", "c_users", "c_groups", "c_units", "m_groups"].some((f) => w.changed.has(f))) return;
-  // children follow their parent (each one's own hook carries it further down)
+  // children follow their parent (each one's own hook carries it further down) — each compiled from its own row locked
+  // and read again: a change of the child's own audience in flight finishes first and is kept, a child moved away
+  // meanwhile is left to its new parent
   const sys = sysOf(w.ctx);
   const kids = await liveRows(w.tx, sys, "kb_category", { f: "parent_id", op: "eq", v: w.row.id }, { limit: 500 });
-  for (const k of kids) await updateIn(w.tx, sys, "kb_category", k.id, await compileCategory(w.tx, sys, k, w.row), { trusted: true, keepVersion: true });
+  for (const listed of kids) {
+    const k = await lockedRow(w.tx, sys, "kb_category", listed.id);
+    if (!k || k.parent_id !== w.row.id) continue;
+    await updateIn(w.tx, sys, "kb_category", k.id, await compileCategory(w.tx, sys, k, w.row), { trusted: true, keepVersion: true });
+  }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -261,8 +271,11 @@ async function versionBefore(w: WriteArgs): Promise<void> {
   }
   const n = w.next;
   const sys = sysOf(w.ctx);
-  const article = await articleOf(w.tx, w.ctx, n.article_id);
+  let article = await articleOf(w.tx, w.ctx, n.article_id);
   if (!article) throw validationError({ article_id: "مقاله پیدا نشد" });
+  // a new version locks its article: two editors starting a draft at once take turns, and the second finds the first
+  // draft open (one open draft per article, one version label) — the label below is read from the locked row
+  if (w.op === "create") article = (await lockedRow(w.tx, sys, "kb_article", article.id)) ?? article;
   const base = await baseOf(w.tx, w.ctx, article.base_id);
   if (w.op === "create") {
     if (["retired", "trashed"].includes(article.state) && !isSys(w.ctx)) throw conflict("مقالهٔ بازنشسته یا حذف‌شده را اول بازگردانید");
@@ -370,17 +383,20 @@ const versionGuards = {
 // ---------------------------------------------------------------------------------------------------------------
 // kb_feedback, kb_task
 
-/** The article's vote, rating and flag counters, from its feedback (as the system). */
+/**
+ * The article's vote, rating and flag counters, from its feedback (as the system). The article is locked before the
+ * feedback is counted: two readers voting at once take turns, and the later count sees the earlier vote committed.
+ */
 export async function recountFeedback(tx: Tx, ctx: Ctx, articleId: string): Promise<void> {
   const sys = sysOf(ctx);
+  const a = await lockedRow(tx, sys, "kb_article", articleId);
+  if (!a) return;
   const rows = await liveRows(tx, sys, "kb_feedback", { f: "article_id", op: "eq", v: articleId }, { limit: 50_000 });
   const yes = rows.filter((r) => r.kind === "helpful").length;
   const no = rows.filter((r) => r.kind === "not_helpful").length;
   const ratings = rows.filter((r) => r.kind === "rating" && Number(r.rating) > 0).map((r) => Number(r.rating));
   const flags = rows.filter((r) => r.kind === "flag" && (r.state === "open" || r.state === "in_task")).length;
   const avg = ratings.length ? (ratings.reduce((s, x) => s + x, 0) / ratings.length).toFixed(2) : null;
-  const a = await articleOf(tx, sys, articleId);
-  if (!a) return;
   if (a.helpful_yes === yes && a.helpful_no === no && Number(a.rating_count ?? 0) === ratings.length && Number(a.open_flags ?? 0) === flags && String(a.rating_avg ?? "") === String(avg ?? "")) return;
   await updateIn(tx, sys, "kb_article", articleId, { helpful_yes: yes, helpful_no: no, rating_count: ratings.length, rating_avg: avg, open_flags: flags }, { trusted: true, keepVersion: true, allowLocked: true });
 }
@@ -496,6 +512,8 @@ async function qualityBefore(w: WriteArgs): Promise<void> {
 async function qualityAfter(w: WriteArgs & { row: Row }): Promise<void> {
   if (w.op === "delete" || !(entering(w, "done") || (w.row.state === "done" && w.changed.has("results")))) return;
   const sys = sysOf(w.ctx);
+  // the article locked before its reviews are read: two reviews finished at once both count in the later average
+  if (!(await lockedRow(w.tx, sys, "kb_article", w.row.article_id))) return;
   const done = await liveRows(w.tx, sys, "kb_quality_review", { and: [{ f: "article_id", op: "eq", v: w.row.article_id }, { f: "state", op: "eq", v: "done" }] }, { order: "t.updated_at desc", limit: 3 });
   const avg = Math.round(done.reduce((s, r) => s + Number(r.score ?? 0), 0) / Math.max(1, done.length));
   await updateIn(w.tx, sys, "kb_article", w.row.article_id, { quality_score: avg }, { trusted: true, keepVersion: true, allowLocked: true });

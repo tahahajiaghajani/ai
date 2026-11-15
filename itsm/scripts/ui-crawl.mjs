@@ -221,7 +221,10 @@ function client(url, state = null) {
   };
 }
 
-/** A few records in the main operational tables, so «open the first record» has something to open (best effort). */
+/**
+ * A few records in the main operational tables, so «open the first record» has something to open (best effort):
+ * [table, row, the module's own create route when the table is not written through `/r/<table>`].
+ */
 const SEED = [
   ["incident", { short_description: "قطع اینترنت شعبهٔ مرکزی", impact: "2", urgency: "2" }],
   ["problem", { short_description: "قطعی‌های تکراری سوییچ طبقهٔ دوم" }],
@@ -229,13 +232,96 @@ const SEED = [
   // planned dates inside the roadmap's default range, so its bar can be clicked
   ["release", { short_description: "انتشار نسخهٔ ۲.۴ سامانهٔ بانکداری اینترنتی", version_name: "2.4.0", planned_start: new Date(Date.now() + 2 * 86400000).toISOString(), planned_end: new Date(Date.now() + 9 * 86400000).toISOString() }],
   ["todo", { short_description: "تمدید گواهی SSL درگاه", priority: "2" }],
-  ["kb_article", { title: "راهنمای اتصال به VPN", base_id: "{kb_base}" }],
+  // a new organisation gets its knowledge bases from a delayed seed job (minutes after it is made, SEED_DELAY_MS):
+  // until then «مقالهٔ دانش تازه» rightly offers «پایگاه دانش تازه» instead of a form, so the crawler makes a base of
+  // its own as an administrator would (not one of the seeded names: the seed job then adds those beside it)
+  ["kb_base", { name: "راهنمای فناوری اطلاعات" }],
+  // an article's title is its version's (read-only on the article): «مقالهٔ دانش تازه» writes through the knowledge API
+  ["kb_article", { title: "راهنمای اتصال به VPN", base_id: "{kb_base}", body: "برای اتصال به شبکهٔ سازمان از بیرون، برنامهٔ VPN را باز کنید و با نام کاربری سازمانی وارد شوید." }, "/knowledge/articles"],
   ["ci", { name: "SRV-CORE-01", class: "server" }],
+  // a process form, for its designer (settings/forms/:id)
+  ["form", { name: "فرم نمونهٔ بازدید شعبه" }],
+  // a workflow with a new process's draft (start and «ثبت درخواست»), for its designer (settings/workflows/p/:id)
+  ["process", {
+    name: "گردش‌کار نمونهٔ بازدید شعبه",
+    key: "sample_branch_visit",
+    draft: {
+      graph: {
+        nodes: [
+          { id: "start", type: "trigger", config: {} },
+          { id: "request", type: "form_step", label: "ثبت درخواست", config: { action: "fill", start: true, form: null, rights: { default: "edit", fields: {} }, assignees: [{ kind: "requester" }] } },
+        ],
+        edges: [{ id: "start.out.request", source: "start", target: "request" }],
+      },
+    },
+  }],
 ];
+
+/** Parameterised pages no record list leads to: the crawler fills them in (a table every organisation has, a seeded row). */
+const PARAM_PAGES = {
+  "settings/forms/t/:table": () => "settings/forms/t/incident",
+  "settings/forms/:id": (seeded) => (/^[0-9a-f-]{36}$/.test(seeded.form ?? "") ? `settings/forms/${seeded.form}` : null),
+  "settings/workflows/states/:table": () => "settings/workflows/states/incident",
+  "settings/workflows/p/:id": (seeded) => (/^[0-9a-f-]{36}$/.test(seeded.process ?? "") ? `settings/workflows/p/${seeded.process}` : null),
+  // the person's «گردش‌کارها» (F7): a published workflow and a case waiting for the administrator (seedWorkflow)
+  "workflows/p/:key": (seeded) => (seeded.workflow_key ? `workflows/p/${seeded.workflow_key}` : null),
+  "workflows/start/:key": (seeded) => (seeded.workflow_key ? `workflows/start/${seeded.workflow_key}` : null),
+  "workflows/c/:id": (seeded) => (UUID.test(seeded.workflow_case ?? "") ? `workflows/c/${seeded.workflow_case}` : null),
+  "workflows/c/:id/s/:task": (seeded) => (UUID.test(seeded.workflow_case ?? "") && UUID.test(seeded.workflow_task ?? "") ? `workflows/c/${seeded.workflow_case}/s/${seeded.workflow_task}` : null),
+  "workflows/c/:id/print": (seeded) => (UUID.test(seeded.workflow_case ?? "") ? `workflows/c/${seeded.workflow_case}/print` : null),
+  "r/process_case/:id": (seeded) => (UUID.test(seeded.workflow_case ?? "") ? `r/process_case/${seeded.workflow_case}` : null),
+};
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * A published workflow — «ثبت درخواست» on the seeded form, then «بررسی درخواست» by the administrator — and one of its
+ * cases waiting for the administrator at that step: the pages of the person's «گردش‌کارها» have a diagram, a start
+ * form, a case and a step form to show (best effort; a second run reuses them).
+ */
+async function seedWorkflow(call, orgId, me, form) {
+  const P = `/o/${orgId}`;
+  const key = "crawl_request";
+  try {
+    if (!UUID.test(form ?? "")) return {};
+    let proc = await call("GET", `${P}/process/defs/${key}`).then((d) => d.process).catch(() => null);
+    if (!proc) proc = (await call("POST", `${P}/process/defs`, { name: "گردش‌کار نمونهٔ درخواست", key, category: "نمونه" })).process;
+    if (proc.status !== "published") {
+      const step = (id, label, config) => ({ id, type: "form_step", label, config: { form, ...config } });
+      const graph = {
+        nodes: [
+          { id: "start", type: "trigger", config: {} },
+          step("request", "ثبت درخواست", { action: "fill", start: true, rights: { default: "edit", fields: {} }, assignees: [{ kind: "requester" }] }),
+          step("review", "بررسی درخواست", { action: "review", rights: { default: "read", fields: {} }, assignees: [{ kind: "users", users: [me] }] }),
+          { id: "done", type: "end", label: "پایان", config: { outcome: "completed" } },
+        ],
+        edges: [
+          { id: "start.out.request", source: "start", target: "request" },
+          { id: "request.out.review", source: "request", target: "review" },
+          { id: "review.out.done", source: "review", target: "done" },
+          { id: "review.returned.request", source: "review", target: "request", port: "returned" },
+        ],
+      };
+      await call("PUT", `${P}/process/defs/${proc.id}/draft`, { draft: { graph, starters: [], title_template: null, requester_view: [], managers: [], manager_groups: [], confidential: false } });
+      await call("POST", `${P}/process/defs/${proc.id}/publish`, { note: "نسخهٔ نمونهٔ خزنده" });
+    }
+    const waiting = async () => (await call("GET", `${P}/process/inbox`)).rows.find((r) => r.kind === "process_step" && r.process_id === proc.id);
+    let row = await waiting();
+    if (!row) {
+      await call("POST", `${P}/process/start`, { process: key, values: {} });
+      for (let i = 0; i < 40 && !row; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        row = await waiting();
+      }
+    }
+    return { workflow_key: key, ...(row ? { workflow_case: row.case_id, workflow_task: row.id } : {}) };
+  } catch (e) {
+    return { workflow_error: String(e.message).slice(0, 200) };
+  }
+}
 
 async function seed(call, orgId, me) {
   const made = {};
-  for (const [table, row] of SEED) {
+  for (const [table, row, createPath] of SEED) {
     try {
       const have = await call("POST", `/o/${orgId}/r/${table}/query`, { size: 1, total: false });
       if (have.rows?.length) {
@@ -248,7 +334,8 @@ async function seed(call, orgId, me) {
         const ref = typeof v === "string" && v.match(/^\{(\w+)\}$/);
         filled[k] = ref ? (await call("POST", `/o/${orgId}/r/${ref[1]}/query`, { size: 1, total: false })).rows[0]?.id ?? null : v;
       }
-      made[table] = (await call("POST", `/o/${orgId}/r/${table}`, { ...filled, ...(table === "incident" ? { caller_id: me } : {}) })).row.id;
+      const res = await call("POST", `/o/${orgId}${createPath ?? `/r/${table}`}`, { ...filled, ...(table === "incident" ? { caller_id: me } : {}) });
+      made[table] = (res.row ?? res.article).id;
     } catch (e) {
       made[table] = `(${String(e.message).slice(0, 120)})`;
     }
@@ -673,6 +760,7 @@ async function main() {
   const ids = {};
   for (const role of ["agent", "requester"]) if (ROLES.includes(role)) ids[role] = await ensureMember(call, orgId, USERS[role]);
   const seeded = await seed(call, orgId, me);
+  Object.assign(seeded, await seedWorkflow(call, orgId, me, seeded.form));
   log(`${meta.mode} mode (${meta.edition}); organisation ${orgId}; seeded ${JSON.stringify(seeded)}`);
 
   const desktop = meta.mode === "desktop";
@@ -701,6 +789,7 @@ async function main() {
         if (r.kind === "list" || r.kind === "page") targets.push({ href: orgHref(r.path), kind: r.kind });
         else if (r.kind === "nested") targets.push({ href: orgHref(r.path.slice(0, -2)), kind: "page" });
         else if (r.kind === "param" && r.path.startsWith("r/:table")) targets.push({ href: orgHref(r.path.replace(":table", "todo").replace("/:id", `/${seeded.todo}`)), kind: r.path === "r/:table" ? "list" : "page" });
+        else if (r.kind === "param" && PARAM_PAGES[r.path]?.(seeded)) targets.push({ href: orgHref(PARAM_PAGES[r.path](seeded)), kind: "page" });
       }
       for (const p of reg.portal) if (p && !p.includes(":") && pick(`portal/${p}`)) targets.push({ href: orgHref(`portal/${p}`), kind: "page" });
       for (const s of reg.admin) if (!s.edition || s.edition === meta.edition) if (pick(`/admin/${s.key}`)) targets.push({ href: s.key ? `/admin/${s.key}` : "/admin", kind: "page", full: true });
@@ -714,7 +803,7 @@ async function main() {
       const mobile = MOBILE === "none" ? [] : reg.nav.filter((i) => (MOBILE === "all" || !i.section) && (!i.action || i.workspace) && !i.path.includes(":") && allowedHere(i.path) && pick(i.path)).map((i) => ({ href: orgHref(i.path) }));
       await crawlRole(url, orgId, "admin", state, targets, { mobile: [{ href: "/login" }, ...mobile] });
       // parameterised pages under a record list (`incidents/:id/war-room`, `flows/:id/design`): the list's first record
-      const params = classified.filter((r) => r.kind === "param" && !r.path.startsWith("r/:table") && !/\/:id$/.test(r.path) && pick(r.path));
+      const params = classified.filter((r) => r.kind === "param" && !r.path.startsWith("r/:table") && !PARAM_PAGES[r.path] && !/\/:id$/.test(r.path) && pick(r.path));
       const deep = [];
       report.unreached = [];
       for (const r of params) {
@@ -738,8 +827,10 @@ async function main() {
       const perms = info.member?.permissions ?? {};
       const can = (area, level = "view") => reg.LEVEL_ORDER.indexOf(perms[area] ?? "none") >= reg.LEVEL_ORDER.indexOf(level);
       const has = (m) => (info.org?.modules ?? []).includes(m);
+      // the shell's own gate (src/ui/lib/org.tsx `allows`): grants and field groups — «توافق‌های در خطر» asks for the
+      // «internal» group, which a requester who reads services lacks (its list filters on compliance: a 400 for them)
       const visible = reg.nav.filter(
-        (i) => (!i.groupModule || has(i.groupModule)) && (!i.module || has(i.module)) && (!i.area || can(i.area, i.level ?? "view")) && (!i.access || [i.access].flat().every((g) => reg.gateAllows(info.access?.grants, g))) && allowedHere(i.path) && !i.path.includes(":"),
+        (i) => (!i.groupModule || has(i.groupModule)) && (!i.module || has(i.module)) && (!i.area || can(i.area, i.level ?? "view")) && (!i.access || [i.access].flat().every((g) => reg.gateAllows(info.access?.grants, g, info.access?.field_groups))) && allowedHere(i.path) && !i.path.includes(":"),
       );
       log(`${role}: persona ${info.access?.persona}, ${visible.length} nav items visible`);
       const lists = new Set(classified.filter((r) => r.kind === "list").map((r) => r.path));

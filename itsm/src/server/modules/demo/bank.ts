@@ -43,6 +43,13 @@ export class Rng {
   chance(p: number): boolean {
     return this.next() < p;
   }
+  /** Where the sequence stands: a load step resumed by another job invocation continues from it (load.ts). */
+  get state(): number {
+    return this.s;
+  }
+  set state(s: number) {
+    this.s = s | 0;
+  }
 }
 
 export const FIRST_NAMES = "علی محمد حسین رضا مهدی امیر حمید سعید مجید مسعود جواد حسن احمد مرتضی مصطفی بهرام فرهاد کامران داریوش سیاوش پویا آرش بابک کیوان نیما مریم زهرا فاطمه سارا نرگس لیلا مینا شیرین پریسا الهام نازنین سمیرا مهسا فرشته آزاده نسرین رویا ژیلا هدیه یاسمن ترانه مهتاب".split(" ");
@@ -108,6 +115,7 @@ export const GROUPS: readonly { key: string; name: string; roles: string[]; type
   { key: "legal", name: "امور حقوقی بانک", roles: ["agent"], types: ["assignment"] },
   { key: "assets", name: "مدیریت دارایی بانک", roles: ["agent", "asset_manager"], types: ["assignment", "approval"] },
   { key: "cab", name: "کمیتهٔ تغییرات بانک", roles: ["cab_member"], types: ["cab", "approval"] },
+  { key: "csm", name: "خدمات پذیرندگان و مشتریان حقوقی", roles: ["csm_agent"], types: ["assignment"] },
 ];
 
 /** Regions of the branch network: a field-support group each. */
@@ -230,6 +238,42 @@ export const KNOWN_NAMES = {
   soc: { email: `soc@${BANK_DOMAIN}`, name: "لادن امن‌زاده", title: "تحلیل‌گر مرکز عملیات امنیت", roles: ["security_analyst"] },
   hr: { email: `hr@${BANK_DOMAIN}`, name: "پروانه منابعی", title: "کارشناس منابع انسانی", roles: ["hr_agent"] },
   branch: { email: `branch@${BANK_DOMAIN}`, name: "یاسر اموالی", title: "مسئول اموال شعبهٔ میدان آزادی", roles: ["branch_asset_officer"] },
+  // the rest of the bank: finance, customer service, field service, operations, release and projects, risk, workforce
+  // (roles the modules seed; none is an administrator's)
+  finance: { email: `finance@${BANK_DOMAIN}`, name: "مهرداد بودجه‌نژاد", title: "مدیر مالی فناوری اطلاعات", roles: ["it_finance"] },
+  csm: { email: `csm@${BANK_DOMAIN}`, name: "شبنم مشتری‌مدار", title: "کارشناس خدمات پذیرندگان و مشتریان حقوقی", roles: ["csm_agent"] },
+  field: { email: `field@${BANK_DOMAIN}`, name: "حمید میدانی", title: "توزیع‌کنندهٔ خدمات میدانی خودپردازها", roles: ["dispatcher"] },
+  ops: { email: `ops@${BANK_DOMAIN}`, name: "آرمان پایش‌گر", title: "مهندس پایش و کشیک کارت و خودپرداز", roles: ["ops_engineer"] },
+  release: { email: `release@${BANK_DOMAIN}`, name: "سپیده انتشاری", title: "مدیر انتشار و دواپس", roles: ["release_manager"] },
+  pm: { email: `pm@${BANK_DOMAIN}`, name: "کامبیز پروژه‌پور", title: "مدیر پروژه‌های فناوری", roles: ["project_manager"] },
+  grc: { email: `grc@${BANK_DOMAIN}`, name: "ژاله ریسک‌شناس", title: "مدیر ریسک، انطباق و تداوم کسب‌وکار", roles: ["grc_manager", "continuity_manager"] },
+  wfm: { email: `wfm@${BANK_DOMAIN}`, name: "مینو نوبت‌نگار", title: "مدیر نیروی کار و نوبت‌کاری", roles: ["workforce_manager"] },
 } as const;
 
 export type Persona = keyof typeof KNOWN_NAMES;
+
+/**
+ * The pack's workflow (./workflow.ts, design F): «درخواست دسترسی به سامانه» — the requester's form, the security team's
+ * approval, the service desk's grant. Every member may start it. The Windows app's end-to-end test starts it as a
+ * member (scripts/desktop-e2e.mjs reads these names; tests/packaging-desktop-e2e.test.ts keeps the two in step). The
+ * key, the name and the fields are the pack's own: a real organisation's workflow of the same purpose is never touched.
+ */
+export const DEMO_WORKFLOW = {
+  key: "aftab_access_request",
+  name: "درخواست دسترسی به سامانه (نمونه)",
+  category: "فناوری اطلاعات",
+  description: "گردش‌کار نمونهٔ بانک: کارمند دسترسی به یک سامانه را درخواست می‌کند، مرکز عملیات امنیت تأیید می‌کند و میز خدمت دسترسی را می‌دهد.",
+  form: "فرم درخواست دسترسی به سامانه (نمونه)",
+  steps: { start: "ثبت درخواست", approve: "تأیید امنیت اطلاعات", grant: "اعطای دسترسی" },
+  fields: {
+    system: { name: "u_aftab_system", label: "سامانه", type: "string", help: "نام سامانه‌ای که به آن دسترسی می‌خواهید" },
+    access: { name: "u_aftab_access", label: "سطح دسترسی", type: "select" },
+    reason: { name: "u_aftab_reason", label: "دلیل نیاز", type: "text" },
+    note: { name: "u_aftab_note", label: "شرح اقدام", type: "text", help: "آنچه بررسی یا انجام شد" },
+  },
+  access: [
+    { value: "read", label: "فقط خواندن" },
+    { value: "write", label: "خواندن و نوشتن" },
+    { value: "admin", label: "مدیریت" },
+  ],
+} as const;

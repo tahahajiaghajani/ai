@@ -12,6 +12,7 @@ import { enqueue, registerJobHandler, type JobContext } from "../../jobs";
 import { actsHere, notifyPeople } from "../notify";
 import { registerEventSink } from "../event/pipeline";
 import { continuityConfig, isUuid, liveRow, liveRows, orgTz, sysOf, type Row } from "./common";
+import { lockedRow } from "../incident/common";
 
 export const SWEEP_JOB = "continuity.sweep";
 const lastSweep = new Map<string, number>();
@@ -24,6 +25,9 @@ export async function ensureContinuitySweep(q: JobContext["db"], orgId: string):
 
 /** Propose the outage of a major incident (once per incident). */
 export async function proposeFromIncident(tx: Tx, sys: Ctx, incident: Row, by: string | null = null): Promise<Row | null> {
+  // the incident locked before its outage is looked for: the subscriber and a manager's «ثبت قطعی» at the same moment
+  // make one outage (the second finds the first)
+  await lockedRow(tx, sys, "incident", incident.id);
   const [existing] = await liveRows(tx, sys, "outage", { f: "incident_id", op: "eq", v: incident.id }, { limit: 1 });
   if (existing) return existing;
   const begin = incident.detected_at ?? incident.opened_at ?? incident.created_at ?? new Date().toISOString();

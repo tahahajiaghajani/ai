@@ -16,7 +16,7 @@ import { CUSTOMER_CASE_STATES } from "@shared/tables/csm";
 import { stateCategory } from "@shared/model/task";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
-import type { Tx } from "../../db";
+import { lockKey, type Tx } from "../../db";
 import { prepareSubject, subjectOf } from "../../access";
 import { addJournalIn, addLinkIn, aggregate, createIn, get, isSystemCtx, list, transitionIn, updateIn, validationError } from "../../engine";
 import { bad, forbidden, notFound } from "../../http/errors";
@@ -89,6 +89,9 @@ async function proactiveTitle(tx: Tx, sys: Ctx, acc: Row, incident: Row): Promis
 /** Proactive cases for the accounts an incident affects (one per account, never twice). */
 export async function proactiveCasesIn(tx: Tx, ctx: Ctx, incidentId: string): Promise<{ created: number; accounts: number }> {
   const sys = sysOf(ctx);
+  // the incident's key first: the job and «پرونده‌های پیشگیرانه» by hand at once open each account's case once (the
+  // second reads the first's links)
+  await lockKey(tx, `csm.proactive:${incidentId}`);
   const incident = await liveRow(tx, sys, "incident", incidentId);
   if (!incident) throw notFound("رخداد پیدا نشد");
   const accounts = await affectedAccounts(tx, ctx, incident);
@@ -295,7 +298,9 @@ export async function healthSweepIn(tx: Tx, ctx: Ctx, deadline = Date.now() + 30
       days_since_contact: last ? Math.floor((Date.now() - (msOf(last.opened_at) ?? Date.now())) / 86_400_000) : null,
     };
     const h = healthOf(facts, { green: cfg.health_green, amber: cfg.health_amber });
-    await updateIn(tx, sys, "customer_account", String(acc.id), { health_score: h.score, health_status: h.status, churn_risk: h.churn, health_factors: h.factors, health_at: new Date().toISOString(), open_cases: open.length }, { trusted: true, keepVersion: true });
+    // open_cases is the case writes' own count (kept at their commit under «csm.open_cases»): an older count of this
+    // sweep is not written over it
+    await updateIn(tx, sys, "customer_account", String(acc.id), { health_score: h.score, health_status: h.status, churn_risk: h.churn, health_factors: h.factors, health_at: new Date().toISOString() }, { trusted: true, keepVersion: true });
     const [snap] = await liveRows(tx, sys, "account_health", { and: [by, { f: "day", op: "eq", v: day }] }, { limit: 1 });
     const values = { score: h.score, status: h.status, csat: facts.csat === null ? null : new Decimal(facts.csat).toDecimalPlaces(2).toString(), sla_attainment: facts.sla_attainment === null ? null : new Decimal(facts.sla_attainment).toDecimalPlaces(1).toString(), open_cases: open.length, escalations: escalations.length, complaints: facts.complaints, factors: h.factors };
     if (snap) await updateIn(tx, sys, "account_health", String(snap.id), values, { trusted: true });

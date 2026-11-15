@@ -126,14 +126,11 @@ describe("one notification, set-based", () => {
     });
     // one statement for the group's bells (the assignment raises one notification: the built-in «ارجاع به گروه»)
     expect(txs.flat().filter(isBellInsert)).toHaveLength(1);
-    // the organisation's write lock is taken last in that transaction, right before the bell insert: the log rows,
-    // the deliveries, the progress and the rows' preparation ran without it
+    // no organisation lock at all (round 3: revisions are transaction ids): the bells, the log rows, the deliveries
+    // and the progress are one short transaction that waits for no other writer of the organisation
     const batch = txs.find((x) => x.some(isBellInsert))!;
-    const lock = batch.findIndex(isLock);
-    expect(lock).toBeGreaterThan(batch.findIndex((q) => /^insert into sm_notification_log\b/i.test(q)));
-    expect(lock).toBeGreaterThan(batch.findIndex((q) => /^update sm_jobs set payload\b/i.test(q)));
-    expect(batch.slice(lock + 1).filter((q) => !/^(select|insert into sm_notifications)\b/i.test(q))).toEqual([]);
-    expect(batch.indexOf(batch.find(isBellInsert)!)).toBe(lock + 1);
+    expect(batch.filter(isLock)).toEqual([]);
+    expect(batch.some((q) => /^insert into sm_notification_log\b/i.test(q))).toBe(true);
     expect((await bells(id)).map((b) => b.user_id).sort()).toEqual([a1.userId, a2.userId].sort());
     expect((await bells(id)).every((b) => b.event === "assigned")).toBe(true);
     // the requester is in the group but may not read the ticket: nothing, logged as no access

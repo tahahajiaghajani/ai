@@ -3,7 +3,8 @@
 // sign-in-free API (`publicApi`, /api/public, rate limited) — never an organisation's API, which needs a session. The
 // frame is quiet: the product's mark, the page, a line that says it is a published page. RTL, tokens only. (The folder
 // is not named "public": that name is the build output's and ignored by git.)
-import { Suspense, type ReactNode } from "react";
+import { type ReactNode } from "react";
+import { Suspense } from "@ui/lib/lazy";
 import { Routes, Route } from "react-router";
 import { Compass } from "lucide-react";
 import { Logo } from "../../components/brand";

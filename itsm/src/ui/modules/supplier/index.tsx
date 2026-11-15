@@ -2,7 +2,7 @@
 // (key "assets") with the group «تأمین‌کنندگان و قراردادها»: suppliers (with the «نمای ۳۶۰» tab), contacts, contracts
 // (calendar mode by end date; header actions «تمدید» and «استخراج بندها»), lines, coverage, obligations, reviews and
 // scorecards, the «تقویم تمدید» page and the settings.
-import { lazy } from "react";
+import { lazy } from "@ui/lib/lazy";
 import { Building2, CalendarRange, Contact, FileSignature, List, ShieldCheck, ListChecks, Gauge, MessagesSquare, Settings2, Landmark } from "lucide-react";
 import type { AccessGate } from "@shared/access";
 import type { ModuleUi } from "../registry";

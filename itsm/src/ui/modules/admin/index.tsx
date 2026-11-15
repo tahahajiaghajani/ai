@@ -5,7 +5,8 @@
 //   lists         import sets and transform maps (CSV/XLSX, scheduled), data exports, system notices, licence pools
 //   record pages  analyse / suggest a mapping / dry run / run an import set; publish a notice
 //   elsewhere     the platform owner's console sections (src/ui/pages/admin, lazy from ./platform)
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import { LayoutDashboard, Palette, UserPlus, Grid3x3, Shapes, ScrollText, IdCard, FileInput, ArrowRightLeft, Download, Megaphone, FlaskConical } from "lucide-react";
 import type { ModuleUi } from "../registry";
 import type { AccessGate } from "@shared/access";

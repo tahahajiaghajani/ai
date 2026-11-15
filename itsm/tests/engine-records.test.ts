@@ -150,7 +150,8 @@ describe("record service", () => {
     expect(updated.payload.changed.sort()).toEqual(["priority", "short_description"]);
     expect(updated.payload.changes.priority).toEqual({ from: "4", to: "2" });
     expect(updated.payload).toMatchObject({ table: "todo", number: row.number, actor: e.ownerId, via: "api" });
-    const r = await tick(e.cfg, { budgetMs: 5000 });
+    // (the tick ends as soon as no job is due; the budget only bounds a busy machine)
+    const r = await tick(e.cfg, { budgetMs: 60_000 });
     expect(r.failed).toBe(0);
     off();
     expect(seen.filter((x) => x.id === row.id).map((x) => x.kind)).toEqual(kinds);

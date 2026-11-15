@@ -15,8 +15,9 @@
 // the event list after fixing the cause.
 import { extractKeys, matchEnvironment, normalize, deliveryIdOf, providerEvent, type ConnectionKind, type DeployInfo, type HeaderFn, type NormalizedEvent, type RepoInfo } from "@shared/devops/logic";
 import type { ServerConfig, Ctx } from "../../context";
-import type { Tx } from "../../db";
+import { lockKey, type Tx } from "../../db";
 import { createIn, defFor, readSecret, savepoint, systemCtx, transitionIn, updateIn } from "../../engine";
+import { lockedRow } from "../incident/common";
 import { AppError, bad, notFound, unauthorized } from "../../http/errors";
 import { MAX_DELIVERY_BYTES, STORED_PAYLOAD_BYTES, eqAll, isUuid, liveRow, liveRows, msOf, numberPrefixes, releaseConfig, sha256, verifyDelivery, type Row } from "./common";
 
@@ -99,11 +100,24 @@ async function storeEvent(sys: Ctx, conn: Row, e: { deliveryId: string; hash: st
 
 const EVENT_KIND: Record<string, string> = { push: "push", pull_request: "pull_request", build: "build", deployment: "deployment", flag: "flag", ping: "ping", ignored: "other" };
 
-/** Process a stored event and record its outcome (also «تلاش دوباره» of a failed event). */
+/** A unique violation (raw, or the engine's «تکراری است»): another delivery made the same object at the same moment. */
+const duplicateMade = (e: unknown): boolean => {
+  const code = (e as { code?: unknown } | null)?.code;
+  return code === "23505" || code === "duplicate";
+};
+
+/**
+ * Process a stored event and record its outcome (also «تلاش دوباره» of a failed event). Deliveries are applied side by
+ * side (each in its own HTTP request): one that made a repository, pipeline, commit, pull request or build at the same
+ * moment as another delivery of the same object meets the unique index — it is applied once more, and then finds and
+ * updates that object (a deadlock or serialization failure runs it again too: every effect of `apply` is in its
+ * transaction). Deliveries of one deployment take turns on its key (`applyDeployment`).
+ */
 export async function processEvent(sys: Ctx, conn: Row, event: Row, n: NormalizedEvent): Promise<IngestResult> {
   const now = new Date().toISOString();
   try {
-    const result = n.type === "ignored" ? null : await sys.write((tx) => apply(tx, sys, conn, n));
+    const applyOnce = () => sys.write((tx) => apply(tx, sys, conn, n), { retry: true });
+    const result = n.type === "ignored" ? null : await applyOnce().catch((e) => (duplicateMade(e) ? applyOnce() : Promise.reject(e)));
     const status = n.type === "ignored" || result?.ignored ? "ignored" : "processed";
     const message = n.type === "ignored" ? n.reason : (result?.ignored as string | undefined);
     await sys.write(async (tx) => {
@@ -121,9 +135,9 @@ export async function processEvent(sys: Ctx, conn: Row, event: Row, n: Normalize
   }
 }
 
-/** The connection's counters and health after an event. */
+/** The connection's counters and health after an event (counted on the connection locked: deliveries side by side). */
 async function connectionStats(tx: Tx, sys: Ctx, id: string, o: { failed: boolean; at: string; error?: string }): Promise<void> {
-  const c = await liveRow(tx, sys, "devops_connection", id);
+  const c = await lockedRow(tx, sys, "devops_connection", id);
   if (!c) return;
   const total = Number(c.events_total ?? 0) + 1;
   const failed = Number(c.events_failed ?? 0) + (o.failed ? 1 : 0);
@@ -300,6 +314,9 @@ async function applyDeployment(tx: Tx, sys: Ctx, conn: Row, d: DeployInfo, repo:
   const firstCommit = d.commits.map((c) => msOf(c.at)).filter((x): x is number => x !== null).sort((a, b) => a - b)[0] ?? null;
   const onBehalf = actorEmail ? (await tx.one<{ id: string }>(`select u.id from sm_users u join sm_org_members m on m.user_id = u.id and m.org_id = $1 and m.is_active and m.deleted_at is null where lower(u.email) = $2 limit 1`, [sys.org.id, actorEmail.toLowerCase()]))?.id ?? null : null;
 
+  // the deployment's own key: its deliveries (GitHub sends «deployment» and «deployment_status» within milliseconds) take
+  // turns, so the second finds the deployment the first made — one deployment and one automatic change, never two
+  await lockKey(tx, `devops.deployment:${conn.id}:${d.external_id}`);
   const [found] = await liveRows(tx, sys, "deployment", eqAll({ connection_id: conn.id, external_id: d.external_id }), { limit: 1 });
   let dep: Row;
   if (found) {

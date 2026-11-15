@@ -16,7 +16,7 @@ import { createIn, onBeforeCommit, pushGuard, registerHooks, updateIn, type Writ
 import { access } from "../../access/provider";
 import { bad, conflict, forbidden } from "../../http/errors";
 import type { Ctx } from "../../context";
-import type { Tx } from "../../db";
+import { lockKey, type Tx } from "../../db";
 import { isUuid, liveRow, liveRows, sysOf } from "../itam/common";
 
 const isSys = (w: WriteArgs) => w.ctx.actor === "system";
@@ -97,6 +97,8 @@ async function budgetLineBefore(w: WriteArgs): Promise<void> {
 
 async function costTypeBefore(w: WriteArgs): Promise<void> {
   if (w.op === "delete" || !w.changed.has("parent_id") || !w.next.parent_id) return;
+  // re-parenting takes the tree's key: two crossing moves at once never make a loop
+  if (w.op !== "create") await lockKey(w.tx, `cost_type.tree:${w.ctx.org.id}`);
   let cur: unknown = w.next.parent_id;
   for (let i = 0; i < 30 && isUuid(cur); i++) {
     if (cur === w.next.id) throw bad("نوع هزینه نمی‌تواند زیرمجموعهٔ خودش باشد");

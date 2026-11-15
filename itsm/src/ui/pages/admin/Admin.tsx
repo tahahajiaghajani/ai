@@ -2,7 +2,8 @@
 // پیشخوان، سازمان‌ها، کاربران، هوش مصنوعی، رویدادهای امنیتی، سلامت سامانه. Every section lives at
 // /admin/<section>; an organisation opens at /admin/orgs/<id>, an account at /admin/users/<id>.
 import "./admin.css";
-import { lazy, Suspense, type ReactNode } from "react";
+import { type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import { Button, Tooltip } from "antd";
 import { Activity, ArrowRight, Building2, Gauge, HeartPulse, LogOut, ShieldAlert, Users } from "lucide-react";
 import { Layers, Megaphone, ServerCog, ScrollText, Server } from "lucide-react";

@@ -2,7 +2,7 @@
 // agents and skills routed to the member —, the insights, «پرسش تحلیلی», the volume forecast and the problem
 // candidates in the home space, and the virtual agent's test page for AI administrators (the requester UI comes with
 // the portal module). The command palette offers «پرسش تحلیلی» for any typed question.
-import { lazy } from "react";
+import { lazy } from "@ui/lib/lazy";
 import { BarChart3, Inbox, Lightbulb, MessagesSquare, Network, TrendingUp } from "lucide-react";
 import type { ModuleUi } from "../registry";
 import { agentsApi } from "../../ai/agents/api";

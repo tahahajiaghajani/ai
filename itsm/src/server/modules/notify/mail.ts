@@ -2,7 +2,7 @@
 // layout with the product's name, a plain-text alternative, Message-IDs we remember (replies thread back to the
 // record, our own messages coming back are dropped) and the headers that keep auto-responders quiet. Markdown is
 // rendered here with a small, strict renderer: everything is escaped, links only to http(s)/mailto.
-import nodemailer from "nodemailer";
+import type { Transporter } from "nodemailer";
 import { uuidv7 } from "@shared/id";
 import { APP_NAME } from "@shared/constants";
 import type { Ctx, ServerConfig } from "../../context";
@@ -111,20 +111,33 @@ export interface Transport {
 
 export type TransportFactory = (c: SmtpConfig) => Transport;
 
-const smtpTransport: TransportFactory = (c) =>
-  nodemailer.createTransport({
-    host: c.host,
-    port: c.port,
-    secure: c.security === "tls",
-    requireTLS: c.security === "starttls",
-    ignoreTLS: c.security === "none",
-    auth: c.user ? { user: c.user, pass: c.pass ?? "" } : undefined,
-    connectionTimeout: 15_000,
-    greetingTimeout: 10_000,
-    socketTimeout: 30_000,
-    dnsTimeout: 10_000,
-    tls: { minVersion: "TLSv1.2", servername: c.host },
-  }) as unknown as Transport;
+// nodemailer is loaded on the first message (a cold start of the web version does not pay for it)
+const smtpTransport: TransportFactory = (c) => {
+  let made: Promise<Transporter> | null = null;
+  let live: Transporter | null = null;
+  const transport = () =>
+    (made ??= import("nodemailer").then((m) => {
+      const nodemailer = (m as unknown as { default?: typeof m }).default ?? m;
+      live = nodemailer.createTransport({
+        host: c.host,
+        port: c.port,
+        secure: c.security === "tls",
+        requireTLS: c.security === "starttls",
+        ignoreTLS: c.security === "none",
+        auth: c.user ? { user: c.user, pass: c.pass ?? "" } : undefined,
+        connectionTimeout: 15_000,
+        greetingTimeout: 10_000,
+        socketTimeout: 30_000,
+        dnsTimeout: 10_000,
+        tls: { minVersion: "TLSv1.2", servername: c.host },
+      });
+      return live;
+    }));
+  return {
+    sendMail: async (m) => (await transport()).sendMail(m as never) as unknown as ReturnType<Transport["sendMail"]>,
+    close: () => live?.close(),
+  };
+};
 
 let factory: TransportFactory = smtpTransport;
 

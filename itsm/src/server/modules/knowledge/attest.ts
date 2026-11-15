@@ -9,6 +9,7 @@ import { createIn, get, updateIn } from "../../engine";
 import { bad, forbidden } from "../../http/errors";
 import { notifyPeople } from "../notify";
 import { activeMembers, expandUnits, groupMembers, ids, liveRow, liveRows, rowsById, sysOf, todayIn, uniq, unitMembers, type Row } from "./common";
+import { lockedRow } from "../incident/common";
 import { logEvent } from "./events";
 
 /** Everyone a campaign addresses (active members). */
@@ -52,7 +53,10 @@ export async function acknowledge(ctx: Ctx, attId: string) {
   if (!done.has(ctx.user.id)) {
     await by.write(async (tx) => {
       await createIn(tx, by, "kb_ack", { attestation_id: attId, article_id: att.article_id, user_id: ctx.user.id, version_label: article.version_label ?? null, acked_at: new Date().toISOString() }, { trusted: true });
-      await updateIn(tx, by, "kb_attestation", attId, { ack_count: done.size + 1, audience_count: aud.length }, { trusted: true, keepVersion: true });
+      // counted with the campaign locked: two members acknowledging at once are both counted
+      await lockedRow(tx, sys, "kb_attestation", attId);
+      const all = await acked(tx, ctx, attId);
+      await updateIn(tx, by, "kb_attestation", attId, { ack_count: all.size, audience_count: aud.length }, { trusted: true, keepVersion: true });
     });
     await logEvent(ctx.db, ctx, { kind: "attest", article_id: att.article_id, data: { attestation_id: attId } });
   }

@@ -6,7 +6,8 @@
 //   record page   visit: «پیشنهاد تکنسین» (dispatchers); work order: side panel «نوبت‌دهی»
 //   lists         work orders, visits, templates, territories, technicians, parts, maintenance plans, time and costs
 //   elsewhere     «ساخت دستور کار» on incidents, customer cases, facility requests and requested items
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import { HardHat, Wrench, ClipboardList, Map, UserCog, Cog, CalendarCog, Timer, LayoutGrid, Smartphone, LayoutDashboard, Inbox, User, Clock } from "lucide-react";
 import type { AccessGate } from "@shared/access";
 import type { ModuleUi, NavItem } from "../registry";

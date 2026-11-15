@@ -6,6 +6,7 @@ import { likeContains, pgArray } from "../../db";
 import type { ServerConfig } from "../../context";
 import { AGGREGATES } from "../../sync/registry";
 import { todayISO, toJalali, jalaliMonthRange } from "@shared/jalali";
+import { deviceOutdated } from "@shared/constants";
 import { orgAdminState, type OrgAdminState } from "./org-admin";
 import { listSecurityEvents, type SecurityEventRow } from "./security";
 import { listSupportSessions, type SupportSessionRow } from "./support";
@@ -252,7 +253,7 @@ export async function orgDetail(cfg: ServerConfig, orgId: string, adminUserId: s
       [orgId],
     ),
     db.query(
-      `select d.id, d.name, d.platform, d.app_version, d.created_at, d.last_push_at, d.last_pull_at, d.revoked_at, u.full_name as user_name
+      `select d.id, d.name, d.platform, d.app_version, d.sync_protocol, d.created_at, d.last_push_at, d.last_pull_at, d.revoked_at, u.full_name as user_name
        from sm_devices d left join sm_users u on u.id = d.user_id where d.org_id = $1 order by greatest(d.last_push_at, d.last_pull_at, d.created_at) desc limit 50`,
       [orgId],
     ),
@@ -267,7 +268,8 @@ export async function orgDetail(cfg: ServerConfig, orgId: string, adminUserId: s
     admin,
     members,
     owners: (members as { role: string; is_active: boolean }[]).filter((m) => m.role === "owner" && m.is_active),
-    devices,
+    // a computer refused for another sync protocol is marked «نیازمند ارتقا» (its version string may be this build's)
+    devices: (devices as { app_version: string | null; sync_protocol: number | null }[]).map((d) => ({ ...d, outdated: deviceOutdated(d) })),
     last_activity: activity?.last_activity ?? null,
     sizes,
     support: { active: sessions.find((s) => s.state === "active" && s.admin_user_id === adminUserId) ?? null, sessions },

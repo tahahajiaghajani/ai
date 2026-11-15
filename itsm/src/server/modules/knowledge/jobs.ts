@@ -10,13 +10,18 @@
 //   kb.reindex     a base's AI policy changed: its articles are indexed again
 //   kb.block_hosts a block was published: its host articles (usage list) are indexed again
 //   kb.units       the organisation tree changed: the unit sub-trees of audiences are expanded again
-// Subscribers: approval decisions publish, schedule or return versions and retire articles; a published version tells
-// its subscribers and the people working open records linked to the article; changes of the org tree.
+// Approvals: a settled round publishes, schedules or returns a version and retires an article, in the transaction that
+// settled it (`installKbApprovals`). Subscribers: a published version tells its subscribers and the people working
+// open records linked to the article; changes of the org tree; decisions of an earlier version still queued.
 import type { Ctx } from "../../context";
-import { addJournalIn, createIn, defFor, onRecordEvent, removeIn, systemCtx, transitionIn, updateIn, type RecordEvent } from "../../engine";
+import type { Tx } from "../../db";
+import { addJournalIn, createIn, defFor, onRecordEvent, removeIn, savepoint, systemCtx, transitionIn, updateIn, type RecordEvent } from "../../engine";
+import { AppError } from "../../http/errors";
 import { enqueue, registerJobHandler, type JobContext } from "../../jobs";
 import { actsHere, notifyPeople } from "../notify";
-import { activeMembers, addDaysISO, baseOf, countRows, expandUnits, isUuid, kbConfig, liveRow, liveRows, rowsById, sysOf, todayIn, uniq, type Row } from "./common";
+import { onApprovalSettled, settledVerdict } from "../sla";
+import { lockedRow } from "../incident/common";
+import { activeMembers, addDaysISO, baseOf, countRows, expandUnits, isUuid, kbConfig, liveRow, liveRows, openKbTaskIn, rowsById, sysOf, todayIn, uniq, type Row } from "./common";
 import { publishIn } from "./versions";
 import { upgradeKnowledgeSeed } from "./seed";
 import { runPublishingModels } from "./kcs";
@@ -80,8 +85,8 @@ export async function kbSweep(sys: Ctx, opts: { daily?: boolean } = {}): Promise
   for (const a of await liveRows(sys.db, sys, "kb_article", { and: [{ f: "state", op: "in", v: ["published", "pending_retirement"] }, { f: "review_at", op: "lte", v: soon }] }, { limit: 1000 })) {
     const due = String(a.review_at) <= today;
     const base = await baseOf(sys.db, sys, a.base_id);
-    const [open] = await liveRows(sys.db, sys, "kb_task", { and: [{ f: "article_id", op: "eq", v: a.id }, { f: "kind", op: "eq", v: "review" }, { f: "active", op: "eq", v: true }] }, { limit: 1 });
     await sys.write(async (tx) => {
+      const open = await openKbTaskIn(tx, sys, "review", a.id, { f: "article_id", op: "eq", v: a.id });
       if (!open) {
         await createIn(tx, sys, "kb_task", { kind: "review", article_id: a.id, priority: due ? "3" : "4", assigned_to: a.owner_id ?? null, due_at: `${a.review_at}T12:00:00.000Z`, short_description: `بازبینی دوره‌ای ${a.number}: ${String(a.title).slice(0, 150)}`, description: "مقاله را بخوانید و یکی را بزنید: «درست است» (موعد بعدی تعیین می‌شود)، «به‌روزرسانی» یا «بازنشستگی»." }, { trusted: true });
         out.reviews++;
@@ -94,20 +99,24 @@ export async function kbSweep(sys: Ctx, opts: { daily?: boolean } = {}): Promise
   }
   // expiry
   for (const a of await liveRows(sys.db, sys, "kb_article", { and: [{ f: "state", op: "in", v: ["published", "pending_retirement"] }, { f: "valid_to", op: "lt", v: today }] }, { limit: 500 })) {
-    const [open] = await liveRows(sys.db, sys, "kb_task", { and: [{ f: "article_id", op: "eq", v: a.id }, { f: "kind", op: "eq", v: "expiry" }, { f: "active", op: "eq", v: true }] }, { limit: 1 });
-    if (open) continue;
-    await sys.write((tx) => createIn(tx, sys, "kb_task", { kind: "expiry", article_id: a.id, priority: "3", assigned_to: a.owner_id ?? null, short_description: `اعتبار ${a.number} گذشته است: ${String(a.title).slice(0, 150)}`, description: "تاریخ «معتبر تا» را تمدید کنید (پس از بازبینی) یا مقاله را بازنشسته کنید." }, { trusted: true }));
-    out.expired++;
+    const made = await sys.write(async (tx) => {
+      if (await openKbTaskIn(tx, sys, "expiry", a.id, { f: "article_id", op: "eq", v: a.id })) return false;
+      await createIn(tx, sys, "kb_task", { kind: "expiry", article_id: a.id, priority: "3", assigned_to: a.owner_id ?? null, short_description: `اعتبار ${a.number} گذشته است: ${String(a.title).slice(0, 150)}`, description: "تاریخ «معتبر تا» را تمدید کنید (پس از بازبینی) یا مقاله را بازنشسته کنید." }, { trusted: true });
+      return true;
+    });
+    if (made) out.expired++;
   }
   // negative feedback above the threshold
   for (const a of await liveRows(sys.db, sys, "kb_article", { and: [{ f: "state", op: "in", v: ["published", "pending_retirement"] }, { f: "helpful_no", op: "gte", v: 1 }] }, { limit: 2000 })) {
     const yes = Number(a.helpful_yes ?? 0);
     const no = Number(a.helpful_no ?? 0);
     if (yes + no < cfg.negative_min_votes || (100 * no) / (yes + no) < cfg.negative_ratio) continue;
-    const [open] = await liveRows(sys.db, sys, "kb_task", { and: [{ f: "article_id", op: "eq", v: a.id }, { f: "kind", op: "eq", v: "feedback" }, { f: "active", op: "eq", v: true }] }, { limit: 1 });
-    if (open) continue;
-    await sys.write((tx) => createIn(tx, sys, "kb_task", { kind: "feedback", article_id: a.id, priority: "3", short_description: `بیشتر خوانندگان «${String(a.title).slice(0, 120)}» را مفید ندانستند`, description: `${no} رأی «مفید نبود» در برابر ${yes} رأی «مفید بود». نظرهای خوانندگان را در بازخوردهای مقاله ببینید.` }, { trusted: true }));
-    out.feedback++;
+    const made = await sys.write(async (tx) => {
+      if (await openKbTaskIn(tx, sys, "feedback", a.id, { f: "article_id", op: "eq", v: a.id })) return false;
+      await createIn(tx, sys, "kb_task", { kind: "feedback", article_id: a.id, priority: "3", short_description: `بیشتر خوانندگان «${String(a.title).slice(0, 120)}» را مفید ندانستند`, description: `${no} رأی «مفید نبود» در برابر ${yes} رأی «مفید بود». نظرهای خوانندگان را در بازخوردهای مقاله ببینید.` }, { trusted: true });
+      return true;
+    });
+    if (made) out.feedback++;
   }
   out.external = (await runPublishingModels(sys)).external;
   out.reminders = await remindAttestations(sys);
@@ -130,11 +139,13 @@ export async function kbSweep(sys: Ctx, opts: { daily?: boolean } = {}): Promise
   const owners = uniq(owned.map((a) => a.owner_id).filter(isUuid));
   const active = await activeMembers(sys.db, sys.org.id, owners);
   for (const o of owners.filter((x) => !active.has(x))) {
-    const [open] = await liveRows(sys.db, sys, "kb_task", { and: [{ f: "kind", op: "eq", v: "re_own" }, { f: "source_id", op: "eq", v: o }, { f: "active", op: "eq", v: true }] }, { limit: 1 });
-    if (open) continue;
     const n = owned.filter((a) => a.owner_id === o).length;
-    await sys.write((tx) => createIn(tx, sys, "kb_task", { kind: "re_own", priority: "3", source_table: "user", source_id: o, short_description: `${n} مقاله مالکی دارد که دیگر عضو نیست`, description: "در میز کار دانش «انتقال مالکیت» را بزنید و مالک تازه را انتخاب کنید." }, { trusted: true }));
-    out.reown++;
+    const made = await sys.write(async (tx) => {
+      if (await openKbTaskIn(tx, sys, "re_own", o, { f: "source_id", op: "eq", v: o })) return false;
+      await createIn(tx, sys, "kb_task", { kind: "re_own", priority: "3", source_table: "user", source_id: o, short_description: `${n} مقاله مالکی دارد که دیگر عضو نیست`, description: "در میز کار دانش «انتقال مالکیت» را بزنید و مالک تازه را انتخاب کنید." }, { trusted: true });
+      return true;
+    });
+    if (made) out.reown++;
   }
 
   if (opts.daily) {
@@ -202,36 +213,84 @@ async function recompileUnits(sys: Ctx): Promise<void> {
 // ---------------------------------------------------------------------------------------------------------------
 // Subscribers
 
+type KbApprovalTable = "kb_version" | "kb_article";
+
+/**
+ * A settled round decides a version in review — published or scheduled (approved), back to its author with the comment
+ * (rejected) — or an article waiting for retirement — retired, or published again. The round decides: «یک تأییدکننده
+ * کافی است» is the approvals rule `first` (the first answer, approval or rejection, settles it and the service
+ * withdraws the others). Runs in the transaction that settled the round, with the record locked (`onApprovalSettled`),
+ * so it never acts on a text other than the one approved: a version withdrawn, edited and submitted again is a new
+ * round that is approved on its own.
+ */
+async function settleKb(tx: Tx, ctx: Ctx, table: KbApprovalTable, record: Row, verdict: "approved" | "rejected", by: string | null, comment: string): Promise<void> {
+  const sys = sysOf(ctx, by);
+  if (table === "kb_article") {
+    if (record.state !== "pending_retirement") return;
+    await transitionIn(tx, sys, "kb_article", record.id, verdict === "rejected" ? "published" : "retired", verdict === "rejected" ? { retire_reason: null } : {}, { trusted: true });
+    return;
+  }
+  if (record.state !== "in_review") return;
+  const { def } = await defFor(sys, "kb_version", tx);
+  if (verdict === "rejected") {
+    const back = await transitionIn(tx, sys, "kb_version", record.id, "draft", {}, { trusted: true });
+    await addJournalIn(tx, sys, def, back, { kind: "work_note", body: `نسخه برای اصلاح برگشت${comment ? `: ${comment.slice(0, 1000)}` : "."}` }, { trusted: true, author: by });
+    return;
+  }
+  try {
+    await savepoint(tx, async () => {
+      await updateIn(tx, sys, "kb_version", record.id, { approved_at: new Date().toISOString(), approved_by: by }, { trusted: true });
+      await publishIn(tx, sys, record.id, by);
+    });
+  } catch (e) {
+    if (!(e instanceof AppError)) throw e;
+    // approved, but not publishable now (its article waits for retirement, or is retired or in the trash): the decision
+    // stands and the reason is noted on the version
+    await addJournalIn(tx, sys, def, record, { kind: "work_note", body: `نسخه تأیید شد ولی منتشر نشد: ${e.message}` }, { trusted: true, author: by });
+  }
+}
+
+/** The comment of the round's rejection (the decision's event carried it; the settled round reads it back). */
+async function rejectionComment(tx: Tx, orgId: string, table: string, id: string, round: number): Promise<string> {
+  const r = await tx.one<{ comments: string | null }>(
+    `select comments from sm_approvals where org_id = $1 and table_key = $2 and record_id = $3 and round = $4 and state = 'rejected' and deleted_at is null order by decided_at desc nulls last limit 1`,
+    [orgId, table, id, round],
+  );
+  return String(r?.comments ?? "");
+}
+
+/** Settled rounds of versions and retirement requests decide them in the settling transaction. */
+export function installKbApprovals(): (() => void)[] {
+  return (["kb_version", "kb_article"] as const).map((table) =>
+    onApprovalSettled(table, async (s) => {
+      const verdict = settledVerdict(s);
+      if (!verdict) return;
+      const comment = verdict === "rejected" ? await rejectionComment(s.tx, s.ctx.org.id, table, String(s.record.id), s.round) : "";
+      await settleKb(s.tx, s.ctx, table, s.record, verdict, s.by, comment);
+    }),
+  );
+}
+
+/**
+ * A decision recorded before the settled hook decided it (its event queued by an earlier version of this server): it
+ * acts only while the record still waits on exactly that round — the record locked, its approvals' aggregate the
+ * event's outcome and the event's round its latest — never on a round a withdrawal and resubmission replaced.
+ */
 async function onApproval(e: RecordEvent, jctx: JobContext): Promise<void> {
   if (!actsHere(jctx.cfg) || !isUuid(e.org_id) || !isUuid(e.id)) return;
   const outcome = String(e.data?.outcome ?? "");
-  const by = isUuid(e.data?.by) ? String(e.data!.by) : null;
-  const sys = await systemCtx(jctx.cfg, e.org_id, by ? { onBehalfOf: by } : undefined);
-  const comment = e.data?.comment ? String(e.data.comment) : "";
-  // the round decides — «یک تأییدکننده کافی است» is the approvals rule `first` (the first answer, approval or
-  // rejection, settles it and the service withdraws the others); a rejection returns the draft with the comment
   if (outcome !== "approved" && outcome !== "rejected") return;
-  const rejected = outcome === "rejected";
-  if (e.table === "kb_version") {
-    const v = await liveRow(jctx.db, sys, "kb_version", e.id);
-    if (!v || v.state !== "in_review") return;
-    await sys.write(async (tx) => {
-      if (!rejected) {
-        await updateIn(tx, sys, "kb_version", v.id, { approved_at: new Date().toISOString(), approved_by: by }, { trusted: true });
-        await publishIn(tx, sys, v.id, by);
-      } else {
-        const back = await transitionIn(tx, sys, "kb_version", v.id, "draft", {}, { trusted: true });
-        const { def } = await defFor(sys, "kb_version", tx);
-        await addJournalIn(tx, sys, def, back, { kind: "work_note", body: `نسخه برای اصلاح برگشت${comment ? `: ${comment.slice(0, 1000)}` : "."}` }, { trusted: true, author: by });
-      }
-    });
-    return;
-  }
-  if (e.table === "kb_article") {
-    const a = await liveRow(jctx.db, sys, "kb_article", e.id);
-    if (!a || a.state !== "pending_retirement") return;
-    await sys.write((tx) => transitionIn(tx, sys, "kb_article", a.id, rejected ? "published" : "retired", rejected ? { retire_reason: null } : {}, { trusted: true }));
-  }
+  if (e.table !== "kb_version" && e.table !== "kb_article") return;
+  const table: KbApprovalTable = e.table;
+  const by = isUuid(e.data?.by) ? String(e.data!.by) : null;
+  const sys = await systemCtx(jctx.cfg, e.org_id);
+  await sys.write(async (tx) => {
+    const row = await lockedRow(tx, sys, table, e.id);
+    if (!row || row.state !== (table === "kb_version" ? "in_review" : "pending_retirement") || row.approval !== outcome) return;
+    const latest = await tx.one<{ round: number | null }>(`select max(round) as round from sm_approvals where org_id = $1 and table_key = $2 and record_id = $3 and deleted_at is null`, [e.org_id, table, e.id]);
+    if (Number(e.data?.round ?? 0) !== Number(latest?.round ?? -1)) return;
+    await settleKb(tx, sys, table, row, outcome, by, e.data?.comment ? String(e.data.comment) : "");
+  });
 }
 
 /** A published version: subscribers of the article, its category and its base; people working open linked records. */
@@ -280,6 +339,7 @@ let installed = false;
 export function installKnowledgeJobs(): void {
   if (installed) return;
   installed = true;
+  installKbApprovals();
   onRecordEvent("kb.approvals", onApproval, { tables: ["kb_version", "kb_article"], kinds: ["record.approval_decided"] });
   onRecordEvent("kb.published", onPublished, { tables: ["kb_article"], kinds: ["record.kb.published"] });
   onRecordEvent("kb.sweep", onKbEvent, { tables: ["kb_article", "kb_version", "kb_feedback", "kb_task"], kinds: ["record.created"] });

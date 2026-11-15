@@ -29,8 +29,8 @@ import { addJournalIn, createIn, defFor, registerHooks, updateIn, validationErro
 import { access } from "../../access/provider";
 import { AppError, forbidden } from "../../http/errors";
 import type { Ctx } from "../../context";
-import type { Queryable } from "../../db";
-import { eqAll, faList, incidentConfig, liveRow, liveRows, requesterOnly, secondsBetween, sysOf, type Row } from "./common";
+import { lockKey, type Queryable } from "../../db";
+import { eqAll, faList, incidentConfig, liveRow, liveRows, lockedRow, requesterOnly, secondsBetween, sysOf, type Row } from "./common";
 import { canWork } from "./major";
 
 const DONE = ["resolved", "closed", "canceled"];
@@ -112,6 +112,9 @@ async function incidentBefore(w: WriteArgs): Promise<void> {
   if (n.parent_id && changed(w, "parent_id")) {
     if (n.parent_id === n.id) throw validationError({ parent_id: "رخداد نمی‌تواند والد خودش باشد" });
     const sys = sysOf(w.ctx);
+    // new parent links of the organisation take turns (A under B while B goes under A): the later walk sees the
+    // earlier link committed
+    await lockKey(w.tx, "incident.parent_links:" + w.ctx.org.id);
     let at: string | null = n.parent_id;
     for (let depth = 0; at && depth < 20; depth++) {
       const p: Row | null = await liveRow(w.tx, sys, "incident", at);
@@ -254,7 +257,9 @@ async function taskBefore(w: WriteArgs): Promise<void> {
   if (w.op !== "create" && !w.changed.has("incident_id")) return;
   if (w.op === "delete") return;
   await assertWorksIncident(w, "کار رخداد");
-  const inc = await liveRow(w.tx, sysOf(w.ctx), "incident", w.next.incident_id);
+  // shared lock until commit: a closing of the incident in flight finishes first (and the task is refused); one that
+  // comes later waits for this task
+  const inc = await lockedRow(w.tx, sysOf(w.ctx), "incident", w.next.incident_id, "share");
   if (!inc) return; // the engine's reference check answers
   const cat = stateCategory((await defFor(sysOf(w.ctx), "incident", w.tx)).def.states, inc.state);
   if (cat === "closed" || cat === "canceled") throw validationError({ incident_id: "این رخداد بسته شده است و کار تازه نمی‌پذیرد" });
@@ -296,7 +301,8 @@ async function reviewBefore(w: WriteArgs): Promise<void> {
 
 async function reviewAfter(w: WriteArgs & { row: Row }): Promise<void> {
   if (w.op === "delete" || !w.changed.has("state")) return;
-  const inc = await liveRow(w.tx, sysOf(w.ctx), "incident", w.row.incident_id);
+  // locked: a reopening of the incident at this moment finishes first and its overlay is not marked «بازبینی انجام شد»
+  const inc = await lockedRow(w.tx, sysOf(w.ctx), "incident", w.row.incident_id);
   if (!inc) return;
   const sys = sysOf(w.ctx);
   if (w.row.state === "published" && inc.major_state === "resolved") {

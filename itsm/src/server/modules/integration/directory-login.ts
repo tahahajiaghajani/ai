@@ -15,14 +15,16 @@
 //               role; name, e-mail, phone, title, unit (department or a mapped group) and manager are refreshed; mapped
 //               groups, roles and workspaces are granted only while the source's automatic roles are on and its
 //               mappings are the ones an administrator approved (otherwise they wait, listed as pending), and what a
-//               mapping granted is taken back when the person leaves the directory group.
+//               mapping granted is taken back when the person leaves the directory group. Organisational roles a
+//               mapping names (`position_id`, design F D11) follow the same rule: holder rows the source keeps,
+//               given while the mappings are the approved ones (else pending), taken back when the person leaves.
 // Single sign-on (Kerberos, a trusted proxy) proves who the person is and joins at step 2 without a password.
 import type { Ctx, ServerConfig } from "../../context";
 import type { Queryable } from "../../db";
 import { createHash } from "node:crypto";
 import { tableDef } from "@shared/tables";
 import { isEmail, isReservedEmail } from "@shared/validate";
-import { attrMapOf, cnOf, entryFromLdap, groupMatches, mappedAccess, type AttrMap, type DirEntry, type GroupMapping } from "@shared/integration/directory";
+import { attrMapOf, cnOf, entryFromLdap, groupMatches, holderUnit, mappedAccess, type AttrMap, type DirEntry, type GroupMapping, type MappedPosition } from "@shared/integration/directory";
 import { accountState, domainMatches, parseLogin, reasonOfAdCode, spnCommands, type LoginReason, type ParsedLogin } from "@shared/auth/login";
 import { createIn, readSecret, removeIn, systemCtx } from "../../engine";
 import { addGroupMembers, saveMemberAccess } from "../../access";
@@ -32,10 +34,11 @@ import { needRecentAuth } from "../../auth/policy";
 import { negotiateProblem } from "../../auth/sso";
 import type { WriteArgs } from "../../engine";
 import { ensurePerson, setDirectoryName } from "../admin/members";
-import { hasFeature, needWithinLimit } from "../admin/common";
+import { hasFeature, limitAtCommit, needWithinLimit } from "../admin/common";
 import { caProblem, connectAny, escapeFilterValue, IN_CHAIN, LdapClient, LdapError, type LdapEntry, type LdapOptions } from "./ldap";
 import { grantingGroups, liveRow, liveRows, needIntegrations, sysOf, type Row } from "./common";
 import { approverCtx, guardHost, mappingsOf, optionsOf } from "./directory";
+import { applyDirectoryHoldings, directoryFacts, type DirectoryHolding, type HoldingsResult } from "../positions/directory";
 
 /** A refused sign-in: the reason (audit), an administrator's detail (never a password), and what is known so far. */
 export class LoginFailure extends Error {
@@ -95,7 +98,8 @@ const lines = (v: unknown) =>
 /** The fingerprint of what an approval covers: mappings, the default role and membership, automatic roles. */
 export function mappingFingerprint(src: Row): string {
   const m = mappingsOf(src)
-    .map((x) => ({ s: x.source.toLowerCase(), g: x.group_id ?? null, r: x.role ?? null, u: x.unit_id ?? null, w: x.workspace_id ?? null }))
+    // an organisational role counts only where a mapping names one (fingerprints of earlier sources stay as they were)
+    .map((x) => ({ s: x.source.toLowerCase(), g: x.group_id ?? null, r: x.role ?? null, u: x.unit_id ?? null, w: x.workspace_id ?? null, ...(x.position_id ? { p: x.position_id, uf: x.unit_from ?? null } : {}) }))
     .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
   const o = optionsOf(src);
   return createHash("sha256")
@@ -443,6 +447,12 @@ export interface ProvisionResult {
   pending_roles: string[];
   groups_added: number;
   groups_removed: number;
+  /** organisational roles the directory gave and took back at this sign-in */
+  positions_added: number;
+  positions_removed: number;
+  /** which ones (position and unit): the sign-in log lists them (design F §6.7) */
+  positions_given: { position_id: string; unit_id: string | null }[];
+  positions_taken: { position_id: string; unit_id: string | null }[];
   problems: string[];
 }
 
@@ -550,7 +560,11 @@ export async function provisionMember(cfg: ServerConfig, conf: LoginSourceConfig
     } catch (e) {
       throw fail("config", String((e as Error).message ?? e), known);
     }
-    const r = await actx.write((tx) => ensurePerson(tx, actx, { email, name: dir.name || email, title: dir.title }, conf.membership));
+    const r = await actx.write(async (tx) => {
+      // the seat ceiling again at commit (members added since the count above)
+      limitAtCommit(tx, cfg, orgId, "members");
+      return ensurePerson(tx, actx, { email, name: dir.name || email, title: dir.title }, conf.membership);
+    });
     userId = r.user_id;
     created = r.created || r.joined;
     known.user_id = userId;
@@ -572,51 +586,61 @@ export async function provisionMember(cfg: ServerConfig, conf: LoginSourceConfig
     });
   }
 
-  // the profile: title, phone, unit, manager, roles, workspaces
-  const profile = await db.one<{ roles: unknown; title: string | null; phone: string | null; org_unit_id: string | null; manager_id: string | null; workspaces: unknown }>(
-    `select roles, title, phone, org_unit_id, manager_id, workspaces from sm_member_profiles where org_id = $1 and user_id = $2 and deleted_at is null`,
-    [orgId, uid],
-  );
-  const data: Record<string, unknown> = {};
-  if (dir.title?.trim() && dir.title.trim().slice(0, 120) !== (profile?.title ?? "")) data.title = dir.title.trim().slice(0, 120);
-  if (dir.phone?.trim() && dir.phone.trim().slice(0, 40) !== (profile?.phone ?? "")) data.phone = dir.phone.trim().slice(0, 40);
-  const unitId = await unitFor(actx, conf, wanted.unit_id, dir.department ?? null, problems);
-  if (unitId && unitId !== (profile?.org_unit_id ?? null)) data.org_unit_id = unitId;
-  if (id.managerEmail) {
-    const mgr = await db.one<{ user_id: string }>(
-      `select m.user_id from sm_org_members m join sm_users u on u.id = m.user_id where m.org_id = $1 and lower(u.email) = $2 and m.deleted_at is null`,
-      [orgId, lower(id.managerEmail)],
-    );
-    if (mgr && mgr.user_id !== uid && mgr.user_id !== (profile?.manager_id ?? null)) data.manager_id = mgr.user_id;
-  }
-  const current = strings(profile?.roles);
+  // the profile: title, phone, unit, manager, roles, workspaces — decided from the stored profile and saved with its
+  // version: an administrator's change of the profile in between (a role taken back on «دسترسی‌ها») makes the save
+  // refuse (version_conflict) and the mapping is worked out once more from the profile as it is now, so a revoked role
+  // never comes back from this sign-in's older copy
   const approvedRoles = conf.rolesApproved ? wanted.roles.map((r) => r.role) : [];
-  const pending = conf.rolesApproved ? [] : wanted.roles.map((r) => r.role).filter((r) => !current.includes(r) && r !== conf.defaultRole);
-  let roles = created ? [...new Set([...(conf.defaultRole ? [conf.defaultRole] : []), ...current])] : [...current];
-  for (const r of approvedRoles) if (!roles.includes(r)) roles.push(r);
-  // a role a mapping granted is taken back when the person left the directory group (never the default role)
-  if (conf.rolesApproved) roles = roles.filter((r) => !(prev.roles.includes(r) && !approvedRoles.includes(r) && r !== conf.defaultRole));
-  if (JSON.stringify([...roles].sort()) !== JSON.stringify([...current].sort())) {
-    data.roles = roles;
-    if (created) data.persona = roles.every((r) => r === "requester") ? "requester" : "agent";
-  }
-  const currentWs = strings(profile?.workspaces);
-  let workspaces = [...currentWs];
-  if (conf.rolesApproved) {
-    for (const w of wanted.workspaces) if (!workspaces.includes(w)) workspaces.push(w);
-    workspaces = workspaces.filter((w) => !(prev.workspaces.includes(w) && !wanted.workspaces.includes(w)));
-  } else for (const w of wanted.workspaces) if (!currentWs.includes(w)) pending.push(`workspace:${w}`);
-  if (JSON.stringify([...workspaces].sort()) !== JSON.stringify([...currentWs].sort())) data.workspaces = workspaces;
-  if (Object.keys(data).length) {
+  const unitId = await unitFor(actx, conf, wanted.unit_id, dir.department ?? null, problems);
+  const mgr = id.managerEmail
+    ? await db.one<{ user_id: string }>(
+        `select m.user_id from sm_org_members m join sm_users u on u.id = m.user_id where m.org_id = $1 and lower(u.email) = $2 and m.deleted_at is null`,
+        [orgId, lower(id.managerEmail)],
+      )
+    : null;
+  let pending: string[] = [];
+  let roles: string[] = [];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const profile = await db.one<{ roles: unknown; title: string | null; phone: string | null; org_unit_id: string | null; manager_id: string | null; workspaces: unknown; version: number }>(
+      `select roles, title, phone, org_unit_id, manager_id, workspaces, version from sm_member_profiles where org_id = $1 and user_id = $2 and deleted_at is null`,
+      [orgId, uid],
+    );
+    const data: Record<string, unknown> = {};
+    if (dir.title?.trim() && dir.title.trim().slice(0, 120) !== (profile?.title ?? "")) data.title = dir.title.trim().slice(0, 120);
+    if (dir.phone?.trim() && dir.phone.trim().slice(0, 40) !== (profile?.phone ?? "")) data.phone = dir.phone.trim().slice(0, 40);
+    if (unitId && unitId !== (profile?.org_unit_id ?? null)) data.org_unit_id = unitId;
+    if (mgr && mgr.user_id !== uid && mgr.user_id !== (profile?.manager_id ?? null)) data.manager_id = mgr.user_id;
+    const current = strings(profile?.roles);
+    pending = conf.rolesApproved ? [] : wanted.roles.map((r) => r.role).filter((r) => !current.includes(r) && r !== conf.defaultRole);
+    roles = created ? [...new Set([...(conf.defaultRole ? [conf.defaultRole] : []), ...current])] : [...current];
+    for (const r of approvedRoles) if (!roles.includes(r)) roles.push(r);
+    // a role a mapping granted is taken back when the person left the directory group (never the default role)
+    if (conf.rolesApproved) roles = roles.filter((r) => !(prev.roles.includes(r) && !approvedRoles.includes(r) && r !== conf.defaultRole));
+    if (JSON.stringify([...roles].sort()) !== JSON.stringify([...current].sort())) {
+      data.roles = roles;
+      if (created) data.persona = roles.every((r) => r === "requester") ? "requester" : "agent";
+    }
+    const currentWs = strings(profile?.workspaces);
+    let workspaces = [...currentWs];
+    if (conf.rolesApproved) {
+      for (const w of wanted.workspaces) if (!workspaces.includes(w)) workspaces.push(w);
+      workspaces = workspaces.filter((w) => !(prev.workspaces.includes(w) && !wanted.workspaces.includes(w)));
+    } else for (const w of wanted.workspaces) if (!currentWs.includes(w)) pending.push(`workspace:${w}`);
+    if (JSON.stringify([...workspaces].sort()) !== JSON.stringify([...currentWs].sort())) data.workspaces = workspaces;
+    if (!Object.keys(data).length) break;
+    const versioned = profile ? { ...data, version: Number(profile.version) } : data;
     try {
-      await saveMemberAccess(actx, uid, data);
+      await saveMemberAccess(actx, uid, versioned);
+      break;
     } catch (e) {
+      if (attempt < 2 && (e as { code?: string })?.code === "version_conflict") continue;
       problems.push(String((e as Error).message ?? e).slice(0, 200));
       if (data.roles || data.workspaces) {
         // keep the attributes even when a grant is refused (the approver lost the right to grant it)
         const rest = Object.fromEntries(Object.entries(data).filter(([k]) => k !== "roles" && k !== "workspaces" && k !== "persona"));
         if (Object.keys(rest).length) await saveMemberAccess(actx, uid, rest).catch(() => undefined);
       }
+      break;
     }
   }
 
@@ -650,6 +674,9 @@ export async function provisionMember(cfg: ServerConfig, conf: LoginSourceConfig
       }
     });
   }
+  // organisational roles: holders this source keeps — given only under the approved mappings (else pending), taken
+  // back when the person left the group; a holder kept by hand or by an import is never touched
+  const held = await keepPositions(actx, conf, uid, wanted.positions, dir.department ?? null, unitId, pending, problems);
   const granted: Granted = {
     roles: conf.rolesApproved ? approvedRoles.filter((r) => roles.includes(r) && r !== conf.defaultRole) : prev.roles,
     groups: [...new Set([...keptGroups, ...(conf.rolesApproved ? [] : prev.groups.filter((g) => wanted.groups.includes(g)))])],
@@ -668,7 +695,42 @@ export async function provisionMember(cfg: ServerConfig, conf: LoginSourceConfig
        object_id = coalesce(excluded.object_id, sm_directory_links.object_id)`,
     [orgId, conf.id, dir.external_id, uid, email, granted, dir.object_id ?? null],
   );
-  return { user_id: uid, email, created, roles, pending_roles: [...new Set(pending)], groups_added: added, groups_removed: removed, problems };
+  const holding = (h: DirectoryHolding) => ({ position_id: h.position_id, unit_id: h.unit_id });
+  return {
+    user_id: uid, email, created, roles, pending_roles: [...new Set(pending)], groups_added: added, groups_removed: removed,
+    positions_added: held.added, positions_removed: held.removed, positions_given: held.given.map(holding), positions_taken: held.taken.map(holding), problems,
+  };
+}
+
+/**
+ * The holdings of organisational roles a sign-in keeps (design F D11): what the person's groups map to, in the unit
+ * each mapping names (the department's, a fixed one, or the person's unit as this sign-in left it). Given only while
+ * the mappings are the approved ones (else listed as pending «position:<id>»); this source's holdings the groups no
+ * longer give are taken back. Holdings that cannot be kept (another kind of unit…) are listed as problems.
+ */
+async function keepPositions(actx: Ctx, conf: LoginSourceConfig, uid: string, mapped: MappedPosition[], department: string | null, unitId: string | null, pending: string[], problems: string[]): Promise<Omit<HoldingsResult, "problems">> {
+  const facts = await directoryFacts(actx.db, conf.orgId, conf.id, mapped.map((m) => m.position_id), [uid]);
+  if (!mapped.length && !facts.holders.some((h) => h.ours)) return { added: 0, removed: 0, given: [], taken: [] };
+  const units = mapped.length
+    ? (await liveRows(actx.db, sysOf(actx), "org_unit", null)).map((u) => ({ id: String(u.id), name: String(u.name), code: typeof u.code === "string" ? u.code : null, kind: typeof u.kind === "string" ? u.kind : null, active: u.active !== false }))
+    : [];
+  const profile = await actx.db.one<{ org_unit_id: string | null }>(`select org_unit_id from sm_member_profiles where org_id = $1 and user_id = $2 and deleted_at is null`, [conf.orgId, uid]);
+  const personUnit = unitId ?? profile?.org_unit_id ?? null;
+  const positions = new Map(facts.positions.map((p) => [p.id, p]));
+  const key = (h: { position_id: string; unit_id: string | null }) => `${h.position_id}|${h.unit_id ?? ""}`;
+  const wanted: DirectoryHolding[] = [];
+  for (const m of mapped) {
+    const r = holderUnit(m, { department, personUnit, units, position: positions.get(m.position_id) });
+    if (r.problem) problems.push(r.problem.slice(0, 200));
+    else if (!wanted.some((w) => key(w) === key({ position_id: m.position_id, unit_id: r.unit_id }))) wanted.push({ user_id: uid, position_id: m.position_id, unit_id: r.unit_id });
+  }
+  const has = new Set(facts.holders.map(key));
+  const keep = new Set(wanted.map(key));
+  const adds = wanted.filter((h) => !has.has(key(h)));
+  if (!conf.rolesApproved) for (const h of adds) pending.push(`position:${h.position_id}`);
+  const r = await applyDirectoryHoldings(actx, conf.id, { adds: conf.rolesApproved ? adds : [], removes: facts.holders.filter((h) => h.ours && !keep.has(key(h))) });
+  problems.push(...r.problems);
+  return { added: r.added, removed: r.removed, given: r.given, taken: r.taken };
 }
 
 /** The unit a person belongs to: a mapped group's unit, else (unit_from = department) the department's unit, made when missing. */
@@ -776,6 +838,8 @@ export interface MappingPreviewRow {
   role: string | null;
   unit_id: string | null;
   workspace_id: string | null;
+  position_id: string | null;
+  unit_from: string | null;
   found: boolean;
   members: number;
   sample: string[];
@@ -796,7 +860,10 @@ export async function mappingPreview(ctx: Ctx, sourceId: string): Promise<{ appr
   }
   try {
     for (const m of conf.mappings.slice(0, 100)) {
-      const row: MappingPreviewRow = { source: m.source, group_id: m.group_id, role: m.role ?? null, unit_id: m.unit_id ?? null, workspace_id: m.workspace_id ?? null, found: false, members: 0, sample: [] };
+      const row: MappingPreviewRow = {
+        source: m.source, group_id: m.group_id, role: m.role ?? null, unit_id: m.unit_id ?? null, workspace_id: m.workspace_id ?? null, position_id: m.position_id ?? null, unit_from: m.unit_from ?? null,
+        found: false, members: 0, sample: [],
+      };
       try {
         const isDn = /^\s*cn=/i.test(m.source);
         const [g] = isDn

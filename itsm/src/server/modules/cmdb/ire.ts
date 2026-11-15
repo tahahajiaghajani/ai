@@ -3,7 +3,9 @@
 //   identify   the class's identification rules (its own and its ancestors', most specific first; the built-in rules
 //              when the organisation has none) — ordered entries of attributes that must all be present and equal, with
 //              `@<rel_type>` for dependent identity (software «روی همان میزبان»); none → create, one → update, several →
-//              a de-duplication task and no write
+//              a de-duplication task and no write. The demo pack's CIs are matched only inside its demo scope, and
+//              only they are there; a call that may create holds its items' identity locks first (one CI per identity
+//              while writers run side by side); a source's identity hint (`ci_hint`) skips identification
 //   reconcile  per attribute: a locked attribute is never overwritten; a value set by a more authoritative source (or by
 //              hand, with the settings' manual priority) is kept unless that source has gone quiet for longer than its
 //              reconciliation rule allows; every observation is kept per source (`attr_meta.<attr>.obs`) for the
@@ -17,12 +19,13 @@ import type { IreInput, IreItem, IreItemResult, IreRelation, IreResult } from "@
 import { FIELD_TYPES, type FieldDef } from "@shared/model/types";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
-import { pgArray } from "../../db";
+import { lockKey, pgArray } from "../../db";
 import type { Queryable, Tx } from "../../db";
+import { demoScopeOrg } from "../../db/scope";
 import { AppError, bad, forbidden, notFound } from "../../http/errors";
 import { condEnv, createIn, loadReadable, normSql, optionsOf, orgSchema, readable, savepoint, transitionIn, updateIn } from "../../engine";
 import { access } from "../../access/provider";
-import { ANCHOR_FIELDS, classTree, cmdbConfig, ciColumnSql, eqAll, isCmdbAdmin, isUuid, liveRow, liveRows, relTypes, SOURCE_FIELDS, sysOf, type Row } from "./common";
+import { ANCHOR_FIELDS, classTree, cmdbConfig, ciColumnSql, eqAll, isCmdbAdmin, isUuid, liveRow, liveRows, lockedRow, relTypes, SOURCE_FIELDS, sysOf, type Row } from "./common";
 import { attrField } from "./hooks";
 
 const DAY = 86_400_000;
@@ -52,19 +55,60 @@ interface Source {
   stale_after_days: number;
   default_class: string | null;
   owner_id: string | null;
+  last_run_at?: string | null;
+}
+
+/**
+ * The identification rules of one call (design A §8.2 #5): read once, the entries of each class memoised — instead of
+ * one read of the rules per item.
+ */
+export interface IdentCache {
+  rules?: Promise<Rule[]>;
+  byClass: Map<string, (IdentEntry & { scope: string })[]>;
+}
+export const identCache = (): IdentCache => ({ byClass: new Map() });
+
+/** Test seam (tests/discovery-ire.test.ts): reads of the identification rules and identity locks taken in this process. */
+export const ireCounters = { ruleReads: 0, identityLocks: 0 };
+
+async function loadIdentRules(q: Queryable, ctx: Ctx): Promise<Rule[]> {
+  ireCounters.ruleReads++;
+  const rows = await liveRows(q, sysOf(ctx), "ci_identification_rule", { f: "active", op: "eq", v: true }, { order: "t.sort_order nulls last, t.name" });
+  return rows.length
+    ? rows.map((r, i) => ({ class: String(r.class), entries: Array.isArray(r.entries) ? r.entries : [], order: i }))
+    : IDENT_RULES.map((r, i) => ({ class: r.class, entries: r.entries, order: i }));
 }
 
 /** The identification entries for a class: rules of the class and its ancestors, most specific first. */
-export async function identEntries(q: Queryable, ctx: Ctx, tree: ClassTree, cls: string): Promise<{ entries: (IdentEntry & { scope: string })[] }> {
-  const rows = await liveRows(q, sysOf(ctx), "ci_identification_rule", { f: "active", op: "eq", v: true }, { order: "t.sort_order nulls last, t.name" });
-  const rules: Rule[] = rows.length
-    ? rows.map((r, i) => ({ class: String(r.class), entries: Array.isArray(r.entries) ? r.entries : [], order: i }))
-    : IDENT_RULES.map((r, i) => ({ class: r.class, entries: r.entries, order: i }));
+export async function identEntries(q: Queryable, ctx: Ctx, tree: ClassTree, cls: string, cache?: IdentCache): Promise<{ entries: (IdentEntry & { scope: string })[] }> {
+  const hit = cache?.byClass.get(cls);
+  if (hit) return { entries: hit };
+  let rules: Rule[];
+  if (cache) {
+    cache.rules ??= loadIdentRules(q, ctx);
+    rules = await cache.rules;
+  } else rules = await loadIdentRules(q, ctx);
   const ancestry = tree.ancestry(cls);
   const applicable = rules.filter((r) => ancestry.includes(r.class)).sort((a, b) => ancestry.indexOf(b.class) - ancestry.indexOf(a.class) || a.order - b.order);
   const entries: (IdentEntry & { scope: string })[] = [];
   for (const r of applicable) for (const e of r.entries) if (Array.isArray(e?.attrs) && e.attrs.length) entries.push({ ...e, scope: r.class });
+  cache?.byClass.set(cls, entries);
   return { entries };
+}
+
+/**
+ * The demo boundary of identification (design A §8.2 #3), on the CI aliased `alias`: outside the organisation's demo
+ * scope no row of its demo pack is matched — real imports of every kind never reach the pack's CIs — and inside it only
+ * the pack's own rows are, so the pack never touches real ones.
+ */
+export function demoBoundarySql(alias: string, orgId: string): string {
+  const pack = `(select 1 from sm_demo_rows d where d.org_id = ${alias}.org_id and d.row_id = ${alias}.id)`;
+  return demoScopeOrg() === orgId ? `exists ${pack}` : `not exists ${pack}`;
+}
+
+/** Is this CI on the caller's side of the demo boundary (a relationship target named by id)? */
+async function onOurSide(q: Queryable, ctx: Ctx, table: string, id: string): Promise<boolean> {
+  return !!(await q.one(`select 1 from ${table} t where t.org_id = $1 and t.id = $2::uuid and ${demoBoundarySql("t", ctx.org.id)}`, [ctx.org.id, id]));
 }
 
 /** An item's value for an identification attribute (normalised), or null. */
@@ -79,6 +123,22 @@ export interface NormItem {
   values: Record<string, unknown>;
   attrs: Record<string, unknown>;
   relations: IreRelation[];
+  /** the CI a source already linked the item to (`IreItem.ci_hint`) */
+  hint?: string | null;
+}
+
+/** Identifiers compared without case, spaces or the digits' script (rows typed with Persian or Arabic digits). */
+const IDENT_UPPER = new Set(["serial_number", "asset_tag", "bios_uuid", "cert_serial", "imei"]);
+
+/**
+ * The CI side of identification's comparison of attribute `bare` held in `col`. The identity indexes (migration
+ * 0104_ci_identity_indexes) hold exactly these expressions over the CI's columns: a change here needs new indexes.
+ */
+export function identExpr(bare: string, col: string): string {
+  if (IDENT_UPPER.has(bare)) return `upper(replace(translate(${col}, '${PERSIAN_DIGITS}', '${LATIN_DIGITS}'), ' ', ''))`;
+  if (bare === "name") return `lower(${normSql(col)})`;
+  if (bare === "cloud_resource_id") return col;
+  return `lower(${col})`;
 }
 
 /** CIs matching one identification entry (system rights; retired ones count, merged and disposed ones do not). */
@@ -88,7 +148,7 @@ async function matchEntry(q: Queryable, ctx: Ctx, tree: ClassTree, item: NormIte
   const def = schema.def("ci") ?? tableDef("ci")!;
   const env = await condEnv(sys);
   const params: unknown[] = [];
-  const parts = [readable(sys, def, "t", params, env), `t.merged_into is null`, `t.state not in ('disposed', 'canceled')`];
+  const parts = [readable(sys, def, "t", params, env), `t.merged_into is null`, `t.state not in ('disposed', 'canceled')`, demoBoundarySql("t", ctx.org.id)];
   params.push(pgArray(tree.descendants(entry.scope)));
   parts.push(`t.class = any($${params.length}::text[])`);
   for (const attr of entry.attrs) {
@@ -104,11 +164,10 @@ async function matchEntry(q: Queryable, ctx: Ctx, tree: ClassTree, item: NormIte
     const bare = attr.replace(/^attrs\./, "");
     const col = ciColumnSql("t", attr, params);
     params.push(v);
-    // case, spaces and the digits' script (rows typed with Persian or Arabic digits before they were stored Latin) aside
-    if (bare === "serial_number" || bare === "asset_tag" || bare === "bios_uuid" || bare === "cert_serial" || bare === "imei") parts.push(`upper(replace(translate(${col}, '${PERSIAN_DIGITS}', '${LATIN_DIGITS}'), ' ', '')) = $${params.length}`);
-    else if (bare === "name") parts.push(`lower(${normSql(col)}) = lower(${normSql(`$${params.length}`)})`);
-    else if (bare === "cloud_resource_id") parts.push(`${col} = $${params.length}`);
-    else parts.push(`lower(${col}) = lower($${params.length})`);
+    const lhs = identExpr(bare, col);
+    if (IDENT_UPPER.has(bare) || bare === "cloud_resource_id") parts.push(`${lhs} = $${params.length}`);
+    else if (bare === "name") parts.push(`${lhs} = lower(${normSql(`$${params.length}`)})`);
+    else parts.push(`${lhs} = lower($${params.length})`);
   }
   return q.query<Row>(`select t.* from ${def.table} t where ${parts.join(" and ")} order by t.updated_at desc limit 6`, params);
 }
@@ -119,9 +178,32 @@ export interface Identified {
   entry: string | null;
 }
 
+/** What a match through an identity hint reports as the entry that decided. */
+export const HINT_ENTRY = "پیوند پیشین منبع داده";
+
+/**
+ * The CI an identity hint names, while it is live: a merged CI is followed to the one it was merged into (a few hops);
+ * a deleted, disposed or canceled one is no hint (the item is then identified as usual), nor is one across the demo
+ * boundary (a real source's hint never reaches the demo pack's CIs, and the pack's never a real one). System rights,
+ * as matchEntry.
+ */
+async function hintedCi(q: Queryable, ctx: Ctx, table: string, id: string | null | undefined): Promise<Row | null> {
+  let cur = id ?? null;
+  for (let hop = 0; hop < 5 && isUuid(cur); hop++) {
+    const row = await q.one<Row>(`select t.* from ${table} t where t.org_id = $1 and t.id = $2::uuid and t.deleted_at is null and ${demoBoundarySql("t", ctx.org.id)}`, [ctx.org.id, cur!.toLowerCase()]);
+    if (!row) return null;
+    if (row.merged_into) {
+      cur = row.merged_into;
+      continue;
+    }
+    return row.state === "disposed" || row.state === "canceled" ? null : row;
+  }
+  return null;
+}
+
 /** Identify one item: the first entry that has all its attributes decides (several matches = duplicates). */
-export async function identifyItem(q: Queryable, ctx: Ctx, tree: ClassTree, item: NormItem, parents: Map<string, string> = new Map()): Promise<Identified> {
-  const { entries } = await identEntries(q, ctx, tree, item.class);
+export async function identifyItem(q: Queryable, ctx: Ctx, tree: ClassTree, item: NormItem, parents: Map<string, string> = new Map(), cache?: IdentCache): Promise<Identified> {
+  const { entries } = await identEntries(q, ctx, tree, item.class, cache);
   for (const e of entries) {
     const rows = await matchEntry(q, ctx, tree, item, e, parents);
     if (rows === null) continue;
@@ -224,7 +306,21 @@ interface ReconRule {
 
 async function loadSources(q: Queryable, ctx: Ctx): Promise<Map<string, Source>> {
   const rows = await liveRows(q, sysOf(ctx), "cmdb_data_source", null, { limit: 1000 });
-  return new Map(rows.map((r) => [r.id, { id: r.id, key: r.id, name: r.name, kind: r.kind, priority: Number(r.priority ?? 100), stale_after_days: Number(r.stale_after_days ?? 30), default_class: r.default_class ?? null, owner_id: r.owner_id ?? null }]));
+  return new Map(rows.map((r) => [r.id, { id: r.id, key: r.id, name: r.name, kind: r.kind, priority: Number(r.priority ?? 100), stale_after_days: Number(r.stale_after_days ?? 30), default_class: r.default_class ?? null, owner_id: r.owner_id ?? null, last_run_at: r.last_run_at ?? null }]));
+}
+
+/** A connector's data source is stamped at most this often (design A §8.2 #6): its passes call the engine many times. */
+const STAMP_EVERY_MS = 60_000;
+
+/**
+ * Does this call stamp its source's last run and status? Every call of a person's import, file, URL or collector
+ * source; a connector's source (design A §8.2 #6) at most once a minute — its calls are many and small, and every
+ * stamp is an update of a synced row (the connector's own runs carry the counts).
+ */
+function stampDue(src: Source, now: number): boolean {
+  if (src.kind !== "connector") return true;
+  const at = Date.parse(src.last_run_at ?? "");
+  return Number.isNaN(at) || now - at >= STAMP_EVERY_MS;
 }
 
 /**
@@ -286,6 +382,8 @@ export async function ensureDedupTask(tx: Tx, ctx: Ctx, candidates: string[], re
   const sys = sysOf(ctx);
   const list = [...new Set(candidates)].sort();
   const key = list.join(",").slice(0, 600);
+  // the candidate set's key, then its open task: two writers finding the same duplicates at once make one task
+  await lockKey(tx, `cmdb.dedup:${ctx.org.id}:${key}`);
   const [open] = await liveRows(tx, sys, "cmdb_dedup_task", { and: [{ f: "candidate_key", op: "eq", v: key }, { f: "active", op: "eq", v: true }] }, { limit: 1 });
   if (open) return open;
   const cis = await liveRows(tx, sys, "ci", { f: "id", op: "in", v: list }, { order: "t.number" });
@@ -302,6 +400,63 @@ export async function ensureDedupTask(tx: Tx, ctx: Ctx, candidates: string[], re
 
 // ---------------------------------------------------------------------------------------------------------------
 // createOrUpdate
+
+/**
+ * Buckets of the identity locks: a key always falls in the same bucket, so every writer that may create a CI with
+ * that identity takes the same lock; a call takes at most this many (the lock table stays small whatever its size).
+ */
+export const IDENTITY_BUCKETS = 64;
+
+/** FNV-1a (32 bits) of a key, folded into a bucket. */
+function identityBucket(key: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h % IDENTITY_BUCKETS;
+}
+
+/** The identity-lock buckets of items: one key per identification entry an item has every attribute of. */
+async function identityBuckets(q: Queryable, ctx: Ctx, tree: ClassTree, items: NormItem[], cache: IdentCache): Promise<Set<number>> {
+  const out = new Set<number>();
+  for (const item of items) {
+    if (!item.class || !tree.get(item.class)) continue;
+    const { entries } = await identEntries(q, ctx, tree, item.class, cache);
+    for (const e of entries) {
+      const parts: string[] = [];
+      let whole = true;
+      for (const attr of e.attrs) {
+        // dependent identity (`@runs_on`): the item's own values stand for it (a wider key, never a narrower one)
+        if (attr.startsWith("@")) continue;
+        const v = identValue(item, attr);
+        if (!v) {
+          whole = false;
+          break;
+        }
+        parts.push(`${attr}=${v}`);
+      }
+      if (whole && parts.length) out.add(identityBucket(parts.join("&")));
+    }
+  }
+  return out;
+}
+
+/**
+ * One CI per identity while writers of an organisation run side by side (design A §8.5; the D4 requirement): before a
+ * call that may create identifies anything, it takes the transaction locks of its items' identities — the values of
+ * every identification entry an item has whole, in buckets, in one order. A second call with an overlapping identity
+ * waits for this one's commit, and its identification then sees what this one created (READ COMMITTED). Buckets
+ * already held are skipped (`held`).
+ */
+async function lockIdentities(tx: Tx, ctx: Ctx, tree: ClassTree, items: NormItem[], cache: IdentCache, held: Set<number>): Promise<void> {
+  const buckets = [...(await identityBuckets(tx, ctx, tree, items, cache))].filter((b) => !held.has(b)).sort((a, b) => a - b);
+  if (!buckets.length) return;
+  // one statement, in the array's order (a function scan feeds the aggregate row by row): the keys of `lockKey`
+  await tx.query(`select count(pg_advisory_xact_lock(hashtextextended(k, 0))) from unnest($1::text[]) as u(k)`, [pgArray(buckets.map((b) => `itsm.key:ire.identity:${ctx.org.id}:${b}`))]);
+  for (const b of buckets) held.add(b);
+  ireCounters.identityLocks += buckets.length;
+}
 
 /** Order items so that the ones others depend on (hosts) are reconciled first. */
 function processingOrder(items: NormItem[]): number[] {
@@ -332,7 +487,7 @@ function normalizeItems(input: IreInput, src: Source | null): { items: NormItem[
     }
     const cls = String(it.class ?? (it.values as Record<string, unknown>)?.class ?? input.default_class ?? src?.default_class ?? "").trim();
     if (!cls) problems.set(i, "کلاس پیکربندی مشخص نیست");
-    return { class: cls, values, attrs, relations: Array.isArray(it.relations) ? it.relations.slice(0, 50) : [] };
+    return { class: cls, values, attrs, relations: Array.isArray(it.relations) ? it.relations.slice(0, 50) : [], hint: isUuid(it.ci_hint) ? it.ci_hint : null };
   });
   return { items, problems };
 }
@@ -352,6 +507,11 @@ export async function createOrUpdate(ctx: Ctx, input: IreInput): Promise<IreResu
   if (input.source_id && !src) throw notFound("منبع داده پیدا نشد");
   checkSource(ctx, src, (await cmdbConfig(ctx.db, ctx)).manual_priority, admin);
   const run = async (tx: Tx): Promise<IreResult> => {
+    // imports of one organisation take turns (people's edits and other writes stay side by side): two sources
+    // reporting the same new device at once make one CI, and a batch's identification, relationships, de-duplication
+    // tasks and run counters see what an import before it committed. One key per import, whatever its size (a key per
+    // identifier would hold thousands of locks in one transaction)
+    await lockKey(tx, `cmdb.ire:${ctx.org.id}`);
     const sys = sysOf(ctx, ctx.actor === "system" ? null : ctx.user.id);
     const env = await condEnv(ctx);
     /** the CI as the caller reads it (null: they may not), for matches and relationship targets */
@@ -364,8 +524,14 @@ export async function createOrUpdate(ctx: Ctx, input: IreInput): Promise<IreResu
       class: String(r.class), attributes: Array.isArray(r.attributes) ? r.attributes : [], source_id: String(r.source_id), priority: Number(r.priority ?? 10), max_age_days: Number(r.max_age_days ?? 30),
     }));
     const { items, problems } = normalizeItems(input, src);
+    const cache = identCache();
+    // a call that may create takes its items' identity locks before it identifies anything (§8.5); an item a source
+    // linked before is updated through its hint, and takes them only when its hint turns out dead (below)
+    const creates = input.create !== false && !input.dry_run;
+    const heldIdentities = new Set<number>();
+    if (creates) await lockIdentities(tx, ctx, tree, items.filter((it) => people || !it.hint), cache, heldIdentities);
     const ref = await refResolver(tx, ctx, items);
-    const out: IreResult = { results: [], created: 0, updated: 0, unchanged: 0, duplicates: 0, failed: 0, relations: { created: 0, refreshed: 0, failed: 0 }, dry_run: !!input.dry_run, run_id: input.run_id ?? null };
+    const out: IreResult = { results: [], created: 0, updated: 0, unchanged: 0, duplicates: 0, failed: 0, unmatched: 0, relations: { created: 0, refreshed: 0, failed: 0 }, dry_run: !!input.dry_run, run_id: input.run_id ?? null };
     const ciOf = new Map<number, string>();
     const results = new Map<number, IreItemResult>();
     const now = Date.now();
@@ -399,7 +565,11 @@ export async function createOrUpdate(ctx: Ctx, input: IreInput): Promise<IreResu
             const target = typeof rel.item === "number" ? ciOf.get(rel.item) : isUuid(rel.ci_id) ? rel.ci_id : null;
             if (target) parents.set(rel.type, target);
           }
-          const idf = await identifyItem(tx, ctx, tree, normalized, parents);
+          // a live CI the source already linked the item to is used without identification (one update for a refresh);
+          // only the system's calls carry hints (discovery's identity map) — a person's import is identified as usual
+          const hinted = item.hint && !people ? await hintedCi(tx, ctx, ciDef.table, item.hint) : null;
+          if (item.hint && !people && !hinted && creates) await lockIdentities(tx, ctx, tree, [normalized], cache, heldIdentities);
+          const idf: Identified = hinted ? { match: hinted, candidates: [hinted], entry: HINT_ENTRY } : await identifyItem(tx, ctx, tree, normalized, parents, cache);
           if (idf.match && people) {
             // identification sees every CI; the update is the caller's: a CI they may not read or change is not theirs to
             // reconcile (nor to name in the result)
@@ -410,6 +580,10 @@ export async function createOrUpdate(ctx: Ctx, input: IreInput): Promise<IreResu
           if (!idf.match && idf.candidates.length > 1) {
             const task = await ensureDedupTask(tx, ctx, idf.candidates.map((c) => c.id), `منبع «${src?.name ?? "ورود داده"}» قلمی گزارش کرد که با «${idf.entry}» به ${idf.candidates.length} پیکربندی می‌خورد`, { source: src?.id ?? null });
             return { ...base, action: "duplicate" as const, matched_by: idf.entry, dedup_task_id: task.id, message: `${idf.candidates.length} پیکربندی هم‌شناسه؛ برای بررسی «${task.number}» ساخته شد` };
+          }
+          if (!idf.match && input.create === false) {
+            // a source that may not create (match only, review first): nothing is written, its relations are skipped
+            return { ...base, action: "unmatched" as const, matched_by: null, message: "با هیچ پیکربندی موجودی یکی نشد؛ این منبع پیکربندی تازه نمی‌سازد" };
           }
           if (!idf.match) {
             const meta: Record<string, Provenance> = {};
@@ -423,7 +597,9 @@ export async function createOrUpdate(ctx: Ctx, input: IreInput): Promise<IreResu
             }, { trusted: true, via: "import" });
             return { ...base, action: "created" as const, ci_id: row.id, number: row.number ?? null, name: row.name, matched_by: null };
           }
-          const cur = idf.match;
+          // the matched CI locked and read again before the patch is computed: a person's correction (and its «manual»
+          // provenance) committed meanwhile is what the import weighs, never overwritten from the copy identification read
+          const cur = (await lockedRow(tx, sys, "ci", idf.match.id)) ?? idf.match;
           const locked = new Set<string>(Array.isArray(cur.locked_attrs) ? cur.locked_attrs : []);
           const meta: Record<string, Provenance> = { ...((cur.attr_meta ?? {}) as Record<string, Provenance>) };
           const patch: Record<string, unknown> = {};
@@ -501,10 +677,10 @@ export async function createOrUpdate(ctx: Ctx, input: IreInput): Promise<IreResu
           // the relationship hook's rule (change one of the two CIs) through the import
           let target: string | null = null;
           if (typeof rel.item === "number") target = ciOf.get(rel.item) ?? null;
-          else if (isUuid(rel.ci_id)) target = (await asCaller(rel.ci_id))?.id ?? null;
+          else if (isUuid(rel.ci_id)) target = (await onOurSide(tx, ctx, ciDef.table, rel.ci_id)) ? (await asCaller(rel.ci_id))?.id ?? null : null;
           else if (rel.match?.values) {
             const mcls = String(rel.match.class ?? "ci");
-            const idf = await identifyItem(tx, ctx, tree, { class: tree.get(mcls) ? mcls : "ci", values: rel.match.values, attrs: {}, relations: [] });
+            const idf = await identifyItem(tx, ctx, tree, { class: tree.get(mcls) ? mcls : "ci", values: rel.match.values, attrs: {}, relations: [] }, undefined, cache);
             target = idf.match && (await asCaller(idf.match.id)) ? idf.match.id : null;
           }
           if (!target || target === from) {
@@ -517,7 +693,7 @@ export async function createOrUpdate(ctx: Ctx, input: IreInput): Promise<IreResu
             await updateIn(tx, sysOf(ctx), "ci_rel", existing.id, { last_seen_at: at }, { trusted: true, keepVersion: true });
             out.relations.refreshed++;
           } else {
-            await savepoint(tx, () => createIn(tx, sysOf(ctx), "ci_rel", { parent_id: parent, child_id: child, type: rel.type, origin_kind: src?.kind === "collector" || src?.kind === "discovery" ? "discovery" : "import", source_id: src?.id ?? null, discovered_at: at, last_seen_at: at }, { trusted: true, via: "import" }));
+            await savepoint(tx, () => createIn(tx, sysOf(ctx), "ci_rel", { parent_id: parent, child_id: child, type: rel.type, origin_kind: src?.kind === "collector" || src?.kind === "discovery" || src?.kind === "connector" ? "discovery" : "import", source_id: src?.id ?? null, discovered_at: at, last_seen_at: at }, { trusted: true, via: "import" }));
             out.relations.created++;
           }
         } catch {
@@ -532,9 +708,10 @@ export async function createOrUpdate(ctx: Ctx, input: IreInput): Promise<IreResu
       else if (r.action === "updated") out.updated++;
       else if (r.action === "unchanged") out.unchanged++;
       else if (r.action === "duplicate") out.duplicates++;
+      else if (r.action === "unmatched") out.unmatched = (out.unmatched ?? 0) + 1;
       else if (r.action === "error") out.failed++;
     }
-    if (src?.id && !input.dry_run) await updateIn(tx, sysOf(ctx), "cmdb_data_source", src.id, { last_run_at: at, last_status: `${out.created} ساخته، ${out.updated} به‌روز، ${out.duplicates} تکراری، ${out.failed} ناموفق`.slice(0, 300) }, { trusted: true, keepVersion: true });
+    if (src?.id && !input.dry_run && stampDue(src, now)) await updateIn(tx, sysOf(ctx), "cmdb_data_source", src.id, { last_run_at: at, last_status: `${out.created} ساخته، ${out.updated} به‌روز، ${out.duplicates} تکراری، ${out.failed} ناموفق`.slice(0, 300) }, { trusted: true, keepVersion: true });
     if (input.run_id && !input.dry_run) await appendToRun(tx, ctx, input.run_id, out);
     if (input.dry_run) throw new DryRun(out);
     return out;
@@ -549,7 +726,8 @@ export async function createOrUpdate(ctx: Ctx, input: IreInput): Promise<IreResu
 
 /** Add a batch's results to its import run (counts and up to 1000 row results). */
 async function appendToRun(tx: Tx, ctx: Ctx, runId: string, r: IreResult): Promise<void> {
-  const run = await liveRow(tx, sysOf(ctx), "cmdb_import_run", runId);
+  // locked: batches of one run posted at once add up (each adds to what the other committed)
+  const run = await lockedRow(tx, sysOf(ctx), "cmdb_import_run", runId);
   if (!run || run.state !== "running") return;
   const prev = Array.isArray(run.results) ? run.results : [];
   const offset = Number(run.total ?? 0);

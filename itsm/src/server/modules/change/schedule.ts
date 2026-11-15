@@ -18,6 +18,7 @@ import { calendarsOf } from "../sla/calendars";
 import type { BusinessCalendar } from "@shared/sla/calendar";
 import { changeConfig, eqAll, iso, liveRow, liveRows, modelLike, modelOf, msOf, riskQuestions, sysOf, type Row } from "./common";
 import { relatedCisOf } from "./impact";
+import { lockedRow } from "../incident/common";
 
 // ---------------------------------------------------------------------------------------------------------------
 // Conditions on a change
@@ -250,10 +251,14 @@ export async function storeConflicts(tx: Tx, ctx: Ctx, row: Row, plan: ConflictP
   return { others: [...others], added, open: plan.flags.conflict_count };
 }
 
-/** Detect a stored change's conflicts again, store them and bring its flags in step (jobs, «بررسی دوباره»). */
+/**
+ * Detect a stored change's conflicts again, store them and bring its flags in step (jobs, «بررسی دوباره»). The change is
+ * locked first, as its own writes lock it: a write of its window in flight finishes first and this plans from the
+ * stored row (never a stale plan over the write's flags, nor rows of a window it no longer has).
+ */
 export async function recomputeConflicts(tx: Tx, ctx: Ctx, id: string): Promise<{ others: string[]; added: number; open: number }> {
   const sys = sysOf(ctx);
-  const row = await liveRow(tx, sys, "change_request", id);
+  const row = await lockedRow(tx, sys, "change_request", id);
   if (!row) return { others: [], added: 0, open: 0 };
   const plan = await planConflicts(tx, sys, row);
   const r = await storeConflicts(tx, sys, row, plan);

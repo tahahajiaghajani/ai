@@ -41,6 +41,26 @@ async function adminsCopy(tx: Tx, ctx: Ctx, table: string, next: Row): Promise<R
   return { dept_admins: adminsOf(await departmentById(tx, ctx, next.department_id)) };
 }
 
+/**
+ * The administrators copied onto a department's services and templates, put in step at commit under the department's
+ * key — queued by a change of the department's administrators and by a new (or moved) service or template: whichever
+ * commits second re-reads the department and its rows after the other, so a row made while the administrators change
+ * never keeps the old ones (the templates pass theirs on to their activities).
+ */
+function adminsInStep(tx: Tx, ctx: Ctx, deptId: unknown): void {
+  if (!isUuid(deptId)) return;
+  onBeforeCommit(tx, `esm.dept_admins:${deptId}`, async () => {
+    const sys = sysOf(ctx);
+    const admins = adminsOf(await departmentById(tx, ctx, deptId));
+    const key = (xs: unknown) => ids((xs as string[]) ?? []).sort().join(",");
+    for (const t of ["esm_service", "journey_template"]) {
+      for (const r of await liveRows(tx, sys, t, eqAll({ department_id: deptId }), { limit: 2000 })) {
+        if (key(r.dept_admins) !== key(admins)) await updateIn(tx, sys, t, String(r.id), { dept_admins: admins }, { trusted: true, keepVersion: true });
+      }
+    }
+  });
+}
+
 async function configBefore(w: WriteArgs): Promise<void> {
   const { ctx, tx, def, next, prev, op } = w;
   if (op === "delete") {
@@ -48,6 +68,7 @@ async function configBefore(w: WriteArgs): Promise<void> {
     return;
   }
   Object.assign(next, await adminsCopy(tx, ctx, def.key, next));
+  if ((def.key === "esm_service" || def.key === "journey_template") && (op === "create" || w.changed.has("department_id"))) adminsInStep(tx, ctx, next.department_id);
   if (isSystemCtx(ctx) || w.trusted) return;
   if (def.key === "esm_department") {
     // a department is defined, re-pointed or handed new administrators only by the ESM administrator; its own
@@ -70,15 +91,8 @@ async function configBefore(w: WriteArgs): Promise<void> {
 async function configAfter(w: WriteArgs & { row: Row }): Promise<void> {
   const { ctx, tx, def, row, op } = w;
   const sys = sysOf(ctx);
-  if (def.key === "esm_department" && op !== "delete" && (w.changed.has("admins") || w.changed.has("manager_id"))) {
-    // the new administrators reach the department's services and templates (and the templates' activities)
-    const admins = adminsOf(row);
-    for (const t of ["esm_service", "journey_template"]) {
-      for (const r of await liveRows(tx, sys, t, eqAll({ department_id: row.id }), { limit: 2000 })) {
-        await updateIn(tx, sys, t, String(r.id), { dept_admins: admins }, { trusted: true, keepVersion: true });
-      }
-    }
-  }
+  // the new administrators reach the department's services and templates (and the templates' activities) at commit
+  if (def.key === "esm_department" && op !== "delete" && (w.changed.has("admins") || w.changed.has("manager_id"))) adminsInStep(tx, ctx, row.id);
   if (def.key === "journey_template" && op !== "delete" && w.changed.has("department_id")) {
     for (const a of await liveRows(tx, sys, "journey_template_activity", eqAll({ template_id: row.id }), { limit: 2000 })) {
       await updateIn(tx, sys, "journey_template_activity", String(a.id), { dept_admins: ids(row.dept_admins) }, { trusted: true, keepVersion: true });

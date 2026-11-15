@@ -33,6 +33,6 @@ export { toSql, readable, writableRule, searchSql, orderSql, pathExpr, fieldExpr
 export { loadReadable, requireReadable, canOpenRecords, readSecret, toOutput, fromDb, pathVisible, selectRows, SELECT_PAGE } from "./read";
 export { onBeforeCommit } from "../db";
 export { RefSet, resolveDisplay, labelOf } from "./display";
-export { bumpScopeEpoch, scopeEpoch } from "./sync";
+export { bumpScopeEpoch, scopeEpoch, setPushCreateRefusal } from "./sync";
 export { ddlFor, ddlForAll, reconcileSchema, archivable, archiveTableOf } from "./ddl";
 export { archiveSettings, archiveBatch, purgeArchived, archivableTables, scheduleArchive, archiveSummary, ARCHIVE_DEFAULT_YEARS, type ArchiveSettings } from "./archive";

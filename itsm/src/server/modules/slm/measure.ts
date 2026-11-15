@@ -19,6 +19,7 @@ import { condEnv, createIn, emitEvent, orgSchema, orgTz, readable, updateIn } fr
 import { pgArray } from "../../db";
 import { scoreItem } from "../analytics";
 import { experienceResponses } from "./experience";
+import { lockedRow } from "../incident/common";
 import { isUuid, liveRow, liveRows, slmConfig, sysOf, todayOf, type Row } from "./common";
 
 export interface Window {
@@ -217,7 +218,9 @@ const STATUS_RANK: Record<ComplianceStatus, number> = { no_data: 0, met: 1, at_r
  */
 export async function storeMeasures(tx: Tx, ctx: Ctx, agreementId: string, opts: { period?: Period; final?: boolean; now?: number } = {}): Promise<AgreementMeasure | null> {
   const sys = sysOf(ctx);
-  const a = await liveRow(tx, sys, "service_agreement", agreementId);
+  // the agreement locked and read again: two measures of one agreement at once (its job and the sweep) take turns, so
+  // the at-risk alert goes out once and a final period row is never turned back into a provisional one
+  const a = await lockedRow(tx, sys, "service_agreement", agreementId);
   if (!a) return null;
   const p = opts.period ?? agreementPeriod(a, todayOf(sys, opts.now));
   const m = await measureAgreementIn(tx, sys, a, p);

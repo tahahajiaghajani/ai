@@ -5,7 +5,7 @@
 import type { Ctx, ServerConfig } from "../../context";
 import type { Queryable, Tx } from "../../db";
 import { forbidden } from "../../http/errors";
-import { createIn, updateIn } from "../../engine";
+import { createIn, onBeforeCommit, updateIn } from "../../engine";
 import { liveRow, liveRows, sysOf, type Row } from "../incident/common";
 import {
   ALL_PLANS, cleanLimits, effectiveLimits, flagState, limitProblem, LIMIT_KEYS, type FlagRow, type FlagState, type LimitKey, type Limits, type PlanRow,
@@ -68,13 +68,33 @@ export async function usageOf(q: Queryable, orgId: string): Promise<Record<Limit
   };
 }
 
-/** Refuses when adding `adding` would pass the organisation's ceiling of `key` (HTTP 403 with the Persian reason). */
+/**
+ * Refuses when adding `adding` would pass the organisation's ceiling of `key` (HTTP 403 with the Persian reason). Inside
+ * a write transaction (`q` is the write's `tx`) the ceiling is also checked again just before commit (`limitAtCommit`):
+ * two writes that both counted «one below the ceiling» take turns there and the second one is refused.
+ */
 export async function needWithinLimit(q: Queryable, cfg: Pick<ServerConfig, "mode">, orgId: string, key: LimitKey, adding = 1): Promise<void> {
   const plan = await orgPlan(q, orgId, cfg.mode);
   if (plan.limits[key] === undefined) return;
   const used = (await usageOf(q, orgId))[key];
   const problem = limitProblem(key, used, adding, plan.limits);
   if (problem) throw forbidden(problem);
+  if ((q as Partial<Tx>).inTx) limitAtCommit(q as Tx, cfg, orgId, key);
+}
+
+/**
+ * Check the ceiling of `key` again at the end of the write `tx` that adds rows counted by it (under the before-commit
+ * key `limit:<org>:<key>`, so concurrent additions of one organisation take turns and each counts what the others
+ * committed, this one's rows included): refused (403) when the organisation is now above it.
+ */
+export function limitAtCommit(tx: Tx, cfg: Pick<ServerConfig, "mode">, orgId: string, key: LimitKey): void {
+  onBeforeCommit(tx, `limit:${orgId}:${key}`, async () => {
+    const plan = await orgPlan(tx, orgId, cfg.mode);
+    if (plan.limits[key] === undefined) return;
+    const used = (await usageOf(tx, orgId))[key];
+    const problem = limitProblem(key, used, 0, plan.limits);
+    if (problem) throw forbidden(problem);
+  });
 }
 
 export const ALL_LIMIT_KEYS = LIMIT_KEYS;

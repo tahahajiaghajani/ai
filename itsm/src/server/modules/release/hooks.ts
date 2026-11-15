@@ -16,6 +16,7 @@ import { isSystemCtx, orgTz, pushGuard, registerHooks, updateIn, type PushArgs, 
 import { enqueue } from "../../jobs";
 import { bad, conflict, forbidden } from "../../http/errors";
 import { servicesImpactedBy } from "../cmdb";
+import { lockedRow } from "../incident/common";
 import { copyOf, storedReadiness, windowLike } from "./checks";
 import { occurrences, type Occurrence } from "@shared/change/logic";
 import { deploymentOutcome } from "@shared/devops/logic";
@@ -251,7 +252,8 @@ export function installReleaseHooks(): (() => void)[] {
         const { tx, ctx, next } = w;
         await initialStateOnly(w, managesReleases);
         if (w.op === "create" || w.changed.has("release_id")) {
-          const rel = await liveRow(tx, sysOf(ctx), "release", next.release_id);
+          // shared lock until commit: a closing of the release in flight finishes first and the task is refused
+          const rel = await lockedRow(tx, sysOf(ctx), "release", next.release_id, "share");
           if (!rel) throw bad("انتشار پیدا نشد");
           if (["closed", "canceled"].includes(String(rel.state))) throw conflict("به انتشار بسته یا لغوشده نمی‌توان کار افزود");
           next.release_manager_id = rel.release_manager_id ?? null;
@@ -444,6 +446,9 @@ export function installReleaseHooks(): (() => void)[] {
         const e = msOf(next.end_at);
         if (s === null || e === null || e <= s) throw bad("پایان رزرو باید پس از شروع آن باشد");
         if (["requested", "approved", "active"].includes(String(next.state)) && (w.op === "create" || ["start_at", "end_at", "environment_id", "state"].some((f) => w.changed.has(f)))) {
+          // the environment locked first: two bookings of it approved at the same moment take turns, and the second
+          // sees the first one's approval (never two teams holding one environment at once)
+          await lockedRow(tx, sysOf(ctx), "release_environment", next.environment_id);
           const others = (await liveRows(tx, sysOf(ctx), "environment_booking", { and: [{ f: "environment_id", op: "eq", v: next.environment_id }, { f: "state", op: "in", v: ["approved", "active"] }] }))
             .filter((b) => b.id !== next.id && (msOf(b.start_at) ?? 0) < e && (msOf(b.end_at) ?? 0) > s);
           if (others.length) throw conflict(`این محیط در این بازه رزرو شده است (${others.map((b) => b.number).join("، ")})`);

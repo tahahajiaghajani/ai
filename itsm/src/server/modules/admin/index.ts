@@ -64,5 +64,5 @@ export function installAdminModule(): void {
   });
 }
 
-export { needFeature, hasFeature, featureStates, orgPlan, usageOf, needWithinLimit } from "./common";
+export { needFeature, hasFeature, featureStates, orgPlan, usageOf, needWithinLimit, limitAtCommit } from "./common";
 export { ADMIN_SEED_VERSION, seedAdminDefaultsIn } from "./seed";

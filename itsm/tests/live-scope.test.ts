@@ -76,7 +76,7 @@ beforeAll(async () => {
 describe("the scoped pulse", () => {
   it("answers the token alone without a scope, and nothing on a first look", async () => {
     const plain = await ask(agent, {});
-    expect(plain.pulse).toMatch(/^w\d+$/);
+    expect(plain.pulse).toMatch(/^x\d+:\d+:/);
     expect(plain.changed).toBeUndefined();
     expect(await ask(agent, { t: ["lv_ticket"] })).toMatchObject({ changed: [] });
   });

@@ -11,14 +11,15 @@ import { uuidv7 } from "@shared/id";
 import { tableDef } from "@shared/tables";
 import { HOOK_ATTEMPTS, HOOK_PAUSE_AFTER, hookBackoffMs, hookEventOf, type HookEvent } from "@shared/integration/webhooks";
 import type { Cond } from "@shared/model/conditions";
-import { bad, notFound } from "../../http/errors";
+import { bad, conflict, notFound } from "../../http/errors";
 import { emitEvent, get, list, listJournal, onRecordEvent, readSecret, systemCtx, updateIn, type RecordEvent } from "../../engine";
 import { enqueue, registerJobHandler, PermanentJobError } from "../../jobs";
 import { hasFeature } from "../admin/common";
 import { needPrincipalWithin } from "./users";
 import { callOut, failText } from "./net";
 import { intLog, liveRow, liveRows, needIntegrations, principalCtx, redactUrl, type Row } from "./common";
-import { demoQuiet } from "../../db/scope";
+import { demoQuiet, isDemoRow } from "../../db/scope";
+import { pgArray } from "../../db";
 
 /** Tables whose events are never delivered (the hub's own bookkeeping: a delivery would change them again). */
 const OWN_TABLES = new Set(["webhook_subscription", "inbound_endpoint", "integration_user", "export_schedule", "directory_source", "issue_connection", "external_ref", "data_export"]);
@@ -132,6 +133,9 @@ async function deliver(cfg: ServerConfig, deliveryId: string, attempt: number, e
       [d.id, status, attempt, patch.code ?? null, patch.ms ?? null, patch.error?.slice(0, 1000) ?? null, status === "failed" ? new Date(Date.now() + hookBackoffMs(attempt)).toISOString() : null],
     );
   if (!sub || sub.active === false || sub.paused) return void (await finish("skipped", { error: "اشتراک غیرفعال یا متوقف است" }));
+  // a record of the demo pack never leaves the system (docs/DEMO_FA.md): a delivery queued before the record joined the
+  // pack, or replayed from the dead-letter list, is skipped — never counted as the receiver's failure
+  if (await demoQuiet(cfg.db, d.org_id, d.record_id)) return void (await finish("skipped", { error: "داده‌های نمایشی از سامانه بیرون نمی‌رود" }));
   let built: BuiltPayload;
   try {
     built = await buildPayload(cfg, { ...sub, org_id: d.org_id }, d, extra);
@@ -143,6 +147,7 @@ async function deliver(cfg: ServerConfig, deliveryId: string, attempt: number, e
   if (built.skipped) return void (await finish("skipped", { error: built.skipped }));
   const secret = await readSecret(cfg.db, sys, tableDef("webhook_subscription")!, String(sub.id), "secret");
   const r = await post(cfg, sub, secret, built.body, { "X-Event": d.event, "X-Delivery-Id": d.id, "X-Table": d.table_key });
+  if (r.demo) return void (await finish("skipped", { error: r.text }));
   await intLog(cfg.db, { org_id: d.org_id, kind: "webhook", ref_id: String(sub.id), method: "POST", target: redactUrl(String(sub.url)), status: r.status || null, ok: r.ok, latency_ms: r.ms, summary: `${d.event} ${d.record_number ?? d.table_key}`, error: r.ok ? null : failText("نشانی", r) });
   if (r.ok) {
     await finish("delivered", { code: r.status, ms: r.ms });
@@ -202,16 +207,22 @@ export async function testSubscription(ctx: Ctx, id: string, recordId?: string |
   const { ctx: p } = await principalCtx(ctx.cfg, ctx.org.id, String(sub.principal_id));
   let rid = recordId ?? null;
   let number: string | null = null;
+  // «با یک رکورد واقعی»: a record of the demo pack is never sent out (docs/DEMO_FA.md), named or picked
+  if (rid && (await isDemoRow(ctx.db, ctx.org.id, rid))) throw conflict("داده‌های نمایشی: رکورد نمایشی به سامانهٔ بیرونی فرستاده نمی‌شود");
   if (!rid) {
-    const r = await list(p, String(sub.table_key), { size: 1, sort: "-updated_at", total: false });
+    const r = await list(p, String(sub.table_key), { size: 50, sort: "-updated_at", total: false });
     if (!r.rows.length) throw bad("کاربر یکپارچه‌سازی هیچ رکوردی از این جدول نمی‌بیند؛ ارسال آزمایشی ممکن نیست");
-    rid = String(r.rows[0].id);
-    number = (r.rows[0].number as string) ?? null;
+    const demo = new Set((await ctx.db.query<{ id: string }>(`select row_id::text as id from sm_demo_rows where org_id = $1 and row_id = any($2::uuid[])`, [ctx.org.id, pgArray(r.rows.map((x) => String(x.id)))])).map((x) => x.id.toLowerCase()));
+    const real = r.rows.find((x) => !demo.has(String(x.id).toLowerCase()));
+    if (!real) throw conflict("رکوردهای تازهٔ این جدول نمایشی‌اند و به سامانهٔ بیرونی فرستاده نمی‌شوند؛ رکوردی واقعی را برای ارسال آزمایشی برگزینید");
+    rid = String(real.id);
+    number = (real.number as string) ?? null;
   }
   const built = await buildPayload(ctx.cfg, { ...sub, org_id: ctx.org.id }, { id: `test-${uuidv7()}`, event: "updated", table_key: String(sub.table_key), record_id: rid, record_number: number, actor: ctx.user.id });
   if (built.skipped) return { ok: false, status: 0, ms: 0, skipped: built.skipped, response: "" };
   const secret = await readSecret(ctx.db, ctx, tableDef("webhook_subscription")!, id, "secret");
   const r = await post(ctx.cfg, sub, secret, built.body, { "X-Event": "test", "X-Delivery-Id": "test", "X-Table": String(sub.table_key) });
+  if (r.demo) return { ok: false, status: 0, ms: 0, skipped: r.text, response: "" };
   await intLog(ctx.db, { org_id: ctx.org.id, kind: "webhook", ref_id: id, actor: ctx.user.id, method: "POST", target: redactUrl(String(sub.url)), status: r.status || null, ok: r.ok, latency_ms: r.ms, summary: "ارسال آزمایشی", error: r.ok ? null : failText("نشانی", r) });
   return { ok: r.ok, status: r.status, ms: r.ms, skipped: null, response: r.text.slice(0, 500) };
 }

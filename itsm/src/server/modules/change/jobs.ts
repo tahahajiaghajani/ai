@@ -18,7 +18,7 @@ import { pgArray } from "../../db";
 import { enqueue, registerJobHandler, type JobContext } from "../../jobs";
 import { actsHere } from "../notify";
 import { ensureNextMeeting, refreshAgenda } from "./cab";
-import { lockdownDue, startLockdown } from "./lockdown";
+import { lockdownDue, lockLockdowns, startLockdown } from "./lockdown";
 import { changeConfig, countRows, countsAsIncident, hasTable, iso, liveRow, liveRows, msOf, type Row } from "./common";
 import { CONFLICT_TRACKED, recomputeConflicts } from "./schedule";
 
@@ -105,8 +105,15 @@ export async function sweep(sys: Ctx, deadline = Number.POSITIVE_INFINITY, now =
   for (const l of await liveRows(db, sys, "change_lockdown", { and: [{ f: "state", op: "eq", v: "active" }, { f: "applied_at", op: "empty" }, { f: "starts_at", op: "lte", v: iso(now) }] }, { limit: 50 })) {
     if (late()) return { ...out, pending: true };
     if (!lockdownDue(l, now) || (msOf(l.ends_at) !== null && msOf(l.ends_at)! <= now)) continue;
-    await sys.write((tx) => startLockdown(tx, sys, l, null));
-    out.started++;
+    // read again under the lockdown key: two sweeps at once (or an edit of the lockdown) apply it once
+    const started = await sys.write(async (tx) => {
+      await lockLockdowns(tx, sys.org.id);
+      const cur = await liveRow(tx, sys, "change_lockdown", String(l.id));
+      if (!cur || !lockdownDue(cur, now) || (msOf(cur.ends_at) !== null && msOf(cur.ends_at)! <= now)) return false;
+      await startLockdown(tx, sys, cur, null);
+      return true;
+    });
+    if (started) out.started++;
   }
 
   // lockdowns whose end passed
@@ -252,7 +259,12 @@ export function installChangeJobs(): (() => void)[] {
     registerJobHandler("change.conflicts", async (job, jctx) => {
       if (!job.org_id || typeof job.payload?.id !== "string") return;
       const sys = await systemCtx(jctx.cfg, job.org_id);
-      await sys.write((tx) => recomputeConflicts(tx, sys, String(job.payload.id)));
+      await sys.write(async (tx) => {
+        const r = await recomputeConflicts(tx, sys, String(job.payload.id));
+        // a conflict found only now (two changes written at the same moment did not see each other): the changes it
+        // names are checked again too, so each of them records it as well
+        if (r.added) for (const o of r.others) await enqueue(tx, { kind: "change.conflicts", orgId: job.org_id!, payload: { id: o }, dedupeKey: `change.conflicts:${o}` });
+      });
     }),
     registerJobHandler("change.recheck", async (job, jctx) => {
       if (!job.org_id) return;

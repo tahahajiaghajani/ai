@@ -19,8 +19,8 @@ export function installFlows(): void {
 
 export { registerFlowStepHandler, registerFlowSkill, setFlowBusinessClock, serviceInstalled, stepHandler, builtinStepHandler, flowSkills } from "./registry";
 export type { StepContext, StepOutcome, WaitRequest, WaitInfo, WaitCancel, FlowStepHandler, FlowSkill, BusinessClock } from "./registry";
-export { startRun, executeRun, resumeFlowWait, cancelRun, RunAborted } from "./executor";
-export type { StartInput, TriggerData, ExecuteOptions } from "./executor";
+export { startRun, executeRun, resumeFlowWait, cancelRun, RunAborted, registerRunKind } from "./executor";
+export type { StartInput, TriggerData, ExecuteOptions, RunKind } from "./executor";
 export { startCatalogFlows, startRecordFlows, resolveRunAs, activeFlows } from "./triggers";
 export { runScheduler, ensureScheduler, cleanupRuns } from "./scheduler";
 export { recipients, recipientUsers, groupMembers, aboutRecord, durationMs } from "./nodes";

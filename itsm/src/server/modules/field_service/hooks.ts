@@ -17,6 +17,7 @@ import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
 import { pushFromBefore, addJournalIn, createIn, emitEvent, isSystemCtx, onBeforeCommit, orgTz, registerHooks, transitionIn, updateIn, validationError, type WriteArgs } from "../../engine";
 import { forbidden } from "../../http/errors";
+import { lockedRow } from "../incident/common";
 import { fsmConfig, ids, isUuid, liveRow, liveRows, msOf, sysOf, todayOf, type Row } from "./common";
 
 // ----- work orders -----------------------------------------------------------------------------------------------------
@@ -81,7 +82,9 @@ async function taskBefore(w: WriteArgs): Promise<void> {
   }
   const sys = sysOf(ctx);
   if (op === "create" || w.changed.has("work_order_id")) {
-    const wo = await liveRow(tx, sys, "work_order", next.work_order_id);
+    // the work order locked: a closing in flight (its guard counted the open tasks) finishes first and this task is
+    // refused, and two tasks added at once number their visits one after the other
+    const wo = await lockedRow(tx, sys, "work_order", next.work_order_id);
     if (!wo) throw validationError({ work_order_id: "دستور کار پیدا نشد" });
     if (["closed_complete", "closed_incomplete", "cancelled"].includes(String(wo.state)) && !w.trusted) throw validationError({ work_order_id: "دستور کار بسته است" });
     if (!next.assignment_group_id) next.assignment_group_id = wo.assignment_group_id ?? null;

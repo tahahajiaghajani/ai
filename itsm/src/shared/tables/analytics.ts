@@ -4,7 +4,7 @@
 // module's hook into row columns the row rules test (people, groups, units, unit subtrees, role holders, everyone);
 // the data behind any definition is always computed with the viewer's own access. Stored scores of org-wide
 // indicators are readable only by those the indicator's `score_shares` name. Imported by the UI: pure.
-import type { Cond } from "../model/conditions";
+import { NEVER, type Cond } from "../model/conditions";
 import type { FieldDef, Option, TableDef } from "../model/types";
 import { VIZ, VIZ_TYPES } from "../analytics/model";
 
@@ -263,7 +263,7 @@ const score: TableDef = {
     { name: "s_all", label: "برای همه", type: "bool", default: false, system: true, hidden: true, audit: false },
   ],
   scope: { own: [], requester: [], public: true },
-  rowAccess: { read: { or: [{ f: "s_all", op: "eq", v: true }, { f: "s_users", op: "is_me" }, { f: "s_groups", op: "is_my_group" }] } },
+  rowAccess: { read: { or: [{ f: "s_all", op: "eq", v: true }, { f: "s_users", op: "is_me" }, { f: "s_groups", op: "is_my_group" }] }, write: NEVER },
   unique: [["indicator_id", "formula_version", "period_key", "breakdown", "element"]],
   features: { history: false },
   list: { columns: ["indicator_id", "period_label", "breakdown", "element_label", "value", "status", "collected_at"], order: "-period_key" },
@@ -327,7 +327,7 @@ const delivery: TableDef = {
     { name: "error", label: "خطا", type: "text", maxLength: 1000, span: 24 },
   ],
   scope: { own: ["recipient_id"], requester: [], public: true },
-  rowAccess: { read: { f: "recipient_id", op: "is_me" } },
+  rowAccess: { read: { f: "recipient_id", op: "is_me" }, write: NEVER },
   features: { attachments: true, history: false },
   list: { columns: ["title", "status", "delivered_at", "rows"], order: "-delivered_at" },
 };

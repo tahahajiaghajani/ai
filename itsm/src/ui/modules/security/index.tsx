@@ -12,7 +12,8 @@
 //   «خانه» for every member: «گزارش رایانامهٔ مشکوک» and «خط‌مشی‌های من»
 // Record pages get the module's header actions and side panels; IT incidents get «ارتقا به رخداد امنیتی» and caller
 // verification. Only light modules are imported here; every component loads with its page.
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import {
   ShieldAlert, ShieldCheck, ShieldX, ShieldHalf, Bug, FingerprintPattern, FileLock, AlarmClock, Landmark, BookOpenCheck, Wrench, ShieldQuestionMark, ScanSearch, ScanEye, BadgeCheck, Settings2,
   Library, ListTree, FlaskConical, CircleAlert, FileCheck, ScrollText, Megaphone, FileExclamationPoint, ClipboardList, SearchCheck, Radar, BellRing, DatabaseZap, UserSearch, TriangleAlert,

@@ -10,9 +10,12 @@
 //   6. otherwise pending: the seeded approval rule asks the release managers; their decision (or a person's
 //      transition) decides the gate, and the sweep times out gates nobody answered
 // Every gate keeps its evidence (environment, change and its state, windows, the rule that decided) with a SHA-256
-// hash chained to the organisation's previous gate (`prev_hash`), so a later edit of the trail shows.
+// hash chained to the organisation's previous gate (`prev_hash`), so a later edit of the trail shows. Appending to the
+// chain is serial: a gate is opened under the organisation's chain key (writes of one organisation otherwise run side
+// by side), so it reads the last committed link and a retried run's earlier gate; the chain's order is the gates'
+// record numbers, given out in that same turn (`created_at` is when a transaction began, not when it joined the chain).
 import type { ServerConfig, Ctx } from "../../context";
-import type { Tx } from "../../db";
+import { lockKey, type Tx } from "../../db";
 import { actorId, createIn, emitEvent, savepoint, transitionIn, updateIn, type WriteArgs } from "../../engine";
 import { forbidden } from "../../http/errors";
 import { onApprovalSettled, settledVerdict } from "../sla";
@@ -48,7 +51,7 @@ export const evidenceHash = (prev: string | null, evidence: unknown): string => 
 
 /** Does the stored chain of the organisation's gates hold (each hash recomputed from its evidence and predecessor)? */
 export async function verifyChain(sys: Ctx): Promise<{ ok: boolean; checked: number; broken: string | null }> {
-  const gates = await liveRows(sys.db, sys, "change_gate", null, { order: "t.created_at, t.id", limit: 10_000 });
+  const gates = await liveRows(sys.db, sys, "change_gate", null, { order: "t.no, t.id", limit: 10_000 });
   let prev: string | null = null;
   for (const g of gates) {
     if (g.prev_hash !== prev || evidenceHash(prev, g.evidence ?? {}) !== g.evidence_hash) return { ok: false, checked: gates.length, broken: String(g.number ?? g.id) };
@@ -57,8 +60,9 @@ export async function verifyChain(sys: Ctx): Promise<{ ok: boolean; checked: num
   return { ok: true, checked: gates.length, broken: null };
 }
 
+/** The chain's last link (read under the chain key: every gate before it has committed). */
 async function lastHash(tx: Tx, sys: Ctx): Promise<string | null> {
-  const [last] = await liveRows(tx, sys, "change_gate", null, { order: "t.created_at desc, t.id desc", limit: 1 });
+  const [last] = await liveRows(tx, sys, "change_gate", null, { order: "t.no desc, t.id desc", limit: 1 });
   return last ? String(last.evidence_hash ?? "") || null : null;
 }
 
@@ -71,6 +75,9 @@ export async function requestGate(cfg: ServerConfig, key: string, h: HeaderFn, r
 
 /** Open and decide (when the policy can) a gate as the system. */
 export async function openGateIn(tx: Tx, sys: Ctx, conn: Row, input: GateRequest): Promise<Row> {
+  // the organisation's chain key first: two gates opened at once append one after the other (never two links naming
+  // the same predecessor), and a run asked twice at once finds its first gate
+  await lockKey(tx, `devops.gate_chain:${sys.org.id}`);
   const now = Date.now();
   const envs = await liveRows(tx, sys, "release_environment", null);
   const env = matchEnvironment(String(input.environment ?? ""), envs.map((e) => ({ id: String(e.id), key: String(e.key), name: String(e.name), kind: e.kind, aliases: e.aliases, active: e.active })), (conn.env_map ?? {}) as Row);

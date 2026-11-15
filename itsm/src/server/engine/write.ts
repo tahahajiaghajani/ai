@@ -13,7 +13,7 @@
 import type { FieldDef, StateCategory, TableDef, Transition } from "@shared/model/types";
 import { FIELD_TYPES, OPEN_CATEGORIES } from "@shared/model/types";
 import type { CondEnv } from "@shared/model/conditions";
-import { evaluate } from "@shared/model/conditions";
+import { evaluate, isNever } from "@shared/model/conditions";
 import { stateCategory, transitionsFrom, DONE_CATEGORIES } from "@shared/model/task";
 import { todayISO } from "@shared/jalali";
 import { uuidv7 } from "@shared/id";
@@ -43,12 +43,20 @@ export interface WriteOptions {
   via?: "api" | "import" | "sync";
   /** trusted server code (hooks, services, jobs): may set system and readonly fields; field permissions are not asked */
   trusted?: boolean;
+  /**
+   * false: module code builds the record from fixed inputs nobody can add to (the virtual agent's report, «ثبت رخداد»
+   * of an interaction): the organisation's requirements and lifecycle rules for people (design F §3.3, §4.2) are not
+   * asked — everything else is (the person's access, field permissions, the module's own rules)
+   */
+  orgRules?: boolean;
   /** an engine stamp that must not invalidate forms people have open: `version` does not move */
   keepVersion?: boolean;
   /** may change a record in a locked state (watchers, engine stamps) */
   allowLocked?: boolean;
   /** the caller already checked the row's access (watchers: whoever may read a record may watch it) */
   skipAccess?: boolean;
+  /** a create's id chosen up front by trusted server code (a workflow case takes the id its start submission chose) */
+  id?: string;
 }
 
 /** Base columns a caller may never set (silently ignored in input). */
@@ -239,7 +247,7 @@ interface PipelineInput {
 
 async function pipeline(p: PipelineInput): Promise<Row> {
   const { tx, ctx, def, schema, env, op, prev, opts } = p;
-  const id = prev ? String(prev.id) : uuidv7();
+  const id = prev ? String(prev.id) : opts.trusted && typeof opts.id === "string" && UUID.test(opts.id) ? opts.id.toLowerCase() : uuidv7();
   const vc = valueContext(ctx, def, schema, env, id);
   const problems = new Problems();
   const actor = actorId(ctx);
@@ -299,7 +307,9 @@ async function pipeline(p: PipelineInput): Promise<Row> {
   if (!creating && isLocked(def, prev) && !transition && !opts.allowLocked && !isSystemCtx(ctx)) {
     throw new AppError(409, "locked", LOCKED_MESSAGE);
   }
-  if (transition && !creating && !opts.skipAccess && !isSystemCtx(ctx) && !access().canTransition(ctx, def, prev!, transition)) {
+  // trusted server code is held to the module's rule, never to the organisation's narrowing (`also`, design F §4.2)
+  const asked = opts.trusted && transition?.also ? { ...transition, also: undefined } : transition;
+  if (transition && !creating && !opts.skipAccess && !isSystemCtx(ctx) && !access().canTransition(ctx, def, prev!, asked!)) {
     throw forbidden(`اجازهٔ «${transition.label}» را ندارید`);
   }
   if (model && (creating || changed.has(model.field))) stateEffects(def, prev, next, actor, now, changed);
@@ -323,7 +333,7 @@ async function pipeline(p: PipelineInput): Promise<Row> {
 
   // module hooks (values they set are coerced like a caller's)
   const hooks = hooksFor(def.key);
-  const w: WriteArgs = { tx, ctx, def, op, next, prev, changed, transition, env, input: new Set(Object.keys(values)), via: opts.via, trusted: !!opts.trusted };
+  const w: WriteArgs = { tx, ctx, def, op, next, prev, changed, transition, env, input: new Set(Object.keys(values)), via: opts.via, trusted: !!opts.trusted, orgRules: opts.orgRules };
   await beforeWriteHooks(hooks, w, vc, problems);
 
   if (!creating && !changed.size) return prev!;
@@ -579,6 +589,9 @@ async function startFrom(tx: Tx, ctx: Ctx, def: TableDef, env: CondEnv, id: stri
 /** Create a record inside `tx`; returns the stored row (engine shape). */
 export async function createIn(tx: Tx, ctx: Ctx, table: string, data: Record<string, unknown>, opts: WriteOptions = {}): Promise<Row> {
   const { def, schema, env } = await prepare(tx, ctx, table);
+  // a table only the platform writes (rowAccess.write NEVER: computed scores, deliveries, logs) refuses a person's
+  // create before looking at the values — the same answer whatever was sent (meta offers no «… تازه» or import)
+  if (!isSystemCtx(ctx) && isNever(def.rowAccess?.write)) throw forbidden(`«${def.plural}» را فقط سامانه می‌نویسد`);
   if (!opts.skipAccess && !isSystemCtx(ctx) && !access().canCreate(ctx, def, null)) throw forbidden(`اجازهٔ ایجاد ${def.label} را ندارید`);
   return pipeline({ tx, ctx, def, schema, env, op: "create", prev: null, input: data, opts });
 }

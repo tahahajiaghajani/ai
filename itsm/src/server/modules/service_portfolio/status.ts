@@ -14,7 +14,7 @@ import type { StatusPage, StatusPageService } from "@shared/service_portfolio/ap
 import { todayISO } from "@shared/jalali";
 import type { Ctx } from "../../context";
 import type { Queryable, Tx } from "../../db";
-import { pgArray } from "../../db";
+import { lockKey, pgArray } from "../../db";
 import { addJournalIn, defFor, emitEvent, updateIn } from "../../engine";
 import { notifyPeople } from "../notify";
 import { computeImpact } from "../cmdb/impact";
@@ -95,6 +95,9 @@ export async function notifySubscribers(tx: Tx, ctx: Ctx, service: Row, from: st
  */
 export async function refreshStatuses(tx: Tx, ctx: Ctx, opts: { ids?: string[] } = {}): Promise<{ checked: number; changed: number }> {
   const sys = sysOf(ctx);
+  // one refresh at a time per organisation (the job, the sweep and «بازخوانی» by hand): the second reads the services
+  // and their signals after the first committed, so a change is announced once and an older status never wins
+  await lockKey(tx, `service.status:${ctx.org.id}`);
   const parts: Row[] = [{ f: "state", op: "in", v: FOLLOWED }];
   if (opts.ids) {
     const ids = opts.ids.filter(isUuid);

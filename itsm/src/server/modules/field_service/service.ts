@@ -13,10 +13,12 @@ import { formatJalali, formatJalaliDateTime } from "@shared/jalali";
 import { workingIntervals } from "@shared/sla/calendar";
 import { localInstant } from "@shared/sla/calendar";
 import { tableDef } from "@shared/tables";
+import type { Cond } from "@shared/model/conditions";
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
 import { addJournalIn, addLinkIn, createIn, get, isSystemCtx, list, orgTz, transitionIn, updateIn, validationError } from "../../engine";
 import { bad, conflict, forbidden, notFound } from "../../http/errors";
+import { lockedRow } from "../incident/common";
 import { BOOKED, calendarFor, dispatches, fsmConfig, ids, isUuid, liveRow, liveRows, mayWriteRecord, msOf, sysOf, todayOf, TASK_OPEN, type Row } from "./common";
 
 const DAY = 86_400_000;
@@ -321,13 +323,25 @@ export async function bookAppointment(ctx: Ctx, woId: string, input: { start: st
 
 // ----- planned maintenance (FSM-026) --------------------------------------------------------------------------------------
 
-/** Generate the due occurrences of every active plan (work orders, or facilities requests), idempotently. */
-export async function generateMaintenanceIn(tx: Tx, ctx: Ctx, today = todayOf(ctx)): Promise<number> {
+/**
+ * Generate the due occurrences of every active plan (work orders, or facilities requests), idempotently — or of the
+ * active plans among `planIds` only (none for an empty list): the demo pack generates its own plans' first occurrences
+ * inside its scope, never another plan's (docs/DEMO_FA.md).
+ */
+export async function generateMaintenanceIn(tx: Tx, ctx: Ctx, today = todayOf(ctx), planIds?: string[]): Promise<number> {
   const sys = sysOf(ctx);
-  const plans = await liveRows(tx, sys, "maintenance_plan", { f: "status", op: "eq", v: "active" }, { limit: 2000 });
+  if (planIds && !planIds.length) return 0;
+  const active: Cond = { f: "status", op: "eq", v: "active" };
+  const plans = await liveRows(tx, sys, "maintenance_plan", planIds ? { and: [active, { f: "id", op: "in", v: planIds }] } : active, { limit: 2000 });
   let made = 0;
-  for (const p of plans) {
-    const dues = dueOccurrences({ next_due: String(p.next_due), every_n: Number(p.every_n ?? 1), interval_unit: String(p.interval_unit ?? "month"), lead_days: Number(p.lead_days ?? 7), horizon: Number(p.horizon ?? 1) }, today);
+  const duesOf = (p: Row) => dueOccurrences({ next_due: String(p.next_due), every_n: Number(p.every_n ?? 1), interval_unit: String(p.interval_unit ?? "month"), lead_days: Number(p.lead_days ?? 7), horizon: Number(p.horizon ?? 1) }, today);
+  for (const listed of plans) {
+    if (!duesOf(listed).length) continue;
+    // a plan with work due is locked and read again (in id order, as listed): the sweep and «اجرای برنامه‌ها» by hand at
+    // once take turns per plan, and the second sees what the first generated — one work order per plan and due date
+    const p = await lockedRow(tx, sys, "maintenance_plan", listed.id);
+    if (!p || p.status !== "active") continue;
+    const dues = duesOf(p);
     if (!dues.length) continue;
     for (const due of dues) {
       if (p.last_generated_due && String(p.last_generated_due) >= due) continue;

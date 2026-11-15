@@ -48,6 +48,8 @@ export interface WriteArgs {
   via?: "api" | "import" | "sync";
   /** trusted server code wrote it (WriteOptions.trusted) */
   trusted?: boolean;
+  /** false: the organisation's rules for people are not asked of this write (WriteOptions.orgRules) */
+  orgRules?: boolean;
 }
 
 /** An attachment or a journal entry a person is adding to a readable record (`journal`: the entry's kind). */

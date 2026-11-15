@@ -3,8 +3,9 @@
 // {{trigger.record.$labels.assigned_to}} read like the screens do.
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
-import type { Cond } from "@shared/model/conditions";
+import { isNever, type Cond } from "@shared/model/conditions";
 import type { TableDef } from "@shared/model/types";
+import { tableDef } from "@shared/tables";
 import { refTarget } from "@shared/model/types";
 import { formatJalali, formatJalaliDateTime } from "@shared/jalali";
 import { zonedMidnight } from "@shared/model/jalali-buckets";
@@ -13,6 +14,16 @@ import { RefSet, condEnv, defFor, get, labelOf, list, orgTz, parseDate, parseDat
 import { access } from "../../access/provider";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * A table only the platform writes (`rowAccess.write: NEVER` — computed scores and facts, deliveries, ledgers, the
+ * runtime's own records): no flow creates or changes its rows, whoever it runs as (the system included). The refusal,
+ * or null — checked when a version is published (a step's own table, or the trigger's) and again when a step runs.
+ */
+export function systemOnlyRefusal(table: string | null | undefined): string | null {
+  const def = table ? tableDef(table) : undefined;
+  return def && isNever(def.rowAccess?.write) ? `«${def.plural}» را فقط سامانه می‌نویسد؛ گردش‌کار ردیف آن را نمی‌سازد و تغییر نمی‌دهد` : null;
+}
 
 /** Display text of the fields whose stored value is not what people read. */
 export function labelsFor(def: TableDef, row: Record<string, unknown>, display: Record<string, string>, schema: Pick<OrgSchema, "choices">, tz: string): Record<string, string> {

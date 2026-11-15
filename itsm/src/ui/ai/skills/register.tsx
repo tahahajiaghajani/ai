@@ -1,6 +1,6 @@
 // The AI skills on every record page (docs/spec/AI.md §11): the «هوش مصنوعی» side panel, the composer's AI menu and
 // the writing tools of rich-text fields. Light: the panel and the menus load with their first use.
-import { lazy, Suspense } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import { registerFieldAssist, registerRecordExtensions } from "../../records/extensions";
 
 const RecordAiPanel = lazy(() => import("./RecordAiPanel"));

@@ -22,7 +22,7 @@ import type { Tx } from "../../db";
 import { addJournalIn, createIn, emitEvent, onRecordEvent, systemCtx, transitionIn, updateIn, type RecordEvent } from "../../engine";
 import { enqueue, registerJobHandler, type JobContext } from "../../jobs";
 import { actsHere, notifyPeople } from "../notify";
-import { eqAll, isUuid, itamConfig, liveRow, liveRows, orgToday, type Row } from "./common";
+import { isUuid, itamConfig, liveRow, liveRows, lockedRow, orgToday, type Row } from "./common";
 import { discoveredStep, fromCi, linkCi } from "./assets";
 import { checkStockRules } from "./stock";
 import { reconcile, renormalize, syncInstalls } from "./sam";
@@ -69,7 +69,12 @@ export async function itamSweep(sys: Ctx, today = orgToday(sys)): Promise<ItamSw
   const due = assets.filter((a) => !a.book_value_at || periodKeyOf(String(a.book_value_at).slice(0, 10)) !== month);
   for (let i = 0; i < due.length; i += 200) {
     await sys.write(async (tx) => {
-      for (const a of due.slice(i, i + 200)) {
+      for (const listed of due.slice(i, i + 200)) {
+        // locked and read again: a cost or rule changed meanwhile is what the month's book value follows (it is
+        // stamped done for the month, so a value from the old copy would stay until next month)
+        const a = await lockedRow(tx, sys, "asset", listed.id);
+        if (!a || a.purchase_cost === null || a.purchase_cost === undefined || !a.depreciation_rule_id || ["disposed", "canceled", "on_order"].includes(String(a.state))) continue;
+        if (a.book_value_at && periodKeyOf(String(a.book_value_at).slice(0, 10)) === month) continue;
         const b = bookValueOf(rules.get(String(a.depreciation_rule_id)), a, today);
         if (!b) continue;
         await updateIn(tx, sys, "asset", a.id, b, { trusted: true, keepVersion: true });
@@ -166,7 +171,28 @@ export async function itamSweep(sys: Ctx, today = orgToday(sys)): Promise<ItamSw
 // ---------------------------------------------------------------------------------------------------------------
 // Requested items of catalogue items bound to models (ITAM-020/021)
 
-async function onRequestItem(e: RecordEvent, sys: Ctx): Promise<void> {
+/**
+ * Up to `n` free assets of a model in stock, oldest received first, locked until commit (`for update`). Writes of an
+ * organisation run side by side: a reservation of another requested item in flight holds the asset it took, so this
+ * one waits for it and — the lock reading the committed row again — passes over an asset that is no longer available
+ * and takes the next one (two items never reserve the same asset).
+ */
+async function lockFreeStock(tx: Tx, sys: Ctx, modelId: unknown, n: number): Promise<Row[]> {
+  if (!isUuid(modelId) || n <= 0) return [];
+  const rows = await tx.query<{ id: string }>(
+    `select id from ${tableDef("asset")!.table} where org_id = $1 and model_id = $2 and state = 'in_stock' and substate = 'available' and deleted_at is null
+      order by received_at nulls last, no limit $3 for update`,
+    [sys.org.id, modelId, n],
+  );
+  const out: Row[] = [];
+  for (const r of rows) {
+    const a = await liveRow(tx, sys, "asset", r.id);
+    if (a) out.push(a);
+  }
+  return out;
+}
+
+export async function onRequestItem(e: RecordEvent, sys: Ctx): Promise<void> {
   if (e.kind !== "record.state_changed" || !isUuid(e.id)) return;
   const to = String((e as unknown as { to?: string }).to ?? "");
   const item = await liveRow(sys.db, sys, "request_item", e.id);
@@ -178,11 +204,14 @@ async function onRequestItem(e: RecordEvent, sys: Ctx): Promise<void> {
     if (!bindings.length) return;
     const qty = Math.max(1, Number(item.quantity ?? 1));
     await sys.write(async (tx) => {
+      // the item first, then what it holds: two runs for one item take turns, and the second finds the first's reservation
+      if (!(await lockedRow(tx, sys, "request_item", item.id))) return;
+      if ((await liveRows(tx, sys, "asset", { f: "request_item_id", op: "eq", v: item.id } as Cond, { limit: 1 })).length) return;
       const notes: string[] = [];
       let missing = qty;
       for (const b of bindings) {
         if (!b.consume_stock || missing <= 0) continue;
-        const free = await liveRows(tx, sys, "asset", eqAll({ model_id: b.model_id, state: "in_stock", substate: "available" }), { order: "t.received_at nulls last, t.no", limit: missing });
+        const free = await lockFreeStock(tx, sys, b.model_id, missing);
         for (const a of free) {
           await updateIn(tx, sys, "asset", a.id, { substate: "reserved", reserved_for: item.requested_for ?? item.caller_id ?? null, request_item_id: item.id }, { trusted: true });
           notes.push(`${a.number ?? ""} (${a.name ?? ""})`);
@@ -243,10 +272,15 @@ export async function consumePartIn(tx: Tx, sys: Ctx, e: RecordEvent): Promise<{
   const note = async (body: string) => {
     if (wo) await addJournalIn(tx, sys, tableDef("work_order")!, wo, { kind: "work_note", body }, { trusted: true });
   };
-  let asset: Row | undefined;
+  // Writes of an organisation run side by side: two parts consumed at once from the same stock would both read it
+  // before either took from it. So a candidate is locked and read again (`lockedRow`) before it is taken — a
+  // consumption in flight finishes first, and this one decides from what it left (still in stock, enough of it).
+  const roomIds = new Set(rooms.map((r) => String(r.id)));
+  const inStock = (a: Row | null): a is Row => !!a && a.state === "in_stock" && (!roomIds.size || roomIds.has(String(a.stockroom_id ?? "")));
   if (d.serial_no) {
-    [asset] = await liveRows(tx, sys, "asset", { and: [{ f: "serial_number", op: "eq", v: String(d.serial_no) }, { f: "state", op: "eq", v: "in_stock" }, ...inRoom] }, { limit: 1 });
-    if (asset) {
+    const [found] = await liveRows(tx, sys, "asset", { and: [{ f: "serial_number", op: "eq", v: String(d.serial_no) }, { f: "state", op: "eq", v: "in_stock" }, ...inRoom] }, { limit: 1 });
+    const asset = found ? await lockedRow(tx, sys, "asset", found.id) : null;
+    if (inStock(asset)) {
       await transitionIn(tx, sys, "asset", String(asset.id), "in_use", { ...(holder ? { assigned_to: holder } : {}), ...(wo?.location_id ? { location_id: wo.location_id } : {}), notes: `${asset.notes ? `${asset.notes}\n` : ""}نصب‌شده در دستور کار ${wo?.number ?? ""}`.trim() }, { trusted: true });
       await note(`قطعهٔ «${d.part_name ?? ""}» (سریال ${d.serial_no}) از انبار برداشته شد: دارایی ${asset.number ?? ""}`);
       return { asset_id: String(asset.id), problem: null };
@@ -257,9 +291,10 @@ export async function consumePartIn(tx: Tx, sys: Ctx, e: RecordEvent): Promise<{
     ? (await liveRows(tx, sys, "asset_model", { or: [...(code ? [{ f: "model_number", op: "eq", v: code } as Cond] : []), ...(d.part_name ? [{ f: "name", op: "eq", v: String(d.part_name) } as Cond] : [])] }, { limit: 5 }))
     : [];
   if (models.length) {
-    const stock = await liveRows(tx, sys, "asset", { and: [{ f: "model_id", op: "in", v: models.map((m) => m.id) }, { f: "state", op: "eq", v: "in_stock" }, { f: "quantity", op: "gte", v: qty }, ...inRoom] }, { order: "t.created_at", limit: 1 });
-    asset = stock[0];
-    if (asset) {
+    const stock = await liveRows(tx, sys, "asset", { and: [{ f: "model_id", op: "in", v: models.map((m) => m.id) }, { f: "state", op: "eq", v: "in_stock" }, { f: "quantity", op: "gte", v: qty }, ...inRoom] }, { order: "t.created_at", limit: 5 });
+    for (const candidate of stock) {
+      const asset = await lockedRow(tx, sys, "asset", candidate.id);
+      if (!inStock(asset) || Number(asset.quantity ?? 0) < qty) continue;
       await updateIn(tx, sys, "asset", String(asset.id), { quantity: Number(asset.quantity ?? 0) - qty }, { trusted: true });
       await note(`${qty} عدد «${d.part_name ?? code}» از موجودی ${asset.number ?? ""} برداشته شد`);
       return { asset_id: String(asset.id), problem: null };

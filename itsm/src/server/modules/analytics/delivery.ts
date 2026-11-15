@@ -6,6 +6,8 @@
 // attachment; the notification service tells the recipient in the app and by e-mail (rendered under the recipient's
 // access as always) with a link to the delivery and, when asked, to the print view. «اگر خالی بود نفرست» logs an empty
 // delivery without notifying. Recipients are processed until the job's deadline and the job continues where it stopped.
+// The e-mail leaves the system: while the organisation holds a demo pack it is computed without the pack's records
+// (`Ctx.withoutDemo`, docs/DEMO_FA.md); the delivery record and the bell keep what the recipient reads in the app.
 import { nextOccurrence, type ScheduleSpec } from "@shared/flows";
 import { formatJalaliDateTime } from "@shared/jalali";
 import { faDigits } from "@shared/format";
@@ -18,6 +20,7 @@ import { memberCtx } from "../../access";
 import { addAttachmentIn, createIn, defFor, orgSchema, orgTz, updateIn } from "../../engine";
 import { notifyPeople } from "../notify";
 import { enqueue } from "../../jobs";
+import { hasDemoRows } from "../../db/scope";
 import { canRead, isUuid, liveRow, liveRows, sysOf, type Row } from "./common";
 import { runOne } from "./dashboards";
 import { isRestricted, runReport } from "./query";
@@ -173,6 +176,21 @@ export async function deliverTo(cfg: ServerConfig, sys: Ctx, s: Row, userId: str
   }
   const formats: string[] = Array.isArray(s.formats) ? s.formats : [];
   const channels: string[] = Array.isArray(s.channels) ? s.channels : ["in_app"];
+  const wanted = channels.filter((c) => c === "in_app" || c === "email") as ("in_app" | "email")[];
+  // the e-mail leaves the system (docs/DEMO_FA.md): while the organisation holds demo rows it carries what the recipient
+  // reads without them — computed again with a context whose reads leave the pack out — and none when nothing is left
+  // (a demo report or dashboard, an empty result with «اگر خالی بود نفرست»); the copy in the app keeps the whole
+  let mailed: Content | null = content;
+  if (wanted.includes("email") && (await hasDemoRows(sys.db, sys.org.id))) {
+    try {
+      const outside = await memberCtx(cfg, sys.org.id, userId);
+      outside.withoutDemo = true;
+      mailed = canRead(outside) ? await contentFor(outside, s, opts) : null;
+    } catch {
+      mailed = null;
+    }
+    if (mailed?.empty && s.skip_if_empty) mailed = null;
+  }
   const bytes = formats.includes("xlsx")
     ? await workbook([
         ...content.sheets,
@@ -188,22 +206,27 @@ export async function deliverTo(cfg: ServerConfig, sys: Ctx, s: Row, userId: str
   const id = await sys.write(async (tx) => {
     const row = await createIn(tx, sys, "analytics_delivery", { ...base, title: title.slice(0, 200), status: "sent", rows: content.rows, summary: content.summary }, { trusted: true });
     if (bytes) await addAttachmentIn(tx, sys, def, row.id as string, { name: fileName(content.title, at), type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", data: bytes });
-    const body = [
-      s.message ? String(s.message) : null,
-      formats.includes("summary") ? content.summary : null,
-      bytes ? "پروندهٔ اکسل پیوست همین گزارش است." : null,
-      formats.includes("link") ? `نسخهٔ چاپی: /${printPath(s)}` : null,
-    ].filter(Boolean).join("\n\n");
-    await notifyPeople(tx, sys.org.id, {
-      table: "analytics_delivery",
-      id: row.id as string,
-      users: [userId],
-      label: "گزارش زمان‌بندی‌شده",
-      subject: `گزارش «${content.title}»`,
-      body,
-      channels: channels.filter((c) => c === "in_app" || c === "email") as ("in_app" | "email")[],
-      source: "گزارش‌های زمان‌بندی‌شده",
-    });
+    const notify = (c: Content, on: ("in_app" | "email")[]) =>
+      notifyPeople(tx, sys.org.id, {
+        table: "analytics_delivery",
+        id: row.id as string,
+        users: [userId],
+        label: "گزارش زمان‌بندی‌شده",
+        subject: `گزارش «${c.title}»`,
+        body: [
+          s.message ? String(s.message) : null,
+          formats.includes("summary") ? c.summary : null,
+          bytes ? "پروندهٔ اکسل پیوست همین گزارش است." : null,
+          formats.includes("link") ? `نسخهٔ چاپی: /${printPath(s)}` : null,
+        ].filter(Boolean).join("\n\n"),
+        channels: on,
+        source: "گزارش‌های زمان‌بندی‌شده",
+      });
+    if (mailed === content) await notify(content, wanted);
+    else {
+      if (wanted.includes("in_app")) await notify(content, ["in_app"]);
+      if (mailed) await notify(mailed, ["email"]);
+    }
     return row.id as string;
   });
   return { user: userId, status: "sent", delivery_id: id };
@@ -214,14 +237,15 @@ export async function deliverTo(cfg: ServerConfig, sys: Ctx, s: Row, userId: str
  * got (sent, empty under their access, no access) stays on their own delivery row: the owner — who chose the report,
  * its filter and the recipients — learns nothing about records only a recipient may read.
  */
-export async function finishRun(sys: Ctx, s: Row, outcomes: DeliveryOutcome[], opts: { now?: number; manual?: boolean } = {}): Promise<void> {
+export async function finishRun(sys: Ctx, s: Row, outcomes: DeliveryOutcome[], opts: { now?: number; manual?: boolean; claimed?: boolean } = {}): Promise<void> {
   const now = opts.now ?? Date.now();
   const failed = outcomes.filter((o) => o.status === "failed").length;
   const result = `${faDigits(outcomes.length - failed)} گیرنده پردازش شد، ${faDigits(failed)} ناموفق`;
   const patch: Row = { last_run_at: new Date(now).toISOString(), last_result: result };
   if (!opts.manual) {
     const next = s.active ? nextOccurrence(s.schedule as ScheduleSpec, now + 1000, orgTz(sys)) : null;
-    patch.next_run_at = next ? new Date(next).toISOString() : null;
+    // a run that claimed its occurrence already moved the schedule on (analytics.deliver): not moved twice
+    if (!opts.claimed) patch.next_run_at = next ? new Date(next).toISOString() : null;
     if (!next && (s.schedule as ScheduleSpec)?.kind === "once") patch.active = false;
   }
   await sys.write((tx) => updateIn(tx, sys, "analytics_schedule", s.id, patch, { trusted: true, keepVersion: true }));

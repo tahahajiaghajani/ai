@@ -58,7 +58,8 @@ async function call(cfg: ServerConfig, c: Conn, method: string, path: string, bo
   } catch {
     json = null;
   }
-  await intLog(cfg.db, { org_id: c.orgId, kind: "issue", ref_id: String(c.row.id), method, target: `${label(c)} ${path.split("?")[0]}`, status: r.status || null, ok: r.ok, latency_ms: r.ms, error: r.ok ? null : failText(label(c), r) });
+  // a call refused inside demo work sent nothing: not a call of the connection to log
+  if (!r.demo) await intLog(cfg.db, { org_id: c.orgId, kind: "issue", ref_id: String(c.row.id), method, target: `${label(c)} ${path.split("?")[0]}`, status: r.status || null, ok: r.ok, latency_ms: r.ms, error: r.ok ? null : failText(label(c), r) });
   return { ...r, json };
 }
 

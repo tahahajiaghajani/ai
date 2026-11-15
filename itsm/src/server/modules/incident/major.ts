@@ -388,16 +388,23 @@ export async function draftReview(ctx: Ctx, id: string): Promise<{ row: Row; cre
   const cfg = await incidentConfig(ctx.db, ctx);
   const cal = await officeCalendar(ctx.db, ctx);
   const due = new Date(addWorkingDays(cal, Date.now(), cfg.review_due_days)).toISOString();
-  const row = await ctx.write((tx) =>
-    createIn(tx, ctx, "incident_review", {
+  const made = await ctx.write(async (tx) => {
+    // the incident locked and its reviews looked for again: the automatic draft of a resolved major incident and the
+    // manager's «پیش‌نویس بازبینی» at the same moment make one review (the second finds the first)
+    await lockIncident(tx, ctx, id);
+    const [again] = await liveRows(tx, sysOf(ctx), "incident_review", { and: [{ f: "incident_id", op: "eq", v: id }, { f: "state", op: "ne", v: "canceled" }] }, { limit: 1 });
+    if (again) return { id: String(again.id), row: null };
+    const row = await createIn(tx, ctx, "incident_review", {
       ...draft,
       incident_id: id,
       review_trigger: MAJOR_DECLARED.includes(String(inc.major_state ?? "")) ? "major" : "manual",
       owner_id: inc.mi_manager_id ?? inc.assigned_to ?? (ctx.actor === "system" ? null : ctx.user.id),
       due_at: due,
-    }),
-  );
-  return { row, created: true };
+    });
+    return { id: String(row.id), row };
+  });
+  if (made.row) return { row: made.row, created: true };
+  return { row: (await get(ctx, "incident_review", made.id)).row, created: false };
 }
 
 /** Labels of the overlay (for messages). */

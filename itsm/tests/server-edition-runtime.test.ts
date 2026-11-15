@@ -208,6 +208,13 @@ describe("static app and the HTTP front", () => {
     expect(hashes).toEqual([`'sha256-${createHash("sha256").update("var theme=1;").digest("base64")}'`]);
     expect(cspFor(hashes)).toContain(`script-src 'self' ${hashes[0]}`);
     expect(cspFor(hashes)).not.toMatch(/https?:/);
+    // an index.html built on Windows (CR LF): the browser hashes the script after its parser turned CR LF into LF —
+    // the bank simulation's Chromium refused the theme script under the file's own CR LF hash
+    const lf = "<html><head><script>\n  var p = 1;\n  var q = 2;\n</script></head></html>";
+    const want = `'sha256-${createHash("sha256").update("\n  var p = 1;\n  var q = 2;\n").digest("base64")}'`;
+    expect(inlineScriptHashes(lf)).toEqual([want]);
+    expect(inlineScriptHashes(lf.replace(/\n/g, "\r\n"))).toEqual([want]);
+    expect(inlineScriptHashes(lf.replace(/\n/g, "\r"))).toEqual([want]);
     expect(cacheControl("/assets/app-x1.js")).toContain("immutable");
     expect(cacheControl("/index.html")).toBe("no-cache");
     expect(isUploadPath("/api/o/x/r/incident/y/attachments")).toBe(true);
@@ -485,6 +492,10 @@ describe("first-run setup through its API", () => {
       expect(user?.is_platform_admin).toBe(true);
       const plan = await db.one<{ key: string }>(`select key from sm_plans where is_default`);
       expect(plan?.key).toBe("enterprise");
+      // the modules' defaults are not left 10–12 minutes away (the bank simulation's empty catalogue after the setup)
+      const seeds = await db.query<{ kind: string; late: boolean }>(`select kind, run_at > now() + interval '1 minute' as late from sm_jobs where org_id = $1 and kind like '%seed%'`, [done.json.org_id]);
+      expect(seeds.length).toBeGreaterThan(3);
+      expect(seeds.filter((j) => j.late)).toEqual([]);
       const channels = await call("GET", `/o/${done.json.org_id}/r/email_channel`, undefined, done.cookie);
       expect(channels.json.rows.map((r: { smtp_host: string }) => r.smtp_host)).toEqual(["mail.bank.local"]);
       const conns = await call("GET", `/o/${done.json.org_id}/ai/connections`, undefined, done.cookie);

@@ -237,6 +237,24 @@ export function builtinRoles(preset: DeskPreset = "open"): RoleDef[] {
         work: { read: "group", write: "group" },
       },
     ),
+    // workflows (design F §6.1): definitions live in `process_design`, cases in `process` — designers and publishers
+    // hold no grant in `process`, so they never read a case; like everyone they request, and act on their own steps
+    role(
+      "process_designer",
+      "طراح گردش‌کار",
+      "agent",
+      "ساخت و ویرایش فیلدها، فرم‌ها و پیش‌نویس گردش‌کارها، با دیدن ساختار سازمانی؛ پرونده‌ها را نمی‌بیند",
+      { process_design: { read: "all", create: true, write: "all" }, org: R(), users: R() },
+      { contains: ["requester"] },
+    ),
+    role(
+      "process_publisher",
+      "مسئول انتشار گردش‌کارها",
+      "agent",
+      "دیدن گردش‌کارها و انتشار یا بازنشسته‌کردن آن‌ها؛ پرونده‌ها را نمی‌بیند",
+      { process_design: { read: "all", approve: true } },
+      { contains: ["requester"] },
+    ),
     role(
       "auditor",
       "ممیز",

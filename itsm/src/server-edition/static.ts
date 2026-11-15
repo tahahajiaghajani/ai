@@ -38,11 +38,17 @@ export function cacheControl(urlPath: string): string {
   return "public, max-age=3600";
 }
 
-/** Inline scripts of index.html as CSP hashes (the theme script runs before the app). */
+/**
+ * Inline scripts of index.html as CSP hashes (the theme script runs before the app). The browser hashes the script as
+ * its HTML parser sees it — after the input stream's newline normalisation (CR LF and lone CR become LF) — so the
+ * file's text is normalised the same way: an index.html built on Windows (git checks the source out with CR LF) gave
+ * a hash no browser matched, and the theme script was refused with a console error (docs/qa/BANK_SIM_FA.md).
+ */
 export function inlineScriptHashes(html: string): string[] {
   const out: string[] = [];
+  const text = html.replace(/\r\n?/g, "\n");
   const re = /<script(\s[^>]*)?>([\s\S]*?)<\/script>/gi;
-  for (let m = re.exec(html); m; m = re.exec(html)) {
+  for (let m = re.exec(text); m; m = re.exec(text)) {
     if (/\ssrc\s*=/.test(m[1] ?? "")) continue;
     out.push(`'sha256-${createHash("sha256").update(m[2], "utf8").digest("base64")}'`);
   }
@@ -64,7 +70,13 @@ function accepts(req: Request, enc: string): boolean {
   });
 }
 
-export function createStaticSite(dir: string, fallbackHtml: () => string): StaticSite {
+export interface StaticSiteOptions {
+  /** the Cache-Control of a path (default `cacheControl` above; the Windows app's local server has its own) */
+  cacheControl?: (urlPath: string) => string;
+}
+
+export function createStaticSite(dir: string, fallbackHtml: () => string, opts: StaticSiteOptions = {}): StaticSite {
+  const cachePolicy = opts.cacheControl ?? cacheControl;
   const root = resolve(dir);
   const indexPath = join(root, "index.html");
   const indexHtml = existsSync(indexPath) ? readFileSync(indexPath, "utf8") : fallbackHtml();
@@ -109,7 +121,7 @@ export function createStaticSite(dir: string, fallbackHtml: () => string): Stati
     const etag = `W/"${st.size.toString(16)}-${Math.floor(st.mtimeMs).toString(16)}${encoding ? `-${encoding}` : ""}"`;
     const headers: Record<string, string> = {
       "content-type": typeOf(path),
-      "cache-control": cacheControl(urlPath),
+      "cache-control": cachePolicy(urlPath),
       etag,
       vary: "Accept-Encoding",
       "x-content-type-options": "nosniff",

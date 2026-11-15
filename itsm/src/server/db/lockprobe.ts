@@ -1,5 +1,6 @@
-// Write-lock probe (docs/PERFORMANCE_FA.md «دور دوم»): how long transactions wait for and hold an organisation's
-// write lock (its sm_org_sync row, taken by `lockOrg`), and what they were doing — the HTTP route or the job kind.
+// Write-lock probe (docs/PERFORMANCE_FA.md «دور دوم» و «دور سوم»): how long transactions wait for and hold an
+// organisation's lock (its sm_org_sync row, taken by `lockOrg` — since round 3 only by rare organisation-wide changes,
+// or by every write with ITSM_SERIALIZE_WRITES), and what they were doing — the HTTP route or the job kind.
 // Off unless a measurement runner installs a sink (scripts/serve-pg.mjs --lock-stats): then `lockOrg` stamps the
 // moment the lock was granted on the transaction and the database layer reports wait and hold when the transaction
 // ends (commit or rollback). Nothing is recorded and nothing changes in production.

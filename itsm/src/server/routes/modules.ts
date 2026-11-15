@@ -74,12 +74,30 @@ import { csmRoutes } from "./csm";
 import { installFieldServiceModule } from "../modules/field_service";
 import { fieldServiceRoutes } from "./field_service";
 import { installAdminModule } from "../modules/admin";
+import { installFieldsModule } from "../modules/fields";
+import { fieldsRoutes } from "./fields";
+import { installFormsModule } from "../modules/forms";
+import { formsRoutes } from "./forms";
+import { installPositionsModule } from "../modules/positions";
+import { installProcessEngine } from "../modules/process/engine";
+import { installProcessAccess } from "../modules/process/access";
+import { installProcessSync } from "../modules/process/sync";
+import { installProcessTimers } from "../modules/process/timers";
+import { installProcessRecovery } from "../modules/process/recovery";
+import { installProcessPublish } from "../modules/process/publish";
+import { installProcessApi } from "../modules/process/api";
+import { positionsRoutes } from "./positions";
+import { processRoutes } from "./process";
 import { adminTenantRoutes } from "./admin-tenant";
 import { demoRoutes } from "./demo";
 import { installDemoModule } from "../modules/demo";
 import { installIntegrationModule } from "../modules/integration";
 import { integrationHubRoutes } from "./integration";
 import { authAdminRoutes } from "./auth-admin";
+import { installDiscoveryModule } from "../modules/discovery";
+import { discoveryRoutes } from "./discovery";
+import { discoveryApiRoutes, discoveryStatusRoutes } from "./discovery-api";
+import { publicApiRoutes } from "./integrations";
 
 // the ITSM access model is the engine's access provider in every runtime (docs/spec/ACCESS.md)
 installAccessModel();
@@ -124,6 +142,9 @@ installProjectModule();
 installEventModule();
 // availability, capacity and continuity (docs/modules/continuity_FA.md) — after the event module (capacity sink)
 installContinuityModule();
+// discovery: assets and their status from monitoring, discovery and endpoint tools (design A) — after the CMDB, ITAM and
+// event management it feeds
+installDiscoveryModule();
 // security operations, vulnerability response and GRC (docs/modules/security_FA.md) — after the SLA service, the RAG
 // index and the modules whose records it links (incidents, CIs, changes); before analytics, which reports on its tables
 installSecurityModule();
@@ -143,6 +164,23 @@ installSlmModule();
 installWorkforceModule();
 // the administration consoles (docs/modules/admin_FA.md) — studio, imports, exports, seats, notices; its AI skills before installAiSkills
 installAdminModule();
+// the field library (design F, F1): integrity of field types and library fields
+installFieldsModule();
+// process forms (design F, F2): integrity of forms, and the forms that use each library field
+installFormsModule();
+// organisational roles (design F, F3): integrity of positions and their holders
+installPositionsModule();
+// workflows (design F, F4a): cases run on the flows executor as runs of kind «process»
+installProcessEngine();
+// workflow access (design F, F4b): who reads a case and what of it, and who writes the workflow tables
+installProcessAccess();
+// workflow sync, time and recovery (design F, F4b): pushed submissions applied, timers and delegations, failed runs
+installProcessSync();
+installProcessTimers();
+installProcessRecovery();
+// workflow publish, hub and user APIs (design F, F4c): «انتشار», the forms a process uses, the notices and their seeds
+installProcessPublish();
+installProcessApi();
 // the integration hub (docs/modules/integration_FA.md) — integration users and keys, webhooks, LDAP/AD, SCIM, Jira/GitHub, exports
 installIntegrationModule();
 
@@ -204,7 +242,19 @@ moduleRoutes.route("/field_service", fieldServiceRoutes);
 moduleRoutes.route("/slm", slmRoutes);
 moduleRoutes.route("/workforce", workforceRoutes);
 moduleRoutes.route("/admin", adminTenantRoutes);
+// the field library and the table overlays (design F, F1): /fields/*, /forms/system/:table/overrides, /lifecycles/:table
+moduleRoutes.route("/", fieldsRoutes);
+// process forms and the list of every form (design F, F2): /forms, /forms/:id, /forms/:id/preview, /forms/system/:table/preview
+moduleRoutes.route("/", formsRoutes);
+// organisational roles (design F, F3): /positions/resolve, /positions/estimate, /positions/overview, /positions/holders/import
+moduleRoutes.route("/positions", positionsRoutes);
+// workflows (design F, F4c): /process/hub, /process/defs/*, /process/inbox, /process/mine, /process/cases/*, /process/start, /process/tasks/*
+moduleRoutes.route("/process", processRoutes);
 moduleRoutes.route("/demo", demoRoutes);
 moduleRoutes.route("/integration", integrationHubRoutes);
+// «منبع‌های داده»: connectors, their passes and items, the reconciliation queue (design A §4)
+moduleRoutes.route("/discovery", discoveryRoutes);
+moduleRoutes.route("/discovery", discoveryStatusRoutes);
+publicApiRoutes.route("/discovery", discoveryApiRoutes);
 // «امنیت ورود و نشست‌ها»: the organisation's session policy, sessions, sign-in audit and lockouts
 moduleRoutes.route("/auth", authAdminRoutes);

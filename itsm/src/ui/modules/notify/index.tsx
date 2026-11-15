@@ -3,7 +3,7 @@
 // channels (SMTP out, IMAP in), the messaging channels (messengers, webhooks, SMS gateways) and the delivery log, and
 // under «شما» the person's own preferences. Rules and templates have their own editors; the channel tables use the
 // generic record pages with test buttons. Links to these records (search, references) open these pages.
-import { lazy } from "react";
+import { lazy } from "@ui/lib/lazy";
 import { BellDot, BellRing, FileText, Mail, ScrollText, Send } from "lucide-react";
 import { recordModule, recordSearch, RecordListRoute } from "../../records/module";
 import { registerRecordExtensions } from "../../records/extensions";

@@ -39,6 +39,8 @@ import { emitEvent } from "./events";
 import { emitLinkEvents } from "./links";
 import { filterSide, filtersSide, guardFor, hooksFor, redactRows, redacts } from "./hooks";
 import { transitionsFrom } from "@shared/model/task";
+import { localDate } from "@shared/model/jalali-buckets";
+import { attachmentsProblem } from "@shared/forms/validators";
 
 /**
  * Base columns a module's `derivePush` may set: the access anchors it copies (an alert's unit and domain from its CI)
@@ -97,9 +99,9 @@ async function canWriteRow(q: Queryable, ctx: Ctx, def: TableDef, row: Row, env:
   return !!(await q.one(`select 1 from ${def.table} t where t.id = $1 and ${rule}`, params));
 }
 
-function coerceProblem(f: FieldDef, v: unknown, prev: unknown, schema: OrgSchema, env: CondEnv): { value?: unknown; error?: string } {
+function coerceProblem(f: FieldDef, v: unknown, prev: unknown, schema: OrgSchema, env: CondEnv, today?: string): { value?: unknown; error?: string } {
   try {
-    const out = coerceValue(f, v, { schema, tz: env.tz || "Asia/Tehran" }, prev);
+    const out = coerceValue(f, v, { schema, tz: env.tz || "Asia/Tehran", today }, prev);
     return { value: out === KEEP ? prev : out };
   } catch (e) {
     if (e instanceof FieldError) return { error: e.message };
@@ -123,11 +125,35 @@ export async function checkEnginePush(tx: Tx, ctx: Ctx, agg: AggregateDef, wire:
   return checkSide(tx, ctx, agg, schema, env, wire, state);
 }
 
+const instant = (v: unknown): number => (v instanceof Date ? v.getTime() : typeof v === "string" ? Date.parse(v) : NaN);
+
+/**
+ * The day a pushed change was made, in the organisation's zone: the row's `updated_at` from the Windows app, never
+ * later than now and, for a change of a stored record, never earlier than the stored one. Relative date limits
+ * (`$today`) count from it, so an entry made offline yesterday (or at 23:50, pushed at 00:10) is judged on its day.
+ */
+export function pushedDay(updatedAt: unknown, storedAt: unknown, tz: string, now = Date.now()): string {
+  let t = instant(updatedAt);
+  if (!Number.isFinite(t) || t > now) t = now;
+  const floor = instant(storedAt);
+  if (Number.isFinite(floor) && t < floor) t = Math.min(floor, now);
+  return localDate(t, tz);
+}
+
+const createRefusals = new Map<string, string>();
+
+/** A table's own words for a member's pushed create that their roles do not allow (default «اجازهٔ ایجاد … را ندارید»). */
+export function setPushCreateRefusal(table: string, message: string): () => void {
+  createRefusals.set(table, message);
+  return () => createRefusals.delete(table);
+}
+
 async function checkRecord(tx: Tx, ctx: Ctx, def: TableDef, schema: OrgSchema, env: CondEnv, wire: WireAggregate, state: { prev?: Row | null }): Promise<string | null> {
   const row = wire.row;
   stripSecrets(def, row);
   const stored = await tx.one<Row>(`select * from ${def.table} where id = $1`, [wire.id]);
   const prev = stored ? fromDb(def, stored) : null;
+  const today = pushedDay(row.updated_at, prev?.updated_at, env.tz || "Asia/Tehran");
   state.prev = prev;
   if (!access().canReadTable(ctx, def)) return `به «${def.plural}» دسترسی ندارید`;
   if (prev) {
@@ -145,7 +171,7 @@ async function checkRecord(tx: Tx, ctx: Ctx, def: TableDef, schema: OrgSchema, e
     }
     for (const c of PINNED) if (c in row || c === "no") row[c] = prev[c];
   } else if (!isSystemCtx(ctx) && !access().canCreate(ctx, def, row)) {
-    return `اجازهٔ ایجاد ${def.label} را ندارید`;
+    return createRefusals.get(def.key) ?? `اجازهٔ ایجاد ${def.label} را ندارید`;
   }
   // copies the pull sent redacted (redactRows) that come back unchanged keep the stored values
   if (prev && !isSystemCtx(ctx) && redacts(def.key)) {
@@ -180,7 +206,7 @@ async function checkRecord(tx: Tx, ctx: Ctx, def: TableDef, schema: OrgSchema, e
       continue;
     }
     const before = prev ? prev[f.name] : undefined;
-    const r = coerceProblem(f, raw, before, schema, env);
+    const r = coerceProblem(f, raw, before, schema, env, today);
     if (r.error) return r.error;
     let value = f.type === "bool" ? !!r.value : r.value;
     if (prev && !sameValue(f, before, value) && !f.system && !f.readonly && f.name !== def.states?.field && writable && !writable.has(f.name)) value = before ?? null;
@@ -190,6 +216,8 @@ async function checkRecord(tx: Tx, ctx: Ctx, def: TableDef, schema: OrgSchema, e
     } else row[f.name] = value;
   }
   if ("custom" in row || prev) row.custom = custom;
+  const files = await pushedAttachmentsProblem(tx, ctx, def, wire.id, prev, row, custom);
+  if (files) return files;
   if (prev && !isSystemCtx(ctx)) {
     const refusal = await checkPushedChange(tx, ctx, def, env, prev, row);
     if (refusal) return refusal;
@@ -227,6 +255,40 @@ async function checkRecord(tx: Tx, ctx: Ctx, def: TableDef, schema: OrgSchema, e
 }
 
 const isEmptyValue = (v: unknown) => v === null || v === undefined || v === "" || (Array.isArray(v) && !v.length);
+
+/**
+ * «پیوست» fields (`check: "attachments"`) of a pushed row, as on the API (`checkRefs`): an id stored as an attachment
+ * of another record is refused, and the record's own attachments must be of an accepted kind. An id not stored yet
+ * passes — an upload the same Windows app pushes later — so records made offline keep their files. One query for all
+ * such fields; values the push leaves as they were are not judged again.
+ */
+async function pushedAttachmentsProblem(tx: Tx, ctx: Ctx, def: TableDef, id: string, prev: Row | null, row: Row, custom: Row): Promise<string | null> {
+  const valueOf = (f: FieldDef): unknown => (f.custom ? custom[f.name] : row[f.name]);
+  const named = def.fields.filter((f) => {
+    if (f.check !== "attachments") return false;
+    const v = valueOf(f);
+    return Array.isArray(v) && v.length > 0 && !(prev && sameValue(f, prev[f.name], v));
+  });
+  if (!named.length) return null;
+  const ids = [...new Set(named.flatMap((f) => (valueOf(f) as unknown[]).map((x) => String(x).toLowerCase())))];
+  const rows = await tx.query<{ id: string; table_key: string; record_id: string; name: string; deleted_at: unknown }>(
+    `select id, table_key, record_id, name, deleted_at from sm_attachments where org_id = $1 and id = any($2::uuid[])`,
+    [ctx.org.id, pgArray(ids)],
+  );
+  const stored = new Map(rows.map((r) => [String(r.id).toLowerCase(), r]));
+  for (const f of named) {
+    const own = new Map<string, { name: string }>();
+    for (const x of (valueOf(f) as unknown[]).map((v) => String(v).toLowerCase())) {
+      const a = stored.get(x);
+      if (!a) continue;
+      if (a.table_key !== def.key || String(a.record_id).toLowerCase() !== id.toLowerCase()) return attachmentsProblem(f, [x], new Map());
+      if (!a.deleted_at) own.set(x, { name: String(a.name) });
+    }
+    const p = attachmentsProblem(f, [...own.keys()], own);
+    if (p) return p;
+  }
+  return null;
+}
 
 /**
  * A pushed change of an existing record by a member (not the system), held to what the API lets that member do:
@@ -368,7 +430,11 @@ export interface EnginePull {
   tombstones: { entity: string; id: string }[];
 }
 
-/** Engine rows of a pull window (rev in (cursor, upto]) as the linked account may see them. */
+/**
+ * Engine rows with a revision in (cursor, upto] as the linked account may see them — for a quiet database (tests,
+ * tools): revisions are transaction ids, not in commit order, so the pull route reads snapshot deltas instead
+ * (routes/sync.ts, src/server/sync/snapshot.ts) and hands the rows to `replicaRows`.
+ */
 export async function pullEngine(ctx: Ctx, agg: AggregateDef, cursor: number, upto: number): Promise<EnginePull> {
   const rows = await ctx.db.query<Row>(`select * from ${agg.table} where org_id = $1 and rev > $2 and rev <= $3 order by rev`, [ctx.org.id, cursor, upto]);
   return replicaRows(ctx.db, ctx, agg, rows);

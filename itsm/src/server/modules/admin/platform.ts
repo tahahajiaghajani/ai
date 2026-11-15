@@ -5,7 +5,7 @@
 import type { AuthUser, ServerConfig } from "../../context";
 import { pgArray, type Queryable } from "../../db";
 import { uuidv7 } from "@shared/id";
-import { APP_VERSION, SYNC_PROTOCOL } from "@shared/constants";
+import { APP_VERSION, SYNC_PROTOCOL, deviceOutdated } from "@shared/constants";
 import { bad, conflict, notFound } from "../../http/errors";
 import { platformAudit } from "../platform/audit";
 import { enqueue, tick, registerJobHandler } from "../../jobs";
@@ -374,11 +374,15 @@ export async function tickNow(cfg: ServerConfig) {
 export async function versionStatus(cfg: ServerConfig) {
   const schema = await migrationStatus(cfg.db);
   const ddl = await cfg.db.one<{ value: string | null; updated_at: string }>(`select value, updated_at from sm_meta where key = 'engine.ddl'`).catch(() => null);
-  const devices = await cfg.db.query<{ app_version: string | null; n: number; last: string | null }>(
-    `select app_version, count(*)::int as n, max(greatest(last_push_at, last_pull_at)) as last from sm_devices where revoked_at is null group by app_version order by app_version`,
+  // by version and by the sync protocol each app last spoke: a 1.1.0-beta app (protocol 15, refused by this server)
+  // reports this build's version string too — its protocol marks it outdated (deviceOutdated)
+  const groups = await cfg.db.query<{ app_version: string | null; sync_protocol: number | null; n: number; last: string | null }>(
+    `select app_version, sync_protocol, count(*)::int as n, max(greatest(last_push_at, last_pull_at)) as last from sm_devices where revoked_at is null
+     group by app_version, sync_protocol order by app_version, sync_protocol`,
   );
+  const devices = groups.map((d) => ({ ...d, outdated: deviceOutdated(d) }));
   const orgs = await cfg.db.one<{ n: number }>(`select count(*)::int as n from sm_orgs where deleted_at is null`);
-  const outdated = devices.filter((d) => d.app_version && d.app_version !== APP_VERSION).reduce((a, d) => a + d.n, 0);
+  const outdated = devices.filter((d) => d.outdated).reduce((a, d) => a + d.n, 0);
   return {
     app_version: APP_VERSION,
     sync_protocol: SYNC_PROTOCOL,

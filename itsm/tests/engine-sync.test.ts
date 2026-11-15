@@ -215,6 +215,8 @@ describe("record engine synchronisation", () => {
     expect((await deskDb.one<{ n: number }>(`select count(*)::int as n from sm_journal where record_id = $1`, [first]))!.n).toBe(1);
     const cloudEpoch = await scopeEpoch(cloudDb, org, (await web.get("/auth/me")).user.id);
     expect(cloudEpoch).toBe(2); // 1 when the membership was made, 2 after the bump
-    expect(await deskDb.one<{ value: number }>(`select value from sm_kv where key = 'sync.epoch'`)).toMatchObject({ value: cloudEpoch });
+    // the pull's epoch is the organisation's sync epoch and the member's scope epoch (SYNC_PROTOCOL 16)
+    const orgEpoch = Number((await cloudDb.one<{ epoch: number }>(`select epoch from sm_org_sync where org_id = $1`, [org]))?.epoch ?? 0);
+    expect(await deskDb.one<{ value: string }>(`select value from sm_kv where key = 'sync.epoch'`)).toMatchObject({ value: `${orgEpoch}.${cloudEpoch}` });
   });
 });

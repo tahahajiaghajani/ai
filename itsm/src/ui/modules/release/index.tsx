@@ -9,7 +9,8 @@
 //   lists         releases, tasks, deployments, notes, defects, feature flags, artifacts (DML), environment bookings;
 //                 definitions for release managers: templates, policies, the check library, environments, windows
 // Only light modules are imported here; every component loads with its page.
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import {
   Rocket, ListChecks, ServerCog, Newspaper, Bug, Flag, Package, CalendarCheck, LayoutTemplate, ScrollText, ClipboardCheck, Layers, CalendarRange, Map as MapIcon, Gauge, ChartColumn,
   User, Gavel, Hammer, LifeBuoy, TriangleAlert, Siren, Stamp, OctagonX, Inbox,

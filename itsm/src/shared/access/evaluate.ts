@@ -293,6 +293,9 @@ export function canTransitionRow(s: Subject, def: TableDef, row: Row, t: Transit
     if (t.roles.level === "edit" && (mode !== "full" || g.write === "none")) return false;
     if (t.roles.level === "view" && g.read === "none") return false;
   }
+  // the organisation's narrowing (lifecycle overlay `_states`, design F §4.2): also one of these roles — an AND with
+  // everything above, so it can only take a transition away, never give one
+  if (t.also?.length && !t.also.some((k) => s.eff.roles.includes(k))) return false;
   return true;
 }
 

@@ -8,7 +8,8 @@
 //   record pages  agreement (the portfolio's page): side panel «سطح خدمت»; target: «پیشنهاد هدف و شبیه‌سازی»; review:
 //                 «بستهٔ بازبینی»; incidents and requested items: side panel «تجربه» (XLA)
 // Agreements themselves stay the service portfolio's records (`service_agreement`, its pages at portfolio/agreements).
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import { BadgePercent, CalendarCheck, ClipboardList, FilePlus2, FileStack, Gauge, Handshake, HeartPulse, Map as MapIcon, Settings2, Smile, Target, TrendingUp, TriangleAlert, PencilRuler, Inbox } from "lucide-react";
 import type { AccessGate } from "@shared/access";
 import type { ModuleUi, NavItem } from "../registry";

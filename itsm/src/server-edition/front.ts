@@ -200,6 +200,8 @@ export function createFront(d: FrontDeps) {
     await next();
   });
 
+  // (the requests a person waits for are counted inside the API, once their session is known: cfg.foreground,
+  // foreground.ts — here every probe, sync call and unauthenticated client would count too)
   app.all("/api/*", async (c) => compressResponse(c.req.raw, await d.api.fetch(c.req.raw, c.env)));
 
   app.all("*", (c) => d.site.serve(c.req.raw) ?? json(c, 405, "method_not_allowed", "این روش پشتیبانی نمی‌شود"));

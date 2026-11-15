@@ -5,7 +5,7 @@
 // matches). `technologyRisk` rolls the matches up to the services that depend on those CIs, for the portfolio.
 import { addDays, todayISO } from "@shared/jalali";
 import type { Ctx } from "../../context";
-import type { Tx } from "../../db";
+import { lockKey, type Tx } from "../../db";
 import { createIn, savepoint, transitionIn } from "../../engine";
 import { servicesImpactedBy } from "../cmdb/impact";
 import { isUuid, liveRows, sysOf, type Row } from "./common";
@@ -46,6 +46,9 @@ export function standardRisk(std: Row, today: string): string | null {
 /** Open and close «فناوری خارج از استاندارد» findings (system, inside `tx`). */
 export async function technologyFindings(tx: Tx, ctx: Ctx): Promise<{ opened: number; closed: number }> {
   const sys = sysOf(ctx);
+  // technology passes of one organisation take turns (one key per pass: it may open thousands of findings), so a pass
+  // reads the findings the one before it opened instead of opening them again
+  await lockKey(tx, `cmdb.technology:${ctx.org.id}`);
   const today = todayISO(String(ctx.org.settings?.timezone ?? "Asia/Tehran"));
   const standards = await liveRows(tx, sys, "technology_standard", null, { limit: 500 });
   const wanted = new Map<string, { ci: Row; std: Row; why: string }>();

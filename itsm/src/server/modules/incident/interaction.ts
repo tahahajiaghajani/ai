@@ -17,12 +17,13 @@ export async function incidentFromInteraction(ctx: Ctx, id: string): Promise<{ r
     if (requesterOnly(ctx, def.area) || !access().canWrite(ctx, def, it)) throw forbidden("ثبت رخداد از تعامل با کارشناس آن است");
     if (it.incident_id) throw conflict("این تعامل پیش‌تر به رخدادی پیوند خورده است");
     if (it.state !== "open") throw conflict("این تعامل بسته شده است؛ آن را بازگشایی کنید یا رخداد تازه ثبت کنید");
+    // built from the interaction alone: the organisation's requirements for people are not asked (design F §3.3)
     const inc = await createIn(tx, ctx, "incident", {
       short_description: it.short_description,
       description: it.transcript ?? null,
       caller_id: it.caller_id ?? null,
       channel: it.channel ?? "phone",
-    });
+    }, { orgRules: false });
     await updateIn(tx, ctx, "interaction", id, { incident_id: inc.id, ...(it.wrap_up ? {} : { wrap_up: "incident" }) }, { version: it.version as number });
     return inc.id as string;
   });

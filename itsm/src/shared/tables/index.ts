@@ -9,7 +9,11 @@ import { BASE_COLUMNS, FIELD_TYPES, refTarget } from "../model/types";
 import { setTableLookup, validateCond } from "../model/conditions";
 import { CLOSE_CODES, DEFAULT_TASK_STATES, TASK_FIELDS, TASK_SCOPE } from "../model/task";
 import { CORE_CHOICE_LISTS, CORE_TABLES, USER_TABLE } from "./core";
+import { FIELDS_TABLES } from "./fields";
+import { FORMS_TABLES } from "./forms";
 import { ACCESS_TABLES } from "./access";
+import { POSITION_TABLES } from "./positions";
+import { PROCESS_TABLES } from "./process";
 import { NOTIFY_TABLES } from "./notify";
 import { SLA_CHOICE_LISTS, SLA_SERVICE_TABLES } from "./sla";
 import { FLOW_TABLES } from "./flows";
@@ -42,13 +46,18 @@ import { SLM_CHOICE_LISTS, SLM_TABLES } from "./slm";
 import { WORKFORCE_CHOICE_LISTS, WORKFORCE_TABLES } from "./workforce";
 import { ADMIN_TABLES } from "./admin";
 import { INTEGRATION_TABLES } from "./integration";
+import { DISCOVERY_TABLES } from "./discovery";
 
 export { CUSTOM_FIELD_TYPES, VIEW_KINDS } from "./core";
 
 /** Table definitions per module; a module adds its file's export here. */
 const MODULE_TABLES: TableDef[][] = [
   CORE_TABLES,
+  FIELDS_TABLES,
+  FORMS_TABLES,
   ACCESS_TABLES,
+  POSITION_TABLES,
+  PROCESS_TABLES,
   NOTIFY_TABLES,
   SLA_SERVICE_TABLES,
   FLOW_TABLES,
@@ -81,6 +90,7 @@ const MODULE_TABLES: TableDef[][] = [
   WORKFORCE_TABLES,
   ADMIN_TABLES,
   INTEGRATION_TABLES,
+  DISCOVERY_TABLES,
 ];
 
 /** Every table by key (resolved definitions). */
@@ -199,6 +209,11 @@ export function buildTable(input: TableDef): TableDef {
   for (const c of input.list?.columns ?? []) if (!has(c)) fail(input, `list column "${c}" does not exist`);
   for (const c of (input.list?.order ?? "").split(",").map((s) => s.trim().replace(/^-/, "")).filter(Boolean)) if (!has(c)) fail(input, `list order "${c}" does not exist`);
   for (const u of input.unique ?? []) for (const c of u) if (!has(c)) fail(input, `unique field "${c}" does not exist`);
+  for (const x of input.indexes ?? []) {
+    if (!IDENT.test(x.name) || !x.cols.length) fail(input, `index "${x.name}" needs a name and columns`);
+    for (const c of x.cols.map((s) => s.replace(/\s+(asc|desc)$/i, ""))) if (!has(c) && c !== "id") fail(input, `index "${x.name}": column "${c}" does not exist`);
+    if (x.where !== undefined && (!x.where.trim() || /;|--|\/\*/.test(x.where))) fail(input, `index "${x.name}": invalid predicate`);
+  }
   if (features.kanban && !has(features.kanban)) fail(input, `kanban field "${features.kanban}" does not exist`);
   if (features.calendar && (!has(features.calendar.start) || (features.calendar.end && !has(features.calendar.end)))) fail(input, "calendar fields do not exist");
   if (states) {

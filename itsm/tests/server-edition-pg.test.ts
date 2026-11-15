@@ -119,15 +119,22 @@ describe.skipIf(!BIN)("server edition on PostgreSQL", () => {
     const inc = await api2("POST", `/o/${org}/r/incident`, { short_description: "سرور ایمیل شعبه پاسخ نمی‌دهد" });
     expect(inc.status).toBe(200);
     expect((await api2("GET", `/o/${org}/r/incident/${inc.json.row.id}`)).json.row.short_description).toBe("سرور ایمیل شعبه پاسخ نمی‌دهد");
-    // the record's events are processed by the leader only
-    const jobsDone = Date.now() + 20_000;
-    let pending = 1;
-    while (Date.now() < jobsDone && pending > 0) {
-      const r = await leader.cfg.db.one<{ n: number }>(`select count(*)::int as n from sm_jobs where status = 'queued' and run_at <= now()`);
-      pending = r?.n ?? 0;
-      if (pending) await new Promise((r2) => setTimeout(r2, 300));
+    // the record's events are processed by the leader only. The first-run setup runs the new organisation's seed jobs
+    // at once (a backlog of 1,000–1,900 jobs queued before the incident, and the queue takes the oldest first), so the
+    // test waits for the incident's own jobs (due now; a timer due later stays queued) rather than for an empty queue
+    const incId = inc.json.row.id as string;
+    const ownJobs = () =>
+      leader.cfg.db.query<{ kind: string; status: string; due: boolean }>(`select kind, status, run_at <= now() as due from sm_jobs where position($1 in payload::text) > 0`, [incId]);
+    const backlog = (await leader.cfg.db.one<{ n: number }>(`select count(*)::int as n from sm_jobs where status in ('queued', 'running') and run_at <= now()`))!.n;
+    const started = Date.now();
+    let own = await ownJobs();
+    while (Date.now() - started < 240_000 && (!own.some((j) => j.status === "done") || own.some((j) => j.status === "running" || (j.status === "queued" && j.due)))) {
+      await new Promise((r2) => setTimeout(r2, 500));
+      own = await ownJobs();
     }
-    expect(pending).toBe(0);
+    console.log(`the incident's ${own.length} job(s) ran after a backlog of ${backlog} in ${Math.round((Date.now() - started) / 100) / 10} s`);
+    expect(own.filter((j) => j.status === "done").length).toBeGreaterThan(0);
+    expect(own.filter((j) => j.status === "running" || (j.status === "queued" && j.due) || j.status === "failed")).toEqual([]);
     expect(leader.metrics.snapshot().last_tick).not.toBeNull();
     expect(follower.metrics.snapshot().last_tick).toBeNull();
 
@@ -172,5 +179,5 @@ describe.skipIf(!BIN)("server edition on PostgreSQL", () => {
     const dbs = await again.cfg.db.query<{ datname: string }>(`select datname from pg_database where datname like 'kariz_before_restore_%'`);
     expect(dbs).toHaveLength(1);
     expect(existsSync(join(DIR, "last-backup.json"))).toBe(true);
-  }, 300_000);
+  }, 600_000);
 });

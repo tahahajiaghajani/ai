@@ -7,7 +7,7 @@ import { tableDef, TABLES } from "@shared/tables";
 import { FIELD_TYPES } from "@shared/model/types";
 import type { MergePreview } from "@shared/cmdb/api";
 import type { Ctx } from "../../context";
-import type { Tx } from "../../db";
+import { pgArray, type Tx } from "../../db";
 import { bad, conflict, forbidden, notFound } from "../../http/errors";
 import { orgSchema, savepoint, transitionIn, updateIn } from "../../engine";
 import { access } from "../../access/provider";
@@ -44,10 +44,13 @@ interface Journal {
   by: string | null;
 }
 
-async function loadMerge(tx: Tx, ctx: Ctx, survivorId: string, absorbedIds: string[]) {
+async function loadMerge(tx: Tx, ctx: Ctx, survivorId: string, absorbedIds: string[], opts: { lock?: boolean } = {}) {
   const ids = [...new Set(absorbedIds.filter(isUuid).map((x) => x.toLowerCase()))].filter((x) => x !== survivorId.toLowerCase());
   if (!ids.length) throw bad("دست‌کم یک پیکربندی برای ادغام لازم است");
   if (ids.length > 20) throw bad("در هر ادغام حداکثر ۲۰ پیکربندی");
+  // a merge locks its CIs (in id order) before reading them: an edit or an import of one of them in flight commits
+  // first and its values are what the survivor takes, never overwritten from an older copy
+  if (opts.lock && isUuid(survivorId)) await tx.query(`select id from ${tableDef("ci")!.table} where org_id = $1 and id = any($2::uuid[]) order by id for update`, [ctx.org.id, pgArray([survivorId.toLowerCase(), ...ids].sort())]);
   const survivor = await liveRow(tx, ctx, "ci", survivorId);
   if (!survivor) throw notFound("پیکربندی اصلی پیدا نشد");
   const absorbed = await liveRows(tx, ctx, "ci", { f: "id", op: "in", v: ids });
@@ -107,7 +110,7 @@ export async function mergePreview(ctx: Ctx, survivorId: string, absorbedIds: st
 /** Merge `absorbedIds` into `survivorId` (as the caller, who must be able to change all of them). */
 export async function mergeCis(ctx: Ctx, survivorId: string, absorbedIds: string[], opts: { taskId?: string | null } = {}): Promise<{ task_id: string; survivor: string; absorbed: string[]; moved: { relations: number; references: number } }> {
   return ctx.write(async (tx) => {
-    const { survivor, absorbed } = await loadMerge(tx, ctx, survivorId, absorbedIds);
+    const { survivor, absorbed } = await loadMerge(tx, ctx, survivorId, absorbedIds, { lock: true });
     const sys = sysOf(ctx, ctx.actor === "system" ? null : ctx.user.id);
     const ids = absorbed.map((a) => a.id);
     const at = new Date().toISOString();

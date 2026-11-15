@@ -13,8 +13,9 @@ import { countingSkills } from "@shared/workforce/logic";
 import { businessBetween, weekMinutes } from "@shared/sla/calendar";
 import { formatJalali } from "@shared/jalali";
 import type { Ctx } from "../../context";
-import type { Tx } from "../../db";
-import { pushFromBefore, createIn, isSystemCtx, registerHooks, SYSTEM_USER, updateIn, validationError, type WriteArgs } from "../../engine";
+import { lockKey, type Tx } from "../../db";
+import { pushFromBefore, createIn, isSystemCtx, onBeforeCommit, registerHooks, SYSTEM_USER, updateIn, validationError, type WriteArgs } from "../../engine";
+import { lockedRow } from "../incident/common";
 import { bad, conflict, forbidden } from "../../http/errors";
 import { enqueue } from "../../jobs";
 import { calendarFor } from "../sla";
@@ -28,7 +29,9 @@ export async function syncProfileSkills(tx: Tx, ctx: Ctx, userId: string): Promi
   const sys = sysOf(ctx);
   const cfg = await workforceConfig(tx, sys);
   if (!cfg.sync_profile_skills) return false;
-  const [profile] = await liveRows(tx, sys, "member_profile", { f: "user_id", op: "eq", v: userId }, { limit: 1 });
+  const [listed] = await liveRows(tx, sys, "member_profile", { f: "user_id", op: "eq", v: userId }, { limit: 1 });
+  // the profile locked and read again: a tag added to it by hand meanwhile is kept, and two syncs take turns
+  const profile = listed ? await lockedRow(tx, sys, "member_profile", listed.id) : null;
   if (!profile) return false;
   const catalogue = await liveRows(tx, sys, "wfm_skill", null, { limit: 5000 });
   const byId = new Map(catalogue.map((s) => [String(s.id), s]));
@@ -95,9 +98,18 @@ async function personSkillBefore(w: WriteArgs): Promise<void> {
   if (n.expires_at && n.verified_at && String(n.expires_at) < String(n.verified_at).slice(0, 10)) throw validationError({ expires_at: "تاریخ انقضا پیش از تأیید است" });
 }
 
+/**
+ * The person's routable skills at commit, under their key: two skill writes of one person at once (a lead verifying one,
+ * the person changing another) each sync after the other committed, so the profile holds both.
+ */
+function syncSkillsAtCommit(tx: Tx, ctx: Ctx, userId: string): void {
+  onBeforeCommit(tx, `wfm.profile_skills:${userId}`, async () => void (await syncProfileSkills(tx, ctx, userId)));
+}
+
 async function personSkillAfter(w: WriteArgs & { row: Row }): Promise<void> {
   const r = w.op === "delete" ? w.prev! : w.row;
-  if (isUuid(r.user_id)) await syncProfileSkills(w.tx, w.ctx, String(r.user_id));
+  if (isUuid(r.user_id)) syncSkillsAtCommit(w.tx, w.ctx, String(r.user_id));
+  if (w.op === "update" && w.changed.has("user_id") && isUuid(w.prev?.user_id)) syncSkillsAtCommit(w.tx, w.ctx, String(w.prev!.user_id));
 }
 
 async function skillAfter(w: WriteArgs & { row: Row }): Promise<void> {
@@ -106,7 +118,7 @@ async function skillAfter(w: WriteArgs & { row: Row }): Promise<void> {
   // the catalogue changed: re-sync the profiles of the people who have this skill (bounded; the sweep finishes)
   const id = String((w.op === "delete" ? w.prev : w.row)!.id);
   const people = await liveRows(w.tx, sysOf(w.ctx), "wfm_person_skill", { f: "skill_id", op: "eq", v: id }, { limit: 200 });
-  for (const p of people) await syncProfileSkills(w.tx, w.ctx, String(p.user_id));
+  for (const u of new Set(people.map((p) => String(p.user_id)))) syncSkillsAtCommit(w.tx, w.ctx, u);
 }
 
 async function coverageBefore(w: WriteArgs): Promise<void> {
@@ -125,6 +137,8 @@ async function capacityBefore(w: WriteArgs): Promise<void> {
   const n = w.next;
   const sys = sysOf(w.ctx);
   if (w.op === "create" || w.changed.has("group_id") || w.changed.has("user_id")) await withinOversight(w, { group: n.group_id, person: n.user_id, needsGroup: true });
+  // the team's capacity key: two writers making the team's (or a person's) row at once make one
+  if (w.op === "create" || w.changed.has("group_id") || w.changed.has("user_id")) await lockKey(w.tx, `wfm.capacity:${w.ctx.org.id}:${String(n.group_id ?? "")}`);
   const same = await liveRows(w.tx, sys, "wfm_capacity", { and: [{ f: "group_id", op: "eq", v: n.group_id }, isUuid(n.user_id) ? { f: "user_id", op: "eq", v: n.user_id } : { f: "user_id", op: "empty" }] }, { limit: 2 });
   if (same.some((r) => r.id !== n.id)) throw validationError({ group_id: isUuid(n.user_id) ? "برای این فرد در این تیم ظرفیت ثبت شده است" : "برای این تیم ظرفیت ثبت شده است" });
   const group = await liveRow(w.tx, sys, "group", n.group_id);
@@ -194,6 +208,9 @@ async function absenceBefore(w: WriteArgs): Promise<void> {
     throw conflict("مرخصی‌ای را که برای دیگری ثبت کرده‌اید خودتان تأیید نمی‌کنید؛ گردش تأیید آن را پیش می‌برد");
   }
   if (w.op === "create" || ["start_at", "end_at", "user_id"].some((f) => w.changed.has(f))) {
+    // the person's time-off key: two overlapping requests filed at once (the person and their manager) take turns, and
+    // the second sees the first below and is refused
+    await lockKey(w.tx, `wfm.absence:${String(n.user_id ?? "")}`);
     const others = await liveRows(w.tx, sys, "wfm_absence", { and: [{ f: "user_id", op: "eq", v: n.user_id }, { f: "state", op: "in", v: ["requested", "approved"] }, { f: "start_at", op: "lt", v: n.end_at }, { f: "end_at", op: "gt", v: n.start_at }] }, { limit: 5 });
     if (others.some((o) => o.id !== n.id)) throw validationError({ start_at: "در این بازه مرخصی یا غیبت دیگری ثبت شده است" });
     n.days = await workingDaysOf(w.tx, sys, n.start_at, n.end_at);

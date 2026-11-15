@@ -8,6 +8,8 @@ import type { Ctx } from "../../context";
 import { createIn, readAttachment, updateIn } from "../../engine";
 import { bad, forbidden, notFound } from "../../http/errors";
 import { grantOf, isUuid, liveRow, liveRows, managesPortal, subjectFor, sysOf, type Row } from "./common";
+import { lockedRow } from "../incident/common";
+import { lockKey, type Tx } from "../../db";
 
 const DEFAULTS = {
   name: "درگاه خدمات",
@@ -92,10 +94,17 @@ export async function choosePortal(ctx: Ctx, portalId: string): Promise<void> {
   await savePref(ctx, { portal_id: portalId });
 }
 
+/**
+ * The writes of one person's preference row take turns (their key until commit): the first two at once make one row
+ * (not a refused duplicate), and two favourite toggles at once keep both.
+ */
+const lockPref = (tx: Tx, ctx: Ctx) => lockKey(tx, `portal.pref:${ctx.org.id}:${ctx.user.id}`);
+
 /** Create or update the caller's preference row (as the system: the row is theirs only). */
 export async function savePref(ctx: Ctx, values: { favorites?: string[]; portal_id?: string | null }): Promise<Row> {
   const sys = sysOf(ctx);
   return ctx.write(async (tx) => {
+    await lockPref(tx, ctx);
     const [row] = await liveRows(tx, sys, "portal_pref", { f: "user_id", op: "eq", v: ctx.user.id }, { limit: 1 });
     if (row) return updateIn(tx, sys, "portal_pref", String(row.id), values, { trusted: true });
     return createIn(tx, sys, "portal_pref", { user_id: ctx.user.id, favorites: [], ...values }, { trusted: true });
@@ -111,10 +120,18 @@ export async function favoritesOf(ctx: Ctx): Promise<string[]> {
 
 /** Add or remove a favourite (an item the person may see in the catalogue). */
 export async function toggleFavorite(ctx: Ctx, itemId: string, on: boolean): Promise<string[]> {
-  const current = await favoritesOf(ctx);
-  const next = on ? [...new Set([itemId, ...current])].slice(0, 50) : current.filter((x) => x !== itemId);
-  await savePref(ctx, { favorites: next });
-  return next;
+  if (ctx.actor === "system") return [];
+  const sys = sysOf(ctx);
+  // decided from the person's preferences as stored, under their key: two toggles at once keep both
+  return ctx.write(async (tx) => {
+    await lockPref(tx, ctx);
+    const [row] = await liveRows(tx, sys, "portal_pref", { f: "user_id", op: "eq", v: ctx.user.id }, { limit: 1 });
+    const current = Array.isArray(row?.favorites) ? (row!.favorites as string[]) : [];
+    const next = on ? [...new Set([itemId, ...current])].slice(0, 50) : current.filter((x) => x !== itemId);
+    if (row) await updateIn(tx, sys, "portal_pref", String(row.id), { favorites: next }, { trusted: true });
+    else await createIn(tx, sys, "portal_pref", { user_id: ctx.user.id, favorites: next }, { trusted: true });
+    return next;
+  });
 }
 
 /** Publish a portal's draft layout (catalogue administrators): the cleaned draft becomes the published one. */
@@ -122,7 +139,8 @@ export async function publishLayout(ctx: Ctx, portalId: string): Promise<Row> {
   if (!(await managesPortal(ctx))) throw forbidden("چیدمان درگاه را مدیران کاتالوگ منتشر می‌کنند");
   const sys = sysOf(ctx);
   return ctx.write(async (tx) => {
-    const row = await liveRow(tx, sys, "portal", portalId);
+    // locked: two publications at once number their versions one after the other
+    const row = await lockedRow(tx, sys, "portal", portalId);
     if (!row) throw notFound("درگاه پیدا نشد");
     const layout = normalizeLayout(row.layout ?? row.published_layout ?? DEFAULT_LAYOUT);
     const problems = layoutProblems(layout);

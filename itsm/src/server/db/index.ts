@@ -49,14 +49,71 @@ export function onBeforeCommit(tx: Tx, key: string, fn: BeforeCommit): boolean {
   return true;
 }
 
-/** Run the transaction's before-commit work (the database layers call it when the transaction's function resolved). */
+/**
+ * Run the transaction's before-commit work (the database layers call it when the transaction's function resolved).
+ * Each key is first locked for the rest of the transaction (a transaction-level advisory lock on the key's hash, keys
+ * of a round in sorted order): writes of one organisation run side by side (no organisation-wide lock), so two
+ * transactions recomputing the same derived value — an order's totals from its items, a group's roll-up — take turns,
+ * and the second one's statements see what the first one committed (READ COMMITTED: a new snapshot per statement).
+ */
 export async function runBeforeCommit(tx: Tx): Promise<void> {
   for (let round = 0; ; round++) {
     const m = pending.get(tx);
     if (!m || !m.size) return;
     if (round >= MAX_BEFORE_COMMIT_ROUNDS) throw new Error(`before-commit work keeps queueing more work: ${[...m.keys()].slice(0, 5).join(", ")}`);
     pending.delete(tx);
+    for (const key of [...m.keys()].sort()) await lockBeforeCommitKey(tx, key);
     for (const fn of m.values()) await fn();
+  }
+}
+
+/**
+ * Take the lock of before-commit key `key` now, as `runBeforeCommit` takes it just before the commit (re-entrant: the
+ * commit's own take is then a no-op). For work outside before-commit that decides the same value (a job checking an
+ * item's work as its tasks' writes do at commit), or a writer that must hold the key before the rows the key's work
+ * locks (the key first, then the row — the order the work takes them).
+ */
+export async function lockBeforeCommitKey(tx: Queryable, key: string): Promise<void> {
+  await tx.query(`select pg_advisory_xact_lock(hashtextextended($1, 0))`, [`itsm.before_commit:${key}`]);
+}
+
+/**
+ * Lock `key` (a narrow, decided value: `request.cart:<user>`, `devops.gate_chain:<org>`…) until the end of the
+ * transaction — a transaction-level advisory lock on the key's hash. Two transactions deciding a write from rows that
+ * do not exist yet (create-if-absent, a chain's next link) take turns on it, and the second one's statements see what
+ * the first committed. Keys of before-commit work (`onBeforeCommit`) are in their own namespace; a key without the
+ * organisation's id is shared by every organisation, so keys name it or a record id.
+ */
+export async function lockKey(tx: Queryable, key: string): Promise<void> {
+  await tx.query(`select pg_advisory_xact_lock(hashtextextended($1, 0))`, [`itsm.key:${key}`]);
+}
+
+// ----- deadlocks and serialization failures -----------------------------------------------------------------------
+
+/**
+ * A deadlock (40P01) or a serialization failure (40001): the database rolled the transaction back to let another one
+ * finish. Nothing of it was kept, so running the same work again may succeed (writes of one organisation run side by
+ * side and lock rows in the order their work needs them). An HTTP request that meets one answers 503 «سیستم مشغول
+ * است؛ دوباره امتحان کنید» (http/errors.ts), never a 500.
+ */
+export function isTransientDbError(e: unknown): boolean {
+  const code = !!e && typeof e === "object" ? (e as { code?: unknown }).code : undefined;
+  return code === "40P01" || code === "40001";
+}
+
+/**
+ * Run `attempt` again (at most `tries` times in all, after a short random pause) while the database aborts it for a
+ * deadlock or a serialization failure. Only for work whose every effect is inside the transaction it opens (a retry
+ * must not repeat something done outside the database or in memory).
+ */
+export async function retryTransient<T>(attempt: () => Promise<T>, tries = 3): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await attempt();
+    } catch (e) {
+      if (!isTransientDbError(e) || i >= tries) throw e;
+      await new Promise((r) => setTimeout(r, 20 + Math.floor(Math.random() * 80) * i));
+    }
   }
 }
 

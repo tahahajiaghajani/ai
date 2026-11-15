@@ -8,6 +8,12 @@
 // multichoice/tags → string[]; ref/user/group → lower-case uuid; refs/users → uuid[]; json/conditions → JSON;
 // color → a ColorKey; secret → an AES-GCM envelope (never returned: callers see `{ secret: true, hint }`).
 // Empty values are stored as NULL (booleans as false).
+//
+// Field types (design F §3.1, @shared/forms/validators — the same answers on every runtime and in the process apply):
+// a named check (national code, IBAN, card, postal code, mobile) stores the identifier in its canonical form and
+// refuses an invalid one; a pattern, decimal places and date limits ($today±Nd tokens in the organisation's time zone)
+// are checked when the value changes (tightening a field type binds new values only); a «پیوست» field holds ids of
+// the same record's attachments (`checkRefs` asks the record's attachments; the shape and count are checked here).
 import { isIP } from "node:net";
 import type { FieldDef, Option, TableDef } from "@shared/model/types";
 import { COLOR_KEYS, FIELD_TYPES, refTarget } from "@shared/model/types";
@@ -16,6 +22,8 @@ import { zonedMidnight, localDate } from "@shared/model/jalali-buckets";
 import { D, normalizeDigits } from "@shared/money";
 import { fromJalali, isValidJalali } from "@shared/jalali";
 import { isEmail } from "@shared/validate";
+import { todayISO } from "@shared/jalali";
+import { attachmentIds, attachmentsProblem, fieldValueProblem, normalizeFieldValue } from "@shared/forms/validators";
 import { AppError } from "../http/errors";
 import type { Queryable } from "../db";
 import { pgArray } from "../db";
@@ -73,6 +81,11 @@ export class Problems {
 export interface ValueContext {
   schema: Pick<OrgSchema, "choices">;
   tz: string;
+  /**
+   * the day relative date limits (`$today`) count from (YYYY-MM-DD in `tz`); default today. A Windows app's push
+   * passes the day the change was made, so an entry made offline is judged on its own day.
+   */
+  today?: string;
   /** seal a secret field's plain value (bound to the record); absent = secrets are refused */
   seal?: (field: FieldDef, plain: string) => string;
 }
@@ -227,6 +240,40 @@ const isEmptyInput = (v: unknown) => v === null || v === undefined || (typeof v 
  * secret the caller sent back unchanged.
  */
 export function coerceValue(f: FieldDef, raw: unknown, vc: ValueContext, prev?: unknown): unknown {
+  // a checked identifier in its canonical form (Latin digits, no separators) before the type's own coercion
+  const input = f.check && f.check !== "attachments" && typeof raw === "string" ? normalizeFieldValue(f, raw) : raw;
+  const v = coerceType(f, input, vc, prev);
+  if (v === null || v === KEEP || v === false) return v;
+  if (f.check === "attachments") {
+    const r = attachmentIds(f, v);
+    if (r.ids === null) fail(f, r.problem);
+    return r.ids!.length ? r.ids : null;
+  }
+  if (!hasValueRules(f) || (prev !== undefined && prev !== null && sameStored(f, v, prev))) return v;
+  const problem = fieldValueProblem(f, v, { today: vc.today ?? todayISO(vc.tz), dayOf: (iso) => localDate(Date.parse(iso), vc.tz) });
+  if (problem) fail(f, problem);
+  return v;
+}
+
+/** Does the field carry validation beyond its storage type (a field type's check, pattern, decimals, date limits)? */
+const hasValueRules = (f: FieldDef): boolean => !!(f.pattern || (f.check && f.check !== "attachments") || (f.decimals !== undefined && f.decimals !== null) || f.minDate || f.maxDate);
+
+/** Is a coerced value the stored one (a whole row sent back unchanged is not judged again)? */
+function sameStored(f: FieldDef, v: unknown, prev: unknown): boolean {
+  if (FIELD_TYPES[f.type].numeric) {
+    try {
+      return D(String(v)).eq(D(String(prev)));
+    } catch {
+      return String(v) === String(prev);
+    }
+  }
+  if (f.type === "datetime") return Date.parse(String(v)) === Date.parse(String(prev));
+  if (typeof v === "object" || typeof prev === "object") return JSON.stringify(v) === JSON.stringify(prev);
+  return String(v) === String(prev);
+}
+
+/** Coercion to the storage type alone. */
+function coerceType(f: FieldDef, raw: unknown, vc: ValueContext, prev?: unknown): unknown {
   const t = f.type;
   if (t === "secret" && raw && typeof raw === "object" && (raw as { secret?: unknown }).secret === true) return KEEP;
   if (isEmptyInput(raw)) return t === "bool" ? false : null;
@@ -407,7 +454,8 @@ export async function checkRefs(
   problems = new Problems(),
 ): Promise<Problems> {
   const groups = new Map<string, { target: string; filter?: FieldDef["refFilter"]; ids: Set<string>; fields: FieldDef[] }>();
-  for (const name of fields) {
+  const names = [...fields];
+  for (const name of names) {
     const f = def.fields.find((x) => x.name === name);
     if (!f || FIELD_TYPES[f.type].family !== "ref") continue;
     const v = row[f.name];
@@ -420,6 +468,7 @@ export async function checkRefs(
     g.fields.push(f);
     groups.set(key, g);
   }
+  await checkAttachmentFields(q, ctx, def, row, names, problems);
   for (const g of groups.values()) {
     const ids = [...g.ids];
     let found: Set<string>;
@@ -444,6 +493,32 @@ export async function checkRefs(
     }
   }
   return problems;
+}
+
+/**
+ * «پیوست» fields (`check: "attachments"`) of `fields`: every id must be an attachment of this very record (added
+ * before the write in the same transaction counts) of an accepted kind — an attachment of another record is refused
+ * like an unknown id. One query for all such fields of the write.
+ */
+async function checkAttachmentFields(q: Queryable, ctx: Ctx, def: TableDef, row: Record<string, unknown>, fields: Iterable<string>, problems: Problems): Promise<void> {
+  const named: FieldDef[] = [];
+  const ids = new Set<string>();
+  for (const name of fields) {
+    const f = def.fields.find((x) => x.name === name);
+    if (!f || f.check !== "attachments" || !Array.isArray(row[f.name]) || !(row[f.name] as unknown[]).length) continue;
+    named.push(f);
+    for (const id of row[f.name] as unknown[]) ids.add(String(id));
+  }
+  if (!named.length || !row.id) return;
+  const rows = await q.query<{ id: string; name: string }>(
+    `select id, name from sm_attachments where org_id = $1 and table_key = $2 and record_id = $3 and id = any($4::uuid[]) and deleted_at is null`,
+    [ctx.org.id, def.key, String(row.id), pgArray([...ids])],
+  );
+  const available = new Map(rows.map((r) => [String(r.id), { name: r.name }]));
+  for (const f of named) {
+    const p = attachmentsProblem(f, (row[f.name] as unknown[]).map(String), available);
+    if (p) problems.add(f.name, p);
+  }
 }
 
 // ---------------------------------------------------------------------------------------------------------------

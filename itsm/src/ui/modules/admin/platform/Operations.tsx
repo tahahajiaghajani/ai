@@ -179,7 +179,8 @@ interface Version {
   node: string;
   schema: { applied: number; pending: string[]; current: string | null; latest: string | null };
   engine_ddl: { hash: string | null; updated_at: string } | null;
-  devices: { app_version: string | null; n: number; last: string | null }[];
+  /** Windows apps by version and the sync protocol they last spoke (0: one from before pulls named it); `outdated`: refused by this server, or of another version */
+  devices: { app_version: string | null; sync_protocol: number | null; n: number; last: string | null; outdated: boolean }[];
   devices_outdated: number;
   orgs: number;
   changelog: { version: string; date: string; items: string[] }[];
@@ -201,14 +202,15 @@ function VersionTab() {
         <Card title="برنامه‌های ویندوز" flush>
           <Table
             size="small"
-            rowKey={(d) => d.app_version ?? "?"}
+            rowKey={(d) => `${d.app_version ?? "?"}:${d.sync_protocol ?? "?"}`}
             dataSource={v.devices}
             pagination={false}
             columns={[
               { title: "نسخه", dataIndex: "app_version", render: (x: string | null) => <span className="ds-latin">{x ?? "نامعلوم"}</span> },
+              { title: "پروتکل", dataIndex: "sync_protocol", render: (p: number | null) => (p == null ? "نامعلوم" : p === 0 ? "قدیمی" : <span className="ds-num">{fa(p)}</span>) },
               { title: "دستگاه", dataIndex: "n", render: (n: number) => <span className="ds-num">{fa(n)}</span> },
               { title: "آخرین همگام‌سازی", dataIndex: "last", render: (x: string | null) => ago(x) },
-              { key: "s", render: (_: unknown, d) => (d.app_version && d.app_version !== v.app_version ? <Chip tone="warning">نیازمند ارتقا</Chip> : <Chip tone="in">به‌روز</Chip>) },
+              { key: "s", render: (_: unknown, d) => (d.outdated ? <Chip tone="warning">نیازمند ارتقا</Chip> : <Chip tone="in">به‌روز</Chip>) },
             ]}
           />
         </Card>

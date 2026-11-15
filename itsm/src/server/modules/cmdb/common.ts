@@ -11,7 +11,7 @@ import { subjectOf } from "../../access";
 import { orgSchema } from "../../engine";
 
 // record ids are a condition field (`{ f: "id", op: "in", v }`), so the incident module's read helpers serve here too
-export { liveRow, liveRows, countRows, eqAll, isUuid, sysOf, UUID, type Row } from "../incident/common";
+export { liveRow, liveRows, lockedRow, countRows, eqAll, isUuid, sysOf, UUID, type Row } from "../incident/common";
 
 const TTL = 30_000;
 const trees = new Map<string, { at: number; tree: ClassTree }>();

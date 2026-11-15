@@ -7,6 +7,7 @@
 // function (tests).
 import type { ReactNode } from "react";
 import type { Cond } from "@shared/model/conditions";
+import type { FieldDef } from "@shared/model/types";
 import type { OrgApi } from "../lib/api";
 import type { CalendarBand, CalendarTone } from "./model/calendar";
 import type { UiPolicy } from "./model/policies";
@@ -278,6 +279,49 @@ export function registerRefPicker(table: string, render: (p: RefPickerProps) => 
 
 /** The registered picker of a target table, if any. */
 export const refPickerFor = (table: string): ((p: RefPickerProps) => ReactNode) | undefined => PICKERS.get(table);
+
+// ---------------------------------------------------------------- field widgets
+
+/** What a module's editor of a field widget gets in record forms (the files of a «پیوست» field: `files`). */
+export interface WidgetInputProps {
+  field: FieldDef;
+  value: unknown;
+  onChange: (v: unknown) => void;
+  /** the field's table, and its record (null while the record is being created) */
+  table: string;
+  recordId: string | null;
+  disabled?: boolean;
+  id?: string;
+  status?: "error" | "warning";
+  compact?: boolean;
+  "aria-label"?: string;
+}
+
+/** What a module's display of a stored widget value gets (lists, cards, record pages in view mode). */
+export interface WidgetDisplayProps {
+  field: FieldDef;
+  value: unknown;
+  display?: DisplayMap;
+  compact?: boolean;
+}
+
+const WIDGETS = new Map<string, { input?: (p: WidgetInputProps) => ReactNode; display?: (p: WidgetDisplayProps) => ReactNode }>();
+
+/**
+ * The editor and the display of a field widget (`FieldDef.widget`, design F §3.1) that a module supplies: FieldInput
+ * and FieldValue use them before the storage type's own. A later registration replaces the earlier one.
+ */
+export function registerWidget(widget: string, parts: { input?: (p: WidgetInputProps) => ReactNode; display?: (p: WidgetDisplayProps) => ReactNode }): () => void {
+  WIDGETS.set(widget, parts);
+  version++;
+  return () => {
+    if (WIDGETS.get(widget) === parts) WIDGETS.delete(widget);
+    version++;
+  };
+}
+
+/** The registered editor and display of a widget, if any. */
+export const widgetFor = (widget: string | null | undefined) => (widget ? WIDGETS.get(widget) : undefined);
 
 // ---------------------------------------------------------------- paths
 

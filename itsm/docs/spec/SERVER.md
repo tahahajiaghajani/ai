@@ -26,7 +26,7 @@ internal identifiers stay neutral (`sm_*`, `itsm.*`, `ITSM_*`).
   `karizctl`, IPC from the setup after a certificate/host change, SIGHUP on Unix), broadcasts configuration reloads
   (`reload.request`, IPC), is the single writer of the rotating JSON log, aggregates worker metrics, and stops
   gracefully on SIGINT/SIGTERM/SIGBREAK (WinSW sends Ctrl+C). `--standalone` runs one process (dev, tests).
-- **Worker** builds `createApp` in **cloud mode** (same auth and sessions, live pulse via `sm_org_sync`, every module)
+- **Worker** builds `createApp` in **cloud mode** (same auth and sessions, live pulse via database snapshots, every module)
   with: `network` (policy, air-gapped by default), `fetch: networkFetch(policy, fetch)`, `blobs` (disk store),
   `waitUntil` → scheduler wake-up, `server` bridge (health, meta info), `allowSignup: false`, `secretSource:
   "installation"`, `platformAdmins` from the configuration (mutated in place on reload). The database is wrapped by
@@ -168,6 +168,28 @@ internal identifiers stay neutral (`sm_*`, `itsm.*`, `ITSM_*`).
   `PORT=443` while held: the install must fail with the reason in install-error.txt, the event log and the MSI log;
   firewall restored in `finally` and in an `always()` step. Job
   `server-publish` (after `windows` and `server`) uploads the MSI to the release the desktop job created.
+- CI job `bank-sim` (after `server`; `packaging/server/scripts/bank-sim/*.ps1` + `scripts/bank-sim/*.mjs`; report
+  `docs/qa/BANK_SIM_FA.md`, runbook `docs/BANK_INSTALL_FA.md`): the bank's installation end to end with no Internet —
+  everything fetched first (Playwright + Chromium, the 1.0.0 MSI of release `itsm-v1.0.0`, this run's MSI), then
+  Windows Firewall default outbound Block with only the CI machine's own programs (C:\actions-runner, running programs
+  outside %SystemRoot% and those connected outside the LAN at the cut; never node/powershell/chrome/msiexec; snapshot in
+  `logs/ci-machine-at-cut.txt`), `LocalSubnet` and the platform's DNS allowed,
+  dropped packets logged and every connection audited with its program (Security 5156/5157); a PKI made with
+  `New-SelfSignedCertificate` (root in LocalMachine\Root, PFX per server), a mock LDAPS domain controller
+  (`tests/ldap-fake.ts` bundled with esbuild, `tlsOptions`/`listen`) and a STARTTLS mail relay on the LAN address;
+  1.0.0 installed silently with CERTPATH/CERTPASSWORD, set up in Chromium through setup-url.txt, populated (members,
+  team, incident + attachment, change, catalogue order, knowledge article, AD source over LDAPS, notification e-mail),
+  backed up, upgraded in place to this build (ports, certificate, allow-list kept; version and sync protocol checked),
+  browsed as admin and agent (any request to another origin and any console error fail), demo load/purge, security
+  posture (redirect, HSTS, TLS 1.0/1.1 refused, PostgreSQL loopback only, listening ports, ACLs, virtual accounts,
+  diagnostics without secrets), resilience (worker kill, service restarts, postmaster kill), load, a DR drill
+  (RTO/RPO), the Windows app's sync client headless, uninstall/re-install/REMOVEDATA=1 leftovers, and no outbound
+  attempt by the installation's programs. The scenarios run in seven steps (`-Only 1,2,3` ...), the context carried
+  over in `context.json`, the evidence uploaded after every step (`overwrite: true`, so a lost runner still leaves its
+  logs) and a `-Report` step that always runs (report.md, job summary, network restored). Product fixes it drove:
+  `--use-system-ca` for KarizApp, the CSP hash over normalised newlines, the setup pulling seed jobs forward, the
+  backup's key fingerprint, and the demo load's long steps chunked (`inChunks`: 40 rows a transaction up to the
+  deadline; one transaction of 900 requests had held the job queue for half an hour). Results: docs/qa/BANK_SIM_FA.md.
 
 ## Testing
 
@@ -202,7 +224,14 @@ and restore. The PowerShell scripts run only on Windows CI.
   and scans files outside the write transaction and downloads stream. A streaming multipart parser would remove the
   buffer.
 - The Windows app starts its backend with `--use-system-ca` (`backendExecArgv`, Electron 45 = Node 24), so a bank
-  CA installed in Windows' store by GPO is trusted; `NODE_EXTRA_CA_CERTS` remains for older builds.
+  CA installed in Windows' store by GPO is trusted; `NODE_EXTRA_CA_CERTS` remains for older builds. Since 1.1 the
+  server edition's `KarizApp` does the same (`app-service.xml.template`: `--use-system-ca`, inherited by the cluster's
+  workers): the bank's mail relay over STARTTLS, LDAPS without a pasted root, webhooks and AI servers on internal
+  HTTPS are trusted through the Windows store (the bank simulation found 1.0.0 failing STARTTLS with «self-signed
+  certificate in certificate chain»). A directory source's own `ca_cert` still narrows LDAPS to that root.
+- The first-run setup pulls the new organisation's seed jobs (`SEED_JOB_KINDS`) to now: the web version delays them
+  10–12 minutes so a sign-up stays fast, which left a bank's freshly set-up server without its catalogue, knowledge
+  bases and SLA calendars for that long.
 - Orphaned blob files (attachments deleted for good) are not garbage-collected yet; the blob mirror of backups keeps
   every content ever stored.
 - The sizing table and tuner numbers are estimates until `docs/PERFORMANCE_FA.md` (S3) has load-test results.

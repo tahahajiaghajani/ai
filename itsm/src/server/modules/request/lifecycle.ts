@@ -25,9 +25,10 @@ import { addJournalIn, condEnv, createIn, isSystemCtx, onRecordEvent, registerHo
 import type { JobConfig } from "../../jobs";
 import { prepareSubject, subjectOf } from "../../access";
 import { arr, eqAll, isUuid, liveRow, liveRows, obj, secondsBetween, sysOf, type Row } from "./common";
+import { lockedRow } from "../incident/common";
 import { versionSchema } from "./definition";
 import { canOrder, offeringSnapshot, onBehalfRefusal } from "./entitlement";
-import { calendarOf, createTemplateTasks, deliver, displayOf, flowRunStates, runsActive, startFulfilment } from "./fulfil";
+import { calendarOf, createTemplateTasks, deliver, displayOf, flowRunStates, itemWorkKey, runsActive, startFulfilment } from "./fulfil";
 import { onApprovalSettled, type ApprovalSettled } from "../sla";
 import { workingDaysDue } from "@shared/request/due";
 
@@ -428,23 +429,46 @@ async function taskAfterWrite(w: WriteArgs & { row: Row }): Promise<void> {
   const row = w.row;
   const ritmId = String(row.request_item_id ?? "");
   if (!isUuid(ritmId)) return;
-  if (w.op !== "create" && w.changed.has("request_item_id") && isUuid(w.prev?.request_item_id)) await rollupTasks(w.tx, w.ctx, String(w.prev!.request_item_id));
+  if (w.op !== "create" && w.changed.has("request_item_id") && isUuid(w.prev?.request_item_id)) itemWorkBeforeCommit(w.tx, w.ctx, String(w.prev!.request_item_id));
   const stateChanged = w.op === "create" || w.op === "delete" || w.changed.has("state");
   if (!stateChanged && !w.changed.has("assigned_to")) return;
-  const sys = sysOf(w.ctx);
-  if (w.op !== "create" && isTaskDone(row.state) && w.changed.has("state")) {
-    const siblings = await liveRows(w.tx, sys, "request_task", eqAll({ request_item_id: ritmId }));
-    for (const id of readyTasks(siblings.map((t) => ({ id: String(t.id), state: String(t.state), depends_on: (t.depends_on as string) ?? null })))) {
-      await transitionIn(w.tx, sys, "request_task", id, "open", {}, { trusted: true });
-    }
-  }
-  await rollupTasks(w.tx, w.ctx, ritmId, { announce: w.op !== "create" && w.changed.has("state") && isTaskDone(row.state) });
+  itemWorkBeforeCommit(w.tx, w.ctx, ritmId, w.op !== "create" && w.changed.has("state") && isTaskDone(row.state));
 }
 
-/** People working the item's tasks, and delivery once its tasks are done (flows: once their runs ended too). */
+/** Items of a transaction whose task closed (a «nothing was done» note is due if they end with nothing delivered). */
+const closedTasksOf = new WeakMap<Tx, Set<string>>();
+
+/**
+ * The item's work from its tasks — waiting tasks whose predecessor is done become ready, the people working it (its
+ * readers: `fulfillers`), delivery once the work is done — just before commit, once per item, under the item's key.
+ * Writes of one organisation run side by side: two task writes of one item at the same moment (two reassignments, the
+ * last two tasks closed, a task added after one being closed) take turns there, and the later one decides from both
+ * — its statements see what the earlier committed. Deciding in each write's body, each saw only its own change.
+ */
+export function itemWorkBeforeCommit(tx: Tx, ctx: Ctx, ritmId: string, closed = false): void {
+  if (closed) {
+    let s = closedTasksOf.get(tx);
+    if (!s) closedTasksOf.set(tx, (s = new Set()));
+    s.add(ritmId);
+  }
+  onBeforeCommit(tx, itemWorkKey(ritmId), async () => {
+    const sys = sysOf(ctx);
+    const siblings = await liveRows(tx, sys, "request_task", eqAll({ request_item_id: ritmId }));
+    for (const id of readyTasks(siblings.map((t) => ({ id: String(t.id), state: String(t.state), depends_on: (t.depends_on as string) ?? null })))) {
+      await transitionIn(tx, sys, "request_task", id, "open", {}, { trusted: true });
+    }
+    await rollupTasks(tx, ctx, ritmId, { announce: !!closedTasksOf.get(tx)?.delete(ritmId) });
+  });
+}
+
+/**
+ * People working the item's tasks, and delivery once its tasks are done (flows: once their runs ended too). The item
+ * is read locked: a write of the item in flight (a cancellation, «در انتظار اطلاعات») finishes first and this decides
+ * from what it left.
+ */
 export async function rollupTasks(tx: Tx, ctx: Ctx, ritmId: string, opts: { announce?: boolean } = {}): Promise<void> {
   const sys = sysOf(ctx);
-  const ritm = await liveRow(tx, sys, "request_item", ritmId);
+  const ritm = await lockedRow(tx, sys, "request_item", ritmId);
   if (!ritm) return;
   const tasks = await liveRows(tx, sys, "request_task", eqAll({ request_item_id: ritmId }));
   const people = [...new Set(tasks.map((t) => t.assigned_to).filter(isUuid))].sort();
@@ -518,9 +542,13 @@ export async function rollupRequest(tx: Tx, ctx: Ctx, requestId: string): Promis
 async function requestValidateTransition(w: WriteArgs & { transition: { to: string } }): Promise<string | null> {
   if (w.transition.to !== "cancelled" || isSystemCtx(w.ctx)) return null;
   const sys = sysOf(w.ctx);
-  const items = await liveRows(w.tx, sys, "request_item", eqAll({ request_id: w.prev!.id }));
-  for (const i of items) {
-    if (!isItemOpen(i.state)) continue;
+  const items = await liveRows(w.tx, sys, "request_item", eqAll({ request_id: w.prev!.id }), { order: "t.id" });
+  for (const listed of items) {
+    if (!isItemOpen(listed.state)) continue;
+    // each open item locked (in id order) and judged as stored: an approval moving it into fulfilment at this moment
+    // finishes first, and the requester's cancel policy then sees the work started
+    const i = await lockedRow(w.tx, sys, "request_item", listed.id);
+    if (!i || !isItemOpen(i.state)) continue;
     // each item as the person reaches it: their own under its cancel policy, one they work as it is
     const mode = await modeOn(w.tx, w.ctx, "request_item", i);
     if (mode === "requester") {
@@ -552,7 +580,8 @@ async function onReply(e: RecordEvent, cfg: JobConfig): Promise<void> {
   if (e.via === "sync" || !e.actor || !e.entry || (e.entry.kind !== "comment" && e.entry.kind !== "email_in")) return;
   const sys = await systemCtx(cfg, e.org_id);
   await sys.write(async (tx) => {
-    const ritm = await liveRow(tx, sys, "request_item", e.id);
+    // locked: the sweep cancelling the unanswered item at this moment finishes first, and the reply then finds it closed
+    const ritm = await lockedRow(tx, sys, "request_item", e.id);
     if (!ritm || ritm.state !== "awaiting_info" || !onRequesterSide(ritm, e.actor!)) return;
     await transitionIn(tx, sys, "request_item", e.id, "in_fulfilment", {}, { trusted: true });
     await addJournalIn(tx, sys, tableDef("request_item")!, ritm, { kind: "system", body: "درخواست‌کننده پاسخ داد؛ انجام ادامه می‌یابد." }, { trusted: true });

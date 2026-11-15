@@ -8,7 +8,8 @@
 // On every record: an «تأییدها» side panel (tables with an approval field) and a «توافق‌ها» tab (records with SLA
 // timers). The record UI gets the organisation's holidays and stored UI policies through its pluggable sources.
 // Only light modules are imported here; every component loads with its page.
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import {
   CalendarClock, CalendarX, Timer, Hourglass, Stamp, UserRoundCheck, Workflow, Route, Grid3x3, FolderTree, SlidersHorizontal,
 } from "lucide-react";

@@ -35,7 +35,8 @@ interface Detail {
   org: { id: string; name: string; legal_name: string | null; modules: string[]; timezone: string | null; city: string | null; phone: string | null; email: string | null; website: string | null; created_at: string };
   admin: { status: OrgStatus; status_reason: string | null; notes: string | null; ai_disabled: boolean; updated_at: string | null; updated_by_name: string | null };
   members: { id: string; user_id: string; role: Role; title: string | null; is_active: boolean; full_name: string; email: string; mobile: string | null; last_login_at: string | null; disabled: boolean }[];
-  devices: { id: string; name: string; platform: string | null; app_version: string | null; last_push_at: string | null; last_pull_at: string | null; revoked_at: string | null; user_name: string | null }[];
+  /** `outdated`: of another sync protocol (refused by this server) or of another version */
+  devices: { id: string; name: string; platform: string | null; app_version: string | null; outdated: boolean; last_push_at: string | null; last_pull_at: string | null; revoked_at: string | null; user_name: string | null }[];
   last_activity: string | null;
   sizes: { total_bytes: number; items: { entity: string; rows: number; bytes: number }[] };
   support: { active: SupportRow | null; sessions: SupportRow[] };
@@ -359,6 +360,7 @@ export default function OrgDetail({ id }: { id: string }) {
                       <span className="ad-li-d">
                         {v.user_name ?? "—"}
                         {v.app_version ? ` · نسخهٔ ${v.app_version}` : ""}
+                        {v.outdated && !v.revoked_at ? " · نیازمند ارتقا" : ""}
                         {v.revoked_at ? " · لغوشده" : ""}
                       </span>
                     </span>

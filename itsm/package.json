@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "next dev",
     "dev:ui": "vite",
-    "build": "npm run build:ui && next build",
+    "build": "npm run build:ui && npm run migrate:build && next build",
+    "migrate:build": "tsx scripts/migrate-db.mts --build",
+    "migrate": "tsx scripts/migrate-db.mts",
     "build:ui": "vite build",
     "start:local": "tsx scripts/serve-local.mts",
     "typecheck": "node --max-old-space-size=6144 node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",

@@ -19,7 +19,7 @@ import { tableDef } from "@shared/tables";
 import { registerOrgSeed } from "../orgs/service";
 import { onApprovalSettled, SEED_DELAY_MS, settledVerdict } from "../sla";
 import { access } from "../../access/provider";
-import { onRecordEvent, pushGuard, registerHooks, registerRecordMeta, systemCtx, transitionIn } from "../../engine";
+import { onBeforeCommit, onRecordEvent, pushGuard, registerHooks, registerRecordMeta, systemCtx, transitionIn } from "../../engine";
 import { enqueue, registerJobHandler, type JobConfig, type JobContext } from "../../jobs";
 import { actsHere } from "../notify";
 import { registerAiChannel } from "../ai/rag/registry";
@@ -28,7 +28,7 @@ import { orgSchema } from "../../engine";
 import { DEPT_TABLES, hrStaffOnly, installEsmHooks } from "./hooks";
 import { advanceJourneyIn, followRecordIn, journeyHooks, JOB_ORDER, placeActivityOrder } from "./journeys";
 import { facilityHooks, installReservationApprovals, JOB_NO_SHOW, noShowJob } from "./facilities";
-import { autoCloseIn, parentsOf, rollupChildrenIn } from "./cases";
+import { autoCloseIn, parentsOf, rollupChildrenAtCommit } from "./cases";
 import { installEsmSkills } from "./ai";
 import { departmentSections, registerPortalSectionSource } from "./portal";
 import { seedEsmDefaultsIn, type SeedCounts } from "./seed";
@@ -60,7 +60,11 @@ export async function esmSweep(cfg: JobConfig, orgId: string, deadline = Date.no
   const journeys = await liveRows(sys.db, sys, "journey", { f: "state", op: "in", v: ["active", "planned"] }, { limit: 2000 });
   for (const j of journeys) {
     if (Date.now() > deadline) break;
-    await sys.write((tx) => advanceJourneyIn(tx, sys, String(j.id)));
+    // under the journey's key, like an activity's completion: the two take turns, so the sweep reads the activities a
+    // completion committed and never writes an older progress over it
+    await sys.write(async (tx) => {
+      onBeforeCommit(tx, `esm.journey.advance:${j.id}`, async () => void (await advanceJourneyIn(tx, sys, String(j.id))));
+    });
   }
   // visitors still expected after their day ended never came
   const today = todayOf(sys);
@@ -155,7 +159,8 @@ export function installEsmModule(): void {
     const sys = await systemCtx(jctx.cfg, e.org_id);
     const data = (e as { data?: Record<string, unknown> }).data ?? {};
     const parents = e.kind === "record.state_changed" ? await parentsOf(jctx.db, e.org_id, e.table, e.id) : data.kind === "esm_child" && data.direction === "in" ? [{ table: e.table, id: e.id }] : [];
-    for (const p of parents) await sys.write((tx) => rollupChildrenIn(tx, sys, p.table, p.id));
+    // the roll-up at commit under the parent's key: two children closing at once are counted after each other's commit
+    for (const p of parents) await sys.write(async (tx) => rollupChildrenAtCommit(tx, sys, p.table, p.id));
   }, { tables: DEPT_TABLES, kinds: ["record.state_changed", "record.linked", "record.unlinked"] });
 
   // the requester's answer moves a case waiting for information back to work

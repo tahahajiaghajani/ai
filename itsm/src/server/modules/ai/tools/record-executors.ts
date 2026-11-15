@@ -1,9 +1,10 @@
 // Executors of the generated record tools' proposals (docs/spec/AI.md §11.8). They run with the CONFIRMING person's
 // context through the record service: their access, the table's rules, locks and transitions are checked again exactly
 // as from the form. A proposal fails closed — when the person may not read or change the record any more, when a field
-// it changes moved since the draft (snapshot) or, in a batch, when the record changed since (its version), nothing of
-// that record is written. A batch writes each record in its own transaction, reports every row and never stops at a
-// failed one.
+// it changes moved since the draft (snapshot), when its table is not one the tools draft for (`draftable`: a proposal
+// stored before the table became read-only for drafts, such as a workflow submission — FINAL-6) or, in a batch, when
+// the record changed since (its version), nothing of that record is written. A batch writes each record in its own
+// transaction, reports every row and never stops at a failed one.
 import { z } from "zod";
 import type { Ctx } from "../../../context";
 import type { AiProposalOutcome, AiRef } from "@shared/ai/types";
@@ -11,7 +12,7 @@ import { formatNumber } from "@shared/format";
 import { addLink, create, get, orgSchema, transitionIn, updateIn } from "../../../engine";
 import { AppError, bad, conflict, notFound } from "../../../http/errors";
 import { parsePayload, registerProposalExecutor, type ProposalOutcome } from "./proposals";
-import { journalIn, problemText, recordPath } from "./records";
+import { draftable, journalIn, problemText, recordPath } from "./records";
 
 const UUID = z.string().regex(/^[0-9a-f-]{36}$/i);
 const TABLE = z.string().regex(/^[a-z][a-z0-9_]{0,62}$/);
@@ -32,9 +33,11 @@ const batchP = z.object({
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
+/** The proposal's table, still one the generated tools draft for (a 400: the proposal fails for everyone). */
 async function defOf(ctx: Ctx, table: string) {
   const def = (await orgSchema(ctx)).def(table);
   if (!def || def.virtual) throw bad("جدول این پیشنهاد شناخته نیست");
+  if (!draftable(def)) throw bad(`«${def.plural}» فقط از صفحهٔ خودشان ثبت و تغییر می‌شوند؛ این پیشنهاد اعمال نشد`);
   return def;
 }
 
@@ -54,6 +57,7 @@ async function current(ctx: Ctx, table: string, id: string, snapshot: Record<str
 
 async function applyCreate(ctx: Ctx, payload: unknown): Promise<AiRef> {
   const p = parsePayload(createP, payload);
+  await defOf(ctx, p.table);
   const r = await create(ctx, p.table, p.data);
   const id = String(r.row.id);
   return refOf(p.table, id, [r.row.number, r.display[id]].filter(Boolean).join(" — ") || String(r.row.number ?? ""));
@@ -86,6 +90,8 @@ async function applyJournal(ctx: Ctx, payload: unknown): Promise<AiRef> {
 
 async function applyLink(ctx: Ctx, payload: unknown): Promise<AiRef> {
   const p = parsePayload(linkP, payload);
+  await defOf(ctx, p.table);
+  await defOf(ctx, p.to_table);
   const cur = await get(ctx, p.table, p.id);
   await addLink(ctx, p.table, p.id, { kind: p.kind, table: p.to_table, id: p.to_id, note: p.note });
   return refOf(p.table, p.id, [cur.row.number, cur.display[p.id]].filter(Boolean).join(" — "));

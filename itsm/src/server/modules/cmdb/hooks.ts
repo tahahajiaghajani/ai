@@ -12,14 +12,15 @@
 //                   anchors copied from the parent CI, a readable label, «تا» not before «از»
 //   ci_group, cmdb_rule, ci_baseline, ci_cert_campaign, ci_cert_task, cmdb_dedup_task: their own consistency rules
 import { CMDB_CONFIG_DEFAULTS } from "@shared/tables/cmdb";
-import { attrPath, attrProblems, ciValue, keepArchived, normalizeIdent, relLabel } from "@shared/cmdb/logic";
+import { attrPath, attrProblems, BUILTIN_CLASSES, ciValue, keepArchived, normalizeIdent, relLabel } from "@shared/cmdb/logic";
 import type { AttrDef } from "@shared/cmdb/classes";
 import { latinDigits } from "@shared/ai/text";
 import type { FieldDef } from "@shared/model/types";
 import { tableDef } from "@shared/tables";
 import type { Ctx } from "../../context";
 import { conflict, forbidden } from "../../http/errors";
-import { coerceValue, condEnv, createIn, loadReadable, orgSchema, orgTz, registerHooks, updateIn, validationError, type WriteArgs } from "../../engine";
+import { coerceValue, condEnv, createIn, loadReadable, onBeforeCommit, orgSchema, orgTz, registerHooks, updateIn, validationError, type WriteArgs } from "../../engine";
+import { lockKey, pgArray } from "../../db";
 import { access } from "../../access/provider";
 import { enqueue } from "../../jobs";
 import { classTree, cmdbConfig, CI_COLUMNS, countRows, eqAll, invalidateCmdbCache, isCmdbAdmin, isUuid, liveRow, liveRows, relTypes, sysOf, type Row } from "./common";
@@ -50,8 +51,15 @@ async function mirrorChoice(w: WriteArgs & { row: Row }, list: string): Promise<
 // Classes
 
 const CI_FIELD_NAMES = new Set((tableDef("ci")?.fields ?? []).map((f) => f.name));
+const BUILTIN_KEYS = new Set(BUILTIN_CLASSES.map((c) => c.key));
 
 async function classBefore(w: WriteArgs): Promise<void> {
+  // a class being deleted and a CI or child class being made in it take turns on the class's key (the check below and
+  // the CI's class lookup each see what the other committed)
+  const keyed = w.op === "delete" ? w.prev?.key : w.op === "create" || w.changed.has("parent_key") ? w.next.parent_key : null;
+  if (keyed) await lockKey(w.tx, `cmdb.class:${w.ctx.org.id}:${String(keyed)}`);
+  // re-parenting takes the class tree's key as well: two crossing moves at once never make a loop
+  if (w.op === "update" && w.changed.has("parent_key")) await lockKey(w.tx, `ci_class.tree:${w.ctx.org.id}`);
   const tree = await classTree(w.tx, w.ctx, { fresh: true });
   if (w.op === "delete") {
     const key = String(w.prev?.key ?? "");
@@ -136,6 +144,12 @@ async function ciBefore(w: WriteArgs): Promise<void> {
   const tree = await classTree(w.tx, w.ctx);
   const cls = tree.get(n.class);
   if (!cls) throw validationError({ class: "کلاس پیکربندی پیدا نشد" });
+  // the class's key (classBefore), then the class read as stored: a CI is not made in a class whose deletion is in
+  // flight or committed (the tree above is cached; a built-in class cannot be deleted)
+  if ((w.op === "create" || w.changed.has("class")) && !BUILTIN_KEYS.has(String(n.class))) {
+    await lockKey(w.tx, `cmdb.class:${w.ctx.org.id}:${String(n.class)}`);
+    if (!(await w.tx.one(`select 1 from ${tableDef("ci_class")!.table} where org_id = $1 and key = $2 and deleted_at is null`, [w.ctx.org.id, String(n.class)]))) throw validationError({ class: "کلاس پیکربندی پیدا نشد" });
+  }
   const people = !isSystem(w.ctx) && !w.trusted;
   if (people && (w.op === "create" || w.changed.has("class"))) {
     if (cls.abstract) throw validationError({ class: `«${cls.label}» کلاس انتزاعی است؛ یکی از زیرکلاس‌های آن را انتخاب کنید` });
@@ -299,6 +313,10 @@ async function relBefore(w: WriteArgs): Promise<void> {
     if (n.valid_to && n.valid_from && Date.parse(n.valid_to) < Date.parse(n.valid_from)) throw validationError({ valid_to: "«تا» نمی‌تواند پیش از «از» باشد" });
     const live = !n.valid_to || Date.parse(n.valid_to) > Date.now();
     if (live && (w.op === "create" || w.changed.has("parent_id") || w.changed.has("child_id") || w.changed.has("type") || w.changed.has("valid_to"))) {
+      // the two CIs locked (in id order) before looking for the same relationship: two writers making it at once (the
+      // rule jobs of both ends, a person and a job) take turns, and the second finds the first's row below. Row locks,
+      // not a key per pair: an import making thousands of relationships holds no lock-table entry for each
+      await w.tx.query(`select id from ${tableDef("ci")!.table} where org_id = $1 and id = any($2::uuid[]) order by id for update`, [w.ctx.org.id, pgArray([String(n.parent_id), String(n.child_id)].sort())]);
       const pairs = t.symmetric ? [[n.parent_id, n.child_id], [n.child_id, n.parent_id]] : [[n.parent_id, n.child_id]];
       for (const [p, c] of pairs) {
         const dup = await liveRows(w.tx, sys, "ci_rel", { and: [{ f: "parent_id", op: "eq", v: p }, { f: "child_id", op: "eq", v: c }, { f: "type", op: "eq", v: n.type }, { or: [{ f: "valid_to", op: "empty" }, { f: "valid_to", op: "gt", v: new Date().toISOString() }] }] }, { limit: 2 });
@@ -428,11 +446,15 @@ async function certTaskAfter(w: WriteArgs & { row: Row }): Promise<void> {
     confirmed++;
   }
   await updateIn(w.tx, sysOf(w.ctx), "ci_cert_task", w.row.id, { confirmed_count: confirmed }, { trusted: true, keepVersion: true });
-  const campaign = await liveRow(w.tx, sysOf(w.ctx), "ci_cert_campaign", w.row.campaign_id);
-  if (campaign) {
+  // the campaign's count at commit, under its key: tasks completed at once are counted after each other's commit
+  const campaignId = w.row.campaign_id;
+  if (!isUuid(campaignId)) return;
+  onBeforeCommit(w.tx, `cmdb.cert_campaign:${campaignId}`, async () => {
+    const campaign = await liveRow(w.tx, sysOf(w.ctx), "ci_cert_campaign", campaignId);
+    if (!campaign) return;
     const done = await countRows(w.tx, sysOf(w.ctx), "ci_cert_task", { and: [{ f: "campaign_id", op: "eq", v: campaign.id }, { f: "state", op: "in", v: ["done", "closed"] }] });
-    await updateIn(w.tx, sysOf(w.ctx), "ci_cert_campaign", campaign.id, { done_count: done }, { trusted: true, keepVersion: true });
-  }
+    if (Number(campaign.done_count ?? -1) !== done) await updateIn(w.tx, sysOf(w.ctx), "ci_cert_campaign", campaign.id, { done_count: done }, { trusted: true, keepVersion: true });
+  });
 }
 
 async function dedupBefore(w: WriteArgs): Promise<void> {

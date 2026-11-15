@@ -21,7 +21,7 @@ import { splitDuration } from "../model/values";
 import type { DisplayMap, TableMeta } from "../model/types";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { fieldAssistFor } from "../extensions";
-import { refPickerFor } from "../extensions";
+import { refPickerFor, widgetFor } from "../extensions";
 import { RecordSelect } from "./RecordSelect";
 import { ChoiceTag } from "./display";
 import { FilterBuilder } from "../filter/FilterBuilder";
@@ -69,6 +69,9 @@ export function FieldInput(p: FieldInputProps) {
     }
   };
   const common = { id, disabled, status, autoFocus, "aria-label": label, size } as const;
+  // a widget a module supplies (the files of a «پیوست» field)
+  const widget = widgetFor(f.widget)?.input;
+  if (widget) return widget({ field: f, value, onChange, table: def.key, recordId: typeof row?.id === "string" ? row.id : null, disabled, id, status, compact, "aria-label": label });
 
   switch (f.type) {
     case "string":

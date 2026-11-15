@@ -13,6 +13,7 @@ import { createIn, systemCtx, updateIn } from "../../engine";
 import { enqueue } from "../../jobs";
 import { AppError, notFound } from "../../http/errors";
 import { hit } from "../../http/ratelimit";
+import { demoSafeFetch } from "../../db/scope";
 import { liveRows, type Row } from "./common";
 
 export const PROCESS_JOB = "event.process";
@@ -169,7 +170,7 @@ export async function ingest(cfg: ServerConfig, src: SourceRow, payload: unknown
 /** Confirm an SNS subscription (GET of Amazon's URL, through the server's fetch with a timeout). */
 export async function confirmSns(cfg: Pick<ServerConfig, "fetch"> & Partial<ServerConfig>, url: string): Promise<void> {
   if (!isSnsUrl(url)) throw notFound("نشانی تأیید اشتراک SNS معتبر نیست");
-  const f = cfg.fetch ?? globalThis.fetch;
+  const f = demoSafeFetch(cfg.fetch ?? globalThis.fetch);
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 15_000);
   try {

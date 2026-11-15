@@ -7,7 +7,8 @@
 //   records       indicators (with a live check), scheduled deliveries (timing editor, «ارسال اکنون»), deliveries
 //                 received (the recipient's evidence, the Excel file attached), the settings row
 // Only light modules are imported here; every page loads with its route.
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import { BarChart3, CalendarClock, ChartColumn, Gauge, House, Inbox, LayoutDashboard, MessageSquareText, Settings2 } from "lucide-react";
 import type { AccessGate } from "@shared/access";
 import type { ModuleUi } from "../registry";

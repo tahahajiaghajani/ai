@@ -113,7 +113,7 @@ const run: TableDef = {
   scope: { own: ["started_by"], requester: [] },
   // never through the generic API: a run's steps hold what the agent's principal read, which its starter may not read.
   // AI administrators read runs in the studio; whoever started one sees its status and its proposals (each checked)
-  rowAccess: { read: NEVER },
+  rowAccess: { read: NEVER, write: NEVER },
   features: { sync: false, history: false },
   list: { columns: ["agent_name", "trigger", "record_number", "status", "step_count", "started_at"], order: "-started_at" },
 };
@@ -187,7 +187,7 @@ const conversation: TableDef = {
     { name: "ended_at", label: "پایان", type: "datetime", readonly: true, span: 8 },
   ],
   scope: { own: ["requester_id"], requester: ["requester_id"] },
-  rowAccess: { read: { f: "requester_id", op: "is_me" } },
+  rowAccess: { read: { f: "requester_id", op: "is_me" }, write: NEVER },
   features: { sync: false, history: false },
   list: { columns: ["title", "channel", "state", "last_at"], order: "-last_at" },
 };
@@ -211,7 +211,7 @@ const message: TableDef = {
     { name: "route", label: "مسیر", type: "string", maxLength: 30, readonly: true, ltr: true, span: 8 },
   ],
   scope: { own: ["requester_id"], requester: ["requester_id"] },
-  rowAccess: { read: { f: "requester_id", op: "is_me" } },
+  rowAccess: { read: { f: "requester_id", op: "is_me" }, write: NEVER },
   features: { sync: false, history: false },
   list: { columns: ["role", "text", "created_at"], order: "created_at" },
 };

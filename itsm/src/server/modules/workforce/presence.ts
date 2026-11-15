@@ -7,6 +7,7 @@ import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
 import { createIn, updateIn } from "../../engine";
 import { bad, forbidden } from "../../http/errors";
+import { lockedRow } from "../incident/common";
 import { liveRows, membersOf, msOf, myGroups, namesOf, overseesGroup, sysOf, workforceConfig, type Row } from "./common";
 
 const STATES = PRESENCE_STATES.map((o) => o.value);
@@ -15,7 +16,9 @@ const STATES = PRESENCE_STATES.map((o) => o.value);
 async function agentRowIn(tx: Tx, ctx: Ctx, userId: string): Promise<Row> {
   const sys = sysOf(ctx);
   const [row] = await liveRows(tx, sys, "wfm_agent", { f: "user_id", op: "eq", v: userId }, { limit: 1 });
-  if (row) return row;
+  // locked and read again: two changes of one person's presence at once (two tabs, a heartbeat and a change by hand)
+  // take turns, and the second decides from the state the first left — one open interval in the presence log
+  if (row) return (await lockedRow(tx, sys, "wfm_agent", row.id)) ?? row;
   return createIn(tx, sys, "wfm_agent", { user_id: userId, presence: "offline", presence_since: new Date().toISOString() }, { trusted: true });
 }
 

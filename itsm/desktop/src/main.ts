@@ -4,9 +4,11 @@
 import { app, BrowserWindow, utilityProcess, ipcMain, shell, dialog, Menu, Tray, nativeImage, nativeTheme, type UtilityProcess } from "electron";
 import { join, isAbsolute } from "node:path";
 import http from "node:http";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, statSync, renameSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, appendFileSync, statSync, renameSync } from "node:fs";
 import { APP_NAME, APP_NAME_EN, APP_TAGLINE } from "../../src/shared/constants";
 import { backendExecArgv } from "../../src/shared/desktop/node-flags";
+import { warmable, warmScript } from "./warm";
 
 const APP_TITLE = APP_NAME;
 /** electron-builder.yml `appId` (taskbar grouping, notifications): an internal identifier, kept when the product is renamed. */
@@ -52,11 +54,18 @@ function writeClientServer(url: string | null) {
 
 /** Window preferences of the main process (kept apart from config.json, which the local server owns). */
 const uiFile = join(dataDir, "window.json");
-function readUi(): { theme?: ThemePref } {
+function readUi(): { theme?: ThemePref; warmed?: string } {
   try {
     return JSON.parse(readFileSync(uiFile, "utf8"));
   } catch {
     return {};
+  }
+}
+function writeUi(patch: { theme?: ThemePref; warmed?: string }) {
+  try {
+    writeFileSync(uiFile, JSON.stringify({ ...readUi(), ...patch }, null, 2));
+  } catch {
+    /* ignore */
   }
 }
 function themePref(): ThemePref {
@@ -94,6 +103,12 @@ function startBackend(): Promise<{ url: string; host: string }> {
         ...process.env,
         ITSM_DATA_DIR: dataDir,
         ITSM_STATIC_DIR: join(__dirname, "renderer"),
+        // a first start loads the database made at build time instead of running initdb and every migration
+        // (src/desktop/db-template.ts)
+        ITSM_DB_TEMPLATE: join(__dirname, "db-template.tar.br"),
+        // V8's compiled code of the local server's 12 MB bundle, kept between starts (Node's compile cache; checked
+        // against the file's content, so an update compiles once again): about 0.5 s less at every start
+        NODE_COMPILE_CACHE: join(appDir, "code-cache"),
         NODE_ENV: "production",
       },
     });
@@ -327,14 +342,24 @@ function createTray() {
   tray.on("double-click", () => (win ? win.show() : createWindow(serverUrl)));
 }
 
+/**
+ * Asks the local server to close the database and waits until it has exited (at most `ms`), then makes sure it is gone.
+ * Closing is a checkpoint and PGlite's own shutdown (src/server/db/pglite.ts): usually well under a second, as the
+ * running app checkpoints its log as it goes. Killing it earlier only costs a replay of the log at the next start.
+ */
+async function stopBackend(ms = 10_000) {
+  const b = backend;
+  if (!b) return;
+  const exited = new Promise<void>((r) => b.once("exit", () => r()));
+  b.postMessage({ type: "shutdown" });
+  await Promise.race([exited, new Promise((r) => setTimeout(r, ms))]);
+  if (backend === b) b.kill();
+}
+
 async function quit() {
   quitting = true;
   try {
-    if (backend) {
-      backend.postMessage({ type: "shutdown" });
-      await new Promise((r) => setTimeout(r, 1500));
-      backend?.kill();
-    }
+    await stopBackend();
   } finally {
     app.exit(0);
   }
@@ -368,13 +393,7 @@ function registerIpc() {
     const mode: ThemeMode = t?.mode === "dark" ? "dark" : "light";
     if (nativeTheme.themeSource !== pref) nativeTheme.themeSource = pref;
     BrowserWindow.fromWebContents(e.sender)?.setBackgroundColor(CANVAS[mode]);
-    if (readUi().theme !== pref) {
-      try {
-        writeFileSync(uiFile, JSON.stringify({ ...readUi(), theme: pref }, null, 2));
-      } catch {
-        /* ignore */
-      }
-    }
+    if (readUi().theme !== pref) writeUi({ theme: pref });
   });
   // pageSize: a named paper («A5») or a custom one in microns ({ width, height }: an 80 mm roll, labels)
   ipcMain.handle("itsm:print", async (e, opts: { silent?: boolean; printer?: string; landscape?: boolean; pageSize?: string | { width: number; height: number } } = {}) => {
@@ -438,6 +457,33 @@ function registerIpc() {
   });
 }
 
+/**
+ * Once per build, a while after the window is on screen: the page fills the window's cache with the build's hashed
+ * files (./warm.ts), so a route opened for the first time takes its code from there instead of queueing behind its own
+ * API calls. Not in client mode (another computer's server, maybe another version). The build is told by its file list
+ * (an update with the same version number still has new files).
+ */
+async function warmCache() {
+  const w = win;
+  if (!w || w.isDestroyed()) return;
+  let files: string[] = [];
+  try {
+    files = warmable(readdirSync(join(__dirname, "renderer", "assets")));
+  } catch {
+    return;
+  }
+  const build = createHash("sha256").update(files.join("\n")).digest("hex").slice(0, 16);
+  if (!files.length || readUi().warmed === build) return;
+  try {
+    const t = Date.now();
+    const read = Number(await w.webContents.executeJavaScript(warmScript(files), true));
+    log(`[cache] ${read}/${files.length} files of the build in the window's cache (${Date.now() - t} ms)`);
+    if (read === files.length) writeUi({ warmed: build });
+  } catch {
+    /* the window closed or reloaded: the next start tries again */
+  }
+}
+
 /** GET a local URL with Node's http module (retries while the server warms up). */
 function httpGet(url: string, attempts = 10): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
@@ -466,8 +512,7 @@ async function smokeTest() {
     if (out) writeFileSync(out, JSON.stringify({ ok, health, ui: page.includes('id="root"'), schema: meta.schema }));
     log(`[smoke] ${JSON.stringify(health)}`);
     quitting = true;
-    backend?.postMessage({ type: "shutdown" });
-    await new Promise((r) => setTimeout(r, 1500));
+    await stopBackend();
     app.exit(ok ? 0 : 1);
   } catch (e) {
     if (out) writeFileSync(out, JSON.stringify({ ok: false, error: String(e) }));
@@ -523,6 +568,7 @@ if (!app.requestSingleInstanceLock() && !isSmoke) {
       serverReady = true;
       splashStep(0.7, 0.88, "آماده‌سازی میز کار…", 1.6);
       createWindow(url);
+      win?.once("show", () => setTimeout(() => void warmCache(), 15_000).unref?.());
       if (readConfig().lan?.enabled) createTray();
     } catch (e) {
       splash?.destroy();

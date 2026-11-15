@@ -39,6 +39,7 @@ export const SOURCE_KINDS: Option[] = [
   { value: "azure_monitor", label: "Azure Monitor", order: 7 },
   { value: "cloudwatch", label: "Amazon CloudWatch (SNS)", order: 8 },
   { value: "email", label: "ایمیل (موضوع و متن)", order: 9 },
+  { value: "prtg", label: "PRTG (Execute HTTP Action)", order: 10 },
 ];
 
 export const EVENT_STATUSES: Option[] = [

@@ -53,3 +53,17 @@ export async function createdHere(q: Queryable, orgId: string, userId: string): 
 export const RESETTABLE_SQL = (orgParam: string, userAlias: string) =>
   `(${CREATED_HERE_SQL(orgParam, `${userAlias}.id`)} and not ${userAlias}.is_platform_admin
      and not exists (select 1 from sm_org_members o where o.user_id = ${userAlias}.id and o.org_id <> ${orgParam} and o.deleted_at is null))`;
+
+/**
+ * The organisation's active owners (membership ids), locked until the transaction ends, in id order. Every write that
+ * demotes, deactivates or removes an owner takes them first and counts what it got: two such writes take turns, and the
+ * second one — its rows re-read once the first committed — no longer counts the owner the first one demoted, so the
+ * organisation always keeps an active owner (nothing else enforces it).
+ */
+export async function lockActiveOwners(q: Queryable, orgId: string): Promise<string[]> {
+  const rows = await q.query<{ id: string }>(
+    `select id from sm_org_members where org_id = $1 and role = 'owner' and is_active and deleted_at is null order by id for update`,
+    [orgId],
+  );
+  return rows.map((r) => String(r.id));
+}

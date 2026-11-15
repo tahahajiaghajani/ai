@@ -11,7 +11,7 @@ import type { Ctx } from "../../context";
 import { bad, conflict, forbidden, notFound } from "../../http/errors";
 import { access } from "../../access/provider";
 import { aggregate, createIn, defFor, emitEvent, get, list, transitionIn, updateIn } from "../../engine";
-import { holds, isUuid, liveRow, liveRows, sysOf, type Row } from "./common";
+import { holds, isUuid, liveRow, liveRows, lockedRow, sysOf, type Row } from "./common";
 
 interface Level {
   available: number;
@@ -93,12 +93,18 @@ export async function checkStockRules(sys: Ctx): Promise<{ checked: number; aler
   const rules = await liveRows(sys.db, sys, "stock_rule", { f: "active", op: "eq", v: true } as Cond, { limit: 5000 });
   let alerts = 0;
   let requisitions = 0;
-  for (const rule of rules) {
-    const l = levels.get(`${rule.model_id}|${rule.stockroom_id}`) ?? { available: 0, reserved: 0, defective: 0, total: 0 };
-    const status = stockStatus(l.available, rule);
-    const dropped = status !== "ok" && (rule.status === "ok" || !rule.status);
-    if (Number(rule.available ?? -1) === l.available && rule.status === status && !dropped) continue;
+  for (const listed of rules) {
+    const l = levels.get(`${listed.model_id}|${listed.stockroom_id}`) ?? { available: 0, reserved: 0, defective: 0, total: 0 };
+    const seen = stockStatus(l.available, listed);
+    if (Number(listed.available ?? -1) === l.available && listed.status === seen && !(seen !== "ok" && (listed.status === "ok" || !listed.status))) continue;
     await sys.write(async (tx) => {
+      // the rule locked and judged as stored: two checks at once (the job and «بررسی» by hand) take turns, and the
+      // second finds the drop already alerted and the requisition already on its way — one purchase per shortage
+      const rule = await lockedRow(tx, sys, "stock_rule", listed.id);
+      if (!rule || !rule.active) return;
+      const status = stockStatus(l.available, rule);
+      const dropped = status !== "ok" && (rule.status === "ok" || !rule.status);
+      if (Number(rule.available ?? -1) === l.available && rule.status === status && !dropped) return;
       const patch: Row = { available: l.available, status };
       if (dropped) {
         patch.last_alert_at = new Date().toISOString();
@@ -251,6 +257,11 @@ export async function scan(ctx: Ctx, auditId: string, code: string): Promise<Sca
   // resolved with the counter's own access: an asset they may not read is «unknown» (nothing of it is told)
   const [asset] = await liveRows(ctx.db, ctx, "asset", where, { limit: 1 });
   return ctx.write(async (tx) => {
+    // the audit read shared until commit and still counting: scans of one audit run side by side, its completion
+    // (which locks it for update) waits for the scans in flight, and a scan that comes after it is refused — a counted
+    // asset is never left «missing» by a completion that did not see its scan
+    const live = await lockedRow(tx, sys, "inventory_audit", auditId, "share");
+    if (live?.state !== "in_progress") throw conflict("شمارش آغاز نشده یا پایان یافته است");
     const at = new Date().toISOString();
     const info = (a: Row | undefined) => (a ? { id: String(a.id), number: (a.number as string) ?? null, name: String(a.name ?? ""), asset_tag: (a.asset_tag as string) ?? null } : null);
     if (!asset) {

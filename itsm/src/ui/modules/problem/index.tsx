@@ -5,7 +5,8 @@
 //   lists         known errors (KEDB), candidates (with «اجرای قاعده‌ها»), corrective actions, problem tasks;
 //                 «از الگو» on the problem list; templates (problem models) under «تعریف‌ها»
 //   pages         the dashboard; the settings row opens from «تنظیمات رخداد و مشکل»
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense } from "@ui/lib/lazy";
 import { Bug, BookAlert, Radar, ShieldCheck, ListTodo, ChartColumn, User, Search, Activity, LayoutTemplate } from "lucide-react";
 import type { ModuleUi, NavItem } from "../registry";
 import { recordModule, RecordListRoute } from "../../records/module";

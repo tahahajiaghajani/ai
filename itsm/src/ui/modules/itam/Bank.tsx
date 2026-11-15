@@ -24,6 +24,7 @@ import { RecordSelect } from "../../records";
 import { bankApi, BANK_KEYS, itamApi, ITAM_KEYS, type BranchRow, type Fleet as FleetData, type FleetDevice, type RegisterRow, type TransferView } from "./api";
 import { ICON, Money } from "./parts";
 import { ReceiveDrawer } from "./BankParts";
+import { StatusBoardLink } from "../discovery/BoardLink";
 
 const listOf = (path: string, filter: unknown) => `${path}?filter=${encodeURIComponent(JSON.stringify(filter))}`;
 const pctNum = (v: string | number) => new Intl.NumberFormat("fa-IR", { maximumFractionDigits: 2 }).format(Number(v));
@@ -219,6 +220,7 @@ export function Fleet() {
           <Space wrap>
             <Segmented<number> value={days} onChange={setDays} options={[{ label: "۷ روز", value: 7 }, { label: "۳۰ روز", value: 30 }, { label: "۹۰ روز", value: 90 }]} />
             {d?.can_plan ? <Button icon={<Wrench {...ICON} />} onClick={() => setPlan({ every_n: 3, interval_unit: "month", group_id: null })}>نگهداری پیشگیرانه</Button> : null}
+            <StatusBoardLink chip="atm" />
             <Button icon={<Download {...ICON} />} disabled={!d?.devices.length} onClick={exportRows}>خروجی اکسل</Button>
           </Space>
         }

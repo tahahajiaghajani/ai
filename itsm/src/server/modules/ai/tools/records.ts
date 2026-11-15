@@ -15,6 +15,7 @@ import type { Ctx } from "../../../context";
 import type { FieldDef, TableDef } from "@shared/model/types";
 import { STATE_CATEGORIES } from "@shared/model/types";
 import { LINK_KINDS } from "@shared/model/links";
+import { isNever } from "@shared/model/conditions";
 import type { AiRef } from "@shared/ai/types";
 import { formatNumber } from "@shared/format";
 import { formatJalaliDateTime } from "@shared/jalali";
@@ -52,7 +53,7 @@ export interface ToolEntry {
 // ---------------------------------------------------------------- which tables, which tools
 
 /** Areas whose tables get read tools only (configuration: changing how the system behaves stays on its pages). */
-const READ_ONLY_AREAS = new Set(["settings", "users", "org", "notifications", "flows", "ai", "integrations", "sla"]);
+const READ_ONLY_AREAS = new Set(["settings", "users", "org", "notifications", "flows", "ai", "integrations", "sla", "process_design"]);
 /** Tables changed only through their own screens (decisions, deliveries, saved views, simulations). */
 const READ_ONLY_TABLES = new Set([
   "approval", "delegation", "notification", "notification_pref", "view", "cmdb_map", "cmdb_query", "ci_impact_sim", "custom_field", "choice", "request_answer", "request_cart", "request_cart_line", "catalog_item_version", "kb_version", "task_sla",
@@ -66,6 +67,9 @@ const READ_ONLY_TABLES = new Set([
   "event", "page",
   "stock_movement", "asset_assignment", "license_position", "license_reconcile_run",
   "supplier_scorecard", "allocation_result",
+  // workflow decisions (FINAL-6): a submission decides its step once it arrives, and a step's unsent values fill its
+  // form — both only on the step's own form, which shows the step and its values, never from a draft
+  "process_submission", "process_draft",
 ]);
 
 /**
@@ -96,8 +100,13 @@ async function toolTableViews(ctx: Ctx): Promise<Map<string, { label: string; pl
   return out;
 }
 
-const toolless = (def: TableDef) => def.virtual || def.key.startsWith("ai_") || def.key.startsWith("va_");
-export const draftable = (def: TableDef) => !READ_ONLY_AREAS.has(String(def.area)) && !READ_ONLY_TABLES.has(def.key);
+/**
+ * Tables with no generated tools: virtual ones, the AI's own logs, and tables nobody reads through the record service
+ * (`rowAccess.read` NEVER — a module serves them through its own routes, as analytics and reports leave them out).
+ */
+const toolless = (def: TableDef) => def.virtual || def.key.startsWith("ai_") || def.key.startsWith("va_") || isNever(def.rowAccess?.read);
+/** Tables the generated tools draft records for: not configuration, not a module's own screens, not system-written. */
+export const draftable = (def: TableDef) => !READ_ONLY_AREAS.has(String(def.area)) && !READ_ONLY_TABLES.has(def.key) && !isNever(def.rowAccess?.write);
 
 /** May the caller change some records of the table (a role's write scope, or creating)? Each draft checks the record itself. */
 function mayWrite(ctx: Ctx, def: TableDef): boolean {

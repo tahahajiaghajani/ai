@@ -23,10 +23,31 @@ demoRoutes.get("/banner", async (c) => {
   return c.json({ active, state: pack?.state ?? "none", bank: BANK_NAME, signin: active ? await demoSignInAllowed(ctx.db, ctx.org.id) : false });
 });
 
+/** One background run of the job queue per server instance at a time, driven by the demo page's polling (below). */
+let driving = false;
+
 demoRoutes.get("/", async (c) => {
   const ctx = c.get("ctx");
   ctx.need("settings", "full");
-  return c.json(await demoStatus(ctx.db, ctx.org.id, { secrets: true }));
+  const status = await demoStatus(ctx.db, ctx.org.id, { secrets: true });
+  // The web version has no queue worker: jobs run after write requests and on the cron (daily on Vercel Hobby). A load
+  // or purge is hundreds of jobs, so while one runs the page's own polling (every 2 s) keeps the queue going after
+  // each answer — within the function's time limit, one run per instance at a time.
+  const cfg = ctx.cfg;
+  if ((status.state === "loading" || status.state === "purging") && cfg.waitUntil && !driving) {
+    driving = true;
+    cfg.waitUntil(async () => {
+      try {
+        const { tick } = await import("../jobs");
+        await tick(cfg, { budgetMs: 20_000 });
+      } catch (e) {
+        cfg.log.warn("demo: job tick failed", String((e as Error)?.message ?? e));
+      } finally {
+        driving = false;
+      }
+    });
+  }
+  return c.json(status);
 });
 
 demoRoutes.post("/load", async (c) => {
