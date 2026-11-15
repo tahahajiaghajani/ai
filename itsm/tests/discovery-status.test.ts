@@ -237,7 +237,7 @@ describe("status in the database (design A §9.1, §9.7)", () => {
     }
   });
 
-  it("status rows go out only through the board and the panel, under the CI's read rules — never through the record API, an export or the assistant (FINAL-7)", async () => {
+  it("status rows go out only through the board and the panel, under the CI's read rules — an asset's panel too — never through the record API, an export or the assistant (FINAL-7, FL-1)", async () => {
     // an agent whose CMDB read is scoped to their own group, as a bank sets one up for a branch's operations team
     const group = (name: string) => w.sys.write((tx) => createIn(tx, w.sys, "group", { name }, { trusted: true }));
     const ops = await group("عملیات شعب");
@@ -281,6 +281,31 @@ describe("status in the database (design A §9.1, §9.7)", () => {
     // whoever reads every CI still finds it on the board
     const all = (await w.e.owner.get(`${w.P}/discovery/status?q=srv-vault-f7`)).rows as Row[];
     expect(all.find((r) => r.ci_id === hidden.id)).toMatchObject({ status: "down", message: "srv-vault-f7: /secure/keys unreachable" });
+
+    // An asset's panel tells of its CI only to those who may read that CI (FL-1): an asset office with the group's CMDB
+    // read and every asset reads the vault's asset, whose status lives on the vault's row
+    await w.e.owner.put(`${w.P}/access/roles/branch_cmdb_asset_reader`, { ...base, name: "دفتر دارایی‌های شعبه", grants: { cmdb: { read: "group" }, asset: { read: "all" } } });
+    const office = await w.e.member("member", `cmdb-asset-${w.e.org.slice(0, 6)}@example.com`);
+    await w.e.owner.put(`${w.P}/access/members/${office.userId}`, { roles: ["branch_cmdb_asset_reader"], persona: "agent" });
+    await w.sys.write((tx) => createIn(tx, w.sys, "group_member", { group_id: ops.id, user_id: office.userId, kind: "member" }, { trusted: true }));
+    const model = await w.sys.write((tx) => createIn(tx, w.sys, "asset_model", { name: "سرور شعبه", category: "server" }, { trusted: true }));
+    const asset = (ciId: string) => w.sys.write((tx) => createIn(tx, w.sys, "asset", { model_id: model.id, ci_id: ciId, state: "in_use" }, { trusted: true }));
+    const mineAsset = await asset(mine.id);
+    const vaultAsset = await asset(hidden.id);
+    // the vault's monitor also raised an alert on it: a signal with its source's name and the alert's id
+    await zabbix({ ...icmp("srv-vault-f7", "770"), event_id: "9701", status: "PROBLEM" });
+    expect((await w.e.owner.get(`${w.P}/discovery/panel/asset/${vaultAsset.id}`)).signals).toEqual([expect.objectContaining({ key: zabbixSource.id, name: "Zabbix مرکز داده", state: "down" })]);
+    // the office reads both assets and their group's CI, not the vault
+    await office.client.get(`${w.P}/r/asset/${vaultAsset.id}`);
+    await office.client.get(`${w.P}/r/ci/${hidden.id}`, 404);
+    expect(JSON.stringify((await office.client.get(`${w.P}/discovery/status`)).rows)).not.toContain("secure/keys");
+    // the vault's asset: the word, the dot and the times — never the CI's tool text, sources or alerts
+    const vaultPanel = await office.client.get(`${w.P}/discovery/panel/asset/${vaultAsset.id}`);
+    expect(vaultPanel).toMatchObject({ empty: false, status: { state: "down", label: "قطع" }, sources: [], signals: [] });
+    expect(vaultPanel.status).not.toHaveProperty("message");
+    expect(JSON.stringify(vaultPanel)).not.toMatch(/secure\/keys|Zabbix|srv-vault/);
+    // the asset of their group's CI keeps its tool's words
+    expect(await office.client.get(`${w.P}/discovery/panel/asset/${mineAsset.id}`)).toMatchObject({ status: { state: "warning", message: "srv-branch-f7: /var 91%" } });
   }, 120_000);
 
   const icmp = (host: string, trigger: string) => ({ host, severity: "High", trigger_id: trigger, trigger_name: "Unavailable by ICMP ping", item_key: "icmpping" });

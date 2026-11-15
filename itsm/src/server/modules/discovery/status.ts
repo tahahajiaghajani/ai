@@ -21,12 +21,14 @@
 //     person closing an alert), and every aggregation reads them live, so a stored signal never outlives its alerts.
 //     Installations that only push alerts get live status without a connector.
 //   · Readers (§9.1, §14.5): the board and the panel go through the engine's read rules of the CI and the asset; tool
-//     names, messages and links only for CMDB readers; requesters and the Windows app get nothing.
+//     names, messages and links only for CMDB readers, and of a CI only for those who may read that CI (an asset's
+//     panel checks the asset's CI too); requesters and the Windows app get nothing.
 // A demo target's row is written only inside its demo scope, a real one's only outside it (§14.4).
 import { alertSignal, recordState, VIRTUALISATION_KINDS } from "@shared/discovery/availability";
 import { aggregateStatus, freshForMs, type SourceStatus } from "@shared/discovery/status";
 import { STATUS_WORDS, type DiscoveredProblem, type StatusItem, type StatusState } from "@shared/discovery/types";
 import { occurrences, type WindowLike } from "@shared/change/logic";
+import type { CondEnv } from "@shared/model/conditions";
 import { grantIn, scopeRank } from "@shared/access";
 import { ALERT_OPEN_STATES } from "@shared/tables/event";
 import { FLEET_CATEGORIES } from "@shared/tables/itam";
@@ -36,7 +38,7 @@ import type { Ctx } from "../../context";
 import { isTransientDbError, pgArray, type Queryable, type Tx } from "../../db";
 import { demoScopeOrg, inDemoScope, isDemoRow } from "../../db/scope";
 import { subjectOf } from "../../access";
-import { condEnv, get, isSystemCtx, onRecordEvent, orgTz, readable, savepoint, systemCtx, type RecordEvent } from "../../engine";
+import { canOpenRecords, condEnv, defFor, get, isSystemCtx, loadReadable, onRecordEvent, orgTz, readable, savepoint, systemCtx, type RecordEvent } from "../../engine";
 import { AppError, forbidden } from "../../http/errors";
 import { registerJobHandler, type Job, type JobContext, type JobResult } from "../../jobs";
 import { assertWritable } from "../platform/org-admin";
@@ -812,12 +814,28 @@ export async function statusBoard(ctx: Ctx, query: BoardQuery = {}): Promise<{ r
   return { rows: slice, total, counts, page, size };
 }
 
-/** The side panel of a CI or an asset: its status and last contact, and — for CMDB readers — one row per source. */
+/**
+ * May the caller open every CI of `ids` under their own read rules — the CI page's check (`get`, a 404 otherwise)?
+ * A deleted CI is not readable.
+ */
+async function readsCis(ctx: Ctx, ids: readonly string[], env: CondEnv): Promise<boolean> {
+  if (!ids.length) return true;
+  const { def } = await defFor(ctx, "ci");
+  if (!(await canOpenRecords(ctx, def))) return false;
+  for (const ciId of new Set(ids)) if (!(await loadReadable(ctx.db, ctx, def, ciId, env))) return false;
+  return true;
+}
+
+/**
+ * The side panel of a CI or an asset: its status and last contact, and — for CMDB readers who may open the CI it tells
+ * of — the tool's message, one row per source and the alerts' signals.
+ */
 export async function statusPanel(ctx: Ctx, table: "ci" | "asset", id: string): Promise<Row> {
   const who = await readerOf(ctx);
   if (table === "ci" && !who.cmdb) throw forbidden(STATUS_READ_MESSAGE);
   const { row: record } = await get(ctx, table, id);
   const org = ctx.org.id;
+  const env = await condEnv(ctx);
   const ciId = table === "ci" ? id : isUuid(record.ci_id) ? String(record.ci_id) : null;
   const assetId = table === "asset" ? id : null;
   const state = await ctx.db.one<Row>(
@@ -826,16 +844,21 @@ export async function statusPanel(ctx: Ctx, table: "ci" | "asset", id: string): 
      order by (target_table = 'ci') desc limit 1`,
     [org, ciId ?? "", assetId ?? "", assetId],
   );
+  // An asset's panel tells of a CI: the asset's own CI (its sources) and the CI whose row holds the asset's status
+  // (rekeyAssetRows moves it there). Reading the asset is not reading that CI: its tool's words, sources and alerts go
+  // only to CMDB readers who may open the CI themselves, as on the board; others keep the word, the dot and the times
+  // (FL-1). A CI's own panel checked the CI above.
+  const told = table === "asset" ? [ciId, state?.target_table === "ci" ? state.target_id : null, state?.ci_id].filter(isUuid).map(String) : [];
+  const words = who.cmdb && (await readsCis(ctx, told, env));
   const status = state
     ? {
         state: state.monitor_status ?? "unknown", label: wordOf(state.monitor_status)?.label ?? "نامعلوم", color: wordOf(state.monitor_status)?.color ?? "gray",
         since: iso(state.monitor_since), sources: Number(state.sources ?? 0), last_contact_at: iso(state.last_contact_at), stale_since: iso(state.stale_since),
-        ...(who.cmdb ? { message: state.monitor_message ?? null } : {}),
+        ...(words ? { message: state.monitor_message ?? null } : {}),
       }
     : null;
-  if (!who.cmdb) return { empty: !status, status, sources: [], signals: [] };
+  if (!words) return { empty: !status, status, sources: [], signals: [] };
   const itemDef = tableDef("discovery_item")!;
-  const env = await condEnv(ctx);
   const params: unknown[] = [org, ciId, assetId];
   const where = readable(ctx, itemDef, "i", params, env);
   const sources = await ctx.db.query<Row>(
