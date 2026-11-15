@@ -14,6 +14,7 @@
 import type { FieldType, FormArrangement, Option } from "../model/types";
 import { COLOR_KEYS, FIELD_TYPES } from "../model/types";
 import { normalizeSearch } from "../model/conditions";
+import { sameJson } from "../json";
 
 /** The registry's slots for custom tables, in order. */
 export const CUSTOM_SLOTS = Array.from({ length: 10 }, (_, i) => `custom_${String(i + 1).padStart(2, "0")}`);
@@ -286,7 +287,8 @@ const PROPS: [keyof StudioField, string][] = [
   ["label", "برچسب"], ["type", "نوع"], ["required", "الزامی"], ["choices", "فهرست گزینه"], ["options", "گزینه‌ها"], ["ref", "مقصد"], ["help", "راهنما"], ["section", "بخش"], ["list", "ستون فهرست"],
 ];
 
-const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+// a field read back from jsonb has its options' keys in jsonb's order: compared as JSON, not as text
+const same = (a: unknown, b: unknown) => sameJson(a ?? null, b ?? null);
 
 /** What importing `incoming` fields does to `current` ones (fields are added or changed, never removed). */
 export function fieldChanges(current: StudioField[], incoming: StudioField[]): FieldChange[] {
