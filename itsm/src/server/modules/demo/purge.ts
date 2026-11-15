@@ -16,8 +16,10 @@
 // 3. clear — references of real rows: optional reference fields are emptied (one-to-many lists lose the demo ids);
 //    required ones, access anchors and authorship stamps are only reported (a real row is never deleted).
 // 4. remove — the rows themselves, their archive copies (`_arc`) and their tables without ids (extracted pages, flow
-//    timers, scope epochs…). Synchronised rows of an organisation with Windows apps become content-free tombstones
-//    first (the apps drop their copies on their next pull) and go for good once every app has passed them
+//    timers, scope epochs…); of the jobs demo work queued, the demo jobs and those that ended (an organisation-wide job
+//    still to run, the organisation's timer among them, stays queued: `removeJobs`). Synchronised rows of an
+//    organisation with Windows apps become content-free tombstones first (the apps drop their copies on their next
+//    pull) and go for good once every app has passed them
 //    (`finalizeDemo`); without apps they go at once. Files no remaining attachment uses leave the blob store.
 // 5. accounts — the pack's people leave with their memberships and sessions (their sign-in records stay); an account
 //    that also belongs to another organisation is kept there (only its demo mark goes).
@@ -41,6 +43,7 @@ import { blobStore, type BlobStore } from "../../blobs";
 import { hashPassword, readableCode } from "../../auth/password";
 import { BY_TABLE } from "../../sync/registry";
 import { notePurged, notePurgedHere } from "../../sync/snapshot";
+import { DEMO_JOB_SQL } from "../../jobs";
 
 export interface ColInfo {
   name: string;
@@ -427,6 +430,20 @@ function tombstoneSet(t: TableInfo): string {
 }
 
 /**
+ * The jobs demo work queued (`mine`: their registry rows). A demo job goes whatever its state — the pack's own
+ * (`__demo`) and every job about demo rows, judged as the job runner judges them (`DEMO_JOB_SQL`) — and so does every
+ * job that has ended. An organisation-wide job that demo work only happened to queue, still queued or running, is the
+ * organisation's own work (it runs outside the demo scope): it stays as it is and leaves the registry. The
+ * organisation's `process.timer` is one (FINAL-5): woken by a demo person's request while the timer ran, its twin
+ * queued in that request took over when the timer ended (jobs/index.ts `finish`), and it serves every case, real ones too.
+ */
+async function removeJobs(q: Queryable, orgId: string, mine: string): Promise<number> {
+  const gone = await q.query(`delete from sm_jobs where org_id = $1 and id in ${mine} and (status in ('done', 'failed') or ${DEMO_JOB_SQL}) returning id`, [orgId]);
+  await q.query(`delete from sm_demo_rows d where d.org_id = $1 and d.tbl = 'sm_jobs' and exists (select 1 from sm_jobs j where j.id = d.row_id)`, [orgId]);
+  return gone.length;
+}
+
+/**
  * Remove (or tombstone) the registry's rows of every table. Returns rows removed and tombstones left. A hard delete of
  * rows Windows apps hold — without tombstones (no app was active), or the tombstones themselves (`finalizeDemo`) —
  * raises the purge watermark in the same transaction (`notePurge`).
@@ -441,6 +458,10 @@ export async function removeRows(q: Queryable, orgId: string, info: TableInfo[],
     const t = byName.get(name);
     if (!t || name === "sm_users") continue;
     const mine = `(select row_id from sm_demo_rows where org_id = $1 and tbl = ${lit(name)})`;
+    if (name === "sm_jobs") {
+      removed += await removeJobs(q, orgId, mine);
+      continue;
+    }
     // archive copies go at once: Windows apps never hold them (the hot table's tombstone told them)
     if (t.def && archivable(t.def) && byName.has(archiveTableOf(t.def))) {
       removed += (await q.query(`delete from ${ident(archiveTableOf(t.def))} where org_id = $1 and id in ${mine} returning id`, [orgId])).length;

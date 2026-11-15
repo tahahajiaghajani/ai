@@ -67,6 +67,9 @@ const READ_ONLY_TABLES = new Set([
   "event", "page",
   "stock_movement", "asset_assignment", "license_position", "license_reconcile_run",
   "supplier_scorecard", "allocation_result",
+  // workflow decisions (FINAL-6): a submission decides its step once it arrives, and a step's unsent values fill its
+  // form — both only on the step's own form, which shows the step and its values, never from a draft
+  "process_submission", "process_draft",
 ]);
 
 /**
@@ -97,7 +100,11 @@ async function toolTableViews(ctx: Ctx): Promise<Map<string, { label: string; pl
   return out;
 }
 
-const toolless = (def: TableDef) => def.virtual || def.key.startsWith("ai_") || def.key.startsWith("va_");
+/**
+ * Tables with no generated tools: virtual ones, the AI's own logs, and tables nobody reads through the record service
+ * (`rowAccess.read` NEVER — a module serves them through its own routes, as analytics and reports leave them out).
+ */
+const toolless = (def: TableDef) => def.virtual || def.key.startsWith("ai_") || def.key.startsWith("va_") || isNever(def.rowAccess?.read);
 /** Tables the generated tools draft records for: not configuration, not a module's own screens, not system-written. */
 export const draftable = (def: TableDef) => !READ_ONLY_AREAS.has(String(def.area)) && !READ_ONLY_TABLES.has(def.key) && !isNever(def.rowAccess?.write);
 

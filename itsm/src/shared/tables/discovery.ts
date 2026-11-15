@@ -8,8 +8,10 @@
 // hook, §14.5); every other table is the module's bookkeeping, written with set-based SQL in `internal` transactions
 // that take no write-admission slot (§7.1) — `rowAccess.write: NEVER` keeps the record API, AI tools and Windows pushes
 // out of them. Items, problems, runs, batches and staged software are read only by readers of their connector
-// (`scope.parent`); the status rows by whoever reads the CMDB (ids, states and times only); the item's normalised
-// record is in field group `internal`. Area `cmdb`, module `discovery`.
+// (`scope.parent`); the status rows only through the module's board and panel, which check each CI or asset with its
+// own read rules (`rowAccess.read: NEVER` keeps the record API, exports, reports and AI tools out: the rows carry the
+// tools' messages and alert signals); the item's normalised record is in field group `internal`. Area `cmdb`, module
+// `discovery`.
 // Imported by the UI: keep it free of server imports.
 import type { TableDef } from "../model/types";
 import { NEVER } from "../model/conditions";
@@ -190,10 +192,13 @@ const state: TableDef = {
     { name: "device_applied", label: "وضعیت ثبت‌شده به دست کاریز", type: "choice", choices: DEVICE_STATUS, readonly: true, span: 8 },
     { name: "device_applied_at", label: "زمان ثبت", type: "datetime", readonly: true, span: 8 },
   ],
-  // ids, states and times only: whoever reads the CMDB may list them; others see them through the module's routes,
-  // which check the CI or asset with the engine's read rules (§14.5)
+  // read only through the module's routes — the board «وضعیت پایش» and the CI or asset panel — which check the CI or
+  // asset with the engine's read rules and show the tools' words to CMDB readers only (§14.5, status.ts); never through
+  // the record API, exports, reports or AI tools (FINAL-7): a row's message and signals tell of a CI or asset (host
+  // names, paths, an ATM's fault) that a reader of some CIs may not read, and its read rule cannot reach the target's
+  // (one row, two possible targets)
   scope: { public: true },
-  rowAccess: { write: NEVER },
+  rowAccess: { read: NEVER, write: NEVER },
   features: { sync: false, history: false },
   unique: [["target_table", "target_id"]],
   list: { columns: ["target_table", "ci_id", "asset_id", "monitor_status", "monitor_since", "last_contact_at", "sources"], order: "-updated_at" },

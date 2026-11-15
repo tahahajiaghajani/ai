@@ -2,7 +2,8 @@
 // that owns them, on the API and on a Windows app's push; no attachment from people on a case (comments are welcome);
 // a process's publish fields only by the publish, and a published process is never deleted; submissions created by
 // their own person, never changed afterwards, a pushed one starting `pending` with no «به نیابت از» of its own; the
-// built-in workflow roles; and the upgrade check of customised roles without `work` create.
+// built-in workflow roles; and the upgrade check of customised roles without `work` create. The assistant drafts no
+// submission and no step's unsent values: a step is decided on its own form (FINAL-6).
 import { describe, it, expect, beforeAll } from "vitest";
 import { SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
@@ -10,6 +11,8 @@ import { builtinRoles, combineRoles, grantIn, roleCatalog, roleClosure } from "@
 import {
   addWorkCreate, CASE_FILES, CASE_WRITE, PROCESS_DELETE, PROCESS_STATUS_WRITE, rolesWithoutWorkCreate, SUBMISSION_KEPT, SUBMISSION_PEOPLE, TASK_WRITE, VERSION_WRITE,
 } from "@server/modules/process/access";
+import { confirmAction, storeProposal } from "@server/modules/ai/actions";
+import { toolCatalog } from "@server/modules/ai/tools";
 import { PNG, upload } from "./engine-helpers";
 import type { Client } from "./helpers";
 import { edge, node, openTask, publish, start, users, world, type Published, type World } from "./process-engine-helpers";
@@ -247,4 +250,32 @@ describe("roles", () => {
     // the roles page's rights: a member who does not see others' access sees nothing of it
     await expect(rolesWithoutWorkCreate(await w.o.ctxOf(p.pb.userId))).rejects.toThrow();
   });
+});
+
+describe("the assistant decides no workflow step (FINAL-6)", () => {
+  it("offers the step's assignee no draft of a submission or of a step's unsent values, and a stored one is not applied", async () => {
+    // the assignee holds `work` create and full write: they submit on the step form (and from the Windows app)
+    const ctx = await w.o.ctxOf(p.h.userId);
+    const { generated } = await toolCatalog(ctx, { proposals: true });
+    const names = new Set(generated.map((e) => e.name));
+    expect(names.has("draft_create_incident")).toBe(true);
+    expect(names.has("search_process_submission")).toBe(true);
+    for (const table of ["process_submission", "process_draft"]) {
+      for (const op of ["create", "update", "transition", "batch"]) expect(names.has(`draft_${op}_${table}`), `draft_${op}_${table}`).toBe(false);
+    }
+    // a proposal such a draft stored (one click on «اعمال» would create the submission that decides the step): it fails,
+    // nothing is submitted and the step stays open
+    const stored = await storeProposal(ctx, {
+      threadId: null, messageId: null, callId: `final6-${uuidv7()}`, tool: "draft_create_process_submission",
+      proposal: {
+        kind: "record.create", title_fa: "ثبت مرحله تازه", summary_fa: "نتیجه: تأیید", preview: [], area: "ai", level: "view",
+        payload: { table: "process_submission", data: { kind: "step", task_id: taskId, outcome: "approved" } },
+      },
+    });
+    const done = await confirmAction(ctx, stored.id);
+    expect(done.status).toBe("failed");
+    await w.k.drain();
+    expect(await w.o.db.one(`select 1 as x from sm_process_submissions where task_id = $1 and submitted_by = $2`, [taskId, p.h.userId])).toBeNull();
+    expect((await w.o.db.one<{ status: string }>(`select status from sm_process_tasks where id = $1`, [taskId]))!.status).toBe("open");
+  }, 120_000);
 });

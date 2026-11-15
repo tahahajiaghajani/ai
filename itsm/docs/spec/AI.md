@@ -501,7 +501,9 @@ sort, limit), `get_<t>` (visible fields only, the transitions the member may tak
 `history_<t>` (field history; internal notes only for those who read them) and, where the member may write and
 proposals are on, `draft_create_<t>`, `draft_update_<t>`, `draft_transition_<t>`, `draft_batch_<t>`,
 `draft_journal_entry`, `draft_link_records`. A table added later (release, DevOps, analytics…) is covered as it is;
-configuration areas get read tools only; a module names its tables per organisation with `registerToolTableView` (a
+configuration areas get read tools only, and so do tables decided only on their own screens (`READ_ONLY_TABLES`:
+approvals, a workflow's submissions and a step's unsent values…; a proposal stored for one is never applied); a
+module names its tables per organisation with `registerToolTableView` (a
 studio table's own name, `null` for an unused slot). What a tool's data may reach is the data-use policy's (§14.2,
 checked by `assertToolData` for every tool result) and the record's own AI-use rule (`aiChannelRule`: search, aggregate
 and batch tools filter by it; get, history and drafts refuse a closed record). Every tool runs the record service

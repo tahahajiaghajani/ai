@@ -187,10 +187,11 @@ async function claim(db: Db, worker: string, n = 1): Promise<Job[]> {
  * Is a job demo work (docs/DEMO_FA.md)? It was queued inside a demo transaction (recorded in sm_demo_rows) and it is
  * about demo data: the pack's own job (`__demo` in its payload) or a payload naming a demo row (a record's event, a
  * per-record timer, a notification of a demo record…). An organisation-wide job that demo work happened to queue (a
- * nightly roll-up, a re-index of a whole table) is not: it runs as ordinary work, and what it derives from demo rows
- * is found by the purge through its references.
+ * nightly roll-up, a re-index of a whole table, the organisation's `process.timer` woken while it ran) is not: it runs
+ * as ordinary work, the purge leaves it queued (demo/purge.ts `removeRows`), and what it derives from demo rows is found
+ * by the purge through its references. A condition on the table `sm_jobs` itself (no alias).
  */
-const DEMO_JOB_SQL = `(sm_jobs.org_id is not null
+export const DEMO_JOB_SQL = `(sm_jobs.org_id is not null
   and exists (select 1 from sm_demo_rows d where d.org_id = sm_jobs.org_id and d.row_id = sm_jobs.id)
   and (sm_jobs.payload ? '__demo' or exists (
     select 1 from regexp_matches(sm_jobs.payload::text, '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})', 'g') m
