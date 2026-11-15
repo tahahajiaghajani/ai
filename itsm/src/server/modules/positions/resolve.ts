@@ -9,7 +9,9 @@
 //      actor's) manager to depth 3; the head of a unit; a person field of the case; whoever did an earlier step; the
 //      requester. Rules are united, first rule first.
 //   2. Only active members stay, and the excluded ones go (the requester — filer and beneficiary — on approve steps by
-//      default: separation of duties; earlier actors; a step's actors).
+//      default: separation of duties; earlier actors; a step's actors). The organisation's own work — a case that is not
+//      a row of its demo pack — never goes to the pack's people, nor to them as delegates (docs/DEMO_FA.md: demo accounts
+//      approve no real record, as sla/approvals.ts `resolveLevel` keeps for records' approvals).
 //   3. Delegation by action: approve reads a `delegation` row in force with scope «approvals», fill and review one with
 //      scope «assignments»; without one, the out-of-office delegate of the member profile. A delegate who is active and
 //      not excluded replaces the person (`delegatedFrom` keeps who it was for), up to three steps, never in a circle.
@@ -33,6 +35,10 @@ import {
 import { activeDelegations, managerOf, type Delegation } from "../sla/approvals";
 import { MEMBERSHIP_FALLBACK, roleClosure, type RoleDef } from "@shared/access";
 import { accessSettings, catalogOf, snapshotFor } from "../../access/subject";
+import { demoPeople, isDemoRow } from "../../db/scope";
+
+/** A person of the demo pack picked for a step of the organisation's own case (`reassignStep`). */
+export const DEMO_PEOPLE_REAL_WORK = "حساب‌های نمایشی کار پرونده‌های واقعی سازمان را بر عهده نمی‌گیرند";
 
 export interface ResolveInput {
   step: StepAssignees;
@@ -59,6 +65,13 @@ export interface ResolveInput {
   managerGroups?: string[];
   /** the moment of resolution (holders' validity, delegations); default now */
   at?: number;
+  /**
+   * The workflow case the step belongs to: unless it is a row of the organisation's demo pack (sm_demo_rows), the step
+   * is the organisation's own work and the pack's people are neither found nor stand in as delegates.
+   */
+  caseId?: string | null;
+  /** The same decided by the caller (the designer's preview, which has no case): true — the organisation's own work. */
+  real?: boolean;
 }
 
 export interface Via {
@@ -144,6 +157,7 @@ export class Resolution {
   private requesterUnitId: string | null | undefined;
   private delegation: { rows: Delegation[]; away: Map<string, string> } | null = null;
   private catalog: Map<string, RoleDef> | null = null;
+  private realWork: Promise<boolean> | null = null;
 
   readonly ctx: Ctx;
 
@@ -165,6 +179,16 @@ export class Resolution {
   /** The person the case is about: requestedFor, else requestedBy. */
   get subject(): string | null {
     return lower(this.input.requestedFor) ?? lower(this.input.requestedBy);
+  }
+
+  /**
+   * Is the step the organisation's own work (see `ResolveInput.caseId`)? The caller's word, else its case's: a case that
+   * is not a row of the demo pack. No case and no word (an estimate, a starters check): not judged.
+   */
+  isReal(): Promise<boolean> {
+    if (typeof this.input.real === "boolean") return Promise.resolve(this.input.real);
+    const id = lower(this.input.caseId);
+    return (this.realWork ??= id ? isDemoRow(this.q, this.org, id).then((demo) => !demo) : Promise.resolve(false));
   }
 
   async position(ref: string): Promise<PositionRow | null> {
@@ -491,6 +515,9 @@ export class Resolution {
     const delegates = new Map<string, string>();
     for (const u of first.keys()) delegates.set(u, await this.delegateOf(u));
     const active = await this.activeOf([...first.keys(), ...delegates.values()]);
+    // the organisation's own work never goes to the demo pack's people, found by any rule or standing in for someone
+    // (whoever they stand in for keeps the place): a step left with nobody follows its «ifNobody»
+    if (active.size && (await this.isReal())) for (const u of await demoPeople(this.q, this.org, [...active])) active.delete(u);
     // one place per person found: a delegate standing in for two people holds both places (each with its
     // delegatedFrom), and a candidate who is also another's delegate keeps their own place too
     const out: Resolved[] = [];

@@ -76,10 +76,14 @@ function fieldTypes(version: VersionInfo): Record<string, string> {
   return out;
 }
 
-/** The resolver's input for a step of a case (also the «اعلان» recipients'). */
+/**
+ * The resolver's input for a step of a case (also the «اعلان» recipients'): the case's own work, so a case of the
+ * organisation's own never goes to the demo pack's people (`ResolveInput.caseId`).
+ */
 export function resolveInput(kase: CaseRow, version: VersionInfo, tasks: readonly TaskRow[], step: Pick<FormStep, "assignees" | "exclude" | "fallback" | "ifNobody" | "action" | "quorum">, label: string): ResolveInput {
   const actors = actorsOf(tasks);
   return {
+    caseId: kase.id,
     step: { assignees: step.assignees, exclude: step.exclude, fallback: step.fallback, ifNobody: step.ifNobody },
     action: step.action,
     quorum: quorumOf(step),
@@ -168,7 +172,7 @@ async function openStep(s: StepContext): Promise<StepOutcome> {
     const live = await activeMembers(tx, s.orgId, earlier);
     const found = earlier.filter((u) => live.has(u)).map((user) => ({ user, via: { rule: 0, kind: "users" as const } }));
     if (found.length) {
-      const settled = await new Resolution(tx, sys, { step: { assignees: [] }, action: step.action, requestedBy: kase.requested_by }).settle(found, new Set());
+      const settled = await new Resolution(tx, sys, { step: { assignees: [] }, action: step.action, requestedBy: kase.requested_by, caseId: kase.id }).settle(found, new Set());
       people = settled.map((p) => ({ user: p.user, delegatedFrom: p.delegatedFrom }));
     }
   }

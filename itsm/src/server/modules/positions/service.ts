@@ -1,6 +1,8 @@
 // The positions API's services (design F §3.4, §8.4, package F3):
 //   · previewResolve  «پیش‌نمایش» of a step's people for a sample requester — the very resolver a step runs when it
-//     opens (resolve.ts), with names and one line per person («علی احمدی — رئیس شعبه (شعبهٔ ونک)»);
+//     opens (resolve.ts), with names and one line per person («علی احمدی — رئیس شعبه (شعبهٔ ونک)»); a requester of the
+//     organisation's own starts real work, which never goes to the demo pack's people (a person of the pack starts the
+//     pack's work);
 //   · estimateStep    the static count behind the designer's explanation and pool warnings («۴۸ نفر در ۴۸ شعبه؛ برای
 //     هر پرونده رئیس شعبه همان شعبه»; warnings from 30, the limits 100 and 50);
 //   · positionsOverview  the positions with their current holders, units, vacancies and sources («نقش‌های سازمانی»).
@@ -8,6 +10,7 @@
 // structure (`org` write beyond their own groups): they show who holds which post and who stands in for whom.
 import type { Ctx } from "../../context";
 import { pgArray } from "../../db";
+import { demoPeople } from "../../db/scope";
 import { bad, forbidden, notFound } from "../../http/errors";
 import { defFor, orgTz } from "../../engine";
 import { access } from "../../access/provider";
@@ -181,6 +184,8 @@ export async function previewResolve(ctx: Ctx, input: PreviewInput): Promise<Pre
     managers: input.managers ?? [],
     managerGroups: input.manager_groups ?? [],
     at: Number.isFinite(at) ? at : undefined,
+    // as the step of the case this requester would start: the pack's people start the pack's work (demo scope)
+    real: !(await demoPeople(ctx.db, ctx.org.id, [requester])).size,
   });
   const display = await displayOf(ctx, result);
   return { ...result, warnings: assigneeWarnings(step, input.action), lines: linesOf(result, display), display };

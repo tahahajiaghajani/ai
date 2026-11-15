@@ -7,7 +7,8 @@
 //   · managers (named, by group, or — for a case that names none — the organisation's administrators), each only on a
 //     case they read:
 //     – «ارجاع»: a step's open task moves to other people, or a step that found nobody gets people; the round stays,
-//       and the step's exclusions hold (never the requester on an approve step, nor the earlier actors it excludes);
+//       and the step's exclusions hold (never the requester on an approve step, nor the earlier actors it excludes),
+//       and a case of the organisation's own never goes to the demo pack's people (docs/DEMO_FA.md);
 //     – «توقف موقت» / «ادامه»: nobody acts and the timers wait while it is paused; when it resumes, the open rounds'
 //       due times, the time their escalations and reminders count from, and their last reminder and escalation move
 //       on by the pause;
@@ -23,7 +24,8 @@ import { pgArray, type Tx } from "../../../db";
 import { bad, conflict, forbidden, notFound } from "../../../http/errors";
 import { createIn, get, isSystemCtx, orgTz, systemCtx, updateIn } from "../../../engine";
 import { audit } from "../../data/crud";
-import { Resolution } from "../../positions";
+import { demoPeople } from "../../../db/scope";
+import { DEMO_PEOPLE_REAL_WORK, Resolution } from "../../positions";
 import { config as slaConfig } from "../../sla/common";
 import { calendarsOf } from "../../sla/calendars";
 import { OPEN_STATES, processesRunHere, refreshCase, resolveInput, cancelCase, submitTask, startCase, type StartCaseInput, type SubmitTaskInput } from "../engine";
@@ -182,6 +184,7 @@ export async function reassignStep(ctx: Ctx, caseId: string, input: ReassignInpu
       const requester = run.excluded(["requester"]);
       throw bad(to.some((u) => excluded.has(u) && requester.has(u)) ? "درخواست‌دهنده این مرحله را انجام نمی‌دهد" : "انجام‌دهندهٔ مرحله‌ای پیشین این مرحله را انجام نمی‌دهد");
     }
+    if ((await run.isReal()) && (await demoPeople(tx, ctx.org.id, to)).size) throw bad(DEMO_PEOPLE_REAL_WORK);
     const settled = await run.settle(
       to.map((user) => ({ user, via: { rule: 0, kind: "users" as const } })),
       excluded,
