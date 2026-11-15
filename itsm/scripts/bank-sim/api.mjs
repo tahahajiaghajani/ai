@@ -647,7 +647,11 @@ async function pushStatus() {
   let ci = await firstBy(api, P, "ci", "hostname", PUSH.host);
   if (!ci) ci = (await api.post(`${P}/r/ci`, { name: PUSH.ci, class: "server", hostname: PUSH.host, serial_number: PUSH.serial, description: "پایگاه دادهٔ کربنکینگ (شبیه‌سازی بانک)" })).row;
   C.check(!!ci?.id, `a known server in the CMDB: ${PUSH.ci} (${PUSH.host})`, JSON.stringify(ci ?? {}).slice(0, 200));
-  // the monitoring system's integration user and its key, which may only post discovery items
+  // the monitoring system's integration user and its key, which may only post discovery items. Giving it roles changes
+  // who holds which access, which the server takes only with a recent proof of identity (src/server/access/hooks.ts),
+  // and `admin()` reuses the session saved at the setup, older than the organisation's reauth window (15 minutes) by
+  // this scenario: the administrator confirms the password first, as the console's dialog does
+  await api.post("/auth/reauth", { password: ADMIN.password });
   let user = await firstBy(api, P, "integration_user", "name", PUSH.user);
   if (!user) user = (await api.post(`${P}/r/integration_user`, { name: PUSH.user, rate_limit: 600, description: "ابزار پایش مرکز داده که وضعیت سرورها را می‌فرستد" })).row;
   await api.put(`${P}/integration/users/${user.id}/roles`, { roles: ["requester"] });

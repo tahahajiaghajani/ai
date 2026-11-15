@@ -140,6 +140,13 @@ describe("the simulation covers the monitoring push API (scenario 13)", () => {
     expect(body).toContain('api.post(`${P}/r/ci`, { name: PUSH.ci, class: "server", hostname: PUSH.host');
     expect(body).toContain("api.post(`${P}/integration/users/${user.id}/keys`, { name: PUSH.key, scopes: [{ table: \"discovery_item\", ops: [\"create\"] }] })");
     expect(body).toContain('api.raw("POST", `${P}/discovery/connectors`, { body: { name: PUSH.connector, kind: "push", push_user_id: user.user_id');
+    // giving the integration user roles changes who holds which access, which needs a recent proof of identity, and the
+    // session `admin()` reuses dates from the setup, long past the 15-minute reauth window by scenario 13 (run
+    // 43666903825: 401 reauth_required on the roles): the administrator confirms the password first, as the other
+    // phases do before a sensitive action
+    const reauth = body.indexOf('await api.post("/auth/reauth", { password: ADMIN.password });');
+    expect(reauth).toBeGreaterThan(0);
+    expect(reauth).toBeLessThan(body.indexOf("/integration/users/${user.id}/roles"));
     // the tool's own client: no session, refused without the key, answered with it
     expect(body).toContain("const tool = new Api(BASE, { timeoutMs: 30_000 });");
     expect(body).toContain("const path = `/v1/discovery/${conn.id}/status`;");
