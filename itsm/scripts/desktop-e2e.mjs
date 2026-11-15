@@ -534,10 +534,15 @@ async function addMember(org) {
   C.check(true, `the administrator adds a regular member in «کاربران و دسترسی‌ها» (${Date.now() - t} ms)`);
 }
 
-/** «خروج» from the account menu, then the sign-in form as `who`. */
+/**
+ * «خروج» from the account menu on screen, then the sign-in form as `who`. On the requester portal that is the portal's
+ * own header: the portal is a shell of its own over the app's, which it makes inert beneath it
+ * (src/ui/modules/portal/Shell.tsx), so the top bar's avatar cannot be reached there — the member's pages end on it.
+ */
 async function switchAccount(who) {
   phase = `switch:${who.email}`;
-  await page.locator(".sh-avatar").click();
+  const portal = page.locator('.pt-root .pt-head button[aria-label^="حساب "]');
+  await ((await portal.count()) ? portal.first() : page.locator(".sh-avatar")).click();
   await page.getByRole("menuitem", { name: "خروج" }).click();
   await page.locator('input[autocomplete="username"]').waitFor({ timeout: 30_000 });
   const t = Date.now();

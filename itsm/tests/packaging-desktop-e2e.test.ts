@@ -116,6 +116,18 @@ describe("desktop-e2e covers fields, forms and workflows", () => {
     expect(s).toContain("await post(`/o/${org}/demo/signin`, { on: true });");
     expect(s).toContain('.find((x) => x.persona === "agent")');
     expect(s).toMatch(/await pages\("member", org\);\n[\s\S]{0,200}report\.switch_demo_ms = await switchAccount\(demo\);\n\s+await workflow\("demo", org\);/);
+    // the member's pages end on the requester portal, a shell of its own over the app's that makes the app's shell
+    // beneath inert: «خروج» there is in the portal's own account menu (run 43666903825 clicked the top bar's avatar
+    // under it and timed out), the top bar's avatar on every other page
+    expect(s).toMatch(/await go\(persona, "workflows", `\/\$\{org\}\/workflows`\);\n\s+await go\(persona, "portal", `\/\$\{org\}\/portal`\);\n\s+\}\n\}/);
+    expect(s).toContain(`const portal = page.locator('.pt-root .pt-head button[aria-label^="حساب "]');`);
+    expect(s).toContain('await ((await portal.count()) ? portal.first() : page.locator(".sh-avatar")).click();');
+    const portalShell = readFileSync(join(__dirname, "../src/ui/modules/portal/Shell.tsx"), "utf8");
+    expect(portalShell).toContain('<div className="pt-root" dir="rtl"');
+    expect(portalShell).toContain('<header className="pt-head">');
+    expect(portalShell).toContain('<button type="button" className="pt-iconbtn" aria-label={`حساب ${name}`}>');
+    expect(portalShell).toContain('{ key: "out", icon: <LogOut {...I} />, label: "خروج"');
+    expect(portalShell).toContain('app?.setAttribute("inert", "");');
     const { KNOWN_NAMES } = await import("@server/modules/demo/bank");
     expect([...KNOWN_NAMES.agent.roles]).toEqual(["agent"]);
     // its pages keep the navigation budgets the member's had
