@@ -67,6 +67,9 @@ const READ_ONLY_TABLES = new Set([
   "event", "page",
   "stock_movement", "asset_assignment", "license_position", "license_reconcile_run",
   "supplier_scorecard", "allocation_result",
+  // workflow decisions (FINAL-6): a submission decides its step once it arrives, and a step's unsent values fill its
+  // form — both only on the step's own form, which shows the step and its values, never from a draft
+  "process_submission", "process_draft",
 ]);
 
 /**
