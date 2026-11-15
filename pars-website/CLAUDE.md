@@ -11,4 +11,5 @@ Standalone Next.js 16 app in a sub-folder of the Task Flow repository (deployed 
 - **AI:** `src/lib/ai/providers.ts` (raw fetch + SSE for Gemini, Anthropic, OpenAI-compatible) and `runtime.ts` (model fallback, system prompt). The assistant answers only from the knowledge base; markers `[[action:demos|ticket|contact]]` and `[[unknown]]` are parsed by `src/lib/markers.ts`.
 - **Admin:** every Server Action in `src/app/actions/admin.ts` goes through `guard()` (session check). Public actions in `support.ts` validate input and rate-limit with `allow()`.
 - **Performance:** keep public pages static; heavy/decorative code is lazy (chat panel, animated mark); the hero shader must stay adaptive. Check with `npm run build` and Lighthouse.
+- **Vercel:** `vercel.json` holds the Ignored Build Step (it overrides the dashboard). Keep its `git cat-file -e` guard: Vercel's clone is shallow, and when the last deployed commit is missing `git diff` exits 128, which Vercel counts as a failed deployment, not a build.
 - Commands: `npm run typecheck` · `npm test` · `npm run build` (must pass with no env vars).
