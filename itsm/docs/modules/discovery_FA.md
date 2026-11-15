@@ -318,7 +318,7 @@ TerminalID,Serial,State,LastSeen
 
 ## جزئیات فنی
 
-- **جدول‌ها** (`src/shared/tables/discovery.ts`، حوزهٔ `cmdb`، همه محلی و بی‌همگام‌سازی با برنامهٔ ویندوز): `discovery_connector` (منبع داده)، `discovery_item` (هر چیزی که ابزار گزارش کرده؛ نقشهٔ شناسه به پیکربندی و دارایی)، `discovery_state` (وضعیت و تماس هر پیکربندی یا دارایی)، `discovery_problem`، `discovery_run` (هر گذر)، `discovery_batch` (دسته‌های API ارسال).
+- **جدول‌ها** (`src/shared/tables/discovery.ts`، حوزهٔ `cmdb`، همه محلی و بی‌همگام‌سازی با برنامهٔ ویندوز): `discovery_connector` (منبع داده)، `discovery_item` (هر چیزی که ابزار گزارش کرده؛ نقشهٔ شناسه به پیکربندی و دارایی)، `discovery_state` (وضعیت و تماس هر پیکربندی یا دارایی؛ آن را فقط تابلوی «وضعیت پایش» و پنل پیکربندی و دارایی با قاعدهٔ خواندن همان پیکربندی یا دارایی نشان می‌دهند، نه API رکوردها، خروجی‌ها، گزارش‌ها یا دستیار)، `discovery_problem`، `discovery_run` (هر گذر)، `discovery_batch` (دسته‌های API ارسال).
 - **نوع‌ها:** `src/shared/discovery/kinds/*` (توصیف هر ابزار و قاعدهٔ دسترس‌پذیری آن) و `src/server/modules/discovery/connectors/*`؛ قالب رکورد `kariz.discovery/1` در `src/shared/discovery/types.ts`.
 - **API** (`/api/o/:org/discovery`): منبع‌ها، آزمودن، پیش‌نمایش، اجرا و لغو، موارد، صف آشتی، `status` (تابلو) و `panel/:table/:id`؛ API ارسال در `/api/v1/discovery/:connector/{batches,status}` با کلید کاربر یکپارچه‌سازی.
 - **آزمون‌ها:** `tests/discovery-*.test.ts` (از جمله `discovery-push`، `discovery-status`، `discovery-device`، `discovery-kinds-zabbix|prtg|vcenter|feed`، `discovery-docs` که پیام‌های این راهنما را با کد می‌سنجد)، `tests/integration-itam-discovery.test.ts` و سناریوی ۱۳ شبیه‌سازی بانک ([`qa/BANK_SIM_FA.md`](../qa/BANK_SIM_FA.md)).

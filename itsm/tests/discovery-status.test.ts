@@ -3,7 +3,7 @@
 // monitor's down, freshness); status writes make no `record.*` event and no `rev` bump on ci or asset; the event sink —
 // an ICMP-down Zabbix webhook alert makes the CI «قطع» and its clear brings it back, a disk alert makes it «هشدار», an
 // installation that only pushes alerts gets status; a status pass reads a kind's status and problems; the board and
-// the panel follow the read rules.
+// the panel follow the read rules, and they alone hand status rows out (FINAL-7).
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { alertSignal, recordState } from "@shared/discovery/availability";
@@ -13,7 +13,8 @@ import { isAvailabilityProblem, zabbixAvailability, type ZabbixAvailabilityInput
 import { aggregateStatus, freshForMs } from "@shared/discovery/status";
 import { normalize } from "@shared/event/logic";
 import { parseBody } from "@server/modules/event/ingest";
-import { createIn, transitionIn, updateIn } from "@server/engine";
+import { createIn, exportRows, transitionIn, updateIn } from "@server/engine";
+import { toolCatalog } from "@server/modules/ai/tools";
 import { sweep } from "@server/modules/event/jobs";
 import { stagePage } from "@server/modules/discovery/stage";
 import { loadConnector } from "@server/modules/discovery/runner";
@@ -235,6 +236,52 @@ describe("status in the database (design A §9.1, §9.7)", () => {
       restore();
     }
   });
+
+  it("status rows go out only through the board and the panel, under the CI's read rules — never through the record API, an export or the assistant (FINAL-7)", async () => {
+    // an agent whose CMDB read is scoped to their own group, as a bank sets one up for a branch's operations team
+    const group = (name: string) => w.sys.write((tx) => createIn(tx, w.sys, "group", { name }, { trusted: true }));
+    const ops = await group("عملیات شعب");
+    const dc = await group("عملیات مرکز داده");
+    const base = { persona: "agent", field_groups: ["internal", "personal"], contains: [], workspaces: "member", domains: "own" };
+    await w.e.owner.put(`${w.P}/access/roles/branch_cmdb_reader`, { ...base, name: "خوانندهٔ پیکربندی‌های شعبه", grants: { cmdb: { read: "group" } } });
+    const agent = await w.e.member("member", `cmdb-group-${w.e.org.slice(0, 6)}@example.com`);
+    await w.e.owner.put(`${w.P}/access/members/${agent.userId}`, { roles: ["branch_cmdb_reader"], persona: "agent" });
+    await w.sys.write((tx) => createIn(tx, w.sys, "group_member", { group_id: ops.id, user_id: agent.userId, kind: "member" }, { trusted: true }));
+    const server = (name: string, groupId: string) => w.sys.write((tx) => createIn(tx, w.sys, "ci", { class: "server", name, hostname: name, state: "operational", support_group_id: groupId }, { trusted: true }));
+    const mine = await server("srv-branch-f7", String(ops.id));
+    const hidden = await server("srv-vault-f7", String(dc.id));
+    // what the tools said about each, in their words
+    await item("f7-mine", mine.id, "up");
+    await item("f7-hidden", hidden.id, "up");
+    await applyItemStatuses(w.e.db, w.e.org, push.id, [
+      { external_id: "f7-mine", status: { state: "warning", availability: false, message: "srv-branch-f7: /var 91%" } },
+      { external_id: "f7-hidden", status: { state: "down", availability: true, message: "srv-vault-f7: /secure/keys unreachable" } },
+    ], new Date());
+    await aggregateTargets(w.e.db, w.sys, [{ table: "ci", id: mine.id }, { table: "ci", id: hidden.id }]);
+    const hiddenRow = await w.one<Row>(`select id, monitor_message from sm_discovery_states where target_table = 'ci' and target_id = $1 and deleted_at is null`, [hidden.id]);
+    expect(hiddenRow.monitor_message).toBe("srv-vault-f7: /secure/keys unreachable");
+    // the agent reads their group's CI, not the other one
+    await agent.client.get(`${w.P}/r/ci/${mine.id}`);
+    await agent.client.get(`${w.P}/r/ci/${hidden.id}`, 404);
+    // the record API, an export and the assistant read no status row
+    expect((await agent.client.get(`${w.P}/r/discovery_state?limit=500`)).rows).toEqual([]);
+    await agent.client.get(`${w.P}/r/discovery_state/${hiddenRow.id}`, 404);
+    const ctx = await w.e.ctxOf(agent.userId);
+    expect((await exportRows(ctx, "discovery_state", {})).rows).toEqual([]);
+    const { generated } = await toolCatalog(ctx, { proposals: true });
+    expect(generated.some((t) => t.name === "search_ci")).toBe(true);
+    expect(generated.filter((t) => t.table === "discovery_state").map((t) => t.name)).toEqual([]);
+    // the board and the panel: the agent's CI with its tool's message, nothing of the other
+    const board = (await agent.client.get(`${w.P}/discovery/status`)).rows as Row[];
+    expect(board.find((r) => r.ci_id === mine.id)).toMatchObject({ status: "warning", message: "srv-branch-f7: /var 91%" });
+    expect(board.some((r) => r.ci_id === hidden.id)).toBe(false);
+    expect(JSON.stringify(board)).not.toContain("secure/keys");
+    expect(await agent.client.get(`${w.P}/discovery/panel/ci/${mine.id}`)).toMatchObject({ status: { state: "warning", message: "srv-branch-f7: /var 91%" } });
+    await agent.client.get(`${w.P}/discovery/panel/ci/${hidden.id}`, 404);
+    // whoever reads every CI still finds it on the board
+    const all = (await w.e.owner.get(`${w.P}/discovery/status?q=srv-vault-f7`)).rows as Row[];
+    expect(all.find((r) => r.ci_id === hidden.id)).toMatchObject({ status: "down", message: "srv-vault-f7: /secure/keys unreachable" });
+  }, 120_000);
 
   const icmp = (host: string, trigger: string) => ({ host, severity: "High", trigger_id: trigger, trigger_name: "Unavailable by ICMP ping", item_key: "icmpping" });
 
