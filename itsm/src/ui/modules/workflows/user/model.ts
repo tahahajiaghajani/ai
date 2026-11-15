@@ -396,6 +396,17 @@ export function startMessage(r: Pick<SubmitResult, "result" | "note">, next: str
   return { tone: "ok", text: next && next !== "پایان" ? `پرونده ثبت شد؛ پرونده به ${q(next)} رفت.` : "پرونده ثبت شد." };
 }
 
+/**
+ * What the person is told after «لغو پرونده»: «پرونده لغو شد.» only when the cancel was applied; a linked Windows app
+ * queues it; a case that ended first (its last approver completed it while the dialog was open) comes back «late» —
+ * nothing was cancelled, and the server's note says so.
+ */
+export function cancelMessage(r: { result: SubmitResult["result"] | "refused"; note?: string | null }): { tone: "ok" | "info" | "warning"; text: string } {
+  if (r.result === "applied") return { tone: "ok", text: "پرونده لغو شد." };
+  if (r.result === "pending") return { tone: "info", text: "در صف ارسال؛ با برقراری اتصال فرستاده می‌شود." };
+  return { tone: "warning", text: r.note || "این پرونده پیش‌تر بسته شده است." };
+}
+
 /** A local file of the form: its token in the field's value until it is sent. */
 export const LOCAL_FILE = /^local-\d+$/;
 

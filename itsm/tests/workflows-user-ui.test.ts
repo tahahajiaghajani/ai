@@ -6,6 +6,7 @@
 // real organisation, through the pages' own API module: the §3.7 bank process started by a clerk, the head's
 // «کارتابل» and case, a return to the requester with its consequence, a draft kept and refilled, the requester's
 // second round, the approval; a pool step taken by one («در دست …»), the other's late decision kept with its message;
+// a requester's «لغو پرونده» that arrives after the case ended («late», never «پرونده لغو شد.»);
 // a delegate's «به جانشینی از …»; the printable view; a reader of no case gets an empty «پرونده‌ها» — and the review's
 // cases: a case's files open by name from «داده‌ها», «آنچه پیش‌تر ثبت شده» and the step form; «امروز» in «پرونده‌ها»
 // finds today's cases; a start sent again after its answer was lost opens one case; the portal's «کارهای من» counts and
@@ -30,7 +31,8 @@ import { ROUTES, NAV } from "../src/ui/modules/registry";
 import { userPart } from "../src/ui/modules/workflows/user/routes";
 import { USER_KEYS, userApi, casesQuery, dayEnd, type CaseDetail, type Inbox, type InboxRow, type MyStep, type StepView } from "../src/ui/modules/workflows/user/api";
 import {
-  CASE_PATH, PORTAL_WF_PATH, PRINT_PATH, PROCESS_PATH, RECORD_CASE_PATH, START_PATH, STEP_PATH, WF_PATH, caseFiltersOf, caseIdHolder, caseStateView, consequence, defaultReturn,
+  CASE_PATH, PORTAL_WF_PATH, PRINT_PATH, PROCESS_PATH, RECORD_CASE_PATH, START_PATH, STEP_PATH, WF_PATH, cancelMessage, caseFiltersOf, caseIdHolder, caseStateView, consequence,
+  defaultReturn,
   draftValues, dueView, fieldProblems, filtered, headerStep, inboxRowView, initialValues, mapLink, missingRequired, myPart, newCaseId, openSteps, packValues, processMarks,
   resultMessage, rowLink, sendLabel, startMessage, startValues, stateChannel, stepActions, stepNotes, tabOf, takenFromStatuses, waitingSteps, waitingText, wfPaths,
   withCaseFilter,
@@ -326,6 +328,13 @@ describe("the step form", () => {
     expect(startMessage({ result: "pending", note: null }, null).tone).toBe("info");
   });
 
+  it("«لغو پرونده» says «پرونده لغو شد.» only when it was applied; a case that ended first is a warning with the server's note", () => {
+    expect(cancelMessage({ result: "applied", note: null })).toEqual({ tone: "ok", text: "پرونده لغو شد." });
+    expect(cancelMessage({ result: "pending", note: null })).toEqual({ tone: "info", text: "در صف ارسال؛ با برقراری اتصال فرستاده می‌شود." });
+    expect(cancelMessage({ result: "late", note: "این پرونده پیش‌تر بسته شده است" })).toEqual({ tone: "warning", text: "این پرونده پیش‌تر بسته شده است" });
+    expect(cancelMessage({ result: "late" })).toEqual({ tone: "warning", text: "این پرونده پیش‌تر بسته شده است." });
+  });
+
   const fields: Record<string, FieldDef> = {
     u_amount: { name: "u_amount", label: "مبلغ درخواستی", type: "money" } as FieldDef,
     u_need: { name: "u_need", label: "شرح نیاز", type: "text" } as FieldDef,
@@ -591,6 +600,22 @@ describe("«گردش‌کارها» on a real organisation (§3.7)", () => {
     const late = await userApi.submit(as("deputy"), b.w.o.org, dep.id, { outcome: "submitted", values: { u_finance_note: "نظر من" } });
     expect(late.result).toBe("late");
     expect(resultMessage(late, "submitted", dep, null, other.display)).toMatchObject({ tone: "warning" });
+  });
+
+  it("the requester's «لغو پرونده» sent after the last step completed the case comes back «late»: she is not told it was cancelled", async () => {
+    const r = await userApi.start(as("clerk"), b.w.o.org, { process: "branch_visit", values: { u_amount: "1000", u_branch: b.U.vanak }, case_id: newCaseId() });
+    await b.w.k.drain();
+    const id = r.case!;
+    // she opens «لغو پرونده» (nothing after the start is done yet) …
+    expect((await userApi.kase(as("clerk"), id)).can).toMatchObject({ cancel: true, manage: false });
+    // … while the head does the last step and the case ends
+    const head = (await userApi.kase(as("head"), id)).my_steps[0];
+    await userApi.submit(as("head"), b.w.o.org, head.id, { outcome: "submitted", values: { u_finance_note: "بازدید انجام شد" } });
+    await b.w.k.drain();
+    const cancel = await userApi.cancel(as("clerk"), id, "دیگر لازم نیست");
+    expect(cancel).toMatchObject({ result: "late", by: "requester", note: "این پرونده پیش‌تر بسته شده است" });
+    expect(cancelMessage(cancel)).toEqual({ tone: "warning", text: "این پرونده پیش‌تر بسته شده است" });
+    expect((await userApi.kase(as("clerk"), id)).case).toMatchObject({ state: "completed", outcome: "completed" });
   });
 
   it("a delegate sees «به جانشینی از …» and acts for the head", async () => {

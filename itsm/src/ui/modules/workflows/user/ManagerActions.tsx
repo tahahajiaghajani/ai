@@ -4,7 +4,7 @@
 //   · «توقف موقت» / «ادامهٔ پرونده» (managers), with an optional note;
 //   · «ادامه از مرحلهٔ …» (managers, a case in «نیاز به بررسی»): a step outside parallel blocks;
 //   · «لغو پرونده»: a manager's, or the requester's before any step after the start (that one is a submission: on a
-//     linked Windows app it waits to be sent).
+//     linked Windows app it waits to be sent, and when the case ended first it comes back «late» and says so).
 import { useEffect, useMemo, useState } from "react";
 import { Input, Modal, Radio, Select } from "antd";
 import { useQueryClient } from "@tanstack/react-query";
@@ -13,7 +13,7 @@ import { useNotify } from "../../../lib/hooks";
 import { Note } from "../../../components/blocks";
 import { UserSelect } from "../../../records/fields/RecordSelect";
 import { USER_KEYS, userApi, type CaseDetail } from "./api";
-import { nameOf, openSteps } from "./model";
+import { cancelMessage, nameOf, openSteps } from "./model";
 
 export type ManagerAction = "reassign" | "pause" | "resume" | "cancel" | "resume_from";
 
@@ -55,25 +55,27 @@ export function ManagerDialogs({ action, detail, onClose, me }: { action: Manage
   const run = async () => {
     setBusy(true);
     try {
-      let text = "";
+      let msg: ReturnType<typeof cancelMessage>;
       if (action === "reassign") {
         await userApi.reassign(api, id, { step: step!, task, to, comment: comment.trim() || null });
-        text = `«${steps.find((s) => s.key === step)?.label ?? ""}» سپرده شد.`;
+        msg = { tone: "ok", text: `«${steps.find((s) => s.key === step)?.label ?? ""}» سپرده شد.` };
       } else if (action === "pause") {
         await userApi.pause(api, id, comment);
-        text = "پرونده موقتاً متوقف شد.";
+        msg = { tone: "ok", text: "پرونده موقتاً متوقف شد." };
       } else if (action === "resume") {
         await userApi.resume(api, id, comment);
-        text = "پرونده ادامه یافت.";
+        msg = { tone: "ok", text: "پرونده ادامه یافت." };
       } else if (action === "resume_from") {
         await userApi.resumeFrom(api, id, node!, comment);
-        text = `پرونده از «${detail.restart_targets.find((t) => t.key === node)?.label ?? ""}» ادامه یافت.`;
+        msg = { tone: "ok", text: `پرونده از «${detail.restart_targets.find((t) => t.key === node)?.label ?? ""}» ادامه یافت.` };
       } else {
-        const r = await userApi.cancel(api, id, comment);
-        text = r.result === "pending" ? "در صف ارسال؛ با برقراری اتصال فرستاده می‌شود." : "پرونده لغو شد.";
+        // a requester's cancel is a submission: «late» when the case ended first (nothing was cancelled)
+        msg = cancelMessage(await userApi.cancel(api, id, comment));
       }
       await qc.invalidateQueries({ queryKey: USER_KEYS.all(orgId) });
-      n.ok(text);
+      if (msg.tone === "ok") n.ok(msg.text);
+      else if (msg.tone === "info") n.info(msg.text);
+      else n.warn(msg.text);
       onClose();
     } catch (e) {
       n.error(e);
