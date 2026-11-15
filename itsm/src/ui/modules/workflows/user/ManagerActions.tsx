@@ -5,7 +5,8 @@
 //   · «ادامه از مرحلهٔ …» (managers, a case in «نیاز به بررسی»): a step outside parallel blocks;
 //   · «لغو پرونده»: a manager's, or the requester's before any step after the start (that one is a submission: on a
 //     linked Windows app it waits to be sent, and when the case ended first it comes back «late» and says so).
-// A dialog starts afresh when it opens; the case refreshing live while it is open keeps what the manager entered.
+// A dialog starts afresh when it opens; the case refreshing live while it is open keeps what the manager entered, but
+// a step, task or resume point the case no longer has gives way to its first open one (the lists show only those).
 import { useMemo, useState } from "react";
 import { Input, Modal, Radio, Select } from "antd";
 import { useQueryClient } from "@tanstack/react-query";
@@ -31,7 +32,8 @@ export function ManagerDialogs({ action, detail, onClose, me }: { action: Manage
   const n = useNotify();
   const qc = useQueryClient();
   const steps = useMemo(() => openSteps(detail), [detail]);
-  // opening a dialog starts it afresh; the case read again while it is open (the live refresh) keeps the input
+  // opening a dialog starts it afresh; the case read again while it is open (the live refresh) keeps the input that
+  // still holds, and a pick the case no longer has moves to the first valid one (set once: the next render keeps it)
   const [kept, setForm] = useState<ManagerForm>(() => managerForm(null, action, detail));
   const form = managerForm(kept, action, detail);
   if (form !== kept) setForm(form);

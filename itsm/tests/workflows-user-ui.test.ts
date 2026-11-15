@@ -1,7 +1,8 @@
 // The person's «گردش‌کارها» (design F §5, §8.6, package F7; src/ui/modules/workflows/user): the routes and the nav row
 // with its count, the record link of a case, the four tabs and their filters in the address, the rows of «کارتابل» and
 // their notes, the click budget, the due pill, a process's marks, the state channel and the path a case took, a case
-// dialog that keeps what the manager entered while the case refreshes live, the
+// dialog that keeps what the manager entered while the case refreshes live (a step it closed meanwhile gives way to its
+// first open one), the
 // decisions each step kind offers and the reasons they ask for, the consequences and the messages after a decision,
 // what a submission sends (files as `{ upload: n }`; a start or a step sends only the fields «نمایش وقتی…» shows, their
 // files included), where a form starts, the required fields left empty; a read that fails («گردش‌کارهای من» and the
@@ -319,12 +320,13 @@ describe("diagrams and the case", () => {
     expect(headerStep([])).toBeNull();
   });
 
-  it("a case dialog starts afresh when it opens; the case read again while it is open (the live refresh) keeps what the manager entered", () => {
-    const detailOf = (open: { id: string; key: string; label: string; to: string }[]) =>
+  it("a case dialog starts afresh when it opens; the case read again while it is open (the live refresh) keeps what the manager entered, and gives up a pick the case no longer has", () => {
+    const targets = [{ key: "s", label: "ثبت درخواست" }];
+    const detailOf = (open: { id: string; key: string; label: string; to: string }[], restart = targets) =>
       ({
         case: { current_steps: [...new Map(open.map((t) => [t.key, { key: t.key, label: t.label }])).values()] },
         history: { tasks: open.map((t) => ({ id: t.id, step_key: t.key, step_label: t.label, action: "approve", status: "open", assigned_to: t.to })) },
-        restart_targets: [{ key: "s", label: "ثبت درخواست" }],
+        restart_targets: restart,
       }) as unknown as CaseDetail;
     const before = detailOf([{ id: "1", key: "a1", label: "تأیید رئیس شعبه", to: "u-head" }, { id: "2", key: "pay", label: "بررسی و پرداخت", to: "u-ali" }]);
     const opened = managerForm(null, "reassign", before);
@@ -339,6 +341,29 @@ describe("diagrams and the case", () => {
     expect(closed).toMatchObject({ action: null, comment: "", task: null, to: [] });
     expect(managerForm(closed, "reassign", after)).toEqual({ action: "reassign", comment: "", step: "pay", task: null, to: [], node: "s" });
     expect(managerForm(closed, "pause", after)).toMatchObject({ action: "pause", comment: "" });
+
+    // FL-3: the manager keeps the first open step «تأیید رئیس شعبه», picks two people and writes a note; the head
+    // approves, and the case read again no longer has that step open. The «مرحله» list holds only the open steps, and
+    // «ارجاع مرحله» would send a closed one: the dialog moves to the case's first open step, nobody's task, and keeps the
+    // people and the note — once (the page sets the moved input, and the next render keeps it as it is)
+    const onHead = { ...opened, task: "1", to: ["u-samira", "u-ali"], comment: "به جای همکار در مرخصی" };
+    const moved = managerForm(onHead, "reassign", after);
+    expect(moved).toEqual({ action: "reassign", comment: "به جای همکار در مرخصی", step: "pay", task: null, to: ["u-samira", "u-ali"], node: "s" });
+    expect(managerForm(moved, "reassign", after)).toBe(moved);
+    // a step still open whose chosen task closed (one of its two approvers decided): the step stays, nobody's task
+    const two = detailOf([{ id: "1", key: "a1", label: "تأیید رئیس شعبه", to: "u-head" }, { id: "3", key: "a1", label: "تأیید رئیس شعبه", to: "u-ali" }]);
+    const onAli = { ...managerForm(null, "reassign", two), task: "3", to: ["u-samira"] };
+    expect(managerForm(onAli, "reassign", two)).toBe(onAli);
+    expect(managerForm(onAli, "reassign", detailOf([{ id: "1", key: "a1", label: "تأیید رئیس شعبه", to: "u-head" }]))).toEqual({ ...onAli, task: null });
+    // no step open any more (the case ended): no step to send, and the dialog's «ارجاع مرحله» stays disabled
+    const ended = managerForm(moved, "reassign", detailOf([]));
+    expect(ended).toEqual({ ...moved, step: null, task: null });
+    expect(managerForm(ended, "reassign", detailOf([]))).toBe(ended);
+    // «ادامه از مرحلهٔ …»: a step no longer among the restart targets gives way to the first of them; the note stays
+    const resume = { ...managerForm(null, "resume_from", detailOf([], [...targets, { key: "a1", label: "تأیید رئیس شعبه" }])), node: "a1", comment: "از نو" };
+    expect(managerForm(resume, "resume_from", detailOf([], [...targets, { key: "a1", label: "تأیید رئیس شعبه" }]))).toBe(resume);
+    expect(managerForm(resume, "resume_from", detailOf([]))).toEqual({ ...resume, node: "s" });
+    expect(managerForm(resume, "resume_from", detailOf([], []))).toEqual({ ...resume, node: null });
   });
 });
 

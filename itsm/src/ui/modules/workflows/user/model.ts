@@ -352,11 +352,19 @@ export interface ManagerForm {
 /**
  * A case dialog's input as the case page renders: opening it for an action starts it afresh — no note, the case's
  * first open step, nobody chosen, the first step to resume from; the case read again while it is open (the page
- * refreshes live whenever someone acts on the case) keeps what the manager typed and chose.
+ * refreshes live whenever someone acts on the case) keeps what the manager typed and chose, as far as the case still
+ * has it: a step it no longer has open gives way to its first open step (and nobody's task), a task no longer open in
+ * the step to nobody's, a step no longer among the restart targets to the first of them. The note and the people stay.
+ * The same object comes back while all of it holds (the page sets the input only when it changed).
  */
 export function managerForm(prev: ManagerForm | null, action: string | null, detail: Pick<CaseDetail, "case" | "history" | "restart_targets">): ManagerForm {
-  if (prev && prev.action === action) return prev;
-  return { action, comment: "", step: openSteps(detail)[0]?.key ?? null, task: null, to: [], node: detail.restart_targets[0]?.key ?? null };
+  const steps = openSteps(detail);
+  const targets = detail.restart_targets;
+  if (!prev || prev.action !== action) return { action, comment: "", step: steps[0]?.key ?? null, task: null, to: [], node: targets[0]?.key ?? null };
+  const step = steps.some((s) => s.key === prev.step) ? prev.step : (steps[0]?.key ?? null);
+  const task = step === prev.step && detail.history.tasks.some((t) => t.id === prev.task && t.status === "open" && t.step_key === step) ? prev.task : null;
+  const node = targets.some((t) => t.key === prev.node) ? prev.node : (targets[0]?.key ?? null);
+  return step === prev.step && task === prev.task && node === prev.node ? prev : { ...prev, step, task, node };
 }
 
 // ---------------------------------------------------------------------------------------------------------------
