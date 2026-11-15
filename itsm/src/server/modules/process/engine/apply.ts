@@ -11,7 +11,9 @@
 //     and the round settles by the step's rule — the first submit for fill and review, `levelOutcome` of the shared
 //     approval maths for an approve quorum, any «بازگشت» at once: the round's other tasks become «دیگر لازم نیست»,
 //     the case is recomputed and the step's wait resumes with the decision's port in the same transaction.
-//   · start: the starters are checked; the case is created with the submission's `case_id` (once: a second start of
+//   · start: the starters are checked — and a process of the demo pack is started by the pack's people only (a case of
+//     the organisation's own would stand on the pack's process, version, form and fields, which its purge removes);
+//     the case is created with the submission's `case_id` (once: a second start of
 //     the same id is late), on the submission's version (graph, forms, title) but with the starters and the access
 //     settings (managers, manager groups, confidential) of the process's current version, which a publish pushes to
 //     every case, its values checked with the start step's rights, its title from the version's template,
@@ -38,6 +40,7 @@ import {
 import { renderTitle } from "@shared/process/title";
 import type { Ctx } from "../../../context";
 import { lockKey, pgArray, type Tx } from "../../../db";
+import { demoPeople, isDemoRow } from "../../../db/scope";
 import { notFound } from "../../../http/errors";
 import { memberCtx } from "../../../access";
 import { access } from "../../../access/provider";
@@ -72,6 +75,8 @@ export const LATE_NOTE = "این مرحله را همکارتان پیش‌تر 
 export const PAUSED_NOTE = "این پرونده را مسئولان گردش‌کار موقتاً متوقف کرده‌اند؛ پس از ادامهٔ آن، مرحله را دوباره بفرستید";
 /** A comment binds reject and return. */
 export const COMMENT_NEEDED = "برای رد یا بازگشت، توضیح بنویسید";
+/** A start of the demo pack's workflow by someone who is not one of the pack's people (docs/DEMO_FA.md). */
+export const DEMO_PROCESS_START = "این گردش‌کار نمونهٔ دادهٔ نمایشی است و فقط حساب‌های نمایشی آن را آغاز می‌کنند";
 
 const ALL_GROUPS = Object.keys(FIELD_GROUPS) as FieldGroup[];
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -289,6 +294,7 @@ async function applyStart(tx: Tx, sys: Ctx, sub: SubmissionRow, who: Submitter):
     : null;
   if (!proc) return refused("گردش‌کار پیدا نشد");
   if (proc.status !== "published") return refused(proc.status === "retired" ? "این گردش‌کار بازنشسته شده است و درخواست تازه نمی‌پذیرد" : "این گردش‌کار هنوز منتشر نشده است");
+  if ((await isDemoRow(tx, orgId, String(proc.id))) && !(await demoPeople(tx, orgId, [who.user])).size) return refused(DEMO_PROCESS_START);
   let version = sub.version_id ? await loadVersionInfo(tx, orgId, sub.version_id) : null;
   if (!version || version.process_id !== String(proc.id)) version = await loadVersionInfo(tx, orgId, proc.current_version_id);
   if (!version) return refused("نسخهٔ منتشرشدهٔ این گردش‌کار پیدا نشد");

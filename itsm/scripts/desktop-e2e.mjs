@@ -6,8 +6,10 @@
 // «کاربران و دسترسی‌ها», then opens the main pages as the administrator and, after «خروج» and a sign-in, as the member:
 // home, the incident list and a record, the catalogue and an order, knowledge, the CMDB, IT assets; the settings for the
 // administrator — among them «فیلدها», «فرم‌ها» and «گردش‌کارها» with the demo pack's workflow, form and fields — and
-// for the member the requester portal and «گردش‌کارها»: the member starts the demo pack's workflow from its start form
-// and sees the case move to its next step. It closes the window the way people do and starts the app a second time.
+// for the member the requester portal and «گردش‌کارها». Then, as a presentation does (docs/DEMO_FA.md), the pack's
+// support agent — the administrator turned «ورود با حساب‌های نمایشی» on — starts the demo pack's workflow from its start
+// form and sees the case move to its next step: only the pack's people start the pack's workflow. It closes the window
+// the way people do and starts the app a second time.
 //
 // Measured: the cold start (launch to the first interactive screen) and a second start, every route change (to content
 // visible and to the last API answer), a workflow's start («ارسال» to the case at its next step), the API calls the page
@@ -85,6 +87,8 @@ const BUDGETS = {
 
 const ADMIN = { full_name: "مدیر فناوری اطلاعات", email: "it.admin@kariz-e2e.example", password: "Kariz-Desk-Pass-1405!" };
 const MEMBER = { full_name: "کارمند شعبهٔ مرکزی", email: "member@kariz-e2e.example", password: "Kariz-Member-Pass-1405!" };
+/** Who the run measures: the administrator, the member, and the demo pack's support agent (its workflow start). */
+const PERSONAS = ["admin", "member", "demo"];
 const ORG_NAME = "بانک آزمایشی برنامهٔ ویندوز";
 /**
  * The demo pack's workflow (src/server/modules/demo/bank.ts DEMO_WORKFLOW; tests/packaging-desktop-e2e.test.ts keeps
@@ -485,6 +489,30 @@ async function demoLoad(org) {
   await settled(10_000);
 }
 
+/**
+ * «ورود با حساب‌های نمایشی» for the presentation part (docs/DEMO_FA.md): the administrator confirms the password and
+ * turns it on through the console's own API — the pack's accounts share the password it shows to administrators — and
+ * the pack's support agent («agent»: the same roles as the member) is who starts the pack's workflow: only the pack's
+ * people start it (src/server/modules/demo/workflow.ts).
+ */
+async function demoSignIn(org) {
+  phase = "demo-signin";
+  const post = (path, body) =>
+    page.evaluate(
+      async ([p, b]) => {
+        const r = await fetch(`/api${p}`, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+        return { status: r.status, body: await r.json().catch(() => null) };
+      },
+      [path, body],
+    );
+  const reauth = await post("/auth/reauth", { password: ADMIN.password });
+  const on = await post(`/o/${org}/demo/signin`, { on: true });
+  const agent = (on.body?.accounts ?? []).find((x) => x.persona === "agent");
+  const ok = reauth.status === 200 && on.status === 200 && !!agent && !!on.body?.password;
+  C.check(ok, "the administrator turns «ورود با حساب‌های نمایشی» on for the presentation (the pack's shared password, shown to administrators)", JSON.stringify({ reauth: reauth.status, signin: on.status, agent: !!agent }));
+  return ok ? { full_name: agent.name, email: agent.email, password: on.body.password } : null;
+}
+
 async function addMember(org) {
   await go("admin", "users", `/${org}/settings/users`);
   phase = "add-member";
@@ -586,8 +614,8 @@ async function watch(selector, text) {
 const CHANNEL = 'ol[aria-label="مسیر پرونده"]';
 
 /**
- * «گردش‌کارها» as the member (design F §5): the page, the demo pack's workflow started from its start form (the fields
- * a requester fills), «ارسال برای "…"» to the case's page (a route change), and the case moving on to its next step —
+ * «گردش‌کارها» as the pack's support agent (design F §5): the page, the demo pack's workflow started from its start form
+ * (the fields a requester fills), «ارسال برای "…"» to the case's page (a route change), and the case moving on to its next step —
  * the start applied, the case's run opening the step through the job queue, the page refreshing by itself («زنده»):
  * timed from the click (`workflow_start_ms`).
  */
@@ -653,7 +681,8 @@ async function pages(persona, org) {
     await go(persona, "settings-workflows", `/${org}/settings/workflows`);
     await shows(persona, "«گردش‌کارها»", WORKFLOW.name);
   } else {
-    await workflow(persona, org);
+    // the member's own «گردش‌کارها»: the pack's workflow is not theirs to start (the pack's support agent starts it below)
+    await go(persona, "workflows", `/${org}/workflows`);
     await go(persona, "portal", `/${org}/portal`);
   }
 }
@@ -680,18 +709,18 @@ function markdown() {
   L.push(`- شروع سرد (نخستین اجرا پس از نصب تا صفحهٔ راه‌اندازی): **${report.starts.cold?.interactive_ms ?? "—"} ms** (پنجرهٔ اصلی ${report.starts.cold?.window_ms ?? "—"} ms، روی صفحه ${report.starts.cold?.shown_ms ?? "—"} ms)${srv(report.starts.cold?.server)}`);
   L.push(`- شروع دوم (تا نخستین صفحه): **${report.starts.warm?.interactive_ms ?? "—"} ms** (روی صفحه ${report.starts.warm?.shown_ms ?? "—"} ms)${srv(report.starts.warm?.server)}`);
   L.push(`- بستهٔ نمایشی «کوچک»: ${report.demo.state ?? "—"} در ${report.demo.seconds ?? "—"} s`);
-  L.push(`- گردش‌کار نمونه به‌عنوان عضو: «ارسال» تا صفحهٔ پرونده ${report.workflow?.case_ms ?? "—"} ms، تا مرحلهٔ بعد **${report.workflow?.start_ms ?? "—"} ms**`);
+  L.push(`- گردش‌کار نمونه به‌عنوان کارشناس نمایشی: «ارسال» تا صفحهٔ پرونده ${report.workflow?.case_ms ?? "—"} ms، تا مرحلهٔ بعد **${report.workflow?.start_ms ?? "—"} ms**`);
   const w = report.database.in_run ?? {};
   const ck = report.database.first_run_checkpoints ?? {};
   L.push(`- گزارش پیش‌نویس پایگاه داده (pg_wal) هنگام کار: اوج **${w.peak_mb ?? "—"} MB** (${w.peak_segments ?? "—"} قطعه، مرحلهٔ ${w.peak_phase ?? "—"}، ${w.samples ?? 0} نمونه)؛ پس از بستهٔ نمایشی ${report.database.after_demo?.mb ?? "—"} MB، پیش از بستن ${report.database.before_first_close?.mb ?? "—"} MB؛ checkpointهای زمان‌بند برنامه پیش از بستن: حجم ${ck.volume ?? 0}، زمان ${ck.age ?? 0}`);
   L.push(`- پایگاه داده پس از اجرا: پوشه ${report.database.folder_mb ?? "—"} MB، pg_wal ${report.database.pg_wal_mb ?? "—"} MB (${report.database.pg_wal_segments ?? "—"} قطعه؛ checkpointهای بستن و شروع آن را به max_wal_size می‌رسانند)`);
   L.push(`- حافظه (اوج working set): سرور محلی و PGlite ${p.peak_mb?.server} MB، رندرر ${p.peak_mb?.renderer} MB، اصلی ${p.peak_mb?.main} MB، GPU ${p.peak_mb?.gpu} MB، جمع ${p.total_peak_mb} MB`);
   L.push(`- CPU (میانگین / بیشینه، درصد یک هسته): سرور ${p.cpu_avg_pct?.server}/${p.cpu_max_pct?.server}، رندرر ${p.cpu_avg_pct?.renderer}/${p.cpu_max_pct?.renderer}، اصلی ${p.cpu_avg_pct?.main}/${p.cpu_max_pct?.main}; در بیکاری: سرور ${p.by_phase?.idle?.cpu?.server ?? "—"}`, "");
-  for (const persona of ["admin", "member"]) {
+  for (const persona of PERSONAS) {
     const rows = report.pages.filter((r) => r.persona === persona);
     if (!rows.length) continue;
     const s = report.api[persona] ?? {};
-    L.push(`## ${persona === "admin" ? "مدیر" : "عضو"}`, "", `ناوبری: p50 ${s.nav_p50_ms} ms · p95 ${s.nav_p95_ms} ms · بیشینه ${s.nav_max_ms} ms — API: ${s.calls} فراخوانی، p50 ${s.api_p50_ms} ms · p95 ${s.api_p95_ms} ms`, "");
+    L.push(`## ${{ admin: "مدیر", member: "عضو", demo: "کارشناس نمایشی (بستهٔ نمایشی)" }[persona]}`, "", `ناوبری: p50 ${s.nav_p50_ms} ms · p95 ${s.nav_p95_ms} ms · بیشینه ${s.nav_max_ms} ms — API: ${s.calls} فراخوانی، p50 ${s.api_p50_ms} ms · p95 ${s.api_p95_ms} ms`, "");
     L.push(`| صفحه | مسیر | محتوا (ms) | آرام (ms) | API | زمان API (ms) | فایل‌ها (بیشینه ms) |`, `|---|---|---:|---:|---:|---:|---:|`);
     for (const r of rows) L.push(`| ${r.name} | \`${r.path}\` | ${r.visible_ms ?? "—"} | ${r.settled_ms ?? "—"} | ${r.api_calls} | ${r.api_ms_total} | ${r.files} (${r.files_ms_max}) |`);
     L.push("");
@@ -711,7 +740,7 @@ const appLog = () => [`${LOG_FILE}.1`, LOG_FILE].filter((f) => existsSync(f)).ma
 function finish() {
   stopSampler();
   report.processes = processSummary();
-  for (const persona of ["admin", "member"]) {
+  for (const persona of PERSONAS) {
     const nav = report.pages.filter((r) => r.persona === persona && r.visible_ms !== null).map((r) => r.visible_ms);
     const api = apiLog.filter((r) => r.phase.startsWith(`${persona}:`) && !r.failed).map((r) => r.ms);
     const slow = {};
@@ -770,15 +799,16 @@ function finish() {
     results[key] = { budget: limit, value, ok };
     C.check(ok, `${what}: ${value} (budget ${limit})`);
   };
-  for (const persona of ["admin", "member"]) {
+  for (const persona of PERSONAS) {
     const s = report.api[persona];
     if (!s.pages) continue;
     budget(`${persona}.nav_p95_ms`, s.nav_p95_ms, BUDGETS.nav_visible_p95_ms, `${persona}: route change to content, 95th percentile (ms)`);
     budget(`${persona}.nav_max_ms`, s.nav_max_ms, BUDGETS.nav_visible_max_ms, `${persona}: slowest route change (ms)`);
     budget(`${persona}.api_p95_ms`, s.api_p95_ms, BUDGETS.api_p95_ms, `${persona}: API as the renderer saw it, 95th percentile (ms)`);
   }
-  // the member's workflow start (measured whenever the member's pages ran: a start that never moved on fails here too)
-  if (report.api.member?.pages) budget("member.workflow_start_ms", report.workflow?.start_ms ?? null, BUDGETS.workflow_start_ms, "member: «ارسال» of a workflow's start form to its case at the next step (ms)");
+  // the workflow start by the pack's support agent (gated whenever the member's pages ran, as it comes right after them:
+  // a demo sign-in that failed, or a start that never moved on, fails here too)
+  if (report.api.member?.pages) budget("demo.workflow_start_ms", report.workflow?.start_ms ?? null, BUDGETS.workflow_start_ms, "the pack's support agent: «ارسال» of a workflow's start form to its case at the next step (ms)");
   const p = report.processes;
   if (p.samples) {
     budget("server_peak_mb", p.peak_mb.server, BUDGETS.backend_peak_mb, "peak working set of the local server and its database (MB)");
@@ -841,6 +871,7 @@ async function scenario() {
   await demoLoad(org);
   report.database.after_demo = wal.sample("after-demo");
   await addMember(org);
+  const demo = await demoSignIn(org);
 
   // 3. the administrator's pages, then the member's
   phase = "admin";
@@ -852,6 +883,11 @@ async function scenario() {
   await sleep(60_000);
   report.switch_ms = await switchAccount(MEMBER);
   await pages("member", org);
+  // the presentation's part: the pack's support agent starts the pack's workflow (only the pack's people start it)
+  if (demo) {
+    report.switch_demo_ms = await switchAccount(demo);
+    await workflow("demo", org);
+  }
 
   // 4. the database's log while the app is still open, and the checkpoints its own scheduler logged in this first run
   // (after the close nothing tells them apart: the close and shutdown checkpoints trim pg_wal whatever happened)

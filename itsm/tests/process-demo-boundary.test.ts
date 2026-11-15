@@ -1,12 +1,15 @@
 // The demo pack and the organisation's own workflow cases (docs/DEMO_FA.md, design F): demo accounts approve no real
 // record. A step of a case of the organisation's own never goes to the pack's people, whatever names them — a role the
 // pack's groups carry, a group of the pack, a delegation — and a step left with nobody follows its «ifNobody»; nor do
-// the process managers' «ارجاع» and the designer's preview offer them. The pack's own cases keep them.
+// the process managers' «ارجاع» and the designer's preview offer them. The pack's own cases keep them. And a process
+// of the pack is started by the pack's people only: a real case standing on the pack's process, version and form would
+// lose them all at the purge.
 import { describe, it, expect, beforeAll } from "vitest";
 import { createIn } from "@server/engine";
 import { inDemoScope } from "@server/db/scope";
 import { DEMO_PEOPLE_REAL_WORK, previewResolve } from "@server/modules/positions";
 import { reassignStep } from "@server/modules/process/api";
+import { DEMO_PROCESS_START } from "@server/modules/process/engine";
 import { edge, journal, kase, node, person, publish, start, tasks, users, world, type Published, type World } from "./process-engine-helpers";
 
 let w: World;
@@ -109,5 +112,19 @@ describe("a case of the organisation's own never goes to the demo pack's people"
     await w.k.drain();
     expect(await w.o.db.one(`select 1 as x from sm_demo_rows where org_id = $1 and row_id = $2`, [w.o.org, id])).toBeTruthy();
     expect((await openAt(id)).map((t) => t.assigned_to).sort()).toEqual([analyst, packAnalyst].sort());
+  }, 120_000);
+});
+
+describe("a process of the demo pack is started by the pack's people only", () => {
+  it("a real member's start is refused, with nothing written; the pack's person starts it", async () => {
+    const pack = await publish(w, graph(users(analyst)));
+    await w.o.db.query(`insert into sm_demo_rows (org_id, row_id, tbl) values ($1, $2, 'sm_processes')`, [w.o.org, pack.process]);
+    const cases = async () => (await w.o.db.one<{ n: number }>(`select count(*)::int as n from sm_process_cases where org_id = $1 and process_id = $2`, [w.o.org, pack.process]))!.n;
+    await expect(start(w, requester, pack, { values })).rejects.toThrow(DEMO_PROCESS_START);
+    expect(await cases()).toBe(0);
+    const id = (await inDemoScope(w.o.org, () => start(w, packRequester, pack, { values }))).case!;
+    await w.k.drain();
+    expect(await cases()).toBe(1);
+    expect((await openAt(id)).map((t) => t.assigned_to)).toEqual([analyst]);
   }, 120_000);
 });

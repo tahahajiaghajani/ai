@@ -3,12 +3,13 @@
 // published by the publish service (F4c), so its version, form snapshot and the workflows' notices are the product's own:
 //   «ثبت درخواست» (the requester) → «تأیید امنیت اطلاعات» (approve: the bank's security operations group; «رد» ends the
 //   case, «بازگشت برای اصلاح» sends it back) → «اعطای دسترسی» (fill: the service desk) → «پایان».
-// Every member may start it, so the people's «گردش‌کارها» offers «شروع» at once; the Windows app's end-to-end test starts
-// it as a member (scripts/desktop-e2e.mjs). Written inside the demo scope like every step: the fields, the form, the
-// process and its version — and the cases the pack's people start of it, their steps and runs — go with the pack
-// (tests/demo-purge.test.ts). A real member's case of it is real work, like any real record naming demo data: the purge
-// keeps it and reports its reference. A real workflow, form or field of the same key or name is never touched: the
-// part is refused and recorded with the pack's status instead.
+// Only the pack's sign-in accounts start it (its starters; the engine refuses a start of the pack's process by anyone
+// else): their «گردش‌کارها» offers «شروع» at once, and the Windows app's end-to-end test starts it as the pack's support
+// agent (scripts/desktop-e2e.mjs). Written inside the demo scope like every step: the fields, the form, the process and
+// its version — and the cases the pack's people start of it, their steps and runs — go with the pack
+// (tests/demo-purge.test.ts). No real member's case ever stands on them: the purge would leave it without its process,
+// version and form. A real workflow, form or field of the same key or name is never touched: the part is refused and
+// recorded with the pack's status instead.
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
 import { publishProcess } from "../process/publish";
@@ -19,8 +20,11 @@ type Node = { id: string; type: string; config: Record<string, unknown>; label?:
 const node = (id: string, type: string, config: Record<string, unknown> = {}, label?: string): Node => ({ id, type, config, ...(label ? { label } : {}) });
 const edge = (source: string, target: string, port?: string) => ({ id: `${source}.${port ?? "out"}.${target}`, source, target, ...(port ? { port } : {}) });
 
-/** The pack's workflow as a designer's draft: `form` the form's id, `soc` and `desk` the pack's groups. */
-export function demoWorkflowDraft(form: string, groups: { soc: string; desk: string }, manager: string | null) {
+/**
+ * The pack's workflow as a designer's draft: `form` the form's id, `soc` and `desk` the pack's groups, `starters` the
+ * pack's sign-in accounts (its personas) — the only people who start it.
+ */
+export function demoWorkflowDraft(form: string, groups: { soc: string; desk: string }, manager: string | null, starters: string[]) {
   const F = W.fields;
   return {
     graph: {
@@ -41,7 +45,7 @@ export function demoWorkflowDraft(form: string, groups: { soc: string; desk: str
         edge("grant", "done"),
       ],
     },
-    starters: [],
+    starters: [{ kind: "users", users: [...new Set(starters)] }],
     title_template: `دسترسی به {{case.${F.system.name}}}`,
     requester_view: [],
     managers: manager ? [manager] : [],
@@ -79,8 +83,9 @@ async function existing(tx: Tx, orgId: string, table: string, col: string, value
 export async function stepWorkflow({ orgId, memo }: StepArgs, sys: Ctx): Promise<boolean> {
   const soc = memo.groups.soc;
   const desk = memo.groups.desk;
-  if (!soc || !desk) {
-    refuse(orgId, "process", new Error("گروه‌های بانک نمایشی ساخته نشده‌اند؛ گردش‌کار نمونه ساخته نشد"));
+  const personas = Object.values(memo.people.personas).filter((x): x is string => !!x);
+  if (!soc || !desk || !personas.length) {
+    refuse(orgId, "process", new Error("گروه‌ها و حساب‌های بانک نمایشی ساخته نشده‌اند؛ گردش‌کار نمونه ساخته نشد"));
     return true;
   }
   try {
@@ -108,7 +113,7 @@ export async function stepWorkflow({ orgId, memo }: StepArgs, sys: Ctx): Promise
       if (!known) bump(memo, "form");
       const row = await put(tx, sys, "process", {
         key: W.key, name: W.name, category: W.category, description: W.description,
-        draft: demoWorkflowDraft(form, { soc, desk }, memo.people.personas.manager ?? null),
+        draft: demoWorkflowDraft(form, { soc, desk }, memo.people.personas.manager ?? null, personas),
       });
       bump(memo, "process");
       return { id: String(row.id), published: false };

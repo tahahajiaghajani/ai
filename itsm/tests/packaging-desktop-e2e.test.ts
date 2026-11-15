@@ -74,8 +74,9 @@ describe("the desktop-e2e job", () => {
 });
 
 // The 1.1 features as people use them in the installed app (design F): the administrator opens «فیلدها», «فرم‌ها» and
-// «گردش‌کارها» and finds the demo pack's fields, form and workflow there; the member starts that workflow from
-// «گردش‌کارها», fills its start form, and sees the case move to its next step — timed from «ارسال» and gated.
+// «گردش‌کارها» and finds the demo pack's fields, form and workflow there; the member opens their own «گردش‌کارها»; and,
+// as a presentation does, the pack's support agent starts that workflow from «گردش‌کارها» — only the pack's people
+// start it —, fills its start form, and sees the case move to its next step: timed from «ارسال» and gated.
 describe("desktop-e2e covers fields, forms and workflows", () => {
   /** The script's WORKFLOW constant (a plain object literal). */
   const workflowOf = (s: string) => {
@@ -102,10 +103,24 @@ describe("desktop-e2e covers fields, forms and workflows", () => {
     }
   });
 
-  it("the member starts the workflow and sees its case at the next step, timed from «ارسال» and gated", () => {
+  it("the pack's support agent starts the workflow and sees its case at the next step, timed from «ارسال» and gated", async () => {
     const s = script();
-    // in the member's pages, through «گردش‌کارها», its start button and the start form's own fields
-    expect(s).toMatch(/\} else \{\n\s+await workflow\(persona, org\);/);
+    // the member opens their own «گردش‌کارها»: the pack's workflow is started by the pack's people only (its starters)
+    expect(s).toMatch(/\} else \{\n(\s+\/\/.*\n)?\s+await go\(persona, "workflows", `\/\$\{org\}\/workflows`\);/);
+    const { demoWorkflowDraft } = await import("@server/modules/demo/workflow");
+    expect(demoWorkflowDraft("form", { soc: "soc", desk: "desk" }, null, ["a", "b"]).starters).toEqual([{ kind: "users", users: ["a", "b"] }]);
+    // the administrator turns demo sign-in on (re-authenticated, through the console's API), and the run signs in as the
+    // pack's support agent — the member's roles — right after the member's pages
+    expect(s).toMatch(/await addMember\(org\);\n\s+const demo = await demoSignIn\(org\);/);
+    expect(s).toContain('await post("/auth/reauth", { password: ADMIN.password });');
+    expect(s).toContain("await post(`/o/${org}/demo/signin`, { on: true });");
+    expect(s).toContain('.find((x) => x.persona === "agent")');
+    expect(s).toMatch(/await pages\("member", org\);\n[\s\S]{0,200}report\.switch_demo_ms = await switchAccount\(demo\);\n\s+await workflow\("demo", org\);/);
+    const { KNOWN_NAMES } = await import("@server/modules/demo/bank");
+    expect([...KNOWN_NAMES.agent.roles]).toEqual(["agent"]);
+    // its pages keep the navigation budgets the member's had
+    expect(s).toContain('const PERSONAS = ["admin", "member", "demo"];');
+    // through «گردش‌کارها», its start button and the start form's own fields
     expect(s).toContain('await go(persona, "workflows", `/${org}/workflows`);');
     expect(s).toContain("page.getByRole(\"button\", { name: `شروع «${WORKFLOW.name}»` })");
     expect(s).toContain("page.locator(`#wfu-start-${field}`).fill(value)");
@@ -114,8 +129,8 @@ describe("desktop-e2e covers fields, forms and workflows", () => {
     expect(s).toMatch(/next = await watch\(`\$\{CHANNEL\} li\[aria-current="step"\]`, WORKFLOW\.next\);\n\s+await send\.click\(\);/);
     expect(s).toContain("const CHANNEL = 'ol[aria-label=\"مسیر پرونده\"]';");
     expect(s).toMatch(/li\.is-done`\)\.filter\(\{ hasText: WORKFLOW\.start \}\)/);
-    // gated whenever the member's pages ran: a case that never moved on fails the budget too
-    expect(s).toMatch(/if \(report\.api\.member\?\.pages\) budget\("member\.workflow_start_ms", report\.workflow\?\.start_ms \?\? null, BUDGETS\.workflow_start_ms,/);
+    // gated whenever the member's pages ran: a demo sign-in that failed, or a case that never moved on, fails it too
+    expect(s).toMatch(/if \(report\.api\.member\?\.pages\) budget\("demo\.workflow_start_ms", report\.workflow\?\.start_ms \?\? null, BUDGETS\.workflow_start_ms,/);
     // the case page and the case's state channel the UI renders (src/ui/modules/workflows/user)
     const ui = readFileSync(join(__dirname, "../src/ui/modules/workflows/user/CasePage.tsx"), "utf8");
     expect(ui).toContain('<ol className="wfu-channel" aria-label="مسیر پرونده">');

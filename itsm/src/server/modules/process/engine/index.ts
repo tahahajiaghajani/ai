@@ -7,7 +7,7 @@ import { registerProcessSteps } from "./steps";
 import { installCaseEnd } from "./ended";
 
 export { PROCESS_RUN_KIND, processHandlers, processVersionGraph, caseContext } from "./runs";
-export { applySubmission, roundSettles, LATE_NOTE, COMMENT_NEEDED, PAUSED_NOTE, type ApplyResult, type ApplyOutcome } from "./apply";
+export { applySubmission, roundSettles, LATE_NOTE, COMMENT_NEEDED, PAUSED_NOTE, DEMO_PROCESS_START, type ApplyResult, type ApplyOutcome } from "./apply";
 export { startCase, submitTask, cancelCase, type SubmitResult, type StartCaseInput, type SubmitTaskInput } from "./service";
 export { processesRunHere } from "./here";
 export { STEP_OPENED, STEP_WAIT, parseWaitKey, resolveInput } from "./steps";

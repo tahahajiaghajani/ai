@@ -1,18 +1,20 @@
 // The demo pack's workflow (src/server/modules/demo/workflow.ts, docs/DEMO_FA.md): «درخواست دسترسی به سامانه (نمونه)»
 // is published by the publish service with no problem, recorded as the pack's own (fields, form, process, version), and
-// works as the Windows app's end-to-end test uses it (scripts/desktop-e2e.mjs): a regular member («کارشناس پشتیبانی»,
-// no part in the pack) finds it in «گردش‌کارهای من», starts it from its start form, and the case moves to the security
-// team's approval; the pack's security analyst approves and the case moves to the service desk. The step runs again
-// without a second copy, and never takes a real workflow's key. That the purge leaves no trace of the workflow and of
-// the cases the pack's people start and work: tests/demo-purge.test.ts (a real member's case is real work: kept, its
-// reference reported).
+// works as the Windows app's end-to-end test uses it (scripts/desktop-e2e.mjs): the pack's support agent finds it in
+// «گردش‌کارهای من», starts it from its start form, and the case moves to the security team's approval; the pack's
+// security analyst approves and the case moves to the service desk. Only the pack's people start it: a regular member
+// («کارشناس پشتیبانی», no part in the pack) is neither offered it nor let start it — a real case on the pack's process,
+// version and form would lose them all at the purge. The step runs again without a second copy, and never takes a real
+// workflow's key. That the purge leaves no trace of the workflow and of the cases the pack's people start and work:
+// tests/demo-purge.test.ts.
 import { describe, it, expect, beforeAll } from "vitest";
 import { engineOrg, type EngineOrg } from "./engine-helpers";
 import { Client, signupWithOrg } from "./helpers";
 import { systemCtx } from "@server/engine";
 import { tick } from "@server/jobs";
 import { inDemoScope } from "@server/db/scope";
-import { inbox, submitStep } from "@server/modules/process/api";
+import { caseDetail, inbox, myProcesses, processView, startProcess, submitStep } from "@server/modules/process/api";
+import { DEMO_PROCESS_START } from "@server/modules/process/engine";
 import { checkDraft, cleanDraft } from "@server/modules/process/publish";
 import { DEMO_WORKFLOW as W } from "@server/modules/demo/bank";
 import { loadRefusals, newMemo, STEPS, type LoadMemo } from "@server/modules/demo/load";
@@ -68,33 +70,47 @@ describe("the demo pack's workflow", () => {
     expect(demo).toHaveLength(7);
   });
 
-  it("a regular member starts it from «گردش‌کارهای من» and the case moves to the security team's approval", async () => {
+  it("only the pack's people start it: a regular member is neither offered it nor let start it", async () => {
     const m = await e.member("member");
     await e.owner.post(`${P()}/access/members/${m.userId}/preset`, { preset: "agent" });
     const mine = (await m.client.get(`${P()}/process/mine`)).processes;
-    expect(mine.find((p: { key: string }) => p.key === W.key)).toMatchObject({ name: W.name, can_start: true });
-    const view = await m.client.get(`${P()}/process/defs/${W.key}/view`);
+    expect(mine.find((p: { key: string }) => p.key === W.key)?.can_start ?? false).toBe(false);
+    expect((await m.client.get(`${P()}/process/defs/${W.key}/view`)).start?.can_start ?? false).toBe(false);
+    const refused = await m.client.post(`${P()}/process/start`, { process: W.key, values: { [W.fields.system.name]: "سامانهٔ اعتبارات", [W.fields.access.name]: "read", [W.fields.reason.name]: "بررسی پرونده‌های تسهیلات شعبه" } }, 409);
+    expect(refused.error.message).toBe(DEMO_PROCESS_START);
+    expect((await e.db.query(`select 1 from sm_process_cases c join sm_processes p on p.id = c.process_id where p.org_id = $1 and p.key = $2`, [e.org, W.key])).length).toBe(0);
+  }, 300_000);
+
+  it("the pack's support agent starts it from «گردش‌کارهای من» and the case moves to the security team's approval", async () => {
+    // the pack's person at work (their requests run inside the demo scope: docs/DEMO_FA.md)
+    const agent = memo.people.personas.agent!;
+    const as = <T,>(who: string, fn: (ctx: Ctx) => Promise<T>) => inDemoScope(e.org, async () => fn(await e.ctxOf(who)));
+    const mine = (await as(agent, myProcesses)).processes;
+    expect(mine.find((p) => p.key === W.key)).toMatchObject({ name: W.name, can_start: true });
+    const view = await as(agent, (ctx) => processView(ctx, W.key));
     expect(view.start).toMatchObject({ can_start: true, label: W.steps.start, next: W.steps.approve, form: { name: W.form } });
-    expect(view.start.rights).toMatchObject({ [W.fields.system.name]: "required", [W.fields.reason.name]: "required", [W.fields.access.name]: "edit" });
-    expect(view.start.rights[W.fields.note.name] ?? "hidden").toBe("hidden");
-    expect(view.steps.map((s: { label: string }) => s.label)).toEqual([W.steps.start, W.steps.approve, W.steps.grant]);
-    const started = await m.client.post(`${P()}/process/start`, { process: W.key, values: { [W.fields.system.name]: "سامانهٔ اعتبارات", [W.fields.access.name]: "read", [W.fields.reason.name]: "بررسی پرونده‌های تسهیلات شعبه" } }, 201);
+    expect(view.start!.rights).toMatchObject({ [W.fields.system.name]: "required", [W.fields.reason.name]: "required", [W.fields.access.name]: "edit" });
+    expect(view.start!.rights[W.fields.note.name] ?? "hidden").toBe("hidden");
+    expect(view.steps.map((s) => s.label)).toEqual([W.steps.start, W.steps.approve, W.steps.grant]);
+    const started = await as(agent, (ctx) => startProcess(ctx, { process: W.key, values: { [W.fields.system.name]: "سامانهٔ اعتبارات", [W.fields.access.name]: "read", [W.fields.reason.name]: "بررسی پرونده‌های تسهیلات شعبه" } }));
     expect(started).toMatchObject({ result: "applied" });
     await drain();
-    const d = await m.client.get(`${P()}/process/cases/${started.case}`);
+    const d = await as(agent, (ctx) => caseDetail(ctx, started.case!));
     expect(d.case).toMatchObject({ state: "active", process_name: W.name, title: "دسترسی به سامانهٔ اعتبارات" });
-    // the start is the member's own step done; the next one is someone else's, open («در جریان» in the case's channel)
+    // the start is the agent's own step done; the next one is someone else's, open («در جریان» in the case's channel)
     expect(d.statuses).toMatchObject({ request: { status: "mine_done" }, approve: { status: "active" } });
+    // a case of the pack's own (removed with it)
+    expect(await e.db.one(`select 1 as x from sm_demo_rows where org_id = $1 and row_id = $2`, [e.org, started.case])).toBeTruthy();
     // the security team holds the step: the pack's analyst among them
     const soc = memo.people.personas.soc!;
-    const box = await inDemoScope(e.org, async () => inbox(await e.ctxOf(soc)));
+    const box = await as(soc, inbox);
     const row = box.rows.find((r) => r.kind === "process_step" && r.case_id === started.case);
     expect(row).toMatchObject({ step: W.steps.approve, can_act: true });
     // the analyst approves (the pack's person: demo work) and the case moves to the service desk
-    await inDemoScope(e.org, async () => submitStep(await e.ctxOf(soc), row!.id, { outcome: "approved", values: { [W.fields.note.name]: "دسترسی خواندنی بی‌اشکال است" } }));
+    await as(soc, (ctx) => submitStep(ctx, row!.id, { outcome: "approved", values: { [W.fields.note.name]: "دسترسی خواندنی بی‌اشکال است" } }));
     await drain();
-    const after = await m.client.get(`${P()}/process/cases/${started.case}`);
-    expect(after.statuses).toMatchObject({ approve: { status: "done" }, grant: { status: "active" } });
+    // … to the service desk, the agent's own team: «اعطای دسترسی» is now the agent's step
+    expect((await as(agent, (ctx) => caseDetail(ctx, started.case!))).statuses).toMatchObject({ approve: { status: "done" }, grant: { status: "mine_open" } });
   }, 300_000);
 
   it("runs again without a second copy, and never takes a real workflow's key", async () => {
