@@ -1,12 +1,17 @@
 // The person's «گردش‌کارها» (design F §5, §8.6, package F7; src/ui/modules/workflows/user): the routes and the nav row
 // with its count, the record link of a case, the four tabs and their filters in the address, the rows of «کارتابل» and
-// their notes, the click budget, the due pill, a process's marks, the state channel and the path a case took, the
+// their notes, the click budget, the due pill, a process's marks, the state channel and the path a case took, a case
+// dialog that keeps what the manager entered while the case refreshes live, the
 // decisions each step kind offers and the reasons they ask for, the consequences and the messages after a decision,
-// what a submission sends (files as `{ upload: n }`), where a form starts, the required fields left empty — and on a
+// what a submission sends (files as `{ upload: n }`; a start or a step sends only the fields «نمایش وقتی…» shows, their
+// files included), where a form starts, the required fields left empty; a read that fails («گردش‌کارهای من» and the
+// start menu, «گفت‌وگو») is said so, never shown as an empty list — and on a
 // real organisation, through the pages' own API module: the §3.7 bank process started by a clerk, the head's
 // «کارتابل» and case, a return to the requester with its consequence, a draft kept and refilled, the requester's
 // second round, the approval; a pool step taken by one («در دست …»), the other's late decision kept with its message;
-// a delegate's «به جانشینی از …»; the printable view; a reader of no case gets an empty «پرونده‌ها» — and the review's
+// a requester's «لغو پرونده» that arrives after the case ended («late», never «پرونده لغو شد.»);
+// a delegate's «به جانشینی از …» and, for the head who delegated it, «سپرده به …»; the printable view; a reader of no
+// case gets an empty «پرونده‌ها» — and the review's
 // cases: a case's files open by name from «داده‌ها», «آنچه پیش‌تر ثبت شده» and the step form; «امروز» in «پرونده‌ها»
 // finds today's cases; a start sent again after its answer was lost opens one case; the portal's «کارهای من» counts and
 // lists the steps waiting for the person.
@@ -30,16 +35,20 @@ import { ROUTES, NAV } from "../src/ui/modules/registry";
 import { userPart } from "../src/ui/modules/workflows/user/routes";
 import { USER_KEYS, userApi, casesQuery, dayEnd, type CaseDetail, type Inbox, type InboxRow, type MyStep, type StepView } from "../src/ui/modules/workflows/user/api";
 import {
-  CASE_PATH, PORTAL_WF_PATH, PRINT_PATH, PROCESS_PATH, RECORD_CASE_PATH, START_PATH, STEP_PATH, WF_PATH, caseFiltersOf, caseIdHolder, caseStateView, consequence, defaultReturn,
-  draftValues, dueView, fieldProblems, filtered, headerStep, inboxRowView, initialValues, mapLink, missingRequired, myPart, newCaseId, openSteps, packValues, processMarks,
+  CASE_PATH, PORTAL_WF_PATH, PRINT_PATH, PROCESS_PATH, RECORD_CASE_PATH, START_PATH, STEP_PATH, WF_PATH, cancelMessage, caseFiltersOf, caseIdHolder, caseStateView, consequence,
+  defaultReturn, delegationNote,
+  draftValues, dueView, fieldProblems, filtered, headerStep, inboxRowView, initialValues, managerForm, mapLink, missingRequired, myPart, newCaseId, openSteps, packShown, packValues,
+  processMarks,
   resultMessage, rowLink, sendLabel, startMessage, startValues, stateChannel, stepActions, stepNotes, tabOf, takenFromStatuses, waitingSteps, waitingText, wfPaths,
   withCaseFilter,
 } from "../src/ui/modules/workflows/user/model";
 import { CaseValues, ProcessForm } from "../src/ui/modules/workflows/user/parts";
 import PortalSteps from "../src/ui/modules/workflows/user/PortalSteps";
+import WorkflowsPage from "../src/ui/modules/workflows/user/WorkflowsPage";
+import { Talk } from "../src/ui/modules/workflows/user/CasePage";
 import { useWaitingSteps } from "../src/ui/modules/workflows/user/waiting";
 import { OrgProvider, type OrgInfo } from "../src/ui/lib/org";
-import type { OrgApi } from "../src/ui/lib/api";
+import { ApiError, type OrgApi } from "../src/ui/lib/api";
 import type { Schema } from "../src/ui/records/model/schema";
 import type { Client } from "./helpers";
 import { PNG } from "./engine-helpers";
@@ -72,8 +81,20 @@ const orgInfo = (id: string): OrgInfo => ({
 function render(org: string, el: ReactElement, seed: (qc: QueryClient) => void = () => undefined): string {
   const qc = new QueryClient();
   seed(qc);
+  return renderIn(qc, org, el);
+}
+function renderIn(qc: QueryClient, org: string, el: ReactElement): string {
   const routed = createElement(MemoryRouter, null, el);
   return renderToStaticMarkup(createElement(QueryClientProvider, { client: qc }, createElement(OrgProvider, { orgId: org, info: orgInfo(org), children: routed })));
+}
+/**
+ * A query client whose reads have failed as the app's would after its retry: the read's error kept, not fetched again
+ * while the page renders.
+ */
+async function failedReads(keys: readonly (readonly unknown[])[], error: unknown): Promise<QueryClient> {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false, retryOnMount: false } } });
+  for (const queryKey of keys) await qc.prefetchQuery({ queryKey, queryFn: () => Promise.reject(error) });
+  return qc;
 }
 /** A link that opens `text` at `href`. */
 const linkTo = (href: string, text: string) => new RegExp(`<a [^>]*href="${href.replace(/[.?]/g, "\\$&")}"[^>]*>${text.replace(/[.]/g, "\\.")}</a>`);
@@ -225,6 +246,15 @@ describe("the rows of «کارتابل»", () => {
     expect(stepNotes(row({ queued: true, paused: true }), display)).toEqual(["در صف ارسال", "پرونده موقتاً متوقف است"]);
   });
 
+  it("the step form's delegation line: the delegate acts «به جانشینی از …»; the head who delegated it reads whom it is with, never his own name", () => {
+    const tasks = [{ id: "t1", assigned_to: "u-ali" }, { id: "t2", assigned_to: "u-head" }];
+    const delegated = step({ id: "t1", delegated_from: "u-head" });
+    expect(delegationNote(delegated, tasks, "u-ali", display)).toBe("به جانشینی از حسین رئیس شعبه");
+    // the case lists the step among the head's own (he may still do it), with his id as delegated_from
+    expect(delegationNote(delegated, tasks, "u-head", display)).toBe("سپرده به علی احمدی");
+    expect(delegationNote(step({ id: "t2" }), tasks, "u-head", display)).toBeNull();
+  });
+
   it("the due pill: hours or days left, a warning within four hours, overdue in danger", () => {
     expect(dueView(null)).toBeNull();
     expect(dueView("2026-11-14T12:00:00.000Z", now)).toEqual({ text: "۲ ساعت مانده", tone: "warning", late: false });
@@ -288,6 +318,28 @@ describe("diagrams and the case", () => {
     expect(headerStep([step({ id: "q", queued: true }), step({ id: "x" })])?.id).toBe("x");
     expect(headerStep([])).toBeNull();
   });
+
+  it("a case dialog starts afresh when it opens; the case read again while it is open (the live refresh) keeps what the manager entered", () => {
+    const detailOf = (open: { id: string; key: string; label: string; to: string }[]) =>
+      ({
+        case: { current_steps: [...new Map(open.map((t) => [t.key, { key: t.key, label: t.label }])).values()] },
+        history: { tasks: open.map((t) => ({ id: t.id, step_key: t.key, step_label: t.label, action: "approve", status: "open", assigned_to: t.to })) },
+        restart_targets: [{ key: "s", label: "ثبت درخواست" }],
+      }) as unknown as CaseDetail;
+    const before = detailOf([{ id: "1", key: "a1", label: "تأیید رئیس شعبه", to: "u-head" }, { id: "2", key: "pay", label: "بررسی و پرداخت", to: "u-ali" }]);
+    const opened = managerForm(null, "reassign", before);
+    expect(opened).toEqual({ action: "reassign", comment: "", step: "a1", task: null, to: [], node: "s" });
+    // «ارجاع مرحله»: the manager picks the second step, two people and writes a note …
+    const typed = { ...opened, step: "pay", task: "2", to: ["u-samira", "u-ali"], comment: "به جای همکار در مرخصی" };
+    // … while the head approves: the page reads the case again (a new detail, its first step gone) and keeps it all
+    const after = detailOf([{ id: "2", key: "pay", label: "بررسی و پرداخت", to: "u-ali" }]);
+    expect(managerForm(typed, "reassign", after)).toBe(typed);
+    // closed and opened again, or for another action: afresh, from the case as it is now
+    const closed = managerForm(typed, null, after);
+    expect(closed).toMatchObject({ action: null, comment: "", task: null, to: [] });
+    expect(managerForm(closed, "reassign", after)).toEqual({ action: "reassign", comment: "", step: "pay", task: null, to: [], node: "s" });
+    expect(managerForm(closed, "pause", after)).toMatchObject({ action: "pause", comment: "" });
+  });
 });
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -326,6 +378,13 @@ describe("the step form", () => {
     expect(startMessage({ result: "pending", note: null }, null).tone).toBe("info");
   });
 
+  it("«لغو پرونده» says «پرونده لغو شد.» only when it was applied; a case that ended first is a warning with the server's note", () => {
+    expect(cancelMessage({ result: "applied", note: null })).toEqual({ tone: "ok", text: "پرونده لغو شد." });
+    expect(cancelMessage({ result: "pending", note: null })).toEqual({ tone: "info", text: "در صف ارسال؛ با برقراری اتصال فرستاده می‌شود." });
+    expect(cancelMessage({ result: "late", note: "این پرونده پیش‌تر بسته شده است" })).toEqual({ tone: "warning", text: "این پرونده پیش‌تر بسته شده است" });
+    expect(cancelMessage({ result: "late" })).toEqual({ tone: "warning", text: "این پرونده پیش‌تر بسته شده است." });
+  });
+
   const fields: Record<string, FieldDef> = {
     u_amount: { name: "u_amount", label: "مبلغ درخواستی", type: "money" } as FieldDef,
     u_need: { name: "u_need", label: "شرح نیاز", type: "text" } as FieldDef,
@@ -349,6 +408,28 @@ describe("the step form", () => {
     const hidden = packValues({ ...values, u_amount: "50" }, { ...rights, u_note: "hidden" }, fields, local);
     expect(hidden.values).not.toHaveProperty("u_note");
     expect(draftValues(values, rights, fields)).toEqual({ u_amount: "120000000", u_invoice: ["0b9c0000-0000-4000-8000-000000000001"], u_note: "ok" });
+  });
+
+  it("a start or a step sends what the form shows now: a letter picked for «وام» is neither sent nor uploaded once «تنخواه» hides its field", () => {
+    const defs: Record<string, FieldDef> = {
+      u_kind: { name: "u_kind", label: "نوع درخواست", type: "choice", choices: [{ value: "loan", label: "وام" }, { value: "petty", label: "تنخواه" }] } as FieldDef,
+      u_letter: { name: "u_letter", label: "ضمانت‌نامه", type: "json", check: "attachments", max: 1 } as unknown as FieldDef,
+      u_need: { name: "u_need", label: "شرح نیاز", type: "text" } as FieldDef,
+    };
+    const form: FormLayoutV2 = {
+      tabs: [{ label: "فرم", sections: [{ label: null, items: [{ field: "u_kind" }, { field: "u_letter", showIf: { f: "u_kind", op: "eq", v: "loan" } }, { field: "u_need" }] }] }],
+    };
+    // the start's rights: the requester enters all three (the condition decides what is shown)
+    const startRights: Record<string, Right> = { u_kind: "required", u_letter: "edit", u_need: "edit" };
+    const letter = new File(["guarantee"], "ضمانت‌نامه.pdf");
+    const local = new Map([["local-1", letter]]);
+    const loan = packShown(form, startRights, { u_kind: "loan", u_letter: ["local-1"], u_need: "خرید دستگاه" }, defs, local);
+    expect(loan.values).toEqual({ u_kind: "loan", u_letter: [{ upload: 0 }], u_need: "خرید دستگاه" });
+    expect(loan.files).toEqual([letter]);
+    // switched to «تنخواه»: the letter's field is hidden — its value stays in the form, but nothing of it is sent
+    const petty = packShown(form, startRights, { u_kind: "petty", u_letter: ["local-1"], u_need: "خرید دستگاه" }, defs, local);
+    expect(petty.values).toEqual({ u_kind: "petty", u_need: "خرید دستگاه" });
+    expect(petty.files).toEqual([]);
   });
 
   it("the form starts from my refused values, else my draft, over the case's values I may read", () => {
@@ -405,6 +486,50 @@ describe("the step form", () => {
     // before the names are read: how many, as «پیوست» (here «پرونده» is a case)
     expect(data()).toContain("۱ پیوست");
     expect(data()).not.toContain("پرونده");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// a read that fails
+
+describe("a read that fails is said so, never shown as an empty list", () => {
+  const ORG = "org-1";
+  const down = new ApiError(500, "error", "سامانه پاسخ نداد؛ کمی بعد دوباره تلاش کنید");
+  const inbox = (over: Partial<Inbox> = {}): Inbox => ({ rows: [], chips: [], counts: { waiting: 0, steps: 0, approvals: 0 }, default_tab: "mine", display: {}, ...over });
+
+  it("«گردش‌کارهای من» whose list failed shows the failure, not «هنوز در گردش‌کاری نقش ندارید»; on «کارتابل» the page says «شروع گردش‌کار» was not read", async () => {
+    const mineTab = await failedReads([USER_KEYS.mine(ORG)], down);
+    mineTab.setQueryData(USER_KEYS.inbox(ORG), inbox());
+    const html = renderIn(mineTab, ORG, createElement(WorkflowsPage));
+    expect(html).toContain("گردش‌کارهای شما خوانده نشد");
+    expect(html).toContain("سامانه پاسخ نداد؛ کمی بعد دوباره تلاش کنید");
+    expect(html).toContain("تلاش دوباره");
+    expect(html).not.toContain("هنوز در گردش‌کاری نقش ندارید");
+    // something waits: the page opens on «کارتابل», and the missing start menu is explained there
+    const inboxTab = await failedReads([USER_KEYS.mine(ORG)], down);
+    inboxTab.setQueryData(USER_KEYS.inbox(ORG), inbox({ default_tab: "inbox", counts: { waiting: 1, steps: 1, approvals: 0 }, rows: [row()], display }));
+    const onInbox = renderIn(inboxTab, ORG, createElement(WorkflowsPage));
+    expect(onInbox).toContain("فهرست گردش‌کارهای شما و «شروع گردش‌کار» خوانده نشد: سامانه پاسخ نداد؛ کمی بعد دوباره تلاش کنید");
+    // a list read fine but empty keeps its own words, and no failure is shown
+    const fine = new QueryClient();
+    fine.setQueryData(USER_KEYS.inbox(ORG), inbox());
+    fine.setQueryData(USER_KEYS.mine(ORG), { processes: [] });
+    const empty = renderIn(fine, ORG, createElement(WorkflowsPage));
+    expect(empty).toContain("هنوز در گردش‌کاری نقش ندارید");
+    expect(empty).not.toContain("خوانده نشد");
+  });
+
+  it("«گفت‌وگو» whose comments failed to load shows the failure, not «هنوز گفت‌وگویی نیست»", async () => {
+    const failed = await failedReads([USER_KEYS.talk(ORG, "c1")], down);
+    const html = renderIn(failed, ORG, createElement(Talk, { caseId: "c1" }));
+    expect(html).toContain("گفت‌وگو خوانده نشد");
+    expect(html).toContain("سامانه پاسخ نداد؛ کمی بعد دوباره تلاش کنید");
+    expect(html).not.toContain("هنوز گفت‌وگویی نیست");
+    const fine = new QueryClient();
+    fine.setQueryData(USER_KEYS.talk(ORG, "c1"), { entries: [], display: {} });
+    const none = renderIn(fine, ORG, createElement(Talk, { caseId: "c1" }));
+    expect(none).toContain("هنوز گفت‌وگویی نیست");
+    expect(none).not.toContain("خوانده نشد");
   });
 });
 
@@ -593,6 +718,22 @@ describe("«گردش‌کارها» on a real organisation (§3.7)", () => {
     expect(resultMessage(late, "submitted", dep, null, other.display)).toMatchObject({ tone: "warning" });
   });
 
+  it("the requester's «لغو پرونده» sent after the last step completed the case comes back «late»: she is not told it was cancelled", async () => {
+    const r = await userApi.start(as("clerk"), b.w.o.org, { process: "branch_visit", values: { u_amount: "1000", u_branch: b.U.vanak }, case_id: newCaseId() });
+    await b.w.k.drain();
+    const id = r.case!;
+    // she opens «لغو پرونده» (nothing after the start is done yet) …
+    expect((await userApi.kase(as("clerk"), id)).can).toMatchObject({ cancel: true, manage: false });
+    // … while the head does the last step and the case ends
+    const head = (await userApi.kase(as("head"), id)).my_steps[0];
+    await userApi.submit(as("head"), b.w.o.org, head.id, { outcome: "submitted", values: { u_finance_note: "بازدید انجام شد" } });
+    await b.w.k.drain();
+    const cancel = await userApi.cancel(as("clerk"), id, "دیگر لازم نیست");
+    expect(cancel).toMatchObject({ result: "late", by: "requester", note: "این پرونده پیش‌تر بسته شده است" });
+    expect(cancelMessage(cancel)).toEqual({ tone: "warning", text: "این پرونده پیش‌تر بسته شده است" });
+    expect((await userApi.kase(as("clerk"), id)).case).toMatchObject({ state: "completed", outcome: "completed" });
+  });
+
   it("a delegate sees «به جانشینی از …» and acts for the head", async () => {
     const now = Date.now();
     await create(b.w.sys, "delegation", { from_user: b.M.head.userId, to_user: b.M.dlg.userId, starts_at: new Date(now - 1000).toISOString(), ends_at: new Date(now + 3_600_000).toISOString(), scopes: ["approvals"] }, { trusted: true });
@@ -603,6 +744,13 @@ describe("«گردش‌کارها» on a real organisation (§3.7)", () => {
     expect(inboxRowView(row1, box.display, WF_PATH).notes).toEqual(["به جانشینی از حسین رئیس شعبه"]);
     const detail = await userApi.kase(as("dlg"), r.case!);
     expect(stepNotes(detail.my_steps[0], detail.display)).toEqual(["به جانشینی از حسین رئیس شعبه"]);
+    expect(delegationNote(detail.my_steps[0], detail.history.tasks, b.M.dlg.userId, detail.display)).toBe("به جانشینی از حسین رئیس شعبه");
+    // the head opens the case from a notification: the step is listed among his, delegated from him — the form names
+    // the delegate it went to, not «به جانشینی از» himself
+    const his = await userApi.kase(as("head"), r.case!);
+    const own = his.my_steps.find((s) => s.id === detail.my_steps[0].id)!;
+    expect(own.delegated_from).toBe(b.M.head.userId);
+    expect(delegationNote(own, his.history.tasks, b.M.head.userId, his.display)).toBe("سپرده به داوود جانشین");
   });
 
   it("someone who reads no case gets an empty «پرونده‌ها», and the conversation takes a comment from a reader", async () => {

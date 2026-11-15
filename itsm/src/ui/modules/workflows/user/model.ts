@@ -185,6 +185,23 @@ export function stepNotes(
   return out;
 }
 
+/**
+ * The step form's delegation line: the delegate reads «به جانشینی از …»; the person who delegated the step (the case
+ * lists it among their steps too — they may still do it) reads «سپرده به …», whom its task is with now, never their
+ * own name.
+ */
+export function delegationNote(
+  step: Pick<MyStep, "id" | "delegated_from">,
+  tasks: readonly Pick<HistoryTask, "id" | "assigned_to">[],
+  me: string | null | undefined,
+  display: Record<string, string>,
+): string | null {
+  if (!step.delegated_from) return null;
+  if (step.delegated_from !== me) return `به جانشینی از ${nameOf(display, step.delegated_from)}`;
+  const to = tasks.find((t) => t.id === step.id)?.assigned_to;
+  return to && to !== me ? `سپرده به ${nameOf(display, to)}` : null;
+}
+
 /** What a row of «کارتابل» shows. */
 export interface InboxRowView {
   key: string;
@@ -322,6 +339,26 @@ export function headerStep(steps: readonly MyStep[]): MyStep | null {
 export const currentText = (row: Pick<CaseListRow, "current_steps" | "state">): string =>
   isOpenCase(row.state) ? (row.current_steps ?? []).map((s) => s.label).join("، ") : "";
 
+/** What a dialog of the case's «اقدام‌ها» holds: the action it is open for, the note, the step, whose task, the people, the step to resume from. */
+export interface ManagerForm {
+  action: string | null;
+  comment: string;
+  step: string | null;
+  task: string | null;
+  to: string[];
+  node: string | null;
+}
+
+/**
+ * A case dialog's input as the case page renders: opening it for an action starts it afresh — no note, the case's
+ * first open step, nobody chosen, the first step to resume from; the case read again while it is open (the page
+ * refreshes live whenever someone acts on the case) keeps what the manager typed and chose.
+ */
+export function managerForm(prev: ManagerForm | null, action: string | null, detail: Pick<CaseDetail, "case" | "history" | "restart_targets">): ManagerForm {
+  if (prev && prev.action === action) return prev;
+  return { action, comment: "", step: openSteps(detail)[0]?.key ?? null, task: null, to: [], node: detail.restart_targets[0]?.key ?? null };
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // The step form
 
@@ -396,12 +433,23 @@ export function startMessage(r: Pick<SubmitResult, "result" | "note">, next: str
   return { tone: "ok", text: next && next !== "پایان" ? `پرونده ثبت شد؛ پرونده به ${q(next)} رفت.` : "پرونده ثبت شد." };
 }
 
+/**
+ * What the person is told after «لغو پرونده»: «پرونده لغو شد.» only when the cancel was applied; a linked Windows app
+ * queues it; a case that ended first (its last approver completed it while the dialog was open) comes back «late» —
+ * nothing was cancelled, and the server's note says so.
+ */
+export function cancelMessage(r: { result: SubmitResult["result"] | "refused"; note?: string | null }): { tone: "ok" | "info" | "warning"; text: string } {
+  if (r.result === "applied") return { tone: "ok", text: "پرونده لغو شد." };
+  if (r.result === "pending") return { tone: "info", text: "در صف ارسال؛ با برقراری اتصال فرستاده می‌شود." };
+  return { tone: "warning", text: r.note || "این پرونده پیش‌تر بسته شده است." };
+}
+
 /** A local file of the form: its token in the field's value until it is sent. */
 export const LOCAL_FILE = /^local-\d+$/;
 
 /**
- * The values a submission sends: only the fields I may enter now (after «نمایش وقتی…»), and the files of a «پیوست»
- * field as `{ upload: n }` (n: its place among the files sent), its earlier files by their ids.
+ * The values a submission sends: only the fields I may enter now (`rights` after «نمایش وقتی…»; see packShown), and
+ * the files of a «پیوست» field as `{ upload: n }` (n: its place among the files sent), its earlier files by their ids.
  */
 export function packValues(values: Record<string, unknown>, rights: Record<string, Right>, defs: FieldSource, local: ReadonlyMap<string, File>): { values: Record<string, unknown>; files: File[] } {
   const get = fieldGetter(defs);
@@ -424,6 +472,21 @@ export function packValues(values: Record<string, unknown>, rights: Record<strin
     out[k] = v === undefined ? null : v;
   }
   return { values: out, files };
+}
+
+/**
+ * What a start or a step form sends: its values packed with the rights the form shows now — a field «نمایش وقتی…» hides
+ * sends neither its value nor the files picked in it (the server drops the value, but files sent with the submission
+ * would stay stored on it).
+ */
+export function packShown(
+  layout: FormLayoutV2,
+  rights: Record<string, Right>,
+  values: Record<string, unknown>,
+  defs: FieldSource,
+  local: ReadonlyMap<string, File>,
+): { values: Record<string, unknown>; files: File[] } {
+  return packValues(values, applyShowIf(layout, rights, values, defs), defs, local);
 }
 
 /** A draft keeps what was typed, never the files waiting to be sent (they live in this window only). */

@@ -1,7 +1,8 @@
 // Shared parts of the person's «گردش‌کارها» pages (design F §5, §8.6, package F7):
 //   · where the pages live — the app (`workflows`) or the portal (`portal/workflows`, the same pages in its light
 //     shell) — and the page head of each;
-//   · the due pill, the notes of a step («به جانشینی از …»…), a case's state chip;
+//   · the due pill, the notes of a step («به جانشینی از …»…), a case's state chip, a read that failed («… خوانده نشد»
+//     with its reason and «تلاش دوباره», never the empty list's words);
 //   · the process form: a version's form laid out with my rights — hidden fields left out, read-only ones as values,
 //     required ones marked, «نمایش وقتی…» applied as values change, amounts typed in the organisation's unit, the
 //     files of a «پیوست» field kept here until they are sent with the submission;
@@ -9,16 +10,18 @@
 //   · a «پیوست» value by its files' names (the case's attachments I may open, F4b's `filterSide`), each a link that
 //     opens the file — on the case's «داده‌ها», in «آنچه پیش‌تر ثبت شده» and in the step form.
 import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
-import { Tabs } from "antd";
+import { Button, Tabs } from "antd";
+import { CircleAlert, RotateCw } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { applyShowIf, fieldGetter, formValuesDef, formView, isFieldItem, type FieldSource, type FormLayoutV2, type Right } from "@shared/forms/layout";
 import { formatFieldMoney, moneyUnitOf, rialFromInput } from "@shared/forms/fieldtypes";
 import type { FormsSnapshot } from "@shared/forms/snapshot";
 import type { MoneyUnit } from "@shared/financial/logic";
 import type { FieldDef } from "@shared/model/types";
+import { errorText } from "../../../lib/api";
 import { useOrg } from "../../../lib/org";
 import { cx, Note } from "../../../components/blocks";
-import { Chip, StateChip } from "../../../components/display";
+import { Chip, EmptyState, StateChip } from "../../../components/display";
 import { MoneyInput } from "../../../components/inputs";
 import { PageHeader } from "../../../components/layout";
 import { FieldInput } from "../../../records/fields/FieldInput";
@@ -78,6 +81,25 @@ export function DuePill({ due, prefix }: { due: string | null | undefined; prefi
     <Chip tone={d.tone === "neutral" ? "neutral" : d.tone === "warning" ? "warning" : "danger"} className="wfu-due">
       {prefix ? `${prefix}: ${d.text}` : d.text}
     </Chip>
+  );
+}
+
+/** A read that failed: what was not read, the reason and «تلاش دوباره» — never an empty list's words. */
+export function LoadError({ title, error, retry, busy, compact }: { title: string; error: unknown; retry?: () => void; busy?: boolean; compact?: boolean }) {
+  return (
+    <EmptyState
+      icon={CircleAlert}
+      compact={compact}
+      title={title}
+      description={errorText(error)}
+      action={
+        retry ? (
+          <Button icon={<RotateCw size={16} strokeWidth={1.4} absoluteStrokeWidth aria-hidden />} loading={busy} onClick={retry}>
+            تلاش دوباره
+          </Button>
+        ) : undefined
+      }
+    />
   );
 }
 

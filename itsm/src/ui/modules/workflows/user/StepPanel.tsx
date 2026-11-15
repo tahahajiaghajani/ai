@@ -1,8 +1,8 @@
 // The step form (design F §5 «The step form», §8.6; package F7) at `workflows/c/:id/s/:task`: in the inspector beside
-// the case's diagram on a wide screen, a full page on a phone. Top to bottom: the step's name, «به جانشینی از …», the due
-// pill; a folded «آنچه پیش‌تر ثبت شده»; the form with my rights (my refused values, else my draft, over the case's
-// values; the case's files by name, each opening its file); a comment box; a sticky action bar with the step's
-// decisions —
+// the case's diagram on a wide screen, a full page on a phone. Top to bottom: the step's name, «به جانشینی از …» (for the
+// person who delegated it «سپرده به …»), the due pill; a folded «آنچه پیش‌تر ثبت شده»; the form with my rights (my
+// refused values, else my draft, over the case's values; the case's files by name, each opening its file); a comment
+// box; a sticky action bar with the step's decisions —
 //   fill «ارسال برای "…"» and «ذخیرهٔ پیش‌نویس»; review «ادامهٔ گردش‌کار» and «بازگشت برای اصلاح»; approve «تأیید»، «رد» and
 //   «بازگشت برای اصلاح».
 // «رد» and «بازگشت» ask for a reason, «بازگشت» picks its target (the default chosen) and the confirmation names the
@@ -14,7 +14,7 @@ import { Button, Collapse, Input, Modal, Radio } from "antd";
 import { Hand, Save, Undo2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { formStepOf, quorumOf } from "@shared/process";
-import { applyShowIf, cleanFormLayout, type Right } from "@shared/forms/layout";
+import { cleanFormLayout, type Right } from "@shared/forms/layout";
 import { faDigits } from "@shared/format";
 import { ApiError } from "../../../lib/api";
 import { useOrg } from "../../../lib/org";
@@ -25,7 +25,8 @@ import { useMe, useSchema } from "../../../records/data/hooks";
 import { useLeaveGuard } from "../admin/forms/parts";
 import { USER_KEYS, userApi, type CaseDetail, type CaseFile, type MyStep } from "./api";
 import {
-  actionLabel, consequence, defaultReturn, draftValues, fieldProblems, initialValues, missingRequired, nameOf, packValues, resultMessage, stepActions, takesValues, type StepActionDef,
+  actionLabel, consequence, defaultReturn, delegationNote, draftValues, fieldProblems, initialValues, missingRequired, nameOf, packShown, resultMessage, stepActions, takesValues,
+  type StepActionDef,
 } from "./model";
 import { CaseValues, DuePill, ProcessForm, useLocalFiles, useMoneyUnit } from "./parts";
 
@@ -83,7 +84,6 @@ export function StepPanel({ detail, step, files, filesLoading, authority, onDone
   const paused = !!detail.case.paused_at;
   const blocked = step.queued || paused || !!late || (takenByOther && authority);
   const actions = stepActions(step);
-  const rightsNow = useMemo(() => applyShowIf(layout, step.rights, values, fields), [layout, step.rights, values, fields]);
   const editable = Object.values(step.rights).some((r: Right) => r === "edit" || r === "required");
   const before = (key: string) => !(key in step.rights) || step.rights[key] === "hidden";
 
@@ -132,7 +132,7 @@ export function StepPanel({ detail, step, files, filesLoading, authority, onDone
     }
     setBusy("send");
     try {
-      const packed = takesValues(a.outcome) ? packValues(values, rightsNow, fields, local.files) : { values: {}, files: [] };
+      const packed = takesValues(a.outcome) ? packShown(layout, step.rights, values, fields, local.files) : { values: {}, files: [] };
       const r = await userApi.submit(api, orgId, step.id, { outcome: a.outcome, comment: note.trim() || null, values: packed.values, return_to: a.outcome === "returned" ? target : null }, packed.files);
       const msg = resultMessage(r, a.outcome, step, target, display);
       setAsking(null);
@@ -170,6 +170,7 @@ export function StepPanel({ detail, step, files, filesLoading, authority, onDone
   };
 
   const earlier = Object.keys(detail.data).some(before);
+  const delegation = delegationNote(step, detail.history.tasks, userId, display);
   return (
     <section className={cx("wfu-stepform", className)} aria-label={`مرحلهٔ «${step.label}»`}>
       <header className="wfu-stepform-h">
@@ -179,7 +180,7 @@ export function StepPanel({ detail, step, files, filesLoading, authority, onDone
             {actionLabel(step.action)}
           </Chip>
           {step.round > 1 ? <Chip tone="neutral">{`دور ${faDigits(step.round)}`}</Chip> : null}
-          {step.delegated_from ? <span>{`به جانشینی از ${nameOf(display, step.delegated_from)}`}</span> : null}
+          {delegation ? <span>{delegation}</span> : null}
           <DuePill due={step.due_at} prefix="مهلت" />
         </div>
       </header>

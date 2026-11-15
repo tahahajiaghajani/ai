@@ -1,8 +1,9 @@
 // The process designer (design F §3.5, §8.4, package F6 part b; src/ui/modules/workflows/admin/process): who opens it
 // and what it offers; the draft as F4c keeps it and what the autosave sends; the palette and adding a step (after one,
-// between two, on a way out, a new approval's rejection); «مسیرها»; removing a step; changing an action; the case's
-// values for conditions, titles and «درخواست‌دهنده چه می‌بیند»; the notices of a step; the problems kept current
-// between autosaves and where each is fixed; «نسخه‌ها»; «پیش‌نمایش»'s notes — and on a real organisation: the bank's
+// between two, on a way out, a new approval's rejection); «مسیرها»; removing a step; changing an action and an approval's
+// rule (its number kept only within its kind); the case's values for conditions, titles and «درخواست‌دهنده چه می‌بیند»;
+// the notices of a step; the problems kept current between autosaves and where each is fixed; «نسخه‌ها»; «پیش‌نمایش»'s
+// notes — and on a real organisation: the bank's
 // «درخواست تنخواهِ شعبه» (§3.7) built with the designer's own moves (no JSON) and saved without an error, a stale save
 // refused, the preview's people per step, publish with the access settings, the versions and a restore, and who is
 // offered what (a designer, a publisher, a requester).
@@ -15,8 +16,8 @@ import { newRule, ruleInScope, scopedRule, setFieldRight } from "../src/ui/modul
 import type { FieldDef } from "@shared/model/types";
 import type { FlowProblem } from "@shared/flows/types";
 import {
-  ASSIGNEE_KINDS, assigneeProblems, formStepOf, mayInclude, outEdges, processNodeLabel, startOf, validateProcess, type AssigneeRule, type PersonFacts, type ProcessGraph,
-  type ProcessNode,
+  APPROVER_LIMIT, ASSIGNEE_KINDS, assigneeProblems, formStepOf, mayInclude, outEdges, processNodeLabel, startOf, validateProcess, type AssigneeRule, type PersonFacts,
+  type ProcessGraph, type ProcessNode, type Quorum,
 } from "@shared/process";
 import { cleanDraft as serverCleanDraft, defaultDraft as serverDefaultDraft } from "@server/modules/process/publish";
 import { ROUTES } from "../src/ui/modules/registry";
@@ -28,7 +29,7 @@ import {
   DESIGNER_PATH, END_PRESETS, GAP_Y, NEW_STEP_OPTIONS, PALETTE_GROUPS, PALETTE_ITEMS, STARTER_SCOPE, addFromPort, assigneesPatch, bridgeRemoved, caseFields, casePill, caseRules,
   cleanDraft, countProblems, defaultGraph, designerAccess, designerDraft, designerOffers, earlierSteps, formInfoOf, formPatch, graphForms, insertAfter, insertText, itemConfig,
   joinPatch, liveProblems, mainPort, moveKey, nameProblem, newCaseKey, newEscalation, newStepOf, paletteItem, patchConfig, phoneNotes, pillField, portRows, previewBlocked, previewNote,
-  previewSteps, problemGroups, problemTarget, problemsText, processForms, rawCases, removeNode, requesterViewOptions, resolveBody, resolvedPeople, savePatch, setAction,
+  previewSteps, problemGroups, problemTarget, problemsText, processForms, quorumPatch, rawCases, removeNode, requesterViewOptions, resolveBody, resolvedPeople, savePatch, setAction,
   setCases, setLabel, setPortTarget, stableJson, startFields, startingDraft, startersNote, startersText, statusChip, stepNotices, stepTitles, structureKey, tabProblems, titleFields,
   titleSample, unitFromRial, versionMeta, versionTitle, wireRejection, type FormInfo,
 } from "../src/ui/modules/workflows/admin/process/model";
@@ -299,6 +300,35 @@ describe("the palette and adding steps", () => {
     expect(targets(g, s.id, "returned")).toEqual([]);
     // the start step keeps its action
     expect(setAction(g, "request", "approve")).toBe(g);
+  });
+
+  it("«قاعدهٔ تأیید» keeps its number only within its kind: a share never becomes a count of people, nor a count a share", () => {
+    const a = insertAfter(startGraph(), "request", paletteItem("approve")!);
+    let g = a.graph;
+    const rule = () => formStepOf(node(g, a.id).config);
+    // the inspector's «قاعدهٔ تأیید»: what it patches when another rule is chosen
+    const choose = (q: Quorum) => (g = patchConfig(g, a.id, quorumPatch(rule(), q)));
+    choose("percent");
+    expect(rule()).toMatchObject({ quorum: "percent", threshold: 50 });
+    // «درصدی از افراد» 50 → «تعداد مشخصی از افراد»: two approvals, not fifty (the approvers' cap)
+    choose("count");
+    expect(rule()).toMatchObject({ quorum: "count", threshold: 2 });
+    expect(rule().threshold).not.toBe(APPROVER_LIMIT);
+    g = patchConfig(g, a.id, { threshold: 3 });
+    // «۳ نفر» → «درصدی از افراد»: half of them, not 3%
+    choose("percent");
+    expect(rule()).toMatchObject({ quorum: "percent", threshold: 50 });
+    // within one kind the number the designer typed stays
+    g = patchConfig(g, a.id, { threshold: 75 });
+    expect(quorumPatch(rule(), "percent")).toEqual({ quorum: "percent", threshold: 75 });
+    // a rule without a number drops it, and the next count starts again from two
+    choose("all");
+    expect(rule()).toMatchObject({ quorum: "all" });
+    expect(node(g, a.id).config).not.toHaveProperty("threshold");
+    choose("first");
+    expect(node(g, a.id).config).not.toHaveProperty("threshold");
+    choose("count");
+    expect(rule()).toMatchObject({ quorum: "count", threshold: 2 });
   });
 
   it("the people an earlier step may name are the steps every path passes; joins and «انتخاب» cases", () => {

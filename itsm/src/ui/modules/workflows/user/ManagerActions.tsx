@@ -4,8 +4,9 @@
 //   · «توقف موقت» / «ادامهٔ پرونده» (managers), with an optional note;
 //   · «ادامه از مرحلهٔ …» (managers, a case in «نیاز به بررسی»): a step outside parallel blocks;
 //   · «لغو پرونده»: a manager's, or the requester's before any step after the start (that one is a submission: on a
-//     linked Windows app it waits to be sent).
-import { useEffect, useMemo, useState } from "react";
+//     linked Windows app it waits to be sent, and when the case ended first it comes back «late» and says so).
+// A dialog starts afresh when it opens; the case refreshing live while it is open keeps what the manager entered.
+import { useMemo, useState } from "react";
 import { Input, Modal, Radio, Select } from "antd";
 import { useQueryClient } from "@tanstack/react-query";
 import { useOrg } from "../../../lib/org";
@@ -13,7 +14,7 @@ import { useNotify } from "../../../lib/hooks";
 import { Note } from "../../../components/blocks";
 import { UserSelect } from "../../../records/fields/RecordSelect";
 import { USER_KEYS, userApi, type CaseDetail } from "./api";
-import { nameOf, openSteps } from "./model";
+import { cancelMessage, managerForm, nameOf, openSteps, type ManagerForm } from "./model";
 
 export type ManagerAction = "reassign" | "pause" | "resume" | "cancel" | "resume_from";
 
@@ -30,20 +31,13 @@ export function ManagerDialogs({ action, detail, onClose, me }: { action: Manage
   const n = useNotify();
   const qc = useQueryClient();
   const steps = useMemo(() => openSteps(detail), [detail]);
-  const [comment, setComment] = useState("");
-  const [step, setStep] = useState<string | null>(null);
-  const [task, setTask] = useState<string | null>(null);
-  const [to, setTo] = useState<string[]>([]);
-  const [node, setNode] = useState<string | null>(null);
+  // opening a dialog starts it afresh; the case read again while it is open (the live refresh) keeps the input
+  const [kept, setForm] = useState<ManagerForm>(() => managerForm(null, action, detail));
+  const form = managerForm(kept, action, detail);
+  if (form !== kept) setForm(form);
+  const set = (patch: Partial<ManagerForm>) => setForm((f) => ({ ...f, ...patch }));
+  const { comment, step, task, to, node } = form;
   const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    if (!action) return;
-    setComment("");
-    setStep(steps[0]?.key ?? null);
-    setTask(null);
-    setTo([]);
-    setNode(detail.restart_targets[0]?.key ?? null);
-  }, [action, steps, detail.restart_targets]);
   if (!action) return null;
   const c = detail.case;
   const id = c.id;
@@ -55,25 +49,27 @@ export function ManagerDialogs({ action, detail, onClose, me }: { action: Manage
   const run = async () => {
     setBusy(true);
     try {
-      let text = "";
+      let msg: ReturnType<typeof cancelMessage>;
       if (action === "reassign") {
         await userApi.reassign(api, id, { step: step!, task, to, comment: comment.trim() || null });
-        text = `«${steps.find((s) => s.key === step)?.label ?? ""}» سپرده شد.`;
+        msg = { tone: "ok", text: `«${steps.find((s) => s.key === step)?.label ?? ""}» سپرده شد.` };
       } else if (action === "pause") {
         await userApi.pause(api, id, comment);
-        text = "پرونده موقتاً متوقف شد.";
+        msg = { tone: "ok", text: "پرونده موقتاً متوقف شد." };
       } else if (action === "resume") {
         await userApi.resume(api, id, comment);
-        text = "پرونده ادامه یافت.";
+        msg = { tone: "ok", text: "پرونده ادامه یافت." };
       } else if (action === "resume_from") {
         await userApi.resumeFrom(api, id, node!, comment);
-        text = `پرونده از «${detail.restart_targets.find((t) => t.key === node)?.label ?? ""}» ادامه یافت.`;
+        msg = { tone: "ok", text: `پرونده از «${detail.restart_targets.find((t) => t.key === node)?.label ?? ""}» ادامه یافت.` };
       } else {
-        const r = await userApi.cancel(api, id, comment);
-        text = r.result === "pending" ? "در صف ارسال؛ با برقراری اتصال فرستاده می‌شود." : "پرونده لغو شد.";
+        // a requester's cancel is a submission: «late» when the case ended first (nothing was cancelled)
+        msg = cancelMessage(await userApi.cancel(api, id, comment));
       }
       await qc.invalidateQueries({ queryKey: USER_KEYS.all(orgId) });
-      n.ok(text);
+      if (msg.tone === "ok") n.ok(msg.text);
+      else if (msg.tone === "info") n.info(msg.text);
+      else n.warn(msg.text);
       onClose();
     } catch (e) {
       n.error(e);
@@ -98,12 +94,12 @@ export function ManagerDialogs({ action, detail, onClose, me }: { action: Manage
           <>
             <label className="wfu-comment">
               <span>مرحله</span>
-              <Select value={step ?? undefined} onChange={(v) => { setStep(v); setTask(null); }} options={steps.map((s) => ({ value: s.key, label: s.label }))} aria-label="مرحله" />
+              <Select value={step ?? undefined} onChange={(v) => set({ step: v, task: null })} options={steps.map((s) => ({ value: s.key, label: s.label }))} aria-label="مرحله" />
             </label>
             {holders.length ? (
               <fieldset className="wfu-ask-targets">
                 <legend>کار چه کسی سپرده شود؟</legend>
-                <Radio.Group value={task} onChange={(e) => setTask(e.target.value as string | null)}>
+                <Radio.Group value={task} onChange={(e) => set({ task: e.target.value as string | null })}>
                   <Radio value={null}>افزودن کسی به این مرحله</Radio>
                   {holders.map((t) => (
                     <Radio key={t.id} value={t.id}>
@@ -117,14 +113,14 @@ export function ManagerDialogs({ action, detail, onClose, me }: { action: Manage
             )}
             <label className="wfu-comment">
               <span>به چه کسی</span>
-              <UserSelect value={to} onChange={(v) => setTo(Array.isArray(v) ? v : v ? [v] : [])} multiple placeholder="عضوی را برگزینید" />
+              <UserSelect value={to} onChange={(v) => set({ to: Array.isArray(v) ? v : v ? [v] : [] })} multiple placeholder="عضوی را برگزینید" />
             </label>
           </>
         ) : null}
         {action === "resume_from" ? (
           <fieldset className="wfu-ask-targets">
             <legend>از کدام مرحله ادامه یابد؟</legend>
-            <Radio.Group value={node} onChange={(e) => setNode(e.target.value as string)}>
+            <Radio.Group value={node} onChange={(e) => set({ node: e.target.value as string })}>
               {detail.restart_targets.map((t) => (
                 <Radio key={t.key} value={t.key}>
                   {t.label}
@@ -139,7 +135,7 @@ export function ManagerDialogs({ action, detail, onClose, me }: { action: Manage
         {action === "pause" ? <Note>تا ادامهٔ پرونده کسی مرحله‌ای را انجام نمی‌دهد و مهلت‌ها نمی‌گذرند.</Note> : null}
         <label className="wfu-comment">
           <span>توضیح</span>
-          <Input.TextArea value={comment} onChange={(e) => setComment(e.target.value)} autoSize={{ minRows: 2, maxRows: 6 }} maxLength={1000} />
+          <Input.TextArea value={comment} onChange={(e) => set({ comment: e.target.value })} autoSize={{ minRows: 2, maxRows: 6 }} maxLength={1000} />
         </label>
         {me && action === "reassign" && to.includes(me) ? <p className="rk-hint">خودتان را هم برگزیده‌اید.</p> : null}
       </div>

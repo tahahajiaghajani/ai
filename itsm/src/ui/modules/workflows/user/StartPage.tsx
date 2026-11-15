@@ -3,7 +3,8 @@
 // draft («ذخیرهٔ پیش‌نویس», on this runtime only). The case's id is chosen here, so the case opens at once, and every
 // retry of the same start sends the same id: a start applied whose answer was lost comes back «late» with its case
 // instead of opening a second one. On a linked Windows app the start waits to be sent («در صف ارسال») and «پرونده‌ها»
-// shows it. A refusal names the fields. Another process's start begins afresh (its values, files and case id).
+// shows it. A refusal names the fields. Another process's start begins afresh (its values, files and case id). Like the
+// step form it sends only what the form shows now: a field «نمایش وقتی…» hides sends neither its value nor its files.
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { Button } from "antd";
@@ -18,7 +19,7 @@ import { EmptyState, Loader } from "../../../components/display";
 import { useMe, useSchema } from "../../../records/data/hooks";
 import { useLeaveGuard } from "../admin/forms/parts";
 import { USER_KEYS, userApi } from "./api";
-import { caseIdHolder, draftValues, fieldProblems, missingRequired, packValues, sendLabel, startMessage, startValues } from "./model";
+import { caseIdHolder, draftValues, fieldProblems, missingRequired, packShown, sendLabel, startMessage, startValues } from "./model";
 import { Head, ProcessForm, useLocalFiles, useMoneyUnit, useWf } from "./parts";
 
 const I16 = { size: 16, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
@@ -89,7 +90,8 @@ function StartForm({ processKey: key }: { processKey: string }) {
     }
     setBusy("send");
     try {
-      const packed = packValues(v, start.rights, start.fields, local.files);
+      // what the form shows now: a field «نمایش وقتی…» hides sends neither its value nor its picked files
+      const packed = packShown(layout, start.rights, v, start.fields, local.files);
       // a retry after an error sends the same id: the server applies a start of one id once
       const caseId = caseIds.take();
       const r = await userApi.start(api, orgId, { process: data.process.key, values: packed.values, case_id: caseId }, packed.files);

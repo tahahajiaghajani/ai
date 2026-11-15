@@ -8,7 +8,8 @@
 //     my starts a linked Windows app has not sent yet first («در صف ارسال»);
 //   · «انجام‌شده‌ها»: the steps I did.
 // The page opens on «کارتابل» when something waits for me, else on «گردش‌کارهای من». «شروع گردش‌کار» lists the
-// processes I may start. The portal shows the same page in its shell (./portal.tsx).
+// processes I may start; when that list cannot be read, the page says so (with «تلاش دوباره») instead of an empty
+// «گردش‌کارهای من» and a start menu gone without a word. The portal shows the same page in its shell (./portal.tsx).
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { Button, Dropdown, Input, Pagination, Table, Tabs } from "antd";
@@ -16,8 +17,10 @@ import { ChevronDown, Inbox as InboxIcon, Play, Search, Workflow } from "lucide-
 import { useQuery } from "@tanstack/react-query";
 import { faDigits } from "@shared/format";
 import { formatJalali, formatJalaliDateTime } from "@shared/jalali";
+import { errorText } from "../../../lib/api";
 import { useOrg } from "../../../lib/org";
 import { useIsPhone } from "../../../lib/hooks";
+import { Note } from "../../../components/blocks";
 import { Chip, EmptyState, Loader } from "../../../components/display";
 import { DateRangeChip, FilterChip, ToggleChip } from "../../../components/inputs";
 import { relTime } from "../../../records/model/activity";
@@ -26,7 +29,7 @@ import { USER_KEYS, userApi, type CaseListRow, type DoneRow, type Inbox, type My
 import {
   TABS, actionLabel, caseFiltersOf, currentText, filtered, inboxRowView, nameOf, outcomeWord, startable, tabOf, waitingText, withCaseFilter, type InboxRowView, type Tab,
 } from "./model";
-import { CaseState, Head, Notes, useWf } from "./parts";
+import { CaseState, Head, LoadError, Notes, useWf } from "./parts";
 
 const I16 = { size: 16, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
 const PAGE_SIZE = 50;
@@ -163,8 +166,16 @@ function InboxTab({ inbox }: { inbox: Inbox }) {
 // ---------------------------------------------------------------------------------------------------------------
 // «گردش‌کارهای من»
 
-function MineTab({ processes }: { processes: MyProcess[] }) {
+/** A read of «گردش‌کارهای من» that failed (a server error, the network gone): said as such, with «تلاش دوباره». */
+interface Failed {
+  error: unknown;
+  retry: () => void;
+  busy: boolean;
+}
+
+function MineTab({ processes, failed }: { processes: MyProcess[]; failed: Failed | null }) {
   const wf = useWf();
+  if (failed) return <LoadError title="گردش‌کارهای شما خوانده نشد" error={failed.error} retry={failed.retry} busy={failed.busy} />;
   if (!processes.length)
     return <EmptyState icon={Workflow} title="هنوز در گردش‌کاری نقش ندارید" description="گردش‌کارهایی که آغاز می‌کنید یا مرحله‌ای از آن‌ها با شماست این‌جا می‌آید." />;
   return (
@@ -409,6 +420,8 @@ export default function WorkflowsPage() {
   if (inbox.isLoading || mine.isLoading) return <Loader />;
   if (inbox.isError || !inbox.data) return <EmptyState title="گردش‌کارها خوانده نشد" description={inbox.error instanceof Error ? inbox.error.message : undefined} />;
   const processes = mine.data?.processes ?? [];
+  // a failed read is never «هنوز در گردش‌کاری نقش ندارید» nor a start menu gone without a word
+  const mineFailed: Failed | null = mine.isError && !mine.data ? { error: mine.error, retry: () => void mine.refetch(), busy: mine.isFetching } : null;
   const tab = tabOf(params, inbox.data.default_tab);
   const waiting = inbox.data.counts.waiting;
   const setTab = (t: Tab) =>
@@ -424,6 +437,18 @@ export default function WorkflowsPage() {
   return (
     <div className="wfu-page">
       <Head title="گردش‌کارها" sub={waitingText(waiting) || undefined} actions={<StartMenu processes={processes} />} />
+      {mineFailed && tab !== "mine" ? (
+        <Note
+          tone="danger"
+          action={
+            <Button size="small" loading={mineFailed.busy} onClick={mineFailed.retry}>
+              تلاش دوباره
+            </Button>
+          }
+        >
+          {`فهرست گردش‌کارهای شما و «شروع گردش‌کار» خوانده نشد: ${errorText(mineFailed.error)}`}
+        </Note>
+      ) : null}
       <Tabs
         activeKey={tab}
         onChange={(k) => setTab(k as Tab)}
@@ -435,7 +460,7 @@ export default function WorkflowsPage() {
             t.key !== tab ? null : t.key === "inbox" ? (
               <InboxTab inbox={inbox.data!} />
             ) : t.key === "mine" ? (
-              <MineTab processes={processes} />
+              <MineTab processes={processes} failed={mineFailed} />
             ) : t.key === "cases" ? (
               <CasesTab processes={processes} />
             ) : (

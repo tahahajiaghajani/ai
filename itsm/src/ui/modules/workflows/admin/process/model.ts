@@ -21,8 +21,8 @@ import { CASE_OUTCOMES, TASK_OUTCOMES } from "@shared/tables/process";
 import {
   CASE_ROOT, MAX_RULES, PROCESS_NODE_TYPES, TITLE_MAX, assigneeProblems, cleanRule, choiceCases, cleanStepAssignees, endOutcomeOf, formStepOf, ifNobodyOf, isBackEdge, outEdges,
   processPorts, renderTitle, startOf, stepOutcomes, structureOf,
-  type AssigneeRule, type ChoiceCase, type Duration, type Escalation, type ProcessGraph, type ProcessNode, type ProcessNodeType, type ProcessPort, type StepAction,
-  type StepAssignees, type StepOutcome,
+  type AssigneeRule, type ChoiceCase, type Duration, type Escalation, type FormStep, type ProcessGraph, type ProcessNode, type ProcessNodeType, type ProcessPort, type Quorum,
+  type StepAction, type StepAssignees, type StepOutcome,
 } from "@shared/process";
 import { faDigits } from "@shared/format";
 import { formatJalaliDateTime } from "@shared/jalali";
@@ -424,6 +424,19 @@ export function setAction(g: ProcessGraph, id: string, action: StepAction): Proc
     return [{ id: edgeId(id, mapped, e.target), source: id, target: e.target, ...(mapped !== "out" ? { port: mapped } : {}) }];
   });
   return wireRejection({ ...g, nodes: g.nodes.map((x) => (x.id === id ? next : x)), edges }, id);
+}
+
+/** The number a rule of approval starts with: «تعداد مشخصی از افراد» ۲ نفر, «درصدی از افراد» ۵۰٪. */
+const QUORUM_THRESHOLDS: Partial<Record<Quorum, number>> = { count: 2, percent: 50 };
+
+/**
+ * The settings patch of «قاعدهٔ تأیید»: the step's number is kept only while the rule stays of its kind — a count is a
+ * number of people, a percent a share of them, so «۵۰٪» never becomes 50 approvals nor «۲ نفر» 2% — another kind
+ * starts from its own number, and a rule without one drops it (undefined drops a key).
+ */
+export function quorumPatch(step: Pick<FormStep, "quorum" | "threshold">, quorum: Quorum): { quorum: Quorum; threshold: number | null | undefined } {
+  const start = QUORUM_THRESHOLDS[quorum];
+  return { quorum, threshold: start === undefined ? undefined : quorum === step.quorum ? step.threshold : start };
 }
 
 /** The people side of a form step's settings, as the role-then-people picker edits it. */

@@ -13,7 +13,7 @@ import { CircleAlert, ExternalLink, Plus, Trash2, TriangleAlert, X } from "lucid
 import type { FlowProblem } from "@shared/flows/types";
 import {
   PROCESS_NODE_TYPES, cleanDuration, cleanRule, endOutcomeOf, formStepOf, isProcessNodeType, processNodeLabel, quorumOf,
-  type AssigneeRule, type Escalation, type ProcessGraph, type ProcessNode, type StepAction,
+  type AssigneeRule, type Escalation, type ProcessGraph, type ProcessNode, type Quorum, type StepAction,
 } from "@shared/process";
 import type { MoneyUnit } from "@shared/financial/logic";
 import { faDigits } from "@shared/format";
@@ -23,8 +23,8 @@ import { AssigneePicker, AssigneeRules, ProcessNodeIcon, RightsMatrix, nodeTitle
 import type { FlowOption } from "./api";
 import {
   ACTION_OPTIONS, END_OPTIONS, ESCALATION_LABELS, ESCALATION_TO_LABELS, NEW_STEP_OPTIONS, QUORUM_OPTIONS, addFromPort, assigneesOf, assigneesPatch, autoOutcomes, caseRules,
-  dropConnection, earlierSteps, formPatch, inputRows, itemConfig, joinPatch, newCaseKey, newEscalation, newStepOf, outcomeText, patchConfig, portRows, rawCases, removeNode,
-  setAction, setCases, setLabel, setPortTarget, startersText, stepNotices, stepTitles, tabProblems, valueRows,
+  dropConnection, earlierSteps, formPatch, inputRows, itemConfig, joinPatch, newCaseKey, newEscalation, newStepOf, outcomeText, patchConfig, portRows, quorumPatch, rawCases,
+  removeNode, setAction, setCases, setLabel, setPortTarget, startersText, stepNotices, stepTitles, tabProblems, valueRows,
   type CaseField, type FormChoice, type FormInfo, type InspectorTab,
 } from "./model";
 import { CaseRulesEditor, DurationField, F, I14, PillMenu } from "./parts";
@@ -363,7 +363,7 @@ function FormStepBody(p: NodeInspectorProps) {
               value={quorumOf(step)}
               disabled={!editable}
               popupMatchSelectWidth={false}
-              onChange={(q) => patch({ quorum: q, threshold: q === "count" ? (step.threshold ?? 2) : q === "percent" ? (step.threshold ?? 50) : undefined })}
+              onChange={(q) => patch(quorumPatch(step, q as Quorum))}
               options={QUORUM_OPTIONS}
             />
           </F>
