@@ -18,6 +18,7 @@ import { createBridge } from "./bridge";
 import { takePendingRestore, undoRestore, restorePending } from "./backup";
 import { resetSyncCursor } from "./sync-client";
 import { openFromTemplate, templateFor } from "./db-template";
+import { startStallWatch } from "./stall";
 import { createStaticSite } from "../server-edition/static";
 import { APP_NAME } from "@shared/constants";
 
@@ -158,6 +159,17 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   jobTimer.unref?.();
 
   const app = new Hono();
+  // the API requests in flight, named in the report of a held thread (./stall.ts)
+  const inflight = new Map<object, string>();
+  app.use("/api/*", async (c, next) => {
+    const key = {};
+    inflight.set(key, `${c.req.method} ${c.req.path.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, ":id")}`);
+    try {
+      await next();
+    } finally {
+      inflight.delete(key);
+    }
+  });
   app.use("/api/*", async (c, next) => {
     if (isBackgroundRequest(c) || !windowRequest(peerOf(c), c.req.header("authorization"))) return next();
     fromWindow++;
@@ -221,6 +233,10 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   // first start), its migrations, this server ready; and the process since its own start (the bundle's code included)
   const ms = (x: number) => Math.round(x);
   log.info(`local server on ${host}:${port} (database ${ms(opened - t0)} ms${fromTemplate ? " from the template" : ""}, migrations ${ms(migrated - opened)} ms, ready ${ms(performance.now() - t0)} ms, process ${ms(process.uptime() * 1000)} ms)`);
+  // a held thread — PGlite's file work is synchronous on it —: how long, and the API requests that waited it out
+  const stopStallWatch = startStallWatch({
+    onStall: (held) => log.warn(`the local server's thread was held ${held} ms`, { waiting: [...inflight.values()].slice(0, 8), more: Math.max(0, inflight.size - 8) }),
+  });
   bridge.start(url);
 
   return {
@@ -229,6 +245,7 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
     host,
     config,
     async close() {
+      stopStallWatch();
       clearInterval(jobTimer);
       // the job runner finishes the jobs it holds and claims no more (not the rest of its 8-second budget)
       await stopTicks(db);

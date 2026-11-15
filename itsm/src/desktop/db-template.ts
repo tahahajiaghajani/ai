@@ -12,7 +12,7 @@
 // start. A template that does not load is set aside and the start falls back to initdb and the migrations.
 import { brotliCompressSync, brotliDecompressSync, constants } from "node:zlib";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { writeFile as writeFileAsync } from "node:fs/promises";
+import { open, writeFile as writeFileAsync } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { createPgliteDb, type PgliteDb } from "@server/db/pglite";
@@ -152,9 +152,40 @@ export async function unpackTemplate(entries: TemplateEntry[], dir: string, para
   writeFileSync(join(dir, "PG_VERSION"), entries.find((e) => e.name === "PG_VERSION")!.data);
 }
 
-/** Opens a data folder from a template: checked, unpacked, then opened by PGlite like any data folder. */
+/**
+ * Opens every file the template wrote once more, a few at a time, and closes it: what the computer does with new files
+ * at their first open (an antivirus scans a file it has not seen yet, and holds the open until it has) happens here,
+ * behind the splash, and not at the first page's queries. PGlite opens its files synchronously, on the local server's
+ * only thread, so a held open there holds every request and every file of the window: desktop-e2e on main
+ * (run 43696253020), the first home page after the setup — 9 API calls and 35 files of the app — waited 2.6 s with the
+ * local server idle, against 0.3 to 0.4 s in four other runs, on the machine that also took longest to unpack.
+ * Returns how many files it opened.
+ */
+export async function settleFiles(entries: TemplateEntry[], dir: string, parallel = 8): Promise<number> {
+  const files = entries.filter((e) => !e.dir);
+  let next = 0;
+  let opened = 0;
+  const one = async () => {
+    while (next < files.length) {
+      const f = await open(join(dir, files[next++].name), "r");
+      await f.close();
+      opened++;
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, parallel) }, one));
+  return opened;
+}
+
+/** Opens a data folder from a template: checked, unpacked, its files opened once (settleFiles), then opened by PGlite. */
 export async function openFromTemplate(dataDir: string, template: Buffer, log?: Pick<Logger, "info" | "warn">): Promise<PgliteDb> {
-  await unpackTemplate(templateEntries(template), dataDir);
+  const t0 = performance.now();
+  const entries = templateEntries(template);
+  await unpackTemplate(entries, dataDir);
+  const t1 = performance.now();
+  const files = await settleFiles(entries, dataDir);
+  const t2 = performance.now();
+  const mb = entries.reduce((n, e) => n + e.data.length, 0) / (1024 * 1024);
+  log?.info(`database template: ${files} files (${mb.toFixed(1)} MB) written in ${Math.round(t1 - t0)} ms, opened again in ${Math.round(t2 - t1)} ms`);
   return createPgliteDb({ dataDir, desktop: true, log });
 }
 
