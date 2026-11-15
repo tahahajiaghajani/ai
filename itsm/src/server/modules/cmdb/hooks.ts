@@ -263,6 +263,9 @@ async function writableCi(w: WriteArgs, id: unknown): Promise<Row | null> {
   return row && row.$writable !== false && access().canWrite(w.ctx, def, row) ? row : null;
 }
 
+/** The fields the health check writes on a CI (src/server/modules/cmdb/health.ts `computeHealth`). */
+const HEALTH_OUTPUTS = new Set(["health_score", "health_issues", "health", "health_at"]);
+
 async function ciAfter(w: WriteArgs & { row: Row }): Promise<void> {
   const org = w.ctx.org.id;
   const id = w.row.id as string;
@@ -270,7 +273,9 @@ async function ciAfter(w: WriteArgs & { row: Row }): Promise<void> {
     await enqueue(w.tx, { kind: "cmdb.ci_removed", orgId: org, payload: { ci: id } });
     return;
   }
-  if (w.op === "create" || w.changed.size) await enqueue(w.tx, { kind: "cmdb.health_ci", orgId: org, payload: { ci: id }, delayMs: 3000, dedupeKey: `cmdb.health_ci:${id}` });
+  // the health check's own outputs are no reason to check again: a write of only those (the check's, the warnings job's
+  // mark) queues no check — before, every check queued the next one, every 3 s, for every CI
+  if (w.op === "create" || [...w.changed].some((f) => !HEALTH_OUTPUTS.has(f))) await enqueue(w.tx, { kind: "cmdb.health_ci", orgId: org, payload: { ci: id }, delayMs: 3000, dedupeKey: `cmdb.health_ci:${id}` });
   if (w.op !== "create" && (w.changed.has("owned_by") || w.changed.has("support_group_id") || w.changed.has("workspace_id"))) {
     await enqueue(w.tx, { kind: "cmdb.rel_anchors", orgId: org, payload: { ci: id }, dedupeKey: `cmdb.rel_anchors:${id}` });
   }

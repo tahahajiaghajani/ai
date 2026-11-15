@@ -101,8 +101,8 @@ Export-PfxCertificate -Cert $c -FilePath C:\certs\kariz.pfx -Password (Read-Host
 ۲. با روال انتقال امن بانک (رسانهٔ اسکن‌شده) روی سرور، مثلاً در `C:\Install`، بگذارید و دوباره بسنجید:
 
 ```powershell
-Get-FileHash C:\Install\Kariz-Server-1.1.0.msi -Algorithm SHA256
-Unblock-File C:\Install\Kariz-Server-1.1.0.msi
+Get-FileHash C:\Install\Kariz-Server-1.1.1.msi -Algorithm SHA256
+Unblock-File C:\Install\Kariz-Server-1.1.1.msi
 ```
 
 همه‌چیز (Node.js، PostgreSQL ۱۷، pgvector، WinSW، محیط اجرای Visual C++) درون MSI است؛ هیچ دانلودی هنگام نصب انجام نمی‌شود.
@@ -114,7 +114,7 @@ Unblock-File C:\Install\Kariz-Server-1.1.0.msi
 از Command Prompt یا PowerShell با «Run as administrator» (گذرواژهٔ PFX فقط در همین خط می‌آید و در هیچ گزارشی نوشته نمی‌شود):
 
 ```
-msiexec /i C:\Install\Kariz-Server-1.1.0.msi /qn /l*v C:\Install\kariz-install.log HOSTNAME=kariz.bank.local DATADIR=D:\Kariz CERTPATH=C:\certs\kariz.pfx CERTPASSWORD=********
+msiexec /i C:\Install\Kariz-Server-1.1.1.msi /qn /l*v C:\Install\kariz-install.log HOSTNAME=kariz.bank.local DATADIR=D:\Kariz CERTPATH=C:\certs\kariz.pfx CERTPASSWORD=********
 ```
 
 - درگاه‌ها را ندهید تا خودکار انتخاب شوند (۴۴۳ و ۸۰، یا اگر گرفته‌اند ۸۴۴۳ / ۸۰۸۰)؛ نشانی نهایی در `D:\Kariz\setup-url.txt` و در رویداد ۱۰۰۰ گزارش Application (منبع `Kariz`) است.
@@ -199,7 +199,7 @@ karizctl restore D:\Kariz\backups\itsm-manual-20261110-220000 --yes
 ۳. در پنجرهٔ نگهداری، **بدون هیچ ویژگی**:
 
 ```
-msiexec /i C:\Install\Kariz-Server-1.1.0.msi /qn /l*v C:\Install\kariz-upgrade.log
+msiexec /i C:\Install\Kariz-Server-1.1.1.msi /qn /l*v C:\Install\kariz-upgrade.log
 ```
 
 نصب‌کننده پشتیبان ایمنی (`itsm-pre-upgrade-<زمان>`) می‌گیرد، فایل‌ها را جایگزین می‌کند، ساختار پایگاه داده را به‌روز می‌کند و سرویس‌ها را روشن می‌کند. درگاه‌ها، گواهی، نشانی، فهرست مجاز، پوشهٔ داده و همهٔ تنظیمات می‌مانند (شبیه‌سازی ارتقای ۱٫۰ به ۱٫۱ همین را سنجید).
@@ -211,8 +211,8 @@ msiexec /i C:\Install\Kariz-Server-1.1.0.msi /qn /l*v C:\Install\kariz-upgrade.l
 ## ۹. حذف
 
 ```
-msiexec /x C:\Install\Kariz-Server-1.1.0.msi /qn                (داده‌ها می‌مانند؛ نصب دوباره همه را برمی‌گرداند)
-msiexec /x C:\Install\Kariz-Server-1.1.0.msi /qn REMOVEDATA=1   (داده‌ها هم پاک می‌شوند)
+msiexec /x C:\Install\Kariz-Server-1.1.1.msi /qn                (داده‌ها می‌مانند؛ نصب دوباره همه را برمی‌گرداند)
+msiexec /x C:\Install\Kariz-Server-1.1.1.msi /qn REMOVEDATA=1   (داده‌ها هم پاک می‌شوند)
 ```
 
 پیش از `REMOVEDATA=1` یک پشتیبان بیرون از سرور داشته باشید. آنچه می‌ماند: [SERVER_FA.md](SERVER_FA.md) بخش ۱۹.

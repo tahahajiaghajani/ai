@@ -16,7 +16,7 @@ export const APP_TAGLINE_EN = "Intelligent service management";
 /** What the app is, in one line (window titles, the About screen, meta descriptions). */
 export const APP_DESCRIPTION = "سامانهٔ سازمانی مدیریت خدمات فناوری اطلاعات و خدمات سازمانی، با هوش مصنوعی";
 /** Bumped with every release; the desktop app compares it with the cloud to offer updates. */
-export const APP_VERSION = "1.1.0";
+export const APP_VERSION = "1.1.1";
 /**
  * Sync protocol version — the server refuses pushes and pulls from clients with another one. Bump it whenever a
  * synced table gains a column or a new synced kind appears, so a Windows app that does not know them cannot
@@ -29,14 +29,31 @@ export const APP_VERSION = "1.1.0";
  */
 export const SYNC_PROTOCOL = 17;
 
+/** Is version `a` older than `b` (major.minor.patch, numerically; a pre-release before its release)? */
+export function versionBelow(a: string, b: string): boolean {
+  const parse = (v: string) => {
+    const [core, pre] = v.trim().split("-", 2);
+    return { n: core.split(".").map((x) => Number.parseInt(x, 10) || 0), pre: pre ?? null };
+  };
+  const x = parse(a);
+  const y = parse(b);
+  for (let i = 0; i < 3; i++) if ((x.n[i] ?? 0) !== (y.n[i] ?? 0)) return (x.n[i] ?? 0) < (y.n[i] ?? 0);
+  return x.pre !== null && y.pre === null;
+}
+
 /**
  * Is a Windows app outdated for this build: of another sync protocol (the one it last spoke, recorded on its device —
- * 0 for an app whose pulls named none, from before 16 — the server refuses it), or of another version? Its version string
- * alone does not tell: a 1.1.0-beta app (protocol 15) reports this build's 1.1.0 too.
+ * 0 for an app whose pulls named none, from before 16 — the server refuses it), or of an older version (recorded at its
+ * link and, from 1.1.1, on every pull and push — so an app updated in place stops being marked)? Its version string
+ * alone does not tell: a 1.1.0-beta app (protocol 15) reports this build's 1.1.0 too. A newer app of the same protocol
+ * (the server not updated yet) is not outdated.
  */
 export function deviceOutdated(d: { app_version: string | null; sync_protocol: number | null }): boolean {
-  return (!!d.app_version && d.app_version !== APP_VERSION) || (d.sync_protocol != null && Number(d.sync_protocol) !== SYNC_PROTOCOL);
+  return (!!d.app_version && versionBelow(d.app_version, APP_VERSION)) || (d.sync_protocol != null && Number(d.sync_protocol) !== SYNC_PROTOCOL);
 }
+
+/** The request header a Windows app names its version in, on every call to the server (an older server ignores it). */
+export const APP_VERSION_HEADER = "x-kariz-app-version";
 
 /**
  * Optional modules an organisation switches on («ماژول‌ها»). The platform itself has none; later modules

@@ -18,6 +18,7 @@ import { createBridge } from "./bridge";
 import { takePendingRestore, undoRestore, restorePending } from "./backup";
 import { resetSyncCursor } from "./sync-client";
 import { openFromTemplate, templateFor } from "./db-template";
+import { startStallWatch } from "./stall";
 import { createStaticSite } from "../server-edition/static";
 import { APP_NAME } from "@shared/constants";
 
@@ -76,6 +77,18 @@ export function windowRequest(peer: string | undefined, authorization: string | 
  * index.html under the same names).
  */
 export const desktopCacheControl = (urlPath: string): string => (urlPath.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache");
+
+/**
+ * An API path as app.log names it in the report of a held thread: ids as ":id", and anything that may be a key or a
+ * one-time token (a long segment with a digit, as /api/public/* and hook paths carry) as ":x".
+ */
+export function stallPath(path: string): string {
+  return path
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, ":id")
+    .split("/")
+    .map((seg) => (seg.length >= 16 && /\d/.test(seg) && /^[A-Za-z0-9_.~%-]+$/.test(seg) ? ":x" : seg))
+    .join("/");
+}
 
 export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   const log = opts.log ?? consoleLogger;
@@ -158,6 +171,19 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   jobTimer.unref?.();
 
   const app = new Hono();
+  // the API requests in flight, named in the report of a held thread (./stall.ts), and how many have arrived
+  const inflight = new Map<object, string>();
+  let arrived = 0;
+  app.use("/api/*", async (c, next) => {
+    const key = {};
+    arrived++;
+    inflight.set(key, `${c.req.method} ${stallPath(c.req.path)}`);
+    try {
+      await next();
+    } finally {
+      inflight.delete(key);
+    }
+  });
   app.use("/api/*", async (c, next) => {
     if (isBackgroundRequest(c) || !windowRequest(peerOf(c), c.req.header("authorization"))) return next();
     fromWindow++;
@@ -221,6 +247,20 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   // first start), its migrations, this server ready; and the process since its own start (the bundle's code included)
   const ms = (x: number) => Math.round(x);
   log.info(`local server on ${host}:${port} (database ${ms(opened - t0)} ms${fromTemplate ? " from the template" : ""}, migrations ${ms(migrated - opened)} ms, ready ${ms(performance.now() - t0)} ms, process ${ms(process.uptime() * 1000)} ms)`);
+  // a held thread — PGlite's file work is synchronous on it —: how long, and the API requests that waited it out. The
+  // list is read after the next poll of the sockets (setImmediate), so it has the requests that came in during the hold
+  // too; `arrived` says how many of them did. A sleep of the computer is no hold.
+  const stopStallWatch = startStallWatch({
+    onStall: (held) => {
+      const before = arrived;
+      setImmediate(() => {
+        const waiting = [...inflight.values()];
+        const more = waiting.length > 8 ? ` and ${waiting.length - 8} more` : "";
+        log.warn(`the local server's thread was held ${held} ms; API requests waiting: ${JSON.stringify(waiting.slice(0, 8))}${more}; arrived during the hold: ${arrived - before}`);
+      });
+    },
+    onGap: (gap) => log.info(`no timer of the local server ran for ${Math.round(gap / 1000)} s: the computer slept or the process was paused`),
+  });
   bridge.start(url);
 
   return {
@@ -229,6 +269,7 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
     host,
     config,
     async close() {
+      stopStallWatch();
       clearInterval(jobTimer);
       // the job runner finishes the jobs it holds and claims no more (not the rest of its 8-second budget)
       await stopTicks(db);

@@ -22,6 +22,7 @@
 // Each register* returns a function that removes the registration (tests).
 import type { CondEnv } from "@shared/model/conditions";
 import type { TableDef, Transition } from "@shared/model/types";
+import { sameJson } from "@shared/json";
 import type { Ctx } from "../context";
 import type { Queryable, Tx } from "../db";
 
@@ -186,7 +187,7 @@ export function pushFromBefore(before: (w: WriteArgs) => unknown): Pick<TableHoo
       const out: Row = {};
       for (const f of p.def.fields) {
         if (f.base || !(f.system || f.readonly) || !(f.name in next)) continue;
-        if (JSON.stringify(next[f.name] ?? null) !== JSON.stringify(p.next[f.name] ?? null)) out[f.name] = next[f.name];
+        if (!sameJson(next[f.name] ?? null, p.next[f.name] ?? null)) out[f.name] = next[f.name];
       }
       return out;
     },

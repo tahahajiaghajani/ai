@@ -22,7 +22,7 @@ import { orgStatus, statusError } from "../modules/platform/org-admin";
 import { CREATED_HERE_SQL, lockActiveOwners, memberChangeProblem, OWNER_ONLY_MESSAGE, sameGrant, type MemberGrant } from "../modules/platform/members";
 import { requestMeta, securityEvent, type SecurityEventInput } from "../modules/platform/security";
 import type { Area, Level, Role } from "@shared/permissions";
-import { SYNC_PROTOCOL } from "@shared/constants";
+import { APP_VERSION_HEADER, SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
 import { inDemoScope } from "../db/scope";
 import { demoSignInRefusal } from "../modules/demo/signin";
@@ -33,6 +33,12 @@ import {
   afterSql, afterText, compareKey, currentSnap, deltaSql, orgSyncState, parseAfter, parseSnap, restampInBackground, snapText, visibleIn,
   xidRegressionWaiting, type After,
 } from "../sync/snapshot";
+
+/** The version a Windows app names in its requests (from 1.1.1; older apps send none), when it looks like one. */
+function appVersionOf(c: { req: { header(name: string): string | undefined } }): string | null {
+  const v = c.req.header(APP_VERSION_HEADER)?.trim() ?? "";
+  return /^\d{1,4}\.\d{1,4}\.\d{1,4}(-[0-9A-Za-z.]{1,32})?$/.test(v) ? v : null;
+}
 
 type StoredMember = MemberGrant & { is_active: boolean; deleted_at: string | null };
 
@@ -325,7 +331,7 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
     const event: SecurityEventInput = { kind: e.kind, user_id: e.user_id, email, org_id: ctx.org.id, ...requestMeta(c), data: { ...e.data, by: ctx.user.id, by_name: ctx.user.full_name } };
     await securityEvent(ctx.db, event);
   }
-  await ctx.db.query(`update sm_devices set last_push_at = now(), sync_protocol = $4 where id = $1 and org_id = $2 and user_id = $3`, [input.device_id, ctx.org.id, ctx.user.id, SYNC_PROTOCOL]);
+  await ctx.db.query(`update sm_devices set last_push_at = now(), sync_protocol = $4, app_version = coalesce($5, app_version) where id = $1 and org_id = $2 and user_id = $3`, [input.device_id, ctx.org.id, ctx.user.id, SYNC_PROTOCOL, appVersionOf(c)]);
   return c.json({ results, head: snapText(await currentSnap(ctx.db)) });
 }
 
@@ -494,12 +500,13 @@ syncRoutes.get("/pull", async (c) => {
     return c.json({ aggregates: [], tombstones: [], users: [], cursor: "", snap: null, after: null, head: page.head, has_more: true, reset: true, epoch: page.epoch });
   }
   if (query.device_id && /^[0-9a-f-]{36}$/i.test(query.device_id)) {
-    await ctx.db.query(`update sm_devices set last_pull_at = now(), cursor = $2, sync_protocol = $5 where id = $1 and org_id = $3 and user_id = $4`, [
+    await ctx.db.query(`update sm_devices set last_pull_at = now(), cursor = $2, sync_protocol = $5, app_version = coalesce($6, app_version) where id = $1 and org_id = $3 and user_id = $4`, [
       query.device_id,
       page.more ? (since?.xmin ?? 0) : page.snap.xmin,
       ctx.org.id,
       ctx.user.id,
       SYNC_PROTOCOL,
+      appVersionOf(c),
     ]);
   }
   return c.json({

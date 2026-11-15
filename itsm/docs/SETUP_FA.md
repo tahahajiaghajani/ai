@@ -240,7 +240,7 @@ select
 
 **باید ببینید:** در گزارش ساخت (`Deployments` ← انتشار ← `Building`) سطرهای `[migrate-db]` و آخرش `done: <n>/<n> steps` با دو عدد برابر (یا `up to date`). پس از انتشار، نشانی `https://itsm-xyz.vercel.app/api/health` این را نشان می‌دهد:
 ```json
-{"ok":true,"db":"ok","mode":"cloud","version":"1.1.0","schema":{"complete":true,"done":80,"total":80,"percent":100,"next":null},"pooler":"transaction"}
+{"ok":true,"db":"ok","mode":"cloud","version":"1.1.1","schema":{"complete":true,"done":80,"total":80,"percent":100,"next":null},"pooler":"transaction"}
 ```
 - `db`: `ok` یعنی پایگاه داده پاسخ می‌دهد؛ وگرنه متن خطای اتصال (جدول بخش ۹).
 - `schema`: مرحلهٔ `done` از `total`. تا کامل نشده، پاسخ ۵۰۳ با `"code":"migrating"` و درصد پیشرفت است و سایت صفحهٔ «آماده‌سازی پایگاه داده» را نشان می‌دهد.

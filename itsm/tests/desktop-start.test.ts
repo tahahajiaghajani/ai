@@ -12,7 +12,7 @@ import type { AddressInfo } from "node:net";
 import "./fixtures/module";
 import { makeServer, Client } from "./helpers";
 import { startLocal, desktopCacheControl, type LocalServer } from "@local/server";
-import { buildDbTemplate, DB_TEMPLATE_FILE } from "@local/db-template";
+import { buildDbTemplate, DB_TEMPLATE_FILE, templateEntries } from "@local/db-template";
 import { MIGRATIONS } from "@server/db/migrations";
 import type { Logger } from "@server/context";
 
@@ -81,6 +81,10 @@ describe("the first start's database made at build time", () => {
       const line = logT.lines.find((l) => l.startsWith("local server on"))!;
       expect(line).toMatch(/\(database \d+ ms from the template, migrations \d+ ms, ready \d+ ms, process \d+ ms\)$/);
       expect(logT.lines.filter((l) => /migration \S+ applied|schema step \S+ applied/.test(l))).toEqual([]);
+      // the first start says how many files it wrote and how long it took (app.log)
+      const files = templateEntries(readFileSync(templateFile)).filter((e) => !e.dir).length;
+      expect(files).toBeGreaterThan(500);
+      expect(logT.lines.find((l) => l.startsWith("database template:"))).toMatch(new RegExp(`^database template: ${files} files \\(\\d+\\.\\d MB\\) written in \\d+ ms$`));
       const health = await (await fetch(`${a.url}/api/health`)).json();
       expect(health.ok).toBe(true);
       expect(health.schema.complete).toBe(true);

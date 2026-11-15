@@ -382,8 +382,11 @@ describe("«تازه‌ها» of this release", () => {
     const { ADMIN_CHANGELOG } = await import("@server/modules/admin/changelog");
     const { APP_VERSION } = await import("@shared/constants");
     const { readFileSync } = await import("node:fs");
-    // this release's entries: the version itself and its beta (1.1.0 lists what came after 1.1.0-beta)
-    const release = ADMIN_CHANGELOG.filter((e) => e.version === APP_VERSION || e.version.startsWith(`${APP_VERSION}-`));
+    // this release line's entries, newest first: the version itself, the earlier releases of its major.minor and their
+    // beta (1.1.1 lists its fixes; 1.1.0 what came after 1.1.0-beta, which brought the web version's start-up fix)
+    const line11 = APP_VERSION.split(".").slice(0, 2).join(".");
+    const release = ADMIN_CHANGELOG.filter((e) => e.version === line11 || e.version.startsWith(`${line11}.`) || e.version.startsWith(`${line11}-`));
+    expect(ADMIN_CHANGELOG[0]?.version).toBe(APP_VERSION);
     expect(release[0]?.version).toBe(APP_VERSION);
     const line = release.flatMap((e) => e.items).find((x) => x.startsWith("نسخهٔ وب"));
     expect(line).toMatch(/آماده‌سازی پایگاه داده/);

@@ -8,6 +8,7 @@ import { ciHealth, relViolations, type HealthResult } from "@shared/cmdb/logic";
 import type { Cond } from "@shared/model/conditions";
 import type { ClassHealth, HealthSummary } from "@shared/cmdb/api";
 import { tableDef } from "@shared/tables";
+import { sameJson } from "@shared/json";
 import type { Ctx } from "../../context";
 import { lockKey, pgArray } from "../../db";
 import type { Queryable, Tx } from "../../db";
@@ -174,7 +175,9 @@ export async function computeHealth(q: Tx, ctx: Ctx, opts: { ids?: string[]; aft
     const issues = [...h.issues].sort();
     const prevIssues = [...(ci.health_issues ?? [])].sort();
     const detail = { completeness: h.completeness, recommended: h.recommended, correctness: h.correctness, compliance: h.compliance, missing: h.missing, violations: h.violations, failed_rules: failed.map((r) => r.name), warned: ci.health?.warned ?? null };
-    if (ci.health_score !== h.score || JSON.stringify(issues) !== JSON.stringify(prevIssues) || JSON.stringify(ci.health ?? null) !== JSON.stringify(detail) || h.issues.includes("stale") !== !!ci.is_stale) {
+    // the stored detail is jsonb, read back with its keys in jsonb's order: compared as JSON, not as text, or every check
+    // would write the CI again — and each write queues the next check (src/shared/json.ts)
+    if (ci.health_score !== h.score || !sameJson(issues, prevIssues) || !sameJson(ci.health ?? null, detail) || h.issues.includes("stale") !== !!ci.is_stale) {
       // the expiry warning mark as stored now (the CI locked: the warnings job writes it under the same lock), so this
       // write keeps a mark set since the CIs were read
       detail.warned = (await lockedRow(q, sys, "ci", ci.id))?.health?.warned ?? null;

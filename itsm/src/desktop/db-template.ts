@@ -154,7 +154,12 @@ export async function unpackTemplate(entries: TemplateEntry[], dir: string, para
 
 /** Opens a data folder from a template: checked, unpacked, then opened by PGlite like any data folder. */
 export async function openFromTemplate(dataDir: string, template: Buffer, log?: Pick<Logger, "info" | "warn">): Promise<PgliteDb> {
-  await unpackTemplate(templateEntries(template), dataDir);
+  const t0 = performance.now();
+  const entries = templateEntries(template);
+  await unpackTemplate(entries, dataDir);
+  const files = entries.filter((e) => !e.dir).length;
+  const mb = entries.reduce((n, e) => n + e.data.length, 0) / (1024 * 1024);
+  log?.info(`database template: ${files} files (${mb.toFixed(1)} MB) written in ${Math.round(performance.now() - t0)} ms`);
   return createPgliteDb({ dataDir, desktop: true, log });
 }
 

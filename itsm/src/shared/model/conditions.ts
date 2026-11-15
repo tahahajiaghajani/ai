@@ -19,6 +19,7 @@
 // - changed / changes_to / changes_from compare with `env.prev` (only rules have it; null = the record is new).
 // Imported by the UI: keep it free of server imports.
 import { D } from "../money";
+import { sameJson } from "../json";
 import { formatJalali, formatJalaliDateTime, parseJalaliInput, toFa } from "../jalali";
 import type { FieldDef, FieldType, Option, TableDef } from "./types";
 import { FIELD_TYPES, refTarget } from "./types";
@@ -363,7 +364,7 @@ function guessType(v: unknown, o: unknown): FieldType {
 // Evaluation
 
 function sameValue(type: FieldType, a: unknown, b: unknown, env: CondEnv): boolean {
-  if (FIELD_TYPES[type].family === "json") return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  if (FIELD_TYPES[type].family === "json") return sameJson(a ?? null, b ?? null);
   const x = stored(type, a, env);
   const y = stored(type, b, env);
   if (x === null || y === null) return x === y;

@@ -10,7 +10,7 @@ import { AGGREGATES, BY_ENTITY, type WireAggregate } from "@server/sync/registry
 import { readAggregates, writeAggregate } from "@server/sync/apply";
 import { ident } from "@server/db/sql";
 import { SCHEMA_VERSION } from "@server/db/migrations";
-import { SYNC_PROTOCOL, APP_VERSION, APP_NAME } from "@shared/constants";
+import { SYNC_PROTOCOL, APP_VERSION, APP_NAME, APP_VERSION_HEADER } from "@shared/constants";
 import type { LocalConfig } from "./config";
 import { hostname } from "node:os";
 import { bumpLocal } from "@server/live";
@@ -147,6 +147,8 @@ export class SyncClient {
         method: init.method ?? (init.body ? "POST" : "GET"),
         headers: {
           "content-type": "application/json",
+          // the server records it on this computer's device at every pull and push (an app updated in place)
+          [APP_VERSION_HEADER]: APP_VERSION,
           ...(init.token ?? this.o.config.cloud.token ? { authorization: `Bearer ${init.token ?? this.o.config.cloud.token}` } : {}),
         },
         body: init.body ? JSON.stringify(init.body) : undefined,
