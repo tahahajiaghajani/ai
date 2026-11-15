@@ -252,6 +252,11 @@ describe("support mode and platform administration", () => {
       expect(unknown[0].data.reason).toBe("unknown_account");
       const changed = (await admin.get(`/admin/security-events?kind=member_changed&org=${org}`)).events;
       expect(changed[1].data.changes.overrides).toEqual([{}, { ai: "view" }]);
+      // the same overrides sent again with their keys in another order change nothing: no privilege-change event
+      await owner.patch(`/o/${org}/members/${acc.id}`, { overrides: { ai: "view", reports: "view" } });
+      const logged = (await admin.get(`/admin/security-events?kind=member_changed&org=${org}`)).events.length;
+      await owner.patch(`/o/${org}/members/${acc.id}`, { overrides: { reports: "view", ai: "view" } });
+      expect((await admin.get(`/admin/security-events?kind=member_changed&org=${org}`)).events.length).toBe(logged);
       // never a password in a log line
       const all = await db.query(`select data::text as t from sm_security_events`);
       expect(all.some((r) => /lead-pass|wrong-pass/.test(String(r.t)))).toBe(false);

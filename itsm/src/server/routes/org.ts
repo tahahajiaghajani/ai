@@ -7,6 +7,7 @@ import { bad, conflict, forbidden, notFound } from "../http/errors";
 import { createOrg, knownModules, seedOrg } from "../modules/orgs/service";
 import { AREAS, permissionMap, ROLES, type Area, type Level, type Role } from "@shared/permissions";
 import { APP_NAME, isTimeZone } from "@shared/constants";
+import { sameJson } from "@shared/json";
 import { supportPermissions } from "../context";
 import { orgAccess } from "../modules/platform/access";
 import { accessibleOrgs, endSupport, listSupportSessions, SUPPORT_LEVEL_TITLE } from "../modules/platform/support";
@@ -261,7 +262,8 @@ orgRoutes.patch("/members/:id", async (c) => {
   // role, per-area overrides and activation are privilege changes: logged as security events
   const changes: Record<string, unknown> = {};
   if (input.role && input.role !== m.role) changes.role = [m.role, input.role];
-  if (input.overrides && JSON.stringify(input.overrides) !== JSON.stringify(m.overrides ?? {})) changes.overrides = [m.overrides ?? {}, input.overrides];
+  // the stored overrides are jsonb (keys in jsonb's order): compared as JSON, or an unchanged panel logs a change
+  if (input.overrides && !sameJson(input.overrides, m.overrides ?? {})) changes.overrides = [m.overrides ?? {}, input.overrides];
   if (input.is_active !== undefined && input.is_active !== m.is_active) changes.is_active = [m.is_active, input.is_active];
   if (Object.keys(changes).length)
     await securityEvent(ctx.db, {

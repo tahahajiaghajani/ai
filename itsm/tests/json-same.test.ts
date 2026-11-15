@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { canonicalJson, sameJson } from "@shared/json";
 import { sameValue } from "@server/engine/write";
 import type { FieldDef } from "@shared/model/types";
+import { fieldChanges, type StudioField } from "@shared/admin/studio";
 
 describe("JSON compared as JSON", () => {
   it("writes every object's keys in one order, at every level, and keeps arrays in theirs", () => {
@@ -26,6 +27,12 @@ describe("JSON compared as JSON", () => {
     expect(sameJson({ at: new Date(0) }, { at: "1970-01-01T00:00:00.000Z" })).toBe(true);
     expect(sameJson(null, undefined)).toBe(false);
     expect(sameJson(null, null)).toBe(true);
+  });
+
+  it("an imported package's unchanged choice field is no change, whatever the key order of its options", () => {
+    const cur = [{ name: "level", label: "سطح", type: "choice", options: [{ value: "a", label: "الف", color: "red" }] }] as unknown as StudioField[];
+    const inc = [{ name: "level", label: "سطح", type: "choice", options: [{ color: "red", label: "الف", value: "a" }] }] as unknown as StudioField[];
+    expect(fieldChanges(cur, inc)).toEqual([{ name: "level", label: "سطح", change: "same", what: [] }]);
   });
 
   it("is what the record engine uses to tell whether a JSON field changed", () => {
