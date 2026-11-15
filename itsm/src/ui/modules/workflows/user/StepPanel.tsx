@@ -1,8 +1,8 @@
 // The step form (design F §5 «The step form», §8.6; package F7) at `workflows/c/:id/s/:task`: in the inspector beside
-// the case's diagram on a wide screen, a full page on a phone. Top to bottom: the step's name, «به جانشینی از …», the due
-// pill; a folded «آنچه پیش‌تر ثبت شده»; the form with my rights (my refused values, else my draft, over the case's
-// values; the case's files by name, each opening its file); a comment box; a sticky action bar with the step's
-// decisions —
+// the case's diagram on a wide screen, a full page on a phone. Top to bottom: the step's name, «به جانشینی از …» (for the
+// person who delegated it «سپرده به …»), the due pill; a folded «آنچه پیش‌تر ثبت شده»; the form with my rights (my
+// refused values, else my draft, over the case's values; the case's files by name, each opening its file); a comment
+// box; a sticky action bar with the step's decisions —
 //   fill «ارسال برای "…"» and «ذخیرهٔ پیش‌نویس»; review «ادامهٔ گردش‌کار» and «بازگشت برای اصلاح»; approve «تأیید»، «رد» and
 //   «بازگشت برای اصلاح».
 // «رد» and «بازگشت» ask for a reason, «بازگشت» picks its target (the default chosen) and the confirmation names the
@@ -25,7 +25,8 @@ import { useMe, useSchema } from "../../../records/data/hooks";
 import { useLeaveGuard } from "../admin/forms/parts";
 import { USER_KEYS, userApi, type CaseDetail, type CaseFile, type MyStep } from "./api";
 import {
-  actionLabel, consequence, defaultReturn, draftValues, fieldProblems, initialValues, missingRequired, nameOf, packValues, resultMessage, stepActions, takesValues, type StepActionDef,
+  actionLabel, consequence, defaultReturn, delegationNote, draftValues, fieldProblems, initialValues, missingRequired, nameOf, packValues, resultMessage, stepActions, takesValues,
+  type StepActionDef,
 } from "./model";
 import { CaseValues, DuePill, ProcessForm, useLocalFiles, useMoneyUnit } from "./parts";
 
@@ -170,6 +171,7 @@ export function StepPanel({ detail, step, files, filesLoading, authority, onDone
   };
 
   const earlier = Object.keys(detail.data).some(before);
+  const delegation = delegationNote(step, detail.history.tasks, userId, display);
   return (
     <section className={cx("wfu-stepform", className)} aria-label={`مرحلهٔ «${step.label}»`}>
       <header className="wfu-stepform-h">
@@ -179,7 +181,7 @@ export function StepPanel({ detail, step, files, filesLoading, authority, onDone
             {actionLabel(step.action)}
           </Chip>
           {step.round > 1 ? <Chip tone="neutral">{`دور ${faDigits(step.round)}`}</Chip> : null}
-          {step.delegated_from ? <span>{`به جانشینی از ${nameOf(display, step.delegated_from)}`}</span> : null}
+          {delegation ? <span>{delegation}</span> : null}
           <DuePill due={step.due_at} prefix="مهلت" />
         </div>
       </header>

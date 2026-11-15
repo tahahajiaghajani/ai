@@ -7,7 +7,8 @@
 // «کارتابل» and case, a return to the requester with its consequence, a draft kept and refilled, the requester's
 // second round, the approval; a pool step taken by one («در دست …»), the other's late decision kept with its message;
 // a requester's «لغو پرونده» that arrives after the case ended («late», never «پرونده لغو شد.»);
-// a delegate's «به جانشینی از …»; the printable view; a reader of no case gets an empty «پرونده‌ها» — and the review's
+// a delegate's «به جانشینی از …» and, for the head who delegated it, «سپرده به …»; the printable view; a reader of no
+// case gets an empty «پرونده‌ها» — and the review's
 // cases: a case's files open by name from «داده‌ها», «آنچه پیش‌تر ثبت شده» and the step form; «امروز» in «پرونده‌ها»
 // finds today's cases; a start sent again after its answer was lost opens one case; the portal's «کارهای من» counts and
 // lists the steps waiting for the person.
@@ -32,7 +33,7 @@ import { userPart } from "../src/ui/modules/workflows/user/routes";
 import { USER_KEYS, userApi, casesQuery, dayEnd, type CaseDetail, type Inbox, type InboxRow, type MyStep, type StepView } from "../src/ui/modules/workflows/user/api";
 import {
   CASE_PATH, PORTAL_WF_PATH, PRINT_PATH, PROCESS_PATH, RECORD_CASE_PATH, START_PATH, STEP_PATH, WF_PATH, cancelMessage, caseFiltersOf, caseIdHolder, caseStateView, consequence,
-  defaultReturn,
+  defaultReturn, delegationNote,
   draftValues, dueView, fieldProblems, filtered, headerStep, inboxRowView, initialValues, mapLink, missingRequired, myPart, newCaseId, openSteps, packValues, processMarks,
   resultMessage, rowLink, sendLabel, startMessage, startValues, stateChannel, stepActions, stepNotes, tabOf, takenFromStatuses, waitingSteps, waitingText, wfPaths,
   withCaseFilter,
@@ -225,6 +226,15 @@ describe("the rows of «کارتابل»", () => {
     expect(stepNotes(row({ claimed_by: "u-ali" }), display)).toEqual(["در دست علی احمدی"]);
     expect(stepNotes({ claimed_by: "u-ali" }, display, "u-ali")).toEqual([]);
     expect(stepNotes(row({ queued: true, paused: true }), display)).toEqual(["در صف ارسال", "پرونده موقتاً متوقف است"]);
+  });
+
+  it("the step form's delegation line: the delegate acts «به جانشینی از …»; the head who delegated it reads whom it is with, never his own name", () => {
+    const tasks = [{ id: "t1", assigned_to: "u-ali" }, { id: "t2", assigned_to: "u-head" }];
+    const delegated = step({ id: "t1", delegated_from: "u-head" });
+    expect(delegationNote(delegated, tasks, "u-ali", display)).toBe("به جانشینی از حسین رئیس شعبه");
+    // the case lists the step among the head's own (he may still do it), with his id as delegated_from
+    expect(delegationNote(delegated, tasks, "u-head", display)).toBe("سپرده به علی احمدی");
+    expect(delegationNote(step({ id: "t2" }), tasks, "u-head", display)).toBeNull();
   });
 
   it("the due pill: hours or days left, a warning within four hours, overdue in danger", () => {
@@ -628,6 +638,13 @@ describe("«گردش‌کارها» on a real organisation (§3.7)", () => {
     expect(inboxRowView(row1, box.display, WF_PATH).notes).toEqual(["به جانشینی از حسین رئیس شعبه"]);
     const detail = await userApi.kase(as("dlg"), r.case!);
     expect(stepNotes(detail.my_steps[0], detail.display)).toEqual(["به جانشینی از حسین رئیس شعبه"]);
+    expect(delegationNote(detail.my_steps[0], detail.history.tasks, b.M.dlg.userId, detail.display)).toBe("به جانشینی از حسین رئیس شعبه");
+    // the head opens the case from a notification: the step is listed among his, delegated from him — the form names
+    // the delegate it went to, not «به جانشینی از» himself
+    const his = await userApi.kase(as("head"), r.case!);
+    const own = his.my_steps.find((s) => s.id === detail.my_steps[0].id)!;
+    expect(own.delegated_from).toBe(b.M.head.userId);
+    expect(delegationNote(own, his.history.tasks, b.M.head.userId, his.display)).toBe("سپرده به داوود جانشین");
   });
 
   it("someone who reads no case gets an empty «پرونده‌ها», and the conversation takes a comment from a reader", async () => {

@@ -185,6 +185,23 @@ export function stepNotes(
   return out;
 }
 
+/**
+ * The step form's delegation line: the delegate reads «به جانشینی از …»; the person who delegated the step (the case
+ * lists it among their steps too — they may still do it) reads «سپرده به …», whom its task is with now, never their
+ * own name.
+ */
+export function delegationNote(
+  step: Pick<MyStep, "id" | "delegated_from">,
+  tasks: readonly Pick<HistoryTask, "id" | "assigned_to">[],
+  me: string | null | undefined,
+  display: Record<string, string>,
+): string | null {
+  if (!step.delegated_from) return null;
+  if (step.delegated_from !== me) return `به جانشینی از ${nameOf(display, step.delegated_from)}`;
+  const to = tasks.find((t) => t.id === step.id)?.assigned_to;
+  return to && to !== me ? `سپرده به ${nameOf(display, to)}` : null;
+}
+
 /** What a row of «کارتابل» shows. */
 export interface InboxRowView {
   key: string;
