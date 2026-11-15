@@ -46,6 +46,8 @@
 | کارایی در مقیاس بانک: آزمون بار، اندازهٔ سرور، تنظیم PostgreSQL | [`docs/PERFORMANCE_FA.md`](docs/PERFORMANCE_FA.md) |
 | دادهٔ نمایشی «بانک نمونهٔ آفتاب»: بارگذاری با یک کلیک، سناریوی نمایش، حذف بی‌ردپا | [`docs/DEMO_FA.md`](docs/DEMO_FA.md) |
 | دارایی‌ها در تراز بانک: اموال شعبه‌ها، ناوگان خودپرداز، حواله و زنجیرهٔ نگهداری، دفتر اموال | [`docs/modules/itam_FA.md`](docs/modules/itam_FA.md) |
+| فیلدها، فرم‌ها، نقش‌های سازمانی و گردش‌کارها: راهنمای مدیر و «گردش‌کارها»ی هر کس | [`docs/modules/workflows_FA.md`](docs/modules/workflows_FA.md) |
+| منبع‌های داده (Zabbix، PRTG، vCenter، REST، API ارسال، CSV/JSON)، صف آشتی و وضعیت پایش | [`docs/modules/discovery_FA.md`](docs/modules/discovery_FA.md) |
 | وارسی کلیک‌به‌کلیک همهٔ صفحه‌ها (گزارش QA) | [`docs/qa/CLICKTHROUGH.md`](docs/qa/CLICKTHROUGH.md) |
 | کتاب برند «کاریز»: داستان، نام، نشانه، رنگ، لحن | [`docs/BRAND_FA.md`](docs/BRAND_FA.md) |
 | سامانهٔ طراحی (راهنمای مهندسان): توکن‌ها، اجزا، ساختن صفحه | [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md) و [`src/ui/ds/README.md`](src/ui/ds/README.md) |
