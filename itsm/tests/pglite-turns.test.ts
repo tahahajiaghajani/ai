@@ -1,6 +1,6 @@
 // A long transaction of the Windows app's database lets the event loop turn (src/server/db/pglite.ts,
 // docs/PERFORMANCE_FA.md §21). A module's seed after the setup or a step of the demo load writes thousands of
-// statements in one transaction, and the local server's one thread was held for all of them, up to 3.3 s: the window's
+// statements in one transaction, and the local server's one thread was held for all of them, up to 3.5 s: the window's
 // files, sockets and timers waited. The app's other queries still wait for the transaction's end: none runs inside it.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
