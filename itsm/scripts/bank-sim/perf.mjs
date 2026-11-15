@@ -43,9 +43,10 @@ export const SERVER_BUDGETS = {
   idle_cpu_pct: 30,
   // the monitoring push API (scenario 13, api.mjs --phase push-status): a status batch for a known CI with the tool's
   // key, from the request to its outcome (matched, written, the CI's status aggregated), and the status board «وضعیت
-  // پایش» reading it back. First numbers (docs/qa/PERFORMANCE_E2E_FA.md §2-5): 28-72 ms and 12-30 ms in eight runs of
-  // the phase on a development machine (PostgreSQL 16, plain HTTP), the larger the first run's (a fresh connector, as
-  // in the simulation); the budgets about three times those, the first Windows run confirms them
+  // پایش» reading it back. Set from eight runs of the phase on a development machine (docs/qa/PERFORMANCE_E2E_FA.md
+  // §2-5; PostgreSQL 16, plain HTTP): 28-72 ms and 12-30 ms, the larger the first run's (a fresh connector, as in the
+  // simulation); the budgets about three times those. The first Windows run (43676017496, HTTPS): 33 ms and 10 ms.
+  // Unchanged until 1.2 sets them at 2-3 times the median of several Windows runs: one run is not a basis
   push_status_ms: 200,
   status_board_ms: 90,
 };

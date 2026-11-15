@@ -65,9 +65,12 @@ const BUDGETS = {
   order_ms: 5_000,
   // «ارسال برای "…"» on a workflow's start form to its case page with the next step current: the start applied by the
   // request, the case's run opening that step at the job queue's next turn (every 10 s on this computer), the page
-  // refreshing by itself («زنده», every 5 s). First numbers (docs/qa/PERFORMANCE_E2E_FA.md §1-5): 12.9 and 13.3 s, and
-  // 22.7 s right after the demo pack with its background work queued, in a dry run of these steps against the Windows
-  // flavour's local server (scripts/serve-local.mts) in Chromium; the case's page itself 0.45-1.04 s
+  // refreshing by itself («زنده», every 5 s). Set from a dry run of these steps against the Windows flavour's local
+  // server (scripts/serve-local.mts) in Chromium (docs/qa/PERFORMANCE_E2E_FA.md §1-5): 12.9 and 13.3 s, and 22.7 s right
+  // after the demo pack with its background work queued; the case's page itself 0.45-1.04 s. The first Windows run
+  // (43676017496): 8.86 s to «تأیید امنیت اطلاعات», the case's page 0.43 s, after the pack's support agent's sign-in
+  // from the portal's «خروج» (0.63 s to the first page). Unchanged until 1.2 sets it at 2-3 times the median of several
+  // Windows runs: one run is not a basis
   workflow_start_ms: 45_000,
   // the bank demo pack «کوچک» (292 s; 236 s before)
   demo_load_s: 600,
