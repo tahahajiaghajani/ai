@@ -1,6 +1,7 @@
 // The person's «گردش‌کارها» (design F §5, §8.6, package F7; src/ui/modules/workflows/user): the routes and the nav row
 // with its count, the record link of a case, the four tabs and their filters in the address, the rows of «کارتابل» and
-// their notes, the click budget, the due pill, a process's marks, the state channel and the path a case took, the
+// their notes, the click budget, the due pill, a process's marks, the state channel and the path a case took, a case
+// dialog that keeps what the manager entered while the case refreshes live, the
 // decisions each step kind offers and the reasons they ask for, the consequences and the messages after a decision,
 // what a submission sends (files as `{ upload: n }`; a start or a step sends only the fields «نمایش وقتی…» shows, their
 // files included), where a form starts, the required fields left empty; a read that fails («گردش‌کارهای من» and the
@@ -36,7 +37,8 @@ import { USER_KEYS, userApi, casesQuery, dayEnd, type CaseDetail, type Inbox, ty
 import {
   CASE_PATH, PORTAL_WF_PATH, PRINT_PATH, PROCESS_PATH, RECORD_CASE_PATH, START_PATH, STEP_PATH, WF_PATH, cancelMessage, caseFiltersOf, caseIdHolder, caseStateView, consequence,
   defaultReturn, delegationNote,
-  draftValues, dueView, fieldProblems, filtered, headerStep, inboxRowView, initialValues, mapLink, missingRequired, myPart, newCaseId, openSteps, packShown, packValues, processMarks,
+  draftValues, dueView, fieldProblems, filtered, headerStep, inboxRowView, initialValues, managerForm, mapLink, missingRequired, myPart, newCaseId, openSteps, packShown, packValues,
+  processMarks,
   resultMessage, rowLink, sendLabel, startMessage, startValues, stateChannel, stepActions, stepNotes, tabOf, takenFromStatuses, waitingSteps, waitingText, wfPaths,
   withCaseFilter,
 } from "../src/ui/modules/workflows/user/model";
@@ -315,6 +317,28 @@ describe("diagrams and the case", () => {
     expect(myPart(detail, "u-ali")).toEqual(["تأییدکننده در «تأیید رئیس شعبه»"]);
     expect(headerStep([step({ id: "q", queued: true }), step({ id: "x" })])?.id).toBe("x");
     expect(headerStep([])).toBeNull();
+  });
+
+  it("a case dialog starts afresh when it opens; the case read again while it is open (the live refresh) keeps what the manager entered", () => {
+    const detailOf = (open: { id: string; key: string; label: string; to: string }[]) =>
+      ({
+        case: { current_steps: [...new Map(open.map((t) => [t.key, { key: t.key, label: t.label }])).values()] },
+        history: { tasks: open.map((t) => ({ id: t.id, step_key: t.key, step_label: t.label, action: "approve", status: "open", assigned_to: t.to })) },
+        restart_targets: [{ key: "s", label: "ثبت درخواست" }],
+      }) as unknown as CaseDetail;
+    const before = detailOf([{ id: "1", key: "a1", label: "تأیید رئیس شعبه", to: "u-head" }, { id: "2", key: "pay", label: "بررسی و پرداخت", to: "u-ali" }]);
+    const opened = managerForm(null, "reassign", before);
+    expect(opened).toEqual({ action: "reassign", comment: "", step: "a1", task: null, to: [], node: "s" });
+    // «ارجاع مرحله»: the manager picks the second step, two people and writes a note …
+    const typed = { ...opened, step: "pay", task: "2", to: ["u-samira", "u-ali"], comment: "به جای همکار در مرخصی" };
+    // … while the head approves: the page reads the case again (a new detail, its first step gone) and keeps it all
+    const after = detailOf([{ id: "2", key: "pay", label: "بررسی و پرداخت", to: "u-ali" }]);
+    expect(managerForm(typed, "reassign", after)).toBe(typed);
+    // closed and opened again, or for another action: afresh, from the case as it is now
+    const closed = managerForm(typed, null, after);
+    expect(closed).toMatchObject({ action: null, comment: "", task: null, to: [] });
+    expect(managerForm(closed, "reassign", after)).toEqual({ action: "reassign", comment: "", step: "pay", task: null, to: [], node: "s" });
+    expect(managerForm(closed, "pause", after)).toMatchObject({ action: "pause", comment: "" });
   });
 });
 

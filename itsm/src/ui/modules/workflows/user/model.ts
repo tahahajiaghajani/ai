@@ -339,6 +339,26 @@ export function headerStep(steps: readonly MyStep[]): MyStep | null {
 export const currentText = (row: Pick<CaseListRow, "current_steps" | "state">): string =>
   isOpenCase(row.state) ? (row.current_steps ?? []).map((s) => s.label).join("، ") : "";
 
+/** What a dialog of the case's «اقدام‌ها» holds: the action it is open for, the note, the step, whose task, the people, the step to resume from. */
+export interface ManagerForm {
+  action: string | null;
+  comment: string;
+  step: string | null;
+  task: string | null;
+  to: string[];
+  node: string | null;
+}
+
+/**
+ * A case dialog's input as the case page renders: opening it for an action starts it afresh — no note, the case's
+ * first open step, nobody chosen, the first step to resume from; the case read again while it is open (the page
+ * refreshes live whenever someone acts on the case) keeps what the manager typed and chose.
+ */
+export function managerForm(prev: ManagerForm | null, action: string | null, detail: Pick<CaseDetail, "case" | "history" | "restart_targets">): ManagerForm {
+  if (prev && prev.action === action) return prev;
+  return { action, comment: "", step: openSteps(detail)[0]?.key ?? null, task: null, to: [], node: detail.restart_targets[0]?.key ?? null };
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // The step form
 
