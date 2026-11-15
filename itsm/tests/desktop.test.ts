@@ -408,6 +408,8 @@ describe("Windows app identity", () => {
     expect(main).toContain(`const APP_ID = "app.itsm.desktop"`);
     const pkg = JSON.parse(readFileSync(join(__dirname, "..", "desktop", "package.json"), "utf8"));
     expect(pkg.version).toBe(APP_VERSION);
+    // the server edition ships itsm/package.json's version in app\package.json (scripts/build-server.mjs)
+    expect(JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")).version).toBe(APP_VERSION);
     // the bridge is exposed under one name only, and every IPC channel is itsm:*
     const preload = readFileSync(join(__dirname, "..", "desktop", "src", "preload.ts"), "utf8");
     expect([...preload.matchAll(/exposeInMainWorld\("([^"]+)"/g)].map((m) => m[1])).toEqual(["itsm"]);

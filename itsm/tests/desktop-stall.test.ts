@@ -2,6 +2,7 @@
 // fires late by a second or more names the hold in app.log; a timer on time says nothing.
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { startStallWatch } from "@local/stall";
+import { stallPath } from "@local/server";
 
 afterEach(() => vi.useRealTimers());
 
@@ -27,6 +28,32 @@ describe("the local server's stall watch", () => {
     t += 5000;
     vi.advanceTimersByTime(1000);
     expect(held).toEqual([2600]);
+  });
+
+  it("tells a sleep of the computer apart: a gap of a minute or more is no hold", () => {
+    vi.useFakeTimers();
+    let t = 0;
+    const held: number[] = [];
+    const gaps: number[] = [];
+    const stop = startStallWatch({ everyMs: 100, thresholdMs: 1000, now: () => t, onStall: (ms) => held.push(ms), onGap: (ms) => gaps.push(ms) });
+    // Windows' clock counts on while the lid is closed: the first tick after the wake-up comes 14 hours late
+    t += 14 * 3_600_000;
+    vi.advanceTimersByTime(100);
+    expect(held).toEqual([]);
+    expect(gaps).toEqual([14 * 3_600_000 - 100]);
+    // a hold just under the ceiling is still a hold
+    t += 59_000;
+    vi.advanceTimersByTime(100);
+    expect(held).toEqual([58_900]);
+    stop();
+  });
+
+  it("names the requests that waited without the keys or one-time tokens of their paths", () => {
+    expect(stallPath("/api/o/0b8d2c1e-1111-4a2b-9c3d-123456789abc/r/incident/0b8d2c1e-1111-4a2b-9c3d-123456789abd")).toBe("/api/o/:id/r/incident/:id");
+    expect(stallPath("/api/public/survey/AbCdEf0123456789xyz")).toBe("/api/public/survey/:x");
+    expect(stallPath("/api/hooks/inbound/tok_9f8e7d6c5b4a3210")).toBe("/api/hooks/inbound/:x");
+    // names of the API stay readable
+    expect(stallPath("/api/o/acme/cmdb/health_summary_by_class")).toBe("/api/o/acme/cmdb/health_summary_by_class");
   });
 
   it("catches a real hold of the thread", async () => {

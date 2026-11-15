@@ -10,7 +10,7 @@ import { defaultConfig } from "@local/config";
 import { afterWrite, writeAggregate } from "@server/sync/apply";
 import { BY_ENTITY } from "@server/sync/registry";
 import { SCHEMA_VERSION } from "@server/db/migrations";
-import { APP_VERSION, SYNC_PROTOCOL } from "@shared/constants";
+import { APP_VERSION, SYNC_PROTOCOL, deviceOutdated, versionBelow } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
 import type { Db } from "@server/db";
 
@@ -97,6 +97,46 @@ describe("a Windows app of another version against the cloud", () => {
     // updated, the computer speaks this protocol and is up to date again
     await p.web.get(`/sync/pull?org_id=${p.org}&protocol=${SYNC_PROTOCOL}&device_id=${beta}`);
     expect((await status()).devices_outdated).toBe(0);
+  });
+
+  // 1.1.1: the version was recorded only when an app was linked, so an app updated in place kept its old version — and
+  // its «نیازمند ارتقا» mark — for good. Every pull and push names it now (a header an older server ignores).
+  it("an app updated in place stops showing «نیازمند ارتقا»: its version is recorded at every pull and push", async () => {
+    const p = await linkedPair("updated-in-place@example.com");
+    const dev = (await p.cloudDb.one<{ id: string; app_version: string }>(`select id, app_version from sm_devices where org_id = $1`, [p.org]))!;
+    expect(dev.app_version).toBe(APP_VERSION);
+    const version = async () => (await p.cloudDb.one<{ app_version: string }>(`select app_version from sm_devices where id = $1`, [dev.id]))!.app_version;
+    const outdated = async () => (await p.web.get<{ devices_outdated: number }>("/admin/version")).devices_outdated;
+    // linked under an older build
+    await p.cloudDb.query(`update sm_devices set app_version = '1.0.0' where id = $1`, [dev.id]);
+    expect(await outdated()).toBe(1);
+    // the same computer, updated to this build, pulls
+    await p.client.pullAll();
+    expect(await version()).toBe(APP_VERSION);
+    expect(await outdated()).toBe(0);
+    // and pushes
+    await p.cloudDb.query(`update sm_devices set app_version = '1.0.0' where id = $1`, [dev.id]);
+    await p.local.post(`/o/${p.org}/data/test_item`, { name: "رایانهٔ به‌روز" });
+    expect(await p.client.push()).toBeGreaterThan(0);
+    expect(await version()).toBe(APP_VERSION);
+    // a request that names no version (an app from before 1.1.1) or a malformed one keeps what is stored
+    await p.cloudDb.query(`update sm_devices set app_version = '1.0.0' where id = $1`, [dev.id]);
+    await p.web.get(`/sync/pull?org_id=${p.org}&protocol=${SYNC_PROTOCOL}&device_id=${dev.id}`);
+    expect(await version()).toBe("1.0.0");
+  });
+
+  it("an older app is outdated, a newer one of the same protocol is not", () => {
+    expect(versionBelow("1.1.0", "1.1.1")).toBe(true);
+    expect(versionBelow("1.1.1", "1.1.1")).toBe(false);
+    expect(versionBelow("1.2.0", "1.1.9")).toBe(false);
+    expect(versionBelow("1.10.0", "1.9.9")).toBe(false);
+    expect(versionBelow("1.1.0-beta", "1.1.0")).toBe(true);
+    expect(deviceOutdated({ app_version: "1.0.0", sync_protocol: SYNC_PROTOCOL })).toBe(true);
+    expect(deviceOutdated({ app_version: APP_VERSION, sync_protocol: SYNC_PROTOCOL })).toBe(false);
+    // a server not updated yet does not call a newer app outdated
+    expect(deviceOutdated({ app_version: "99.0.0", sync_protocol: SYNC_PROTOCOL })).toBe(false);
+    // another protocol always is
+    expect(deviceOutdated({ app_version: "99.0.0", sync_protocol: SYNC_PROTOCOL - 1 })).toBe(true);
   });
 
   it("a row without the columns added since keeps their stored values (or takes their defaults)", async () => {

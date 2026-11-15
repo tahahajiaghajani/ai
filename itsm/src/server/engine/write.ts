@@ -16,6 +16,7 @@ import type { CondEnv } from "@shared/model/conditions";
 import { evaluate, isNever } from "@shared/model/conditions";
 import { stateCategory, transitionsFrom, DONE_CATEGORIES } from "@shared/model/task";
 import { todayISO } from "@shared/jalali";
+import { sameJson } from "@shared/json";
 import { uuidv7 } from "@shared/id";
 import { D } from "@shared/money";
 import type { Ctx } from "../context";
@@ -92,7 +93,8 @@ export function sameValue(f: FieldDef, a: unknown, b: unknown): boolean {
   }
   if (f.type === "datetime") return Date.parse(String(a)) === Date.parse(String(b));
   if (info.array && Array.isArray(a) && Array.isArray(b)) return JSON.stringify([...a].map(String).sort()) === JSON.stringify([...b].map(String).sort());
-  if (typeof a === "object" || typeof b === "object") return JSON.stringify(a) === JSON.stringify(b);
+  // jsonb keeps no key order: equal JSON is the same value whatever order its keys come in (src/shared/json.ts)
+  if (typeof a === "object" || typeof b === "object") return sameJson(a, b);
   return String(a) === String(b);
 }
 

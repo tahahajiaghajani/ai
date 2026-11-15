@@ -21,6 +21,7 @@ import { validateCond, type CondEnv } from "@shared/model/conditions";
 import { zonedMidnight, localDate } from "@shared/model/jalali-buckets";
 import { D, normalizeDigits } from "@shared/money";
 import { fromJalali, isValidJalali } from "@shared/jalali";
+import { sameJson } from "@shared/json";
 import { isEmail } from "@shared/validate";
 import { todayISO } from "@shared/jalali";
 import { attachmentIds, attachmentsProblem, fieldValueProblem, normalizeFieldValue } from "@shared/forms/validators";
@@ -268,7 +269,7 @@ function sameStored(f: FieldDef, v: unknown, prev: unknown): boolean {
     }
   }
   if (f.type === "datetime") return Date.parse(String(v)) === Date.parse(String(prev));
-  if (typeof v === "object" || typeof prev === "object") return JSON.stringify(v) === JSON.stringify(prev);
+  if (typeof v === "object" || typeof prev === "object") return sameJson(v, prev);
   return String(v) === String(prev);
 }
 

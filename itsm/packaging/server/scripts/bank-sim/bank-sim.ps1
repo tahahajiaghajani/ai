@@ -11,7 +11,7 @@
 # Every scenario is timed and reported (report.md / report.json in -Out, with all logs, screenshots and phase files);
 # a failed scenario is recorded and the run goes on where it can; the exit code is 1 when any scenario failed.
 #
-#   powershell -File bank-sim.ps1 -Msi10 Kariz-Server-1.0.0.msi -Msi11 Kariz-Server-1.1.0.msi -Out C:\bank-sim
+#   powershell -File bank-sim.ps1 -Msi10 Kariz-Server-1.0.0.msi -Msi11 Kariz-Server-1.1.1.msi -Out C:\bank-sim
 param(
     [Parameter(Mandatory)][string]$Msi10,
     [Parameter(Mandatory)][string]$Msi11,
@@ -422,7 +422,7 @@ try {
 
     Invoke-Scenario 5 'Upgrade in place to this build (no properties)' -Critical {
         $before = Read-Config
-        $t = Invoke-Msi @('/i', $Msi11) (Join-Path $Out 'logs\msi-upgrade-1.1.0.log')
+        $t = Invoke-Msi @('/i', $Msi11) (Join-Path $Out "logs\msi-upgrade-$AppVersion.log")
         Note ("upgrade took {0:N0} s" -f $t)
         Assert-Services 'running'
         $after = Read-Config
@@ -441,9 +441,9 @@ try {
         }
         Invoke-Js 'api.mjs' 'api-verify-upgrade' @('--expect-version', $AppVersion, '--expect-protocol', $SyncProtocol) | Out-Null
         Invoke-Js 'api.mjs' 'api-notify-3' @('--mail-file', $MailFile, '--smtp-port', '587', '--smtp-security', 'starttls', '--who', 'agent2', '--mail-timeout', '120') | Out-Null
-        Note '1.1.0 delivers over STARTTLS to the relay whose certificate the bank CA issued'
+        Note "$AppVersion delivers over STARTTLS to the relay whose certificate the bank CA issued"
         Invoke-Js 'api.mjs' 'api-ad-store' | Out-Null
-        Note '1.1.0 reaches LDAPS with no root pasted in the source (the Windows store), and with it'
+        Note "$AppVersion reaches LDAPS with no root pasted in the source (the Windows store), and with it"
     }
 
     Invoke-Scenario 6 'A LAN client in a browser (admin and agent pages; no foreign request, no console error)' {

@@ -22,6 +22,7 @@
 //   app whose epoch is behind is told to pull everything again — which also tombstones what it may no longer read.
 import type { FieldDef, TableDef } from "@shared/model/types";
 import { evaluate, type CondEnv } from "@shared/model/conditions";
+import { sameJson } from "@shared/json";
 import type { Ctx } from "../context";
 import type { Queryable, Tx } from "../db";
 import { pgArray } from "../db";
@@ -350,7 +351,7 @@ async function checkSide(tx: Tx, ctx: Ctx, agg: AggregateDef, schema: OrgSchema,
   if (prev) {
     // only removal changes a stored side row; everything else about it is immutable
     const keys = agg.engine === "link" ? ["kind", "from_table", "from_id", "to_table", "to_id"] : agg.engine === "history" ? ["table_key", "record_id", "field", "old", "new", "actor", "at"] : agg.engine === "journal" ? ["table_key", "record_id", "kind", "visibility", "body", "author"] : ["table_key", "record_id", "sha256", "size", "uploaded_by"];
-    for (const k of keys) if (k in row && JSON.stringify(row[k] ?? null) !== JSON.stringify(prev[k] ?? null)) return "این مورد پس از ثبت تغییر نمی‌کند";
+    for (const k of keys) if (k in row && !sameJson(row[k] ?? null, prev[k] ?? null)) return "این مورد پس از ثبت تغییر نمی‌کند";
   }
   for (const [table, id] of pairs) {
     const def = schema.def(table);
