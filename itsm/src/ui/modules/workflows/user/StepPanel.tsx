@@ -14,7 +14,7 @@ import { Button, Collapse, Input, Modal, Radio } from "antd";
 import { Hand, Save, Undo2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { formStepOf, quorumOf } from "@shared/process";
-import { applyShowIf, cleanFormLayout, type Right } from "@shared/forms/layout";
+import { cleanFormLayout, type Right } from "@shared/forms/layout";
 import { faDigits } from "@shared/format";
 import { ApiError } from "../../../lib/api";
 import { useOrg } from "../../../lib/org";
@@ -25,7 +25,7 @@ import { useMe, useSchema } from "../../../records/data/hooks";
 import { useLeaveGuard } from "../admin/forms/parts";
 import { USER_KEYS, userApi, type CaseDetail, type CaseFile, type MyStep } from "./api";
 import {
-  actionLabel, consequence, defaultReturn, delegationNote, draftValues, fieldProblems, initialValues, missingRequired, nameOf, packValues, resultMessage, stepActions, takesValues,
+  actionLabel, consequence, defaultReturn, delegationNote, draftValues, fieldProblems, initialValues, missingRequired, nameOf, packShown, resultMessage, stepActions, takesValues,
   type StepActionDef,
 } from "./model";
 import { CaseValues, DuePill, ProcessForm, useLocalFiles, useMoneyUnit } from "./parts";
@@ -84,7 +84,6 @@ export function StepPanel({ detail, step, files, filesLoading, authority, onDone
   const paused = !!detail.case.paused_at;
   const blocked = step.queued || paused || !!late || (takenByOther && authority);
   const actions = stepActions(step);
-  const rightsNow = useMemo(() => applyShowIf(layout, step.rights, values, fields), [layout, step.rights, values, fields]);
   const editable = Object.values(step.rights).some((r: Right) => r === "edit" || r === "required");
   const before = (key: string) => !(key in step.rights) || step.rights[key] === "hidden";
 
@@ -133,7 +132,7 @@ export function StepPanel({ detail, step, files, filesLoading, authority, onDone
     }
     setBusy("send");
     try {
-      const packed = takesValues(a.outcome) ? packValues(values, rightsNow, fields, local.files) : { values: {}, files: [] };
+      const packed = takesValues(a.outcome) ? packShown(layout, step.rights, values, fields, local.files) : { values: {}, files: [] };
       const r = await userApi.submit(api, orgId, step.id, { outcome: a.outcome, comment: note.trim() || null, values: packed.values, return_to: a.outcome === "returned" ? target : null }, packed.files);
       const msg = resultMessage(r, a.outcome, step, target, display);
       setAsking(null);

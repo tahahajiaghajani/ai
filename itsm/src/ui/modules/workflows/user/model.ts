@@ -428,8 +428,8 @@ export function cancelMessage(r: { result: SubmitResult["result"] | "refused"; n
 export const LOCAL_FILE = /^local-\d+$/;
 
 /**
- * The values a submission sends: only the fields I may enter now (after «نمایش وقتی…»), and the files of a «پیوست»
- * field as `{ upload: n }` (n: its place among the files sent), its earlier files by their ids.
+ * The values a submission sends: only the fields I may enter now (`rights` after «نمایش وقتی…»; see packShown), and
+ * the files of a «پیوست» field as `{ upload: n }` (n: its place among the files sent), its earlier files by their ids.
  */
 export function packValues(values: Record<string, unknown>, rights: Record<string, Right>, defs: FieldSource, local: ReadonlyMap<string, File>): { values: Record<string, unknown>; files: File[] } {
   const get = fieldGetter(defs);
@@ -452,6 +452,21 @@ export function packValues(values: Record<string, unknown>, rights: Record<strin
     out[k] = v === undefined ? null : v;
   }
   return { values: out, files };
+}
+
+/**
+ * What a start or a step form sends: its values packed with the rights the form shows now — a field «نمایش وقتی…» hides
+ * sends neither its value nor the files picked in it (the server drops the value, but files sent with the submission
+ * would stay stored on it).
+ */
+export function packShown(
+  layout: FormLayoutV2,
+  rights: Record<string, Right>,
+  values: Record<string, unknown>,
+  defs: FieldSource,
+  local: ReadonlyMap<string, File>,
+): { values: Record<string, unknown>; files: File[] } {
+  return packValues(values, applyShowIf(layout, rights, values, defs), defs, local);
 }
 
 /** A draft keeps what was typed, never the files waiting to be sent (they live in this window only). */

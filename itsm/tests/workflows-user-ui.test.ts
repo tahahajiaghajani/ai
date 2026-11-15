@@ -2,7 +2,8 @@
 // with its count, the record link of a case, the four tabs and their filters in the address, the rows of «کارتابل» and
 // their notes, the click budget, the due pill, a process's marks, the state channel and the path a case took, the
 // decisions each step kind offers and the reasons they ask for, the consequences and the messages after a decision,
-// what a submission sends (files as `{ upload: n }`), where a form starts, the required fields left empty — and on a
+// what a submission sends (files as `{ upload: n }`; a start or a step sends only the fields «نمایش وقتی…» shows, their
+// files included), where a form starts, the required fields left empty — and on a
 // real organisation, through the pages' own API module: the §3.7 bank process started by a clerk, the head's
 // «کارتابل» and case, a return to the requester with its consequence, a draft kept and refilled, the requester's
 // second round, the approval; a pool step taken by one («در دست …»), the other's late decision kept with its message;
@@ -34,7 +35,7 @@ import { USER_KEYS, userApi, casesQuery, dayEnd, type CaseDetail, type Inbox, ty
 import {
   CASE_PATH, PORTAL_WF_PATH, PRINT_PATH, PROCESS_PATH, RECORD_CASE_PATH, START_PATH, STEP_PATH, WF_PATH, cancelMessage, caseFiltersOf, caseIdHolder, caseStateView, consequence,
   defaultReturn, delegationNote,
-  draftValues, dueView, fieldProblems, filtered, headerStep, inboxRowView, initialValues, mapLink, missingRequired, myPart, newCaseId, openSteps, packValues, processMarks,
+  draftValues, dueView, fieldProblems, filtered, headerStep, inboxRowView, initialValues, mapLink, missingRequired, myPart, newCaseId, openSteps, packShown, packValues, processMarks,
   resultMessage, rowLink, sendLabel, startMessage, startValues, stateChannel, stepActions, stepNotes, tabOf, takenFromStatuses, waitingSteps, waitingText, wfPaths,
   withCaseFilter,
 } from "../src/ui/modules/workflows/user/model";
@@ -368,6 +369,28 @@ describe("the step form", () => {
     const hidden = packValues({ ...values, u_amount: "50" }, { ...rights, u_note: "hidden" }, fields, local);
     expect(hidden.values).not.toHaveProperty("u_note");
     expect(draftValues(values, rights, fields)).toEqual({ u_amount: "120000000", u_invoice: ["0b9c0000-0000-4000-8000-000000000001"], u_note: "ok" });
+  });
+
+  it("a start or a step sends what the form shows now: a letter picked for «وام» is neither sent nor uploaded once «تنخواه» hides its field", () => {
+    const defs: Record<string, FieldDef> = {
+      u_kind: { name: "u_kind", label: "نوع درخواست", type: "choice", choices: [{ value: "loan", label: "وام" }, { value: "petty", label: "تنخواه" }] } as FieldDef,
+      u_letter: { name: "u_letter", label: "ضمانت‌نامه", type: "json", check: "attachments", max: 1 } as unknown as FieldDef,
+      u_need: { name: "u_need", label: "شرح نیاز", type: "text" } as FieldDef,
+    };
+    const form: FormLayoutV2 = {
+      tabs: [{ label: "فرم", sections: [{ label: null, items: [{ field: "u_kind" }, { field: "u_letter", showIf: { f: "u_kind", op: "eq", v: "loan" } }, { field: "u_need" }] }] }],
+    };
+    // the start's rights: the requester enters all three (the condition decides what is shown)
+    const startRights: Record<string, Right> = { u_kind: "required", u_letter: "edit", u_need: "edit" };
+    const letter = new File(["guarantee"], "ضمانت‌نامه.pdf");
+    const local = new Map([["local-1", letter]]);
+    const loan = packShown(form, startRights, { u_kind: "loan", u_letter: ["local-1"], u_need: "خرید دستگاه" }, defs, local);
+    expect(loan.values).toEqual({ u_kind: "loan", u_letter: [{ upload: 0 }], u_need: "خرید دستگاه" });
+    expect(loan.files).toEqual([letter]);
+    // switched to «تنخواه»: the letter's field is hidden — its value stays in the form, but nothing of it is sent
+    const petty = packShown(form, startRights, { u_kind: "petty", u_letter: ["local-1"], u_need: "خرید دستگاه" }, defs, local);
+    expect(petty.values).toEqual({ u_kind: "petty", u_need: "خرید دستگاه" });
+    expect(petty.files).toEqual([]);
   });
 
   it("the form starts from my refused values, else my draft, over the case's values I may read", () => {
