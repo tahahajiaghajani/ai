@@ -63,9 +63,13 @@ export const capWarning = (cap: number) => `سقف روزانهٔ ساخت دا�
 // ---------------------------------------------------------------------------------------------------------------
 // Which devices wait for an asset
 
-/** A linked item `i` (never an ATM's) whose CI waits for an asset — shared by the feed and «بی‌دارایی». */
+/**
+ * A linked item `i` (never an ATM's) whose CI waits for an asset — shared by the feed and «بی‌دارایی»: a CI of its
+ * connector's side (a demo connector's demo CIs, a real one's real CIs: §14.4), as the feed's walk takes them.
+ */
 export const waitingSql = (fleet: string, more = "") => `i.deleted_at is null and i.state = 'linked' and i.ci_id is not null and coalesce(i.kind, '') <> 'atm'
-  and exists (select 1 from sm_cis c where c.id = i.ci_id and c.org_id = i.org_id and ${ciWaits(fleet)}${more} offset 0)`;
+  and exists (select 1 from sm_cis c where c.id = i.ci_id and c.org_id = i.org_id
+                and ${ciWaits(fleet, "exists (select 1 from sm_demo_rows dc where dc.org_id = i.org_id and dc.row_id = i.connector_id offset 0)")}${more} offset 0)`;
 
 /** Has ITAM confirmed its discovered-hardware step (an asset manager made the first batch)? */
 export async function itamConfirmed(q: Queryable, orgId: string): Promise<boolean> {
@@ -86,8 +90,7 @@ interface Step {
 async function walkStep(q: Queryable, orgId: string, connectorId: string, demo: boolean, fleet: string[], after: string | null): Promise<Step[]> {
   return q.query<Step>(
     `select i.external_id, i.ci_id,
-       exists (select 1 from sm_cis c where c.id = i.ci_id and c.org_id = i.org_id and ${ciWaits("$5")}
-                 and exists (select 1 from sm_demo_rows d where d.org_id = c.org_id and d.row_id = c.id) = $4::boolean offset 0) as waits
+       exists (select 1 from sm_cis c where c.id = i.ci_id and c.org_id = i.org_id and ${ciWaits("$5", "$4::boolean")} offset 0) as waits
      from sm_discovery_items i
      where i.org_id = $1 and i.connector_id = $2 and i.deleted_at is null and i.state = 'linked' and i.ci_id is not null and coalesce(i.kind, '') <> 'atm'
        and ($3::text is null or i.external_id > $3::text)

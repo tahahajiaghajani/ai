@@ -2,10 +2,13 @@
 // into assets nobody reviewed. Until an asset manager makes the first batch from the dashboard, the daily step only
 // counts the hardware CIs without an asset and tells the asset managers (once per new count); the reviewed batch
 // confirms the step, which then makes capped daily batches with a summary notification — never for an ATM, CRS or kiosk
-// a monitoring tool reports as a plain device (the rule a connector's asset feed keeps, itam/fleet.ts).
+// a monitoring tool reports as a plain device (the rule a connector's asset feed keeps, itam/fleet.ts), nor for a CI of
+// the demo pack (the organisation's own step takes its own CIs; the pack's work, the pack's).
 import { beforeAll, describe, expect, it } from "vitest";
 import { itamWorld, type ItamWorld } from "./itam-helpers";
 import { discoveredStep } from "@server/modules/itam";
+import { waitingHardware } from "@server/modules/itam/fleet";
+import { inDemoScope } from "@server/db/scope";
 
 let w: ItamWorld;
 type Row = Record<string, any>;
@@ -100,6 +103,24 @@ describe("the reviewed batch and the daily step after it", () => {
     // nor does an asset manager's batch from the dashboard
     expect(await w.p.am.client.post(`${w.P}/itam/discovered`, {})).toMatchObject({ created: 0, remaining: 0 });
     for (const id of fleet) expect(await assetOf(id)).toBeNull();
+  });
+
+  it("never makes an asset for a CI of the demo pack, nor counts one: the organisation's own step takes its own CIs", async () => {
+    // the pack's servers and switches (its load makes them without assets), recorded as the pack's rows
+    const pack = [await ci("aft-srv-01", "server"), await ci("aft-sw-01", "switch")];
+    for (const id of pack) await w.e.db.query(`insert into sm_demo_rows (org_id, row_id, tbl) values ($1, $2, 'sm_cis')`, [w.e.org, id]);
+    const own = await ci("pc-d9");
+    const waiting = await waitingHardware(w.e.db, w.e.org, 1000);
+    expect(waiting).toContain(own);
+    for (const id of pack) expect(waiting).not.toContain(id);
+    expect((await discoveredStep(w.sys, 200)).created).toBe(1);
+    expect(await assetOf(own)).toMatchObject({ state: "in_use", substate: "unverified" });
+    for (const id of pack) expect(await assetOf(id)).toBeNull();
+    // nor does an asset manager's batch from the dashboard
+    expect(await w.p.am.client.post(`${w.P}/itam/discovered`, {})).toMatchObject({ created: 0, remaining: 0 });
+    for (const id of pack) expect(await assetOf(id)).toBeNull();
+    // the pack's own work (its demo scope) takes the pack's CIs only
+    expect((await inDemoScope(w.e.org, () => waitingHardware(w.e.db, w.e.org, 1000))).sort()).toEqual([...pack].sort());
   });
 
   it("does nothing when switched off", async () => {

@@ -157,10 +157,10 @@ describe("assets for new devices (design A §11.1)", () => {
     expect(await assetsOf([atm, fleet, vm, demo])).toHaveLength(0);
     expect(await assetsOf([held])).toHaveLength(1);
     expect(await feedRuns(c.id)).toMatchObject([{ state: "completed", created: 2, failed: 0 }]);
-    // the ATM, the fleet model and the VM are not «بی‌دارایی» either; the demo CI is not this real connector's
+    // the ATM, the fleet model and the VM are not «بی‌دارایی» either, nor is the demo CI: «بی‌دارایی» is what the feed
+    // would make, and a real connector's feed takes real CIs only (itam/fleet.ts `ciWaits`, §14.4)
     const tab = await p.am.client.get(`${w.P}/discovery/queue?tab=no_asset&connector=${c.id}`);
-    expect(tab.rows).toHaveLength(1);
-    expect(tab.rows[0].ci_id).toBe(demo);
+    expect(tab.rows).toHaveLength(0);
   }, 240_000);
 
   it("keeps to the daily cap in slices within the lock budget, one transaction per asset; «بی‌دارایی» rolls up what waits; the rest comes the next day", async () => {

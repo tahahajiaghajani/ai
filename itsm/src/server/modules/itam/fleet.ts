@@ -3,9 +3,11 @@
 // دستگاه‌های تازه» (discovery/itamfeed.ts, design A §11.1): live hardware of ITAM's classes that has no asset, never an
 // ATM, CRS or kiosk. Monitoring tools report the bank fleet as plain devices (Zabbix and PRTG items are of kind
 // `device`), so the fleet is told by what the CI carries, not by its class: neither path ever makes an «تأییدنشده» asset
-// for one of the fleet's terminals.
+// for one of the fleet's terminals. Nor does either cross the demo boundary (docs/DEMO_FA.md): the organisation's own
+// work makes assets for its own CIs only, the demo pack's work for the pack's.
 import { FLEET_CATEGORIES } from "@shared/tables/itam";
 import { pgArray, type Queryable } from "../../db";
+import { demoScopeOrg } from "../../db/scope";
 
 /** The CMDB classes ITAM treats as hardware (an asset per CI). */
 export const HW_CLASSES = ["laptop", "desktop", "server", "computer", "mobile_device", "printer", "network_device", "router", "switch", "firewall", "access_point", "storage", "ups"];
@@ -32,16 +34,20 @@ const modelKey = (expr: string) => `regexp_replace(lower(translate(${expr}, '۰�
  *   · its model is one of `fleet` (fleetKeys, a text[] parameter): the model ITAM would give it (`assetsForDiscovered`
  *     finds it by the CI's model name, else «<class> نامشخص») by name in any case, or the tool's model by its key
  *     (modelKey) — the fleet model's name, its name without the bracketed kind, or its model number.
+ * And it is of the side the caller works for, `demo` (an SQL boolean, as discovery/device.ts `demoSide`): true, a CI of
+ * the demo pack (recorded in sm_demo_rows); false, one of the organisation's own — the pack's servers and switches never
+ * get a real asset, nor count for the asset managers' review.
  * Each check is an index probe or a test of the row; `offset 0` keeps the planner from flattening the probes into joins
  * it would size without statistics (PGlite, a fresh load).
  */
-export const ciWaits = (fleet: string) => `c.deleted_at is null and c.merged_into is null and c.class in (${literals(HW_CLASSES)})
+export const ciWaits = (fleet: string, demo: string) => `c.deleted_at is null and c.merged_into is null and c.class in (${literals(HW_CLASSES)})
   and coalesce(c.state, '') not in ('retired', 'disposed', 'canceled')
   and coalesce(c.attrs->>'terminal_id', '') = ''
   and lower(left(coalesce(nullif(c.model_name, ''), c.class || ' نامشخص'), 200)) <> all(${fleet}::text[])
   and ${modelKey("coalesce(c.model_name, '')")} <> all(${fleet}::text[])
   and not exists (select 1 from sm_assets a where a.org_id = c.org_id and a.ci_id = c.id and a.deleted_at is null offset 0)
-  and not exists (select 1 from sm_discovery_items x where x.org_id = c.org_id and x.ci_id = c.id and x.kind = 'atm' and x.deleted_at is null offset 0)`;
+  and not exists (select 1 from sm_discovery_items x where x.org_id = c.org_id and x.ci_id = c.id and x.kind = 'atm' and x.deleted_at is null offset 0)
+  and exists (select 1 from sm_demo_rows d where d.org_id = c.org_id and d.row_id = c.id offset 0) = (${demo})`;
 
 /**
  * The bank fleet's models (ATM, CRS, kiosk) as ciWaits compares them: each name in lower case, and the keys (modelKey)
@@ -60,11 +66,15 @@ export async function fleetKeys(q: Queryable, orgId: string): Promise<string[]> 
   return rows.map((r) => r.k);
 }
 
-/** The organisation's hardware CIs that wait for an asset (ciWaits), oldest first, at most `limit`: their ids. */
+/**
+ * The organisation's hardware CIs that wait for an asset (ciWaits), oldest first, at most `limit`: their ids — its own
+ * CIs, or the demo pack's inside the pack's work (the demo scope: a person of the pack confirming the step).
+ */
 export async function waitingHardware(q: Queryable, orgId: string, limit: number): Promise<string[]> {
-  const rows = await q.query<{ id: string }>(`select c.id from sm_cis c where c.org_id = $1 and ${ciWaits("$2")} order by c.created_at, c.no limit ${Math.max(0, Math.trunc(limit))}`, [
+  const rows = await q.query<{ id: string }>(`select c.id from sm_cis c where c.org_id = $1 and ${ciWaits("$2", "$3::boolean")} order by c.created_at, c.no limit ${Math.max(0, Math.trunc(limit))}`, [
     orgId,
     pgArray(await fleetKeys(q, orgId)),
+    demoScopeOrg() === orgId,
   ]);
   return rows.map((r) => String(r.id));
 }
