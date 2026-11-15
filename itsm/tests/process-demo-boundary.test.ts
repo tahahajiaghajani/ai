@@ -3,13 +3,19 @@
 // pack's groups carry, a group of the pack, a delegation — and a step left with nobody follows its «ifNobody»; nor do
 // the process managers' «ارجاع» and the designer's preview offer them. The pack's own cases keep them. And a process
 // of the pack is started by the pack's people only: a real case standing on the pack's process, version and form would
-// lose them all at the purge.
+// lose them all at the purge. The purge leaves the organisation's own timer (`process.timer`) queued — the twin demo
+// work queued while it ran too — and takes the jobs the pack made for its own rows (FINAL-5).
 import { describe, it, expect, beforeAll } from "vitest";
 import { createIn } from "@server/engine";
-import { inDemoScope } from "@server/db/scope";
+import { inDemoScope, isDemoRow } from "@server/db/scope";
+import { enqueue, registerJobHandler } from "@server/jobs";
+import { runToEnd } from "@server/modules/demo";
 import { DEMO_PEOPLE_REAL_WORK, previewResolve } from "@server/modules/positions";
-import { reassignStep } from "@server/modules/process/api";
+import { pauseCase, reassignStep, resumeCase } from "@server/modules/process/api";
 import { DEMO_PROCESS_START } from "@server/modules/process/engine";
+import { applyPending } from "@server/modules/process/sync";
+import { MORE, timerPass, TIMER_JOB } from "@server/modules/process/timers";
+import type { ServerConfig } from "@server/context";
 import { edge, journal, kase, node, person, publish, start, tasks, users, world, type Published, type World } from "./process-engine-helpers";
 
 let w: World;
@@ -127,4 +133,79 @@ describe("a process of the demo pack is started by the pack's people only", () =
     expect(await cases()).toBe(1);
     expect((await openAt(id)).map((t) => t.assigned_to)).toEqual([analyst]);
   }, 120_000);
+});
+
+describe("the demo pack's purge keeps the organisation's timer (FINAL-5)", () => {
+  it("the timer's twin that demo work queued while it ran stays queued, once, for the real cases; the pack's own jobs leave", async () => {
+    const org = w.o.org;
+    const db = w.o.db;
+    const timers = () => db.query<{ id: string; status: string }>(`select id, status from sm_jobs where org_id = $1 and kind = $2 order by created_at, id`, [org, TIMER_JOB]);
+    // a real case waits on a three-day «پایان مهلت»: the opening of its step queued the organisation's timer (J1)
+    const decider = await person(w, "تأییدکنندهٔ مهلت‌دار");
+    const timed = graph({ ...users(decider), due: { amount: 3, unit: "day" }, business: false });
+    const DUE = await publish(w, { nodes: [...timed.nodes, node("late", "end", { outcome: "canceled" })], edges: [...timed.edges, edge("sec", "late", "timeout")] });
+    const real = (await start(w, requester, DUE, { values })).case!;
+    await w.k.drain();
+    const j1 = (await timers()).filter((j) => j.status === "queued");
+    expect(j1).toHaveLength(1);
+    expect(await isDemoRow(db, org, j1[0].id)).toBe(false);
+    // then the pack is loaded (as the loader leaves it, without the bank): a case of the pack's own, which the pack's
+    // process manager pauses
+    await db.query(
+      `insert into sm_demo_packs (org_id, state, size, progress, counters, started_by) values ($1, 'loaded', 'small', jsonb_build_object('saved_at', now(), 'computed', '[]'::jsonb, 'seeds_done', true, 'saved', true), '{}'::jsonb, $2)`,
+      [org, w.o.ownerId],
+    );
+    const packManager = await packPerson("مسئول گردش‌کار نمایشی");
+    const PACK = await inDemoScope(org, () => publish(w, graph(users(packAnalyst)), { managers: [packManager] }));
+    const demoCase = (await inDemoScope(org, () => start(w, packRequester, PACK, { values }))).case!;
+    await w.k.drain();
+    await inDemoScope(org, async () => pauseCase(await w.o.ctxOf(packManager), demoCase));
+    // while J1 runs, the pack's manager resumes the demo case (a request of the pack's people: demo work), which wakes
+    // the timer: J1 is not queued, so a twin (J2) is queued in the demo transaction — and recorded with the pack's rows
+    let during: (() => Promise<unknown>) | null = () => inDemoScope(org, async () => resumeCase(await w.o.ctxOf(packManager), demoCase));
+    registerJobHandler(TIMER_JOB, async (job, jctx) => {
+      // the organisation's timer as installProcessTimers registers it, with that request arriving while it runs
+      const now = during;
+      during = null;
+      if (now) await now();
+      if (!job.org_id) return;
+      const cfg = jctx.cfg as ServerConfig;
+      const next = await timerPass(cfg, job.org_id, (id) => applyPending(cfg, job.org_id!, id, null), Date.now(), jctx.deadline - 500);
+      if (next === MORE) return { again: 0 };
+      if (next !== null) return { again: Math.max(1000, next - Date.now()) };
+    });
+    await db.query(`update sm_jobs set run_at = now() where id = $1`, [j1[0].id]);
+    await w.k.drain();
+    expect(during).toBeNull();
+    // J1 ended, found the twin queued and folded into it: J2 is the organisation's only timer now
+    const folded = await timers();
+    expect(folded.find((j) => j.id === j1[0].id)?.status).toBe("done");
+    const twin = folded.filter((j) => j.status === "queued");
+    expect(twin).toHaveLength(1);
+    expect(await isDemoRow(db, org, twin[0].id)).toBe(true);
+    // jobs the pack made for its own rows — one about its case, one of its own — and an organisation-wide one demo work
+    // queued that has run
+    registerJobHandler("test.final5", async () => undefined);
+    const aboutCase = await inDemoScope(org, () => enqueue(db, { kind: "test.final5", orgId: org, payload: { case: demoCase }, delayMs: 3_600_000 }));
+    const packOwn = await inDemoScope(org, () => enqueue(db, { kind: "test.final5", orgId: org, payload: { __demo: true }, delayMs: 3_600_000 }));
+    const ran = await inDemoScope(org, () => enqueue(db, { kind: "test.final5", orgId: org, payload: {} }));
+    await w.k.drain();
+    expect((await db.one<{ status: string }>(`select status from sm_jobs where id = $1`, [ran]))?.status).toBe("done");
+
+    // ----- the purge
+    await db.query(`update sm_sessions set reauth_at = now() where user_id = $1`, [w.o.ownerId]);
+    await w.o.owner.post(`${w.P}/demo/purge`, { confirm: "حذف کامل" });
+    await runToEnd(w.o.cfg, org, "purge", { budgetMs: 300_000 });
+    expect(await db.one(`select 1 as x from sm_demo_packs where org_id = $1`, [org])).toBeNull();
+    expect(await db.one(`select 1 as x from sm_process_cases where id = $1`, [demoCase])).toBeNull();
+    // the organisation's timer is there, queued exactly once; the pack's jobs and the demo work's ended one went
+    expect((await timers()).filter((j) => j.status === "queued").map((j) => j.id)).toEqual([twin[0].id]);
+    for (const id of [aboutCase, packOwn, ran]) expect(await db.one(`select 1 as x from sm_jobs where id = $1`, [id]), id).toBeNull();
+    // and it serves the real case: three days on, its «پایان مهلت» fires and the case goes on by that port
+    await db.query(`update sm_process_tasks set opened_at = opened_at - interval '4 days', due_at = due_at - interval '4 days' where case_id = $1`, [real]);
+    await db.query(`update sm_jobs set run_at = now() where org_id = $1 and kind = $2 and status = 'queued'`, [org, TIMER_JOB]);
+    await w.k.drain();
+    expect((await tasks(w, real)).filter((t) => t.step_key === "sec").map((t) => t.status)).toEqual(["not_needed"]);
+    expect((await journal(w, real)).some((b) => b.startsWith("مهلت «تأیید امنیت اطلاعات» به پایان رسید"))).toBe(true);
+  }, 600_000);
 });
