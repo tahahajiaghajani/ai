@@ -158,6 +158,11 @@ export async function createPgliteDb(opts: PgliteOptions = {}): Promise<PgliteDb
       if (demo) await t.query(DEMO_SCOPE_SQL, [demo]);
       let failed: unknown = null;
       const track = <A extends unknown[], R>(f: (...a: A) => Promise<R>) => async (...a: A): Promise<R> => {
+        // a long transaction lets the event loop turn too (every 50 ms of work, as between the app's calls): a module's
+        // seed or a demo step writes thousands of statements in one transaction, and the thread was held for all of
+        // them, up to 3.3 s (docs/PERFORMANCE_FA.md §21). Only the event loop turns: the app's other queries still wait
+        // for the transaction to end (PGlite runs one at a time), the window's files, sockets and timers do not.
+        if (opts.dataDir) await turn();
         try {
           return await f(...a);
         } catch (e) {
