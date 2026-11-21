@@ -72,6 +72,16 @@ const REAL_WORK = new Set(["sm_cab_meetings", "sm_grc_issues", "sm_grc_controls"
  */
 const RAG_INDEX = new Set(["sm_ai_rag_docs", "sm_ai_chunks"]);
 
+/**
+ * The organisation's own cost capture while the pack is loaded (the financial sweep below, outside the demo scope)
+ * posts the months it covers for the organisation's own items — the seeded contracts and subscription: real work the
+ * purge keeps with its history, like REAL_WORK but row by row. Allowed only for ledger entries the system made for an
+ * item that was there before the load and that name no demo row: the costs of the pack's items are its own ledger's,
+ * inside the demo scope, and go with it (financial/service.ts ledgerSide, tests/demo-ledger.test.ts).
+ */
+const OWN_CAPTURE = "sm_cost_entries";
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
+
 /** Checked on their own below: the job queue (scheduling state) and the audit log (the allowed lines). */
 const SPECIAL = new Set(["sm_jobs", "sm_audit", "sm_org_sync", "sm_migrations"]);
 
@@ -413,6 +423,15 @@ describe.skipIf(skip)(title, () => {
     await itamSweep(sys);
     await openAttestations(sys);
     await financialSweep(sys);
+    // … keeping to its side of the demo boundary: every ledger entry for an item of the pack's is the pack's own (its
+    // ledger, inside the demo scope), every entry for one of the organisation's items is the organisation's
+    const sides = await e.db.query<{ key: string; demo: boolean }>(
+      `select x.source_key as key, exists (select 1 from sm_demo_rows d where d.org_id = x.org_id and d.row_id = x.id) as demo from sm_cost_entries x
+        where x.org_id = $1 and x.source_key is not null and exists (select 1 from sm_demo_rows d where d.org_id = x.org_id and d.row_id = x.id)
+          <> exists (select 1 from sm_demo_rows d where d.org_id = x.org_id and d.row_id::text = substring(x.source_key from '${UUID.source}')) limit 10`,
+      [e.org],
+    );
+    expect(sides, "ledger entries posted by the other side of the demo boundary").toEqual([]);
     await fleet(sys, { days: 30 });
     // the CMDB's own scheduled health check over every CI, outside the demo scope (on a fast machine it also runs by
     // itself while the pack is loaded): the findings it raises about demo CIs, the predictions and history about those
@@ -537,11 +556,28 @@ describe.skipIf(skip)(title, () => {
     const kept = new Set<string>();
     // rows of the organisation's own work, made or changed meanwhile (their history stays with them)
     for (const t of REAL_WORK) for (const [k, h] of after.get(t) ?? []) if (before.get(t)?.get(k) !== h) kept.add(k);
+    // the organisation's own capture of its own items' costs (OWN_CAPTURE), with their history
+    const ownCapture = new Set<string>();
+    {
+      const existed = new Set([...before.values()].flatMap((m) => [...m.keys()]));
+      const made = [...(after.get(OWN_CAPTURE)?.keys() ?? [])].filter((k) => !before.get(OWN_CAPTURE)?.has(k));
+      const rows = await e.db.query<{ id: string; j: string; created_by: string | null; key: string | null }>(
+        `select x.id::text as id, to_jsonb(x)::text as j, x.created_by::text as created_by, x.source_key as key from ${OWN_CAPTURE} x where x.id::text = any($1::text[])`,
+        [`{${made.join(",")}}`],
+      );
+      for (const r of rows) {
+        const item = r.key?.match(UUID)?.[0];
+        const named = r.j.match(new RegExp(UUID.source, "g")) ?? [];
+        if (!r.created_by && item && existed.has(item) && !named.some((id) => demoRowIds.has(id))) ownCapture.add(r.id);
+      }
+      for (const id of ownCapture) kept.add(id);
+    }
     const allowed = async (line: string): Promise<boolean> => {
       const t = line.split(":")[0];
       if (REAL_WORK.has(t)) return true;
       const added = [...(after.get(t)?.keys() ?? [])].filter((k) => !before.get(t)?.has(k));
       const changed = [...(before.get(t)?.keys() ?? [])].filter((k) => !after.get(t)?.has(k) || after.get(t)!.get(k) !== before.get(t)!.get(k));
+      if (t === OWN_CAPTURE) return !changed.length && added.every((k) => ownCapture.has(k));
       if (RAG_INDEX.has(t)) {
         const ids = [...added, ...changed];
         const now = await e.db.query<{ id: string; record_id: string }>(`select id::text as id, record_id::text as record_id from ${t} where id::text = any($1::text[])`, [`{${ids.join(",")}}`]);

@@ -17,6 +17,7 @@ import { periodKeyOf } from "@shared/financial/logic";
 import { addDays } from "@shared/jalali";
 import { attest, openAttestations, receiveTransfer, resolveAuditItem, setDeviceStatus, type AttestInput } from "../itam/bank";
 import { scan } from "../itam/stock";
+import { orgToday } from "../itam/common";
 import { capture } from "../financial/service";
 import { hashPassword, readableCode } from "../../auth/password";
 import { addTimelineEvent, majorAction, sendUpdate } from "../incident";
@@ -941,8 +942,11 @@ async function stepItamFlows(a: StepArgs, sys: Ctx): Promise<boolean> {
           bump(memo, "disposal_order");
         }
       } else if (phase === "ledger") {
-        // the year's depreciation and purchases posted month by month (the register reconciles with this ledger)
-        const today = dateOnly(now);
+        // the year's depreciation and purchases posted month by month (the register reconciles with this ledger): the
+        // pack's own items only, the capture keeping to the demo scope's side (financial/service.ts ledgerSide), up to
+        // the month of the organisation's calendar, the one its own capture goes by. (Tehran's month begins three and a
+        // half hours before UTC's: by the UTC date the pack stopped a month short, and nothing else posts its items.)
+        const today = orgToday(sys);
         const periods = new Set<string>();
         for (let d = 0; d <= 370; d += 15) periods.add(periodKeyOf(addDays(today, -d)));
         const year = periodKeyOf(today).slice(0, 4);
