@@ -1,5 +1,6 @@
 // The ticks single routes ask for after their answer on the web version (Kariz 1.1.4): a flow's webhook, the
-// sign-in-free event ingest and its acknowledgement link, and the demo page's polling (cfg.waitUntil). Like the app's
+// sign-in-free event ingest and its acknowledgement link, and the demo page's polling (cfg.waitUntil), and the platform
+// console's «اجرای اکنون» (POST /api/admin/jobs/tick). Like the app's
 // own request ticks (src/server/app.ts) they leave the deletion of finished jobs to GET /api/cron/tick: before, the
 // first of them on an instance each hour spent up to 2 s of its 4 s budget deleting old jobs ahead of the alert or the
 // flow run it was asked for.
@@ -65,6 +66,13 @@ describe("the ticks single routes ask for leave the cleanup to the cron", () => 
     } finally {
       await o.db.query(`delete from sm_demo_packs where org_id = $1`, [o.org]);
     }
+    expect(await oldDone()).toBe(50);
+  });
+
+  it("the platform console's «اجرای اکنون» (its 5 s go to the jobs asked for)", async () => {
+    // src/server/modules/admin/platform.ts tickNow: before, it cleaned up like the cron, so «only /api/cron/tick deletes
+    // finished jobs on the web» (CLAUDE.md, RELEASE_FA, ARCHITECTURE_FA) did not hold for it
+    expect(await o.owner.post("/admin/jobs/tick", {})).toMatchObject({ ran: expect.any(Number), failed: expect.any(Number) });
     expect(await oldDone()).toBe(50);
   });
 

@@ -365,8 +365,13 @@ export async function jobAction(cfg: ServerConfig, admin: Admin, id: string, act
   return r;
 }
 
+/**
+ * The console's «اجرای اکنون»: the due jobs, for 5 s. A request's tick like the others (src/server/app.ts): the deletion
+ * of finished jobs is left to the queue's own heartbeat (GET /api/cron/tick on the web, the timers of the Windows app
+ * and the server edition), so the whole budget goes to the jobs the platform owner asked to run.
+ */
 export async function tickNow(cfg: ServerConfig) {
-  return tick(cfg, { budgetMs: 5000 });
+  return tick(cfg, { budgetMs: 5000, cleanup: false });
 }
 
 // ---------------------------------------------------------------- version and upgrade status
