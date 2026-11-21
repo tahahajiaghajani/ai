@@ -7,6 +7,7 @@ import { Hono } from "hono";
 import { errorResponse } from "@server/http/hono";
 import { dbErrorMessage } from "@server/http/errors";
 import { createPostgresDb } from "@server/db/postgres";
+import { Client, makeServer, signupWithOrg } from "./helpers";
 
 const BUSY = "سامانه اکنون بیش از حد مشغول است و اتصالی به پایگاه داده آزاد نشد؛ چند ثانیهٔ دیگر دوباره امتحان کنید";
 const TIMEOUT = "پایگاه داده در زمان مجاز پاسخ نداد و این کار نیمه‌کاره متوقف شد؛ چند لحظهٔ دیگر دوباره امتحان کنید";
@@ -142,4 +143,44 @@ describe("a database that cannot do the work now answers 503 with a tracking cod
       await db.close();
     }
   });
+});
+
+describe("a database that cannot write now (Supabase's read-only mode) still serves reads", () => {
+  it("a session last stamped over 10 minutes ago reads on; a write answers db_read_only; the stamp resumes afterwards", async () => {
+    const s = await makeServer({ mode: "cloud" });
+    const c = new Client(s.app);
+    const org = await signupWithOrg(c);
+    // the session's sliding activity stamp is due (every 10 minutes)
+    await s.db.exec(`update sm_sessions set last_seen_at = now() - interval '20 minutes'`);
+    await s.db.exec(`set default_transaction_read_only = on`);
+    try {
+      // what every screen reads first, then the organisation and its records: none of them fails on the stamp
+      expect((await c.get("/auth/me")).user.email).toBe("owner@example.com");
+      expect((await c.get("/meta")).signed_in).toBe(true);
+      expect((await c.get(`/o/${org}`)).org.id).toBe(org);
+      expect((await c.get(`/o/${org}/r/incident`)).rows).toEqual([]);
+      // a write is refused with the database's state, not a 500
+      const w = await c.patch("/auth/me", { full_name: "نام تازه" }, 503);
+      expect(w.error.code).toBe("db_read_only");
+      expect(w.error.message.startsWith(READ_ONLY)).toBe(true);
+    } finally {
+      await s.db.exec(`set default_transaction_read_only = off`);
+    }
+    // writable again: the next request stamps the session as before
+    await c.get("/auth/me");
+    expect((await s.db.one<{ fresh: boolean }>(`select last_seen_at > now() - interval '1 minute' as fresh from sm_sessions`))?.fresh).toBe(true);
+  }, 120_000);
+
+  it("a session past its idle timeout ends (401) even when its end cannot be written", async () => {
+    const s = await makeServer({ mode: "cloud" });
+    const c = new Client(s.app);
+    await signupWithOrg(c);
+    await s.db.exec(`update sm_sessions set idle_minutes = 5, last_seen_at = now() - interval '30 minutes'`);
+    await s.db.exec(`set default_transaction_read_only = on`);
+    try {
+      expect((await c.get("/auth/me", 401)).error.code).toBe("unauthorized");
+    } finally {
+      await s.db.exec(`set default_transaction_read_only = off`);
+    }
+  }, 120_000);
 });
