@@ -914,10 +914,6 @@ export const PLATFORM_JSON_DERIVES: Record<string, readonly string[]> = {
   sm_ai_tool_calls: ["input"],
   sm_ai_threads: ["context"],
   sm_ai_predictions: ["why", "alternatives"],
-  // insights and trained models that name demo rows (a contributing record, a predicted group) were made from demo
-  // data: they go and are computed again from what is left
-  sm_ai_insights: ["refs", "scope", "drivers"],
-  sm_ai_models: ["params", "metrics", "baseline", "history", "inputs"],
   // a finished run is a log; a run still going is kept (`PLATFORM_JSON_DERIVE_WHEN`) and loses the ids instead
   sm_flow_runs: ["context", "graph", "runtime"],
   sm_flow_run_steps: ["input", "output"],
@@ -947,7 +943,10 @@ export const PLATFORM_KEPT: Record<string, readonly string[]> = {
 export const PLATFORM_JSON_NONE: Record<string, readonly string[]> = {
   sm_ai_clusters: ["sims"],
   sm_ai_connections: ["available_models", "embed", "last_error", "models"],
-  sm_ai_insights: ["numbers"],
+  // computed tables (`purge.ts` COMPUTED_TABLES): their rows are put back from the copy saved before the load and what
+  // was computed meanwhile goes — never derived row by row (a model trained before the load stays as it was)
+  sm_ai_insights: ["numbers", "refs", "scope", "drivers"],
+  sm_ai_models: ["params", "metrics", "baseline", "history", "inputs"],
   sm_ai_messages: ["usage"],
   sm_ai_rag_runs: ["stats"],
   sm_demo_packs: ["counters", "counts", "options", "progress", "report"],

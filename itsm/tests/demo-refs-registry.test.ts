@@ -14,6 +14,7 @@ import { physicalTables } from "@shared/tables";
 import { FIELD_TYPES, type TableDef } from "@shared/model/types";
 import { evaluate, type Cond } from "@shared/model/conditions";
 import { archivable, archiveTableOf } from "@server/engine/ddl";
+import { COMPUTED_TABLES } from "@server/modules/demo/purge";
 import {
   ABOUT_COLUMNS, FOREIGN_TEXT, ID_TEXT, JSON_FIELDS, PARENTS, PLATFORM_JSON_DERIVES, PLATFORM_JSON_DERIVE_WHEN, PLATFORM_JSON_NONE,
   PLATFORM_JSON_PRUNES, PLATFORM_KEPT, PRODUCER_REFS, RESTRICTION_SCALARS, RESTRICTION_SETS, SNAPSHOT_TABLES, TRAIL_TABLE_NAMES,
@@ -86,6 +87,11 @@ describe("every place a row can name another has a decision", () => {
         .filter((c) => !has(PLATFORM_JSON_DERIVES, c.t, c.c) && !has(PLATFORM_JSON_PRUNES, c.t, c.c) && !has(PLATFORM_JSON_NONE, c.t, c.c))
         .map((c) => `${c.t}.${c.c}`);
       expect(missing).toEqual([]);
+    });
+
+    it("computed tables are put back from their copy, never derived or pruned row by row", () => {
+      const both = COMPUTED_TABLES.filter((t) => PLATFORM_JSON_DERIVES[t] || PLATFORM_JSON_PRUNES[t]);
+      expect(both).toEqual([]);
     });
 
     it("the platform lists name jsonb columns that exist", () => {
