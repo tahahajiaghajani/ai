@@ -24,6 +24,8 @@ import { secureWorkspace } from "../security/common";
 import { ARTICLES, BANK_DOMAIN, BANK_NAME, BRANCH_STREETS, CHANGES, DEMO_SIZES, demoTag, FIRST_NAMES, GROUPS, HQ_DEPARTMENTS, INCIDENTS, KNOWN_NAMES, LAST_NAMES, PROBLEMS, PROVINCES, REGION_OF, REGIONS, REQUESTS, Rng, SERVICES, type DemoSize, type Persona } from "./bank";
 import { costCentresIn, stepAnalytics, stepContinuityGrc, stepCsm, stepDelivery, stepDocs, stepEsm, stepEvents, stepExperience, stepField, stepFinance, stepPortal, stepWorkforce } from "./modules";
 import { stepWorkflow } from "./workflow";
+import { stepWorkflowCases, stepWorkflowDefs } from "./workflows";
+import type { WfMemo } from "./workflow-samples";
 
 /** What the steps share (saved with the pack between job invocations). */
 export interface LoadMemo {
@@ -56,6 +58,13 @@ export interface LoadMemo {
   refused?: Record<string, string>;
   /** the bank's asset people: per branch unit its officer and manager, per region its asset manager */
   itam?: { officers: Record<string, string>; managers: Record<string, string>; regional: Record<string, string> };
+  /** the bank's own fields, forms, positions, workflows and sample cases (./workflows.ts) */
+  wf?: WfMemo;
+  /**
+   * how long the next invocation waits (ms) when a step stopped for the job queue rather than for its deadline: the
+   * sample cases wait for their runs' jobs (./workflows.ts); unset, it runs again at once
+   */
+  wait?: number;
 }
 
 /**
@@ -270,7 +279,10 @@ export const STEPS: Step[] = [
   { key: "delivery", label: "انتشارها، دواپس و پروژه‌ها", run: stepDelivery },
   { key: "portal", label: "درگاه: پیوندها، موضوع‌ها، نظرسنجی‌ها و پاسخ‌ها", run: stepPortal },
   { key: "workflows", label: "گردش‌کار نمونه: درخواست دسترسی به سامانه", run: stepWorkflow },
+  { key: "workflow_defs", label: "فیلدها، فرم‌ها، نقش‌های سازمانی و گردش‌کارهای نمونه", run: stepWorkflowDefs },
   { key: "analytics", label: "داشبوردها و شاخص‌های بانک", run: stepAnalytics },
+  // last: the sample cases move on through the job queue between the load's invocations
+  { key: "workflow_cases", label: "پرونده‌های نمونهٔ گردش‌کارها", run: stepWorkflowCases },
 ];
 
 async function stepOrg({ orgId, memo }: StepArgs, sys: Ctx): Promise<boolean> {
@@ -1391,6 +1403,7 @@ export async function backdate(sys: Ctx): Promise<void> {
 /** Run the load from where it stopped until the deadline. Returns true when every step is done. */
 export async function runLoad(cfg: ServerConfig, orgId: string, memo: LoadMemo, deadline: number, onStep?: (memo: LoadMemo) => Promise<void>): Promise<boolean> {
   const sys = await systemCtx(cfg, orgId);
+  delete memo.wait;
   while (memo.step < STEPS.length) {
     if (Date.now() >= deadline) return false;
     const step = STEPS[memo.step];

@@ -270,7 +270,8 @@ async function loadJob(cfg: JobConfig, orgId: string, deadline: number): Promise
       if (!r.length) throw new PackLeftLoading("demo pack is no longer loading");
     };
     const done = await runLoad(cfg as ServerConfig, orgId, memo, Math.min(deadline, Date.now() + 25_000), save);
-    if (!done) return { again: 0 };
+    // a step waiting for the job queue (the sample cases' runs) says how long; their jobs were queued first
+    if (!done) return { again: memo.wait ?? 0 };
     await finishLoad(db, orgId, { started_by: pack.started_by, size: pack.size }, memo.counts);
   } catch (e) {
     if (e instanceof PackLeftLoading) return;
