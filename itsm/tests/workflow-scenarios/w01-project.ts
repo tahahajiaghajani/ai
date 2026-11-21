@@ -14,10 +14,13 @@
 //        current version's rules (1.1.5 (c)); «ارجاع» on the demo case; a new case runs version 2;
 //   R6   the requester cancels before the step is done: canceled, the open tasks «لغو»;
 //   R7   the designer's preview, estimate and demo-people list say who the pack's people are (1.1.5 (e)–(g));
-//   R8   a manager who is one of the pack's people acting on a real case leaves no demo row inside it (report 3).
+//   R8   a manager who is one of the pack's people acts on a real case; the demo purge leaves it as it was (report 3);
+//        it runs last (the purge takes the pack's people and cases away).
 import { describe, it, expect, beforeAll } from "vitest";
 import { wakeTimer } from "@server/modules/process/timers/timer";
 import { newRule } from "@ui/modules/workflows/kit/model";
+import { runToEnd } from "@server/modules/demo";
+import { PURGE_PHRASE } from "@server/routes/demo";
 import { bankUnits, e, item, n, section, tab, world, type Draft, type EditionRef, type Scn } from "./harness";
 
 export const W1 = {
@@ -327,23 +330,34 @@ export function w01(ref: EditionRef): void {
       expect(s.keys(people.users)).toEqual(["babak", "behrouz", "kambiz", "negar", "sepideh"]);
     }, 300_000);
 
-    it("R8 (report 3) a manager who is one of the pack's people, acting on the organisation's own case, leaves no demo row inside it", async () => {
+    it("R8 (report 3) one of the pack's people manages the organisation's own case; «حذف داده‌های نمایشی» then leaves that case as it was — the real member keeps the step he was given", async () => {
       const r = await s.start("owner", W1.key, { u_aftab_prj_name: "پروژهٔ سوم مالک" });
       await s.settle();
-      // بهروز (the pack's manager persona) is a manager of the process: he pauses, resumes and gives the step to a real
-      // member — or is refused; either way the organisation's case must hold nothing the purge would take out of it
+      // بهروز (the pack's manager persona, a manager of the process) pauses, resumes and gives the step to a real
+      // member — or is refused: either way the purge must not take work of the organisation's own case away
       const paused = await s.raw("behrouz", "POST", `/process/cases/${r.case}/pause`, { comment: "بررسی" });
       if (paused.status === 200) {
         await s.raw("behrouz", "POST", `/process/cases/${r.case}/resume`, {});
         await s.raw("behrouz", "POST", `/process/cases/${r.case}/reassign`, { step: "form", to: [s.id("reza")] });
         await s.settle();
       }
-      const demoRows = await s.db.query<{ tbl: string }>(
-        `select d.tbl from sm_demo_rows d where d.org_id = $1 and (d.row_id in (select id from sm_process_tasks where case_id = $2)
-            or d.row_id in (select id from sm_journal where record_id = $2) or d.row_id = $2)`,
-        [s.org, r.case],
-      );
-      expect(demoRows).toEqual([]);
-    }, 300_000);
+      const state = async () => {
+        const k = await s.kase(r.case);
+        const real = (await s.tasks(r.case)).filter((t) => !["negar", "babak", "behrouz", "kambiz", "sepideh"].includes(s.key(t.assigned_to) ?? ""));
+        return { state: k?.state ?? null, open_rounds: k?.open_rounds ?? null, tasks: real.map((t) => `${s.key(t.assigned_to)}:${t.step_key}:${t.status}`).sort() };
+      };
+      const before = await state();
+      // «حذف داده‌های نمایشی» (the console's purge, as the owner)
+      await s.db.query(`update sm_sessions set reauth_at = now() where user_id = $1`, [s.o.ownerId]);
+      await s.owner.post(`${s.P}/demo/purge`, { confirm: PURGE_PHRASE });
+      await runToEnd(s.cfg, s.org, "purge", { budgetMs: 600_000 });
+      expect(await state()).toEqual(before);
+      // and the organisation's case can still be finished by whoever holds it
+      if (before.tasks.includes("reza:form:open")) {
+        await s.submit("reza", r.case, "form", { values: { u_aftab_prj_delay: 1 } });
+        await s.settle();
+        expect(await s.kase(r.case)).toMatchObject({ state: "completed" });
+      }
+    }, 900_000);
   });
 }
