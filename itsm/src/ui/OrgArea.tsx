@@ -10,10 +10,15 @@ import { AppShell } from "./components/layout";
 import { PageBoundary } from "./components/crash";
 import { ROUTES } from "./modules/registry";
 import { ApiError, errorText } from "./lib/api";
+import { SERVER_STATES } from "./lib/session";
 import { Loading } from "./App";
 
-/** Answers that mean the server could not answer now (src/server/http/errors.ts, src/server/cloud.ts, ./lib/api.ts). */
-const SERVER_DOWN = new Set(["db_busy", "db_timeout", "db_locked", "db_unavailable", "timeout", "retry", "gateway_timeout", "unavailable", "network"]);
+/**
+ * Answers that mean the server could not answer now: every one the session takes for «the server is not ready» (its
+ * database being prepared, missing, unreachable, busy or slow, a deadline, a gateway's own error — ./lib/session.tsx),
+ * a lock held elsewhere, a deadlock retried, and no network.
+ */
+const SERVER_DOWN = new Set([...SERVER_STATES, "db_locked", "retry", "network"]);
 
 /**
  * What the organisation page says when the organisation did not load: a server that cannot answer now is not «no

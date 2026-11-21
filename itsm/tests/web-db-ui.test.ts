@@ -146,6 +146,9 @@ describe("the session and the organisation page while the server cannot answer",
       expect(orgErrorView(code), code).toEqual({ title: "سرور اکنون پاسخ نمی‌دهد", retry: true });
     }
     expect(orgErrorView("db_busy").retry).toBe(true);
+    // every answer the session itself takes for «the server is not ready» too: a database being prepared, none
+    // configured, one a cold instance cannot reach (UI-7 of the 1.1.4 review: they read «no access», with no retry)
+    for (const code of SERVER_STATES) expect(orgErrorView(code), code).toEqual({ title: "سرور اکنون پاسخ نمی‌دهد", retry: true });
     expect(orgErrorView("db_read_only")).toEqual({ title: "پایگاه داده فقط‌خواندنی است", retry: false });
     for (const code of ["forbidden", "not_found", null, undefined]) expect(orgErrorView(code)).toEqual({ title: "دسترسی به این سازمان ممکن نیست", retry: false });
   });
