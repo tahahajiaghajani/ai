@@ -160,8 +160,9 @@ export async function createPgliteDb(opts: PgliteOptions = {}): Promise<PgliteDb
       const track = <A extends unknown[], R>(f: (...a: A) => Promise<R>) => async (...a: A): Promise<R> => {
         // a long transaction lets the event loop turn too (every 50 ms of work, as between the app's calls): a module's
         // seed or a demo step writes thousands of statements in one transaction, and the thread was held for all of
-        // them, up to 3.3 s (docs/PERFORMANCE_FA.md §21). Only the event loop turns: the app's other queries still wait
-        // for the transaction to end (PGlite runs one at a time), the window's files, sockets and timers do not.
+        // them, up to 3.5 s (docs/PERFORMANCE_FA.md §21). Only the event loop turns: the app's other queries still wait
+        // for the transaction to end (PGlite runs one at a time); the window's files, sockets and timers no longer do,
+        // but they move one asynchronous step per turn (a page of 35 files: 1.3 s instead of 2.7 s, §21).
         if (opts.dataDir) await turn();
         try {
           return await f(...a);

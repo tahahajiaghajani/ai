@@ -1,0 +1,383 @@
+// The Windows app waits for its local server by what the server says it is doing (src/shared/desktop/ready-watch.ts,
+// desktop/src/main.ts): 90 s without a sign of progress before the server opens its database and after it has opened it,
+// and no limit while it opens it — a database that was not closed cleanly replays its write-ahead log there, minutes for
+// gigabytes, on the server's only thread. The app used to give the whole start a fixed 90 s and then killed the server, so
+// a recovery longer than that started over at every start and the app never opened again (an owner's app.log, 1.1.0 and
+// 1.1.2). The main process's tests below drive desktop/src/main.ts with a fake Electron and a fake clock; on the fixed
+// timer they fail.
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { mkdtempSync, mkdirSync, rmSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { runInNewContext } from "node:vm";
+import { createReadyWatch, elapsedFa, noticeTexts, parseStartPhase, NOTICE_TEXT, NOTICE_AFTER_MS, SLOW_NOTICE_AFTER_MS, READY_BUDGET_MS, LARGE_WAL_MB, MIGRATIONS_CEILING_MS } from "@shared/desktop/ready-watch";
+
+const MIN = 60_000;
+const HOUR = 60 * MIN;
+
+describe("the start's watch", () => {
+  it("never gives up while the server opens its database, however long the open takes", () => {
+    const w = createReadyWatch(0);
+    w.phase({ phase: "database", walMb: 6144, recovery: true }, 1_500);
+    expect(w.stage).toBe("database");
+    for (const at of [1_500, READY_BUDGET_MS, READY_BUDGET_MS + 1, 30 * MIN, 6 * HOUR]) expect(w.check(at).kind).toBe("wait");
+  });
+
+  it("gives up after 90 s without a word before the server opens its database", () => {
+    const w = createReadyWatch(1_000);
+    expect(w.check(1_000 + READY_BUDGET_MS - 1)).toEqual({ kind: "wait", notice: null });
+    expect(w.check(1_000 + READY_BUDGET_MS)).toEqual({ kind: "timeout", stage: "starting", silentMs: READY_BUDGET_MS });
+  });
+
+  it("does not cut the migrations short at 90 s either: a note after 30 s without one applied, a stop only after 30 minutes", () => {
+    const w = createReadyWatch(0);
+    w.phase({ phase: "database", walMb: 900, recovery: true }, 2_000);
+    w.phase({ phase: "migrations" }, 20 * MIN);
+    expect(w.stage).toBe("migrations");
+    expect(w.check(20 * MIN + SLOW_NOTICE_AFTER_MS - 1)).toEqual({ kind: "wait", notice: null });
+    // a migration over a large table: past the old 90 s, the person is told, nothing is killed
+    expect(w.check(20 * MIN + READY_BUDGET_MS)).toEqual({ kind: "wait", notice: { kind: "update", elapsedMs: READY_BUDGET_MS } });
+    // a migration applied is a sign of progress: the note waits for the next long one
+    w.progress(30 * MIN);
+    expect(w.check(30 * MIN + 1_000)).toEqual({ kind: "wait", notice: null });
+    expect(w.check(30 * MIN + MIGRATIONS_CEILING_MS - 1).kind).toBe("wait");
+    expect(w.check(30 * MIN + MIGRATIONS_CEILING_MS)).toEqual({ kind: "timeout", stage: "migrations", silentMs: MIGRATIONS_CEILING_MS });
+  });
+
+  it("tells the person at once when a large log is replayed, after 8 s for a smaller one, after 30 s for any other open", () => {
+    const at = (walMb: number, recovery: boolean | null, elapsed: number) => {
+      const w = createReadyWatch(0);
+      w.phase({ phase: "database", walMb, recovery }, 1_000);
+      const v = w.check(1_000 + elapsed);
+      return v.kind === "wait" ? v.notice : v;
+    };
+    // a large log of a database that was not closed cleanly (or that cannot be told): the recovery note, at once
+    expect(at(LARGE_WAL_MB, true, 0)).toEqual({ kind: "recovery", elapsedMs: 0 });
+    expect(at(4096, null, 0)).toEqual({ kind: "recovery", elapsedMs: 0 });
+    // a small one: nothing for a usual open, the recovery note when it takes long
+    expect(at(40, true, NOTICE_AFTER_MS - 1)).toBeNull();
+    expect(at(40, true, NOTICE_AFTER_MS)).toEqual({ kind: "recovery", elapsedMs: NOTICE_AFTER_MS });
+    // closed cleanly: the spare segments an older version kept are not replayed — no recovery note, only a slow open's
+    expect(at(1024, false, 0)).toBeNull();
+    expect(at(1024, false, SLOW_NOTICE_AFTER_MS - 1)).toBeNull();
+    expect(at(1024, false, 12 * MIN)).toEqual({ kind: "slow", elapsedMs: 12 * MIN });
+    // a first start or a restore (nothing known about the folder): nothing while a slow machine unpacks the template,
+    // a slow open's note when it takes really long
+    expect(at(0, null, 11_000)).toBeNull();
+    expect(at(0, null, SLOW_NOTICE_AFTER_MS)).toEqual({ kind: "slow", elapsedMs: SLOW_NOTICE_AFTER_MS });
+    // after the open: nothing to tell
+    const w = createReadyWatch(0);
+    w.phase({ phase: "database", walMb: 6144, recovery: true }, 0);
+    w.phase({ phase: "migrations" }, 5 * MIN);
+    expect(w.check(5 * MIN + 1_000)).toEqual({ kind: "wait", notice: null });
+  });
+
+  it("reads the server's phase messages and nothing else", () => {
+    expect(parseStartPhase({ type: "phase", phase: "database", walMb: 3204.4, recovery: true })).toEqual({ phase: "database", walMb: 3204, recovery: true });
+    expect(parseStartPhase({ type: "phase", phase: "database", walMb: 12 })).toEqual({ phase: "database", walMb: 12, recovery: null });
+    expect(parseStartPhase({ type: "phase", phase: "database", walMb: "a lot", recovery: "yes" })).toEqual({ phase: "database", walMb: 0, recovery: null });
+    expect(parseStartPhase({ type: "phase", phase: "migrations" })).toEqual({ phase: "migrations" });
+    for (const m of [null, "phase", { type: "ready", url: "http://127.0.0.1:3939" }, { type: "phase", phase: "elsewhere" }]) expect(parseStartPhase(m)).toBeNull();
+  });
+
+  it("says it in Persian, with the time gone by in Persian digits", () => {
+    expect(elapsedFa(0)).toBe("۰:۰۰");
+    expect(elapsedFa(8_400)).toBe("۰:۰۸");
+    expect(elapsedFa(12 * MIN + 34_000)).toBe("۱۲:۳۴");
+    expect(elapsedFa(HOUR + 2 * MIN + 5_000)).toBe("۱:۰۲:۰۵");
+    expect(noticeTexts({ kind: "recovery", elapsedMs: 125_000 }, "باز کردن داده‌ها…")).toEqual({ note: NOTICE_TEXT.recovery, status: "بازیابی پایگاه داده… ۲:۰۵" });
+    expect(noticeTexts({ kind: "slow", elapsedMs: 9_000 }, "بازگردانی نسخهٔ پشتیبان…")).toEqual({ note: NOTICE_TEXT.slow, status: "بازگردانی نسخهٔ پشتیبان… ۰:۰۹" });
+    expect(NOTICE_TEXT.recovery).toContain("لطفاً برنامه را نبندید");
+  });
+});
+
+describe("the splash's note (desktop/src/splash.html)", () => {
+  it("takes the tagline's place while there is something to tell, and gives it back", () => {
+    const html = readFileSync(join(__dirname, "..", "desktop", "src", "splash.html"), "utf8");
+    const script = html.match(/<script>([\s\S]*?)<\/script>/)![1];
+    const el = () => ({ textContent: "", style: { setProperty() {} } });
+    const ids: Record<string, ReturnType<typeof el>> = { name: el(), tagline: el(), status: el(), ver: el(), note: el() };
+    const classes = new Set<string>();
+    const body = { classList: { add: (c: string) => classes.add(c), toggle: (c: string, on: boolean) => (on ? classes.add(c) : classes.delete(c)) } };
+    const document = { documentElement: el(), body, title: "", getElementById: (id: string) => ids[id], querySelectorAll: () => [] };
+    const window: Record<string, any> = {};
+    runInNewContext(script, { window, document, location: { search: "?name=x", hash: "" }, URLSearchParams, performance, setInterval: () => 0, clearInterval() {}, setTimeout: () => 0, Math });
+    expect(html).toContain('<p class="note" id="note"');
+    window.itsm.note(NOTICE_TEXT.recovery);
+    expect(ids.note.textContent).toBe(NOTICE_TEXT.recovery);
+    expect(classes.has("noted")).toBe(true);
+    window.itsm.status("بازیابی پایگاه داده… ۲:۰۵");
+    expect(ids.status.textContent).toBe("بازیابی پایگاه داده… ۲:۰۵");
+    window.itsm.note("");
+    expect(ids.note.textContent).toBe("");
+    expect(classes.has("noted")).toBe(false);
+  });
+});
+
+// ------------------------------------------------------------------ the Electron main process, faked
+
+const h = vi.hoisted(() => ({
+  children: [] as any[],
+  windows: [] as any[],
+  dialogs: [] as { opts: any; answer: (response: number) => void }[],
+  exits: [] as number[],
+  relaunched: 0,
+  appHandlers: new Map<string, ((...a: unknown[]) => unknown)[]>(),
+}));
+
+vi.mock("electron", async () => {
+  const { EventEmitter } = await import("node:events");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  /** The local server's utility process: messages and output are emitted by the test; a kill exits with 0, as on Windows. */
+  class Child extends EventEmitter {
+    stdout = new EventEmitter();
+    stderr = new EventEmitter();
+    posted: unknown[] = [];
+    killed = false;
+    postMessage(m: unknown) {
+      this.posted.push(m);
+    }
+    kill() {
+      if (this.killed) return false;
+      this.killed = true;
+      queueMicrotask(() => this.emit("exit", 0));
+      return true;
+    }
+  }
+  class WebContents extends EventEmitter {
+    scripts: string[] = [];
+    async executeJavaScript(js: string) {
+      this.scripts.push(js);
+      return true;
+    }
+    setWindowOpenHandler() {}
+    reload() {}
+  }
+  class BrowserWindow extends EventEmitter {
+    webContents = new WebContents();
+    destroyed = false;
+    url: string | null = null;
+    constructor(public opts: unknown) {
+      super();
+      h.windows.push(this);
+    }
+    static fromWebContents() {
+      return null;
+    }
+    loadURL(u: string) {
+      this.url = u;
+      queueMicrotask(() => this.webContents.emit("did-finish-load"));
+    }
+    loadFile() {
+      queueMicrotask(() => this.webContents.emit("did-finish-load"));
+    }
+    setMenu() {}
+    show() {}
+    hide() {}
+    focus() {}
+    maximize() {}
+    setBackgroundColor() {}
+    isDestroyed() {
+      return this.destroyed;
+    }
+    destroy() {
+      if (this.destroyed) return;
+      this.destroyed = true;
+      this.emit("closed");
+      // the last window gone: Electron's app emits window-all-closed
+      if (h.windows.every((w) => w.destroyed)) for (const fn of h.appHandlers.get("window-all-closed") ?? []) fn();
+    }
+  }
+  const app = {
+    getPath: (name: string) => (name === "appData" ? join(tmpdir(), "AppData", "Roaming") : tmpdir()),
+    setPath() {},
+    getVersion: () => "1.1.2",
+    requestSingleInstanceLock: () => true,
+    setAppUserModelId() {},
+    on(ev: string, fn: (...a: unknown[]) => unknown) {
+      if (!h.appHandlers.has(ev)) h.appHandlers.set(ev, []);
+      h.appHandlers.get(ev)!.push(fn);
+      return app;
+    },
+    whenReady: () => Promise.resolve(),
+    relaunch() {
+      h.relaunched++;
+    },
+    exit(code: number) {
+      h.exits.push(code);
+    },
+    quit() {},
+  };
+  const electron = {
+    app,
+    BrowserWindow,
+    utilityProcess: {
+      fork() {
+        const c = new Child();
+        h.children.push(c);
+        return c;
+      },
+    },
+    ipcMain: { handle() {}, on() {} },
+    shell: { openExternal: async () => {}, openPath: async () => "" },
+    dialog: {
+      showMessageBox: (opts: unknown) => new Promise((resolve) => h.dialogs.push({ opts, answer: (response: number) => resolve({ response, checkboxChecked: false }) })),
+      showSaveDialog: async () => ({ canceled: true }),
+    },
+    Menu: { buildFromTemplate: () => ({}), setApplicationMenu() {} },
+    Tray: class {},
+    nativeImage: { createFromPath: () => ({ resize: () => ({}) }) },
+    nativeTheme: { shouldUseDarkColors: false, themeSource: "system" },
+  };
+  return { ...electron, default: electron };
+});
+
+const MAIN = "../desktop/src/main.ts";
+/** A turn of the event loop (setImmediate is not faked): promises and microtasks settle. */
+const flush = () => new Promise<void>((r) => setImmediate(r));
+let dataDir = "";
+
+/** Starts desktop/src/main.ts anew (local mode) on a fake clock; resolves with the server's fake process. */
+async function launch() {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+  vi.resetModules();
+  h.children.length = 0;
+  h.windows.length = 0;
+  h.dialogs.length = 0;
+  h.exits.length = 0;
+  h.relaunched = 0;
+  h.appHandlers.clear();
+  dataDir = mkdtempSync(join(tmpdir(), "itsm-ready-"));
+  // a later start (a database folder exists): the splash begins with «باز کردن داده‌ها…»
+  mkdirSync(join(dataDir, "db"));
+  process.env.ITSM_DATA_DIR = dataDir;
+  await import(/* @vite-ignore */ MAIN);
+  for (let i = 0; i < 100 && !h.children.length; i++) await flush();
+  expect(h.children).toHaveLength(1);
+  await flush();
+  return { child: h.children[0], splash: h.windows[0] };
+}
+
+/** The last argument the splash got through `itsm.<fn>(…)`. */
+function lastCall(w: { webContents: { scripts: string[] } }, fn: string): unknown {
+  const prefix = `itsm.${fn}(`;
+  const js = w.webContents.scripts.filter((s) => s.startsWith(prefix)).at(-1);
+  return js === undefined ? undefined : JSON.parse(js.slice(prefix.length, -1));
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+  delete process.env.ITSM_DATA_DIR;
+  if (dataDir) rmSync(dataDir, { recursive: true, force: true });
+  dataDir = "";
+});
+
+describe("the Windows app's main process waits for its local server by phase (desktop/src/main.ts)", () => {
+  it("waits out a recovery of the database far longer than 90 s and tells the person, then opens the app", async () => {
+    const { child, splash } = await launch();
+    child.stdout.emit("data", "[itsm] opening the database: write-ahead log 6144 MB; not closed cleanly, so its log is replayed first\n");
+    child.emit("message", { type: "phase", phase: "database", walMb: 6144, recovery: true });
+    await flush();
+    // a large log to replay: the note is there at once
+    expect(lastCall(splash, "note")).toBe(NOTICE_TEXT.recovery);
+    // the fixed timer killed the server here, 90 s after it started
+    await vi.advanceTimersByTimeAsync(20 * MIN);
+    expect(h.dialogs).toEqual([]);
+    expect(h.exits).toEqual([]);
+    expect(child.killed).toBe(false);
+    expect(child.posted).toEqual([]);
+    expect(lastCall(splash, "status")).toBe(`بازیابی پایگاه داده… ${elapsedFa(20 * MIN)}`);
+    // the database is open: the note goes; the migrations are waited out too
+    child.emit("message", { type: "phase", phase: "migrations" });
+    await flush();
+    expect(lastCall(splash, "note")).toBe("");
+    await vi.advanceTimersByTimeAsync(60_000);
+    child.stdout.emit("data", "[itsm] migration 0105_later applied\n");
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.dialogs).toEqual([]);
+    child.emit("message", { type: "ready", url: "http://127.0.0.1:3939", port: 3939, host: "127.0.0.1" });
+    await flush();
+    expect(h.windows.map((w) => w.url)).toContain("http://127.0.0.1:3939");
+    expect(h.dialogs).toEqual([]);
+    expect(h.exits).toEqual([]);
+    const log = readFileSync(join(dataDir, "logs", "app.log"), "utf8");
+    expect(log).toContain("[server] [itsm] opening the database: write-ahead log 6144 MB");
+    expect(log).toMatch(/\[start\] the local server is still opening the database \(recovery, 0 s so far\)/);
+  });
+
+  it("still gives up after 90 s without a word, and keeps the error on screen until it is read", async () => {
+    const { child } = await launch();
+    await vi.advanceTimersByTimeAsync(READY_BUDGET_MS - 1_000);
+    expect(h.dialogs).toEqual([]);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(h.dialogs).toHaveLength(1);
+    expect(h.dialogs[0].opts.message).toBe("اجرای برنامه ممکن نشد");
+    expect(h.dialogs[0].opts.detail).toContain("سرور محلی در زمان مقرر آماده نشد");
+    // nothing quits behind the dialog (closing the splash used to end the app 10 s later, the dialog with it)
+    await vi.advanceTimersByTimeAsync(MIN);
+    expect(h.exits).toEqual([]);
+    h.dialogs[0].answer(1); // «خروج»
+    await flush();
+    expect(child.posted).toEqual([{ type: "shutdown" }]);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(child.killed).toBe(true);
+    await flush();
+    expect(h.exits).toEqual([1]);
+    expect(h.relaunched).toBe(0);
+    expect(h.dialogs).toHaveLength(1);
+    expect(readFileSync(join(dataDir, "logs", "app.log"), "utf8")).toMatch(/\[start\] no sign of the local server for 90 s \(starting\)/);
+  });
+
+  it("waits out a long migration after the open with a note, and ends the start only after 30 minutes without a sign", async () => {
+    const { child, splash } = await launch();
+    child.emit("message", { type: "phase", phase: "database", walMb: 12, recovery: false });
+    await vi.advanceTimersByTimeAsync(3 * MIN);
+    // a clean database that takes long to open (a slow disk): told as such, never as a recovery
+    expect(lastCall(splash, "note")).toBe(NOTICE_TEXT.slow);
+    expect(lastCall(splash, "status")).toBe(`باز کردن داده‌ها… ${elapsedFa(3 * MIN)}`);
+    child.emit("message", { type: "phase", phase: "migrations" });
+    // the fixed 90 s once killed a migration over a large table here, and it started over at every start
+    await vi.advanceTimersByTimeAsync(READY_BUDGET_MS + 1_000);
+    expect(h.dialogs).toEqual([]);
+    expect(child.killed).toBe(false);
+    expect(lastCall(splash, "note")).toBe(NOTICE_TEXT.update);
+    await vi.advanceTimersByTimeAsync(MIGRATIONS_CEILING_MS);
+    expect(h.dialogs).toHaveLength(1);
+    expect(h.dialogs[0].opts.detail).toContain("سرور محلی در زمان مقرر آماده نشد");
+  });
+
+  it("reports a server that stops while it opens the database once, at once, and can run the app again", async () => {
+    const { child } = await launch();
+    child.emit("message", { type: "phase", phase: "database", walMb: 3204, recovery: true });
+    await vi.advanceTimersByTimeAsync(5 * MIN);
+    expect(h.dialogs).toEqual([]);
+    child.emit("exit", 3);
+    await flush();
+    expect(h.dialogs).toHaveLength(1);
+    expect(h.dialogs[0].opts.message).toBe("اجرای برنامه ممکن نشد");
+    expect(h.dialogs[0].opts.detail).toContain("سرور داخلی برنامه پیش از آماده شدن متوقف شد (کد خروج ۳)");
+    expect(h.dialogs[0].opts.buttons).toEqual(["اجرای دوباره", "خروج"]);
+    await vi.advanceTimersByTimeAsync(5 * MIN);
+    expect(h.dialogs).toHaveLength(1);
+    h.dialogs[0].answer(0); // «اجرای دوباره»
+    await flush();
+    expect(h.relaunched).toBe(1);
+    expect(h.exits).toEqual([1]);
+  });
+
+  it("reports the server's own error as before, and its exit after it adds nothing", async () => {
+    const { child } = await launch();
+    child.emit("message", { type: "phase", phase: "database", walMb: 0, recovery: null });
+    child.emit("message", { type: "error", message: "migration 0101_x failed: disk full" });
+    await flush();
+    child.emit("exit", 1);
+    await vi.advanceTimersByTimeAsync(MIN);
+    expect(h.dialogs).toHaveLength(1);
+    expect(h.dialogs[0].opts.detail).toContain("migration 0101_x failed: disk full");
+    h.dialogs[0].answer(1);
+    await flush();
+    expect(h.exits).toEqual([1]);
+    expect(h.relaunched).toBe(0);
+  });
+});

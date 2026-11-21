@@ -6,13 +6,20 @@ import { startLocal } from "./server";
 type ParentPort = { postMessage(m: unknown): void; on(ev: "message", fn: (e: { data: any }) => void): void };
 const parent = (process as unknown as { parentPort?: ParentPort }).parentPort;
 
+/** To the Electron main process (the utility process's port), or to a Node parent that forked this one with an IPC channel. */
+function tell(m: Record<string, unknown>) {
+  if (parent) parent.postMessage(m);
+  else process.send?.(m);
+}
+
 async function main() {
   const dataDir = process.env.ITSM_DATA_DIR;
   const staticDir = process.env.ITSM_STATIC_DIR;
   if (!dataDir || !staticDir) throw new Error("ITSM_DATA_DIR / ITSM_STATIC_DIR missing");
   const port = process.env.ITSM_PORT ? Number(process.env.ITSM_PORT) : undefined;
-  // ITSM_DB_TEMPLATE: the database made at build time, for a first start (desktop/src/main.ts sets it)
-  const server = await startLocal({ dataDir, staticDir, port, template: process.env.ITSM_DB_TEMPLATE || undefined });
+  // ITSM_DB_TEMPLATE: the database made at build time, for a first start (desktop/src/main.ts sets it). The phases tell
+  // the main process when the database's open begins and ends: it waits for that open as long as it takes.
+  const server = await startLocal({ dataDir, staticDir, port, template: process.env.ITSM_DB_TEMPLATE || undefined, onPhase: (p) => tell({ type: "phase", ...p }) });
   const ready = { type: "ready", url: server.url, port: server.port, host: server.host };
   if (parent) parent.postMessage(ready);
   else console.log(JSON.stringify(ready));
