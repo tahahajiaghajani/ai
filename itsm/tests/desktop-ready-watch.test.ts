@@ -126,9 +126,12 @@ describe("the start's watch", () => {
     const open = createReadyWatch(0);
     open.phase({ phase: "database", walMb: 40, recovery: true }, 0);
     expect(open.restoring).toBe(false);
-    // the takePendingRestore of src/desktop/backup.ts has dropped the marker and set the folder aside: nothing is redone
+    // the takePendingRestore of src/desktop/backup.ts has dropped the marker and set the folder aside: nothing is redone,
+    // and the next start puts that folder back (restore.running): the database from before the restore, never none
     expect(closeQuestion("database", false, true)).toEqual(CLOSE_TEXT.restore);
     expect(CLOSE_TEXT.restore.detail).not.toContain("از نو انجام می‌شود");
+    expect(CLOSE_TEXT.restore.detail).toContain("با پایگاه دادهٔ پیشین باز می‌شود");
+    expect(CLOSE_TEXT.restore.detail).not.toContain("بی‌داده");
     expect(closeQuestion("migrations", false, true)).toEqual(CLOSE_TEXT.migrations);
   });
 
@@ -668,15 +671,15 @@ describe("the Windows app's main process waits for its local server by phase (de
 
   it("does not say a restore of a backup is done again when the splash closes during it", async () => {
     const { child, splash } = await launch();
-    // the server's phase of a scheduled restore (src/desktop/server.ts): its backup is read and loaded now
+    // the server's phase of a scheduled restore (src/desktop/server.ts): its backup is extracted and opened now
     child.emit("message", { type: "phase", phase: "database", walMb: 0, recovery: null, restore: true });
     await vi.advanceTimersByTimeAsync(40_000);
     splash.close();
     await flush();
     expect(splash.destroyed).toBe(false);
     expect(h.dialogs).toHaveLength(1);
-    // takePendingRestore has dropped the marker and set the database folder aside: a restore cut short is not redone,
-    // the next start opens no database (a first start) or half of one — the open's «از نو انجام می‌شود» would be untrue
+    // takePendingRestore has dropped the marker and set the database folder aside: a restore cut short is not redone —
+    // the next start puts that folder back (restore.running) —, so the open's «از نو انجام می‌شود» would be untrue
     expect(h.dialogs[0].opts).toMatchObject({ message: CLOSE_TEXT.restore.message, detail: CLOSE_TEXT.restore.detail, buttons: [...CLOSE_BUTTONS], cancelId: 0 });
     h.dialogs[0].answer(0);
     await flush();

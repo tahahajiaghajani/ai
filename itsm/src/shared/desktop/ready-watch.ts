@@ -236,12 +236,13 @@ export const CLOSE_TEXT = {
   },
   /**
    * while a scheduled restore loads its backup (ReadyWatch.restoring): unlike an open, a restore cut short is not done
-   * again — its marker is gone and the database folder set aside, so the next start finds no database (a first start)
-   * or half of one
+   * again — its marker is gone and the database folder set aside —, and the next start puts that folder back
+   * (restore.running, src/desktop/backup.ts) and opens the database from before the restore, which Settings can ask for
+   * again
    */
   restore: {
     message: "بازگردانی نسخهٔ پشتیبان هنوز تمام نشده است",
-    detail: "اگر اکنون ببندید، بازگردانی نیمه‌کاره می‌ماند و ممکن است برنامه در اجرای بعدی باز نشود یا بی‌داده باز شود. بهتر است صبر کنید تا برنامه باز شود.",
+    detail: "اگر اکنون ببندید، بازگردانی انجام نمی‌شود و برنامه در اجرای بعدی با پایگاه دادهٔ پیشین باز می‌شود؛ می‌توانید بازگردانی را دوباره از تنظیمات بخواهید. بهتر است صبر کنید تا برنامه باز شود.",
   },
 } as const;
 /** Its answers: 0 keeps the splash (also Esc, and a question withdrawn because the start ended), 1 closes the app. */
