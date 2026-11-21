@@ -55,10 +55,10 @@
 > **ساخت فقط با تغییر همین پوشه:** این مخزن چند سایت دارد و Vercel با هر push همه را می‌سازد. فایل `pars-website/vercel.json` دستور **Ignored Build Step** را خودش دارد (کلید `"ignoreCommand"`) و بر تنظیم داشبورد مقدم است؛ پس در Vercel → Settings → Build and Deployment → Ignored Build Step کاری لازم نیست:
 >
 > ```bash
-> git cat-file -e "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}^{commit}" 2>/dev/null && git diff --quiet "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}" HEAD -- . || exit 1
+> [ "$VERCEL_GIT_PREVIOUS_SHA" = "$VERCEL_GIT_COMMIT_SHA" ] && exit 1; git cat-file -e "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}^{commit}" 2>/dev/null && git diff --quiet "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}" HEAD -- . || exit 1
 > ```
 >
-> این دستور داخل Root Directory (یعنی `pars-website`) اجرا می‌شود و همه‌ی تغییرات از آخرین ساخت موفق را می‌سنجد، نه فقط آخرین commit: اگر در این پوشه چیزی عوض نشده باشد ساخت لغو می‌شود (خروجی ۰)، وگرنه ساخته می‌شود (خروجی ۱). **بخش اول (`git cat-file -e`) را حذف نکنید:** Vercel فقط چند commit آخر را clone می‌کند و `VERCEL_GIT_PREVIOUS_SHA` کامیتِ آخرین ساخت موفق است؛ اگر پروژه مدتی ساخته نشده باشد آن کامیت در clone نیست، `git diff` با خطای `bad object` (خروجی ۱۲۸) تمام می‌شود و Vercel هر خروجی غیر از ۰ و ۱ را خطا می‌داند و کل Deployment شکست می‌خورد. با بخش اول، در این حالت سایت ساخته می‌شود.
+> این دستور داخل Root Directory (یعنی `pars-website`) اجرا می‌شود و همه‌ی تغییرات از آخرین ساخت موفق را می‌سنجد، نه فقط آخرین commit: اگر در این پوشه چیزی عوض نشده باشد ساخت لغو می‌شود (خروجی ۰)، وگرنه ساخته می‌شود (خروجی ۱). **بخش اول (`[ … = … ] && exit 1`) Redeploy را می‌سازد:** Redeploy در داشبورد همان commit آخرین ساخت را دوباره می‌سازد، پس بی آن `git diff` تفاوتی نمی‌یافت، Redeploy لغو می‌شد و متغیر محیطی تازه (مثلاً `APP_SECRET` پس از تعویض) هرگز اثر نمی‌کرد. **بخش دوم (`git cat-file -e`) را حذف نکنید:** Vercel فقط چند commit آخر را clone می‌کند و `VERCEL_GIT_PREVIOUS_SHA` کامیتِ آخرین ساخت موفق است؛ اگر پروژه مدتی ساخته نشده باشد آن کامیت در clone نیست، `git diff` با خطای `bad object` (خروجی ۱۲۸) تمام می‌شود و Vercel هر خروجی غیر از ۰ و ۱ را خطا می‌داند و کل Deployment شکست می‌خورد. با این بخش، در این حالت سایت ساخته می‌شود.
 >
 > پروژه‌ی Task Flow (ریشه‌ی مخزن) همین دستور را در `vercel.json` ریشه دارد و با کنار گذاشتن پوشه‌ی همه‌ی پروژه‌های جدا (از جمله `':!pars-website'`، شکل کوتاه `':(exclude)pars-website'`) با تغییرات این پوشه دوباره ساخته نمی‌شود. اگر قبلاً در داشبورد دستوری گذاشته‌اید، آن را با همین دستور عوض یا پاک کنید: فقط برای شاخه‌هایی به کار می‌رود که این `vercel.json` را هنوز ندارند.
 
