@@ -71,6 +71,8 @@ export interface ResolveResult {
   message: string | null;
   warnings: string[];
   lines: string[];
+  /** `demo`: the demo pack's people among the people found (lower-case ids; release 1.1.5) */
+  display?: { users?: Record<string, string>; demo?: string[] };
 }
 
 export const POSITION_KEYS = {

@@ -3,13 +3,15 @@
 // of the structure), the list's search and chips, a holder's period, source and form, the spreadsheet rows the import
 // sends and its result in words, the preview's starting rule — and the same calls on a real organisation: a position
 // and a holder from the sheet's payloads, the overview, a file's holders imported after a dry run, and the preview
-// finding the branch head for a requester of that branch.
+// finding the branch head for a requester of that branch — and release 1.1.5: the preview starts as «تکمیل فرم» in a
+// preview's words (B7), a half-filled holder is never dropped by Escape or a close (B8), and making one of the demo
+// pack's people a holder asks first (FINAL-1).
 import { describe, it, expect, beforeAll } from "vitest";
 import { composeEffective, gateAllows, roleCatalog, type AccessGate, type FullGrant } from "@shared/access";
 import { PROCESS_DESIGN_AREA } from "@shared/tables/fields";
 import {
-  IMPORT_HEADERS, emptyHolder, endingSoon, filterPositions, fixedPlace, holderProblems, holderState, holdersText, importSummary, keyInput, positionsAccess,
-  previewStep, sheetRows, sortHolders, sourcesText, validKey,
+  IMPORT_HEADERS, PREVIEW_ACTION, RESOLVE_STATUS, addsDemoHolder, demoHolderQuestion, emptyHolder, endingSoon, filterPositions, fixedPlace, holderFormDirty, holderProblems, holderStart,
+  holderState, holdersText, importSummary, keyInput, positionsAccess, previewStep, sheetClose, sheetRows, sortHolders, sourcesText, validKey,
 } from "../src/ui/modules/workflows/admin/positions/model";
 import type { HolderImportResult, HolderRow, PositionOverview, ResolveResult } from "../src/ui/modules/workflows/admin/positions/api";
 import { POSITIONS_ACCESS_ROW, positionsPart } from "../src/ui/modules/workflows/admin/positions/routes";
@@ -99,6 +101,36 @@ describe("holders", () => {
     expect(holderProblems(emptyHolder(), { unit_kind: "branch" })).toEqual({ user_id: "دارنده را برگزینید", org_unit_id: "این نقش در شعبه‌ها است؛ واحد را برگزینید" });
     expect(holderProblems({ ...emptyHolder(), user_id: "u", valid_from: "2026-12-01", valid_to: "2026-11-01" }, { unit_kind: null })).toEqual({ valid_to: "«تا تاریخ» پیش از «از تاریخ» است" });
   });
+  it("1.1.5: a half-filled holder is never dropped without a question: Escape leaves the sheet open while the form is, closing asks (B8)", () => {
+    const fresh = emptyHolder();
+    expect(holderFormDirty(fresh, null)).toBe(false);
+    const half = { ...fresh, user_id: "u-negar", org_unit_id: "unit-alborz", valid_from: "2026-11-21" };
+    expect(holderFormDirty(half, null)).toBe(true);
+    const h = holder({ id: "h1", user_id: "u1", org_unit_id: "x", valid_to: "2026-12-01" });
+    expect(holderFormDirty(holderStart(h), h)).toBe(false);
+    expect(holderFormDirty({ ...holderStart(h), valid_to: null }, h)).toBe(true);
+    // the person filled the form and pressed Escape (to close a date's popover): the sheet stays, and a close asks
+    expect(sheetClose({ manage: true, positionDirty: false, holderOpen: true, holderDirty: true })).toEqual({ guard: true, keyboard: false });
+    expect(sheetClose({ manage: true, positionDirty: false, holderOpen: true, holderDirty: false })).toEqual({ guard: false, keyboard: false });
+    expect(sheetClose({ manage: true, positionDirty: false, holderOpen: false, holderDirty: false })).toEqual({ guard: false, keyboard: true });
+    expect(sheetClose({ manage: true, positionDirty: true, holderOpen: false, holderDirty: false })).toEqual({ guard: true, keyboard: true });
+    expect(sheetClose({ manage: false, positionDirty: true, holderOpen: false, holderDirty: true }).guard).toBe(false);
+  });
+
+  it("1.1.5: making one of the demo pack's people a holder asks first: the organisation's own cases never reach them (FINAL-1)", () => {
+    const demo = new Set(["u-negar"]);
+    expect(addsDemoHolder({ user_id: "U-NEGAR" }, null, demo)).toBe(true);
+    expect(addsDemoHolder({ user_id: "u-ali" }, null, demo)).toBe(false);
+    // the same holder saved again (its dates changed) asks nothing; another person on it does
+    expect(addsDemoHolder({ user_id: "u-negar" }, { user_id: "u-negar" }, demo)).toBe(false);
+    expect(addsDemoHolder({ user_id: "u-negar" }, { user_id: "u-ali" }, demo)).toBe(true);
+    expect(addsDemoHolder({ user_id: null }, null, demo)).toBe(false);
+    const q = demoHolderQuestion("نگار کارشناس‌پور");
+    expect(q.title).toBe("«نگار کارشناس‌پور» حساب نمایشی است؛ دارندهٔ این نقش شود؟");
+    expect(q.content).toContain("مرحله‌های پرونده‌های واقعی سازمان به حساب‌های نمایشی نمی‌رسد");
+    expect(demoHolderQuestion(null).title).toBe("این شخص حساب نمایشی است؛ دارندهٔ این نقش شود؟");
+  });
+
   it("a position's key as typed", () => {
     expect(keyInput("Branch-Head 2")).toBe("branchhead2");
     expect(validKey("branch_head")).toBe(true);
@@ -125,6 +157,14 @@ describe("the import and the preview", () => {
   it("the preview starts from the position's holder up the requester's tree, or anywhere", () => {
     expect(previewStep(pos({ key: "branch_head", name: "", unit_kind: "branch" }))).toEqual({ assignees: [{ kind: "position", position: "branch_head", where: "requester_unit_up", unitKind: "branch" }] });
     expect(previewStep(pos({ key: "auditor", name: "" }))).toEqual({ assignees: [{ kind: "position", position: "auditor", where: "anywhere" }] });
+    // 1.1.5: before a position is picked, «همه‌جا» as the designer's new rule — never «واحد درخواست‌دهنده»
+    expect(previewStep(null)).toEqual({ assignees: [{ kind: "position", position: "", where: "anywhere" }] });
+  });
+
+  it("1.1.5: the preview starts as «تکمیل فرم» (an approval keeps the sample requester out) and speaks a preview's words (B7)", () => {
+    expect(PREVIEW_ACTION).toBe("fill");
+    expect(RESOLVE_STATUS.nobody.label).toBe("کسی پیدا نمی‌شود");
+    expect(RESOLVE_STATUS.ok.label).toBe("پیدا می‌شود");
   });
 });
 

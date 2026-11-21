@@ -2,7 +2,10 @@
 // name it), the kind of unit it is held in, whom it reports to, active — and its holders: person, unit, kind
 // («اصلی»، «سرپرست (کفیل)»، «موقت»), the period and the source chip («دستی»، «فهرست کاربران (AD)»، «ورود از فایل»). A
 // holder the directory or a file keeps keeps its person and unit (it is ended or removed instead); ended holders are
-// shown on request. Writes go through the generic record API, where `org` write decides, unit by unit.
+// shown on request. The demo pack's people are marked «نمایشی»; making one of them a holder asks first (the
+// organisation's own cases never reach them, FINAL-1). A half-filled holder is never dropped without a question: the
+// Escape key leaves the sheet open while the holder form is, and closing asks (B8). Writes go through the generic
+// record API, where `org` write decides, unit by unit.
 import { useEffect, useId, useMemo, useState } from "react";
 import { Button, Drawer, Input, Popconfirm, Select, Switch, Table, Tooltip } from "antd";
 import { CalendarX, Pencil, Plus, Trash2, UserSearch } from "lucide-react";
@@ -19,12 +22,12 @@ import { DateInput } from "../../../../components/inputs";
 import { RecordSelect } from "../../../../records/fields/RecordSelect";
 import { displayOf } from "../../../../records/model/schema";
 import { fieldErrorsOf } from "../../../../records/model/types";
-import { PositionPicker } from "../../kit";
+import { DemoTag, MemberSelect, PositionPicker, isDemo, useDemoPeople } from "../../kit";
 import { F, useCloseGuard, useSheetSize } from "../fields/parts";
 import { POSITION_KEYS, positionsApi, type HolderRow, type PositionOverview } from "./api";
 import {
-  HOLDER_STATE_LABELS, emptyHolder, endingSoon, fixedPlace, holderKindLabel, holderProblems, holderSourceLabel, holderState, keyInput, sortHolders, validKey,
-  type HolderDraft, type PositionsAccess,
+  HOLDER_STATE_LABELS, addsDemoHolder, demoHolderQuestion, endingSoon, fixedPlace, holderFormDirty, holderKindLabel, holderProblems, holderSourceLabel, holderStart, holderState,
+  keyInput, sheetClose, sortHolders, validKey, type HolderDraft, type PositionsAccess,
 } from "./model";
 
 const I14 = { size: 14, strokeWidth: 1.4, absoluteStrokeWidth: true } as const;
@@ -68,8 +71,11 @@ export function PositionSheet({ id, overview, access, today: serverToday, onClos
   useEffect(() => setD(initial), [initial]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  // the holder form inside the sheet: open, and changed since it opened (B8)
+  const [holderForm, setHolderForm] = useState<{ open: boolean; dirty: boolean }>({ open: false, dirty: false });
   const dirty = !!d && !!initial && JSON.stringify(d) !== JSON.stringify(initial);
-  const close = useCloseGuard(dirty && access.manage, onClose);
+  const closing = sheetClose({ manage: access.manage, positionDirty: dirty, holderOpen: holderForm.open, holderDirty: holderForm.dirty });
+  const close = useCloseGuard(closing.guard, onClose);
   const set = (p: Partial<PositionDraft>) => setD((x) => (x ? { ...x, ...p } : x));
   const readOnly = !access.manage;
   // a position that cannot be read (removed, an old link) says why instead of waiting forever
@@ -106,6 +112,7 @@ export function PositionSheet({ id, overview, access, today: serverToday, onClos
       size={size}
       placement="left"
       onClose={close}
+      keyboard={closing.keyboard}
       destroyOnHidden
       title={
         <span className="wff-title">
@@ -159,7 +166,7 @@ export function PositionSheet({ id, overview, access, today: serverToday, onClos
               </F>
             </div>
           </section>
-          {id && initial ? <Holders positionId={id} unitKind={initial.unit_kind} active={initial.active} access={access} today={today} onPreview={onPreview} /> : null}
+          {id && initial ? <Holders positionId={id} unitKind={initial.unit_kind} active={initial.active} access={access} today={today} onPreview={onPreview} onForm={setHolderForm} /> : null}
         </div>
       )}
     </Drawer>
@@ -169,13 +176,18 @@ export function PositionSheet({ id, overview, access, today: serverToday, onClos
 // ---------------------------------------------------------------------------------------------------------------
 // Holders
 
-function Holders({ positionId, unitKind, active, access, today, onPreview }: { positionId: string; unitKind: string | null; active: boolean; access: PositionsAccess; today: string; onPreview: (id: string) => void }) {
+function Holders({
+  positionId, unitKind, active, access, today, onPreview, onForm,
+}: { positionId: string; unitKind: string | null; active: boolean; access: PositionsAccess; today: string; onPreview: (id: string) => void; onForm: (f: { open: boolean; dirty: boolean }) => void }) {
   const { api, orgId } = useOrg();
   const n = useNotify();
   const qc = useQueryClient();
+  const demo = useDemoPeople();
   const idp = useId().replace(/:/g, "");
   const [withEnded, setWithEnded] = useState(false);
   const [editing, setEditing] = useState<HolderRow | "new" | null>(null);
+  const [formDirty, setFormDirty] = useState(false);
+  useEffect(() => onForm({ open: !!editing, dirty: !!editing && formDirty }), [editing, formDirty, onForm]);
   const holders = useQuery({ queryKey: POSITION_KEYS.holders(orgId, positionId), queryFn: () => positionsApi.holders(api, positionId) });
   const display = holders.data?.display;
   const name = (uid: string) => displayOf(display, uid) ?? "";
@@ -230,7 +242,10 @@ function Holders({ positionId, unitKind, active, access, today, onPreview }: { p
           unitKind={unitKind}
           holder={editing === "new" ? null : editing}
           display={display}
+          demo={demo}
+          onDirty={setFormDirty}
           onDone={async (text) => {
+            setFormDirty(false);
             setEditing(null);
             if (text) {
               await refresh();
@@ -253,7 +268,16 @@ function Holders({ positionId, unitKind, active, access, today, onPreview }: { p
           scroll={{ x: 640 }}
           rowClassName={(h) => (holderState(h, today) === "ended" ? "wff-dim" : "")}
           columns={[
-            { key: "who", title: "دارنده", render: (_: unknown, h) => <span className="text-ink">{name(h.user_id) || "—"}</span> },
+            {
+              key: "who",
+              title: "دارنده",
+              render: (_: unknown, h) => (
+                <span className="wfp-who-cell">
+                  <span className="text-ink">{name(h.user_id) || "—"}</span>
+                  {isDemo(demo, h.user_id) ? <DemoTag /> : null}
+                </span>
+              ),
+            },
             { key: "unit", title: "واحد", render: (_: unknown, h) => (h.org_unit_id ? displayOf(display, h.org_unit_id) ?? "—" : <span className="text-ink-3">—</span>) },
             { key: "kind", title: "نوع", render: (_: unknown, h) => holderKindLabel(h.kind) },
             {
@@ -309,21 +333,37 @@ function Holders({ positionId, unitKind, active, access, today, onPreview }: { p
   );
 }
 
-function HolderForm({ positionId, unitKind, holder, display, onDone }: { positionId: string; unitKind: string | null; holder: HolderRow | null; display: Record<string, string> | undefined; onDone: (text: string | null) => void }) {
+function HolderForm({
+  positionId, unitKind, holder, display, demo, onDirty, onDone,
+}: {
+  positionId: string;
+  unitKind: string | null;
+  holder: HolderRow | null;
+  display: Record<string, string> | undefined;
+  demo: ReadonlySet<string>;
+  onDirty: (dirty: boolean) => void;
+  onDone: (text: string | null) => void;
+}) {
   const { api } = useOrg();
   const n = useNotify();
   const idp = useId().replace(/:/g, "");
-  const [d, setD] = useState<HolderDraft>(() =>
-    holder ? { user_id: holder.user_id, org_unit_id: holder.org_unit_id, kind: holder.kind, valid_from: holder.valid_from, valid_to: holder.valid_to } : emptyHolder(),
-  );
+  const [d, setD] = useState<HolderDraft>(() => holderStart(holder));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const [person, setPerson] = useState<string | null>(null);
   const fixed = !!holder && fixedPlace(holder);
   const set = (p: Partial<HolderDraft>) => setD((x) => ({ ...x, ...p }));
+  const dirty = holderFormDirty(d, holder);
+  useEffect(() => onDirty(dirty), [dirty, onDirty]);
   const save = async () => {
     const errs = holderProblems(d, { unit_kind: unitKind });
     setErrors(errs);
     if (Object.keys(errs).length) return;
+    // one of the demo pack's people: the organisation's own cases never reach them (FINAL-1)
+    if (addsDemoHolder(d, holder, demo)) {
+      const q = demoHolderQuestion(person ?? (d.user_id ? displayOf(display, d.user_id) : null));
+      if (!(await n.confirm(q.title, q.content, false, "افزودن"))) return;
+    }
     setBusy(true);
     try {
       const data: Record<string, unknown> = { kind: d.kind, valid_from: d.valid_from, valid_to: d.valid_to };
@@ -343,7 +383,17 @@ function HolderForm({ positionId, unitKind, holder, display, onDone }: { positio
     <div className="wfp-form" role="group" aria-label={holder ? "ویرایش دارندگی" : "دارندهٔ تازه"}>
       <div className="wff-grid">
         <F label="دارنده" htmlFor={`${idp}-u`} error={errors.user_id} hint={fixed ? "این دارنده را AD یا فایل نگه می‌دارد؛ شخص و واحدش آن‌جا تغییر می‌کند" : undefined}>
-          <RecordSelect id={`${idp}-u`} table="user" value={d.user_id} onChange={(v) => set({ user_id: (v as string | null) ?? null })} display={display} disabled={fixed} meFirst={false} aria-label="دارنده" />
+          <MemberSelect
+            id={`${idp}-u`}
+            value={d.user_id}
+            onChange={(v, picked) => {
+              set({ user_id: (v as string | null) ?? null });
+              setPerson(picked?.[0]?.label ?? null);
+            }}
+            display={display}
+            disabled={fixed}
+            aria-label="دارنده"
+          />
         </F>
         <F label="واحد" htmlFor={`${idp}-o`} error={errors.org_unit_id}>
           <RecordSelect id={`${idp}-o`} table="org_unit" value={d.org_unit_id} onChange={(v) => set({ org_unit_id: (v as string | null) ?? null })} filter={unitKind ? { f: "kind", op: "eq", v: unitKind } : null} display={display} disabled={fixed} allowClear={!unitKind} aria-label="واحد" />
