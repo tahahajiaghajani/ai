@@ -21,7 +21,7 @@ import { capture } from "../financial/service";
 import { hashPassword, readableCode } from "../../auth/password";
 import { addTimelineEvent, majorAction, sendUpdate } from "../incident";
 import { secureWorkspace } from "../security/common";
-import { ARTICLES, BANK_DOMAIN, BANK_NAME, BRANCH_STREETS, CHANGES, DEMO_SIZES, FIRST_NAMES, GROUPS, HQ_DEPARTMENTS, INCIDENTS, KNOWN_NAMES, LAST_NAMES, PROBLEMS, PROVINCES, REGION_OF, REGIONS, REQUESTS, Rng, SERVICES, type DemoSize, type Persona } from "./bank";
+import { ARTICLES, BANK_DOMAIN, BANK_NAME, BRANCH_STREETS, CHANGES, DEMO_SIZES, demoTag, FIRST_NAMES, GROUPS, HQ_DEPARTMENTS, INCIDENTS, KNOWN_NAMES, LAST_NAMES, PROBLEMS, PROVINCES, REGION_OF, REGIONS, REQUESTS, Rng, SERVICES, type DemoSize, type Persona } from "./bank";
 import { costCentresIn, stepAnalytics, stepContinuityGrc, stepCsm, stepDelivery, stepDocs, stepEsm, stepEvents, stepExperience, stepField, stepFinance, stepPortal, stepWorkforce } from "./modules";
 import { stepWorkflow } from "./workflow";
 
@@ -364,7 +364,7 @@ async function stepPeople(a: StepArgs, sys: Ctx): Promise<boolean> {
   const { orgId, memo } = a;
   const size = DEMO_SIZES[memo.size];
   const rng = batchRng(memo, memo.seed + 7);
-  const tag = orgId.replace(/-/g, "").slice(0, 6);
+  const tag = demoTag(orgId);
   const mail = (local: string) => `${local}.${tag}@${BANK_DOMAIN}`;
   if (memo.cursor === 0) {
     memo.password = readableCode(3, 4);
@@ -598,7 +598,7 @@ function staffedCount(memo: LoadMemo): number {
 async function stepBranchStaff(a: StepArgs, sys: Ctx): Promise<boolean> {
   const { orgId, memo } = a;
   const rng = new Rng(memo.seed + 29);
-  const tag = orgId.replace(/-/g, "").slice(0, 6);
+  const tag = demoTag(orgId);
   const mail = (local: string) => `${local}.${tag}@${BANK_DOMAIN}`;
   const itam: NonNullable<LoadMemo["itam"]> = { officers: {}, managers: {}, regional: {} };
   await sys.write(async (tx) => {

@@ -17,7 +17,7 @@ import { invalidateCmdbCache } from "../cmdb/common";
 import { invalidateRules } from "../notify/rules";
 import { cloudLink } from "../ai/relay";
 import { demoSignInAllowed } from "./signin";
-import { BANK_DOMAIN, BANK_NAME, DEMO_SIZES, KNOWN_NAMES, type DemoSize } from "./bank";
+import { BANK_DOMAIN, BANK_NAME, DEMO_SIZES, demoTag, KNOWN_NAMES, type DemoSize } from "./bank";
 import { newMemo, runLoad, STEPS, type LoadMemo } from "./load";
 import { clearReferences, computedSince, demoFiles, expandDerived, keepRealTrail, referenceReport, registryCounts, removeAccounts, removeFiles, removeRows, restoreComputed, restoreCounters, revertTouched, saveComputed, tablesInfo, unattributedReport, type PurgeReport, type RefReport } from "./purge";
 
@@ -101,7 +101,16 @@ export async function realRecords(q: Queryable, orgId: string): Promise<number> 
 }
 
 function emailOf(orgId: string, persona: string): string {
-  return `${persona}.${orgId.replace(/-/g, "").slice(0, 6)}@${BANK_DOMAIN}`;
+  return `${persona}.${demoTag(orgId)}@${BANK_DOMAIN}`;
+}
+
+/** The personas' addresses as the load stored them (a pack loaded by an earlier version kept its own), by persona. */
+async function personaEmails(q: Queryable, memo: LoadMemo | undefined): Promise<Map<string, string>> {
+  const ids = Object.entries(memo?.people?.personas ?? {}).filter((x): x is [string, string] => typeof x[1] === "string");
+  if (!ids.length) return new Map();
+  const rows = await q.query<{ id: string; email: string }>(`select id::text as id, email from sm_users where id::text = any($1::text[])`, [`{${ids.map(([, id]) => id).join(",")}}`]);
+  const byId = new Map(rows.map((r) => [r.id.toLowerCase(), r.email]));
+  return new Map(ids.flatMap(([persona, id]) => (byId.has(id.toLowerCase()) ? [[persona, byId.get(id.toLowerCase())!] as [string, string]] : [])));
 }
 
 /** The pack's state for the console (`secrets`: include the personas' password — administrators only). */
@@ -134,7 +143,8 @@ export async function demoStatus(q: Queryable, orgId: string, opts: { secrets?: 
   }
   if (pack.state === "purging") out.progress = { done: PURGE_PHASES.indexOf(pack.progress.purge ?? "expand"), total: PURGE_PHASES.length, label: PURGE_LABELS[pack.progress.purge ?? "expand"] ?? "" };
   if (pack.state === "loaded" || pack.state === "loading") {
-    out.accounts = Object.entries(KNOWN_NAMES).map(([persona, p]) => ({ persona, email: emailOf(orgId, p.email.split("@")[0]), name: p.name, title: p.title }));
+    const stored = await personaEmails(q, memo);
+    out.accounts = Object.entries(KNOWN_NAMES).map(([persona, p]) => ({ persona, email: stored.get(persona) ?? emailOf(orgId, p.email.split("@")[0]), name: p.name, title: p.title }));
     out.signin = await demoSignInAllowed(q, orgId);
     // the shared password exists only while demo sign-in is on (signin.ts)
     if (opts.secrets) out.password = out.signin ? (memo?.password ?? null) : null;
