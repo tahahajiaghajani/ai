@@ -1,34 +1,46 @@
-// The demo pack's purge (docs/DEMO_FA.md). Its rule: it never deletes, reverts or erases the history of REAL data; what
-// cannot be attributed to demo work with certainty is left and reported. What the pack made is known exactly: every
-// row a demo transaction inserted is in `sm_demo_rows` (src/server/db/scope.ts, the capture triggers of migration
-// 0098_demo), and so are the pack's accounts; every real row demo work changed or deleted has its before and after
-// images in `sm_demo_touched` (migration 0099_demo_touch).
+// The demo pack's purge (docs/DEMO_FA.md). Its rule since 1.1.5: the pack goes, and so does everything that cannot stand
+// without it, real or not — what was recorded on demo data is removed with it, what was built on top of it is kept and
+// cleaned, nothing is left naming a removed row and nothing widens (`refs.ts` is the catalogue of every reference and
+// its role, `clean.ts` the cleaning, `verify.ts` the proof). What the pack made is known exactly: every row a demo
+// transaction inserted is in `sm_demo_rows` (src/server/db/scope.ts, the capture triggers of migration 0098_demo), and
+// so are the pack's accounts; every real row demo work changed or deleted has its before and after images in
+// `sm_demo_touched` (migration 0099_demo_touch).
 //
-// 1. expand — rows that exist only because of a demo row join the set (to a fixed point), always through a reference,
-//    never by time or authorship alone: side rows of a demo record (journal, history, attachments, links, approvals,
-//    SLA timers, bells, notification log, RAG documents… — any table with a `record_id`/`ref_id` naming one),
-//    parent-scoped children (`TableDef.parent`), rows that cannot exist without one (required references), a demo
-//    person's own rows (`user_id`, `created_by`), and platform rows (jobs, AI threads, sessions…) naming a demo row —
-//    not the organisation's own passes still to run, whose payload names only where they left off (`ORG_PASS`).
-//    Then the real rows demo work changed go back (`revertTouched`: only rows still as demo work left them), and the
-//    trail of real records (history, journal, audit, sign-ins) leaves the set (`keepRealTrail`).
-// 2. report — counts per table; the real rows that refer to demo rows; real rows demo work changed that were left;
-//    rows the platform made outside the demo scope that refer to demo rows (`unattributedReport`: kept).
-// 3. clear — references of real rows: optional reference fields are emptied (one-to-many lists lose the demo ids);
-//    required ones, access anchors and authorship stamps are only reported (a real row is never deleted).
-// 4. remove — the rows themselves, their archive copies (`_arc`) and their tables without ids (extracted pages, flow
+// 1. expand — first the real rows demo work changed go back (`revertTouched`: only rows still as demo work left them,
+//    each in its own savepoint — a row that would collide with a live one stays as it is and is reported). Then rows
+//    that exist only because of a demo row join the set (to a fixed point), always through a reference, never by time
+//    or authorship alone: side rows of a demo record (journal, history, attachments, links, approvals, SLA timers,
+//    bells, notification log, RAG documents… — any table with a `record_id`/`ref_id` naming one), parent-scoped
+//    children (`TableDef.parent`), rows that cannot exist without one — a required reference, a parent of `PARENTS`
+//    (a workflow case of a demo process, its tasks, submissions and drafts; a holder in a pack unit; a pack library
+//    field attached to a real table), numbered or not, whoever made them —, rows whose requester or beneficiary is a
+//    pack person (`BENEFICIARY`), a demo person's own rows (`user_id`, `created_by`), and platform rows (jobs, runs, AI
+//    threads, sessions…) naming a demo row — not the organisation's own passes still to run, whose payload names only
+//    where they left off (`ORG_PASS`). What joins is marked derived (`#derived` in sm_demo_saved, the report's «ثبت‌شده
+//    روی دادهٔ نمایشی»). The trail of real records (history, journal, audit, sign-ins) leaves the set (`keepRealTrail`).
+// 2. clear — definitions built on top of the pack are cleaned (`clean.ts`, class C): conditions, rules, recipients,
+//    levels, actions, flows, forms, workflow drafts, defaults; a definition left meaningless is deactivated, a published
+//    workflow version that can no longer route is retired (versions are never rewritten).
+// 3. remove — the rows themselves, their archive copies (`_arc`) and their tables without ids (extracted pages, flow
 //    timers, scope epochs…); of the jobs demo work queued, the demo jobs and those that ended (an organisation-wide job
 //    still to run, the organisation's timer among them, stays queued: `removeJobs`); a pass of the organisation's whose
-//    payload names demo rows starts again over its rows (`restartPasses`). Synchronised rows of an
-//    organisation with Windows apps become content-free tombstones first (the apps drop their copies on their next
-//    pull) and go for good once every app has passed them
-//    (`finalizeDemo`); without apps they go at once. Files no remaining attachment uses leave the blob store.
-// 5. accounts — the pack's people leave with their memberships and sessions (their sign-in records stay); an account
+//    payload names demo rows starts again over its rows (`restartPasses`). Synchronised rows of an organisation with
+//    Windows apps become content-free tombstones first (the apps drop their copies on their next pull) and go for good
+//    once every app has passed them (`finalizeDemo`); without apps they go at once. Files no remaining attachment uses
+//    leave the blob store. Each table's delete runs in a savepoint (a row that cannot go is reported, never blocking).
+// 4. reroute — references of kept real rows to removed rows are cleared through the engine as the system, so the
+//    engine's hooks route the records again (assignment rules, default queues, the access anchors); open approvals are
+//    planned again, open workflow tasks of removed people end (class D).
+// 5. anchors — the access anchors (unit, domain) of kept rows that named a removed unit are derived again (class E).
+// 6. accounts — the pack's people leave with their memberships and sessions (their sign-in records stay); an account
 //    that also belongs to another organisation is kept there (only its demo mark goes).
-// 6. restore — numbering counters, and the computed tables (KPI scores, trained models, insights…) as they were
+// 7. restore — numbering counters, and the computed tables (KPI scores, trained models, insights…) as they were
 //    before the load (`sm_demo_saved`): what the platform computed while demo data was there is recomputed from real
 //    data on its next run.
-// Left behind: one content-free audit line per load and purge (counts only), and the trail of real records.
+// Left behind: one content-free audit line per load and purge (counts only), one audit line per definition the purge
+// cleaned (what it took out, for its owner to review), and the trail of real records.
+// Every phase runs in steps that fit the web version's limits (a statement 30 s, a request 50 s): it stops at its time
+// budget and resumes from its cursor (`progress.cursor`).
 //
 // Windows apps (sync revisions are transaction ids, docs/spec/ENGINE.md §13): a row an app may hold never simply
 // disappears. While the purge leaves tombstones (`tombstones`: apps were active when it removed the rows), every
@@ -46,6 +58,7 @@ import { hashPassword, readableCode } from "../../auth/password";
 import { BY_TABLE } from "../../sync/registry";
 import { notePurged, notePurgedHere } from "../../sync/snapshot";
 import { DEMO_JOB_SQL } from "../../jobs";
+import { ABOUT_COLUMNS, fieldRefs, ID_TEXT, PLATFORM_JSON_DERIVE_WHEN, PLATFORM_JSON_DERIVES } from "./refs";
 
 export interface ColInfo {
   name: string;
@@ -272,12 +285,19 @@ async function hasRows(q: Queryable, t: TableInfo, orgId: string): Promise<boole
   return !!(await q.one(`select 1 from ${ident(t.name)} where org_id = $1 limit 1`, [orgId]));
 }
 
+/** Does json column `col` of the row aliased `x` name a demo row of the organisation ($1) anywhere? */
+const jsonNamesDemo = (col: string) =>
+  `(x.${ident(col)} is not null and exists (select 1 from regexp_matches(x.${ident(col)}::text, ${lit(`(${UUID_RE})`)}, 'g') m where ${isDemo("m[1]::uuid")}))`;
+
 /**
  * The conditions that make a row of `t` derived from demo data (removed with it). Platform tables (no engine table):
- * any id column naming a demo row. Engine tables: a side row of a demo record, a parent-scoped child of one, a demo
- * person's own row.
+ * any id column naming a demo row, and the json of runs and logs (`PLATFORM_JSON_DERIVES`) — only rows written since
+ * the load (`since`: nothing older can name a row the load made). Engine tables: a side row of a demo record, a
+ * parent-scoped child of one, a row with a parent reference to one (`refs.ts` `fieldRefs`: a required reference,
+ * `PARENTS`, a requester or beneficiary that is a pack person — numbered or not, whoever made it), a record in a removed
+ * workspace, a demo person's own row.
  */
-export function derivedConds(t: TableInfo): string[] {
+export function derivedConds(t: TableInfo, since: string | null = null): string[] {
   const out: string[] = [];
   const add = (c: string | null) => c && out.push(c);
   if (t.name === "sm_jobs") {
@@ -294,26 +314,36 @@ export function derivedConds(t: TableInfo): string[] {
     if (trail.record) add(names(t, trail.record));
     return out;
   }
-  for (const col of ["record_id", "ref_id", "entity_id", "doc_id", "from_id", "to_id"]) add(names(t, col));
+  for (const col of ABOUT_COLUMNS) add(names(t, col));
   if (!t.def) {
-    for (const c of t.cols.values()) if (c.type === "uuid" && !STAMPS.has(c.name)) add(names(t, c.name));
+    for (const c of t.cols.values()) if ((c.type === "uuid" || c.type === "ARRAY") && !STAMPS.has(c.name)) add(names(t, c.name));
+    const json = (PLATFORM_JSON_DERIVES[t.name] ?? []).filter((c) => t.cols.get(c)?.type === "jsonb");
+    if (json.length) {
+      const recent = since && (t.cols.has("updated_at") || t.cols.has("created_at"))
+        ? `(${[t.cols.has("updated_at") ? `x.updated_at >= ${lit(since)}::timestamptz` : null, t.cols.has("created_at") ? `x.created_at >= ${lit(since)}::timestamptz` : null].filter(Boolean).join(" or ")}) and `
+        : "";
+      const when = PLATFORM_JSON_DERIVE_WHEN[t.name] ? `(${PLATFORM_JSON_DERIVE_WHEN[t.name]}) and ` : "";
+      add(`(${recent}${when}(${json.map(jsonNamesDemo).join(" or ")}))`);
+    }
     return [...new Set(out)];
   }
   if (t.def.scope?.parent) add(names(t, t.def.scope.parent));
   add(names(t, "user_id"));
   // a row a demo person made (outside the demo scope's capture, e.g. pushed from a Windows app before the scope covered it)
   add(names(t, "created_by"));
-  // a row that is not a record of its own (no number) and cannot exist without the row it names: a line, a
-  // relationship, a membership, an assignment, an answer
-  if (!t.def.numbered) for (const f of t.def.fields) if (!f.base && f.required && (f.type === "ref" || f.type === "user" || f.type === "group")) add(names(t, f.name));
-  // a record the platform raised by itself (no person made it, no real person changed it) that cannot exist without the
-  // demo row it names — e.g. a CMDB finding a scheduled check opened about a demo CI while the pack was loaded: it is
-  // about demo data — or that a module's schedule generated from a demo definition (GENERATED_FROM). A record a real
-  // person made or changed stays (its reference is reported, never deleted).
+  // a row that cannot stand without the row it names (a required reference, a parent the catalogue declares, a pack
+  // person as its requester or beneficiary): recorded on demo data, whoever made it — a real task on a demo incident, a
+  // real case of a demo workflow, a membership or a holding of a pack person, a real incident filed for a pack caller
+  for (const f of fieldRefs(t.def)) if (f.role === "parent" && !f.custom && !f.array) add(names(t, f.name));
+  for (const [col, role] of Object.entries(ID_TEXT[t.def.key] ?? {})) if (role === "parent") add(names(t, col));
+  // a record in a workspace that went with the pack (moving it out would make it public)
+  add(names(t, "workspace_id"));
+  // a record a module's schedule generated from a demo definition (GENERATED_FROM) by itself (no person made it, no real
+  // person changed it) — e.g. a demo maintenance plan's next visit; one a real person made or changed stays
   if (t.def.numbered && t.cols.has("created_by") && t.cols.has("updated_by")) {
-    const generated = GENERATED_FROM[t.def.key] ?? [];
-    for (const f of t.def.fields) {
-      if (f.base || !(f.required || generated.includes(f.name)) || f.type !== "ref") continue;
+    for (const name of GENERATED_FROM[t.def.key] ?? []) {
+      const f = t.def.fields.find((x) => x.name === name);
+      if (!f || f.base || f.required || f.type !== "ref") continue;
       const c = names(t, f.name);
       if (c) add(`(${c} and x.created_by is null and (x.updated_by is null or ${isDemo("x.updated_by")}))`);
     }
@@ -321,32 +351,65 @@ export function derivedConds(t: TableInfo): string[] {
   return [...new Set(out)];
 }
 
+/** Where the fixed point of `expandStep` is: round, table index, rows added in this round and in all. */
+export interface ExpandCursor {
+  round: number;
+  i: number;
+  added: number;
+  total: number;
+}
+
+export const newExpandCursor = (): ExpandCursor => ({ round: 0, i: 0, added: 0, total: 0 });
+
+/** Rounds of the fixed point (a demo person → their case → its task → its submission → the submission's file…). */
+const MAX_ROUNDS = 16;
+
 /**
  * Add the rows derived from demo rows to the registry, to a fixed point (a journal entry's attachment, a parent's
- * child's side rows…). Returns how many rows joined.
+ * child's side rows…), until `until` (ms since the epoch): returns whether the fixed point was reached (`cur` moves on,
+ * so the next call resumes where this one stopped). Each derived row is marked (`#derived` in sm_demo_saved): the
+ * report tells what was recorded on demo data from what the pack made.
  */
-export async function expandDerived(q: Queryable, orgId: string, info: TableInfo[]): Promise<number> {
-  let total = 0;
-  for (let round = 0; round < 6; round++) {
-    let added = 0;
-    for (const t of info) {
-      if (SKIP.has(t.name) || !hasIdOrg(t)) continue;
-      const conds = derivedConds(t);
-      if (!conds.length || !(await hasRows(q, t, orgId))) continue;
-      const rows = await q.query<{ id: string }>(
-        `insert into sm_demo_rows (org_id, row_id, tbl)
-         select $1, x.id, ${lit(t.arc && t.def ? t.def.table : t.name)} from ${ident(t.name)} x
-          where x.org_id = $1 and not exists (select 1 from sm_demo_rows d where d.org_id = $1 and d.row_id = x.id) and (${conds.join(" or ")})
-         on conflict do nothing returning row_id as id`,
+export async function expandStep(q: Queryable, orgId: string, info: TableInfo[], cur: ExpandCursor, until = Infinity, since: string | null = null): Promise<boolean> {
+  const tables = info.filter((t) => !SKIP.has(t.name) && hasIdOrg(t)).map((t) => ({ t, conds: derivedConds(t, since) })).filter((x) => x.conds.length);
+  while (cur.round < MAX_ROUNDS) {
+    for (; cur.i < tables.length; cur.i++) {
+      if (Date.now() > until) return false;
+      const { t, conds } = tables[cur.i];
+      if (!(await hasRows(q, t, orgId))) continue;
+      const tbl = lit(t.arc && t.def ? t.def.table : t.name);
+      const r = await q.one<{ n: number }>(
+        `with ins as (
+           insert into sm_demo_rows (org_id, row_id, tbl)
+           select $1, x.id, ${tbl} from ${ident(t.name)} x
+            where x.org_id = $1 and not exists (select 1 from sm_demo_rows d where d.org_id = $1 and d.row_id = x.id) and (${conds.join(" or ")})
+           on conflict do nothing returning row_id),
+         marked as (insert into sm_demo_saved (org_id, tbl, row_id, data) select $1, '${DERIVED}', row_id, jsonb_build_object('t', ${tbl}) from ins on conflict do nothing returning 1)
+         select count(*)::int as n from ins`,
         [orgId],
       );
-      added += rows.length;
+      cur.added += r?.n ?? 0;
+      cur.total += r?.n ?? 0;
     }
-    total += added;
-    if (!added) break;
+    if (!cur.added) return true;
+    cur.round++;
+    cur.i = 0;
+    cur.added = 0;
   }
-  return total;
+  return true;
 }
+
+/** Add the rows derived from demo rows to the registry, to a fixed point, at once. Returns how many rows joined. */
+export async function expandDerived(q: Queryable, orgId: string, info: TableInfo[], since: string | null = null): Promise<number> {
+  const cur = newExpandCursor();
+  await expandStep(q, orgId, info, cur, Infinity, since);
+  return cur.total;
+}
+
+/** The mark of a derived row in sm_demo_saved (`tbl`); its `data.t` is the row's table. */
+export const DERIVED = "#derived";
+/** The mark of a real row the purge put back (`revertTouched`). */
+export const REVERTED = "#reverted";
 
 export interface RefReport {
   table: string;
@@ -356,11 +419,41 @@ export interface RefReport {
   action: "cleared" | "reported";
 }
 
+/** «ثبت‌شده روی دادهٔ نمایشی»: real rows of a table deleted with the pack, with a few of their names. */
+export interface DeletedBucket {
+  table: string;
+  label: string;
+  rows: number;
+  samples: string[];
+}
+
+/** «تعریف‌های پاک‌سازی‌شده»: a definition built on top of the pack, kept and cleaned (or deactivated, or retired). */
+export interface CleanedDefinition {
+  table: string;
+  label: string;
+  id: string;
+  name: string;
+  /** what was taken out (Persian) */
+  what: string;
+  deactivated: boolean;
+  retired?: boolean;
+}
+
+/** «رکوردهای دوباره ارجاع‌شده»: kept records whose references to the pack were cleared (and routed again). */
+export interface ReroutedBucket {
+  table: string;
+  label: string;
+  rows: number;
+  /** of which routing (assignee, group, owner…) was cleared, so the engine's rules routed them again */
+  routed: number;
+  samples: string[];
+}
+
 export interface PurgeReport {
   /** demo rows per table */
   tables: Record<string, number>;
   rows: number;
-  /** of which derived (written outside demo work: side rows, logs…) */
+  /** of which derived (written outside demo work: side rows, logs, real rows recorded on demo data…) */
   derived: number;
   accounts: { removed: number; kept: number };
   references: RefReport[];
@@ -374,59 +467,12 @@ export interface PurgeReport {
   kept_trail?: number;
   /** rows the platform made outside the demo scope since the load that refer to demo rows: kept, only reported */
   unattributed?: Unattributed[];
-}
-
-/** Reference fields of an engine table (the columns a real row may point at a demo row with). */
-function refFields(def: TableDef): { name: string; array: boolean; required: boolean; custom: boolean }[] {
-  return def.fields
-    .filter((f) => !f.base && (f.type === "ref" || f.type === "user" || f.type === "group" || f.type === "refs" || f.type === "users"))
-    .map((f) => ({ name: f.name, array: f.type === "refs" || f.type === "users", required: !!f.required, custom: !!f.custom }));
-}
-
-/** Real rows that refer to demo rows: per table and field, with what the purge does about them. Read-only. */
-export async function referenceReport(q: Queryable, orgId: string, info: TableInfo[]): Promise<RefReport[]> {
-  return sweepReferences(q, orgId, info, false);
-}
-
-async function sweepReferences(q: Queryable, orgId: string, info: TableInfo[], apply: boolean): Promise<RefReport[]> {
-  const out: RefReport[] = [];
-  const real = `x.org_id = $1 and not exists (select 1 from sm_demo_rows d where d.org_id = $1 and d.row_id = x.id)`;
-  for (const t of info) {
-    if (SKIP.has(t.name) || !t.def || !hasIdOrg(t) || !(await hasRows(q, t, orgId))) continue;
-    for (const f of refFields(t.def)) {
-      const col = f.custom ? null : t.cols.get(f.name);
-      if (!f.custom && !col) continue;
-      let cond: string;
-      let clear: string;
-      if (f.custom) {
-        if (f.array || !t.cols.has("custom")) continue;
-        cond = isDemoText(`x.custom ->> ${lit(f.name)}`);
-        clear = `custom = custom - ${lit(f.name)}`;
-      } else if (f.array) {
-        if (col!.type !== "jsonb") continue;
-        cond = `exists (select 1 from jsonb_array_elements_text(case when jsonb_typeof(x.${ident(f.name)}) = 'array' then x.${ident(f.name)} else '[]'::jsonb end) e(v) where ${isDemoText("e.v")})`;
-        clear = `${ident(f.name)} = (select coalesce(jsonb_agg(e.v), '[]'::jsonb) from jsonb_array_elements(${ident(f.name)}) e(v) where not coalesce(${isDemoText("(e.v #>> '{}')")}, false))`;
-      } else {
-        const c = names(t, f.name);
-        if (!c) continue;
-        cond = c;
-        clear = `${ident(f.name)} = null`;
-      }
-      const n = await q.one<{ n: number }>(`select count(*)::int as n from ${ident(t.name)} x where ${real} and ${cond}`, [orgId]);
-      if (!n?.n) continue;
-      const clearable = f.array || f.custom || !f.required;
-      if (apply && clearable) await q.query(`update ${ident(t.name)} x set ${clear} where ${real} and ${cond}`, [orgId]);
-      out.push({ table: t.name, field: f.name, rows: n.n, action: clearable ? "cleared" : "reported" });
-    }
-    // access anchors and authorship of real rows: reported, never moved (moving an anchor could widen who reads the row)
-    for (const col of ["unit_id", "domain_id", "workspace_id", "created_by", "updated_by"]) {
-      const c = t.cols.get(col);
-      if (!isUuid(c)) continue;
-      const n = await q.one<{ n: number }>(`select count(*)::int as n from ${ident(t.name)} x where ${real} and x.${ident(col)} is not null and ${isDemo(`x.${ident(col)}`)}`, [orgId]);
-      if (n?.n) out.push({ table: t.name, field: col, rows: n.n, action: "reported" });
-    }
-  }
-  return out;
+  /** the three buckets of 1.1.5: real rows recorded on demo data (deleted), definitions cleaned, records re-routed */
+  deleted?: DeletedBucket[];
+  cleaned?: CleanedDefinition[];
+  rerouted?: ReroutedBucket[];
+  /** rows the purge could not handle (it went on): what and why, content-free */
+  skipped?: Skipped[];
 }
 
 /** Demo rows per table (the registry, derived rows included). */
@@ -470,50 +516,90 @@ async function restartPasses(q: Queryable, orgId: string): Promise<number> {
  * queued in that request took over when the timer ended (jobs/index.ts `finish`), and it serves every case, real ones too.
  * A pass of the organisation's whose payload named demo rows was started again first (`restartPasses`): it names none.
  */
-async function removeJobs(q: Queryable, orgId: string, mine: string): Promise<number> {
-  const gone = await q.query(`delete from sm_jobs where org_id = $1 and id in ${mine} and (status in ('done', 'failed') or ${DEMO_JOB_SQL}) returning id`, [orgId]);
+async function removeJobs(q: Queryable, orgId: string, mine: string, params: unknown[] = [orgId]): Promise<number> {
+  const gone = await q.query(`delete from sm_jobs where org_id = $1 and id in ${mine} and (status in ('done', 'failed') or ${DEMO_JOB_SQL}) returning id`, params);
   await q.query(`delete from sm_demo_rows d where d.org_id = $1 and d.tbl = 'sm_jobs' and exists (select 1 from sm_jobs j where j.id = d.row_id)`, [orgId]);
   return gone.length;
 }
 
+/** Where `removeStep` is: the table it reached (in the registry's table order), and whether the passes started again. */
+export interface RemoveCursor {
+  /** the last table done (the registry's tables in name order) */
+  after: string | null;
+  restarted?: boolean;
+  removed: number;
+  tombstones: number;
+}
+
+export const newRemoveCursor = (): RemoveCursor => ({ after: null, removed: 0, tombstones: 0 });
+
 /**
- * Remove (or tombstone) the registry's rows of every table. Returns rows removed and tombstones left. A hard delete of
- * rows Windows apps hold — without tombstones (no app was active), or the tombstones themselves (`finalizeDemo`) —
- * raises the purge watermark in the same transaction (`notePurge`).
+ * Remove (or tombstone) the registry's rows, table by table until `until` (ms since the epoch): returns whether every
+ * table is done (`cur` moves on; the next call resumes). Each table's statement runs in a savepoint; when it fails, the
+ * table's rows go one by one, each in its own savepoint, and a row that cannot go is reported (`skipped`) — never
+ * blocking the rest. A hard delete of rows Windows apps hold — without tombstones (no app was active), or the
+ * tombstones themselves (`finalizeDemo`) — raises the purge watermark in the same transaction (`notePurge`).
  */
-export async function removeRows(q: Queryable, orgId: string, info: TableInfo[], opts: { tombstones: boolean }): Promise<{ removed: number; tombstones: number }> {
-  let removed = 0;
-  let tombstones = 0;
+export async function removeStep(
+  q: Queryable, orgId: string, info: TableInfo[], opts: { tombstones: boolean }, cur: RemoveCursor, until = Infinity, skipped: Skipped[] = [],
+): Promise<boolean> {
   const held: Gone[] = [];
   const byName = new Map(info.map((t) => [t.name, t]));
   // before any job goes, and whether or not demo work queued one: the registry still names the demo rows
-  await restartPasses(q, orgId);
-  const tables = (await q.query<{ tbl: string }>(`select distinct tbl from sm_demo_rows where org_id = $1`, [orgId])).map((r) => r.tbl);
-  for (const name of tables) {
+  if (!cur.restarted) {
+    await restartPasses(q, orgId);
+    cur.restarted = true;
+  }
+  const tables = (await q.query<{ tbl: string }>(`select distinct tbl from sm_demo_rows where org_id = $1 order by tbl`, [orgId])).map((r) => r.tbl);
+  // the registry shrinks as tables are done (jobs leave it): walk it by name, not by position
+  const todo = tables.filter((name) => cur.after === null || name > cur.after);
+  for (const name of todo) {
+    if (Date.now() > until) {
+      await notePurge(q, orgId, held);
+      return false;
+    }
     const t = byName.get(name);
+    cur.after = name;
     if (!t || name === "sm_users") continue;
     const mine = `(select row_id from sm_demo_rows where org_id = $1 and tbl = ${lit(name)})`;
-    if (name === "sm_jobs") {
-      removed += await removeJobs(q, orgId, mine);
-      continue;
+    const one = async (where: string, params: unknown[]): Promise<void> => {
+      if (name === "sm_jobs") {
+        cur.removed += await removeJobs(q, orgId, where === "all" ? mine : `($2::uuid)`, params);
+        return;
+      }
+      const ids = where === "all" ? mine : `($2::uuid)`;
+      // archive copies go at once: Windows apps never hold them (the hot table's tombstone told them)
+      if (t.def && archivable(t.def) && byName.has(archiveTableOf(t.def))) {
+        cur.removed += (await q.query(`delete from ${ident(archiveTableOf(t.def))} where org_id = $1 and id in ${ids} returning id`, params)).length;
+      }
+      if (opts.tombstones && t.synced) {
+        // already tombstoned rows (a second run) keep their revision
+        const n = await q.query(`update ${ident(name)} set ${tombstoneSet(t)} where org_id = $1 and id in ${ids} and deleted_at is null returning id`, params);
+        cur.tombstones += n.length;
+        return;
+      }
+      if (heldByApps(name)) {
+        const gone = await deleteHeld(q, `delete from ${ident(name)} where org_id = $1 and id in ${ids}`, params);
+        cur.removed += gone.n;
+        held.push(gone);
+        return;
+      }
+      cur.removed += (await q.query(`delete from ${ident(name)} where org_id = $1 and id in ${ids} returning id`, params)).length;
+    };
+    const all = await inSavepoint(q, () => one("all", [orgId]));
+    if (all.ok) continue;
+    // one by one: a row that cannot go is reported, the rest go
+    const rows = await q.query<{ row_id: string }>(`select row_id from sm_demo_rows where org_id = $1 and tbl = ${lit(name)}`, [orgId]);
+    let failed = 0;
+    let reason = failReason(all.error);
+    for (const r of rows) {
+      const x = await inSavepoint(q, () => one("row", [orgId, r.row_id]));
+      if (!x.ok) {
+        failed++;
+        reason = failReason(x.error);
+      }
     }
-    // archive copies go at once: Windows apps never hold them (the hot table's tombstone told them)
-    if (t.def && archivable(t.def) && byName.has(archiveTableOf(t.def))) {
-      removed += (await q.query(`delete from ${ident(archiveTableOf(t.def))} where org_id = $1 and id in ${mine} returning id`, [orgId])).length;
-    }
-    if (opts.tombstones && t.synced) {
-      // already tombstoned rows (a second run) keep their revision
-      const n = await q.query(`update ${ident(name)} set ${tombstoneSet(t)} where org_id = $1 and id in ${mine} and deleted_at is null returning id`, [orgId]);
-      tombstones += n.length;
-      continue;
-    }
-    if (heldByApps(name)) {
-      const gone = await deleteHeld(q, `delete from ${ident(name)} where org_id = $1 and id in ${mine}`, [orgId]);
-      removed += gone.n;
-      held.push(gone);
-      continue;
-    }
-    removed += (await q.query(`delete from ${ident(name)} where org_id = $1 and id in ${mine} returning id`, [orgId])).length;
+    if (failed) skipped.push({ phase: "remove", table: name, rows: failed, reason });
   }
   await notePurge(q, orgId, held);
   // tables without row ids: what names a demo row goes (extracted pages, flow timers, scope epochs, links of directory
@@ -521,16 +607,26 @@ export async function removeRows(q: Queryable, orgId: string, info: TableInfo[],
   for (const t of info) {
     if (SKIP.has(t.name)) continue;
     if (t.name === "sm_outbox") {
-      removed += (await q.query(`delete from sm_outbox x where ${isDemo("x.id")} returning id`, [orgId])).length;
+      cur.removed += (await q.query(`delete from sm_outbox x where ${isDemo("x.id")} returning id`, [orgId])).length;
       continue;
     }
     if (hasIdOrg(t) || !isUuid(t.cols.get("org_id"))) continue;
     const conds: string[] = [];
     for (const c of t.cols.values()) if (c.type === "uuid" && !STAMPS.has(c.name)) conds.push(`(x.${ident(c.name)} is not null and ${isDemo(`x.${ident(c.name)}`)})`);
     if (!conds.length) continue;
-    removed += (await q.query(`delete from ${ident(t.name)} x where x.org_id = $1 and (${conds.join(" or ")}) returning 1 as k`, [orgId])).length;
+    cur.removed += (await q.query(`delete from ${ident(t.name)} x where x.org_id = $1 and (${conds.join(" or ")}) returning 1 as k`, [orgId])).length;
   }
-  return { removed, tombstones };
+  return true;
+}
+
+/**
+ * Remove (or tombstone) the registry's rows of every table at once. Returns rows removed and tombstones left (see
+ * `removeStep`).
+ */
+export async function removeRows(q: Queryable, orgId: string, info: TableInfo[], opts: { tombstones: boolean }, skipped: Skipped[] = []): Promise<{ removed: number; tombstones: number }> {
+  const cur = newRemoveCursor();
+  await removeStep(q, orgId, info, opts, cur, Infinity, skipped);
+  return { removed: cur.removed, tombstones: cur.tombstones };
 }
 
 /**
@@ -762,20 +858,65 @@ export const TRAIL_TABLES: Record<string, { record: string; actor: string | null
 export interface TouchReport {
   table: string;
   rows: number;
-  /** why the rows were left as they are (something outside the demo scope changed them since, or they are gone) */
-  reason: "changed_since" | "row_gone" | "archived";
+  /**
+   * why the rows were left as they are: something outside the demo scope changed them since, they are gone, archived,
+   * or putting them back would collide with a live row (a unique key a real person took meanwhile: the live row stays)
+   */
+  reason: "changed_since" | "row_gone" | "archived" | "conflict";
+}
+
+/** A row the purge could not handle (it went on): the phase, the table, how many rows and why (content-free). */
+export interface Skipped {
+  phase: string;
+  table: string;
+  rows: number;
+  reason: string;
 }
 
 const TOUCH_SKIP = new Set(["rev", "updated_at"]);
 /** Platform bookkeeping and trail tables: what demo work changed in them is never put back (a job's state, a session…). */
 const TOUCH_NEVER = new Set(["sm_jobs", "sm_sessions", "sm_scope_epochs", "sm_access_state", "sm_devices", "sm_outbox", "sm_auth_throttle", "sm_kv", ...Object.keys(TRAIL_TABLES)]);
 
+let spSeq = 0;
+/**
+ * Run `fn` in a savepoint of the caller's transaction: a failure (a unique key, a check, a hook's refusal) rolls back
+ * only what `fn` did, and is returned instead of thrown — the purge never stops on one row.
+ */
+export async function inSavepoint<T>(q: Queryable, fn: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false; error: unknown }> {
+  const name = `sm_purge_${++spSeq}`;
+  await q.query(`savepoint ${name}`);
+  try {
+    const value = await fn();
+    await q.query(`release savepoint ${name}`);
+    return { ok: true, value };
+  } catch (error) {
+    await q.query(`rollback to savepoint ${name}`);
+    return { ok: false, error };
+  }
+}
+
+/** A short, content-free reason of a failure (the database's code, or the error's class). */
+export function failReason(e: unknown): string {
+  const code = (e as { code?: unknown })?.code;
+  if (code === "23505") return "unique";
+  if (code === "23514") return "check";
+  if (code === "23503") return "foreign_key";
+  if (code === "23502") return "not_null";
+  if (typeof code === "string" && code) return `db:${code}`;
+  const status = (e as { status?: unknown })?.status;
+  if (typeof status === "number") return `refused:${status}`;
+  return "error";
+}
+
 /**
  * Put back the real rows demo work changed or deleted (`sm_demo_touched`, captured inside the demo scope only): a row
  * goes back to its image before demo work first touched it, column by column for the columns that image has and the
  * table still has — but only when the row is still exactly as demo work left it. A row something outside the demo
- * scope changed since (a real person, the platform's own jobs, an upgrade) is left alone and reported. Returns the
- * rows put back per table, their ids and the report of the rest.
+ * scope changed since (a real person, the platform's own jobs, an upgrade) is left alone and reported. Every table's
+ * rows go back in one statement inside a savepoint; when that fails (a row would collide with a live one: a real person
+ * added the same membership again), row by row, each in its own savepoint — the colliding row stays as it is (the live
+ * row is kept) and is reported as a conflict. The rows put back are marked (`#reverted`). Returns the rows put back per
+ * table, their ids and the report of the rest.
  */
 export async function revertTouched(q: Queryable, orgId: string, info: TableInfo[]): Promise<{ restored: Record<string, number>; ids: string[]; left: TouchReport[] }> {
   const restored: Record<string, number> = {};
@@ -798,23 +939,47 @@ export async function revertTouched(q: Queryable, orgId: string, info: TableInfo
     // still as demo work left it: every column of the after-image the table still has is unchanged
     const asLeft = `not exists (select 1 from jsonb_each(s.after) e(k, v) where not (e.k = any(array['rev','updated_at'])) and to_jsonb(x) ? e.k and (to_jsonb(x) -> e.k) is distinct from e.v)`;
     const tsel = `from sm_demo_touched s where s.org_id = $1 and s.tbl = ${lit(table)}`;
-    // updated rows
-    const done = await q.query<{ id: string }>(
-      `update ${ident(table)} x set ${cols.map((c) => `${ident(c)} = case when s.before ? ${lit(c)} then r.${ident(c)} else x.${ident(c)} end`).join(", ")}
-         from sm_demo_touched s, jsonb_populate_record(null::${ident(table)}, s.before) r
-        where s.org_id = $1 and s.tbl = ${lit(table)} and s.after is not null and not s.conflict and x.id = s.row_id and x.org_id = $1 and ${asLeft}
-        returning x.id`,
-      [orgId],
+    // updated rows: all at once, or one by one when a row collides with a live one
+    let done: { id: string }[] = [];
+    const all = await inSavepoint(q, () =>
+      q.query<{ id: string }>(
+        `update ${ident(table)} x set ${cols.map((c) => `${ident(c)} = case when s.before ? ${lit(c)} then r.${ident(c)} else x.${ident(c)} end`).join(", ")}
+           from sm_demo_touched s, jsonb_populate_record(null::${ident(table)}, s.before) r
+          where s.org_id = $1 and s.tbl = ${lit(table)} and s.after is not null and not s.conflict and x.id = s.row_id and x.org_id = $1 and ${asLeft}
+          returning x.id`,
+        [orgId],
+      ),
     );
+    if (all.ok) done = all.value;
+    else {
+      const candidates = await q.query<{ row_id: string }>(
+        `select s.row_id from sm_demo_touched s join ${ident(table)} x on x.id = s.row_id and x.org_id = $1 where s.org_id = $1 and s.tbl = ${lit(table)} and s.after is not null and not s.conflict and ${asLeft}`,
+        [orgId],
+      );
+      for (const c of candidates) {
+        const one = await inSavepoint(q, () =>
+          q.query<{ id: string }>(
+            `update ${ident(table)} x set ${cols.map((col) => `${ident(col)} = case when s.before ? ${lit(col)} then r.${ident(col)} else x.${ident(col)} end`).join(", ")}
+               from sm_demo_touched s, jsonb_populate_record(null::${ident(table)}, s.before) r
+              where s.org_id = $1 and s.row_id = $2 and x.id = s.row_id and x.org_id = $1 returning x.id`,
+            [orgId, c.row_id],
+          ),
+        );
+        if (one.ok) done.push(...one.value);
+        else note(table, "conflict", 1);
+      }
+    }
+    const conflicted = left.get(`${table}:conflict`)?.rows ?? 0;
     const changed = await q.one<{ n: number }>(
       `select count(*)::int as n ${tsel} and s.after is not null and exists (select 1 from ${ident(table)} x where x.id = s.row_id and x.org_id = $1)
           and not (s.row_id = any($2::uuid[]))`,
       [orgId, pgArray(done.map((r) => String(r.id)))],
     );
-    note(table, "changed_since", changed?.n ?? 0);
+    note(table, "changed_since", Math.max(0, (changed?.n ?? 0) - conflicted));
     const goneSince = await q.one<{ n: number }>(`select count(*)::int as n ${tsel} and s.after is not null and not exists (select 1 from ${ident(table)} x where x.id = s.row_id)`, [orgId]);
     note(table, "row_gone", goneSince?.n ?? 0);
-    // deleted rows: written back with the columns their image has (the rest take their defaults), unless they exist again
+    // deleted rows: written back with the columns their image has (the rest take their defaults), unless they exist
+    // again — or collide with a live row (the live row stays)
     const deleted = await q.query<{ row_id: string; before: Record<string, unknown> }>(`select s.row_id, s.before ${tsel} and s.after is null and not s.conflict`, [orgId]);
     const arc = t.def && archivable(t.def) && byName.has(archiveTableOf(t.def)) ? archiveTableOf(t.def) : null;
     const back: string[] = [];
@@ -828,17 +993,23 @@ export async function revertTouched(q: Queryable, orgId: string, info: TableInfo
         continue;
       }
       const use = [...t.cols.values()].filter((c) => !c.generated && c.name !== "rev" && Object.prototype.hasOwnProperty.call(d.before, c.name)).map((c) => c.name);
-      await q.query(
-        `insert into ${ident(table)} (${use.map(ident).join(", ")}) select ${use.map((c) => `r.${ident(c)}`).join(", ")} from jsonb_populate_record(null::${ident(table)}, $1::jsonb) r`,
-        [JSON.stringify(d.before)],
+      const put = await inSavepoint(q, () =>
+        q.query(
+          `insert into ${ident(table)} (${use.map(ident).join(", ")}) select ${use.map((c) => `r.${ident(c)}`).join(", ")} from jsonb_populate_record(null::${ident(table)}, $1::jsonb) r`,
+          [JSON.stringify(d.before)],
+        ),
       );
-      back.push(d.row_id);
+      if (put.ok) back.push(d.row_id);
+      else note(table, "conflict", 1);
     }
     const conflicts = await q.one<{ n: number }>(`select count(*)::int as n ${tsel} and s.conflict`, [orgId]);
     note(table, "changed_since", conflicts?.n ?? 0);
     const n = done.length + back.length;
     if (n) restored[table] = n;
     ids.push(...done.map((r) => String(r.id)), ...back);
+  }
+  if (ids.length) {
+    await q.query(`insert into sm_demo_saved (org_id, tbl, row_id, data) select $1, '${REVERTED}', unnest($2::uuid[]), '{}'::jsonb on conflict do nothing`, [orgId, pgArray(ids)]);
   }
   return { restored, ids, left: [...left.values()] };
 }
@@ -850,7 +1021,7 @@ export async function revertTouched(q: Queryable, orgId: string, info: TableInfo
  * about a row the purge has just put back, which describe a change that no longer exists. Sign-in records of the
  * pack's people stay too. Returns how many rows were kept.
  */
-export async function keepRealTrail(q: Queryable, orgId: string, info: TableInfo[], restoredIds: string[] | null): Promise<number> {
+export async function keepRealTrail(q: Queryable, orgId: string, info: TableInfo[], afterRevert: boolean): Promise<number> {
   let kept = 0;
   const names = new Set(info.map((t) => t.name));
   for (const [table, c] of Object.entries(TRAIL_TABLES)) {
@@ -860,8 +1031,9 @@ export async function keepRealTrail(q: Queryable, orgId: string, info: TableInfo
     else {
       const rec = `x.${ident(c.record)}`;
       const real = `(${rec} is null or not ${isDemo(rec)})`;
-      // (null: the rows put back were settled when they were put back — the platform's lines of demo work stay demo)
-      if (table === "sm_history") cond = restoredIds ? `${real} and not (x.actor is null and ${rec} = any($2::uuid[]))` : `${real} and x.actor is not null`;
+      // (false: the rows put back were settled when they were put back — the platform's lines of demo work stay demo)
+      const putBack = `exists (select 1 from sm_demo_saved s where s.org_id = $1 and s.tbl = '${REVERTED}' and s.row_id = ${rec})`;
+      if (table === "sm_history") cond = afterRevert ? `${real} and not (x.actor is null and ${putBack})` : `${real} and x.actor is not null`;
       // an audit line about no record stays only when a person wrote it (the platform's own lines of demo work go)
       else if (table === "sm_audit") cond = `((${rec} is not null and not ${isDemo(rec)}) or (${rec} is null and x.user_id is not null))`;
       else cond = real;
@@ -870,7 +1042,7 @@ export async function keepRealTrail(q: Queryable, orgId: string, info: TableInfo
       `delete from sm_demo_rows d using ${ident(table)} x
         where d.org_id = $1 and d.tbl = ${lit(table)} and x.id = d.row_id and ${cond}
         returning d.row_id`,
-      [orgId, ...(table === "sm_history" && restoredIds ? [pgArray(restoredIds)] : [])],
+      [orgId],
     );
     kept += rows.length;
   }
@@ -891,7 +1063,7 @@ export async function unattributedReport(q: Queryable, orgId: string, info: Tabl
   const out: Unattributed[] = [];
   for (const t of info) {
     if (SKIP.has(t.name) || !t.def || t.arc || !hasIdOrg(t) || !t.cols.has("created_at") || !t.cols.has("created_by")) continue;
-    const conds = refFields(t.def).filter((f) => !f.array && !f.custom).map((f) => names(t, f.name)).filter((c): c is string => !!c);
+    const conds = fieldRefs(t.def).filter((f) => !f.array && !f.custom).map((f) => names(t, f.name)).filter((c): c is string => !!c);
     if (!conds.length || !(await hasRows(q, t, orgId))) continue;
     const n = await q.one<{ n: number }>(
       `select count(*)::int as n from ${ident(t.name)} x
@@ -924,9 +1096,4 @@ export async function restoreCounters(q: Queryable, orgId: string, saved: Record
       if (last !== r.last) await q.query(`update sm_numbers set last = $3 where org_id = $1 and table_key = $2`, [orgId, r.table_key, last]);
     }
   }
-}
-
-/** The clearing step (real rows' references to demo rows). */
-export function clearReferences(q: Queryable, orgId: string, info: TableInfo[]): Promise<RefReport[]> {
-  return sweepReferences(q, orgId, info, true);
 }
