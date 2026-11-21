@@ -5,6 +5,7 @@ import type { LocalConfig } from "./config";
 import { SyncClient } from "./sync-client";
 import { BackupError, backupDir, backupNow, backupSpaceNeeded, listBackups, pruneBackups, scheduleRestore } from "./backup";
 import { createHeavyLock } from "./heavy";
+import { createUpkeep, type Upkeep } from "./upkeep";
 import { APP_VERSION } from "@shared/constants";
 import { hashPassword } from "@server/auth/password";
 import { networkInterfaces, hostname } from "node:os";
@@ -12,9 +13,14 @@ import type { PgliteDb } from "@server/db/pglite";
 
 export interface Bridge extends DesktopBridge {
   start(url: string): void;
-  /** stops the timers, aborts a backup under way and waits for it */
+  /** stops the timers, aborts a backup under way and waits for it and for the upkeep's statement under way */
   stop(): Promise<void>;
   sync: SyncClient;
+  /**
+   * How long no person's request has been in flight (ms; 0 while one is): the window's, or a signed-in browser's of the
+   * office network (src/desktop/server.ts). The idle upkeep runs only after a while of it (./upkeep.ts).
+   */
+  watchPeople(quietMs: () => number): void;
 }
 
 /** An automatic backup cut short (too much written during its copy) is tried again this much later. */
@@ -28,7 +34,7 @@ function lanAddresses(): string[] {
   return out;
 }
 
-export function createBridge(o: { dataDir: string; db: Db & Partial<Pick<PgliteDb, "pg" | "checkpoint" | "wal">>; config: LocalConfig; log: Logger; save: () => void }): Bridge {
+export function createBridge(o: { dataDir: string; db: Db & Partial<Pick<PgliteDb, "pg" | "checkpoint" | "wal">>; config: LocalConfig; log: Logger; save: () => void; memory?: boolean }): Bridge {
   const sync = new SyncClient({ db: o.db, config: o.config, save: o.save, log: o.log });
   let backupTimer: NodeJS.Timeout | null = null;
   let firstBackup: NodeJS.Timeout | null = null;
@@ -37,6 +43,8 @@ export function createBridge(o: { dataDir: string; db: Db & Partial<Pick<PgliteD
   let stopped = false;
   // a backup and the idle upkeep's statements take turns (./heavy.ts)
   const lock = createHeavyLock();
+  let people: () => number = () => 0;
+  let upkeep: Upkeep | null = null;
   /** the backup under way (stop() aborts it and waits for it) */
   let backupCtl: AbortController | null = null;
   let backupRun: Promise<unknown> | null = null;
@@ -85,6 +93,12 @@ export function createBridge(o: { dataDir: string; db: Db & Partial<Pick<PgliteD
         // a backup shortly after every start
         firstBackup = setTimeout(autoBackup, 120000);
       }
+      // VACUUM and ANALYZE while nobody uses the app (PGlite has no autovacuum): ./upkeep.ts
+      upkeep = createUpkeep({ db: o.db, log: o.log, quietMs: () => people(), lock, dataDir: o.dataDir, memory: o.memory });
+      upkeep.start();
+    },
+    watchPeople(quietMs: () => number) {
+      people = quietMs;
     },
     async stop() {
       stopped = true;
@@ -93,6 +107,7 @@ export function createBridge(o: { dataDir: string; db: Db & Partial<Pick<PgliteD
       if (retryBackup) clearTimeout(retryBackup);
       // before the database closes: a backup under way ends its backup mode and lets the log's checkpoints run again
       backupCtl?.abort();
+      await upkeep?.stop();
       await backupRun;
       await sync.stop();
     },

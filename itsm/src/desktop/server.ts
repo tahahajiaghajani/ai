@@ -192,6 +192,8 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   // browser session's — and never a token client, a probe or anyone without a session there (PERFORMANCE_FA §19)
   let fromWindow = 0;
   let signedIn = 0;
+  /** when a person's request (the window's, or a signed-in browser's of the office network) last began or ended */
+  let lastPerson = performance.now();
   const cfg: ServerConfig = {
     mode: "desktop",
     db,
@@ -202,7 +204,7 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
     desktop: bridge,
     log,
     fetch: globalThis.fetch.bind(globalThis),
-    foreground: { started: () => void signedIn++, ended: () => void signedIn-- },
+    foreground: { started: () => void ((lastPerson = performance.now()), signedIn++), ended: () => void ((lastPerson = performance.now()), signedIn--) },
   };
   const api = createApp(cfg);
   // the job queue (record events, notifications, SLA timers…) runs every 10 s on this computer
@@ -228,10 +230,12 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   app.use("/api/*", async (c, next) => {
     if (isBackgroundRequest(c) || !windowRequest(peerOf(c), c.req.header("authorization"))) return next();
     fromWindow++;
+    lastPerson = performance.now();
     try {
       await next();
     } finally {
       fromWindow--;
+      lastPerson = performance.now();
     }
   });
   // Who may reach the API. Before the first account exists every request is trusted as the
@@ -303,6 +307,7 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
     onGap: (gap) => log.info(`no timer of the local server ran for ${Math.round(gap / 1000)} s: the computer slept or the process was paused`),
   });
   bridge.start(url);
+  bridge.watchPeople(() => (fromWindow > 0 || signedIn > 0 ? 0 : performance.now() - lastPerson));
 
   return {
     url,
