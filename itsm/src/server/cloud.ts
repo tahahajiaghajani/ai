@@ -12,8 +12,9 @@
 //
 // Nothing waits without a bound (Supabase's transaction pooler, Vercel's 60 s cut): the pool's options are
 // webPoolOptions (no pipelining, a queue timeout, server-side limits per transaction, a client deadline per statement,
-// a fresh pool after a long idle — ./db/postgres.ts), and every request is answered by REQUEST_DEADLINE_MS (503
-// `timeout`) while its work goes on bounded. A database that is busy, slow, locked or gone answers a 503 with a
+// a fresh pool after a long idle — ./db/postgres.ts), and every request is answered 10 s before its function's cut
+// (requestDeadlineMs: 50 s in the API function, 290 s in the assistant's; 503 `timeout`) while its work goes on
+// bounded. A database that is busy, slow, locked or gone answers a 503 with a
 // tracking code (./http/errors.ts dbErrorMessage), never a 500.
 import { after } from "next/server";
 import { createHash, randomUUID } from "node:crypto";
@@ -79,11 +80,20 @@ export function webPoolOptions(url: string, env: Env = process.env): PostgresOpt
   };
 }
 
-/** When a request is answered at the latest (503 `timeout`): 10 s before Vercel's 60 s cut, for the answer and `after`. */
-export function requestDeadlineMs(env: Env = process.env): number {
+/** The limit of the API function (app/api/[[...route]]/route.ts `maxDuration`) that REQUEST_DEADLINE_MS is set for. */
+const API_MAX_DURATION_S = 60;
+
+/**
+ * When a request is answered at the latest (503 `timeout`): 10 s before its function's cut, for the answer and `after`.
+ * REQUEST_DEADLINE_MS is the API function's (60 s); a function with another limit keeps the same margin before its own
+ * — the assistant's routes (app/api/o/[org]/ai, 300 s), whose answers that are not streamed (a skill run, its evals, a
+ * cited answer, an analytical question, a connection test) may legitimately take minutes.
+ */
+export function requestDeadlineMs(env: Env = process.env, maxDurationS = API_MAX_DURATION_S): number {
   const raw = env.REQUEST_DEADLINE_MS;
   const n = raw === undefined || raw === "" ? 50_000 : Number(raw);
-  return Number.isFinite(n) ? Math.max(1_000, n) : 50_000;
+  const api = Number.isFinite(n) ? Math.max(1_000, n) : 50_000;
+  return Math.max(1_000, api + (maxDurationS - API_MAX_DURATION_S) * 1_000);
 }
 
 /** What /api/health tells about the web version's database connection and its bounds (docs/SETUP_FA.md §۹). */
@@ -380,12 +390,13 @@ async function answer(req: Request): Promise<Response> {
 }
 
 /**
- * Answer one /api request of the web version — within REQUEST_DEADLINE_MS (default 50 s, 10 s before Vercel's cut):
- * past it the person gets 503 `timeout` while the work goes on in the background, its statements bounded by the pool
- * (a streamed answer counts as answered once its headers are out).
+ * Answer one /api request of the web version — within its deadline (requestDeadlineMs: 10 s before the cut of the
+ * function it runs in, `maxDurationS` of its route file — 60 s unless it says otherwise): past it the person gets 503
+ * `timeout` while the work goes on in the background, its statements bounded by the pool (a streamed answer counts as
+ * answered once its headers are out).
  */
-export async function handleCloud(req: Request): Promise<Response> {
-  const deadline = requestDeadlineMs();
+export async function handleCloud(req: Request, opts: { maxDurationS?: number } = {}): Promise<Response> {
+  const deadline = requestDeadlineMs(process.env, opts.maxDurationS);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const work = answer(req);
   work.catch(() => undefined);

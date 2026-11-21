@@ -8,7 +8,8 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 async function handler(req: Request): Promise<Response> {
-  return handleCloud(req);
+  // this function's own limit: a request is answered 503 `timeout` 10 s before it, not at the API function's 50 s
+  return handleCloud(req, { maxDurationS: maxDuration });
 }
 
 export { handler as GET, handler as POST, handler as PUT, handler as PATCH, handler as DELETE, handler as OPTIONS, handler as HEAD };

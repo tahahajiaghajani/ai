@@ -14,6 +14,7 @@ import { enqueue, registerJobHandler } from "@server/jobs";
 import type { Db } from "@server/db";
 import { closeCloud, coldStartAnswer, describeWebDatabase, handleCloud, migrationStepError, MIGRATION_TX_LIMITS, requestDeadlineMs, WEB_TX_LIMITS, webPoolOptions } from "@server/cloud";
 import type { AppError } from "@server/http/errors";
+import { resetRateBuckets } from "@server/http/hono";
 
 const ORG = "0193a3c2-7d4e-7a51-9c3f-5b2e8d1a4f60";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -64,6 +65,15 @@ describe("the web pool's options", () => {
     expect(requestDeadlineMs({ REQUEST_DEADLINE_MS: "50" })).toBe(1_000);
     expect(requestDeadlineMs({ REQUEST_DEADLINE_MS: "" })).toBe(50_000);
     expect(requestDeadlineMs({ REQUEST_DEADLINE_MS: "soon" })).toBe(50_000);
+  });
+
+  it("…in the API function; the assistant's function (maxDuration 300 s) keeps the same margin before its own cut", () => {
+    expect(requestDeadlineMs({}, 60)).toBe(50_000);
+    expect(requestDeadlineMs({}, 300)).toBe(290_000);
+    expect(requestDeadlineMs({ REQUEST_DEADLINE_MS: "45000" }, 300)).toBe(285_000);
+    expect(requestDeadlineMs({ REQUEST_DEADLINE_MS: "1000" }, 300)).toBe(241_000);
+    expect(requestDeadlineMs({}, 30)).toBe(20_000);
+    expect(requestDeadlineMs({ REQUEST_DEADLINE_MS: "1000" }, 30)).toBe(1_000);
   });
 
   it("/api/health's account of them", () => {
@@ -221,6 +231,34 @@ describe("the web entry (handleCloud)", () => {
       let status: string | undefined;
       for (let i = 0; i < 50 && status !== "done"; i++, await sleep(50)) status = (await direct.one<{ status: string }>(`select status from sm_jobs where kind = 'w114.sleep'`))?.status;
       expect(status).toBe("done");
+    } finally {
+      delete process.env.REQUEST_DEADLINE_MS;
+      off();
+      await direct.close();
+    }
+  }, 60_000);
+
+  it("the assistant's function (app/api/o/[org]/ai, maxDuration 300 s) is answered by its own deadline, not the API function's", async () => {
+    // its answers that are not streamed (a skill run and its evals, a cited answer, a connection test) may take minutes
+    const route = await import("../app/api/o/[org]/ai/[[...route]]/route");
+    expect(route.maxDuration).toBe(300);
+    let finished!: () => void;
+    const done = new Promise<void>((r) => (finished = r));
+    const off = registerJobHandler("w114.sleep.ai", async () => {
+      await sleep(1_500);
+      finished();
+    });
+    const direct = createPostgresDb({ url: w.url, ssl: false, max: 1 });
+    try {
+      await enqueue(direct, { kind: "w114.sleep.ai" });
+      // 1 s in the API function is 241 s in this one
+      process.env.REQUEST_DEADLINE_MS = "1000";
+      // the tick without CRON_SECRET is limited to one per 10 s: the test before this one ticked
+      resetRateBuckets();
+      const res = await route.GET(new Request("http://web.test/api/cron/tick"));
+      expect(res.status).toBe(200);
+      expect(res.headers.get("retry-after")).toBeNull();
+      await done;
     } finally {
       delete process.env.REQUEST_DEADLINE_MS;
       off();
