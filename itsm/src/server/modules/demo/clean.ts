@@ -219,6 +219,20 @@ function cWork(t: TableInfo, def: TableDef) {
 /** Name-based references (library fields, position keys): a definition that may name them by name, not by id. */
 const NAMED = new Set(["process", "form", "custom_field"]);
 
+/**
+ * Records (not definitions) whose json the clear phase may prune: a case's data, an incident's timeline, a request's
+ * answers, a run's log. They lose the removed ids like any kept record — counted with the records routed again, no
+ * review line, never switched off.
+ */
+const RECORD_TABLES = new Set([
+  "process_case", "process_submission", "process_draft", "process_task", "survey_response", "incident_period_review", "customer_notice", "change_gate",
+  "exercise", "status_report", "slm_review", "account_review", "branch_attestation", "bia", "asset", "ci", "ci_baseline", "alert_group", "cmdb_import_run",
+  "import_set", "kb_article", "kb_gap", "kb_version", "project", "service_design_package", "va_conversation", "va_message", "ai_agent_run", "ai_skill_run",
+  "dev_event", "event", "sec_observable", "discovery_state", "slm_xla_score", "service_score_fact", "analytics_score", "license_position", "ci_rel_suggestion",
+  "ci_impact_sim", "request_cart_line", "grc_csf_profile",
+]);
+export const isRecordTable = (def: TableDef): boolean => def.extends === "task" || RECORD_TABLES.has(def.key);
+
 /** Deactivate (or, without an «فعال» flag, remove) a definition that lost its meaning. */
 async function retireRow(tx: Tx, sys: Ctx, t: TableInfo, def: TableDef, id: string, skipped: Skipped[]): Promise<boolean> {
   if (hasField(def, "active")) return false;
@@ -333,6 +347,16 @@ export async function clearStep(tx: Tx, sys: Ctx, orgId: string, info: TableInfo
           }
         }
         if (!Object.keys(patch).length && !dead) continue;
+        if (isRecordTable(def)) {
+          // a record's own values lose the ids: counted with the records routed again (no review line, never off)
+          if (!Object.keys(patch).length) continue;
+          const bucket = st.rerouted.get(def.key) ?? { table: def.key, label: def.plural, rows: 0, routed: 0, samples: [] };
+          bucket.rows++;
+          if (bucket.samples.length < 3) bucket.samples.push(labelOf(def, row));
+          st.rerouted.set(def.key, bucket);
+          if (!st.dry) await writeRow(tx, sys, t, def, String(row.id), patch, patch, st.skipped, "clear");
+          continue;
+        }
         // a flow whose graph changed has an unpublished draft now
         if (def.key === "flow" && "graph" in patch && hasField(def, "dirty") && row.version_id) patch.dirty = true;
         const deactivate = dead && hasField(def, "active") && row.active !== false;

@@ -540,6 +540,7 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
         if (done) await retireStuck(tx, sys!, orgId, names, st);
         report.cleaned = st.cleaned;
         report.skipped = st.skipped;
+        mergeRerouted(report, st.rerouted);
         if (done) await setPhase(tx, "remove", { report });
         else await stay(tx, { step: "tables", ...cur }, { report });
       });
