@@ -783,7 +783,9 @@ export const ID_TEXT: Record<string, Record<string, RefRole>> = {
   // knowledge task about a removed record: they exist for it
   discovery_state: { target_id: "parent" },
   kb_subscription: { target_id: "parent" },
-  cost_entry: { source_id: "parent" },
+  // a posting the financial sweep generated names its source in its key («contract:<id>:<period>»): the monthly share
+  // of a removed contract, the depreciation of a removed asset goes with it, whoever's sweep posted it
+  cost_entry: { source_id: "parent", source_key: "parent" },
   kb_task: { source_id: "parent" },
   // where a kept record came from, what it made or shows: the link is cleared
   change_request: { origin_id: "pointer" },

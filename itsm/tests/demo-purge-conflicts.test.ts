@@ -97,6 +97,7 @@ describe("real data built on top of the simulated pack (refsweep)", () => {
   let demoIncident: string;
   let realIncident: string;
   let realTask: string;
+  let posting: string;
   let removed: Set<string>;
 
   beforeAll(async () => {
@@ -104,13 +105,24 @@ describe("real data built on top of the simulated pack (refsweep)", () => {
     sys = await systemCtx(e.cfg, e.org);
     await packOf(e);
     demoPerson = await persona(e, "agent");
-    ({ demoGroup, demoIncident } = await inDemoScope(e.org, () =>
+    let demoContract = "";
+    ({ demoGroup, demoIncident, demoContract } = await inDemoScope(e.org, () =>
       sys.write(async (tx) => {
         const g = await createIn(tx, sys, "group", { name: "گروه نمایشی خودپرداز", types: ["assignment"], active: true }, { trusted: true });
         const i = await createIn(tx, sys, "incident", { short_description: "رخداد نمایشی" }, { trusted: true });
-        return { demoGroup: String(g.id), demoIncident: String(i.id) };
+        const c = await createIn(tx, sys, "contract", { name: "قرارداد نمایشی پشتیبانی خودپردازها" }, { trusted: true });
+        return { demoGroup: String(g.id), demoIncident: String(i.id), demoContract: String(c.id) };
       }),
     ));
+    // the organisation's financial sweep posts the monthly share of the demo contract outside the demo scope: the posting
+    // names its source only in its key («contract:<id>:<period>», as a licence's or a subscription's share does; a
+    // contract reference of a generated posting already went with GENERATED_FROM)
+    const type = (await e.owner.post(`/o/${e.org}/r/cost_type`, { code: "SVC-T", name: "خدمات پشتیبانی" })).row.id;
+    const unit = (await e.owner.post(`/o/${e.org}/r/org_unit`, { name: "واحد مالی" })).row.id;
+    posting = String((await sys.write((tx) => createIn(tx, sys, "cost_entry", {
+      entry_date: "2026-11-21", amount: "1000000", description: "سهم ماهانهٔ قرارداد", cost_center_id: unit, cost_type_id: type,
+      source: "contract", source_table: "contract", source_key: `contract:${demoContract}:1405-08`,
+    }, { trusted: true }))).id);
     // the owner builds real things on top of it
     await e.owner.post(`/o/${e.org}/r/business_rule`, {
       name: "خودپردازها به گروه خودپرداز", table_key: "incident", timing: "before", events: ["insert", "update"],
@@ -145,6 +157,10 @@ describe("real data built on top of the simulated pack (refsweep)", () => {
 
   it("a real task recorded on a demo incident went with it", async () => {
     expect(await e.db.one(`select 1 as x from sm_incident_tasks where id = $1`, [realTask])).toBeNull();
+  });
+
+  it("a posting the organisation's sweep generated for a demo contract went with it (its key names the contract)", async () => {
+    expect(await e.db.one(`select 1 as x from sm_cost_entries where id = $1`, [posting])).toBeNull();
   });
 
   it("nothing names a removed row", async () => {

@@ -335,7 +335,13 @@ export function derivedConds(t: TableInfo, since: string | null = null): string[
   // person as its requester or beneficiary): recorded on demo data, whoever made it — a real task on a demo incident, a
   // real case of a demo workflow, a membership or a holding of a pack person, a real incident filed for a pack caller
   for (const f of fieldRefs(t.def)) if (f.role === "parent" && !f.custom && !f.array) add(names(t, f.name));
-  for (const [col, role] of Object.entries(ID_TEXT[t.def.key] ?? {})) if (role === "parent") add(names(t, col));
+  // text columns that hold (or embed, like a generated posting's key) the id of the row they exist for — only rows
+  // written since the load can name one
+  for (const [col, role] of Object.entries(ID_TEXT[t.def.key] ?? {})) {
+    if (role !== "parent" || !t.cols.has(col)) continue;
+    const recent = since && t.cols.has("created_at") ? `x.created_at >= ${lit(since)}::timestamptz and ` : "";
+    add(`(${recent}${jsonNamesDemo(col)})`);
+  }
   // a record in a workspace that went with the pack (moving it out would make it public)
   add(names(t, "workspace_id"));
   // a record a module's schedule generated from a demo definition (GENERATED_FROM) by itself (no person made it, no real
