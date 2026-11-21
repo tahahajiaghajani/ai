@@ -140,10 +140,38 @@ describe("credit", () => {
     const hits = [...files(path.join(root, "src")), ...files(path.join(root, "public"))].filter((f) => BANNED.test(readFileSync(f, "utf8")));
     expect(hits.map((f) => path.relative(root, f))).toEqual([]);
   });
-  it("does not link the GitHub profile or the repository while its history is public", () => {
-    const root = path.join(__dirname, "..");
-    const hits = [...files(path.join(root, "src")), ...files(path.join(root, "public"))].filter((f) => /github\.com\/tahahajiaghajani/i.test(readFileSync(f, "utf8")));
-    expect(hits.map((f) => path.relative(root, f))).toEqual([]);
+});
+
+describe("no way to the owner's GitHub", () => {
+  // the owner's rule: a visitor finds no GitHub address, account or repository on the site. GitHub may be named as a
+  // technology ("GitHub Actions"); addresses live only where the signed-in owner or the server needs the private data
+  // repository, and even there they are built from the environment, never written out.
+  const root = path.join(__dirname, "..");
+  const rel = (f: string) => path.relative(root, f).split(path.sep).join("/");
+  const files = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? files(path.join(dir, e.name)) : /\.(ts|tsx|css|json|md|txt|svg|webmanifest)$/.test(e.name) ? [path.join(dir, e.name)] : []));
+  const all = [...files(path.join(root, "src")), ...files(path.join(root, "public"))];
+  const OWNER_ONLY = /^src\/(app\/\(fa\)\/admin\/|app\/actions\/|components\/admin\/|lib\/(github|env|connections|chat-log|requests|request-issue|settings|knowledge-file|unanswered|status-text|notify)\.ts$)/;
+  const ADDRESS = /github\.com|github\.io|githubusercontent|gist\.github|git clone|git@|\/releases\b/i;
+  const ACCOUNT = /tahahajiaghajani|hajiaghajani|tahaaghajani8/i;
+
+  it("writes the account and its repositories nowhere, the panel and the server included", () => {
+    expect(all.filter((f) => ACCOUNT.test(readFileSync(f, "utf8"))).map(rel)).toEqual([]);
+  });
+  it("puts no GitHub address on anything a visitor loads", () => {
+    expect(all.filter((f) => !OWNER_ONLY.test(rel(f)) && ADDRESS.test(readFileSync(f, "utf8"))).map(rel)).toEqual([]);
+  });
+  it("links no GitHub page from a case study, a product or a post", () => {
+    const hrefs: string[] = [];
+    const walk = (v: unknown) => {
+      if (typeof v === "string") {
+        if (/^https?:\/\//i.test(v)) hrefs.push(v);
+      } else if (Array.isArray(v)) v.forEach(walk);
+      else if (v && typeof v === "object") Object.values(v).forEach(walk);
+    };
+    walk([PROJECTS, PRODUCTS, POSTS, ORGS, JOURNEY]);
+    expect(hrefs.length).toBeGreaterThan(0);
+    expect(hrefs.filter((h) => /github|gitlab|bitbucket/i.test(h))).toEqual([]);
   });
 });
 
