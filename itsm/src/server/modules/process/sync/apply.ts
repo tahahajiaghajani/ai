@@ -12,7 +12,8 @@ import type { FieldDef } from "@shared/model/types";
 import { snapshotFields } from "@shared/forms/snapshot";
 import { attachmentIds } from "@shared/forms/validators";
 import type { Ctx, ServerConfig } from "../../../context";
-import { pgArray, type Tx } from "../../../db";
+import { pgArray, type Queryable, type Tx } from "../../../db";
+import { inDemoScope } from "../../../db/scope";
 import { systemCtx, updateIn } from "../../../engine";
 import { enqueue } from "../../../jobs";
 import { notifyPeople } from "../../notify/deliver";
@@ -108,13 +109,34 @@ async function tellSubmitter(tx: Tx, orgId: string, sub: SubmissionRow, r: Pick<
 }
 
 /**
+ * Is a submission demo work: a row of the demo pack (a pack person's push, or their create through the record API), or
+ * a decision about a case of the pack's? Read before its transaction (PGlite has one connection).
+ */
+export async function demoSubmission(q: Queryable, orgId: string, submissionId: string): Promise<boolean> {
+  const r = await q.one<{ demo: boolean }>(
+    `select exists (
+       select 1 from sm_demo_rows d where d.org_id = $1 and d.row_id in (
+         select s.id from sm_process_submissions s where s.org_id = $1 and s.id = $2
+         union all select t.case_id from sm_process_submissions s join sm_process_tasks t on t.org_id = s.org_id and t.id = s.task_id where s.org_id = $1 and s.id = $2
+         union all select c.id from sm_process_submissions s join sm_process_cases c on c.org_id = s.org_id and c.id::text = s.case_id where s.org_id = $1 and s.id = $2)
+     ) as demo`,
+    [orgId, submissionId.toLowerCase()],
+  );
+  return r?.demo === true;
+}
+
+/**
  * Apply a submission that waits (pending) on the authority. `since`: when it arrived (the start of the wait for its
- * files); null starts a wait now when files are missing. Returns what happened.
+ * files); null starts a wait now when files are missing. Returns what happened. A submission of the demo pack's (or
+ * about a case of the pack's) is applied inside its demo scope whoever applies it — its event job, `process.apply`, or
+ * the organisation's own `process.timer`, which re-checks what is still pending outside any demo scope: the case it
+ * starts, its tasks and journal are the pack's rows, and its steps go to the pack's people (docs/DEMO_FA.md).
  */
 export async function applyPending(cfg: ServerConfig, orgId: string, submissionId: string, since: number | null): Promise<PushedOutcome> {
   if (!isId(submissionId) || !(await processesRunHere(cfg, orgId))) return "skipped";
   const sys = await systemCtx(cfg, orgId);
-  return sys.write((tx) => applyPendingIn(tx, sys, submissionId, since));
+  const apply = () => sys.write((tx) => applyPendingIn(tx, sys, submissionId, since));
+  return (await demoSubmission(cfg.db, orgId, submissionId)) ? inDemoScope(orgId, apply) : apply();
 }
 
 /** `applyPending` inside the caller's transaction (as the system, on the authority). */

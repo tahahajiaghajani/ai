@@ -10,6 +10,9 @@
 // after the timer settled the round is late). A pass reads every open round's times in one query per step and locks
 // only the rounds with something due; it stops at its tick's budget, and a round that throws is logged and skipped.
 // It also re-checks submissions still pending (a missed event, ../sync), each on its own.
+// The timer is the organisation's own job (never demo work, FINAL-5), but a round of a demo pack's case is handled
+// inside that case's demo scope (docs/DEMO_FA.md): the reminders, escalations, reassignments and decisions it writes
+// are the pack's rows, which the purge takes with it.
 // The job sleeps until the next time it knows of (at least a minute, at most an hour while anything is watched); a
 // step that opens with a time, and every pushed submission, wake it (`wakeTimer`).
 import { addBusiness, type BusinessCalendar } from "@shared/sla/calendar";
@@ -18,6 +21,8 @@ import type { AssigneeRule } from "@shared/process/assignees";
 import type { Ctx, ServerConfig } from "../../../context";
 import { pgArray, type Queryable, type Tx } from "../../../db";
 import { createIn, orgTz, systemCtx, updateIn } from "../../../engine";
+import { demoPeople, inDemoScope, isDemoRow } from "../../../db/scope";
+import { localDate } from "@shared/model/jalali-buckets";
 import { enqueue } from "../../../jobs";
 import { resumeFlowWait } from "../../flows";
 import { notifyPeople } from "../../notify/deliver";
@@ -112,8 +117,8 @@ export async function caseManagers(q: Queryable, kase: Pick<CaseRow, "org_id" | 
   return [...new Set([...(kase.managers ?? []).filter(isId), ...(await groupMembers(q, kase.org_id, kase.manager_groups ?? []))])];
 }
 
-/** Who an escalation's notice goes to. */
-async function noticeTo(tx: Tx, kase: CaseRow, step: FormStep, open: RoundTask[], to: "manager" | "reports_to" | "managers"): Promise<string[]> {
+/** Who an escalation's notice goes to (`today`: the organisation's day, which the holders' periods are in). */
+async function noticeTo(tx: Tx, kase: CaseRow, step: FormStep, open: RoundTask[], to: "manager" | "reports_to" | "managers", today: string): Promise<string[]> {
   if (to === "managers") return caseManagers(tx, kase);
   if (to === "manager") {
     const people = open.map((t) => t.delegated_from ?? t.assigned_to).filter(isId);
@@ -128,9 +133,9 @@ async function noticeTo(tx: Tx, kase: CaseRow, step: FormStep, open: RoundTask[]
   if (!positions.length) return [];
   const rows = await tx.query<{ user_id: string }>(
     `select distinct h.user_id from sm_positions p join sm_position_holders h on h.position_id = p.reports_to and h.deleted_at is null
-       and (h.valid_from is null or h.valid_from <= current_date) and (h.valid_to is null or h.valid_to >= current_date)
+       and (h.valid_from is null or h.valid_from <= $3::date) and (h.valid_to is null or h.valid_to >= $3::date)
      where p.org_id = $1 and p.deleted_at is null and (p.key = any($2::text[]) or p.id::text = any($2::text[]))`,
-    [kase.org_id, pgArray(positions)],
+    [kase.org_id, pgArray(positions), today],
   );
   return rows.map((r) => String(r.user_id));
 }
@@ -151,10 +156,11 @@ type Act = { at: number; kind: "timeout" } | { at: number; kind: "escalate"; esc
 
 /**
  * One round's timers, under the case's lock (see the header). Returns the next time it needs the timer, or null (the
- * round settled, closed, or keeps no further time).
+ * round settled, closed, or keeps no further time). A case of the demo pack's is handled inside its demo scope.
  */
-export function roundTimers(sys: Ctx, clock: Clock, caseId: string, nodeId: string, round: number, now = Date.now()): Promise<number | null> {
-  return sys.write((tx) => roundTimersIn(tx, sys, clock, caseId, nodeId, round, now));
+export async function roundTimers(sys: Ctx, clock: Clock, caseId: string, nodeId: string, round: number, now = Date.now()): Promise<number | null> {
+  const demo = await isDemoRow(sys.cfg.db, sys.org.id, caseId);
+  return inDemoScope(demo ? sys.org.id : null, () => sys.write((tx) => roundTimersIn(tx, sys, clock, caseId, nodeId, round, now)));
 }
 
 /** `roundTimers` inside the caller's transaction. */
@@ -211,16 +217,24 @@ export async function roundTimersIn(tx: Tx, sys: Ctx, clock: Clock, caseId: stri
       return null;
     }
     if (esc.action === "notify") {
-      const users = await noticeTo(tx, kase, step, open, esc.to);
-      const names = [...(await peopleNames(tx, users)).values()];
-      if (users.length) {
+      const users = await noticeTo(tx, kase, step, open, esc.to, localDate(now, orgTz(sys)));
+      // a case of the demo pack's: its notices reach the pack's own people only (notify/deliver.ts) — the journal names
+      // whom the notice reached, never the real people who hear nothing of it
+      const reached = users.length && (await isDemoRow(tx, orgId, caseId)) ? [...(await demoPeople(tx, orgId, users))] : users;
+      const names = [...(await peopleNames(tx, reached)).values()];
+      if (reached.length) {
         await notifyPeople(tx, orgId, {
-          table: "process_case", id: kase.id, users, event: "custom", label: "مهلت گذشت", channels: ["in_app", "email"], actor: null, source: "گردش‌کارها",
+          table: "process_case", id: kase.id, users: reached, event: "custom", label: "مهلت گذشت", channels: ["in_app", "email"], actor: null, source: "گردش‌کارها",
           subject: `مهلت گذشت: «${label}» در پروندهٔ ${kase.number ?? ""}`.trim(),
           body: `مرحلهٔ «${label}» از پروندهٔ ${kase.number ?? ""} «${kase.title ?? ""}» هنوز انجام نشده است`,
         });
       }
-      await caseJournal(tx, sys, kase, users.length ? `مهلت گذشت؛ «${label}» به ${names.join("، ")} اطلاع داده شد` : `مهلت «${label}» گذشت؛ کسی برای اطلاع پیدا نشد`, { data: { step: nodeId, round, to: esc.to } });
+      const said = reached.length
+        ? `مهلت گذشت؛ «${label}» به ${names.join("، ")} اطلاع داده شد`
+        : users.length
+          ? `مهلت «${label}» گذشت؛ پروندهٔ نمایشی است و اعلانی برای کسانی که باید باخبر شوند فرستاده نشد`
+          : `مهلت «${label}» گذشت؛ کسی برای اطلاع پیدا نشد`;
+      await caseJournal(tx, sys, kase, said, { data: { step: nodeId, round, to: esc.to } });
       continue;
     }
     // reassign: the round goes to the people of other rules — those it names already keep their task, the other open
