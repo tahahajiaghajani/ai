@@ -324,6 +324,12 @@ export class Scn {
     await this.db.query(`insert into sm_demo_rows (org_id, row_id, tbl) values ($1, $2, 'sm_users') on conflict do nothing`, [this.org, id]);
   }
 
+  /** «اعضا»: a member made inactive (or active again). */
+  async setActive(key: string, on: boolean): Promise<void> {
+    const m = (await this.db.one<{ id: string }>(`select id from sm_org_members where org_id = $1 and user_id = $2 and deleted_at is null`, [this.org, this.id(key)]))!;
+    await this.owner.patch(`${this.P}/members/${m.id}`, { is_active: on });
+  }
+
   /** Change a member's profile («پروفایل اعضا»: unit, manager, out of office, delegate). */
   async profile(key: string, patch: Record<string, unknown>): Promise<void> {
     const id = this.id(key);
