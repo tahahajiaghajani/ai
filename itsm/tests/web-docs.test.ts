@@ -1,7 +1,7 @@
 // The owner's guides say what the web version does (docs/SETUP_FA.md, docs/RELEASE_FA.md, CLAUDE.md,
 // docs/spec/ENGINE.md): the limits each API function answers within, what a database time-out means for a save, why
-// a role-level time-out does not end the stuck pooler backend of 1.1.3, and the job queue's rules. The numbers come
-// from the files that set them where this tree has them.
+// a role-level time-out does not end the stuck pooler backend of 1.1.3, the job queue's rules, and the Ignored Build
+// Step the Vercel project runs. The numbers come from the files that set them where this tree has them.
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -93,3 +93,13 @@ describe("the web version's limits in the owner's guides", () => {
   });
 });
 
+describe("the setup guide's Ignored Build Step", () => {
+  it("quotes the command each vercel.json runs, verbatim", () => {
+    // SETUP_FA §۲-۸ tells the owner to put the same command in the dashboard of a branch without vercel.json: it must be
+    // the one itsm/vercel.json (first block) and the repository root's vercel.json (second block) hold
+    const blocks = [...section(read("docs", "SETUP_FA.md"), "### ۲-۸.").matchAll(/```bash\n([\s\S]*?)\n```/g)].map((m) => m[1].trim());
+    const own = JSON.parse(read("vercel.json")) as { ignoreCommand: string };
+    const root = JSON.parse(read("..", "vercel.json")) as { ignoreCommand: string };
+    expect(blocks).toEqual([own.ignoreCommand, root.ignoreCommand]);
+  });
+});
