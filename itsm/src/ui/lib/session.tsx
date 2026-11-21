@@ -10,7 +10,21 @@ import { api, ApiError } from "./api";
  * /api/health until the server answers again — instead of sending the person to the sign-in page.
  */
 export const SERVER_STATES = new Set(["migrating", "not_configured", "db_unreachable", "db_unavailable", "db_busy", "db_timeout", "timeout", "gateway_timeout", "unavailable"]);
-const serverState = (e: unknown) => e instanceof ApiError && SERVER_STATES.has(e.code);
+export const serverState = (e: unknown): e is ApiError => e instanceof ApiError && SERVER_STATES.has(e.code);
+
+/** «Not ready» answers about the whole deployment, not a busy moment: they replace the app even over data it has. */
+const DEPLOYMENT_STATES = new Set(["migrating", "not_configured"]);
+
+/**
+ * The session's answer that replaces the app with «آماده‌سازی» (/meta, /auth/me): a «not ready» answer while the session
+ * has no answer yet, or one about the whole deployment (its database being prepared, none configured). A background
+ * refetch that met a busy or slow database while the session's data was already there keeps the app — and the input
+ * typed into it —; the page's own requests say what failed, and the next refetch asks again.
+ */
+export function blockingServerError(...qs: { data: unknown; error: unknown }[]): ApiError | null {
+  for (const q of qs) if (serverState(q.error) && (q.data === undefined || DEPLOYMENT_STATES.has(q.error.code))) return q.error;
+  return null;
+}
 
 /**
  * A first run: the server has no account yet and nobody is signed in — a session proves an account exists. A /api/meta
@@ -101,7 +115,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("itsm:unauthorized", onUnauthorized);
   }, [qc]);
 
-  const serverError = [meta.error, me.error].find(serverState) as ApiError | undefined;
+  const serverError = blockingServerError(meta, me);
   const value: SessionValue = {
     meta: meta.data,
     serverError: serverError ?? null,
