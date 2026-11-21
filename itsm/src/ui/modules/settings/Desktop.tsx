@@ -1,7 +1,7 @@
 // Windows app settings: backups, LAN (office network) mode and the link with the web version.
 import { useState } from "react";
 import { Button, Table, Switch, Form, Input, Modal, Select, Tooltip, message } from "antd";
-import { CloudUpload, CloudDownload, RefreshCw, Unlink, FolderOpen, DatabaseBackup, ArchiveRestore, Copy, QrCode, Monitor } from "lucide-react";
+import { CloudUpload, CloudDownload, RefreshCw, Unlink, FolderOpen, DatabaseBackup, ArchiveRestore, Copy, QrCode, Monitor, DatabaseZap } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import QRCode from "qrcode";
 import { api } from "../../lib/api";
@@ -14,6 +14,7 @@ import { Card, ICON, ICON14, Note, Version } from "../../components/blocks";
 import { faDigits } from "@shared/format";
 
 function size(n: number) {
+  if (n > 1e9) return `${faDigits((n / 1e9).toFixed(2))} گیگابایت`;
   if (n > 1e6) return `${faDigits((n / 1e6).toFixed(1))} مگابایت`;
   return `${faDigits(Math.round(n / 1e3))} کیلوبایت`;
 }
@@ -30,6 +31,7 @@ export default function Desktop() {
   const saveSettings = useAction((v: any) => api.patch("/local/settings", v), { success: "ذخیره شد؛ تغییر شبکه پس از اجرای دوباره‌ی برنامه اعمال می‌شود", invalidate: [["local-settings"], ["local-info"]] });
   const syncNow = useAction(() => api.post("/local/sync"), { success: "همگام‌سازی انجام شد", invalidate: [["local-info"], ["local-sync"]] });
   const unlink = useAction(() => api.post("/local/cloud/unlink"), { success: "اتصال قطع شد", invalidate: [["local-info"]] });
+  const compact = useAction(() => api.post("/local/maintenance/compact"), { onSuccess: () => { n.ok("فشرده‌سازی در اجرای دوبارهٔ برنامه انجام می‌شود"); window.itsm?.relaunch?.(); } });
   const [qr, setQr] = useState<string | null>(null);
   const [link, setLink] = useState(false);
 
@@ -188,6 +190,48 @@ export default function Desktop() {
               </div>
             </div>
           ) : null}
+        </Card>
+
+        <Card
+          title="نگهداری پایگاه داده"
+          tools={
+            d?.database ? (
+              <Button
+                size="small"
+                icon={<DatabaseZap {...ICON14} />}
+                loading={compact.isPending}
+                disabled={!!d.database.requested}
+                onClick={async () => {
+                  if (await n.confirm("فشرده‌سازی پایگاه داده؟", "برنامه دوباره اجرا می‌شود و پیش از باز شدن، فضایی را که داده‌های پاک‌شده روی دیسک گرفته‌اند آزاد می‌کند؛ بسته به حجم پایگاه داده ممکن است چند دقیقه طول بکشد.", false)) compact.mutate(undefined);
+                }}
+              >
+                فشرده‌سازی
+              </Button>
+            ) : null
+          }
+        >
+          {d?.database ? (
+            <>
+              <dl className="blk-dl">
+                <div>
+                  <dt>حجم پایگاه داده</dt>
+                  <dd className="ds-num">{d.database.db_bytes ? size(d.database.db_bytes) : "—"}</dd>
+                </div>
+                <div>
+                  <dt>آخرین بررسی</dt>
+                  <dd>{d.database.looked_at ? <JDateTime v={d.database.looked_at} /> : "—"}</dd>
+                </div>
+                <div>
+                  <dt>آخرین فشرده‌سازی</dt>
+                  <dd>{d.database.compacted_at ? <JDateTime v={d.database.compacted_at} /> : "—"}</dd>
+                </div>
+              </dl>
+              {d.database.requested ? <Note className="mt-4">فشرده‌سازی در اجرای بعدی برنامه انجام می‌شود.</Note> : null}
+              {d.database.pending?.length ? <Note tone="warning" className="mt-4">فضای خالی دیسک برای فشرده‌سازی همهٔ جدول‌ها کافی نبود؛ باقی‌مانده در اجرای بعدی انجام می‌شود.</Note> : null}
+            </>
+          ) : (
+            <Skeleton rows={3} />
+          )}
         </Card>
 
         <Card title="دربارهٔ این نصب">

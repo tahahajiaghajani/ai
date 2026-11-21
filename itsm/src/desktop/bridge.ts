@@ -6,6 +6,7 @@ import { SyncClient } from "./sync-client";
 import { BackupError, backupDir, backupNow, backupSpaceNeeded, listBackups, pruneBackups, scheduleRestore } from "./backup";
 import { createHeavyLock } from "./heavy";
 import { createUpkeep, type Upkeep } from "./upkeep";
+import { maintSummary, scheduleCompaction } from "./maintenance";
 import { APP_VERSION } from "@shared/constants";
 import { hashPassword } from "@server/auth/password";
 import { networkInterfaces, hostname } from "node:os";
@@ -123,7 +124,11 @@ export function createBridge(o: { dataDir: string; db: Db & Partial<Pick<PgliteD
         cloud: { linked: sync.state.linked, url: o.config.cloud.url, org_id: o.config.cloud.org_id, email: o.config.cloud.email, linked_at: o.config.cloud.linked_at, auto_sync: o.config.cloud.auto_sync },
         sync: sync.state,
         backups: { dir: backupDir(o.dataDir, o.config.backups.dir), auto: o.config.backups.auto, keep: o.config.backups.keep, last: last?.value ?? null },
+        database: o.db.kind === "pglite" && o.db.wal ? await maintSummary(o.db, o.dataDir).catch(() => null) : null,
       };
+    },
+    async scheduleCompaction() {
+      scheduleCompaction(o.dataDir);
     },
     async backupNow() {
       const r = await doBackup("manual");
