@@ -10,10 +10,12 @@ import { createPostgresDb } from "@server/db/postgres";
 import { Client, makeServer, signupWithOrg } from "./helpers";
 
 const BUSY = "سامانه اکنون بیش از حد مشغول است و اتصالی به پایگاه داده آزاد نشد؛ چند ثانیهٔ دیگر دوباره امتحان کنید";
-const TIMEOUT = "پایگاه داده در زمان مجاز پاسخ نداد و این کار نیمه‌کاره متوقف شد؛ چند لحظهٔ دیگر دوباره امتحان کنید";
+// not «stopped half-done»: a DB_TIMEOUT may follow a commit whose answer was lost, so a save is checked before it is repeated
+const TIMEOUT = "پایگاه داده در زمان مجاز پاسخ نداد؛ چند لحظهٔ دیگر دوباره امتحان کنید. اگر چیزی ذخیره می‌کردید، پیش از تکرار صفحه را تازه کنید تا ببینید ذخیره شده است یا نه";
 const LOCKED = "داده‌ای که این کار لازم دارد اکنون در دست کار دیگری است؛ چند لحظهٔ دیگر دوباره امتحان کنید";
 const GONE = "ارتباط با پایگاه داده برقرار نشد یا قطع شد؛ چند لحظهٔ دیگر دوباره امتحان کنید";
-const READ_ONLY = "پایگاه داده اکنون فقط‌خواندنی است (معمولاً چون فضای طرح Supabase پر شده است)؛ تا مدیر سامانه فضا آزاد نکند، ثبت و ویرایش ممکن نیست";
+// every edition answers it (53100 is a full disk of the server edition or the Windows app too)
+const READ_ONLY = "پایگاه داده اکنون فقط‌خواندنی است (معمولاً چون فضای دیسک یا طرح Supabase پر شده است)؛ تا مدیر سامانه فضا آزاد نکند، ثبت و ویرایش ممکن نیست";
 
 /** An error as postgres.js gives it (PostgresError, a driver code, or a Node socket error). */
 const pgError = (code: string, message = `error ${code}`) => Object.assign(new Error(message), { code });

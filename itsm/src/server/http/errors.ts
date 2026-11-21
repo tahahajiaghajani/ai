@@ -40,11 +40,15 @@ function dbUnavailable(code: string, message: string, retryAfterS: number | null
 }
 
 const dbBusy = (c: string) => dbUnavailable("db_busy", "سامانه اکنون بیش از حد مشغول است و اتصالی به پایگاه داده آزاد نشد؛ چند ثانیهٔ دیگر دوباره امتحان کنید", 5, c);
-const dbTimeout = (c: string) => dbUnavailable("db_timeout", "پایگاه داده در زمان مجاز پاسخ نداد و این کار نیمه‌کاره متوقف شد؛ چند لحظهٔ دیگر دوباره امتحان کنید", 5, c);
+// a statement cancelled (57014) or a transaction ended (25P03) saved nothing, but one given up on the client (DB_TIMEOUT:
+// no answer in 35 s) may follow work the server did — an autocommit write, a COMMIT whose answer was lost — so the
+// person checks before saving again (like the request deadline's `timeout`, src/server/cloud.ts)
+const dbTimeout = (c: string) =>
+  dbUnavailable("db_timeout", "پایگاه داده در زمان مجاز پاسخ نداد؛ چند لحظهٔ دیگر دوباره امتحان کنید. اگر چیزی ذخیره می‌کردید، پیش از تکرار صفحه را تازه کنید تا ببینید ذخیره شده است یا نه", 5, c);
 const dbLocked = (c: string) => dbUnavailable("db_locked", "داده‌ای که این کار لازم دارد اکنون در دست کار دیگری است؛ چند لحظهٔ دیگر دوباره امتحان کنید", 3, c);
 const dbGone = (c: string) => dbUnavailable("db_unavailable", "ارتباط با پایگاه داده برقرار نشد یا قطع شد؛ چند لحظهٔ دیگر دوباره امتحان کنید", 5, c);
 const dbReadOnly = (c: string) =>
-  dbUnavailable("db_read_only", "پایگاه داده اکنون فقط‌خواندنی است (معمولاً چون فضای طرح Supabase پر شده است)؛ تا مدیر سامانه فضا آزاد نکند، ثبت و ویرایش ممکن نیست", null, c);
+  dbUnavailable("db_read_only", "پایگاه داده اکنون فقط‌خواندنی است (معمولاً چون فضای دیسک یا طرح Supabase پر شده است)؛ تا مدیر سامانه فضا آزاد نکند، ثبت و ویرایش ممکن نیست", null, c);
 
 /**
  * A database that is busy, slow, locked, gone or read-only (the web version behind Supabase's pooler bounds every wait:
