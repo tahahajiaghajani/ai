@@ -751,7 +751,7 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
   desktop whose epoch is behind is told to `reset` and reads everything again (tombstoning what left its scope). The demo
   purge holds the per-row bumps of its access tables (`itsm.access_bulk`, `modules/demo/access-bulk.ts`: the triggers'
   `sm_access_bump`/`sm_access_bump_everyone` only mark the transaction) and bumps the version and everyone's epoch
-  once before each phase commits; `finalizeDemo` moves no epoch (its apps pulled the tombstones; one left behind reads
+  once before each of its transactions commits (a phase runs in one or more resumable steps, each its own transaction); `finalizeDemo` moves no epoch (its apps pulled the tombstones; one left behind reads
   everything again through the watermark).
 - **Fields kept out of replicas** (`FieldDef.noSync`: a requested item's sensitive answers) never go down to a
   Windows app, even for people holding their field group: pulls leave them (and their history) out, a push never
