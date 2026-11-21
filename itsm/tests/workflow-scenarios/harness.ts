@@ -34,6 +34,8 @@ import { webPoolOptions } from "@server/cloud";
 import type { Db } from "@server/db";
 import type { ServerConfig } from "@server/context";
 import { resetTrafficTick, tick } from "@server/jobs";
+import { createIn, systemCtx } from "@server/engine";
+import { uuidv7 } from "@shared/id";
 import { extraDatabase, realPg, realPgAvailable, type RealPg } from "../pg-real";
 import { backendOf, startPooler, type Pooler } from "../web-db-pooler";
 
@@ -317,6 +319,27 @@ export class Scn {
     await c.post("/auth/login", { email, password: PASS });
     this.C[key] = c;
     return id;
+  }
+
+  /**
+   * Many members made fast (the account and membership by SQL, the profile through the engine, as
+   * tests/process-engine-helpers.ts `person` does): a crowd for pool limits, never signed in.
+   */
+  async crowd(prefix: string, count: number, o: { roles?: string[]; unit?: string | null; demo?: boolean } = {}): Promise<string[]> {
+    const sys = await systemCtx(this.cfg, this.org);
+    const ids: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const id = uuidv7();
+      const name = `${prefix} ${i + 1}`;
+      await this.db.query(`insert into sm_users (id, email, full_name) values ($1, $2, $3)`, [id, `${prefix.replace(/\s+/g, "-")}-${i}-${id.slice(-8)}@aftab-bank.example`, name]);
+      await this.db.query(`insert into sm_org_members (id, org_id, user_id, role, is_active) values ($1, $2, $3, 'member', true)`, [uuidv7(), this.org, id]);
+      await sys.write((tx) => createIn(tx, sys, "member_profile", { user_id: id, name, org_unit_id: o.unit ? this.u(o.unit) : null, roles: o.roles ?? ["requester"], persona: "requester" }, { trusted: true }));
+      if (o.demo) await this.markDemo(id);
+      this.U[`${prefix}#${i + 1}`] = id;
+      this.names.set(id.toLowerCase(), `${prefix}#${i + 1}`);
+      ids.push(id);
+    }
+    return ids;
   }
 
   /** Mark an account as the pack's (what the demo loader does; no screen does it). */
