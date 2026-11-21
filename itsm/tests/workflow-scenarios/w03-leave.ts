@@ -194,7 +194,8 @@ export function w03(ref: EditionRef): void {
       const r = await s.start("negar", W3.key, leave(s, { u_aftab_lv_sub: s.id("negar") }));
       await s.settle();
       expect(await s.at(r.case, "sub_ok")).toEqual([]);
-      expect(await s.journal(r.case)).toContain("برای «موافقت جانشین» کسی پیدا نشد؛ از این مرحله گذشت.");
+      // (1.1.5: the line, then the resolver's reason)
+      expect(await s.journal(r.case)).toContain("برای «موافقت جانشین» کسی پیدا نشد؛ از این مرحله گذشت. درخواست‌دهنده خود از کسانی که فیلد فرم نام می‌برد است و این مرحله را انجام نمی‌دهد.");
       expect(await s.openAt(r.case, "mgr")).toEqual(["behrouz"]);
     }, 300_000);
 

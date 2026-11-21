@@ -168,7 +168,8 @@ export function w01(ref: EditionRef): void {
       expect(await s.isDemo(r.case)).toBe(false);
       expect(await s.kase(r.case)).toMatchObject({ state: "waiting" });
       expect(await s.openAt(r.case, "form")).toEqual([]);
-      expect(await s.journal(r.case)).toContain(WAITING);
+      // (1.1.5: the line, then the resolver's reason — the step's holders are the pack's people)
+      expect(await s.journal(r.case)).toContain(`${WAITING} ۲ نفر از دارندگان «مدیر گروه» حساب نمایشی‌اند و کار پرونده‌های واقعی سازمان را بر عهده نمی‌گیرند؛ برای آزمودن، پرونده را با یک حساب نمایشی آغاز کنید.`);
       expect((await s.bells("owner")).some((t) => t.includes("کسی پیدا نشد"))).toBe(true);
       const refused = await s.refused(s.reassign("owner", r.case, "form", ["negar"], { expect: 400 }));
       expect(refused.message).toBe("حساب‌های نمایشی کار پرونده‌های واقعی سازمان را بر عهده نمی‌گیرند");

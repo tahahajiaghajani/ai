@@ -75,7 +75,8 @@ export function w09(ref: EditionRef): void {
       await s.settle();
       expect(await s.at(c, "all")).toEqual([]);
       expect(await s.kase(c)).toMatchObject({ state: "waiting" });
-      expect(await s.journal(c)).toContain("بیش از ۵۰ تأییدکننده پیدا شد؛ مسئولان گردش‌کار انتخاب می‌کنند");
+      // (1.1.5: the journal's entry is a sentence of its own, as the waiting step's line)
+      expect(await s.journal(c)).toContain("بیش از ۵۰ تأییدکننده پیدا شد؛ مسئولان گردش‌کار انتخاب می‌کنند.");
       await s.reassign("zhaleh", c, "all", ["desk1", "desk2", "soc1"]);
       expect(await s.openAt(c, "all")).toEqual(["desk1", "desk2", "soc1"]);
       // a step that waits for several decisions is not taken by one person
@@ -87,7 +88,7 @@ export function w09(ref: EditionRef): void {
       await s.submit("soc1", c, "all", { outcome: "approved" });
       await s.settle();
       expect(await s.at(c, "everyone")).toEqual([]);
-      expect(await s.journal(c)).toContain("بیش از ۱۰۰ نفر پیدا شد؛ مسئولان گردش‌کار انتخاب می‌کنند");
+      expect(await s.journal(c)).toContain("بیش از ۱۰۰ نفر پیدا شد؛ مسئولان گردش‌کار انتخاب می‌کنند.");
       await s.reassign("zhaleh", c, "everyone", ["desk1", "ladan"]);
       await s.submit("ladan", c, "everyone", { values: { u_aftab_ar_ok: true } });
       await s.settle();
