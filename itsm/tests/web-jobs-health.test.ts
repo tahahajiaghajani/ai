@@ -141,6 +141,29 @@ describe("the job queue on «سلامت سامانه»", () => {
     expect(c.detail).toBe("اجرای کارهای پس‌زمینه متوقف به نظر می‌رسد؛ سرویس KarizApp را دوباره راه‌اندازی کنید و «سلامت سرور» را ببینید");
   });
 
+  // a queue that runs but is behind (a bulk import's record events on the server edition, the Windows app catching up
+  // after it was closed) is not a stopped one: restarting the service would only cut the jobs in progress
+  it("a queue that runs but is behind: the server edition and the Windows app are not told to restart", async () => {
+    await due(25);
+    await db.query(`insert into sm_jobs (id, kind, status, attempts, done_at) values (gen_random_uuid(), 'test.health', 'done', 1, now() - interval '1 minute')`);
+    const server = await systemHealth(cfgOf({ server: serverBridge }));
+    expect(server.jobs).toMatchObject({ active: true });
+    expect(jobs(server)).toMatchObject({ tone: "warning", detail: "کارهای پس‌زمینه اجرا می‌شوند ولی صف عقب است؛ سرویس را دوباره راه‌اندازی نکنید و کار زمان‌بند را در «سلامت سرور» ببینید" });
+    await db.query(`delete from sm_jobs where status = 'done'`);
+    // a worker holds a job now (its lock has not expired)
+    await db.query(
+      `insert into sm_jobs (id, kind, status, attempts, locked_by, locked_until) values (gen_random_uuid(), 'test.health', 'running', 1, 'w-live', now() + interval '4 minutes')`,
+    );
+    const desktop = await systemHealth(cfgOf({ mode: "desktop" }));
+    expect(jobs(desktop)).toMatchObject({ tone: "warning", detail: "کارهای پس‌زمینه اجرا می‌شوند ولی صف عقب است؛ برنامه را باز نگه دارید تا کارهای مانده انجام شوند" });
+    // nothing finished in the last 5 minutes and no worker holds a job: stopped
+    await db.query(`delete from sm_jobs where status = 'running'`);
+    await db.query(`insert into sm_jobs (id, kind, status, attempts, done_at) values (gen_random_uuid(), 'test.health', 'done', 1, now() - interval '6 minutes')`);
+    const stopped = await systemHealth(cfgOf({ mode: "desktop" }));
+    expect(stopped.jobs).toMatchObject({ active: false });
+    expect(jobs(stopped).detail).toBe("اجرای کارهای پس‌زمینه متوقف به نظر می‌رسد؛ برنامه را ببندید و دوباره باز کنید و اگر ماند، فایل گزارش برنامه را بفرستید");
+  });
+
   it("counts stop at 10,001 and stalled workers are counted", async () => {
     await due(11, 10_050);
     await db.query(

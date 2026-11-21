@@ -46,6 +46,11 @@ export interface JobsHealth {
   /** when a job last finished (done or failed) */
   last_done: string | null;
   /**
+   * Is the queue being worked — a job finished in the last `JOBS_ACTIVE_MS` or a worker holds one now? Due jobs then
+   * wait because the queue is behind, not because it stopped.
+   */
+  active: boolean;
+  /**
    * The web version's minute heartbeat: a pg_cron job that calls /api/cron/tick ("set"), none ("missing"), or it could
    * not be read ("unknown"); null on the Windows app and the server edition (their own timers run the queue).
    */
@@ -63,6 +68,8 @@ export const JOB_COUNT_CAP = 10_001;
  */
 export const JOBS_WARNING_MS = 10 * 60_000;
 export const JOBS_DANGER_MS = 60 * 60_000;
+/** A job finished within this long (or one held by its worker now): the queue runs (a job's lock lasts as long). */
+export const JOBS_ACTIVE_MS = 5 * 60_000;
 
 /** A wait in Persian words: «۲۵ دقیقه», «۲ ساعت و ۵ دقیقه», «۳ روز و ۴ ساعت». */
 export function waitText(ms: number): string {
@@ -75,12 +82,14 @@ export function waitText(ms: number): string {
 }
 
 async function jobsHealth(db: Db, web: boolean): Promise<JobsHealth> {
-  const r = await db.one<{ oldest_due: string | null; wait_ms: number | null; due: number; stalled: number; last_done: string | null }>(
+  const r = await db.one<{ oldest_due: string | null; wait_ms: number | null; due: number; stalled: number; last_done: string | null; active: boolean }>(
     `select q.*, coalesce((extract(epoch from now() - q.oldest_due) * 1000)::bigint, 0) as wait_ms
      from (select (select min(run_at) from sm_jobs where status = 'queued' and run_at <= now()) as oldest_due,
                   (select count(*)::int from (select 1 from sm_jobs where status = 'queued' and run_at <= now() limit ${JOB_COUNT_CAP}) d) as due,
                   (select count(*)::int from (select 1 from sm_jobs where status = 'running' and locked_until < now() limit ${JOB_COUNT_CAP}) s) as stalled,
-                  (select max(done_at) from sm_jobs where status in ('done', 'failed')) as last_done) q`,
+                  (select max(done_at) from sm_jobs where status in ('done', 'failed')) as last_done,
+                  (exists (select 1 from sm_jobs where status = 'running' and locked_until >= now())
+                   or exists (select 1 from sm_jobs where status in ('done', 'failed') and done_at > now() - ${JOBS_ACTIVE_MS} * interval '1 millisecond')) as active) q`,
   );
   return {
     due: r?.due ?? 0,
@@ -88,6 +97,7 @@ async function jobsHealth(db: Db, web: boolean): Promise<JobsHealth> {
     oldest_due: r?.oldest_due ?? null,
     wait_ms: Math.max(0, Number(r?.wait_ms ?? 0)),
     last_done: r?.last_done ?? null,
+    active: !!r?.active,
     heartbeat: web ? await heartbeat(db) : null,
   };
 }
@@ -114,11 +124,17 @@ function jobsCheck(cfg: ServerConfig, j: JobsHealth): HealthCheck {
     return { key: "jobs", title, tone: "ok", value: j.heartbeat ? `به‌روز؛ تپش دقیقه‌ای: ${HEARTBEAT_LABEL[j.heartbeat]}` : "به‌روز" };
   }
   const count = j.due >= JOB_COUNT_CAP ? `بیش از ${formatNumber(JOB_COUNT_CAP - 1)}` : formatNumber(j.due);
+  // the Windows app and the server edition run the queue on their own timer: a queue being worked is behind, not stopped
+  // (a bulk import's record events, the app catching up after it was closed), and a restart would cut its jobs
   const detail =
     cfg.mode === "desktop"
-      ? "اجرای کارهای پس‌زمینه متوقف به نظر می‌رسد؛ برنامه را ببندید و دوباره باز کنید و اگر ماند، فایل گزارش برنامه را بفرستید"
+      ? j.active
+        ? "کارهای پس‌زمینه اجرا می‌شوند ولی صف عقب است؛ برنامه را باز نگه دارید تا کارهای مانده انجام شوند"
+        : "اجرای کارهای پس‌زمینه متوقف به نظر می‌رسد؛ برنامه را ببندید و دوباره باز کنید و اگر ماند، فایل گزارش برنامه را بفرستید"
       : cfg.server
-        ? "اجرای کارهای پس‌زمینه متوقف به نظر می‌رسد؛ سرویس KarizApp را دوباره راه‌اندازی کنید و «سلامت سرور» را ببینید"
+        ? j.active
+          ? "کارهای پس‌زمینه اجرا می‌شوند ولی صف عقب است؛ سرویس را دوباره راه‌اندازی نکنید و کار زمان‌بند را در «سلامت سرور» ببینید"
+          : "اجرای کارهای پس‌زمینه متوقف به نظر می‌رسد؛ سرویس KarizApp را دوباره راه‌اندازی کنید و «سلامت سرور» را ببینید"
         : j.heartbeat === "set"
           ? "تپش دقیقه‌ای راه‌اندازی شده ولی صف عقب است: در Supabase ← Integrations ← Cron تاریخچهٔ «itsm-tick» و پاسخ‌هایش را ببینید (docs/SETUP_FA.md بخش ۹)"
           : j.heartbeat === "unknown"
