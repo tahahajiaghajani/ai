@@ -73,6 +73,8 @@ export async function backupNow(
   const dataDir = db.pg.dataDir;
   if (!dataDir || /^(memory|idb):\/\//.test(dataDir)) throw new BackupError("failed", "پشتیبان‌گیری فقط برای پایگاه دادهٔ محلی روی دیسک ممکن است", "backup failed: the database has no data folder");
   const file = join(dir, `itsm-${label}-${stamp()}.tar.gz`);
+  const dropped = dropUnfinishedBackups(dir);
+  if (dropped.files) o.log?.info(`backup: removed ${dropped.files} unfinished backup file${dropped.files === 1 ? "" : "s"} of an earlier run (${fmtMb(dropped.bytes)})`);
   try {
     const r = await writeOnlineBackup(db, dataDir.replace(/^file:\/\//, ""), file, {
       label: basename(file),
@@ -89,6 +91,40 @@ export async function backupNow(
     const why = String((e as Error)?.message ?? e);
     throw new BackupError("failed", `${FAILED.failed}: ${why}`, `backup failed: ${why}`);
   }
+}
+
+/** A backup's file while it is written (renamed to its own name once complete, ./backup-stream.ts). */
+const PART_FILE = /^itsm-.*\.tar\.gz\.part$/;
+/** An unfinished backup's file this old belongs to a backup the app never finished, never to one under way. */
+export const STALE_PART_MS = 24 * 3600_000;
+
+/**
+ * The files of backups that the app's end cut short (killed, the computer switched off): nothing removed them, so each
+ * held up to a backup's size on the backups' disk for good. Removed once a day old — a backup under way writes its file
+ * all along, so not even another computer's backup into the same folder is touched.
+ */
+export function dropUnfinishedBackups(dir: string, now = Date.now()): { files: number; bytes: number } {
+  const out = { files: 0, bytes: 0 };
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return out;
+  }
+  for (const name of names) {
+    if (!PART_FILE.test(name)) continue;
+    const p = join(dir, name);
+    try {
+      const st = statSync(p);
+      if (!st.isFile() || now - st.mtimeMs < STALE_PART_MS) continue;
+      unlinkSync(p);
+      out.files++;
+      out.bytes += st.size;
+    } catch {
+      /* gone meanwhile, or held open */
+    }
+  }
+  return out;
 }
 
 /** Free bytes a new backup needs on the backups' disk: twice the last one's size and 512 MB more. */

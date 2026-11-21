@@ -4,7 +4,7 @@
 // by the streaming one with every row committed before the backup's stop; refused when the log it needs was recycled;
 // cut short when too much log piles up; the WAL guard's checkpoints held off meanwhile.
 import { describe, it, expect, afterAll, vi } from "vitest";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createPgliteDb, type PgliteDb } from "@server/db/pglite";
 import { createWalGuard, type WalClock, type WalPg } from "@server/db/wal";
@@ -257,6 +257,36 @@ describe("an online backup", () => {
       } finally {
         await back.close();
       }
+    } finally {
+      await db.close();
+    }
+  });
+
+  it("removes what backups cut short by the app's end left behind a day ago, never a backup under way", async () => {
+    const f = folder();
+    const db = await openDb(f);
+    try {
+      const dir = join(f.root, "backups");
+      mkdirSync(dir, { recursive: true });
+      // killed during an automatic backup two days ago: its .part stays for good without this (and listBackups never shows it)
+      const old = join(dir, "itsm-auto-20261119-100000.tar.gz.part");
+      writeFileSync(old, Buffer.alloc(3 * MB, 1));
+      const twoDays = (Date.now() - 2 * 86_400_000) / 1000;
+      utimesSync(old, twoDays, twoDays);
+      // another computer's backup into the same folder, being written now
+      const live = join(dir, "itsm-manual-20261121-180000.tar.gz.part");
+      writeFileSync(live, Buffer.alloc(1024, 2));
+      // not a backup's file
+      const other = join(dir, "notes.txt.part");
+      writeFileSync(other, "x");
+      utimesSync(other, twoDays, twoDays);
+      const log = capture();
+      const r = await backupNow(db, dir, "manual", { log });
+      expect(existsSync(old)).toBe(false);
+      expect(existsSync(live)).toBe(true);
+      expect(existsSync(other)).toBe(true);
+      expect(existsSync(r.file)).toBe(true);
+      expect(log.lines.some((l) => /^backup: removed 1 unfinished backup file of an earlier run \(3\.0 MB\)$/.test(l))).toBe(true);
     } finally {
       await db.close();
     }
