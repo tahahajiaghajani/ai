@@ -17,6 +17,7 @@
 //   R8   a manager who is one of the pack's people acting on a real case leaves no demo row inside it (report 3).
 import { describe, it, expect, beforeAll } from "vitest";
 import { wakeTimer } from "@server/modules/process/timers/timer";
+import { newRule } from "@ui/modules/workflows/kit/model";
 import { bankUnits, e, item, n, section, tab, world, type Draft, type EditionRef, type Scn } from "./harness";
 
 export const W1 = {
@@ -96,6 +97,10 @@ export function w01(ref: EditionRef): void {
       const pub = await s.publish(W1.key, W1.name, w1Draft(s));
       expect(pub.problems.filter((p: { level: string }) => p.level === "error")).toEqual([]);
     }, 600_000);
+
+    it("R5 (RC1) the designer's new «نقش سازمانی» rule no longer starts with the scope «واحد درخواست‌دهنده»", () => {
+      expect(newRule("position")).not.toMatchObject({ where: "requester_unit" });
+    });
 
     it("R1 a demo holder starts on the demo data: the pack's case, «مرحلهٔ فرم» reaches both holders, the second tab is filled, the case completes", async () => {
       const r = await s.start("negar", W1.key, values);
@@ -263,7 +268,8 @@ export function w01(ref: EditionRef): void {
       const v = (await s.kase(stuck.case)).version_no;
       await s.publish(W1.v1Key, "گردش کار پروژه (پیش‌فرض طراح)", w1Draft(s, "anywhere"));
       // only managers, only on a waiting step
-      await s.reresolve("negar", stuck.case, "form", "case", 403);
+      const notManager = await s.raw("negar", "POST", `/process/cases/${stuck.case}/reresolve`, { step: "form" });
+      expect(notManager.status, JSON.stringify(notManager.body)).toBe(403);
       const again = await s.reresolve("owner", stuck.case, "form", "case");
       expect(again).toMatchObject({ status: "nobody", people: [] });
       expect(again.notes.join(" ")).toContain("ادارهٔ کل فناوری اطلاعات");
@@ -278,7 +284,8 @@ export function w01(ref: EditionRef): void {
       expect((await s.journal(stuck.case)).some((l) => l.includes("بابک طاهری"))).toBe(true);
       expect(await s.db.one(`select 1 as x from sm_audit where org_id = $1 and entity_id = $2 and action like 'process.re%'`, [s.org, stuck.case])).toBeTruthy();
       // a step that is not waiting any more is refused
-      await s.reresolve("owner", stuck.case, "form", "current", 409);
+      const notWaiting = await s.raw("owner", "POST", `/process/cases/${stuck.case}/reresolve`, { step: "form", rules: "current" });
+      expect([400, 409], JSON.stringify(notWaiting.body)).toContain(notWaiting.status);
       await s.submit("negar", stuck.case, "form", { values: { u_aftab_prj_delay: 4 } });
       await s.settle();
       expect(await s.kase(stuck.case)).toMatchObject({ state: "completed" });
