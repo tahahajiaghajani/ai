@@ -1,18 +1,23 @@
 // The Windows app's start (docs/PERFORMANCE_FA.md §17): a first start loads the database made at build time
 // (src/desktop/db-template.ts) instead of running initdb and every migration, and ends with the same database; a
 // template that does not load falls back to the old way; the local server keeps the build's hashed files in the window's
-// cache and revalidates the rest; the start's parts are logged on one line for desktop-e2e.
+// cache and revalidates the rest; the start's parts are logged on one line for desktop-e2e; and before the database opens
+// the server tells the Electron main process what the open faces (§22: the main process then waits for it as long as it
+// takes).
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { brotliDecompressSync } from "node:zlib";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { serve } from "@hono/node-server";
 import type { AddressInfo } from "node:net";
 import "./fixtures/module";
 import { makeServer, Client } from "./helpers";
-import { startLocal, desktopCacheControl, type LocalServer } from "@local/server";
+import { startLocal, desktopCacheControl, type LocalServer, type StartPhase } from "@local/server";
 import { buildDbTemplate, DB_TEMPLATE_FILE, templateEntries } from "@local/db-template";
+import { inspectDatabase } from "@local/db-open";
 import { MIGRATIONS } from "@server/db/migrations";
 import type { Logger } from "@server/context";
 
@@ -313,5 +318,90 @@ describe("the window's cache filled once per version (desktop/src/main.ts)", () 
     // a file that is not there is not counted: the version is remembered only when every file was read
     expect(read).toBe(8);
     expect(bodies).toBe(8);
+  });
+});
+
+// The database's open is the one part of the start the server cannot report on while it runs: PGlite opens it
+// synchronously on the server's only thread, and a database that was not closed cleanly first replays its write-ahead log
+// (minutes for gigabytes). So the server says before it begins what the open faces, and the Electron main process waits
+// for it as long as it takes (src/shared/desktop/ready-watch.ts, tests/desktop-ready-watch.test.ts).
+describe("the server tells the Windows app before its database opens (§22)", () => {
+  /** pg_wal's size in MB as the test measures it: the sum of its files. */
+  const walOnDisk = (db: string) => Math.round(readdirSync(join(db, "pg_wal"), { withFileTypes: true }).filter((e) => e.isFile()).reduce((n, e) => n + statSync(join(db, "pg_wal", e.name)).size, 0) / (1024 * 1024));
+
+  it("reports the database phase with the size of its write-ahead log before PGlite touches the folder, then the migrations", async () => {
+    const dir = join(root, "data-phases");
+    // a first start: a new database, nothing to replay
+    const phases1: StartPhase[] = [];
+    const first = capture();
+    const s1 = await startLocal({ dataDir: dir, staticDir, port: 0, log: first, template: templateFile, onPhase: (p) => phases1.push(p) });
+    await s1.close();
+    expect(phases1).toEqual([{ phase: "database", walMb: 0, recovery: null }, { phase: "migrations" }]);
+    expect(first.lines).toContain("opening the database: write-ahead log 0 MB");
+    // a later start: the log measured with fs, the database closed cleanly
+    const db = join(dir, "db");
+    const wal = walOnDisk(db);
+    expect(wal).toBeGreaterThan(0);
+    const control = readFileSync(join(db, "global", "pg_control"));
+    const later = capture();
+    const seen: { phase: StartPhase; untouched: boolean; lines: string[] }[] = [];
+    const s2 = await startLocal({
+      dataDir: dir,
+      staticDir,
+      port: 0,
+      log: later,
+      // PGlite rewrites the control file as it opens: the same bytes mean the open has not begun
+      onPhase: (phase) => seen.push({ phase, untouched: readFileSync(join(db, "global", "pg_control")).equals(control), lines: [...later.lines] }),
+    });
+    await s2.close();
+    expect(seen.map((s) => s.phase)).toEqual([{ phase: "database", walMb: wal, recovery: false }, { phase: "migrations" }]);
+    expect(seen[0].untouched).toBe(true);
+    expect(seen[1].untouched).toBe(false);
+    // app.log: the open's line before the phase is told, its end before the migrations, then the start's own line
+    expect(seen[0].lines.at(-1)).toBe(`opening the database: write-ahead log ${wal} MB`);
+    expect(seen[1].lines.at(-1)).toMatch(/^database opened in \d+ ms$/);
+    const at = (re: RegExp) => later.lines.findIndex((l) => re.test(l));
+    expect(at(/^opening the database: /)).toBeLessThan(at(/^database opened in /));
+    expect(at(/^database opened in /)).toBeLessThan(at(/^local server on /));
+  });
+
+  it("tells a database left open by a killed app (its log is replayed first), and opens it with everything written", async () => {
+    const dir = join(root, "data-killed");
+    const s1 = await startLocal({ dataDir: dir, staticDir, port: 0, log: capture(), template: templateFile });
+    await s1.close();
+    const db = join(dir, "db");
+    expect(inspectDatabase(db).recovery).toBe(false);
+    // another process writes and is killed: it exits without closing the database (no shutdown checkpoint)
+    const pglite = createRequire(import.meta.url).resolve("@electric-sql/pglite");
+    const writer = `const { PGlite } = require(process.argv[1]);
+      (async () => {
+        const pg = new PGlite(process.argv[2]);
+        await pg.waitReady;
+        await pg.exec("create table kill_probe (id int primary key, note text); insert into kill_probe select g, repeat('k', 200) from generate_series(1, 20000) g");
+        process.exit(0);
+      })().catch((e) => { console.error(e); process.exit(2); });`;
+    execFileSync(process.execPath, ["-e", writer, pglite, db], { stdio: "pipe", timeout: 120_000 });
+    const left = inspectDatabase(db);
+    expect(left.recovery).toBe(true);
+    expect(left.walMb).toBe(walOnDisk(db));
+    const log = capture();
+    const phases: StartPhase[] = [];
+    const s2 = await startLocal({ dataDir: dir, staticDir, port: 0, log, onPhase: (p) => phases.push(p) });
+    try {
+      expect(phases).toEqual([{ phase: "database", walMb: left.walMb, recovery: true }, { phase: "migrations" }]);
+      expect(log.lines).toContain(`opening the database: write-ahead log ${left.walMb} MB; not closed cleanly, so its log is replayed first`);
+      expect((await (await fetch(`${s2.url}/api/health`)).json()).ok).toBe(true);
+    } finally {
+      await s2.close();
+    }
+    // the replay brought back what the killed process wrote, and this close was clean
+    expect(inspectDatabase(db).recovery).toBe(false);
+    const { createPgliteDb } = await import("@server/db/pglite");
+    const check = await createPgliteDb({ dataDir: db, wal: false });
+    try {
+      expect(await check.one<{ n: number }>(`select count(*)::int as n from kill_probe`)).toEqual({ n: 20000 });
+    } finally {
+      await check.close();
+    }
   });
 });

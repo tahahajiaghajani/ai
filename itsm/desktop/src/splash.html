@@ -23,6 +23,8 @@
     itsm.progress(0…1)      follow real progress exactly
     itsm.status("…")        the status line, e.g. "باز کردن داده‌ها…"
     itsm.version("…")       e.g. "نسخهٔ ۱٫۲٫۰"
+    itsm.note("…")          a note in the tagline's place, up to three lines (the database recovering after a sudden
+                            close: please wait); "" takes it away and brings the tagline back
     itsm.ready()            completes the line; the nuqta turns turquoise — the water has arrived (then close the window)
   Without calls it eases toward 86 % on its own. Add ?still (or #still) to the URL to render a static frame.
 -->
@@ -57,6 +59,10 @@ body{position:relative;font-family:"DS Num","Arad UI","Geist","Segoe UI",Tahoma,
 .nq{fill:var(--nuqta);transform-box:fill-box;transform-origin:50% 50%;animation:set 420ms var(--ease-out) 560ms both}
 .name{margin:2px 0 0;font-family:"DS Num","Arad","Geist","Segoe UI",sans-serif;font-variation-settings:"DSTY" 3;font-size:32px;line-height:38px;font-weight:720;letter-spacing:0;animation:rise 440ms var(--ease-out) 640ms both}
 .tagline{margin:0;text-align:center;font-size:13.5px;line-height:22px;color:rgb(255 255 255 / .70);animation:fade 420ms var(--ease-out) 780ms both}
+/* a note in the tagline's place (three lines at most, above the horizon): what a long start is doing */
+.note{position:absolute;left:48px;right:48px;top:170px;margin:0;text-align:center;font-size:12.5px;line-height:21px;font-weight:480;color:rgb(255 255 255 / .86);opacity:0;transition:opacity 300ms var(--ease-out);pointer-events:none}
+body.noted .tagline{animation:none;opacity:0}
+body.noted .note{opacity:1}
 
 /* the horizon is the progress line: the track, its lit part (start → end, right → left) and the travelling nuqta */
 .foot{position:absolute;left:36px;right:36px;top:244px;animation:fade 360ms var(--ease-out) 860ms both}
@@ -91,6 +97,7 @@ body.done .head{background:var(--water);box-shadow:0 0 0 3px rgb(97 198 207 / .2
   <p class="name" id="name" dir="auto"></p>
   <p class="tagline" id="tagline"></p>
 </div>
+<p class="note" id="note" role="status" aria-live="polite"></p>
 <div class="foot" aria-live="polite">
   <div class="rule"><div class="track"></div><div class="fill"></div><div class="head"></div></div>
   <div class="meta"><span class="status" id="status">باز کردن داده‌ها…</span><span class="ver" id="ver"></span></div>
@@ -122,6 +129,7 @@ body.done .head{background:var(--water);box-shadow:0 0 0 3px rgb(97 198 207 / .2
     progress: function (p) { follow = true; set(p); },
     status: function (s) { document.getElementById('status').textContent = s; },
     version: function (v) { document.getElementById('ver').textContent = v; },
+    note: function (s) { document.getElementById('note').textContent = s || ''; body.classList.toggle('noted', !!s); },
     ready: function (s) { follow = true; set(1); clearInterval(timer); if (s) this.status(s); setTimeout(function () { body.classList.add('done'); }, 600); }
   };
   if (still) { follow = true; set(0.58); document.querySelectorAll('*').forEach(function (e) { e.style.animation = 'none'; }); document.querySelector('.arch').style.strokeDasharray = 'none'; }

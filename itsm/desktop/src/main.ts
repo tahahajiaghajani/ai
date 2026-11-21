@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, appendFileSync, statSync, renameSync } from "node:fs";
 import { APP_NAME, APP_NAME_EN, APP_TAGLINE } from "../../src/shared/constants";
 import { backendExecArgv } from "../../src/shared/desktop/node-flags";
+import { createReadyWatch, noticeTexts, parseStartPhase, type StartNotice } from "../../src/shared/desktop/ready-watch";
 import { warmable, warmScript } from "./warm";
 
 const APP_TITLE = APP_NAME;
@@ -112,27 +113,57 @@ function startBackend(): Promise<{ url: string; host: string }> {
         NODE_ENV: "production",
       },
     });
-    const timer = setTimeout(() => reject(new Error("سرور محلی در زمان مقرر آماده نشد")), 90_000);
+    // How long the start may take (src/shared/desktop/ready-watch.ts). The server opens its database on its only thread,
+    // and a database that was not closed cleanly first replays its write-ahead log: minutes for gigabytes, without a word
+    // from the server meanwhile. So 90 s without a sign of progress count only before the server says it opens the
+    // database and after it says the database is open; during the open the app waits as long as the server's process
+    // lives, and the splash says what is going on. (A fixed 90 s for the whole start killed such a recovery, which then
+    // started over at the next start and was killed again: the app never opened again.)
+    const watch = createReadyWatch(Date.now());
+    let settled = false;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const settle = (done: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearInterval(timer);
+      endNotice();
+      done();
+    };
+    timer = setInterval(() => {
+      const v = watch.check(Date.now());
+      if (v.kind === "wait") return showNotice(v.notice);
+      log(`[start] no sign of the local server for ${Math.round(v.silentMs / 1000)} s (${v.stage})`);
+      settle(() => reject(new Error("سرور محلی در زمان مقرر آماده نشد")));
+    }, 1000);
     backend.stdout?.on("data", (d) => {
       const text = String(d);
       log(`[server] ${text.trimEnd()}`);
-      // real progress: every database migration the server applies moves the splash on
+      // real progress: every database migration the server applies moves the splash on, and its budget starts again
       const applied = text.match(/migration \S+ applied/g)?.length ?? 0;
-      if (applied) onMigrations(applied);
+      if (applied) {
+        watch.progress(Date.now());
+        onMigrations(applied);
+      }
     });
     backend.stderr?.on("data", (d) => log(`[server:err] ${String(d).trimEnd()}`));
     backend.on("message", (m: any) => {
-      if (m?.type === "ready") {
-        clearTimeout(timer);
-        resolve({ url: m.url, host: m.host });
-      } else if (m?.type === "error") {
-        clearTimeout(timer);
-        reject(new Error(m.message));
-      }
+      const phase = parseStartPhase(m);
+      if (phase) {
+        watch.phase(phase, Date.now());
+        if (phase.phase === "migrations") endNotice();
+        else {
+          // a database with a large log to replay is told at once (otherwise the timer tells a long open)
+          const v = watch.check(Date.now());
+          if (v.kind === "wait") showNotice(v.notice);
+        }
+      } else if (m?.type === "ready") settle(() => resolve({ url: m.url, host: m.host }));
+      else if (m?.type === "error") settle(() => reject(new Error(m.message)));
     });
     backend.on("exit", (code) => {
       log(`[server] exited with ${code}`);
       backend = null;
+      // before it was ready, the start failed: told once, by whoever started it
+      if (!settled) return settle(() => reject(new Error(`سرور داخلی برنامه پیش از آماده شدن متوقف شد (کد خروج ${faDigits(String(code))}).`)));
       if (!quitting && !isSmoke) {
         dialog
           .showMessageBox({
@@ -225,6 +256,30 @@ function onMigrations(n: number) {
   if (serverReady) return; // a late stdout chunk must not move the status line back
   const p = Math.min(0.6, 0.08 + migrationsSeen * 0.04);
   splashStep(p, Math.min(0.64, p + 0.06), firstRun ? "آماده‌سازی برای نخستین اجرا…" : "به‌روزرسانی داده‌ها…", 1.5);
+}
+
+/** The status line the start began with (bootStatus): the base of a notice, and what comes back after it. */
+let bootText = "باز کردن داده‌ها…";
+let noticeShown: StartNotice["kind"] | null = null;
+/**
+ * While the server opens its database for long (a recovery after a sudden close: src/shared/desktop/ready-watch.ts), the
+ * splash says so in a note under the name and counts the time in its status line, every second.
+ */
+function showNotice(n: StartNotice | null) {
+  if (!n || serverReady) return;
+  const t = noticeTexts(n, bootText);
+  if (noticeShown !== n.kind) {
+    noticeShown = n.kind;
+    log(`[start] the local server is still opening the database (${n.kind}, ${Math.round(n.elapsedMs / 1000)} s so far): the splash says so`);
+    void splashCall(`itsm.note(${JSON.stringify(t.note)})`);
+  }
+  void splashCall(`itsm.status(${JSON.stringify(t.status)})`);
+}
+function endNotice() {
+  if (!noticeShown) return;
+  noticeShown = null;
+  void splashCall(`itsm.note("")`);
+  if (!migrationsSeen) void splashCall(`itsm.status(${JSON.stringify(bootText)})`);
 }
 
 /** Resolves once the page has replaced the boot screen of index.html with the app and painted text (at most `max` ms). */
@@ -529,7 +584,7 @@ if (!app.requestSingleInstanceLock() && !isSmoke) {
       if (win.isMinimized()) win.restore();
       win.show();
       win.focus();
-    }
+    } else if (splash && !splash.isDestroyed()) splash.focus(); // still starting: the splash says what it is doing
   });
   app.setAppUserModelId(APP_ID);
   app.whenReady().then(async () => {
@@ -561,6 +616,7 @@ if (!app.requestSingleInstanceLock() && !isSmoke) {
     }
     createSplash();
     const boot = bootStatus();
+    bootText = boot.text;
     splashStep(0.06, 0.62, boot.text, boot.tau);
     try {
       const { url } = await startBackend();
@@ -571,13 +627,28 @@ if (!app.requestSingleInstanceLock() && !isSmoke) {
       win?.once("show", () => setTimeout(() => void warmCache(), 15_000).unref?.());
       if (readConfig().lan?.enabled) createTray();
     } catch (e) {
+      if (quitting) return; // closed while it started: quit() ends the app
+      // told before anything quits: destroying the splash (the only window) would otherwise end the app at once
+      // (window-all-closed → quit), this dialog with it
+      quitting = true;
       splash?.destroy();
-      await dialog.showMessageBox({ type: "error", title: APP_TITLE, message: "اجرای برنامه ممکن نشد", detail: `${String((e as Error).message ?? e)}\n\nگزارش: ${logFile}` });
+      const r = await dialog.showMessageBox({
+        type: "error",
+        title: APP_TITLE,
+        message: "اجرای برنامه ممکن نشد",
+        detail: `${String((e as Error).message ?? e)}\n\nگزارش: ${logFile}`,
+        buttons: ["اجرای دوباره", "خروج"],
+        defaultId: 0,
+        cancelId: 1,
+      });
+      await stopBackend();
+      if (r.response === 0) app.relaunch();
       app.exit(1);
     }
   });
   app.on("window-all-closed", () => {
-    if (!tray) void quit();
+    // (a start that failed quits by itself, once its error has been read)
+    if (!tray && !quitting) void quit();
   });
   app.on("before-quit", () => {
     quitting = true;

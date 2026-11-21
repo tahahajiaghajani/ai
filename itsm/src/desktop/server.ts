@@ -18,9 +18,16 @@ import { createBridge } from "./bridge";
 import { takePendingRestore, undoRestore, restorePending } from "./backup";
 import { resetSyncCursor } from "./sync-client";
 import { openFromTemplate, templateFor } from "./db-template";
+import { inspectDatabase, type DatabaseOpening } from "./db-open";
 import { startStallWatch } from "./stall";
 import { createStaticSite } from "../server-edition/static";
 import { APP_NAME } from "@shared/constants";
+import type { StartPhase } from "@shared/desktop/ready-watch";
+
+export type { StartPhase };
+
+/** setImmediate as it was when this module loaded (a test's fake timers never hold the start up) */
+const nextTurn: (fn: () => void) => void = (globalThis.setImmediate ?? ((fn: () => void) => setTimeout(fn, 0))).bind(globalThis);
 
 export interface LocalOptions {
   dataDir: string;
@@ -35,6 +42,12 @@ export interface LocalOptions {
    * folder yet — loads it instead of running initdb and every migration. Absent in development and in the tests.
    */
   template?: string;
+  /**
+   * Told before each long part of the start: the database's open, with what it faces (the size of its write-ahead log,
+   * whether it was closed cleanly), then the migrations. backend-entry.ts passes it on to the Electron main process,
+   * which waits for the open as long as it takes (@shared/desktop/ready-watch).
+   */
+  onPhase?: (phase: StartPhase) => void;
 }
 
 export interface LocalServer {
@@ -96,6 +109,27 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   mkdirSync(opts.dataDir, { recursive: true });
   const config = loadConfig(opts.dataDir);
   const dbDir = join(opts.dataDir, "db");
+  const tell = (phase: StartPhase) => {
+    try {
+      opts.onPhase?.(phase);
+    } catch (e) {
+      log.warn("the start's phase was not reported", String((e as Error)?.message ?? e));
+    }
+  };
+  // The database's open, told before it begins: PGlite opens it synchronously on this thread, and a database that was
+  // not closed cleanly first replays its write-ahead log — minutes for gigabytes —, so this is the last the Electron main
+  // process hears until the open is over (it waits as long as that takes, desktop/src/main.ts). A restore opens the
+  // backup, not this folder.
+  const restoring = !opts.memory && restorePending(opts.dataDir);
+  const opening: DatabaseOpening = opts.memory || restoring ? { walMb: 0, recovery: null } : inspectDatabase(dbDir);
+  if (!opts.memory) {
+    const what = restoring ? "; restoring a backup" : opening.recovery ? "; not closed cleanly, so its log is replayed first" : "";
+    log.info(`opening the database: write-ahead log ${opening.walMb} MB${what}`);
+  }
+  tell({ phase: "database", walMb: opening.walMb, recovery: opening.recovery });
+  // the line and the message are on their way before the open holds the thread
+  if (!opts.memory) await new Promise<void>((r) => nextTurn(r));
+  const openStart = performance.now();
   const restore = opts.memory ? null : takePendingRestore(opts.dataDir);
   // a first start: the database made at build time, when the app carries one
   const template = !opts.memory && !restore && !existsSync(join(dbDir, "PG_VERSION")) ? templateFor(opts.template) : null;
@@ -129,6 +163,8 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
     }
   } else db = await createPgliteDb({ dataDir: opts.memory ? undefined : dbDir, desktop: true, log });
   const opened = performance.now();
+  if (!opts.memory) log.info(`database opened in ${Math.round(opened - openStart)} ms`);
+  tell({ phase: "migrations" });
   const applied = await migrate(db, (m) => log.info(m));
   // a restored local database: its sync cursor is the backup's — the next pull reads everything again from the web
   // version (and drops what it no longer has); changes waiting for upload stay queued. A standalone app's database has
