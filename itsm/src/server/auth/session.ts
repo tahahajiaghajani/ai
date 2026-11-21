@@ -90,6 +90,16 @@ type SessionRow = AuthSession & { token_hash: string; revoked_at: string | null;
  */
 export const BACKGROUND_HEADER = "x-itsm-background";
 
+/**
+ * A database that cannot write now — read-only (25006: Supabase puts a project whose disk is full into read-only mode)
+ * or out of disk (53100) — still serves reads: the session's own bookkeeping (its activity stamp, an idle end) is then
+ * skipped instead of failing every request of the person (src/server/http/errors.ts db_read_only). Anything else fails.
+ */
+function unlessReadOnly(e: unknown): void {
+  const code = (e as { code?: unknown } | null)?.code;
+  if (code !== "25006" && code !== "53100") throw e;
+}
+
 export async function resolveToken(db: Db, token: string | undefined | null, opts: { background?: boolean } = {}): Promise<{ user: AuthUser; session: AuthSession } | null> {
   if (!token) return null;
   const dot = token.indexOf(".");
@@ -110,7 +120,7 @@ export async function resolveToken(db: Db, token: string | undefined | null, opt
   const idle = Number(row.idle_minutes ?? 0);
   const quiet = Date.now() - new Date(row.last_seen_at).getTime();
   if (idle > 0 && quiet > idle * 60_000) {
-    await db.query(`update sm_sessions set revoked_at = now(), revoke_reason = 'idle' where id = $1 and revoked_at is null`, [row.id]);
+    await db.query(`update sm_sessions set revoked_at = now(), revoke_reason = 'idle' where id = $1 and revoked_at is null`, [row.id]).catch(unlessReadOnly);
     return null;
   }
   const user: AuthUser | null = row.u_id
@@ -120,7 +130,7 @@ export async function resolveToken(db: Db, token: string | undefined | null, opt
   // sliding activity stamp: every 10 minutes, or often enough for the idle timeout to be measured within a tenth —
   // never from a background request while the session has an idle timeout (it would keep an abandoned screen alive)
   const every = idle > 0 ? Math.max(30_000, (idle * 60_000) / 10) : 600_000;
-  if (quiet > every && !(idle > 0 && opts.background)) await db.query("update sm_sessions set last_seen_at = now() where id = $1", [row.id]);
+  if (quiet > every && !(idle > 0 && opts.background)) await db.query("update sm_sessions set last_seen_at = now() where id = $1", [row.id]).catch(unlessReadOnly);
   return {
     user,
     session: { id: row.id, user_id: row.user_id, kind: row.kind, expires_at: row.expires_at, auth_method: row.auth_method ?? null, org_id: row.org_id ?? null, source_id: row.source_id ?? null, reauth_at: row.reauth_at ?? null, created_at: row.created_at ?? null },
