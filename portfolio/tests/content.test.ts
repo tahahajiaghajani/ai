@@ -158,6 +158,15 @@ describe("no way to the owner's GitHub", () => {
   it("writes the account and its repositories nowhere, the panel and the server included", () => {
     expect(all.filter((f) => ACCOUNT.test(readFileSync(f, "utf8"))).map(rel)).toEqual([]);
   });
+  it("names the account in no guide, example or story file of this folder either", () => {
+    // everything in the folder that is text, apart from the dependencies, the build and these tests (which hold the patterns)
+    const SKIP = new Set(["node_modules", ".next", ".git", ".vercel", "tests", "out"]);
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory() ? (SKIP.has(e.name) ? [] : walk(path.join(dir, e.name))) : /\.(md|example|html|js|mjs|sh|css|ts|tsx|json|txt|svg|ya?ml|webmanifest)$/.test(e.name) ? [path.join(dir, e.name)] : [],
+      );
+    expect(walk(root).filter((f) => ACCOUNT.test(readFileSync(f, "utf8"))).map(rel)).toEqual([]);
+  });
   it("puts no GitHub address on anything a visitor loads", () => {
     expect(all.filter((f) => !OWNER_ONLY.test(rel(f)) && ADDRESS.test(readFileSync(f, "utf8"))).map(rel)).toEqual([]);
   });
