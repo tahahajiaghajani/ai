@@ -46,6 +46,7 @@ import { hashPassword, readableCode } from "../../auth/password";
 import { BY_TABLE } from "../../sync/registry";
 import { notePurged, notePurgedHere } from "../../sync/snapshot";
 import { DEMO_JOB_SQL } from "../../jobs";
+import { isPurgedSql, tombstoneAccount } from "./ledger";
 
 export interface ColInfo {
   name: string;
@@ -71,6 +72,7 @@ const SKIP = new Set([
   "sm_demo_packs",
   "sm_demo_saved",
   "sm_demo_touched",
+  "sm_demo_purged",
   "sm_orgs",
   "sm_users",
   "sm_migrations",
@@ -237,8 +239,11 @@ export async function notePurge(q: Queryable, orgId: string, gone: Gone[]): Prom
   if (gone.some((g) => g.live)) await notePurgedHere(q, orgId);
 }
 
-/** Is the uuid expression `e` a demo id of the organisation ($1)? An index probe of sm_demo_rows' primary key. */
-const isDemo = (e: string) => `exists (select 1 from sm_demo_rows d where d.org_id = $1 and d.row_id = ${e})`;
+/**
+ * Is the uuid expression `e` a demo id of the organisation ($1)? An index probe of sm_demo_rows' primary key — or of the
+ * purged-id ledger's: what an earlier purge left behind (a reference to a row it removed) is recognised as demo data.
+ */
+const isDemo = (e: string) => `(exists (select 1 from sm_demo_rows d where d.org_id = $1 and d.row_id = ${e}) or ${isPurgedSql(e)})`;
 /** The same for a text expression (a uuid only when it looks like one: the cast never sees anything else). */
 const isDemoText = (e: string) => `(case when ${e} ~* '^${UUID_RE}$' then ${isDemo(`(${e})::uuid`)} else false end)`;
 
@@ -565,7 +570,10 @@ export async function removeAccounts(q: Queryable, orgId: string, opts: { tombst
     }
     const email = await q.one<{ email: string }>(`select email from sm_users where id = $1`, [u.id]);
     if (email) await q.query(`delete from sm_auth_throttle where lower(subject) = lower($1) or key like $2`, [email.email, `%${email.email.toLowerCase()}%`]);
-    await q.query(`delete from sm_users where id = $1`, [u.id]);
+    // while Windows apps hold the members: a content-free account tombstone they delete the account by (ledger.ts),
+    // removed for good with the memberships' tombstones (finalizeDemo)
+    if (opts.tombstones) await tombstoneAccount(q, orgId, u.id);
+    else await q.query(`delete from sm_users where id = $1`, [u.id]);
     removed++;
   }
   await notePurge(q, orgId, held);

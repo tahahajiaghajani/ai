@@ -127,16 +127,18 @@ export async function demoSubmission(q: Queryable, orgId: string, submissionId: 
 
 /**
  * Apply a submission that waits (pending) on the authority. `since`: when it arrived (the start of the wait for its
- * files); null starts a wait now when files are missing. Returns what happened. A submission of the demo pack's (or
- * about a case of the pack's) is applied inside its demo scope whoever applies it — its event job, `process.apply`, or
- * the organisation's own `process.timer`, which re-checks what is still pending outside any demo scope: the case it
- * starts, its tasks and journal are the pack's rows, and its steps go to the pack's people (docs/DEMO_FA.md).
+ * files); null starts a wait now when files are missing. Returns what happened. Each submission is applied in its own
+ * demo scope, whoever applies it — its event job, `process.apply`, or the organisation's own `process.timer`, which
+ * re-checks what is still pending outside any demo scope. A submission of the demo pack's (a pack person's push, or
+ * their create through the record API) or about a case of the pack's is demo work: the case it starts, its tasks and
+ * journal are the pack's rows, its steps go to the pack's people, and the purge takes it. Any other is the
+ * organisation's own work, outside the demo scope even when a demo job applies it (docs/DEMO_FA.md).
  */
 export async function applyPending(cfg: ServerConfig, orgId: string, submissionId: string, since: number | null): Promise<PushedOutcome> {
   if (!isId(submissionId) || !(await processesRunHere(cfg, orgId))) return "skipped";
   const sys = await systemCtx(cfg, orgId);
   const apply = () => sys.write((tx) => applyPendingIn(tx, sys, submissionId, since));
-  return (await demoSubmission(cfg.db, orgId, submissionId)) ? inDemoScope(orgId, apply) : apply();
+  return inDemoScope((await demoSubmission(cfg.db, orgId, submissionId)) ? orgId : null, apply);
 }
 
 /** `applyPending` inside the caller's transaction (as the system, on the authority). */

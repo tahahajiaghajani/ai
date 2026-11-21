@@ -22,6 +22,7 @@ const LOCAL_ONLY: Record<string, string> = {
   sm_demo_rows: "registry of the rows this runtime's demo pack inserted",
   sm_demo_saved: "computed rows saved before this runtime's demo load, put back by its purge",
   sm_demo_touched: "what this runtime's demo work changed in real rows, reverted by its purge",
+  sm_demo_purged: "ids this runtime's demo purges removed: the push filter and a later purge read them",
   // AI: each runtime (web, Windows) keeps its own connections — keys are encrypted with that
   // runtime's secret — and its own usage, conversations and proposals
   sm_ai_connections: "AI provider connections with this runtime's encrypted key",

@@ -17,6 +17,7 @@ import type { ChainResult, RunOptions } from "./chain";
 import { recordUsage } from "./usage";
 import { redactContextBlock, redactDataBlocks, redactPrompt, redactToolContent } from "./redact";
 import type { TurnRequest } from "./types";
+import { linkReader } from "../../sync/link-state";
 
 export interface CloudLink {
   url: string;
@@ -24,17 +25,12 @@ export interface CloudLink {
   org_id: string;
 }
 
-type LinkGetter = () => { url: string | null; token: string | null; org_id: string | null } | null;
-const links = new WeakMap<object, LinkGetter>();
-
-/** Called by the Windows app's server with a reader of its cloud link (src/desktop/server.ts). */
-export function registerCloudLink(db: object, get: LinkGetter): void {
-  links.set(db, get);
-}
+/** Called by the Windows app's server with a reader of its cloud link (src/desktop/server.ts; src/server/sync/link-state.ts). */
+export { registerCloudLink } from "../../sync/link-state";
 
 export function cloudLink(cfg: ServerConfig): CloudLink | null {
   if (cfg.mode !== "desktop") return null;
-  const l = links.get(cfg.db)?.();
+  const l = linkReader(cfg.db)?.();
   return l?.url && l.token && l.org_id ? { url: l.url.replace(/\/+$/, ""), token: l.token, org_id: l.org_id } : null;
 }
 

@@ -4,14 +4,33 @@
 // cannot happen through the console, needs no switch.) The personas never hold an administrator's role.
 import type { Queryable } from "../../db";
 import { hashPassword, readableCode } from "../../auth/password";
+import { linkedOrgOf, linkReader } from "../../sync/link-state";
 
-/** The refusal message, or null when the account may reach the organisation. */
+/**
+ * The refusal message, or null when the account may reach the organisation. `q`: the runtime's own database object
+ * (`cfg.db`) — a Windows app linked to the server that holds the organisation's pack is told by it.
+ */
 export async function demoSignInRefusal(q: Queryable, user: { id: string; prefs?: Record<string, unknown> | null }, orgId: string): Promise<string | null> {
   if (!user.prefs || user.prefs.demo_org !== orgId) return null;
+  if (linkedOrgOf(q) === orgId) return demoLinkedRefusal(q);
   return (await demoSignInAllowed(q, orgId)) ? null : DEMO_SIGNIN_OFF;
 }
 
 export const DEMO_SIGNIN_OFF = "ورود با حساب‌های نمایشی در این سازمان خاموش است؛ مدیر سازمان می‌تواند آن را در «داده‌های نمایشی» برای زمان ارائه روشن کند";
+
+/**
+ * A Windows app linked to the server (or the web version) that holds the organisation's demo pack: the pack's people
+ * work there, not here. Their work on this computer could not stay demo work: what a linked app sends goes as the
+ * linking account's work, outside the server's demo scope (the purge could not find it), and a write inside the demo
+ * scope is never sent at all (it would stay on this computer only). So the personas sign in in the browser, at the
+ * server's address — where «ورود حساب‌های نمایشی» is switched on and off too.
+ */
+export const DEMO_SIGNIN_LINKED = "حساب‌های نمایشی روی برنامهٔ ویندوزی که به سرور پیوسته است کار نمی‌کنند: کار آن‌ها باید روی خود سرور ثبت شود تا با «حذف داده‌های نمایشی» پاک شود. برای ارائه، در مرورگر به نشانی سرور بروید و با همین حساب وارد شوید";
+
+function demoLinkedRefusal(q: Queryable): string {
+  const url = linkReader(q)?.()?.url?.replace(/\/+$/, "");
+  return url ? `${DEMO_SIGNIN_LINKED} (${url})` : DEMO_SIGNIN_LINKED;
+}
 
 /** Do the organisation's administrators allow the pack's people to sign in now? */
 export async function demoSignInAllowed(q: Queryable, orgId: string): Promise<boolean> {

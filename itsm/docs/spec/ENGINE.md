@@ -726,11 +726,33 @@ The virtual table `user` answers `GET /r/user?q=` (members for pickers: `id`, `n
   device's cursor passed `purge_mark` (the last tombstoning transaction's id + 1) — raising the watermark to the newest
   one, so an app left behind by a forced finalisation reads everything again; with no app active it deletes at once and
   raises the watermark to its own transaction (`tests/demo-sync.test.ts`).
+- **Purged demo ids** (`sm_demo_purged`, migration `0105_demo_purge_sync`, `modules/demo/ledger.ts`): the purge's
+  remove and finish phases record the id and table of every row they removed or tombstoned (the registry minus its jobs
+  and the accounts that live on), content-free, kept `LEDGER_DAYS` (30) and until every device of the organisation
+  (not revoked, synced within `LEDGER_DEVICE_DAYS`, 365) pulled since (`demo.ledger`, daily). `POST /sync/push` judges
+  every push against it (`modules/demo/pushed.ts`; one probe when the organisation has no ledger, one query for the
+  push's ids otherwise): a row whose id is purged is answered `skipped` and never resurrected; a side row of purged
+  data, a membership of a purged account and a new record whose required reference, `scope.parent`, requester,
+  `created_by`/`user_id` or a workflow row's process/version/task/case is purged belong to it — `skipped` (a dropped
+  record's side rows go with it); a new record's other pointers are emptied. A stored record keeps the server's value
+  wherever the push names purged data (the column left out of the upsert, a custom value put back from the stored
+  `custom`) and takes the rest of the push: never a `conflict` that would lose a person's edit. Lists lose the purged
+  ids. No new status and no protocol bump: every protocol-17 app drops an outbox entry answered `skipped`; the
+  answer's `purged: true` lets a 1.1.5 app drop its copy at once, with its trail and the local jobs and workflow drafts
+  naming it. Ids inside JSON values are not judged. A purge of a later pack treats ledgered ids as demo (`isDemo`) and
+  takes rows alive again under them into the registry (`reclaimLeftovers`); the loader takes an account it re-marks
+  (found by e-mail) out of the ledger. The pack's accounts are tombstoned content-free while apps are active
+  (`prefs.demo_purged`, own unique address, disabled): the app deletes such an account with its sessions and what names
+  it, and after a full read every account of the pack left without a membership.
 - **Scope epochs** (`sm_scope_epochs`): bumped per member when what they may read changes — by trigger on their
   membership (role, per-area access, activation), on the access tables (0007), on participant grants (0053: a service's
   owner and product owner, delegations, approvals; a delegation that starts or ends with time through the job
   `approval.delegation_epoch`) and by `bumpScopeEpoch(q, orgId, userId)` for everything else. A
-  desktop whose epoch is behind is told to `reset` and reads everything again (tombstoning what left its scope).
+  desktop whose epoch is behind is told to `reset` and reads everything again (tombstoning what left its scope). The demo
+  purge holds the per-row bumps of its access tables (`itsm.access_bulk`, `modules/demo/access-bulk.ts`: the triggers'
+  `sm_access_bump`/`sm_access_bump_everyone` only mark the transaction) and bumps the version and everyone's epoch
+  once before each phase commits; `finalizeDemo` moves no epoch (its apps pulled the tombstones; one left behind reads
+  everything again through the watermark).
 - **Fields kept out of replicas** (`FieldDef.noSync`: a requested item's sensitive answers) never go down to a
   Windows app, even for people holding their field group: pulls leave them (and their history) out, a push never
   empties them (the replica never had the value; a value typed on the Windows app is taken), and the Windows app

@@ -27,6 +27,7 @@ import { uuidv7 } from "@shared/id";
 import { inDemoScope } from "../db/scope";
 import { demoSignInRefusal } from "../modules/demo/signin";
 import { openUploadWindow } from "../modules/process/sync/upload";
+import { judgePurged, namesPurged, purgedInPush, type StoredRecord } from "../modules/demo/pushed";
 import { afterEnginePush, checkEnginePush, replicaRows, scopeEpoch } from "../engine/sync";
 import { condEnv, orgSchema } from "../engine";
 import {
@@ -197,7 +198,9 @@ syncRoutes.post("/push", async (c) => {
 });
 
 async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
-  const results: { entity: string; id: string; status: "ok" | "conflict" | "error" | "skipped"; rev?: number; message?: string; renumbered?: unknown; aggregate?: WireAggregate }[] = [];
+  // `purged`: the row was demo data a purge removed, or belongs to it (modules/demo/pushed.ts) — a 1.1.5 app drops its
+  // copy too; every app drops the outbox entry of a «skipped» row
+  const results: { entity: string; id: string; status: "ok" | "conflict" | "error" | "skipped"; rev?: number; message?: string; renumbered?: unknown; aggregate?: WireAggregate; purged?: boolean }[] = [];
   // apply order, then the modules' own (a ledger after the record it traces, in its own sequence): a Windows app sends its
   // outbox in whatever order it reads it; a module judging a row may look at the push's other rows (setPushBatch)
   const list = [...input.aggregates].sort(comparePush);
@@ -214,6 +217,20 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
   };
   await ctx.write(async (tx) => {
     await tx.query("set local itsm.applying = 'on'");
+    // the ids a demo purge removed that this push names (one query; none for an organisation that never purged a pack)
+    const purged = await purgedInPush(tx, ctx.org.id, list as WireAggregate[]);
+    /** The stored row wins over the push: handed back exactly as a pull would send it to this account (never more). */
+    const stored = async (agg: WireAggregate, def: AggregateDef, rev: number) => {
+      if (def.engine) {
+        const rows = await tx.query<Record<string, unknown>>(`select * from ${ident(def.table)} where id = $1 and org_id = $2`, [agg.id, ctx.org.id]);
+        const seen = await replicaRows(tx, ctx, def, rows);
+        if (!seen.aggregates.length) results.push({ entity: agg.entity, id: agg.id, status: "skipped", message: "این مورد در دسترس شما نیست" });
+        else results.push({ entity: agg.entity, id: agg.id, status: "conflict", rev, aggregate: seen.aggregates[0] });
+        return;
+      }
+      const [winner] = await readAggregates(tx, def, [agg.id]);
+      results.push({ entity: agg.entity, id: agg.id, status: "conflict", rev, aggregate: winner });
+    };
     for (const agg of list as WireAggregate[]) {
       const def = BY_ENTITY.get(agg.entity);
       if (!def) {
@@ -229,6 +246,14 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
       if (def.entity === "org" ? agg.id !== ctx.org.id : agg.row.org_id != null && agg.row.org_id !== ctx.org.id) {
         results.push({ entity: agg.entity, id: agg.id, status: "error", message: "سازمان نامعتبر" });
         continue;
+      }
+      // a row a demo purge removed is never brought back; a side row or membership of purged data neither
+      if (purged.size && (def.engine !== "record" || purged.has(agg.id.toLowerCase()))) {
+        const v = judgePurged(def, null, agg, null, purged);
+        if (v.kind !== "write") {
+          results.push({ entity: agg.entity, id: agg.id, status: "skipped", message: v.message, purged: true });
+          continue;
+        }
       }
       if (def.entity === "member") {
         const u = await tx.one(`select 1 from sm_users where id = $1`, [agg.row.user_id]);
@@ -253,19 +278,21 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
         // either (refusing it would leave the desktop with its outdated copy for good). An engine
         // row goes back exactly as a pull would send it to this account — and a row it may not
         // read is not handed back at all
-        if (def.engine) {
-          const stored = await tx.query<Record<string, unknown>>(`select * from ${ident(def.table)} where id = $1 and org_id = $2`, [agg.id, ctx.org.id]);
-          const seen = await replicaRows(tx, ctx, def, stored);
-          if (!seen.aggregates.length) {
-            results.push({ entity: agg.entity, id: agg.id, status: "skipped", message: "این مورد در دسترس شما نیست" });
-            continue;
-          }
-          results.push({ entity: agg.entity, id: agg.id, status: "conflict", rev: existing.rev, aggregate: seen.aggregates[0] });
+        await stored(agg, def, existing.rev);
+        continue;
+      }
+      // a record that names what a demo purge removed: a new one that belongs to it is not stored (the purge would have
+      // removed it) and a pointer of a new one is emptied; a stored one keeps what the server holds there and takes the
+      // push's other changes (modules/demo/pushed.ts)
+      if (purged.size && def.engine === "record" && namesPurged(agg, purged)) {
+        const held = existing ? await tx.one<StoredRecord>(`select custom from ${ident(def.table)} where id = $1`, [agg.id]) : null;
+        const v = judgePurged(def, (await orgSchema(ctx, tx)).def(agg.entity) ?? null, agg, existing ? (held ?? {}) : null, purged);
+        if (v.kind === "drop") {
+          results.push({ entity: agg.entity, id: agg.id, status: "skipped", message: v.message, purged: true });
+          // its journal, history, attachments and links in this push (they come after it) go with it
+          purged.add(agg.id.toLowerCase());
           continue;
         }
-        const [winner] = await readAggregates(tx, def, [agg.id]);
-        results.push({ entity: agg.entity, id: agg.id, status: "conflict", rev: existing.rev, aggregate: winner });
-        continue;
       }
       // a module's own rules for a pushed aggregate (the same rules its routes apply); the engine's for its rows
       const engineState: { prev?: Record<string, unknown> | null } = {};

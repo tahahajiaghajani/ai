@@ -19,6 +19,8 @@ import { cloudLink } from "../ai/relay";
 import { demoSignInAllowed } from "./signin";
 import { BANK_DOMAIN, BANK_NAME, DEMO_SIZES, KNOWN_NAMES, type DemoSize } from "./bank";
 import { newMemo, runLoad, STEPS, type LoadMemo } from "./load";
+import { purgeDb } from "./access-bulk";
+import { installDemoLedger, reclaimLeftovers, recordPurged } from "./ledger";
 import { clearReferences, computedSince, demoFiles, expandDerived, keepRealTrail, referenceReport, registryCounts, removeAccounts, removeFiles, removeRows, restoreComputed, restoreCounters, revertTouched, saveComputed, tablesInfo, unattributedReport, type PurgeReport, type RefReport } from "./purge";
 
 export { DEMO_SIZES, BANK_NAME, type DemoSize } from "./bank";
@@ -330,7 +332,8 @@ function forgetCaches(orgId: string): void {
 
 /** Run the purge from its current phase. Exported for karizctl and the tests (they run it to the end). */
 export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null = null): Promise<{ again: number } | void> {
-  const db = cfg.db as Db;
+  // every phase's transaction holds the access bumps until it commits: everyone's scope epoch moves once (access-bulk.ts)
+  const db = purgeDb(cfg.db as Db, orgId);
   return inDemoScope(null, async () => {
     const pack = await packOf(db, orgId);
     if (!pack || pack.state !== "purging") return;
@@ -342,6 +345,8 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
       // a load chunk still running finishes its step first (it sees 'purging' at its next save and stops)
       if (await db.one(`select 1 from sm_jobs where org_id = $1 and kind = 'demo.load' and status = 'running' and locked_until > now() limit 1`, [orgId])) return { again: 2000 };
       await db.tx(async (tx) => {
+        // rows alive again under an id an earlier purge removed: what it left behind goes with this pack (ledger.ts)
+        await reclaimLeftovers(tx, orgId);
         // the computed tables' rows computed meanwhile (put back from the copy saved before the load)
         const made = pack.progress.saved_at ? await computedSince(tx, orgId, info, pack.progress.computed ?? []) : 0;
         // only what demo work wrote and what derives from it through a reference — never «made since the load»
@@ -377,6 +382,8 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
         const files = await demoFiles(tx, orgId);
         const tombstones = await hasDevices(tx, orgId);
         const r = await removeRows(tx, orgId, info, { tombstones });
+        // the purged-id ledger: a Windows app that was away never brings these back (ledger.ts)
+        await recordPurged(tx, orgId);
         report.tombstones = r.tombstones;
         report.files = await removeFiles(tx, orgId, files, (cfg as ServerConfig).blobs ? (cfg as ServerConfig).blobs! : undefined);
         await setPhase(tx, "accounts", { report, files });
@@ -414,6 +421,8 @@ export async function purgeStep(cfg: JobConfig, orgId: string, by: string | null
         await removeRows(tx, orgId, info, { tombstones: report.tombstones > 0 });
         await removeAccounts(tx, orgId, { tombstones: report.tombstones > 0 });
       }
+      // the ledger keeps the ids after the registry goes (the accounts removed too, the late rows)
+      await recordPurged(tx, orgId);
       const counts = { rows: report.rows, derived: report.derived, tables: Object.keys(report.tables).length, accounts: report.accounts, files: report.files, references: report.references.reduce((s, r) => s + r.rows, 0), tombstones: report.tombstones,
         // what was left and only reported (content-free: tables and counts)
         left_real: report.left_real ?? [], kept_trail: report.kept_trail ?? 0, unattributed: report.unattributed ?? [] };
@@ -446,7 +455,8 @@ async function finalRemove(q: Queryable, orgId: string): Promise<void> {
  * for 30 days); `force`: now (an administrator's decision — an app that never synced again keeps its copies).
  */
 export async function finalizeDemo(cfg: JobConfig, orgId: string, opts: { force?: boolean } = {}): Promise<{ done: boolean; waiting: number }> {
-  const db = cfg.db as Db;
+  // the tombstones' removal moves no scope epoch: the apps it waited for pulled them (access-bulk.ts)
+  const db = purgeDb(cfg.db as Db, orgId, { epochs: false });
   return inDemoScope(null, async () => {
     const pack = await packOf(db, orgId);
     if (!pack || pack.state !== "tombstoned") return { done: !pack, waiting: 0 };
@@ -472,6 +482,7 @@ let installed = false;
 export function installDemoModule(): void {
   if (installed) return;
   installed = true;
+  installDemoLedger();
   registerJobHandler("demo.load", async (job, jctx) => {
     if (!job.org_id) return;
     return loadJob(jctx.cfg, job.org_id, jctx.deadline);

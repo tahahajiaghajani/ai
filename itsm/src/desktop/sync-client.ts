@@ -6,7 +6,7 @@
 // linked account may no longer read; a `reset` (the account's scope epoch moved) reads everything again.
 import { pgArray, type Db } from "@server/db";
 import type { Logger } from "@server/context";
-import { AGGREGATES, BY_ENTITY, type WireAggregate } from "@server/sync/registry";
+import { AGGREGATES, BY_ENTITY, type AggregateDef, type WireAggregate } from "@server/sync/registry";
 import { readAggregates, writeAggregate } from "@server/sync/apply";
 import { ident } from "@server/db/sql";
 import { SCHEMA_VERSION } from "@server/db/migrations";
@@ -116,9 +116,78 @@ async function sweepUnseen(tx: Pick<Db, "query">, orgId: string): Promise<number
     [orgId],
   );
   n += personas.length;
+  // and their accounts, once they belong to no organisation here any more (with their sessions and what names them)
+  const accounts = await tx.query<{ id: string }>(
+    `delete from sm_users u where (u.prefs ->> 'demo_org' = $1::text or u.prefs ->> 'demo_purged' = $1::text)
+       and not exists (select 1 from sm_org_members m where m.user_id = u.id and m.deleted_at is null)
+     returning u.id`,
+    [orgId],
+  );
+  if (accounts.length) await dropNaming(tx, orgId, accounts.map((a) => String(a.id)));
+  // the unsent workflow drafts of tasks and processes that left
+  await tx.query(
+    `delete from sm_process_drafts d where d.org_id = $1
+       and ((d.task_id is not null and not exists (select 1 from sm_process_tasks t where t.id = d.task_id))
+         or (d.process_id is not null and not exists (select 1 from sm_processes p where p.id = d.process_id)))`,
+    [orgId],
+  );
   await tx.query(`delete from sm_sync_seen`);
   if (n) await tx.query(`delete from sm_blobs b where b.org_id = $1 and not exists (select 1 from sm_attachments a where a.org_id = b.org_id and a.sha256 = b.sha256)`, [orgId]);
   return n;
+}
+
+const UUID_RE = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+
+/**
+ * What this computer still holds about rows that left it — a purge's tombstones and deletions, a pushed row the
+ * server answered as purged demo data, a removed account: the local jobs still to run that name one (record events of
+ * local writes about it) and the unsent workflow drafts of it (docs/DEMO_FA.md «برنامهٔ ویندوزِ پیوسته»).
+ */
+async function dropNaming(tx: Pick<Db, "query">, orgId: string, ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  const list = pgArray([...new Set(ids.map((i) => i.toLowerCase()))]);
+  await tx.query(
+    `delete from sm_jobs j where j.org_id = $1 and j.status in ('queued', 'failed')
+       and exists (select 1 from regexp_matches(j.payload::text, '(${UUID_RE})', 'g') m where m[1]::uuid = any($2::uuid[]))`,
+    [orgId, list],
+  );
+  await tx.query(`delete from sm_process_drafts d where d.org_id = $1 and (d.task_id = any($2::uuid[]) or d.process_id = any($2::uuid[]) or d.user_id = any($2::uuid[]))`, [orgId, list]);
+}
+
+/**
+ * A pushed row the server answered as purged demo data (`purged`: a demo purge removed it, or it belongs to what one
+ * removed — modules/demo/pushed.ts): it leaves this computer with its trail, its outbox entries (the next push drops
+ * the entries of rows that are gone) and what names it here.
+ */
+async function dropPurged(tx: Pick<Db, "query">, def: AggregateDef, id: string, orgId: string): Promise<void> {
+  if (def.table === "sm_orgs") return;
+  await tx.query(`delete from ${ident(def.table)} where id = $1 and org_id = $2`, [id, orgId]);
+  if (def.engine === "record") {
+    await tx.query(`delete from sm_journal where org_id = $1 and record_id = $2`, [orgId, id]);
+    await tx.query(`delete from sm_history where org_id = $1 and record_id = $2`, [orgId, id]);
+    await tx.query(`delete from sm_attachments where org_id = $1 and record_id = $2`, [orgId, id]);
+    await tx.query(`delete from sm_links where org_id = $1 and (from_id = $2 or to_id = $2)`, [orgId, id]);
+  }
+  if (def.engine === "record" || def.engine === "attachment") {
+    await tx.query(`delete from sm_blobs b where b.org_id = $1 and not exists (select 1 from sm_attachments a where a.org_id = b.org_id and a.sha256 = b.sha256)`, [orgId]);
+  }
+  await dropNaming(tx, orgId, [id]);
+}
+
+/**
+ * An account the demo purge removed (`prefs.demo_purged` names this organisation: the server's content-free account
+ * tombstone, docs/DEMO_FA.md): it leaves this computer with its membership here, its sessions and what names it —
+ * unless it still belongs to another organisation here (then only its password goes).
+ */
+async function dropAccount(tx: Pick<Db, "query" | "one">, orgId: string, userId: string): Promise<void> {
+  await tx.query(`delete from sm_org_members where org_id = $1 and user_id = $2`, [orgId, userId]);
+  if (await tx.one(`select 1 from sm_org_members where user_id = $1 and deleted_at is null limit 1`, [userId])) {
+    await tx.query(`update sm_users set password_hash = null where id = $1`, [userId]);
+    return;
+  }
+  await tx.query(`delete from sm_sessions where user_id = $1`, [userId]);
+  await tx.query(`delete from sm_users where id = $1`, [userId]);
+  await dropNaming(tx, orgId, [userId]);
 }
 
 export class SyncClient {
@@ -235,13 +304,15 @@ export class SyncClient {
    * attempts, "unreachable" when it could not be
    * asked. The check's own cloud session is closed right away.
    */
-  async verifyCloudPassword(email: string, password: string): Promise<{ status: "ok"; user_id: string } | { status: "wrong" | "unreachable" | "limited" }> {
+  async verifyCloudPassword(email: string, password: string): Promise<{ status: "ok"; user_id: string } | { status: "wrong" | "unreachable" | "limited" } | { status: "refused"; message: string }> {
     if (!this.state.linked) return { status: "unreachable" };
     let r: { token?: string; user_id?: string };
     try {
       r = await this.api("/auth/login", { token: null, body: { email, password, device: { name: `بررسی ورود — ${hostname()}`, platform: "windows" } }, timeout: 15000 });
     } catch (e) {
       const status = (e as { status?: number }).status;
+      // the cloud proved the password and refused the sign-in (a disabled account, demo sign-in switched off…): its reason
+      if (status === 403) return { status: "refused", message: String((e as Error).message ?? "") };
       return { status: status === 429 ? "limited" : status && status >= 400 && status < 500 ? "wrong" : "unreachable" };
     }
     if (r.token) await this.api("/auth/logout", { method: "POST", token: r.token, timeout: 15000 }).catch(() => undefined);
@@ -372,7 +443,7 @@ export class SyncClient {
       const found = new Set(aggregates.map((a) => `${a.entity}:${a.id}`));
       for (const q of queued) if (!found.has(`${q.entity}:${q.id}`)) await this.o.db.query(`delete from sm_outbox where entity = $1 and id = $2`, [q.entity, q.id]);
       if (!aggregates.length) continue;
-      const res = await this.api<{ results: { entity: string; id: string; status: string; rev?: number; message?: string; renumbered?: { column: string; to: unknown }; aggregate?: WireAggregate }[] }>(
+      const res = await this.api<{ results: { entity: string; id: string; status: string; rev?: number; message?: string; renumbered?: { column: string; to: unknown }; aggregate?: WireAggregate; purged?: boolean }[] }>(
         "/sync/push",
         { body: { org_id: this.o.config.cloud.org_id, device_id: this.o.config.device_id, protocol: SYNC_PROTOCOL, aggregates } },
       );
@@ -398,6 +469,8 @@ export class SyncClient {
             }
           } else if (r.status === "conflict" || r.status === "skipped") {
             await tx.query(`delete from sm_outbox where entity = $1 and id = $2`, [r.entity, r.id]);
+            // demo data a purge removed, or a row that belongs to it: this computer's copy goes too
+            if (r.status === "skipped" && r.purged && def) await dropPurged(tx, def, r.id, this.o.config.cloud.org_id!);
           } else {
             await tx.query(`update sm_outbox set attempts = attempts + 1, last_error = $3 where entity = $1 and id = $2`, [r.entity, r.id, r.message ?? "خطا"]);
           }
@@ -463,13 +536,18 @@ export class SyncClient {
             await tx.query(`insert into sm_sync_seen (entity, id) select $1, unnest($2::uuid[]) on conflict do nothing`, [entity, pgArray(ids)]);
           }
         }
-        for (const u of page.users) await this.mergeUser(tx, u);
+        // accounts a demo purge removed come as content-free tombstones: they leave after the page (below)
+        const purgedAccounts = page.users.filter((u) => (u.prefs as Record<string, unknown> | null | undefined)?.demo_purged === orgId).map((u) => String(u.id));
+        for (const u of page.users) if (!purgedAccounts.includes(String(u.id))) await this.mergeUser(tx, u);
         const dirty = new Set((await tx.query<{ entity: string; id: string }>(`select entity, id from sm_outbox`)).map((r) => `${r.entity}:${r.id}`));
         const sorted = [...page.aggregates].sort((a, b) => (BY_ENTITY.get(a.entity)?.order ?? 99) - (BY_ENTITY.get(b.entity)?.order ?? 99));
+        // rows that leave (deleted, tombstoned): what still names them here goes with them (dropNaming)
+        const left: string[] = [];
         for (const agg of sorted) {
           const def = BY_ENTITY.get(agg.entity);
           if (!def || dirty.has(`${agg.entity}:${agg.id}`)) continue;
           await writeAggregate(tx, def, agg, orgId, "local-yields");
+          if (agg.row.deleted_at) left.push(agg.id);
           count++;
         }
         for (const t of page.tombstones ?? []) {
@@ -484,11 +562,14 @@ export class SyncClient {
             await tx.query(`delete from sm_links where org_id = $1 and (from_id = $2 or to_id = $2)`, [orgId, t.id]);
           }
           if (gone) count++;
+          left.push(t.id);
         }
         if (page.tombstones?.length) {
           // contents no attachment here refers to any more leave this computer too
           await tx.query(`delete from sm_blobs b where b.org_id = $1 and not exists (select 1 from sm_attachments a where a.org_id = b.org_id and a.sha256 = b.sha256)`, [orgId]);
         }
+        for (const id of purgedAccounts) await dropAccount(tx, orgId, id);
+        await dropNaming(tx, orgId, left);
         if (page.full && !page.has_more) {
           count += await sweepUnseen(tx, orgId);
           sweep = true;

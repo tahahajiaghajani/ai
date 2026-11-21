@@ -43,9 +43,9 @@ export interface DesktopBridge {
   /**
    * Sign-in fallback while linked: check the password against the cloud and cache it. `user_id`
    * is the cloud account's id (the local account must be that one); `unreachable` when the cloud
-   * could not be asked.
+   * could not be asked; `refused`: the cloud proved the password and refused the sign-in, with its reason.
    */
-  cloudLogin?(email: string, password: string): Promise<{ ok: boolean; user_id?: string; unreachable?: boolean; limited?: boolean }>;
+  cloudLogin?(email: string, password: string): Promise<{ ok: boolean; user_id?: string; unreachable?: boolean; limited?: boolean; refused?: string }>;
   notifyLocalWrite(): void;
   /** Fetch an attachment's content from the linked cloud (contents travel lazily); null when unavailable. */
   fetchBlob?(orgId: string, attachmentId: string): Promise<Uint8Array | null>;
