@@ -23,6 +23,20 @@ function lanAddresses(): string[] {
   return out;
 }
 
+/**
+ * Sign-in on this computer through the linked cloud (an account whose password is not kept here): the cloud checks
+ * the password; a refusal after a proven password (a disabled account, demo sign-in) comes back with its reason.
+ */
+export async function cloudLoginVia(sync: SyncClient, db: Pick<Db, "query">, email: string, password: string): Promise<{ ok: boolean; user_id?: string; unreachable?: boolean; limited?: boolean; refused?: string }> {
+  const r = await sync.verifyCloudPassword(email, password);
+  if (r.status === "refused") return { ok: false, refused: r.message };
+  if (r.status !== "ok") return { ok: false, unreachable: r.status === "unreachable", limited: r.status === "limited" };
+  // remember the password of this cloud account here, so that the next sign-in works offline
+  // (the next change of the account in the cloud replaces or drops it again)
+  await db.query(`update sm_users set password_hash = $2 where id = $1 and lower(email) = lower($3)`, [r.user_id, await hashPassword(password), email]);
+  return { ok: true, user_id: r.user_id };
+}
+
 export function createBridge(o: { dataDir: string; db: Db & Partial<Pick<PgliteDb, "pg" | "checkpoint">>; config: LocalConfig; log: Logger; save: () => void }): Bridge {
   const sync = new SyncClient({ db: o.db, config: o.config, save: o.save, log: o.log });
   let backupTimer: NodeJS.Timeout | null = null;
@@ -107,13 +121,8 @@ export function createBridge(o: { dataDir: string; db: Db & Partial<Pick<PgliteD
     async cloudOrgs(input) {
       return sync.cloudOrgs(input.url, input.email, input.password);
     },
-    async cloudLogin(email: string, password: string) {
-      const r = await sync.verifyCloudPassword(email, password);
-      if (r.status !== "ok") return { ok: false, unreachable: r.status === "unreachable", limited: r.status === "limited" };
-      // remember the password of this cloud account here, so that the next sign-in works offline
-      // (the next change of the account in the cloud replaces or drops it again)
-      await o.db.query(`update sm_users set password_hash = $2 where id = $1 and lower(email) = lower($3)`, [r.user_id, await hashPassword(password), email]);
-      return { ok: true, user_id: r.user_id };
+    cloudLogin(email: string, password: string) {
+      return cloudLoginVia(sync, o.db, email, password);
     },
     notifyLocalWrite() {
       sync.nudge();

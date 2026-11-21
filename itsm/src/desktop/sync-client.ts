@@ -304,13 +304,15 @@ export class SyncClient {
    * attempts, "unreachable" when it could not be
    * asked. The check's own cloud session is closed right away.
    */
-  async verifyCloudPassword(email: string, password: string): Promise<{ status: "ok"; user_id: string } | { status: "wrong" | "unreachable" | "limited" }> {
+  async verifyCloudPassword(email: string, password: string): Promise<{ status: "ok"; user_id: string } | { status: "wrong" | "unreachable" | "limited" } | { status: "refused"; message: string }> {
     if (!this.state.linked) return { status: "unreachable" };
     let r: { token?: string; user_id?: string };
     try {
       r = await this.api("/auth/login", { token: null, body: { email, password, device: { name: `بررسی ورود — ${hostname()}`, platform: "windows" } }, timeout: 15000 });
     } catch (e) {
       const status = (e as { status?: number }).status;
+      // the cloud proved the password and refused the sign-in (a disabled account, demo sign-in switched off…): its reason
+      if (status === 403) return { status: "refused", message: String((e as Error).message ?? "") };
       return { status: status === 429 ? "limited" : status && status >= 400 && status < 500 ? "wrong" : "unreachable" };
     }
     if (r.token) await this.api("/auth/logout", { method: "POST", token: r.token, timeout: 15000 }).catch(() => undefined);
