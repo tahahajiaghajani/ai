@@ -17,6 +17,7 @@ import { loadConfig, saveConfig, type LocalConfig } from "./config";
 import { createBridge } from "./bridge";
 import { takePendingRestore, undoRestore, restorePending } from "./backup";
 import { extractBackup } from "./backup-stream";
+import { startupMaintenance } from "./maintenance";
 import { resetSyncCursor } from "./sync-client";
 import { openFromTemplate, templateFor } from "./db-template";
 import { inspectDatabase, type DatabaseOpening } from "./db-open";
@@ -176,6 +177,8 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   // person's first click (the first start's 54 MB of log took a 609 ms checkpoint on the setup page, desktop-e2e)
   if (applied.length) await db.checkpoint("migrations").catch((e) => log.warn("database checkpoint after migrations failed", String((e as Error)?.message ?? e)));
   const migrated = performance.now();
+  // the database's upkeep before ready (./maintenance.ts): ~1 ms unless much was written since its last look
+  db = (await startupMaintenance(db, { dataDir: opts.dataDir, dbDir, log, memory: opts.memory, notify: () => tell({ phase: "migrations", maintenance: true }) })).db;
 
   // the single-page app's files (src/server-edition/static.ts: ETags, the SPA fallback, never outside the folder)
   const site = createStaticSite(opts.staticDir, () => `<!doctype html><meta charset=utf-8><title>${APP_NAME}</title><p>رابط کاربری ساخته نشده است (npm run build:ui)</p>`, { cacheControl: desktopCacheControl });
