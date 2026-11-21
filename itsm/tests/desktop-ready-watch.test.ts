@@ -424,12 +424,14 @@ describe("the Windows app's main process waits for its local server by phase (de
   });
 
   it("asks after 90 s without a word, decides nothing behind the question, waits 90 s more on «صبر می‌کنم» and stops on «خروج»", async () => {
-    const { child } = await launch();
+    const { child, splash } = await launch();
     await vi.advanceTimersByTimeAsync(READY_BUDGET_MS - 1_000);
     expect(h.dialogs).toEqual([]);
     await vi.advanceTimersByTimeAsync(2_000);
     expect(h.dialogs).toHaveLength(1);
     const q = h.dialogs[0];
+    // owned by the splash: it stays above it, and the splash cannot be closed behind it
+    expect(q.parent).toBe(splash);
     expect(q.opts.message).toBe(STALL_TEXT.starting.message);
     expect(q.opts.detail).toBe(`${STALL_TEXT.starting.detail}\n\nگزارش: ${join(dataDir, "logs", "app.log")}`);
     expect(q.opts.buttons).toEqual([...STALL_BUTTONS]);
@@ -568,6 +570,7 @@ describe("the Windows app's main process waits for its local server by phase (de
     expect(lastCall(splash, "note")).toBe(NOTICE_TEXT.update);
     await vi.advanceTimersByTimeAsync(MIGRATIONS_CEILING_MS);
     expect(h.dialogs).toHaveLength(1);
+    expect(h.dialogs[0].parent).toBe(splash);
     expect(h.dialogs[0].opts.message).toBe(STALL_TEXT.migrations.message);
     expect(h.dialogs[0].opts.detail).toContain(STALL_TEXT.migrations.detail);
     expect(h.dialogs[0].opts.buttons).toEqual([...STALL_BUTTONS]);

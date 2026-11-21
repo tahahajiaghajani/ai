@@ -191,8 +191,10 @@ function startBackend(): Promise<{ url: string; host: string }> {
       const ctl = new AbortController();
       stallCtl = ctl;
       const text = STALL_TEXT[stage === "migrations" ? "migrations" : "starting"];
-      void dialog
-        .showMessageBox({ type: "warning", title: APP_TITLE, message: text.message, detail: `${text.detail}\n\nگزارش: ${logFile}`, buttons: [...STALL_BUTTONS], defaultId: 0, cancelId: 0, signal: ctl.signal })
+      const opts = { type: "warning" as const, title: APP_TITLE, message: text.message, detail: `${text.detail}\n\nگزارش: ${logFile}`, buttons: [...STALL_BUTTONS], defaultId: 0, cancelId: 0, signal: ctl.signal };
+      // owned by the splash, as the close question is: it stays above the splash (also after second-instance's focus())
+      // and the splash cannot be closed behind it, unseen
+      void (splash && !splash.isDestroyed() ? dialog.showMessageBox(splash, opts) : dialog.showMessageBox(opts))
         .then(({ response }) => {
           if (stallCtl === ctl) stallCtl = null;
           if (settled) return;
