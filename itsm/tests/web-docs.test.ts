@@ -117,6 +117,21 @@ describe("the web version's limits in the owner's guides", () => {
   });
 });
 
+describe("a release merged while production is rolled back", () => {
+  // after an Instant Rollback Vercel stops putting new production deployments on the production domains: the merged
+  // 1.1.4 is built and Ready, and 1.1.2 still answers, until a deployment is promoted (UI-6 of the 1.1.4 review)
+  it("tells the owner to undo the rollback (promote the new deployment) and to check the version /api/health gives", () => {
+    const notes = section(read("docs", "RELEASE_FA.md"), "## کاریز ۱٫۱٫۴");
+    const first = notes.split("\n").find((l) => l.startsWith("- ")) ?? "";
+    expect(first).toContain("Undo Rollback");
+    expect(first).toContain("vercel promote");
+    expect(first).toContain('"version":"1.1.4"');
+    const rollback = section(read("docs", "SETUP_FA.md"), "### ۱۰-۱.").split("\n").find((l) => l.startsWith("- **برگرداندن نسخهٔ قبلی:**")) ?? "";
+    expect(rollback).toContain("Undo Rollback");
+    expect(rollback).toContain("Promote");
+  });
+});
+
 describe("the heartbeat of SETUP_FA §۴-۱", () => {
   it("cleans pg_cron's history of its runs, which pg_cron never deletes (1,440 rows a day, each with the Bearer secret)", () => {
     // Supabase's own advice (Cron quickstart): a daily job deleting what is older than 7 days; removed with the heartbeat

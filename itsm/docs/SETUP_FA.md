@@ -629,7 +629,7 @@ select pg_terminate_backend(<pid>);
 
 **باید ببینید:** `/api/health` ← `"ok":true` و `"schema":{"complete":true,…}` با `version` نسخهٔ تازه.
 
-- **برگرداندن نسخهٔ قبلی:** `Deployments` ← انتشار قبلی ← `⋯` ← `Instant Rollback`. فقط کد برمی‌گردد، نه پایگاه داده؛ مشکلی نیست چون تغییرات پایگاه داده فقط چیز اضافه می‌کنند.
+- **برگرداندن نسخهٔ قبلی:** `Deployments` ← انتشار قبلی ← `⋯` ← `Instant Rollback`. فقط کد برمی‌گردد، نه پایگاه داده؛ مشکلی نیست چون تغییرات پایگاه داده فقط چیز اضافه می‌کنند. پس از Instant Rollback، Vercel انتشارهای تازه را دیگر خودش روی نشانی اصلی نمی‌گذارد: ادغام‌های بعدی و Redeploy ساخته و `Ready` می‌شوند ولی نسخهٔ برگردانده پاسخ می‌دهد. وقتی نسخهٔ درست آماده شد، برگرداندن را بردارید: پروژه ← `Overview` ← کاشی `Production Deployment` ← `Undo Rollback` (در داشبوردهای تازه‌تر `Manage`) ← انتشار تازه ← `Confirm`، یا `Deployments` ← آن انتشار ← `⋯` ← `Promote` (CLI: `vercel promote <نشانی انتشار>`). بعد `version` در `/api/health` را ببینید.
 - **اگر `AUTO_MIGRATE=false` گذاشته‌اید:** پیش از ادغام `scripts/migrate-db.mts` را با کد تازه اجرا کنید، یا بخش‌های [`itsm/supabase/manual`](../supabase/manual) را به‌ترتیب در SQL Editor (اجرای دوبارهٔ بخش‌هایی که قبلاً اجرا شده بی‌خطر است).
 - **نسخهٔ ویندوز:** فایل نصب تازه را از `Releases` روی نسخهٔ قبلی نصب کنید؛ داده‌ها می‌مانند. همیشه اول نسخهٔ وب را به‌روز کنید، بعد ویندوز را ([DESKTOP_FA.md](DESKTOP_FA.md)).
 
