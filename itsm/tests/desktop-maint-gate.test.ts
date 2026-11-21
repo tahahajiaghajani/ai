@@ -5,7 +5,7 @@ import { describe, it, expect, afterAll } from "vitest";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createPgliteDb } from "@server/db/pglite";
-import { startupMaintenance, readMaintState, lookNeeded } from "@local/maintenance";
+import { startupMaintenance, readMaintState, lookNeeded, maintSummary, folderBytes } from "@local/maintenance";
 import { capture, cleanFolders, folder, openDb, MB } from "./desktop-maint-helpers";
 
 afterAll(cleanFolders);
@@ -49,6 +49,24 @@ describe("the maintenance's gate", () => {
       expect(r2.report.skipped).toBe("nothing to do");
       expect(c2.queries).toHaveLength(1);
       expect(r2.report.gate!.ms).toBeLessThan(50);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it("shows Settings the database folder's size although the gate never looked at its tables", async () => {
+    const f = folder();
+    const db = await openDb(f);
+    try {
+      const r = await startupMaintenance(db, { dataDir: f.dataDir, dbDir: f.dbDir, log: capture() });
+      expect(r.report.skipped).toBe("a new database");
+      // what the card «نگهداری پایگاه داده» gets: the folder as Explorer shows it, not "—" until a month's look
+      const s = await maintSummary(db, f.dataDir);
+      expect(s.looked_at).toBeTruthy();
+      const bytes = Number(s.db_bytes);
+      const folderNow = folderBytes(f.dbDir);
+      expect(bytes).toBeGreaterThan(8 * MB);
+      expect(Math.abs(bytes - folderNow)).toBeLessThan(16 * MB);
     } finally {
       await db.close();
     }

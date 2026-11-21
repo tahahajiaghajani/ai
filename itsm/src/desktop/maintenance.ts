@@ -31,6 +31,7 @@
 // Only the Windows app's data folders run this (src/desktop is never imported by src/server or src/server-edition): the
 // web version and the server edition keep PostgreSQL's own autovacuum (src/server-edition/pgtune.ts).
 import { existsSync, readdirSync, rmSync, statSync, statfsSync, writeFileSync, readFileSync, unlinkSync } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { PGlite, type PGliteOptions } from "@electric-sql/pglite";
 import { createPgliteDb, type PgliteDb } from "@server/db/pglite";
@@ -831,11 +832,53 @@ const quoteLit = (s: string) => `'${s.replace(/'/g, "''")}'`;
 
 // ------------------------------------------------------------------------------------------------ Settings
 
-/** What Settings shows of the database's upkeep (bridge.ts info().database). */
-export async function maintSummary(db: Pick<Db, "one">, dataDir: string): Promise<Record<string, unknown>> {
+/** The bytes of every file below `dir`, read with fs.promises (the thread is never held for the walk). */
+export async function folderBytesLive(dir: string): Promise<number> {
+  let n = 0;
+  const walk = async (d: string): Promise<void> => {
+    let list: import("node:fs").Dirent[];
+    try {
+      list = await readdir(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (let i = 0; i < list.length; i += 64) {
+      await Promise.all(
+        list.slice(i, i + 64).map(async (e) => {
+          const p = join(d, e.name);
+          if (e.isDirectory()) return walk(p);
+          if (!e.isFile()) return;
+          let size = 0;
+          try {
+            size = (await stat(p)).size;
+          } catch {
+            /* gone meanwhile */
+          }
+          // added after the await: `n += await …` would read n before it and lose the other files' sizes
+          n += size;
+        }),
+      );
+    }
+  };
+  await walk(dir);
+  return n;
+}
+
+/** The database folder's size as Settings shows it: walked at most once a minute while the page asks. */
+let sized: { dir: string; at: number; bytes: number } | null = null;
+const SIZE_EVERY_MS = 60_000;
+
+/**
+ * What Settings shows of the database's upkeep (bridge.ts info().database). The size is the database folder's now (what
+ * Explorer shows of `db`), not the last look's: most databases are never looked at (the gate finds too little written),
+ * and a look is a month old at most.
+ */
+export async function maintSummary(db: Pick<Db, "one">, dataDir: string, dbDir = join(dataDir, "db")): Promise<Record<string, unknown>> {
   const state = await readMaintState(db).catch(() => null);
+  const now = Date.now();
+  if (!sized || sized.dir !== dbDir || now - sized.at >= SIZE_EVERY_MS) sized = { dir: dbDir, at: now, bytes: await folderBytesLive(dbDir).catch(() => 0) };
   return {
-    db_bytes: state?.db_bytes ?? null,
+    db_bytes: sized.bytes || state?.db_bytes || null,
     looked_at: state?.looked_at ?? null,
     compacted_at: state?.compacted_at ?? null,
     reclaim_bytes: state?.reclaim_bytes ?? null,
