@@ -16,7 +16,7 @@ export const APP_TAGLINE_EN = "Intelligent service management";
 /** What the app is, in one line (window titles, the About screen, meta descriptions). */
 export const APP_DESCRIPTION = "سامانهٔ سازمانی مدیریت خدمات فناوری اطلاعات و خدمات سازمانی، با هوش مصنوعی";
 /** Bumped with every release; the desktop app compares it with the cloud to offer updates. */
-export const APP_VERSION = "1.1.3";
+export const APP_VERSION = "1.1.4";
 /**
  * Sync protocol version — the server refuses pushes and pulls from clients with another one. Bump it whenever a
  * synced table gains a column or a new synced kind appears, so a Windows app that does not know them cannot

@@ -111,6 +111,6 @@ flowHookRoutes.post("/:id", async (c) => {
     }
   }
   const r = await webhookRun(cfg, c.req.param("id"), token, { body: payload, query: rest, headers });
-  cfg.waitUntil?.(() => tick(cfg, { budgetMs: 4000 }).catch((e) => cfg.log.warn("job tick failed", String((e as Error)?.message ?? e))));
+  cfg.waitUntil?.(() => tick(cfg, { budgetMs: 4000, cleanup: false }).catch((e) => cfg.log.warn("job tick failed", String((e as Error)?.message ?? e))));
   return c.json({ ok: true, run: r.run }, 202);
 });

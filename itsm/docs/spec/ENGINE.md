@@ -430,15 +430,22 @@ await tick(cfg, { budgetMs: 4000, max });   // → { ran, failed, more, busy? }
   `dedupeKey`: no second job with that key per organisation while one is queued (the queued one's id is returned).
   `enqueueMany(q, jobs)` adds many with one statement (same dedupe rule); `jctx.saveIn(tx, payload)` saves a job's
   progress inside the transaction that does the work, so a retry after a crash skips what committed.
-- `tick` claims due jobs one at a time (`for update skip locked`; a running job's lock lasts 5 minutes and an expired
-  lock is taken over), runs handlers outside transactions until the budget is spent. A throw → retry after 15 s, 30 s,
-  1 min … ≤ 1 h (+20 % jitter) until `max_attempts`, then `failed` with `last_error`; `PermanentJobError` fails at
-  once; `{ again: ms }` reschedules without counting an attempt; `jctx.save(payload)` keeps progress; `jctx.deadline`
-  is when the budget ends. Finished jobs are kept 3 days (failed 30).
-- Triggers: the Windows app ticks every 10 s; the web version ticks after every write request that queued jobs
-  (`cfg.waitUntil`, Next.js `after`, budget 4 s) and on `GET|POST /api/cron/tick` (Bearer `CRON_SECRET` when set;
-  call it every minute from Supabase pg_cron + pg_net or a GitHub Actions schedule; `vercel.json` has a daily
-  fallback).
+- `tick` claims due jobs one at a time (`for update skip locked`; the claim counts an attempt; a running job's lock
+  lasts 5 minutes and an expired lock is taken over only while the job has an attempt left — a job whose worker
+  stopped during its last allowed attempt, a function cut at its time limit or a process that died, is failed by
+  `failExhausted` and never runs again, so a step that never fits its tick's time ends as `failed`), runs handlers
+  outside transactions until the budget is spent. A throw → retry after 15 s, 30 s, 1 min … ≤ 1 h (+20 % jitter)
+  until `max_attempts`, then `failed` with `last_error`; `PermanentJobError` fails at once; `{ again: ms }`
+  reschedules without counting an attempt; `jctx.save(payload)` keeps progress; `jctx.deadline` is when the budget
+  ends. Finished jobs are kept 3 days (failed 30) and deleted by row address in batches of 2,000, at most 2 s of a
+  tick and once an hour per process (`cleanup: false` skips it).
+- Triggers: the Windows app ticks every 10 s; the server edition's scheduler leader on its interval and when a write
+  wakes it. The web version has no timer between requests: once an answer is ready (`cfg.waitUntil`, Next.js
+  `after`) a write request that queued jobs ticks for 4 s when one is due (`queueHasDue`), any other request at most
+  once a minute per instance for 8 s when a job is due or a lock expired (`trafficTickDue`), both with
+  `cleanup: false`; and `GET|POST /api/cron/tick` ticks for 20 s with the cleanup (Bearer `CRON_SECRET` when set; call
+  it every minute from Supabase pg_cron + pg_net, docs/SETUP_FA.md §۴-۱, or a GitHub Actions schedule; `vercel.json`
+  has a daily fallback).
 
 ## 9. Access provider
 

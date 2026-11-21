@@ -3,8 +3,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ModuleKey } from "@shared/constants";
 import { api, ApiError } from "./api";
 
-/** The web version's answers that mean «the server is not ready» (src/server/cloud.ts), not «this request failed». */
-export const SERVER_STATES = new Set(["migrating", "not_configured", "db_unreachable"]);
+/**
+ * The web version's answers that mean «the server is not ready» (src/server/cloud.ts), not «this request failed»: its
+ * database being prepared, missing, unreachable, busy or too slow (src/server/http/errors.ts), a request past its
+ * deadline, or a gateway's own 502/503/504 (./api.ts). A failed /auth/me then shows «آماده‌سازی», which asks
+ * /api/health until the server answers again — instead of sending the person to the sign-in page.
+ */
+export const SERVER_STATES = new Set(["migrating", "not_configured", "db_unreachable", "db_unavailable", "db_busy", "db_timeout", "timeout", "gateway_timeout", "unavailable"]);
 const serverState = (e: unknown) => e instanceof ApiError && SERVER_STATES.has(e.code);
 
 export interface Meta {

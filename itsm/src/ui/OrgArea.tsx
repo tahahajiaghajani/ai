@@ -9,8 +9,21 @@ import { OrgProvider, useOrgQuery } from "./lib/org";
 import { AppShell } from "./components/layout";
 import { PageBoundary } from "./components/crash";
 import { ROUTES } from "./modules/registry";
-import { errorText } from "./lib/api";
+import { ApiError, errorText } from "./lib/api";
 import { Loading } from "./App";
+
+/** Answers that mean the server could not answer now (src/server/http/errors.ts, src/server/cloud.ts, ./lib/api.ts). */
+const SERVER_DOWN = new Set(["db_busy", "db_timeout", "db_locked", "db_unavailable", "timeout", "retry", "gateway_timeout", "unavailable", "network"]);
+
+/**
+ * What the organisation page says when the organisation did not load: a server that cannot answer now is not «no
+ * access» — it offers to try again; a read-only database says so; anything else (not a member, not found) as before.
+ */
+export function orgErrorView(code: string | null | undefined): { title: string; retry: boolean } {
+  if (code && SERVER_DOWN.has(code)) return { title: "سرور اکنون پاسخ نمی‌دهد", retry: true };
+  if (code === "db_read_only") return { title: "پایگاه داده فقط‌خواندنی است", retry: false };
+  return { title: "دسترسی به این سازمان ممکن نیست", retry: false };
+}
 
 /**
  * A page of the signed-in app, mounted afresh for every path. Routes such as <module>/<records>/:id
@@ -52,15 +65,26 @@ export default function OrgArea() {
   const { org } = useParams();
   const q = useOrgQuery(org ?? "");
   if (q.isLoading) return <Loading full />;
-  if (q.error || !q.data)
+  if (q.error || !q.data) {
+    const view = orgErrorView(q.error instanceof ApiError ? q.error.code : null);
     return (
       <Result
         status="warning"
-        title="دسترسی به این سازمان ممکن نیست"
+        title={view.title}
         subTitle={q.error ? errorText(q.error) : undefined}
-        extra={<Button href="/orgs">فهرست سازمان‌ها</Button>}
+        extra={
+          <>
+            {view.retry ? (
+              <Button type="primary" loading={q.isFetching} onClick={() => void q.refetch()}>
+                دوباره امتحان کنید
+              </Button>
+            ) : null}
+            <Button href="/orgs">فهرست سازمان‌ها</Button>
+          </>
+        }
       />
     );
+  }
   return (
     <OrgProvider orgId={org!} info={q.data}>
       <AppShell>

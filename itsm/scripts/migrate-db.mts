@@ -47,7 +47,9 @@ const host = (() => {
 const mode = poolerMode(url);
 say(`database ${host} (${mode === "transaction" ? "Supabase transaction pooler" : mode === "session" ? "Supabase session pooler" : mode === "direct" ? "Supabase direct connection" : "PostgreSQL"})`);
 
-const db = createPostgresDb({ url, max: 1, ssl: process.env.DATABASE_SSL !== "disable", connectTimeout: 20 });
+// one connection and no pipelining (Supavisor's transaction pooler loses the answer of a statement pipelined behind
+// another: src/server/db/postgres.ts); no time limits — a step may take as long as it needs here
+const db = createPostgresDb({ url, max: 1, ssl: process.env.DATABASE_SSL !== "disable", connectTimeout: 20, maxPipeline: 1 });
 const started = Date.now();
 try {
   const before = await schemaProgress(db);
