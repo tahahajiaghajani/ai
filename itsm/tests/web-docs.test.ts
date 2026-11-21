@@ -1,6 +1,7 @@
-// The owner's guides say what the web version does (docs/SETUP_FA.md, docs/RELEASE_FA.md, CLAUDE.md): the limits each
-// API function answers within, what a database time-out means for a save, and why a role-level time-out does not end the
-// stuck pooler backend of 1.1.3. The numbers come from the files that set them where this tree has them.
+// The owner's guides say what the web version does (docs/SETUP_FA.md, docs/RELEASE_FA.md, CLAUDE.md,
+// docs/spec/ENGINE.md): the limits each API function answers within, what a database time-out means for a save, why
+// a role-level time-out does not end the stuck pooler backend of 1.1.3, and the job queue's rules. The numbers come
+// from the files that set them where this tree has them.
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -78,6 +79,17 @@ describe("the web version's limits in the owner's guides", () => {
     expect(roles).not.toMatch(/نمی‌شمارد/);
     expect(roles).toMatch(/پیام بعدی سرویس‌گیرنده/);
     expect(roles).toMatch(/`idle_in_transaction_session_timeout` هم به آن نمی‌رسد[^.]*`active`/);
+  });
+
+  it("states the job queue's 1.1.4 rules in the engine's spec", () => {
+    const jobs = section(read("docs", "spec", "ENGINE.md"), "## 8. Jobs");
+    // a job whose worker stopped during its last allowed attempt is failed, never taken over again
+    expect(jobs).toContain("failExhausted");
+    // the web version's ticks: after a write when a job is due, from other traffic at most once a minute, the cron's
+    expect(jobs).toContain("queueHasDue");
+    expect(jobs).toContain("trafficTickDue");
+    expect(jobs).toContain("cleanup: false");
+    expect(jobs).not.toMatch(/an expired\s+lock is taken over\),/);
   });
 });
 
