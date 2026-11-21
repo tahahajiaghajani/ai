@@ -6,6 +6,7 @@ import { describe, it, expect } from "vitest";
 import { Hono } from "hono";
 import { errorResponse } from "@server/http/hono";
 import { dbErrorMessage } from "@server/http/errors";
+import { createPostgresDb } from "@server/db/postgres";
 
 const BUSY = "سامانه اکنون بیش از حد مشغول است و اتصالی به پایگاه داده آزاد نشد؛ چند ثانیهٔ دیگر دوباره امتحان کنید";
 const TIMEOUT = "پایگاه داده در زمان مجاز پاسخ نداد و این کار نیمه‌کاره متوقف شد؛ چند لحظهٔ دیگر دوباره امتحان کنید";
@@ -118,5 +119,27 @@ describe("a database that cannot do the work now answers 503 with a tracking cod
     expect(deadlock.body.error).toEqual({ code: "retry", message: "سیستم مشغول است؛ دوباره امتحان کنید", details: null });
     expect(deadlock.retryAfter).toBe("1");
     expect(deadlock.warns).toEqual([]);
+  });
+
+  it("the adapter marks what it rejects with: a refused database connection is the database's (503), not the server's (500)", async () => {
+    // nothing listens on port 9: postgres.js rejects with the socket's own ECONNREFUSED
+    const db = createPostgresDb({ url: "postgres://postgres:postgres@127.0.0.1:9/postgres", ssl: false, max: 1, connectTimeout: 2 });
+    try {
+      const e = await db.query("select 1").then(
+        () => null,
+        (x: unknown) => x,
+      );
+      expect((e as { code?: string })?.code).toBe("ECONNREFUSED");
+      const r = await answer(e);
+      expect(r.status).toBe(503);
+      expect(r.body.error.code).toBe("db_unavailable");
+      const t = await db.tx(async () => 1).then(
+        () => null,
+        (x: unknown) => x,
+      );
+      expect((await answer(t)).body.error.code).toBe("db_unavailable");
+    } finally {
+      await db.close();
+    }
   });
 });
