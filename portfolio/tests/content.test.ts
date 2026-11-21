@@ -140,10 +140,78 @@ describe("credit", () => {
     const hits = [...files(path.join(root, "src")), ...files(path.join(root, "public"))].filter((f) => BANNED.test(readFileSync(f, "utf8")));
     expect(hits.map((f) => path.relative(root, f))).toEqual([]);
   });
-  it("does not link the GitHub profile or the repository while its history is public", () => {
+});
+
+describe("no way to the owner's GitHub", () => {
+  // the owner's rule: a visitor finds no GitHub address, account or repository on the site. GitHub may be named as a
+  // technology ("GitHub Actions"); addresses live only where the signed-in owner or the server needs the private data
+  // repository, and even there they are built from the environment, never written out.
+  const root = path.join(__dirname, "..");
+  const rel = (f: string) => path.relative(root, f).split(path.sep).join("/");
+  const files = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? files(path.join(dir, e.name)) : /\.(ts|tsx|css|json|md|txt|svg|webmanifest)$/.test(e.name) ? [path.join(dir, e.name)] : []));
+  const all = [...files(path.join(root, "src")), ...files(path.join(root, "public"))];
+  const OWNER_ONLY = /^src\/(app\/\(fa\)\/admin\/|app\/actions\/|components\/admin\/|lib\/(github|env|connections|chat-log|requests|request-issue|settings|knowledge-file|unanswered|status-text|notify)\.ts$)/;
+  const ADDRESS = /github\.com|github\.io|githubusercontent|gist\.github|git clone|git@|\/releases\b/i;
+  const ACCOUNT = /tahahajiaghajani|hajiaghajani|tahaaghajani8/i;
+
+  it("writes the account and its repositories nowhere, the panel and the server included", () => {
+    expect(all.filter((f) => ACCOUNT.test(readFileSync(f, "utf8"))).map(rel)).toEqual([]);
+  });
+  it("names the account in no guide, example or story file of this folder either", () => {
+    // everything in the folder that is text, apart from the dependencies, the build and these tests (which hold the patterns)
+    const SKIP = new Set(["node_modules", ".next", ".git", ".vercel", "tests", "out"]);
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory() ? (SKIP.has(e.name) ? [] : walk(path.join(dir, e.name))) : /\.(md|example|html|js|mjs|sh|css|ts|tsx|json|txt|svg|ya?ml|webmanifest)$/.test(e.name) ? [path.join(dir, e.name)] : [],
+      );
+    expect(walk(root).filter((f) => ACCOUNT.test(readFileSync(f, "utf8"))).map(rel)).toEqual([]);
+  });
+  it("puts no GitHub address on anything a visitor loads", () => {
+    expect(all.filter((f) => !OWNER_ONLY.test(rel(f)) && ADDRESS.test(readFileSync(f, "utf8"))).map(rel)).toEqual([]);
+  });
+  it("links no GitHub page from a case study, a product or a post", () => {
+    const hrefs: string[] = [];
+    const walk = (v: unknown) => {
+      if (typeof v === "string") {
+        if (/^https?:\/\//i.test(v)) hrefs.push(v);
+      } else if (Array.isArray(v)) v.forEach(walk);
+      else if (v && typeof v === "object") Object.values(v).forEach(walk);
+    };
+    walk([PROJECTS, PRODUCTS, POSTS, ORGS, JOURNEY]);
+    expect(hrefs.length).toBeGreaterThan(0);
+    expect(hrefs.filter((h) => /github|gitlab|bitbucket/i.test(h))).toEqual([]);
+  });
+});
+
+describe("pictures", () => {
+  // a picture says nothing about the machine or the camera that made it: no text chunk, EXIF, XMP or comment
+  const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
+  const extras = (f: string): string[] => {
+    const b = readFileSync(f);
+    const found: string[] = [];
+    if (/\.png$/i.test(f)) {
+      for (let i = 8; i + 8 <= b.length; i += 12 + b.readUInt32BE(i)) {
+        const type = b.toString("latin1", i + 4, i + 8);
+        if (["tEXt", "iTXt", "zTXt", "eXIf", "tIME"].includes(type)) found.push(type);
+      }
+    } else if (/\.jpe?g$/i.test(f)) {
+      // segments up to the start of the scan: APP1 (EXIF, XMP), APP13 (IPTC), COM
+      for (let i = 2; i + 4 <= b.length && b[i] === 0xff && b[i + 1] !== 0xda; i += 2 + b.readUInt16BE(i + 2)) {
+        if ([0xe1, 0xed, 0xfe].includes(b[i + 1])) found.push(`0xff${b[i + 1].toString(16)}`);
+      }
+    } else if (/\.webp$/i.test(f)) {
+      for (let i = 12; i + 8 <= b.length; i += 8 + b.readUInt32LE(i + 4) + (b.readUInt32LE(i + 4) % 2)) {
+        const type = b.toString("latin1", i, i + 4);
+        if (type === "EXIF" || type === "XMP ") found.push(type.trim());
+      }
+    }
+    return found;
+  };
+  it("carry no embedded text, EXIF or XMP", () => {
     const root = path.join(__dirname, "..");
-    const hits = [...files(path.join(root, "src")), ...files(path.join(root, "public"))].filter((f) => /github\.com\/tahahajiaghajani/i.test(readFileSync(f, "utf8")));
-    expect(hits.map((f) => path.relative(root, f))).toEqual([]);
+    const hits = walk(path.join(root, "public")).flatMap((f) => extras(f).map((x) => `${path.relative(root, f)}: ${x}`));
+    expect(hits).toEqual([]);
   });
 });
 
