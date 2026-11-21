@@ -79,6 +79,37 @@ describe("a scheduled restore", () => {
     }
   });
 
+  it("restores a 1.1.3 backup that holds files not PostgreSQL's (1.1.3 kept whatever the folder held), leaving those out", async () => {
+    const f = folder();
+    const db = await openDb(f);
+    const file = join(f.root, "itsm-auto-stray.tar.gz");
+    try {
+      await db.exec(`create table t_old (id int primary key); insert into t_old select generate_series(1, 300)`);
+      // a copy made in Explorer and a folder of notes, in the database folder when 1.1.3 made its backup
+      writeFileSync(join(f.dbDir, "postgresql - Copy.conf"), "# a copy\n");
+      mkdirSync(join(f.dbDir, "New folder"));
+      writeFileSync(join(f.dbDir, "New folder", "notes.txt"), "x");
+      await db.checkpoint("backup");
+      const tar = await db.pg.dumpDataDir("none");
+      writeFileSync(file, gzipSync(Buffer.from(await tar.arrayBuffer())));
+    } finally {
+      await db.close();
+    }
+    const to = join(f.root, "restored-stray");
+    const lines: string[] = [];
+    const r = await extractBackup(file, to, { info: (m: string) => void lines.push(m) });
+    expect(r.skipped).toBe(3);
+    expect(lines.some((l) => /^restoring database from backup: \d+ files \(.*\) extracted in \d+\.\d s \(3 entries not PostgreSQL's left out\)$/.test(l))).toBe(true);
+    expect(existsSync(join(to, "postgresql - Copy.conf"))).toBe(false);
+    expect(existsSync(join(to, "New folder"))).toBe(false);
+    const back = await createPgliteDb({ dataDir: to, vector: false, wal: false });
+    try {
+      expect(await back.one(`select count(*)::int as n from t_old`)).toEqual({ n: 300 });
+    } finally {
+      await back.close();
+    }
+  });
+
   it("refuses a truncated or damaged backup and leaves no PG_VERSION (a half folder is never opened)", async () => {
     const f = folder();
     const db = await openDb(f);

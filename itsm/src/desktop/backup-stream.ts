@@ -104,6 +104,13 @@ export function walFilesBetween(startLsn: string, stopLsn: string, timeline = 1,
   return out;
 }
 
+/** PostgreSQL's own names: letters, digits, "_", "." and "-" (no file of a data folder it makes has another character). */
+const PG_NAME = /^[A-Za-z0-9_.-]+(\/[A-Za-z0-9_.-]+)*$/;
+/** Whether a path of the data folder goes into a backup: PostgreSQL's (a ustar name of under 100 characters). */
+export function keepsName(rel: string): boolean {
+  return rel.length < 100 && PG_NAME.test(rel) && !rel.split("/").some((p) => p === "." || p === "..");
+}
+
 const pad512 = (n: number) => (n % 512 ? Buffer.alloc(512 - (n % 512), 0) : null);
 const gone = (e: unknown) => (e as NodeJS.ErrnoException)?.code === "ENOENT";
 const fmtMb = (b: number) => (b >= 1024 * MB ? `${(b / (1024 * MB)).toFixed(2)} GB` : b >= 10 * MB ? `${Math.round(b / MB)} MB` : `${(b / MB).toFixed(1)} MB`);
@@ -136,6 +143,8 @@ export interface OnlineBackupOptions {
   level?: number;
   /** the copy is cut short when more log than this was written since its start (no checkpoint can run meanwhile) */
   maxWalBytes?: number;
+  /** how often that log is looked at, whatever the copy is doing (a file of a gigabyte, a slow disk at the other end) */
+  capEveryMs?: number;
   signal?: AbortSignal;
   /** free bytes the backup's volume must have before it starts */
   minFreeBytes?: number;
@@ -154,6 +163,8 @@ export interface OnlineBackupResult {
   bytes: number;
   /** log segments added after pg_backup_stop */
   wal_segments: number;
+  /** what the folder holds that is not PostgreSQL's and was left out (a name no PostgreSQL file has, as a copy made in Explorer) */
+  foreign: string[];
   /** log written during the copy */
   wal_bytes: number;
   start_lsn: string;
@@ -193,15 +204,47 @@ export async function writeOnlineBackup(db: OnlineBackupDb, dataDir: string, fil
   await db.checkpoint("backup");
   const release = db.wal?.hold() ?? (() => {});
   const part = `${file}.part`;
-  const s = { inBackup: false, files: 0, bytes: 0, walSegments: 0, walBytes: 0, startLsn: "", stopLsn: "" };
+  const s = { inBackup: false, files: 0, bytes: 0, walSegments: 0, walBytes: 0, startLsn: "", stopLsn: "", foreign: [] as string[] };
+  // the copy's own signal: the caller's (the app closing), or the log's cap below
+  const ctl = new AbortController();
+  const forward = () => ctl.abort(signal?.reason);
+  signal?.addEventListener("abort", forward, { once: true });
+  if (signal?.aborted) forward();
+  /** why the copy was cut short (too much log) */
+  let cut: BackupStopped | null = null;
+  const stopped = () => cut ?? aborted();
+  let watch: ReturnType<typeof setInterval> | null = null;
   try {
     s.startLsn = (await q<{ lsn: string }>(`select pg_backup_start($1, true)::text as lsn`, [o.label ?? "kariz"]))[0].lsn;
     s.inBackup = true;
     const walSince = async () => Number((await q<{ d: number | string }>(`select pg_wal_lsn_diff(pg_current_wal_insert_lsn(), $1::pg_lsn)::float8 as d`, [s.startLsn]))[0]?.d ?? 0);
+    const tooMuch = (d: number) => new BackupStopped("cut_short", `backup cut short: ${Math.round(d / MB)} MB of log written during the copy`);
     const cap = async () => {
+      if (cut) throw cut;
       const d = await walSince();
-      if (d > maxWal) throw new BackupStopped("cut_short", `backup cut short: ${Math.round(d / MB)} MB of log written during the copy`);
+      if (d > maxWal) throw (cut = tooMuch(d));
     };
+    // The log is looked at every `capEveryMs` whatever the copy is doing: between two files the copy looks itself, but a
+    // file of a gigabyte (a bloated table's segment) or a slow disk at the other end kept it from looking for as long as
+    // that took, while the guard took no checkpoint (held) and the app's writes piled up in pg_wal. Past the cap, the
+    // copy is cut short at once and the guard's checkpoints run again.
+    let looking = false;
+    watch = setInterval(() => {
+      if (cut || looking || !s.inBackup) return;
+      looking = true;
+      walSince()
+        .then((d) => {
+          if (d <= maxWal || cut || !s.inBackup) return;
+          cut = tooMuch(d);
+          release();
+          ctl.abort(cut);
+        })
+        .catch(() => {})
+        .finally(() => {
+          looking = false;
+        });
+    }, Math.max(10, o.capEveryMs ?? 1000));
+    watch.unref?.();
 
     /** a file of the folder (a vanished one is left out, a shrunk one padded with zeros), or a required one (log, control) */
     async function* fileEntry(rel: string, required: boolean): AsyncGenerator<Buffer> {
@@ -219,7 +262,7 @@ export async function writeOnlineBackup(db: OnlineBackupDb, dataDir: string, fil
         let pos = 0;
         let shrunk = false;
         while (pos < size) {
-          if (signal?.aborted) throw aborted();
+          if (ctl.signal.aborted) throw stopped();
           const len = Math.min(CHUNK, size - pos);
           if (shrunk) {
             yield Buffer.alloc(len, 0);
@@ -258,6 +301,11 @@ export async function writeOnlineBackup(db: OnlineBackupDb, dataDir: string, fil
       for (const d of names) {
         const r = rel ? `${rel}/${d.name}` : d.name;
         if (BACKUP_SKIP.prefixes.some((p) => d.name.startsWith(p))) continue;
+        // not PostgreSQL's (say "postgresql - Copy.conf", a copy made in Explorer): left out, never a backup that fails for it
+        if (!keepsName(r)) {
+          s.foreign.push(r);
+          continue;
+        }
         if (d.isDirectory()) {
           yield { rel: r, dir: true };
           if (!rel && BACKUP_SKIP.contents.includes(d.name)) {
@@ -275,7 +323,7 @@ export async function writeOnlineBackup(db: OnlineBackupDb, dataDir: string, fil
     async function* archive(): AsyncGenerator<Buffer> {
       let checked = 0;
       for await (const e of walk("")) {
-        if (signal?.aborted) throw aborted();
+        if (ctl.signal.aborted) throw stopped();
         if (e.dir) {
           let st;
           try {
@@ -313,7 +361,7 @@ export async function writeOnlineBackup(db: OnlineBackupDb, dataDir: string, fil
         if (!SEGMENT.test(name) || !existsSync(join(dataDir, "pg_wal", name))) throw new BackupStopped("missing_wal", `backup refused: log segment ${name} between its start and its end is missing`);
       }
       for (const name of segments) {
-        if (signal?.aborted) throw aborted();
+        if (ctl.signal.aborted) throw stopped();
         yield* fileEntry(`pg_wal/${name}`, true);
         s.walSegments++;
       }
@@ -322,17 +370,21 @@ export async function writeOnlineBackup(db: OnlineBackupDb, dataDir: string, fil
       yield Buffer.alloc(1024, 0);
     }
 
-    await pipeline(Readable.from(archive()), createGzip({ level: o.level ?? 6 }), createWriteStream(part), { signal });
-    if (signal?.aborted) throw aborted();
+    await pipeline(Readable.from(archive()), createGzip({ level: o.level ?? 6 }), createWriteStream(part), { signal: ctl.signal });
+    if (ctl.signal.aborted) throw stopped();
     renameSync(part, file);
     const size = (await stat(file)).size;
-    return { file, size, files: s.files, bytes: s.bytes, wal_segments: s.walSegments, wal_bytes: s.walBytes, start_lsn: s.startLsn, stop_lsn: s.stopLsn, ms: Math.round(performance.now() - t0) };
+    return { file, size, files: s.files, bytes: s.bytes, wal_segments: s.walSegments, foreign: s.foreign, wal_bytes: s.walBytes, start_lsn: s.startLsn, stop_lsn: s.stopLsn, ms: Math.round(performance.now() - t0) };
   } catch (e) {
+    if (watch) clearInterval(watch);
     rmSync(part, { force: true });
     if (s.inBackup) await q(`select pg_backup_stop(false)`).catch(() => {});
-    if ((e as Error)?.name === "AbortError" || signal?.aborted) throw aborted();
+    if (cut) throw cut;
+    if ((e as Error)?.name === "AbortError" || ctl.signal.aborted) throw aborted();
     throw e;
   } finally {
+    if (watch) clearInterval(watch);
+    signal?.removeEventListener("abort", forward);
     release();
   }
 }
@@ -342,26 +394,33 @@ export async function writeOnlineBackup(db: OnlineBackupDb, dataDir: string, fil
 export interface ExtractResult {
   files: number;
   bytes: number;
+  /** entries left out: not PostgreSQL's (an older backup kept whatever the folder held) */
+  skipped: number;
   ms: number;
 }
 
-const NAME = /^[A-Za-z0-9_.-]+(\/[A-Za-z0-9_.-]+)*$/;
-
-/** A path of an archive's entry made safe: relative (a leading "/" of PGlite's dumpTar dropped), no "..", no drive or backslash. */
-export function archivePath(raw: string): string {
+/**
+ * A path of an archive's entry made safe: relative (a leading "/" of PGlite's dumpTar dropped), no "..", no drive or
+ * backslash — or null for a name no file of PostgreSQL has (1.1.3's backups kept whatever the folder held, say a copy
+ * made in Explorer: left out rather than a backup that cannot be restored).
+ */
+export function archivePath(raw: string): string | null {
   const name = raw.replace(/^\/+/, "").replace(/\/+$/, "");
-  if (!NAME.test(name) || name.split("/").some((p) => p === "." || p === "..")) throw new Error(`restore: an unexpected path in the backup: ${raw}`);
-  return name;
+  const parts = name.split("/");
+  if (!name || /[\\:\x00-\x1f]/.test(name) || parts.some((p) => p === "." || p === ".." || p === "")) throw new Error(`restore: an unexpected path in the backup: ${raw}`);
+  return keepsName(name) ? name : null;
 }
 
 /** Reads a ustar stream entry by entry and writes it below `dir` (PG_VERSION kept back for the end). */
 class Extractor {
   files = 0;
   bytes = 0;
+  skipped = 0;
   version: Buffer | null = null;
   ended = false;
   private head = Buffer.alloc(0);
-  private cur: { fd: number | null; parts: Buffer[] | null; left: number; pad: number; name: string } | null = null;
+  /** the entry being read: written to `fd`, kept in `parts` (PG_VERSION, written last), or read past (`kept` false) */
+  private cur: { fd: number | null; parts: Buffer[] | null; left: number; pad: number; name: string; kept: boolean } | null = null;
   private made = new Set<string>();
 
   constructor(private readonly dir: string) {}
@@ -381,10 +440,10 @@ class Extractor {
           const n = Math.min(cur.left, chunk.length - off);
           const part = chunk.subarray(off, off + n);
           if (cur.fd !== null) writeSync(cur.fd, part);
-          else cur.parts!.push(Buffer.from(part));
+          else if (cur.parts) cur.parts.push(Buffer.from(part));
           off += n;
           cur.left -= n;
-          this.bytes += n;
+          if (cur.kept) this.bytes += n;
           if (cur.left > 0) return;
         }
         const p = Math.min(cur.pad, chunk.length - off);
@@ -415,10 +474,19 @@ class Extractor {
     if (parseInt(field(148, 156), 8) !== sum) throw new Error("restore: a damaged entry in the backup");
     // POSIX ustar ("ustar\0"): a long name's beginning may be in the prefix field (old GNU tar keeps other data there)
     const prefix = h.subarray(257, 263).toString("latin1") === "ustar\0" ? field(345, 500) : "";
-    const name = archivePath(prefix ? `${prefix}/${field(0, 100)}` : field(0, 100));
+    const raw = prefix ? `${prefix}/${field(0, 100)}` : field(0, 100);
+    const name = archivePath(raw);
     const type = field(156, 157) || "0";
     const size = parseInt(field(124, 136) || "0", 8);
-    if (!Number.isSafeInteger(size) || size < 0) throw new Error(`restore: a damaged entry in the backup (${name})`);
+    if (!Number.isSafeInteger(size) || size < 0) throw new Error(`restore: a damaged entry in the backup (${raw})`);
+    if (name === null) {
+      // not PostgreSQL's: its data is read past, nothing written
+      this.skipped++;
+      const data = type === "0" ? size : 0;
+      this.cur = { fd: null, parts: null, left: data, pad: (512 - (data % 512)) % 512, name: raw, kept: false };
+      if (!data) this.cur = null;
+      return;
+    }
     if (type === "5") {
       this.mkdir(name);
       return;
@@ -427,7 +495,7 @@ class Extractor {
     const at = name.lastIndexOf("/");
     if (at > 0) this.mkdir(name.slice(0, at));
     const version = name === "PG_VERSION";
-    this.cur = { fd: version ? null : openSync(join(this.dir, name), "w", 0o600), parts: version ? [] : null, left: size, pad: (512 - (size % 512)) % 512, name };
+    this.cur = { fd: version ? null : openSync(join(this.dir, name), "w", 0o600), parts: version ? [] : null, left: size, pad: (512 - (size % 512)) % 512, name, kept: true };
     if (!size) this.done();
   }
 
@@ -435,8 +503,8 @@ class Extractor {
     const cur = this.cur!;
     this.cur = null;
     if (cur.fd !== null) closeSync(cur.fd);
-    else this.version = Buffer.concat(cur.parts!);
-    this.files++;
+    else if (cur.parts) this.version = Buffer.concat(cur.parts);
+    if (cur.kept) this.files++;
   }
 
   /** the archive ended: anything cut off in the middle is an error */
@@ -494,7 +562,8 @@ export async function extractBackup(file: string, dbDir: string, log?: Pick<Logg
     throw e;
   }
   writeFileSync(join(dbDir, "PG_VERSION"), x.version!);
-  const r = { files: x.files, bytes: x.bytes, ms: Math.round(performance.now() - t0) };
-  log?.info(`restoring database from backup: ${r.files} files (${fmtMb(r.bytes)}) extracted in ${(r.ms / 1000).toFixed(1)} s`);
+  const r = { files: x.files, bytes: x.bytes, skipped: x.skipped, ms: Math.round(performance.now() - t0) };
+  const left = r.skipped ? ` (${r.skipped} entr${r.skipped === 1 ? "y" : "ies"} not PostgreSQL's left out)` : "";
+  log?.info(`restoring database from backup: ${r.files} files (${fmtMb(r.bytes)}) extracted in ${(r.ms / 1000).toFixed(1)} s${left}`);
   return r;
 }

@@ -82,6 +82,7 @@ export async function backupNow(
       freeBytes: o.freeBytes,
     });
     o.log?.info(`backup: ${basename(file)} ${fmtMb(r.size)} from ${fmtMb(r.bytes)} in ${(r.ms / 1000).toFixed(1)} s (online; ${r.wal_segments} log segment${r.wal_segments === 1 ? "" : "s"})`);
+    if (r.foreign.length) o.log?.info(`backup: left out ${r.foreign.length} entr${r.foreign.length === 1 ? "y" : "ies"} of the database folder that PostgreSQL does not use: ${r.foreign.slice(0, 5).join(", ")}${r.foreign.length > 5 ? ", …" : ""}`);
     return { file: r.file, size: r.size };
   } catch (e) {
     if (e instanceof BackupStopped) throw new BackupError(e.reason, FAILED[e.reason], e.message);

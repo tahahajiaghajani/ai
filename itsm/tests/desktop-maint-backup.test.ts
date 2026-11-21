@@ -4,7 +4,7 @@
 // by the streaming one with every row committed before the backup's stop; refused when the log it needs was recycled;
 // cut short when too much log piles up; the WAL guard's checkpoints held off meanwhile.
 import { describe, it, expect, afterAll, vi } from "vitest";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createPgliteDb, type PgliteDb } from "@server/db/pglite";
 import { createWalGuard, type WalClock, type WalPg } from "@server/db/wal";
@@ -176,6 +176,87 @@ describe("an online backup", () => {
       expect(e).toMatchObject({ reason: "cut_short", code: "backup_failed", status: 503 });
       expect(e.message).toMatch(/پشتیبان‌گیری نیمه‌کاره ماند/);
       expect(e.logged).toMatch(/^backup cut short: \d+ MB of log written during the copy$/);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it("is cut short in the middle of a large file once too much log piles up, not after the file", async () => {
+    const f = folder();
+    const db = await openDb(f);
+    try {
+      // one heap file of about 70 MB (PostgreSQL's files are 1 GB segments: a bloated table's are that large)
+      await db.exec(`create table t_big (id int, pad text); insert into t_big select g, md5(g::text) || repeat(md5((g * 7)::text), 6) from generate_series(1, 300000) g`);
+      await db.exec(`create table t_w (id int, pad text)`);
+      await db.checkpoint("test");
+      const big = (await db.one<{ p: string }>(`select pg_relation_filepath('t_big') as p`))!.p;
+      expect(Number((await db.one<{ b: number }>(`select pg_relation_size('t_big')::float8 as b`))!.b)).toBeGreaterThan(48 * MB);
+      // the file the copy takes just before it (name order)
+      const folderOf = big.slice(0, big.lastIndexOf("/"));
+      const names = readdirSync(join(f.dbDir, folderOf)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+      const before = `${folderOf}/${names[names.indexOf(big.slice(folderOf.length + 1)) - 1]}`;
+      const copied: string[] = [];
+      // writes begin as the large file's copy does (the demo pack's load, a sync pull): no checkpoint takes them while the backup holds the guard
+      let writing = false;
+      let writer: Promise<void> = Promise.resolve();
+      const write = async () => {
+        while (writing) {
+          await db.exec(`insert into t_w select g, repeat('w', 200) from generate_series(1, 4000) g`);
+          await sleep(50);
+        }
+      };
+      const dir = join(f.root, "backups");
+      const err = await writeOnlineBackup(db, f.dbDir, join(dir, "itsm-big.tar.gz"), {
+        maxWalBytes: 8 * MB,
+        level: 9,
+        capEveryMs: 50,
+        onFile: (rel) => {
+          copied.push(rel);
+          if (rel === before && !writing) {
+            writing = true;
+            writer = write();
+          }
+        },
+      }).catch((e) => e);
+      writing = false;
+      await writer;
+      expect(copied).toContain(before);
+      expect(err).toBeInstanceOf(BackupStopped);
+      expect(err).toMatchObject({ reason: "cut_short" });
+      // cut short while the large file was copied — it never made it into the archive —, the log only a look's writes past the cap
+      expect(copied).not.toContain(big);
+      expect(Number(/(\d+) MB of log/.exec(err.message)?.[1])).toBeLessThan(24);
+      expect(existsSync(dir) ? readdirSync(dir) : []).toEqual([]);
+      // the guard's checkpoints run again
+      expect((await db.checkpoint("after"))?.reason).toBe("after");
+    } finally {
+      await db.close();
+    }
+  });
+
+  it("leaves out what is not PostgreSQL's (a copy made in Explorer), says so, and still backs up and restores the database", async () => {
+    const f = folder();
+    const db = await openDb(f);
+    try {
+      await db.exec(`create table t_keep (id int primary key); insert into t_keep select generate_series(1, 500)`);
+      // what an administrator or another program may leave in the folder: names no PostgreSQL file has
+      writeFileSync(join(f.dbDir, "postgresql - Copy.conf"), "# a copy\n");
+      mkdirSync(join(f.dbDir, "New folder"));
+      writeFileSync(join(f.dbDir, "New folder", "notes.txt"), "x");
+      writeFileSync(join(f.dbDir, "یادداشت.txt"), "x");
+      const log = capture();
+      const r = await backupNow(db, join(f.root, "backups"), "manual", { log });
+      expect(log.lines.some((l) => /^backup: left out 3 entries of the database folder that PostgreSQL does not use: New folder, postgresql - Copy\.conf, یادداشت\.txt$/.test(l))).toBe(true);
+      const to = join(tempFolder(), "db");
+      await extractBackup(r.file, to);
+      expect(existsSync(join(to, "postgresql - Copy.conf"))).toBe(false);
+      expect(existsSync(join(to, "New folder"))).toBe(false);
+      const back = await createPgliteDb({ dataDir: to, vector: false, wal: false });
+      try {
+        expect(await back.one(`select count(*)::int as n from t_keep`)).toEqual({ n: 500 });
+      } finally {
+        await back.close();
+      }
     } finally {
       await db.close();
     }
