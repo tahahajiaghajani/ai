@@ -25,7 +25,7 @@ z.config(z.locales.fa());
 
 /** The budget of the tick after a write request that queued jobs. */
 const AFTER_WRITE_TICK_MS = 4000;
-/** The longest the job probe may add to an answer that is ready (a busy pool, a slow database: no tick this time). */
+/** The longest the job probe waits after an answer (a busy pool, a slow database: no tick this time). */
 const PROBE_WAIT_MS = 2000;
 
 /** Is a job due or a worker's lock expired? False when the database does not say so within `PROBE_WAIT_MS`. */
@@ -55,28 +55,36 @@ export function createApp(cfg: ServerConfig) {
   // - the web version's other requests, at most once a minute per instance, ask for one of 8 s when a job is due or a
   //   worker's lock expired (a new organisation's seeds come due 10 minutes after it was made, and without a heartbeat
   //   nothing else would run them).
-  // The probe (`queueHasDue`, two partial-index lookups, about 1 ms) runs before the answer is sent, so a tick is asked
-  // for only when there is work. GET /api/cron/tick ticks itself (20 s, with the cleanup); request ticks never clean up.
+  // The probe (`queueHasDue`, two partial-index lookups, about 1 ms) runs in that work, after the answer, and the tick
+  // only when there is work: a probe that waits for a connection (a busy pool) holds no answer back and gives up after
+  // `PROBE_WAIT_MS` without a tick. GET /api/cron/tick ticks itself (20 s, with the cleanup); request ticks never clean up.
   app.use("*", async (c, next) => {
     const before = jobCounter();
     await next();
     const waitUntil = cfg.waitUntil;
     if (!waitUntil || c.req.path.startsWith("/api/cron/")) return;
-    const run = (budgetMs: number) =>
-      waitUntil(() => tick(cfg, { budgetMs, cleanup: false }).catch((e) => cfg.log.warn("job tick failed", String((e as Error)?.message ?? e))));
+    const run = (budgetMs: number, probe: boolean) =>
+      waitUntil(async () => {
+        try {
+          if (probe && !(await dueWithin(cfg))) return;
+          await tick(cfg, { budgetMs, cleanup: false });
+        } catch (e) {
+          cfg.log.warn("job tick failed", String((e as Error)?.message ?? e));
+        }
+      });
     const m = c.req.method;
     if (m !== "GET" && m !== "HEAD" && m !== "OPTIONS" && jobCounter() !== before) {
       // the server edition's waitUntil only wakes its scheduler leader, whose own tick claims what is due: no probe
-      if (cfg.server) run(AFTER_WRITE_TICK_MS);
+      if (cfg.server) run(AFTER_WRITE_TICK_MS, false);
       else {
         stampTraffic();
-        if (await dueWithin(cfg)) run(AFTER_WRITE_TICK_MS);
+        run(AFTER_WRITE_TICK_MS, true);
       }
       return;
     }
     if (cfg.mode !== "cloud" || cfg.server || !trafficTickDue(trafficClock(), lastTrafficTick())) return;
     stampTraffic();
-    if (await dueWithin(cfg)) run(TRAFFIC_TICK_BUDGET_MS);
+    run(TRAFFIC_TICK_BUDGET_MS, true);
   });
   app.onError((err, c) => errorResponse(err, c));
   app.notFound((c) => c.json({ error: { code: "not_found", message: "این مسیر وجود ندارد" } }, 404));

@@ -15,7 +15,8 @@
 // (budget 4 s); from any other request at most once a minute per instance, when a job is due or a worker's lock expired
 // (`trafficTickDue`, budget 8 s); and on GET /api/cron/tick (Bearer CRON_SECRET; Supabase pg_cron + pg_net every
 // minute, a GitHub Actions schedule, and Vercel's daily cron as a last resort; budget 20 s, the only web tick that
-// deletes finished jobs). The probe `queueHasDue` decides before the answer whether a request's tick is asked for.
+// deletes finished jobs). The probe `queueHasDue`, run after the answer in the work handed to `cfg.waitUntil`, lets a
+// request's tick run only when there is work.
 // Handlers never run inside a transaction: they open their own (`db.tx`) and may call external services.
 import type { Db, Queryable } from "../db";
 import { retryTransient } from "../db";
@@ -461,8 +462,8 @@ async function runOne(cfg: JobConfig, job: Job, deadline: number): Promise<boole
 
 /**
  * Is there work for a tick — a queued job that is due, or a running job whose worker's lock expired? Two probes of the
- * partial indexes sm_jobs_due_idx and sm_jobs_running_idx (about 1 ms). The web version asks before a request's answer
- * whether to let that answer run a tick (src/server/app.ts), so it asks for one only when there is work.
+ * partial indexes sm_jobs_due_idx and sm_jobs_running_idx (about 1 ms). The web version asks after a request's answer,
+ * in the work it hands to `waitUntil` (src/server/app.ts), and ticks only when there is work.
  */
 export async function queueHasDue(q: Queryable): Promise<boolean> {
   const r = await q.one<{ due: boolean }>(

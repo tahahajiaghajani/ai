@@ -441,7 +441,8 @@ await tick(cfg, { budgetMs: 4000, max });   // → { ran, failed, more, busy? }
   tick and once an hour per process (`cleanup: false` skips it).
 - Triggers: the Windows app ticks every 10 s; the server edition's scheduler leader on its interval and when a write
   wakes it. The web version has no timer between requests: once an answer is ready (`cfg.waitUntil`, Next.js
-  `after`) a write request that queued jobs ticks for 4 s when one is due (`queueHasDue`), any other request at most
+  `after`) a write request that queued jobs ticks for 4 s when one is due (`queueHasDue`, asked in that work after the
+  answer and given up after 2 s), any other request at most
   once a minute per instance for 8 s when a job is due or a lock expired (`trafficTickDue`), both with
   `cleanup: false`; and `GET|POST /api/cron/tick` ticks for 20 s with the cleanup (Bearer `CRON_SECRET` when set; call
   it every minute from Supabase pg_cron + pg_net, docs/SETUP_FA.md §۴-۱, or a GitHub Actions schedule; `vercel.json`
