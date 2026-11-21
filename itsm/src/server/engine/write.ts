@@ -354,8 +354,9 @@ async function pipeline(p: PipelineInput): Promise<Row> {
     }
   }
   problems.throwIfAny();
-  if (defaulted.size) await dropMissingDefaults(tx, ctx, def, next, changed, defaulted, schema, env);
-  await checkRefs(tx, ctx, def, next, changed, schema, env, problems);
+  // defaults are checked once, on their own (a default naming a missing row is dropped); the rest as always
+  const checked = defaulted.size ? await dropMissingDefaults(tx, ctx, def, next, changed, defaulted, schema, env) : null;
+  await checkRefs(tx, ctx, def, next, checked ? [...changed].filter((n) => !checked.has(n)) : changed, schema, env, problems);
   problems.throwIfAny();
   if (transition) {
     const tw = { ...w, transition };
@@ -423,18 +424,20 @@ async function beforeWriteHooks(hooks: ReturnType<typeof hooksFor>, w: WriteArgs
  * the demo pack's purge took away): the default is dropped and the write goes on — a default is only a suggestion and
  * never the reason a record cannot be made. A value the caller or a hook gave is checked as always.
  */
-async function dropMissingDefaults(tx: Tx, ctx: Ctx, def: TableDef, next: Row, changed: Set<string>, defaulted: Map<string, unknown>, schema: OrgSchema, env: CondEnv): Promise<void> {
+async function dropMissingDefaults(tx: Tx, ctx: Ctx, def: TableDef, next: Row, changed: Set<string>, defaulted: Map<string, unknown>, schema: OrgSchema, env: CondEnv): Promise<Set<string>> {
   const names = [...defaulted.keys()].filter((n) => {
     const f = def.fields.find((x) => x.name === n);
     return !!f && changed.has(n) && sameValue(f, next[n], defaulted.get(n));
   });
-  if (!names.length) return;
+  if (!names.length) return new Set();
   const missing = await checkRefs(tx, ctx, def, next, names, schema, env);
   for (const n of Object.keys(missing.fields)) {
     const f = def.fields.find((x) => x.name === n);
     next[n] = f && FIELD_TYPES[f.type].array ? [] : null;
     changed.delete(n);
   }
+  // the fields checked here (kept or dropped) are not checked again
+  return new Set(names);
 }
 
 function transitionError(def: TableDef, from: unknown, to: unknown): AppError {
