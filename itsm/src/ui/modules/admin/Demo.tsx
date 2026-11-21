@@ -1,7 +1,8 @@
 // «داده‌های نمایشی» (docs/DEMO_FA.md): the fictional «بانک نمونهٔ آفتاب» for presenting the product — load it with a
-// size, see what it holds and the personas to sign in as, and remove it completely: a pre-purge report (what goes,
-// the real records that refer to it), a typed confirmation and the platform's re-authentication, then a progress bar
-// and the result. Only content-free audit lines remain.
+// size, see what it holds and the personas to sign in as, and remove it completely: a pre-purge report (a dry run of
+// the purge: the pack, what was recorded on it and goes with it, the definitions cleaned or switched off, the records
+// routed again), a typed confirmation and the platform's re-authentication, then a progress bar and the result. Only
+// content-free audit lines remain.
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, Button, Checkbox, Input, Modal, Progress, Segmented, Switch, Table, Typography } from "antd";
@@ -39,7 +40,14 @@ interface Report {
   tables: Record<string, number>;
   rows: number;
   accounts: number;
-  references: { table: string; field: string; rows: number; action: "cleared" | "reported" }[];
+  /** recorded on demo data, whoever made it: removed with it (per table, a few samples) */
+  deleted?: { table: string; label: string; rows: number; samples: string[] }[];
+  /** definitions built on demo data: cleaned, switched off when nothing meaningful is left */
+  cleaned?: { table: string; label: string; id: string; name: string; what: string; deactivated: boolean; retired?: boolean }[];
+  /** kept records whose people, groups or units were demo data: cleared and routed again */
+  rerouted?: { table: string; label: string; rows: number; routed: number; samples: string[] }[];
+  /** the dry run reached the request's time limit: what it found so far */
+  partial?: boolean;
 }
 
 const PHRASE = "حذف کامل";
@@ -295,21 +303,54 @@ function PurgeDialog({ onClose, onDone }: { onClose: () => void; onDone: () => v
       ) : (
         <div className="flex flex-col gap-3">
           <p className="text-ink-2">
-            {fa(d.rows)} ردیف در {fa(Object.keys(d.tables).length)} جدول و {fa(d.accounts)} حساب نمایشی برای همیشه حذف می‌شود؛ پیوست‌ها، اعلان‌ها، نمایه‌های جست‌وجو و هوش مصنوعی و محاسبه‌های انجام‌شده روی آن‌ها نیز. فقط یک سطر ممیزی بدون محتوا می‌ماند.
+            {fa(d.rows)} ردیف در {fa(Object.keys(d.tables).length)} جدول و {fa(d.accounts)} حساب نمایشی برای همیشه حذف می‌شود؛ پیوست‌ها، اعلان‌ها، نمایه‌های جست‌وجو و هوش مصنوعی و محاسبه‌های انجام‌شده روی آن‌ها نیز. فقط سطرهای ممیزی بدون محتوا می‌ماند.
           </p>
-          {d.references.length ? (
+          {d.partial ? <Alert type="info" showIcon title="پیش‌نمایش ناتمام" description="بررسی در زمان یک درخواست تمام نشد؛ آنچه تا این‌جا پیدا شد نشان داده می‌شود. حذف همه را بررسی می‌کند." /> : null}
+          {d.deleted?.length ? (
             <>
-              <Alert type="warning" showIcon title="رکوردهای واقعی که به دادهٔ نمایشی اشاره می‌کنند" description="ارجاع‌های اختیاری خالی می‌شوند؛ ارجاع‌های اجباری و نشانه‌های دسترسی فقط گزارش می‌شوند. هیچ رکورد واقعی حذف نمی‌شود." />
+              <Alert type="warning" showIcon title="ثبت‌شده روی دادهٔ نمایشی؛ با آن حذف می‌شود" description="رکوردهایی که بدون دادهٔ نمایشی معنا ندارند، هر کس ثبتشان کرده باشد: کار زیر رکورد نمایشی، پرونده یا رکوردی که برای فرد نمایشی ثبت شده است." />
               <Table
                 size="small"
-                rowKey={(x) => `${x.table}.${x.field}`}
+                rowKey="table"
                 pagination={false}
-                dataSource={d.references}
+                dataSource={d.deleted}
                 columns={[
-                  { title: "جدول", dataIndex: "table", render: (v: string) => <span className="ltr">{v}</span> },
-                  { title: "فیلد", dataIndex: "field", render: (v: string) => <span className="ltr">{v}</span> },
+                  { title: "جدول", dataIndex: "label" },
                   { title: "ردیف", dataIndex: "rows", render: (v: number) => <span className="ds-num">{fa(v)}</span> },
-                  { title: "اقدام", dataIndex: "action", render: (v: string) => (v === "cleared" ? "خالی می‌شود" : "فقط گزارش") },
+                  { title: "نمونه", dataIndex: "samples", render: (v: string[]) => v.join("، ") },
+                ]}
+              />
+            </>
+          ) : null}
+          {d.cleaned?.length ? (
+            <>
+              <Alert type="info" showIcon title="تعریف‌هایی که پاک‌سازی می‌شوند" description="فقط ارجاع به دادهٔ نمایشی برداشته می‌شود؛ تعریفی که چیزی از آن نمی‌ماند غیرفعال می‌شود تا هرگز بر همه اعمال نشود. هر یک در ممیزی برای بازبینی ثبت می‌شود." />
+              <Table
+                size="small"
+                rowKey="id"
+                pagination={false}
+                dataSource={d.cleaned}
+                columns={[
+                  { title: "نوع", dataIndex: "label" },
+                  { title: "نام", dataIndex: "name" },
+                  { title: "تغییر", dataIndex: "what" },
+                  { title: "", dataIndex: "deactivated", render: (v: boolean, x) => (x.retired ? <Chip tone="warning">بازنشسته می‌شود</Chip> : v ? <Chip tone="warning">غیرفعال می‌شود</Chip> : null) },
+                ]}
+              />
+            </>
+          ) : null}
+          {d.rerouted?.length ? (
+            <>
+              <Alert type="info" showIcon title="رکوردهایی که دوباره ارجاع می‌شوند" description="فرد، گروه یا واحد نمایشی از رکوردهای واقعی برداشته می‌شود و قاعده‌های ارجاع و تأیید دوباره اجرا می‌شوند." />
+              <Table
+                size="small"
+                rowKey="table"
+                pagination={false}
+                dataSource={d.rerouted}
+                columns={[
+                  { title: "جدول", dataIndex: "label" },
+                  { title: "ردیف", dataIndex: "rows", render: (v: number) => <span className="ds-num">{fa(v)}</span> },
+                  { title: "ارجاع دوباره", dataIndex: "routed", render: (v: number) => <span className="ds-num">{fa(v)}</span> },
                 ]}
               />
             </>

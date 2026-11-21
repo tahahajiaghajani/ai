@@ -350,8 +350,9 @@ describe("demo purge and Windows apps", () => {
   }, 300_000);
   /**
    * What a Windows app does offline about the pack — after the server's purge, before its next sync: it edits a demo
-   * record and comments on it, edits a real record whose pointer named a persona (the purge cleared it there), and makes
-   * one real record for a persona (the persona is whose record it is) and one that only points at the persona.
+   * record and comments on it, edits a real record whose pointer named a persona (the purge cleared it there) and one
+   * whose requester was a persona (the purge took it with the pack), and makes one real record for a persona (the
+   * persona is whose record it is) and one that only points at the persona.
    */
   async function offlineWork(demo: string, who: string, realNaming: string, realRequester: string) {
     const local = await localOwner();
@@ -383,10 +384,12 @@ describe("demo purge and Windows apps", () => {
     // the edit of the real record the purge had cleared is taken, its cleared pointer stays cleared
     expect(await cloudDb.one(`select short_description, assigned_to from sm_todos where id = $1`, [realNaming])).toEqual({ short_description: "کار واقعی ویرایش‌شده بیرون از خط", assigned_to: null });
     expect(await deskDb.one(`select assigned_to from sm_todos where id = $1`, [realNaming])).toEqual({ assigned_to: null });
-    // so is the edit of a real record whose requester the purge cleared (it was answered «conflict» with the server's
-    // copy, and the person's edit was lost): the requester stays as the purge left it
-    expect(await cloudDb.one(`select short_description, caller_id from sm_todos where id = $1`, [realRequester])).toEqual({ short_description: "درخواست واقعی ویرایش‌شده بیرون از خط", caller_id: null });
-    expect(await deskDb.one(`select short_description, caller_id from sm_todos where id = $1`, [realRequester])).toEqual({ short_description: "درخواست واقعی ویرایش‌شده بیرون از خط", caller_id: null });
+    // a real record whose requester was the persona went with the pack (1.1.5, docs/DEMO_FA.md «قواعد ایمنی»: what was
+    // recorded on demo data goes with it, whoever made it): the offline edit of it does not bring it back — on the server
+    // it is gone or its content-free tombstone — and the app drops its copy
+    const asked = await cloudDb.one<{ short_description: string | null; deleted_at: string | null }>(`select short_description, deleted_at from sm_todos where id = $1`, [realRequester]);
+    expect(!asked || (!!asked.deleted_at && !asked.short_description)).toBe(true);
+    expect(await goneFromApp("sm_todos", realRequester)).toBe(true);
     // the app's copy of the demo record and the persona's account are gone (or an empty deleted marker)
     expect(await goneFromApp("sm_todos", demo)).toBe(true);
     expect(await deskDb.one(`select 1 from sm_users where id = $1`, [who])).toBeNull();

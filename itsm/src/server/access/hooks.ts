@@ -10,6 +10,7 @@
 // - workspace: one default.
 // Scope epochs and the access version move by trigger (migration 0007_access), on every write path.
 import type { Ctx } from "../context";
+import type { TableDef } from "@shared/model/types";
 import type { Tx } from "../db";
 import { bad, conflict, forbidden } from "../http/errors";
 import { needRecentAuth } from "../auth/policy";
@@ -65,19 +66,28 @@ export function checkGrantable(ctx: Ctx, snap: Snapshot, keys: string[], s: Subj
   if (extra.length) throw forbidden(`نمی‌توانید نقشی با دسترسی بیشتر از دسترسی خودتان بدهید: ${describeExcess(extra)}`);
 }
 
-async function anchors(w: WriteArgs, snap: Snapshot): Promise<void> {
-  const { def, next } = w;
+/**
+ * The access anchors of a row of `def`: the unit and domain of the profile of its first requester-side person (null
+ * without one). Also the demo purge's derivation when the unit a kept row was anchored to goes (src/server/modules/demo).
+ */
+export function anchorsFor(def: TableDef, row: Record<string, unknown>, snap: Snapshot): { unit_id?: string | null; domain_id?: string | null } {
   const c = scopeColumns(def);
-  if (c.unit !== "unit_id" && c.domain !== "domain_id") return;
+  const out: { unit_id?: string | null; domain_id?: string | null } = {};
+  if (c.unit !== "unit_id" && c.domain !== "domain_id") return out;
   let person: string | null = null;
   for (const f of c.requester) {
-    person = idOf(next[f.name]);
+    person = idOf(row[f.name]);
     if (person) break;
   }
   const profile = person ? snap.profiles.get(person) : undefined;
   const unit = profile?.org_unit_id && snap.units.has(profile.org_unit_id) ? profile.org_unit_id : null;
-  if (c.unit === "unit_id") next.unit_id = unit;
-  if (c.domain === "domain_id") next.domain_id = memberDomain(snap, profile);
+  if (c.unit === "unit_id") out.unit_id = unit;
+  if (c.domain === "domain_id") out.domain_id = memberDomain(snap, profile);
+  return out;
+}
+
+async function anchors(w: WriteArgs, snap: Snapshot): Promise<void> {
+  Object.assign(w.next, anchorsFor(w.def, w.next, snap));
 }
 
 async function nameOf(tx: Tx, userId: string): Promise<string | null> {

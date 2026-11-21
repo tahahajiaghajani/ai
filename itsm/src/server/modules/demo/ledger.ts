@@ -27,8 +27,11 @@ export interface PurgedRow {
   tbl: string;
 }
 
-/** SQL: does the uuid expression `e` name a row an earlier purge of the organisation ($1) removed? An index probe. */
-export const isPurgedSql = (e: string): string => `exists (select 1 from sm_demo_purged p where p.org_id = $1 and p.row_id = ${e})`;
+/**
+ * SQL: does the uuid expression `e` name a row an earlier purge of the organisation ($1) removed? An index probe. Its
+ * alias is one no caller uses (`e` may name an outer `p` or `d`: the purge's queries alias positions and units `p`).
+ */
+export const isPurgedSql = (e: string): string => `exists (select 1 from sm_demo_purged purged_id where purged_id.org_id = $1 and purged_id.row_id = ${e})`;
 
 /** The name a content-free account tombstone carries (shown wherever an old Windows app still lists its trail). */
 export const PURGED_ACCOUNT_NAME = "حساب نمایشی حذف‌شده";

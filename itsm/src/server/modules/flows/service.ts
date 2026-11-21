@@ -69,6 +69,7 @@ export async function flowProblems(ctx: Ctx, row: Record<string, unknown>, graph
       if (n.type === "call_http" && UUID.test(c) && !found.some((f) => f.id === c.toLowerCase())) problems.push({ level: "error", node: n.id, field: "connection", message: "اتصال این گام پیدا نشد" });
     }
   }
+  problems.push(...(await missingRefs(ctx, g, trigger)));
   for (const n of g.nodes) {
     if (n.type === "subflow" && String(n.config.flow ?? "") === String(row.id ?? "")) problems.push({ level: "error", node: n.id, field: "flow", message: "گردش‌کار نمی‌تواند خودش را اجرا کند" });
     // a step that would create or change rows of a table only the platform writes (its own table, or the trigger's)
@@ -78,6 +79,62 @@ export async function flowProblems(ctx: Ctx, row: Record<string, unknown>, graph
     }
   }
   return problems;
+}
+
+/**
+ * Rows the graph's steps name that no longer exist (a person who left, a group or record that was removed — the demo
+ * pack's purge among them): the values a create or update step writes into reference fields, the people and groups
+ * of «ارسال اعلان» and «درخواست تأیید», and fixed record ids. Each is an error: the step would fail on every run.
+ */
+async function missingRefs(ctx: Ctx, g: FlowGraph, trigger: TriggerConfig): Promise<FlowProblem[]> {
+  const schema = await orgSchema(ctx);
+  // the ids by target table key ("user" for members), and every step and setting that names each (one problem each)
+  const wanted = new Map<string, Map<string, { node: string; field: string; label: string }[]>>();
+  const want = (target: string | null, id: unknown, node: string, field: string, label: string) => {
+    if (!target || typeof id !== "string" || !UUID.test(id)) return;
+    const m = wanted.get(target) ?? new Map<string, { node: string; field: string; label: string }[]>();
+    const at = m.get(id.toLowerCase()) ?? [];
+    if (!at.some((x) => x.node === node && x.field === field && x.label === label)) at.push({ node, field, label });
+    m.set(id.toLowerCase(), at);
+    wanted.set(target, m);
+  };
+  for (const n of g.nodes) {
+    const c = n.config ?? {};
+    if (n.type === "create_record" || n.type === "update_record") {
+      const def = schema.def(nodeTable(c, trigger));
+      const values = c.values && typeof c.values === "object" && !Array.isArray(c.values) ? (c.values as Record<string, unknown>) : {};
+      for (const [k, v] of Object.entries(values)) {
+        const f = def?.fields.find((x) => x.name === k);
+        if (!f) continue;
+        const target = f.type === "user" || f.type === "users" ? "user" : f.type === "group" ? "group" : f.type === "ref" || f.type === "refs" ? (f.ref === "$self" ? def!.key : f.ref ?? null) : null;
+        for (const id of Array.isArray(v) ? v : [v]) want(target, id, n.id, "values", f.label);
+      }
+    }
+    for (const key of ["to", "approvers"]) {
+      const r = c[key] as { users?: unknown[]; groups?: unknown[] } | undefined;
+      if (!r || typeof r !== "object") continue;
+      for (const u of Array.isArray(r.users) ? r.users : []) want("user", u, n.id, key, "گیرنده");
+      for (const gr of Array.isArray(r.groups) ? r.groups : []) want("group", gr, n.id, key, "گروه");
+    }
+    if (typeof c.record === "string" && UUID.test(c.record)) want(nodeTable(c, trigger) || null, c.record, n.id, "record", "رکورد");
+  }
+  const out: FlowProblem[] = [];
+  for (const [target, ids] of wanted) {
+    const list = [...ids.keys()];
+    let found: Set<string>;
+    if (target === "user") {
+      found = new Set((await ctx.db.query<{ id: string }>(`select user_id::text as id from sm_org_members where org_id = $1 and user_id = any($2::uuid[]) and deleted_at is null`, [ctx.org.id, pgArray(list)])).map((r) => r.id));
+    } else {
+      const def = schema.def(target);
+      if (!def || def.virtual) continue;
+      found = new Set((await ctx.db.query<{ id: string }>(`select id::text as id from ${def.table} where org_id = $1 and id = any($2::uuid[]) and deleted_at is null`, [ctx.org.id, pgArray(list)])).map((r) => r.id));
+    }
+    for (const [id, all] of ids) {
+      if (found.has(id)) continue;
+      for (const at of all) out.push({ level: "error", node: at.node, field: at.field, message: `«${at.label}» این گام به ردیفی اشاره می‌کند که دیگر وجود ندارد` });
+    }
+  }
+  return out;
 }
 
 async function flowFor(ctx: Ctx, id: string, write = false): Promise<{ row: Record<string, any>; canWrite: boolean }> {

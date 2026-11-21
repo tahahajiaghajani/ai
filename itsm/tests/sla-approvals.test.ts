@@ -389,6 +389,25 @@ describe("approvals", () => {
     expect((await record(rec.id)).approval).toBe("not_requested");
   });
 
+  it("a level whose people can no longer approve waits for review: a record is never approved by nobody (1.1.5)", async () => {
+    // a person who is no longer in the organisation (the demo pack's purge removed them, or they left) and a group that
+    // was deleted: before 1.1.5 the level was «skipped» and the record approved by itself
+    const left = "0190ffff-0000-7000-8000-00000000a115";
+    const goneGroup = "0190ffff-0000-7000-8000-00000000b115";
+    await rule("gone", { levels: [{ name: "حذف‌شده", sources: [{ kind: "users", users: [left] }, { kind: "groups", groups: [goneGroup] }], rule: "any" }] });
+    // filed by someone without a manager (the manager would be asked instead, as before)
+    const rec = (await who.X.client.post(`${P}/r/apv_case`, { short_description: "خرید gone", kind: "gone" })).row;
+    expect(rec.approval).toBe("requested");
+    const rows = await rowsOf(rec.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ approver_id: null, state: "requested", level: 1 });
+    expect(rows[0].comments).toContain("دیگر نمی‌توانند");
+    // someone who can only be skipped (the requester himself, separation of duties) is skipped as before
+    await rule("self", { levels: [{ name: "خود", sources: [{ kind: "users", users: [id("X")] }], rule: "any" }] });
+    const own = (await who.X.client.post(`${P}/r/apv_case`, { short_description: "خرید self", kind: "self" })).row;
+    expect((await rowsOf(own.id)).map((r) => r.state)).toEqual(["skipped"]);
+  });
+
   it("decides in bulk, each approval on its own", async () => {
     await rule("bulk", { levels: [{ sources: [{ kind: "users", users: [id("A1")] }] }] });
     const one = await file("bulk");
