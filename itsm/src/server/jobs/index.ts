@@ -7,8 +7,8 @@
 // - `tick(cfg, { budgetMs })` claims due jobs one by one (`for update skip locked`: several cloud instances never
 //   take the same job; PGlite is a single connection) and runs their handlers until the budget is spent. A failed
 //   job is retried with exponential backoff until `max_attempts`, then kept as `failed` with its last error. A job
-//   whose worker died is taken again once its lock (5 minutes) expired — unless that was its last allowed attempt:
-//   it is then failed (`failExhausted`), so a job that never fits in its worker's time is not retried forever.
+//   whose worker died is taken again once its lock (5 minutes) expired, whatever its attempts: only a handler's error
+//   counts against `max_attempts`, never a worker's death.
 // Triggers: the Windows app ticks every 10 s (src/desktop/server.ts); the server edition's scheduler leader on its
 // interval and when a write wakes it (src/server-edition/scheduler.ts). The web version has no timer of its own between
 // requests (src/server/app.ts): it ticks once the answer is sent after a write request that queued jobs, when one is due
@@ -172,8 +172,7 @@ export function backoffMs(attempts: number): number {
 
 /**
  * Claim up to `n` due jobs in one statement (`for update skip locked`: concurrent ticks of other processes never take
- * the same job; the partial index sm_jobs_due_idx answers it), else jobs whose worker died (lock expired) and that have
- * an attempt left (one that used its last attempt is failed by `failExhausted`, never run again).
+ * the same job; the partial index sm_jobs_due_idx answers it), else jobs whose worker died (lock expired).
  */
 async function claim(db: Db, worker: string, n = 1): Promise<Job[]> {
   const take = (pick: string) =>
@@ -186,34 +185,7 @@ async function claim(db: Db, worker: string, n = 1): Promise<Job[]> {
     );
   const due = await take(`select id from sm_jobs where status = 'queued' and run_at <= now() order by run_at, id limit ${Math.max(1, Math.trunc(n))}`);
   if (due.length) return due.sort((a, b) => (a.run_at < b.run_at ? -1 : a.run_at > b.run_at ? 1 : a.id < b.id ? -1 : 1));
-  return take(
-    `select id from sm_jobs where status = 'running' and locked_until < now() and attempts < max_attempts order by locked_until limit ${Math.max(1, Math.trunc(n))}`,
-  );
-}
-
-/** The last error of a job whose worker stopped during its last allowed attempt (after the error it had, if any). */
-export const EXHAUSTED_ERROR = "کارگر این کار در آخرین تلاش مجاز پیش از پایان متوقف شد (مثلاً به سقف زمان اجرای سرور رسید)؛ دیگر اجرا نمی‌شود";
-/** How much of a job's earlier error stays before `EXHAUSTED_ERROR`: last_error holds 2,000 characters, like runOne's. */
-const EARLIER_ERROR_KEPT = 2000 - " · ".length - EXHAUSTED_ERROR.length;
-
-/**
- * Fail the jobs whose worker stopped during their last allowed attempt: still `running`, their lock expired, no attempt
- * left (`attempts >= max_attempts`; the claim counts an attempt when it takes the job). Their worker was cut off — the
- * web version's function at its time limit, a process that died — and a job that never fits in that time would
- * otherwise be taken again forever. At most 100 per tick (sm_jobs_running_idx), the rest at the next tick. A long
- * earlier error is shortened, never the reason.
- */
-async function failExhausted(db: Db, log: Logger): Promise<number> {
-  const rows = await db.query<{ id: string; kind: string; org_id: string | null; attempts: number }>(
-    `update sm_jobs set status = 'failed', done_at = now(), locked_until = null, locked_by = null,
-            last_error = coalesce(left(last_error, ${EARLIER_ERROR_KEPT}) || ' · ', '') || $1, updated_at = now()
-     where id in (select id from sm_jobs where status = 'running' and locked_until < now() and attempts >= max_attempts
-                  order by locked_until limit 100 for update skip locked)
-     returning id, kind, org_id, attempts`,
-    [EXHAUSTED_ERROR],
-  );
-  for (const r of rows) log.warn(`job ${r.kind} failed: its worker stopped during its last allowed attempt`, { id: r.id, org_id: r.org_id, attempts: r.attempts });
-  return rows.length;
+  return take(`select id from sm_jobs where status = 'running' and locked_until < now() order by locked_until limit ${Math.max(1, Math.trunc(n))}`);
 }
 
 /**
@@ -390,7 +362,6 @@ async function tickOutsideScope(cfg: JobConfig, opts: TickOptions): Promise<Tick
   let failed = 0;
   try {
     if (opts.cleanup !== false) await cleanup(db, deadline).catch((e) => cfg.log.warn("job cleanup failed", String((e as Error)?.message ?? e)));
-    await failExhausted(db, cfg.log).catch((e) => cfg.log.warn("failing exhausted jobs failed", String((e as Error)?.message ?? e)));
     while (Date.now() < deadline && ran + failed < max && !closing.has(db)) {
       if (opts.busy?.()) {
         await quietFor(opts.busy, Math.min(YIELD_MS, deadline - Date.now()));

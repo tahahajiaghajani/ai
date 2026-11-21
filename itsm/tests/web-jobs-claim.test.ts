@@ -1,10 +1,15 @@
-// A job whose worker stopped during its last allowed attempt (Kariz 1.1.4): the web version's function cut at its
-// time limit while the job ran leaves it `running` with an expired lock. Once the claim has counted every allowed
-// attempt it is failed with a Persian reason, never claimed and run again; before, the claim of expired locks took it
-// again and again, so a job that never fits in its worker's time was retried forever. A job with an attempt left is
-// still taken again, as before.
+// A job whose worker stopped (Kariz 1.1.4, as 1.1.3): the web version's function cut at its time limit, a process that
+// died or an outcome that could not be saved leaves the job `running` until its lock (5 minutes) expires. It is then
+// taken again and run, whatever its attempts: a worker's death never fails a job by itself — only a handler's error
+// counts against `max_attempts`.
+// The 1.1.4 candidate failed such a job at its last allowed attempt instead (failExhausted). Its final review found that
+// this ended healthy self-rescheduling chains — a run that dies keeps the attempt its claim counted for good, so a chain
+// allowed three attempts ended at its third death, however many healthy runs lay between (JOBS-1) — and that it would
+// have left the rows of stateful kinds non-terminal (a backup `running`, a demo pack `loading`, an agent run `queued`, an
+// export or an import `running`, 27 kinds in all). It comes back in 1.1.5, with an attempt reset on success and per-kind
+// exhausted hooks.
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
-import { enqueue, EXHAUSTED_ERROR, registerJobHandler, tick } from "@server/jobs";
+import { enqueue, registerJobHandler, tick } from "@server/jobs";
 import { makeServer, Client, signupWithOrg, quietLog } from "./helpers";
 import type { ServerConfig } from "@server/context";
 import type { Db } from "@server/db";
@@ -20,6 +25,7 @@ describe("jobs whose worker stopped", () => {
   beforeAll(async () => {
     const s = await makeServer();
     db = s.db;
+    // the new organisation's seeds wait 10 minutes: nothing but this suite's jobs is due
     org = await signupWithOrg(new Client(s.app));
     const log = { ...quietLog, warn: (m: string) => void warnings.push(m) };
     cfg = { mode: "cloud", db, secret: "t", allowSignup: true, platformAdmins: [], origin: "cloud", log, fetch };
@@ -32,7 +38,11 @@ describe("jobs whose worker stopped", () => {
   });
 
   const handle = (kind: string) => offs.push(registerJobHandler(kind, async (j) => void ran.push(j.id)));
-  const job = (id: string) => db.one<{ status: string; attempts: number; last_error: string | null; done_at: string | null; locked_until: string | null; locked_by: string | null }>(`select * from sm_jobs where id = $1`, [id]);
+  const job = (id: string) =>
+    db.one<{ status: string; attempts: number; last_error: string | null; done_at: string | null; locked_until: string | null; locked_by: string | null }>(
+      `select * from sm_jobs where id = $1`,
+      [id],
+    );
 
   /** A job a worker claimed and never finished: `attempts` as the claims counted them, its lock gone a minute ago. */
   async function stalled(kind: string, attempts: number, maxAttempts: number, opts: { lastError?: string; lockedFor?: string } = {}): Promise<string> {
@@ -44,75 +54,75 @@ describe("jobs whose worker stopped", () => {
     return id;
   }
 
-  it("fails a job that used its last attempt, with a Persian reason, without running it again", async () => {
+  it("takes a job whose worker stopped during its last allowed attempt again and runs it", async () => {
     handle("test.stalled");
-    const id = await stalled("test.stalled", 3, 3);
-    await tick(cfg, { budgetMs: 5000 });
-    const j = await job(id);
-    expect(j).toMatchObject({ status: "failed", attempts: 3, locked_until: null, locked_by: null });
-    expect(j!.last_error).toContain("آخرین تلاش مجاز");
-    expect(j!.done_at).not.toBeNull();
-    expect(ran).toEqual([]);
-    expect(warnings.some((w) => w.startsWith("job test.stalled failed"))).toBe(true);
-  });
-
-  it("keeps the error of an earlier attempt before the reason", async () => {
-    handle("test.stalled");
-    const id = await stalled("test.stalled", 5, 5, { lastError: "سرویس پاسخ نداد" });
-    await tick(cfg, { budgetMs: 5000 });
-    const j = await job(id);
-    expect(j!.status).toBe("failed");
-    expect(j!.last_error!.startsWith("سرویس پاسخ نداد · ")).toBe(true);
-    expect(j!.last_error).toContain("آخرین تلاش مجاز");
-    expect(ran).toEqual([]);
-  });
-
-  it("keeps the reason when the earlier error was as long as a job's error may be (2,000 characters)", async () => {
-    handle("test.stalled");
-    const earlier = ("پاسخ سرویس: " + "خ".repeat(2000)).slice(0, 2000);
-    const id = await stalled("test.stalled", 4, 4, { lastError: earlier });
-    await tick(cfg, { budgetMs: 5000 });
-    const j = await job(id);
-    expect(j!.status).toBe("failed");
-    expect(j!.last_error!.length).toBeLessThanOrEqual(2000);
-    expect(j!.last_error!.endsWith(` · ${EXHAUSTED_ERROR}`)).toBe(true);
-    expect(j!.last_error!.startsWith("پاسخ سرویس: خخخ")).toBe(true);
-    expect(ran).toEqual([]);
+    const id = await stalled("test.stalled", 3, 3, { lastError: "سرویس پاسخ نداد" });
+    await tick(cfg, { budgetMs: 5000, cleanup: false });
+    expect(await job(id)).toMatchObject({ status: "done", attempts: 4, locked_until: null, locked_by: null });
+    expect(ran).toEqual([id]);
+    expect(warnings).toEqual([]);
   });
 
   it("takes a job with an attempt left again and runs it, as before", async () => {
     handle("test.stalled");
     const id = await stalled("test.stalled", 2, 3);
-    await tick(cfg, { budgetMs: 5000 });
+    await tick(cfg, { budgetMs: 5000, cleanup: false });
     expect(await job(id)).toMatchObject({ status: "done", attempts: 3 });
     expect(ran).toEqual([id]);
   });
 
-  it("leaves a job whose last attempt is still running (its lock has not expired)", async () => {
+  it("leaves a job whose worker still holds it (its lock has not expired)", async () => {
     handle("test.stalled");
     const id = await stalled("test.stalled", 3, 3, { lockedFor: "4 minutes" });
-    await tick(cfg, { budgetMs: 2000 });
+    await tick(cfg, { budgetMs: 2000, cleanup: false });
     expect(await job(id)).toMatchObject({ status: "running", attempts: 3, locked_by: "w-gone" });
     expect(ran).toEqual([]);
   });
 
-  it("fails at most 100 such jobs per tick, the rest at the next one", async () => {
-    handle("test.stalled_many");
-    await db.query(
-      `insert into sm_jobs (id, org_id, kind, status, attempts, max_attempts, locked_by, locked_until)
-       select gen_random_uuid(), $1, 'test.stalled_many', 'running', 8, 8, 'w-gone', now() - (g * interval '1 second')
-       from generate_series(1, 120) g`,
-      [org],
+  it("still fails a job whose handler throws on its last allowed attempt: only a handler's error counts", async () => {
+    offs.push(
+      registerJobHandler("test.stalled_throws", async () => {
+        throw new Error("سرویس دوباره پاسخ نداد");
+      }),
     );
-    const count = async () =>
-      (await db.query<{ status: string; n: number }>(`select status, count(*)::int as n from sm_jobs where kind = 'test.stalled_many' group by status`)).reduce(
-        (m, r) => ({ ...m, [r.status]: r.n }),
-        {} as Record<string, number>,
-      );
-    await tick(cfg, { budgetMs: 5000 });
-    expect(await count()).toEqual({ failed: 100, running: 20 });
-    await tick(cfg, { budgetMs: 5000 });
-    expect(await count()).toEqual({ failed: 120 });
-    expect(ran).toEqual([]);
+    const id = await stalled("test.stalled_throws", 3, 3);
+    await tick(cfg, { budgetMs: 5000, cleanup: false });
+    const j = await job(id);
+    expect(j).toMatchObject({ status: "failed", attempts: 4, last_error: "سرویس دوباره پاسخ نداد", locked_until: null, locked_by: null });
+    expect(j!.done_at).not.toBeNull();
+    expect(warnings.some((w) => w.startsWith("job test.stalled_throws failed"))).toBe(true);
+  });
+
+  // the inbound mailbox's poller, a directory sync, a scheduled export: one row that returns `{ again }` for good. Each
+  // run that dies keeps the attempt its claim counted, so its attempts grow by one with every death over its life
+  it("keeps a self-rescheduling chain alive across more deaths of its workers than its allowed attempts", async () => {
+    let runs = 0;
+    offs.push(
+      registerJobHandler("test.chain", async () => {
+        runs++;
+        return { again: 60_000 };
+      }),
+    );
+    const id = await enqueue(db, { kind: "test.chain", orgId: org, maxAttempts: 3, dedupeKey: "test.chain" });
+    const dueNow = () => db.query(`update sm_jobs set run_at = now() where id = $1 and status = 'queued'`, [id]);
+    /** A worker claims the job (attempts + 1, as the claim counts it) and dies; its lock has expired since. */
+    const death = () =>
+      db.query(`update sm_jobs set status = 'running', attempts = attempts + 1, locked_by = 'w-dead', locked_until = now() - interval '1 minute' where id = $1`, [id]);
+    for (let life = 1; life <= 4; life++) {
+      // healthy runs between the deaths
+      for (let i = 0; i < 3; i++) {
+        await dueNow();
+        await tick(cfg, { budgetMs: 3000, cleanup: false });
+      }
+      await death();
+      const before = runs;
+      await tick(cfg, { budgetMs: 3000, cleanup: false });
+      // taken again and run: the chain goes on
+      expect(runs, `the run after death ${life}`).toBe(before + 1);
+      expect((await job(id))?.status, `after death ${life}`).toBe("queued");
+    }
+    expect(runs).toBe(16);
+    expect((await job(id))?.last_error).toBeNull();
+    expect(warnings).toEqual([]);
   });
 });
