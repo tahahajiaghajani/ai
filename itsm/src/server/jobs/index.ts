@@ -193,17 +193,20 @@ async function claim(db: Db, worker: string, n = 1): Promise<Job[]> {
 
 /** The last error of a job whose worker stopped during its last allowed attempt (after the error it had, if any). */
 export const EXHAUSTED_ERROR = "کارگر این کار در آخرین تلاش مجاز پیش از پایان متوقف شد (مثلاً به سقف زمان اجرای سرور رسید)؛ دیگر اجرا نمی‌شود";
+/** How much of a job's earlier error stays before `EXHAUSTED_ERROR`: last_error holds 2,000 characters, like runOne's. */
+const EARLIER_ERROR_KEPT = 2000 - " · ".length - EXHAUSTED_ERROR.length;
 
 /**
  * Fail the jobs whose worker stopped during their last allowed attempt: still `running`, their lock expired, no attempt
  * left (`attempts >= max_attempts`; the claim counts an attempt when it takes the job). Their worker was cut off — the
  * web version's function at its time limit, a process that died — and a job that never fits in that time would
- * otherwise be taken again forever. At most 100 per tick (sm_jobs_running_idx), the rest at the next tick.
+ * otherwise be taken again forever. At most 100 per tick (sm_jobs_running_idx), the rest at the next tick. A long
+ * earlier error is shortened, never the reason.
  */
 async function failExhausted(db: Db, log: Logger): Promise<number> {
   const rows = await db.query<{ id: string; kind: string; org_id: string | null; attempts: number }>(
     `update sm_jobs set status = 'failed', done_at = now(), locked_until = null, locked_by = null,
-            last_error = left(coalesce(last_error || ' · ', '') || $1, 2000), updated_at = now()
+            last_error = coalesce(left(last_error, ${EARLIER_ERROR_KEPT}) || ' · ', '') || $1, updated_at = now()
      where id in (select id from sm_jobs where status = 'running' and locked_until < now() and attempts >= max_attempts
                   order by locked_until limit 100 for update skip locked)
      returning id, kind, org_id, attempts`,

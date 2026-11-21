@@ -4,7 +4,7 @@
 // again and again, so a job that never fits in its worker's time was retried forever. A job with an attempt left is
 // still taken again, as before.
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
-import { enqueue, registerJobHandler, tick } from "@server/jobs";
+import { enqueue, EXHAUSTED_ERROR, registerJobHandler, tick } from "@server/jobs";
 import { makeServer, Client, signupWithOrg, quietLog } from "./helpers";
 import type { ServerConfig } from "@server/context";
 import type { Db } from "@server/db";
@@ -64,6 +64,19 @@ describe("jobs whose worker stopped", () => {
     expect(j!.status).toBe("failed");
     expect(j!.last_error!.startsWith("سرویس پاسخ نداد · ")).toBe(true);
     expect(j!.last_error).toContain("آخرین تلاش مجاز");
+    expect(ran).toEqual([]);
+  });
+
+  it("keeps the reason when the earlier error was as long as a job's error may be (2,000 characters)", async () => {
+    handle("test.stalled");
+    const earlier = ("پاسخ سرویس: " + "خ".repeat(2000)).slice(0, 2000);
+    const id = await stalled("test.stalled", 4, 4, { lastError: earlier });
+    await tick(cfg, { budgetMs: 5000 });
+    const j = await job(id);
+    expect(j!.status).toBe("failed");
+    expect(j!.last_error!.length).toBeLessThanOrEqual(2000);
+    expect(j!.last_error!.endsWith(` · ${EXHAUSTED_ERROR}`)).toBe(true);
+    expect(j!.last_error!.startsWith("پاسخ سرویس: خخخ")).toBe(true);
     expect(ran).toEqual([]);
   });
 
