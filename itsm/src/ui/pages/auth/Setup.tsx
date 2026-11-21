@@ -107,7 +107,8 @@ export default function Setup() {
   const onCloudChange = useBlurValidation(cloudForm);
   const onClientChange = useBlurValidation(clientForm);
   if (meta && !meta.first_run && !code) return <Navigate to={me ? "/" : "/login"} replace />;
-  if (meta && meta.mode !== "desktop") return <Navigate to="/signup" replace />;
+  // the web version's first account is made by signing up; someone signed in has one already
+  if (meta && meta.mode !== "desktop") return <Navigate to={me ? "/" : "/signup"} replace />;
 
   const options: Option[] = [
     { v: "local", icon: <Monitor {...ICON} />, t: "شروع روی همین رایانه", d: "سازمان تازه می‌سازید و داده‌ها روی همین ویندوز می‌مانند؛ هر وقت خواستید به نسخهٔ وب وصلش می‌کنید." },

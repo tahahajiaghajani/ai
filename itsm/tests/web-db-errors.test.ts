@@ -2,12 +2,14 @@
 // (src/server/db/postgres.ts, src/server/cloud.ts webPoolOptions) — answers a 503 the person can act on, with a
 // tracking code and Retry-After, never the 500 «خطای داخلی سرور» of 1.1.2 (src/server/http/errors.ts dbErrorMessage,
 // src/server/http/hono.ts errorResponse).
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Hono } from "hono";
 import { errorResponse } from "@server/http/hono";
 import { dbErrorMessage } from "@server/http/errors";
 import { createPostgresDb } from "@server/db/postgres";
-import { Client, makeServer, signupWithOrg } from "./helpers";
+import { createPgliteDb } from "@server/db/pglite";
+import type { Db, Queryable } from "@server/db";
+import { Client, makeServer, signupWithOrg, useServerDb } from "./helpers";
 
 const BUSY = "سامانه اکنون بیش از حد مشغول است و اتصالی به پایگاه داده آزاد نشد؛ چند ثانیهٔ دیگر دوباره امتحان کنید";
 // not «stopped half-done»: a DB_TIMEOUT may follow a commit whose answer was lost, so a save is checked before it is repeated
@@ -145,6 +147,79 @@ describe("a database that cannot do the work now answers 503 with a tracking cod
       await db.close();
     }
   });
+});
+
+// /api/meta counted the accounts with `.catch(() => null)`: a count that failed (busy, slow, gone) read as «no account
+// yet», so it answered first_run and allow_signup true — a signed-in person was sent round / → /setup → /signup → / until
+// the browser throttled the page, blank; a signed-out one got the sign-up form even with ALLOW_SIGNUP=false (UI-1 of the
+// 1.1.4 review). Only a missing table is a first run; any other error is the database's 503.
+describe("/api/meta takes no database error for a first run", () => {
+  const COUNT = /^select count\(\*\)::int as n from sm_users$/;
+  /** What the accounts' count of /api/meta gets instead of its answer: an error to throw, or rows. */
+  const count: { fail: unknown; rows: unknown[] | null } = { fail: null, rows: null };
+  beforeAll(() =>
+    useServerDb(async (mode) => {
+      const db = await createPgliteDb({ desktop: mode === "desktop" });
+      return new Proxy(db, {
+        get(target, prop, receiver) {
+          if (prop === "one" || prop === "query")
+            return async (text: string, params?: unknown[]) => {
+              if (COUNT.test(text.trim())) {
+                if (count.fail) throw count.fail;
+                if (count.rows) return prop === "one" ? (count.rows[0] ?? null) : count.rows;
+              }
+              return (target as Queryable)[prop](text, params);
+            };
+          const v = Reflect.get(target, prop, receiver);
+          return typeof v === "function" ? v.bind(target) : v;
+        },
+      }) as Db;
+    }),
+  );
+  afterAll(() => {
+    useServerDb(null);
+    count.fail = null;
+    count.rows = null;
+  });
+
+  it("a count that fails answers 503 db_busy, signed in or not, never first_run nor allow_signup", async () => {
+    const s = await makeServer({ mode: "cloud", config: { allowSignup: false } });
+    const signedIn = new Client(s.app);
+    await signupWithOrg(signedIn);
+    expect(await signedIn.get("/meta")).toMatchObject({ first_run: false, allow_signup: false, signed_in: true });
+    // the session's own lookup answers; the count after it waited in the pool's queue and timed out
+    count.fail = pgError("QUEUE_TIMEOUT", "QUEUE_TIMEOUT: Waited more than 10 seconds for a connection");
+    try {
+      for (const c of [signedIn, new Client(s.app)]) {
+        const r = await c.get("/meta", 503);
+        expect(r.error.code).toBe("db_busy");
+        expect(r.first_run).toBeUndefined();
+        expect(r.allow_signup).toBeUndefined();
+      }
+    } finally {
+      count.fail = null;
+    }
+    expect((await new Client(s.app).get("/meta")).first_run).toBe(false);
+  }, 120_000);
+
+  it("a signed-in session is never a first run, whatever the count says; a missing accounts table is one", async () => {
+    const s = await makeServer({ mode: "cloud" });
+    const c = new Client(s.app);
+    await signupWithOrg(c);
+    count.rows = [{ n: 0 }];
+    try {
+      expect(await c.get("/meta")).toMatchObject({ first_run: false, signed_in: true });
+      expect((await new Client(s.app).get("/meta")).first_run).toBe(true);
+    } finally {
+      count.rows = null;
+    }
+    count.fail = pgError("42P01", 'relation "sm_users" does not exist');
+    try {
+      expect(await new Client(s.app).get("/meta")).toMatchObject({ first_run: true, allow_signup: true });
+    } finally {
+      count.fail = null;
+    }
+  }, 120_000);
 });
 
 describe("a database that cannot write now (Supabase's read-only mode) still serves reads", () => {

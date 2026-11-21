@@ -4,7 +4,7 @@ import { Link, useSearchParams, Navigate } from "react-router";
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, errorText, ApiError } from "../../lib/api";
-import { useSession } from "../../lib/session";
+import { isFirstRun, useSession } from "../../lib/session";
 import { AuthLayout } from "./AuthLayout";
 import { FormAlert, ICON, useBlurValidation, LTR } from "../kit";
 import { Skeleton } from "../../components/display";
@@ -97,7 +97,7 @@ export default function Login() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sso?.auto, me]);
 
-  if (meta?.first_run) return <Navigate to="/setup" replace />;
+  if (isFirstRun(meta, me)) return <Navigate to="/setup" replace />;
   if (me) return <Navigate to={next} replace />;
   const canSignup = known && !!meta?.allow_signup && meta.mode === "cloud" && !directory;
   const sources = directory?.sources ?? [];

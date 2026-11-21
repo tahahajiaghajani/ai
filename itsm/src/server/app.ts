@@ -115,8 +115,15 @@ export function createApp(cfg: ServerConfig) {
 
   app.get("/meta", optionalUser, async (c) => {
     const status = await migrationStatus(cfg.db).catch(() => null);
-    const users = await cfg.db.one<{ n: number }>(`select count(*)::int as n from sm_users`).catch(() => null);
+    // only a missing accounts table is a first run: a count that failed (busy, slow, gone) is the database's 503, never
+    // «no account yet», which sent a signed-in person round / → /setup → /signup → / and showed anyone the sign-up form
+    const users = await cfg.db.one<{ n: number }>(`select count(*)::int as n from sm_users`).catch((e) => {
+      if ((e as { code?: string } | null)?.code === "42P01") return null;
+      throw e;
+    });
     const user = c.get("user");
+    // a session proves an account exists
+    const none = !user && (users?.n ?? 0) === 0;
     return c.json({
       app: APP_NAME,
       version: APP_VERSION,
@@ -125,11 +132,11 @@ export function createApp(cfg: ServerConfig) {
       // the web version, the Windows app, or the server edition (Windows Server on an organisation's intranet)
       edition: cfg.server ? "server" : cfg.mode === "desktop" ? "desktop" : "web",
       server: cfg.server ? cfg.server.info() : null,
-      allow_signup: cfg.allowSignup || (users?.n ?? 0) === 0,
-      first_run: (users?.n ?? 0) === 0,
+      allow_signup: cfg.allowSignup || none,
+      first_run: none,
       schema: status ? { pending: status.pending, current: status.current, latest: status.latest } : null,
       signed_in: !!user,
-      desktop: cfg.mode === "desktop" && (user || (users?.n ?? 0) === 0) ? await cfg.desktop?.info().catch(() => null) : null,
+      desktop: cfg.mode === "desktop" && (user || none) ? await cfg.desktop?.info().catch(() => null) : null,
     });
   });
 

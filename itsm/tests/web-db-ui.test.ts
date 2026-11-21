@@ -4,7 +4,7 @@
 // access» (src/ui/lib/api.ts, src/ui/lib/session.tsx, src/ui/OrgArea.tsx).
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { api, ApiError, errorText } from "@ui/lib/api";
-import { SERVER_STATES } from "@ui/lib/session";
+import { isFirstRun, SERVER_STATES, type Me } from "@ui/lib/session";
 import { orgErrorView } from "@ui/OrgArea";
 
 const VERCEL_504 = "<!DOCTYPE html><html><head><title>504: GATEWAY_TIMEOUT</title></head><body>An error occurred with your deployment FUNCTION_INVOCATION_TIMEOUT</body></html>";
@@ -59,6 +59,19 @@ describe("a gateway's own error page", () => {
     // a status without our JSON that is no gateway error stays as it was
     answer(500, "oops", "text/plain");
     expect((await failure(api.get("/x"))).message).toBe("خطای 500");
+  });
+});
+
+const ME: Me = { user: { id: "u1", email: "owner@example.com", full_name: "مالک", mobile: null, is_platform_admin: false, prefs: {} }, orgs: [] };
+
+describe("a signed-in session is never a first run (UI-1 of the 1.1.4 review)", () => {
+  it("only a server without an account, and nobody signed in, sends the app to its first-run setup", () => {
+    // a /api/meta that said first_run to a signed-in person sent her round / → /setup → /signup → /, a blank page
+    expect(isFirstRun({ first_run: true }, ME)).toBe(false);
+    expect(isFirstRun({ first_run: true }, null)).toBe(true);
+    expect(isFirstRun({ first_run: true }, undefined)).toBe(true);
+    expect(isFirstRun({ first_run: false }, null)).toBe(false);
+    expect(isFirstRun(undefined, null)).toBe(false);
   });
 });
 

@@ -12,6 +12,14 @@ import { api, ApiError } from "./api";
 export const SERVER_STATES = new Set(["migrating", "not_configured", "db_unreachable", "db_unavailable", "db_busy", "db_timeout", "timeout", "gateway_timeout", "unavailable"]);
 const serverState = (e: unknown) => e instanceof ApiError && SERVER_STATES.has(e.code);
 
+/**
+ * A first run: the server has no account yet and nobody is signed in — a session proves an account exists. A /api/meta
+ * that said first_run to a signed-in person (1.1.4's candidate, on a failed count) sent her round / → /setup → /signup → /.
+ */
+export function isFirstRun(meta: Pick<Meta, "first_run"> | undefined, me: Me | null | undefined): boolean {
+  return !!meta?.first_run && !me;
+}
+
 export interface Meta {
   app: string;
   version: string;
