@@ -3,7 +3,9 @@
 // a role-level time-out does not end the stuck pooler backend of 1.1.3, the job queue's rules, and the Ignored Build
 // Step the Vercel project runs. The numbers come from the files that set them where this tree has them.
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const ROOT = join(__dirname, "..");
@@ -107,6 +109,69 @@ describe("the web version's limits in the owner's guides", () => {
     const claude = read("CLAUDE.md").split("\n").find((l) => l.startsWith("- **The web version's job queue**")) ?? "";
     expect(claude).toMatch(/taken again once its lock expired, whatever its attempts/);
     expect(claude).not.toMatch(/the expired-lock claim requires `attempts < max_attempts`/);
+  });
+});
+
+describe("the Ignored Build Step itsm/vercel.json runs", () => {
+  // a repository like this one: the itsm/ folder, another project's folder, and Vercel's variables; the command runs in
+  // the Root Directory (itsm/) and Vercel builds on exit 1, cancels on exit 0 (any other code fails the deployment)
+  function world() {
+    const dir = mkdtempSync(join(tmpdir(), "itsm-ignore-"));
+    const env = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: dir, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: join(dir, "gitconfig") };
+    const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args], { cwd: dir, env, stdio: "pipe" }).toString().trim();
+    const commit = (path: string) => {
+      mkdirSync(join(dir, path, ".."), { recursive: true });
+      writeFileSync(join(dir, path), `${path} ${Math.random()}`);
+      git("add", "-A");
+      git("commit", "-q", "-m", path);
+      return git("rev-parse", "HEAD");
+    };
+    git("init", "-q");
+    const c1 = commit("itsm/a.txt");
+    const c2 = commit("itsm/b.txt");
+    // the tip changes another project only (18 of the last 25 merges to main did)
+    const c3 = commit("siraf/x.txt");
+    const command = (JSON.parse(read("vercel.json")) as { ignoreCommand: string }).ignoreCommand;
+    const run = (vars: { previous?: string; commit?: string; env?: string }): number => {
+      try {
+        execFileSync("sh", ["-c", command], {
+          cwd: join(dir, "itsm"),
+          stdio: "pipe",
+          env: { ...env, VERCEL_GIT_PREVIOUS_SHA: vars.previous ?? "", VERCEL_GIT_COMMIT_SHA: vars.commit ?? c3, VERCEL_ENV: vars.env ?? "production" },
+        });
+        return 0;
+      } catch (e) {
+        return (e as { status: number }).status;
+      }
+    };
+    return { dir, c1, c2, c3, run, command };
+  }
+
+  it("builds a new project's first production deployment, a Redeploy of the current one and a change of itsm/", () => {
+    const w = world();
+    try {
+      expect(w.command.length).toBeLessThanOrEqual(256);
+      // a new project's first production deployment: no previous deployment, the tip touched another folder only
+      expect(w.run({ previous: "" })).toBe(1);
+      // a dashboard Redeploy of the deployment that is current: the previous successful deployment is that commit
+      expect(w.run({ previous: w.c3, commit: w.c3 })).toBe(1);
+      // something changed in itsm/ since the last successful deployment
+      expect(w.run({ previous: w.c1 })).toBe(1);
+      // the last deployed commit is not in Vercel's shallow clone: build rather than fail (git diff would exit 128)
+      expect(w.run({ previous: "0123456789abcdef0123456789abcdef01234567" })).toBe(1);
+    } finally {
+      rmSync(w.dir, { recursive: true, force: true });
+    }
+  });
+
+  it("cancels a push that changed only another project, also a preview's first deployment", () => {
+    const w = world();
+    try {
+      expect(w.run({ previous: w.c2 })).toBe(0);
+      expect(w.run({ previous: "", env: "preview" })).toBe(0);
+    } finally {
+      rmSync(w.dir, { recursive: true, force: true });
+    }
   });
 });
 

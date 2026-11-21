@@ -221,7 +221,7 @@ select
 
 1. پروژه ← `Settings` ← `Environment Variables`.
 2. برای هر ردیف جدول زیر: `Key` را بنویسید، `Value` را بچسبانید، در `Environments` فقط **`Production`** را تیک بزنید، برای ردیف‌هایی که «محرمانه»اند نوع `Secret` (در نسخه‌های قدیمی‌تر: تیک `Sensitive`) را انتخاب کنید، و `Save`.
-3. پس از افزودن همه: `Deployments` ← روی آخرین انتشار دکمهٔ `⋯` ← `Redeploy` ← دوباره `Redeploy`. متغیرها فقط در انتشار تازه اثر دارند.
+3. پس از افزودن همه: `Deployments` ← روی انتشار `Production` که برچسب `Current` دارد (نه ردیفی که `Canceled` است) دکمهٔ `⋯` ← `Redeploy` ← دوباره `Redeploy`. متغیرها فقط در انتشار تازه اثر دارند. Redeploy ردیف `Canceled` دوباره لغو می‌شود (قدم ۲-۸)، مگر در پنجرهٔ Redeploy تیک `Use project's Ignore Build Step` را بردارید.
 
 **ساخت مقدارهای تصادفی:** در ترمینال (یا Git Bash روی ویندوز) `openssl rand -hex 32` را اجرا کنید. اگر ترمینال ندارید، در مدیر رمز یک رمز ۶۴ نویسه‌ای از حرف و عدد بسازید. مقدار `Secret` در Vercel دیگر قابل دیدن نیست؛ **نسخه‌ای از آن را خودتان نگه دارید.**
 
@@ -274,16 +274,18 @@ select
 هر پروژهٔ Vercel که به این مخزن وصل است با هر push ساخته می‌شود و پلن Hobby هم‌زمان فقط یک ساخت انجام می‌دهد. برای این‌که ITSM فقط با تغییر پوشهٔ خودش ساخته شود، فایل `itsm/vercel.json` دستور `Ignored Build Step` را خودش دارد (کلید `"ignoreCommand"`) و بر تنظیم داشبورد مقدم است؛ پس در `Settings` ← `Build and Deployment` ← `Ignored Build Step` کاری لازم نیست. دستور این است:
 
 ```bash
-[ "$VERCEL_GIT_PREVIOUS_SHA" = "$VERCEL_GIT_COMMIT_SHA" ] && exit 1; git cat-file -e "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}^{commit}" 2>/dev/null && git diff --quiet "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}" HEAD -- . || exit 1
+P=$VERCEL_GIT_PREVIOUS_SHA; [ "$P" = "$VERCEL_GIT_COMMIT_SHA" ] && exit 1; [ -z "$P" ] && [ "$VERCEL_ENV" = production ] && exit 1; git cat-file -e "${P:-HEAD^}^{commit}" 2>/dev/null && git diff --quiet "${P:-HEAD^}" HEAD -- . || exit 1
 ```
 
 این دستور داخل `Root Directory` (پوشهٔ `itsm`) اجرا می‌شود و تغییرات از آخرین انتشار موفق تا الان را بررسی می‌کند (نه فقط آخرین commit): اگر در این پوشه چیزی عوض نشده باشد ساخت لغو می‌شود (خروجی ۰) و در غیر این صورت ساخته می‌شود (خروجی ۱).
 
-**بخش اول (`[ … = … ] && exit 1`) Redeploy را می‌سازد:** Redeploy در داشبورد همان commit آخرین انتشار را دوباره می‌سازد، پس بی آن `git diff` تفاوتی نمی‌یافت، Redeploy لغو می‌شد و متغیر محیطی تازه (مثلاً `DATABASE_URL` پس از تعویض رمز) هرگز اثر نمی‌کرد.
+**دو بخش نخست همیشه می‌سازند.** `[ "$P" = … ] && exit 1`: Redeploy انتشار `Production` که برچسب `Current` دارد همان commit آخرین انتشار موفق را دوباره می‌سازد، پس بی آن `git diff` تفاوتی نمی‌یافت، Redeploy لغو می‌شد و متغیر محیطی تازه (مثلاً `DATABASE_URL` پس از تعویض رمز) هرگز اثر نمی‌کرد. `[ -z "$P" ] && [ "$VERCEL_ENV" = production ] && exit 1`: نخستین انتشار `Production` پروژهٔ تازه (قدم ۲-۳) انتشار موفق قبلی ندارد و همیشه ساخته می‌شود، حتی اگر آخرین commit فقط پوشهٔ پروژهٔ دیگری را عوض کرده باشد.
 
-**بخش دوم (`git cat-file -e`) را حذف نکنید.** Vercel فقط چند commit آخر را clone می‌کند و `VERCEL_GIT_PREVIOUS_SHA` کامیتِ آخرین ساخت موفق است. اگر پروژه مدتی ساخته نشده باشد، آن کامیت در clone نیست و `git diff` به‌تنهایی با خطای `fatal: bad object` (خروجی ۱۲۸) تمام می‌شود؛ Vercel هر خروجی غیر از ۰ و ۱ را خطا می‌داند و کل انتشار پیش از ساخت شکست می‌خورد. با این بخش، در این حالت ITSM ساخته می‌شود.
+**Redeploy ردیفی که `Canceled` است دوباره لغو می‌شود:** آن ردیف commit دیگری است و با آخرین انتشار موفق سنجیده می‌شود، و در پوشهٔ `itsm` تفاوتی ندارد. پس برای Redeploy (قدم ۲-۵، قدم ۱۰-۳) ردیف `Production` با برچسب `Current` را بردارید، یا در پنجرهٔ Redeploy تیک `Use project's Ignore Build Step` را بردارید تا این دستور اجرا نشود. وقتی تولید به نسخهٔ قبلی برگردانده شده است (`Instant Rollback`، قدم ۱۰-۱)، انتشار تازه هم خودش روی نشانی اصلی نمی‌رود.
 
-پروژه‌ای که ریشهٔ مخزن را می‌سازد (Task Flow) دستور مشابهی را (بی بخش Redeploy) در `vercel.json` ریشه دارد، با کنار گذاشتن پوشهٔ همهٔ پروژه‌های جدا، از جمله `itsm`. `':!itsm'` شکل کوتاه `':(exclude)itsm'` است؛ Vercel این دستور را به ۲۵۶ نویسه محدود می‌کند:
+**بخش `git cat-file -e` را حذف نکنید.** Vercel فقط چند commit آخر را clone می‌کند و `VERCEL_GIT_PREVIOUS_SHA` کامیتِ آخرین ساخت موفق است. اگر پروژه مدتی ساخته نشده باشد، آن کامیت در clone نیست و `git diff` به‌تنهایی با خطای `fatal: bad object` (خروجی ۱۲۸) تمام می‌شود؛ Vercel هر خروجی غیر از ۰ و ۱ را خطا می‌داند و کل انتشار پیش از ساخت شکست می‌خورد. با این بخش، در این حالت ITSM ساخته می‌شود.
+
+پروژه‌ای که ریشهٔ مخزن را می‌سازد (Task Flow) دستور مشابهی را (بی دو بخش نخست) در `vercel.json` ریشه دارد، با کنار گذاشتن پوشهٔ همهٔ پروژه‌های جدا، از جمله `itsm`. `':!itsm'` شکل کوتاه `':(exclude)itsm'` است؛ Vercel این دستور را به ۲۵۶ نویسه محدود می‌کند:
 
 ```bash
 git cat-file -e "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}^{commit}" 2>/dev/null && git diff --quiet "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}" HEAD -- . ':!siraf' ':!itsm' ':!pars-website' ':!celin-website' ':!portfolio' || exit 1
@@ -534,7 +536,7 @@ curl -X POST -H "Authorization: Bearer CRON_SECRET_شما" https://itsm-xyz.verc
    select count(*) as tables_left from pg_tables where schemaname = 'public' and tablename like 'sm\_%';
    ```
    همان را آن‌قدر دوباره `Run` بزنید تا `tables_left` = `0` شود (حدود ۷ بار).
-2. یکی از راه‌های قدم ۱-۵ را بروید (ساده‌ترین: در Vercel ← `Deployments` ← `⋯` ← `Redeploy`).
+2. یکی از راه‌های قدم ۱-۵ را بروید (ساده‌ترین: در Vercel ← `Deployments` ← انتشار `Production` با برچسب `Current` ← `⋯` ← `Redeploy`).
 3. `/api/health` ← `"ok":true`، بعد بخش ۳ (اولین حساب).
 
 راه دیگر: پروژهٔ Supabase تازه‌ای بسازید (بخش ۱)، `DATABASE_URL` را در Vercel عوض و Redeploy کنید.
@@ -646,7 +648,7 @@ select pg_terminate_backend(<pid>);
 1. پیش از هر چیز مطمئن شوید `APP_SECRET` در Vercel هست. بدون آن، کلید رمزنگاری از `DATABASE_URL` ساخته می‌شود و با تعویض رمز، کلید وب‌هوک‌های ذخیره‌شده از دست می‌رود.
 2. Supabase ← `Database` ← `Settings` ← `Reset database password` ← `Generate a password` ← رمز را ذخیره کنید ← `Reset password`.
 3. Vercel ← `Settings` ← `Environment Variables` ← `DATABASE_URL` ← `Edit` ← نشانی با رمز تازه ← `Save`.
-4. **فوراً** `Deployments` ← `⋯` ← `Redeploy`، و چند دقیقه صبر کنید.
+4. **فوراً** `Deployments` ← انتشار `Production` با برچسب `Current` ← `⋯` ← `Redeploy`، و چند دقیقه صبر کنید. Redeploy ردیفی که `Canceled` است دوباره لغو می‌شود (قدم ۲-۸)، مگر در پنجرهٔ Redeploy تیک `Use project's Ignore Build Step` را بردارید.
 
 **باید ببینید:** پیام `Successfully updated database password` در Supabase و پس از Redeploy، `/api/health` با `"db":"ok"`. نسخهٔ ویندوز اثری نمی‌بیند، چون با نسخهٔ وب حرف می‌زند نه مستقیم با پایگاه داده.
 
