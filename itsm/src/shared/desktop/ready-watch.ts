@@ -76,6 +76,8 @@ export interface ReadyWatchOptions {
 export interface ReadyWatch {
   /** where the start is */
   readonly stage: StartStage;
+  /** while the database opens: whether it replays its log first (a recovery, as far as the server could tell) */
+  readonly recovering: boolean;
   /** the server reported a phase (a sign of progress) */
   phase(p: StartPhase, at: number): void;
   /** the server showed progress (a migration or schema step applied), or the person chose to wait on: the budget starts again */
@@ -102,6 +104,9 @@ export function createReadyWatch(startedAt: number, options: ReadyWatchOptions =
   return {
     get stage() {
       return stage;
+    },
+    get recovering() {
+      return !!opening && replays(opening);
     },
     phase(p, at) {
       stage = p.phase;
@@ -197,3 +202,29 @@ export const STALL_TEXT = {
 } as const;
 /** Its answers: 0 waits on (also Esc, and a question withdrawn because the server spoke again), 1 runs the app again, 2 quits. */
 export const STALL_BUTTONS: readonly string[] = ["صبر می‌کنم", "اجرای دوباره", "خروج"];
+
+/**
+ * The question before the splash closes while the database opens or is updated: closing then stops the server midway (it
+ * cannot hear a request to stop before it is ready, src/desktop/backend-entry.ts), so a recovery starts over at the next
+ * start and a migration is redone.
+ */
+export const CLOSE_TEXT = {
+  database: {
+    message: "پایگاه داده هنوز در حال باز شدن است",
+    /** while its log is replayed (ReadyWatch.recovering) */
+    recovery: "پایگاه داده پس از بسته شدن ناگهانی برنامه در حال بازیابی است. اگر اکنون ببندید، بازیابی در اجرای بعدی از اول آغاز می‌شود. بهتر است صبر کنید تا برنامه باز شود.",
+    otherwise: "اگر اکنون ببندید، باز کردن پایگاه داده در اجرای بعدی از نو انجام می‌شود.",
+  },
+  migrations: {
+    message: "به‌روزرسانی پایگاه داده هنوز تمام نشده است",
+    detail: "اگر اکنون ببندید، مرحلهٔ نیمه‌کارهٔ به‌روزرسانی در اجرای بعدی از نو انجام می‌شود.",
+  },
+} as const;
+/** Its answers: 0 keeps the splash (also Esc, and a question withdrawn because the start ended), 1 closes the app. */
+export const CLOSE_BUTTONS: readonly string[] = ["صبر می‌کنم", "بستن برنامه"];
+
+/** The close question's two texts for the stage the start is in. */
+export function closeQuestion(stage: "database" | "migrations", recovering: boolean): { message: string; detail: string } {
+  if (stage === "migrations") return CLOSE_TEXT.migrations;
+  return { message: CLOSE_TEXT.database.message, detail: recovering ? CLOSE_TEXT.database.recovery : CLOSE_TEXT.database.otherwise };
+}

@@ -14,10 +14,13 @@ import { join } from "node:path";
 import { runInNewContext } from "node:vm";
 import {
   createReadyWatch,
+  closeQuestion,
   countProgress,
   elapsedFa,
   noticeTexts,
   parseStartPhase,
+  CLOSE_BUTTONS,
+  CLOSE_TEXT,
   NOTICE_TEXT,
   NOTICE_AFTER_MS,
   SLOW_NOTICE_AFTER_MS,
@@ -92,6 +95,26 @@ describe("the start's watch", () => {
     expect(w.check(5 * MIN + 1_000)).toEqual({ kind: "wait", notice: null });
   });
 
+  it("says whether the open replays a log, as the splash's note does (the close question's text follows it)", () => {
+    const recovering = (walMb: number, recovery: boolean | null) => {
+      const w = createReadyWatch(0);
+      w.phase({ phase: "database", walMb, recovery }, 0);
+      return w.recovering;
+    };
+    expect(createReadyWatch(0).recovering).toBe(false);
+    expect(recovering(40, true)).toBe(true);
+    expect(recovering(LARGE_WAL_MB, null)).toBe(true);
+    expect(recovering(40, null)).toBe(false);
+    expect(recovering(6144, false)).toBe(false);
+    const w = createReadyWatch(0);
+    w.phase({ phase: "database", walMb: 6144, recovery: true }, 0);
+    w.phase({ phase: "migrations" }, 1_000);
+    expect(w.recovering).toBe(false);
+    expect(closeQuestion("database", true)).toEqual({ message: CLOSE_TEXT.database.message, detail: CLOSE_TEXT.database.recovery });
+    expect(closeQuestion("database", false)).toEqual({ message: CLOSE_TEXT.database.message, detail: CLOSE_TEXT.database.otherwise });
+    expect(closeQuestion("migrations", true)).toEqual(CLOSE_TEXT.migrations);
+  });
+
   it("counts every migration and schema step the server's output reports as progress", () => {
     expect(countProgress("[itsm] migration 0100_xid_revisions applied (249 ms)\n")).toBe(1);
     // the engine's chunks and every reconcile chunk are logged as schema steps (src/server/db/migrate.ts)
@@ -120,6 +143,7 @@ describe("the start's watch", () => {
     expect(STALL_TEXT.starting.detail.startsWith("۹۰ ثانیه")).toBe(true);
     expect(STALL_TEXT.migrations.detail.startsWith("۳۰ دقیقه")).toBe(true);
     expect(STALL_BUTTONS).toEqual(["صبر می‌کنم", "اجرای دوباره", "خروج"]);
+    expect(CLOSE_BUTTONS).toEqual(["صبر می‌کنم", "بستن برنامه"]);
   });
 });
 
@@ -213,6 +237,13 @@ vi.mock("electron", async () => {
     setBackgroundColor() {}
     isDestroyed() {
       return this.destroyed;
+    }
+    /** The close button, Alt+F4 or the taskbar's close: 'close' first, which may prevent it, then the window goes. */
+    close() {
+      if (this.destroyed) return;
+      let prevented = false;
+      this.emit("close", { preventDefault: () => (prevented = true) });
+      if (!prevented) this.destroy();
     }
     /** Electron's destroy(): no 'close', only 'closed'. */
     destroy() {
@@ -531,6 +562,82 @@ describe("the Windows app's main process waits for its local server by phase (de
     expect(h.exits).toEqual([]);
     expect(h.dialogs).toHaveLength(1);
     expect(appLog()).toContain("[start] the local server spoke again (migrations): the question is withdrawn");
+  });
+
+  it("asks before the splash closes while the database opens, and stops the server only when the person says so", async () => {
+    const { child, splash } = await launch();
+    child.emit("message", { type: "phase", phase: "database", walMb: 6144, recovery: true });
+    await vi.advanceTimersByTimeAsync(5 * MIN);
+    // the taskbar's close or Alt+F4 in the middle of a recovery
+    splash.close();
+    await flush();
+    expect(splash.destroyed).toBe(false);
+    expect(h.dialogs).toHaveLength(1);
+    const q = h.dialogs[0];
+    expect(q.parent).toBe(splash);
+    expect(q.opts.message).toBe(CLOSE_TEXT.database.message);
+    expect(q.opts.detail).toBe(CLOSE_TEXT.database.recovery);
+    expect(q.opts.buttons).toEqual([...CLOSE_BUTTONS]);
+    expect(q.opts.cancelId).toBe(0);
+    // another close while the question is up asks nothing more
+    splash.close();
+    await flush();
+    expect(h.dialogs).toHaveLength(1);
+    q.answer(0); // «صبر می‌کنم»
+    await flush();
+    await vi.advanceTimersByTimeAsync(MIN);
+    expect(splash.destroyed).toBe(false);
+    expect(child.posted).toEqual([]);
+    expect(child.killed).toBe(false);
+    expect(h.exits).toEqual([]);
+    // closed again, and this time «بستن برنامه»: the server is asked to stop and, unable to hear it yet, killed 10 s later
+    splash.close();
+    await flush();
+    expect(h.dialogs).toHaveLength(2);
+    h.dialogs[1].answer(1);
+    await flush();
+    expect(splash.destroyed).toBe(true);
+    expect(child.posted).toEqual([{ type: "shutdown" }]);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(child.killed).toBe(true);
+    await flush();
+    expect(h.exits).toEqual([0]);
+    // the person's choice: no error dialog for the server's exit after it
+    expect(h.dialogs).toHaveLength(2);
+    expect(appLog()).toContain("[start] the person closed the splash during the database's open: the server is stopped");
+  });
+
+  it("asks before the splash closes during the migrations too, and a ready server withdraws the question", async () => {
+    const { child, splash } = await launch();
+    child.emit("message", { type: "phase", phase: "database", walMb: 12, recovery: false });
+    child.emit("message", { type: "phase", phase: "migrations" });
+    await vi.advanceTimersByTimeAsync(MIN);
+    splash.close();
+    await flush();
+    expect(splash.destroyed).toBe(false);
+    expect(h.dialogs).toHaveLength(1);
+    expect(h.dialogs[0].opts).toMatchObject({ message: CLOSE_TEXT.migrations.message, detail: CLOSE_TEXT.migrations.detail });
+    child.emit("message", READY);
+    await flush();
+    expect(h.dialogs[0].aborted).toBe(true);
+    expect(h.windows.map((w) => w.url)).toContain("http://127.0.0.1:3939");
+    expect(child.posted).toEqual([]);
+    expect(h.exits).toEqual([]);
+  });
+
+  it("asks nothing when the splash closes before the open: the app quits as it always did", async () => {
+    const { child, splash } = await launch();
+    await vi.advanceTimersByTimeAsync(5_000);
+    splash.close();
+    await flush();
+    expect(splash.destroyed).toBe(true);
+    expect(h.dialogs).toEqual([]);
+    expect(child.posted).toEqual([{ type: "shutdown" }]);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await flush();
+    expect(child.killed).toBe(true);
+    expect(h.exits).toEqual([0]);
+    expect(h.dialogs).toEqual([]);
   });
 
   it("fails the smoke test (CI, nobody to answer) after 90 s without a word instead of asking", async () => {

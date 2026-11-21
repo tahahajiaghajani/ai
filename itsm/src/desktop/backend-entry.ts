@@ -40,6 +40,11 @@ async function main() {
       process.exit(0);
     }
   };
+  // Listened for only now, once the server is ready: before, there is no server to close — startLocal is still opening
+  // the database (a recovery holds this thread synchronously) or migrating it. A "shutdown" posted earlier waits in the
+  // port (Electron holds a port's messages until its first listener), and desktop/src/main.ts kills this process 10 s
+  // after posting it, which cuts a recovery or a migration short. That is why the splash asks the person before it closes
+  // during the open and the migrations, and why nothing else in main.ts stops the server before it is ready.
   parent?.on("message", (e) => {
     if (e?.data?.type === "shutdown") void shutdown();
   });
