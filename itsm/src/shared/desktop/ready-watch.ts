@@ -165,15 +165,6 @@ export function parseStartPhase(m: unknown): StartPhase | null {
 
 /**
  * How many steps of the database's update a chunk of the server's output reports: src/server/db/migrate.ts logs
- * "migration <id> applied" for each migration and "schema step <id> applied" for the engine's chunks and every reconcile
- * chunk — each one a sign of progress.
- */
-export function countProgress(text: string): number {
-  return (text.match(/(?:migration|schema step) \S+ applied/g) ?? []).length;
-}
-
-/**
- * How many steps of the database's update a chunk of the server's output reports: src/server/db/migrate.ts logs
  * "migration <id> applied" for each migration and "schema step <id> applied" for the engine's chunks, and
  * src/desktop/maintenance.ts "maintenance step <id> applied" for each step of a compaction — each one a sign of progress.
  */
