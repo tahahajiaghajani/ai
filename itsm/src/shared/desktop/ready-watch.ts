@@ -2,22 +2,29 @@
 // (src/desktop/server.ts → backend-entry.ts → the `{ type: "phase" }` messages). Pure: the main process gives it the time.
 //
 // The local server opens its database on its only thread, synchronously (PGlite is PostgreSQL in WebAssembly). A database
-// that was not closed cleanly — the app killed, the computer switched off — first replays its write-ahead log, and that
-// takes as long as the log is long: seconds for megabytes, minutes for gigabytes (1.1.0-beta never bounded the log).
-// Nothing else runs on that thread meanwhile, so the server cannot say it is alive. The main process used to give the
-// whole start 90 s and then killed the server — and a recovery that is cut short starts again from its beginning at the
-// next start, which was killed again: the app never opened again (an owner's app.log, 2026-11-11 to 2026-11-17). Now:
-//   - before the server reports that it opens its database, and after it reports the database open, the start has
-//     READY_BUDGET_MS without a sign of progress (a phase reported, a migration applied), as before;
+// that was not closed cleanly — a forced close, a killed process — first replays its write-ahead log, and that takes as
+// long as the log is long: seconds for megabytes, minutes for gigabytes (1.1.0-beta never bounded the log). After a power
+// cut or a Windows crash that recovery may fail: PGlite runs with fsync off, so what reached the disk, and in which order,
+// is not guaranteed. Nothing else runs on that thread meanwhile, so the server cannot say it is alive. The main process
+// used to give the whole start 90 s and then killed the server — and a recovery that is cut short starts again from its
+// beginning at the next start, which was killed again: the app never opened again (an owner's app.log, 2026-11-11 to
+// 2026-11-17). Now:
+//   - only before the server reports that it opens its database, READY_BUDGET_MS without a sign of it bring up a
+//     question — wait on, run the app again, or quit —, never a stop decided for the person (a slow or just switched-on
+//     computer, or an antivirus scan of the app's files, can hold that part of the start too): «wait» starts the budget
+//     again, and a phase reported meanwhile withdraws the question;
 //   - while the database opens there is no limit: the main process waits as long as the server's process lives (its
 //     exit is reported as before), and tells the person what is going on — at once when a large log is replayed, after
 //     NOTICE_AFTER_MS for a smaller one, after SLOW_NOTICE_AFTER_MS for an open that replays nothing (a clean database
 //     on a slow disk, a first start unpacking the database made at build time, a restore);
-//   - the migrations after the open have no fixed limit either: a migration over a large table (an index over a job
+//   - from the migrations to ready there is no fixed limit either: a migration over a large table (an index over a job
 //     table a loop filled) can take minutes, and cutting it short repeats it at every start just the same. The person is
-//     told after SLOW_NOTICE_AFTER_MS without a migration applied; only MIGRATIONS_CEILING_MS without one ends the start.
+//     told after SLOW_NOTICE_AFTER_MS without a migration or schema step applied (countProgress), and asked whether to
+//     wait on only after MIGRATIONS_CEILING_MS without one.
+// Every time passed in comes from a monotonic clock (performance.now() in the main process): a step of the system clock —
+// Windows Time correcting a drifted laptop — must neither end a healthy start nor stretch a stuck one.
 
-/** Without a sign of progress, outside the database's open: the server is taken to be stuck. */
+/** Before the database's open, this long without a sign of progress: the person is asked whether to wait on. */
 export const READY_BUDGET_MS = 90_000;
 /** A replay of the log this long is told to the person (a clean open takes a second or two). */
 export const NOTICE_AFTER_MS = 8_000;
@@ -25,7 +32,7 @@ export const NOTICE_AFTER_MS = 8_000;
 export const SLOW_NOTICE_AFTER_MS = 30_000;
 /** A write-ahead log this large takes a while to replay: told at once (unless the database was closed cleanly). */
 export const LARGE_WAL_MB = 256;
-/** During the migrations, a start without a migration applied for this long is taken to be stuck. */
+/** From the migrations to ready, this long without a migration or schema step applied: the person is asked. */
 export const MIGRATIONS_CEILING_MS = 30 * 60_000;
 
 /** What the local server reports on its way to "ready" (posted as `{ type: "phase", ...phase }`). */
@@ -52,6 +59,10 @@ export interface StartNotice {
   elapsedMs: number;
 }
 
+/**
+ * "wait": go on waiting (and what to tell); "timeout": no sign for too long — the caller asks the person whether to wait
+ * on (STALL_TEXT), and `progress()` after a «wait» starts the budget again.
+ */
 export type StartVerdict = { kind: "wait"; notice: StartNotice | null } | { kind: "timeout"; stage: StartStage; silentMs: number };
 
 export interface ReadyWatchOptions {
@@ -67,13 +78,13 @@ export interface ReadyWatch {
   readonly stage: StartStage;
   /** the server reported a phase (a sign of progress) */
   phase(p: StartPhase, at: number): void;
-  /** the server showed progress (a migration applied): its budget starts again */
+  /** the server showed progress (a migration or schema step applied), or the person chose to wait on: the budget starts again */
   progress(at: number): void;
-  /** what to do at `at`: wait (and what to tell), or give up */
+  /** what to do at `at`: wait (and what to tell), or ask the person */
   check(at: number): StartVerdict;
 }
 
-/** The watch of one start, from the fork of the server at `startedAt`. */
+/** The watch of one start, from the fork of the server at `startedAt` (a monotonic clock's time, like every `at`). */
 export function createReadyWatch(startedAt: number, options: ReadyWatchOptions = {}): ReadyWatch {
   const budget = options.budgetMs ?? READY_BUDGET_MS;
   const noticeAfter = options.noticeAfterMs ?? NOTICE_AFTER_MS;
@@ -84,6 +95,10 @@ export function createReadyWatch(startedAt: number, options: ReadyWatchOptions =
   let lastSign = startedAt;
   let opening: { at: number; walMb: number; recovery: boolean | null } | null = null;
   let migratingSince: number | null = null;
+  /** a large log of a database not known to be closed cleanly */
+  const large = (o: { walMb: number; recovery: boolean | null }) => o.walMb >= largeWal && o.recovery !== false;
+  /** a recovery: not closed cleanly, or a large log of a database whose state cannot be told */
+  const replays = (o: { walMb: number; recovery: boolean | null }) => o.recovery === true || (o.recovery === null && large(o));
   return {
     get stage() {
       return stage;
@@ -101,14 +116,14 @@ export function createReadyWatch(startedAt: number, options: ReadyWatchOptions =
       if (opening) {
         const elapsedMs = Math.max(0, at - opening.at);
         // a large log of a database not known to be closed cleanly: told at once; otherwise once the open takes long
-        const large = opening.walMb >= largeWal && opening.recovery !== false;
-        const recovery = opening.recovery === true || (opening.recovery === null && large);
-        if (!large && elapsedMs < (recovery ? noticeAfter : slowNoticeAfter)) return { kind: "wait", notice: null };
+        const recovery = replays(opening);
+        if (!large(opening) && elapsedMs < (recovery ? noticeAfter : slowNoticeAfter)) return { kind: "wait", notice: null };
         return { kind: "wait", notice: { kind: recovery ? "recovery" : "slow", elapsedMs } };
       }
       const silentMs = at - lastSign;
       if (migratingSince !== null) {
-        // the migrations: no fixed limit while one runs, a note once one takes long, a stop only after a long silence
+        // from the migrations to ready: no fixed limit while one runs, a note once one takes long, a question only after
+        // a long silence
         if (silentMs >= migrationsCeiling) return { kind: "timeout", stage, silentMs };
         return { kind: "wait", notice: silentMs >= slowNoticeAfter ? { kind: "update", elapsedMs: Math.max(0, at - migratingSince) } : null };
       }
@@ -127,6 +142,15 @@ export function parseStartPhase(m: unknown): StartPhase | null {
   const walMb = typeof o.walMb === "number" && Number.isFinite(o.walMb) && o.walMb > 0 ? Math.round(o.walMb) : 0;
   const recovery = typeof o.recovery === "boolean" ? o.recovery : null;
   return { phase: "database", walMb, recovery };
+}
+
+/**
+ * How many steps of the database's update a chunk of the server's output reports: src/server/db/migrate.ts logs
+ * "migration <id> applied" for each migration and "schema step <id> applied" for the engine's chunks and every reconcile
+ * chunk — each one a sign of progress.
+ */
+export function countProgress(text: string): number {
+  return (text.match(/(?:migration|schema step) \S+ applied/g) ?? []).length;
 }
 
 const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
@@ -156,3 +180,20 @@ export function noticeTexts(n: StartNotice, base: string): { note: string; statu
   const label = n.kind === "recovery" ? "بازیابی پایگاه داده…" : n.kind === "update" ? "به‌روزرسانی داده‌ها…" : base;
   return { note: NOTICE_TEXT[n.kind], status: `${label} ${elapsedFa(n.elapsedMs)}` };
 }
+
+/**
+ * The question of a "timeout" verdict, by its stage ("starting" before the open, "migrations" after it); the main process
+ * adds the path of app.log. The time each one names is its budget's.
+ */
+export const STALL_TEXT = {
+  starting: {
+    message: "سرور داخلی برنامه هنوز پاسخ نداده است",
+    detail: `${fa(String(READY_BUDGET_MS / 1000))} ثانیه است که سرور داخلی خبری نداده است؛ روی رایانهٔ کند یا تازه‌روشن‌شده، یا وقتی ضدویروس فایل‌های برنامه را بررسی می‌کند، ممکن است بیشتر طول بکشد. اگر صبر کنید، برنامه خودش ادامه می‌دهد.`,
+  },
+  migrations: {
+    message: "به‌روزرسانی پایگاه داده پیش نمی‌رود",
+    detail: `${fa(String(MIGRATIONS_CEILING_MS / 60_000))} دقیقه است که هیچ مرحله‌ای از به‌روزرسانی پایگاه داده تمام نشده است. می‌توانید باز هم صبر کنید؛ اگر ببندید، مرحلهٔ نیمه‌کاره در اجرای بعدی از نو انجام می‌شود.`,
+  },
+} as const;
+/** Its answers: 0 waits on (also Esc, and a question withdrawn because the server spoke again), 1 runs the app again, 2 quits. */
+export const STALL_BUTTONS: readonly string[] = ["صبر می‌کنم", "اجرای دوباره", "خروج"];
