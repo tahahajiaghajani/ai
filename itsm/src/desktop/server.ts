@@ -16,6 +16,7 @@ import { stopTicks, tick } from "@server/jobs";
 import { loadConfig, saveConfig, type LocalConfig } from "./config";
 import { createBridge } from "./bridge";
 import { takePendingRestore, undoRestore, restorePending } from "./backup";
+import { extractBackup } from "./backup-stream";
 import { resetSyncCursor } from "./sync-client";
 import { openFromTemplate, templateFor } from "./db-template";
 import { inspectDatabase, type DatabaseOpening } from "./db-open";
@@ -154,7 +155,8 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   } else if (restore) {
     log.info("restoring database from backup");
     try {
-      db = await createPgliteDb({ dataDir: dbDir, desktop: true, log, loadDataDir: new Blob([new Uint8Array(restore.data)]) });
+      await extractBackup(restore.file, dbDir, log);
+      db = await createPgliteDb({ dataDir: dbDir, desktop: true, log });
     } catch (e) {
       // a broken backup must not leave an empty database behind: keep working on the current one
       log.error("restore failed; the current database is kept", String((e as Error)?.message ?? e));

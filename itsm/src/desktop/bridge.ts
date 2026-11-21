@@ -3,7 +3,8 @@ import type { Db } from "@server/db";
 import type { DesktopBridge, Logger } from "@server/context";
 import type { LocalConfig } from "./config";
 import { SyncClient } from "./sync-client";
-import { backupDir, backupNow, listBackups, pruneBackups, scheduleRestore } from "./backup";
+import { BackupError, backupDir, backupNow, backupSpaceNeeded, listBackups, pruneBackups, scheduleRestore } from "./backup";
+import { createHeavyLock } from "./heavy";
 import { APP_VERSION } from "@shared/constants";
 import { hashPassword } from "@server/auth/password";
 import { networkInterfaces, hostname } from "node:os";
@@ -11,9 +12,13 @@ import type { PgliteDb } from "@server/db/pglite";
 
 export interface Bridge extends DesktopBridge {
   start(url: string): void;
+  /** stops the timers, aborts a backup under way and waits for it */
   stop(): Promise<void>;
   sync: SyncClient;
 }
+
+/** An automatic backup cut short (too much written during its copy) is tried again this much later. */
+export const BACKUP_RETRY_MS = 15 * 60_000;
 
 function lanAddresses(): string[] {
   const out: string[] = [];
@@ -23,20 +28,51 @@ function lanAddresses(): string[] {
   return out;
 }
 
-export function createBridge(o: { dataDir: string; db: Db & Partial<Pick<PgliteDb, "pg" | "checkpoint">>; config: LocalConfig; log: Logger; save: () => void }): Bridge {
+export function createBridge(o: { dataDir: string; db: Db & Partial<Pick<PgliteDb, "pg" | "checkpoint" | "wal">>; config: LocalConfig; log: Logger; save: () => void }): Bridge {
   const sync = new SyncClient({ db: o.db, config: o.config, save: o.save, log: o.log });
   let backupTimer: NodeJS.Timeout | null = null;
   let firstBackup: NodeJS.Timeout | null = null;
+  let retryBackup: NodeJS.Timeout | null = null;
   let localUrl = "";
+  let stopped = false;
+  // a backup and the idle upkeep's statements take turns (./heavy.ts)
+  const lock = createHeavyLock();
+  /** the backup under way (stop() aborts it and waits for it) */
+  let backupCtl: AbortController | null = null;
+  let backupRun: Promise<unknown> | null = null;
 
-  const doBackup = async (label = "auto") => {
-    if (!o.db.pg || !o.db.checkpoint) throw new Error("پشتیبان‌گیری فقط برای پایگاه داده‌ی محلی ممکن است");
-    const dir = backupDir(o.dataDir, o.config.backups.dir);
-    const r = await backupNow(o.db as Pick<PgliteDb, "pg" | "checkpoint">, dir, label);
-    pruneBackups(dir, o.config.backups.keep);
-    await o.db.query(`insert into sm_kv (key, value) values ('backup.last', $1::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`, [JSON.stringify({ at: new Date().toISOString(), file: r.file, size: r.size })]);
-    return r;
+  const doBackup = (label = "auto") => {
+    if (!o.db.pg || !o.db.checkpoint) return Promise.reject(new BackupError("failed", "پشتیبان‌گیری فقط برای پایگاه داده‌ی محلی ممکن است", "backup failed: no local database"));
+    const run = lock.run("backup", async () => {
+      if (stopped) throw new BackupError("aborted", "پشتیبان‌گیری متوقف شد، چون برنامه در حال بسته شدن است.", "backup aborted: the app is closing");
+      const ctl = new AbortController();
+      backupCtl = ctl;
+      try {
+        const dir = backupDir(o.dataDir, o.config.backups.dir);
+        const r = await backupNow(o.db as Pick<PgliteDb, "pg" | "checkpoint" | "wal">, dir, label, { signal: ctl.signal, log: o.log, minFreeBytes: backupSpaceNeeded(dir) });
+        pruneBackups(dir, o.config.backups.keep);
+        await o.db.query(`insert into sm_kv (key, value) values ('backup.last', $1::jsonb) on conflict (key) do update set value = excluded.value, updated_at = now()`, [JSON.stringify({ at: new Date().toISOString(), file: r.file, size: r.size })]);
+        return r;
+      } finally {
+        if (backupCtl === ctl) backupCtl = null;
+      }
+    });
+    backupRun = run.catch(() => {});
+    return run;
   };
+  /** an automatic backup: failures go to app.log; one cut short is tried again in BACKUP_RETRY_MS */
+  const autoBackup = () =>
+    void doBackup("auto").catch((e) => {
+      if (stopped) return;
+      if (e instanceof BackupError && e.reason === "cut_short") {
+        o.log.warn(`${e.logged}; retried in ${Math.round(BACKUP_RETRY_MS / 60_000)} minutes`);
+        if (retryBackup) clearTimeout(retryBackup);
+        retryBackup = setTimeout(autoBackup, BACKUP_RETRY_MS);
+        retryBackup.unref?.();
+        return;
+      }
+      o.log.warn("backup failed", e instanceof BackupError ? e.logged : String((e as Error)?.message ?? e));
+    });
 
   const bridge: Bridge = {
     sync,
@@ -45,14 +81,19 @@ export function createBridge(o: { dataDir: string; db: Db & Partial<Pick<PgliteD
       sync.start();
       if (o.config.backups.auto) {
         const every = Math.max(1, o.config.backups.every_hours) * 3600000;
-        backupTimer = setInterval(() => void doBackup("auto").catch((e) => o.log.warn("backup failed", String(e))), every);
+        backupTimer = setInterval(autoBackup, every);
         // a backup shortly after every start
-        firstBackup = setTimeout(() => void doBackup("auto").catch((e) => o.log.warn("backup failed", String(e))), 120000);
+        firstBackup = setTimeout(autoBackup, 120000);
       }
     },
     async stop() {
+      stopped = true;
       if (backupTimer) clearInterval(backupTimer);
       if (firstBackup) clearTimeout(firstBackup);
+      if (retryBackup) clearTimeout(retryBackup);
+      // before the database closes: a backup under way ends its backup mode and lets the log's checkpoints run again
+      backupCtl?.abort();
+      await backupRun;
       await sync.stop();
     },
     async info() {
