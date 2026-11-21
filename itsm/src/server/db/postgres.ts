@@ -141,8 +141,13 @@ function marked<E>(e: E): E {
   return e;
 }
 
+/** The DB_TIMEOUT errors this adapter gave (a statement whose answer never came). */
+const noAnswered = new WeakSet<object>();
+
 function noAnswer(ms: number): Error {
-  return Object.assign(new Error(`DB_TIMEOUT: no answer from the database in ${ms} ms`), { code: "DB_TIMEOUT" });
+  const e = Object.assign(new Error(`DB_TIMEOUT: no answer from the database in ${ms} ms`), { code: "DB_TIMEOUT" });
+  noAnswered.add(e);
+  return e;
 }
 
 const ROLLED_BACK = Symbol("rolled back to savepoint");
@@ -364,7 +369,11 @@ export function createPostgresDb(opts: PostgresOptions): Db {
    * postgres.js runs a transaction's own statements (begin, the savepoints' release, commit or rollback) itself, out of
    * `bounded`'s reach: they are bounded as phases with the statement deadline — from the call to the start of `fn` (a
    * connection, then begin) and from the end of `fn` to the transaction's end. Given up, the transaction fails with
-   * DB_TIMEOUT, `fn` never runs should begin be answered later, and the pool is replaced before the next statement.
+   * DB_TIMEOUT, `fn` never runs should begin be answered later, and the pool is replaced before the next statement. When
+   * `fn` failed because one of its statements was given up, the rollback is not waited for at all (`now`): it would go
+   * through the same silent connection and add a second deadline (35 + 35 s, past the function's 60 s); nothing was
+   * committed, and the server ends the transaction with its connection (idle_in_transaction_session_timeout at the
+   * latest).
    */
   function phases() {
     const total = clientMs + graceMs;
@@ -389,6 +398,12 @@ export function createPostgresDb(opts: PostgresOptions): Db {
         timer.unref?.();
       },
       disarm,
+      /** End the transaction now with `e` (one of its statements got no answer). */
+      now(e: Error) {
+        disarm();
+        gaveUp ??= e;
+        fail(e);
+      },
       enter() {
         disarm();
         if (gaveUp) throw gaveUp;
@@ -472,7 +487,9 @@ export function createPostgresDb(opts: PostgresOptions): Db {
           await sp.closeAll(true);
           return r;
         } catch (e) {
-          phase?.arm();
+          // one of its statements got no answer: the rollback is not waited for through the same silent connection
+          if (phase && noAnswered.has(e as object)) phase.now(e as Error);
+          else phase?.arm();
           await sp.closeAll(false).catch(() => {});
           throw e;
         }

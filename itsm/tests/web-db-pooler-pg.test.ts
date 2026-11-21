@@ -107,7 +107,9 @@ describe.skipIf(!realPgAvailable())("the web pool through a pooler that releases
     expect(Date.now() - t1).toBeLessThan(2_000);
     expect(events.slice(1)).toEqual([expect.objectContaining({ kind: "replaced", reason: "gave_up" })]);
 
-    // inside a transaction: the statement is given up, and so is the rollback whose answer is lost with it
+    // inside a transaction: the statement is given up, and the transaction with it at once — its rollback would go
+    // through the same silent connection (its answer is lost too) and is not waited for: one deadline, not two (in
+    // production 35 s, not 70 s past the function's 60 s)
     p.blackhole(/w114-lost-in-tx/);
     const t2 = Date.now();
     const tx = await guarded(
@@ -119,7 +121,9 @@ describe.skipIf(!realPgAvailable())("the web pool through a pooler that releases
     );
     expect(tx.hang).toBeUndefined();
     expect(tx.error).toMatchObject({ code: "DB_TIMEOUT" });
-    expect(Date.now() - t2).toBeLessThan(2_500);
+    const inTx = Date.now() - t2;
+    expect(inTx).toBeGreaterThanOrEqual(480);
+    expect(inTx).toBeLessThan(850);
     expect(await db.one(`select $1::int as v`, [6])).toEqual({ v: 6 });
     expect(events.filter((e) => e.kind === "replaced")).toHaveLength(2);
   }, 60_000);
