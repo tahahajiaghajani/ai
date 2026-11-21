@@ -21,6 +21,7 @@ import { audit } from "../modules/data/crud";
 import { needRecentAuthOf } from "../auth/policy";
 import { scopedPulse } from "../live-scope";
 import { shellAccess } from "../access/service";
+import { queueReresolve } from "../modules/process/reresolve";
 
 const timezoneSchema = z.string().trim().max(64).refine(isTimeZone, "منطقهٔ زمانی معتبر نیست");
 const modulesSchema = z.array(z.string().max(40)).max(50);
@@ -265,6 +266,8 @@ orgRoutes.patch("/members/:id", async (c) => {
   // the stored overrides are jsonb (keys in jsonb's order): compared as JSON, or an unchanged panel logs a change
   if (input.overrides && !sameJson(input.overrides, m.overrides ?? {})) changes.overrides = [m.overrides ?? {}, input.overrides];
   if (input.is_active !== undefined && input.is_active !== m.is_active) changes.is_active = [m.is_active, input.is_active];
+  // a member made active again (or given another role) may be whom a workflow step waiting with nobody lacks
+  if (changes.is_active || changes.role) await queueReresolve(ctx.db, ctx.org.id);
   if (Object.keys(changes).length)
     await securityEvent(ctx.db, {
       kind: "member_changed",

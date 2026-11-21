@@ -6,8 +6,10 @@
 //     returning step's own next round included, goes by F3's `resolveAssignees`), one task per person, the case's
 //     progress, current steps, open rounds, participants and state, the event `record.process_step_opened`, then a
 //     wait on `pstep:<case>:<node>:<round>`.
-//     Nobody: the step is skipped (`ifNobody: skip`) or the case waits («در انتظار») for its managers — as it does
-//     when more people are found than a step takes. `applySubmission` settles the round and resumes the wait with the
+//     Nobody: the step is skipped (`ifNobody: skip`; an approve step's pass counts as approved, and the journal says
+//     so) or the case waits («در انتظار») for its managers — as it does when more people are found than a step takes.
+//     The journal says why (the resolver's reasons) and whether the managers were told (./waiting.ts), and the round's
+//     wait keeps both for the case page and a later re-resolution (../reresolve). `applySubmission` settles the round and resumes the wait with the
 //     decision's port; `cancel` (the wait withdrawn by a join's cancel_rest, the run ended or canceled) closes the
 //     round's open tasks — «دیگر لازم نیست», or «لغو» when the run failed or was canceled.
 //   · «انتخاب» (`choice`): the first case whose comparisons on the run's data hold, else «هیچ‌کدام».
@@ -17,19 +19,16 @@
 import type { FieldDef } from "@shared/model/types";
 import { compareData } from "@shared/flows";
 import { snapshotFields } from "@shared/forms/snapshot";
-import { addBusiness } from "@shared/sla/calendar";
-import { choiceCases, durationMs, formStepOf, OUTCOME_PORT, outEdges, processNodeLabel, quorumOf, type CaseProgress, type FormStep, type ProcessGraph } from "@shared/process/graph";
-import { cleanRule, ifNobodyOf, nobodyMessage, type AssigneeRule } from "@shared/process/assignees";
-import type { Ctx } from "../../../context";
+import { choiceCases, formStepOf, OUTCOME_PORT, outEdges, processNodeLabel, quorumOf, type CaseProgress, type FormStep, type ProcessGraph } from "@shared/process/graph";
+import { cleanRule, ifNobodyOf, tooManyMessage, poolLimit, type AssigneeRule } from "@shared/process/assignees";
 import type { Tx } from "../../../db";
 import { pgArray } from "../../../db";
-import { coerceValue, createIn, emitEvent, orgTz, systemCtx, updateIn } from "../../../engine";
+import { coerceValue, emitEvent, systemCtx, updateIn } from "../../../engine";
 import type { FlowStepHandler, StepContext, StepOutcome, WaitCancel } from "../../flows/registry";
 import { Resolution, resolveAssignees, type ResolveInput } from "../../positions";
 import { notifyPeople } from "../../notify/deliver";
-import { config as slaConfig } from "../../sla/common";
-import { calendarsOf } from "../../sla/calendars";
 import { caseJournal } from "./journal";
+import { managersTold, nobodyLine, openRoundTasks, waitingLine, waitState, type WaitState } from "./waiting";
 import { OPEN_STATES, participantsOf, refreshCase, replayProgress, runLog } from "./progress";
 import { caseTasks, isId, loadVersionInfo, lockCase, peopleNames, stepWaitKey, type CaseRow, type TaskRow, type VersionInfo } from "./store";
 import { processHandlers } from "./runs";
@@ -90,6 +89,9 @@ export function resolveInput(kase: CaseRow, version: VersionInfo, tasks: readonl
     label,
     requestedBy: kase.requested_by,
     requestedFor: kase.requested_for,
+    // the requester's unit as the case recorded it at its start (the record's access anchor: the profile's unit of the
+    // person it is for, set when the case was made) — a requester who moves on keeps the case where it began
+    requesterUnit: kase.unit_id ?? null,
     values: kase.data ?? {},
     fieldTypes: fieldTypes(version),
     stepActors: actors.byStep,
@@ -97,20 +99,6 @@ export function resolveInput(kase: CaseRow, version: VersionInfo, tasks: readonl
     managers: kase.managers?.length ? kase.managers : version.managers,
     managerGroups: kase.manager_groups?.length ? kase.manager_groups : version.manager_groups,
   };
-}
-
-/** When a step opened at `from` is due: business time in the organisation's calendar unless the step says otherwise. */
-async function dueOf(tx: Tx, sys: Ctx, step: FormStep, from: number): Promise<string | null> {
-  if (!step.due) return null;
-  const ms = durationMs(step.due);
-  if (!ms) return null;
-  if (step.business === false) return iso(from + ms);
-  try {
-    const { byId, defaultId } = calendarsOf(await slaConfig(tx, sys), orgTz(sys));
-    return iso(addBusiness(defaultId ? byId.get(defaultId) ?? null : null, from, ms) ?? from + ms);
-  } catch {
-    return iso(from + ms);
-  }
 }
 
 /** Active members among `ids`. */
@@ -163,6 +151,7 @@ async function openStep(s: StepContext): Promise<StepOutcome> {
   let people: { user: string; delegatedFrom: string | null }[] = [];
   let status: "ok" | "managers" | "nobody" | "too_many" = "ok";
   let message: string | null = null;
+  let notes: string[] = [];
   let candidates: string[] | undefined;
   const back = last > 0 && returnedTo(version.graph, replayProgress(version.graph, kase.progress, await runLog(tx, kase.run_ref)), nodeId);
   if (back && (step.returnTo ?? "actor") === "actor") {
@@ -179,37 +168,38 @@ async function openStep(s: StepContext): Promise<StepOutcome> {
   if (!people.length && step.start) {
     const live = await activeMembers(tx, s.orgId, kase.requested_by ? [kase.requested_by] : []);
     if (kase.requested_by && live.has(kase.requested_by)) people = [{ user: kase.requested_by, delegatedFrom: null }];
-    else status = "nobody";
+    else {
+      status = "nobody";
+      notes = ["درخواست‌دهنده عضو فعال سازمان نیست"];
+    }
   } else if (!people.length) {
     const r = await resolveAssignees(tx, sys, resolveInput(kase, version, tasks, step, label));
     status = r.status;
     message = r.message;
+    notes = r.notes;
     candidates = r.candidates;
     people = r.people.map((p) => ({ user: p.user, delegatedFrom: p.delegatedFrom }));
   }
 
   if (!people.length && status === "nobody" && ifNobodyOf(step) === "skip") {
-    await caseJournal(tx, sys, kase, nobodyMessage(label, "skip"));
-    return { port: passPort(step), output: { round, skipped: true, outcome: null, message: nobodyMessage(label, "skip") } };
+    // an approve step passed by «از این مرحله بگذرد» leaves by «تأیید شد»: the journal says it counted as approved
+    const line = nobodyLine(label, "told", { approve: step.action === "approve" });
+    await caseJournal(tx, sys, kase, waitingLine(line, notes), { data: { step: nodeId, round, skipped: true, notes } });
+    return { port: passPort(step), output: { round, skipped: true, outcome: null, message: line } };
   }
 
-  const due = people.length ? await dueOf(tx, sys, step, now) : null;
-  const opened: TaskRow[] = [];
-  for (const p of people) {
-    const row = await createIn(
-      tx,
-      sys,
-      "process_task",
-      {
-        case_id: caseId, case_number: kase.number, case_title: kase.title, process_id: kase.process_id, version_id: kase.version_id,
-        step_key: nodeId, step_label: label, action: step.action, round, assigned_to: p.user, delegated_from: p.delegatedFrom,
-        status: "open", opened_at: iso(now), due_at: due,
-      },
-      { trusted: true },
-    );
-    opened.push(row as unknown as TaskRow);
+  const { tasks: opened, due } = await openRoundTasks(tx, sys, kase, { id: nodeId, label, step }, round, people, now);
+  // nobody, or more than the step takes: the journal says why and whether the managers were told; the wait keeps it
+  let waiting: WaitState | null = null;
+  if (!people.length) {
+    const reason = status === "too_many" ? "too_many" : "nobody";
+    const line = reason === "too_many" ? message ?? tooManyMessage(poolLimit(step.action, quorumOf(step))) : nobodyLine(label, await managersTold(tx, s.orgId, kase));
+    waiting = { reason, message: line, notes, ...(candidates ? { candidates } : {}) };
+    message = line;
+    await caseJournal(tx, sys, kase, waitingLine(line, notes), { data: { step: nodeId, round, waiting: reason, message: line, notes } });
+  } else if (status === "managers") {
+    await caseJournal(tx, sys, kase, waitingLine(`برای «${label}» کسی پیدا نشد؛ مرحله به مسئولان گردش‌کار رسید.`, notes), { data: { step: nodeId, round, managers: true, notes } });
   }
-  if (!people.length) await caseJournal(tx, sys, kase, message ?? nobodyMessage(label, "wait"));
   await refreshCase(tx, sys, kase, version.graph, {
     tasks: [...tasks, ...opened],
     extra: { [nodeId]: { status: "active", round, at: iso(now), waiting: people.length } },
@@ -219,11 +209,11 @@ async function openStep(s: StepContext): Promise<StepOutcome> {
     table: "process_case",
     id: caseId,
     number: kase.number,
-    data: { node: nodeId, label, round, action: step.action, people: people.map((p) => p.user), status: people.length ? status : status === "ok" ? "nobody" : status, due_at: due, message, returned: back },
+    data: { node: nodeId, label, round, action: step.action, people: people.map((p) => p.user), status: people.length ? status : waiting!.reason, due_at: due, message, notes, returned: back },
   });
   return {
-    wait: { kind: STEP_WAIT, key: stepWaitKey(caseId, nodeId, round), data: { case: caseId, round, step: s.stepKey, ...(candidates ? { candidates } : {}) } },
-    output: { round, waiting: people.length, status: people.length ? status : "nobody", ...(message ? { message } : {}) },
+    wait: { kind: STEP_WAIT, key: stepWaitKey(caseId, nodeId, round), data: { case: caseId, round, step: s.stepKey, ...(waiting ? waitState(waiting) : {}) } },
+    output: { round, waiting: people.length, status: people.length ? status : waiting!.reason, ...(message ? { message } : {}) },
   };
 }
 

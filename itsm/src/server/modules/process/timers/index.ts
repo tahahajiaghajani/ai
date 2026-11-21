@@ -1,6 +1,8 @@
 // Time in workflows (design F §3.4–3.5, package F4b): the organisation's `process.timer` (reminders, escalations, the
-// «پایان مهلت» port, pending submissions looked at again — ./timer.ts) and `process.delegation` (open tasks follow
-// delegations and out-of-office switches as they start and end — ./delegation.ts). Both act on the authority only.
+// «پایان مهلت» port, pending submissions looked at again — ./timer.ts), `process.delegation` (open tasks follow
+// delegations and out-of-office switches as they start and end — ./delegation.ts) and (1.1.5) `process.reresolve`
+// (a step that waits with nobody finds people once holders, groups or roles change — ../reresolve). All act on the
+// authority only.
 // `installProcessTimers()` is mounted once with the modules (src/server/routes/modules.ts).
 import { formStepOf } from "@shared/process/graph";
 import type { ServerConfig } from "../../../context";
@@ -11,6 +13,7 @@ import { loadVersionInfo } from "../engine/store";
 import { applyPending } from "../sync/apply";
 import { delegationChanged, DELEGATION_JOB, reresolveTasks } from "./delegation";
 import { firstTimer, hasTimers, MORE, timerPass, TIMER_JOB, wakeTimer } from "./timer";
+import { installReresolve } from "../reresolve";
 
 export { timerPass, roundTimers, roundTimersIn, roundNextAt, wakeTimer, caseManagers, firstTimer, hasTimers, TIMER_JOB, RECHECK_MS, MORE, type Clock, type RoundFacts } from "./timer";
 export { reresolveTasks, queueDelegation, delegationChanged, DELEGATION_JOB } from "./delegation";
@@ -20,6 +23,7 @@ let installed = false;
 export function installProcessTimers(): void {
   if (installed) return;
   installed = true;
+  installReresolve();
   registerJobHandler(TIMER_JOB, async (job, jctx) => {
     if (!job.org_id) return;
     const cfg = jctx.cfg as ServerConfig;

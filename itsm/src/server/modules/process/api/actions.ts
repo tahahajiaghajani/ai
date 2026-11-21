@@ -12,7 +12,9 @@
 //     – «توقف موقت» / «ادامه»: nobody acts and the timers wait while it is paused; when it resumes, the open rounds'
 //       due times, the time their escalations and reminders count from, and their last reminder and escalation move
 //       on by the pause;
-//     – «لغو پرونده» and «ادامه از مرحلهٔ …» (F4b's recovery services).
+//     – «لغو پرونده» and «ادامه از مرحلهٔ …» (F4b's recovery services);
+//     – «دوباره پیدا کردن انجام‌دهنده» (1.1.5): a step that waits with nobody (or more people than it takes) runs its
+//       rules again — the case version's, or the current version's for the same step (../reresolve).
 //   A requester's «لغو» (before any step after the start was done) is a submission (F4a).
 // Each is one transaction under the case's lock, journaled on the case and, for the managers' actions, recorded in
 // «گزارش رویدادها».
@@ -24,7 +26,9 @@ import { pgArray, type Tx } from "../../../db";
 import { bad, conflict, forbidden, notFound } from "../../../http/errors";
 import { createIn, get, isSystemCtx, orgTz, systemCtx, updateIn } from "../../../engine";
 import { audit } from "../../data/crud";
-import { demoPeople } from "../../../db/scope";
+import { demoPeople, demoScopeOrg, inDemoScope, isDemoRow } from "../../../db/scope";
+import type { ReresolveInput, ReresolveResult } from "@shared/process/waiting";
+import { reresolveRoundIn } from "../reresolve";
 import { DEMO_PEOPLE_REAL_WORK, Resolution } from "../../positions";
 import { config as slaConfig } from "../../sla/common";
 import { calendarsOf } from "../../sla/calendars";
@@ -312,3 +316,43 @@ export async function cancelCaseAs(ctx: Ctx, caseId: string, input: { comment?: 
 
 /** «ادامه از مرحلهٔ …» (a case that needs attention). */
 export const resumeFrom = (ctx: Ctx, caseId: string, input: { node: string; comment?: string | null }) => resumeFromStep(ctx, caseId, input.node, { comment: input.comment });
+
+/**
+ * «دوباره پیدا کردن انجام‌دهنده» by a manager: a step that waits with nobody, or with more people than it takes, runs
+ * its rules again (the case version's, or with `rules: "current"` the current version's for the same step); whoever is
+ * found gets the step in the same round. Journaled and audited whatever it finds. A case of the demo pack's is written
+ * inside its demo scope (its new tasks are the pack's rows).
+ */
+export async function reresolveStep(ctx: Ctx, caseId: string, input: ReresolveInput): Promise<ReresolveResult> {
+  await needAuthority(ctx);
+  await needRead(ctx, caseId);
+  const stepKey = String(input.step ?? "").slice(0, 40);
+  const rules = input.rules === "current" ? "current" : "case";
+  const sys = await systemCtx(ctx.cfg, ctx.org.id);
+  // read before the transaction (PGlite has one connection)
+  const demo = await isDemoRow(ctx.db, ctx.org.id, caseId.toLowerCase());
+  const run = () =>
+    sys.write(async (tx) => {
+      const kase = await managedCase(tx, ctx, caseId);
+      if (!OPEN_STATES.has(kase.state) || kase.state === "attention") throw conflict("این پرونده باز نیست یا نیاز به بررسی دارد؛ انجام‌دهنده‌اش دوباره جسته نمی‌شود");
+      const version = await loadVersionInfo(tx, ctx.org.id, kase.version_id);
+      const node = version?.graph.nodes.find((n) => n.id === stepKey && n.type === "form_step");
+      if (!version || !node) throw bad("این مرحله در پرونده نیست");
+      const r = await reresolveRoundIn(tx, sys, kase, version, node.id, { rules, by: isSystemCtx(ctx) ? null : { user: ctx.user.id, name: who(ctx) } });
+      if (!r) throw conflict("این مرحله منتظر انجام‌دهنده نیست؛ یا باز نیست یا کارش به کسی سپرده شده است");
+      const names = await peopleNames(tx, r.people.map((p) => p.user));
+      const pack = await demoPeople(tx, ctx.org.id, r.people.map((p) => p.user));
+      if (!isSystemCtx(ctx)) {
+        await audit(tx, ctx, "process.reresolve", "process_case", kase.id, `${kase.number ?? ""}: دوباره پیدا کردن انجام‌دهندهٔ «${r.label}»`, {
+          step: node.id, round: r.round, rules, status: r.status, to: r.people.map((p) => p.user),
+        });
+      }
+      return {
+        status: r.status,
+        people: r.people.map((p) => ({ id: p.user, name: names.get(p.user) ?? "—", demo: pack.has(p.user) })),
+        message: r.message,
+        notes: r.notes,
+      } satisfies ReresolveResult;
+    });
+  return inDemoScope(demo ? ctx.org.id : demoScopeOrg(), run);
+}
