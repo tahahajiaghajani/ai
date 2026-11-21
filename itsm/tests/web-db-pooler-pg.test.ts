@@ -7,7 +7,10 @@
 //     next statement runs on a fresh pool — in a transaction too, where the rollback is bounded as well;
 // (c) sockets that died while the pool sat idle (a paused serverless instance) are left behind with the old pool;
 // (d) transactions (parallel reads inside, the preamble, savepoints) and plain reads of three instances at once: no
-//     hang, no wrong answer, nothing released early, dropped or delivered to another client.
+//     hang, no wrong answer, nothing released early, dropped or delivered to another client;
+// (e) a transaction's statement that reaches the server's own statement_timeout sends no CancelRequest: the client's
+//     deadline was as long, so its cancel reached the pooler after the transaction had ended and was forwarded to the
+//     next statement of that connection — another request's (Supavisor cancels what the client runs at that moment).
 // Skipped unless ITSM_PG_URL or ITSM_PG_BIN (tests/pg-real.ts). Locally as root:
 //   ITSM_PG_BIN=/usr/lib/postgresql/16/bin npx vitest run tests/web-db-pooler-pg.test.ts
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
@@ -195,4 +198,40 @@ describe.skipIf(!realPgAvailable())("the web pool through a pooler that releases
     expect(p.stats).toMatchObject({ releasedOwing: 0, droppedMsgs: 0, misdeliveredMsgs: 0 });
     expect(p.stats.checkouts).toBeGreaterThan(30);
   }, 120_000);
+
+  it("(e) a transaction's statement ended by the server's statement_timeout sends no CancelRequest that could hit another request's statement", async () => {
+    const p = await pooler();
+    let cancels = 0;
+    const forward = p.cancel.bind(p);
+    p.cancel = (pid: number, secret: number) => {
+      cancels++;
+      forward(pid, secret);
+    };
+    // the web pool's own relation of its client deadline and the server-side limit (webPoolOptions), 100 times shorter:
+    // one connection, so the next request's statement runs on the connection the transaction just gave back
+    const o = webPoolOptions(through(p), { DATABASE_SSL: "disable" });
+    const db = web(p, { max: 1, statementGraceMs: 2_000, statementClientMs: o.statementClientMs! / 100, txLimits: { ...o.txLimits!, statementMs: o.txLimits!.statementMs / 100 } });
+    expect(await db.one(`select $1::int as v`, [1])).toEqual({ v: 1 });
+    const a = db.tx((t) => t.query(`select pg_sleep(2)`)).then(
+      () => null,
+      (e: { code?: string; message?: string }) => e,
+    );
+    await sleep(250);
+    // another request's statement, waiting for the one connection
+    const b = db.one<{ v: string }>(`select pg_sleep(0.06), 'b' as v`).then(
+      (r) => ({ v: r?.v }),
+      (e: { code?: string; message?: string }) => ({ error: `${e.code}: ${e.message}` }),
+    );
+    const err = await a;
+    expect(err?.code).toBe("57014");
+    expect(err?.message).toMatch(/statement timeout/);
+    expect(await b).toEqual({ v: "b" });
+    await sleep(150);
+    expect(cancels).toBe(0);
+    // an autocommit statement has no server-side limit: the client's deadline still cancels it
+    const c = await guarded(db.one(`select pg_sleep(2)`), 5_000);
+    expect(c.error).toMatchObject({ code: "57014" });
+    expect(String((c.error as Error).message)).toMatch(/user request/);
+    expect(cancels).toBe(1);
+  }, 60_000);
 });
