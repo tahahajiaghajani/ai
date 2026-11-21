@@ -13,6 +13,7 @@ import { snapshotFields } from "@shared/forms/snapshot";
 import { attachmentIds } from "@shared/forms/validators";
 import type { Ctx, ServerConfig } from "../../../context";
 import { pgArray, type Tx } from "../../../db";
+import { demoScopeOrg, inDemoScope, isDemoRow } from "../../../db/scope";
 import { systemCtx, updateIn } from "../../../engine";
 import { enqueue } from "../../../jobs";
 import { notifyPeople } from "../../notify/deliver";
@@ -114,7 +115,12 @@ async function tellSubmitter(tx: Tx, orgId: string, sub: SubmissionRow, r: Pick<
 export async function applyPending(cfg: ServerConfig, orgId: string, submissionId: string, since: number | null): Promise<PushedOutcome> {
   if (!isId(submissionId) || !(await processesRunHere(cfg, orgId))) return "skipped";
   const sys = await systemCtx(cfg, orgId);
-  return sys.write((tx) => applyPendingIn(tx, sys, submissionId, since));
+  const apply = () => sys.write((tx) => applyPendingIn(tx, sys, submissionId, since));
+  // a submission of the demo pack's people (their sync is demo work) is applied as demo work wherever it is applied —
+  // also by the organisation's own `process.timer`, outside the demo scope: the case it starts is the pack's, its steps
+  // keep the pack's people, and the purge takes it (docs/DEMO_FA.md)
+  if (demoScopeOrg() !== orgId && (await isDemoRow(cfg.db, orgId, submissionId))) return inDemoScope(orgId, apply);
+  return apply();
 }
 
 /** `applyPending` inside the caller's transaction (as the system, on the authority). */
