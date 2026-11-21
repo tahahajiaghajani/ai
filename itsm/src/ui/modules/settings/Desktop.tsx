@@ -192,6 +192,7 @@ export default function Desktop() {
           ) : null}
         </Card>
 
+        {d && !d.database ? null : (
         <Card
           title="نگهداری پایگاه داده"
           tools={
@@ -233,6 +234,7 @@ export default function Desktop() {
             <Skeleton rows={3} />
           )}
         </Card>
+        )}
 
         <Card title="دربارهٔ این نصب">
           {d ? (
