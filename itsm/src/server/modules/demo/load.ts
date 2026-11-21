@@ -24,6 +24,7 @@ import { secureWorkspace } from "../security/common";
 import { ARTICLES, BANK_DOMAIN, BANK_NAME, BRANCH_STREETS, CHANGES, DEMO_SIZES, FIRST_NAMES, GROUPS, HQ_DEPARTMENTS, INCIDENTS, KNOWN_NAMES, LAST_NAMES, PROBLEMS, PROVINCES, REGION_OF, REGIONS, REQUESTS, Rng, SERVICES, type DemoSize, type Persona } from "./bank";
 import { costCentresIn, stepAnalytics, stepContinuityGrc, stepCsm, stepDelivery, stepDocs, stepEsm, stepEvents, stepExperience, stepField, stepFinance, stepPortal, stepWorkforce } from "./modules";
 import { stepWorkflow } from "./workflow";
+import { forgetPurged } from "./ledger";
 
 /** What the steps share (saved with the pack between job invocations). */
 export interface LoadMemo {
@@ -347,12 +348,32 @@ async function stepGroups({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
   return true;
 }
 
-/** One account of the pack (recorded for the purge; no password unless it is a persona the presenter signs in as). */
-async function addPerson(tx: Tx, sys: Ctx, orgId: string, p: { email: string; name: string; title: string; unit?: string; location?: string; manager?: string | null; roles: string[]; hash: string | null; role?: "member" | "viewer" }): Promise<string> {
-  const id = uuidv7();
-  await tx.query(`insert into sm_users (id, email, full_name, password_hash, prefs) values ($1, $2, $3, $4, $5::jsonb)`, [id, p.email, p.name, p.hash, JSON.stringify({ demo_org: orgId })]);
+/**
+ * One account of the pack (recorded for the purge; no password unless it is a persona the presenter signs in as). An
+ * account with the persona's address already there — one an earlier purge kept because it belongs to another
+ * organisation too — is marked for the pack again, never inserted twice (the address is unique): it leaves the
+ * purged-id ledger, and its membership here comes back.
+ */
+export async function addPerson(tx: Tx, sys: Ctx, orgId: string, p: { email: string; name: string; title: string; unit?: string; location?: string; manager?: string | null; roles: string[]; hash: string | null; role?: "member" | "viewer" }): Promise<string> {
+  const kept = await tx.one<{ id: string }>(`select id from sm_users where lower(email) = lower($1)`, [p.email]);
+  const id = kept?.id ?? uuidv7();
+  if (kept) {
+    await tx.query(
+      `update sm_users set full_name = $2, password_hash = coalesce($3, password_hash), disabled = false,
+              prefs = coalesce(prefs, '{}'::jsonb) - 'demo_purged' || jsonb_build_object('demo_org', $4::text)
+        where id = $1`,
+      [id, p.name, p.hash, orgId],
+    );
+    await forgetPurged(tx, orgId, [id]);
+  } else {
+    await tx.query(`insert into sm_users (id, email, full_name, password_hash, prefs) values ($1, $2, $3, $4, $5::jsonb)`, [id, p.email, p.name, p.hash, JSON.stringify({ demo_org: orgId })]);
+  }
   await tx.query(`insert into sm_demo_rows (org_id, row_id, tbl) values ($1, $2, 'sm_users') on conflict do nothing`, [orgId, id]);
-  await tx.query(`insert into sm_org_members (id, org_id, user_id, role, title, origin) values ($1, $2, $3, $4, $5, $6)`, [uuidv7(), orgId, id, p.role ?? "member", p.title, sys.cfg.origin ?? null]);
+  await tx.query(
+    `insert into sm_org_members (id, org_id, user_id, role, title, origin) values ($1, $2, $3, $4, $5, $6)
+     on conflict (org_id, user_id) do update set role = excluded.role, title = excluded.title, is_active = true, deleted_at = null`,
+    [uuidv7(), orgId, id, p.role ?? "member", p.title, sys.cfg.origin ?? null],
+  );
   const profile = { user_id: id, name: p.name, title: p.title, org_unit_id: p.unit ?? null, location_id: p.location ?? null, manager_id: p.manager ?? null, roles: p.roles, persona: choose("member_profile", "persona", p.roles.includes("requester") ? ["requester"] : ["agent"]) };
   const existing = await tx.one<{ id: string }>(`select id from sm_member_profiles where org_id = $1 and user_id = $2 and deleted_at is null`, [orgId, id]);
   if (existing) await updateIn(tx, sys, "member_profile", existing.id, clean("member_profile", profile), { trusted: true });
