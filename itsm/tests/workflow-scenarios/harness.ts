@@ -41,6 +41,7 @@ import { resetRateBuckets } from "@server/http/hono";
 import { uuidv7 } from "@shared/id";
 import { extraDatabase, realPg, realPgAvailable, type RealPg } from "../pg-real";
 import { backendOf, startPooler, type Pooler } from "../web-db-pooler";
+import postgres from "postgres";
 
 export { realPgAvailable };
 
@@ -118,13 +119,16 @@ export async function pgEdition(kind: "server" | "web" | "pooler", name: string)
   const pg: RealPg = await realPg(`wfscen_${name}`);
   const pools: Db[] = [];
   const poolers: Pooler[] = [];
+  const databases: string[] = [];
   let seq = 0;
   const database = async (mode: "desktop" | "cloud"): Promise<Db> => {
     // a Windows app keeps its own PGlite
     if (mode === "desktop") return createPgliteDb({ desktop: true });
-    const url = await extraDatabase(pg, `wfscen_${name}_${process.pid}_${++seq}`);
-    let db: Db;
-    if (kind === "server") db = createPostgresDb({ url, max: 6, ssl: false, prepare: true });
+    const db = `wfscen_${name}_${process.pid}_${++seq}`;
+    databases.push(db);
+    const url = await extraDatabase(pg, db);
+    let pool: Db;
+    if (kind === "server") pool = createPostgresDb({ url, max: 6, ssl: false, prepare: true });
     else {
       let through = url;
       if (kind === "pooler") {
@@ -132,10 +136,10 @@ export async function pgEdition(kind: "server" | "web" | "pooler", name: string)
         poolers.push(p);
         through = `postgres://app:ignored@127.0.0.1:${p.port}/${new URL(url).pathname.slice(1)}`;
       }
-      db = createPostgresDb({ ...webPoolOptions(through, { DATABASE_SSL: "disable" }), onEvent: undefined });
+      pool = createPostgresDb({ ...webPoolOptions(through, { DATABASE_SSL: "disable" }), onEvent: undefined });
     }
-    pools.push(db);
-    return db;
+    pools.push(pool);
+    return pool;
   };
   return {
     kind,
@@ -148,6 +152,13 @@ export async function pgEdition(kind: "server" | "web" | "pooler", name: string)
       useServerDb(null);
       await Promise.all(pools.splice(0).map((db) => Promise.race([db.close().catch(() => undefined), sleep(15_000)])));
       await Promise.all(poolers.splice(0).map((p) => p.close().catch(() => undefined)));
+      // the worlds' databases (on a server given by ITSM_PG_URL they would outlive the suite)
+      const admin = postgres(pg.url, { max: 1, onnotice: () => {} });
+      try {
+        for (const db of databases.splice(0)) await admin.unsafe(`drop database if exists ${db} with (force)`).catch(() => undefined);
+      } finally {
+        await admin.end({ timeout: 5 });
+      }
       await pg.stop();
     },
   };
