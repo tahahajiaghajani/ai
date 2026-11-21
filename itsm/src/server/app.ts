@@ -102,13 +102,14 @@ export function createApp(cfg: ServerConfig) {
 
   const org = new Hono<Env>();
   org.use("*", requireUser, loadOrg);
-  // after a write that queued jobs (record events…), the web version runs them once the response is sent
+  // after a write that queued jobs (record events…), the web version runs them once the response is sent (without the
+  // cleanup of finished jobs: on the web that runs from GET /api/cron/tick alone)
   org.use("*", async (c, next) => {
     const before = jobCounter();
     await next();
     const m = c.req.method;
     if (cfg.waitUntil && m !== "GET" && m !== "HEAD" && m !== "OPTIONS" && jobCounter() !== before) {
-      cfg.waitUntil(() => tick(cfg, { budgetMs: 4000 }).catch((e) => cfg.log.warn("job tick failed", String((e as Error)?.message ?? e))));
+      cfg.waitUntil(() => tick(cfg, { budgetMs: 4000, cleanup: false }).catch((e) => cfg.log.warn("job tick failed", String((e as Error)?.message ?? e))));
     }
   });
   org.route("/", orgRoutes);
