@@ -27,7 +27,7 @@ import { uuidv7 } from "@shared/id";
 import { inDemoScope } from "../db/scope";
 import { demoSignInRefusal } from "../modules/demo/signin";
 import { openUploadWindow } from "../modules/process/sync/upload";
-import { judgePurged, purgedInPush } from "../modules/demo/pushed";
+import { judgePurged, namesPurged, purgedInPush, type StoredRecord } from "../modules/demo/pushed";
 import { afterEnginePush, checkEnginePush, replicaRows, scopeEpoch } from "../engine/sync";
 import { condEnv, orgSchema } from "../engine";
 import {
@@ -249,7 +249,7 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
       }
       // a row a demo purge removed is never brought back; a side row or membership of purged data neither
       if (purged.size && (def.engine !== "record" || purged.has(agg.id.toLowerCase()))) {
-        const v = judgePurged(def, null, agg, false, purged);
+        const v = judgePurged(def, null, agg, null, purged);
         if (v.kind !== "write") {
           results.push({ entity: agg.entity, id: agg.id, status: "skipped", message: v.message, purged: true });
           continue;
@@ -282,17 +282,15 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
         continue;
       }
       // a record that names what a demo purge removed: a new one that belongs to it is not stored (the purge would have
-      // removed it), a stored one keeps the server's copy; a pointer to purged data is emptied (modules/demo/pushed.ts)
-      if (purged.size && def.engine === "record") {
-        const v = judgePurged(def, (await orgSchema(ctx, tx)).def(agg.entity) ?? null, agg, !!existing, purged);
+      // removed it) and a pointer of a new one is emptied; a stored one keeps what the server holds there and takes the
+      // push's other changes (modules/demo/pushed.ts)
+      if (purged.size && def.engine === "record" && namesPurged(agg, purged)) {
+        const held = existing ? await tx.one<StoredRecord>(`select custom from ${ident(def.table)} where id = $1`, [agg.id]) : null;
+        const v = judgePurged(def, (await orgSchema(ctx, tx)).def(agg.entity) ?? null, agg, existing ? (held ?? {}) : null, purged);
         if (v.kind === "drop") {
           results.push({ entity: agg.entity, id: agg.id, status: "skipped", message: v.message, purged: true });
           // its journal, history, attachments and links in this push (they come after it) go with it
           purged.add(agg.id.toLowerCase());
-          continue;
-        }
-        if (v.kind === "stored" && existing) {
-          await stored(agg, def, existing.rev);
           continue;
         }
       }

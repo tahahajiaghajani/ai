@@ -3,16 +3,17 @@
 // made new rows that name them. The purged-id ledger (./ledger.ts) tells the server which ids a purge removed:
 //   · a row whose own id was purged is never brought back: answered «skipped», the app drops it with its outbox entry;
 //   · a row that belongs to purged data — a side row of a purged record (journal, history, attachment, link), a
-//     membership of a purged account, a row whose required reference, parent, requester (whose record it is), author
-//     (`created_by`, `user_id`) or a workflow row's process, version, task or case names purged data — was recorded on
-//     demo data: a new one is answered «skipped» like the purge would have removed it; a stored one keeps the server's
-//     copy (answered «conflict» with it, as for any stale push);
-//   · a pointer that only routes or relates (an assignee, a group, a CI, a custom reference, an access anchor) is
-//     emptied on a new row and left as the server has it on a stored one (the purge already decided it); a list loses
-//     the purged ids.
-// Every 1.1 Windows app already drops an outbox entry answered «skipped» or «conflict», so the answer needs no new sync
-// protocol: the outbox drains and nothing stays failed. A purge answer also carries `purged: true`, by which a 1.1.5 app
-// drops its local copy at once (an older one keeps it until its next full read, which the purge brings about).
+//     membership of a purged account, a new record whose required reference, parent, requester (whose record it is),
+//     author (`created_by`, `user_id`) or a workflow row's process, version, task or case names purged data — was
+//     recorded on demo data: answered «skipped» like the purge would have removed it;
+//   · a new record's pointer that only routes or relates (an assignee, a group, a CI, a custom reference, an access
+//     anchor) is emptied; a list loses the purged ids;
+//   · a record the server has keeps what the server holds wherever the push names purged data (the purge decided that
+//     reference: cleared it, or left a required one and reported it) and takes the push's other changes — never refused
+//     for it, so a person's offline edit of a real record that named demo data is not lost.
+// Every 1.1 Windows app already drops an outbox entry answered «skipped», so the answer needs no new sync protocol: the
+// outbox drains and nothing stays failed. A purge answer also carries `purged: true`, by which a 1.1.5 app drops its
+// local copy at once (an older one keeps it until its next full read, which the purge brings about).
 // Not judged here: ids inside JSON (conditions, workflow graphs, form values) — the purge's sanitising and the
 // designers' checks see to those.
 import type { FieldDef, TableDef } from "@shared/model/types";
@@ -74,6 +75,15 @@ function idsOf(agg: WireAggregate, into: Set<string>): void {
   for (const rows of Object.values(agg.children ?? {})) for (const r of rows) scan(r);
 }
 
+/** Does a pushed aggregate name any of `purged` (its id, values, custom values, children)? */
+export function namesPurged(agg: WireAggregate, purged: Set<string>): boolean {
+  if (!purged.size) return false;
+  const ids = new Set<string>();
+  idsOf(agg, ids);
+  for (const id of ids) if (purged.has(id)) return true;
+  return false;
+}
+
 /** The purged ids a push names: one query for the whole push, none at all when the organisation never purged a pack. */
 export async function purgedInPush(q: Queryable, orgId: string, aggs: WireAggregate[]): Promise<Set<string>> {
   if (!aggs.length || !(await hasLedger(q, orgId))) return new Set();
@@ -83,34 +93,38 @@ export async function purgedInPush(q: Queryable, orgId: string, aggs: WireAggreg
 }
 
 export type PurgedVerdict =
-  /** nothing of it was purged (pointers to purged rows may have been emptied in place) */
+  /** nothing of it was purged (what names purged rows was dealt with in place) */
   | { kind: "write" }
   /** the row was purged, or a new row belongs to purged data: answered «skipped», the app drops it */
-  | { kind: "drop"; message: string }
-  /** a stored row's push belongs to purged data: the server's copy wins */
-  | { kind: "stored"; message: string };
+  | { kind: "drop"; message: string };
+
+/** What the server holds of a stored record (its custom values: a pushed `custom` replaces them whole). */
+export interface StoredRecord {
+  custom?: unknown;
+}
 
 const WRITE: PurgedVerdict = { kind: "write" };
 
 /**
  * Judge one pushed aggregate against the purged ids of its push (`purgedInPush`). `def`: the organisation's table
- * definition of an engine record (custom fields included), null for anything else. `exists`: the server has the row.
- * Pointers to purged rows are emptied in `wire.row` (on a stored row: left out, so the stored value stays).
+ * definition of an engine record (custom fields included), null for anything else. `stored`: what the server holds of
+ * that record (null: a new one). References to purged rows are dealt with in `wire.row`: emptied on a new record, the
+ * server's value kept on a stored one (a column left out of the push keeps its stored value).
  */
-export function judgePurged(agg: AggregateDef, def: TableDef | null, wire: WireAggregate, exists: boolean, purged: Set<string>): PurgedVerdict {
+export function judgePurged(agg: AggregateDef, def: TableDef | null, wire: WireAggregate, stored: StoredRecord | null, purged: Set<string>): PurgedVerdict {
   if (!purged.size) return WRITE;
   const is = (v: unknown) => isId(v) && purged.has(v.toLowerCase());
   if (is(wire.id)) return { kind: "drop", message: PURGED_ROW };
   const row = wire.row;
-  const belongs = (): PurgedVerdict => (exists && !agg.engine?.match(/^(journal|history|attachment|link)$/) && agg.entity !== "member" ? { kind: "stored", message: PURGED_REF } : { kind: "drop", message: PURGED_REF });
+  const belongs: PurgedVerdict = { kind: "drop", message: PURGED_REF };
   if (!def) {
     const owners = SIDE_OWNERS[agg.entity] ?? (agg.engine && agg.engine !== "record" ? SIDE_OWNERS[agg.engine] : undefined);
-    if (owners) return owners.some((c) => is(row[c])) ? belongs() : WRITE;
+    if (owners) return owners.some((c) => is(row[c])) ? belongs : WRITE;
     if (agg.entity === "org") return WRITE;
     // another platform aggregate: a row naming purged data at all belongs to it
     for (const [k, v] of Object.entries(row)) {
       if (k === "id" || k === "org_id" || k === "origin") continue;
-      if (is(v) || (Array.isArray(v) && v.some(is))) return belongs();
+      if (is(v) || (Array.isArray(v) && v.some(is))) return belongs;
     }
     return WRITE;
   }
@@ -119,6 +133,7 @@ export function judgePurged(agg: AggregateDef, def: TableDef | null, wire: WireA
   const essential = (f: FieldDef) =>
     f.name === "created_by" || f.name === "user_id" || !!f.required || f.name === def.scope?.parent || requester.has(f.name) || parents.has(f.name);
   const custom = row.custom && typeof row.custom === "object" && !Array.isArray(row.custom) ? (row.custom as Record<string, unknown>) : null;
+  const storedCustom = stored?.custom && typeof stored.custom === "object" && !Array.isArray(stored.custom) ? (stored.custom as Record<string, unknown>) : {};
   for (const f of def.fields) {
     const holder: Record<string, unknown> | null = f.custom ? custom : row;
     if (!holder || !(f.name in holder)) continue;
@@ -131,16 +146,20 @@ export function judgePurged(agg: AggregateDef, def: TableDef | null, wire: WireA
       continue;
     }
     if (!is(v)) continue;
-    if (!single) {
-      // an id kept as text (a workflow submission's case) names what the row belongs to
-      if (f.type === "string" || f.type === "text") return belongs();
+    if (stored) {
+      // a stored record keeps what the server holds there; the push's other changes are taken
+      if (f.custom) holder[f.name] = storedCustom[f.name] ?? null;
+      else delete holder[f.name];
       continue;
     }
-    if (essential(f) && !(f.base && ANCHORS.has(f.name))) return belongs();
-    // a pointer: a new row has it emptied; a stored one keeps the server's value (custom values are emptied: the purge
-    // never puts another value there)
-    if (exists && !f.custom) delete holder[f.name];
-    else holder[f.name] = null;
+    if (!single) {
+      // an id kept as text (a workflow submission's case) names what the row belongs to
+      if (f.type === "string" || f.type === "text") return belongs;
+      continue;
+    }
+    if (essential(f) && !(f.base && ANCHORS.has(f.name))) return belongs;
+    // a pointer of a new record: emptied
+    holder[f.name] = null;
   }
   return WRITE;
 }

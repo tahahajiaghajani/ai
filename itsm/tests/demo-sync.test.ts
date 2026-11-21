@@ -353,11 +353,13 @@ describe("demo purge and Windows apps", () => {
    * record and comments on it, edits a real record whose pointer named a persona (the purge cleared it there), and makes
    * one real record for a persona (the persona is whose record it is) and one that only points at the persona.
    */
-  async function offlineWork(demo: string, who: string, realNaming: string) {
+  async function offlineWork(demo: string, who: string, realNaming: string, realRequester: string) {
     const local = await localOwner();
     await local.patch(`/o/${org}/r/todo/${demo}`, { short_description: "ویرایش بیرون از خط" });
     await local.post(`/o/${org}/r/todo/${demo}/journal`, { kind: "comment", body: "یادداشت بیرون از خط" });
     await local.patch(`/o/${org}/r/todo/${realNaming}`, { short_description: "کار واقعی ویرایش‌شده بیرون از خط" });
+    // (the app's copy still names the persona as the one it is for: it read the record before the purge)
+    await local.patch(`/o/${org}/r/todo/${realRequester}`, { short_description: "درخواست واقعی ویرایش‌شده بیرون از خط" });
     const forPersona = (await local.post(`/o/${org}/r/todo`, { short_description: "کار برای کارمند نمایشی", caller_id: who })).row.id as string;
     const pointing = (await local.post(`/o/${org}/r/todo`, { short_description: "کار واقعی بیرون از خط", assigned_to: who, watch_list: [who, ownerId] })).row.id as string;
     expect((await outboxLeft()).length).toBeGreaterThan(0);
@@ -365,7 +367,7 @@ describe("demo purge and Windows apps", () => {
   }
 
   /** After the app's sync: nothing came back, nothing dangles, nothing waits, and the app agrees with the server. */
-  async function expectSettled(demo: string, who: string, work: { forPersona: string; pointing: string }, realNaming: string) {
+  async function expectSettled(demo: string, who: string, work: { forPersona: string; pointing: string }, realNaming: string, realRequester: string) {
     // the demo record is not brought back (gone, or its content-free tombstone)
     const stone = await cloudDb.one<{ short_description: string | null; deleted_at: string | null }>(`select short_description, deleted_at from sm_todos where id = $1`, [demo]);
     expect(!stone || (!!stone.deleted_at && !stone.short_description)).toBe(true);
@@ -381,6 +383,10 @@ describe("demo purge and Windows apps", () => {
     // the edit of the real record the purge had cleared is taken, its cleared pointer stays cleared
     expect(await cloudDb.one(`select short_description, assigned_to from sm_todos where id = $1`, [realNaming])).toEqual({ short_description: "کار واقعی ویرایش‌شده بیرون از خط", assigned_to: null });
     expect(await deskDb.one(`select assigned_to from sm_todos where id = $1`, [realNaming])).toEqual({ assigned_to: null });
+    // so is the edit of a real record whose requester the purge cleared (it was answered «conflict» with the server's
+    // copy, and the person's edit was lost): the requester stays as the purge left it
+    expect(await cloudDb.one(`select short_description, caller_id from sm_todos where id = $1`, [realRequester])).toEqual({ short_description: "درخواست واقعی ویرایش‌شده بیرون از خط", caller_id: null });
+    expect(await deskDb.one(`select short_description, caller_id from sm_todos where id = $1`, [realRequester])).toEqual({ short_description: "درخواست واقعی ویرایش‌شده بیرون از خط", caller_id: null });
     // the app's copy of the demo record and the persona's account are gone (or an empty deleted marker)
     expect(await goneFromApp("sm_todos", demo)).toBe(true);
     expect(await deskDb.one(`select 1 from sm_users where id = $1`, [who])).toBeNull();
@@ -407,15 +413,16 @@ describe("demo purge and Windows apps", () => {
     const who = await newPersona();
     // a real record naming the persona, made online: the purge clears its pointer
     const realNaming = (await web.post(`/o/${org}/r/todo`, { short_description: "کار واقعی با کارشناس نمایشی", assigned_to: who })).row.id as string;
+    const realRequester = (await web.post(`/o/${org}/r/todo`, { short_description: "درخواست واقعی برای کارمند نمایشی", caller_id: who })).row.id as string;
     await sync();
     expect(await deskDb.one(`select 1 from sm_todos where id = $1`, [demo])).toBeTruthy();
     // the server purges (the app pulled a moment ago: tombstones), while the app works offline
     await web.post(`/o/${org}/demo/purge`, { confirm: "حذف کامل" });
     await purgeUntil(null);
     expect((await demoStatus(cloudDb, org)).state).toBe("tombstoned");
-    const work = await offlineWork(demo, who, realNaming);
+    const work = await offlineWork(demo, who, realNaming, realRequester);
     await sync();
-    await expectSettled(demo, who, work, realNaming);
+    await expectSettled(demo, who, work, realNaming, realRequester);
     // the tombstones go for good; the app reads on as before, and a full read agrees with the server
     expect((await finalizeDemo(cloudCfg, org)).done).toBe(true);
     expect((await sync()).some((p) => p.reset || p.full)).toBe(false);
@@ -427,6 +434,7 @@ describe("demo purge and Windows apps", () => {
     const demo = await demoRecord("کار نمایشی دوم بیرون از خط");
     const who = await newPersona();
     const realNaming = (await web.post(`/o/${org}/r/todo`, { short_description: "کار واقعی دوم با کارشناس نمایشی", assigned_to: who })).row.id as string;
+    const realRequester = (await web.post(`/o/${org}/r/todo`, { short_description: "درخواست واقعی دوم برای کارمند نمایشی", caller_id: who })).row.id as string;
     await sync();
     // the app has not synced for over a month: the purge deletes at once and raises the purge watermark
     await cloudDb.query(`update sm_devices set last_pull_at = now() - interval '31 days', created_at = now() - interval '31 days' where org_id = $1`, [org]);
@@ -434,12 +442,12 @@ describe("demo purge and Windows apps", () => {
     await purgeUntil(null);
     expect((await demoStatus(cloudDb, org)).state).toBe("none");
     expect(await cloudDb.one(`select 1 from sm_todos where id = $1`, [demo])).toBeNull();
-    const work = await offlineWork(demo, who, realNaming);
+    const work = await offlineWork(demo, who, realNaming, realRequester);
     const seen = await sync();
     // the push came first (nothing brought back), then the watermark's full read
     expect(seen.some((p) => p.reset)).toBe(true);
     expect(await cloudDb.one(`select 1 from sm_todos where id = $1`, [demo])).toBeNull();
-    await expectSettled(demo, who, work, realNaming);
+    await expectSettled(demo, who, work, realNaming, realRequester);
     await expectConsistentFullRead();
   }, 300_000);
 
