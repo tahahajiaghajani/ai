@@ -12,6 +12,15 @@ import { api, ApiError } from "./api";
 export const SERVER_STATES = new Set(["migrating", "not_configured", "db_unreachable", "db_unavailable", "db_busy", "db_timeout", "timeout", "gateway_timeout", "unavailable"]);
 export const serverState = (e: unknown): e is ApiError => e instanceof ApiError && SERVER_STATES.has(e.code);
 
+/**
+ * Where «خروج» goes: the sign-in page, which says so when the server could not end the session yet (it clears this
+ * browser's cookie all the same: src/server/routes/auth.ts) — the person ends it from «خروج از همهٔ دستگاه‌های دیگر»
+ * once the system answers again.
+ */
+export function signedOutPath(ended: boolean): string {
+  return ended ? "/login" : "/login?signout=pending";
+}
+
 /** «Not ready» answers about the whole deployment, not a busy moment: they replace the app even over data it has. */
 const DEPLOYMENT_STATES = new Set(["migrating", "not_configured"]);
 
@@ -125,9 +134,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       await Promise.all([qc.invalidateQueries({ queryKey: ["me"] }), qc.invalidateQueries({ queryKey: ["meta"] })]);
     },
     logout: async () => {
-      await api.post("/auth/logout").catch(() => {});
+      const ended = await api.post("/auth/logout").then(
+        () => true,
+        () => false,
+      );
       qc.clear();
-      window.location.href = "/login";
+      window.location.href = signedOutPath(ended);
     },
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

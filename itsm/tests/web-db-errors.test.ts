@@ -222,6 +222,46 @@ describe("/api/meta takes no database error for a first run", () => {
   }, 120_000);
 });
 
+describe("sign-out when the session's own lookup cannot get a connection", () => {
+  const LOOKUP = /from sm_sessions s left join sm_users u on u\.id = s\.user_id where s\.id = \$1/;
+  const lookup = { fail: false };
+  beforeAll(() =>
+    useServerDb(async (mode) => {
+      const db = await createPgliteDb({ desktop: mode === "desktop" });
+      return new Proxy(db, {
+        get(target, prop, receiver) {
+          if (prop === "one" || prop === "query")
+            return async (text: string, params?: unknown[]) => {
+              if (lookup.fail && LOOKUP.test(text)) throw pgError("QUEUE_TIMEOUT", "QUEUE_TIMEOUT: Waited more than 10 seconds for a connection");
+              return (target as Queryable)[prop](text, params);
+            };
+          const v = Reflect.get(target, prop, receiver);
+          return typeof v === "function" ? v.bind(target) : v;
+        },
+      }) as Db;
+    }),
+  );
+  afterAll(() => {
+    useServerDb(null);
+    lookup.fail = false;
+  });
+
+  it("answers 503 db_busy and clears the cookie on it", async () => {
+    const s = await makeServer({ mode: "cloud" });
+    const c = new Client(s.app);
+    await signupWithOrg(c);
+    lookup.fail = true;
+    try {
+      const res = await s.app.fetch(new Request("http://local.test/api/auth/logout", { method: "POST", headers: { "content-type": "application/json", cookie: c.cookie }, body: "{}" }));
+      expect(res.status).toBe(503);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe("db_busy");
+      expect(res.headers.get("set-cookie")).toMatch(/^itsm_session=;.*Max-Age=0/i);
+    } finally {
+      lookup.fail = false;
+    }
+  }, 120_000);
+});
+
 describe("a database that cannot write now (Supabase's read-only mode) still serves reads", () => {
   it("a session last stamped over 10 minutes ago reads on; a write answers db_read_only; the stamp resumes afterwards", async () => {
     const s = await makeServer({ mode: "cloud" });
@@ -246,6 +286,23 @@ describe("a database that cannot write now (Supabase's read-only mode) still ser
     // writable again: the next request stamps the session as before
     await c.get("/auth/me");
     expect((await s.db.one<{ fresh: boolean }>(`select last_seen_at > now() - interval '1 minute' as fresh from sm_sessions`))?.fresh).toBe(true);
+  }, 120_000);
+
+  // «خروج» revoked the session and only then cleared the cookie: a revoke that could not be written answered 503 with
+  // the cookie still set, and the browser stayed in the still-valid session (UI-3 of the 1.1.4 review)
+  it("sign-out clears this browser's cookie even when the session's end cannot be written", async () => {
+    const s = await makeServer({ mode: "cloud" });
+    const c = new Client(s.app);
+    await signupWithOrg(c);
+    await s.db.exec(`set default_transaction_read_only = on`);
+    try {
+      const r = await c.post("/auth/logout", {}, 503);
+      expect(r.error.code).toBe("db_read_only");
+      // the Client takes the answer's Set-Cookie, as a browser does: this browser is signed out
+      expect((await c.get("/auth/me", 401)).error.code).toBe("unauthorized");
+    } finally {
+      await s.db.exec(`set default_transaction_read_only = off`);
+    }
   }, 120_000);
 
   it("a session past its idle timeout ends (401) even when its end cannot be written", async () => {

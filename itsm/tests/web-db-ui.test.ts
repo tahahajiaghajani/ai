@@ -4,7 +4,9 @@
 // access» (src/ui/lib/api.ts, src/ui/lib/session.tsx, src/ui/OrgArea.tsx).
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { api, ApiError, errorText } from "@ui/lib/api";
-import { blockingServerError, isFirstRun, SERVER_STATES, type Me, type Meta } from "@ui/lib/session";
+import { blockingServerError, isFirstRun, SERVER_STATES, signedOutPath, type Me, type Meta } from "@ui/lib/session";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { orgBlocked, orgErrorView } from "@ui/OrgArea";
 import { pollHealth } from "@ui/pages/auth/Preparing";
 
@@ -131,6 +133,16 @@ describe("a background refetch that meets a busy database keeps the app", () => 
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("«خروج» when the server cannot end the session now (UI-3 of the 1.1.4 review)", () => {
+  it("goes to the sign-in page, which then says the session may still be open and how to end it", () => {
+    expect(signedOutPath(true)).toBe("/login");
+    expect(signedOutPath(false)).toBe("/login?signout=pending");
+    const login = readFileSync(join(__dirname, "..", "src", "ui", "pages", "auth", "Login.tsx"), "utf8");
+    expect(login).toMatch(/sp\.get\("signout"\) === "pending"/);
+    expect(login).toContain("خروج از همهٔ دستگاه‌های دیگر");
   });
 });
 

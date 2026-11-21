@@ -56,6 +56,8 @@ export default function Login() {
   const [sp] = useSearchParams();
   const dir = sp.get("dir");
   const next = sp.get("next") || "/";
+  // «خروج» signed this browser out, but the server could not end the session yet (session.tsx signedOutPath)
+  const pendingSignOut = sp.get("signout") === "pending";
   // the signed-in app's chunk loads while the form is filled in, so the first screen after sign-in does not wait for it
   useEffect(() => {
     const t = window.setTimeout(preloadApp, 300);
@@ -111,6 +113,11 @@ export default function Login() {
   }
   return (
     <AuthLayout title={`ورود به ${APP_NAME}`} subtitle={directory ? "با حساب سازمانی خود وارد شوید." : "با ایمیل و رمز عبورتان وارد شوید."}>
+      {pendingSignOut ? (
+        <FormAlert tone="warning">
+          در این مرورگر از حساب خارج شدید، ولی سامانه هنوز نتوانست نشست را پایان دهد. وقتی سامانه دوباره پاسخ داد، وارد شوید و در «حساب کاربری من» دکمهٔ «خروج از همهٔ دستگاه‌های دیگر» را بزنید.
+        </FormAlert>
+      ) : null}
       {err ? <FormAlert>{err}</FormAlert> : null}
       {sso ? (
         <Button size="large" block icon={<MonitorCheck {...ICON} aria-hidden />} loading={windows === "trying"} onClick={() => tryWindows(false)} className="mb-4">

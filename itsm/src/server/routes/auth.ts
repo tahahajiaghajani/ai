@@ -145,11 +145,20 @@ authRoutes.post("/login", async (c) => {
   return c.json({ ok: true, token: kind === "device" ? token : undefined, session_id: session.id, user_id: user.id });
 });
 
-authRoutes.post("/logout", requireUser, async (c) => {
-  await revokeSession(c.get("cfg").db, c.get("session").id, "sign_out");
-  clearSessionCookie(c);
-  return c.json({ ok: true });
-});
+// The cookie is cleared before any database work, the session's own lookup included: a sign-out whose end of the session
+// cannot be written now (a busy or read-only database: a 503) still signs this browser out — the answer keeps the header.
+authRoutes.post(
+  "/logout",
+  async (c, next) => {
+    clearSessionCookie(c);
+    await next();
+  },
+  requireUser,
+  async (c) => {
+    await revokeSession(c.get("cfg").db, c.get("session").id, "sign_out");
+    return c.json({ ok: true });
+  },
+);
 
 authRoutes.get("/me", requireUser, async (c) => {
   const cfg = c.get("cfg");
