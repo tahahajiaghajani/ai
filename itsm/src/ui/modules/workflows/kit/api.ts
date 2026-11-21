@@ -1,9 +1,11 @@
 // The kit's calls: positions and their holders through the generic record API (/r/position, /r/position_holder:
-// `org` read), and the static estimate behind the role-then-people picker's explanation line (POST
-// /positions/estimate: `process_design` write, or `org` write beyond one's own groups — the server decides).
+// `org` read), the static estimate behind the role-then-people picker's explanation line (POST /positions/estimate:
+// `process_design` write, or `org` write beyond one's own groups — the server decides), and the demo pack's people
+// (GET /positions/demo-people: whoever opens the designer or the positions page).
 import type { AccessGate } from "@shared/access";
 import type { Cond } from "@shared/model/conditions";
 import type { AssigneeKind, Quorum, StepAction, StepAssignees } from "@shared/process";
+import type { DemoPeople } from "@shared/process/waiting";
 import type { OrgApi } from "../../../lib/api";
 import { recordsApi } from "../../../records/data/api";
 import type { DisplayMap, RecordRow } from "../../../records/model/types";
@@ -26,14 +28,27 @@ export interface HolderRow {
 }
 
 export interface EstimateResult {
-  rules: { index: number; kind: AssigneeKind; estimate: number | null; line: string }[];
+  /** `demo`: how many of the rule's people are the demo pack's (release 1.1.5) */
+  rules: { index: number; kind: AssigneeKind; estimate: number | null; line: string; demo?: number }[];
   /** the most people the rules can bring (null: depends on each case) */
   total: number | null;
+  /** how many of `total` are the demo pack's people: only cases the pack's people start reach them (1.1.5) */
+  demo?: number;
   limit: number;
   warnings: string[];
 }
 
+/** A member as a people picker shows them. */
+export interface MemberRow {
+  id: string;
+  name: string;
+  email: string | null;
+  title: string | null;
+  active: boolean;
+}
+
 const POSITION_FIELDS = ["name", "key", "unit_kind", "active"];
+const MEMBER_FIELDS = ["name", "email", "title", "is_active"];
 
 const positionOf = (r: RecordRow): PositionRow => ({
   id: String(r.id),
@@ -71,6 +86,21 @@ export const kitApi = {
     };
   },
   estimate: (api: OrgApi, body: { step: StepAssignees; action: StepAction; quorum?: Quorum | null }) => api.post<EstimateResult>("/positions/estimate", body),
+  /** the organisation's demo pack people (lower-case ids; empty without a pack) */
+  demoPeople: (api: OrgApi) => api.get<DemoPeople>("/positions/demo-people"),
+  /** members by search or by id, with the fields a people picker shows */
+  members: async (api: OrgApi, q: { q?: string; ids?: string[]; size?: number }): Promise<MemberRow[]> => {
+    const r = q.ids
+      ? await recordsApi.list(api, "user", { ids: q.ids, size: Math.max(1, Math.min(q.ids.length, 500)), fields: MEMBER_FIELDS, total: false })
+      : await recordsApi.list(api, "user", { q: q.q || undefined, size: q.size ?? 50, fields: MEMBER_FIELDS, total: false });
+    return r.rows.map((u) => ({
+      id: String(u.id).toLowerCase(),
+      name: String(u.name || u.email || "—"),
+      email: typeof u.email === "string" ? u.email : null,
+      title: typeof u.title === "string" ? u.title : null,
+      active: u.is_active !== false,
+    }));
+  },
 };
 
 /** Who may ask for the estimate and the preview (the server's `canPreview`): designers, or keepers of the structure. */
