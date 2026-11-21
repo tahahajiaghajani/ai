@@ -132,7 +132,7 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   // the line and the message are on their way before the open holds the thread
   if (!opts.memory) await new Promise<void>((r) => nextTurn(r));
   const openStart = performance.now();
-  const restore = opts.memory ? null : takePendingRestore(opts.dataDir);
+  const restore = opts.memory ? null : takePendingRestore(opts.dataDir, log);
   // a first start: the database made at build time, when the app carries one
   const template = !opts.memory && !restore && !existsSync(join(dbDir, "PG_VERSION")) ? templateFor(opts.template) : null;
   let fromTemplate = false;

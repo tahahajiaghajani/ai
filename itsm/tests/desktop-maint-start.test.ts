@@ -1,7 +1,8 @@
 // The Windows app's start with its database maintenance (src/desktop/server.ts → src/desktop/maintenance.ts), end to end
 // through startLocal on a data folder made from the build's template: a bloated job queue compacted before ready (asked
 // for in Settings), the splash told, every step logged, the data intact, the next start through the gate in
-// milliseconds; and a backup taken by the app restored at the next start by the streaming reader.
+// milliseconds; a backup taken by the app restored at the next start by the streaming reader; and a restore cut short
+// never leaves the person a new, empty database.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
@@ -9,6 +10,7 @@ import { tmpdir } from "node:os";
 import { startLocal, type StartPhase } from "@local/server";
 import { buildDbTemplate, DB_TEMPLATE_FILE } from "@local/db-template";
 import { createPgliteDb } from "@server/db/pglite";
+import { scheduleRestore, takePendingRestore } from "@local/backup";
 import { capture, MB } from "./desktop-maint-helpers";
 
 const root = mkdtempSync(join(tmpdir(), "itsm-maint-start-"));
@@ -128,6 +130,35 @@ describe("the start's database maintenance", () => {
     }
     await inside(dir, async (db) => {
       expect(await db.one(`select value from sm_kv where key = 'test.after'`)).toBeNull();
+    });
+  }, 300_000);
+
+  it("brings the person's database back at the start after a restore that was cut short, never a new empty one", async () => {
+    const dir = join(root, "data-cut");
+    const s1 = await startLocal({ dataDir: dir, staticDir, port: 0, log: capture(), template: templateFile });
+    let file = "";
+    try {
+      file = (await (await fetch(`${s1.url}/api/local/backups`, { method: "POST" })).json()).file;
+    } finally {
+      await s1.close();
+    }
+    await inside(dir, (db) => db.exec(`insert into sm_kv (key, value) values ('test.mine', '"mine"')`));
+    // Settings asked for the restore; its start set the database aside, and the app was killed while the backup was
+    // being extracted: some files, no PG_VERSION (written last)
+    scheduleRestore(dir, file);
+    takePendingRestore(dir);
+    mkdirSync(join(dir, "db", "base", "5"), { recursive: true });
+    writeFileSync(join(dir, "db", "base", "5", "1259"), Buffer.alloc(8192));
+    // the next start (the app hands every start the build's template, for a first one)
+    const log = capture();
+    const s2 = await startLocal({ dataDir: dir, staticDir, port: 0, log, template: templateFile });
+    await s2.close();
+    expect(log.lines.some((l) => l.startsWith("restoring a backup was cut short at an earlier start"))).toBe(true);
+    // the database that was there before the restore, not the template's new one
+    expect(log.lines.some((l) => l.startsWith("database template:"))).toBe(false);
+    expect(log.lines.find((l) => l.startsWith("local server on"))).not.toMatch(/from the template/);
+    await inside(dir, async (db) => {
+      expect(await db.one(`select value from sm_kv where key = 'test.mine'`)).toEqual({ value: "mine" });
     });
   }, 300_000);
 });

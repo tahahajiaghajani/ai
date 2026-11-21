@@ -4,8 +4,8 @@
 // every entry's checksum and path checked, PG_VERSION written last. 1.1.3's backups (PGlite's dumpTar) restore too.
 import { describe, it, expect, afterAll, vi } from "vitest";
 import * as fs from "node:fs";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, readdirSync } from "node:fs";
+import { basename, join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { createPgliteDb } from "@server/db/pglite";
 import { takePendingRestore, scheduleRestore, backupNow } from "@local/backup";
@@ -14,7 +14,7 @@ import { cleanFolders, folder, openDb, tempFolder } from "./desktop-maint-helper
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
-  return { ...actual, readFileSync: vi.fn(actual.readFileSync) };
+  return { ...actual, readFileSync: vi.fn(actual.readFileSync), renameSync: vi.fn(actual.renameSync) };
 });
 
 afterAll(cleanFolders);
@@ -54,6 +54,67 @@ describe("a scheduled restore", () => {
     expect(existsSync(join(root, "restore.pending"))).toBe(false);
     // the marker was read (the path in it), the backup never
     expect(read.mock.calls.map((c) => String(c[0]))).not.toContain(file);
+  });
+
+  it("puts the database from before a restore back when that restore's start was cut short, and keeps one that finished", () => {
+    const root = tempFolder();
+    const file = join(root, "itsm-manual-20261121-120000.tar.gz");
+    writeFileSync(file, Buffer.alloc(1024, 7));
+    mkdirSync(join(root, "db", "base", "5"), { recursive: true });
+    writeFileSync(join(root, "db", "PG_VERSION"), "18\n");
+    writeFileSync(join(root, "db", "base", "5", "1259"), "the person's data");
+    scheduleRestore(root, file);
+    const r = takePendingRestore(root)!;
+    // the app is killed while the backup is extracted: a folder of some files and no PG_VERSION (written last)
+    mkdirSync(join(root, "db", "base", "5"), { recursive: true });
+    writeFileSync(join(root, "db", "base", "5", "1259"), "half of the backup");
+    // the next start: no restore is pending, and the folder is no database
+    const warned: string[] = [];
+    expect(takePendingRestore(root, { warn: (m: string) => void warned.push(m) })).toBeNull();
+    expect(readFileSync(join(root, "db", "base", "5", "1259"), "utf8")).toBe("the person's data");
+    expect(existsSync(join(root, "db", "PG_VERSION"))).toBe(true);
+    expect(existsSync(r.aside!)).toBe(false);
+    expect(existsSync(join(root, "restore.running"))).toBe(false);
+    expect(warned).toEqual([expect.stringMatching(/^restoring a backup was cut short at an earlier start .*: the database from before it is back$/)]);
+    // a restore that finished (PG_VERSION written) is the database from then on: the start after it leaves it be
+    scheduleRestore(root, file);
+    const done = takePendingRestore(root)!;
+    mkdirSync(join(root, "db"), { recursive: true });
+    writeFileSync(join(root, "db", "PG_VERSION"), "18\n");
+    writeFileSync(join(root, "db", "restored"), "the backup's data");
+    expect(takePendingRestore(root, { warn: (m: string) => void warned.push(m) })).toBeNull();
+    expect(existsSync(join(root, "db", "restored"))).toBe(true);
+    expect(existsSync(done.aside!)).toBe(true);
+    expect(existsSync(join(root, "restore.running"))).toBe(false);
+    expect(warned).toHaveLength(1);
+  });
+
+  it("names the database it sets aside before it sets it aside: a start cut short in between still finds it", () => {
+    const root = tempFolder();
+    const file = join(root, "itsm-manual-20261121-130000.tar.gz");
+    writeFileSync(file, Buffer.alloc(1024, 7));
+    mkdirSync(join(root, "db"));
+    writeFileSync(join(root, "db", "PG_VERSION"), "18\n");
+    scheduleRestore(root, file);
+    const rename = vi.mocked(fs.renameSync);
+    const real = rename.getMockImplementation()!;
+    const named: (string | null)[] = [];
+    rename.mockImplementationOnce((from, to) => {
+      // what a start cut short at this moment would find: the marker names the folder about to be set aside
+      const m = existsSync(join(root, "restore.running")) ? (JSON.parse(String(readFileSync(join(root, "restore.running"), "utf8"))) as { aside: string | null }) : null;
+      named.push(m?.aside ?? null);
+      return real(from, to);
+    });
+    const r = takePendingRestore(root)!;
+    expect(named).toEqual([basename(r.aside!)]);
+    // cut short right after the marker, before the folder moved: the next start finds the database in place and drops the marker
+    writeFileSync(join(root, "restore.running"), JSON.stringify({ file, aside: "db-before-restore-20261121-130001" }));
+    rmSync(join(root, "db"), { recursive: true, force: true });
+    rename.mockClear();
+    real(r.aside!, join(root, "db"));
+    expect(takePendingRestore(root)).toBeNull();
+    expect(existsSync(join(root, "db", "PG_VERSION"))).toBe(true);
+    expect(existsSync(join(root, "restore.running"))).toBe(false);
   });
 
   it("restores a 1.1.3 backup (PGlite's dumpDataDir, gzip'd) with the streaming reader", async () => {

@@ -137,27 +137,57 @@ export function restorePending(dataDir: string) {
   return existsSync(join(dataDir, "restore.pending"));
 }
 
+/** The marker of a restore under way since its start set the database aside. */
+const RESTORE_RUNNING = "restore.running";
+const ASIDE = /^db-before-restore-\d{8}-\d{6}$/;
+
 /**
  * Called before the database opens: if a restore is pending, keep the current database aside and return the backup to
  * load — its path only: the backup is never read into memory (server.ts extracts it as a stream, ./backup-stream.ts
  * `extractBackup`, then opens the folder). When that fails the caller puts the current database back with
  * `undoRestore` (a broken backup must not leave an empty database behind). An interrupted compaction's marker
  * (./maintenance.ts) names files of the database set aside, not of the restored one: it goes too.
+ *
+ * A restore that its start never finished — the app killed or the computer switched off while the backup was being
+ * extracted — leaves a folder without PG_VERSION (written last), and the start after it took that for a first start: a
+ * new, empty database from the build's template, the person's own left aside where nothing looks for it.
+ * `restore.running` names the database set aside until the next start, which puts it back when it finds no database
+ * (the backup can be restored again from Settings).
  */
-export function takePendingRestore(dataDir: string): { file: string; aside: string | null } | null {
+export function takePendingRestore(dataDir: string, log?: Pick<Logger, "warn">): { file: string; aside: string | null } | null {
+  settleRestore(dataDir, log);
   const marker = join(dataDir, "restore.pending");
   if (!existsSync(marker)) return null;
   const file = readFileSync(marker, "utf8").trim();
   rmSync(marker, { force: true });
   if (!file || !existsSync(file)) return null;
   const db = join(dataDir, "db");
-  let aside: string | null = null;
-  if (existsSync(db)) {
-    aside = join(dataDir, `db-before-restore-${stamp()}`);
-    renameSync(db, aside);
-  }
+  const aside = existsSync(db) ? join(dataDir, `db-before-restore-${stamp()}`) : null;
+  // named before it is set aside: a start cut short from here on finds it again (a marker whose database is still in
+  // place is only dropped)
+  writeFileSync(join(dataDir, RESTORE_RUNNING), JSON.stringify({ file, aside: aside ? basename(aside) : null, at: new Date().toISOString() }), "utf8");
+  if (aside) renameSync(db, aside);
   rmSync(join(dataDir, "maintenance.running"), { force: true });
   return { file, aside };
+}
+
+/** An earlier start's restore: finished if a database is there, else cut short — the database from before it goes back. */
+function settleRestore(dataDir: string, log?: Pick<Logger, "warn">) {
+  const running = join(dataDir, RESTORE_RUNNING);
+  if (!existsSync(running)) return;
+  let name: string | null = null;
+  try {
+    const m = JSON.parse(readFileSync(running, "utf8")) as { aside?: unknown };
+    name = typeof m.aside === "string" && ASIDE.test(m.aside) ? m.aside : null;
+  } catch {
+    name = null;
+  }
+  const aside = name ? join(dataDir, name) : null;
+  if (!existsSync(join(dataDir, "db", "PG_VERSION")) && aside && existsSync(join(aside, "PG_VERSION"))) {
+    undoRestore(dataDir, aside);
+    log?.warn("restoring a backup was cut short at an earlier start (the app closed or the computer switched off while it was extracted): the database from before it is back");
+  }
+  rmSync(running, { force: true });
 }
 
 /** A restore could not be loaded: drop what it left in `db` and put the previous database back. */
