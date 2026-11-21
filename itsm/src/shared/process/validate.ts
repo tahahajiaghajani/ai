@@ -8,7 +8,8 @@
 //   · the rules of the flows validator: node and edge ids, known steps, ports and their wiring, reachable steps, the
 //     settings each step needs, the data pills it reads.
 // Warnings: a field editable on two parallel branches («آخرین ثبت می‌ماند»), a pool larger than 30, a title pill a
-// step hides, a required field no step can edit — those need the forms and fields (`ProcessValidateContext`).
+// step hides, a required field no step can edit, a «تکمیل فرم» step with nothing to fill — those need the forms and
+// fields (`ProcessValidateContext`); an approve step that passes when nobody is found counts as approved.
 // Pure and shared: the designer shows the problems live; the publish refuses with errors.
 // Imported by the UI: keep it free of server imports.
 import type { FlowEdge, FlowProblem } from "../flows/types";
@@ -244,6 +245,8 @@ export function validateProcess(input: unknown, vctx: ProcessValidateContext = {
         for (const w of assigneeWarnings(step, step.action)) warn(w, at("assignees"));
         if (vctx.poolCounts) for (const w of poolWarnings(step, step.action, quorumOf(step), vctx.poolCounts)) warn(w, at("assignees"));
         if (step.action === "approve") {
+          // «از این مرحله بگذرد» on an approval: nobody approved it, yet the case goes on by «تأیید شد»
+          if (step.ifNobody === "skip") warn("اگر برای این تأیید کسی پیدا نشود، مرحله تأییدشده به شمار می‌آید و پرونده از مسیر «تأیید شد» ادامه می‌یابد", at("ifNobody"));
           if (step.quorum !== undefined && !(QUORUMS as readonly string[]).includes(step.quorum)) err("قاعدهٔ تأیید معتبر نیست", at("quorum"));
           const t = step.threshold;
           if (step.quorum === "count" && !(Number.isInteger(t) && t! >= 1 && t! <= APPROVER_LIMIT)) err(`تعداد تأیید لازم باید عددی میان ۱ و ${faDigits(APPROVER_LIMIT)} باشد`, at("threshold"));
@@ -355,6 +358,12 @@ export function validateProcess(input: unknown, vctx: ProcessValidateContext = {
       if (form) rights.set(id, effectiveRights(form.layout, step.rights, vctx.fields, { groups: "all" }));
     }
     const label = (name: string) => fieldOf?.(name)?.label ?? name;
+    // a «تکمیل فرم» step (not the start) whose rights let nobody change any field: its people can only send it on
+    for (const [id, step] of stepsOf) {
+      const r = rights.get(id);
+      if (step.start || step.action !== "fill" || !r) continue;
+      if (!Object.values(r).some(canEdit)) warn(`در «${processNodeLabel(byId.get(id)!)}» فیلدی برای پر کردن نیست`, { node: id, field: "rights" });
+    }
     // a field two parallel branches may both change: the later submission wins
     if (s.order) {
       for (const [block, members] of s.branches) {
