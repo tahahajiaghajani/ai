@@ -164,6 +164,38 @@ describe("the job queue on «سلامت سامانه»", () => {
     expect(jobs(stopped).detail).toBe("اجرای کارهای پس‌زمینه متوقف به نظر می‌رسد؛ برنامه را ببندید و دوباره باز کنید و اگر ماند، فایل گزارش برنامه را بفرستید");
   });
 
+  // one long job holds the queue (the Windows app runs one job at a time; the server edition's round waits for each of
+  // its jobs) and its 5-minute lock, never renewed, has expired: the job may well still run, and a restart would cut it
+  // and run it again from the start (JOBS-3 of the 1.1.4 review)
+  it("a job that has run for minutes with its lock expired is named, and no restart is advised while it may still run", async () => {
+    await due(11, 60);
+    await db.query(
+      `insert into sm_jobs (id, kind, status, attempts, locked_by, locked_until) values (gen_random_uuid(), 'test.longsync', 'running', 1, 'w-live', now() - interval '2 minutes')`,
+    );
+    await db.query(`insert into sm_jobs (id, kind, status, attempts, done_at) values (gen_random_uuid(), 'test.health', 'done', 1, now() - interval '7 minutes')`);
+    const desktop = await systemHealth(cfgOf({ mode: "desktop" }));
+    const d = jobs(desktop);
+    expect(d.tone).toBe("warning");
+    expect(d.detail).not.toContain("ببندید و دوباره باز کنید");
+    const s = jobs(await systemHealth(cfgOf({ server: serverBridge })));
+    expect(s.detail).not.toContain("دوباره راه‌اندازی کنید");
+    expect(desktop.jobs).toMatchObject({ due: 60, stalled: 1, active: false, running: { kind: "test.longsync" } });
+    expect(desktop.jobs!.running!.run_ms).toBeGreaterThanOrEqual(7 * 60_000);
+    expect(desktop.jobs!.running!.run_ms).toBeLessThan(8 * 60_000);
+    expect(d.detail).toContain("«test.longsync» از ۷ دقیقه پیش");
+    expect(d.detail).toContain("برنامه را باز نگه دارید");
+    expect(s.detail).toContain("«test.longsync» از ۷ دقیقه پیش");
+    expect(s.detail).toContain("سرویس را دوباره راه‌اندازی نکنید");
+    // past 2 hours its worker counts as stopped: the advice is the stopped queue's again
+    await db.query(`update sm_jobs set locked_until = now() - interval '2 hours 55 minutes' where kind = 'test.longsync'`);
+    expect(jobs(await systemHealth(cfgOf({ mode: "desktop" }))).detail).toBe(
+      "اجرای کارهای پس‌زمینه متوقف به نظر می‌رسد؛ برنامه را ببندید و دوباره باز کنید و اگر ماند، فایل گزارش برنامه را بفرستید",
+    );
+    expect(jobs(await systemHealth(cfgOf({ server: serverBridge }))).detail).toBe(
+      "اجرای کارهای پس‌زمینه متوقف به نظر می‌رسد؛ سرویس KarizApp را دوباره راه‌اندازی کنید و «سلامت سرور» را ببینید",
+    );
+  });
+
   it("counts stop at 10,001 and stalled workers are counted", async () => {
     await due(11, 10_050);
     await db.query(

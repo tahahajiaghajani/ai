@@ -221,7 +221,7 @@ select
 
 1. پروژه ← `Settings` ← `Environment Variables`.
 2. برای هر ردیف جدول زیر: `Key` را بنویسید، `Value` را بچسبانید، در `Environments` فقط **`Production`** را تیک بزنید، برای ردیف‌هایی که «محرمانه»اند نوع `Secret` (در نسخه‌های قدیمی‌تر: تیک `Sensitive`) را انتخاب کنید، و `Save`.
-3. پس از افزودن همه: `Deployments` ← روی آخرین انتشار دکمهٔ `⋯` ← `Redeploy` ← دوباره `Redeploy`. متغیرها فقط در انتشار تازه اثر دارند.
+3. پس از افزودن همه: `Deployments` ← روی انتشار `Production` که برچسب `Current` دارد (نه ردیفی که `Canceled` است) دکمهٔ `⋯` ← `Redeploy` ← دوباره `Redeploy`. متغیرها فقط در انتشار تازه اثر دارند. Redeploy ردیف `Canceled` دوباره لغو می‌شود (قدم ۲-۸)، مگر در پنجرهٔ Redeploy تیک `Use project's Ignore Build Step` را بردارید.
 
 **ساخت مقدارهای تصادفی:** در ترمینال (یا Git Bash روی ویندوز) `openssl rand -hex 32` را اجرا کنید. اگر ترمینال ندارید، در مدیر رمز یک رمز ۶۴ نویسه‌ای از حرف و عدد بسازید. مقدار `Secret` در Vercel دیگر قابل دیدن نیست؛ **نسخه‌ای از آن را خودتان نگه دارید.**
 
@@ -274,16 +274,18 @@ select
 هر پروژهٔ Vercel که به این مخزن وصل است با هر push ساخته می‌شود و پلن Hobby هم‌زمان فقط یک ساخت انجام می‌دهد. برای این‌که ITSM فقط با تغییر پوشهٔ خودش ساخته شود، فایل `itsm/vercel.json` دستور `Ignored Build Step` را خودش دارد (کلید `"ignoreCommand"`) و بر تنظیم داشبورد مقدم است؛ پس در `Settings` ← `Build and Deployment` ← `Ignored Build Step` کاری لازم نیست. دستور این است:
 
 ```bash
-[ "$VERCEL_GIT_PREVIOUS_SHA" = "$VERCEL_GIT_COMMIT_SHA" ] && exit 1; git cat-file -e "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}^{commit}" 2>/dev/null && git diff --quiet "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}" HEAD -- . || exit 1
+P=$VERCEL_GIT_PREVIOUS_SHA; [ "$P" = "$VERCEL_GIT_COMMIT_SHA" ] && exit 1; [ -z "$P" ] && [ "$VERCEL_ENV" = production ] && exit 1; git cat-file -e "${P:-HEAD^}^{commit}" 2>/dev/null && git diff --quiet "${P:-HEAD^}" HEAD -- . || exit 1
 ```
 
 این دستور داخل `Root Directory` (پوشهٔ `itsm`) اجرا می‌شود و تغییرات از آخرین انتشار موفق تا الان را بررسی می‌کند (نه فقط آخرین commit): اگر در این پوشه چیزی عوض نشده باشد ساخت لغو می‌شود (خروجی ۰) و در غیر این صورت ساخته می‌شود (خروجی ۱).
 
-**بخش اول (`[ … = … ] && exit 1`) Redeploy را می‌سازد:** Redeploy در داشبورد همان commit آخرین انتشار را دوباره می‌سازد، پس بی آن `git diff` تفاوتی نمی‌یافت، Redeploy لغو می‌شد و متغیر محیطی تازه (مثلاً `DATABASE_URL` پس از تعویض رمز) هرگز اثر نمی‌کرد.
+**دو بخش نخست همیشه می‌سازند.** `[ "$P" = … ] && exit 1`: Redeploy انتشار `Production` که برچسب `Current` دارد همان commit آخرین انتشار موفق را دوباره می‌سازد، پس بی آن `git diff` تفاوتی نمی‌یافت، Redeploy لغو می‌شد و متغیر محیطی تازه (مثلاً `DATABASE_URL` پس از تعویض رمز) هرگز اثر نمی‌کرد. `[ -z "$P" ] && [ "$VERCEL_ENV" = production ] && exit 1`: نخستین انتشار `Production` پروژهٔ تازه (قدم ۲-۳) انتشار موفق قبلی ندارد و همیشه ساخته می‌شود، حتی اگر آخرین commit فقط پوشهٔ پروژهٔ دیگری را عوض کرده باشد.
 
-**بخش دوم (`git cat-file -e`) را حذف نکنید.** Vercel فقط چند commit آخر را clone می‌کند و `VERCEL_GIT_PREVIOUS_SHA` کامیتِ آخرین ساخت موفق است. اگر پروژه مدتی ساخته نشده باشد، آن کامیت در clone نیست و `git diff` به‌تنهایی با خطای `fatal: bad object` (خروجی ۱۲۸) تمام می‌شود؛ Vercel هر خروجی غیر از ۰ و ۱ را خطا می‌داند و کل انتشار پیش از ساخت شکست می‌خورد. با این بخش، در این حالت ITSM ساخته می‌شود.
+**Redeploy ردیفی که `Canceled` است دوباره لغو می‌شود:** آن ردیف commit دیگری است و با آخرین انتشار موفق سنجیده می‌شود، و در پوشهٔ `itsm` تفاوتی ندارد. پس برای Redeploy (قدم ۲-۵، قدم ۱۰-۳) ردیف `Production` با برچسب `Current` را بردارید، یا در پنجرهٔ Redeploy تیک `Use project's Ignore Build Step` را بردارید تا این دستور اجرا نشود. وقتی تولید به نسخهٔ قبلی برگردانده شده است (`Instant Rollback`، قدم ۱۰-۱)، انتشار تازه هم خودش روی نشانی اصلی نمی‌رود.
 
-پروژه‌ای که ریشهٔ مخزن را می‌سازد (Task Flow) دستور مشابهی را (بی بخش Redeploy) در `vercel.json` ریشه دارد، با کنار گذاشتن پوشهٔ همهٔ پروژه‌های جدا، از جمله `itsm`. `':!itsm'` شکل کوتاه `':(exclude)itsm'` است؛ Vercel این دستور را به ۲۵۶ نویسه محدود می‌کند:
+**بخش `git cat-file -e` را حذف نکنید.** Vercel فقط چند commit آخر را clone می‌کند و `VERCEL_GIT_PREVIOUS_SHA` کامیتِ آخرین ساخت موفق است. اگر پروژه مدتی ساخته نشده باشد، آن کامیت در clone نیست و `git diff` به‌تنهایی با خطای `fatal: bad object` (خروجی ۱۲۸) تمام می‌شود؛ Vercel هر خروجی غیر از ۰ و ۱ را خطا می‌داند و کل انتشار پیش از ساخت شکست می‌خورد. با این بخش، در این حالت ITSM ساخته می‌شود.
+
+پروژه‌ای که ریشهٔ مخزن را می‌سازد (Task Flow) دستور مشابهی را (بی دو بخش نخست) در `vercel.json` ریشه دارد، با کنار گذاشتن پوشهٔ همهٔ پروژه‌های جدا، از جمله `itsm`. `':!itsm'` شکل کوتاه `':(exclude)itsm'` است؛ Vercel این دستور را به ۲۵۶ نویسه محدود می‌کند:
 
 ```bash
 git cat-file -e "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}^{commit}" 2>/dev/null && git diff --quiet "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}" HEAD -- . ':!siraf' ':!itsm' ':!pars-website' ':!celin-website' ':!portfolio' || exit 1
@@ -354,7 +356,13 @@ $$);
 
 `timeout_milliseconds := 30000` را نگه دارید: هر تپش تا ۲۰ ثانیه کار می‌کند، ولی `pg_net` به‌طور پیش‌فرض فقط پنج ثانیه منتظر پاسخ می‌ماند و پاسخ تپش‌های پرکار را «timed out» ثبت می‌کند (بخش ۹-۲).
 
-**باید ببینید:** در `Integrations` ← `Cron` ردیف `itsm-tick`؛ چند دقیقه بعد در `History` اجراهای موفق، و در «سلامت سامانه» ← «صف کارهای پس‌زمینه» عبارت «تپش دقیقه‌ای: راه‌اندازی شده». با SQL: `select jobname, command, active from cron.job;` ردیف `itsm-tick` را با نشانی درست و `active` = `true` نشان می‌دهد. آزمون دستی:
+3. همان‌جا این را هم یک بار اجرا کنید: `pg_cron` برای هر اجرا ردیفی در `cron.job_run_details` می‌نویسد (با متن دستور، یعنی رمز `Bearer` هم) و هرگز خودش پاکش نمی‌کند، حتی پس از برداشتن کار؛ با تپش دقیقه‌ای روزی ۱٬۴۴۰ ردیف در پایگاه دادهٔ ۵۰۰ مگابایتی پلن رایگان. این کار هر شب تاریخچهٔ کهنه‌تر از ۷ روز را پاک می‌کند (پیشنهاد خود Supabase):
+
+```sql
+select cron.schedule('itsm-tick-cleanup', '17 3 * * *', $$delete from cron.job_run_details where end_time < now() - interval '7 days'$$);
+```
+
+**باید ببینید:** در `Integrations` ← `Cron` ردیف‌های `itsm-tick` و `itsm-tick-cleanup`؛ چند دقیقه بعد در `History` اجراهای موفق، و در «سلامت سامانه» ← «صف کارهای پس‌زمینه» عبارت «تپش دقیقه‌ای: راه‌اندازی شده». با SQL: `select jobname, command, active from cron.job;` ردیف `itsm-tick` را با نشانی درست و `active` = `true` نشان می‌دهد. آزمون دستی:
 ```bash
 curl -X POST -H "Authorization: Bearer CRON_SECRET_شما" https://itsm-xyz.vercel.app/api/cron/tick
 # پاسخ درست: {"ok":true,"ran":0,"failed":0,"more":false}
@@ -362,7 +370,7 @@ curl -X POST -H "Authorization: Bearer CRON_SECRET_شما" https://itsm-xyz.verc
 
 - **نشانی تازه:** اگر دامنهٔ اختصاصی گذاشتید (بخش ۵) یا برنامه را به پروژهٔ Vercel دیگری بردید، همان `select cron.schedule('itsm-tick', …)` را با نشانی تازه دوباره اجرا کنید؛ همان نام، کار قبلی را جایگزین می‌کند. وگرنه تپش به نشانی قدیمی می‌رود و صف عقب می‌ماند. پس از تعویض `CRON_SECRET` هم همین را با رمز تازه اجرا کنید.
 - اگر تپش راه‌اندازی شده ولی «صف کارهای پس‌زمینه» زرد یا قرمز است، بخش ۹-۲ (تاریخچهٔ تپش و پاسخ‌هایش).
-- برای برداشتن: `select cron.unschedule('itsm-tick');`. نسخهٔ ویندوز به این کار نیازی ندارد؛ صف خودش را هر ۱۰ ثانیه اجرا می‌کند.
+- برای برداشتن: `select cron.unschedule('itsm-tick');` و `select cron.unschedule('itsm-tick-cleanup');`. نسخهٔ ویندوز به این کار نیازی ندارد؛ صف خودش را هر ۱۰ ثانیه اجرا می‌کند.
 
 ---
 
@@ -534,7 +542,7 @@ curl -X POST -H "Authorization: Bearer CRON_SECRET_شما" https://itsm-xyz.verc
    select count(*) as tables_left from pg_tables where schemaname = 'public' and tablename like 'sm\_%';
    ```
    همان را آن‌قدر دوباره `Run` بزنید تا `tables_left` = `0` شود (حدود ۷ بار).
-2. یکی از راه‌های قدم ۱-۵ را بروید (ساده‌ترین: در Vercel ← `Deployments` ← `⋯` ← `Redeploy`).
+2. یکی از راه‌های قدم ۱-۵ را بروید (ساده‌ترین: در Vercel ← `Deployments` ← انتشار `Production` با برچسب `Current` ← `⋯` ← `Redeploy`).
 3. `/api/health` ← `"ok":true`، بعد بخش ۳ (اولین حساب).
 
 راه دیگر: پروژهٔ Supabase تازه‌ای بسازید (بخش ۱)، `DATABASE_URL` را در Vercel عوض و Redeploy کنید.
@@ -596,7 +604,7 @@ curl -X POST -H "Authorization: Bearer CRON_SECRET_شما" https://itsm-xyz.verc
 - **اتصال گیرکرده:** ردیفی در کوئری ۱ با `application_name` = `Supavisor`، `state` = `active` و `wait_event` = `ClientRead` که چند دقیقه درون تراکنش مانده است (`in_xact` و `in_state` برابر و چند دقیقه‌ای)، دستوری است که منتظر نیمهٔ دومش مانده و هرگز تمام نمی‌شود: همان گیر کردن صفحه‌ها در ۱٫۱٫۳ و پیش از آن ([`RELEASE_FA.md`](RELEASE_FA.md)، ۱٫۱٫۴). ۱٫۱٫۴ چنین ردیفی بر جا نمی‌گذارد؛ اگر پس از آن هم پیدا شد، نتیجه‌ها را بفرستید. هر کدام یک اتصال pooler را بی‌استفاده نگه می‌دارد و قفلش (کوئری ۲) جلوی تغییر ساختار همان جدول را می‌گیرد.
 - `state` = `idle in transaction` چند دقیقه‌ای تراکنشی است که سرویس‌گیرنده‌اش رهایش کرده؛ تراکنش‌های خود برنامه از ۱٫۱٫۴ پس از ۱۵ ثانیه بسته می‌شوند.
 - در کوئری ۲، ردیفی با `granted` = `false` منتظر قفل است و `blocked_by` شمارهٔ (`pid`) اتصالی را دارد که قفل را نگه داشته؛ همان `pid` را در کوئری ۱ پیدا کنید.
-- در کوئری ۳، `due` کارهایی است که وقتشان رسیده و هنوز اجرا نشده‌اند و `stalled` کارهایی که کارگرشان پیش از پایان متوقف شد (پس از ۵ دقیقه دوباره گرفته می‌شوند و اگر آخرین تلاش مجازشان بود «ناموفق» می‌شوند). اگر قدیمی‌ترین کار سررسیده بیش از چند دقیقه منتظر است، تپش دقیقه‌ای را ببینید (کوئری ۶)؛ «سلامت سامانه» همین را در «صف کارهای پس‌زمینه» نشان می‌دهد.
+- در کوئری ۳، `due` کارهایی است که وقتشان رسیده و هنوز اجرا نشده‌اند و `stalled` کارهایی که کارگرشان پیش از پایان متوقف شد (وقتی قفل ۵ دقیقه‌ای‌شان تمام شد، دوباره گرفته و از نو اجرا می‌شوند). اگر قدیمی‌ترین کار سررسیده بیش از چند دقیقه منتظر است، تپش دقیقه‌ای را ببینید (کوئری ۶)؛ «سلامت سامانه» همین را در «صف کارهای پس‌زمینه» نشان می‌دهد.
 - در کوئری ۶، `succeeded` در `cron.job_run_details` فقط یعنی درخواست فرستاده شد؛ پاسخ در `net._http_response` است (چند ساعت نگه داشته می‌شود). `status_code` = `200` با `"ok":true` درست است. `401`: `CRON_SECRET` دستور تپش با Vercel یکی نیست (یا پس از تغییرش Redeploy نشده)، یا نشانی، نشانی محافظت‌شدهٔ یک انتشار است (قدم ۲-۹). `404`: نشانی اشتباه است (دامنهٔ اصلی و مسیر `/api/cron/tick`). `timed_out` = `true`: `timeout_milliseconds := 30000` در دستور نیست. برای هر کدام، کار را با نشانی و رمز درست دوباره بسازید (بخش ۴-۱).
 
 **بستن اتصال گیرکرده (این یکی چیزی را تغییر می‌دهد):** فقط برای ردیفی که الگوی بند نخست را دارد (`Supavisor`، `active`، `ClientRead`، چند دقیقه درون تراکنش)، `pid` آن را از کوئری ۱ بردارید و به‌جای `<pid>` بگذارید:
@@ -621,7 +629,7 @@ select pg_terminate_backend(<pid>);
 
 **باید ببینید:** `/api/health` ← `"ok":true` و `"schema":{"complete":true,…}` با `version` نسخهٔ تازه.
 
-- **برگرداندن نسخهٔ قبلی:** `Deployments` ← انتشار قبلی ← `⋯` ← `Instant Rollback`. فقط کد برمی‌گردد، نه پایگاه داده؛ مشکلی نیست چون تغییرات پایگاه داده فقط چیز اضافه می‌کنند.
+- **برگرداندن نسخهٔ قبلی:** `Deployments` ← انتشار قبلی ← `⋯` ← `Instant Rollback`. فقط کد برمی‌گردد، نه پایگاه داده؛ مشکلی نیست چون تغییرات پایگاه داده فقط چیز اضافه می‌کنند. پس از Instant Rollback، Vercel انتشارهای تازه را دیگر خودش روی نشانی اصلی نمی‌گذارد: ادغام‌های بعدی و Redeploy ساخته و `Ready` می‌شوند ولی نسخهٔ برگردانده پاسخ می‌دهد. وقتی نسخهٔ درست آماده شد، برگرداندن را بردارید: پروژه ← `Overview` ← کاشی `Production Deployment` ← `Undo Rollback` (در داشبوردهای تازه‌تر `Manage`) ← انتشار تازه ← `Confirm`، یا `Deployments` ← آن انتشار ← `⋯` ← `Promote` (CLI: `vercel promote <نشانی انتشار>`). بعد `version` در `/api/health` را ببینید.
 - **اگر `AUTO_MIGRATE=false` گذاشته‌اید:** پیش از ادغام `scripts/migrate-db.mts` را با کد تازه اجرا کنید، یا بخش‌های [`itsm/supabase/manual`](../supabase/manual) را به‌ترتیب در SQL Editor (اجرای دوبارهٔ بخش‌هایی که قبلاً اجرا شده بی‌خطر است).
 - **نسخهٔ ویندوز:** فایل نصب تازه را از `Releases` روی نسخهٔ قبلی نصب کنید؛ داده‌ها می‌مانند. همیشه اول نسخهٔ وب را به‌روز کنید، بعد ویندوز را ([DESKTOP_FA.md](DESKTOP_FA.md)).
 
@@ -646,7 +654,7 @@ select pg_terminate_backend(<pid>);
 1. پیش از هر چیز مطمئن شوید `APP_SECRET` در Vercel هست. بدون آن، کلید رمزنگاری از `DATABASE_URL` ساخته می‌شود و با تعویض رمز، کلید وب‌هوک‌های ذخیره‌شده از دست می‌رود.
 2. Supabase ← `Database` ← `Settings` ← `Reset database password` ← `Generate a password` ← رمز را ذخیره کنید ← `Reset password`.
 3. Vercel ← `Settings` ← `Environment Variables` ← `DATABASE_URL` ← `Edit` ← نشانی با رمز تازه ← `Save`.
-4. **فوراً** `Deployments` ← `⋯` ← `Redeploy`، و چند دقیقه صبر کنید.
+4. **فوراً** `Deployments` ← انتشار `Production` با برچسب `Current` ← `⋯` ← `Redeploy`، و چند دقیقه صبر کنید. Redeploy ردیفی که `Canceled` است دوباره لغو می‌شود (قدم ۲-۸)، مگر در پنجرهٔ Redeploy تیک `Use project's Ignore Build Step` را بردارید.
 
 **باید ببینید:** پیام `Successfully updated database password` در Supabase و پس از Redeploy، `/api/health` با `"db":"ok"`. نسخهٔ ویندوز اثری نمی‌بیند، چون با نسخهٔ وب حرف می‌زند نه مستقیم با پایگاه داده.
 

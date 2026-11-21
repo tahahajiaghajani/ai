@@ -8,7 +8,7 @@
 // desktop/src/main.ts with a fake Electron and a fake clock (timers, Date and performance); on the fixed timer, and on
 // 1.1.3's wall-clock watch that ended the start at its first timeout, they fail.
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInNewContext } from "node:vm";
@@ -349,9 +349,10 @@ const READY = { type: "ready", url: "http://127.0.0.1:3939", port: 3939, host: "
 
 /**
  * Starts desktop/src/main.ts anew (local mode) on a fake clock — timers, Date and performance (the start's monotonic
- * clock) —; resolves with the server's fake process and the splash.
+ * clock) —; resolves with the server's fake process and the splash. `restore`: a restore of a backup scheduled in
+ * Settings (restore.pending names the backup), which the server begins right after its first phase.
  */
-async function launch(env: Record<string, string> = {}) {
+async function launch(env: Record<string, string> = {}, opts: { restore?: boolean } = {}) {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date", "performance"] });
   vi.resetModules();
   h.children.length = 0;
@@ -363,6 +364,7 @@ async function launch(env: Record<string, string> = {}) {
   dataDir = mkdtempSync(join(tmpdir(), "itsm-ready-"));
   // a later start (a database folder exists): the splash begins with «باز کردن داده‌ها…»
   mkdirSync(join(dataDir, "db"));
+  if (opts.restore) writeFileSync(join(dataDir, "restore.pending"), join(dataDir, "backups", "itsm-manual-20261121-101010.tar.gz"), "utf8");
   process.env.ITSM_DATA_DIR = dataDir;
   Object.assign(process.env, env);
   await import(/* @vite-ignore */ MAIN);
@@ -422,12 +424,14 @@ describe("the Windows app's main process waits for its local server by phase (de
   });
 
   it("asks after 90 s without a word, decides nothing behind the question, waits 90 s more on «صبر می‌کنم» and stops on «خروج»", async () => {
-    const { child } = await launch();
+    const { child, splash } = await launch();
     await vi.advanceTimersByTimeAsync(READY_BUDGET_MS - 1_000);
     expect(h.dialogs).toEqual([]);
     await vi.advanceTimersByTimeAsync(2_000);
     expect(h.dialogs).toHaveLength(1);
     const q = h.dialogs[0];
+    // owned by the splash: it stays above it, and the splash cannot be closed behind it
+    expect(q.parent).toBe(splash);
     expect(q.opts.message).toBe(STALL_TEXT.starting.message);
     expect(q.opts.detail).toBe(`${STALL_TEXT.starting.detail}\n\nگزارش: ${join(dataDir, "logs", "app.log")}`);
     expect(q.opts.buttons).toEqual([...STALL_BUTTONS]);
@@ -449,8 +453,7 @@ describe("the Windows app's main process waits for its local server by phase (de
     h.dialogs[1].answer(2); // «خروج»
     await flush();
     expect(child.posted).toEqual([{ type: "shutdown" }]);
-    // before it is ready the server cannot hear that: it is killed 10 s later
-    await vi.advanceTimersByTimeAsync(10_000);
+    // before its first phase the server cannot hear that and has opened nothing yet: it is killed at once
     expect(child.killed).toBe(true);
     await flush();
     expect(h.exits).toEqual([1]);
@@ -469,9 +472,9 @@ describe("the Windows app's main process waits for its local server by phase (de
     h.dialogs[0].answer(1); // «اجرای دوباره»
     await flush();
     expect(child.posted).toEqual([{ type: "shutdown" }]);
+    expect(child.killed).toBe(true);
     await vi.advanceTimersByTimeAsync(10_000);
     await flush();
-    expect(child.killed).toBe(true);
     expect(h.relaunched).toBe(1);
     expect(h.exits).toEqual([1]);
     expect(h.dialogs).toHaveLength(1);
@@ -567,6 +570,7 @@ describe("the Windows app's main process waits for its local server by phase (de
     expect(lastCall(splash, "note")).toBe(NOTICE_TEXT.update);
     await vi.advanceTimersByTimeAsync(MIGRATIONS_CEILING_MS);
     expect(h.dialogs).toHaveLength(1);
+    expect(h.dialogs[0].parent).toBe(splash);
     expect(h.dialogs[0].opts.message).toBe(STALL_TEXT.migrations.message);
     expect(h.dialogs[0].opts.detail).toContain(STALL_TEXT.migrations.detail);
     expect(h.dialogs[0].opts.buttons).toEqual([...STALL_BUTTONS]);
@@ -680,7 +684,7 @@ describe("the Windows app's main process waits for its local server by phase (de
     expect(appLog()).toContain("[start] the person closes the splash during the database's restore: asking first");
   });
 
-  it("asks nothing when the splash closes before the open: the app quits as it always did", async () => {
+  it("asks nothing when the splash closes before the open: the app quits, and the server, which has opened nothing, at once", async () => {
     const { child, splash } = await launch();
     await vi.advanceTimersByTimeAsync(5_000);
     splash.close();
@@ -688,11 +692,58 @@ describe("the Windows app's main process waits for its local server by phase (de
     expect(splash.destroyed).toBe(true);
     expect(h.dialogs).toEqual([]);
     expect(child.posted).toEqual([{ type: "shutdown" }]);
-    await vi.advanceTimersByTimeAsync(10_000);
-    await flush();
     expect(child.killed).toBe(true);
+    await flush();
     expect(h.exits).toEqual([0]);
     expect(h.dialogs).toEqual([]);
+  });
+
+  // Before its first phase the server cannot hear a request to stop (backend-entry.ts listens once it is ready) and has
+  // written nothing but config.json; right after it, a scheduled restore drops its marker and sets the database folder
+  // aside. Killed 10 s after the request, as 1.1.3 did, it had the time to begin the restore and was cut in its middle:
+  // the next start opened an empty database or half of one, with no question asked (DESKTOP-1 of the 1.1.4 review).
+  it("stops the server at once when the splash closes before its first phase, a scheduled restore never begun", async () => {
+    const { child, splash } = await launch({}, { restore: true });
+    await vi.advanceTimersByTimeAsync(800);
+    splash.close();
+    await flush();
+    expect(h.dialogs).toEqual([]);
+    expect(child.posted).toEqual([{ type: "shutdown" }]);
+    expect(child.killed).toBe(true);
+    await flush();
+    expect(h.exits).toEqual([0]);
+  });
+
+  it("stops the server at once on «خروج» to the 90 s question before its first phase, too", async () => {
+    const { child } = await launch({}, { restore: true });
+    await vi.advanceTimersByTimeAsync(READY_BUDGET_MS + 1_000);
+    expect(h.dialogs).toHaveLength(1);
+    h.dialogs[0].answer(2); // «خروج»
+    await flush();
+    expect(child.posted).toEqual([{ type: "shutdown" }]);
+    expect(child.killed).toBe(true);
+    await flush();
+    expect(h.exits).toEqual([1]);
+  });
+
+  it("still gives the server its 10 s on «بستن برنامه» once the restore's open has begun", async () => {
+    const { child, splash } = await launch({}, { restore: true });
+    child.emit("message", { type: "phase", phase: "database", walMb: 0, recovery: null, restore: true });
+    await vi.advanceTimersByTimeAsync(5_000);
+    splash.close();
+    await flush();
+    expect(h.dialogs).toHaveLength(1);
+    expect(h.dialogs[0].opts.message).toBe(CLOSE_TEXT.restore.message);
+    h.dialogs[0].answer(1); // «بستن برنامه»
+    await flush();
+    expect(child.posted).toEqual([{ type: "shutdown" }]);
+    expect(child.killed).toBe(false);
+    await vi.advanceTimersByTimeAsync(9_000);
+    expect(child.killed).toBe(false);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(child.killed).toBe(true);
+    await flush();
+    expect(h.exits).toEqual([0]);
   });
 
   it("fails the smoke test (CI, nobody to answer) after 90 s without a word instead of asking", async () => {

@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "buildCommand": "npm run build",
-  "ignoreCommand": "[ \"$VERCEL_GIT_PREVIOUS_SHA\" = \"$VERCEL_GIT_COMMIT_SHA\" ] && exit 1; git cat-file -e \"${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}^{commit}\" 2>/dev/null && git diff --quiet \"${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}\" HEAD -- . || exit 1",
+  "ignoreCommand": "P=$VERCEL_GIT_PREVIOUS_SHA; [ \"$P\" = \"$VERCEL_GIT_COMMIT_SHA\" ] && exit 1; [ -z \"$P\" ] && [ \"$VERCEL_ENV\" = production ] && exit 1; git cat-file -e \"${P:-HEAD^}^{commit}\" 2>/dev/null && git diff --quiet \"${P:-HEAD^}\" HEAD -- . || exit 1",
   "regions": [
     "fra1"
   ],

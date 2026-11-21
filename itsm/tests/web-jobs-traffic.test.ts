@@ -2,9 +2,11 @@
 // requests, and without the per-minute heartbeat the only ticks were the daily cron and the tick after a write under
 // /o/:org — so a new organisation's 28 seeds (due 10 minutes after POST /api/orgs, which never ticked) and record events
 // waited for days. Now, once the answer is ready:
-// - any request, at most once a minute per instance, asks for a tick of 8 s when a job is due (the probe runs first, so
-//   `waitUntil` is called only when there is work);
-// - a write that queued jobs anywhere in the API asks for a tick of 4 s when one of them (or another job) is due.
+// - any request, at most once a minute per instance, ticks for 8 s when a job is due;
+// - a write that queued jobs anywhere in the API ticks for 4 s when one of them (or another job) is due.
+// The probe that tells whether a job is due runs after the answer, in the work handed to `waitUntil`: a busy pool, where
+// it waits for a connection, holds no answer back (the release candidate's probe ran before the answer, up to 2 s more
+// on every write that queued jobs: DB-2/JOBS-4 of its review), and it gives up after 2 s without a tick.
 // The Windows app (its own timer) and the server edition (its scheduler leader) get no traffic tick.
 import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from "vitest";
 import {
@@ -18,9 +20,44 @@ import {
   type TrafficClock,
 } from "@server/jobs";
 import { registerOrgSeed } from "@server/modules/orgs/service";
-import { makeServer, Client, signupWithOrg } from "./helpers";
-import type { Db } from "@server/db";
+import { createPgliteDb } from "@server/db/pglite";
+import { makeServer, Client, signupWithOrg, useServerDb } from "./helpers";
+import type { Db, Queryable } from "@server/db";
 import type { ServerEditionBridge } from "@server/context";
+
+/** The probe's statement (queueHasDue) and a tick's claim (its first statement each round). */
+const PROBE = /locked_until < now\(\)\)\) as due/;
+const CLAIM = /^\s*update sm_jobs set status = 'running', attempts = attempts \+ 1/;
+/** Ticks that ran (their claims) and a delay for the probe's statement alone: a pool whose connections are all busy. */
+const seen = { claims: 0, probeDelayMs: 0, waiting: new Set<Promise<unknown>>() };
+function instrumented(db: Db): Db {
+  return new Proxy(db, {
+    get(target, prop, receiver) {
+      if (prop === "query" || prop === "one") {
+        return (text: string, params?: unknown[]) => {
+          if (CLAIM.test(text)) seen.claims++;
+          const run = () => (target as Queryable)[prop](text, params);
+          if (!seen.probeDelayMs || !PROBE.test(text)) return run();
+          const late = new Promise((r) => setTimeout(r, seen.probeDelayMs)).then(run);
+          seen.waiting.add(late);
+          void late.finally(() => seen.waiting.delete(late)).catch(() => undefined);
+          return late;
+        };
+      }
+      const v = Reflect.get(target, prop, receiver);
+      return typeof v === "function" ? v.bind(target) : v;
+    },
+  });
+}
+beforeAll(() => useServerDb(async (mode) => instrumented(await createPgliteDb({ desktop: mode === "desktop" }))));
+afterAll(() => useServerDb(null));
+
+/** Milliseconds `f` took. */
+async function took(f: () => Promise<unknown>): Promise<number> {
+  const t0 = performance.now();
+  await f();
+  return performance.now() - t0;
+}
 
 const serverBridge: ServerEditionBridge = {
   health: async () => ({}),
@@ -53,15 +90,26 @@ afterAll(() => {
 });
 
 const status = (db: Db, id: string) => db.one<{ status: string }>(`select status from sm_jobs where id = $1`, [id]).then((r) => r?.status);
+/** The work handed to waitUntil has ended: no tick ran in it (no claim) when nothing was due. */
+async function settled(pending: Promise<unknown>[]): Promise<number> {
+  const claims = seen.claims;
+  await Promise.all(pending);
+  return seen.claims - claims;
+}
+/** The record event a todo's creation queued. */
+const created = (db: Db, id: string) =>
+  db.one<{ status: string }>(`select status from sm_jobs where kind = 'record.created' and payload->>'id' = $1`, [id]).then((r) => r?.status);
 
 describe("the traffic tick of the web version", () => {
   let w: Awaited<ReturnType<typeof world>>;
   let org = "";
   beforeAll(async () => {
     w = await world();
+    const claims = seen.claims;
     org = await signupWithOrg(w.c);
-    // signing up and making the organisation queue nothing due (the seeds wait 10 minutes): no tick was asked for
-    expect(w.pending).toHaveLength(0);
+    // signing up and making the organisation queue nothing due (the seeds wait 10 minutes): no tick ran after them
+    await Promise.all(w.pending);
+    expect(seen.claims - claims).toBe(0);
   });
   // each test starts with no job of its own left by another (a failed one leaves its job queued)
   beforeEach(async () => {
@@ -85,15 +133,17 @@ describe("the traffic tick of the web version", () => {
     await w.db.query(`delete from sm_jobs where id = $1`, [next]);
   });
 
-  it("(d) with nothing due it asks for no tick, and the gate is stamped", async () => {
+  it("(d) with nothing due it runs no tick, and the gate is stamped", async () => {
     expect(trafficTickDue(trafficClock(), lastTrafficTick())).toBe(true);
     await w.c.get(`/o/${org}`);
-    expect(w.pending).toHaveLength(0);
     expect(trafficTickDue(trafficClock(), lastTrafficTick())).toBe(false);
-    // a job due now waits for the next minute's look (or a write that queues work)
+    expect(await settled(w.pending)).toBe(0);
+    // a job due now waits for the next minute's look (or a write that queues work): nothing more is handed to waitUntil
+    const asked = w.pending.length;
     const id = await enqueue(w.db, { kind: "test.traffic", orgId: org });
     await w.c.get(`/o/${org}`);
-    expect(w.pending).toHaveLength(0);
+    expect(w.pending).toHaveLength(asked);
+    expect(await status(w.db, id)).toBe("queued");
     await w.db.query(`delete from sm_jobs where id = $1`, [id]);
   });
 
@@ -119,12 +169,13 @@ describe("the traffic tick of the web version", () => {
       seeded = await enqueue(tx, { kind: "test.traffic", orgId });
     });
     try {
-      // a read first stamps the gate: what ticks after the write is the write's own rule
+      // a read first stamps the gate (nothing due: no tick): what ticks after the write is the write's own rule
       await w.c.get("/meta");
-      expect(w.pending).toHaveLength(0);
+      expect(await settled(w.pending)).toBe(0);
+      const asked = w.pending.length;
       await w.c.post("/orgs", { name: "سازمان با پیش‌فرض فوری" });
-      expect(w.pending).toHaveLength(1);
-      await Promise.all(w.pending);
+      expect(w.pending).toHaveLength(asked + 1);
+      expect(await settled(w.pending)).toBeGreaterThan(0);
       expect(seeded).not.toBeNull();
       expect(await status(w.db, seeded!)).toBe("done");
     } finally {
@@ -133,9 +184,9 @@ describe("the traffic tick of the web version", () => {
     w.pending.length = 0;
     resetTrafficTick();
     await w.c.get("/meta");
-    expect(w.pending).toHaveLength(0);
+    expect(await settled(w.pending)).toBe(0);
     await w.c.post("/orgs", { name: "سازمان با پیش‌فرض‌های دیرتر" });
-    expect(w.pending).toHaveLength(0);
+    expect(await settled(w.pending)).toBe(0);
   });
 
   it("a write that queued a due job ticks once, and stamps the gate", async () => {
@@ -145,6 +196,49 @@ describe("the traffic tick of the web version", () => {
     expect(trafficTickDue(trafficClock(), lastTrafficTick())).toBe(false);
     await w.c.get(`/o/${org}/r/todo`);
     expect(w.pending).toHaveLength(1);
+  });
+
+  describe("the probe holds no answer back while it waits for a connection (a busy pool)", () => {
+    afterEach(async () => {
+      seen.probeDelayMs = 0;
+      await Promise.all([...seen.waiting]);
+    });
+
+    it("a write that queued a due job is answered at once, and its tick runs after the answer", async () => {
+      seen.probeDelayMs = 1_500;
+      let row: { row: { id: string } } | null = null;
+      const ms = await took(async () => {
+        row = await w.c.post(`/o/${org}/r/todo`, { short_description: "پاسخ پیش از پرسش صف" });
+      });
+      // the release candidate answered after the probe: 1.5 s here, up to 2 s on a busy pool
+      expect(ms).toBeLessThan(1_000);
+      expect(await created(w.db, row!.row.id)).toBe("queued");
+      expect(w.pending).toHaveLength(1);
+      await Promise.all(w.pending);
+      expect(await created(w.db, row!.row.id)).toBe("done");
+    });
+
+    it("a read at the minute's gate too", async () => {
+      seen.probeDelayMs = 1_500;
+      const id = await enqueue(w.db, { kind: "test.traffic", orgId: org });
+      expect(await took(() => w.c.get(`/o/${org}`))).toBeLessThan(1_000);
+      expect(w.pending).toHaveLength(1);
+      await Promise.all(w.pending);
+      expect(await status(w.db, id)).toBe("done");
+    });
+
+    it("a probe that gets no answer in 2 s gives up after the answer: no tick, and the work ends", async () => {
+      seen.probeDelayMs = 3_000;
+      let row: { row: { id: string } } | null = null;
+      const ms = await took(async () => {
+        row = await w.c.post(`/o/${org}/r/todo`, { short_description: "صف کند" });
+      });
+      expect(ms).toBeLessThan(1_000);
+      const claims = seen.claims;
+      expect(await took(() => Promise.all(w.pending))).toBeLessThan(2_800);
+      expect(seen.claims).toBe(claims);
+      expect(await created(w.db, row!.row.id)).toBe("queued");
+    });
   });
 });
 

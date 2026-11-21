@@ -10,15 +10,30 @@ import { AppShell } from "./components/layout";
 import { PageBoundary } from "./components/crash";
 import { ROUTES } from "./modules/registry";
 import { ApiError, errorText } from "./lib/api";
+import { SERVER_STATES } from "./lib/session";
 import { Loading } from "./App";
 
-/** Answers that mean the server could not answer now (src/server/http/errors.ts, src/server/cloud.ts, ./lib/api.ts). */
-const SERVER_DOWN = new Set(["db_busy", "db_timeout", "db_locked", "db_unavailable", "timeout", "retry", "gateway_timeout", "unavailable", "network"]);
+/**
+ * Answers that mean the server could not answer now: every one the session takes for «the server is not ready» (its
+ * database being prepared, missing, unreachable, busy or slow, a deadline, a gateway's own error — ./lib/session.tsx),
+ * a lock held elsewhere, a deadlock retried, and no network.
+ */
+const SERVER_DOWN = new Set([...SERVER_STATES, "db_locked", "retry", "network"]);
 
 /**
  * What the organisation page says when the organisation did not load: a server that cannot answer now is not «no
  * access» — it offers to try again; a read-only database says so; anything else (not a member, not found) as before.
  */
+/**
+ * Does the organisation page give way to its error view? Always before the organisation has loaded; afterwards only for
+ * a refusal (not a member any more, gone): a refetch that could not reach the server keeps the shell, the page and its
+ * unsaved input, and the next refetch or the page's own requests try again.
+ */
+export function orgBlocked(q: { data: unknown; error: unknown }): boolean {
+  if (q.data === undefined || q.data === null) return true;
+  return !!q.error && !(q.error instanceof ApiError && SERVER_DOWN.has(q.error.code));
+}
+
 export function orgErrorView(code: string | null | undefined): { title: string; retry: boolean } {
   if (code && SERVER_DOWN.has(code)) return { title: "سرور اکنون پاسخ نمی‌دهد", retry: true };
   if (code === "db_read_only") return { title: "پایگاه داده فقط‌خواندنی است", retry: false };
@@ -65,7 +80,7 @@ export default function OrgArea() {
   const { org } = useParams();
   const q = useOrgQuery(org ?? "");
   if (q.isLoading) return <Loading full />;
-  if (q.error || !q.data) {
+  if (orgBlocked(q) || !q.data) {
     const view = orgErrorView(q.error instanceof ApiError ? q.error.code : null);
     return (
       <Result

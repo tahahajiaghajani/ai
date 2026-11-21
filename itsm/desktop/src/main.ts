@@ -119,6 +119,13 @@ let startWatch: ReadyWatch | null = null;
 let stallCtl: AbortController | null = null;
 let closeCtl: AbortController | null = null;
 /**
+ * Has the local server begun to open its data — told its first phase, or got ready? Kept past the start's end. Before
+ * that it has written nothing but config.json (through a temporary file) and cannot hear a request to stop yet, so
+ * stopBackend kills it at once: the 10 s it gives a server would only let this one begin a scheduled restore or a
+ * recovery that the kill would then cut short, with no question asked.
+ */
+let serverOpening = false;
+/**
  * The start's clock: monotonic, so a step of the system clock (Windows Time correcting a drifted laptop) neither ends a
  * healthy start nor stretches a stuck one. (1.1.2's fixed 90 s ran on the event loop's monotonic time as well.)
  */
@@ -184,8 +191,10 @@ function startBackend(): Promise<{ url: string; host: string }> {
       const ctl = new AbortController();
       stallCtl = ctl;
       const text = STALL_TEXT[stage === "migrations" ? "migrations" : "starting"];
-      void dialog
-        .showMessageBox({ type: "warning", title: APP_TITLE, message: text.message, detail: `${text.detail}\n\nگزارش: ${logFile}`, buttons: [...STALL_BUTTONS], defaultId: 0, cancelId: 0, signal: ctl.signal })
+      const opts = { type: "warning" as const, title: APP_TITLE, message: text.message, detail: `${text.detail}\n\nگزارش: ${logFile}`, buttons: [...STALL_BUTTONS], defaultId: 0, cancelId: 0, signal: ctl.signal };
+      // owned by the splash, as the close question is: it stays above the splash (also after second-instance's focus())
+      // and the splash cannot be closed behind it, unseen
+      void (splash && !splash.isDestroyed() ? dialog.showMessageBox(splash, opts) : dialog.showMessageBox(opts))
         .then(({ response }) => {
           if (stallCtl === ctl) stallCtl = null;
           if (settled) return;
@@ -218,6 +227,7 @@ function startBackend(): Promise<{ url: string; host: string }> {
     backend.on("message", (m: any) => {
       const phase = parseStartPhase(m);
       if (phase) {
+        serverOpening = true;
         if (settled) return; // a start the person gave up on, or that failed: nothing more to tell
         // a sign of the server: a question still on screen is withdrawn, and the start goes on
         stallCtl?.abort();
@@ -228,7 +238,10 @@ function startBackend(): Promise<{ url: string; host: string }> {
           const v = watch.check(clock());
           if (v.kind === "wait") showNotice(v.notice);
         }
-      } else if (m?.type === "ready") settle(() => resolve({ url: m.url, host: m.host }));
+      } else if (m?.type === "ready") {
+        serverOpening = true;
+        settle(() => resolve({ url: m.url, host: m.host }));
+      }
       else if (m?.type === "error") settle(() => reject(new Error(m.message)));
     });
     backend.on("exit", (code) => {
@@ -295,8 +308,9 @@ function createSplash() {
   // midway: it cannot hear a request to stop before it is ready (src/desktop/backend-entry.ts), so quit() kills it after
   // 10 s, and a recovery then starts over at the next start, a migration is redone — and a restore of a backup is left
   // half-done, not done again. So the person is asked first — caught here rather than with setClosable(false), which
-  // would leave the taskbar's close and Alt+F4 doing nothing. Before the open and once the start is over the splash
-  // closes as it always did; destroy() emits no 'close', so finishSplash and a failed start are never asked about.
+  // would leave the taskbar's close and Alt+F4 doing nothing. Before the open the splash closes as it always did, and the
+  // server, which has opened nothing yet, is killed at once (stopBackend: `serverOpening`); once the start is over it
+  // closes as always. destroy() emits no 'close', so finishSplash and a failed start are never asked about.
   splash.on("close", (e) => {
     const w = startWatch;
     if (quitting || !w) return;
@@ -514,13 +528,17 @@ function createTray() {
 /**
  * Asks the local server to close the database and waits until it has exited (at most `ms`), then makes sure it is gone.
  * Closing is a checkpoint and PGlite's own shutdown (src/server/db/pglite.ts): usually well under a second, as the
- * running app checkpoints its log as it goes. Killing it earlier only costs a replay of the log at the next start.
+ * running app checkpoints its log as it goes. Killing it earlier only costs a replay of the log at the next start. A
+ * server that has not told its first phase yet is killed at once (`serverOpening`).
  */
 async function stopBackend(ms = 10_000) {
   const b = backend;
   if (!b) return;
   const exited = new Promise<void>((r) => b.once("exit", () => r()));
   b.postMessage({ type: "shutdown" });
+  // before its first phase the server has opened nothing and cannot hear the request: the 10 s would only let it begin a
+  // scheduled restore or a recovery that the kill would then cut short
+  if (!serverOpening) b.kill();
   await Promise.race([exited, new Promise((r) => setTimeout(r, ms))]);
   if (backend === b) b.kill();
 }
@@ -750,8 +768,8 @@ if (!app.requestSingleInstanceLock() && !isSmoke) {
       quitting = true;
       splash?.destroy();
       if (e instanceof StartAbandoned) {
-        // the person has answered the question of the stall: no second dialog. The server is asked to stop, and killed
-        // after 10 s — before it is ready it cannot hear the request
+        // the person has answered the question of the stall: no second dialog. The server is asked to stop, and killed —
+        // before it is ready it cannot hear the request: at once before its first phase, else after 10 s
         await stopBackend();
         if (e.relaunch) app.relaunch();
         return app.exit(1);

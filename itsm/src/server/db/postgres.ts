@@ -17,6 +17,9 @@
 // - Every wait is bounded: for a connection (queueTimeoutSec: QUEUE_TIMEOUT), on the server per transaction (txLimits:
 //   statement, lock, idle in transaction) and on the client per statement (statementClientMs: a CancelRequest, then
 //   DB_TIMEOUT after a grace — the answer is lost or the socket is dead — and a fresh pool before the next statement).
+//   A transaction's statements that the server's own statement_timeout ends first get no CancelRequest: sent at the
+//   same moment, it reached the pooler after the transaction had ended and cancelled the next statement of that
+//   connection, another request's.
 // - A pool nobody used for replaceIdleAfterMs is replaced before its next statement: a paused serverless instance runs
 //   no timers, so its idle sockets are never closed and may be dead when it wakes (the first statement would hang until
 //   TCP gives up).
@@ -323,8 +326,13 @@ export function createPostgresDb(opts: PostgresOptions): Db {
    * answer is lost (a backend handed back early by the pooler, a dead socket) and the pool is replaced before the next
    * statement. Its handlers are attached at once, so an answer or a rejection after giving up is dropped quietly. Every
    * rejection is marked as the database's.
+   * `cancel` false: no CancelRequest, only the give-up — a statement of a transaction whose statement_timeout is no
+   * longer than the client's deadline, which the server ends by itself (57014). The pooler forwards a cancel to the
+   * backend the client connection holds when it arrives; sent at the same moment as the server's own timeout, it
+   * arrived after the transaction had rolled back and cancelled the next statement of that connection, another
+   * request's (Supavisor v2.9.13; a direct connection does the same).
    */
-  function bounded<T>(q: Pending<T>): Promise<T> {
+  function bounded<T>(q: Pending<T>, cancel = true): Promise<T> {
     if (!clientMs)
       return Promise.resolve(q).catch((e) => {
         throw marked(e);
@@ -334,7 +342,7 @@ export function createPostgresDb(opts: PostgresOptions): Db {
       let late: ReturnType<typeof setTimeout> | undefined;
       const due = setTimeout(() => {
         if (settled) return;
-        q.cancel?.().catch(() => {});
+        if (cancel) q.cancel?.().catch(() => {});
         late = setTimeout(() => {
           if (settled) return;
           settled = true;
@@ -421,16 +429,17 @@ export function createPostgresDb(opts: PostgresOptions): Db {
     (s: () => postgres.Sql | postgres.TransactionSql): Run =>
     (text, params) =>
       (params ? s().unsafe(text, params.map(pgParam) as never[], per) : s().unsafe(text)) as Pending<unknown>;
-  const make = (r: Run): Pick<Tx, "query" | "one" | "exec"> => ({
+  /** Statements through `r`, each with the client deadline (`cancel`: with its CancelRequest, see `bounded`). */
+  const make = (r: Run, cancel = true): Pick<Tx, "query" | "one" | "exec"> => ({
     async query<T = Row>(text: string, params: unknown[] = []): Promise<T[]> {
-      return (await bounded(r(text, params))) as T[];
+      return (await bounded(r(text, params), cancel)) as T[];
     },
     async one<T = Row>(text: string, params: unknown[] = []): Promise<T | null> {
-      const rows = (await bounded(r(text, params))) as T[];
+      const rows = (await bounded(r(text, params), cancel)) as T[];
       return rows[0] ?? null;
     },
     async exec(text: string): Promise<void> {
-      await bounded(r(text));
+      await bounded(r(text), cancel);
     },
   });
 
@@ -459,7 +468,11 @@ export function createPostgresDb(opts: PostgresOptions): Db {
   async function transaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
     const sql = pool;
     const override = limitsOverride.getStore();
-    const pre = txPreamble(override === undefined ? (opts.txLimits ?? null) : override, demoScopeOrg());
+    const limits = override === undefined ? (opts.txLimits ?? null) : override;
+    const pre = txPreamble(limits, demoScopeOrg());
+    // the server ends its statements at its own statement_timeout, no later than the client's deadline: the client sends
+    // no CancelRequest of its own, which would come too late and cancel another request's statement (`bounded`)
+    const serverEnds = !!limits && limits.statementMs > 0 && limits.statementMs <= clientMs;
     const phase = clientMs ? phases() : null;
     // the caller's own error leaves as it is (its database errors are marked already)
     const caller: { error?: unknown; set: boolean } = { set: false };
@@ -471,9 +484,10 @@ export function createPostgresDb(opts: PostgresOptions): Db {
         phase?.enter();
         const sp = savepoints(t);
         try {
-          // the limits and the demo scope: one statement, awaited before anything else of the transaction
+          // the limits and the demo scope: one statement, awaited before anything else of the transaction (its own
+          // deadline keeps the cancel: it runs before the limits it sets)
           if (pre) await bounded(t.unsafe(pre.text, (pre.params ?? []) as never[]));
-          txq = { ...make(runner(() => sp.sql)), inTx: true };
+          txq = { ...make(runner(() => sp.sql), !serverEnds), inTx: true };
           let r: T;
           try {
             r = await fn(txq);

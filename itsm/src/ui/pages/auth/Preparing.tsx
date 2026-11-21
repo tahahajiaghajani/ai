@@ -16,42 +16,76 @@ interface Schema {
   error: string | null;
 }
 
+/** What the page shows of the server's answer. */
+export interface PreparingState {
+  code: string;
+  message: string;
+  schema: Schema | null;
+}
+
+/** The parts of /api/health's answer the page reads. */
+interface HealthAnswer {
+  ok?: boolean;
+  schema?: Schema | null;
+  error?: { code: string; message: string; details?: unknown };
+}
+
+/**
+ * Asks /api/health every few seconds while the page is up (each ask lets the server continue its steps). A healthy answer
+ * makes the session ask again (`invalidate`), and the asks go on: the page goes away only when the session's own answers
+ * come — a database still too busy for /auth/me keeps it up, and the next ask tries again. Returns the stop.
+ */
+export function pollHealth(o: {
+  ask: () => Promise<{ ok: boolean; data: HealthAnswer | null }>;
+  invalidate: () => Promise<unknown>;
+  onState: (s: PreparingState) => void;
+}): () => void {
+  let stop = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const poll = async () => {
+    try {
+      const { ok, data } = await o.ask();
+      if (stop) return;
+      if (ok && data?.ok) await o.invalidate();
+      else if (data?.error) o.onState({ code: data.error.code, message: data.error.message, schema: data.schema ?? (data.error.details as Schema | null | undefined) ?? null });
+    } catch {
+      /* the next ask tries again */
+    }
+    if (!stop) timer = setTimeout(poll, 3000);
+  };
+  timer = setTimeout(poll, 1500);
+  return () => {
+    stop = true;
+    clearTimeout(timer);
+  };
+}
+
 /**
  * «آماده‌سازی پایگاه داده»: shown instead of the app while the web version prepares its database (src/server/cloud.ts
  * answers 503 `migrating` until every step is done), or cannot reach it. It asks /api/health every few seconds — each
- * ask lets the server continue — and opens the app once the schema is current.
+ * ask lets the server continue — and opens the app once the session answers again.
  */
 export function Preparing({ error }: { error: ApiError }) {
   const qc = useQueryClient();
-  const [state, setState] = useState<{ code: string; message: string; schema: Schema | null }>({
+  const [state, setState] = useState<PreparingState>({
     code: error.code,
     message: error.message,
     schema: (error.details as Schema | null) ?? null,
   });
-  useEffect(() => {
-    let stop = false;
-    let timer = 0;
-    const poll = async () => {
-      try {
-        const res = await fetch("/api/health", { credentials: "same-origin", cache: "no-store" });
-        const data = await res.json().catch(() => null);
-        if (stop) return;
-        if (res.ok && data?.ok) {
-          await qc.invalidateQueries();
-          return;
-        }
-        if (data?.error) setState({ code: data.error.code, message: data.error.message, schema: data.schema ?? data.error.details ?? null });
-      } catch {
-        /* the next ask tries again */
-      }
-      if (!stop) timer = window.setTimeout(poll, 3000);
-    };
-    timer = window.setTimeout(poll, 1500);
-    return () => {
-      stop = true;
-      window.clearTimeout(timer);
-    };
-  }, [qc]);
+  // the session's latest answer (another «not ready» after a new ask) is what the page says
+  useEffect(() => setState({ code: error.code, message: error.message, schema: (error.details as Schema | null) ?? null }), [error]);
+  useEffect(
+    () =>
+      pollHealth({
+        ask: async () => {
+          const res = await fetch("/api/health", { credentials: "same-origin", cache: "no-store" });
+          return { ok: res.ok, data: (await res.json().catch(() => null)) as HealthAnswer | null };
+        },
+        invalidate: () => qc.invalidateQueries(),
+        onState: setState,
+      }),
+    [qc],
+  );
 
   const s = state.schema;
   const migrating = state.code === "migrating";
