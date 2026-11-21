@@ -175,6 +175,37 @@ describe("no way to the owner's GitHub", () => {
   });
 });
 
+describe("pictures", () => {
+  // a picture says nothing about the machine or the camera that made it: no text chunk, EXIF, XMP or comment
+  const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
+  const extras = (f: string): string[] => {
+    const b = readFileSync(f);
+    const found: string[] = [];
+    if (/\.png$/i.test(f)) {
+      for (let i = 8; i + 8 <= b.length; i += 12 + b.readUInt32BE(i)) {
+        const type = b.toString("latin1", i + 4, i + 8);
+        if (["tEXt", "iTXt", "zTXt", "eXIf", "tIME"].includes(type)) found.push(type);
+      }
+    } else if (/\.jpe?g$/i.test(f)) {
+      // segments up to the start of the scan: APP1 (EXIF, XMP), APP13 (IPTC), COM
+      for (let i = 2; i + 4 <= b.length && b[i] === 0xff && b[i + 1] !== 0xda; i += 2 + b.readUInt16BE(i + 2)) {
+        if ([0xe1, 0xed, 0xfe].includes(b[i + 1])) found.push(`0xff${b[i + 1].toString(16)}`);
+      }
+    } else if (/\.webp$/i.test(f)) {
+      for (let i = 12; i + 8 <= b.length; i += 8 + b.readUInt32LE(i + 4) + (b.readUInt32LE(i + 4) % 2)) {
+        const type = b.toString("latin1", i, i + 4);
+        if (type === "EXIF" || type === "XMP ") found.push(type.trim());
+      }
+    }
+    return found;
+  };
+  it("carry no embedded text, EXIF or XMP", () => {
+    const root = path.join(__dirname, "..");
+    const hits = walk(path.join(root, "public")).flatMap((f) => extras(f).map((x) => `${path.relative(root, f)}: ${x}`));
+    expect(hits).toEqual([]);
+  });
+});
+
 describe("organisations and journey", () => {
   it("logos exist", () => {
     for (const o of ORGS) if (o.logo) expect(existsSync(pub(o.logo)), o.logo).toBe(true);
