@@ -9,10 +9,13 @@
 //   · `processView` (`workflows/p/:key` and `workflows/start/:key`): the published diagram with my steps, the queue of
 //     cases waiting for me at each, and the start form with my rights, the next step's name and my saved draft.
 // Every member may look at a published process (hiding a process from people who may not start it is not in version
-// 1); case data is never part of these answers, only what my own tasks carry (number, title, step).
+// 1); case data is never part of these answers, only what my own tasks carry (number, title, step). Whether I may
+// start one is the start's own check (`isStarter`, the starters' rules resolved for me — never a static guess that the
+// start would refuse), and a process of the demo pack only for the pack's people. A row about a case or record of the
+// demo pack says so (`demo`).
 import { effectiveRights, type Right } from "@shared/forms/layout";
 import { snapshotFields } from "@shared/forms/snapshot";
-import { mayInclude, ASSIGNEE_KIND_LABELS, type AssigneeRule } from "@shared/process/assignees";
+import { ASSIGNEE_KIND_LABELS, type AssigneeRule } from "@shared/process/assignees";
 import { forwardEdges, formStepOf, processNodeLabel, startOf, topoOrder, type ProcessGraph } from "@shared/process/graph";
 import { FIELD_GROUPS, type FieldGroup } from "@shared/model/types";
 import { faDigits } from "@shared/format";
@@ -20,8 +23,12 @@ import type { Ctx } from "../../../context";
 import { pgArray } from "../../../db";
 import { notFound } from "../../../http/errors";
 import { access } from "../../../access/provider";
-import { canOpenRecords, condEnv, defFor, get } from "../../../engine";
+import { canOpenRecords, condEnv, defFor, get, systemCtx } from "../../../engine";
 import { myApprovals } from "../../sla";
+import { Resolution } from "../../positions";
+import { demoPeople } from "../../../db/scope";
+import type { Queryable } from "../../../db";
+import { isStarter } from "../engine/apply";
 import { isId, loadVersionInfo } from "../engine/store";
 import { groupNameMap, myStepKeys, nameMap, nextStepLabel, partOf, personFacts } from "./common";
 
@@ -62,6 +69,8 @@ export interface InboxRow {
   queued: boolean;
   /** the case is paused by its managers */
   paused: boolean;
+  /** the case (or the record) is a row of the organisation's demo pack */
+  demo: boolean;
   can_act: boolean;
   /** the app route that opens it */
   link: string;
@@ -92,6 +101,30 @@ interface MyTask {
   paused_at: unknown;
 }
 
+/** Of `ids`, the rows of the organisation's demo pack (lower-case). */
+async function demoRows(q: Queryable, orgId: string, ids: string[]): Promise<Set<string>> {
+  const list = [...new Set(ids.filter(isId).map((x) => x.toLowerCase()))];
+  if (!list.length) return new Set();
+  const rows = await q.query<{ id: string }>(`select row_id::text as id from sm_demo_rows where org_id = $1 and row_id = any($2::uuid[])`, [orgId, pgArray(list)]);
+  return new Set(rows.map((r) => String(r.id).toLowerCase()));
+}
+
+/**
+ * May I start these processes: the starters' rules resolved for me (`isStarter`, as the start checks them), and a
+ * process of the demo pack only if I am one of the pack's people (the start refuses anyone else, DEMO_PROCESS_START).
+ */
+async function startChecker(ctx: Ctx, processIds: string[]): Promise<(processId: string, starters: AssigneeRule[]) => Promise<boolean>> {
+  const sys = await systemCtx(ctx.cfg, ctx.org.id);
+  const me = ctx.user.id;
+  const run = new Resolution(ctx.db, sys, { step: { assignees: [] }, action: "fill", requestedBy: me });
+  const pack = await demoRows(ctx.db, ctx.org.id, processIds);
+  const mine = pack.size ? (await demoPeople(ctx.db, ctx.org.id, [me])).size > 0 : false;
+  return async (processId, starters) => {
+    if (pack.has(processId.toLowerCase()) && !mine) return false;
+    return !starters.length || isStarter(ctx.db, sys, starters, me, run);
+  };
+}
+
 /** My open process steps (assigned to me, or standing in for me), with their case's process and requester. */
 async function myOpenTasks(ctx: Ctx): Promise<MyTask[]> {
   return ctx.db.query<MyTask>(
@@ -118,17 +151,20 @@ export async function inbox(ctx: Ctx): Promise<Inbox> {
       )
     : new Set<string>();
   const approvals = await myApprovals(ctx, { scope: "pending", limit: 200 });
+  const demo = await demoRows(ctx.db, ctx.org.id, [...tasks.map((t) => String(t.case_id)), ...approvals.approvals.map((a) => String(a.record_id))]);
   const rows: InboxRow[] = [
     ...tasks.map((t): InboxRow => ({
       kind: "process_step", id: String(t.id), case_id: String(t.case_id), table: "process_case", record_id: String(t.case_id), number: t.case_number, title: t.case_title,
       source: t.process_name ?? "", process_id: t.process_id, step: t.step_label ?? "", action: t.action, from: t.requested_by, since: iso(t.opened_at), due_at: iso(t.due_at),
       on_behalf_of: t.delegated_from, claimed_by: t.claimed_by && t.claimed_by !== me ? t.claimed_by : null, queued: queued.has(String(t.id)), paused: !!t.paused_at,
+      demo: demo.has(String(t.case_id).toLowerCase()),
       can_act: !t.paused_at && !queued.has(String(t.id)) && (!t.claimed_by || t.claimed_by === me), link: `workflows/c/${t.case_id}/s/${t.id}`,
     })),
     ...approvals.approvals.map((a): InboxRow => ({
       kind: "record_approval", id: String(a.id), case_id: null, table: String(a.table_key), record_id: String(a.record_id), number: (a.record_number as string) ?? null,
       title: (a.record_title as string) ?? null, source: a.table_label, process_id: null, step: String(a.level_name ?? a.rule_name ?? "تأیید رکورد"), action: "approve",
       from: (a.requested_by as string) ?? null, since: iso(a.requested_at), due_at: iso(a.due_at), on_behalf_of: a.on_behalf_of, claimed_by: null, queued: false, paused: false,
+      demo: demo.has(String(a.record_id).toLowerCase()),
       can_act: a.can_decide, link: `r/${a.table_key}/${a.record_id}`,
     })),
   ];
@@ -265,10 +301,11 @@ export async function myProcesses(ctx: Ctx): Promise<{ processes: MyProcess[] }>
     )).map((r) => [String(r.process_id), Number(r.n)]),
   );
   const out: MyProcess[] = [];
+  const mayStart = await startChecker(ctx, procs.map((p) => String(p.id)));
   for (const p of procs) {
     const graph = asGraph(p.graph);
     const starters = asRules(p.starters);
-    const canStart = !starters.length || mayInclude({ assignees: starters }, "fill", facts);
+    const canStart = await mayStart(String(p.id), starters);
     const parts: string[] = [];
     if (canStart) parts.push("آغازکننده");
     for (const key of myStepKeys(graph, facts)) {
@@ -380,6 +417,8 @@ export async function processView(ctx: Ctx, ref: string): Promise<ProcessView> {
     ...(await nameMap(ctx.db, rules.flatMap((x) => (x.kind === "users" ? x.users : [])))),
     ...(await groupNameMap(ctx.db, ctx.org.id, rules.flatMap((x) => (x.kind === "group" ? [x.group] : [])))),
   };
+  // whether I may start it: as the start itself checks (the starters resolved for me; a pack's process only for its people)
+  const starts = await (await startChecker(ctx, [String(p.id)]))(String(p.id), version.starters);
   const steps: StepView[] = [];
   for (const id of order) {
     const n = graph.nodes.find((x) => x.id === id);
@@ -388,7 +427,7 @@ export async function processView(ctx: Ctx, ref: string): Promise<ProcessView> {
     steps.push({
       key: n.id, label: processNodeLabel(n), action: s.action, start: !!s.start,
       people: s.start ? ["درخواست‌دهنده"] : s.assignees.map((x) => ruleWords(x, names, positions)),
-      mine: mine.has(n.id) || (!!s.start && (!version.starters.length || mayInclude({ assignees: version.starters }, "fill", facts))),
+      mine: mine.has(n.id) || (!!s.start && starts),
       queue: queue.filter((t) => t.step_key === n.id).map((t) => ({ task_id: String(t.id), case_id: String(t.case_id), number: t.case_number, title: t.case_title, since: iso(t.opened_at), due_at: iso(t.due_at) })),
     });
   }
@@ -403,7 +442,7 @@ export async function processView(ctx: Ctx, ref: string): Promise<ProcessView> {
     `select values from sm_process_drafts where org_id = $1 and user_id = $2 and process_id = $3 and task_id is null and deleted_at is null order by updated_at desc limit 1`,
     [ctx.org.id, me, p.id],
   );
-  const canStart = p.status === "published" && (!version.starters.length || mayInclude({ assignees: version.starters }, "fill", facts));
+  const canStart = p.status === "published" && starts;
   return {
     process: { id: String(p.id), key: p.key, name: p.name, icon: p.icon, category: p.category, description: p.description, status: p.status },
     version: { id: version.id, version_no: version.version_no },

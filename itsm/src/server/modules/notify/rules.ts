@@ -78,6 +78,12 @@ interface Builtin {
 }
 
 const has = (def: TableDef, name: string) => def.fields.some((f) => f.name === name);
+/**
+ * Tables whose module tells people of their assignments itself: a workflow step's task (`process_task`) — the
+ * workflows' own notices («مرحله‌ای منتظر شماست», process/api/notices.ts) say it, and the generic «ارجاع به کارشناس»
+ * would repeat it (or announce the requester's own start, done as it is made) with a link to a page that is not the step.
+ */
+const OWN_ASSIGNMENT_NOTICES = new Set(["process_task"]);
 const groupField = (def: TableDef) => scopeColumns(def).group;
 const journal = (def: TableDef) => !!def.features?.journal;
 const DONE = ["resolved", "closed", "canceled"];
@@ -95,7 +101,7 @@ export const BUILTINS: Builtin[] = [
       condition: () => ({ and: [{ f: "assigned_to", op: "changed" }, { f: "assigned_to", op: "nempty" }] }),
       description: "به کسی که رکورد به او ارجاع شد",
     },
-    applies: (def) => has(def, "assigned_to"),
+    applies: (def) => has(def, "assigned_to") && !OWN_ASSIGNMENT_NOTICES.has(def.key),
   },
   {
     rule: {
@@ -111,7 +117,7 @@ export const BUILTINS: Builtin[] = [
       },
       description: "به اعضای گروهی که رکورد بی‌کارشناس به آن ارجاع شد",
     },
-    applies: (def) => !!groupField(def),
+    applies: (def) => !!groupField(def) && !OWN_ASSIGNMENT_NOTICES.has(def.key),
   },
   {
     rule: {
