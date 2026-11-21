@@ -4,7 +4,7 @@
 // after a long idle or a statement given up, the request deadline of handleCloud, /api/health's account of the
 // database bounds, and the cold start's answers. The limits themselves are enforced only by a real PostgreSQL
 // (PGlite does not apply statement_timeout): tests/web-db-limits-pg.test.ts; the pooler: tests/web-db-pooler-pg.test.ts.
-import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import { createPostgresDb, txPreamble, withTxLimits, type PoolEvent } from "@server/db/postgres";
@@ -74,6 +74,24 @@ describe("the web pool's options", () => {
     expect(requestDeadlineMs({ REQUEST_DEADLINE_MS: "1000" }, 300)).toBe(241_000);
     expect(requestDeadlineMs({}, 30)).toBe(20_000);
     expect(requestDeadlineMs({ REQUEST_DEADLINE_MS: "1000" }, 30)).toBe(1_000);
+  });
+
+  it("logs a pool replaced after a quiet minute as info, a statement given up (and its pool replaced) as a warning", () => {
+    const lines: { level: string; m: string }[] = [];
+    const spies = (["log", "warn"] as const).map((level) => vi.spyOn(console, level).mockImplementation((m: unknown) => void lines.push({ level, m: String(m) })));
+    try {
+      const { onEvent } = webPoolOptions(URLS.transaction, {});
+      onEvent!({ kind: "replaced", reason: "idle", idleMs: 75_400 });
+      onEvent!({ kind: "gave_up", ms: 35_000 });
+      onEvent!({ kind: "replaced", reason: "gave_up", idleMs: 1_200 });
+    } finally {
+      for (const s of spies) s.mockRestore();
+    }
+    expect(lines).toEqual([
+      { level: "log", m: "[itsm] database pool replaced (idle, idle 75 s)" },
+      { level: "warn", m: "[itsm] a database statement got no answer in 35000 ms: given up" },
+      { level: "warn", m: "[itsm] database pool replaced (gave_up, idle 1 s)" },
+    ]);
   });
 
   it("/api/health's account of them", () => {

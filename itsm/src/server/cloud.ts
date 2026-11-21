@@ -73,10 +73,14 @@ export function webPoolOptions(url: string, env: Env = process.env): PostgresOpt
     txLimits: WEB_TX_LIMITS,
     statementClientMs: STATEMENT_CLIENT_MS,
     replaceIdleAfterMs: REPLACE_IDLE_AFTER_MS,
+    // a pool replaced after a quiet minute is routine on a site with little traffic (info); a statement given up, and
+    // the pool replaced for it, is what the owner looks for under Level: Warning (docs/SETUP_FA.md §۹)
     onEvent: (e) =>
-      consoleLogger.warn(
-        e.kind === "replaced" ? `database pool replaced (${e.reason}, idle ${Math.round(e.idleMs / 1000)} s)` : `a database statement got no answer in ${e.ms} ms: given up`,
-      ),
+      e.kind === "replaced" && e.reason === "idle"
+        ? consoleLogger.info(`database pool replaced (idle, idle ${Math.round(e.idleMs / 1000)} s)`)
+        : consoleLogger.warn(
+            e.kind === "replaced" ? `database pool replaced (${e.reason}, idle ${Math.round(e.idleMs / 1000)} s)` : `a database statement got no answer in ${e.ms} ms: given up`,
+          ),
   };
 }
 
