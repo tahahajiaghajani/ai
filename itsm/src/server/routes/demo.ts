@@ -39,7 +39,8 @@ demoRoutes.get("/", async (c) => {
     cfg.waitUntil(async () => {
       try {
         const { tick } = await import("../jobs");
-        await tick(cfg, { budgetMs: 20_000 });
+        // the cleanup of finished jobs runs from GET /api/cron/tick, never from a request (src/server/app.ts)
+        await tick(cfg, { budgetMs: 20_000, cleanup: false });
       } catch (e) {
         cfg.log.warn("demo: job tick failed", String((e as Error)?.message ?? e));
       } finally {

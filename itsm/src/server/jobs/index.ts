@@ -7,10 +7,15 @@
 // - `tick(cfg, { budgetMs })` claims due jobs one by one (`for update skip locked`: several cloud instances never
 //   take the same job; PGlite is a single connection) and runs their handlers until the budget is spent. A failed
 //   job is retried with exponential backoff until `max_attempts`, then kept as `failed` with its last error. A job
-//   whose worker died is taken again once its lock (5 minutes) expired.
-// Triggers: the Windows app ticks every 10 s (src/desktop/server.ts); the cloud ticks after every write request
-// (`cfg.waitUntil`, budget 4 s), on GET /api/cron/tick (Bearer CRON_SECRET; Supabase pg_cron / GitHub Actions /
-// Vercel cron) and daily by Vercel cron as a last resort.
+//   whose worker died is taken again once its lock (5 minutes) expired — unless that was its last allowed attempt:
+//   it is then failed (`failExhausted`), so a job that never fits in its worker's time is not retried forever.
+// Triggers: the Windows app ticks every 10 s (src/desktop/server.ts); the server edition's scheduler leader on its
+// interval and when a write wakes it (src/server-edition/scheduler.ts). The web version has no timer of its own between
+// requests (src/server/app.ts): it ticks once the answer is sent after a write request that queued jobs, when one is due
+// (budget 4 s); from any other request at most once a minute per instance, when a job is due or a worker's lock expired
+// (`trafficTickDue`, budget 8 s); and on GET /api/cron/tick (Bearer CRON_SECRET; Supabase pg_cron + pg_net every
+// minute, a GitHub Actions schedule, and Vercel's daily cron as a last resort; budget 20 s, the only web tick that
+// deletes finished jobs). The probe `queueHasDue` decides before the answer whether a request's tick is asked for.
 // Handlers never run inside a transaction: they open their own (`db.tx`) and may call external services.
 import type { Db, Queryable } from "../db";
 import { retryTransient } from "../db";
@@ -167,7 +172,8 @@ export function backoffMs(attempts: number): number {
 
 /**
  * Claim up to `n` due jobs in one statement (`for update skip locked`: concurrent ticks of other processes never take
- * the same job; the partial index sm_jobs_due_idx answers it), else jobs whose worker died (lock expired).
+ * the same job; the partial index sm_jobs_due_idx answers it), else jobs whose worker died (lock expired) and that have
+ * an attempt left (one that used its last attempt is failed by `failExhausted`, never run again).
  */
 async function claim(db: Db, worker: string, n = 1): Promise<Job[]> {
   const take = (pick: string) =>
@@ -180,7 +186,34 @@ async function claim(db: Db, worker: string, n = 1): Promise<Job[]> {
     );
   const due = await take(`select id from sm_jobs where status = 'queued' and run_at <= now() order by run_at, id limit ${Math.max(1, Math.trunc(n))}`);
   if (due.length) return due.sort((a, b) => (a.run_at < b.run_at ? -1 : a.run_at > b.run_at ? 1 : a.id < b.id ? -1 : 1));
-  return take(`select id from sm_jobs where status = 'running' and locked_until < now() order by locked_until limit ${Math.max(1, Math.trunc(n))}`);
+  return take(
+    `select id from sm_jobs where status = 'running' and locked_until < now() and attempts < max_attempts order by locked_until limit ${Math.max(1, Math.trunc(n))}`,
+  );
+}
+
+/** The last error of a job whose worker stopped during its last allowed attempt (after the error it had, if any). */
+export const EXHAUSTED_ERROR = "کارگر این کار در آخرین تلاش مجاز پیش از پایان متوقف شد (مثلاً به سقف زمان اجرای سرور رسید)؛ دیگر اجرا نمی‌شود";
+/** How much of a job's earlier error stays before `EXHAUSTED_ERROR`: last_error holds 2,000 characters, like runOne's. */
+const EARLIER_ERROR_KEPT = 2000 - " · ".length - EXHAUSTED_ERROR.length;
+
+/**
+ * Fail the jobs whose worker stopped during their last allowed attempt: still `running`, their lock expired, no attempt
+ * left (`attempts >= max_attempts`; the claim counts an attempt when it takes the job). Their worker was cut off — the
+ * web version's function at its time limit, a process that died — and a job that never fits in that time would
+ * otherwise be taken again forever. At most 100 per tick (sm_jobs_running_idx), the rest at the next tick. A long
+ * earlier error is shortened, never the reason.
+ */
+async function failExhausted(db: Db, log: Logger): Promise<number> {
+  const rows = await db.query<{ id: string; kind: string; org_id: string | null; attempts: number }>(
+    `update sm_jobs set status = 'failed', done_at = now(), locked_until = null, locked_by = null,
+            last_error = coalesce(left(last_error, ${EARLIER_ERROR_KEPT}) || ' · ', '') || $1, updated_at = now()
+     where id in (select id from sm_jobs where status = 'running' and locked_until < now() and attempts >= max_attempts
+                  order by locked_until limit 100 for update skip locked)
+     returning id, kind, org_id, attempts`,
+    [EXHAUSTED_ERROR],
+  );
+  for (const r of rows) log.warn(`job ${r.kind} failed: its worker stopped during its last allowed attempt`, { id: r.id, org_id: r.org_id, attempts: r.attempts });
+  return rows.length;
 }
 
 /**
@@ -238,26 +271,42 @@ async function finish(db: Db, job: Job, status: JobStatus, opts: { error?: strin
   );
 }
 
+/** Rows one cleanup statement deletes at most. */
+export const CLEANUP_BATCH = 2000;
+/** The longest a tick spends on cleanup. */
+export const CLEANUP_MS = 2000;
+/**
+ * Done jobs older than 3 days, oldest first, by their row address: an Index Scan of sm_jobs_finished_idx, LockRows and
+ * a Tid Scan (2,000 of 82,000 rows in 1.6 ms) — `id in (select … limit n)` was planned as a hash semi join over a
+ * sequential scan of the whole table, once per batch. Rows another worker holds are skipped (they are not finished).
+ */
+export const CLEANUP_DONE_SQL = `delete from sm_jobs where ctid = any(array(select ctid from sm_jobs where status = 'done' and done_at < now() - interval '3 days' order by done_at limit ${CLEANUP_BATCH} for update skip locked))`;
+/** Failed jobs older than 30 days, the same way (sm_jobs_finished_idx or sm_jobs_failed_idx). */
+export const CLEANUP_FAILED_SQL = `delete from sm_jobs where ctid = any(array(select ctid from sm_jobs where status = 'failed' and done_at < now() - interval '30 days' order by done_at limit ${CLEANUP_BATCH} for update skip locked))`;
+
 let lastCleanup = 0;
 /**
- * Finished jobs are kept a while for inspection: done 3 days, failed 30 days (at most once an hour per process). In
- * batches of 5 000 (sm_jobs_finished_idx): a busy organisation finishes hundreds of thousands of jobs a day, and one
- * statement deleting them all would hold the table and the WAL for long.
+ * Finished jobs are kept a while for inspection: done 3 days, failed 30 days — deleted at most once an hour per process,
+ * for at most `CLEANUP_MS` of a tick (until its deadline if that comes first), done jobs first, in statements of
+ * `CLEANUP_BATCH` rows (a busy organisation finishes hundreds of thousands of jobs a day, and one statement deleting
+ * them all would hold the table and the WAL for long). A cleanup with nothing to delete is two index probes.
  */
 async function cleanup(db: Db, deadline: number) {
-  if (Date.now() - lastCleanup < 3600_000) return;
-  lastCleanup = Date.now();
-  for (let round = 0; round < 200 && Date.now() < deadline; round++) {
-    const gone = await db.query<{ id: string }>(
-      `delete from sm_jobs where id in (
-         select id from sm_jobs where (status = 'done' and done_at < now() - interval '3 days') or (status = 'failed' and done_at < now() - interval '30 days')
-         limit 5000)
-       returning id`,
-    );
-    if (gone.length < 5000) return;
+  const started = Date.now();
+  if (started - lastCleanup < 3600_000) return;
+  lastCleanup = started;
+  const until = Math.min(deadline, started + CLEANUP_MS);
+  for (const statement of [CLEANUP_DONE_SQL, CLEANUP_FAILED_SQL]) {
+    for (;;) {
+      if (Date.now() >= until) {
+        // time is up with rows perhaps left: the next tick of this process goes on
+        lastCleanup = 0;
+        return;
+      }
+      const gone = await db.one<{ n: number }>(`with gone as (${statement} returning 1) select count(*)::int as n from gone`);
+      if ((gone?.n ?? 0) < CLEANUP_BATCH) break;
+    }
   }
-  // more left than one tick's budget: the next tick of this process goes on
-  lastCleanup = 0;
 }
 
 export interface TickResult {
@@ -300,6 +349,11 @@ export interface TickOptions {
    * slows the queue down without ever stopping it.
    */
   busy?: () => boolean;
+  /**
+   * Delete finished jobs past their retention first (default true: at most once an hour per process, at most
+   * `CLEANUP_MS`). The web version's request ticks pass false, so there it runs from GET /api/cron/tick alone.
+   */
+  cleanup?: boolean;
 }
 
 /** The longest the runner waits for foreground work before each job (`TickOptions.busy`). */
@@ -335,7 +389,8 @@ async function tickOutsideScope(cfg: JobConfig, opts: TickOptions): Promise<Tick
   let ran = 0;
   let failed = 0;
   try {
-    await cleanup(db, deadline).catch((e) => cfg.log.warn("job cleanup failed", String((e as Error)?.message ?? e)));
+    if (opts.cleanup !== false) await cleanup(db, deadline).catch((e) => cfg.log.warn("job cleanup failed", String((e as Error)?.message ?? e)));
+    await failExhausted(db, cfg.log).catch((e) => cfg.log.warn("failing exhausted jobs failed", String((e as Error)?.message ?? e)));
     while (Date.now() < deadline && ran + failed < max && !closing.has(db)) {
       if (opts.busy?.()) {
         await quietFor(opts.busy, Math.min(YIELD_MS, deadline - Date.now()));
@@ -431,6 +486,64 @@ async function runOne(cfg: JobConfig, job: Job, deadline: number): Promise<boole
     }
     return false;
   }
+}
+
+/**
+ * Is there work for a tick — a queued job that is due, or a running job whose worker's lock expired? Two probes of the
+ * partial indexes sm_jobs_due_idx and sm_jobs_running_idx (about 1 ms). The web version asks before a request's answer
+ * whether to let that answer run a tick (src/server/app.ts), so it asks for one only when there is work.
+ */
+export async function queueHasDue(q: Queryable): Promise<boolean> {
+  const r = await q.one<{ due: boolean }>(
+    `select (exists (select 1 from sm_jobs where status = 'queued' and run_at <= now())
+             or exists (select 1 from sm_jobs where status = 'running' and locked_until < now())) as due`,
+  );
+  return !!r?.due;
+}
+
+// ----- the web version's traffic tick --------------------------------------------------------------------------------
+
+/** How often the web version lets a request run the queue (per instance), when a job is due. */
+export const TRAFFIC_TICK_EVERY_MS = 60_000;
+/** The budget of such a tick: about two of a new organisation's seed jobs (3–5 s each). */
+export const TRAFFIC_TICK_BUDGET_MS = 8000;
+
+/** A moment on both clocks: the wall clock (`Date.now()`) and the monotonic one (`performance.now()`). */
+export interface TrafficClock {
+  wall: number;
+  mono: number;
+}
+
+const NEVER: TrafficClock = { wall: Number.NEGATIVE_INFINITY, mono: Number.NEGATIVE_INFINITY };
+let lastTraffic: TrafficClock = NEVER;
+
+/**
+ * Is a traffic tick due — `everyMs` gone by on either clock since `last`? The larger of the two gaps counts: a paused
+ * instance (Vercel's Fluid compute freezes it between requests) may come back with its monotonic clock barely moved but
+ * the wall clock right, and a wall clock stepped back is still gated by the monotonic one.
+ */
+export function trafficTickDue(now: TrafficClock, last: TrafficClock, everyMs = TRAFFIC_TICK_EVERY_MS): boolean {
+  return Math.max(now.wall - last.wall, now.mono - last.mono) >= everyMs;
+}
+
+/** Both clocks now. */
+export function trafficClock(): TrafficClock {
+  return { wall: Date.now(), mono: performance.now() };
+}
+
+/** When this instance last looked at the queue for its traffic (minus infinity on both clocks: not yet). */
+export function lastTrafficTick(): TrafficClock {
+  return lastTraffic;
+}
+
+/** This instance looked at the queue now (a traffic tick's probe, or a write that queued jobs and probed). */
+export function stampTraffic(at: TrafficClock = trafficClock()): void {
+  lastTraffic = at;
+}
+
+/** Forget the stamp (tests): the next request may run a traffic tick. */
+export function resetTrafficTick(): void {
+  lastTraffic = NEVER;
 }
 
 /** Jobs of an organisation for the admin screens and tests. */
