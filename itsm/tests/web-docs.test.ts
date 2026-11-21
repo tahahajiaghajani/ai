@@ -83,13 +83,30 @@ describe("the web version's limits in the owner's guides", () => {
 
   it("states the job queue's 1.1.4 rules in the engine's spec", () => {
     const jobs = section(read("docs", "spec", "ENGINE.md"), "## 8. Jobs");
-    // a job whose worker stopped during its last allowed attempt is failed, never taken over again
-    expect(jobs).toContain("failExhausted");
+    // a job whose worker stopped is taken over again once its lock expired, whatever its attempts: the candidate's
+    // failExhausted (failed at its last allowed attempt) was taken out of 1.1.4 — it ended healthy chains (JOBS-1)
+    expect(jobs).toMatch(/an expired lock is taken over again,\s+whatever the job's attempts/);
+    expect(jobs).not.toContain("failExhausted");
     // the web version's ticks: after a write when a job is due, from other traffic at most once a minute, the cron's
     expect(jobs).toContain("queueHasDue");
     expect(jobs).toContain("trafficTickDue");
     expect(jobs).toContain("cleanup: false");
-    expect(jobs).not.toMatch(/an expired\s+lock is taken over\),/);
+  });
+
+  it("promises no failing of a job whose worker stopped at its last attempt: that rule waits for 1.1.5", () => {
+    // RELEASE_FA, «تازه‌ها», SETUP_FA's reading of the queue query and the notes for Claude say what 1.1.4 does
+    const notes = section(read("docs", "RELEASE_FA.md"), "## کاریز ۱٫۱٫۴");
+    const changelog = read("src", "server", "modules", "admin", "changelog.ts");
+    const entry = changelog.slice(changelog.indexOf('version: "1.1.4"'), changelog.indexOf('version: "1.1.3"'));
+    const guide = read("docs", "SETUP_FA.md");
+    for (const [name, text] of [
+      ["RELEASE_FA 1.1.4", notes],
+      ["the 1.1.4 «تازه‌ها»", entry],
+      ["SETUP_FA", guide],
+    ]) expect(text, name).not.toMatch(/آخرین تلاش مجاز/);
+    const claude = read("CLAUDE.md").split("\n").find((l) => l.startsWith("- **The web version's job queue**")) ?? "";
+    expect(claude).toMatch(/taken again once its lock expired, whatever its attempts/);
+    expect(claude).not.toMatch(/the expired-lock claim requires `attempts < max_attempts`/);
   });
 });
 

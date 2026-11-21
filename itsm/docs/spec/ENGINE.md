@@ -431,10 +431,10 @@ await tick(cfg, { budgetMs: 4000, max });   // → { ran, failed, more, busy? }
   `enqueueMany(q, jobs)` adds many with one statement (same dedupe rule); `jctx.saveIn(tx, payload)` saves a job's
   progress inside the transaction that does the work, so a retry after a crash skips what committed.
 - `tick` claims due jobs one at a time (`for update skip locked`; the claim counts an attempt; a running job's lock
-  lasts 5 minutes and an expired lock is taken over only while the job has an attempt left — a job whose worker
-  stopped during its last allowed attempt, a function cut at its time limit or a process that died, is failed by
-  `failExhausted` and never runs again, so a step that never fits its tick's time ends as `failed`), runs handlers
-  outside transactions until the budget is spent. A throw → retry after 15 s, 30 s, 1 min … ≤ 1 h (+20 % jitter)
+  lasts 5 minutes and an expired lock is taken over again, whatever the job's attempts: a worker that stopped — a
+  function cut at its time limit, a process that died — never fails a job by itself; an attempt reset on success and
+  per-kind hooks for a job whose worker keeps dying are planned for 1.1.5), runs handlers outside transactions until
+  the budget is spent. A throw → retry after 15 s, 30 s, 1 min … ≤ 1 h (+20 % jitter)
   until `max_attempts`, then `failed` with `last_error`; `PermanentJobError` fails at once; `{ again: ms }`
   reschedules without counting an attempt; `jctx.save(payload)` keeps progress; `jctx.deadline` is when the budget
   ends. Finished jobs are kept 3 days (failed 30) and deleted by row address in batches of 2,000, at most 2 s of a
