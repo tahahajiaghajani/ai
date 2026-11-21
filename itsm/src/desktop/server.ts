@@ -3,8 +3,8 @@
 // `npm run start:local` for development and by the end-to-end tests.
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
-import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { basename, join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { createPgliteDb } from "@server/db/pglite";
 import { migrate } from "@server/db/migrate";
@@ -18,7 +18,7 @@ import { createBridge } from "./bridge";
 import { takePendingRestore, undoRestore, restorePending } from "./backup";
 import { resetSyncCursor } from "./sync-client";
 import { openFromTemplate, templateFor } from "./db-template";
-import { inspectDatabase, type DatabaseOpening } from "./db-open";
+import { inspectDatabase, NO_DATABASE, type DatabaseOpening } from "./db-open";
 import { startStallWatch } from "./stall";
 import { createStaticSite } from "../server-edition/static";
 import { APP_NAME } from "@shared/constants";
@@ -103,6 +103,29 @@ export function stallPath(path: string): string {
     .join("/");
 }
 
+const MB = 1024 * 1024;
+
+/** The backup a scheduled restore names (restore.pending holds its path, ./backup.ts), read before the marker is taken. */
+function scheduledBackup(dataDir: string): string {
+  try {
+    return readFileSync(join(dataDir, "restore.pending"), "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * app.log's line of the open (tests/desktop-start.test.ts): the log's size and what pg_control says about the last close
+ * — closed cleanly, not, or why that cannot be told —, with its state's number (./db-open.ts).
+ */
+function openingLine(o: DatabaseOpening): string {
+  const head = `opening the database: write-ahead log ${o.walMb} MB`;
+  if (o.recovery === false) return `${head}; closed cleanly (state ${o.state})`;
+  if (o.recovery === true) return `${head}; not closed cleanly (state ${o.state}), so its log is replayed first`;
+  if (o.unknown === NO_DATABASE) return `${head}; ${NO_DATABASE}`;
+  return `${head}; state unknown (${o.unknown}), so a replay may come first`;
+}
+
 export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   const log = opts.log ?? consoleLogger;
   const t0 = performance.now();
@@ -118,19 +141,21 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   };
   // The database's open, told before it begins: PGlite opens it synchronously on this thread, and a database that was
   // not closed cleanly first replays its write-ahead log — minutes for gigabytes —, so this is the last the Electron main
-  // process hears until the open is over (it waits as long as that takes, desktop/src/main.ts). A restore opens the
-  // backup, not this folder.
-  const restoring = !opts.memory && restorePending(opts.dataDir);
-  const opening: DatabaseOpening = opts.memory || restoring ? { walMb: 0, recovery: null } : inspectDatabase(dbDir);
-  if (!opts.memory) {
-    const what = restoring ? "; restoring a backup" : opening.recovery ? "; not closed cleanly, so its log is replayed first" : "";
-    log.info(`opening the database: write-ahead log ${opening.walMb} MB${what}`);
-  }
+  // process hears until the open is over (it waits as long as that takes, desktop/src/main.ts). A scheduled restore is
+  // taken first — the backup read into memory, this folder set aside — and the open then loads the backup; a marker that
+  // names no backup there is dropped, and this folder opens and is inspected like any other. (The backup is read within
+  // the 90 s the main process gives the start before the open: a few hundred MB take about a second.)
+  const scheduled = !opts.memory && restorePending(opts.dataDir);
+  const backupFile = scheduled ? scheduledBackup(opts.dataDir) : "";
+  const restore = opts.memory ? null : takePendingRestore(opts.dataDir);
+  const opening: DatabaseOpening = opts.memory || restore ? { walMb: 0, recovery: null, state: null, unknown: restore ? "restoring a backup" : "in memory" } : inspectDatabase(dbDir);
+  if (scheduled && !restore) log.warn("a restore was scheduled but its backup file is missing; the current database is opened");
+  if (restore) log.info(`opening the database: restoring a backup (${basename(backupFile)}, ${Math.round(restore.data.length / MB)} MB)`);
+  else if (!opts.memory) log.info(openingLine(opening));
   tell({ phase: "database", walMb: opening.walMb, recovery: opening.recovery });
   // the line and the message are on their way before the open holds the thread
   if (!opts.memory) await new Promise<void>((r) => nextTurn(r));
   const openStart = performance.now();
-  const restore = opts.memory ? null : takePendingRestore(opts.dataDir);
   // a first start: the database made at build time, when the app carries one
   const template = !opts.memory && !restore && !existsSync(join(dbDir, "PG_VERSION")) ? templateFor(opts.template) : null;
   let fromTemplate = false;

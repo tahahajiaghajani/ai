@@ -3,11 +3,11 @@
 // template that does not load falls back to the old way; the local server keeps the build's hashed files in the window's
 // cache and revalidates the rest; the start's parts are logged on one line for desktop-e2e; and before the database opens
 // the server tells the Electron main process what the open faces (§22: the main process then waits for it as long as it
-// takes).
+// takes), and app.log says what pg_control says about the last close — or why that cannot be told.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { brotliDecompressSync } from "node:zlib";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, existsSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -17,7 +17,8 @@ import "./fixtures/module";
 import { makeServer, Client } from "./helpers";
 import { startLocal, desktopCacheControl, type LocalServer, type StartPhase } from "@local/server";
 import { buildDbTemplate, DB_TEMPLATE_FILE, templateEntries } from "@local/db-template";
-import { inspectDatabase } from "@local/db-open";
+import { controlState, inspectDatabase, needsRecovery, readControl } from "@local/db-open";
+import { backupNow, scheduleRestore } from "@local/backup";
 import { MIGRATIONS } from "@server/db/migrations";
 import type { Logger } from "@server/context";
 
@@ -328,6 +329,25 @@ describe("the window's cache filled once per version (desktop/src/main.ts)", () 
 describe("the server tells the Windows app before its database opens (§22)", () => {
   /** pg_wal's size in MB as the test measures it: the sum of its files. */
   const walOnDisk = (db: string) => Math.round(readdirSync(join(db, "pg_wal"), { withFileTypes: true }).filter((e) => e.isFile()).reduce((n, e) => n + statSync(join(db, "pg_wal", e.name)).size, 0) / (1024 * 1024));
+  /** Another process runs `sql` on the folder's database and is killed: it exits without closing it (no shutdown checkpoint). */
+  const leaveOpen = (db: string, sql: string) => {
+    const pglite = createRequire(import.meta.url).resolve("@electric-sql/pglite");
+    const writer = `const { PGlite } = require(process.argv[1]);
+      (async () => {
+        const pg = new PGlite(process.argv[2]);
+        await pg.waitReady;
+        await pg.exec(process.argv[3]);
+        process.exit(0);
+      })().catch((e) => { console.error(e); process.exit(2); });`;
+    execFileSync(process.execPath, ["-e", writer, pglite, db, sql], { stdio: "pipe", timeout: 120_000 });
+  };
+  /** A data folder with a database a first start made (from the template) and closed cleanly. */
+  const closedCleanly = async (name: string) => {
+    const dir = join(root, name);
+    const s = await startLocal({ dataDir: dir, staticDir, port: 0, log: capture(), template: templateFile });
+    await s.close();
+    return { dir, db: join(dir, "db") };
+  };
 
   it("reports the database phase with the size of its write-ahead log before PGlite touches the folder, then the migrations", async () => {
     const dir = join(root, "data-phases");
@@ -337,7 +357,7 @@ describe("the server tells the Windows app before its database opens (§22)", ()
     const s1 = await startLocal({ dataDir: dir, staticDir, port: 0, log: first, template: templateFile, onPhase: (p) => phases1.push(p) });
     await s1.close();
     expect(phases1).toEqual([{ phase: "database", walMb: 0, recovery: null }, { phase: "migrations" }]);
-    expect(first.lines).toContain("opening the database: write-ahead log 0 MB");
+    expect(first.lines).toContain("opening the database: write-ahead log 0 MB; no database yet");
     // a later start: the log measured with fs, the database closed cleanly
     const db = join(dir, "db");
     const wal = walOnDisk(db);
@@ -358,7 +378,7 @@ describe("the server tells the Windows app before its database opens (§22)", ()
     expect(seen[0].untouched).toBe(true);
     expect(seen[1].untouched).toBe(false);
     // app.log: the open's line before the phase is told, its end before the migrations, then the start's own line
-    expect(seen[0].lines.at(-1)).toBe(`opening the database: write-ahead log ${wal} MB`);
+    expect(seen[0].lines.at(-1)).toBe(`opening the database: write-ahead log ${wal} MB; closed cleanly (state 1)`);
     expect(seen[1].lines.at(-1)).toMatch(/^database opened in \d+ ms$/);
     const at = (re: RegExp) => later.lines.findIndex((l) => re.test(l));
     expect(at(/^opening the database: /)).toBeLessThan(at(/^database opened in /));
@@ -366,21 +386,10 @@ describe("the server tells the Windows app before its database opens (§22)", ()
   });
 
   it("tells a database left open by a killed app (its log is replayed first), and opens it with everything written", async () => {
-    const dir = join(root, "data-killed");
-    const s1 = await startLocal({ dataDir: dir, staticDir, port: 0, log: capture(), template: templateFile });
-    await s1.close();
-    const db = join(dir, "db");
+    const { dir, db } = await closedCleanly("data-killed");
     expect(inspectDatabase(db).recovery).toBe(false);
     // another process writes and is killed: it exits without closing the database (no shutdown checkpoint)
-    const pglite = createRequire(import.meta.url).resolve("@electric-sql/pglite");
-    const writer = `const { PGlite } = require(process.argv[1]);
-      (async () => {
-        const pg = new PGlite(process.argv[2]);
-        await pg.waitReady;
-        await pg.exec("create table kill_probe (id int primary key, note text); insert into kill_probe select g, repeat('k', 200) from generate_series(1, 20000) g");
-        process.exit(0);
-      })().catch((e) => { console.error(e); process.exit(2); });`;
-    execFileSync(process.execPath, ["-e", writer, pglite, db], { stdio: "pipe", timeout: 120_000 });
+    leaveOpen(db, "create table kill_probe (id int primary key, note text); insert into kill_probe select g, repeat('k', 200) from generate_series(1, 20000) g");
     const left = inspectDatabase(db);
     expect(left.recovery).toBe(true);
     expect(left.walMb).toBe(walOnDisk(db));
@@ -389,13 +398,14 @@ describe("the server tells the Windows app before its database opens (§22)", ()
     const s2 = await startLocal({ dataDir: dir, staticDir, port: 0, log, onPhase: (p) => phases.push(p) });
     try {
       expect(phases).toEqual([{ phase: "database", walMb: left.walMb, recovery: true }, { phase: "migrations" }]);
-      expect(log.lines).toContain(`opening the database: write-ahead log ${left.walMb} MB; not closed cleanly, so its log is replayed first`);
+      expect(log.lines).toContain(`opening the database: write-ahead log ${left.walMb} MB; not closed cleanly (state 6), so its log is replayed first`);
+      expect(left).toMatchObject({ state: 6, unknown: null });
       expect((await (await fetch(`${s2.url}/api/health`)).json()).ok).toBe(true);
     } finally {
       await s2.close();
     }
     // the replay brought back what the killed process wrote, and this close was clean
-    expect(inspectDatabase(db).recovery).toBe(false);
+    expect(inspectDatabase(db)).toMatchObject({ recovery: false, state: 1, unknown: null });
     const { createPgliteDb } = await import("@server/db/pglite");
     const check = await createPgliteDb({ dataDir: db, wal: false });
     try {
@@ -403,5 +413,104 @@ describe("the server tells the Windows app before its database opens (§22)", ()
     } finally {
       await check.close();
     }
+  });
+
+  it("says why it cannot tell how the database was closed (a control file cut to nothing), and tells the phase as unknown", async () => {
+    const { dir, db } = await closedCleanly("data-control");
+    writeFileSync(join(db, "global", "pg_control"), Buffer.alloc(0));
+    const wal = walOnDisk(db);
+    const log = capture();
+    const phases: StartPhase[] = [];
+    // PGlite cannot open a database without its control file: the start fails, after the line and the phase
+    await expect(startLocal({ dataDir: dir, staticDir, port: 0, log, onPhase: (p) => phases.push(p) })).rejects.toThrow();
+    expect(phases).toEqual([{ phase: "database", walMb: wal, recovery: null }]);
+    // 1.1.3 wrote the line of a clean close here, the splash meanwhile treating a large log as a recovery
+    expect(log.lines).toContain(`opening the database: write-ahead log ${wal} MB; state unknown (pg_control is 0 bytes), so a replay may come first`);
+  });
+
+  it("opens and inspects the current database when a scheduled restore's backup is missing, and tells its recovery", async () => {
+    const { dir, db } = await closedCleanly("data-lost-backup");
+    leaveOpen(db, "create table restore_probe (id int primary key, note text); insert into restore_probe select g, repeat('r', 200) from generate_series(1, 20000) g");
+    const left = inspectDatabase(db);
+    expect(left.recovery).toBe(true);
+    expect(left.walMb).toBeGreaterThan(0);
+    // a restore chosen from a USB drive that is gone by the next start
+    writeFileSync(join(dir, "restore.pending"), join(root, "unplugged", "itsm-manual-20261121-101010.tar.gz"), "utf8");
+    const log = capture();
+    const phases: StartPhase[] = [];
+    const s = await startLocal({ dataDir: dir, staticDir, port: 0, log, onPhase: (p) => phases.push(p) });
+    try {
+      // 1.1.3 skipped the inspection for any scheduled restore: { walMb: 0, recovery: null } and «restoring a backup»
+      expect(phases).toEqual([{ phase: "database", walMb: left.walMb, recovery: true }, { phase: "migrations" }]);
+      expect(log.lines).toContain("a restore was scheduled but its backup file is missing; the current database is opened");
+      expect(log.lines).toContain(`opening the database: write-ahead log ${left.walMb} MB; not closed cleanly (state 6), so its log is replayed first`);
+      expect(log.lines.filter((l) => l.includes("restoring a backup"))).toEqual([]);
+      expect(existsSync(join(dir, "restore.pending"))).toBe(false);
+      expect((await (await fetch(`${s.url}/api/health`)).json()).ok).toBe(true);
+    } finally {
+      await s.close();
+    }
+  });
+
+  it("names the backup a scheduled restore loads, with its size, and knows nothing of the folder it sets aside", async () => {
+    const { dir, db } = await closedCleanly("data-restore");
+    const { createPgliteDb } = await import("@server/db/pglite");
+    const open = await createPgliteDb({ dataDir: db, wal: false });
+    mkdirSync(join(dir, "backups"), { recursive: true });
+    const backup = await backupNow(open, join(dir, "backups"), "manual").finally(() => open.close());
+    scheduleRestore(dir, backup.file);
+    const log = capture();
+    const phases: StartPhase[] = [];
+    const s = await startLocal({ dataDir: dir, staticDir, port: 0, log, onPhase: (p) => phases.push(p) });
+    try {
+      expect(phases).toEqual([{ phase: "database", walMb: 0, recovery: null }, { phase: "migrations" }]);
+      expect(log.lines).toContain(`opening the database: restoring a backup (${basename(backup.file)}, ${Math.round(backup.size / (1024 * 1024))} MB)`);
+      expect(log.lines.some((l) => l.startsWith("a restore was scheduled"))).toBe(false);
+      expect((await (await fetch(`${s.url}/api/health`)).json()).ok).toBe(true);
+    } finally {
+      await s.close();
+    }
+  });
+});
+
+describe("pg_control read before the open (src/desktop/db-open.ts)", () => {
+  /** A control file of `size` bytes with PG_CONTROL_VERSION `version` and DBState `state` where PostgreSQL keeps them. */
+  const control = (version: number, state: number, size = 8192) => {
+    const b = Buffer.alloc(size);
+    if (size >= 12) b.writeUInt32LE(version, 8);
+    if (size >= 20) b.writeUInt32LE(state, 16);
+    return b;
+  };
+
+  it("counts only DB_SHUTDOWNED (1) as a clean close: PostgreSQL replays the log for every other state, 2 included", () => {
+    const dir = join(root, "control-unit");
+    mkdirSync(join(dir, "global"), { recursive: true });
+    const file = join(dir, "global", "pg_control");
+    // DB_SHUTDOWNED_IN_RECOVERY: 1.1.3 took it for a clean close, PostgreSQL 18 recovers (xlogrecovery.c)
+    writeFileSync(file, control(1800, 2));
+    expect(needsRecovery(dir)).toBe(true);
+    expect(readControl(dir)).toEqual({ recovery: true, state: 2, unknown: null });
+    expect(controlState(control(1800, 2))).toEqual({ recovery: true, state: 2, unknown: null });
+    writeFileSync(file, control(1800, 1));
+    expect(readControl(dir)).toEqual({ recovery: false, state: 1, unknown: null });
+    for (const state of [0, 3, 4, 5, 6]) expect(controlState(control(1800, state))).toEqual({ recovery: true, state, unknown: null });
+  });
+
+  it("says why it cannot tell, for app.log", () => {
+    const dir = join(root, "control-reasons");
+    mkdirSync(join(dir, "global"), { recursive: true });
+    const file = join(dir, "global", "pg_control");
+    expect(readControl(dir)).toEqual({ recovery: null, state: null, unknown: "no pg_control" });
+    writeFileSync(file, Buffer.alloc(19));
+    expect(readControl(dir)).toEqual({ recovery: null, state: null, unknown: "pg_control is 19 bytes" });
+    writeFileSync(file, control(0, 1));
+    expect(readControl(dir)).toEqual({ recovery: null, state: null, unknown: "pg_control version 0" });
+    writeFileSync(file, control(1800, 7));
+    expect(readControl(dir)).toEqual({ recovery: null, state: 7, unknown: "state 7" });
+    rmSync(file);
+    mkdirSync(file);
+    expect(readControl(dir)).toEqual({ recovery: null, state: null, unknown: "unreadable: EISDIR" });
+    // a folder without a database yet (a first start): nothing is read at all
+    expect(inspectDatabase(join(root, "control-none"))).toEqual({ walMb: 0, recovery: null, state: null, unknown: "no database yet" });
   });
 });
