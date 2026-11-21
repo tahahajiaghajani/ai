@@ -45,10 +45,12 @@ describe("demo pack access", () => {
     const demo = await inDemoScope(e.org, () => sys.write((tx) => createIn(tx, sys, "incident", { short_description: "رخداد نمایشی", impact: "3", urgency: "3", caller_id: e.ownerId }, { trusted: true })));
     const osys = await systemCtx(other.cfg, other.org);
     const theirs = await inDemoScope(other.org, () => osys.write((tx) => createIn(tx, osys, "incident", { short_description: "رخداد نمایشی سازمان دیگر", impact: "3", urgency: "3" }, { trusted: true })));
-    // the real incident refers to the demo one: the report names it, the purge empties the reference
+    // the real incident refers to the demo one: the preview names it among the records routed again, the purge empties
+    // the reference (1.1.5: the preview is a dry run of the purge, its three lists — recorded on demo data, definitions
+    // cleaned, records routed again — replace the old list of references «cleared / only reported»)
     await e.db.query(`update sm_incidents set parent_id = $2 where id = $1`, [real.id, demo.id]);
     const report = await e.owner.get(`/o/${e.org}/demo/report`);
-    expect(report.references).toContainEqual(expect.objectContaining({ table: "sm_incidents", field: "parent_id", rows: 1, action: "cleared" }));
+    expect(report.rerouted).toContainEqual(expect.objectContaining({ table: "incident", rows: 1 }));
     // the typed confirmation
     await e.owner.post(`/o/${e.org}/demo/purge`, { confirm: "حذف" }, 400);
     await e.owner.post(`/o/${e.org}/demo/purge`, { confirm: "حذف کامل" });
