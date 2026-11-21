@@ -38,6 +38,7 @@ import { sweep as eventSweep } from "@server/modules/event/jobs";
 import { continuitySweep } from "@server/modules/continuity/jobs";
 import { securitySweep } from "@server/modules/security/jobs";
 import { portalSweep } from "@server/modules/portal";
+import { wakeTimer } from "@server/modules/process/timers";
 import { periodKeyOf } from "@shared/financial/logic";
 import { faDigits } from "@shared/format";
 
@@ -301,9 +302,18 @@ describe.skipIf(skip)(title, () => {
     for (const k of ["budget", "allocation_rule", "allocation_run", "slm_xla_policy", "wfm_person_skill", "wfm_roster", "wfm_absence", "customer_account", "customer_case", "case_escalation", "install_base_item",
       "facility_request", "finance_case", "legal_request", "purchase_request", "reservation", "territory", "technician", "work_order", "parts_requirement", "maintenance_plan", "event", "bia", "continuity_plan", "exercise", "outage",
       "grc_control", "grc_risk", "release", "deployment", "dev_repository", "project", "project_task", "portal_link", "portal_topic", "survey", "survey_response", "doc_document", "analytics_dashboard", "analytics_indicator",
-      "field_def", "form", "process"]) {
+      "field_def", "form", "process", "process_version", "position", "position_holder", "process_case"]) {
       expect(status.counts[k] ?? 0, k).toBeGreaterThan(0);
     }
+    // the bank's own workflows (src/server/modules/demo/workflows.ts): fields, tabbed forms, roles and their holders, six
+    // workflows beside the access request, and sample cases in every state
+    expect(status.counts.field_def).toBeGreaterThanOrEqual(4 + 14);
+    expect(status.counts.form).toBeGreaterThanOrEqual(1 + 3);
+    expect(status.counts.process).toBeGreaterThanOrEqual(1 + 6);
+    expect(status.counts.position).toBeGreaterThanOrEqual(5);
+    expect(status.counts.process_case).toBeGreaterThanOrEqual(14);
+    const caseStates = (await e.db.query<{ state: string }>(`select distinct state from sm_process_cases where org_id = $1`, [e.org])).map((r) => r.state).sort();
+    expect(caseStates).toEqual(["active", "canceled", "completed", "rejected", "waiting"]);
     const n = async (sql: string) => (await e.db.one<{ n: number }>(sql.replace("$org", "$1"), [e.org]))!.n;
     // the personas of the rest of the bank are there, none an administrator (membership role member, no tenant_admin)
     for (const key of ["finance", "csm", "field", "ops", "release", "pm", "grc", "wfm"]) expect(status.accounts.map((a: { persona: string }) => a.persona)).toContain(key);
@@ -492,6 +502,27 @@ describe.skipIf(skip)(title, () => {
     await analyst.c.post(`/o/${e.org}/process/tasks/${approval.id}/submit`, { outcome: "approved", values: { [W.fields.note.name]: "دسترسی خواندنی بی‌اشکال است" } });
     await drain(e, ["flows.run", "flows.resume"], 120_000);
     expect((await requester.c.get(`/o/${e.org}/process/cases/${started.case}`)).statuses).toMatchObject({ approve: { status: "done" }, grant: { status: "active" } });
+    // the bank's own workflows, as a presentation tries them (docs/DEMO_FA.md «گردش‌کارهای نمونه»): the pack's agent sends
+    // the project's «مرحلهٔ فرم» from «کارتابل»; the project's manager gives the case waiting on version 1 to the holders
+    // («دوباره پیدا کردن انجام‌دهنده» with version 2's rules); the branch's officer asks for petty cash, nobody approves,
+    // and the organisation's timer (outside the demo scope; the case inside it) ends it at «پایان مهلت» — demo work all
+    const projectStep = (await agent.get(`/o/${e.org}/process/inbox`)).rows.find((r: { step: string; demo: boolean }) => r.step === "مرحلهٔ فرم" && r.demo);
+    expect(projectStep, "the agent's «مرحلهٔ فرم» of the pack's project").toBeTruthy();
+    await agent.post(`/o/${e.org}/process/tasks/${projectStep.id}/submit`, { values: { u_aftab_prj_delay: 2, u_aftab_prj_delay_reason: "انتظار برای تجهیزات", u_aftab_prj_review: "بررسی شد" } });
+    const manager = await persona("manager");
+    const waiting = await e.db.one<{ id: string }>(`select c.id from sm_process_cases c join sm_processes p on p.id = c.process_id where c.org_id = $1 and p.key = 'aftab_project' and c.state = 'waiting'`, [e.org]);
+    expect((await manager.c.post(`/o/${e.org}/process/cases/${waiting!.id}/reresolve`, { step: "form", rules: "current" })).status).toBe("ok");
+    const branch = await persona("branch");
+    const petty = await branch.c.post(`/o/${e.org}/process/start`, { process: "aftab_petty_cash", values: { u_aftab_pc_amount: "9000000", u_aftab_pc_purpose: "تعمیر صندلی‌های سالن" } }, 201);
+    await drain(e, ["flows.run", "flows.resume"], 120_000);
+    await e.db.query(`update sm_process_tasks set opened_at = now() - interval '10 days', due_at = now() - interval '1 hour' where case_id = $1 and status = 'open'`, [petty.case]);
+    await wakeTimer(e.db, e.org, Date.now());
+    await settle(e, 120_000);
+    await drain(e, ["flows.run", "flows.resume"], 120_000);
+    expect(await e.db.one(`select state, outcome from sm_process_cases where id = $1`, [projectStep.case_id])).toEqual({ state: "completed", outcome: "completed" });
+    expect((await e.db.one<{ state: string }>(`select state from sm_process_cases where id = $1`, [waiting!.id]))!.state).toBe("active");
+    expect(await e.db.one(`select state, outcome from sm_process_cases where id = $1`, [petty.case])).toEqual({ state: "canceled", outcome: "canceled" });
+    expect((await e.db.query<{ body: string }>(`select body from sm_journal where table_key = 'process_case' and record_id = $1`, [petty.case])).map((j) => j.body)).toContain("مهلت «تأیید رئیس شعبه» به پایان رسید؛ پرونده از مسیر «پایان مهلت» ادامه یافت");
     await settle(e, 180_000);
     // the platform's own computations over the pack: every XLA rescore and document ingestion ran
     await drain(e, ["slm.xla", "docs.ingest"]);
