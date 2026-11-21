@@ -7,7 +7,9 @@
 //     the path a case took and the phone's numbered list;
 //   · the step statuses of a case's diagram: a word, a tone and an icon name each — never colour alone (§8.6);
 //   · the rights matrix: its rows (form items with their chips) and the changes it makes to a step's rights;
-//   · the role-then-people picker: new rules by kind, and its members filter;
+//   · the role-then-people picker: new rules by kind, a position's scope («کجا») that follows the position until the
+//     person chooses one, who of the holders a scope reaches, the holders by unit, its members filter, and the
+//     estimate it asks for (only the debounced rules, complete) with the demo pack's people counted apart;
 //   · the files input (./files.ts): the ids a «پیوست» value holds, the `accept` attribute, why a file is refused.
 // Imported by UI code only; keep it free of server imports.
 import dagre from "@dagrejs/dagre";
@@ -16,6 +18,8 @@ import { DURATION_UNITS } from "@shared/flows/nodes";
 import {
   ASSIGNEE_KIND_LABELS,
   CASE_ROOT,
+  IF_NOBODY,
+  IF_NOBODY_LABELS,
   PROCESS_NODE_TYPES,
   STEP_ACTION_LABELS,
   choiceCases,
@@ -32,6 +36,7 @@ import {
   structureOf,
   type AssigneeKind,
   type AssigneeRule,
+  type IfNobody,
   type PositionWhere,
   type CaseProgress,
   type NodeStatus,
@@ -41,11 +46,14 @@ import {
   type ProcessNodeType,
   type ProcessPort,
   type StepAction,
+  type StepAssignees,
+  type Quorum,
 } from "@shared/process";
 import { CASE_OUTCOMES, TASK_OUTCOMES } from "@shared/tables/process";
 import { DEFAULT_STEP_RIGHTS, effectiveRights, fieldGetter, fieldItems, isFieldItem, isRight, type FieldSource, type FormLayoutV2, type Right, type StepRights } from "@shared/forms/layout";
 import { FIELD_GROUPS, type FieldDef, type FieldGroup } from "@shared/model/types";
 import { faDigits } from "@shared/format";
+import type { EstimateResult, MemberRow } from "./api";
 
 // ---------------------------------------------------------------------------------------------------------------
 // The canvas: size and layout
@@ -147,11 +155,20 @@ export function newNodeId(g: ProcessGraph, type: ProcessNodeType): string {
   }
 }
 
-/** The settings a new node starts with (a form step: «تکمیل فرم», everything readable, no people yet). */
+/**
+ * The rights a new step of an action starts with: a «تکمیل فرم» step's fields are for filling («ویرایش»; required where
+ * the form requires them), a review's and an approval's for reading (release 1.1.5: a new fill step read everything and
+ * had nothing to fill).
+ */
+export function defaultStepRights(action: StepAction): StepRights {
+  return { default: action === "fill" ? "edit" : DEFAULT_STEP_RIGHTS.default, fields: {} };
+}
+
+/** The settings a new node starts with (a form step: «تکمیل فرم», its fields to fill, no people yet). */
 export function defaultProcessConfig(type: ProcessNodeType): Record<string, unknown> {
   switch (type) {
     case "form_step":
-      return { action: "fill", form: null, rights: { default: DEFAULT_STEP_RIGHTS.default, fields: {} }, assignees: [] };
+      return { action: "fill", form: null, rights: defaultStepRights("fill"), assignees: [] };
     case "branch":
       return { mode: "data", rules: [], match: "all" };
     case "choice":
@@ -293,7 +310,8 @@ export function nodeSummary(n: ProcessNode): string {
       return c.mode === "any" ? "پس از نخستین شاخه" : "پس از همهٔ شاخه‌ها";
     case "wait_duration": {
       const d = durationText(c.duration);
-      return d ? `${d}${c.business === false ? "" : " کاری"}` : "مدت را تعیین کنید";
+      // the engine counts business time only when `business` is true (flows/nodes.ts); a missing key is calendar time
+      return d ? `${d}${c.business === true ? " کاری" : ""}` : "مدت را تعیین کنید";
     }
     case "notify":
       return String(c.subject || "پیام بی‌عنوان");
@@ -485,11 +503,15 @@ export function strayRights(form: FormLayoutV2, value: StepRights | null | undef
 // ---------------------------------------------------------------------------------------------------------------
 // The role-then-people picker
 
-/** A new rule of a kind, with the settings it starts with. */
+/**
+ * A new rule of a kind, with the settings it starts with. A position starts «همه‌جا» until one is picked (then its
+ * scope follows the position: `pickPosition`) — never «واحد درخواست‌دهنده», which reads the requester's own profile
+ * unit, rarely the unit where the position is held (release 1.1.5, the owner's «کسی پیدا نشد»).
+ */
 export function newRule(kind: AssigneeKind): AssigneeRule {
   switch (kind) {
     case "position":
-      return { kind, position: "", where: "requester_unit" };
+      return { kind, position: "", where: "anywhere" };
     case "group":
       return { kind, group: "" };
     case "role":
@@ -539,6 +561,266 @@ export function withMembers(rule: AssigneeRule, members: readonly string[] | nul
   if (members && members.length) next.members = [...new Set(members.map((m) => m.toLowerCase()))];
   else delete next.members;
   return next;
+}
+
+export type PositionRule = Extract<AssigneeRule, { kind: "position" }>;
+
+/**
+ * The scope («کجا») a position's rule starts with: anywhere for a position not tied to a kind of unit, otherwise its
+ * holder up the requester's tree in a unit of its kind — as «نقش‌های سازمانی»'s preview starts (admin/positions'
+ * `previewStep`).
+ */
+export function defaultScope(unitKind: string | null | undefined): Pick<PositionRule, "where" | "unitKind"> {
+  return unitKind ? { where: "requester_unit_up", unitKind } : { where: "anywhere" };
+}
+
+/** Is the rule's scope the one a position of `unitKind` starts with (up the tree with no kind named is the same)? */
+export function isDefaultScope(rule: Pick<PositionRule, "where" | "unitKind">, unitKind: string | null | undefined): boolean {
+  if (!unitKind) return rule.where === "anywhere";
+  return rule.where === "requester_unit_up" && (!rule.unitKind || rule.unitKind === unitKind);
+}
+
+/**
+ * The rule once a position is picked. Its scope follows the position while the person has not chosen one: `chosen`
+ * (they changed «کجا» or its unit, field or kind here) keeps it, and so does a scope that is not the one the previous
+ * position starts with (`was`: that position, null while it is not known) — a saved rule's own. A rule that had no
+ * position yet always follows unless chosen. A fixed unit goes (it was one of the previous position's units) and so does
+ * the members filter (it named the previous position's holders); a form field and a chosen kind of unit stay. Where only
+ * some scopes are offered (`wheres`: a process's starters), a default outside them is the first one offered.
+ */
+export function pickPosition(
+  rule: PositionRule,
+  picked: { key: string; unit_kind: string | null },
+  o: { chosen: boolean; was: { unit_kind: string | null } | null; wheres?: readonly PositionWhere[] },
+): PositionRule {
+  const follow = !o.chosen && (!rule.position || (o.was !== null && isDefaultScope(rule, o.was.unit_kind)));
+  if (follow) {
+    const d = defaultScope(picked.unit_kind);
+    if (o.wheres?.length && !o.wheres.includes(d.where)) return { kind: "position", position: picked.key, where: o.wheres[0] };
+    return { kind: "position", position: picked.key, ...d };
+  }
+  return {
+    kind: "position",
+    position: picked.key,
+    where: rule.where,
+    ...(rule.where === "unit_field" && rule.unitField ? { unitField: rule.unitField } : {}),
+    ...(rule.where === "requester_unit_up" && rule.unitKind ? { unitKind: rule.unitKind } : {}),
+  };
+}
+
+/** A scope whose holder depends on each case: the requester's unit, up its tree, or the unit a form field names. */
+export const isCaseScope = (where: PositionWhere): boolean => where === "requester_unit" || where === "requester_unit_up" || where === "unit_field";
+
+/**
+ * Who of a position's holders a scope that depends on each case gives the step to, in one line (the «افراد» list then
+ * shows the holders by unit, none of them ticked as if all were included). Null for «همه‌جا» and «واحد مشخص».
+ */
+export function scopeNote(rule: Pick<PositionRule, "where" | "unitKind" | "unitField">, names: { kind?: (k: string) => string | null | undefined; field?: (f: string) => string | null | undefined } = {}): string | null {
+  switch (rule.where) {
+    case "requester_unit":
+      return "فقط دارندهٔ واحد درخواست‌دهنده (واحدِ پروندهٔ کاربری او) کار را می‌گیرد.";
+    case "requester_unit_up": {
+      const kind = rule.unitKind ? (names.kind?.(rule.unitKind) ?? rule.unitKind) : null;
+      return kind
+        ? `فقط دارندهٔ نزدیک‌ترین «${kind}» در بالادستِ واحد درخواست‌دهنده (واحدِ پروندهٔ کاربری او) کار را می‌گیرد.`
+        : "فقط دارندهٔ نزدیک‌ترین واحدِ دارای دارنده در بالادستِ واحد درخواست‌دهنده (واحدِ پروندهٔ کاربری او) کار را می‌گیرد.";
+    }
+    case "unit_field": {
+      const field = rule.unitField ? (names.field?.(rule.unitField) ?? rule.unitField) : null;
+      return field ? `فقط دارندهٔ واحدی که «${field}» در پرونده می‌گوید کار را می‌گیرد.` : "فقط دارندهٔ واحدی که فیلد فرم در پرونده می‌گوید کار را می‌گیرد.";
+    }
+    default:
+      return null;
+  }
+}
+
+/** The holders of one unit. */
+export interface HolderGroup {
+  unit: string | null;
+  people: string[];
+}
+
+/** Holders valid on `today` by unit (each person once per unit), units by name, holders without a unit last. */
+export function holderGroups(rows: readonly { user_id: string; org_unit_id: string | null; valid_from?: unknown; valid_to?: unknown }[], today: string, unitName: (id: string) => string): HolderGroup[] {
+  const by = new Map<string, HolderGroup>();
+  for (const h of rows) {
+    if (!validHolder(h, today)) continue;
+    const unit = h.org_unit_id ? h.org_unit_id.toLowerCase() : null;
+    const k = unit ?? "";
+    const g = by.get(k) ?? { unit, people: [] };
+    const who = h.user_id.toLowerCase();
+    if (!g.people.includes(who)) g.people.push(who);
+    by.set(k, g);
+  }
+  return [...by.values()].sort((a, b) => (a.unit === null ? 1 : b.unit === null ? -1 : unitName(a.unit).localeCompare(unitName(b.unit), "fa")));
+}
+
+/**
+ * «اگر کسی پیدا نشد»'s choices. On an approval «از این مرحله بگذرد» leaves by «تأیید شد» (the engine counts it as
+ * approved), so the choice says so there.
+ */
+export function ifNobodyOptions(action: StepAction): { value: IfNobody; label: string }[] {
+  return IF_NOBODY.map((k) => ({ value: k, label: k === "skip" && action === "approve" ? "از این مرحله بگذرد («تأیید شد» به حساب می‌آید)" : IF_NOBODY_LABELS[k] }));
+}
+
+/** Is a rule complete enough to be estimated (otherwise the server would only say what is missing)? */
+export function ruleComplete(r: AssigneeRule): boolean {
+  switch (r.kind) {
+    case "position":
+      return !!r.position && (r.where !== "unit" || !!r.unit) && (r.where !== "unit_field" || !!r.unitField);
+    case "group":
+      return !!r.group;
+    case "role":
+      return !!r.role;
+    case "users":
+      return r.users.length > 0;
+    case "field":
+      return !!r.field;
+    case "step_actor":
+      return !!r.step;
+    case "unit_head":
+      return r.of !== "unit_field" || !!r.unitField;
+    default:
+      return true;
+  }
+}
+
+/** What the static estimate is asked for a step. */
+export interface EstimateInput {
+  step: StepAssignees;
+  action: StepAction;
+  quorum: Quorum | null;
+}
+
+/** The estimate's body (JSON: the picker debounces it). */
+export const estimateBody = (step: StepAssignees, action: StepAction, quorum?: Quorum | null): string => JSON.stringify({ step, action, quorum: quorum ?? null });
+
+/**
+ * The estimate a debounced body asks for, and whether it may be asked: readiness is read from the very body that is
+ * sent, never from the rules on the screen — a position picked a moment ago must not send the body before it, whose
+ * position was still empty (release 1.1.5: a 400 «نقش سازمانی را انتخاب کنید» and a console error).
+ */
+export function estimateRequest(body: string): { input: EstimateInput | null; ready: boolean } {
+  let input: EstimateInput | null = null;
+  try {
+    input = JSON.parse(body) as EstimateInput;
+  } catch {
+    return { input: null, ready: false };
+  }
+  const rules = Array.isArray(input?.step?.assignees) ? input.step.assignees : [];
+  return { input, ready: rules.length > 0 && rules.every(ruleComplete) };
+}
+
+/** The estimate in lines: each rule's with how many of its people are the demo pack's, the real and demo count, warnings. */
+export interface EstimateView {
+  rules: { index: number; line: string; demo: string | null }[];
+  /** «۰ نفر واقعی و ۲ نفر نمایشی» — only when the pack's people are among them */
+  total: string | null;
+  warnings: string[];
+}
+
+export function estimateView(r: Pick<EstimateResult, "rules" | "total" | "warnings"> & { demo?: number }): EstimateView {
+  const rules = r.rules.map((x) => {
+    const d = x.demo ?? 0;
+    return { index: x.index, line: x.line, demo: d > 0 ? (x.estimate !== null && d >= x.estimate ? "همه نمایشی" : `${faDigits(d)} نفر نمایشی`) : null };
+  });
+  const demo = r.demo ?? 0;
+  const total = demo > 0 ? (r.total !== null ? `${faDigits(Math.max(0, r.total - demo))} نفر واقعی و ${faDigits(demo)} نفر نمایشی` : `${faDigits(demo)} نفر از آن‌ها نمایشی`) : null;
+  return { rules, total, warnings: r.warnings };
+}
+
+/** A member as a people picker offers them. */
+export interface MemberOption {
+  value: string;
+  label: string;
+  /** e-mail and title */
+  sub: string | null;
+  /** one of the demo pack's people («نمایشی») */
+  demo: boolean;
+  inactive: boolean;
+  me: boolean;
+}
+
+export interface MemberOptionGroup {
+  /** null: no heading */
+  label: string | null;
+  options: MemberOption[];
+}
+
+/**
+ * What a people picker offers (kit/MemberSelect): the members found, the current value always (by the names known),
+ * the demo pack's people marked — left out with `mode: "hide"` (a real case's step: they never take the
+ * organisation's own work, FINAL-1; a current value stays so it can be taken off), or listed first under
+ * «حساب‌های نمایشی» with `mode: "first"` while nothing is searched (a sample requester while a pack is loaded). «من»
+ * first among the members with `meFirst` while nothing is searched.
+ */
+export function memberOptions(o: {
+  rows: readonly MemberRow[];
+  pack?: readonly MemberRow[];
+  known?: readonly MemberRow[];
+  value: readonly string[];
+  display?: Record<string, string>;
+  demo: ReadonlySet<string>;
+  mode: "hide" | "first" | "mark";
+  me?: string | null;
+  meFirst?: boolean;
+  searching: boolean;
+}): MemberOptionGroup[] {
+  const me = o.me ? o.me.toLowerCase() : null;
+  const opt = (r: MemberRow): MemberOption => ({
+    value: r.id.toLowerCase(),
+    label: r.name,
+    sub: [r.email, r.title].filter(Boolean).join("، ") || null,
+    demo: o.demo.has(r.id.toLowerCase()),
+    inactive: !r.active,
+    me: r.id.toLowerCase() === me,
+  });
+  const value = o.value.map((v) => v.toLowerCase());
+  const seen = new Set<string>();
+  const once = (list: MemberOption[]) => list.filter((x) => (seen.has(x.value) ? false : (seen.add(x.value), true)));
+  const known = new Map([...(o.known ?? []), ...(o.pack ?? []), ...o.rows].map((r) => [r.id.toLowerCase(), r]));
+  // the current value first, by its row or the name the caller knows
+  const current = value.map((id) => (known.has(id) ? opt(known.get(id)!) : { value: id, label: o.display?.[id] ?? "…", sub: null, demo: o.demo.has(id), inactive: false, me: id === me }));
+  const keep = (x: MemberOption) => o.mode !== "hide" || !x.demo || value.includes(x.value);
+  let members = o.rows.map(opt).filter(keep);
+  if (o.meFirst && me && !o.searching) {
+    const i = members.findIndex((x) => x.value === me);
+    if (i > 0) members = [members[i], ...members.slice(0, i), ...members.slice(i + 1)];
+  }
+  if (o.mode === "first" && !o.searching && o.pack?.length) {
+    const pack = once([...current.filter((x) => x.demo), ...o.pack.map(opt)]);
+    const rest = once([...current, ...members]);
+    return [
+      ...(pack.length ? [{ label: "حساب‌های نمایشی", options: pack }] : []),
+      ...(rest.length ? [{ label: "اعضا", options: rest }] : []),
+    ];
+  }
+  return [{ label: null, options: once([...current.filter(keep), ...members]) }];
+}
+
+/**
+ * What «پیش‌نمایش» says of a step's people for the sample requester: a warning when nobody is found (with what the
+ * step then does: waits for the process managers, passes — on an approval as «تأیید شد» —, or goes to them) or too
+ * many; null when people are found. The resolver's notes (why nobody: «مدیر گروه» در «…» دارنده‌ای ندارد, the demo
+ * pack's people left out of a real case…) are shown under it.
+ */
+export function previewVerdict(r: { status: string; message?: string | null }, step: { action: StepAction; ifNobody?: string | null }): { tone: "warning" | "danger"; text: string } | null {
+  if (r.status === "too_many") return { tone: "warning", text: r.message ?? "بیش از اندازه نفر پیدا می‌شود؛ مسئولان گردش‌کار انتخاب می‌کنند." };
+  if (r.status === "managers") return { tone: "warning", text: "کسی پیدا نمی‌شود؛ مرحله به مسئولان گردش‌کار می‌رسد." };
+  if (r.status !== "nobody") return null;
+  const then =
+    step.ifNobody === "skip"
+      ? step.action === "approve"
+        ? "از این مرحله می‌گذرد و «تأیید شد» به حساب می‌آید"
+        : "از این مرحله می‌گذرد"
+      : "پرونده منتظر می‌ماند تا مسئولان گردش‌کار کسی را برگزینند";
+  return { tone: "danger", text: `با این درخواست‌دهنده برای این مرحله کسی پیدا نمی‌شود؛ ${then}.` };
+}
+
+/** The people of a step a preview found («پیش‌نمایش»): each line with whether its person is one of the demo pack's. */
+export function previewLines(r: { people: readonly { user: string }[]; lines: readonly string[]; display?: { demo?: string[] } }): { line: string; demo: boolean }[] {
+  const demo = new Set((r.display?.demo ?? []).map((x) => x.toLowerCase()));
+  return r.lines.map((line, i) => ({ line, demo: !!r.people[i] && demo.has(r.people[i].user.toLowerCase()) }));
 }
 
 /** Holders valid on `today` (YYYY-MM-DD): from and to are inclusive, empty means open. */

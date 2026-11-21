@@ -6,21 +6,29 @@
 // and the rights matrix (labels a screen reader reads); a stored files value by name with links, and rules narrowed
 // to a scope (a process's starters) with a rule outside it told apart.
 import { describe, it, expect } from "vitest";
-import { createElement } from "react";
+import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanRule, ASSIGNEE_KINDS, type AssigneeRule, type ProcessGraph, type ProcessNode } from "@shared/process";
 import { validateProcess } from "@shared/process";
 import {
   ARROWS, LEGEND_ORDER, NODE_H, NODE_W, STEP_STATUS, acceptAttr, acceptText, addStep, allRead, assigneesText, connect, connectProblem, connectTargets,
-  defaultProcessConfig, disconnect, fileIds, fileProblem, filesMax, isPlaced, layoutProcess, listSteps, neighbour, newNodeId, newRule, nodeSummary,
-  outcomeLabel, problemsByNode, readingOrder, removeSteps, rightsRows, ruleFields, ruleInScope, scopedRule, setDefaultRight, setFieldRight, sizeText, statusLine,
-  stepCounter, strayRights, takenEdges, validHolder, withMembers, type RuleScope,
+  defaultProcessConfig, defaultScope, defaultStepRights, disconnect, estimateBody, estimateRequest, estimateView, fileIds, fileProblem, filesMax, holderGroups,
+  ifNobodyOptions, isCaseScope, isDefaultScope, isPlaced, layoutProcess, listSteps, memberOptions, neighbour, newNodeId, newRule, nodeSummary, outcomeLabel, pickPosition,
+  previewLines, previewVerdict, problemsByNode, readingOrder, removeSteps, rightsRows, ruleComplete, ruleFields, ruleInScope, scopeNote, scopedRule, setDefaultRight,
+  setFieldRight, sizeText, statusLine, stepCounter, strayRights, takenEdges, validHolder, withMembers, type PositionRule, type RuleScope,
 } from "../src/ui/modules/workflows/kit/model";
+import { AssigneePicker } from "../src/ui/modules/workflows/kit/AssigneePicker";
+import { demoSet, isDemo, DEMO_PEOPLE_KEY } from "../src/ui/modules/workflows/kit/demo";
+import type { MemberRow } from "../src/ui/modules/workflows/kit/api";
+import { OrgProvider, type OrgInfo } from "../src/ui/lib/org";
+import type { StepAssignees } from "@shared/process";
 import { SAMPLE_FIELDS, SAMPLE_FORM, SAMPLE_PROGRESS, sampleProcess, sampleStatuses } from "../src/ui/modules/workflows/kit/sample";
 import { StepLegend, StepList } from "../src/ui/modules/workflows/kit/StepLegend";
 import { RightsMatrix } from "../src/ui/modules/workflows/kit/RightsMatrix";
 import { FilesValue } from "../src/ui/modules/workflows/kit/FilesInput";
-import { AssigneeRules } from "../src/ui/modules/workflows/kit/AssigneePicker";
+import { AssigneeRules as AssigneeRulesList } from "../src/ui/modules/workflows/kit/AssigneePicker";
 import { assemble, HOME_GROUP, SETTINGS_GROUP } from "../src/ui/modules/workflows/parts";
 
 const at = (g: ProcessGraph, id: string) => g.nodes.find((n) => n.id === id)!.position!;
@@ -103,7 +111,8 @@ describe("the process canvas: adding, removing, moving by keyboard", () => {
     expect(r.id).toBe(newNodeId(base, "form_step"));
     expect(r.graph.edges.some((e) => e.source === "f" && e.target === r.id)).toBe(true);
     expect(at(r.graph, r.id).y).toBeGreaterThan(at(base, "f").y);
-    expect(defaultProcessConfig("form_step")).toMatchObject({ action: "fill", form: null, rights: { default: "read", fields: {} }, assignees: [] });
+    // 1.1.5: a new «تکمیل فرم» step's fields are for filling (it used to read everything and had nothing to fill, B1)
+    expect(defaultProcessConfig("form_step")).toMatchObject({ action: "fill", form: null, rights: { default: "edit", fields: {} }, assignees: [] });
     // a step whose ports are all used is added without an edge
     const full = addStep(sampleProcess(), "end", { after: "f" });
     expect(full.graph.edges.filter((e) => e.target === full.id)).toEqual([]);
@@ -156,7 +165,9 @@ describe("what a node says", () => {
     expect(nodeSummary(node("f"))).toBe("تکمیل فرم · گروه");
     expect(nodeSummary(node("b"))).toContain("۱ مقایسه");
     expect(nodeSummary(node("no"))).toBe("پایان پرونده: ردشده");
-    expect(nodeSummary(N("w", "wait_duration", { duration: { amount: 2, unit: "day" } }))).toBe("۲ روز کاری");
+    // 1.1.5: business time only when the step says so — the engine counts calendar time when `business` is missing
+    expect(nodeSummary(N("w", "wait_duration", { duration: { amount: 2, unit: "day" }, business: true }))).toBe("۲ روز کاری");
+    expect(nodeSummary(N("w", "wait_duration", { duration: { amount: 2, unit: "day" } }))).toBe("۲ روز");
     expect(assigneesText([])).toBe("انجام‌دهنده تعیین نشده");
     expect(assigneesText([{ kind: "requester" }, { kind: "manager", of: "requester" }])).toBe("درخواست‌دهنده و ۱ قاعدهٔ دیگر");
   });
@@ -258,7 +269,9 @@ describe("the role-then-people picker", () => {
       expect(r.kind).toBe(k);
       expect(cleanRule(r)).toEqual(r);
     }
-    expect(newRule("position")).toEqual({ kind: "position", position: "", where: "requester_unit" });
+    // 1.1.5: a new position rule no longer starts at «واحد درخواست‌دهنده» (the requester's own profile unit: the
+    // owner's «کسی پیدا نشد»); its scope follows the position once one is picked (pickPosition)
+    expect(newRule("position")).toEqual({ kind: "position", position: "", where: "anywhere" });
   });
 
   it("ticks people into the members filter (lower case, once) and back to every holder", () => {
@@ -296,7 +309,7 @@ describe("the role-then-people picker", () => {
     expect(ruleInScope({ kind: "manager", of: "requester" })).toBe(true);
     // in the list, a rule outside the scope says it finds nobody; one inside does not
     const warn = "این قاعده این‌جا کسی را نمی‌یابد";
-    const list = (value: AssigneeRule[], s?: RuleScope) => renderToStaticMarkup(createElement(AssigneeRules, { value, onChange: () => undefined, plain: true, scope: s }));
+    const list = (value: AssigneeRule[], s?: RuleScope) => renderToStaticMarkup(createElement(AssigneeRulesList, { value, onChange: () => undefined, plain: true, scope: s }));
     expect(list([{ kind: "manager", of: "requester" }], scope)).toContain(warn);
     expect(list([{ kind: "role", role: "agent" }], scope)).not.toContain(warn);
     expect(list([{ kind: "manager", of: "requester" }])).not.toContain(warn);
@@ -382,5 +395,251 @@ describe("the module's parts", () => {
   it("is registered: the kit's page is a route of the app", async () => {
     const { ROUTES } = await import("../src/ui/modules/registry");
     expect(ROUTES.some((r) => r.path === "settings/workflows-kit")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// Release 1.1.5: the owner's «کسی پیدا نشد» (RC1, B4, B1) and the demo pack's people in the kit
+
+const ORG = "org-1";
+const orgInfo = (id: string): OrgInfo => ({
+  org: { id, name: "بانک آفتاب", legal_name: null, modules: [], phone: null, email: null, website: null, city: null, address: null, logo: null, settings: {} },
+  member: { role: "member", title: "", permissions: {} as OrgInfo["member"]["permissions"] },
+  counts: { members: 1 },
+});
+/** A part of the screens rendered statically in their providers, react-query seeded as the API would answer. */
+function renderOrg(el: ReactElement, seed: (qc: QueryClient) => void): string {
+  const qc = new QueryClient();
+  seed(qc);
+  return renderToStaticMarkup(createElement(QueryClientProvider, { client: qc }, createElement(OrgProvider, { orgId: ORG, info: orgInfo(ORG), children: createElement(MemoryRouter, null, el) })));
+}
+
+describe("1.1.5: a position rule's scope («کجا»)", () => {
+  const fresh = newRule("position") as PositionRule;
+  const manager = { key: "group_manager", unit_kind: null };
+  const head = { key: "branch_head", unit_kind: "branch" };
+
+  it("a new rule follows the position it gets: «همه‌جا», or up the requester's tree to a unit of the position's kind — never «واحد درخواست‌دهنده»", () => {
+    expect(defaultScope(null)).toEqual({ where: "anywhere" });
+    expect(defaultScope("branch")).toEqual({ where: "requester_unit_up", unitKind: "branch" });
+    expect(pickPosition(fresh, manager, { chosen: false, was: null })).toEqual({ kind: "position", position: "group_manager", where: "anywhere" });
+    expect(pickPosition(fresh, head, { chosen: false, was: null })).toEqual({ kind: "position", position: "branch_head", where: "requester_unit_up", unitKind: "branch" });
+    // the owner's step: before 1.1.5 the rule kept «واحد درخواست‌دهنده» and found nobody for his persona
+    expect(pickPosition(fresh, manager, { chosen: false, was: null }).where).not.toBe("requester_unit");
+    // a picked position whose scope was never chosen follows the next position picked …
+    const auto = pickPosition(fresh, manager, { chosen: false, was: null });
+    expect(pickPosition(auto, head, { chosen: false, was: { unit_kind: null } })).toEqual({ kind: "position", position: "branch_head", where: "requester_unit_up", unitKind: "branch" });
+    // … the same as the positions page's preview starts (admin/positions previewStep)
+    expect(isDefaultScope({ where: "requester_unit_up" }, "branch")).toBe(true);
+    expect(isDefaultScope({ where: "requester_unit_up", unitKind: "team" }, "branch")).toBe(false);
+    expect(isDefaultScope({ where: "anywhere" }, null)).toBe(true);
+  });
+
+  it("an explicit choice is kept: chosen here, or a saved rule's own scope; a fixed unit and the members filter go with the previous position", () => {
+    // the person chose «واحد مشخص» before the position
+    expect(pickPosition({ ...fresh, where: "unit" }, head, { chosen: true, was: null })).toEqual({ kind: "position", position: "branch_head", where: "unit" });
+    // a saved rule at «واحد درخواست‌دهنده» (not what its position starts with) keeps it
+    const saved: PositionRule = { kind: "position", position: "group_manager", where: "requester_unit", members: ["u1"] };
+    expect(pickPosition(saved, head, { chosen: false, was: { unit_kind: null } })).toEqual({ kind: "position", position: "branch_head", where: "requester_unit" });
+    // a form field and a chosen kind of unit stay; the unit does not
+    expect(pickPosition({ kind: "position", position: "x", where: "unit_field", unitField: "u_branch" }, head, { chosen: true, was: null })).toEqual({ kind: "position", position: "branch_head", where: "unit_field", unitField: "u_branch" });
+    expect(pickPosition({ kind: "position", position: "x", where: "requester_unit_up", unitKind: "team" }, head, { chosen: false, was: { unit_kind: "branch" } })).toMatchObject({ where: "requester_unit_up", unitKind: "team" });
+    expect(pickPosition({ kind: "position", position: "x", where: "unit", unit: "u-1" }, head, { chosen: true, was: null })).not.toHaveProperty("unit");
+    // the previous position not known yet: nothing to compare with, the scope stays
+    expect(pickPosition({ kind: "position", position: "x", where: "anywhere" }, head, { chosen: false, was: null })).toMatchObject({ where: "anywhere" });
+  });
+
+  it("a process's starters (only «همه‌جا» and «واحد مشخص» offered) never get a scope they do not offer", () => {
+    const starters: RuleScope = { kinds: ["position", "group", "role", "users"], wheres: ["anywhere", "unit"] };
+    expect(scopedRule("position", starters)).toEqual({ kind: "position", position: "", where: "anywhere" });
+    const picked = pickPosition(fresh, head, { chosen: false, was: null, wheres: starters.wheres });
+    expect(picked).toEqual({ kind: "position", position: "branch_head", where: "anywhere" });
+    expect(ruleInScope(picked, starters)).toBe(true);
+  });
+
+  it("says who of the holders a scope that depends on each case gives the step to; none for «همه‌جا» and «واحد مشخص»", () => {
+    expect(["requester_unit", "requester_unit_up", "unit_field"].every((w) => isCaseScope(w as PositionRule["where"]))).toBe(true);
+    expect(isCaseScope("anywhere") || isCaseScope("unit")).toBe(false);
+    expect(scopeNote({ where: "requester_unit" })).toBe("فقط دارندهٔ واحد درخواست‌دهنده (واحدِ پروندهٔ کاربری او) کار را می‌گیرد.");
+    expect(scopeNote({ where: "requester_unit_up", unitKind: "branch" }, { kind: () => "شعبه" })).toBe("فقط دارندهٔ نزدیک‌ترین «شعبه» در بالادستِ واحد درخواست‌دهنده (واحدِ پروندهٔ کاربری او) کار را می‌گیرد.");
+    expect(scopeNote({ where: "unit_field", unitField: "u_branch" }, { field: () => "شعبهٔ مقصد" })).toBe("فقط دارندهٔ واحدی که «شعبهٔ مقصد» در پرونده می‌گوید کار را می‌گیرد.");
+    expect(scopeNote({ where: "anywhere" })).toBeNull();
+    expect(scopeNote({ where: "unit" })).toBeNull();
+  });
+
+  it("the holders by unit: valid today, each person once per unit, units by name, holders without a unit last", () => {
+    const names: Record<string, string> = { a: "امور شعب استان البرز", b: "امور شعب استان لرستان" };
+    const groups = holderGroups(
+      [
+        { user_id: "U2", org_unit_id: "b", valid_from: null, valid_to: null },
+        { user_id: "u1", org_unit_id: "A", valid_from: "2026-01-01", valid_to: null },
+        { user_id: "u1", org_unit_id: "a", valid_from: null, valid_to: null },
+        { user_id: "u3", org_unit_id: null, valid_from: null, valid_to: null },
+        { user_id: "u4", org_unit_id: "a", valid_from: null, valid_to: "2026-01-01" },
+      ],
+      "2026-11-21",
+      (id) => names[id] ?? id,
+    );
+    expect(groups).toEqual([{ unit: "a", people: ["u1"] }, { unit: "b", people: ["u2"] }, { unit: null, people: ["u3"] }]);
+  });
+});
+
+describe("1.1.5: the «افراد» list honours «کجا» (the owner's two holders under «واحد درخواست‌دهنده»)", () => {
+  const position = { id: "p1", key: "group_manager", name: "مدیر گروه", unit_kind: null, active: true };
+  const holders = {
+    rows: [
+      { id: "h1", user_id: "u-negar", org_unit_id: "unit-alborz", kind: "primary", valid_from: null, valid_to: null },
+      { id: "h2", user_id: "u-babak", org_unit_id: "unit-lorestan", kind: "primary", valid_from: null, valid_to: null },
+    ],
+    display: { "u-negar": "نگار کارشناس‌پور", "u-babak": "بابک طاهری", "unit-alborz": "امور شعب استان البرز", "unit-lorestan": "امور شعب استان لرستان" },
+  };
+  const seed = (qc: QueryClient) => {
+    qc.setQueryData(["wfk-positions-of", ORG, "key", ["group_manager"]], [position]);
+    qc.setQueryData(["wfk-holders", ORG, "p1", null], holders);
+    qc.setQueryData(DEMO_PEOPLE_KEY(ORG), { users: ["U-NEGAR"] });
+  };
+  const picker = (where: PositionRule["where"], members?: string[]) =>
+    renderOrg(createElement(AssigneePicker, { value: { assignees: [{ kind: "position", position: "group_manager", where, ...(members ? { members } : {}) }] } as StepAssignees, onChange: () => undefined, action: "fill" }), seed);
+  // the holders' part of the picker (the exclusions below it have checkboxes of their own)
+  const holdersOf = (html: string) => html.slice(html.indexOf("افراد</span>"), html.indexOf('aria-label="کنار گذاشته‌ها"'));
+  const checkboxes = (html: string) => (holdersOf(html).match(/type="checkbox"/g) ?? []).length;
+  const checked = (html: string) => (holdersOf(html).match(/<input[^>]*type="checkbox"[^>]*>/g) ?? []).filter((x) => /checked=""/.test(x)).length;
+  const demoTags = (html: string) => (holdersOf(html).match(/>نمایشی</g) ?? []).length;
+
+  it("«همه‌جا»: every holder takes the step, listed ticked; the pack's person marked «نمایشی»", () => {
+    const html = picker("anywhere");
+    expect(checkboxes(html)).toBe(2);
+    expect(checked(html)).toBe(2);
+    expect(html).toContain("نگار کارشناس‌پور");
+    expect(html).toContain("بابک طاهری");
+    expect(demoTags(html)).toBe(1);
+    expect(html).not.toContain("کار را می‌گیرد");
+  });
+
+  it("«واحد درخواست‌دهنده»: a line says only the requester's unit's holder gets it, the holders by unit, none ticked as if all were included", () => {
+    const html = picker("requester_unit");
+    // before 1.1.5 both holders were listed ticked under «همهٔ دارندگان», as if both would get the step
+    expect(checkboxes(html)).toBe(0);
+    expect(html).toContain("فقط دارندهٔ واحد درخواست‌دهنده (واحدِ پروندهٔ کاربری او) کار را می‌گیرد.");
+    expect(html).toContain("امور شعب استان البرز");
+    expect(html).toContain("امور شعب استان لرستان");
+    expect(html.indexOf("امور شعب استان البرز")).toBeLessThan(html.indexOf("نگار کارشناس‌پور"));
+    expect(demoTags(html)).toBe(1);
+  });
+
+  it("«فقط این افراد» under a scope that depends on the case: the ticks are a filter, with its warning", () => {
+    const html = picker("requester_unit_up", ["u-babak"]);
+    expect(checkboxes(html)).toBe(2);
+    expect(checked(html)).toBe(1);
+    expect(html).toContain("فقط این افراد، اگر در آن واحد باشند");
+  });
+
+  it("a position without holders no longer promises that the step will reach a future holder (it is never re-resolved by itself)", () => {
+    const html = renderOrg(createElement(AssigneePicker, { value: { assignees: [{ kind: "position", position: "group_manager", where: "anywhere" }] }, onChange: () => undefined, action: "fill" }), (qc) => {
+      qc.setQueryData(["wfk-positions-of", ORG, "key", ["group_manager"]], [position]);
+      qc.setQueryData(["wfk-holders", ORG, "p1", null], { rows: [], display: {} });
+    });
+    expect(html).toContain("این نقش اکنون دارنده‌ای ندارد.");
+    expect(html).not.toContain("با پیدا شدن دارنده");
+  });
+
+  it("«اگر کسی پیدا نشد» on an approval says that passing counts as approved", () => {
+    expect(ifNobodyOptions("approve").find((o) => o.value === "skip")?.label).toContain("«تأیید شد» به حساب می‌آید");
+    expect(ifNobodyOptions("fill").find((o) => o.value === "skip")?.label).toBe("از این مرحله بگذرد");
+  });
+});
+
+describe("1.1.5: the estimate (B4: a 400 with the body before the position was picked)", () => {
+  it("asks only with the body it sends: the debounced body of an empty position is not ready although the rule on the screen is", () => {
+    const empty = newRule("position") as PositionRule;
+    const picked = pickPosition(empty, { key: "group_manager", unit_kind: null }, { chosen: false, was: null });
+    // the screen already shows the picked position …
+    expect(ruleComplete(picked)).toBe(true);
+    // … while the debounced body still names the empty one: nothing is asked (before 1.1.5 it was, and answered 400)
+    const stale = estimateRequest(estimateBody({ assignees: [empty] }, "fill"));
+    expect(stale.ready).toBe(false);
+    const fresh = estimateRequest(estimateBody({ assignees: [picked] }, "approve", "any"));
+    expect(fresh).toEqual({ ready: true, input: { step: { assignees: [picked] }, action: "approve", quorum: "any" } });
+    expect(estimateRequest("{").ready).toBe(false);
+    expect(estimateRequest(estimateBody({ assignees: [] }, "fill")).ready).toBe(false);
+  });
+
+  it("counts the demo pack's people apart: per rule and the real against the demo people", () => {
+    const v = estimateView({
+      rules: [
+        { index: 0, kind: "position", estimate: 2, line: "۲ نفر «مدیر گروه» در همهٔ سازمان", demo: 2 },
+        { index: 1, kind: "group", estimate: 5, line: "۵ نفر در گروه «میز خدمت»", demo: 1 },
+        { index: 2, kind: "users", estimate: 1, line: "۱ نفر مشخص" },
+      ],
+      total: 8,
+      demo: 3,
+      warnings: ["۳ نفر از این افراد حساب نمایشی‌اند؛ فقط پرونده‌هایی که حساب‌های نمایشی آغاز کنند به آن‌ها می‌رسد"],
+    });
+    expect(v.rules.map((r) => r.demo)).toEqual(["همه نمایشی", "۱ نفر نمایشی", null]);
+    expect(v.total).toBe("۵ نفر واقعی و ۳ نفر نمایشی");
+    expect(v.warnings).toHaveLength(1);
+    expect(estimateView({ rules: [], total: 4, warnings: [] }).total).toBeNull();
+    expect(estimateView({ rules: [], total: null, demo: 2, warnings: [] }).total).toBe("۲ نفر از آن‌ها نمایشی");
+  });
+});
+
+describe("1.1.5: a new step's rights and «انتظار»'s time", () => {
+  it("a «تکمیل فرم» starts with its fields to fill, a review and an approval with theirs to read", () => {
+    expect(defaultStepRights("fill")).toEqual({ default: "edit", fields: {} });
+    expect(defaultStepRights("review")).toEqual({ default: "read", fields: {} });
+    expect(defaultStepRights("approve")).toEqual({ default: "read", fields: {} });
+  });
+});
+
+describe("1.1.5: the demo pack's people in the people pickers and the preview", () => {
+  const row = (id: string, name: string, over: Partial<MemberRow> = {}): MemberRow => ({ id, name, email: `${id}@aftab-bank.example`, title: null, active: true, ...over });
+  const demo = demoSet(["U-NEGAR", "u-babak", 7, ""]);
+  const rows = [row("u-owner", "مالک"), row("u-negar", "نگار کارشناس‌پور"), row("u-ali", "علی احمدی")];
+
+  it("reads the pack's people as lower-case ids; marks nobody without a pack", () => {
+    expect([...demo].sort()).toEqual(["u-babak", "u-negar"]);
+    expect(isDemo(demo, "U-Negar")).toBe(true);
+    expect(isDemo(demoSet(null), "u-negar")).toBe(false);
+    expect(isDemo(demo, null)).toBe(false);
+  });
+
+  it("a real case's picker leaves the pack's people out (a current value stays, to be taken off); the pack's marks them", () => {
+    const hidden = memberOptions({ rows, value: [], demo, mode: "hide", searching: false });
+    expect(hidden).toHaveLength(1);
+    expect(hidden[0].options.map((o) => o.value)).toEqual(["u-owner", "u-ali"]);
+    expect(memberOptions({ rows, value: ["u-negar"], demo, mode: "hide", searching: false })[0].options.map((o) => o.value)).toContain("u-negar");
+    const marked = memberOptions({ rows, value: [], demo, mode: "mark", searching: false })[0].options;
+    expect(marked.find((o) => o.value === "u-negar")?.demo).toBe(true);
+    expect(marked.find((o) => o.value === "u-ali")?.demo).toBe(false);
+  });
+
+  it("a sample requester while a pack is loaded: «حساب‌های نمایشی» first, then the members with «من» first; a search lists one group", () => {
+    const pack = [row("u-negar", "نگار کارشناس‌پور"), row("u-babak", "بابک طاهری")];
+    const groups = memberOptions({ rows, pack, value: ["u-owner"], demo, mode: "first", me: "u-owner", meFirst: true, searching: false });
+    expect(groups.map((g) => g.label)).toEqual(["حساب‌های نمایشی", "اعضا"]);
+    expect(groups[0].options.map((o) => o.value)).toEqual(["u-negar", "u-babak"]);
+    expect(groups[1].options.map((o) => o.value)).toEqual(["u-owner", "u-ali"]);
+    expect(groups[1].options[0].me).toBe(true);
+    expect(memberOptions({ rows, pack, value: [], demo, mode: "first", searching: true })).toHaveLength(1);
+    // a value not among the rows keeps its known name
+    expect(memberOptions({ rows: [], value: ["u-x"], display: { "u-x": "زهرا" }, demo, mode: "mark", searching: false })[0].options[0]).toMatchObject({ value: "u-x", label: "زهرا" });
+  });
+
+  it("the preview says when nobody is found and what the step then does, in a preview's words; a step's people marked", () => {
+    expect(previewVerdict({ status: "ok" }, { action: "fill" })).toBeNull();
+    expect(previewVerdict({ status: "nobody", message: "برای «مرحلهٔ فرم» کسی پیدا نشد؛ مسئولان گردش‌کار باخبر شدند." }, { action: "fill" })).toEqual({
+      tone: "danger",
+      text: "با این درخواست‌دهنده برای این مرحله کسی پیدا نمی‌شود؛ پرونده منتظر می‌ماند تا مسئولان گردش‌کار کسی را برگزینند.",
+    });
+    expect(previewVerdict({ status: "nobody" }, { action: "approve", ifNobody: "skip" })?.text).toContain("«تأیید شد» به حساب می‌آید");
+    expect(previewVerdict({ status: "managers" }, { action: "fill" })?.text).toBe("کسی پیدا نمی‌شود؛ مرحله به مسئولان گردش‌کار می‌رسد.");
+    expect(previewVerdict({ status: "too_many", message: "بیش از ۱۰۰ نفر پیدا شد؛ مسئولان گردش‌کار انتخاب می‌کنند" }, { action: "fill" })?.tone).toBe("warning");
+    expect(
+      previewLines({ people: [{ user: "u-negar" }, { user: "u-ali" }], lines: ["نگار — مدیر گروه (البرز)", "علی — مدیر گروه (لرستان)"], display: { demo: ["U-NEGAR"] } }),
+    ).toEqual([
+      { line: "نگار — مدیر گروه (البرز)", demo: true },
+      { line: "علی — مدیر گروه (لرستان)", demo: false },
+    ]);
+    expect(previewLines({ people: [{ user: "u-negar" }], lines: ["نگار"] })).toEqual([{ line: "نگار", demo: false }]);
   });
 });

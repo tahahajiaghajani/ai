@@ -16,7 +16,8 @@ import { kitApi, type PositionRow } from "./api";
 
 export interface PositionPickerProps {
   value: string | string[] | null | undefined;
-  onChange: (v: string | string[] | null) => void;
+  /** `picked`: the chosen positions themselves (their id, key and the kind of unit they are held in) */
+  onChange: (v: string | string[] | null, picked?: PositionRow[]) => void;
   /** what the value holds: the position's id (a field) or its key (an assignee rule) */
   by?: "id" | "key";
   multiple?: boolean;
@@ -82,8 +83,9 @@ export function PositionPicker({ value, onChange, by = "id", multiple, onPick, f
       notFoundContent={list.isFetching ? <div className="grid place-items-center py-3"><Loader /></div> : <div className="py-2 text-center text-ink-3">نقشی پیدا نشد</div>}
       onChange={(v) => {
         const picked = asList(v as string | string[] | undefined);
-        onChange(multiple ? picked : (picked[0] ?? null));
-        onPick?.(rows.filter((p) => picked.includes(keyOf(p))));
+        const chosen = rows.filter((p) => picked.includes(keyOf(p)));
+        onChange(multiple ? picked : (picked[0] ?? null), chosen);
+        onPick?.(chosen);
       }}
       options={options}
       optionRender={(o) => {

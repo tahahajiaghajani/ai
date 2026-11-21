@@ -26,6 +26,7 @@ import { faDigits } from "@shared/format";
 import { todayISO } from "@shared/jalali";
 import { listSteps } from "../kit/model";
 import { fileIds } from "../kit/files";
+import type { ReresolveResult, StepWaiting } from "@shared/process/waiting";
 import type { CaseDetail, CaseFilters, CaseListRow, HistoryTask, Inbox, InboxRow, MyProcess, MyStep, StepView, SubmitResult } from "./api";
 
 const fa = (n: number) => faDigits(n);
@@ -217,10 +218,13 @@ export interface InboxRowView {
   due: DueView | null;
   notes: string[];
   link: string;
+  /** a case of the demo pack: the row says «نمایشی» */
+  demo: boolean;
 }
 
 export function inboxRowView(row: InboxRow, display: Record<string, string>, base: string, now = Date.now()): InboxRowView {
   return {
+    demo: row.demo === true,
     key: `${row.kind}:${row.id}`,
     number: row.number ?? "",
     title: row.title || row.number || row.source,
@@ -233,6 +237,24 @@ export function inboxRowView(row: InboxRow, display: Record<string, string>, bas
     due: dueView(row.due_at, now),
     notes: stepNotes(row, display),
     link: rowLink(row, base),
+  };
+}
+
+/**
+ * What a row of «کارتابل»'s table does: a click anywhere on it (or Enter) opens the step — the title's link already does,
+ * and a click on a link inside the row is that link's own (B5).
+ */
+export function inboxRowProps(v: Pick<InboxRowView, "link">, open: (link: string) => void) {
+  const fromLink = (t: EventTarget | null) => !!t && typeof (t as Element).closest === "function" && !!(t as Element).closest("a, button");
+  return {
+    onClick: (e: { target: EventTarget | null }) => {
+      if (!fromLink(e.target)) open(v.link);
+    },
+    onKeyDown: (e: { key: string; target: EventTarget | null; currentTarget?: EventTarget | null }) => {
+      if (e.key === "Enter" && (e.currentTarget === undefined || e.target === e.currentTarget)) open(v.link);
+    },
+    tabIndex: 0,
+    className: "wfu-row-open",
   };
 }
 
@@ -315,8 +337,11 @@ export function openSteps(detail: Pick<CaseDetail, "case" | "history">): { key: 
   return steps.map((s) => ({ key: s.key, label: s.label, people: [...new Set(open.filter((t) => t.step_key === s.key).map((t) => t.assigned_to).filter((x): x is string => !!x))] }));
 }
 
-/** My part in the case, in words: «درخواست‌دهنده»، «تأییدکننده در "…"» (my open and done steps). */
-export function myPart(detail: Pick<CaseDetail, "case" | "history" | "my_steps">, me: string | null): string[] {
+/**
+ * My part in the case, in words: «درخواست‌دهنده»، «تأییدکننده در "…"» (my open and done steps), and «مسئول گردش‌کار»
+ * when I manage it (its managers' actions are mine: B3, never «خواننده»).
+ */
+export function myPart(detail: Pick<CaseDetail, "case" | "history" | "my_steps"> & { can?: Pick<CaseDetail["can"], "manage"> }, me: string | null): string[] {
   const out: string[] = [];
   if (me && (detail.case.requested_by === me || detail.case.requested_for === me)) out.push("درخواست‌دهنده");
   const mine = (t: HistoryTask) => !!me && (t.assigned_to === me || t.delegated_from === me || t.acted_by === me || t.acted_for === me);
@@ -327,8 +352,72 @@ export function myPart(detail: Pick<CaseDetail, "case" | "history" | "my_steps">
     const who = t.action === "approve" ? "تأییدکننده" : t.action === "review" ? "بررسی‌کننده" : "انجام‌دهنده";
     out.push(`${who} در ${q(t.step_label ?? t.step_key)}`);
   }
+  if (detail.can?.manage) out.push("مسئول گردش‌کار");
   return out;
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// A step nobody took (release 1.1.5): why, «دوباره پیدا کردن انجام‌دهنده», too many people to choose from
+
+/**
+ * A waiting step's line under «مرحلهٔ کنونی»: for the case's managers the case journal's line and the resolver's
+ * reasons («مدیر گروه» در «…» دارنده‌ای ندارد، the demo pack's people left out…); for anyone else a few words.
+ */
+export function waitingLine(w: StepWaiting | null | undefined, manager: boolean): { text: string; notes: string[] } | null {
+  if (!w) return null;
+  if (manager) return { text: w.message, notes: w.notes ?? [] };
+  return { text: w.reason === "too_many" ? "مسئولان گردش‌کار انجام‌دهنده را برمی‌گزینند" : "کسی پیدا نشد", notes: [] };
+}
+
+/** The steps «دوباره پیدا کردن انجام‌دهنده» may run again: the case's steps that wait (nobody, or too many), in the case's order. */
+export function stalledSteps(detail: Pick<CaseDetail, "case" | "history" | "graph"> & { waiting?: Record<string, StepWaiting> }): { key: string; label: string; reason: StepWaiting["reason"] }[] {
+  const waiting = detail.waiting ?? {};
+  const open = openSteps(detail);
+  const label = (key: string) => open.find((s) => s.key === key)?.label ?? processNodeLabel(detail.graph.nodes.find((n) => n.id === key) ?? { type: "form_step" });
+  const keys = [...open.map((s) => s.key).filter((k) => k in waiting), ...Object.keys(waiting).filter((k) => !open.some((s) => s.key === k))];
+  return keys.map((key) => ({ key, label: label(key), reason: waiting[key].reason }));
+}
+
+/** What «دوباره پیدا کردن انجام‌دهنده» holds: the step, and whose rules — this version's or the current version's. */
+export interface ReresolveForm {
+  step: string | null;
+  rules: "case" | "current";
+}
+
+/**
+ * The re-resolve dialog's input as the case page renders: afresh, the first step that waits and this version's rules;
+ * the case read again keeps what the manager chose while the step still waits (else its first waiting step). The same
+ * object comes back while all of it holds.
+ */
+export function reresolveForm(prev: ReresolveForm | null, detail: Parameters<typeof stalledSteps>[0]): ReresolveForm {
+  const steps = stalledSteps(detail);
+  if (!prev) return { step: steps[0]?.key ?? null, rules: "case" };
+  const step = steps.some((s) => s.key === prev.step) ? prev.step : (steps[0]?.key ?? null);
+  return step === prev.step ? prev : { ...prev, step };
+}
+
+/** What the managers are told after «دوباره پیدا کردن انجام‌دهنده». */
+export function reresolveMessage(r: Pick<ReresolveResult, "status" | "people" | "message">, label: string): { tone: "ok" | "warning"; text: string } {
+  const step = q(label);
+  if (r.status === "ok") {
+    const names = r.people.map((p) => p.name);
+    const shown = names.slice(0, 3).join("، ");
+    const more = names.length > 3 ? ` و ${fa(names.length - 3)} نفر دیگر` : "";
+    return { tone: "ok", text: names.length ? `${step} به ${shown}${more} رسید.` : `${step} دوباره باز شد.` };
+  }
+  if (r.status === "managers") return { tone: "warning", text: `برای ${step} کسی پیدا نشد؛ مرحله به مسئولان گردش‌کار رسید.` };
+  if (r.status === "too_many") return { tone: "warning", text: r.message || `برای ${step} بیش از اندازه نفر پیدا شد؛ از «ارجاع مرحله» کسانی را برگزینید.` };
+  return { tone: "warning", text: r.message || `برای ${step} باز هم کسی پیدا نشد.` };
+}
+
+/** Whom «ارجاع مرحله» offers for a step that found more people than it takes: the server's candidates (managers only). */
+export function candidatesOf(detail: { waiting?: Record<string, StepWaiting> }, step: string | null): NonNullable<StepWaiting["candidates"]> {
+  const w = step ? detail.waiting?.[step] : undefined;
+  return w?.reason === "too_many" ? (w.candidates ?? []) : [];
+}
+
+/** The pack's people in a case's people pickers: left out of the organisation's own cases (FINAL-1), marked on the pack's. */
+export const demoPick = (detail: { demo?: boolean }): "hide" | "mark" => (detail.demo ? "mark" : "hide");
 
 /** The primary action of the case's header: my first open step («انجام مرحلهٔ "…"»), or null. */
 export function headerStep(steps: readonly MyStep[]): MyStep | null {
@@ -398,6 +487,14 @@ export function stepActions(step: Pick<MyStep, "action" | "outcomes" | "next">):
   }
   if (has("returned")) out.push({ outcome: "returned", label: "بازگشت برای اصلاح", primary: false, danger: false, needsComment: true });
   return out;
+}
+
+/** The «توضیح» box's hint: the decisions of this very step that need a reason, or none (B6: a fill step has none). */
+export function commentHint(step: Pick<MyStep, "action" | "outcomes" | "next">): string | undefined {
+  const need = stepActions(step)
+    .filter((a) => a.needsComment)
+    .map((a) => (a.outcome === "rejected" ? "«رد»" : "«بازگشت»"));
+  return need.length ? `برای ${need.join(" و ")} دلیل را بنویسید` : undefined;
 }
 
 /** Does a decision send values (submit and approve take the form; reject and return send only the reason)? */

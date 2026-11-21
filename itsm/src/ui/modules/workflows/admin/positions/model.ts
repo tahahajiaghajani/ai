@@ -3,13 +3,14 @@
 // spreadsheet rows the import sends, its result in words, and the preview's starting rule for a position. No React, no
 // requests: tested in tests/workflows-admin-positions-ui.test.ts.
 import type { AccessGate } from "@shared/access";
-import type { StepAssignees } from "@shared/process";
+import type { StepAction, StepAssignees } from "@shared/process";
 import { HOLDER_KINDS, HOLDER_SOURCES, POSITION_KEY } from "@shared/tables/positions";
 import { UNIT_KINDS } from "@shared/tables/access";
 import { faDigits } from "@shared/format";
 import { addDays } from "@shared/jalali";
 import { matchesFa } from "../../../../lib/fa";
 import { ESTIMATE_GATES } from "../../kit/api";
+import { defaultScope } from "../../kit/model";
 import type { HolderImportResult, HolderRow, PositionOverview } from "./api";
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -115,6 +116,39 @@ export interface HolderDraft {
 
 export const emptyHolder = (): HolderDraft => ({ user_id: null, org_unit_id: null, kind: "primary", valid_from: null, valid_to: null });
 
+/** The form as it started: a holder's own values, or an empty new holder. */
+export const holderStart = (h: Pick<HolderRow, "user_id" | "org_unit_id" | "kind" | "valid_from" | "valid_to"> | null): HolderDraft =>
+  h ? { user_id: h.user_id, org_unit_id: h.org_unit_id, kind: h.kind, valid_from: h.valid_from, valid_to: h.valid_to } : emptyHolder();
+
+/** Has the holder form been changed since it opened (closing the sheet then asks first: B8)? */
+export function holderFormDirty(d: HolderDraft, holder: Pick<HolderRow, "user_id" | "org_unit_id" | "kind" | "valid_from" | "valid_to"> | null): boolean {
+  const s = holderStart(holder);
+  return (["user_id", "org_unit_id", "kind", "valid_from", "valid_to"] as const).some((k) => (d[k] ?? null) !== (s[k] ?? null));
+}
+
+/**
+ * How a position's sheet closes: with unsaved changes — the position's or a half-filled holder's — closing asks first;
+ * while the holder form is open the Escape key never closes the sheet (it closes a date picker's popover, B8).
+ */
+export function sheetClose(o: { manage: boolean; positionDirty: boolean; holderOpen: boolean; holderDirty: boolean }): { guard: boolean; keyboard: boolean } {
+  return { guard: o.manage && (o.positionDirty || o.holderDirty), keyboard: !o.holderOpen };
+}
+
+/**
+ * The question before a person of the demo pack becomes a holder (FINAL-1): the organisation's own cases never reach
+ * them — only cases the pack's people start do.
+ */
+export function demoHolderQuestion(name: string | null | undefined): { title: string; content: string } {
+  return {
+    title: `${name ? `«${name}»` : "این شخص"} حساب نمایشی است؛ دارندهٔ این نقش شود؟`,
+    content: "مرحله‌های پرونده‌های واقعی سازمان به حساب‌های نمایشی نمی‌رسد؛ این دارنده فقط کار پرونده‌هایی را می‌گیرد که حساب‌های نمایشی آغاز کنند.",
+  };
+}
+
+/** Does saving the form make a person of the demo pack a holder (a new holder, or another person on an existing one)? */
+export const addsDemoHolder = (d: Pick<HolderDraft, "user_id">, holder: Pick<HolderRow, "user_id"> | null, demo: ReadonlySet<string>): boolean =>
+  !!d.user_id && demo.has(d.user_id.toLowerCase()) && (!holder || holder.user_id.toLowerCase() !== d.user_id.toLowerCase());
+
 /** What the form refuses before sending (the server checks the same, and more, in Persian). */
 export function holderProblems(d: HolderDraft, position: { unit_kind: string | null }): Record<string, string> {
   const out: Record<string, string> = {};
@@ -164,18 +198,19 @@ export function importSummary(r: HolderImportResult): string {
 // ---------------------------------------------------------------------------------------------------------------
 // The preview
 
-/** The rule a preview starts from for a position: its holder in the requester's unit, or up the tree to a unit of its
- * kind; anywhere for a position not tied to a kind of unit. */
+/** The rule a preview starts from for a position: its holder up the requester's tree in a unit of its kind; anywhere
+ * for a position not tied to a kind of unit, or before a position is picked (the designer's own default scope). */
 export function previewStep(p: Pick<PositionOverview, "key" | "unit_kind"> | null): StepAssignees {
-  if (!p) return { assignees: [{ kind: "position", position: "", where: "requester_unit" }] };
-  return {
-    assignees: [p.unit_kind ? { kind: "position", position: p.key, where: "requester_unit_up", unitKind: p.unit_kind } : { kind: "position", position: p.key, where: "anywhere" }],
-  };
+  return { assignees: [{ kind: "position", position: p?.key ?? "", ...defaultScope(p?.unit_kind ?? null) }] };
 }
 
+/** The step the preview starts as: «تکمیل فرم» (on an approval the sample requester is kept out). */
+export const PREVIEW_ACTION: StepAction = "fill";
+
+/** The preview's result, in a preview's words (nothing is sent to anyone). */
 export const RESOLVE_STATUS: Record<string, { label: string; tone: "in" | "warning" | "danger" }> = {
-  ok: { label: "پیدا شد", tone: "in" },
+  ok: { label: "پیدا می‌شود", tone: "in" },
   managers: { label: "به مسئولان گردش‌کار می‌رسد", tone: "warning" },
-  nobody: { label: "کسی پیدا نشد", tone: "danger" },
+  nobody: { label: "کسی پیدا نمی‌شود", tone: "danger" },
   too_many: { label: "بیش از اندازه", tone: "warning" },
 };

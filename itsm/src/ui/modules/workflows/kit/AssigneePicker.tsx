@@ -1,10 +1,15 @@
 // The role-then-people picker (design F §3.4, §8.4 «انجام‌دهنده» tab): who a step goes to. Each rule is chosen role
 // first — the kind (نقش سازمانی، گروه، نقش دسترسی، افراد مشخص، مدیر مستقیم، رئیس واحد، فیلد فرم، انجام‌دهندهٔ مرحلهٔ قبل،
 // درخواست‌دهنده) — then its scope (where the role is held, which group, how far up), then the people: the current
-// holders of the chosen position with checkboxes («همهٔ دارندگان» or «فقط این افراد»; with a dynamic scope the ticked
-// people are an intersection, and a warning says so). Below the rules: the explanation line and the pool warnings
-// from the server's static estimate (POST /positions/estimate, from 30 people), who is kept out (the requester on
-// approve steps), what happens when nobody is found, and the fallback rules.
+// holders of the chosen position («همهٔ دارندگان» or «فقط این افراد»). A new position's scope («کجا») follows the
+// position until the person chooses one: «همه‌جا», or up the requester's tree to a unit of the position's kind. Under
+// «همه‌جا» or a fixed unit the holders are listed ticked (all of them take the step); under a scope that depends on each
+// case (the requester's unit, up its tree, a form field's unit) a line says who of them gets the step and the holders
+// are listed by unit, none ticked as if all were included (with «فقط این افراد» the ticks are a filter, and a warning
+// says so). The demo pack's people are marked «نمایشی» (they take only the pack's own cases). Below the rules: the
+// explanation line and the pool warnings from the server's static estimate (POST /positions/estimate, from 30 people,
+// the pack's people counted apart), who is kept out (the requester on approve steps), what happens when nobody is
+// found, and the fallback rules.
 // The value is the step's `StepAssignees` (@shared/process); the server checks it again on save and publish.
 // `AssigneeRules` alone may be narrowed to some kinds and position scopes (`RuleScope`): a process's starters name
 // people before any case exists, so a rule that depends on a case is not offered there, and one already in a draft
@@ -15,7 +20,7 @@ import { CircleAlert, Plus, Trash2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { builtinRoles } from "@shared/access";
 import {
-  ASSIGNEE_KINDS, ASSIGNEE_KIND_LABELS, IF_NOBODY, IF_NOBODY_LABELS, MAX_RULES, POSITION_WHERE, POSITION_WHERE_LABELS, exclusionsOf, ifNobodyOf,
+  ASSIGNEE_KINDS, ASSIGNEE_KIND_LABELS, MAX_RULES, POSITION_WHERE, POSITION_WHERE_LABELS, exclusionsOf, ifNobodyOf,
   type AssigneeKind, type AssigneeRule, type Exclusion, type Quorum, type StepAction, type StepAssignees,
 } from "@shared/process";
 import { UNIT_KINDS } from "@shared/tables/access";
@@ -27,8 +32,12 @@ import { useDebounced } from "../../../lib/hooks";
 import { Loader } from "../../../components/display";
 import { RecordSelect } from "../../../records/fields/RecordSelect";
 import { displayOf } from "../../../records/model/schema";
-import { ESTIMATE_GATES, kitApi } from "./api";
-import { newRule, ruleFields, ruleInScope, scopedRule, validHolder, withMembers, type RuleScope } from "./model";
+import { ESTIMATE_GATES, kitApi, type PositionRow } from "./api";
+import {
+  estimateBody, estimateRequest, estimateView, holderGroups, ifNobodyOptions, isCaseScope, newRule, pickPosition, ruleFields, ruleInScope, scopeNote, scopedRule, validHolder,
+  withMembers, type PositionRule, type RuleScope,
+} from "./model";
+import { DemoTag, isDemo, useDemoPeople } from "./demo";
 import { PositionPicker } from "./PositionPicker";
 import "./kit.css";
 
@@ -73,16 +82,25 @@ function narrowed<T extends string>(all: readonly T[], allowed: readonly T[] | u
   return all.filter((x) => keep.includes(x) || x === current).map((x) => ({ value: x, label: label(x), disabled: !keep.includes(x) }));
 }
 
-function Holders({ rule, onChange }: { rule: Extract<AssigneeRule, { kind: "position" }>; onChange?: (r: AssigneeRule) => void }) {
-  const { api, orgId, timezone } = useOrg();
-  const labelId = useId();
-  const pos = useQuery({
-    queryKey: ["wfk-positions-of", orgId, "key", [rule.position]],
-    queryFn: () => kitApi.positions(api, { keys: [rule.position] }),
-    enabled: !!rule.position,
+const unitKindLabel = (k: string) => UNIT_KINDS.find((x) => x.value === k)?.label ?? k;
+
+/** The position a rule names (by key), with its id and the kind of unit it is held in; shared with the picker's cache. */
+function usePositionRow(key: string) {
+  const { api, orgId } = useOrg();
+  return useQuery({
+    queryKey: ["wfk-positions-of", orgId, "key", [key]],
+    queryFn: () => kitApi.positions(api, { keys: [key] }),
+    enabled: !!key,
     staleTime: 300_000,
+    select: (rows: PositionRow[]) => rows[0] ?? null,
   });
-  const positionId = pos.data?.[0]?.id ?? null;
+}
+
+function Holders({ rule, position, onChange, fields = [] }: { rule: PositionRule; position: PositionRow | null; onChange?: (r: AssigneeRule) => void; fields?: AssigneeContext["fields"] }) {
+  const { api, orgId, timezone } = useOrg();
+  const demo = useDemoPeople();
+  const labelId = useId();
+  const positionId = position?.id ?? null;
   const unit = rule.where === "unit" ? (rule.unit ?? null) : null;
   const holders = useQuery({
     queryKey: ["wfk-holders", orgId, positionId, unit],
@@ -95,8 +113,13 @@ function Holders({ rule, onChange }: { rule: Extract<AssigneeRule, { kind: "posi
   const people = [...new Map(rows.map((h) => [h.user_id, h])).values()];
   const members = rule.members ?? [];
   const only = members.length > 0;
-  const dynamic = rule.where !== "anywhere" && rule.where !== "unit";
+  // a scope that depends on each case: one holder (or the holders of one unit) per case, never all of them
+  const dynamic = isCaseScope(rule.where);
   const name = (id: string | null) => (id ? (displayOf(holders.data?.display, id) ?? "…") : "");
+  const groups = dynamic ? holderGroups(rows, today, (u) => name(u)) : [];
+  const note = dynamic ? scopeNote(rule, { kind: unitKindLabel, field: (f) => fields.find((x) => x.name === f)?.label }) : null;
+  const tick = (who: string, on: boolean) => onChange?.(withMembers(rule, on ? [...members, who] : members.filter((m) => m !== who)));
+  const tag = (who: string) => (isDemo(demo, who) ? <DemoTag /> : null);
   if (!rule.position) return null;
   return (
     <div>
@@ -113,26 +136,46 @@ function Holders({ rule, onChange }: { rule: Extract<AssigneeRule, { kind: "posi
           { value: "only", label: "فقط این افراد", disabled: !people.length && !only },
         ]}
       />
+      {note ? <p className="wfk-line">{note}</p> : null}
       {holders.isFetching && !holders.data ? (
         <Loader />
+      ) : (only || people.length) && dynamic ? (
+        <div className="wfk-holders" role="group" aria-label="دارندگان این نقش، به تفکیک واحد">
+          {groups.map((g) => (
+            <div key={g.unit ?? ""} className="wfk-hgroup" role="group" aria-label={g.unit ? name(g.unit) : "بی‌واحد"}>
+              <span className="wfk-hunit">{g.unit ? name(g.unit) : "بی‌واحد"}</span>
+              {g.people.map((who) =>
+                only ? (
+                  <label key={who}>
+                    <Checkbox aria-label={name(who)} checked={members.includes(who)} disabled={!onChange} onChange={(e) => tick(who, e.target.checked)} />
+                    <span>{name(who)}</span>
+                    {tag(who)}
+                  </label>
+                ) : (
+                  <span key={who} className="wfk-hperson">
+                    <span>{name(who)}</span>
+                    {tag(who)}
+                  </span>
+                ),
+              )}
+            </div>
+          ))}
+          {groups.length ? null : <span className="wfk-line">این نقش اکنون دارنده‌ای ندارد</span>}
+        </div>
       ) : only || people.length ? (
         <div className="wfk-holders" role="group" aria-label="دارندگان این نقش">
           {people.map((h) => (
             <label key={h.user_id}>
-              <Checkbox
-                aria-label={name(h.user_id)}
-                checked={!only || members.includes(h.user_id)}
-                disabled={!onChange || !only}
-                onChange={(e) => onChange?.(withMembers(rule, e.target.checked ? [...members, h.user_id] : members.filter((m) => m !== h.user_id)))}
-              />
+              <Checkbox aria-label={name(h.user_id)} checked={!only || members.includes(h.user_id)} disabled={!onChange || !only} onChange={(e) => tick(h.user_id, e.target.checked)} />
               <span>{name(h.user_id)}</span>
+              {tag(h.user_id)}
               {h.org_unit_id ? <small>{name(h.org_unit_id)}</small> : null}
             </label>
           ))}
           {people.length ? null : <span className="wfk-line">این نقش اکنون دارنده‌ای ندارد</span>}
         </div>
       ) : (
-        <p className="wfk-line">{rule.where === "unit" && !unit ? "واحد را برگزینید تا دارندگان آن دیده شوند." : "این نقش اکنون دارنده‌ای ندارد؛ با پیدا شدن دارنده، مرحله به او می‌رسد."}</p>
+        <p className="wfk-line">{rule.where === "unit" && !unit ? "واحد را برگزینید تا دارندگان آن دیده شوند." : "این نقش اکنون دارنده‌ای ندارد."}</p>
       )}
       {only && dynamic ? (
         <p className="wfk-warn">
@@ -144,6 +187,81 @@ function Holders({ rule, onChange }: { rule: Extract<AssigneeRule, { kind: "posi
   );
 }
 
+/**
+ * A position rule: the position, «کجا» and its unit, field or kind, and the holders. The scope follows a picked position
+ * until the person chooses one here (`chosen`); a saved rule's own scope stays (`pickPosition`).
+ */
+function PositionRuleBody({ rule, onChange, fields = [], plain, scope, id }: { rule: PositionRule; onChange?: (r: AssigneeRule) => void; fields?: AssigneeContext["fields"]; plain?: boolean; scope?: RuleScope; id: (k: string) => string }) {
+  const off = !onChange;
+  const [chosen, setChosen] = useState(false);
+  const pos = usePositionRow(rule.position);
+  const was = rule.position ? (pos.data ?? null) : null;
+  const choose = (next: AssigneeRule) => {
+    setChosen(true);
+    onChange?.(next);
+  };
+  const set = (patch: Partial<PositionRule>) => choose({ ...rule, ...patch });
+  return (
+    <>
+      <div>
+        <label className="wfk-lbl" htmlFor={id("pos")}>
+          نقش سازمانی
+        </label>
+        <PositionPicker
+          id={id("pos")}
+          by="key"
+          value={rule.position || null}
+          disabled={off}
+          allowClear={false}
+          onChange={(v, picked) => {
+            const key = String(v ?? "");
+            if (!key) return;
+            const p = picked?.find((x) => x.key === key) ?? { key, unit_kind: null };
+            onChange?.(pickPosition(rule, p, { chosen, was, wheres: scope?.wheres }));
+          }}
+        />
+      </div>
+      <div>
+        <label className="wfk-lbl" htmlFor={id("where")}>
+          کجا
+        </label>
+        <Select
+          id={id("where")}
+          value={rule.where}
+          disabled={off}
+          onChange={(where) => choose({ kind: "position", position: rule.position, where, ...(rule.members ? { members: rule.members } : {}) })}
+          options={narrowed(POSITION_WHERE, scope?.wheres, rule.where, (w) => POSITION_WHERE_LABELS[w])}
+        />
+      </div>
+      {rule.where === "unit" ? (
+        <div>
+          <label className="wfk-lbl" htmlFor={id("unit")}>
+            واحد
+          </label>
+          <RecordSelect id={id("unit")} table="org_unit" value={rule.unit ?? null} disabled={off} onChange={(v) => set({ unit: (v as string | null) ?? undefined, members: undefined })} />
+        </div>
+      ) : null}
+      {rule.where === "unit_field" ? (
+        <div>
+          <label className="wfk-lbl" htmlFor={id("ufield")}>
+            فیلد واحد در فرم
+          </label>
+          <Select id={id("ufield")} value={rule.unitField} disabled={off} placeholder="فیلدی از نوع واحد سازمانی" onChange={(unitField) => set({ unitField })} options={ruleFields(fields, "unit").map((f) => ({ value: f.name, label: f.label }))} />
+        </div>
+      ) : null}
+      {rule.where === "requester_unit_up" ? (
+        <div>
+          <label className="wfk-lbl" htmlFor={id("ukind")}>
+            نزدیک‌ترین واحد از نوع
+          </label>
+          <Select id={id("ukind")} value={rule.unitKind} disabled={off} allowClear placeholder="نوع واحدِ خودِ نقش" onChange={(unitKind) => set({ unitKind: unitKind ?? undefined })} options={UNIT_KINDS.map((k) => ({ value: k.value, label: k.label }))} />
+        </div>
+      ) : null}
+      {plain ? null : <Holders rule={rule} position={pos.data ?? null} onChange={onChange} fields={fields} />}
+    </>
+  );
+}
+
 function RuleEditor({ rule, index, onChange, onRemove, fields = [], steps = [], plain, scope }: RuleProps) {
   const uid = useId();
   const off = !onChange;
@@ -152,53 +270,7 @@ function RuleEditor({ rule, index, onChange, onRemove, fields = [], steps = [], 
   const body = (() => {
     switch (rule.kind) {
       case "position":
-        return (
-          <>
-            <div>
-              <label className="wfk-lbl" htmlFor={id("pos")}>
-                نقش سازمانی
-              </label>
-              <PositionPicker id={id("pos")} by="key" value={rule.position || null} disabled={off} allowClear={false} onChange={(v) => onChange?.({ kind: "position", position: String(v ?? ""), where: rule.where })} />
-            </div>
-            <div>
-              <label className="wfk-lbl" htmlFor={id("where")}>
-                کجا
-              </label>
-              <Select
-                id={id("where")}
-                value={rule.where}
-                disabled={off}
-                onChange={(where) => onChange?.({ kind: "position", position: rule.position, where, ...(rule.members ? { members: rule.members } : {}) })}
-                options={narrowed(POSITION_WHERE, scope?.wheres, rule.where, (w) => POSITION_WHERE_LABELS[w])}
-              />
-            </div>
-            {rule.where === "unit" ? (
-              <div>
-                <label className="wfk-lbl" htmlFor={id("unit")}>
-                  واحد
-                </label>
-                <RecordSelect id={id("unit")} table="org_unit" value={rule.unit ?? null} disabled={off} onChange={(v) => set({ unit: (v as string | null) ?? undefined, members: undefined })} />
-              </div>
-            ) : null}
-            {rule.where === "unit_field" ? (
-              <div>
-                <label className="wfk-lbl" htmlFor={id("ufield")}>
-                  فیلد واحد در فرم
-                </label>
-                <Select id={id("ufield")} value={rule.unitField} disabled={off} placeholder="فیلدی از نوع واحد سازمانی" onChange={(unitField) => set({ unitField })} options={ruleFields(fields, "unit").map((f) => ({ value: f.name, label: f.label }))} />
-              </div>
-            ) : null}
-            {rule.where === "requester_unit_up" ? (
-              <div>
-                <label className="wfk-lbl" htmlFor={id("ukind")}>
-                  نزدیک‌ترین واحد از نوع
-                </label>
-                <Select id={id("ukind")} value={rule.unitKind} disabled={off} allowClear placeholder="نوع واحدِ خودِ نقش" onChange={(unitKind) => set({ unitKind: unitKind ?? undefined })} options={UNIT_KINDS.map((k) => ({ value: k.value, label: k.label }))} />
-              </div>
-            ) : null}
-            {plain ? null : <Holders rule={rule} onChange={onChange} />}
-          </>
-        );
+        return <PositionRuleBody rule={rule} onChange={onChange} fields={fields} plain={plain} scope={scope} id={id} />;
       case "group":
         return (
           <>
@@ -373,54 +445,36 @@ function RuleList({ rules, onChange, ctx, plain, addLabel, scope }: { rules: Ass
 // ---------------------------------------------------------------------------------------------------------------
 // The explanation line
 
-/** Is every rule complete enough to be estimated (otherwise the server would only say what is missing)? */
-const complete = (r: AssigneeRule): boolean => {
-  switch (r.kind) {
-    case "position":
-      return !!r.position && (r.where !== "unit" || !!r.unit) && (r.where !== "unit_field" || !!r.unitField);
-    case "group":
-      return !!r.group;
-    case "role":
-      return !!r.role;
-    case "users":
-      return r.users.length > 0;
-    case "field":
-      return !!r.field;
-    case "step_actor":
-      return !!r.step;
-    case "unit_head":
-      return r.of !== "unit_field" || !!r.unitField;
-    default:
-      return true;
-  }
-};
-
 function Estimate({ value, action, quorum }: { value: StepAssignees; action: StepAction; quorum?: Quorum | null }) {
   const { api, orgId, allows } = useOrg();
   const may = ESTIMATE_GATES.some((g) => allows(g));
-  const ready = value.assignees.length > 0 && value.assignees.every(complete);
-  const body = useDebounced(useMemo(() => JSON.stringify({ step: value, action, quorum: quorum ?? null }), [value, action, quorum]), 400);
+  // the debounced body alone decides whether to ask: never the body before a position was picked (B4)
+  const body = useDebounced(useMemo(() => estimateBody(value, action, quorum), [value, action, quorum]), 400);
+  const req = useMemo(() => estimateRequest(body), [body]);
   const q = useQuery({
     queryKey: ["wfk-estimate", orgId, body],
-    queryFn: () => kitApi.estimate(api, JSON.parse(body)),
-    enabled: may && ready,
+    queryFn: () => kitApi.estimate(api, req.input!),
+    enabled: may && req.ready,
     retry: false,
     staleTime: 30_000,
   });
   if (!value.assignees.length) return <p className="wfk-warn"><CircleAlert {...I14} aria-hidden /><span>این مرحله انجام‌دهنده ندارد؛ دست‌کم یک قاعده بیفزایید.</span></p>;
-  if (!may || !ready) return null;
+  if (!may || !req.ready) return null;
   if (q.isLoading) return <Loader label="شمردن انجام‌دهنده‌ها" />;
   if (q.error) return <p className="wfk-warn"><CircleAlert {...I14} aria-hidden /><span>{q.error instanceof ApiError ? q.error.message : "برآورد انجام‌دهنده‌ها ممکن نشد"}</span></p>;
   const r = q.data;
   if (!r) return null;
+  const v = estimateView(r);
   return (
     <div aria-live="polite">
-      {r.rules.map((x) => (
+      {v.rules.map((x) => (
         <p key={x.index} className="wfk-line">
           {x.line}
+          {x.demo ? <span className="wfk-est-demo">{` · ${x.demo}`}</span> : null}
         </p>
       ))}
-      {r.warnings.map((w) => (
+      {v.total ? <p className="wfk-line">{v.total}</p> : null}
+      {v.warnings.map((w) => (
         <p key={w} className="wfk-warn">
           <CircleAlert {...I14} aria-hidden />
           <span>{w}</span>
@@ -472,7 +526,7 @@ export function AssigneePicker({ value, onChange, action, quorum, fields, steps,
         <label className="wfk-lbl" htmlFor={`${uid}-if-nobody`}>
           اگر کسی پیدا نشد
         </label>
-        <Select id={`${uid}-if-nobody`} value={ifNobodyOf(value)} disabled={off} onChange={(ifNobody) => set({ ifNobody })} options={IF_NOBODY.map((k) => ({ value: k, label: IF_NOBODY_LABELS[k] }))} />
+        <Select id={`${uid}-if-nobody`} value={ifNobodyOf(value)} disabled={off} onChange={(ifNobody) => set({ ifNobody })} options={ifNobodyOptions(action)} />
       </div>
       {fallbackOpen || value.fallback?.length ? (
         <div className="wfk-who" role="group" aria-label="قاعده‌های جایگزین">

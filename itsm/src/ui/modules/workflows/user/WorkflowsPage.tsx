@@ -2,7 +2,8 @@
 //   · «کارتابل»: the chips «گردش‌کارهای شما» (one per process with my open steps, each opening its diagram) and the rows:
 //     my open process steps and my pending record approvals («تأیید رکورد», which open the record with its approval
 //     panel); number, title, process or table, the step with its action, from whom, since when, the due pill, and
-//     «به جانشینی از …»، «در دست …»، «در صف ارسال». A row opens my step's form (two clicks from the nav). Phones get cards;
+//     «به جانشینی از …»، «در دست …»، «در صف ارسال»; a case of the demo pack says «نمایشی». A click anywhere on a row
+//     opens my step's form (two clicks from the nav). Phones get cards;
 //   · «گردش‌کارهای من»: the processes I take part in, my parts in each, «منتظر شما: ۳» and «شروع» where I may start;
 //   · «پرونده‌ها»: the cases I read, filtered by «در جریان»، «پایان‌یافته»، «آغازشده توسط من», process, step and dates;
 //     my starts a linked Windows app has not sent yet first («در صف ارسال»);
@@ -21,13 +22,15 @@ import { errorText } from "../../../lib/api";
 import { useOrg } from "../../../lib/org";
 import { useIsPhone } from "../../../lib/hooks";
 import { Note } from "../../../components/blocks";
+import { DemoTag } from "../kit/demo";
 import { Chip, EmptyState, Loader } from "../../../components/display";
 import { DateRangeChip, FilterChip, ToggleChip } from "../../../components/inputs";
 import { relTime } from "../../../records/model/activity";
 import { RecordNo } from "../../../records/fields/display";
 import { USER_KEYS, userApi, type CaseListRow, type DoneRow, type Inbox, type MyProcess } from "./api";
 import {
-  TABS, actionLabel, caseFiltersOf, currentText, filtered, inboxRowView, nameOf, outcomeWord, startable, tabOf, waitingText, withCaseFilter, type InboxRowView, type Tab,
+  TABS, actionLabel, caseFiltersOf, currentText, filtered, inboxRowProps, inboxRowView, nameOf, outcomeWord, startable, tabOf, waitingText, withCaseFilter, type InboxRowView,
+  type Tab,
 } from "./model";
 import { CaseState, Head, LoadError, Notes, useWf } from "./parts";
 
@@ -67,6 +70,7 @@ function InboxCard({ v }: { v: InboxRowView }) {
         <span className="wfu-card-h">
           {v.number ? <RecordNo no={v.number} /> : null}
           {v.kind ? <Chip tone="info">{v.kind}</Chip> : null}
+          {v.demo ? <DemoTag title="پروندهٔ نمایشی (دادهٔ نمایشی)" /> : null}
           {v.due ? <Chip tone={v.due.tone === "neutral" ? "neutral" : v.due.tone === "warning" ? "warning" : "danger"}>{v.due.text}</Chip> : null}
         </span>
         <span className="wfu-card-t">{v.title}</span>
@@ -89,6 +93,7 @@ function InboxCard({ v }: { v: InboxRowView }) {
 
 function InboxTab({ inbox }: { inbox: Inbox }) {
   const wf = useWf();
+  const nav = useNavigate();
   const phone = useIsPhone();
   const now = Date.now();
   const rows = useMemo(() => inbox.rows.map((r) => inboxRowView(r, inbox.display, wf.base, now)), [inbox, wf.base, now]);
@@ -126,6 +131,7 @@ function InboxTab({ inbox }: { inbox: Inbox }) {
           pagination={false}
           dataSource={rows}
           className="wfu-table"
+          onRow={(v) => inboxRowProps(v, (link) => nav(wf.to(link)))}
           columns={[
             { key: "no", title: "شماره", width: 130, render: (_, v) => (v.number ? <RecordNo no={v.number} /> : "—") },
             {
@@ -136,6 +142,7 @@ function InboxTab({ inbox }: { inbox: Inbox }) {
                   <Link to={wf.to(v.link)} className="wfu-open">
                     {v.title}
                   </Link>
+                  {v.demo ? <DemoTag title="پروندهٔ نمایشی (دادهٔ نمایشی)" /> : null}
                   <Notes notes={v.notes} />
                 </span>
               ),
