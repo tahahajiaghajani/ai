@@ -16,6 +16,8 @@ import { stopTicks, tick } from "@server/jobs";
 import { loadConfig, saveConfig, type LocalConfig } from "./config";
 import { createBridge } from "./bridge";
 import { takePendingRestore, undoRestore, restorePending } from "./backup";
+import { extractBackup } from "./backup-stream";
+import { startupMaintenance } from "./maintenance";
 import { resetSyncCursor } from "./sync-client";
 import { openFromTemplate, templateFor } from "./db-template";
 import { inspectDatabase, NO_DATABASE, type DatabaseOpening } from "./db-open";
@@ -168,8 +170,9 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   // the line and the message are on their way before the open holds the thread
   if (!opts.memory) await new Promise<void>((r) => nextTurn(r));
   const openStart = performance.now();
-  // the scheduled restore taken (./backup.ts): the marker dropped, the backup read, this folder set aside
-  const restore = opts.memory ? null : takePendingRestore(opts.dataDir);
+  // the scheduled restore taken (./backup.ts): an earlier start's restore cut short settled first (its database put
+  // back), the marker dropped, this folder set aside (the backup is extracted below)
+  const restore = opts.memory ? null : takePendingRestore(opts.dataDir, log);
   if (restoring && !restore) log.warn("a restore was scheduled but its backup file is missing; the current database is opened");
   // a first start: the database made at build time, when the app carries one
   const template = !opts.memory && !restore && !existsSync(join(dbDir, "PG_VERSION")) ? templateFor(opts.template) : null;
@@ -194,7 +197,8 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   } else if (restore) {
     log.info("restoring database from backup");
     try {
-      db = await createPgliteDb({ dataDir: dbDir, desktop: true, log, loadDataDir: new Blob([new Uint8Array(restore.data)]) });
+      await extractBackup(restore.file, dbDir, log);
+      db = await createPgliteDb({ dataDir: dbDir, desktop: true, log });
     } catch (e) {
       // a broken backup must not leave an empty database behind: keep working on the current one
       log.error("restore failed; the current database is kept", String((e as Error)?.message ?? e));
@@ -214,6 +218,8 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   // person's first click (the first start's 54 MB of log took a 609 ms checkpoint on the setup page, desktop-e2e)
   if (applied.length) await db.checkpoint("migrations").catch((e) => log.warn("database checkpoint after migrations failed", String((e as Error)?.message ?? e)));
   const migrated = performance.now();
+  // the database's upkeep before ready (./maintenance.ts): ~1 ms unless much was written since its last look
+  db = (await startupMaintenance(db, { dataDir: opts.dataDir, dbDir, log, memory: opts.memory, notify: () => tell({ phase: "migrations", maintenance: true }) })).db;
 
   // the single-page app's files (src/server-edition/static.ts: ETags, the SPA fallback, never outside the folder)
   const site = createStaticSite(opts.staticDir, () => `<!doctype html><meta charset=utf-8><title>${APP_NAME}</title><p>رابط کاربری ساخته نشده است (npm run build:ui)</p>`, { cacheControl: desktopCacheControl });
@@ -227,6 +233,8 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   // browser session's — and never a token client, a probe or anyone without a session there (PERFORMANCE_FA §19)
   let fromWindow = 0;
   let signedIn = 0;
+  /** when a person's request (the window's, or a signed-in browser's of the office network) last began or ended */
+  let lastPerson = performance.now();
   const cfg: ServerConfig = {
     mode: "desktop",
     db,
@@ -237,7 +245,7 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
     desktop: bridge,
     log,
     fetch: globalThis.fetch.bind(globalThis),
-    foreground: { started: () => void signedIn++, ended: () => void signedIn-- },
+    foreground: { started: () => void ((lastPerson = performance.now()), signedIn++), ended: () => void ((lastPerson = performance.now()), signedIn--) },
   };
   const api = createApp(cfg);
   // the job queue (record events, notifications, SLA timers…) runs every 10 s on this computer
@@ -263,10 +271,12 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   app.use("/api/*", async (c, next) => {
     if (isBackgroundRequest(c) || !windowRequest(peerOf(c), c.req.header("authorization"))) return next();
     fromWindow++;
+    lastPerson = performance.now();
     try {
       await next();
     } finally {
       fromWindow--;
+      lastPerson = performance.now();
     }
   });
   // Who may reach the API. Before the first account exists every request is trusted as the
@@ -338,6 +348,7 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
     onGap: (gap) => log.info(`no timer of the local server ran for ${Math.round(gap / 1000)} s: the computer slept or the process was paused`),
   });
   bridge.start(url);
+  bridge.watchPeople(() => (fromWindow > 0 || signedIn > 0 ? 0 : performance.now() - lastPerson));
 
   return {
     url,

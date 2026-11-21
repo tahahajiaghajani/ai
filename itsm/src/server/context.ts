@@ -49,6 +49,8 @@ export interface DesktopBridge {
   notifyLocalWrite(): void;
   /** Fetch an attachment's content from the linked cloud (contents travel lazily); null when unavailable. */
   fetchBlob?(orgId: string, attachmentId: string): Promise<Uint8Array | null>;
+  /** Compact the local database at the next start (Settings; src/desktop/maintenance.ts `scheduleCompaction`). */
+  scheduleCompaction?(): Promise<void>;
 }
 
 /**

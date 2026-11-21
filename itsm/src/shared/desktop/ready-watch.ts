@@ -50,7 +50,7 @@ export type StartPhase =
        */
       restore?: true;
     }
-  | { phase: "migrations" };
+  | { phase: "migrations"; /** the database is compacted before ready (src/desktop/maintenance.ts) */ maintenance?: true };
 
 export type StartStage = "starting" | StartPhase["phase"];
 
@@ -60,7 +60,7 @@ export interface StartNotice {
    * "recovery": the log of a database that was not closed cleanly is replayed; "slow": the open just takes long;
    * "update": a migration of the database after the open takes long
    */
-  kind: "recovery" | "slow" | "update";
+  kind: "recovery" | "slow" | "update" | "maintenance";
   /** since the server began to open the database (for "update": since the migrations began) */
   elapsedMs: number;
 }
@@ -109,6 +109,7 @@ export function createReadyWatch(startedAt: number, options: ReadyWatchOptions =
   const large = (o: { walMb: number; recovery: boolean | null }) => o.walMb >= largeWal && o.recovery !== false;
   /** a recovery: not closed cleanly, or a large log of a database whose state cannot be told */
   const replays = (o: { walMb: number; recovery: boolean | null }) => o.recovery === true || (o.recovery === null && large(o));
+  let maintainingSince: number | null = null;
   return {
     get stage() {
       return stage;
@@ -124,6 +125,7 @@ export function createReadyWatch(startedAt: number, options: ReadyWatchOptions =
       lastSign = Math.max(lastSign, at);
       opening = p.phase === "database" ? { at, walMb: p.walMb, recovery: p.recovery, restore: p.restore === true } : null;
       migratingSince = p.phase === "migrations" ? at : null;
+      maintainingSince = p.phase === "migrations" && p.maintenance ? at : null;
     },
     progress(at) {
       lastSign = Math.max(lastSign, at);
@@ -141,6 +143,7 @@ export function createReadyWatch(startedAt: number, options: ReadyWatchOptions =
         // from the migrations to ready: no fixed limit while one runs, a note once one takes long, a question only after
         // a long silence
         if (silentMs >= migrationsCeiling) return { kind: "timeout", stage, silentMs };
+        if (maintainingSince !== null) return { kind: "wait", notice: { kind: "maintenance", elapsedMs: Math.max(0, at - maintainingSince) } };
         return { kind: "wait", notice: silentMs >= slowNoticeAfter ? { kind: "update", elapsedMs: Math.max(0, at - migratingSince) } : null };
       }
       return silentMs >= budget ? { kind: "timeout", stage, silentMs } : { kind: "wait", notice: null };
@@ -153,7 +156,7 @@ export function parseStartPhase(m: unknown): StartPhase | null {
   if (!m || typeof m !== "object") return null;
   const o = m as Record<string, unknown>;
   if (o.type !== "phase") return null;
-  if (o.phase === "migrations") return { phase: "migrations" };
+  if (o.phase === "migrations") return o.maintenance === true ? { phase: "migrations", maintenance: true } : { phase: "migrations" };
   if (o.phase !== "database") return null;
   const walMb = typeof o.walMb === "number" && Number.isFinite(o.walMb) && o.walMb > 0 ? Math.round(o.walMb) : 0;
   const recovery = typeof o.recovery === "boolean" ? o.recovery : null;
@@ -167,6 +170,15 @@ export function parseStartPhase(m: unknown): StartPhase | null {
  */
 export function countProgress(text: string): number {
   return (text.match(/(?:migration|schema step) \S+ applied/g) ?? []).length;
+}
+
+/**
+ * How many steps of the database's update a chunk of the server's output reports: src/server/db/migrate.ts logs
+ * "migration <id> applied" for each migration and "schema step <id> applied" for the engine's chunks, and
+ * src/desktop/maintenance.ts "maintenance step <id> applied" for each step of a compaction — each one a sign of progress.
+ */
+export function countProgress(text: string): number {
+  return (text.match(/(?:migration|schema step|maintenance step) \S+ applied/g) ?? []).length;
 }
 
 const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
@@ -186,6 +198,7 @@ export const NOTICE_TEXT: Record<StartNotice["kind"], string> = {
   recovery: "پایگاه داده پس از بسته شدن ناگهانی برنامه در حال بازیابی است؛ بسته به حجم آن ممکن است چند دقیقه طول بکشد. لطفاً برنامه را نبندید.",
   slow: "باز شدن پایگاه داده بیش از معمول زمان می‌برد و ممکن است چند دقیقه طول بکشد. لطفاً برنامه را نبندید.",
   update: "به‌روزرسانی پایگاه داده برای این نسخه بیش از معمول زمان می‌برد و ممکن است چند دقیقه طول بکشد. لطفاً برنامه را نبندید.",
+  maintenance: "پایگاه داده در حال فشرده‌سازی است تا فضایی که داده‌های پاک‌شده روی دیسک گرفته‌اند آزاد شود؛ بسته به حجم آن ممکن است چند دقیقه طول بکشد. لطفاً برنامه را نبندید.",
 };
 
 /**
@@ -193,7 +206,7 @@ export const NOTICE_TEXT: Record<StartNotice["kind"], string> = {
  * status line the start began with, e.g. «باز کردن داده‌ها…»).
  */
 export function noticeTexts(n: StartNotice, base: string): { note: string; status: string } {
-  const label = n.kind === "recovery" ? "بازیابی پایگاه داده…" : n.kind === "update" ? "به‌روزرسانی داده‌ها…" : base;
+  const label = n.kind === "recovery" ? "بازیابی پایگاه داده…" : n.kind === "update" ? "به‌روزرسانی داده‌ها…" : n.kind === "maintenance" ? "فشرده‌سازی پایگاه داده…" : base;
   return { note: NOTICE_TEXT[n.kind], status: `${label} ${elapsedFa(n.elapsedMs)}` };
 }
 
