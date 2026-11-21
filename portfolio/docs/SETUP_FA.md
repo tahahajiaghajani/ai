@@ -65,10 +65,10 @@
 دستور این است:
 
 ```bash
-git cat-file -e "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}^{commit}" 2>/dev/null && git diff --quiet "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}" HEAD -- . || exit 1
+[ "$VERCEL_GIT_PREVIOUS_SHA" = "$VERCEL_GIT_COMMIT_SHA" ] && exit 1; git cat-file -e "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}^{commit}" 2>/dev/null && git diff --quiet "${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}" HEAD -- . || exit 1
 ```
 
-این دستور داخل همان Root Directory (یعنی `portfolio`) اجرا می‌شود؛ پس پوشه `.` است، نه `portfolio`. اگر چیزی در این پوشه عوض نشده باشد ساخت لغو می‌شود (خروجی ۰) و در غیر این صورت ساخته می‌شود (خروجی ۱). بخش اول مهم است: Vercel فقط چند commit آخر را clone می‌کند و `VERCEL_GIT_PREVIOUS_SHA` کامیتِ آخرین ساخت موفق است؛ اگر پروژه مدتی ساخته نشده باشد آن کامیت در clone نیست، `git diff` با خطای `bad object` (خروجی ۱۲۸) تمام می‌شود و Vercel هر خروجی غیر از ۰ و ۱ را خطا می‌داند و کل Deployment شکست می‌خورد. دستور بالا در این حالت هم می‌سازد.
+این دستور داخل همان Root Directory (یعنی `portfolio`) اجرا می‌شود؛ پس پوشه `.` است، نه `portfolio`. اگر چیزی در این پوشه عوض نشده باشد ساخت لغو می‌شود (خروجی ۰) و در غیر این صورت ساخته می‌شود (خروجی ۱). بخش اول (`[ … = … ] && exit 1`) Redeploy را می‌سازد: Redeploy در داشبورد همان commit آخرین ساخت را دوباره می‌سازد، پس بی آن `git diff` تفاوتی نمی‌یافت، Redeploy لغو می‌شد و متغیر محیطی تازه یا مقدار تازه‌اش (بخش ۴) هرگز اثر نمی‌کرد. بخش دوم (`git cat-file -e`) هم مهم است: Vercel فقط چند commit آخر را clone می‌کند و `VERCEL_GIT_PREVIOUS_SHA` کامیتِ آخرین ساخت موفق است؛ اگر پروژه مدتی ساخته نشده باشد آن کامیت در clone نیست، `git diff` با خطای `bad object` (خروجی ۱۲۸) تمام می‌شود و Vercel هر خروجی غیر از ۰ و ۱ را خطا می‌داند و کل Deployment شکست می‌خورد. دستور بالا در این حالت هم می‌سازد.
 
 ## ۴. پنل «اتصالات»: وصل کردن و آزمایش همه‌چیز
 
