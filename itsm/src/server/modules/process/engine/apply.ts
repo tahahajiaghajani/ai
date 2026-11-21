@@ -39,7 +39,7 @@ import {
 } from "@shared/process/graph";
 import { renderTitle } from "@shared/process/title";
 import type { Ctx } from "../../../context";
-import { lockKey, pgArray, type Tx } from "../../../db";
+import { lockKey, pgArray, type Queryable, type Tx } from "../../../db";
 import { demoPeople, isDemoRow } from "../../../db/scope";
 import { notFound } from "../../../http/errors";
 import { memberCtx } from "../../../access";
@@ -244,9 +244,12 @@ const droppedNote = (n: number) => (n ? `${faDigits(n)} مقدار که در ا�
 
 // ----- start ------------------------------------------------------------------------------------------------------
 
-/** Does the person match one of the starters' rules (a position they hold, a group, a role, named people…)? */
-async function isStarter(tx: Tx, sys: Ctx, starters: AssigneeRule[], user: string): Promise<boolean> {
-  const run = new Resolution(tx, sys, { step: { assignees: starters }, action: "fill", requestedBy: user });
+/**
+ * Does the person match one of the starters' rules (a position they hold, a group, a role, named people…)? The one
+ * check of who may start: the start's apply and «گردش‌کارهای من»/the diagram's «شروع» alike (../api/inbox.ts).
+ * `run`: a resolution of `user` to reuse across processes (its reads are kept).
+ */
+export async function isStarter(q: Queryable, sys: Ctx, starters: AssigneeRule[], user: string, run = new Resolution(q, sys, { step: { assignees: starters }, action: "fill", requestedBy: user })): Promise<boolean> {
   for (const [i, rule] of starters.entries()) {
     if (rule.kind === "users" ? rule.users.includes(user) : (await run.rule(rule, i, false)).some((f) => f.user === user)) return true;
   }
