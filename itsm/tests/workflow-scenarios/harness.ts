@@ -5,14 +5,16 @@
 // The twelve workflows W1–W12 (./w01-project.ts … ./w12-transfer.ts) are written once against this harness and run
 // on every edition:
 //
-//   Edition                                   File                               How to run (from itsm/)
-//   Windows app standalone (PGlite, desktop)  w01-project.test.ts … w12-*.test.ts npx vitest run --maxWorkers=1 tests/workflow-scenarios
-//   the web's own job ticks (PGlite, cloud)   web-cadence.test.ts                (the same; no drain: after-write and traffic ticks only)
-//   Windows app linked to an authority        linked.test.ts                     (the same; PGlite authority and PGlite apps)
-//   server edition (PostgreSQL 16, its pool)  pg-server-{a,b}.test.ts            ITSM_PG_BIN=/usr/lib/postgresql/16/bin ITSM_PG_RUNAS=nobody \
-//   web (PostgreSQL 16, webPoolOptions)       pg-web-{a,b}.test.ts                 npx vitest run --maxWorkers=1 tests/workflow-scenarios/pg-*.test.ts
-//   web through Supavisor v2.9.13 (emulator)  pg-pooler.test.ts                  (or ITSM_PG_URL=postgres://… instead of ITSM_PG_BIN)
-//   web cadence on PostgreSQL + the pooler    pg-pooler.test.ts                  (W1 and W2 drained, then a W11 run with the web's own ticks)
+//   Edition                                   Files                                How to run (from itsm/)
+//   Windows app standalone (PGlite, desktop)  w01-project.test.ts … w12-*.test.ts   npx vitest run --maxWorkers=1 tests/workflow-scenarios
+//   the web's own job ticks (PGlite, cloud)   web-cadence.test.ts                  (the same: no drain, only after-write, traffic
+//                                                                                   and heartbeat ticks — ./cadence.ts)
+//   Windows apps linked to an authority       linked-w01.test.ts, linked-w11.test.ts (the same; a PGlite authority — ./linked.ts)
+//   server edition (PostgreSQL 16, its pool)  pg-server-a.test.ts, pg-server-b.test.ts, pg-linked-w01.test.ts
+//   web (PostgreSQL 16, webPoolOptions)       pg-web-a.test.ts, pg-web-b.test.ts
+//   web through Supavisor v2.9.13 (emulator)  pg-pooler.test.ts (W1, W2, then the web's own cadence)
+//     ITSM_PG_BIN=/usr/lib/postgresql/16/bin ITSM_PG_RUNAS=nobody npx vitest run --maxWorkers=1 tests/workflow-scenarios/pg-*.test.ts
+//     (or ITSM_PG_URL=postgres://user@host:port/postgres: a scratch database per world on that server)
 //
 // The PostgreSQL suites are skipped unless ITSM_PG_URL or ITSM_PG_BIN is set (tests/pg-real.ts: a scratch database per
 // world, or a throwaway cluster run as ITSM_PG_RUNAS when the tests run as root).
@@ -24,8 +26,8 @@
 //
 // Assertions marked «1.1.5 (b)…(g)», RC1–RC4 assert behaviour this release adds (CaseDetail.waiting, the reresolve route,
 // journal notes, estimate demo counts, eligibility-first requester_unit_up, the timer path's demo scope, approve plus
-// skip journal text): they fail until wf-eng's work is merged.
-import { expect } from "vitest";
+// skip journal text): they fail until wf-eng's work is merged. Those marked NB1–NB4 and OB1 assert what the scenario
+// plan expects of behaviour no package of this release changes (reported with the run): they fail until it is fixed.
 import { Client, useServerDb } from "../helpers";
 import { engineOrg, type EngineOrg } from "../engine-helpers";
 import { createPgliteDb } from "@server/db/pglite";
@@ -35,6 +37,7 @@ import type { Db } from "@server/db";
 import type { ServerConfig } from "@server/context";
 import { resetTrafficTick, tick } from "@server/jobs";
 import { createIn, systemCtx } from "@server/engine";
+import { resetRateBuckets } from "@server/http/hono";
 import { uuidv7 } from "@shared/id";
 import { extraDatabase, realPg, realPgAvailable, type RealPg } from "../pg-real";
 import { backendOf, startPooler, type Pooler } from "../web-db-pooler";
@@ -316,6 +319,8 @@ export class Scn {
     await this.profile(key, { org_unit_id: o.unit ? this.u(o.unit) : null, manager_id: o.manager ? this.id(o.manager) : null, ...(o.title ? { title: o.title } : {}) });
     if (o.demo) await this.markDemo(id);
     const c = new Client(this.o.app);
+    // the sign-in limiter counts per address (20 a minute): the scenarios sign in many people of several organisations
+    resetRateBuckets();
     await c.post("/auth/login", { email, password: PASS });
     this.C[key] = c;
     return id;
@@ -695,13 +700,6 @@ export const UNITS: [key: string, name: string, kind: string, parent: string | n
 
 export async function bankUnits(s: Scn): Promise<void> {
   for (const [key, name, kind, parent] of UNITS) await s.unit(key, name, kind, parent);
-}
-
-/** Expect a refusal: the status and the message (or a part of it). */
-export async function refusedWith(p: Promise<any>, text: string): Promise<any> {
-  const r = await p;
-  expect(String(r?.error?.message ?? ""), JSON.stringify(r)).toContain(text);
-  return r;
 }
 
 export const H = 3_600_000;

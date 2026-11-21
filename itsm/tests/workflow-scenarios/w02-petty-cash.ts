@@ -85,6 +85,29 @@ export async function setupW2(s: Scn): Promise<void> {
   await s.hold("aftab_finance_deputy", "mehrdad", "fin");
   await s.hold("aftab_finance_deputy", "fd2", "fin");
   await s.group("branch_finance", "امور مالی شعب", ["mehrdad", "fa1", "fa2"]);
+  // RC4: «نزدیک‌ترین واحد بالادست» with holders at two levels — the pack's branch head, and a real head of the province
+  await s.person("rh", "رئیس حوزهٔ البرز", { unit: "alborz" });
+  await s.person("realemp", "کارمند واقعی شعبه", { unit: "b0" });
+  await s.position("aftab_area_head", "رئیس حوزه");
+  await s.hold("aftab_area_head", "somayeh", "b0");
+  await s.hold("aftab_area_head", "rh", "alborz");
+}
+
+/** RC4's check: one approval by «رئیس حوزه» in the nearest unit up from the requester's. */
+export function upDraft(s: Scn): Draft {
+  return {
+    graph: {
+      nodes: [
+        n("start", "trigger"),
+        n("request", "form_step", { action: "fill", start: true, form: s.forms.pc, rights: { default: "edit", fields: { u_aftab_pc_finance_note: "hidden", u_aftab_pc_paid_ref: "hidden" } } }, "ثبت درخواست"),
+        n("up", "form_step", { action: "approve", quorum: "any", form: s.forms.pc, rights: { default: "read", fields: {} }, assignees: [{ kind: "position", position: "aftab_area_head", where: "requester_unit_up" }] }, "تأیید رئیس حوزه"),
+        n("done", "end", { outcome: "completed" }),
+        n("rej", "end", { outcome: "rejected" }),
+      ],
+      edges: [e("start", "request"), e("request", "up"), e("up", "done", "approved"), e("up", "rej", "rejected")],
+    },
+    managers: s.ids("mehrdad"),
+  };
 }
 
 const LATE = (label: string) => `مهلت «${label}» به پایان رسید؛ پرونده از مسیر «پایان مهلت» ادامه یافت`;
@@ -97,6 +120,7 @@ export function w02(ref: EditionRef): void {
       await setupW2(s);
       const pub = await s.publish(W2.key, W2.name, w2Draft(s));
       expect(pub.problems.filter((p: { level: string }) => p.level === "error")).toEqual([]);
+      await s.publish("aftab_up_check", "تأیید رئیس حوزه (بالادست)", upDraft(s));
     }, 600_000);
 
     it("R1 a large amount with an invoice: the branch head, the finance deputies (any), the branch finance group's review; the requester reads the internal fields of requester_view", async () => {
@@ -181,6 +205,19 @@ export function w02(ref: EditionRef): void {
       await s.submit("bm_b0", r.case, "head", { outcome: "approved" });
       await s.settle();
       expect(await s.openAt(r.case, "pay")).toEqual(["fa1", "fa2", "mehrdad"]);
+    }, 300_000);
+
+    it("R4 (RC4) the nearest holder up the tree is the requester herself: the step goes one level up to the province's head", async () => {
+      const r = await s.start("somayeh", "aftab_up_check", { u_aftab_pc_amount: "1000000" });
+      await s.settle();
+      expect(await s.openAt(r.case, "up")).toEqual(["rh"]);
+    }, 300_000);
+
+    it("R4 (RC4) the nearest holder up the tree is one of the pack's people on the organisation's own case: the step goes one level up to the real head", async () => {
+      const r = await s.start("realemp", "aftab_up_check", { u_aftab_pc_amount: "1000000" });
+      await s.settle();
+      expect(await s.isDemo(r.case)).toBe(false);
+      expect(await s.openAt(r.case, "up")).toEqual(["rh"]);
     }, 300_000);
 
     it("R5 the branch head never acts: after 4 hours the escalation is journaled once; after a day «پایان مهلت» ends the case «پایان (منقضی)»", async () => {
