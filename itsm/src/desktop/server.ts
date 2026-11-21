@@ -154,11 +154,12 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   // not closed cleanly first replays its write-ahead log — minutes for gigabytes —, so this is the last the Electron main
   // process hears until the open is over (it waits as long as that takes, desktop/src/main.ts). A scheduled restore loads
   // its backup instead of this folder when the backup is there; a marker that names none (a file gone with its USB drive)
-  // is dropped below, and this folder opens and is inspected like any other. The backup is read into memory and this
-  // folder set aside only after the phase is told (takePendingRestore below): a large backup on a slow disk then takes
-  // its time within the open, which the main process waits for as long as it takes, not within the 90 s before it. The
-  // phase says `restore`: a restore cut short is not done again at the next start (its marker is gone, this folder set
-  // aside), so the splash asks in those words before it closes meanwhile.
+  // is dropped below, and this folder opens and is inspected like any other. This folder is set aside, and the backup
+  // extracted into a new one as a stream (extractBackup below), only after the phase is told: a large backup on a slow
+  // disk then takes its time within the open, which the main process waits for as long as it takes, not within the 90 s
+  // before it. The phase says `restore`: a restore cut short is not done again at the next start (its marker is gone;
+  // that start puts this folder back, restore.running of ./backup.ts), so the splash asks in those words before it closes
+  // meanwhile.
   const scheduled = !opts.memory && restorePending(opts.dataDir);
   const backupFile = scheduled ? scheduledBackup(opts.dataDir) : "";
   const restoring = !!backupFile && existsSync(backupFile);
