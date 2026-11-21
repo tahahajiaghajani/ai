@@ -3,7 +3,7 @@
 // `npm run start:local` for development and by the end-to-end tests.
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { createPgliteDb } from "@server/db/pglite";
@@ -114,6 +114,15 @@ function scheduledBackup(dataDir: string): string {
   }
 }
 
+/** A file's size in MB for app.log (0 when it cannot be read). */
+function sizeMb(file: string): number {
+  try {
+    return Math.round(statSync(file).size / MB);
+  } catch {
+    return 0;
+  }
+}
+
 /**
  * app.log's line of the open (tests/desktop-start.test.ts): the log's size and what pg_control says about the last close
  * — closed cleanly, not, or why that cannot be told —, with its state's number (./db-open.ts).
@@ -141,21 +150,27 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
   };
   // The database's open, told before it begins: PGlite opens it synchronously on this thread, and a database that was
   // not closed cleanly first replays its write-ahead log — minutes for gigabytes —, so this is the last the Electron main
-  // process hears until the open is over (it waits as long as that takes, desktop/src/main.ts). A scheduled restore is
-  // taken first — the backup read into memory, this folder set aside — and the open then loads the backup; a marker that
-  // names no backup there is dropped, and this folder opens and is inspected like any other. (The backup is read within
-  // the 90 s the main process gives the start before the open: a few hundred MB take about a second.)
+  // process hears until the open is over (it waits as long as that takes, desktop/src/main.ts). A scheduled restore loads
+  // its backup instead of this folder when the backup is there; a marker that names none (a file gone with its USB drive)
+  // is dropped below, and this folder opens and is inspected like any other. The backup is read into memory and this
+  // folder set aside only after the phase is told (takePendingRestore below): a large backup on a slow disk then takes
+  // its time within the open, which the main process waits for as long as it takes, not within the 90 s before it. The
+  // phase says `restore`: a restore cut short is not done again at the next start (its marker is gone, this folder set
+  // aside), so the splash asks in those words before it closes meanwhile.
   const scheduled = !opts.memory && restorePending(opts.dataDir);
   const backupFile = scheduled ? scheduledBackup(opts.dataDir) : "";
-  const restore = opts.memory ? null : takePendingRestore(opts.dataDir);
-  const opening: DatabaseOpening = opts.memory || restore ? { walMb: 0, recovery: null, state: null, unknown: restore ? "restoring a backup" : "in memory" } : inspectDatabase(dbDir);
-  if (scheduled && !restore) log.warn("a restore was scheduled but its backup file is missing; the current database is opened");
-  if (restore) log.info(`opening the database: restoring a backup (${basename(backupFile)}, ${Math.round(restore.data.length / MB)} MB)`);
+  const restoring = !!backupFile && existsSync(backupFile);
+  const opening: DatabaseOpening = opts.memory || restoring ? { walMb: 0, recovery: null, state: null, unknown: restoring ? "restoring a backup" : "in memory" } : inspectDatabase(dbDir);
+  if (scheduled && !restoring) log.warn("a restore was scheduled but its backup file is missing; the current database is opened");
+  if (restoring) log.info(`opening the database: restoring a backup (${basename(backupFile)}, ${sizeMb(backupFile)} MB)`);
   else if (!opts.memory) log.info(openingLine(opening));
-  tell({ phase: "database", walMb: opening.walMb, recovery: opening.recovery });
+  tell({ phase: "database", walMb: opening.walMb, recovery: opening.recovery, ...(restoring ? { restore: true as const } : {}) });
   // the line and the message are on their way before the open holds the thread
   if (!opts.memory) await new Promise<void>((r) => nextTurn(r));
   const openStart = performance.now();
+  // the scheduled restore taken (./backup.ts): the marker dropped, the backup read, this folder set aside
+  const restore = opts.memory ? null : takePendingRestore(opts.dataDir);
+  if (restoring && !restore) log.warn("a restore was scheduled but its backup file is missing; the current database is opened");
   // a first start: the database made at build time, when the app carries one
   const template = !opts.memory && !restore && !existsSync(join(dbDir, "PG_VERSION")) ? templateFor(opts.template) : null;
   let fromTemplate = false;

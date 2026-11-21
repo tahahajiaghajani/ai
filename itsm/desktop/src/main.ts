@@ -293,10 +293,10 @@ function createSplash() {
   });
   // Closing the splash (the taskbar's close, Alt+F4) while the database opens or is updated would stop the server
   // midway: it cannot hear a request to stop before it is ready (src/desktop/backend-entry.ts), so quit() kills it after
-  // 10 s, and a recovery then starts over at the next start, a migration is redone. So the person is asked first —
-  // caught here rather than with setClosable(false), which would leave the taskbar's close and Alt+F4 doing nothing.
-  // Before the open and once the start is over the splash closes as it always did; destroy() emits no 'close', so
-  // finishSplash and a failed start are never asked about.
+  // 10 s, and a recovery then starts over at the next start, a migration is redone — and a restore of a backup is left
+  // half-done, not done again. So the person is asked first — caught here rather than with setClosable(false), which
+  // would leave the taskbar's close and Alt+F4 doing nothing. Before the open and once the start is over the splash
+  // closes as it always did; destroy() emits no 'close', so finishSplash and a failed start are never asked about.
   splash.on("close", (e) => {
     const w = startWatch;
     if (quitting || !w) return;
@@ -304,23 +304,23 @@ function createSplash() {
     if (stage !== "database" && stage !== "migrations") return;
     e.preventDefault();
     // one question at a time (a question of the stall on screen already offers to quit)
-    if (!closeCtl && !stallCtl) askBeforeClose(stage, w.recovering);
+    if (!closeCtl && !stallCtl) askBeforeClose(stage, w.recovering, w.restoring);
   });
   splash.on("closed", () => (splash = null));
   void splashCall(`itsm.version(${JSON.stringify(`نسخهٔ ${faDigits(app.getVersion())}`)})`);
 }
 
 /**
- * The person closes the splash while the database opens or is updated: «صبر می‌کنم» keeps it, «بستن برنامه» stops the
- * server — killed after 10 s, as it cannot hear the request yet — and ends the app (CLOSE_BUTTONS). Ready, an error or
- * the server's exit withdraws the question (settle in startBackend).
+ * The person closes the splash while the database opens (or a backup is restored) or is updated: «صبر می‌کنم» keeps it,
+ * «بستن برنامه» stops the server — killed after 10 s, as it cannot hear the request yet — and ends the app
+ * (CLOSE_BUTTONS). Ready, an error or the server's exit withdraws the question (settle in startBackend).
  */
-function askBeforeClose(stage: "database" | "migrations", recovering: boolean) {
+function askBeforeClose(stage: "database" | "migrations", recovering: boolean, restoring: boolean) {
   const ctl = new AbortController();
   closeCtl = ctl;
-  const what = stage === "database" ? "open" : "update";
+  const what = stage === "migrations" ? "update" : restoring ? "restore" : "open";
   log(`[start] the person closes the splash during the database's ${what}: asking first`);
-  const q = closeQuestion(stage, recovering);
+  const q = closeQuestion(stage, recovering, restoring);
   const opts = { type: "warning" as const, title: APP_TITLE, message: q.message, detail: q.detail, buttons: [...CLOSE_BUTTONS], defaultId: 0, cancelId: 0, signal: ctl.signal };
   const asked = splash && !splash.isDestroyed() ? dialog.showMessageBox(splash, opts) : dialog.showMessageBox(opts);
   void asked.then(async ({ response }) => {
@@ -734,6 +734,9 @@ if (!app.requestSingleInstanceLock() && !isSmoke) {
     splashStep(0.06, 0.62, boot.text, boot.tau);
     try {
       const { url } = await startBackend();
+      // closed while it started (the person's «بستن برنامه», a close before the open) and the server got ready within
+      // quit()'s 10 s: quit() ends the app — no window opens on its way out
+      if (quitting) return;
       serverUrl = url;
       serverReady = true;
       splashStep(0.7, 0.88, "آماده‌سازی میز کار…", 1.6);

@@ -115,6 +115,23 @@ describe("the start's watch", () => {
     expect(closeQuestion("migrations", true)).toEqual(CLOSE_TEXT.migrations);
   });
 
+  it("knows a restore's open from the phase, and never says a restore cut short is done again", () => {
+    const w = createReadyWatch(0);
+    expect(w.restoring).toBe(false);
+    w.phase({ phase: "database", walMb: 0, recovery: null, restore: true }, 0);
+    expect(w.restoring).toBe(true);
+    expect(w.recovering).toBe(false);
+    w.phase({ phase: "migrations" }, 1_000);
+    expect(w.restoring).toBe(false);
+    const open = createReadyWatch(0);
+    open.phase({ phase: "database", walMb: 40, recovery: true }, 0);
+    expect(open.restoring).toBe(false);
+    // the takePendingRestore of src/desktop/backup.ts has dropped the marker and set the folder aside: nothing is redone
+    expect(closeQuestion("database", false, true)).toEqual(CLOSE_TEXT.restore);
+    expect(CLOSE_TEXT.restore.detail).not.toContain("از نو انجام می‌شود");
+    expect(closeQuestion("migrations", false, true)).toEqual(CLOSE_TEXT.migrations);
+  });
+
   it("counts every migration and schema step the server's output reports as progress", () => {
     expect(countProgress("[itsm] migration 0100_xid_revisions applied (249 ms)\n")).toBe(1);
     // the engine's chunks and every reconcile chunk are logged as schema steps (src/server/db/migrate.ts)
@@ -127,6 +144,8 @@ describe("the start's watch", () => {
     expect(parseStartPhase({ type: "phase", phase: "database", walMb: 3204.4, recovery: true })).toEqual({ phase: "database", walMb: 3204, recovery: true });
     expect(parseStartPhase({ type: "phase", phase: "database", walMb: 12 })).toEqual({ phase: "database", walMb: 12, recovery: null });
     expect(parseStartPhase({ type: "phase", phase: "database", walMb: "a lot", recovery: "yes" })).toEqual({ phase: "database", walMb: 0, recovery: null });
+    expect(parseStartPhase({ type: "phase", phase: "database", walMb: 0, recovery: null, restore: true })).toStrictEqual({ phase: "database", walMb: 0, recovery: null, restore: true });
+    expect(parseStartPhase({ type: "phase", phase: "database", walMb: 0, recovery: null, restore: "yes" })).toStrictEqual({ phase: "database", walMb: 0, recovery: null });
     expect(parseStartPhase({ type: "phase", phase: "migrations" })).toEqual({ phase: "migrations" });
     for (const m of [null, "phase", { type: "ready", url: "http://127.0.0.1:3939" }, { type: "phase", phase: "elsewhere" }]) expect(parseStartPhase(m)).toBeNull();
   });
@@ -623,6 +642,42 @@ describe("the Windows app's main process waits for its local server by phase (de
     expect(h.windows.map((w) => w.url)).toContain("http://127.0.0.1:3939");
     expect(child.posted).toEqual([]);
     expect(h.exits).toEqual([]);
+  });
+
+  it("opens no window once the person has closed the app, when the server gets ready within the 10 s it is given", async () => {
+    const { child, splash } = await launch();
+    child.emit("message", { type: "phase", phase: "database", walMb: 12, recovery: false });
+    child.emit("message", { type: "phase", phase: "migrations" });
+    await vi.advanceTimersByTimeAsync(MIN);
+    splash.close();
+    await flush();
+    h.dialogs[0].answer(1); // «بستن برنامه»
+    await flush();
+    expect(child.posted).toEqual([{ type: "shutdown" }]);
+    // the last migration finishes meanwhile: the server is ready (and then reads the shutdown it was sent)
+    child.emit("message", READY);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await flush();
+    expect(h.windows.filter((w) => w !== splash)).toEqual([]);
+    expect(h.exits).toEqual([0]);
+  });
+
+  it("does not say a restore of a backup is done again when the splash closes during it", async () => {
+    const { child, splash } = await launch();
+    // the server's phase of a scheduled restore (src/desktop/server.ts): its backup is read and loaded now
+    child.emit("message", { type: "phase", phase: "database", walMb: 0, recovery: null, restore: true });
+    await vi.advanceTimersByTimeAsync(40_000);
+    splash.close();
+    await flush();
+    expect(splash.destroyed).toBe(false);
+    expect(h.dialogs).toHaveLength(1);
+    // takePendingRestore has dropped the marker and set the database folder aside: a restore cut short is not redone,
+    // the next start opens no database (a first start) or half of one — the open's «از نو انجام می‌شود» would be untrue
+    expect(h.dialogs[0].opts).toMatchObject({ message: CLOSE_TEXT.restore.message, detail: CLOSE_TEXT.restore.detail, buttons: [...CLOSE_BUTTONS], cancelId: 0 });
+    h.dialogs[0].answer(0);
+    await flush();
+    expect(child.posted).toEqual([]);
+    expect(appLog()).toContain("[start] the person closes the splash during the database's restore: asking first");
   });
 
   it("asks nothing when the splash closes before the open: the app quits as it always did", async () => {

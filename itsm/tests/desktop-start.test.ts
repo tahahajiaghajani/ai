@@ -442,6 +442,7 @@ describe("the server tells the Windows app before its database opens (§22)", ()
     try {
       // 1.1.3 skipped the inspection for any scheduled restore: { walMb: 0, recovery: null } and «restoring a backup»
       expect(phases).toEqual([{ phase: "database", walMb: left.walMb, recovery: true }, { phase: "migrations" }]);
+      expect(phases[0]).not.toHaveProperty("restore");
       expect(log.lines).toContain("a restore was scheduled but its backup file is missing; the current database is opened");
       expect(log.lines).toContain(`opening the database: write-ahead log ${left.walMb} MB; not closed cleanly (state 6), so its log is replayed first`);
       expect(log.lines.filter((l) => l.includes("restoring a backup"))).toEqual([]);
@@ -452,7 +453,7 @@ describe("the server tells the Windows app before its database opens (§22)", ()
     }
   });
 
-  it("names the backup a scheduled restore loads, with its size, and knows nothing of the folder it sets aside", async () => {
+  it("tells a scheduled restore as one, names its backup with its size, and takes the backup only once that is told", async () => {
     const { dir, db } = await closedCleanly("data-restore");
     const { createPgliteDb } = await import("@server/db/pglite");
     const open = await createPgliteDb({ dataDir: db, wal: false });
@@ -461,9 +462,21 @@ describe("the server tells the Windows app before its database opens (§22)", ()
     scheduleRestore(dir, backup.file);
     const log = capture();
     const phases: StartPhase[] = [];
-    const s = await startLocal({ dataDir: dir, staticDir, port: 0, log, onPhase: (p) => phases.push(p) });
+    const atPhase: { marker: boolean; folder: boolean }[] = [];
+    const onPhase = (p: StartPhase) => {
+      phases.push(p);
+      if (p.phase === "database") atPhase.push({ marker: existsSync(join(dir, "restore.pending")), folder: existsSync(join(db, "PG_VERSION")) });
+    };
+    const s = await startLocal({ dataDir: dir, staticDir, port: 0, log, onPhase });
     try {
-      expect(phases).toEqual([{ phase: "database", walMb: 0, recovery: null }, { phase: "migrations" }]);
+      // the splash asks in a restore's own words before it closes (a restore cut short is not done again)
+      expect(phases).toEqual([{ phase: "database", walMb: 0, recovery: null, restore: true }, { phase: "migrations" }]);
+      // the backup is read and this folder set aside within the open, which the main process waits for as long as it
+      // takes — not in the 90 s before it, where a large backup on a slow disk brought up «سرور داخلی برنامه هنوز پاسخ
+      // نداده است» and an answer to it dropped the restore (its marker already gone)
+      expect(atPhase).toEqual([{ marker: true, folder: true }]);
+      expect(existsSync(join(dir, "restore.pending"))).toBe(false);
+      expect(readdirSync(dir).filter((f) => f.startsWith("db-before-restore-"))).toHaveLength(1);
       expect(log.lines).toContain(`opening the database: restoring a backup (${basename(backup.file)}, ${Math.round(backup.size / (1024 * 1024))} MB)`);
       expect(log.lines.some((l) => l.startsWith("a restore was scheduled"))).toBe(false);
       expect((await (await fetch(`${s.url}/api/health`)).json()).ok).toBe(true);

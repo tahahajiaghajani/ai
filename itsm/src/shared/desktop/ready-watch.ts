@@ -43,6 +43,12 @@ export type StartPhase =
       walMb: number;
       /** true: not closed cleanly, PostgreSQL replays the log first; false: closed cleanly; null: unknown or a new database */
       recovery: boolean | null;
+      /**
+       * true: a scheduled restore — the open reads a backup and loads it in place of the data folder, which it sets aside
+       * first. A restore cut short is not done again at the next start (src/desktop/backup.ts), so closing the splash
+       * meanwhile is asked about in its own words (CLOSE_TEXT.restore)
+       */
+      restore?: true;
     }
   | { phase: "migrations" };
 
@@ -78,6 +84,8 @@ export interface ReadyWatch {
   readonly stage: StartStage;
   /** while the database opens: whether it replays its log first (a recovery, as far as the server could tell) */
   readonly recovering: boolean;
+  /** while the database opens: whether the open is a scheduled restore's (the phase's `restore`) */
+  readonly restoring: boolean;
   /** the server reported a phase (a sign of progress) */
   phase(p: StartPhase, at: number): void;
   /** the server showed progress (a migration or schema step applied), or the person chose to wait on: the budget starts again */
@@ -95,7 +103,7 @@ export function createReadyWatch(startedAt: number, options: ReadyWatchOptions =
   const migrationsCeiling = options.migrationsCeilingMs ?? MIGRATIONS_CEILING_MS;
   let stage: StartStage = "starting";
   let lastSign = startedAt;
-  let opening: { at: number; walMb: number; recovery: boolean | null } | null = null;
+  let opening: { at: number; walMb: number; recovery: boolean | null; restore: boolean } | null = null;
   let migratingSince: number | null = null;
   /** a large log of a database not known to be closed cleanly */
   const large = (o: { walMb: number; recovery: boolean | null }) => o.walMb >= largeWal && o.recovery !== false;
@@ -108,10 +116,13 @@ export function createReadyWatch(startedAt: number, options: ReadyWatchOptions =
     get recovering() {
       return !!opening && replays(opening);
     },
+    get restoring() {
+      return !!opening?.restore;
+    },
     phase(p, at) {
       stage = p.phase;
       lastSign = Math.max(lastSign, at);
-      opening = p.phase === "database" ? { at, walMb: p.walMb, recovery: p.recovery } : null;
+      opening = p.phase === "database" ? { at, walMb: p.walMb, recovery: p.recovery, restore: p.restore === true } : null;
       migratingSince = p.phase === "migrations" ? at : null;
     },
     progress(at) {
@@ -146,7 +157,7 @@ export function parseStartPhase(m: unknown): StartPhase | null {
   if (o.phase !== "database") return null;
   const walMb = typeof o.walMb === "number" && Number.isFinite(o.walMb) && o.walMb > 0 ? Math.round(o.walMb) : 0;
   const recovery = typeof o.recovery === "boolean" ? o.recovery : null;
-  return { phase: "database", walMb, recovery };
+  return { phase: "database", walMb, recovery, ...(o.restore === true ? { restore: true as const } : {}) };
 }
 
 /**
@@ -219,12 +230,22 @@ export const CLOSE_TEXT = {
     message: "به‌روزرسانی پایگاه داده هنوز تمام نشده است",
     detail: "اگر اکنون ببندید، مرحلهٔ نیمه‌کارهٔ به‌روزرسانی در اجرای بعدی از نو انجام می‌شود.",
   },
+  /**
+   * while a scheduled restore loads its backup (ReadyWatch.restoring): unlike an open, a restore cut short is not done
+   * again — its marker is gone and the database folder set aside, so the next start finds no database (a first start)
+   * or half of one
+   */
+  restore: {
+    message: "بازگردانی نسخهٔ پشتیبان هنوز تمام نشده است",
+    detail: "اگر اکنون ببندید، بازگردانی نیمه‌کاره می‌ماند و ممکن است برنامه در اجرای بعدی باز نشود یا بی‌داده باز شود. بهتر است صبر کنید تا برنامه باز شود.",
+  },
 } as const;
 /** Its answers: 0 keeps the splash (also Esc, and a question withdrawn because the start ended), 1 closes the app. */
 export const CLOSE_BUTTONS: readonly string[] = ["صبر می‌کنم", "بستن برنامه"];
 
-/** The close question's two texts for the stage the start is in. */
-export function closeQuestion(stage: "database" | "migrations", recovering: boolean): { message: string; detail: string } {
+/** The close question's two texts for the stage the start is in (and, while the database opens, what the open is). */
+export function closeQuestion(stage: "database" | "migrations", recovering: boolean, restoring = false): { message: string; detail: string } {
   if (stage === "migrations") return CLOSE_TEXT.migrations;
+  if (restoring) return CLOSE_TEXT.restore;
   return { message: CLOSE_TEXT.database.message, detail: recovering ? CLOSE_TEXT.database.recovery : CLOSE_TEXT.database.otherwise };
 }
