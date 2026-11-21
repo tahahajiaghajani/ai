@@ -5,7 +5,7 @@ import { describe, it, expect, afterAll } from "vitest";
 import { createPgliteDb } from "@server/db/pglite";
 import { createUpkeep, upkeepPlan, estimateBytes, UPKEEP_DEFAULTS, type UpkeepRow } from "@local/upkeep";
 import { createHeavyLock } from "@local/heavy";
-import { readMaintState, writeMaintState, startupMaintenance } from "@local/maintenance";
+import { readMaintState, writeMaintState, startupMaintenance, ANALYZE_FACTOR } from "@local/maintenance";
 import { capture, cleanFolders, folder, openDb } from "./desktop-maint-helpers";
 
 afterAll(cleanFolders);
@@ -149,6 +149,30 @@ describe("the idle upkeep", () => {
     }
   });
 
+  it("counts the ANALYZE a vacuum runs with against the budget: a never-analysed table that only its vacuum would fit waits", async () => {
+    const f = folder();
+    const db = watched(await openDb(f));
+    try {
+      // never analysed (reltuples -1), as every table of a 1.1.x folder: the sweep vacuums and analyses it in one statement;
+      // ANALYZE took up to five times its VACUUM on the review's copy (sm_history: 172 ms against 38 ms), 378 ms in all
+      // against an estimate of about 24 ms at the throughput VACUUM FULL had taught
+      await db.exec(`create table up_wide (id int primary key, a text, b text, c jsonb); insert into up_wide select g, md5(g::text), repeat('w', 120), jsonb_build_object('k', g, 'v', md5((g * 3)::text)) from generate_series(1, 6000) g`);
+      const heap = Number((await db.one<{ b: number }>(`select pg_relation_size('up_wide')::float8 as b`))!.b);
+      expect(Number((await db.one<{ t: number }>(`select reltuples::float8 as t from pg_class where relname = 'up_wide'`))!.t)).toBe(-1);
+      // a throughput whose 1 s budget takes the table's VACUUM, not its VACUUM with the ANALYZE
+      const mbPerS = (heap * 2) / (1024 * 1024);
+      await writeMaintState(db, { lsn: "0/0", looked_at: new Date().toISOString(), mb_per_s: mbPerS });
+      const up = createUpkeep({ db, log: capture(), quietMs: () => 6 * MIN, lock: createHeavyLock(), dataDir: f.dataDir, sleep: async () => {} });
+      db.statements.length = 0;
+      const r = await up.pass();
+      expect(r.deferred).toContain("public.up_wide");
+      expect(vacuums(db.statements).some((s) => s.includes(`"up_wide"`))).toBe(false);
+      await up.stop();
+    } finally {
+      await db.close();
+    }
+  });
+
   it("writes and says nothing at the passes after it left a table for the next start, until something changes", async () => {
     const f = folder();
     const db = watched(await openDb(f));
@@ -257,7 +281,9 @@ describe("the upkeep's plan", () => {
     // pages not all-visible, growth since the last vacuum, indexes when there are dead rows
     expect(estimateBytes({ relpages: 100, relallvisible: 60, n_dead_tup: 0 }, "vacuum", { heap: 120 * 8192, index: 50 * 8192 })).toBe(60 * 8192);
     expect(estimateBytes({ relpages: 100, relallvisible: 60, n_dead_tup: 5 }, "vacuum", { heap: 100 * 8192, index: 50 * 8192 })).toBe(90 * 8192);
-    expect(estimateBytes({ relpages: 100_000, relallvisible: 0, n_dead_tup: 0 }, "analyze", { heap: 100_000 * 8192, index: 0 })).toBe(30_000 * 8192);
+    // ANALYZE: at most 30 000 pages, at several times a VACUUM's cost per byte; also when it rides on a vacuum
+    expect(estimateBytes({ relpages: 100_000, relallvisible: 0, n_dead_tup: 0 }, "analyze", { heap: 100_000 * 8192, index: 0 })).toBe(30_000 * 8192 * ANALYZE_FACTOR);
+    expect(estimateBytes({ relpages: 0, relallvisible: 0, n_dead_tup: 0 }, "sweep", { heap: 200 * 8192, index: 0 }, true)).toBe(200 * 8192 * (1 + ANALYZE_FACTOR));
   });
 });
 

@@ -20,7 +20,7 @@ import type { Db } from "@server/db";
 import type { Logger } from "@server/context";
 import type { PgliteDb } from "@server/db/pglite";
 import type { HeavyLock } from "./heavy";
-import { MAINT_DEFAULTS, OFF_FILE, nextMbPerS, readMaintState, writeMaintState, type MaintState } from "./maintenance";
+import { MAINT_DEFAULTS, OFF_FILE, analyzeBytes, nextMbPerS, readMaintState, writeMaintState, type MaintState } from "./maintenance";
 
 const MB = 1024 * 1024;
 const PAGE = 8192;
@@ -119,14 +119,20 @@ export function upkeepPlan(rows: readonly UpkeepRow[], sweep: { due: boolean; cu
   return out;
 }
 
-/** What one statement reads, estimated: pages not all-visible, the table's growth since its last vacuum, its indexes when it has dead rows (pure). */
-export function estimateBytes(r: Pick<UpkeepRow, "relpages" | "relallvisible" | "n_dead_tup">, kind: UpkeepKind, size: { heap: number; index: number }): number {
+/**
+ * What one statement costs, estimated in the bytes of a VACUUM's throughput: pages not all-visible, the table's growth
+ * since its last vacuum, its indexes when it has dead rows — and the ANALYZE it runs (an analyze item, or a vacuum that
+ * analyses too: every never-analysed table of a 1.1.x folder in the first sweep), which costs several times a VACUUM's
+ * time per byte (./maintenance.ts ANALYZE_FACTOR). Pure.
+ */
+export function estimateBytes(r: Pick<UpkeepRow, "relpages" | "relallvisible" | "n_dead_tup">, kind: UpkeepKind, size: { heap: number; index: number }, analyze = kind === "analyze"): number {
   const pages = Math.max(r.relpages, Math.ceil(size.heap / PAGE));
-  if (kind === "analyze") return Math.min(pages, 30_000) * PAGE;
-  if (kind === "freeze") return size.heap + (r.n_dead_tup > 0 ? size.index : 0);
+  const sampled = analyze ? analyzeBytes(pages * PAGE) : 0;
+  if (kind === "analyze") return sampled;
+  if (kind === "freeze") return size.heap + (r.n_dead_tup > 0 ? size.index : 0) + sampled;
   const notVisible = Math.max(0, r.relpages - r.relallvisible) * PAGE;
   const growth = Math.max(0, size.heap - r.relpages * PAGE);
-  return notVisible + growth + (r.n_dead_tup > 0 ? size.index : 0);
+  return notVisible + growth + (r.n_dead_tup > 0 ? size.index : 0) + sampled;
 }
 
 const PLAN_SQL = `select c.oid::int8 as oid, n.nspname as schema, c.relname as name, c.relpages::int8 as relpages, c.reltuples::float8 as reltuples,
@@ -277,7 +283,7 @@ export function createUpkeep(c: UpkeepConfig): Upkeep {
         break;
       }
       if (!size.value) continue; // dropped meanwhile
-      const bytes = estimateBytes(row, item.kind, { heap: Number(size.value.heap), index: Number(size.value.index) });
+      const bytes = estimateBytes(row, item.kind, { heap: Number(size.value.heap), index: Number(size.value.index) }, item.analyze);
       const budget = (budgetMs / 1000) * (mbPerS && mbPerS > 0 ? mbPerS : o.startMbPerS) * MB;
       if (bytes > budget) {
         deferred.add(item.table);

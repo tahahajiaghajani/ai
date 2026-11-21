@@ -155,6 +155,18 @@ export async function writeMaintState(db: Pick<Db, "query">, patch: Partial<Main
   ]);
 }
 
+/**
+ * ANALYZE's cost per byte of the table it samples, as a multiple of a VACUUM's: it reads up to 30 000 pages and computes
+ * every column's statistics over the rows it samples. Measured on the review's copy of the beta loop's folder: 0.6–5×
+ * (sm_history: ANALYZE 172 ms, its VACUUM 38 ms), while a VACUUM of a never-vacuumed table ran at about the throughput
+ * VACUUM FULL had taught (247–449 MB/s against 451 MB/s).
+ */
+export const ANALYZE_FACTOR = 5;
+/** What ANALYZE of a table whose heap is `heapBytes` costs, in the bytes of a VACUUM's throughput (`mb_per_s`). */
+export function analyzeBytes(heapBytes: number): number {
+  return Math.min(Math.max(0, heapBytes), 30_000 * PAGE) * ANALYZE_FACTOR;
+}
+
 /** A moving average of this computer's throughput (MB/s), from `bytes` done in `ms`. */
 export function nextMbPerS(prev: number | undefined, bytes: number, ms: number, start = MAINT_DEFAULTS.startMbPerS): number {
   const old = prev && Number.isFinite(prev) && prev > 0 ? prev : start;
@@ -429,7 +441,8 @@ export function planCompaction(tables: readonly TableMeasure[], state: Pick<Main
   const vacuum = [...new Set(state?.deferred ?? [])].filter((q) => !names.has(q.replace(/^public\./, "")));
   const rate = (state?.mb_per_s && state.mb_per_s > 0 ? state.mb_per_s : opt.startMbPerS) * MB;
   const byName = new Map(tables.map((t) => [`public.${t.name}`, t]));
-  const work = chosen.reduce((n, t) => n + t.heap + t.toast + t.index, 0) + vacuum.reduce((n, q) => n + (byName.get(q) ? byName.get(q)!.heap + byName.get(q)!.index : 16 * MB), 0);
+  // a deferred table's VACUUM (ANALYZE): its heap and indexes, and the ANALYZE that rides on it
+  const work = chosen.reduce((n, t) => n + t.heap + t.toast + t.index, 0) + vacuum.reduce((n, q) => n + (byName.get(q) ? byName.get(q)!.heap + byName.get(q)!.index + analyzeBytes(byName.get(q)!.heap) : 16 * MB), 0);
   const estimateMs = Math.round((work / rate) * 1000);
   return { compact: chosen, vacuum, reclaim: chosen.reduce((n, t) => n + t.reclaim, 0), run: run || vacuum.length > 0, estimateMs, notify: chosen.length > 0 || estimateMs > opt.notifyAfterMs };
 }
@@ -632,7 +645,7 @@ export async function startupMaintenance<D extends MaintDb>(db: D, o: StartupOpt
    */
   const analyzeJobs = async () => {
     const pages = Number((await db.one<{ b: number }>(`select pg_relation_size('sm_jobs')::float8 as b`))?.b ?? 0) / PAGE;
-    const estimate = (Math.min(pages, 30_000) * PAGE) / ((report.gate?.state?.mb_per_s || opt.startMbPerS) * MB);
+    const estimate = analyzeBytes(pages * PAGE) / ((report.gate?.state?.mb_per_s || opt.startMbPerS) * MB);
     if (estimate * 1000 > opt.notifyAfterMs && !notified) {
       o.notify?.();
       notified = true;
@@ -779,7 +792,7 @@ export async function startupMaintenance<D extends MaintDb>(db: D, o: StartupOpt
     report.pending = [...pending];
     if (gate.jobsUnanalysed && !report.compacted.includes("sm_jobs")) await analyzeJobs();
     // what the idle upkeep could not do within its budget (./upkeep.ts)
-    const sizes = new Map(m.tables.map((t) => [`public.${t.name}`, t.heap + t.toast]));
+    const sizes = new Map(m.tables.map((t) => [`public.${t.name}`, { scanned: t.heap + t.toast, work: t.heap + t.toast + analyzeBytes(t.heap) }]));
     for (const q of plan.vacuum) {
       const tv = performance.now();
       try {
@@ -789,10 +802,11 @@ export async function startupMaintenance<D extends MaintDb>(db: D, o: StartupOpt
         continue;
       }
       const ms = performance.now() - tv;
-      const bytes = sizes.get(q) ?? 0;
-      mbPerS = nextMbPerS(mbPerS, bytes, ms, opt.startMbPerS);
+      const bytes = sizes.get(q) ?? { scanned: 0, work: 0 };
+      // the throughput in the idle upkeep's unit: the ANALYZE of this statement counted as its estimate counts it
+      mbPerS = nextMbPerS(mbPerS, bytes.work, ms, opt.startMbPerS);
       report.vacuumed.push(q);
-      log.info(`maintenance step vacuum:${shortName(q)} applied (deferred, ${fmtBytes(bytes)} scanned, ${secs(ms)})`);
+      log.info(`maintenance step vacuum:${shortName(q)} applied (deferred, ${fmtBytes(bytes.scanned)} scanned, ${secs(ms)})`);
     }
     if (report.vacuumed.length) await db.exec(`vacuum (only_database_stats)`);
     if (freeze) {
