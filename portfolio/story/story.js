@@ -1,7 +1,8 @@
 /* Taha Aghajani — portfolio story. One timeline, rendered frame by frame: window.renderAt(seconds). */
 (() => {
-  const DUR = 17.0; // the finished end card is held for four seconds: time to read it and take a screenshot
-  const A2 = 4.1, A3 = 7.5, A4 = 10.4; // act starts
+  const DUR = 17.2; // the finished end card is held for four seconds: time to read it and take a screenshot
+  const A2 = 3.5, A3 = 7.5, A4 = 10.9; // act starts
+  const R0 = 0.5; // the film opens on the portrait already drawn in dots: a face in the very first frame
   const STILL = new URLSearchParams(location.search).has("still");
   if (STILL) document.body.classList.add("still");
   const FRAME_W = 936, FRAME_H = STILL ? 976 : 1170;
@@ -84,7 +85,7 @@ void main() {
   gl_FragColor = vec4(vec3(c), 1.0);
 }`;
 
-  const st = { reveal: 0.2, scroll: 0, scan: -1 };
+  const st = { reveal: R0, scroll: 0, scan: -1 };
   const cv = $("#gl");
   const dpr = window.devicePixelRatio || 1;
   cv.width = Math.round(FRAME_W * dpr);
@@ -149,16 +150,15 @@ void main() {
 
   /* ------------------------------------------------------------------ detection boxes */
   const DETS = [
-    { label: "person", score: 0.997, box: [0.02, 0.14, 0.9, 0.995], at: 1.85 },
-    { label: "taha_aghajani", score: 0.998, box: [0.32, 0.215, 0.62, 0.47], at: 2.15 },
-    { label: "wristwatch", score: 0.942, box: [0.35, 0.728, 0.455, 0.815], at: 2.55 },
+    { label: "person", score: 0.997, box: [0.02, 0.14, 0.9, 0.995], at: 1.1 },
+    { label: "taha_aghajani", score: 0.998, box: [0.32, 0.215, 0.62, 0.47], at: 1.4 },
+    { label: "wristwatch", score: 0.942, box: [0.35, 0.728, 0.455, 0.815], at: 1.72 },
   ];
   const dets = $("#dets");
   const ASPECT = FRAME_W / FRAME_H; // the square photo is cropped to this width
   const fromHero = (x) => (x * 0.8 + 0.1 - (1 - ASPECT) / 2) / ASPECT; // hero frame (4:5) → photo → this frame
   DETS.forEach((d, i) => {
-    let [x0, y0, x1, y1] = [fromHero(d.box[0]), d.box[1], fromHero(d.box[2]), d.box[3]];
-    if (STILL && i === 0) x0 = 0.31; // the poster keeps the person's box clear of the code in the corner
+    const [x0, y0, x1, y1] = [fromHero(d.box[0]), d.box[1], fromHero(d.box[2]), d.box[3]];
     const el = document.createElement("div");
     el.className = "box";
     el.style.cssText = `left:${x0 * 100}%;top:${y0 * 100}%;width:${(x1 - x0) * 100}%;height:${(y1 - y0) * 100}%`;
@@ -245,8 +245,8 @@ void main() {
   gsap.set("#a2eb", { opacity: 0, x: 24 });
   gsap.set("#verbs", { opacity: 0 });
   gsap.set("#a3", { autoAlpha: 0 });
-  gsap.set("#col1", { y: -10 });
-  gsap.set("#col2", { y: -150 });
+  gsap.set("#col1", { y: -6 });
+  gsap.set("#col2", { y: -60 });
   gsap.set([".st .big > span"], { yPercent: 118 });
   gsap.set(".fact", { opacity: 0, y: 28 });
   gsap.set(".bank", { opacity: 0, scale: 0.9 });
@@ -256,14 +256,14 @@ void main() {
   gsap.set("#ubox", { opacity: 0, scale: 1.05, transformOrigin: "50% 50%" });
 
   // ---- act 1: the portrait as a vision model sees it
-  const SCAN_AT = 1.45, SCAN_END = 2.91;
-  tl.to(st, { reveal: 1, duration: 2.0, ease: "power2.inOut" }, 0);
-  tl.fromTo(st, { scan: -0.1 }, { scan: 1.1, duration: 1.45, ease: "power1.inOut", immediateRender: false }, SCAN_AT);
+  const SCAN_AT = 0.7, SCAN_END = 2.06;
+  tl.to(st, { reveal: 1, duration: 1.3, ease: "power1.out" }, 0);
+  tl.fromTo(st, { scan: -0.1 }, { scan: 1.1, duration: 1.35, ease: "power1.inOut", immediateRender: false }, SCAN_AT);
   tl.set(st, { scan: -1 }, SCAN_END);
   DETS.forEach((d) => tl.to(d.el, { opacity: 1, scale: 1, duration: 0.55 }, d.at));
-  tl.to("#scrim", { opacity: 1, duration: 0.8, ease: "power2.out" }, 2.5);
-  tl.to("#nfirst", { yPercent: 0, duration: 1.1 }, 2.75);
-  tl.to("#nlast", { yPercent: 0, duration: 1.1 }, 2.87);
+  tl.to("#scrim", { opacity: 1, duration: 0.8, ease: "power2.out" }, 1.7);
+  tl.to("#nfirst", { yPercent: 0, duration: 1.1 }, 1.9);
+  tl.to("#nlast", { yPercent: 0, duration: 1.1 }, 2.02);
 
   // ---- act 2: the statement (the portrait dissolves into large dots first, then steps back behind the words)
   tl.to(".box", { opacity: 0, duration: 0.35, ease: "power2.in" }, A2);
@@ -274,69 +274,68 @@ void main() {
   tl.to(st, { scroll: 1, duration: 1.0, ease: "power2.inOut" }, A2);
   tl.to("#gl", { opacity: 0.13, duration: 0.5, ease: "power2.inOut" }, A2 + 0.4);
   tl.set("#a2", { autoAlpha: 1 }, A2 + 0.5);
-  tl.to("#a2eb", { opacity: 1, x: 0, duration: 0.8 }, A2 + 0.7);
-  tl.to("#verbs", { opacity: 1, duration: 0.8, ease: "power2.out" }, A2 + 0.75);
-  lead1.forEach((w, i) => tl.to(w, { opacity: 1, duration: 0.4, ease: "power2.out" }, A2 + 0.9 + i * 0.075));
+  tl.to("#a2eb", { opacity: 1, x: 0, duration: 0.8 }, A2 + 0.6);
+  tl.to("#verbs", { opacity: 1, duration: 0.8, ease: "power2.out" }, A2 + 0.65);
+  lead1.forEach((w, i) => tl.to(w, { opacity: 1, duration: 0.4, ease: "power2.out" }, A2 + 0.8 + i * 0.075));
   const light = (v, at) => {
     tl.to(verbs[v], { color: "#f3f3ef", duration: 0.45, ease: "power2.out" }, at);
     tl.to(verbs[v].querySelector("span"), { color: "#9b9b96", duration: 0.45, ease: "power2.out" }, at);
   };
-  tl.to("#v1", { yPercent: 0, duration: 0.95 }, A2 + 1.25);
-  light(0, A2 + 1.35);
-  tl.to("#v2", { yPercent: 0, duration: 0.95 }, A2 + 1.65);
-  light(1, A2 + 1.75);
-  lead2.forEach((w, i) => tl.to(w, { opacity: 1, duration: 0.4, ease: "power2.out" }, A2 + 2.0 + i * 0.075));
-  tl.to("#v3", { yPercent: 0, duration: 0.95 }, A2 + 2.15);
-  light(2, A2 + 2.25);
+  tl.to("#v1", { yPercent: 0, duration: 0.95 }, A2 + 1.1);
+  light(0, A2 + 1.2);
+  tl.to("#v2", { yPercent: 0, duration: 0.95 }, A2 + 1.5);
+  light(1, A2 + 1.6);
+  lead2.forEach((w, i) => tl.to(w, { opacity: 1, duration: 0.4, ease: "power2.out" }, A2 + 1.85 + i * 0.075));
+  tl.to("#v3", { yPercent: 0, duration: 0.95 }, A2 + 2.0);
+  light(2, A2 + 2.1);
 
   // ---- act 3: the work, the numbers, the banks
-  tl.to("#st", { yPercent: -6, opacity: 0, duration: 0.45, ease: "power2.in" }, A3);
-  tl.to(["#a2eb", "#verbs"], { opacity: 0, duration: 0.4, ease: "power2.in" }, A3);
-  tl.to("#gl", { opacity: 0, duration: 0.45, ease: "power2.in" }, A3);
-  tl.set("#a2", { autoAlpha: 0 }, A3 + 0.46);
-  tl.set("#a3", { autoAlpha: 1 }, A3 + 0.3);
-  tl.fromTo("#wall", { opacity: 0 }, { opacity: 1, duration: 0.7, ease: "power2.out", immediateRender: true }, A3 + 0.3);
-  tl.to("#col1", { y: -150, duration: A4 - A3 + 0.9, ease: "none" }, A3);
-  tl.to("#col2", { y: -30, duration: A4 - A3 + 0.9, ease: "none" }, A3);
+  tl.to("#st", { yPercent: -6, opacity: 0, duration: 0.35, ease: "power2.in" }, A3);
+  tl.to(["#a2eb", "#verbs"], { opacity: 0, duration: 0.35, ease: "power2.in" }, A3);
+  tl.to("#gl", { opacity: 0, duration: 0.35, ease: "power2.in" }, A3);
+  tl.set("#a2", { autoAlpha: 0 }, A3 + 0.36);
+  tl.set("#a3", { autoAlpha: 1 }, A3 + 0.36);
+  tl.fromTo("#wall", { opacity: 0 }, { opacity: 1, duration: 0.6, ease: "power2.out", immediateRender: true }, A3 + 0.36);
+  tl.to("#col1", { y: -46, duration: A4 - A3 + 0.9, ease: "none" }, A3);
+  tl.to("#col2", { y: -20, duration: A4 - A3 + 0.9, ease: "none" }, A3);
   // the pictures turn to colour, as they do on the site under the pointer
   const sat = { v: 0 };
-  tl.to(sat, { v: 1, duration: 0.9, ease: "power2.inOut" }, A3 + 1.05);
-  const counts = { a: 0, b: 0, c: 0 };
+  tl.to(sat, { v: 1, duration: 0.8, ease: "power2.inOut" }, A3 + 0.4);
+  const counts = { a: 1, b: 1, c: 1 };
   document.querySelectorAll(".fact").forEach((f, i) => {
-    tl.to(f, { opacity: 1, y: 0, duration: 0.8 }, A3 + 0.55 + i * 0.13);
+    tl.to(f, { opacity: 1, y: 0, duration: 0.8 }, A3 + 0.7 + i * 0.13);
   });
-  tl.to(counts, { a: 11, duration: 1.0, ease: "power2.out" }, A3 + 0.6);
-  tl.to(counts, { b: 5, duration: 0.9, ease: "power2.out" }, A3 + 0.73);
-  tl.to(counts, { c: 1, duration: 0.5, ease: "power2.out" }, A3 + 0.86);
+  tl.to(counts, { a: 11, duration: 0.8, ease: "power2.out" }, A3 + 0.7);
+  tl.to(counts, { b: 5, duration: 0.7, ease: "power2.out" }, A3 + 0.83);
   document.querySelectorAll(".bank").forEach((b, i) => {
-    tl.to(b, { opacity: 1, scale: 1, duration: 0.7 }, A3 + 1.3 + i * 0.08);
+    tl.to(b, { opacity: 1, scale: 1, duration: 0.6 }, A3 + 1.25 + i * 0.07);
   });
 
   // ---- act 4: the address
-  tl.fromTo("#a3", { clipPath: "inset(0% 0% 0% 0%)" }, { clipPath: "inset(0% 0% 100% 0%)", duration: 0.7, ease: "expo.inOut", immediateRender: false }, A4);
-  tl.to("#edge", { opacity: 0, duration: 0.5, ease: "power2.in" }, A4 + 0.15);
+  tl.fromTo("#a3", { clipPath: "inset(0% 0% 0% 0%)" }, { clipPath: "inset(0% 0% 100% 0%)", duration: 0.55, ease: "power3.inOut", immediateRender: false }, A4);
+  tl.to("#edge", { opacity: 0, duration: 0.4, ease: "power2.in" }, A4 + 0.1);
   tl.to("#urllabel", { opacity: 0, duration: 0.3, ease: "power2.in" }, A4 + 0.1);
   tl.set("#a4", { autoAlpha: 1 }, A4 + 0.3);
-  tl.set("#frame", { autoAlpha: 0 }, A4 + 0.72);
-  tl.to(".cta .l1", { yPercent: 0, duration: 1.1 }, A4 + 0.4);
-  tl.to(".cta .l2", { yPercent: 0, duration: 1.1 }, A4 + 0.52);
+  tl.to("#frame", { autoAlpha: 0, duration: 0.35, ease: "power1.out" }, A4 + 0.5);
+  tl.to(".cta .l1", { yPercent: 0, duration: 1.0 }, A4 + 0.35);
+  tl.to(".cta .l2", { yPercent: 0, duration: 1.0 }, A4 + 0.47);
   // the address does not travel: the lower third goes out and the address is decoded inside its detection box
-  const UBOX_AT = A4 + 0.95, UDEC_AT = A4 + 1.05, UDEC_DUR = 0.8;
+  const UBOX_AT = A4 + 0.8, UDEC_AT = A4 + 0.9, UDEC_DUR = 0.6;
   // the lower third stays until the address in the box is nearly read out, so one whole address is always on screen
-  tl.to("#url", { opacity: 0, duration: 0.3, ease: "power2.in" }, A4 + 1.5);
+  tl.to("#url", { opacity: 0, duration: 0.3, ease: "power2.in" }, A4 + 1.3);
   tl.to("#ubox", { opacity: 1, scale: 1, duration: 0.5 }, UBOX_AT);
   tl.set("#urlbig", { opacity: 1 }, UDEC_AT);
-  tl.to("#hint", { opacity: 1, y: 0, duration: 0.7 }, A4 + 1.6);
-  tl.to("#qr", { opacity: 1, y: 0, duration: 0.7 }, A4 + 1.68);
-  tl.to("#qrtxt", { opacity: 1, y: 0, duration: 0.7 }, A4 + 1.76);
-  tl.to("#sigrow", { opacity: 1, y: 0, duration: 0.7 }, A4 + 1.84);
-  tl.to("#markpath", { strokeDashoffset: 0, duration: 0.85, ease: "power2.inOut" }, A4 + 1.6);
+  tl.to("#hint", { opacity: 1, y: 0, duration: 0.6 }, A4 + 1.3);
+  tl.to("#qr", { opacity: 1, y: 0, duration: 0.6 }, A4 + 1.38);
+  tl.to("#qrtxt", { opacity: 1, y: 0, duration: 0.6 }, A4 + 1.46);
+  tl.to("#sigrow", { opacity: 1, y: 0, duration: 0.6 }, A4 + 1.62);
+  tl.to("#markpath", { strokeDashoffset: 0, duration: 0.7, ease: "power2.inOut" }, A4 + 1.35);
   // while the end card is held, the box takes hold of the address once more; the address itself never moves
   const RELOCK_AT = A4 + 4.1;
   tl.to("#ubox", { scale: 1.022, duration: 0.2, ease: "power2.out" }, RELOCK_AT);
   tl.to("#ubox", { scale: 1, duration: 0.7, ease: "expo.out" }, RELOCK_AT + 0.2);
-  tl.fromTo("#ubox b", { borderColor: "rgba(255,255,255,0.26)" }, { borderColor: "rgba(255,255,255,0.8)", duration: 0.2, ease: "power2.out", immediateRender: false }, RELOCK_AT);
-  tl.to("#ubox b", { borderColor: "rgba(255,255,255,0.26)", duration: 0.9, ease: "power2.out" }, RELOCK_AT + 0.2);
+  tl.fromTo("#ubox b", { borderColor: "rgba(255,255,255,0.5)" }, { borderColor: "rgba(255,255,255,0.95)", duration: 0.2, ease: "power2.out", immediateRender: false }, RELOCK_AT);
+  tl.to("#ubox b", { borderColor: "rgba(255,255,255,0.5)", duration: 0.9, ease: "power2.out" }, RELOCK_AT + 0.2);
   tl.set({}, {}, DUR);
 
   const ULAB_AT = UBOX_AT + 0.05;
@@ -389,7 +388,7 @@ void main() {
       urlbig.textContent = out;
     }
     // the frame's status line
-    if (t < SCAN_AT) hudr.textContent = `resolve ${String(Math.round(clamp((st.reveal - 0.2) / 0.8) * 100)).padStart(3, "0")}%`;
+    if (t < SCAN_AT) hudr.textContent = `resolve ${String(Math.round(clamp((st.reveal - R0) / (1 - R0)) * 100)).padStart(3, "0")}%`;
     else if (t < SCAN_END) hudr.textContent = `scan ${String(Math.round(clamp((st.scan + 0.1) / 1.2) * 100)).padStart(3, "0")}%`;
     else hudr.textContent = "objects 03";
     // numbers

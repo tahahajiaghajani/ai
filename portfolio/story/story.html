@@ -23,14 +23,14 @@
   .mask > span { display: block; will-change: transform; }
 
   /* the hairline grid behind everything, as on the site */
-  .gridlines { position: absolute; inset: 0; opacity: 0.6;
-    background-image: linear-gradient(to right, var(--line) 2px, transparent 2px); background-size: 180px 100%; }
+  .gridlines { position: absolute; top: 0; bottom: 0; left: 226px; width: 626px; opacity: 0.6;
+    background-image: linear-gradient(to right, var(--line) 2px, transparent 2px); background-size: 156px 100%; }
 
   /* header row */
   .hdr { position: absolute; left: 72px; right: 72px; top: 262px; height: 72px; display: flex; align-items: flex-start; justify-content: space-between;
     border-bottom: 2px solid var(--line); color: var(--muted); }
   .hdr .tag { display: flex; align-items: center; gap: 22px; height: 44px; }
-  .hdr .tag svg { width: 40px; height: 40px; color: var(--fg); }
+  .hdr .tag svg { width: 40px; height: 40px; color: var(--fg); margin-inline-start: -5px; }
   .hdr .tag .mono { font-size: 23px; }
   .hdr .avail { display: flex; align-items: center; gap: 16px; height: 44px; font-size: 30px; color: var(--fg-2); }
   .hdr .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--fg); }
@@ -56,16 +56,16 @@
   .box .lab em { font-style: normal; opacity: 0.58; }
 
   /* the name */
-  .name { position: absolute; right: 40px; left: 40px; bottom: 22px; z-index: 8; display: flex; gap: 0.2em; justify-content: flex-start; font-size: 164px; line-height: 1.15; white-space: nowrap; }
+  .name { position: absolute; right: 120px; left: 40px; bottom: 14px; z-index: 8; display: flex; gap: 0.2em; justify-content: flex-start; font-size: 150px; line-height: 1.15; white-space: nowrap; }
   .name .first { font-weight: 900; }
   .name .last { font-weight: 200; }
 
   /* act 2: the statement */
-  .a2 { position: absolute; inset: 0; z-index: 9; padding: 70px 62px 0 62px; }
+  .a2 { position: absolute; inset: 0; z-index: 9; padding: 18px 30px 0 30px; }
   .eyebrow { display: flex; align-items: center; gap: 20px; color: var(--muted); font-size: 28px; }
   .eyebrow .n { font-family: var(--mono), var(--fa), monospace; font-size: 23px; letter-spacing: 0.2em; }
   .eyebrow .rule { width: 90px; height: 2px; background: var(--line-strong); }
-  .st { margin-top: 118px; }
+  .st { margin-top: 170px; }
   .st .lead { font-size: 55px; font-weight: 400; line-height: 1.55; color: var(--fg-2); white-space: nowrap; }
   .st .lead .w { display: inline-block; opacity: 0; }
   .st .big { font-size: 136px; font-weight: 800; line-height: 1.2; white-space: nowrap; }
@@ -86,7 +86,8 @@
   .card .cap { display: flex; justify-content: space-between; direction: ltr; padding-top: 13px; font-size: 21px; letter-spacing: 0.16em; color: var(--fg-2); }
   .card .cap em { font-style: normal; color: var(--faint); }
   .wall::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 150px; background: linear-gradient(to top, #050505 6%, rgba(5,5,5,0)); }
-  .wall::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 70px; background: linear-gradient(to bottom, #050505, rgba(5,5,5,0)); z-index: 2; }
+  .wall::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 24px; background: linear-gradient(to bottom, #050505, rgba(5,5,5,0)); z-index: 2; }
+  #col1 .card:nth-child(2) .pic img { opacity: 0.72; }
   .facts { position: absolute; left: 0; right: 0; top: 716px; height: 286px; display: grid; grid-template-columns: repeat(3, 1fr); border-top: 2px solid var(--line); border-bottom: 2px solid var(--line); }
   .fact { padding: 18px 28px 0 8px; border-inline-start: 2px solid var(--line); }
   .fact:first-child { border-inline-start: 0; }
@@ -94,8 +95,7 @@
   .fact .l { font-size: 26px; line-height: 1.45; color: var(--fg-2); white-space: nowrap; }
   .fact .l b { display: block; font-size: 36px; font-weight: 600; line-height: 1.3; color: var(--fg); }
   .banks { position: absolute; left: 0; right: 0; top: 1004px; bottom: 0; display: grid; grid-template-columns: repeat(5, 1fr); }
-  .bank { display: flex; align-items: center; justify-content: center; border-inline-start: 2px solid var(--line); }
-  .bank:first-child { border-inline-start: 0; }
+  .bank { display: flex; align-items: center; justify-content: center; }
   .bank img { height: 70px; width: auto; max-width: 116px; object-fit: contain; filter: brightness(0) invert(1); opacity: 0.88; }
 
   /* the address: a quiet lower third through the film, the subject of the last act */
@@ -111,19 +111,19 @@
   .cta .l1 { font-weight: 700; }
   .cta .l2 { font-weight: 300; font-style: italic; color: var(--muted); }
   .ubox { position: absolute; left: 72px; width: 936px; top: 838px; height: 156px; opacity: 0; }
-  .ubox i { position: absolute; width: 34px; height: 34px; border: 0 solid #fff; }
-  .ubox i.tl { left: -3px; top: -3px; border-left-width: 3px; border-top-width: 3px; }
-  .ubox i.tr { right: -3px; top: -3px; border-right-width: 3px; border-top-width: 3px; }
-  .ubox i.bl { left: -3px; bottom: -3px; border-left-width: 3px; border-bottom-width: 3px; }
-  .ubox i.br { right: -3px; bottom: -3px; border-right-width: 3px; border-bottom-width: 3px; }
-  .ubox b { position: absolute; inset: 0; border: 2px solid rgba(255, 255, 255, 0.26); }
+  .ubox i { position: absolute; width: 46px; height: 46px; border: 0 solid #fff; }
+  .ubox i.tl { left: -4px; top: -4px; border-left-width: 4px; border-top-width: 4px; }
+  .ubox i.tr { right: -4px; top: -4px; border-right-width: 4px; border-top-width: 4px; }
+  .ubox i.bl { left: -4px; bottom: -4px; border-left-width: 4px; border-bottom-width: 4px; }
+  .ubox i.br { right: -4px; bottom: -4px; border-right-width: 4px; border-bottom-width: 4px; }
+  .ubox b { position: absolute; inset: 0; border: 2px solid rgba(255, 255, 255, 0.5); }
   .ubox .lab { position: absolute; top: -50px; left: 0; display: flex; gap: 14px; white-space: nowrap; background: #fff; color: #000; padding: 7px 14px 6px; line-height: 1; direction: ltr; font-family: var(--mono), monospace; font-size: 26px; letter-spacing: 0.12em; font-weight: 500; text-transform: uppercase; }
   .ubox .lab em { font-style: normal; opacity: 0.58; }
   .hint { position: absolute; right: 72px; left: 72px; top: 1024px; font-size: 34px; color: var(--fg-2); }
-  .qr { position: absolute; left: 72px; top: 1150px; width: 320px; height: 320px; background: var(--fg); padding: 22px; }
+  .qr { position: absolute; left: 72px; top: 1170px; width: 300px; height: 300px; background: var(--fg); padding: 20px; }
   .qr svg { width: 100%; height: 100%; display: block; }
-  .qrtxt { position: absolute; right: 72px; top: 1150px; width: 560px; height: 320px; display: flex; flex-direction: column; justify-content: flex-end; text-align: right; }
-  .a4 .mark4 { position: absolute; right: 72px; top: 1150px; width: 112px; height: 112px; color: var(--fg); }
+  .qrtxt { position: absolute; right: 72px; top: 1170px; width: 560px; height: 300px; display: flex; flex-direction: column; justify-content: flex-end; text-align: right; }
+  .a4 .mark4 { position: absolute; right: 58px; top: 1163px; width: 112px; height: 112px; color: var(--fg); }
   .qrtxt .big { font-size: 50px; font-weight: 700; line-height: 1.4; }
   .qrtxt .small { font-size: 30px; color: var(--fg-2); line-height: 1.6; margin-top: 8px; }
   .sigrow { position: absolute; left: 72px; right: 72px; top: 1520px; height: 64px; border-top: 2px solid var(--line); display: flex; align-items: flex-end; justify-content: space-between; direction: ltr; font-size: 21px; letter-spacing: 0.24em; color: var(--muted); }
@@ -136,6 +136,7 @@
   .role { display: none; }
   .still .role { display: block; position: absolute; right: 44px; bottom: 30px; z-index: 8; font-size: 33px; color: var(--fg-2); white-space: nowrap; }
   .still .scrim { opacity: 1; height: 460px; }
+  .still .dets .box:first-child { display: none; }
   .still #url { left: 0; right: 0; text-align: center; top: 1430px; font-size: 43px; }
   .sbox { display: none; }
   .still .sbox { display: block; position: absolute; left: 72px; width: 936px; top: 1400px; height: 112px; }
@@ -144,7 +145,12 @@
   .still .sbox i.tr, .still .qbox i.tr { right: -3px; top: -3px; border-right-width: 3px; border-top-width: 3px; }
   .still .sbox i.bl, .still .qbox i.bl { left: -3px; bottom: -3px; border-left-width: 3px; border-bottom-width: 3px; }
   .still .sbox i.br, .still .qbox i.br { right: -3px; bottom: -3px; border-right-width: 3px; border-bottom-width: 3px; }
-  .still .sbox b { position: absolute; inset: 0; border: 2px solid rgba(255, 255, 255, 0.26); }
+  .still .sbox b { position: absolute; inset: 0; border: 2px solid rgba(255, 255, 255, 0.5); }
+  .still .sbox i { width: 46px; height: 46px; }
+  .still .sbox i.tl { left: -4px; top: -4px; border-left-width: 4px; border-top-width: 4px; }
+  .still .sbox i.tr { right: -4px; top: -4px; border-right-width: 4px; border-top-width: 4px; }
+  .still .sbox i.bl { left: -4px; bottom: -4px; border-left-width: 4px; border-bottom-width: 4px; }
+  .still .sbox i.br { right: -4px; bottom: -4px; border-right-width: 4px; border-bottom-width: 4px; }
   .still .sbox .lab, .still .qbox .lab { position: absolute; top: -50px; left: 0; display: flex; gap: 14px; white-space: nowrap; background: #fff; color: #000; padding: 7px 14px 6px; line-height: 1; direction: ltr; font-family: var(--mono), monospace; font-size: 26px; letter-spacing: 0.12em; font-weight: 500; text-transform: uppercase; }
   .still .sbox .lab em, .still .qbox .lab em { font-style: normal; opacity: 0.58; }
   .shint { display: none; }
