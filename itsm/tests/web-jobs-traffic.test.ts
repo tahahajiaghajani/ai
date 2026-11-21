@@ -63,7 +63,11 @@ describe("the traffic tick of the web version", () => {
     // signing up and making the organisation queue nothing due (the seeds wait 10 minutes): no tick was asked for
     expect(w.pending).toHaveLength(0);
   });
-  beforeEach(() => void (w.pending.length = 0));
+  // each test starts with no job of its own left by another (a failed one leaves its job queued)
+  beforeEach(async () => {
+    w.pending.length = 0;
+    await w.db.query(`delete from sm_jobs where kind = 'test.traffic'`);
+  });
 
   it("(a, b) a read runs a due job after its answer, and the next read inside the minute asks for no tick", async () => {
     const id = await enqueue(w.db, { kind: "test.traffic", orgId: org });
