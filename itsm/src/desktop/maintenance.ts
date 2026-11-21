@@ -684,6 +684,17 @@ export async function startupMaintenance<D extends MaintDb>(db: D, o: StartupOpt
       const toast = kind === "hint" && t.toast > 0 ? ((await db.one<{ q: string | null }>(`select c.reltoastrelid::regclass::text as q from pg_class c where c.oid = ${quoteLit(t.name)}::regclass and c.reltoastrelid <> 0`))?.q ?? null) : null;
       const passes: { rel: string; pages: number }[] = [{ rel: ident(t.name), pages: Math.ceil(t.heap / PAGE) }, ...(toast ? [{ rel: toast, pages: Math.ceil(t.toast / PAGE) }] : [])];
       const total = passes.reduce((n, x) => n + Math.ceil(x.pages / opt.rangePages), 0);
+      /**
+       * One range's old jobs, through a TID range scan whatever the planner would rather do: on a table nobody analysed
+       * (every 1.1.x folder) it reads every old job through the partial indexes for each range, so the first statement
+       * sets the hint bits of the whole table — a full-page image of every page, the log of the whole table before the
+       * next checkpoint can be taken — and every range reads the whole table again.
+       */
+      const deleteRange = (where: string) =>
+        db.tx(async (tx) => {
+          await tx.exec(`set local enable_seqscan = off; set local enable_indexscan = off; set local enable_bitmapscan = off`);
+          return (await tx.one<{ n: number }>(`with gone as (delete from sm_jobs where ${where} and ${RETENTION_SQL} returning 1) select count(*)::int as n from gone`))?.n ?? 0;
+        });
       let deleted = 0;
       let i = 0;
       let line = performance.now();
@@ -692,7 +703,7 @@ export async function startupMaintenance<D extends MaintDb>(db: D, o: StartupOpt
           i++;
           const ts = performance.now();
           const where = `ctid >= '(${p},0)'::tid and ctid < '(${p + opt.rangePages},0)'::tid`;
-          if (kind === "jobs") deleted += (await db.one<{ n: number }>(`with gone as (delete from sm_jobs where ${where} and ${RETENTION_SQL} returning 1) select count(*)::int as n from gone`))?.n ?? 0;
+          if (kind === "jobs") deleted += await deleteRange(where);
           // read again at once: the new hint bits are set now, while each page's image of this checkpoint is in the log
           await db.query(`select count(*) from ${pass.rel} where ${where}`);
           if ((await walSinceCheckpoint(pgdb.pg)) >= opt.checkpointBytes) await pgdb.checkpoint("maintenance");

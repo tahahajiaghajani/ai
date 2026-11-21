@@ -89,6 +89,27 @@ describe("the start-up compaction", () => {
     }
   });
 
+  it("deletes them range by range, each statement reading its range only: about one range of log between two checkpoints", async () => {
+    const f = folder();
+    const log = capture();
+    const db = await openDb(f, log);
+    try {
+      // never analysed, as on every 1.1.x folder: the planner would read every old job through the partial indexes for
+      // each range, and the first range would log an image of every page of the table before any checkpoint
+      await jobs(db, { oldDone: 60_000 });
+      await db.checkpoint("test");
+      const range = 1024;
+      const r = await startupMaintenance(db, { dataDir: f.dataDir, dbDir: f.dbDir, log, options: { ...OPT, rangePages: range, checkpointBytes: 1 * MB, samplePages: 100 } });
+      expect(r.report.jobs_deleted).toBe(60_000);
+      // a checkpoint after every range (the first of the phase holds the look's sample)
+      const walMb = log.lines.filter((l) => l.startsWith(`database checkpoint {"reason":"maintenance"`)).map((l) => Number(JSON.parse(l.slice("database checkpoint ".length)).wal_mb));
+      expect(walMb.length).toBeGreaterThan(4);
+      expect(Math.max(...walMb.slice(1))).toBeLessThan((2 * range * 8192) / MB);
+    } finally {
+      await db.close();
+    }
+  });
+
   it("uses the queue's retention as src/server/jobs/index.ts states it (done 3 days, failed 30 days)", () => {
     const src = readFileSync(join(__dirname, "../src/server/jobs/index.ts"), "utf8");
     const days = (status: string) => Number(new RegExp(`status = '${status}' and done_at < now\\(\\) - interval '(\\d+) days'`).exec(src)?.[1]);
