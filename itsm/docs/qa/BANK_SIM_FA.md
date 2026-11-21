@@ -30,7 +30,7 @@
 - اجرای دستی روی یک ویندوز سرور آزمایشی:
 
 ```powershell
-powershell -File packaging\server\scripts\bank-sim\bank-sim.ps1 -Msi10 Kariz-Server-1.0.0.msi -Msi11 Kariz-Server-1.1.3.msi -Out C:\bank-sim
+powershell -File packaging\server\scripts\bank-sim\bank-sim.ps1 -Msi10 Kariz-Server-1.0.0.msi -Msi11 Kariz-Server-1.1.4.msi -Out C:\bank-sim
 ```
 
 ## ۳. سناریوها

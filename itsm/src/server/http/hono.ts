@@ -194,8 +194,20 @@ export function errorResponse(err: unknown, c: Context) {
   else if (err instanceof ZodError) e = zodToAppError(err);
   else {
     const mapped = dbErrorMessage(err);
-    if (mapped) e = mapped;
-    else {
+    if (mapped?.status === 503 && mapped.code.startsWith("db_")) {
+      // the database is busy, slow, locked, gone or read-only (http/errors.ts): an id the person can quote, the
+      // operator's log line, and when to try again
+      const id = randomUUID().slice(0, 8);
+      const details = (mapped.details ?? {}) as { retry_after_s?: number; db_code?: string };
+      const cfg = (c as C).get?.("cfg");
+      cfg?.log.warn(`database unavailable [${id}] ${details.db_code ?? ""}`, { method: c.req.method, path: c.req.path, err: String((err as Error)?.message ?? err).slice(0, 300) });
+      e = new AppError(503, mapped.code, `${mapped.message} (کد پیگیری: ${id})`, { ...details, error_id: id });
+      if (details.retry_after_s) c.header("retry-after", String(details.retry_after_s));
+    } else if (mapped) {
+      e = mapped;
+      // a deadlock or serialization failure: the same work again shortly
+      if (mapped.code === "retry") c.header("retry-after", "1");
+    } else {
       // an id the person can quote and the operator finds in the log, with the stack
       const id = randomUUID().slice(0, 8);
       const cfg = (c as C).get?.("cfg");
