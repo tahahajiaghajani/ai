@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>Taha Aghajani — portfolio story</title>
+<link rel="stylesheet" href="fonts.css">
+<style>
+  :root {
+    --bg: #050505; --bg-2: #0d0d0d; --fg: #f3f3ef; --fg-2: #c9c9c4; --muted: #9b9b96; --faint: #7a7a75;
+    --line: rgba(243, 243, 239, 0.13); --line-strong: rgba(243, 243, 239, 0.26);
+    --fa: "Vazirmatn"; --latin: "Inter Tight"; --serif: "Instrument Serif"; --mono: "JetBrains Mono";
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: #000; }
+  #stage {
+    position: relative; width: 1080px; height: 1920px; overflow: hidden; background: var(--bg); color: var(--fg);
+    font-family: var(--fa), var(--latin), sans-serif; font-feature-settings: "ss01";
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  }
+  .ltr { direction: ltr; unicode-bidi: isolate; }
+  .mono { font-family: var(--mono), var(--fa), monospace; text-transform: uppercase; letter-spacing: 0.22em; }
+  .mask { display: block; overflow: clip; overflow-clip-margin: 0.16em; padding-block: 0.08em; margin-block: -0.08em; }
+  .mask > span { display: block; will-change: transform; }
+
+  /* the hairline grid behind everything, as on the site */
+  .gridlines { position: absolute; inset: 0; opacity: 0.6;
+    background-image: linear-gradient(to right, var(--line) 2px, transparent 2px); background-size: 180px 100%; }
+
+  /* header row */
+  .hdr { position: absolute; left: 72px; right: 72px; top: 262px; height: 72px; display: flex; align-items: flex-start; justify-content: space-between;
+    border-bottom: 2px solid var(--line); color: var(--muted); }
+  .hdr .tag { display: flex; align-items: center; gap: 22px; height: 44px; }
+  .hdr .tag svg { width: 40px; height: 40px; color: var(--fg); }
+  .hdr .tag .mono { font-size: 23px; }
+  .hdr .avail { display: flex; align-items: center; gap: 16px; height: 44px; font-size: 27px; }
+  .hdr .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--fg); }
+
+  /* the frame: one constant viewport, its content changes act by act */
+  .frame { position: absolute; left: 72px; top: 356px; width: 936px; height: 1170px; overflow: hidden; background: #050505; }
+  .frame > .edge { position: absolute; inset: 0; border: 2px solid rgba(255, 255, 255, 0.11); pointer-events: none; z-index: 20; }
+  #gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .scrim { position: absolute; left: 0; right: 0; bottom: 0; height: 420px; background: linear-gradient(to top, rgba(5,5,5,0.86), rgba(5,5,5,0.55) 45%, rgba(5,5,5,0)); opacity: 0; }
+
+  .hud { position: absolute; top: 26px; left: 30px; right: 30px; display: flex; justify-content: space-between; direction: ltr; font-size: 20px; letter-spacing: 0.2em; color: rgba(243,243,239,0.62); z-index: 6; }
+
+  /* detection boxes */
+  .dets { position: absolute; inset: 0; font-family: var(--mono), monospace; font-size: 26px; letter-spacing: 0.12em; text-transform: uppercase; color: #fff; z-index: 5; }
+  .box { position: absolute; opacity: 0; }
+  .box i { position: absolute; width: 34px; height: 34px; border: 0 solid #fff; }
+  .box i.tl { left: -3px; top: -3px; border-left-width: 3px; border-top-width: 3px; }
+  .box i.tr { right: -3px; top: -3px; border-right-width: 3px; border-top-width: 3px; }
+  .box i.bl { left: -3px; bottom: -3px; border-left-width: 3px; border-bottom-width: 3px; }
+  .box i.br { right: -3px; bottom: -3px; border-right-width: 3px; border-bottom-width: 3px; }
+  .box b { position: absolute; inset: 0; border: 2px solid rgba(255, 255, 255, 0.26); }
+  .box .lab { position: absolute; top: -50px; left: 0; display: flex; gap: 14px; white-space: nowrap; background: #fff; color: #000; padding: 7px 14px 6px; line-height: 1; direction: ltr; font-weight: 500; }
+  .box .lab em { font-style: normal; opacity: 0.58; }
+
+  /* the name */
+  .name { position: absolute; right: 40px; left: 40px; bottom: 22px; z-index: 8; display: flex; gap: 0.2em; justify-content: flex-start; font-size: 164px; line-height: 1.15; white-space: nowrap; }
+  .name .first { font-weight: 900; }
+  .name .last { font-weight: 200; }
+
+  /* act 2: the statement */
+  .a2 { position: absolute; inset: 0; z-index: 9; padding: 70px 62px 0 62px; }
+  .eyebrow { display: flex; align-items: center; gap: 20px; color: var(--muted); font-size: 28px; }
+  .eyebrow .n { font-family: var(--mono), var(--fa), monospace; font-size: 23px; letter-spacing: 0.2em; }
+  .eyebrow .rule { width: 90px; height: 2px; background: var(--line-strong); }
+  .st { margin-top: 118px; }
+  .st .lead { font-size: 55px; font-weight: 400; line-height: 1.55; color: var(--fg-2); white-space: nowrap; }
+  .st .lead .w { display: inline-block; opacity: 0; }
+  .st .big { font-size: 136px; font-weight: 800; line-height: 1.2; white-space: nowrap; }
+  .st .lead.second { margin-top: 10px; }
+  .verbs { position: absolute; left: 0; right: 0; bottom: 0; height: 150px; display: grid; grid-template-columns: repeat(3, 1fr); direction: ltr; border-top: 2px solid var(--line); }
+  .verbs div { display: flex; align-items: center; justify-content: center; gap: 16px; font-size: 26px; letter-spacing: 0.24em; color: var(--faint); border-left: 2px solid var(--line); }
+  .verbs div:first-child { border-left: 0; }
+  .verbs div span { color: var(--faint); font-size: 20px; }
+
+  /* act 3: work, numbers, banks */
+  .a3 { position: absolute; inset: 0; z-index: 10; }
+  .wall { position: absolute; left: 28px; right: 28px; top: 0; height: 700px; overflow: hidden; }
+  .col { position: absolute; top: 0; width: 426px; display: flex; flex-direction: column; gap: 26px; }
+  .col.c1 { right: 0; } .col.c2 { left: 0; }
+  .card { width: 426px; }
+  .card .pic { width: 426px; height: 266px; overflow: hidden; background: #0d0d0d; outline: 2px solid rgba(255,255,255,0.10); outline-offset: -2px; }
+  .card .pic img { width: 100%; height: 100%; object-fit: cover; object-position: center top; filter: grayscale(1) contrast(1.08); display: block; }
+  .card .cap { display: flex; justify-content: space-between; direction: ltr; padding-top: 13px; font-size: 21px; letter-spacing: 0.16em; color: var(--fg-2); }
+  .card .cap em { font-style: normal; color: var(--faint); }
+  .wall::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 150px; background: linear-gradient(to top, #050505 6%, rgba(5,5,5,0)); }
+  .wall::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 70px; background: linear-gradient(to bottom, #050505, rgba(5,5,5,0)); z-index: 2; }
+  .facts { position: absolute; left: 0; right: 0; top: 716px; height: 286px; display: grid; grid-template-columns: repeat(3, 1fr); border-top: 2px solid var(--line); border-bottom: 2px solid var(--line); }
+  .fact { padding: 20px 30px 0 30px; border-inline-start: 2px solid var(--line); }
+  .fact:first-child { border-inline-start: 0; }
+  .fact .v { font-size: 152px; font-weight: 700; line-height: 1.05; }
+  .fact .l { font-size: 34px; line-height: 1.35; color: var(--fg-2); margin-top: 2px; }
+  .banks { position: absolute; left: 0; right: 0; top: 1004px; bottom: 0; display: grid; grid-template-columns: repeat(5, 1fr); }
+  .bank { display: flex; align-items: center; justify-content: center; border-inline-start: 2px solid var(--line); }
+  .bank:first-child { border-inline-start: 0; }
+  .bank img { height: 70px; width: auto; max-width: 116px; object-fit: contain; filter: brightness(0) invert(1); opacity: 0.88; }
+
+  /* the address: a quiet lower third through the film, the subject of the last act */
+  .urlrow { position: absolute; left: 72px; right: 72px; top: 1540px; height: 50px; display: flex; align-items: center; justify-content: flex-start; color: var(--muted); font-size: 26px; }
+  #url { position: absolute; left: 72px; top: 1543px; font-family: var(--mono), monospace; font-weight: 600; font-size: 36px; line-height: 1.2; letter-spacing: 0; color: var(--fg); white-space: nowrap; direction: ltr; z-index: 30; }
+  #url .tld { color: var(--fg); }
+  #urlbig { position: absolute; left: 0; right: 0; top: 890px; text-align: center; font-family: var(--mono), monospace; font-weight: 600; font-size: 43px; line-height: 1.2; color: var(--fg); white-space: pre; direction: ltr; opacity: 0; z-index: 31; }
+  .still #urlbig { display: none; }
+
+  /* act 4 */
+  .a4 { position: absolute; inset: 0; z-index: 12; }
+  .cta { position: absolute; right: 72px; left: 72px; top: 420px; font-size: 104px; line-height: 1.26; white-space: nowrap; }
+  .cta .l1 { font-weight: 700; }
+  .cta .l2 { font-weight: 300; font-style: italic; color: var(--muted); }
+  .ubox { position: absolute; left: 72px; width: 936px; top: 838px; height: 156px; opacity: 0; }
+  .ubox i { position: absolute; width: 34px; height: 34px; border: 0 solid #fff; }
+  .ubox i.tl { left: -3px; top: -3px; border-left-width: 3px; border-top-width: 3px; }
+  .ubox i.tr { right: -3px; top: -3px; border-right-width: 3px; border-top-width: 3px; }
+  .ubox i.bl { left: -3px; bottom: -3px; border-left-width: 3px; border-bottom-width: 3px; }
+  .ubox i.br { right: -3px; bottom: -3px; border-right-width: 3px; border-bottom-width: 3px; }
+  .ubox b { position: absolute; inset: 0; border: 2px solid rgba(255, 255, 255, 0.26); }
+  .ubox .lab { position: absolute; top: -50px; left: 0; display: flex; gap: 14px; white-space: nowrap; background: #fff; color: #000; padding: 7px 14px 6px; line-height: 1; direction: ltr; font-family: var(--mono), monospace; font-size: 26px; letter-spacing: 0.12em; font-weight: 500; text-transform: uppercase; }
+  .ubox .lab em { font-style: normal; opacity: 0.58; }
+  .hint { position: absolute; right: 72px; left: 72px; top: 1024px; font-size: 34px; color: var(--fg-2); }
+  .qr { position: absolute; left: 72px; top: 1150px; width: 320px; height: 320px; background: var(--fg); padding: 22px; }
+  .qr svg { width: 100%; height: 100%; display: block; }
+  .qrtxt { position: absolute; right: 72px; top: 1150px; width: 560px; height: 320px; display: flex; flex-direction: column; justify-content: flex-end; text-align: right; }
+  .a4 .mark4 { position: absolute; right: 72px; top: 1150px; width: 112px; height: 112px; color: var(--fg); }
+  .qrtxt .big { font-size: 50px; font-weight: 700; line-height: 1.4; }
+  .qrtxt .small { font-size: 30px; color: var(--muted); line-height: 1.65; margin-top: 10px; }
+  .sigrow { position: absolute; left: 72px; right: 72px; top: 1520px; height: 64px; border-top: 2px solid var(--line); display: flex; align-items: flex-end; justify-content: space-between; direction: ltr; font-size: 21px; letter-spacing: 0.24em; color: var(--muted); }
+  .sigrow strong { color: var(--fg); font-family: var(--latin); font-weight: 600; font-size: 27px; letter-spacing: 0.2em; }
+
+  /* ---- the still: one poster, the same system */
+  .still .frame { height: 1012px; }
+  .still .urlrow, .still .a2, .still .a3, .still .a4 { display: none; }
+  .still .name { font-size: 116px; left: auto; right: 40px; bottom: 76px; }
+  .role { display: none; }
+  .still .role { display: block; position: absolute; right: 44px; bottom: 30px; z-index: 8; font-size: 33px; color: var(--fg-2); white-space: nowrap; }
+  .still .scrim { opacity: 1; height: 460px; }
+  .still #url { left: 0; right: 0; text-align: center; top: 1466px; font-size: 43px; }
+  .sbox { display: none; }
+  .still .sbox { display: block; position: absolute; left: 72px; width: 936px; top: 1436px; height: 112px; }
+  .still .sbox i, .still .qbox i { position: absolute; width: 34px; height: 34px; border: 0 solid #fff; }
+  .still .sbox i.tl, .still .qbox i.tl { left: -3px; top: -3px; border-left-width: 3px; border-top-width: 3px; }
+  .still .sbox i.tr, .still .qbox i.tr { right: -3px; top: -3px; border-right-width: 3px; border-top-width: 3px; }
+  .still .sbox i.bl, .still .qbox i.bl { left: -3px; bottom: -3px; border-left-width: 3px; border-bottom-width: 3px; }
+  .still .sbox i.br, .still .qbox i.br { right: -3px; bottom: -3px; border-right-width: 3px; border-bottom-width: 3px; }
+  .still .sbox b { position: absolute; inset: 0; border: 2px solid rgba(255, 255, 255, 0.26); }
+  .still .sbox .lab, .still .qbox .lab { position: absolute; top: -50px; left: 0; display: flex; gap: 14px; white-space: nowrap; background: #fff; color: #000; padding: 7px 14px 6px; line-height: 1; direction: ltr; font-family: var(--mono), monospace; font-size: 26px; letter-spacing: 0.12em; font-weight: 500; text-transform: uppercase; }
+  .still .sbox .lab em, .still .qbox .lab em { font-style: normal; opacity: 0.58; }
+  .shint { display: none; }
+  .still .shint { display: block; position: absolute; left: 72px; right: 72px; top: 1562px; font-size: 30px; color: var(--fg-2); text-align: center; }
+  .qbox { display: none; }
+  .still .qbox { display: block; position: absolute; left: 30px; bottom: 30px; width: 226px; height: 226px; z-index: 9; }
+  .still .qbox .plate { position: absolute; inset: 0; background: var(--fg); padding: 15px; }
+  .still .qbox .plate svg { width: 100%; height: 100%; display: block; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="gridlines"></div>
+
+  <div class="hdr" id="hdr">
+    <div class="tag">
+      <svg viewBox="0 0 512 512" aria-hidden="true"><path d="M64 224H288A128 128 0 0 1 416 352V448H224V32" fill="none" stroke="currentColor" stroke-width="64" stroke-linecap="butt" stroke-linejoin="miter"/></svg>
+      <span class="mono">Portfolio ۱۴۰۵</span>
+    </div>
+    <div class="avail"><span class="dot" id="dot"></span><span>پذیرای پروژه‌های سازمانی هوش مصنوعی</span></div>
+  </div>
+
+  <div class="frame" id="frame">
+    <canvas id="gl"></canvas>
+    <div class="scrim" id="scrim"></div>
+    <div class="hud mono" id="hud"><span>fig. 01 — vision · hybrid</span><span id="hudr">scan 000%</span></div>
+
+    <div class="dets" id="dets"></div>
+
+    <div class="role" id="role">معمار سیستم‌های هوش مصنوعی سازمانی</div>
+    <div class="name" id="name">
+      <span class="mask"><span class="first" id="nfirst">طاها</span></span>
+      <span class="mask"><span class="last" id="nlast">آقاجانی</span></span>
+    </div>
+
+    <div class="qbox" id="qbox"><div class="plate" id="qr2"></div><i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i><span class="lab"><span>scan</span><em>qr</em></span></div>
+
+    <div class="a2" id="a2">
+      <div class="eyebrow" id="a2eb"><span class="n">۰۲</span><span class="rule"></span><span>کاری که می‌کنم</span></div>
+      <div class="st" id="st">
+        <p class="lead" id="lead1"></p>
+        <span class="mask big"><span id="v1">طراحی می‌کنم،</span></span>
+        <span class="mask big"><span id="v2">می‌سازم</span></span>
+        <p class="lead second" id="lead2"></p>
+        <span class="mask big"><span id="v3">مستقر می‌کنم.</span></span>
+      </div>
+      <div class="verbs mono" id="verbs">
+        <div data-v="0"><span>01</span>Design</div>
+        <div data-v="1"><span>02</span>Build</div>
+        <div data-v="2"><span>03</span>Deploy</div>
+      </div>
+    </div>
+
+    <div class="a3" id="a3">
+      <div class="wall" id="wall">
+        <div class="col c1" id="col1"></div>
+        <div class="col c2" id="col2"></div>
+      </div>
+      <div class="facts" id="facts">
+        <div class="fact"><div class="v" data-n="11">۱۱</div><div class="l">سیستم و محصول<br>تحویل‌شده</div></div>
+        <div class="fact"><div class="v" data-n="5">۵</div><div class="l">بانک، از مشاوره<br>تا ساخت سامانه</div></div>
+        <div class="fact"><div class="v" data-n="1">۱</div><div class="l">نفر، از تحلیل<br>تا استقرار</div></div>
+      </div>
+      <div class="banks" id="banks">
+        <div class="bank"><img src="../public/brand/orgs/tejarat.svg" alt=""></div>
+        <div class="bank"><img src="../public/brand/orgs/bim.png" alt=""></div>
+        <div class="bank"><img src="../public/brand/orgs/mellat.svg" alt=""></div>
+        <div class="bank"><img src="../public/brand/orgs/refah.svg" alt=""></div>
+        <div class="bank"><img src="../public/brand/orgs/postbank.svg" alt=""></div>
+      </div>
+    </div>
+
+    <div class="edge" id="edge"></div>
+  </div>
+
+  <div class="urlrow" id="urlrow"><span id="urllabel">نشانی پورتفولیو</span></div>
+  <div id="url"><span>taha-aghajani-portfolio</span><span class="tld">.vercel.app</span></div>
+
+  <div class="sbox"><i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i><b></b><span class="lab"><span>portfolio</span><em>1.000</em></span></div>
+  <div class="shint">پورتفولیوی من؛ همین نشانی را در مرورگر وارد کنید</div>
+
+  <div id="urlbig"></div>
+
+  <div class="a4" id="a4">
+    <div class="cta" id="cta">
+      <span class="mask"><span class="l1">مسئله‌ی سختی دارید؟</span></span>
+      <span class="mask"><span class="l2">بیایید حلش کنیم.</span></span>
+    </div>
+    <div class="ubox" id="ubox"><i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i><b></b><span class="lab"><span id="ulab">portfolio</span><em>1.000</em></span></div>
+    <div class="hint" id="hint">همین نشانی را در مرورگر وارد کنید</div>
+    <div class="qr" id="qr"></div>
+    <svg class="mark4" viewBox="0 0 512 512" aria-hidden="true"><path id="markpath" d="M64 224H288A128 128 0 0 1 416 352V448H224V32" fill="none" stroke="currentColor" stroke-width="64" stroke-linecap="butt" stroke-linejoin="miter" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"/></svg>
+    <div class="qrtxt" id="qrtxt">
+      <div class="big">یا کد را اسکن کنید</div>
+      <div class="small">با گوشی دیگر، یا از اسکرین‌شات همین صفحه</div>
+    </div>
+    <div class="sigrow mono" id="sigrow"><strong>Taha Aghajani</strong><span>AI · Systems · Design</span></div>
+  </div>
+</div>
+
+<script src="../node_modules/gsap/dist/gsap.min.js"></script>
+<script src="qr-data.js"></script>
+<script src="story.js"></script>
+</body>
+</html>
