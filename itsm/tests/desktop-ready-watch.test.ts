@@ -558,6 +558,36 @@ describe("the Windows app's main process waits for its local server by phase (de
     expect(splash.webContents.scripts.filter((s: string) => /^itsm\.step\(0\.(6[1-9]|[7-9])/.test(s))).toEqual([]);
   });
 
+  it("moves on with every step of the database's compaction and leaves the status line to its count", async () => {
+    const { child, splash } = await launch();
+    child.emit("message", { type: "phase", phase: "database", walMb: 12, recovery: false });
+    child.emit("message", { type: "phase", phase: "migrations" });
+    // the compaction before ready (src/desktop/maintenance.ts): a second migrations phase, marked
+    child.emit("message", { type: "phase", phase: "migrations", maintenance: true });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(lastCall(splash, "note")).toBe(NOTICE_TEXT.maintenance);
+    const counted = /^فشرده‌سازی پایگاه داده… \S+$/;
+    expect(lastCall(splash, "status")).toMatch(counted);
+    const steps = () => splash.webContents.scripts.filter((s: string) => s.startsWith("itsm.step("));
+    const before = steps().length;
+    for (let i = 1; i <= 3; i++) {
+      child.stdout.emit("data", `[itsm] maintenance step jobs:sm_jobs:${i} applied (32 MB, ${i * 40_000} finished jobs deleted so far, 93 ms)\n`);
+      await vi.advanceTimersByTimeAsync(400);
+    }
+    // each step moves the line on and keeps the status line ("": the splash's own), never «به‌روزرسانی داده‌ها…» in it
+    expect(steps().slice(before)).toHaveLength(3);
+    for (const js of steps().slice(before)) expect(js).toMatch(/^itsm\.step\([\d.]+, [\d.]+, "", 1\.5\)$/);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(lastCall(splash, "status")).toMatch(counted);
+    expect(lastCall(splash, "note")).toBe(NOTICE_TEXT.maintenance);
+    child.emit("message", READY);
+    await flush();
+    expect(lastCall(splash, "note")).toBe("");
+    expect(h.windows.map((w) => w.url)).toContain("http://127.0.0.1:3939");
+    expect(h.dialogs).toEqual([]);
+    expect(child.posted).toEqual([]);
+  });
+
   it("waits out a long migration after the open with a note, and asks only after 30 minutes without a sign", async () => {
     const { child, splash } = await launch();
     child.emit("message", { type: "phase", phase: "database", walMb: 12, recovery: false });

@@ -383,7 +383,10 @@ function onMigrations(n: number) {
   migrationsSeen += n;
   if (serverReady) return; // a late stdout chunk must not move the status line back
   const p = Math.min(0.6, 0.08 + migrationsSeen * 0.04);
-  splashStep(p, Math.min(0.64, p + 0.06), firstRun ? "آماده‌سازی برای نخستین اجرا…" : "به‌روزرسانی داده‌ها…", 1.5);
+  // a compaction's step (src/desktop/maintenance.ts) moves the line on but leaves the status line to its note, which
+  // counts the compaction's own time there every second ("" keeps the splash's status)
+  const status = noticeShown === "maintenance" ? "" : firstRun ? "آماده‌سازی برای نخستین اجرا…" : "به‌روزرسانی داده‌ها…";
+  splashStep(p, Math.min(0.64, p + 0.06), status, 1.5);
 }
 
 /** The status line the start began with (bootStatus): the base of a notice, and what comes back after it. */
