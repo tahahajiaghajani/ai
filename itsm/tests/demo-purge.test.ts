@@ -72,8 +72,12 @@ const REAL_WORK = new Set(["sm_cab_meetings", "sm_grc_issues", "sm_grc_controls"
  */
 const RAG_INDEX = new Set(["sm_ai_rag_docs", "sm_ai_chunks"]);
 
-/** Checked on their own below: the job queue (scheduling state) and the audit log (the allowed lines). */
-const SPECIAL = new Set(["sm_jobs", "sm_audit", "sm_org_sync", "sm_migrations"]);
+/**
+ * Checked on their own below: the job queue (scheduling state), the audit log (the allowed lines) and the purged-id
+ * ledger (ids and table names only, kept 30 days and until every Windows app has pulled since: a Windows app that was
+ * away never brings the pack back, and a later purge recognises what this one left — modules/demo/ledger.ts).
+ */
+const SPECIAL = new Set(["sm_jobs", "sm_audit", "sm_org_sync", "sm_migrations", "sm_demo_purged"]);
 
 type Snapshot = Map<string, Map<string, string>>;
 
@@ -505,7 +509,8 @@ describe.skipIf(skip)(title, () => {
     log(`findings the platform raised about demo CIs outside the demo scope: ${raised!.n}`);
 
     // ----- purge
-    const demoRowIds = new Set((await e.db.query<{ id: string }>(`select row_id::text as id from sm_demo_rows where org_id = $1`, [e.org])).map((r) => r.id));
+    const registryBefore = await e.db.query<{ id: string; tbl: string }>(`select row_id::text as id, tbl from sm_demo_rows where org_id = $1`, [e.org]);
+    const demoRowIds = new Set(registryBefore.map((r) => r.id));
     const report = await e.owner.get(`/o/${e.org}/demo/report`);
     expect(report.rows).toBeGreaterThan(1000);
     // the console confirms the administrator's password right before the purge (sensitive administration, POST
@@ -595,6 +600,31 @@ describe.skipIf(skip)(title, () => {
     // nothing names the pack any more
     expect((await e.db.query(`select 1 from sm_users where email like '%aftab-bank.example'`)).length).toBe(0);
     expect((await e.db.query(`select 1 from sm_demo_rows`)).length).toBe(0);
+    // the purged-id ledger: content-free (ids and table names), the pack's rows that went (no job: a job never reaches a
+    // Windows app), none of them alive, and its own clean-up queued
+    const columns = await e.db.query<{ c: string }>(`select column_name as c from information_schema.columns where table_schema = current_schema() and table_name = 'sm_demo_purged' order by ordinal_position`);
+    expect(columns.map((c) => c.c)).toEqual(["org_id", "row_id", "tbl", "purged_at"]);
+    const ledger = await e.db.query<{ id: string; tbl: string }>(`select row_id::text as id, tbl from sm_demo_purged where org_id = $1`, [e.org]);
+    expect(ledger.length).toBeGreaterThan(1000);
+    expect(ledger.filter((r) => r.tbl === "sm_jobs")).toEqual([]);
+    // what the registry held before the purge is in the ledger — but its jobs and what stays (the trail of real records)
+    const ledgered = new Set(ledger.map((r) => r.id));
+    const notLedgered = new Map<string, string[]>();
+    for (const r of registryBefore) {
+      if (r.tbl === "sm_jobs" || ledgered.has(r.id)) continue;
+      const ids = notLedgered.get(r.tbl) ?? [];
+      if (!ids.length) notLedgered.set(r.tbl, ids);
+      ids.push(r.id);
+    }
+    for (const [tbl, ids] of notLedgered) {
+      const alive = await e.db.one<{ n: number }>(`select count(*)::int as n from ${tbl} where id = any($1::uuid[])`, [`{${ids.join(",")}}`]);
+      expect(alive!.n, `${tbl}: rows gone that are not in the ledger`).toBe(ids.length);
+    }
+    for (const tbl of new Set(ledger.map((r) => r.tbl))) {
+      const alive = await e.db.one<{ n: number }>(`select count(*)::int as n from ${tbl} x join sm_demo_purged p on p.org_id = $1 and p.row_id = x.id`, [e.org]);
+      expect(alive!.n, `${tbl}: ledgered rows alive`).toBe(0);
+    }
+    expect(newJobs.filter((j) => j.kind === "demo.ledger").length).toBe(1);
   }, 1_800_000);
 });
 }
