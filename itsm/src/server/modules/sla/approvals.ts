@@ -161,13 +161,24 @@ interface Approver {
  * The approvers of one level for `row` (deduplicated, separation of duties and delegation applied). `real`: a record of
  * the organisation's own, whose approvers and delegates are never the demo pack's people (see `roundRows`).
  */
-async function resolveLevel(q: Queryable, ctx: Ctx, def: TableDef, row: Row, level: LevelDef, opts: { allowSelf: boolean; delegations: Delegation[]; real: boolean }): Promise<Approver[]> {
+async function resolveLevel(
+  q: Queryable, ctx: Ctx, def: TableDef, row: Row, level: LevelDef, opts: { allowSelf: boolean; delegations: Delegation[]; real: boolean },
+): Promise<Approver[] & { lost?: number }> {
   const found: { user: string; group: string | null; source: SourceDef["kind"] }[] = [];
+  // the people and groups the level names that can no longer approve this record: the demo pack's people on a real
+  // record, people who are no longer active members, groups that no longer exist (`roundRows` never lets them approve
+  // it silently)
+  let lost = 0;
   for (const s of level.sources ?? []) {
     if (s.kind === "users") for (const u of s.users ?? []) found.push({ user: u, group: null, source: "users" });
     else if (s.kind === "groups") {
       const m = await groupMembers(q, ctx, s.groups ?? []);
       for (const g of s.groups ?? []) for (const u of m.get(g) ?? []) found.push({ user: u, group: g, source: "groups" });
+      const named = (s.groups ?? []).filter((g) => typeof g === "string" && /^[0-9a-f-]{36}$/i.test(g));
+      if (named.length) {
+        const live = await q.query<{ id: string }>(`select id::text as id from sm_groups where org_id = $1 and id = any($2::uuid[]) and deleted_at is null`, [ctx.org.id, pgArray(named)]);
+        lost += named.length - new Set(live.map((r) => r.id.toLowerCase())).size;
+      }
     } else if (s.kind === "manager") {
       const who = (def.scope.requester ?? []).map((f) => row[f]).find((v) => typeof v === "string" && v);
       const m = who ? await managerOf(q, ctx, who, Number(s.depth) || 1) : null;
@@ -191,9 +202,10 @@ async function resolveLevel(q: Queryable, ctx: Ctx, def: TableDef, row: Row, lev
   const active = await activeMembers(q, ctx.org.id, people);
   const demo = opts.real ? await demoPeople(q, ctx.org.id, people) : new Set<string>();
   const barred = (u: string) => sod.has(u) || demo.has(u.toLowerCase());
-  const out: Approver[] = [];
+  const out: Approver[] & { lost?: number } = [];
   const seen = new Set<string>();
   for (const x of found) {
+    if (!active.has(x.user) || demo.has(x.user.toLowerCase())) lost++;
     if (!active.has(x.user) || barred(x.user)) continue;
     // an absent approver's delegate is asked instead (unless the delegate may not approve this record)
     const d = delegateOf(opts.delegations, x.user);
@@ -202,8 +214,15 @@ async function resolveLevel(q: Queryable, ctx: Ctx, def: TableDef, row: Row, lev
     seen.add(user);
     out.push({ user, group: x.group, source: x.source, delegatedFrom: user !== x.user ? x.user : null });
   }
+  out.lost = lost;
   return out;
 }
+
+/**
+ * What a rule's level asked of people who can no longer approve the record says (the level waits for someone to look
+ * at the rule: it is never approved by nobody).
+ */
+export const NO_APPROVER_LEFT = "کسانی که این سطح نام می‌برد دیگر نمی‌توانند این رکورد را تأیید کنند (حساب نمایشی یا حذف‌شده)؛ قاعدهٔ تأیید را بازبینی کنید و تأیید را دوباره بخواهید";
 
 // ---------------------------------------------------------------------------------------------------------------
 // Rounds that settle: the modules' same-transaction reaction (docs/spec/services/sla.md §4)
@@ -327,6 +346,16 @@ async function roundRows(
       if (m && (spec.allowSelf || !sodUsers(def, row).has(m)) && (await activeMembers(q, ctx.org.id, [m])).has(m) && !(real && (await demoPeople(q, ctx.org.id, [m])).size)) {
         approvers = [{ user: m, group: null, source: "manager", delegatedFrom: null }];
       }
+    }
+    if (!approvers.length && opts.managerFallback && (approvers.lost ?? 0) > 0) {
+      // the level named people (or groups) who can no longer approve this record — the demo pack's people on a real
+      // record, people who left, groups that went: it waits, open and without an approver, until someone reviews the
+      // rule or asks again (or its time runs out as the rule says) — a real record is never approved by nobody
+      out.push({
+        ...base, approver_id: null, state: active ? "requested" : "waiting", requested_at: active ? iso(now) : null,
+        due_at: active && spec.expireAfter ? iso(now + spec.expireAfter * 1000) : null, comments: NO_APPROVER_LEFT,
+      });
+      continue;
     }
     if (!approvers.length) {
       out.push({ ...base, state: "skipped", comments: "تأییدکننده‌ای پیدا نشد (یا فقط افراد خود رکورد بودند)" });
