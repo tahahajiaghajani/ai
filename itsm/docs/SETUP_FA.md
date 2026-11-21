@@ -356,7 +356,13 @@ $$);
 
 `timeout_milliseconds := 30000` را نگه دارید: هر تپش تا ۲۰ ثانیه کار می‌کند، ولی `pg_net` به‌طور پیش‌فرض فقط پنج ثانیه منتظر پاسخ می‌ماند و پاسخ تپش‌های پرکار را «timed out» ثبت می‌کند (بخش ۹-۲).
 
-**باید ببینید:** در `Integrations` ← `Cron` ردیف `itsm-tick`؛ چند دقیقه بعد در `History` اجراهای موفق، و در «سلامت سامانه» ← «صف کارهای پس‌زمینه» عبارت «تپش دقیقه‌ای: راه‌اندازی شده». با SQL: `select jobname, command, active from cron.job;` ردیف `itsm-tick` را با نشانی درست و `active` = `true` نشان می‌دهد. آزمون دستی:
+3. همان‌جا این را هم یک بار اجرا کنید: `pg_cron` برای هر اجرا ردیفی در `cron.job_run_details` می‌نویسد (با متن دستور، یعنی رمز `Bearer` هم) و هرگز خودش پاکش نمی‌کند، حتی پس از برداشتن کار؛ با تپش دقیقه‌ای روزی ۱٬۴۴۰ ردیف در پایگاه دادهٔ ۵۰۰ مگابایتی پلن رایگان. این کار هر شب تاریخچهٔ کهنه‌تر از ۷ روز را پاک می‌کند (پیشنهاد خود Supabase):
+
+```sql
+select cron.schedule('itsm-tick-cleanup', '17 3 * * *', $$delete from cron.job_run_details where end_time < now() - interval '7 days'$$);
+```
+
+**باید ببینید:** در `Integrations` ← `Cron` ردیف‌های `itsm-tick` و `itsm-tick-cleanup`؛ چند دقیقه بعد در `History` اجراهای موفق، و در «سلامت سامانه» ← «صف کارهای پس‌زمینه» عبارت «تپش دقیقه‌ای: راه‌اندازی شده». با SQL: `select jobname, command, active from cron.job;` ردیف `itsm-tick` را با نشانی درست و `active` = `true` نشان می‌دهد. آزمون دستی:
 ```bash
 curl -X POST -H "Authorization: Bearer CRON_SECRET_شما" https://itsm-xyz.vercel.app/api/cron/tick
 # پاسخ درست: {"ok":true,"ran":0,"failed":0,"more":false}
@@ -364,7 +370,7 @@ curl -X POST -H "Authorization: Bearer CRON_SECRET_شما" https://itsm-xyz.verc
 
 - **نشانی تازه:** اگر دامنهٔ اختصاصی گذاشتید (بخش ۵) یا برنامه را به پروژهٔ Vercel دیگری بردید، همان `select cron.schedule('itsm-tick', …)` را با نشانی تازه دوباره اجرا کنید؛ همان نام، کار قبلی را جایگزین می‌کند. وگرنه تپش به نشانی قدیمی می‌رود و صف عقب می‌ماند. پس از تعویض `CRON_SECRET` هم همین را با رمز تازه اجرا کنید.
 - اگر تپش راه‌اندازی شده ولی «صف کارهای پس‌زمینه» زرد یا قرمز است، بخش ۹-۲ (تاریخچهٔ تپش و پاسخ‌هایش).
-- برای برداشتن: `select cron.unschedule('itsm-tick');`. نسخهٔ ویندوز به این کار نیازی ندارد؛ صف خودش را هر ۱۰ ثانیه اجرا می‌کند.
+- برای برداشتن: `select cron.unschedule('itsm-tick');` و `select cron.unschedule('itsm-tick-cleanup');`. نسخهٔ ویندوز به این کار نیازی ندارد؛ صف خودش را هر ۱۰ ثانیه اجرا می‌کند.
 
 ---
 

@@ -12,15 +12,20 @@ const ROOT = join(__dirname, "..");
 const read = (...parts: string[]) => readFileSync(join(ROOT, ...parts), "utf8");
 const fa = (n: number) => String(n).replace(/\d/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[Number(d)]);
 
-/** A markdown section: from the heading that starts with `heading` to the next heading of the same level or higher. */
+/**
+ * A markdown section: from the heading that starts with `heading` to the next heading of the same level or higher (a
+ * `# …` line inside a fenced code block, a shell comment, is no heading).
+ */
 function section(md: string, heading: string): string {
   const lines = md.split("\n");
   const start = lines.findIndex((l) => l.startsWith(heading));
   if (start < 0) throw new Error(`no heading «${heading}»`);
   const level = /^#+/.exec(lines[start])![0].length;
   let end = lines.length;
+  let fenced = false;
   for (let i = start + 1; i < lines.length; i++) {
-    const m = /^(#+) /.exec(lines[i]);
+    if (lines[i].startsWith("```")) fenced = !fenced;
+    const m = fenced ? null : /^(#+) /.exec(lines[i]);
     if (m && m[1].length <= level) {
       end = i;
       break;
@@ -109,6 +114,15 @@ describe("the web version's limits in the owner's guides", () => {
     const claude = read("CLAUDE.md").split("\n").find((l) => l.startsWith("- **The web version's job queue**")) ?? "";
     expect(claude).toMatch(/taken again once its lock expired, whatever its attempts/);
     expect(claude).not.toMatch(/the expired-lock claim requires `attempts < max_attempts`/);
+  });
+});
+
+describe("the heartbeat of SETUP_FA §۴-۱", () => {
+  it("cleans pg_cron's history of its runs, which pg_cron never deletes (1,440 rows a day, each with the Bearer secret)", () => {
+    // Supabase's own advice (Cron quickstart): a daily job deleting what is older than 7 days; removed with the heartbeat
+    const guide = section(read("docs", "SETUP_FA.md"), "### ۴-۱.");
+    expect(guide).toMatch(/select cron\.schedule\('itsm-tick-cleanup', '[^']+', \$\$delete from cron\.job_run_details where end_time < now\(\) - interval '7 days'\$\$\);/);
+    expect(guide).toContain("select cron.unschedule('itsm-tick-cleanup');");
   });
 });
 
