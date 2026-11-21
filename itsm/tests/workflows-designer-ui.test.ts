@@ -6,7 +6,9 @@
 // notes — and on a real organisation: the bank's
 // «درخواست تنخواهِ شعبه» (§3.7) built with the designer's own moves (no JSON) and saved without an error, a stale save
 // refused, the preview's people per step, publish with the access settings, the versions and a restore, and who is
-// offered what (a designer, a publisher, a requester).
+// offered what (a designer, a publisher, a requester) — and release 1.1.5: a new «تکمیل فرم» step's fields are for
+// filling (rights nobody set follow the step's action), «انتظار»'s «به وقت کاری» as the engine reads it, the preview's
+// words when nobody is found and its warning naming those steps.
 import { describe, it, expect, beforeAll } from "vitest";
 import { composeEffective, gateAllows, roleCatalog, type AccessGate, type FullGrant } from "@shared/access";
 import { LEVEL_ORDER, type Level } from "@shared/permissions";
@@ -29,9 +31,9 @@ import {
   DESIGNER_PATH, END_PRESETS, GAP_Y, NEW_STEP_OPTIONS, PALETTE_GROUPS, PALETTE_ITEMS, STARTER_SCOPE, addFromPort, assigneesPatch, bridgeRemoved, caseFields, casePill, caseRules,
   cleanDraft, countProblems, defaultGraph, designerAccess, designerDraft, designerOffers, earlierSteps, formInfoOf, formPatch, graphForms, insertAfter, insertText, itemConfig,
   joinPatch, liveProblems, mainPort, moveKey, nameProblem, newCaseKey, newEscalation, newStepOf, paletteItem, patchConfig, phoneNotes, pillField, portRows, previewBlocked, previewNote,
-  previewSteps, problemGroups, problemTarget, problemsText, processForms, quorumPatch, rawCases, removeNode, requesterViewOptions, resolveBody, resolvedPeople, savePatch, setAction,
-  setCases, setLabel, setPortTarget, stableJson, startFields, startingDraft, startersNote, startersText, statusChip, stepNotices, stepTitles, structureKey, tabProblems, titleFields,
-  titleSample, unitFromRial, versionMeta, versionTitle, wireRejection, type FormInfo,
+  previewSteps, previewSummary, problemGroups, problemTarget, problemsText, processForms, quorumPatch, rawCases, removeNode, requesterViewOptions, resolveBody, resolvedPeople, savePatch,
+  setAction, setCases, setLabel, setPortTarget, stableJson, startFields, startingDraft, startersNote, startersText, statusChip, stepNotices, stepTitles, structureKey, tabProblems,
+  titleFields, titleSample, unitFromRial, versionMeta, versionTitle, waitsInBusinessTime, wireRejection, type FormInfo,
 } from "../src/ui/modules/workflows/admin/process/model";
 import type { OrgApi } from "../src/ui/lib/api";
 import type { Client } from "./helpers";
@@ -302,6 +304,32 @@ describe("the palette and adding steps", () => {
     expect(setAction(g, "request", "approve")).toBe(g);
   });
 
+  it("1.1.5: a new «تکمیل فرم» step's fields are for filling, a review's and an approval's for reading; rights nobody set follow the action, set ones stay (B1)", () => {
+    expect(itemConfig(paletteItem("fill")!)).toMatchObject({ rights: { default: "edit", fields: {} } });
+    expect(itemConfig(paletteItem("review")!)).toMatchObject({ rights: { default: "read", fields: {} } });
+    expect(itemConfig(paletteItem("approve")!)).toMatchObject({ rights: { default: "read", fields: {} } });
+    let g = startGraph();
+    const s = insertAfter(g, "request", paletteItem("fill")!);
+    g = s.graph;
+    expect(formStepOf(node(g, s.id).config).rights).toEqual({ default: "edit", fields: {} });
+    g = setAction(g, s.id, "approve");
+    expect(formStepOf(node(g, s.id).config).rights).toEqual({ default: "read", fields: {} });
+    g = setAction(g, s.id, "fill");
+    expect(formStepOf(node(g, s.id).config).rights).toEqual({ default: "edit", fields: {} });
+    // rights someone set stay whatever the action
+    g = patchConfig(g, s.id, { rights: { default: "edit", fields: { u_amount: "read" } } });
+    g = setAction(g, s.id, "review");
+    expect(formStepOf(node(g, s.id).config).rights).toEqual({ default: "edit", fields: { u_amount: "read" } });
+  });
+
+  it("1.1.5: «انتظار» waits in business time only when its `business` is true, as the engine does; a missing key is calendar time", () => {
+    expect(waitsInBusinessTime({ mode: "duration", duration: { amount: 1, unit: "day" }, business: true })).toBe(true);
+    // a draft made elsewhere (the API, an import, the demo pack) without the key: the engine counts calendar time
+    expect(waitsInBusinessTime({ mode: "duration", duration: { amount: 1, unit: "day" } })).toBe(false);
+    expect(waitsInBusinessTime({ business: false })).toBe(false);
+    expect(waitsInBusinessTime(null)).toBe(false);
+  });
+
   it("«قاعدهٔ تأیید» keeps its number only within its kind: a share never becomes a count of people, nor a count a share", () => {
     const a = insertAfter(startGraph(), "request", paletteItem("approve")!);
     let g = a.graph;
@@ -468,8 +496,15 @@ describe("notices, problems, versions, the preview", () => {
     const r = (p: Partial<ResolveResult>): ResolveResult => ({ status: "ok", people: [], found: 0, limit: 100, fallbackUsed: false, notes: [], message: null, warnings: [], lines: [], display: { users: {}, positions: {}, units: {}, groups: {} }, ...p });
     expect(previewNote(r({ lines: ["علی احمدی — رئیس شعبه (شعبهٔ ونک)"] }))).toBe("علی احمدی — رئیس شعبه (شعبهٔ ونک)");
     expect(previewNote(r({ lines: ["الف", "ب", "پ"] }))).toBe("الف و ۲ نفر دیگر");
-    expect(previewNote(r({ status: "nobody", message: "برای «تأیید» کسی پیدا نشد؛ مسئولان گردش‌کار باخبر شدند." }))).toContain("کسی پیدا نشد");
-    expect(previewNote(r({}))).toBe("کسی پیدا نشد");
+    // 1.1.5: a preview's own words — it sends nothing to anyone, so never the journal's «…؛ مسئولان گردش‌کار باخبر شدند»
+    expect(previewNote(r({ status: "nobody", message: "برای «تأیید» کسی پیدا نشد؛ مسئولان گردش‌کار باخبر شدند." }))).toBe("کسی پیدا نمی‌شود");
+    expect(previewNote(r({}))).toBe("کسی پیدا نمی‌شود");
+    expect(previewNote(r({ status: "too_many", message: "بیش از ۱۰۰ نفر پیدا شد؛ مسئولان گردش‌کار انتخاب می‌کنند" }))).toBe("بیش از ۱۰۰ نفر پیدا شد؛ مسئولان گردش‌کار انتخاب می‌کنند");
+    // the warning above the steps names those that find nobody for the sample requester
+    const found = { [a.id]: { result: r({ status: "nobody" }) }, [b.id]: { result: r({ lines: ["الف"] }) } };
+    expect(previewSummary(previewSteps(g), found)).toBe("با این درخواست‌دهنده برای «تأیید» کسی پیدا نمی‌شود.");
+    expect(previewSummary(previewSteps(g), { ...found, [b.id]: { result: r({ status: "nobody" }) } })).toBe("با این درخواست‌دهنده برای ۲ مرحله کسی پیدا نمی‌شود: «تأیید»، «مرحلهٔ فرم».");
+    expect(previewSummary(previewSteps(g), {})).toBeNull();
     expect(resolvedPeople(r({ people: [{ user: "u1", delegatedFrom: null, via: { kind: "users" } }, { user: "u1", delegatedFrom: null, via: { kind: "group" } }] }))).toEqual(["u1"]);
   });
 

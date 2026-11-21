@@ -24,7 +24,7 @@ import type { FlowOption } from "./api";
 import {
   ACTION_OPTIONS, END_OPTIONS, ESCALATION_LABELS, ESCALATION_TO_LABELS, NEW_STEP_OPTIONS, QUORUM_OPTIONS, addFromPort, assigneesOf, assigneesPatch, autoOutcomes, caseRules,
   dropConnection, earlierSteps, formPatch, inputRows, itemConfig, joinPatch, newCaseKey, newEscalation, newStepOf, outcomeText, patchConfig, portRows, quorumPatch, rawCases,
-  removeNode, setAction, setCases, setLabel, setPortTarget, startersText, stepNotices, stepTitles, tabProblems, valueRows,
+  removeNode, setAction, setCases, setLabel, setPortTarget, startersText, stepNotices, stepTitles, tabProblems, valueRows, waitsInBusinessTime,
   type CaseField, type FormChoice, type FormInfo, type InspectorTab,
 } from "./model";
 import { CaseRulesEditor, DurationField, F, I14, PillMenu } from "./parts";
@@ -642,7 +642,8 @@ function OtherBody(p: NodeInspectorProps) {
               <F label="مدت انتظار">
                 <DurationField label="مدت انتظار" value={cleanDuration(c.duration)} disabled={!editable} onChange={(d) => patch({ mode: "duration", duration: d ?? undefined })} />
               </F>
-              <Checkbox checked={c.business !== false} disabled={!editable} onChange={(e) => patch({ business: e.target.checked })}>
+              {/* the engine waits in business time only when `business` is true; a missing key is calendar time */}
+              <Checkbox checked={waitsInBusinessTime(c)} disabled={!editable} onChange={(e) => patch({ business: e.target.checked })}>
                 به وقت کاری
               </Checkbox>
             </>
