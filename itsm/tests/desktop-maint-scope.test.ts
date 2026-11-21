@@ -2,7 +2,7 @@
 // PostgreSQL's own autovacuum, and nothing of theirs imports the maintenance, the upkeep, the streaming backup or the
 // heavy lock. For a memory database (the tests, `npm run start:local --memory`) or anything but PGlite, all of it is
 // nothing.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { createPgliteDb } from "@server/db/pglite";
@@ -10,7 +10,9 @@ import { startupMaintenance } from "@local/maintenance";
 import { createUpkeep } from "@local/upkeep";
 import { createHeavyLock } from "@local/heavy";
 import type { Db } from "@server/db";
-import { capture, tempFolder } from "./desktop-maint-helpers";
+import { capture, cleanFolders, tempFolder } from "./desktop-maint-helpers";
+
+afterAll(cleanFolders);
 
 const root = join(__dirname, "..");
 
