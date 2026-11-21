@@ -173,6 +173,30 @@ describe("the idle upkeep", () => {
     }
   });
 
+  it("says what a slow statement read, not the weight its ANALYZE has in the budget", async () => {
+    const f = folder();
+    const db = await openDb(f);
+    try {
+      await db.exec(`create table up_read (id int primary key, a text, b text); insert into up_read select g, md5(g::text), repeat('r', 200) from generate_series(1, 40000) g`);
+      const heapMb = Number((await db.one<{ b: number }>(`select pg_relation_size('up_read')::float8 as b`))!.b) / (1024 * 1024);
+      await writeMaintState(db, { lsn: "0/0", looked_at: new Date().toISOString(), mb_per_s: 100_000 });
+      const log = capture();
+      // every statement gets its line
+      const up = createUpkeep({ db, log, quietMs: () => 6 * MIN, lock: createHeavyLock(), dataDir: f.dataDir, sleep: async () => {}, options: { slowMs: 0 } });
+      await up.pass();
+      const line = log.lines.find((l) => /^database upkeep: vacuum up_read took \d+ ms \(\d+ MB scanned\)/.test(l));
+      expect(line, log.lines.join("\n")).toBeTruthy();
+      const mb = Number(/\((\d+) MB scanned\)/.exec(line!)![1]);
+      // its VACUUM read the heap and its ANALYZE the heap again (all of a table this small): about twice the heap, not the
+      // six times the budget weighs it at
+      expect(mb).toBeGreaterThanOrEqual(Math.floor(heapMb));
+      expect(mb).toBeLessThanOrEqual(Math.ceil(2.2 * heapMb));
+      await up.stop();
+    } finally {
+      await db.close();
+    }
+  });
+
   it("writes and says nothing at the passes after it left a table for the next start, until something changes", async () => {
     const f = folder();
     const db = watched(await openDb(f));

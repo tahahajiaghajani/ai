@@ -20,7 +20,7 @@ import type { Db } from "@server/db";
 import type { Logger } from "@server/context";
 import type { PgliteDb } from "@server/db/pglite";
 import type { HeavyLock } from "./heavy";
-import { MAINT_DEFAULTS, OFF_FILE, analyzeBytes, nextMbPerS, readMaintState, writeMaintState, type MaintState } from "./maintenance";
+import { ANALYZE_FACTOR, MAINT_DEFAULTS, OFF_FILE, analyzeBytes, nextMbPerS, readMaintState, writeMaintState, type MaintState } from "./maintenance";
 
 const MB = 1024 * 1024;
 const PAGE = 8192;
@@ -283,7 +283,8 @@ export function createUpkeep(c: UpkeepConfig): Upkeep {
         break;
       }
       if (!size.value) continue; // dropped meanwhile
-      const bytes = estimateBytes(row, item.kind, { heap: Number(size.value.heap), index: Number(size.value.index) }, item.analyze);
+      const heap = Number(size.value.heap);
+      const bytes = estimateBytes(row, item.kind, { heap, index: Number(size.value.index) }, item.analyze);
       const budget = (budgetMs / 1000) * (mbPerS && mbPerS > 0 ? mbPerS : o.startMbPerS) * MB;
       if (bytes > budget) {
         deferred.add(item.table);
@@ -308,7 +309,12 @@ export function createUpkeep(c: UpkeepConfig): Upkeep {
       if (item.analyze && item.kind !== "analyze") report.analyzed++;
       mbPerS = nextMbPerS(mbPerS, bytes, ms, o.startMbPerS);
       if (!report.longest || ms > report.longest.ms) report.longest = { table: item.table.replace(/^public\./, ""), ms: Math.round(ms) };
-      if (ms >= o.slowMs) c.log.info(`database upkeep: ${item.kind === "analyze" ? "analyze" : "vacuum"} ${item.table.replace(/^public\./, "")} took ${Math.round(ms)} ms (${Math.round(bytes / MB)} MB scanned)`);
+      if (ms >= o.slowMs) {
+        // what it read: the estimate weighs the pages its ANALYZE samples at ANALYZE's cost (./maintenance.ts ANALYZE_FACTOR)
+        const sampled = item.analyze ? analyzeBytes(Math.max(row.relpages, Math.ceil(heap / PAGE)) * PAGE) : 0;
+        const read = bytes - sampled + sampled / ANALYZE_FACTOR;
+        c.log.info(`database upkeep: ${item.kind === "analyze" ? "analyze" : "vacuum"} ${item.table.replace(/^public\./, "")} took ${Math.round(ms)} ms (${Math.round(read / MB)} MB scanned)`);
+      }
       await sleep(o.yieldMs);
     }
     // the database's oldest transaction id moves on with the tables' (a millisecond)
