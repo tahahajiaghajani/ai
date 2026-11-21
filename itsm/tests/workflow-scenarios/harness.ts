@@ -226,6 +226,7 @@ export interface CaseRow {
   open_rounds: Record<string, number>;
   participants: string[];
   managers: string[];
+  manager_groups: string[];
   version_no: number;
   version_id: string;
   requested_by: string | null;
