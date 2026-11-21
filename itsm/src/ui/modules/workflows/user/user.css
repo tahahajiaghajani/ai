@@ -634,3 +634,47 @@ a.wfu-card:focus-visible {
     inline-size: 12px;
   }
 }
+
+/* a step nobody took, for the case's managers (1.1.5): the journal's line, why, «دوباره پیدا کردن انجام‌دهنده» */
+.wfu-waiting {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-block-start: 4px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--ds-text-2);
+}
+.wfu-waiting p {
+  margin: 0;
+}
+.wfu-waiting ul {
+  margin: 0;
+  padding-inline-start: 16px;
+  list-style: disc;
+}
+.wfu-waiting .ant-btn {
+  align-self: flex-start;
+}
+/* «کارتابل»: a whole row opens the step (B5) */
+.wfu-row-open {
+  cursor: pointer;
+}
+.wfu-row-open:focus-visible {
+  outline: 2px solid var(--ds-focus-color);
+  outline-offset: -2px;
+}
+/* «دوباره پیدا کردن انجام‌دهنده»: what came of it */
+.wfu-result {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wfu-result ul {
+  margin: 0;
+  padding-inline-start: 18px;
+}
+.wfu-why {
+  margin: 4px 0 0;
+  padding-inline-start: 18px;
+}

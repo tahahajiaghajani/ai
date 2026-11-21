@@ -5,9 +5,12 @@
 //   · tabs «نمودار» (my steps marked, a step of mine opens its form), «داده‌ها» (the values I may read, by form
 //     sections; a «پیوست» value by its files' names, each opening its file — the case's attachments I may open),
 //     «تاریخچه» (steps, submissions, the case's notes), «گفت‌وگو» (comments; a failed read says so, with «تلاش دوباره»);
-//   · side rail: process and version, requester, started, current steps and their people, my part; it gives way to the
-//     step form when one is open (a phone shows the form as a page of its own);
-//   · in «نیاز به بررسی» the managers see «ادامه از مرحلهٔ …» and «لغو پرونده».
+//   · side rail: process and version, requester, started, current steps and their people — a step nobody took says why
+//     to the case's managers (the journal's line and the resolver's reasons) with «دوباره پیدا کردن انجام‌دهنده» —, my
+//     part («مسئول گردش‌کار» for its managers); it gives way to the step form when one is open (a phone shows the form
+//     as a page of its own);
+//   · in «نیاز به بررسی» the managers see «ادامه از مرحلهٔ …» and «لغو پرونده»;
+//   · a case of the demo pack says «نمایشی».
 // `?open=step` (the record link of a notification lands here) opens my step at once. A linked Windows app does not
 // offer what needs the connection (the managers' actions, «برداشتن کار»): F4c refuses them there.
 import { useEffect, useMemo, useState } from "react";
@@ -27,10 +30,10 @@ import { RecordNo } from "../../../records/fields/display";
 import { RecordMarkdown } from "../../../records";
 import { useMe, useSchema } from "../../../records/data/hooks";
 import { authorityHere } from "../admin/hub/model";
-import { ProcessCanvas, StepLegend, StepList, stepCounter, usedStatuses } from "../kit";
+import { DemoTag, ProcessCanvas, StepLegend, StepList, stepCounter, usedStatuses } from "../kit";
 import { USER_KEYS, userApi, type CaseDetail } from "./api";
 import { ManagerDialogs, type ManagerAction } from "./ManagerActions";
-import { headerStep, isOpenCase, myPart, nameOf, openSteps, outcomeWord, stateChannel, stepOfText, takenFromStatuses, actionLabel } from "./model";
+import { headerStep, isOpenCase, myPart, nameOf, openSteps, outcomeWord, stateChannel, stepOfText, takenFromStatuses, actionLabel, waitingLine } from "./model";
 import { CaseState, CaseValues, DuePill, Head, LoadError, useMoneyUnit, useWf } from "./parts";
 import { StepPanel } from "./StepPanel";
 
@@ -53,12 +56,13 @@ function Channel({ detail }: { detail: CaseDetail }) {
   );
 }
 
-function Rail({ detail }: { detail: CaseDetail }) {
+function Rail({ detail, onReresolve }: { detail: CaseDetail; onReresolve?: () => void }) {
   const { userId } = useMe();
   const names = detail.display;
   const c = detail.case;
   const steps = openSteps(detail);
   const part = myPart(detail, userId);
+  const manager = detail.can.manage;
   return (
     <section className="wfu-panel wfu-rail" aria-label="مشخصات پرونده">
       <dl className="wfu-dl">
@@ -85,12 +89,32 @@ function Rail({ detail }: { detail: CaseDetail }) {
             <dt>مرحلهٔ کنونی</dt>
             <dd>
               <ul className="wfu-plain">
-                {steps.map((s) => (
-                  <li key={s.key}>
-                    <b>{s.label}</b>
-                    {s.people.length ? `: ${s.people.map((p) => nameOf(names, p)).join("، ")}` : ": کسی پیدا نشد"}
-                  </li>
-                ))}
+                {steps.map((s) => {
+                  const w = s.people.length ? null : waitingLine(detail.waiting?.[s.key], manager);
+                  return (
+                    <li key={s.key}>
+                      <b>{s.label}</b>
+                      {s.people.length ? `: ${s.people.map((p) => nameOf(names, p)).join("، ")}` : w && manager ? null : `: ${w?.text ?? "کسی پیدا نشد"}`}
+                      {w && manager ? (
+                        <div className="wfu-waiting">
+                          <p>{w.text}</p>
+                          {w.notes.length ? (
+                            <ul aria-label="چرا کسی پیدا نشد">
+                              {w.notes.map((x) => (
+                                <li key={x}>{x}</li>
+                              ))}
+                            </ul>
+                          ) : null}
+                          {onReresolve ? (
+                            <Button size="small" onClick={onReresolve}>
+                              دوباره پیدا کردن انجام‌دهنده
+                            </Button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </li>
+                  );
+                })}
               </ul>
             </dd>
           </div>
@@ -284,6 +308,7 @@ export default function CasePage() {
   const requesterCancel = detail.can.cancel && !detail.can.manage;
   const menu: MenuProps["items"] = [
     { key: "print", icon: <Printer {...I16} />, label: "نسخهٔ چاپی", onClick: () => nav(wf.to(wf.paths.print(id))) },
+    ...(authority && detail.can.reresolve ? [{ key: "reresolve", label: "دوباره پیدا کردن انجام‌دهنده", onClick: () => setDialog("reresolve") }] : []),
     ...(authority && detail.can.reassign ? [{ key: "reassign", label: "ارجاع مرحله", onClick: () => setDialog("reassign") }] : []),
     ...(authority && detail.can.pause ? [{ key: "pause", label: "توقف موقت", onClick: () => setDialog("pause") }] : []),
     ...(authority && detail.can.resume ? [{ key: "resume", label: "ادامهٔ پرونده", onClick: () => setDialog("resume") }] : []),
@@ -291,6 +316,8 @@ export default function CasePage() {
     ...(detail.can.cancel && (authority || requesterCancel) ? [{ type: "divider" as const }, { key: "cancel", danger: true, label: "لغو پرونده", onClick: () => setDialog("cancel") }] : []),
   ];
   const stepOpen = !!task;
+  // a manager's «دوباره پیدا کردن انجام‌دهنده» beside a step that waits (online only, as the other actions)
+  const reresolve = authority && detail.can.reresolve ? () => setDialog("reresolve") : undefined;
   // a phone (or a narrow window): the step form is a page of its own
   if (stepOpen && !wide) {
     return (
@@ -315,6 +342,7 @@ export default function CasePage() {
       {c.started_at ? <span>{`آغاز ${relTime(c.started_at)}`}</span> : null}
       {!wide && open && counter.of ? <span>{stepOfText(counter.at, counter.of)}</span> : null}
       <CaseState state={c.state} paused={c.paused_at} />
+      {detail.demo ? <DemoTag title="پروندهٔ نمایشی (دادهٔ نمایشی)" /> : null}
     </span>
   );
   return (
@@ -414,7 +442,7 @@ export default function CasePage() {
               { key: "talk", label: "گفت‌وگو", children: <Talk caseId={id} /> },
             ]}
           />
-          {!wide && !stepOpen ? <Rail detail={detail} /> : null}
+          {!wide && !stepOpen ? <Rail detail={detail} onReresolve={reresolve} /> : null}
         </div>
         {wide ? (
           <aside className="wfu-aside" aria-label={stepOpen ? "فرم مرحله" : "مشخصات پرونده"}>
@@ -430,7 +458,7 @@ export default function CasePage() {
                 <EmptyState compact title="این مرحله دیگر با شما نیست" description="شاید پیش‌تر انجام شده یا به کس دیگری سپرده شده باشد." />
               )
             ) : (
-              <Rail detail={detail} />
+              <Rail detail={detail} onReresolve={reresolve} />
             )}
           </aside>
         ) : null}

@@ -6,6 +6,7 @@ import { Link } from "react-router";
 import { Waypoints } from "lucide-react";
 import { useOrg } from "../../../lib/org";
 import { Chip } from "../../../components/display";
+import { DemoTag } from "../kit/demo";
 import { I16, Section } from "../../portal/parts";
 import { inboxRowView, PORTAL_WF_PATH, waitingSteps } from "./model";
 import { useInbox } from "./waiting";
@@ -37,6 +38,7 @@ export default function PortalSteps() {
                   <span className="pt-row-b">
                     <span className="pt-row-t">{v.title}</span>
                     <span className="pt-row-m">
+                      {v.demo ? <DemoTag title="پروندهٔ نمایشی (دادهٔ نمایشی)" /> : null}
                       <span>{v.source}</span>
                       <span>{`${v.action ? `${v.action}: ` : ""}${v.step}`}</span>
                       {v.notes.map((x) => (

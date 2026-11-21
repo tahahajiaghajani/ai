@@ -25,8 +25,8 @@ import { useMe, useSchema } from "../../../records/data/hooks";
 import { useLeaveGuard } from "../admin/forms/parts";
 import { USER_KEYS, userApi, type CaseDetail, type CaseFile, type MyStep } from "./api";
 import {
-  actionLabel, consequence, defaultReturn, delegationNote, draftValues, fieldProblems, initialValues, missingRequired, nameOf, packShown, resultMessage, stepActions, takesValues,
-  type StepActionDef,
+  actionLabel, commentHint, consequence, defaultReturn, delegationNote, draftValues, fieldProblems, initialValues, missingRequired, nameOf, packShown, resultMessage, stepActions,
+  takesValues, type StepActionDef,
 } from "./model";
 import { CaseValues, DuePill, ProcessForm, useLocalFiles, useMoneyUnit } from "./parts";
 
@@ -223,7 +223,7 @@ export function StepPanel({ detail, step, files, filesLoading, authority, onDone
       ) : null}
       <label className="wfu-comment">
         <span>توضیح</span>
-        <Input.TextArea value={comment} onChange={(e) => setComment(e.target.value)} autoSize={{ minRows: 2, maxRows: 6 }} maxLength={2000} disabled={blocked} placeholder="برای «رد» و «بازگشت» دلیل را بنویسید" />
+        <Input.TextArea value={comment} onChange={(e) => setComment(e.target.value)} autoSize={{ minRows: 2, maxRows: 6 }} maxLength={2000} disabled={blocked} placeholder={commentHint(step)} />
       </label>
       <div className="wfu-actionbar" role="group" aria-label="تصمیم‌های مرحله">
         {pool && authority && !step.queued ? (
