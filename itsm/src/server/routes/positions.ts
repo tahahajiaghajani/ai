@@ -5,11 +5,12 @@
 //                                    process_design write | org write (unit, domain or all)
 //   POST /positions/estimate         static counts, the explanation line and pool warnings of a step     idem
 //   GET  /positions/overview         positions with current holders, units, vacancies, sources         org read
+//   GET  /positions/demo-people      the organisation's demo pack people (1.1.5)            process_design read | org read
 //   POST /positions/holders/import   holders from an import set's spreadsheet (or parsed rows); dry run first   org write
 import { z } from "zod";
 import { router, body } from "../http/hono";
 import { STEP_ACTIONS, QUORUMS } from "@shared/process/assignees";
-import { estimateStep, importHolders, positionsOverview, previewResolve } from "../modules/positions";
+import { demoPeopleOf, estimateStep, importHolders, positionsOverview, previewResolve } from "../modules/positions";
 
 export const positionsRoutes = router();
 
@@ -47,6 +48,8 @@ positionsRoutes.post("/estimate", async (c) => {
 });
 
 positionsRoutes.get("/overview", async (c) => c.json(await positionsOverview(c.get("ctx"))));
+
+positionsRoutes.get("/demo-people", async (c) => c.json(await demoPeopleOf(c.get("ctx"))));
 
 positionsRoutes.post("/holders/import", async (c) => {
   const input = await body(

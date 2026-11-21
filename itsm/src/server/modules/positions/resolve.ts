@@ -11,7 +11,12 @@
 //   2. Only active members stay, and the excluded ones go (the requester — filer and beneficiary — on approve steps by
 //      default: separation of duties; earlier actors; a step's actors). The organisation's own work — a case that is not
 //      a row of its demo pack — never goes to the pack's people, nor to them as delegates (docs/DEMO_FA.md: demo accounts
-//      approve no real record, as sla/approvals.ts `resolveLevel` keeps for records' approvals).
+//      approve no real record, as sla/approvals.ts `resolveLevel` keeps for records' approvals). Who was left out is
+//      noted («۲ نفر از دارندگان «مدیر گروه» حساب نمایشی‌اند…» always; inactive and excluded people when a rule is left
+//      with nobody), so the case's journal, the managers' notice and the preview say why a step found nobody. The
+//      nearest unit up the tree (`requester_unit_up`) is the nearest whose holders may take the step: a unit whose
+//      holders are all left out (the requester heads it, they left, the pack's people on real work) is passed over,
+//      with a note.
 //   3. Delegation by action: approve reads a `delegation` row in force with scope «approvals», fill and review one with
 //      scope «assignments»; without one, the out-of-office delegate of the member profile. A delegate who is active and
 //      not excluded replaces the person (`delegatedFrom` keeps who it was for), up to three steps, never in a circle.
@@ -27,6 +32,7 @@ import type { Queryable } from "../../db";
 import { pgArray } from "../../db";
 import { orgTz } from "../../engine";
 import { localDate } from "@shared/model/jalali-buckets";
+import { faDigits } from "@shared/format";
 import { UNIT_KINDS } from "@shared/tables/access";
 import {
   cleanStepAssignees, delegationScope, exclusionsOf, ifNobodyOf, isUuid, nobodyMessage, poolLimit, tooManyMessage, MAX_UNIT_DEPTH,
@@ -143,6 +149,49 @@ interface Found {
   via: Via;
 }
 
+/** Why a person a rule found does not take the step. */
+type Drop = "demo" | "inactive" | "requester" | "actor";
+
+/** Who a rule's people are, in a note («دارندگان «رئیس شعبه»»); `one`: the rule names a single person. */
+interface Source {
+  text: string;
+  one: boolean;
+}
+
+/** The key of a rule in a resolution (its list and index): the notes count each rule's people apart. */
+const sourceKey = (via: { rule: number; fallback?: boolean }) => `${via.fallback ? "f" : "a"}${via.rule}`;
+
+const DEMO_TRY = "برای آزمودن، پرونده را با یک حساب نمایشی آغاز کنید";
+
+/** «۲ نفر از دارندگان «مدیر گروه» حساب نمایشی‌اند و …» — why `n` people of `src` do not take the step. */
+function dropNote(src: Source, why: Drop, n: number, requesterRule = false): string {
+  const say = (one: string, many: string) => (src.one ? `${src.text} ${one}` : n === 1 ? `${faDigits(1)} نفر از ${src.text} ${one}` : `${faDigits(n)} نفر از ${src.text} ${many}`);
+  switch (why) {
+    case "demo":
+      return `${say("حساب نمایشی است و کار پرونده‌های واقعی سازمان را بر عهده نمی‌گیرد", "حساب نمایشی‌اند و کار پرونده‌های واقعی سازمان را بر عهده نمی‌گیرند")}؛ ${DEMO_TRY}`;
+    case "inactive":
+      return say("عضو فعال سازمان نیست", "عضو فعال سازمان نیستند");
+    case "requester":
+      if (requesterRule) return "درخواست‌دهنده از این مرحله کنار گذاشته شده است";
+      return src.one ? `${src.text} خود درخواست‌دهنده است و این مرحله را انجام نمی‌دهد` : `درخواست‌دهنده خود از ${src.text} است و این مرحله را انجام نمی‌دهد`;
+    case "actor":
+      return say("در مرحله‌های پیشین این پرونده کاری کرده است و این مرحله را انجام نمی‌دهد", "در مرحله‌های پیشین این پرونده کاری کرده‌اند و این مرحله را انجام نمی‌دهند");
+  }
+}
+
+/** Why the holders of a unit passed over on the way up do not take the step («… خود درخواست‌دهنده است»). */
+function passedNote(position: string, unit: string, whys: Drop[]): string {
+  const kinds = [...new Set(whys)];
+  const words: Record<Drop, [string, string]> = {
+    requester: ["خود درخواست‌دهنده است", "خود درخواست‌دهنده‌اند"],
+    actor: ["در مرحله‌های پیشین این پرونده کاری کرده است", "در مرحله‌های پیشین این پرونده کاری کرده‌اند"],
+    inactive: ["عضو فعال سازمان نیست", "عضو فعال سازمان نیستند"],
+    demo: ["حساب نمایشی است و کار پرونده‌های واقعی سازمان را بر عهده نمی‌گیرد", "حساب نمایشی‌اند و کار پرونده‌های واقعی سازمان را بر عهده نمی‌گیرند"],
+  };
+  if (kinds.length > 1) return `دارندگان «${position}» در «${unit}» این مرحله را انجام نمی‌دهند`;
+  return whys.length > 1 ? `دارندگان «${position}» در «${unit}» ${words[kinds[0]][1]}` : `«${position}» در «${unit}» ${words[kinds[0]][0]}`;
+}
+
 /**
  * One resolution: its inputs, the day, and the rows it read (each read once). The estimate of the designer reads
  * positions, holders, groups and roles through it too.
@@ -158,6 +207,9 @@ export class Resolution {
   private delegation: { rows: Delegation[]; away: Map<string, string> } | null = null;
   private catalog: Map<string, RoleDef> | null = null;
   private realWork: Promise<boolean> | null = null;
+  /** who each rule's people are, for the notes (`sourceKey`) */
+  private sources = new Map<string, Source>();
+  private groupNames = new Map<string, string>();
 
   readonly ctx: Ctx;
 
@@ -268,6 +320,7 @@ export class Resolution {
     const ids = [...new Set(groups.map(lower).filter((x): x is string => !!x))];
     if (!ids.length) return [];
     const live = await this.q.query<{ id: string; name: string; active: boolean | null }>(`select id, name, active from sm_groups where org_id = $1 and id = any($2::uuid[]) and deleted_at is null`, [this.org, pgArray(ids)]);
+    for (const g of live) this.groupNames.set(String(g.id).toLowerCase(), g.name);
     for (const g of live) if (g.active === false) this.note(`گروه «${g.name}» غیرفعال است`);
     const active = live.filter((g) => g.active !== false).map((g) => g.id);
     if (live.length < ids.length) this.note("گروهی که قاعده نام برده پیدا نشد");
@@ -361,18 +414,69 @@ export class Resolution {
     return at;
   }
 
+  /**
+   * Of `users`, who may not take the step and why: not an active member, one of the demo pack's people on the
+   * organisation's own work, or excluded from the step (the requester, an earlier actor).
+   */
+  async leftOut(users: string[], excluded: ReadonlySet<string>): Promise<Map<string, Drop>> {
+    const ids = [...new Set(users.map(lower).filter((x): x is string => !!x))];
+    const out = new Map<string, Drop>();
+    if (!ids.length) return out;
+    const active = await this.activeOf(ids);
+    const demo = active.size && (await this.isReal()) ? await demoPeople(this.q, this.org, [...active]) : new Set<string>();
+    for (const u of ids) {
+      if (demo.has(u)) out.set(u, "demo");
+      else if (!active.has(u)) out.set(u, "inactive");
+      else if (excluded.has(u)) out.set(u, this.excludedWhy(u));
+    }
+    return out;
+  }
+
+  /** Why an excluded person is out: the requester (filer or beneficiary), else an earlier actor. */
+  private excludedWhy(user: string): Drop {
+    return user === lower(this.input.requestedBy) || user === lower(this.input.requestedFor) ? "requester" : "actor";
+  }
+
+  /** The source of a rule's people in the notes. */
+  private sourceOf(rule: AssigneeRule, extra: { position?: string; group?: string } = {}): Source {
+    switch (rule.kind) {
+      case "position":
+        return { text: `دارندگان «${extra.position ?? rule.position}»`, one: false };
+      case "group":
+        return { text: `${rule.leadsOnly ? "سرپرستان" : "اعضای"} گروه «${extra.group ?? ""}»`, one: false };
+      case "role":
+        return { text: `دارندگان نقش دسترسی «${rule.role}»`, one: false };
+      case "users":
+        return { text: "افراد برگزیده", one: false };
+      case "manager":
+        return { text: rule.of === "previous_actor" ? "مدیر انجام‌دهندهٔ قبلی" : "مدیر مستقیم درخواست‌دهنده", one: true };
+      case "unit_head":
+        return { text: "رئیس واحد", one: true };
+      case "field":
+        return { text: "کسانی که فیلد فرم نام می‌برد", one: false };
+      case "step_actor":
+        return { text: "انجام‌دهندگان مرحلهٔ پیشین", one: false };
+      default:
+        return { text: "درخواست‌دهنده", one: true };
+    }
+  }
+
   // ----- the rules ---------------------------------------------------------------------------------------------
 
-  async rule(rule: AssigneeRule, index: number, fallback: boolean): Promise<Found[]> {
+  /** The people one rule finds (`excluded`: who the step leaves out — the nearest unit up the tree passes them over). */
+  async rule(rule: AssigneeRule, index: number, fallback: boolean, excluded: ReadonlySet<string> = new Set()): Promise<Found[]> {
     const via = (extra: Partial<Via> = {}): Via => ({ rule: index, kind: rule.kind, ...(fallback ? { fallback: true as const } : {}), ...extra });
     const people = (users: (string | null | undefined)[], extra: Partial<Via> = {}): Found[] =>
       users.map(lower).filter((u): u is string => !!u).map((user) => ({ user, via: via(extra) }));
     const values = this.input.values ?? {};
+    const key = sourceKey({ rule: index, fallback });
+    this.sources.set(key, this.sourceOf(rule));
     switch (rule.kind) {
       case "position":
-        return this.positionRule(rule, via);
+        return this.positionRule(rule, via, excluded, key);
       case "group": {
         let found = await this.groupPeople([rule.group], rule.leadsOnly);
+        this.sources.set(key, this.sourceOf(rule, { group: this.groupNames.get(rule.group.toLowerCase()) }));
         if (rule.members?.length) found = found.filter((f) => rule.members!.includes(f.user.toLowerCase()));
         return found.map((f) => ({ user: f.user.toLowerCase(), via: via({ group: f.group }) }));
       }
@@ -434,12 +538,13 @@ export class Resolution {
     }
   }
 
-  private async positionRule(rule: Extract<AssigneeRule, { kind: "position" }>, via: (extra?: Partial<Via>) => Via): Promise<Found[]> {
+  private async positionRule(rule: Extract<AssigneeRule, { kind: "position" }>, via: (extra?: Partial<Via>) => Via, excluded: ReadonlySet<string>, key: string): Promise<Found[]> {
     const pos = await this.position(rule.position);
     if (!pos) {
       this.note(`نقش سازمانی «${rule.position}» پیدا نشد`);
       return [];
     }
+    this.sources.set(key, this.sourceOf(rule, { position: pos.name }));
     if (pos.active === false) {
       this.note(`نقش سازمانی «${pos.name}» غیرفعال است`);
       return [];
@@ -463,13 +568,28 @@ export class Resolution {
           if (!holders.length) this.note(`«${pos.name}» در «${(await this.unit(unit))?.name ?? ""}» دارنده‌ای ندارد`);
           break;
         }
-        // the nearest unit (of the kind) up the tree from the requester's that has a holder
+        // the nearest unit (of the kind) up the tree from the requester's with a holder who may take the step: one whose
+        // holders are all left out (the requester heads it, they left, the pack's people on real work) is passed over,
+        // with a note; the members filter then narrows that unit's holders (below), as for every scope
         const kind = rule.unitKind ?? null;
         const chain = (await this.chain(unit)).filter((u) => u.active !== false && (!kind || u.kind === kind));
         const all = await this.holders(pos.id, chain.map((u) => u.id));
-        const nearest = chain.find((u) => all.some((h) => h.org_unit_id?.toLowerCase() === u.id.toLowerCase()));
-        holders = nearest ? all.filter((h) => h.org_unit_id?.toLowerCase() === nearest.id.toLowerCase()) : [];
-        if (!nearest) this.note(kind ? `«${pos.name}» در واحدهای نوع «${kindLabel(kind)}» از واحد درخواست‌دهنده تا بالا دارنده‌ای ندارد` : `«${pos.name}» در واحد درخواست‌دهنده و واحدهای بالاتر دارنده‌ای ندارد`);
+        const out = await this.leftOut(all.map((h) => h.user_id), excluded);
+        const at = (u: UnitRow) => all.filter((h) => h.org_unit_id?.toLowerCase() === u.id.toLowerCase());
+        const nearest = chain.find((u) => at(u).some((h) => !out.has(h.user_id.toLowerCase())));
+        holders = nearest ? at(nearest) : [];
+        const passed: string[] = [];
+        for (const u of chain) {
+          if (nearest && u.id === nearest.id) break;
+          const here = at(u);
+          if (here.length) passed.push(passedNote(pos.name, u.name, here.map((h) => out.get(h.user_id.toLowerCase())!)));
+        }
+        if (nearest) for (const p of passed) this.note(`${p}؛ مرحله به «${nearest.name}» رسید`);
+        else {
+          for (const p of passed) this.note(p);
+          const other = passed.length ? "دارندهٔ دیگری" : "دارنده‌ای";
+          this.note(kind ? `«${pos.name}» در واحدهای نوع «${kindLabel(kind)}» از واحد درخواست‌دهنده تا بالا ${other} ندارد` : `«${pos.name}» در واحد درخواست‌دهنده و واحدهای بالاتر ${other} ندارد`);
+        }
         break;
       }
       case "unit": {
@@ -504,10 +624,15 @@ export class Resolution {
   /** The people of `rules` (united, active, not excluded, delegated, deduplicated), first rule first. */
   async pool(rules: AssigneeRule[], fallback: boolean, excluded: Set<string>): Promise<Resolved[]> {
     const found: Found[] = [];
-    for (const [i, r] of rules.entries()) found.push(...(await this.rule(r, i, fallback)));
+    for (const [i, r] of rules.entries()) found.push(...(await this.rule(r, i, fallback, excluded)));
     return this.settle(found, excluded);
   }
 
+  /**
+   * The people found, settled: active, not excluded, not the demo pack's people on the organisation's own work, each
+   * through today's delegation. Who was left out is noted — the pack's people always (the designer counts them), the
+   * inactive and the excluded when their rule is left with nobody.
+   */
   async settle(found: Found[], excluded: Set<string>): Promise<Resolved[]> {
     const first = new Map<string, Found>();
     for (const f of found) if (!first.has(f.user)) first.set(f.user, f);
@@ -517,15 +642,31 @@ export class Resolution {
     const active = await this.activeOf([...first.keys(), ...delegates.values()]);
     // the organisation's own work never goes to the demo pack's people, found by any rule or standing in for someone
     // (whoever they stand in for keeps the place): a step left with nobody follows its «ifNobody»
-    if (active.size && (await this.isReal())) for (const u of await demoPeople(this.q, this.org, [...active])) active.delete(u);
+    const demo = active.size && (await this.isReal()) ? await demoPeople(this.q, this.org, [...active]) : new Set<string>();
+    for (const u of demo) active.delete(u);
     // one place per person found: a delegate standing in for two people holds both places (each with its
     // delegatedFrom), and a candidate who is also another's delegate keeps their own place too
     const out: Resolved[] = [];
+    const dropped = new Map<string, Map<Drop, number>>();
+    const kept = new Set<string>();
     for (const f of first.values()) {
-      if (!active.has(f.user) || excluded.has(f.user)) continue;
+      const key = f.via.kind === "managers" ? "managers" : sourceKey(f.via);
+      const why: Drop | null = demo.has(f.user) ? "demo" : !active.has(f.user) ? "inactive" : excluded.has(f.user) ? this.excludedWhy(f.user) : null;
+      if (why) {
+        const m = dropped.get(key) ?? new Map<Drop, number>();
+        m.set(why, (m.get(why) ?? 0) + 1);
+        dropped.set(key, m);
+        continue;
+      }
+      kept.add(key);
       const d = delegates.get(f.user)!;
       const user = d !== f.user && active.has(d) && !excluded.has(d) ? d : f.user;
       out.push({ user, delegatedFrom: user !== f.user ? f.user : null, via: f.via });
+    }
+    for (const [key, m] of dropped) {
+      const src = key === "managers" ? { text: "مسئولان گردش‌کار", one: false } : this.sources.get(key) ?? { text: "افراد برگزیده", one: false };
+      const requesterRule = [...first.values()].some((f) => f.via.kind === "requester" && sourceKey(f.via) === key);
+      for (const [why, n] of m) if (why === "demo" || !kept.has(key)) this.note(dropNote(src, why, n, requesterRule));
     }
     return out;
   }
@@ -577,7 +718,9 @@ export async function resolveAssignees(q: Queryable, ctx: Ctx, input: ResolveInp
     ];
     people = await run.settle(managers, excluded);
     if (people.length) status = "managers";
-    else run.note("مسئولی برای گردش‌کار تعیین نشده است");
+    // managers who are there but left out (the requester, an earlier actor, inactive, the pack's people) were noted by
+    // the settling; only a process without any says it has none
+    else if (!managers.length) run.note("مسئولی برای گردش‌کار تعیین نشده است");
   }
   const found = people.length;
   if (!found) {
