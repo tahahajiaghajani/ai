@@ -149,6 +149,42 @@ describe("the idle upkeep", () => {
     }
   });
 
+  it("writes and says nothing at the passes after it left a table for the next start, until something changes", async () => {
+    const f = folder();
+    const db = watched(await openDb(f));
+    try {
+      await db.exec(`create table up_stay (id int primary key, v text); insert into up_stay select g, repeat('s', 300) from generate_series(1, 20000) g; delete from up_stay where id % 2 = 0`);
+      await writeMaintState(db, { lsn: "0/0", looked_at: new Date().toISOString(), sweep: { cursor: null, done_at: new Date().toISOString() } });
+      const log = capture();
+      const up = createUpkeep({ db, log, quietMs: () => 6 * MIN, lock: createHeavyLock(), dataDir: f.dataDir, sleep: async () => {}, options: { startMbPerS: 0.1 } });
+      const wal = async () => String((await db.one<{ l: string }>(`select pg_current_wal_insert_lsn()::text as l`))!.l);
+      const stamp = async () => String((await db.one<{ at: string }>(`select updated_at::text as at from sm_kv where key = 'maint.state'`))!.at);
+      const told = () => log.lines.filter((l) => l.startsWith("database upkeep: "));
+      expect((await up.pass()).deferred).toEqual(["public.up_stay"]);
+      expect(told()).toHaveLength(1);
+      const at = await stamp();
+      const lsn = await wal();
+      // a minute later, and the minute after: the same table over the same budget (this session's counters keep it planned)
+      for (let i = 0; i < 2; i++) {
+        const r = await up.pass();
+        expect(r.deferred).toEqual(["public.up_stay"]);
+        expect(r.vacuumed).toBe(0);
+      }
+      expect(await stamp()).toBe(at);
+      expect(await wal()).toBe(lsn);
+      expect(told()).toHaveLength(1);
+      expect((await readMaintState(db))?.deferred).toEqual(["public.up_stay"]);
+      // something new to leave is written and told again
+      await db.exec(`create table up_more (id int primary key, v text); insert into up_more select g, repeat('m', 300) from generate_series(1, 20000) g; delete from up_more where id % 2 = 0`);
+      expect((await up.pass()).deferred.sort()).toEqual(["public.up_more", "public.up_stay"]);
+      expect((await readMaintState(db))?.deferred?.sort()).toEqual(["public.up_more", "public.up_stay"]);
+      expect(told()).toHaveLength(2);
+      await up.stop();
+    } finally {
+      await db.close();
+    }
+  });
+
   it("waits while a backup holds the heavy lock", async () => {
     const f = folder();
     const db = watched(await openDb(f));

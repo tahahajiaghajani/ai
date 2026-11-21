@@ -244,7 +244,9 @@ export function createUpkeep(c: UpkeepConfig): Upkeep {
     if (!items.length) return end({ skipped: "nothing to do" });
     const byOid = new Map(planned.value.rows.map((r) => [Number(r.oid), numbers(r)]));
     let mbPerS = state?.mb_per_s;
-    const deferred = new Set(state?.deferred ?? []);
+    /** left for the next start's phase already: a table over the budget is planned again at every pass until then */
+    const deferredBefore = new Set(state?.deferred ?? []);
+    const deferred = new Set(deferredBefore);
     let cursor = sweep.cursor;
     let sweptAll = sweep.due;
     let ran = 0;
@@ -306,16 +308,23 @@ export function createUpkeep(c: UpkeepConfig): Upkeep {
     // the database's oldest transaction id moves on with the tables' (a millisecond)
     if (report.vacuumed) await step(() => db.exec(`vacuum (only_database_stats)`)).catch(() => {});
     const swept = sweep.due && sweptAll;
-    await step(() =>
-      writeMaintState(db, {
-        deferred: [...deferred],
-        sweep: swept ? { cursor: null, done_at: new Date().toISOString() } : { cursor, done_at: state?.sweep?.done_at ?? null },
-        ...(mbPerS ? { mb_per_s: mbPerS } : {}),
-        ...(ran ? { upkeep_at: new Date().toISOString() } : {}),
-      }),
-    ).catch((e) => c.log.warn("database upkeep: its state was not saved", String((e as Error)?.message ?? e)));
+    // A pass that changed nothing writes nothing and says nothing: the counters of this session keep a table over the
+    // budget in the plan of every pass until the next start's phase vacuums it — otherwise a write and a line in app.log
+    // every minute for as long as nobody uses the app.
+    const newlyDeferred = report.deferred.filter((t) => !deferredBefore.has(t));
+    const changed = ran > 0 || newlyDeferred.length > 0 || deferred.size !== deferredBefore.size || swept || cursor !== (state?.sweep?.cursor ?? null) || (mbPerS ?? null) !== (state?.mb_per_s ?? null);
+    if (changed) {
+      await step(() =>
+        writeMaintState(db, {
+          deferred: [...deferred],
+          sweep: swept ? { cursor: null, done_at: new Date().toISOString() } : { cursor, done_at: state?.sweep?.done_at ?? null },
+          ...(mbPerS ? { mb_per_s: mbPerS } : {}),
+          ...(ran ? { upkeep_at: new Date().toISOString() } : {}),
+        }),
+      ).catch((e) => c.log.warn("database upkeep: its state was not saved", String((e as Error)?.message ?? e)));
+    }
     const out = end({});
-    if (ran || report.deferred.length) {
+    if (ran || newlyDeferred.length) {
       const longest = out.longest ? ` (longest ${out.longest.table} ${out.longest.ms} ms)` : "";
       const left = report.deferred.length ? `; ${report.deferred.length} left for the next start` : "";
       c.log.info(`database upkeep: ${report.vacuumed} tables vacuumed, ${report.analyzed} analyzed, ${report.frozen} frozen in ${(out.ms / 1000).toFixed(1)} s${longest}${left}`);
