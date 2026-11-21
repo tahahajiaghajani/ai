@@ -26,8 +26,9 @@
 //
 // Assertions marked «1.1.5 (b)…(g)», RC1–RC4 assert behaviour this release adds (CaseDetail.waiting, the reresolve route,
 // journal notes, estimate demo counts, eligibility-first requester_unit_up, the timer path's demo scope, approve plus
-// skip journal text): they fail until wf-eng's work is merged. Those marked NB1–NB4 and OB1 assert what the scenario
-// plan expects of behaviour no package of this release changes (reported with the run): they fail until it is fixed.
+// skip journal text): the engine's and the screens' 1.1.5 work makes them pass. Those marked NB1–NB4 and OB1 assert
+// what the scenario plan expects of behaviour no package of this release changes (reported with the run): they fail
+// until it is fixed.
 import { Client, useServerDb } from "../helpers";
 import { engineOrg, type EngineOrg } from "../engine-helpers";
 import { createPgliteDb } from "@server/db/pglite";
@@ -39,27 +40,16 @@ import { resetTrafficTick, tick } from "@server/jobs";
 import { createIn, systemCtx } from "@server/engine";
 import { resetRateBuckets } from "@server/http/hono";
 import { uuidv7 } from "@shared/id";
+import type { ReresolveResult } from "@shared/process/waiting";
 import { extraDatabase, realPg, realPgAvailable, type RealPg } from "../pg-real";
 import { backendOf, startPooler, type Pooler } from "../web-db-pooler";
 import postgres from "postgres";
 
 export { realPgAvailable };
 
-// ---------------------------------------------------------------------------------------------------------------
-// The 1.1.5 contract (src/shared/process/waiting.ts, added by wf-eng and wf-ui): mirrored here, the file is theirs.
-
-export interface StepWaiting {
-  reason: "nobody" | "too_many";
-  message: string;
-  notes: string[];
-  candidates?: { id: string; name: string; demo: boolean }[];
-}
-export interface ReresolveResult {
-  status: "ok" | "managers" | "nobody" | "too_many";
-  people: { id: string; name: string; demo: boolean }[];
-  message: string | null;
-  notes: string[];
-}
+// The 1.1.5 contract shared by the server and the screens (a waiting step, «دوباره پیدا کردن انجام‌دهنده»): the
+// scenarios read CaseDetail.waiting and the reresolve answer in its own types.
+export type { ReresolveResult, StepWaiting } from "@shared/process/waiting";
 
 // ---------------------------------------------------------------------------------------------------------------
 // Editions
