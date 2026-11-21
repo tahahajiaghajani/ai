@@ -9,9 +9,13 @@
 //   job is retried with exponential backoff until `max_attempts`, then kept as `failed` with its last error. A job
 //   whose worker died is taken again once its lock (5 minutes) expired — unless that was its last allowed attempt:
 //   it is then failed (`failExhausted`), so a job that never fits in its worker's time is not retried forever.
-// Triggers: the Windows app ticks every 10 s (src/desktop/server.ts); the cloud ticks after every write request
-// (`cfg.waitUntil`, budget 4 s), on GET /api/cron/tick (Bearer CRON_SECRET; Supabase pg_cron / GitHub Actions /
-// Vercel cron) and daily by Vercel cron as a last resort.
+// Triggers: the Windows app ticks every 10 s (src/desktop/server.ts); the server edition's scheduler leader on its
+// interval and when a write wakes it (src/server-edition/scheduler.ts). The web version has no timer of its own between
+// requests (src/server/app.ts): it ticks once the answer is sent after a write request that queued jobs, when one is due
+// (budget 4 s); from any other request at most once a minute per instance, when a job is due or a worker's lock expired
+// (`trafficTickDue`, budget 8 s); and on GET /api/cron/tick (Bearer CRON_SECRET; Supabase pg_cron + pg_net every
+// minute, a GitHub Actions schedule, and Vercel's daily cron as a last resort; budget 20 s, the only web tick that
+// deletes finished jobs). The probe `queueHasDue` decides before the answer whether a request's tick is asked for.
 // Handlers never run inside a transaction: they open their own (`db.tx`) and may call external services.
 import type { Db, Queryable } from "../db";
 import { retryTransient } from "../db";
@@ -479,6 +483,64 @@ async function runOne(cfg: JobConfig, job: Job, deadline: number): Promise<boole
     }
     return false;
   }
+}
+
+/**
+ * Is there work for a tick — a queued job that is due, or a running job whose worker's lock expired? Two probes of the
+ * partial indexes sm_jobs_due_idx and sm_jobs_running_idx (about 1 ms). The web version asks before a request's answer
+ * whether to let that answer run a tick (src/server/app.ts), so it asks for one only when there is work.
+ */
+export async function queueHasDue(q: Queryable): Promise<boolean> {
+  const r = await q.one<{ due: boolean }>(
+    `select (exists (select 1 from sm_jobs where status = 'queued' and run_at <= now())
+             or exists (select 1 from sm_jobs where status = 'running' and locked_until < now())) as due`,
+  );
+  return !!r?.due;
+}
+
+// ----- the web version's traffic tick --------------------------------------------------------------------------------
+
+/** How often the web version lets a request run the queue (per instance), when a job is due. */
+export const TRAFFIC_TICK_EVERY_MS = 60_000;
+/** The budget of such a tick: about two of a new organisation's seed jobs (3–5 s each). */
+export const TRAFFIC_TICK_BUDGET_MS = 8000;
+
+/** A moment on both clocks: the wall clock (`Date.now()`) and the monotonic one (`performance.now()`). */
+export interface TrafficClock {
+  wall: number;
+  mono: number;
+}
+
+const NEVER: TrafficClock = { wall: Number.NEGATIVE_INFINITY, mono: Number.NEGATIVE_INFINITY };
+let lastTraffic: TrafficClock = NEVER;
+
+/**
+ * Is a traffic tick due — `everyMs` gone by on either clock since `last`? The larger of the two gaps counts: a paused
+ * instance (Vercel's Fluid compute freezes it between requests) may come back with its monotonic clock barely moved but
+ * the wall clock right, and a wall clock stepped back is still gated by the monotonic one.
+ */
+export function trafficTickDue(now: TrafficClock, last: TrafficClock, everyMs = TRAFFIC_TICK_EVERY_MS): boolean {
+  return Math.max(now.wall - last.wall, now.mono - last.mono) >= everyMs;
+}
+
+/** Both clocks now. */
+export function trafficClock(): TrafficClock {
+  return { wall: Date.now(), mono: performance.now() };
+}
+
+/** When this instance last looked at the queue for its traffic (minus infinity on both clocks: not yet). */
+export function lastTrafficTick(): TrafficClock {
+  return lastTraffic;
+}
+
+/** This instance looked at the queue now (a traffic tick's probe, or a write that queued jobs and probed). */
+export function stampTraffic(at: TrafficClock = trafficClock()): void {
+  lastTraffic = at;
+}
+
+/** Forget the stamp (tests): the next request may run a traffic tick. */
+export function resetTrafficTick(): void {
+  lastTraffic = NEVER;
 }
 
 /** Jobs of an organisation for the admin screens and tests. */
