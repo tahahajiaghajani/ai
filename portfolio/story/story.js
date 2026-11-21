@@ -49,11 +49,13 @@ float edges(vec2 uv) {
 void main() {
   vec2 frag = gl_FragCoord.xy;
   float cell = mix(5.0, 22.0, smoothstep(0.0, 1.0, uScroll)) * uDpr;
-  vec2 id = floor(frag / cell);
-  vec2 center = (id + 0.5) * cell / uRes;
+  vec2 org = floor(uRes * vec2(0.47, 0.66)) + 0.5; // the face: the dots swell in place around the subject
+  vec2 fp = frag - org;
+  vec2 id = floor(fp / cell);
+  vec2 center = ((id + 0.5) * cell + org) / uRes;
   float r = hash(id);
   float lum = photo(center);
-  vec2 local = fract(frag / cell) - 0.5;
+  vec2 local = fract(fp / cell) - 0.5;
   float radius = sqrt(lum) * 0.62;
   float aa = 1.2 / cell;
   float dots = smoothstep(radius + aa, radius - aa, length(local));
@@ -139,10 +141,10 @@ void main() {
     gl.uniform1f(u.hover, 0);
     glReady = true;
   };
-  const drawGl = (t, scan) => {
+  const drawGl = (t, scan, scroll = st.scroll) => {
     if (!glReady) return;
     gl.uniform1f(u.reveal, st.reveal);
-    gl.uniform1f(u.scroll, st.scroll);
+    gl.uniform1f(u.scroll, scroll);
     gl.uniform1f(u.scan, scan);
     gl.uniform1f(u.time, t);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -150,7 +152,7 @@ void main() {
 
   /* ------------------------------------------------------------------ detection boxes */
   const DETS = [
-    { label: "person", score: 0.997, box: [0.02, 0.14, 0.9, 0.995], at: 1.1 },
+    { label: "person", score: 0.997, box: [0.02, 0.14, 0.9, 0.984], at: 1.1 },
     { label: "taha_aghajani", score: 0.998, box: [0.32, 0.215, 0.62, 0.47], at: 1.4 },
     { label: "wristwatch", score: 0.942, box: [0.35, 0.728, 0.455, 0.815], at: 1.72 },
   ];
@@ -303,12 +305,12 @@ void main() {
   tl.to(sat, { v: 1, duration: 0.8, ease: "power2.inOut" }, A3 + 0.4);
   const counts = { a: 1, b: 1, c: 1 };
   document.querySelectorAll(".fact").forEach((f, i) => {
-    tl.to(f, { opacity: 1, y: 0, duration: 0.8 }, A3 + 0.7 + i * 0.13);
+    tl.to(f, { opacity: 1, y: 0, duration: 0.8 }, A3 + 0.5 + i * 0.13);
   });
-  tl.to(counts, { a: 11, duration: 0.8, ease: "power2.out" }, A3 + 0.7);
-  tl.to(counts, { b: 5, duration: 0.7, ease: "power2.out" }, A3 + 0.83);
+  tl.to(counts, { a: 11, duration: 0.8, ease: "power2.out" }, A3 + 0.5);
+  tl.to(counts, { b: 5, duration: 0.7, ease: "power2.out" }, A3 + 0.63);
   document.querySelectorAll(".bank").forEach((b, i) => {
-    tl.to(b, { opacity: 1, scale: 1, duration: 0.6 }, A3 + 1.25 + i * 0.07);
+    tl.to(b, { opacity: 1, scale: 1, duration: 0.6 }, A3 + 0.95 + i * 0.07);
   });
 
   // ---- act 4: the address
@@ -332,8 +334,8 @@ void main() {
   tl.to("#markpath", { strokeDashoffset: 0, duration: 0.7, ease: "power2.inOut" }, A4 + 1.35);
   // while the end card is held, the box takes hold of the address once more; the address itself never moves
   const RELOCK_AT = A4 + 4.1;
-  tl.to("#ubox", { scale: 1.022, duration: 0.2, ease: "power2.out" }, RELOCK_AT);
-  tl.to("#ubox", { scale: 1, duration: 0.7, ease: "expo.out" }, RELOCK_AT + 0.2);
+  tl.to("#ubox", { left: 62, top: 828, width: 956, height: 176, duration: 0.2, ease: "power2.out" }, RELOCK_AT);
+  tl.to("#ubox", { left: 72, top: 838, width: 936, height: 156, duration: 0.7, ease: "expo.out" }, RELOCK_AT + 0.2);
   tl.fromTo("#ubox b", { borderColor: "rgba(255,255,255,0.5)" }, { borderColor: "rgba(255,255,255,0.95)", duration: 0.2, ease: "power2.out", immediateRender: false }, RELOCK_AT);
   tl.to("#ubox b", { borderColor: "rgba(255,255,255,0.5)", duration: 0.9, ease: "power2.out" }, RELOCK_AT + 0.2);
   tl.set({}, {}, DUR);
@@ -357,9 +359,9 @@ void main() {
     const t = held(tNow);
     tl.time(t, false);
     stepped(t);
-    const scan = st.scan;
+    const scan = st.scan, scroll = st.scroll;
     if (t !== tNow) tl.time(tNow, false);
-    drawGl(t, scan);
+    drawGl(t, scan, scroll);
     const sat_ = sat.v;
     pics.forEach((im) => { im.style.filter = `grayscale(${(1 - sat_).toFixed(3)}) contrast(1.08)`; });
     // the availability dot breathes
@@ -413,7 +415,7 @@ void main() {
     tl.time(A2 - 0.02, false);
     stepped(A2 - 0.02);
     drawGl(A2 - 0.02, -1);
-    hudr.textContent = "objects 04";
+    hudr.textContent = "objects 03";
     const el = document.querySelector("#url");
     el.style.left = "0px";
     el.style.right = "0px";

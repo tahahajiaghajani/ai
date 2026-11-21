@@ -21,7 +21,7 @@ Needs Node, Playwright with Chromium (`require("playwright")`) and ffmpeg. From 
     node story/frame.js 0 4 9.6 17                                  # single frames, for checking
 
 `--sub` is how many instants are rendered for each frame and `--shutter` how many of them are averaged (motion blur).
-With `?fps=30`, whatever changes in steps (the decoding labels, the counters, the scan line) is held for the whole
+With `?fps=30`, whatever changes in steps (the decoding labels, the counters, the scan line, the dot grid) is held for the whole
 frame, so two different texts are never blended into one picture.
 
 ## Change
