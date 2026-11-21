@@ -140,6 +140,68 @@ describe("the start-up compaction", () => {
     }
   });
 
+  it("deletes sm_jobs' old jobs once when VACUUM FULL does not fit; the starts after it neither read the table again nor tell the splash", async () => {
+    const f = folder();
+    const db = await openDb(f);
+    try {
+      // the kept jobs make the new table larger than the delete pass's log (1 MB here) and the margin (1 MB here)
+      await jobs(db, { oldDone: 60_000, newDone: 20_000 });
+      // room for the delete pass, not for the compaction after it (twice the new size and the margin)
+      const freeBytes = () => 10 * MB;
+      const disk = { ...OPT, hintWalBytes: 1 * MB, diskMargin: 1 * MB };
+      const notes: number[] = [];
+      const first = capture();
+      const r1 = await startupMaintenance(db, { dataDir: f.dataDir, dbDir: f.dbDir, log: first, freeBytes, notify: () => notes.push(1), options: disk });
+      expect(r1.report.jobs_deleted).toBe(60_000);
+      expect(r1.report.compacted).toEqual([]);
+      expect(r1.report.pending).toEqual(["sm_jobs"]);
+      expect(first.lines.some((l) => /^database maintenance: sm_jobs left for a later start: needs \d+ MB free on the disk, 10 MB free$/.test(l))).toBe(true);
+      expect(notes).toHaveLength(1);
+      // the next starts: the table still waits, its old jobs are gone, so nothing reads it range by range or tells the splash
+      for (let start = 0; start < 2; start++) {
+        const log = capture();
+        const r = await startupMaintenance(db, { dataDir: f.dataDir, dbDir: f.dbDir, log, freeBytes, notify: () => notes.push(1), options: { ...disk, gateBytes: 1024 * MB } });
+        expect(r.report.gate?.why).toBe("tables wait from an earlier start");
+        expect(r.report.pending).toEqual(["sm_jobs"]);
+        expect(r.report.jobs_deleted ?? 0).toBe(0);
+        expect(log.lines.filter((l) => /^maintenance step (jobs|hint):/.test(l))).toEqual([]);
+        expect(log.lines.some((l) => l.startsWith("database maintenance: compacting"))).toBe(false);
+        expect(log.lines.some((l) => l.startsWith("database maintenance: sm_jobs left for a later start"))).toBe(true);
+      }
+      expect(notes).toHaveLength(1);
+      // once the disk has room, the table is compacted and nothing waits any more
+      const done = await startupMaintenance(db, { dataDir: f.dataDir, dbDir: f.dbDir, log: capture(), options: { ...OPT, gateBytes: 1024 * MB } });
+      expect(done.report.compacted).toEqual(["sm_jobs"]);
+      expect((await readMaintState(db))?.pending).toEqual([]);
+      expect((await db.one<{ n: number }>(`select count(*)::int as n from sm_jobs`))!.n).toBe(20_000);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it("runs no delete pass of sm_jobs on a disk without room for its log, and leaves the old jobs to the queue", async () => {
+    const f = folder();
+    const db = await openDb(f);
+    try {
+      await jobs(db, { oldDone: 60_000, newDone: 300 });
+      // analysed already: the start's one-time ANALYZE of sm_jobs (which tells the splash when it takes a while) is not this test's
+      await db.exec(`analyze sm_jobs`);
+      let told = 0;
+      const log = capture();
+      const before = await walAt(db);
+      const r = await startupMaintenance(db, { dataDir: f.dataDir, dbDir: f.dbDir, log, freeBytes: () => 1 * MB, notify: () => void told++, options: OPT });
+      expect(r.report.jobs_deleted ?? 0).toBe(0);
+      expect(r.report.pending).toEqual(["sm_jobs"]);
+      expect(log.lines.filter((l) => /^maintenance step jobs:/.test(l))).toEqual([]);
+      expect(told).toBe(0);
+      // only the look's sample, ANALYZE and the state were written: no range's deletes and their page images
+      expect((await walAt(db)) - before).toBeLessThan(4 * MB);
+      expect((await db.one<{ n: number }>(`select count(*)::int as n from sm_jobs`))!.n).toBe(60_300);
+    } finally {
+      await db.close();
+    }
+  });
+
   it("after a compaction cut short, removes that step's unreferenced files, keeps and reports older ones, and goes on", async () => {
     const f = folder();
     const db = await openDb(f);
@@ -285,6 +347,10 @@ describe("the look's arithmetic", () => {
     expect(requiredBytes(t, 10_000 * MB, opt).mode).toBe("hint"); // too large for the direct mode
     expect(requiredBytes(tbl("y", 100 * MB, 0.9), 10_000 * MB, opt).mode).toBe("direct");
     expect(requiredBytes(t, 300 * MB, opt).mode).toBe("skip");
+    // a table the phase has just read in ranges (sm_jobs' delete pass): twice its new size and the margin, not the pass's log again
+    const read = tbl("z", 2000 * MB, 0.98);
+    expect(requiredBytes(read, 10_000 * MB, opt, true)).toEqual({ mode: "direct", need: 2 * read.compact + opt.diskMargin });
+    expect(requiredBytes(read, 2 * read.compact + opt.diskMargin - 1, opt, true).mode).toBe("skip");
   });
 });
 

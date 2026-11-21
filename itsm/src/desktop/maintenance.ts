@@ -443,8 +443,13 @@ export function requiredBytes(t: TableMeasure, free: number, opt: Pick<MaintOpti
   const fresh = t.compact + t.index * (1 - t.dead);
   const direct = old + 2 * fresh + opt.diskMargin;
   const hint = 2 * fresh + opt.hintWalBytes + opt.diskMargin;
-  // a table whose pages were just read (sm_jobs' delete pass) writes no more log than the new size: hint mode's need
-  if (read) return free >= hint ? { mode: "direct", need: hint } : { mode: "skip", need: hint };
+  // a table whose pages this phase just read (sm_jobs' delete pass, its log checkpointed): VACUUM FULL writes about the
+  // new size of log, and of its TOAST table at most the old one (it fetches the live values through the TOAST index) —
+  // not the reading pass's log again (with it, a table the pass had read did not fit a disk its unread copy fitted)
+  if (read) {
+    const need = 2 * fresh + t.toast + opt.diskMargin;
+    return free >= need ? { mode: "direct", need } : { mode: "skip", need };
+  }
   if (free >= direct && old <= opt.directMaxBytes) return { mode: "direct", need: direct };
   if (free >= hint) return { mode: "hint", need: hint };
   return { mode: "skip", need: hint };
@@ -662,8 +667,16 @@ export async function startupMaintenance<D extends MaintDb>(db: D, o: StartupOpt
     }
     const free = () => (o.freeBytes ?? (() => diskFree(o.dbDir)))();
     const free0 = free();
-    if (plan.compact.length) log.info(`database maintenance: compacting ${plan.compact.length} table${plan.compact.length === 1 ? "" : "s"} (${fmtBytes(plan.reclaim)} to free; ${Number.isFinite(free0) ? fmtBytes(free0) : "unknown"} free on the disk)`);
-    if (plan.notify || freeze) {
+    /**
+     * sm_jobs' old finished jobs are deleted before it is compacted — when the look found some (after a pass that deleted
+     * them all, a start that again finds no room for VACUUM FULL must not read the whole table twice for nothing), and
+     * when the disk takes the pass's log (a checkpoint after every `checkpointBytes`) and the margin.
+     */
+    const jobsPass = (t: TableMeasure, f: number) => t.name === "sm_jobs" && (t.gone ?? 0) > 0 && f >= opt.hintWalBytes + opt.diskMargin;
+    // what fits the disk now: a table that fits nowhere yet waits for a later start without the splash's note
+    const doable = plan.compact.filter((t) => jobsPass(t, free0) || requiredBytes(t, free0, opt).mode !== "skip");
+    if (doable.length) log.info(`database maintenance: compacting ${doable.length} table${doable.length === 1 ? "" : "s"} (${fmtBytes(doable.reduce((n, t) => n + t.reclaim, 0))} to free; ${Number.isFinite(free0) ? fmtBytes(free0) : "unknown"} free on the disk)`);
+    if ((plan.notify && (doable.length > 0 || plan.vacuum.length > 0)) || freeze) {
       o.notify?.();
       notified = true;
       // the splash's note and the line above leave before the first statement holds the thread
@@ -738,28 +751,29 @@ export async function startupMaintenance<D extends MaintDb>(db: D, o: StartupOpt
       await writeMaintState(db, { pending: [...pending], mb_per_s: mbPerS });
     };
     const later: TableMeasure[] = [];
+    /** tables whose every page this phase has read (sm_jobs' delete pass): VACUUM FULL writes about their new size of log */
+    const read = new Set<string>();
     for (const t of plan.compact) {
-      let read = false;
-      if (t.name === "sm_jobs") {
+      if (jobsPass(t, free())) {
         await range(t, "jobs");
-        read = true;
+        read.add(t.name);
       }
-      const need = requiredBytes(t, free(), opt, read);
+      const need = requiredBytes(t, free(), opt, read.has(t.name));
       if (need.mode === "skip") {
         later.push(t);
         continue;
       }
-      await compactOne(t, need.mode, read);
+      await compactOne(t, need.mode, read.has(t.name));
     }
     // the others freed space: one more try for what did not fit, then it waits for a later start
     for (const t of later) {
       const f = free();
-      const need = requiredBytes(t, f, opt, t.name === "sm_jobs");
+      const need = requiredBytes(t, f, opt, read.has(t.name));
       if (need.mode === "skip") {
         log.info(`database maintenance: ${t.name} left for a later start: needs ${fmtBytes(need.need)} free on the disk, ${fmtBytes(f)} free`);
         continue;
       }
-      await compactOne(t, need.mode, t.name === "sm_jobs");
+      await compactOne(t, need.mode, read.has(t.name));
     }
     report.pending = [...pending];
     if (gate.jobsUnanalysed && !report.compacted.includes("sm_jobs")) await analyzeJobs();
