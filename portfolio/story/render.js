@@ -1,5 +1,5 @@
 // Renders story.html frame by frame into a lossless master.
-//   node render.js [--fps 30] [--sub 4] [--dpr 1] [--from 0] [--to 15] [--out out/master.mkv] [--shutter 2]
+//   node render.js [--fps 30] [--sub 4] [--dpr 1] [--from 0] [--to 17] [--out out/master.mkv] [--shutter 2] [--query "?fps=30"]
 // --sub: temporal samples per output frame (motion blur); --shutter: how many of them are averaged (sub = full 360°).
 const { chromium } = require('playwright');
 const { spawn } = require('child_process');

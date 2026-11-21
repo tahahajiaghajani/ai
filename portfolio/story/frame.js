@@ -1,5 +1,5 @@
 // Single frames for checking, or the still poster.
-//   node frame.js 0 4 9.6 15        → out/frame-<seconds>.png (1080x1920)
+//   node frame.js 0 4 9.6 17        → out/frame-<seconds>.png (1080x1920)
 //   node frame.js --still            → out/still.png (rendered at 2x, scaled down)
 const { chromium } = require('playwright');
 const { execFileSync } = require('child_process');

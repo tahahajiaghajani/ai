@@ -1,10 +1,10 @@
 /* Taha Aghajani — portfolio story. One timeline, rendered frame by frame: window.renderAt(seconds). */
 (() => {
-  const DUR = 15.0;
+  const DUR = 17.0; // the finished end card is held for four seconds: time to read it and take a screenshot
   const A2 = 4.1, A3 = 7.5, A4 = 10.4; // act starts
   const STILL = new URLSearchParams(location.search).has("still");
   if (STILL) document.body.classList.add("still");
-  const FRAME_W = 936, FRAME_H = STILL ? 1012 : 1170;
+  const FRAME_W = 936, FRAME_H = STILL ? 976 : 1170;
   const K = FRAME_W / 350; // story pixels per CSS pixel of the site's hero frame on a phone
 
   const $ = (s) => document.querySelector(s);
@@ -158,7 +158,7 @@ void main() {
   const fromHero = (x) => (x * 0.8 + 0.1 - (1 - ASPECT) / 2) / ASPECT; // hero frame (4:5) → photo → this frame
   DETS.forEach((d, i) => {
     let [x0, y0, x1, y1] = [fromHero(d.box[0]), d.box[1], fromHero(d.box[2]), d.box[3]];
-    if (STILL && i === 0) x0 = 0.292; // the poster keeps the person's box clear of the code in the corner
+    if (STILL && i === 0) x0 = 0.31; // the poster keeps the person's box clear of the code in the corner
     const el = document.createElement("div");
     el.className = "box";
     el.style.cssText = `left:${x0 * 100}%;top:${y0 * 100}%;width:${(x1 - x0) * 100}%;height:${(y1 - y0) * 100}%`;
@@ -331,6 +331,12 @@ void main() {
   tl.to("#qrtxt", { opacity: 1, y: 0, duration: 0.7 }, A4 + 1.76);
   tl.to("#sigrow", { opacity: 1, y: 0, duration: 0.7 }, A4 + 1.84);
   tl.to("#markpath", { strokeDashoffset: 0, duration: 0.85, ease: "power2.inOut" }, A4 + 1.6);
+  // while the end card is held, the box takes hold of the address once more; the address itself never moves
+  const RELOCK_AT = A4 + 4.1;
+  tl.to("#ubox", { scale: 1.022, duration: 0.2, ease: "power2.out" }, RELOCK_AT);
+  tl.to("#ubox", { scale: 1, duration: 0.7, ease: "expo.out" }, RELOCK_AT + 0.2);
+  tl.fromTo("#ubox b", { borderColor: "rgba(255,255,255,0.26)" }, { borderColor: "rgba(255,255,255,0.8)", duration: 0.2, ease: "power2.out", immediateRender: false }, RELOCK_AT);
+  tl.to("#ubox b", { borderColor: "rgba(255,255,255,0.26)", duration: 0.9, ease: "power2.out" }, RELOCK_AT + 0.2);
   tl.set({}, {}, DUR);
 
   const ULAB_AT = UBOX_AT + 0.05;

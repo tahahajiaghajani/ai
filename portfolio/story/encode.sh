@@ -3,7 +3,7 @@
 # H.264 High, yuv420p, BT.709 limited range, 30 fps, a silent stereo track (so chats do not treat the file as a GIF),
 # a little temporal luma grain so the dark gradients survive the platforms' re-compression without banding.
 set -euo pipefail
-IN="$1"; OUT="$2"; CRF="${3:-15}"; GRAIN="${4:-5}"
+IN="$1"; OUT="$2"; CRF="${3:-16}"; GRAIN="${4:-3}"
 ffmpeg -y -loglevel error -i "$IN" -f lavfi -i anullsrc=r=48000:cl=stereo \
   -vf "scale=in_range=full:out_range=limited:out_color_matrix=bt709:flags=lanczos,format=yuv420p,noise=c0s=${GRAIN}:c0f=t+u" \
   -c:v libx264 -profile:v high -level 4.2 -preset slow -crf "$CRF" -pix_fmt yuv420p \
