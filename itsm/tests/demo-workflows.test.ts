@@ -250,7 +250,8 @@ describe("the demo pack's own workflows", () => {
     expect((await tasks(expired)).find((t) => t.step_key === "head")?.status).toBe("not_needed");
     // leave: the substitute agrees, the manager approves, the status is set and both are told
     const leave = (await kase(caseOf("leave-done")))!;
-    expect(String(leave.data[F.lvStatus])).toMatch(/^تأییدشده: /);
+    // (1.1.5 NB3) «تعیین مقدار» writes the days and the date as people read them (Persian digits, the Jalali date)
+    expect(String(leave.data[F.lvStatus])).toMatch(/^تأییدشده: [۰-۹]+ روز از [۰-۹]{4}\/[۰-۹]{2}\/[۰-۹]{2}$/);
     const told = await e.db.query<{ user_id: string }>(`select user_id from sm_notifications where table_key = 'process_case' and record_id = $1 and title like 'مرخصی تأیید شد%'`, [caseOf("leave-done")]);
     expect(told.map((x) => x.user_id).sort()).toEqual([who("agent"), who("release")].sort());
     // no substitute: «موافقت جانشین» is passed by, the manager's approval waits

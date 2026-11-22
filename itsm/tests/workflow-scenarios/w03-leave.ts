@@ -3,6 +3,7 @@
 // «تعیین مقدار», «اعلان», «انتظار تا»; «اگر کسی پیدا نشد: بگذرد»; delegation (out of office, and a delegation row of
 // the wrong scope); a read-only field; a tab whose field shows by showIf. Runs R1–R8 of the scenario plan.
 import { describe, it, expect, beforeAll } from "vitest";
+import { formatJalali } from "@shared/jalali";
 import { bankUnits, e, item, n, note, PNG, section, tab, tehranDay, world, type Draft, type EditionRef, type Scn } from "./harness";
 
 export const W3 = { key: "aftab_leave", name: "درخواست مرخصی و معرفی جانشین" };
@@ -123,9 +124,15 @@ export function w03(ref: EditionRef): void {
       await s.submit("behrouz", r.case, "mgr", { outcome: "approved" });
       await s.settle();
       const k = await s.kase(r.case);
-      expect(k.data.u_aftab_lv_status).toMatch(/^تأییدشده از .+ تا .+$/);
+      // (1.1.5 NB3) «تعیین مقدار» writes the dates as people read them (Jalali, Persian digits), not as stored (ISO)
+      const status = `تأییدشده از ${formatJalali(tehranDay(1))} تا ${formatJalali(tehranDay(3))}`;
+      expect(k.data.u_aftab_lv_status).toBe(status);
+      expect(k.data.u_aftab_lv_status).not.toMatch(/[0-9]/);
       expect(await s.path(r.case)).toEqual(["start:out", "request:out", "sub_ok:out", "mgr:approved", "kind:else", "setv:out", "tell:out", "wait:waiting"]);
       for (const who of ["colleague", "negar"]) expect(await s.bells(who)).toContain("مرخصی تأیید شد");
+      // the notice's body is the status as written
+      const told = await s.db.one<{ body: string }>(`select body from sm_notifications where org_id = $1 and user_id = $2 and title = 'مرخصی تأیید شد' and record_id = $3`, [s.org, s.id("colleague"), r.case]);
+      expect(told?.body).toBe(status);
       await finish(s, r.case);
       expect((await s.kase(r.case)).data).toMatchObject({ u_aftab_lv_back: true, u_aftab_lv_days: 3 });
     }, 300_000);

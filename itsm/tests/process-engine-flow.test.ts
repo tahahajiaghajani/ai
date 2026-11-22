@@ -200,7 +200,8 @@ describe("the workflow's own steps", () => {
       const big = (await start(w, P.r, p, { values: { u_amount: "500000" } })).case!;
       await w.k.drain();
       const c = await kase(w, small);
-      expect(c.data.u_finance_note).toBe("خودکار برای 500");
+      // a text field takes the amount as people read it (1.1.5: the display text, as the title shows it)
+      expect(c.data.u_finance_note).toBe("خودکار برای ۵۰۰ ریال");
       expect(c.progress.c).toMatchObject({ status: "done", port: "small" });
       const sent = await w.o.db.one<{ output: { recipients: string[]; count: number } }>(`select output from sm_flow_run_steps where run_id = $1 and node_id = 'n'`, [c.run_ref]);
       expect(sent?.output.recipients).toEqual([P.f]);

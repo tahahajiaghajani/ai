@@ -12,10 +12,14 @@
 //     wait keeps both for the case page and a later re-resolution (../reresolve). `applySubmission` settles the round and resumes the wait with the
 //     decision's port; `cancel` (the wait withdrawn by a join's cancel_rest, the run ended or canceled) closes the
 //     round's open tasks — «دیگر لازم نیست», or «لغو» when the run failed or was canceled.
-//   · «انتخاب» (`choice`): the first case whose comparisons on the run's data hold, else «هیچ‌کدام».
+//   · «انتخاب» (`choice`): the first case whose comparisons on the run's stored data hold, else «هیچ‌کدام».
 //   · «تعیین مقدار» (`set_values`): case values from templates, coerced by the version's snapshot, merged key by key.
+//     A text field people read (`takesDisplayText`) takes each pill as its display text — the unit's name, the
+//     option's label, the Jalali date, the amount — as the title does (./display.ts); any other field takes the stored
+//     value (a unit field from `{{case.u_branch}}` the unit's id).
 //   · «اعلان» (`notify`): recipients by assignee rules (positions, groups, step actors…), sent through the
-//     notification service in the step's transaction.
+//     notification service in the step's transaction; its subject and body show each pill as its display text,
+//     inserted as values (`inlineValue`: no placeholder of the template, escaped in the Markdown body).
 import type { FieldDef } from "@shared/model/types";
 import { compareData } from "@shared/flows";
 import { snapshotFields } from "@shared/forms/snapshot";
@@ -27,6 +31,9 @@ import { coerceValue, emitEvent, systemCtx, updateIn } from "../../../engine";
 import type { FlowStepHandler, StepContext, StepOutcome, WaitCancel } from "../../flows/registry";
 import { Resolution, resolveAssignees, type ResolveInput } from "../../positions";
 import { notifyPeople } from "../../notify/deliver";
+import { inlineValue } from "@shared/notify";
+import { takesDisplayText } from "@shared/process/display";
+import { caseDisplay, casePillKeys, runCaseValues } from "./display";
 import { caseJournal } from "./journal";
 import { managersTold, nobodyLine, openRoundTasks, waitingLine, waitState, type WaitState } from "./waiting";
 import { OPEN_STATES, participantsOf, refreshCase, replayProgress, runLog } from "./progress";
@@ -294,6 +301,9 @@ const setValues: FlowStepHandler = {
     const raw = s.node.config.values && typeof s.node.config.values === "object" ? (s.node.config.values as Record<string, unknown>) : {};
     const data = { ...(kase.data ?? {}) };
     const set: string[] = [];
+    // a text people read takes the display text of its pills (names, labels, Jalali dates); the names its pills need
+    const texts = Object.entries(raw).filter(([key]) => { const f = fields.get(key); return !!f && takesDisplayText(f); }).map(([, tpl]) => tpl);
+    const shown = texts.length ? await caseDisplay(tx, s.orgId, { fields, values: runCaseValues(s.data), tz: s.tz, keys: casePillKeys(...texts) }) : null;
     for (const [key, tpl] of Object.entries(raw)) {
       const f = fields.get(key);
       if (!f) {
@@ -301,7 +311,8 @@ const setValues: FlowStepHandler = {
         continue;
       }
       try {
-        const v = coerceValue(f, s.render(tpl), { schema: NO_LISTS, tz: s.tz }, data[key]);
+        const input = shown && takesDisplayText(f) ? s.display(tpl, shown.pill) : s.render(tpl);
+        const v = coerceValue(f, input, { schema: NO_LISTS, tz: s.tz }, data[key]);
         if (typeof v === "symbol") continue;
         data[key] = v;
         set.push(key);
@@ -331,8 +342,11 @@ const notify: FlowStepHandler = {
       ? await resolveAssignees(tx, s.ctx, resolveInput(kase, version, tasks, { assignees: rules, exclude: [], ifNobody: "skip", action: "fill" }, label))
       : null;
     const users = [...new Set([...(r?.people.map((p) => p.user) ?? []), ...(r?.status === "too_many" ? r.candidates ?? [] : [])])];
-    const subject = s.text(s.node.config.subject).trim().slice(0, 300) || s.run.flowName;
-    const body = s.text(s.node.config.body).slice(0, 20_000);
+    // the subject and body as people read them: each case pill by its display text, inserted as a value
+    const fields = version.forms ? snapshotFields(version.forms) : new Map<string, FieldDef>();
+    const shown = await caseDisplay(tx, s.orgId, { fields, values: runCaseValues(s.data), tz: s.tz, keys: casePillKeys(s.node.config.subject, s.node.config.body) });
+    const subject = s.display(s.node.config.subject, shown.pill, (t) => inlineValue(t, "plain")).trim().slice(0, 300) || s.run.flowName;
+    const body = s.display(s.node.config.body, shown.pill, (t) => inlineValue(t, "markdown")).slice(0, 20_000);
     const count = users.length
       ? await notifyPeople(tx, s.orgId, {
           table: "process_case", id: caseId, users, event: "custom", label: s.run.flowName, subject, body,

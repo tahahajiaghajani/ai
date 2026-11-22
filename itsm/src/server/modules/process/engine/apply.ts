@@ -27,8 +27,6 @@ import { FIELD_GROUPS } from "@shared/model/types";
 import { effectiveRights, type Right } from "@shared/forms/layout";
 import { snapshotFields } from "@shared/forms/snapshot";
 import { attachmentIds } from "@shared/forms/validators";
-import { formatFieldMoney } from "@shared/forms/fieldtypes";
-import { formatJalali } from "@shared/jalali";
 import { levelOutcome } from "@shared/sla/approvals";
 import { localDate } from "@shared/model/jalali-buckets";
 import { uuidv7 } from "@shared/id";
@@ -37,7 +35,7 @@ import { delegationScope, type AssigneeRule } from "@shared/process/assignees";
 import {
   formStepOf, OUTCOME_PORT, outEdges, processNodeLabel, quorumOf, startOf, stepOutcomes, type FormStep, type StepOutcome,
 } from "@shared/process/graph";
-import { renderTitle } from "@shared/process/title";
+import { renderTitle, titlePills } from "@shared/process/title";
 import type { Ctx } from "../../../context";
 import { lockKey, pgArray, type Queryable, type Tx } from "../../../db";
 import { demoPeople, isDemoRow } from "../../../db/scope";
@@ -50,6 +48,7 @@ import { resumeFlowWait, startRun } from "../../flows";
 import { activeDelegations, delegateOf } from "../../sla/approvals";
 import { checkFormRefs, checkFormValues } from "../../forms";
 import { Resolution } from "../../positions";
+import { caseDisplay } from "./display";
 import { caseJournal } from "./journal";
 import { OPEN_STATES, refreshCase } from "./progress";
 import { caseTasks, isId, loadVersionInfo, lockCase, peopleNames, stepWaitKey, type CaseRow, type SubmissionRow, type TaskRow, type VersionInfo } from "./store";
@@ -256,30 +255,14 @@ export async function isStarter(q: Queryable, sys: Ctx, starters: AssigneeRule[]
   return false;
 }
 
-/** The text of a title pill: a start-form field's value as people read it, or a person's name. */
-async function titleText(tx: Tx, orgId: string, defs: Map<string, FieldDef>, values: Record<string, unknown>, people: Record<string, string | null>): Promise<(key: string) => string | null> {
-  const names = await peopleNames(tx, [...Object.values(people), ...[...defs].filter(([k, f]) => f.type === "user" && isId(values[k])).map(([k]) => String(values[k]))]);
-  const unitIds = [...defs].filter(([k, f]) => f.type === "ref" && f.ref === "org_unit" && isId(values[k])).map(([k]) => String(values[k]));
-  const units = unitIds.length
-    ? new Map((await tx.query<{ id: string; name: string }>(`select id, name from sm_org_units where org_id = $1 and id = any($2::uuid[])`, [orgId, pgArray(unitIds)])).map((u) => [String(u.id), String(u.name)]))
-    : new Map<string, string>();
-  return (key) => {
-    if (key in people) return people[key] ? names.get(people[key]!) ?? null : null;
-    const f = defs.get(key);
-    const v = values[key];
-    if (v === null || v === undefined || v === "") return null;
-    if (!f) return typeof v === "object" ? null : String(v);
-    if (f.type === "money") return formatFieldMoney(f, v);
-    const options = Array.isArray(f.choices) ? f.choices : [];
-    if (f.type === "choice") return options.find((o) => o.value === v)?.label ?? String(v);
-    if (f.type === "multichoice" && Array.isArray(v)) return v.map((x) => options.find((o) => o.value === x)?.label ?? String(x)).join("، ");
-    if (f.type === "date" || f.type === "datetime") return formatJalali(String(v));
-    if (f.type === "bool") return v === true ? "بله" : "خیر";
-    if (f.type === "user") return names.get(String(v)) ?? null;
-    if (f.type === "ref") return units.get(String(v)) ?? null;
-    if (Array.isArray(v) || typeof v === "object") return null;
-    return typeof v === "number" ? faDigits(v) : String(v);
-  };
+/**
+ * The text of a title pill: a start-form field's value or a person (the requester, «برای چه کسی») as people read
+ * them — the one display rule of a workflow's texts (./display.ts), so the title and a later «تعیین مقدار» or «اعلان»
+ * name the same unit the same way.
+ */
+async function titleText(tx: Tx, sys: Ctx, version: VersionInfo, defs: Map<string, FieldDef>, values: Record<string, unknown>, people: Record<string, string | null>): Promise<(key: string) => string | null> {
+  const shown = await caseDisplay(tx, sys.org.id, { fields: defs, values: { ...values, ...people }, tz: orgTz(sys), keys: titlePills(version.title_template).keys });
+  return (key) => shown.text(key) || null;
 }
 
 /**
@@ -334,7 +317,7 @@ async function applyStart(tx: Tx, sys: Ctx, sub: SubmissionRow, who: Submitter):
   if (Object.keys(taken.problems).length) return refused(null, taken.problems);
   const now = Date.now();
   const label = processNodeLabel(start);
-  const text = await titleText(tx, orgId, taken.defs, taken.values, { requested_by: who.user, requested_for: requestedFor });
+  const text = await titleText(tx, sys, version, taken.defs, taken.values, { requested_by: who.user, requested_for: requestedFor });
   const title = renderTitle(version.title_template, text, version.name || String(proc.name));
   // the run first (its id is the case's run), then the case with the submission's id, its files and the start task
   const runId = await startRun(tx, {
