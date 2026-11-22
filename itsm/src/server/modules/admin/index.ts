@@ -53,11 +53,20 @@ export function installAdminModule(): void {
     await seedAdminDefaults(jctx.cfg, job.org_id);
   });
   // daily: expired exports lose their files
-  registerJobHandler("admin.sweep", async (job, jctx) => {
-    if (!job.org_id) return;
-    await expireExports(jctx.cfg as ServerConfig, job.org_id);
-    return { again: 24 * 3600_000 };
-  });
+  registerJobHandler(
+    "admin.sweep",
+    async (job, jctx) => {
+      if (!job.org_id) return;
+      await expireExports(jctx.cfg as ServerConfig, job.org_id);
+      return { again: 24 * 3600_000 };
+    },
+    {
+      // the daily round is queued only at the organisation's seed: one that used its attempts goes on the next day
+      onExhausted: async (job, ectx) => {
+        if (job.org_id) await enqueue(ectx.db, { kind: "admin.sweep", orgId: job.org_id, delayMs: 24 * 3600_000, dedupeKey: "admin.sweep", maxAttempts: 3 });
+      },
+    },
+  );
   registerOrgSeed(async (tx, orgId) => {
     await enqueue(tx, { kind: "admin.seed", orgId, delayMs: SEED_DELAY_MS + 90_000, dedupeKey: "admin.seed", maxAttempts: 5 });
     await enqueue(tx, { kind: "admin.sweep", orgId, delayMs: 24 * 3600_000, dedupeKey: "admin.sweep", maxAttempts: 3 });

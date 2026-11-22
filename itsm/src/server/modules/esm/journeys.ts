@@ -484,6 +484,19 @@ export async function myTodos(ctx: Ctx): Promise<Row> {
 }
 
 /**
+ * The order job of an activity used its last attempt without finishing (`esm.order`'s exhausted hook): an activity
+ * still «in progress» without its order ends «failed» with the reason, as when the order is refused — esmSweep does not
+ * retry it, so it would wait for good. HR reopens it to try again.
+ */
+export async function orderExhausted(cfg: JobConfig, orgId: string, activityId: string, why: string): Promise<void> {
+  const sys = await systemCtx(cfg, orgId);
+  await sys.write(async (tx) => {
+    const fresh = await liveRow(tx, sys, "journey_activity", activityId);
+    if (fresh && fresh.state === "in_progress" && !fresh.record_id) await failActivity(tx, sys, fresh, `سفارش ثبت نشد: ${why}`);
+  });
+}
+
+/**
  * Place the catalogue order of an «سفارش از کاتالوگ» activity for the employee with the journey's HR owner's own
  * access (a member context, never the system acting in their name: the request module checks the item, entitlement,
  * ordering for others and the answers in its own write), then link it. A journey without an owner (started by the

@@ -12,7 +12,7 @@ import { STEP_OPENED } from "../engine";
 import { loadVersionInfo } from "../engine/store";
 import { applyPending } from "../sync/apply";
 import { delegationChanged, DELEGATION_JOB, reresolveTasks } from "./delegation";
-import { firstTimer, hasTimers, MORE, timerPass, TIMER_JOB, wakeTimer } from "./timer";
+import { firstTimer, hasTimers, MORE, RECHECK_MS, timerPass, TIMER_JOB, wakeTimer } from "./timer";
 import { installReresolve } from "../reresolve";
 
 export { timerPass, roundTimers, roundTimersIn, roundNextAt, wakeTimer, caseManagers, firstTimer, hasTimers, TIMER_JOB, RECHECK_MS, MORE, type Clock, type RoundFacts } from "./timer";
@@ -31,6 +31,13 @@ export function installProcessTimers(): void {
     const next = await timerPass(cfg, org, (id) => applyPending(cfg, org, id, null), Date.now(), jctx.deadline - 500);
     if (next === MORE) return { again: 0 };
     if (next !== null) return { again: Math.max(1000, next - Date.now()) };
+  }, {
+    // the organisation's timer used its attempts (its worker stopped, or it failed, each time): it is looked at again
+    // within the hour it sleeps at most while anything is watched — otherwise only a step that opens with a time
+    // would wake it, and the open rounds' reminders, escalations and «پایان مهلت» would wait until then
+    onExhausted: async (job, ectx) => {
+      if (job.org_id) await wakeTimer(ectx.db, job.org_id, Date.now() + RECHECK_MS);
+    },
   });
   registerJobHandler(DELEGATION_JOB, async (job, jctx) => {
     if (!job.org_id) return;

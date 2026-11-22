@@ -47,6 +47,8 @@ interface PackRow {
     cursor?: PurgeCursor | null;
     /** what goes, by name (positions, library fields, table fields, units' domains), read before the rows go */
     gone?: GoneNames;
+    /** the purge's job used its attempts (its worker stopped every time): why; it goes on from its phase `PURGE_RETRY_MS` later */
+    stopped?: string;
   };
   counts: Record<string, number>;
   counters: Record<string, number>;
@@ -157,7 +159,10 @@ export async function demoStatus(q: Queryable, orgId: string, opts: { secrets?: 
     out.progress = { done: step, total: STEPS.length, label: STEPS[Math.min(step, STEPS.length - 1)]?.label ?? "" };
     if (!pack.progress.seeds_done) out.progress.label = "آماده‌سازی پیش‌فرض‌های ماژول‌ها";
   }
-  if (pack.state === "purging") out.progress = { done: PURGE_PHASES.indexOf(pack.progress.purge ?? "expand"), total: PURGE_PHASES.length, label: PURGE_LABELS[pack.progress.purge ?? "expand"] ?? "" };
+  if (pack.state === "purging") {
+    out.progress = { done: PURGE_PHASES.indexOf(pack.progress.purge ?? "expand"), total: PURGE_PHASES.length, label: PURGE_LABELS[pack.progress.purge ?? "expand"] ?? "" };
+    if (pack.progress.stopped) out.progress.label = `${out.progress.label} — حذف متوقف شد و یک ساعت دیگر از همین مرحله ادامه می‌یابد`;
+  }
   if (pack.state === "loaded" || pack.state === "loading") {
     const stored = await personaEmails(q, memo);
     out.accounts = Object.entries(KNOWN_NAMES).map(([persona, p]) => ({ persona, email: stored.get(persona) ?? emailOf(orgId, p.email.split("@")[0]), name: p.name, title: p.title }));
@@ -436,6 +441,8 @@ async function auditLine(q: Queryable, orgId: string, userId: string | null, act
 // ----- the purge job --------------------------------------------------------------------------------------------------
 
 const PURGE_PHASES = ["expand", "clear", "remove", "reroute", "anchors", "accounts", "restore", "finish"];
+/** How long a purge whose job used its attempts waits before it goes on from its phase. */
+const PURGE_RETRY_MS = 60 * 60_000;
 const PURGE_LABELS: Record<string, string> = {
   expand: "یافتن ردیف‌های نمایشی و آنچه روی آن‌ها ثبت شده است",
   clear: "پاک‌سازی تعریف‌هایی که روی داده‌های نمایشی ساخته شده‌اند",
@@ -711,19 +718,57 @@ export function installDemoModule(): void {
   if (installed) return;
   installed = true;
   installDemoLedger();
-  registerJobHandler("demo.load", async (job, jctx) => {
-    if (!job.org_id) return;
-    return loadJob(jctx.cfg, job.org_id, jctx.deadline);
-  });
-  registerJobHandler("demo.purge", async (job, jctx) => {
-    if (!job.org_id) return;
-    return purgeStep(jctx.cfg, job.org_id, (job.payload.by as string | undefined) ?? null, jctx.deadline);
-  });
-  registerJobHandler("demo.finalize", async (job, jctx) => {
-    if (!job.org_id) return;
-    const r = await finalizeDemo(jctx.cfg, job.org_id);
-    if (!r.done) return { again: 60 * 60_000 };
-  });
+  registerJobHandler(
+    "demo.load",
+    async (job, jctx) => {
+      if (!job.org_id) return;
+      return loadJob(jctx.cfg, job.org_id, jctx.deadline);
+    },
+    {
+      // its worker stopped at its last attempt: 'loading' → 'failed' (a purge that started keeps 'purging'), from where
+      // the console offers the purge and a new load
+      onExhausted: async (job, ectx) => {
+        if (job.org_id) await failLoad(ectx.db, job.org_id, ectx.error);
+      },
+    },
+  );
+  registerJobHandler(
+    "demo.purge",
+    async (job, jctx) => {
+      if (!job.org_id) return;
+      // a purge that stopped and goes on again: the console no longer says it stopped
+      await inDemoScope(null, () => jctx.db.query(`update sm_demo_packs set progress = progress - 'stopped' where org_id = $1 and progress ? 'stopped'`, [job.org_id]));
+      return purgeStep(jctx.cfg, job.org_id, (job.payload.by as string | undefined) ?? null, jctx.deadline);
+    },
+    {
+      // its worker stopped at every one of its attempts in a row (each step fits the web's limits, so something is
+      // wrong): the purge is never left half done — it goes on from its phase an hour later (not at once, which would
+      // repeat a purge that always dies), and the console says it stopped meanwhile
+      onExhausted: async (job, ectx) => {
+        const orgId = job.org_id;
+        if (!orgId) return;
+        await inDemoScope(null, async () => {
+          const r = await ectx.db.query(`update sm_demo_packs set progress = progress || jsonb_build_object('stopped', $2::text), updated_at = now() where org_id = $1 and state = 'purging' returning org_id`, [orgId, ectx.error]);
+          if (r.length) await enqueue(ectx.db, { kind: "demo.purge", orgId, payload: job.payload, delayMs: PURGE_RETRY_MS, dedupeKey: "demo.purge", maxAttempts: 20 });
+        });
+      },
+    },
+  );
+  registerJobHandler(
+    "demo.finalize",
+    async (job, jctx) => {
+      if (!job.org_id) return;
+      const r = await finalizeDemo(jctx.cfg, job.org_id);
+      if (!r.done) return { again: 60 * 60_000 };
+    },
+    {
+      // the tombstones' removal goes on at its hourly look (otherwise only «پایان حذف اکنون» would queue it again)
+      onExhausted: async (job, ectx) => {
+        const orgId = job.org_id;
+        if (orgId) await inDemoScope(null, () => enqueue(ectx.db, { kind: "demo.finalize", orgId, payload: {}, dedupeKey: "demo.finalize", delayMs: 60 * 60_000 }));
+      },
+    },
+  );
 }
 
 /**
