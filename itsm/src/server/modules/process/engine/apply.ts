@@ -20,6 +20,9 @@
 //     the round-1 start task recorded as done, and the run started (trigger kind `process`, the case as its record).
 //   · cancel: the requester, while no step after the start has been done; the open tasks close as «لغو» and the run
 //     is canceled after the commit.
+// One of the demo pack's people decides no step of a case of the organisation's own — not one they still hold, nor
+// one they stand in for by a delegation (FINAL-1: the pack takes none of its work; the purge ends their task and looks
+// for people again).
 // Refusals carry Persian messages (field messages under `problems`); the online services (./service.ts) turn them
 // into a 400 that rolls the submission back, a pushed one keeps them in `result_note`.
 import type { FieldDef, FieldGroup } from "@shared/model/types";
@@ -47,7 +50,7 @@ import { enqueue } from "../../../jobs";
 import { resumeFlowWait, startRun } from "../../flows";
 import { activeDelegations, delegateOf } from "../../sla/approvals";
 import { checkFormRefs, checkFormValues } from "../../forms";
-import { Resolution } from "../../positions";
+import { DEMO_PEOPLE_REAL_WORK, Resolution } from "../../positions";
 import { caseDisplay } from "./display";
 import { caseJournal } from "./journal";
 import { OPEN_STATES, refreshCase } from "./progress";
@@ -414,6 +417,7 @@ async function applyStep(tx: Tx, sys: Ctx, sub: SubmissionRow, who: Submitter): 
     else if (task.delegated_from && delegateOf(list, task.delegated_from) === me) actedFor = task.delegated_from;
     else return { ...refused("این مرحله به شما سپرده نشده است", {}, kase.id), patch };
   }
+  if ((await demoPeople(tx, orgId, [me])).size && !(await isDemoRow(tx, orgId, kase.id))) return { ...refused(DEMO_PEOPLE_REAL_WORK, {}, kase.id), patch };
 
   // the decision
   const decision = String(sub.outcome ?? (step.action === "approve" ? "" : "submitted")) as StepOutcome;

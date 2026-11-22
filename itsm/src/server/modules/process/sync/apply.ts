@@ -13,7 +13,7 @@ import { snapshotFields } from "@shared/forms/snapshot";
 import { attachmentIds } from "@shared/forms/validators";
 import type { Ctx, ServerConfig } from "../../../context";
 import { pgArray, type Queryable, type Tx } from "../../../db";
-import { inDemoScope } from "../../../db/scope";
+import { demoScopeOrg, inDemoScope } from "../../../db/scope";
 import { systemCtx, updateIn } from "../../../engine";
 import { enqueue } from "../../../jobs";
 import { notifyPeople } from "../../notify/deliver";
@@ -141,11 +141,26 @@ export async function applyPending(cfg: ServerConfig, orgId: string, submissionI
   return inDemoScope((await demoSubmission(cfg.db, orgId, submissionId)) ? orgId : null, apply);
 }
 
-/** `applyPending` inside the caller's transaction (as the system, on the authority). */
+/**
+ * `applyPending` inside the caller's transaction (as the system, on the authority). A real person's submission about a
+ * case of the pack's (pushed from their Windows app, or their own create through the record API — written outside the
+ * demo scope) is the pack's, as everything its apply writes: it joins the pack's rows with what was written with it —
+ * its history and its files (../engine/boundary.ts).
+ */
 export async function applyPendingIn(tx: Tx, sys: Ctx, submissionId: string, since: number | null): Promise<PushedOutcome> {
   const orgId = sys.org.id;
   const sub = await tx.one<SubmissionRow>(`select * from sm_process_submissions where org_id = $1 and id = $2 and deleted_at is null for update`, [orgId, submissionId.toLowerCase()]);
   if (!sub || (sub.result && sub.result !== "pending")) return "skipped";
+  if (demoScopeOrg() === orgId) {
+    await tx.query(
+      `insert into sm_demo_rows (org_id, row_id, tbl)
+       select $1::uuid, $2::uuid, 'sm_process_submissions'
+       union all select $1::uuid, h.id, 'sm_history' from sm_history h where h.org_id = $1::uuid and h.table_key = 'process_submission' and h.record_id = $2::uuid
+       union all select $1::uuid, a.id, 'sm_attachments' from sm_attachments a where a.org_id = $1::uuid and a.table_key = 'process_submission' and a.record_id = $2::uuid
+       on conflict do nothing`,
+      [orgId, sub.id],
+    );
+  }
   const missing = await missingFiles(tx, orgId, sub);
   if (missing.length) {
     const from = since ?? Date.now();

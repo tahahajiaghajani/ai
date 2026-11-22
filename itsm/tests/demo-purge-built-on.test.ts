@@ -10,6 +10,9 @@
 //     applying to everyone; a workflow whose starters were only the pack is closed to everyone, not opened
 //   · nothing breaks: a workflow whose step only the pack could take stays published (its managers can act on the
 //     waiting step), listed for review; its new case waits with the reason until a holder is added
+//   · the organisation's own chargebacks — one drafted before the load, one made while the pack is loaded, both
+//     calculated, approved and posted meanwhile — stay posted with their results and their entries; the pack's runs
+//     go with theirs, and no posting is left without its run
 //   · every API works after it: the hub, the designer, preview of a step's people, publish, new and open cases, a new
 //     incident (its flow, rule and SLA), a new change (its approvals), and a second load and purge
 // Runs on PGlite (CI) and, with ITSM_PG_URL or ITSM_PG_BIN (tests/pg-real.ts), on a real PostgreSQL with the server's
@@ -24,7 +27,11 @@ import { createApp } from "@server/app";
 import type { ServerConfig } from "@server/context";
 import type { Db } from "@server/db";
 import { tick } from "@server/jobs";
-import { danglingRefs, runToEnd } from "@server/modules/demo";
+import { brokenPostings, danglingRefs, runToEnd } from "@server/modules/demo";
+import { systemCtx } from "@server/engine";
+import { ensureFiscalYear } from "@server/modules/financial";
+import { orgToday } from "@server/modules/itam/common";
+import { fiscalYearOf } from "@shared/financial/logic";
 import { Client, quietLog, signupWithOrg } from "./helpers";
 import { PNG, upload } from "./engine-helpers";
 import { realPg, realPgAvailable } from "./pg-real";
@@ -146,6 +153,21 @@ function builtOn(title: string, make: () => Promise<World>, skip = false) {
     const cases: Record<string, string> = {};
     let removed = new Set<string>();
     let report: Record<string, any> | null = null;
+    // the organisation's own chargebacks (R0 drafted before the load, R1 made while it is loaded) as posted, and the
+    // pack's runs
+    const runs: Record<string, string> = {};
+    const posted: Record<string, unknown> = {};
+    let packRuns: string[] = [];
+    let fiscal: { year: string; period: string; today: string } | null = null;
+    /** A run as the ledger has it: its state, its live results, its live entries (by their key) and whether they balance. */
+    const ledgerOf = async (run: string) => {
+      const r = await w.db.one<{ state: string }>(`select state from sm_allocation_runs where id = $1 and deleted_at is null`, [run]);
+      const results = await w.db.query<{ id: string }>(`select id::text as id from sm_allocation_results where org_id = $1 and run_id = $2 and deleted_at is null order by id`, [w.org, run]);
+      const live = `from sm_cost_entries where org_id = $1 and source = 'allocation' and source_key like $2 and deleted_at is null`;
+      const entries = await w.db.query<{ id: string }>(`select id::text as id ${live} order by id`, [w.org, `alloc:${run}:%`]);
+      const sum = await w.db.one<{ balanced: boolean }>(`select coalesce(sum(amount), 0) = 0 as balanced ${live}`, [w.org, `alloc:${run}:%`]);
+      return { state: r?.state ?? null, results: results.map((x) => x.id), entries: entries.map((x) => x.id), balanced: sum?.balanced ?? null };
+    };
 
     beforeAll(async () => {
       w = await make();
@@ -154,6 +176,16 @@ function builtOn(title: string, make: () => Promise<World>, skip = false) {
     afterAll(async () => {
       await w?.close();
     });
+
+    it("the organisation drafts a chargeback of this month before the load", async () => {
+      const sys = await systemCtx(w.cfg, w.org);
+      const today = orgToday(sys);
+      const year = String((await ensureFiscalYear(sys, fiscalYearOf(today))).id);
+      const period = (await w.db.one<{ id: string }>(`select id::text as id from sm_fiscal_periods where org_id = $1 and fiscal_year_id = $2 and start_date <= $3::date and end_date >= $3::date and deleted_at is null`, [w.org, year, today]))!.id;
+      fiscal = { year, period, today };
+      runs.R0 = (await w.owner.post(`${P}/r/allocation_run`, { name: "بازپرداخت این ماه (پیش از بارگذاری)", mode: "chargeback", fiscal_year_id: year, period_from_id: period, period_to_id: period })).row.id;
+      expect((await ledgerOf(runs.R0)).state).toBe("draft");
+    }, 300_000);
 
     it("loads the small bank and signs in its people", async () => {
       await w.owner.post(`${P}/demo/load`, { size: "small" });
@@ -347,6 +379,35 @@ function builtOn(title: string, make: () => Promise<World>, skip = false) {
       await settle(w);
     }, 600_000);
 
+    it("the owner's own chargebacks while the pack is loaded: calculated, approved and posted", async () => {
+      const o = w.owner;
+      const { year, period, today } = fiscal!;
+      const unit = async (code: string) => (await w.db.one<{ id: string }>(`select id::text as id from sm_org_units where org_id = $1 and code = $2 and deleted_at is null`, [w.org, code]))!.id;
+      const app = await unit("CC-IT-APP");
+      const euc = await unit("CC-IT-EUC");
+      const sw = (await w.db.one<{ id: string }>(`select id::text as id from sm_cost_types where org_id = $1 and code = 'SW' and deleted_at is null`, [w.org]))!.id;
+      built.SVC = (await o.post(`${P}/r/service`, { name: "خدمت نرم‌افزارهای اداری (واقعی)", service_type: "business", consumer_units: [euc] })).row.id;
+      built.RULE = (await o.post(`${P}/r/allocation_rule`, { name: "تسهیم مجوزهای نرم‌افزار (واقعی)", source_cost_center_id: app, method: "percent", active: true })).row.id;
+      await o.post(`${P}/r/allocation_target`, { rule_id: built.RULE, service_id: built.SVC, percent: "100" });
+      await o.post(`${P}/r/cost_entry`, { entry_date: today, amount: "3000000", description: "مجوزهای نرم‌افزار این ماه (واقعی)", cost_center_id: app, cost_type_id: sw, source: "manual" });
+      runs.R1 = (await o.post(`${P}/r/allocation_run`, { name: "بازپرداخت این ماه (هنگام بارگذاری)", mode: "chargeback", fiscal_year_id: year, period_from_id: period, period_to_id: period })).row.id;
+      for (const k of ["R0", "R1"]) {
+        const calc = await o.post(`${P}/financial/allocation-runs/${runs[k]}/calculate`, {});
+        expect(Number(calc.total_allocated), k).toBeGreaterThanOrEqual(3_000_000);
+        await o.post(`${P}/r/allocation_run/${runs[k]}/transition`, { to: "approved" });
+        expect((await o.post(`${P}/financial/allocation-runs/${runs[k]}/post`, {})).entries, k).toBeGreaterThan(0);
+        posted[k] = await ledgerOf(runs[k]);
+        expect(posted[k]).toMatchObject({ state: "posted", balanced: true });
+      }
+      // the rule served this month's chargeback (off again: once the month turns, the pack's second load would find
+      // the organisation sharing real costs in its runs' months and make none)
+      await o.patch(`${P}/r/allocation_rule/${built.RULE}`, { active: false, version: (await o.get(`${P}/r/allocation_rule/${built.RULE}`)).row.version });
+      // the pack's own runs (its finance step's showback and chargeback), demo rows
+      packRuns = (await w.db.query<{ id: string }>(`select x.id::text as id from sm_allocation_runs x where x.org_id = $1 and exists (select 1 from sm_demo_rows d where d.org_id = $1 and d.row_id = x.id)`, [w.org])).map((r) => r.id);
+      expect(packRuns.length).toBeGreaterThan(0);
+      for (const k of ["R0", "R1"]) expect(packRuns).not.toContain(runs[k]);
+    }, 300_000);
+
     it("the preview says what goes, what is cleaned and what is routed again", async () => {
       const before = await w.db.one<{ n: number }>(`select count(*)::int as n from sm_demo_rows where org_id = $1`, [w.org]);
       report = await w.owner.get(`${P}/demo/report`);
@@ -388,8 +449,27 @@ function builtOn(title: string, make: () => Promise<World>, skip = false) {
       expect(audit?.data.deleted).toBeGreaterThan(0);
     }, 2_400_000);
 
-    it("nothing names a removed row", async () => {
+    it("nothing names a removed row, and no posting stands without its run", async () => {
       expect(await danglingRefs(w.db, w.org, removed)).toEqual([]);
+      // a run put back as it was before the load names no removed row: its postings must have gone or stayed with it
+      expect(await brokenPostings(w.db, w.org)).toEqual([]);
+    }, 300_000);
+
+    it("the organisation's chargebacks stay posted with their results and entries; the pack's runs went with theirs", async () => {
+      // real work the pack did not make: an organisation's run shares only its own rules' own costs (1.1.4)
+      for (const k of ["R0", "R1"]) expect(await ledgerOf(runs[k]), k).toEqual(posted[k]);
+      for (const id of packRuns) {
+        expect(removed.has(id)).toBe(true);
+        expect(await ledgerOf(id)).toEqual({ state: null, results: [], entries: [], balanced: true });
+      }
+      // no posting is left without its run or beside a run that is not posted (`brokenPostings`, above), and each run's
+      // posting balances (nobody reversed a leg of one here)
+      const unbalanced = await w.db.query<{ id: string }>(
+        `select r.id::text as id from sm_allocation_runs r where r.org_id = $1 and r.deleted_at is null and r.state = 'posted'
+            and coalesce((select sum(e.amount) from sm_cost_entries e where e.org_id = $1 and e.source = 'allocation' and e.deleted_at is null and e.source_key like 'alloc:' || r.id::text || ':%'), 0) <> 0`,
+        [w.org],
+      );
+      expect(unbalanced).toEqual([]);
     }, 300_000);
 
     it("recorded on demo data went with it; what was built on it stayed and lost only the pack", async () => {
@@ -545,8 +625,10 @@ function builtOn(title: string, make: () => Promise<World>, skip = false) {
       const after = await allIds(w);
       const gone = new Set([...ids].filter((id) => !after.has(id)));
       expect(await danglingRefs(w.db, w.org, gone)).toEqual([]);
-      // what the owner made stays
+      expect(await brokenPostings(w.db, w.org)).toEqual([]);
+      // what the owner made stays, his chargebacks with their postings
       for (const k of ["I2", "G1", "PRB", "project_flow"]) expect(after.has(built[k])).toBe(true);
+      for (const k of ["R0", "R1"]) expect(await ledgerOf(runs[k]), k).toEqual(posted[k]);
     }, 3_600_000);
   });
 }

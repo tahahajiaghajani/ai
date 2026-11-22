@@ -17,6 +17,7 @@ export { tellCase, audienceOf, NOTIFIED_MAX, type Audience } from "./readers";
 export { caseRunEnded } from "./ended";
 export { stepWaitKey, lockCase, loadVersionInfo, caseTasks, type CaseRow, type TaskRow, type VersionInfo, type SubmissionRow } from "./store";
 export { caseDisplay, caseNames, orgMoneyUnit, type CaseDisplay } from "./display";
+export { isPackCase, inCaseScope, packOnRealCase } from "./boundary";
 
 let installed = false;
 

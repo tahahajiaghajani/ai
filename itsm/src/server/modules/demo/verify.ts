@@ -2,7 +2,8 @@
 // removed row anywhere in its columns (`to_jsonb(row)`), outside the trail it keeps by design — history, journal, audit,
 // sign-ins, the authorship stamps of real rows — and the snapshots it never rewrites (published workflow and flow
 // versions, decision snapshots: `refs.ts` "keep"). The tests run it with the ids the purge removed; it reads every
-// table of the organisation, so it is not part of the purge itself on large organisations.
+// table of the organisation, so it is not part of the purge itself on large organisations. And no posting of the
+// ledger stands without its run as posted (`brokenPostings`): what a run posted goes or stays with the run.
 import type { Queryable } from "../../db";
 import { physicalTables } from "@shared/tables";
 import { archivable, archiveTableOf } from "../../engine/ddl";
@@ -94,4 +95,33 @@ export async function danglingRefs(q: Queryable, orgId: string, removed: Iterabl
     ),
   );
   return out;
+}
+
+export interface BrokenPosting {
+  /** the allocation run the entries name in their key (`alloc:<run>:…`) */
+  run: string;
+  /** the run is gone (or deleted), or it is there but not posted */
+  reason: "no_run" | "not_posted";
+  /** its live entries */
+  entries: number;
+}
+
+/**
+ * Live ledger entries an allocation run posted (financial/service.ts `postRun`: source «allocation», key
+ * `alloc:<run>:…`, reversals included) whose run is gone or no longer posted — «ثبت‌شده» is a run's last state, and its
+ * entries are made with it in one transaction, so only a purge that removed or put back a run without all it posted
+ * leaves them. A run put back as it was before the load names no removed row (`danglingRefs` cannot see it): this
+ * does. Empty: every posting stands with its run.
+ */
+export async function brokenPostings(q: Queryable, orgId: string): Promise<BrokenPosting[]> {
+  const rows = await q.query<{ run: string; state: string | null; n: number }>(
+    `select lower(split_part(e.source_key, ':', 2)) as run, max(r.state) as state, count(*)::int as n
+       from sm_cost_entries e
+       left join sm_allocation_runs r on r.org_id = e.org_id and r.id::text = lower(split_part(e.source_key, ':', 2)) and r.deleted_at is null
+      where e.org_id = $1 and e.source = 'allocation' and e.deleted_at is null and e.source_key like 'alloc:%'
+      group by 1
+      order by 1`,
+    [orgId],
+  );
+  return rows.filter((r) => r.state !== "posted").map((r) => ({ run: r.run, reason: r.state == null ? "no_run" : "not_posted", entries: r.n }));
 }

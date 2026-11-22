@@ -32,7 +32,7 @@ import { TRAIL_TABLE_NAMES } from "./refs";
 
 export { DEMO_SIZES, BANK_NAME, type DemoSize } from "./bank";
 export { tablesInfo, COMPUTED_TABLES, type PurgeReport, type RefReport } from "./purge";
-export { danglingRefs, type Dangling } from "./verify";
+export { brokenPostings, danglingRefs, type BrokenPosting, type Dangling } from "./verify";
 
 export type PackState = "loading" | "loaded" | "purging" | "tombstoned" | "failed";
 

@@ -5,12 +5,18 @@
 //   · refused: a 400 with the field messages (or a 409 with the reason) — the transaction, the submission included,
 //     rolls back;
 //   · late: the submission stays (its values kept), and the person is told why nothing changed.
-// F4c's routes call these; values of a «پیوست» field name the files sent with the call as `{ upload: <index> }`.
+// F4c's routes call these; values of a «پیوست» field name the files sent with the call as `{ upload: <index> }`. A
+// step's decision and a requester's cancel run as their case's work (./boundary.ts, 1.1.5): inside the demo pack's scope
+// for a case of the pack's, whoever acts — the submission, the steps it opens and the jobs it queues are the pack's —
+// and outside every demo scope for any other, where one of the pack's people is refused (FINAL-1). A start runs as
+// its caller's request does: the pack's people start the pack's cases.
 import type { Ctx } from "../../../context";
 import { uuidv7 } from "@shared/id";
 import { addAttachmentIn, createIn, orgSchema, systemCtx, updateIn, validationError, type UploadFile } from "../../../engine";
 import { bad, conflict, notFound } from "../../../http/errors";
+import { demoRealWork } from "../../positions";
 import { applySubmission, type ApplyOutcome } from "./apply";
+import { inCaseScope, packOnRealCase } from "./boundary";
 import { processesRunHere } from "./here";
 import { isId } from "./store";
 
@@ -103,19 +109,23 @@ export async function submitTask(ctx: Ctx, taskId: string, input: SubmitTaskInpu
       )
     : null;
   if (!task) throw notFound("این مرحله پیدا نشد");
-  return submit(
-    ctx,
-    {
-      // the process is filled in by the apply: a Windows app that holds only the published versions has no process row
-      kind: "step", task_id: task.id, case_id: task.case_id, step_key: task.step_key, round: task.round, version_id: task.version_id,
-      outcome: input.outcome ?? null, comment: input.comment ?? null, values: input.values ?? {}, return_to: input.return_to ?? null,
-    },
-    input.files,
-  );
+  const row = {
+    // the process is filled in by the apply: a Windows app that holds only the published versions has no process row
+    kind: "step", task_id: task.id, case_id: task.case_id, step_key: task.step_key, round: task.round, version_id: task.version_id,
+    outcome: input.outcome ?? null, comment: input.comment ?? null, values: input.values ?? {}, return_to: input.return_to ?? null,
+  };
+  // a linked Windows app records the submission only (the authority, which holds the demo pack's registry, judges it)
+  if (!(await processesRunHere(ctx.cfg, ctx.org.id))) return submit(ctx, row, input.files);
+  // one of the demo pack's people decides no step of the organisation's own case, not even one they still hold or stand
+  // in for (FINAL-1; the purge ends their task and looks for people again)
+  if (await packOnRealCase(ctx.db, ctx, task.case_id)) throw demoRealWork(403);
+  return inCaseScope(ctx.db, ctx.org.id, task.case_id, () => submit(ctx, row, input.files));
 }
 
 /** «لغو پرونده» by its requester (before any step after the start was done). */
 export async function cancelCase(ctx: Ctx, caseId: string, input: { comment?: string | null } = {}): Promise<SubmitResult> {
   if (!isId(caseId)) throw notFound("پرونده پیدا نشد");
-  return submit(ctx, { kind: "cancel", case_id: caseId.toLowerCase(), comment: input.comment ?? null });
+  const row = { kind: "cancel", case_id: caseId.toLowerCase(), comment: input.comment ?? null };
+  if (!(await processesRunHere(ctx.cfg, ctx.org.id))) return submit(ctx, row);
+  return inCaseScope(ctx.db, ctx.org.id, caseId, () => submit(ctx, row));
 }
