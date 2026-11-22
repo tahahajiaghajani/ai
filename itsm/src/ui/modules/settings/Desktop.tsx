@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import QRCode from "qrcode";
 import { api } from "../../lib/api";
 import { useSession } from "../../lib/session";
+import { EDITION_NAMES, editionOf, linkedEdition } from "../../lib/edition";
 import { useOrg } from "../../lib/org";
 import { useAction, useNotify } from "../../lib/hooks";
 import { PageHeader } from "../../components/layout";
@@ -40,19 +41,21 @@ export default function Desktop() {
       <div>
         <PageHeader title="نسخهٔ ویندوز" />
         <Card>
-          <EmptyState icon={Monitor} title="این بخش مخصوص نسخهٔ ویندوز است" description="پشتیبان‌گیری، حالت شبکه و هم‌گامی با نسخهٔ وب در برنامهٔ ویندوز تنظیم می‌شوند." />
+          <EmptyState icon={Monitor} title="این بخش مخصوص نسخهٔ ویندوز است" description={`پشتیبان‌گیری، حالت شبکه و هم‌گامی با ${EDITION_NAMES[editionOf(meta)]} در برنامهٔ ویندوز تنظیم می‌شوند.`} />
         </Card>
       </div>
     );
   const d = info.data;
   const lanUrl = d?.lan?.addresses?.[0] ? `http://${d.lan.addresses[0]}:${d.lan.port}` : null;
   const linked = !!d?.cloud?.linked;
+  // what the link reaches: the web version or the organisation's server edition (the labels before a link stay as they are)
+  const to = linked ? linkedEdition(d?.cloud) : "web";
   return (
     <div>
       <PageHeader title="نسخهٔ ویندوز" subtitle={d ? <span>نسخهٔ <Version v={d.version} />، {d.computer}</span> : null} />
       <div className="blk-cols grid items-start gap-4 xl:grid-cols-2">
         <Card
-          title="هم‌گامی با نسخهٔ وب"
+          title={`هم‌گامی با ${EDITION_NAMES[to]}`}
           meta={
             <span className="inline-flex items-center gap-2 blk-meta">
               <i className="ds-nuqta" data-live={linked ? "" : undefined} style={linked ? undefined : { color: "var(--ds-text-3)" }} aria-hidden />
@@ -64,7 +67,7 @@ export default function Desktop() {
             <>
               <dl className="blk-dl">
                 <div className="is-wide">
-                  <dt>نسخهٔ وب</dt>
+                  <dt>{EDITION_NAMES[to]}</dt>
                   <dd><bdi dir="ltr" className="ds-latin">{d.cloud.url}</bdi></dd>
                 </div>
                 <div>
@@ -94,7 +97,7 @@ export default function Desktop() {
                   danger
                   icon={<Unlink {...ICON} />}
                   onClick={async () => {
-                    if (await n.confirm("قطع اتصال از نسخهٔ وب؟", "داده‌های این رایانه می‌مانند ولی دیگر با وب هم‌گام نمی‌شوند.", true)) unlink.mutate(undefined);
+                    if (await n.confirm(`قطع اتصال از ${EDITION_NAMES[to]}؟`, `داده‌های این رایانه می‌مانند ولی دیگر با ${to === "server" ? "سرور سازمان" : "وب"} هم‌گام نمی‌شوند.`, true)) unlink.mutate(undefined);
                   }}
                 >
                   قطع اتصال

@@ -9,6 +9,8 @@ import { CheckCheck, Download, Play, Plus, RotateCcw, Trash2, Undo2, X } from "l
 import { api } from "../../../lib/api";
 import { useAction } from "../../../lib/hooks";
 import { fa, jDate } from "../../../lib/fa";
+import { useSession } from "../../../lib/session";
+import { EDITION_NAMES, editionOf } from "../../../lib/edition";
 import { PageHeader } from "../../../components/layout";
 import { Chip, Skeleton, StatCard } from "../../../components/display";
 import { Card } from "../../../components/blocks";
@@ -188,12 +190,14 @@ interface Version {
 
 function VersionTab() {
   const q = useAdminQuery<Version>(["console", "version"], "/admin/version");
+  // the edition by the session (the server edition's API mode is "cloud", as the web version's)
+  const { meta } = useSession();
   const v = q.data;
   if (!v) return <Skeleton rows={6} />;
   return (
     <div className="flex flex-col gap-4">
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="نسخه">
-        <StatCard title="نسخهٔ سامانه" value={<span className="ds-num ds-latin">{v.app_version}</span>} hint={v.mode === "cloud" ? "نسخهٔ وب" : "نسخهٔ ویندوز"} />
+        <StatCard title="نسخهٔ سامانه" value={<span className="ds-num ds-latin">{v.app_version}</span>} hint={EDITION_NAMES[editionOf(meta)]} />
         <StatCard title="ساختار پایگاه داده" value={v.schema.pending.length ? `${fa(v.schema.pending.length)} مهاجرت مانده` : "به‌روز"} tone={v.schema.pending.length ? "bad" : "ok"} hint={v.schema.latest ? <span className="ds-latin">{v.schema.latest}</span> : undefined} />
         <StatCard title="پروتکل همگام‌سازی" value={<span className="ds-num">{fa(v.sync_protocol)}</span>} hint={<span className="ds-latin">Node {v.node}</span>} />
         <StatCard title="برنامه‌های ویندوز قدیمی" value={<span className="ds-num">{fa(v.devices_outdated)}</span>} tone={v.devices_outdated ? "bad" : "muted"} hint={`${fa(v.orgs)} سازمان`} />

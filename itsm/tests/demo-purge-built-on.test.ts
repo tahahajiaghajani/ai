@@ -9,10 +9,12 @@
 //   · nothing widens: a definition whose condition, audience or approvers only named the pack stops instead of
 //     applying to everyone; a workflow whose starters were only the pack is closed to everyone, not opened
 //   · nothing breaks: a workflow whose step only the pack could take stays published (its managers can act on the
-//     waiting step), listed for review; its new case waits with the reason until a holder is added
+//     waiting step), listed for review; its new case waits with the reason until a holder is added; a real case that
+//     already waited for the pack's people says why now (never «start it with a demo account»)
 //   · the organisation's own chargebacks — one drafted before the load, one made while the pack is loaded, both
 //     calculated, approved and posted meanwhile — stay posted with their results and their entries; the pack's runs
 //     go with theirs, and no posting is left without its run
+//   · the preview names what it touches in words (a holder «… در «مدیر پروژه»»), never by id
 //   · every API works after it: the hub, the designer, preview of a step's people, publish, new and open cases, a new
 //     incident (its flow, rule and SLA), a new change (its approvals), and a second load and purge
 // Runs on PGlite (CI) and, with ITSM_PG_URL or ITSM_PG_BIN (tests/pg-real.ts), on a real PostgreSQL with the server's
@@ -152,6 +154,8 @@ function builtOn(title: string, make: () => Promise<World>, skip = false) {
     const built: Record<string, string> = {};
     const cases: Record<string, string> = {};
     let removed = new Set<string>();
+    // C6's waiting round as the purge itself left it, before the queue went on
+    let c6AtPurge: { message?: string; notes?: string[] } | null = null;
     let report: Record<string, any> | null = null;
     // the organisation's own chargebacks (R0 drafted before the load, R1 made while it is loaded) as posted, and the
     // pack's runs
@@ -365,7 +369,13 @@ function builtOn(title: string, make: () => Promise<World>, skip = false) {
       cases.C3 = (await w.owner.post(`${P}/process/start`, { process: "project_flow", values: values("انبار داده"), requested_for: pp.requester }, 201)).case;
       // alice's case on the workflow with the pack's form on a step
       cases.C5 = (await w.alice.c.post(`${P}/process/start`, { process: "project_access", values: { u_prj_title: "دسترسی آلیس", u_aftab_system: "سامانهٔ مالی", u_prj_lead: w.alice.id } }, 201)).case;
+      // bob's case that nobody hands on (the owner's case C of 1.1.5's click-through): «تأیید مدیر پروژه» has only the
+      // pack's holders, so it waits, and its reasons say they are demo accounts
+      cases.C6 = (await w.bob.c.post(`${P}/process/start`, { process: "project_flow", values: { u_prj_title: "در انتظار پیش از حذف", u_prj_lead: w.bob.id } }, 201)).case;
       await drain(w, PROCESS_JOBS);
+      const c6 = await w.owner.get(`${P}/process/cases/${cases.C6}`);
+      expect(c6.case.state).toBe("waiting");
+      expect((c6.waiting?.a1?.notes ?? []).join(" ")).toContain("حساب نمایشی");
       // the pack's agent on the owner's real incident: a comment, a file, a change
       const ag = persona.agent;
       await ag.post(`${P}/r/incident/${built.I2}/journal`, { kind: "comment", body: "بررسی شد" });
@@ -429,6 +439,17 @@ function builtOn(title: string, make: () => Promise<World>, skip = false) {
       expect(cleaned.filter((c) => c.table === "process_case" || c.table === "process_submission")).toEqual([]);
       // kept records routed again
       expect((report!.rerouted as { table: string }[]).some((r) => r.table === "incident")).toBe(true);
+      // every bucket names rows in words, never by id: a holder reads «… در «…»» (1.1.5's click-through saw
+      // «دارندگان نقش‌های سازمانی · ۴ · 01a201e6-…»)
+      const holders = (report!.deleted as { table: string; samples: string[] }[]).find((d) => d.table === "position_holder");
+      expect(holders?.samples.length ?? 0).toBeGreaterThan(0);
+      for (const sample of holders!.samples) expect(sample).toMatch(/ در «(مدیر پروژه|کارشناس ارشد)»$/);
+      const words = [
+        ...(report!.deleted as { samples: string[] }[]).flatMap((d) => d.samples),
+        ...(report!.cleaned as { name: string }[]).map((c) => c.name),
+        ...(report!.rerouted as { samples: string[] }[]).flatMap((r) => r.samples),
+      ];
+      expect(words.filter((x) => /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(x))).toEqual([]);
     }, 300_000);
 
     it("purges as the console does, to the end", async () => {
@@ -439,6 +460,7 @@ function builtOn(title: string, make: () => Promise<World>, skip = false) {
       await runToEnd(w.cfg, w.org, "purge", { budgetMs: 1_800_000 });
       log(`${title}: purged in ${((Date.now() - t) / 1000).toFixed(0)} s`);
       expect(await w.db.one(`select state from sm_demo_packs where org_id = $1 and state <> 'tombstoned'`, [w.org])).toBeNull();
+      c6AtPurge = (await w.owner.get(`${P}/process/cases/${cases.C6}`)).waiting?.a1 ?? null;
       await settle(w, 120_000);
       const after = await allIds(w);
       removed = new Set([...ids].filter((id) => !after.has(id)));
@@ -470,6 +492,24 @@ function builtOn(title: string, make: () => Promise<World>, skip = false) {
         [w.org],
       );
       expect(unbalanced).toEqual([]);
+    }, 300_000);
+
+    it("a real case that already waited for the pack's people says why now, never «start it with a demo account»", async () => {
+      // the purge looked again for its waiting round (clean.ts waitingStep): the position has no holder at all now —
+      // already when the purge ends, before the queue goes on (that it is the purge's own doing, with nothing queueing
+      // the organisation's re-resolution, is tests/demo-purge-waiting.test.ts)
+      expect(c6AtPurge?.message ?? "").toContain("کسی پیدا نشد");
+      expect((c6AtPurge?.notes ?? []).join(" ")).not.toContain("حساب نمایشی");
+      // nor its line: «گردش کار پروژه»'s managers are a pack person and a pack group, whom the opening's notice could not
+      // reach («… حساب نمایشی‌اند؛ اعلان به آن‌ها نرسید»)
+      expect(c6AtPurge?.message ?? "").not.toContain("حساب نمایشی");
+      const c6 = await w.owner.get(`${P}/process/cases/${cases.C6}`);
+      expect(c6.case.state).toBe("waiting");
+      const a1 = c6.waiting?.a1 ?? {};
+      expect(a1.message ?? "").toContain("کسی پیدا نشد");
+      expect(a1.message ?? "").not.toContain("حساب نمایشی");
+      expect((a1.notes ?? []).join(" ")).not.toContain("حساب نمایشی");
+      expect(a1.notes ?? []).toContain("کسی «مدیر پروژه» نیست");
     }, 300_000);
 
     it("recorded on demo data went with it; what was built on it stayed and lost only the pack", async () => {

@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { useOrg } from "../../lib/org";
 import { useSession } from "../../lib/session";
+import { EDITION_NAMES, linkedEdition } from "../../lib/edition";
 import { useAction, useNotify } from "../../lib/hooks";
 import { PageHeader } from "../../components/layout";
 import { Chip, EmptyState, JDateTime, StatusTag } from "../../components/display";
@@ -99,7 +100,7 @@ export default function Integrations() {
       {meta?.mode === "desktop" ? (
         <p className="blk-line mb-4">
           <i className="ds-nuqta" aria-hidden />
-          سامانه‌های بیرونی به نسخهٔ وب وصل می‌شوند؛ وب‌هوک و کلید API را در نسخهٔ وب بسازید.
+          سامانه‌های بیرونی به {EDITION_NAMES[linkedEdition(meta.desktop?.cloud)]} وصل می‌شوند؛ وب‌هوک و کلید API را در {EDITION_NAMES[linkedEdition(meta.desktop?.cloud)]} بسازید.
         </p>
       ) : null}
       <Tabs

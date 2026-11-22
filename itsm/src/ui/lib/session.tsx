@@ -65,7 +65,8 @@ export interface DesktopInfo {
   computer: string;
   local_url: string;
   lan: { enabled: boolean; port: number; addresses: string[] };
-  cloud: { linked: boolean; url: string | null; org_id: string | null; email: string | null; linked_at: string | null; auto_sync: boolean };
+  /** `edition`: what the link reaches (an organisation's server edition or the web version; null while unknown) */
+  cloud: { linked: boolean; url: string | null; org_id: string | null; email: string | null; linked_at: string | null; auto_sync: boolean; edition?: "web" | "server" | null };
   sync: { linked: boolean; running: boolean; online: boolean | null; last_sync_at: string | null; last_error: string | null; pending: number; failed: { entity: string; id: string; error: string | null }[] };
   backups: { dir: string; auto: boolean; keep: number; last: { at: string; file: string; size: number } | null };
 }

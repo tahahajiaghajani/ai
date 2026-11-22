@@ -10,8 +10,9 @@
 //   reroute (class D) kept real records lose their references to removed rows through the engine, as the system: the
 //                     engine's hooks route them again (assignment rules, default queues); open approvals asked of
 //                     removed people are planned again; open workflow tasks of removed people end and their rounds
-//                     look for people again (nobody found: journaled, the managers told); values stored under a
-//                     removed field leave the records.
+//                     look for people again (nobody found: journaled, the managers told); rounds of kept cases that
+//                     already waited with reasons naming the pack's people, or with rules reaching removed rows, look
+//                     for people again too (`waitingStep`); values stored under a removed field leave the records.
 //   anchors (class E) the access anchors of kept rows that named a removed unit are derived again from their person's
 //                     profile (the engine's derivation), else emptied — a domain moves up to the nearest kept domain.
 // Every row is written in its own savepoint: one that cannot be written is reported and never stops the purge. Every
@@ -31,13 +32,14 @@ import { snapshotFor } from "../../access/subject";
 import { anchorsFor } from "../../access/hooks";
 import { rerunApprovalRulesIn } from "../sla/approvals";
 import { reresolveRoundIn } from "../process/reresolve";
-import { loadVersionInfo, lockCase } from "../process/engine/store";
+import { loadVersionInfo, lockCase, stepWaitKey, type CaseRow, type VersionInfo } from "../process/engine/store";
 import {
   BENEFICIARY, ID_TEXT, PLATFORM_JSON_PRUNES, RESTRICTION_SCALARS, RESTRICTION_SETS, PRODUCER_REFS, SNAPSHOT_TABLES,
   fieldRefs, jsonHandler, pruneIds, pruneRules, routingFields, uuidsIn, type Gone, type FieldRef,
 } from "./refs";
 import { failReason, inSavepoint, type CleanedDefinition, type ReroutedBucket, type Skipped, type TableInfo } from "./purge";
 import { isPurgedSql } from "./ledger";
+import { rowWords } from "./samples";
 
 const ident = (s: string) => `"${s.replace(/"/g, '""')}"`;
 const lit = (s: string) => `'${s.replace(/'/g, "''")}'`;
@@ -157,13 +159,8 @@ export async function effectiveDefs(q: Queryable, orgId: string, info: TableInfo
 const hasField = (def: TableDef, name: string) => def.fields.some((f) => f.name === name && !f.base);
 const isJsonCol = (t: TableInfo, name: string) => t.cols.get(name)?.type === "jsonb";
 
-/** The display of a row for the report (its number, else its display field). */
-function labelOf(def: TableDef, row: Record<string, unknown>): string {
-  const n = typeof row.number === "string" && row.number ? row.number : null;
-  const d = row[def.display];
-  const text = typeof d === "string" ? d : d === null || d === undefined ? "" : String(d);
-  return [n, text].filter(Boolean).join(" — ").slice(0, 120) || String(row.id ?? "").slice(0, 8);
-}
+/** The display of a row for the report: its number and display in words, never an id (./samples.ts). */
+const labelOf = (q: Queryable, def: TableDef, row: Record<string, unknown>): Promise<string> => rowWords(q, def, row);
 
 /** A soft «since» bound: a row that names a demo row was written after the demo row existed (a week for clock skew). */
 const sinceCond = (t: TableInfo, since: string | null) => (since && t.cols.has("updated_at") ? ` and x.updated_at >= ${lit(since)}::timestamptz - interval '7 days'` : "");
@@ -365,7 +362,7 @@ export async function clearStep(tx: Tx, sys: Ctx, orgId: string, info: TableInfo
           if (!Object.keys(patch).length) continue;
           const bucket = st.rerouted.get(def.key) ?? { table: def.key, label: def.plural, rows: 0, routed: 0, samples: [] };
           bucket.rows++;
-          if (bucket.samples.length < 3) bucket.samples.push(labelOf(def, row));
+          if (bucket.samples.length < 3) bucket.samples.push(await labelOf(tx, def, row));
           st.rerouted.set(def.key, bucket);
           if (!st.dry) await writeRow(tx, sys, t, def, String(row.id), patch, patch, st.skipped, "clear");
           continue;
@@ -375,7 +372,7 @@ export async function clearStep(tx: Tx, sys: Ctx, orgId: string, info: TableInfo
         const deactivate = dead && hasField(def, "active") && row.active !== false;
         if (deactivate) patch.active = false;
         const entry: CleanedDefinition = {
-          table: def.key, label: def.label, id: String(row.id), name: labelOf(def, row), what: [...new Set(notes)].join("؛ ").slice(0, 400),
+          table: def.key, label: def.label, id: String(row.id), name: await labelOf(tx, def, row), what: [...new Set(notes)].join("؛ ").slice(0, 400),
           deactivated: deactivate || (dead && !hasField(def, "active")),
         };
         st.cleaned.push(entry);
@@ -507,6 +504,106 @@ async function rerouteRounds(tx: Tx, sys: Ctx, orgId: string, rounds: Map<string
 }
 
 /**
+ * What names the pack's people in a waiting round: a resolver's reason («۲ نفر از دارندگان «…» حساب نمایشی‌اند…»,
+ * ../positions/resolve.ts) or the opening's line on whom the managers' notice could not reach («… حساب نمایشی است؛
+ * اعلان به او نرسید», ../process/engine/readers.ts).
+ */
+const DEMO_REASON = "حساب نمایشی";
+
+/**
+ * Kept workflow cases that already waited for people (e2e of 1.1.5, the owner's case C): a round with nobody to act —
+ * no task ever opened in it, the case not paused — whose reasons or line name the pack's people («۲ نفر از دارندگان
+ * «…» حساب نمایشی‌اند…؛ … با یک حساب نمایشی آغاز کنید»; a pack manager the opening's notice could not reach) or whose
+ * rules reach a removed row (a pack position, group, unit or person, a position the purge leaves without a holder).
+ * Those reasons stop being true with the pack: the round runs its rules again as the organisation's re-resolution does
+ * (../process/reresolve, as the system, outside the demo scope) — whoever is found now gets the step, journaled; else
+ * the round keeps the reasons as they are now and, telling nobody, its opening's line (whom the notice reached then),
+ * unless that line names the pack's people: then the line of a re-resolution that tells nobody. After every table (the
+ * pack's holders, members and profiles are gone), case by case from `cur.after`, until the budget; counted with the
+ * records routed again. Returns whether every case is done.
+ */
+async function waitingStep(tx: Tx, sys: Ctx, orgId: string, names: GoneNames, def: TableDef | undefined, cur: TableCursor, st: StepState): Promise<boolean> {
+  const versions = new Map<string, VersionInfo | null>();
+  const versionOf = async (id: string | null) => {
+    if (!id) return null;
+    if (!versions.has(id)) versions.set(id, await loadVersionInfo(tx, orgId, id));
+    return versions.get(id) ?? null;
+  };
+  for (;;) {
+    if (Date.now() > st.until) return false;
+    const cases = await tx.query<CaseRow>(
+      `select c.* from sm_process_cases c
+        where c.org_id = $1 and c.deleted_at is null and c.state = 'waiting' and c.paused_at is null and not ${isDemo("c.id")}${cur.after ? " and c.id > $2::uuid" : ""}
+        order by c.id limit ${CHUNK}`,
+      cur.after ? [orgId, cur.after] : [orgId],
+    );
+    if (!cases.length) return true;
+    // the rounds without any task (a round a manager handled is theirs), and their waits
+    const had = new Set(
+      (await tx.query<{ c: string; s: string; r: number }>(`select case_id::text as c, step_key as s, round as r from sm_process_tasks where org_id = $1 and case_id = any($2::uuid[]) and deleted_at is null`, [orgId, pgArray(cases.map((c) => c.id))]))
+        .map((t) => `${t.c}:${t.s}:${Number(t.r)}`),
+    );
+    const rounds = cases.flatMap((c) => Object.entries(c.open_rounds ?? {}).map(([node, n]) => ({ c, node, key: stepWaitKey(c.id, node, Number(n)) })).filter((x) => !had.has(x.key.slice("pstep:".length))));
+    const waits = new Map<string, Record<string, unknown>>();
+    if (rounds.length) {
+      const rows = await tx.query<{ key: string; data: Record<string, unknown> | null }>(`select key, data from sm_flow_waits where org_id = $1 and key = any($2::text[]) and result is null`, [orgId, pgArray(rounds.map((x) => x.key))]);
+      for (const w of rows) waits.set(w.key, w.data ?? {});
+    }
+    // the step's rules, fallbacks and (when it goes to them) the case's managers: one registry query for the chunk
+    const steps = new Map<string, { rules: unknown[]; fallback: unknown[]; managers: unknown[] }>();
+    for (const x of rounds) {
+      const node = (await versionOf(x.c.version_id))?.graph.nodes.find((n) => n.id === x.node && n.type === "form_step");
+      if (!node || !waits.has(x.key)) continue;
+      const step = formStepOf(node.config);
+      steps.set(x.key, { rules: step.assignees, fallback: step.fallback ?? [], managers: ifNobodyOf(step) === "managers" ? [...(x.c.managers ?? []), ...(x.c.manager_groups ?? [])] : [] });
+    }
+    const gone = await goneOracle(tx, orgId, [...steps.values()], names, { emptiedAsGone: true });
+    const due = new Map<string, string[]>();
+    for (const x of rounds) {
+      const s = steps.get(x.key);
+      const was = waits.get(x.key);
+      if (!s || !was || was.reason === "too_many" || (was.reason !== "nobody" && Array.isArray(was.candidates))) continue;
+      const named = JSON.stringify([was.notes ?? [], was.message ?? ""]).includes(DEMO_REASON);
+      const reach = pruneRules(s.rules, gone).changed || pruneRules(s.fallback, gone).changed || s.managers.some((m) => typeof m === "string" && gone.id(m));
+      if (named || reach) due.set(x.c.id, [...(due.get(x.c.id) ?? []), x.node]);
+    }
+    for (const c of cases) {
+      if (Date.now() > st.until) return false;
+      cur.after = c.id;
+      const nodes = due.get(c.id);
+      if (!nodes) continue;
+      const bucket = st.rerouted.get("process_case") ?? { table: "process_case", label: def?.plural ?? "پرونده‌های گردش‌کار", rows: 0, routed: 0, samples: [] };
+      bucket.rows++;
+      bucket.routed++;
+      if (bucket.samples.length < 3 && def) bucket.samples.push(await labelOf(tx, def, c as unknown as Record<string, unknown>));
+      st.rerouted.set("process_case", bucket);
+      if (st.dry) continue;
+      const r = await inSavepoint(tx, async () => {
+        let kase = await lockCase(tx, orgId, c.id);
+        const version = kase ? await versionOf(kase.version_id) : null;
+        if (!kase || !version) return;
+        for (const node of nodes) {
+          const done = await reresolveRoundIn(tx, sys, kase, version, node, { by: null, onlyNobody: true });
+          if (done?.people.length) kase = (await lockCase(tx, orgId, c.id)) ?? kase;
+          // nobody now: the round kept its opening's line, the managers told nothing new — one naming the pack's
+          // people the notice could not reach (gone now) gives way to the line it returned («… مرحله منتظر مسئولان
+          // گردش‌کار می‌ماند.»)
+          else if (done?.status === "nobody" && done.message) {
+            await tx.query(
+              `update sm_flow_waits set data = data || jsonb_build_object('message', $3::text)
+                where org_id = $1 and key = $2 and result is null and strpos(coalesce(data ->> 'message', ''), $4::text) > 0`,
+              [orgId, stepWaitKey(c.id, node, done.round), done.message, DEMO_REASON],
+            );
+          }
+        }
+      });
+      if (!r.ok) st.skipped.push({ phase: "reroute", table: "sm_process_cases", rows: 1, reason: failReason(r.error) });
+    }
+    if (cases.length < CHUNK) return true;
+  }
+}
+
+/**
  * Clear the references of kept rows to removed rows, through the engine (see the header), table by table until the
  * budget: returns whether every table is done (`cur` moves on). Archive copies, values of removed fields and the
  * platform's settings are cleaned straight.
@@ -582,7 +679,7 @@ export async function rerouteStep(tx: Tx, sys: Ctx, orgId: string, info: TableIn
         const bucket = st.rerouted.get(def.key) ?? { table: def.key, label: def.plural, rows: 0, routed: 0, samples: [] };
         bucket.rows++;
         if (Object.keys(patch).some((k) => routing.has(k))) bucket.routed++;
-        if (bucket.samples.length < 3) bucket.samples.push(labelOf(def, row));
+        if (bucket.samples.length < 3) bucket.samples.push(await labelOf(tx, def, row));
         st.rerouted.set(def.key, bucket);
         if (st.dry) continue;
         if (def.key === "approval" && replan.has(`${row.table_key}:${row.record_id}`)) continue;
@@ -606,6 +703,12 @@ export async function rerouteStep(tx: Tx, sys: Ctx, orgId: string, info: TableIn
       if (!st.dry) await rerouteRounds(tx, sys, orgId, rounds, st);
       if (rows.length < CHUNK) break;
     }
+  }
+  // after every table: the rounds of kept cases that already waited for the pack's people (the cursor's next slot)
+  if (cur.i === work.length) {
+    if (!(await waitingStep(tx, sys, orgId, names, byKey.get("process_case"), cur, st))) return false;
+    cur.i++;
+    cur.after = null;
   }
   if (st.dry) return true;
   // values kept under a field that left its table (a pack library field attached to a real table)
@@ -718,7 +821,7 @@ export async function anchorStep(tx: Tx, sys: Ctx, orgId: string, info: TableInf
         if (!Object.keys(set).length) continue;
         const bucket = st.rerouted.get(def.key) ?? { table: def.key, label: def.plural, rows: 0, routed: 0, samples: [] };
         bucket.rows++;
-        if (bucket.samples.length < 3) bucket.samples.push(labelOf(def, row));
+        if (bucket.samples.length < 3) bucket.samples.push(await labelOf(tx, def, row));
         st.rerouted.set(def.key, bucket);
         if (st.dry) continue;
         const keys = Object.keys(set);
