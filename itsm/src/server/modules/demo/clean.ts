@@ -3,12 +3,15 @@
 //   clear (class C)   definitions that name the pack are kept and cleaned: conditions pruned by meaning, recipients,
 //                     levels, actions, flow steps, forms, workflow drafts, defaults, filters; a definition left
 //                     meaningless is deactivated (or, without an «فعال» flag, removed), an allow-list that would empty
-//                     ends its row (never «everyone»), a published workflow whose current version can no longer route is
-//                     retired (versions are never rewritten). Each definition gets an audit line saying what went.
+//                     ends its row (never «everyone»), a published workflow whose current version can no longer route
+//                     is retired when none of its managers is left — otherwise its steps wait for the managers and it
+//                     is listed for review (versions are never rewritten). Each definition gets an audit line saying
+//                     what went.
 //   reroute (class D) kept real records lose their references to removed rows through the engine, as the system: the
 //                     engine's hooks route them again (assignment rules, default queues); open approvals asked of
-//                     removed people are planned again; open workflow tasks of removed people end; values stored under
-//                     a removed field leave the records.
+//                     removed people are planned again; open workflow tasks of removed people end and their rounds
+//                     look for people again (nobody found: journaled, the managers told); values stored under a
+//                     removed field leave the records.
 //   anchors (class E) the access anchors of kept rows that named a removed unit are derived again from their person's
 //                     profile (the engine's derivation), else emptied — a domain moves up to the nearest kept domain.
 // Every row is written in its own savepoint: one that cannot be written is reported and never stops the purge. Every
@@ -27,6 +30,8 @@ import { removeIn, updateIn } from "../../engine";
 import { snapshotFor } from "../../access/subject";
 import { anchorsFor } from "../../access/hooks";
 import { rerunApprovalRulesIn } from "../sla/approvals";
+import { reresolveRoundIn } from "../process/reresolve";
+import { loadVersionInfo, lockCase } from "../process/engine/store";
 import {
   BENEFICIARY, ID_TEXT, PLATFORM_JSON_PRUNES, RESTRICTION_SCALARS, RESTRICTION_SETS, PRODUCER_REFS, SNAPSHOT_TABLES,
   fieldRefs, jsonHandler, pruneIds, pruneRules, routingFields, uuidsIn, type Gone, type FieldRef,
@@ -387,9 +392,13 @@ export async function clearStep(tx: Tx, sys: Ctx, orgId: string, info: TableInfo
 }
 
 /**
- * Published workflows whose current version can no longer route — a step (not the start) whose rules and fallbacks
- * all name removed rows or positions the purge leaves without a holder, and that waits when nobody is found — are
- * retired (no new case stalls; open cases finish on their version). The version itself is never rewritten.
+ * Published workflows whose current version can no longer route: a step (not the start) whose rules and fallbacks all
+ * name removed rows or positions the purge leaves without a holder. The version itself is never rewritten.
+ *   · a step that waits while a live manager can act on it keeps the workflow published, listed for review: the 1.1.5
+ *     waiting machinery covers it — a new case's journal says why, its managers are told and can give the step to
+ *     someone or find its people again, and a holder added later gets it (../process/reresolve);
+ *   · a step nobody could ever act on — it waits, or goes to the managers, and none of its managers is left — retires
+ *     the workflow (no new case stalls; open cases finish on their version).
  */
 export async function retireStuck(tx: Tx, sys: Ctx, orgId: string, names: GoneNames, st: StepState): Promise<void> {
   const rows = await tx.query<{ id: string; name: string; key: string; graph: unknown; managers: unknown; manager_groups: unknown }>(
@@ -402,6 +411,7 @@ export async function retireStuck(tx: Tx, sys: Ctx, orgId: string, names: GoneNa
     const managersLive = [...(Array.isArray(p.managers) ? p.managers : []), ...(Array.isArray(p.manager_groups) ? p.manager_groups : [])];
     const managersOk = !managersLive.length || managersLive.some((x) => typeof x === "string" && !gone.id(x));
     const stuck: string[] = [];
+    const waits: string[] = [];
     const nodes = Array.isArray((p.graph as { nodes?: unknown[] })?.nodes) ? ((p.graph as { nodes: { id: string; type: string; label?: string; config?: unknown }[] }).nodes) : [];
     for (const n of nodes) {
       if (n.type !== "form_step") continue;
@@ -412,15 +422,26 @@ export async function retireStuck(tx: Tx, sys: Ctx, orgId: string, names: GoneNa
       const rulesDead = noRules || dead(step.assignees);
       const fallbackDead = !step.fallback?.length || dead(step.fallback);
       const nobody = ifNobodyOf(step);
-      if (!noRules && rulesDead && fallbackDead && (nobody === "wait" || (nobody === "managers" && !managersOk))) stuck.push(String(n.label || n.id));
+      if (noRules || !rulesDead || !fallbackDead) continue;
+      if ((nobody === "wait" || nobody === "managers") && !managersOk) stuck.push(String(n.label || n.id));
+      else if (nobody === "wait") waits.push(String(n.label || n.id));
     }
-    if (!stuck.length) continue;
+    if (!stuck.length && !waits.length) continue;
+    const retire = stuck.length > 0;
+    const steps = (xs: string[]) => `مرحله‌های «${xs.join("»، «")}» دیگر انجام‌دهنده‌ای ندارند (قاعده‌هایشان فقط به دادهٔ نمایشی می‌رسید)`;
     const entry: CleanedDefinition = {
-      table: "process", label: "گردش‌کار", id: p.id, name: p.name, deactivated: false, retired: true,
-      what: `مرحله‌های «${stuck.join("»، «")}» دیگر انجام‌دهنده‌ای ندارند (قاعده‌هایشان فقط به دادهٔ نمایشی می‌رسید)`.slice(0, 400),
+      table: "process", label: "گردش‌کار", id: p.id, name: p.name, deactivated: false, ...(retire ? { retired: true } : {}),
+      what: (retire
+        ? `${steps(stuck)} و هیچ‌یک از مسئولانش هم نمانده است`
+        : `${steps(waits)}؛ گردش‌کار منتشر می‌ماند: پرونده‌های تازه آن‌جا منتظر می‌مانند و مسئولان گردش‌کار باخبر می‌شوند تا کسی را برگزینند یا دارنده‌ای بیفزایند`
+      ).slice(0, 400),
     };
     st.cleaned.push(entry);
     if (st.dry) continue;
+    if (!retire) {
+      await reviewLine(tx, orgId, entry);
+      continue;
+    }
     const r = await inSavepoint(tx, () => updateIn(tx, sys, "process", p.id, { status: "retired" }, { trusted: true, keepVersion: true }));
     if (!r.ok) {
       const direct = await inSavepoint(tx, () => tx.query(`update sm_processes set status = 'retired', updated_at = now() where id = $1 and org_id = $2`, [p.id, orgId]));
@@ -465,6 +486,27 @@ function pointerRefs(t: TableInfo, def: TableDef): (FieldRef & { cond: string })
 const OPEN_APPROVAL = new Set(["requested", "waiting"]);
 
 /**
+ * The rounds of kept workflow cases whose open task of a removed person just ended: each runs its rules again as the
+ * organisation's re-resolution does (../process/reresolve), outside the demo scope — whoever is found gets the step,
+ * journaled; nobody found, the journal says why, the case waits and its managers are told, as at an opening without
+ * people (the round has a task now, so the organisation's later re-resolution would leave it to the managers).
+ */
+async function rerouteRounds(tx: Tx, sys: Ctx, orgId: string, rounds: Map<string, Set<string>>, st: StepState): Promise<void> {
+  for (const [caseId, steps] of rounds) {
+    const r = await inSavepoint(tx, async () => {
+      let kase = await lockCase(tx, orgId, caseId);
+      const version = kase ? await loadVersionInfo(tx, orgId, kase.version_id) : null;
+      if (!kase || !version) return;
+      for (const step of steps) {
+        const done = await reresolveRoundIn(tx, sys, kase, version, step, { by: null, lost: true });
+        if (done) kase = (await lockCase(tx, orgId, caseId)) ?? kase;
+      }
+    });
+    if (!r.ok) st.skipped.push({ phase: "reroute", table: "sm_process_cases", rows: 1, reason: failReason(r.error) });
+  }
+}
+
+/**
  * Clear the references of kept rows to removed rows, through the engine (see the header), table by table until the
  * budget: returns whether every table is done (`cur` moves on). Archive copies, values of removed fields and the
  * platform's settings are cleaned straight.
@@ -498,6 +540,8 @@ export async function rerouteStep(tx: Tx, sys: Ctx, orgId: string, info: TableIn
       if (!rows.length) break;
       const gone = await goneOracle(tx, orgId, rows.map((r) => [refs.map((f) => (f.custom ? r.custom?.[f.name] : r[f.name]))]), names);
       const replan = new Map<string, { table: string; id: string }>();
+      // the workflow rounds whose open task of a removed person ended, by case
+      const rounds = new Map<string, Set<string>>();
       for (const row of rows) {
         cur.after = String(row.id);
         const patch: Record<string, unknown> = {};
@@ -525,10 +569,11 @@ export async function rerouteStep(tx: Tx, sys: Ctx, orgId: string, info: TableIn
         }
         if (!Object.keys(patch).length) continue;
         if (custom) raw.custom = custom;
-        // an open workflow task of a removed person ends (nobody can act on it); its step waits for its managers
+        // an open workflow task of a removed person ends (nobody can act on it); its round looks for people again below
         if (def.key === "process_task" && row.status === "open" && ("assigned_to" in patch || "delegated_from" in patch)) {
           patch.status = raw.status = "not_needed";
           patch.closed_at = raw.closed_at = new Date().toISOString();
+          if (row.case_id && row.step_key) rounds.set(String(row.case_id), (rounds.get(String(row.case_id)) ?? new Set()).add(String(row.step_key)));
         }
         // an open approval asked of a removed person: its record's rounds are planned again
         if (def.key === "approval" && OPEN_APPROVAL.has(String(row.state)) && ("approver_id" in patch || "group_id" in patch || "delegated_from" in patch)) {
@@ -558,6 +603,7 @@ export async function rerouteStep(tx: Tx, sys: Ctx, orgId: string, info: TableIn
             [orgId, rec.table, rec.id],
           );
         }
+      if (!st.dry) await rerouteRounds(tx, sys, orgId, rounds, st);
       if (rows.length < CHUNK) break;
     }
   }

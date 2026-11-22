@@ -8,6 +8,8 @@
 //   · it ends, nothing names a removed row anywhere outside the trail and the published snapshots (`danglingRefs`)
 //   · nothing widens: a definition whose condition, audience or approvers only named the pack stops instead of
 //     applying to everyone; a workflow whose starters were only the pack is closed to everyone, not opened
+//   · nothing breaks: a workflow whose step only the pack could take stays published (its managers can act on the
+//     waiting step), listed for review; its new case waits with the reason until a holder is added
 //   · every API works after it: the hub, the designer, preview of a step's people, publish, new and open cases, a new
 //     incident (its flow, rule and SLA), a new change (its approvals), and a second load and purge
 // Runs on PGlite (CI) and, with ITSM_PG_URL or ITSM_PG_BIN (tests/pg-real.ts), on a real PostgreSQL with the server's
@@ -449,6 +451,27 @@ function builtOn(title: string, make: () => Promise<World>, skip = false) {
       expect(view?.start?.can_start ?? false).toBe(false);
       // starters that named real people too keep them
       expect((await w.owner.get(`${P}/process/defs/${built.project_access}`)).draft.starters).toEqual([{ kind: "users", users: [w.ownerId, w.alice.id] }]);
+    }, 300_000);
+
+    it("a workflow whose step only the pack could take stays published: its new case waits for the managers, a holder added gets it", async () => {
+      // «تأیید مدیر پروژه» names the position only the pack held; the workflow's real managers can act on such a step
+      // (1.1.5: the reason in the journal, the managers told, the step found again when holders change), so the purge
+      // lists it for review and never retires it
+      const o = w.owner;
+      expect((await w.db.one<{ status: string }>(`select status from sm_processes where id = $1`, [built.project_flow]))!.status).toBe("published");
+      const review = await w.db.query<{ summary: string }>(`select summary from sm_audit where org_id = $1 and action = 'demo_purge_review' and entity = 'process' and entity_id = $2`, [w.org, built.project_flow]);
+      expect(review.some((r) => r.summary.includes("تأیید مدیر پروژه") && r.summary.includes("منتظر می‌مانند"))).toBe(true);
+      expect(review.some((r) => r.summary.includes("بازنشسته"))).toBe(false);
+      const c = (await w.alice.c.post(`${P}/process/start`, { process: "project_flow", values: { u_prj_title: "پس از حذف، پیش از دارنده", u_prj_lead: w.bob.id } }, 201)).case;
+      await drain(w, PROCESS_JOBS);
+      const waiting = await o.get(`${P}/process/cases/${c}`);
+      expect(waiting.case.state).toBe("waiting");
+      expect(waiting.waiting?.a1?.message ?? "").toContain("کسی پیدا نشد");
+      // the owner gives the position a real holder: the waiting step reaches him
+      await o.post(`${P}/r/position_holder`, { position_id: built.project_manager, user_id: w.bob.id, kind: "primary" });
+      await drain(w, ["process.reresolve", ...PROCESS_JOBS]);
+      const given = await o.get(`${P}/process/cases/${c}`);
+      expect(given.case.state).toBe("active");
     }, 300_000);
 
     it("every page and API works after it", async () => {

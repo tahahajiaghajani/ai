@@ -68,7 +68,9 @@ const namesOf = async (q: Queryable, people: { user: string }[]) => {
  * task for each person found (the round stays the same: its wait, its due time from now), and otherwise keeps what was
  * found now on the round's wait. null: the step does not wait for people — not open, an open task, its wait taken, or
  * (`onlyNobody`, the organisation's job) a round the managers handled, a paused case, or a round with more people than
- * it takes.
+ * it takes. `lost`: the round lost the person it was with (the demo purge ended their open task, ../../demo/clean.ts):
+ * the journal says so, and when nobody is found the round is announced as an opening without people is — the journal's
+ * line and reasons, the case waiting, its managers told («مرحلهٔ بی‌انجام‌دهنده»).
  */
 export async function reresolveRoundIn(
   tx: Tx,
@@ -76,7 +78,7 @@ export async function reresolveRoundIn(
   kase: CaseRow,
   version: VersionInfo,
   nodeId: string,
-  opts: { rules?: "case" | "current"; by: By; onlyNobody?: boolean },
+  opts: { rules?: "case" | "current"; by: By; onlyNobody?: boolean; lost?: boolean },
 ): Promise<RoundOutcome | null> {
   const orgId = sys.org.id;
   const round = Number(kase.open_rounds?.[nodeId]);
@@ -120,7 +122,11 @@ export async function reresolveRoundIn(
     people = r.people.map((p) => ({ user: p.user, delegatedFrom: p.delegatedFrom }));
   }
   const current = opts.rules === "current" ? " با قاعده‌های نسخهٔ جاری" : "";
-  const asked = opts.by ? `${opts.by.name} (مسئول گردش‌کار) انجام‌دهندهٔ «${node.label}» را${current} دوباره جست` : `با تغییر دارندگان نقش‌ها، گروه‌ها یا نقش‌های دسترسی، انجام‌دهندهٔ «${node.label}» دوباره جسته شد`;
+  const asked = opts.by
+    ? `${opts.by.name} (مسئول گردش‌کار) انجام‌دهندهٔ «${node.label}» را${current} دوباره جست`
+    : opts.lost
+      ? `کسی که «${node.label}» با او بود با «حذف داده‌های نمایشی» از سامانه رفت و انجام‌دهنده دوباره جسته شد`
+      : `با تغییر دارندگان نقش‌ها، گروه‌ها یا نقش‌های دسترسی، انجام‌دهندهٔ «${node.label}» دوباره جسته شد`;
   const author = opts.by?.user ?? null;
   const now = Date.now();
 
@@ -148,6 +154,13 @@ export async function reresolveRoundIn(
   if (opts.by) {
     const found = reason === "too_many" ? line : "کسی پیدا نشد";
     await caseJournal(tx, sys, kase, waitingLine(`${asked}؛ ${found}`, notes), { author, data: { step: nodeId, round, reresolved: true, rules: opts.rules ?? "case", waiting: reason, message: line, notes } });
+  } else if (opts.lost) {
+    await caseJournal(tx, sys, kase, waitingLine(`${asked}؛ ${line}`, notes), { data: { step: nodeId, round, reresolved: true, waiting: reason, message: line, notes } });
+    await refreshCase(tx, sys, kase, version.graph, { tasks });
+    await emitEvent(tx, sys, {
+      kind: STEP_OPENED, table: "process_case", id: kase.id, number: kase.number,
+      data: { node: nodeId, label: node.label, round, action: node.step.action, people: [], status: reason, due_at: null, message: line, notes, returned: false, reresolved: true },
+    });
   }
   return { status: reason, people: [], message: line, notes, label: node.label, round };
 }

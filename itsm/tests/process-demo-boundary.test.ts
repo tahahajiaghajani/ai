@@ -7,7 +7,9 @@
 // work queued while it ran too — and takes the jobs the pack made for its own rows (FINAL-5). An organisation-wide pass
 // whose saved cursor is a row of the pack's (`sla.recalc`) stays and starts again; it is never demo work (FL-2). And
 // one of the pack's people who manages an organisation's own case and runs «دوباره پیدا کردن انجام‌دهنده» on it writes
-// the organisation's work (1.1.5): the purge leaves the real member the step it gave them.
+// the organisation's work (1.1.5): the purge leaves the real member the step it gave them. An open task one of the pack's
+// people held on an organisation's own case ends with the purge, and its round looks for people again: whoever is found
+// gets it; nobody found, the journal says why, the case waits and its managers are told.
 import { describe, it, expect, beforeAll } from "vitest";
 import { createIn } from "@server/engine";
 import { inDemoScope, isDemoRow } from "@server/db/scope";
@@ -311,5 +313,45 @@ describe("one of the pack's people manages an organisation's own case (1.1.5)", 
     expect(await db.one(`select 1 as x from sm_demo_packs where org_id = $1`, [org])).toBeNull();
     expect((await openAt(id)).map((t) => t.assigned_to)).toEqual([later]);
     expect(await kase(w, id)).toMatchObject({ state: "active" });
+  }, 600_000);
+});
+
+describe("the purge ends an open task one of the pack's people held on an organisation's own case (1.1.5)", () => {
+  it("its round looks for people again: the real member found gets it; nobody found is journaled, the case waits and its managers are told", async () => {
+    const org = w.o.org;
+    const db = w.o.db;
+    await db.query(
+      `insert into sm_demo_packs (org_id, state, size, progress, counters, started_by) values ($1, 'loaded', 'small', jsonb_build_object('saved_at', now(), 'computed', '[]'::jsonb, 'seeds_done', true, 'saved', true), '{}'::jsonb, $2)`,
+      [org, w.o.ownerId],
+    );
+    const packHolder = await packPerson("کارشناس نمایشیِ پروندهٔ واقعی");
+    const back = await person(w, "کارشناس واقعیِ همان مرحله");
+    const away = await person(w, "کارشناس واقعیِ غایب");
+    const AGAIN = await publish(w, graph({ ...users(back), ifNobody: "wait" }), { managers: [manager] });
+    const NOBODY = await publish(w, graph({ ...users(away), ifNobody: "wait" }), { managers: [manager] });
+    const again = (await start(w, requester, AGAIN, { values })).case!;
+    const nobody = (await start(w, requester, NOBODY, { values })).case!;
+    await w.k.drain();
+    // each real step's task is in the hands of the pack's person (FINAL-1 never gives it one: an account the pack took
+    // over, a task from before it) — straight in the database; and the second step's member is away by the purge
+    for (const id of [again, nobody]) await db.query(`update sm_process_tasks set assigned_to = $2 where case_id = $1 and step_key = 'sec' and status = 'open'`, [id, packHolder]);
+    await db.query(`update sm_org_members set is_active = false where org_id = $1 and user_id = $2`, [org, away]);
+
+    await db.query(`update sm_sessions set reauth_at = now() where user_id = $1`, [w.o.ownerId]);
+    await w.o.owner.post(`${w.P}/demo/purge`, { confirm: "حذف کامل" });
+    await runToEnd(w.o.cfg, org, "purge", { budgetMs: 300_000 });
+    expect(await db.one(`select 1 as x from sm_demo_packs where org_id = $1`, [org])).toBeNull();
+    // the pack person's tasks ended
+    for (const id of [again, nobody]) expect((await tasks(w, id)).filter((t) => t.step_key === "sec" && t.status === "not_needed").length).toBe(1);
+    // the real member found again has the step, and the journal says why (before, the step had nobody and said nothing)
+    expect((await openAt(again)).map((t) => t.assigned_to)).toEqual([back]);
+    expect(await kase(w, again)).toMatchObject({ state: "active" });
+    expect((await journal(w, again)).some((l) => l.includes("حذف داده‌های نمایشی") && l.includes("سپرده شد"))).toBe(true);
+    // nobody found: the journal says so, the case waits, and the managers' notice is on its way
+    expect(await openAt(nobody)).toEqual([]);
+    expect(await kase(w, nobody)).toMatchObject({ state: "waiting" });
+    expect((await journal(w, nobody)).some((l) => l.includes("حذف داده‌های نمایشی") && l.includes("کسی پیدا نشد"))).toBe(true);
+    const opened = await db.one(`select 1 as x from sm_jobs where org_id = $1 and kind = 'record.process_step_opened' and payload ->> 'id' = $2 and payload -> 'data' ->> 'status' = 'nobody' and (payload -> 'data' ->> 'reresolved')::boolean`, [org, nobody]);
+    expect(opened).toBeTruthy();
   }, 600_000);
 });

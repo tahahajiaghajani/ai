@@ -282,6 +282,22 @@ async function titleText(tx: Tx, orgId: string, defs: Map<string, FieldDef>, val
   };
 }
 
+/**
+ * The managers a new case takes from the current version: those still here — a member, a group that exists (what the
+ * case's own reference check asks). A published version is never rewritten, so it may name someone removed since (one of
+ * the demo pack's people after its purge, a member who left): the case leaves them out instead of refusing the start
+ * («مسئولان» پیدا نشد). None left means what a version naming none means (the administrators manage the case).
+ */
+async function liveManagers(tx: Tx, orgId: string, version: Pick<VersionInfo, "managers" | "manager_groups">): Promise<{ managers: string[]; groups: string[] }> {
+  const people = version.managers.length
+    ? new Set((await tx.query<{ id: string }>(`select user_id::text as id from sm_org_members where org_id = $1 and user_id = any($2::uuid[]) and deleted_at is null`, [orgId, pgArray(version.managers)])).map((r) => r.id.toLowerCase()))
+    : new Set<string>();
+  const groups = version.manager_groups.length
+    ? new Set((await tx.query<{ id: string }>(`select id::text as id from sm_groups where org_id = $1 and id = any($2::uuid[]) and deleted_at is null`, [orgId, pgArray(version.manager_groups)])).map((r) => r.id.toLowerCase()))
+    : new Set<string>();
+  return { managers: version.managers.filter((id) => people.has(id.toLowerCase())), groups: version.manager_groups.filter((id) => groups.has(id.toLowerCase())) };
+}
+
 async function applyStart(tx: Tx, sys: Ctx, sub: SubmissionRow, who: Submitter): Promise<ApplyResult> {
   const orgId = sys.org.id;
   const caseId = isId(sub.case_id) ? sub.case_id.toLowerCase() : null;
@@ -331,13 +347,14 @@ async function applyStart(tx: Tx, sys: Ctx, sub: SubmissionRow, who: Submitter):
     depth: 0,
   });
   const names = await peopleNames(tx, [who.user]);
+  const { managers, groups } = await liveManagers(tx, orgId, current);
   const kase = (await createIn(
     tx,
     sys,
     "process_case",
     {
       title, process_id: proc.id, process_name: version.name || proc.name, version_id: version.id, version_no: version.version_no, state: "active",
-      requested_by: who.user, requested_for: requestedFor, managers: current.managers, manager_groups: current.manager_groups,
+      requested_by: who.user, requested_for: requestedFor, managers, manager_groups: groups,
       confidential: current.confidential, started_at: iso(now), run_ref: runId, data: taken.values, participants: [who.user],
       progress: {
         [trigger.id]: { status: "done", port: "out", round: 1, at: iso(now) },
