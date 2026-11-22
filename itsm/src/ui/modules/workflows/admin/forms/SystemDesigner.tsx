@@ -29,7 +29,7 @@ import { sameValue } from "../../../../records/model/values";
 import type { TableMeta } from "../../../../records/model/types";
 import { FIELD_KEYS, fieldsApi, type LibraryEntry } from "../fields/api";
 import { FieldSheet } from "../fields/FieldSheet";
-import { attachable, fieldsAccess } from "../fields/model";
+import { attachable, fieldsAccess, packFieldNotice } from "../fields/model";
 import { FORM_KEYS, formsApi } from "./api";
 import {
   PERSONAS, addSection, addTab, clampSel, defaultLayout, insertItem, keptTexts, moveItem, reconcileDraft, removeSection, removeTab, renameTab, rightsSummary, shiftItem, shiftSection,
@@ -37,6 +37,7 @@ import {
   type Persona, type Sel, type SystemChanges, type SystemDraft,
 } from "./model";
 import { MoveControls, SectionInspector, SysFieldInspector, TabInspector } from "./Inspectors";
+import { DemoTag } from "../../kit/demo";
 import { Block, DesignCanvas, I14, I16, PreviewForm, SaveStatus, dragField, useHistory, useLeaveGuard, useUndoKeys, type PreviewTab } from "./parts";
 import "../../../../records/records.css";
 import "../fields/fields.css";
@@ -160,7 +161,9 @@ function Designer({ table, def, fields, stored, editable, access, phone, orgId, 
 
   const place = (name: string) => layoutEdit((d) => insertItem(d.layout, { field: name }, targetSection(d.layout, sel)));
   const attach = async (id: string, label: string, ask = true) => {
-    if (ask && !(await n.confirm(`افزودن «${label}» به «${def.plural}»؟`, "فیلد کتابخانه همین حالا به جدول افزوده می‌شود و در بخش برگزیده می‌نشیند.", false, "افزودن"))) return;
+    // one of the demo pack's fields: «حذف داده‌های نمایشی» takes it off the table again, with the values stored under it
+    const notice = packFieldNotice(library.data?.fields.find((x) => x.id === id), { table: def.plural });
+    if (ask && !(await n.confirm(`افزودن «${label}» به «${def.plural}»؟`, notice ?? "فیلد کتابخانه همین حالا به جدول افزوده می‌شود و در بخش برگزیده می‌نشیند.", false, "افزودن"))) return;
     const target = targetSection(draft.layout, sel);
     const section = draft.layout.tabs[target.t]?.sections[target.s]?.label ?? null;
     try {
@@ -370,6 +373,7 @@ function Designer({ table, def, fields, stored, editable, access, phone, orgId, 
                 <li key={e.id}>
                   <button type="button" className="wfm-pal-item" onClick={() => attach(e.id, e.label)} aria-label={`افزودن ${e.label} به ${def.plural}`}>
                     {e.label}
+                    {e.demo ? <DemoTag title="فیلد دادهٔ نمایشی" /> : null}
                     <small>{e.type_label}</small>
                   </button>
                 </li>

@@ -1,7 +1,8 @@
 // The kit's calls: positions and their holders through the generic record API (/r/position, /r/position_holder:
 // `org` read), the static estimate behind the role-then-people picker's explanation line (POST /positions/estimate:
 // `process_design` write, or `org` write beyond one's own groups — the server decides), and the demo pack's people
-// (GET /positions/demo-people: whoever opens the designer or the positions page).
+// (GET /positions/demo-people: whoever opens the designer or the positions page; the member search and the positions'
+// list also mark the pack's rows `demo` themselves, the member search for a case's managers too).
 import type { AccessGate } from "@shared/access";
 import type { Cond } from "@shared/model/conditions";
 import type { AssigneeKind, Quorum, StepAction, StepAssignees } from "@shared/process";
@@ -16,6 +17,8 @@ export interface PositionRow {
   name: string;
   unit_kind: string | null;
   active: boolean;
+  /** one of the demo pack's positions (the list marks them, release 1.1.5) */
+  demo?: boolean;
 }
 
 export interface HolderRow {
@@ -45,6 +48,11 @@ export interface MemberRow {
   email: string | null;
   title: string | null;
   active: boolean;
+  /**
+   * one of the demo pack's people: the member search marks them for those who may know — designers, readers of the
+   * positions, a case's managers (release 1.1.5)
+   */
+  demo?: boolean;
 }
 
 const POSITION_FIELDS = ["name", "key", "unit_kind", "active"];
@@ -56,6 +64,7 @@ const positionOf = (r: RecordRow): PositionRow => ({
   name: String(r.name ?? r.key ?? ""),
   unit_kind: typeof r.unit_kind === "string" ? r.unit_kind : null,
   active: r.active !== false,
+  ...(r.demo === true ? { demo: true } : {}),
 });
 
 export const kitApi = {
@@ -99,6 +108,7 @@ export const kitApi = {
       email: typeof u.email === "string" ? u.email : null,
       title: typeof u.title === "string" ? u.title : null,
       active: u.is_active !== false,
+      ...(u.demo === true ? { demo: true } : {}),
     }));
   },
 };

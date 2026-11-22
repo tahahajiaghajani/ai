@@ -9,6 +9,7 @@ import { ToggleChip } from "../../../../components/inputs";
 import { LIBRARY_CHIPS, fieldGroupLabel, filterLibrary, type LibraryChip } from "./model";
 import { I14, I16 } from "./parts";
 import { UsageCell } from "./Usage";
+import { DemoTag } from "../../kit/demo";
 
 export interface LibraryProps {
   rows: LibraryEntry[] | undefined;
@@ -58,7 +59,17 @@ export function Library({ rows, loading, canWrite, onOpen, onNew }: LibraryProps
         locale={{ emptyText: <EmptyState compact title="فیلدی با این پالایه نیست" /> }}
         onRow={(r) => ({ onClick: () => onOpen(r.id), onKeyDown: (e) => e.key === "Enter" && onOpen(r.id), tabIndex: 0, className: "cursor-pointer" })}
         columns={[
-          { key: "label", title: "برچسب", dataIndex: "label", render: (v: string) => <span className="text-ink">{v}</span> },
+          {
+            key: "label",
+            title: "برچسب",
+            dataIndex: "label",
+            render: (v: string, r) => (
+              <span className="text-ink">
+                {v}
+                {r.demo ? <DemoTag title="فیلد دادهٔ نمایشی" /> : null}
+              </span>
+            ),
+          },
           { key: "name", title: "نام فنی", dataIndex: "name", render: (v: string) => <bdi dir="ltr" className="ds-mono">{v}</bdi> },
           { key: "type", title: "نوع", dataIndex: "type_label" },
           { key: "group", title: "گروه حساسیت", dataIndex: "field_group", render: (v: string | null) => fieldGroupLabel(v) || <span className="text-ink-3">—</span> },

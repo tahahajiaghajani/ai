@@ -16,6 +16,8 @@ export interface PositionOverview {
   unit_kind: string | null;
   active: boolean;
   reports_to: string | null;
+  /** one of the demo pack's positions (release 1.1.5) */
+  demo?: boolean;
   holders: number;
   units: number;
   sources: { manual: number; directory: number; import: number };
@@ -99,7 +101,11 @@ const holderOf = (r: RecordRow): HolderRow => ({
 
 export const positionsApi = {
   overview: (api: OrgApi) => api.get<{ positions: PositionOverview[]; today: string }>("/positions/overview"),
-  position: async (api: OrgApi, id: string) => (await recordsApi.get(api, "position", id)).row,
+  /** a position's record, with whether it is one of the demo pack's (`demo`, from the record's meta) */
+  position: async (api: OrgApi, id: string): Promise<RecordRow & { demo: boolean }> => {
+    const r = await recordsApi.get(api, "position", id);
+    return { ...r.row, demo: (r.meta as { demo?: unknown }).demo === true };
+  },
   holders: async (api: OrgApi, position: string): Promise<{ rows: HolderRow[]; display: DisplayMap }> => {
     const r = await recordsApi.list(api, "position_holder", { filter: { f: "position_id", op: "eq", v: position }, size: 500, fields: HOLDER_FIELDS, total: false });
     return { rows: r.rows.map(holderOf), display: r.display ?? {} };

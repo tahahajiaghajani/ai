@@ -5,7 +5,7 @@
 // and a holder from the sheet's payloads, the overview, a file's holders imported after a dry run, and the preview
 // finding the branch head for a requester of that branch — and release 1.1.5: the preview starts as «تکمیل فرم» in a
 // preview's words (B7), a half-filled holder is never dropped by Escape or a close (B8), and making one of the demo
-// pack's people a holder asks first (FINAL-1).
+// pack's people a holder asks first (FINAL-1), except on a position of the pack's own, which the page and the sheet tag.
 import { describe, it, expect, beforeAll } from "vitest";
 import { composeEffective, gateAllows, roleCatalog, type AccessGate, type FullGrant } from "@shared/access";
 import { PROCESS_DESIGN_AREA } from "@shared/tables/fields";
@@ -13,7 +13,10 @@ import {
   IMPORT_HEADERS, PREVIEW_ACTION, RESOLVE_STATUS, addsDemoHolder, demoHolderQuestion, emptyHolder, endingSoon, filterPositions, fixedPlace, holderFormDirty, holderProblems, holderStart,
   holderState, holdersText, importSummary, keyInput, positionsAccess, previewStep, sheetClose, sheetRows, sortHolders, sourcesText, validKey,
 } from "../src/ui/modules/workflows/admin/positions/model";
-import type { HolderImportResult, HolderRow, PositionOverview, ResolveResult } from "../src/ui/modules/workflows/admin/positions/api";
+import { positionsApi, type HolderImportResult, type HolderRow, type PositionOverview, type ResolveResult } from "../src/ui/modules/workflows/admin/positions/api";
+import type { OrgApi } from "../src/ui/lib/api";
+import { createIn, systemCtx } from "@server/engine";
+import { inDemoScope } from "@server/db/scope";
 import { POSITIONS_ACCESS_ROW, positionsPart } from "../src/ui/modules/workflows/admin/positions/routes";
 import { NAV, ROUTES } from "../src/ui/modules/registry";
 import { engineOrg, type EngineOrg } from "./engine-helpers";
@@ -125,6 +128,10 @@ describe("holders", () => {
     expect(addsDemoHolder({ user_id: "u-negar" }, { user_id: "u-negar" }, demo)).toBe(false);
     expect(addsDemoHolder({ user_id: "u-negar" }, { user_id: "u-ali" }, demo)).toBe(true);
     expect(addsDemoHolder({ user_id: null }, null, demo)).toBe(false);
+    // 1.1.5: a position of the pack's own asks nothing — its holders are the pack's people by design
+    expect(addsDemoHolder({ user_id: "u-negar" }, null, demo, true)).toBe(false);
+    expect(addsDemoHolder({ user_id: "u-negar" }, { user_id: "u-ali" }, demo, true)).toBe(false);
+    expect(addsDemoHolder({ user_id: "u-negar" }, null, demo, false)).toBe(true);
     const q = demoHolderQuestion("نگار کارشناس‌پور");
     expect(q.title).toBe("«نگار کارشناس‌پور» حساب نمایشی است؛ دارندهٔ این نقش شود؟");
     expect(q.content).toContain("مرحله‌های پرونده‌های واقعی سازمان به حساب‌های نمایشی نمی‌رسد");
@@ -240,6 +247,20 @@ describe("the screens' calls on a real organisation", () => {
     await m.client.del(`${R}/position_holder/${h.id}?version=${ended.version}`, 403);
     // the organisation's administrator may
     await e.owner.del(`${R}/position_holder/${h.id}?version=${ended.version}`);
+  });
+
+  it("1.1.5: the pack's own position is marked on the page's list and the sheet's record; the organisation's own is not", async () => {
+    const sys = await systemCtx(e.cfg, e.org);
+    const pack = String((await inDemoScope(e.org, () => sys.write((tx) => createIn(tx, sys, "position", { key: "aftab_branch_head", name: "رئیس شعبه (نمونه)", active: true }, { trusted: true })))).id);
+    const own = (await e.owner.post(`${R}/position`, { name: "کارشناس اعتبارات", key: "credit_officer", unit_kind: null, active: true })).row.id as string;
+    const o: { positions: PositionOverview[] } = await e.owner.get(`${P}/positions/overview`);
+    expect([o.positions.find((p) => p.id === pack)?.demo, o.positions.find((p) => p.id === own)?.demo]).toEqual([true, false]);
+    const api = {
+      get: (path: string) => e.owner.get(`${P}${path}`),
+      post: (path: string, body?: unknown) => e.owner.post(`${P}${path}`, body),
+    } as unknown as OrgApi;
+    expect([(await positionsApi.position(api, pack)).demo, (await positionsApi.position(api, own)).demo]).toEqual([true, false]);
+    expect((await positionsApi.position(api, own)).key).toBe("credit_officer");
   });
 
   it("a requester reads the overview but may not preview or import", async () => {

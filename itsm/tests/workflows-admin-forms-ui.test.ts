@@ -18,8 +18,10 @@ import { seedChangeDefaults } from "@server/modules/change";
 import { seedRequestDefaults } from "@server/modules/request";
 import { NAV, ROUTES } from "../src/ui/modules/registry";
 import { formsPart } from "../src/ui/modules/workflows/admin/forms/routes";
-import { fieldsAccess } from "../src/ui/modules/workflows/admin/fields/model";
-import type { LibraryEntry } from "../src/ui/modules/workflows/admin/fields/api";
+import { fieldsAccess, packFieldNotice } from "../src/ui/modules/workflows/admin/fields/model";
+import { fieldsApi, type LibraryEntry } from "../src/ui/modules/workflows/admin/fields/api";
+import { createIn, systemCtx } from "@server/engine";
+import { inDemoScope } from "@server/db/scope";
 import { formsApi, type FormEntry, type FormOut, type FormPreview, type FormsList, type SystemPreview } from "../src/ui/modules/workflows/admin/forms/api";
 import type { OrgApi } from "../src/ui/lib/api";
 import {
@@ -484,6 +486,19 @@ describe("a process form", () => {
     expect(libraryDef(all[1])).toEqual({ name: "u_reason", label: "علت", type: "string" });
   });
 
+  it("1.1.5: one of the demo pack's fields added to the organisation's own form says the purge takes it out — off a table with its values", () => {
+    const pack = { label: "یادداشت (نمونه)", demo: true };
+    expect(packFieldNotice(pack, { form: { demo: false } })).toBe("«یادداشت (نمونه)» از دادهٔ نمایشی است؛ با «حذف داده‌های نمایشی» از این فرم برداشته می‌شود.");
+    expect(packFieldNotice(pack, { form: {} })).not.toBeNull();
+    expect(packFieldNotice(pack, { table: "رخدادها" })).toBe(
+      "«یادداشت (نمونه)» از دادهٔ نمایشی است؛ با «حذف داده‌های نمایشی» از «رخدادها» برداشته می‌شود و مقدارهایی که رکوردها در آن ثبت کنند هم پاک می‌شود.",
+    );
+    // a form of the pack's own leaves whole with it; the organisation's own fields say nothing
+    expect(packFieldNotice(pack, { form: { demo: true } })).toBeNull();
+    expect(packFieldNotice({ label: "مبلغ", demo: false }, { form: { demo: false } })).toBeNull();
+    expect(packFieldNotice(undefined, { table: "رخدادها" })).toBeNull();
+  });
+
   it("the save state in words, never a dot before the minutes", () => {
     const at = "2026-11-14T10:00:00.000Z";
     const now = Date.parse("2026-11-14T10:02:10.000Z");
@@ -653,6 +668,19 @@ describe("the screens' calls on a real organisation", () => {
     const filled: FormPreview = await e.owner.post(`${P}/forms/${form.id}/preview`, { as: "me", values: { u_amount: "5000000" } });
     expect(filled.shown.u_pay).toBe("edit");
     expect(filled.check?.problems).toEqual({});
+  });
+
+  it("1.1.5: the library and a form say which are the demo pack's: the palette tags them, and the designer knows the form is the organisation's", async () => {
+    const sys = await systemCtx(e.cfg, e.org);
+    await inDemoScope(e.org, () => sys.write((tx) => createIn(tx, sys, "field_def", { name: "u_aftab_branch_note", label: "یادداشت شعبه (نمونه)", type: "text" }, { trusted: true })));
+    const api = orgApiOf(e.owner, P);
+    const lib = (await fieldsApi.library(api)).fields;
+    expect(lib.filter((f) => ["u_aftab_branch_note", "u_reason"].includes(f.name)).map((f) => [f.name, f.demo === true]).sort()).toEqual([["u_aftab_branch_note", true], ["u_reason", false]]);
+    const form = (await e.owner.post(`${P}/forms`, { name: "فرم سازمان با فیلد نمونه" }, 201)).form as FormOut;
+    const detail = await formsApi.get(api, form.id);
+    expect(detail.demo).toBe(false);
+    expect(packFieldNotice(lib.find((f) => f.name === "u_aftab_branch_note"), { form: detail })).toContain("از این فرم برداشته می‌شود");
+    expect(packFieldNotice(lib.find((f) => f.name === "u_reason"), { form: detail })).toBeNull();
   });
 
   it("people without the grant are offered nothing and refused by the server", async () => {

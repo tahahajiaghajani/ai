@@ -28,7 +28,7 @@ import { formLayout } from "../../../../records/model/layout";
 import { TablePicker, customisableTables, useTableParam } from "./TablePicker";
 import { FIELD_KEYS, fieldsApi, type LibraryEntry } from "./api";
 import {
-  KIND_LABELS, attachable, hideBlocker, promoteBody, requireBlocker, requirementText, tableFieldRows, type FieldsAccess, type TableFieldRow,
+  KIND_LABELS, attachable, hideBlocker, packFieldNotice, promoteBody, requireBlocker, requirementText, tableFieldRows, type FieldsAccess, type TableFieldRow,
 } from "./model";
 import { F, I14, I16, OptionsEditor, useCloseGuard, useSheetSize } from "./parts";
 
@@ -364,6 +364,8 @@ function AttachDialog({ table, candidates, onClose, onAttached }: { table: Table
   const [busy, setBusy] = useState(false);
   const sections = useMemo(() => [...new Set(formLayout(table, { mode: "create" }).flatMap((t) => t.sections.map((s) => s.label).filter(Boolean) as string[]))], [table]);
   const picked = candidates.find((c) => c.id === field);
+  // one of the demo pack's fields: «حذف داده‌های نمایشی» takes it off the table again, with the values stored under it
+  const pack = packFieldNotice(picked, { table: table.plural });
   const attach = async () => {
     if (!picked) return;
     setBusy(true);
@@ -388,7 +390,7 @@ function AttachDialog({ table, candidates, onClose, onAttached }: { table: Table
                 id="wff-attach-f"
                 value={field ?? undefined}
                 onChange={(v) => setField(v)}
-                options={candidates.map((c) => ({ value: c.id, label: `${c.label} · ${c.type_label}` }))}
+                options={candidates.map((c) => ({ value: c.id, label: [c.label, c.type_label, ...(c.demo ? ["نمایشی"] : [])].join(" · ") }))}
                 showSearch={{ optionFilterProp: "label" }}
                 placeholder="جست‌وجوی فیلد…"
                 autoFocus
@@ -397,6 +399,7 @@ function AttachDialog({ table, candidates, onClose, onAttached }: { table: Table
             <F label="بخش فرم" htmlFor="wff-attach-s" hint="خالی: بخش نخست؛ چیدمان کامل در «فرم‌ها»">
               <Select id="wff-attach-s" mode="tags" maxCount={1} value={section ? [section] : []} onChange={(v: string[]) => setSection(v[v.length - 1] ?? "")} options={sections.map((s) => ({ value: s, label: s }))} placeholder="بخش" />
             </F>
+            {pack ? <Alert type="warning" showIcon title={pack} /> : null}
           </>
         )}
       </div>

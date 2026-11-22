@@ -21,7 +21,8 @@ import {
 } from "../src/ui/modules/workflows/kit/model";
 import { AssigneePicker } from "../src/ui/modules/workflows/kit/AssigneePicker";
 import { demoSet, isDemo, DEMO_PEOPLE_KEY } from "../src/ui/modules/workflows/kit/demo";
-import type { MemberRow } from "../src/ui/modules/workflows/kit/api";
+import { kitApi, type MemberRow } from "../src/ui/modules/workflows/kit/api";
+import type { OrgApi } from "../src/ui/lib/api";
 import { OrgProvider, type OrgInfo } from "../src/ui/lib/org";
 import type { StepAssignees } from "@shared/process";
 import { SAMPLE_FIELDS, SAMPLE_FORM, SAMPLE_PROGRESS, sampleProcess, sampleStatuses } from "../src/ui/modules/workflows/kit/sample";
@@ -611,6 +612,30 @@ describe("1.1.5: the demo pack's people in the people pickers and the preview", 
     const marked = memberOptions({ rows, value: [], demo, mode: "mark", searching: false })[0].options;
     expect(marked.find((o) => o.value === "u-negar")?.demo).toBe(true);
     expect(marked.find((o) => o.value === "u-ali")?.demo).toBe(false);
+  });
+
+  it("the member search's own mark: a case's manager, who reads no list of the pack's people, still leaves them out of a real case's step", () => {
+    const none = demoSet(null);
+    const searched = [row("u-owner", "مالک"), row("u-negar", "نگار کارشناس‌پور", { demo: true }), row("u-ali", "علی احمدی")];
+    expect(memberOptions({ rows: searched, value: [], demo: none, mode: "hide", searching: false })[0].options.map((o) => o.value)).toEqual(["u-owner", "u-ali"]);
+    const marked = memberOptions({ rows: searched, value: [], demo: none, mode: "mark", searching: false })[0].options;
+    expect(marked.map((o) => [o.value, o.demo])).toEqual([["u-owner", false], ["u-negar", true], ["u-ali", false]]);
+  });
+
+  it("the kit's calls keep the lists' own marks: the member search's people and the positions' rows", async () => {
+    const asked: string[] = [];
+    const api = {
+      post: async (path: string) => {
+        asked.push(path);
+        const rows = path.startsWith("/r/user/")
+          ? [{ id: "U-NEGAR", name: "نگار", email: null, title: null, is_active: true, demo: true }, { id: "u-ali", name: "علی", email: null, title: null, is_active: true }]
+          : [{ id: "p-pack", key: "aftab_reviewer", name: "بازبین (نمونه)", unit_kind: null, active: true, demo: true }, { id: "p-own", key: "branch_head", name: "رئیس شعبه", unit_kind: "branch", active: true }];
+        return { rows, total: null, page: 1, size: rows.length, display: {} };
+      },
+    } as unknown as OrgApi;
+    expect((await kitApi.members(api, { q: "" })).map((m) => [m.id, m.demo === true])).toEqual([["u-negar", true], ["u-ali", false]]);
+    expect((await kitApi.positions(api, { q: "" })).map((p) => [p.key, p.demo === true])).toEqual([["aftab_reviewer", true], ["branch_head", false]]);
+    expect(asked).toEqual(["/r/user/query", "/r/position/query"]);
   });
 
   it("a sample requester while a pack is loaded: «حساب‌های نمایشی» first, then the members with «من» first; a search lists one group", () => {
