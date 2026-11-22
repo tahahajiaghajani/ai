@@ -11,7 +11,8 @@ export { applySubmission, roundSettles, isStarter, LATE_NOTE, COMMENT_NEEDED, PA
 export { startCase, submitTask, cancelCase, type SubmitResult, type StartCaseInput, type SubmitTaskInput } from "./service";
 export { processesRunHere } from "./here";
 export { STEP_OPENED, STEP_WAIT, parseWaitKey, resolveInput } from "./steps";
-export { replayProgress, refreshCase, participantsOf, OPEN_STATES, type LogStep } from "./progress";
+export { replayProgress, refreshCase, participantsOf, participantsFor, OPEN_STATES, type LogStep } from "./progress";
+export { tellCase, audienceOf, NOTIFIED_MAX, type Audience } from "./readers";
 export { caseRunEnded } from "./ended";
 export { stepWaitKey, lockCase, loadVersionInfo, caseTasks, type CaseRow, type TaskRow, type VersionInfo, type SubmissionRow } from "./store";
 

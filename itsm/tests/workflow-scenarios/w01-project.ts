@@ -89,7 +89,9 @@ export async function setupW1(s: Scn): Promise<void> {
 }
 
 const values = { u_aftab_prj_name: "سامانهٔ تسهیلات", u_aftab_prj_manager: "علی" };
-const WAITING = "برای «مرحلهٔ فرم» کسی پیدا نشد؛ مسئولان گردش‌کار باخبر شدند.";
+// (1.1.5: the managers the notice reached, by name — the owner; بهروز, one of the pack's people, hears nothing of the
+// organisation's own case, and the journal says so)
+const WAITING = "برای «مرحلهٔ فرم» کسی پیدا نشد؛ مسئولان گردش‌کار (مالک آزمایشی) باخبر شدند. بهروز مدیرنیا حساب نمایشی است؛ اعلان به او نرسید.";
 
 export function w01(ref: EditionRef): void {
   describe("W1 «گردش کار پروژه» (the owner's case)", () => {
@@ -171,6 +173,7 @@ export function w01(ref: EditionRef): void {
       // (1.1.5: the line, then the resolver's reason — the step's holders are the pack's people)
       expect(await s.journal(r.case)).toContain(`${WAITING} ۲ نفر از دارندگان «مدیر گروه» حساب نمایشی‌اند و کار پرونده‌های واقعی سازمان را بر عهده نمی‌گیرند؛ برای آزمودن، پرونده را با یک حساب نمایشی آغاز کنید.`);
       expect((await s.bells("owner")).some((t) => t.includes("کسی پیدا نشد"))).toBe(true);
+      expect((await s.bells("behrouz")).some((t) => t.includes("کسی پیدا نشد"))).toBe(false);
       const refused = await s.refused(s.reassign("owner", r.case, "form", ["negar"], { expect: 400 }));
       expect(refused.message).toBe("حساب‌های نمایشی کار پرونده‌های واقعی سازمان را بر عهده نمی‌گیرند");
       await s.reassign("owner", r.case, "form", ["reza"]);

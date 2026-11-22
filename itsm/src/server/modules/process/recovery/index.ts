@@ -23,11 +23,13 @@ import { enqueue } from "../../../jobs";
 import { startRun } from "../../flows";
 import { audit } from "../../data/crud";
 import { notifyPeople } from "../../notify/deliver";
-import { OPEN_STATES, participantsOf, processesRunHere, refreshCase } from "../engine";
+import { OPEN_STATES, processesRunHere, refreshCase } from "../engine";
 import { caseJournal } from "../engine/journal";
+import { participantsFor } from "../engine/progress";
+import { tellCase } from "../engine/readers";
 import { caseTasks, isId, loadVersionInfo, lockCase, type CaseRow } from "../engine/store";
 import { myGroupsSql } from "../access/sources";
-import { caseManagers } from "../timers/timer";
+import { caseManagers, titled } from "../timers/timer";
 
 const iso = (ms: number) => new Date(ms).toISOString();
 
@@ -69,16 +71,18 @@ export async function caseRunFailed(cfg: ServerConfig, orgId: string, caseId: st
     }
     const version = await loadVersionInfo(tx, orgId, kase.version_id);
     if (version) await refreshCase(tx, sys, kase, version.graph, { tasks, set: { state: "attention" } });
-    else await updateIn(tx, sys, "process_case", caseId, { state: "attention", participants: participantsOf(tasks), current_steps: [], open_rounds: {} }, { trusted: true });
+    else await updateIn(tx, sys, "process_case", caseId, { state: "attention", participants: await participantsFor(tx, kase, tasks), current_steps: [], open_rounds: {} }, { trusted: true });
     const error = String(data.error ?? "").trim().slice(0, 1000) || "خطای ناشناخته";
     await caseJournal(tx, sys, kase, `اجرای پرونده متوقف شد و پرونده نیاز به بررسی دارد: ${error}`, { data: { run: data.run_id, error } });
-    // a case that names no manager: the organisation's administrators are told instead
+    // a case that names no manager: the organisation's administrators are told instead — those who may be told, made
+    // readers of the case first (engine/readers.ts: an administrator of a confidential case reads it only so)
     const managers = hasManagers(kase) ? await caseManagers(tx, kase) : await orgAdmins(tx, orgId);
-    if (managers.length) {
+    const told = (await tellCase(tx, sys, kase, managers)).told;
+    if (told.length) {
       await notifyPeople(tx, orgId, {
-        table: "process_case", id: kase.id, users: managers, event: "custom", label: "پرونده متوقف شد", channels: ["in_app", "email"], actor: null, source: "گردش‌کارها",
+        table: "process_case", id: kase.id, users: told, event: "custom", label: "پرونده متوقف شد", channels: ["in_app", "email"], actor: null, source: "گردش‌کارها",
         subject: ["پروندهٔ", kase.number, "متوقف شد"].filter(Boolean).join(" "),
-        body: `پروندهٔ «${kase.title ?? ""}» در «${kase.process_name ?? ""}» متوقف شد: ${error}. آن را از مرحله‌ای ادامه دهید یا لغو کنید.`,
+        body: `پروندهٔ${titled(kase) || ` ${kase.number ?? ""}`} در «${kase.process_name ?? ""}» متوقف شد: ${error}. آن را از مرحله‌ای ادامه دهید یا لغو کنید.`,
       });
     }
   });
@@ -157,7 +161,7 @@ export async function cancelAsManager(ctx: Ctx, caseId: string, input: { comment
     const set = { state: "canceled", outcome: "canceled", ended_at: now };
     const version = await loadVersionInfo(tx, ctx.org.id, kase.version_id);
     if (version) await refreshCase(tx, sys, kase, version.graph, { tasks, set });
-    else await updateIn(tx, sys, "process_case", kase.id, { ...set, participants: participantsOf(tasks), current_steps: [], open_rounds: {} }, { trusted: true });
+    else await updateIn(tx, sys, "process_case", kase.id, { ...set, participants: await participantsFor(tx, kase, tasks), current_steps: [], open_rounds: {} }, { trusted: true });
     const who = isSystemCtx(ctx) ? "سامانه" : ctx.user.full_name || ctx.user.email;
     await caseJournal(tx, sys, kase, `${who} (مسئول گردش‌کار) پرونده را لغو کرد: ${comment}`, { author: isSystemCtx(ctx) ? null : ctx.user.id, data: { manager: true } });
     if (!isSystemCtx(ctx)) await audit(tx, ctx, "process.cancel", "process_case", kase.id, `${kase.number ?? ""}: لغو به دست مسئول گردش‌کار`, { comment });

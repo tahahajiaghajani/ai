@@ -2,6 +2,6 @@
 // version's cold start compares it with the database in one query (src/server/db/schema-check.ts).
 export const SCHEMA_FINGERPRINT = {
   migrations: ["0001_core","0002_platform","0003_integrations","0004_ai","0005_engine","0006_engine_tables","0007_access","0010_notify","0011_flows","0020_ai_rag","0045_knowledge","0050_access_locations","0052_ai_skills","0053_grant_epochs","0058_ai_agents","0064_ai_ml","0067_portal","0070_portal_surveys","0080_admin_integration","0090_auth_directory","0091_directory_identity","0095_scale","0098_demo","0099_demo_touch","0100_xid_revisions","0103_jobs_failed_idx","0101_device_protocol","0104_ci_identity_indexes","0105_demo_purge_sync"],
-  engine: "89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede",
+  engine: "7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35",
   engineChunks: 30,
 } as const;

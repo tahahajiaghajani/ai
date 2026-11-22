@@ -1,7 +1,9 @@
 // W10 «ثبت نیاز آموزشی واحد» — every member may start; the head of the requester's nearest department; a position in
 // a fixed unit narrowed to some people; «بگذرد» on an approval (it leaves by «تأیید شد»); «انتخاب» with nempty/ne;
 // a users field in a notice; «پایان (لغو)»; versions: version 2 mid-case without a retired field, the diff, restoring
-// version 1 to the draft; a process with no managers (the organisation's administrators stand in). Runs R1–R6.
+// version 1 to the draft; a process with no managers (the organisation's administrators stand in). Runs R1–R6, and
+// (1.1.5) a confidential notice of the organisation's own: who it reaches, who reads the case because of it, and what
+// its journal says.
 import { describe, it, expect, beforeAll } from "vitest";
 import { bankUnits, e, item, n, section, tab, world, type Draft, type EditionRef, type Scn } from "./harness";
 
@@ -49,6 +51,33 @@ export function w10Draft(s: Scn): Draft {
   };
 }
 
+/**
+ * (1.1.5) A confidential process whose only manager is one of the pack's people: «اعلان» to the people a users field
+ * names, then a step held only by one of the pack's people — on the organisation's own case it finds nobody, and its
+ * manager cannot be told of it.
+ */
+export const W10N = { key: "aftab_training_notice", name: "اعلان دورهٔ محرمانه" };
+
+export function w10NoticeDraft(s: Scn): Draft {
+  const F = s.forms.tn;
+  return {
+    graph: {
+      nodes: [
+        n("start", "trigger"),
+        n("request", "form_step", { action: "fill", start: true, form: F, rights: { default: "edit", fields: {} } }, "ثبت درخواست"),
+        n("announce", "notify", { to: [{ kind: "field", field: "u_aftab_tn_people" }], subject: "دورهٔ محرمانه: {{case.number}}", body: "دوره‌ای برای شما ثبت شد" }, "اعلان به شرکت‌کنندگان"),
+        n("plan", "form_step", { action: "fill", form: F, rights: { default: "read", fields: { u_aftab_tn_course: "edit" } }, assignees: [{ kind: "position", position: "aftab_training_officer", where: "unit", unit: s.u("hr"), members: s.ids("parvaneh") }] }, "برنامه‌ریزی آموزش"),
+        n("done", "end", { outcome: "completed" }, "پایان (انجام‌شده)"),
+      ],
+      edges: [e("start", "request"), e("request", "announce"), e("announce", "plan"), e("plan", "done")],
+    },
+    starters: [],
+    title_template: "آموزش {{case.u_aftab_tn_course}}",
+    managers: s.ids("mehrdad"),
+    confidential: true,
+  };
+}
+
 export async function setupW10(s: Scn): Promise<void> {
   await bankUnits(s);
   const demo = { demo: true };
@@ -62,6 +91,10 @@ export async function setupW10(s: Scn): Promise<void> {
   await s.person("mehrdad", "مهرداد بودجه‌نژاد", { unit: "fin", ...demo });
   await s.person("ppl1", "شرکت‌کنندهٔ یکم", { unit: "it", ...demo });
   await s.person("ppl2", "شرکت‌کنندهٔ دوم", { unit: "it", ...demo });
+  // (1.1.5) the organisation's own people: a requester, a participant, and one who leaves before the notice
+  await s.person("realemp", "کارمند واقعی فناوری", { unit: "it" });
+  await s.person("realppl", "شرکت‌کنندهٔ واقعی", { unit: "it" });
+  await s.person("gone", "شرکت‌کنندهٔ رفته", { unit: "it" });
   await s.field("u_aftab_tn_course", "عنوان دوره", "string");
   await s.field("u_aftab_tn_kind", "نوع دوره", "select", { options: [{ value: "internal", label: "داخلی" }, { value: "external", label: "بیرونی" }, { value: "cancel", label: "لغو" }] });
   await s.field("u_aftab_tn_cost", "هزینه", "money");
@@ -85,6 +118,7 @@ export function w10(ref: EditionRef): void {
       const pub = await s.publish(W10.key, W10.name, w10Draft(s));
       problems = pub.problems;
       expect(problems.filter((p) => p.level === "error")).toEqual([]);
+      await s.publish(W10N.key, W10N.name, w10NoticeDraft(s));
     }, 600_000);
 
     const need = (o: Record<string, unknown> = {}) => ({ u_aftab_tn_course: "امنیت شبکه", u_aftab_tn_kind: "internal", u_aftab_tn_people: s.ids("ppl1", "ppl2"), ...o });
@@ -117,6 +151,59 @@ export function w10(ref: EditionRef): void {
       await s.settle();
       const log = await s.db.query(`select channel, status, reason from sm_notification_log where org_id = $1 and recipient_id = $2`, [s.org, s.id("ppl1")]);
       expect(await s.bells("ppl1"), JSON.stringify(log)).toContain("دورهٔ آموزشی: مدیریت پروژه");
+    }, 300_000);
+
+    it("R1 (NB1, 1.1.5) the organisation's own confidential case: the notice reaches the real, active people the field names — readers of the case from then on, its values hidden — and the journal names whom it reached and whom not, and why", async () => {
+      await s.setActive("gone", false);
+      try {
+        const r = await s.start("realemp", W10N.key, need({ u_aftab_tn_course: "دورهٔ محرمانهٔ واقعی", u_aftab_tn_people: s.ids("realppl", "ppl1", "gone") }));
+        await s.settle();
+        const k = await s.kase(r.case);
+        expect([await s.isDemo(r.case), k.confidential]).toEqual([false, true]);
+        const j = await s.journal(r.case);
+        expect(j, j.join("\n")).toContain(
+          "«اعلان به شرکت‌کنندگان» به شرکت‌کنندهٔ واقعی فرستاده شد. شرکت‌کنندهٔ یکم حساب نمایشی است؛ اعلان به او نرسید. شرکت‌کنندهٔ رفته عضو فعال سازمان نیست؛ اعلان به او نرسید.",
+        );
+        const out = await s.db.one<{ output: { recipients: string[] } }>(`select output from sm_flow_run_steps where run_id = (select run_ref::uuid from sm_process_cases where id = $1) and node_id = 'announce'`, [r.case]);
+        expect(s.keys(out!.output.recipients)).toEqual(["realppl"]);
+        const subject = `دورهٔ محرمانه: ${k.number}`;
+        const log = await s.db.query(`select channel, status, reason from sm_notification_log where org_id = $1 and recipient_id = $2`, [s.org, s.id("realppl")]);
+        expect(await s.bells("realppl"), JSON.stringify(log)).toContain(subject);
+        expect(await s.bells("ppl1")).not.toContain(subject);
+        expect(await s.bells("gone")).not.toContain(subject);
+        // the person told opens the confidential case the bell links to, and reads none of its values
+        const d = await s.detail("realppl", r.case);
+        expect([d.case.number, d.data]).toEqual([k.number, {}]);
+        expect(k.participants).toContain(s.id("realppl"));
+        // one of the pack's people named by the field reads nothing of the organisation's own case
+        await s.detail("ppl1", r.case, 404);
+      } finally {
+        await s.setActive("gone", true);
+      }
+    }, 300_000);
+
+    it("R1 (OB1, 1.1.5) the organisation's own case whose only manager is one of the pack's people: nobody is told that its step found nobody, and the journal and the case page say so", async () => {
+      const r = await s.start("realemp", W10N.key, need({ u_aftab_tn_course: "دورهٔ بی‌برنامه‌ریز", u_aftab_tn_people: s.ids("realppl") }));
+      await s.settle();
+      expect(await s.kase(r.case)).toMatchObject({ state: "waiting" });
+      const untold = "برای «برنامه‌ریزی آموزش» کسی پیدا نشد؛ مرحله منتظر مسئولان گردش‌کار می‌ماند و اعلان به هیچ‌یک از آنان نرسید. مهرداد بودجه‌نژاد حساب نمایشی است؛ اعلان به او نرسید.";
+      const line = (await s.journal(r.case)).find((l) => l.startsWith("برای «برنامه‌ریزی آموزش» کسی پیدا نشد")) ?? "";
+      expect(line.startsWith(untold), line).toBe(true);
+      expect(await s.db.query(`select title from sm_notifications where org_id = $1 and user_id = $2 and record_id = $3`, [s.org, s.id("mehrdad"), r.case])).toEqual([]);
+      // the requester's page says why the step waits
+      const d = await s.detail("realemp", r.case);
+      expect(d.waiting?.plan).toMatchObject({ reason: "nobody", message: untold });
+    }, 300_000);
+
+    it("R1 (NB1, 1.1.5) a pack's case tells only the pack's people the field names; the journal says the real one was not told", async () => {
+      const r = await s.start("emp_it", W10N.key, need({ u_aftab_tn_course: "دورهٔ نمایشی", u_aftab_tn_people: s.ids("ppl2", "realppl") }));
+      await s.settle();
+      const k = await s.kase(r.case);
+      expect(await s.isDemo(r.case)).toBe(true);
+      expect(await s.journal(r.case)).toContain("«اعلان به شرکت‌کنندگان» به شرکت‌کنندهٔ دوم فرستاده شد. پروندهٔ نمایشی است و اعلان به شرکت‌کنندهٔ واقعی نرسید.");
+      expect(await s.bells("ppl2")).toContain(`دورهٔ محرمانه: ${k.number}`);
+      expect(await s.bells("realppl")).not.toContain(`دورهٔ محرمانه: ${k.number}`);
+      expect(k.participants).not.toContain(s.id("realppl"));
     }, 300_000);
 
     it("R2 a department without a head: «بگذرد» on the approval — it leaves by «تأیید شد» to the planning step", async () => {

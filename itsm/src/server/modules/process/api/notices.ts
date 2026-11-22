@@ -3,7 +3,8 @@
 //   · «مرحله‌ای منتظر شماست» — a step opened for you (`record.process_waiting`, people named by the event);
 //   · «پرونده برای اصلاح به شما بازگشت» — a «بازگشت» reopened a step for you (`record.process_returned`);
 //   · «مرحلهٔ بی‌انجام‌دهنده» — a step found nobody; the process managers (or the administrators) are told, with the
-//     resolver's reasons (`record.process_unassigned`, `event.reason`);
+//     resolver's reasons (`record.process_unassigned`, `event.reason`) — exactly those the opening named (`told`: who
+//     of them may be told, already readers of the case, engine/waiting.ts `managersNotice`);
 //   · «گردش‌کار شما به پایان رسید / رد شد / لغو شد» — the requester, when the case closes (`record.updated`).
 // The events come from the engine's `record.process_step_opened` (a subscriber here turns each opening into the notice
 // it means) and from a manager's reassign. Recipients are access-filtered on delivery, as for every rule. The timers'
@@ -47,11 +48,19 @@ export async function stepOpenedNotice(e: RecordEvent, q: Queryable): Promise<vo
   const people = ids(d.people);
   if (people.length) return emitWaiting(q, e.org_id, { id: e.id, number: e.number ?? null }, people, label, d.returned === true);
   if (d.status !== "nobody" && d.status !== "too_many" && d.status !== "managers") return;
-  const kase = await q.one<{ org_id: string; managers: string[] | null; manager_groups: string[] | null }>(`select org_id, managers, manager_groups from sm_process_cases where org_id = $1 and id = $2 and deleted_at is null`, [e.org_id, e.id]);
-  if (!kase) return;
-  const named = ids(kase.managers).length || ids(kase.manager_groups).length;
-  const users = named ? await caseManagers(q, kase) : await orgAdmins(q, e.org_id);
-  if (!users.length) return;
+  let users: string[];
+  if (Array.isArray(d.told)) {
+    // 1.1.5: the opening chose whom the notice tells — those of the managers (or administrators) who may be told,
+    // made readers of the case in its transaction (engine/readers.ts) — and its journal names them: exactly them
+    users = ids(d.told);
+  } else {
+    // an event written before 1.1.5
+    const kase = await q.one<{ org_id: string; managers: string[] | null; manager_groups: string[] | null }>(`select org_id, managers, manager_groups from sm_process_cases where org_id = $1 and id = $2 and deleted_at is null`, [e.org_id, e.id]);
+    if (!kase) return;
+    const named = ids(kase.managers).length || ids(kase.manager_groups).length;
+    users = named ? await caseManagers(q, kase) : await orgAdmins(q, e.org_id);
+    if (!users.length) return;
+  }
   // the resolver's reasons, one line for the template (`{{event.reason}}`) and the list for whoever reads the event
   const notes = (Array.isArray(d.notes) ? d.notes : []).map(String).filter(Boolean).slice(0, 20);
   await emitOrgEvent(q, e.org_id, {

@@ -261,6 +261,43 @@ export function w02(ref: EditionRef): void {
       expect(line).toBe("مهلت گذشت؛ «تأیید رئیس شعبه» به حمید استان‌دار البرز اطلاع داده شد");
     }, 300_000);
 
+    it("R5 (NB2) «گزارش به» goes up from where the open task is held: a step given to Borujerd's head reaches Lorestan's province head; with nobody holding it there today, the process managers instead — and the journal says why", async () => {
+      const lorestanUntil = (day: string | null) =>
+        s.db.query(`update sm_position_holders set valid_to = $4::date where org_id = $1 and user_id = $2 and position_id = $3`, [s.org, s.id("ph_lorestan"), s.positions.aftab_province_head, day]);
+      // a manager's «ارجاع» moves the branch head's task to Borujerd's head
+      const moveTo = async (c: string, who: string) => {
+        const t = (await s.tasks(c)).find((x) => x.step_key === "head" && x.status === "open")!;
+        await s.reassign("mehrdad", c, "head", [who], { task: t.id });
+        expect(await s.openAt(c, "head")).toEqual([who]);
+      };
+      const r = await s.start("yaser", W2.key, { u_aftab_pc_amount: "9600000", u_aftab_pc_need_date: tehranDay(1) });
+      await s.settle();
+      await moveTo(r.case, "bm_b3");
+      const before = { lorestan: (await s.bells("ph_lorestan")).length, alborz: (await s.bells("ph_alborz")).length };
+      await s.elapse(r.case, "head", 5 * H);
+      await s.timers();
+      expect((await s.journal(r.case)).filter((l) => l.startsWith("مهلت گذشت؛"))).toEqual(["مهلت گذشت؛ «تأیید رئیس شعبه» به کریم استان‌دار لرستان اطلاع داده شد"]);
+      expect((await s.bells("ph_lorestan")).length - before.lorestan).toBe(1);
+      expect((await s.bells("ph_alborz")).length).toBe(before.alborz);
+      // Lorestan's head left yesterday (the organisation's day): nobody holds «مدیر امور شعب استان» up from Borujerd
+      await lorestanUntil(tehranDay(-1));
+      try {
+        const r2 = await s.start("yaser", W2.key, { u_aftab_pc_amount: "9700000", u_aftab_pc_need_date: tehranDay(1) });
+        await s.settle();
+        await moveTo(r2.case, "bm_b3");
+        const was = { mehrdad: (await s.bells("mehrdad")).length, alborz: (await s.bells("ph_alborz")).length, lorestan: (await s.bells("ph_lorestan")).length };
+        await s.elapse(r2.case, "head", 5 * H);
+        await s.timers();
+        expect((await s.journal(r2.case)).filter((l) => l.startsWith("مهلت"))).toEqual([
+          "مهلت «تأیید رئیس شعبه» گذشت؛ «مدیر امور شعب استان» در بالادست «شعبهٔ بروجرد» دارنده‌ای ندارد؛ به مسئولان گردش‌کار (مهرداد بودجه‌نژاد) اطلاع داده شد",
+        ]);
+        expect((await s.bells("mehrdad")).slice(was.mehrdad).filter((t) => t.startsWith("مهلت گذشت: «تأیید رئیس شعبه»"))).toHaveLength(1);
+        expect([(await s.bells("ph_alborz")).length, (await s.bells("ph_lorestan")).length]).toEqual([was.alborz, was.lorestan]);
+      } finally {
+        await lorestanUntil(null);
+      }
+    }, 300_000);
+
     it("R5b after a return, the requester leaves round 2 of «ثبت درخواست» for 3 days: its «پایان مهلت» ends the case", async () => {
       const r = await s.start("yaser", W2.key, { u_aftab_pc_amount: "4000000", u_aftab_pc_need_date: tehranDay(3) });
       await s.settle();

@@ -148,8 +148,8 @@ export function w12(ref: EditionRef): void {
       await s.submit("bh_b3", r.case, "dst", { outcome: "approved", values: { u_aftab_tr_to_ok: true } });
       await s.settle();
       expect(await s.kase(r.case)).toMatchObject({ state: "waiting" });
-      // (1.1.5: the line, then the resolver's reason)
-      expect(await s.journal(r.case)).toContain("برای «تأیید مدیر ارشد» کسی پیدا نشد؛ مسئولان گردش‌کار باخبر شدند. درخواست‌دهنده مدیر مستقیم ندارد.");
+      // (1.1.5: the line naming the managers told, then the resolver's reason)
+      expect(await s.journal(r.case)).toContain("برای «تأیید مدیر ارشد» کسی پیدا نشد؛ مسئولان گردش‌کار (پروانه منابعی) باخبر شدند. درخواست‌دهنده مدیر مستقیم ندارد.");
       await s.reassign("parvaneh", r.case, "senior", ["mgr3"]);
       await s.submit("mgr3", r.case, "senior", { outcome: "approved" });
       await s.settle();

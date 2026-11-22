@@ -22,6 +22,7 @@ import { Resolution } from "../../positions";
 import { processesRunHere, refreshCase, resolveInput } from "../engine";
 import { caseJournal } from "../engine/journal";
 import { caseTasks, isId, loadVersionInfo, lockCase, peopleNames } from "../engine/store";
+import { titled } from "./timer";
 
 export const DELEGATION_JOB = "process.delegation";
 
@@ -110,7 +111,7 @@ export async function reresolveTasks(cfg: ServerConfig, orgId: string, users: re
           await caseJournal(tx, sys, kase, `«${label}» به جانشینی از ${name(principal)} به ${name(r.user)} سپرده شد`, { data: { task: t.id, from: was, to: r.user } });
           await notifyPeople(tx, orgId, {
             table: "process_case", id: kase.id, users: [r.user], event: "custom", label: "مرحله‌ای به جانشینی", channels: ["in_app", "email"], actor: null, source: "گردش‌کارها",
-            subject: `مرحله‌ای به جانشینی از ${name(principal)} منتظر شماست`, body: `«${label}» از پروندهٔ ${kase.number ?? ""} «${kase.title ?? ""}»`,
+            subject: `مرحله‌ای به جانشینی از ${name(principal)} منتظر شماست`, body: `«${label}» از پروندهٔ ${kase.number ?? ""}${titled(kase)}`,
           });
         } else {
           await caseJournal(tx, sys, kase, `جانشینی پایان یافت؛ «${label}» به ${name(r.user)} بازگشت`, { data: { task: t.id, from: was, to: r.user } });

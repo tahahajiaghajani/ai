@@ -21,6 +21,8 @@ export interface CaseRow {
   requested_for: string | null;
   unit_id: string | null;
   participants: string[] | null;
+  /** the people a notice of the workflow named who read the case as participants only through it (1.1.5) */
+  notified?: string[] | null;
   managers: string[] | null;
   manager_groups: string[] | null;
   current_steps: { key: string; label: string }[] | null;

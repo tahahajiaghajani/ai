@@ -109,7 +109,8 @@ describe("why a step found nobody, and who was told", () => {
     const id = (await start(w, X.req, p, { values })).case!;
     await w.k.drain();
     expect(await openAt(id)).toEqual([]);
-    const line1 = "برای «بررسی میز کار» کسی پیدا نشد؛ مسئولان گردش‌کار باخبر شدند.";
+    // (1.1.5: the line names the managers the notice reached)
+    const line1 = "برای «بررسی میز کار» کسی پیدا نشد؛ مسئولان گردش‌کار (مسئول گردش‌کار) باخبر شدند.";
     expect(await journal(w, id)).toContain(`${line1} کسی «میز کار» نیست.`);
     // the managers' page: why, the line, the reasons, and the action
     const m = await detail(X.mgr, id);
@@ -137,6 +138,20 @@ describe("why a step found nobody, and who was told", () => {
       );
     } finally {
       await w.o.db.query(`update sm_notification_rules set active = true where org_id = $1 and custom_event = 'process_unassigned'`, [w.o.org]);
+    }
+    // (1.1.5) the rule on, but an administrator changed its recipients so that it no longer tells the event's people:
+    // the managers are not told, and the journal says that rather than that they were
+    await w.o.db.query(`update sm_notification_rules set recipients = recipients || '{"event_users": false}'::jsonb where org_id = $1 and custom_event = 'process_unassigned'`, [w.o.org]);
+    try {
+      const p = await publish(w, line(anywhere("desk"), "بررسی بی‌گیرنده"), { managers: [X.mgr] });
+      const id = (await start(w, X.req, p, { values })).case!;
+      await w.k.drain();
+      expect(await journal(w, id)).toContain(
+        "برای «بررسی بی‌گیرنده» کسی پیدا نشد؛ مرحله منتظر مسئولان گردش‌کار می‌ماند (اعلان «مرحلهٔ بی‌انجام‌دهنده» به مسئولان گردش‌کار فرستاده نمی‌شود). کسی «میز کار» نیست.",
+      );
+      expect(await w.o.db.query(`select title from sm_notifications where org_id = $1 and user_id = $2 and record_id = $3`, [w.o.org, X.mgr, id])).toEqual([]);
+    } finally {
+      await w.o.db.query(`update sm_notification_rules set recipients = recipients || '{"event_users": true}'::jsonb where org_id = $1 and custom_event = 'process_unassigned'`, [w.o.org]);
     }
     // a case managed by a group nobody is in: no one to tell
     const group = String((await w.sys.write((tx) => createIn(tx, w.sys, "group", { name: "گروه خالی" }, { trusted: true }))).id);
@@ -203,9 +218,9 @@ describe("«دوباره پیدا کردن انجام‌دهنده»", () => {
     expect(await refusal(reresolveStep(await w.o.ctxOf(X.req), c1, { step: "a" }))).toMatchObject({ status: 403 });
     expect(await refusal(reresolveStep(mgr, c1, { step: "nope" }))).toEqual({ status: 400, message: "این مرحله در پرونده نیست" });
     expect(await refusal(reresolveStep(mgr, c1, { step: "s" }))).toEqual({ status: 409, message: "این مرحله منتظر انجام‌دهنده نیست؛ یا باز نیست یا کارش به کسی سپرده شده است" });
-    // nobody yet: said so, with the reasons
+    // nobody yet: said so, with the reasons — a manager's re-resolution tells nobody, so it claims no notice (1.1.5)
     const none = await reresolveStep(mgr, c1, { step: "a" });
-    expect(none).toEqual({ status: "nobody", people: [], message: "برای «ثبت در میز» کسی پیدا نشد؛ مسئولان گردش‌کار باخبر شدند.", notes: ["کسی «میز ثبت» نیست"] });
+    expect(none).toEqual({ status: "nobody", people: [], message: "برای «ثبت در میز» کسی پیدا نشد؛ مرحله منتظر مسئولان گردش‌کار می‌ماند.", notes: ["کسی «میز ثبت» نیست"] });
     expect(await journal(w, c1)).toContain("مسئول گردش‌کار (مسئول گردش‌کار) انجام‌دهندهٔ «ثبت در میز» را دوباره جست؛ کسی پیدا نشد. کسی «میز ثبت» نیست.");
     // version 2 gives the step to a named person: the current version's rules, the case staying on version 1
     await publish(w, line(users(X.desk), "ثبت در میز"), { managers: [X.mgr], process: p.process });
@@ -344,6 +359,35 @@ describe("whom a step goes to", () => {
     await w.o.db.query(`update sm_process_tasks set opened_at = $2 where case_id = $1 and step_key = 'a'`, [id, iso(at - 2 * 3_600_000)]);
     await w.sys.write((tx) => roundTimersIn(tx, w.sys, { cal: null }, id, "a", 1, at));
     expect(await journal(w, id)).toContain("مهلت گذشت؛ «کار شبانه» به سرپرست شب اطلاع داده شد");
+  });
+
+  it("(NB1, 1.1.5) a «گزارش به» escalation of a confidential case: the holder told becomes its reader — the bell arrives, the case opens, its values stay hidden — and the notice names the case by its number, not its title", async () => {
+    const parent = await position("conf_parent", "سرپرست محرمانه");
+    await position("conf_child", "کارشناس محرمانه", { reports_to: parent });
+    const doer = await person(w, "کارشناس پروندهٔ محرمانه");
+    const boss = await person(w, "سرپرست پروندهٔ محرمانه");
+    await hold("conf_child", doer, null);
+    await hold("conf_parent", boss, null);
+    const g = line({ ...anywhere("conf_child"), business: false, escalate: [{ after: { amount: 1, unit: "hour" }, action: "notify", to: "reports_to" }] }, "بررسی محرمانه");
+    const p = await publish(w, g, { managers: [X.mgr], confidential: true, title: "پروندهٔ سری {{case.u_amount}}" });
+    const id = (await start(w, X.req, p, { values })).case!;
+    await w.k.drain();
+    // the boss has no part in it yet: the confidential case is closed to him
+    expect(await refusal(detail(boss, id))).toMatchObject({ status: 404 });
+    const at = Date.now();
+    await w.o.db.query(`update sm_process_tasks set opened_at = $2 where case_id = $1 and step_key = 'a'`, [id, iso(at - 2 * 3_600_000)]);
+    await w.sys.write((tx) => roundTimersIn(tx, w.sys, { cal: null }, id, "a", 1, at));
+    await w.k.drain();
+    expect(await journal(w, id)).toContain("مهلت گذشت؛ «بررسی محرمانه» به سرپرست پروندهٔ محرمانه اطلاع داده شد");
+    const k = await kase(w, id);
+    expect(k.title.startsWith("پروندهٔ سری")).toBe(true);
+    const bells = await w.o.db.query<{ title: string; body: string }>(`select title, body from sm_notifications where org_id = $1 and user_id = $2 and record_id = $3`, [w.o.org, boss, id]);
+    expect(bells.map((b) => b.title)).toEqual([`مهلت گذشت: «بررسی محرمانه» در پروندهٔ ${k.number}`]);
+    expect(bells[0].body).toContain(k.number);
+    expect(bells[0].body).not.toContain("پروندهٔ سری");
+    const d = await detail(boss, id);
+    expect(d.data).toEqual({});
+    expect(d.can.manage).toBe(false);
   });
 
   it("whether I may start a process is what the start checks (a holder of the starters' role in another unit may not)", async () => {

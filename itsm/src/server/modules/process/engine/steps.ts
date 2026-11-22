@@ -8,28 +8,30 @@
 //     wait on `pstep:<case>:<node>:<round>`.
 //     Nobody: the step is skipped (`ifNobody: skip`; an approve step's pass counts as approved, and the journal says
 //     so) or the case waits («در انتظار») for its managers — as it does when more people are found than a step takes.
-//     The journal says why (the resolver's reasons) and whether the managers were told (./waiting.ts), and the round's
-//     wait keeps both for the case page and a later re-resolution (../reresolve). `applySubmission` settles the round and resumes the wait with the
-//     decision's port; `cancel` (the wait withdrawn by a join's cancel_rest, the run ended or canceled) closes the
-//     round's open tasks — «دیگر لازم نیست», or «لغو» when the run failed or was canceled.
+//     The journal says why (the resolver's reasons) and whom the managers' notice reached (./waiting.ts) — they read
+//     the case from then on (./readers.ts) and the step's event names them for the notice —, and the round's wait
+//     keeps both for the case page and a later re-resolution (../reresolve). `applySubmission` settles the round and
+//     resumes the wait with the decision's port; `cancel` (the wait withdrawn by a join's cancel_rest, the run ended or
+//     canceled) closes the round's open tasks — «دیگر لازم نیست», or «لغو» when the run failed or was canceled.
 //   · «انتخاب» (`choice`): the first case whose comparisons on the run's data hold, else «هیچ‌کدام».
 //   · «تعیین مقدار» (`set_values`): case values from templates, coerced by the version's snapshot, merged key by key.
 //   · «اعلان» (`notify`): recipients by assignee rules (positions, groups, step actors…), sent through the
-//     notification service in the step's transaction.
+//     notification service in the step's transaction to those who may be told, made readers of the case first
+//     (./readers.ts); the journal names whom it reached and whom not.
 import type { FieldDef } from "@shared/model/types";
 import { compareData } from "@shared/flows";
+import { faDigits } from "@shared/format";
 import { snapshotFields } from "@shared/forms/snapshot";
 import { choiceCases, formStepOf, OUTCOME_PORT, outEdges, processNodeLabel, quorumOf, type CaseProgress, type FormStep, type ProcessGraph } from "@shared/process/graph";
 import { cleanRule, ifNobodyOf, tooManyMessage, poolLimit, type AssigneeRule } from "@shared/process/assignees";
-import type { Tx } from "../../../db";
-import { pgArray } from "../../../db";
 import { coerceValue, emitEvent, systemCtx, updateIn } from "../../../engine";
 import type { FlowStepHandler, StepContext, StepOutcome, WaitCancel } from "../../flows/registry";
 import { Resolution, resolveAssignees, type ResolveInput } from "../../positions";
 import { notifyPeople } from "../../notify/deliver";
 import { caseJournal } from "./journal";
-import { managersTold, nobodyLine, openRoundTasks, waitingLine, waitState, type WaitState } from "./waiting";
-import { OPEN_STATES, participantsOf, refreshCase, replayProgress, runLog } from "./progress";
+import { activeMembers, addReaders, nameList, NOTIFIED_MAX, tellCase, untoldOf } from "./readers";
+import { managersNotice, nobodyLine, openRoundTasks, waitingLine, waitState, type WaitState } from "./waiting";
+import { OPEN_STATES, participantsFor, refreshCase, replayProgress, runLog } from "./progress";
 import { caseTasks, isId, loadVersionInfo, lockCase, peopleNames, stepWaitKey, type CaseRow, type TaskRow, type VersionInfo } from "./store";
 import { processHandlers } from "./runs";
 
@@ -99,17 +101,6 @@ export function resolveInput(kase: CaseRow, version: VersionInfo, tasks: readonl
     managers: kase.managers?.length ? kase.managers : version.managers,
     managerGroups: kase.manager_groups?.length ? kase.manager_groups : version.manager_groups,
   };
-}
-
-/** Active members among `ids`. */
-async function activeMembers(tx: Tx, orgId: string, ids: readonly string[]): Promise<Set<string>> {
-  if (!ids.length) return new Set();
-  const rows = await tx.query<{ user_id: string }>(
-    `select m.user_id from sm_org_members m join sm_users u on u.id = m.user_id
-     where m.org_id = $1 and m.user_id = any($2::uuid[]) and m.deleted_at is null and m.is_active and not coalesce(u.disabled, false)`,
-    [orgId, pgArray([...new Set(ids)])],
-  );
-  return new Set(rows.map((r) => String(r.user_id)));
 }
 
 /** The port a skipped step leaves by: its «yes» decision. */
@@ -189,14 +180,19 @@ async function openStep(s: StepContext): Promise<StepOutcome> {
   }
 
   const { tasks: opened, due } = await openRoundTasks(tx, sys, kase, { id: nodeId, label, step }, round, people, now);
-  // nobody, or more than the step takes: the journal says why and whether the managers were told; the wait keeps it
+  // nobody, or more than the step takes: the journal says why and whom the managers' notice reached; the wait keeps it.
+  // Those it tells read the case from now on (./readers.ts), and the step's event names them for the notice.
   let waiting: WaitState | null = null;
+  let told: string[] | undefined;
   if (!people.length) {
     const reason = status === "too_many" ? "too_many" : "nobody";
-    const line = reason === "too_many" ? message ?? tooManyMessage(poolLimit(step.action, quorumOf(step))) : nobodyLine(label, await managersTold(tx, s.orgId, kase));
+    const notice = await managersNotice(tx, s.orgId, kase);
+    await addReaders(tx, sys, kase, notice.readers);
+    told = notice.told;
+    const line = reason === "too_many" ? message ?? tooManyMessage(poolLimit(step.action, quorumOf(step))) : nobodyLine(label, notice);
     waiting = { reason, message: line, notes, ...(candidates ? { candidates } : {}) };
     message = line;
-    await caseJournal(tx, sys, kase, waitingLine(line, notes), { data: { step: nodeId, round, waiting: reason, message: line, notes } });
+    await caseJournal(tx, sys, kase, waitingLine(line, notes), { data: { step: nodeId, round, waiting: reason, message: line, notes, told } });
   } else if (status === "managers") {
     await caseJournal(tx, sys, kase, waitingLine(`برای «${label}» کسی پیدا نشد؛ مرحله به مسئولان گردش‌کار رسید.`, notes), { data: { step: nodeId, round, managers: true, notes } });
   }
@@ -209,7 +205,7 @@ async function openStep(s: StepContext): Promise<StepOutcome> {
     table: "process_case",
     id: caseId,
     number: kase.number,
-    data: { node: nodeId, label, round, action: step.action, people: people.map((p) => p.user), status: people.length ? status : waiting!.reason, due_at: due, message, notes, returned: back },
+    data: { node: nodeId, label, round, action: step.action, people: people.map((p) => p.user), status: people.length ? status : waiting!.reason, due_at: due, message, notes, returned: back, ...(told ? { told } : {}) },
   });
   return {
     wait: { kind: STEP_WAIT, key: stepWaitKey(caseId, nodeId, round), data: { case: caseId, round, step: s.stepKey, ...(waiting ? waitState(waiting) : {}) } },
@@ -251,7 +247,7 @@ async function cancelStep(a: WaitCancel): Promise<void> {
     if (!open.length && !marked.length) return;
     const version = await loadVersionInfo(tx, a.orgId, kase.version_id);
     if (version && kase.run_ref === a.runId && OPEN_STATES.has(kase.state)) await refreshCase(tx, sys, kase, version.graph, { tasks });
-    else if (open.length) await updateIn(tx, sys, "process_case", kase.id, { participants: participantsOf(tasks) }, { trusted: true });
+    else if (open.length) await updateIn(tx, sys, "process_case", kase.id, { participants: await participantsFor(tx, kase, tasks) }, { trusted: true });
   });
 }
 
@@ -314,7 +310,12 @@ const setValues: FlowStepHandler = {
   },
 };
 
-/** «اعلان» of a workflow: recipients by assignee rules, through the notification service. */
+/**
+ * «اعلان» of a workflow: recipients by assignee rules (more people than a step takes: the resolver's first 500), told
+ * through the notification service — those who may be told (./readers.ts) made readers of the case first, so the bell
+ * arrives and opens it. The journal names whom it reached, and who it could not and why: the people the rules name
+ * whom the resolver left out (the other side of the demo boundary, members no longer active), those beyond its 500.
+ */
 const notify: FlowStepHandler = {
   transactional: true,
   async run(s) {
@@ -327,19 +328,35 @@ const notify: FlowStepHandler = {
     const label = processNodeLabel(version.graph.nodes.find((n) => n.id === s.node.id) ?? { type: "notify" });
     const rules = (Array.isArray(s.node.config.to) ? s.node.config.to : []).map(cleanRule).filter((x): x is AssigneeRule => !!x);
     const tasks = await caseTasks(tx, s.orgId, caseId);
-    const r = rules.length
-      ? await resolveAssignees(tx, s.ctx, resolveInput(kase, version, tasks, { assignees: rules, exclude: [], ifNobody: "skip", action: "fill" }, label))
-      : null;
-    const users = [...new Set([...(r?.people.map((p) => p.user) ?? []), ...(r?.status === "too_many" ? r.candidates ?? [] : [])])];
+    // the people of the rules, as a step's are found (F3's resolver: active members, the demo boundary, today's
+    // delegations), at most 500 — the resolver's candidates of a step with too many people; whom the rules named but
+    // the settling left out the journal names, with why
+    const run = new Resolution(tx, s.ctx, resolveInput(kase, version, tasks, { assignees: rules, exclude: [], ifNobody: "skip", action: "fill" }, label));
+    const found: Awaited<ReturnType<Resolution["rule"]>> = [];
+    for (const [i, rule] of rules.entries()) found.push(...(await run.rule(rule, i, false)));
+    const settled = await run.settle(found, new Set());
+    const everyone = [...new Set(settled.map((p) => p.user))];
+    const users = everyone.slice(0, NOTIFIED_MAX);
+    const reached = new Set(settled.flatMap((p) => [p.user, p.delegatedFrom]).filter(isId).map((u) => u.toLowerCase()));
+    const left = await untoldOf(tx, kase, found.map((f) => f.user).filter((u) => !reached.has(u.toLowerCase())));
+    const beyond = everyone.length > users.length ? [`اعلان به ${faDigits(everyone.length - users.length)} نفر دیگر نرسید؛ یک «اعلان» به بیش از ${faDigits(NOTIFIED_MAX)} نفر نمی‌رسد`] : [];
     const subject = s.text(s.node.config.subject).trim().slice(0, 300) || s.run.flowName;
     const body = s.text(s.node.config.body).slice(0, 20_000);
-    const count = users.length
+    const a = await tellCase(tx, s.ctx, kase, users);
+    const count = a.told.length
       ? await notifyPeople(tx, s.orgId, {
-          table: "process_case", id: caseId, users, event: "custom", label: s.run.flowName, subject, body,
+          table: "process_case", id: caseId, users: a.told, event: "custom", label: s.run.flowName, subject, body,
           channels: ["in_app", "email"], actor: null, source: `گردش‌کار «${s.run.flowName}»`,
         })
       : 0;
-    return { output: { recipients: users, subject, sent: count > 0, count } };
+    const why = [...a.untold, ...left.untold, ...beyond];
+    const said = a.told.length
+      ? waitingLine(`«${label}» به ${nameList(a.names)} فرستاده شد`, why)
+      : users.length || why.length
+        ? waitingLine(`«${label}» به کسی نرسید`, why)
+        : waitingLine(`برای «${label}» کسی پیدا نشد و اعلانی فرستاده نشد`, run.notes);
+    await caseJournal(tx, s.ctx, kase, said, { data: { step: s.node.id, notice: true, told: a.told } });
+    return { output: { recipients: a.told, subject, sent: count > 0, count } };
   },
 };
 

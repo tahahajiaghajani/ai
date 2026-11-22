@@ -156,8 +156,8 @@ export function w08(ref: EditionRef): void {
       const r = await s.start("negar", W8.key, loan(s, { u_aftab_ln_guarantor: s.id("negar") }));
       await s.settle();
       expect(await s.kase(r.case)).toMatchObject({ state: "waiting" });
-      // (1.1.5: the line, then the resolver's reason)
-      expect(await s.journal(r.case)).toContain("برای «تأیید ضامن» کسی پیدا نشد؛ مسئولان گردش‌کار باخبر شدند. درخواست‌دهنده خود از کسانی که فیلد فرم نام می‌برد است و این مرحله را انجام نمی‌دهد.");
+      // (1.1.5: the line naming the managers told, then the resolver's reason)
+      expect(await s.journal(r.case)).toContain("برای «تأیید ضامن» کسی پیدا نشد؛ مسئولان گردش‌کار (پروانه منابعی) باخبر شدند. درخواست‌دهنده خود از کسانی که فیلد فرم نام می‌برد است و این مرحله را انجام نمی‌دهد.");
       expect(await s.bells("parvaneh")).toContain("برای «تأیید ضامن» کسی پیدا نشد");
       const no = await s.refused(s.reassign("parvaneh", r.case, "guar", ["negar"], { expect: 400 }));
       expect(no.message).toBe("درخواست‌دهنده این مرحله را انجام نمی‌دهد");
