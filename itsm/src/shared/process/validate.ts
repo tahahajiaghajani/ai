@@ -9,7 +9,8 @@
 //     settings each step needs, the data pills it reads.
 // Warnings: a field editable on two parallel branches («آخرین ثبت می‌ماند»), a pool larger than 30, a title pill a
 // step hides, a required field no step can edit, a «تکمیل فرم» step with nothing to fill — those need the forms and
-// fields (`ProcessValidateContext`); an approve step that passes when nobody is found counts as approved.
+// fields (`ProcessValidateContext`); an approve step that passes when nobody is found counts as approved; the demo
+// pack's people among the managers of a process of the organisation's own (the server's `demoManagers`).
 // Pure and shared: the designer shows the problems live; the publish refuses with errors.
 // Imported by the UI: keep it free of server imports.
 import type { FlowEdge, FlowProblem } from "../flows/types";
@@ -66,6 +67,23 @@ export interface ProcessValidateContext {
   titleTemplate?: string | null;
   /** the automations a «جریان خودکار» may run, by id */
   flow?: (id: string) => { name: string; published: boolean } | null | undefined;
+  /**
+   * The demo pack's people among the managers of a process of the organisation's own — named, or members of its manager
+   * groups (release 1.1.5): their names, and whether they are all its managers.
+   */
+  demoManagers?: { names: readonly string[]; all: boolean } | null;
+}
+
+/**
+ * Why the demo pack's people do not manage a process's cases of the organisation's own (FINAL-1): they manage only the
+ * cases the pack's people start; when they are all its managers, its own cases fall to the organisation's administrators.
+ */
+export function demoManagersWarning(d: { names: readonly string[]; all: boolean }): string {
+  const shown = d.names.slice(0, 3).map((n) => `«${n}»`).join("، ");
+  const who = d.names.length > 3 ? `${shown} و ${faDigits(d.names.length - 3)} نفر دیگر` : shown;
+  const one = d.names.length === 1;
+  const line = `${who} از مسئولان این گردش‌کار ${one ? "حساب نمایشی است و" : "حساب نمایشی‌اند و"} فقط پرونده‌هایی را مدیریت ${one ? "می‌کند" : "می‌کنند"} که حساب‌های نمایشی آغاز کنند؛ پرونده‌های خود سازمان را نه`;
+  return d.all ? `${line} — پرونده‌های خود سازمان در این گردش‌کار به مدیران سازمان سپرده می‌شوند` : line;
 }
 
 /** Do the problems block a publish? */
@@ -401,6 +419,9 @@ export function validateProcess(input: unknown, vctx: ProcessValidateContext = {
     }
     for (const f of required) if (!editable.has(f)) warn(`فیلد الزامی «${label(f)}» در هیچ مرحله‌ای ویرایش‌پذیر نیست`);
   }
+
+  // ----- the managers: the demo pack's people manage none of the organisation's own cases
+  if (vctx.demoManagers?.names.length) warn(demoManagersWarning(vctx.demoManagers), { field: "managers" });
 
   const seen = new Set<string>();
   return problems.filter((p) => {

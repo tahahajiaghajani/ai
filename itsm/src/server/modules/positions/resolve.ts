@@ -42,9 +42,19 @@ import { activeDelegations, managerOf, type Delegation } from "../sla/approvals"
 import { MEMBERSHIP_FALLBACK, roleClosure, type RoleDef } from "@shared/access";
 import { accessSettings, catalogOf, snapshotFor } from "../../access/subject";
 import { demoPeople, isDemoRow } from "../../db/scope";
+import { AppError } from "../../http/errors";
 
-/** A person of the demo pack picked for a step of the organisation's own case (`reassignStep`). */
+/**
+ * FINAL-1: the demo pack's people take none of the organisation's own work — a person of the pack picked for a step of
+ * its own case (`reassignStep`), or one of them acting on such a case as its manager or as a step's person or delegate.
+ */
 export const DEMO_PEOPLE_REAL_WORK = "حساب‌های نمایشی کار پرونده‌های واقعی سازمان را بر عهده نمی‌گیرند";
+
+/**
+ * FINAL-1's refusal with its own code (`demo_people_real_work`): 400 when the pack's people are picked for the
+ * organisation's own case, 403 when one of them asks to act on it.
+ */
+export const demoRealWork = (status: 400 | 403 = 400) => new AppError(status, "demo_people_real_work", DEMO_PEOPLE_REAL_WORK);
 
 export interface ResolveInput {
   step: StepAssignees;

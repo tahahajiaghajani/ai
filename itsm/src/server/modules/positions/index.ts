@@ -6,7 +6,7 @@
 // `installPositionsModule()` (once per process, src/server/routes/modules.ts) wires the integrity hooks of both tables.
 import { installPositionHooks } from "./hooks";
 
-export { resolveAssignees, heldPositions, Resolution, DEMO_PEOPLE_REAL_WORK, type ResolveInput, type ResolveResult, type Resolved, type Via } from "./resolve";
+export { resolveAssignees, heldPositions, Resolution, DEMO_PEOPLE_REAL_WORK, demoRealWork, type ResolveInput, type ResolveResult, type Resolved, type Via } from "./resolve";
 export { previewResolve, estimateStep, positionsOverview, canPreview, assigneeFactsFor, demoPeopleOf, demoWarning, PREVIEW_REFUSAL } from "./service";
 export { importHolders, MAX_HOLDER_ROWS, type HolderImportInput, type HolderImportResult } from "./import";
 export { applyDirectoryHoldings, directoryFacts, type DirectoryHolding, type HoldingsResult } from "./directory";

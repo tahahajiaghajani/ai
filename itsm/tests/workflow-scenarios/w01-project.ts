@@ -13,9 +13,11 @@
 //        version 2 «همه‌جا» published mid-case: the case stays on version 1; «دوباره پیدا کردن انجام‌دهنده» with the
 //        current version's rules (1.1.5 (c)); «ارجاع» on the demo case; a new case runs version 2;
 //   R6   the requester cancels before the step is done: canceled, the open tasks «لغو»;
-//   R7   the designer's preview, estimate and demo-people list say who the pack's people are (1.1.5 (e)–(g));
-//   R8   a manager who is one of the pack's people acts on a real case; the demo purge leaves it as it was (report 3);
-//        it runs last (the purge takes the pack's people and cases away).
+//   R7   the designer's preview, estimate and demo-people list say who the pack's people are (1.1.5 (e)–(g)), and the
+//        designer and the publish warn that a manager is one of them (NB4);
+//   R8   a manager who is one of the pack's people is refused every manager action on a real case (NB4: FINAL-1's
+//        code) and offered none; the owner gives the step to a real member; the demo purge leaves the case as it was
+//        (report 3); it runs last (the purge takes the pack's people and cases away).
 import { describe, it, expect, beforeAll } from "vitest";
 import { wakeTimer } from "@server/modules/process/timers/timer";
 import { newRule } from "@ui/modules/workflows/kit/model";
@@ -228,9 +230,14 @@ export function w01(ref: EditionRef): void {
       expect(await s.kase(r.case)).toMatchObject({ state: "waiting", version_no: 1 });
       expect(await s.openAt(r.case, "form")).toEqual([]);
       expect((await s.detail("owner", r.case)).case.version_no).toBe(1);
-      // a manager gives the step to a holder: allowed on the pack's case
+      // a manager gives the step to a holder: allowed on the pack's case — and the pack's work, whoever asks (1.1.5,
+      // B9/P03): the task and the journal line the owner's «ارجاع» writes are the pack's rows, which the purge takes
       await s.reassign("owner", r.case, "form", ["babak"]);
       expect(await s.openAt(r.case, "form")).toEqual(["babak"]);
+      const given = (await s.tasks(r.case)).filter((t) => t.step_key === "form" && t.status === "open");
+      expect(await Promise.all(given.map((t) => s.isDemo(t.id)))).toEqual([true]);
+      const line = await s.db.one<{ id: string }>(`select id::text as id from sm_journal where table_key = 'process_case' and record_id = $1 and body like '%(مسئول گردش‌کار)%' order by created_at desc limit 1`, [r.case]);
+      expect(await s.isDemo(line!.id)).toBe(true);
       await s.submit("babak", r.case, "form", { values: { u_aftab_prj_delay: 3 } });
       await s.settle();
       expect(await s.kase(r.case)).toMatchObject({ state: "completed", outcome: "completed", version_no: 1 });
@@ -310,7 +317,7 @@ export function w01(ref: EditionRef): void {
       expect(again.result).toBe("late");
     }, 300_000);
 
-    it("R7 (1.1.5 (e)–(g)) the designer says who the pack's people are: preview, estimate and the demo-people list", async () => {
+    it("R7 (1.1.5 (e)–(g), NB4) the designer says who the pack's people are: preview, estimate, the demo-people list and a manager who is one of them", async () => {
       const step = { assignees: [{ kind: "position", position: "aftab_group_manager", where: "anywhere" }] };
       // the preview for the owner as sample requester: nobody, and why
       const own = await s.owner.post(`${s.P}/positions/resolve`, { step, action: "fill", label: "مرحلهٔ فرم", requester: s.id("owner") });
@@ -329,36 +336,62 @@ export function w01(ref: EditionRef): void {
       expect(est.warnings.join(" ")).toContain("حساب نمایشی");
       const people = await s.owner.get(`${s.P}/positions/demo-people`);
       expect(s.keys(people.users)).toEqual(["babak", "behrouz", "kambiz", "negar", "sepideh"]);
+      // (1.1.5, NB4) the designer and the publish say that one of the managers, بهروز, is a demo account: he manages only
+      // the cases the pack's people start — a warning, the publish goes on
+      const defs = await s.owner.get(`${s.P}/process/defs/${s.procs[W1.key].id}`);
+      const warned = (defs.problems as { level: string; field?: string; message: string }[]).filter((p) => p.field === "managers");
+      expect(warned).toEqual([{ level: "warning", field: "managers", message: "«بهروز مدیرنیا» از مسئولان این گردش‌کار حساب نمایشی است و فقط پرونده‌هایی را مدیریت می‌کند که حساب‌های نمایشی آغاز کنند؛ پرونده‌های خود سازمان را نه" }]);
+      const preview = await s.owner.get(`${s.P}/process/defs/${s.procs[W1.key].id}/diff`);
+      expect(preview.problems.filter((p: { field?: string }) => p.field === "managers")).toEqual(warned);
+      expect(preview.can_publish).toBe(true);
     }, 300_000);
 
-    it("R8 (report 3) one of the pack's people manages the organisation's own case; «حذف داده‌های نمایشی» then leaves that case as it was — the real member keeps the step he was given", async () => {
+    it("R8 (report 3, NB4) one of the pack's people manages the organisation's own case: refused every manager action (FINAL-1's code) and offered none; the owner gives the step to a real member; «حذف داده‌های نمایشی» then leaves that case as it was", async () => {
       const r = await s.start("owner", W1.key, { u_aftab_prj_name: "پروژهٔ سوم مالک" });
       await s.settle();
-      // بهروز (the pack's manager persona, a manager of the process) pauses, resumes and gives the step to a real
-      // member — or is refused: either way the purge must not take work of the organisation's own case away
-      const paused = await s.raw("behrouz", "POST", `/process/cases/${r.case}/pause`, { comment: "بررسی" });
-      if (paused.status === 200) {
-        await s.raw("behrouz", "POST", `/process/cases/${r.case}/resume`, {});
-        await s.raw("behrouz", "POST", `/process/cases/${r.case}/reassign`, { step: "form", to: [s.id("reza")] });
-        await s.settle();
-      }
+      expect(await s.kase(r.case)).toMatchObject({ state: "waiting" });
+      // بهروز (the pack's manager persona, a manager of the process): before 1.1.5 his pause, resume and «ارجاع» wrote the
+      // pack's rows into the organisation's case, and the purge then took the real member's step and put the case back
+      // to «در انتظار»; now each is refused as FINAL-1 refuses the pack's people a step
+      const DEMO = { status: 403, code: "demo_people_real_work", message: "حساب‌های نمایشی کار پرونده‌های واقعی سازمان را بر عهده نمی‌گیرند" };
+      const asBehrouz = async (action: string, body: unknown) => {
+        const x = await s.raw("behrouz", "POST", `/process/cases/${r.case}/${action}`, body);
+        return { status: x.status, code: x.body?.error?.code, message: x.body?.error?.message };
+      };
+      expect(await asBehrouz("pause", { comment: "بررسی" })).toEqual(DEMO);
+      expect(await asBehrouz("reassign", { step: "form", to: [s.id("reza")] })).toEqual(DEMO);
+      expect(await asBehrouz("reresolve", { step: "form" })).toEqual(DEMO);
+      expect(await asBehrouz("cancel", { comment: "دیگر لازم نیست" })).toEqual(DEMO);
+      await s.caseAction("owner", r.case, "pause", "بررسی");
+      expect(await asBehrouz("resume", {})).toEqual(DEMO);
+      await s.caseAction("owner", r.case, "resume");
+      // the case page still reads for him (he is named a manager) and offers him no manager action; the owner's offers them
+      expect((await s.detail("behrouz", r.case)).can).toEqual({ cancel: false, manage: false, pause: false, resume: false, reassign: false, resume_from: false, reresolve: false });
+      expect((await s.detail("owner", r.case)).can).toMatchObject({ manage: true, reassign: true, reresolve: true });
+      // the owner gives the step to a real member: the organisation's own work, nothing of it the pack's
+      await s.reassign("owner", r.case, "form", ["reza"]);
+      await s.settle();
+      const rows = await s.db.query<{ id: string }>(
+        `select id::text as id from sm_process_tasks where case_id = $1 union all select id::text from sm_journal where table_key = 'process_case' and record_id = $1`,
+        [r.case],
+      );
+      expect((await Promise.all(rows.map((x) => s.isDemo(x.id)))).filter(Boolean)).toEqual([]);
       const state = async () => {
         const k = await s.kase(r.case);
         const real = (await s.tasks(r.case)).filter((t) => !["negar", "babak", "behrouz", "kambiz", "sepideh"].includes(s.key(t.assigned_to) ?? ""));
         return { state: k?.state ?? null, open_rounds: k?.open_rounds ?? null, tasks: real.map((t) => `${s.key(t.assigned_to)}:${t.step_key}:${t.status}`).sort() };
       };
       const before = await state();
+      expect(before).toMatchObject({ state: "active", tasks: ["owner:request:done", "reza:form:open"] });
       // «حذف داده‌های نمایشی» (the console's purge, as the owner)
       await s.db.query(`update sm_sessions set reauth_at = now() where user_id = $1`, [s.o.ownerId]);
       await s.owner.post(`${s.P}/demo/purge`, { confirm: PURGE_PHRASE });
       await runToEnd(s.cfg, s.org, "purge", { budgetMs: 600_000 });
       expect(await state()).toEqual(before);
-      // and the organisation's case can still be finished by whoever holds it
-      if (before.tasks.includes("reza:form:open")) {
-        await s.submit("reza", r.case, "form", { values: { u_aftab_prj_delay: 1 } });
-        await s.settle();
-        expect(await s.kase(r.case)).toMatchObject({ state: "completed" });
-      }
+      // and the organisation's case is finished by whoever holds it
+      await s.submit("reza", r.case, "form", { values: { u_aftab_prj_delay: 1 } });
+      await s.settle();
+      expect(await s.kase(r.case)).toMatchObject({ state: "completed" });
     }, 900_000);
   });
 }

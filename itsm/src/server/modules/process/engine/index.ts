@@ -14,6 +14,7 @@ export { STEP_OPENED, STEP_WAIT, parseWaitKey, resolveInput } from "./steps";
 export { replayProgress, refreshCase, participantsOf, OPEN_STATES, type LogStep } from "./progress";
 export { caseRunEnded } from "./ended";
 export { stepWaitKey, lockCase, loadVersionInfo, caseTasks, type CaseRow, type TaskRow, type VersionInfo, type SubmissionRow } from "./store";
+export { isPackCase, inCaseScope, packOnRealCase } from "./boundary";
 
 let installed = false;
 
