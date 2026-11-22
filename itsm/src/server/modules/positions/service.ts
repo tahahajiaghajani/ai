@@ -5,7 +5,8 @@
 //     pack's work);
 //   · estimateStep    the static count behind the designer's explanation and pool warnings («۴۸ نفر در ۴۸ شعبه؛ برای
 //     هر پرونده رئیس شعبه همان شعبه»; warnings from 30, the limits 100 and 50);
-//   · positionsOverview  the positions with their current holders, units, vacancies and sources («نقش‌های سازمانی»);
+//   · positionsOverview  the positions with their current holders, units, vacancies and sources («نقش‌های سازمانی»;
+//     the demo pack's own marked `demo`);
 //   · demoPeopleOf    the organisation's demo pack people (1.1.5): the pickers and the positions page mark them
 //     «نمایشی», and the preview and the estimate count them apart — they take only the pack's own cases (FINAL-1).
 // Previews and estimates are for the people who design workflows (`process_design` write) or keep the organisation's
@@ -30,6 +31,7 @@ import {
   type AssigneeFacts, type AssigneeRule, type PoolCounts, type Quorum, type StepAction, type StepAssignees,
 } from "@shared/process/assignees";
 import { Resolution, resolveAssignees, type ResolveResult } from "./resolve";
+import { readsDesignOrPositions } from "./demo";
 
 export const PREVIEW_REFUSAL = "پیش‌نمایش انجام‌دهنده‌ها با طراحان گردش‌کار و نگه‌دارندگان ساختار سازمانی است";
 
@@ -325,15 +327,10 @@ export function demoWarning(n: number | null): string {
 // ---------------------------------------------------------------------------------------------------------------
 // The demo pack's people
 
-/** May the caller open the workflow designer (`process_design` read) or the positions page (`org` read of positions)? */
-async function readsDesignOrPositions(ctx: Ctx): Promise<boolean> {
-  if (ctx.actor === "system") return true;
-  const design = (await defFor(ctx, "process")).def;
-  if (access().canReadTable(ctx, design)) return true;
-  return access().canReadTable(ctx, (await defFor(ctx, "position")).def);
-}
-
-/** The organisation's demo pack people (lower-case ids; none without a pack): the pickers mark them «نمایشی». */
+/**
+ * The organisation's demo pack people (lower-case ids; none without a pack): the designer's and the positions page's
+ * pickers mark them «نمایشی». (Every other picker reads the mark on the member search's rows: ./demo.ts.)
+ */
 export async function demoPeopleOf(ctx: Ctx): Promise<DemoPeople> {
   if (!(await readsDesignOrPositions(ctx))) throw forbidden("فهرست حساب‌های نمایشی با طراحان گردش‌کار و نگه‌دارندگان نقش‌های سازمانی است");
   const rows = await ctx.db.query<{ id: string }>(`select id::text as id from sm_users where prefs ->> 'demo_org' = $1 order by id limit 20000`, [ctx.org.id]);
@@ -350,6 +347,8 @@ export interface PositionOverview {
   unit_kind: string | null;
   active: boolean;
   reports_to: string | null;
+  /** one of the demo pack's positions (release 1.1.5: marked «نمایشی»; making a pack person its holder asks nothing) */
+  demo: boolean;
   /** holders valid today, the units they hold it in, their sources */
   holders: number;
   units: number;
@@ -367,8 +366,9 @@ export async function positionsOverview(ctx: Ctx): Promise<{ positions: Position
   const today = localDate(Date.now(), orgTz(ctx));
   const soon = addDays(today, 30);
   const valid = `h.deleted_at is null and (h.valid_from is null or h.valid_from <= $2::date) and (h.valid_to is null or h.valid_to >= $2::date)`;
-  const rows = await ctx.db.query<{ id: string; key: string; name: string; unit_kind: string | null; active: boolean; reports_to: string | null; holders: number; units: number; manual: number; directory: number; import: number; ending: number }>(
+  const rows = await ctx.db.query<{ id: string; key: string; name: string; unit_kind: string | null; active: boolean; reports_to: string | null; demo: boolean; holders: number; units: number; manual: number; directory: number; import: number; ending: number }>(
     `select p.id, p.key, p.name, p.unit_kind, p.active, p.reports_to,
+            exists (select 1 from sm_demo_rows d where d.org_id = p.org_id and d.row_id = p.id) as demo,
             count(h.id) filter (where ${valid})::int as holders,
             count(distinct h.org_unit_id) filter (where ${valid})::int as units,
             count(h.id) filter (where ${valid} and h.source = 'manual')::int as manual,
@@ -391,7 +391,7 @@ export async function positionsOverview(ctx: Ctx): Promise<{ positions: Position
       );
       vacancies = v?.n ?? 0;
     }
-    out.push({ id: r.id, key: r.key, name: r.name, unit_kind: r.unit_kind, active: r.active !== false, reports_to: r.reports_to, holders: r.holders, units: r.units, sources: { manual: r.manual, directory: r.directory, import: r.import }, vacancies, ending: r.ending });
+    out.push({ id: r.id, key: r.key, name: r.name, unit_kind: r.unit_kind, active: r.active !== false, reports_to: r.reports_to, demo: r.demo === true, holders: r.holders, units: r.units, sources: { manual: r.manual, directory: r.directory, import: r.import }, vacancies, ending: r.ending });
   }
   return { positions: out, today };
 }

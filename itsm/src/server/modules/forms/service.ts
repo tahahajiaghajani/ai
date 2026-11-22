@@ -8,6 +8,7 @@ import { cleanFormLayout, layoutFields, type FormLayoutV2 } from "@shared/forms/
 import { layoutHash } from "@shared/forms/snapshot";
 import type { Ctx } from "../../context";
 import { notFound } from "../../http/errors";
+import { isDemoRow } from "../../db/scope";
 import { createIn, removeIn, updateIn } from "../../engine";
 import type { Row } from "../../engine/hooks";
 import { sysOf } from "../admin/common";
@@ -65,6 +66,11 @@ export interface FormDetail {
   fields: Record<string, { label: string; type: string; type_label: string; def: FieldDef | null; retired: boolean }>;
   usage: FormUsage;
   editable: boolean;
+  /**
+   * one of the demo pack's forms (release 1.1.5): «حذف داده‌های نمایشی» removes it whole; a pack field the organisation adds
+   * to a form of its own leaves that form with the purge, and the designer says so
+   */
+  demo: boolean;
 }
 
 /** GET /forms/:id — a process form, the definitions of its fields and where it is used. */
@@ -78,7 +84,7 @@ export async function getForm(ctx: Ctx, id: string): Promise<FormDetail> {
     const f = lib.get(name);
     if (f) fields[name] = { label: f.label, type: f.type, type_label: f.type_label, def: f.def, retired: f.retired };
   }
-  return { form, fields, usage: await formUsage(ctx.db, ctx.org.id, { id: form.id, name: form.name }), editable: await canDesignForms(ctx) };
+  return { form, fields, usage: await formUsage(ctx.db, ctx.org.id, { id: form.id, name: form.name }), editable: await canDesignForms(ctx), demo: await isDemoRow(ctx.db, ctx.org.id, form.id) };
 }
 
 /** GET /forms/:id/usage */

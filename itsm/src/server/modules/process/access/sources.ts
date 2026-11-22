@@ -44,6 +44,15 @@ async function anyCase(q: Queryable, orgId: string, userId: string, term: (alias
   return hit ? [CASE] : [];
 }
 
+/**
+ * Does the person manage any case of the organisation (named on it, or through one of its manager groups)? One indexed
+ * query — the `process_managers` source's own. The pickers' demo marks ask it (modules/positions/demo.ts): a case's
+ * manager tells the demo pack's people apart when handing a step on.
+ */
+export async function managesAnyCase(q: Queryable, orgId: string, userId: string): Promise<boolean> {
+  return (await anyCase(q, orgId, userId, manages)).length > 0;
+}
+
 let installed = false;
 
 /** Register the two participant sources of cases (idempotent; returns the unregister functions). */

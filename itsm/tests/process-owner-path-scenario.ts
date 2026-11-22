@@ -15,6 +15,9 @@
 //   · «نزدیک‌ترین واحد بالادست» on a real case passes a unit whose holder is the pack's;
 //   · the organisation's timer (escalation, «پایان مهلت») and a real member's delegation write a pack's case's rows as
 //     the pack's;
+//   · the screens tell the pack's rows apart: the field library, the positions (the page's list, a position's record,
+//     the pickers' list) and the member search mark them «demo»; a real case's manager whose roles read neither the
+//     designer nor the positions sees the pack's people marked too, a plain member with the same roles nothing more;
 //   · a pack person's start pushed from a linked Windows app is the pack's case whichever job applies it — its own
 //     event job or the organisation's timer that was due first; the purge then leaves nothing of the pack's cases.
 // Each suite file runs it once.
@@ -79,7 +82,7 @@ export function ownerPathScenario(label: string): void {
       ],
     });
     /** «ثبت درخواست» → «مرحلهٔ فرم» (the step's people) → end; `late`: «پایان مهلت» to an end of its own. */
-    const draft = (step: Record<string, unknown>, late = false) => ({
+    const draft = (step: Record<string, unknown>, late = false, managers?: string[]) => ({
       graph: {
         nodes: [
           { id: "start", type: "trigger", config: {} },
@@ -98,22 +101,22 @@ export function ownerPathScenario(label: string): void {
       starters: [],
       title_template: null,
       requester_view: [],
-      managers: [e.ownerId],
+      managers: managers ?? [e.ownerId],
       manager_groups: [],
       confidential: true,
     });
     let seq = 0;
-    async function publish(id: string, step: Record<string, unknown>, late = false) {
-      const saved = await e.owner.put(`${P}/process/defs/${id}/draft`, { draft: draft(step, late) });
+    async function publish(id: string, step: Record<string, unknown>, late = false, managers?: string[]) {
+      const saved = await e.owner.put(`${P}/process/defs/${id}/draft`, { draft: draft(step, late, managers) });
       const errors = saved.problems.filter((p: { level: string }) => p.level === "error");
       if (errors.length) throw new Error(`draft problems: ${JSON.stringify(errors)}`);
       await fresh();
       await e.owner.post(`${P}/process/defs/${id}/publish`, { note: "انتشار" });
     }
-    async function workflow(name: string, step: Record<string, unknown>, late = false) {
+    async function workflow(name: string, step: Record<string, unknown>, late = false, managers?: string[]) {
       const key = `wf_${++seq}_${String(Date.now()).slice(-5)}`;
       const id = (await e.owner.post(`${P}/process/defs`, { name, key }, 201)).process.id as string;
-      await publish(id, step, late);
+      await publish(id, step, late, managers);
       return { id, key };
     }
     const anywhere = (key: string) => ({ assignees: [{ kind: "position", position: key, where: "anywhere" }] });
@@ -355,6 +358,41 @@ export function ownerPathScenario(label: string): void {
       expect(await people(pack)).toEqual(["babak", "realC"]);
       expect((await journal(pack)).some((b) => b.includes("به جانشینی از"))).toBe(true);
       expect(await notPack(pack)).toBe(0);
+    });
+
+    it("the screens tell the pack's rows apart: the library, the positions and the member search mark them — for a real case's manager too, never for a plain member", async () => {
+      // a field and a position of the pack's own, made inside its demo scope as its «workflow_defs» step makes them
+      await inDemoScope(e.org, () => sys.write((tx) => createIn(tx, sys, "field_def", { name: "u_aftab_note", label: "یادداشت (نمونه)", type: "string" }, { trusted: true })));
+      const packPos = String((await inDemoScope(e.org, () => sys.write((tx) => createIn(tx, sys, "position", { key: "aftab_reviewer", name: "بازبین (نمونه)", active: true }, { trusted: true })))).id);
+      // the field library; the owner's own form is no demo form
+      const lib = (await e.owner.get(`${P}/fields/library`)).fields as { name: string; demo: boolean }[];
+      expect(lib.filter((f) => ["u_aftab_note", "u_project_name"].includes(f.name)).map((f) => [f.name, f.demo]).sort()).toEqual([["u_aftab_note", true], ["u_project_name", false]]);
+      expect((await e.owner.get(`${P}/forms/${FORM}`)).demo).toBe(false);
+      // the positions: the page's list, a position's own record, the pickers' list
+      const overview = (await e.owner.get(`${P}/positions/overview`)).positions as { id: string; demo: boolean }[];
+      expect([overview.find((p) => p.id === packPos)?.demo, overview.find((p) => p.id === POS.head)?.demo]).toEqual([true, false]);
+      expect([(await e.owner.get(`${P}/r/position/${packPos}`)).meta.demo, (await e.owner.get(`${P}/r/position/${POS.head}`)).meta.demo]).toEqual([true, false]);
+      const listed = (await e.owner.post(`${P}/r/position/query`, { ids: [packPos, POS.head], fields: ["name", "key"], total: false })).rows as { id: string; demo?: boolean }[];
+      expect(Object.fromEntries(listed.map((p) => [p.id === packPos ? "pack" : "own", p.demo ?? null]))).toEqual({ pack: true, own: null });
+      // the member search every people picker uses
+      const ids = [who.agent, who.babak, who.realA];
+      const search = async (c: Client) =>
+        Object.fromEntries(((await c.post(`${P}/r/user/query`, { ids, fields: ["name"], total: false })).rows as { id: string; demo?: boolean }[]).map((r) => [N[String(r.id).toLowerCase()] ?? r.id, r.demo ?? null]));
+      expect(await search(e.owner)).toEqual({ agent: true, babak: true, realA: null });
+      // a real case's manager whose roles read neither the designer nor the positions, and a plain member with the same roles
+      await fresh();
+      await e.owner.put(`${P}/access/roles/flags_no_org`, { name: "کار بی‌ساختار سازمانی", persona: "agent", grants: { work: { read: "own" }, users: { read: "all" } }, field_groups: [], contains: [], workspaces: "member", domains: "own" });
+      const stamp = String(Date.now()).slice(-6);
+      const manager = await e.member("member", `flags-manager-${stamp}@example.com`);
+      const plain = await e.member("member", `flags-plain-${stamp}@example.com`);
+      for (const m of [manager, plain]) await e.owner.put(`${P}/access/members/${m.userId}`, { roles: ["flags_no_org"] });
+      const wf = await workflow("گردش کار مسئول دیگر", anywhere("group_head"), false, [manager.userId]);
+      kept.push(await startAs("owner", wf.key));
+      // neither reads the designer's list of the pack's people
+      for (const m of [manager, plain]) await m.client.req("GET", `${P}/positions/demo-people`, undefined, 403);
+      // the manager's reassign picker («از همهٔ اعضا») reads the marks on the search's own rows; the plain member gets the rows as before
+      expect(await search(manager.client)).toEqual({ agent: true, babak: true, realA: null });
+      expect(await search(plain.client)).toEqual({ agent: null, babak: null, realA: null });
     });
 
     describe("a pack person's start pushed from a linked Windows app", () => {
