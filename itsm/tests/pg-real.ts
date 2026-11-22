@@ -1,6 +1,7 @@
 // A real PostgreSQL for the suites that need several connections at once (concurrency, snapshots), gated like
 // tests/server-edition-pg.test.ts:
-// - ITSM_PG_URL: a server to create a scratch database on (CI's postgres:17 service), dropped afterwards;
+// - ITSM_PG_URL: a server to create a scratch database on (CI's postgres:17 service), dropped afterwards with the
+//   extra databases of the suite's worlds (`extraDatabase`): that server outlives the suite;
 // - ITSM_PG_BIN: a PostgreSQL bin folder — a throwaway cluster (initdb, fsync off) in .local-data on ITSM_PG_TEST_PORT
 //   (default 55434), stopped and deleted afterwards. As root the server runs as ITSM_PG_RUNAS (default nobody).
 // Neither set: the suite is skipped.
@@ -30,7 +31,13 @@ async function freePort(): Promise<number> {
   });
 }
 
-/** A further database on the same server (a test's own organisation world), dropped with the server. */
+/** The extra databases made on each server handle of `realPg` (dropped by its `stop`). */
+const extras = new WeakMap<RealPg, string[]>();
+
+/**
+ * A further database on the same server (a test's own organisation world), dropped when the suite stops the server
+ * (`stop`): with ITSM_PG_URL one by one, before the scratch database; a throwaway cluster of ITSM_PG_BIN goes whole.
+ */
 export async function extraDatabase(pg: RealPg, name: string): Promise<string> {
   const admin = postgres(pg.url, { max: 1, onnotice: () => {} });
   try {
@@ -38,6 +45,7 @@ export async function extraDatabase(pg: RealPg, name: string): Promise<string> {
   } finally {
     await admin.end({ timeout: 5 });
   }
+  extras.get(pg)?.push(name);
   const u = new URL(pg.url);
   u.pathname = `/${name}`;
   return u.toString();
@@ -56,17 +64,21 @@ export async function realPg(name: string): Promise<RealPg> {
     }
     const u = new URL(url);
     u.pathname = `/${db}`;
-    return {
+    const handle: RealPg = {
       url: u.toString(),
       async stop() {
         const a = postgres(url, { max: 1, onnotice: () => {} });
         try {
+          // the worlds' databases first: on this server they would outlive the suite
+          for (const x of (extras.get(handle) ?? []).splice(0)) await a.unsafe(`drop database if exists ${x} with (force)`);
           await a.unsafe(`drop database if exists ${db} with (force)`);
         } finally {
           await a.end({ timeout: 5 });
         }
       },
     };
+    extras.set(handle, []);
+    return handle;
   }
   const bin = process.env.ITSM_PG_BIN;
   if (!bin) throw new Error("ITSM_PG_URL or ITSM_PG_BIN is needed");
