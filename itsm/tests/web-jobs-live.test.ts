@@ -293,3 +293,20 @@ describe("the Windows app's start (wiring)", () => {
     expect(release).toBeLessThan(src.indexOf("const jobTimer = setInterval("));
   });
 });
+
+describe("the server edition's worker close (wiring)", () => {
+  // while the servers drain (up to 20 s) the scheduler leader would otherwise go on claiming jobs, and a job still
+  // running when the pool closes is left «running» until its lock runs out, its attempt spent
+  it("stops its job runner first, and waits for the jobs it holds before the pool closes", () => {
+    const src = readFileSync(join(__dirname, "..", "src", "server-edition", "worker.ts"), "utf8");
+    const close = src.indexOf("async close() {");
+    expect(close).toBeGreaterThan(0);
+    const stop = src.indexOf("const ticksStopped = stopTicks(db)", close);
+    expect(stop).toBeGreaterThan(close);
+    expect(stop).toBeLessThan(src.indexOf("servers.map(", close));
+    expect(stop).toBeLessThan(src.indexOf("await scheduler?.stop()", close));
+    const waited = src.indexOf("ticksStopped,", src.indexOf("await scheduler?.stop()", close));
+    expect(waited).toBeGreaterThan(0);
+    expect(waited).toBeLessThan(src.indexOf("await rawDb.close()", close));
+  });
+});
