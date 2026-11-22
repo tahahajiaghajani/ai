@@ -98,6 +98,15 @@ describe("flow executor", () => {
     expect(j.entries.map((e: any) => `${e.kind}:${e.body}`).sort()).toEqual(["comment:سلام الف", "work_note:یادداشت داخلی"]);
   });
 
+  it("writes a record's fields into a note as people read them (its $labels), and keeps the stored values in a record write (1.1.5)", async () => {
+    const flow = await k.flow({}, line(N("c", "add_comment", { body: "اولویت {{trigger.record.priority}}؛ وضعیت {{trigger.record.state}}" }), N("u", "update_record", { values: { description: "{{trigger.record.priority}}" } })));
+    const t = await k.todo({ short_description: "برچسب", priority: "1" });
+    await settle(await test(flow, t));
+    const j = await o.owner.get(`${k.P}/r/todo/${t.id}/journal`);
+    expect(j.entries.map((e: any) => e.body)).toContain("اولویت ۱ — بحرانی؛ وضعیت جدید");
+    expect((await o.owner.get(`${k.P}/r/todo/${t.id}`)).row.description).toBe("1");
+  });
+
   it("branches on a record condition and on data", async () => {
     const g = graph(
       [

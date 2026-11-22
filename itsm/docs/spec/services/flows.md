@@ -207,7 +207,13 @@ depth > `FLOW_LIMITS.depth` (5) does not start; subflows add one level and stop 
 | `jalali`, `jalali.year/month/day/month_name/weekday/date` | today in the Jalali calendar |
 
 Records (trigger, items, step outputs) carry `$labels`: the display text of references, choices, yes/no and Jalali
-dates — `{{trigger.record.$labels.assigned_to}}`. A value that is exactly one pill keeps its type (a number, an
+dates — `{{trigger.record.$labels.assigned_to}}`. A text people read — the body of «یادداشت روی رکورد», the subject
+and body of «ارسال اعلان», the title and message of «درخواست تأیید», the message of «پایان» — writes every pill as
+its display text (`StepContext.display`, `pillText`): a record's field as its `$labels` give it
+(`{{trigger.record.priority}}` → «۱ — بحرانی»), `{{now}}`/`{{today}}` as Jalali dates; a notice inserts each value as
+a value (`inlineValue`: no placeholder of the notification template, escaped in its Markdown body). Everything a step
+stores or compares — record values, variables, inputs, HTTP, conditions — takes the stored values (`render`/`text`).
+A value that is exactly one pill keeps its type (a number, an
 array); pills inside text are written out (lists joined with «، »). Paths are those of `pickPath`
 (`items[0].id`, `items[name=cpu].value`). A pill naming nothing is empty. JSON bodies may hold bare pills —
 `{"priority": {{trigger.record.priority}}}` — which keep their type.
