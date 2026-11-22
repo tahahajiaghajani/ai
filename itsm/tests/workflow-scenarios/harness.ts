@@ -3,14 +3,17 @@
 // driven as different people (start, submit, claim, reassign, return, cancel, pause and resume, timers by moving
 // `due_at` and running the timer), with assertions on paths, people per step, journal, case state, outcome and values.
 // The twelve workflows W1–W12 (./w01-project.ts … ./w12-transfer.ts) are written once against this harness and run
-// on every edition:
+// on every edition; W13 (./w13-business-hours.ts, business hours on the SLA seed's calendar with the clock pinned) on
+// PGlite only, whose now() follows the pinned clock:
 //
 //   Edition                                   Files                                How to run (from itsm/)
-//   Windows app standalone (PGlite, desktop)  w01-project.test.ts … w12-*.test.ts   npx vitest run --maxWorkers=1 tests/workflow-scenarios
+//   Windows app standalone (PGlite, desktop)  w01-project.test.ts … w13-*.test.ts   npx vitest run --maxWorkers=1 tests/workflow-scenarios
+//   the same on its data folder (PGlite)      desktop-folder.test.ts (W1, W5)      (the same: the folder as the app opens it —
+//                                                                                   its log's guard and turns — then reopened)
 //   the web's own job ticks (PGlite, cloud)   web-cadence.test.ts                  (the same: no drain, only after-write, traffic
 //                                                                                   and heartbeat ticks — ./cadence.ts)
-//   Windows apps linked to an authority       linked-w01.test.ts, linked-w11.test.ts (the same; a PGlite authority — ./linked.ts)
-//   server edition (PostgreSQL 16, its pool)  pg-server-a.test.ts, pg-server-b.test.ts, pg-linked-w01.test.ts
+//   Windows apps linked to an authority       linked-w01, -w04, -w06, -w11.test.ts (the same; a PGlite authority — ./linked.ts)
+//   server edition (PostgreSQL 16, its pool)  pg-server-a.test.ts, pg-server-b.test.ts, pg-linked-w01, -w04, -w06.test.ts
 //   web (PostgreSQL 16, webPoolOptions)       pg-web-a.test.ts, pg-web-b.test.ts
 //   web through Supavisor v2.9.13 (emulator)  pg-pooler.test.ts (W1, W2, then the web's own cadence)
 //     ITSM_PG_BIN=/usr/lib/postgresql/16/bin ITSM_PG_RUNAS=nobody npx vitest run --maxWorkers=1 tests/workflow-scenarios/pg-*.test.ts
@@ -26,12 +29,16 @@
 //
 // Assertions marked «1.1.5 (b)…(g)», RC1–RC4 assert behaviour this release adds (CaseDetail.waiting, the reresolve route,
 // journal notes, estimate demo counts, eligibility-first requester_unit_up, the timer path's demo scope, approve plus
-// skip journal text): the engine's and the screens' 1.1.5 work makes them pass. Those marked NB1–NB4 and OB1 assert
-// what the scenario plan expects of behaviour no package of this release changes (reported with the run): they fail
-// until it is fixed.
+// skip journal text): the engine's and the screens' 1.1.5 work makes them pass. Those marked NB1–NB4, OB1 and BH1
+// assert what the scenario plan expects of behaviour no package of this release changes (reported with the run): they
+// fail until it is fixed.
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { Client, useServerDb } from "../helpers";
 import { engineOrg, type EngineOrg } from "../engine-helpers";
-import { createPgliteDb } from "@server/db/pglite";
+import { createPgliteDb, type PgliteDb } from "@server/db/pglite";
+import type { WalGuardOptions } from "@server/db/wal";
 import { createPostgresDb } from "@server/db/postgres";
 import { webPoolOptions } from "@server/cloud";
 import type { Db } from "@server/db";
@@ -54,7 +61,19 @@ export type { ReresolveResult, StepWaiting } from "@shared/process/waiting";
 // ---------------------------------------------------------------------------------------------------------------
 // Editions
 
-export type EditionKind = "desktop" | "cloud" | "server" | "web" | "pooler";
+export type EditionKind = "desktop" | "folder" | "cloud" | "server" | "web" | "pooler";
+
+/** A world's database on its data folder (the folder edition). */
+export interface FolderDb {
+  /** the app's data folder (as %APPDATA%\ITSM), deleted when the edition closes */
+  dir: string;
+  /** the database's own folder in it (`db`, as the app keeps it) */
+  dbDir: string;
+  /** the open database (a test that closes and reopens the folder puts the new one here) */
+  db: PgliteDb;
+  /** the checkpoints its write-ahead log's scheduler logged (src/server/db/wal.ts), with when they ended */
+  checkpoints: { reason: string; ms: number; wal_mb: number; at: number }[];
+}
 
 export interface Edition {
   kind: EditionKind;
@@ -69,6 +88,8 @@ export interface Edition {
   close(): Promise<void>;
   /** the pooler's counters (pooler edition) */
   pooler?: () => Pooler[];
+  /** the worlds' data folders (folder edition) */
+  folders?: () => FolderDb[];
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -93,6 +114,47 @@ export function editionRef(make: () => Promise<Edition> | Edition): EditionRef {
 /** The standalone Windows app: PGlite in memory, desktop mode (no after-write tick; the harness drains the queue). */
 export function desktopEdition(): Edition {
   return { kind: "desktop", label: "Windows standalone (PGlite)", mode: "desktop", concurrency: 1, database: null, close: async () => undefined };
+}
+
+/**
+ * The Windows app as it runs on a computer: each world's database a PGlite data folder, opened as the app opens it
+ * (src/desktop/server.ts: `createPgliteDb({ dataDir, desktop: true, log })`) — the write-ahead log's limits and its
+ * checkpoint scheduler (src/server/db/wal.ts; `wal`: thresholds other than the app's), the event loop's turns between
+ * statements and inside long transactions (src/server/db/pglite.ts) — where desktopEdition keeps PGlite in memory. One
+ * folder per world under the system's temp folder; close() closes each database (its checkpoint first) and deletes it.
+ */
+export function folderEdition(o: { wal?: WalGuardOptions } = {}): Edition {
+  const folders: FolderDb[] = [];
+  const root = resolve(tmpdir());
+  return {
+    kind: "folder",
+    label: "Windows app on its data folder (PGlite)",
+    mode: "desktop",
+    concurrency: 1,
+    async database(mode) {
+      const dir = mkdtempSync(join(root, "kariz-wfscen-"));
+      const dbDir = join(dir, "db");
+      const checkpoints: FolderDb["checkpoints"] = [];
+      const log = {
+        info(m: string, d?: unknown) {
+          if (m === "database checkpoint") checkpoints.push({ ...(d as Omit<FolderDb["checkpoints"][number], "at">), at: Date.now() });
+        },
+        warn: (m: string, d?: unknown) => console.warn(`folder edition: ${m}`, d ?? ""),
+      };
+      const db = await createPgliteDb({ dataDir: dbDir, desktop: mode === "desktop", log, ...(o.wal ? { wal: o.wal } : {}) });
+      folders.push({ dir, dbDir, db, checkpoints });
+      return db;
+    },
+    folders: () => folders,
+    async close() {
+      useServerDb(null);
+      for (const f of folders.splice(0)) {
+        await f.db.close().catch(() => undefined);
+        // only a folder this edition made (under the temp folder, by its prefix)
+        if (resolve(f.dir).startsWith(`${root}/kariz-wfscen-`)) rmSync(f.dir, { recursive: true, force: true });
+      }
+    },
+  };
 }
 
 /** A cloud flavour on PGlite (the web's own ticks run here without a real PostgreSQL). */

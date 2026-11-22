@@ -30,9 +30,10 @@ export function w6Draft(s: Scn, o: { cab?: boolean } = {}): Draft {
   };
 }
 
-export async function setupW6(s: Scn): Promise<void> {
+/** W6's people, fields, form and position — the pack's people (on the demo data), or the organisation's own (`demo: false`). */
+export async function setupW6(s: Scn, o: { demo?: boolean } = {}): Promise<void> {
   await bankUnits(s);
-  const demo = { demo: true };
+  const demo = { demo: o.demo ?? true };
   // «کارشناس» (agent) holds the personal field group; «درخواست‌کننده» does not
   await s.person("somayeh", "سمیه شعبه‌دار", { unit: "b0", roles: ["agent"], ...demo });
   await s.person("negar", "نگار کارشناس‌پور", { unit: "it", roles: ["agent"], ...demo });
@@ -65,7 +66,7 @@ export async function setupW6(s: Scn): Promise<void> {
   await s.hold("aftab_branch_head", "bh1", "b1");
 }
 
-const request = (o: Record<string, unknown> = {}) => ({ u_aftab_ca_system: "core", u_aftab_ca_level: "read", u_aftab_ca_until: tehranDay(30), u_aftab_ca_nid: "0012345679", u_aftab_ca_reason: "گزارش‌گیری", ...o });
+export const request = (o: Record<string, unknown> = {}) => ({ u_aftab_ca_system: "core", u_aftab_ca_level: "read", u_aftab_ca_until: tehranDay(30), u_aftab_ca_nid: "0012345679", u_aftab_ca_reason: "گزارش‌گیری", ...o });
 
 export function w06(ref: EditionRef): void {
   describe("W6 «درخواست دسترسی ویژه به کربنکینگ»", () => {
