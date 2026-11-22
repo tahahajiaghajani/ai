@@ -10,8 +10,9 @@
 //   reroute (class D) kept real records lose their references to removed rows through the engine, as the system: the
 //                     engine's hooks route them again (assignment rules, default queues); open approvals asked of
 //                     removed people are planned again; open workflow tasks of removed people end and their rounds
-//                     look for people again (nobody found: journaled, the managers told); values stored under a
-//                     removed field leave the records.
+//                     look for people again (nobody found: journaled, the managers told); rounds of kept cases that
+//                     already waited with reasons naming the pack's people, or with rules reaching removed rows, look
+//                     for people again too (`waitingStep`); values stored under a removed field leave the records.
 //   anchors (class E) the access anchors of kept rows that named a removed unit are derived again from their person's
 //                     profile (the engine's derivation), else emptied — a domain moves up to the nearest kept domain.
 // Every row is written in its own savepoint: one that cannot be written is reported and never stops the purge. Every
@@ -31,7 +32,7 @@ import { snapshotFor } from "../../access/subject";
 import { anchorsFor } from "../../access/hooks";
 import { rerunApprovalRulesIn } from "../sla/approvals";
 import { reresolveRoundIn } from "../process/reresolve";
-import { loadVersionInfo, lockCase } from "../process/engine/store";
+import { loadVersionInfo, lockCase, stepWaitKey, type CaseRow, type VersionInfo } from "../process/engine/store";
 import {
   BENEFICIARY, ID_TEXT, PLATFORM_JSON_PRUNES, RESTRICTION_SCALARS, RESTRICTION_SETS, PRODUCER_REFS, SNAPSHOT_TABLES,
   fieldRefs, jsonHandler, pruneIds, pruneRules, routingFields, uuidsIn, type Gone, type FieldRef,
@@ -502,6 +503,90 @@ async function rerouteRounds(tx: Tx, sys: Ctx, orgId: string, rounds: Map<string
   }
 }
 
+/** A resolver's reason about the pack's people («۲ نفر از دارندگان «…» حساب نمایشی‌اند…», ../positions/resolve.ts). */
+const DEMO_REASON = "حساب نمایشی";
+
+/**
+ * Kept workflow cases that already waited for people (e2e of 1.1.5, the owner's case C): a round with nobody to act —
+ * no task ever opened in it, the case not paused — whose reasons name the pack's people («۲ نفر از دارندگان «…» حساب
+ * نمایشی‌اند…؛ … با یک حساب نمایشی آغاز کنید») or whose rules reach a removed row (a pack position, group, unit or person,
+ * a position the purge leaves without a holder). Those reasons stop being true with the pack: the round runs its rules
+ * again as the organisation's re-resolution does (../process/reresolve, as the system, outside the demo scope) —
+ * whoever is found now gets the step, journaled; else the round keeps the reasons as they are now. After every table
+ * (the pack's holders, members and profiles are gone), case by case from `cur.after`, until the budget; counted with
+ * the records routed again. Returns whether every case is done.
+ */
+async function waitingStep(tx: Tx, sys: Ctx, orgId: string, names: GoneNames, def: TableDef | undefined, cur: TableCursor, st: StepState): Promise<boolean> {
+  const versions = new Map<string, VersionInfo | null>();
+  const versionOf = async (id: string | null) => {
+    if (!id) return null;
+    if (!versions.has(id)) versions.set(id, await loadVersionInfo(tx, orgId, id));
+    return versions.get(id) ?? null;
+  };
+  for (;;) {
+    if (Date.now() > st.until) return false;
+    const cases = await tx.query<CaseRow>(
+      `select c.* from sm_process_cases c
+        where c.org_id = $1 and c.deleted_at is null and c.state = 'waiting' and c.paused_at is null and not ${isDemo("c.id")}${cur.after ? " and c.id > $2::uuid" : ""}
+        order by c.id limit ${CHUNK}`,
+      cur.after ? [orgId, cur.after] : [orgId],
+    );
+    if (!cases.length) return true;
+    // the rounds without any task (a round a manager handled is theirs), and their waits
+    const had = new Set(
+      (await tx.query<{ c: string; s: string; r: number }>(`select case_id::text as c, step_key as s, round as r from sm_process_tasks where org_id = $1 and case_id = any($2::uuid[]) and deleted_at is null`, [orgId, pgArray(cases.map((c) => c.id))]))
+        .map((t) => `${t.c}:${t.s}:${Number(t.r)}`),
+    );
+    const rounds = cases.flatMap((c) => Object.entries(c.open_rounds ?? {}).map(([node, n]) => ({ c, node, key: stepWaitKey(c.id, node, Number(n)) })).filter((x) => !had.has(x.key.slice("pstep:".length))));
+    const waits = new Map<string, Record<string, unknown>>();
+    if (rounds.length) {
+      const rows = await tx.query<{ key: string; data: Record<string, unknown> | null }>(`select key, data from sm_flow_waits where org_id = $1 and key = any($2::text[]) and result is null`, [orgId, pgArray(rounds.map((x) => x.key))]);
+      for (const w of rows) waits.set(w.key, w.data ?? {});
+    }
+    // the step's rules, fallbacks and (when it goes to them) the case's managers: one registry query for the chunk
+    const steps = new Map<string, { rules: unknown[]; fallback: unknown[]; managers: unknown[] }>();
+    for (const x of rounds) {
+      const node = (await versionOf(x.c.version_id))?.graph.nodes.find((n) => n.id === x.node && n.type === "form_step");
+      if (!node || !waits.has(x.key)) continue;
+      const step = formStepOf(node.config);
+      steps.set(x.key, { rules: step.assignees, fallback: step.fallback ?? [], managers: ifNobodyOf(step) === "managers" ? [...(x.c.managers ?? []), ...(x.c.manager_groups ?? [])] : [] });
+    }
+    const gone = await goneOracle(tx, orgId, [...steps.values()], names, { emptiedAsGone: true });
+    const due = new Map<string, string[]>();
+    for (const x of rounds) {
+      const s = steps.get(x.key);
+      const was = waits.get(x.key);
+      if (!s || !was || was.reason === "too_many" || (was.reason !== "nobody" && Array.isArray(was.candidates))) continue;
+      const named = JSON.stringify(was.notes ?? []).includes(DEMO_REASON);
+      const reach = pruneRules(s.rules, gone).changed || pruneRules(s.fallback, gone).changed || s.managers.some((m) => typeof m === "string" && gone.id(m));
+      if (named || reach) due.set(x.c.id, [...(due.get(x.c.id) ?? []), x.node]);
+    }
+    for (const c of cases) {
+      if (Date.now() > st.until) return false;
+      cur.after = c.id;
+      const nodes = due.get(c.id);
+      if (!nodes) continue;
+      const bucket = st.rerouted.get("process_case") ?? { table: "process_case", label: def?.plural ?? "پرونده‌های گردش‌کار", rows: 0, routed: 0, samples: [] };
+      bucket.rows++;
+      bucket.routed++;
+      if (bucket.samples.length < 3 && def) bucket.samples.push(await labelOf(tx, def, c as unknown as Record<string, unknown>));
+      st.rerouted.set("process_case", bucket);
+      if (st.dry) continue;
+      const r = await inSavepoint(tx, async () => {
+        let kase = await lockCase(tx, orgId, c.id);
+        const version = kase ? await versionOf(kase.version_id) : null;
+        if (!kase || !version) return;
+        for (const node of nodes) {
+          const done = await reresolveRoundIn(tx, sys, kase, version, node, { by: null, onlyNobody: true });
+          if (done?.people.length) kase = (await lockCase(tx, orgId, c.id)) ?? kase;
+        }
+      });
+      if (!r.ok) st.skipped.push({ phase: "reroute", table: "sm_process_cases", rows: 1, reason: failReason(r.error) });
+    }
+    if (cases.length < CHUNK) return true;
+  }
+}
+
 /**
  * Clear the references of kept rows to removed rows, through the engine (see the header), table by table until the
  * budget: returns whether every table is done (`cur` moves on). Archive copies, values of removed fields and the
@@ -602,6 +687,12 @@ export async function rerouteStep(tx: Tx, sys: Ctx, orgId: string, info: TableIn
       if (!st.dry) await rerouteRounds(tx, sys, orgId, rounds, st);
       if (rows.length < CHUNK) break;
     }
+  }
+  // after every table: the rounds of kept cases that already waited for the pack's people (the cursor's next slot)
+  if (cur.i === work.length) {
+    if (!(await waitingStep(tx, sys, orgId, names, byKey.get("process_case"), cur, st))) return false;
+    cur.i++;
+    cur.after = null;
   }
   if (st.dry) return true;
   // values kept under a field that left its table (a pack library field attached to a real table)
