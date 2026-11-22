@@ -41,6 +41,14 @@ export async function isDemoRow(q: Queryable, orgId: string, id: string | null |
   return !!(await q.one(`select 1 from sm_demo_rows where org_id = $1 and row_id = $2::uuid`, [orgId, id]));
 }
 
+/** Which of `ids` are rows of `orgId`'s demo pack (lower case; one indexed query, none for no ids). */
+export async function demoRowsAmong(q: Queryable, orgId: string, ids: readonly string[]): Promise<Set<string>> {
+  const clean = [...new Set(ids.filter((id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)).map((id) => id.toLowerCase()))];
+  if (!clean.length) return new Set();
+  const rows = await q.query<{ id: string }>(`select row_id::text as id from sm_demo_rows where org_id = $1 and row_id = any($2::uuid[])`, [orgId, `{${clean.join(",")}}`]);
+  return new Set(rows.map((r) => r.id.toLowerCase()));
+}
+
 /** Does the organisation hold rows of a demo pack (loaded, loading, or not yet purged)? */
 export async function hasDemoRows(q: Queryable, orgId: string): Promise<boolean> {
   return !!(await q.one(`select 1 from sm_demo_rows where org_id = $1 limit 1`, [orgId]));

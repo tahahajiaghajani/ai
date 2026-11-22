@@ -80,6 +80,11 @@ export interface LibraryEntry {
   help: string | null;
   placeholder: string | null;
   usage: FieldUsage;
+  /**
+   * one of the demo pack's fields (release 1.1.5, in sm_demo_rows): «حذف داده‌های نمایشی» removes it — from the forms that
+   * use it, and from a real table it was added to with the values stored under it (modules/demo/refs.ts)
+   */
+  demo: boolean;
 }
 
 /** GET /fields/library — every library field with its type and where it is used. */
@@ -87,7 +92,9 @@ export async function libraryList(ctx: Ctx): Promise<{ fields: LibraryEntry[] }>
   await needDesignRead(ctx);
   const [rows, types] = await Promise.all([
     ctx.db.query<Row>(
-      `select id, name, label, type, field_group, status, help, placeholder from sm_field_defs where org_id = $1 and deleted_at is null order by label, name`,
+      `select f.id, f.name, f.label, f.type, f.field_group, f.status, f.help, f.placeholder,
+              exists (select 1 from sm_demo_rows d where d.org_id = f.org_id and d.row_id = f.id) as demo
+       from sm_field_defs f where f.org_id = $1 and f.deleted_at is null order by f.label, f.name`,
       [ctx.org.id],
     ),
     orgFieldTypes(ctx.db, ctx.org.id),
@@ -100,7 +107,7 @@ export async function libraryList(ctx: Ctx): Promise<{ fields: LibraryEntry[] }>
     return {
       id: String(r.id), name: String(r.name), label: String(r.label), type: String(r.type), type_label: type?.label ?? String(r.type),
       storage: type?.base ?? null, group: type?.group ?? null, field_group: r.field_group ?? null, status: String(r.status ?? "active"),
-      help: r.help ?? null, placeholder: r.placeholder ?? null, usage: { tables: [...new Set(u.tables)], forms: u.forms, versions: u.versions },
+      help: r.help ?? null, placeholder: r.placeholder ?? null, usage: { tables: [...new Set(u.tables)], forms: u.forms, versions: u.versions }, demo: r.demo === true,
     };
   });
   return { fields };

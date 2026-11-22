@@ -6,7 +6,8 @@
 //     only when that step does the same (fill, review, approve); the step's form and rights stay the case version's.
 //     Journaled (and audited) whatever it finds;
 //   · by the organisation's `process.reresolve` job, a little after holders, positions, group members, groups' roles,
-//     members' roles or units, or memberships change — the picker's promise «با پیدا شدن دارنده، مرحله به او می‌رسد»:
+//     members' roles or units, or memberships change, whichever path changed them (./queue.ts) — the picker's promise
+//     «با پیدا شدن دارنده، مرحله به او می‌رسد»:
 //     only rounds that wait with nobody (more than the step takes waits for the managers to choose), with the case
 //     version's rules, journaled when someone is found. A round that has any task — a manager gave it to someone — is
 //     the managers' and stays as it is, as does a case they paused.
@@ -20,17 +21,16 @@ import type { Queryable, Tx } from "../../../db";
 import { inDemoScope, isDemoRow } from "../../../db/scope";
 import { bad } from "../../../http/errors";
 import { emitEvent, onRecordEvent, systemCtx } from "../../../engine";
-import { enqueue, registerJobHandler } from "../../../jobs";
+import { registerJobHandler } from "../../../jobs";
 import { resolveAssignees } from "../../positions";
 import { OPEN_STATES, processesRunHere, refreshCase, resolveInput, STEP_OPENED, type CaseRow, type VersionInfo } from "../engine";
 import { caseJournal } from "../engine/journal";
 import { caseTasks, loadVersionInfo, lockCase, peopleNames, stepWaitKey } from "../engine/store";
 import { addReaders } from "../engine/readers";
 import { formNode, managersNotice, nobodyLine, openRoundTasks, waitingLine, waitState } from "../engine/waiting";
+import { RERESOLVE_JOB, queueReresolve } from "./queue";
 
-export const RERESOLVE_JOB = "process.reresolve";
-/** Changes of a burst (an import of holders, a directory sync) are taken together: the job runs this long after the first. */
-const QUIET_MS = 30_000;
+export { RERESOLVE_JOB, queueReresolve, queueReresolveIn } from "./queue";
 
 export interface RoundOutcome {
   status: "ok" | "managers" | "nobody" | "too_many";
@@ -180,16 +180,6 @@ const unpackId = (v: unknown): string | null => {
   const s = String(v ?? "");
   return /^[0-9a-f]{32}$/i.test(s) ? `${s.slice(0, 8)}-${s.slice(8, 12)}-${s.slice(12, 16)}-${s.slice(16, 20)}-${s.slice(20)}`.toLowerCase() : null;
 };
-
-/**
- * Queue the organisation's re-resolution a little after people's places change — once (a later change while it waits
- * starts its pass from the beginning), and only while some case waits.
- */
-export async function queueReresolve(q: Queryable, orgId: string): Promise<void> {
-  if (!(await q.one(`select 1 as x from sm_process_cases where org_id = $1 and state = 'waiting' and deleted_at is null limit 1`, [orgId]))) return;
-  await enqueue(q, { kind: RERESOLVE_JOB, orgId, delayMs: QUIET_MS, dedupeKey: RERESOLVE_JOB, maxAttempts: 5 });
-  await q.query(`update sm_jobs set payload = '{}'::jsonb where org_id = $1 and dedupe_key = $2 and status = 'queued' and payload <> '{}'::jsonb`, [orgId, RERESOLVE_JOB]);
-}
 
 export interface PassResult {
   /** rounds that got people */

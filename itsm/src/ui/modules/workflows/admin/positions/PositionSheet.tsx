@@ -106,6 +106,8 @@ export function PositionSheet({ id, overview, access, today: serverToday, onClos
   };
 
   const title = id ? (overview?.name ?? String(row.data?.name ?? "نقش سازمانی")) : "نقش سازمانی تازه";
+  // one of the demo pack's positions: marked, and making a pack person its holder asks nothing (FINAL-1 is for the organisation's own)
+  const packPosition = !!id && (overview?.demo ?? row.data?.demo) === true;
   return (
     <Drawer
       open
@@ -118,6 +120,7 @@ export function PositionSheet({ id, overview, access, today: serverToday, onClos
         <span className="wff-title">
           {title}
           {d && !d.active ? <Chip dot={false}>غیرفعال</Chip> : null}
+          {packPosition ? <DemoTag title="نقش سازمانی دادهٔ نمایشی" /> : null}
         </span>
       }
       footer={
@@ -166,7 +169,7 @@ export function PositionSheet({ id, overview, access, today: serverToday, onClos
               </F>
             </div>
           </section>
-          {id && initial ? <Holders positionId={id} unitKind={initial.unit_kind} active={initial.active} access={access} today={today} onPreview={onPreview} onForm={setHolderForm} /> : null}
+          {id && initial ? <Holders positionId={id} unitKind={initial.unit_kind} active={initial.active} packPosition={packPosition} access={access} today={today} onPreview={onPreview} onForm={setHolderForm} /> : null}
         </div>
       )}
     </Drawer>
@@ -177,8 +180,8 @@ export function PositionSheet({ id, overview, access, today: serverToday, onClos
 // Holders
 
 function Holders({
-  positionId, unitKind, active, access, today, onPreview, onForm,
-}: { positionId: string; unitKind: string | null; active: boolean; access: PositionsAccess; today: string; onPreview: (id: string) => void; onForm: (f: { open: boolean; dirty: boolean }) => void }) {
+  positionId, unitKind, active, packPosition, access, today, onPreview, onForm,
+}: { positionId: string; unitKind: string | null; active: boolean; packPosition: boolean; access: PositionsAccess; today: string; onPreview: (id: string) => void; onForm: (f: { open: boolean; dirty: boolean }) => void }) {
   const { api, orgId } = useOrg();
   const n = useNotify();
   const qc = useQueryClient();
@@ -243,6 +246,7 @@ function Holders({
           holder={editing === "new" ? null : editing}
           display={display}
           demo={demo}
+          packPosition={packPosition}
           onDirty={setFormDirty}
           onDone={async (text) => {
             setFormDirty(false);
@@ -334,13 +338,15 @@ function Holders({
 }
 
 function HolderForm({
-  positionId, unitKind, holder, display, demo, onDirty, onDone,
+  positionId, unitKind, holder, display, demo, packPosition, onDirty, onDone,
 }: {
   positionId: string;
   unitKind: string | null;
   holder: HolderRow | null;
   display: Record<string, string> | undefined;
   demo: ReadonlySet<string>;
+  /** one of the demo pack's positions: a pack person as its holder asks nothing */
+  packPosition: boolean;
   onDirty: (dirty: boolean) => void;
   onDone: (text: string | null) => void;
 }) {
@@ -359,8 +365,8 @@ function HolderForm({
     const errs = holderProblems(d, { unit_kind: unitKind });
     setErrors(errs);
     if (Object.keys(errs).length) return;
-    // one of the demo pack's people: the organisation's own cases never reach them (FINAL-1)
-    if (addsDemoHolder(d, holder, demo)) {
+    // one of the demo pack's people on one of the organisation's own positions: its own cases never reach them (FINAL-1)
+    if (addsDemoHolder(d, holder, demo, packPosition)) {
       const q = demoHolderQuestion(person ?? (d.user_id ? displayOf(display, d.user_id) : null));
       if (!(await n.confirm(q.title, q.content, false, "افزودن"))) return;
     }

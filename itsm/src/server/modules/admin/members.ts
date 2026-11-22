@@ -4,6 +4,9 @@
 // service addresses (.invalid) and the platform's administrators' addresses are refused; nobody gets a role silently —
 // a role is given only when the administrator named it for this import (or the directory source's default role), and
 // through the access service, which refuses grants above the administrator's own; the plan's ceiling of members holds.
+// A membership that joins, comes back or is switched on or off here queues the workflows' re-resolution (once per
+// transaction, ../process/reresolve/queue.ts): a step waiting with nobody may lack exactly this person — no record event
+// carries a membership.
 import type { Ctx } from "../../context";
 import type { Tx } from "../../db";
 import { insertRow } from "../../db/sql";
@@ -15,6 +18,7 @@ import { securityEvent } from "../platform/security";
 import { addGroupMembers, saveMemberAccess } from "../../access";
 import { createIn, updateIn } from "../../engine";
 import { RESETTABLE_SQL } from "../platform/members";
+import { queueReresolveIn } from "../process/reresolve/queue";
 import { limitAtCommit, liveRows, needWithinLimit, sysOf } from "./common";
 
 export type MembershipRole = "member" | "viewer";
@@ -93,7 +97,11 @@ export async function ensurePerson(tx: Tx, ctx: Ctx, p: { email: string; name: s
   }
   // new_account marks an account this organisation made (createdHere: only such an account's own data is the
   // organisation's to change — its password, its name from a directory)
-  if (joined) await audit(tx, ctx, "member_add", "member", user.id, `${email} (از فهرست کاربران)`, { new_account: created });
+  if (joined) {
+    await audit(tx, ctx, "member_add", "member", user.id, `${email} (از فهرست کاربران)`, { new_account: created });
+    // a member who comes back may be the holder a waiting workflow step lacks
+    await queueReresolveIn(tx, ctx.org.id);
+  }
   return { user_id: user.id, created, joined };
 }
 
@@ -118,13 +126,17 @@ export async function setDirectoryName(tx: Tx, ctx: Ctx, userId: string, name: s
   return "profile";
 }
 
-/** Switch a membership off or on (never an owner or a «مدیر», never the acting administrator). */
+/**
+ * Switch a membership off or on (never an owner or a «مدیر», never the acting administrator). A change queues the
+ * workflows' re-resolution, as the members page does (routes/org.ts).
+ */
 export async function setMemberActive(tx: Tx, ctx: Ctx, userId: string, active: boolean): Promise<boolean> {
   if (userId === ctx.user.id) return false;
   const r = await tx.one<{ id: string }>(
     `update sm_org_members set is_active = $3 where org_id = $1 and user_id = $2 and deleted_at is null and role not in ('owner', 'admin') and is_active <> $3 returning id`,
     [ctx.org.id, userId, active],
   );
+  if (r) await queueReresolveIn(tx, ctx.org.id);
   return !!r;
 }
 

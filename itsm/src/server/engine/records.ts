@@ -17,7 +17,7 @@ import { defFor, type OrgSchema } from "./schema";
 import { fieldExpr, orderSql, pathExpr, ph, readable, searchSql, sortable, toSql } from "./sql";
 import { RefSet, resolveDisplay } from "./display";
 import { canOpenRecords, fromDb, loadReadable, pathVisible, requireReadable, toOutput, type Row } from "./read";
-import { metaProvidersFor, redactRows } from "./hooks";
+import { markRows, metaProvidersFor, redactRows } from "./hooks";
 import { createIn, isLocked, removeIn, savepoint, transitionIn, updateIn, type WriteOptions } from "./write";
 import { archivable, archiveTableOf } from "./ddl";
 
@@ -250,6 +250,7 @@ export async function list(ctx: Ctx, table: string, p: ListParams = {}): Promise
   const next = seek && rows.length === size && last ? encodeCursor(sortSpec, seek.select.map((_, i) => String(last[`$seek${i}`]))) : null;
   const out = rows.map((r) => outputSelected(def, r, sel));
   await redactRows(ctx.db, ctx, def, out);
+  await markRows(ctx.db, ctx, def, out);
   const refs = new RefSet();
   for (const r of out) {
     refs.addRow(def, r, sel.fields);
@@ -373,6 +374,8 @@ async function listUsers(ctx: Ctx, def: TableDef, schema: OrgSchema, env: CondEn
     for (const f of def.fields) if (!visible || visible.has(f.name)) o[f.name] = r[f.name] ?? null;
     return o;
   });
+  // the pickers' marks (the demo pack's people, for those who may know them: modules/positions/demo.ts)
+  await markRows(ctx.db, ctx, def, out);
   return { rows: out, total, page, size, display: Object.fromEntries(out.map((r) => [r.id, String(r.name ?? "")])) };
 }
 

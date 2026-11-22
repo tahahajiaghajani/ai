@@ -3,8 +3,10 @@
 // (src/shared/process/assignees.ts) and their resolution (resolve.ts) — the one function a step runs when it opens
 // (F4a) and the designer previews (routes/positions.ts). Holders are kept by hand, by a spreadsheet import (import.ts)
 // and by Active Directory group mappings (src/server/modules/integration/directory*.ts, `GroupMapping.position_id`).
-// `installPositionsModule()` (once per process, src/server/routes/modules.ts) wires the integrity hooks of both tables.
+// `installPositionsModule()` (once per process, src/server/routes/modules.ts) wires the integrity hooks of both tables
+// and the demo pack's marks on positions and people (demo.ts).
 import { installPositionHooks } from "./hooks";
+import { installDemoMarks } from "./demo";
 
 export { resolveAssignees, heldPositions, Resolution, DEMO_PEOPLE_REAL_WORK, demoRealWork, type ResolveInput, type ResolveResult, type Resolved, type Via } from "./resolve";
 export { previewResolve, estimateStep, positionsOverview, canPreview, assigneeFactsFor, demoPeopleOf, demoWarning, PREVIEW_REFUSAL } from "./service";
@@ -17,4 +19,5 @@ export function installPositionsModule(): void {
   if (installed) return;
   installed = true;
   installPositionHooks();
+  installDemoMarks();
 }

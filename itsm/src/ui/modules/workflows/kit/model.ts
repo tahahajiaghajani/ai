@@ -749,10 +749,10 @@ export interface MemberOptionGroup {
 
 /**
  * What a people picker offers (kit/MemberSelect): the members found, the current value always (by the names known),
- * the demo pack's people marked — left out with `mode: "hide"` (a real case's step: they never take the
- * organisation's own work, FINAL-1; a current value stays so it can be taken off), or listed first under
- * «حساب‌های نمایشی» with `mode: "first"` while nothing is searched (a sample requester while a pack is loaded). «من»
- * first among the members with `meFirst` while nothing is searched.
+ * the demo pack's people marked (by `demo`, or by the member search's own mark on a row) — left out with `mode:
+ * "hide"` (a real case's step: they never take the organisation's own work, FINAL-1; a current value stays so it can be
+ * taken off), or listed first under «حساب‌های نمایشی» with `mode: "first"` while nothing is searched (a sample
+ * requester while a pack is loaded). «من» first among the members with `meFirst` while nothing is searched.
  */
 export function memberOptions(o: {
   rows: readonly MemberRow[];
@@ -767,11 +767,12 @@ export function memberOptions(o: {
   searching: boolean;
 }): MemberOptionGroup[] {
   const me = o.me ? o.me.toLowerCase() : null;
+  // the pack's people: the demo-people list (designers, the positions page) or the search's own mark (a case's managers)
   const opt = (r: MemberRow): MemberOption => ({
     value: r.id.toLowerCase(),
     label: r.name,
     sub: [r.email, r.title].filter(Boolean).join("، ") || null,
-    demo: o.demo.has(r.id.toLowerCase()),
+    demo: o.demo.has(r.id.toLowerCase()) || r.demo === true,
     inactive: !r.active,
     me: r.id.toLowerCase() === me,
   });

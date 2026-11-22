@@ -1,7 +1,8 @@
 // The pure logic of «فیلدها» (design F §3.1, §3.3, §8.1, package F5): who may use which tab, the tab an address opens
 // (old links included), the library's search and chips, usage lines, the type picker, a sheet's draft and what it
 // sends, the live preview's field, the rows of «فیلدهای جدول‌ها» with their locks and blockers, and what promoting a
-// table-only field to the library sends. No React, no requests: tested in tests/workflows-admin-fields-ui.test.ts.
+// table-only field to the library sends, and what adding one of the demo pack's fields says. No React, no requests:
+// tested in tests/workflows-admin-fields-ui.test.ts (the pack notice in tests/workflows-admin-forms-ui.test.ts).
 import type { AccessGate } from "@shared/access";
 import type { Cond } from "@shared/model/conditions";
 import type { FieldDef, FieldType, Option, TableDef } from "@shared/model/types";
@@ -545,6 +546,18 @@ export function requirementText(r: TableFieldRow): string | null {
 /** Library fields that may be added to a table: active, not on it yet. */
 export function attachable(lib: readonly LibraryEntry[], table: string, onTable: ReadonlySet<string>): LibraryEntry[] {
   return lib.filter((f) => f.status !== "retired" && !f.usage.tables.includes(table) && !onTable.has(f.name)).sort((a, b) => a.label.localeCompare(b.label, "fa"));
+}
+
+/**
+ * What adding one of the demo pack's library fields to the organisation's own form or table says (release 1.1.5: the
+ * form designers' palettes and «افزودن از کتابخانه»): «حذف داده‌های نمایشی» takes it out again — from a process form
+ * (its published versions keep their snapshot), and from a table together with the values its records stored under it
+ * (modules/demo/refs.ts). null: no pack field, or a form of the pack's own (it leaves whole with the pack).
+ */
+export function packFieldNotice(entry: Pick<LibraryEntry, "label" | "demo"> | null | undefined, place: { form: { demo?: boolean } } | { table: string }): string | null {
+  if (!entry?.demo) return null;
+  if ("form" in place) return place.form.demo ? null : `«${entry.label}» از دادهٔ نمایشی است؛ با «حذف داده‌های نمایشی» از این فرم برداشته می‌شود.`;
+  return `«${entry.label}» از دادهٔ نمایشی است؛ با «حذف داده‌های نمایشی» از «${place.table}» برداشته می‌شود و مقدارهایی که رکوردها در آن ثبت کنند هم پاک می‌شود.`;
 }
 
 // ---------------------------------------------------------------------------------------------------------------

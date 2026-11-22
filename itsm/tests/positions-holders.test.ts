@@ -377,7 +377,7 @@ describe("the positions overview", () => {
     const overview = await requester.client.get(`${P}/positions/overview`);
     expect(overview.today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(overview.positions.find((p: { key: string }) => p.key === "teller")).toEqual({
-      id: teller.id, key: "teller", name: "تحویلدار", unit_kind: "branch", active: true, reports_to: null,
+      id: teller.id, key: "teller", name: "تحویلدار", unit_kind: "branch", active: true, reports_to: null, demo: false,
       holders: 2, units: 1, sources: { manual: 2, directory: 0, import: 0 }, vacancies: 1, ending: 1,
     });
     // a position held without a kind of unit has no vacancies to count

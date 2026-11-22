@@ -145,9 +145,13 @@ export function demoHolderQuestion(name: string | null | undefined): { title: st
   };
 }
 
-/** Does saving the form make a person of the demo pack a holder (a new holder, or another person on an existing one)? */
-export const addsDemoHolder = (d: Pick<HolderDraft, "user_id">, holder: Pick<HolderRow, "user_id"> | null, demo: ReadonlySet<string>): boolean =>
-  !!d.user_id && demo.has(d.user_id.toLowerCase()) && (!holder || holder.user_id.toLowerCase() !== d.user_id.toLowerCase());
+/**
+ * Does saving the form make a person of the demo pack a holder of one of the organisation's own positions (a new holder,
+ * or another person on an existing one)? A position of the pack's own (`packPosition`) asks nothing: its holders are the
+ * pack's people by design, and it leaves with the pack.
+ */
+export const addsDemoHolder = (d: Pick<HolderDraft, "user_id">, holder: Pick<HolderRow, "user_id"> | null, demo: ReadonlySet<string>, packPosition = false): boolean =>
+  !packPosition && !!d.user_id && demo.has(d.user_id.toLowerCase()) && (!holder || holder.user_id.toLowerCase() !== d.user_id.toLowerCase());
 
 /** What the form refuses before sending (the server checks the same, and more, in Persian). */
 export function holderProblems(d: HolderDraft, position: { unit_kind: string | null }): Record<string, string> {
