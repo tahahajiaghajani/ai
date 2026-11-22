@@ -3,7 +3,8 @@
 // queued the organisation's `process.reresolve`; a membership has no record event, so every other path that switches
 // one on, brings one back or gives it another role queues it too: a Windows app's push of the membership, the
 // directory (LDAP/AD synchronisation's apply step, SCIM provisioning), the members' import and a member added on the
-// members page. Holder imports (the positions page's file, the generic record import) go through the engine. Each
+// members page. Holder imports (the positions page's file, the generic record import) and a holder a Windows app
+// pushes (the sync apply path: the engine's record events of a pushed record) go through the engine's watch. Each
 // queues the same single job (its dedupe key), a quiet half minute later and only while some case waits, and the
 // step then reaches the person.
 import { describe, it, expect, beforeAll } from "vitest";
@@ -117,6 +118,19 @@ describe("a Windows app's push of a membership", () => {
     const r = await pulledMembership(other);
     expect(await push([{ entity: "member", row: { ...r.row, role: "viewer", updated_at: new Date().toISOString() }, base: r.base }])).toEqual([expect.objectContaining({ status: "ok" })]);
     expect(await queued()).toEqual([{ later: true }]);
+  });
+
+  it("a holder it pushes goes the sync apply path: the record engine's events reach the watch", async () => {
+    const c = await waiting("none");
+    const position = (await w.o.db.one<{ id: string }>(`select id from sm_positions where org_id = $1 and key = $2`, [w.o.org, c.key]))!.id;
+    const id = uuidv7();
+    const now = new Date().toISOString();
+    const row = { id, org_id: w.o.org, created_at: now, updated_at: now, position_id: position, user_id: c.holder, org_unit_id: unit, kind: "primary" };
+    expect(await push([{ entity: "position_holder", row, base: 0 }])).toEqual([expect.objectContaining({ status: "ok" })]);
+    await w.k.drain();
+    expect(await queued()).toEqual([{ later: true }]);
+    await run();
+    expect(await openAt(c.id)).toEqual([c.holder]);
   });
 });
 
