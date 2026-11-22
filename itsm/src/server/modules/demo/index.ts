@@ -230,8 +230,10 @@ export async function purgePreview(ctx: Ctx): Promise<PurgePreview> {
   const since = sinceOf(pack);
   const until = Date.now() + PREVIEW_MS;
   try {
+    // through `purgeDb`, as every purge transaction: the per-row access bumps of what the plan puts back or clears only
+    // mark the transaction (its one bump would run at the commit, which a dry run never reaches)
     await inDemoScope(null, () =>
-      ctx.db.tx(async (tx) => {
+      purgeDb(ctx.db as Db, orgId).tx(async (tx) => {
         const report = emptyReport();
         // the purge's plan from its first step: what an earlier purge left behind joins this pack (ledger.ts)
         await reclaimLeftovers(tx, orgId);
