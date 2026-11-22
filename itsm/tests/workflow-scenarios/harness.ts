@@ -3,10 +3,11 @@
 // driven as different people (start, submit, claim, reassign, return, cancel, pause and resume, timers by moving
 // `due_at` and running the timer), with assertions on paths, people per step, journal, case state, outcome and values.
 // The twelve workflows W1–W12 (./w01-project.ts … ./w12-transfer.ts) are written once against this harness and run
-// on every edition:
+// on every edition; W13 (./w13-business-hours.ts, business hours on the SLA seed's calendar with the clock pinned) on
+// PGlite only, whose now() follows the pinned clock:
 //
 //   Edition                                   Files                                How to run (from itsm/)
-//   Windows app standalone (PGlite, desktop)  w01-project.test.ts … w12-*.test.ts   npx vitest run --maxWorkers=1 tests/workflow-scenarios
+//   Windows app standalone (PGlite, desktop)  w01-project.test.ts … w13-*.test.ts   npx vitest run --maxWorkers=1 tests/workflow-scenarios
 //   the same on its data folder (PGlite)      desktop-folder.test.ts (W1, W5)      (the same: the folder as the app opens it —
 //                                                                                   its log's guard and turns — then reopened)
 //   the web's own job ticks (PGlite, cloud)   web-cadence.test.ts                  (the same: no drain, only after-write, traffic
@@ -28,9 +29,9 @@
 //
 // Assertions marked «1.1.5 (b)…(g)», RC1–RC4 assert behaviour this release adds (CaseDetail.waiting, the reresolve route,
 // journal notes, estimate demo counts, eligibility-first requester_unit_up, the timer path's demo scope, approve plus
-// skip journal text): the engine's and the screens' 1.1.5 work makes them pass. Those marked NB1–NB4 and OB1 assert
-// what the scenario plan expects of behaviour no package of this release changes (reported with the run): they fail
-// until it is fixed.
+// skip journal text): the engine's and the screens' 1.1.5 work makes them pass. Those marked NB1–NB4, OB1 and BH1
+// assert what the scenario plan expects of behaviour no package of this release changes (reported with the run): they
+// fail until it is fixed.
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
