@@ -13,7 +13,7 @@
 //   service calls it with "approval:<id>" when a decision is made, inside its own write transaction.
 import type { Ctx, ServerConfig } from "../../context";
 import type { Tx } from "../../db";
-import type { FlowData } from "@shared/flows";
+import type { FlowData, PillText } from "@shared/flows";
 
 /** What a step handler gets. */
 export interface StepContext {
@@ -40,8 +40,15 @@ export interface StepContext {
   tx: Tx | null;
   /** fill data pills ({{trigger.record.x}}, {{steps.<id>.output.y}}, {{vars.z}}, {{item.w}}, {{now}}…) */
   render(value: unknown): unknown;
-  /** fill data pills and return text */
+  /** fill data pills and return text, each pill as stored (ids, option keys, ISO dates): for what machines read */
   text(value: unknown): string;
+  /**
+   * fill data pills into a text people read (a note, a notice, an approval's title): each pill as its display text
+   * — `show`'s first (a run kind's own data), else the clock in Jalali and a record's field by its `$labels`
+   * (`pillText`), else as stored — each passed through `wrap` when given (a notice's inline template escapes what it
+   * inserts: `inlineValue` of @shared/notify). Never for a value a step stores or compares.
+   */
+  display(value: unknown, show?: PillText, wrap?: (text: string) => string): string;
   /** the run's data (read-only) */
   data: Readonly<FlowData>;
   /** the organisation's time zone */

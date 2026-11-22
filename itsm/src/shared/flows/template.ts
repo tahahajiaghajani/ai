@@ -3,8 +3,12 @@
 // keeps its type (a number stays a number, an array an array); pills inside longer text are written out as text.
 // Paths are those of `pickPath` (src/shared/json-path.ts): keys, `items[0]`, `items[name=cpu]`. A pill that names
 // nothing gives an empty value — rendering never throws. Pure: the executor, the scheduler and the designer use it.
+// A text people read (a note, a notice, an approval's title — never a value a step stores or compares) writes each
+// pill as its display text (`renderText` with `show`): the clock as a Jalali date, a record's field as the text its
+// `$labels` carry (`pillText`), and what a run kind knows of its own data (a workflow's case values).
 import { pickPath } from "../json-path";
-import { JALALI_MONTHS, WEEKDAYS, toJalali } from "../jalali";
+import { JALALI_MONTHS, WEEKDAYS, formatJalali, formatJalaliDateTime, toJalali } from "../jalali";
+import { faDigits } from "../format";
 import { localDate } from "../model/jalali-buckets";
 import { DEFAULT_TIMEZONE } from "../constants";
 
@@ -109,9 +113,50 @@ export function renderTemplate(value: unknown, data: FlowData, env: RenderEnv = 
   return value;
 }
 
-/** Fill the pills and always return text. */
-export function renderText(value: unknown, data: FlowData, env: RenderEnv = {}): string {
+/**
+ * How a pill is written into a text people read: its display text, or null to write the stored value (`stringify`).
+ * `expr` is the pill without its braces (trimmed), `value` what it names.
+ */
+export type PillText = (expr: string, value: unknown) => string | null | undefined;
+
+/**
+ * Fill the pills and always return text. With `show`, every pill of a string — one that is the whole string too — is
+ * written as `show` gives it (null: its stored value); without it, as stored (ids, option keys, ISO dates).
+ */
+export function renderText(value: unknown, data: FlowData, env: RenderEnv = {}, show?: PillText): string {
+  if (show && typeof value === "string") {
+    if (!value.includes("{{")) return value;
+    return value.replace(PILL, (_, expr: string) => {
+      const v = pillValue(expr, data, env);
+      return show(expr.trim(), v) ?? stringify(v);
+    });
+  }
   return stringify(renderTemplate(value, data, env));
+}
+
+const FIELD_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * The display text of a pill whose meaning the pill itself carries (null: none — its stored value is what people
+ * read): the clock as a Jalali date (`{{today}}`) or date and time in the organisation's time zone (`{{now + 2h}}`),
+ * the Jalali parts with Persian digits, and a record's field as the text the record's `$labels` give it
+ * (`{{trigger.record.priority}}` → «۱ — بحرانی», read as the run's identity when the record was read).
+ */
+export function pillText(expr: string, value: unknown, data: FlowData, env: RenderEnv = {}): string | null {
+  const e = expr.trim();
+  const clock = CLOCK.exec(e);
+  if (clock) {
+    if (typeof value !== "string" || !value) return null;
+    return clock[1] === "now" ? formatJalaliDateTime(value, env.tz || DEFAULT_TIMEZONE) || null : formatJalali(value) || null;
+  }
+  if (e === "jalali" || e.startsWith("jalali.")) return value === null || value === undefined || typeof value === "object" ? null : faDigits(String(value));
+  const dot = e.lastIndexOf(".");
+  const key = dot > 0 ? e.slice(dot + 1) : "";
+  if (!FIELD_KEY.test(key)) return null;
+  const record = pickPath(data, e.slice(0, dot));
+  const labels = record && typeof record === "object" && !Array.isArray(record) ? (record as { $labels?: unknown }).$labels : null;
+  const text = labels && typeof labels === "object" && !Array.isArray(labels) ? (labels as Record<string, unknown>)[key] : undefined;
+  return typeof text === "string" ? text : null;
 }
 
 /** The pill expressions used anywhere in a setting (for validation and the designer). */

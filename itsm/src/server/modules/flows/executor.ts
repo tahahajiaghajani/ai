@@ -21,7 +21,7 @@ import { condEnv, emitOrgEvent, orgSchema, systemCtx } from "../../engine";
 import { memberCtx } from "../../access";
 import { uuidv7 } from "@shared/id";
 import { faDigits } from "@shared/format";
-import { FLOW_LIMITS, RUN_STATES, edgesFrom, nodeLabel, renderTemplate, renderText, type FlowData, type FlowGraph, type FlowNode, type RunState } from "@shared/flows";
+import { FLOW_LIMITS, RUN_STATES, edgesFrom, nodeLabel, pillText, renderTemplate, renderText, stringify, type FlowData, type FlowGraph, type FlowNode, type PillText, type RunState } from "@shared/flows";
 import { capJson, loadRun, loadVersion, loadWait, waitsOf, writeStep, type ForkFrame, type LoopFrame, type RunRow, type Runtime, type StepLog, type Token, type WaitRow } from "./store";
 import { stepHandler, type FlowStepHandler, type StepContext, type StepOutcome, type WaitInfo, type WaitRequest } from "./registry";
 import { forEachItems, readRecord } from "./records";
@@ -259,6 +259,19 @@ function render(x: Exec, token: Token | null, value: unknown): unknown {
   return renderTemplate(value, dataFor(x, token), { tz: x.tz });
 }
 
+/**
+ * A text people read with its pills as display text: `show` first, then the clock and a record's `$labels`, else the
+ * stored value — each through `wrap` when given.
+ */
+function display(x: Exec, token: Token | null, value: unknown, show?: PillText, wrap?: (text: string) => string): string {
+  const data = dataFor(x, token);
+  const env = { tz: x.tz };
+  return renderText(value, data, env, (expr, v) => {
+    const text = show?.(expr, v) ?? pillText(expr, v, data, env) ?? stringify(v);
+    return wrap ? wrap(text) : text;
+  });
+}
+
 function setStep(x: Exec, nodeId: string, v: { output?: unknown; error?: string | null; status: string }) {
   x.data.steps ??= {};
   x.data.steps[nodeId] = { output: capJson(v.output ?? {}), error: v.error ?? null, status: v.status };
@@ -300,6 +313,7 @@ function stepContext(x: Exec, token: Token, node: FlowNode, key: string, ctx: Ct
     tx,
     render: (v) => render(x, token, v),
     text: (v) => renderText(v, dataFor(x, token), { tz: x.tz }),
+    display: (v, show, wrap) => display(x, token, v, show, wrap),
     data: dataFor(x, token),
     tz: x.tz,
     triggerRecord: t.table && t.id ? { table: String(t.table), id: String(t.id) } : null,
@@ -762,7 +776,8 @@ async function forEachStep(x: Exec, token: Token, node: FlowNode, key: string, s
 /** «پایان»: end the whole run with its outcome and outputs. */
 async function endStep(x: Exec, token: Token, node: FlowNode, key: string, started: number) {
   const failed = node.config?.outcome === "failed";
-  const message = node.config?.message ? renderText(node.config.message, dataFor(x, token), { tz: x.tz }) : "";
+  // the run's message is read by people (the run's page, its failure): pills as their display text
+  const message = node.config?.message ? display(x, token, node.config.message) : "";
   const outputs: Record<string, unknown> = {};
   for (const a of Array.isArray(node.config?.outputs) ? (node.config.outputs as { name?: string; value?: unknown }[]) : []) {
     if (a?.name) outputs[String(a.name)] = capJson(render(x, token, a.value));

@@ -158,6 +158,9 @@ export function w05(ref: EditionRef): void {
       expect(await s.journal(c)).toContain(`مهلت «${OFFICER}» به پایان رسید؛ پرونده از مسیر «پایان مهلت» ادامه یافت`);
       const k = await s.kase(c);
       expect(await s.bells("soc1")).toContain(`رخداد بی‌پاسخ ${k.number}`);
+      // (1.1.5 NB3) the notice's body names the kind of incident by its label, not its stored key
+      const told = await s.db.one<{ body: string }>(`select body from sm_notifications where org_id = $1 and user_id = $2 and title = $3`, [s.org, s.id("soc1"), `رخداد بی‌پاسخ ${k.number}`]);
+      expect(told?.body).toBe(`بدافزار در ${k.title}`);
       expect(await s.openAt(c, "soc")).toEqual(["ladan", "soc1"]);
       // +8 h at SOC: decided automatically
       await s.elapse(c, "soc", 8 * H + 60_000);
