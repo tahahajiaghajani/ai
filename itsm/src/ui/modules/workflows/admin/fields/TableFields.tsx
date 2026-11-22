@@ -31,6 +31,7 @@ import {
   KIND_LABELS, attachable, hideBlocker, promoteBody, requireBlocker, requirementText, tableFieldRows, type FieldsAccess, type TableFieldRow,
 } from "./model";
 import { F, I14, I16, OptionsEditor, useCloseGuard, useSheetSize } from "./parts";
+import { labelKey, sharedLabels } from "./labels";
 
 const NAME = /^[a-z0-9_]{1,40}$/;
 const COLUMNS = [
@@ -277,6 +278,7 @@ export function TableFields({ access, library, slot }: TableFieldsProps) {
         <AttachDialog
           table={def}
           candidates={candidates}
+          twins={sharedLabels(library ?? [])}
           onClose={() => setDialog(null)}
           onAttached={async (label) => {
             setDialog(null);
@@ -356,7 +358,7 @@ function RequireDialog({ table, field, onClose, onSave }: { table: TableMeta; fi
 // ---------------------------------------------------------------------------------------------------------------
 // «افزودن از کتابخانه»
 
-function AttachDialog({ table, candidates, onClose, onAttached }: { table: TableMeta; candidates: LibraryEntry[]; onClose: () => void; onAttached: (label: string) => void }) {
+function AttachDialog({ table, candidates, twins, onClose, onAttached }: { table: TableMeta; candidates: LibraryEntry[]; twins: Set<string>; onClose: () => void; onAttached: (label: string) => void }) {
   const { api } = useOrg();
   const n = useNotify();
   const [field, setField] = useState<string | null>(null);
@@ -388,7 +390,7 @@ function AttachDialog({ table, candidates, onClose, onAttached }: { table: Table
                 id="wff-attach-f"
                 value={field ?? undefined}
                 onChange={(v) => setField(v)}
-                options={candidates.map((c) => ({ value: c.id, label: `${c.label} · ${c.type_label}` }))}
+                options={candidates.map((c) => ({ value: c.id, label: `${c.label} · ${c.type_label}${twins.has(labelKey(c.label)) ? ` · ${c.name}` : ""}` }))}
                 showSearch={{ optionFilterProp: "label" }}
                 placeholder="جست‌وجوی فیلد…"
                 autoFocus

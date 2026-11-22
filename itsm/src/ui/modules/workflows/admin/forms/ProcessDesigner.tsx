@@ -28,6 +28,7 @@ import { RightsMatrix } from "../../kit";
 import { FIELD_KEYS, fieldsApi, type LibraryEntry } from "../fields/api";
 import { fieldsAccess } from "../fields/model";
 import { FieldSheet } from "../fields/FieldSheet";
+import { labelKey, sharedLabels } from "../fields/labels";
 import { FORM_KEYS, formsApi, type FormDetail, type FormOut } from "./api";
 import {
   VIEWPOINTS, addSection, addTab, autoSpan, clampSel, draftProblems, insertItem, itemMarks, libraryDef, moveItem, paletteFields, processDraft, processPatch,
@@ -285,6 +286,8 @@ function Designer({ detail }: { detail: FormDetail }) {
 
   // ------------------------------------------------------------------ palette, canvas, inspector
   const offered = paletteFields(lib, draft.layout, q);
+  // fields whose label another library field carries show their technical name (../fields/labels.ts)
+  const twins = sharedLabels(lib);
   const palette = (
     <aside className="wfm-panel wfm-palette" aria-label="فیلدهای کتابخانه">
       <Input allowClear size="small" prefix={<Search {...I14} aria-hidden />} placeholder="جست‌وجوی فیلد" value={q} onChange={(e) => setQ(e.target.value)} aria-label="جست‌وجوی فیلد" />
@@ -307,9 +310,10 @@ function Designer({ detail }: { detail: FormDetail }) {
           <ul className="wfm-pal-list">
             {offered.slice(0, 80).map((e) => (
               <li key={e.id}>
-                <button type="button" className="wfm-pal-item" draggable={editable} onDragStart={(ev: DragEvent) => dragField(ev, e.name)} onClick={() => editable && add(e.name)} disabled={!editable} aria-label={`افزودن ${e.label} به فرم`}>
+                <button type="button" className="wfm-pal-item" draggable={editable} onDragStart={(ev: DragEvent) => dragField(ev, e.name)} onClick={() => editable && add(e.name)} disabled={!editable} aria-label={`افزودن ${e.label}${twins.has(labelKey(e.label)) ? ` (${e.name})` : ""} به فرم`}>
                   {e.label}
                   <small>{e.type_label}</small>
+                  {twins.has(labelKey(e.label)) ? <small className="ds-id">{e.name}</small> : null}
                 </button>
               </li>
             ))}
