@@ -430,14 +430,22 @@ await tick(cfg, { budgetMs: 4000, max });   // → { ran, failed, more, busy? }
   `dedupeKey`: no second job with that key per organisation while one is queued (the queued one's id is returned).
   `enqueueMany(q, jobs)` adds many with one statement (same dedupe rule); `jctx.saveIn(tx, payload)` saves a job's
   progress inside the transaction that does the work, so a retry after a crash skips what committed.
-- `tick` claims due jobs one at a time (`for update skip locked`; the claim counts an attempt; a running job's lock
-  lasts 5 minutes and an expired lock is taken over again, whatever the job's attempts: a worker that stopped — a
-  function cut at its time limit, a process that died — never fails a job by itself; an attempt reset on success and
-  per-kind hooks for a job whose worker keeps dying are planned for 1.1.5), runs handlers outside transactions until
-  the budget is spent. A throw → retry after 15 s, 30 s, 1 min … ≤ 1 h (+20 % jitter)
-  until `max_attempts`, then `failed` with `last_error`; `PermanentJobError` fails at once; `{ again: ms }`
-  reschedules without counting an attempt; `jctx.save(payload)` keeps progress; `jctx.deadline` is when the budget
-  ends. Finished jobs are kept 3 days (failed 30) and deleted by row address in batches of 2,000, at most 2 s of a
+- `tick` claims due jobs one at a time (`for update skip locked`; the claim counts an attempt and stamps `updated_at`,
+  the claim time) and runs handlers outside transactions until the budget is spent. While a handler runs, a heartbeat
+  renews the job's 5-minute lock every minute, for at most 2 hours from the claim (`jctx.save`/`saveIn` renew it too,
+  and throw `JobClaimLost` once another worker holds the job); every outcome is written only while this worker holds
+  the claim (`status = 'running' and locked_by = worker`), so a lost claim writes nothing. An expired lock is a worker
+  that stopped (a function cut at its time limit, a process that died): the job is taken again while it has attempts
+  left, else failed with `EXHAUSTED_ERROR` (`failExhausted`, 100 a tick). A throw → retry after 15 s, 30 s, 1 min … ≤ 1 h
+  (+20 % jitter) until `max_attempts`, then `failed` with `last_error`; `PermanentJobError` fails at once;
+  `{ again: ms }` reschedules, and it or a success resets `attempts` (they count consecutive failures);
+  `jctx.save(payload)` keeps progress; `jctx.deadline` is when the budget ends.
+- A stateful kind registers its last word for a job that ends failed without finishing — its worker stopped at the last
+  attempt, or its handler threw at it (not `PermanentJobError`): `registerJobHandler(kind, fn, { onExhausted })` or
+  `registerJobExhausted(kind, hook)`. The hook runs after the job's update, in the job's demo scope, its error logged:
+  it puts the kind's row in a final state (a backup «failed», an agent or flow run «failed») or queues a chain's next
+  round at its interval (the mailbox poller, a directory sync, the nightly archival…). A chain's handler throws rather
+  than returns when a read fails, except when its organisation is gone. Finished jobs are kept 3 days (failed 30) and deleted by row address in batches of 2,000, at most 2 s of a
   tick and once an hour per process (`cleanup: false` skips it).
 - Triggers: the Windows app ticks every 10 s; the server edition's scheduler leader on its interval and when a write
   wakes it. The web version has no timer between requests: once an answer is ready (`cfg.waitUntil`, Next.js
