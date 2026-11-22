@@ -92,8 +92,10 @@ describe("a case's texts show its values as people read them (PGlite)", () => {
   });
 
   it("«اعلان»: the option's label and the unit's name; what the requester typed shows as typed", async () => {
-    const bell = await w.o.db.one<{ title: string; body: string }>(`select title, body from sm_notifications where org_id = $1 and user_id = $2 and record_id = $3`, [w.o.org, P.r, id]);
-    expect(bell?.title).toBe("فیشینگ — شعبهٔ ونک");
+    // the requester's bells on the case: the step's notice among any the workflow's own notices add
+    const bells = await w.o.db.query<{ title: string; body: string }>(`select title, body from sm_notifications where org_id = $1 and user_id = $2 and record_id = $3`, [w.o.org, P.r, id]);
+    const bell = bells.find((b) => b.title === "فیشینگ — شعبهٔ ونک");
+    expect(bell, JSON.stringify(bells.map((b) => b.title))).toBeDefined();
     expect(bell?.body).toBe(escapeMarkdown(typed));
     expect(bell?.body).not.toContain("رضا درخواست‌دهنده");
   });
