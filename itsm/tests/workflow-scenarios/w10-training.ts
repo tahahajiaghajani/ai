@@ -182,17 +182,23 @@ export function w10(ref: EditionRef): void {
       }
     }, 300_000);
 
-    it("R1 (OB1, 1.1.5) the organisation's own case whose only manager is one of the pack's people: nobody is told that its step found nobody, and the journal and the case page say so", async () => {
+    it("R1 (OB1, NB4, 1.1.5) the organisation's own case whose only manager is one of the pack's people: the organisation's administrators, who manage it, are told that its step found nobody, and the journal and the case page name them and the pack's manager who was not told", async () => {
       const r = await s.start("realemp", W10N.key, need({ u_aftab_tn_course: "دورهٔ بی‌برنامه‌ریز", u_aftab_tn_people: s.ids("realppl") }));
       await s.settle();
       expect(await s.kase(r.case)).toMatchObject({ state: "waiting" });
-      const untold = "برای «برنامه‌ریزی آموزش» کسی پیدا نشد؛ مرحله منتظر مسئولان گردش‌کار می‌ماند و اعلان به هیچ‌یک از آنان نرسید. مهرداد بودجه‌نژاد حساب نمایشی است؛ اعلان به او نرسید.";
+      // (1.1.5, merge of the notices and the demo boundary) the pack's people manage none of the organisation's own
+      // cases, so a case whose managers are all theirs is the administrators' (actingManagers): its managers' notice
+      // goes to them, the pack's manager named as not told
+      const told = "برای «برنامه‌ریزی آموزش» کسی پیدا نشد؛ مدیران سازمان (مالک آزمایشی) باخبر شدند. مهرداد بودجه‌نژاد حساب نمایشی است؛ اعلان به او نرسید.";
       const line = (await s.journal(r.case)).find((l) => l.startsWith("برای «برنامه‌ریزی آموزش» کسی پیدا نشد")) ?? "";
-      expect(line.startsWith(untold), line).toBe(true);
+      expect(line.startsWith(told), line).toBe(true);
       expect(await s.db.query(`select title from sm_notifications where org_id = $1 and user_id = $2 and record_id = $3`, [s.org, s.id("mehrdad"), r.case])).toEqual([]);
-      // the requester's page says why the step waits
+      const owner = await s.db.query<{ title: string }>(`select title from sm_notifications where org_id = $1 and user_id = $2 and record_id = $3`, [s.org, s.id("owner"), r.case]);
+      expect(owner.length, JSON.stringify(owner)).toBe(1);
+      // the requester's page says why the step waits; the owner manages the case
       const d = await s.detail("realemp", r.case);
-      expect(d.waiting?.plan).toMatchObject({ reason: "nobody", message: untold });
+      expect(d.waiting?.plan).toMatchObject({ reason: "nobody", message: told });
+      expect((await s.detail("owner", r.case)).can).toMatchObject({ manage: true, reassign: true, reresolve: true });
     }, 300_000);
 
     it("R1 (NB1, 1.1.5) a pack's case tells only the pack's people the field names; the journal says the real one was not told", async () => {

@@ -4,11 +4,12 @@
 //     ندارد»; «۲ نفر از دارندگان … حساب نمایشی‌اند…»), so the managers and the requester read why;
 //   · «مسئولان گردش‌کار (…) باخبر شدند» names the people the managers' notice reaches (`managersNotice`): the seeded
 //     rule «مرحلهٔ بی‌انجام‌دهنده» is on and tells the event's people, and of the case's managers — or, when it names
-//     none, the administrators — those who may be told (./readers.ts: the demo boundary, active members); they become
-//     readers of the case before the notice goes, and the step's event names them, so the notice goes to exactly them
-//     (api/notices.ts). Those who could not be told are named as such; the real managers of a demo pack's case hear
-//     nothing about it (docs/DEMO_FA.md), and the journal says so instead. A re-resolution that tells nobody (a
-//     manager's, the organisation's job) never claims a notice (`nobodyLine(…, "quiet")`);
+//     none or (an organisation's own case) only the demo pack's people, the administrators — those who may be told
+//     (./readers.ts: the demo boundary, active members); they become readers of the case before the notice goes, and
+//     the step's event names them, so the notice goes to exactly them (api/notices.ts). Those who could not be told are
+//     named as such (the pack's managers of such a case after the administrators); the real managers of a demo pack's
+//     case hear nothing about it (docs/DEMO_FA.md), and the journal says so instead. A re-resolution that tells nobody
+//     (a manager's, the organisation's job) never claims a notice (`nobodyLine(…, "quiet")`);
 //   · the round's wait keeps the reason, the line, the reasons and (more than the step takes) the candidates
 //     (`waitState`), which the case page shows its managers (`waitingSteps`) and a re-resolution replaces;
 //   · `openRoundTasks`: the tasks of a round (one per person, with the step's due time), for an opening and for a
@@ -20,7 +21,7 @@ import { nobodyMessage } from "@shared/process/assignees";
 import type { StepWaiting } from "@shared/process/waiting";
 import type { Ctx } from "../../../context";
 import { pgArray, type Queryable, type Tx } from "../../../db";
-import { demoPeople } from "../../../db/scope";
+import { demoPeople, isDemoRow } from "../../../db/scope";
 import { createIn, orgTz } from "../../../engine";
 import { config as slaConfig } from "../../sla/common";
 import { calendarsOf } from "../../sla/calendars";
@@ -85,9 +86,12 @@ export function waitingLine(message: string, notes: readonly string[]): string {
 
 /**
  * The people the managers' notices of a case go to: its managers (named, and members of its groups), else — the
- * process names none — the organisation's administrators (owners, «مدیر» members, holders of «مدیر سامانه»).
+ * process names none — the organisation's administrators (owners, «مدیر» members, holders of «مدیر سامانه»). A case
+ * of the organisation's own whose managers, by name and in its groups, are all the demo pack's people is the
+ * administrators' to manage (../api/common.ts `actingManagers`): its notices go to them too, the pack's managers
+ * still named after them so the journal says they were not told (./readers.ts).
  */
-export async function noticeRecipients(q: Queryable, orgId: string, kase: Pick<CaseRow, "managers" | "manager_groups">): Promise<{ users: string[]; admins: boolean }> {
+export async function noticeRecipients(q: Queryable, orgId: string, kase: Pick<CaseRow, "managers" | "manager_groups"> & { id?: string | null }): Promise<{ users: string[]; admins: boolean }> {
   if (ids(kase.managers).length || ids(kase.manager_groups).length) {
     const groups = ids(kase.manager_groups);
     const members = groups.length
@@ -98,14 +102,23 @@ export async function noticeRecipients(q: Queryable, orgId: string, kase: Pick<C
           [orgId, pgArray(groups)],
         )
       : [];
-    return { users: [...new Set([...ids(kase.managers), ...members.map((m) => String(m.user_id).toLowerCase())])], admins: false };
+    const users = [...new Set([...ids(kase.managers), ...members.map((m) => String(m.user_id).toLowerCase())])];
+    if (!isId(kase.id) || !users.length) return { users, admins: false };
+    const pack = await demoPeople(q, orgId, users);
+    if (!users.every((u) => pack.has(u)) || (await isDemoRow(q, orgId, kase.id.toLowerCase()))) return { users, admins: false };
+    return { users: [...new Set([...(await administrators(q, orgId)), ...users])], admins: true };
   }
-  const admins = await q.query<{ user_id: string }>(
+  return { users: await administrators(q, orgId), admins: true };
+}
+
+/** The organisation's administrators: its owners and «مدیر» members, and the holders of «مدیر سامانه». */
+async function administrators(q: Queryable, orgId: string): Promise<string[]> {
+  const rows = await q.query<{ user_id: string }>(
     `select user_id from sm_org_members where org_id = $1 and deleted_at is null and is_active and role in ('owner', 'admin')
      union select user_id from sm_member_profiles where org_id = $1 and deleted_at is null and roles ? 'tenant_admin'`,
     [orgId],
   );
-  return { users: [...new Set(admins.map((a) => String(a.user_id).toLowerCase()))], admins: true };
+  return [...new Set(rows.map((a) => String(a.user_id).toLowerCase()))];
 }
 
 /**
@@ -124,7 +137,7 @@ export async function managersNotice(q: Queryable, orgId: string, kase: Pick<Cas
   );
   if (!rule?.n) return { ...none, kind: "off", admins: false };
   if (!rule.routed) return { ...none, kind: "unrouted", admins: false };
-  const { users, admins } = await noticeRecipients(q, orgId, { managers: kase.managers ?? null, manager_groups: kase.manager_groups ?? null });
+  const { users, admins } = await noticeRecipients(q, orgId, { id: kase.id, managers: kase.managers ?? null, manager_groups: kase.manager_groups ?? null });
   if (!users.length) return { ...none, kind: "nobody", admins };
   const a = await audienceOf(q, { org_id: orgId, requested_by: null, requested_for: null, participants: null, managers: null, manager_groups: null, ...kase }, users);
   return { ...a, kind: a.told.length ? "told" : a.demoOnly ? "demo" : "untold", admins };
