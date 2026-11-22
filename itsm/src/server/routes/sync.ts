@@ -27,6 +27,7 @@ import { uuidv7 } from "@shared/id";
 import { inDemoScope } from "../db/scope";
 import { demoSignInRefusal } from "../modules/demo/signin";
 import { openUploadWindow } from "../modules/process/sync/upload";
+import { queueReresolve } from "../modules/process/reresolve/queue";
 import { judgePurged, namesPurged, purgedInPush, type StoredRecord } from "../modules/demo/pushed";
 import { afterEnginePush, checkEnginePush, replicaRows, scopeEpoch } from "../engine/sync";
 import { condEnv, orgSchema } from "../engine";
@@ -217,6 +218,8 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
   };
   await ctx.write(async (tx) => {
     await tx.query("set local itsm.applying = 'on'");
+    // a membership written that came, went or took another role (the members page's rule, routes/org.ts)
+    let peopleMoved = false;
     // the ids a demo purge removed that this push names (one query; none for an organisation that never purged a pack)
     const purged = await purgedInPush(tx, ctx.org.id, list as WireAggregate[]);
     /** The stored row wins over the push: handed back exactly as a pull would send it to this account (never more). */
@@ -301,7 +304,8 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
         results.push({ entity: agg.entity, id: agg.id, status: "error", message: ruled });
         continue;
       }
-      let memberChange: { was: StoredMember | null; next: MemberGrant & { live: boolean } } | null = null;
+      // `people`: the membership came, went or took another role — a workflow step waiting with nobody may lack exactly it
+      let memberChange: { was: StoredMember | null; next: MemberGrant & { live: boolean }; people: boolean } | null = null;
       if (def.entity === "member") {
         // the members page's rules (routes/org.ts): owners only by owners, nobody changes themselves
         // or grants above their own access, and the organisation keeps an active owner
@@ -338,7 +342,7 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
             continue;
           }
         }
-        if (!unchanged) memberChange = { was, next };
+        if (!unchanged) memberChange = { was, next, people: wasLive !== next.live || (!!was && was.role !== next.role) };
       }
       try {
         const r = await writeAggregate(tx, def, { ...agg, row: { ...agg.row, origin: input.device_id } }, ctx.org.id, "incoming-yields");
@@ -346,12 +350,15 @@ async function pushAs(c: C, input: z.infer<typeof pushSchema>, ctx: Ctx) {
         const now = await tx.one<{ rev: number }>(`select rev from ${ident(def.table)} where id = $1`, [agg.id]);
         results.push({ entity: agg.entity, id: agg.id, status: "ok", rev: now?.rev, renumbered: r.renumbered });
         if (memberChange) memberEvents.push(memberEvent(memberChange.was, memberChange.next));
+        if (memberChange?.people) peopleMoved = true;
       } catch (e) {
         // a deadlock or serialization failure aborted the whole push: it is answered 503 and the app pushes again
         if (isTransientDbError(e)) throw e;
         results.push({ entity: agg.entity, id: agg.id, status: "error", message: String((e as Error).message ?? e).slice(0, 300) });
       }
     }
+    // a workflow step waiting with nobody may lack exactly that person: the organisation's re-resolution, once a push
+    if (peopleMoved) await queueReresolve(tx, ctx.org.id);
   });
   for (const e of memberEvents) {
     const email = (await ctx.db.one<{ email: string }>(`select email from sm_users where id = $1`, [e.user_id]))?.email ?? null;

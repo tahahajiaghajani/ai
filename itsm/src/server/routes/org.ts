@@ -209,6 +209,8 @@ orgRoutes.post("/members", async (c) => {
     }
     // new_account marks an account this organisation made (see createdHere: password resets)
     await audit(tx, ctx, "member_add", "member", user!.id, `${input.email} (${ROLES[input.role].title})`, { new_account: created });
+    // a member who joins or comes back may be whom a workflow step waiting with nobody lacks (as a change below)
+    await queueReresolve(tx, ctx.org.id);
     return { user_id: user!.id, created };
   });
   await securityEvent(ctx.db, {
