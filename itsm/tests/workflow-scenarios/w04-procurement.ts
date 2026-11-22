@@ -99,7 +99,7 @@ export async function setupW4(s: Scn): Promise<void> {
   await s.hold("aftab_ceo", "ceo", "hq");
 }
 
-const order = (o: Record<string, unknown> = {}) => ({ u_aftab_pr_title: "سرور ذخیره‌سازی", u_aftab_pr_vendor: "شرکت نمونه", u_aftab_pr_amount: "900000000", u_aftab_pr_risk: "low", ...o });
+export const order = (o: Record<string, unknown> = {}) => ({ u_aftab_pr_title: "سرور ذخیره‌سازی", u_aftab_pr_vendor: "شرکت نمونه", u_aftab_pr_amount: "900000000", u_aftab_pr_risk: "low", ...o });
 
 /** The three reviews in parallel, then the two quotes («الف» first): the committee's step is open. */
 async function reviewsAndQuotes(s: Scn, caseId: string): Promise<void> {

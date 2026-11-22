@@ -11,8 +11,8 @@
 //                                                                                   its log's guard and turns — then reopened)
 //   the web's own job ticks (PGlite, cloud)   web-cadence.test.ts                  (the same: no drain, only after-write, traffic
 //                                                                                   and heartbeat ticks — ./cadence.ts)
-//   Windows apps linked to an authority       linked-w01.test.ts, linked-w11.test.ts (the same; a PGlite authority — ./linked.ts)
-//   server edition (PostgreSQL 16, its pool)  pg-server-a.test.ts, pg-server-b.test.ts, pg-linked-w01.test.ts
+//   Windows apps linked to an authority       linked-w01, -w04, -w06, -w11.test.ts (the same; a PGlite authority — ./linked.ts)
+//   server edition (PostgreSQL 16, its pool)  pg-server-a.test.ts, pg-server-b.test.ts, pg-linked-w01, -w04, -w06.test.ts
 //   web (PostgreSQL 16, webPoolOptions)       pg-web-a.test.ts, pg-web-b.test.ts
 //   web through Supavisor v2.9.13 (emulator)  pg-pooler.test.ts (W1, W2, then the web's own cadence)
 //     ITSM_PG_BIN=/usr/lib/postgresql/16/bin ITSM_PG_RUNAS=nobody npx vitest run --maxWorkers=1 tests/workflow-scenarios/pg-*.test.ts
