@@ -7,6 +7,8 @@
 //   · demo work deleted a real row and a real person made another with the same unique name: it is not written back
 //   · what was built on top of the pack in the simplest ways (refsweep, the probe's fast repro): a real business rule
 //     that set a demo group, a real custom user field naming a demo person, a real task on a demo incident
+//   · a demo row whose delete fails (a hook refuses it) stays alive, reported, and out of the purged-id ledger: a Windows
+//     app's push of it is judged as any row's, never answered «purged» while the server still holds it
 // The pack is simulated as tests/demo-safety.test.ts does (a loaded pack row, demo rows written inside the demo scope).
 import { describe, it, expect, beforeAll } from "vitest";
 import { engineOrg, type EngineOrg } from "./engine-helpers";
@@ -86,6 +88,39 @@ describe("the purge goes on past a row it cannot put back", () => {
     expect(await e.db.one(`select 1 as x from sm_forms where id = $1`, [formId])).toBeNull();
     // both are reported as conflicts (counts only)
     expect(report!.left_real).toEqual(expect.arrayContaining([expect.objectContaining({ table: "sm_group_members", reason: "conflict", rows: 1 }), expect.objectContaining({ table: "sm_forms", reason: "conflict", rows: 1 })]));
+  }, 600_000);
+});
+
+describe("a demo row the purge cannot remove", () => {
+  it("stays alive, is reported and is not written to the purged-id ledger; the rows that went are", async () => {
+    const e = await engineOrg();
+    const sys = await systemCtx(e.cfg, e.org);
+    await packOf(e);
+    const { kept, gone } = await inDemoScope(e.org, () =>
+      sys.write(async (tx) => {
+        const k = await createIn(tx, sys, "incident", { short_description: "رخداد نمایشی که حذف نمی‌شود" }, { trusted: true });
+        const g = await createIn(tx, sys, "group", { name: "گروه نمایشی که حذف می‌شود", types: ["assignment"], active: true }, { trusted: true });
+        return { kept: String(k.id), gone: String(g.id) };
+      }),
+    );
+    // a hook that refuses to let this one row go (as a module's guard or a constraint would): its savepoint fails
+    await e.db.query(`create or replace function test_keep_demo_row() returns trigger language plpgsql as $f$ begin if old.id = '${kept}' then raise exception 'این ردیف نگه داشته می‌شود'; end if; return old; end $f$`);
+    await e.db.query(`create trigger test_keep_demo_row before delete on sm_incidents for each row execute function test_keep_demo_row()`);
+    try {
+      const report = await purge(e);
+      // the purge ended, the row is still there, and the report counts it
+      expect(await e.db.one(`select 1 as x from sm_demo_packs where org_id = $1`, [e.org])).toBeNull();
+      expect(await e.db.one(`select 1 as x from sm_incidents where id = $1 and deleted_at is null`, [kept])).toBeTruthy();
+      expect(report!.skipped).toBeGreaterThanOrEqual(1);
+      // the ledger holds what went, never a row the server still holds (before 1.1.5's fix it held both)
+      expect(await e.db.one(`select 1 as x from sm_demo_purged where org_id = $1 and row_id = $2`, [e.org, gone])).toBeTruthy();
+      expect(await e.db.one(`select 1 as x from sm_groups where id = $1`, [gone])).toBeNull();
+      expect(await e.db.one(`select 1 as x from sm_demo_purged where org_id = $1 and row_id = $2`, [e.org, kept])).toBeNull();
+      const alive = await e.db.one<{ n: number }>(`select count(*)::int as n from sm_incidents x join sm_demo_purged p on p.org_id = $1 and p.row_id = x.id where x.deleted_at is null`, [e.org]);
+      expect(alive!.n).toBe(0);
+    } finally {
+      await e.db.query(`drop trigger if exists test_keep_demo_row on sm_incidents`);
+    }
   }, 600_000);
 });
 

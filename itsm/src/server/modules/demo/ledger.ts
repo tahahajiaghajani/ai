@@ -8,10 +8,12 @@
 // Kept at least LEDGER_DAYS, and until every Windows app of the organisation has pulled since (an app that has not
 // synced for LEDGER_DEVICE_DAYS no longer holds it back: it reads everything again anyway when it returns, the purge
 // watermark sees to that) — the job `demo.ledger`, queued by the purge, a day at a time.
+import { physicalTables } from "@shared/tables";
 import type { Queryable } from "../../db";
 import { pgArray } from "../../db";
 import { enqueue, registerJobHandler, type JobConfig } from "../../jobs";
 import { ident } from "../../db/sql";
+import { archivable, archiveTableOf } from "../../engine/ddl";
 
 /** Days a purged id is kept at least. */
 export const LEDGER_DAYS = 30;
@@ -36,11 +38,18 @@ export const isPurgedSql = (e: string): string => `exists (select 1 from sm_demo
 /** The name a content-free account tombstone carries (shown wherever an old Windows app still lists its trail). */
 export const PURGED_ACCOUNT_NAME = "حساب نمایشی حذف‌شده";
 
+/** A table name the registry may hold (the capture trigger's tables are `sm_…`). */
+const TABLE_NAME = /^sm_[a-z0-9_]+$/;
+
 /**
  * Record what the purge removed (or left as a tombstone) in the ledger: `rows`, or — without them — the pack's registry
- * as it stands: every row but its jobs (a job never reaches a Windows app) and the accounts that live on (one kept for
- * another organisation is no demo data any more). Idempotent (the first time a row was recorded stays). Called by the
- * purge's remove and finish phases, inside their transaction; it also makes sure the ledger's cleanup is queued.
+ * as it stands: every row that is gone or a tombstone now, but its jobs (a job never reaches a Windows app). A row
+ * still alive is no purged data and stays out: one the remove phase could not remove (its savepoint failed; the
+ * report counts it under `skipped`) — a push of it is judged as any row's, and a later purge does not take it for
+ * demo data —, and an account that lives on (one kept for another organisation is no demo data any more). An archived
+ * row is recorded under the hot table, like the registry, and is alive while its archive copy is there. Idempotent (the
+ * first time a row was recorded stays). Called by the purge's remove and finish phases, inside their transaction; it
+ * also makes sure the ledger's cleanup is queued.
  */
 export async function recordPurged(tx: Queryable, orgId: string, rows?: PurgedRow[]): Promise<number> {
   let n = 0;
@@ -55,15 +64,33 @@ export async function recordPurged(tx: Queryable, orgId: string, rows?: PurgedRo
       n = r?.n ?? 0;
     }
   } else {
-    const r = await tx.one<{ n: number }>(
-      `with i as (insert into sm_demo_purged (org_id, row_id, tbl)
-         select d.org_id, d.row_id, d.tbl from sm_demo_rows d
-          where d.org_id = $1 and d.tbl <> 'sm_jobs'
-            and (d.tbl <> 'sm_users' or not exists (select 1 from sm_users u where u.id = d.row_id and coalesce(u.prefs ->> 'demo_purged', '') = ''))
-         on conflict (org_id, row_id) do nothing returning 1) select count(*)::int as n from i`,
+    const archives = new Map(physicalTables().filter(archivable).map((d) => [d.table, archiveTableOf(d)]));
+    const tables = await tx.query<{ tbl: string; here: boolean; soft: boolean }>(
+      `select t.tbl, to_regclass(t.tbl) is not null as here,
+              exists (select 1 from information_schema.columns c where c.table_schema = current_schema() and c.table_name = t.tbl and c.column_name = 'deleted_at') as soft
+         from (select distinct d.tbl from sm_demo_rows d where d.org_id = $1 and d.tbl <> 'sm_jobs') t`,
       [orgId],
     );
-    n = r?.n ?? 0;
+    for (const { tbl, here, soft } of tables) {
+      // what keeps a row out of the ledger: it is alive (not a tombstone), or an account that lives on
+      let alive = "false";
+      if (tbl === "sm_users") alive = `exists (select 1 from sm_users u where u.id = d.row_id and coalesce(u.prefs ->> 'demo_purged', '') = '')`;
+      else if (here && TABLE_NAME.test(tbl)) {
+        alive = `exists (select 1 from ${ident(tbl)} x where x.id = d.row_id${soft ? " and x.deleted_at is null" : ""})`;
+        const copy = archives.get(tbl);
+        if (copy && TABLE_NAME.test(copy) && (await tx.one<{ x: boolean }>(`select to_regclass($1) is not null as x`, [copy]))?.x) {
+          alive += ` or exists (select 1 from ${ident(copy)} a where a.id = d.row_id)`;
+        }
+      }
+      const r = await tx.one<{ n: number }>(
+        `with i as (insert into sm_demo_purged (org_id, row_id, tbl)
+           select d.org_id, d.row_id, d.tbl from sm_demo_rows d
+            where d.org_id = $1 and d.tbl = $2 and not (${alive})
+           on conflict (org_id, row_id) do nothing returning 1) select count(*)::int as n from i`,
+        [orgId, tbl],
+      );
+      n += r?.n ?? 0;
+    }
   }
   // the cleanup's first run: when the shortest stay is over (a queued one is kept: it runs no later)
   await enqueue(tx, { kind: "demo.ledger", orgId, payload: {}, dedupeKey: "demo.ledger", delayMs: LEDGER_DAYS * DAY, maxAttempts: 100 });
