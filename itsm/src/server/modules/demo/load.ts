@@ -361,14 +361,39 @@ async function stepGroups({ memo }: StepArgs, sys: Ctx): Promise<boolean> {
   return true;
 }
 
+/** Addresses tried for one account of the pack (its own, then «agent.1a2b3c4d.2@…» and on). */
+const ADDRESS_TRIES = 20;
+
 /**
  * One account of the pack (recorded for the purge; no password unless it is a persona the presenter signs in as). An
  * account with the persona's address already there — one an earlier purge kept because it belongs to another
  * organisation too — is marked for the pack again, never inserted twice (the address is unique): it leaves the
- * purged-id ledger, and its membership here comes back.
+ * purged-id ledger, and its membership here comes back. Never someone else's account: one another organisation's pack
+ * holds (`prefs.demo_org` names it), or one of this organisation's own people (a live member the pack does not hold, a
+ * former persona an administrator added back) — the next free address is taken instead («agent.1a2b3c4d.2@…»; the
+ * console lists the address stored).
  */
 export async function addPerson(tx: Tx, sys: Ctx, orgId: string, p: { email: string; name: string; title: string; unit?: string; location?: string; manager?: string | null; roles: string[]; hash: string | null; role?: "member" | "viewer" }): Promise<string> {
-  const kept = await tx.one<{ id: string }>(`select id from sm_users where lower(email) = lower($1)`, [p.email]);
+  let email = p.email;
+  let kept: { id: string } | null = null;
+  for (let n = 2; ; n++) {
+    const found = await tx.one<{ id: string; theirs: boolean }>(
+      `select u.id::text as id,
+              case when coalesce(u.prefs ->> 'demo_org', '') = $2 then false
+                   when coalesce(u.prefs ->> 'demo_org', '') <> '' then true
+                   else exists (select 1 from sm_org_members m where m.org_id = $3 and m.user_id = u.id and m.deleted_at is null)
+                        and not exists (select 1 from sm_demo_rows d where d.org_id = $3 and d.row_id = u.id)
+              end as theirs
+         from sm_users u where lower(u.email) = lower($1)`,
+      [email, orgId, orgId],
+    );
+    if (!found?.theirs) {
+      kept = found ? { id: found.id } : null;
+      break;
+    }
+    if (n > ADDRESS_TRIES) throw new Error(`نشانی «${p.email}» و نشانی‌های جایگزین آن همه از آنِ حساب‌های دیگرند؛ حساب نمایشی ساخته نشد`);
+    email = p.email.replace("@", `.${n}@`);
+  }
   const id = kept?.id ?? uuidv7();
   if (kept) {
     await tx.query(
@@ -379,7 +404,7 @@ export async function addPerson(tx: Tx, sys: Ctx, orgId: string, p: { email: str
     );
     await forgetPurged(tx, orgId, [id]);
   } else {
-    await tx.query(`insert into sm_users (id, email, full_name, password_hash, prefs) values ($1, $2, $3, $4, $5::jsonb)`, [id, p.email, p.name, p.hash, JSON.stringify({ demo_org: orgId })]);
+    await tx.query(`insert into sm_users (id, email, full_name, password_hash, prefs) values ($1, $2, $3, $4, $5::jsonb)`, [id, email, p.name, p.hash, JSON.stringify({ demo_org: orgId })]);
   }
   await tx.query(`insert into sm_demo_rows (org_id, row_id, tbl) values ($1, $2, 'sm_users') on conflict do nothing`, [orgId, id]);
   await tx.query(
