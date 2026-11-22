@@ -2,8 +2,13 @@
 // from 10 minutes, danger from an hour — with what to do for each edition. On the web version the queue runs only from
 // people's work and the minute heartbeat (pg_cron calling /api/cron/tick), and the check says whether that heartbeat
 // is set up; 1,725 jobs waited five days in production without a word on this page.
+// Kariz 1.1.5: a job's claim stamps its `updated_at` and its worker's heartbeat renews its lock, so the row names a job
+// that has held the queue for minutes by its claim time — and advises no restart while its lock is live — and a second
+// row («کارهای ناتمام در آخرین تلاش») counts the jobs failed in the last 24 hours because their worker stopped during
+// their last allowed attempt.
 import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { systemHealth, waitText, type HealthCheck, type SystemHealth } from "@server/modules/platform/health";
+import { EXHAUSTED_ERROR, enqueue, registerJobHandler, tick } from "@server/jobs";
 import { makeServer, quietLog } from "./helpers";
 import type { ServerConfig, ServerEditionBridge } from "@server/context";
 import type { Db, Queryable } from "@server/db";
@@ -165,12 +170,14 @@ describe("the job queue on «سلامت سامانه»", () => {
   });
 
   // one long job holds the queue (the Windows app runs one job at a time; the server edition's round waits for each of
-  // its jobs) and its 5-minute lock, never renewed, has expired: the job may well still run, and a restart would cut it
-  // and run it again from the start (JOBS-3 of the 1.1.4 review)
-  it("a job that has run for minutes with its lock expired is named, and no restart is advised while it may still run", async () => {
+  // its jobs) and its lock has expired: its worker stopped (the queue takes the job again), and a restart would only cut
+  // the jobs in progress (JOBS-3 of the 1.1.4 review). Its claim stamped `updated_at` 7 minutes ago (1.1.5: the
+  // heartbeat renews the lock, so the lock no longer tells when the job was claimed)
+  it("a job that has run for minutes with its lock expired is named, and no restart is advised", async () => {
     await due(11, 60);
     await db.query(
-      `insert into sm_jobs (id, kind, status, attempts, locked_by, locked_until) values (gen_random_uuid(), 'test.longsync', 'running', 1, 'w-live', now() - interval '2 minutes')`,
+      `insert into sm_jobs (id, kind, status, attempts, locked_by, locked_until, updated_at)
+       values (gen_random_uuid(), 'test.longsync', 'running', 1, 'w-live', now() - interval '2 minutes', now() - interval '7 minutes')`,
     );
     await db.query(`insert into sm_jobs (id, kind, status, attempts, done_at) values (gen_random_uuid(), 'test.health', 'done', 1, now() - interval '7 minutes')`);
     const desktop = await systemHealth(cfgOf({ mode: "desktop" }));
@@ -179,21 +186,78 @@ describe("the job queue on «سلامت سامانه»", () => {
     expect(d.detail).not.toContain("ببندید و دوباره باز کنید");
     const s = jobs(await systemHealth(cfgOf({ server: serverBridge })));
     expect(s.detail).not.toContain("دوباره راه‌اندازی کنید");
-    expect(desktop.jobs).toMatchObject({ due: 60, stalled: 1, active: false, running: { kind: "test.longsync" } });
+    expect(desktop.jobs).toMatchObject({ due: 60, stalled: 1, active: false, running: { kind: "test.longsync", live: false } });
     expect(desktop.jobs!.running!.run_ms).toBeGreaterThanOrEqual(7 * 60_000);
     expect(desktop.jobs!.running!.run_ms).toBeLessThan(8 * 60_000);
     expect(d.detail).toContain("«test.longsync» از ۷ دقیقه پیش");
     expect(d.detail).toContain("برنامه را باز نگه دارید");
     expect(s.detail).toContain("«test.longsync» از ۷ دقیقه پیش");
     expect(s.detail).toContain("سرویس را دوباره راه‌اندازی نکنید");
-    // past 2 hours its worker counts as stopped: the advice is the stopped queue's again
-    await db.query(`update sm_jobs set locked_until = now() - interval '2 hours 55 minutes' where kind = 'test.longsync'`);
+    // past 2 hours (the heartbeat's maximum) its worker counts as hung: the advice is the stopped queue's again
+    await db.query(`update sm_jobs set locked_until = now() - interval '2 hours 55 minutes', updated_at = now() - interval '3 hours' where kind = 'test.longsync'`);
     expect(jobs(await systemHealth(cfgOf({ mode: "desktop" }))).detail).toBe(
       "اجرای کارهای پس‌زمینه متوقف به نظر می‌رسد؛ برنامه را ببندید و دوباره باز کنید و اگر ماند، فایل گزارش برنامه را بفرستید",
     );
     expect(jobs(await systemHealth(cfgOf({ server: serverBridge }))).detail).toBe(
       "اجرای کارهای پس‌زمینه متوقف به نظر می‌رسد؛ سرویس KarizApp را دوباره راه‌اندازی کنید و «سلامت سرور» را ببینید",
     );
+  });
+
+  // JOBS-3 end to end with the 1.1.5 heartbeat: a real tick (the Windows app's: one job at a time) holds a job whose
+  // worker is alive; its heartbeat keeps the lock live, and its claim was 7 minutes ago — the row names it by its claim,
+  // and neither edition is told to restart (1.1.4 read the claim off the lock, which the heartbeat now moves forward)
+  it("a live job that has held the queue for minutes is named by its claim time while its heartbeat keeps its lock", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let started!: () => void;
+    const running = new Promise<void>((r) => (started = r));
+    const off = registerJobHandler("test.gated", async () => {
+      started();
+      await gate;
+    });
+    try {
+      const id = await enqueue(db, { kind: "test.gated", maxAttempts: 2 });
+      const t = tick(cfgOf({ mode: "desktop" }), { budgetMs: 60_000, max: 1, cleanup: false, concurrency: 1, heartbeatMs: 100 });
+      await running;
+      // the job was claimed 7 minutes ago (as if it had run since), and 60 jobs have waited 11 minutes behind it
+      await db.query(`update sm_jobs set updated_at = now() - interval '7 minutes' where id = $1`, [id]);
+      await due(11, 60);
+      await new Promise((r) => setTimeout(r, 300));
+      for (const over of [{ mode: "desktop" as const }, { server: serverBridge }]) {
+        const h = await systemHealth(cfgOf(over));
+        expect(h.jobs).toMatchObject({ due: 60, stalled: 0, active: true, running: { kind: "test.gated", live: true } });
+        expect(h.jobs!.running!.run_ms).toBeGreaterThanOrEqual(7 * 60_000);
+        const c = jobs(h);
+        expect(c.tone).toBe("warning");
+        expect(c.detail).toContain("کار «test.gated» از ۷ دقیقه پیش در حال اجراست و بقیهٔ صف پشت آن منتظر است");
+        expect(c.detail).not.toContain("دوباره راه‌اندازی کنید");
+        expect(c.detail).not.toContain("ببندید و دوباره باز کنید");
+      }
+      release();
+      await t;
+    } finally {
+      release();
+      off();
+    }
+  });
+
+  it("«کارهای ناتمام در آخرین تلاش» counts the jobs failed in the last 24 hours because their worker stopped at their last attempt", async () => {
+    const exhausted = (h: SystemHealth) => h.checks.find((x) => x.key === "jobs_exhausted");
+    const none = await systemHealth(cfgOf());
+    expect(exhausted(none)).toEqual({ key: "jobs_exhausted", title: "کارهای ناتمام در آخرین تلاش", tone: "ok", value: "هیچ کاری در ۲۴ ساعت گذشته" });
+    expect(none.ok).toBe(true);
+    const failed = (error: string, hoursAgo: number) =>
+      db.query(`insert into sm_jobs (id, kind, status, attempts, last_error, done_at) values (gen_random_uuid(), 'test.health', 'failed', 3, $1, now() - ($2::int * interval '1 hour'))`, [error, hoursAgo]);
+    await failed(EXHAUSTED_ERROR, 1);
+    await failed(`سرویس پاسخ نداد · ${EXHAUSTED_ERROR}`, 20);
+    await failed("سرویس پاسخ نداد", 2); // a handler's error at its last attempt: a failure of its own, not this row's
+    await failed(EXHAUSTED_ERROR, 30); // older than 24 hours
+    const h = await systemHealth(cfgOf({ mode: "desktop" }));
+    expect(h.jobs).toMatchObject({ exhausted_24h: 2 });
+    const c = exhausted(h)!;
+    expect(c).toMatchObject({ tone: "warning", value: "۲ کار در ۲۴ ساعت گذشته" });
+    expect(c.detail).toContain("«ناموفق»");
+    expect(h.ok).toBe(false);
   });
 
   it("counts stop at 10,001 and stalled workers are counted", async () => {

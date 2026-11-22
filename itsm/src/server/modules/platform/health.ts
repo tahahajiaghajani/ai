@@ -4,13 +4,14 @@
 import type { ServerConfig } from "../../context";
 import type { Db } from "../../db";
 import { MIGRATIONS } from "../../db/migrations";
+import { EXHAUSTED_ERROR, HEARTBEAT_MAX_MS } from "../../jobs";
 import { APP_VERSION } from "@shared/constants";
 import { faDigits, formatNumber } from "@shared/format";
 
 export type HealthTone = "ok" | "warning" | "danger" | "neutral";
 
 export interface HealthCheck {
-  key: "db" | "migrations" | "secret" | "admins" | "db_size" | "jobs";
+  key: "db" | "migrations" | "secret" | "admins" | "db_size" | "jobs" | "jobs_exhausted";
   title: string;
   tone: HealthTone;
   /** the state in a few words */
@@ -51,12 +52,15 @@ export interface JobsHealth {
    */
   active: boolean;
   /**
-   * The running job its worker claimed first (when, and for how long), its lock live or expired; null when none runs.
-   * A lock is never renewed (5 minutes from the claim), so a job that has run longer may still run — one long job holds
-   * the Windows app's queue (one job at a time) and the server edition's round (it waits for each of its jobs) — or its
-   * worker may have stopped; nothing here tells which until `JOBS_LONG_RUN_MS`.
+   * The running job its worker claimed first: when (its claim stamps `updated_at`; the heartbeat moves only the lock),
+   * for how long, and whether its lock is live — its worker's heartbeat renews it every minute, so a live lock is a
+   * worker at work, and an expired one a worker that stopped (the queue takes the job again). Null when none runs. One
+   * long job holds the Windows app's queue (one job at a time) and the server edition's round (it waits for each of
+   * its jobs).
    */
-  running: { kind: string; since: string; run_ms: number } | null;
+  running: { kind: string; since: string; run_ms: number; live: boolean } | null;
+  /** jobs failed in the last 24 hours because their worker stopped during their last allowed attempt (`EXHAUSTED_ERROR`) */
+  exhausted_24h: number;
   /**
    * The web version's minute heartbeat: a pg_cron job that calls /api/cron/tick ("set"), none ("missing"), or it could
    * not be read ("unknown"); null on the Windows app and the server edition (their own timers run the queue).
@@ -78,12 +82,17 @@ export const JOBS_DANGER_MS = 60 * 60_000;
 /** A job finished within this long (or one held by its worker now): the queue runs (a job's lock lasts as long). */
 export const JOBS_ACTIVE_MS = 5 * 60_000;
 /**
- * A job running longer than this counts as one whose worker stopped. Until then (a backup, a directory sync, an import or
- * an asset reconcile at a bank's scale may run for many minutes) «صف کارهای پس‌زمینه» names it and advises no restart,
- * which would cut it and run it again from the start; a lock heartbeat that tells a live worker from a dead one is for
- * 1.1.5.
+ * A running job claimed this long ago holds the queue behind it (the Windows app runs one job at a time, the server
+ * edition's round waits for each of its jobs): «صف کارهای پس‌زمینه» names it instead of the queue's general state.
  */
-export const JOBS_LONG_RUN_MS = 2 * 3600_000;
+export const JOBS_HOLD_MS = JOBS_ACTIVE_MS;
+/**
+ * A job running longer than this counts as one whose worker hung: its heartbeat stops renewing its lock there
+ * (`HEARTBEAT_MAX_MS`). Until then (a backup, a directory sync, an import or an asset reconcile at a bank's scale may
+ * run for many minutes) «صف کارهای پس‌زمینه» names it and advises no restart, which would cut it and run it again from
+ * the start.
+ */
+export const JOBS_LONG_RUN_MS = HEARTBEAT_MAX_MS;
 
 /** A wait in Persian words: «۲۵ دقیقه», «۲ ساعت و ۵ دقیقه», «۳ روز و ۴ ساعت». */
 export function waitText(ms: number): string {
@@ -106,18 +115,24 @@ async function jobsHealth(db: Db, web: boolean): Promise<JobsHealth> {
     running_kind: string | null;
     running_since: string | null;
     running_ms: number | null;
+    running_live: boolean | null;
+    exhausted: number;
   }>(
-    // the oldest running job by its claim (sm_jobs_running_idx): the claim locks a job for 5 minutes (jobs/index.ts)
+    // the oldest running job by its claim (the claim stamps updated_at; the heartbeat renews only locked_until), and the
+    // jobs failExhausted failed in the last 24 hours (their last error ends with EXHAUSTED_ERROR)
     `select q.*, coalesce((extract(epoch from now() - q.oldest_due) * 1000)::bigint, 0) as wait_ms,
-            r.kind as running_kind, r.since as running_since, (extract(epoch from now() - r.since) * 1000)::bigint as running_ms
+            r.kind as running_kind, r.since as running_since, (extract(epoch from now() - r.since) * 1000)::bigint as running_ms, r.live as running_live
      from (select (select min(run_at) from sm_jobs where status = 'queued' and run_at <= now()) as oldest_due,
                   (select count(*)::int from (select 1 from sm_jobs where status = 'queued' and run_at <= now() limit ${JOB_COUNT_CAP}) d) as due,
                   (select count(*)::int from (select 1 from sm_jobs where status = 'running' and locked_until < now() limit ${JOB_COUNT_CAP}) s) as stalled,
                   (select max(done_at) from sm_jobs where status in ('done', 'failed')) as last_done,
                   (exists (select 1 from sm_jobs where status = 'running' and locked_until >= now())
-                   or exists (select 1 from sm_jobs where status in ('done', 'failed') and done_at > now() - ${JOBS_ACTIVE_MS} * interval '1 millisecond')) as active) q
-     left join lateral (select kind, locked_until - interval '5 minutes' as since from sm_jobs where status = 'running'
-                        order by locked_until limit 1) r on true`,
+                   or exists (select 1 from sm_jobs where status in ('done', 'failed') and done_at > now() - ${JOBS_ACTIVE_MS} * interval '1 millisecond')) as active,
+                  (select count(*)::int from (select 1 from sm_jobs where status = 'failed' and done_at > now() - interval '24 hours'
+                     and right(last_error, char_length($1::text)) = $1::text limit ${JOB_COUNT_CAP}) x) as exhausted) q
+     left join lateral (select kind, updated_at as since, locked_until >= now() as live from sm_jobs where status = 'running'
+                        order by updated_at limit 1) r on true`,
+    [EXHAUSTED_ERROR],
   );
   return {
     due: r?.due ?? 0,
@@ -126,7 +141,11 @@ async function jobsHealth(db: Db, web: boolean): Promise<JobsHealth> {
     wait_ms: Math.max(0, Number(r?.wait_ms ?? 0)),
     last_done: r?.last_done ?? null,
     active: !!r?.active,
-    running: r?.running_kind && r.running_since ? { kind: r.running_kind, since: r.running_since, run_ms: Math.max(0, Number(r.running_ms ?? 0)) } : null,
+    running:
+      r?.running_kind && r.running_since
+        ? { kind: r.running_kind, since: r.running_since, run_ms: Math.max(0, Number(r.running_ms ?? 0)), live: !!r.running_live }
+        : null,
+    exhausted_24h: Number(r?.exhausted ?? 0),
     heartbeat: web ? await heartbeat(db) : null,
   };
 }
@@ -154,21 +173,29 @@ function jobsCheck(cfg: ServerConfig, j: JobsHealth): HealthCheck {
   }
   const count = j.due >= JOB_COUNT_CAP ? `بیش از ${formatNumber(JOB_COUNT_CAP - 1)}` : formatNumber(j.due);
   // the Windows app and the server edition run the queue on their own timer: a queue being worked is behind, not stopped
-  // (a bulk import's record events, the app catching up after it was closed), and a restart would cut its jobs — so would
-  // a restart while one long job holds the queue, its lock expired but its worker perhaps alive (JOBS_LONG_RUN_MS)
-  const long = j.running && j.running.run_ms < JOBS_LONG_RUN_MS ? `کار «${j.running.kind}» از ${waitText(j.running.run_ms)} پیش در حال اجراست (یا کارگرش متوقف شده است) و بقیهٔ صف پشت آن منتظر است` : null;
+  // (a bulk import's record events, the app catching up after it was closed), and a restart would cut its jobs. One job
+  // that has run for a while holds the queue behind it (JOBS_HOLD_MS): it is named, and no restart is advised — its
+  // worker's heartbeat keeps its lock live while it works (an expired lock: the worker stopped, and the queue takes the
+  // job again) — until JOBS_LONG_RUN_MS, where the heartbeat gives up and a worker still holding it has hung
+  const r = j.running;
+  const long =
+    r && r.run_ms >= JOBS_HOLD_MS && r.run_ms < JOBS_LONG_RUN_MS
+      ? r.live
+        ? `کار «${r.kind}» از ${waitText(r.run_ms)} پیش در حال اجراست و بقیهٔ صف پشت آن منتظر است`
+        : `کار «${r.kind}» از ${waitText(r.run_ms)} پیش در حال اجرا بود و کارگرش دیگر خبری نداده است؛ صف آن را به‌زودی دوباره برمی‌دارد`
+      : null;
   const detail =
     cfg.mode === "desktop"
-      ? j.active
-        ? "کارهای پس‌زمینه اجرا می‌شوند ولی صف عقب است؛ برنامه را باز نگه دارید تا کارهای مانده انجام شوند"
-        : long
-          ? `${long}؛ برنامه را باز نگه دارید، چون بستن آن این کار را نیمه‌کاره قطع می‌کند`
+      ? long
+        ? `${long}؛ برنامه را باز نگه دارید، چون بستن آن این کار را نیمه‌کاره قطع می‌کند`
+        : j.active
+          ? "کارهای پس‌زمینه اجرا می‌شوند ولی صف عقب است؛ برنامه را باز نگه دارید تا کارهای مانده انجام شوند"
           : "اجرای کارهای پس‌زمینه متوقف به نظر می‌رسد؛ برنامه را ببندید و دوباره باز کنید و اگر ماند، فایل گزارش برنامه را بفرستید"
       : cfg.server
-        ? j.active
-          ? "کارهای پس‌زمینه اجرا می‌شوند ولی صف عقب است؛ سرویس را دوباره راه‌اندازی نکنید و کار زمان‌بند را در «سلامت سرور» ببینید"
-          : long
-            ? `${long}؛ سرویس را دوباره راه‌اندازی نکنید، چون این کار نیمه‌کاره قطع می‌شود، و کار زمان‌بند را در «سلامت سرور» ببینید`
+        ? long
+          ? `${long}؛ سرویس را دوباره راه‌اندازی نکنید، چون این کار نیمه‌کاره قطع می‌شود، و کار زمان‌بند را در «سلامت سرور» ببینید`
+          : j.active
+            ? "کارهای پس‌زمینه اجرا می‌شوند ولی صف عقب است؛ سرویس را دوباره راه‌اندازی نکنید و کار زمان‌بند را در «سلامت سرور» ببینید"
             : "اجرای کارهای پس‌زمینه متوقف به نظر می‌رسد؛ سرویس KarizApp را دوباره راه‌اندازی کنید و «سلامت سرور» را ببینید"
         : j.heartbeat === "set"
           ? "تپش دقیقه‌ای راه‌اندازی شده ولی صف عقب است: در Supabase ← Integrations ← Cron تاریخچهٔ «itsm-tick» و پاسخ‌هایش را ببینید (docs/SETUP_FA.md بخش ۹)"
@@ -181,6 +208,24 @@ function jobsCheck(cfg: ServerConfig, j: JobsHealth): HealthCheck {
     tone: j.wait_ms >= JOBS_DANGER_MS ? "danger" : "warning",
     value: `قدیمی‌ترین کار سررسیده ${waitText(j.wait_ms)} منتظر است (${count} کار سررسیده)`,
     detail,
+  };
+}
+
+/**
+ * The jobs the queue failed in the last 24 hours because their worker stopped during their last allowed attempt (the
+ * web version's function cut at its time limit, a process that died or closed abruptly): their work did not finish and
+ * is not tried again — each kind's own last word (a backup «failed», the next round of a chain) is all that ran.
+ */
+function exhaustedCheck(j: JobsHealth): HealthCheck {
+  const title = "کارهای ناتمام در آخرین تلاش";
+  if (!j.exhausted_24h) return { key: "jobs_exhausted", title, tone: "ok", value: "هیچ کاری در ۲۴ ساعت گذشته" };
+  const n = j.exhausted_24h >= JOB_COUNT_CAP ? `بیش از ${formatNumber(JOB_COUNT_CAP - 1)}` : formatNumber(j.exhausted_24h);
+  return {
+    key: "jobs_exhausted",
+    title,
+    tone: "warning",
+    value: `${n} کار در ۲۴ ساعت گذشته`,
+    detail: "کارگر این کارها در آخرین تلاش مجازشان پیش از پایان متوقف شد و دیگر اجرا نمی‌شوند؛ آن‌ها را در فهرست کارهای پس‌زمینه با وضعیت «ناموفق» ببینید و اگر تکرار می‌شود، فایل گزارش را بفرستید",
   };
 }
 
@@ -264,7 +309,7 @@ export async function systemHealth(cfg: ServerConfig): Promise<SystemHealth> {
   // the background jobs: the oldest due job's wait (the web version runs the queue only from people's work and its
   // heartbeat, so a missing heartbeat shows here first)
   const jobs = reachable ? await jobsHealth(db, cfg.mode === "cloud" && !cfg.server).catch(() => null) : null;
-  if (jobs) checks.push(jobsCheck(cfg, jobs));
+  if (jobs) checks.push(jobsCheck(cfg, jobs), exhaustedCheck(jobs));
 
   return {
     ok: checks.every((c) => c.tone === "ok" || c.tone === "neutral"),
