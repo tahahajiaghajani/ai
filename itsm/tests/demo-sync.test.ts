@@ -470,7 +470,8 @@ describe("demo purge and Windows apps", () => {
     await web.post(`/o/${org}/demo/purge`, { confirm: "حذف کامل" });
     await purgeUntil(null);
     expect((await demoStatus(cloudDb, org)).state).toBe("tombstoned");
-    // one bump per phase that changed the organisation's structure — never one per group or unit (eight here)
+    // one bump per purge step (transaction) that changed the organisation's structure — never one per group or unit
+    // (eight here)
     const purged = await epoch();
     expect(purged - before).toBeGreaterThanOrEqual(1);
     expect(purged - before).toBeLessThanOrEqual(2);
