@@ -2,9 +2,13 @@
 // opened with nobody to act — nobody was found, or more people than the step takes.
 //   · what the case's journal says (`waitingLine`): the line, then the resolver's reasons («مدیر گروه» در «…» دارنده‌ای
 //     ندارد»; «۲ نفر از دارندگان … حساب نمایشی‌اند…»), so the managers and the requester read why;
-//   · «مسئولان گردش‌کار باخبر شدند» only when the managers' notice reaches someone (`managersTold`): the seeded rule
-//     «مرحلهٔ بی‌انجام‌دهنده» is on and the case has managers, or administrators, who get bells — the real managers of
-//     a demo pack's case hear nothing about it (docs/DEMO_FA.md), and the journal says so instead;
+//   · «مسئولان گردش‌کار (…) باخبر شدند» names the people the managers' notice reaches (`managersNotice`): the seeded
+//     rule «مرحلهٔ بی‌انجام‌دهنده» is on and tells the event's people, and of the case's managers — or, when it names
+//     none, the administrators — those who may be told (./readers.ts: the demo boundary, active members); they become
+//     readers of the case before the notice goes, and the step's event names them, so the notice goes to exactly them
+//     (api/notices.ts). Those who could not be told are named as such; the real managers of a demo pack's case hear
+//     nothing about it (docs/DEMO_FA.md), and the journal says so instead. A re-resolution that tells nobody (a
+//     manager's, the organisation's job) never claims a notice (`nobodyLine(…, "quiet")`);
 //   · the round's wait keeps the reason, the line, the reasons and (more than the step takes) the candidates
 //     (`waitState`), which the case page shows its managers (`waitingSteps`) and a re-resolution replaces;
 //   · `openRoundTasks`: the tasks of a round (one per person, with the step's due time), for an opening and for a
@@ -16,33 +20,59 @@ import { nobodyMessage } from "@shared/process/assignees";
 import type { StepWaiting } from "@shared/process/waiting";
 import type { Ctx } from "../../../context";
 import { pgArray, type Queryable, type Tx } from "../../../db";
-import { demoPeople, isDemoRow } from "../../../db/scope";
+import { demoPeople } from "../../../db/scope";
 import { createIn, orgTz } from "../../../engine";
 import { config as slaConfig } from "../../sla/common";
 import { calendarsOf } from "../../sla/calendars";
+import { audienceOf, nameList, type Audience, type CaseFacts } from "./readers";
 import { isId, peopleNames, stepWaitKey, type CaseRow, type TaskRow } from "./store";
 
 const iso = (ms: number) => new Date(ms).toISOString();
 const ids = (v: unknown): string[] => [...new Set((Array.isArray(v) ? v : []).filter(isId).map((x) => x.toLowerCase()))];
-
-/** Whether the managers' notice about a step without people reaches anyone. */
-export type Told = "told" | "demo" | "nobody" | "off";
+const sentence = (t: string) => (/[.!؟]$/.test(t.trim()) ? t.trim() : `${t.trim()}.`);
 
 /**
- * The journal's line for a step that found nobody: «…؛ مسئولان گردش‌کار باخبر شدند.» only when they were (`told`), else
- * what is true — a demo case's real managers get no notice, a process with no one to tell, the notice switched off.
- * `skip`: the step was passed by «از این مرحله بگذرد» (an approve step's pass counts as approved: its «تأیید شد» path).
+ * Whether the managers' notice about a step without people reaches anyone: «told» someone; «demo» — a pack's case
+ * whose managers are none of the pack's (no notice of it reaches them); «untold» — there are managers, none of whom
+ * could be told; «nobody» to tell; the notice switched «off»; «unrouted» — the rule is on but its recipients no longer
+ * include the people the event names (an administrator changed them), so it never goes to the managers. «quiet»: the
+ * line of a re-resolution that sends no notice.
  */
-export function nobodyLine(label: string | null | undefined, told: Told, skip?: { approve: boolean }): string {
+export type Told = "told" | "demo" | "untold" | "nobody" | "off" | "unrouted" | "quiet";
+
+/** The managers' notice of a step without people: whom it reaches and why the others not (./readers.ts). */
+export interface ManagersNotice extends Audience {
+  kind: Exclude<Told, "quiet">;
+  /** the case names no managers: the organisation's administrators stand in for them */
+  admins: boolean;
+}
+
+/**
+ * The journal's line for a step that found nobody: «…؛ مسئولان گردش‌کار (…) باخبر شدند.» naming those the managers'
+ * notice reached (and, a sentence each, those it could not), else what is true — a demo case's real managers get no
+ * notice, managers none of whom could be told, a process with no one to tell, the notice switched off, or (a
+ * re-resolution) that the step waits. `skip`: the step was passed by «از این مرحله بگذرد» (an approve step's pass
+ * counts as approved: its «تأیید شد» path).
+ */
+export function nobodyLine(label: string | null | undefined, told: Told | ManagersNotice, skip?: { approve: boolean }): string {
   const step = label ? `برای «${label}»` : "برای این مرحله";
   if (skip) return skip.approve ? `${step} کسی پیدا نشد؛ از این مرحله گذشت و تأییدشده به شمار آمد.` : nobodyMessage(label, "skip");
-  switch (told) {
+  const n = typeof told === "string" ? null : told;
+  const who = n?.admins ? "مدیران سازمان" : "مسئولان گردش‌کار";
+  const untold = (n?.untold ?? []).map(sentence);
+  switch (n?.kind ?? told) {
     case "told":
-      return nobodyMessage(label, "wait");
+      return n ? [`${step} کسی پیدا نشد؛ ${who} (${nameList(n.names)}) باخبر شدند.`, ...untold].join(" ") : nobodyMessage(label, "wait");
     case "demo":
       return `${step} کسی پیدا نشد؛ مرحله منتظر مسئولان گردش‌کار می‌ماند (پروندهٔ نمایشی است و اعلانی برای مسئولان واقعی فرستاده نمی‌شود).`;
+    case "untold":
+      return [`${step} کسی پیدا نشد؛ مرحله منتظر ${who} می‌ماند و اعلان به هیچ‌یک از آنان نرسید.`, ...untold].join(" ");
     case "nobody":
       return `${step} کسی پیدا نشد؛ مرحله منتظر می‌ماند و مسئولی برای باخبر شدن پیدا نشد.`;
+    case "quiet":
+      return `${step} کسی پیدا نشد؛ مرحله منتظر مسئولان گردش‌کار می‌ماند.`;
+    case "unrouted":
+      return `${step} کسی پیدا نشد؛ مرحله منتظر مسئولان گردش‌کار می‌ماند (اعلان «مرحلهٔ بی‌انجام‌دهنده» به مسئولان گردش‌کار فرستاده نمی‌شود).`;
     default:
       return `${step} کسی پیدا نشد؛ مرحله منتظر مسئولان گردش‌کار می‌ماند (اعلان «مرحلهٔ بی‌انجام‌دهنده» روشن نیست و کسی باخبر نشد).`;
   }
@@ -50,12 +80,14 @@ export function nobodyLine(label: string | null | undefined, told: Told, skip?: 
 
 /** The journal entry's body: the line, then each reason as a sentence of its own. */
 export function waitingLine(message: string, notes: readonly string[]): string {
-  const sentence = (t: string) => (/[.!؟]$/.test(t.trim()) ? t.trim() : `${t.trim()}.`);
   return [sentence(message), ...notes.filter((n) => n && n.trim()).map(sentence)].join(" ");
 }
 
-/** The people the managers' notice of a case goes to: its managers (named, and members of its groups), else the administrators. */
-async function noticeRecipients(q: Queryable, orgId: string, kase: Pick<CaseRow, "managers" | "manager_groups">): Promise<string[]> {
+/**
+ * The people the managers' notices of a case go to: its managers (named, and members of its groups), else — the
+ * process names none — the organisation's administrators (owners, «مدیر» members, holders of «مدیر سامانه»).
+ */
+export async function noticeRecipients(q: Queryable, orgId: string, kase: Pick<CaseRow, "managers" | "manager_groups">): Promise<{ users: string[]; admins: boolean }> {
   if (ids(kase.managers).length || ids(kase.manager_groups).length) {
     const groups = ids(kase.manager_groups);
     const members = groups.length
@@ -66,32 +98,41 @@ async function noticeRecipients(q: Queryable, orgId: string, kase: Pick<CaseRow,
           [orgId, pgArray(groups)],
         )
       : [];
-    return [...new Set([...ids(kase.managers), ...members.map((m) => String(m.user_id).toLowerCase())])];
+    return { users: [...new Set([...ids(kase.managers), ...members.map((m) => String(m.user_id).toLowerCase())])], admins: false };
   }
   const admins = await q.query<{ user_id: string }>(
     `select user_id from sm_org_members where org_id = $1 and deleted_at is null and is_active and role in ('owner', 'admin')
      union select user_id from sm_member_profiles where org_id = $1 and deleted_at is null and roles ? 'tenant_admin'`,
     [orgId],
   );
-  return [...new Set(admins.map((a) => String(a.user_id).toLowerCase()))];
+  return { users: [...new Set(admins.map((a) => String(a.user_id).toLowerCase()))], admins: true };
 }
 
 /**
- * Does the managers' notice of a step without people reach anyone (api/notices.ts sends it from the step's event)? The
- * seeded rule «مرحلهٔ بی‌انجام‌دهنده» is on, there is someone to tell, and — for a case of the demo pack, about which
- * only the pack's own people get bells (notify/deliver.ts) — one of them is the pack's.
+ * Whom the managers' notice of a step without people reaches (api/notices.ts sends it from the step's event, to the
+ * people the event names): the seeded rule «مرحلهٔ بی‌انجام‌دهنده» is on and tells the event's people, and of the
+ * recipients (`noticeRecipients`) those who may be told (./readers.ts `audienceOf`: of a pack's case only the pack's
+ * people, of the organisation's own none of them, active members). Read only: the opening makes `readers` readers.
  */
-export async function managersTold(q: Queryable, orgId: string, kase: Pick<CaseRow, "id" | "managers" | "manager_groups">): Promise<Told> {
-  const rule = await q.one(
-    `select 1 as x from sm_notification_rules where org_id = $1 and table_key = 'process_case' and event = 'custom' and custom_event = 'process_unassigned'
-       and active is not false and deleted_at is null limit 1`,
+export async function managersNotice(q: Queryable, orgId: string, kase: Pick<CaseFacts, "id"> & Partial<CaseFacts>): Promise<ManagersNotice> {
+  const none: Audience = { told: [], names: [], untold: [], demoOnly: false, readers: [] };
+  // the seeded rule (or a copy of it) on, and telling the event's people
+  const rule = await q.one<{ n: number; routed: boolean | null }>(
+    `select count(*)::int as n, bool_or(coalesce(recipients ->> 'event_users', 'false') = 'true') as routed from sm_notification_rules
+     where org_id = $1 and table_key = 'process_case' and event = 'custom' and custom_event = 'process_unassigned' and active is not false and deleted_at is null`,
     [orgId],
   );
-  if (!rule) return "off";
-  const users = await noticeRecipients(q, orgId, kase);
-  if (!users.length) return "nobody";
-  if (await isDemoRow(q, orgId, kase.id)) return (await demoPeople(q, orgId, users)).size ? "told" : "demo";
-  return "told";
+  if (!rule?.n) return { ...none, kind: "off", admins: false };
+  if (!rule.routed) return { ...none, kind: "unrouted", admins: false };
+  const { users, admins } = await noticeRecipients(q, orgId, { managers: kase.managers ?? null, manager_groups: kase.manager_groups ?? null });
+  if (!users.length) return { ...none, kind: "nobody", admins };
+  const a = await audienceOf(q, { org_id: orgId, requested_by: null, requested_for: null, participants: null, managers: null, manager_groups: null, ...kase }, users);
+  return { ...a, kind: a.told.length ? "told" : a.demoOnly ? "demo" : "untold", admins };
+}
+
+/** `managersNotice`'s kind alone. */
+export async function managersTold(q: Queryable, orgId: string, kase: Pick<CaseFacts, "id"> & Partial<CaseFacts>): Promise<Told> {
+  return (await managersNotice(q, orgId, kase)).kind;
 }
 
 /** What a waiting round's wait keeps (`sm_flow_waits.data`, beside `case`, `round` and the step's log key). */

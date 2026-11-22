@@ -25,7 +25,8 @@ import { resolveAssignees } from "../../positions";
 import { OPEN_STATES, processesRunHere, refreshCase, resolveInput, STEP_OPENED, type CaseRow, type VersionInfo } from "../engine";
 import { caseJournal } from "../engine/journal";
 import { caseTasks, loadVersionInfo, lockCase, peopleNames, stepWaitKey } from "../engine/store";
-import { formNode, managersTold, nobodyLine, openRoundTasks, waitingLine, waitState } from "../engine/waiting";
+import { addReaders } from "../engine/readers";
+import { formNode, managersNotice, nobodyLine, openRoundTasks, waitingLine, waitState } from "../engine/waiting";
 
 export const RERESOLVE_JOB = "process.reresolve";
 /** Changes of a burst (an import of holders, a directory sync) are taken together: the job runs this long after the first. */
@@ -147,19 +148,25 @@ export async function reresolveRoundIn(
     return { status, people, message: null, notes, label: node.label, round };
   }
 
-  // nobody, or more than the step takes: the round's wait keeps what was found now
+  // nobody, or more than the step takes: the round's wait keeps what was found now. Only a round that lost its person
+  // (the purge) tells the managers again — whom it reaches named, made readers first, as an opening does; a
+  // manager's re-resolution and the organisation's job tell nobody, so their line claims no notice (the wait keeps
+  // the opening's own line, which names whom it reached then)
   const reason = status === "too_many" ? "too_many" : "nobody";
-  const line = reason === "too_many" ? message ?? tooManyMessage(poolLimit(settings.action, quorumOf(settings))) : nobodyLine(node.label, await managersTold(tx, orgId, kase));
-  await tx.query(`update sm_flow_waits set data = (coalesce(data, '{}'::jsonb) - 'candidates') || $2::jsonb where id = $1`, [wait.id, JSON.stringify(waitState({ reason, message: line, notes, ...(candidates ? { candidates } : {}) }))]);
+  const notice = opts.lost ? await managersNotice(tx, orgId, kase) : null;
+  if (notice) await addReaders(tx, sys, kase, notice.readers);
+  const line = reason === "too_many" ? message ?? tooManyMessage(poolLimit(settings.action, quorumOf(settings))) : nobodyLine(node.label, notice ?? "quiet");
+  const kept = !notice && reason === "nobody" && was.reason === "nobody" && typeof was.message === "string" && was.message ? was.message : line;
+  await tx.query(`update sm_flow_waits set data = (coalesce(data, '{}'::jsonb) - 'candidates') || $2::jsonb where id = $1`, [wait.id, JSON.stringify(waitState({ reason, message: kept, notes, ...(candidates ? { candidates } : {}) }))]);
   if (opts.by) {
     const found = reason === "too_many" ? line : "کسی پیدا نشد";
-    await caseJournal(tx, sys, kase, waitingLine(`${asked}؛ ${found}`, notes), { author, data: { step: nodeId, round, reresolved: true, rules: opts.rules ?? "case", waiting: reason, message: line, notes } });
+    await caseJournal(tx, sys, kase, waitingLine(`${asked}؛ ${found}`, notes), { author, data: { step: nodeId, round, reresolved: true, rules: opts.rules ?? "case", waiting: reason, message: kept, notes } });
   } else if (opts.lost) {
-    await caseJournal(tx, sys, kase, waitingLine(`${asked}؛ ${line}`, notes), { data: { step: nodeId, round, reresolved: true, waiting: reason, message: line, notes } });
+    await caseJournal(tx, sys, kase, waitingLine(`${asked}؛ ${line}`, notes), { data: { step: nodeId, round, reresolved: true, waiting: reason, message: line, notes, told: notice?.told ?? [] } });
     await refreshCase(tx, sys, kase, version.graph, { tasks });
     await emitEvent(tx, sys, {
       kind: STEP_OPENED, table: "process_case", id: kase.id, number: kase.number,
-      data: { node: nodeId, label: node.label, round, action: node.step.action, people: [], status: reason, due_at: null, message: line, notes, returned: false, reresolved: true },
+      data: { node: nodeId, label: node.label, round, action: node.step.action, people: [], status: reason, due_at: null, message: line, notes, returned: false, reresolved: true, told: notice?.told ?? [] },
     });
   }
   return { status: reason, people: [], message: line, notes, label: node.label, round };

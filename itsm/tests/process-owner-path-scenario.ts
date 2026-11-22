@@ -39,7 +39,12 @@ const DEMO_NOTE = (position: string, n: number) =>
   n === 1
     ? `۱ نفر از دارندگان «${position}» حساب نمایشی است و کار پرونده‌های واقعی سازمان را بر عهده نمی‌گیرد؛ برای آزمودن، پرونده را با یک حساب نمایشی آغاز کنید`
     : `${faDigits(n)} نفر از دارندگان «${position}» حساب نمایشی‌اند و کار پرونده‌های واقعی سازمان را بر عهده نمی‌گیرند؛ برای آزمودن، پرونده را با یک حساب نمایشی آغاز کنید`;
-const TOLD = (label: string) => `برای «${label}» کسی پیدا نشد؛ مسئولان گردش‌کار باخبر شدند.`;
+/** The owner (tests/helpers.ts), the workflows' only manager. */
+const OWNER = "مالک آزمایشی";
+/** (1.1.5) The managers' notice reached them: the journal names them. */
+const TOLD = (label: string) => `برای «${label}» کسی پیدا نشد؛ مسئولان گردش‌کار (${OWNER}) باخبر شدند.`;
+/** (1.1.5) A manager's re-resolution that finds nobody tells nobody, and claims no notice. */
+const QUIET = (label: string) => `برای «${label}» کسی پیدا نشد؛ مرحله منتظر مسئولان گردش‌کار می‌ماند.`;
 const PACK_CASE = (label: string) => `برای «${label}» کسی پیدا نشد؛ مرحله منتظر مسئولان گردش‌کار می‌ماند (پروندهٔ نمایشی است و اعلانی برای مسئولان واقعی فرستاده نمی‌شود).`;
 
 export function ownerPathScenario(label: string): void {
@@ -247,9 +252,12 @@ export function ownerPathScenario(label: string): void {
       const inbox = await C.agent.client.get(`${P}/process/inbox`);
       expect(inbox.rows.find((r: { case_id: string }) => r.case_id === pack)?.demo).toBe(true);
       expect((await C.agent.client.get(`${P}/process/mine`)).processes.find((p: { key: string }) => p.key === OWNER_WF.key)?.can_start).toBe(true);
-      // «دوباره پیدا کردن انجام‌دهنده» on the owner's case finds nobody still, and says why
+      // «دوباره پیدا کردن انجام‌دهنده» on the owner's case finds nobody still, and says why — telling nobody this time,
+      // it claims no notice; the case page keeps the opening's line, which named whom that one reached
       const again = await e.owner.post(`${P}/process/cases/${own}/reresolve`, { step: "form2" });
-      expect(again).toEqual({ status: "nobody", people: [], message: TOLD("مرحلهٔ فرم"), notes: [why] });
+      expect(again).toEqual({ status: "nobody", people: [], message: QUIET("مرحلهٔ فرم"), notes: [why] });
+      expect((await e.owner.get(`${P}/process/cases/${own}`)).waiting).toEqual({ form2: { reason: "nobody", message: TOLD("مرحلهٔ فرم"), notes: [why] } });
+      expect(await bells(e.ownerId, own)).toHaveLength(1);
     });
 
     it("the designer: the pack's people, the estimate's count of them and its warning, the preview", async () => {
@@ -335,8 +343,9 @@ export function ownerPathScenario(label: string): void {
       await timerPass(e.cfg, e.org, (id) => applyPending(e.cfg, e.org, id, null));
       await drain();
       const j = await journal(pack);
-      // the managers (real people) hear nothing of the pack's case: the journal does not say they were told
-      expect(j).toContain("مهلت «مرحلهٔ فرم» گذشت؛ پروندهٔ نمایشی است و اعلانی برای کسانی که باید باخبر شوند فرستاده نشد");
+      // the managers (real people) hear nothing of the pack's case: the journal names whom it did not reach, and why
+      expect(j).toContain(`مهلت «مرحلهٔ فرم» گذشت؛ پروندهٔ نمایشی است و اعلان به ${OWNER} نرسید`);
+      expect(await bells(e.ownerId, pack)).toEqual([]);
       expect(j).toContain("مهلت «مرحلهٔ فرم» به پایان رسید؛ پرونده از مسیر «پایان مهلت» ادامه یافت");
       expect((await e.db.one<{ state: string }>(`select state from sm_process_cases where id = $1`, [pack]))!.state).toBe("rejected");
       expect(await notPack(pack)).toBe(0);

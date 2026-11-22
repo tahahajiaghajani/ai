@@ -6,7 +6,7 @@ create table if not exists sm_migrations (id text primary key, applied_at timest
 -- ---------------------------------------------------------------------------
 -- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲۶ از ۳۰
 -- ---------------------------------------------------------------------------
--- engine DDL 26/30 (89140d1490e2)
+-- engine DDL 26/30 (7d5d4deb8fee)
 -- todo: کارها
 do $cols$
 begin
@@ -1578,12 +1578,12 @@ create trigger sm_wfm_rosters_sync before insert or update on sm_wfm_rosters for
 create or replace trigger sm_wfm_rosters_demo after insert on sm_wfm_rosters for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_wfm_rosters_demo_t after update or delete on sm_wfm_rosters for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_wfm_rosters enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede:25', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35:25', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
 do $engine$
 begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede:%') >= 30 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', '89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede', 'done', now()) on conflict (key) do nothing;
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35:%') >= 30 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', '7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35', 'done', now()) on conflict (key) do nothing;
     delete from sm_meta where key like 'engine.ddl.part:%';
     insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
   end if;
@@ -1593,7 +1593,7 @@ $engine$;
 -- ---------------------------------------------------------------------------
 -- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲۷ از ۳۰
 -- ---------------------------------------------------------------------------
--- engine DDL 27/30 (89140d1490e2)
+-- engine DDL 27/30 (7d5d4deb8fee)
 -- wfm_shift_pattern: الگوهای شیفت
 do $cols$
 begin
@@ -2978,12 +2978,12 @@ begin
 end
 $arc$;
 alter table sm_cmdb_findings_arc enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede:26', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35:26', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
 do $engine$
 begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede:%') >= 30 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', '89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede', 'done', now()) on conflict (key) do nothing;
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35:%') >= 30 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', '7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35', 'done', now()) on conflict (key) do nothing;
     delete from sm_meta where key like 'engine.ddl.part:%';
     insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
   end if;
@@ -2993,7 +2993,7 @@ $engine$;
 -- ---------------------------------------------------------------------------
 -- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲۸ از ۳۰
 -- ---------------------------------------------------------------------------
--- engine DDL 28/30 (89140d1490e2)
+-- engine DDL 28/30 (7d5d4deb8fee)
 -- corrective_action: archive
 create table if not exists sm_corrective_actions_arc (
   id uuid primary key,
@@ -4205,12 +4205,12 @@ begin
 end
 $arc$;
 alter table sm_legal_requests_arc enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede:27', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35:27', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
 do $engine$
 begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede:%') >= 30 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', '89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede', 'done', now()) on conflict (key) do nothing;
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35:%') >= 30 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', '7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35', 'done', now()) on conflict (key) do nothing;
     delete from sm_meta where key like 'engine.ddl.part:%';
     insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
   end if;
@@ -4220,7 +4220,7 @@ $engine$;
 -- ---------------------------------------------------------------------------
 -- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۲۹ از ۳۰
 -- ---------------------------------------------------------------------------
--- engine DDL 29/30 (89140d1490e2)
+-- engine DDL 29/30 (7d5d4deb8fee)
 -- portal_feedback: archive
 create table if not exists sm_portal_feedback_arc (
   id uuid primary key,
@@ -5423,12 +5423,12 @@ begin
 end
 $arc$;
 alter table sm_todos_arc enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede:28', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35:28', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
 do $engine$
 begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede:%') >= 30 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', '89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede', 'done', now()) on conflict (key) do nothing;
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35:%') >= 30 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', '7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35', 'done', now()) on conflict (key) do nothing;
     delete from sm_meta where key like 'engine.ddl.part:%';
     insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
   end if;
@@ -5438,7 +5438,7 @@ $engine$;
 -- ---------------------------------------------------------------------------
 -- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۳۰ از ۳۰
 -- ---------------------------------------------------------------------------
--- engine DDL 30/30 (89140d1490e2)
+-- engine DDL 30/30 (7d5d4deb8fee)
 -- work_order: archive
 create table if not exists sm_work_orders_arc (
   id uuid primary key,
@@ -5565,12 +5565,12 @@ begin
   end loop;
 end
 $do$;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede:29', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35:29', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
 do $engine$
 begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede:%') >= 30 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', '89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede', 'done', now()) on conflict (key) do nothing;
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35:%') >= 30 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', '7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35', 'done', now()) on conflict (key) do nothing;
     delete from sm_meta where key like 'engine.ddl.part:%';
     insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
   end if;

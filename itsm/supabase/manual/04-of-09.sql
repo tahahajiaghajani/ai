@@ -6,7 +6,7 @@ create table if not exists sm_migrations (id text primary key, applied_at timest
 -- ---------------------------------------------------------------------------
 -- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۱ از ۳۰
 -- ---------------------------------------------------------------------------
--- engine DDL 11/30 (89140d1490e2)
+-- engine DDL 11/30 (7d5d4deb8fee)
 -- esm_service: خدمت‌های واحدها
 do $cols$
 begin
@@ -1638,12 +1638,12 @@ create trigger sm_flows_sync before insert or update on sm_flows for each row ex
 create or replace trigger sm_flows_demo after insert on sm_flows for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_flows_demo_t after update or delete on sm_flows for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_flows enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede:10', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35:10', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
 do $engine$
 begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede:%') >= 30 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', '89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede', 'done', now()) on conflict (key) do nothing;
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35:%') >= 30 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', '7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35', 'done', now()) on conflict (key) do nothing;
     delete from sm_meta where key like 'engine.ddl.part:%';
     insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
   end if;
@@ -1653,7 +1653,7 @@ $engine$;
 -- ---------------------------------------------------------------------------
 -- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۲ از ۳۰
 -- ---------------------------------------------------------------------------
--- engine DDL 12/30 (89140d1490e2)
+-- engine DDL 12/30 (7d5d4deb8fee)
 -- flow_connection: اتصال‌های HTTP
 do $cols$
 begin
@@ -3180,12 +3180,12 @@ create trigger sm_grc_policy_campaigns_sync before insert or update on sm_grc_po
 create or replace trigger sm_grc_policy_campaigns_demo after insert on sm_grc_policy_campaigns for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_grc_policy_campaigns_demo_t after update or delete on sm_grc_policy_campaigns for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_grc_policy_campaigns enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede:11', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35:11', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
 do $engine$
 begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede:%') >= 30 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', '89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede', 'done', now()) on conflict (key) do nothing;
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35:%') >= 30 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', '7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35', 'done', now()) on conflict (key) do nothing;
     delete from sm_meta where key like 'engine.ddl.part:%';
     insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
   end if;
@@ -3195,7 +3195,7 @@ $engine$;
 -- ---------------------------------------------------------------------------
 -- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۳ از ۳۰
 -- ---------------------------------------------------------------------------
--- engine DDL 13/30 (89140d1490e2)
+-- engine DDL 13/30 (7d5d4deb8fee)
 -- grc_policy_exception: استثناهای خط‌مشی
 do $cols$
 begin
@@ -4670,12 +4670,12 @@ create trigger sm_hr_profiles_sync before insert or update on sm_hr_profiles for
 create or replace trigger sm_hr_profiles_demo after insert on sm_hr_profiles for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_hr_profiles_demo_t after update or delete on sm_hr_profiles for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_hr_profiles enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede:12', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35:12', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
 do $engine$
 begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede:%') >= 30 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', '89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede', 'done', now()) on conflict (key) do nothing;
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35:%') >= 30 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', '7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35', 'done', now()) on conflict (key) do nothing;
     delete from sm_meta where key like 'engine.ddl.part:%';
     insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
   end if;
@@ -4685,7 +4685,7 @@ $engine$;
 -- ---------------------------------------------------------------------------
 -- 0006_engine_tables — جدول‌های رکوردها (ساخته‌شده از تعریف جدول‌ها) — بخش ۱۴ از ۳۰
 -- ---------------------------------------------------------------------------
--- engine DDL 14/30 (89140d1490e2)
+-- engine DDL 14/30 (7d5d4deb8fee)
 -- hr_task: کارهای منابع انسانی
 do $cols$
 begin
@@ -6128,12 +6128,12 @@ create trigger sm_integration_users_sync before insert or update on sm_integrati
 create or replace trigger sm_integration_users_demo after insert on sm_integration_users for each row when (current_setting('itsm.demo', true) = new.org_id::text) execute function sm_demo_capture();
 create or replace trigger sm_integration_users_demo_t after update or delete on sm_integration_users for each row when (current_setting('itsm.demo', true) = old.org_id::text) execute function sm_demo_touch();
 alter table sm_integration_users enable row level security;
-insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede:13', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+insert into sm_meta (key, value, updated_at) values ('engine.ddl.part:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35:13', 'done', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
 do $engine$
 begin
-  if (select count(*) from sm_meta where key like 'engine.ddl.part:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede:%') >= 30 then
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl', '89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
-    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:89140d1490e20464274f26ff6ffa1f95eda8b5b52ed2243a2fd8a268448c6ede', 'done', now()) on conflict (key) do nothing;
+  if (select count(*) from sm_meta where key like 'engine.ddl.part:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35:%') >= 30 then
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl', '7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35', now()) on conflict (key) do update set value = excluded.value, updated_at = now();
+    insert into sm_meta (key, value, updated_at) values ('engine.ddl.seen:7d5d4deb8fee079145a6a3f6efe5b92b5f8e629180e713463abe6e8d8b369f35', 'done', now()) on conflict (key) do nothing;
     delete from sm_meta where key like 'engine.ddl.part:%';
     insert into sm_migrations (id) values ('0006_engine_tables') on conflict (id) do nothing;
   end if;

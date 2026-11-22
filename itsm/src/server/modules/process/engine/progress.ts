@@ -11,6 +11,8 @@
 // while its log row still waits for the executor's resume.
 // It also ends the claims («برداشتن کار») whose taker no longer holds an open task of the round — their task closed or
 // moved (a decision, a manager's «ارجاع», a delegation, an escalation) — so the others of the pool may act again.
+// `participants` are the people of the tasks plus those a notice of the workflow named (`notified`, ./readers.ts), read
+// as stored in the transaction, so a notice earlier in it is kept whatever copy of the case the writer holds.
 import type { Queryable, Tx } from "../../../db";
 import type { Ctx } from "../../../context";
 import { updateIn } from "../../../engine";
@@ -105,8 +107,16 @@ export function replayProgress(graph: ProcessGraph, base: CaseProgress | null | 
   return out;
 }
 
-/** People of a case's tasks: open ones' assignee and the person they stand in for, done ones' actor and the person acted for. */
-export function participantsOf(tasks: readonly TaskRow[]): string[] {
+/** At most this many participants (the engine's limit of a users field); the people of tasks come first. */
+export const PARTICIPANTS_MAX = 1000;
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * People of a case's tasks — open ones' assignee and the person they stand in for, done ones' actor and the person
+ * acted for — and the people a notice of the workflow named (`notified`, ./readers.ts), who read the case from then on.
+ */
+export function participantsOf(tasks: readonly TaskRow[], notified: readonly unknown[] = []): string[] {
   const out = new Set<string>();
   for (const t of tasks) {
     if (t.status === "open") {
@@ -117,7 +127,20 @@ export function participantsOf(tasks: readonly TaskRow[]): string[] {
       if (t.acted_for) out.add(String(t.acted_for));
     }
   }
+  for (const u of notified) {
+    if (out.size >= PARTICIPANTS_MAX) break;
+    if (typeof u === "string" && UUID.test(u)) out.add(u.toLowerCase());
+  }
   return [...out].sort();
+}
+
+/**
+ * `participantsOf` with the case's `notified` as stored now (inside the caller's transaction): a notice earlier in the
+ * same transaction may have named people the `kase` the caller holds does not show yet.
+ */
+export async function participantsFor(q: Queryable, kase: Pick<CaseRow, "id" | "org_id">, tasks: readonly TaskRow[]): Promise<string[]> {
+  const row = await q.one<{ notified: unknown }>(`select notified from sm_process_cases where org_id = $1 and id = $2`, [kase.org_id, kase.id]);
+  return participantsOf(tasks, Array.isArray(row?.notified) ? row!.notified : []);
 }
 
 export interface RefreshOptions {
@@ -158,7 +181,7 @@ export async function refreshCase(tx: Tx, sys: Ctx, kase: CaseRow, graph: Proces
     current.push({ key: n.id, label: processNodeLabel(n) });
     rounds[n.id] = p.round;
   }
-  const set: Record<string, unknown> = { progress, current_steps: current, open_rounds: rounds, participants: participantsOf(tasks), ...opts.set };
+  const set: Record<string, unknown> = { progress, current_steps: current, open_rounds: rounds, participants: await participantsFor(tx, kase, tasks), ...opts.set };
   const state = String(set.state ?? kase.state);
   if (!OPEN_STATES.has(state)) {
     // a closed case has no open step
