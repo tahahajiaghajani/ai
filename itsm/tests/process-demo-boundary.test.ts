@@ -601,8 +601,8 @@ describe("the organisation's timer and jobs on a case of the pack's (1.1.5, RC3)
     await w.k.drain();
     expect(await kase(w, id)).toMatchObject({ state: "canceled" });
     const lines = await journal(w, id);
-    // (the managers, real people, hear nothing of the pack's case, and the journal says so)
-    for (const l of ["پروندهٔ نمایشی است و اعلانی", "مهلت گذشت؛ «تأیید» به", "به جانشینی از", "خودکار «تأیید» شد", "مهلت «تکمیل» به پایان رسید"]) expect(lines.some((b) => b.includes(l)), l).toBe(true);
+    // (the managers, real people, hear nothing of the pack's case, and the journal says so, naming the one not told)
+    for (const l of ["مهلت «تأیید» گذشت؛ پروندهٔ نمایشی است و اعلان به مسئول گردش‌کار نرسید", "مهلت گذشت؛ «تأیید» به", "به جانشینی از", "خودکار «تأیید» شد", "مهلت «تکمیل» به پایان رسید"]) expect(lines.some((b) => b.includes(l)), l).toBe(true);
     // every row about the case is the pack's
     const ids = await caseIds(id);
     expect(await naming(ids, "real")).toEqual({});
