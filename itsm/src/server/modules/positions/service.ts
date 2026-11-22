@@ -268,6 +268,9 @@ export async function estimateStep(ctx: Ctx, input: EstimateInput): Promise<Esti
         if (!c) line = `نقش سازمانی «${r.position}» پیدا نشد`;
         else if (r.where === "anywhere") line = `${faDigits(c.people)} نفر «${name}» در همهٔ سازمان`;
         else if (r.where === "unit") line = `${faDigits(c.people)} نفر «${name}» در واحد برگزیده`;
+        // the requester's own unit (their profile's), never the nearest one up: a requester in a department under the
+        // branch finds nobody (the designer's scope line says the same)
+        else if (r.where === "requester_unit") line = `${faDigits(c.people)} نفر در ${faDigits(c.units)} ${kindLabel(c.kind)}؛ برای هر پرونده فقط «${name}» خودِ واحد درخواست‌دهنده`;
         else {
           const kind = (r.where === "requester_unit_up" ? r.unitKind : null) ?? c.kind;
           line = `${faDigits(c.people)} نفر در ${faDigits(c.units)} ${kindLabel(kind)}؛ برای هر پرونده «${name}» همان ${kindLabel(kind)}`;
