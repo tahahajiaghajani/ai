@@ -26,7 +26,7 @@ import { pgArray, type Tx } from "../../../db";
 import { bad, conflict, forbidden, notFound } from "../../../http/errors";
 import { createIn, get, isSystemCtx, orgTz, systemCtx, updateIn } from "../../../engine";
 import { audit } from "../../data/crud";
-import { demoPeople, demoScopeOrg, inDemoScope, isDemoRow } from "../../../db/scope";
+import { demoPeople, inDemoScope, isDemoRow } from "../../../db/scope";
 import type { ReresolveInput, ReresolveResult } from "@shared/process/waiting";
 import { reresolveRoundIn } from "../reresolve";
 import { DEMO_PEOPLE_REAL_WORK, Resolution } from "../../positions";
@@ -321,7 +321,8 @@ export const resumeFrom = (ctx: Ctx, caseId: string, input: { node: string; comm
  * «دوباره پیدا کردن انجام‌دهنده» by a manager: a step that waits with nobody, or with more people than it takes, runs
  * its rules again (the case version's, or with `rules: "current"` the current version's for the same step); whoever is
  * found gets the step in the same round. Journaled and audited whatever it finds. A case of the demo pack's is written
- * inside its demo scope (its new tasks are the pack's rows).
+ * inside its demo scope (its new tasks are the pack's rows); any other case outside it, whoever asks — one of the pack's
+ * people who manages an organisation's own case writes the organisation's work there, never rows the purge takes.
  */
 export async function reresolveStep(ctx: Ctx, caseId: string, input: ReresolveInput): Promise<ReresolveResult> {
   await needAuthority(ctx);
@@ -354,5 +355,5 @@ export async function reresolveStep(ctx: Ctx, caseId: string, input: ReresolveIn
         notes: r.notes,
       } satisfies ReresolveResult;
     });
-  return inDemoScope(demo ? ctx.org.id : demoScopeOrg(), run);
+  return inDemoScope(demo ? ctx.org.id : null, run);
 }

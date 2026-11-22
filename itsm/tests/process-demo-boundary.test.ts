@@ -5,14 +5,16 @@
 // of the pack is started by the pack's people only: a real case standing on the pack's process, version and form would
 // lose them all at the purge. The purge leaves the organisation's own timer (`process.timer`) queued — the twin demo
 // work queued while it ran too — and takes the jobs the pack made for its own rows (FINAL-5). An organisation-wide pass
-// whose saved cursor is a row of the pack's (`sla.recalc`) stays and starts again; it is never demo work (FL-2).
+// whose saved cursor is a row of the pack's (`sla.recalc`) stays and starts again; it is never demo work (FL-2). And
+// one of the pack's people who manages an organisation's own case and runs «دوباره پیدا کردن انجام‌دهنده» on it writes
+// the organisation's work (1.1.5): the purge leaves the real member the step it gave them.
 import { describe, it, expect, beforeAll } from "vitest";
 import { createIn } from "@server/engine";
 import { inDemoScope, isDemoRow } from "@server/db/scope";
 import { DEMO_JOB_SQL, enqueue, registerJobHandler } from "@server/jobs";
 import { purgeStep, runToEnd } from "@server/modules/demo";
 import { DEMO_PEOPLE_REAL_WORK, previewResolve } from "@server/modules/positions";
-import { pauseCase, reassignStep, resumeCase } from "@server/modules/process/api";
+import { pauseCase, reassignStep, reresolveStep, resumeCase } from "@server/modules/process/api";
 import { DEMO_PROCESS_START } from "@server/modules/process/engine";
 import { applyPending } from "@server/modules/process/sync";
 import { MORE, timerPass, TIMER_JOB } from "@server/modules/process/timers";
@@ -268,5 +270,46 @@ describe("the demo pack's purge starts the organisation's own passes again where
     await db.query(`update sm_jobs set run_at = now() where id = $1`, [recalc]);
     await w.k.drain();
     expect((await job(recalc))?.status).toBe("done");
+  }, 600_000);
+});
+
+describe("one of the pack's people manages an organisation's own case (1.1.5)", () => {
+  it("«دوباره پیدا کردن انجام‌دهنده» by them writes the organisation's work, which the purge leaves: the real member keeps the step", async () => {
+    const org = w.o.org;
+    const db = w.o.db;
+    // the pack is loaded (as the loader leaves it, without the bank), with one of its people a manager of a real process
+    await db.query(
+      `insert into sm_demo_packs (org_id, state, size, progress, counters, started_by) values ($1, 'loaded', 'small', jsonb_build_object('saved_at', now(), 'computed', '[]'::jsonb, 'seeds_done', true, 'saved', true), '{}'::jsonb, $2)`,
+      [org, w.o.ownerId],
+    );
+    const packManager = await packPerson("مسئول نمایشیِ گردش‌کار واقعی");
+    // the step's one real member is not active yet: the organisation's own case waits for nobody
+    const later = await person(w, "کارشناس واقعیِ بازگشته");
+    await db.query(`update sm_org_members set is_active = false where org_id = $1 and user_id = $2`, [org, later]);
+    const REAL = await publish(w, graph({ ...users(later), ifNobody: "wait" }), { managers: [packManager] });
+    const id = (await start(w, requester, REAL, { values })).case!;
+    await w.k.drain();
+    expect(await openAt(id)).toEqual([]);
+    expect(await isDemoRow(db, org, id)).toBe(false);
+    // back at work (straight in the database: no re-resolution is queued), and the pack's manager asks for it — a request
+    // of the pack's people runs in the demo scope (http/hono.ts)
+    await db.query(`update sm_org_members set is_active = true where org_id = $1 and user_id = $2`, [org, later]);
+    const r = await inDemoScope(org, async () => reresolveStep(await w.o.ctxOf(packManager), id, { step: "sec" }));
+    expect(r.people.map((p) => p.id)).toEqual([later]);
+    const open = await openAt(id);
+    expect(open.map((t) => t.assigned_to)).toEqual([later]);
+    // the organisation's own work: neither the new task nor the journal entry is one of the pack's rows
+    expect(await isDemoRow(db, org, open[0].id)).toBe(false);
+    const entry = await db.one<{ id: string }>(`select id::text as id from sm_journal where table_key = 'process_case' and record_id = $1 and data ->> 'reresolved' = 'true' order by created_at desc limit 1`, [id]);
+    expect(entry).toBeTruthy();
+    expect(await isDemoRow(db, org, entry!.id)).toBe(false);
+
+    // ----- the purge takes the pack's people, never the work they gave the organisation's case
+    await db.query(`update sm_sessions set reauth_at = now() where user_id = $1`, [w.o.ownerId]);
+    await w.o.owner.post(`${w.P}/demo/purge`, { confirm: "حذف کامل" });
+    await runToEnd(w.o.cfg, org, "purge", { budgetMs: 300_000 });
+    expect(await db.one(`select 1 as x from sm_demo_packs where org_id = $1`, [org])).toBeNull();
+    expect((await openAt(id)).map((t) => t.assigned_to)).toEqual([later]);
+    expect(await kase(w, id)).toMatchObject({ state: "active" });
   }, 600_000);
 });
