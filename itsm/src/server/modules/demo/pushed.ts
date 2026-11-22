@@ -3,14 +3,16 @@
 // made new rows that name them. The purged-id ledger (./ledger.ts) tells the server which ids a purge removed:
 //   · a row whose own id was purged is never brought back: answered «skipped», the app drops it with its outbox entry;
 //   · a row that belongs to purged data — a side row of a purged record (journal, history, attachment, link), a
-//     membership of a purged account, a new record whose required reference, parent, requester (whose record it is),
-//     author (`created_by`, `user_id`) or a workflow row's process, version, task or case names purged data — was
-//     recorded on demo data: answered «skipped» like the purge would have removed it;
+//     membership of a purged account, a new record the purge would have removed with it (the purge's own rule, refs.ts
+//     `fieldRefs`: a required reference, a parent — `scope.parent`, `PARENTS` such as a holder's unit or a workflow
+//     row's process, version, task or case, a pack person as requester or beneficiary —, its workspace, its author
+//     `created_by` or `user_id`) — was recorded on demo data: answered «skipped» like the purge would have removed it;
 //   · a new record's pointer that only routes or relates (an assignee, a group, a CI, a custom reference, an access
-//     anchor) is emptied; a list loses the purged ids;
-//   · a record the server has keeps what the server holds wherever the push names purged data (the purge decided that
-//     reference: cleared it, or left a required one and reported it) and takes the push's other changes — never refused
-//     for it, so a person's offline edit of a real record that named demo data is not lost.
+//     anchor) is emptied, as the purge clears it on a kept record; a list loses the purged ids;
+//   · a record the server has keeps what the server holds wherever the push names purged data (the purge cleared that
+//     pointer) and takes the push's other changes — never refused for it, so a person's offline edit of a real record
+//     that named demo data is not lost. A real record the purge removed because it depended on the pack is purged data
+//     itself: its push is answered like the pack's own rows.
 // Every 1.1 Windows app already drops an outbox entry answered «skipped», so the answer needs no new sync protocol: the
 // outbox drains and nothing stays failed. A purge answer also carries `purged: true`, by which a 1.1.5 app drops its
 // local copy at once (an older one keeps it until its next full read, which the purge brings about).
@@ -20,6 +22,7 @@ import type { FieldDef, TableDef } from "@shared/model/types";
 import type { Queryable } from "../../db";
 import type { AggregateDef, WireAggregate } from "../../sync/registry";
 import { hasLedger, purgedAmong } from "./ledger";
+import { BASE_REFS, fieldRefs } from "./refs";
 
 /** The answer to a push of a row a purge removed. */
 export const PURGED_ROW = "این مورد دادهٔ نمایشیِ حذف‌شده است و به سرور برنمی‌گردد";
@@ -30,18 +33,13 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isId = (v: unknown): v is string => typeof v === "string" && UUID.test(v);
 
 /**
- * The workflow engine's rows that mean something only with what they name (design F): a submission's process, version
- * and task (its case is a text column, judged as one), a task's case. A workflow row naming a purged process or case is
- * the purged case's.
+ * Base columns that place or stamp a row (access anchors, the last writer): emptied, never a reason to refuse it. Not
+ * the workspace: a record of a purged workspace goes with it (emptied, it would be open to everyone).
  */
-const BELONGS_TO: Record<string, readonly string[]> = {
-  process_submission: ["process_id", "version_id", "task_id"],
-  process_task: ["case_id", "process_id", "version_id"],
-  process_case: ["process_id", "version_id"],
-};
+const ANCHORS = new Set(["unit_id", "domain_id", "updated_by"]);
 
-/** Base columns that place or stamp a row (access anchors, the last writer): emptied, never a reason to refuse it. */
-const ANCHORS = new Set(["unit_id", "domain_id", "workspace_id", "updated_by"]);
+/** Base columns a row cannot stand without (refs.ts `BASE_REFS`: the workspace). */
+const BASE_PARENTS = Object.entries(BASE_REFS).filter(([, role]) => role === "parent").map(([name]) => name);
 
 /** Columns of the engine's side rows and of the platform's aggregates that say whose or what a row is. */
 const SIDE_OWNERS: Record<string, readonly string[]> = {
@@ -51,11 +49,6 @@ const SIDE_OWNERS: Record<string, readonly string[]> = {
   link: ["from_id", "to_id"],
   member: ["user_id"],
 };
-
-/** Requester fields of a table (whose record it is): the access model's (`scope.requester`, else `own` minus the assignee). */
-function requesterFields(def: TableDef): string[] {
-  return def.scope?.requester ?? (def.scope?.own ?? []).filter((f) => f !== "assigned_to");
-}
 
 /** Every id-like string a pushed aggregate carries (its own id, top-level values and lists, custom values, children). */
 function idsOf(agg: WireAggregate, into: Set<string>): void {
@@ -128,10 +121,11 @@ export function judgePurged(agg: AggregateDef, def: TableDef | null, wire: WireA
     }
     return WRITE;
   }
-  const requester = new Set(requesterFields(def));
-  const parents = new Set(BELONGS_TO[def.key] ?? []);
-  const essential = (f: FieldDef) =>
-    f.name === "created_by" || f.name === "user_id" || !!f.required || f.name === def.scope?.parent || requester.has(f.name) || parents.has(f.name);
+  // what a new record cannot stand without is what the purge removes a real row for (purge.ts `derivedConds`): a parent
+  // reference (refs.ts `fieldRefs`), its workspace, its author — and a required custom value, which emptied would leave
+  // the record invalid
+  const parents = new Set([...fieldRefs(def).filter((r) => r.role === "parent" && !r.custom && !r.array).map((r) => r.name), ...BASE_PARENTS]);
+  const essential = (f: FieldDef) => f.name === "created_by" || f.name === "user_id" || !!f.required || f.name === def.scope?.parent || parents.has(f.name);
   const custom = row.custom && typeof row.custom === "object" && !Array.isArray(row.custom) ? (row.custom as Record<string, unknown>) : null;
   const storedCustom = stored?.custom && typeof stored.custom === "object" && !Array.isArray(stored.custom) ? (stored.custom as Record<string, unknown>) : {};
   for (const f of def.fields) {

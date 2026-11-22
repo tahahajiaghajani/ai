@@ -33,6 +33,27 @@ describe("what a push names of a purge", () => {
     expect(judgePurged(record("todo"), todo, wire("todo", { short_description: "x", caller_id: persona }), null, purged)).toEqual({ kind: "drop", message: PURGED_REF });
   });
 
+  it("a new row the purge would have removed with purged data is dropped, never stored with its parent emptied", () => {
+    // the purge's own rule (refs.ts): a holder in a pack unit, a requested item of a purged request, a record of a purged
+    // workspace (emptied, the workspace would open it to everyone) — before, each was stored with the pointer emptied
+    const demoRequest = uuidv7();
+    const demoWorkspace = uuidv7();
+    const more = new Set([...purged, demoRequest, demoWorkspace]);
+    const holder = wire("position_holder", { position_id: real, user_id: real, org_unit_id: demoUnit, kind: "primary" });
+    expect(judgePurged(record("position_holder"), tableDef("position_holder")!, holder, null, more)).toEqual({ kind: "drop", message: PURGED_REF });
+    const item = wire("request_item", { short_description: "قلم درخواست", request_id: demoRequest });
+    expect(judgePurged(record("request_item"), tableDef("request_item")!, item, null, more)).toEqual({ kind: "drop", message: PURGED_REF });
+    const inWorkspace = wire("todo", { short_description: "x", workspace_id: demoWorkspace });
+    expect(judgePurged(record("todo"), todo, inWorkspace, null, more)).toEqual({ kind: "drop", message: PURGED_REF });
+    // a requester-side pointer that is no requester or beneficiary of the purge's rule is cleared, as the purge clears it
+    const opened = wire("todo", { short_description: "x", opened_by: persona, caller_id: real });
+    expect(judgePurged(record("todo"), todo, opened, null, more)).toEqual({ kind: "write" });
+    expect(opened.row).toMatchObject({ opened_by: null, caller_id: real });
+    // the same holder in a real unit is stored as pushed
+    const kept = wire("position_holder", { position_id: real, user_id: real, org_unit_id: real, kind: "primary" });
+    expect(judgePurged(record("position_holder"), tableDef("position_holder")!, kept, null, more)).toEqual({ kind: "write" });
+  });
+
   it("a stored record that names purged data keeps the server's value there and takes the push's other changes", () => {
     // (it was answered «conflict» with the server's copy: the person's offline edit of a real record was lost)
     const edit = wire("todo", { short_description: "ویرایش بیرون از خط", caller_id: persona, created_by: persona, assigned_to: persona, watch_list: [persona, real] });
