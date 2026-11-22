@@ -12,7 +12,7 @@ import { createApp } from "@server/app";
 import { registerCloudLink } from "@server/modules/ai/relay";
 import { consoleLogger, type Logger, type ServerConfig } from "@server/context";
 import { isBackgroundRequest } from "@server/http/hono";
-import { stopTicks, tick } from "@server/jobs";
+import { releaseStaleClaims, stopTicks, tick } from "@server/jobs";
 import { loadConfig, saveConfig, type LocalConfig } from "./config";
 import { createBridge } from "./bridge";
 import { takePendingRestore, undoRestore, restorePending } from "./backup";
@@ -249,6 +249,11 @@ export async function startLocal(opts: LocalOptions): Promise<LocalServer> {
     foreground: { started: () => void ((lastPerson = performance.now()), signedIn++), ended: () => void ((lastPerson = performance.now()), signedIn--) },
   };
   const api = createApp(cfg);
+  // the jobs the last process held when it ended abruptly (a shutdown, a crash; their heartbeat kept their locks a few
+  // minutes ahead): this process is the database's only one, so the first tick takes them again — or fails them at
+  // their last attempt, with their kind's exhausted hook — at once
+  const released = await releaseStaleClaims(db).catch(() => 0);
+  if (released) log.info(`job queue: ${released} job(s) the last run left running are taken again`);
   // the job queue (record events, notifications, SLA timers…) runs every 10 s on this computer
   const jobTimer = setInterval(() => {
     void tick(cfg, { budgetMs: 8000, busy: () => fromWindow > 0 || signedIn > 0 }).catch((e) => log.warn("job tick failed", String((e as Error)?.message ?? e)));

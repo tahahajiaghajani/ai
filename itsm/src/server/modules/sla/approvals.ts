@@ -468,6 +468,9 @@ async function announceRequested(tx: Tx, sys: Ctx, def: TableDef, record: Row, r
   }
 }
 
+/** How long a record's approvals timer whose job used its attempts waits before it is looked at again. */
+const TIMER_RETRY_MS = 15 * 60_000;
+
 /** Queue (or bring forward) the reminders/expiry job of a record's approvals. */
 async function scheduleApprovals(q: Queryable, orgId: string, table: string, id: string, at: number): Promise<void> {
   const runAt = new Date(Math.max(at, Date.now())).toISOString();
@@ -1037,6 +1040,13 @@ export function installApprovals(): { apply: () => void; plan: () => void; rest:
         const sys = await systemCtx(jctx.cfg, job.org_id);
         const next = await approvalTimer(sys, String(job.payload.table), String(job.payload.id));
         if (next !== null) return { again: Math.max(1000, next - Date.now()) };
+      }, {
+        // the record's reminders and expiry are looked at again after a back-off: nothing else queues them until the
+        // next decision on the record, so a round would never expire nor remind (one with nothing left ends there)
+        onExhausted: async (job, ectx) => {
+          const { table, id } = (job.payload ?? {}) as { table?: unknown; id?: unknown };
+          if (job.org_id && typeof table === "string" && typeof id === "string") await scheduleApprovals(ectx.db, job.org_id, table, id, Date.now() + TIMER_RETRY_MS);
+        },
       });
     },
   };

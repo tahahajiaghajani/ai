@@ -169,8 +169,23 @@ let installed = false;
 export function installExportJobs(): void {
   if (installed) return;
   installed = true;
-  registerJobHandler("admin.export.run", async (job, jctx) => {
-    if (!job.org_id) return;
-    await runExport(jctx.cfg as ServerConfig, job.org_id, String(job.payload.id));
-  });
+  registerJobHandler(
+    "admin.export.run",
+    async (job, jctx) => {
+      if (!job.org_id) return;
+      await runExport(jctx.cfg as ServerConfig, job.org_id, String(job.payload.id));
+    },
+    {
+      // its worker stopped at its last attempt: the export ends «failed» (no files, no «ready» notice), never «running»
+      onExhausted: async (job, ectx) => {
+        if (!job.org_id) return;
+        const sys = await systemCtx(ectx.cfg as ServerConfig, job.org_id);
+        const id = String(job.payload.id);
+        await sys.write(async (tx) => {
+          const row = await liveRow(tx, sys, "data_export", id);
+          if (row && (row.status === "queued" || row.status === "running")) await updateIn(tx, sys, "data_export", id, { status: "failed", error: ectx.error.slice(0, 2000) }, { trusted: true });
+        });
+      },
+    },
+  );
 }

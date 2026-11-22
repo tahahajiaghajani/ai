@@ -12,7 +12,7 @@ import { getRequestListener } from "@hono/node-server";
 import { createApp } from "@server/app";
 import { createPostgresDb } from "@server/db/postgres";
 import { migrate, migrationStatus } from "@server/db/migrate";
-import { tick } from "@server/jobs";
+import { stopTicks, tick } from "@server/jobs";
 import { installBlobStore } from "@server/blobs";
 import { installDropRoot } from "@server/modules/discovery/drop";
 import { networkFetch, type NetworkPolicy } from "@server/net";
@@ -424,6 +424,10 @@ export async function startServerEdition(o: StartOptions): Promise<RunningServer
     async close() {
       if (closing) return;
       closing = true;
+      // first of all the job runner claims nothing more: while the servers drain below (up to 20 s) a leader would
+      // otherwise go on claiming jobs, and a job still running when the pool closes is left «running» until its lock
+      // runs out, its attempt spent; the jobs it holds end at their next look at the deadline and are queued again
+      const ticksStopped = stopTicks(db).catch(() => undefined);
       clearInterval(report);
       foreground.close();
       process.off("message", onMessage);
@@ -442,6 +446,7 @@ export async function startServerEdition(o: StartOptions): Promise<RunningServer
       ]);
       for (const s of servers) (s as Server & { closeAllConnections?: () => void }).closeAllConnections?.();
       await scheduler?.stop().catch(() => undefined);
+      await Promise.race([ticksStopped, new Promise((r) => setTimeout(r, 10_000).unref?.())]);
       await rawDb.close().catch(() => undefined);
       installBlobStore(null);
       fileLog?.close();

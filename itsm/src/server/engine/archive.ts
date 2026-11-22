@@ -17,6 +17,7 @@ import { pgArray, type Queryable } from "../db";
 import { enqueue, registerJobHandler, type JobContext } from "../jobs";
 import { archivable, archiveTableOf } from "./ddl";
 import { systemCtx } from "./env";
+import { AppError } from "../http/errors";
 import { notePurged } from "../sync/snapshot";
 
 export interface ArchiveSettings {
@@ -130,9 +131,18 @@ export async function scheduleArchive(q: Queryable, orgId: string, opts: { now?:
   if (opts.now) await q.query(`update sm_jobs set run_at = now() where org_id = $1 and kind = 'engine.archive' and status = 'queued' and run_at > now()`, [orgId]);
 }
 
+/** The organisation's system context, or null when the organisation is gone (any other failure throws: tried again). */
+const orgCtx = (cfg: JobContext["cfg"], orgId: string): Promise<Ctx | null> =>
+  systemCtx(cfg, orgId).catch((e) => {
+    if (e instanceof AppError && e.status === 404) return null;
+    throw e;
+  });
+
 registerJobHandler("engine.archive", async (job, jctx: JobContext) => {
   if (!job.org_id) return;
-  const sys = await systemCtx(jctx.cfg, job.org_id).catch(() => null);
+  // a transient database error is not «the organisation is gone»: it throws, so the run is tried again and the nightly
+  // chain does not end on one failed read
+  const sys = await orgCtx(jctx.cfg, job.org_id);
   if (!sys) return;
   const settings = archiveSettings(sys.org);
   // switched off: nothing runs (switching it on queues the next run)
@@ -154,6 +164,14 @@ registerJobHandler("engine.archive", async (job, jctx: JobContext) => {
   jctx.log.info?.("archive run finished", { org: job.org_id, moved: progress });
   await jctx.save({});
   return { again: untilNight(tz) };
+}, {
+  // a run whose worker stopped at its last attempt: the chain goes on with the next night's run (while it is on)
+  onExhausted: async (job, ectx) => {
+    if (!job.org_id) return;
+    const sys = await orgCtx(ectx.cfg, job.org_id);
+    if (!sys || !archiveSettings(sys.org).enabled) return;
+    await scheduleArchive(ectx.db, job.org_id, { tz: (sys.org.settings?.timezone as string | undefined) || "Asia/Tehran" });
+  },
 });
 
 /** What an organisation's archive holds, per table (counted up to 100 000) — the settings page. */

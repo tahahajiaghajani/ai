@@ -303,7 +303,17 @@ let installed = false;
 export function installBackupJobs(): void {
   if (installed) return;
   installed = true;
-  registerJobHandler("admin.backup", async (job, jctx) => {
-    await runBackup(jctx.cfg as ServerConfig, String(job.payload.id));
-  });
+  registerJobHandler(
+    "admin.backup",
+    async (job, jctx) => {
+      await runBackup(jctx.cfg as ServerConfig, String(job.payload.id));
+    },
+    {
+      // its worker stopped at its last attempt (the web version's time limit while the tables were read): the backup
+      // ends «failed», as its own failure path leaves it — a «running» one refuses every later backup of the organisation
+      onExhausted: async (job, ectx) => {
+        await ectx.db.query(`update sm_backups set status = 'failed', error = $2, finished_at = now() where id = $1 and status in ('queued', 'running')`, [String(job.payload.id), ectx.error.slice(0, 1000)]);
+      },
+    },
+  );
 }

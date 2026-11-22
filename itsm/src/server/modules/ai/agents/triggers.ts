@@ -159,5 +159,11 @@ export function installAgentTriggers(): void {
     }
     invalidateAgentTriggers(job.org_id);
     return { again: AGENT_SCHEDULE_EVERY_MS };
+  }, {
+    // the round used its attempts (its worker stopped, or it failed, each time): it goes on at its interval — it is
+    // queued again otherwise only when an agent with a schedule is saved
+    onExhausted: async (job, ectx) => {
+      if (job.org_id) await enqueue(ectx.db, { kind: SCHEDULE_JOB, orgId: job.org_id, payload: {}, dedupeKey: SCHEDULE_JOB, delayMs: AGENT_SCHEDULE_EVERY_MS });
+    },
   });
 }

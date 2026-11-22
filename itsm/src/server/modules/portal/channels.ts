@@ -482,5 +482,19 @@ let installed = false;
 export function installChannels(): void {
   if (installed) return;
   installed = true;
-  registerJobHandler(JOB_MESSAGE, processChannelMessage);
+  registerJobHandler(JOB_MESSAGE, processChannelMessage, {
+    // its last attempt did not finish (its worker stopped during the assistant's answer): the message ends «failed» and
+    // the chat is told to send it again, as on the handler's own failure — once: only a message still «received» moves
+    // (the answer path writes «replied» before it replies)
+    onExhausted: async (job, ectx) => {
+      const p = job.payload as { channel?: string; log?: string; chat?: string };
+      if (!job.org_id || !isUuid(p.log) || !isUuid(p.channel)) return;
+      const cfg = ectx.cfg as ServerConfig;
+      const sys = await systemCtx(cfg, job.org_id);
+      const moved = await sys.db.one(`update sm_portal_channel_log set status = 'failed', error = $3 where org_id = $1 and id = $2 and status = 'received' returning id`, [job.org_id, p.log, ectx.error.slice(0, 500)]);
+      if (!moved || !p.chat) return;
+      const channel = await liveRow(sys.db, sys, "portal_channel", p.channel);
+      if (channel && channel.active !== false) await reply(cfg, sys, channel, String(p.chat), null, "پاسخ آماده نشد؛ کمی بعد دوباره بفرستید.");
+    },
+  });
 }

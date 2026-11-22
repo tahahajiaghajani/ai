@@ -16,7 +16,7 @@ import {
 } from "@shared/notify";
 import type { Ctx } from "../../context";
 import type { Queryable } from "../../db";
-import { enqueue, enqueueMany, PermanentJobError, registerJobHandler, type Job, type JobContext, type JobInput } from "../../jobs";
+import { enqueue, enqueueMany, PermanentJobError, registerJobHandler, type ExhaustedContext, type Job, type JobContext, type JobInput } from "../../jobs";
 import { condEnv, createIn, defFor, insertManyIn, list, removeIn, type RecordEvent } from "../../engine";
 import { pgArray } from "../../db";
 import { demoPeople, demoQuiet } from "../../db/scope";
@@ -631,6 +631,8 @@ export async function runFlush(job: Job, jctx: JobContext): Promise<void> {
   ).sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.id < b.id ? -1 : 1));
   if (!held.length) return;
   try {
+    // the rows this run holds, named in the job: if its worker stops at its last attempt they end «failed» (the hook)
+    await jctx.save({ ...job.payload, claimed: held.map((h) => h.id) });
     await flushHeld(job, jctx, cfg, org, user, channel, held);
   } catch (e) {
     await jctx.db
@@ -775,11 +777,43 @@ export async function runCleanup(job: Job, jctx: JobContext): Promise<void | { a
   if (old.length === 200 && Date.now() < jctx.deadline - 1000) return { again: 1000 };
 }
 
+// ----- jobs that used their attempts without finishing (the queue's exhausted hooks) ------------------------------------
+
+/** A delivery's last attempt did not finish: every channel it had not delivered gets its «failed» outcome with the reason. */
+async function sendExhausted(job: Job, ectx: ExhaustedContext): Promise<void> {
+  const p = job.payload as unknown as SendPayload;
+  if (!p?.rule || !p.ev || !Array.isArray(p.rule.channels)) return;
+  const done = new Set(p.done ?? []);
+  for (const c of p.rule.channels.filter((x) => x !== "webhook" && !done.has(x))) {
+    const prev = p.logs?.[c];
+    if (prev) await ectx.db.query(`update sm_notification_log set status = 'failed', error = $2, updated_at = now() where id = $1`, [prev, errText(ectx.error)]);
+    else await logDelivery(ectx.db, { ...logBase(p), channel: c, recipient_id: p.user, status: "failed", error: ectx.error });
+  }
+}
+
+/** A messenger's or webhook's delivery whose last attempt did not finish: its outcome is «failed» with the reason. */
+async function hookExhausted(job: Job, ectx: ExhaustedContext): Promise<void> {
+  const p = job.payload as unknown as HookPayload;
+  if (!p?.rule || !p.ev) return;
+  if (p.log) await ectx.db.query(`update sm_notification_log set status = 'failed', error = $2, updated_at = now() where id = $1`, [p.log, errText(ectx.error)]);
+  else await logDelivery(ectx.db, { ...logBase(p), channel: "webhook", target: p.channel, status: "failed", error: ectx.error });
+}
+
+/**
+ * A digest's last attempt did not finish: the rows it held end «failed» (no later flush of the person and channel may
+ * come, and the cleanup never deletes held rows). Only the rows this job claimed: another flush's are its own.
+ */
+async function flushExhausted(job: Job, ectx: ExhaustedContext): Promise<void> {
+  const ids = (Array.isArray(job.payload.claimed) ? (job.payload.claimed as unknown[]) : []).filter((x): x is string => isUuid(x));
+  if (!ids.length) return;
+  await ectx.db.query(`update sm_notification_log set status = 'failed', error = $2, payload = null, updated_at = now() where id = any($1::uuid[]) and status = 'held'`, [pgArray(ids), errText(ectx.error)]);
+}
+
 export function registerDeliveryJobs(): void {
-  registerJobHandler(JOB_SEND, runSend);
+  registerJobHandler(JOB_SEND, runSend, { onExhausted: sendExhausted });
   registerJobHandler(JOB_BATCH, runBatch);
-  registerJobHandler(JOB_HOOK, runHook);
-  registerJobHandler(JOB_FLUSH, runFlush);
+  registerJobHandler(JOB_HOOK, runHook, { onExhausted: hookExhausted });
+  registerJobHandler(JOB_FLUSH, runFlush, { onExhausted: flushExhausted });
   registerJobHandler(JOB_CLEANUP, runCleanup);
 }
 

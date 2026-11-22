@@ -14,7 +14,7 @@
 // Guards: at most FLOW_LIMITS.steps steps per run (a probable endless loop is stopped), at most
 // FLOW_LIMITS.depth nested runs (records written by a run carry its depth into the events they cause, and subflows
 // add one), at most FLOW_LIMITS.items items per loop.
-import { enqueue, registerJobHandler } from "../../jobs";
+import { enqueue, registerJobHandler, type ExhaustedContext, type Job } from "../../jobs";
 import type { Ctx, ServerConfig } from "../../context";
 import { pgArray, type Queryable, type Tx } from "../../db";
 import { condEnv, emitOrgEvent, orgSchema, systemCtx } from "../../engine";
@@ -539,15 +539,29 @@ async function cancelChildren(cfg: ServerConfig, runId: string) {
 
 /** Cancel a run (and its open subflow runs); its waiting steps withdraw what they asked for. */
 export async function cancelRun(cfg: ServerConfig, runId: string, reason = "اجرا لغو شد"): Promise<boolean> {
+  return closeRun(cfg, runId, "canceled", reason);
+}
+
+/**
+ * End a run whose job used its last attempt without finishing (the queue's exhausted hook of the flows' jobs): «ناموفق»
+ * with the reason, as `cancelRun` ends one — its parent's wait and the trigger record's case learn its end
+ * (record.flow_ended: a workflow's case gets «نیاز به بررسی»), its waiting steps withdraw what they asked for, its
+ * subflows are canceled. Never a run another worker steps now (its lease is live).
+ */
+export async function failRun(cfg: ServerConfig, runId: string, reason: string): Promise<boolean> {
+  return closeRun(cfg, runId, "failed", reason, { leaseFree: true });
+}
+
+async function closeRun(cfg: ServerConfig, runId: string, state: "canceled" | "failed", reason: string, opts: { leaseFree?: boolean } = {}): Promise<boolean> {
   const run = await cfg.db.tx(async (tx) => {
     const r = await tx.one<RunRow>(
-      `update sm_flow_runs set state = 'canceled', error = $2, ended_at = now(), updated_at = now(), current_nodes = '{}',
+      `update sm_flow_runs set state = $3, error = $2, ended_at = now(), updated_at = now(), current_nodes = '{}',
          runtime = jsonb_set(jsonb_set(runtime, '{tokens}', '[]'::jsonb), '{frames}', '{}'::jsonb), lease_by = null, lease_until = null
-       where id = $1 and state in ('running', 'waiting') returning *`,
-      [runId, reason],
+       where id = $1 and state in ('running', 'waiting')${opts.leaseFree ? " and (lease_until is null or lease_until < now())" : ""} returning *`,
+      [runId, reason, state],
     );
-    if (r?.parent_run_id) await resumeFlowWait(tx, r.org_id, `run:${r.id}`, { state: "canceled", port: "error", error: reason, outputs: {} });
-    if (r) await runEnded(tx, r, "canceled", reason, {});
+    if (r?.parent_run_id) await resumeFlowWait(tx, r.org_id, `run:${r.id}`, { state, port: "error", error: reason, outputs: {} });
+    if (r) await runEnded(tx, r, state, reason, {});
     return r;
   });
   if (!run) return false;
@@ -911,10 +925,13 @@ export async function executeRun(cfg: ServerConfig, runId: string, opts: Execute
 
 // ----- jobs -----------------------------------------------------------------------------------------------------
 
+/** A run's job that used its last attempt without finishing: the run ends «ناموفق» (`failRun`), never left open. */
+const runExhausted = { onExhausted: (job: Job, ectx: ExhaustedContext) => failRun(ectx.cfg as ServerConfig, String(job.payload.run), ectx.error).then(() => undefined) };
+
 registerJobHandler("flows.run", async (job, jctx) => {
   const r = await executeRun(jctx.cfg as ServerConfig, String(job.payload.run), { deadline: jctx.deadline - 500 });
   if (r.busy) return { again: 2000 };
-});
+}, runExhausted);
 
 const resumeJob = (reason: WaitInfo["reason"]) =>
   async (job: { payload: Record<string, any> }, jctx: { cfg: unknown; deadline: number }) => {
@@ -925,6 +942,6 @@ const resumeJob = (reason: WaitInfo["reason"]) =>
     if (r.busy) return { again: 2000 };
   };
 
-registerJobHandler("flows.resume", resumeJob("result"));
-registerJobHandler("flows.timer", resumeJob("timer"));
-registerJobHandler("flows.recheck", resumeJob("event"));
+registerJobHandler("flows.resume", resumeJob("result"), runExhausted);
+registerJobHandler("flows.timer", resumeJob("timer"), runExhausted);
+registerJobHandler("flows.recheck", resumeJob("event"), runExhausted);

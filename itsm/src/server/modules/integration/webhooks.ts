@@ -17,7 +17,7 @@ import { enqueue, registerJobHandler, PermanentJobError } from "../../jobs";
 import { hasFeature } from "../admin/common";
 import { needPrincipalWithin } from "./users";
 import { callOut, failText } from "./net";
-import { intLog, liveRow, liveRows, needIntegrations, principalCtx, redactUrl, type Row } from "./common";
+import { intLog, isUuid, liveRow, liveRows, needIntegrations, principalCtx, redactUrl, type Row } from "./common";
 import { demoQuiet, isDemoRow } from "../../db/scope";
 import { pgArray } from "../../db";
 
@@ -232,8 +232,25 @@ export function installWebhooks(): void {
   if (installed) return;
   installed = true;
   onRecordEvent("integration.webhooks", (e, jctx) => onEvent(e, jctx.cfg as ServerConfig), { kinds: ["record.created", "record.updated", "record.state_changed", "record.deleted", "record.commented"] });
-  registerJobHandler("integration.webhook.deliver", async (job, jctx) => {
-    if (!job.payload.id) throw new PermanentJobError("delivery id missing");
-    await deliver(jctx.cfg as ServerConfig, String(job.payload.id), job.attempts, { entry: job.payload.entry ?? null, at: job.payload.at ?? null });
-  });
+  registerJobHandler(
+    "integration.webhook.deliver",
+    async (job, jctx) => {
+      if (!job.payload.id) throw new PermanentJobError("delivery id missing");
+      await deliver(jctx.cfg as ServerConfig, String(job.payload.id), job.attempts, { entry: job.payload.entry ?? null, at: job.payload.at ?? null });
+    },
+    {
+      // its last attempt did not finish (its worker stopped): the delivery goes to the dead-letter list, from where it
+      // can be replayed — a «pending» one cannot. The subscription's own failure count is the receiver's, not touched
+      onExhausted: async (job, ectx) => {
+        const id = job.payload.id;
+        if (!isUuid(id)) return;
+        const d = await ectx.db.one<{ org_id: string; subscription_id: string; event: string; table_key: string; record_number: string | null }>(
+          `update sm_webhook_deliveries set status = 'dead', attempts = greatest(attempts, $2), error = $3, next_retry_at = null
+           where id = $1 and status in ('pending', 'failed') returning org_id, subscription_id, event, table_key, record_number`,
+          [id, job.attempts, ectx.error.slice(0, 1000)],
+        );
+        if (d) await intLog(ectx.db, { org_id: d.org_id, kind: "webhook", ref_id: d.subscription_id, ok: false, summary: `${d.event} ${d.record_number ?? d.table_key}`, error: ectx.error });
+      },
+    },
+  );
 }

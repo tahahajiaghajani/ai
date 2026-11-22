@@ -591,6 +591,16 @@ export function installAgentRuns(): void {
       }
       throw e;
     }
+  }, {
+    // its worker stopped at its last attempt (a slice cut by the server's time limit): the run ends «failed» as on its
+    // last error — a run left «queued» or «running» would hold the agent's next run on the same record for good
+    onExhausted: async (job, ectx) => {
+      const id = typeof job.payload.run === "string" ? job.payload.run : null;
+      if (!job.org_id || !id) return;
+      const cfg = ectx.cfg as ServerConfig;
+      const run = await runRow(cfg, job.org_id, id);
+      if (run && ["queued", "running"].includes(String(run.status))) await finish({ cfg, orgId: job.org_id, run }, "failed", { error: ectx.cause === "died" ? ectx.error : aiErrorText("other").message });
+    },
   });
 }
 

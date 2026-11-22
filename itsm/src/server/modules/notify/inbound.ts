@@ -21,6 +21,7 @@ import { readersOf } from "../../access";
 import { actsHere, errText, fullCfg, isUuid, sysCtx, systemRows } from "./common";
 import { channelSecret, checkMailHost, emailChannels, type EmailChannelRow } from "./mail";
 import { assertNotDemoOutbound } from "../../db/scope";
+import { AppError } from "../../http/errors";
 
 // ----- the mailbox (tests replace it) -----------------------------------------------------------------------------------
 
@@ -489,6 +490,11 @@ export async function pollChannel(cfg: ServerConfig, sys: Ctx, ch: EmailChannelR
 
 export const JOB_IMAP = "notify.imap";
 const POLL_EVERY = 60_000;
+/**
+ * How long a poller that used its attempts (its worker stopped, or it failed, at each of them) waits before the next
+ * look: not its minute, so a mailbox that stops its worker every time does not loop.
+ */
+const POLL_BACKOFF = 30 * 60_000;
 
 /** Make sure an inbound channel has its poller (after a channel row changed, on any runtime that delivers). */
 export async function ensurePoller(q: Queryable, org: string, channel: string, delayMs = 0): Promise<void> {
@@ -501,7 +507,12 @@ async function runPoll(job: Job, jctx: JobContext): Promise<void | { again: numb
   if (!actsHere(jctx.cfg)) return { again: 5 * POLL_EVERY };
   const state = await getState(jctx.db, org, stateKey(channel));
   if (state.poller && state.poller !== job.id) return; // another poller owns this channel
-  const sys = await sysCtx(jctx.cfg, org).catch(() => null);
+  // the organisation gone ends the poller; any other failure (a database that did not answer) throws, so the poll is
+  // tried again — returning here would end the channel's only clock on one failed read
+  const sys = await sysCtx(jctx.cfg, org).catch((e) => {
+    if (e instanceof AppError && e.status === 404) return null;
+    throw e;
+  });
   if (!sys) return;
   const ch = (await emailChannels(sys)).find((c) => c.id === channel);
   if (!ch || !ch.active || !ch.inbound) return;
@@ -515,5 +526,15 @@ async function runPoll(job: Job, jctx: JobContext): Promise<void | { again: numb
 }
 
 export function registerInboundJobs(): void {
-  registerJobHandler(JOB_IMAP, runPoll);
+  registerJobHandler(JOB_IMAP, runPoll, {
+    // the only other re-arm is a write of the channel: the poller goes on after a back-off, and the channel shows why
+    onExhausted: async (job, ectx) => {
+      const { org, channel } = job.payload as { org?: string; channel?: string };
+      if (!isUuid(org) || !isUuid(channel)) return;
+      const state = await getState(ectx.db, org, stateKey(channel));
+      if (state.poller && state.poller !== job.id) return; // another poller owns this channel
+      await setState(ectx.db, org, stateKey(channel), { last_checked_at: new Date().toISOString(), last_error: ectx.error });
+      await ensurePoller(ectx.db, org, channel, POLL_BACKOFF);
+    },
+  });
 }

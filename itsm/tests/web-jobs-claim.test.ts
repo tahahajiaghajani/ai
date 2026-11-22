@@ -1,15 +1,15 @@
-// A job whose worker stopped (Kariz 1.1.4, as 1.1.3): the web version's function cut at its time limit, a process that
-// died or an outcome that could not be saved leaves the job `running` until its lock (5 minutes) expires. It is then
-// taken again and run, whatever its attempts: a worker's death never fails a job by itself — only a handler's error
-// counts against `max_attempts`.
-// The 1.1.4 candidate failed such a job at its last allowed attempt instead (failExhausted). Its final review found that
-// this ended healthy self-rescheduling chains — a run that dies keeps the attempt its claim counted for good, so a chain
-// allowed three attempts ended at its third death, however many healthy runs lay between (JOBS-1) — and that it would
-// have left the rows of stateful kinds non-terminal (a backup `running`, a demo pack `loading`, an agent run `queued`, an
-// export or an import `running`, 27 kinds in all). It comes back in 1.1.5, with an attempt reset on success and per-kind
-// exhausted hooks.
+// A job whose worker stopped: the web version's function cut at its time limit, a process that died or an outcome that
+// could not be saved leaves the job `running` until its lock expires. With an attempt left it is taken again and run;
+// at its last allowed attempt it is failed with a Persian reason (`failExhausted`, Kariz 1.1.5) and its kind's exhausted
+// hook settles what the job left (tests/web-jobs-chain.test.ts, tests/web-jobs-exhausted.test.ts) — never run again, so
+// a job that never fits in its worker's time is not retried forever.
+// 1.1.4 took such a job again whatever its attempts (the 1.1.4 candidate's failExhausted ended healthy self-rescheduling
+// chains: a death kept its attempt for good). 1.1.5 brings it back together with what made it safe: a run that returns
+// normally forgives the deaths and errors before it (only consecutive failures exhaust a job), every stateful kind has
+// its exhausted hook, and a live worker renews its lock (tests/web-jobs-live.test.ts), so an expired lock means a
+// worker that is gone.
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
-import { enqueue, registerJobHandler, tick } from "@server/jobs";
+import { enqueue, EXHAUSTED_ERROR, registerJobHandler, tick } from "@server/jobs";
 import { makeServer, Client, signupWithOrg, quietLog } from "./helpers";
 import type { ServerConfig } from "@server/context";
 import type { Db } from "@server/db";
@@ -54,13 +54,35 @@ describe("jobs whose worker stopped", () => {
     return id;
   }
 
-  it("takes a job whose worker stopped during its last allowed attempt again and runs it", async () => {
+  it("fails a job whose worker stopped during its last allowed attempt, with a Persian reason, without running it", async () => {
     handle("test.stalled");
     const id = await stalled("test.stalled", 3, 3, { lastError: "سرویس پاسخ نداد" });
     await tick(cfg, { budgetMs: 5000, cleanup: false });
-    expect(await job(id)).toMatchObject({ status: "done", attempts: 4, locked_until: null, locked_by: null });
-    expect(ran).toEqual([id]);
-    expect(warnings).toEqual([]);
+    const j = await job(id);
+    expect(j).toMatchObject({ status: "failed", attempts: 3, locked_until: null, locked_by: null, last_error: `سرویس پاسخ نداد · ${EXHAUSTED_ERROR}` });
+    expect(j!.done_at).not.toBeNull();
+    expect(ran).toEqual([]);
+    expect(warnings.some((w) => w.startsWith("job test.stalled failed: its worker stopped during its last allowed attempt"))).toBe(true);
+  });
+
+  it("fails at most 100 such jobs of kinds without a hook per tick, the rest at the next one", async () => {
+    handle("test.stalled_many");
+    await db.query(
+      `insert into sm_jobs (id, org_id, kind, status, attempts, max_attempts, locked_by, locked_until)
+       select gen_random_uuid(), $1, 'test.stalled_many', 'running', 8, 8, 'w-gone', now() - (g * interval '1 second')
+       from generate_series(1, 120) g`,
+      [org],
+    );
+    const count = async () =>
+      (await db.query<{ status: string; n: number }>(`select status, count(*)::int as n from sm_jobs where kind = 'test.stalled_many' group by status`)).reduce(
+        (m, r) => ({ ...m, [r.status]: r.n }),
+        {} as Record<string, number>,
+      );
+    await tick(cfg, { budgetMs: 5000, cleanup: false });
+    expect(await count()).toEqual({ failed: 100, running: 20 });
+    await tick(cfg, { budgetMs: 5000, cleanup: false });
+    expect(await count()).toEqual({ failed: 120 });
+    expect(ran).toEqual([]);
   });
 
   it("takes a job with an attempt left again and runs it, as before", async () => {
@@ -79,16 +101,18 @@ describe("jobs whose worker stopped", () => {
     expect(ran).toEqual([]);
   });
 
-  it("still fails a job whose handler throws on its last allowed attempt: only a handler's error counts", async () => {
+  // (1.1.4 set this up as a death at the last attempt, taken again and run; 1.1.5 fails that one as exhausted, so the
+  // worker here died with one attempt left and the handler's error on the last one fails the job)
+  it("still fails a job whose handler throws on its last allowed attempt", async () => {
     offs.push(
       registerJobHandler("test.stalled_throws", async () => {
         throw new Error("سرویس دوباره پاسخ نداد");
       }),
     );
-    const id = await stalled("test.stalled_throws", 3, 3);
+    const id = await stalled("test.stalled_throws", 2, 3);
     await tick(cfg, { budgetMs: 5000, cleanup: false });
     const j = await job(id);
-    expect(j).toMatchObject({ status: "failed", attempts: 4, last_error: "سرویس دوباره پاسخ نداد", locked_until: null, locked_by: null });
+    expect(j).toMatchObject({ status: "failed", attempts: 3, last_error: "سرویس دوباره پاسخ نداد", locked_until: null, locked_by: null });
     expect(j!.done_at).not.toBeNull();
     expect(warnings.some((w) => w.startsWith("job test.stalled_throws failed"))).toBe(true);
   });
