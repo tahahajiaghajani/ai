@@ -3,23 +3,40 @@
 // capacity records fed by monitoring events (and the owner told on crossing), a BIA from the template with the
 // proposed RTO and its checks, a plan's exercise (start, steps, result) marking the plan tested, the dashboard, and
 // who may read it; the defaults (idempotent, kept for continuity managers).
-import { beforeAll, describe, expect, it } from "vitest";
+//
+// The clock is pinned for the whole file to 1 Azar 1405 06:00 in the organisation's time zone, the first day of a
+// Jalali month: a fake Date that keeps moving (PGlite's now() follows it). The availability report covers the current
+// month to date, so the outage of «three hours ago» below belonged to the previous month during the first three hours
+// of every month on the wall clock (on 1 Azar 1405, 00:00–03:00 Tehran): the report was right, the test was not.
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { eventWorld, type EventWorld } from "./event-helpers";
 import { seedContinuityDefaults } from "@server/modules/continuity";
+import { orgTz } from "@server/engine";
+import { fromJalali } from "@shared/jalali";
+import { zonedMidnight } from "@shared/model/jalali-buckets";
 
 let w: EventWorld;
 let service = "";
 type Row = Record<string, any>;
 const one = async (table: string, id: string) => (await w.o.get(`${w.P}/r/${table}/${id}`)).row as Row;
 const q = async (table: string, filter: unknown) => (await w.o.post(`${w.P}/r/${table}/query`, { filter, size: 100 })).rows as Row[];
+const TZ = "Asia/Tehran";
+/** 1 Azar 1405 00:00 in the organisation's time zone: the month the pinned clock is in began then */
+const MONTH_START = zonedMidnight(fromJalali(1405, 9, 1), TZ);
 
 beforeAll(async () => {
+  vi.useFakeTimers({ toFake: ["Date"], now: MONTH_START + 6 * 3600_000, shouldAdvanceTime: true });
   w = await eventWorld();
+  expect(orgTz(w.sys)).toBe(TZ);
   await w.o.post(`${w.P}/continuity/seed`, {});
   await w.o.post(`${w.P}/incident/seed`, {});
   service = (await w.o.post(`${w.P}/r/service`, { name: "پرداخت آنلاین", service_type: "business", state: "live", availability_target: "99.9" })).row.id;
   await w.drain();
 }, 120_000);
+
+afterAll(() => {
+  vi.useRealTimers();
+});
 
 describe("outages and availability", () => {
   it("derives duration and customer-minutes, needs an end to end and a cause to validate", async () => {
@@ -49,6 +66,30 @@ describe("outages and availability", () => {
     expect(t.outages.length).toBe(1);
     const comp = await w.o.post(`${w.P}/continuity/composite`, { tree: { serial: [{ a: 99.9 }, { parallel: [{ a: 99 }, { a: 99 }] }] } });
     expect(comp.availability).toBeCloseTo(99.89, 2);
+  });
+
+  it("on the first day of a month reports the new month to date and leaves the previous month its outages", async () => {
+    // a service of its own with two full outages of the previous evening (30 Aban): 22:00–23:00 and 23:30–00:30
+    const svc = (await w.o.post(`${w.P}/r/service`, { name: "بانکداری اینترنتی", service_type: "business", state: "live", availability_target: "99.9" })).row.id as string;
+    for (const [from, to] of [[-120, -60], [-30, 30]]) {
+      const o = (await w.o.post(`${w.P}/r/outage`, { title: "قطعی شبانه", service_id: svc, begin_at: new Date(MONTH_START + from * 60_000).toISOString(), end_at: new Date(MONTH_START + to * 60_000).toISOString() })).row;
+      await w.o.post(`${w.P}/r/outage/${o.id}/transition`, { to: "ended" });
+    }
+    // this month began at midnight: no failure began in it, only the half hour after midnight is its downtime
+    const now = await w.o.get(`${w.P}/continuity/availability?unit=month`);
+    expect(now.period.from).toBe(new Date(MONTH_START).toISOString());
+    expect((now.services as Row[]).find((x) => x.id === svc)).toMatchObject({ failures: 0, downtime_ms: 30 * 60_000, outages: 1 });
+    // the previous month keeps both failures and the hour and a half before midnight
+    const before = await w.o.get(`${w.P}/continuity/availability?unit=month&offset=-1`);
+    expect(before.period.to).toBe(new Date(MONTH_START).toISOString());
+    expect((before.services as Row[]).find((x) => x.id === svc)).toMatchObject({ failures: 2, downtime_ms: 90 * 60_000, outages: 2 });
+    // and so does the service's trend
+    const t = await w.o.get(`${w.P}/continuity/availability/${svc}?unit=month`);
+    const [last, current] = (t.periods as Row[]).slice(-2);
+    expect([last.label, current.label]).toEqual([before.period.label, now.period.label]);
+    expect(last).toMatchObject({ failures: 2, downtime_ms: 90 * 60_000 });
+    expect(current).toMatchObject({ failures: 0, downtime_ms: 30 * 60_000 });
+    expect(t.outages).toHaveLength(2);
   });
 
   it("proposes an outage when a major incident is declared, and its end when it is resolved", async () => {
