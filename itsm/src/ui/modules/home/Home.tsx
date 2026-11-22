@@ -13,6 +13,7 @@ import { formatJalali, todayISO, WEEKDAYS, weekday } from "@shared/jalali";
 import { faDigits } from "@shared/format";
 import { useOrg } from "../../lib/org";
 import { useSession } from "../../lib/session";
+import { EDITION_NAMES, EDITION_WORDS, editionOf, linkedEdition } from "../../lib/edition";
 import { PageHeader } from "../../components/layout";
 import { Card } from "../../components/blocks";
 import { BrandTile } from "../../components/brand";
@@ -82,7 +83,7 @@ export default function Home() {
     { key: "users", icon: UserCog, title: "کاربران و دسترسی‌ها", about: "همکاران را اضافه کنید و نقش هر کدام را تعیین کنید", path: "settings/users", show: can("users", "edit") },
     { key: "ai", icon: AiIcon, title: "هوش مصنوعی", about: "یک اتصال بسازید تا دستیار برای اعضا به کار بیفتد", path: "settings/ai", show: can("ai", "full") },
     { key: "integrations", icon: Plug, title: "اتصال‌ها و API", about: "سامانه‌های دیگر رویدادهایشان را با وب‌هوک بفرستند", path: "settings/integrations", show: can("integrations", "full") },
-    { key: "desktop", icon: Monitor, title: "نسخهٔ ویندوز", about: "پشتیبان‌گیری، حالت شبکه و هم‌گامی با نسخهٔ وب", path: "settings/desktop", show: desktop },
+    { key: "desktop", icon: Monitor, title: "نسخهٔ ویندوز", about: `پشتیبان‌گیری، حالت شبکه و هم‌گامی با ${EDITION_NAMES[linkedEdition(meta?.desktop?.cloud)]}`, path: "settings/desktop", show: desktop },
     { key: "account", icon: CircleUser, title: "حساب کاربری من", about: "نام، رمز عبور و دستگاه‌هایی که با آن‌ها وارد شده‌اید", path: "settings/account", show: true },
     { key: "help", icon: CircleHelp, title: "راهنما و میانبرها", about: "شروع کار، کلیدهای میانبر و پاسخ پرسش‌های رایج", path: "help", show: true },
   ];
@@ -136,7 +137,7 @@ export default function Home() {
             </Fact>
             <Fact label="نسخه">
               <span>
-                {desktop ? "ویندوز" : "وب"} · <span className="ds-num">{faDigits(APP_VERSION)}</span>
+                {EDITION_WORDS[editionOf(meta)]} · <span className="ds-num">{faDigits(APP_VERSION)}</span>
               </span>
             </Fact>
           </dl>

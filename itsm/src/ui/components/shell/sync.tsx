@@ -3,10 +3,11 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Tooltip } from "antd";
 import { api } from "../../lib/api";
-import { useSession } from "../../lib/session";
+import { useSession, type Meta } from "../../lib/session";
 import { fa, jTime, jDate } from "../../lib/fa";
+import { EDITION_NAMES, editionOf, installationState, linkedEdition } from "../../lib/edition";
 
-interface LocalSync {
+export interface LocalSync {
   linked: boolean;
   running: boolean;
   online: boolean | null;
@@ -48,6 +49,28 @@ function useNow(ms = 30_000) {
   return now;
 }
 
+/**
+ * The footer's state: the web version and the server edition name themselves and say where their data is (never «نسخهٔ
+ * وب» on an organisation's own server, ../../lib/edition.ts); the Windows app says how its copy stands against what it is
+ * linked to (the web version or the organisation's server edition).
+ */
+export function syncStateOf(meta: Pick<Meta, "mode" | "edition" | "desktop"> | undefined, s: LocalSync | undefined, now: number, retry?: () => void): SyncState {
+  const edition = editionOf(meta);
+  if (edition !== "desktop") return { tone: "web", meta: null, ...installationState(edition) };
+  if (!s?.linked) return { tone: "local", word: "روی همین رایانه", meta: null, detail: "برای هم‌گامی با نسخهٔ وب یا سرور سازمان، از تنظیمات ← نسخهٔ ویندوز وصل شوید." };
+  const to = linkedEdition(meta?.desktop?.cloud);
+  if (s.last_error) return { tone: "failed", word: "هم‌گامی متوقف شد", meta: null, detail: s.last_error, retry };
+  if (s.online === false) return { tone: "offline", word: to === "server" ? "بی‌اتصال به سرور" : "بی‌اینترنت", meta: s.pending ? `${fa(s.pending)} تغییر در صف` : null, detail: "تغییرها پس از وصل شدن فرستاده می‌شوند.", retry };
+  if (s.running) return { tone: "syncing", word: "در حال هم‌گامی", meta: s.pending ? `${fa(s.pending)} تغییر` : null, detail: null };
+  return {
+    tone: "live",
+    word: "هم‌گام",
+    meta: s.pending ? `${fa(s.pending)} تغییر در صف` : ago(s.last_sync_at, now),
+    detail: s.last_sync_at ? `آخرین هم‌گامی با ${EDITION_NAMES[to]}: ${jDate(new Date(s.last_sync_at))}، ${jTime(new Date(s.last_sync_at))}` : null,
+    retry,
+  };
+}
+
 export function useSyncState(): SyncState {
   const { meta } = useSession();
   const desktop = meta?.mode === "desktop";
@@ -58,20 +81,7 @@ export function useSyncState(): SyncState {
     enabled: desktop,
     refetchInterval: 8000,
   });
-  if (!desktop) return { tone: "web", word: "نسخهٔ وب", meta: null, detail: "داده‌ها مستقیم در فضای ابری ذخیره می‌شوند." };
-  const s = q.data;
-  const retry = () => void api.post("/local/sync").then(() => q.refetch());
-  if (!s?.linked) return { tone: "local", word: "روی همین رایانه", meta: null, detail: "برای هم‌گامی با نسخهٔ وب، از تنظیمات ← نسخهٔ ویندوز وصل شوید." };
-  if (s.last_error) return { tone: "failed", word: "هم‌گامی متوقف شد", meta: null, detail: s.last_error, retry };
-  if (s.online === false) return { tone: "offline", word: "بی‌اینترنت", meta: s.pending ? `${fa(s.pending)} تغییر در صف` : null, detail: "تغییرها پس از وصل شدن فرستاده می‌شوند.", retry };
-  if (s.running) return { tone: "syncing", word: "در حال هم‌گامی", meta: s.pending ? `${fa(s.pending)} تغییر` : null, detail: null };
-  return {
-    tone: "live",
-    word: "هم‌گام",
-    meta: s.pending ? `${fa(s.pending)} تغییر در صف` : ago(s.last_sync_at, now),
-    detail: s.last_sync_at ? `آخرین هم‌گامی: ${jDate(new Date(s.last_sync_at))}، ${jTime(new Date(s.last_sync_at))}` : null,
-    retry,
-  };
+  return syncStateOf(meta, q.data, now, () => void api.post("/local/sync").then(() => q.refetch()));
 }
 
 /** The 7 px rhombic nuqta in the tone's colour (pulses only while syncing: the one loop). */

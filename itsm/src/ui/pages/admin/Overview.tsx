@@ -7,6 +7,8 @@ import { PageHeader } from "../../components/layout";
 import { Skeleton, StatCard } from "../../components/display";
 import { Card } from "../../components/blocks";
 import { fa } from "../../lib/fa";
+import { useSession } from "../../lib/session";
+import { EDITION_NAMES, editionOf } from "../../lib/edition";
 import { ICON, EVENT_KIND, When, ago, bytes, eventDetail, usd, useAdminQuery, type SecurityEvent } from "./ui";
 import { timeLeft } from "../../components/shell/SupportBanner";
 
@@ -29,13 +31,15 @@ interface OverviewData {
 
 export default function Overview() {
   const q = useAdminQuery<OverviewData>(["overview"], "/admin/overview");
+  // the edition by the session (the server edition's API mode is "cloud", as the web version's)
+  const { meta } = useSession();
   const nav = useNavigate();
   const d = q.data;
   const k = d?.kpis;
   const ratio = k?.db.limit ? k.db.bytes / k.db.limit : 0;
   return (
     <div>
-      <PageHeader title="پیشخوان" subtitle={d ? (d.mode === "cloud" ? "نسخهٔ وب" : "نسخهٔ ویندوز") : undefined} />
+      <PageHeader title="پیشخوان" subtitle={d ? EDITION_NAMES[editionOf(meta)] : undefined} />
       {!k ? (
         <Skeleton rows={6} />
       ) : (

@@ -5,6 +5,7 @@ import { useEffect, type ReactNode } from "react";
 import { Link, useLocation } from "react-router";
 import { useOrg } from "../../lib/org";
 import { useSession } from "../../lib/session";
+import { runsAs } from "../../lib/edition";
 import { PageHeader } from "../../components/layout";
 import { Wordmark, BrandTile } from "../../components/brand";
 import { APP_NAME, APP_NAME_EN, APP_TAGLINE, APP_VERSION } from "@shared/constants";
@@ -655,7 +656,7 @@ export default function Help() {
                 </div>
                 <div>
                   <dt>اجرا</dt>
-                  <dd>{desktop ? "برنامهٔ ویندوز" : "نسخهٔ وب"}</dd>
+                  <dd>{runsAs(meta)}</dd>
                 </div>
                 <div className="is-wide">
                   <dt>نام لاتین</dt>

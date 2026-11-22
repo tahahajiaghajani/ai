@@ -195,6 +195,7 @@ export class SyncClient {
   private timer: NodeJS.Timeout | null = null;
   private debounce: NodeJS.Timeout | null = null;
   private busy: Promise<void> | null = null;
+  private editionAsked = false;
 
   constructor(private o: { db: Db; config: LocalConfig; save: () => void; log: Logger; fetch?: typeof fetch }) {
     this.state.linked = !!(o.config.cloud.url && o.config.cloud.token && o.config.cloud.org_id);
@@ -352,7 +353,8 @@ export class SyncClient {
       }
     }
     const reg = await this.api<{ device_id: string }>("/sync/register", { url, token, body: { org_id: orgId, device_id: this.o.config.device_id, name: hostname(), platform: "windows", app_version: APP_VERSION, protocol: SYNC_PROTOCOL } });
-    this.o.config.cloud = { ...this.o.config.cloud, url, token, org_id: orgId!, email: input.email, linked_at: new Date().toISOString() };
+    const edition = await this.remoteEdition(url, token);
+    this.o.config.cloud = { ...this.o.config.cloud, url, token, org_id: orgId!, email: input.email, linked_at: new Date().toISOString(), edition };
     this.o.config.device_id = reg.device_id;
     this.o.save();
     this.state.linked = true;
@@ -363,7 +365,7 @@ export class SyncClient {
   }
 
   async unlink() {
-    this.o.config.cloud = { ...this.o.config.cloud, token: null, org_id: null, linked_at: null };
+    this.o.config.cloud = { ...this.o.config.cloud, token: null, org_id: null, linked_at: null, edition: null };
     this.o.save();
     this.state.linked = false;
   }
@@ -673,6 +675,7 @@ export class SyncClient {
         this.state.online = true;
         this.state.last_error = refused;
         this.state.last_sync_at = new Date().toISOString();
+        if (this.o.config.cloud.edition == null && !this.editionAsked) await this.learnEdition();
       } catch (e) {
         const msg = String((e as Error).message ?? e);
         this.state.last_error = msg;
@@ -689,6 +692,29 @@ export class SyncClient {
     })();
     await this.busy;
     return this.state;
+  }
+
+  /** What a link reaches, from its public /api/meta: an organisation's server edition, else the web version (null unread). */
+  private async remoteEdition(url?: string | null, token?: string | null): Promise<"web" | "server" | null> {
+    try {
+      const m = await this.api<{ edition?: string } | null>("/meta", { url, token, timeout: 15000 });
+      return m?.edition === "server" ? "server" : "web";
+    } catch {
+      return null;
+    }
+  }
+
+  /** A link made before the app asked what it reaches learns it once (the footer and «نسخهٔ ویندوز» name it). */
+  private async learnEdition() {
+    this.editionAsked = true;
+    const edition = await this.remoteEdition();
+    if (!edition || !this.state.linked) return;
+    this.o.config.cloud = { ...this.o.config.cloud, edition };
+    try {
+      this.o.save();
+    } catch {
+      // kept in memory, written with the next save
+    }
   }
 
   /** The cloud's sync protocol (Infinity when it cannot be read: nothing is assumed then). */
