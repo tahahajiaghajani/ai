@@ -146,8 +146,12 @@ describe("the Ignored Build Step itsm/vercel.json runs", () => {
   // the Root Directory (itsm/) and Vercel builds on exit 1, cancels on exit 0 (any other code fails the deployment)
   function world() {
     const dir = mkdtempSync(join(tmpdir(), "itsm-ignore-"));
-    const env = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: dir, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: join(dir, "gitconfig") };
-    const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args], { cwd: dir, env, stdio: "pipe" }).toString().trim();
+    // the children's whole environment, nothing of this process's own, typed as the ProcessEnv the options take: once
+    // `npm run build` has written next-env.d.ts, Next's types make NODE_ENV one of its required keys, which these
+    // children neither get nor need (a bare object literal then fails typecheck, TS2769)
+    const only: Record<string, string> = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: dir, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: join(dir, "gitconfig") };
+    const env = only as NodeJS.ProcessEnv;
+    const git =(...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args], { cwd: dir, env, stdio: "pipe" }).toString().trim();
     const commit = (path: string) => {
       mkdirSync(join(dir, path, ".."), { recursive: true });
       writeFileSync(join(dir, path), `${path} ${Math.random()}`);
