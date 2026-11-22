@@ -6,9 +6,17 @@
 // - `registerJobHandler(kind, fn)` handles a kind; "prefix.*" handles every kind starting with "prefix.".
 // - `tick(cfg, { budgetMs })` claims due jobs one by one (`for update skip locked`: several cloud instances never
 //   take the same job; PGlite is a single connection) and runs their handlers until the budget is spent. A failed
-//   job is retried with exponential backoff until `max_attempts`, then kept as `failed` with its last error. A job
-//   whose worker died is taken again once its lock (5 minutes) expired, whatever its attempts: only a handler's error
-//   counts against `max_attempts`, never a worker's death.
+//   job is retried with exponential backoff until `max_attempts`, then kept as `failed` with its last error.
+// - Attempts count consecutive failures (Kariz 1.1.5): a run that returns normally — done, or `{ again }` for later —
+//   forgives the deaths and errors before it, so a self-rescheduling chain is never worn down over its life.
+// - A running job's lock (`LOCK_MS`, 5 minutes) is renewed every `HEARTBEAT_MS` while its handler works, for at most
+//   `HEARTBEAT_MAX_MS` (a hung handler loses its claim at last), and `jctx.save`/`saveIn` renew it too. Only the worker
+//   that still holds a claim writes the job's outcome (every statement of `finish` requires it): a lost claim writes
+//   nothing and is logged.
+// - A job whose worker died is taken again once its lock expired — unless that was its last allowed attempt: it is then
+//   failed (`failExhausted`, EXHAUSTED_ERROR) and never run again, and its kind's exhausted hook (`registerJobExhausted`,
+//   or the handler's `onExhausted`) puts the kind's own row in a final state or re-arms its chain. A handler that throws
+//   at its last attempt gets the same hook (a PermanentJobError is the handler's own decision: no hook).
 // Triggers: the Windows app ticks every 10 s (src/desktop/server.ts); the server edition's scheduler leader on its
 // interval and when a write wakes it (src/server-edition/scheduler.ts). The web version has no timer of its own between
 // requests (src/server/app.ts): it ticks once the answer is sent after a write request that queued jobs, when one is due
@@ -19,7 +27,7 @@
 // request's tick run only when there is work.
 // Handlers never run inside a transaction: they open their own (`db.tx`) and may call external services.
 import type { Db, Queryable } from "../db";
-import { retryTransient } from "../db";
+import { pgArray, retryTransient } from "../db";
 import type { Logger, ServerConfig } from "../context";
 import { uuidv7 } from "@shared/id";
 import { withLockLabel } from "../db/lockprobe";
@@ -69,42 +77,99 @@ export interface JobContext {
   log: Logger;
   /** when the tick's budget ends (a long handler should stop and return `{ again: 0 }`) */
   deadline: number;
-  /** persist a new payload for this job (e.g. progress kept for its next attempt) */
+  /**
+   * Persist a new payload for this job (e.g. progress kept for its next attempt); it renews the job's lock like the
+   * heartbeat. Throws JobClaimLost, writing nothing, once this worker no longer holds the job: the handler stops there.
+   */
   save(payload: Record<string, unknown>): Promise<void>;
   /**
    * The same inside the caller's transaction: progress that commits (or rolls back) with the work it records — a retry
-   * after a crash between the commit and the job's end then skips what is done.
+   * after a crash between the commit and the job's end then skips what is done. A lost claim throws JobClaimLost, so
+   * the transaction rolls back with the work it would have recorded.
    */
   saveIn(q: Queryable, payload: Record<string, unknown>): Promise<void>;
 }
 
-/** A handler returns nothing when the job is done, or `{ again: ms }` to run it again later (not an attempt). */
+/**
+ * A handler returns nothing when the job is done, or `{ again: ms }` to run it again later. Either way the run counted
+ * as a success: the job's attempts start again (only consecutive failures exhaust a job).
+ */
 export type JobResult = void | { again: number };
 export type JobHandler = (job: Job, jctx: JobContext) => Promise<JobResult>;
 
-/** A failure that retrying cannot fix: the job is marked failed at once. */
+/** A failure that retrying cannot fix: the job is marked failed at once (and its kind's exhausted hook is not called). */
 export class PermanentJobError extends Error {}
 
-const handlers = new Map<string, JobHandler>();
+/** The worker no longer holds the job's claim (another worker took it, it was failed as exhausted, or removed). */
+export class JobClaimLost extends Error {
+  constructor(id: string) {
+    super(`the claim of job ${id} was lost: another worker holds it, or it ended`);
+  }
+}
 
-/** Handle jobs of `kind` ("prefix.*" for a family). A later registration replaces the earlier one. */
-export function registerJobHandler(kind: string, fn: JobHandler): () => void {
+/** What an exhausted hook gets besides its job (the job's row as it ended: `failed`, its last error and payload). */
+export interface ExhaustedContext {
+  cfg: JobConfig;
+  db: Db;
+  log: Logger;
+  /** "died": its worker stopped during the last allowed attempt (`failExhausted`); "error": its handler threw then */
+  cause: "died" | "error";
+  /** what the kind's row may show: EXHAUSTED_ERROR when the worker died, else the handler's last error */
+  error: string;
+}
+/**
+ * A kind's last word on a job that used its last allowed attempt without finishing: it puts the kind's own row (a
+ * backup, an agent run, a flow run…) in the final state its handler's last-attempt path would have left, or queues a
+ * chain's next round with a back-off. Called once, after the job is `failed`, in the job's demo scope; best effort —
+ * an error is logged with the job's id, never retried. A hook is compare-and-set (it changes only a row still in the
+ * state the job left) and never calls the job's handler.
+ */
+export type ExhaustedHook = (job: Job, ectx: ExhaustedContext) => Promise<void>;
+
+const handlers = new Map<string, JobHandler>();
+const exhaustedHooks = new Map<string, ExhaustedHook>();
+
+/**
+ * Handle jobs of `kind` ("prefix.*" for a family). A later registration replaces the earlier one. `onExhausted` is the
+ * kind's exhausted hook (`registerJobExhausted`); the function returned removes both.
+ */
+export function registerJobHandler(kind: string, fn: JobHandler, opts: { onExhausted?: ExhaustedHook } = {}): () => void {
   handlers.set(kind, fn);
+  const offHook = opts.onExhausted ? registerJobExhausted(kind, opts.onExhausted) : () => {};
   return () => {
     if (handlers.get(kind) === fn) handlers.delete(kind);
+    offHook();
   };
 }
 
-function handlerFor(kind: string): JobHandler | undefined {
-  const exact = handlers.get(kind);
+/**
+ * The exhausted hook of `kind` ("prefix.*" for a family, found as handlers are: the kind itself first, then the longest
+ * family). A later registration replaces the earlier one.
+ */
+export function registerJobExhausted(kind: string, fn: ExhaustedHook): () => void {
+  exhaustedHooks.set(kind, fn);
+  return () => {
+    if (exhaustedHooks.get(kind) === fn) exhaustedHooks.delete(kind);
+  };
+}
+
+/** The entry of `kind` in a registry: the kind itself, else the longest "prefix.*" family. */
+function lookup<T>(map: Map<string, T>, kind: string): T | undefined {
+  const exact = map.get(kind);
   if (exact) return exact;
   const parts = kind.split(".");
   for (let i = parts.length - 1; i > 0; i--) {
-    const h = handlers.get(`${parts.slice(0, i).join(".")}.*`);
+    const h = map.get(`${parts.slice(0, i).join(".")}.*`);
     if (h) return h;
   }
   return undefined;
 }
+
+const handlerFor = (kind: string): JobHandler | undefined => lookup(handlers, kind);
+const exhaustedFor = (kind: string): ExhaustedHook | undefined => lookup(exhaustedHooks, kind);
+
+/** Does `kind` have an exhausted hook (the stateful kinds' registry test)? */
+export const hasExhaustedHook = (kind: string): boolean => !!exhaustedFor(kind);
 
 const NIL = "00000000-0000-0000-0000-000000000000";
 
@@ -171,22 +236,150 @@ export function backoffMs(attempts: number): number {
   return Math.round(base * (1 + Math.random() * 0.2));
 }
 
+/** How long a claim lasts unless renewed: a job whose lock expired lost its worker (taken again, or failExhausted). */
+export const LOCK_MS = 5 * 60_000;
+/** How often the lock of a running job is renewed while its handler works (well inside `LOCK_MS`). */
+export const HEARTBEAT_MS = 60_000;
+/**
+ * How long a running job's lock is renewed at most: a handler hung longer loses its claim (its lock expires and
+ * «سلامت سامانه» shows its queue as stopped), so a wedged worker cannot hold a job — and the queue behind it — for ever.
+ * The longest legitimate jobs (a backup, a directory synchronisation, an import, an asset reconciliation at a bank's
+ * scale) stay well below it.
+ */
+export const HEARTBEAT_MAX_MS = 2 * 3600_000;
+
+/** The lock's timings of one tick (`TickOptions`; tests shorten them). */
+interface Timing {
+  lockMs: number;
+  heartbeatMs: number;
+  heartbeatMaxMs: number;
+}
+
+const msParam = (v: number) => Math.max(0, Math.round(v));
+
 /**
  * Claim up to `n` due jobs in one statement (`for update skip locked`: concurrent ticks of other processes never take
- * the same job; the partial index sm_jobs_due_idx answers it), else jobs whose worker died (lock expired).
+ * the same job; the partial index sm_jobs_due_idx answers it), else jobs whose worker died (lock expired) and that have
+ * an attempt left (one that used its last attempt is failed by `failExhausted`, never run again). The claim stamps
+ * `updated_at`: a running job's `updated_at` is when it was claimed (its heartbeat and saves renew only its lock).
  */
-async function claim(db: Db, worker: string, n = 1): Promise<Job[]> {
+async function claim(db: Db, worker: string, n: number, lockMs: number): Promise<Job[]> {
   const take = (pick: string) =>
     db.query<Job>(
       `update sm_jobs set status = 'running', attempts = attempts + 1, locked_by = $1,
-              locked_until = now() + interval '5 minutes', updated_at = now()
+              locked_until = now() + ($2::bigint * interval '1 millisecond'), updated_at = now()
        where id in (${pick} for update skip locked)
        returning *, ${DEMO_JOB_SQL} as demo`,
-      [worker],
+      [worker, msParam(lockMs)],
     );
   const due = await take(`select id from sm_jobs where status = 'queued' and run_at <= now() order by run_at, id limit ${Math.max(1, Math.trunc(n))}`);
   if (due.length) return due.sort((a, b) => (a.run_at < b.run_at ? -1 : a.run_at > b.run_at ? 1 : a.id < b.id ? -1 : 1));
-  return take(`select id from sm_jobs where status = 'running' and locked_until < now() order by locked_until limit ${Math.max(1, Math.trunc(n))}`);
+  return take(
+    `select id from sm_jobs where status = 'running' and locked_until < now() and attempts < max_attempts order by locked_until limit ${Math.max(1, Math.trunc(n))}`,
+  );
+}
+
+/**
+ * Renew a running job's lock while its handler works: every `heartbeatMs`, until `heartbeatMaxMs` after its claim, and
+ * only while this worker still holds the claim. A row the handler's own transaction holds (`saveIn`) is skipped, never
+ * waited for — that transaction renews the lock itself; on PGlite (one connection) a beat simply waits its turn.
+ */
+function heartbeat(db: Db, id: string, worker: string, t: Timing, claimed: number): () => void {
+  if (!(t.heartbeatMs > 0)) return () => {};
+  let inFlight = false;
+  const timer = setInterval(() => {
+    if (Date.now() - claimed >= t.heartbeatMaxMs) return void clearInterval(timer);
+    if (inFlight) return;
+    inFlight = true;
+    db.query(
+      `update sm_jobs set locked_until = now() + ($3::bigint * interval '1 millisecond')
+       where id in (select id from sm_jobs where id = $1 and status = 'running' and locked_by = $2 for update skip locked)`,
+      [id, worker, msParam(t.lockMs)],
+    )
+      .catch(() => undefined)
+      .finally(() => (inFlight = false));
+  }, t.heartbeatMs);
+  (timer as { unref?: () => void }).unref?.();
+  return () => clearInterval(timer);
+}
+
+/** The last error of a job whose worker stopped during its last allowed attempt (after the error it had, if any). */
+export const EXHAUSTED_ERROR = "کارگر این کار در آخرین تلاش مجاز پیش از پایان متوقف شد (مثلاً به سقف زمان اجرای سرور رسید)؛ دیگر اجرا نمی‌شود";
+/** How much of a job's earlier error stays before `EXHAUSTED_ERROR`: last_error holds 2,000 characters, like runOne's. */
+const EARLIER_ERROR_KEPT = 2000 - " · ".length - EXHAUSTED_ERROR.length;
+/** Exhausted jobs looked at per tick (sm_jobs_running_idx). */
+export const EXHAUSTED_BATCH = 100;
+
+/** Fail the exhausted jobs a pick names: still running, their lock expired, no attempt left; rows held now are skipped. */
+const failExhaustedSql = (pick: string) => `update sm_jobs set status = 'failed', done_at = now(), locked_until = null, locked_by = null,
+            last_error = coalesce(left(last_error, ${EARLIER_ERROR_KEPT}) || ' · ', '') || $1, updated_at = now()
+     where id in (select id from sm_jobs where ${pick} and status = 'running' and locked_until < now() and attempts >= max_attempts
+                  for update skip locked)
+     returning *, ${DEMO_JOB_SQL} as demo`;
+
+/**
+ * Fail the jobs whose worker stopped during their last allowed attempt: still `running`, their lock expired (with the
+ * heartbeat that means their worker is gone), no attempt left (`attempts >= max_attempts`; the claim counts an attempt
+ * when it takes the job). Their worker was cut off — the web version's function at its time limit, a process that died
+ * or closed abruptly — and a job that never fits in that time would otherwise be taken again forever. A long earlier
+ * error is shortened, never the reason.
+ *
+ * At most `EXHAUSTED_BATCH` a tick (sm_jobs_running_idx), the rest at the next one. Jobs of kinds without an exhausted
+ * hook go in one statement; those of a kind with one are failed one at a time, each followed by its hook, while the
+ * tick has time (at least one a tick) — the others stay as they are for the next tick rather than failed without it.
+ */
+async function failExhausted(cfg: JobConfig, deadline: number): Promise<number> {
+  const db = cfg.db;
+  const found = await db.query<{ id: string; kind: string }>(
+    `select id, kind from sm_jobs where status = 'running' and locked_until < now() and attempts >= max_attempts order by locked_until limit ${EXHAUSTED_BATCH}`,
+  );
+  if (!found.length) return 0;
+  const told = (r: Job) =>
+    cfg.log.warn(`job ${r.kind} failed: its worker stopped during its last allowed attempt`, { id: r.id, org_id: r.org_id, attempts: r.attempts });
+  let failed = 0;
+  const plain = found.filter((r) => !exhaustedFor(r.kind)).map((r) => r.id);
+  if (plain.length) {
+    const rows = await db.query<Job>(failExhaustedSql("id = any($2::uuid[])"), [EXHAUSTED_ERROR, pgArray(plain)]);
+    for (const r of rows) told(r);
+    failed += rows.length;
+  }
+  let hooked = 0;
+  for (const r of found) {
+    if (!exhaustedFor(r.kind)) continue;
+    if (hooked > 0 && (Date.now() >= deadline || closing.has(db))) break;
+    const [job] = await db.query<Job>(failExhaustedSql("id = $2::uuid"), [EXHAUSTED_ERROR, r.id]);
+    if (!job) continue;
+    hooked++;
+    failed++;
+    told(job);
+    await runExhaustedHook(cfg, job, "died", EXHAUSTED_ERROR);
+  }
+  return failed;
+}
+
+/**
+ * The exhausted hook of a job that ended `failed` without finishing: in the job's demo scope (as `runOne` runs its
+ * handler), never throwing — an error is logged with the job's id.
+ */
+async function runExhaustedHook(cfg: JobConfig, job: Job, cause: ExhaustedContext["cause"], error: string): Promise<void> {
+  const hook = exhaustedFor(job.kind);
+  if (!hook) return;
+  const ectx: ExhaustedContext = { cfg, db: cfg.db, log: cfg.log, cause, error };
+  try {
+    await inDemoScope(job.demo && job.org_id ? job.org_id : null, () => withLockLabel(`job ${job.kind} exhausted`, () => hook(job, ectx)));
+  } catch (e) {
+    cfg.log.warn(`job ${job.kind}: its exhausted hook failed`, { id: job.id, org_id: job.org_id, error: String((e as Error)?.message ?? e).slice(0, 2000) });
+  }
+}
+
+/**
+ * The Windows app's start (one process per database, so whatever is `running` was its last process's — one that ended
+ * abruptly: a shutdown, a crash): the jobs that process held are taken again by the first tick (or failed, at their
+ * last attempt) at once, instead of waiting until the locks its heartbeat renewed run out. Returns how many.
+ */
+export async function releaseStaleClaims(q: Queryable): Promise<number> {
+  const r = await q.query(`update sm_jobs set locked_until = now() - interval '1 second' where status = 'running' and locked_until >= now() returning id`);
+  return r.length;
 }
 
 /**
@@ -205,7 +398,22 @@ export const DEMO_JOB_SQL = `(sm_jobs.org_id is not null
 
 const isUniqueViolation = (e: unknown): boolean => !!e && typeof e === "object" && (e as { code?: string }).code === "23505";
 
-async function finish(db: Db, job: Job, status: JobStatus, opts: { error?: string; runInMs?: number; keepAttempt?: boolean } = {}) {
+/** Does `worker` still hold the job's claim? */
+const holds = async (db: Db, id: string, worker: string): Promise<boolean> =>
+  !!(await db.one(`select 1 from sm_jobs where id = $1 and status = 'running' and locked_by = $2`, [id, worker]));
+
+/**
+ * Write a job's outcome — only while `worker` still holds its claim (status 'running', locked_by = worker): a claim lost
+ * meanwhile (another worker took the job after its lock expired, failExhausted failed it, the demo purge removed it)
+ * writes nothing ("lost"). `forgive`: the run returned normally, so its attempts start again.
+ */
+async function finish(
+  db: Db,
+  job: Job,
+  worker: string,
+  status: JobStatus,
+  opts: { error?: string; runInMs?: number; forgive?: boolean } = {},
+): Promise<"ok" | "lost"> {
   if (status === "queued") {
     const runInMs = Math.max(0, Math.round(opts.runInMs ?? 0));
     // a job with a dedupe key may have got a queued twin while it ran («اجرا اکنون», a settings save): only one job of
@@ -213,35 +421,40 @@ async function finish(db: Db, job: Job, status: JobStatus, opts: { error?: strin
     try {
       const back = await db.one<{ id: string }>(
         `update sm_jobs set status = 'queued', run_at = now() + ($2::bigint * interval '1 millisecond'), locked_until = null, locked_by = null,
-                last_error = coalesce($3, last_error), attempts = attempts - $4, updated_at = now()
-         where id = $1 and ($6::text is null or not exists (
+                last_error = coalesce($3, last_error), attempts = case when $4::int = 1 then 0 else attempts end, updated_at = now()
+         where id = $1 and status = 'running' and locked_by = $7 and ($6::text is null or not exists (
            select 1 from sm_jobs t where coalesce(t.org_id, '${NIL}'::uuid) = coalesce($5::uuid, '${NIL}'::uuid)
              and t.dedupe_key = $6::text and t.status = 'queued' and t.id <> $1))
          returning id`,
-        [job.id, runInMs, opts.error ?? null, opts.keepAttempt ? 1 : 0, job.org_id ?? null, job.dedupe_key ?? null],
+        [job.id, runInMs, opts.error ?? null, opts.forgive ? 1 : 0, job.org_id ?? null, job.dedupe_key ?? null, worker],
       );
-      if (back || !job.dedupe_key) return;
+      if (back) return "ok";
+      if (!job.dedupe_key) return "lost";
     } catch (e) {
       // the twin was added between the check and the update
       if (!job.dedupe_key || !isUniqueViolation(e)) throw e;
     }
+    // nothing was updated: the claim was lost, or a queued twin holds the key
+    if (!(await holds(db, job.id, worker))) return "lost";
     // the twin runs no later than this one would have run again; this one is done (its last error kept)
     await db.query(
       `update sm_jobs set run_at = least(run_at, now() + ($3::bigint * interval '1 millisecond')), updated_at = now()
        where coalesce(org_id, '${NIL}'::uuid) = coalesce($1::uuid, '${NIL}'::uuid) and dedupe_key = $2 and status = 'queued'`,
       [job.org_id ?? null, job.dedupe_key, runInMs],
     );
-    await db.query(
+    const done = await db.one(
       `update sm_jobs set status = 'done', done_at = now(), locked_until = null, locked_by = null, last_error = coalesce($2, last_error),
-              updated_at = now() where id = $1`,
-      [job.id, opts.error ?? null],
+              updated_at = now() where id = $1 and status = 'running' and locked_by = $3 returning id`,
+      [job.id, opts.error ?? null, worker],
     );
-    return;
+    return done ? "ok" : "lost";
   }
-  await db.query(
-    `update sm_jobs set status = $2, done_at = now(), locked_until = null, locked_by = null, last_error = $3, updated_at = now() where id = $1`,
-    [job.id, status, opts.error ?? null],
+  const r = await db.one(
+    `update sm_jobs set status = $2, done_at = now(), locked_until = null, locked_by = null, last_error = $3, updated_at = now()
+     where id = $1 and status = 'running' and locked_by = $4 returning id`,
+    [job.id, status, opts.error ?? null, worker],
   );
+  return r ? "ok" : "lost";
 }
 
 /** Rows one cleanup statement deletes at most. */
@@ -327,6 +540,12 @@ export interface TickOptions {
    * `CLEANUP_MS`). The web version's request ticks pass false, so there it runs from GET /api/cron/tick alone.
    */
   cleanup?: boolean;
+  /** How long a claim lasts unless renewed (default `LOCK_MS`; tests shorten it). */
+  lockMs?: number;
+  /** How often a running job's lock is renewed (default `HEARTBEAT_MS`; 0: never — tests). */
+  heartbeatMs?: number;
+  /** How long after its claim a running job's lock is renewed at most (default `HEARTBEAT_MAX_MS`). */
+  heartbeatMaxMs?: number;
 }
 
 /** The longest the runner waits for foreground work before each job (`TickOptions.busy`). */
@@ -359,16 +578,18 @@ async function tickOutsideScope(cfg: JobConfig, opts: TickOptions): Promise<Tick
   const worker = opts.worker ?? `w${process.pid}-${uuidv7().slice(-8)}`;
   const width = Math.max(1, Math.min(32, Math.trunc(opts.concurrency ?? 1)));
   const max = opts.max ?? 1000;
+  const timing: Timing = { lockMs: opts.lockMs ?? LOCK_MS, heartbeatMs: opts.heartbeatMs ?? HEARTBEAT_MS, heartbeatMaxMs: opts.heartbeatMaxMs ?? HEARTBEAT_MAX_MS };
   let ran = 0;
   let failed = 0;
   try {
     if (opts.cleanup !== false) await cleanup(db, deadline).catch((e) => cfg.log.warn("job cleanup failed", String((e as Error)?.message ?? e)));
+    await failExhausted(cfg, deadline).catch((e) => cfg.log.warn("failing exhausted jobs failed", String((e as Error)?.message ?? e)));
     while (Date.now() < deadline && ran + failed < max && !closing.has(db)) {
       if (opts.busy?.()) {
         await quietFor(opts.busy, Math.min(YIELD_MS, deadline - Date.now()));
         if (Date.now() >= deadline || closing.has(db)) break;
       }
-      const jobs = await claim(db, worker, Math.min(width, max - ran - failed));
+      const jobs = await claim(db, worker, Math.min(width, max - ran - failed), timing.lockMs);
       if (!jobs.length) return { ran, failed, more: false };
       // jobs of one record (its events) keep their order: they run one after the other, other groups alongside
       const groups = new Map<string, Job[]>();
@@ -381,7 +602,7 @@ async function tickOutsideScope(cfg: JobConfig, opts: TickOptions): Promise<Tick
       const settled = await Promise.allSettled(
         [...groups.values()].map(async (group) => {
           const out: boolean[] = [];
-          for (const job of group) out.push(await runOne(cfg, job, deadline));
+          for (const job of group) out.push(await runOne(cfg, job, deadline, worker, timing));
           return out;
         }),
       );
@@ -405,9 +626,21 @@ async function tickOutsideScope(cfg: JobConfig, opts: TickOptions): Promise<Tick
   }
 }
 
-async function runOne(cfg: JobConfig, job: Job, deadline: number): Promise<boolean> {
+async function runOne(cfg: JobConfig, job: Job, deadline: number, worker: string, t: Timing): Promise<boolean> {
   const db = cfg.db;
   const handler = handlerFor(job.kind);
+  const claimed = Date.now();
+  const lost = () => cfg.log.warn(`job ${job.kind}: its claim was lost`, { id: job.id, worker });
+  /** Write the payload (and renew the lock, within the heartbeat's maximum) — only while this worker holds the claim. */
+  const keep = async (q: Queryable, payload: Record<string, unknown>) => {
+    const renew = Date.now() - claimed < t.heartbeatMaxMs;
+    const r = await q.query(
+      `update sm_jobs set payload = $2::jsonb${renew ? ", locked_until = greatest(locked_until, now() + ($4::bigint * interval '1 millisecond'))" : ""}
+       where id = $1 and status = 'running' and locked_by = $3 returning id`,
+      renew ? [job.id, JSON.stringify(payload), worker, msParam(t.lockMs)] : [job.id, JSON.stringify(payload), worker],
+    );
+    if (!r.length) throw new JobClaimLost(job.id);
+  };
   const jctx: JobContext = {
     cfg,
     db,
@@ -417,12 +650,10 @@ async function runOne(cfg: JobConfig, job: Job, deadline: number): Promise<boole
       return closing.has(db) ? Math.min(deadline, Date.now()) : deadline;
     },
     save: async (payload) => {
+      await keep(db, payload);
       job.payload = payload as Record<string, any>;
-      await db.query(`update sm_jobs set payload = $2::jsonb, updated_at = now() where id = $1`, [job.id, JSON.stringify(payload)]);
     },
-    saveIn: async (q, payload) => {
-      await q.query(`update sm_jobs set payload = $2::jsonb, updated_at = now() where id = $1`, [job.id, JSON.stringify(payload)]);
-    },
+    saveIn: (q, payload) => keep(q, payload),
   };
   try {
     if (!handler) throw new Error(`no handler for job kind "${job.kind}"`);
@@ -433,24 +664,40 @@ async function runOne(cfg: JobConfig, job: Job, deadline: number): Promise<boole
     // A run again starts from the progress the job committed — the payload as stored (`saveIn` writes it inside the
     // handler's own transactions), exactly what a later attempt would read
     let runs = 0;
-    const r = await retryTransient(async () => {
-      if (runs++ > 0) {
-        const stored = await db.one<{ payload: Record<string, any> }>(`select payload from sm_jobs where id = $1`, [job.id]);
-        if (stored) job.payload = stored.payload;
-      }
-      return inDemoScope(job.demo && job.org_id ? job.org_id : null, () => withLockLabel(`job ${job.kind}`, () => handler!(job, jctx)));
-    }, 4);
-    if (r && typeof r.again === "number") await finish(db, job, "queued", { runInMs: r.again, keepAttempt: true });
-    else await finish(db, job, "done");
+    const stopBeat = heartbeat(db, job.id, worker, t, claimed);
+    let r: JobResult;
+    try {
+      r = await retryTransient(async () => {
+        if (runs++ > 0) {
+          const stored = await db.one<{ payload: Record<string, any> }>(`select payload from sm_jobs where id = $1`, [job.id]);
+          if (stored) job.payload = stored.payload;
+        }
+        return inDemoScope(job.demo && job.org_id ? job.org_id : null, () => withLockLabel(`job ${job.kind}`, () => handler!(job, jctx)));
+      }, 4);
+    } finally {
+      stopBeat();
+    }
+    // a run that returned forgives the failures before it: only consecutive ones exhaust a job
+    const out = r && typeof r.again === "number" ? await finish(db, job, worker, "queued", { runInMs: r.again, forgive: true }) : await finish(db, job, worker, "done");
+    if (out === "lost") {
+      lost();
+      return false;
+    }
     return true;
   } catch (e) {
+    if (e instanceof JobClaimLost) {
+      lost();
+      return false;
+    }
     const error = String((e as Error)?.message ?? e).slice(0, 2000);
     try {
-      if (e instanceof PermanentJobError || job.attempts >= job.max_attempts) {
-        await finish(db, job, "failed", { error });
+      const last = e instanceof PermanentJobError || job.attempts >= job.max_attempts;
+      const out = last ? await finish(db, job, worker, "failed", { error }) : await finish(db, job, worker, "queued", { error, runInMs: backoffMs(job.attempts) });
+      if (out === "lost") lost();
+      else if (last) {
         cfg.log.warn(`job ${job.kind} failed`, { id: job.id, error });
-      } else {
-        await finish(db, job, "queued", { error, runInMs: backoffMs(job.attempts) });
+        // its last attempt failed: the kind settles what the job left (a PermanentJobError is the handler's own decision)
+        if (!(e instanceof PermanentJobError)) await runExhaustedHook(cfg, { ...job, status: "failed", last_error: error }, "error", error);
       }
     } catch (e2) {
       // never reject: the tick waits for every group it claimed. The job stays claimed until its lock expires.
