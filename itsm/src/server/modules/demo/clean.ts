@@ -38,6 +38,7 @@ import {
 } from "./refs";
 import { failReason, inSavepoint, type CleanedDefinition, type ReroutedBucket, type Skipped, type TableInfo } from "./purge";
 import { isPurgedSql } from "./ledger";
+import { rowWords } from "./samples";
 
 const ident = (s: string) => `"${s.replace(/"/g, '""')}"`;
 const lit = (s: string) => `'${s.replace(/'/g, "''")}'`;
@@ -157,13 +158,8 @@ export async function effectiveDefs(q: Queryable, orgId: string, info: TableInfo
 const hasField = (def: TableDef, name: string) => def.fields.some((f) => f.name === name && !f.base);
 const isJsonCol = (t: TableInfo, name: string) => t.cols.get(name)?.type === "jsonb";
 
-/** The display of a row for the report (its number, else its display field). */
-function labelOf(def: TableDef, row: Record<string, unknown>): string {
-  const n = typeof row.number === "string" && row.number ? row.number : null;
-  const d = row[def.display];
-  const text = typeof d === "string" ? d : d === null || d === undefined ? "" : String(d);
-  return [n, text].filter(Boolean).join(" — ").slice(0, 120) || String(row.id ?? "").slice(0, 8);
-}
+/** The display of a row for the report: its number and display in words, never an id (./samples.ts). */
+const labelOf = (q: Queryable, def: TableDef, row: Record<string, unknown>): Promise<string> => rowWords(q, def, row);
 
 /** A soft «since» bound: a row that names a demo row was written after the demo row existed (a week for clock skew). */
 const sinceCond = (t: TableInfo, since: string | null) => (since && t.cols.has("updated_at") ? ` and x.updated_at >= ${lit(since)}::timestamptz - interval '7 days'` : "");
@@ -365,7 +361,7 @@ export async function clearStep(tx: Tx, sys: Ctx, orgId: string, info: TableInfo
           if (!Object.keys(patch).length) continue;
           const bucket = st.rerouted.get(def.key) ?? { table: def.key, label: def.plural, rows: 0, routed: 0, samples: [] };
           bucket.rows++;
-          if (bucket.samples.length < 3) bucket.samples.push(labelOf(def, row));
+          if (bucket.samples.length < 3) bucket.samples.push(await labelOf(tx, def, row));
           st.rerouted.set(def.key, bucket);
           if (!st.dry) await writeRow(tx, sys, t, def, String(row.id), patch, patch, st.skipped, "clear");
           continue;
@@ -375,7 +371,7 @@ export async function clearStep(tx: Tx, sys: Ctx, orgId: string, info: TableInfo
         const deactivate = dead && hasField(def, "active") && row.active !== false;
         if (deactivate) patch.active = false;
         const entry: CleanedDefinition = {
-          table: def.key, label: def.label, id: String(row.id), name: labelOf(def, row), what: [...new Set(notes)].join("؛ ").slice(0, 400),
+          table: def.key, label: def.label, id: String(row.id), name: await labelOf(tx, def, row), what: [...new Set(notes)].join("؛ ").slice(0, 400),
           deactivated: deactivate || (dead && !hasField(def, "active")),
         };
         st.cleaned.push(entry);
@@ -582,7 +578,7 @@ export async function rerouteStep(tx: Tx, sys: Ctx, orgId: string, info: TableIn
         const bucket = st.rerouted.get(def.key) ?? { table: def.key, label: def.plural, rows: 0, routed: 0, samples: [] };
         bucket.rows++;
         if (Object.keys(patch).some((k) => routing.has(k))) bucket.routed++;
-        if (bucket.samples.length < 3) bucket.samples.push(labelOf(def, row));
+        if (bucket.samples.length < 3) bucket.samples.push(await labelOf(tx, def, row));
         st.rerouted.set(def.key, bucket);
         if (st.dry) continue;
         if (def.key === "approval" && replan.has(`${row.table_key}:${row.record_id}`)) continue;
@@ -718,7 +714,7 @@ export async function anchorStep(tx: Tx, sys: Ctx, orgId: string, info: TableInf
         if (!Object.keys(set).length) continue;
         const bucket = st.rerouted.get(def.key) ?? { table: def.key, label: def.plural, rows: 0, routed: 0, samples: [] };
         bucket.rows++;
-        if (bucket.samples.length < 3) bucket.samples.push(labelOf(def, row));
+        if (bucket.samples.length < 3) bucket.samples.push(await labelOf(tx, def, row));
         st.rerouted.set(def.key, bucket);
         if (st.dry) continue;
         const keys = Object.keys(set);

@@ -29,6 +29,7 @@ import {
 import { anchorStep, clearStep, newTableCursor, noNames, planNames, rerouteStep, retireStuck, type GoneNames, type StepState, type TableCursor } from "./clean";
 import { systemCtx } from "../../engine";
 import { TRAIL_TABLE_NAMES } from "./refs";
+import { sampleWords } from "./samples";
 
 export { DEMO_SIZES, BANK_NAME, type DemoSize } from "./bank";
 export { tablesInfo, COMPUTED_TABLES, type PurgeReport, type RefReport } from "./purge";
@@ -293,14 +294,9 @@ async function planReport(q: Queryable, orgId: string, info: TableInfo[], report
       platform += d.n;
       continue;
     }
-    const label = def.numbered ? `coalesce(x.number, '')` : `''`;
-    const disp = def.fields.some((f) => f.name === def.display && !f.base) ? `x.${JSON.stringify(def.display)}::text` : `''`;
-    const samples = await q.query<{ s: string }>(
-      `select trim(both ' —' from concat_ws(' — ', nullif(${label}, ''), nullif(${disp}, ''))) as s from ${JSON.stringify(d.tbl)} x
-        join sm_demo_saved m on m.org_id = $1 and m.tbl = '${DERIVED}' and m.row_id = x.id where x.org_id = $1 limit 3`,
-      [orgId],
-    ).catch(() => [] as { s: string }[]);
-    deleted.push({ table: def.key, label: def.plural, rows: d.n, samples: samples.map((x) => x.s).filter(Boolean) });
+    // words a person reads, never an id: a holder reads «… در «مدیر گروه»» (./samples.ts)
+    const samples = await sampleWords(q, def, `from ${JSON.stringify(d.tbl)} x join sm_demo_saved m on m.org_id = $1 and m.tbl = '${DERIVED}' and m.row_id = x.id where x.org_id = $1`, [orgId]);
+    deleted.push({ table: def.key, label: def.plural, rows: d.n, samples });
   }
   if (platform) deleted.push({ table: "_platform", label: "سوابق و رویدادهای سامانه دربارهٔ دادهٔ نمایشی", rows: platform, samples: [] });
   report.deleted = deleted;

@@ -10,6 +10,7 @@
 //     applying to everyone; a workflow whose starters were only the pack is closed to everyone, not opened
 //   · nothing breaks: a workflow whose step only the pack could take stays published (its managers can act on the
 //     waiting step), listed for review; its new case waits with the reason until a holder is added
+//   · the preview names what it touches in words (a holder «… در «مدیر پروژه»»), never by id
 //   · every API works after it: the hub, the designer, preview of a step's people, publish, new and open cases, a new
 //     incident (its flow, rule and SLA), a new change (its approvals), and a second load and purge
 // Runs on PGlite (CI) and, with ITSM_PG_URL or ITSM_PG_BIN (tests/pg-real.ts), on a real PostgreSQL with the server's
@@ -368,6 +369,17 @@ function builtOn(title: string, make: () => Promise<World>, skip = false) {
       expect(cleaned.filter((c) => c.table === "process_case" || c.table === "process_submission")).toEqual([]);
       // kept records routed again
       expect((report!.rerouted as { table: string }[]).some((r) => r.table === "incident")).toBe(true);
+      // every bucket names rows in words, never by id: a holder reads «… در «…»» (1.1.5's click-through saw
+      // «دارندگان نقش‌های سازمانی · ۴ · 01a201e6-…»)
+      const holders = (report!.deleted as { table: string; samples: string[] }[]).find((d) => d.table === "position_holder");
+      expect(holders?.samples.length ?? 0).toBeGreaterThan(0);
+      for (const sample of holders!.samples) expect(sample).toMatch(/ در «(مدیر پروژه|کارشناس ارشد)»$/);
+      const words = [
+        ...(report!.deleted as { samples: string[] }[]).flatMap((d) => d.samples),
+        ...(report!.cleaned as { name: string }[]).map((c) => c.name),
+        ...(report!.rerouted as { samples: string[] }[]).flatMap((r) => r.samples),
+      ];
+      expect(words.filter((x) => /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(x))).toEqual([]);
     }, 300_000);
 
     it("purges as the console does, to the end", async () => {
