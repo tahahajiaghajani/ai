@@ -103,7 +103,11 @@ const SKIP = new Set([
  * Computed tables: the platform derives their rows from the organisation's records (KPI scores and collections, trained
  * models, insights, clusters, health and compliance facts…). Their rows as they were before the load are saved with
  * the pack and put back by the purge; rows computed meanwhile go (the next scheduled run recomputes them from real
- * data). A computed table added later belongs here.
+ * data). A computed table added later belongs here. Allocation runs and their results are not computed tables: a run
+ * is a person's (calculated, approved and posted to the ledger by the financial area, never recomputed by a schedule),
+ * and an organisation's run shares only its own rules' own costs (`ledgerSide`, financial/service.ts) — a real run made
+ * or posted while the pack is loaded is real work the purge keeps with its results and its entries; the pack's runs are
+ * its rows and go with theirs.
  */
 export const COMPUTED_TABLES = [
   "sm_analytics_scores",
@@ -133,8 +137,6 @@ export const COMPUTED_TABLES = [
   "sm_ai_rag_runs",
   // run logs of organisation-wide computations
   "sm_license_reconcile_runs",
-  "sm_allocation_runs",
-  "sm_allocation_results",
 ];
 
 /**
@@ -149,6 +151,15 @@ export const COMPUTED_COLUMNS: Record<string, readonly string[]> = {
   sm_catalog_items: ["sle_p50", "sle_p85", "sle_p95", "sle_samples", "orders_90d"],
 };
 const COLUMNS = "#columns";
+
+/**
+ * Of the tables a pack's load saved (`progress.computed`), those still computed: a table that left the lists after the
+ * pack was loaded (an earlier version saved the allocation runs) is no longer put back — its rows go or stay by the
+ * rule of every table, and its saved copy goes with the pack's bookkeeping.
+ */
+function stillComputed(saved: readonly string[]): string[] {
+  return saved.filter((t) => (t.endsWith(COLUMNS) ? Object.prototype.hasOwnProperty.call(COMPUTED_COLUMNS, t.slice(0, -COLUMNS.length)) : COMPUTED_TABLES.includes(t)));
+}
 
 /** Above this many rows a table is not saved (a large organisation's records: see docs/DEMO_FA.md). */
 const SAVE_LIMIT = 20_000;
@@ -743,7 +754,7 @@ export async function saveComputed(q: Queryable, orgId: string, info: TableInfo[
 export async function computedSince(q: Queryable, orgId: string, info: TableInfo[], saved: string[]): Promise<number> {
   let n = 0;
   const byName = new Map(info.map((t) => [t.name, t]));
-  for (const table of saved) {
+  for (const table of stillComputed(saved)) {
     // (computed columns of real rows: a row their saved copy lacks is real data made meanwhile, never demo data)
     const t = table.endsWith(COLUMNS) ? null : byName.get(table);
     if (!t || !hasIdOrg(t)) continue;
@@ -804,7 +815,7 @@ export async function restoreComputed(q: Queryable, orgId: string, info: TableIn
   const out: Record<string, number> = {};
   const byName = new Map(info.map((t) => [t.name, t]));
   const held: Gone[] = [];
-  for (const table of saved) {
+  for (const table of stillComputed(saved)) {
     if (table.endsWith(COLUMNS)) {
       const name = table.slice(0, -COLUMNS.length);
       const n = await restoreColumns(q, orgId, byName.get(name), table);
