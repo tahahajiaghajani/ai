@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import { requireAdminPage } from "@/lib/admin-auth";
 import { getAdminProduct, listTaxa } from "@/lib/admin-catalog";
 import { db } from "@/lib/db";
+import { paletteOf } from "@/lib/options";
+import { getSettingsFresh } from "@/lib/settings";
 import { DbMissing, PageHeader } from "@/components/admin/ui";
 import { ProductEditor } from "@/components/admin/product-editor";
 
@@ -17,7 +19,7 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
         <DbMissing />
       </>
     );
-  const [got, categories, collections] = await Promise.all([getAdminProduct(id), listTaxa("categories"), listTaxa("collections")]);
+  const [got, categories, collections, settings] = await Promise.all([getAdminProduct(id), listTaxa("categories"), listTaxa("collections"), getSettingsFresh()]);
   if (!got) notFound();
   return (
     <ProductEditor
@@ -27,6 +29,7 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
       media={got.media}
       categories={(categories ?? []).map(({ id, name_fa }) => ({ id, name_fa }))}
       collections={(collections ?? []).map(({ id, name_fa }) => ({ id, name_fa }))}
+      palette={paletteOf(settings.options)}
     />
   );
 }

@@ -1,4 +1,4 @@
-import type { Badge, Metal, ProductStatus, Stone } from "@/lib/catalog-types";
+import type { Badge, Leather, Metal, ProductStatus, Stone } from "@/lib/catalog-types";
 
 /** Persian labels of the catalogue facets for the admin (client-safe). */
 
@@ -14,8 +14,12 @@ export const STONE_LABEL: Record<Exclude<Stone, "">, string> = {
   green: "سبز جنگلی",
   red: "قرمز اناری",
   pearl: "مرواریدی",
+  blush: "صورتی ملایم",
+  black: "مشکی",
   mixed: "چندرنگ",
 };
+
+export const LEATHER_LABEL: Record<Leather, string> = { black: "مشکی", brown: "قهوه‌ای", tan: "عسلی", burgundy: "زرشکی", navy: "سرمه‌ای", cream: "کرم" };
 
 export const BADGE_LABEL: Record<Exclude<Badge, "">, string> = { new: "تازه", bestseller: "محبوب", limited: "تعداد محدود" };
 

@@ -39,7 +39,7 @@ export interface EmailView {
   envFrom: string;
 }
 
-function Section({ id, title, children, footer }: { id: string; title: string; children: ReactNode; footer: ReactNode }) {
+export function Section({ id, title, children, footer }: { id: string; title: string; children: ReactNode; footer: ReactNode }) {
   return (
     <section id={id} className="scroll-mt-24 border border-line bg-white">
       <header className="border-b border-line px-5 py-4">

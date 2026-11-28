@@ -1,5 +1,6 @@
 import "server-only";
-import type { Badge, Metal, Spec, Stone } from "@/lib/catalog-types";
+import type { Badge, Metal, Spec, Stone, VariantOptions } from "@/lib/catalog-types";
+import { hasOptions, optionLabel, optionSwatch, type OptionPalette } from "@/lib/options";
 import { SEED_MEDIA, type SeedKey } from "@/content/seed-media";
 import { story } from "@/content/copy/story";
 
@@ -31,11 +32,16 @@ export interface SeedCollection {
   image?: SeedKey;
 }
 
+/**
+ * An option of a starter product: a combination of the colour lists (`options`; its name and dot come from the
+ * lists, src/lib/options.ts) or, without one, a plain option with its own name and dot.
+ */
 export interface SeedVariant {
   key: string;
-  name_fa: string;
-  name_en: string;
-  swatch: string;
+  options?: VariantOptions;
+  name_fa?: string;
+  name_en?: string;
+  swatch?: string;
   sku: string;
   price: number | null;
   stock: number;
@@ -381,8 +387,8 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     price: 2_650_000,
     stock: 0,
     variants: [
-      { key: "gold", name_fa: "طلایی", name_en: "Gold-tone", swatch: "gold", sku: "CL-DEL-SG-001-GT", price: null, stock: 9 },
-      { key: "silver", name_fa: "نقره‌ای (رودیوم)", name_en: "Silver-tone", swatch: "silver", sku: "CL-DEL-SG-001-RH", price: null, stock: 6 },
+      { key: "gold", options: { plating: "gold" }, sku: "CL-DEL-SG-001-GT", price: null, stock: 9 },
+      { key: "silver", options: { plating: "silver" }, sku: "CL-DEL-SG-001-RH", price: null, stock: 6 },
     ],
     featured: true,
     badge: "bestseller",
@@ -405,8 +411,8 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     price: 2_900_000,
     stock: 0,
     variants: [
-      { key: "gold", name_fa: "طلایی", name_en: "Gold-tone", swatch: "gold", sku: "CL-DEL-RG-002-GT", price: null, stock: 5 },
-      { key: "silver", name_fa: "نقره‌ای (رودیوم)", name_en: "Silver-tone", swatch: "silver", sku: "CL-DEL-RG-002-RH", price: null, stock: 4 },
+      { key: "gold", options: { plating: "gold" }, sku: "CL-DEL-RG-002-GT", price: null, stock: 5 },
+      { key: "silver", options: { plating: "silver" }, sku: "CL-DEL-RG-002-RH", price: null, stock: 4 },
     ],
     featured: false,
     badge: "new",
@@ -430,12 +436,13 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     price: 3_300_000,
     stock: 0,
     variants: [
-      { key: "gold-navy", name_fa: "طلایی · سرمه‌ای", name_en: "Gold-tone · Night blue", swatch: "gold", sku: "CL-NEG-BG-001-GT-NB", price: null, stock: 4, image: "bangles-sapphire" },
-      { key: "silver-navy", name_fa: "نقره‌ای · سرمه‌ای", name_en: "Silver-tone · Night blue", swatch: "silver", sku: "CL-NEG-BG-001-RH-NB", price: null, stock: 4, image: "bangles-sapphire" },
-      { key: "gold-green", name_fa: "طلایی · سبز جنگلی", name_en: "Gold-tone · Forest green", swatch: "gold", sku: "CL-NEG-BG-001-GT-FG", price: null, stock: 3, image: "bangles-emerald" },
-      { key: "silver-green", name_fa: "نقره‌ای · سبز جنگلی", name_en: "Silver-tone · Forest green", swatch: "silver", sku: "CL-NEG-BG-001-RH-FG", price: null, stock: 3, image: "bangles-emerald" },
-      { key: "gold-red", name_fa: "طلایی · قرمز اناری", name_en: "Gold-tone · Pomegranate red", swatch: "gold", sku: "CL-NEG-BG-001-GT-PR", price: null, stock: 2, image: "bangles-ruby" },
-      { key: "silver-red", name_fa: "نقره‌ای · قرمز اناری", name_en: "Silver-tone · Pomegranate red", swatch: "silver", sku: "CL-NEG-BG-001-RH-PR", price: null, stock: 2, image: "bangles-ruby" },
+      // plating × stone colour (the brand book's SKU pattern: …-GT-NB)
+      { key: "gold-navy", options: { plating: "gold", stone: "navy" }, sku: "CL-NEG-BG-001-GT-NB", price: null, stock: 4, image: "bangles-sapphire" },
+      { key: "silver-navy", options: { plating: "silver", stone: "navy" }, sku: "CL-NEG-BG-001-RH-NB", price: null, stock: 4, image: "bangles-sapphire" },
+      { key: "gold-green", options: { plating: "gold", stone: "green" }, sku: "CL-NEG-BG-001-GT-FG", price: null, stock: 3, image: "bangles-emerald" },
+      { key: "silver-green", options: { plating: "silver", stone: "green" }, sku: "CL-NEG-BG-001-RH-FG", price: null, stock: 3, image: "bangles-emerald" },
+      { key: "gold-red", options: { plating: "gold", stone: "red" }, sku: "CL-NEG-BG-001-GT-PR", price: null, stock: 2, image: "bangles-ruby" },
+      { key: "silver-red", options: { plating: "silver", stone: "red" }, sku: "CL-NEG-BG-001-RH-PR", price: null, stock: 2, image: "bangles-ruby" },
     ],
     featured: true,
     badge: "",
@@ -480,8 +487,8 @@ export const SEED_PRODUCTS: SeedProduct[] = [
     price: 6_900_000,
     stock: 0,
     variants: [
-      { key: "navy", name_fa: "سرمه‌ای", name_en: "Night blue", swatch: "#1f3a6e", sku: "CL-GER-SET-002-RH-NB", price: null, stock: 3, image: "set-bow-sapphire" },
-      { key: "red", name_fa: "قرمز اناری", name_en: "Pomegranate red", swatch: "#9e1b32", sku: "CL-GER-SET-002-RH-PR", price: null, stock: 2, image: "set-bow-ruby" },
+      { key: "navy", options: { stone: "navy" }, sku: "CL-GER-SET-002-RH-NB", price: null, stock: 3, image: "set-bow-sapphire" },
+      { key: "red", options: { stone: "red" }, sku: "CL-GER-SET-002-RH-PR", price: null, stock: 2, image: "set-bow-ruby" },
     ],
     featured: true,
     badge: "new",
@@ -489,3 +496,10 @@ export const SEED_PRODUCTS: SeedProduct[] = [
 ];
 
 export const seedMedia = (k: SeedKey) => SEED_MEDIA[k];
+
+/** Name, dot and combination of a starter option: from the colour lists for a combination, else its own. */
+export function seedVariantFields(v: SeedVariant, palette: OptionPalette): { name_fa: string; name_en: string; swatch: string; options: VariantOptions } {
+  const options = v.options ?? {};
+  if (hasOptions(options)) return { name_fa: optionLabel(options, palette, "fa"), name_en: optionLabel(options, palette, "en"), swatch: optionSwatch(options, palette), options };
+  return { name_fa: v.name_fa ?? "", name_en: v.name_en ?? "", swatch: v.swatch ?? "", options: {} };
+}

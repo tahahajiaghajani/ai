@@ -1,4 +1,4 @@
-/** A plating / stone colour dot. */
+/** A plating / stone / leather colour dot: a site preset (written out literally, so Tailwind generates it) or the admin's #rrggbb. */
 export function swatchClass(swatch: string): string {
   switch (swatch) {
     case "gold":
@@ -7,6 +7,8 @@ export function swatchClass(swatch: string): string {
       return "bg-swatch-silver";
     case "rose":
       return "bg-swatch-rose";
+    case "champagne":
+      return "bg-swatch-champagne";
     case "black":
       return "bg-swatch-black";
     case "two-tone":

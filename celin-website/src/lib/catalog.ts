@@ -5,8 +5,9 @@ import { env } from "@/lib/env";
 import { getSettings, getSettingsFresh } from "@/lib/settings";
 import { MEDIA_COLUMNS, rowToMedia, type Media, type MediaRow } from "@/lib/media";
 import type { Catalog, Category, Collection, Product, ProPrices, Spec, Variant } from "@/lib/catalog-types";
+import { axesOf, paletteOf, readOptions, type OptionPalette } from "@/lib/options";
 import { packsOf } from "@/lib/packs";
-import { SEED_CATEGORIES, SEED_COLLECTIONS, SEED_PRODUCTS } from "@/content/seed-catalog";
+import { SEED_CATEGORIES, SEED_COLLECTIONS, SEED_PRODUCTS, seedVariantFields } from "@/content/seed-catalog";
 import { SEED_MEDIA } from "@/content/seed-media";
 
 /**
@@ -22,7 +23,7 @@ export function storageBase(): string {
 export const seedId = (slug: string) => `seed-${slug}`;
 export const seedVariantId = (slug: string, key: string) => `seed-${slug}-${key}`;
 
-function seedCatalog(): Catalog {
+function seedCatalog(palette: OptionPalette): Catalog {
   const categories: Category[] = SEED_CATEGORIES.map((c, i) => ({
     id: seedId(c.slug),
     slug: c.slug,
@@ -48,7 +49,9 @@ function seedCatalog(): Catalog {
     visible: true,
     soon: !SEED_PRODUCTS.some((p) => p.collection === c.slug),
   }));
-  const products: Product[] = SEED_PRODUCTS.map((p, i) => ({
+  const products: Product[] = SEED_PRODUCTS.map((p, i) => {
+    const variants: Variant[] = p.variants.map((v, j) => ({ id: seedVariantId(p.slug, v.key), ...seedVariantFields(v, palette), sku: v.sku, image: v.image ? SEED_MEDIA[v.image] : null, sort: j }));
+    return {
     id: seedId(p.slug),
     slug: p.slug,
     sku: p.sku,
@@ -64,13 +67,15 @@ function seedCatalog(): Catalog {
     stone: p.stone,
     specs: p.specs,
     images: p.images.map((k) => SEED_MEDIA[k]),
-    variants: p.variants.map((v, j) => ({ id: seedVariantId(p.slug, v.key), name_fa: v.name_fa, name_en: v.name_en, swatch: v.swatch, sku: v.sku, image: v.image ? SEED_MEDIA[v.image] : null, sort: j })),
+    variants,
+    axes: axesOf(variants, palette),
     packs: [1],
     featured: p.featured,
     badge: p.badge,
     sort: i,
     created_at: "2026-10-23T00:00:00.000Z",
-  }));
+    };
+  });
   return { categories, collections, products, source: "seed" };
 }
 
@@ -125,6 +130,8 @@ interface VariantRow {
   stock: number;
   image_id: string | null;
   sort: number;
+  /** round six; missing before its database file has run */
+  options?: unknown;
 }
 interface TaxonRow {
   id: string;
@@ -144,7 +151,9 @@ interface TaxonRow {
 
 export const PRODUCT_COLUMNS =
   "id, slug, sku, name_fa, name_en, subtitle_fa, subtitle_en, description_fa, description_en, category_id, collection_id, metal, stone, specs, images, price, stock, status, featured, badge, sort, created_at";
-export const VARIANT_COLUMNS = "id, product_id, name_fa, name_en, swatch, sku, price, stock, image_id, sort";
+/** a variant before round six's database file (no `options`: every option is one of the plain list) */
+export const VARIANT_COLUMNS_V1 = "id, product_id, name_fa, name_en, swatch, sku, price, stock, image_id, sort";
+export const VARIANT_COLUMNS = `${VARIANT_COLUMNS_V1}, options`;
 /** round six's columns of a product (how it is sold); a database where that file has not run yet reads without them */
 export const PRODUCT_R6_COLUMNS = `${PRODUCT_COLUMNS}, packs`;
 
@@ -165,7 +174,7 @@ export async function loadMedia(ids: Iterable<string>): Promise<Map<string, Medi
 
 const byOrder = <T extends { sort: number; created_at?: string }>(a: T, b: T) => a.sort - b.sort || String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""));
 
-async function dbCatalog(): Promise<Catalog | null> {
+async function dbCatalog(palette: OptionPalette): Promise<Catalog | null> {
   const c = db();
   if (!c) return null;
   const published = (columns: string) => c.from("celin_products").select(columns).eq("status", "published").order("sort").limit(2000);
@@ -185,10 +194,17 @@ async function dbCatalog(): Promise<Catalog | null> {
   const products = (prods.data ?? []) as unknown as ProductRow[];
   const variants: VariantRow[] = [];
   const ids = products.map((p) => p.id);
+  // with the combinations of the colour options; before round six's database file every option is a plain one
+  let columns = VARIANT_COLUMNS;
   for (let i = 0; i < ids.length; i += 150) {
-    const { data, error } = await c.from("celin_variants").select(VARIANT_COLUMNS).in("product_id", ids.slice(i, i + 150)).order("sort");
+    const chunk = ids.slice(i, i + 150);
+    let { data, error } = await c.from("celin_variants").select(columns).in("product_id", chunk).order("sort");
+    if (error && columns === VARIANT_COLUMNS && isMissingColumn(error)) {
+      columns = VARIANT_COLUMNS_V1;
+      ({ data, error } = await c.from("celin_variants").select(columns).in("product_id", chunk).order("sort"));
+    }
     if (error) throw new Error(error.message);
-    variants.push(...((data ?? []) as VariantRow[]));
+    variants.push(...((data ?? []) as unknown as VariantRow[]));
   }
   const taxa = [...((cats.data ?? []) as TaxonRow[]), ...((cols.data ?? []) as TaxonRow[])];
   const media = await loadMedia([...taxa.map((t) => t.media_id ?? ""), ...products.flatMap((p) => p.images ?? []), ...variants.map((v) => v.image_id ?? "")]);
@@ -197,7 +213,7 @@ async function dbCatalog(): Promise<Catalog | null> {
   const varsOf = new Map<string, Variant[]>();
   for (const v of variants) {
     const list = varsOf.get(v.product_id) ?? [];
-    list.push({ id: v.id, name_fa: v.name_fa, name_en: v.name_en, swatch: v.swatch, sku: v.sku, image: v.image_id ? media.get(v.image_id) ?? null : null, sort: v.sort });
+    list.push({ id: v.id, name_fa: v.name_fa, name_en: v.name_en, swatch: v.swatch, sku: v.sku, image: v.image_id ? media.get(v.image_id) ?? null : null, sort: v.sort, options: readOptions(v.options) });
     varsOf.set(v.product_id, list);
   }
   return {
@@ -245,6 +261,7 @@ async function dbCatalog(): Promise<Catalog | null> {
         specs: Array.isArray(p.specs) ? p.specs : [],
         images: (p.images ?? []).map((id) => media.get(id)).filter((m): m is Media => Boolean(m)),
         variants: varsOf.get(p.id) ?? [],
+        axes: axesOf(varsOf.get(p.id) ?? [], palette),
         packs: packsOf(p.packs),
         featured: p.featured,
         badge: (p.badge || "") as Product["badge"],
@@ -269,13 +286,16 @@ async function catalogInDbStrict(): Promise<boolean> {
 }
 
 async function loadCatalog(): Promise<Catalog> {
-  if (!(await catalogInDbStrict())) return seedCatalog();
-  return (await dbCatalog()) ?? seedCatalog();
+  // strict (see catalogInDbStrict); the colour lists name the axes of every product (a change to them invalidates "catalog")
+  const s = await getSettingsFresh();
+  const palette = paletteOf(s.options);
+  if (!(db() && s.catalog.initialized)) return seedCatalog(palette);
+  return (await dbCatalog(palette)) ?? seedCatalog(palette);
 }
 
 // every admin change invalidates the tag at once; the timer is only a safety net for edits made in SQL
-// v2: products carry `packs` (round six) — a catalogue cached by an older deployment is never served without them
-const cachedCatalog = unstable_cache(loadCatalog, ["celin-catalog-v2"], { tags: ["catalog"], revalidate: 3600 });
+// v3: products carry `packs` and `axes`, variants their `options` (round six) — an older deployment's cache is never served
+const cachedCatalog = unstable_cache(loadCatalog, ["celin-catalog-v3"], { tags: ["catalog"], revalidate: 3600 });
 
 /**
  * The public catalogue (published items only, no prices). Cached; every admin change invalidates the
@@ -290,7 +310,7 @@ export async function getCatalog(): Promise<Catalog> {
   } catch (e) {
     console.error("[catalog]", e);
     if (db()) throw e;
-    return seedCatalog();
+    return seedCatalog(paletteOf(undefined));
   }
 }
 

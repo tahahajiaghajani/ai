@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { guard } from "@/lib/admin-action";
-import { deleteProduct, deleteTaxon, duplicateProduct, importStarter, quickUpdate, reorderTaxa, saveProduct, saveTaxon, seedMediaId, starterPending, type TaxonKind } from "@/lib/admin-catalog";
+import { deleteProduct, deleteTaxon, duplicateProduct, importStarter, quickUpdate, reorderTaxa, saveOptionPalette, saveProduct, saveTaxon, seedMediaId, starterPending, type TaxonKind } from "@/lib/admin-catalog";
+import { DEFAULT_OPTIONS } from "@/lib/options";
 import { deleteMedia, listLibrary, mediaInOrders, mediaUsage, updateMedia } from "@/lib/admin-media";
 import { loadMedia } from "@/lib/catalog";
 import { UserError } from "@/lib/db";
@@ -24,6 +25,24 @@ export async function adminSaveProduct(input: Record<string, unknown>): Promise<
     const id = await saveProduct(text(input.id, 40) || null, input);
     refresh();
     return { ok: true, message: "محصول ذخیره شد.", id };
+  });
+}
+
+/** Settings → «رنگ‌های گزینه‌ها»: the plating, stone and leather colours; stored combinations take the new words at once. */
+export async function adminSaveOptions(input: Record<string, unknown>): Promise<Result> {
+  return guard(async () => {
+    const { renamed } = await saveOptionPalette(input.palette);
+    refresh();
+    return { ok: true, message: renamed ? `رنگ‌های گزینه‌ها ذخیره شد؛ نام ${num(renamed, "fa")} ترکیب در محصولات به‌روز شد.` : "رنگ‌های گزینه‌ها ذخیره شد." };
+  });
+}
+
+/** The starting lists again (refused while a product uses a colour they do not have). */
+export async function adminResetOptions(): Promise<Result> {
+  return guard(async () => {
+    const { renamed } = await saveOptionPalette(DEFAULT_OPTIONS);
+    refresh();
+    return { ok: true, message: renamed ? `به فهرست پیش‌فرض برگشت؛ نام ${num(renamed, "fa")} ترکیب به‌روز شد.` : "به فهرست پیش‌فرض برگشت." };
   });
 }
 

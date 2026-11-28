@@ -1,4 +1,5 @@
 import { DEFAULT_MEMBER_PCT, DEFAULT_PRO_DAYS, DEFAULT_PRO_THRESHOLD, DEFAULT_STEPS, type PriceStep } from "@/lib/pricing";
+import { DEFAULT_OPTIONS, type OptionPalette } from "@/lib/options";
 
 /** Client-safe settings shapes and defaults (stored per key in celin_settings, merged over these). */
 
@@ -125,6 +126,8 @@ export interface Settings {
   sms: SmsSettings;
   email: EmailSettings;
   catalog: CatalogSettings;
+  /** «رنگ‌های گزینه‌ها»: the plating, stone and leather colours products are chosen by (src/lib/options.ts); a stored list replaces its default */
+  options: OptionPalette;
   seo: SeoSettings;
 }
 
@@ -158,5 +161,6 @@ export const DEFAULT_SETTINGS: Settings = {
   sms: { provider: "none", apiKeyEnc: "", sender: "", codeTemplate: "", statusTemplate: "", onCode: true, onStatus: true },
   email: { resendKeyEnc: "", mailFrom: "" },
   catalog: { initialized: false },
+  options: DEFAULT_OPTIONS,
   seo: { description_fa: "", description_en: "" },
 };

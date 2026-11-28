@@ -1,13 +1,15 @@
 import "server-only";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { assertAdmin } from "@/lib/admin-auth";
-import { db, isMissingColumn, isMissingTable, requireDb, UserError } from "@/lib/db";
+import { allRows, db, isMissingColumn, isMissingTable, requireDb, UserError } from "@/lib/db";
 import { getSettingsFresh, saveSettings } from "@/lib/settings";
-import { loadMedia, PRODUCT_COLUMNS, PRODUCT_R6_COLUMNS, VARIANT_COLUMNS } from "@/lib/catalog";
-import { METALS, STONES, type Badge, type Metal, type ProductStatus, type Spec, type Stone } from "@/lib/catalog-types";
+import { loadMedia, PRODUCT_COLUMNS, PRODUCT_R6_COLUMNS, VARIANT_COLUMNS, VARIANT_COLUMNS_V1 } from "@/lib/catalog";
+import { METALS, STONES, SWATCH_RE, type Badge, type Metal, type ProductStatus, type Spec, type Stone, type VariantOptions } from "@/lib/catalog-types";
+import { num } from "@/lib/format";
 import type { Media } from "@/lib/media";
+import { axesUsed, cleanOptions, cleanPalette, comboSku, DEFAULT_OPTIONS, hasOptions, MAX_VARIANTS, OPTION_AXES, optionLabel, optionsKey, optionSwatch, paletteOf, readOptions, valueOf, type OptionPalette } from "@/lib/options";
 import { cleanPacks, packsOf, singleOnly } from "@/lib/packs";
-import { SEED_CATEGORIES, SEED_COLLECTIONS, SEED_PRODUCTS } from "@/content/seed-catalog";
+import { SEED_CATEGORIES, SEED_COLLECTIONS, SEED_PRODUCTS, seedVariantFields } from "@/content/seed-catalog";
 import { SEED_MEDIA, type SeedKey } from "@/content/seed-media";
 
 /**
@@ -28,6 +30,8 @@ export interface AdminVariant {
   stock_loaded?: number | null;
   image_id: string | null;
   sort: number;
+  /** the combination of the colour lists it is (src/lib/options.ts); {} = an option of the plain list */
+  options: VariantOptions;
 }
 
 export interface AdminProduct {
@@ -228,10 +232,17 @@ export async function getAdminProduct(id: string): Promise<{ product: AdminProdu
   if (error && isMissingColumn(error)) ({ data, error } = await read(PRODUCT_COLUMNS));
   if (error) throw new Error(error.message);
   if (!data) return null;
-  const { data: vs, error: ve } = await c.from("celin_variants").select(VARIANT_COLUMNS).eq("product_id", id).order("sort");
+  const readVariants = (columns: string) => c.from("celin_variants").select(columns).eq("product_id", id).order("sort");
+  let { data: vs, error: ve } = await readVariants(VARIANT_COLUMNS);
+  // before round six's database file has run: every option is one of the plain list
+  if (ve && isMissingColumn(ve)) ({ data: vs, error: ve } = await readVariants(VARIANT_COLUMNS_V1));
   if (ve) throw new Error(ve.message);
   const p = data as unknown as Omit<AdminProduct, "variants">;
-  const variants = ((vs ?? []) as (AdminVariant & { product_id: string })[]).map(({ product_id: _, ...v }) => ({ ...v, price: v.price === null ? null : Number(v.price) }));
+  const variants = ((vs ?? []) as unknown as (Omit<AdminVariant, "options"> & { product_id: string; options?: unknown })[]).map(({ product_id: _, ...v }) => ({
+    ...v,
+    price: v.price === null ? null : Number(v.price),
+    options: readOptions(v.options),
+  }));
   const media = await loadMedia([...(p.images ?? []), ...variants.map((v) => v.image_id ?? "")]);
   return {
     product: { ...p, price: p.price === null ? null : Number(p.price), specs: Array.isArray(p.specs) ? p.specs : [], images: p.images ?? [], packs: packsOf(p.packs), variants },
@@ -239,16 +250,20 @@ export async function getAdminProduct(id: string): Promise<{ product: AdminProdu
   };
 }
 
-/** Validated product fields from the editor form. Throws UserError with a Persian message. */
-export function parseProduct(input: Record<string, unknown>) {
+/**
+ * Validated product fields from the editor form. Throws UserError with a Persian message. A combination of the colour
+ * lists (`palette`, Settings → «رنگ‌های گزینه‌ها») gets its name, dot and — when empty — SKU from the lists; the
+ * editor's own words for it are not used.
+ */
+export function parseProduct(input: Record<string, unknown>, palette: OptionPalette = DEFAULT_OPTIONS) {
   const name_fa = text(input.name_fa, 160);
   if (name_fa.length < 2) throw new UserError("نام فارسی محصول را بنویسید.");
   const name_en = text(input.name_en, 160);
   const slug = text(input.slug, 80).toLowerCase() || slugify(name_en) || "";
   if (!SLUG_RE.test(slug)) throw new UserError("نشانی (slug) فقط حروف کوچک انگلیسی، عدد و خط تیره می‌پذیرد؛ مثلاً darya-ring.");
   const status = (["draft", "published", "archived"] as const).includes(input.status as ProductStatus) ? (input.status as ProductStatus) : "draft";
-  const metal = (METALS as string[]).includes(String(input.metal)) ? (input.metal as Metal) : "";
-  const stone = (STONES as readonly string[]).includes(String(input.stone)) ? (input.stone as Stone) : "";
+  let metal: Metal = (METALS as string[]).includes(String(input.metal)) ? (input.metal as Metal) : "";
+  let stone: Stone = (STONES as readonly string[]).includes(String(input.stone)) ? (input.stone as Stone) : "";
   const badge = (["", "new", "bestseller", "limited"] as const).includes(input.badge as Badge) ? (input.badge as Badge) : "";
   const specs: Spec[] = (Array.isArray(input.specs) ? input.specs : [])
     .slice(0, 20)
@@ -258,23 +273,47 @@ export function parseProduct(input: Record<string, unknown>) {
     })
     .filter((s) => (s.label_fa || s.label_en) && (s.value_fa || s.value_en));
   const images = [...new Set((Array.isArray(input.images) ? input.images : []).map(uuidOrNull).filter((x): x is string => Boolean(x)))].slice(0, 24);
-  const variants: AdminVariant[] = (Array.isArray(input.variants) ? input.variants : []).slice(0, 40).map((v, i) => {
+  const sku = text(input.sku, 60);
+  // never cut silently: the options left out would be deleted on save, with their stock
+  const rawVariants = Array.isArray(input.variants) ? input.variants : [];
+  if (rawVariants.length > MAX_VARIANTS) throw new UserError(`هر محصول حداکثر ${num(MAX_VARIANTS, "fa")} گزینه (ترکیب) دارد؛ چند رنگ را از گزینه‌ها بردارید.`);
+  const variants: AdminVariant[] = rawVariants.map((v, i) => {
     const o = (v ?? {}) as Record<string, unknown>;
-    const nfa = text(o.name_fa, 80);
-    if (!nfa) throw new UserError(`نام فارسی گزینه‌ی ${i + 1} را بنویسید (مثلاً «طلایی»).`);
+    const { options, unknown } = cleanOptions(o.options, palette);
+    if (unknown) throw new UserError(`رنگ «${unknown}» دیگر در «رنگ‌های گزینه‌ها» نیست؛ صفحه را دوباره باز کنید.`);
+    const combo = hasOptions(options);
+    const nfa = combo ? optionLabel(options, palette, "fa") : text(o.name_fa, 80);
+    if (!nfa) throw new UserError(`نام فارسی گزینه‌ی ${num(i + 1, "fa")} را بنویسید (مثلاً «طلایی»).`);
     return {
       id: uuidOrNull(o.id),
       name_fa: nfa,
-      name_en: text(o.name_en, 80),
-      swatch: /^(gold|silver|rose|black|two-tone|#[0-9a-f]{6})$/i.test(String(o.swatch ?? "")) ? String(o.swatch).toLowerCase() : "",
-      sku: text(o.sku, 60),
+      name_en: combo ? optionLabel(options, palette, "en") : text(o.name_en, 80),
+      swatch: combo ? optionSwatch(options, palette) : SWATCH_RE.test(String(o.swatch ?? "")) ? String(o.swatch).toLowerCase() : "",
+      sku: text(o.sku, 60) || (combo ? comboSku(sku, options, palette) : ""),
       price: money(o.price),
       stock: count(o.stock ?? 0),
       stock_loaded: loadedCount(o.stock_loaded),
       image_id: uuidOrNull(o.image_id),
       sort: i,
+      options,
     };
   });
+  // one kind of option per product, the same axes on every combination, no combination twice
+  const combos = variants.filter((v) => hasOptions(v.options));
+  if (combos.length && combos.length !== variants.length) throw new UserError("همه‌ی گزینه‌های یک محصول باید از یک نوع باشند: یا ترکیب رنگ‌ها، یا فهرست ساده.");
+  if (combos.length) {
+    const axes = axesUsed(combos[0].options).join();
+    if (combos.some((v) => axesUsed(v.options).join() !== axes)) throw new UserError("همه‌ی ترکیب‌ها باید همان رنگ‌ها (آبکاری، نگین، چرم) را داشته باشند.");
+    const seen = new Set<string>();
+    for (const v of combos) {
+      const k = optionsKey(v.options);
+      if (seen.has(k)) throw new UserError(`ترکیب «${v.name_fa}» دو بار آمده است.`);
+      seen.add(k);
+    }
+    // the shop filter reads an axis from its colours (their facets in the lists), so the piece keeps none of its own there
+    if (combos[0].options.plating) metal = "";
+    if (combos[0].options.stone) stone = "";
+  }
   // how it is sold: any of single and packs of 2–5 sizes, at least one (null: the caller did not send it — left as stored)
   const packs = input.packs === undefined ? null : cleanPacks(input.packs);
   if (packs && !packs.length) throw new UserError("دست‌کم یکی از «تک» یا بسته‌ها را برای «نوع فروش» انتخاب کنید.");
@@ -282,7 +321,7 @@ export function parseProduct(input: Record<string, unknown>) {
     packs,
     row: {
       slug,
-      sku: text(input.sku, 60),
+      sku,
       name_fa,
       name_en,
       subtitle_fa: text(input.subtitle_fa, 200),
@@ -311,7 +350,13 @@ export function parseProduct(input: Record<string, unknown>) {
 export async function saveProduct(id: string | null, input: Record<string, unknown>): Promise<string> {
   await assertAdmin();
   const c = requireDb();
-  const { row, packs, variants, stockLoaded } = parseProduct(input);
+  const palette = paletteOf((await getSettingsFresh()).options);
+  const { row, packs, variants, stockLoaded } = parseProduct(input, palette);
+  // colours need round six's database file: asked before anything is written (a plain list saves without it)
+  if (variants.some((v) => hasOptions(v.options))) {
+    const { error } = await c.from("celin_variants").select("options").limit(1);
+    if (error && isMissingColumn(error)) throw new UserError("برای گزینه‌های رنگی (آبکاری، نگین، چرم) ابتدا فایل SQL تازه را در Supabase اجرا کنید؛ «اتصالات» را ببینید.");
+  }
   let productId = id && UUID.test(id) ? id : null;
   const now = new Date().toISOString();
   // with packs when the editor sent them; the database before round six has no such column — single needs none,
@@ -339,7 +384,17 @@ export async function saveProduct(id: string | null, input: Record<string, unkno
     productId = (data as { id: string }).id;
   }
 
-  // variants: update the kept ones, insert new ones, delete the removed ones
+  // variants: update the kept ones, insert new ones, delete the removed ones. The combination goes with them; a
+  // database before round six's file has no such column — a plain list needs none, colours wait for that file
+  const combos = variants.some((v) => hasOptions(v.options));
+  let withOptions = true;
+  const variantWrite = async (go: (extra: { options?: VariantOptions }) => PromiseLike<{ error: { code?: string; message: string } | null }>, v: AdminVariant) => {
+    const r = await go(withOptions ? { options: v.options } : {});
+    if (!r.error || !withOptions || !isMissingColumn(r.error)) return r;
+    if (combos) throw new UserError("برای گزینه‌های رنگی (آبکاری، نگین، چرم) ابتدا فایل SQL تازه را در Supabase اجرا کنید؛ «اتصالات» را ببینید.");
+    withOptions = false;
+    return go({});
+  };
   const { data: existing, error: ee } = await c.from("celin_variants").select("id").eq("product_id", productId);
   if (ee) throw new Error(ee.message);
   const keep = new Set(variants.map((v) => v.id).filter(Boolean) as string[]);
@@ -348,18 +403,25 @@ export async function saveProduct(id: string | null, input: Record<string, unkno
     const { error } = await c.from("celin_variants").delete().in("id", remove);
     if (error) throw new Error(error.message);
   }
+  const pid = productId;
   for (const v of variants) {
     const fields = { name_fa: v.name_fa, name_en: v.name_en, swatch: v.swatch, sku: v.sku, price: v.price, image_id: v.image_id, sort: v.sort, updated_at: now };
     const stored = v.id ? ((existing ?? []) as { id: string }[]).some((e) => e.id === v.id) : false;
     if (v.id && stored && v.stock_loaded != null) {
-      const { error } = await c.from("celin_variants").update(fields).eq("id", v.id).eq("product_id", productId);
+      const vid = v.id;
+      const { error } = await variantWrite((extra) => c.from("celin_variants").update({ ...fields, ...extra }).eq("id", vid).eq("product_id", pid), v);
       if (error) throw new Error(error.message);
       await applyStock("celin_variants", v.id, v.stock_loaded, v.stock);
       continue;
     }
-    const { error } = v.id
-      ? await c.from("celin_variants").update({ ...fields, stock: v.stock }).eq("id", v.id).eq("product_id", productId)
-      : await c.from("celin_variants").insert({ ...fields, stock: v.stock, product_id: productId });
+    const vid = v.id;
+    const { error } = await variantWrite(
+      (extra) =>
+        vid
+          ? c.from("celin_variants").update({ ...fields, ...extra, stock: v.stock }).eq("id", vid).eq("product_id", pid)
+          : c.from("celin_variants").insert({ ...fields, ...extra, stock: v.stock, product_id: pid }),
+      v,
+    );
     if (error) throw new Error(error.message);
   }
   await catalogChanged();
@@ -404,6 +466,84 @@ export async function duplicateProduct(id: string): Promise<string> {
     slug = `${p.slug}-copy-${i}`;
   }
   return saveProduct(null, { ...p, slug, status: "draft", name_fa: `${p.name_fa} (کپی)`, variants: p.variants.map((v) => ({ ...v, id: null })) });
+}
+
+// ------------------------------------------------------------------ the colour lists (Settings → «رنگ‌های گزینه‌ها»)
+
+/** Every stored combination's colours (none before round six's database file). */
+async function storedCombos(): Promise<{ id: string; product_id: string; options: VariantOptions; name_fa: string; name_en: string; swatch: string }[]> {
+  const c = requireDb();
+  try {
+    const rows = await allRows<{ id: string; product_id: string; options: unknown; name_fa: string; name_en: string; swatch: string }>((from, to) =>
+      c.from("celin_variants").select("id, product_id, options, name_fa, name_en, swatch").order("id").range(from, to),
+    );
+    return rows.map((r) => ({ ...r, options: readOptions(r.options) })).filter((r) => hasOptions(r.options));
+  } catch (e) {
+    if (isMissingColumn(e as { code?: string })) return [];
+    throw e;
+  }
+}
+
+/** How many products use each colour ("plating:gold" → 3): a colour in use cannot be deleted from its list. */
+export async function optionUsage(): Promise<Record<string, number>> {
+  await assertAdmin();
+  const products = new Map<string, Set<string>>();
+  for (const r of await storedCombos()) {
+    for (const axis of axesUsed(r.options)) {
+      const k = `${axis}:${r.options[axis]}`;
+      products.set(k, (products.get(k) ?? new Set()).add(r.product_id));
+    }
+  }
+  return Object.fromEntries([...products].map(([k, set]) => [k, set.size]));
+}
+
+/**
+ * Writes the lists' words and dots into every stored combination whose name changed (orders copy a variant's name
+ * when they are placed, so the next order reads the new name; placed orders keep theirs). Returns how many changed.
+ */
+async function recomposeVariants(palette: OptionPalette): Promise<number> {
+  const c = requireDb();
+  const changed = (await storedCombos())
+    .map((r) => ({ id: r.id, before: r, after: { name_fa: optionLabel(r.options, palette, "fa"), name_en: optionLabel(r.options, palette, "en"), swatch: optionSwatch(r.options, palette) } }))
+    .filter((x) => x.before.name_fa !== x.after.name_fa || x.before.name_en !== x.after.name_en || x.before.swatch !== x.after.swatch);
+  const now = new Date().toISOString();
+  for (let i = 0; i < changed.length; i += 10) {
+    await Promise.all(
+      changed.slice(i, i + 10).map(async (x) => {
+        const { error } = await c.from("celin_variants").update({ ...x.after, updated_at: now }).eq("id", x.id);
+        if (error) throw new Error(error.message);
+      }),
+    );
+  }
+  return changed.length;
+}
+
+/**
+ * Saves the colour lists: checked (src/lib/options.ts cleanPalette), a colour still used by a product is never
+ * removed, and every stored combination takes the new words at once. Returns how many combinations were renamed.
+ */
+export async function saveOptionPalette(input: unknown): Promise<{ renamed: number }> {
+  await assertAdmin();
+  requireDb();
+  const { palette, error } = cleanPalette(input);
+  if (!palette) throw new UserError(error);
+  const before = paletteOf((await getSettingsFresh()).options);
+  const usage = await optionUsage();
+  for (const axis of OPTION_AXES) {
+    for (const v of before[axis]) {
+      const n = usage[`${axis}:${v.key}`] ?? 0;
+      if (n && !valueOf(palette, axis, v.key)) throw new UserError(`«${v.fa}» در ${num(n, "fa")} محصول به کار رفته است؛ اول آن را از گزینه‌های ${n === 1 ? "آن محصول" : "آن محصولات"} بردارید.`);
+    }
+  }
+  // a colour in use that the stored lists never had (edited by hand) stays too, so no combination loses its words
+  for (const [k, n] of Object.entries(usage)) {
+    const [axis, key] = k.split(":") as [(typeof OPTION_AXES)[number], string];
+    if (n && !valueOf(palette, axis, key) && !valueOf(before, axis, key)) throw new UserError(`رنگ «${key}» در ${num(n, "fa")} محصول به کار رفته و در فهرست نیست؛ آن را با همین نشانی به فهرست برگردانید یا از آن محصولات بردارید.`);
+  }
+  await saveSettings("options", palette);
+  const renamed = await recomposeVariants(palette);
+  await catalogChanged();
+  return { renamed };
 }
 
 function dbError(error: { code?: string; message: string }): Error {
@@ -563,6 +703,7 @@ export async function importStarter(): Promise<{ products: number; categories: n
     p.variants.forEach((v) => v.image && keys.add(v.image));
   });
   const media = await seedMediaIds([...keys]);
+  const palette = paletteOf((await getSettingsFresh()).options);
 
   const upsertTaxa = async (kind: TaxonKind, rows: Record<string, unknown>[]) => {
     const { data: have, error } = await c.from(`celin_${kind}`).select("id, slug");
@@ -621,9 +762,11 @@ export async function importStarter(): Promise<{ products: number; categories: n
     if (error) throw new Error(error.message);
     const pid = (data as { id: string }).id;
     if (p.variants.length) {
-      const { error: ve } = await c.from("celin_variants").insert(
-        p.variants.map((v, j) => ({ product_id: pid, name_fa: v.name_fa, name_en: v.name_en, swatch: v.swatch, sku: v.sku, price: v.price, stock: v.stock, image_id: v.image ? media.get(v.image) ?? null : null, sort: j })),
-      );
+      // combinations of the colour lists by their keys, named from today's lists; before round six's database file
+      // they go in as plain options with the same names
+      const rows = p.variants.map((v, j) => ({ product_id: pid, ...seedVariantFields(v, palette), sku: v.sku, price: v.price, stock: v.stock, image_id: v.image ? media.get(v.image) ?? null : null, sort: j }));
+      let { error: ve } = await c.from("celin_variants").insert(rows);
+      if (ve && isMissingColumn(ve)) ({ error: ve } = await c.from("celin_variants").insert(rows.map(({ options: _, ...r }) => r)));
       if (ve) throw new Error(ve.message);
     }
     added++;

@@ -43,8 +43,15 @@ export const common = {
       discover: "مشاهده",
     },
     tones: { gold: "طلایی", silver: "نقره‌ای", rose: "رزگلد", "two-tone": "دورنگ" },
-    stones: { white: "سفید", blue: "آبی فیروزه‌ای", navy: "سرمه‌ای", green: "سبز جنگلی", red: "قرمز اناری", pearl: "مرواریدی", mixed: "چندرنگ" },
+    stones: { white: "سفید", blue: "آبی فیروزه‌ای", navy: "سرمه‌ای", green: "سبز جنگلی", red: "قرمز اناری", pearl: "مرواریدی", blush: "صورتی ملایم", black: "مشکی", mixed: "چندرنگ" },
+    leathers: { black: "مشکی", brown: "قهوه‌ای", tan: "عسلی", burgundy: "زرشکی", navy: "سرمه‌ای", cream: "کرم" },
     badges: { new: "تازه", bestseller: "محبوب", limited: "تعداد محدود" },
+    // the colour hint of a card: the dots of one axis, and how many colours or combinations there are
+    choices: {
+      colors: (n: string) => `${n} رنگ`,
+      combos: (n: string) => `${n} ترکیب`,
+      options: (n: string) => `${n} گزینه`,
+    },
     price: {
       locked: "قیمت برای اعضا",
       onRequest: "استعلام قیمت",
@@ -209,8 +216,14 @@ export const common = {
       discover: "Discover",
     },
     tones: { gold: "Gold-tone", silver: "Silver-tone", rose: "Rose-gold-tone", "two-tone": "Two-tone" },
-    stones: { white: "White", blue: "Firouzeh blue", navy: "Night blue", green: "Forest green", red: "Pomegranate red", pearl: "Pearl-look", mixed: "Multicolor" },
+    stones: { white: "White", blue: "Firouzeh blue", navy: "Night blue", green: "Forest green", red: "Pomegranate red", pearl: "Pearl-look", blush: "Blush", black: "Black", mixed: "Multicolor" },
+    leathers: { black: "Black", brown: "Brown", tan: "Tan", burgundy: "Burgundy", navy: "Navy", cream: "Cream" },
     badges: { new: "New", bestseller: "Favorite", limited: "Limited" },
+    choices: {
+      colors: (n: string) => `${n} colors`,
+      combos: (n: string) => `${n} combinations`,
+      options: (n: string) => `${n} options`,
+    },
     price: {
       locked: "Price for members",
       onRequest: "Price on request",
