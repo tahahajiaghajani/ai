@@ -33,9 +33,10 @@ export async function HomePage({ lang }: { lang: Lang }) {
           cta: txt("home.hero.a", "cta"),
           href: txt("home.hero.a", "href") || "/shop",
           all: c.all,
-          a: { media: s("home.hero.a").media, mobile: s("home.hero.a").mobile, video: s("home.hero.a").video ?? null },
-          b: s("home.hero.b").media,
-          c: s("home.hero.c").media,
+          pictures: s("home.hero.a").gallery ?? [s("home.hero.a").media],
+          mobile: s("home.hero.a").mobile,
+          video: s("home.hero.a").video ?? null,
+          labels: c.hero,
         }}
       />
       <Statement lang={lang} lines={[txt("home.statement", "line1"), txt("home.statement", "line2"), txt("home.statement", "line3")]} a={s("home.statement").media} b={s("home.statement.b").media} copy={c.statement} />

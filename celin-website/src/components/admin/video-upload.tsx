@@ -87,7 +87,24 @@ async function uploadVideo(file: File, stage: (s: Stage) => void): Promise<Video
   return done.video;
 }
 
-export function SlotVideoField({ video, poster, ratio, onChange, onBusy }: { video: Video | null; poster: Media; ratio: string; onChange: (v: Video | null) => void; onBusy?: (busy: boolean) => void }) {
+export function SlotVideoField({
+  video,
+  poster,
+  ratio,
+  onChange,
+  onBusy,
+  title = "ویدئو (اختیاری)",
+  posterName = "تصویر همین بخش",
+}: {
+  video: Video | null;
+  poster: Media;
+  ratio: string;
+  onChange: (v: Video | null) => void;
+  onBusy?: (busy: boolean) => void;
+  title?: string;
+  /** which picture is the poster, in the help line */
+  posterName?: string;
+}) {
   const input = useRef<HTMLInputElement>(null);
   const [stage, setStage] = useState<Stage>(null);
   const [error, setError] = useState("");
@@ -115,8 +132,8 @@ export function SlotVideoField({ video, poster, ratio, onChange, onBusy }: { vid
   return (
     <div className="space-y-3 border-t border-line pt-5" data-video-field>
       <div>
-        <div className="text-sm font-medium">ویدئو (اختیاری)</div>
-        <p className="mt-0.5 text-xs leading-5 text-muted">ویدئوی MP4 با کدک H.264 یا WebM، بی‌صدا و حلقه‌ای، تا ۲۵ مگابایت. تصویر همین بخش پوستر ویدئو است و هر جا ویدئو پخش نشود (کاهش حرکت، صرفه‌جویی داده) به‌جای آن نمایش داده می‌شود.</p>
+        <div className="text-sm font-medium">{title}</div>
+        <p className="mt-0.5 text-xs leading-5 text-muted">ویدئوی MP4 با کدک H.264 یا WebM، بی‌صدا و حلقه‌ای، تا ۲۵ مگابایت. {posterName} پوستر ویدئو است و هر جا ویدئو پخش نشود (کاهش حرکت، صرفه‌جویی داده) به‌جای آن نمایش داده می‌شود.</p>
       </div>
       <input
         ref={input}

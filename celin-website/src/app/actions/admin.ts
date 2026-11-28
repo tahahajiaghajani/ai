@@ -382,7 +382,13 @@ export async function resetSettingsGroup(input: Record<string, unknown>): Promis
 
 export async function adminSaveSlot(input: Record<string, unknown>): Promise<Result> {
   return guard(async () => {
-    await saveSlot(text(input.key, 60), { media_id: input.media_id, media_mobile_id: input.media_mobile_id, ...("video_id" in input ? { video_id: input.video_id } : {}), texts: input.texts });
+    await saveSlot(text(input.key, 60), {
+      media_id: input.media_id,
+      media_mobile_id: input.media_mobile_id,
+      ...("video_id" in input ? { video_id: input.video_id } : {}),
+      ...("gallery" in input ? { gallery: input.gallery } : {}),
+      texts: input.texts,
+    });
     refresh();
     return { ok: true, message: "تصویر و متن این بخش ذخیره شد و در سایت نمایش داده می‌شود." };
   });

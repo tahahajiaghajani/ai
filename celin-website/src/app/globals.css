@@ -805,6 +805,49 @@ html.js .fx-unveil[data-fx="now"] .fx-frame img {
   }
 }
 
+/*
+ * The turning home arcade (src/components/home/hero-arcade.tsx): each arch is placed by its pose — left, width,
+ * height and the properties below (hero-pose.ts). The scroll parting is one --part (0 → 1 over the hero, hero.tsx)
+ * times the arch's own weights, so it always follows the arch that holds the centre. Glints rest during a turn.
+ */
+.hero-item {
+  position: absolute;
+  bottom: 0;
+  transform-origin: 50% 100%;
+  transform: translate(calc(var(--part, 0) * var(--part-x, 0) * 1%), calc(var(--part, 0) * var(--part-y, 0) * 1%)) scale(calc(1 + var(--part, 0) * var(--part-s, 0)));
+  opacity: calc(var(--fade, 1) * (1 - var(--part, 0) * var(--part-o, 0)));
+}
+.hero-item canvas {
+  transition: opacity 0.6s var(--ease-lux) 0.2s;
+}
+[data-hero-stage][data-moving] .hero-item canvas {
+  opacity: 0;
+  transition-duration: 0.25s;
+  transition-delay: 0s;
+}
+/* the controls wait for the script: without it the arcade simply stands */
+[data-hero-controls]:not([data-ready]) {
+  visibility: hidden;
+}
+/* the dwell: a hairline that fills while a picture rests in the centre, and stops with the turn */
+.hero-dwell {
+  transform-origin: left;
+}
+[dir="rtl"] .hero-dwell {
+  transform-origin: right;
+}
+.hero-dwell[data-run] {
+  animation: hero-dwell var(--dwell, 5500ms) linear var(--dwell-delay, 0ms) both;
+}
+.hero-dwell[data-run="paused"] {
+  animation-play-state: paused;
+}
+@keyframes hero-dwell {
+  from {
+    transform: scaleX(0);
+  }
+}
+
 /* a light sweep across a picture on hover (jewellery catching light) */
 /* (the element is positioned by its own utilities: relative or absolute) */
 .fx-sheen {

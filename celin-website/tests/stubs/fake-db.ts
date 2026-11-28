@@ -1,7 +1,7 @@
 /**
  * A tiny in-memory stand-in for the Supabase client: enough of the query builder (select / insert / update /
- * delete with eq, is, in, or(role.eq.x), order, limit, maybeSingle, single, select-after-write) and rpc for
- * the server code under test. Unknown columns in a write fail like PostgREST (PGRST204) when the table
+ * delete with eq, is, in, contains, or(role.eq.x), order, limit, maybeSingle, single, select-after-write, upsert) and rpc
+ * for the server code under test. Unknown columns in a write fail like PostgREST (PGRST204) when the table
  * declares its columns, so "before the migration" paths can be tested too.
  */
 type Row = Record<string, unknown>;
@@ -163,6 +163,8 @@ class Query implements PromiseLike<{ data: unknown; error: { message: string; co
       this.db.calls.push({ table: this.name, op: "insert" });
     } else if (this.op === "upsert") {
       const v = this.values as Row;
+      const bad = this.unknownColumn(v);
+      if (bad) return { data: null, error: { message: `Could not find the '${bad}' column`, code: "PGRST204" } };
       const k = "key" in v ? "key" : "id";
       const cur = t.find((r) => r[k] === v[k]);
       if (cur) Object.assign(cur, v);
