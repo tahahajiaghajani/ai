@@ -6,10 +6,12 @@
 //     a holiday or at the weekend, BH1 of 1.1.5's scenarios);
 //   · escalations, in the order of their time (`after`, counted from the round's opening — moved on by the time the
 //     case was paused, `timers_from` — business time unless the step says otherwise), each once — `notify` the
-//     person's manager, the holders of the position's «گزارش به» nearest up from the unit the open task is held in (the
-//     process managers when there are none) or the process managers — those who may be told become readers of the
-//     case first, and the journal names whom it reached (engine/readers.ts); `reassign` the round to the people of
-//     other rules; `auto` decide it with an outcome;
+//     person's manager, the holders of the position's «گزارش به» nearest up from the unit the open task is held in who
+//     may be told (a unit whose holders may not be told is passed over, with a note; the process managers when there
+//     are none) or the process managers — those who may be told become readers of the case first, and the journal
+//     names whom it reached (engine/readers.ts); a manager or holders named of whom none may be told: the process
+//     managers instead, with the reasons; `reassign` the round to the people of other rules; `auto` decide it with an
+//     outcome;
 //   · the step's «پایان مهلت» port, when it is wired: at the due time the round settles on it.
 // Each round is handled in its own transaction under the case's lock, with its wait still there and its round open —
 // a person's submit that took the lock first wins, and the timer then finds nothing to do (and the reverse: a submit
@@ -37,7 +39,7 @@ import { config as slaConfig } from "../../sla/common";
 import { calendarsOf } from "../../sla/calendars";
 import { processesRunHere, refreshCase, resolveInput } from "../engine";
 import { caseJournal } from "../engine/journal";
-import { nameList, tellCase, type Audience } from "../engine/readers";
+import { mayBeTold, nameList, tellCase, type Audience } from "../engine/readers";
 import { caseTasks, isId, loadVersionInfo, lockCase, peopleNames, stepWaitKey, type CaseRow, type VersionInfo } from "../engine/store";
 import { noticeRecipients, waitingLine } from "../engine/waiting";
 
@@ -128,10 +130,37 @@ export async function caseManagers(q: Queryable, kase: Pick<CaseRow, "org_id" | 
 /** Whom an escalation's «باخبر کردن» names. */
 interface NoticeTarget {
   users: string[];
-  /** «گزارش به» found nobody: the notice goes to the process managers instead, and this says why («… دارنده‌ای ندارد») */
+  /**
+   * «گزارش به» found nobody who may be told, or none of the people the notice named may be told: it goes to the
+   * process managers instead, and this says why («… دارنده‌ای ندارد», «… عضو فعال سازمان نیست؛ اعلان به او نرسید»)
+   */
   instead?: string;
   /** the process managers stand in: the case names none, so the organisation's administrators are told */
   admins?: boolean;
+  /** «گزارش به» went up past units whose holders may not be told: a sentence each («… ؛ اعلان به «…» رسید») */
+  passed?: string[];
+}
+
+/** Why the holders of «گزارش به» at a level passed over are not told: not active members, or the boundary's other side. */
+type Passed = "inactive" | "other";
+
+/**
+ * The sentence for a level of the chain whose holders of «گزارش به» may none of them be told («… در «شعبهٔ ونک» عضو
+ * فعال سازمان نیست»), as the step's resolver says of a unit it passes over (../../positions/resolve.ts `passedNote`).
+ * `unit` null: the holders without a unit (the organisation's, above every unit).
+ */
+function passedNote(position: string, unit: string | null, demoCase: boolean, whys: Passed[]): string {
+  const where = unit ? `در «${unit}»` : "در سطح سازمان";
+  const kinds = [...new Set(whys)];
+  if (kinds.length > 1) return `اعلان به دارندگان «${position}» ${where} نمی‌رسد`;
+  const words: Record<Passed, [string, string]> = {
+    inactive: ["عضو فعال سازمان نیست", "عضو فعال سازمان نیستند"],
+    // the other side: the pack's people on the organisation's own case; anyone else on a case of the pack
+    other: demoCase
+      ? ["حساب نمایشی نیست و اعلان پروندهٔ نمایشی به او نمی‌رسد", "حساب نمایشی نیستند و اعلان پروندهٔ نمایشی به آن‌ها نمی‌رسد"]
+      : ["حساب نمایشی است", "حساب نمایشی‌اند"],
+  };
+  return whys.length > 1 ? `دارندگان «${position}» ${where} ${words[kinds[0]][1]}` : `«${position}» ${where} ${words[kinds[0]][0]}`;
 }
 
 /** Holders of a position valid on `today` (the organisation's day), by the unit they hold it in ("" for none). */
@@ -155,9 +184,21 @@ async function holdersByUnit(tx: Tx, orgId: string, positionId: string, today: s
  * The holders of «گزارش به» an escalation tells: for each position rule of the step, the holders of the position it
  * reports to in the nearest unit on the chain up from the units the open tasks' people hold the step's position in —
  * the requester's unit (as the case recorded it) when no open task names one; a holding without a unit is the
- * organisation's, above every unit. Nobody there: the process managers instead, and the reason (NB2, 1.1.5).
+ * organisation's, above every unit. The nearest unit with a holder who may be told (./readers.ts `mayBeTold`: the
+ * case's side of the demo boundary, an active member): a unit whose holders may none of them be told (they left, the
+ * directory's sync lags; the pack's people on the organisation's own case) is passed over, a sentence each in
+ * `passed`, as the step's own resolver passes over a unit whose holders cannot take the step (engine-access-2, 1.1.5).
+ * Nobody on the way: the process managers instead, and the reason (NB2, 1.1.5).
  */
-async function reportsTo(tx: Tx, sys: Ctx, kase: CaseRow, step: FormStep, label: string, open: RoundTask[], today: string): Promise<{ users: string[]; missing: string | null }> {
+async function reportsTo(
+  tx: Tx,
+  sys: Ctx,
+  kase: CaseRow,
+  step: FormStep,
+  label: string,
+  open: RoundTask[],
+  today: string,
+): Promise<{ users: string[]; missing: string | null; passed: string[] }> {
   const refs = step.assignees.filter((r): r is Extract<AssigneeRule, { kind: "position" }> => r.kind === "position").map((r) => r.position);
   const positions = refs.length
     ? await tx.query<{ id: string; reports_to: string | null }>(
@@ -166,40 +207,54 @@ async function reportsTo(tx: Tx, sys: Ctx, kase: CaseRow, step: FormStep, label:
       )
     : [];
   const ups = positions.filter((p) => isId(p.reports_to));
-  if (!ups.length) return { users: [], missing: `نقش‌های «${label}» نقش «گزارش به» ندارند` };
+  if (!ups.length) return { users: [], missing: `نقش‌های «${label}» نقش «گزارش به» ندارند`, passed: [] };
   const people = [...new Set(open.map((t) => t.delegated_from ?? t.assigned_to).filter(isId).map((x) => x.toLowerCase()))];
   const run = new Resolution(tx, sys, { step: { assignees: [] }, action: step.action, caseId: kase.id, requestedBy: kase.requested_by, requestedFor: kase.requested_for, requesterUnit: kase.unit_id });
   const users = new Set<string>();
+  const passed = new Set<string>();
   let missing: string | null = null;
   for (const p of ups) {
     const parent = await tx.one<{ name: string }>(`select name from sm_positions where org_id = $1 and id = $2 and deleted_at is null`, [kase.org_id, p.reports_to]);
     if (!parent) continue;
-    // where the open tasks' people hold the step's position (today), else the requester's unit
+    // where the open tasks' people hold the step's position (today), else the requester's unit (null: no unit at all)
     const held = people.length ? await holdersByUnit(tx, kase.org_id, p.id, today, people) : new Map<string, string[]>();
-    const starts = [...held.keys()].filter(Boolean);
-    if (!starts.length && kase.unit_id) starts.push(String(kase.unit_id).toLowerCase());
+    const starts: (string | null)[] = [...held.keys()].filter(Boolean);
+    if (!starts.length) starts.push(kase.unit_id ? String(kase.unit_id).toLowerCase() : null);
     const above = await holdersByUnit(tx, kase.org_id, String(p.reports_to), today);
-    const anywhere = above.get("") ?? [];
-    if (!starts.length) {
-      for (const u of anywhere) users.add(u);
-      if (!anywhere.length) missing ??= `«${parent.name}» دارنده‌ای ندارد`;
-      continue;
-    }
+    const sides = await mayBeTold(tx, kase, [...above.values()].flat());
+    const able = new Set(sides.able);
+    const inactive = new Set(sides.inactive);
     for (const start of starts) {
-      const chain = await run.chain(start);
-      const near = chain.map((c) => above.get(String(c.id).toLowerCase()) ?? []).find((list) => list.length) ?? anywhere;
-      for (const u of near) users.add(u);
-      if (!near.length) missing ??= chain[0] ? `«${parent.name}» در بالادست «${chain[0].name}» دارنده‌ای ندارد` : `«${parent.name}» دارنده‌ای ندارد`;
+      const chain = start ? await run.chain(start) : [];
+      // the units up from the start, nearest first, then the holdings without a unit
+      const levels = [...chain.map((c) => ({ unit: c.name as string | null, holders: above.get(String(c.id).toLowerCase()) ?? [] })), { unit: null, holders: above.get("") ?? [] }];
+      const notes: string[] = [];
+      const near = levels.find((l) => {
+        if (!l.holders.length) return false;
+        if (l.holders.some((u) => able.has(u))) return true;
+        notes.push(passedNote(parent.name, l.unit, sides.demoCase, l.holders.map((u): Passed => (inactive.has(u) ? "inactive" : "other"))));
+        return false;
+      });
+      if (near) {
+        for (const u of near.holders) users.add(u);
+        const there = near.unit ? `«${near.unit}»` : `«${parent.name}» در سطح سازمان`;
+        for (const n of notes) passed.add(`${n}؛ اعلان به ${there} رسید`);
+        continue;
+      }
+      const other = notes.length ? "دارندهٔ دیگری" : "دارنده‌ای";
+      missing ??= [...notes, chain[0] ? `«${parent.name}» در بالادست «${chain[0].name}» ${other} ندارد` : `«${parent.name}» ${other} ندارد`].join("؛ ");
     }
   }
-  return { users: [...users], missing: users.size ? null : missing ?? `«گزارش به» نقش‌های «${label}» دارنده‌ای ندارد` };
+  if (users.size) return { users: [...users], missing: null, passed: [...passed] };
+  return { users: [], missing: missing ?? `«گزارش به» نقش‌های «${label}» دارنده‌ای ندارد`, passed: [] };
 }
 
 /**
  * Whom an escalation's notice names (`today`: the organisation's day, which the holders' periods are in): the managers
- * (profile) of the people the open tasks are for; the holders of «گزارش به» (`reportsTo`), or the process managers
- * instead when none is found; the process managers — the administrators when the case names none, as for its other
- * notices (engine/waiting.ts `noticeRecipients`).
+ * (profile) of the people the open tasks are for; the holders of «گزارش به» who may be told (`reportsTo`), or the
+ * process managers instead when none is found; the process managers — the administrators when the case names none, as
+ * for its other notices (engine/waiting.ts `noticeRecipients`). The first two fall to the process managers too when
+ * none of the people named may be told (`roundTimersIn`).
  */
 async function noticeTo(tx: Tx, sys: Ctx, kase: CaseRow, step: FormStep, label: string, open: RoundTask[], to: "manager" | "reports_to" | "managers", today: string): Promise<NoticeTarget> {
   if (to === "manager") {
@@ -213,7 +268,7 @@ async function noticeTo(tx: Tx, sys: Ctx, kase: CaseRow, step: FormStep, label: 
   }
   if (to === "reports_to") {
     const r = await reportsTo(tx, sys, kase, step, label, open, today);
-    if (r.users.length) return { users: r.users };
+    if (r.users.length) return { users: r.users, passed: r.passed };
     const m = await noticeRecipients(tx, kase.org_id, kase);
     return { users: m.users, admins: m.admins, instead: r.missing ?? undefined };
   }
@@ -223,7 +278,7 @@ async function noticeTo(tx: Tx, sys: Ctx, kase: CaseRow, step: FormStep, label: 
 
 /**
  * The journal's line of an escalation's «باخبر کردن» (./readers.ts `Audience`): whom it reached, by name — and, a
- * sentence each, whom it could not and why; or that nobody was there to tell.
+ * sentence each, the units «گزارش به» passed over and whom it could not reach and why; or that nobody was there to tell.
  */
 function noticeLine(label: string, target: NoticeTarget, a: Audience): string {
   const told = nameList(a.names);
@@ -234,8 +289,9 @@ function noticeLine(label: string, target: NoticeTarget, a: Audience): string {
     if (a.untold.length) return said(`مهلت «${label}» گذشت؛ ${target.instead}؛ ${a.untold[0]}`, a.untold.slice(1));
     return `مهلت «${label}» گذشت؛ ${target.instead} و مسئولی برای اطلاع پیدا نشد`;
   }
-  if (a.told.length) return said(`مهلت گذشت؛ «${label}» به ${told} اطلاع داده شد`, a.untold);
-  if (a.untold.length) return said(`مهلت «${label}» گذشت؛ ${a.untold[0]}`, a.untold.slice(1));
+  const passed = target.passed ?? [];
+  if (a.told.length) return said(`مهلت گذشت؛ «${label}» به ${told} اطلاع داده شد`, [...passed, ...a.untold]);
+  if (a.untold.length) return said(`مهلت «${label}» گذشت؛ ${a.untold[0]}`, [...a.untold.slice(1), ...passed]);
   return `مهلت «${label}» گذشت؛ کسی برای اطلاع پیدا نشد`;
 }
 
@@ -323,11 +379,21 @@ export async function roundTimersIn(tx: Tx, sys: Ctx, clock: Clock, caseId: stri
       return null;
     }
     if (esc.action === "notify") {
-      const target = await noticeTo(tx, sys, kase, step, label, open, esc.to, localDate(now, orgTz(sys)));
+      let target = await noticeTo(tx, sys, kase, step, label, open, esc.to, localDate(now, orgTz(sys)));
       // who of them may be told (a case of the demo pack's: the pack's people only; the organisation's own: none of
       // them; active members), made readers of the case before the notice is queued (engine/readers.ts) — the journal
       // names whom it reached, and who it could not and why
-      const a = await tellCase(tx, sys, kase, target.users);
+      let a = await tellCase(tx, sys, kase, target.users);
+      if (!a.told.length && target.users.length && !target.instead && esc.to !== "managers") {
+        // the person's manager or the holders of «گزارش به» were named but none of them may be told: the process
+        // managers instead (the administrators when the case names none), with the reasons — as when «گزارش به» finds
+        // nobody, so the overdue step's alert reaches someone (engine-access-2, 1.1.5)
+        const m = await noticeRecipients(tx, kase.org_id, kase);
+        const said = new Set(a.untold);
+        target = { users: m.users, admins: m.admins, instead: [...(target.passed ?? []), ...a.untold].join("؛ ") || "اعلان به کسانی که نام برده شدند نرسید" };
+        a = await tellCase(tx, sys, kase, m.users);
+        a = { ...a, untold: a.untold.filter((u) => !said.has(u)) };
+      }
       if (a.told.length) {
         await notifyPeople(tx, orgId, {
           table: "process_case", id: kase.id, users: a.told, event: "custom", label: "مهلت گذشت", channels: ["in_app", "email"], actor: null, source: "گردش‌کارها",

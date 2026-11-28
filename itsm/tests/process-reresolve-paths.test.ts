@@ -7,11 +7,16 @@
 // pushes (the sync apply path: the engine's record events of a pushed record) go through the engine's watch. Each
 // queues the same single job (its dedupe key), a quiet half minute later and only while some case waits, and the
 // step then reaches the person.
-import { describe, it, expect, beforeAll } from "vitest";
+// A holding or a group membership that starts on a later day (moment) also queues a pass of its own for then, which
+// gives the step to the person that day; a unit's head, its being active, its kind and its place in the tree go
+// through the engine's watch as well (engine-access-4).
+import { describe, it, expect, beforeAll, vi } from "vitest";
 import { SYNC_PROTOCOL } from "@shared/constants";
 import { uuidv7 } from "@shared/id";
+import { addDays } from "@shared/jalali";
+import { localDate, zonedMidnight } from "@shared/model/jalali-buckets";
 import { emptyPlan } from "@shared/integration/directory";
-import { createIn } from "@server/engine";
+import { createIn, orgTz, updateIn } from "@server/engine";
 import { applyPlan } from "@server/modules/integration/directory";
 import { RERESOLVE_JOB } from "@server/modules/process/reresolve";
 import { BY_ENTITY } from "@server/sync/registry";
@@ -229,5 +234,133 @@ describe("imports and the members page", () => {
     } finally {
       await w.o.db.query(`update sm_process_cases set state = 'waiting' where id = any($1::uuid[])`, [`{${waitingNow.join(",")}}`]);
     }
+  });
+});
+
+describe("a later day and the unit tree (engine-access-4)", () => {
+  /** start → «a» (the rules given) → end. */
+  const ruled = (assignees: unknown[], label: string) =>
+    ({
+      nodes: [
+        node("t", "trigger"),
+        node("s", "form_step", { action: "fill", start: true, form: w.forms.req, rights: rights({}, "edit") }, "ثبت درخواست"),
+        node("a", "form_step", { action: "fill", form: w.forms.review, rights: rights({ u_finance_note: "edit" }), assignees }, label),
+        node("ok", "end", { outcome: "completed" }),
+      ],
+      edges: [edge("t", "s"), edge("s", "a"), edge("a", "ok")],
+    }) as any;
+  /** A case of `requester` whose step «a» waits with nobody; the queue emptied, so what queues it next is the change. */
+  async function waitingOn(assignees: unknown[], label: string, requester = req): Promise<string> {
+    const p = await publish(w, ruled(assignees, label), { managers: [mgr] });
+    const id = (await start(w, requester, p, { values })).case!;
+    await w.k.drain();
+    expect(await openAt(id)).toEqual([]);
+    await forget();
+    return id;
+  }
+  /** The organisation's queued re-resolutions: when each runs (ms), the quiet half minute's one apart. */
+  const queuedRuns = async () => {
+    const rows = await w.o.db.query<{ key: string; at: number }>(
+      `select dedupe_key as key, (extract(epoch from run_at) * 1000)::float8 as at from sm_jobs where org_id = $1 and kind = $2 and status = 'queued' order by run_at`,
+      [w.o.org, RERESOLVE_JOB],
+    );
+    return { quiet: rows.filter((r) => r.key === RERESOLVE_JOB).length, later: rows.filter((r) => r.key !== RERESOLVE_JOB).map((r) => Number(r.at)) };
+  };
+  /** The quiet half minute's re-resolution only, brought forward and run (a pass for a later day stays queued). */
+  async function runQuiet() {
+    await w.o.db.query(`update sm_jobs set run_at = now() where org_id = $1 and kind = $2 and dedupe_key = $2 and status = 'queued'`, [w.o.org, RERESOLVE_JOB]);
+    await w.k.drain();
+  }
+  /** A pass for a period that starts later runs a minute after its start (the job's clock and the rules' may differ a little). */
+  const MARGIN = 60_000;
+  /** `fn` with the clock (Date only, which PGlite's now() follows) at `ms`, moving on from there. */
+  async function at<T>(ms: number, fn: () => Promise<T>): Promise<T> {
+    vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(ms));
+    try {
+      return await fn();
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+  /**
+   * The organisation's queued re-resolutions run, and what they set off: the clock moved on, the other jobs due by then
+   * (the organisation's work of that night) wait meanwhile and keep their times.
+   */
+  async function runPasses() {
+    const parked = (await w.o.db.query<{ id: string }>(`update sm_jobs set run_at = run_at + interval '3650 days' where status = 'queued' and kind <> $1 returning id::text as id`, [RERESOLVE_JOB])).map((r) => r.id);
+    try {
+      await run();
+    } finally {
+      await w.o.db.query(`update sm_jobs set run_at = run_at - interval '3650 days' where id = any($1::uuid[]) and status = 'queued'`, [`{${parked.join(",")}}`]);
+    }
+  }
+
+  it("a holder appointed from a later day: a pass is queued for the start of that day, and the step reaches them then", async () => {
+    const c = await waiting("none");
+    const tz = orgTz(w.sys);
+    const tomorrow = addDays(localDate(Date.now(), tz), 1);
+    const position = (await w.o.db.one<{ id: string }>(`select id from sm_positions where org_id = $1 and key = $2`, [w.o.org, c.key]))!.id;
+    await w.sys.write((tx) => createIn(tx, w.sys, "position_holder", { position_id: position, user_id: c.holder, org_unit_id: unit, kind: "primary", valid_from: tomorrow }, { trusted: true }));
+    await w.k.drain();
+    // the quiet half minute's pass finds nobody yet: the holding starts tomorrow
+    expect(await queuedRuns()).toEqual({ quiet: 1, later: [zonedMidnight(tomorrow, tz) + MARGIN] });
+    await runQuiet();
+    expect(await openAt(c.id)).toEqual([]);
+    // tomorrow, in the organisation's time zone: that day's pass gives the step to the new holder
+    expect((await queuedRuns()).later).toEqual([zonedMidnight(tomorrow, tz) + MARGIN]);
+    await at(zonedMidnight(tomorrow, tz) + MARGIN, async () => {
+      await runPasses();
+      expect(await openAt(c.id)).toEqual([c.holder]);
+    });
+    expect((await queuedRuns()).later).toEqual([]);
+  });
+
+  it("a group member from a later moment: a pass is queued for then, and the step reaches them", async () => {
+    const group = String((await w.sys.write((tx) => createIn(tx, w.sys, "group", { name: "گروه بررسی هفتهٔ بعد" }, { trusted: true }))).id);
+    const id = await waitingOn([{ kind: "group", group }], "بررسی گروه هفتهٔ بعد");
+    const member = await person(w, "عضو هفتهٔ بعد", { unit });
+    const from = Date.now() + 7 * 86_400_000;
+    await w.sys.write((tx) => createIn(tx, w.sys, "group_member", { group_id: group, user_id: member, kind: "member", valid_from: new Date(from).toISOString() }, { trusted: true }));
+    await w.k.drain();
+    expect(await queuedRuns()).toEqual({ quiet: 1, later: [from + MARGIN] });
+    await runQuiet();
+    expect(await openAt(id)).toEqual([]);
+    await at(from + MARGIN, async () => {
+      await runPasses();
+      expect(await openAt(id)).toEqual([member]);
+    });
+    expect((await queuedRuns()).later).toEqual([]);
+  });
+
+  it("a unit given its head: the record engine's watch queues the pass, and «رئیس واحد» reaches the head", async () => {
+    const dept = String((await w.sys.write((tx) => createIn(tx, w.sys, "org_unit", { name: "ادارهٔ بی‌رئیس", kind: "department" }, { trusted: true }))).id);
+    const requester = await person(w, "درخواست‌دهندهٔ ادارهٔ بی‌رئیس", { unit: dept });
+    // the head-to-be is a member already: what queues the pass is the unit's change, not their profile's
+    const head = await person(w, "رئیس تازهٔ اداره", { unit: dept });
+    const id = await waitingOn([{ kind: "unit_head", of: "requester" }], "تأیید رئیس اداره", requester);
+    expect(await queued()).toEqual([]);
+    await w.sys.write((tx) => updateIn(tx, w.sys, "org_unit", dept, { manager_id: head }, { trusted: true }));
+    await w.k.drain();
+    expect(await queued()).toEqual([{ later: true }]);
+    await run();
+    expect(await openAt(id)).toEqual([head]);
+  });
+
+  it("a unit made active again: «نزدیک‌ترین واحد بالادست» reaches its holder", async () => {
+    const office = String((await w.sys.write((tx) => createIn(tx, w.sys, "org_unit", { name: "ادارهٔ کل موقتاً غیرفعال", kind: "department" }, { trusted: true }))).id);
+    const desk = String((await w.sys.write((tx) => createIn(tx, w.sys, "org_unit", { name: "میز زیر ادارهٔ کل", kind: "department", parent_id: office }, { trusted: true }))).id);
+    const key = `up_${uuidv7().slice(-6)}`;
+    const position = String((await w.sys.write((tx) => createIn(tx, w.sys, "position", { key, name: "سرپرست بالادست" }, { trusted: true }))).id);
+    const boss = await person(w, "سرپرست ادارهٔ کل", { unit: office });
+    await w.sys.write((tx) => createIn(tx, w.sys, "position_holder", { position_id: position, user_id: boss, org_unit_id: office, kind: "primary" }, { trusted: true }));
+    await w.sys.write((tx) => updateIn(tx, w.sys, "org_unit", office, { active: false }, { trusted: true }));
+    const requester = await person(w, "درخواست‌دهندهٔ میز", { unit: desk });
+    const id = await waitingOn([{ kind: "position", position: key, where: "requester_unit_up" }], "بررسی سرپرست بالادست", requester);
+    await w.sys.write((tx) => updateIn(tx, w.sys, "org_unit", office, { active: true }, { trusted: true }));
+    await w.k.drain();
+    expect(await queued()).toEqual([{ later: true }]);
+    await run();
+    expect(await openAt(id)).toEqual([boss]);
   });
 });
