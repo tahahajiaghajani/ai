@@ -24,8 +24,8 @@ import { extraDatabase, realPg, realPgAvailable, type RealPg } from "./pg-real";
 
 /**
  * The stateful kinds: each needs its decision when a job of it ends exhausted (the 1.1.4 review's list, with the
- * timers that sleep until their next time — SLA timers, approval reminders and expiry, the workflows' timer — and the
- * demo pack's tombstone removal).
+ * timers that sleep until their next time — SLA timers, approval reminders and expiry, the workflows' timer — the
+ * demo pack's tombstone removal and, 1.1.5, the purged-id ledger's cleanup).
  */
 const STATEFUL_KINDS = [
   "admin.backup",
@@ -65,6 +65,7 @@ const STATEFUL_KINDS = [
   "approval.timer",
   "process.timer",
   "demo.finalize",
+  "demo.ledger",
 ];
 
 const editions = realPgAvailable() ? ["PGlite", "PostgreSQL"] : ["PGlite"];
@@ -433,6 +434,19 @@ for (const edition of editions) {
         await expectFailed(job);
         expect(await nextRound(kind, dedupeKey), kind).toBe(minutes);
       }
+    });
+
+    it("demo.ledger: the purged-id ledger's cleanup looks again a day later while ids are left in it, and not once it is empty", async () => {
+      const empty = await diedAtLastAttempt("demo.ledger", {}, { maxAttempts: 100, dedupeKey: "demo.ledger" });
+      await run();
+      await expectFailed(empty);
+      expect(await nextRound("demo.ledger", "demo.ledger")).toBeNull();
+      await db.query(`insert into sm_demo_purged (org_id, row_id, tbl) values ($1, $2, 'sm_incidents')`, [org, "0195f0c4-6f2a-7c3e-9d41-2b7a5e8c1f99"]);
+      const left = await diedAtLastAttempt("demo.ledger", {}, { maxAttempts: 100, dedupeKey: "demo.ledger" });
+      await run();
+      await expectFailed(left);
+      expect(await nextRound("demo.ledger", "demo.ledger")).toBe(24 * 60);
+      await db.query(`delete from sm_demo_purged where org_id = $1`, [org]);
     });
 
     it("engine.archive: the nightly archival is queued for the next night while it is switched on, and not when it is off", async () => {
