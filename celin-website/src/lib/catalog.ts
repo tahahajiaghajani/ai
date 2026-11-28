@@ -1,11 +1,14 @@
 import "server-only";
 import { unstable_cache } from "next/cache";
-import { db, isMissingTable } from "@/lib/db";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { allRows, db, isMissingColumn, isMissingTable } from "@/lib/db";
 import { env } from "@/lib/env";
 import { getSettings, getSettingsFresh } from "@/lib/settings";
 import { MEDIA_COLUMNS, rowToMedia, type Media, type MediaRow } from "@/lib/media";
-import type { Catalog, Category, Collection, Product, ProPrices, Spec, Variant } from "@/lib/catalog-types";
-import { SEED_CATEGORIES, SEED_COLLECTIONS, SEED_PRODUCTS } from "@/content/seed-catalog";
+import { withCovers, type Catalog, type Category, type Collection, type Product, type ProPrices, type Spec, type Variant } from "@/lib/catalog-types";
+import { axesOf, paletteOf, readOptions, type OptionPalette } from "@/lib/options";
+import { packsOf } from "@/lib/packs";
+import { SEED_CATEGORIES, SEED_COLLECTIONS, SEED_PRODUCTS, seedVariantFields } from "@/content/seed-catalog";
 import { SEED_MEDIA } from "@/content/seed-media";
 
 /**
@@ -21,7 +24,7 @@ export function storageBase(): string {
 export const seedId = (slug: string) => `seed-${slug}`;
 export const seedVariantId = (slug: string, key: string) => `seed-${slug}-${key}`;
 
-function seedCatalog(): Catalog {
+function seedCatalog(palette: OptionPalette): Catalog {
   const categories: Category[] = SEED_CATEGORIES.map((c, i) => ({
     id: seedId(c.slug),
     slug: c.slug,
@@ -42,12 +45,14 @@ function seedCatalog(): Catalog {
     tagline_en: c.tagline_en,
     story_fa: c.story_fa,
     story_en: c.story_en,
-    media: c.image ? SEED_MEDIA[c.image] : null,
+    media: SEED_MEDIA[c.image],
     sort: i,
     visible: true,
     soon: !SEED_PRODUCTS.some((p) => p.collection === c.slug),
   }));
-  const products: Product[] = SEED_PRODUCTS.map((p, i) => ({
+  const products: Product[] = SEED_PRODUCTS.map((p, i) => {
+    const variants: Variant[] = p.variants.map((v, j) => ({ id: seedVariantId(p.slug, v.key), ...seedVariantFields(v, palette), sku: v.sku, image: v.image ? SEED_MEDIA[v.image] : null, sort: j }));
+    return {
     id: seedId(p.slug),
     slug: p.slug,
     sku: p.sku,
@@ -63,12 +68,15 @@ function seedCatalog(): Catalog {
     stone: p.stone,
     specs: p.specs,
     images: p.images.map((k) => SEED_MEDIA[k]),
-    variants: p.variants.map((v, j) => ({ id: seedVariantId(p.slug, v.key), name_fa: v.name_fa, name_en: v.name_en, swatch: v.swatch, sku: v.sku, image: v.image ? SEED_MEDIA[v.image] : null, sort: j })),
+    variants,
+    axes: axesOf(variants, palette),
+    packs: [1],
     featured: p.featured,
     badge: p.badge,
     sort: i,
     created_at: "2026-10-23T00:00:00.000Z",
-  }));
+    };
+  });
   return { categories, collections, products, source: "seed" };
 }
 
@@ -109,6 +117,8 @@ interface ProductRow {
   badge: string;
   sort: number;
   created_at: string;
+  /** round six; missing before its database file has run */
+  packs?: number[] | null;
 }
 interface VariantRow {
   id: string;
@@ -121,6 +131,8 @@ interface VariantRow {
   stock: number;
   image_id: string | null;
   sort: number;
+  /** round six; missing before its database file has run */
+  options?: unknown;
 }
 interface TaxonRow {
   id: string;
@@ -140,7 +152,11 @@ interface TaxonRow {
 
 export const PRODUCT_COLUMNS =
   "id, slug, sku, name_fa, name_en, subtitle_fa, subtitle_en, description_fa, description_en, category_id, collection_id, metal, stone, specs, images, price, stock, status, featured, badge, sort, created_at";
-export const VARIANT_COLUMNS = "id, product_id, name_fa, name_en, swatch, sku, price, stock, image_id, sort";
+/** a variant before round six's database file (no `options`: every option is one of the plain list) */
+export const VARIANT_COLUMNS_V1 = "id, product_id, name_fa, name_en, swatch, sku, price, stock, image_id, sort";
+export const VARIANT_COLUMNS = `${VARIANT_COLUMNS_V1}, options`;
+/** round six's columns of a product (how it is sold); a database where that file has not run yet reads without them */
+export const PRODUCT_R6_COLUMNS = `${PRODUCT_COLUMNS}, packs`;
 
 /** Loads the media rows for a set of ids (in chunks: PostgREST URLs have a length limit). */
 export async function loadMedia(ids: Iterable<string>): Promise<Map<string, Media>> {
@@ -157,30 +173,46 @@ export async function loadMedia(ids: Iterable<string>): Promise<Map<string, Medi
   return out;
 }
 
+/**
+ * Every variant row of these products. PostgREST returns at most 1000 rows per request, silently, and a product may
+ * hold up to 100 combinations, so each chunk of ids (URLs have a length limit) is read page by page (allRows) in
+ * a stable order — product, then the option's own order — so the pages never overlap or skip a row.
+ */
+export async function variantRows<T>(c: SupabaseClient, productIds: readonly string[], columns: string): Promise<T[]> {
+  const out: T[] = [];
+  for (let i = 0; i < productIds.length; i += 150) {
+    const chunk = productIds.slice(i, i + 150);
+    out.push(...(await allRows<T>((a, b) => c.from("celin_variants").select(columns).in("product_id", chunk).order("product_id").order("sort").order("id").range(a, b))));
+  }
+  return out;
+}
+
 const byOrder = <T extends { sort: number; created_at?: string }>(a: T, b: T) => a.sort - b.sort || String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""));
 
-async function dbCatalog(): Promise<Catalog | null> {
+async function dbCatalog(palette: OptionPalette): Promise<Catalog | null> {
   const c = db();
   if (!c) return null;
-  const [cats, cols, prods] = await Promise.all([
+  const published = (columns: string) => c.from("celin_products").select(columns).eq("status", "published").order("sort").limit(2000);
+  const [cats, cols, first] = await Promise.all([
     c.from("celin_categories").select("id, slug, name_fa, name_en, description_fa, description_en, media_id, sort, visible").eq("visible", true).order("sort"),
     c.from("celin_collections").select("id, slug, name_fa, name_en, tagline_fa, tagline_en, story_fa, story_en, media_id, sort, visible").eq("visible", true).order("sort"),
-    c.from("celin_products").select(PRODUCT_COLUMNS).eq("status", "published").order("sort").limit(2000),
+    published(PRODUCT_R6_COLUMNS),
   ]);
+  // deployed before round six's database file ran: every product is sold single, as before
+  const prods = first.error && isMissingColumn(first.error) ? await published(PRODUCT_COLUMNS) : first;
   for (const r of [cats, cols, prods]) {
     if (r.error) {
       if (isMissingTable(r.error)) return null;
       throw new Error(r.error.message);
     }
   }
-  const products = (prods.data ?? []) as ProductRow[];
-  const variants: VariantRow[] = [];
+  const products = (prods.data ?? []) as unknown as ProductRow[];
   const ids = products.map((p) => p.id);
-  for (let i = 0; i < ids.length; i += 150) {
-    const { data, error } = await c.from("celin_variants").select(VARIANT_COLUMNS).in("product_id", ids.slice(i, i + 150)).order("sort");
-    if (error) throw new Error(error.message);
-    variants.push(...((data ?? []) as VariantRow[]));
-  }
+  // with the combinations of the colour options; before round six's database file every option is a plain one
+  const variants = await variantRows<VariantRow>(c, ids, VARIANT_COLUMNS).catch((e: { code?: string }) => {
+    if (isMissingColumn(e)) return variantRows<VariantRow>(c, ids, VARIANT_COLUMNS_V1);
+    throw e;
+  });
   const taxa = [...((cats.data ?? []) as TaxonRow[]), ...((cols.data ?? []) as TaxonRow[])];
   const media = await loadMedia([...taxa.map((t) => t.media_id ?? ""), ...products.flatMap((p) => p.images ?? []), ...variants.map((v) => v.image_id ?? "")]);
   const catSlug = new Map(((cats.data ?? []) as TaxonRow[]).map((t) => [t.id, t.slug]));
@@ -188,7 +220,7 @@ async function dbCatalog(): Promise<Catalog | null> {
   const varsOf = new Map<string, Variant[]>();
   for (const v of variants) {
     const list = varsOf.get(v.product_id) ?? [];
-    list.push({ id: v.id, name_fa: v.name_fa, name_en: v.name_en, swatch: v.swatch, sku: v.sku, image: v.image_id ? media.get(v.image_id) ?? null : null, sort: v.sort });
+    list.push({ id: v.id, name_fa: v.name_fa, name_en: v.name_en, swatch: v.swatch, sku: v.sku, image: v.image_id ? media.get(v.image_id) ?? null : null, sort: v.sort, options: readOptions(v.options) });
     varsOf.set(v.product_id, list);
   }
   return {
@@ -236,6 +268,8 @@ async function dbCatalog(): Promise<Catalog | null> {
         specs: Array.isArray(p.specs) ? p.specs : [],
         images: (p.images ?? []).map((id) => media.get(id)).filter((m): m is Media => Boolean(m)),
         variants: varsOf.get(p.id) ?? [],
+        axes: axesOf(varsOf.get(p.id) ?? [], palette),
+        packs: packsOf(p.packs),
         featured: p.featured,
         badge: (p.badge || "") as Product["badge"],
         sort: p.sort,
@@ -259,12 +293,17 @@ async function catalogInDbStrict(): Promise<boolean> {
 }
 
 async function loadCatalog(): Promise<Catalog> {
-  if (!(await catalogInDbStrict())) return seedCatalog();
-  return (await dbCatalog()) ?? seedCatalog();
+  // strict (see catalogInDbStrict); the colour lists name the axes of every product (a change to them invalidates "catalog")
+  const s = await getSettingsFresh();
+  const palette = paletteOf(s.options);
+  const catalog = db() && s.catalog.initialized ? ((await dbCatalog(palette)) ?? seedCatalog(palette)) : seedCatalog(palette);
+  // a collection without a picture of its own shows its first piece's
+  return withCovers(catalog);
 }
 
 // every admin change invalidates the tag at once; the timer is only a safety net for edits made in SQL
-const cachedCatalog = unstable_cache(loadCatalog, ["celin-catalog-v1"], { tags: ["catalog"], revalidate: 3600 });
+// v3: products carry `packs` and `axes`, variants their `options` (round six) — an older deployment's cache is never served
+const cachedCatalog = unstable_cache(loadCatalog, ["celin-catalog-v3"], { tags: ["catalog"], revalidate: 3600 });
 
 /**
  * The public catalogue (published items only, no prices). Cached; every admin change invalidates the
@@ -279,7 +318,7 @@ export async function getCatalog(): Promise<Catalog> {
   } catch (e) {
     console.error("[catalog]", e);
     if (db()) throw e;
-    return seedCatalog();
+    return withCovers(seedCatalog(paletteOf(undefined)));
   }
 }
 
@@ -314,14 +353,11 @@ export async function proPrices(): Promise<ProPrices> {
   const rows = (data ?? []) as { id: string; price: number | null; stock: number }[];
   const out: ProPrices = {};
   for (const r of rows) out[r.id] = { price: r.price === null ? null : Number(r.price), stock: r.stock, variants: {} };
-  const ids = rows.map((r) => r.id);
-  for (let i = 0; i < ids.length; i += 150) {
-    const { data: vs, error: ve } = await c.from("celin_variants").select("id, product_id, price, stock").in("product_id", ids.slice(i, i + 150));
-    if (ve) throw new Error(ve.message);
-    for (const v of (vs ?? []) as { id: string; product_id: string; price: number | null; stock: number }[]) {
-      const p = out[v.product_id];
-      if (p) p.variants[v.id] = { price: v.price === null ? null : Number(v.price), stock: v.stock };
-    }
+  // every option of every product (page by page), so the browser and the order action read the same book
+  const vs = await variantRows<{ id: string; product_id: string; price: number | null; stock: number }>(c, rows.map((r) => r.id), "id, product_id, price, stock");
+  for (const v of vs) {
+    const p = out[v.product_id];
+    if (p) p.variants[v.id] = { price: v.price === null ? null : Number(v.price), stock: v.stock };
   }
   return out;
 }

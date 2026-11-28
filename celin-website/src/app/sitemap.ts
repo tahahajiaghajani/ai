@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { getCatalog } from "@/lib/catalog";
+import { listed } from "@/lib/catalog-types";
 import { env } from "@/lib/env";
 import { href, LANGS } from "@/lib/i18n";
 import { mediaUrl } from "@/lib/media";
@@ -36,7 +37,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   return [
     ...PAGES.flatMap((p) => both(p.path, { changeFrequency: p.changeFrequency, priority: p.priority })),
     ...categories.filter((c) => c.visible !== false).flatMap((c) => both(`/shop/${c.slug}`, { changeFrequency: "weekly", priority: 0.8 })),
-    ...collections.filter((c) => c.visible !== false).flatMap((c) => both(`/collections/${c.slug}`, { changeFrequency: "weekly", priority: 0.7, ...(c.media ? { images: [abs(mediaUrl(c.media, 1280))] } : {}) })),
+    ...collections.filter(listed).flatMap((c) => both(`/collections/${c.slug}`, { changeFrequency: "weekly", priority: 0.7, images: [abs(mediaUrl(c.media, 1280))] })),
     ...products.flatMap((p) => both(`/product/${p.slug}`, { changeFrequency: "weekly", priority: 0.7, ...(p.images.length ? { images: p.images.slice(0, 4).map((m) => abs(mediaUrl(m, 1280))) } : {}) })),
   ];
 }

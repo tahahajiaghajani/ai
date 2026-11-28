@@ -2,8 +2,9 @@ import { notFound } from "next/navigation";
 import { requireAdminPage } from "@/lib/admin-auth";
 import { getOrder } from "@/lib/orders";
 import { getSettings } from "@/lib/settings";
-import { formatDate, formatNumber, formatPhone, formatPrice, num } from "@/lib/format";
-import { ORDER_STEPS, STATUS_LABEL, type OrderDetail, type OrderEvent } from "@/lib/order-meta";
+import { formatDate, formatNumber, formatPct, formatPhone, formatPrice, num } from "@/lib/format";
+import { ORDER_STEPS, STATUS_LABEL, orderDiscounts, type OrderDetail, type OrderEvent, type OrderItem } from "@/lib/order-meta";
+import { commonCopy } from "@/content/copy/common";
 import { Card, LinkButton, PageHeader } from "@/components/admin/ui";
 import { OrderEditCard, OrderStatusActions, PrintButton } from "@/components/admin/orders-detail";
 import { ACTOR_LABEL, Row, StatusBadge, STATUS_TONE, whatsappUrl } from "@/components/admin/sales-ui";
@@ -18,6 +19,9 @@ const PRINT_CSS = `@media print {
 }`;
 
 const DOT: Record<string, string> = { warning: "bg-warning", gold: "bg-gold", ink: "bg-ink", success: "bg-success", danger: "bg-danger" };
+
+/** A line of packs: «۳ بسته‌ی ۴ سایزی · ۱۲ عدد» (the quantity column counts pieces, «فی» one piece); "" for single. */
+const packText = (it: Pick<OrderItem, "qty" | "pack">) => (it.pack > 1 ? commonCopy("fa").pack.line(num(it.qty / it.pack, "fa"), num(it.pack, "fa"), num(it.qty, "fa")) : "");
 
 function lastEvent(events: OrderEvent[], status: string): OrderEvent | undefined {
   for (let i = events.length - 1; i >= 0; i--) if (events[i].status === status) return events[i];
@@ -201,19 +205,33 @@ export default async function OrderPage({ params }: { params: Promise<{ code: st
   );
 }
 
-/** Lines at the price the member saw, then the quantity step («تخفیف تعداد»), then shipping and the admin's discount. */
+/**
+ * Lines at the price the member saw, then the quantity step of the whole order («تخفیف تعداد»), the special-day
+ * discount, shipping and the admin's discount — from what the order stored, never today's settings.
+ */
 function Totals({ order: o }: { order: OrderDetail }) {
-  const step = o.list_subtotal > o.subtotal ? o.list_subtotal - o.subtotal : 0;
+  const d = orderDiscounts(o);
   return (
     <dl className="space-y-1.5 text-sm">
       <div className="flex justify-between gap-4">
         <dt className="text-muted">جمع کالاها</dt>
-        <dd>{formatPrice(step ? o.list_subtotal : o.subtotal, "fa")}</dd>
+        <dd className="shrink-0">{formatPrice(d.list, "fa")}</dd>
       </div>
-      {step > 0 && (
+      {d.step > 0 && (
         <div className="flex justify-between gap-4">
-          <dt className="text-muted">تخفیف تعداد ({num(o.pricing.pieces ?? o.items_count, "fa")} قطعه)</dt>
-          <dd className="text-success">− {formatPrice(step, "fa")}</dd>
+          <dt className="text-muted">
+            تخفیف تعداد {d.stepOff ? `${formatPct(d.stepOff, "fa")} روی کل سفارش ` : ""}
+            <span className="whitespace-nowrap">({num(d.pieces, "fa")} قطعه)</span>
+          </dt>
+          <dd className="shrink-0 text-success">− {formatPrice(d.step, "fa")}</dd>
+        </div>
+      )}
+      {d.sale && (
+        <div className="flex justify-between gap-4">
+          <dt className="text-muted">
+            {d.sale.fa || "تخفیف روزهای خاص"} ({formatPct(d.sale.pct, "fa")})
+          </dt>
+          <dd className="shrink-0 text-success">− {formatPrice(d.sale.amount, "fa")}</dd>
         </div>
       )}
       <div className="flex justify-between gap-4">
@@ -252,6 +270,7 @@ function Items({ order: o }: { order: OrderDetail }) {
             <div className="min-w-0">
               <div className="text-sm font-medium">{it.name_fa}</div>
               {it.variant_fa && <div className="text-xs text-ink-2">{it.variant_fa}</div>}
+              {it.pack > 1 && <div className="text-xs text-ink-2">{packText(it)}</div>}
               {it.sku && (
                 <div className="mt-0.5 text-[11px] text-muted">
                   <span className="ltr font-mono">{it.sku}</span>
@@ -349,6 +368,7 @@ function Invoice({ order: o, phone, address }: { order: OrderDetail; phone: stri
               <td className="py-2">
                 {it.name_fa}
                 {it.variant_fa && <span className="text-muted"> — {it.variant_fa}</span>}
+                {it.pack > 1 && <span className="block text-xs text-muted">{packText(it)}</span>}
               </td>
               <td className="py-2">
                 <span className="ltr font-mono text-xs">{it.sku}</span>
@@ -362,7 +382,7 @@ function Invoice({ order: o, phone, address }: { order: OrderDetail; phone: stri
       </table>
 
       {/* same face as the table above (tables use the dense numeric font) */}
-      <div className="mt-4 ms-auto w-72 font-dense">
+      <div className="mt-4 ms-auto w-96 font-dense">
         <Totals order={o} />
       </div>
 

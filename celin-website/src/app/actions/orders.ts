@@ -4,12 +4,15 @@ import { after } from "next/server";
 import { currentUser, setProHint, USERS } from "@/lib/auth";
 import { proPrices } from "@/lib/catalog";
 import { db } from "@/lib/db";
-import { formatPrice, normalizePhone } from "@/lib/format";
+import { formatPrice, normalizePhone, num } from "@/lib/format";
+import { commonCopy } from "@/content/copy/common";
 import { postMessage } from "@/lib/messages";
 import { notifyTeam } from "@/lib/notify";
 import { cleanLines, getOrder, placeOrder as place, setOrderStatus } from "@/lib/orders";
 import { proStatus } from "@/lib/pro";
+import { invoiceLines } from "@/lib/basket";
 import { invoice, pricingFor } from "@/lib/pricing";
+import { liveSale, saleRule, saleState } from "@/lib/sale";
 import { allow } from "@/lib/rate-limit";
 import { getSettings } from "@/lib/settings";
 import { langOf, text, type Result } from "@/lib/action";
@@ -31,6 +34,9 @@ const MSG = {
   rate: { fa: "سفارش‌های زیادی در زمان کوتاه ثبت شد؛ کمی بعد دوباره امتحان کنید.", en: "Too many orders in a short time — please try again shortly." },
   failed: { fa: "ثبت سفارش انجام نشد؛ دوباره امتحان کنید.", en: "The order could not be placed — please try again." },
   priceChanged: { fa: "قیمت یکی از اقلام همین حالا تغییر کرد؛ سفارش به‌روز شد، مبلغ تازه را بررسی و دوباره تأیید کنید.", en: "A price has just changed — your order has been updated; please check the new total and confirm again." },
+  saleEnded: { fa: "زمان تخفیف روزهای خاص همین حالا به پایان رسید؛ سفارش با قیمت‌های تازه به‌روز شد، مبلغ تازه را بررسی و دوباره تأیید کنید.", en: "The special-day discount has just ended — your order now shows the new prices; please check the total and confirm again." },
+  saleStarted: { fa: "تخفیف روزهای خاص همین حالا آغاز شد؛ سفارش با قیمت‌های تازه به‌روز شد، مبلغ تازه را بررسی و دوباره تأیید کنید.", en: "The special-day discount has just begun — your order now shows the new prices; please check the total and confirm again." },
+  pack: { fa: "یکی از اقلام دیگر به این شکل (تک یا بسته) فروخته نمی‌شود؛ نوع فروش آن را از صفحه‌ی اثر دوباره انتخاب کنید.", en: "One item is no longer sold this way (single or in packs) — please choose how to buy it again on its page." },
   placed: { fa: "سفارش شما ثبت شد.", en: "Your order has been placed." },
   cancelled: { fa: "سفارش لغو شد.", en: "The order has been cancelled." },
   cantCancel: { fa: "این سفارش دیگر قابل لغو نیست؛ با فروشگاه تماس بگیرید.", en: "This order can no longer be cancelled — please contact the store." },
@@ -62,27 +68,32 @@ export async function placeOrder(input: Record<string, unknown>): Promise<Result
   if (!(await allow(`order:${me.id}`, 3600, 15))) return { ok: false, error: MSG.rate[lang] };
 
   const s = await getSettings();
-  // members: the list price stepped by pieces; Pro: the admin's price (src/lib/pricing.ts, applied again in SQL)
-  const pricing = pricingFor(status.level, s.pro);
+  // one moment decides the price: the server's clock, read once (a sale that ends while the basket is open is over)
+  const now = Date.now();
+  // members: the list price stepped by the pieces of the whole order; Pro: the admin's price; then the special-day
+  // discount while it runs (src/lib/pricing.ts, src/lib/sale.ts; celin_place_order applies the same and checks the total)
+  const pricing = pricingFor(status.level, s.pro, liveSale(s.sale, status.level, now));
   // the total the basket showed: an order is never placed at other prices than the member saw
   const seen = typeof input.seen === "number" && Number.isFinite(input.seen) ? Math.round(input.seen) : null;
-  if (s.shop.minOrder > 0 || seen !== null) {
-    const prices = await proPrices();
-    // the same invoice as the basket shows (lines that are gone are left out; no price counts 0)
-    const bill = invoice(
-      lines.flatMap((l) => {
-        const p = prices[l.productId];
-        const v = l.variantId ? p?.variants[l.variantId] : undefined;
-        if (!p || (l.variantId && !v)) return [];
-        return [{ price: v ? v.price ?? p.price : p.price, qty: l.qty }];
-      }),
-      pricing,
-    );
-    if (seen !== null && seen !== bill.total) return { ok: false, error: MSG.priceChanged[lang], reason: "price_changed" };
-    if (bill.total < s.shop.minOrder) return { ok: false, error: `${MSG.min[lang]} ${formatPrice(s.shop.minOrder, lang)}${lang === "fa" ? " است." : "."}` };
+  const prices = await proPrices();
+  // the same invoice as the basket shows (lines that are gone are left out; no price counts 0)
+  const items = invoiceLines(lines, prices);
+  const bill = invoice(items, pricing);
+  if (seen !== null && seen !== bill.total) {
+    // say why when the special-day discount has just started or ended (the basket reloads its prices either way)
+    const applies = status.level === "member" || s.sale.pro;
+    const without = pricingFor(status.level, s.pro);
+    const withSale = pricingFor(status.level, s.pro, saleRule(s.sale));
+    const state = saleState(s.sale, now);
+    const why =
+      applies && !pricing.sale && state === "over" && invoice(items, withSale).total === seen ? MSG.saleEnded
+      : pricing.sale && invoice(items, without).total === seen ? MSG.saleStarted
+      : MSG.priceChanged;
+    return { ok: false, error: why[lang], reason: "price_changed" };
   }
+  if (bill.total < s.shop.minOrder) return { ok: false, error: `${MSG.min[lang]} ${formatPrice(s.shop.minOrder, lang)}${lang === "fa" ? " است." : "."}` };
 
-  const r = await place(me.id, lines, customer, text(input.note, 1500), pricing);
+  const r = await place(me.id, lines, customer, text(input.note, 1500), pricing, bill.total);
   if (!r.ok) {
     const e = r.error;
     const itemId = "id" in e ? e.id : undefined;
@@ -91,6 +102,8 @@ export async function placeOrder(input: Record<string, unknown>): Promise<Result
       : e.reason === "product_unavailable" || e.reason === "variant_unavailable" ? MSG.gone
       : e.reason === "variant_required" ? MSG.variant
       : e.reason === "no_price" ? MSG.noPrice
+      : e.reason === "pack_unavailable" ? MSG.pack
+      : e.reason === "price_changed" ? MSG.priceChanged
       : e.reason === "empty" ? MSG.empty
       : e.reason === "unavailable" ? MSG.unavailable
       : MSG.failed;
@@ -112,11 +125,16 @@ export async function placeOrder(input: Record<string, unknown>): Promise<Result
       link: `/account/orders/${r.code}`,
     });
     if (s.notify.onOrder) {
-      const lines = (order?.items ?? []).map((i) => `• ${i.name_fa}${i.variant_fa ? ` (${i.variant_fa})` : ""} × ${i.qty}`).join("\n");
+      const lines = (order?.items ?? []).map((i) => `• ${i.name_fa}${i.variant_fa ? ` (${i.variant_fa})` : ""} ${teamQty(i)}`).join("\n");
       await notifyTeam(`سفارش تازه ${r.code}\n${customer.name} — ${customer.phone}${customer.business ? `\n${customer.business}` : ""}\n${customer.city}\n${lines}${order ? `\nجمع: ${formatPrice(order.total, "fa")}` : ""}\n${env.siteUrl}/admin/orders/${r.code}`, s.notify);
     }
   });
   return { ok: true, code: r.code, message: MSG.placed[lang] };
+}
+
+/** A line's quantity in the team's message: «× ۵», or for packs «— ۳ بسته‌ی ۴ سایزی · ۱۲ عدد». */
+function teamQty(i: { qty: number; pack: number }): string {
+  return i.pack > 1 ? `— ${commonCopy("fa").pack.line(num(i.qty / i.pack, "fa"), num(i.pack, "fa"), num(i.qty, "fa"))}` : `× ${i.qty}`;
 }
 
 /** A member may cancel their own order while it still awaits the store's confirmation. */

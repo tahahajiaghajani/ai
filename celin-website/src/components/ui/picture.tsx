@@ -15,6 +15,7 @@ export function Picture({
   sizes = "100vw",
   ratio,
   priority = false,
+  eager = false,
   className = "",
   imgClassName = "",
   style,
@@ -27,6 +28,8 @@ export function Picture({
   /** e.g. "3/4", "4/5", "1/1"; omit when the parent sets the size */
   ratio?: string;
   priority?: boolean;
+  /** load at once (not lazily) without the LCP's high priority: a picture about to slide into view */
+  eager?: boolean;
   className?: string;
   imgClassName?: string;
   style?: CSSProperties;
@@ -45,7 +48,7 @@ export function Picture({
       width={media.width || undefined}
       height={media.height || undefined}
       alt={text}
-      loading={priority ? "eager" : "lazy"}
+      loading={priority || eager ? "eager" : "lazy"}
       decoding={priority ? "sync" : "async"}
       fetchPriority={priority ? "high" : "auto"}
       className={`absolute inset-0 size-full object-cover ${imgClassName}`}

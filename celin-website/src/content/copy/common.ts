@@ -30,7 +30,8 @@ export const common = {
       searchPlaceholder: "جستجوی انگشتر، گردنبند، مجموعه…",
       account: "حساب من",
       signIn: "ورود",
-      membersSignIn: "ورود اعضا",
+      /** the top bar's second word beside «ورود»: opens the «عضویت و Pro» page (/pro) */
+      join: "عضویت",
       signUp: "ثبت‌نام",
       pro: "Pro",
       membership: "عضویت و Pro",
@@ -43,8 +44,15 @@ export const common = {
       discover: "مشاهده",
     },
     tones: { gold: "طلایی", silver: "نقره‌ای", rose: "رزگلد", "two-tone": "دورنگ" },
-    stones: { white: "سفید", blue: "آبی فیروزه‌ای", navy: "سرمه‌ای", green: "سبز جنگلی", red: "قرمز اناری", pearl: "مرواریدی", mixed: "چندرنگ" },
+    stones: { white: "سفید", blue: "آبی فیروزه‌ای", navy: "سرمه‌ای", green: "سبز جنگلی", red: "قرمز اناری", pearl: "مرواریدی", blush: "صورتی ملایم", black: "مشکی", mixed: "چندرنگ" },
+    leathers: { black: "مشکی", brown: "قهوه‌ای", tan: "عسلی", burgundy: "زرشکی", navy: "سرمه‌ای", cream: "کرم" },
     badges: { new: "تازه", bestseller: "محبوب", limited: "تعداد محدود" },
+    // the colour hint of a card: the dots of one axis, and how many colours or combinations there are
+    choices: {
+      colors: (n: string) => `${n} رنگ`,
+      combos: (n: string) => `${n} ترکیب`,
+      options: (n: string) => `${n} گزینه`,
+    },
     price: {
       locked: "قیمت برای اعضا",
       onRequest: "استعلام قیمت",
@@ -52,7 +60,34 @@ export const common = {
       currency: "تومان",
       was: "قیمت اصلی:",
       now: "قیمت با تعداد این سفارش:",
-      atPieces: (n: string) => `قیمت هر قطعه با ${n} قطعه در سفارش`,
+      nowSale: "قیمت با تخفیف:",
+      atPieces: (n: string, off: string) => `${n} قطعه در سفارش · ${off} تخفیف روی کل سفارش`,
+      // a product sold in packs: the price above is one piece's, the pack's is n of them
+      perPiece: "هر عدد",
+      perPack: (n: string, p: string) => `بسته‌ی ${n} سایزی: ${p}`,
+    },
+    // a line of packs (src/lib/packs.ts): wherever it is listed — basket, orders, the admin and its notifications
+    pack: {
+      line: (packs: string, n: string, pieces: string) => `${packs} بسته‌ی ${n} سایزی · ${pieces} عدد`,
+      // how a piece is sold, in a few words (cards, the admin): «فقط بسته‌ی ۴ سایزی», «تک یا بسته‌ی ۳ سایزی»
+      single: "تک",
+      name: (n: string) => `بسته‌ی ${n} سایزی`,
+      only: (what: string) => `فقط ${what}`,
+      list: (head: string, last: string) => `${head} یا ${last}`,
+    },
+    // the quantity discount while choosing and in the basket (src/components/pro/step-note.tsx)
+    steps: {
+      reached: (off: string) => `سفارش شما به ${off} تخفیف تعداد رسید.`,
+      reachedChoosing: (off: string) => `با این تعداد، کل سفارش شما ${off} تخفیف تعداد می‌گیرد.`,
+      next: (more: string, off: string) => `با ${more} قطعه‌ی دیگر از هر اثری، کل سفارش ${off} تخفیف می‌گیرد.`,
+      added: (off: string) => `به سفارش اضافه شد؛ سفارش شما اکنون ${off} تخفیف تعداد دارد.`,
+    },
+    // the special-day discount (its title is the admin's own; this is the site's label without one)
+    sale: {
+      label: "تخفیف روزهای خاص",
+      off: (p: string) => `${p} تخفیف`,
+      plain: (p: string) => `${p} تخفیف روزهای خاص`,
+      line: (title: string, p: string) => (title ? `${title} · ${p} تخفیف` : `${p} تخفیف روزهای خاص`),
     },
     stock: {
       in: "موجود",
@@ -169,7 +204,7 @@ export const common = {
       searchPlaceholder: "Search rings, necklaces, collections…",
       account: "My account",
       signIn: "Sign in",
-      membersSignIn: "Sign in",
+      join: "Join",
       signUp: "Create account",
       pro: "Pro",
       membership: "Membership & Pro",
@@ -182,8 +217,14 @@ export const common = {
       discover: "Discover",
     },
     tones: { gold: "Gold-tone", silver: "Silver-tone", rose: "Rose-gold-tone", "two-tone": "Two-tone" },
-    stones: { white: "White", blue: "Firouzeh blue", navy: "Night blue", green: "Forest green", red: "Pomegranate red", pearl: "Pearl-look", mixed: "Multicolor" },
+    stones: { white: "White", blue: "Firouzeh blue", navy: "Night blue", green: "Forest green", red: "Pomegranate red", pearl: "Pearl-look", blush: "Blush", black: "Black", mixed: "Multicolor" },
+    leathers: { black: "Black", brown: "Brown", tan: "Tan", burgundy: "Burgundy", navy: "Navy", cream: "Cream" },
     badges: { new: "New", bestseller: "Favorite", limited: "Limited" },
+    choices: {
+      colors: (n: string) => `${n} colors`,
+      combos: (n: string) => `${n} combinations`,
+      options: (n: string) => `${n} options`,
+    },
     price: {
       locked: "Price for members",
       onRequest: "Price on request",
@@ -191,7 +232,29 @@ export const common = {
       currency: "Toman",
       was: "Original price:",
       now: "Price at this order's quantity:",
-      atPieces: (n: string) => (n === "1" ? "Per piece with 1 piece in your order" : `Per piece with ${n} pieces in your order`),
+      nowSale: "Discounted price:",
+      atPieces: (n: string, off: string) => `${n} ${n === "1" ? "piece" : "pieces"} in your order · ${off} off the whole order`,
+      perPiece: "each",
+      perPack: (n: string, p: string) => `${n}-size pack: ${p}`,
+    },
+    pack: {
+      line: (packs: string, n: string, pieces: string) => `${packs} × ${n}-size pack · ${pieces} pieces`,
+      single: "single",
+      name: (n: string) => `${n}-size pack`,
+      only: (what: string) => `${what} only`,
+      list: (head: string, last: string) => `${head} or ${last}`,
+    },
+    steps: {
+      reached: (off: string) => `Your order has reached a ${off} quantity discount.`,
+      reachedChoosing: (off: string) => `With this quantity, your whole order gets a ${off} quantity discount.`,
+      next: (more: string, off: string) => `${more} more ${more === "1" ? "piece" : "pieces"} of any design and the whole order gets ${off} off.`,
+      added: (off: string) => `Added — your order now has a ${off} quantity discount.`,
+    },
+    sale: {
+      label: "Special-day discount",
+      off: (p: string) => `${p} off`,
+      plain: (p: string) => `${p} special-day discount`,
+      line: (title: string, p: string) => (title ? `${title} · ${p} off` : `${p} special-day discount`),
     },
     stock: {
       in: "In stock",

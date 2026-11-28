@@ -1,15 +1,20 @@
 import { requireAdminPage } from "@/lib/admin-auth";
+import { optionUsage } from "@/lib/admin-catalog";
 import { db } from "@/lib/db";
 import { decrypt } from "@/lib/crypto";
 import { env } from "@/lib/env";
+import { paletteOf } from "@/lib/options";
 import { getSettingsFresh } from "@/lib/settings";
 import { DbMissing, Empty, PageHeader } from "@/components/admin/ui";
-import { AnnouncementForm, ContactForm, EmailForm, NotifyForm, ProForm, SeoForm, ShopForm, SmsForm } from "@/components/admin/settings-forms";
+import { AnnouncementForm, ContactForm, EmailForm, NotifyForm, ProForm, SaleForm, SeoForm, ShopForm, SmsForm } from "@/components/admin/settings-forms";
+import { OptionPaletteForm } from "@/components/admin/option-palette";
 
 const NAV = [
   ["contact", "تماس"],
   ["announcement", "اطلاعیه"],
+  ["sale", "تخفیف روزهای خاص"],
   ["shop", "سفارش"],
+  ["options", "رنگ‌های گزینه‌ها"],
   ["pro", "عضویت و Pro"],
   ["notify", "اعلان مدیر"],
   ["sms", "پیامک"],
@@ -28,8 +33,9 @@ export default async function SettingsPage() {
     );
   }
   let s;
+  let usage: Record<string, number>;
   try {
-    s = await getSettingsFresh();
+    [s, usage] = await Promise.all([getSettingsFresh(), optionUsage()]);
   } catch (e) {
     return (
       <>
@@ -76,7 +82,9 @@ export default async function SettingsPage() {
       <div className="space-y-6">
         <ContactForm key={k(s.contact)} initial={s.contact} />
         <AnnouncementForm key={k(s.announcement)} initial={s.announcement} />
+        <SaleForm key={k(s.sale)} initial={s.sale} />
         <ShopForm key={k(s.shop)} initial={s.shop} />
+        <OptionPaletteForm key={k(s.options)} initial={paletteOf(s.options)} usage={usage} />
         <ProForm key={k(s.pro)} initial={s.pro} />
         <NotifyForm key={k(notify)} initial={notify} />
         <SmsForm key={k(sms)} initial={sms} />

@@ -34,6 +34,13 @@ export interface SlotDef {
   hint: string;
   image: SeedKey;
   texts: SlotText[];
+  /**
+   * An ordered list of pictures instead of one (celin_slots.gallery): `min`–`max` pictures; until the admin saves a
+   * list, the site shows the pictures of the `fallback` slots in that order. The slot's own picture is the first.
+   */
+  gallery?: { min: number; max: number; fallback: string[] };
+  /** kept only as a gallery's fallback: resolved for the site, never listed in the admin */
+  legacy?: boolean;
 }
 
 const cta = (fa: string, en: string, href: string): SlotText[] => [
@@ -46,13 +53,15 @@ export const SLOTS: SlotDef[] = [
   {
     key: "home.hero.a",
     page: "صفحه‌ی اصلی",
-    section: "سرآغاز — تصویر اول",
+    section: "سرآغاز — تصاویر چرخان و متن",
     ratio: "3:4",
-    mobileRatio: "4:5",
     mobile: true,
     video: true,
-    hint: "عکس روی مدل (گردن یا دست)، روشن، با جواهر در مرکز",
+    hint: "چند عکس روی مدل (گردن یا دست)، روشن و هم‌خانواده، با جواهر در مرکز",
     image: "choker-rose",
+    // the arcade turns through these: the first in the centre when the page opens, the second waiting beside it
+    // (on the left in Persian), the last on the other side; until a list is saved, the former three pictures
+    gallery: { min: 3, max: 24, fallback: ["home.hero.a", "home.hero.c", "home.hero.b"] },
     texts: [
       { key: "eyebrow", label: "برچسب کوچک بالای عنوان", fa: "۲۰ سال درخشش · از ۱۳۸۵", en: "Twenty years of brilliance · since 2006" },
       { key: "title", label: "عنوان", fa: "فراتر از یک زیور", en: "More than an ornament" },
@@ -60,23 +69,26 @@ export const SLOTS: SlotDef[] = [
       ...cta("مشاهده‌ی مجموعه‌ها", "Discover the collections", "/collections"),
     ],
   },
+  // the opening's former second and third pictures: only the fallback of home.hero.a's list (a saved list removes their rows)
   {
     key: "home.hero.b",
     page: "صفحه‌ی اصلی",
-    section: "سرآغاز — تصویر دوم (فقط دسکتاپ)",
+    section: "سرآغاز — تصویر دوم",
     ratio: "3:4",
     hint: "عکس روی مدل هم‌خانواده با تصویر اول",
     image: "set-cascade",
     texts: [],
+    legacy: true,
   },
   {
     key: "home.hero.c",
     page: "صفحه‌ی اصلی",
-    section: "سرآغاز — تصویر سوم (فقط دسکتاپ)",
+    section: "سرآغاز — تصویر سوم",
     ratio: "3:4",
     hint: "عکس روی مدل یا جزئیات، هم‌خانواده با تصویر اول",
     image: "earrings-sunburst",
     texts: [],
+    legacy: true,
   },
   {
     key: "home.statement",

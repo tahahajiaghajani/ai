@@ -1,4 +1,5 @@
 import { DEFAULT_MEMBER_PCT, DEFAULT_PRO_DAYS, DEFAULT_PRO_THRESHOLD, DEFAULT_STEPS, type PriceStep } from "@/lib/pricing";
+import { DEFAULT_OPTIONS, type OptionPalette } from "@/lib/options";
 
 /** Client-safe settings shapes and defaults (stored per key in celin_settings, merged over these). */
 
@@ -19,6 +20,35 @@ export interface AnnouncementSettings {
   enabled: boolean;
   text_fa: string;
   text_en: string;
+  link: string;
+}
+
+/** The bar colours (src/lib/sale.ts TONE_CLASS: brand grounds whose text reaches at least 7:1), or the admin's own. */
+export const SALE_TONES = ["pomegranate", "night", "cocoa", "paraiba", "copper", "champagne", "custom"] as const;
+export type SaleTone = (typeof SALE_TONES)[number];
+
+/**
+ * «نوار تخفیف روزهای خاص»: a store-wide percentage off every piece (after the quantity step) while it runs, shown
+ * in a coloured bar that takes the announcement's place. The server's clock decides the price (src/lib/sale.ts).
+ */
+export interface SaleSettings {
+  enabled: boolean;
+  /** percent off every piece after the quantity step, 1–90 */
+  pct: number;
+  /** the bar's title and short description (empty title: the site's label «تخفیف روزهای خاص») */
+  title_fa: string;
+  title_en: string;
+  text_fa: string;
+  text_en: string;
+  tone: SaleTone;
+  /** "#rrggbb", only with tone "custom" */
+  color: string;
+  /** ISO instants of whole Tehran days: from the start of the first day, until the start of the day after the last ("" = open) */
+  from: string;
+  until: string;
+  /** Pro accounts get the discount too */
+  pro: boolean;
+  /** "/…" inside the site, "https://…", or "" */
   link: string;
 }
 
@@ -89,12 +119,15 @@ export interface SeoSettings {
 export interface Settings {
   contact: ContactSettings;
   announcement: AnnouncementSettings;
+  sale: SaleSettings;
   shop: ShopSettings;
   pro: ProSettings;
   notify: NotifySettings;
   sms: SmsSettings;
   email: EmailSettings;
   catalog: CatalogSettings;
+  /** «رنگ‌های گزینه‌ها»: the plating, stone and leather colours products are chosen by (src/lib/options.ts); a stored list replaces its default */
+  options: OptionPalette;
   seo: SeoSettings;
 }
 
@@ -115,6 +148,7 @@ export const DEFAULT_SETTINGS: Settings = {
     mapUrl: "",
   },
   announcement: { enabled: true, text_fa: "سلین، ۲۰ سال درخشش — به دنیای آنلاین سلین خوش آمدید", text_en: "CELIN, twenty years of brilliance — welcome to CELIN online", link: "/maison" },
+  sale: { enabled: false, pct: 10, title_fa: "", title_en: "", text_fa: "", text_en: "", tone: "pomegranate", color: "", from: "", until: "", pro: true, link: "/shop" },
   shop: {
     minOrder: 0,
     stockDisplay: "exact",
@@ -127,5 +161,6 @@ export const DEFAULT_SETTINGS: Settings = {
   sms: { provider: "none", apiKeyEnc: "", sender: "", codeTemplate: "", statusTemplate: "", onCode: true, onStatus: true },
   email: { resendKeyEnc: "", mailFrom: "" },
   catalog: { initialized: false },
+  options: DEFAULT_OPTIONS,
   seo: { description_fa: "", description_en: "" },
 };

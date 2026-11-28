@@ -3,16 +3,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { adminDeleteProduct, adminDuplicateProduct, adminSaveProduct } from "@/app/actions/admin-catalog";
-import type { AdminProduct, AdminVariant } from "@/lib/admin-catalog";
+import type { AdminProduct } from "@/lib/admin-catalog";
 import { METALS, STONES, type Badge as BadgeT, type Metal, type ProductStatus, type Spec, type Stone } from "@/lib/catalog-types";
 import type { Media } from "@/lib/media";
 import { num } from "@/lib/format";
 import { Button, Card, ConfirmButton, Dialog, Field, Input, MoneyInput, PageHeader, Select, Textarea, Toggle } from "@/components/admin/ui";
 import { toast, useAction } from "@/components/admin/toast";
-import { BADGE_LABEL, METAL_LABEL, SLUG_RE, slugify, STATUS_LABEL, STONE_LABEL } from "@/components/admin/catalog-labels";
+import { BADGE_LABEL, METAL_LABEL, PACK_LABEL, SLUG_RE, slugify, STATUS_LABEL, STONE_LABEL } from "@/components/admin/catalog-labels";
+import { PACKS, packTerms } from "@/lib/packs";
+import { axesOf, combos, hasOptions, legacyToOptions, MAX_VARIANTS, syncCombos, valueOf, type OptionAxis, type OptionPalette, type VariantOptions } from "@/lib/options";
 import { CountInput } from "@/components/admin/count-input";
 import { ProductImages } from "@/components/admin/product-images";
-import { isHex, Swatch, SWATCH_PRESETS, swatchLabel } from "@/components/admin/swatch";
+import { gridOf, NO_AXES, OptionsCard, type Axes, type VariantRow } from "@/components/admin/option-grid";
+import { Swatch, SWATCH_PRESETS, SwatchPicker, swatchLabel } from "@/components/admin/swatch";
 import { Icon, type IconName } from "@/components/ui/icons";
 import { Picture } from "@/components/ui/picture";
 
@@ -24,9 +27,8 @@ import { Picture } from "@/components/ui/picture";
  */
 
 type SpecRow = Spec & { k: number };
-type VariantRow = Omit<AdminVariant, "sort"> & { k: number };
 
-interface Form {
+export interface Form {
   name_fa: string;
   name_en: string;
   subtitle_fa: string;
@@ -44,19 +46,41 @@ interface Form {
   sort: number;
   price: number | null;
   stock: number;
+  /** «نوع فروش»: 1 = single, 2–5 = packs of that many sizes */
+  packs: number[];
   status: ProductStatus;
   images: string[];
   specs: SpecRow[];
+  /** the options: rows of the plain list, or the combinations of the colours (with the grid's rows that are not made) */
   variants: VariantRow[];
+  /** the colours chosen per axis (combinations); empty for a plain list */
+  axes: Axes;
 }
 
-type Errors = Partial<Record<"name_fa" | "slug" | `variant${number}`, string>>;
+type Errors = Partial<Record<"name_fa" | "slug" | "packs" | "variants" | `variant${number}`, string>>;
 
 // row keys: stored rows use their index (same on server and client), rows added in the browser count from here
 let K = 100_000;
 const nk = () => ++K;
 
-function initial(p: AdminProduct | null): Form {
+/** A plain list: any option without colours (a product's options are all of one kind). */
+const plainList = (rows: VariantRow[]) => rows.some((v) => !hasOptions(v.options));
+
+const newRow = (options: VariantOptions, k = nk()): VariantRow => ({ k, id: null, name_fa: "", name_en: "", swatch: "", sku: "", price: null, stock: 0, image_id: null, options });
+
+/** The chosen colours and the grid's rows of stored combinations; a combination of the grid that is not stored is not made. */
+function axesForm(rows: VariantRow[], palette: OptionPalette, key: () => number): { axes: Axes; variants: VariantRow[] } {
+  const axes: Axes = { ...NO_AXES };
+  for (const a of axesOf(rows, palette)) axes[a.axis] = a.values.map((v) => v.key);
+  const variants = syncCombos(rows, combos(axes, palette), (o) => ({ ...newRow(o, key()), off: true }));
+  return { axes, variants };
+}
+
+export function initial(p: AdminProduct | null, palette: OptionPalette): Form {
+  const rows: VariantRow[] = (p?.variants ?? []).map(({ sort: _, ...v }, i) => ({ ...v, k: i + 1, orig: v.options }));
+  // keys of the grid's rows that are not stored: counted from a fixed start, the same on the server and in the browser
+  let k = 50_000;
+  const colours = plainList(rows) ? { axes: NO_AXES, variants: rows } : axesForm(rows, palette, () => ++k);
   return {
     name_fa: p?.name_fa ?? "",
     name_en: p?.name_en ?? "",
@@ -75,14 +99,40 @@ function initial(p: AdminProduct | null): Form {
     sort: p?.sort ?? 0,
     price: p?.price ?? null,
     stock: p?.stock ?? 0,
+    packs: p?.packs?.length ? p.packs : [1],
     status: p?.status ?? "draft",
     images: p?.images ?? [],
     specs: (p?.specs ?? []).map((s, i) => ({ ...s, k: i + 1 })),
-    variants: (p?.variants ?? []).map(({ sort: _, ...v }, i) => ({ ...v, k: i + 1 })),
+    ...colours,
   };
 }
 
-function payload(f: Form, id?: string) {
+/** The options as saved: a plain list as it is; combinations in the grid's order, only those that are made (the server names them). */
+export function variantsOut(f: Form, palette: OptionPalette) {
+  if (plainList(f.variants)) return f.variants.map(({ k: _, off: __, orig: ___, ...v }) => v);
+  return gridOf(f.axes, f.variants, palette)
+    .filter((g) => g.row && !g.row.off)
+    .map(({ o, row }) => ({ id: row!.id, sku: row!.sku, price: row!.price, stock: row!.stock, image_id: row!.image_id, options: o }));
+}
+
+/** The colours chosen on one axis of «گزینه‌ها»; the grid's rows follow (syncCombos). */
+export function chooseColours(f: Form, axis: OptionAxis, keys: string[], palette: OptionPalette): Form {
+  const axes = { ...f.axes, [axis]: keys };
+  return { ...f, axes, variants: syncCombos(f.variants, combos(axes, palette), (o) => newRow(o)) };
+}
+
+/** «تبدیل به رنگ‌ها»: the plain options become the combinations `mapped` (legacyToOptions), ids, stock, prices, SKUs and pictures kept. */
+export function toColours(f: Form, mapped: VariantOptions[], palette: OptionPalette): Form {
+  return { ...f, ...axesForm(f.variants.map((v, i) => ({ ...v, options: mapped[i], orig: mapped[i] })), palette, nk) };
+}
+
+/** Stored options that saving would delete while they still have stock (a colour taken off or swapped, a combination not made). */
+export function removedWithStock(p: AdminProduct | null, f: Form, palette: OptionPalette): { name: string; stock: number }[] {
+  const kept = new Set(variantsOut(f, palette).map((v) => v.id));
+  return (p?.variants ?? []).filter((v) => v.id && !kept.has(v.id) && v.stock > 0).map((v) => ({ name: v.name_fa, stock: v.stock }));
+}
+
+function payload(f: Form, palette: OptionPalette, id?: string) {
   return {
     ...(id ? { id } : {}),
     name_fa: f.name_fa,
@@ -102,10 +152,11 @@ function payload(f: Form, id?: string) {
     sort: f.sort,
     price: f.price,
     stock: f.stock,
+    packs: f.packs,
     status: f.status,
     images: f.images,
     specs: f.specs.map(({ k: _, ...s }) => s),
-    variants: f.variants.map(({ k: _, ...v }) => v),
+    variants: variantsOut(f, palette),
   };
 }
 
@@ -131,24 +182,27 @@ export function ProductEditor({
   media: initialMedia,
   categories,
   collections,
+  palette,
 }: {
   product: AdminProduct | null;
   media: Record<string, Media>;
   categories: { id: string; name_fa: string }[];
   collections: { id: string; name_fa: string }[];
+  /** Settings → «رنگ‌های گزینه‌ها» */
+  palette: OptionPalette;
 }) {
   const router = useRouter();
-  const [f, setF] = useState<Form>(() => initial(product));
+  const [f, setF] = useState<Form>(() => initial(product, palette));
   const [media, setMedia] = useState<Record<string, Media>>(initialMedia);
   const [slugTouched, setSlugTouched] = useState(Boolean(product));
   const [errors, setErrors] = useState<Errors>({});
-  const [baseline, setBaseline] = useState(() => JSON.stringify(payload(initial(product))));
+  const [baseline, setBaseline] = useState(() => JSON.stringify(payload(initial(product, palette), palette)));
   const save = useAction();
   const del = useAction();
   const dup = useAction();
   const leaving = useRef(false);
 
-  const snap = useMemo(() => JSON.stringify(payload(f)), [f]);
+  const snap = useMemo(() => JSON.stringify(payload(f, palette)), [f, palette]);
   const dirty = snap !== baseline;
 
   const set = <K extends keyof Form>(key: K, value: Form[K]) => setF((x) => ({ ...x, [key]: value }));
@@ -193,9 +247,13 @@ export function ProductEditor({
     const slug = x.slug.trim().toLowerCase() || slugify(x.name_en);
     if (!slug) e.slug = "نشانی را بنویسید (یا نام انگلیسی را پر کنید)؛ مثلاً darya-ring.";
     else if (!SLUG_RE.test(slug)) e.slug = "فقط حروف کوچک انگلیسی، عدد و خط تیره؛ مثلاً darya-ring.";
-    x.variants.forEach((v, i) => {
-      if (!v.name_fa.trim()) e[`variant${i}`] = `نام فارسی گزینه‌ی ${num(i + 1, "fa")} را بنویسید (مثلاً «طلایی»).`;
-    });
+    if (!x.packs.length) e.packs = "دست‌کم یکی از «تک» یا بسته‌ها را برای «نوع فروش» انتخاب کنید.";
+    if (plainList(x.variants)) {
+      if (x.variants.length > MAX_VARIANTS) e.variants = `هر محصول حداکثر ${num(MAX_VARIANTS, "fa")} گزینه دارد.`;
+      x.variants.forEach((v, i) => {
+        if (!v.name_fa.trim()) e[`variant${i}`] = `نام فارسی گزینه‌ی ${num(i + 1, "fa")} را بنویسید (مثلاً «طلایی»).`;
+      });
+    } else if (combos(x.axes, palette).length > MAX_VARIANTS) e.variants = `هر محصول حداکثر ${num(MAX_VARIANTS, "fa")} ترکیب دارد؛ چند رنگ را از «گزینه‌ها» بردارید.`;
     return e;
   };
   const validate = (): boolean => {
@@ -212,18 +270,21 @@ export function ProductEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f]);
 
+  const removed = removedWithStock(product, f, palette);
+
   const onSave = () => {
     if (!validate()) return;
+    if (removed.length && !window.confirm(`با این ذخیره ${num(removed.length, "fa")} گزینه که موجودی دارد حذف می‌شود (${removed.map((r) => r.name).join("، ")}). ذخیره شود؟`)) return;
     // with the stock this editor showed: the server saves a stock edit as a change, so orders placed while
     // the editor was open are not undone (the editor reopens from the stored product after a save)
     const shown = new Map((product?.variants ?? []).map((v) => [v.id, v.stock]));
-    const plain = payload(f, product?.id);
+    const plain = payload(f, palette, product?.id);
     const body = product
       ? { ...plain, stock_loaded: product.stock, variants: plain.variants.map((v) => (v.id && shown.has(v.id) ? { ...v, stock_loaded: shown.get(v.id) } : v)) }
       : plain;
     save.run(() => adminSaveProduct(body), {
       onOk: (r) => {
-        setBaseline(JSON.stringify(payload(f)));
+        setBaseline(JSON.stringify(payload(f, palette)));
         if (!product) {
           leaving.current = true;
           router.replace(`/admin/products/${r.id}`);
@@ -233,7 +294,17 @@ export function ProductEditor({
   };
 
   const live = product?.status === "published" && !dirty;
-  const hasVariants = f.variants.length > 0;
+  const plain = plainList(f.variants);
+  const hasVariants = variantsOut(f, palette).length > 0;
+  const setVariants = (fn: (xs: VariantRow[]) => VariantRow[]) => setF((x) => ({ ...x, variants: fn(x.variants) }));
+  const setAxis = (axis: OptionAxis, keys: string[]) => setF((x) => chooseColours(x, axis, keys, palette));
+  // «تبدیل به رنگ‌ها»: the plain options become combinations of the colour lists, ids, stock, prices, SKUs and pictures kept
+  const mapped = plain ? legacyToOptions(f.variants, palette) : null;
+  const convert = () => {
+    if (!mapped) return;
+    setF((x) => toColours(x, mapped, palette));
+    toast(true, "گزینه‌ها به ترکیب رنگ‌ها تبدیل شدند؛ بررسی کنید و ذخیره بزنید.");
+  };
   const imageList = f.images.map((id) => media[id]).filter((m): m is Media => Boolean(m));
 
   return (
@@ -324,11 +395,26 @@ export function ProductEditor({
       </div>
 
       <div className="space-y-6">
-        <InfoCard f={f} set={set} errors={errors} slugTouched={slugTouched} setSlugTouched={setSlugTouched} categories={categories} collections={collections} />
-        <PriceCard f={f} set={set} hasVariants={hasVariants} />
+        <InfoCard f={f} set={set} errors={errors} slugTouched={slugTouched} setSlugTouched={setSlugTouched} categories={categories} collections={collections} palette={palette} />
+        <PriceCard f={f} set={set} hasVariants={hasVariants} error={errors.packs} />
         <ProductImages images={f.images} media={media} setImages={setImages} onMedia={putMedia} alt={{ fa: f.name_fa, en: f.name_en }} />
         <SpecsCard specs={f.specs} setSpecs={(fn) => setF((x) => ({ ...x, specs: fn(x.specs) }))} />
-        <VariantsCard variants={f.variants} setVariants={(fn) => setF((x) => ({ ...x, variants: fn(x.variants) }))} images={imageList} errors={errors} productPrice={f.price} />
+        {plain ? (
+          <VariantsCard variants={f.variants} setVariants={setVariants} images={imageList} errors={errors} productPrice={f.price} convert={mapped ? convert : null} />
+        ) : (
+          <OptionsCard
+            palette={palette}
+            axes={f.axes}
+            setAxis={setAxis}
+            rows={f.variants}
+            patchRows={(pick, p) => setVariants((xs) => xs.map((v) => (pick(v) ? { ...v, ...p } : v)))}
+            images={imageList}
+            productPrice={f.price}
+            productSku={f.sku}
+            removed={removed}
+          />
+        )}
+        {errors.variants && <p className="text-xs text-danger">{errors.variants}</p>}
       </div>
 
       <div className="mt-8 flex flex-wrap items-center justify-end gap-3 border-t border-line pt-5">
@@ -351,6 +437,7 @@ function InfoCard({
   setSlugTouched,
   categories,
   collections,
+  palette,
 }: {
   f: Form;
   set: <K extends keyof Form>(key: K, value: Form[K]) => void;
@@ -359,7 +446,20 @@ function InfoCard({
   setSlugTouched: (v: boolean) => void;
   categories: { id: string; name_fa: string }[];
   collections: { id: string; name_fa: string }[];
+  palette: OptionPalette;
 }) {
+  // an axis chosen in «گزینه‌ها» puts its own colours into the shop filter (their facets in the colour lists)
+  const fromOptions = (axis: OptionAxis, label: Record<string, string>) => {
+    if (plainList(f.variants) || !f.axes[axis].length) return null;
+    const facets = [...new Set(f.axes[axis].map((k) => valueOf(palette, axis, k)?.facet ?? "").filter(Boolean))];
+    return (
+      <div className="flex min-h-10 items-center border border-line bg-bone px-3 py-2 text-xs leading-5 text-muted">
+        از گزینه‌ها{facets.length ? `: ${facets.map((x) => label[x] ?? x).join("، ")}` : " (بدون فیلتر)"}
+      </div>
+    );
+  };
+  const metalNote = fromOptions("plating", METAL_LABEL);
+  const stoneNote = fromOptions("stone", STONE_LABEL);
   return (
     <Card title="اطلاعات">
       <div className="grid gap-4 sm:grid-cols-2">
@@ -443,26 +543,40 @@ function InfoCard({
             ))}
           </Select>
         </Field>
-        <Field label="رنگ آبکاری" hint="برای فیلتر فروشگاه">
-          <Select value={f.metal} onChange={(e) => set("metal", e.target.value as Metal)}>
-            <option value="">—</option>
-            {METALS.map((m) => (
-              <option key={m} value={m}>
-                {METAL_LABEL[m]}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="رنگ نگین" hint="برای فیلتر فروشگاه">
-          <Select value={f.stone} onChange={(e) => set("stone", e.target.value as Stone)}>
-            <option value="">—</option>
-            {STONES.map((s) => (
-              <option key={s} value={s}>
-                {STONE_LABEL[s]}
-              </option>
-            ))}
-          </Select>
-        </Field>
+        {metalNote ? (
+          <div>
+            <span className="mb-1.5 block text-xs font-medium text-ink-2">فیلتر فروشگاه: پوشش</span>
+            {metalNote}
+          </div>
+        ) : (
+          <Field label="فیلتر فروشگاه: پوشش" hint="وقتی رنگ آبکاری در «گزینه‌ها» انتخاب نمی‌شود">
+            <Select value={f.metal} onChange={(e) => set("metal", e.target.value as Metal)}>
+              <option value="">—</option>
+              {METALS.map((m) => (
+                <option key={m} value={m}>
+                  {METAL_LABEL[m]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
+        {stoneNote ? (
+          <div>
+            <span className="mb-1.5 block text-xs font-medium text-ink-2">فیلتر فروشگاه: رنگ نگین</span>
+            {stoneNote}
+          </div>
+        ) : (
+          <Field label="فیلتر فروشگاه: رنگ نگین" hint="وقتی رنگ نگین در «گزینه‌ها» انتخاب نمی‌شود">
+            <Select value={f.stone} onChange={(e) => set("stone", e.target.value as Stone)}>
+              <option value="">—</option>
+              {STONES.map((s) => (
+                <option key={s} value={s}>
+                  {STONE_LABEL[s]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
         <Field label="ترتیب" hint="عدد کوچک‌تر، جلوتر در فهرست">
           <CountInput value={f.sort} onChange={(v) => set("sort", v)} signed />
         </Field>
@@ -476,7 +590,9 @@ function InfoCard({
 
 // ------------------------------------------------------------------ price & stock
 
-function PriceCard({ f, set, hasVariants }: { f: Form; set: <K extends keyof Form>(key: K, value: Form[K]) => void; hasVariants: boolean }) {
+function PriceCard({ f, set, hasVariants, error }: { f: Form; set: <K extends keyof Form>(key: K, value: Form[K]) => void; hasVariants: boolean; error?: string }) {
+  const toggle = (n: number, on: boolean) => set("packs", PACKS.filter((x) => (x === n ? on : f.packs.includes(x))));
+  const packed = f.packs.some((n) => n > 1);
   return (
     <Card title="قیمت و موجودی" sub="قیمت و موجودی فقط به اعضا نشان داده می‌شود.">
       <div className="grid gap-4 sm:grid-cols-2">
@@ -492,11 +608,39 @@ function PriceCard({ f, set, hasVariants }: { f: Form; set: <K extends keyof For
             </div>
           </div>
         ) : (
-          <Field label="موجودی" hint={f.stock === 0 ? "صفر = ناموجود" : undefined}>
+          <Field label={packed ? "موجودی (عدد)" : "موجودی"} hint={f.stock === 0 ? "صفر = ناموجود" : undefined}>
             <CountInput value={f.stock} onChange={(v) => set("stock", Math.max(0, v))} name="stock" />
           </Field>
         )}
       </div>
+
+      {/* how it is sold: public terms (everyone sees them on the product page); prices and stock stay per piece */}
+      <fieldset className="mt-6 border-t border-line pt-5" aria-describedby="packs-help">
+        <legend className="sr-only">نوع فروش</legend>
+        <p className="mb-1.5 text-xs font-medium text-ink-2" aria-hidden>
+          نوع فروش
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {PACKS.map((n) => (
+            <label
+              key={n}
+              className="relative inline-flex h-10 min-w-18 cursor-pointer items-center justify-center gap-2 rounded-sm border border-line-strong bg-white px-3 text-sm text-ink-2 transition-colors hover:border-ink has-[:checked]:border-ink has-[:checked]:bg-ink has-[:checked]:text-bone has-[:focus-visible]:outline has-[:focus-visible]:outline-1 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-gold"
+            >
+              <input type="checkbox" className="peer sr-only" checked={f.packs.includes(n)} onChange={(e) => toggle(n, e.target.checked)} />
+              <Icon name="check" className="hidden size-3.5 peer-checked:block" />
+              {PACK_LABEL[n]}
+            </label>
+          ))}
+        </div>
+        {error ? (
+          <p className="mt-2 text-xs text-danger">{error}</p>
+        ) : (
+          <p className="mt-2 text-xs leading-5 text-ink">در سایت: {packTerms(f.packs, "fa")}</p>
+        )}
+        <p id="packs-help" className="mt-1 text-xs leading-5 text-muted">
+          بسته‌ی ۳ سایزی یعنی ۳ عدد از همین مدل (و همان گزینه) در ۳ سایز مختلف، به قیمت ۳ عدد؛ از موجودی هم ۳ عدد کم می‌شود. سایزها را فروشگاه می‌چیند، مگر خریدار در یادداشت سفارش سایز خاصی بخواهد. نوع فروش به همه نشان داده می‌شود.
+        </p>
+      </fieldset>
     </Card>
   );
 }
@@ -562,21 +706,42 @@ function VariantsCard({
   images,
   errors,
   productPrice,
+  convert,
 }: {
   variants: VariantRow[];
   setVariants: (fn: (xs: VariantRow[]) => VariantRow[]) => void;
   images: Media[];
   errors: Errors;
   productPrice: number | null;
+  /** maps the list onto the colour lists (null: a name is not one of their colours) */
+  convert: (() => void) | null;
 }) {
   const [imageFor, setImageFor] = useState<number | null>(null);
   const patch = (k: number, p: Partial<VariantRow>) => setVariants((xs) => xs.map((v) => (v.k === k ? { ...v, ...p } : v)));
   const add = (preset?: { key: string; fa: string; en: string }) =>
-    setVariants((xs) => [...xs, { k: nk(), id: null, name_fa: preset?.fa ?? "", name_en: preset?.en ?? "", swatch: preset?.key ?? "", sku: "", price: null, stock: 0, image_id: null }]);
+    setVariants((xs) => [...xs, { ...newRow({}), name_fa: preset?.fa ?? "", name_en: preset?.en ?? "", swatch: preset?.key ?? "" }]);
   const target = variants.find((v) => v.k === imageFor);
 
   return (
-    <Card title="گزینه‌ها (رنگ / مدل)" sub="وقتی محصول گزینه دارد، مشتری برای سفارش باید یکی را انتخاب کند و موجودی هر گزینه جدا حساب می‌شود.">
+    <Card title="گزینه‌ها (فهرست ساده)" sub="وقتی محصول گزینه دارد، مشتری برای سفارش باید یکی را انتخاب کند و موجودی هر گزینه جدا حساب می‌شود.">
+      <div className="mb-4 flex flex-wrap items-center gap-3 border border-line bg-ground/60 px-3 py-2.5 text-xs leading-6 text-ink-2">
+        {convert ? (
+          <>
+            <span className="min-w-0 flex-1">این گزینه‌ها با «رنگ‌های گزینه‌ها» یکی‌اند؛ با تبدیل، رنگ آبکاری، نگین و چرم جدا انتخاب می‌شوند و موجودی، قیمت، کد و تصویر هر گزینه می‌ماند.</span>
+            <Button variant="secondary" size="sm" className="h-10 sm:h-8" onClick={convert}>
+              تبدیل به رنگ‌ها
+            </Button>
+          </>
+        ) : (
+          <span>
+            برای تبدیل به رنگ‌های آبکاری، نگین و چرم، نام هر گزینه باید از{" "}
+            <a href="/admin/settings#options" className="text-gold-text underline underline-offset-4">
+              رنگ‌های گزینه‌ها
+            </a>{" "}
+            باشد (مثلاً «طلایی · سرمه‌ای»)؛ یا همه‌ی گزینه‌ها را حذف کنید تا رنگ‌ها را از نو انتخاب کنید.
+          </span>
+        )}
+      </div>
       {variants.length > 0 && (
         <ol className="mb-4 space-y-3">
           {variants.map((v, i) => {
@@ -675,38 +840,6 @@ function VariantsCard({
         )}
       </Dialog>
     </Card>
-  );
-}
-
-function SwatchPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const custom = isHex(value);
-  const opts = [{ key: "", fa: "بدون رنگ" }, ...SWATCH_PRESETS];
-  return (
-    <div role="radiogroup" aria-label="رنگ نشانگر" className="flex flex-wrap items-center sm:gap-1">
-      {opts.map((o) => (
-        <button
-          key={o.key || "none"}
-          type="button"
-          role="radio"
-          aria-checked={value === o.key}
-          aria-label={o.fa}
-          title={o.fa}
-          onClick={() => onChange(o.key)}
-          className={`grid size-10 place-items-center rounded-full border transition-colors ${value === o.key ? "border-ink" : "border-transparent hover:border-line-strong"}`}
-        >
-          <Swatch value={o.key} className="size-6" />
-        </button>
-      ))}
-      <label
-        title="رنگ دلخواه"
-        className={`relative grid size-10 cursor-pointer place-items-center rounded-full border transition-colors focus-within:outline focus-within:outline-1 focus-within:outline-gold ${custom ? "border-ink" : "border-transparent hover:border-line-strong"}`}
-      >
-        {/* the only raw colour of the admin: a free swatch colour chosen by the admin */}
-        <input type="color" value={custom ? value : "#7a7a7a"} onChange={(e) => onChange(e.target.value.toLowerCase())} className="absolute inset-0 size-full cursor-pointer opacity-0" aria-label="رنگ دلخواه" />
-        {custom ? <Swatch value={value} className="size-6" /> : <span className="grid size-6 place-items-center rounded-full border border-dashed border-line-strong text-muted"><Icon name="plus" className="size-3.5" /></span>}
-      </label>
-      {custom && <span className="ltr ms-1 font-mono text-xs text-muted">{value}</span>}
-    </div>
   );
 }
 

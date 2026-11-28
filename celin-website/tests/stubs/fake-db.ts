@@ -1,14 +1,22 @@
 /**
  * A tiny in-memory stand-in for the Supabase client: enough of the query builder (select / insert / update /
- * delete with eq, is, in, or(role.eq.x), order, limit, maybeSingle, single, select-after-write) and rpc for
- * the server code under test. Unknown columns in a write fail like PostgREST (PGRST204) when the table
- * declares its columns, so "before the migration" paths can be tested too.
+ * delete with eq, is, in, contains, or(role.eq.x), order (one or more columns), limit, range, maybeSingle, single,
+ * select-after-write, upsert) and rpc for the server code under test. Unknown columns in a write fail like PostgREST
+ * (PGRST204) when the table declares its columns, so "before the migration" paths can be tested too. Like hosted
+ * Supabase (PostgREST max-rows), a read returns at most `maxRows` rows per request, silently — code that may read
+ * more pages with range (src/lib/db.ts allRows).
  */
 type Row = Record<string, unknown>;
 type Filter = (r: Row) => boolean;
 
 export class FakeDb {
   tables: Record<string, Row[]> = {};
+  /** PostgREST's max-rows: the most rows one read returns (no error, no hint) */
+  maxRows = 1000;
+  /** tables that do not exist yet (a database before their SQL file): every request fails like PostgREST (PGRST205) */
+  missingTables = new Set<string>();
+  /** how many reads each table answered (to see that a long list was read page by page) */
+  reads: Record<string, number> = {};
   columns: Record<string, string[]> = {};
   rpcs: Record<string, (args: Record<string, unknown>) => { data: unknown; error: { message: string; code?: string } | null }> = {};
   calls: { table: string; op: string; values?: Row }[] = [];
@@ -45,7 +53,8 @@ class Query implements PromiseLike<{ data: unknown; error: { message: string; co
   private returning = false;
   private one: "single" | "maybe" | null = null;
   private limitN: number | null = null;
-  private orderBy: { col: string; asc: boolean } | null = null;
+  private offset = 0;
+  private orderBy: { col: string; asc: boolean }[] = [];
   private counting = false;
   private head = false;
 
@@ -116,14 +125,17 @@ class Query implements PromiseLike<{ data: unknown; error: { message: string; co
     return this;
   }
   order(col: string, o: { ascending?: boolean } = {}) {
-    this.orderBy = { col, asc: o.ascending !== false };
+    this.orderBy.push({ col, asc: o.ascending !== false });
     return this;
   }
   limit(n: number) {
     this.limitN = n;
     return this;
   }
-  range() {
+  /** rows from..to, both included (supabase-js: offset and limit) */
+  range(from: number, to: number) {
+    this.offset = from;
+    this.limitN = to - from + 1;
     return this;
   }
   maybeSingle() {
@@ -149,6 +161,7 @@ class Query implements PromiseLike<{ data: unknown; error: { message: string; co
   }
 
   private run(): { data: unknown; error: { message: string; code?: string } | null; count?: number } {
+    if (this.db.missingTables.has(this.name)) return { data: null, error: { message: `Could not find the table 'public.${this.name}' in the schema cache`, code: "PGRST205" } };
     const t = this.db.table(this.name);
     const match = (r: Row) => this.filters.every((f) => f(r));
     let rows: Row[];
@@ -163,6 +176,8 @@ class Query implements PromiseLike<{ data: unknown; error: { message: string; co
       this.db.calls.push({ table: this.name, op: "insert" });
     } else if (this.op === "upsert") {
       const v = this.values as Row;
+      const bad = this.unknownColumn(v);
+      if (bad) return { data: null, error: { message: `Could not find the '${bad}' column`, code: "PGRST204" } };
       const k = "key" in v ? "key" : "id";
       const cur = t.find((r) => r[k] === v[k]);
       if (cur) Object.assign(cur, v);
@@ -183,13 +198,22 @@ class Query implements PromiseLike<{ data: unknown; error: { message: string; co
         if (missing) return { data: null, error: { message: `column ${missing} does not exist`, code: "42703" } };
       }
       rows = t.filter(match);
+      this.db.reads[this.name] = (this.db.reads[this.name] ?? 0) + 1;
     }
-    if (this.orderBy) {
-      const { col, asc } = this.orderBy;
-      rows = [...rows].sort((a, b) => (String(a[col]) < String(b[col]) ? -1 : String(a[col]) > String(b[col]) ? 1 : 0) * (asc ? 1 : -1));
+    if (this.orderBy.length) {
+      const cmp = (x: unknown, y: unknown) => (typeof x === "number" && typeof y === "number" ? x - y : String(x) < String(y) ? -1 : String(x) > String(y) ? 1 : 0);
+      rows = [...rows].sort((a, b) => {
+        for (const { col, asc } of this.orderBy) {
+          const d = cmp(a[col], b[col]);
+          if (d) return asc ? d : -d;
+        }
+        return 0;
+      });
     }
-    if (this.limitN !== null) rows = rows.slice(0, this.limitN);
-    if (this.counting) return { data: this.head ? null : rows.map((r) => this.pick(r)), error: null, count: rows.length };
+    const total = rows.length;
+    if (this.op === "select") rows = rows.slice(this.offset, this.limitN === null ? undefined : this.offset + this.limitN).slice(0, this.db.maxRows);
+    else if (this.limitN !== null) rows = rows.slice(0, this.limitN);
+    if (this.counting) return { data: this.head ? null : rows.map((r) => this.pick(r)), error: null, count: total };
     const out = this.op === "select" || this.returning ? rows.map((r) => this.pick(r)) : null;
     if (this.one) {
       if (!out || out.length === 0) return this.one === "single" ? { data: null, error: { message: "no rows", code: "PGRST116" } } : { data: null, error: null };

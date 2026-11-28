@@ -15,6 +15,8 @@ import { FocalPointEditor } from "@/components/admin/focal-point";
 import { ImageDropzone } from "@/components/admin/image-dropzone";
 import { MediaEditDialog } from "@/components/admin/media-edit";
 import { MediaPicker } from "@/components/admin/media-picker";
+import { galleryKey, SlotGallery } from "@/components/admin/slot-gallery";
+import { galleryIds, slotPicture } from "@/components/admin/slot-payload";
 import { SlotVideoField } from "@/components/admin/video-upload";
 import { Icon } from "@/components/ui/icons";
 import { Picture } from "@/components/ui/picture";
@@ -22,10 +24,11 @@ import { Picture } from "@/components/ui/picture";
 /**
  * Admin → تصاویر سایت: every design picture of the site (a "slot") at the shape it is shown in, grouped by
  * page. A slot keeps its built-in picture until another one is chosen; the focal point is stored on the
- * picture itself (a built-in picture is first copied into the library for that).
+ * picture itself (a built-in picture is first copied into the library for that). A gallery slot (the home page's
+ * turning «سرآغاز») holds an ordered list of pictures instead (SlotGallery).
  */
 
-export type SlotInfo = Pick<SlotDef, "key" | "page" | "section" | "ratio" | "mobileRatio" | "mobile" | "video" | "hint" | "image" | "texts">;
+export type SlotInfo = Pick<SlotDef, "key" | "page" | "section" | "ratio" | "mobileRatio" | "mobile" | "video" | "hint" | "image" | "texts" | "gallery">;
 
 const cssRatio = (r: string) => r.replace(":", "/");
 const shapeOf = (r: string) => {
@@ -41,6 +44,10 @@ interface Draft {
   mobile: Media | null;
   /** slots with `video: true` only */
   video: Video | null;
+  /** gallery slots only: the ordered pictures (built-in ones without an id until they are copied into the library) */
+  gallery: Media[] | null;
+  /** gallery slots only: the list as the server takes it (galleryIds) when the sheet opened; it is sent only when it changed */
+  opened: string[] | null;
   texts: Record<string, { fa: string; en: string }>;
   fx: number;
   fy: number;
@@ -48,8 +55,12 @@ interface Draft {
 
 export function SlotsBoard({ defs, slots, defaults }: { defs: SlotInfo[]; slots: SlotMap; defaults: Record<string, Media> }) {
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [picker, setPicker] = useState<"main" | "mobile" | null>(null);
+  const [picker, setPicker] = useState<"main" | "mobile" | "gallery" | null>(null);
   const [mobileFocal, setMobileFocal] = useState(false);
+  /** the gallery tile whose picture dialog is open, and the one being copied into the library first */
+  const [galleryEdit, setGalleryEdit] = useState<number | null>(null);
+  const [adopting, setAdopting] = useState<number | null>(null);
+  const adopt = useAction();
 
   const groups = useMemo(() => {
     const out: { page: string; items: SlotInfo[] }[] = [];
@@ -65,11 +76,14 @@ export function SlotsBoard({ defs, slots, defaults }: { defs: SlotInfo[]; slots:
     const r = slots[d.key];
     const chosen = r?.media?.id ? r.media : null;
     const shown = chosen ?? defaults[d.key];
+    const gallery = d.gallery ? [...(r?.gallery ?? [shown])] : null;
     setDraft({
       key: d.key,
       media: chosen,
       mobile: r?.mobile ?? null,
       video: r?.video ?? null,
+      gallery,
+      opened: gallery && galleryIds(gallery),
       texts: Object.fromEntries(d.texts.map((t) => [t.key, { fa: r?.texts[t.key]?.fa ?? t.fa, en: r?.texts[t.key]?.en ?? t.en }])),
       fx: shown.fx,
       fy: shown.fy,
@@ -78,6 +92,26 @@ export function SlotsBoard({ defs, slots, defaults }: { defs: SlotInfo[]; slots:
   const def = draft ? defs.find((d) => d.key === draft.key) ?? null : null;
   const patch = (p: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...p } : d));
   const choose = (m: Media) => patch({ media: m, fx: m.fx, fy: m.fy });
+  const setGallery = (fn: (prev: Media[]) => Media[]) => setDraft((d) => (d?.gallery ? { ...d, gallery: fn(d.gallery) } : d));
+  const max = def?.gallery?.max ?? 0;
+  const appendGallery = (ms: Media[]) => setGallery((xs) => [...xs, ...ms.filter((m) => !xs.some((x) => galleryKey(x) === galleryKey(m)))].slice(0, Math.max(xs.length, max)));
+  const editGallery = (i: number) => {
+    const m = draft?.gallery?.[i];
+    if (!m) return;
+    if (m.id) return setGalleryEdit(i);
+    // a built-in picture gets a library row first, so its alt text and focal point can be stored
+    setAdopting(i);
+    adopt.run(() => adminAdoptSeedImage({ key: m.src.replace(/^\/media\/seed\//, "") }), {
+      silent: true,
+      onOk: (r) => {
+        setAdopting(null);
+        setGallery((xs) => xs.map((x) => (galleryKey(x) === galleryKey(m) ? r.media : x)));
+        setGalleryEdit(i);
+      },
+      onError: () => setAdopting(null),
+    });
+  };
+  const galleryMedia = galleryEdit !== null ? draft?.gallery?.[galleryEdit] ?? null : null;
 
   return (
     <>
@@ -96,7 +130,7 @@ export function SlotsBoard({ defs, slots, defaults }: { defs: SlotInfo[]; slots:
                   <li key={d.key} data-slot={d.key}>
                     <button type="button" onClick={() => openSlot(d)} className="group block w-full border border-line bg-white text-start transition-colors hover:border-ink">
                       <div className="relative">
-                        <Picture media={r?.media ?? defaults[d.key]} ratio={cssRatio(d.ratio)} sizes="(min-width: 1280px) 260px, (min-width: 768px) 30vw, 45vw" alt="" />
+                        <Picture media={r?.gallery?.[0] ?? r?.media ?? defaults[d.key]} ratio={cssRatio(d.ratio)} sizes="(min-width: 1280px) 260px, (min-width: 768px) 30vw, 45vw" alt="" />
                         {r?.custom && (
                           <span className="absolute start-2 top-2">
                             <Badge tone="gold">تغییر داده شده</Badge>
@@ -111,6 +145,7 @@ export function SlotsBoard({ defs, slots, defaults }: { defs: SlotInfo[]; slots:
                         <div className="line-clamp-2 text-xs leading-5 text-muted">{d.hint}</div>
                         <div className="flex flex-wrap gap-1 pt-1">
                           <Badge>{shapeLabel(d.ratio)}</Badge>
+                          {d.gallery && <Badge tone="gold">{num(r?.gallery?.length ?? 1, "fa")} تصویر چرخان</Badge>}
                           {d.mobileRatio && <Badge>موبایل {num(d.mobileRatio, "fa")}</Badge>}
                           {r?.mobile && <Badge tone="gold">عکس موبایل جدا</Badge>}
                           {r?.video && <Badge tone="gold">ویدئو</Badge>}
@@ -136,6 +171,9 @@ export function SlotsBoard({ defs, slots, defaults }: { defs: SlotInfo[]; slots:
             custom={Boolean(slots[def.key]?.custom)}
             onPick={(target) => setPicker(target)}
             onMobileFocal={() => setMobileFocal(true)}
+            setGallery={setGallery}
+            onGalleryEdit={editGallery}
+            adopting={adopting}
             onDone={() => setDraft(null)}
           />
         )}
@@ -144,15 +182,35 @@ export function SlotsBoard({ defs, slots, defaults }: { defs: SlotInfo[]; slots:
       <MediaPicker
         open={picker !== null}
         onClose={() => setPicker(null)}
-        title={picker === "mobile" ? "تصویر موبایل از کتابخانه" : "انتخاب از کتابخانه"}
-        exclude={picker === "mobile" ? (draft?.mobile?.id ? [draft.mobile.id] : []) : draft?.media?.id ? [draft.media.id] : []}
-        onPick={([m]) => {
+        multiple={picker === "gallery"}
+        title={picker === "mobile" ? "تصویر موبایل از کتابخانه" : picker === "gallery" ? "افزودن به تصاویر چرخان" : "انتخاب از کتابخانه"}
+        exclude={
+          picker === "gallery"
+            ? (draft?.gallery ?? []).flatMap((m) => (m.id ? [m.id] : []))
+            : picker === "mobile"
+              ? draft?.mobile?.id
+                ? [draft.mobile.id]
+                : []
+              : draft?.media?.id
+                ? [draft.media.id]
+                : []
+        }
+        onPick={(ms) => {
+          const [m] = ms;
           if (!m) return;
-          if (picker === "mobile") patch({ mobile: m });
+          if (picker === "gallery") appendGallery(ms);
+          else if (picker === "mobile") patch({ mobile: m });
           else choose(m);
         }}
       />
       <MediaEditDialog media={mobileFocal ? draft?.mobile ?? null : null} open={mobileFocal} onClose={() => setMobileFocal(false)} title="تصویر موبایل" onSaved={(m) => patch({ mobile: m })} />
+      <MediaEditDialog
+        media={galleryMedia}
+        open={Boolean(galleryMedia)}
+        onClose={() => setGalleryEdit(null)}
+        title={galleryEdit === 0 ? "تصویر اول (وسط)" : `تصویر ${num((galleryEdit ?? 0) + 1, "fa")}`}
+        onSaved={(m) => setGallery((xs) => xs.map((x) => (x.id === m.id ? m : x)))}
+      />
     </>
   );
 }
@@ -166,6 +224,9 @@ function SlotForm({
   custom,
   onPick,
   onMobileFocal,
+  setGallery,
+  onGalleryEdit,
+  adopting,
   onDone,
 }: {
   def: SlotInfo;
@@ -174,8 +235,11 @@ function SlotForm({
   choose: (m: Media) => void;
   fallback: Media;
   custom: boolean;
-  onPick: (target: "main" | "mobile") => void;
+  onPick: (target: "main" | "mobile" | "gallery") => void;
   onMobileFocal: () => void;
+  setGallery: (fn: (prev: Media[]) => Media[]) => void;
+  onGalleryEdit: (index: number) => void;
+  adopting: number | null;
   onDone: () => void;
 }) {
   const [focalOpen, setFocalOpen] = useState(false);
@@ -183,8 +247,9 @@ function SlotForm({
   const adopt = useAction();
   const save = useAction();
   const reset = useAction();
-  const base = draft.media ?? fallback;
-  const shown: Media = { ...base, fx: draft.fx, fy: draft.fy };
+  const base = draft.gallery?.[0] ?? draft.media ?? fallback;
+  const shown: Media = draft.gallery ? base : { ...base, fx: draft.fx, fy: draft.fy };
+  const gallery = def.gallery && draft.gallery ? { ...def.gallery, items: draft.gallery } : null;
   const focalChanged = Boolean(draft.media?.id) && (draft.fx !== draft.media!.fx || draft.fy !== draft.media!.fy);
   const mobileRatio = def.mobileRatio ?? def.ratio;
   const showMobile = Boolean(def.mobileRatio || def.mobile);
@@ -208,7 +273,13 @@ function SlotForm({
           const r = await adminUpdateMedia({ id: draft.media.id, focal_x: draft.fx, focal_y: draft.fy });
           if (!r.ok) return r;
         }
-        return adminSaveSlot({ key: def.key, media_id: draft.media?.id ?? null, media_mobile_id: draft.mobile?.id ?? null, ...(def.video ? { video_id: draft.video?.id ?? null } : {}), texts: draft.texts });
+        return adminSaveSlot({
+          key: def.key,
+          ...slotPicture(draft.media, gallery && draft.opened ? { items: gallery.items, opened: draft.opened } : null),
+          media_mobile_id: draft.mobile?.id ?? null,
+          ...(def.video ? { video_id: draft.video?.id ?? null } : {}),
+          texts: draft.texts,
+        });
       },
       { onOk: onDone },
     );
@@ -231,51 +302,59 @@ function SlotForm({
         </p>
       </div>
 
-      {/* previews at the real shapes */}
-      <div className={`grid items-end gap-3 ${showMobile ? "grid-cols-[minmax(0,3fr)_minmax(0,2fr)]" : "grid-cols-1"}`}>
-        <figure className={showMobile ? "" : "mx-auto w-full max-w-[360px]"}>
-          <Picture media={shown} ratio={cssRatio(def.ratio)} sizes="320px" alt="" className="border border-line" />
-          <figcaption className="mt-1.5 text-center text-[11px] text-muted">دسکتاپ · {num(def.ratio, "fa")}</figcaption>
-        </figure>
-        {showMobile && (
-          <figure>
-            <Picture media={draft.mobile ?? shown} ratio={cssRatio(mobileRatio)} sizes="220px" alt="" className="border border-line" />
-            <figcaption className="mt-1.5 text-center text-[11px] text-muted">موبایل · {num(mobileRatio, "fa")}</figcaption>
-          </figure>
-        )}
-      </div>
+      {gallery && <SlotGallery items={gallery.items} min={gallery.min} max={gallery.max} onChange={setGallery} onLibrary={() => onPick("gallery")} onEdit={onGalleryEdit} editing={adopting} />}
 
-      <div className="space-y-3">
-        <div className="flex items-center justify-between gap-2 text-xs">
-          <span className="font-medium text-ink-2">{draft.media ? "تصویر انتخابی شما" : "تصویر پیش‌فرض سایت"}</span>
-          {draft.media && (
-            <button type="button" onClick={() => patch({ media: null, fx: fallback.fx, fy: fallback.fy })} className="h-8 px-1 text-muted underline-offset-4 hover:text-ink hover:underline">
-              برگرداندن تصویر پیش‌فرض
-            </button>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <ImageDropzone compact multiple={false} label="بارگذاری تصویر تازه" onUploaded={choose} />
-          <Button variant="secondary" icon="image" onClick={() => onPick("main")}>
-            انتخاب از کتابخانه
-          </Button>
-          <Button variant="ghost" icon="eye" pending={adopt.pending} onClick={() => (focalOpen ? setFocalOpen(false) : openFocal())} aria-expanded={focalOpen}>
-            نقطه‌ی کانونی
-          </Button>
-        </div>
-        {focalOpen && draft.media && (
-          <div className="border border-line bg-white p-3">
-            <FocalPointEditor media={draft.media} fx={draft.fx} fy={draft.fy} onChange={(fx, fy) => patch({ fx, fy })} maxHeight="min(40vh, 360px)" />
-            <p className="mt-3 text-xs leading-5 text-muted">نقطه‌ی کانونی روی خود تصویر ذخیره می‌شود و هر جا این تصویر استفاده شده باشد اعمال می‌شود.</p>
+      {!gallery && (
+        <>
+          {/* previews at the real shapes */}
+          <div className={`grid items-end gap-3 ${showMobile ? "grid-cols-[minmax(0,3fr)_minmax(0,2fr)]" : "grid-cols-1"}`}>
+            <figure className={showMobile ? "" : "mx-auto w-full max-w-[360px]"}>
+              <Picture media={shown} ratio={cssRatio(def.ratio)} sizes="320px" alt="" className="border border-line" />
+              <figcaption className="mt-1.5 text-center text-[11px] text-muted">دسکتاپ · {num(def.ratio, "fa")}</figcaption>
+            </figure>
+            {showMobile && (
+              <figure>
+                <Picture media={draft.mobile ?? shown} ratio={cssRatio(mobileRatio)} sizes="220px" alt="" className="border border-line" />
+                <figcaption className="mt-1.5 text-center text-[11px] text-muted">موبایل · {num(mobileRatio, "fa")}</figcaption>
+              </figure>
+            )}
           </div>
-        )}
-      </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <span className="font-medium text-ink-2">{draft.media ? "تصویر انتخابی شما" : "تصویر پیش‌فرض سایت"}</span>
+              {draft.media && (
+                <button type="button" onClick={() => patch({ media: null, fx: fallback.fx, fy: fallback.fy })} className="h-8 px-1 text-muted underline-offset-4 hover:text-ink hover:underline">
+                  برگرداندن تصویر پیش‌فرض
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <ImageDropzone compact multiple={false} label="بارگذاری تصویر تازه" onUploaded={choose} />
+              <Button variant="secondary" icon="image" onClick={() => onPick("main")}>
+                انتخاب از کتابخانه
+              </Button>
+              <Button variant="ghost" icon="eye" pending={adopt.pending} onClick={() => (focalOpen ? setFocalOpen(false) : openFocal())} aria-expanded={focalOpen}>
+                نقطه‌ی کانونی
+              </Button>
+            </div>
+            {focalOpen && draft.media && (
+              <div className="border border-line bg-white p-3">
+                <FocalPointEditor media={draft.media} fx={draft.fx} fy={draft.fy} onChange={(fx, fy) => patch({ fx, fy })} maxHeight="min(40vh, 360px)" />
+                <p className="mt-3 text-xs leading-5 text-muted">نقطه‌ی کانونی روی خود تصویر ذخیره می‌شود و هر جا این تصویر استفاده شده باشد اعمال می‌شود.</p>
+              </div>
+            )}
+          </div>
+        </>
+      )}
 
       {def.mobile && (
         <div className="space-y-3 border-t border-line pt-5">
           <div>
-            <div className="text-sm font-medium">تصویر جداگانه برای موبایل</div>
-            <p className="mt-0.5 text-xs leading-5 text-muted">اختیاری؛ اگر خالی بماند همان تصویر بالا در قاب {num(mobileRatio, "fa")} نمایش داده می‌شود.</p>
+            <div className="text-sm font-medium">{gallery ? "تصویر جداگانه‌ی موبایل برای تصویر اول" : "تصویر جداگانه برای موبایل"}</div>
+            <p className="mt-0.5 text-xs leading-5 text-muted">
+              {gallery ? "اختیاری؛ روی گوشی به‌جای تصویر اول نمایش داده می‌شود و همراه آن می‌چرخد." : <>اختیاری؛ اگر خالی بماند همان تصویر بالا در قاب {num(mobileRatio, "fa")} نمایش داده می‌شود.</>}
+            </p>
           </div>
           <div className="flex items-start gap-3">
             {draft.mobile ? (
@@ -305,7 +384,16 @@ function SlotForm({
         </div>
       )}
 
-      {def.video && <SlotVideoField video={draft.video} poster={shown} ratio={cssRatio(def.ratio)} onChange={(video) => patch({ video })} onBusy={setVideoBusy} />}
+      {def.video && (
+        <SlotVideoField
+          video={draft.video}
+          poster={shown}
+          ratio={cssRatio(def.ratio)}
+          onChange={(video) => patch({ video })}
+          onBusy={setVideoBusy}
+          {...(gallery ? { title: "ویدئو روی تصویر اول (اختیاری)", posterName: "تصویر اول" } : {})}
+        />
+      )}
 
       {def.texts.length > 0 && (
         <div className="space-y-4 border-t border-line pt-5">
@@ -338,7 +426,7 @@ function SlotForm({
 
       <div className="sticky -bottom-5 z-10 -mx-5 -mb-5 flex flex-wrap items-center justify-between gap-2 border-t border-line bg-white px-5 py-3">
         {custom ? (
-          <ConfirmButton size="md" variant="secondary" icon="refresh" pending={reset.pending} confirmLabel="تصویر و متن پیش‌فرض؟ دوباره بزنید" onConfirm={() => reset.run(() => adminResetSlot({ key: def.key }), { onOk: onDone })}>
+          <ConfirmButton size="md" variant="secondary" icon="refresh" pending={reset.pending} confirmLabel={gallery ? "تصاویر و متن پیش‌فرض؟ دوباره بزنید" : "تصویر و متن پیش‌فرض؟ دوباره بزنید"} onConfirm={() => reset.run(() => adminResetSlot({ key: def.key }), { onOk: onDone })}>
             بازگشت به پیش‌فرض
           </ConfirmButton>
         ) : (

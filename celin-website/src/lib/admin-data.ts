@@ -128,7 +128,8 @@ const RECORDING_FROM = "20261024120000_celin_admin_fixes.sql";
 /** What a recorded file brings, shown beside its name in Connections («فایل تازه» for one not listed here). */
 const FILE_REASONS: Record<string, string> = {
   [RECORDING_FROM]: "پیام‌های کد عضویت و تصاویر سفارش‌ها",
-  "20261111100000_celin_membership_pro.sql": "قیمت اعضا، Pro خودکار و مجموعه‌های سلین و میرا",
+  "20261111100000_celin_membership_pro.sql": "قیمت اعضا، Pro خودکار و مجموعه‌ی سلین",
+  "20261128100000_celin_round_six.sql": "تصاویر چرخان سرآغاز، حذف مجموعه‌ی میرا، گزینه‌های رنگ، فروش بسته‌ای سایزها و تخفیف روزهای خاص",
 };
 
 /**
@@ -189,6 +190,22 @@ export async function pendingMigrations(): Promise<{ file: string; why: string }
   const recorded = new Set(error ? [] : ((data ?? []) as { name: string }[]).map((r) => `${r.name}.sql`));
   for (const f of files) if (f >= RECORDING_FROM && !recorded.has(f)) add(f, FILE_REASONS[f] ?? "فایل تازه");
   return out.sort((a, b) => a.file.localeCompare(b.file));
+}
+
+/** round six's database file: the order function that charges packs and the special-day discount */
+export const ROUND_SIX = "20261128100000_celin_round_six";
+
+/** Whether a SQL file that records its own name (RECORDING_FROM on) has run: its row is in celin_migrations. */
+export async function migrationRan(name: string): Promise<boolean> {
+  await assertAdmin();
+  const c = db();
+  if (!c) return false;
+  const { data, error } = await c.from("celin_migrations").select("name").eq("name", name).maybeSingle();
+  if (error) {
+    if (isMissingTable(error)) return false;
+    throw new Error(error.message);
+  }
+  return Boolean(data);
 }
 
 export async function healthReport(): Promise<{ items: HealthItem[]; missingTables: string[]; pending: { file: string; why: string }[]; supabaseProject: string }> {

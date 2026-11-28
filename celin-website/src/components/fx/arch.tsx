@@ -10,7 +10,8 @@ import { Sparkles } from "@/components/fx/sparkles";
  * - `unveil`: the arch fills from the crown down when it enters the viewport,
  * - `parallax`: the picture drifts inside the frame as the page scrolls (CSS scroll timeline),
  * - `sparkle`: live glints on the bright facets of the jewel.
- * The picture keeps its focal point; give `sizes` for the rendered width.
+ * The picture keeps its focal point; give `sizes` for the rendered width. `ratio={null}`: the parent sets the box
+ * (add `size-full`). The ring gap (`--ring-gap`) and the keystone's opacity (`--keystone`) can come from a parent.
  */
 export function Arch({
   media,
@@ -20,6 +21,7 @@ export function Arch({
   sizes = "50vw",
   ratio = "3/4",
   priority,
+  eager,
   ring,
   keystone,
   unveil,
@@ -36,8 +38,9 @@ export function Arch({
   lang?: "fa" | "en";
   alt?: string;
   sizes?: string;
-  ratio?: string;
+  ratio?: string | null;
   priority?: boolean;
+  eager?: boolean;
   ring?: "copper" | "champagne";
   keystone?: boolean;
   unveil?: boolean;
@@ -55,17 +58,17 @@ export function Arch({
     <div
       className={`relative ${unveil ? "fx-unveil" : ""} ${className}`}
       data-fx={unveil ? (afterIntro ? "now" : "") : undefined}
-      style={{ aspectRatio: ratio, "--delay": afterIntro ? `calc(var(--intro-delay, 0s) + ${delay}ms)` : `${delay}ms` } as CSSProperties}
+      style={{ ...(ratio ? { aspectRatio: ratio } : {}), "--delay": afterIntro ? `calc(var(--intro-delay, 0s) + ${delay}ms)` : `${delay}ms` } as CSSProperties}
     >
       {ring && <span aria-hidden className="arch-ring" style={{ "--ring": ringColor } as CSSProperties} />}
       {keystone && (
-        <svg aria-hidden viewBox="0 0 10 10" className="absolute left-1/2 top-[calc(var(--ring-gap,12px)*-1)] z-[2] size-2.5 -translate-x-1/2 -translate-y-1/2 text-gold-bright">
+        <svg aria-hidden viewBox="0 0 10 10" className="absolute left-1/2 top-[calc(var(--ring-gap,12px)*-1)] z-[2] size-2.5 -translate-x-1/2 -translate-y-1/2 text-gold-bright" style={{ opacity: "var(--keystone, 1)" }}>
           <path d="M5 0 10 5 5 10 0 5Z" fill="currentColor" />
         </svg>
       )}
       <div className={`fx-frame arch arch-clip absolute inset-0 overflow-hidden ${frameClassName}`}>
         <div className={`absolute inset-0 ${parallax ? "fx-parallax" : ""}`} style={parallax ? ({ "--px": parallax } as CSSProperties) : undefined}>
-          <Picture media={media} mobile={mobile} lang={lang} alt={alt} sizes={sizes} priority={priority} className="absolute inset-0" />
+          <Picture media={media} mobile={mobile} lang={lang} alt={alt} sizes={sizes} priority={priority} eager={eager} className="absolute inset-0" />
           {sparkle && <Sparkles count={typeof sparkle === "number" ? sparkle : 12} />}
         </div>
         {children}

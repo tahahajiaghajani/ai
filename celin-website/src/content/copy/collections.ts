@@ -17,7 +17,7 @@ export const collectionsCopy = {
   en: {
     meta: { title: "Collections", description: "The CELIN collections — each with its own name, color and story: fine-jewelry-style pieces with brilliant stones, precise setting and rhodium and gold plating." },
     index: { eyebrow: "Collections", title: "The CELIN collections", count: (n: string) => `${n} collections`, discover: "Discover" },
-    pieces: (n: string) => `${n} pieces`,
+    pieces: (n: string) => (n === "1" ? "1 piece" : `${n} pieces`),
     soon: "Coming soon",
     collection: "Collection",
     see: "See the pieces",

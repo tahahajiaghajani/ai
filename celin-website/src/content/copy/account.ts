@@ -7,7 +7,7 @@
  * settings (members' percentage, the Pro threshold and its days) are passed in, never written here.
  */
 
-/** Settings-driven numbers of the /pro page, already formatted for the page language (pro-page.tsx). */
+/** Settings-driven numbers of the /pro page, already formatted for the page language (src/lib/levels.ts). */
 export interface LevelsInfo {
   /** members' list price as a multiple of the wholesale price («۲» / "2"; null: members see the wholesale price) */
   times: string | null;
@@ -16,6 +16,13 @@ export interface LevelsInfo {
   /** the Pro window in days, and the amount that makes an account Pro (null: Pro is not automatic) */
   days: string;
   threshold: string | null;
+  /** the quantity discount from one piece up: the pieces of one order, and the percentage off the whole invoice (null: the members' price) */
+  ladder: { from: string; to: string | null; off: string | null; wholesale: boolean }[];
+  /** the first step's pieces and the last step's percentage (null without steps) */
+  firstMin: string | null;
+  maxOff: string | null;
+  /** a worked example: that many different pieces, one of each, and the percentage the whole invoice gets */
+  example: { n: string; off: string } | null;
 }
 
 const fa = {
@@ -105,7 +112,9 @@ const fa = {
     // the two levels and what lies between them: membership, the quantity discount, Pro
     benefits: (l: LevelsInfo) => [
       { title: "عضویت", text: "پس از تأیید فروشگاه، کد عضویت می‌گیرید؛ قیمت اعضا را می‌بینید و سفارش خود را آنلاین ثبت می‌کنید." },
-      ...(l.steps ? [{ title: "تخفیف تعداد", text: "هرچه قطعه‌های یک سفارش بیشتر باشد، مبلغ فاکتور کمتر می‌شود؛ تخفیف در سفارش و فاکتور نمایش داده می‌شود." }] : []),
+      ...(l.steps
+        ? [{ title: "تخفیف تعداد", text: `همه‌ی قطعه‌های یک سفارش با هم شمرده می‌شوند، از هر اثری که باشند؛ از ${l.firstMin} قطعه کل فاکتور تخفیف می‌گیرد و تا ${l.maxOff} می‌رسد.` }]
+        : []),
       {
         title: "Pro",
         text: l.threshold
@@ -122,6 +131,31 @@ const fa = {
       { title: "دیدن قیمت‌ها", text: "کد را یک بار وارد کنید؛ قیمت اعضا برایتان نمایش داده می‌شود." },
     ],
     requestTitle: "درخواست عضویت",
+    // the quantity discount in full (src/components/account/discount-ladder.tsx): the ladder, its rules, an example
+    ladderTitle: "تخفیف تعداد",
+    ladderCaption: "پله‌های تخفیف تعداد برای اعضا",
+    ladderPieces: "قطعه در یک سفارش",
+    ladderOff: "تخفیف روی کل فاکتور",
+    ladderRange: (from: string, to: string | null) => (to === null ? `${from} قطعه و بیشتر` : from === to ? `${from} قطعه` : `${from} تا ${to} قطعه`),
+    ladderNone: "قیمت اعضا",
+    ladderOffCell: (off: string) => `${off} تخفیف`,
+    ladderWholesale: "برابر قیمت عمده",
+    ladderRules: (l: LevelsInfo) => [
+      "همه‌ی قطعه‌های یک سفارش با هم شمرده می‌شوند، از هر اثر و هر گزینه‌ای که باشند.",
+      "تخفیف روی کل فاکتور حساب می‌شود، نه فقط روی یک اثر.",
+      ...(l.example ? [`مثلاً اگر از ${l.example.n} اثر مختلف از هر کدام یک عدد بردارید، سفارش شما ${l.example.n} قطعه است و کل فاکتور ${l.example.off} تخفیف می‌گیرد.`] : []),
+      "هنگام انتخاب و در سفارش، قیمت اصلی خط‌خورده کنار قیمت با تخفیف دیده می‌شود و رسیدن به هر پله همان‌جا به شما گفته می‌شود.",
+      "در روزهای خاص، تخفیف روزهای خاص پس از تخفیف تعداد روی قیمت هر قطعه حساب می‌شود و در فاکتور جدا نوشته می‌شود.",
+      "هر سفارش جداگانه شمرده می‌شود؛ قطعه‌های سفارش‌های قبلی به آن اضافه نمی‌شوند.",
+    ],
+    ladderPro: (l: LevelsInfo) =>
+      l.threshold
+        ? `حساب Pro پله ندارد: همه‌ی قطعه‌ها از همان قطعه‌ی اول با قیمت عمده است. وقتی مبلغ کالاهای سفارش‌های تأییدشده‌ی شما در ${l.days} روز گذشته (بدون هزینه‌ی ارسال) به ${l.threshold} برسد، حساب شما خودبه‌خود Pro می‌شود.`
+        : "حساب Pro پله ندارد: همه‌ی قطعه‌ها از همان قطعه‌ی اول با قیمت عمده است. حساب Pro را فروشگاه برای همکاران خود فعال می‌کند.",
+    faqSteps: (l: LevelsInfo) => ({
+      q: "تخفیف تعداد چطور حساب می‌شود؟",
+      a: `همه‌ی قطعه‌های یک سفارش با هم شمرده می‌شوند، از هر اثری که باشند؛ از ${l.firstMin} قطعه کل فاکتور تخفیف می‌گیرد و تا ${l.maxOff} می‌رسد. پله‌ها در جدول «تخفیف تعداد» همین صفحه آمده است.`,
+    }),
     faqEyebrow: "عضویت و Pro",
     faqTitle: "پرسش‌های رایج",
     faq: (l: LevelsInfo) => [
@@ -163,7 +197,7 @@ const fa = {
     activeUntil: (d: string) => `عضویت شما فعال است تا ${d}`,
     activeNoEnd: "عضویت شما بدون تاریخ پایان فعال است.",
     memberPrices: "قیمت هر قطعه با قیمت اعضا نمایش داده می‌شود.",
-    memberSteps: "با تعداد بیشتر در یک سفارش، مبلغ فاکتور کمتر می‌شود.",
+    memberSteps: "همه‌ی قطعه‌های یک سفارش با هم شمرده می‌شوند و با قطعه‌های بیشتر، کل فاکتور تخفیف می‌گیرد.",
     proTitle: "حساب شما Pro است",
     proLead: "موجودی آثار و همه‌ی قیمت‌ها را با قیمت عمده می‌بینید و سفارش‌هایتان با همین قیمت ثبت می‌شود.",
     proSince: (d: string) => `Pro از ${d}`,
@@ -209,16 +243,29 @@ const fa = {
     gone: "این اثر دیگر در دسترس نیست",
     out: "این اثر در حال حاضر موجود نیست",
     over: (n: string) => `فقط ${n} عدد موجود است`,
+    overShared: (n: string, others: string) => `فقط ${n} عدد موجود است؛ اقلام دیگر همین گزینه ${others} عدد دارند`,
     fixQty: (n: string) => `تغییر به ${n}`,
+    fixPacks: (n: string) => `تغییر به ${n} بسته`,
+    packGone: "این اثر دیگر به این شکل فروخته نمی‌شود",
+    choosePack: "انتخاب دوباره",
+    packsQty: "تعداد بسته",
+    sizesHelp: "اگر سایزهای خاصی برای بسته‌ها می‌خواهید، این‌جا بنویسید.",
     noPrice: "استعلام قیمت",
     noPriceNote: "قیمت این اثر اعلام نشده است؛ برای آن با فروشگاه تماس بگیرید.",
     increase: "افزایش تعداد",
     decrease: "کاهش تعداد",
     subtotal: "جمع سفارش",
     listTotal: "جمع اقلام با قیمت اصلی",
-    stepDiscount: (n: string) => `تخفیف تعداد (${n} قطعه)`,
-    nextStep: (n: string) => `با ${n} قطعه‌ی دیگر، مبلغ فاکتور کمتر می‌شود.`,
+    stepDiscount: (n: string, off: string) => (off ? `تخفیف تعداد ${off} روی کل سفارش (${n} قطعه)` : `تخفیف تعداد (${n} قطعه)`),
+    saleDiscount: (title: string, p: string) => `${title || "تخفیف روزهای خاص"} (${p})`,
     subtotalNote: "هزینه‌ی ارسال، در صورت وجود، هنگام تأیید اعلام می‌شود.",
+    stepsNote: "تخفیف تعداد با همه‌ی قطعه‌های این سفارش حساب می‌شود، از هر اثری که باشند.",
+    saleNote: (until: string, afterSteps: boolean) =>
+      afterSteps
+        ? `تخفیف روزهای خاص پس از تخفیف تعداد حساب می‌شود${until ? ` و تا پایان ${until} برقرار است` : ""}.`
+        : until
+          ? `تخفیف روزهای خاص تا پایان ${until} برقرار است.`
+          : "",
     minOrder: (p: string) => `حداقل مبلغ سفارش ${p} است.`,
     minLeft: (p: string) => `${p} تا رسیدن به حداقل سفارش`,
     delivery: "ارسال به",
@@ -267,8 +314,10 @@ const fa = {
     qty: "تعداد",
     lineTotal: "جمع",
     subtotal: "جمع اقلام",
-    stepDiscount: (n: string) => `تخفیف تعداد (${n} قطعه)`,
+    stepDiscount: (n: string, off: string) => (off ? `تخفیف تعداد ${off} روی کل سفارش (${n} قطعه)` : `تخفیف تعداد (${n} قطعه)`),
+    saleDiscount: (title: string, p: string) => `${title || "تخفیف روزهای خاص"} (${p})`,
     afterStep: "جمع پس از تخفیف تعداد",
+    afterDiscounts: "جمع پس از تخفیف‌ها",
     shipping: "هزینه‌ی ارسال",
     shippingNone: "—",
     discount: "تخفیف",
@@ -404,7 +453,9 @@ const en: AccountCopy = {
     benefitsTitle: "Membership & Pro at a glance",
     benefits: (l: LevelsInfo) => [
       { title: "Membership", text: "Once the store approves you, you get a membership code: you see members' prices and place your orders online." },
-      ...(l.steps ? [{ title: "Quantity discount", text: "The more pieces in one order, the lower the invoice; the discount is shown in your basket and on the invoice." }] : []),
+      ...(l.steps
+        ? [{ title: "Quantity discount", text: `Every piece of one order counts together, whichever design it is: from ${l.firstMin} pieces the whole invoice gets a discount, up to ${l.maxOff}.` }]
+        : []),
       {
         title: "Pro",
         text: l.threshold
@@ -421,6 +472,30 @@ const en: AccountCopy = {
       { title: "See prices", text: "Enter the code once; members' prices appear for you." },
     ],
     requestTitle: "Request membership",
+    ladderTitle: "Quantity discount",
+    ladderCaption: "Members' quantity discount steps",
+    ladderPieces: "Pieces in one order",
+    ladderOff: "Off the whole invoice",
+    ladderRange: (from: string, to: string | null) => (to === null ? `${from}+ pieces` : from === to ? `${from} ${from === "1" ? "piece" : "pieces"}` : `${from}–${to} pieces`),
+    ladderNone: "Members' price",
+    ladderOffCell: (off: string) => `${off} off`,
+    ladderWholesale: "at the wholesale price",
+    ladderRules: (l: LevelsInfo) => [
+      "Every piece of one order counts together, whichever design or option it is.",
+      "The discount applies to the whole invoice, not to a single design.",
+      ...(l.example ? [`For example, take one each of ${l.example.n} different designs: your order has ${l.example.n} pieces and the whole invoice gets ${l.example.off} off.`] : []),
+      "While you choose and in your order, the original price is shown struck through beside the discounted one, and each step you reach is announced right there.",
+      "On special days, the special-day discount is taken off each piece after the quantity discount and shown on its own line of the invoice.",
+      "Each order counts on its own; pieces from earlier orders are not added in.",
+    ],
+    ladderPro: (l: LevelsInfo) =>
+      l.threshold
+        ? `Pro accounts have no steps: every piece is at the wholesale price from the very first. When the goods of your accepted orders in the last ${l.days} days (without shipping) reach ${l.threshold}, your account becomes Pro on its own.`
+        : "Pro accounts have no steps: every piece is at the wholesale price from the very first. The store opens Pro accounts for its partners.",
+    faqSteps: (l: LevelsInfo) => ({
+      q: "How does the quantity discount work?",
+      a: `Every piece of one order counts together, whichever design it is: from ${l.firstMin} pieces the whole invoice gets a discount, up to ${l.maxOff}. The steps are in the “Quantity discount” table on this page.`,
+    }),
     faqEyebrow: "Membership & Pro",
     faqTitle: "Questions",
     faq: (l: LevelsInfo) => [
@@ -462,7 +537,7 @@ const en: AccountCopy = {
     activeUntil: (d: string) => `Your membership is active until ${d}`,
     activeNoEnd: "Your membership is active with no end date.",
     memberPrices: "Each piece shows the members' price.",
-    memberSteps: "The more pieces in one order, the lower the invoice.",
+    memberSteps: "Every piece of one order counts together; the more pieces, the bigger the discount on the whole invoice.",
     proTitle: "Your account is Pro",
     proLead: "You see stock and every price at the wholesale price, and your orders are placed at it.",
     proSince: (d: string) => `Pro since ${d}`,
@@ -508,16 +583,29 @@ const en: AccountCopy = {
     gone: "This piece is no longer available",
     out: "This piece is out of stock",
     over: (n: string) => `Only ${n} in stock`,
+    overShared: (n: string, others: string) => `Only ${n} in stock; your other lines of this option hold ${others}`,
     fixQty: (n: string) => `Change to ${n}`,
+    fixPacks: (n: string) => `Change to ${n} ${n === "1" ? "pack" : "packs"}`,
+    packGone: "This piece is no longer sold this way",
+    choosePack: "Choose again",
+    packsQty: "Number of packs",
+    sizesHelp: "If you want particular sizes in your packs, write them here.",
     noPrice: "Price on request",
     noPriceNote: "This piece has no price yet — please contact the store for it.",
     increase: "Increase quantity",
     decrease: "Decrease quantity",
     subtotal: "Order subtotal",
     listTotal: "Items at the original price",
-    stepDiscount: (n: string) => `Quantity discount (${n} pieces)`,
-    nextStep: (n: string) => `Add ${n} more ${n === "1" ? "piece" : "pieces"} and the invoice comes down.`,
+    stepDiscount: (n: string, off: string) => (off ? `Quantity discount, ${off} off the whole order (${n} pieces)` : `Quantity discount (${n} pieces)`),
+    saleDiscount: (title: string, p: string) => `${title || "Special-day discount"} (${p})`,
     subtotalNote: "Any shipping fee is confirmed with your order.",
+    stepsNote: "The quantity discount counts every piece in this order, whichever designs they are.",
+    saleNote: (until: string, afterSteps: boolean) =>
+      afterSteps
+        ? `The special-day discount comes after the quantity discount${until ? ` and runs until the end of ${until}` : ""}.`
+        : until
+          ? `The special-day discount runs until the end of ${until}.`
+          : "",
     minOrder: (p: string) => `The minimum order is ${p}.`,
     minLeft: (p: string) => `${p} to reach the minimum order`,
     delivery: "Deliver to",
@@ -566,8 +654,10 @@ const en: AccountCopy = {
     qty: "Qty",
     lineTotal: "Total",
     subtotal: "Subtotal",
-    stepDiscount: (n: string) => `Quantity discount (${n} pieces)`,
+    stepDiscount: (n: string, off: string) => (off ? `Quantity discount, ${off} off the whole order (${n} pieces)` : `Quantity discount (${n} pieces)`),
+    saleDiscount: (title: string, p: string) => `${title || "Special-day discount"} (${p})`,
     afterStep: "After the quantity discount",
+    afterDiscounts: "After discounts",
     shipping: "Shipping",
     shippingNone: "—",
     discount: "Discount",

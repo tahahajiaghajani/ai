@@ -74,6 +74,7 @@
   --color-swatch-gold: #c99a5b;
   --color-swatch-silver: #c9cbcd;
   --color-swatch-rose: #d4a088;
+  --color-swatch-champagne: #dbc398;
   --color-swatch-black: #2b2b2b;
 
   /*
@@ -134,7 +135,8 @@ html[lang="fa"] {
   color-scheme: light;
   /* Persian system faces while Nazli loads (or if it cannot): Nazanin itself where installed, then Naskh faces */
   --font-fa-system: "B Nazanin", Nazanin, "Times New Roman", "Noto Naskh Arabic", "Geeza Pro";
-  --header-h: 64px;
+  /* the header row: the logo (h-16 = 64px, lg:h-20 = 80px, header.tsx) keeps at least 4px above and below it */
+  --header-h: 72px;
   --utility-h: 32px;
   --gutter: 1rem;
 
@@ -177,7 +179,12 @@ html[lang="fa"] {
 @media (min-width: 768px) {
   :root {
     --gutter: 2rem;
-    --header-h: 76px;
+    --header-h: 80px;
+  }
+}
+@media (min-width: 1024px) {
+  :root {
+    --header-h: 88px;
   }
 }
 @media (min-width: 1280px) {
@@ -690,7 +697,8 @@ html[data-motion="reduced"].js [data-reveal]:not([data-in]) {
   }
   html.js:not([data-motion="reduced"]) .fx-pin:not([data-static]) > .fx-pin-stage {
     position: sticky;
-    top: 0;
+    /* 0, or minus the overhang of a stage taller than the viewport (Reel sets it): its lower part stays in view */
+    top: var(--pin-top, 0px);
   }
 }
 
@@ -794,6 +802,49 @@ html.js .fx-unveil[data-fx="now"] .fx-frame img {
 @keyframes fx-settle {
   from {
     transform: scale(1.18);
+  }
+}
+
+/*
+ * The turning home arcade (src/components/home/hero-arcade.tsx): each arch is placed by its pose — left, width,
+ * height and the properties below (hero-pose.ts). The scroll parting is one --part (0 → 1 over the hero, hero.tsx)
+ * times the arch's own weights, so it always follows the arch that holds the centre. Glints rest during a turn.
+ */
+.hero-item {
+  position: absolute;
+  bottom: 0;
+  transform-origin: 50% 100%;
+  transform: translate(calc(var(--part, 0) * var(--part-x, 0) * 1%), calc(var(--part, 0) * var(--part-y, 0) * 1%)) scale(calc(1 + var(--part, 0) * var(--part-s, 0)));
+  opacity: calc(var(--fade, 1) * (1 - var(--part, 0) * var(--part-o, 0)));
+}
+.hero-item canvas {
+  transition: opacity 0.6s var(--ease-lux) 0.2s;
+}
+[data-hero-stage][data-moving] .hero-item canvas {
+  opacity: 0;
+  transition-duration: 0.25s;
+  transition-delay: 0s;
+}
+/* the controls wait for the script: without it the arcade simply stands */
+[data-hero-controls]:not([data-ready]) {
+  visibility: hidden;
+}
+/* the dwell: a hairline that fills while a picture rests in the centre, and stops with the turn */
+.hero-dwell {
+  transform-origin: left;
+}
+[dir="rtl"] .hero-dwell {
+  transform-origin: right;
+}
+.hero-dwell[data-run] {
+  animation: hero-dwell var(--dwell, 5500ms) linear var(--dwell-delay, 0ms) both;
+}
+.hero-dwell[data-run="paused"] {
+  animation-play-state: paused;
+}
+@keyframes hero-dwell {
+  from {
+    transform: scaleX(0);
   }
 }
 
@@ -1040,8 +1091,22 @@ html[data-motion="reduced"].js .fx-unveil .fx-frame {
 }
 }
 
-/* full-height heroes leave room for the announcement bar above the header */
-html:has([data-announcement]) {
+/*
+ * The special-day discount bar (src/components/site/sale-bar.tsx) takes the announcement's place while it runs: the
+ * browser's clock decides (html[data-sale], set before the first paint); without JS, whether the page was built
+ * inside the window (data-live). One 2rem bar at most.
+ */
+html[data-sale="off"] [data-sale-bar],
+html:not([data-sale]) [data-sale-bar]:not([data-live]),
+html[data-sale="on"]:has([data-sale-bar]) [data-announcement],
+html:not([data-sale]):has([data-sale-bar][data-live]) [data-announcement] {
+  display: none;
+}
+
+/* full-height heroes leave room for the announcement (or sale) bar above the header */
+html:has([data-announcement]),
+html[data-sale="on"]:has([data-sale-bar]),
+html:not([data-sale]):has([data-sale-bar][data-live]) {
   --announce-h: 2rem;
 }
 

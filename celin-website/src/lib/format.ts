@@ -11,6 +11,11 @@ export function num(value: string | number, lang: Lang): string {
   return s.replace(/\d/g, (d) => FA_DIGITS[Number(d)]).replace(/%/g, "٪");
 }
 
+/** A whole percentage in the page language: 35 → «۳۵٪» / "35%". */
+export function formatPct(n: number, lang: Lang): string {
+  return num(`${Math.round(n)}%`, lang);
+}
+
 /** Persian (۰-۹) and Arabic-Indic (٠-٩) digits → 0-9. */
 export function latinDigits(value: string): string {
   return value.replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0)).replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660));

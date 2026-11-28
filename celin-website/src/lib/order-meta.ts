@@ -1,3 +1,5 @@
+import { offPct } from "@/lib/pricing";
+
 /** Client-safe order statuses and their labels (the four steps the client asked for, plus «لغو شد»). */
 
 export const ORDER_STEPS = ["pending", "packing", "ready", "shipped"] as const;
@@ -48,7 +50,10 @@ export interface OrderItem {
   unit_price: number;
   /** one piece at the price the member saw (null: orders from before round five, same as unit_price) */
   list_price: number | null;
+  /** pieces (a pack line: packs × pack) */
   qty: number;
+  /** round six: how the line was sold — 1 = single, 2–5 = packs of that many sizes (packs = qty / pack) */
+  pack: number;
   /** unit_price × qty */
   line_total: number;
 }
@@ -97,6 +102,43 @@ export interface OrderPricing {
   /** the step the pieces reached */
   pct?: number;
   pieces?: number;
+  /** round six: the special-day discount that applied (percent off every piece after the step, and its title) */
+  sale?: { pct: number; fa: string; en: string };
+  /** round six, with a sale: the lines at the step, before the sale */
+  stepped?: number;
+}
+
+export interface OrderDiscounts {
+  /** the lines at the price the member saw (the list price) */
+  list: number;
+  /** «تخفیف تعداد»: list − the lines at the step */
+  step: number;
+  /** the step in percent off the list price (0: not known — orders from before round five, or no step) */
+  stepOff: number;
+  /** every piece of the order */
+  pieces: number;
+  /** the special-day discount: the lines at the step − what was charged */
+  sale: { amount: number; pct: number; fa: string; en: string } | null;
+}
+
+/**
+ * The discounts an order was placed with, from what it stored (never today's settings): the list total, the
+ * quantity step and the special-day discount, in invoice order. Orders from before round six have no `stepped`,
+ * so their whole difference is the step, as it was.
+ */
+export function orderDiscounts(o: Pick<OrderDetail, "subtotal" | "list_subtotal" | "items_count" | "pricing">): OrderDiscounts {
+  const p = o.pricing ?? {};
+  const sale = p.sale && typeof p.sale === "object" && Number(p.sale.pct) > 0 ? p.sale : null;
+  const stepped = sale && typeof p.stepped === "number" && p.stepped >= o.subtotal ? p.stepped : o.subtotal;
+  const list = Math.max(o.list_subtotal, stepped);
+  const stepOff = offPct(Number(p.list), Number(p.pct));
+  return {
+    list,
+    step: list - stepped,
+    stepOff: list > stepped ? stepOff : 0,
+    pieces: Number(p.pieces) || o.items_count,
+    sale: sale && stepped > o.subtotal ? { amount: stepped - o.subtotal, pct: Number(sale.pct), fa: String(sale.fa ?? ""), en: String(sale.en ?? "") } : null,
+  };
 }
 
 export interface OrderDetail extends Order {
@@ -109,11 +151,17 @@ export interface OrderDetail extends Order {
   admin_note?: string;
 }
 
-/** One line of the cart as the browser keeps it (prices are always read again on the server). */
+/**
+ * One line of the cart as the browser keeps it (prices are always read again on the server). `qty` counts packs of
+ * `pack` pieces (1 = single, so a line from before round six is unchanged); src/lib/basket.ts linePieces turns it
+ * into the pieces that every price, step and stock check counts.
+ */
 export interface CartLine {
   productId: string;
   variantId: string | null;
   qty: number;
+  /** 1 = single («تک»), 2–5 = a pack of that many sizes (src/lib/packs.ts) */
+  pack: number;
 }
 
 /** Statuses in which the store has accepted an order: it counts as a purchase towards Pro (members.ts checkPro). */

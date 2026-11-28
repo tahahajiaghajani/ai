@@ -18,8 +18,8 @@ describe("cart lines from the browser", () => {
       "junk",
     ]);
     expect(lines).toEqual([
-      { productId: P1, variantId: null, qty: 5 },
-      { productId: P2, variantId: V1, qty: 99 },
+      { productId: P1, variantId: null, qty: 5, pack: 1 },
+      { productId: P2, variantId: V1, qty: 99, pack: 1 },
     ]);
   });
   it("returns nothing for non-arrays", () => {

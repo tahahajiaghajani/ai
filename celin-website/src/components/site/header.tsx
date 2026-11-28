@@ -41,7 +41,7 @@ function Logo({ lang, className, light }: { lang: Lang; className: string; light
   );
 }
 
-/** Account entry: «ورود اعضا» in words for visitors, the account for members (with an unread dot), quiet while checking. */
+/** Account entry: «ورود» in words for visitors, the account icon once signed in (with an unread dot), quiet while checking. */
 function AccountLink({ lang }: { lang: Lang }) {
   const c = commonCopy(lang).nav;
   const me = useMe();
@@ -50,10 +50,10 @@ function AccountLink({ lang }: { lang: Lang }) {
   if (me === undefined) {
     // still checking (or no JS at all: then the sign-in link stands here)
     return (
-      <span className="h-11 w-11 sm:w-[4.5rem]">
+      <span className="h-11 w-11">
         <noscript>
           <a href={href(lang, "/account/login")} className={signIn}>
-            {c.membersSignIn}
+            {c.signIn}
           </a>
         </noscript>
       </span>
@@ -62,7 +62,7 @@ function AccountLink({ lang }: { lang: Lang }) {
   if (!me) {
     return (
       <OverlayLink href={`${href(lang, "/account/login")}?next=${encodeURIComponent(path)}`} className={signIn}>
-        {c.membersSignIn}
+        {c.signIn}
       </OverlayLink>
     );
   }
@@ -106,8 +106,10 @@ function AdminLink({ lang, row }: { lang: Lang; row?: boolean }) {
 }
 
 /**
- * «PRO» at the top on every screen: the «عضویت و Pro» page. A Pro account sees a quiet gold chip that opens its
- * «عضویت و Pro» section in the account; on phones a signed-in member keeps the room for the account and the basket.
+ * «عضویت» beside «ورود» at the top on every screen: the «عضویت و Pro» page (/pro), in the same quiet words as «ورود»
+ * (never letter-spaced; the visible word is its accessible name). A Pro account sees its gold «PRO» chip instead,
+ * which opens its «عضویت و Pro» section in the account; on phones a signed-in account keeps the room for the
+ * account and the basket.
  */
 function ProButton({ lang }: { lang: Lang }) {
   const me = useMe();
@@ -120,8 +122,8 @@ function ProButton({ lang }: { lang: Lang }) {
     );
   }
   return (
-    <Link href={href(lang, "/pro")} className={`${me ? "hidden sm:inline-flex" : "inline-flex"} h-11 items-center px-1.5 font-label text-xs font-semibold tracking-[0.14em] opacity-85 transition-opacity hover:opacity-100 sm:px-2 ltr`} aria-label={c.nav.membership}>
-      PRO
+    <Link href={href(lang, "/pro")} className={`${me ? "hidden sm:inline-flex" : "inline-flex"} h-11 items-center whitespace-nowrap px-1 text-[13px] font-semibold opacity-85 transition-opacity hover:opacity-100 sm:px-1.5 sm:text-sm`} title={c.nav.membership}>
+      {c.nav.join}
     </Link>
   );
 }
@@ -391,7 +393,7 @@ export function Header({ lang, menu }: { lang: Lang; menu: MenuData }) {
   // disclosure buttons whose panel follows them in the Tab order
   const navBtn = (p: Exclude<Panel, null>, label: string, to: string) => {
     const cls = `relative flex h-[var(--header-h)] items-center gap-1 font-sans text-[15px] font-semibold transition-opacity ${panel === p || active(to) ? "opacity-100" : "opacity-75 hover:opacity-100"}`;
-    const rule = <span className={`absolute inset-x-0 bottom-5 h-px origin-center bg-gold group-data-light/header:bg-gold-on-dark transition-transform duration-300 ${panel === p ? "scale-x-100" : "scale-x-0"}`} aria-hidden />;
+    const rule = <span className={`absolute inset-x-0 bottom-6.5 h-px origin-center bg-gold group-data-light/header:bg-gold-on-dark transition-transform duration-300 ${panel === p ? "scale-x-100" : "scale-x-0"}`} aria-hidden />;
     if (!hydrated) {
       return (
         <Link href={href(lang, to)} className={cls}>
@@ -436,7 +438,8 @@ export function Header({ lang, menu }: { lang: Lang; menu: MenuData }) {
           panel ? "border-line bg-ground text-ink" : light ? `text-on-night ${scrolled ? "glass-dark border-night-line" : "border-transparent bg-transparent"}` : scrolled ? "glass border-line text-ink" : "border-transparent bg-ground text-ink"
         }`}
       >
-        <div className="container-lux grid h-[var(--header-h)] grid-cols-[1fr_auto_1fr] items-center gap-4">
+        {/* gap-3 on the narrowest phones: the menu and search (86px) still fit their half, so the logo stays centred */}
+        <div className="container-lux grid h-[var(--header-h)] grid-cols-[1fr_auto_1fr] items-center gap-3 sm:gap-4">
           {/* start: menu (phones) / main navigation (desktop) */}
           <div className="flex items-center gap-7">
             {hydrated ? (
@@ -448,11 +451,12 @@ export function Header({ lang, menu }: { lang: Lang; menu: MenuData }) {
                 <Icon name="menu" className="size-6" />
               </a>
             )}
-            {/* phones: search sits beside the menu, so «ورود اعضا» and «PRO» fit at the other end */}
+            {/* phones: search sits beside the menu, so «ورود» and «عضویت» fit at the other end */}
             <span className="-ms-5 sm:hidden">
               <SearchButton lang={lang} hydrated={hydrated} />
             </span>
-            <nav className="hidden items-center gap-7 lg:flex" aria-label={c.nav.jewellery}>
+            {/* one line each; closer together below 1280px, where the 80px logo leaves the nav about 380px */}
+            <nav className="hidden items-center gap-5 whitespace-nowrap lg:flex xl:gap-7" aria-label={c.nav.jewellery}>
               <Link href={href(lang, "/")} aria-current={path === href(lang, "/") ? "page" : undefined} className={`text-[15px] font-semibold transition-opacity ${path === href(lang, "/") ? "opacity-100" : "opacity-75 hover:opacity-100"}`}>
                 {c.nav.home}
               </Link>
@@ -466,7 +470,8 @@ export function Header({ lang, menu }: { lang: Lang; menu: MenuData }) {
               </Link>
             </nav>
           </div>
-          <Logo lang={lang} className="h-14 lg:h-[4.25rem]" light={light} />
+          {/* 64px on phones and tablets, 80px from 1024px: --header-h (globals.css) leaves at least 4px above and below */}
+          <Logo lang={lang} className="h-16 lg:h-20" light={light} />
           {/* end: utilities */}
           <div className="-me-2.5 flex items-center justify-end gap-0.5 sm:gap-1">
             <span className="hidden sm:block">

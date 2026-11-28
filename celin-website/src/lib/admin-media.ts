@@ -140,17 +140,19 @@ export async function mediaInOrders(id: string): Promise<number> {
   return count ?? 0;
 }
 
-/** Where a picture is used (products, variants, categories, collections, slots); orders separately (mediaInOrders). */
+/** Where a picture is used (products, variants, categories, collections, slots and their lists); orders separately (mediaInOrders). */
 export async function mediaUsage(id: string): Promise<string[]> {
   await assertAdmin();
   const c = requireDb();
-  const [p, v, cat, col, s1, s2] = await Promise.all([
+  const [p, v, cat, col, s1, s2, s3] = await Promise.all([
     c.from("celin_products").select("name_fa").contains("images", [id]).limit(20),
     c.from("celin_variants").select("name_fa").eq("image_id", id).limit(20),
     c.from("celin_categories").select("name_fa").eq("media_id", id).limit(20),
     c.from("celin_collections").select("name_fa").eq("media_id", id).limit(20),
     c.from("celin_slots").select("key").eq("media_id", id).limit(20),
     c.from("celin_slots").select("key").eq("media_mobile_id", id).limit(20),
+    // (no data before the gallery column exists: then no list can hold it)
+    c.from("celin_slots").select("key").contains("gallery", [id]).limit(20),
   ]);
   const names = (r: { data: unknown }, field: string, label: string) =>
     ((r.data ?? []) as Record<string, string>[]).map((x) => {
@@ -158,13 +160,17 @@ export async function mediaUsage(id: string): Promise<string[]> {
       const def = field === "key" ? slotDef(x.key) : undefined;
       return `${label}: ${def ? `${def.page} — ${def.section}` : x[field]}`;
     });
+  // (a gallery's first picture is also its slot's picture: named once)
   return [
-    ...names(p, "name_fa", "محصول"),
-    ...names(v, "name_fa", "گزینه‌ی محصول"),
-    ...names(cat, "name_fa", "دسته"),
-    ...names(col, "name_fa", "مجموعه"),
-    ...names(s1, "key", "تصویر سایت"),
-    ...names(s2, "key", "تصویر سایت (موبایل)"),
+    ...new Set([
+      ...names(p, "name_fa", "محصول"),
+      ...names(v, "name_fa", "گزینه‌ی محصول"),
+      ...names(cat, "name_fa", "دسته"),
+      ...names(col, "name_fa", "مجموعه"),
+      ...names(s1, "key", "تصویر سایت"),
+      ...names(s3, "key", "تصویر سایت"),
+      ...names(s2, "key", "تصویر سایت (موبایل)"),
+    ]),
   ];
 }
 

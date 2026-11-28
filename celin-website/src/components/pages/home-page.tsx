@@ -1,4 +1,5 @@
 import { getCatalog } from "@/lib/catalog";
+import { listed } from "@/lib/catalog-types";
 import { getSlots, slotText, type ResolvedSlot } from "@/lib/slots";
 import { t, type Lang } from "@/lib/i18n";
 import { env } from "@/lib/env";
@@ -17,7 +18,7 @@ export async function HomePage({ lang }: { lang: Lang }) {
   const s = (key: string) => slots[key] as ResolvedSlot;
   const txt = (key: string, field: string) => slotText(slots[key], field, lang);
 
-  const collections = catalog.collections.filter((k) => k.visible !== false && (k.media || k.soon));
+  const collections = catalog.collections.filter(listed);
   const collectionNames = Object.fromEntries(catalog.collections.map((k) => [k.slug, t(k, "name", lang)]));
   const featured = [...catalog.products.filter((p) => p.featured), ...catalog.products.filter((p) => !p.featured)].slice(0, 8);
 
@@ -33,9 +34,10 @@ export async function HomePage({ lang }: { lang: Lang }) {
           cta: txt("home.hero.a", "cta"),
           href: txt("home.hero.a", "href") || "/shop",
           all: c.all,
-          a: { media: s("home.hero.a").media, mobile: s("home.hero.a").mobile, video: s("home.hero.a").video ?? null },
-          b: s("home.hero.b").media,
-          c: s("home.hero.c").media,
+          pictures: s("home.hero.a").gallery ?? [s("home.hero.a").media],
+          mobile: s("home.hero.a").mobile,
+          video: s("home.hero.a").video ?? null,
+          labels: c.hero,
         }}
       />
       <Statement lang={lang} lines={[txt("home.statement", "line1"), txt("home.statement", "line2"), txt("home.statement", "line3")]} a={s("home.statement").media} b={s("home.statement.b").media} copy={c.statement} />

@@ -8,9 +8,10 @@ import { lightProduct, requireMember, storeContact } from "@/lib/member";
 import { listMessages } from "@/lib/messages";
 import { recentPurchases } from "@/lib/orders";
 import { getSettings } from "@/lib/settings";
-import { pricingFor } from "@/lib/pricing";
+import { levelsInfo } from "@/lib/levels";
 import { latestRequest, proStatus } from "@/lib/pro";
 import { MarkMessagesRead } from "@/components/account/mark-read";
+import { DiscountLadder } from "@/components/account/discount-ladder";
 import { Membership, type MembershipSnapshot } from "@/components/account/membership";
 import { ProCodeEntry } from "@/components/account/pro-code-entry";
 import { ProfileForms } from "@/components/account/profile-forms";
@@ -19,13 +20,15 @@ import { WishlistGrid } from "@/components/account/wishlist-view";
 
 /**
  * /account/pro: the membership state (the member's card, the steps of a request, or the code ceremony), and
- * «کد دارید؟» beside the request when no code has been issued yet.
+ * «کد دارید؟» beside the request when no code has been issued yet; then the quantity discount in full (not for Pro
+ * accounts, which have no steps).
  */
 export async function AccountProPage({ lang }: { lang: Lang }) {
   const me = await requireMember(lang, "/account/pro");
   const c = accountCopy(lang);
   const [pro, request, contact, settings] = await Promise.all([proStatus(me.id), latestRequest(me.id), storeContact(), getSettings()]);
   // a member sees how far Pro is (accepted orders of the window, src/lib/pricing.ts)
+  const levels = levelsInfo(settings.pro, lang);
   const progress = pro.level === "member" && settings.pro.proThreshold > 0 ? { recent: await recentPurchases(me.id, settings.pro.proDays), threshold: settings.pro.proThreshold, days: settings.pro.proDays } : undefined;
   const snapshot: MembershipSnapshot = {
     active: pro.active,
@@ -38,7 +41,7 @@ export async function AccountProPage({ lang }: { lang: Lang }) {
     reply: request?.status === "rejected" ? request.reply : "",
     requestedAt: request?.created_at ?? null,
     progress,
-    hasSteps: pricingFor("member", settings.pro).steps.length > 0,
+    hasSteps: levels.steps,
   };
   const withCode = !pro.active && !pro.issued;
   return (
@@ -48,6 +51,11 @@ export async function AccountProPage({ lang }: { lang: Lang }) {
         <Membership lang={lang} variant="account" initial={snapshot} contact={contact} />
         {withCode && <ProCodeEntry lang={lang} contact={contact} />}
       </div>
+      {levels.steps && pro.level !== "pro" && (
+        <section aria-labelledby="account-discounts" className="mt-14 max-w-3xl border-t border-line pt-10">
+          <DiscountLadder lang={lang} levels={levels} titleAs="h2" id="account-discounts" />
+        </section>
+      )}
       <p className="mt-12">
         <Link href={href(lang, "/pro")} className={btn.text}>
           {c.proPage.benefitsTitle}

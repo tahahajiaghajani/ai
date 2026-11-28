@@ -3,7 +3,8 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { commonCopy } from "@/content/copy/common";
-import { METALS, STONES, fromPrice, type Product } from "@/lib/catalog-types";
+import { LEATHERS, METALS, STONES, fromPrice, type Product } from "@/lib/catalog-types";
+import { facetsOf } from "@/lib/options";
 import { num, type Lang } from "@/lib/format";
 import { Overlay } from "@/components/ui/overlay";
 import { Icon } from "@/components/ui/icons";
@@ -15,6 +16,7 @@ export type SortKey = "featured" | "new" | "price-asc" | "price-desc";
 export interface ShopFilters {
   metal: string[];
   stone: string[];
+  leather: string[];
   collection: string[];
   sort: SortKey;
 }
@@ -25,16 +27,20 @@ export function readFilters(sp: URLSearchParams | null): ShopFilters {
   return {
     metal: list("metal").filter((m) => (METALS as string[]).includes(m)),
     stone: list("stone").filter((s) => (STONES as readonly string[]).includes(s)),
+    leather: list("leather").filter((s) => (LEATHERS as readonly string[]).includes(s)),
     collection: list("collection"),
     sort: sort === "new" || sort === "price-asc" || sort === "price-desc" ? sort : "featured",
   };
 }
 
-/** Plating filter: a two-tone piece also counts as gold and as silver; options carry their own swatch. */
+/**
+ * Plating filter: a two-tone piece also counts as gold and as silver; the colours of its options count by their facet
+ * in the colour lists (champagne gold under gold), and a plain option by its dot.
+ */
 function metalsOf(p: Product): string[] {
-  const out = new Set<string>();
+  const out = new Set<string>([...facetsOf(p.axes, "plating")]);
   if (p.metal) out.add(p.metal);
-  if (p.metal === "two-tone") {
+  if (out.has("two-tone")) {
     out.add("gold");
     out.add("silver");
   }
@@ -42,11 +48,16 @@ function metalsOf(p: Product): string[] {
   return [...out];
 }
 
+/** Stone filter: the piece's own colour and the stone colours of its options. */
+const stonesOf = (p: Product): string[] => [...new Set([...(p.stone ? [p.stone] : []), ...facetsOf(p.axes, "stone")])];
+const leathersOf = (p: Product): string[] => facetsOf(p.axes, "leather");
+
 export function applyFilters(products: Product[], f: ShopFilters, prices?: Record<string, { price: number | null; stock: number; variants: Record<string, { price: number | null; stock: number }> }>): Product[] {
   let list = products.filter(
     (p) =>
       (!f.metal.length || metalsOf(p).some((m) => f.metal.includes(m))) &&
-      (!f.stone.length || (p.stone && f.stone.includes(p.stone))) &&
+      (!f.stone.length || stonesOf(p).some((s) => f.stone.includes(s))) &&
+      (!f.leather.length || leathersOf(p).some((s) => f.leather.includes(s))) &&
       (!f.collection.length || (p.collection && f.collection.includes(p.collection))),
   );
   if (f.sort === "new") list = [...list].sort((a, b) => b.created_at.localeCompare(a.created_at));
@@ -59,11 +70,11 @@ export function applyFilters(products: Product[], f: ShopFilters, prices?: Recor
 
 const PAGE = 24;
 const TONES = ["gold", "silver", "rose"] as const;
-const EMPTY: ShopFilters = { metal: [], stone: [], collection: [], sort: "featured" };
+const EMPTY: ShopFilters = { metal: [], stone: [], leather: [], collection: [], sort: "featured" };
 
 const T = {
-  fa: { filter: "فیلتر و مرتب‌سازی", filterShort: "فیلتر", sort: "مرتب‌سازی", featured: "پیشنهاد سلین", new: "تازه‌ترین", priceAsc: "قیمت: کم به زیاد", priceDesc: "قیمت: زیاد به کم", tone: "رنگ پوشش", stone: "رنگ نگین", collection: "مجموعه", clear: "پاک کردن", show: (n: string) => `نمایش ${n} اثر`, count: (n: string) => `${n} اثر`, more: "نمایش بیشتر", none: "اثری با این انتخاب‌ها پیدا نشد.", reset: "نمایش همه", quick: "رنگ پوشش" },
-  en: { filter: "Filter & sort", filterShort: "Filter", sort: "Sort", featured: "Our selection", new: "Newest", priceAsc: "Price: low to high", priceDesc: "Price: high to low", tone: "Finish", stone: "Stone color", collection: "Collection", clear: "Clear", show: (n: string) => (n === "1" ? "Show 1 piece" : `Show ${n} pieces`), count: (n: string) => (n === "1" ? "1 piece" : `${n} pieces`), more: "Show more", none: "No pieces match these choices.", reset: "Show all", quick: "Finish" },
+  fa: { filter: "فیلتر و مرتب‌سازی", filterShort: "فیلتر", sort: "مرتب‌سازی", featured: "پیشنهاد سلین", new: "تازه‌ترین", priceAsc: "قیمت: کم به زیاد", priceDesc: "قیمت: زیاد به کم", tone: "رنگ پوشش", stone: "رنگ نگین", leather: "رنگ چرم", collection: "مجموعه", clear: "پاک کردن", show: (n: string) => `نمایش ${n} اثر`, count: (n: string) => `${n} اثر`, more: "نمایش بیشتر", none: "اثری با این انتخاب‌ها پیدا نشد.", reset: "نمایش همه", quick: "رنگ پوشش" },
+  en: { filter: "Filter & sort", filterShort: "Filter", sort: "Sort", featured: "Our selection", new: "Newest", priceAsc: "Price: low to high", priceDesc: "Price: high to low", tone: "Finish", stone: "Stone color", leather: "Leather color", collection: "Collection", clear: "Clear", show: (n: string) => (n === "1" ? "Show 1 piece" : `Show ${n} pieces`), count: (n: string) => (n === "1" ? "1 piece" : `${n} pieces`), more: "Show more", none: "No pieces match these choices.", reset: "Show all", quick: "Finish" },
 };
 
 const GRID = "container-lux grid grid-cols-2 gap-x-3 gap-y-10 sm:gap-x-6 sm:gap-y-14 lg:grid-cols-3 lg:gap-x-8 xl:grid-cols-4";
@@ -217,13 +228,14 @@ export function ShopGrid({ lang, products, collections, editorial }: { lang: Lan
   const [limit, setLimit] = useState(PAGE);
   const bar = useStickUnderHeader();
 
-  const list = useMemo(() => applyFilters(products, f, book?.prices), [products, f.metal.join(), f.stone.join(), f.collection.join(), f.sort, book]); // eslint-disable-line react-hooks/exhaustive-deps
+  const list = useMemo(() => applyFilters(products, f, book?.prices), [products, f.metal.join(), f.stone.join(), f.leather.join(), f.collection.join(), f.sort, book]); // eslint-disable-line react-hooks/exhaustive-deps
   const draftCount = useMemo(() => applyFilters(products, draft).length, [products, draft]);
 
   const urlFor = (next: ShopFilters) => {
     const q = new URLSearchParams();
     if (next.metal.length) q.set("metal", next.metal.join(","));
     if (next.stone.length) q.set("stone", next.stone.join(","));
+    if (next.leather.length) q.set("leather", next.leather.join(","));
     if (next.collection.length) q.set("collection", next.collection.join(","));
     if (next.sort !== "featured") q.set("sort", next.sort);
     const s = q.toString();
@@ -243,15 +255,16 @@ export function ShopGrid({ lang, products, collections, editorial }: { lang: Lan
   };
 
   // facet options with counts over the other facets' current choice
-  const facet = (key: "metal" | "stone" | "collection", values: { v: string; label: string }[], base: ShopFilters = draft) =>
+  const facet = (key: "metal" | "stone" | "leather" | "collection", values: { v: string; label: string }[], base: ShopFilters = draft) =>
     values
       .map((o) => ({ ...o, n: applyFilters(products, { ...base, [key]: [o.v], sort: "featured" }).length }))
       .filter((o) => o.n > 0 || base[key].includes(o.v));
 
-  const toggle = (key: "metal" | "stone" | "collection", v: string) => setDraft((d) => ({ ...d, [key]: d[key].includes(v) ? d[key].filter((x) => x !== v) : [...d[key], v] }));
+  const toggle = (key: "metal" | "stone" | "leather" | "collection", v: string) => setDraft((d) => ({ ...d, [key]: d[key].includes(v) ? d[key].filter((x) => x !== v) : [...d[key], v] }));
   const chips = [
     ...f.metal.map((v) => ({ key: "metal" as const, v, label: c.tones[v as keyof typeof c.tones] ?? v })),
     ...f.stone.map((v) => ({ key: "stone" as const, v, label: c.stones[v as keyof typeof c.stones] ?? v })),
+    ...f.leather.map((v) => ({ key: "leather" as const, v, label: c.leathers[v as keyof typeof c.leathers] ?? v })),
     ...f.collection.map((v) => ({ key: "collection" as const, v, label: collections.find((k) => k.slug === v)?.name ?? v })),
   ];
   const quickTones = facet("metal", TONES.map((v) => ({ v, label: c.tones[v] })), f);
@@ -366,6 +379,8 @@ export function ShopGrid({ lang, products, collections, editorial }: { lang: Lan
               [
                 ["metal", tr.tone, facet("metal", TONES.map((v) => ({ v, label: c.tones[v] })))],
                 ["stone", tr.stone, facet("stone", STONES.map((v) => ({ v, label: c.stones[v] })))],
+                // only once a piece offers a leather colour (facet() leaves out colours no piece has)
+                ["leather", tr.leather, facet("leather", LEATHERS.map((v) => ({ v, label: c.leathers[v] })))],
                 // one collection only (every piece in «سلین»): nothing to choose, so no group
                 ["collection", tr.collection, collections.length > 1 ? facet("collection", collections.map((k) => ({ v: k.slug, label: k.name }))) : []],
               ] as const

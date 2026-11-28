@@ -2,21 +2,26 @@ import "server-only";
 import { db, isMissingColumn, isMissingTable } from "@/lib/db";
 import { storageBase } from "@/lib/catalog";
 import { folderUrl } from "@/lib/media";
+import { linePieces } from "@/lib/basket";
+import { cleanPack, packCap } from "@/lib/packs";
 import { pricingArg, type Pricing } from "@/lib/pricing";
-import { ACCEPTED_STATUSES, MAX_LINES, MAX_QTY, isOrderStatus, type CartLine, type Customer, type Order, type OrderDetail, type OrderEvent, type OrderItem, type OrderStatus } from "@/lib/order-meta";
+import { ACCEPTED_STATUSES, MAX_LINES, isOrderStatus, type CartLine, type Customer, type Order, type OrderDetail, type OrderEvent, type OrderItem, type OrderStatus } from "@/lib/order-meta";
 
 export const ORDER_COLUMNS =
   "id, code, user_id, status, subtotal, shipping_fee, discount, total, items_count, customer, note, carrier, tracking_code, cancel_reason, status_changed_at, created_at, updated_at";
 const ITEM_COLUMNS = "id, order_id, product_id, variant_id, name_fa, name_en, variant_fa, variant_en, sku, slug, image, unit_price, qty, line_total";
 // round five's database file adds what the member saw (list prices, the price rules); older databases lack them
 const ITEM_LIST_COLUMNS = `${ITEM_COLUMNS}, list_price`;
+// round six's adds how each line was sold (packs); read in steps, so a missing round six never loses the list prices
+const ITEM_R6_COLUMNS = `${ITEM_LIST_COLUMNS}, pack`;
 const ORDER_LIST_COLUMNS = "list_subtotal, pricing";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Cleans what the browser sent: valid ids, whole quantities 1–99, duplicate lines merged, and sorted by
- * product and option — celin_place_order locks rows in line order, so two orders never wait on each other.
+ * Cleans what the browser sent: valid ids, whole quantities (packs) up to 99 pieces a line, the pack 1–5 (none: single,
+ * as every line before round six), duplicate lines of the same pack merged, and sorted by product and option —
+ * celin_place_order locks rows in line order, so two orders never wait on each other.
  */
 export function cleanLines(input: unknown): CartLine[] {
   if (!Array.isArray(input)) return [];
@@ -27,47 +32,72 @@ export function cleanLines(input: unknown): CartLine[] {
     const productId = typeof r.productId === "string" ? r.productId : "";
     const variantId = typeof r.variantId === "string" && r.variantId ? r.variantId : null;
     const qty = Math.floor(Number(r.qty));
+    const pack = cleanPack(r.pack ?? 1);
     if (!UUID.test(productId) || (variantId && !UUID.test(variantId)) || !Number.isFinite(qty) || qty < 1) continue;
-    const key = `${productId}:${variantId ?? ""}`;
+    const key = `${productId}:${variantId ?? ""}:${pack}`;
     const prev = merged.get(key);
-    merged.set(key, { productId, variantId, qty: Math.min(MAX_QTY, (prev?.qty ?? 0) + qty) });
+    merged.set(key, { productId, variantId, qty: Math.min(packCap(pack), (prev?.qty ?? 0) + qty), pack });
   }
-  const key = (l: CartLine) => `${l.productId.toLowerCase()}:${(l.variantId ?? "").toLowerCase()}`;
+  const key = (l: CartLine) => `${l.productId.toLowerCase()}:${(l.variantId ?? "").toLowerCase()}:${l.pack}`;
   return [...merged.values()].slice(0, MAX_LINES).sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
 }
 
 export type PlaceError =
-  | { reason: "empty" | "no_account" | "unavailable" | "failed" }
-  | { reason: "out_of_stock" | "product_unavailable" | "variant_unavailable" | "variant_required" | "no_price"; id: string };
+  | { reason: "empty" | "no_account" | "unavailable" | "price_changed" | "failed" }
+  | { reason: "out_of_stock" | "product_unavailable" | "variant_unavailable" | "variant_required" | "no_price" | "pack_unavailable"; id: string };
 
 /** Turns the database function's exception ("out_of_stock:<id>") into a reason the page can explain. */
 export function parsePlaceError(message: string): PlaceError {
-  const m = /(out_of_stock|product_unavailable|variant_unavailable|variant_required|no_price):([0-9a-f-]{36})/i.exec(message);
+  const m = /(out_of_stock|product_unavailable|variant_unavailable|variant_required|no_price|pack_unavailable):([0-9a-f-]{36})/i.exec(message);
   if (m) return { reason: m[1] as "out_of_stock", id: m[2] };
+  if (/price_changed/.test(message)) return { reason: "price_changed" };
   if (/empty_order/.test(message)) return { reason: "empty" };
   if (/no_account/.test(message)) return { reason: "no_account" };
-  if (/bad_qty|too_many_items/.test(message)) return { reason: "failed" };
+  // bad_qty / bad_pack / too_many_items / bad_pricing: the site never sends them; nothing the member can fix
   return { reason: "failed" };
 }
 
 /**
- * Places the order with the account's price rules (celin_place_order with p_pricing). Until round five's database
- * file has run that function does not exist and ordering reads as «not set up yet» — never the older function,
- * which would charge members the admin's price.
+ * Places the order with the account's price rules (celin_place_order with p_pricing and p_expect). `expect` is the
+ * total the action computed from the same lines and rules (src/lib/pricing.ts invoice, which the member confirmed):
+ * the database computes its own and places nothing when the two differ ('price_changed').
+ *
+ * Until round six's database file has run that function does not exist. An order of single pieces without the
+ * special-day discount then goes to round five's function (p_pricing, no p_expect) — how the site ordered before
+ * round six: it charges such an order exactly alike (list → step, rounded per piece), and the action has already
+ * checked the member's total against its own. Packs or a running sale need the new function: such an order reads
+ * as «not set up yet», as does any order when neither function is there.
  */
-export async function placeOrder(userId: string, lines: CartLine[], customer: Customer, note: string, pricing: Pricing): Promise<{ ok: true; id: string; code: string } | { ok: false; error: PlaceError }> {
+export async function placeOrder(
+  userId: string,
+  lines: CartLine[],
+  customer: Customer,
+  note: string,
+  pricing: Pricing,
+  expect: number,
+): Promise<{ ok: true; id: string; code: string } | { ok: false; error: PlaceError }> {
   const c = db();
   if (!c) return { ok: false, error: { reason: "unavailable" } };
   if (!lines.length) return { ok: false, error: { reason: "empty" } };
-  const items = lines.map((l) => ({ product_id: l.productId, variant_id: l.variantId ?? "", qty: l.qty }));
-  const call = () => c.rpc("celin_place_order", { p_user: userId, p_items: items, p_customer: customer, p_note: note, p_pricing: pricingArg(pricing) });
-  let { data, error } = await call();
-  // a deadlock (40P01) rolls the whole order back: one more try is safe
-  if (error && (error.code === "40P01" || /deadlock detected/i.test(error.message))) ({ data, error } = await call());
+  // qty in pieces (a whole number of the line's packs) and the pack, which the database checks against the product
+  const items = lines.map((l) => ({ product_id: l.productId, variant_id: l.variantId ?? "", qty: linePieces(l), pack: cleanPack(l.pack) }));
+  const call = async (args: Record<string, unknown>) => {
+    let r = await c.rpc("celin_place_order", args);
+    // a deadlock (40P01) rolls the whole order back: one more try is safe
+    if (r.error && (r.error.code === "40P01" || /deadlock detected/i.test(r.error.message))) r = await c.rpc("celin_place_order", args);
+    return r;
+  };
+  const base = { p_user: userId, p_customer: customer, p_note: note, p_pricing: pricingArg(pricing) };
+  let { data, error } = await call({ ...base, p_items: items, p_expect: Math.round(expect) });
+  if (error?.code === "PGRST202" && !pricing.sale && items.every((i) => i.pack === 1)) {
+    ({ data, error } = await call({ ...base, p_items: items.map(({ pack: _, ...i }) => i) }));
+  }
   if (error) {
     if (isMissingTable(error) || error.code === "PGRST202") return { ok: false, error: { reason: "unavailable" } };
     const parsed = parsePlaceError(error.message);
     if (parsed.reason === "failed") console.error("[orders] place", error.message);
+    // the site and the database disagree on the total: a price changed at that moment, or the two computations drifted
+    if (parsed.reason === "price_changed") console.warn(`[orders] price_changed: the site expected ${Math.round(expect)}`);
     return { ok: false, error: parsed };
   }
   const row = (Array.isArray(data) ? data[0] : data) as { order_id: string; order_code: string } | null;
@@ -107,6 +137,7 @@ function toItem(r: Record<string, unknown>): OrderItem {
     unit_price: Number(r.unit_price ?? 0),
     list_price: r.list_price === null || r.list_price === undefined ? null : Number(r.list_price),
     qty: Number(r.qty ?? 0),
+    pack: cleanPack(r.pack ?? 1),
     line_total: Number(r.line_total ?? 0),
   };
 }
@@ -183,8 +214,12 @@ export async function getOrder(code: string, userId?: string): Promise<OrderDeta
   }
   const order = toOrder(data as Record<string, unknown>);
   const lines = async () => {
-    const r = await c.from("celin_order_items").select(ITEM_LIST_COLUMNS).eq("order_id", order.id);
-    return r.error && isMissingColumn(r.error) ? c.from("celin_order_items").select(ITEM_COLUMNS).eq("order_id", order.id) : r;
+    // the newest columns first, one step back at a time while a database file has not run
+    for (const columns of [ITEM_R6_COLUMNS, ITEM_LIST_COLUMNS]) {
+      const r = await c.from("celin_order_items").select(columns).eq("order_id", order.id);
+      if (!r.error || !isMissingColumn(r.error)) return r;
+    }
+    return c.from("celin_order_items").select(ITEM_COLUMNS).eq("order_id", order.id);
   };
   const [items, events] = await Promise.all([lines(), c.from("celin_order_events").select("status, note, actor, created_at").eq("order_id", order.id).order("created_at")]);
   const raw = data as Record<string, unknown>;
