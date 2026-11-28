@@ -16,9 +16,11 @@ import { useCartCount } from "@/components/cart/cart-store";
  * (the pieces being chosen on the product page; one on a card) — sees the original price (twice the admin's) struck
  * through and the price at that step under it; on the product page a line says the pieces and the step's percentage
  * off the whole order. While the special-day discount runs, its percentage comes off that price too (a Pro account,
- * when the sale includes Pro, then sees the admin's price struck through — the only time it sees two prices). The
- * box keeps its height while loading (no layout shift), and the loading state is a still bone bar — never the locked
- * words, so members don't see them flash.
+ * when the sale includes Pro, then sees the admin's price struck through — the only time it sees two prices). On the
+ * product page of a piece bought in packs (`pack` > 1) the price reads «هر عدد» and a line under it gives the pack's
+ * price, `pack` pieces at that price — worked out here, from the price book, never in the page. The box keeps its
+ * height while loading (no layout shift), and the loading state is a still bone bar — never the locked words, so
+ * members don't see them flash.
  */
 
 export function stockBand(p: { stock: number }, book: Pick<PriceBook, "stockDisplay" | "lowStock">, lang: Lang): { text: string; tone: "in" | "low" | "out" } {
@@ -43,6 +45,7 @@ export function PriceSlot({
   size = "card",
   showStock = true,
   qty = 1,
+  pack = 1,
   className = "",
 }: {
   productId: string;
@@ -50,8 +53,10 @@ export function PriceSlot({
   lang: Lang;
   size?: "card" | "pdp";
   showStock?: boolean;
-  /** pieces about to be added (the product page's quantity); the basket's pieces count too */
+  /** pieces about to be added (the product page's quantity; packs × pack); the basket's pieces count too */
   qty?: number;
+  /** the product page: the pack being chosen (1 = single; 2–5 adds the pack's price) */
+  pack?: number;
   className?: string;
 }) {
   const { book, price } = useProPrice(productId);
@@ -88,6 +93,8 @@ export function PriceSlot({
   const varies = !v && Object.keys(price.variants).length > 0 && new Set(Object.values(price.variants).map((x) => x.price ?? price.price)).size > 1;
   const stock = v ? v.stock : stockOf(price);
   const band = stockBand({ stock }, book, lang);
+  // the product page of a piece bought in packs: one piece's price, then the pack's
+  const perPack = size === "pdp" && pack > 1 && value !== null;
   const fade = wasLoading.current;
   wasLoading.current = false;
   return (
@@ -102,10 +109,16 @@ export function PriceSlot({
         {discounted && <span className="sr-only">{sale ? c.price.nowSale : c.price.now} </span>}
         {value === null ? c.price.onRequest : `${varies ? `${c.price.from} ` : ""}${formatPrice(discounted ? stepped : value, lang)}`}
       </span>
+      {perPack && <span className="ms-2 font-ui text-xs text-muted">{c.price.perPiece}</span>}
       {showStock && book.showStock && (
         <span className={`ms-3 inline-flex items-center gap-1.5 align-middle ${size === "pdp" ? "text-sm" : "text-xs"} text-muted`}>
           <span className={`size-1.5 rounded-full ${DOT[band.tone]}`} aria-hidden />
           {band.text}
+        </span>
+      )}
+      {perPack && value !== null && (
+        <span className="mt-1 block font-ui text-sm leading-6 text-ink-2 tabular-nums">
+          {c.price.perPack(num(pack, lang), `${varies ? `${c.price.from} ` : ""}${formatPrice((discounted && stepped !== null ? stepped : value) * pack, lang)}`)}
         </span>
       )}
       {discounted && size === "pdp" && (

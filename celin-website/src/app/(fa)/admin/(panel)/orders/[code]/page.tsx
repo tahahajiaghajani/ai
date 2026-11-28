@@ -3,7 +3,8 @@ import { requireAdminPage } from "@/lib/admin-auth";
 import { getOrder } from "@/lib/orders";
 import { getSettings } from "@/lib/settings";
 import { formatDate, formatNumber, formatPct, formatPhone, formatPrice, num } from "@/lib/format";
-import { ORDER_STEPS, STATUS_LABEL, orderDiscounts, type OrderDetail, type OrderEvent } from "@/lib/order-meta";
+import { ORDER_STEPS, STATUS_LABEL, orderDiscounts, type OrderDetail, type OrderEvent, type OrderItem } from "@/lib/order-meta";
+import { commonCopy } from "@/content/copy/common";
 import { Card, LinkButton, PageHeader } from "@/components/admin/ui";
 import { OrderEditCard, OrderStatusActions, PrintButton } from "@/components/admin/orders-detail";
 import { ACTOR_LABEL, Row, StatusBadge, STATUS_TONE, whatsappUrl } from "@/components/admin/sales-ui";
@@ -18,6 +19,9 @@ const PRINT_CSS = `@media print {
 }`;
 
 const DOT: Record<string, string> = { warning: "bg-warning", gold: "bg-gold", ink: "bg-ink", success: "bg-success", danger: "bg-danger" };
+
+/** A line of packs: «۳ بسته‌ی ۴ سایزی · ۱۲ عدد» (the quantity column counts pieces, «فی» one piece); "" for single. */
+const packText = (it: Pick<OrderItem, "qty" | "pack">) => (it.pack > 1 ? commonCopy("fa").pack.line(num(it.qty / it.pack, "fa"), num(it.pack, "fa"), num(it.qty, "fa")) : "");
 
 function lastEvent(events: OrderEvent[], status: string): OrderEvent | undefined {
   for (let i = events.length - 1; i >= 0; i--) if (events[i].status === status) return events[i];
@@ -266,6 +270,7 @@ function Items({ order: o }: { order: OrderDetail }) {
             <div className="min-w-0">
               <div className="text-sm font-medium">{it.name_fa}</div>
               {it.variant_fa && <div className="text-xs text-ink-2">{it.variant_fa}</div>}
+              {it.pack > 1 && <div className="text-xs text-ink-2">{packText(it)}</div>}
               {it.sku && (
                 <div className="mt-0.5 text-[11px] text-muted">
                   <span className="ltr font-mono">{it.sku}</span>
@@ -363,6 +368,7 @@ function Invoice({ order: o, phone, address }: { order: OrderDetail; phone: stri
               <td className="py-2">
                 {it.name_fa}
                 {it.variant_fa && <span className="text-muted"> — {it.variant_fa}</span>}
+                {it.pack > 1 && <span className="block text-xs text-muted">{packText(it)}</span>}
               </td>
               <td className="py-2">
                 <span className="ltr font-mono text-xs">{it.sku}</span>

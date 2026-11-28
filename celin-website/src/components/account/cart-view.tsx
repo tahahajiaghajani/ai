@@ -10,7 +10,8 @@ import { formatDate, formatPct, formatPrice, latinDigits, normalizePhone, num, t
 import { href, t } from "@/lib/i18n";
 import type { Media } from "@/lib/media";
 import { MAX_QTY, type CartLine } from "@/lib/order-meta";
-import { invoiceLines, piecePrice } from "@/lib/basket";
+import { invoiceLines, linePieces, piecePrice } from "@/lib/basket";
+import { maxPacks, packCap } from "@/lib/packs";
 import { invoice, listPrice, unitAt } from "@/lib/pricing";
 import { saleTitle } from "@/lib/sale";
 import { Icon } from "@/components/ui/icons";
@@ -41,6 +42,8 @@ export interface CartProduct {
   name_en: string;
   image: Media | null;
   variants: CartVariant[];
+  /** how it is sold now (src/lib/packs.ts): a line of a pack that is no longer offered cannot be ordered */
+  packs: number[];
 }
 export interface DeliveryDefaults {
   name: string;
@@ -51,7 +54,7 @@ export interface DeliveryDefaults {
   postal_code: string;
 }
 
-type Problem = "gone" | "variant" | "out" | "over" | "noPrice" | null;
+type Problem = "gone" | "variant" | "pack" | "out" | "over" | "noPrice" | null;
 
 interface LineView {
   line: CartLine;
@@ -59,11 +62,13 @@ interface LineView {
   variant?: CartVariant;
   price: number | null;
   stock: number;
+  /** the pieces this line may hold: the stock less the other lines of the same piece and option (pieces) */
+  room: number;
   problem: Problem;
 }
 
 const DOT = { in: "bg-success", low: "bg-warning", out: "bg-faint" };
-const key = (l: CartLine) => `${l.productId}:${l.variantId ?? ""}`;
+const key = (l: CartLine) => `${l.productId}:${l.variantId ?? ""}:${l.pack}`;
 
 function view(lines: CartLine[], products: Map<string, CartProduct>, book: PriceBook): LineView[] {
   return lines.map((line) => {
@@ -75,8 +80,13 @@ function view(lines: CartLine[], products: Map<string, CartProduct>, book: Price
     const needsVariant = !gone && !line.variantId && (product!.variants.length > 0 || Object.keys(pp!.variants).length > 0);
     const price = gone ? null : (piecePrice(book.prices, line) ?? null);
     const stock = gone ? 0 : vp ? vp.stock : pp!.stock;
-    const problem: Problem = gone ? "gone" : needsVariant ? "variant" : stock <= 0 ? "out" : line.qty > stock ? "over" : price === null ? "noPrice" : null;
-    return { line, product, variant, price, stock, problem };
+    // a single line and a pack line of the same piece and option share its stock. A count below one line's cap is a
+    // real one (a Pro account's stock); members only ever get "orderable" (MAX_QTY) — the database checks the rest.
+    const others = stock < MAX_QTY ? lines.filter((l) => l !== line && l.productId === line.productId && l.variantId === line.variantId).reduce((n, l) => n + linePieces(l), 0) : 0;
+    const room = Math.max(0, stock - others);
+    const unsold = !gone && !(product!.packs ?? [1]).includes(line.pack);
+    const problem: Problem = gone ? "gone" : needsVariant ? "variant" : unsold ? "pack" : stock <= 0 ? "out" : linePieces(line) > room ? "over" : price === null ? "noPrice" : null;
+    return { line, product, variant, price, stock, room, problem };
   });
 }
 
@@ -229,10 +239,12 @@ export function CartView({
         setError(r.error);
         if (r.itemId) {
           if (reason === "product_unavailable" || reason === "variant_unavailable") {
-            for (const l of lines) if (l.productId === r.itemId || l.variantId === r.itemId) cart.remove(l.productId, l.variantId);
+            for (const l of lines) if (l.productId === r.itemId || l.variantId === r.itemId) cart.remove(l.productId, l.variantId, l.pack);
           } else setBadItem(r.itemId);
         }
         if (reason === "out_of_stock" || reason === "price_changed") void sessionChanged();
+        // the admin changed how a piece is sold: the page's catalogue says which line, and how it is sold now
+        if (reason === "pack_unavailable") router.refresh();
       }
     } catch {
       setError(commonCopy(lang).errors.network);
@@ -309,7 +321,19 @@ export function CartView({
             help={f.postalHelp}
             error={errors.postal_code}
           />
-          <TextArea id="cart-note" label={c.note} optional={f.optional} value={form.note} onChange={set("note")} maxLength={1500} rows={3} placeholder={c.notePlaceholder} wrapClassName="sm:col-span-2" />
+          <TextArea
+            id="cart-note"
+            label={c.note}
+            optional={f.optional}
+            value={form.note}
+            onChange={set("note")}
+            maxLength={1500}
+            rows={3}
+            placeholder={c.notePlaceholder}
+            // packs of sizes: the store picks the sizes unless the member asks for particular ones here
+            help={lines.some((l) => l.pack > 1) ? c.sizesHelp : undefined}
+            wrapClassName="sm:col-span-2"
+          />
         </div>
         <label className="mt-6 flex min-h-11 cursor-pointer items-center gap-3 text-sm text-ink-2">
           <input type="checkbox" checked={save} onChange={(e) => setSave(e.target.checked)} className="size-5 shrink-0 accent-ink" />
@@ -353,7 +377,11 @@ function Line({ r, lang, book, pct, sale, flagged }: { r: LineView; lang: Lang; 
   const name = product ? t(product, "name", lang) : c.gone;
   const option = variant ? t(variant, "name", lang) : "";
   const media = variant?.image ?? product?.image ?? null;
-  const max = Math.max(1, Math.min(MAX_QTY, r.stock));
+  // the stepper counts packs of `line.pack` pieces (1: pieces); everything priced counts pieces
+  const pack = line.pack;
+  const pieces = linePieces(line);
+  const fits = maxPacks(pack, r.room);
+  const max = Math.max(1, Math.min(packCap(pack), fits));
   // stock is shown to Pro accounts only
   const band = r.problem === "gone" || !book.showStock ? null : stockBand({ stock: r.stock }, book, lang);
   const productHref = product ? href(lang, `/product/${product.slug}`) : null;
@@ -361,6 +389,7 @@ function Line({ r, lang, book, pct, sale, flagged }: { r: LineView; lang: Lang; 
   const message =
     r.problem === "gone" ? c.gone
     : r.problem === "variant" ? c.chooseOption
+    : r.problem === "pack" ? c.packGone
     : r.problem === "out" ? c.out
     : r.problem === "over" ? c.over(num(r.stock, lang))
     : r.problem === "noPrice" ? c.noPriceNote
@@ -390,6 +419,7 @@ function Line({ r, lang, book, pct, sale, flagged }: { r: LineView; lang: Lang; 
               {option}
             </p>
           )}
+          {pack > 1 && <p className="mt-0.5 text-xs text-ink-2 tabular-nums">{commonCopy(lang).pack.line(num(line.qty, lang), num(pack, lang), num(pieces, lang))}</p>}
           {r.problem !== "gone" && (
             <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
               <span>
@@ -416,14 +446,14 @@ function Line({ r, lang, book, pct, sale, flagged }: { r: LineView; lang: Lang; 
           {message && (
             <p className="mt-2 flex flex-wrap items-center gap-x-3 text-xs leading-6 text-danger">
               {message}
-              {r.problem === "over" && (
-                <button type="button" onClick={() => cart.setQty(line.productId, line.variantId, r.stock)} className="min-h-8 text-gold-text underline underline-offset-4">
-                  {c.fixQty(num(r.stock, lang))}
+              {r.problem === "over" && fits > 0 && (
+                <button type="button" onClick={() => cart.setQty(line.productId, line.variantId, fits, pack)} className="min-h-8 text-gold-text underline underline-offset-4">
+                  {pack > 1 ? c.fixPacks(num(fits, lang)) : c.fixQty(num(fits, lang))}
                 </button>
               )}
-              {r.problem === "variant" && productHref && (
+              {(r.problem === "variant" || r.problem === "pack") && productHref && (
                 <Link href={productHref} className="min-h-8 text-gold-text underline underline-offset-4">
-                  {c.chooseLink}
+                  {r.problem === "pack" ? c.choosePack : c.chooseLink}
                 </Link>
               )}
             </p>
@@ -434,7 +464,7 @@ function Line({ r, lang, book, pct, sale, flagged }: { r: LineView; lang: Lang; 
             <span className="inline-flex h-11 items-center border border-control bg-white">
               <button
                 type="button"
-                onClick={() => cart.setQty(line.productId, line.variantId, line.qty - 1)}
+                onClick={() => cart.setQty(line.productId, line.variantId, line.qty - 1, pack)}
                 disabled={line.qty <= 1}
                 aria-label={c.decrease}
                 className="grid size-11 place-items-center text-ink-2 hover:text-ink disabled:text-faint"
@@ -442,18 +472,18 @@ function Line({ r, lang, book, pct, sale, flagged }: { r: LineView; lang: Lang; 
                 <Icon name="minus" className="size-4" />
               </button>
               <input
-                aria-label={commonCopy(lang).cart.qty}
+                aria-label={pack > 1 ? c.packsQty : commonCopy(lang).cart.qty}
                 inputMode="numeric"
                 value={num(line.qty, lang)}
                 onChange={(e) => {
                   const n = Number(latinDigits(e.target.value).replace(/\D/g, ""));
-                  if (n >= 1) cart.setQty(line.productId, line.variantId, Math.min(n, r.stock > 0 ? max : MAX_QTY));
+                  if (n >= 1) cart.setQty(line.productId, line.variantId, Math.min(n, r.stock > 0 ? max : packCap(pack)), pack);
                 }}
                 className="h-full w-10 border-x border-line bg-transparent text-center text-sm tabular-nums outline-none focus:bg-gold-mist/40"
               />
               <button
                 type="button"
-                onClick={() => cart.setQty(line.productId, line.variantId, line.qty + 1)}
+                onClick={() => cart.setQty(line.productId, line.variantId, line.qty + 1, pack)}
                 disabled={line.qty >= max}
                 aria-label={c.increase}
                 className="grid size-11 place-items-center text-ink-2 hover:text-ink disabled:text-faint"
@@ -462,15 +492,15 @@ function Line({ r, lang, book, pct, sale, flagged }: { r: LineView; lang: Lang; 
               </button>
             </span>
             <span className="text-end text-sm tabular-nums">
-              {stepped && list !== null && <span className="block text-xs text-faint line-through decoration-gold/70">{formatPrice(list * line.qty, lang)}</span>}
-              <span className="text-ink">{now === null ? "" : formatPrice(now * line.qty, lang)}</span>
+              {stepped && list !== null && <span className="block text-xs text-faint line-through decoration-gold/70">{formatPrice(list * pieces, lang)}</span>}
+              <span className="text-ink">{now === null ? "" : formatPrice(now * pieces, lang)}</span>
             </span>
           </div>
         )}
       </div>
       <button
         type="button"
-        onClick={() => cart.remove(line.productId, line.variantId)}
+        onClick={() => cart.remove(line.productId, line.variantId, pack)}
         aria-label={c.remove(name)}
         title={commonCopy(lang).cart.remove}
         className="absolute top-3 end-0 grid size-11 place-items-center text-muted hover:text-ink"

@@ -1,3 +1,5 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeDb, FakeJar } from "./stubs/fake-db";
 import { basketPieces, invoiceLines, linePieces } from "@/lib/basket";
@@ -6,6 +8,7 @@ import { cleanLines, parsePlaceError } from "@/lib/orders";
 import { cleanPack, cleanPacks, maxPacks, packCap, packsOf, packTerms, singleOnly } from "@/lib/packs";
 import { DEFAULT_STEPS, invoice, pricingFor } from "@/lib/pricing";
 import { commonCopy } from "@/content/copy/common";
+import { PackChoice } from "@/components/product/pack-choice";
 
 /**
  * Ring packs (round six): a product is sold single and/or in packs of 2–5 sizes (N pieces of the model in N sizes,
@@ -158,6 +161,22 @@ describe("the browser's basket", () => {
     ]);
     cart.setQty(P2, V1, 0, 4);
     expect(saved()).toEqual([{ productId: P1, variantId: null, qty: 3, pack: 1 }]);
+  });
+});
+
+describe("the product page's «نوع فروش»", () => {
+  const render = (packs: number[], pack: number, lang: "fa" | "en" = "fa") => renderToStaticMarkup(createElement(PackChoice, { lang, packs, pack, setPack: () => undefined }));
+
+  it("one way to buy is a plain line; several are buttons, the chosen one pressed", () => {
+    expect(render([4], 4)).toContain("فروش فقط به‌صورت بسته‌ی ۴ سایزی");
+    expect(render([4], 4)).not.toContain("<button");
+    const html = render([1, 3], 3);
+    expect(html).toContain("<legend");
+    expect(html).toMatch(/aria-pressed="false"[^>]*>تک</);
+    expect(html).toMatch(/aria-pressed="true"[^>]*>۳ سایز</);
+    expect(html).toContain("هر بسته ۳ عدد از همین مدل در ۳ سایز مختلف است");
+    expect(render([1, 3], 1)).not.toContain("هر بسته");
+    expect(render([1, 2], 2, "en")).toContain("Each pack holds 2 of this piece in 2 different sizes");
   });
 });
 

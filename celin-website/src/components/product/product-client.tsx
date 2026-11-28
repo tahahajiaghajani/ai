@@ -5,11 +5,12 @@ import { useEffect, useMemo, useRef, useState, ViewTransition, type CSSPropertie
 import { commonCopy } from "@/content/copy/common";
 import { productCopy } from "@/content/copy/product";
 import type { Product } from "@/lib/catalog-types";
-import { basketPieces } from "@/lib/basket";
+import { basketPieces, linePieces } from "@/lib/basket";
 import { formatPct, num, type Lang } from "@/lib/format";
 import { stepReached } from "@/lib/pricing";
 import { href, t } from "@/lib/i18n";
 import { altOf, mediaUrl, srcSet, type Media } from "@/lib/media";
+import { maxPacks, packCap, singleOnly } from "@/lib/packs";
 import { Picture } from "@/components/ui/picture";
 import { Overlay } from "@/components/ui/overlay";
 import { Icon } from "@/components/ui/icons";
@@ -26,6 +27,7 @@ import { cart, useCart } from "@/components/cart/cart-store";
 import { Swatch } from "@/components/shop/swatch";
 import { pieceName } from "@/components/shop/piece-name";
 import { WishButton } from "@/components/shop/wish-button";
+import { PackChoice } from "@/components/product/pack-choice";
 
 const same = (a: Media, b: Media) => a.src === b.src;
 const diamond = (className: string) => (
@@ -197,17 +199,18 @@ function Gallery({ lang, product, images, index, setIndex }: { lang: Lang; produ
   );
 }
 
-function Stepper({ value, max, onChange, lang }: { value: number; max: number; onChange: (n: number) => void; lang: Lang }) {
+/** The quantity being chosen: pieces, or packs when the piece is bought in packs. */
+function Stepper({ value, max, onChange, lang, packs = false }: { value: number; max: number; onChange: (n: number) => void; lang: Lang; packs?: boolean }) {
   const tr = productCopy[lang];
   return (
-    <div className="flex h-12 items-center border border-control bg-white" role="group" aria-label={tr.qty}>
-      <button type="button" onClick={() => onChange(Math.max(1, value - 1))} disabled={value <= 1} className="grid h-full w-11 place-items-center text-ink-2 transition-colors hover:text-gold disabled:opacity-30" aria-label={tr.qtyLess}>
+    <div className="flex h-12 items-center border border-control bg-white" role="group" aria-label={packs ? tr.packsQty : tr.qty}>
+      <button type="button" onClick={() => onChange(Math.max(1, value - 1))} disabled={value <= 1} className="grid h-full w-11 place-items-center text-ink-2 transition-colors hover:text-gold disabled:opacity-30" aria-label={packs ? tr.packLess : tr.qtyLess}>
         <Icon name="minus" className="size-4" />
       </button>
       <span className="w-9 text-center font-ui text-sm tabular-nums" aria-live="polite">
         {num(value, lang)}
       </span>
-      <button type="button" onClick={() => onChange(Math.min(max, value + 1))} disabled={value >= max} className="grid h-full w-11 place-items-center text-ink-2 transition-colors hover:text-gold disabled:opacity-30" aria-label={tr.qtyMore}>
+      <button type="button" onClick={() => onChange(Math.min(max, value + 1))} disabled={value >= max} className="grid h-full w-11 place-items-center text-ink-2 transition-colors hover:text-gold disabled:opacity-30" aria-label={packs ? tr.packMore : tr.qtyMore}>
         <Icon name="plus" className="size-4" />
       </button>
     </div>
@@ -220,6 +223,7 @@ function Actions({
   product,
   variantId,
   needsVariant,
+  pack,
   qty,
   setQty,
   onAdded,
@@ -228,7 +232,9 @@ function Actions({
   product: Product;
   variantId: string | null;
   needsVariant: boolean;
-  /** the quantity being chosen (the price above follows it) */
+  /** how it is being bought: 1 = single, 2–5 = packs of that many sizes */
+  pack: number;
+  /** the quantity being chosen — pieces, or packs of `pack` (the price above follows it) */
   qty: number;
   setQty: (n: number) => void;
   onAdded: () => void;
@@ -244,33 +250,38 @@ function Actions({
   useEffect(() => {
     setAdded(false);
     setAddedOff(0);
-  }, [variantId]);
+  }, [variantId, pack]);
 
   if (me === undefined || (me?.pro.active && book === undefined)) return <div className="h-12 bg-bone/70" aria-hidden />;
 
   if (me?.pro.active && book) {
     const p = book.prices[product.id];
     const stock = p ? (variantId ? p.variants[variantId]?.stock ?? 0 : Object.keys(p.variants).length ? 0 : p.stock) : 0;
-    const inCart = lines.find((l) => l.productId === product.id && l.variantId === variantId)?.qty ?? 0;
+    // pieces of this piece and option already in the basket, single or in packs: they share one stock
+    const inCart = lines.filter((l) => l.productId === product.id && l.variantId === variantId).reduce((n, l) => n + linePieces(l), 0);
     const room = Math.max(0, stock - inCart);
+    // the packs (or pieces) that still fit, and that the stock holds at all
+    const max = maxPacks(pack, room);
+    const stockPacks = maxPacks(pack, stock);
     const seed = product.id.startsWith("seed-");
     if (needsVariant) return <p className="font-ui text-sm text-muted">{c.cart.chooseOption}</p>;
     if (stock <= 0) return <p className="text-sm leading-7 text-ink-2">{tr.outOfStock}</p>;
-    // every piece of the order counts towards the quantity discount, whichever design (src/lib/basket.ts)
+    // every piece of the order counts towards the quantity discount, whichever design or pack (src/lib/basket.ts)
     const inBasket = basketPieces(lines);
-    const chosen = Math.min(qty, Math.max(1, room));
+    const chosen = Math.min(qty, Math.max(1, max));
+    const pieces = chosen * pack;
     return (
       <div className="space-y-3">
         {/* the button drops under the stepper when its label would not fit beside it */}
         <div className="flex flex-wrap gap-3">
-          <Stepper value={chosen} max={Math.max(1, room)} onChange={setQty} lang={lang} />
+          <Stepper value={chosen} max={Math.max(1, max)} onChange={setQty} lang={lang} packs={pack > 1} />
           <button
             type="button"
-            disabled={room <= 0 || seed}
+            disabled={max <= 0 || seed}
             onClick={() => {
-              const n = Math.min(qty, room);
-              const reached = stepReached(inBasket, inBasket + n, book.pricing);
-              cart.add(product.id, variantId, n);
+              const n = Math.min(qty, max);
+              const reached = stepReached(inBasket, inBasket + n * pack, book.pricing);
+              cart.add(product.id, variantId, n, pack);
               setAdded(true);
               setAddedOff(reached?.off ?? 0);
               onAdded();
@@ -281,8 +292,12 @@ function Actions({
             {tr.add}
           </button>
         </div>
-        {room > 0 && <StepNote lang={lang} pricing={book.pricing} pieces={inBasket + chosen} chosen={chosen} />}
-        {book.showStock && room < stock && room >= 0 && <p className="font-ui text-xs text-muted">{tr.maxStock(num(stock, lang))}</p>}
+        {pack > 1 && max > 0 && <p className="font-ui text-xs text-ink-2 tabular-nums">{c.pack.line(num(chosen, lang), num(pack, lang), num(pieces, lang))}</p>}
+        {max > 0 && <StepNote lang={lang} pricing={book.pricing} pieces={inBasket + pieces} chosen={pieces} />}
+        {/* stock is for Pro accounts only: what limits the stepper */}
+        {book.showStock && pack === 1 && room < stock && <p className="font-ui text-xs text-muted">{tr.maxStock(num(stock, lang))}</p>}
+        {book.showStock && pack > 1 && stockPacks > 0 && stockPacks < packCap(pack) && <p className="font-ui text-xs text-muted">{tr.maxPacks(num(stockPacks, lang))}</p>}
+        {book.showStock && pack > 1 && stockPacks <= 0 && <p className="font-ui text-xs leading-6 text-ink-2">{tr.packShort(num(pack, lang))}</p>}
         {added && (
           <p className="flex animate-fade-in items-center justify-between gap-3 border border-gold/40 bg-gold-mist px-4 py-2.5 font-ui text-sm text-gold-text" role="status">
             <span className="flex items-start gap-2">
@@ -351,9 +366,12 @@ export function ProductClient({
   const variants = product.variants;
   const [variantId, setVariantId] = useState<string | null>(variants.length === 1 ? variants[0].id : null);
   const variant = variants.find((v) => v.id === variantId) ?? null;
-  // the pieces being chosen: the members' price shows what one piece costs once they are in the order
+  // how it is bought (src/lib/packs.ts): the admin's choices, the first chosen to begin with
+  const packs = product.packs?.length ? product.packs : [1];
+  const [pack, setPack] = useState(packs[0]);
+  // the pieces (or packs) being chosen: the members' price shows what one piece costs once they are in the order
   const [qty, setQty] = useState(1);
-  useEffect(() => setQty(1), [variantId]);
+  useEffect(() => setQty(1), [variantId, pack]);
 
   // the gallery: product pictures, with the chosen option's picture shown when it has one
   const images = useMemo(() => {
@@ -409,7 +427,7 @@ export function ProductClient({
           <span aria-hidden className="absolute inset-0 -z-10 bg-[radial-gradient(70%_60%_at_100%_0%,var(--color-gold-mist),transparent_70%),radial-gradient(60%_60%_at_0%_100%,var(--color-champagne-2),transparent_70%)]" />
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <PriceSlot productId={product.id} variantId={variantId} lang={lang} size="pdp" qty={qty} className="font-ui text-xl!" />
+              <PriceSlot productId={product.id} variantId={variantId} lang={lang} size="pdp" qty={qty * pack} pack={pack} className="font-ui text-xl!" />
               {locked && <p className="mt-1 font-ui text-xs leading-6 text-muted">{tr.lockedNote}</p>}
             </div>
             {locked && <ProSeal className="mt-0.5" />}
@@ -440,8 +458,10 @@ export function ProductClient({
             </fieldset>
           )}
 
+          {!singleOnly(packs) && <PackChoice lang={lang} packs={packs} pack={pack} setPack={setPack} />}
+
           <div ref={actionsRef} className="mt-5">
-            <Actions lang={lang} product={product} variantId={variantId} needsVariant={variants.length > 0 && !variantId} qty={qty} setQty={setQty} onAdded={() => setQty(1)} />
+            <Actions lang={lang} product={product} variantId={variantId} needsVariant={variants.length > 0 && !variantId} pack={pack} qty={qty} setQty={setQty} onAdded={() => setQty(1)} />
           </div>
         </div>
 
@@ -483,7 +503,7 @@ export function ProductClient({
         <div className="flex items-center gap-3">
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-ink">{name}</p>
-            <PriceSlot productId={product.id} variantId={variantId} lang={lang} showStock={false} qty={qty} className="font-ui" />
+            <PriceSlot productId={product.id} variantId={variantId} lang={lang} showStock={false} qty={qty * pack} className="font-ui" />
           </div>
           <button type="button" tabIndex={sticky ? 0 : -1} onClick={() => actionsRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })} className="btn btn-metal min-h-11 px-5">
             {me?.pro.active ? tr.add : c.proBar.guestCta}

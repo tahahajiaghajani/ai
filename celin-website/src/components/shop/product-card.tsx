@@ -4,6 +4,7 @@ import { commonCopy } from "@/content/copy/common";
 import type { Product } from "@/lib/catalog-types";
 import { num, type Lang } from "@/lib/format";
 import { href, t } from "@/lib/i18n";
+import { packTerms, singleOnly } from "@/lib/packs";
 import { Picture } from "@/components/ui/picture";
 import { PriceSlot } from "@/components/pro/price-slot";
 import { Swatch } from "@/components/shop/swatch";
@@ -12,7 +13,8 @@ import { pieceName } from "@/components/shop/piece-name";
 
 /**
  * The product card: a tonal 4:5 tile (the on-model picture fades in on hover, desktop only), the collection
- * as a small label, the name, the price slot and the colour hint. Priced and locked cards share one anatomy.
+ * as a small label, the name, the price slot, how it is sold when that is not one at a time («فقط بسته‌ی ۴ سایزی»;
+ * the price stays one piece's) and the colour hint. Priced and locked cards share one anatomy.
  * The cover carries the view-transition name that morphs into the product page's hero.
  */
 export function ProductCard({
@@ -66,6 +68,7 @@ export function ProductCard({
         {collectionName && <span className="label text-gold-text!">{collectionName}</span>}
         <h3 className="mt-1 text-base leading-7 font-semibold text-ink">{pieceName(name, collectionName)}</h3>
         <PriceSlot productId={p.id} lang={lang} className="mt-1" />
+        {!singleOnly(p.packs) && <span className="mt-1 font-ui text-xs text-muted">{packTerms(p.packs, lang)}</span>}
         {swatches.length > 1 && (
           <span className="mt-2 flex items-center gap-1.5 text-xs text-muted">
             {swatches.slice(0, 4).map((s) => (

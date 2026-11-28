@@ -31,6 +31,7 @@ export async function CartPage({ lang }: { lang: Lang }) {
     name_en: p.name_en,
     image: p.images[0] ?? null,
     variants: p.variants.map((v) => ({ id: v.id, name_fa: v.name_fa, name_en: v.name_en, swatch: v.swatch, image: v.image })),
+    packs: p.packs ?? [1],
   }));
   const note = lang === "en" ? settings.shop.orderNote_en || settings.shop.orderNote_fa : settings.shop.orderNote_fa;
   return (
